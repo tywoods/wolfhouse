@@ -25,7 +25,12 @@ assert.ok(portal.includes('schedulePortalSanitizeCreatePhoneField'));
 assert.ok(api.includes('id="ps-create-surfers"') && api.includes('max="24"'));
 assert.ok(api.includes('id="ps-create-course-qty"') && /id="ps-create-course-qty"[^>]*max="24"/.test(api));
 assert.ok(/id="ps-create-private-lesson-surfers"[^>]*max="24"/.test(api));
-assert.ok(bookings.includes('if (expanded)') && bookings.includes('html += \'</div>\';\n  });'));
+assert.ok(bookings.includes('portal-admin-bookings-row-block'));
+assert.ok(bookings.includes('if (expanded)') && bookings.includes('renderAdminBookingsExpansion(row)'));
+assert.ok(
+  /html \+= '<\/div>';\s*\n\s*if \(expanded\)/.test(bookings),
+  'Reservas expand must sit outside the closed 7-col tr'
+);
 assert.ok(!portal.includes('inbox-thread.js'));
 assert.ok(!bookings.includes('inbox-thread.js'));
 

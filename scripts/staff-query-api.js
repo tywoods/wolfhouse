@@ -17177,6 +17177,9 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-table{min-width:720px;width:100%;border:1px solid var(--border-soft);border-radius:12px;overflow:hidden;background:var(--surface)}
 /* Slim Type; widen Booking; Status centered chips; Total/Paid right-aligned */
 .portal-admin-bookings-tr{display:grid;grid-template-columns:minmax(128px,1.15fr) minmax(100px,.9fr) minmax(118px,1fr) minmax(88px,.75fr) 88px 88px minmax(132px,1.15fr);gap:8px;padding:10px 12px;align-items:center;border-bottom:1px solid var(--border-soft);cursor:pointer}
+.portal-admin-bookings-row-block{display:block;border-bottom:1px solid var(--border-soft);background:var(--surface)}
+.portal-admin-bookings-row-block > .portal-admin-bookings-tr{border-bottom:0}
+.portal-admin-bookings-row-block.is-expanded{background:var(--surface-soft)}
 .portal-admin-bookings-thead .portal-admin-bookings-tr{cursor:default;background:var(--surface-soft);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
 .portal-admin-bookings-tr:focus-visible{outline:2px solid var(--accent,#2e8b57);outline-offset:-2px}
 .portal-admin-bookings-tr.is-archived{opacity:.62}
@@ -17226,7 +17229,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-refund-action{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px;max-width:220px}
 .portal-admin-bookings-row-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
 .portal-admin-bookings-refund-note{margin:0;max-width:28rem}
-.portal-admin-bookings-expand{grid-column:1/-1;padding:4px 12px 14px;border-top:1px solid var(--border-soft);background:var(--surface);cursor:default}
+.portal-admin-bookings-expand{display:block;width:100%;box-sizing:border-box;padding:4px 12px 14px;border-top:1px solid var(--border-soft);background:var(--surface);cursor:default}
 .portal-admin-bookings-expand-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .portal-admin-bookings-expand h4{margin:0 0 8px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
 .portal-admin-bookings-kv,.portal-admin-bookings-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}

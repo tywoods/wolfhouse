@@ -100,6 +100,57 @@ function adminBookingsFormatEur(cents) {
   return '€' + (n / 100).toFixed(2);
 }
 
+/** Date-only YYYY-MM-DD from service_date — never raw ISO timestamps. */
+function adminBookingsFormatItemDate(raw) {
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+
+/**
+ * Clean booking-item label for Reservas expand.
+ * Staff API remains money authority — this only scrub display junk (ISO ranges,
+ * JSON payment blobs, snake_case service keys). Never invents amounts.
+ */
+function adminBookingsCleanItemLabel(raw) {
+  var s = String(raw == null ? '' : raw).trim();
+  if (!s) return '';
+  // Payment / ledger junk dumped as a label.
+  if (s.charAt(0) === '{' || s.charAt(0) === '[') return '';
+  if (/^(pi_|cs_|price_|txn_|ch_|py_)/i.test(s)) return '';
+  // Strip ISO stay ranges embedded in accommodation-style labels.
+  s = s.replace(
+    /\s*·\s*\d{4}-\d{2}-\d{2}(?:T[\d.:]+Z?)?\s*(?:→|->|–|—|-)\s*\d{4}-\d{2}-\d{2}(?:T[\d.:]+Z?)?/g,
+    ''
+  );
+  // Strip any leftover full ISO timestamps.
+  s = s.replace(/\d{4}-\d{2}-\d{2}T[\d.:]+Z?/g, '');
+  s = s.replace(/\s*·\s*·\s*/g, ' · ').replace(/\s{2,}/g, ' ').replace(/^·\s*|\s*·$/g, '').trim();
+  if (!s) return '';
+  // Humanize snake_case service_type fallbacks (board_and_suit_rental → Board and suit rental).
+  if (/^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/.test(s)) {
+    var parts = s.split('_');
+    s = parts.map(function (w, i) {
+      if (!w) return '';
+      if (i === 0) return w.charAt(0).toUpperCase() + w.slice(1);
+      return w;
+    }).join(' ');
+  }
+  return s;
+}
+
+/** True when an expand item looks like payment/ledger junk rather than a booking line. */
+function adminBookingsIsJunkExpandItem(it) {
+  if (!it || typeof it !== 'object') return true;
+  var st = String(it.service_type || '').toLowerCase();
+  if (/^(payment|stripe|ledger|fee|surcharge)(_|$)/.test(st)) return true;
+  if (st.indexOf('payment_') === 0 || st.indexOf('stripe_') === 0) return true;
+  var labelRaw = String(it.label || '').trim();
+  if (labelRaw && (labelRaw.charAt(0) === '{' || labelRaw.charAt(0) === '[')) return true;
+  return false;
+}
+
 /** Booking created_at → YYYY-MM-DD HH:MM in Europe/Madrid. */
 function adminBookingsFormatMadridCreated(iso) {
   if (iso == null || iso === '') return '—';
@@ -618,6 +669,9 @@ function wireAdminBookingsPanel() {
               });
               return;
             }
+            // Clicks inside the expand panel (detail / refund UI) must not toggle the row.
+            var expandHit = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-expand]') : null;
+            if (expandHit) return;
             // Nested interactive controls must not toggle expansion.
       var interactive = ev.target && ev.target.closest
         ? ev.target.closest('button, a, input, select, textarea, label')
@@ -809,6 +863,10 @@ function renderAdminBookingsTable() {
     var archived = false;
     var code = String(row.booking_code || '');
     var createdText = adminBookingsFormatMadridCreated(row.created_at);
+    // Row block keeps expand OUTSIDE the 7-col grid so line-items never inject
+    // into Total/Paid (KPI) columns. data-bookings-row-id stays on the tr so
+    // closest() / n1 row clicks hit the compact row, not the expanded block.
+    html += '<div class="portal-admin-bookings-row-block' + (expanded ? ' is-expanded' : '') + '">';
     html += '<div class="portal-admin-bookings-tr' + (archived ? ' is-archived' : '') +
       (expanded ? ' is-expanded' : '') + '" role="row" data-bookings-row-id="' + escHtml(id) +
       '" tabindex="0" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
@@ -835,6 +893,7 @@ function renderAdminBookingsTable() {
       escHtml(adminBookingsFormatEur(row.paid_cents != null ? row.paid_cents : row.collected_cents)) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-status" role="cell">' +
       '<div class="portal-admin-bookings-chip-row">' + adminBookingsStatusChipsHtml(row) + '</div></div>';
+    html += '</div>';
     if (expanded) {
       html += renderAdminBookingsExpansion(row);
     }
@@ -1074,11 +1133,25 @@ function adminBookingsTh(key, sortKey, align) {
 
 function renderAdminBookingsExpansion(row) {
   var story = row.payment_story || {};
-  var items = row.items || [];
-  var itemsHtml = items.length
-    ? items.map(function (it) {
-      return '<li><span>' + escHtml(it.label || it.service_type || '—') +
-        (it.service_date ? ' · ' + escHtml(String(it.service_date).slice(0, 10)) : '') +
+  var items = Array.isArray(row.items) ? row.items : [];
+  var cleanItems = [];
+  for (var ii = 0; ii < items.length; ii += 1) {
+    var rawItem = items[ii];
+    if (adminBookingsIsJunkExpandItem(rawItem)) continue;
+    var label = adminBookingsCleanItemLabel(rawItem.label);
+    if (!label) label = adminBookingsCleanItemLabel(rawItem.service_type);
+    if (!label) label = '—';
+    var dateOnly = adminBookingsFormatItemDate(rawItem.service_date);
+    cleanItems.push({
+      label: label,
+      date: dateOnly,
+      amount_due_cents: rawItem.amount_due_cents,
+    });
+  }
+  var itemsHtml = cleanItems.length
+    ? cleanItems.map(function (it) {
+      return '<li><span>' + escHtml(it.label) +
+        (it.date ? ' · ' + escHtml(it.date) : '') +
         '</span><span>' + escHtml(adminBookingsFormatEur(it.amount_due_cents)) + '</span></li>';
     }).join('')
     : '<li class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.noItems')) + '</li>';
