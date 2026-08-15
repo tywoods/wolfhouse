@@ -181,6 +181,81 @@ function okResult(value) {
   return Object.freeze({ ok: true, value: Object.freeze({ ...value }) });
 }
 
+/** Closed-enum internal observation stages. Never includes IDs, tokens, or errors. */
+const AUTHORITY_BOUND_PAGE_INTERNAL_STAGES = Object.freeze([
+  'authority',
+  'status',
+  'lease',
+  'grant',
+  'transport',
+  'seal',
+  'store',
+  'release',
+]);
+const INTERNAL_STAGE_SET = new Set(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES);
+const INTERNAL_STAGE_NOTE_KEYS = Object.freeze(['stage', 'code']);
+const INTERNAL_STAGE_BRAND = new WeakMap();
+const CREATED_OPERATIONS = new WeakSet();
+const OPERATION_OBSERVERS = new WeakMap();
+
+function freezeInternalStageNote(stage) {
+  try {
+    if (typeof stage !== 'string' || !INTERNAL_STAGE_SET.has(stage)) return null;
+    const note = { stage, code: stage };
+    if (!exactPlainData(note, INTERNAL_STAGE_NOTE_KEYS)) return null;
+    return Object.freeze(note);
+  } catch {
+    return null;
+  }
+}
+
+function brandTrustedAuthorityBoundPageInternalStage(target, stage) {
+  try {
+    if (target == null || (typeof target !== 'object' && typeof target !== 'function')) {
+      return target;
+    }
+    if (typeof stage !== 'string' || !INTERNAL_STAGE_SET.has(stage)) return target;
+    INTERNAL_STAGE_BRAND.set(target, stage);
+    return target;
+  } catch {
+    return target;
+  }
+}
+
+function readTrustedAuthorityBoundPageInternalStage(target) {
+  try {
+    if (target == null || (typeof target !== 'object' && typeof target !== 'function')) {
+      return null;
+    }
+    return freezeInternalStageNote(INTERNAL_STAGE_BRAND.get(target));
+  } catch {
+    return null;
+  }
+}
+
+function bindTrustedAuthorityBoundPageInternalStageObserver(operation, observer) {
+  try {
+    if (!operation || !CREATED_OPERATIONS.has(operation)) return false;
+    if (typeof observer !== 'function' || isProxySurface(observer)) return false;
+    OPERATION_OBSERVERS.set(operation, observer);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function notifyInternalStageObserver(operation, stage) {
+  try {
+    const observer = OPERATION_OBSERVERS.get(operation);
+    if (typeof observer !== 'function') return;
+    const note = freezeInternalStageNote(stage);
+    if (!note) return;
+    observer(note);
+  } catch {
+    // Observer failure must never alter page control flow.
+  }
+}
+
 function isProxySurface(value) {
   try {
     if (typeof PINNED_IS_PROXY !== 'function' || !PINNED_UTIL_TYPES) return true;
@@ -591,24 +666,31 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
    * @returns {Promise<{ok:true,value:object}|{ok:false,error:string}>}
    */
   async function runAuthorityBoundMessagesDeltaPage(input) {
+    function failAt(stage) {
+      const result = failResult(FAILURE_CODE);
+      brandTrustedAuthorityBoundPageInternalStage(result, stage);
+      notifyInternalStageObserver(operation, stage);
+      return result;
+    }
+
     const ids = snapshotInput(input);
-    if (!ids) return failResult(FAILURE_CODE);
+    if (!ids) return failAt('authority');
 
     // ── 1) Resolve verified microsoft authority (tenant+mailbox local only) ─
     let authorityRaw;
     try {
       authorityRaw = await resolveDelegatedReadAuthorityBinding(ids, { db });
     } catch {
-      return failResult(FAILURE_CODE);
+      return failAt('authority');
     }
-    if (!authorityRaw || authorityRaw.ok !== true) return failResult(FAILURE_CODE);
+    if (!authorityRaw || authorityRaw.ok !== true) return failAt('authority');
     const authority = acceptBindingDto(authorityRaw.value);
     authorityRaw = null;
-    if (!authority) return failResult(FAILURE_CODE);
+    if (!authority) return failAt('authority');
     if (authority.clientId !== ids.clientId
         || authority.locationId !== ids.locationId
         || authority.endpointId !== ids.endpointId) {
-      return failResult(FAILURE_CODE);
+      return failAt('authority');
     }
     // Local-only trusted identities — never escape into public result.
     const providerTenantId = authority.providerTenantId;
@@ -622,10 +704,10 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         endpointId: ids.endpointId,
       }));
     } catch {
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
     if (!statusRes || statusRes.ok !== true || !statusRes.value) {
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
 
     // ── 3) Absent → initialize generation 1; race reread once ────────────
@@ -641,7 +723,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
           queryVersion: QUERY_VERSION,
         }));
       } catch {
-        return failResult(FAILURE_CODE);
+        return failAt('status');
       }
       if (!initRes || initRes.ok !== true) {
         if (initRes && initRes.error === 'delta_state_already_exists') {
@@ -652,14 +734,14 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
               endpointId: ids.endpointId,
             }));
           } catch {
-            return failResult(FAILURE_CODE);
+            return failAt('status');
           }
           if (!statusRes || statusRes.ok !== true
               || !statusRes.value || statusRes.value.state_present !== true) {
-            return failResult(FAILURE_CODE);
+            return failAt('status');
           }
         } else {
-          return failResult(FAILURE_CODE);
+          return failAt('status');
         }
       } else {
         // Seed status from initialize return (generation 1 / version 1 / initial).
@@ -683,27 +765,27 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     const publicStatus = statusRes.value;
     if (publicStatus.query_version != null
         && publicStatus.query_version !== QUERY_VERSION) {
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
 
     // ── 4) paused / reset_required stop ──────────────────────────────────
     if (publicStatus.phase === 'paused') {
       const paused = buildPublicResult('paused', 'paused', null, null);
-      return paused ? okResult(paused) : failResult(FAILURE_CODE);
+      return paused ? okResult(paused) : failAt('status');
     }
     if (publicStatus.phase === 'reset_required') {
       const rr = buildPublicResult('reset_required', 'reset_required', null, null);
-      return rr ? okResult(rr) : failResult(FAILURE_CODE);
+      return rr ? okResult(rr) : failAt('status');
     }
     if (publicStatus.phase !== 'initial' && publicStatus.phase !== 'tracking') {
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
 
     const generation = publicStatus.ingestion_generation;
     const statusVersion = publicStatus.state_version;
-    if (!Number.isInteger(generation) || generation < 1) return failResult(FAILURE_CODE);
+    if (!Number.isInteger(generation) || generation < 1) return failAt('status');
     if (!Number.isInteger(statusVersion) || statusVersion < 1) {
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
 
     // ── 5) Acquire lease using current generation/version ────────────────
@@ -718,10 +800,10 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         expectedStateVersion: statusVersion,
       }));
     } catch {
-      return failResult(FAILURE_CODE);
+      return failAt('lease');
     }
     if (!leaseRes || leaseRes.ok !== true || !leaseRes.value) {
-      return failResult(FAILURE_CODE);
+      return failAt('lease');
     }
     const leaseHandle = Object.freeze({
       lease_token: String(leaseRes.value.lease_token),
@@ -736,7 +818,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         || (leaseHandle.phase !== 'initial' && leaseHandle.phase !== 'tracking')) {
       // Hold lease but status/lease phase or generation drifted — release only.
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('lease');
     }
 
     // ── 6) Open cursor using acquired lease returned version ─────────────
@@ -751,11 +833,11 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       }));
     } catch {
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
     if (!openRes || openRes.ok !== true || !openRes.value) {
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
 
     // Strict phase equality across publicStatus → leaseHandle → openCursor.
@@ -770,7 +852,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       }
       openRes = null;
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
     const observedPhase = openPhase;
 
@@ -785,19 +867,19 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
           || typeof url !== 'string' || url.length < 1) {
         openRes = null;
         await bestEffortRelease(ids, leaseHandle);
-        return failResult(FAILURE_CODE);
+        return failAt('status');
       }
       if (observedPhase === 'initial' && kind !== 'nextLink') {
         // initial must not carry deltaLink; reject before token/network/commit.
         openRes = null;
         await bestEffortRelease(ids, leaseHandle);
-        return failResult(FAILURE_CODE);
+        return failAt('status');
       }
       if (observedPhase === 'tracking'
           && kind !== 'nextLink' && kind !== 'deltaLink') {
         openRes = null;
         await bestEffortRelease(ids, leaseHandle);
-        return failResult(FAILURE_CODE);
+        return failAt('status');
       }
       cursorCapability = { kind, url };
     } else if (openRes.value.cursor_present === false) {
@@ -805,13 +887,13 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         // Tracking (or any non-initial) missing cursor fails before grant/network.
         openRes = null;
         await bestEffortRelease(ids, leaseHandle);
-        return failResult(FAILURE_CODE);
+        return failAt('status');
       }
       cursorCapability = null;
     } else {
       openRes = null;
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('status');
     }
     // Drop openRes reference so plaintext URL is only in cursorCapability.
     openRes = null;
@@ -824,7 +906,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         cursorCapability = null;
       }
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('grant');
     }
 
     const sessionInput = Object.freeze({
@@ -837,7 +919,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         cursorCapability = null;
       }
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('grant');
     }
 
     // Capture mode for cursor_gone trust (continuation only).
@@ -856,64 +938,77 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
             let pageDto = null;
             try {
               accessTokenOwner = acceptLoanAccessToken(loan);
-              if (accessTokenOwner === null) throw failure();
+              if (accessTokenOwner === null) {
+                throw brandTrustedAuthorityBoundPageInternalStage(failure(), 'grant');
+              }
 
               // ── Exactly one Graph request ─────────────────────────────
               let transportResult;
-              if (cursorCapability === null) {
-                graphInput = {
-                  accessToken: accessTokenOwner,
-                  provider_mailbox_id: providerMailboxId,
-                };
-                try { loan.accessToken = null; } catch { /* */ }
-                try {
-                  transportResult = await Reflect.apply(
-                    transport.fetchInitialPage,
-                    transport,
-                    [graphInput],
-                  );
-                } finally {
-                  if (graphInput) {
-                    try { graphInput.accessToken = null; } catch { /* */ }
-                    graphInput = null;
+              try {
+                if (cursorCapability === null) {
+                  graphInput = {
+                    accessToken: accessTokenOwner,
+                    provider_mailbox_id: providerMailboxId,
+                  };
+                  try { loan.accessToken = null; } catch { /* */ }
+                  try {
+                    transportResult = await Reflect.apply(
+                      transport.fetchInitialPage,
+                      transport,
+                      [graphInput],
+                    );
+                  } finally {
+                    if (graphInput) {
+                      try { graphInput.accessToken = null; } catch { /* */ }
+                      graphInput = null;
+                    }
+                  }
+                } else {
+                  graphInput = {
+                    accessToken: accessTokenOwner,
+                    provider_mailbox_id: providerMailboxId,
+                    cursor_kind: cursorCapability.kind,
+                    cursor_url: cursorCapability.url,
+                  };
+                  // Scrub capability owner before/after request (no parallel alias).
+                  try { cursorCapability.url = null; } catch { /* */ }
+                  try { cursorCapability.kind = null; } catch { /* */ }
+                  cursorCapability = null;
+                  try { loan.accessToken = null; } catch { /* */ }
+                  try {
+                    transportResult = await Reflect.apply(
+                      transport.fetchContinuationPage,
+                      transport,
+                      [graphInput],
+                    );
+                  } finally {
+                    if (graphInput) {
+                      try { graphInput.accessToken = null; } catch { /* */ }
+                      try { graphInput.cursor_url = null; } catch { /* */ }
+                      try { graphInput.cursor_kind = null; } catch { /* */ }
+                      graphInput = null;
+                    }
                   }
                 }
-              } else {
-                graphInput = {
-                  accessToken: accessTokenOwner,
-                  provider_mailbox_id: providerMailboxId,
-                  cursor_kind: cursorCapability.kind,
-                  cursor_url: cursorCapability.url,
-                };
-                // Scrub capability owner before/after request (no parallel alias).
-                try { cursorCapability.url = null; } catch { /* */ }
-                try { cursorCapability.kind = null; } catch { /* */ }
-                cursorCapability = null;
-                try { loan.accessToken = null; } catch { /* */ }
-                try {
-                  transportResult = await Reflect.apply(
-                    transport.fetchContinuationPage,
-                    transport,
-                    [graphInput],
-                  );
-                } finally {
-                  if (graphInput) {
-                    try { graphInput.accessToken = null; } catch { /* */ }
-                    try { graphInput.cursor_url = null; } catch { /* */ }
-                    try { graphInput.cursor_kind = null; } catch { /* */ }
-                    graphInput = null;
-                  }
+              } catch (err) {
+                if (wasContinuation
+                    && err
+                    && readTrustedMessagesDeltaOutcome(err) === 'cursor_gone') {
+                  throw err;
                 }
+                throw brandTrustedAuthorityBoundPageInternalStage(failure(), 'transport');
               }
 
               pageDto = acceptTransportPageDto(transportResult);
               transportResult = null;
-              if (!pageDto) throw failure();
+              if (!pageDto) {
+                throw brandTrustedAuthorityBoundPageInternalStage(failure(), 'transport');
+              }
               if (!envelopesMatchAuthority(pageDto.envelopes, authority)) {
-                throw failure();
+                throw brandTrustedAuthorityBoundPageInternalStage(failure(), 'transport');
               }
               if (!tombstonesMatchAuthority(pageDto.tombstones, authority)) {
-                throw failure();
+                throw brandTrustedAuthorityBoundPageInternalStage(failure(), 'transport');
               }
 
               // Seal successor via PR408 outside TX — one mutable URL owner.
@@ -936,11 +1031,15 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
                   cursorUrl: successorOwner.url,
                   operationId: crypto.randomUUID(),
                 }));
+              } catch {
+                throw brandTrustedAuthorityBoundPageInternalStage(failure(), 'seal');
               } finally {
                 try { successorOwner.url = null; } catch { /* */ }
                 try { successorOwner.kind = null; } catch { /* */ }
               }
-              if (!sealed || sealed.ok !== true || !sealed.value) throw failure();
+              if (!sealed || sealed.ok !== true || !sealed.value) {
+                throw brandTrustedAuthorityBoundPageInternalStage(failure(), 'seal');
+              }
 
               // Return only envelopes, tombstones, sealed successor — no plaintext.
               return Object.freeze({
@@ -959,7 +1058,11 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
                   && readTrustedMessagesDeltaOutcome(err) === 'cursor_gone') {
                 return Object.freeze({ kind: 'cursor_gone' });
               }
-              throw err && err.code === FAILURE_CODE ? err : failure();
+              if (readTrustedAuthorityBoundPageInternalStage(err)) throw err;
+              throw brandTrustedAuthorityBoundPageInternalStage(
+                err && err.code === FAILURE_CODE ? err : failure(),
+                'grant',
+              );
             } finally {
               if (graphInput) {
                 try { graphInput.accessToken = null; } catch { /* */ }
@@ -978,13 +1081,14 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
           },
         ],
       );
-    } catch {
+    } catch (err) {
       if (cursorCapability) {
         try { cursorCapability.url = null; } catch { /* */ }
         cursorCapability = null;
       }
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      const branded = readTrustedAuthorityBoundPageInternalStage(err);
+      return failAt(branded ? branded.stage : 'grant');
     }
 
     // Ensure cursor capability scrubbed even if session never ran callback.
@@ -996,7 +1100,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     // Pre-CAS / CAS failure from grant session → zero graph/seal (callback never).
     if (!sessionOut || sessionOut.ok !== true || sessionOut.value == null) {
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('grant');
     }
 
     const pageResult = sessionOut.value;
@@ -1007,7 +1111,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       if (!wasContinuation) {
         // Never treat initial 410 / forged error as cursor_gone.
         await bestEffortRelease(ids, leaseHandle);
-        return failResult(FAILURE_CODE);
+        return failAt('transport');
       }
       let resetRes;
       try {
@@ -1021,7 +1125,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       } catch {
         // Thrown path is not a PR408 result shape; treat as pre-COMMIT failure.
         await bestEffortRelease(ids, leaseHandle);
-        return failResult(FAILURE_CODE);
+        return failAt('store');
       }
       // Exact PR408 commit-unknown: sanitized uncertain — ZERO release/retry/
       // reset/rollover/success actions (may or may not have cleared lease).
@@ -1029,13 +1133,13 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
           && resetRes.ok === false
           && resetRes.error === 'inbound_delta_state_commit_outcome_unknown') {
         const uncertain = buildPublicResult('uncertain', null, null, null);
-        return uncertain ? okResult(uncertain) : failResult(FAILURE_CODE);
+        return uncertain ? okResult(uncertain) : failAt('store');
       }
       // Conclusive pre-COMMIT failure / reset_cas_conflict only may best-effort
       // release using the known post-acquire lease version. Never auto rollover.
       if (!resetRes || resetRes.ok !== true) {
         await bestEffortRelease(ids, leaseHandle);
-        return failResult(FAILURE_CODE);
+        return failAt('store');
       }
       // Successful reset clears lease inside PR408 — no release after.
       // Never auto beginNextGeneration.
@@ -1045,14 +1149,14 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         null,
         null,
       );
-      return out ? okResult(out) : failResult(FAILURE_CODE);
+      return out ? okResult(out) : failAt('store');
     }
 
     if (!pageResult || pageResult.kind !== 'page'
         || !pageResult.envelopes || !pageResult.tombstones
         || !pageResult.sealedSuccessor) {
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('transport');
     }
 
     // ── 11) commitPageEvents exactly once (PR408 owns TX) ────────────────
@@ -1074,7 +1178,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       }));
     } catch {
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('store');
     }
 
     // ── 14) Commit-outcome-unknown: exact sanitized uncertain ────────────
@@ -1083,13 +1187,13 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       // NO retry / refetch / reseal / release guess / reset / new generation /
       // success claim.
       const uncertain = buildPublicResult('uncertain', null, null, null);
-      return uncertain ? okResult(uncertain) : failResult(FAILURE_CODE);
+      return uncertain ? okResult(uncertain) : failAt('store');
     }
 
     if (!commitRes || commitRes.ok !== true || !commitRes.value) {
       // Precommit / CAS / validation failure — best-effort release.
       await bestEffortRelease(ids, leaseHandle);
-      return failResult(FAILURE_CODE);
+      return failAt('store');
     }
 
     const committed = commitRes.value;
@@ -1118,7 +1222,11 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         envelopesPresented,
         tombstonesPresented,
       );
-      return busy ? okResult(busy) : failResult(FAILURE_CODE);
+      if (!busy) return failAt('release');
+      const out = okResult(busy);
+      brandTrustedAuthorityBoundPageInternalStage(out, 'release');
+      notifyInternalStageObserver(operation, 'release');
+      return out;
     }
     if (!releaseRes || releaseRes.ok !== true) {
       // Covers lease_fenced / conflict and inbound_delta_state_commit_outcome_unknown.
@@ -1128,7 +1236,11 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         envelopesPresented,
         tombstonesPresented,
       );
-      return busy ? okResult(busy) : failResult(FAILURE_CODE);
+      if (!busy) return failAt('release');
+      const out = okResult(busy);
+      brandTrustedAuthorityBoundPageInternalStage(out, 'release');
+      notifyInternalStageObserver(operation, 'release');
+      return out;
     }
 
     // Report committed only after conclusive release.
@@ -1138,10 +1250,12 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
       envelopesPresented,
       tombstonesPresented,
     );
-    return success ? okResult(success) : failResult(FAILURE_CODE);
+    return success ? okResult(success) : failAt('store');
   }
 
-  return Object.freeze({ runAuthorityBoundMessagesDeltaPage });
+  const operation = Object.freeze({ runAuthorityBoundMessagesDeltaPage });
+  CREATED_OPERATIONS.add(operation);
+  return operation;
 }
 
 module.exports = Object.freeze({
@@ -1160,5 +1274,8 @@ module.exports = Object.freeze({
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_SAFE_FOR_RUNTIME_ROUTE_CRON,
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_AUTO_BEGIN_GENERATION,
   EMAIL_AUTHORITY_BOUND_MESSAGES_DELTA_PAGE_MULTIPAGE,
+  AUTHORITY_BOUND_PAGE_INTERNAL_STAGES,
   createAuthorityBoundMessagesDeltaPageOperation,
+  readTrustedAuthorityBoundPageInternalStage,
+  bindTrustedAuthorityBoundPageInternalStageObserver,
 });

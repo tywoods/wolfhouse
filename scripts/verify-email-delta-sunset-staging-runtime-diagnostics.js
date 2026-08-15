@@ -47,6 +47,7 @@ const {
   classifyDeltaRuntimeTransportError,
   classifyDeltaRuntimeQueryFailure,
   classifyDeltaRuntimePageFailure,
+  classifyDeltaRuntimePageInternalStage,
   classifyDeltaRuntimeUnknown,
   buildDeltaRuntimeTickFailedEvent,
   assertSafeDeltaRuntimeTickFailedEvent,
@@ -55,6 +56,25 @@ const {
   readTrustedDeltaRuntimeDiagnostic,
   brandDeltaRuntimeDiagnostic,
 } = require('./lib/email-delta-sunset-staging-runtime-diagnostics');
+
+const {
+  AUTHORITY_BOUND_PAGE_INTERNAL_STAGES,
+  FAILURE_CODE: PAGE_FAILURE_CODE,
+  createAuthorityBoundMessagesDeltaPageOperation,
+  readTrustedAuthorityBoundPageInternalStage,
+  bindTrustedAuthorityBoundPageInternalStageObserver,
+} = require('./lib/email-authority-bound-messages-delta-page-operation');
+
+const INTERNAL_STAGES = Object.freeze([
+  'authority',
+  'status',
+  'lease',
+  'grant',
+  'transport',
+  'seal',
+  'store',
+  'release',
+]);
 
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
@@ -81,10 +101,16 @@ test('package script and exports are exact/frozen', () => {
   assert.deepEqual(EVENT_KEYS, Object.freeze(['event', 'stage', 'code']));
   assert.deepEqual(STAGES, Object.freeze([
     'schema', 'query', 'grant', 'cursor', 'transport', 'store', 'page', 'project', 'tick',
+    'authority', 'status', 'lease', 'seal', 'release',
   ]));
   assert.deepEqual(CODES, Object.freeze([
     'dead_grant', 'unauthorized', 'cursor', 'query', 'transport', 'store', 'unknown',
+    'authority', 'status', 'lease', 'grant', 'seal', 'release',
   ]));
+  assert.deepEqual(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES, INTERNAL_STAGES);
+  assert.equal(typeof classifyDeltaRuntimePageInternalStage, 'function');
+  assert.equal(typeof readTrustedAuthorityBoundPageInternalStage, 'function');
+  assert.equal(typeof bindTrustedAuthorityBoundPageInternalStageObserver, 'function');
 });
 
 test('known grant / 401 / cursor / query / transport / store classifications', () => {
@@ -265,6 +291,103 @@ test('priority keeps dead_grant/401/cursor over later store/unknown', () => {
   });
 });
 
+test('closed-enum internal page stages map 1:1 and stay allowlisted', () => {
+  for (const stage of INTERNAL_STAGES) {
+    const classified = classifyDeltaRuntimePageInternalStage(stage);
+    assert.deepEqual(classified, Object.freeze({ stage, code: stage }));
+    assert.equal(STAGES.includes(classified.stage), true, stage);
+    assert.equal(CODES.includes(classified.code), true, stage);
+    noLeak(classified);
+  }
+  assert.equal(classifyDeltaRuntimePageInternalStage(PLANTED), null);
+  assert.equal(classifyDeltaRuntimePageInternalStage('tick'), null);
+  assert.equal(classifyDeltaRuntimePageInternalStage({ stage: 'authority' }), null);
+  assert.equal(classifyDeltaRuntimePageInternalStage('schema'), null);
+});
+
+test('trusted page result mapping distinguishes all eight internal stages without leaking', () => {
+  for (const stage of INTERNAL_STAGES) {
+    const logs = [];
+    const sink = createDeltaRuntimeDiagnosticSink({
+      logger(record) { logs.push(record); },
+    });
+    const planted = Object.freeze({
+      ok: false,
+      error: PAGE_FAILURE_CODE,
+      message: PLANTED,
+      url: PLANTED,
+      token: PLANTED,
+    });
+    assert.equal(readTrustedAuthorityBoundPageInternalStage(planted), null);
+    sink.recordFromTrustedPageResult(
+      planted,
+      () => Object.freeze({ stage, code: stage }),
+    );
+    sink.emitFailure();
+    assert.equal(logs.length, 1);
+    assert.deepEqual(logs[0], {
+      event: 'email_delta_runtime_tick_failed',
+      stage,
+      code: stage,
+    });
+    assert.deepEqual(Reflect.ownKeys(logs[0]), ['event', 'stage', 'code']);
+    noLeak(logs);
+  }
+});
+
+test('forged page results and observer payloads cannot classify or leak', () => {
+  const logs = [];
+  const sink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  const forged = Object.freeze({
+    ok: false,
+    error: PAGE_FAILURE_CODE,
+    stage: 'authority',
+    code: 'authority',
+    message: PLANTED,
+  });
+  assert.equal(readTrustedAuthorityBoundPageInternalStage(forged), null);
+  assert.equal(readTrustedAuthorityBoundPageInternalStage(new Error(PLANTED)), null);
+  assert.equal(
+    bindTrustedAuthorityBoundPageInternalStageObserver(forged, () => {
+      throw new Error(PLANTED);
+    }),
+    false,
+  );
+  sink.recordFromTrustedPageResult(forged, readTrustedAuthorityBoundPageInternalStage);
+  sink.recordFromPageInternalStage(PLANTED);
+  sink.recordFromPageInternalStage({ stage: PLANTED, code: PLANTED });
+  sink.emitFailure();
+  assert.deepEqual(logs[0], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'store',
+    code: 'store',
+  });
+  noLeak(logs);
+});
+
+test('dead_grant still beats later internal page stages', () => {
+  const logs = [];
+  const sink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  sink.recordFromGrantStatus('reauthorization_required');
+  sink.recordFromPageInternalStage('store');
+  sink.recordFromPageInternalStage('grant');
+  sink.emitFailure();
+  assert.deepEqual(logs[0], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'grant',
+    code: 'dead_grant',
+  });
+});
+
+test('page-operation factory still exists for the trusted seam', () => {
+  assert.equal(typeof createAuthorityBoundMessagesDeltaPageOperation, 'function');
+  assert.equal(PAGE_FAILURE_CODE, 'authority_bound_messages_delta_page_failed');
+});
+
 test('branded diagnostic is unforgeable and emit never throws', () => {
   const branded = brandDeltaRuntimeDiagnostic(
     new Error('Email delta sunset-staging runtime composition failed.'),
@@ -293,6 +416,8 @@ test('runtime composition catch logs only closed stage+code and does not leak', 
   const compositionSrc = fs.readFileSync(path.join(ROOT, COMP_REL), 'utf8');
   assert.match(compositionSrc, /email-delta-sunset-staging-runtime-diagnostics/);
   assert.match(compositionSrc, /createDeltaRuntimeDiagnosticSink/);
+  assert.match(compositionSrc, /recordFromTrustedPageResult/);
+  assert.match(compositionSrc, /readTrustedAuthorityBoundPageInternalStage/);
   assert.doesNotMatch(compositionSrc, /console\.error\('email_delta_runtime_tick_failed'\)/);
   const workerSrc = fs.readFileSync(path.join(ROOT, WORKER_REL), 'utf8');
   assert.doesNotMatch(workerSrc, /gmail|imap/i);

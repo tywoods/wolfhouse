@@ -31,6 +31,11 @@ const STAGES = Object.freeze([
   'page',
   'project',
   'tick',
+  'authority',
+  'status',
+  'lease',
+  'seal',
+  'release',
 ]);
 
 const CODES = Object.freeze([
@@ -41,6 +46,12 @@ const CODES = Object.freeze([
   'transport',
   'store',
   'unknown',
+  'authority',
+  'status',
+  'lease',
+  'grant',
+  'seal',
+  'release',
 ]);
 
 const EVENT_KEYS = Object.freeze(['event', 'stage', 'code']);
@@ -58,10 +69,28 @@ const PRIORITY = Object.freeze({
   unauthorized: 70,
   cursor: 70,
   query: 60,
+  authority: 50,
+  status: 50,
+  lease: 50,
+  grant: 50,
+  seal: 50,
   store: 50,
+  release: 50,
   transport: 40,
   unknown: 0,
 });
+
+const PAGE_INTERNAL_STAGES = Object.freeze([
+  'authority',
+  'status',
+  'lease',
+  'grant',
+  'transport',
+  'seal',
+  'store',
+  'release',
+]);
+const INTERNAL_PAGE_STAGE_SET = new Set(PAGE_INTERNAL_STAGES);
 
 const BRANDED = new WeakMap();
 
@@ -151,6 +180,16 @@ function classifyDeltaRuntimeQueryFailure() {
 
 function classifyDeltaRuntimePageFailure() {
   return freezeNote('store', 'store');
+}
+
+function classifyDeltaRuntimePageInternalStage(stage) {
+  try {
+    if (typeof stage !== 'string' || !INTERNAL_PAGE_STAGE_SET.has(stage)) return null;
+    if (!STAGE_SET.has(stage) || !CODE_SET.has(stage)) return null;
+    return freezeNote(stage, stage);
+  } catch {
+    return null;
+  }
 }
 
 function classifyDeltaRuntimeUnknown() {
@@ -305,6 +344,26 @@ function createDeltaRuntimeDiagnosticSink(deps) {
     recordFromPageFailure() {
       record(classifyDeltaRuntimePageFailure());
     },
+    recordFromPageInternalStage(stage) {
+      record(classifyDeltaRuntimePageInternalStage(stage));
+    },
+    recordFromTrustedPageResult(result, readTrusted) {
+      try {
+        const reader = typeof readTrusted === 'function'
+          ? readTrusted
+          : null;
+        const internal = reader ? reader(result) : null;
+        if (internal && typeof internal.stage === 'string') {
+          record(classifyDeltaRuntimePageInternalStage(internal.stage));
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      if (note == null) {
+        record(classifyDeltaRuntimePageFailure());
+      }
+    },
     recordFromSchemaFailure() {
       record(freezeNote('schema', 'unknown'));
     },
@@ -335,6 +394,7 @@ module.exports = Object.freeze({
   classifyDeltaRuntimeTransportError,
   classifyDeltaRuntimeQueryFailure,
   classifyDeltaRuntimePageFailure,
+  classifyDeltaRuntimePageInternalStage,
   classifyDeltaRuntimeUnknown,
   buildDeltaRuntimeTickFailedEvent,
   assertSafeDeltaRuntimeTickFailedEvent,
