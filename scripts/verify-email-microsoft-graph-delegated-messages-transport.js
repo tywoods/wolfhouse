@@ -37,6 +37,7 @@ function envelopeRow(patch = {}) {
   const base = {
     id: 'AAMkAG',
     subject: PLANTED,
+    body: { contentType: 'text', content: 'Real body' },
     from: { emailAddress: emailAddress() },
     receivedDateTime: '2026-01-01T00:00:00Z',
     isRead: true,
@@ -205,7 +206,7 @@ async function main() {
     assert.equal(TOP_MAX, 5);
     assert.equal(PATH.includes('$top=5'), true);
     assert.equal(SELECT_FIELDS.includes('subject'), true);
-    assert.equal(SELECT_FIELDS.includes('body'), false);
+    assert.equal(SELECT_FIELDS.includes('body'), true);
     assert.equal(SELECT_FIELDS.includes('hasAttachments'), false);
     assert.equal(PATH.includes('hasAttachments'), false);
 
@@ -277,6 +278,7 @@ async function main() {
     const rowBase = {
       id: '1',
       subject: 's',
+      body: { contentType: 'text', content: 'b' },
       from: { emailAddress: { address: 'a@b.c', name: 'n' } },
       receivedDateTime: '2026-01-01T00:00:00Z',
       isRead: false,
@@ -286,7 +288,7 @@ async function main() {
     const etagOrders = [
       JSON.stringify({ value: [{ '@odata.etag': VALID_ETAG, ...rowBase }] }),
       JSON.stringify({ value: [{ ...rowBase, '@odata.etag': VALID_ETAG }] }),
-      `{"value":[{"id":"1","@odata.etag":${JSON.stringify(VALID_ETAG)},"subject":"s","from":{"emailAddress":{"address":"a@b.c","name":"n"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":false,"conversationId":"c","internetMessageId":"<x>"}]}`,
+      `{"value":[{"id":"1","@odata.etag":${JSON.stringify(VALID_ETAG)},"subject":"s","body":{"contentType":"text","content":"b"},"from":{"emailAddress":{"address":"a@b.c","name":"n"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":false,"conversationId":"c","internetMessageId":"<x>"}]}`,
     ];
     for (const body of etagOrders) {
       assert.equal(classifyMessageEnvelopeBody(body).stage, 'success', body.slice(0, 48));
@@ -360,7 +362,7 @@ async function main() {
     ])).stage, 'row_keyset_invalid');
     assert.equal(classifyMessageEnvelopeBody('{').stage, 'json_invalid');
     assert.equal(classifyMessageEnvelopeBody(`\ufffd`).stage, 'utf8_invalid');
-    assert.equal(classifyMessageEnvelopeBody(Buffer.alloc(70_000, 0x61).toString('utf8')).stage,
+    assert.equal(classifyMessageEnvelopeBody(Buffer.alloc(600_000, 0x61).toString('utf8')).stage,
       'response_too_large');
 
     // Unpaired surrogate in etag → row_value_invalid (after parse) or utf8/json depending on path.
@@ -653,7 +655,7 @@ async function main() {
         req.end = () => {
           queueMicrotask(() => {
             onResponse(response);
-            response.emit('data', Buffer.alloc(70_000, 0x61));
+            response.emit('data', Buffer.alloc(600_000, 0x61));
           });
         };
         return req;

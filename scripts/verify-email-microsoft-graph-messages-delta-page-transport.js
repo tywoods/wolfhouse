@@ -114,6 +114,7 @@ function envelopeRow(patch = {}) {
   const base = {
     id: MSG_A,
     subject: 'Surf weekend',
+    body: { contentType: 'text', content: 'Real body' },
     from: { emailAddress: emailAddress() },
     receivedDateTime: '2026-08-06T12:00:00Z',
     isRead: false,

@@ -58,7 +58,7 @@ const MESSAGE_SOURCE = 'email_inbound';
 const MESSAGE_ROUTE = 'email';
 const CHANNEL = 'email';
 const CONVERSATION_STAGE = 'guest_email_inbound';
-const NO_SUBJECT = '(no subject)';
+const BODY_UNAVAILABLE = '(body unavailable)';
 /** Opaque phone-namespace prefix — never a telephone/WhatsApp destination. */
 const EMAIL_CHANNEL_IDENTITY_PREFIX = 'emailv1';
 const EMAIL_CHANNEL_IDENTITY_DIGEST_VERSION = 'email-inbound-v1';
@@ -81,6 +81,7 @@ SELECT
   provider_message_id,
   received_at,
   subject,
+  body_text,
   sender_display_name,
   sender_address,
   is_read,
@@ -105,6 +106,7 @@ SELECT
   provider_message_id,
   received_at,
   subject,
+  body_text,
   sender_display_name,
   sender_address,
   is_read,
@@ -412,17 +414,12 @@ function buildEmailConversationPhoneKey(locationText, senderEmail) {
   return buildEmailConversationIdentityKey(locationText, senderEmail);
 }
 
-/**
- * Staff-visible message text from inbound event (no body in event store).
- * @param {string|null|undefined} subject
- * @returns {string}
- */
-function buildEmailMessageText(subject) {
-  if (subject == null) return NO_SUBJECT;
-  if (typeof subject !== 'string') return NO_SUBJECT;
-  const t = subject.trim();
-  if (!t) return NO_SUBJECT;
-  return t.length > 4000 ? t.slice(0, 4000) : t;
+/** Staff-visible message text is the sanitized persisted body, never the subject. */
+function buildEmailMessageText(bodyText) {
+  if (typeof bodyText !== 'string') return BODY_UNAVAILABLE;
+  const text = bodyText.trim();
+  if (!text) return BODY_UNAVAILABLE;
+  return text.length > 65536 ? text.slice(0, 65536) : text;
 }
 
 function rejected(reason) {
@@ -560,6 +557,7 @@ function normalizeEventRow(row) {
     provider_message_id: messageId,
     received_at: receivedAt == null ? null : String(receivedAt),
     subject: rowField(row, 'subject') == null ? null : String(rowField(row, 'subject')),
+    body_text: rowField(row, 'body_text') == null ? null : String(rowField(row, 'body_text')),
     sender_display_name: rowField(row, 'sender_display_name') == null
       ? null
       : String(rowField(row, 'sender_display_name')),
@@ -686,7 +684,7 @@ async function runProjectTransaction(client, parsed) {
       return rejected('conversation_key_invalid');
     }
 
-    const messageText = buildEmailMessageText(event.subject);
+    const messageText = buildEmailMessageText(event.body_text);
     const preview = messageText.slice(0, 500);
     const displayName = event.sender_display_name
       ? String(event.sender_display_name).trim().slice(0, 500) || null

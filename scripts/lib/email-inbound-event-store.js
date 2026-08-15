@@ -77,6 +77,7 @@ INSERT INTO tenant_email_inbound_events (
   provider_message_id,
   received_at,
   subject,
+  body_text,
   sender_display_name,
   sender_address,
   is_read,
@@ -86,9 +87,9 @@ INSERT INTO tenant_email_inbound_events (
   $1::uuid, $2::uuid, $3::uuid,
   $4, $5, $6,
   $7::timestamptz,
-  $8, $9, $10,
-  $11::boolean,
-  $12, $13
+  $8, $9, $10, $11,
+  $12::boolean,
+  $13, $14
 )
 ON CONFLICT (provider, provider_mailbox_id, provider_message_id) DO NOTHING
 `.replace(/\s+/g, ' ').trim();
@@ -336,6 +337,7 @@ function buildInsertParams(authority, envelope) {
     envelope.provider_message_id,
     envelope.received_at,
     envelope.subject,
+    envelope.body_text,
     envelope.sender_display_name,
     envelope.sender_address,
     envelope.is_read,

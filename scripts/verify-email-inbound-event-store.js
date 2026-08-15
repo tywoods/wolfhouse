@@ -49,6 +49,7 @@ function envelope(overrides = {}) {
     provider_message_id: 'msg-001',
     received_at: '2026-08-01T12:00:00.000Z',
     subject: PLANTED_SUBJECT,
+    body_text: 'Sanitized guest body',
     sender_display_name: 'Sender',
     sender_address: PLANTED_ADDRESS,
     is_read: false,
@@ -150,7 +151,7 @@ function createFakeTxnHarness(options = {}) {
           const [
             clientId, locationId, endpointId,
             provider, mailbox, messageId,
-            receivedAt, subject, senderDisplay, senderAddress,
+            receivedAt, subject, bodyText, senderDisplay, senderAddress,
             isRead, conversationId, internetMessageId,
           ] = params;
           const k = keyOf(provider, mailbox, messageId);
@@ -167,6 +168,7 @@ function createFakeTxnHarness(options = {}) {
             provider_message_id: messageId,
             received_at: receivedAt,
             subject,
+            body_text: bodyText,
             sender_display_name: senderDisplay,
             sender_address: senderAddress,
             is_read: isRead,

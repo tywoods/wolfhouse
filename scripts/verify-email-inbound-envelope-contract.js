@@ -91,6 +91,7 @@ function graphRow(patch = {}) {
   const base = {
     id: MSG_ID,
     subject: 'Surf weekend',
+    body: { contentType: 'text', content: 'Real guest body' },
     from: {
       emailAddress: {
         address: 'guest@example.com',
@@ -112,6 +113,7 @@ function validEnvelope(patch = {}) {
     provider_message_id: MSG_ID,
     received_at: '2026-08-06T12:00:00.000Z',
     subject: 'Surf weekend',
+    body_text: 'Real guest body',
     sender_display_name: 'Guest',
     sender_address: 'guest@example.com',
     is_read: false,
@@ -217,6 +219,7 @@ try {
         'provider_message_id',
         'received_at',
         'subject',
+        'body_text',
         'sender_display_name',
         'sender_address',
         'is_read',
@@ -225,12 +228,12 @@ try {
       ].join(','),
   );
   ok(
-    'mail-readbasic-select-no-body-attachments',
+    'mail-readwrite-select-includes-body-no-attachments',
     Array.isArray(MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS)
       && MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS.join(',')
-        === 'id,subject,from,receivedDateTime,isRead,conversationId,internetMessageId'
+        === 'id,subject,body,from,receivedDateTime,isRead,conversationId,internetMessageId'
       && !MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS.includes('hasAttachments')
-      && !MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS.includes('body'),
+      && MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS.includes('body'),
   );
 
   // ── Happy path: validate normalized envelope ─────────────────────────────
@@ -259,6 +262,7 @@ try {
       && mapped.value.provider_message_id === MSG_ID);
     ok('mapper-happy-triage-fields', mapped.ok
       && mapped.value.subject === 'Surf weekend'
+      && mapped.value.body_text === 'Real guest body'
       && mapped.value.sender_address === 'guest@example.com'
       && mapped.value.sender_display_name === 'Guest'
       && mapped.value.is_read === false
@@ -273,6 +277,39 @@ try {
       && mapped.value.id === undefined);
     const revalidated = validateInboundEmailEnvelope(mapped.value);
     ok('mapper-output-revalidates', revalidated.ok === true, ser(revalidated));
+  }
+
+  {
+    const mapped = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
+      provider: 'microsoft_graph',
+      provider_mailbox_id: MAILBOX_ID,
+      row: graphRow({
+        body: {
+          contentType: 'html',
+          content: '<p>Hello &amp; welcome</p><script>never()</script><div>Second line</div>',
+        },
+      }),
+    });
+    ok('mapper-html-body-sanitized-to-plain-text', mapped.ok
+      && mapped.value.body_text === 'Hello & welcome\nSecond line'
+      && !mapped.value.body_text.includes('<')
+      && !mapped.value.body_text.includes('never'));
+
+    const missingBody = graphRow();
+    delete missingBody.body;
+    const missing = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
+      provider: 'microsoft_graph', provider_mailbox_id: MAILBOX_ID, row: missingBody,
+    });
+    ok('mapper-missing-body-fails-closed', missing.ok === false, ser(missing));
+
+    for (const content of ['<p>Visible</p><script>HIDDEN_SECRET', '<style>PRIVATE_CSS', '<!--PRIVATE']) {
+      const malformed = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
+        provider: 'microsoft_graph',
+        provider_mailbox_id: MAILBOX_ID,
+        row: graphRow({ body: { contentType: 'html', content } }),
+      });
+      ok('mapper-malformed-hidden-html-fails-closed', malformed.ok === false && noLeak(malformed), ser(malformed));
+    }
   }
 
   {
@@ -787,24 +824,8 @@ try {
       provider_mailbox_id: MAILBOX_ID,
       legacy: legacyRow,
     });
-    ok('legacy-transport-conversion-ok', converted.ok === true, ser(converted));
-    ok('legacy-transport-conversion-canonical-keys', converted.ok
-      && Object.keys(converted.value).sort().join(',')
-        === [...EMAIL_INBOUND_ENVELOPE_KEYS].sort().join(','));
-    ok('legacy-transport-conversion-maps-identity-and-sender', converted.ok
-      && converted.value.provider === 'microsoft_graph'
-      && converted.value.provider_mailbox_id === MAILBOX_ID
-      && converted.value.provider_message_id === MSG_ID
-      && converted.value.sender_address === 'guest@example.com'
-      && converted.value.sender_display_name === 'Guest'
-      && converted.value.has_attachments === undefined
-      && converted.value.from_address === undefined
-      && converted.value.id === undefined, ser(converted));
-    const revalidated = validateInboundEmailEnvelope(converted.value);
-    ok('legacy-transport-conversion-revalidates', revalidated.ok === true, ser(revalidated));
-    // has_attachments is transport-only metadata and is not a domain field.
-    ok('legacy-transport-conversion-discards-has-attachments', converted.ok
-      && !Object.prototype.hasOwnProperty.call(converted.value, 'has_attachments'));
+    ok('legacy-transport-without-body-fails-closed', converted.ok === false
+      && converted.error === 'inbound_envelope_keyset_invalid', ser(converted));
   }
 
   // ── Blocker 3: identity / dedup / order / tie-break / ImmutableId semantics ──
