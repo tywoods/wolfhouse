@@ -1137,6 +1137,8 @@ function futureExpires(msFromNow = 600000) {
           scope_version: 'phase_b_v1',
         })];
       },
+      // Injected so this composition test only counts client-slug lookup on pg.query.
+      loadMicrosoftEndpointLastSyncMap: async () => new Map(),
     });
     await routes.handleGet({ client: 'sunset' }, {}, res, { role: 'admin' });
     assert.strictEqual(res.status, 200);
@@ -1148,9 +1150,10 @@ function futureExpires(msFromNow = 600000) {
     assert.deepStrictEqual(atomicSqlParams, [CLIENT_ID], 'atomic bind client UUID only');
     assert.strictEqual(publicStatusCalls, 0, 'no getDelegatedGrantPublicStatus composition');
     assert.strictEqual(internalRowCalls, 0, 'no second-read internal grant composition');
-    // Client slug lookup only on withPgClient.query (atomic dep is injected)
+    // Client slug lookup only on withPgClient.query (atomic + last_sync deps injected)
     assert.strictEqual(queries.length, 1);
     assert.deepStrictEqual(queries[0].params, ['sunset']);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(res.body.endpoints[0], 'last_sync'), false);
 
     // Fail-closed index: duplicate atomic rows reject aggregate
     const resDup = response();

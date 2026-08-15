@@ -55,6 +55,27 @@ SELECT e.id::text AS endpoint_id,
  ORDER BY e.id ASC
  LIMIT ${PHASE_B_REAUTH_ELIGIBILITY_MAX_ENDPOINTS + 1}`.replace(/\s+/g, ' ').trim();
 
+/**
+ * Real Microsoft last-sync: current sealed delta cursor → committed page_commit journal.
+ * Never uses delta_states.updated_at (lease renew/pause also bump it).
+ * Never invents a clock when no committed page_commit backs the current cursor.
+ * Params: [client_id] only. Microsoft provider rows only.
+ */
+const SQL_MICROSOFT_ENDPOINT_LAST_SYNC = `
+SELECT d.endpoint_id::text AS endpoint_id,
+       to_char(r.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS last_sync
+  FROM tenant_email_inbound_delta_states d
+  INNER JOIN tenant_email_delta_recovery_operations r
+    ON r.operation_id = d.cursor_operation_id
+   AND r.client_id = d.client_id
+   AND r.endpoint_id = d.endpoint_id
+ WHERE d.client_id = $1::uuid
+   AND d.is_current = true
+   AND d.provider = 'microsoft_graph'
+   AND d.cursor_operation_id IS NOT NULL
+   AND r.operation_kind = 'page_commit'
+   AND r.outcome = 'committed'`.replace(/\s+/g, ' ').trim();
+
 /** Exact own-data keys expected on an atomic eligibility row (order fixed for authority checks). */
 const ATOMIC_ELIGIBILITY_OWN_KEYS = Object.freeze([
   'endpoint_id',
@@ -488,6 +509,56 @@ async function loadPhaseBReauthEligibilityFacts(pg, clientId) {
   }
 }
 
+/**
+ * Normalize a stored last-sync value to a finite ISO-8601 string, or null.
+ * Accepts Date or parseable string; rejects empty / invalid / non-finite.
+ */
+function normalizeLastSyncIso(raw) {
+  try {
+    if (raw == null) return null;
+    if (raw instanceof Date) {
+      const ms = raw.getTime();
+      if (!Number.isFinite(ms)) return null;
+      return raw.toISOString();
+    }
+    if (typeof raw !== 'string') return null;
+    const s = raw.trim();
+    if (!s) return null;
+    const ms = Date.parse(s);
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString();
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Load Microsoft last_sync map for one client UUID from durable poller evidence.
+ * Key = endpoint_id text; value = ISO string. Empty map when none / fail-soft.
+ * Never fabricates timestamps. Gmail/IMAP are never present in this query.
+ */
+async function loadMicrosoftEndpointLastSyncMap(pg, clientId) {
+  const empty = new Map();
+  try {
+    if (!pg || typeof pg.query !== 'function') return empty;
+    if (typeof clientId !== 'string' || !clientId) return empty;
+    const found = await pg.query(SQL_MICROSOFT_ENDPOINT_LAST_SYNC, [clientId]);
+    if (!found || !Array.isArray(found.rows)) return empty;
+    const map = new Map();
+    for (let i = 0; i < found.rows.length; i += 1) {
+      const row = found.rows[i];
+      if (!row || typeof row !== 'object') continue;
+      const endpointId = typeof row.endpoint_id === 'string' ? row.endpoint_id : '';
+      const lastSync = normalizeLastSyncIso(row.last_sync);
+      if (!endpointId || !lastSync) continue;
+      map.set(endpointId, lastSync);
+    }
+    return map;
+  } catch (_) {
+    return empty;
+  }
+}
+
 function publicState(endpoint, grant) {
   if (!endpoint) return 'disconnected';
   if (!grant || grant.grant_present !== true) return 'registered_not_connected';
@@ -501,6 +572,7 @@ function publicState(endpoint, grant) {
  * Public endpoint DTO. reauthorize_eligible is a boolean fact only — never
  * generation, scope strings, lease internals, tokens, or provider payloads.
  * When options.atomicRow is provided, eligibility is built solely from that row.
+ * last_sync is Microsoft-only and omitted unless options.lastSync is a real ISO.
  */
 function endpointDto(row, grant, options) {
   const reauthGateOn = options && options.reauthGateOn === true;
@@ -533,7 +605,7 @@ function endpointDto(row, grant, options) {
       disconnectEligible = isEligibleDisconnectEndpoint(row, grantFact) === true;
     }
   }
-  return Object.freeze({
+  const dto = {
     endpoint_id: row.id,
     location_id: row.location_id,
     provider: row.provider,
@@ -548,7 +620,13 @@ function endpointDto(row, grant, options) {
     start_eligible: startEligible,
     reauthorize_eligible: reauthorizeEligible === true,
     disconnect_eligible: disconnectEligible === true,
-  });
+  };
+  // Microsoft only: project a real poller timestamp when present; never invent.
+  if (row && row.provider === 'microsoft_graph') {
+    const lastSync = normalizeLastSyncIso(options && options.lastSync);
+    if (lastSync) dto.last_sync = lastSync;
+  }
+  return Object.freeze(dto);
 }
 
 /**
@@ -592,6 +670,7 @@ function createEmailSettingsRoutes(deps) {
   const listLocations = deps.listTenantLocations || registry.listTenantLocations;
   const listEndpoints = deps.listTenantChannelEndpoints || registry.listTenantChannelEndpoints;
   const loadAtomicFacts = deps.loadPhaseBReauthEligibilityFacts || loadPhaseBReauthEligibilityFacts;
+  const loadLastSyncMap = deps.loadMicrosoftEndpointLastSyncMap || loadMicrosoftEndpointLastSyncMap;
   const runtimeEnv = deps.runtimeEnv || process.env;
 
   async function handleGet(query, req, res, user) {
@@ -632,6 +711,12 @@ function createEmailSettingsRoutes(deps) {
           atomicIndex = indexed.map;
         }
 
+        // Optional Microsoft last_sync from durable page_commit evidence (fail-soft → omit).
+        const lastSyncMap = endpointRows.length > 0
+          ? await loadLastSyncMap(pg, clientId)
+          : new Map();
+        const lastSyncByEndpoint = lastSyncMap instanceof Map ? lastSyncMap : new Map();
+
         const endpoints = [];
         for (const row of endpointRows) {
           const atomicRow = atomicIndex ? atomicIndex.get(String(row.id)) : null;
@@ -647,7 +732,13 @@ function createEmailSettingsRoutes(deps) {
               reconcile_state: null,
               has_active_lease: false,
             });
-          endpoints.push(endpointDto(row, publicGrant, { atomicRow, reauthGateOn, disconnectGateOn }));
+          const lastSync = lastSyncByEndpoint.get(String(row.id));
+          endpoints.push(endpointDto(row, publicGrant, {
+            atomicRow,
+            reauthGateOn,
+            disconnectGateOn,
+            lastSync,
+          }));
         }
         const locations = locationsResult.value.map((row) => Object.freeze({
           location_id: row.location_id, display_name: row.display_name, active: row.active === true,
@@ -678,6 +769,7 @@ module.exports = {
   PHASE_B_REAUTH_START_ENABLED_ENV,
   PHASE_B_REAUTH_ELIGIBILITY_MAX_ENDPOINTS,
   SQL_PHASE_B_REAUTH_ELIGIBILITY_FACTS,
+  SQL_MICROSOFT_ENDPOINT_LAST_SYNC,
   ATOMIC_ELIGIBILITY_OWN_KEYS,
   isSunsetEmailSettingsUiEnabled,
   isSunsetEmailOAuthStartEnabled,
@@ -694,8 +786,10 @@ module.exports = {
   publicGrantFromAtomicEligibilityRow,
   endpointRowFromAtomicEligibility,
   normalizeAtomicEligibilityRow,
+  normalizeLastSyncIso,
   indexAtomicEligibilityRows,
   loadPhaseBReauthEligibilityFacts,
+  loadMicrosoftEndpointLastSyncMap,
   computeEmailSettingsActions,
   computeProviderEmailSettingsActions,
   publicState,
