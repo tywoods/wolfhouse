@@ -304,6 +304,7 @@ test('real Graph transport exhaustively accepts and discards closed message ODat
     '#microsoft.graph.eventMessage',
     '#microsoft.graph.eventMessageRequest',
     '#microsoft.graph.eventMessageResponse',
+    '#microsoft.graph.calendarSharingMessage',
   ];
   for (const odataType of acceptedTypes) {
     const body = JSON.stringify({

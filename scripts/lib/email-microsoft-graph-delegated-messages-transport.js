@@ -86,6 +86,7 @@ const MESSAGE_ODATA_TYPES = new Set(Object.freeze([
   '#microsoft.graph.eventMessage',
   '#microsoft.graph.eventMessageRequest',
   '#microsoft.graph.eventMessageResponse',
+  '#microsoft.graph.calendarSharingMessage',
 ]));
 const ROW_FIELDS_WITH_ETAG = Object.freeze([...SELECT_FIELDS, ETAG_KEY]);
 const ROW_FIELDS_WITH_TYPE = Object.freeze([...SELECT_FIELDS, ODATA_TYPE_KEY]);
