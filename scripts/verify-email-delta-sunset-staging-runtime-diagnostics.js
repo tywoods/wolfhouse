@@ -125,7 +125,8 @@ test('package script and exports are exact/frozen', () => {
     'row_value_invalid',
     'row_value_id', 'row_value_from', 'row_value_received_time', 'row_value_read_state',
     'row_value_conversation', 'row_value_internet_message_id', 'row_value_etag',
-    'row_branch_subject_odata_metadata', 'row_branch_duplicate_message_identity',
+    'row_branch_subject_metadata', 'row_branch_odata_metadata',
+    'row_branch_duplicate_message_identity',
     'row_branch_tombstone_envelope_collision', 'row_branch_invariant_mapper_shape',
   ]));
   assert.deepEqual(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES, INTERNAL_STAGES);
@@ -273,15 +274,15 @@ test('real Graph transport exhaustively preserves only trusted closed row field 
   // Remaining approved generic branches are now closed and value-free.
   assert.equal(
     await classifyBody(bodyFor([{ ...baseRow, subject: 7 }])),
-    'row_branch_subject_odata_metadata',
+    'row_branch_subject_metadata',
   );
   assert.equal(
     await classifyBody(bodyFor([{ ...baseRow, '@odata.type': 7 }])),
-    'row_branch_subject_odata_metadata',
+    'row_branch_odata_metadata',
   );
   assert.equal(
     await classifyBody(bodyFor([{ ...baseRow, '@odata.type': '#microsoft.graph.unknownThing' }])),
-    'row_branch_subject_odata_metadata',
+    'row_branch_odata_metadata',
   );
   assert.equal(
     await classifyBody(bodyFor([{ ...baseRow }, { ...baseRow }])),
