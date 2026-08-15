@@ -33,6 +33,7 @@ const {
   resolveInboxViewAvailability,
   resolveInboxConversationLocationScope,
   buildInboxViewQuery,
+  buildInboxViewCountsPlan,
 } = require('./lib/staff-inbox-saved-views');
 
 const {
@@ -45,6 +46,7 @@ const {
 
 const {
   getConversationInboxQuery,
+  getConversationInboxCountsQuery,
   conversationInboxChannelParamIndex,
 } = require('./lib/staff-conversation-queries');
 
@@ -121,10 +123,19 @@ for (const specLabel of [
 }
 
 assert('people views support broadcast multi-select',
-  declarations.filter((v) => v.group === 'people' && v.available && v.id !== 'do_not_contact')
+  declarations.filter((v) => v.group === 'people' && v.available && v.rail !== false && v.id !== 'do_not_contact')
     .every((v) => v.multiSelect === true));
 assert('do_not_contact is never multi-selectable',
   getInboxSavedViewDeclaration('do_not_contact').multiSelect === false);
+assert('needs_attention CRM view stays off the rail',
+  getInboxSavedViewDeclaration('needs_attention').rail === false
+  && !listInboxSavedViews().some((v) => v.id === 'needs_attention'));
+assert('needs_human is a conversation view on the Needs you rail',
+  getInboxSavedViewDeclaration('needs_human').source === INBOX_VIEW_SOURCES.CONVERSATIONS
+  && getInboxSavedViewDeclaration('needs_human').needsHuman === true
+  && getInboxSavedViewDeclaration('needs_human').group === 'needs_you'
+  && getInboxSavedViewDeclaration('needs_human').crmFilter == null
+  && listInboxSavedViews().some((v) => v.id === 'needs_human'));
 assert('conversation views are not multi-selectable',
   declarations.filter((v) => v.source === INBOX_VIEW_SOURCES.CONVERSATIONS)
     .every((v) => v.multiSelect === false));
@@ -312,6 +323,45 @@ for (const [viewId, channel] of [['whatsapp', 'whatsapp'], ['email', 'email']]) 
 assert('channel addition leaves the legacy inbox query byte-identical',
   getConversationInboxQuery({}) === getConversationInboxQuery({ channelScoped: false })
   && !getConversationInboxQuery({ locationScoped: true }).includes("session_state->>'channel', 'whatsapp') = $"));
+
+const needsHumanBuilt = buildInboxViewQuery({ view: 'needs_human', clientSlug: WOLFHOUSE, query: {} });
+assert('needs_human list SQL scopes to conversations.needs_human = TRUE',
+  needsHumanBuilt.ok === true
+  && needsHumanBuilt.needsHuman === true
+  && needsHumanBuilt.sql.includes('conv.needs_human = TRUE')
+  && needsHumanBuilt.sql === getConversationInboxQuery({ needsHumanScoped: true }));
+const needsHumanSunset = buildInboxViewQuery({
+  view: 'needs_human', clientSlug: SUNSET, query: { location: 'sunset-sardinero' },
+});
+assert('needs_human (sunset) keeps location scope and the needs_human predicate',
+  needsHumanSunset.ok === true
+  && needsHumanSunset.locationScoped === true
+  && needsHumanSunset.sql === getConversationInboxQuery({ locationScoped: true, needsHumanScoped: true })
+  && needsHumanSunset.sql.includes('conv.needs_human = TRUE'));
+assert('needs_human does not bind a channel param',
+  needsHumanBuilt.channelParamIndex == null
+  && needsHumanBuilt.params.length === 1
+  && needsHumanSunset.params.length === 2);
+assert('legacy inbox All is unchanged when needsHumanScoped is off',
+  getConversationInboxQuery({}) === getConversationInboxQuery({ needsHumanScoped: false })
+  && !getConversationInboxQuery({}).includes('conv.needs_human = TRUE'));
+
+const countsPlan = buildInboxViewCountsPlan({ clientSlug: WOLFHOUSE, query: {} });
+const convPass = countsPlan.passes.find((p) => p.source === INBOX_VIEW_SOURCES.CONVERSATIONS);
+assert('rail counts include a needs_human FILTER column',
+  !!convPass
+  && convPass.viewIds.includes('needs_human')
+  && /COUNT\(\*\) FILTER \(WHERE conv\.needs_human = TRUE\)::int AS "needs_human"/.test(convPass.sql));
+assert('needs_attention is not counted on the rail',
+  !countsPlan.views.some((v) => v.id === 'needs_attention')
+  && countsPlan.passes.every((p) => !p.viewIds.includes('needs_attention')));
+assert('getConversationInboxCountsQuery accepts needsHuman columns',
+  getConversationInboxCountsQuery({
+    columns: [
+      { key: 'all', channel: null },
+      { key: 'needs_human', channel: null, needsHuman: true },
+    ],
+  }).includes('FILTER (WHERE conv.needs_human = TRUE)'));
 
 console.log('\n[5] Tenant and location scoping on every available view');
 
