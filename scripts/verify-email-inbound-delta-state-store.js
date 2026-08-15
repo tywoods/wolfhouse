@@ -66,6 +66,7 @@ function envelope(overrides = {}) {
     provider_message_id: 'msg-001',
     received_at: '2026-08-01T12:00:00.000Z',
     subject: PLANTED_SUBJECT,
+    body_text: 'Canonical inbound body.',
     sender_display_name: 'Sender',
     sender_address: PLANTED_ADDRESS,
     is_read: false,

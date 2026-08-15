@@ -1110,7 +1110,7 @@ async function claimOrReplayPageCommit(exclusive, expected) {
     expected.operationId,
   ]);
   if (!raced.rows || raced.rows.length !== 1) {
-    return fail('inbound_delta_state_write_failed');
+    return fail('page_commit_journal_claim_failed');
   }
   const row = raced.rows[0];
   if (!pageCommitInputsMatchRow(row, expected)) {
@@ -2054,7 +2054,7 @@ function createInboundEmailDeltaStateStore(deps) {
       }
       const rowGen = coerceSafeIntField(row.ingestion_generation);
       const rowSv = coerceSafeIntField(row.state_version);
-      if (rowGen == null || rowSv == null) return fail('inbound_delta_state_write_failed');
+      if (rowGen == null || rowSv == null) return fail('delta_state_row_invalid');
       if (rowGen !== ids.expectedGeneration.value) return fail('generation_mismatch');
       if (rowSv !== ids.expectedStateVersion.value) return fail('state_version_mismatch');
       if (String(row.lease_token) !== ids.leaseToken.value) return fail('lease_fenced');
@@ -2113,7 +2113,7 @@ function createInboundEmailDeltaStateStore(deps) {
       }
       const outGen = coerceSafeIntField(upd.rows[0].ingestion_generation);
       const outSv = coerceSafeIntField(upd.rows[0].state_version);
-      if (outGen == null || outSv == null) return fail('inbound_delta_state_write_failed');
+      if (outGen == null || outSv == null) return fail('cursor_commit_result_invalid');
 
       // Complete page_commit journal committed (same operation id / TX).
       const done = await client.query(SQL_PAGE_COMMIT_COMPLETE_COMMITTED, [
@@ -2123,7 +2123,7 @@ function createInboundEmailDeltaStateStore(deps) {
         upd.rows[0].phase,
       ]);
       if (!done.rows || done.rows.length !== 1) {
-        return fail('inbound_delta_state_write_failed');
+        return fail('page_commit_journal_complete_failed');
       }
 
       // Public result: never includes operation_id / worker / journal fields.
