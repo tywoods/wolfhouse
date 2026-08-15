@@ -58,7 +58,7 @@ function createStaffGoogleOAuthProductionIntegration(deps){
       try{const token=mint(gate,req,user);const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate,consumer(token)):deps.googleRoutes;return await routes.handleStart(body,req,res,user);}
       catch{return json(res,503,{success:false,error:'oauth_start_unavailable'});}
     }
-    try{return await deps.withPgClient(async pg=>{const service=deps.createEndpointPrepare(pg);const input=frozenDto([['clientId',own(user,'client_id').toLowerCase()],['locationId',body.location_id],['publicAddress',body.public_address],['actorStaffUserId',own(user,'staff_user_id').toLowerCase()]]);const ack=await service.prepareDisabledDelegatedEndpoint(input);return json(res,200,frozenDto([['success',true],['endpoint_id',ack.endpointId]]));});}
+    try{return await deps.withPgClient(async pg=>{const service=deps.createEndpointPrepare(objectFreeze({query:pg.query.bind(pg)}));const input=frozenDto([['clientId',own(user,'client_id').toLowerCase()],['locationId',body.location_id],['publicAddress',body.public_address],['actorStaffUserId',own(user,'staff_user_id').toLowerCase()]]);const ack=await service.prepareDisabledDelegatedEndpoint(input);return json(res,200,frozenDto([['success',true],['endpoint_id',ack.endpointId]]));});}
     catch{return json(res,503,{success:false,error:'endpoint_prepare_unavailable'});}
   }
   return objectFreeze({dispatch});
