@@ -1369,6 +1369,7 @@ async function main() {
     && !/query\(\s*['\"]BEGIN/.test(opSrc)
     && !/query\(\s*['\"]COMMIT/.test(opSrc));
   ok('op-uses-commitPageEvents', /commitPageEvents/.test(opSrc));
+  ok('op-commit-mints-operation-id', /operationId:\s*crypto\.randomUUID\(\)/.test(opSrc));
   ok('op-uses-sealDeltaCursor', /sealDeltaCursor/.test(opSrc));
   ok('op-uses-readTrustedMessagesDeltaOutcome', /readTrustedMessagesDeltaOutcome/.test(opSrc));
   ok('op-mark-reset-cursor-gone',

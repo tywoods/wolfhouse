@@ -1176,6 +1176,7 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
         providerTenantId,
         providerMailboxId,
         queryVersion: QUERY_VERSION,
+        operationId: crypto.randomUUID(),
         envelopes: pageResult.envelopes,
         tombstones: pageResult.tombstones,
         successorCursor: pageResult.sealedSuccessor,
