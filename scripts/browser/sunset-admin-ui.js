@@ -2551,9 +2551,13 @@ function financeCustomMonthTitle(ym){
   var m = Number(parts[1]);
   if (!y || !m) return String(ym || '');
   var dt = new Date(Date.UTC(y, m - 1, 1));
-  var lang = '';
-  try { lang = String((typeof portalLang === 'string' && portalLang) || ''); } catch (_l) { lang = ''; }
-  var locale = lang === 'es' ? 'es-ES' : (lang === 'it' ? 'it-IT' : 'en-GB');
+  var tag = 'en';
+  try {
+    if (typeof financeCustomLocaleTag === 'function') tag = financeCustomLocaleTag();
+    else if (typeof portalLang === 'string' && portalLang) tag = String(portalLang);
+  } catch (_t) { tag = 'en'; }
+  tag = String(tag || 'en').toLowerCase();
+  var locale = tag.indexOf('es') === 0 ? 'es-ES' : (tag.indexOf('it') === 0 ? 'it-IT' : 'en-GB');
   try {
     return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(dt);
   } catch (_e) {

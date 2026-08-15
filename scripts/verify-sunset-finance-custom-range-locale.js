@@ -31,8 +31,10 @@ assert.ok(!adminSrc.includes("var dayLabels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr
   'admin calendar must not hardcode English DOW chrome');
 assert.ok(adminSrc.includes("'calendar.day.sun'"),
   'admin calendar uses calendar.day.* keys');
-assert.ok(adminSrc.includes('financeRedesignFormatIsoRange'),
-  'live Custom display prefers redesign formatter');
+assert.ok(adminSrc.includes('financeCustomLocaleTag()'),
+  'month title uses staff locale tag helper');
+assert.ok(/function financeCustomMonthTitle[\s\S]*financeCustomLocaleTag\(/.test(adminSrc),
+  'financeCustomMonthTitle consults financeCustomLocaleTag');
 
 assert.ok(!redesignSrc.includes('inbox-thread.js'));
 assert.ok(!adminSrc.includes('staff-email-settings-routes'));
