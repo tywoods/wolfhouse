@@ -5,6 +5,7 @@ var adminEmailReauthAbortController = null;
 var adminEmailReauthOrigin = null;
 var adminEmailSettingsLastData = null;
 var adminEmailSettingsView = '';
+var adminEmailSettingsConnectFailed = false;
 
 /* Independently owned browser contract for Phase B reauth success validation.
  * Deliberately not imported from route/B1 producers (no self-fulfilling checks). */
@@ -251,16 +252,53 @@ function postMicrosoftEndpointPrepare(locationId, publicAddress){
       return dto.endpoint_id;
     });
 }
+function adminEmailConnectInProgressLabel(){
+  return emailUiT('admin.email.connectInProgress', 'Connecting Microsoft…', 'Conectando Microsoft…');
+}
+function adminEmailConnectFailedCopy(){
+  return emailUiT('admin.email.connectFailed', 'Couldn’t connect Microsoft. Nothing was changed. Try again.', 'No se pudo conectar Microsoft. No se ha cambiado nada. Inténtalo de nuevo.');
+}
 function setConnectBusy(root, busy){
   if (!root) return;
   var btn = root.querySelector('[data-email-connect]');
   var input = root.querySelector('[data-email-prepare-address]');
   var reauth = root.querySelector('[data-email-reauthorize]');
   var disconnect = root.querySelector('[data-email-disconnect]');
-  if (btn) btn.disabled = busy === true;
+  var progress = root.querySelector('[data-email-connect-progress]');
+  if (btn) {
+    btn.disabled = busy === true;
+    if (busy === true) {
+      if (typeof btn.setAttribute === 'function') btn.setAttribute('aria-busy', 'true');
+      if ('textContent' in btn) btn.textContent = adminEmailConnectInProgressLabel();
+    } else {
+      if (typeof btn.removeAttribute === 'function') btn.removeAttribute('aria-busy');
+      if ('textContent' in btn) btn.textContent = adminEmailConnectButtonLabel();
+    }
+  }
   if (input) input.disabled = busy === true;
   if (reauth) reauth.disabled = busy === true;
   if (disconnect) disconnect.disabled = busy === true;
+  if (busy === true) {
+    if (typeof root.setAttribute === 'function') {
+      root.setAttribute('aria-busy', 'true');
+      root.setAttribute('data-email-connect-busy', '1');
+    }
+  } else if (typeof root.removeAttribute === 'function') {
+    root.removeAttribute('aria-busy');
+    root.removeAttribute('data-email-connect-busy');
+  }
+  if (progress) {
+    progress.hidden = busy !== true;
+    progress.textContent = busy === true ? adminEmailConnectInProgressLabel() : '';
+  }
+}
+function renderAdminEmailConnectFailed(){
+  adminEmailSettingsConnectFailed = true;
+  if (adminEmailSettingsLastData) {
+    renderAdminEmailSettingsData(adminEmailSettingsLastData);
+    return;
+  }
+  renderAdminEmailSettingsState('error');
 }
 function wireConnectHandlers(body, data){
   var sections = typeof body.querySelectorAll==='function' ? body.querySelectorAll('.portal-admin-email-settings') : [];
@@ -273,9 +311,10 @@ function wireConnectHandlers(body, data){
     var mode = btn.getAttribute('data-email-connect') || '';
     var locationId = btn.getAttribute('data-email-location-id') || '';
     if (!locationId) {
-      renderAdminEmailSettingsState('error');
+      renderAdminEmailConnectFailed();
       return;
     }
+    adminEmailSettingsConnectFailed = false;
     setConnectBusy(section, true);
     var chain;
     var provider = btn.getAttribute('data-email-provider') || 'microsoft_graph';
@@ -284,7 +323,7 @@ function wireConnectHandlers(body, data){
       var address = input && typeof input.value === 'string' ? input.value : '';
       if (!address) {
         setConnectBusy(section, false);
-        renderAdminEmailSettingsState('error');
+        renderAdminEmailConnectFailed();
         return;
       }
       // Prepare → start exact sequence; never create on page load.
@@ -305,19 +344,19 @@ function wireConnectHandlers(body, data){
       var endpointId = btn.getAttribute('data-email-endpoint-id') || '';
       if (!endpointId) {
         setConnectBusy(section, false);
-        renderAdminEmailSettingsState('error');
+        renderAdminEmailConnectFailed();
         return;
       }
       // Existing eligible endpoint: start only (no second prepare).
       chain = (provider === 'gmail_api' ? postGoogleOAuthStart : postMicrosoftOAuthStart)(locationId, endpointId);
     } else {
       setConnectBusy(section, false);
-      renderAdminEmailSettingsState('error');
+      renderAdminEmailConnectFailed();
       return;
     }
     chain.catch(function(){
       setConnectBusy(section, false);
-      renderAdminEmailSettingsState('error');
+      renderAdminEmailConnectFailed();
     });
   });
   })(sections[s]);
@@ -500,6 +539,9 @@ function emailUiTFill(key, en, es, n){
   return String(emailUiT(key, en, es)).replace(/\{n\}/g, String(n));
 }
 function adminEmailStateCopy(key){
+  if (adminEmailSettingsConnectFailed) {
+    return adminEmailConnectFailedCopy();
+  }
   if (key === 'disconnected') {
     return emailUiT('admin.email.state.disconnected', 'No email mailbox is registered.', 'No hay ningún buzón registrado.');
   }
@@ -527,7 +569,7 @@ function adminEmailMailboxConnected(key){
   return key === 'connected_health';
 }
 function adminEmailIsEmptyState(key){
-  return key === 'disconnected' || key === 'revoked';
+  return key === 'disconnected' || key === 'revoked' || key === 'error' || adminEmailSettingsConnectFailed === true;
 }
 function adminEmailConnectButtonLabel(){
   return emailUiT('admin.email.connectButton', 'Connect Microsoft email', 'Conectar email de Microsoft');
@@ -592,8 +634,9 @@ function renderAdminEmailSettingsState(state, data, provider){
     '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
     '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.microsoft_graph', 'Microsoft 365', 'Microsoft 365')) + '</h2>' +
     adminEmailStatusPill(pillKind, pillLabel) +
-    '<p role="status">' + escHtml(adminEmailStateCopy(key)) + '</p>';
-  var connected = adminEmailMailboxConnected(key);
+    '<p role="status"' + (adminEmailSettingsConnectFailed ? ' data-email-connect-failed data-i18n="admin.email.connectFailed"' : '') + '>' +
+    escHtml(adminEmailStateCopy(key)) + '</p>';
+  var connected = adminEmailMailboxConnected(key) && !adminEmailSettingsConnectFailed;
   var connectedAs = connected ? adminEmailLooksLikeAddress(data && data.public_address) : '';
   if (connectedAs) {
     html += '<p class="portal-admin-email-address" data-email-connected-as>' +
@@ -625,12 +668,14 @@ function renderAdminEmailSettingsState(state, data, provider){
       '</label>' +
       '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="prepare" data-i18n="admin.email.connectButton" data-email-location-id="' + escHtml(data.location_id) + '">' +
       escHtml(adminEmailConnectButtonLabel()) + '</button>' +
+      '<p class="portal-admin-email-connect-progress" data-email-connect-progress hidden role="status"></p>' +
       '</div>';
   } else if (hasConnect) {
     // Existing eligible unverified endpoint — Connect starts OAuth only.
     html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(emailUiT('admin.email.mailboxLabel', 'Microsoft email address', 'Dirección de correo Microsoft')) + '">' +
       '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="connect" data-i18n="admin.email.connectButton" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">' +
       escHtml(adminEmailConnectButtonLabel()) + '</button>' +
+      '<p class="portal-admin-email-connect-progress" data-email-connect-progress hidden role="status"></p>' +
       '</div>';
   } else if (hasReauthorize) {
     // Phase B reauthorize — explicit control only when DTO says eligible.
@@ -696,7 +741,7 @@ function adminEmailComingCardsHtml(){
 function renderAdminEmailSettingsData(data){
   var body = el('admin-email-settings-body'); if (!body) return;
   adminEmailSettingsLastData = data;
-  adminEmailSettingsView = 'data';
+  adminEmailSettingsView = adminEmailSettingsConnectFailed ? 'connect_failed' : 'data';
   var locations = data && Array.isArray(data.locations) ? data.locations : [];
   var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
   var active = '', i;
@@ -730,6 +775,7 @@ function loadAdminEmailSettings(){
   var body = el('admin-email-settings-body');
   if (!body) return;
   cancelAdminEmailReauthorization();
+  adminEmailSettingsConnectFailed = false;
   var seq = ++adminEmailSettingsLoadSeq;
   var client = getClient();
   if (client !== 'sunset') { renderAdminEmailSettingsState('unavailable'); return; }
@@ -750,7 +796,7 @@ function adminEmailRefreshOnLocaleChange(){
     if (typeof getStaffLocale === 'function') portalLang = getStaffLocale();
   } catch (_e) { /* ignore */ }
   // Re-paint from the last honest payload. Do not refetch or invent last_sync.
-  if (adminEmailSettingsView === 'data' && adminEmailSettingsLastData) {
+  if ((adminEmailSettingsView === 'data' || adminEmailSettingsView === 'connect_failed') && adminEmailSettingsLastData) {
     renderAdminEmailSettingsData(adminEmailSettingsLastData);
     return;
   }
