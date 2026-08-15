@@ -23628,6 +23628,12 @@ function setSunsetLocation(locationId){
       selectedConvId = null;
       loadInbox();
     }
+    // Guest Conversation Alerts are location-scoped. Reload Luna Staff cards when the
+    // school switches so "No numbers yet" cannot stick from the previous location's fetch.
+    if (typeof isLunaStaffTabActive === 'function' && isLunaStaffTabActive()
+        && typeof wireLunaStaffTabCards === 'function') {
+      wireLunaStaffTabCards();
+    }
   }
 }
 
@@ -30124,10 +30130,6 @@ function staffNotificationAllRecipients(){
   return out;
 }
 
-function staffNotificationServerIsOn(){
-  return !!(staffNotificationServerMeta && staffNotificationServerMeta.server_notifications_enabled);
-}
-
 function staffWhatsappNumbersEmptyLabel(){
   try {
     if (typeof portalT === 'function') {
@@ -30140,13 +30142,36 @@ function staffWhatsappNumbersEmptyLabel(){
   return es ? 'Aún no hay números.' : 'No numbers yet.';
 }
 
+function staffWhatsappNumbersLoadingLabel(){
+  try {
+    if (typeof portalT === 'function') {
+      var t = String(portalT('lunaStaff.numbers.loading') || '');
+      if (t && t !== 'lunaStaff.numbers.loading') return t;
+    }
+  } catch (_e) { /* ignore */ }
+  var es = false;
+  try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+  return es ? 'Cargando números…' : 'Loading numbers…';
+}
+
+function staffWhatsappNumbersPendingLoad(){
+  return !!(staffWhatsappNumbersLoading || staffNotificationSettingsFetchInFlight);
+}
+
 function staffWhatsappNumbersRender(numbers){
   var tbody = el('swn-tbody');
   if (!tbody) return;
   var rows = Array.isArray(numbers) ? numbers.slice() : [];
   if (!rows.length) rows = staffNotificationAllRecipients();
   if (!rows.length){
-    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.7">' + escHtml(staffWhatsappNumbersEmptyLabel()) + '</td></tr>';
+    // Do not paint the durable empty chrome while either numbers or alert-settings
+    // fetches are still in flight — otherwise a stale empty row can stick when
+    // recipients exist (location switch / overlapping wireLunaStaffTabCards).
+    if (staffWhatsappNumbersPendingLoad()) {
+      tbody.innerHTML = '<tr><td colspan="5" style="opacity:.7">' + escHtml(staffWhatsappNumbersLoadingLabel()) + '</td></tr>';
+    } else {
+      tbody.innerHTML = '<tr><td colspan="5" style="opacity:.7">' + escHtml(staffWhatsappNumbersEmptyLabel()) + '</td></tr>';
+    }
   } else {
   tbody.innerHTML = rows.map(function(n){
     var grp = n.from_alerts
@@ -30185,6 +30210,9 @@ function staffWhatsappNumbersApplyCache(numbers){
   staffWhatsappNumbersRender(staffWhatsappNumbersCache);
 }
 
+var staffWhatsappNumbersLoadSeq = 0;
+var staffWhatsappNumbersLoading = false;
+
 function staffWhatsappNumbersLoad(){
   var card = el('cc-staff-whatsapp-numbers');
   if (!card) return;
@@ -30198,17 +30226,24 @@ function staffWhatsappNumbersLoad(){
   var asnCardShow = el('cc-automated-staff-notifications');
   if (asnCardShow) asnCardShow.style.display = '';
   staffWhatsappShowMsg(null, null);
+  var seq = ++staffWhatsappNumbersLoadSeq;
+  staffWhatsappNumbersLoading = true;
+  staffWhatsappNumbersRender(staffWhatsappNumbersCache);
   fetch('/staff/whatsapp-numbers' + staffWhatsappNumberQuery(), { credentials: 'same-origin' })
     .then(function(r){ return r.json(); })
     .then(function(data){
+      if (seq !== staffWhatsappNumbersLoadSeq) return;
+      staffWhatsappNumbersLoading = false;
       if (!data || data.success !== true){
         staffWhatsappShowMsg('error', (data && data.error) ? data.error : 'Failed to load numbers.');
         staffWhatsappNumbersApplyCache([]);
         return;
       }
-      staffWhatsappNumbersApplyCache(data.numbers || []);
+      staffWhatsappNumbersApplyCache(Array.isArray(data.numbers) ? data.numbers : []);
     })
     .catch(function(){
+      if (seq !== staffWhatsappNumbersLoadSeq) return;
+      staffWhatsappNumbersLoading = false;
       staffWhatsappShowMsg('error', 'Failed to load numbers.');
       staffWhatsappNumbersApplyCache([]);
     });
@@ -30261,6 +30296,7 @@ function staffWhatsappNumberRemove(id){
 var staffNotificationSettingsCache = { new_conversation: { enabled: false, recipients: [] }, human_needed: { enabled: false, recipients: [] } };
 var staffNotificationServerMeta = { server_notifications_enabled: false, server_notifications_dry_run: true };
 var staffNotificationSettingsFetchInFlight = false;
+var staffNotificationSettingsLoadSeq = 0;
 
 function staffNotificationServerIsOn(){
   return !!(staffNotificationServerMeta && staffNotificationServerMeta.server_notifications_enabled);
@@ -30443,16 +30479,26 @@ function staffNotificationRecipientRemove(type, idx){
 
 function maybeLoadStaffNotificationSettings(){
   if (!staffNotificationSettingsApplyVisibility()) return;
-  if (staffNotificationSettingsFetchInFlight) return;
+  // Always start a new fetch (location / overlapping wire). Seq ignores stale responses;
+  // do not early-return on fetchInFlight or a school switch can leave "No numbers yet" stuck.
+  var seq = ++staffNotificationSettingsLoadSeq;
   staffNotificationSettingsFetchInFlight = true;
   staffNotificationShowMsg(null, null);
+  // Refresh numbers chrome so empty cannot paint while settings are in flight.
+  if (typeof staffWhatsappNumbersRender === 'function') {
+    try { staffWhatsappNumbersRender(staffWhatsappNumbersCache); } catch (_r) { /* ignore */ }
+  }
   fetch('/staff/notification-settings' + staffNotificationSettingsQuery(), { credentials: 'same-origin' })
     .then(function(r){ return r.json().catch(function(){ return { success: false, error: 'invalid response' }; }); })
     .then(function(data){
+      if (seq !== staffNotificationSettingsLoadSeq) return;
       staffNotificationSettingsFetchInFlight = false;
       staffNotificationSettingsApplyVisibility();
       if (!data || data.success !== true){
         staffNotificationShowMsg('error', (data && data.error) ? data.error : 'Failed to load notification settings.');
+        if (typeof staffWhatsappNumbersRender === 'function') {
+          try { staffWhatsappNumbersRender(staffWhatsappNumbersCache); } catch (_r2) { /* ignore */ }
+        }
         return;
       }
       staffNotificationSettingsCache = {
@@ -30463,9 +30509,13 @@ function maybeLoadStaffNotificationSettings(){
       staffNotificationSettingsApplyToForm();
     })
     .catch(function(){
+      if (seq !== staffNotificationSettingsLoadSeq) return;
       staffNotificationSettingsFetchInFlight = false;
       staffNotificationSettingsApplyVisibility();
       staffNotificationShowMsg('error', 'Failed to load notification settings.');
+      if (typeof staffWhatsappNumbersRender === 'function') {
+        try { staffWhatsappNumbersRender(staffWhatsappNumbersCache); } catch (_r3) { /* ignore */ }
+      }
     });
 }
 
