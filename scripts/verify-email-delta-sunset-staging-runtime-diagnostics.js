@@ -1,0 +1,336 @@
+'use strict';
+
+/**
+ * Hostile offline gate: Sunset delta poller/runtime diagnostic telemetry.
+ *
+ * Proves closed-enum stage + sanitized code at the runtime tick boundary,
+ * known grant/401/cursor/query/transport/store classifications, and that
+ * tokens, URLs/cursors, Graph bodies, mailbox/message IDs, emails, subjects,
+ * headers, secrets, exception messages/stacks, and provider payloads cannot
+ * leak into the log. External fail-closed behavior stays generic.
+ *
+ * No live/DB/Azure/deploy/Graph/network.
+ */
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const ROOT = path.join(__dirname, '..');
+const LIB_REL = 'scripts/lib/email-delta-sunset-staging-runtime-diagnostics.js';
+const VERIFY_REL = 'scripts/verify-email-delta-sunset-staging-runtime-diagnostics.js';
+const COMP_REL = 'scripts/lib/email-delta-sunset-staging-runtime-composition.js';
+const WORKER_REL = 'scripts/lib/email-delta-sunset-staging-worker.js';
+const PKG_PATH = path.join(ROOT, 'package.json');
+
+const PLANTED = [
+  'password=LEAKED_SECRET',
+  'pii-user@example.com',
+  'https://graph.microsoft.com/v1.0/users/ada@example.com/messages/delta?$skiptoken=CURSOR_LEAK',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.LEAKED_TOKEN',
+  'AAMkAGI2TG93c2U-mailbox-id',
+  'AAMkAGI2TWVzc2FnZS1pZA',
+  'Re: booking subject NEVER_LOG',
+  'Authorization: Bearer leaked-header',
+  'client_secret=super-secret-value',
+  'support@lunafrontdesk.com',
+].join(' ');
+
+const {
+  EVENT_NAME,
+  STAGES,
+  CODES,
+  EVENT_KEYS,
+  classifyDeltaRuntimeGrantStatus,
+  classifyDeltaRuntimeHttpStatus,
+  classifyDeltaRuntimeTransportError,
+  classifyDeltaRuntimeQueryFailure,
+  classifyDeltaRuntimePageFailure,
+  classifyDeltaRuntimeUnknown,
+  buildDeltaRuntimeTickFailedEvent,
+  assertSafeDeltaRuntimeTickFailedEvent,
+  createDeltaRuntimeDiagnosticSink,
+  emitDeltaRuntimeTickFailed,
+  readTrustedDeltaRuntimeDiagnostic,
+  brandDeltaRuntimeDiagnostic,
+} = require('./lib/email-delta-sunset-staging-runtime-diagnostics');
+
+const tests = [];
+const test = (name, fn) => tests.push([name, fn]);
+
+function noLeak(value) {
+  let text;
+  try {
+    text = typeof value === 'string' ? value : JSON.stringify(value);
+  } catch {
+    text = String(value);
+  }
+  assert.doesNotMatch(text, /LEAKED|pii-user|skiptoken|CURSOR_LEAK|eyJhbGci|AAMkAGI2|NEVER_LOG|Bearer leaked|super-secret|lunafrontdesk|password=/i);
+}
+
+test('package script and exports are exact/frozen', () => {
+  const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
+  assert.equal(
+    pkg.scripts['verify:email-delta-sunset-staging-runtime-diagnostics'],
+    'node scripts/verify-email-delta-sunset-staging-runtime-diagnostics.js',
+  );
+  const mod = require('./lib/email-delta-sunset-staging-runtime-diagnostics');
+  assert.equal(Object.isFrozen(mod), true);
+  assert.equal(EVENT_NAME, 'email_delta_runtime_tick_failed');
+  assert.deepEqual(EVENT_KEYS, Object.freeze(['event', 'stage', 'code']));
+  assert.deepEqual(STAGES, Object.freeze([
+    'schema', 'query', 'grant', 'cursor', 'transport', 'store', 'page', 'project', 'tick',
+  ]));
+  assert.deepEqual(CODES, Object.freeze([
+    'dead_grant', 'unauthorized', 'cursor', 'query', 'transport', 'store', 'unknown',
+  ]));
+});
+
+test('known grant / 401 / cursor / query / transport / store classifications', () => {
+  assert.deepEqual(
+    classifyDeltaRuntimeGrantStatus('reauthorization_required'),
+    Object.freeze({ stage: 'grant', code: 'dead_grant' }),
+  );
+  assert.deepEqual(
+    classifyDeltaRuntimeGrantStatus('unavailable'),
+    Object.freeze({ stage: 'grant', code: 'unknown' }),
+  );
+  assert.deepEqual(
+    classifyDeltaRuntimeGrantStatus('uncertain'),
+    Object.freeze({ stage: 'grant', code: 'unknown' }),
+  );
+  assert.deepEqual(
+    classifyDeltaRuntimeHttpStatus(401),
+    Object.freeze({ stage: 'transport', code: 'unauthorized' }),
+  );
+  assert.deepEqual(
+    classifyDeltaRuntimeHttpStatus(410),
+    Object.freeze({ stage: 'cursor', code: 'cursor' }),
+  );
+  assert.equal(classifyDeltaRuntimeHttpStatus(200), null);
+  assert.equal(classifyDeltaRuntimeHttpStatus(400), null);
+  assert.equal(classifyDeltaRuntimeHttpStatus(500), null);
+  assert.deepEqual(
+    classifyDeltaRuntimeQueryFailure(),
+    Object.freeze({ stage: 'query', code: 'query' }),
+  );
+  assert.deepEqual(
+    classifyDeltaRuntimePageFailure(),
+    Object.freeze({ stage: 'store', code: 'store' }),
+  );
+  const timeout = Object.freeze({ code: 'microsoft_graph_messages_delta_page_failed' });
+  assert.equal(classifyDeltaRuntimeTransportError(timeout), null);
+  assert.deepEqual(
+    classifyDeltaRuntimeUnknown(),
+    Object.freeze({ stage: 'tick', code: 'unknown' }),
+  );
+});
+
+test('forged grant/http/transport values cannot classify or leak', () => {
+  for (const bad of [
+    PLANTED,
+    { status: PLANTED },
+    { status: 'reauthorization_required', extra: PLANTED },
+    Object.assign(Object.create({ status: 'reauthorization_required' }), {}),
+    { status: 'invalid_grant' },
+    { status: '401' },
+    401,
+    null,
+    undefined,
+  ]) {
+    const classified = classifyDeltaRuntimeGrantStatus(bad);
+    if (classified) noLeak(classified);
+    if (bad !== 'reauthorization_required') {
+      assert.equal(
+        classified == null
+          || (classified.stage === 'grant' && classified.code === 'unknown')
+          || classified.code !== 'dead_grant'
+          || typeof bad === 'string',
+        true,
+      );
+    }
+  }
+  assert.equal(classifyDeltaRuntimeGrantStatus(PLANTED), null);
+  assert.equal(classifyDeltaRuntimeGrantStatus({ status: 'reauthorization_required' }), null);
+  assert.equal(classifyDeltaRuntimeHttpStatus(PLANTED), null);
+  assert.equal(classifyDeltaRuntimeHttpStatus('401'), null);
+  assert.equal(classifyDeltaRuntimeHttpStatus({ statusCode: 401, url: PLANTED }), null);
+
+  const forged = new Error(PLANTED);
+  forged.code = 'cursor_gone';
+  forged.stage = 'transport';
+  forged.graph_stage = 'http_status_not_200';
+  forged.body = PLANTED;
+  assert.equal(classifyDeltaRuntimeTransportError(forged), null);
+  assert.equal(readTrustedDeltaRuntimeDiagnostic(forged), null);
+});
+
+test('event builder is exact three-key allowlist and copies nothing extra', () => {
+  const good = buildDeltaRuntimeTickFailedEvent({
+    stage: 'grant',
+    code: 'dead_grant',
+    extra: PLANTED,
+    message: PLANTED,
+    url: PLANTED,
+  });
+  assert.deepEqual(good, Object.freeze({
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'grant',
+    code: 'dead_grant',
+  }));
+  assert.deepEqual(Reflect.ownKeys(good), ['event', 'stage', 'code']);
+  assert.equal(Object.isFrozen(good), true);
+  assert.equal(assertSafeDeltaRuntimeTickFailedEvent(good).ok, true);
+  noLeak(good);
+
+  assert.equal(buildDeltaRuntimeTickFailedEvent({ stage: PLANTED, code: 'dead_grant' }), null);
+  assert.equal(buildDeltaRuntimeTickFailedEvent({ stage: 'grant', code: PLANTED }), null);
+  assert.equal(buildDeltaRuntimeTickFailedEvent({ stage: 'grant' }), null);
+  assert.equal(buildDeltaRuntimeTickFailedEvent(null), null);
+});
+
+test('hostile sink + emit never log secrets, messages, stacks, or payloads', () => {
+  const logs = [];
+  const sink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  sink.recordFromThrown(new Error(PLANTED));
+  sink.recordFromGrantStatus(PLANTED);
+  sink.recordFromHttpStatus(PLANTED);
+  sink.recordFromTransportError(Object.assign(new Error(PLANTED), {
+    code: PLANTED,
+    response: { body: PLANTED, headers: { authorization: PLANTED } },
+  }));
+  sink.emitFailure();
+  assert.equal(logs.length, 1);
+  assert.deepEqual(logs[0], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'tick',
+    code: 'unknown',
+  });
+  noLeak(logs);
+
+  const specific = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  specific.recordFromGrantStatus('reauthorization_required');
+  specific.recordFromThrown(new Error(PLANTED));
+  specific.emitFailure();
+  assert.deepEqual(logs[1], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'grant',
+    code: 'dead_grant',
+  });
+  noLeak(logs);
+});
+
+test('priority keeps dead_grant/401/cursor over later store/unknown', () => {
+  const logs = [];
+  const sink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  sink.recordFromHttpStatus(401);
+  sink.recordFromPageFailure();
+  sink.emitFailure();
+  assert.deepEqual(logs[0], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'transport',
+    code: 'unauthorized',
+  });
+
+  const grantSink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  grantSink.recordFromHttpStatus(400);
+  grantSink.recordFromGrantStatus('reauthorization_required');
+  grantSink.recordFromPageFailure();
+  grantSink.emitFailure();
+  assert.deepEqual(logs[1], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'grant',
+    code: 'dead_grant',
+  });
+
+  const cursorSink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { logs.push(record); },
+  });
+  cursorSink.recordFromHttpStatus(410);
+  cursorSink.recordFromTransportError(new Error(PLANTED));
+  cursorSink.emitFailure();
+  assert.deepEqual(logs[2], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'cursor',
+    code: 'cursor',
+  });
+});
+
+test('branded diagnostic is unforgeable and emit never throws', () => {
+  const branded = brandDeltaRuntimeDiagnostic(
+    new Error('Email delta sunset-staging runtime composition failed.'),
+    'query',
+    'query',
+  );
+  assert.deepEqual(
+    readTrustedDeltaRuntimeDiagnostic(branded),
+    Object.freeze({ stage: 'query', code: 'query' }),
+  );
+  const forged = new Error(PLANTED);
+  forged.stage = 'query';
+  forged.code = 'query';
+  assert.equal(readTrustedDeltaRuntimeDiagnostic(forged), null);
+
+  const threw = [];
+  emitDeltaRuntimeTickFailed(
+    { stage: 'tick', code: 'unknown' },
+    () => { throw new Error(PLANTED); },
+  );
+  emitDeltaRuntimeTickFailed({ stage: PLANTED, code: PLANTED }, (r) => threw.push(r));
+  assert.equal(threw.length, 0);
+});
+
+test('runtime composition catch logs only closed stage+code and does not leak', () => {
+  const compositionSrc = fs.readFileSync(path.join(ROOT, COMP_REL), 'utf8');
+  assert.match(compositionSrc, /email-delta-sunset-staging-runtime-diagnostics/);
+  assert.match(compositionSrc, /createDeltaRuntimeDiagnosticSink/);
+  assert.doesNotMatch(compositionSrc, /console\.error\('email_delta_runtime_tick_failed'\)/);
+  const workerSrc = fs.readFileSync(path.join(ROOT, WORKER_REL), 'utf8');
+  assert.doesNotMatch(workerSrc, /gmail|imap/i);
+});
+
+test('fresh-process hostile emit cannot print planted exception text', () => {
+  const probe = `
+    const { emitDeltaRuntimeTickFailed, createDeltaRuntimeDiagnosticSink } =
+      require(${JSON.stringify(path.join(ROOT, LIB_REL))});
+    const planted = ${JSON.stringify(PLANTED)};
+    const sink = createDeltaRuntimeDiagnosticSink();
+    sink.recordFromThrown(new Error(planted));
+    sink.emitFailure();
+    emitDeltaRuntimeTickFailed({ stage: 'tick', code: 'unknown', message: planted, url: planted });
+  `;
+  const result = spawnSync(process.execPath, ['-e', probe], {
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const out = `${result.stdout || ''}${result.stderr || ''}`;
+  noLeak(out);
+  assert.match(out, /"event":"email_delta_runtime_tick_failed"/);
+  assert.match(out, /"stage":"tick"/);
+  assert.match(out, /"code":"unknown"/);
+});
+
+(async () => {
+  let pass = 0;
+  for (const [name, fn] of tests) {
+    try {
+      await fn();
+      console.log('PASS', name);
+      pass += 1;
+    } catch (err) {
+      console.error('FAIL', name, err);
+      process.exitCode = 1;
+    }
+  }
+  console.log(`${pass}/${tests.length} passed`);
+})();
