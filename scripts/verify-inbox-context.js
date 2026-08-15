@@ -350,6 +350,29 @@ ok('wraps wireInboxSidebarToggle rather than rewriting loadConvDetail',
     && !full.includes('id="inbox-customer-edit-profile"'));
 }
 
+{
+  const data = {
+    success: true,
+    phone: '+34000000002',
+    identity: { display_name: 'Pay Enum Guest' },
+    bookings: [
+      { booking_id: '1', booking_code: 'SUN-PAY', check_in: '2026-08-01', check_out: '2026-08-03', payment_status: 'paid_in_full' },
+      { booking_id: '2', booking_code: 'SUN-DEP', check_in: '2026-08-10', check_out: '2026-08-12', payment_status: 'pending_deposit' },
+    ],
+    service_records: [],
+    waivers: [],
+  };
+  const full = fns.customerFullHtml(data, {});
+  ok('linked bookings show staff payment labels, not raw enums',
+    full.includes('Paid')
+    && full.includes('Unpaid')
+    && !full.includes('paid_in_full')
+    && !full.includes('pending_deposit')
+    && typeof fns.customerPaymentStatusLabel === 'function'
+    && fns.customerPaymentStatusLabel('paid_in_full') === 'Paid'
+    && fns.customerPaymentStatusLabel('pending_deposit') === 'Unpaid');
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
