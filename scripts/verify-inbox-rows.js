@@ -11,6 +11,8 @@
  *     (final order: shell, views, context, rows)
  *   - wrap of renderInboxConvCardHtml exists (string check)
  *   - avatar initials helper: "Marea Wolf" → MW, empty → ?
+ *   - needs_human list chip rewrites "Needs staff reply" → Needs human
+ *     (EN/ES via existing raise key; unflagged / other reasons left alone)
  *   - inbox-thread.js is not edited (no avatar class from this slice)
  *   - staff-query-api.js has no new list markup; old filter chips remain
  *   - filter chips are hidden via CSS/class when the views rail is present
@@ -77,9 +79,22 @@ function loadFns() {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;'),
+    t: (key) => {
+      if (key === 'inbox.detail.needsHuman.raise') return 'Needs human';
+      if (key === 'inbox.detail.meta.needsStaffReply') return 'Needs staff reply';
+      return key;
+    },
+    portalT: (key) => {
+      if (key === 'inbox.detail.needsHuman.raise') return 'Needs human';
+      if (key === 'inbox.detail.meta.needsStaffReply') return 'Needs staff reply';
+      return key;
+    },
     renderInboxConvCardHtml: (c) => {
       const channel = (c && c.channel) === 'email' ? 'email' : 'whatsapp';
       const badge = `<span class="inbox-channel-badge inbox-channel-badge-${channel}">${channel === 'email' ? 'EMAIL' : 'WHATSAPP'}</span>`;
+      const handoff = (c && c.needs_human)
+        ? '<div class="conv-card-handoff">Needs staff reply</div>'
+        : '';
       return '<div class="conv-card" data-id="' + (c && c.conversation_id || '') + '">' +
         '<div class="conv-card-header-row">' +
           '<div class="conv-card-name">' + (c && c.guest_name || '—') + '</div>' +
@@ -87,6 +102,7 @@ function loadFns() {
         '</div>' +
         (c && c.last_message_preview ? '<div class="conv-card-preview">' + c.last_message_preview + '</div>' : '') +
         (c && c.last_activity_label ? '<div class="conv-card-time">' + c.last_activity_label + '</div>' : '') +
+        handoff +
       '</div>';
     },
   };
@@ -220,6 +236,84 @@ ok('avatar initials: whitespace → ?', fns.initials('   ') === '?');
       '<div class="conv-card" data-id="c3"><div class="conv-card-name">X</div></div>',
       { guest_name: 'X', needs_human: true },
     ).includes('inbox-row-unread'));
+}
+
+console.log('\n── needs_human list chip ──');
+ok('rows module owns the Needs human chip rewrite (inbox-thread untouched)',
+  rowsSrc.includes('function inboxRowsRewriteNeedsHumanChip(')
+  && rowsSrc.includes("inbox.detail.needsHuman.raise")
+  && rowsSrc.includes('inboxRowsRewriteNeedsHumanChip(String(html || \'\'), row)')
+  && !threadSrc.includes('function inboxRowsRewriteNeedsHumanChip('));
+ok('label uses existing Needs human raise key (not invented ES strings)',
+  rowsSrc.includes("'inbox.detail.needsHuman.raise'")
+  && rowsSrc.includes("'inbox.detail.meta.needsStaffReply'")
+  && !rowsSrc.includes('Requiere personal')
+  && !rowsSrc.includes('Requiere respuesta del staff'));
+{
+  const flagged = fns.wrapConvCardHtml(
+    '<div class="conv-card" data-id="tw"><div class="conv-card-name">Tyler Woods</div>' +
+      '<div class="conv-card-handoff">Needs staff reply</div></div>',
+    { guest_name: 'Tyler Woods', needs_human: true, conversation_id: 'tw' },
+  );
+  ok('needs_human row chip becomes Needs human (same as header)',
+    flagged.includes('<div class="conv-card-handoff">Needs human</div>')
+    && !flagged.includes('Needs staff reply')
+    && flagged.includes('inbox-row-avatar'));
+  const viaRender = sandbox.renderInboxConvCardHtml({
+    conversation_id: 'tw2',
+    guest_name: 'Tyler Woods',
+    needs_human: true,
+    channel: 'email',
+  });
+  ok('wrapped renderer rewrites staff-reply chip on needs_human rows',
+    viaRender.includes('<div class="conv-card-handoff">Needs human</div>')
+    && !viaRender.includes('Needs staff reply'));
+}
+{
+  const plain = fns.wrapConvCardHtml(
+    '<div class="conv-card" data-id="c4"><div class="conv-card-name">Hernan</div>' +
+      '<div class="conv-card-handoff">Needs staff reply</div></div>',
+    { guest_name: 'Hernan', needs_human: false },
+  );
+  ok('unflagged rows leave the staff-reply chip alone',
+    plain.includes('<div class="conv-card-handoff">Needs staff reply</div>')
+    && !plain.includes('>Needs human</div>'));
+  const otherReason = fns.wrapConvCardHtml(
+    '<div class="conv-card" data-id="c5"><div class="conv-card-name">Ana</div>' +
+      '<div class="conv-card-handoff">Payment question</div></div>',
+    { guest_name: 'Ana', needs_human: true },
+  );
+  ok('other handoff reasons are not rewritten even when needs_human',
+    otherReason.includes('<div class="conv-card-handoff">Payment question</div>')
+    && !otherReason.includes('Needs human'));
+}
+{
+  const esSandbox = {
+    window: {},
+    document: undefined,
+    console,
+    escHtml: (s) => String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;'),
+    t: (key) => {
+      if (key === 'inbox.detail.needsHuman.raise') return 'Requiere personal';
+      if (key === 'inbox.detail.meta.needsStaffReply') return 'Requiere respuesta del staff';
+      return key;
+    },
+  };
+  esSandbox.window = esSandbox;
+  vm.createContext(esSandbox);
+  vm.runInContext(`${rowsSrc}\nthis.__inboxRows = window.__inboxRows;`, esSandbox);
+  const esWrapped = esSandbox.__inboxRows.wrapConvCardHtml(
+    '<div class="conv-card" data-id="es1"><div class="conv-card-name">Tyler</div>' +
+      '<div class="conv-card-handoff">Requiere respuesta del staff</div></div>',
+    { guest_name: 'Tyler', needs_human: true },
+  );
+  ok('ES uses existing raise key (Requiere personal), not invented copy',
+    esWrapped.includes('<div class="conv-card-handoff">Requiere personal</div>')
+    && !esWrapped.includes('Requiere respuesta del staff'));
 }
 
 ok('conversation views do not invent a silent no-op search',
