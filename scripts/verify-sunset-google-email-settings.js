@@ -88,15 +88,16 @@ Promise.resolve().then(()=>sandbox.postGoogleEndpointPrepare(LOCATION,'desk@gmai
     });
     const actual = body.innerHTML;
     assert.match(actual, />Connect Microsoft email<\/button>/);
+    assert.match(actual, />Connect Google email<\/button>/);
     assert.match(actual, /data-email-provider="microsoft_graph"/);
     assert.match(actual, /data-email-provider="gmail_api"/);
     assert.match(actual, /data-email-provider="imap_smtp"/);
     assert.match(actual, /Coming soon|Próximamente/);
-    assert.doesNotMatch(actual, />Connect Google email<\/button>/);
     assert.doesNotMatch(actual, /type="password"/);
     const gmailChunk = actual.slice(actual.indexOf('data-email-provider="gmail_api"'));
     const imapChunk = actual.slice(actual.indexOf('data-email-provider="imap_smtp"'));
-    assert.doesNotMatch(gmailChunk.slice(0, 800), /data-email-connect=/);
+    assert.match(gmailChunk.slice(0, 1600), /data-email-connect="prepare"/);
+    assert.doesNotMatch(gmailChunk, /data-email-disconnect|data-email-reauthorize/);
     assert.doesNotMatch(imapChunk.slice(0, 800), /data-email-connect=/);
     assert.doesNotMatch(imapChunk, /<input/);
   }).then(()=>{
