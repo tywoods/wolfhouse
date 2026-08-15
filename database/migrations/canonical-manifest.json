@@ -1085,6 +1085,26 @@
       "rationale": "Refuses rollback while any non-null persisted reply subject exists; otherwise restores the 070 protect trigger and drops the subject column.",
       "pairsWith": "081_tenant_email_reply_approvals_subject.sql",
       "sha256": "3e33a393e5d6fb73188e750828f4e5fa2dca5a55bba3e478faa082e2a6a9b7a5"
+    },
+    {
+      "id": "082_tenant_email_inbound_body_text",
+      "filename": "082_tenant_email_inbound_body_text.sql",
+      "order": 78,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "EMAIL-INBOUND-BODY-001 persists only sanitized plain-text inbound email body content for Inbox bubbles; existing rows remain nullable and subject is never copied into body_text.",
+      "downFilename": "082_tenant_email_inbound_body_text_down.sql",
+      "sha256": "8eb526a8da9cc9404100f6d047076786d6a1738e1d41feb521fe5c45df66c5ec"
+    },
+    {
+      "id": "082_tenant_email_inbound_body_text_down",
+      "filename": "082_tenant_email_inbound_body_text_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while any persisted body_text exists; otherwise drops the nullable body_text column.",
+      "pairsWith": "082_tenant_email_inbound_body_text.sql",
+      "sha256": "c79123d9a82c78ede9fdae48ff6f0697a2fb08d38978c4e92c3f949113c699fa"
     }
   ]
 }

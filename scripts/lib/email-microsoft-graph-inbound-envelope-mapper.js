@@ -32,10 +32,11 @@ const util = require('util');
 const PROVIDER_ID = 'microsoft_graph';
 const ETAG_KEY = '@odata.etag';
 
-/** Exact Mail.ReadBasic $select fields (no body / hasAttachments). */
+/** Exact delegated Mail.ReadWrite $select fields. */
 const MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS = Object.freeze([
   'id',
   'subject',
+  'body',
   'from',
   'receivedDateTime',
   'isRead',
@@ -43,10 +44,14 @@ const MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS = Object.freeze([
   'internetMessageId',
 ]);
 
+const LEGACY_SELECT_FIELDS = Object.freeze(
+  MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS.filter((field) => field !== 'body'),
+);
 const ROW_FIELDS_WITH_ETAG = Object.freeze([
   ...MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS,
   ETAG_KEY,
 ]);
+const LEGACY_ROW_FIELDS_WITH_ETAG = Object.freeze([...LEGACY_SELECT_FIELDS, ETAG_KEY]);
 
 const INPUT_KEYS = Object.freeze([
   'provider',
@@ -57,6 +62,8 @@ const INPUT_KEY_SET = new Set(INPUT_KEYS);
 
 const FROM_KEYS = Object.freeze(['emailAddress']);
 const EMAIL_ADDRESS_KEYS = Object.freeze(['address', 'name']);
+const BODY_KEYS = Object.freeze(['contentType', 'content']);
+const BODY_TEXT_MAX = 65536;
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
 const PINNED_UTIL_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
@@ -210,14 +217,47 @@ function acceptFrom(value) {
   return acceptEmailAddress(ownData(value, 'emailAddress'));
 }
 
+function decodeHtmlEntities(value) {
+  return value.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (match, entity) => {
+    const lower = entity.toLowerCase();
+    const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+    if (Object.prototype.hasOwnProperty.call(named, lower)) return named[lower];
+    const code = lower.startsWith('#x') ? Number.parseInt(lower.slice(2), 16)
+      : Number.parseInt(lower.slice(1), 10);
+    return Number.isInteger(code) && code >= 0 && code <= 0x10ffff
+      && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : '';
+  });
+}
+
+function bodyToPlainText(value) {
+  if (!exactPlainData(value, BODY_KEYS)) return null;
+  const contentType = ownData(value, 'contentType');
+  const content = ownData(value, 'content');
+  if ((contentType !== 'text' && contentType !== 'html') || typeof content !== 'string'
+      || content.length > BODY_TEXT_MAX * 4 || hasUnpairedSurrogate(content)) return null;
+  let plain = content;
+  if (contentType === 'html') {
+    plain = plain.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
+      .replace(/<(br|\/p|\/div|\/li|\/tr|\/h[1-6])\b[^>]*>/gi, '\n')
+      .replace(/<[^>]*>/g, ' ');
+    plain = decodeHtmlEntities(plain);
+  }
+  return plain.replace(/\r\n?/g, '\n').replace(/[\t ]+/g, ' ')
+    .replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, BODY_TEXT_MAX);
+}
+
 function rowKeysetValid(row) {
   return exactPlainData(row, MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS)
-    || exactPlainData(row, ROW_FIELDS_WITH_ETAG);
+    || exactPlainData(row, ROW_FIELDS_WITH_ETAG)
+    || exactPlainData(row, LEGACY_SELECT_FIELDS)
+    || exactPlainData(row, LEGACY_ROW_FIELDS_WITH_ETAG);
 }
 
 function rowValuesValid(row) {
   if (!requiredBoundedString(ownData(row, 'id'))) return false;
   if (!optionalBoundedString(ownData(row, 'subject'))) return false;
+  if (Object.prototype.hasOwnProperty.call(row, 'body')
+      && bodyToPlainText(ownData(row, 'body')) === null) return false;
   if (!acceptFrom(ownData(row, 'from'))) return false;
   if (!requiredBoundedString(ownData(row, 'receivedDateTime'))) return false;
   const isRead = ownData(row, 'isRead');
@@ -283,6 +323,7 @@ function mapMicrosoftGraphMailReadBasicRowToInboundEnvelope(input) {
     }
   }
 
+  const hasBody = Object.prototype.hasOwnProperty.call(row, 'body');
   // Fresh provider-neutral DTO — Graph/OData names and etag never retained.
   const candidate = {
     provider: PROVIDER_ID,
@@ -296,6 +337,7 @@ function mapMicrosoftGraphMailReadBasicRowToInboundEnvelope(input) {
     conversation_id: ownData(row, 'conversationId'),
     internet_message_id: ownData(row, 'internetMessageId'),
   };
+  if (hasBody) candidate.body_text = bodyToPlainText(ownData(row, 'body'));
 
   return validateInboundEmailEnvelope(candidate);
 }

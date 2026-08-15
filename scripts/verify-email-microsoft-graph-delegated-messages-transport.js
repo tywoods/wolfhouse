@@ -205,7 +205,7 @@ async function main() {
     assert.equal(TOP_MAX, 5);
     assert.equal(PATH.includes('$top=5'), true);
     assert.equal(SELECT_FIELDS.includes('subject'), true);
-    assert.equal(SELECT_FIELDS.includes('body'), false);
+    assert.equal(SELECT_FIELDS.includes('body'), true);
     assert.equal(SELECT_FIELDS.includes('hasAttachments'), false);
     assert.equal(PATH.includes('hasAttachments'), false);
 
@@ -360,7 +360,7 @@ async function main() {
     ])).stage, 'row_keyset_invalid');
     assert.equal(classifyMessageEnvelopeBody('{').stage, 'json_invalid');
     assert.equal(classifyMessageEnvelopeBody(`\ufffd`).stage, 'utf8_invalid');
-    assert.equal(classifyMessageEnvelopeBody(Buffer.alloc(70_000, 0x61).toString('utf8')).stage,
+    assert.equal(classifyMessageEnvelopeBody(Buffer.alloc(600_000, 0x61).toString('utf8')).stage,
       'response_too_large');
 
     // Unpaired surrogate in etag → row_value_invalid (after parse) or utf8/json depending on path.
@@ -653,7 +653,7 @@ async function main() {
         req.end = () => {
           queueMicrotask(() => {
             onResponse(response);
-            response.emit('data', Buffer.alloc(70_000, 0x61));
+            response.emit('data', Buffer.alloc(600_000, 0x61));
           });
         };
         return req;

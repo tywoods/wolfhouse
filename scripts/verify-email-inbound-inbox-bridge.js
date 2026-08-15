@@ -38,6 +38,7 @@ const MAILBOX = '22222222-2222-4222-8222-2222222222ab';
 const PLANTED_SUBJECT = 'SUBJECT_PII_MUST_NOT_APPEAR_INBOX_BRIDGE';
 const PLANTED_ADDRESS = 'pii-inbox-bridge@example.com';
 const PLANTED_TOKEN = 'ya29.NEVER_LEAK_INBOX_BRIDGE_AT';
+const SANITIZED_BODY = 'Real sanitized guest email body';
 
 /** Owners allowed to import the bridge module (one reviewed runtime owner). */
 const BRIDGE_IMPORT_ALLOWLIST = new Set([
@@ -82,6 +83,7 @@ function eventRow(overrides = {}) {
     provider_message_id: 'msg-inbox-001',
     received_at: '2026-08-01T12:00:00.000Z',
     subject: PLANTED_SUBJECT,
+    body_text: SANITIZED_BODY,
     sender_display_name: 'Guest Sender',
     sender_address: PLANTED_ADDRESS,
     is_read: false,
@@ -645,7 +647,7 @@ async function testProjectHappyPath() {
   assert.equal(msg.metadata.channel, 'email');
   assert.equal(msg.metadata.provider_message_id, 'msg-inbox-001');
   assert.equal(msg.metadata.email_subject, undefined);
-  assert.equal(msg.message_text, PLANTED_SUBJECT);
+  assert.equal(msg.message_text, SANITIZED_BODY);
   assert.equal(msg.message_text, conv.last_message_preview);
 
   assert.equal(harness.projections.size, 1);
@@ -878,8 +880,8 @@ async function testPureHelpers() {
   assert.equal(bridge.isEmailChannelPhoneNamespace(key), true);
   assert.equal(bridge.isEmailChannelPhoneNamespace('+34600111222'), false);
   assert.equal(bridge.buildEmailMessageText(PLANTED_SUBJECT), PLANTED_SUBJECT);
-  assert.equal(bridge.buildEmailMessageText(null), '(no subject)');
-  assert.equal(bridge.buildEmailMessageText(''), '(no subject)');
+  assert.equal(bridge.buildEmailMessageText(null), '(body unavailable)');
+  assert.equal(bridge.buildEmailMessageText(''), '(body unavailable)');
   assert.equal(bridge.EMAIL_INBOUND_INBOX_BRIDGE_RUNTIME_WIRED, false);
   console.log('ok - pure helpers opaque identity + namespace guard');
 }

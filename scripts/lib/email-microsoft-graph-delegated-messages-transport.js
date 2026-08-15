@@ -73,6 +73,7 @@ const TOP_MAX = 5;
 const SELECT_FIELDS = Object.freeze([
   'id',
   'subject',
+  'body',
   'from',
   'receivedDateTime',
   'isRead',
@@ -88,6 +89,7 @@ const MESSAGE_ODATA_TYPES = new Set(Object.freeze([
   '#microsoft.graph.eventMessageResponse',
   '#microsoft.graph.calendarSharingMessage',
 ]));
+const LEGACY_SELECT_FIELDS = Object.freeze(SELECT_FIELDS.filter((field) => field !== 'body'));
 const ROW_FIELDS_WITH_ETAG = Object.freeze([...SELECT_FIELDS, ETAG_KEY]);
 const ROW_FIELDS_WITH_TYPE = Object.freeze([...SELECT_FIELDS, ODATA_TYPE_KEY]);
 const ROW_FIELDS_WITH_ETAG_AND_TYPE = Object.freeze([
@@ -95,13 +97,18 @@ const ROW_FIELDS_WITH_ETAG_AND_TYPE = Object.freeze([
   ETAG_KEY,
   ODATA_TYPE_KEY,
 ]);
+const LEGACY_ROW_FIELDS_WITH_ETAG = Object.freeze([...LEGACY_SELECT_FIELDS, ETAG_KEY]);
+const LEGACY_ROW_FIELDS_WITH_TYPE = Object.freeze([...LEGACY_SELECT_FIELDS, ODATA_TYPE_KEY]);
+const LEGACY_ROW_FIELDS_WITH_ETAG_AND_TYPE = Object.freeze([
+  ...LEGACY_SELECT_FIELDS, ETAG_KEY, ODATA_TYPE_KEY,
+]);
 const SELECT_QUERY = `$top=${TOP_MAX}&$select=${SELECT_FIELDS.join(',')}`;
 /** Count-health path only — always `/me` (token subject). Do not use for ImmutableId. */
 const PATH = `/v1.0/me/messages?${SELECT_QUERY}`;
 /** Canonical lowercase hyphenated UUID (matches authority providerMailboxId / resource id). */
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DEADLINE_MS = 10_000;
-const RESPONSE_CAP_BYTES = 65_536;
+const RESPONSE_CAP_BYTES = 524_288;
 const TOKEN_LIMIT = 16_384;
 const STRING_LIMIT = 2048;
 const DEPENDENCY_KEYS = Object.freeze(['httpsImpl', 'timers']);
@@ -177,6 +184,8 @@ const DELTA_TOP_ALLOWED_EXACT = Object.freeze([
 ]);
 const FROM_KEYS = Object.freeze(['emailAddress']);
 const EMAIL_ADDRESS_KEYS = Object.freeze(['address', 'name']);
+const BODY_KEYS = Object.freeze(['contentType', 'content']);
+const BODY_CONTENT_MAX = 262_144;
 const NEXT_LINK_KEY = '@odata.nextLink';
 const DELTA_LINK_KEY = '@odata.deltaLink';
 const MESSAGES_PATH_ME = /^\/v1\.0\/me\/messages$/;
@@ -819,8 +828,17 @@ function acceptFrom(value) {
   return acceptEmailAddress(ownData(value, 'emailAddress'));
 }
 
+function acceptBody(value) {
+  if (!exactPlainData(value, BODY_KEYS)) return false;
+  const contentType = ownData(value, 'contentType');
+  const content = ownData(value, 'content');
+  return (contentType === 'text' || contentType === 'html')
+    && typeof content === 'string' && content.length <= BODY_CONTENT_MAX;
+}
+
 function rowKeysetValid(row) {
-  return exactPlainData(row, SELECT_FIELDS) || exactPlainData(row, ROW_FIELDS_WITH_ETAG);
+  return exactPlainData(row, SELECT_FIELDS) || exactPlainData(row, ROW_FIELDS_WITH_ETAG)
+    || exactPlainData(row, LEGACY_SELECT_FIELDS) || exactPlainData(row, LEGACY_ROW_FIELDS_WITH_ETAG);
 }
 
 function classifyRowValueField(row) {
@@ -866,6 +884,7 @@ function classifyMappedEnvelopeField(mapped) {
 function rowValuesValid(row) {
   if (!requiredBoundedString(ownData(row, 'id'))) return false;
   if (!optionalBoundedString(ownData(row, 'subject'))) return false;
+  if (Object.prototype.hasOwnProperty.call(row, 'body') && !acceptBody(ownData(row, 'body'))) return false;
   if (!acceptFrom(ownData(row, 'from'))) return false;
   if (!requiredBoundedString(ownData(row, 'receivedDateTime'))) return false;
   const isRead = ownData(row, 'isRead');
@@ -882,7 +901,9 @@ function rowValuesValid(row) {
 
 function classifyRejectedOdataType(row) {
   if (!exactPlainData(row, ROW_FIELDS_WITH_TYPE)
-      && !exactPlainData(row, ROW_FIELDS_WITH_ETAG_AND_TYPE)) {
+      && !exactPlainData(row, ROW_FIELDS_WITH_ETAG_AND_TYPE)
+      && !exactPlainData(row, LEGACY_ROW_FIELDS_WITH_TYPE)
+      && !exactPlainData(row, LEGACY_ROW_FIELDS_WITH_ETAG_AND_TYPE)) {
     return 'odata_invalid_metadata';
   }
   const typeValue = ownData(row, ODATA_TYPE_KEY);
@@ -897,10 +918,13 @@ function classifyRejectedOdataType(row) {
 function discardValidatedOdataType(row) {
   if (!Object.prototype.hasOwnProperty.call(row, ODATA_TYPE_KEY)) return row;
   if (!exactPlainData(row, ROW_FIELDS_WITH_TYPE)
-      && !exactPlainData(row, ROW_FIELDS_WITH_ETAG_AND_TYPE)) return null;
+      && !exactPlainData(row, ROW_FIELDS_WITH_ETAG_AND_TYPE)
+      && !exactPlainData(row, LEGACY_ROW_FIELDS_WITH_TYPE)
+      && !exactPlainData(row, LEGACY_ROW_FIELDS_WITH_ETAG_AND_TYPE)) return null;
   if (!MESSAGE_ODATA_TYPES.has(ownData(row, ODATA_TYPE_KEY))) return null;
   const clean = {};
-  for (const field of SELECT_FIELDS) clean[field] = ownData(row, field);
+  const cleanFields = Object.prototype.hasOwnProperty.call(row, 'body') ? SELECT_FIELDS : LEGACY_SELECT_FIELDS;
+  for (const field of cleanFields) clean[field] = ownData(row, field);
   if (Object.prototype.hasOwnProperty.call(row, ETAG_KEY)) clean[ETAG_KEY] = ownData(row, ETAG_KEY);
   return clean;
 }
