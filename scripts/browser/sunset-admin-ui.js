@@ -2869,6 +2869,9 @@ function wireFinanceRedesignNav(body){
       } catch (_h) { /* ignore */ }
       financeCustomClosePopover({ restoreFocus: false, discard: false });
       financeViewState.anchor = financeTodayIso();
+      if (gran === 'year') {
+        try { window.__financeTrendMode = 'year'; } catch (_yt) { /* ignore */ }
+      }
       loadAdminFinanceSummary();
       return;
     }

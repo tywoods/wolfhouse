@@ -57,7 +57,7 @@ assert.ok(day.redesign.outstanding.outstanding_cents <= day.redesign.pipeline.bo
 assert.ok(day.redesign.pipeline.delivered_unpaid_cents === 0,
   'Delivered unpaid ignores bookings outside the selected day');
 
-assert.ok(financeSrc.includes('qualifyingPrimary.has(r.booking_id)'));
+assert.ok(financeSrc.includes('if (!inRange(r.service_date, primaryRange)) continue;'));
 assert.ok(financeSrc.includes('period_outstanding_cents'));
 assert.ok(!apiSrc.includes('inbox-thread.js') || true);
 assert.ok(!bookingsUiSrc.includes('staff-email-oauth'));

@@ -406,7 +406,9 @@ function renderFinanceRedesignHtml(summary) {
 
   // Gross trend — F3 toggle: month-days vs 12-month year
   // F3: chart mode is independent of top Day/Month/Year period selector.
-  var rawTrend = (typeof window !== 'undefined' && window.__financeTrendMode) ? String(window.__financeTrendMode) : 'days';
+  var rawTrend = (typeof window !== 'undefined' && window.__financeTrendMode) ? String(window.__financeTrendMode) : '';
+  if (!rawTrend && g === 'year') rawTrend = 'year';
+  if (!rawTrend) rawTrend = 'days';
   var trendMode = (rawTrend === 'year' || rawTrend === 'months' || rawTrend === '12m') ? 'year' : 'days';
   var trendRows = trendMode === 'year'
     ? (Array.isArray(R.monthly_gross_trend) ? R.monthly_gross_trend : [])

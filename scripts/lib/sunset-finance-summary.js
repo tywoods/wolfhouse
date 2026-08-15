@@ -896,10 +896,10 @@ function computeSunsetFinanceSummary(args) {
   const qualifyingPrimary = new Set();
   for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(r.booking_id);
 
-  // Delivered unpaid + next 30: same bookings as the selected period (not a global ops window).
+  // Next 30 / delivered unpaid: only service dates inside the selected period.
   let next_30_days_cents = 0;
   for (const r of datedBsr) {
-    if (!qualifyingPrimary.has(r.booking_id)) continue;
+    if (!inRange(r.service_date, primaryRange)) continue;
     if (inRange(r.service_date, next30Range)) next_30_days_cents = checkedAdd(next_30_days_cents, r.due);
   }
 
@@ -920,19 +920,23 @@ function computeSunsetFinanceSummary(args) {
     if (bal <= 0) continue;
     outstanding_bookings += 1;
     const periodDue = periodDueByBooking.get(bookingId) || 0;
-    period_outstanding_cents = checkedAdd(period_outstanding_cents, Math.min(bal, Math.max(0, periodDue)));
+    const periodBal = Math.min(bal, Math.max(0, periodDue));
+    period_outstanding_cents = checkedAdd(period_outstanding_cents, periodBal);
     const last = lastServiceByBooking.get(bookingId);
     if (!last) {
-      due_soon_cents = checkedAdd(due_soon_cents, bal);
+      due_soon_cents = checkedAdd(due_soon_cents, periodBal);
       continue;
     }
     const daysPast = Math.round((Date.parse(today + 'T00:00:00Z') - Date.parse(last + 'T00:00:00Z')) / 86400000);
-    if (daysPast > 7) overdue_cents = checkedAdd(overdue_cents, bal);
-    else due_soon_cents = checkedAdd(due_soon_cents, bal);
+    if (daysPast > 7) overdue_cents = checkedAdd(overdue_cents, periodBal);
+    else due_soon_cents = checkedAdd(due_soon_cents, periodBal);
     if (last < today) {
-      delivered_unpaid_cents = checkedAdd(delivered_unpaid_cents, Math.min(bal, Math.max(0, periodDue)));
+      delivered_unpaid_cents = checkedAdd(delivered_unpaid_cents, periodBal);
       delivered_unpaid_bookings += 1;
     }
+  }
+  if (period_outstanding_cents > primaryStats.booked_cents) {
+    period_outstanding_cents = primaryStats.booked_cents;
   }
 
   // Product revenue (BSR recognition by service_date in primary range) — F2 five-row shape
