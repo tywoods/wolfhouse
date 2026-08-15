@@ -41,8 +41,12 @@ function setScheduleView(mode) { return SunsetScheduleRuntime.nav.setView(mode);
 function scheduleNavigatePrev() { return SunsetScheduleRuntime.nav.navigatePrev(); }
 function scheduleNavigateNext() { return SunsetScheduleRuntime.nav.navigateNext(); }
 function scheduleNavigateToday() { return SunsetScheduleRuntime.nav.navigateToday(); }
+function schedulePrimeOpenDay(iso) { return SunsetScheduleRuntime.nav.primeOpenDay(iso); }
 function scheduleOpenDayDetail(iso) { return SunsetScheduleRuntime.nav.openDayDetail(iso); }
-if (typeof window !== 'undefined') window.scheduleOpenDayDetail = scheduleOpenDayDetail;
+if (typeof window !== 'undefined') {
+  window.schedulePrimeOpenDay = schedulePrimeOpenDay;
+  window.scheduleOpenDayDetail = scheduleOpenDayDetail;
+}
 function scheduleWireScheduleNavigationControls() { return SunsetScheduleRuntime.nav.wireControls(); }
 function scheduleResetNavigationAfterBookingCreate() {
   return SunsetScheduleRuntime.nav.resetAfterBookingCreate();

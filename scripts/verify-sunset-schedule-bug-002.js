@@ -34,7 +34,11 @@ assert.notStrictEqual(packed.list[0].lane, packed.list[1].lane, 'overlapping cou
 assert.ok(packed.laneCount >= 2);
 
 assert.ok(!/if \(offset < 0\) offset = 0;/.test(runtimeSrc), 'openDayDetail does not clamp past dates to today');
+assert.ok(runtimeSrc.includes('function primeOpenDay'), 'primeOpenDay seeds service day without loading');
 assert.ok(navSrc.includes('window.scheduleOpenDayDetail = scheduleOpenDayDetail'));
+assert.ok(navSrc.includes('window.schedulePrimeOpenDay = schedulePrimeOpenDay'));
+assert.ok(bookingsSrc.includes('schedulePrimeOpenDay(start)') || bookingsSrc.includes('primeFn(start)'),
+  'Reservas primes service day before portal-home load');
 
 const labelStart = bookingsSrc.indexOf('function adminBookingsOpenScheduleLabel');
 const labelEnd = bookingsSrc.indexOf('var ADMIN_BOOKINGS_SORT_FIRST_DIR');
