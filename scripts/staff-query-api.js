@@ -17365,14 +17365,14 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 @media(min-width:900px){.pfb-two{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .pfb-sec{font-size:15px;font-weight:700;color:var(--text)}
 .pfb-sub{font-size:12px;color:var(--text-2);margin:2px 0 12px}
-.pfb-bar-row,.pfb-util-row{display:grid;grid-template-columns:9rem minmax(0,1fr) 4.75rem 3.25rem;gap:8px 10px;align-items:center;margin:0;min-height:26px}
+.pfb-bar-row,.pfb-util-row{display:grid;grid-template-columns:9rem minmax(0,1fr) minmax(4.75rem,max-content) minmax(3.25rem,max-content);gap:8px 10px;align-items:center;margin:0;min-height:26px}
 
 /* Finance redesign — compact 4-row bars + trend toggle + custom cal */
 .pfb-bars--compact{display:flex;flex-direction:column;gap:6px}
 .pfb-bars--compact .pfb-bar-row{min-height:24px;align-items:center}
 .pfb-bars--compact .pfb-bar-track{height:8px;min-width:0}
 .pfb-bar-name,.pfb-util-name{width:9rem;max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text)}
-.pfb-bar-amt,.pfb-bar-pct,.pfb-util-val{font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:var(--text-2)}
+.pfb-bar-amt,.pfb-bar-pct,.pfb-util-val{font-variant-numeric:tabular-nums;text-align:right;font-size:12px;color:var(--text-2);overflow:visible}
 .pfb-bar-pct{min-width:3rem}
 .pfb-cap-top{display:flex;align-items:flex-start;gap:14px;margin-top:4px}
 .pfb-bars--capacity{flex:1 1 auto;min-width:0}
@@ -17399,11 +17399,16 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .pfb-bar-fill.is-blue,.pfb-util-fill.is-blue{background:#4A7C94}
 .pfb-bar-fill.is-violet,.pfb-util-fill.is-violet{background:#7a6bb5}
 .pfb-bar-fill.is-amber,.pfb-util-fill.is-amber{background:#c4922a}
+/* Over-capacity after color slots so is-over wins over is-green/is-blue/etc. */
+.pfb-bar-fill.is-over,.pfb-util-fill.is-over{background:#c4922a}
 .pfb-bar-amt,.pfb-bar-pct,.pfb-util-val{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}
+.pfb-bar-row.is-over .pfb-bar-amt,.pfb-bar-row.is-over .pfb-bar-pct,.pfb-util-row.is-over .pfb-util-val{color:#8a6a1a}
 .pfb-cap-top{display:flex;gap:14px;align-items:center}
 .pfb-ring{width:92px;height:92px;border-radius:50%;background:conic-gradient(#3d8f5a 0 var(--pfb-ring,74%), var(--surface) 0);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.pfb-ring.is-over{background:conic-gradient(#c4922a 0 var(--pfb-ring,100%), var(--surface) 0)}
 .pfb-ring-in{width:68px;height:68px;border-radius:50%;background:var(--surface-soft);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
 .pfb-ring-in b{font-size:18px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.pfb-ring.is-over .pfb-ring-in b{color:#8a6a1a}
 .pfb-ring-in span{font-size:10px;color:var(--text-2);line-height:1.2}
 .pfb-utils{flex:1;min-width:0}
 .pfb-callout{margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(196,146,42,.12);color:var(--text);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px}
@@ -17423,7 +17428,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .pfb-trend--monthly .pfb-trend-prev,.pfb-trend--monthly .pfb-trend-cur{width:42%}
 .pfb-trend--monthly .pfb-trend-d{font-size:12px}
 @media(max-width:640px){
-  .pfb-bar-row,.pfb-util-row{grid-template-columns:minmax(0,7rem) minmax(0,1fr) 4rem 2.75rem;gap:8px}
+  .pfb-bar-row,.pfb-util-row{grid-template-columns:minmax(0,7rem) minmax(0,1fr) minmax(4.5rem,max-content) minmax(3rem,max-content);gap:8px}
   .pfb-bar-name,.pfb-util-name{width:7rem;max-width:7rem}
   .pfb-trend--monthly{gap:6px}
   .pfb-trend--monthly .pfb-trend-d{font-size:11px}
