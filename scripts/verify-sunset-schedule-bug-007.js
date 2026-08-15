@@ -16,8 +16,11 @@ const profile = fs.readFileSync(path.join(ROOT, 'scripts/browser/inbox-customers
 const admin = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8');
 
 assert.ok(filters.includes('function positionCustomersFiltersMenu'));
+assert.ok(filters.includes("menu.style.position = 'fixed'"));
+assert.ok(filters.includes('function clearCustomersFiltersMenuPosition'));
 assert.ok(profile.includes("ev.key !== 'Escape'"));
 assert.ok(profile.includes('closeCustomersFiltersMenu()'));
+assert.ok(profile.includes("window.addEventListener('resize'"));
 assert.ok(!admin.includes("if (g === 'custom') return;"));
 assert.ok(admin.includes('financeInclusiveDayCount'));
 assert.ok(admin.includes('financeAddDaysIso'));

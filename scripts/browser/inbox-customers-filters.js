@@ -88,6 +88,18 @@ function customerProfileInitials(name) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function clearCustomersFiltersMenuPosition() {
+  var menu = el('cust-filters-menu');
+  if (!menu) return;
+  menu.style.position = '';
+  menu.style.top = '';
+  menu.style.left = '';
+  menu.style.right = '';
+  menu.style.width = '';
+  menu.style.maxHeight = '';
+  menu.style.zIndex = '';
+}
+
 function closeCustomersFiltersMenu() {
   customersFiltersMenuOpen = false;
   var menu = el('cust-filters-menu');
@@ -95,30 +107,40 @@ function closeCustomersFiltersMenu() {
   if (menu) {
     menu.classList.remove('open');
     menu.setAttribute('aria-hidden', 'true');
-    menu.style.left = '';
-    menu.style.right = '';
-    menu.style.maxHeight = '';
+    clearCustomersFiltersMenuPosition();
   }
   if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
 function positionCustomersFiltersMenu() {
   var menu = el('cust-filters-menu');
-  if (!menu || !customersFiltersMenuOpen) return;
-  menu.style.left = '0';
+  var btn = el('cust-filters-btn');
+  if (!menu || !btn || !customersFiltersMenuOpen) return;
+  // Fixed positioning escapes #tab-customers overflow:hidden so the popover
+  // is not clipped under the list and does not trap page scroll.
+  var br = null;
+  try { br = btn.getBoundingClientRect(); } catch (_r) { br = null; }
+  if (!br) return;
+  var vw = window.innerWidth || 360;
+  var vh = window.innerHeight || 800;
+  var mw = Math.min(360, Math.max(200, vw - 16));
+  var left = br.left;
+  if (left + mw > vw - 8) left = Math.max(8, br.right - mw);
+  if (left < 8) left = 8;
+  var top = br.bottom + 6;
+  var maxH = Math.min(420, Math.max(160, vh - top - 12));
+  if (top + 160 > vh - 8 && br.top > vh - br.bottom) {
+    // Prefer opening upward when there is more room above the trigger.
+    maxH = Math.min(420, Math.max(160, br.top - 12));
+    top = Math.max(8, br.top - 6 - maxH);
+  }
+  menu.style.position = 'fixed';
+  menu.style.top = Math.round(top) + 'px';
+  menu.style.left = Math.round(left) + 'px';
   menu.style.right = 'auto';
-  menu.style.maxHeight = '';
-  var r = null;
-  try { r = menu.getBoundingClientRect(); } catch (_r) { r = null; }
-  if (!r) return;
-  if (r.right > (window.innerWidth || r.right) - 8) {
-    menu.style.left = 'auto';
-    menu.style.right = '0';
-  }
-  var bottomRoom = (window.innerHeight || 800) - r.top - 12;
-  if (bottomRoom < r.height) {
-    menu.style.maxHeight = Math.max(160, bottomRoom) + 'px';
-  }
+  menu.style.width = Math.round(mw) + 'px';
+  menu.style.maxHeight = Math.round(maxH) + 'px';
+  menu.style.zIndex = '500';
 }
 
 function toggleCustomersFiltersMenu(forceOpen) {
@@ -134,9 +156,7 @@ function toggleCustomersFiltersMenu(forceOpen) {
     renderCustomersFiltersMenu();
     positionCustomersFiltersMenu();
   } else {
-    menu.style.left = '';
-    menu.style.right = '';
-    menu.style.maxHeight = '';
+    clearCustomersFiltersMenuPosition();
   }
 }
 
@@ -193,6 +213,7 @@ function renderCustomersFilterChips() {
 function renderCustomersFilterUI() {
   renderCustomersFiltersMenu();
   renderCustomersFilterChips();
+  if (customersFiltersMenuOpen) positionCustomersFiltersMenu();
 }
 
 function clearCustomersFilters() {
