@@ -81,7 +81,12 @@ const SELECT_FIELDS = Object.freeze([
 ]);
 const ETAG_KEY = '@odata.etag';
 const ODATA_TYPE_KEY = '@odata.type';
-const MESSAGE_ODATA_TYPE = '#microsoft.graph.message';
+const MESSAGE_ODATA_TYPES = new Set(Object.freeze([
+  '#microsoft.graph.message',
+  '#microsoft.graph.eventMessage',
+  '#microsoft.graph.eventMessageRequest',
+  '#microsoft.graph.eventMessageResponse',
+]));
 const ROW_FIELDS_WITH_ETAG = Object.freeze([...SELECT_FIELDS, ETAG_KEY]);
 const ROW_FIELDS_WITH_TYPE = Object.freeze([...SELECT_FIELDS, ODATA_TYPE_KEY]);
 const ROW_FIELDS_WITH_ETAG_AND_TYPE = Object.freeze([
@@ -876,7 +881,7 @@ function discardValidatedOdataType(row) {
   if (!Object.prototype.hasOwnProperty.call(row, ODATA_TYPE_KEY)) return row;
   if (!exactPlainData(row, ROW_FIELDS_WITH_TYPE)
       && !exactPlainData(row, ROW_FIELDS_WITH_ETAG_AND_TYPE)) return null;
-  if (ownData(row, ODATA_TYPE_KEY) !== MESSAGE_ODATA_TYPE) return null;
+  if (!MESSAGE_ODATA_TYPES.has(ownData(row, ODATA_TYPE_KEY))) return null;
   const clean = {};
   for (const field of SELECT_FIELDS) clean[field] = ownData(row, field);
   if (Object.prototype.hasOwnProperty.call(row, ETAG_KEY)) clean[ETAG_KEY] = ownData(row, ETAG_KEY);
