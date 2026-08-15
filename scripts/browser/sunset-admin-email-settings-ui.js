@@ -450,13 +450,40 @@ function adminEmailStatusPill(kind, label){
   var cls = kind === 'on' ? 'is-on' : (kind === 'soon' ? 'is-soon' : 'is-off');
   return '<span class="portal-admin-email-status ' + cls + '">' + escHtml(label) + '</span>';
 }
+function adminEmailLooksLikeAddress(raw){
+  var s = String(raw || '').trim();
+  if (!s || s.length > 320) return '';
+  if (s.indexOf('@') < 1 || s.indexOf(' ') >= 0) return '';
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return '';
+  return s;
+}
+function adminEmailLastSyncRaw(data){
+  if (!data || typeof data !== 'object') return '';
+  var keys = ['last_sync', 'last_synced_at', 'last_sync_at', 'synced_at'];
+  for (var i = 0; i < keys.length; i += 1) {
+    var v = data[keys[i]];
+    if (typeof v === 'string' && v.trim() && Number.isFinite(Date.parse(v))) return v.trim();
+  }
+  return '';
+}
+function adminEmailFormatSync(raw){
+  var ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return '';
+  try {
+    return new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch (_) {
+    return '';
+  }
+}
 function adminEmailComingCardHtml(provider, titleEn, titleEs, blurbEn, blurbEs){
-  return '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="' + escHtml(provider) + '" data-email-state="coming">' +
+  var disabledLabel = emailUiT('admin.email.notAvailableYet', 'Not available yet', 'Aún no disponible');
+  return '<section class="portal-admin-email-settings portal-admin-email-card is-disabled" data-email-provider="' + escHtml(provider) + '" data-email-state="coming">' +
     '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
     '<h3 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.' + provider, titleEn, titleEs)) + '</h3>' +
     adminEmailStatusPill('soon', emailUiT('admin.email.comingSoon', 'Coming soon', 'Próximamente')) +
     '<p class="portal-admin-email-card-copy" role="status">' + escHtml(emailUiT('admin.email.comingBlurb.' + provider, blurbEn, blurbEs)) + '</p>' +
     '<p class="portal-admin-email-card-meta">' + escHtml(emailUiT('admin.email.notConnected', 'Not connected', 'No conectado')) + '</p>' +
+    '<button type="button" class="portal-admin-email-action-btn" disabled>' + escHtml(disabledLabel) + '</button>' +
     '</section>';
 }
 function renderAdminEmailSettingsState(state, data, provider){
@@ -502,7 +529,18 @@ function renderAdminEmailSettingsState(state, data, provider){
     '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.microsoft_graph', 'Microsoft 365', 'Microsoft 365')) + '</h2>' +
     adminEmailStatusPill(pillKind, pillLabel) +
     '<p role="status">' + escHtml(portalT('admin.email.state.' + key)) + '</p>';
-  if (data && data.public_address) html += '<p class="portal-admin-email-address">' + escHtml(data.public_address) + '</p>';
+  var connectedAs = adminEmailLooksLikeAddress(data && data.public_address);
+  if (connectedAs) {
+    html += '<p class="portal-admin-email-address" data-email-connected-as>' +
+      '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.connectedAs', 'Connected as', 'Conectado como')) + '</span> ' +
+      escHtml(connectedAs) + '</p>';
+  }
+  var syncLabel = adminEmailFormatSync(adminEmailLastSyncRaw(data));
+  if (syncLabel) {
+    html += '<p class="portal-admin-email-last-sync" data-email-last-sync>' +
+      '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.lastSync', 'Last sync', 'Última sincronización')) + '</span> ' +
+      escHtml(syncLabel) + '</p>';
+  }
   // Prepare controls grouped before capability list; deterministic selectors + a11y label.
   if (hasPrepare) {
     html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(portalT('admin.email.mailboxLabel')) + '">' +
@@ -561,6 +599,23 @@ function renderAdminEmailSettingsState(state, data, provider){
   wireReauthorizeHandlers(body, data);
   wireDisconnectHandlers(body);
 }
+function adminEmailPageWrap(innerHtml){
+  return '<div class="portal-admin-email-page">' +
+    '<header class="portal-admin-email-hero">' +
+      '<h2>' + escHtml(portalT('admin.email.title')) + '</h2>' +
+      '<p>' + escHtml(emailUiT('admin.email.lead', 'Connect the mailbox Luna uses for guest email.', 'Conecta el buzón que Luna usa para el email de los huéspedes.')) + '</p>' +
+    '</header>' +
+    innerHtml +
+    '</div>';
+}
+function adminEmailComingCardsHtml(){
+  return adminEmailComingCardHtml('gmail_api', 'Gmail', 'Gmail',
+    'Gmail is not connected yet. We will turn this on when the Google mailbox is ready.',
+    'Gmail aún no está conectado. Lo activaremos cuando el buzón de Google esté listo.') +
+    adminEmailComingCardHtml('imap_smtp', 'IMAP / SMTP', 'IMAP / SMTP',
+      'IMAP and SMTP are not connected yet. No password is stored here.',
+      'IMAP y SMTP aún no están conectados. Aquí no se guarda ninguna contraseña.');
+}
 function renderAdminEmailSettingsData(data){
   var body = el('admin-email-settings-body'); if (!body) return;
   var locations = data && Array.isArray(data.locations) ? data.locations : [];
@@ -574,39 +629,41 @@ function renderAdminEmailSettingsData(data){
   view.actions=(data&&data.provider_actions&&data.provider_actions.microsoft_graph)||(data&&data.actions)||{};
   renderAdminEmailSettingsState(ep?ep.connection_state:'disconnected',view,'microsoft_graph');
   var microsoftHtml = body.innerHTML;
-  var page = '<div class="portal-admin-email-page">' +
-    '<header class="portal-admin-email-hero">' +
-      '<h2>' + escHtml(portalT('admin.email.title')) + '</h2>' +
-      '<p>' + escHtml(emailUiT('admin.email.lead', 'Connect the mailbox Luna uses for guest email.', 'Conecta el buzón que Luna usa para el email de los huéspedes.')) + '</p>' +
-    '</header>' +
-    '<div class="portal-admin-email-cards">' +
-      microsoftHtml +
-      adminEmailComingCardHtml('gmail_api', 'Gmail', 'Gmail',
-        'Gmail is not connected yet. We will turn this on when the Google mailbox is ready.',
-        'Gmail aún no está conectado. Lo activaremos cuando el buzón de Google esté listo.') +
-      adminEmailComingCardHtml('imap_smtp', 'IMAP / SMTP', 'IMAP / SMTP',
-        'IMAP and SMTP are not connected yet. No password is stored here.',
-        'IMAP y SMTP aún no están conectados. Aquí no se guarda ninguna contraseña.') +
-    '</div></div>';
-  body.innerHTML = page;
+  body.innerHTML = adminEmailPageWrap('<div class="portal-admin-email-cards">' + microsoftHtml + adminEmailComingCardsHtml() + '</div>');
   wireConnectHandlers(body,data); wireReauthorizeHandlers(body,data); wireDisconnectHandlers(body);
+}
+function renderAdminEmailLoadFail(){
+  var body = el('admin-email-settings-body');
+  if (!body) return;
+  cancelAdminEmailReauthorization();
+  var fail = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-state="error">' +
+    '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.loadFailTitle', 'Couldn’t load mailboxes', 'No se pudieron cargar los buzones')) + '</h2>' +
+    '<p role="status">' + escHtml(emailUiT('admin.email.loadFailBody', 'Check your connection and try again. Nothing was changed.', 'Comprueba la conexión e inténtalo de nuevo. No se ha cambiado nada.')) + '</p>' +
+    '<button type="button" class="portal-admin-email-action-btn" data-email-retry="1">' +
+      escHtml(emailUiT('admin.email.retry', 'Try again', 'Reintentar')) + '</button>' +
+    '</section>';
+  body.innerHTML = adminEmailPageWrap('<div class="portal-admin-email-cards">' + fail + adminEmailComingCardsHtml() + '</div>');
+  var retry = body.querySelector ? body.querySelector('[data-email-retry]') : null;
+  if (retry) retry.addEventListener('click', function(){ loadAdminEmailSettings(); });
 }
 function loadAdminEmailSettings(){
   var body = el('admin-email-settings-body');
   if (!body) return;
-  // Panel reload / re-entry: abort any pending reauth before new load.
   cancelAdminEmailReauthorization();
   var seq = ++adminEmailSettingsLoadSeq;
   var client = getClient();
   if (client !== 'sunset') { renderAdminEmailSettingsState('unavailable'); return; }
-  body.innerHTML = '<p role="status" data-email-state="loading">' + escHtml(portalT('admin.email.state.loading')) + '</p>';
+  body.innerHTML = adminEmailPageWrap(
+    '<p class="portal-admin-email-loading" role="status" data-email-state="loading">' +
+      escHtml(emailUiT('admin.email.state.loading', 'Loading email status…', 'Cargando estado del email…')) + '</p>'
+  );
   fetch('/staff/admin/email-settings?client=sunset', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
     .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('unavailable')); })
     .then(function(data){
       if (seq !== adminEmailSettingsLoadSeq || getClient() !== 'sunset') return;
       renderAdminEmailSettingsData(data);
     })
-    .catch(function(){ if (seq === adminEmailSettingsLoadSeq) renderAdminEmailSettingsState('error'); });
+    .catch(function(){ if (seq === adminEmailSettingsLoadSeq) renderAdminEmailLoadFail(); });
 }
 
 /* Narrow production exposure: tab/client navigation outside nested scopes + verifiers. */
