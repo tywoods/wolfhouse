@@ -438,14 +438,35 @@ function wireDisconnectHandlers(body){
   });
   })(sections[s]);
 }
+function emailUiT(key, en, es){
+  var raw = '';
+  try { raw = String((typeof portalT === 'function' && portalT(key)) || ''); } catch (_) { raw = ''; }
+  if (raw && raw !== key && raw.indexOf('admin.email.') !== 0) return raw;
+  var lang = '';
+  try { lang = String((typeof portalLang === 'string' && portalLang) || ''); } catch (_) { lang = ''; }
+  return lang.toLowerCase().indexOf('es') === 0 ? es : en;
+}
+function adminEmailStatusPill(kind, label){
+  var cls = kind === 'on' ? 'is-on' : (kind === 'soon' ? 'is-soon' : 'is-off');
+  return '<span class="portal-admin-email-status ' + cls + '">' + escHtml(label) + '</span>';
+}
+function adminEmailComingCardHtml(provider, titleEn, titleEs, blurbEn, blurbEs){
+  return '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="' + escHtml(provider) + '" data-email-state="coming">' +
+    '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
+    '<h3 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.' + provider, titleEn, titleEs)) + '</h3>' +
+    adminEmailStatusPill('soon', emailUiT('admin.email.comingSoon', 'Coming soon', 'Próximamente')) +
+    '<p class="portal-admin-email-card-copy" role="status">' + escHtml(emailUiT('admin.email.comingBlurb.' + provider, blurbEn, blurbEs)) + '</p>' +
+    '<p class="portal-admin-email-card-meta">' + escHtml(emailUiT('admin.email.notConnected', 'Not connected', 'No conectado')) + '</p>' +
+    '</section>';
+}
 function renderAdminEmailSettingsState(state, data, provider){
   var body = el('admin-email-settings-body');
   if (!body) return;
   // Re-render invalidates any pending reauth (origin body/button will detach).
   cancelAdminEmailReauthorization();
   var key = adminEmailStateKey(state);
-  provider = provider || 'microsoft_graph';
-  var providerLabel = provider === 'gmail_api' ? 'Google' : 'Microsoft';
+  provider = 'microsoft_graph';
+  var providerLabel = 'Microsoft';
   var actions = data && data.actions ? data.actions : null;
   var hasPrepare = !!(actions && actions.prepare === true && data.location_id);
   var hasConnect = !!(actions && actions.connect === true && data.location_id && data.endpoint_id);
@@ -470,8 +491,16 @@ function renderAdminEmailSettingsState(state, data, provider){
     hasConnect = false;
   }
   var hasAnyAction = hasPrepare || hasConnect || disconnectAllowed || hasReauthorize;
-  var html = '<section class="portal-admin-email-settings" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '">' +
-    '<h2>' + escHtml(portalT('admin.email.title')) + '</h2>' +
+  var pillKind = key === 'connected_health' ? 'on' : (key === 'reauth_required' ? 'soon' : 'off');
+  var pillLabel = key === 'connected_health'
+    ? emailUiT('admin.email.connected', 'Connected', 'Conectado')
+    : (key === 'reauth_required'
+      ? emailUiT('admin.email.needsAttention', 'Needs attention', 'Necesita atención')
+      : emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
+  var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '">' +
+    '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
+    '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.microsoft_graph', 'Microsoft 365', 'Microsoft 365')) + '</h2>' +
+    adminEmailStatusPill(pillKind, pillLabel) +
     '<p role="status">' + escHtml(portalT('admin.email.state.' + key)) + '</p>';
   if (data && data.public_address) html += '<p class="portal-admin-email-address">' + escHtml(data.public_address) + '</p>';
   // Prepare controls grouped before capability list; deterministic selectors + a11y label.
@@ -538,18 +567,28 @@ function renderAdminEmailSettingsData(data){
   var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
   var active = '', i;
   for (i=0;i<locations.length;i+=1) if(locations[i]&&locations[i].active===true){active=locations[i].location_id||'';break;}
-  var providers=['microsoft_graph','gmail_api'], combined='';
-  for(var p=0;p<providers.length;p+=1){
-    var provider=providers[p], ep=null;
-    for(i=0;i<endpoints.length;i+=1)if(endpoints[i]&&endpoints[i].provider===provider&&(!active||endpoints[i].location_id===active)){ep=endpoints[i];break;}
-    var view={ location_id:active };
-    if(ep)for(var k in ep)if(Object.prototype.hasOwnProperty.call(ep,k))view[k]=ep[k];
-    view.actions=data&&data.provider_actions&&data.provider_actions[provider]
-      ||(provider==='microsoft_graph'&&data&&data.actions)||{};
-    renderAdminEmailSettingsState(ep?ep.connection_state:'disconnected',view,provider);
-    combined+=body.innerHTML;
-  }
-  body.innerHTML=combined;
+  var ep=null;
+  for(i=0;i<endpoints.length;i+=1)if(endpoints[i]&&endpoints[i].provider==='microsoft_graph'&&(!active||endpoints[i].location_id===active)){ep=endpoints[i];break;}
+  var view={ location_id:active };
+  if(ep)for(var k in ep)if(Object.prototype.hasOwnProperty.call(ep,k))view[k]=ep[k];
+  view.actions=(data&&data.provider_actions&&data.provider_actions.microsoft_graph)||(data&&data.actions)||{};
+  renderAdminEmailSettingsState(ep?ep.connection_state:'disconnected',view,'microsoft_graph');
+  var microsoftHtml = body.innerHTML;
+  var page = '<div class="portal-admin-email-page">' +
+    '<header class="portal-admin-email-hero">' +
+      '<h2>' + escHtml(portalT('admin.email.title')) + '</h2>' +
+      '<p>' + escHtml(emailUiT('admin.email.lead', 'Connect the mailbox Luna uses for guest email.', 'Conecta el buzón que Luna usa para el email de los huéspedes.')) + '</p>' +
+    '</header>' +
+    '<div class="portal-admin-email-cards">' +
+      microsoftHtml +
+      adminEmailComingCardHtml('gmail_api', 'Gmail', 'Gmail',
+        'Gmail is not connected yet. We will turn this on when the Google mailbox is ready.',
+        'Gmail aún no está conectado. Lo activaremos cuando el buzón de Google esté listo.') +
+      adminEmailComingCardHtml('imap_smtp', 'IMAP / SMTP', 'IMAP / SMTP',
+        'IMAP and SMTP are not connected yet. No password is stored here.',
+        'IMAP y SMTP aún no están conectados. Aquí no se guarda ninguna contraseña.') +
+    '</div></div>';
+  body.innerHTML = page;
   wireConnectHandlers(body,data); wireReauthorizeHandlers(body,data); wireDisconnectHandlers(body);
 }
 function loadAdminEmailSettings(){

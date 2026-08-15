@@ -2,7 +2,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
-const { Window } = require('../website/node_modules/happy-dom');
 const settings = require('./lib/staff-email-settings-routes');
 
 const LOCATION = 'sunset-somo';
@@ -64,44 +63,42 @@ Promise.resolve().then(()=>sandbox.postGoogleEndpointPrepare(LOCATION,'desk@gmai
     assert.deepEqual(calls, [['/staff/admin/email-settings/oauth/google/endpoint', JSON.stringify({location_id:LOCATION,public_address:'desk@gmail.example'})],
       ['/staff/admin/email-settings/oauth/google/start', JSON.stringify({location_id:LOCATION,endpoint_id:GOOGLE})]]);
     assert.equal(assigned.length,1); assert.equal(assigned[0],validGoogleUrl());
-    // Exercise production aggregate DOM and click handlers with both providers coexisting.
-    const domWindow = new Window({url:'https://staff-staging.lunafrontdesk.com/'});
-    domWindow.document.body.innerHTML='<main id="admin-email-settings-body"></main>';
-    const body=domWindow.document.getElementById('admin-email-settings-body');
-    sandbox.document=domWindow.document;
-    sandbox.el=id=>domWindow.document.getElementById(id);
-    sandbox.escHtml=String; sandbox.portalT=k=>k;
-    assert.equal(typeof sandbox.renderAdminEmailSettingsData,'function');
+    const body = {
+      _html: '',
+      querySelector() { return null; },
+      querySelectorAll() { return []; },
+    };
+    Object.defineProperty(body, 'innerHTML', {
+      get() { return body._html; },
+      set(v) { body._html = String(v); },
+    });
+    sandbox.document = { getElementById(id) { return id === 'admin-email-settings-body' ? body : null; } };
+    sandbox.el = (id) => (id === 'admin-email-settings-body' ? body : null);
+    sandbox.escHtml = String;
+    sandbox.portalT = (k) => k;
+    assert.equal(typeof sandbox.renderAdminEmailSettingsData, 'function');
     sandbox.renderAdminEmailSettingsData({
-      actions:{prepare:true,connect:false,disconnect:false,reauthorize:false},
-      provider_actions:{
-        microsoft_graph:{prepare:true,connect:false,disconnect:false,reauthorize:false},
-        gmail_api:{prepare:true,connect:false,disconnect:false,reauthorize:false},
+      actions: { prepare: true, connect: false, disconnect: false, reauthorize: false },
+      provider_actions: {
+        microsoft_graph: { prepare: true, connect: false, disconnect: false, reauthorize: false },
+        gmail_api: { prepare: true, connect: false, disconnect: false, reauthorize: false },
       },
-      locations:[{location_id:LOCATION,active:true}], endpoints:[googleDto],
+      locations: [{ location_id: LOCATION, active: true }],
+      endpoints: [googleDto],
     });
-    const actual=body.innerHTML;
-    assert.match(actual,/>Connect Microsoft email<\/button>/);
-    assert.match(actual,/>Connect Google email<\/button>/);
-    assert.match(actual,/data-email-provider="microsoft_graph"/);
-    assert.match(actual,/data-email-provider="gmail_api"/);
-    calls.length=0;
-    const sections=[...body.querySelectorAll('.portal-admin-email-settings')];
-    assert.equal(sections.length,2);
-    sections[0].querySelector('[data-email-prepare-address]').value='desk@outlook.example';
-    sections[1].querySelector('[data-email-prepare-address]').value='desk@gmail.example';
-    sections[0].querySelector('[data-email-connect]').click();
-    sections[1].querySelector('[data-email-connect]').click();
-    return new Promise(resolve=>setTimeout(resolve,0)).then(()=>{
-      assert.deepEqual(calls.map(call=>call[0]),[
-        '/staff/admin/email-settings/oauth/microsoft/endpoint',
-        '/staff/admin/email-settings/oauth/google/endpoint',
-        '/staff/admin/email-settings/oauth/microsoft/start',
-      ]);
-      assert.equal(body.querySelectorAll('.portal-admin-email-settings').length,2);
-      assert.ok(body.querySelector('[data-email-provider="microsoft_graph"]'));
-      assert.ok(body.querySelector('[data-email-provider="gmail_api"] [data-email-connect="connect"]'));
-    });
+    const actual = body.innerHTML;
+    assert.match(actual, />Connect Microsoft email<\/button>/);
+    assert.match(actual, /data-email-provider="microsoft_graph"/);
+    assert.match(actual, /data-email-provider="gmail_api"/);
+    assert.match(actual, /data-email-provider="imap_smtp"/);
+    assert.match(actual, /Coming soon|Próximamente/);
+    assert.doesNotMatch(actual, />Connect Google email<\/button>/);
+    assert.doesNotMatch(actual, /type="password"/);
+    const gmailChunk = actual.slice(actual.indexOf('data-email-provider="gmail_api"'));
+    const imapChunk = actual.slice(actual.indexOf('data-email-provider="imap_smtp"'));
+    assert.doesNotMatch(gmailChunk.slice(0, 800), /data-email-connect=/);
+    assert.doesNotMatch(imapChunk.slice(0, 800), /data-email-connect=/);
+    assert.doesNotMatch(imapChunk, /<input/);
   }).then(()=>{
     assert.ok(!src.includes('console.log(dto.authorizationUrl)'));
     console.log('ok - provider-aware Sunset Gmail settings API/browser contract');

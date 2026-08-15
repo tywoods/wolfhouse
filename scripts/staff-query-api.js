@@ -17254,6 +17254,21 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-settings .portal-admin-email-reauth-safety,
 .portal-admin-email-settings .portal-admin-email-disconnect-safety,
 .portal-admin-email-settings .portal-admin-email-connect-safety{margin:8px 0 12px;color:var(--text-2);font-size:13px;line-height:1.45}
+.portal-admin-email-page{max-width:1100px}
+.portal-admin-email-hero h2{margin:0 0 6px;font-size:22px;font-weight:650;letter-spacing:-.02em}
+.portal-admin-email-hero p{margin:0 0 18px;color:var(--text-2);font-size:14px;line-height:1.5}
+.portal-admin-email-cards{display:grid;grid-template-columns:1fr;gap:14px}
+@media(min-width:900px){.portal-admin-email-cards{grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}}
+.portal-admin-email-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft);min-width:0;display:flex;flex-direction:column;gap:10px}
+.portal-admin-email-card-kicker{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:650}
+.portal-admin-email-card-title{margin:0;font-size:18px;font-weight:650;letter-spacing:-.02em}
+.portal-admin-email-card-copy,.portal-admin-email-card-meta{margin:0;color:var(--text-2);font-size:13px;line-height:1.45}
+.portal-admin-email-card-meta{margin-top:auto}
+.portal-admin-email-status{display:inline-flex;align-items:center;width:max-content;font-size:12px;font-weight:650;padding:4px 10px;border-radius:999px}
+.portal-admin-email-status.is-on{background:#E4F0E8;color:#2F6B45}
+.portal-admin-email-status.is-off{background:var(--surface-soft);color:var(--text-2)}
+.portal-admin-email-status.is-soon{background:#F3EDE4;color:#8A6A3B}
+.portal-admin-email-address{margin:0;font-size:14px;font-weight:600;word-break:break-word}
 .portal-admin-finance-shell{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft)}
 .portal-admin-finance-shell p{margin:0;font-size:14px;line-height:1.5;color:var(--text-2)}
 .portal-admin-finance{display:flex;flex-direction:column;gap:14px;max-width:100%}
