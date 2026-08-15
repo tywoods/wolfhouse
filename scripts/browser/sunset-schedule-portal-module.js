@@ -1495,6 +1495,9 @@ function schedulePortalHasSellableIntent(payload) {
     || (Array.isArray(p.rentals) && p.rentals.length) || hasAccommodation);
 }
 
+/** Staff Create guest/surfer ceiling (matches #ps-create-surfers max). Equipment qty stays 1–99. */
+var SCHEDULE_CREATE_GUEST_MAX = 24;
+
 /** Staff Create phone: nonblank + at least 6 digits (matches server isValidStaffCreateGuestPhone). */
 function schedulePortalIsValidCreatePhone(raw) {
   var phone = raw != null ? String(raw).trim() : '';
@@ -1505,10 +1508,24 @@ function schedulePortalIsValidCreatePhone(raw) {
   return digits.length >= 6;
 }
 
+/**
+ * Strip letters and other junk from the Create phone field.
+ * Does not invent digits — only removes characters that cannot be part of a phone.
+ */
+function schedulePortalSanitizeCreatePhoneField(node) {
+  if (!node) return '';
+  var raw = node.value != null ? String(node.value) : '';
+  var cleaned = raw.replace(/[A-Za-z]/g, '').replace(/[^0-9+\s().-]/g, '');
+  if (cleaned.length > 40) cleaned = cleaned.slice(0, 40);
+  if (cleaned !== raw) node.value = cleaned;
+  return cleaned;
+}
+
 function scheduleCreateCourseGuestCap() {
+  var hardMax = typeof SCHEDULE_CREATE_GUEST_MAX === 'number' ? SCHEDULE_CREATE_GUEST_MAX : 24;
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
-  if (!courseOn) return 99;
-  var cap = 24;
+  if (!courseOn) return hardMax;
+  var cap = hardMax;
   try {
     var list = el('ps-create-course-list');
     var pressed = list && list.querySelector
@@ -1518,8 +1535,8 @@ function scheduleCreateCourseGuestCap() {
       || pressed.getAttribute('data-seats-remaining')
       || pressed.getAttribute('data-group-size'));
     var n = parseInt(raw, 10);
-    if (Number.isInteger(n) && n > 0 && n <= 99) cap = n;
-  } catch (_c) { /* keep 24 */ }
+    if (Number.isInteger(n) && n > 0 && n <= hardMax) cap = n;
+  } catch (_c) { /* keep hardMax */ }
   return cap;
 }
 
@@ -1581,14 +1598,18 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     var phone = p.guest_phone != null ? String(p.guest_phone).trim() : '';
     if (!schedulePortalIsValidCreatePhone(phone)) return fail('schedule.create.phoneRequired');
   }
-  if (comps.course) {
-    var guestQty = null;
-    if (comps.course.quantity != null) guestQty = Number(comps.course.quantity);
-    if (!Number.isFinite(guestQty) && p.surfer_count != null) guestQty = Number(p.surfer_count);
-    var courseCap = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 24;
-    if (Number.isFinite(guestQty) && guestQty > courseCap) {
-      return fail('schedule.create.quoteFailed', { overCapacity: true, capacity: courseCap });
-    }
+  var guestHardMax = typeof SCHEDULE_CREATE_GUEST_MAX === 'number' ? SCHEDULE_CREATE_GUEST_MAX : 24;
+  var guestCap = typeof scheduleCreateCourseGuestCap === 'function'
+    ? scheduleCreateCourseGuestCap()
+    : guestHardMax;
+  if (!(Number.isFinite(guestCap) && guestCap > 0)) guestCap = guestHardMax;
+  var guestQtyCheck = null;
+  if (comps.course && comps.course.quantity != null) guestQtyCheck = Number(comps.course.quantity);
+  else if (comps.private_lesson && comps.private_lesson.surfer_count != null) {
+    guestQtyCheck = Number(comps.private_lesson.surfer_count);
+  } else if (p.surfer_count != null) guestQtyCheck = Number(p.surfer_count);
+  if (Number.isFinite(guestQtyCheck) && guestQtyCheck > guestCap) {
+    return fail('schedule.create.quoteFailed', { overCapacity: true, capacity: guestCap });
   }
   // D4: Group Course on with no course picked.
   // Hard create → block with clear message. Soft quote → allow rentals to price
@@ -1689,6 +1710,9 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     } catch (_s) { /* ignore */ }
     if (!(Number.isFinite(sn) && Math.floor(sn) === sn && sn >= 1)) {
       return fail('schedule.create.surfersRequired');
+    }
+    if (sn > guestCap) {
+      return fail('schedule.create.quoteFailed', { overCapacity: true, capacity: guestCap });
     }
   }
 
@@ -2053,11 +2077,19 @@ function schedulePortalSyncCreateSubmitEnabled() {
     courseOk = !!schedulePortalGetSelectedCreateCourseId();
   }
   var overCap = false;
-  if (el('ps-create-comp-course') && el('ps-create-comp-course').checked) {
-    var guestN = typeof scheduleReadCreateSurferCount === 'function' ? scheduleReadCreateSurferCount() : null;
-    var capN = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 24;
-    if (guestN != null && guestN > capN) overCap = true;
-  }
+  var guestN = typeof scheduleReadCreateSurferCount === 'function' ? scheduleReadCreateSurferCount() : null;
+  var capN = typeof scheduleCreateCourseGuestCap === 'function'
+    ? scheduleCreateCourseGuestCap()
+    : (typeof SCHEDULE_CREATE_GUEST_MAX === 'number' ? SCHEDULE_CREATE_GUEST_MAX : 24);
+  // Read path already clamps; raw input can still exceed max before blur.
+  try {
+    var surfRaw = el('ps-create-surfers') ? el('ps-create-surfers').value : '';
+    if (surfRaw !== '' && surfRaw != null) {
+      var surfParsed = parseInt(String(surfRaw), 10);
+      if (Number.isInteger(surfParsed) && surfParsed > capN) overCap = true;
+    }
+  } catch (_oc) { /* ignore */ }
+  if (guestN != null && guestN > capN) overCap = true;
   // Live date inputs: past / inverted / non-canonical ranges block Create even before soft quote paint.
   var dateBlocked = false;
   var dfNode = el('ps-create-date-from');
@@ -2103,6 +2135,9 @@ function schedulePortalWireCreateFooter() {
     var node = el(pair[0]); if (!node || node.dataset.footerWired === '1') return;
     node.dataset.footerWired = '1';
     var fire = function() {
+      if (pair[0] === 'ps-create-phone' && typeof schedulePortalSanitizeCreatePhoneField === 'function') {
+        schedulePortalSanitizeCreatePhoneField(node);
+      }
       schedulePortalRenderCreateIntentSummary();
       schedulePortalSyncCreateSubmitEnabled();
     };
