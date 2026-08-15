@@ -10,6 +10,8 @@ const {
   FAILURE_CODE,
   SUNSET_DEPLOYMENT,
   createMicrosoftRefreshTokenRequestService,
+  REFRESH_TOKEN_REQUEST_INTERNAL_STAGES,
+  readTrustedMicrosoftRefreshTokenRequestStage,
 } = require('./lib/email-microsoft-refresh-token-request');
 
 const CLIENT_ID = '12345678-1234-4234-8234-123456789abc';
@@ -39,7 +41,7 @@ function successResponse() {
       expires_in: 3600,
       access_token: PLANTED_AT,
       refresh_token: 'rt-rotated-NEVER_LEAK',
-      scope: 'openid profile User.Read Mail.ReadBasic',
+      scope: 'openid profile User.Read Mail.ReadWrite Mail.Send',
     }),
   });
 }
@@ -97,10 +99,20 @@ async function main() {
     assert.equal(phaseB.kind, 'success');
     assert.equal(phaseB.selected.scope.includes('Mail.ReadWrite'), true);
 
-    // Phase A scope_version + Phase B body stays uncertain.
+    // Phase A scope_version + legacy ReadBasic body stays uncertain.
     const cross = await createMicrosoftRefreshTokenRequestService(deps(
       frozenMethod('getClientSecret', async () => SECRET),
-      frozenMethod('postTokenForm', async () => phaseBBody),
+      frozenMethod('postTokenForm', async () => Object.freeze({
+        statusCode: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          token_type: 'Bearer',
+          expires_in: 3600,
+          access_token: PLANTED_AT,
+          refresh_token: 'rt-rotated-NEVER_LEAK',
+          scope: 'openid profile User.Read Mail.ReadBasic',
+        }),
+      })),
     )).exchangeRefreshToken(input({ scopeVersion: 'phase_a_v2' }));
     assert.equal(cross.kind, 'uncertain');
 
@@ -169,7 +181,60 @@ async function main() {
     await mustFail(() => single.exchangeRefreshToken(input()));
 
     assert.ok(REQUEST_LIMIT_BYTES > 0);
-    assert.deepEqual(logged, []);
+    assert.deepEqual([...REFRESH_TOKEN_REQUEST_INTERNAL_STAGES], ['secret', 'token', 'response']);
+    assert.equal(typeof readTrustedMicrosoftRefreshTokenRequestStage, 'function');
+    assert.equal(
+      readTrustedMicrosoftRefreshTokenRequestStage(Object.freeze({
+        code: FAILURE_CODE,
+        stage: 'secret',
+        message: 'NEVER_LEAK',
+      })),
+      null,
+    );
+
+    async function mustFailAt(action, stage) {
+      let thrown = null;
+      try {
+        await action();
+      } catch (error) {
+        thrown = error;
+      }
+      assert.ok(thrown);
+      assert.equal(thrown.code, FAILURE_CODE);
+      assert.equal(thrown.message, FAILURE_CODE);
+      assert.equal(String(thrown).includes('NEVER_LEAK'), false);
+      const note = readTrustedMicrosoftRefreshTokenRequestStage(thrown);
+      assert.ok(note);
+      assert.equal(note.stage, stage);
+      assert.equal(note.code, stage);
+      assert.deepEqual(Reflect.ownKeys(note), ['stage', 'code']);
+      assert.equal(Object.isFrozen(note), true);
+    }
+
+    await mustFailAt(() => createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => { throw new Error('NEVER_LEAK'); }),
+      frozenMethod('postTokenForm', async () => successResponse()),
+    )).exchangeRefreshToken(input()), 'secret');
+
+    await mustFailAt(() => createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => ''),
+      frozenMethod('postTokenForm', async () => successResponse()),
+    )).exchangeRefreshToken(input()), 'secret');
+
+    await mustFailAt(() => createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => SECRET),
+      frozenMethod('postTokenForm', async () => { throw new Error('NEVER_LEAK'); }),
+    )).exchangeRefreshToken(input()), 'token');
+
+    await mustFailAt(() => createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => SECRET),
+      frozenMethod('postTokenForm', async () => successResponse()),
+    )).exchangeRefreshToken({ refreshToken: '', scopeVersion: 'phase_a_v2' }), 'token');
+
+    assert.deepEqual(
+      logged.filter((entry) => !String(entry).includes('NO_COLOR')),
+      [],
+    );
   } finally {
     console.log = log;
     console.error = error;

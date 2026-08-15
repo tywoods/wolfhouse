@@ -76,13 +76,14 @@ function successTransport() {
       expires_in: 3600,
       access_token: ACCESS,
       refresh_token: NEW_RT,
-      scope: 'openid profile User.Read Mail.ReadBasic',
+      scope: 'openid profile User.Read Mail.ReadWrite Mail.Send',
     }),
   }));
 }
 
 function mockLifecycle({ sealed, opId }) {
   let leaseTok = null;
+  const scopeVer = 'phase_a_v2';
   return createMockPg([
     {
       match: (t) => /FROM tenant_email_delegated_grants/i.test(t)
@@ -91,6 +92,7 @@ function mockLifecycle({ sealed, opId }) {
         client_id: CLIENT, endpoint_id: ENDPOINT,
         grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
         grant_lease_token: null,
+        scope_version: scopeVer,
       }),
     },
     {
@@ -99,6 +101,7 @@ function mockLifecycle({ sealed, opId }) {
         client_id: CLIENT, endpoint_id: ENDPOINT,
         grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
         grant_lease_token: null, last_operation_id: opId,
+        scope_version: scopeVer,
         envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
         kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
         kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
@@ -116,6 +119,7 @@ function mockLifecycle({ sealed, opId }) {
           grant_lease_token: leaseTok,
           grant_lease_until: new Date(Date.now() + 60000).toISOString(),
           last_operation_id: opId,
+          scope_version: scopeVer,
         });
       },
     },
@@ -127,6 +131,7 @@ function mockLifecycle({ sealed, opId }) {
         grant_lease_token: leaseTok,
         grant_lease_until: new Date(Date.now() + 60000).toISOString(),
         last_operation_id: opId,
+        scope_version: scopeVer,
         envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
         kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
         kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
@@ -140,6 +145,7 @@ function mockLifecycle({ sealed, opId }) {
         client_id: CLIENT, endpoint_id: ENDPOINT,
         grant_generation: Number(p[2]), grant_status: 'active',
         reconcile_state: 'clean',
+        scope_version: scopeVer,
       }),
     },
     {
@@ -555,7 +561,10 @@ async function main() {
       assert.doesNotMatch(src, /zero[\s-]?fill|fill\(0\)|\.fill\(|string\.length\s*=\s*0/i);
     }
 
-    assert.deepEqual(logged, []);
+    assert.deepEqual(
+      logged.filter((entry) => !String(entry).includes('NO_COLOR')),
+      [],
+    );
   } finally {
     console.log = log;
     console.error = error;

@@ -5,7 +5,10 @@ const { createSunsetMicrosoftOAuthClientSecretProvider } = require('./sunset-mic
 const { createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition } = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
 const{validateEmailGrantEnvelopeProvider}=require('./email-grant-envelope-provider-contract');
 const { createMicrosoftTokenHttpTransport } = require('./email-microsoft-token-http-transport');
-const { createDelegatedGrantAccessSession } = require('./email-delegated-grant-access-session');
+const {
+  createDelegatedGrantAccessSession,
+  readTrustedDelegatedGrantAccessSessionInternalStage,
+} = require('./email-delegated-grant-access-session');
 const { createMicrosoftGraphMessagesDeltaPageTransport } = require('./email-microsoft-graph-messages-delta-page-transport');
 const {
   createAuthorityBoundMessagesDeltaPageOperation,
@@ -37,7 +40,21 @@ function observeGrantSessionFactory(createGrantSession,sink){
   const session=createGrantSession();
   const run=session&&session.runWithAccessTokenOnce;
   if(typeof run!=='function')return session;
-  return Object.freeze({runWithAccessTokenOnce:async(input,cb)=>{const out=await run.call(session,input,cb);try{if(out&&out.ok!==true)sink.recordFromGrantStatus(out.status);}catch(_err){/* never throw */}return out;}});
+  return Object.freeze({runWithAccessTokenOnce:async(input,cb)=>{
+   try{
+    const out=await run.call(session,input,cb);
+    try{
+     if(out&&out.ok!==true){
+      sink.recordFromTrustedGrantSessionResult(out,readTrustedDelegatedGrantAccessSessionInternalStage);
+      sink.recordFromGrantStatus(out.status);
+     }
+    }catch(_err){/* never throw */}
+    return out;
+   }catch(err){
+    try{sink.recordFromTrustedGrantSessionResult(err,readTrustedDelegatedGrantAccessSessionInternalStage);}catch(_err){/* never throw */}
+    throw err;
+   }
+  }});
  };
 }
 function observeTransport(transport,sink){

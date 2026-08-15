@@ -29,6 +29,9 @@ const {
   STATUS_UNCERTAIN,
   STATUS_UNAVAILABLE,
   EMAIL_DELEGATED_GRANT_ACCESS_SESSION_RUNTIME_WIRED,
+  DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES,
+  readTrustedDelegatedGrantAccessSessionInternalStage,
+  bindTrustedDelegatedGrantAccessSessionInternalStageObserver,
 } = require('./lib/email-delegated-grant-access-session');
 
 const ROOT = path.join(__dirname, '..');
@@ -76,8 +79,9 @@ function createMockPg(handlers) {
 
 function frozenMethod(name, fn) { return Object.freeze({ [name]: fn }); }
 
-const PHASE_A_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadBasic';
+const PHASE_A_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadWrite Mail.Send';
 const PHASE_B_TOKEN_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
+const LEGACY_READBASIC_SCOPE = 'openid profile User.Read Mail.ReadBasic';
 const MIXED_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadBasic Mail.ReadWrite Mail.Send';
 
 function successTransport(bodyPatch = {}) {
@@ -107,7 +111,7 @@ function omitRefreshTransport() {
       token_type: 'Bearer',
       expires_in: 3600,
       access_token: ACCESS,
-      scope: 'openid profile User.Read Mail.ReadBasic',
+      scope: PHASE_A_TOKEN_SCOPE,
     }),
   }));
 }
@@ -121,9 +125,13 @@ function emptyRefreshTransport() {
       expires_in: 3600,
       access_token: ACCESS,
       refresh_token: '',
-      scope: 'openid profile User.Read Mail.ReadBasic',
+      scope: PHASE_A_TOKEN_SCOPE,
     }),
   }));
+}
+
+function legacyReadBasicTransport() {
+  return successTransport({ scope: LEGACY_READBASIC_SCOPE });
 }
 
 function invalidGrantTransport() {
@@ -146,7 +154,7 @@ function uncertainTransport() {
 }
 
 function mockGrantLifecycle({
-  sealed, opId, onCommit, failCommit, priorStatus, noGrant, scopeVersion,
+  sealed, opId, onCommit, failCommit, priorStatus, noGrant, scopeVersion, failLease,
 }) {
   let leaseTok = null;
   // Default Phase A custody version for existing happy paths. Phase B RED/GREEN
@@ -183,6 +191,7 @@ function mockGrantLifecycle({
     {
       match: (t) => /SET grant_status='lease_held'/i.test(t),
       run: (_t, p) => {
+        if (failLease) return empty();
         leaseTok = p[3];
         return rows({
           client_id: CLIENT, endpoint_id: ENDPOINT,
@@ -300,6 +309,12 @@ async function main() {
     assert.equal(STATUS_REAUTH, 'reauthorization_required');
     assert.equal(STATUS_UNCERTAIN, 'uncertain');
     assert.equal(STATUS_UNAVAILABLE, 'unavailable');
+    assert.deepEqual([...DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES], [
+      'status', 'lease', 'open', 'secret', 'token', 'response',
+      'dead_grant', 'reseal', 'commit', 'release',
+    ]);
+    assert.equal(typeof readTrustedDelegatedGrantAccessSessionInternalStage, 'function');
+    assert.equal(typeof bindTrustedDelegatedGrantAccessSessionInternalStageObserver, 'function');
 
     const src = fs.readFileSync(path.join(ROOT, MOD_REL), 'utf8');
     assert.match(src, /runWithAccessTokenOnce/);
@@ -818,7 +833,7 @@ async function main() {
       assert.equal(noLeak(out), true);
     }
 
-    // Phase A grant + Phase B scopes stays uncertain (do not broaden Phase A).
+    // Phase A grant + legacy ReadBasic stays uncertain (do not accept Mail.ReadBasic).
     {
       const fake = createFakeEmailGrantEnvelopeProvider();
       const op = crypto.randomUUID();
@@ -830,7 +845,7 @@ async function main() {
       const out = await createDelegatedGrantAccessSession(baseDeps({
         client: mockGrantLifecycle({ sealed, opId: op, scopeVersion: 'phase_a_v2' }),
         envelopeProvider: fake,
-        transport: phaseBSuccessTransport(),
+        transport: legacyReadBasicTransport(),
       })).runWithAccessTokenOnce(
         Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
         async () => { cbCalls += 1; return 'nope'; },
@@ -841,7 +856,7 @@ async function main() {
       assert.equal(noLeak(out), true);
     }
 
-    // Phase B grant + Phase A scopes → uncertain (no mixed policy).
+    // Phase B grant + legacy ReadBasic → uncertain (no mixed/legacy policy).
     {
       const fake = createFakeEmailGrantEnvelopeProvider();
       const op = crypto.randomUUID();
@@ -853,7 +868,7 @@ async function main() {
       const out = await createDelegatedGrantAccessSession(baseDeps({
         client: mockGrantLifecycle({ sealed, opId: op, scopeVersion: 'phase_b_v1' }),
         envelopeProvider: fake,
-        transport: successTransport(),
+        transport: legacyReadBasicTransport(),
       })).runWithAccessTokenOnce(
         Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
         async () => { cbCalls += 1; return 'nope'; },
@@ -915,7 +930,325 @@ async function main() {
       assert.doesNotMatch(src, /process\.env\.LUNA_EMAIL|window\.|localStorage/);
     }
 
-    assert.deepEqual(logged, []);
+    function assertPublicSessionFail(out, status, generation) {
+      assert.equal(out.ok, false);
+      assert.equal(out.status, status);
+      if (generation !== undefined) assert.equal(out.grant_generation, generation);
+      assert.deepEqual(Reflect.ownKeys(out), ['ok', 'status', 'grant_generation']);
+      assert.equal(Object.isFrozen(out), true);
+      assert.equal(noLeak(out), true);
+    }
+
+    function assertTrustedSessionStage(target, stage) {
+      const note = readTrustedDelegatedGrantAccessSessionInternalStage(target);
+      assert.ok(note, `expected trusted stage ${stage}`);
+      assert.equal(note.stage, stage);
+      assert.equal(note.code, stage);
+      assert.deepEqual(Reflect.ownKeys(note), ['stage', 'code']);
+      assert.equal(Object.isFrozen(note), true);
+      assert.equal(noLeak(note), true);
+    }
+
+    // ── Closed-enum internal stage diagnostics (fail-site branding) ──
+    {
+      const forged = Object.freeze({
+        ok: false,
+        status: STATUS_UNAVAILABLE,
+        grant_generation: 1,
+        stage: 'open',
+        code: 'open',
+        message: PLANTED,
+        refresh_token: PLANTED,
+      });
+      assert.equal(readTrustedDelegatedGrantAccessSessionInternalStage(forged), null);
+      assert.equal(readTrustedDelegatedGrantAccessSessionInternalStage(new Error(PLANTED)), null);
+      assert.equal(
+        bindTrustedDelegatedGrantAccessSessionInternalStageObserver(forged, () => {}),
+        false,
+      );
+    }
+
+    // status: no grant present
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const service = createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op, noGrant: true }),
+        envelopeProvider: fake,
+      }));
+      const notes = [];
+      assert.equal(
+        bindTrustedDelegatedGrantAccessSessionInternalStageObserver(service, (note) => {
+          notes.push(note);
+        }),
+        true,
+      );
+      const out = await service.runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_UNAVAILABLE, null);
+      assertTrustedSessionStage(out, 'status');
+      assert.equal(notes.length, 1);
+      assert.equal(notes[0].stage, 'status');
+      assert.equal(noLeak(notes), true);
+    }
+
+    // status: prior reauthorization is dead_grant, not generic grant
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({
+          sealed,
+          opId: op,
+          priorStatus: {
+            client_id: CLIENT, endpoint_id: ENDPOINT,
+            grant_generation: 3, grant_status: 'reauthorization_required',
+            reconcile_state: 'needs_operator', grant_lease_token: null,
+          },
+        }),
+        envelopeProvider: fake,
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_REAUTH, 3);
+      assertTrustedSessionStage(out, 'dead_grant');
+    }
+
+    // lease acquire conflict
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op, failLease: true }),
+        envelopeProvider: fake,
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_UNAVAILABLE, 1);
+      assertTrustedSessionStage(out, 'lease');
+    }
+
+    // open / decrypt
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const failingOpen = Object.freeze({
+        sealGrantPayload: (...a) => fake.sealGrantPayload(...a),
+        openGrantPayload: async () => { throw new Error(PLANTED); },
+        rewrapGrantDek: (...a) => fake.rewrapGrantDek(...a),
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: failingOpen,
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_UNAVAILABLE, 1);
+      assertTrustedSessionStage(out, 'open');
+    }
+
+    // client-secret (consume refresh-request trusted brand; no body parse)
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: fake,
+        secretProvider: frozenMethod('getClientSecret', async () => {
+          throw new Error(PLANTED);
+        }),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_UNCERTAIN, 1);
+      assertTrustedSessionStage(out, 'secret');
+    }
+
+    // token HTTP / request
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: fake,
+        transport: frozenMethod('postTokenForm', async () => {
+          throw new Error(PLANTED);
+        }),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_UNCERTAIN, 1);
+      assertTrustedSessionStage(out, 'token');
+    }
+
+    // token response classification: uncertain (no raw body)
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: fake,
+        transport: uncertainTransport(),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_UNCERTAIN, 1);
+      assertTrustedSessionStage(out, 'response');
+    }
+
+    // token response classification: invalid_grant is dead_grant
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: fake,
+        transport: invalidGrantTransport(),
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_REAUTH);
+      assertTrustedSessionStage(out, 'dead_grant');
+      assert.equal(JSON.stringify(out).includes('invalid_grant'), false);
+    }
+
+    // reseal
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const failingProvider = Object.freeze({
+        sealGrantPayload: async () => { throw new Error(PLANTED); },
+        openGrantPayload: (...a) => fake.openGrantPayload(...a),
+        rewrapGrantDek: (...a) => fake.rewrapGrantDek(...a),
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: failingProvider,
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_UNCERTAIN, 1);
+      assertTrustedSessionStage(out, 'reseal');
+    }
+
+    // commit / CAS
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op, failCommit: true }),
+        envelopeProvider: fake,
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => 'nope',
+      );
+      assertPublicSessionFail(out, STATUS_UNCERTAIN, 1);
+      assertTrustedSessionStage(out, 'commit');
+    }
+
+    // release: consumer throw after conclusive CAS
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const service = createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: fake,
+      }));
+      let thrown = null;
+      try {
+        await service.runWithAccessTokenOnce(
+          Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+          async () => { throw new Error(PLANTED); },
+        );
+      } catch (err) {
+        thrown = err;
+      }
+      assert.ok(thrown);
+      assert.equal(thrown.code, FAILURE_CODE);
+      assert.equal(thrown.message, FAILURE_CODE);
+      assert.equal(noLeak(thrown), true);
+      assertTrustedSessionStage(thrown, 'release');
+    }
+
+    // happy path still has no public diagnostic keys
+    {
+      const fake = createFakeEmailGrantEnvelopeProvider();
+      const op = crypto.randomUUID();
+      const sealed = await fakeSealRefreshToken(fake, {
+        refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+        grantGeneration: 1, operationId: op,
+      });
+      const out = await createDelegatedGrantAccessSession(baseDeps({
+        client: mockGrantLifecycle({ sealed, opId: op }),
+        envelopeProvider: fake,
+      })).runWithAccessTokenOnce(
+        Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }),
+        async () => Object.freeze({ consumed: true }),
+      );
+      assert.equal(out.ok, true);
+      assert.deepEqual(Reflect.ownKeys(out), ['ok', 'grant_generation', 'value']);
+      assert.equal(readTrustedDelegatedGrantAccessSessionInternalStage(out), null);
+      assert.equal(noLeak(out), true);
+    }
+
+    assert.deepEqual(
+      logged.filter((entry) => !String(entry).includes('NO_COLOR')),
+      [],
+    );
   } finally {
     console.log = log;
     console.error = error;
