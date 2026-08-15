@@ -342,6 +342,25 @@ function priorPeriodRange(range, granularity) {
   return { start, end };
 }
 
+/**
+ * Next-30 window inside the selected period (not a fixed wall-clock ops window).
+ * - Past periods (entirely before today): empty — nothing upcoming in-selection.
+ * - Periods that include today: today … min(today+29, period.end).
+ * - Future periods: period.start … min(period.start+29, period.end).
+ * @param {{start:string,end:string}} primaryRange
+ * @param {string} today YYYY-MM-DD in location TZ
+ * @returns {{start:string,end:string}|null}
+ */
+function next30RangeForPeriod(primaryRange, today) {
+  if (!primaryRange || !primaryRange.start || !primaryRange.end || !today) return null;
+  if (today > primaryRange.end) return null;
+  const start = today < primaryRange.start ? primaryRange.start : today;
+  const capped = addDays(start, 29);
+  const end = capped < primaryRange.end ? capped : primaryRange.end;
+  if (start > end) return null;
+  return { start, end };
+}
+
 function sumCollectedGrossForRange(datedPayments, range) {
   let collected = 0;
   for (const p of datedPayments) {
@@ -887,7 +906,7 @@ function computeSunsetFinanceSummary(args) {
   // Retired cancellation proxy — always 0 in Slice 2 redesign Net.
   const pending_refund_cents = 0;
 
-  const next30Range = { start: today, end: addDays(today, 29) };
+  const next30Range = next30RangeForPeriod(primaryRange, today);
   const lastServiceByBooking = new Map();
   for (const r of datedBsr) {
     const prev = lastServiceByBooking.get(r.booking_id);
@@ -896,11 +915,12 @@ function computeSunsetFinanceSummary(args) {
   const qualifyingPrimary = new Set();
   for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(r.booking_id);
 
-  // Next 30 / delivered unpaid: only service dates inside the selected period.
+  // Next 30: period-relative upcoming window (see next30RangeForPeriod). Not wall-clock-only.
   let next_30_days_cents = 0;
-  for (const r of datedBsr) {
-    if (!inRange(r.service_date, primaryRange)) continue;
-    if (inRange(r.service_date, next30Range)) next_30_days_cents = checkedAdd(next_30_days_cents, r.due);
+  if (next30Range) {
+    for (const r of datedBsr) {
+      if (inRange(r.service_date, next30Range)) next_30_days_cents = checkedAdd(next_30_days_cents, r.due);
+    }
   }
 
   let delivered_unpaid_cents = 0;
@@ -1374,6 +1394,7 @@ module.exports = {
   zonedDateString,
   periodRanges,
   resolvePrimaryRange,
+  next30RangeForPeriod,
   productBucket,
   buildRevenueByProductRows,
   buildRevenueByProductFiveRows: buildRevenueByProductRows, // alias
