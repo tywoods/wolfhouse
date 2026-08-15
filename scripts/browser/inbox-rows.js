@@ -94,6 +94,61 @@ function inboxRowHasUnread(row) {
   return false;
 }
 
+/** Same Needs human copy as the thread header raise control (EN/ES via existing keys). */
+function inboxRowsNeedsHumanLabel() {
+  var key = 'inbox.detail.needsHuman.raise';
+  if (typeof t === 'function') {
+    var viaT = t(key);
+    if (viaT && viaT !== key) return String(viaT);
+  }
+  if (typeof portalT === 'function') {
+    var viaPortal = portalT(key);
+    if (viaPortal && viaPortal !== key) return String(viaPortal);
+  }
+  return 'Needs human';
+}
+
+/** Legacy list-row chip text that disagreed with the header Needs human pill. */
+function inboxRowsStaffReplyChipLabel() {
+  var key = 'inbox.detail.meta.needsStaffReply';
+  if (typeof t === 'function') {
+    var viaT = t(key);
+    if (viaT && viaT !== key) return String(viaT);
+  }
+  if (typeof portalT === 'function') {
+    var viaPortal = portalT(key);
+    if (viaPortal && viaPortal !== key) return String(viaPortal);
+  }
+  return 'Needs staff reply';
+}
+
+/**
+ * When conversations.needs_human is true, rewrite the list-row handoff chip
+ * from "Needs staff reply" to the existing Needs human label. Unflagged rows
+ * and chips with other handoff reasons are left alone.
+ */
+function inboxRowsRewriteNeedsHumanChip(html, row) {
+  html = String(html || '');
+  if (!row || row.needs_human !== true) return html;
+  var staffReply = inboxRowsStaffReplyChipLabel();
+  var needsHuman = inboxRowsNeedsHumanLabel();
+  var escapedNeeds = inboxRowsEsc(needsHuman);
+  // handoffLabel() still hardcodes EN "Needs staff reply" for some reasons.
+  var legacyExact = {
+    'Needs staff reply': true,
+  };
+  if (staffReply) legacyExact[staffReply] = true;
+  legacyExact[inboxRowsEsc(staffReply)] = true;
+  return html.replace(
+    /(<div class="conv-card-handoff">)([\s\S]*?)(<\/div>)/g,
+    function(match, open, inner, close) {
+      var text = String(inner || '').trim();
+      if (!legacyExact[text]) return match;
+      return open + escapedNeeds + close;
+    }
+  );
+}
+
 function inboxRowKey(row) {
   if (!row) return '';
   return String(row._inbox_view_key || row.conversation_id || row.phone || row.guest_email || '');
@@ -151,7 +206,7 @@ function inboxRowsRememberViews(data) {
 }
 
 function inboxRowsWrapConvCardHtml(html, row) {
-  html = String(html || '');
+  html = inboxRowsRewriteNeedsHumanChip(String(html || ''), row);
   var openMatch = html.match(/^(\s*<div\b[^>]*class="[^"]*conv-card[^"]*"[^>]*>)/);
   if (!openMatch) return html;
   var open = openMatch[1];
@@ -437,6 +492,8 @@ if (typeof window !== 'undefined') {
     hasUnread: inboxRowHasUnread,
     rowKey: inboxRowKey,
     wrapConvCardHtml: inboxRowsWrapConvCardHtml,
+    rewriteNeedsHumanChip: inboxRowsRewriteNeedsHumanChip,
+    needsHumanLabel: inboxRowsNeedsHumanLabel,
     hideLegacyFilterChips: inboxRowsHideLegacyFilterChips,
     openBroadcast: inboxRowsOpenBroadcast,
     install: inboxRowsInstall,
