@@ -4,7 +4,7 @@
  * Hostile offline gate: Sunset delta poller/runtime diagnostic telemetry.
  *
  * Proves closed-enum stage + sanitized code at the runtime tick boundary,
- * known grant/401/cursor/query/transport/store classifications, and that
+ * known grant/401/cursor/query/transport/store/HTTP-class classifications, and that
  * tokens, URLs/cursors, Graph bodies, mailbox/message IDs, emails, subjects,
  * headers, secrets, exception messages/stacks, and provider payloads cannot
  * leak into the log. External fail-closed behavior stays generic.
@@ -113,6 +113,7 @@ test('package script and exports are exact/frozen', () => {
     'dead_grant', 'unauthorized', 'cursor', 'query', 'transport', 'store', 'unknown',
     'authority', 'status', 'lease', 'grant', 'seal', 'release',
     'open', 'secret', 'token', 'response', 'reseal', 'commit',
+    'bad_request', 'forbidden', 'not_found', 'timeout', 'throttled', 'server_error',
   ]));
   assert.deepEqual(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES, INTERNAL_STAGES);
   assert.deepEqual(DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES, Object.freeze([
@@ -148,8 +149,14 @@ test('known grant / 401 / cursor / query / transport / store classifications', (
     Object.freeze({ stage: 'cursor', code: 'cursor' }),
   );
   assert.equal(classifyDeltaRuntimeHttpStatus(200), null);
-  assert.equal(classifyDeltaRuntimeHttpStatus(400), null);
-  assert.equal(classifyDeltaRuntimeHttpStatus(500), null);
+  assert.deepEqual(
+    classifyDeltaRuntimeHttpStatus(400),
+    Object.freeze({ stage: 'transport', code: 'bad_request' }),
+  );
+  assert.deepEqual(
+    classifyDeltaRuntimeHttpStatus(500),
+    Object.freeze({ stage: 'transport', code: 'server_error' }),
+  );
   assert.deepEqual(
     classifyDeltaRuntimeQueryFailure(),
     Object.freeze({ stage: 'query', code: 'query' }),
@@ -262,6 +269,71 @@ test('hostile sink + emit never log secrets, messages, stacks, or payloads', () 
     code: 'dead_grant',
   });
   noLeak(logs);
+});
+
+const GRAPH_HTTP_STATUS_CLASSES = Object.freeze([
+  [400, 'transport', 'bad_request'],
+  [401, 'transport', 'unauthorized'],
+  [403, 'transport', 'forbidden'],
+  [404, 'transport', 'not_found'],
+  [408, 'transport', 'timeout'],
+  [410, 'cursor', 'cursor'],
+  [429, 'transport', 'throttled'],
+  [500, 'transport', 'server_error'],
+  [502, 'transport', 'server_error'],
+  [503, 'transport', 'server_error'],
+  [599, 'transport', 'server_error'],
+]);
+
+test('closed-enum Graph HTTP status classes stay allowlisted and copy nothing extra', () => {
+  for (const [status, stage, code] of GRAPH_HTTP_STATUS_CLASSES) {
+    const classified = classifyDeltaRuntimeHttpStatus(status);
+    assert.deepEqual(classified, Object.freeze({ stage, code }), String(status));
+    assert.equal(STAGES.includes(classified.stage), true, stage);
+    assert.equal(CODES.includes(classified.code), true, code);
+    assert.deepEqual(Reflect.ownKeys(classified), ['stage', 'code']);
+    noLeak(classified);
+  }
+  for (const untouched of [0, 200, 204, 301, 399, 402, 409, 418, 422, 600, 408.5, '400', '500']) {
+    assert.equal(classifyDeltaRuntimeHttpStatus(untouched), null, String(untouched));
+  }
+  assert.equal(classifyDeltaRuntimeHttpStatus({ statusCode: 403, body: PLANTED, url: PLANTED }), null);
+});
+
+test('Graph HTTP status classes beat grant/release and cannot be masked', () => {
+  for (const [status, stage, code] of GRAPH_HTTP_STATUS_CLASSES) {
+    const logs = [];
+    const sink = createDeltaRuntimeDiagnosticSink({
+      logger(record) { logs.push(record); },
+    });
+    sink.recordFromGrantSessionInternalStage('release');
+    sink.recordFromPageInternalStage('grant');
+    sink.recordFromGrantStatus('unavailable');
+    sink.recordFromHttpStatus(status);
+    sink.recordFromTransportBoundaryFailure();
+    sink.emitFailure();
+    assert.equal(logs.length, 1, String(status));
+    assert.deepEqual(logs[0], {
+      event: 'email_delta_runtime_tick_failed',
+      stage,
+      code,
+    });
+    assert.deepEqual(Reflect.ownKeys(logs[0]), ['event', 'stage', 'code']);
+    noLeak(logs);
+  }
+
+  const deadLogs = [];
+  const deadSink = createDeltaRuntimeDiagnosticSink({
+    logger(record) { deadLogs.push(record); },
+  });
+  deadSink.recordFromHttpStatus(400);
+  deadSink.recordFromGrantStatus('reauthorization_required');
+  deadSink.emitFailure();
+  assert.deepEqual(deadLogs[0], {
+    event: 'email_delta_runtime_tick_failed',
+    stage: 'grant',
+    code: 'dead_grant',
+  });
 });
 
 test('priority keeps dead_grant/401/cursor over later store/unknown', () => {
