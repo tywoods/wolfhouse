@@ -20,8 +20,13 @@ assert.ok(bookingsUi.includes('renderAdminBookingsShell({ skipLoad: true })'));
 assert.ok(bookingsUi.includes('adminBookingsRestoreFiltersToDom'));
 assert.ok(adminUi.includes('adminBookingsRefreshOnLocaleChange()'));
 assert.ok(apiSrc.includes('SunsetScheduleRuntime.nav.requestPageLoad'));
-assert.ok(apiSrc.includes('group.phone || group.guest_phone || group.booking_phone'));
-assert.ok(drawerCtrl.includes('group.guest_phone || group.booking_phone'));
+// Phone: prefer scheduleResolveGuestPhone; keep coalesced field fallbacks from master.
+assert.ok(apiSrc.includes('scheduleResolveGuestPhone')
+  || apiSrc.includes('group.phone || group.guest_phone || group.booking_phone')
+  || apiSrc.includes('r.phone || r.guest_phone || r.booking_phone'));
+assert.ok(drawerCtrl.includes('group.guest_phone || group.booking_phone')
+  || drawerCtrl.includes('scheduleResolveGuestPhone'));
+// Reservas expand + guest peek (master) — expandedId toggles on `id`.
 assert.ok(bookingsUi.includes('adminBookingsState.expandedId = adminBookingsState.expandedId === id'));
 assert.ok(bookingsUi.includes('function adminBookingsOpenGuestPeek'));
 assert.ok(!bookingsUi.includes("from: 'admin-bookings'"));

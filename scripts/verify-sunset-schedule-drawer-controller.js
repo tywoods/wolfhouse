@@ -218,6 +218,15 @@ if (ctrlExists) {
     scheduleWireDrawerDeleteBooking: () => {},
     scheduleFindLinkedConversation: () => null,
     scheduleGroupHasPhone: () => false,
+    scheduleResolveGuestPhone: function() {
+      for (var i = 0; i < arguments.length; i++) {
+        var src = arguments[i];
+        if (!src) continue;
+        var p = String((typeof src === 'string' ? src : (src.phone || src.guest_phone || src.booking_phone)) || '').trim();
+        if (p && p.indexOf('staff:') !== 0) return p;
+      }
+      return '';
+    },
     scheduleOpenOrStartConversationFromBooking: () => {},
     openCustomerCardForPhone: () => {},
     scheduleFetchDrawerContext: (row) => {
