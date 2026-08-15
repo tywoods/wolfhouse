@@ -332,9 +332,21 @@ const GRAPH_STAGES = Object.freeze([
   'success',
 ]);
 const GRAPH_STAGE_SET = new Set(GRAPH_STAGES);
+const ROW_VALUE_FIELD_CLASSES = Object.freeze([
+  'id',
+  'from',
+  'received_time',
+  'read_state',
+  'conversation',
+  'internet_message_id',
+  'etag',
+]);
+const ROW_VALUE_FIELD_CLASS_SET = new Set(ROW_VALUE_FIELD_CLASSES);
 
 /** Module-private brand: only transport-created failure objects may map to a stage. */
 const STAGED_FAILURES = new WeakMap();
+/** Module-private field class for transport-created row_value_invalid failures only. */
+const ROW_VALUE_FIELD_FAILURES = new WeakMap();
 /**
  * Module-private messages-delta outcomes (continuation 410 → cursor_gone).
  * Separate from GRAPH_STAGES so forged public errors cannot classify.
@@ -360,6 +372,12 @@ function failure(stage, brand = {
   Object.defineProperty(error, 'code', { value: brand.failureCode, enumerable: true });
   // Stage lives only in the private brand — never as a readable error property.
   STAGED_FAILURES.set(error, graphStage);
+  if (graphStage === 'row_value_invalid'
+      && extra
+      && typeof extra.rowValueFieldClass === 'string'
+      && ROW_VALUE_FIELD_CLASS_SET.has(extra.rowValueFieldClass)) {
+    ROW_VALUE_FIELD_FAILURES.set(error, extra.rowValueFieldClass);
+  }
   if (extra
       && typeof extra.deltaOutcome === 'string'
       && MESSAGES_DELTA_OUTCOMES_ALLOWED.includes(extra.deltaOutcome)) {
@@ -383,6 +401,18 @@ const MESSAGES_DELTA_FAILURE_BRAND = Object.freeze({
   failureCode: MESSAGES_DELTA_PAGE_FAILURE_CODE,
   errorName: MESSAGES_DELTA_PAGE_ERROR_NAME,
 });
+
+function readTrustedGraphRowValueFieldClass(error) {
+  try {
+    if (readTrustedGraphStage(error) !== 'row_value_invalid') return null;
+    const fieldClass = ROW_VALUE_FIELD_FAILURES.get(error);
+    return typeof fieldClass === 'string' && ROW_VALUE_FIELD_CLASS_SET.has(fieldClass)
+      ? fieldClass
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Safe reader for transport-branded failure stages.
@@ -756,6 +786,20 @@ function acceptFrom(value) {
 
 function rowKeysetValid(row) {
   return exactPlainData(row, SELECT_FIELDS) || exactPlainData(row, ROW_FIELDS_WITH_ETAG);
+}
+
+function classifyRowValueField(row) {
+  if (!requiredBoundedString(ownData(row, 'id'))) return 'id';
+  if (!optionalBoundedString(ownData(row, 'subject'))) return null;
+  if (!acceptFrom(ownData(row, 'from'))) return 'from';
+  if (!requiredBoundedString(ownData(row, 'receivedDateTime'))) return 'received_time';
+  const isRead = ownData(row, 'isRead');
+  if (isRead !== true && isRead !== false) return 'read_state';
+  if (!optionalBoundedString(ownData(row, 'conversationId'))) return 'conversation';
+  if (!optionalBoundedString(ownData(row, 'internetMessageId'))) return 'internet_message_id';
+  if (Object.prototype.hasOwnProperty.call(row, ETAG_KEY)
+      && !requiredBoundedString(ownData(row, ETAG_KEY))) return 'etag';
+  return null;
 }
 
 function rowValuesValid(row) {
@@ -1658,9 +1702,14 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
 
       // Normal Mail.ReadBasic row (optional validated/discarded etag and Graph type annotation).
       const cleanRow = discardValidatedOdataType(row);
+      const rowValueFieldClass = cleanRow === null ? null : classifyRowValueField(cleanRow);
       const rowStage = cleanRow === null ? 'row_value_invalid' : classifyRow(cleanRow);
       if (rowStage) {
-        return Object.freeze({ ok: false, stage: rowStage });
+        const result = { ok: false, stage: rowStage };
+        if (rowStage === 'row_value_invalid' && rowValueFieldClass !== null) {
+          result.rowValueFieldClass = rowValueFieldClass;
+        }
+        return Object.freeze(result);
       }
       const messageId = ownData(row, 'id');
       if (typeof messageId !== 'string' || seenIds.has(messageId)) {
@@ -1870,7 +1919,7 @@ function runDelegatedMessagesRequest(session, input) {
     let timerAcquired = false;
     let timerCleared = false;
 
-    const fail = (stage) => failure(stage, brand);
+    const fail = (stage, extra) => failure(stage, brand, extra);
 
     const clearDeadline = () => {
       if (!timerAcquired || timerCleared) return;
@@ -1995,6 +2044,9 @@ function runDelegatedMessagesRequest(session, input) {
               if (!mapped || mapped.ok !== true || !mapped.dto) {
                 finish(fail(
                   mapped && typeof mapped.stage === 'string' ? mapped.stage : 'json_invalid',
+                  mapped && typeof mapped.rowValueFieldClass === 'string'
+                    ? { rowValueFieldClass: mapped.rowValueFieldClass }
+                    : undefined,
                 ));
                 return;
               }
@@ -2492,6 +2544,7 @@ module.exports = Object.freeze({
   SELECT_FIELDS,
   RESPONSE_CAP_BYTES,
   GRAPH_STAGES,
+  ROW_VALUE_FIELD_CLASSES,
   BOUNDED_CATCHUP_MAX_PAGES,
   BOUNDED_CATCHUP_MAX_MESSAGES,
   MESSAGES_DELTA_PAGE_RESULT_KEYS,
@@ -2505,6 +2558,7 @@ module.exports = Object.freeze({
   acceptParsedMessageEnvelopeList,
   validateMessagesDeltaCursorUrl,
   readTrustedGraphStage,
+  readTrustedGraphRowValueFieldClass,
   readTrustedMessagesDeltaOutcome,
   createMicrosoftGraphDelegatedMessagesTransport,
   createMicrosoftGraphImmutableIdPageTransport,

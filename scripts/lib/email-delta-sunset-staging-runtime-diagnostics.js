@@ -16,6 +16,7 @@
 
 const {
   readTrustedGraphStage,
+  readTrustedGraphRowValueFieldClass,
   readTrustedMessagesDeltaOutcome,
 } = require('./email-microsoft-graph-messages-delta-page-transport');
 
@@ -76,6 +77,13 @@ const CODES = Object.freeze([
   'top_shape_invalid',
   'row_keyset_invalid',
   'row_value_invalid',
+  'row_value_id',
+  'row_value_from',
+  'row_value_received_time',
+  'row_value_read_state',
+  'row_value_conversation',
+  'row_value_internet_message_id',
+  'row_value_etag',
 ]);
 
 const EVENT_KEYS = Object.freeze(['event', 'stage', 'code']);
@@ -98,6 +106,16 @@ const GRAPH_FAILURE_STAGE_SET = new Set([
   'row_keyset_invalid',
   'row_value_invalid',
 ]);
+
+const GRAPH_ROW_VALUE_FIELD_CODES = Object.freeze({
+  id: 'row_value_id',
+  from: 'row_value_from',
+  received_time: 'row_value_received_time',
+  read_state: 'row_value_read_state',
+  conversation: 'row_value_conversation',
+  internet_message_id: 'row_value_internet_message_id',
+  etag: 'row_value_etag',
+});
 
 const GRANT_STATUS_DEAD = 'reauthorization_required';
 const GRANT_STATUS_UNAVAILABLE = 'unavailable';
@@ -125,6 +143,13 @@ const PRIORITY = Object.freeze({
   top_shape_invalid: 65,
   row_keyset_invalid: 65,
   row_value_invalid: 65,
+  row_value_id: 66,
+  row_value_from: 66,
+  row_value_received_time: 66,
+  row_value_read_state: 66,
+  row_value_conversation: 66,
+  row_value_internet_message_id: 66,
+  row_value_etag: 66,
   query: 60,
   authority: 50,
   status: 55,
@@ -252,6 +277,12 @@ function classifyDeltaRuntimeTransportError(error) {
     if (outcome === 'cursor_gone') return freezeNote('cursor', 'cursor');
     const graphStage = readTrustedGraphStage(error);
     if (graphStage === 'timeout') return freezeNote('transport', 'timeout');
+    if (graphStage === 'row_value_invalid'
+        && typeof readTrustedGraphRowValueFieldClass === 'function') {
+      const fieldClass = readTrustedGraphRowValueFieldClass(error);
+      const code = ownData(GRAPH_ROW_VALUE_FIELD_CODES, fieldClass);
+      if (typeof code === 'string' && CODE_SET.has(code)) return freezeNote('transport', code);
+    }
     if (GRAPH_FAILURE_STAGE_SET.has(graphStage)) {
       return freezeNote('transport', graphStage);
     }
