@@ -146,6 +146,7 @@ INNER JOIN tenant_channel_endpoints ep ON ep.client_id=ev.client_id AND ep.id=ev
   AND ep.location_id=loc.location_id AND ep.channel='email'
   AND ep.provider='microsoft_graph'
 WHERE cl.id=$1::uuid AND loc.location_id='sunset-somo' AND ev.provider='microsoft_graph'
+  AND c.needs_human IS TRUE
 ORDER BY ev.received_at DESC, ev.id DESC
 LIMIT 1
 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
@@ -177,6 +178,7 @@ UPDATE conversations
      metadata->'luna_email_open_draft'->>'state' IS DISTINCT FROM 'in_progress'
      OR ${SQL_EMAIL_LUNA_OPEN_DRAFT_CLAIM_EXPIRED}
    )
+   AND needs_human IS TRUE
    AND ${sqlNoCurrentSourceEmailReplyApproval('$4')}
  RETURNING id::text AS conversation_id`.replace(/\s+/g, ' ').trim();
 
@@ -189,6 +191,7 @@ UPDATE conversations
    AND metadata->'luna_email_open_draft'->>'state' = 'in_progress'
    AND $6::uuid = (${SQL_CURRENT_INBOUND_EVENT_FOR_CONVERSATION})
    AND staff_reply_draft IS NOT DISTINCT FROM $7
+   AND needs_human IS TRUE
    AND ${sqlNoCurrentSourceEmailReplyApproval('$6')}
  RETURNING staff_reply_draft`.replace(/\s+/g, ' ').trim();
 

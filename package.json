@@ -432,6 +432,7 @@
     "verify:email-inbound-event-store": "node scripts/verify-email-inbound-event-store.js",
     "verify:email-inbound-inbox-bridge": "node scripts/verify-email-inbound-inbox-bridge.js",
     "verify:email-draft-open-002": "node scripts/verify-email-draft-open-002.js",
+    "verify:email-draft-open-003": "node scripts/verify-email-draft-open-003.js",
     "verify:email-inbound-match-ingest": "node scripts/verify-email-inbound-match-ingest.js",
     "prove:email-inbound-event-store-pglite": "node scripts/prove-email-inbound-event-store-pglite.js",
     "verify:email-inbound-delta-state-store": "node scripts/verify-email-inbound-delta-state-store.js",
