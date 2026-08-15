@@ -1034,6 +1034,34 @@ function inboxCustomerNotesFieldHtml(notes) {
   );
 }
 
+/** Staff-facing payment label for linked bookings (EN/ES). Prefer Customers helper; never invent status. */
+function inboxCustomerPaymentStatusLabel(raw) {
+  if (typeof customerPaymentStatusLabel === 'function') {
+    return customerPaymentStatusLabel(raw);
+  }
+  var s = String(raw == null ? '' : raw).trim().toLowerCase().replace(/\s+/g, '_');
+  if (!s || s === '—' || s === '-') return '—';
+  if (s === 'canceled') s = 'cancelled';
+  if (s === 'fully_paid' || s === 'paid_in_full' || s === 'succeeded' || s === 'complete' || s === 'completed') s = 'paid';
+  if (
+    s === 'waiting_payment' || s === 'pending' || s === 'not_requested' || s === 'unpaid'
+    || s === 'pending_deposit' || s === 'payment_pending' || s === 'payment_link_sent'
+    || s === 'checkout_created' || s === 'draft' || s === 'failed'
+  ) s = 'unpaid';
+  if (s === 'deposit_paid' || s === 'partially_paid' || s === 'balance_due') s = 'partial';
+  var key = 'admin.bookings.status.' + s;
+  var t = '';
+  try { t = String((typeof portalT === 'function' && portalT(key)) || ''); } catch (_e) { t = ''; }
+  if (t && t !== key && t.indexOf('admin.bookings.') !== 0) return t;
+  var es = false;
+  try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+  var en = { paid: 'Paid', unpaid: 'Unpaid', partial: 'Partial', refunded: 'Refunded', cancelled: 'Cancelled' };
+  var esMap = { paid: 'Pagado', unpaid: 'Sin pagar', partial: 'Parcial', refunded: 'Reembolsado', cancelled: 'Cancelado' };
+  if (es && esMap[s]) return esMap[s];
+  if (en[s]) return en[s];
+  return s.replace(/_/g, ' ').replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
+}
+
 function inboxCustomerGuestBookingsHtml(data) {
   var bookings = (data && data.bookings) || [];
   var html = '<div class="customers-section inbox-guest-linked-bookings">';
@@ -1053,7 +1081,7 @@ function inboxCustomerGuestBookingsHtml(data) {
     var checkIn = b.check_in ? String(b.check_in).slice(0, 10) : '';
     var checkOut = b.check_out ? String(b.check_out).slice(0, 10) : '';
     var dates = (checkIn || checkOut) ? ((checkIn || '—') + ' → ' + (checkOut || '—')) : '—';
-    var pay = b.payment_status || b.payment_payment_status || '—';
+    var pay = inboxCustomerPaymentStatusLabel(b.payment_status || b.payment_payment_status || '—');
     var guestName = b.guest_name || b.booking_guest_name || '';
     html += '<tr class="inbox-guest-booking-row" data-inbox-open-booking="1"';
     html += ' data-booking-id="' + inboxContextEsc(String(b.booking_id || '')) + '"';
@@ -2184,6 +2212,7 @@ if (typeof window !== 'undefined') {
     customerCondensedHtml: inboxCustomerCondensedHtml,
     customerFullHtml: inboxCustomerFullHtml,
     customerUnmatchedHtml: inboxCustomerUnmatchedHtml,
+    customerPaymentStatusLabel: inboxCustomerPaymentStatusLabel,
     customerFromConv: inboxCustomerFromConv,
     customerResolvePhone: inboxCustomerResolvePhone,
     guestLinkPostCustomer: inboxGuestLinkPostCustomer,
