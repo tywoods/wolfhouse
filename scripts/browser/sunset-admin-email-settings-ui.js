@@ -475,6 +475,42 @@ function adminEmailFormatSync(raw){
     return '';
   }
 }
+var ADMIN_EMAIL_STALE_SYNC_MS = 10 * 60 * 1000;
+function adminEmailNowMs(){
+  return Date.now();
+}
+function adminEmailSyncAgeMs(raw){
+  var ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return NaN;
+  var age = adminEmailNowMs() - ms;
+  return age < 0 ? 0 : age;
+}
+function emailUiTFill(key, en, es, n){
+  return String(emailUiT(key, en, es)).replace(/\{n\}/g, String(n));
+}
+function adminEmailFormatSyncRelative(raw){
+  var age = adminEmailSyncAgeMs(raw);
+  if (!Number.isFinite(age)) return '';
+  var mins = Math.floor(age / 60000);
+  if (mins < 1) return emailUiT('admin.email.lastSyncJustNow', 'just now', 'ahora mismo');
+  if (mins === 1) return emailUiT('admin.email.lastSyncMinuteAgo', '1 minute ago', 'hace 1 minuto');
+  if (mins < 60) return emailUiTFill('admin.email.lastSyncMinutesAgo', '{n} minutes ago', 'hace {n} minutos', mins);
+  var hours = Math.floor(mins / 60);
+  if (hours === 1) return emailUiT('admin.email.lastSyncHourAgo', '1 hour ago', 'hace 1 hora');
+  if (hours < 24) return emailUiTFill('admin.email.lastSyncHoursAgo', '{n} hours ago', 'hace {n} horas', hours);
+  var days = Math.floor(hours / 24);
+  if (days === 1) return emailUiT('admin.email.lastSyncDayAgo', '1 day ago', 'hace 1 día');
+  if (days < 14) return emailUiTFill('admin.email.lastSyncDaysAgo', '{n} days ago', 'hace {n} días', days);
+  return adminEmailFormatSync(raw);
+}
+function adminEmailMailboxConnected(key){
+  return key === 'connected_health';
+}
+function adminEmailLastSyncStale(raw, connected){
+  if (!connected) return false;
+  var age = adminEmailSyncAgeMs(raw);
+  return Number.isFinite(age) && age > ADMIN_EMAIL_STALE_SYNC_MS;
+}
 function adminEmailComingCardHtml(provider, titleEn, titleEs, blurbEn, blurbEs){
   var disabledLabel = emailUiT('admin.email.notAvailableYet', 'Not available yet', 'Aún no disponible');
   return '<section class="portal-admin-email-settings portal-admin-email-card is-disabled" data-email-provider="' + escHtml(provider) + '" data-email-state="coming">' +
@@ -535,11 +571,20 @@ function renderAdminEmailSettingsState(state, data, provider){
       '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.connectedAs', 'Connected as', 'Conectado como')) + '</span> ' +
       escHtml(connectedAs) + '</p>';
   }
-  var syncLabel = adminEmailFormatSync(adminEmailLastSyncRaw(data));
+  var syncRaw = adminEmailLastSyncRaw(data);
+  var syncLabel = adminEmailFormatSyncRelative(syncRaw);
+  var syncStale = adminEmailLastSyncStale(syncRaw, adminEmailMailboxConnected(key));
   if (syncLabel) {
-    html += '<p class="portal-admin-email-last-sync" data-email-last-sync>' +
+    html += '<p class="portal-admin-email-last-sync' + (syncStale ? ' is-stale' : '') + '" data-email-last-sync' +
+      (syncStale ? ' data-email-last-sync-stale="1"' : '') + '>' +
       '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.lastSync', 'Last sync', 'Última sincronización')) + '</span> ' +
-      escHtml(syncLabel) + '</p>';
+      '<span data-email-last-sync-when>' + escHtml(syncLabel) + '</span>';
+    if (syncStale) {
+      html += '<span class="portal-admin-email-last-sync-warn" data-email-last-sync-warn role="status">' +
+        escHtml(emailUiT('admin.email.lastSyncStale', 'Stale — not receiving new email.', 'Desactualizado — no está llegando correo nuevo.')) +
+        '</span>';
+    }
+    html += '</p>';
   }
   // Prepare controls grouped before capability list; deterministic selectors + a11y label.
   if (hasPrepare) {

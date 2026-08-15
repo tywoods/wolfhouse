@@ -17270,6 +17270,8 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-status.is-soon{background:#F3EDE4;color:#8A6A3B}
 .portal-admin-email-address{margin:0;font-size:14px;font-weight:600;word-break:break-word}
 .portal-admin-email-last-sync{margin:0;font-size:13px;color:var(--text-2)}
+.portal-admin-email-last-sync.is-stale{color:#8A6A3B}
+.portal-admin-email-last-sync-warn{display:block;margin-top:4px;font-weight:650;color:#8A6A3B}
 .portal-admin-email-fact-label{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:650;color:var(--text-3);margin-bottom:2px}
 .portal-admin-email-loading{margin:0;color:var(--text-2);font-size:14px}
 .portal-admin-email-card.is-disabled .portal-admin-email-action-btn:disabled{opacity:.55}
