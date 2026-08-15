@@ -44,14 +44,11 @@ const MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS = Object.freeze([
   'internetMessageId',
 ]);
 
-const LEGACY_SELECT_FIELDS = Object.freeze(
-  MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS.filter((field) => field !== 'body'),
-);
 const ROW_FIELDS_WITH_ETAG = Object.freeze([
   ...MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS,
   ETAG_KEY,
 ]);
-const LEGACY_ROW_FIELDS_WITH_ETAG = Object.freeze([...LEGACY_SELECT_FIELDS, ETAG_KEY]);
+
 
 const INPUT_KEYS = Object.freeze([
   'provider',
@@ -238,6 +235,10 @@ function bodyToPlainText(value) {
   let plain = content;
   if (contentType === 'html') {
     plain = plain.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ');
+    // Truncated/malformed hidden-content elements are not safe to project.
+    if (/<\/?(?:script|style)\b/i.test(plain) || /<!--/.test(plain)) return null;
+    plain = plain
       .replace(/<(br|\/p|\/div|\/li|\/tr|\/h[1-6])\b[^>]*>/gi, '\n')
       .replace(/<[^>]*>/g, ' ');
     plain = decodeHtmlEntities(plain);
@@ -248,16 +249,13 @@ function bodyToPlainText(value) {
 
 function rowKeysetValid(row) {
   return exactPlainData(row, MICROSOFT_GRAPH_MAIL_READ_BASIC_SELECT_FIELDS)
-    || exactPlainData(row, ROW_FIELDS_WITH_ETAG)
-    || exactPlainData(row, LEGACY_SELECT_FIELDS)
-    || exactPlainData(row, LEGACY_ROW_FIELDS_WITH_ETAG);
+    || exactPlainData(row, ROW_FIELDS_WITH_ETAG);
 }
 
 function rowValuesValid(row) {
   if (!requiredBoundedString(ownData(row, 'id'))) return false;
   if (!optionalBoundedString(ownData(row, 'subject'))) return false;
-  if (Object.prototype.hasOwnProperty.call(row, 'body')
-      && bodyToPlainText(ownData(row, 'body')) === null) return false;
+  if (bodyToPlainText(ownData(row, 'body')) === null) return false;
   if (!acceptFrom(ownData(row, 'from'))) return false;
   if (!requiredBoundedString(ownData(row, 'receivedDateTime'))) return false;
   const isRead = ownData(row, 'isRead');
@@ -323,7 +321,7 @@ function mapMicrosoftGraphMailReadBasicRowToInboundEnvelope(input) {
     }
   }
 
-  const hasBody = Object.prototype.hasOwnProperty.call(row, 'body');
+
   // Fresh provider-neutral DTO — Graph/OData names and etag never retained.
   const candidate = {
     provider: PROVIDER_ID,
@@ -337,7 +335,7 @@ function mapMicrosoftGraphMailReadBasicRowToInboundEnvelope(input) {
     conversation_id: ownData(row, 'conversationId'),
     internet_message_id: ownData(row, 'internetMessageId'),
   };
-  if (hasBody) candidate.body_text = bodyToPlainText(ownData(row, 'body'));
+  candidate.body_text = bodyToPlainText(ownData(row, 'body'));
 
   return validateInboundEmailEnvelope(candidate);
 }

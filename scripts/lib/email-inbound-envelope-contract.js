@@ -137,8 +137,7 @@ const EMAIL_INBOUND_BODY_TEXT_MAX = 65536;
 
 const PROVIDER_SET = new Set(EMAIL_INBOUND_ENVELOPE_PROVIDERS);
 const KEY_SET = new Set(EMAIL_INBOUND_ENVELOPE_KEYS);
-const LEGACY_ENVELOPE_KEYS = Object.freeze(EMAIL_INBOUND_ENVELOPE_KEYS.filter((key) => key !== 'body_text'));
-const LEGACY_ENVELOPE_KEY_SET = new Set(LEGACY_ENVELOPE_KEYS);
+
 const LEGACY_KEY_SET = new Set(EMAIL_INBOUND_LEGACY_GRAPH_TRANSPORT_ENVELOPE_KEYS);
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 
@@ -469,9 +468,7 @@ function validateInboundEmailEnvelope(input) {
     return fail('inbound_envelope_invalid', { reason: snap.reason, key: snap.key });
   }
   const o = snap.value;
-  const hasBodyText = Object.prototype.hasOwnProperty.call(o, 'body_text');
-  if (!requireExactKeys(o, EMAIL_INBOUND_ENVELOPE_KEYS, KEY_SET)
-      && !requireExactKeys(o, LEGACY_ENVELOPE_KEYS, LEGACY_ENVELOPE_KEY_SET)) {
+  if (!requireExactKeys(o, EMAIL_INBOUND_ENVELOPE_KEYS, KEY_SET)) {
     return fail('inbound_envelope_keyset_invalid');
   }
 
@@ -489,8 +486,8 @@ function validateInboundEmailEnvelope(input) {
 
   err = validateOptionalBoundedString(o.subject, 'subject');
   if (err) return err;
-  if (hasBodyText && (typeof o.body_text !== 'string' || o.body_text.length > EMAIL_INBOUND_BODY_TEXT_MAX
-      || hasUnpairedSurrogate(o.body_text))) {
+  if (typeof o.body_text !== 'string' || o.body_text.length > EMAIL_INBOUND_BODY_TEXT_MAX
+      || hasUnpairedSurrogate(o.body_text)) {
     return fail('inbound_envelope_field_invalid', { reason: 'body_text_invalid', field: 'body_text' });
   }
   err = validateOptionalBoundedString(o.sender_display_name, 'sender_display_name');
@@ -506,26 +503,20 @@ function validateInboundEmailEnvelope(input) {
     return fail('inbound_envelope_field_invalid', { reason: 'not_boolean', field: 'is_read' });
   }
 
-  // Fresh allowlisted DTO only — no raw retention. Preserve legacy shape for
-  // callers that have not supplied body_text; live Graph rows always do.
+  // Fresh allowlisted DTO only — no raw retention.
   const canonical = {
     provider: o.provider,
     provider_mailbox_id: o.provider_mailbox_id,
     provider_message_id: o.provider_message_id,
     received_at: received.value,
     subject: o.subject,
+    body_text: o.body_text,
     sender_display_name: o.sender_display_name,
     sender_address: o.sender_address,
     is_read: o.is_read === true,
     conversation_id: o.conversation_id,
     internet_message_id: o.internet_message_id,
   };
-  if (hasBodyText) {
-    canonical.body_text = o.body_text;
-    const ordered = {};
-    for (const key of EMAIL_INBOUND_ENVELOPE_KEYS) ordered[key] = canonical[key];
-    return ok(ordered);
-  }
   return ok(canonical);
 }
 

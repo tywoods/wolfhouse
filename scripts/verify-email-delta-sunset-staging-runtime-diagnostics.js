@@ -193,6 +193,7 @@ test('real Graph transport exhaustively preserves only trusted closed row field 
   const baseRow = Object.freeze({
     id: 'bounded-message-id',
     subject: 'bounded subject',
+    body: { contentType: 'text', content: 'bounded body' },
     from: { emailAddress: { address: 'bounded@example.invalid', name: 'bounded sender' } },
     receivedDateTime: '2026-08-15T10:00:00Z',
     isRead: false,
@@ -332,6 +333,7 @@ test('real Graph transport exhaustively accepts and discards closed message ODat
       value: [{
         id: 'derived-message-id',
         subject: 'bounded subject',
+        body: { contentType: 'text', content: 'bounded body' },
         from: { emailAddress: { address: null, name: 'bounded sender' } },
         receivedDateTime: '2026-08-15T11:00:00.000Z',
         isRead: false,

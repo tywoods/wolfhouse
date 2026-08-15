@@ -114,6 +114,7 @@ function envelopeRow(patch = {}) {
   const base = {
     id: MSG_A,
     subject: 'Surf weekend',
+    body: { contentType: 'text', content: 'Real body' },
     from: { emailAddress: emailAddress() },
     receivedDateTime: '2026-08-06T12:00:00Z',
     isRead: false,
@@ -699,7 +700,7 @@ async function main() {
           && dto.envelopes[0].provider_message_id === MSG_A
           && validateInboundEmailEnvelope(dto.envelopes[0]).ok === true
           && Object.keys(dto.envelopes[0]).sort().join(',')
-            === EMAIL_INBOUND_ENVELOPE_KEYS.filter((key) => key !== 'body_text').sort().join(','),
+            === [...EMAIL_INBOUND_ENVELOPE_KEYS].sort().join(','),
       );
       ok(
         'dto-no-raw-odata-on-result-surface-keys',

@@ -37,6 +37,7 @@ function envelopeRow(patch = {}) {
   const base = {
     id: 'AAMkAG',
     subject: PLANTED,
+    body: { contentType: 'text', content: 'Real body' },
     from: { emailAddress: emailAddress() },
     receivedDateTime: '2026-01-01T00:00:00Z',
     isRead: true,
@@ -277,6 +278,7 @@ async function main() {
     const rowBase = {
       id: '1',
       subject: 's',
+      body: { contentType: 'text', content: 'b' },
       from: { emailAddress: { address: 'a@b.c', name: 'n' } },
       receivedDateTime: '2026-01-01T00:00:00Z',
       isRead: false,
@@ -286,7 +288,7 @@ async function main() {
     const etagOrders = [
       JSON.stringify({ value: [{ '@odata.etag': VALID_ETAG, ...rowBase }] }),
       JSON.stringify({ value: [{ ...rowBase, '@odata.etag': VALID_ETAG }] }),
-      `{"value":[{"id":"1","@odata.etag":${JSON.stringify(VALID_ETAG)},"subject":"s","from":{"emailAddress":{"address":"a@b.c","name":"n"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":false,"conversationId":"c","internetMessageId":"<x>"}]}`,
+      `{"value":[{"id":"1","@odata.etag":${JSON.stringify(VALID_ETAG)},"subject":"s","body":{"contentType":"text","content":"b"},"from":{"emailAddress":{"address":"a@b.c","name":"n"}},"receivedDateTime":"2026-01-01T00:00:00Z","isRead":false,"conversationId":"c","internetMessageId":"<x>"}]}`,
     ];
     for (const body of etagOrders) {
       assert.equal(classifyMessageEnvelopeBody(body).stage, 'success', body.slice(0, 48));

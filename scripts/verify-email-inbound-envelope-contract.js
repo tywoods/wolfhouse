@@ -294,6 +294,22 @@ try {
       && mapped.value.body_text === 'Hello & welcome\nSecond line'
       && !mapped.value.body_text.includes('<')
       && !mapped.value.body_text.includes('never'));
+
+    const missingBody = graphRow();
+    delete missingBody.body;
+    const missing = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
+      provider: 'microsoft_graph', provider_mailbox_id: MAILBOX_ID, row: missingBody,
+    });
+    ok('mapper-missing-body-fails-closed', missing.ok === false, ser(missing));
+
+    for (const content of ['<p>Visible</p><script>HIDDEN_SECRET', '<style>PRIVATE_CSS', '<!--PRIVATE']) {
+      const malformed = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
+        provider: 'microsoft_graph',
+        provider_mailbox_id: MAILBOX_ID,
+        row: graphRow({ body: { contentType: 'html', content } }),
+      });
+      ok('mapper-malformed-hidden-html-fails-closed', malformed.ok === false && noLeak(malformed), ser(malformed));
+    }
   }
 
   {
@@ -808,24 +824,8 @@ try {
       provider_mailbox_id: MAILBOX_ID,
       legacy: legacyRow,
     });
-    ok('legacy-transport-conversion-ok', converted.ok === true, ser(converted));
-    ok('legacy-transport-conversion-canonical-keys', converted.ok
-      && Object.keys(converted.value).sort().join(',')
-        === EMAIL_INBOUND_ENVELOPE_KEYS.filter((key) => key !== 'body_text').sort().join(','));
-    ok('legacy-transport-conversion-maps-identity-and-sender', converted.ok
-      && converted.value.provider === 'microsoft_graph'
-      && converted.value.provider_mailbox_id === MAILBOX_ID
-      && converted.value.provider_message_id === MSG_ID
-      && converted.value.sender_address === 'guest@example.com'
-      && converted.value.sender_display_name === 'Guest'
-      && converted.value.has_attachments === undefined
-      && converted.value.from_address === undefined
-      && converted.value.id === undefined, ser(converted));
-    const revalidated = validateInboundEmailEnvelope(converted.value);
-    ok('legacy-transport-conversion-revalidates', revalidated.ok === true, ser(revalidated));
-    // has_attachments is transport-only metadata and is not a domain field.
-    ok('legacy-transport-conversion-discards-has-attachments', converted.ok
-      && !Object.prototype.hasOwnProperty.call(converted.value, 'has_attachments'));
+    ok('legacy-transport-without-body-fails-closed', converted.ok === false
+      && converted.error === 'inbound_envelope_keyset_invalid', ser(converted));
   }
 
   // ── Blocker 3: identity / dedup / order / tie-break / ImmutableId semantics ──
