@@ -557,10 +557,10 @@ function renderAdminBookingsTable() {
       escHtml(adminBookingsFormatEur(row.paid_cents != null ? row.paid_cents : row.collected_cents)) + '</div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-status" role="cell">' +
       '<div class="portal-admin-bookings-chip-row">' + adminBookingsStatusChipsHtml(row) + '</div></div>';
-    html += '</div>';
     if (expanded) {
       html += renderAdminBookingsExpansion(row);
     }
+    html += '</div>';
   });
 
   html += '</div></div>';
@@ -829,7 +829,11 @@ function renderAdminBookingsExpansion(row) {
           '<li><span>' + escHtml(portalT('admin.bookings.guest')) + '</span><span>' + escHtml((row.guest && row.guest.name) || row.guest_name || '—') + '</span></li>' +
           '<li><span>' + escHtml(portalT('admin.bookings.phone')) + '</span><span>' + escHtml((row.guest && row.guest.phone) || row.phone || '—') + '</span></li>' +
           '<li><span>' + escHtml(portalT('admin.bookings.waiver')) + '</span><span>' + escHtml(waiverText) + '</span></li>' +
-          '<li><span>' + escHtml(portalT('admin.bookings.createdBy')) + '</span><span>' + escHtml(row.created_by || '—') + '</span></li>' +
+          '<li><span>' + escHtml(portalT('admin.bookings.createdBy')) + '</span><span>' + escHtml(
+            /^\d{4}-\d{2}-\d{2}/.test(String(row.created_by || ''))
+              ? adminBookingsFormatMadridCreated(row.created_by)
+              : (row.created_by || '—')
+          ) + '</span></li>' +
         '</ul></section>' +
       '<section data-bookings-section="items"><h4>' + escHtml(portalT('admin.bookings.items')) + '</h4><ul class="portal-admin-bookings-kv">' + itemsHtml + '</ul></section>' +
       '<section data-bookings-section="payment"><h4>' + escHtml(portalT('admin.bookings.paymentStory')) + '</h4>' +

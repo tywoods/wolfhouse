@@ -17215,7 +17215,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-bookings-refund-action{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:8px;max-width:220px}
 .portal-admin-bookings-row-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
 .portal-admin-bookings-refund-note{margin:0;max-width:28rem}
-.portal-admin-bookings-expand{grid-column:1/-1;padding:4px 12px 14px;border-bottom:1px solid var(--border-soft);background:var(--surface)}
+.portal-admin-bookings-expand{grid-column:1/-1;padding:4px 12px 14px;border-top:1px solid var(--border-soft);background:var(--surface);cursor:default}
 .portal-admin-bookings-expand-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
 .portal-admin-bookings-expand h4{margin:0 0 8px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2)}
 .portal-admin-bookings-kv,.portal-admin-bookings-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
@@ -21153,7 +21153,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         </div>
         <div class="portal-schedule-create-field" id="ps-create-surfers-field">
           <label for="ps-create-surfers" data-i18n="schedule.create.surferCount">Number of surfers</label>
-          <input id="ps-create-surfers" type="number" min="1" max="99" value="1" inputmode="numeric">
+          <input id="ps-create-surfers" type="number" min="1" max="24" value="1" inputmode="numeric">
         </div>
         <!-- Legacy qty owners stay in DOM for create payload / verifiers; synced from #ps-create-surfers. -->
         <div id="ps-create-private-lesson-fields" style="display:none" hidden aria-hidden="true">
@@ -24830,7 +24830,8 @@ function scheduleReadCreateSurferCount(){
   if (raw === '' || raw == null) return null;
   var n = parseInt(String(raw), 10);
   if (!Number.isInteger(n) || n < 1) return null;
-  if (n > 99) n = 99;
+  var cap = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 99;
+  if (n > cap) n = cap;
   return n;
 }
 function scheduleSyncCreateSurferMirrors(){
@@ -24853,7 +24854,8 @@ function scheduleSetCreateSurferCount(raw, opts){
     if (!opts.forceDefault) return null;
     n = 1;
   }
-  if (n > 99) n = 99;
+  var capSet = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 99;
+  if (n > capSet) n = capSet;
   if (s) s.value = String(n);
   scheduleSyncCreateSurferMirrors();
   return n;
@@ -24865,7 +24867,8 @@ function scheduleNormalizeCreateSurferCountOnBlur(){
   if (raw === '' || raw == null) return null; // leave blank; quote/create fail closed
   var n = parseInt(String(raw), 10);
   if (!Number.isInteger(n) || n < 1) return null;
-  if (n > 99) n = 99;
+  var capBlur = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 99;
+  if (n > capBlur) n = capBlur;
   s.value = String(n);
   scheduleSyncCreateSurferMirrors();
   return n;

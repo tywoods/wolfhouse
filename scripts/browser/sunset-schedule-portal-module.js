@@ -48,6 +48,15 @@ function schedulePortalQuoteFailureMessage(result) {
       || portalT('schedule.create.unpriced')
       || 'Price not configured';
   }
+  if (rc === 'course_full' || rc === 'course_capacity_not_configured') {
+    var seats = body.seats_remaining != null ? Number(body.seats_remaining) : (body.capacity != null ? Number(body.capacity) : 24);
+    if (!Number.isFinite(seats) || seats < 0) seats = 24;
+    var es = false;
+    try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+    return es
+      ? ('Este curso solo tiene ' + String(seats) + ' plazas.')
+      : ('This course only has ' + String(seats) + ' seats.');
+  }
   if (result && result.stale) {
     return portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before creating.';
   }
@@ -1490,8 +1499,28 @@ function schedulePortalHasSellableIntent(payload) {
 function schedulePortalIsValidCreatePhone(raw) {
   var phone = raw != null ? String(raw).trim() : '';
   if (!phone || phone.length > 40) return false;
+  if (/[A-Za-z]/.test(phone)) return false;
+  if (/[^0-9+\s().-]/.test(phone)) return false;
   var digits = phone.replace(/\D/g, '');
   return digits.length >= 6;
+}
+
+function scheduleCreateCourseGuestCap() {
+  var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
+  if (!courseOn) return 99;
+  var cap = 24;
+  try {
+    var list = el('ps-create-course-list');
+    var pressed = list && list.querySelector
+      ? list.querySelector('button[data-course-id][aria-pressed="true"]')
+      : null;
+    var raw = pressed && (pressed.getAttribute('data-capacity')
+      || pressed.getAttribute('data-seats-remaining')
+      || pressed.getAttribute('data-group-size'));
+    var n = parseInt(raw, 10);
+    if (Number.isInteger(n) && n > 0 && n <= 99) cap = n;
+  } catch (_c) { /* keep 24 */ }
+  return cap;
 }
 
 /**
@@ -1551,6 +1580,15 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     if (!guest) return fail('schedule.create.guestRequired');
     var phone = p.guest_phone != null ? String(p.guest_phone).trim() : '';
     if (!schedulePortalIsValidCreatePhone(phone)) return fail('schedule.create.phoneRequired');
+  }
+  if (comps.course) {
+    var guestQty = null;
+    if (comps.course.quantity != null) guestQty = Number(comps.course.quantity);
+    if (!Number.isFinite(guestQty) && p.surfer_count != null) guestQty = Number(p.surfer_count);
+    var courseCap = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 24;
+    if (Number.isFinite(guestQty) && guestQty > courseCap) {
+      return fail('schedule.create.quoteFailed', { overCapacity: true, capacity: courseCap });
+    }
   }
   // D4: Group Course on with no course picked.
   // Hard create → block with clear message. Soft quote → allow rentals to price
@@ -1993,8 +2031,19 @@ function schedulePortalSyncCreateSubmitEnabled() {
   if (el('ps-create-comp-course') && el('ps-create-comp-course').checked) {
     courseOk = !!schedulePortalGetSelectedCreateCourseId();
   }
-  // Price-not-configured / quote failure clears total and blocks Create.
-  btn.disabled = !guestOk || !courseOk || !!schedulePortalQuotePriceBlocked;
+  var overCap = false;
+  if (el('ps-create-comp-course') && el('ps-create-comp-course').checked) {
+    var guestN = typeof scheduleReadCreateSurferCount === 'function' ? scheduleReadCreateSurferCount() : null;
+    var capN = typeof scheduleCreateCourseGuestCap === 'function' ? scheduleCreateCourseGuestCap() : 24;
+    if (guestN != null && guestN > capN) overCap = true;
+  }
+  var blocked = !!schedulePortalQuotePriceBlocked || overCap;
+  btn.disabled = !guestOk || !courseOk || blocked;
+  if (blocked) {
+    if (typeof btn.setAttribute === 'function') btn.setAttribute('data-other-blocked', '1');
+  } else if (typeof btn.removeAttribute === 'function') {
+    btn.removeAttribute('data-other-blocked');
+  }
 }
 
 function schedulePortalSyncCreateFooter(opts) {

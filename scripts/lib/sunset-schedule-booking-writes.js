@@ -1721,6 +1721,8 @@ function isValidStaffCreateGuestPhone(raw) {
   const phone = raw != null ? String(raw).trim().slice(0, 40) : '';
   if (!phone) return false;
   if (phone.length > 40) return false;
+  if (/[A-Za-z]/.test(phone)) return false;
+  if (/[^0-9+\s().-]/.test(phone)) return false;
   const digits = phone.replace(/\D/g, '');
   return digits.length >= 6;
 }
