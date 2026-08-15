@@ -27,7 +27,9 @@ const {
 const EMAIL_DRAFT_OPEN_DECKHAND_FIELD = 'draft_text';
 const EMAIL_DRAFT_OPEN_STORAGE_FIELD = 'conversations.staff_reply_draft';
 const EMAIL_DRAFT_OPEN_CLAIM_TTL_MS = 60000;
+const EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX = 8640000000000000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const ISO_CLAIMED_AT = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,6})?Z$/;
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -86,6 +88,35 @@ SELECT p.inbound_event_id
  ORDER BY ev.received_at DESC, ev.id DESC
  LIMIT 1`.replace(/\s+/g, ' ').trim();
 
+// Deployed Sunset Postgres is 15 — no pg_input_is_valid (PG 16+). Never cast
+// metadata text to timestamptz: COALESCE(text::timestamptz) throws forever on
+// malformed claimed_at. Nested CASE avoids evaluating casts unless a predicate
+// has already proven the text is digits or a calendar-valid ISO-8601 Z string.
+function sqlNoCurrentSourceEmailReplyApproval(eventSql) {
+  return `NOT EXISTS ( SELECT 1 FROM tenant_email_reply_approvals a WHERE a.client_id = conversations.client_id AND a.conversation_id = conversations.id AND a.source_inbound_event_id = ${eventSql}::uuid AND a.state IN ('draft','approved','terminal') )`;
+}
+
+function sqlEmailLunaOpenDraftClaimExpired(metadataSql, ttlSql) {
+  const msText = `(${metadataSql}->'luna_email_open_draft'->>'claimed_at_ms')`;
+  const isoText = `(${metadataSql}->'luna_email_open_draft'->>'claimed_at')`;
+  const nowMs = '(EXTRACT(EPOCH FROM now()) * 1000)';
+  const ttl = `((${ttlSql})::numeric)`;
+  const y = `SUBSTRING(${isoText}, 1, 4)::int`;
+  const mo = `SUBSTRING(${isoText}, 6, 2)::int`;
+  const d = `SUBSTRING(${isoText}, 9, 2)::int`;
+  const h = `SUBSTRING(${isoText}, 12, 2)::int`;
+  const mi = `SUBSTRING(${isoText}, 15, 2)::int`;
+  const sec = `SUBSTRING(${isoText}, 18, 2)::int`;
+  const frac = `COALESCE(('0' || SUBSTRING(${isoText} FROM '\\.[0-9]{1,6}'))::numeric, 0)`;
+  const leap = `((${y} % 400 = 0) OR (${y} % 4 = 0 AND ${y} % 100 <> 0))`;
+  const dim = `(CASE ${mo} WHEN 1 THEN 31 WHEN 2 THEN CASE WHEN ${leap} THEN 29 ELSE 28 END WHEN 3 THEN 31 WHEN 4 THEN 30 WHEN 5 THEN 31 WHEN 6 THEN 30 WHEN 7 THEN 31 WHEN 8 THEN 31 WHEN 9 THEN 30 WHEN 10 THEN 31 WHEN 11 THEN 30 WHEN 12 THEN 31 ELSE 0 END)`;
+  const calendarOk = `(${mo} BETWEEN 1 AND 12 AND ${d} BETWEEN 1 AND ${dim} AND ${h} BETWEEN 0 AND 23 AND ${mi} BETWEEN 0 AND 59 AND ${sec} BETWEEN 0 AND 59)`;
+  const isoMs = `(EXTRACT(EPOCH FROM make_timestamptz(${y}, ${mo}, ${d}, ${h}, ${mi}, (${sec}::numeric + ${frac}), 'UTC')) * 1000)`;
+  return `(CASE WHEN ${msText} ~ '^[0-9]{1,16}$' THEN CASE WHEN ${msText}::numeric >= 0 AND ${msText}::numeric <= ${EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX} THEN ${msText}::numeric <= (${nowMs} - ${ttl}) ELSE TRUE END WHEN ${isoText} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$' THEN CASE WHEN ${calendarOk} THEN ${isoMs} <= (${nowMs} - ${ttl}) ELSE TRUE END ELSE TRUE END)`;
+}
+
+const SQL_EMAIL_LUNA_OPEN_DRAFT_CLAIM_EXPIRED = sqlEmailLunaOpenDraftClaimExpired('metadata', '$5');
+
 const SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT = `
 UPDATE conversations
    SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
@@ -98,7 +129,7 @@ UPDATE conversations
      )
      OR (
        metadata->'luna_email_open_draft'->>'origin' = 'luna'
-       AND metadata->'luna_email_open_draft'->>'source_inbound_event_id' IS DISTINCT FROM $4
+       AND metadata->'luna_email_open_draft'->>'source_inbound_event_id' IS DISTINCT FROM $4::text
        AND metadata->'luna_email_open_draft'->>'generated_body_sha256' IS NOT NULL
        AND metadata->'luna_email_open_draft'->>'generated_body_sha256' = $6
        AND staff_reply_draft IS NOT DISTINCT FROM $7
@@ -106,9 +137,9 @@ UPDATE conversations
    )
    AND (
      metadata->'luna_email_open_draft'->>'state' IS DISTINCT FROM 'in_progress'
-     OR COALESCE((metadata->'luna_email_open_draft'->>'claimed_at')::timestamptz, '-infinity'::timestamptz)
-        < (now() - ($5::int * interval '1 millisecond'))
+     OR ${SQL_EMAIL_LUNA_OPEN_DRAFT_CLAIM_EXPIRED}
    )
+   AND ${sqlNoCurrentSourceEmailReplyApproval('$4')}
  RETURNING id::text AS conversation_id`.replace(/\s+/g, ' ').trim();
 
 const SQL_CAS_EMAIL_LUNA_OPEN_DRAFT = `
@@ -120,6 +151,7 @@ UPDATE conversations
    AND metadata->'luna_email_open_draft'->>'state' = 'in_progress'
    AND $6::uuid = (${SQL_CURRENT_INBOUND_EVENT_FOR_CONVERSATION})
    AND staff_reply_draft IS NOT DISTINCT FROM $7
+   AND ${sqlNoCurrentSourceEmailReplyApproval('$6')}
  RETURNING staff_reply_draft`.replace(/\s+/g, ' ').trim();
 
 const SQL_RELEASE_EMAIL_LUNA_OPEN_CLAIM = `
@@ -156,6 +188,61 @@ function uuid(value) {
 function digestGeneratedEmailLunaDraftBody(text) {
   if (typeof text !== 'string') return null;
   return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function daysInClaimMonth(year, month) {
+  if (month === 2) {
+    return (year % 400 === 0 || (year % 4 === 0 && year % 100 !== 0)) ? 29 : 28;
+  }
+  return [31, 0, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1] || 0;
+}
+
+function parseIsoClaimedAtMs(text) {
+  if (typeof text !== 'string') return NaN;
+  const match = ISO_CLAIMED_AT.exec(text);
+  if (!match) return NaN;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)
+    || !Number.isInteger(hour) || !Number.isInteger(minute) || !Number.isInteger(second)) {
+    return NaN;
+  }
+  if (month < 1 || month > 12 || day < 1 || day > daysInClaimMonth(year, month)
+    || hour > 23 || minute > 59 || second > 59) {
+    return NaN;
+  }
+  let millis = 0;
+  if (match[7]) {
+    millis = Number(match[7].slice(1).padEnd(3, '0').slice(0, 3));
+    if (!Number.isInteger(millis)) return NaN;
+  }
+  const ms = Date.UTC(year, month - 1, day, hour, minute, second, millis);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+function parseClaimedAtMsValue(raw) {
+  if (typeof raw === 'number') {
+    return Number.isSafeInteger(raw) && raw >= 0 && raw <= EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX
+      ? raw : NaN;
+  }
+  if (typeof raw === 'string' && /^[0-9]{1,16}$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 && n <= EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX ? n : NaN;
+  }
+  return NaN;
+}
+
+function parseEmailLunaOpenDraftClaimedAtMs(meta) {
+  if (!meta || typeof meta !== 'object' || isArray(meta) || isProxy(meta)) return NaN;
+  const block = ownData(meta, 'luna_email_open_draft') || meta.luna_email_open_draft || meta;
+  if (!block || typeof block !== 'object' || isArray(block) || isProxy(block)) return NaN;
+  const fromMs = parseClaimedAtMsValue(ownData(block, 'claimed_at_ms') ?? block.claimed_at_ms);
+  if (Number.isFinite(fromMs)) return fromMs;
+  return parseIsoClaimedAtMs(ownData(block, 'claimed_at') || block.claimed_at);
 }
 
 function digestsEqual(left, right) {
@@ -284,10 +371,9 @@ function existingDraftDecision(row, approval, latestEventId, nowMs, ttlMs) {
   const origin = meta && (ownData(meta, 'origin') || meta.origin);
   const source = meta && (ownData(meta, 'source_inbound_event_id') || meta.source_inbound_event_id);
   const state = meta && (ownData(meta, 'state') || meta.state);
-  const claimedAt = meta && (ownData(meta, 'claimed_at') || meta.claimed_at);
   const proof = meta && (ownData(meta, 'generated_body_sha256') || meta.generated_body_sha256);
   if (state === 'in_progress') {
-    const claimedMs = typeof claimedAt === 'string' ? Date.parse(claimedAt) : NaN;
+    const claimedMs = parseEmailLunaOpenDraftClaimedAtMs(meta);
     const expired = !Number.isFinite(claimedMs) || (nowMs - claimedMs) >= ttlMs;
     if (!expired) return { text: stored, kind: 'in_progress' };
   }
@@ -324,15 +410,20 @@ function applyEmailLunaOpenDraftToDetail(section, ensured) {
   };
 }
 
-function claimPayload(eventId, claimId, claimedAt) {
+function claimPayload(eventId, claimId, claimedAt, claimedAtMs) {
+  const parsedMs = Number.isFinite(claimedAtMs) ? claimedAtMs : parseIsoClaimedAtMs(claimedAt);
+  const block = {
+    state: 'in_progress',
+    origin: 'luna',
+    source_inbound_event_id: eventId,
+    claimed_at: claimedAt,
+    claim_id: claimId,
+  };
+  if (Number.isFinite(parsedMs) && parsedMs >= 0 && parsedMs <= EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX) {
+    block.claimed_at_ms = String(Math.trunc(parsedMs));
+  }
   return JSON.stringify({
-    luna_email_open_draft: {
-      state: 'in_progress',
-      origin: 'luna',
-      source_inbound_event_id: eventId,
-      claimed_at: claimedAt,
-      claim_id: claimId,
-    },
+    luna_email_open_draft: block,
   });
 }
 
@@ -446,7 +537,8 @@ function createStaffEmailLunaDraftOpen(deps) {
       if (!canGenerate(actor, env)) return pending(conversationId);
 
       const claimId = uuidFn();
-      const claimedAt = new Date(nowFn()).toISOString();
+      const claimedAtMs = nowFn();
+      const claimedAt = new Date(claimedAtMs).toISOString();
       const expectedOldText = existing && existing.kind === 'luna_stale'
         ? expectedStoredDraft(existing.text)
         : expectedStoredDraft(row.staff_reply_draft);
@@ -456,7 +548,7 @@ function createStaffEmailLunaDraftOpen(deps) {
         const wrote = await pg.query(SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, [
           actor.client_id,
           conversationId,
-          claimPayload(authority.inbound_message_id, claimId, claimedAt),
+          claimPayload(authority.inbound_message_id, claimId, claimedAt, claimedAtMs),
           authority.inbound_message_id,
           ttlMs,
           expectedDigest,
@@ -560,12 +652,17 @@ module.exports = {
   EMAIL_DRAFT_OPEN_DECKHAND_FIELD,
   EMAIL_DRAFT_OPEN_STORAGE_FIELD,
   EMAIL_DRAFT_OPEN_CLAIM_TTL_MS,
+  EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX,
   SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT,
   SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT,
   SQL_CAS_EMAIL_LUNA_OPEN_DRAFT,
   SQL_RELEASE_EMAIL_LUNA_OPEN_CLAIM,
   SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL,
   SQL_CURRENT_INBOUND_EVENT_FOR_CONVERSATION,
+  SQL_EMAIL_LUNA_OPEN_DRAFT_CLAIM_EXPIRED,
+  sqlNoCurrentSourceEmailReplyApproval,
+  sqlEmailLunaOpenDraftClaimExpired,
+  parseEmailLunaOpenDraftClaimedAtMs,
   digestGeneratedEmailLunaDraftBody,
   applyEmailLunaOpenDraftToSection,
   applyEmailLunaOpenDraftToDetail,

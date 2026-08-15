@@ -205,8 +205,29 @@ function wrapRuntime(calls) {
 function claimExpired(meta, nowMs, ttlMs) {
   const block = meta && meta.luna_email_open_draft;
   if (!block || block.state !== 'in_progress') return true;
-  const claimedMs = Date.parse(block.claimed_at);
+  const ownerMod = require('./lib/staff-email-luna-draft-open');
+  const claimedMs = ownerMod.parseEmailLunaOpenDraftClaimedAtMs(block);
   return !Number.isFinite(claimedMs) || (nowMs - claimedMs) >= ttlMs;
+}
+
+function approvalRowFrom(source) {
+  if (!source || !source.message_text && !source.approval_message_text) return null;
+  const text = source.message_text || source.approval_message_text;
+  if (!text) return null;
+  return {
+    approval_id: source.approval_id || APPROVAL,
+    message_text: text,
+    state: source.state || source.approval_state || 'draft',
+    source_inbound_event_id: source.source_inbound_event_id || source.approval_source_inbound_event_id || M,
+    subject: source.subject || source.approval_subject || null,
+  };
+}
+
+function currentSourceApprovalBlocks(store, rows, eventId) {
+  const approval = store.approval || approvalRowFrom(rows[0] || {});
+  if (!approval) return false;
+  const source = approval.source_inbound_event_id;
+  return source === eventId && ['draft', 'approved', 'terminal'].includes(String(approval.state || ''));
 }
 
 function bodyDigest(text) {
@@ -245,9 +266,11 @@ function makeOwner(options = {}) {
   let store = options.sharedStore || {
     draft: rows[0] && rows[0].staff_reply_draft != null ? String(rows[0].staff_reply_draft) : '',
     meta: rows[0] && rows[0].conversation_metadata ? { ...rows[0].conversation_metadata } : {},
+    approval: approvalRowFrom(rows[0] || {}),
     pgActive: 0,
     lockHeld: false,
   };
+  if (!Object.hasOwn(store, 'approval')) store.approval = approvalRowFrom(rows[0] || {});
 
   const route = ownerMod.createStaffEmailLunaDraftOpen({
     runtimeEnv: options.env || gateOn(),
@@ -318,6 +341,9 @@ function makeOwner(options = {}) {
             if (store.currentInboundEventId && store.currentInboundEventId !== sourceEvent) {
               return { rows: [] };
             }
+            if (currentSourceApprovalBlocks(store, rows, sourceEvent)) {
+              return { rows: [] };
+            }
             const existing = store.draft && String(store.draft).trim();
             const block = store.meta && store.meta.luna_email_open_draft;
             const origin = block && block.origin;
@@ -359,6 +385,9 @@ function makeOwner(options = {}) {
                 && store.currentInboundEventId !== expectedEvent) {
               return { rows: [] };
             }
+            if (currentSourceApprovalBlocks(store, rows, expectedEvent)) {
+              return { rows: [] };
+            }
             const currentText = store.draft == null ? '' : String(store.draft);
             const expected = expectedOldText == null ? '' : String(expectedOldText);
             if (currentText !== expected) return { rows: [] };
@@ -381,19 +410,11 @@ function makeOwner(options = {}) {
             return { rows: [{ conversation_id: V }] };
           }
           if (text === ownerMod.SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL) {
-            const row = rows[0] || {};
-            if (!row.approval_message_text) return { rows: [] };
-            const source = row.approval_source_inbound_event_id || M;
+            const approval = store.approval || approvalRowFrom(rows[0] || {});
+            if (!approval || !approval.message_text) return { rows: [] };
+            const source = approval.source_inbound_event_id || M;
             if (params[2] && source !== params[2]) return { rows: [] };
-            return {
-              rows: [{
-                approval_id: APPROVAL,
-                message_text: row.approval_message_text,
-                state: row.approval_state || 'draft',
-                source_inbound_event_id: source,
-                subject: row.approval_subject || null,
-              }],
-            };
+            return { rows: [approval] };
           }
           return { rows: [] };
         },
@@ -1080,18 +1101,229 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   assert.equal(h.writes.length, 0);
   assert.equal(h.claims.length, 0);
 
+  // ── D) Current-source approval inserted after load / during Graph / before CAS
+  function staffApproval(state, text = 'Staff saved this.', eventId = M) {
+    return {
+      approval_id: APPROVAL,
+      message_text: text,
+      state,
+      source_inbound_event_id: eventId,
+      subject: 'Re: Boards for Saturday',
+    };
+  }
+
+  function assertGeneratedNotSurfaced(label, out, harness) {
+    assert.notEqual(out.draft_text, SAFE_ACKNOWLEDGMENT.en, `${label} overlay`);
+    assert.notEqual(out.draft_text, AUTHORED, `${label} authored overlay`);
+    assert.notEqual(harness.store.draft, SAFE_ACKNOWLEDGMENT.en, `${label} stored`);
+    assert.notEqual(harness.store.draft, AUTHORED, `${label} stored authored`);
+    assert.doesNotMatch(
+      JSON.stringify(out),
+      /We’ll review it and get back to you|Our surfboard rental is €35/,
+      label,
+    );
+  }
+
+  for (const state of ['draft', 'approved', 'terminal']) {
+    const staffText = `Manual ${state} reply.`;
+    const expectReady = state === 'draft';
+
+    h = makeOwner({
+      onBeforeClaim: (store) => { store.approval = staffApproval(state, staffText); },
+    });
+    out = await open(h);
+    if (expectReady) assertDraft(out, staffText);
+    else assertPending(out);
+    assert.equal(h.claims.length, 0, `a-${state} claims`);
+    assert.equal(h.contentCalls.length, 0, `a-${state} graph`);
+    assert.equal(h.modelCalls.length, 0, `a-${state} model`);
+    assert.equal(h.writes.length, 0, `a-${state} writes`);
+    assertGeneratedNotSurfaced(`a-${state}`, out, h);
+
+    h = makeOwner({
+      fetchCurrentMessageContent: async (input) => {
+        h.store.approval = staffApproval(state, staffText);
+        h.contentCalls.push(input);
+        assert.equal(h.store.lockHeld, false, 'must not hold a conversation lock across Graph');
+        return Object.freeze({ latest_text: BODY });
+      },
+    });
+    out = await open(h);
+    if (expectReady) assertDraft(out, staffText);
+    else assertPending(out);
+    assert.equal(h.claims.length, 1, `b-${state} claims`);
+    assert.equal(h.contentCalls.length, 1, `b-${state} graph`);
+    assert.equal(h.modelCalls.length, 0, `b-${state} model`);
+    assert.equal(h.writes.length, 0, `b-${state} writes`);
+    assert.ok(h.releases.length >= 1, `b-${state} release`);
+    assert.notEqual(h.store.meta.luna_email_open_draft && h.store.meta.luna_email_open_draft.state, 'ready');
+    assertGeneratedNotSurfaced(`b-${state}`, out, h);
+
+    h = makeOwner({
+      onBeforeCas: (store) => { store.approval = staffApproval(state, staffText); },
+    });
+    out = await open(h);
+    if (expectReady) assertDraft(out, staffText);
+    else assertPending(out);
+    assert.equal(h.claims.length, 1, `c-${state} claims`);
+    assert.equal(h.contentCalls.length, 1, `c-${state} graph`);
+    assert.equal(h.modelCalls.length, 0, `c-${state} model`);
+    assert.equal(h.writes.length, 0, `c-${state} writes`);
+    assert.ok(h.releases.length >= 1, `c-${state} release`);
+    assertGeneratedNotSurfaced(`c-${state}`, out, h);
+  }
+
+  // State transition into draft / approved / terminal after the Luna claim.
+  h = makeOwner({
+    classifyIntent: productionClassifier(),
+    queryOwners: productionQueryOwners(),
+    fetchCurrentMessageContent: async (input) => {
+      h.contentCalls.push(input);
+      h.store.approval = staffApproval('draft', 'Staff just saved.');
+      return Object.freeze({ latest_text: BODY });
+    },
+  });
+  out = await open(h);
+  assertDraft(out, 'Staff just saved.');
+  assert.equal(h.contentCalls.length, 1);
+  assert.equal(h.modelCalls.length, 1);
+  assert.equal(h.writes.length, 0);
+  assertGeneratedNotSurfaced('transition-draft', out, h);
+
+  h = makeOwner({
+    classifyIntent: productionClassifier(),
+    queryOwners: productionQueryOwners(),
+    fetchCurrentMessageContent: async (input) => {
+      h.contentCalls.push(input);
+      h.store.approval = staffApproval('draft', 'Staff just saved.');
+      h.store.approval = staffApproval('approved', 'Staff just saved.');
+      return Object.freeze({ latest_text: BODY });
+    },
+  });
+  out = await open(h);
+  assertPending(out);
+  assert.equal(h.contentCalls.length, 1);
+  assert.equal(h.modelCalls.length, 1);
+  assert.equal(h.writes.length, 0);
+  assertGeneratedNotSurfaced('transition-approved', out, h);
+
+  h = makeOwner({
+    onBeforeCas: (store) => {
+      store.approval = staffApproval('draft', 'Staff just saved.');
+      store.approval = staffApproval('terminal', 'Staff just saved.');
+    },
+  });
+  out = await open(h);
+  assertPending(out);
+  assert.equal(h.contentCalls.length, 1);
+  assert.equal(h.writes.length, 0);
+  assertGeneratedNotSurfaced('transition-terminal', out, h);
+
+  // Old-source approval arriving before CAS must not block the new inbound.
+  h = makeOwner({
+    rows: [authorityRow({ inbound_message_id: M2, latest_message_id: M2 })],
+    onBeforeCas: (store) => {
+      store.approval = staffApproval('draft', 'Old source staff draft.', M);
+    },
+  });
+  out = await open(h);
+  assertSafe(out, 'en');
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.contentCalls[0].eventId, M2);
+
+  // ── E) Malformed / missing claimed_at is reclaimable (JS + SQL contract)
+  function inProgressMeta(claimedAt, extra = {}) {
+    return {
+      luna_email_open_draft: {
+        state: 'in_progress',
+        origin: 'luna',
+        source_inbound_event_id: M,
+        claimed_at: claimedAt,
+        claim_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        ...extra,
+      },
+    };
+  }
+
+  for (const [label, meta] of [
+    ['malformed string', inProgressMeta('not-a-date')],
+    ['impossible Feb 30', inProgressMeta('2026-02-30T00:00:00.000Z')],
+    ['impossible Apr 31', inProgressMeta('2026-04-31T00:00:00.000Z')],
+    ['impossible Feb 29 2025', inProgressMeta('2025-02-29T00:00:00.000Z')],
+    ['missing claimed_at', inProgressMeta(undefined)],
+    ['null claimed_at', inProgressMeta(null)],
+    ['empty claimed_at', inProgressMeta('')],
+    ['garbage claimed_at_ms', inProgressMeta('not-a-date', { claimed_at_ms: 'not-a-number' })],
+  ]) {
+    h = makeOwner({
+      sharedStore: { draft: '', meta, pgActive: 0, lockHeld: false, approval: null },
+      nowMs: Date.now(),
+    });
+    out = await open(h);
+    assertSafe(out, 'en');
+    assert.equal(h.claims.length, 1, label);
+    assert.equal(h.contentCalls.length, 1, label);
+    assert.equal(h.writes.length, 1, label);
+  }
+
+  const freshIso = new Date(Date.now() - 1000).toISOString();
+  h = makeOwner({
+    sharedStore: {
+      draft: '',
+      meta: inProgressMeta(freshIso, { claimed_at_ms: String(Date.parse(freshIso)) }),
+      pgActive: 0,
+      lockHeld: false,
+      approval: null,
+    },
+    nowMs: Date.now(),
+  });
+  out = await open(h);
+  assertPending(out);
+  assert.equal(h.claims.length, 0);
+  assert.equal(h.contentCalls.length, 0);
+  assert.equal(h.writes.length, 0);
+
+  const expiredIso = new Date(Date.now() - 120000).toISOString();
+  h = makeOwner({
+    sharedStore: {
+      draft: '',
+      meta: inProgressMeta(expiredIso, { claimed_at_ms: String(Date.parse(expiredIso)) }),
+      pgActive: 0,
+      lockHeld: false,
+      approval: null,
+    },
+    nowMs: Date.now(),
+  });
+  out = await open(h);
+  assertSafe(out, 'en');
+  assert.equal(h.claims.length, 1);
+  assert.equal(h.contentCalls.length, 1);
+
   // SQL / resolver contracts that hide these races today.
   assert.match(ownerMod.SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL, /source_inbound_event_id\s*=\s*\$3/);
   assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /tenant_email_inbound_inbox_projections/);
   assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /generated_body_sha256/);
   assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /staff_reply_draft IS NOT DISTINCT FROM/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /NOT EXISTS/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /tenant_email_reply_approvals/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /source_inbound_event_id = \$4::uuid/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /state IN \('draft','approved','terminal'\)/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /claimed_at_ms/);
+  assert.doesNotMatch(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /claimed_at'\)::timestamptz/);
+  assert.doesNotMatch(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /pg_input_is_valid/);
   assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /tenant_email_inbound_inbox_projections/);
   assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /staff_reply_draft IS NOT DISTINCT FROM/);
+  assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /NOT EXISTS/);
+  assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /tenant_email_reply_approvals/);
+  assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /source_inbound_event_id = \$6::uuid/);
+  assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /state IN \('draft','approved','terminal'\)/);
   assert.match(resolverSrc, /tenant_email_inbound_inbox_projections/);
   assert.match(resolverSrc, /conversations c/);
   assert.match(ownerSrc, /generated_body_sha256/);
+  assert.match(ownerSrc, /claimed_at_ms/);
   assert.doesNotMatch(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /FOR UPDATE/);
   assert.doesNotMatch(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /FOR UPDATE/);
+  assert.doesNotMatch(ownerSrc, /FOR UPDATE/);
 
   // Cross-tenant / location / mailbox / source mismatch.
   for (const [label, row] of [
@@ -1195,6 +1427,279 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
     assert.equal(sha256(path.join(ROOT, rel)), forbiddenHashes[rel], rel);
   }
   assert.doesNotMatch(ownerSrc, /scripts\/browser\//);
+
+  function tryLoadPglite() {
+    const roots = [
+      ROOT,
+      '/opt/data/email-slice-1b',
+      '/opt/data/wolfhouse-pr366',
+      '/opt/data/wolfhouse-agent',
+      '/opt/wolfhouse/WH',
+    ];
+    for (const base of roots) {
+      try {
+        return require(require.resolve('@electric-sql/pglite', { paths: [base] })).PGlite;
+      } catch {
+        /* next root */
+      }
+    }
+    return null;
+  }
+
+  async function proveClaimSqlOnPglite() {
+    const PGlite = tryLoadPglite();
+    assert.ok(PGlite, 'PGlite required for claim SQL claimed_at / approval proofs');
+    const db = new PGlite();
+    const version = await db.query('SHOW server_version');
+    const hasInputIsValid = await db.query(
+      "SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'pg_input_is_valid') AS ok",
+    );
+    assert.equal(hasInputIsValid.rows[0].ok, true);
+    assert.doesNotMatch(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /pg_input_is_valid/);
+
+    await db.exec(`
+      CREATE TABLE conversations (
+        client_id uuid NOT NULL,
+        id uuid NOT NULL,
+        staff_reply_draft text,
+        metadata jsonb,
+        PRIMARY KEY (client_id, id)
+      );
+      CREATE TABLE tenant_email_inbound_inbox_projections (
+        client_id uuid NOT NULL,
+        conversation_id uuid NOT NULL,
+        inbound_event_id uuid NOT NULL
+      );
+      CREATE TABLE tenant_email_inbound_events (
+        client_id uuid NOT NULL,
+        id uuid NOT NULL,
+        received_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (client_id, id)
+      );
+      CREATE TABLE tenant_email_reply_approvals (
+        client_id uuid NOT NULL,
+        conversation_id uuid NOT NULL,
+        source_inbound_event_id uuid NOT NULL,
+        state text NOT NULL
+      );
+    `);
+    await db.query(
+      'INSERT INTO conversations (client_id, id, staff_reply_draft, metadata) VALUES ($1,$2,$3,$4)',
+      [C, V, null, {}],
+    );
+    await db.query(
+      'INSERT INTO tenant_email_inbound_events (client_id, id, received_at) VALUES ($1,$2, now())',
+      [C, M],
+    );
+    await db.query(
+      'INSERT INTO tenant_email_inbound_inbox_projections (client_id, conversation_id, inbound_event_id) VALUES ($1,$2,$3)',
+      [C, V, M],
+    );
+
+    const ttl = ownerMod.EMAIL_DRAFT_OPEN_CLAIM_TTL_MS;
+    const claimMeta = JSON.stringify({
+      luna_email_open_draft: {
+        state: 'in_progress', origin: 'luna', source_inbound_event_id: M,
+        claimed_at: new Date().toISOString(), claimed_at_ms: String(Date.now()),
+        claim_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+    });
+    const claimParams = (meta) => [C, V, claimMeta, M, ttl, '', null];
+
+    async function setMeta(block) {
+      await db.query('UPDATE conversations SET staff_reply_draft = NULL, metadata = $1::jsonb WHERE client_id=$2 AND id=$3', [
+        { luna_email_open_draft: block }, C, V,
+      ]);
+    }
+
+    async function tryClaim() {
+      return db.query(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, claimParams());
+    }
+
+    await assert.rejects(
+      () => db.query("SELECT 'not-a-date'::timestamptz"),
+      /invalid input syntax/,
+    );
+    await assert.rejects(
+      () => db.query("SELECT '2026-02-30T00:00:00.000Z'::timestamptz"),
+      /out of range/,
+    );
+
+    const pred = ownerMod.sqlEmailLunaOpenDraftClaimExpired('$1::jsonb', '$2');
+    async function expiredOf(block) {
+      const r = await db.query(`SELECT ${pred} AS expired`, [{ luna_email_open_draft: block }, ttl]);
+      return r.rows[0].expired;
+    }
+
+    const now = Date.now();
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: 'not-a-date',
+    }), true);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: '2026-02-30T00:00:00.000Z',
+    }), true);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: '2026-04-31T00:00:00.000Z',
+    }), true);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: '2025-02-29T00:00:00.000Z',
+    }), true);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+    }), true);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: null,
+    }), true);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: new Date(now - 1000).toISOString(),
+      claimed_at_ms: String(now - 1000),
+    }), false);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: new Date(now - 120000).toISOString(),
+      claimed_at_ms: String(now - 120000),
+    }), true);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: new Date(now - 1000).toISOString(),
+    }), false);
+    assert.equal(await expiredOf({
+      state: 'in_progress',
+      claimed_at: new Date(now - 120000).toISOString(),
+    }), true);
+
+    for (const claimedAt of [
+      'not-a-date',
+      '2026-02-30T00:00:00.000Z',
+      '2026-04-31T00:00:00.000Z',
+      '2025-02-29T00:00:00.000Z',
+      '',
+      null,
+    ]) {
+      await setMeta({
+        state: 'in_progress',
+        origin: 'luna',
+        source_inbound_event_id: M,
+        claimed_at: claimedAt,
+        claim_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      });
+      const claimed = await tryClaim();
+      assert.equal(claimed.rows.length, 1, `pglite reclaim ${claimedAt}`);
+    }
+
+    await setMeta({
+      state: 'in_progress',
+      origin: 'luna',
+      source_inbound_event_id: M,
+      claimed_at: new Date(now - 1000).toISOString(),
+      claimed_at_ms: String(now - 1000),
+      claim_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    });
+    assert.equal((await tryClaim()).rows.length, 0, 'pglite valid fresh stays claimed');
+
+    await setMeta({
+      state: 'in_progress',
+      origin: 'luna',
+      source_inbound_event_id: M,
+      claimed_at: new Date(now - 120000).toISOString(),
+      claimed_at_ms: String(now - 120000),
+      claim_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    });
+    assert.equal((await tryClaim()).rows.length, 1, 'pglite valid expired reclaims');
+
+    await db.query('UPDATE conversations SET staff_reply_draft = NULL, metadata = $1::jsonb WHERE client_id=$2 AND id=$3', [{}, C, V]);
+    assert.equal((await tryClaim()).rows.length, 1, 'pglite empty metadata claims');
+
+    await db.query(
+      'INSERT INTO tenant_email_reply_approvals (client_id, conversation_id, source_inbound_event_id, state) VALUES ($1,$2,$3,$4)',
+      [C, V, M, 'draft'],
+    );
+    await db.query('UPDATE conversations SET staff_reply_draft = NULL, metadata = $1::jsonb WHERE client_id=$2 AND id=$3', [{}, C, V]);
+    assert.equal((await tryClaim()).rows.length, 0, 'pglite current-source draft blocks claim');
+
+    await db.query("UPDATE tenant_email_reply_approvals SET state = 'approved'");
+    await db.query('UPDATE conversations SET staff_reply_draft = NULL, metadata = $1::jsonb WHERE client_id=$2 AND id=$3', [{}, C, V]);
+    assert.equal((await tryClaim()).rows.length, 0, 'pglite current-source approved blocks claim');
+
+    await db.query("UPDATE tenant_email_reply_approvals SET state = 'terminal'");
+    await db.query('UPDATE conversations SET staff_reply_draft = NULL, metadata = $1::jsonb WHERE client_id=$2 AND id=$3', [{}, C, V]);
+    assert.equal((await tryClaim()).rows.length, 0, 'pglite current-source terminal blocks claim');
+
+    await db.query('UPDATE tenant_email_reply_approvals SET source_inbound_event_id = $1', [M2]);
+    await db.query('UPDATE conversations SET staff_reply_draft = NULL, metadata = $1::jsonb WHERE client_id=$2 AND id=$3', [{}, C, V]);
+    assert.equal((await tryClaim()).rows.length, 1, 'pglite old-source approval does not block');
+
+    await db.query('DELETE FROM tenant_email_reply_approvals');
+    await db.query(
+      `UPDATE conversations SET metadata = $1::jsonb WHERE client_id=$2 AND id=$3`,
+      [{
+        luna_email_open_draft: {
+          state: 'in_progress',
+          origin: 'luna',
+          source_inbound_event_id: M,
+          claimed_at: new Date().toISOString(),
+          claimed_at_ms: String(Date.now()),
+          claim_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        },
+      }, C, V],
+    );
+    const casOk = await db.query(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, [
+      C, V, SAFE_ACKNOWLEDGMENT.en,
+      JSON.stringify({
+        luna_email_open_draft: {
+          state: 'ready', origin: 'luna', source_inbound_event_id: M,
+          claim_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          kind: 'safe_acknowledgment',
+          generated_body_sha256: bodyDigest(SAFE_ACKNOWLEDGMENT.en),
+        },
+      }),
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd', M, null,
+    ]);
+    assert.equal(casOk.rows.length, 1, 'pglite CAS without approval');
+
+    await db.query(
+      `UPDATE conversations SET staff_reply_draft = NULL, metadata = $1::jsonb WHERE client_id=$2 AND id=$3`,
+      [{
+        luna_email_open_draft: {
+          state: 'in_progress',
+          origin: 'luna',
+          source_inbound_event_id: M,
+          claimed_at: new Date().toISOString(),
+          claimed_at_ms: String(Date.now()),
+          claim_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        },
+      }, C, V],
+    );
+    await db.query(
+      'INSERT INTO tenant_email_reply_approvals (client_id, conversation_id, source_inbound_event_id, state) VALUES ($1,$2,$3,$4)',
+      [C, V, M, 'draft'],
+    );
+    const casBlocked = await db.query(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, [
+      C, V, SAFE_ACKNOWLEDGMENT.en,
+      JSON.stringify({
+        luna_email_open_draft: {
+          state: 'ready', origin: 'luna', source_inbound_event_id: M,
+          claim_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+          kind: 'safe_acknowledgment',
+          generated_body_sha256: bodyDigest(SAFE_ACKNOWLEDGMENT.en),
+        },
+      }),
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd', M, null,
+    ]);
+    assert.equal(casBlocked.rows.length, 0, 'pglite CAS blocked by current-source approval');
+    const stored = await db.query('SELECT staff_reply_draft FROM conversations WHERE id=$1', [V]);
+    assert.equal(stored.rows[0].staff_reply_draft, null, 'pglite generated body not persisted');
+
+    console.log(`PGLITE_CLAIM_SQL backend=pglite pg=${version.rows[0].server_version}`);
+  }
+
+  await proveClaimSqlOnPglite();
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   assert.equal(pkg.scripts['verify:email-draft-open'], 'node scripts/verify-email-draft-open.js');
