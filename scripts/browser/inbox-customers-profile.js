@@ -213,9 +213,14 @@ function customerPaymentStatusLabel(raw) {
   var s = String(raw == null ? '' : raw).trim().toLowerCase().replace(/\s+/g, '_');
   if (!s || s === '—' || s === '-') return '—';
   if (s === 'canceled') s = 'cancelled';
-  if (s === 'fully_paid' || s === 'paid_in_full') s = 'paid';
-  if (s === 'waiting_payment' || s === 'pending' || s === 'not_requested' || s === 'unpaid') s = 'unpaid';
-  if (s === 'deposit_paid' || s === 'partially_paid') s = 'partial';
+  // Display-only aliases → Reservas status chips (paid|unpaid|partial|…). Staff API enum stays unchanged.
+  if (s === 'fully_paid' || s === 'paid_in_full' || s === 'succeeded' || s === 'complete' || s === 'completed') s = 'paid';
+  if (
+    s === 'waiting_payment' || s === 'pending' || s === 'not_requested' || s === 'unpaid'
+    || s === 'pending_deposit' || s === 'payment_pending' || s === 'payment_link_sent'
+    || s === 'checkout_created' || s === 'draft' || s === 'failed'
+  ) s = 'unpaid';
+  if (s === 'deposit_paid' || s === 'partially_paid' || s === 'balance_due') s = 'partial';
   var key = 'admin.bookings.status.' + s;
   var t = '';
   try { t = String((typeof portalT === 'function' && portalT(key)) || ''); } catch (_e) { t = ''; }
@@ -226,7 +231,8 @@ function customerPaymentStatusLabel(raw) {
   var esMap = { paid: 'Pagado', unpaid: 'Sin pagar', partial: 'Parcial', refunded: 'Reembolsado', cancelled: 'Cancelado' };
   if (es && esMap[s]) return esMap[s];
   if (en[s]) return en[s];
-  return s.replace(/_/g, ' ');
+  // Never show snake_case enums to staff — humanize unknown API values without inventing status.
+  return s.replace(/_/g, ' ').replace(/\b\w/g, function(ch) { return ch.toUpperCase(); });
 }
 
 function customerBookingDateLabel(val) {
