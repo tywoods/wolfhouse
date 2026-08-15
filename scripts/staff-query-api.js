@@ -279,7 +279,13 @@ const {
   createStaffEmailLunaDraftRoute, EMAIL_LUNA_GENERATE_DRAFT_PATH,
   snapshotEmailLunaGenerateGateEnv, isEmailLunaGenerateDraftEnabled,
 } = require('./lib/staff-email-luna-draft-route');
+const {
+  createStaffEmailLunaDraftOpen,
+  applyEmailLunaOpenDraftToSection,
+  applyEmailLunaOpenDraftToDetail,
+} = require('./lib/staff-email-luna-draft-open');
 const { createEmailLunaSunsetStagingRuntimeComposition } = require('./lib/email-luna-sunset-staging-runtime-composition');
+const { createEmailLunaDraftOpenContentFetcher } = require('./lib/email-luna-draft-open-content-composition');
 const {
   createSunsetStagingEmailOutboundDispatch,
 } = require('./lib/email-outbound-sunset-staging-runtime-composition');
@@ -2634,6 +2640,8 @@ const {
 // Inbox thread composite read (extracted module). One snapshot for the six
 // payloads the thread view used to fetch separately; viewer auth stays in the
 // router and the handler re-applies assertStaffClientAccess.
+// EMAIL-DRAFT-OPEN is bound after Luna composition below (lazy holder).
+const emailLunaDraftOpenHolder = { ensureEmailLunaDraftOnOpen: null };
 const inboxThreadCompositeRoutes = createInboxThreadCompositeRoutes({
   sendJSON,
   send400,
@@ -2650,6 +2658,13 @@ const inboxThreadCompositeRoutes = createInboxThreadCompositeRoutes({
   filterActiveInboxBookings,
   buildPausedStateResponse,
   buildDefaultActivePauseResponse,
+  ensureEmailLunaDraftOnOpen: (input) => (
+    emailLunaDraftOpenHolder.ensureEmailLunaDraftOnOpen
+      ? emailLunaDraftOpenHolder.ensureEmailLunaDraftOnOpen(input)
+      : Promise.resolve(null)
+  ),
+  applyEmailLunaOpenDraftToSection,
+  applyEmailLunaOpenDraftToDetail,
 });
 const { handleInboxThreadComposite } = inboxThreadCompositeRoutes;
 
@@ -2835,6 +2850,20 @@ const emailLunaDraftRoute = createStaffEmailLunaDraftRoute({
   createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
   saveDraftThroughStaffOwner: emailInboxRoutes.saveDraftThroughStaffOwner,
 });
+const emailLunaDraftOpen = createStaffEmailLunaDraftOpen({
+  withPgClient,
+  runtimeEnv: process.env,
+  createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
+  createContentFetcher(pgClient) {
+    return createEmailLunaDraftOpenContentFetcher({
+      env: process.env,
+      pgClient,
+      https,
+      timers: { setTimeout, clearTimeout },
+    });
+  },
+});
+emailLunaDraftOpenHolder.ensureEmailLunaDraftOnOpen = emailLunaDraftOpen.ensureEmailLunaDraftOnOpen;
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
@@ -42644,8 +42673,22 @@ async function handleConversationDetail(convId, query, res, user) {
     return send404(res);
   }
 
+  let conversation = rows[0];
+  if (conversation && conversation.channel === 'email' && conversation.needs_human === true) {
+    try {
+      const ensured = await emailLunaDraftOpen.ensureEmailLunaDraftOnOpen({
+        actor: user,
+        conversation_id: convId,
+        client_slug: clientSlug,
+      });
+      if (ensured && ensured.status === 'draft_ready' && ensured.draft_text) {
+        conversation = { ...conversation, staff_reply_draft: ensured.draft_text };
+      }
+    } catch (_ensureErr) { /* open-draft must not block detail */ }
+  }
+
   appendAuditLog({ ...auditBase, success: true, row_count: 1, elapsed_ms: elapsed });
-  return sendJSON(res, 200, { success: true, conversation: rows[0], elapsed_ms: elapsed });
+  return sendJSON(res, 200, { success: true, conversation, elapsed_ms: elapsed });
 }
 
 async function handleConversationMessages(convId, query, res, user) {
@@ -42782,8 +42825,25 @@ async function handleConversationDraft(convId, query, res, user) {
     return send404(res);
   }
 
-  appendAuditLog({ ...auditBase, success: true, draft_available: rows[0].draft_available, elapsed_ms: elapsed });
-  return sendJSON(res, 200, { success: true, draft: rows[0], elapsed_ms: elapsed });
+  let draft = rows[0];
+  try {
+    const ensured = await emailLunaDraftOpen.ensureEmailLunaDraftOnOpen({
+      actor: user,
+      conversation_id: convId,
+      client_slug: clientSlug,
+    });
+    if (ensured && ensured.status === 'draft_ready' && ensured.draft_text) {
+      draft = {
+        ...draft,
+        draft_text: ensured.draft_text,
+        draft_available: true,
+        reason: null,
+      };
+    }
+  } catch (_ensureErr) { /* open-draft must not block draft read */ }
+
+  appendAuditLog({ ...auditBase, success: true, draft_available: draft.draft_available, elapsed_ms: elapsed });
+  return sendJSON(res, 200, { success: true, draft, elapsed_ms: elapsed });
 }
 
 async function handleConversationStaffState(convId, query, res, user) {
