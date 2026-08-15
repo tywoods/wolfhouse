@@ -33,6 +33,17 @@ SELECT ev.client_id::text AS "clientId",
        ev.provider_mailbox_id AS "providerMailboxId",
        ev.provider_message_id AS "providerMessageId"
   FROM tenant_email_inbound_events ev
+ INNER JOIN tenant_email_inbound_inbox_projections p
+    ON p.client_id = ev.client_id
+   AND p.inbound_event_id = ev.id
+   AND p.location_id = ev.location_id
+   AND p.endpoint_id = ev.endpoint_id
+   AND p.provider = ev.provider
+   AND p.provider_mailbox_id = ev.provider_mailbox_id
+   AND p.provider_message_id = ev.provider_message_id
+ INNER JOIN conversations c
+    ON c.client_id = p.client_id
+   AND c.id = p.conversation_id
  INNER JOIN tenant_locations loc
     ON loc.client_id = ev.client_id AND loc.id = ev.location_id
  INNER JOIN tenant_channel_endpoints ep
@@ -56,6 +67,16 @@ SELECT ev.client_id::text AS "clientId",
    AND ev.id = $3::uuid
    AND ev.provider = 'microsoft_graph'
    AND loc.location_id = 'sunset-somo'
+   AND ev.id = (
+     SELECT p2.inbound_event_id
+       FROM tenant_email_inbound_inbox_projections p2
+       INNER JOIN tenant_email_inbound_events ev2
+         ON ev2.client_id = p2.client_id AND ev2.id = p2.inbound_event_id
+      WHERE p2.client_id = ev.client_id
+        AND p2.conversation_id = p.conversation_id
+      ORDER BY ev2.received_at DESC, ev2.id DESC
+      LIMIT 1
+   )
  LIMIT 1`.replace(/\s+/g, ' ').trim();
 
 function fail() {

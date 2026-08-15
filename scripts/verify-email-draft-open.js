@@ -209,6 +209,26 @@ function claimExpired(meta, nowMs, ttlMs) {
   return !Number.isFinite(claimedMs) || (nowMs - claimedMs) >= ttlMs;
 }
 
+function bodyDigest(text) {
+  return crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
+}
+
+function lunaOwnedMeta(eventId, text, extra = {}) {
+  return {
+    luna_email_open_draft: {
+      origin: 'luna',
+      state: 'ready',
+      source_inbound_event_id: eventId,
+      generated_body_sha256: bodyDigest(text),
+      ...extra,
+    },
+  };
+}
+
+function staffEditedLunaMeta(eventId, generatedText) {
+  return lunaOwnedMeta(eventId, generatedText);
+}
+
 function makeOwner(options = {}) {
   const ownerMod = require('./lib/staff-email-luna-draft-open');
   const writes = [];
@@ -243,6 +263,11 @@ function makeOwner(options = {}) {
     fetchCurrentMessageContent: options.fetchCurrentMessageContent || (async (input) => {
       contentCalls.push(input);
       assert.equal(store.lockHeld, false, 'must not hold a conversation lock across Graph');
+      if (store.currentInboundEventId && input.eventId !== store.currentInboundEventId) {
+        const err = new Error('authority_bound_current_message_content_failed');
+        err.code = 'authority_bound_current_message_content_failed';
+        throw err;
+      }
       if (options.contentError) {
         const err = new Error(options.contentError);
         err.code = options.contentError;
@@ -272,6 +297,10 @@ function makeOwner(options = {}) {
             assert.equal(params[2], options.expectedConversationId || V);
             if (!rows.length) return { rows: [] };
             const live = { ...rows[0] };
+            if (store.currentInboundEventId) {
+              live.inbound_message_id = store.currentInboundEventId;
+              live.latest_message_id = store.currentInboundEventId;
+            }
             live.staff_reply_draft = store.draft || null;
             live.conversation_metadata = { ...(live.conversation_metadata || {}), ...store.meta };
             return { rows: [live] };
@@ -281,15 +310,33 @@ function makeOwner(options = {}) {
             throw new Error('conversation FOR UPDATE is forbidden across Graph/model');
           }
           if (text === ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT) {
+            if (typeof options.onBeforeClaim === 'function') await options.onBeforeClaim(store);
             const nextMeta = typeof params[2] === 'string' ? JSON.parse(params[2]) : params[2];
             const sourceEvent = params[3];
+            const expectedDigest = params[5];
+            const expectedText = params[6];
+            if (store.currentInboundEventId && store.currentInboundEventId !== sourceEvent) {
+              return { rows: [] };
+            }
             const existing = store.draft && String(store.draft).trim();
-            const origin = store.meta && store.meta.luna_email_open_draft
-              && store.meta.luna_email_open_draft.origin;
-            const existingSource = store.meta && store.meta.luna_email_open_draft
-              && store.meta.luna_email_open_draft.source_inbound_event_id;
-            const mayOverwriteEmpty = !existing;
-            const maySupersedeLuna = origin === 'luna' && existingSource && existingSource !== sourceEvent;
+            const block = store.meta && store.meta.luna_email_open_draft;
+            const origin = block && block.origin;
+            const existingSource = block && block.source_inbound_event_id;
+            const storedDigest = block && block.generated_body_sha256;
+            const storeText = store.draft == null ? null : String(store.draft);
+            const expectedEmpty = expectedText == null || !String(expectedText).trim();
+            const storeEmpty = !existing;
+            const mayOverwriteEmpty = storeEmpty && expectedEmpty;
+            const textMatches = (storeText || '') === (expectedText == null ? '' : String(expectedText));
+            const digestMatches = !!(storedDigest && expectedDigest
+              && storedDigest === expectedDigest
+              && storedDigest === bodyDigest(store.draft || ''));
+            const maySupersedeLuna = origin === 'luna'
+              && existingSource
+              && existingSource !== sourceEvent
+              && digestMatches
+              && textMatches
+              && storeText === expectedText;
             const mayClaim = (mayOverwriteEmpty || maySupersedeLuna)
               && claimExpired(store.meta, nowMs(), params[4]);
             if (!mayClaim) return { rows: [] };
@@ -299,12 +346,22 @@ function makeOwner(options = {}) {
             return { rows: [{ conversation_id: V }] };
           }
           if (text === ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT) {
+            if (typeof options.onBeforeCas === 'function') await options.onBeforeCas(store);
             if (options.saveError) throw new Error('save failed');
             const claimId = params[4];
+            const expectedEvent = params[5];
+            const expectedOldText = params[6];
             const current = store.meta && store.meta.luna_email_open_draft;
             if (!current || current.claim_id !== claimId || current.state !== 'in_progress') {
               return { rows: [] };
             }
+            if (store.currentInboundEventId && expectedEvent
+                && store.currentInboundEventId !== expectedEvent) {
+              return { rows: [] };
+            }
+            const currentText = store.draft == null ? '' : String(store.draft);
+            const expected = expectedOldText == null ? '' : String(expectedOldText);
+            if (currentText !== expected) return { rows: [] };
             const nextDraft = params[2];
             const nextMeta = typeof params[3] === 'string' ? JSON.parse(params[3]) : params[3];
             store.draft = nextDraft;
@@ -326,12 +383,14 @@ function makeOwner(options = {}) {
           if (text === ownerMod.SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL) {
             const row = rows[0] || {};
             if (!row.approval_message_text) return { rows: [] };
+            const source = row.approval_source_inbound_event_id || M;
+            if (params[2] && source !== params[2]) return { rows: [] };
             return {
               rows: [{
                 approval_id: APPROVAL,
                 message_text: row.approval_message_text,
                 state: row.approval_state || 'draft',
-                source_inbound_event_id: row.approval_source_inbound_event_id || M,
+                source_inbound_event_id: source,
                 subject: row.approval_subject || null,
               }],
             };
@@ -544,6 +603,27 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   assert.deepEqual(fetched, { latest_text: 'Hello from Graph\nworld' });
   assert.equal(grants, 1);
   assert.equal(network, 1);
+  assert.match(SQL_RESOLVE_CURRENT_MESSAGE_CONTENT_AUTHORITY, /tenant_email_inbound_inbox_projections/);
+  assert.match(SQL_RESOLVE_CURRENT_MESSAGE_CONTENT_AUTHORITY, /conversations c/);
+  const stalePg = {
+    async query(sql) {
+      assert.equal(String(sql).replace(/\s+/g, ' ').trim(), SQL_RESOLVE_CURRENT_MESSAGE_CONTENT_AUTHORITY);
+      return { rows: [] };
+    },
+  };
+  const staleOp = createAuthorityBoundCurrentMessageContentOperation({
+    buildAuthorityResolver: createCurrentMessageContentAuthorityResolver({ db: stalePg }),
+    grantSession: {
+      runWithAccessTokenOnce: async () => { throw new Error('grant must not run for stale event'); },
+    },
+    transport: {
+      fetchMessageContent: async () => { throw new Error('graph must not run for stale event'); },
+    },
+  });
+  await assert.rejects(
+    () => staleOp.getCurrentMessageContent({ clientId: C, locationId: L, eventId: M }),
+    (err) => err && err.code === 'authority_bound_current_message_content_failed',
+  );
   assert.deepEqual(ISSUED_KEYS, [
     'clientId', 'locationId', 'eventId', 'endpointId',
     'provider', 'providerMailboxId', 'providerMessageId',
@@ -620,6 +700,10 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   assert.equal(h.modelCalls.length, 0);
   assert.equal(h.store.meta.luna_email_open_draft.source_inbound_event_id, M);
   assert.equal(h.store.meta.luna_email_open_draft.origin, 'luna');
+  assert.equal(
+    h.store.meta.luna_email_open_draft.generated_body_sha256,
+    bodyDigest(SAFE_ACKNOWLEDGMENT.en),
+  );
   assert.ok(!out.subject || /^Re: /.test(out.subject));
 
   // Repeat open does not fetch or write again.
@@ -798,18 +882,188 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
 
   h = makeOwner({
     rows: [authorityRow({
-      inbound_message_id: M2,
-      latest_message_id: M2,
+      inbound_message_id: M,
+      latest_message_id: M,
       approval_message_text: 'Already approved.',
       approval_state: 'approved',
       approval_source_inbound_event_id: M,
     })],
   });
   out = await open(h);
-  assertDraft(out, 'Already approved.');
+  assertPending(out);
   assert.equal(h.contentCalls.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.claims.length, 0);
 
-  // Newer inbound supersedes an older Luna-generated draft only.
+  h = makeOwner({
+    rows: [authorityRow({
+      inbound_message_id: M,
+      latest_message_id: M,
+      approval_message_text: 'Already sent.',
+      approval_state: 'terminal',
+      approval_source_inbound_event_id: M,
+    })],
+  });
+  out = await open(h);
+  assertPending(out);
+  assert.equal(h.contentCalls.length, 0);
+  assert.equal(h.writes.length, 0);
+
+  // Newer inbound supersedes only a byte-identical Luna-owned draft with proof.
+  h = makeOwner({
+    rows: [authorityRow({
+      inbound_message_id: M2,
+      latest_message_id: M2,
+      staff_reply_draft: 'Old luna draft',
+      conversation_metadata: lunaOwnedMeta(M, 'Old luna draft'),
+    })],
+  });
+  out = await open(h);
+  assertSafe(out, 'en');
+  assert.equal(h.writes.length, 1);
+  assert.equal(h.contentCalls[0].eventId, M2);
+  assert.equal(h.store.meta.luna_email_open_draft.source_inbound_event_id, M2);
+  assert.equal(
+    h.store.meta.luna_email_open_draft.generated_body_sha256,
+    bodyDigest(SAFE_ACKNOWLEDGMENT.en),
+  );
+
+  // ── A) Old-source approvals are not the new inbound draft ──────────────
+  for (const [label, state] of [
+    ['old-source draft', 'draft'],
+    ['old-source approved', 'approved'],
+    ['old-source terminal', 'terminal'],
+  ]) {
+    h = makeOwner({
+      rows: [authorityRow({
+        inbound_message_id: M2,
+        latest_message_id: M2,
+        approval_message_text: `Old ${state} reply`,
+        approval_state: state,
+        approval_source_inbound_event_id: M,
+      })],
+    });
+    out = await open(h);
+    assert.notEqual(out.draft_text, `Old ${state} reply`, label);
+    assert.notEqual(out.status === 'draft_ready' && out.draft_text, `Old ${state} reply`, label);
+    assertSafe(out, 'en');
+    assert.equal(h.contentCalls.length, 1, label);
+    assert.equal(h.contentCalls[0].eventId, M2, label);
+    assert.equal(h.writes.length, 1, label);
+    assert.notEqual(h.store.draft, `Old ${state} reply`, label);
+  }
+
+  // Current-source draft approval remains the editable staff draft.
+  h = makeOwner({
+    rows: [authorityRow({
+      approval_message_text: 'Saved staff draft.',
+      approval_state: 'draft',
+      approval_source_inbound_event_id: M,
+    })],
+  });
+  out = await open(h);
+  assertDraft(out, 'Saved staff draft.');
+  assert.equal(h.contentCalls.length, 0);
+  assert.equal(h.writes.length, 0);
+
+  // ── B) E2 arriving after E1 context must never persist E1 ──────────────
+  async function assertLaterOpenClaimsE2(store) {
+    const retry = makeOwner({ sharedStore: store });
+    const retryOut = await open(retry);
+    assertSafe(retryOut, 'en');
+    assert.equal(retry.contentCalls.length, 1);
+    assert.equal(retry.contentCalls[0].eventId, M2);
+    assert.equal(retry.writes.length, 1);
+    assert.equal(retry.store.meta.luna_email_open_draft.source_inbound_event_id, M2);
+    assert.notEqual(retry.store.draft, '');
+    return retry;
+  }
+
+  h = makeOwner({
+    onBeforeClaim: (store) => { store.currentInboundEventId = M2; },
+  });
+  out = await open(h);
+  assertPending(out);
+  assert.equal(h.claims.length, 0);
+  assert.equal(h.contentCalls.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.store.draft, '');
+  await assertLaterOpenClaimsE2(h.store);
+
+  h = makeOwner({
+    fetchCurrentMessageContent: async (input) => {
+      h.store.currentInboundEventId = M2;
+      h.contentCalls.push(input);
+      assert.equal(h.store.lockHeld, false, 'must not hold a conversation lock across Graph');
+      return Object.freeze({ latest_text: BODY });
+    },
+  });
+  out = await open(h);
+  assertPending(out);
+  assert.equal(h.writes.length, 0);
+  assert.ok(h.releases.length >= 1);
+  assert.notEqual(h.store.meta.luna_email_open_draft && h.store.meta.luna_email_open_draft.state, 'ready');
+  assert.notEqual(h.store.draft, SAFE_ACKNOWLEDGMENT.en);
+  await assertLaterOpenClaimsE2(h.store);
+
+  h = makeOwner({
+    onBeforeCas: (store) => { store.currentInboundEventId = M2; },
+  });
+  out = await open(h);
+  assertPending(out);
+  assert.equal(h.writes.length, 0);
+  assert.ok(h.releases.length >= 1);
+  assert.notEqual(h.store.draft, SAFE_ACKNOWLEDGMENT.en);
+  await assertLaterOpenClaimsE2(h.store);
+
+  // ── C) Staff edits are never overwritten ───────────────────────────────
+  const LUNA_BODY = SAFE_ACKNOWLEDGMENT.en;
+  const STAFF_EDIT = 'Staff rewrote the Luna draft before sending.';
+
+  h = makeOwner();
+  out = await open(h);
+  assertSafe(out, 'en');
+  h.store.draft = STAFF_EDIT;
+  h.store.currentInboundEventId = M2;
+  h.contentCalls.length = 0;
+  const afterEdit = makeOwner({ sharedStore: h.store });
+  out = await open(afterEdit);
+  assertDraft(out, STAFF_EDIT);
+  assert.equal(afterEdit.contentCalls.length, 0);
+  assert.equal(afterEdit.writes.length, 0);
+  assert.equal(afterEdit.claims.length, 0);
+  assert.equal(afterEdit.store.draft, STAFF_EDIT);
+
+  h = makeOwner({
+    rows: [authorityRow({
+      inbound_message_id: M2,
+      latest_message_id: M2,
+      staff_reply_draft: STAFF_EDIT,
+      conversation_metadata: staffEditedLunaMeta(M, LUNA_BODY),
+    })],
+  });
+  out = await open(h);
+  assertDraft(out, STAFF_EDIT);
+  assert.equal(h.contentCalls.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.claims.length, 0);
+
+  h = makeOwner({
+    rows: [authorityRow({
+      inbound_message_id: M2,
+      latest_message_id: M2,
+      staff_reply_draft: LUNA_BODY,
+      conversation_metadata: lunaOwnedMeta(M, LUNA_BODY),
+    })],
+    onBeforeClaim: (store) => { store.draft = STAFF_EDIT; },
+  });
+  out = await open(h);
+  assert.notEqual(h.store.draft, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(h.store.draft, STAFF_EDIT);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.contentCalls.length, 0);
+  assert.ok(out.status === 'pending' || out.draft_text === STAFF_EDIT);
+
   h = makeOwner({
     rows: [authorityRow({
       inbound_message_id: M2,
@@ -821,10 +1075,23 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
     })],
   });
   out = await open(h);
-  assertSafe(out, 'en');
-  assert.equal(h.writes.length, 1);
-  assert.equal(h.contentCalls[0].eventId, M2);
-  assert.equal(h.store.meta.luna_email_open_draft.source_inbound_event_id, M2);
+  assertDraft(out, 'Old luna draft');
+  assert.equal(h.contentCalls.length, 0);
+  assert.equal(h.writes.length, 0);
+  assert.equal(h.claims.length, 0);
+
+  // SQL / resolver contracts that hide these races today.
+  assert.match(ownerMod.SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL, /source_inbound_event_id\s*=\s*\$3/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /tenant_email_inbound_inbox_projections/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /generated_body_sha256/);
+  assert.match(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /staff_reply_draft IS NOT DISTINCT FROM/);
+  assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /tenant_email_inbound_inbox_projections/);
+  assert.match(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /staff_reply_draft IS NOT DISTINCT FROM/);
+  assert.match(resolverSrc, /tenant_email_inbound_inbox_projections/);
+  assert.match(resolverSrc, /conversations c/);
+  assert.match(ownerSrc, /generated_body_sha256/);
+  assert.doesNotMatch(ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT, /FOR UPDATE/);
+  assert.doesNotMatch(ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, /FOR UPDATE/);
 
   // Cross-tenant / location / mailbox / source mismatch.
   for (const [label, row] of [
