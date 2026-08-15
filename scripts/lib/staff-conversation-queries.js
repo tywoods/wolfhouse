@@ -127,9 +127,13 @@ const CONVERSATION_INBOX_CURSOR_FIELDS = Object.freeze([
  * counts query share this verbatim so a view count cannot cover a different set
  * of conversations than the view lists.
  */
-function conversationInboxWhereSql(scoped, channelScoped) {
+function inboxNeedsHumanWhereClause(scoped) {
+  return scoped ? '\n  AND conv.needs_human = TRUE' : '';
+}
+
+function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped) {
   return `WHERE c.slug = $1
-  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}`;
+  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}${inboxNeedsHumanWhereClause(needsHumanScoped)}`;
 }
 
 /**
@@ -164,6 +168,8 @@ function conversationInboxCursorClause(paramIndex) {
  * @param {object} [opts]
  * @param {boolean} [opts.locationScoped]
  * @param {boolean} [opts.channelScoped]
+ * @param {boolean} [opts.needsHumanScoped] - Inbox "Needs human" view: only
+ *   conversations.needs_human = TRUE (independent of CRM customers)
  * @param {{ limitParamIndex: number, cursorParamIndex?: number|null }} [opts.keyset]
  *   keyset page: bound LIMIT, tie-broken ORDER BY and the rank column the cursor
  *   carries, instead of the fixed LIMIT 200 of the legacy inbox list
@@ -173,6 +179,7 @@ function conversationInboxCursorClause(paramIndex) {
 function getConversationInboxQuery(opts = {}) {
   const scoped = !!opts.locationScoped;
   const channelScoped = !!opts.channelScoped;
+  const needsHumanScoped = !!opts.needsHumanScoped;
   const keyset = opts.keyset && typeof opts.keyset === 'object' ? opts.keyset : null;
   const cursorParamIndex = keyset && keyset.cursorParamIndex ? keyset.cursorParamIndex : null;
   const rankProjection = keyset
@@ -247,7 +254,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) bphone ON TRUE
 ${inboxCustomerLinkJoinSql()}
-${conversationInboxWhereSql(scoped, channelScoped)}${cursorClause}
+${conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped)}${cursorClause}
 ${pageSql}
 `;
 }
@@ -255,15 +262,18 @@ ${pageSql}
 /**
  * One aggregate pass covering every conversation-source saved view. The channel
  * views become `COUNT(*) FILTER (WHERE <channel> = $n)` columns over the same
- * scan, so the rail costs one query here no matter how many channels exist.
+ * scan, and the Needs-human view becomes
+ * `COUNT(*) FILTER (WHERE conv.needs_human = TRUE)`, so the rail costs one query
+ * here no matter how many conversation views exist.
  *
  * The list query's LEFT JOIN LATERALs are omitted: each yields at most one row,
  * so they cannot change the count.
  *
  * @param {object} opts
  * @param {boolean} [opts.locationScoped]
- * @param {Array<{ key: string, channel: string|null }>} opts.columns - channel
- *   null counts every conversation in scope
+ * @param {Array<{ key: string, channel: string|null, needsHuman?: boolean }>} opts.columns
+ *   channel null + needsHuman false counts every conversation in scope;
+ *   needsHuman true counts conversations.needs_human = TRUE only
  * @returns {string} SQL ($1 client slug; optional $2 location; then one param per
  *   channel column, in column order)
  */
@@ -285,6 +295,9 @@ function getConversationInboxCountsQuery(opts) {
     }
     seen.add(key);
     // Quoted because view ids are free to collide with reserved words ("all").
+    if (column && column.needsHuman) {
+      return `  COUNT(*) FILTER (WHERE conv.needs_human = TRUE)::int AS "${key}"`;
+    }
     if (!column.channel) return `  COUNT(*)::int AS "${key}"`;
     const idx = channelParam;
     channelParam += 1;
@@ -296,7 +309,7 @@ SELECT
 ${selected.join(',\n')}
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
-${conversationInboxWhereSql(scoped, false)}
+${conversationInboxWhereSql(scoped, false, false)}
 `;
 }
 
