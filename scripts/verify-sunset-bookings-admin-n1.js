@@ -1455,6 +1455,12 @@ async function testGeneratedUi() {
       && Array.isArray(guestCalled.tabsAfterKey) && guestCalled.tabsAfterKey.length === 0,
       JSON.stringify(guestCalled));
 
+    // Dismiss peek so later refund/table interactions are not blocked by the modal layer.
+    await page.evaluate(() => {
+      if (typeof window.adminBookingsCloseGuestPeek === 'function') window.adminBookingsCloseGuestPeek();
+    });
+    await page.waitForTimeout(50);
+
     // ── Viewer refund gating via production session + production re-render ──
     await page.selectOption('#admin-bookings-status', '').catch(() => {});
     await page.waitForTimeout(200);

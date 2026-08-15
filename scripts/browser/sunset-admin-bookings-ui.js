@@ -550,7 +550,7 @@ function wireAdminBookingsPanel() {
         adminBookingsOpenGuestPeek(phone, guestId);
         return;
       }
-      var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
+            var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
             if (refundBtn) {
               ev.preventDefault();
               ev.stopPropagation();
@@ -562,6 +562,7 @@ function wireAdminBookingsPanel() {
             if (hideBtn) {
               ev.preventDefault();
               ev.stopPropagation();
+              adminBookingsCloseGuestPeek();
               adminBookingsHideBooking(hideBtn.getAttribute('data-bookings-hide'));
               return;
             }
@@ -569,6 +570,7 @@ function wireAdminBookingsPanel() {
             if (unhideBtn) {
               ev.preventDefault();
               ev.stopPropagation();
+              adminBookingsCloseGuestPeek();
               adminBookingsUnhideBooking(unhideBtn.getAttribute('data-bookings-unhide'));
               return;
             }
@@ -576,6 +578,7 @@ function wireAdminBookingsPanel() {
             if (restoreBtn) {
               ev.preventDefault();
               ev.stopPropagation();
+              adminBookingsCloseGuestPeek();
               adminBookingsRestoreBooking(restoreBtn.getAttribute('data-bookings-restore'));
               return;
             }
@@ -583,6 +586,7 @@ function wireAdminBookingsPanel() {
             if (codeBtn) {
               ev.preventDefault();
               ev.stopPropagation();
+              adminBookingsCloseGuestPeek();
               adminBookingsOpenInSchedule(codeBtn.getAttribute('data-bookings-open-schedule'));
               return;
             }
@@ -596,6 +600,7 @@ function wireAdminBookingsPanel() {
       }
       if (rowBtn) {
         var id = rowBtn.getAttribute('data-bookings-row-id');
+        adminBookingsCloseGuestPeek();
         adminBookingsState.expandedId = adminBookingsState.expandedId === id ? null : id;
         renderAdminBookingsTable();
       }
@@ -1092,6 +1097,7 @@ function renderAdminBookingsExpansion(row) {
 }
 
 function openAdminBookingsRefundForm(bookingId) {
+  adminBookingsCloseGuestPeek();
   var host = el('admin-bookings-refund-action-' + bookingId);
   if (!host) return;
   if (!adminBookingsCanWriteRefund()) {
