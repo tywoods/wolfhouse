@@ -24150,9 +24150,40 @@ function scheduleNormalizePhoneDigits(phone){
   return String(phone || '').replace(/\\D/g, '');
 }
 
+/** Real guest phone only — Staff API values; never staff:booking: synthetics. */
+function scheduleNormalizeGuestPhone(raw){
+  var p = String(raw == null ? '' : raw).trim();
+  if (!p) return '';
+  if (p.indexOf('staff:') === 0) return '';
+  return p;
+}
+
+function schedulePhoneFromSource(src){
+  if (src == null) return '';
+  if (typeof src === 'string' || typeof src === 'number') return scheduleNormalizeGuestPhone(src);
+  return scheduleNormalizeGuestPhone(src.phone || src.guest_phone || src.booking_phone);
+}
+
+/** First honest guest phone across Staff API drawer ctx, schedule group, and list row. */
+function scheduleResolveGuestPhone(){
+  for (var i = 0; i < arguments.length; i++){
+    var p = schedulePhoneFromSource(arguments[i]);
+    if (p) return p;
+  }
+  try {
+    if (typeof el === 'function') {
+      var input = el('ps-drawer-phone');
+      if (input && input.value) {
+        var fromInput = scheduleNormalizeGuestPhone(input.value);
+        if (fromInput) return fromInput;
+      }
+    }
+  } catch (_e) { /* ignore */ }
+  return '';
+}
+
 function scheduleGroupHasPhone(group){
-  var p = String((group && (group.phone || group.guest_phone || group.booking_phone)) || '').trim();
-  return p.length > 0 && p.indexOf('staff:') !== 0;
+  return !!scheduleResolveGuestPhone(group);
 }
 
 function scheduleFindLinkedConversation(group){
@@ -24163,8 +24194,8 @@ function scheduleFindLinkedConversation(group){
     var byCode = convs.find(function(c){ return c.booking_code === bookingCode; });
     if (byCode) return byCode;
   }
-  var phone = String(group.phone || group.guest_phone || group.booking_phone || '').trim();
-  if (phone && phone.indexOf('staff:') !== 0){
+  var phone = scheduleResolveGuestPhone(group);
+  if (phone){
     var norm = scheduleNormalizePhoneDigits(phone);
     var byPhone = convs.find(function(c){
       return c.phone && scheduleNormalizePhoneDigits(c.phone) === norm;
@@ -24571,7 +24602,10 @@ function scheduleBuildDisplayGroups(rows){
     if (r._needsReply) g._needsReply = true;
     if (r.waiver_signed) g.waiver_signed = true;
     if (!g.notes && r.notes) g.notes = r.notes;
-    if (!g.phone && r.phone) g.phone = r.phone;
+    if (!g.phone) {
+      var peerPhone = r.phone || r.guest_phone || r.booking_phone || null;
+      if (peerPhone) g.phone = peerPhone;
+    }
   });
   return Object.keys(map).map(function(k){ return map[k]; });
 }

@@ -83,6 +83,35 @@ function parseMeta(raw) {
   try { return JSON.parse(raw); } catch (_) { return {}; }
 }
 
+/**
+ * Honest guest phone for drawer display / conversation gating.
+ * Staff API fields only — never invent. Synthetic staff:booking:… identities
+ * are not guest phones (create-conversation may use them internally).
+ */
+function normalizeDrawerGuestPhone(raw) {
+  const p = raw != null ? String(raw).trim() : '';
+  if (!p) return null;
+  if (p.indexOf('staff:') === 0) return null;
+  return p;
+}
+
+function resolveDrawerGuestPhoneFromBundle(bundle) {
+  if (!bundle || !bundle.booking) return null;
+  const booking = bundle.booking;
+  const bookingMeta = parseMeta(booking.metadata);
+  const fromBooking = normalizeDrawerGuestPhone(
+    booking.phone || booking.guest_phone || bookingMeta.guest_phone || bookingMeta.phone,
+  );
+  if (fromBooking) return fromBooking;
+  const services = Array.isArray(bundle.services) ? bundle.services : [];
+  for (let i = 0; i < services.length; i += 1) {
+    const srMeta = parseMeta(services[i] && services[i].metadata);
+    const fromSr = normalizeDrawerGuestPhone(srMeta.guest_phone || srMeta.phone);
+    if (fromSr) return fromSr;
+  }
+  return null;
+}
+
 function normalizeUiPayment(ps) {
   const p = String(ps || '').toLowerCase();
   if (p === 'paid' || p === 'complete' || p === 'completed') return 'paid';
@@ -894,7 +923,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       booking_status: bundle.booking.status || null,
       payments_paid_cents: Number(bundle.payments_paid_cents || 0),
       guest_name: bundle.booking.guest_name,
-      phone: bundle.booking.phone || bundle.booking.guest_phone || meta.guest_phone || meta.phone || null,
+      phone: resolveDrawerGuestPhoneFromBundle(bundle),
       notes: bundle.services[0] && bundle.services[0].notes ? bundle.services[0].notes : null,
       payment_status: payment.payment_status,
       payment_method: payment.payment_status === 'paid' ? (normalizePaymentMethod(meta.sunset_payment_method) || null) : null,
@@ -2957,6 +2986,8 @@ module.exports = {
   deriveDrawerPaymentUiStatus,
   aggregateComponentsFromServices,
   normalizePaymentMethod,
+  normalizeDrawerGuestPhone,
+  resolveDrawerGuestPhoneFromBundle,
   formatSunsetDrawerDailyItemLabel,
   pricingIntentFromBundle,
   customLineItemsFromBundle,

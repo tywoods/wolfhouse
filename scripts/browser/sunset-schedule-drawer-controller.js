@@ -227,6 +227,7 @@ function scheduleDrawerRenderLegacyFallback(row, group){
   var body = el('ps-drawer-body');
   if (!body) return;
   var notes = group.notes || row.notes || row.message || '';
+  var phone = scheduleResolveGuestPhone(group, row);
   body.innerHTML =
     '<div class="portal-schedule-drawer-hero">' +
     '<h3 style="margin:0 0 4px;font-size:22px">' + escHtml(group.guest_name || row.guest_name || 'Guest') + '</h3>' +
@@ -237,7 +238,7 @@ function scheduleDrawerRenderLegacyFallback(row, group){
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—').slice(0, 10)) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + scheduleRenderStatusBadgeHtml(group, { detail: true }) + '</p>' +
     (notes ? '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.notes')) + ':</strong> ' + escHtml(notes) + '</p>' : '') +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(group.phone || group.guest_phone || group.booking_phone || row.phone || row.guest_phone || '—') + '</p>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(phone || '—') + '</p>' +
     '<div class="portal-schedule-drawer-actions">' +
     '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeSoon')) + '">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>' +
     '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>' +
@@ -261,22 +262,34 @@ function scheduleWireDrawerHeaderActions(){
 }
 
 function scheduleWireDrawerConversation(row, group, ctx){
-  var linkedConv = scheduleFindLinkedConversation(group || row);
-  var hasPhone = scheduleGroupHasPhone(group || row)
-    || scheduleGroupHasPhone(ctx)
-    || scheduleGroupHasPhone(row)
-    || !!(el('ps-drawer-phone') && el('ps-drawer-phone').value.trim());
+  // Discover and click through the same source. A phone-less group must not
+  // win on click after ctx (or row) established the existing conversation.
+  var linkedSource = group || row;
+  var linkedConv = scheduleFindLinkedConversation(linkedSource);
+  if (!linkedConv) {
+    linkedConv = scheduleFindLinkedConversation(ctx);
+    if (linkedConv) linkedSource = ctx;
+  }
+  if (!linkedConv && row) {
+    linkedConv = scheduleFindLinkedConversation(row);
+    if (linkedConv) linkedSource = row;
+  }
+  var hasPhone = !!scheduleResolveGuestPhone(ctx, group, row);
   var convBtn = el('ps-drawer-conversation-btn');
   var convHint = el('ps-drawer-conversation-hint');
   if (!convBtn) return;
   if (linkedConv){
     convBtn.textContent = portalT('schedule.drawer.openConv');
     convBtn.disabled = false;
-    convBtn.onclick = function(){ scheduleOpenOrStartConversationFromBooking(group || row); };
+    convBtn.title = '';
+    if (convHint) { convHint.textContent = ''; convHint.style.display = 'none'; }
+    convBtn.onclick = function(){ scheduleOpenOrStartConversationFromBooking(linkedSource); };
   } else if (hasPhone){
     convBtn.textContent = portalT('schedule.drawer.startConv');
     convBtn.disabled = false;
-    convBtn.onclick = function(){ scheduleOpenOrStartConversationFromBooking(group || row); };
+    convBtn.title = '';
+    if (convHint) { convHint.textContent = ''; convHint.style.display = 'none'; }
+    convBtn.onclick = function(){ scheduleOpenOrStartConversationFromBooking(group || row || ctx); };
   } else {
     convBtn.textContent = portalT('schedule.drawer.startConv');
     convBtn.disabled = true;
@@ -329,9 +342,21 @@ function scheduleMountDrawerBody(row, ctx, editing){
   else scheduleWireViewDrawer(row, ctx);
 }
 
+function scheduleHydrateDrawerCtxPhone(ctx, row){
+  if (!ctx || typeof ctx !== 'object') return ctx;
+  var group = null;
+  try {
+    if (typeof scheduleFindGroupForRow === 'function') group = scheduleFindGroupForRow(row);
+  } catch (_g) { group = null; }
+  var resolved = scheduleResolveGuestPhone(ctx, group, row);
+  if (resolved) ctx.phone = resolved;
+  else if (ctx.phone && String(ctx.phone).indexOf('staff:') === 0) ctx.phone = null;
+  return ctx;
+}
+
 function scheduleOpenEditableDrawer(row, ctx){
   scheduleDrawerState.row = row;
-  scheduleDrawerState.ctx = scheduleCloneDrawerCtx(ctx);
+  scheduleDrawerState.ctx = scheduleHydrateDrawerCtxPhone(scheduleCloneDrawerCtx(ctx), row);
   scheduleDrawerState.editing = false;
   scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false);
 }
@@ -347,7 +372,7 @@ function scheduleRefreshDrawer(){
     if (!scheduleDrawerIsRequestActive(openGen, bookingKey)) return;
     if (st.refreshGen !== refreshGen) return;
     if (data && data.success && scheduleDrawerState && scheduleDrawerState.row){
-      scheduleDrawerState.ctx = scheduleCloneDrawerCtx(data);
+      scheduleDrawerState.ctx = scheduleHydrateDrawerCtxPhone(scheduleCloneDrawerCtx(data), scheduleDrawerState.row);
       scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, !!scheduleDrawerState.editing);
     }
   }).catch(function(){});
@@ -385,6 +410,11 @@ function openScheduleDetailDrawer(row){
       booking_id: row.booking_id || null,
       booking_code: row.booking_code || null,
       guest_name: row.guest_name || null,
+      // Keep Staff API list phone when present — drawer detail may omit it from
+      // header columns while schedule/Reservas already returned it.
+      phone: row.phone || row.guest_phone || row.booking_phone || null,
+      guest_phone: row.guest_phone || row.phone || null,
+      service_date: row.service_date || null,
       _drawerFromCustomer: true,
     }
     : Object.assign({}, row, scheduleRowBookingRef(row, group));

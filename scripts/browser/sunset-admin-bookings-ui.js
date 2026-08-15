@@ -1026,6 +1026,8 @@ function adminBookingsOpenInSchedule(bookingId, hint) {
         booking_id: row.booking_id || id,
         booking_code: code,
         guest_name: row.guest_name,
+        phone: row.phone || null,
+        guest_phone: row.phone || null,
         service_date_start: start || null,
         service_date: start || null,
         check_in: row.check_in || null,
@@ -1049,6 +1051,8 @@ function adminBookingsOpenInSchedule(bookingId, hint) {
         booking_id: row.booking_id || id,
         booking_code: code,
         guest_name: row.guest_name || '',
+        phone: row.phone || null,
+        guest_phone: row.phone || null,
         service_date: start || null,
         _drawerFromCustomer: true,
       });

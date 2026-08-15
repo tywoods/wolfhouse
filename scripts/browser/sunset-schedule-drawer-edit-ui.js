@@ -1279,7 +1279,7 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
     '<input id="ps-drawer-guest" type="text" value="' + escHtml(ctx.guest_name || '') + '"></div>';
   html += '<div class="portal-schedule-create-field"><label for="ps-drawer-phone">' +
     escHtml(portalT('schedule.drawer.phone')) + '</label>' +
-    '<input id="ps-drawer-phone" type="tel" value="' + escHtml(ctx.phone || '') + '"></div>';
+    '<input id="ps-drawer-phone" type="tel" value="' + escHtml((typeof scheduleResolveGuestPhone === 'function' ? scheduleResolveGuestPhone(ctx, row) : (ctx.phone || '')) || '') + '"></div>';
   // Compact date range (Create parity). Hidden from/to remain canonical until Apply.
   html += '<div id="ps-drawer-date-range" class="portal-schedule-create-date-range-field">';
   html += '<span id="ps-drawer-date-range-label" class="portal-schedule-create-label">' +
@@ -4924,7 +4924,7 @@ function scheduleWireEditableDrawer(row, ctx) {
     guestNode.addEventListener('change', scheduleDrawerSyncFooter);
   }
   scheduleWireDrawerStripeCopyOpen(ctx);
-  scheduleWireDrawerConversation(row, group);
+  scheduleWireDrawerConversation(row, group, ctx);
   scheduleWireDrawerOpenCustomer();
   scheduleWireDrawerManualPayment(row);
   scheduleLoadDrawerWaiver(ctx);
