@@ -53,6 +53,7 @@ for (const [key, [enVal, esVal]] of Object.entries(pairs)) {
 assert.notStrictEqual(es['admin.courseEquipment.editorTitle'], es['admin.courseEquipment.item'], 'no duplicate MATERIAL');
 assert.ok(adminUi.includes('function adminRefreshOnLocaleChange'), 'admin locale refresh exists');
 assert.ok(apiSrc.includes('adminRefreshOnLocaleChange()'), 'locale change calls admin refresh');
+assert.ok(adminUi.includes('adminBookingsRefreshOnLocaleChange()'), 'locale change re-renders Reservas');
 assert.ok(financeUi.includes("financeRedesignT('admin.finance.bookedPipeline'"), 'finance uses bookedPipeline key');
 assert.ok(apiSrc.includes('data-i18n="lunaStaff.numbers.title"'), 'Luna Staff numbers title is i18n');
 assert.ok(apiSrc.includes('data-i18n="lunaStaff.alerts.title"'), 'Luna Staff alerts title is i18n');

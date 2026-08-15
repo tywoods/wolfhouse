@@ -162,7 +162,8 @@ function adminBookingsBuildQuery(extra) {
   return params.toString();
 }
 
-function renderAdminBookingsShell() {
+function renderAdminBookingsShell(opts) {
+  opts = opts || {};
   var body = el('admin-bookings-body');
   if (!body) return;
   body.innerHTML =
@@ -232,7 +233,40 @@ function renderAdminBookingsShell() {
       '<div id="admin-bookings-msg" class="state-msg" style="display:none" role="status"></div>' +
     '</div>';
   wireAdminBookingsPanel();
+  if (opts && opts.skipLoad && adminBookingsState.data) {
+    adminBookingsRestoreFiltersToDom();
+    renderAdminBookingsSummary();
+    renderAdminBookingsTable();
+    return;
+  }
   loadAdminBookings();
+}
+
+function adminBookingsRestoreFiltersToDom() {
+  var f = adminBookingsState.filters || {};
+  var q = el('admin-bookings-q');
+  var df = el('admin-bookings-date-from');
+  var dt = el('admin-bookings-date-to');
+  var st = el('admin-bookings-status');
+  var ty = el('admin-bookings-type');
+  if (q) q.value = f.q || '';
+  if (df) df.value = f.date_from || '';
+  if (dt) dt.value = f.date_to || '';
+  if (st) st.value = f.status || '';
+  if (ty) ty.value = f.type || '';
+  if (typeof adminBookingsSyncDateRangeDisplay === 'function') adminBookingsSyncDateRangeDisplay();
+}
+
+function adminBookingsRefreshOnLocaleChange() {
+  try {
+    if (typeof getStaffLocale === 'function') portalLang = getStaffLocale();
+  } catch (_e) { /* ignore */ }
+  var tab = (typeof el === 'function') ? el('tab-bookings') : null;
+  if (tab && typeof applyStaffPortalI18n === 'function') applyStaffPortalI18n(tab);
+  var body = (typeof el === 'function') ? el('admin-bookings-body') : null;
+  if (!body || !body.querySelector || !body.querySelector('[data-admin-bookings="1"]')) return;
+  if (body.dataset) delete body.dataset.bookingsWired;
+  renderAdminBookingsShell({ skipLoad: true });
 }
 
 function wireAdminBookingsPanel() {
@@ -970,6 +1004,7 @@ if (typeof window !== 'undefined') {
   window.loadAdminBookings = loadAdminBookings;
   window.renderAdminBookingsTable = renderAdminBookingsTable;
   window.renderAdminBookingsSummary = renderAdminBookingsSummary;
+  window.adminBookingsRefreshOnLocaleChange = adminBookingsRefreshOnLocaleChange;
   window.adminBookingsCanWriteRefund = adminBookingsCanWriteRefund;
   window.adminBookingsState = adminBookingsState;
   window.openAdminBookingsRefundForm = openAdminBookingsRefundForm;

@@ -24132,7 +24132,7 @@ function scheduleFindLinkedConversation(group){
     var byCode = convs.find(function(c){ return c.booking_code === bookingCode; });
     if (byCode) return byCode;
   }
-  var phone = String(group.phone || '').trim();
+  var phone = String(group.phone || group.guest_phone || group.booking_phone || '').trim();
   if (phone && phone.indexOf('staff:') !== 0){
     var norm = scheduleNormalizePhoneDigits(phone);
     var byPhone = convs.find(function(c){
@@ -24219,12 +24219,22 @@ function scheduleRefreshOnLocaleChange(){
   }
   var keepDrawerId = scheduleLastDrawerRowId;
   var drawerWasOpen = !!(keepDrawerId && el('ps-detail-drawer') && el('ps-detail-drawer').style.display !== 'none');
-  return loadSchedulePage().then(function(){
-    if (drawerWasOpen && keepDrawerId){
-      var restored = scheduleFindRowById(keepDrawerId);
-      if (restored) openScheduleDetailDrawer(restored);
-    }
-  });
+  var reload = null;
+  if (typeof SunsetScheduleRuntime !== 'undefined'
+    && SunsetScheduleRuntime.nav
+    && typeof SunsetScheduleRuntime.nav.requestPageLoad === 'function') {
+    reload = SunsetScheduleRuntime.nav.requestPageLoad();
+  } else if (typeof loadSchedulePage === 'function') {
+    reload = loadSchedulePage();
+  }
+  if (reload && typeof reload.then === 'function') {
+    return reload.then(function(){
+      if (drawerWasOpen && keepDrawerId){
+        var restored = scheduleFindRowById(keepDrawerId);
+        if (restored) openScheduleDetailDrawer(restored);
+      }
+    });
+  }
 }
 
 function scheduleIsPortalHomeActive(){

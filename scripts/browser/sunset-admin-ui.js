@@ -2237,6 +2237,9 @@ function adminRefreshOnLocaleChange(){
   if (typeof adminConfigCache !== 'undefined' && adminConfigCache && typeof renderAdminFromConfig === 'function') {
     renderAdminFromConfig(adminConfigCache, { preserveDraft: true });
   }
+  if (typeof adminBookingsRefreshOnLocaleChange === 'function') {
+    adminBookingsRefreshOnLocaleChange();
+  }
   if (typeof loadAdminEmailSettings === 'function' && typeof adminActiveSubTab === 'string' && adminActiveSubTab === 'email') {
     loadAdminEmailSettings();
   }
