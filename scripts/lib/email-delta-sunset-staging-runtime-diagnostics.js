@@ -64,6 +64,18 @@ const CODES = Object.freeze([
   'timeout',
   'throttled',
   'server_error',
+  'request_error',
+  'response_surface_invalid',
+  'http_status_not_200',
+  'content_type_invalid',
+  'stream_invalid',
+  'stream_aborted',
+  'response_too_large',
+  'utf8_invalid',
+  'json_invalid',
+  'top_shape_invalid',
+  'row_keyset_invalid',
+  'row_value_invalid',
 ]);
 
 const EVENT_KEYS = Object.freeze(['event', 'stage', 'code']);
@@ -71,6 +83,21 @@ const NOTE_KEYS = Object.freeze(['stage', 'code']);
 
 const STAGE_SET = new Set(STAGES);
 const CODE_SET = new Set(CODES);
+const GRAPH_FAILURE_STAGE_SET = new Set([
+  'request_error',
+  'timeout',
+  'response_surface_invalid',
+  'http_status_not_200',
+  'content_type_invalid',
+  'stream_invalid',
+  'stream_aborted',
+  'response_too_large',
+  'utf8_invalid',
+  'json_invalid',
+  'top_shape_invalid',
+  'row_keyset_invalid',
+  'row_value_invalid',
+]);
 
 const GRANT_STATUS_DEAD = 'reauthorization_required';
 const GRANT_STATUS_UNAVAILABLE = 'unavailable';
@@ -86,6 +113,18 @@ const PRIORITY = Object.freeze({
   timeout: 70,
   throttled: 70,
   server_error: 70,
+  request_error: 65,
+  response_surface_invalid: 65,
+  http_status_not_200: 65,
+  content_type_invalid: 65,
+  stream_invalid: 65,
+  stream_aborted: 65,
+  response_too_large: 65,
+  utf8_invalid: 65,
+  json_invalid: 65,
+  top_shape_invalid: 65,
+  row_keyset_invalid: 65,
+  row_value_invalid: 65,
   query: 60,
   authority: 50,
   status: 55,
@@ -212,7 +251,10 @@ function classifyDeltaRuntimeTransportError(error) {
     const outcome = readTrustedMessagesDeltaOutcome(error);
     if (outcome === 'cursor_gone') return freezeNote('cursor', 'cursor');
     const graphStage = readTrustedGraphStage(error);
-    if (typeof graphStage === 'string') return freezeNote('transport', 'transport');
+    if (graphStage === 'timeout') return freezeNote('transport', 'timeout');
+    if (GRAPH_FAILURE_STAGE_SET.has(graphStage)) {
+      return freezeNote('transport', graphStage);
+    }
     return null;
   } catch {
     return null;

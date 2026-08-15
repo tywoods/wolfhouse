@@ -16,6 +16,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 
 const ROOT = path.join(__dirname, '..');
 const LIB_REL = 'scripts/lib/email-delta-sunset-staging-runtime-diagnostics.js';
@@ -67,6 +68,10 @@ const {
 } = require('./lib/email-authority-bound-messages-delta-page-operation');
 
 const {
+  createMicrosoftGraphMessagesDeltaPageTransport,
+} = require('./lib/email-microsoft-graph-messages-delta-page-transport');
+
+const {
   DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES,
   readTrustedDelegatedGrantAccessSessionInternalStage,
 } = require('./lib/email-delegated-grant-access-session');
@@ -114,6 +119,10 @@ test('package script and exports are exact/frozen', () => {
     'authority', 'status', 'lease', 'grant', 'seal', 'release',
     'open', 'secret', 'token', 'response', 'reseal', 'commit',
     'bad_request', 'forbidden', 'not_found', 'timeout', 'throttled', 'server_error',
+    'request_error', 'response_surface_invalid', 'http_status_not_200',
+    'content_type_invalid', 'stream_invalid', 'stream_aborted', 'response_too_large',
+    'utf8_invalid', 'json_invalid', 'top_shape_invalid', 'row_keyset_invalid',
+    'row_value_invalid',
   ]));
   assert.deepEqual(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES, INTERNAL_STAGES);
   assert.deepEqual(DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES, Object.freeze([
@@ -171,6 +180,46 @@ test('known grant / 401 / cursor / query / transport / store classifications', (
     classifyDeltaRuntimeUnknown(),
     Object.freeze({ stage: 'tick', code: 'unknown' }),
   );
+});
+
+test('real Graph transport preserves its trusted closed failure stage', async () => {
+  const httpsImpl = {
+    request(_options, callback) {
+      const request = new EventEmitter();
+      request.destroy = () => {};
+      request.end = () => {
+        const response = new EventEmitter();
+        response.statusCode = 200;
+        response.headers = { 'content-type': 'application/json' };
+        response.destroy = () => {};
+        queueMicrotask(() => {
+          callback(response);
+          response.emit('data', Buffer.from('{invalid-json'));
+          response.emit('end');
+        });
+      };
+      return request;
+    },
+  };
+  const transport = createMicrosoftGraphMessagesDeltaPageTransport({
+    httpsImpl,
+    timers: { setTimeout, clearTimeout },
+  });
+  let trustedError = null;
+  try {
+    await transport.fetchInitialPage({
+      accessToken: 'atok-bounded-diagnostic-token-abcdefghijklmnopqrstuvwxyz',
+      provider_mailbox_id: '22222222-2222-4222-8222-2222222222ab',
+    });
+  } catch (error) {
+    trustedError = error;
+  }
+  assert.ok(trustedError);
+  assert.deepEqual(
+    classifyDeltaRuntimeTransportError(trustedError),
+    Object.freeze({ stage: 'transport', code: 'json_invalid' }),
+  );
+  noLeak(classifyDeltaRuntimeTransportError(trustedError));
 });
 
 test('forged grant/http/transport values cannot classify or leak', () => {
