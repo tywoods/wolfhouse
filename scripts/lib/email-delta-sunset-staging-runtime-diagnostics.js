@@ -58,6 +58,12 @@ const CODES = Object.freeze([
   'response',
   'reseal',
   'commit',
+  'bad_request',
+  'forbidden',
+  'not_found',
+  'timeout',
+  'throttled',
+  'server_error',
 ]);
 
 const EVENT_KEYS = Object.freeze(['event', 'stage', 'code']);
@@ -74,6 +80,12 @@ const PRIORITY = Object.freeze({
   dead_grant: 80,
   unauthorized: 70,
   cursor: 70,
+  bad_request: 70,
+  forbidden: 70,
+  not_found: 70,
+  timeout: 70,
+  throttled: 70,
+  server_error: 70,
   query: 60,
   authority: 50,
   status: 55,
@@ -180,9 +192,16 @@ function classifyDeltaRuntimeGrantStatus(status) {
 
 function classifyDeltaRuntimeHttpStatus(status) {
   try {
-    if (status !== 401 && status !== 410) return null;
+    if (!Number.isInteger(status)) return null;
+    if (status === 400) return freezeNote('transport', 'bad_request');
     if (status === 401) return freezeNote('transport', 'unauthorized');
-    return freezeNote('cursor', 'cursor');
+    if (status === 403) return freezeNote('transport', 'forbidden');
+    if (status === 404) return freezeNote('transport', 'not_found');
+    if (status === 408) return freezeNote('transport', 'timeout');
+    if (status === 410) return freezeNote('cursor', 'cursor');
+    if (status === 429) return freezeNote('transport', 'throttled');
+    if (status >= 500 && status <= 599) return freezeNote('transport', 'server_error');
+    return null;
   } catch {
     return null;
   }
