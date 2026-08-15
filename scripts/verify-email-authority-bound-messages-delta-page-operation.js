@@ -2973,7 +2973,13 @@ async function main() {
       'authority', 'status', 'lease', 'grant', 'transport', 'seal', 'store',
       'store_exception',
       'store_page_batch_invalid', 'store_page_tombstones_invalid',
-      'store_successor_cursor_rejected', 'store_authority_not_verified', 'release',
+      'store_successor_cursor_rejected', 'store_authority_not_verified',
+      'store_operation_id_conflict', 'store_delta_state_not_found',
+      'store_authority_mismatch', 'store_inbound_delta_state_write_failed',
+      'store_generation_mismatch', 'store_state_version_mismatch',
+      'store_lease_fenced', 'store_tenant_mismatch', 'store_mailbox_mismatch',
+      'store_query_version_mismatch', 'store_reset_required', 'store_phase_paused',
+      'store_commit_cas_conflict', 'release',
     ]);
     const liveOpMod = require('./lib/email-authority-bound-messages-delta-page-operation');
     ok(
@@ -3185,7 +3191,7 @@ async function main() {
       try {
         const res = await ctx.run();
         assertPublicFail('store', res);
-        assertTrustedStage('store', res, 'store', ctx.mod);
+        assertTrustedStage('store', res, 'store_commit_cas_conflict', ctx.mod);
         ok('store-commit-once', ctx.spy.count('commitPageEvents') === 1);
       } finally {
         ctx.restore();
@@ -3273,7 +3279,7 @@ async function main() {
     }
 
     const distinct = new Set(INTERNAL);
-    ok('internal-stages-are-thirteen-distinct', distinct.size === 13);
+    ok('internal-stages-are-twenty-six-distinct', distinct.size === 26);
   }
 
   // ── Network never hit ──────────────────────────────────────────────────
