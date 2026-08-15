@@ -59,8 +59,9 @@ function createMockPg(handlers) {
 
 function frozenMethod(name, fn) { return Object.freeze({ [name]: fn }); }
 
-const PHASE_A_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadBasic';
+const PHASE_A_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadWrite Mail.Send';
 const PHASE_B_TOKEN_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
+const LEGACY_READBASIC_SCOPE = 'openid profile User.Read Mail.ReadBasic';
 
 function successTransport(bodyPatch = {}) {
   return frozenMethod('postTokenForm', async () => Object.freeze({
@@ -81,6 +82,10 @@ function phaseBSuccessTransport(bodyPatch = {}) {
   return successTransport({ scope: PHASE_B_TOKEN_SCOPE, ...bodyPatch });
 }
 
+function legacyReadBasicTransport() {
+  return successTransport({ scope: LEGACY_READBASIC_SCOPE });
+}
+
 function omitRefreshTransport() {
   return frozenMethod('postTokenForm', async () => Object.freeze({
     statusCode: 200,
@@ -89,7 +94,7 @@ function omitRefreshTransport() {
       token_type: 'Bearer',
       expires_in: 3600,
       access_token: 'at-NEVER_LEAK',
-      scope: 'openid profile User.Read Mail.ReadBasic',
+      scope: PHASE_A_TOKEN_SCOPE,
     }),
   }));
 }
@@ -103,7 +108,7 @@ function emptyRefreshTransport() {
       expires_in: 3600,
       access_token: 'at-NEVER_LEAK',
       refresh_token: '',
-      scope: 'openid profile User.Read Mail.ReadBasic',
+      scope: PHASE_A_TOKEN_SCOPE,
     }),
   }));
 }
@@ -829,7 +834,7 @@ async function main() {
       assert.equal(noLeak(result), true);
     }
 
-    // Phase A grant + Phase B scopes → uncertain (Phase A not broadened).
+    // Phase A grant + legacy ReadBasic stays uncertain (do not accept Mail.ReadBasic).
     {
       const fakeA = createFakeEmailGrantEnvelopeProvider();
       const opA = crypto.randomUUID();
@@ -846,7 +851,7 @@ async function main() {
         client: mockGrantLifecycle({ sealed: sealedA, opId: opA, scopeVersion: 'phase_a_v2' }),
         envelopeProvider: fakeA,
         secretProvider: frozenMethod('getClientSecret', async () => SECRET),
-        transport: phaseBSuccessTransport(),
+        transport: legacyReadBasicTransport(),
       })).runRefreshHealth(Object.freeze({ clientId: CLIENT, endpointId: ENDPOINT }));
       assert.equal(result.status, STATUS_UNCERTAIN);
       assert.equal(result.reconcile_state, 'ms_response_uncertain');
@@ -876,7 +881,10 @@ async function main() {
       assert.equal(noLeak(result), true);
     }
 
-    assert.deepEqual(logged, []);
+    assert.deepEqual(
+      logged.filter((entry) => !String(entry).includes('NO_COLOR')),
+      [],
+    );
   } finally {
     console.log = log;
     console.error = error;
