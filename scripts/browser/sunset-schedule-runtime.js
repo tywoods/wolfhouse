@@ -80,12 +80,24 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     return ui === 'course' || row._scheduleType === 'course';
   }
 
+  function rowPaidCents(r) {
+    if (!r) return 0;
+    // Nullish only — never treat explicit 0 as missing (0 || otherCents would lie).
+    var paidRaw = r.booking_amount_paid_cents;
+    if (paidRaw == null || paidRaw === '') paidRaw = r.amount_paid_cents;
+    var paid = Number(paidRaw);
+    return Number.isFinite(paid) && paid > 0 ? paid : 0;
+  }
+
   function rowEffectivePaid(r) {
     if (!r) return false;
-    var paid = Number(r.booking_amount_paid_cents || r.amount_paid_cents || 0);
+    // Same cash rule as drawer invoice: Pagado only when paid cents > 0 and
+    // balance is not still owing. Status enums alone never count as paid.
+    var paid = rowPaidCents(r);
     if (!(paid > 0)) return false;
     var bal = r.booking_balance_due_cents;
-    if (bal != null && Number(bal) > 0) return false;
+    if (bal == null || bal === '') bal = r.balance_due_cents;
+    if (bal != null && bal !== '' && Number(bal) > 0) return false;
     return true;
   }
 
@@ -163,9 +175,9 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     if (r._needsReply == null) r._needsReply = false;
     if (!r.phone && meta.guest_phone) r.phone = meta.guest_phone;
     if (r.service_time_local && !r.service_time) r.service_time = r.service_time_local;
-    var ps = String(r.payment_status || '').toLowerCase();
+    // Always coerce from cash — never leave SR/booking status='paid' when €0 paid.
     if (rowEffectivePaid(r)) r.payment_status = 'paid';
-    else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested') r.payment_status = 'unpaid';
+    else r.payment_status = 'unpaid';
     return r;
   }
 
@@ -320,6 +332,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     meta: rowMeta,
     isPrivateLesson: rowIsPrivateLesson,
     isCourse: rowIsCourse,
+    paidCents: rowPaidCents,
     effectivePaid: rowEffectivePaid,
     deriveStableId: deriveStableRowId,
     ensureId: ensureRowId,
@@ -612,7 +625,15 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     var snap = Object.assign({}, navSnapshot, { mode: mode, forwardOffset: forwardOffset, loadGen: loadGen });
     var stateNode = el('ps-state');
     loaderShowLoading(stateNode);
-    var rangeStart = scheduleAddDays(scheduleParseIso(snap.todayIso || scheduleTodayIso()), forwardOffset);
+    // Prefer snapshot rangeStartIso (month-aligned in next30) so grid + header share one cursor.
+    var rangeStart = null;
+    if (snap.rangeStartIso && /^\d{4}-\d{2}-\d{2}$/.test(String(snap.rangeStartIso))) {
+      rangeStart = scheduleParseIso(snap.rangeStartIso);
+    }
+    if (!rangeStart) {
+      rangeStart = scheduleAddDays(scheduleParseIso(snap.todayIso || scheduleTodayIso()), forwardOffset);
+      if (mode === 'next30') rangeStart = monthStart(rangeStart);
+    }
     var convP = fetch('/staff/conversations' + inboxClientQuery())
       .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
     var configP = scheduleFetchLessonTimesConfig(client);

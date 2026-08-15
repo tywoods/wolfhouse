@@ -485,10 +485,17 @@ function scheduleRenderDayCockpit(mount, data) {
   var dateWrap = el('div', 'ck-date');
   // Date only — no "Today ·" prefix (redundant with Previous/Today/Next seg).
   // Non-today keeps a short weekday so staff know which day they're on.
+  // Always prefer live nav mode for Monthly vs Daily — stale src.range must not pin the header.
+  var liveNavMode = null;
+  try {
+    if (typeof scheduleCurrentViewMode === 'function') liveNavMode = scheduleCurrentViewMode();
+  } catch (_navMode) { liveNavMode = null; }
   var dateLabel;
-  var rangeKey = data.range || scheduleCockpitRangeFromNavMode(data.navMode || data.mode);
+  var rangeKey = scheduleCockpitRangeFromNavMode(
+    liveNavMode || data.navMode || data.mode || data.range
+  );
   if (rangeKey === 'next30') {
-    var monthIso = data.date || '';
+    var monthIso = data.date || data.rangeStartIso || '';
     try {
       if (typeof scheduleGetNavigationSnapshot === 'function') {
         var navSnap = scheduleGetNavigationSnapshot();
@@ -529,7 +536,7 @@ function scheduleRenderDayCockpit(mount, data) {
   var right = el('div', 'ck-bar__right');
   var ranges = el('div', 'ck-seg ck-seg--range');
   // Daily / Monthly only — weekly view retired. Keys stay today|next30 for nav.setView.
-  var rangeKey = data.range || 'today';
+  // rangeKey already resolved from live nav above — keep pills in sync with header/grid.
   if (rangeKey === 'week') rangeKey = 'today'; // legacy week → Daily
   [['today', scheduleCockpitT('schedule.cockpit.range.daily', 'Daily')],
    ['next30', scheduleCockpitT('schedule.cockpit.range.monthly', 'Monthly')]].forEach(function (row) {
@@ -791,6 +798,8 @@ function scheduleDayCockpitClockTick(mount) {
     if (typeof scheduleCurrentViewMode === 'function') {
       try { src.navMode = scheduleCurrentViewMode() || src.navMode; } catch (_e2) { /* keep */ }
     }
+    // Recompute range from live nav — never keep a stale Monthly/Daily pin on the header.
+    src.range = scheduleCockpitRangeFromNavMode(src.navMode || src.mode || src.range);
     src.on = typeof scheduleDayCockpitDefaultHandlers === 'function'
       ? scheduleDayCockpitDefaultHandlers()
       : (src.on || {});
@@ -987,7 +996,7 @@ function scheduleBuildDayCockpitData(src) {
     if (!Array.isArray(s.prepItems)) s.prepItems = [];
   });
 
-  var range = src.range || scheduleCockpitRangeFromNavMode(src.navMode || src.mode);
+  var range = scheduleCockpitRangeFromNavMode(src.navMode || src.mode || src.range);
 
   var layout = src.layout === 'cards' || src.layout === 'timeline'
     ? src.layout
@@ -1409,6 +1418,18 @@ function scheduleBuildDayPrepItems(rows, dateIso) {
 function scheduleCollectDayCockpitSource() {
   var activeIso = typeof scheduleActiveDayIso === 'function' ? scheduleActiveDayIso() : '';
   var navMode = typeof scheduleCurrentViewMode === 'function' ? scheduleCurrentViewMode() : 'day';
+  var rangeStartIso = activeIso;
+  try {
+    if (typeof scheduleGetNavigationSnapshot === 'function') {
+      var snap = scheduleGetNavigationSnapshot();
+      if (snap && (snap.rangeStartIso || snap.focusDateIso)) {
+        rangeStartIso = snap.rangeStartIso || snap.focusDateIso || rangeStartIso;
+        if (scheduleCockpitRangeFromNavMode(navMode) === 'next30') {
+          activeIso = rangeStartIso;
+        }
+      }
+    }
+  } catch (_snap) { /* keep activeIso */ }
   var venue = 'Sunset';
   try {
     if (typeof getSunsetLocationLabel === 'function') venue = getSunsetLocationLabel() || venue;
@@ -1460,6 +1481,7 @@ function scheduleCollectDayCockpitSource() {
   return {
     venue: venue,
     date: activeIso,
+    rangeStartIso: rangeStartIso,
     navMode: navMode,
     range: scheduleCockpitRangeFromNavMode(navMode),
     layout: typeof scheduleGetDayOpsLayoutMode === 'function' ? scheduleGetDayOpsLayoutMode() : 'timeline',

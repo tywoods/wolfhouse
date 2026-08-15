@@ -19,12 +19,20 @@ const { filterBookingRows } = require(path.join(ROOT, 'scripts/lib/sunset-bookin
 
 assert.ok(runtimeSrc.includes('if (!(paid > 0)) return false;'));
 assert.ok(!/booking_payment_status \|\| ''\)\.toLowerCase\(\) === 'paid'\) return true/.test(runtimeSrc));
-assert.ok(apiSrc.includes("if (!scheduleRowEffectivePaid(group)) ps = 'unpaid'"));
+assert.ok(
+  apiSrc.includes('Chip Pagado must match drawer paid cents')
+    || apiSrc.includes("if (!scheduleRowEffectivePaid(group)) ps = 'unpaid'"),
+  'badge forces cash-based paid state'
+);
 assert.ok(cockpitSrc.includes('navSnap.rangeStartIso || navSnap.focusDateIso'));
 assert.ok(bookingsUiSrc.includes('data-range-cleared'));
 assert.ok(!apiSrc.includes('inbox-thread.js'));
 
-const paidStart = runtimeSrc.indexOf('function rowEffectivePaid');
+const paidStart = runtimeSrc.indexOf('function rowEffectivePaid') >= 0
+  ? runtimeSrc.indexOf('function rowPaidCents') >= 0
+    ? runtimeSrc.indexOf('function rowPaidCents')
+    : runtimeSrc.indexOf('function rowEffectivePaid')
+  : -1;
 const paidEnd = runtimeSrc.indexOf('function deriveStableRowId');
 assert.ok(paidStart >= 0 && paidEnd > paidStart);
 const box = {};

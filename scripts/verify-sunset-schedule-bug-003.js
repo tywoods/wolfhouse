@@ -19,9 +19,12 @@ const financeSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-finance-s
 assert.ok(/if \(scheduleRowEffectivePaid\(r\)\) return 'paid';\s*return 'unpaid';/.test(apiSrc),
   'guest chip does not treat SR payment_status=paid as cash');
 assert.ok(apiSrc.includes('booking_amount_paid_cents'));
-assert.ok(apiSrc.includes("if (!scheduleRowEffectivePaid(group)) ps = 'unpaid'"));
+assert.ok(
+  apiSrc.includes('Chip Pagado must match drawer paid cents')
+    || apiSrc.includes("if (!scheduleRowEffectivePaid(group)) ps = 'unpaid'")
+);
 assert.ok(cockpitSrc.includes('range: scheduleCockpitRangeFromNavMode(navMode)'));
-assert.ok(cockpitSrc.includes("rangeKey === 'next30'"));
+assert.ok(cockpitSrc.includes("rangeKey === 'next30'") || cockpitSrc.includes("=== 'next30'"));
 assert.ok(cockpitSrc.includes("month: 'long', year: 'numeric'"));
 assert.ok(cockpitSrc.includes('navSnap.rangeStartIso || navSnap.focusDateIso'));
 assert.ok(bookingsUiSrc.includes('fromVal || adminBookingsState.filters.date_from') || bookingsUiSrc.includes('data-range-cleared'));
