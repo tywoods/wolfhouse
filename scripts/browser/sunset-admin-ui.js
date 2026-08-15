@@ -2885,6 +2885,18 @@ function wireFinanceRedesignNav(body){
       if (ev && ev.preventDefault) ev.preventDefault();
       var mode = (trend === 'year' || trend === '12m' || trend === 'months') ? 'year' : 'days';
       try { window.__financeTrendMode = mode; } catch (_t) { /* ignore */ }
+      // P2: 12-month chart must carry Year-window KPIs (Staff API dues for that year).
+      // Re-rendering a Month summary under a year chart left totals stuck on August.
+      if (mode === 'year') {
+        financeViewState.granularity = 'year';
+        financeViewState.start = null;
+        financeViewState.end = null;
+        financeCustomDraft = { start: null, end: null };
+        financeCustomClosePopover({ restoreFocus: false, discard: false });
+        financeViewState.anchor = financeTodayIso();
+        loadAdminFinanceSummary();
+        return;
+      }
       if (financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
       else loadAdminFinanceSummary();
       return;
@@ -2909,6 +2921,8 @@ function wireFinanceRedesignNav(body){
       financeViewState.anchor = financeTodayIso();
       if (gran === 'year') {
         try { window.__financeTrendMode = 'year'; } catch (_yt) { /* ignore */ }
+      } else if (gran === 'day' || gran === 'month') {
+        try { window.__financeTrendMode = 'days'; } catch (_dt) { /* ignore */ }
       }
       loadAdminFinanceSummary();
       return;

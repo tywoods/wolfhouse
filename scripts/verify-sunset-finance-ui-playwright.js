@@ -292,12 +292,23 @@ async function main() {
     localStorage.setItem('wh_staff_portal_locale', 'en');
   });
   await page.route('**/staff/admin/finance/summary**', async (route) => {
-    requests.push({ url: route.request().url(), at: Date.now() });
+    const reqUrl = route.request().url();
+    requests.push({ url: reqUrl, at: Date.now() });
     if (mode === 'pending') { pending.push(route); return; }
     if (mode === 'empty') return fulfill(route, { success: true, summary: emptySummary });
     if (mode === 'error') return fulfill(route, { success: false, error: 'unavailable' });
     if (mode && typeof mode === 'object' && mode.kind === 'redesign') {
-      return fulfill(route, { success: true, summary: redesignSummary(mode.summary) });
+      const u = new URL(reqUrl);
+      const gran = u.searchParams.get('granularity') || (mode.summary && mode.summary.granularity) || 'month';
+      const anchor = u.searchParams.get('anchor') || (mode.summary && mode.summary.anchor) || '2026-07-15';
+      return fulfill(route, {
+        success: true,
+        summary: redesignSummary({
+          ...(mode.summary || {}),
+          granularity: gran,
+          anchor,
+        }),
+      });
     }
     return fulfill(route, { success: true, summary: summary() });
   });
@@ -488,8 +499,12 @@ async function main() {
     check('loading → redesign success paints backend value', moneyRx(9000).test(await text(page)), await text(page));
     equal('default trend label is daily', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Daily gross vs last year');
     await page.locator('[data-finance-trend="year"]').click();
+    await waitForRedesignSuccess(page);
     equal('year trend label is exact', await page.locator('.pfb-card--trend .pfb-sec').innerText(), 'Monthly gross vs last year');
     equal('year chart uses fixed Jan-Dec axis', (await page.locator('.pfb-trend--monthly .pfb-trend-d').allInnerTexts()).join(','), 'Jan,Feb,Mar,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec');
+    equal('12-month trend adopts Year period', await page.locator('[data-finance-view-gran]').getAttribute('data-finance-view-gran'), 'year');
+    equal('Year range starts Jan 1', await page.locator('[data-finance-range-start]').getAttribute('data-finance-range-start'), '2026-01-01');
+    equal('Year range ends Dec 31', await page.locator('[data-finance-range-end]').getAttribute('data-finance-range-end'), '2026-12-31');
     check('year chart is full width without horizontal scroll', await page.evaluate(() => {
       const chart = document.querySelector('.pfb-trend--monthly');
       return !!(chart && chart.scrollWidth <= chart.clientWidth + 1);
@@ -506,6 +521,7 @@ async function main() {
       const chart = document.querySelector('.pfb-trend');
       return !!(chart && !chart.classList.contains('pfb-trend--monthly'));
     }));
+    equal('days trend keeps Year period after adopting year chart', await page.locator('[data-finance-view-gran]').getAttribute('data-finance-view-gran'), 'year');
 
     equal('all pageerror messages', pageErrors.join(' | '), '');
     equal('all console.error messages', consoleErrors.join(' | '), '');
