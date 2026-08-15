@@ -21,6 +21,8 @@ const crypto = require('node:crypto');
 const ROOT = path.join(__dirname, '..');
 const BRIDGE_REL = 'scripts/lib/email-inbound-inbox-bridge.js';
 const BRIDGE_PATH = path.join(ROOT, BRIDGE_REL);
+const PROVE_REL = 'scripts/prove-email-inbound-inbox-bridge-pglite.js';
+const PROVE_PATH = path.join(ROOT, PROVE_REL);
 const POLICY_PATH = path.join(ROOT, 'scripts/lib/email-luna-draft-open-policy-composition.js');
 const GENERATE_ROUTE_PATH = path.join(ROOT, 'scripts/lib/staff-email-luna-draft-route.js');
 const OPEN_OWNER_PATH = path.join(ROOT, 'scripts/lib/staff-email-luna-draft-open.js');
@@ -390,6 +392,11 @@ function assertStaticBoundary() {
   assert.match(src, /event\.provider === ['"]microsoft_graph['"]/);
   assert.doesNotMatch(src, /gmail_api['"]\s*===|provider === ['"]gmail_api['"]/);
   assert.doesNotMatch(src, /imap_smtp['"]\s*===|provider === ['"]imap_smtp['"]/);
+
+  const proveSrc = fs.readFileSync(PROVE_PATH, 'utf8');
+  assert.match(proveSrc, /needs_human BOOLEAN NOT NULL DEFAULT FALSE/);
+  assert.match(proveSrc, /existing conversation converges needs_human=true/);
+  assert.match(proveSrc, /non-Microsoft preserve/);
 
   const upsertIdx = src.indexOf('const SQL_UPSERT_CONVERSATION');
   const alreadyIdx = src.indexOf('// 2) Exactly-once: journal hit → replay without mutation.');

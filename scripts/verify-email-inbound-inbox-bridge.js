@@ -439,6 +439,7 @@ function assertStaticSurface() {
   assert.ok(fs.existsSync(PROVE_PATH), 'pglite/pg integration proof must exist');
 
   const src = fs.readFileSync(BRIDGE_PATH, 'utf8');
+  const proveSrc = fs.readFileSync(PROVE_PATH, 'utf8');
   const up = fs.readFileSync(MIG_UP, 'utf8');
   const down = fs.readFileSync(MIG_DOWN, 'utf8');
   const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
@@ -491,6 +492,11 @@ function assertStaticSurface() {
     pkg.scripts['prove:email-inbound-inbox-bridge-pglite'],
     'node scripts/prove-email-inbound-inbox-bridge-pglite.js',
   );
+  // Production SQL_UPSERT_CONVERSATION writes needs_human ($11). The real
+  // PGlite/Postgres-shape shell must include that 001_init column or the
+  // engine raises 42703 and the bridge fail-closes as uncertain.
+  assert.match(proveSrc, /needs_human BOOLEAN NOT NULL DEFAULT FALSE/);
+  assert.match(proveSrc, /needs_human microsoft true \/ existing converges/);
 
   assert.match(doc, /inbox-bridge|inbound-inbox-bridge|Inbox bridge/i);
   assert.match(doc, /067_tenant_email_inbound_inbox_projections|tenant_email_inbound_inbox_projections/);
