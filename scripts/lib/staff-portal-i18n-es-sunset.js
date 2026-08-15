@@ -1100,5 +1100,16 @@ module.exports = {
   'lunaStaff.notes.title': 'Notas generales para Luna',
   'lunaStaff.notes.sub': 'Información que Luna puede compartir con huéspedes (parking, wifi, horas de silencio, mascotas). Texto plano — los huéspedes pueden verlo.',
   'lunaStaff.notes.save': 'Guardar notas',
+  'lunaStaff.headerStyle.title': 'Estilo de cabecera',
+  'lunaStaff.headerStyle.sub': 'Aspecto de la barra superior en el portal del personal. Los cambios se aplican al guardar.',
+  'lunaStaff.headerStyle.edit': 'Editar',
+  'lunaStaff.headerStyle.save': 'Guardar',
+  'lunaStaff.headerStyle.cancel': 'Cancelar',
+  'lunaStaff.headerStyle.unsaved': 'Sin guardar',
+  'lunaStaff.headerStyle.mode.normal': 'Normal',
+  'lunaStaff.headerStyle.mode.compact': 'Compacto',
+  'lunaStaff.headerStyle.mode.sunset': 'Sunset',
+  'lunaStaff.headerStyle.mode.moonlight': 'Moonlight',
+  'lunaStaff.headerStyle.mode.sunsetmoonlight': 'Sunset y Moonlight',
 
 };

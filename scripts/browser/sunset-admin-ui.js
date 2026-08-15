@@ -2243,6 +2243,9 @@ function adminRefreshOnLocaleChange(){
   if (typeof adminEmailRefreshOnLocaleChange === 'function') {
     adminEmailRefreshOnLocaleChange();
   }
+  if (typeof lunaStaffHeaderModeRefreshI18n === 'function') {
+    lunaStaffHeaderModeRefreshI18n();
+  }
 }
 
 function renderAdminFallback(profile){
@@ -3140,6 +3143,7 @@ function adminSelectSubTab(key, opts){
   }
   if (lunaPanel) lunaPanel.classList.toggle('active', next === 'luna-staff');
   if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
+  if (next === 'luna-staff' && typeof wireLunaStaffHeaderModeCard === 'function') wireLunaStaffHeaderModeCard();
   if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
 }
 
@@ -4375,3 +4379,250 @@ function wireAdminTab(){
     }
   });
 }
+
+/* ── Luna Staff header style: draft + Save (no instant persist) ───────────
+ * Bug Finder P3: segmented control called __lunaHeaderMode.apply(mode, true)
+ * on every click, so the live banner looked saved with no Save. This override
+ * keeps selection as a draft until Save; Cancel discards. Presentation only —
+ * still uses localStorage via the existing apply(persist) API.
+ */
+var lunaStaffHeaderModeDraft = null;
+var lunaStaffHeaderModeWired = false;
+
+function lunaStaffHeaderModeT(key, fallback){
+  var v = '';
+  try {
+    if (typeof portalT === 'function') v = String(portalT(key) || '');
+    else if (typeof t === 'function') v = String(t(key) || '');
+  } catch (_e) { v = ''; }
+  if (!v || v === key) return fallback || key;
+  return v;
+}
+
+function lunaStaffHeaderModeLabel(mode){
+  var m = String(mode || '');
+  var key = 'lunaStaff.headerStyle.mode.' + m;
+  var fallbacks = {
+    normal: 'Normal',
+    compact: 'Compact',
+    sunset: 'Sunset',
+    moonlight: 'Moonlight',
+    sunsetmoonlight: 'Sunset & Moonlight',
+  };
+  return lunaStaffHeaderModeT(key, fallbacks[m] || m);
+}
+
+function lunaStaffHeaderModeSaved(){
+  try {
+    if (window.__lunaHeaderMode && typeof window.__lunaHeaderMode.current === 'function') {
+      return String(window.__lunaHeaderMode.current() || 'sunsetmoonlight');
+    }
+  } catch (_e) { /* ignore */ }
+  return 'sunsetmoonlight';
+}
+
+function lunaStaffHeaderModeEnsureStyles(){
+  if (document.getElementById('luna-header-mode-honest-style')) return;
+  var style = document.createElement('style');
+  style.id = 'luna-header-mode-honest-style';
+  style.textContent = [
+    '.luna-header-mode-dirty{display:none;font-size:12px;font-weight:600;color:var(--luna-teal-dark,#3a6b64);opacity:.85}',
+    '.luna-header-mode-card.is-dirty .luna-header-mode-dirty{display:inline}',
+    '.luna-header-mode-actions{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center;margin-left:4px}',
+    '.luna-header-mode-btn.luna-header-mode-save{font-weight:700}',
+    '.luna-header-mode-btn.luna-header-mode-save:disabled{opacity:.45;cursor:not-allowed}',
+    '.luna-header-mode-card.is-editing .luna-header-mode-dirty{margin-right:4px}',
+  ].join('');
+  document.head.appendChild(style);
+}
+
+function lunaStaffHeaderModeReflectDraft(draft){
+  var mode = String(draft || lunaStaffHeaderModeSaved());
+  lunaStaffHeaderModeDraft = mode;
+  var btns = document.querySelectorAll('#luna-header-mode-card [data-header-mode]');
+  for (var i = 0; i < btns.length; i++) {
+    var on = btns[i].getAttribute('data-header-mode') === mode;
+    btns[i].classList.toggle('is-active', on);
+    btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  var saved = lunaStaffHeaderModeSaved();
+  var dirty = mode !== saved;
+  var card = document.getElementById('luna-header-mode-card');
+  if (card) card.classList.toggle('is-dirty', dirty);
+  var saveBtn = document.getElementById('luna-header-mode-save-btn');
+  if (saveBtn) saveBtn.disabled = !dirty;
+  var cur = document.getElementById('luna-header-mode-current');
+  if (cur) cur.textContent = lunaStaffHeaderModeLabel(saved);
+}
+
+function lunaStaffHeaderModeExitEdit(opts){
+  var card = document.getElementById('luna-header-mode-card');
+  if (card) {
+    card.classList.remove('is-editing');
+    card.classList.remove('is-dirty');
+  }
+  lunaStaffHeaderModeDraft = lunaStaffHeaderModeSaved();
+  // Restore segment highlight to the saved (applied) mode — do not touch live banner.
+  try {
+    if (window.__lunaHeaderMode && typeof window.__lunaHeaderMode.apply === 'function') {
+      window.__lunaHeaderMode.apply(lunaStaffHeaderModeDraft, false);
+    }
+  } catch (_e) { /* ignore */ }
+  lunaStaffHeaderModeReflectDraft(lunaStaffHeaderModeDraft);
+  if (opts && opts.focusEdit) {
+    var edit = document.getElementById('luna-header-mode-edit-btn');
+    if (edit && typeof edit.focus === 'function') edit.focus();
+  }
+}
+
+function lunaStaffHeaderModeRefreshI18n(){
+  var card = document.getElementById('luna-header-mode-card');
+  if (!card) return;
+  if (typeof applyStaffPortalI18n === 'function') applyStaffPortalI18n(card);
+  var saved = lunaStaffHeaderModeSaved();
+  var cur = document.getElementById('luna-header-mode-current');
+  if (cur) cur.textContent = lunaStaffHeaderModeLabel(saved);
+  var draft = card.classList.contains('is-editing')
+    ? (lunaStaffHeaderModeDraft || saved)
+    : saved;
+  lunaStaffHeaderModeReflectDraft(draft);
+}
+
+function wireLunaStaffHeaderModeCard(){
+  var card = document.getElementById('luna-header-mode-card');
+  if (!card) return;
+  lunaStaffHeaderModeEnsureStyles();
+
+  var title = card.querySelector('.luna-header-mode-title');
+  if (title) {
+    title.setAttribute('data-i18n', 'lunaStaff.headerStyle.title');
+    title.textContent = lunaStaffHeaderModeT('lunaStaff.headerStyle.title', 'Header style');
+  }
+  var sub = card.querySelector('.luna-header-mode-sub');
+  if (sub) {
+    sub.setAttribute('data-i18n', 'lunaStaff.headerStyle.sub');
+    sub.textContent = lunaStaffHeaderModeT(
+      'lunaStaff.headerStyle.sub',
+      'How the top banner looks across the staff portal. Changes apply when you save.'
+    );
+  }
+  card.setAttribute('aria-label', lunaStaffHeaderModeT('lunaStaff.headerStyle.title', 'Header style'));
+
+  var editBtn = document.getElementById('luna-header-mode-edit-btn');
+  if (editBtn) {
+    editBtn.setAttribute('data-i18n', 'lunaStaff.headerStyle.edit');
+    editBtn.textContent = lunaStaffHeaderModeT('lunaStaff.headerStyle.edit', 'Edit');
+  }
+
+  var seg = card.querySelector('.luna-header-mode-seg');
+  if (seg) {
+    seg.setAttribute('aria-label', lunaStaffHeaderModeT('lunaStaff.headerStyle.title', 'Header style'));
+    var modeBtns = seg.querySelectorAll('[data-header-mode]');
+    for (var mi = 0; mi < modeBtns.length; mi++) {
+      var mb = modeBtns[mi];
+      mb.removeAttribute('onclick');
+      var modeKey = mb.getAttribute('data-header-mode');
+      mb.setAttribute('data-i18n', 'lunaStaff.headerStyle.mode.' + modeKey);
+      mb.textContent = lunaStaffHeaderModeLabel(modeKey);
+    }
+
+    var dirty = document.getElementById('luna-header-mode-dirty');
+    if (!dirty) {
+      dirty = document.createElement('span');
+      dirty.id = 'luna-header-mode-dirty';
+      dirty.className = 'luna-header-mode-dirty';
+      dirty.setAttribute('data-i18n', 'lunaStaff.headerStyle.unsaved');
+      dirty.setAttribute('aria-live', 'polite');
+      seg.appendChild(dirty);
+    }
+    dirty.textContent = lunaStaffHeaderModeT('lunaStaff.headerStyle.unsaved', 'Unsaved');
+
+    var actions = document.getElementById('luna-header-mode-actions');
+    if (!actions) {
+      actions = document.createElement('span');
+      actions.id = 'luna-header-mode-actions';
+      actions.className = 'luna-header-mode-actions';
+      seg.appendChild(actions);
+    }
+
+    var doneLegacy = document.getElementById('luna-header-mode-done-btn');
+    if (doneLegacy && doneLegacy.parentNode) doneLegacy.parentNode.removeChild(doneLegacy);
+
+    var cancelBtn = document.getElementById('luna-header-mode-cancel-btn');
+    if (!cancelBtn) {
+      cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.id = 'luna-header-mode-cancel-btn';
+      cancelBtn.className = 'luna-header-mode-btn luna-header-mode-cancel';
+      actions.appendChild(cancelBtn);
+    }
+    cancelBtn.setAttribute('data-i18n', 'lunaStaff.headerStyle.cancel');
+    cancelBtn.textContent = lunaStaffHeaderModeT('lunaStaff.headerStyle.cancel', 'Cancel');
+
+    var saveBtn = document.getElementById('luna-header-mode-save-btn');
+    if (!saveBtn) {
+      saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.id = 'luna-header-mode-save-btn';
+      saveBtn.className = 'luna-header-mode-btn luna-header-mode-save';
+      actions.appendChild(saveBtn);
+    }
+    saveBtn.setAttribute('data-i18n', 'lunaStaff.headerStyle.save');
+    saveBtn.textContent = lunaStaffHeaderModeT('lunaStaff.headerStyle.save', 'Save');
+  }
+
+  if (!lunaStaffHeaderModeWired) {
+    lunaStaffHeaderModeWired = true;
+    card.addEventListener('click', function(e){
+      var t = e.target;
+      if (!t || !t.closest) return;
+      if (t.closest('#luna-header-mode-edit-btn')) {
+        lunaStaffHeaderModeDraft = lunaStaffHeaderModeSaved();
+        card.classList.add('is-editing');
+        lunaStaffHeaderModeReflectDraft(lunaStaffHeaderModeDraft);
+        return;
+      }
+      if (t.closest('#luna-header-mode-cancel-btn')) {
+        e.preventDefault();
+        lunaStaffHeaderModeExitEdit({ focusEdit: true });
+        return;
+      }
+      if (t.closest('#luna-header-mode-save-btn')) {
+        e.preventDefault();
+        var draft = lunaStaffHeaderModeDraft || lunaStaffHeaderModeSaved();
+        if (draft === lunaStaffHeaderModeSaved()) {
+          lunaStaffHeaderModeExitEdit({ focusEdit: true });
+          return;
+        }
+        try {
+          if (window.__lunaHeaderMode && typeof window.__lunaHeaderMode.apply === 'function') {
+            window.__lunaHeaderMode.apply(draft, true);
+          }
+        } catch (_err) { /* ignore */ }
+        lunaStaffHeaderModeExitEdit({ focusEdit: true });
+        return;
+      }
+      var modeBtn = t.closest('[data-header-mode]');
+      if (modeBtn && card.contains(modeBtn) && card.classList.contains('is-editing')) {
+        e.preventDefault();
+        e.stopPropagation();
+        // Draft only — do not apply or persist until Save.
+        lunaStaffHeaderModeReflectDraft(modeBtn.getAttribute('data-header-mode'));
+      }
+    }, true);
+  }
+
+  lunaStaffHeaderModeReflectDraft(
+    card.classList.contains('is-editing')
+      ? (lunaStaffHeaderModeDraft || lunaStaffHeaderModeSaved())
+      : lunaStaffHeaderModeSaved()
+  );
+}
+
+(function lunaStaffHeaderModeBoot(){
+  function boot(){ try { wireLunaStaffHeaderModeCard(); } catch (_e) { /* ignore */ } }
+  if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+    else boot();
+  }
+})();
