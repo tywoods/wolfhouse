@@ -36,6 +36,7 @@ const {
   RESPONSE_CAP_BYTES,
   GRAPH_STAGES,
   ROW_VALUE_FIELD_CLASSES,
+  ROW_VALUE_BRANCH_CLASSES,
   MESSAGES_DELTA_PAGE_RESULT_KEYS,
   MESSAGES_DELTA_CURSOR_KINDS,
   buildMessagesDeltaInitialPath,
@@ -44,6 +45,7 @@ const {
   validateMessagesDeltaCursorUrl,
   readTrustedGraphStage,
   readTrustedGraphRowValueFieldClass,
+  readTrustedGraphRowValueBranchClass,
   readTrustedMessagesDeltaOutcome,
   createMicrosoftGraphMessagesDeltaPageTransport,
 } = require('./email-microsoft-graph-delegated-messages-transport');
@@ -68,6 +70,7 @@ module.exports = Object.freeze({
   RESPONSE_CAP_BYTES,
   GRAPH_STAGES,
   ROW_VALUE_FIELD_CLASSES,
+  ROW_VALUE_BRANCH_CLASSES,
   MESSAGES_DELTA_PAGE_RESULT_KEYS,
   MESSAGES_DELTA_CURSOR_KINDS,
   EMAIL_MS_GRAPH_MESSAGES_DELTA_PAGE_TRANSPORT_RUNTIME_WIRED,
@@ -83,6 +86,7 @@ module.exports = Object.freeze({
   validateMessagesDeltaCursorUrl,
   readTrustedGraphStage,
   readTrustedGraphRowValueFieldClass,
+  readTrustedGraphRowValueBranchClass,
   readTrustedMessagesDeltaOutcome,
   createMicrosoftGraphMessagesDeltaPageTransport,
 });

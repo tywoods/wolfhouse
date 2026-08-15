@@ -17,6 +17,7 @@
 const {
   readTrustedGraphStage,
   readTrustedGraphRowValueFieldClass,
+  readTrustedGraphRowValueBranchClass,
   readTrustedMessagesDeltaOutcome,
 } = require('./email-microsoft-graph-messages-delta-page-transport');
 
@@ -84,6 +85,10 @@ const CODES = Object.freeze([
   'row_value_conversation',
   'row_value_internet_message_id',
   'row_value_etag',
+  'row_branch_subject_odata_metadata',
+  'row_branch_duplicate_message_identity',
+  'row_branch_tombstone_envelope_collision',
+  'row_branch_invariant_mapper_shape',
 ]);
 
 const EVENT_KEYS = Object.freeze(['event', 'stage', 'code']);
@@ -115,6 +120,13 @@ const GRAPH_ROW_VALUE_FIELD_CODES = Object.freeze({
   conversation: 'row_value_conversation',
   internet_message_id: 'row_value_internet_message_id',
   etag: 'row_value_etag',
+});
+
+const GRAPH_ROW_VALUE_BRANCH_CODES = Object.freeze({
+  subject_odata_metadata: 'row_branch_subject_odata_metadata',
+  duplicate_message_identity: 'row_branch_duplicate_message_identity',
+  tombstone_envelope_collision: 'row_branch_tombstone_envelope_collision',
+  invariant_mapper_shape: 'row_branch_invariant_mapper_shape',
 });
 
 const GRANT_STATUS_DEAD = 'reauthorization_required';
@@ -150,6 +162,10 @@ const PRIORITY = Object.freeze({
   row_value_conversation: 66,
   row_value_internet_message_id: 66,
   row_value_etag: 66,
+  row_branch_subject_odata_metadata: 66,
+  row_branch_duplicate_message_identity: 66,
+  row_branch_tombstone_envelope_collision: 66,
+  row_branch_invariant_mapper_shape: 66,
   query: 60,
   authority: 50,
   status: 55,
@@ -282,6 +298,12 @@ function classifyDeltaRuntimeTransportError(error) {
       const fieldClass = readTrustedGraphRowValueFieldClass(error);
       const code = ownData(GRAPH_ROW_VALUE_FIELD_CODES, fieldClass);
       if (typeof code === 'string' && CODE_SET.has(code)) return freezeNote('transport', code);
+    }
+    if (graphStage === 'row_value_invalid'
+        && typeof readTrustedGraphRowValueBranchClass === 'function') {
+      const branchClass = readTrustedGraphRowValueBranchClass(error);
+      const branchCode = ownData(GRAPH_ROW_VALUE_BRANCH_CODES, branchClass);
+      if (typeof branchCode === 'string') return freezeNote('transport', branchCode);
     }
     if (GRAPH_FAILURE_STAGE_SET.has(graphStage)) {
       return freezeNote('transport', graphStage);

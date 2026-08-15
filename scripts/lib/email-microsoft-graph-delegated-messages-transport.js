@@ -342,11 +342,20 @@ const ROW_VALUE_FIELD_CLASSES = Object.freeze([
   'etag',
 ]);
 const ROW_VALUE_FIELD_CLASS_SET = new Set(ROW_VALUE_FIELD_CLASSES);
+const ROW_VALUE_BRANCH_CLASSES = Object.freeze([
+  'subject_odata_metadata',
+  'duplicate_message_identity',
+  'tombstone_envelope_collision',
+  'invariant_mapper_shape',
+]);
+const ROW_VALUE_BRANCH_CLASS_SET = new Set(ROW_VALUE_BRANCH_CLASSES);
 
 /** Module-private brand: only transport-created failure objects may map to a stage. */
 const STAGED_FAILURES = new WeakMap();
-/** Module-private field class for transport-created row_value_invalid failures only. */
+/** Private secondary provenance for the approved value-free row field classes. */
 const ROW_VALUE_FIELD_FAILURES = new WeakMap();
+/** Private secondary provenance for the remaining approved value-free mapper branches. */
+const ROW_VALUE_BRANCH_FAILURES = new WeakMap();
 /**
  * Module-private messages-delta outcomes (continuation 410 → cursor_gone).
  * Separate from GRAPH_STAGES so forged public errors cannot classify.
@@ -378,6 +387,12 @@ function failure(stage, brand = {
       && ROW_VALUE_FIELD_CLASS_SET.has(extra.rowValueFieldClass)) {
     ROW_VALUE_FIELD_FAILURES.set(error, extra.rowValueFieldClass);
   }
+  if (graphStage === 'row_value_invalid'
+      && extra
+      && typeof extra.rowValueBranchClass === 'string'
+      && ROW_VALUE_BRANCH_CLASS_SET.has(extra.rowValueBranchClass)) {
+    ROW_VALUE_BRANCH_FAILURES.set(error, extra.rowValueBranchClass);
+  }
   if (extra
       && typeof extra.deltaOutcome === 'string'
       && MESSAGES_DELTA_OUTCOMES_ALLOWED.includes(extra.deltaOutcome)) {
@@ -408,6 +423,18 @@ function readTrustedGraphRowValueFieldClass(error) {
     const fieldClass = ROW_VALUE_FIELD_FAILURES.get(error);
     return typeof fieldClass === 'string' && ROW_VALUE_FIELD_CLASS_SET.has(fieldClass)
       ? fieldClass
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readTrustedGraphRowValueBranchClass(error) {
+  try {
+    if (readTrustedGraphStage(error) !== 'row_value_invalid') return null;
+    const branchClass = ROW_VALUE_BRANCH_FAILURES.get(error);
+    return typeof branchClass === 'string' && ROW_VALUE_BRANCH_CLASS_SET.has(branchClass)
+      ? branchClass
       : null;
   } catch {
     return null;
@@ -1691,6 +1718,7 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
     const envelopes = [];
     const tombstones = [];
     const seenIds = new Set();
+    const seenKinds = new Map();
 
     for (let i = 0; i < rows.length; i += 1) {
       const row = rows[i];
@@ -1710,9 +1738,16 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
         }
         const messageId = ownData(row, 'id');
         if (seenIds.has(messageId)) {
-          return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+          return Object.freeze({
+            ok: false,
+            stage: 'row_value_invalid',
+            rowValueBranchClass: seenKinds.get(messageId) === 'envelope'
+              ? 'tombstone_envelope_collision'
+              : 'duplicate_message_identity',
+          });
         }
         seenIds.add(messageId);
+        seenKinds.set(messageId, 'tombstone');
         const tombstone = Object.freeze({
           provider: PROVIDER_ID,
           provider_mailbox_id: providerMailboxId,
@@ -1720,7 +1755,11 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
         });
         if (Object.keys(tombstone).length !== MESSAGES_DELTA_TOMBSTONE_KEYS.length
             || Object.keys(tombstone).some((k, j) => k !== MESSAGES_DELTA_TOMBSTONE_KEYS[j])) {
-          return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+          return Object.freeze({
+            ok: false,
+            stage: 'row_value_invalid',
+            rowValueBranchClass: 'invariant_mapper_shape',
+          });
         }
         tombstones.push(tombstone);
         continue;
@@ -1734,14 +1773,30 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
         const result = { ok: false, stage: rowStage };
         if (rowStage === 'row_value_invalid' && rowValueFieldClass !== null) {
           result.rowValueFieldClass = rowValueFieldClass;
+        } else if (rowStage === 'row_value_invalid') {
+          result.rowValueBranchClass = 'subject_odata_metadata';
         }
         return Object.freeze(result);
       }
       const messageId = ownData(row, 'id');
-      if (typeof messageId !== 'string' || seenIds.has(messageId)) {
-        return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+      if (typeof messageId !== 'string') {
+        return Object.freeze({
+          ok: false,
+          stage: 'row_value_invalid',
+          rowValueBranchClass: 'invariant_mapper_shape',
+        });
+      }
+      if (seenIds.has(messageId)) {
+        return Object.freeze({
+          ok: false,
+          stage: 'row_value_invalid',
+          rowValueBranchClass: seenKinds.get(messageId) === 'tombstone'
+            ? 'tombstone_envelope_collision'
+            : 'duplicate_message_identity',
+        });
       }
       seenIds.add(messageId);
+      seenKinds.set(messageId, 'envelope');
       const mapped = mapMicrosoftGraphMailReadBasicRowToInboundEnvelope({
         provider: PROVIDER_ID,
         provider_mailbox_id: providerMailboxId,
@@ -1751,12 +1806,17 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
         const mappedFieldClass = classifyMappedEnvelopeField(mapped);
         const result = { ok: false, stage: 'row_value_invalid' };
         if (mappedFieldClass !== null) result.rowValueFieldClass = mappedFieldClass;
+        else result.rowValueBranchClass = 'invariant_mapper_shape';
         return Object.freeze(result);
       }
       if (mapped.value.provider !== PROVIDER_ID
           || mapped.value.provider_mailbox_id !== providerMailboxId
           || mapped.value.provider_message_id !== messageId) {
-        return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+        return Object.freeze({
+          ok: false,
+          stage: 'row_value_invalid',
+          rowValueBranchClass: 'invariant_mapper_shape',
+        });
       }
       envelopes.push(mapped.value);
     }
@@ -1764,7 +1824,11 @@ function mapSuccessBodyToMessagesDeltaPage(bodyText, providerMailboxId) {
     envelopes.sort(compareInboundEmailEnvelopesForOrder);
     const observedCount = rows.length;
     if (envelopes.length + tombstones.length !== observedCount) {
-      return Object.freeze({ ok: false, stage: 'row_value_invalid' });
+      return Object.freeze({
+        ok: false,
+        stage: 'row_value_invalid',
+        rowValueBranchClass: 'invariant_mapper_shape',
+      });
     }
 
     const dto = {
@@ -2075,7 +2139,9 @@ function runDelegatedMessagesRequest(session, input) {
                   mapped && typeof mapped.stage === 'string' ? mapped.stage : 'json_invalid',
                   mapped && typeof mapped.rowValueFieldClass === 'string'
                     ? { rowValueFieldClass: mapped.rowValueFieldClass }
-                    : undefined,
+                    : (mapped && typeof mapped.rowValueBranchClass === 'string'
+                      ? { rowValueBranchClass: mapped.rowValueBranchClass }
+                      : undefined),
                 ));
                 return;
               }
@@ -2574,6 +2640,7 @@ module.exports = Object.freeze({
   RESPONSE_CAP_BYTES,
   GRAPH_STAGES,
   ROW_VALUE_FIELD_CLASSES,
+  ROW_VALUE_BRANCH_CLASSES,
   BOUNDED_CATCHUP_MAX_PAGES,
   BOUNDED_CATCHUP_MAX_MESSAGES,
   MESSAGES_DELTA_PAGE_RESULT_KEYS,
@@ -2588,6 +2655,7 @@ module.exports = Object.freeze({
   validateMessagesDeltaCursorUrl,
   readTrustedGraphStage,
   readTrustedGraphRowValueFieldClass,
+  readTrustedGraphRowValueBranchClass,
   readTrustedMessagesDeltaOutcome,
   createMicrosoftGraphDelegatedMessagesTransport,
   createMicrosoftGraphImmutableIdPageTransport,
