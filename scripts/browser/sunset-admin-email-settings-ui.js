@@ -300,6 +300,21 @@ function renderAdminEmailConnectFailed(){
   }
   renderAdminEmailSettingsState('error');
 }
+function beginAdminEmailConnectAttempt(root){
+  adminEmailSettingsConnectFailed = false;
+  if (adminEmailSettingsLastData) {
+    renderAdminEmailSettingsData(adminEmailSettingsLastData);
+    var liveBody = el('admin-email-settings-body');
+    var next = null;
+    if (liveBody && typeof liveBody.querySelector === 'function') {
+      next = liveBody.querySelector('.portal-admin-email-settings[data-email-provider="microsoft_graph"]')
+        || liveBody.querySelector('.portal-admin-email-settings');
+    }
+    if (next) root = next;
+  }
+  setConnectBusy(root, true);
+  return root;
+}
 function wireConnectHandlers(body, data){
   var sections = typeof body.querySelectorAll==='function' ? body.querySelectorAll('.portal-admin-email-settings') : [];
   if(!sections.length)sections=[body.querySelector('.portal-admin-email-settings')];
@@ -314,8 +329,8 @@ function wireConnectHandlers(body, data){
       renderAdminEmailConnectFailed();
       return;
     }
-    adminEmailSettingsConnectFailed = false;
-    setConnectBusy(section, true);
+    section = beginAdminEmailConnectAttempt(section);
+    btn = (section && typeof section.querySelector === 'function' && section.querySelector('[data-email-connect]')) || btn;
     var chain;
     var provider = btn.getAttribute('data-email-provider') || 'microsoft_graph';
     if (mode === 'prepare') {
