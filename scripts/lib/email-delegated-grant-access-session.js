@@ -42,6 +42,9 @@ const {
   SUNSET_DEPLOYMENT: REQUEST_SUNSET,
   readTrustedMicrosoftRefreshTokenRequestStage,
 } = require('./email-microsoft-refresh-token-request');
+const {
+  readTrustedAuthorityBoundPageInternalStage,
+} = require('./email-authority-bound-messages-delta-page-operation');
 
 const FAILURE_CODE = 'delegated_grant_access_session_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
@@ -591,7 +594,8 @@ function createDelegatedGrantAccessSession(deps) {
     } catch (err) {
       await safeAbort(client, ids, lease);
       lease = null;
-      if (err && err.code === FAILURE_CODE) throw err;
+      if (readTrustedDelegatedGrantAccessSessionInternalStage(err)) throw err;
+      if (readTrustedAuthorityBoundPageInternalStage(err)) throw err;
       throw failAt('release');
     } finally {
       // Release every local token-owner reference regardless of path.
