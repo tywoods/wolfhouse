@@ -17746,11 +17746,15 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-drawer .is-bundle-line,.portal-schedule-drawer .is-bundle-line .ps-svc-name{font-weight:600}
 .portal-schedule-drawer .ps-day-amt-included{font-size:11px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.03em}
 @media(max-width:360px){.portal-schedule-drawer-edit-body{padding:12px}.portal-schedule-drawer-edit-footer .portal-schedule-create-actions{flex-wrap:wrap}.portal-schedule-drawer-edit-footer .portal-schedule-create-actions .btn{flex:1 1 calc(50% - 6px)}}
-.portal-schedule-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:9700}
+.portal-schedule-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:9700;pointer-events:auto}
+.portal-schedule-drawer-backdrop[aria-hidden="true"],
+.portal-schedule-drawer-backdrop[hidden]{pointer-events:none!important}
 /* Overlays are moved to document.body (column flex). Keep them out of the flex flow so
    closing the Horario drawer cannot collapse #tab-portal-home into blank cream. */
 body > .portal-schedule-drawer-backdrop,
 body > .portal-schedule-drawer{flex:none;align-self:auto}
+/* Drawer must paint above #ps-drawer-backdrop after both are body-ported (Reservas → Agenda). */
+body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-item-card.demo{opacity:.95;border-style:dashed}
 .portal-schedule-item-card.manual{border-style:dashed}
 .portal-schedule-item-card.source-staff{background:#ecfdf3;border-color:#86efac}
