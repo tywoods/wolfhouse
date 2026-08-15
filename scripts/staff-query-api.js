@@ -17377,11 +17377,6 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .pfb-cap-top{display:flex;align-items:flex-start;gap:14px;margin-top:4px}
 .pfb-bars--capacity{flex:1 1 auto;min-width:0}
 .pfb-card--capacity .pfb-ring{margin-top:2px}
-/* Over-capacity: keep fill clamped at 100%, but paint amber so it is not a fake “full” green bar. */
-.pfb-bar-row.is-over .pfb-bar-amt,.pfb-bar-row.is-over .pfb-bar-pct,.pfb-util-row.is-over .pfb-util-val{color:#8a6a1a}
-.pfb-bar-fill.is-over,.pfb-util-fill.is-over{background:#c4922a}
-.pfb-ring.is-over{background:conic-gradient(#c4922a 0 var(--pfb-ring,100%), var(--surface) 0)}
-.pfb-ring.is-over .pfb-ring-in b{color:#8a6a1a}
 .pfb-sub--foot{margin-top:12px;margin-bottom:0}
 .pfb-sec-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .pfb-trend-toggle{display:inline-flex;border:1px solid var(--border-soft);border-radius:999px;overflow:hidden}
@@ -17404,11 +17399,16 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .pfb-bar-fill.is-blue,.pfb-util-fill.is-blue{background:#4A7C94}
 .pfb-bar-fill.is-violet,.pfb-util-fill.is-violet{background:#7a6bb5}
 .pfb-bar-fill.is-amber,.pfb-util-fill.is-amber{background:#c4922a}
+/* Over-capacity after color slots so is-over wins over is-green/is-blue/etc. */
+.pfb-bar-fill.is-over,.pfb-util-fill.is-over{background:#c4922a}
 .pfb-bar-amt,.pfb-bar-pct,.pfb-util-val{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);white-space:nowrap}
+.pfb-bar-row.is-over .pfb-bar-amt,.pfb-bar-row.is-over .pfb-bar-pct,.pfb-util-row.is-over .pfb-util-val{color:#8a6a1a}
 .pfb-cap-top{display:flex;gap:14px;align-items:center}
 .pfb-ring{width:92px;height:92px;border-radius:50%;background:conic-gradient(#3d8f5a 0 var(--pfb-ring,74%), var(--surface) 0);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.pfb-ring.is-over{background:conic-gradient(#c4922a 0 var(--pfb-ring,100%), var(--surface) 0)}
 .pfb-ring-in{width:68px;height:68px;border-radius:50%;background:var(--surface-soft);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
 .pfb-ring-in b{font-size:18px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.pfb-ring.is-over .pfb-ring-in b{color:#8a6a1a}
 .pfb-ring-in span{font-size:10px;color:var(--text-2);line-height:1.2}
 .pfb-utils{flex:1;min-width:0}
 .pfb-callout{margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(196,146,42,.12);color:var(--text);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;font-size:13px}
