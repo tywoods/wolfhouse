@@ -54,6 +54,22 @@ function scheduleDrawerIsRequestActive(openGen, bookingKey){
   return true;
 }
 
+function scheduleOverlayIsOpen(node){
+  if (!node) return false;
+  if (node.hidden === true) return false;
+  var aria = '';
+  try { aria = node.getAttribute ? String(node.getAttribute('aria-hidden') || '') : ''; } catch (_a) { aria = ''; }
+  if (aria === 'true') return false;
+  var d = (node.style && node.style.display) || '';
+  if (d === 'none') return false;
+  return true;
+}
+
+function schedulePageHasOverlay(){
+  return scheduleOverlayIsOpen(typeof el === 'function' ? el('ps-detail-drawer') : null)
+    || scheduleOverlayIsOpen(typeof el === 'function' ? el('ps-create-modal') : null);
+}
+
 function scheduleDrawerEnsureDocumentLayer(){
   if (typeof document === 'undefined' || !document.body) return;
   var drawer = el('ps-detail-drawer');
@@ -73,7 +89,9 @@ function scheduleDrawerLockPage(){
 
 function scheduleDrawerUnlockPage(){
   if (typeof document === 'undefined' || !document.body) return;
-  document.body.style.overflow = scheduleDrawerState.prevBodyOverflow || '';
+  if (schedulePageHasOverlay()) return;
+  document.body.style.overflow = '';
+  if (document.documentElement) document.documentElement.style.overflow = '';
   scheduleDrawerState.prevBodyOverflow = null;
   document.body.removeAttribute('data-schedule-drawer-open');
 }
@@ -86,10 +104,14 @@ function scheduleDrawerOnBackdropClick(ev){
 
 function scheduleDrawerOnKeydown(ev){
   if (!ev || (ev.key !== 'Escape' && ev.key !== 'Esc')) return;
-  var drawer = el('ps-detail-drawer');
-  if (!drawer || drawer.style.display === 'none') return;
   var create = typeof el === 'function' ? el('ps-create-modal') : null;
-  if (create && create.style && create.style.display && create.style.display !== 'none') return;
+  if (scheduleOverlayIsOpen(create)) {
+    if (ev.preventDefault) ev.preventDefault();
+    if (typeof closeScheduleCreateModal === 'function') closeScheduleCreateModal();
+    return;
+  }
+  var drawer = el('ps-detail-drawer');
+  if (!scheduleOverlayIsOpen(drawer)) return;
   if (ev.preventDefault) ev.preventDefault();
   closeScheduleDetailDrawer();
 }
@@ -328,4 +350,8 @@ function closeScheduleDetailDrawer(){
 
 if (typeof window !== 'undefined') {
   window.openScheduleDetailDrawer = openScheduleDetailDrawer;
+  window.scheduleDrawerLockPage = scheduleDrawerLockPage;
+  window.scheduleDrawerUnlockPage = scheduleDrawerUnlockPage;
+  window.scheduleDrawerWireDismiss = scheduleDrawerWireDismiss;
+  window.scheduleOverlayIsOpen = scheduleOverlayIsOpen;
 }

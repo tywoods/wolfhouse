@@ -17775,7 +17775,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-create-date-range-day.is-in-range{background:rgba(78,88,83,.14)}
 .portal-schedule-create-date-range-day.is-selected-start,.portal-schedule-create-date-range-day.is-selected-end,.portal-schedule-create-date-range-day.is-selected{background:var(--sched-primary,#4E5853);color:#fff;font-weight:700}
 .portal-schedule-create-date-range-day:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:1px}
-.portal-schedule-create-date-range-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;justify-content:flex-end}
+.portal-schedule-create-date-range-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;justify-content:flex-end;scroll-margin-bottom:168px;position:relative;z-index:4}
 .portal-schedule-create-date-range-actions .btn{min-height:44px;min-width:0;flex:1 1 auto}
 .portal-schedule-create-activity-hint{margin:8px 0 0;font-size:12px;color:var(--text-muted);line-height:1.4}.portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px;min-width:0;max-width:100%}
 /* Standalone rental EQUIPMENT rows (Create + Edit shared):
@@ -18049,7 +18049,7 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .portal-schedule-create-school-chip strong{color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .portal-schedule-create-header #ps-create-close{flex:0 0 auto;min-width:44px;min-height:44px}
 .portal-schedule-create-header #ps-drawer-close,.portal-schedule-create-header .portal-schedule-drawer-close-btn{flex:0 0 auto;min-width:44px;min-height:44px}
-.portal-schedule-create-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 18px}
+.portal-schedule-create-body{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;padding:14px 18px 220px}
 .portal-schedule-create-section{margin:0 0 14px;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-create-section:last-child{margin-bottom:0}
 .portal-schedule-create-section[data-create-section="when"][hidden],.portal-schedule-create-section.is-when-hidden{display:none !important}
@@ -26375,6 +26375,10 @@ function scheduleCreateDateRangeOpenPopover(){
   scheduleRenderCreateDateRangeCalendar();
   scheduleSyncCreateDateRangeUi();
   scheduleCreateDateRangeFocusInto();
+  var applyBtn = el('ps-create-date-range-apply');
+  if (applyBtn && typeof applyBtn.scrollIntoView === 'function') {
+    try { applyBtn.scrollIntoView({ block: 'nearest', inline: 'nearest' }); } catch (_sv) { /* ignore */ }
+  }
 }
 
 function scheduleCreateDateRangeTogglePopover(){
@@ -29199,6 +29203,8 @@ function openScheduleCreateModal(context){
   if (prep && prep.preserved){
     modal.style.display = 'flex';
     modal.setAttribute('aria-hidden', 'false');
+    if (typeof scheduleDrawerLockPage === 'function') scheduleDrawerLockPage();
+    if (typeof scheduleDrawerWireDismiss === 'function') scheduleDrawerWireDismiss();
     if (typeof scheduleSyncCreateDateRangeUi === 'function') scheduleSyncCreateDateRangeUi();
     if (typeof scheduleSyncCreateMainActivityButtons === 'function') scheduleSyncCreateMainActivityButtons();
     return;
@@ -29208,6 +29214,8 @@ function openScheduleCreateModal(context){
   renderScheduleCreateSchoolContext();
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
+  if (typeof scheduleDrawerLockPage === 'function') scheduleDrawerLockPage();
+  if (typeof scheduleDrawerWireDismiss === 'function') scheduleDrawerWireDismiss();
   scheduleApplyCreatePrefill();
   if (typeof scheduleWireCreateDateRange === 'function') scheduleWireCreateDateRange();
   if (typeof scheduleWireCreateMainActivityButtons === 'function') scheduleWireCreateMainActivityButtons();
@@ -29240,6 +29248,7 @@ function closeScheduleCreateModal(){
   if (!modal) return;
   modal.style.display = 'none';
   modal.setAttribute('aria-hidden', 'true');
+  if (typeof scheduleDrawerUnlockPage === 'function') scheduleDrawerUnlockPage();
   if (typeof scheduleCreateDateRangeClosePopover === 'function') scheduleCreateDateRangeClosePopover();
   // Drop in-flight preview work when the create drawer closes (keep submit idem key
   // only while the same form remains open for retry-after-response-loss).
