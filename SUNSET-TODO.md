@@ -53,7 +53,7 @@ _Added by Captain from Bug Finder / Chief of Staff report. Inbox re-verified 14 
 ### Horario / Reservas / Admin — 12 Aug pass, NOT re-verified 14 Aug
 **P1**
 - **[BUG] Timeline overlap** — "Curso privado" covers "Curso Mañana"; Mañana unclickable (Daily Timeline).
-- **[I18N] Raw i18n key on Reservas booking-code control:** `admin.bookings.openInSchedule: SUNSET-…` (ES+EN).
+- **[I18N] Raw i18n key on Reservas booking-code control:** `admin.bookings.openInSchedule: SUNSET-…` (ES+EN). ✅ fixed — localized `Open in Schedule` / `Abrir en Agenda` + code on aria-label/title; raw key rejected.
 - **[BUG] Booking code opens Horario on today,** not the booking's service date.
 - **[BUG] Booking detail drawer opens behind invisible backdrop;** nav blocked until Escape.
 - **[BUG] Guest chip "Pagado" while drawer shows €0 of €960 paid** (Gary / SUNSET-20260811-EA783E).
