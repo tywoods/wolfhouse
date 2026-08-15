@@ -44,6 +44,7 @@ const pairs = {
   'admin.email.disconnectButton': ['Disconnect Microsoft', 'Desconectar Microsoft'],
   'admin.email.disconnectLabel': ['Microsoft disconnect', 'Desconexión de Microsoft'],
   'admin.email.disconnectSafetyNote': ['Disconnect revokes Microsoft mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Microsoft. El procesamiento de email sigue desactivado.'],
+  'admin.email.connectButton': ['Connect Microsoft email', 'Conectar email de Microsoft'],
   'admin.email.state.disconnected': ['No email mailbox is registered.', 'No hay ningún buzón registrado.'],
   'admin.email.state.revoked': ['Authorization revoked.', 'Autorización revocada.'],
   'admin.tabs.lunaStaff': ['Luna Staff', 'Personal Luna'],

@@ -526,6 +526,12 @@ function adminEmailFormatSyncRelative(raw){
 function adminEmailMailboxConnected(key){
   return key === 'connected_health';
 }
+function adminEmailIsEmptyState(key){
+  return key === 'disconnected' || key === 'revoked';
+}
+function adminEmailConnectButtonLabel(){
+  return emailUiT('admin.email.connectButton', 'Connect Microsoft email', 'Conectar email de Microsoft');
+}
 function adminEmailLastSyncStale(raw, connected){
   if (!connected) return false;
   var age = adminEmailSyncAgeMs(raw);
@@ -580,18 +586,20 @@ function renderAdminEmailSettingsState(state, data, provider){
     : (key === 'reauth_required'
       ? emailUiT('admin.email.needsAttention', 'Needs attention', 'Necesita atención')
       : emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
-  var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '">' +
+  var empty = adminEmailIsEmptyState(key);
+  var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '"' +
+    (empty ? ' data-email-empty="1"' : '') + '>' +
     '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
     '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.microsoft_graph', 'Microsoft 365', 'Microsoft 365')) + '</h2>' +
     adminEmailStatusPill(pillKind, pillLabel) +
     '<p role="status">' + escHtml(adminEmailStateCopy(key)) + '</p>';
-  var connectedAs = adminEmailLooksLikeAddress(data && data.public_address);
+  var connected = adminEmailMailboxConnected(key);
+  var connectedAs = connected ? adminEmailLooksLikeAddress(data && data.public_address) : '';
   if (connectedAs) {
     html += '<p class="portal-admin-email-address" data-email-connected-as>' +
       '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.connectedAs', 'Connected as', 'Conectado como')) + '</span> ' +
       escHtml(connectedAs) + '</p>';
   }
-  var connected = adminEmailMailboxConnected(key);
   var syncRaw = connected ? adminEmailLastSyncRaw(data) : '';
   var syncLabel = adminEmailFormatSyncRelative(syncRaw);
   var syncStale = adminEmailLastSyncStale(syncRaw, connected);
@@ -610,17 +618,19 @@ function renderAdminEmailSettingsState(state, data, provider){
   }
   // Prepare controls grouped before capability list; deterministic selectors + a11y label.
   if (hasPrepare) {
-    html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(portalT('admin.email.mailboxLabel')) + '">' +
+    html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(emailUiT('admin.email.mailboxLabel', 'Microsoft email address', 'Dirección de correo Microsoft')) + '">' +
       '<label class="portal-admin-email-prepare">' +
-      '<span>' + escHtml(portalT('admin.email.mailboxLabel')) + '</span>' +
+      '<span>' + escHtml(emailUiT('admin.email.mailboxLabel', 'Microsoft email address', 'Dirección de correo Microsoft')) + '</span>' +
       '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" />' +
       '</label>' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="prepare" data-email-location-id="' + escHtml(data.location_id) + '">Connect ' + providerLabel + ' email</button>' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="prepare" data-i18n="admin.email.connectButton" data-email-location-id="' + escHtml(data.location_id) + '">' +
+      escHtml(adminEmailConnectButtonLabel()) + '</button>' +
       '</div>';
   } else if (hasConnect) {
     // Existing eligible unverified endpoint — Connect starts OAuth only.
-    html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(portalT('admin.email.mailboxLabel')) + '">' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="connect" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">Connect ' + providerLabel + ' email</button>' +
+    html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(emailUiT('admin.email.mailboxLabel', 'Microsoft email address', 'Dirección de correo Microsoft')) + '">' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="connect" data-i18n="admin.email.connectButton" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">' +
+      escHtml(adminEmailConnectButtonLabel()) + '</button>' +
       '</div>';
   } else if (hasReauthorize) {
     // Phase B reauthorize — explicit control only when DTO says eligible.
@@ -639,8 +649,8 @@ function renderAdminEmailSettingsState(state, data, provider){
   }
   // Safety note when prepare or connect is available (identity only; capabilities stay off).
   if (hasPrepare || hasConnect) {
-    html += '<p class="portal-admin-email-connect-safety" data-email-connect-safety role="note">' +
-      escHtml(portalT('admin.email.connectSafetyNote')) + '</p>';
+    html += '<p class="portal-admin-email-connect-safety" data-email-connect-safety data-i18n="admin.email.connectSafetyNote" role="note">' +
+      escHtml(emailUiT('admin.email.connectSafetyNote', 'Connection verifies identity only; endpoint, inbound, outbound and automation remain off.', 'La conexión solo verifica la identidad; el endpoint, la entrada, la salida y la automatización siguen desactivados.')) + '</p>';
   }
   // Reauthorize safety: permissions upgrade for staff-approved replies; auth itself sends no email.
   if (hasReauthorize) {

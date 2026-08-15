@@ -279,6 +279,7 @@ module.exports = {
   'admin.email.off': 'Desactivado',
   'admin.email.actionsUnavailable': 'Conectar y desconectar no están disponibles en esta versión.',
   'admin.email.connectSafetyNote': 'La conexión solo verifica la identidad; el endpoint, la entrada, la salida y la automatización siguen desactivados.',
+  'admin.email.connectButton': 'Conectar email de Microsoft',
   'admin.email.mailboxLabel': 'Dirección de correo Microsoft',
   'admin.email.reauthorizeButton': 'Reautorizar Microsoft',
   'admin.email.reauthorizeLabel': 'Reautorización de Microsoft',
