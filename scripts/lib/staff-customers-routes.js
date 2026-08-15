@@ -24,6 +24,7 @@ const {
   getCustomerServiceRecordsQuery,
   getCustomerHandoffsQuery,
   getCustomerMessagesQuery,
+  splitCustomerMessagesByChannel,
   loadCustomerCrmTagsMerged,
   createOrMergeManualCustomer,
   parseCustomerTagsUpdateBody,
@@ -204,8 +205,17 @@ function createCustomersRoutes(deps) {
         const bookings = (await pg.query(getCustomerBookingsQuery(), [clientSlug, phone])).rows;
         const service_records = (await pg.query(getCustomerServiceRecordsQuery(), [clientSlug, phone])).rows;
         const handoffs = (await pg.query(getCustomerHandoffsQuery(), [clientSlug, phone])).rows;
-        const messages = (await pg.query(getCustomerMessagesQuery(), [clientSlug, phone])).rows;
-        return { identity, mergedCrmTags, bookings, service_records, handoffs, messages };
+        const messageRows = (await pg.query(getCustomerMessagesQuery(), [clientSlug, phone])).rows;
+        const split = splitCustomerMessagesByChannel(messageRows);
+        return {
+          identity,
+          mergedCrmTags,
+          bookings,
+          service_records,
+          handoffs,
+          messages: split.messages,
+          email_messages: split.email_messages,
+        };
       });
 
       const lastSetup = buildLastSetupSummary(data.service_records);
@@ -276,6 +286,7 @@ function createCustomersRoutes(deps) {
         handoffs: data.handoffs || [],
         open_handoffs: openHandoffs,
         messages: data.messages || [],
+        email_messages: data.email_messages || [],
         notes: {
           human_notes: data.identity && data.identity.human_notes ? data.identity.human_notes : null,
           internal_staff_notes: data.identity && data.identity.internal_staff_notes ? data.identity.internal_staff_notes : null,

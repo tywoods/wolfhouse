@@ -147,6 +147,21 @@ ok('package.json and luna-all register this gate',
   pkg.scripts && pkg.scripts['verify:inbox-context'] === 'node scripts/verify-inbox-context.js'
   && /verify-inbox-context\.js/.test(lunaAllSrc));
 
+{
+  const i18nSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
+  const i18nEsSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-sunset.js'), 'utf8');
+  ok('EN i18n has WhatsApp + Email message section keys',
+    i18nSrc.includes("'customers.detail.messagesWhatsApp': 'Recent WhatsApp messages'")
+    && i18nSrc.includes("'customers.detail.messagesEmail': 'Recent Email'")
+    && i18nSrc.includes("'customers.detail.noWhatsAppMessages': 'No WhatsApp messages'")
+    && i18nSrc.includes("'customers.detail.noEmailMessages': 'No emails'"));
+  ok('ES i18n has WhatsApp + Email message section keys',
+    i18nEsSrc.includes("'customers.detail.messagesWhatsApp': 'Mensajes recientes de WhatsApp'")
+    && i18nEsSrc.includes("'customers.detail.messagesEmail': 'Email reciente'")
+    && i18nEsSrc.includes("'customers.detail.noWhatsAppMessages': 'Sin mensajes de WhatsApp'")
+    && i18nEsSrc.includes("'customers.detail.noEmailMessages': 'Sin emails'"));
+}
+
 console.log('\n── renderer ──');
 const fns = loadFns();
 ok('window.__inboxContext exports the renderer', !!(fns && typeof fns.guestCardHtml === 'function'));
@@ -348,6 +363,59 @@ ok('wraps wireInboxSidebarToggle rather than rewriting loadConvDetail',
     && full.includes('Previous lessons')
     && full.includes('Create booking')
     && !full.includes('id="inbox-customer-edit-profile"'));
+  ok('full Guest card splits Recent WhatsApp + Recent Email sections',
+    full.includes('Recent WhatsApp messages')
+    && full.includes('Recent Email')
+    && full.includes('No WhatsApp messages')
+    && full.includes('No emails')
+    && !full.includes('>Recent messages</'));
+}
+
+{
+  const data = {
+    success: true,
+    phone: '+34000000001',
+    identity: { display_name: 'Channel Split Guest' },
+    bookings: [],
+    service_records: [],
+    waivers: [],
+    messages: [
+      { direction: 'inbound', message_text: 'hola por whatsapp', channel: 'whatsapp', created_at: '2026-08-01T10:00:00Z' },
+      { direction: 'outbound', message_text: 'wa follow-up', channel: 'whatsapp', created_at: '2026-08-01T11:00:00Z' },
+    ],
+    email_messages: [
+      {
+        direction: 'inbound',
+        message_text: 'Subject only storage',
+        email_subject: 'Lesson question',
+        body_text: 'Can we move Friday?',
+        channel: 'email',
+        source: 'email_inbound',
+        created_at: '2026-08-02T09:00:00Z',
+      },
+    ],
+  };
+  const full = fns.customerFullHtml(data, {});
+  const waTitle = full.indexOf('Recent WhatsApp messages');
+  const emailTitle = full.indexOf('Recent Email');
+  const waBody = full.indexOf('hola por whatsapp');
+  const emailBody = full.indexOf('Can we move Friday?');
+  ok('WhatsApp rows stay in WhatsApp section; email body is honest',
+    waTitle >= 0 && emailTitle > waTitle
+    && waBody > waTitle && waBody < emailTitle
+    && emailBody > emailTitle
+    && full.includes('wa follow-up')
+    && !full.includes('Subject only storage'));
+  const emptyEmail = fns.customerFullHtml({
+    phone: '+34000000009',
+    identity: { display_name: 'Empty Email' },
+    messages: [{ direction: 'inbound', message_text: 'wa only', channel: 'whatsapp' }],
+    email_messages: [],
+  }, {});
+  ok('email section stays empty when email_messages is empty',
+    emptyEmail.includes('No emails')
+    && emptyEmail.includes('wa only')
+    && emptyEmail.indexOf('wa only') < emptyEmail.indexOf('Recent Email'));
 }
 
 {
