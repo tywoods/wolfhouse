@@ -207,6 +207,7 @@ function freezeEnv(env) {
     provider_message_id: env.provider_message_id,
     received_at: env.received_at,
     subject: env.subject,
+    body_text: env.body_text,
     sender_display_name: env.sender_display_name,
     sender_address: env.sender_address,
     is_read: env.is_read,
@@ -222,6 +223,7 @@ function makeEnvelope(id = 'msg-001') {
     provider_message_id: id,
     received_at: '2026-08-01T12:00:00.000Z',
     subject: PLANTED_SUBJECT,
+    body_text: 'Bounded canonical body.',
     sender_display_name: 'Sender',
     sender_address: PLANTED_ADDRESS,
     is_read: false,
@@ -2968,7 +2970,9 @@ async function main() {
   // ── Closed-enum internal stage diagnostics (fail-site branding) ────────
   {
     const INTERNAL = Object.freeze([
-      'authority', 'status', 'lease', 'grant', 'transport', 'seal', 'store', 'release',
+      'authority', 'status', 'lease', 'grant', 'transport', 'seal', 'store',
+      'store_page_batch_invalid', 'store_page_tombstones_invalid',
+      'store_successor_cursor_rejected', 'store_authority_not_verified', 'release',
     ]);
     const liveOpMod = require('./lib/email-authority-bound-messages-delta-page-operation');
     ok(
@@ -3233,7 +3237,7 @@ async function main() {
     }
 
     const distinct = new Set(INTERNAL);
-    ok('internal-stages-are-eight-distinct', distinct.size === 8);
+    ok('internal-stages-are-twelve-distinct', distinct.size === 12);
   }
 
   // ── Network never hit ──────────────────────────────────────────────────

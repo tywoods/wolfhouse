@@ -190,6 +190,10 @@ const AUTHORITY_BOUND_PAGE_INTERNAL_STAGES = Object.freeze([
   'transport',
   'seal',
   'store',
+  'store_page_batch_invalid',
+  'store_page_tombstones_invalid',
+  'store_successor_cursor_rejected',
+  'store_authority_not_verified',
   'release',
 ]);
 const INTERNAL_STAGE_SET = new Set(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES);
@@ -1193,7 +1197,16 @@ function createAuthorityBoundMessagesDeltaPageOperation(deps) {
     if (!commitRes || commitRes.ok !== true || !commitRes.value) {
       // Precommit / CAS / validation failure — best-effort release.
       await bestEffortRelease(ids, leaseHandle);
-      return failAt('store');
+      const diagnosticStage = commitRes && commitRes.ok === false
+        && [
+          'page_batch_invalid',
+          'page_tombstones_invalid',
+          'successor_cursor_rejected',
+          'authority_not_verified',
+        ].includes(commitRes.error)
+        ? `store_${commitRes.error}`
+        : 'store';
+      return failAt(diagnosticStage);
     }
 
     const committed = commitRes.value;
