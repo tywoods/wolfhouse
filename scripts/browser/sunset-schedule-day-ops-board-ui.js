@@ -1343,6 +1343,36 @@ function scheduleWireDayOpsBoardRows(container){
   });
 }
 
+/**
+ * At load start: never leave a stale empty-day message on screen while the next
+ * day (which may have bookings) is fetching. Blank/empty boards → loading copy.
+ * Boards that already show bookings stay put (no empty flash, no needless wipe).
+ */
+function scheduleAnnounceSchedulePageLoading() {
+  var box = null;
+  try { box = typeof el === 'function' ? el('ps-ops-board') : null; } catch (_e0) { box = null; }
+  if (box) {
+    var html = String(box.innerHTML || '');
+    var isBlank = !html.trim();
+    var isEmptyState = false;
+    try {
+      isEmptyState = !!(box.querySelector && box.querySelector('.portal-schedule-ops-empty'));
+    } catch (_e1) { isEmptyState = /portal-schedule-ops-empty/.test(html); }
+    if (isBlank || isEmptyState) {
+      var loadingText = 'Loading…';
+      try {
+        if (typeof portalT === 'function') loadingText = portalT('daySchedule.loading') || loadingText;
+      } catch (_e2) { /* keep */ }
+      box.className = 'portal-schedule-ops-board';
+      box.innerHTML = '<div class="portal-schedule-ops-empty">' +
+        (typeof escHtml === 'function' ? escHtml(loadingText) : String(loadingText)) + '</div>';
+    }
+  }
+  if (typeof schedulePaintDayCockpit === 'function') {
+    try { schedulePaintDayCockpit(); } catch (_e3) { /* non-fatal */ }
+  }
+}
+
 function renderScheduleDayOpsBoard(pack, dateIso){
   var box = el('ps-ops-board');
   if (!box) return;
