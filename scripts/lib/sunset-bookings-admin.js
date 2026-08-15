@@ -414,6 +414,8 @@ function bookingMatchesLocation(row, locationId) {
 /**
  * Apply list filters in pure space (used by tests + in-memory post-filter if needed).
  * Default excludes archived unless include_archived is true.
+ * Search (q) and date_from/date_to are always AND-ed — search never widens past the
+ * active date range (Reservas leftover: count must not rise when typing).
  */
 function filterBookingRows(rows, filters) {
   const f = filters || {};
