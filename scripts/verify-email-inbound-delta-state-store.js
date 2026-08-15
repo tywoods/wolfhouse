@@ -664,7 +664,7 @@ function createFakeDeltaHarness(options = {}) {
           const [
             clientId, locationId, endpointId,
             provider, mailbox, messageId,
-            receivedAt, subject, senderDisplay, senderAddress,
+            receivedAt, subject, bodyText, senderDisplay, senderAddress,
             isRead, conversationId, internetMessageId,
           ] = params;
           const k = eventKey(provider, mailbox, messageId);
@@ -680,6 +680,7 @@ function createFakeDeltaHarness(options = {}) {
             provider_message_id: messageId,
             received_at: receivedAt,
             subject,
+            body_text: bodyText,
             sender_display_name: senderDisplay,
             sender_address: senderAddress,
             is_read: isRead,
@@ -1156,6 +1157,10 @@ async function main() {
   assert.equal(page1.value.phase, 'initial');
   assert.equal(page1.value.envelopes_presented, 2);
   assert.equal(harness.events.size, 2);
+  assert.deepEqual(
+    [...harness.events.values()].map((row) => row.body_text),
+    ['Canonical inbound body.', 'Canonical inbound body.'],
+  );
   // Public result never surfaces operation_id / worker / journal fields.
   assert.equal('operation_id' in page1.value, false);
   assert.equal('worker_id' in page1.value, false);

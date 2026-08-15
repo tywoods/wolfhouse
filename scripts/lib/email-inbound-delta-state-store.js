@@ -1296,6 +1296,7 @@ function buildInsertParams(authority, envelope) {
     envelope.provider_message_id,
     envelope.received_at,
     envelope.subject,
+    envelope.body_text,
     envelope.sender_display_name,
     envelope.sender_address,
     envelope.is_read,
