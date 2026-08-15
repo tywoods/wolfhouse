@@ -482,6 +482,7 @@
     "verify:email-authority-bound-messages-delta-page-operation": "node scripts/verify-email-authority-bound-messages-delta-page-operation.js",
     "verify:email-delta-runtime-config": "node scripts/verify-email-delta-runtime-config.js",
     "verify:email-delta-sunset-staging-runtime-composition": "node scripts/verify-email-delta-sunset-staging-runtime-composition.js",
+    "verify:email-delta-sunset-staging-runtime-diagnostics": "node scripts/verify-email-delta-sunset-staging-runtime-diagnostics.js",
     "verify:email-delta-sunset-staging-worker": "node scripts/verify-email-delta-sunset-staging-worker.js",
     "verify:email-m1-020": "node scripts/verify-email-m1-020.js",
     "prove:email-delegated-grant-custody-pg": "node scripts/prove-email-delegated-grant-custody-pg.js",

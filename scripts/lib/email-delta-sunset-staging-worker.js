@@ -61,7 +61,7 @@ function createEmailDeltaSunsetStagingWorker(deps){
    const r=rows[0];
    const boundary=await deps.query(ACTIVATION_BOUNDARY_SQL,[r.client_id,r.endpoint_id,r.endpoint_location_id]);
    const watermark=boundary&&boundary.rows&&boundary.rows[0]&&boundary.rows[0].activation_watermark;
-   if(typeof watermark!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(watermark)) throw new Error('email_delta_activation_boundary_unavailable');
+   if(typeof watermark!=='string'||!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(watermark)){const e=new Error('email_delta_activation_boundary_unavailable');e.code='email_delta_activation_boundary_unavailable';throw e;}
    const authority=Object.freeze({clientId:r.client_id,locationId:r.location_id,endpointId:r.endpoint_id,activationWatermark:watermark});
    await deps.runPage(authority); // exactly one Graph page; durable owner holds lease/state
    const pending=await deps.query(UNPROJECTED_SQL,[r.client_id,r.location_id,r.endpoint_id]);
