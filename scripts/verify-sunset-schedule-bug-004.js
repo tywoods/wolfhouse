@@ -24,7 +24,9 @@ assert.ok(cockpitSrc.includes("scheduleCockpitT('daySchedule.loading'"));
 assert.ok(drawerCtrl.includes('scheduleGroupHasPhone(ctx)'));
 assert.ok(apiSrc.includes('group.phone || group.guest_phone || group.booking_phone'));
 assert.ok(!bookingsUi.includes("from: 'admin-bookings'"));
-assert.ok(bookingsUi.includes('adminBookingsState.expandedId = adminBookingsState.expandedId === guestId'));
+assert.ok(bookingsUi.includes('function adminBookingsOpenGuestPeek'));
+assert.ok(bookingsUi.includes('adminBookingsOpenGuestPeek(phone'));
+assert.ok(!/openCustomerCardForPhone\s*\(/.test(bookingsUi));
 assert.ok(!cockpitSrc.includes('inbox-thread'));
 assert.ok(!bookingsUi.includes('inbox-thread.js'));
 
@@ -64,4 +66,4 @@ if (typeof sandbox.scheduleBuildDayCockpitData === 'function') {
   assert.strictEqual(data.loading, true);
 }
 
-console.log('PASS BUG-004 loading flag + drawer phone + Reservas stay');
+console.log('PASS BUG-004 loading flag + drawer phone + Reservas guest peek stay');
