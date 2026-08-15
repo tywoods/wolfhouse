@@ -46,6 +46,7 @@ const BRIDGE_IMPORT_ALLOWLIST = new Set([
   'scripts/lib/email-delta-sunset-staging-runtime-composition.js',
   'scripts/verify-email-inbound-inbox-bridge.js',
   'scripts/verify-email-inbound-match-ingest.js',
+  'scripts/verify-email-draft-open-002.js',
   PROVE_REL,
 ]);
 
@@ -279,6 +280,7 @@ function createFakeBridgeHarness(options = {}) {
           ] = params;
           const k = convKey(clientId, phone);
           const existing = conversations.get(k) || stagedConv.get(k);
+          const excludedNeedsHuman = /\bneeds_human\b/.test(norm) && params[10] === true;
           if (existing) {
             const meta = typeof metadataJson === 'string' ? JSON.parse(metadataJson) : metadataJson;
             const next = {
@@ -287,6 +289,7 @@ function createFakeBridgeHarness(options = {}) {
               email: existing.email || email,
               last_message_preview: preview,
               metadata: { ...existing.metadata, ...meta },
+              needs_human: excludedNeedsHuman ? true : existing.needs_human === true,
               updated_at: 'now',
             };
             stagedConv.set(k, next);
@@ -310,6 +313,7 @@ function createFakeBridgeHarness(options = {}) {
             last_message_preview: preview,
             metadata: meta,
             session_state: session,
+            needs_human: excludedNeedsHuman,
           };
           stagedConv.set(k, row);
           return {
@@ -622,6 +626,7 @@ async function testProjectHappyPath() {
     'phone must not contain raw sender email',
   );
   assert.equal(conv.metadata.email_subject, undefined);
+  assert.equal(conv.needs_human, true);
   assert.equal(bridge.isEmailChannelPhoneNamespace(conv.phone), true);
   // Customer sync skipped for email-channel keys
   assert.equal(harness.customers.size, 0, 'email projection must not create customers');

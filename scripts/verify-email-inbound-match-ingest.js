@@ -267,6 +267,7 @@ function createMatchHarness(options = {}) {
           ] = params;
           const k = convKey(clientId, phone);
           const existing = conversations.get(k) || stagedConv.get(k);
+          const excludedNeedsHuman = /\bneeds_human\b/.test(norm) && params[10] === true;
           if (existing) {
             const meta = typeof metadataJson === 'string' ? JSON.parse(metadataJson) : metadataJson;
             const next = {
@@ -275,6 +276,7 @@ function createMatchHarness(options = {}) {
               email: existing.email || email,
               last_message_preview: preview,
               metadata: { ...existing.metadata, ...meta },
+              needs_human: excludedNeedsHuman ? true : existing.needs_human === true,
               updated_at: 'now',
             };
             stagedConv.set(k, next);
@@ -296,6 +298,7 @@ function createMatchHarness(options = {}) {
             metadata: meta,
             session_state: session,
             guest_id: null,
+            needs_human: excludedNeedsHuman,
           };
           stagedConv.set(k, row);
           return { rows: [{ conversation_id: id, created: true }], rowCount: 1 };
@@ -602,6 +605,7 @@ async function testSameSenderMailboxCoalesces() {
   assert.ok(String(conv.phone).startsWith('emailv1:'));
   assert.equal(String(conv.phone).toLowerCase().includes(FROM_A_NORM), false);
   assert.equal(conv.email, FROM_A_NORM);
+  assert.equal(conv.needs_human, true);
   assert.equal(harness.customers.size, 0);
   assert.equal(
     harness.log.some((entry) => /in_reply_to|references_message_ids/.test(entry.sql)),
