@@ -54,15 +54,32 @@ function scheduleDrawerIsRequestActive(openGen, bookingKey){
   return true;
 }
 
+/**
+ * Overlay visibility — fail closed.
+ * Create modal CSS sets display:flex by default; closed state is inline display:none
+ * + aria-hidden=true. Empty inline display must NOT count as open (that falsely blocks
+ * Escape/unlock and leaves body overflow:hidden / blank cream).
+ */
 function scheduleOverlayIsOpen(node){
   if (!node) return false;
   if (node.hidden === true) return false;
   var aria = '';
   try { aria = node.getAttribute ? String(node.getAttribute('aria-hidden') || '') : ''; } catch (_a) { aria = ''; }
   if (aria === 'true') return false;
-  var d = (node.style && node.style.display) || '';
+  var d = '';
+  try { d = (node.style && node.style.display) ? String(node.style.display) : ''; } catch (_d) { d = ''; }
   if (d === 'none') return false;
-  return true;
+  if (d === 'flex' || d === 'block' || d === 'grid') return true;
+  // No explicit open display: prefer computed style when available.
+  if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
+    try {
+      var cs = window.getComputedStyle(node);
+      if (!cs) return false;
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+      return cs.display === 'flex' || cs.display === 'block' || cs.display === 'grid';
+    } catch (_c) { return false; }
+  }
+  return false;
 }
 
 function schedulePageHasOverlay(){
@@ -70,12 +87,29 @@ function schedulePageHasOverlay(){
     || scheduleOverlayIsOpen(typeof el === 'function' ? el('ps-create-modal') : null);
 }
 
+function scheduleDrawerDetailIsOpen(){
+  if (typeof document !== 'undefined' && document.body
+    && document.body.getAttribute
+    && document.body.getAttribute('data-schedule-drawer-open') === '1') {
+    return true;
+  }
+  return scheduleOverlayIsOpen(typeof el === 'function' ? el('ps-detail-drawer') : null);
+}
+
 function scheduleDrawerEnsureDocumentLayer(){
   if (typeof document === 'undefined' || !document.body) return;
   var drawer = el('ps-detail-drawer');
   var backdrop = el('ps-drawer-backdrop');
-  if (backdrop && backdrop.parentNode !== document.body) document.body.appendChild(backdrop);
-  if (drawer && drawer.parentNode !== document.body) document.body.appendChild(drawer);
+  // Body is a column flex container; fixed overlays must not participate as flex items
+  // or the active tab can collapse to blank cream until reload.
+  if (backdrop) {
+    if (backdrop.parentNode !== document.body) document.body.appendChild(backdrop);
+    try { backdrop.style.flex = 'none'; } catch (_bf) { /* ignore */ }
+  }
+  if (drawer) {
+    if (drawer.parentNode !== document.body) document.body.appendChild(drawer);
+    try { drawer.style.flex = 'none'; } catch (_df) { /* ignore */ }
+  }
 }
 
 function scheduleDrawerLockPage(){
@@ -84,16 +118,41 @@ function scheduleDrawerLockPage(){
     scheduleDrawerState.prevBodyOverflow = document.body.style.overflow || '';
   }
   document.body.style.overflow = 'hidden';
-  document.body.setAttribute('data-schedule-drawer-open', '1');
+  if (document.documentElement) document.documentElement.style.overflow = 'hidden';
+}
+
+function scheduleDrawerMarkDetailOpen(open){
+  if (typeof document === 'undefined' || !document.body) return;
+  if (open) document.body.setAttribute('data-schedule-drawer-open', '1');
+  else document.body.removeAttribute('data-schedule-drawer-open');
+}
+
+function scheduleDrawerClearPageScrollLock(){
+  if (typeof document === 'undefined' || !document.body) return;
+  document.body.style.overflow = '';
+  if (document.documentElement) document.documentElement.style.overflow = '';
+  scheduleDrawerState.prevBodyOverflow = null;
+  scheduleDrawerMarkDetailOpen(false);
 }
 
 function scheduleDrawerUnlockPage(){
   if (typeof document === 'undefined' || !document.body) return;
-  if (schedulePageHasOverlay()) return;
-  document.body.style.overflow = '';
-  if (document.documentElement) document.documentElement.style.overflow = '';
-  scheduleDrawerState.prevBodyOverflow = null;
-  document.body.removeAttribute('data-schedule-drawer-open');
+  var createOpen = scheduleOverlayIsOpen(typeof el === 'function' ? el('ps-create-modal') : null);
+  var detailOpen = scheduleOverlayIsOpen(typeof el === 'function' ? el('ps-detail-drawer') : null);
+  if (detailOpen) {
+    scheduleDrawerMarkDetailOpen(true);
+    document.body.style.overflow = 'hidden';
+    if (document.documentElement) document.documentElement.style.overflow = 'hidden';
+    return;
+  }
+  scheduleDrawerMarkDetailOpen(false);
+  if (createOpen) {
+    // Create modal still owns the scroll lock; do not clear overflow.
+    document.body.style.overflow = 'hidden';
+    if (document.documentElement) document.documentElement.style.overflow = 'hidden';
+    return;
+  }
+  scheduleDrawerClearPageScrollLock();
 }
 
 function scheduleDrawerOnBackdropClick(ev){
@@ -104,14 +163,14 @@ function scheduleDrawerOnBackdropClick(ev){
 
 function scheduleDrawerOnKeydown(ev){
   if (!ev || (ev.key !== 'Escape' && ev.key !== 'Esc')) return;
+  // Nested editors/popovers own Escape first (they return early when closed).
   var create = typeof el === 'function' ? el('ps-create-modal') : null;
   if (scheduleOverlayIsOpen(create)) {
     if (ev.preventDefault) ev.preventDefault();
     if (typeof closeScheduleCreateModal === 'function') closeScheduleCreateModal();
     return;
   }
-  var drawer = el('ps-detail-drawer');
-  if (!scheduleOverlayIsOpen(drawer)) return;
+  if (!scheduleDrawerDetailIsOpen()) return;
   if (ev.preventDefault) ev.preventDefault();
   closeScheduleDetailDrawer();
 }
@@ -122,6 +181,7 @@ function scheduleDrawerWireDismiss(){
   var backdrop = el('ps-drawer-backdrop');
   if (backdrop && backdrop.addEventListener) backdrop.addEventListener('click', scheduleDrawerOnBackdropClick);
   if (typeof document !== 'undefined' && document.addEventListener) {
+    // Bubble phase: nested date-range handlers can claim Escape first when open.
     document.addEventListener('keydown', scheduleDrawerOnKeydown);
   }
 }
@@ -130,9 +190,16 @@ function scheduleDrawerShowShell(){
   scheduleDrawerEnsureDocumentLayer();
   scheduleDrawerWireDismiss();
   var leftoverCreate = el('ps-create-modal');
-  if (leftoverCreate && leftoverCreate.style && leftoverCreate.style.display && leftoverCreate.style.display !== 'none') {
-    leftoverCreate.style.display = 'none';
-    leftoverCreate.setAttribute('aria-hidden', 'true');
+  if (leftoverCreate) {
+    var createOpen = false;
+    try {
+      createOpen = !!(leftoverCreate.style && leftoverCreate.style.display
+        && leftoverCreate.style.display !== 'none');
+    } catch (_co) { createOpen = false; }
+    if (createOpen || (leftoverCreate.getAttribute && leftoverCreate.getAttribute('aria-hidden') === 'false')) {
+      leftoverCreate.style.display = 'none';
+      try { leftoverCreate.setAttribute('aria-hidden', 'true'); } catch (_ah) { /* ignore */ }
+    }
   }
   var drawer = el('ps-detail-drawer');
   var backdrop = el('ps-drawer-backdrop');
@@ -142,12 +209,18 @@ function scheduleDrawerShowShell(){
     var editing = !!(drawer.querySelector && drawer.querySelector('#ps-drawer-edit-form'));
     drawer.style.display = editing ? 'flex' : 'block';
     drawer.style.zIndex = '9800';
+    try { drawer.style.flex = 'none'; } catch (_df2) { /* ignore */ }
+    try { drawer.hidden = false; } catch (_dh) { /* ignore */ }
+    try { drawer.setAttribute('aria-hidden', 'false'); } catch (_da) { /* ignore */ }
   }
   if (backdrop) {
     backdrop.style.display = 'block';
     backdrop.style.zIndex = '9700';
+    try { backdrop.style.flex = 'none'; } catch (_bf2) { /* ignore */ }
+    try { backdrop.setAttribute('aria-hidden', 'false'); } catch (_ba) { /* ignore */ }
   }
   scheduleDrawerLockPage();
+  scheduleDrawerMarkDetailOpen(true);
 }
 
 function scheduleDrawerRenderLegacyFallback(row, group){
@@ -343,8 +416,16 @@ function closeScheduleDetailDrawer(){
   scheduleDrawerState.activeBookingKey = null;
   var drawer = el('ps-detail-drawer');
   var backdrop = el('ps-drawer-backdrop');
-  if (drawer) drawer.style.display = 'none';
-  if (backdrop) backdrop.style.display = 'none';
+  if (drawer) {
+    drawer.style.display = 'none';
+    try { drawer.hidden = true; } catch (_dh2) { /* ignore */ }
+    try { drawer.setAttribute('aria-hidden', 'true'); } catch (_da2) { /* ignore */ }
+  }
+  if (backdrop) {
+    backdrop.style.display = 'none';
+    try { backdrop.setAttribute('aria-hidden', 'true'); } catch (_ba2) { /* ignore */ }
+  }
+  scheduleDrawerMarkDetailOpen(false);
   scheduleDrawerUnlockPage();
 }
 
@@ -354,4 +435,8 @@ if (typeof window !== 'undefined') {
   window.scheduleDrawerUnlockPage = scheduleDrawerUnlockPage;
   window.scheduleDrawerWireDismiss = scheduleDrawerWireDismiss;
   window.scheduleOverlayIsOpen = scheduleOverlayIsOpen;
+  window.scheduleDrawerDetailIsOpen = scheduleDrawerDetailIsOpen;
 }
+
+// Wire Escape/backdrop as soon as the controller loads (not only after first open).
+try { scheduleDrawerWireDismiss(); } catch (_wireEarly) { /* non-DOM sandbox */ }
