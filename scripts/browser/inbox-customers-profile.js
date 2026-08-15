@@ -671,6 +671,7 @@ function wireCustomersFiltersUI() {
   if (menu && !menu.dataset.wired) {
     menu.dataset.wired = '1';
     menu.addEventListener('click', function(ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
       var statusBtn = ev.target && ev.target.closest ? ev.target.closest('[data-cust-status-filter]') : null;
       if (statusBtn) {
         setCustomersFilter(statusBtn.getAttribute('data-cust-status-filter'));
@@ -717,8 +718,15 @@ function wireCustomersFiltersUI() {
       if (!ev || (ev.key !== 'Escape' && ev.key !== 'Esc')) return;
       if (!customersFiltersMenuOpen) return;
       if (ev.preventDefault) ev.preventDefault();
+      if (ev.stopPropagation) ev.stopPropagation();
       closeCustomersFiltersMenu();
     });
+    window.addEventListener('resize', function() {
+      if (customersFiltersMenuOpen) positionCustomersFiltersMenu();
+    });
+    document.addEventListener('scroll', function() {
+      if (customersFiltersMenuOpen) positionCustomersFiltersMenu();
+    }, true);
   }
 }
 

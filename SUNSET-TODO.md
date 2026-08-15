@@ -74,7 +74,7 @@ _Added by Captain from Bug Finder / Chief of Staff report. Inbox re-verified 14 
 - **[BUG] Create booking phone accepts letters/symbols;** still submittable.
 - **[BUG] Expanded Reservas rows inject line-items into table;** raw ISO timestamps; KPI pollution.
 - **[BUG] Customer-card linked bookings show raw payment enums** vs localized table.
-- **[BUG] Clientes Filters popover overflows; Esc doesn't dismiss.** (Inbox Filters UI may have changed — re-check.)
+- ✅ **[BUG] Clientes Filters popover overflows; Esc doesn't dismiss.** Fixed: fixed-position menu + Esc/outside dismiss + ES filter labels.
 - **[BUG] Finanzas Year 2026 totals identical to August 2026** while 12-month chart shows other months.
 - **[BUG] Finanzas Custom: Prev/Next arrows dead;** raw ISO + English calendar chrome in ES.
 - **[BUG] Luna Staff: "No numbers yet"** while Guest Conversation Alerts have recipients; automations blocked.
