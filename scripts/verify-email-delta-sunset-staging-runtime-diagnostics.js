@@ -123,6 +123,8 @@ test('package script and exports are exact/frozen', () => {
     'content_type_invalid', 'stream_invalid', 'stream_aborted', 'response_too_large',
     'utf8_invalid', 'json_invalid', 'top_shape_invalid', 'row_keyset_invalid',
     'row_value_invalid',
+    'row_value_id', 'row_value_from', 'row_value_received_time', 'row_value_read_state',
+    'row_value_conversation', 'row_value_internet_message_id', 'row_value_etag',
   ]));
   assert.deepEqual(AUTHORITY_BOUND_PAGE_INTERNAL_STAGES, INTERNAL_STAGES);
   assert.deepEqual(DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES, Object.freeze([
@@ -182,44 +184,93 @@ test('known grant / 401 / cursor / query / transport / store classifications', (
   );
 });
 
-test('real Graph transport preserves its trusted closed failure stage', async () => {
-  const httpsImpl = {
-    request(_options, callback) {
-      const request = new EventEmitter();
-      request.destroy = () => {};
-      request.end = () => {
-        const response = new EventEmitter();
-        response.statusCode = 200;
-        response.headers = { 'content-type': 'application/json' };
-        response.destroy = () => {};
-        queueMicrotask(() => {
-          callback(response);
-          response.emit('data', Buffer.from('{invalid-json'));
-          response.emit('end');
-        });
-      };
-      return request;
-    },
-  };
-  const transport = createMicrosoftGraphMessagesDeltaPageTransport({
-    httpsImpl,
-    timers: { setTimeout, clearTimeout },
+test('real Graph transport exhaustively preserves only trusted closed row field classes', async () => {
+  const mailboxId = '22222222-2222-4222-8222-2222222222ab';
+  const baseRow = Object.freeze({
+    id: 'bounded-message-id',
+    subject: 'bounded subject',
+    from: { emailAddress: { address: 'bounded@example.invalid', name: 'bounded sender' } },
+    receivedDateTime: '2026-08-15T10:00:00Z',
+    isRead: false,
+    conversationId: 'bounded-conversation',
+    internetMessageId: '<bounded@example.invalid>',
   });
-  let trustedError = null;
-  try {
-    await transport.fetchInitialPage({
-      accessToken: 'atok-bounded-diagnostic-token-abcdefghijklmnopqrstuvwxyz',
-      provider_mailbox_id: '22222222-2222-4222-8222-2222222222ab',
+  const bodyFor = (rows) => JSON.stringify({
+    '@odata.context': 'https://graph.microsoft.com/v1.0/$metadata#Collection(message)',
+    value: rows,
+    '@odata.deltaLink': `https://graph.microsoft.com/v1.0/users/${mailboxId}/mailFolders('inbox')/messages/delta?$deltatoken=bounded-token`,
+  });
+  async function classifyBody(body, continuation = false) {
+    const httpsImpl = {
+      request(_options, callback) {
+        const request = new EventEmitter();
+        request.destroy = () => {};
+        request.end = () => {
+          const response = new EventEmitter();
+          response.statusCode = 200;
+          response.headers = { 'content-type': 'application/json' };
+          response.destroy = () => {};
+          queueMicrotask(() => {
+            callback(response);
+            response.emit('data', Buffer.from(body));
+            response.emit('end');
+          });
+        };
+        return request;
+      },
+    };
+    const transport = createMicrosoftGraphMessagesDeltaPageTransport({
+      httpsImpl,
+      timers: { setTimeout, clearTimeout },
     });
-  } catch (error) {
-    trustedError = error;
+    let trustedError = null;
+    try {
+      const input = {
+        accessToken: 'atok-bounded-diagnostic-token-abcdefghijklmnopqrstuvwxyz',
+        provider_mailbox_id: mailboxId,
+      };
+      if (continuation) {
+        input.cursor_kind = 'nextLink';
+        input.cursor_url = `https://graph.microsoft.com/v1.0/users/${mailboxId}/mailFolders('inbox')/messages/delta?$skiptoken=bounded-token`;
+        await transport.fetchContinuationPage(input);
+      } else {
+        await transport.fetchInitialPage(input);
+      }
+    } catch (error) {
+      trustedError = error;
+    }
+    assert.ok(trustedError);
+    const note = classifyDeltaRuntimeTransportError(trustedError);
+    assert.ok(note);
+    const event = buildDeltaRuntimeTickFailedEvent(note);
+    assert.deepEqual(Object.keys(event), EVENT_KEYS);
+    assertSafeDeltaRuntimeTickFailedEvent(event);
+    noLeak(event);
+    return event.code;
   }
-  assert.ok(trustedError);
-  assert.deepEqual(
-    classifyDeltaRuntimeTransportError(trustedError),
-    Object.freeze({ stage: 'transport', code: 'json_invalid' }),
+
+  assert.equal(await classifyBody('{invalid-json'), 'json_invalid');
+  const cases = [
+    [{ id: null }, 'row_value_id'],
+    [{ from: { emailAddress: { address: 7, name: 'bounded sender' } } }, 'row_value_from'],
+    [{ receivedDateTime: null }, 'row_value_received_time'],
+    [{ isRead: 'false' }, 'row_value_read_state'],
+    [{ conversationId: 7 }, 'row_value_conversation'],
+    [{ internetMessageId: 7 }, 'row_value_internet_message_id'],
+    [{ '@odata.etag': 7 }, 'row_value_etag'],
+  ];
+  for (const [patch, expectedCode] of cases) {
+    assert.equal(await classifyBody(bodyFor([{ ...baseRow, ...patch }])), expectedCode);
+  }
+  // Prove the same private detail survives the live continuation transport path.
+  assert.equal(
+    await classifyBody(bodyFor([{ ...baseRow, '@odata.etag': 7 }]), true),
+    'row_value_etag',
   );
-  noLeak(classifyDeltaRuntimeTransportError(trustedError));
+  // Fields outside the approved list and identity collisions must remain generic.
+  assert.equal(await classifyBody(bodyFor([{ ...baseRow, subject: 7 }])), 'row_value_invalid');
+  assert.equal(await classifyBody(bodyFor([{ ...baseRow, '@odata.type': 7 }])), 'row_value_invalid');
+  assert.equal(await classifyBody(bodyFor([{ ...baseRow }, { ...baseRow }])), 'row_value_invalid');
 });
 
 test('forged grant/http/transport values cannot classify or leak', () => {
@@ -256,6 +307,8 @@ test('forged grant/http/transport values cannot classify or leak', () => {
   forged.code = 'cursor_gone';
   forged.stage = 'transport';
   forged.graph_stage = 'http_status_not_200';
+  forged.rowValueFieldClass = 'from';
+  forged.row_value_field_class = 'from';
   forged.body = PLANTED;
   assert.equal(classifyDeltaRuntimeTransportError(forged), null);
   assert.equal(readTrustedDeltaRuntimeDiagnostic(forged), null);
