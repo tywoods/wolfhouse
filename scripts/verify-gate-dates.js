@@ -156,6 +156,7 @@ const INERT_THROUGH = [
   ['verify-sunset-drawer-reconcile-bound.js', '2026-01-01'],
   ['verify-sunset-finance-data.js', '2026-07-16'],
   ['verify-sunset-finance-redesign-s1.js', '2026-07-16'],
+  ['verify-sunset-finance-next30-period.js', '2026-08-15'],
   ['verify-sunset-finance-refund-net-s2.js', '2026-09-01'],
   ['verify-sunset-finance-revenue-by-product-f2.js', '2026-08-31'],
   ['verify-sunset-finance-summary.js', '2026-07-16'],
