@@ -1218,9 +1218,10 @@ function scheduleRenderDrawerPaymentSectionEditHtml(ctx) {
     });
     html += '</div>';
   }
-  var effPaid=(Number(pay.paid_cents||0)>0&&pay.balance_due_cents!=null&&Number(pay.balance_due_cents)<=0);
+  var effPaid=(Number(pay.paid_cents||0)>0&&(pay.balance_due_cents==null||Number(pay.balance_due_cents)<=0));
+  var effStatus=effPaid?'paid':(Number(pay.paid_cents||0)>0?pay.payment_status:'unpaid');
   function tot(id,lab,amt,cls){return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">'+escHtml(lab)+'</span><span class="ctx-inv-total-amount'+(cls?(' '+cls):'')+'" id="'+id+'">'+escHtml(scheduleDrawerEur(amt))+'</span></div>';}
-  html+='<div class="ctx-inv-group ctx-inv-totals" style="margin-top:10px">'+tot('ps-drawer-subtotal',portalT('schedule.drawer.subtotal'),pay.subtotal_cents,'')+tot('ps-drawer-paid',portalT('schedule.drawer.paid'),pay.paid_cents,'paid')+tot('ps-drawer-remaining',portalT('schedule.drawer.remaining'),pay.balance_due_cents,'owing')+'<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">'+escHtml(portalT('schedule.col.payment'))+'</span><span class="ctx-inv-total-amount'+(effPaid?' paid':'')+'" id="ps-drawer-pay-status">'+escHtml(schedulePaymentStatusLabel(effPaid?'paid':pay.payment_status,ctx&&ctx.payment_method))+'</span></div></div></div>';
+  html+='<div class="ctx-inv-group ctx-inv-totals" style="margin-top:10px">'+tot('ps-drawer-subtotal',portalT('schedule.drawer.subtotal'),pay.subtotal_cents,'')+tot('ps-drawer-paid',portalT('schedule.drawer.paid'),pay.paid_cents,'paid')+tot('ps-drawer-remaining',portalT('schedule.drawer.remaining'),pay.balance_due_cents,'owing')+'<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">'+escHtml(portalT('schedule.col.payment'))+'</span><span class="ctx-inv-total-amount'+(effPaid?' paid':'')+'" id="ps-drawer-pay-status">'+escHtml(schedulePaymentStatusLabel(effStatus,ctx&&ctx.payment_method))+'</span></div></div></div>';
   return html;
 }
 

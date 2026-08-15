@@ -14,6 +14,7 @@ function scheduleRowMeta(row) { return SunsetScheduleRuntime.rows.meta(row); }
 function scheduleRowIsPrivateLesson(row) { return SunsetScheduleRuntime.rows.isPrivateLesson(row); }
 function scheduleRowIsCourse(row) { return SunsetScheduleRuntime.rows.isCourse(row); }
 function scheduleRowEffectivePaid(r) { return SunsetScheduleRuntime.rows.effectivePaid(r); }
+function scheduleRowPaidCents(r) { return SunsetScheduleRuntime.rows.paidCents(r); }
 function scheduleDeriveStableRowId(row, meta) { return SunsetScheduleRuntime.rows.deriveStableId(row, meta); }
 function scheduleEnsureRowId(row) { return SunsetScheduleRuntime.rows.ensureId(row); }
 function scheduleRowSourceKind(row) { return SunsetScheduleRuntime.rows.sourceKind(row); }

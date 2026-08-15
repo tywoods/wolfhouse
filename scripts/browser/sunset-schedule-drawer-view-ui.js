@@ -1190,8 +1190,9 @@ function scheduleRenderDrawerPaymentSectionViewHtml(ctx){
     '</span><span class="ctx-inv-total-amount paid" id="ps-drawer-paid">' + escHtml(scheduleDrawerEur(pay.paid_cents)) + '</span></div>';
   html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(portalT('schedule.drawer.remaining')) +
     '</span><span class="ctx-inv-total-amount owing" id="ps-drawer-remaining">' + escHtml(scheduleDrawerEur(pay.balance_due_cents)) + '</span></div>';
-  var effPaid = (Number(pay.paid_cents || 0) > 0 && pay.balance_due_cents != null && Number(pay.balance_due_cents) <= 0);
-  var effStatus = effPaid ? 'paid' : pay.payment_status;
+  var effPaid = (Number(pay.paid_cents || 0) > 0 && (pay.balance_due_cents == null || Number(pay.balance_due_cents) <= 0));
+  // Never label Pagado from status enums when paid cents are €0 (chip ↔ drawer parity).
+  var effStatus = effPaid ? 'paid' : (Number(pay.paid_cents || 0) > 0 ? pay.payment_status : 'unpaid');
   html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(portalT('schedule.col.payment')) +
     '</span><span class="ctx-inv-total-amount' + (effPaid ? ' paid' : '') + '" id="ps-drawer-pay-status">' + escHtml(schedulePaymentStatusLabel(effStatus, ctx && ctx.payment_method)) + '</span></div>';
   html += '</div>';

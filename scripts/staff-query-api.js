@@ -24386,17 +24386,23 @@ function scheduleRenderStatusBadgeHtml(group, opts){
   if (isCancelled) {
     html = '<span class="portal-schedule-status is-cancelled">' + escHtml(portalT('schedule.status.cancelled')) + '</span>';
   } else {
-    var ps = String(group.payment_status || '').toLowerCase();
-    var paidRaw = group.booking_amount_paid_cents;
-    if (paidRaw == null) paidRaw = group.amount_paid_cents;
-    if (typeof scheduleRowEffectivePaid === 'function' && group) {
-      if (!scheduleRowEffectivePaid(group)) ps = 'unpaid';
-    } else if (!(Number(paidRaw) > 0)) {
-      ps = 'unpaid';
+    // Chip Pagado must match drawer paid cents — never trust status enums alone.
+    var ps = 'unpaid';
+    if (typeof scheduleRowEffectivePaid === 'function') {
+      ps = scheduleRowEffectivePaid(group) ? 'paid' : 'unpaid';
+    } else {
+      var paidRaw = group.booking_amount_paid_cents;
+      if (paidRaw == null || paidRaw === '') paidRaw = group.amount_paid_cents;
+      var paidN = Number(paidRaw);
+      var balRaw = group.booking_balance_due_cents;
+      if (balRaw == null || balRaw === '') balRaw = group.balance_due_cents;
+      if (Number.isFinite(paidN) && paidN > 0 && !(balRaw != null && balRaw !== '' && Number(balRaw) > 0)) {
+        ps = 'paid';
+      }
     }
     if (ps === 'paid'){
       html = '<span class="portal-schedule-status is-paid">' + escHtml(portalT('schedule.status.paid')) + '</span>';
-    } else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested' || ps){
+    } else {
       html = '<span class="portal-schedule-status is-unpaid">' + escHtml(portalT('schedule.status.unpaid')) + '</span>';
     }
   }
@@ -24474,7 +24480,19 @@ function scheduleBuildDisplayGroups(rows){
           if (scheduleRowEffectivePaid(r)) return 'paid';
           return 'unpaid';
         })(),
-        booking_amount_paid_cents: Number(r.booking_amount_paid_cents || 0),
+        booking_amount_paid_cents: (function(){
+          var v = r.booking_amount_paid_cents;
+          if (v == null || v === '') v = r.amount_paid_cents;
+          var n = Number(v);
+          return Number.isFinite(n) ? n : 0;
+        })(),
+        booking_balance_due_cents: (function(){
+          var v = r.booking_balance_due_cents;
+          if (v == null || v === '') v = r.balance_due_cents;
+          if (v == null || v === '') return null;
+          var n = Number(v);
+          return Number.isFinite(n) ? n : null;
+        })(),
         booking_payment_status: r.booking_payment_status || null,
         phone: r.phone || r.guest_phone || r.booking_phone || null,
         _isDemo: !!r._isDemo,
