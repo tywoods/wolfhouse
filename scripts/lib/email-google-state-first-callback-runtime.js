@@ -77,7 +77,7 @@ const NONCE = /^[A-Za-z0-9_-]{43,128}$/;
 const SECRET_BODY = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,190}$/;
 const TENANT = 'sunset';
 const LOCATION_KEY = 'sunset-somo';
-const REDIRECT = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
+const REDIRECT = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
 const FAILURE = 'GOOGLE_STATE_FIRST_CALLBACK_FAILED';
 const DISABLED = 'GOOGLE_STATE_FIRST_CALLBACK_DISABLED';
 

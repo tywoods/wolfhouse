@@ -44,7 +44,7 @@ const sandbox = { URL, Object, Reflect, console, window:{location:{assign(v){ass
 vm.runInNewContext(src, sandbox);
 function validGoogleUrl(mut) { const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   [['client_id','9876543210-web_client.v2.apps.googleusercontent.com'],['response_type','code'],
-   ['redirect_uri','https://staff-staging.lunafrontdesk.com/staff/email/google/callback'],['response_mode','query'],
+   ['redirect_uri','https://sunset-staging.lunafrontdesk.com/staff/email/google/callback'],['response_mode','query'],
    ['scope','openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose'],
    ['state','a'.repeat(43)],['nonce','b'.repeat(43)],['code_challenge','c'.repeat(43)],
    ['code_challenge_method','S256'],['prompt','consent']].forEach(([k,v])=>u.searchParams.append(k,v));

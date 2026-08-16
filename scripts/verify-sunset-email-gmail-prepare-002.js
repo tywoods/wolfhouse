@@ -42,7 +42,7 @@ function fixtureGoogleAuthorizationUrl() {
   [
     ['client_id', '9876543210-web_client.v2.apps.googleusercontent.com'],
     ['response_type', 'code'],
-    ['redirect_uri', 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback'],
+    ['redirect_uri', 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback'],
     ['response_mode', 'query'],
     ['scope', 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose'],
     ['state', 'a'.repeat(43)],
