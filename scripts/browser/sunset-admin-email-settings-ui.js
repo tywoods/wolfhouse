@@ -29,6 +29,7 @@ var REAUTH_UI_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 var REAUTH_UI_MAX_TTL_MS = 15 * 60 * 1000;
 var REAUTH_UI_PATH = '/staff/admin/email-settings/oauth/microsoft/reauthorize';
 var DISCONNECT_UI_PATH = '/staff/admin/email-settings/oauth/microsoft/disconnect';
+var GOOGLE_DISCONNECT_UI_PATH = '/staff/admin/email-settings/oauth/google/disconnect';
 var DISCONNECT_UI_SUCCESS_KEYS = ['success', 'status', 'grant_generation', 'grant_status', 'reconcile_state'];
 var SMTP_DISCONNECT_UI_PATH = '/staff/admin/email-settings/smtp/disconnect';
 var SMTP_DISCONNECT_UI_SUCCESS_KEYS = ['success', 'status', 'endpoint_id', 'provider'];
@@ -590,11 +591,13 @@ function validateDisconnectSuccessDto(dto){
 }
 
 /**
- * POST disconnect with exact ordered body { location_id, endpoint_id }.
+ * POST disconnect/remove with exact ordered body { location_id, endpoint_id }.
  * Browser supplies no mailbox/token/generation. Validates success DTO.
+ * Microsoft connected revoke + registered remove; Gmail registered remove only.
  */
-function postMicrosoftOAuthDisconnect(locationId, endpointId){
-  return fetch(DISCONNECT_UI_PATH, {
+function postMailboxOAuthDisconnect(locationId, endpointId, provider){
+  var path = provider === 'gmail_api' ? GOOGLE_DISCONNECT_UI_PATH : DISCONNECT_UI_PATH;
+  return fetch(path, {
     method: 'POST', credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ location_id: locationId, endpoint_id: endpointId })
@@ -606,6 +609,9 @@ function postMicrosoftOAuthDisconnect(locationId, endpointId){
     if (!validated) throw new Error('invalid_response');
     return validated;
   });
+}
+function postMicrosoftOAuthDisconnect(locationId, endpointId){
+  return postMailboxOAuthDisconnect(locationId, endpointId, 'microsoft_graph');
 }
 
 function validateSmtpDisconnectSuccessDto(dto){
@@ -645,6 +651,7 @@ function wireDisconnectHandlers(body){
     if (btn.disabled) return;
     var locationId = btn.getAttribute('data-email-location-id') || '';
     var endpointId = btn.getAttribute('data-email-endpoint-id') || '';
+    var provider = adminEmailNormalizedProvider(btn.getAttribute('data-email-provider') || '');
     if (!locationId || !endpointId) {
       renderAdminEmailSettingsState('error');
       return;
@@ -653,11 +660,10 @@ function wireDisconnectHandlers(body){
       renderAdminEmailSettingsState('unavailable');
       return;
     }
-    var provider = adminEmailProviderFromRoot(section);
     setConnectBusy(section, true);
     var req = provider === 'imap_smtp'
       ? postSmtpDisconnect(locationId, endpointId)
-      : postMicrosoftOAuthDisconnect(locationId, endpointId);
+      : postMailboxOAuthDisconnect(locationId, endpointId, provider);
     req
       .then(function(){
         loadAdminEmailSettings();
@@ -774,6 +780,39 @@ function adminEmailConnectButtonLabel(provider){
   }
   return emailUiT('admin.email.connectButton', 'Connect Microsoft email', 'Conectar email de Microsoft');
 }
+function adminEmailDisconnectButtonLabel(provider, stateKey){
+  if (stateKey === 'registered_not_connected') {
+    if (provider === 'gmail_api') {
+      return emailUiT('admin.email.removeGoogleButton', 'Remove Gmail', 'Quitar Gmail');
+    }
+    return emailUiT('admin.email.removeMicrosoftButton', 'Remove Microsoft mailbox', 'Quitar buzón Microsoft');
+  }
+  if (provider === 'gmail_api') {
+    return emailUiT('admin.email.disconnectGoogleButton', 'Disconnect Gmail', 'Desconectar Gmail');
+  }
+  return emailUiT('admin.email.disconnectButton', 'Disconnect Microsoft', 'Desconectar Microsoft');
+}
+function adminEmailDisconnectLabel(provider, stateKey){
+  if (stateKey === 'registered_not_connected') {
+    if (provider === 'gmail_api') {
+      return emailUiT('admin.email.removeGoogleLabel', 'Gmail remove', 'Eliminación de Gmail');
+    }
+    return emailUiT('admin.email.removeMicrosoftLabel', 'Microsoft mailbox remove', 'Eliminación del buzón Microsoft');
+  }
+  if (provider === 'gmail_api') {
+    return emailUiT('admin.email.disconnectGoogleLabel', 'Gmail disconnect', 'Desconexión de Gmail');
+  }
+  return emailUiT('admin.email.disconnectLabel', 'Microsoft disconnect', 'Desconexión de Microsoft');
+}
+function adminEmailDisconnectSafetyNote(provider, stateKey){
+  if (stateKey === 'registered_not_connected') {
+    return emailUiT('admin.email.removeSafetyNote', 'Removes this mailbox registration. Email processing stays off.', 'Elimina el registro de este buzón. El procesamiento de email sigue desactivado.');
+  }
+  if (provider === 'gmail_api') {
+    return emailUiT('admin.email.disconnectGoogleSafetyNote', 'Disconnect revokes Gmail mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Gmail. El procesamiento de email sigue desactivado.');
+  }
+  return emailUiT('admin.email.disconnectSafetyNote', 'Disconnect revokes Microsoft mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Microsoft. El procesamiento de email sigue desactivado.');
+}
 function adminEmailMailboxLabel(provider){
   if (provider === 'gmail_api') {
     return emailUiT('admin.email.gmailMailboxLabel', 'Gmail address', 'Dirección de Gmail');
@@ -822,13 +861,13 @@ function renderAdminEmailSettingsState(state, data, provider){
   var disconnectAllowed = !!(actions && actions.disconnect === true);
   var hasDisconnect = !!(
     disconnectAllowed
-    && provider === 'microsoft_graph'
     && data
     && data.location_id
     && data.endpoint_id
+    && (provider === 'microsoft_graph' || provider === 'gmail_api')
   );
   // Prefer server-authoritative per-endpoint fact; fall back to top-level action.
-  // Gmail disconnect/reauthorize remain unavailable.
+  // IMAP stays coming-soon (no disconnect).
   var hasReauthorize = !!(
     provider === 'microsoft_graph'
     && data && data.location_id && data.endpoint_id && (
@@ -929,9 +968,18 @@ function renderAdminEmailSettingsState(state, data, provider){
       '</div>';
   }
   if (hasDisconnect) {
-    html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' + escHtml(emailUiT('admin.email.disconnectLabel', 'Microsoft disconnect', 'Desconexión de Microsoft')) + '">' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-i18n="admin.email.disconnectButton" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">' +
-      escHtml(emailUiT('admin.email.disconnectButton', 'Disconnect Microsoft', 'Desconectar Microsoft')) +
+    var disconnectBtnLabel = adminEmailDisconnectButtonLabel(provider, key);
+    var disconnectGroupLabel = adminEmailDisconnectLabel(provider, key);
+    var disconnectSafety = adminEmailDisconnectSafetyNote(provider, key);
+    var disconnectI18n = key === 'registered_not_connected'
+      ? (provider === 'gmail_api' ? 'admin.email.removeGoogleButton' : 'admin.email.removeMicrosoftButton')
+      : (provider === 'gmail_api' ? 'admin.email.disconnectGoogleButton' : 'admin.email.disconnectButton');
+    var disconnectSafetyI18n = key === 'registered_not_connected'
+      ? 'admin.email.removeSafetyNote'
+      : (provider === 'gmail_api' ? 'admin.email.disconnectGoogleSafetyNote' : 'admin.email.disconnectSafetyNote');
+    html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' + escHtml(disconnectGroupLabel) + '">' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-provider="' + escHtml(provider) + '" data-i18n="' + escHtml(disconnectI18n) + '" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">' +
+      escHtml(disconnectBtnLabel) +
       '</button>' +
       '</div>';
   }
@@ -946,8 +994,8 @@ function renderAdminEmailSettingsState(state, data, provider){
       escHtml(portalT('admin.email.reauthorizeSafetyNote')) + '</p>';
   }
   if (hasDisconnect) {
-    html += '<p class="portal-admin-email-disconnect-safety" data-email-disconnect-safety data-i18n="admin.email.disconnectSafetyNote" role="note">' +
-      escHtml(emailUiT('admin.email.disconnectSafetyNote', 'Disconnect revokes Microsoft mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Microsoft. El procesamiento de email sigue desactivado.')) + '</p>';
+    html += '<p class="portal-admin-email-disconnect-safety" data-email-disconnect-safety data-i18n="' + escHtml(disconnectSafetyI18n) + '" role="note">' +
+      escHtml(disconnectSafety) + '</p>';
   }
   html += adminEmailCapabilitiesHtml(data);
   // actionsUnavailable ONLY when neither prepare nor connect nor disconnect nor reauthorize is true.

@@ -17,6 +17,7 @@ const {
   computeEmailSettingsActions,
   isEligibleUnverifiedDelegatedEndpoint,
   isEligibleDisconnectEndpoint,
+  isEligibleRegisteredEndpointRemove,
   isDisconnectSettingsActionEnabled,
   DISCONNECT_ENABLED_ENV,
   PHASE_B_REAUTH_START_ENABLED_ENV,
@@ -796,8 +797,11 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(source.includes('/staff/admin/email-settings/oauth/microsoft/endpoint'));
     assert.ok(source.includes('/staff/admin/email-settings/oauth/microsoft/reauthorize'));
     assert.ok(source.includes('/staff/admin/email-settings/oauth/microsoft/disconnect'));
+    assert.ok(source.includes('/staff/admin/email-settings/oauth/google/disconnect'));
     assert.ok(source.includes('postMicrosoftOAuthReauthorize'));
-    assert.ok(source.includes('postMicrosoftOAuthDisconnect'));
+    assert.ok(source.includes('postMicrosoftOAuthDisconnect') || source.includes('postMailboxOAuthDisconnect'));
+    assert.ok(source.includes('admin.email.removeMicrosoftButton'));
+    assert.ok(source.includes('admin.email.removeGoogleButton'));
     assert.ok(source.includes('validatePhaseBReauthorizeSuccessDto'));
     assert.ok(source.includes('validateDisconnectSuccessDto'));
     assert.ok(!source.includes('/staff/admin/email-settings/oauth/microsoft/prepare'));
@@ -894,6 +898,22 @@ function futureExpires(msFromNow = 600000) {
     });
     assert.strictEqual(unverified.start_eligible, true);
     assert.strictEqual(unverified.reauthorize_eligible, false);
+    // Registered-not-connected remove is independently eligible when disconnect gate on
+    const unverifiedRemove = endpointDto(eligibleRow({ location_active: true }), { grant_present: false }, {
+      grantFact: cleanPhaseAGrantFact({ grant_present: false }),
+      reauthGateOn: true,
+      disconnectGateOn: true,
+    });
+    assert.strictEqual(unverifiedRemove.start_eligible, true);
+    assert.strictEqual(unverifiedRemove.disconnect_eligible, true);
+    assert.strictEqual(unverifiedRemove.connection_state, 'registered_not_connected');
+    assert.strictEqual(
+      isEligibleRegisteredEndpointRemove(
+        eligibleRow({ location_active: true }),
+        cleanPhaseAGrantFact({ grant_present: false }),
+      ),
+      true,
+    );
     // Top-level actions
     const locs = [{ location_id: LOCATION, active: true, display_name: 'S' }];
     assert.deepStrictEqual(

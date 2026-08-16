@@ -14,8 +14,17 @@ const objectCreate = Object.create;
 const reflectOwnKeys = Reflect.ownKeys;
 const GOOGLE_OAUTH_START_PATH='/staff/admin/email-settings/oauth/google/start';
 const GOOGLE_OAUTH_CALLBACK_PATH='/staff/email/google/callback';
+const GOOGLE_OAUTH_DISCONNECT_PATH='/staff/admin/email-settings/oauth/google/disconnect';
 const START_FLAG = 'LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED';
 const CALLBACK_FLAG = 'LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED';
+const DISCONNECT_FLAG = 'LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED';
+const DISCONNECT_ERROR = 'oauth_disconnect_unavailable';
+const DISCONNECT_SUCCESS_KEYS = Object.freeze([
+  'success', 'status', 'grant_generation', 'grant_status', 'reconcile_state',
+]);
+const {
+  tryRemoveRegisteredNotConnectedEndpoint,
+} = require('./email-registered-endpoint-remove');
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const LOCATION = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const STATE = /^[A-Za-z0-9_-]{43}$/;
@@ -39,6 +48,29 @@ function enabled(env, flag) {
 }
 function isGoogleOAuthStartEnabled(env) { return enabled(env, START_FLAG); }
 function isGoogleOAuthCallbackEnabled(env) { return enabled(env, CALLBACK_FLAG); }
+function isGoogleOAuthDisconnectEnabled(env) {
+  try {
+    return own(env, 'LUNA_DEPLOYMENT') === 'sunset-staging'
+      && own(env, 'SUNSET_EMAIL_SETTINGS_UI_ENABLED') === 'true'
+      && own(env, DISCONNECT_FLAG) === 'true';
+  } catch (_) { return false; }
+}
+function buildGoogleDisconnectSuccessJson(result) {
+  try {
+    if (!result || typeof result !== 'object') return null;
+    if (result.status !== 'disconnected') return null;
+    if (result.grant_generation != null) return null;
+    if (result.grant_status != null) return null;
+    if (result.reconcile_state != null) return null;
+    const dto = {};
+    dto.success = true;
+    dto.status = 'disconnected';
+    dto.grant_generation = null;
+    dto.grant_status = null;
+    dto.reconcile_state = null;
+    return objectFreeze(dto);
+  } catch (_) { return null; }
+}
 function isTrustedGateSnapshot(value) {
   try {
     if (!value || typeof value !== 'object' || isProxy(value) || objectGetPrototypeOf(value) !== authenticPlainObjectPrototype || !objectIsFrozen(value)) return false;
@@ -150,6 +182,65 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
       return deps.sendHTML(res, 200, '<!doctype html><title>Gmail connected</title><p>Gmail connection completed. You may close this window.</p>');
     } catch (_) { safeEmitStage(stageTelemetry, 'callback_failed'); return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>'); }
   }
-  return objectFreeze({ handleStart, handleCallback });
+  async function handleDisconnect(body, req, res, user, gateEnv = env) {
+    // Prefer caller-frozen disconnect gate snapshot when production integration
+    // supplies one; trusted Google OAuth gate does not carry the disconnect flag.
+    if (!isGoogleOAuthDisconnectEnabled(gateEnv)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!identity(user, false)) return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    if (!req || req.method !== 'POST') return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    if (!deps.assertStaffClientAccess(user, 'sunset', res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: 'sunset',
+      method: 'POST',
+      pathname: GOOGLE_OAUTH_DISCONNECT_PATH,
+      env: gateEnv,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const input = bodySnapshot(body);
+    if (!input) return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const removed = await tryRemoveRegisteredNotConnectedEndpoint(pg, objectFreeze({
+          locationId: input.location_id,
+          endpointId: input.endpoint_id,
+          provider: 'gmail_api',
+        }));
+        if (removed.kind === 'removed') {
+          const json = buildGoogleDisconnectSuccessJson(removed.result);
+          if (!json
+              || reflectOwnKeys(json).length !== DISCONNECT_SUCCESS_KEYS.length
+              || reflectOwnKeys(json)[0] !== DISCONNECT_SUCCESS_KEYS[0]) {
+            return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+          }
+          return deps.sendJSON(res, 200, json);
+        }
+        if (removed.kind === 'not_applicable') {
+          return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+        }
+        return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+      });
+    } catch (_) {
+      return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+    }
+  }
+  return objectFreeze({ handleStart, handleCallback, handleDisconnect });
 }
-module.exports = objectFreeze({createStaffEmailGoogleOAuthRoutes,GOOGLE_OAUTH_START_PATH,GOOGLE_OAUTH_CALLBACK_PATH,START_FLAG,CALLBACK_FLAG,isGoogleOAuthStartEnabled,isGoogleOAuthCallbackEnabled,SQL_RESOLVE_GOOGLE_START_BINDING});
+module.exports = objectFreeze({
+  createStaffEmailGoogleOAuthRoutes,
+  GOOGLE_OAUTH_START_PATH,
+  GOOGLE_OAUTH_CALLBACK_PATH,
+  GOOGLE_OAUTH_DISCONNECT_PATH,
+  START_FLAG,
+  CALLBACK_FLAG,
+  DISCONNECT_FLAG,
+  DISCONNECT_ERROR,
+  DISCONNECT_SUCCESS_KEYS,
+  isGoogleOAuthStartEnabled,
+  isGoogleOAuthCallbackEnabled,
+  isGoogleOAuthDisconnectEnabled,
+  SQL_RESOLVE_GOOGLE_START_BINDING,
+});

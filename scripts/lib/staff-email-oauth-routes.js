@@ -69,6 +69,9 @@ const {
   isDisconnectEnabled,
 } = require('./email-disconnect');
 const {
+  tryRemoveRegisteredNotConnectedEndpoint,
+} = require('./email-registered-endpoint-remove');
+const {
   createSunsetMicrosoftEndpointPrepare,
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
@@ -1635,8 +1638,9 @@ function createStaffEmailOAuthRoutes(deps) {
   }
 
   /**
-   * POST disconnect — lease/open/MS revoke/local grant revoke + endpoint disable.
+   * POST disconnect — connected revoke OR registered-not-connected endpoint remove.
    * Gate: LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED + sunset-staging composition.
+   * Registered leftovers (no grant) are deleted so Admin Email returns to prepare.
    */
   async function handleDisconnect(body, req, res, user) {
     if (!isDisconnectEnabled(env)) {
@@ -1663,6 +1667,25 @@ function createStaffEmailOAuthRoutes(deps) {
     }
     try {
       return await deps.withPgClient(async (pg) => {
+        // Leftover prepare / partial OAuth: delete registered-not-connected row.
+        const removed = await tryRemoveRegisteredNotConnectedEndpoint(pg, Object.freeze({
+          locationId: bodySnap.location_id,
+          endpointId: bodySnap.endpoint_id,
+          provider: 'microsoft_graph',
+        }));
+        if (removed.kind === 'removed') {
+          const removedJson = buildDisconnectSuccessJson(removed.result);
+          if (!removedJson
+              || Reflect.ownKeys(removedJson).length !== DISCONNECT_SUCCESS_KEYS.length
+              || Reflect.ownKeys(removedJson)[0] !== DISCONNECT_SUCCESS_KEYS[0]) {
+            return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+          }
+          return deps.sendJSON(res, 200, removedJson);
+        }
+        if (removed.kind === 'error') {
+          return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+        }
+        // Connected / revoked-with-grant path: existing MS revoke orchestrator.
         const found = await pg.query(SQL_RESOLVE_DISCONNECT_BINDING, [
           bodySnap.location_id,
           bodySnap.endpoint_id,
