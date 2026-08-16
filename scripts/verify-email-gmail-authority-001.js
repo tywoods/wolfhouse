@@ -15,13 +15,13 @@ const SECRET_REF = 'kv:email/google/client-a';
 const FAILURE = 'GOOGLE_CONSUMED_ENDPOINT_AUTHORITY_FAILED';
 const input = freeze({ tenantSlug: 'sunset', clientId: CLIENT, locationKey: 'sunset-somo',
   locationId: LOCATION, endpointId: ENDPOINT });
-const row = () => freeze({ id: ENDPOINT, client_id: CLIENT, location_id: LOCATION,
+const row = () => ({ id: ENDPOINT, client_id: CLIENT, location_id: LOCATION,
   channel: 'email', provider: 'gmail_api', secret_ref: SECRET_REF, active: true });
 function result(rows = [row()]) {
   const value = new Result();
   value.command = 'SELECT';
   value.rowCount = rows.length;
-  value.rows = freeze(rows);
+  value.rows = rows;
   return value;
 }
 function owner(value) {
