@@ -32,7 +32,7 @@ const verifierPromiseResolve = Promise.resolve;
 const verifierApply = Reflect.apply;
 const TENANT = 'sunset';
 const LOCATION_KEY = 'sunset-somo';
-const REDIRECT = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
+const REDIRECT = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
 // Distinct dynamic server-owned IDs — not production fixture pins.
 const CLIENT_A = 'a1111111-bbbb-4ccc-8ddd-eeeeeeeeeee1';
 const CLIENT_B = 'b2222222-bbbb-4ccc-8ddd-eeeeeeeeeee2';

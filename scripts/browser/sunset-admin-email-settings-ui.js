@@ -41,7 +41,7 @@ function isAllowedMicrosoftAuthorizationUrl(raw){
   } catch (_) { return false; }
 }
 var GOOGLE_UI_AUTHORITY = 'https://accounts.google.com/o/oauth2/v2/auth';
-var GOOGLE_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
+var GOOGLE_UI_REDIRECT_URI = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
 var GOOGLE_UI_SCOPES = 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose';
 var GOOGLE_UI_QUERY_KEYS = ['client_id','response_type','redirect_uri','response_mode','scope','state','nonce','code_challenge','code_challenge_method','prompt'];
 var GOOGLE_UI_CLIENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;

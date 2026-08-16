@@ -94,7 +94,7 @@ assert.equal(clockCalls.length, 0, 'createStart must remain side-effect free');
 const callback = composition.createCallbackRuntime(pg, '20000000-0000-4000-8000-000000000002');
 assert.equal(typeof callback.completeCallback, 'function');
 assert.equal(callback.configuration.applicationClientId, 'sunset.apps.googleusercontent.com');
-assert.equal(callback.configuration.redirectUri, 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback');
+assert.equal(callback.configuration.redirectUri, 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback');
 assert.equal(callback.configuration.callbackEnabled, true);
 assert.equal(clockCalls.length, 0);
 

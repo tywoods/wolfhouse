@@ -62,7 +62,7 @@ const CALLBACK_INPUT = ObjectFreeze([
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const APP = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;
-const REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
+const REDIRECT_URI = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
 const SECRET_REF = 'secret-ref:email/google/sunset-staging-oauth-client';
 
 const FAILURE_PROTOTYPE = ObjectCreate(Error.prototype);

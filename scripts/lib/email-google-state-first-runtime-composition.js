@@ -30,7 +30,7 @@ const METHOD_KEYS = freeze([
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const APP = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;
-const REDIRECT = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
+const REDIRECT = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
 const FAILURE = 'GOOGLE_STATE_FIRST_RUNTIME_COMPOSITION_FAILED';
 const RUNTIME_KEYS = freeze(['configuration', 'completeCallback']);
 function proxy(value) { return apply(isProxy, undefined, [value]); }
