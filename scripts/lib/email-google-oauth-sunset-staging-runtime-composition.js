@@ -1,5 +1,6 @@
 'use strict';
 const utilTypes = require('node:util').types;
+const { Client: PgClient } = require('pg');
 const { createGoogleOAuthStart } = require('./email-google-oauth-start');
 const { createGoogleOAuthTransactionRepository } = require('./email-google-oauth-transaction-repository');
 const { createGoogleStateFirstRuntimeComposition } = require('./email-google-state-first-runtime-composition');
@@ -32,6 +33,15 @@ const dateParse = Date.parse;
 const DateConstructor = Date;
 const dateToISOString = Date.prototype.toISOString;
 const numberSafe = Number.isSafeInteger;
+const pgClientPrototype = PgClient && PgClient.prototype;
+const pgQueryDescriptor = pgClientPrototype && getDescriptor(pgClientPrototype, 'query');
+const pgQuery = pgQueryDescriptor && hasOwn(pgQueryDescriptor, 'value')
+  && !pgQueryDescriptor.get && !pgQueryDescriptor.set && typeof pgQueryDescriptor.value === 'function'
+  ? pgQueryDescriptor.value : null;
+const pgConstructorDescriptor = pgClientPrototype && getDescriptor(pgClientPrototype, 'constructor');
+const pgNativePinned = typeof PgClient === 'function' && pgClientPrototype && pgQuery
+  && pgConstructorDescriptor && pgConstructorDescriptor.value === PgClient
+  && !pgConstructorDescriptor.get && !pgConstructorDescriptor.set;
 
 function fail() {
   const error = new Error('Google OAuth Sunset staging runtime composition failed.');
@@ -86,7 +96,19 @@ function pinMethods(owner, keys) {
 function pinPg(raw) {
   try {
     if (!raw || (typeof raw !== 'object' && typeof raw !== 'function') || proxy(raw) || Array.isArray(raw)) fail();
-    const query = own(raw, 'query');
+    let query;
+    if (apply(getPrototypeOf, Object, [raw]) === pgClientPrototype) {
+      if (!pgNativePinned || apply(getDescriptor, Object, [raw, 'query'])) fail();
+      const queryDescriptor = apply(getDescriptor, Object, [pgClientPrototype, 'query']);
+      const constructorDescriptor = apply(getDescriptor, Object, [pgClientPrototype, 'constructor']);
+      if (!queryDescriptor || queryDescriptor.value !== pgQuery || queryDescriptor.get || queryDescriptor.set
+          || !constructorDescriptor || constructorDescriptor.value !== PgClient
+          || constructorDescriptor.get || constructorDescriptor.set
+          || !(raw instanceof PgClient)) fail();
+      query = pgQuery;
+    } else {
+      query = own(raw, 'query');
+    }
     if (typeof query !== 'function' || proxy(query)) fail();
     if (typeof own(raw, 'connect') === 'function'
         || ['totalCount', 'idleCount', 'waitingCount'].some(key => own(raw, key) !== undefined)) fail();
