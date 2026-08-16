@@ -86,9 +86,9 @@ async function reject(output) {
     },
     get() { throw new Error('broad property access forbidden'); },
   });
-  await accept(once, 'one-read proxy');
-  assert.equal(ownKeysReads, 1);
-  assert.deepEqual([...descriptorReads], [['command', 1], ['rows', 1], ['rowCount', 1]]);
+  await reject(once);
+  assert.equal(ownKeysReads, 0);
+  assert.deepEqual([...descriptorReads], []);
 
   console.log('PASS EMAIL-GMAIL-PREPARE-005 genuine pg Result acknowledgement and hostile root metadata fail closed');
 })().catch(error => {
