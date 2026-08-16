@@ -4,6 +4,7 @@ const reflectApply = Reflect.apply;
 const reflectOwnKeys = Reflect.ownKeys;
 const objectFreeze = Object.freeze;
 const objectIsFrozen = Object.isFrozen;
+const objectIsExtensible = Object.isExtensible;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const objectHasOwn = Object.hasOwn;
@@ -93,10 +94,33 @@ function readInput(value) {
   return input;
 }
 
+function snapshotQueryResultRows(value) {
+  if (value === null || typeof value !== 'object' || arrayIsArray(value)) return null;
+  const keys = reflectOwnKeys(value);
+  let rowsDescriptor = null;
+  let frozen = true;
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    if (typeof key === 'symbol') return null;
+    const descriptor = objectGetOwnPropertyDescriptor(value, key);
+    if (!descriptor || !objectHasOwn(descriptor, 'value')
+        || objectHasOwn(descriptor, 'get') || objectHasOwn(descriptor, 'set')) return null;
+    if (descriptor.writable || descriptor.configurable) frozen = false;
+    if (key === 'rows') {
+      if (rowsDescriptor) return null;
+      rowsDescriptor = descriptor;
+    }
+  }
+  if (!rowsDescriptor || !rowsDescriptor.enumerable) return null;
+  if (objectIsExtensible(value)) frozen = false;
+  return objectFreeze({ frozen, rows: rowsDescriptor.value });
+}
+
 function acknowledgement(value, input) {
-  const frozen = objectIsFrozen(value);
-  const result = snapshot(value, ['rows'], frozen);
-  if (!result || !arrayIsArray(result.rows) || objectGetPrototypeOf(result.rows) !== arrayPrototype
+  const result = snapshotQueryResultRows(value);
+  if (!result) fail();
+  const frozen = result.frozen;
+  if (!arrayIsArray(result.rows) || objectGetPrototypeOf(result.rows) !== arrayPrototype
       || objectIsFrozen(result.rows) !== frozen || result.rows.length !== 1
       || reflectOwnKeys(result.rows).length !== 2) fail();
   const rowDescriptor = objectGetOwnPropertyDescriptor(result.rows, '0');
