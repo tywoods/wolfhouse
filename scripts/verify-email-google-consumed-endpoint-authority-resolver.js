@@ -5,7 +5,7 @@ const utilTypes = require('node:util').types;
 const O = Object;
 const R = Reflect;
 const pinned = Object.freeze({
-  freeze: O.freeze, isFrozen: O.isFrozen, getPrototypeOf: O.getPrototypeOf,
+  freeze: O.freeze, isFrozen: O.isFrozen, isExtensible: O.isExtensible, getPrototypeOf: O.getPrototypeOf,
   getOwnPropertyDescriptor: O.getOwnPropertyDescriptor, getOwnPropertyDescriptors: O.getOwnPropertyDescriptors,
   hasOwn: O.hasOwn, ownKeys: R.ownKeys, apply: R.apply, regexpTest: RegExp.prototype.test,
   isProxy: utilTypes.isProxy, isPromise: utilTypes.isPromise, then: Promise.prototype.then,
@@ -158,6 +158,7 @@ async function main() {
     freeze({ db: freeze({ query: new Proxy(() => {}, {}) }) }), freeze({ db: freeze({ query() {}, extra: true }) })])
     assert.throws(() => createGoogleConsumedEndpointAuthorityResolver(dependency), clean);
   const originals = [[O, 'freeze', pinned.freeze], [O, 'isFrozen', pinned.isFrozen],
+    [O, 'isExtensible', pinned.isExtensible],
     [O, 'getPrototypeOf', pinned.getPrototypeOf], [O, 'getOwnPropertyDescriptor', pinned.getOwnPropertyDescriptor],
     [O, 'hasOwn', pinned.hasOwn], [R, 'apply', pinned.apply], [R, 'ownKeys', pinned.ownKeys],
     [RegExp.prototype, 'test', pinned.regexpTest], [utilTypes, 'isProxy', pinned.isProxy],

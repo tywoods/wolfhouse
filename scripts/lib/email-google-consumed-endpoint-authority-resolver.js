@@ -5,6 +5,7 @@ const apply = Reflect.apply;
 const ownKeys = Reflect.ownKeys;
 const freeze = Object.freeze;
 const isFrozen = Object.isFrozen;
+const isExtensible = Object.isExtensible;
 const getPrototypeOf = Object.getPrototypeOf;
 const getDescriptor = Object.getOwnPropertyDescriptor;
 const hasOwn = Object.hasOwn;
@@ -47,10 +48,10 @@ function failure() {
   return freeze(error);
 }
 function fail() { throw failure(); }
-function snapshot(value, keys) {
+function snapshot(value, keys, frozenRequired = true) {
   if (value === null || typeof value !== 'object' || proxy(value) || arrayIsArray(value)
       || apply(getPrototypeOf, Object, [value]) !== objectPrototype
-      || !apply(isFrozen, Object, [value])) return null;
+      || apply(isFrozen, Object, [value]) !== frozenRequired) return null;
   const actual = apply(ownKeys, Reflect, [value]);
   if (actual.length !== keys.length) return null;
   const result = apply(create, Object, [null]);
@@ -59,28 +60,31 @@ function snapshot(value, keys) {
     if (actual[index] !== key) return null;
     const descriptor = apply(getDescriptor, Object, [value, key]);
     if (!descriptor || !apply(hasOwn, Object, [descriptor, 'value']) || !descriptor.enumerable
-        || descriptor.writable || descriptor.configurable) return null;
+        || descriptor.writable === frozenRequired || descriptor.configurable === frozenRequired) return null;
     result[key] = descriptor.value;
   }
   return result;
 }
 function resultEnvelopeSnapshot(value) {
-  if (value === null || typeof value !== 'object' || proxy(value)) return null;
+  if (value === null || typeof value !== 'object' || proxy(value) || arrayIsArray(value)) return null;
   const actual = apply(ownKeys, Reflect, [value]);
   let rows;
   let rowsCount = 0;
+  let frozen = true;
   for (let index = 0; index < actual.length; index += 1) {
     const key = actual[index];
     if (typeof key !== 'string') return null;
     const descriptor = apply(getDescriptor, Object, [value, key]);
     if (!descriptor || !apply(hasOwn, Object, [descriptor, 'value'])) return null;
+    if (descriptor.writable || descriptor.configurable) frozen = false;
     if (key === 'rows') {
       if (!descriptor.enumerable) return null;
       rowsCount += 1;
       rows = descriptor.value;
     }
   }
-  return rowsCount === 1 ? rows : null;
+  if (apply(isExtensible, Object, [value])) frozen = false;
+  return rowsCount === 1 ? freeze({ rows, frozen }) : null;
 }
 function nativePromise(value) {
   return value !== null && typeof value === 'object' && !proxy(value)
@@ -105,20 +109,20 @@ function validSecretRef(value) {
     && !test(/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/, body)
     && !test(/^ya29\.[A-Za-z0-9._-]+/, body);
 }
-function frozenRows(value) {
-  if (!arrayIsArray(value) || proxy(value) || !apply(isFrozen, Object, [value])
+function resultRows(value, frozenRequired) {
+  if (value === null || typeof value !== 'object' || proxy(value) || !arrayIsArray(value)
+      || apply(isFrozen, Object, [value]) !== frozenRequired
       || apply(getPrototypeOf, Object, [value]) !== Array.prototype) return null;
   const keys = apply(ownKeys, Reflect, [value]);
-  if (keys.length !== value.length + 1 || keys[keys.length - 1] !== 'length') return null;
-  const rows = [];
-  for (let index = 0; index < value.length; index += 1) {
-    if (keys[index] !== String(index)) return null;
-    const descriptor = apply(getDescriptor, Object, [value, String(index)]);
-    if (!descriptor || !apply(hasOwn, Object, [descriptor, 'value']) || descriptor.writable
-        || descriptor.configurable || !descriptor.enumerable) return null;
-    rows.push(descriptor.value);
-  }
-  return rows;
+  if (keys.length !== 2 || keys[0] !== '0' || keys[1] !== 'length') return null;
+  const rowDescriptor = apply(getDescriptor, Object, [value, '0']);
+  const lengthDescriptor = apply(getDescriptor, Object, [value, 'length']);
+  if (!rowDescriptor || !apply(hasOwn, Object, [rowDescriptor, 'value']) || !rowDescriptor.enumerable
+      || rowDescriptor.writable === frozenRequired || rowDescriptor.configurable === frozenRequired
+      || !lengthDescriptor || !apply(hasOwn, Object, [lengthDescriptor, 'value'])
+      || lengthDescriptor.value !== 1 || lengthDescriptor.enumerable || lengthDescriptor.configurable
+      || lengthDescriptor.writable === frozenRequired) return null;
+  return rowDescriptor.value;
 }
 function createGoogleConsumedEndpointAuthorityResolver(dependencies) {
   try {
@@ -136,9 +140,11 @@ function createGoogleConsumedEndpointAuthorityResolver(dependencies) {
         const pending = apply(query, receiver, [SQL, [input.endpointId, input.clientId, input.locationId]]);
         if (!nativePromise(pending)) fail();
         const wrapper = await apply(promiseThen, pending, [(result) => result]);
-        const rows = frozenRows(resultEnvelopeSnapshot(wrapper));
-        if (!rows || rows.length !== 1) fail();
-        const row = snapshot(rows[0], ROW_KEYS);
+        const result = resultEnvelopeSnapshot(wrapper);
+        if (!result) fail();
+        const selected = resultRows(result.rows, result.frozen);
+        if (!selected) fail();
+        const row = snapshot(selected, ROW_KEYS, result.frozen);
         if (!row || row.id !== input.endpointId || row.client_id !== input.clientId
             || row.location_id !== input.locationId || row.channel !== 'email'
             || row.provider !== 'gmail_api' || row.active !== true
