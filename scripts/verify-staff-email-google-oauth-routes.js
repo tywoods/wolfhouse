@@ -73,6 +73,7 @@ function parsed(query, pathname = GOOGLE_OAUTH_CALLBACK_PATH) { return new URL(`
     `state=${STATE}&code=provider-code`,
     `code=provider-code&state=${STATE}`,
     `scope=openid%20email&authuser=0&prompt=consent&code=provider-code&state=${STATE}`,
+    `state=${STATE}&iss=https%3A%2F%2Faccounts.google.com&code=provider-code&scope=openid%20email&authuser=0&prompt=consent`,
   ]) {
     const result=await callback(query);
     assert.equal(result.reply[0],200); assert.equal(result.called,1);
@@ -162,6 +163,11 @@ function parsed(query, pathname = GOOGLE_OAUTH_CALLBACK_PATH) { return new URL(`
   assert.equal(hasOwnGetterHits, 0, 'callback result validation must never read replacement Object.hasOwn');
   for (const [query,options] of [
     [`state=${STATE}&code=x&code=y`,{}], [`state=${STATE}&code=x&unknown=y`,{}],
+    [`state=${STATE}&iss=https%3A%2F%2Fevil.example&code=x`,{}],
+    [`state=${STATE}&iss=%ZZ&code=x`,{}],
+    [`state=${STATE}&iss=https%3A%2F%2Faccounts.google.com&iss=https%3A%2F%2Faccounts.google.com&code=x`,{}],
+    [`state=${STATE}&iss&code=x`,{}], [`state=${STATE}&iss=&code=x`,{}],
+    [`state=${STATE}&iss=https%3A%2F%2Faccounts.google.com&error=access_denied`,{}],
     [`state=${STATE}&error=access_denied&error_description=LEAK`,{}], [`state=${STATE}&code=x&error=access_denied`,{}],
     [`state=${STATE}&code=x&scope=%ZZ`,{}], [`state=${STATE}&code=x`,{method:'POST'}],
     [`state=${STATE}&code=x`,{pathname:'/staff/email/google/callback/'}],
