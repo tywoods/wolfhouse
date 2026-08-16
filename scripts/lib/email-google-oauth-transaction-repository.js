@@ -1,5 +1,7 @@
 'use strict';
 
+const { types: utilTypes } = require('node:util');
+
 const reflectApply = Reflect.apply;
 const reflectOwnKeys = Reflect.ownKeys;
 const objectFreeze = Object.freeze;
@@ -20,6 +22,7 @@ const dateParse = Date.parse;
 const dateToISOString = Date.prototype.toISOString;
 const numberIsFinite = Number.isFinite;
 const bufferFrom = Buffer.from;
+const utilTypesIsProxy = utilTypes.isProxy;
 
 const FAILURE = 'GOOGLE_OAUTH_TRANSACTION_REPOSITORY_FAILED';
 const CREATE_SQL = `INSERT INTO tenant_email_google_oauth_transactions (
@@ -95,7 +98,8 @@ function readInput(value) {
 }
 
 function snapshotQueryResultRows(value) {
-  if (value === null || typeof value !== 'object' || arrayIsArray(value)) return null;
+  if (value === null || typeof value !== 'object'
+      || reflectApply(utilTypesIsProxy, utilTypes, [value]) || arrayIsArray(value)) return null;
   const keys = reflectOwnKeys(value);
   let rowsDescriptor = null;
   let frozen = true;
@@ -143,9 +147,10 @@ function readConsumeInput(value) {
 }
 
 function consumeResult(value) {
-  const frozen = objectIsFrozen(value);
-  const result = snapshot(value, ['rows'], frozen);
-  if (!result || !arrayIsArray(result.rows) || objectGetPrototypeOf(result.rows) !== arrayPrototype
+  const result = snapshotQueryResultRows(value);
+  if (!result) fail();
+  const frozen = result.frozen;
+  if (!arrayIsArray(result.rows) || objectGetPrototypeOf(result.rows) !== arrayPrototype
       || objectIsFrozen(result.rows) !== frozen || result.rows.length > 1) fail();
   const keys = reflectOwnKeys(result.rows);
   const expectedKeys = result.rows.length === 0 ? ['length'] : ['0', 'length'];
