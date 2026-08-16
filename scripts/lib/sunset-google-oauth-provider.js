@@ -1,5 +1,7 @@
 'use strict';
 
+const { isProxy } = require('node:util').types;
+
 const SECRET_REF = 'secret-ref:email/google/sunset-staging-oauth-client';
 const SECRET_ENV = 'LUNA_EMAIL_GOOGLE_OAUTH_CLIENT_SECRET';
 const FAILURE = 'GOOGLE_OAUTH_CLIENT_SECRET_PROVIDER_INVALID';
@@ -29,11 +31,20 @@ function createSunsetGoogleOAuthClientSecretProvider(configuration) {
     if (!secret || !VISIBLE.test(secret)) fail();
     let used = false;
     return Object.freeze({
-      resolveClientSecret(secretRef) {
-        if (used) fail();
-        used = true;
-        if (secretRef !== SECRET_REF) fail();
-        return secret;
+      resolveClientSecret(request) {
+        try {
+          if (used) fail();
+          if (!request || typeof request !== 'object' || isProxy(request)
+              || Object.getPrototypeOf(request) !== Object.prototype
+              || !Object.isFrozen(request)
+              || Reflect.ownKeys(request).join(',') !== 'secretRef') fail();
+          const descriptor = Object.getOwnPropertyDescriptor(request, 'secretRef');
+          if (!descriptor || descriptor.value !== SECRET_REF || descriptor.writable
+              || !descriptor.enumerable || descriptor.configurable
+              || Reflect.ownKeys(descriptor).join(',') !== 'value,writable,enumerable,configurable') fail();
+          used = true;
+          return Object.freeze({ clientSecret: secret });
+        } catch (_) { fail(); }
       },
     });
   } catch (_) { fail(); }
