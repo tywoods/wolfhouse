@@ -75,7 +75,7 @@ function callbackQuery(url, req) {
     const raw = req.url.slice(GOOGLE_OAUTH_CALLBACK_PATH.length + 1);
     if (url.search !== `?${raw}`) return null;
     const parts = raw.split('&'); const values = objectCreate(null);
-    const allowed = new Set(['state', 'code', 'error', 'scope', 'authuser', 'prompt']);
+    const allowed = new Set(['state', 'iss', 'code', 'error', 'scope', 'authuser', 'prompt']);
     for (const part of parts) {
       const at = part.indexOf('=');
       if (at < 1 || at !== part.lastIndexOf('=')) return null;
@@ -87,6 +87,7 @@ function callbackQuery(url, req) {
     const success = typeof values.code === 'string' && values.error === undefined;
     const decline = values.error === 'access_denied' && values.code === undefined;
     if (!success && !decline) return null;
+    if (values.iss !== undefined && (!success || values.iss !== 'https://accounts.google.com')) return null;
     if (success && (values.code.length < 1 || values.code.length > 8192)) return null;
     if (!success && (values.scope !== undefined || values.authuser !== undefined || values.prompt !== undefined)) return null;
     if (values.scope !== undefined && !/^[A-Za-z0-9._~:/ -]{1,2048}$/.test(values.scope)) return null;
