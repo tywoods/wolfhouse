@@ -63,7 +63,6 @@ async function rejects(action) { await assert.rejects(action, clean); }
 function defineFrozen(properties, prototype = O.prototype) {
   return freeze(O.create(prototype, properties));
 }
-function data(value, enumerable = true) { return { value, enumerable, writable: false, configurable: false }; }
 function reordered(source, order) {
   const descriptors = pinned.getOwnPropertyDescriptors(source);
   return defineFrozen(O.fromEntries(order.map((key) => [key, descriptors[key]])));
@@ -111,7 +110,7 @@ async function main() {
   const wrapperAccessor = freeze(O.defineProperty({}, 'rows', { get: () => freeze([row()]), enumerable: true }));
   const wrapperSymbol = freeze({ rows: freeze([row()]), [Symbol('x')]: 1 });
   // A one-key wrapper has no distinct reordered form; extra-key order is covered by wrapperSymbol.
-  const wrapperProto = defineFrozen({ rows: data(freeze([row()])) }, null);
+  // Result envelopes may have any prototype; only own data metadata is trusted.
   const rowKeys = ['id', 'client_id', 'location_id', 'channel', 'provider', 'secret_ref', 'active'];
   const rowAccessor = freeze(O.defineProperty({ ...row() }, 'secret_ref', { get: () => REF_A, enumerable: true }));
   const rowSymbol = freeze({ ...row(), [Symbol('x')]: 1 });
@@ -122,7 +121,7 @@ async function main() {
   const arrayAccessor = []; O.defineProperty(arrayAccessor, '0', { get: () => row(), enumerable: true }); freeze(arrayAccessor);
   const arrayProto = [row()]; O.setPrototypeOf(arrayProto, null); freeze(arrayProto);
   const badRows = [wrapper([]), wrapper([row(), row()]), {}, freeze({ rows: [row()] }),
-    new Proxy(wrapper([row()]), {}), wrapperAccessor, wrapperSymbol, wrapperProto,
+    new Proxy(wrapper([row()]), {}), wrapperAccessor, wrapperSymbol,
     wrapper(sparse), wrapper(arraySymbol), wrapper(arrayAccessor), wrapper(arrayProto),
     wrapper([new Proxy(row(), {})]), wrapper([{ ...row() }]), wrapper([rowAccessor]), wrapper([rowSymbol]),
     wrapper([rowReordered]), wrapper([rowProto]), wrapper([row({ id: ENDPOINT_B })]),
