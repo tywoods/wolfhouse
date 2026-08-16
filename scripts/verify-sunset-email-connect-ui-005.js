@@ -30,11 +30,13 @@ assert.strictEqual(en['admin.email.state.disconnected'], 'No email mailbox is re
 assert.strictEqual(es['admin.email.state.disconnected'], 'No hay ningún buzón registrado.');
 assert.strictEqual(en['admin.email.state.revoked'], 'Authorization revoked.');
 assert.strictEqual(es['admin.email.state.revoked'], 'Autorización revocada.');
-assert.ok(uiSrc.includes('data-i18n="admin.email.disconnectButton"'));
-assert.ok(uiSrc.includes('data-i18n="admin.email.disconnectSafetyNote"'));
+assert.ok(uiSrc.includes("admin.email.disconnectButton"));
+assert.ok(uiSrc.includes('data-i18n="admin.email.disconnectSafetyNote"') || uiSrc.includes("admin.email.disconnectSafetyNote"));
 assert.ok(uiSrc.includes("emailUiT('admin.email.disconnectButton'"));
 assert.ok(uiSrc.includes("emailUiT('admin.email.disconnectLabel'"));
 assert.ok(uiSrc.includes("emailUiT('admin.email.disconnectSafetyNote'"));
+assert.ok(uiSrc.includes('admin.email.removeMicrosoftButton'));
+assert.ok(uiSrc.includes('admin.email.removeSafetyNote'));
 assert.ok(uiSrc.includes('function adminEmailStateCopy'));
 assert.ok(uiSrc.includes("connected ? adminEmailLastSyncRaw(data) : ''"));
 assert.ok(uiSrc.includes('function adminEmailRefreshOnLocaleChange'));

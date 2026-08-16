@@ -201,6 +201,31 @@ function isEligibleDisconnectEndpoint(row, grantFact) {
 }
 
 /**
+ * Registered-but-not-connected remove eligibility (leftover prepare / partial OAuth).
+ * Microsoft + Gmail delegated endpoints with no grant. Same Disconnect chrome family.
+ */
+function isEligibleRegisteredEndpointRemove(row, grantFact) {
+  try {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) return false;
+    if (!grantFact || typeof grantFact !== 'object' || Array.isArray(grantFact)) return false;
+    if (row.location_active !== true) return false;
+    if (row.provider !== 'microsoft_graph' && row.provider !== 'gmail_api') return false;
+    if (row.auth_mode !== 'delegated_authorization_code') return false;
+    if (row.provider === 'microsoft_graph'
+        && row.connector_mode !== 'microsoft_delegated_oauth') return false;
+    if (row.provider === 'gmail_api'
+        && row.connector_mode !== 'google_delegated_oauth') return false;
+    if (row.binding_status !== 'unverified_offline'
+        && row.binding_status !== 'pending_manual_validation') return false;
+    if (typeof row.public_address !== 'string' || row.public_address.trim() === '') return false;
+    if (grantFact.grant_present === true) return false;
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
  * Phase B reauthorize eligibility — retired (single-consent connect).
  * Kept for call-site stability; always false on live path.
  */
@@ -590,8 +615,10 @@ function endpointDto(row, grant, options) {
     if (reauthGateOn && startEligible !== true && atomicEndpoint) {
       reauthorizeEligible = isEligiblePhaseBReauthorizeEndpoint(atomicEndpoint, grantFact) === true;
     }
-    if (disconnectGateOn && startEligible !== true && atomicEndpoint) {
-      disconnectEligible = isEligibleDisconnectEndpoint(atomicEndpoint, grantFact) === true;
+    if (disconnectGateOn && atomicEndpoint) {
+      // Connected revoke OR registered-not-connected remove (Connect + Remove may both show).
+      disconnectEligible = isEligibleDisconnectEndpoint(atomicEndpoint, grantFact) === true
+        || isEligibleRegisteredEndpointRemove(atomicEndpoint, grantFact) === true;
     }
   } else {
     // Pure/unit path without atomic SQL (tests of DTO projection only).
@@ -601,8 +628,9 @@ function endpointDto(row, grant, options) {
     if (reauthGateOn && startEligible !== true) {
       reauthorizeEligible = isEligiblePhaseBReauthorizeEndpoint(row, grantFact) === true;
     }
-    if (disconnectGateOn && startEligible !== true) {
-      disconnectEligible = isEligibleDisconnectEndpoint(row, grantFact) === true;
+    if (disconnectGateOn) {
+      disconnectEligible = isEligibleDisconnectEndpoint(row, grantFact) === true
+        || isEligibleRegisteredEndpointRemove(row, grantFact) === true;
     }
   }
   const dto = {
@@ -644,7 +672,7 @@ function providerActions(startOn, reauthOn, disconnectOn, provider, locations, e
     && !providerEndpoints.some((endpoint) => endpoint.location_id === location.location_id));
   const hasReauth = provider === 'microsoft_graph' && reauthOn
     && providerEndpoints.some((endpoint) => endpoint.reauthorize_eligible === true);
-  const hasDisconnect = provider === 'microsoft_graph' && disconnectOn
+  const hasDisconnect = disconnectOn
     && providerEndpoints.some((endpoint) => endpoint.disconnect_eligible === true);
   return Object.freeze({ prepare: startOn && hasActiveLocationWithoutEndpoint && !hasEligible,
     connect: hasEligible, disconnect: hasDisconnect, reauthorize: hasReauth });
@@ -653,11 +681,13 @@ function providerActions(startOn, reauthOn, disconnectOn, provider, locations, e
 function computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
   const eps = Array.isArray(endpoints) ? endpoints : [];
   const locs = Array.isArray(locations) ? locations : [];
+  const disconnectOn = isDisconnectSettingsActionEnabled(runtimeEnv);
   return Object.freeze({
     microsoft_graph: providerActions(isSunsetEmailOAuthStartEnabled(runtimeEnv),
       isPhaseBReauthSettingsActionEnabled(runtimeEnv),
-      isDisconnectSettingsActionEnabled(runtimeEnv), 'microsoft_graph', locs, eps),
-    gmail_api: providerActions(isSunsetEmailGoogleOAuthStartEnabled(runtimeEnv), false, false,
+      disconnectOn, 'microsoft_graph', locs, eps),
+    // Gmail: prepare/connect from Google start gate; Remove uses shared disconnect gate.
+    gmail_api: providerActions(isSunsetEmailGoogleOAuthStartEnabled(runtimeEnv), false, disconnectOn,
       'gmail_api', locs, eps),
   });
 }
@@ -777,6 +807,7 @@ module.exports = {
   isPhaseBReauthSettingsActionEnabled,
   isDisconnectSettingsActionEnabled,
   isEligibleDisconnectEndpoint,
+  isEligibleRegisteredEndpointRemove,
   isEligibleUnverifiedDelegatedEndpoint,
   isEligibleMicrosoftEndpoint,
   isEligibleGmailEndpoint,

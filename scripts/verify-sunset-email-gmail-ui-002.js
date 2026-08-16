@@ -7,7 +7,7 @@
  * honest inline hint with no provider POST. Failed Google prepare/start is
  * Gmail-specific. Successful prepare starts OAuth immediately (no second-click
  * Connect). Failure/busy state is per provider/attempt. IMAP stays coming soon.
- * Gmail disconnect/reauth remain off. No secrets / Inbox / poller.
+ * Gmail disconnect/reauth remain off when the disconnect gate is off. No secrets / Inbox / poller.
  */
 
 const assert = require('node:assert/strict');

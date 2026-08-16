@@ -44,6 +44,9 @@ const pairs = {
   'admin.email.disconnectButton': ['Disconnect Microsoft', 'Desconectar Microsoft'],
   'admin.email.disconnectLabel': ['Microsoft disconnect', 'Desconexión de Microsoft'],
   'admin.email.disconnectSafetyNote': ['Disconnect revokes Microsoft mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Microsoft. El procesamiento de email sigue desactivado.'],
+  'admin.email.removeMicrosoftButton': ['Remove Microsoft mailbox', 'Quitar buzón Microsoft'],
+  'admin.email.removeGoogleButton': ['Remove Gmail', 'Quitar Gmail'],
+  'admin.email.removeSafetyNote': ['Removes this mailbox registration. Email processing stays off.', 'Elimina el registro de este buzón. El procesamiento de email sigue desactivado.'],
   'admin.email.connectButton': ['Connect Microsoft email', 'Conectar email de Microsoft'],
   'admin.email.connectInProgress': ['Connecting Microsoft…', 'Conectando Microsoft…'],
   'admin.email.connectFailed': ['Couldn’t connect Microsoft. Nothing was changed. Try again.', 'No se pudo conectar Microsoft. No se ha cambiado nada. Inténtalo de nuevo.'],
@@ -71,11 +74,19 @@ assert.ok(emailUi.includes("portalT('admin.email.endpointActive')"), 'email chro
 assert.ok(!emailUi.includes('inbox-thread'), 'email UI does not touch thread');
 
 const { execSync } = require('child_process');
-const threadDiff = execSync('git diff --name-only github/master -- scripts/browser/inbox-thread.js', {
+const baseRef = (() => {
+  try {
+    execSync('git rev-parse --verify github/master', { cwd: ROOT, stdio: 'ignore' });
+    return 'github/master';
+  } catch (_) {
+    return 'origin/master';
+  }
+})();
+const threadDiff = execSync(`git diff --name-only ${baseRef} -- scripts/browser/inbox-thread.js`, {
   cwd: ROOT,
   encoding: 'utf8',
 });
-assert.strictEqual(threadDiff.trim(), '', 'inbox-thread.js untouched vs github/master');
+assert.strictEqual(threadDiff.trim(), '', 'inbox-thread.js untouched vs ' + baseRef);
 
 const { renderFinanceRedesignHtml } = require('./browser/sunset-admin-finance-redesign-ui.js');
 function fakeSummary() {
