@@ -24,7 +24,6 @@ const ErrorConstructor = Error;
 const INPUT_KEYS = freeze(['tenantSlug', 'clientId', 'locationKey', 'locationId', 'endpointId']);
 const DEPENDENCY_KEYS = freeze(['db']);
 const DB_KEYS = freeze(['query']);
-const WRAPPER_KEYS = freeze(['rows']);
 const ROW_KEYS = freeze(['id', 'client_id', 'location_id', 'channel', 'provider', 'secret_ref', 'active']);
 const OWNER_KEYS = freeze(['resolveConsumedEndpointAuthority']);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -64,6 +63,24 @@ function snapshot(value, keys) {
     result[key] = descriptor.value;
   }
   return result;
+}
+function resultEnvelopeSnapshot(value) {
+  if (value === null || typeof value !== 'object' || proxy(value)) return null;
+  const actual = apply(ownKeys, Reflect, [value]);
+  let rows;
+  let rowsCount = 0;
+  for (let index = 0; index < actual.length; index += 1) {
+    const key = actual[index];
+    if (typeof key !== 'string') return null;
+    const descriptor = apply(getDescriptor, Object, [value, key]);
+    if (!descriptor || !apply(hasOwn, Object, [descriptor, 'value'])) return null;
+    if (key === 'rows') {
+      if (!descriptor.enumerable) return null;
+      rowsCount += 1;
+      rows = descriptor.value;
+    }
+  }
+  return rowsCount === 1 ? rows : null;
 }
 function nativePromise(value) {
   return value !== null && typeof value === 'object' && !proxy(value)
@@ -119,8 +136,7 @@ function createGoogleConsumedEndpointAuthorityResolver(dependencies) {
         const pending = apply(query, receiver, [SQL, [input.endpointId, input.clientId, input.locationId]]);
         if (!nativePromise(pending)) fail();
         const wrapper = await apply(promiseThen, pending, [(result) => result]);
-        const wrapped = snapshot(wrapper, WRAPPER_KEYS);
-        const rows = wrapped && frozenRows(wrapped.rows);
+        const rows = frozenRows(resultEnvelopeSnapshot(wrapper));
         if (!rows || rows.length !== 1) fail();
         const row = snapshot(rows[0], ROW_KEYS);
         if (!row || row.id !== input.endpointId || row.client_id !== input.clientId
