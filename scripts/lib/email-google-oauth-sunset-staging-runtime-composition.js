@@ -35,10 +35,19 @@ const dateToISOString = Date.prototype.toISOString;
 const numberSafe = Number.isSafeInteger;
 const pgClientPrototype = PgClient && PgClient.prototype;
 const pgQueryDescriptor = pgClientPrototype && getDescriptor(pgClientPrototype, 'query');
+const pgConstructorDescriptor = pgClientPrototype && getDescriptor(pgClientPrototype, 'constructor');
+function sameDataDescriptor(actual, pinned) {
+  return !!actual && !!pinned
+    && hasOwn(actual, 'value') && hasOwn(pinned, 'value')
+    && actual.value === pinned.value
+    && actual.writable === pinned.writable
+    && actual.enumerable === pinned.enumerable
+    && actual.configurable === pinned.configurable
+    && !actual.get && !actual.set && !pinned.get && !pinned.set;
+}
 const pgQuery = pgQueryDescriptor && hasOwn(pgQueryDescriptor, 'value')
   && !pgQueryDescriptor.get && !pgQueryDescriptor.set && typeof pgQueryDescriptor.value === 'function'
   ? pgQueryDescriptor.value : null;
-const pgConstructorDescriptor = pgClientPrototype && getDescriptor(pgClientPrototype, 'constructor');
 const pgNativePinned = typeof PgClient === 'function' && pgClientPrototype && pgQuery
   && pgConstructorDescriptor && pgConstructorDescriptor.value === PgClient
   && !pgConstructorDescriptor.get && !pgConstructorDescriptor.set;
@@ -101,12 +110,12 @@ function pinPg(raw) {
       if (!pgNativePinned || apply(getDescriptor, Object, [raw, 'query'])) fail();
       const queryDescriptor = apply(getDescriptor, Object, [pgClientPrototype, 'query']);
       const constructorDescriptor = apply(getDescriptor, Object, [pgClientPrototype, 'constructor']);
-      if (!queryDescriptor || queryDescriptor.value !== pgQuery || queryDescriptor.get || queryDescriptor.set
-          || !constructorDescriptor || constructorDescriptor.value !== PgClient
-          || constructorDescriptor.get || constructorDescriptor.set
+      if (!sameDataDescriptor(queryDescriptor, pgQueryDescriptor)
+          || !sameDataDescriptor(constructorDescriptor, pgConstructorDescriptor)
           || !(raw instanceof PgClient)) fail();
       query = pgQuery;
     } else {
+      if (!exactFrozen(raw, ['query'])) fail();
       query = own(raw, 'query');
     }
     if (typeof query !== 'function' || proxy(query)) fail();
