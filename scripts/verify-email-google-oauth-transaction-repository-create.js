@@ -34,7 +34,8 @@ const SQL = `INSERT INTO tenant_email_google_oauth_transactions (
   $6::uuid, $7::bytea, $8::text, $9::text, 'initial_connect',
   'phase_a_v2', $10::timestamptz, $11::timestamptz
 )
-RETURNING operation_id, expires_at`;
+RETURNING operation_id::text AS operation_id,
+  to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expires_at`;
 
 function input(patch = {}) {
   return freeze({ clientId: CLIENT, locationId: LOCATION, endpointId: ENDPOINT,
@@ -90,7 +91,8 @@ test('SQL is insert-only, Google-specific, and delegates endpoint eligibility to
   assert.equal(/\bSELECT\b/i.test(text), false); assert.equal(/microsoft/i.test(text), false);
   assert.equal(/authorization_code|client_secret|token/i.test(text), false);
   assert.match(text, /'initial_connect'/); assert.match(text, /'phase_a_v2'/);
-  assert.match(text, /RETURNING operation_id, expires_at$/);
+  assert.match(text, /RETURNING operation_id::text AS operation_id,/);
+  assert.match(text, /to_char\(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS\.MS"Z"'\) AS expires_at$/);
 });
 
 test('accepts direct or genuine same-realm native Promise query results', async () => {

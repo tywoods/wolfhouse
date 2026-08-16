@@ -30,7 +30,8 @@ const CREATE_SQL = `INSERT INTO tenant_email_google_oauth_transactions (
   $6::uuid, $7::bytea, $8::text, $9::text, 'initial_connect',
   'phase_a_v2', $10::timestamptz, $11::timestamptz
 )
-RETURNING operation_id, expires_at`;
+RETURNING operation_id::text AS operation_id,
+  to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS expires_at`;
 const CONSUME_SQL = "UPDATE tenant_email_google_oauth_transactions t SET consumed_at=$2::timestamptz FROM clients c WHERE t.state_hash=$1::bytea AND t.client_id=c.id AND c.slug='sunset' AND t.consumed_at IS NULL AND t.expires_at>$2::timestamptz AND t.authorization_intent='initial_connect' AND t.scope_version='phase_a_v2' RETURNING t.client_id, t.auth_session_id, t.operation_id, t.location_id, t.endpoint_id, t.staff_user_id, t.code_verifier, t.nonce";
 const INPUT_KEYS = objectFreeze([
   'clientId', 'locationId', 'endpointId', 'staffUserId', 'authSessionId',
