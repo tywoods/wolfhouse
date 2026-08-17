@@ -223,7 +223,7 @@ test('rejects concurrent and reentrant calls while invoking provider and operati
 test('structurally imports only the canonical mailbox secret-ref validator and no ambient capability', async () => {
   const source = fs.readFileSync(require.resolve('./lib/email-google-client-secret-handoff'), 'utf8');
   const imports = [...source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(match => match[1]);
-  assert.deepEqual(imports, ['./email-mailbox-adapter-contract']);
+  assert.deepEqual(imports, ['./email-mailbox-adapter-contract', './email-microsoft-oauth-stage-telemetry']);
   assert.match(source, /validateEmailMailboxSecretRef/);
   for (const forbidden of [/email-secret-provider-contract/, /sunset-microsoft-oauth-provider/, /process\.env/,
     /node:https|googleapis|@googleapis\//, /\b(?:database|postgres|sql|router|route|express|deploy|credential)\b/i,

@@ -4,6 +4,7 @@ const utilTypes = require('node:util').types;
 const { createGoogleStateFirstCallbackRuntime } = require('./email-google-state-first-callback-runtime');
 const { createGoogleConsumedEndpointAuthorityResolver } = require('./email-google-consumed-endpoint-authority-resolver');
 const { createGoogleTransactionCompletionFactory } = require('./email-google-transaction-completion-factory');
+const { resolveOptionalStageTelemetry } = require('./email-microsoft-oauth-stage-telemetry');
 const apply = Reflect.apply;
 const ownKeys = Reflect.ownKeys;
 const freeze = Object.freeze;
@@ -80,8 +81,10 @@ function adapter(receiver, record, keys) {
 function createGoogleStateFirstRuntimeComposition(configuration, dependencies) {
   try {
     const config = snapshot(configuration, CONFIG_KEYS);
-    const dependency = snapshot(dependencies, DEPENDENCY_KEYS);
-    if (!config || !dependency || config.tenantSlug !== 'sunset'
+    const telemetryResolution = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+    const dependency = snapshot(dependencies, freeze([...DEPENDENCY_KEYS, 'stageTelemetry']))
+      || snapshot(dependencies, DEPENDENCY_KEYS);
+    if (!config || !dependency || !telemetryResolution.ok || config.tenantSlug !== 'sunset'
         || config.locationKey !== 'sunset-somo'
         || typeof config.applicationClientId !== 'string' || !test(APP, config.applicationClientId)
         || config.redirectUri !== REDIRECT || typeof config.callbackEnabled !== 'boolean') fail();
@@ -97,11 +100,12 @@ function createGoogleStateFirstRuntimeComposition(configuration, dependencies) {
     const factory = createGoogleTransactionCompletionFactory(freeze({
       https: narrow[4], crypto: narrow[5], timers: narrow[6], envelopeProvider: narrow[7],
       clock: freeze({ nowEpochSeconds: narrow[2].nowEpochSeconds }), installer: narrow[8],
+      stageTelemetry: telemetryResolution.stageTelemetry,
     }));
     const runtime = createGoogleStateFirstCallbackRuntime(configuration, freeze({
       cryptography: narrow[1], clock: freeze({ now: narrow[2].now }), repository: narrow[3],
       endpointAuthorityResolver: resolver, transactionCompletionFactory: factory,
-      secretProvider: narrow[9],
+      secretProvider: narrow[9], stageTelemetry: telemetryResolution.stageTelemetry,
     }));
     const surface = snapshot(runtime, RUNTIME_KEYS);
     const publicConfig = surface && snapshot(surface.configuration, CONFIG_KEYS);

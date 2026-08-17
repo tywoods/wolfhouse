@@ -178,12 +178,12 @@ test('source imports only the native proxy detector and exactly the two real own
   const sourcePath = path.join(__dirname, 'lib/email-google-transaction-completion-factory.js');
   const source = fs.readFileSync(sourcePath, 'utf8');
   const imports = [...source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map(match => match[1]);
-  assert.deepEqual(imports, ['node:util', './email-google-authorization-code-operation', './email-google-client-secret-handoff']);
+  assert.deepEqual(imports, ['node:util', './email-google-authorization-code-operation', './email-google-client-secret-handoff', './email-microsoft-oauth-stage-telemetry']);
   assert.equal(source.split('createGoogleAuthorizationCodeOperation(').length - 1, 1);
   assert.equal(source.split('createGoogleClientSecretHandoff(').length - 1, 1);
   assert.ok(source.indexOf('createGoogleAuthorizationCodeOperation(') < source.indexOf('createGoogleClientSecretHandoff('));
   for (const forbidden of [/process\s*\./, /console\s*\./, /node:https/, /\bfetch\s*\(/, /express|router|callback|middleware/i,
-    /\b(?:database|postgres|sql|deploy|telemetry)\b/i, /googleapis|@googleapis\//, /setTimeout\s*\(/, /resolveClientSecret\s*\(/])
+    /\b(?:database|postgres|sql|deploy)\b/i, /googleapis|@googleapis\//, /setTimeout\s*\(/, /resolveClientSecret\s*\(/])
     assert.equal(forbidden.test(source), false, `${forbidden}`);
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   assert.equal(pkg.scripts['verify:email-google-transaction-completion-factory'], 'node scripts/verify-email-google-transaction-completion-factory.js');

@@ -379,6 +379,7 @@
     "verify:email-google-oauth-callback-consume": "node scripts/verify-email-google-oauth-callback-consume.js",
     "verify:email-google-oauth-callback-completion": "node scripts/verify-email-google-oauth-callback-completion.js",
     "verify:email-google-state-first-callback-runtime": "node scripts/verify-email-google-state-first-callback-runtime.js",
+    "verify:email-google-stage-telemetry": "node scripts/verify-email-google-stage-telemetry.js",
     "verify:email-google-state-first-runtime-composition": "node scripts/verify-email-google-state-first-runtime-composition.js",
     "verify:email-google-oauth-sunset-staging-runtime-composition": "node scripts/verify-email-google-oauth-sunset-staging-runtime-composition.js",
     "verify:email-google-consumed-endpoint-authority-resolver": "node scripts/verify-email-google-consumed-endpoint-authority-resolver.js",
