@@ -3,6 +3,7 @@
 const {
   validateEmailMailboxSecretRef,
 } = require('./email-mailbox-adapter-contract');
+const { resolveOptionalStageTelemetry, safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
 
 const apply = Reflect.apply;
 const ownKeys = Reflect.ownKeys;
@@ -81,8 +82,11 @@ function createGoogleClientSecretHandoff(configuration, dependencies) {
     const checked = validateEmailMailboxSecretRef(config.secretRef);
     if (!validationValue(checked, config.secretRef)) throw FAILURE;
 
-    const dependency = snapshot(dependencies, ['secretProvider', 'operation']);
-    if (!dependency) throw FAILURE;
+    const telemetryResolution = resolveOptionalStageTelemetry(dependencies, ['secretProvider', 'operation']);
+    const dependency = snapshot(dependencies, ['secretProvider', 'operation', 'stageTelemetry'])
+      || snapshot(dependencies, ['secretProvider', 'operation']);
+    if (!dependency || !telemetryResolution.ok) throw FAILURE;
+    const stageTelemetry = telemetryResolution.stageTelemetry;
     const provider = snapshot(dependency.secretProvider, ['resolveClientSecret']);
     const operation = snapshot(dependency.operation, ['exchangeAuthorizationCode']);
     if (!provider || !operation || typeof provider.resolveClientSecret !== 'function'
@@ -109,12 +113,15 @@ function createGoogleClientSecretHandoff(configuration, dependencies) {
           try {
             const selected = snapshot(secretOutput, ['clientSecret']);
             if (!selected || !visible(selected.clientSecret, 1, 4096)) throw FAILURE;
+            safeEmitStage(stageTelemetry, 'google_provider_returned');
+            safeEmitStage(stageTelemetry, 'google_exchange_started');
             const output = apply(exchangeAuthorizationCode, operationOwner, [freeze({
               authorizationCode: request.authorizationCode,
               codeVerifier: request.codeVerifier,
               clientSecret: selected.clientSecret,
             })]);
             const accept = acknowledgement => {
+              safeEmitStage(stageTelemetry, 'google_exchange_returned');
               const record = snapshot(acknowledgement, ['status']);
               if (!record || record.status !== 'custodied') throw FAILURE;
               return acknowledgement;
@@ -126,6 +133,7 @@ function createGoogleClientSecretHandoff(configuration, dependencies) {
           }
         };
 
+        safeEmitStage(stageTelemetry, 'google_provider_started');
         const output = apply(resolveClientSecret, providerOwner, [freeze({ secretRef })]);
         const direct = snapshot(output, ['clientSecret']);
         return direct ? finish(output) : nativeChain(output, finish);

@@ -1,6 +1,7 @@
 'use strict';
 
 const { types: utilTypes } = require('node:util');
+const { createCallbackEmailOAuthStageTelemetry, defaultEmailOAuthStageLogger, safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
 
 const isProxy = utilTypes.isProxy;
 const objectGetPrototypeOf = Object.getPrototypeOf;
@@ -143,10 +144,11 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
     if (!trustedGateSnapshot && !isGoogleOAuthCallbackEnabled(env)) return deps.sendHTML(res, 404, '<!doctype html><title>Not found</title>');
     let url; try { url = new URL(req.url, 'https://staff-staging.lunafrontdesk.com'); } catch (_) { url = null; }
     const query = callbackQuery(url, req); if (!query) return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title>');
-    try { const output = await deps.withPgClient(pg => deps.createCallbackRuntime(pg).completeCallback(objectFreeze({query})));
+    const stageTelemetry = createCallbackEmailOAuthStageTelemetry(defaultEmailOAuthStageLogger);
+    try { const output = await deps.withPgClient(pg => deps.createCallbackRuntime(pg, stageTelemetry).completeCallback(objectFreeze({query})));
       if (!isAuthenticReceived(output)) return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>');
       return deps.sendHTML(res, 200, '<!doctype html><title>Gmail connected</title><p>Gmail connection completed. You may close this window.</p>');
-    } catch (_) { return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>'); }
+    } catch (_) { safeEmitStage(stageTelemetry, 'callback_failed'); return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>'); }
   }
   return objectFreeze({ handleStart, handleCallback });
 }

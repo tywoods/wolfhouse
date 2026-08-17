@@ -9,6 +9,7 @@ const { createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition,
   parseEmailGrantEnvelopeAzureKvSunsetStagingRuntimeConfig } = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
 const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
 const { createSunsetGoogleOAuthClientSecretProvider } = require('./sunset-google-oauth-provider');
+const { pinEmailOAuthStageTelemetry, createNoopEmailOAuthStageTelemetry } = require('./email-microsoft-oauth-stage-telemetry');
 
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const START_ENABLED_ENV = 'LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED';
@@ -173,7 +174,7 @@ function createSunsetStagingGoogleOAuthComposition(dependencies) {
         repository: freeze({ create: pinned.repository.create }),
       }));
     }
-    function createCallbackRuntime(pgClient) {
+    function createCallbackRuntime(pgClient, rawStageTelemetry) {
       if (!callbackEnabled || !custodyEnabled || !envelopeEnabled) fail();
       const pinned = owners(pgClient);
       let envelope;
@@ -185,13 +186,16 @@ function createSunsetStagingGoogleOAuthComposition(dependencies) {
       if (!validated.ok || !validated.value) fail();
       const installer = createVerifiedGrantInstaller(freeze({ client: pinned.queryOwner }));
       const secretProvider = createSunsetGoogleOAuthClientSecretProvider({ deployment: SUNSET_DEPLOYMENT, env });
+      const stageTelemetry = rawStageTelemetry === undefined
+        ? createNoopEmailOAuthStageTelemetry() : pinEmailOAuthStageTelemetry(rawStageTelemetry);
+      if (!stageTelemetry) fail();
       return createGoogleStateFirstRuntimeComposition(freeze({ tenantSlug: 'sunset',
         locationKey: 'sunset-somo', applicationClientId, redirectUri: REDIRECT, callbackEnabled: true }), freeze({
         db: pinned.queryOwner, cryptography: freeze({ sha256Ascii: cryptography.sha256Ascii }), clock,
         repository: freeze({ consume: pinned.repository.consume }),
         https: freeze({ request: https.request }),
         crypto: freeze({ createPublicKey: cryptoVerify.createPublicKey, verify: cryptoVerify.verify }), timers,
-        envelopeProvider: validated.value, installer, secretProvider,
+        envelopeProvider: validated.value, installer, secretProvider, stageTelemetry,
       }));
     }
     return freeze({ createStart, createCallbackRuntime });

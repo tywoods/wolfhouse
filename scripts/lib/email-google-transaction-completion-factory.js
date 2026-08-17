@@ -7,6 +7,7 @@ const {
 const {
   createGoogleClientSecretHandoff,
 } = require('./email-google-client-secret-handoff');
+const { resolveOptionalStageTelemetry } = require('./email-microsoft-oauth-stage-telemetry');
 
 const apply = Reflect.apply;
 const ownKeys = Reflect.ownKeys;
@@ -135,8 +136,10 @@ function validSecretRef(value) {
 
 function createGoogleTransactionCompletionFactory(dependencies) {
   try {
-    const dependency = snapshot(dependencies, DEPENDENCY_KEYS);
-    if (!dependency) fail();
+    const telemetryResolution = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+    const dependency = snapshot(dependencies, [...DEPENDENCY_KEYS, 'stageTelemetry'])
+      || snapshot(dependencies, DEPENDENCY_KEYS);
+    if (!dependency || !telemetryResolution.ok) fail();
     for (let index = 0; index < DEPENDENCY_KEYS.length; index += 1) {
       if (!owner(dependency[DEPENDENCY_KEYS[index]], OWNER_METHODS[index])) fail();
     }
@@ -154,10 +157,13 @@ function createGoogleTransactionCompletionFactory(dependencies) {
             || !validClientId(operationConfig.applicationClientId)
             || !validRedirect(operationConfig.redirectUri) || !validSecretRef(handoffConfig.secretRef)) fail();
 
-        const operation = createGoogleAuthorizationCodeOperation(operationConfiguration, dependencies);
+        const operation = createGoogleAuthorizationCodeOperation(operationConfiguration, freeze({
+          https: dependency.https, crypto: dependency.crypto, timers: dependency.timers,
+          envelopeProvider: dependency.envelopeProvider, clock: dependency.clock, installer: dependency.installer,
+        }));
         if (!owner(operation, ['exchangeAuthorizationCode'])) fail();
         const handoff = createGoogleClientSecretHandoff(handoffConfiguration,
-          freeze({ secretProvider, operation }));
+          freeze({ secretProvider, operation, stageTelemetry: telemetryResolution.stageTelemetry }));
         if (!owner(handoff, ['completeAuthorization'])) fail();
         return handoff;
       } catch (_) { fail(); }

@@ -15,6 +15,7 @@ const utilTypes = require('node:util').types;
 const {
   createGoogleOAuthCallbackConsume,
 } = require('./email-google-oauth-callback-consume');
+const { resolveOptionalStageTelemetry, safeEmitStage } = require('./email-microsoft-oauth-stage-telemetry');
 
 const apply = Reflect.apply;
 const ownKeys = Reflect.ownKeys;
@@ -240,14 +241,16 @@ function consumedRecord(value) {
 function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
   try {
     const config = snapshot(configuration, CONFIG_KEYS);
-    const owners = snapshot(dependencies, DEPENDENCY_KEYS);
+    const telemetryResolution = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
+    const owners = snapshot(dependencies, freeze([...DEPENDENCY_KEYS, 'stageTelemetry']))
+      || snapshot(dependencies, DEPENDENCY_KEYS);
     const cryptography = owners && owner(owners.cryptography, freeze(['sha256Ascii']));
     const clock = owners && owner(owners.clock, freeze(['now']));
     const repository = owners && owner(owners.repository, freeze(['consume']));
     const resolver = owners && owner(owners.endpointAuthorityResolver, RESOLVER_KEYS);
     const factory = owners && owner(owners.transactionCompletionFactory, FACTORY_KEYS);
     const provider = owners && owner(owners.secretProvider, SECRET_PROVIDER_KEYS);
-    if (!config || !owners || !cryptography || !clock || !repository || !resolver
+    if (!config || !owners || !telemetryResolution.ok || !cryptography || !clock || !repository || !resolver
         || !factory || !provider
         || config.tenantSlug !== TENANT
         || config.locationKey !== LOCATION_KEY
@@ -271,6 +274,7 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
     const resolverOwner = owners.endpointAuthorityResolver;
     const factoryOwner = owners.transactionCompletionFactory;
     const providerOwner = owners.secretProvider;
+    const stageTelemetry = telemetryResolution.stageTelemetry;
 
     const publicConfiguration = freeze({
       tenantSlug: config.tenantSlug,
@@ -281,12 +285,14 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
     });
 
     function acceptConsumed(output) {
+      safeEmitStage(stageTelemetry, 'google_consume_returned');
       const status = snapshot(output, freeze(['status']));
       if (status && (status.status === 'invalid' || status.status === 'declined')) {
         return freeze({ status: status.status });
       }
       const record = consumedRecord(output);
       if (!record) fail();
+      safeEmitStage(stageTelemetry, 'google_consume_matched');
 
       const request = freeze({
         tenantSlug: TENANT,
@@ -295,8 +301,10 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
         locationId: record.locationId,
         endpointId: record.endpointId,
       });
+      safeEmitStage(stageTelemetry, 'google_authority_started');
       const resolved = apply(resolveAuthority, resolverOwner, [request]);
       return settle(resolved, (value) => {
+        safeEmitStage(stageTelemetry, 'google_authority_returned');
         const authority = snapshot(value, AUTHORITY_KEYS);
         if (!authority
             || authority.tenantSlug !== TENANT
@@ -307,6 +315,7 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
             || !validSecretRef(authority.secretRef)) {
           fail();
         }
+        safeEmitStage(stageTelemetry, 'google_authority_matched');
 
         const operation = freeze({
           clientId: record.clientId,
@@ -319,6 +328,7 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
           redirectUri: config.redirectUri,
         });
         // Exact three-arg completion contract: secretProvider owner is third.
+        safeEmitStage(stageTelemetry, 'google_factory_started');
         const service = apply(createCompletion, factoryOwner, [
           operation,
           freeze({ secretRef: authority.secretRef }),
@@ -326,6 +336,7 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
         ]);
         const completion = owner(service, COMPLETION_KEYS);
         if (!completion) fail();
+        safeEmitStage(stageTelemetry, 'google_factory_returned');
         const result = apply(completion.completeAuthorization, service, [freeze({
           authorizationCode: record.authorizationCode,
           codeVerifier: record.codeVerifier,
@@ -347,6 +358,7 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
           fail();
         }
         const consumeInput = freeze({ query: input.query });
+        safeEmitStage(stageTelemetry, 'google_consume_started');
         return settle(
           apply(consumeCallback, callbackConsume, [consumeInput]),
           acceptConsumed,

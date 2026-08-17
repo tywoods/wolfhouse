@@ -8,6 +8,9 @@ const ENVELOPE_OWNER = require.resolve('./lib/email-grant-envelope-azure-kv-suns
 const realLoad = Module._load;
 const realEnvelope = require(ENVELOPE_OWNER);
 Module._load = function scopedLoad(request, parent, isMain) {
+  if (parent && parent.filename === OWNER && request === 'pg') {
+    return Object.freeze({ Pool: function Pool() {} });
+  }
   if (parent && parent.filename === OWNER
       && request === './email-grant-envelope-azure-kv-sunset-staging-runtime-composition') {
     return Object.freeze({
@@ -91,7 +94,8 @@ assert.equal(clockCalls.length, 0, 'createStart must remain side-effect free');
 
 // Callback construction is permitted by two independent explicit gates, but must
 // remain lazy: no SQL, secret read, Azure wrap, HTTP, timer, or clock call here.
-const callback = composition.createCallbackRuntime(pg, '20000000-0000-4000-8000-000000000002');
+const stageTelemetry = frozen({ emit() {} });
+const callback = composition.createCallbackRuntime(pg, stageTelemetry);
 assert.equal(typeof callback.completeCallback, 'function');
 assert.equal(callback.configuration.applicationClientId, 'sunset.apps.googleusercontent.com');
 assert.equal(callback.configuration.redirectUri, 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback');
@@ -106,7 +110,7 @@ for (const env of [
   baseEnv({ [ENVELOPE_ACTIVATION]: 'false' }),
 ]) {
   const off = runtime.createSunsetStagingGoogleOAuthComposition(deps(env, clock));
-  rejected(() => off.createCallbackRuntime(pg, '20000000-0000-4000-8000-000000000002'));
+  rejected(() => off.createCallbackRuntime(pg, stageTelemetry));
 }
 
 // Exact frozen authority surfaces only.
