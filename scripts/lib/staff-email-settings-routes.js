@@ -1,8 +1,15 @@
 'use strict';
 
 const registry = require('./email-tenant-channel-registry');
+const smtpSecretContract = require('./email-sunset-smtp-secret-ref-contract');
+const { createSunsetSmtpIdentityRegister } = require('./email-sunset-smtp-identity-register');
 
 const EMAIL_SETTINGS_PATH = '/staff/admin/email-settings';
+const EMAIL_SMTP_IDENTITY_PATH = smtpSecretContract.EMAIL_SMTP_IDENTITY_PATH;
+const SMTP_POST_BODY_KEYS = Object.freeze(['location_id', 'public_address']);
+const SMTP_ALLOWED_ROLES = Object.freeze(['admin', 'owner']);
+const UUID_RE_CI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LOCATION_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SUNSET_CLIENT_SLUG = 'sunset';
 /** Independently owned disconnect gate env (matches oauth disconnect route). */
 const DISCONNECT_ENABLED_ENV = 'LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED';
@@ -653,13 +660,66 @@ function providerActions(startOn, reauthOn, disconnectOn, provider, locations, e
 function computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
   const eps = Array.isArray(endpoints) ? endpoints : [];
   const locs = Array.isArray(locations) ? locations : [];
+  const smtpOn = smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled(runtimeEnv)
+    && smtpSecretContract.evaluateSunsetSmtpSecretRefs(runtimeEnv).ok === true;
   return Object.freeze({
     microsoft_graph: providerActions(isSunsetEmailOAuthStartEnabled(runtimeEnv),
       isPhaseBReauthSettingsActionEnabled(runtimeEnv),
       isDisconnectSettingsActionEnabled(runtimeEnv), 'microsoft_graph', locs, eps),
     gmail_api: providerActions(isSunsetEmailGoogleOAuthStartEnabled(runtimeEnv), false, false,
       'gmail_api', locs, eps),
+    imap_smtp: providerActions(smtpOn, false, false, 'imap_smtp', locs, eps),
   });
+}
+
+function snapshotSmtpPostBody(body) {
+  try {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+    const proto = Object.getPrototypeOf(body);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(body);
+    if (actual.length !== SMTP_POST_BODY_KEYS.length) return null;
+    for (let i = 0; i < SMTP_POST_BODY_KEYS.length; i += 1) {
+      if (actual[i] !== SMTP_POST_BODY_KEYS[i] || typeof actual[i] !== 'string') return null;
+    }
+    const out = Object.create(null);
+    for (const key of SMTP_POST_BODY_KEYS) {
+      const descriptor = Object.getOwnPropertyDescriptor(body, key);
+      if (!descriptor
+          || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+          || descriptor.get
+          || descriptor.set
+          || !descriptor.enumerable) {
+        return null;
+      }
+      out[key] = descriptor.value;
+    }
+    if (typeof out.location_id !== 'string' || !LOCATION_SLUG_RE.test(out.location_id)) return null;
+    if (typeof out.public_address !== 'string') return null;
+    return Object.freeze({
+      location_id: out.location_id,
+      public_address: out.public_address,
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
+function smtpSecretStatusDto(runtimeEnv) {
+  const refs = smtpSecretContract.evaluateSunsetSmtpSecretRefs(runtimeEnv);
+  return Object.freeze({
+    configured: refs.ok === true,
+    missing_secret_names: Array.isArray(refs.missing_secret_names)
+      ? refs.missing_secret_names.slice()
+      : [],
+  });
+}
+
+function defaultCreateSmtpIdentityRegister(client, env) {
+  return createSunsetSmtpIdentityRegister(Object.freeze({
+    client: Object.freeze({ query: client.query.bind(client) }),
+    env,
+  }));
 }
 
 function computeEmailSettingsActions(runtimeEnv, locations, endpoints) {
@@ -672,6 +732,9 @@ function createEmailSettingsRoutes(deps) {
   const loadAtomicFacts = deps.loadPhaseBReauthEligibilityFacts || loadPhaseBReauthEligibilityFacts;
   const loadLastSyncMap = deps.loadMicrosoftEndpointLastSyncMap || loadMicrosoftEndpointLastSyncMap;
   const runtimeEnv = deps.runtimeEnv || process.env;
+  const createSmtpRegister = typeof deps.createSmtpIdentityRegister === 'function'
+    ? deps.createSmtpIdentityRegister
+    : (client) => defaultCreateSmtpIdentityRegister(client, runtimeEnv);
 
   async function handleGet(query, req, res, user) {
     if (!isSunsetEmailSettingsUiEnabled(runtimeEnv)) return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
@@ -745,7 +808,7 @@ function createEmailSettingsRoutes(deps) {
         }));
         const providerActionsDto = computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints);
         const actions = providerActionsDto.microsoft_graph;
-        return deps.sendJSON(res, 200, {
+        const body = {
           success: true,
           client: SUNSET_CLIENT_SLUG,
           read_only: true,
@@ -753,17 +816,95 @@ function createEmailSettingsRoutes(deps) {
           provider_actions: providerActionsDto,
           locations,
           endpoints,
-        });
+        };
+        if (smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
+          body.smtp_secret_status = smtpSecretStatusDto(runtimeEnv);
+        }
+        return deps.sendJSON(res, 200, body);
       });
     } catch (_) {
       return deps.sendJSON(res, 500, { success: false, error: 'email_settings_unavailable' });
     }
   }
-  return { handleGet };
+
+  async function handlePost(body, req, res, user) {
+    if (!smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const role = user && typeof user.role === 'string' ? user.role : '';
+    if (SMTP_ALLOWED_ROLES.indexOf(role) < 0) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, SUNSET_CLIENT_SLUG, res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: SUNSET_CLIENT_SLUG,
+      method: 'POST',
+      pathname: EMAIL_SMTP_IDENTITY_PATH,
+      env: runtimeEnv,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotSmtpPostBody(body);
+    if (!bodySnap) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    const secrets = smtpSecretContract.evaluateSunsetSmtpSecretRefs(runtimeEnv);
+    if (!secrets.ok) {
+      return deps.sendJSON(res, 400, {
+        success: false,
+        error: 'missing_secret_refs',
+        missing_secret_names: Array.isArray(secrets.missing_secret_names)
+          ? secrets.missing_secret_names.slice()
+          : [],
+      });
+    }
+    const actor = user && typeof user.staff_user_id === 'string' ? user.staff_user_id : '';
+    const clientId = user && typeof user.client_id === 'string' ? user.client_id : '';
+    if (!UUID_RE_CI.test(actor) || !UUID_RE_CI.test(clientId)) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const register = createSmtpRegister(pg);
+        const ordered = Object.freeze({
+          clientId: clientId.toLowerCase(),
+          locationId: bodySnap.location_id,
+          publicAddress: bodySnap.public_address,
+          actorStaffUserId: actor.toLowerCase(),
+        });
+        const ack = await register.registerDisabledImapSmtpIdentity(ordered);
+        return deps.sendJSON(res, 200, {
+          success: true,
+          endpoint_id: ack && typeof ack.endpointId === 'string' ? ack.endpointId : '',
+          provider: 'imap_smtp',
+          inbound_enabled: false,
+          outbound_enabled: false,
+          active: false,
+          default_automation_mode: 'off',
+        });
+      });
+    } catch (err) {
+      if (err && Array.isArray(err.missing_secret_names)) {
+        return deps.sendJSON(res, 400, {
+          success: false,
+          error: 'missing_secret_refs',
+          missing_secret_names: err.missing_secret_names.slice(),
+        });
+      }
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+  }
+
+  return { handleGet, handlePost };
 }
 
 module.exports = {
   EMAIL_SETTINGS_PATH,
+  EMAIL_SMTP_IDENTITY_PATH,
+  SMTP_IDENTITY_REGISTER_ENABLED_ENV: smtpSecretContract.SMTP_IDENTITY_REGISTER_ENABLED_ENV,
+  isSunsetEmailSmtpIdentityRegisterEnabled:
+    smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled,
   SUNSET_CLIENT_SLUG,
   DISCONNECT_ENABLED_ENV,
   PHASE_B_REAUTH_START_ENABLED_ENV,

@@ -355,6 +355,8 @@
     "prove:email-tenant-channel-registry-pg": "node scripts/prove-email-tenant-channel-registry-pg.js",
     "verify:staff-email-registry-routes": "node scripts/verify-staff-email-registry-routes.js",
     "verify:sunset-email-settings": "node scripts/verify-sunset-email-settings.js",
+    "verify:email-smtp-identity-register-002": "node scripts/verify-email-smtp-identity-register-002.js",
+    "verify:sunset-email-smtp-ui-002": "node scripts/verify-sunset-email-smtp-ui-002.js",
     "verify:email-last-sync-001": "node scripts/verify-email-last-sync-001.js",
     "verify:sunset-email-phase-b-reauthorize-ui-playwright": "node scripts/verify-sunset-email-phase-b-reauthorize-ui-playwright.js",
     "verify:email-microsoft-graph-adapter": "node scripts/verify-email-microsoft-graph-adapter.js",
