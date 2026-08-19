@@ -212,8 +212,12 @@ const {
 const {
   createEmailSettingsRoutes,
   EMAIL_SETTINGS_PATH,
+  EMAIL_SMTP_IDENTITY_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
+const {
+  isSunsetEmailSmtpIdentityRegisterEnabled,
+} = require('./lib/email-sunset-smtp-secret-ref-contract');
 const { createSunsetGoogleEndpointPrepare } = require('./lib/email-sunset-google-endpoint-prepare');
 const { createSunsetStagingGoogleOAuthComposition } = require('./lib/email-google-oauth-sunset-staging-runtime-composition');
 const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
@@ -2807,7 +2811,7 @@ const emailSettingsRoutes = createEmailSettingsRoutes({
   authorizeAuthenticatedStaffRoute,
   withPgClient,
 });
-const { handleGet: handleEmailSettingsGet } = emailSettingsRoutes;
+const { handleGet: handleEmailSettingsGet, handlePost: handleSmtpIdentityPost } = emailSettingsRoutes;
 const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   sendJSON,
   assertStaffClientAccess,
@@ -48303,6 +48307,20 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleEmailSettingsGet(parsed.query, req, res, auth.user);
+  }
+  // Admin-only Sunset SMTP identity register (default-off). Canonical contract
+  // gate (UI + sunset-staging + identity flag) before requireAuth / session /
+  // readBody. Absent/other/production/wolfhouse → exact concealed 404 not_found.
+  if (pathname === EMAIL_SMTP_IDENTITY_PATH && method === 'POST') {
+    if (!isSunsetEmailSmtpIdentityRegisterEnabled(process.env)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let smtpIdentityBody;
+    try { smtpIdentityBody = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return handleSmtpIdentityPost(smtpIdentityBody, req, res, auth.user);
   }
   if (pathname === OAUTH_PREPARE_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'admin');

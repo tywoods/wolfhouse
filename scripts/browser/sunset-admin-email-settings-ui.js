@@ -71,6 +71,19 @@ function exactOwnData(value, keys){
 function validateGoogleStartDto(dto){if(!exactOwnData(dto,['authorizationUrl','expiresAt'])||typeof dto.authorizationUrl!=='string'||typeof dto.expiresAt!=='string'||dto.expiresAt.length>64||!Number.isFinite(Date.parse(dto.expiresAt)))return null;return validateGoogleAuthorizationUrl(dto.authorizationUrl);}
 function postGoogleOAuthStart(locationId,endpointId){return fetch('/staff/admin/email-settings/oauth/google/start',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({location_id:locationId,endpoint_id:endpointId})}).then(function(r){return r.ok?r.json():Promise.reject(new Error('unavailable'));}).then(function(dto){var target=validateGoogleStartDto(dto);if(!target)throw new Error('invalid_response');window.location.assign(target);});}
 function postGoogleEndpointPrepare(locationId,publicAddress){return fetch('/staff/admin/email-settings/oauth/google/endpoint',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({location_id:locationId,public_address:publicAddress})}).then(function(r){return r.ok?r.json():Promise.reject(new Error('unavailable'));}).then(function(dto){if(!dto||dto.success!==true||typeof dto.endpoint_id!=='string')throw new Error('invalid_response');return dto.endpoint_id;});}
+function postSmtpIdentityRegister(locationId, publicAddress){
+  return fetch('/staff/admin/email-settings/smtp/endpoint', {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ location_id: locationId, public_address: publicAddress })
+  }).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('unavailable')); })
+    .then(function(dto){
+      if (!dto || dto.success !== true || typeof dto.endpoint_id !== 'string') {
+        throw new Error('invalid_response');
+      }
+      return dto.endpoint_id;
+    });
+}
 
 /**
  * Invalidate/abort any pending Phase B reauthorization request.
@@ -259,7 +272,9 @@ function postMicrosoftEndpointPrepare(locationId, publicAddress){
     });
 }
 function adminEmailNormalizedProvider(provider){
-  return provider === 'gmail_api' ? 'gmail_api' : 'microsoft_graph';
+  if (provider === 'gmail_api') return 'gmail_api';
+  if (provider === 'imap_smtp') return 'imap_smtp';
+  return 'microsoft_graph';
 }
 function adminEmailProviderFromRoot(root){
   var provider = '';
@@ -274,15 +289,17 @@ function adminEmailProviderFromRoot(root){
 }
 function adminEmailProviderConnectFailed(provider){
   provider = adminEmailNormalizedProvider(provider);
-  if (provider === 'gmail_api') {
-    return adminEmailSettingsConnectFailedByProvider.gmail_api === true;
+  if (provider === 'gmail_api' || provider === 'imap_smtp') {
+    return adminEmailSettingsConnectFailedByProvider[provider] === true;
   }
   return adminEmailSettingsConnectFailed === true;
 }
 function adminEmailHasConnectFeedback(){
   return adminEmailSettingsConnectFailed === true
     || adminEmailSettingsConnectFailedByProvider.gmail_api === true
-    || adminEmailSettingsPrepareHintByProvider.gmail_api === 'empty_address';
+    || adminEmailSettingsConnectFailedByProvider.imap_smtp === true
+    || adminEmailSettingsPrepareHintByProvider.gmail_api === 'empty_address'
+    || adminEmailSettingsPrepareHintByProvider.imap_smtp === 'empty_address';
 }
 function clearAdminEmailProviderConnectFeedback(provider){
   provider = adminEmailNormalizedProvider(provider);
@@ -306,7 +323,7 @@ function isAdminEmailConnectAttemptCurrent(provider, mySeq, myLoad){
 }
 function restoreAdminEmailConnectBusy(body){
   if (!body || typeof body.querySelector !== 'function') return;
-  var providers = ['microsoft_graph', 'gmail_api'];
+  var providers = ['microsoft_graph', 'gmail_api', 'imap_smtp'];
   var i, section;
   for (i = 0; i < providers.length; i += 1) {
     if (adminEmailConnectBusyByProvider[providers[i]] !== true) continue;
@@ -318,17 +335,26 @@ function adminEmailConnectInProgressLabel(provider){
   if (provider === 'gmail_api') {
     return emailUiT('admin.email.connectGoogleInProgress', 'Connecting Gmail…', 'Conectando Gmail…');
   }
+  if (provider === 'imap_smtp') {
+    return emailUiT('admin.email.registerSmtpInProgress', 'Registering mailbox…', 'Registrando buzón…');
+  }
   return emailUiT('admin.email.connectInProgress', 'Connecting Microsoft…', 'Conectando Microsoft…');
 }
 function adminEmailConnectFailedCopy(provider){
   if (provider === 'gmail_api') {
     return emailUiT('admin.email.connectGoogleFailed', 'Couldn’t connect Gmail. Nothing was changed. Try again.', 'No se pudo conectar Gmail. No se ha cambiado nada. Inténtalo de nuevo.');
   }
+  if (provider === 'imap_smtp') {
+    return emailUiT('admin.email.registerSmtpFailed', 'Couldn’t register IMAP / SMTP. Nothing was changed. Try again.', 'No se pudo registrar IMAP / SMTP. No se ha cambiado nada. Inténtalo de nuevo.');
+  }
   return emailUiT('admin.email.connectFailed', 'Couldn’t connect Microsoft. Nothing was changed. Try again.', 'No se pudo conectar Microsoft. No se ha cambiado nada. Inténtalo de nuevo.');
 }
 function adminEmailPrepareHintCopy(provider){
   if (provider === 'gmail_api') {
     return emailUiT('admin.email.enterGmailAddress', 'Enter a Gmail address', 'Introduce una dirección de Gmail');
+  }
+  if (provider === 'imap_smtp') {
+    return emailUiT('admin.email.enterSmtpAddress', 'Enter a mailbox address', 'Introduce una dirección de correo');
   }
   return '';
 }
@@ -434,14 +460,18 @@ function wireConnectHandlers(body, data){
       var input = section.querySelector('[data-email-prepare-address]');
       address = input && typeof input.value === 'string' ? String(input.value).replace(/^\s+|\s+$/g, '') : '';
       if (!address) {
-        if (provider === 'gmail_api') {
+        if (provider === 'gmail_api' || provider === 'imap_smtp') {
           showAdminEmailPrepareHint(provider);
           return;
         }
-        renderAdminEmailConnectFailed();
+        renderAdminEmailConnectFailed(provider === 'microsoft_graph' ? undefined : provider);
         return;
       }
     } else if (mode === 'connect') {
+      if (provider === 'imap_smtp') {
+        renderAdminEmailConnectFailed(provider);
+        return;
+      }
       endpointId = btn.getAttribute('data-email-endpoint-id') || '';
       if (!endpointId) {
         if (provider === 'microsoft_graph') renderAdminEmailConnectFailed();
@@ -457,19 +487,26 @@ function wireConnectHandlers(body, data){
     btn = (section && typeof section.querySelector === 'function' && section.querySelector('[data-email-connect]')) || btn;
     var mySeq = adminEmailConnectAttemptByProvider[provider];
     var myLoad = adminEmailSettingsLoadSeq;
-    var start = provider === 'gmail_api' ? postGoogleOAuthStart : postMicrosoftOAuthStart;
     var chain;
-    if (mode === 'prepare') {
-      // Prepare → start exact sequence; never create on page load.
-      // Successful Gmail prepare starts immediately — no second-click Connect.
-      var prepare = provider === 'gmail_api' ? postGoogleEndpointPrepare : postMicrosoftEndpointPrepare;
-      chain = prepare(locationId, address).then(function(preparedId){
+    if (provider === 'imap_smtp') {
+      chain = postSmtpIdentityRegister(locationId, address).then(function(){
         if (!isAdminEmailConnectAttemptCurrent(provider, mySeq, myLoad)) return;
-        return start(locationId, preparedId);
+        loadAdminEmailSettings();
       });
     } else {
-      // Existing eligible endpoint: start only (no second prepare).
-      chain = start(locationId, endpointId);
+      var start = provider === 'gmail_api' ? postGoogleOAuthStart : postMicrosoftOAuthStart;
+      if (mode === 'prepare') {
+        // Prepare → start exact sequence; never create on page load.
+        // Successful Gmail prepare starts immediately — no second-click Connect.
+        var prepare = provider === 'gmail_api' ? postGoogleEndpointPrepare : postMicrosoftEndpointPrepare;
+        chain = prepare(locationId, address).then(function(preparedId){
+          if (!isAdminEmailConnectAttemptCurrent(provider, mySeq, myLoad)) return;
+          return start(locationId, preparedId);
+        });
+      } else {
+        // Existing eligible endpoint: start only (no second prepare).
+        chain = start(locationId, endpointId);
+      }
     }
     chain.catch(function(){
       if (!isAdminEmailConnectAttemptCurrent(provider, mySeq, myLoad)) return;
@@ -898,6 +935,94 @@ function adminEmailImapComingCardHtml(){
     'IMAP and SMTP are not connected yet. No password is stored here.',
     'IMAP y SMTP aún no están conectados. Aquí no se guarda ninguna contraseña.');
 }
+function adminEmailAllowedSmtpSecretName(name){
+  return name === 'sunset-smtp-host'
+    || name === 'sunset-smtp-port'
+    || name === 'sunset-smtp-tls-mode'
+    || name === 'sunset-smtp-username'
+    || name === 'sunset-smtp-password';
+}
+function adminEmailImapMissingSecretNames(data){
+  var status = data && data.smtp_secret_status;
+  var raw = status && Array.isArray(status.missing_secret_names) ? status.missing_secret_names : [];
+  var out = [];
+  var i;
+  for (i = 0; i < raw.length; i += 1) {
+    if (adminEmailAllowedSmtpSecretName(raw[i])) out.push(raw[i]);
+  }
+  return out;
+}
+function adminEmailImapCardLive(data){
+  if (data && data.smtp_secret_status && typeof data.smtp_secret_status === 'object') return true;
+  var actions = adminEmailProviderActions(data, 'imap_smtp');
+  if (actions && actions.prepare === true) return true;
+  var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
+  var i;
+  for (i = 0; i < endpoints.length; i += 1) {
+    if (endpoints[i] && endpoints[i].provider === 'imap_smtp') return true;
+  }
+  return false;
+}
+function adminEmailImapCardHtml(data){
+  var locations = data && Array.isArray(data.locations) ? data.locations : [];
+  var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
+  var active = '';
+  var i;
+  for (i = 0; i < locations.length; i += 1) {
+    if (locations[i] && locations[i].active === true) { active = locations[i].location_id || ''; break; }
+  }
+  var ep = null;
+  for (i = 0; i < endpoints.length; i += 1) {
+    if (endpoints[i] && endpoints[i].provider === 'imap_smtp' && (!active || endpoints[i].location_id === active)) {
+      ep = endpoints[i];
+      break;
+    }
+  }
+  var actions = adminEmailProviderActions(data, 'imap_smtp');
+  var missing = adminEmailImapMissingSecretNames(data);
+  var hasPrepare = !!(actions && actions.prepare === true && active && missing.length === 0 && !ep);
+  var failed = adminEmailSettingsConnectFailedByProvider.imap_smtp === true;
+  var hint = adminEmailSettingsPrepareHintByProvider.imap_smtp === 'empty_address';
+  var title = escHtml(emailUiT('admin.email.provider.imap_smtp', 'IMAP / SMTP', 'IMAP / SMTP'));
+  var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="imap_smtp">' +
+    '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
+    '<h3 class="portal-admin-email-card-title">' + title + '</h3>';
+  if (missing.length) {
+    html += '<p class="portal-admin-email-card-copy" role="status">' +
+      escHtml(emailUiT('admin.email.smtpMissingSecrets', 'Missing Key Vault secret:', 'Falta el secreto de Key Vault:')) +
+      ' ' + escHtml(missing.join(', ')) + '</p>';
+  } else {
+    if (failed) {
+      html += '<p class="portal-admin-email-card-copy" role="status" data-email-connect-failed>' +
+        escHtml(adminEmailConnectFailedCopy('imap_smtp')) + '</p>';
+    } else if (hint) {
+      html += '<p class="portal-admin-email-card-copy" role="status" data-email-prepare-hint>' +
+        escHtml(adminEmailPrepareHintCopy('imap_smtp')) + '</p>';
+    }
+    if (hasPrepare) {
+      html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group">' +
+        '<label class="portal-admin-email-prepare">' +
+        '<span>' + escHtml(emailUiT('admin.email.smtpMailboxLabel', 'Mailbox address', 'Dirección de correo')) + '</span>' +
+        '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" />' +
+        '</label>' +
+        '<button type="button" class="portal-admin-email-action-btn" data-email-provider="imap_smtp" data-email-connect="prepare" data-email-location-id="' + escHtml(active) + '">' +
+        escHtml(emailUiT('admin.email.registerSmtpButton', 'Register mailbox', 'Registrar buzón')) +
+        '</button></div>' +
+        '<p class="portal-admin-email-connect-safety" data-email-connect-safety role="note">' +
+        escHtml(emailUiT('admin.email.smtpRegisterSafetyNote',
+          'Registration stores the mailbox identity only; inbound, outbound and automation remain off.',
+          'El registro solo guarda la identidad del buzón; la entrada, la salida y la automatización siguen desactivadas.')) +
+        '</p>';
+    } else {
+      html += '<dl><dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+        '<dt>' + escHtml(portalT('admin.email.inbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+        '<dt>' + escHtml(portalT('admin.email.outbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+        '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd></dl>';
+    }
+  }
+  html += '</section>';
+  return html;
+}
 function adminEmailComingCardsHtml(){
   return adminEmailGmailComingCardHtml() + adminEmailImapComingCardHtml();
 }
@@ -928,7 +1053,8 @@ function renderAdminEmailSettingsData(data){
   } else {
     gmailHtml = adminEmailGmailComingCardHtml();
   }
-  body.innerHTML = adminEmailPageWrap('<div class="portal-admin-email-cards">' + microsoftHtml + gmailHtml + adminEmailImapComingCardHtml() + '</div>');
+  var imapHtml = adminEmailImapCardLive(data) ? adminEmailImapCardHtml(data) : adminEmailImapComingCardHtml();
+  body.innerHTML = adminEmailPageWrap('<div class="portal-admin-email-cards">' + microsoftHtml + gmailHtml + imapHtml + '</div>');
   wireConnectHandlers(body,data); wireReauthorizeHandlers(body,data); wireDisconnectHandlers(body);
   restoreAdminEmailConnectBusy(body);
 }
