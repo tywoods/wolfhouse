@@ -11,6 +11,36 @@ const path = require('path');
 
 const CLIENTS_DIR = path.join(__dirname, '..', '..', 'config', 'clients');
 const ACCESS_FILE = path.join(CLIENTS_DIR, 'staff-portal-access.json');
+const SUNSET_STAGING_ACCESS_FILE = path.join(CLIENTS_DIR, 'staff-portal-access.sunset-staging.json');
+const SUNSET_STAGING_DEPLOYMENT = 'sunset-staging';
+const SUNSET_ACCESS_CLIENT_SLUG = 'sunset';
+
+/**
+ * Trusted deploy env only — never request headers or caller-supplied input.
+ * Overlay when LUNA_DEPLOYMENT=sunset-staging or DEFAULT_CLIENT_SLUG=sunset.
+ * Conflicting pair (sunset-staging + non-sunset slug, or sunset slug +
+ * non-sunset-staging deployment) fail closed to the Wolfhouse base file.
+ */
+function envOwnTrimmedString(env, key) {
+  const src = env && typeof env === 'object' ? env : process.env;
+  if (!Object.prototype.hasOwnProperty.call(src, key)) return '';
+  const val = src[key];
+  return typeof val === 'string' ? val.trim() : '';
+}
+
+function shouldUseSunsetStagingAccess(env) {
+  const deploy = envOwnTrimmedString(env, 'LUNA_DEPLOYMENT');
+  const slug = envOwnTrimmedString(env, 'DEFAULT_CLIENT_SLUG');
+  const sunsetDeploy = deploy === SUNSET_STAGING_DEPLOYMENT;
+  const sunsetSlug = slug === SUNSET_ACCESS_CLIENT_SLUG;
+  if (sunsetDeploy && slug && !sunsetSlug) return false;
+  if (sunsetSlug && deploy && !sunsetDeploy) return false;
+  return sunsetDeploy || sunsetSlug;
+}
+
+function resolveStaffPortalAccessFile(env) {
+  return shouldUseSunsetStagingAccess(env) ? SUNSET_STAGING_ACCESS_FILE : ACCESS_FILE;
+}
 
 const SURF_VERTICALS = new Set([
   'surf_school_rentals',
@@ -66,10 +96,24 @@ function appendHiddenDevTabs(hidden) {
 
 function readAccessConfig() {
   try {
-    return JSON.parse(fs.readFileSync(ACCESS_FILE, 'utf8'));
+    return JSON.parse(fs.readFileSync(resolveStaffPortalAccessFile(), 'utf8'));
   } catch {
     return { all_clients_emails: [], client_access: {} };
   }
+}
+
+/**
+ * True only when login company matches the session client AND the deploy ACL
+ * allows that client. Login must not mint a cookie the session endpoint rejects
+ * (that bounce is the Sunset login loop).
+ */
+function canMintStaffPortalSession(user, loginClientSlug) {
+  const slug = String(loginClientSlug || '').trim();
+  if (!slug) return false;
+  if (!user) return false;
+  const sessionSlug = String(user.client_slug || '').trim();
+  if (!sessionSlug || sessionSlug !== slug) return false;
+  return userCanAccessClient(user, slug);
 }
 
 function loadBaselineJson(clientSlug) {
@@ -361,6 +405,7 @@ module.exports = {
   getAccessibleClientSlugs,
   getSessionScopedClients,
   userCanAccessClient,
+  canMintStaffPortalSession,
   resolveStaffRole,
   canUseOwnerInsights,
   loadBaselineJson,
