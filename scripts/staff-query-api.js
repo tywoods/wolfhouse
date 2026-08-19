@@ -448,6 +448,7 @@ const {
   getAccessibleClients,
   getSessionScopedClients,
   userCanAccessClient,
+  canMintStaffPortalSession,
   listBaselineClients,
   resolveStaffRole,
   canUseOwnerInsights,
@@ -1674,6 +1675,20 @@ async function handleLogin(req, res) {
       ts: new Date().toISOString(), intent: 'action:api:auth.login',
       category: 'staff_auth', client_slug: clientSlug, email,
       success: false, error: 'invalid_credentials', elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 401, { success: false, error: 'Invalid credentials.' });
+  }
+
+  // Fail closed: never mint a cookie /staff/auth/session will 403 (login loop).
+  if (!canMintStaffPortalSession({
+    email: user.email,
+    role: user.role,
+    client_slug: user.client_slug,
+  }, clientSlug)) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'action:api:auth.login',
+      category: 'staff_auth', client_slug: clientSlug, email,
+      success: false, error: 'portal_access_denied', elapsed_ms: Date.now() - started,
     });
     return sendJSON(res, 401, { success: false, error: 'Invalid credentials.' });
   }

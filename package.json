@@ -180,6 +180,7 @@
     "verify:staff-bed-reassignment-preview-api": "node scripts/verify-staff-bed-reassignment-preview-api.js",
     "verify:staff-bed-reassignment-confirm-api": "node scripts/verify-staff-bed-reassignment-confirm-api.js",
     "verify:staff-login-ui": "node scripts/verify-staff-login-ui.js",
+    "verify:sunset-login-loop-001": "node scripts/verify-sunset-login-loop-001.js",
     "seed:stage8-demo": "node scripts/fixtures/stage8-demo-seed.js",
     "cleanup:stage8-demo": "node scripts/fixtures/stage8-demo-cleanup.js",
     "proof:stage8-demo": "node scripts/fixtures/stage8-demo-proof.js",
