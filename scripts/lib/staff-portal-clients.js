@@ -18,8 +18,11 @@ const SUNSET_ACCESS_CLIENT_SLUG = 'sunset';
 /**
  * Trusted deploy env only — never request headers or caller-supplied input.
  * Overlay when LUNA_DEPLOYMENT=sunset-staging or DEFAULT_CLIENT_SLUG=sunset.
- * Conflicting pair (sunset-staging + non-sunset slug, or sunset slug +
- * non-sunset-staging deployment) fail closed to the Wolfhouse base file.
+ * Conflicting / invalid trusted identity (sunset-staging + non-sunset slug,
+ * or sunset slug + non-sunset-staging deployment, including production)
+ * fail closed by denying portal ACL — never by falling back to a filename.
+ * Dockerfile.luna-sunset-staff-api copies the overlay over the base file, so
+ * a filename fallback is still Sunset ACL in the deployed image.
  */
 function envOwnTrimmedString(env, key) {
   const src = env && typeof env === 'object' ? env : process.env;
@@ -28,18 +31,42 @@ function envOwnTrimmedString(env, key) {
   return typeof val === 'string' ? val.trim() : '';
 }
 
-function shouldUseSunsetStagingAccess(env) {
+function emptyStaffPortalAccess() {
+  return { all_clients_emails: [], client_access: {} };
+}
+
+function resolveTrustedStaffPortalAccessDecision(env) {
   const deploy = envOwnTrimmedString(env, 'LUNA_DEPLOYMENT');
   const slug = envOwnTrimmedString(env, 'DEFAULT_CLIENT_SLUG');
   const sunsetDeploy = deploy === SUNSET_STAGING_DEPLOYMENT;
   const sunsetSlug = slug === SUNSET_ACCESS_CLIENT_SLUG;
-  if (sunsetDeploy && slug && !sunsetSlug) return false;
-  if (sunsetSlug && deploy && !sunsetDeploy) return false;
-  return sunsetDeploy || sunsetSlug;
+  if (sunsetDeploy && slug && !sunsetSlug) {
+    return { action: 'deny', reason: 'conflicting_trusted_identity' };
+  }
+  if (sunsetSlug && deploy && !sunsetDeploy) {
+    return { action: 'deny', reason: 'conflicting_trusted_identity' };
+  }
+  if (sunsetDeploy || sunsetSlug) {
+    return { action: 'read', file: 'sunset-staging' };
+  }
+  return { action: 'read', file: 'base' };
 }
 
-function resolveStaffPortalAccessFile(env) {
-  return shouldUseSunsetStagingAccess(env) ? SUNSET_STAGING_ACCESS_FILE : ACCESS_FILE;
+function shouldUseSunsetStagingAccess(env) {
+  const decision = resolveTrustedStaffPortalAccessDecision(env);
+  return decision.action === 'read' && decision.file === 'sunset-staging';
+}
+
+function resolveStaffPortalAccessFile(env, options) {
+  const decision = resolveTrustedStaffPortalAccessDecision(env);
+  if (decision.action !== 'read') return null;
+  if (options && options.accessDir) {
+    const name = decision.file === 'sunset-staging'
+      ? 'staff-portal-access.sunset-staging.json'
+      : 'staff-portal-access.json';
+    return path.join(options.accessDir, name);
+  }
+  return decision.file === 'sunset-staging' ? SUNSET_STAGING_ACCESS_FILE : ACCESS_FILE;
 }
 
 const SURF_VERTICALS = new Set([
@@ -94,11 +121,16 @@ function appendHiddenDevTabs(hidden) {
   return out;
 }
 
-function readAccessConfig() {
+function readAccessConfig(options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const env = Object.prototype.hasOwnProperty.call(opts, 'env') ? opts.env : process.env;
+  const decision = resolveTrustedStaffPortalAccessDecision(env);
+  if (decision.action === 'deny') return emptyStaffPortalAccess();
+  const file = resolveStaffPortalAccessFile(env, opts);
   try {
-    return JSON.parse(fs.readFileSync(resolveStaffPortalAccessFile(), 'utf8'));
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch {
-    return { all_clients_emails: [], client_access: {} };
+    return emptyStaffPortalAccess();
   }
 }
 
@@ -107,13 +139,13 @@ function readAccessConfig() {
  * allows that client. Login must not mint a cookie the session endpoint rejects
  * (that bounce is the Sunset login loop).
  */
-function canMintStaffPortalSession(user, loginClientSlug) {
+function canMintStaffPortalSession(user, loginClientSlug, options) {
   const slug = String(loginClientSlug || '').trim();
   if (!slug) return false;
   if (!user) return false;
   const sessionSlug = String(user.client_slug || '').trim();
   if (!sessionSlug || sessionSlug !== slug) return false;
-  return userCanAccessClient(user, slug);
+  return userCanAccessClient(user, slug, options);
 }
 
 function loadBaselineJson(clientSlug) {
@@ -290,11 +322,11 @@ function buildClientProfilesMap(user) {
  * Session-scoped portal clients: login company (auth_sessions.client_id) is authoritative.
  * Never return the full multi-tenant allow-list from /staff/auth/session.
  */
-function getSessionScopedClients(user) {
-  if (!user) return getAccessibleClients(null);
+function getSessionScopedClients(user, options) {
+  if (!user) return getAccessibleClients(null, options);
   const activeSlug = String(user.client_slug || '').trim();
   if (!activeSlug) return [];
-  if (!userCanAccessClient(user, activeSlug)) return [];
+  if (!userCanAccessClient(user, activeSlug, options)) return [];
   return listBaselineClients().filter((c) => c.slug === activeSlug);
 }
 
@@ -339,7 +371,7 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
-function getAccessibleClientSlugs(user) {
+function getAccessibleClientSlugs(user, options) {
   const all = listBaselineClients().map((c) => c.slug);
   if (!user) return all;
 
@@ -354,7 +386,7 @@ function getAccessibleClientSlugs(user) {
 
   if (!user.email) return all;
   const email = normalizeEmail(user.email);
-  const cfg = readAccessConfig();
+  const cfg = readAccessConfig(options);
   const explicit = cfg.client_access && cfg.client_access[email];
   if (Array.isArray(explicit) && explicit.length > 0) {
     const allowed = new Set(
@@ -367,15 +399,15 @@ function getAccessibleClientSlugs(user) {
   return [];
 }
 
-function getAccessibleClients(user) {
-  const allowed = new Set(getAccessibleClientSlugs(user));
+function getAccessibleClients(user, options) {
+  const allowed = new Set(getAccessibleClientSlugs(user, options));
   return listBaselineClients().filter((c) => allowed.has(c.slug));
 }
 
-function userCanAccessClient(user, clientSlug) {
+function userCanAccessClient(user, clientSlug, options) {
   const slug = String(clientSlug || '').trim();
   if (!slug) return false;
-  return getAccessibleClientSlugs(user).includes(slug);
+  return getAccessibleClientSlugs(user, options).includes(slug);
 }
 
 const ROLE_RANK_PORTAL = { viewer: 1, operator: 2, admin: 3, owner: 4 };
@@ -418,4 +450,7 @@ module.exports = {
   SURF_VERTICALS,
   STAGING_PORTAL_HOST_CLIENT,
   resolvePortalDeployClient,
+  resolveTrustedStaffPortalAccessDecision,
+  resolveStaffPortalAccessFile,
+  readAccessConfig,
 };

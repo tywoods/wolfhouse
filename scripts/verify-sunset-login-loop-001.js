@@ -10,10 +10,15 @@
  * Sunset overlay ACL; login must refuse to mint a session the session endpoint
  * would reject. Host headers cannot select the ACL file.
  *
+ * Review BLOCK at 4e0bc288: Dockerfile.luna-sunset-staff-api copies the overlay
+ * over staff-portal-access.json, so conflict fail-closed-to-filename still loaded
+ * Sunset ACL. Conflicting / invalid trusted identity must deny directly.
+ *
  * Run: node scripts/verify-sunset-login-loop-001.js
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
@@ -68,6 +73,28 @@ function extractHandleLogin() {
   return end > 0 ? rest.slice(0, end) : rest.slice(0, 12000);
 }
 
+function withAccessLayout(mode, fn) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sunset-login-acl-'));
+  try {
+    fs.copyFileSync(WOLF_ACCESS, path.join(dir, 'staff-portal-access.json'));
+    fs.copyFileSync(SUNSET_ACCESS, path.join(dir, 'staff-portal-access.sunset-staging.json'));
+    if (mode === 'sunset-image') {
+      // Exact Dockerfile.luna-sunset-staff-api copy.
+      fs.copyFileSync(
+        path.join(dir, 'staff-portal-access.sunset-staging.json'),
+        path.join(dir, 'staff-portal-access.json'),
+      );
+    }
+    return fn(dir);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function layoutOpts(accessDir, env) {
+  return { accessDir, env };
+}
+
 console.log('verify:sunset-login-loop-001 — Sunset staff login bounce regression\n');
 
 console.log('[1] RED: Sunset deploy ACL must grant sunset, not wolfhouse');
@@ -117,14 +144,36 @@ withEnv({ DEFAULT_CLIENT_SLUG: 'wolfhouse-somo', LUNA_DEPLOYMENT: 'sunset-stagin
     !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset'));
 });
 withEnv({ DEFAULT_CLIENT_SLUG: 'sunset', LUNA_DEPLOYMENT: 'production' }, () => {
-  ok('production + sunset slug conflict does not grant sunset overlay',
-    !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset'));
+  ok('production + sunset slug conflict denies sunset',
+    !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset')
+      && !CLIENTS.canMintStaffPortalSession(SUNSET_USER, 'sunset'));
 });
+ok('sunset+production identity is deny, not a filename fallback', (() => {
+  const d = CLIENTS.resolveTrustedStaffPortalAccessDecision({
+    DEFAULT_CLIENT_SLUG: 'sunset',
+    LUNA_DEPLOYMENT: 'production',
+  });
+  return d.action === 'deny'
+    && d.reason === 'conflicting_trusted_identity'
+    && CLIENTS.resolveStaffPortalAccessFile({
+      DEFAULT_CLIENT_SLUG: 'sunset',
+      LUNA_DEPLOYMENT: 'production',
+    }) === null;
+})());
+ok('sunset-staging+wolfhouse-somo identity is deny',
+  CLIENTS.resolveTrustedStaffPortalAccessDecision({
+    DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    LUNA_DEPLOYMENT: 'sunset-staging',
+  }).action === 'deny');
+ok('conflict deny does not fall back to ACCESS_FILE in source',
+  CLIENTS_SRC.includes("reason: 'conflicting_trusted_identity'")
+    && /decision\.action === 'deny'/.test(CLIENTS_SRC)
+    && !/fail closed to the Wolfhouse base file/.test(CLIENTS_SRC));
 withEnv({ DEFAULT_CLIENT_SLUG: 'sunset' }, () => {
   ok('unlisted email denied on sunset deploy',
     !CLIENTS.userCanAccessClient(UNLISTED, 'sunset')
       && !CLIENTS.canMintStaffPortalSession(UNLISTED, 'sunset'));
-  const aclStart = CLIENTS_SRC.indexOf('function shouldUseSunsetStagingAccess');
+  const aclStart = CLIENTS_SRC.indexOf('function resolveTrustedStaffPortalAccessDecision');
   const aclEnd = CLIENTS_SRC.indexOf('const SURF_VERTICALS');
   const aclBlock = aclStart >= 0 && aclEnd > aclStart
     ? CLIENTS_SRC.slice(aclStart, aclEnd)
@@ -191,6 +240,120 @@ ok('session cookie still HttpOnly SameSite=Lax Path=/staff',
   /function setSessionCookie[\s\S]{0,400}?HttpOnly[\s\S]{0,120}?SameSite=Lax[\s\S]{0,120}?Path=\/staff/.test(API_SRC));
 ok('browserLoginRedirect still sends 302 /staff/login when no session',
   /async function browserLoginRedirect[\s\S]{0,500}?Location: '\/staff\/login'/.test(API_SRC));
+
+console.log('\n[6] RED/GREEN: Dockerfile-built ACL layout + production/conflict identity');
+const dockerfile = fs.readFileSync(path.join(ROOT, 'Dockerfile.luna-sunset-staff-api'), 'utf8');
+ok('Sunset Dockerfile copies overlay over staff-portal-access.json',
+  /cp\s+config\/clients\/staff-portal-access\.sunset-staging\.json\s+config\/clients\/staff-portal-access\.json/.test(dockerfile));
+ok('Sunset Dockerfile bakes DEFAULT_CLIENT_SLUG=sunset',
+  /ENV\s+DEFAULT_CLIENT_SLUG=sunset\b/.test(dockerfile));
+
+withAccessLayout('sunset-image', (imageDir) => {
+  const imageBase = JSON.parse(fs.readFileSync(path.join(imageDir, 'staff-portal-access.json'), 'utf8'));
+  const imageOverlay = JSON.parse(fs.readFileSync(
+    path.join(imageDir, 'staff-portal-access.sunset-staging.json'),
+    'utf8',
+  ));
+  ok('image layout base file is Sunset ACL (Dockerfile copy)',
+    Array.isArray(imageBase.client_access[OWNER])
+      && imageBase.client_access[OWNER][0] === 'sunset'
+      && Array.isArray(imageOverlay.client_access[OWNER])
+      && imageOverlay.client_access[OWNER][0] === 'sunset');
+
+  const img = (env) => layoutOpts(imageDir, env);
+
+  ok('image layout valid sunset slug grants sunset',
+    CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset', img({ DEFAULT_CLIENT_SLUG: 'sunset' }))
+      && CLIENTS.canMintStaffPortalSession(SUNSET_USER, 'sunset', img({ DEFAULT_CLIENT_SLUG: 'sunset' })));
+  ok('image layout valid sunset+sunset-staging grants sunset',
+    CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset', img({
+      DEFAULT_CLIENT_SLUG: 'sunset',
+      LUNA_DEPLOYMENT: 'sunset-staging',
+    })));
+  ok('image layout valid sunset still denies wolfhouse-somo',
+    !CLIENTS.userCanAccessClient(SUNSET_USER, 'wolfhouse-somo', img({ DEFAULT_CLIENT_SLUG: 'sunset' }))
+      && !CLIENTS.canMintStaffPortalSession(WOLF_USER, 'wolfhouse-somo', img({
+        DEFAULT_CLIENT_SLUG: 'sunset',
+      })));
+  ok('image layout sunset+production conflict denies sunset',
+    !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset', img({
+      DEFAULT_CLIENT_SLUG: 'sunset',
+      LUNA_DEPLOYMENT: 'production',
+    }))
+      && !CLIENTS.canMintStaffPortalSession(SUNSET_USER, 'sunset', img({
+        DEFAULT_CLIENT_SLUG: 'sunset',
+        LUNA_DEPLOYMENT: 'production',
+      })));
+  ok('image layout sunset+production does not mint via fallback filename',
+    CLIENTS.resolveStaffPortalAccessFile({
+      DEFAULT_CLIENT_SLUG: 'sunset',
+      LUNA_DEPLOYMENT: 'production',
+    }, img({
+      DEFAULT_CLIENT_SLUG: 'sunset',
+      LUNA_DEPLOYMENT: 'production',
+    })) === null);
+  ok('image layout sunset-staging+wolfhouse-somo conflict denies both tenants',
+    !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset', img({
+      DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+      LUNA_DEPLOYMENT: 'sunset-staging',
+    }))
+      && !CLIENTS.userCanAccessClient(WOLF_USER, 'wolfhouse-somo', img({
+        DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+        LUNA_DEPLOYMENT: 'sunset-staging',
+      })));
+  ok('image layout production-only identity is base, not overlay',
+    CLIENTS.resolveTrustedStaffPortalAccessDecision({ LUNA_DEPLOYMENT: 'production' }).file === 'base'
+      && CLIENTS.resolveTrustedStaffPortalAccessDecision({ LUNA_DEPLOYMENT: 'production' }).action === 'read');
+  ok('image layout Production (case) + sunset slug is deny',
+    CLIENTS.resolveTrustedStaffPortalAccessDecision({
+      DEFAULT_CLIENT_SLUG: 'sunset',
+      LUNA_DEPLOYMENT: 'Production',
+    }).action === 'deny'
+      && !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset', img({
+        DEFAULT_CLIENT_SLUG: 'sunset',
+        LUNA_DEPLOYMENT: 'Production',
+      })));
+  ok('image layout unlisted email denied on valid sunset identity',
+    !CLIENTS.userCanAccessClient(UNLISTED, 'sunset', img({ DEFAULT_CLIENT_SLUG: 'sunset' })));
+});
+
+withAccessLayout('wolfhouse-source', (wolfDir) => {
+  const wolfBase = JSON.parse(fs.readFileSync(path.join(wolfDir, 'staff-portal-access.json'), 'utf8'));
+  ok('wolfhouse layout base file remains wolfhouse-somo ACL',
+    Array.isArray(wolfBase.client_access[OWNER])
+      && wolfBase.client_access[OWNER][0] === 'wolfhouse-somo');
+
+  const wolf = (env) => layoutOpts(wolfDir, env);
+
+  ok('wolfhouse layout unset grants wolfhouse-somo',
+    CLIENTS.userCanAccessClient(WOLF_USER, 'wolfhouse-somo', wolf({}))
+      && !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset', wolf({})));
+  ok('wolfhouse layout DEFAULT_CLIENT_SLUG=wolfhouse-somo unchanged',
+    CLIENTS.userCanAccessClient(WOLF_USER, 'wolfhouse-somo', wolf({
+      DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+    }))
+      && !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset', wolf({
+        DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+      })));
+  ok('wolfhouse layout production+wolfhouse-somo still grants wolfhouse',
+    CLIENTS.userCanAccessClient(WOLF_USER, 'wolfhouse-somo', wolf({
+      DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+      LUNA_DEPLOYMENT: 'production',
+    }))
+      && CLIENTS.canMintStaffPortalSession(WOLF_USER, 'wolfhouse-somo', wolf({
+        DEFAULT_CLIENT_SLUG: 'wolfhouse-somo',
+        LUNA_DEPLOYMENT: 'production',
+      })));
+  ok('wolfhouse layout production+sunset denies both tenants',
+    !CLIENTS.userCanAccessClient(SUNSET_USER, 'sunset', wolf({
+      DEFAULT_CLIENT_SLUG: 'sunset',
+      LUNA_DEPLOYMENT: 'production',
+    }))
+      && !CLIENTS.userCanAccessClient(WOLF_USER, 'wolfhouse-somo', wolf({
+        DEFAULT_CLIENT_SLUG: 'sunset',
+        LUNA_DEPLOYMENT: 'production',
+      })));
+});
 
 console.log(`\n── verify:sunset-login-loop-001: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);
