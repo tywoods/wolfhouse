@@ -172,7 +172,11 @@ function boot() {
   const imap = cardHtml(html, 'imap_smtp');
   assert.doesNotMatch(imap, /Coming soon/);
   assert.match(imap, /admin\.email\.off|Off/);
+  assert.match(imap, /desk@sunset\.example/);
+  assert.match(imap, /Not connected|registered_not_connected/);
   assert.doesNotMatch(imap, /data-email-connect=/);
+  assert.doesNotMatch(imap, /data-email-prepare-address/);
+  assert.doesNotMatch(imap, /type="password"/);
   assert.doesNotMatch(html, new RegExp(SMTP_ID));
 }
 

@@ -963,6 +963,12 @@ function adminEmailImapCardLive(data){
   }
   return false;
 }
+function adminEmailImapOffCapabilitiesHtml(){
+  return '<dl><dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+    '<dt>' + escHtml(portalT('admin.email.inbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+    '<dt>' + escHtml(portalT('admin.email.outbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+    '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd></dl>';
+}
 function adminEmailImapCardHtml(data){
   var locations = data && Array.isArray(data.locations) ? data.locations : [];
   var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
@@ -984,10 +990,36 @@ function adminEmailImapCardHtml(data){
   var failed = adminEmailSettingsConnectFailedByProvider.imap_smtp === true;
   var hint = adminEmailSettingsPrepareHintByProvider.imap_smtp === 'empty_address';
   var title = escHtml(emailUiT('admin.email.provider.imap_smtp', 'IMAP / SMTP', 'IMAP / SMTP'));
-  var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="imap_smtp">' +
+  var stateKey = ep ? adminEmailStateKey(ep.connection_state) : '';
+  var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="imap_smtp"' +
+    (stateKey ? ' data-email-state="' + escHtml(stateKey) + '"' : '') + '>' +
     '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
     '<h3 class="portal-admin-email-card-title">' + title + '</h3>';
-  if (missing.length) {
+  if (ep) {
+    // Registered IMAP/SMTP identity — same language family as Microsoft/Gmail registered cards.
+    // No OAuth/connect/send controls; capabilities stay Off until a later slice.
+    var pillKind = stateKey === 'connected_health' ? 'on' : (stateKey === 'reauth_required' ? 'soon' : 'off');
+    var pillLabel = stateKey === 'connected_health'
+      ? emailUiT('admin.email.connected', 'Connected', 'Conectado')
+      : (stateKey === 'reauth_required'
+        ? emailUiT('admin.email.needsAttention', 'Needs attention', 'Necesita atención')
+        : emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
+    html += adminEmailStatusPill(pillKind, pillLabel);
+    html += '<p role="status">' + escHtml(adminEmailStateCopy(stateKey, 'imap_smtp')) + '</p>';
+    var addr = adminEmailLooksLikeAddress(ep.public_address);
+    if (addr) {
+      if (stateKey === 'connected_health') {
+        html += '<p class="portal-admin-email-address" data-email-connected-as>' +
+          '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.connectedAs', 'Connected as', 'Conectado como')) + '</span> ' +
+          escHtml(addr) + '</p>';
+      } else {
+        html += '<p class="portal-admin-email-address" data-email-registered-as>' +
+          '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.smtpMailboxLabel', 'Mailbox address', 'Dirección de correo')) + '</span> ' +
+          escHtml(addr) + '</p>';
+      }
+    }
+    html += adminEmailImapOffCapabilitiesHtml();
+  } else if (missing.length) {
     html += '<p class="portal-admin-email-card-copy" role="status">' +
       escHtml(emailUiT('admin.email.smtpMissingSecrets', 'Missing Key Vault secret:', 'Falta el secreto de Key Vault:')) +
       ' ' + escHtml(missing.join(', ')) + '</p>';
@@ -1014,10 +1046,7 @@ function adminEmailImapCardHtml(data){
           'El registro solo guarda la identidad del buzón; la entrada, la salida y la automatización siguen desactivadas.')) +
         '</p>';
     } else {
-      html += '<dl><dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
-        '<dt>' + escHtml(portalT('admin.email.inbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
-        '<dt>' + escHtml(portalT('admin.email.outbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
-        '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd></dl>';
+      html += adminEmailImapOffCapabilitiesHtml();
     }
   }
   html += '</section>';
