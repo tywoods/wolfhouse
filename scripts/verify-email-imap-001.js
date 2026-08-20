@@ -431,6 +431,7 @@ async function main() {
   const contract = require('./lib/email-sunset-imap-secret-ref-contract');
   const verifyOwner = require('./lib/email-sunset-imap-live-verify');
   const transportOwner = require('./lib/email-sunset-imap-imaps-transport');
+  const mimeOwner = require('./lib/email-imap-rfc822-safe-text');
   const bodystructureOwner = require('./lib/email-imap-bodystructure');
   const pollOwner = require('./lib/email-sunset-imap-inbound-poll');
   const mapper = require('./lib/email-imap-inbound-envelope-mapper');
@@ -3381,6 +3382,187 @@ async function main() {
   }
 
   {
+    const cafe = 'caf\u00e9';
+    const cafeBytes = Buffer.from(cafe, 'utf8');
+    const highBits = [...cafeBytes].filter((byte) => byte > 0x7f);
+    assert.equal(highBits.length, 2);
+    assert.equal(cafeBytes.includes(0x3d), false);
+    assert.equal(cafeBytes.length, 5);
+    assert.equal(typeof transportOwner.decodeSelectedSectionLiteral, 'function');
+    assert.equal(mimeOwner.decodeTransfer(cafeBytes, '7bit'), null);
+    assert.ok(Buffer.isBuffer(mimeOwner.decodeTransfer(cafeBytes, '8bit')));
+    assert.equal(mimeOwner.decodeTransfer(cafeBytes, 'quoted-printable'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'utf-8'), cafe);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'utf8'), cafe);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'UTF-8'), cafe);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', null), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', ''), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'us-ascii'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'ascii'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'iso-8859-1'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'latin1'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'windows-1252'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(Buffer.from([0x63, 0x61, 0x66, 0xc3]), '7bit', 'utf-8'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(Buffer.from([0x63, 0x61, 0x66, 0xff]), '7bit', 'utf-8'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(Buffer.from([0xc0, 0x80]), '7bit', 'utf-8'), null);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(Buffer.from([0xed, 0xa0, 0x80]), '7bit', 'utf-8'), null);
+    assert.equal(
+      transportOwner.decodeSelectedSectionLiteral(Buffer.concat([cafeBytes, Buffer.from([0x00])]), '7bit', 'utf-8'),
+      null,
+    );
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(Buffer.from(FIXTURE_BODY, 'utf8'), '7bit', 'utf-8'), FIXTURE_BODY);
+    assert.equal(transportOwner.decodeSelectedSectionLiteral(Buffer.from(FIXTURE_BODY, 'utf8'), '7bit', 'us-ascii'), FIXTURE_BODY);
+    const decodeSurface = JSON.stringify({
+      transfer7bit: mimeOwner.decodeTransfer(cafeBytes, '7bit'),
+      selected: transportOwner.decodeSelectedSectionLiteral(cafeBytes, '7bit', 'iso-8859-1'),
+    });
+    assert.equal(decodeSurface.includes(cafe), false);
+    assert.equal(decodeSurface.includes(PLANTED), false);
+    ok('selected-section 7BIT UTF-8 compatibility is charset-exact and leaves RFC 7BIT ASCII strict');
+  }
+
+  function gmail7bitPlainStructure(charset, octets) {
+    let params = 'NIL';
+    if (charset === false) params = '()';
+    else if (charset != null) params = `("CHARSET" "${charset}")`;
+    return `("TEXT" "PLAIN" ${params} NIL NIL "7BIT" ${octets} 1 NIL NIL NIL NIL)`;
+  }
+
+  function gmail7bitUtf8Mime(opts) {
+    const body = opts && opts.body != null ? opts.body : Buffer.from('caf\u00e9', 'utf8');
+    const charset = Object.prototype.hasOwnProperty.call(opts || {}, 'charset')
+      ? opts.charset
+      : 'UTF-8';
+    const textBytes = Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8');
+    return simplePlainMime({
+      encoding: '7BIT',
+      charset: charset == null || charset === false ? 'UTF-8' : charset,
+      body: textBytes,
+      octets: textBytes.length,
+      bodystructure: gmail7bitPlainStructure(charset, textBytes.length),
+      gmailOrder: true,
+      flags: '\\Seen',
+      textSection: '1',
+    });
+  }
+
+  function assertPollFailAfterSectionFetch(pollClosed, name) {
+    assert.equal(pollClosed.fetched.ok, false, name);
+    assert.ok(pollClosed.pollErr, name);
+    assert.equal(pollClosed.ingested.length, 0, name);
+    assert.equal(pollClosed.projected.length, 0, name);
+    assert.equal(Number(pollClosed.cursor.last_uid), 0, name);
+    assert.equal(pollClosed.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false, name);
+    assert.equal(pollClosed.queries.some((q) => q.text === pollSql.SQL_COMMIT_RESET), false, name);
+    assert.equal(
+      pollClosed.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)),
+      true,
+      name,
+    );
+    assert.equal(Object.prototype.hasOwnProperty.call(pollClosed.fetched, 'last_uid'), false, name);
+    assert.equal(Object.prototype.hasOwnProperty.call(pollClosed.fetched, 'messages'), false, name);
+    const surface = `${JSON.stringify(pollClosed.fetched)}\n${String(pollClosed.pollErr && pollClosed.pollErr.message)}`;
+    assert.equal(surface.includes('caf\u00e9'), false, name);
+    assert.equal(surface.includes(PLANTED), false, name);
+    assertNoFullBodyOrSend(pollClosed.received);
+  }
+
+  async function pollGmail7bitMime(mime) {
+    return fetchInboxAndPoll((socket, line) => {
+      if (handleSearchSelectFetch(socket, line, (sock, tag, fetchLine) => {
+        dispatchMimeFetch(sock, tag, fetchLine, () => mime);
+      })) return;
+      socket.write(`${line.split(' ')[0]} BAD not implemented\r\n`);
+    });
+  }
+
+  {
+    const cafe = 'caf\u00e9';
+    const cafeBytes = Buffer.from(cafe, 'utf8');
+    const successCases = [
+      { name: '7BIT charset UTF-8', mime: gmail7bitUtf8Mime({ charset: 'UTF-8', body: cafeBytes }), body: cafe },
+      { name: '7BIT charset UTF8 atom', mime: gmail7bitUtf8Mime({ charset: 'UTF8', body: cafeBytes }), body: cafe },
+      { name: 'ASCII 7BIT UTF-8 unchanged', mime: gmail7bitUtf8Mime({ charset: 'UTF-8', body: FIXTURE_BODY }), body: FIXTURE_BODY },
+    ];
+    for (const item of successCases) {
+      const selected = bodystructureOwner.selectBoundedTextPlainFromFetchText(
+        `1 FETCH (UID ${FIXTURE_UID} RFC822.SIZE 180 BODYSTRUCTURE ${item.mime.bodystructure})`,
+      );
+      assert.ok(selected, item.name);
+      assert.equal(selected.encoding, '7bit', item.name);
+      assert.equal(selected.section, '1', item.name);
+      const result = await fetchWithMime(item.mime);
+      assert.equal(result.fetched.ok, true, item.name);
+      assert.equal(result.fetched.messages.length, 1, item.name);
+      assert.equal(result.fetched.messages[0].bodyText, item.body, item.name);
+      const mapped = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+        mailbox: MAILBOX,
+        message: result.fetched.messages[0],
+      }));
+      assert.equal(mapped.ok, true, item.name);
+      assert.equal(mapped.value.body_text, item.body, item.name);
+      assertNoFullBodyOrSend(result.received);
+      const preflightLine = result.received.find((line) => /UID FETCH /.test(line) && /BODYSTRUCTURE/i.test(line));
+      assert.ok(preflightLine, item.name);
+      const sectionLine = result.received.find((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line));
+      assert.ok(sectionLine, item.name);
+      assert.match(sectionLine, /BODY\.PEEK\[1\]<0\.\d+>/, item.name);
+    }
+    const ingestedCafe = await pollGmail7bitMime(gmail7bitUtf8Mime({ charset: 'UTF-8', body: cafeBytes }));
+    assert.equal(ingestedCafe.fetched.ok, true);
+    assert.equal(ingestedCafe.pollErr, undefined);
+    assert.equal(ingestedCafe.ingested.length, 1);
+    assert.equal(ingestedCafe.ingested[0].body_text, cafe);
+    assert.equal(ingestedCafe.projected.length, 1);
+    assert.equal(Number(ingestedCafe.cursor.last_uid), FIXTURE_UID);
+    assert.equal(ingestedCafe.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), true);
+    const ingestedAscii = await pollGmail7bitMime(gmail7bitUtf8Mime({ charset: 'UTF-8', body: FIXTURE_BODY }));
+    assert.equal(ingestedAscii.fetched.ok, true);
+    assert.equal(ingestedAscii.ingested[0].body_text, FIXTURE_BODY);
+    assert.equal(Number(ingestedAscii.cursor.last_uid), FIXTURE_UID);
+    ok('fake Gmail 7BIT UTF-8 multibyte ingests exact Unicode; ASCII 7BIT unchanged');
+  }
+
+  {
+    const cafeBytes = Buffer.from('caf\u00e9', 'utf8');
+    const failCases = [
+      { name: '7BIT high-bit no charset NIL', mime: gmail7bitUtf8Mime({ charset: null, body: cafeBytes }) },
+      { name: '7BIT high-bit empty params', mime: gmail7bitUtf8Mime({ charset: false, body: cafeBytes }) },
+      { name: '7BIT high-bit US-ASCII', mime: gmail7bitUtf8Mime({ charset: 'US-ASCII', body: cafeBytes }) },
+      { name: '7BIT high-bit ASCII', mime: gmail7bitUtf8Mime({ charset: 'ASCII', body: cafeBytes }) },
+      { name: '7BIT high-bit ISO-8859-1', mime: gmail7bitUtf8Mime({ charset: 'ISO-8859-1', body: cafeBytes }) },
+      { name: '7BIT high-bit latin1', mime: gmail7bitUtf8Mime({ charset: 'latin1', body: cafeBytes }) },
+      { name: '7BIT UTF-8 truncated sequence', mime: gmail7bitUtf8Mime({ charset: 'UTF-8', body: Buffer.from([0x63, 0x61, 0x66, 0xc3]) }) },
+      { name: '7BIT UTF-8 invalid octet', mime: gmail7bitUtf8Mime({ charset: 'UTF-8', body: Buffer.from([0x63, 0x61, 0x66, 0xff]) }) },
+      { name: '7BIT UTF-8 overlong', mime: gmail7bitUtf8Mime({ charset: 'UTF-8', body: Buffer.from([0xc0, 0x80]) }) },
+      { name: '7BIT UTF-8 surrogate', mime: gmail7bitUtf8Mime({ charset: 'UTF-8', body: Buffer.from([0xed, 0xa0, 0x80]) }) },
+      { name: '7BIT UTF-8 NUL policy', mime: gmail7bitUtf8Mime({ charset: 'UTF-8', body: Buffer.concat([cafeBytes, Buffer.from([0x00])]) }) },
+    ];
+    for (const item of failCases) {
+      const result = await fetchWithMime(item.mime);
+      assert.equal(result.fetched.ok, false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'last_uid'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'messages'), false, item.name);
+      assert.equal(result.received.some((line) => /BODYSTRUCTURE/i.test(line)), true, item.name);
+      assert.equal(result.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)), true, item.name);
+      assert.equal(JSON.stringify(result.fetched).includes('caf\u00e9'), false, item.name);
+      assertNoFullBodyOrSend(result.received);
+      const pollClosed = await pollGmail7bitMime(item.mime);
+      assertPollFailAfterSectionFetch(pollClosed, item.name);
+    }
+    const unsupported = await pollGmail7bitMime(gmail7bitUtf8Mime({ charset: 'windows-1252', body: cafeBytes }));
+    assert.equal(unsupported.fetched.ok, false);
+    assert.ok(unsupported.pollErr);
+    assert.equal(unsupported.ingested.length, 0);
+    assert.equal(unsupported.projected.length, 0);
+    assert.equal(Number(unsupported.cursor.last_uid), 0);
+    assert.equal(unsupported.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false);
+    assert.equal(unsupported.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)), false);
+    assertNoFullBodyOrSend(unsupported.received);
+    ok('Gmail 7BIT high-bit without UTF-8 charset or with invalid UTF-8 fails closed without ingest or cursor commit');
+  }
+
+  {
     const gmailPlain = `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${FIXTURE_BODY.length} 1 NIL NIL NIL NIL)`;
     const truncatedRfc822 = `(${gmailPlain}("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 ("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd") 10 NIL NIL NIL NIL) "MIXED" ("BOUNDARY" "mix") NIL NIL NIL)`;
     const pollClosed = await fetchInboxAndPoll((socket, line) => {
@@ -3983,6 +4165,18 @@ async function main() {
   assert.match(mimeSrc, /quoted-printable|quotedPrintable/i);
   assert.match(mimeSrc, /base64/i);
   assert.match(mimeSrc, /multipart/i);
+  assert.match(mimeSrc, /if \(cte === '7bit'\) \{/);
+  assert.match(mimeSrc, /if \(buf\[i\] > 127\) return null;/);
+  assert.doesNotMatch(mimeSrc, /Bounded Gmail 7BIT UTF-8 selected-section normalization/);
+  assert.match(transportSrc, /function decodeSelectedSectionLiteral/);
+  assert.match(transportSrc, /Bounded Gmail 7BIT UTF-8 selected-section normalization/);
+  assert.match(transportSrc, /decodeSelectedSectionLiteral\(bodyBytes, expected\.encoding, expected\.charset\)/);
+  assert.match(transportSrc, /decodeTransfer\(bodyBytes, cte\)/);
+  assert.match(transportSrc, /cte !== '7bit'/);
+  assert.match(transportSrc, /declared === 'utf-8' \|\| declared === 'utf8'/);
+  assert.match(transportSrc, /new TextDecoder\('utf-8', \{ fatal: true \}\)/);
+  assert.doesNotMatch(transportSrc, /inferCharset\(bodyBytes/);
+  assert.equal(typeof transportOwner.decodeSelectedSectionLiteral, 'function');
   assert.match(bodystructureSrc, /selectSafeTextPlainPart/);
   assert.match(bodystructureSrc, /IMAP_BODYSTRUCTURE_MAX_PARTS/);
   assert.match(bodystructureSrc, /body-fld-lines is mandatory immediately after/);

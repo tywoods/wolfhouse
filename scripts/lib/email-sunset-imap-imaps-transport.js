@@ -8,6 +8,10 @@
  * Fetch is a bounded BODYSTRUCTURE/RFC822.SIZE preflight plus
  * BODY.PEEK[section]<offset.count> of a selected text/plain part.
  * Production never requests a full-message empty-section BODY.PEEK.
+ * Selected-section 7BIT remains US-ASCII except a bounded Gmail
+ * normalization: when BODYSTRUCTURE charset is explicit UTF-8/UTF8 and
+ * the complete selected literal is fatal-UTF-8-valid, raw high-bit
+ * octets are accepted. RFC MIME 7BIT decodeTransfer is unchanged.
  * No SMTP, APPEND, STORE, COPY, or send.
  *
  * @module email-sunset-imap-imaps-transport
@@ -436,6 +440,56 @@ function parseFetchPreflight(item, uidvalidity) {
   });
 }
 
+const SELECTED_SECTION_PROHIBITED = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+
+function isExplicitUtf8Charset(charset) {
+  if (typeof charset !== 'string') return false;
+  const declared = charset.trim().toLowerCase();
+  return declared === 'utf-8' || declared === 'utf8';
+}
+
+function decodeFatalUtf8SelectedLiteral(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch (_) {
+    return null;
+  }
+  if (typeof text !== 'string' || text.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
+  if (SELECTED_SECTION_PROHIBITED.test(text.replace(/\r\n|\n|\r/g, ''))) return null;
+  return text;
+}
+
+/**
+ * Decode a bounded selected text/plain section.
+ *
+ * RFC 2045 7BIT is US-ASCII. Bounded Gmail 7BIT UTF-8 selected-section normalization:
+ * Gmail sometimes returns raw UTF-8 octets in a part
+ * declared 7BIT when BODYSTRUCTURE charset is explicit UTF-8/UTF8.
+ * That mismatch is accepted only at this IMAP selected-section boundary,
+ * after exact declared-vs-actual octet match, and only when the complete
+ * bounded literal is fatal-UTF-8-valid. Absent charset, US-ASCII, Latin-1,
+ * unsupported charset, invalid/overlong/surrogate/truncated UTF-8, and
+ * NUL/control policy violations stay fail-closed. quoted-printable, base64,
+ * and 8bit decoders are unchanged; RFC MIME decodeTransfer remains strict
+ * 7BIT ASCII for BODY[] / unrelated paths.
+ */
+function decodeSelectedSectionLiteral(bodyBytes, encoding, charset) {
+  if (!Buffer.isBuffer(bodyBytes) || bodyBytes.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
+  const cte = typeof encoding === 'string' ? encoding.trim().toLowerCase() : encoding;
+  const decoded = decodeTransfer(bodyBytes, cte);
+  if (decoded) {
+    if (decoded.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
+    const name = inferCharset(decoded, charset);
+    const text = decodeCharset(decoded, name);
+    if (typeof text !== 'string' || text.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
+    return text;
+  }
+  if (cte !== '7bit' || !isExplicitUtf8Charset(charset)) return null;
+  return decodeFatalUtf8SelectedLiteral(bodyBytes);
+}
+
 function parseFetchSection(item, expected) {
   if (!expected || !isValidImapSection(expected.section)) return null;
   const raw = item && item.text;
@@ -459,11 +513,7 @@ function parseFetchSection(item, expected) {
   if (!Number.isInteger(expected.octets) || expected.octets < 0) return null;
   if (bodyBytes.length !== expected.octets) return null;
   if (bodyBytes.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
-  const decoded = decodeTransfer(bodyBytes, expected.encoding);
-  if (!decoded) return null;
-  if (decoded.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
-  const charset = inferCharset(decoded, expected.charset);
-  const text = decodeCharset(decoded, charset);
+  const text = decodeSelectedSectionLiteral(bodyBytes, expected.encoding, expected.charset);
   if (typeof text !== 'string' || text.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
   return Object.freeze({
     uid,
@@ -871,6 +921,7 @@ module.exports = Object.freeze({
   parseUntaggedCapabilityAtoms,
   IMAP_VERIFY_COMMANDS,
   formatBodyPeekSection,
+  decodeSelectedSectionLiteral,
   IMAP_PREFLIGHT_ATTRS,
   IMAP_FETCH_MAX_MESSAGES,
   IMAP_FETCH_BATCH_MAX_BYTES,
