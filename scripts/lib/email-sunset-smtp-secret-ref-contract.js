@@ -15,6 +15,8 @@ const { validateEmailMailboxSecretRef } = require('./email-mailbox-adapter-contr
 
 const SMTP_IDENTITY_REGISTER_ENABLED_ENV = 'LUNA_EMAIL_SMTP_IDENTITY_REGISTER_ENABLED';
 const EMAIL_SMTP_IDENTITY_PATH = '/staff/admin/email-settings/smtp/endpoint';
+const SMTP_VERIFY_ENABLED_ENV = 'LUNA_EMAIL_SMTP_VERIFY_ENABLED';
+const EMAIL_SMTP_VERIFY_PATH = '/staff/admin/email-settings/smtp/verify';
 const SUNSET_SMTP_IDENTITY_SECRET_REF = 'secret-ref:email/smtp/sunset-staging';
 const UI_ENABLED_ENV = 'SUNSET_EMAIL_SETTINGS_UI_ENABLED';
 const DEPLOYMENT_ENV = 'LUNA_DEPLOYMENT';
@@ -86,6 +88,15 @@ function isSunsetEmailSmtpIdentityRegisterEnabled(env) {
   }
 }
 
+function isSunsetEmailSmtpVerifyEnabled(env) {
+  try {
+    return isSunsetEmailSmtpIdentityRegisterEnabled(env)
+      && ownData(env, SMTP_VERIFY_ENABLED_ENV) === 'true';
+  } catch (_) {
+    return false;
+  }
+}
+
 function evaluateSunsetSmtpSecretRefs(env) {
   const missing = [];
   try {
@@ -125,10 +136,13 @@ function evaluateSunsetSmtpSecretRefs(env) {
 module.exports = Object.freeze({
   SMTP_IDENTITY_REGISTER_ENABLED_ENV,
   EMAIL_SMTP_IDENTITY_PATH,
+  SMTP_VERIFY_ENABLED_ENV,
+  EMAIL_SMTP_VERIFY_PATH,
   SUNSET_SMTP_IDENTITY_SECRET_REF,
   SUNSET_SMTP_SECRET_NAMES,
   SUNSET_SMTP_SECRET_REFS,
   SUNSET_SMTP_SECRET_ENV_KEYS,
   isSunsetEmailSmtpIdentityRegisterEnabled,
+  isSunsetEmailSmtpVerifyEnabled,
   evaluateSunsetSmtpSecretRefs,
 });

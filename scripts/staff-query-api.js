@@ -213,11 +213,14 @@ const {
   createEmailSettingsRoutes,
   EMAIL_SETTINGS_PATH,
   EMAIL_SMTP_IDENTITY_PATH,
+  EMAIL_SMTP_VERIFY_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
 const {
   isSunsetEmailSmtpIdentityRegisterEnabled,
+  isSunsetEmailSmtpVerifyEnabled,
 } = require('./lib/email-sunset-smtp-secret-ref-contract');
+const { createSunsetSmtpKvSecretProvider } = require('./lib/email-sunset-smtp-kv-secret-provider');
 const { createSunsetGoogleEndpointPrepare } = require('./lib/email-sunset-google-endpoint-prepare');
 const { createSunsetStagingGoogleOAuthComposition } = require('./lib/email-google-oauth-sunset-staging-runtime-composition');
 const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
@@ -2810,8 +2813,10 @@ const emailSettingsRoutes = createEmailSettingsRoutes({
   assertStaffClientAccess,
   authorizeAuthenticatedStaffRoute,
   withPgClient,
+  secretProvider: createSunsetSmtpKvSecretProvider(),
 });
-const { handleGet: handleEmailSettingsGet, handlePost: handleSmtpIdentityPost } = emailSettingsRoutes;
+const { handleGet: handleEmailSettingsGet, handlePost: handleSmtpIdentityPost,
+  handleVerifyPost: handleSmtpVerifyPost } = emailSettingsRoutes;
 const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   sendJSON,
   assertStaffClientAccess,
@@ -48311,6 +48316,17 @@ async function router(req, res) {
   // Admin-only Sunset SMTP identity register (default-off). Canonical contract
   // gate (UI + sunset-staging + identity flag) before requireAuth / session /
   // readBody. Absent/other/production/wolfhouse → exact concealed 404 not_found.
+  if (pathname === EMAIL_SMTP_VERIFY_PATH && method === 'POST') {
+    if (!isSunsetEmailSmtpVerifyEnabled(process.env)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    let smtpVerifyBody;
+    try { smtpVerifyBody = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return handleSmtpVerifyPost(smtpVerifyBody, req, res, auth.user);
+  }
   if (pathname === EMAIL_SMTP_IDENTITY_PATH && method === 'POST') {
     if (!isSunsetEmailSmtpIdentityRegisterEnabled(process.env)) {
       return sendJSON(res, 404, { success: false, error: 'not_found' });
