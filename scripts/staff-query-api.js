@@ -21333,7 +21333,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </section>
       <section class="portal-schedule-create-section" data-create-section="payment" aria-labelledby="ps-create-section-payment-title">
         <h3 id="ps-create-section-payment-title" class="portal-schedule-create-section-title" data-i18n="schedule.create.section.paymentNotes">Payment &amp; notes</h3>
-        <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
+        <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid_via_link" data-i18n="schedule.payment.paidViaLink">Paid - Stripe</option><option value="paid_bank_transfer" data-i18n="schedule.payment.paidBankTransfer">Paid - Bank Transfer</option><option value="paid_in_store" data-i18n="schedule.payment.paidInStore">Paid - Cash</option></select></div>
         <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
       </section>
     </div>
@@ -26174,12 +26174,24 @@ function scheduleWireCreateAccommodation(){
   scheduleRenderCreateAccommodation();
 }
 
+function scheduleParseCreatePaymentChoice(raw){
+  var v = String(raw || 'unpaid').trim().toLowerCase();
+  if (v === 'pending') return { payment_status: 'pending', payment_method: null };
+  if (v === 'paid_via_link') return { payment_status: 'paid', payment_method: 'link' };
+  if (v === 'paid_bank_transfer') return { payment_status: 'paid', payment_method: 'bank_transfer' };
+  if (v === 'paid_in_store') return { payment_status: 'paid', payment_method: 'in_store' };
+  if (v === 'paid') return { payment_status: 'paid', payment_method: null };
+  return { payment_status: 'unpaid', payment_method: null };
+}
+
 function scheduleReadCreatePayload(){
   var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
   var phone = (el('ps-create-phone') && el('ps-create-phone').value || '').trim();
   var dateFrom = el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso();
   var dateTo = el('ps-create-date-to') ? el('ps-create-date-to').value : dateFrom;
-  var payment = el('ps-create-payment') ? el('ps-create-payment').value : 'unpaid';
+  var paymentChoice = scheduleParseCreatePaymentChoice(el('ps-create-payment') ? el('ps-create-payment').value : 'unpaid');
+  var payment = paymentChoice.payment_status;
+  var paymentMethod = paymentChoice.payment_method;
   var notes = (el('ps-create-notes') && el('ps-create-notes').value || '').trim();
   var components = {};
   if (typeof scheduleSyncCreateSurferMirrors === 'function') scheduleSyncCreateSurferMirrors();
@@ -26292,6 +26304,7 @@ function scheduleReadCreatePayload(){
     date_from: dateFrom,
     date_to: dateTo,
     payment_status: payment,
+    payment_method: paymentMethod,
     notes: notes,
     components: components,
     course_equipment: course_equipment,

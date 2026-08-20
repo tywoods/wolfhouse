@@ -274,6 +274,15 @@ const UI_COMPONENT_KEYS = new Set([
 ]);
 const LEGACY_UI_SERVICE_TYPES = new Set(['lesson', 'board_rental', 'wetsuit_rental']);
 const UI_PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'pending']);
+// Same allowlist as schedule drawer #632 (bank_transfer / in_store / link).
+const SUNSET_PAID_METHODS = new Set(['bank_transfer', 'in_store', 'link']);
+function normalizeSunsetPaidMethod(m) {
+  const v = String(m || '').toLowerCase().trim();
+  if (v === 'cash' || v === 'staff_cash' || v === 'staff_in_store') return 'in_store';
+  if (v === 'stripe' || v === 'card' || v === 'payment_link') return 'link';
+  if (v === 'staff_bank_transfer') return 'bank_transfer';
+  return SUNSET_PAID_METHODS.has(v) ? v : null;
+}
 
 const UI_TO_DB_SERVICE_TYPE = {
   lesson: 'surf_lesson',
@@ -4268,6 +4277,9 @@ async function createSunsetScheduleBooking(pg, opts) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
   }
   const input = validated.value;
+  const paymentMethod = input.payment_status === 'paid'
+    ? normalizeSunsetPaidMethod(bodyIn.payment_method)
+    : null;
   const canonicalRentals = rentalPrep.present ? rentalPrep.rentals : null;
   const rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
   const rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
@@ -4839,6 +4851,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           components: componentKeys,
           guest_phone: input.guest_phone,
           location_id: locationId || null,
+          sunset_payment_method: paymentMethod,
           rental_pricing: rentalPricingDescriptor || null,
           rentals: allRequestedRentals.length ? allRequestedRentals : null,
           custom_line_items: input.custom_line_items || [],
@@ -5169,6 +5182,8 @@ module.exports = {
   DB_TO_UI_SERVICE_TYPE,
   UI_TO_SR_PAYMENT,
   UI_TO_BOOKING_PAYMENT,
+  SUNSET_PAID_METHODS,
+  normalizeSunsetPaidMethod,
   FULL_DAY_EQUIPMENT_ADDON_KEY,
   FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT,
   FULL_DAY_ADDON_ELIGIBLE_COMPONENTS,
