@@ -83,6 +83,13 @@ function frozen(value) {
   return Object.freeze(value);
 }
 
+function selectUntaggedFromWire(wire) {
+  if (typeof wire !== 'string' || !wire.startsWith('* ')) {
+    throw new Error('expected IMAP untagged wire line');
+  }
+  return wire.slice(2);
+}
+
 function configuredEnv(patch) {
   const env = {
     SUNSET_EMAIL_SETTINGS_UI_ENABLED: 'true',
@@ -1244,6 +1251,74 @@ async function main() {
     assert.equal(transportSql.parseRfcUidnext(4294967296), null);
     assert.equal(transportSql.parseUidnext(['OK [UIDNEXT 18] Predicted next UID']), 18);
     assert.equal(transportSql.parseUidnext(['OK [UIDVALIDITY 1] UIDs valid']), null);
+    assert.equal(
+      transportSql.parseUidnext([selectUntaggedFromWire('* 1 EXISTS [UIDNEXT 18]')]),
+      null,
+    );
+    assert.equal(
+      transportSql.parseUidnext([
+        selectUntaggedFromWire('* OK human text [UIDNEXT 18] not-a-leading-response-code'),
+      ]),
+      null,
+    );
+    assert.equal(
+      transportSql.parseUidvalidity([selectUntaggedFromWire('* FLAGS (\\Seen [UIDVALIDITY 9])')]),
+      null,
+    );
+    assert.equal(
+      transportSql.parseUidnext([selectUntaggedFromWire('* OK [UIDNEXT 18] Predicted next UID')]),
+      18,
+    );
+    assert.equal(
+      transportSql.parseUidnext([selectUntaggedFromWire('* ok [uidnext 18] Predicted next UID')]),
+      18,
+    );
+    assert.equal(
+      transportSql.parseUidnext([selectUntaggedFromWire('* OK [UIDNEXT 18]')]),
+      18,
+    );
+    assert.equal(
+      transportSql.parseUidnext([
+        selectUntaggedFromWire('* OK [UIDNEXT 18] extra trailing human text'),
+      ]),
+      18,
+    );
+    assert.equal(
+      transportSql.parseUidvalidity([selectUntaggedFromWire('* OK [UIDVALIDITY 9] UIDs valid')]),
+      9,
+    );
+    assert.equal(
+      transportSql.parseUidvalidity([selectUntaggedFromWire('* ok [uidvalidity 9] UIDs valid')]),
+      9,
+    );
+    assert.equal(
+      transportSql.parseUidnext([selectUntaggedFromWire('* NO [UIDNEXT 18] no')]),
+      null,
+    );
+    assert.equal(
+      transportSql.parseUidnext([selectUntaggedFromWire('* BAD [UIDNEXT 18] bad')]),
+      null,
+    );
+    assert.equal(
+      transportSql.parseUidnext([selectUntaggedFromWire('* PREAUTH [UIDNEXT 18] pre')]),
+      null,
+    );
+    assert.equal(
+      transportSql.parseUidnext([
+        selectUntaggedFromWire('* NO [UIDNEXT 99] no'),
+        selectUntaggedFromWire('* OK [UIDNEXT 18] yes'),
+      ]),
+      18,
+    );
+    assert.equal(transportSql.parseUidnext(['OK  [UIDNEXT 18] Predicted next UID']), null);
+    assert.equal(transportSql.parseUidnext(['OK\t[UIDNEXT 18] Predicted next UID']), null);
+    assert.equal(
+      transportSql.parseUidnext([
+        selectUntaggedFromWire('* 1 EXISTS [UIDNEXT 99]'),
+        selectUntaggedFromWire('* OK [UIDNEXT 18] Predicted next UID'),
+      ]),
+      18,
+    );
     assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 0]']));
     assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 01]']));
     assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 4294967296]']));
@@ -1252,6 +1327,21 @@ async function main() {
     assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 5]', 'OK [UIDNEXT 5]']));
     assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 1] [UIDNEXT 2]']));
     assert.throws(() => transportSql.parseUidvalidity(['OK [UIDVALIDITY 1]', 'OK [UIDVALIDITY 2]']));
+    assert.throws(() => transportSql.parseUidnext([
+      selectUntaggedFromWire('* 1 EXISTS [UIDNEXT 18]'),
+      selectUntaggedFromWire('* OK [UIDNEXT 18] a'),
+      selectUntaggedFromWire('* OK [UIDNEXT 18] b'),
+    ]));
+    assert.throws(() => transportSql.parseUidnext([
+      selectUntaggedFromWire('* OK [UIDNEXT 18] a'),
+      selectUntaggedFromWire('* OK [UIDNEXT 19] b'),
+    ]));
+    assert.throws(() => transportSql.parseUidnext([
+      selectUntaggedFromWire('* OK [UIDNEXT 0] Predicted next UID'),
+    ]));
+    assert.throws(() => transportSql.parseUidvalidity([
+      selectUntaggedFromWire('* OK [UIDVALIDITY 4294967296] UIDs valid'),
+    ]));
     const empty = transportSql.boundedUidSearchRange(0, 1);
     assert.equal(empty, null);
     const tiny = transportSql.boundedUidSearchRange(0, 2);
@@ -1498,7 +1588,11 @@ async function main() {
       : FIXTURE_UID + 1;
     const exists = options.exists != null ? options.exists : 1;
     const lines = ['* FLAGS (\\Seen)'];
-    if (uv != null) lines.push(`* OK [UIDVALIDITY ${uv}] UIDs valid`);
+    if (options.uidvalidityRaw != null) {
+      lines.push(options.uidvalidityRaw);
+    } else if (uv != null) {
+      lines.push(`* OK [UIDVALIDITY ${uv}] UIDs valid`);
+    }
     if (options.uidnextRaw != null) {
       lines.push(options.uidnextRaw);
     } else if (un != null) {
@@ -2290,6 +2384,20 @@ async function main() {
       { name: 'conflicting UIDNEXT', uidnext: null, extraUntagged: ['* OK [UIDNEXT 18] a', '* OK [UIDNEXT 19] b'] },
       { name: 'duplicate UIDNEXT', uidnext: null, extraUntagged: ['* OK [UIDNEXT 18] a', '* OK [UIDNEXT 18] b'] },
       { name: 'same-line conflicting UIDNEXT', uidnextRaw: '* OK [UIDNEXT 18] [UIDNEXT 19] Predicted' },
+      { name: 'UIDNEXT from EXISTS text', uidnext: null, extraUntagged: ['* 1 EXISTS [UIDNEXT 18]'] },
+      {
+        name: 'UIDNEXT from human OK text',
+        uidnext: null,
+        extraUntagged: ['* OK human text [UIDNEXT 18] not-a-leading-response-code'],
+      },
+      {
+        name: 'UIDVALIDITY from FLAGS list',
+        uidvalidity: null,
+        extraUntagged: ['* FLAGS (\\Seen [UIDVALIDITY 9])'],
+      },
+      { name: 'UIDNEXT from NO status', uidnext: null, extraUntagged: ['* NO [UIDNEXT 18] no'] },
+      { name: 'UIDNEXT from BAD status', uidnext: null, extraUntagged: ['* BAD [UIDNEXT 18] bad'] },
+      { name: 'UIDNEXT from PREAUTH status', uidnext: null, extraUntagged: ['* PREAUTH [UIDNEXT 18] pre'] },
     ];
     for (const item of malformedCases) {
       const failed = await withImapTlsServer((socket, line) => {
@@ -2303,6 +2411,9 @@ async function main() {
               : (item.uidnextRaw ? null : 18),
             uidnextRaw: item.uidnextRaw,
             extraUntagged: item.extraUntagged,
+            uidvalidity: Object.prototype.hasOwnProperty.call(item, 'uidvalidity')
+              ? item.uidvalidity
+              : FIXTURE_UIDVALIDITY,
           });
         } else if (verb === 'UID' && /SEARCH/i.test(line)) {
           socket.write(`* SEARCH 17\r\n${tag} OK SEARCH completed\r\n`);
@@ -2321,6 +2432,43 @@ async function main() {
       assert.equal(failed.received.some((line) => /\bUID SEARCH\b/i.test(line)), false, item.name);
     }
     ok('malformed/conflicting/duplicate UIDNEXT fails closed before SEARCH');
+  }
+
+  {
+    const cased = await withImapTlsServer((socket, line) => {
+      const tag = line.split(' ')[0];
+      if (handleFetchAuth(socket, line)) return;
+      const verb = (line.split(' ')[1] || '').toUpperCase();
+      if (verb === 'SELECT') {
+        writeSelectInbox(socket, tag, {
+          uidvalidityRaw: '* ok [uidvalidity 3857529045] extra trailing human text',
+          uidnextRaw: '* ok [uidnext 18] extra trailing human text',
+        });
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        assertFiniteUidSearch(line, { start: 13, end: 17, maxWindow: 5 });
+        socket.write(`* SEARCH 17\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        writeBodyFetch(socket, 1, 17, rfc822Plain());
+        socket.write(`${tag} OK FETCH completed\r\n`);
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const fetched = await createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: null, last_uid: 0 }),
+      );
+      return { fetched, received };
+    });
+    assert.equal(cased.fetched.ok, true);
+    assert.equal(cased.fetched.uidvalidity, FIXTURE_UIDVALIDITY);
+    assert.equal(cased.fetched.last_uid, FIXTURE_UID);
+    assertFiniteUidSearch(findUidSearchLine(cased.received), {
+      start: 13,
+      end: 17,
+      maxWindow: 5,
+    });
+    ok('OK UIDNEXT/UIDVALIDITY accept casing and trailing human text');
   }
 
   {
@@ -2802,6 +2950,10 @@ async function main() {
   assert.ok(!transportSrc.includes('${lastUid + 1}:*'), 'must not SEARCH lastUid+1:*');
   assert.match(transportSrc, /formatBoundedUidSearchCommand/);
   assert.match(transportSrc, /parseUidnext/);
+  assert.match(transportSrc, /function parseSelectResponseCode/);
+  assert.match(transportSrc, /new RegExp\(`\^OK /);
+  assert.match(transportSrc, /leading\.test\(line\)/);
+  assert.match(transportSrc, /NO, BAD, and PREAUTH are categorically rejected/);
   assert.match(transportSrc, /IMAP_SEARCH_MAX_WINDOW/);
   assert.equal(transportOwner.IMAP_SEARCH_MAX_WINDOW, 1024);
   assert.ok(transportOwner.IMAP_SEARCH_MAX_WINDOW >= transportOwner.IMAP_FETCH_MAX_MESSAGES);

@@ -79,15 +79,29 @@ function parseSelectResponseCode(untagged, code) {
   if (!Array.isArray(untagged) || typeof code !== 'string' || !/^[A-Z]+$/.test(code)) {
     throw new Error('imap_malformed_response');
   }
+  // Untagged payloads after "* ". Accept UIDNEXT/UIDVALIDITY only from
+  // syntactically valid untagged status responses whose resp-text-code sits
+  // immediately after the status atom, e.g. `OK [UIDNEXT 18] ...` /
+  // `OK [UIDVALIDITY 9] ...` (wire: `* OK [UIDNEXT 18] ...`).
+  //
+  // NO, BAD, and PREAUTH are categorically rejected as mailbox-identity
+  // sources even when they carry a leading UIDNEXT/UIDVALIDITY response
+  // code. SELECT bounds must not be established from a failed or
+  // greeting-class condition, nor from arbitrary EXISTS/FLAGS/human text.
+  // Duplicate, conflicting, empty, or out-of-bounds values on accepted OK
+  // lines still throw imap_malformed_response.
   const rawValues = [];
+  const leading = new RegExp(`^OK \\[${code}(?: |\\])`, 'i');
+  const extract = new RegExp(`\\[${code}(?:\\s+([^\\]]*))?\\]`, 'gi');
   for (let i = 0; i < untagged.length; i += 1) {
     const line = untagged[i];
     if (typeof line !== 'string') throw new Error('imap_malformed_response');
-    const re = new RegExp(`\\[${code}(?:\\s+([^\\]]*))?\\]`, 'gi');
-    let match = re.exec(line);
+    if (!leading.test(line)) continue;
+    extract.lastIndex = 0;
+    let match = extract.exec(line);
     while (match) {
       rawValues.push(match[1] == null ? '' : match[1]);
-      match = re.exec(line);
+      match = extract.exec(line);
     }
   }
   if (rawValues.length === 0) return null;
