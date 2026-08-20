@@ -9,9 +9,12 @@
  * plus Gmail-valid BODYSTRUCTURE variants: quoted or atom types, NIL params,
  * MD5/disposition/language/location at their defined offsets, Gmail
  * list-of-pairs / RFC2231 parameter shapes, and MESSAGE/RFC822
- * envelope nstrings + nested-body + lines as an unsafe node. Ambiguous leftover
- * nested arrays are never scanned for disposition. Multipart nodes whose
- * parsed disposition is attachment are never traversed for text/plain.
+ * body-type-msg: non-NIL 10-field envelope, nested bounded body, and
+ * canonical body-fld-lines, kept as an opaque/unsafe node. Nested
+ * MESSAGE/RFC822 bodies are validated then discarded; they are never
+ * selected. Ambiguous leftover nested arrays are never scanned for
+ * disposition. Multipart nodes whose parsed disposition is attachment
+ * are never traversed for text/plain.
  *
  * S-expression scalars keep token provenance: quoted / atom / NIL / number.
  * nstring slots (id, description, MD5, language, location, envelope nstrings)
@@ -339,24 +342,57 @@ function parseMultipartExtensions(list, start) {
   return parseDispositionLanguageLocation(list, start);
 }
 
-function envelopeScalarsAreNstrings(value, depth) {
-  if ((depth || 0) > IMAP_BODYSTRUCTURE_MAX_DEPTH) return false;
-  if (isNstring(value)) return true;
-  if (!Array.isArray(value)) return false;
-  if (value.length > IMAP_BODYSTRUCTURE_MAX_LIST_ITEMS) return false;
-  for (let i = 0; i < value.length; i += 1) {
-    if (!envelopeScalarsAreNstrings(value[i], (depth || 0) + 1)) return false;
+function parseAddress(value) {
+  // RFC 3501 address: "(" addr-name SP addr-adl SP addr-mailbox SP addr-host ")"
+  // with each field an nstring (quoted or NIL). Atoms, numbers, and nested
+  // lists are not addresses.
+  if (!Array.isArray(value) || value.length !== 4) return null;
+  if (!isNstring(value[0]) || !isNstring(value[1]) || !isNstring(value[2]) || !isNstring(value[3])) {
+    return null;
   }
+  return Object.freeze({
+    mailboxNil: isNilToken(value[2]),
+    hostNil: isNilToken(value[3]),
+  });
+}
+
+function parseAddressList(value) {
+  // env-from / env-sender / env-reply-to / env-to / env-cc / env-bcc:
+  // "(" 1*address ")" / nil. Empty `()` is not NIL. RFC 2822 group syntax
+  // uses address slots where addr-host is NIL: non-NIL mailbox starts a
+  // group, NIL mailbox ends it. Nested groups and unbalanced markers fail.
+  if (isNilToken(value)) return true;
+  if (!Array.isArray(value) || value.length < 1) return false;
+  if (value.length > IMAP_BODYSTRUCTURE_MAX_LIST_ITEMS) return false;
+  let inGroup = false;
+  for (let i = 0; i < value.length; i += 1) {
+    const addr = parseAddress(value[i]);
+    if (!addr) return false;
+    if (addr.hostNil) {
+      if (addr.mailboxNil) {
+        if (!inGroup) return false;
+        inGroup = false;
+      } else {
+        if (inGroup) return false;
+        inGroup = true;
+      }
+    }
+  }
+  if (inGroup) return false;
   return true;
 }
 
 function parseEnvelope(value) {
-  // MESSAGE/RFC822 envelope nstrings keep token provenance: every scalar
-  // must be quoted or NIL. Extra Gmail grouping lists are accepted; atoms
-  // and numbers are not valid envelope nstrings.
-  if (isNilToken(value)) return true;
-  if (!Array.isArray(value)) return false;
-  return envelopeScalarsAreNstrings(value);
+  // RFC 3501 envelope: non-NIL list of exactly 10 fields:
+  // date nstring, subject nstring, from/sender/reply-to/to/cc/bcc
+  // address-list-or-NIL, in-reply-to nstring, message-id nstring.
+  if (!Array.isArray(value) || value.length !== 10) return false;
+  if (!isNstring(value[0]) || !isNstring(value[1])) return false;
+  for (let i = 2; i <= 7; i += 1) {
+    if (!parseAddressList(value[i])) return false;
+  }
+  if (!isNstring(value[8]) || !isNstring(value[9])) return false;
+  return true;
 }
 
 function canonicalNumber(value) {
@@ -434,13 +470,14 @@ function parseBodyNode(list, depth, counters) {
     extStart = 8;
   } else if (type === 'message' && subtype === 'rfc822') {
     // RFC 3501 body-type-msg: envelope SP body SP body-fld-lines, then
-    // optional body-ext-1part. Nested body is opaque / never selected.
+    // optional body-ext-1part. Nested body must itself parse as a bounded
+    // body node; the MESSAGE/RFC822 node stays opaque / never selected.
     if (list.length < 10) return null;
     const envelope = list[7];
     const nestedBody = list[8];
     const lines = list[9];
     if (!parseEnvelope(envelope)) return null;
-    if (!Array.isArray(nestedBody)) return null;
+    if (!parseBodyNode(nestedBody, depth + 1, counters)) return null;
     if (!isNumberToken(lines) || !Number.isInteger(lines.value) || lines.value < 0 || !Number.isSafeInteger(lines.value)) return null;
     extStart = 10;
   }
