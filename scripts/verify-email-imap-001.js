@@ -3395,6 +3395,191 @@ async function main() {
   }
 
   {
+    const textOctets = FIXTURE_BODY.length;
+    function bodystructureFetchText(structure) {
+      return `1 FETCH (UID ${FIXTURE_UID} RFC822.SIZE 180 BODYSTRUCTURE ${structure})`;
+    }
+    function assertParserRejects(structure, name) {
+      const fetchText = bodystructureFetchText(structure);
+      assert.equal(bodystructureOwner.parseImapBodystructure(fetchText), null, name);
+      assert.equal(bodystructureOwner.selectBoundedTextPlainFromFetchText(fetchText), null, name);
+      assert.deepEqual(
+        bodystructureOwner.inspectImapBodystructure(fetchText),
+        { ok: false, stage: 'grammar' },
+        name,
+      );
+    }
+    function assertNoSectionFetchOrCursor(result, name) {
+      assert.equal(result.fetched.ok, false, name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'last_uid'), false, name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'messages'), false, name);
+      assert.equal(
+        result.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)),
+        false,
+        name,
+      );
+      assertNoFullBodyOrSend(result.received);
+    }
+    function assertPollNoIngestOrCommit(pollClosed, name) {
+      assert.equal(pollClosed.fetched.ok, false, name);
+      assert.ok(pollClosed.pollErr, name);
+      assert.equal(pollClosed.ingested.length, 0, name);
+      assert.equal(pollClosed.projected.length, 0, name);
+      assert.equal(Number(pollClosed.cursor.last_uid), 0, name);
+      assert.equal(pollClosed.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false, name);
+      assert.equal(pollClosed.queries.some((q) => q.text === pollSql.SQL_COMMIT_RESET), false, name);
+      assert.equal(
+        pollClosed.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)),
+        false,
+        name,
+      );
+      assertNoFullBodyOrSend(pollClosed.received);
+    }
+    async function pollStructureNoCommit(structure) {
+      return fetchInboxAndPoll((socket, line) => {
+        if (handleSearchSelectFetch(socket, line, (sock, tag, fetchLine) => {
+          if (isPreflightFetchLine(fetchLine)) {
+            writePreflightFetch(sock, 1, FIXTURE_UID, simplePlainMime({
+              flags: '\\Seen',
+              bodystructure: structure,
+              gmailOrder: true,
+            }), { gmailOrder: true });
+            sock.write(`${tag} OK FETCH completed\r\n`);
+            return;
+          }
+          sock.write(`${tag} BAD unexpected section fetch\r\n`);
+        })) return;
+        socket.write(`${line.split(' ')[0]} BAD not implemented\r\n`);
+      });
+    }
+
+    const innerPlain = `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL NIL)`;
+    const attachedMultipart = `(${innerPlain} "MIXED" ("BOUNDARY" "attbound") ("ATTACHMENT" ("FILENAME" "note.txt")) NIL NIL NIL)`;
+    const siblingAndAttached = `(${innerPlain}${attachedMultipart} "MIXED" ("BOUNDARY" "outer") NIL NIL NIL)`;
+
+    const attachedFetchText = bodystructureFetchText(attachedMultipart);
+    const attachedParsed = bodystructureOwner.parseImapBodystructure(attachedFetchText);
+    assert.ok(attachedParsed);
+    assert.equal(attachedParsed.tree.kind, 'multipart');
+    assert.equal(attachedParsed.tree.disposition, 'attachment');
+    assert.equal(attachedParsed.tree.parts.length, 1);
+    assert.equal(attachedParsed.tree.parts[0].type, 'text');
+    assert.equal(attachedParsed.tree.parts[0].subtype, 'plain');
+    assert.equal(attachedParsed.tree.parts[0].section, '1');
+    assert.equal(bodystructureOwner.selectBoundedTextPlainFromFetchText(attachedFetchText), null);
+    assert.equal(bodystructureOwner.selectSafeTextPlainPart(attachedParsed.tree), null);
+    assert.deepEqual(
+      bodystructureOwner.inspectImapBodystructure(attachedFetchText),
+      { ok: true, stage: 'ok' },
+    );
+    const inspectAttached = JSON.stringify(bodystructureOwner.inspectImapBodystructure(attachedFetchText));
+    assert.equal(inspectAttached.includes(FIXTURE_BODY), false);
+    assert.equal(inspectAttached.includes(PLANTED), false);
+
+    const siblingFetchText = bodystructureFetchText(siblingAndAttached);
+    const siblingParsed = bodystructureOwner.parseImapBodystructure(siblingFetchText);
+    assert.ok(siblingParsed);
+    assert.equal(siblingParsed.tree.kind, 'multipart');
+    assert.equal(siblingParsed.tree.disposition, '');
+    assert.equal(siblingParsed.tree.parts[1].kind, 'multipart');
+    assert.equal(siblingParsed.tree.parts[1].disposition, 'attachment');
+    const siblingSelected = bodystructureOwner.selectBoundedTextPlainFromFetchText(siblingFetchText);
+    assert.ok(siblingSelected);
+    assert.equal(siblingSelected.section, '1');
+    assert.equal(siblingSelected.octets, textOctets);
+    assert.equal(siblingSelected.section.includes('2'), false);
+
+    const attachedTransport = await fetchWithMime(simplePlainMime({
+      flags: '\\Seen',
+      bodystructure: attachedMultipart,
+      textSection: '1',
+      forbiddenSections: Object.freeze(['1']),
+      gmailOrder: true,
+    }));
+    assertNoSectionFetchOrCursor(attachedTransport, 'attached multipart transport');
+
+    const siblingTransport = await fetchWithMime(simplePlainMime({
+      flags: '\\Seen',
+      encoding: '7BIT',
+      textSection: '1',
+      forbiddenSections: Object.freeze(['2', '2.1']),
+      bodystructure: siblingAndAttached,
+      body: FIXTURE_BODY,
+      gmailOrder: true,
+    }));
+    assert.equal(siblingTransport.fetched.ok, true);
+    assert.equal(siblingTransport.fetched.messages.length, 1);
+    assert.equal(siblingTransport.fetched.messages[0].bodyText, FIXTURE_BODY);
+    const siblingSectionLine = siblingTransport.received.find((line) => (
+      /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)
+    ));
+    assert.ok(siblingSectionLine);
+    assert.match(siblingSectionLine, /BODY\.PEEK\[1\]<0\.\d+>/);
+    assert.equal(siblingTransport.received.some((line) => /BODY\.PEEK\[2/.test(line)), false);
+    assertNoFullBodyOrSend(siblingTransport.received);
+
+    const attachedPoll = await pollStructureNoCommit(attachedMultipart);
+    assertPollNoIngestOrCommit(attachedPoll, 'attached multipart poll');
+    ok('attached multipart containing text/plain is never selected, fetched, ingested, or committed');
+
+    const gmailPlain = innerPlain;
+    const grammarAdversarial = [
+      {
+        name: 'scalar quoted disposition after MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL "ATTACHMENT")`,
+      },
+      {
+        name: 'scalar atom disposition after MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL ATTACHMENT)`,
+      },
+      {
+        name: 'extension list in MD5 slot',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 ("X-EXT" ("NESTED" "VAL")))`,
+      },
+      {
+        name: 'attachment list in MD5 slot',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 ("ATTACHMENT" NIL))`,
+      },
+      {
+        name: 'disposition extra malformed fields',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL ("ATTACHMENT" NIL "EXTRA") NIL NIL)`,
+      },
+      {
+        name: 'param pair with three members',
+        structure: `("TEXT" "PLAIN" (("CHARSET" "UTF-8" "EXTRA")) NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL NIL)`,
+      },
+      {
+        name: 'disposition param pair with three members',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL ("ATTACHMENT" (("FILENAME" "note.txt" "EXTRA"))) NIL NIL)`,
+      },
+      {
+        name: 'malformed multipart param odd list',
+        structure: `(${gmailPlain} "MIXED" ("BOUNDARY") NIL NIL NIL)`,
+      },
+      {
+        name: 'malformed multipart param unpaired leftover',
+        structure: `(${gmailPlain} "MIXED" ("BOUNDARY" "mix" "ORPHAN") NIL NIL NIL)`,
+      },
+      {
+        name: 'malformed multipart param pair with three members',
+        structure: `(${gmailPlain} "MIXED" (("BOUNDARY" "mix" "EXTRA")) NIL NIL NIL)`,
+      },
+    ];
+    for (const item of grammarAdversarial) {
+      assertParserRejects(item.structure, item.name);
+      const result = await fetchWithMime(simplePlainMime({
+        flags: '\\Seen',
+        bodystructure: item.structure,
+        gmailOrder: true,
+      }));
+      assertNoSectionFetchOrCursor(result, item.name);
+      const pollClosed = await pollStructureNoCommit(item.structure);
+      assertPollNoIngestOrCommit(pollClosed, item.name);
+    }
+    ok('BODYSTRUCTURE extension grammar mutations fail closed without section FETCH, ingest, or cursor commit');
+  }
+
+  {
     const uidCases = [
       { name: 'preflight duplicate same UID', preflightUids: [FIXTURE_UID, FIXTURE_UID] },
       { name: 'preflight conflicting UID', preflightUids: [FIXTURE_UID, 999] },
@@ -3574,6 +3759,14 @@ async function main() {
   assert.match(bodystructureSrc, /parseOnePartExtensions/);
   assert.match(bodystructureSrc, /inspectImapBodystructure/);
   assert.doesNotMatch(bodystructureSrc, /function scanDisposition/);
+  assert.match(bodystructureSrc, /node\.disposition === 'attachment'/);
+  assert.match(bodystructureSrc, /pair\.length !== 2/);
+  assert.match(bodystructureSrc, /value\.length !== 2/);
+  assert.match(bodystructureSrc, /if \(dsp == null\) return null/);
+  assert.doesNotMatch(bodystructureSrc, /if \(dsp == null\) return ''/);
+  assert.doesNotMatch(bodystructureSrc, /A valid disposition atom is enough/);
+  assert.doesNotMatch(bodystructureSrc, /else if \(list\[i \+ 1\] != null && !Array\.isArray/);
+  assert.match(bodystructureSrc, /if \(!isNstring\(list\[(?:i|start)\]\)\) return null/);
   assert.equal(bodystructureOwner.IMAP_BODYSTRUCTURE_MAX_LISTS, 64);
   assert.equal(bodystructureOwner.IMAP_BODYSTRUCTURE_MAX_TOKENS, 512);
   assert.doesNotMatch(bodystructureSrc, /BODY\.PEEK\[\]/);

@@ -7,8 +7,11 @@
  *
  * Grammar follows RFC 3501 / RFC 9051 body / body-type-1part / body-type-mpart
  * plus Gmail-valid BODYSTRUCTURE variants: quoted or atom types, NIL params,
- * MD5/disposition/language/location extensions, Gmail disposition parameter
- * shapes, and MESSAGE/RFC822 envelope+nested-body+lines as an unsafe node.
+ * MD5/disposition/language/location at their defined offsets, Gmail
+ * list-of-pairs / RFC2231 parameter shapes, and MESSAGE/RFC822
+ * envelope+nested-body+lines as an opaque unsafe node. Ambiguous leftover
+ * nested arrays are never scanned for disposition. Multipart nodes whose
+ * parsed disposition is attachment are never traversed for text/plain.
  *
  * @module email-imap-bodystructure
  */
@@ -210,7 +213,7 @@ function parseParams(value) {
   if (Array.isArray(value[0])) {
     for (let i = 0; i < value.length; i += 1) {
       const pair = value[i];
-      if (!Array.isArray(pair) || pair.length < 2) return null;
+      if (!Array.isArray(pair) || pair.length !== 2) return null;
       const name = asAtom(pair[0]);
       const val = paramScalar(pair[1]);
       if (!name || val == null) return null;
@@ -234,38 +237,63 @@ function parseParams(value) {
   return params;
 }
 
+function isBodyExtension(value, depth) {
+  if ((depth || 0) > IMAP_BODYSTRUCTURE_MAX_DEPTH) return false;
+  if (isNstring(value)) return true;
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && Number.isSafeInteger(value) && value >= 0;
+  }
+  if (!Array.isArray(value) || value.length < 1) return false;
+  if (value.length > IMAP_BODYSTRUCTURE_MAX_LIST_ITEMS) return false;
+  for (let i = 0; i < value.length; i += 1) {
+    if (!isBodyExtension(value[i], (depth || 0) + 1)) return false;
+  }
+  return true;
+}
+
 function parseDisposition(value) {
   if (value == null) return '';
-  if (!Array.isArray(value) || value.length < 1) return null;
+  if (!Array.isArray(value) || value.length !== 2) return null;
   const kind = asAtom(value[0]);
   if (!kind) return null;
-  // Gmail may send nested/list-of-pairs or numeric SIZE params after the kind.
-  // A valid disposition atom is enough; leftover param shape is not selected.
+  const params = parseParams(value[1]);
+  if (!params) return null;
   return kind;
+}
+
+function parseDispositionLanguageLocation(list, start) {
+  // body-fld-dsp [SP body-fld-lang [SP body-fld-loc *(SP body-extension)]].
+  // Parse only at these offsets/types. Leftover nested arrays after loc are
+  // body-extension, never disposition.
+  if (!Array.isArray(list) || start >= list.length) return '';
+  const dsp = parseDisposition(list[start]);
+  if (dsp == null) return null;
+  let i = start + 1;
+  if (i >= list.length) return dsp;
+  if (!(isNstring(list[i]) || isStringList(list[i]))) return null;
+  i += 1;
+  if (i >= list.length) return dsp;
+  if (!isNstring(list[i])) return null;
+  i += 1;
+  while (i < list.length) {
+    if (!isBodyExtension(list[i])) return null;
+    i += 1;
+  }
+  return dsp;
 }
 
 function parseOnePartExtensions(list, start) {
   // RFC 3501 body-ext-1part: body-fld-md5 [SP body-fld-dsp [SP body-fld-lang
-  // [SP body-fld-loc *(SP body-extension)]]]. Do not scan leftover nested
-  // extension arrays for attachment/inline — those are not disposition.
+  // [SP body-fld-loc *(SP body-extension)]]]. MD5 is nstring; a list in the
+  // MD5 slot is not disposition.
   if (!Array.isArray(list) || start >= list.length) return '';
-  let i = start;
-  if (isNstring(list[i])) i += 1;
-  if (i >= list.length) return '';
-  const dsp = parseDisposition(list[i]);
-  if (dsp == null) return '';
-  i += 1;
-  if (i < list.length && (isNstring(list[i]) || isStringList(list[i]))) i += 1;
-  if (i < list.length && isNstring(list[i])) i += 1;
-  return dsp;
+  if (!isNstring(list[start])) return null;
+  return parseDispositionLanguageLocation(list, start + 1);
 }
 
 function parseMultipartExtensions(list, start) {
   // body-ext-mpart has no MD5; dsp/lang/loc/extensions follow body-fld-param.
-  if (!Array.isArray(list) || start >= list.length) return '';
-  const dsp = parseDisposition(list[start]);
-  if (dsp == null) return '';
-  return dsp;
+  return parseDispositionLanguageLocation(list, start);
 }
 
 function parseBodyNode(list, depth, counters) {
@@ -295,8 +323,8 @@ function parseBodyNode(list, depth, counters) {
     let params = Object.create(null);
     if (i + 1 < list.length) {
       const parsedParams = parseParams(list[i + 1] == null ? null : list[i + 1]);
-      if (parsedParams) params = parsedParams;
-      else if (list[i + 1] != null && !Array.isArray(list[i + 1])) return null;
+      if (!parsedParams) return null;
+      params = parsedParams;
     }
     const disposition = parseMultipartExtensions(list, i + 2);
     if (disposition == null) return null;
@@ -314,11 +342,9 @@ function parseBodyNode(list, depth, counters) {
   const subtype = asAtom(list[1]);
   if (!type || !subtype) return null;
   const parsedParams = parseParams(list[2]);
+  if (!parsedParams) return null;
   const unsafeType = UNSAFE_TYPES.has(type);
-  if (!parsedParams) {
-    if (!unsafeType && list[2] != null) return null;
-  }
-  const params = parsedParams || Object.create(null);
+  const params = parsedParams;
   const encodingRaw = list[5];
   let encoding = null;
   if (typeof encodingRaw === 'string' && encodingRaw) {
@@ -395,6 +421,7 @@ function isSafeTextPlainLeaf(node, maxOctets) {
 function findSafeTextPlain(node, maxOctets) {
   if (!node) return null;
   if (node.kind === 'multipart') {
+    if (node.disposition === 'attachment') return null;
     for (let i = 0; i < node.parts.length; i += 1) {
       const found = findSafeTextPlain(node.parts[i], maxOctets);
       if (found) return found;
