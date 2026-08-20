@@ -343,5 +343,13 @@ function splitMultipart(bodyBytes, boundary) {
 
 module.exports = Object.freeze({
   parseRfc822SafeText,
+  parseRawHeaders,
+  decodeTransfer,
+  decodeCharset,
+  inferCharset,
+  parseTransferEncoding,
   MAX_RFC822_BYTES,
+  MAX_HEADER_BLOCK,
+  MAX_PARTS,
+  MAX_DEPTH,
 });

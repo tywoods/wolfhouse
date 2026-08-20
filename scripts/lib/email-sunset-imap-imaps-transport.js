@@ -5,13 +5,29 @@
  * validation and SNI. Verify allowlist: greeting, CAPABILITY, LOGIN,
  * SELECT INBOX, LOGOUT. Fetch additionally: bounded UID SEARCH, UID FETCH.
  * SEARCH ranges are always finite numeric windows (never `start:*`).
+ * Fetch is a bounded BODYSTRUCTURE/RFC822.SIZE preflight plus
+ * BODY.PEEK[section]<offset.count> of a selected text/plain part.
+ * Production never requests a full-message empty-section BODY.PEEK.
  * No SMTP, APPEND, STORE, COPY, or send.
  *
  * @module email-sunset-imap-imaps-transport
  */
 
 const tls = require('node:tls');
-const { parseRfc822SafeText } = require('./email-imap-rfc822-safe-text');
+const {
+  parseRawHeaders,
+  decodeTransfer,
+  decodeCharset,
+  inferCharset,
+  MAX_HEADER_BLOCK,
+} = require('./email-imap-rfc822-safe-text');
+const {
+  parseImapBodystructure,
+  selectSafeTextPlainPart,
+  formatBodyPeekSection,
+  isValidImapSection,
+} = require('./email-imap-bodystructure');
+const { EMAIL_INBOUND_BODY_TEXT_MAX } = require('./email-inbound-envelope-contract');
 
 const TIMEOUT_MS = 10000;
 const MAX_RESPONSE_BYTES = 131072;
@@ -29,11 +45,13 @@ const IMAP_LAST_UID_MIN = 0;
 const IMAP_SEARCH_MAX_WINDOW = 1024;
 const IMAP_CREDENTIAL_MAX = 256;
 const IMAP_CAPABILITY_MAX_ATOMS = 64;
+const IMAP_HEADER_FETCH_MAX = MAX_HEADER_BLOCK;
+const IMAP_FETCH_BATCH_MAX_BYTES = MAX_RESPONSE_BYTES;
 const IMAP_PROHIBITED_CONTROLS = /[\u0000-\u001F\u007F]/;
 const IMAP_PRINTABLE_ASCII = /^[\u0020-\u007E]+$/;
 const IMAP_UNSIGNED_DECIMAL = /^(0|[1-9][0-9]{0,9})$/;
 const IMAP_ATOM_RE = /^[^\x00-\x20\x7f(){%*"\\\]]+$/;
-const IMAP_FETCH_ATTRS = '(UID FLAGS INTERNALDATE BODY.PEEK[])';
+const IMAP_PREFLIGHT_ATTRS = `(UID FLAGS INTERNALDATE RFC822.SIZE BODYSTRUCTURE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)]<0.${IMAP_HEADER_FETCH_MAX}>)`;
 
 function result(ok, failed, extra) {
   const out = Object.assign({ ok: ok === true }, extra || {});
@@ -321,11 +339,20 @@ function isFullMessageBodyCapture(before) {
   return typeof before === 'string' && /BODY(?:\.PEEK)?\[\]\s*$/i.test(before);
 }
 
-function parseFetchMessage(item, uidvalidity) {
-  const raw = item && item.text;
-  if (typeof raw !== 'string' || !/\bFETCH\b/i.test(raw)) {
-    return null;
-  }
+function isHeaderFieldsCapture(before) {
+  return typeof before === 'string'
+    && /BODY(?:\.PEEK)?\[HEADER(?:\.FIELDS \([^)]*\))?\](?:<0(?:\.\d+)?>)?\s*$/i.test(before);
+}
+
+function isSectionCapture(before, section) {
+  if (typeof before !== 'string' || !isValidImapSection(section)) return false;
+  const escaped = section.replace(/\./g, '\\.');
+  const re = new RegExp(`BODY(?:\\.PEEK)?\\[${escaped}\\](?:<0(?:\\.\\d+)?>)?\\s*$`, 'i');
+  return re.test(before);
+}
+
+function parseFetchUidFlagsDate(raw, uidvalidity) {
+  if (typeof raw !== 'string' || !/\bFETCH\b/i.test(raw)) return null;
   const uidMatch = /\bUID\s+(\d+)/i.exec(raw);
   if (!uidMatch) return null;
   const uid = parseRfcUid(uidMatch[1]);
@@ -337,26 +364,108 @@ function parseFetchMessage(item, uidvalidity) {
     ? flagsMatch[1].trim().split(/\s+/).filter(Boolean)
     : [];
   const dateMatch = /\bINTERNALDATE\s+"([^"]+)"/i.exec(raw);
+  if (!dateMatch) return null;
+  return {
+    uid,
+    uidvalidity: parsedUidvalidity,
+    flags,
+    internalDate: dateMatch[1],
+  };
+}
+
+function parseRfc822SizeAttr(raw) {
+  if (typeof raw !== 'string') return null;
+  const matches = raw.match(/\bRFC822\.SIZE\s+(\d+)\b/gi);
+  if (!matches || matches.length !== 1) return null;
+  const num = /\bRFC822\.SIZE\s+(\d+)\b/i.exec(matches[0]);
+  if (!num) return null;
+  const value = parseUnsignedDecimal(num[1]);
+  if (value == null) return null;
+  return value;
+}
+
+function parseFetchPreflight(item, uidvalidity) {
+  const raw = item && item.text;
+  const meta = parseFetchUidFlagsDate(raw, uidvalidity);
+  if (!meta) return null;
+  const rfc822Size = parseRfc822SizeAttr(raw);
+  if (rfc822Size == null) return null;
+  const parsedStructure = parseImapBodystructure(raw);
+  if (!parsedStructure) return null;
+  const selected = selectSafeTextPlainPart(parsedStructure.tree, {
+    maxOctets: EMAIL_INBOUND_BODY_TEXT_MAX,
+  });
+  if (!selected) return null;
   const captures = Array.isArray(item.captures) ? item.captures : [];
-  let rfc822 = null;
+  let headerBytes = null;
+  let headerCaptures = 0;
+  for (let i = 0; i < captures.length; i += 1) {
+    const cap = captures[i];
+    if (!cap || typeof cap.before !== 'string' || !Buffer.isBuffer(cap.bytes)) continue;
+    if (isFullMessageBodyCapture(cap.before) || /BODY(?:\.PEEK)?\[TEXT\]/i.test(cap.before)) {
+      return null;
+    }
+    if (!isHeaderFieldsCapture(cap.before)) continue;
+    headerCaptures += 1;
+    headerBytes = cap.bytes;
+  }
+  if (headerCaptures !== 1 || !headerBytes) return null;
+  if (headerBytes.length < 1 || headerBytes.length >= IMAP_HEADER_FETCH_MAX) return null;
+  let headerEnd = headerBytes.length;
+  while (headerEnd >= 2 && headerBytes[headerEnd - 2] === 0x0d && headerBytes[headerEnd - 1] === 0x0a) {
+    headerEnd -= 2;
+  }
+  if (headerEnd < 1) return null;
+  const headers = parseRawHeaders(headerBytes.slice(0, headerEnd));
+  if (!headers) return null;
+  return Object.freeze({
+    uid: meta.uid,
+    uidvalidity: meta.uidvalidity,
+    flags: Object.freeze(meta.flags.slice()),
+    internalDate: meta.internalDate,
+    rfc822Size,
+    headers,
+    selected,
+  });
+}
+
+function parseFetchSection(item, expected) {
+  if (!expected || !isValidImapSection(expected.section)) return null;
+  const raw = item && item.text;
+  if (typeof raw !== 'string' || !/\bFETCH\b/i.test(raw)) return null;
+  const uidMatch = /\bUID\s+(\d+)/i.exec(raw);
+  if (!uidMatch) return null;
+  const uid = parseRfcUid(uidMatch[1]);
+  if (uid == null || uid !== expected.uid) return null;
+  const captures = Array.isArray(item.captures) ? item.captures : [];
+  let bodyBytes = null;
   let bodyCaptures = 0;
   for (let i = 0; i < captures.length; i += 1) {
     const cap = captures[i];
     if (!cap || typeof cap.before !== 'string' || !Buffer.isBuffer(cap.bytes)) continue;
-    if (!isFullMessageBodyCapture(cap.before)) continue;
+    if (isFullMessageBodyCapture(cap.before) || /BODY(?:\.PEEK)?\[TEXT\]/i.test(cap.before)) {
+      return null;
+    }
+    if (!isSectionCapture(cap.before, expected.section)) continue;
     bodyCaptures += 1;
-    rfc822 = cap.bytes;
+    bodyBytes = cap.bytes;
   }
-  if (bodyCaptures !== 1 || !rfc822) return null;
-  const parsed = parseRfc822SafeText(rfc822);
-  if (!parsed) return null;
+  if (bodyCaptures !== 1 || !Buffer.isBuffer(bodyBytes)) return null;
+  if (bodyBytes.length > expected.octets || bodyBytes.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
+  if (expected.octets > 0 && bodyBytes.length < 1) return null;
+  const decoded = decodeTransfer(bodyBytes, expected.encoding);
+  if (!decoded) return null;
+  if (decoded.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
+  const charset = inferCharset(decoded, expected.charset);
+  const text = decodeCharset(decoded, charset);
+  if (typeof text !== 'string' || text.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
   return Object.freeze({
     uid,
-    uidvalidity: parsedUidvalidity,
-    flags: Object.freeze(flags.slice()),
-    internalDate: dateMatch ? dateMatch[1] : '',
-    headers: parsed.headers,
-    bodyText: parsed.bodyText,
+    uidvalidity: expected.uidvalidity,
+    flags: Object.freeze((expected.flags || []).slice()),
+    internalDate: expected.internalDate,
+    headers: expected.headers,
+    bodyText: text,
   });
 }
 
@@ -484,6 +593,7 @@ function createSunsetImapImapsTransport(deps = {}) {
       const tag = nextTag();
       const wire = `${tag} ${text}\r\n`;
       if ((wire.match(/\r\n/g) || []).length !== 1) throw new Error('imap_unsafe_command');
+      totalBytes = 0;
       socket.write(wire);
       return waitTagged(tag);
     }
@@ -630,25 +740,28 @@ function createSunsetImapImapsTransport(deps = {}) {
       }
       const spec = formatUidSequenceSet(uids);
       if (spec.includes(':')) throw new Error('imap_malformed_response');
-      const fetched = await session.command(`UID FETCH ${spec} ${IMAP_FETCH_ATTRS}`);
-      if (fetched.status !== 'OK') {
+      const preflighted = await session.command(`UID FETCH ${spec} ${IMAP_PREFLIGHT_ATTRS}`);
+      if (preflighted.status !== 'OK') {
         await session.logout();
         return result(false, ['sunset-imap-host']);
       }
       const requested = new Set(uids);
       const seen = new Set();
-      const messages = [];
-      for (let i = 0; i < fetched.fetchItems.length; i += 1) {
-        const item = fetched.fetchItems[i];
-        const parsed = parseFetchMessage({ text: item.text, captures: item.captures }, uidvalidity);
+      const prepared = [];
+      let batchBytes = 0;
+      for (let i = 0; i < preflighted.fetchItems.length; i += 1) {
+        const item = preflighted.fetchItems[i];
+        const parsed = parseFetchPreflight({ text: item.text, captures: item.captures }, uidvalidity);
         if (!parsed) throw new Error('imap_malformed_response');
         if (!requested.has(parsed.uid) || seen.has(parsed.uid)) {
           throw new Error('imap_unrequested_uid');
         }
         seen.add(parsed.uid);
-        messages.push(parsed);
+        batchBytes += parsed.selected.octets;
+        if (batchBytes > IMAP_FETCH_BATCH_MAX_BYTES) throw new Error('imap_oversized_response');
+        prepared.push(parsed);
       }
-      if (seen.size > IMAP_FETCH_MAX_MESSAGES || messages.length > IMAP_FETCH_MAX_MESSAGES) {
+      if (seen.size > IMAP_FETCH_MAX_MESSAGES || prepared.length > IMAP_FETCH_MAX_MESSAGES) {
         throw new Error('imap_unrequested_uid');
       }
       if (seen.size !== requested.size) {
@@ -656,6 +769,51 @@ function createSunsetImapImapsTransport(deps = {}) {
       }
       for (let i = 0; i < uids.length; i += 1) {
         if (!seen.has(uids[i])) throw new Error('imap_missing_requested_uid');
+      }
+      const byUid = new Map(prepared.map((item) => [item.uid, item]));
+      const messages = [];
+      for (let i = 0; i < uids.length; i += 1) {
+        const prep = byUid.get(uids[i]);
+        if (!prep) throw new Error('imap_missing_requested_uid');
+        let parsedBody;
+        if (prep.selected.octets === 0) {
+          parsedBody = Object.freeze({
+            uid: prep.uid,
+            uidvalidity: prep.uidvalidity,
+            flags: prep.flags,
+            internalDate: prep.internalDate,
+            headers: prep.headers,
+            bodyText: '',
+          });
+        } else {
+          const peek = formatBodyPeekSection(prep.selected.section, prep.selected.octets);
+          const bodyFetched = await session.command(`UID FETCH ${prep.uid} (${peek})`);
+          if (bodyFetched.status !== 'OK') {
+            await session.logout();
+            return result(false, ['sunset-imap-host']);
+          }
+          if (bodyFetched.fetchItems.length !== 1) {
+            throw new Error(bodyFetched.fetchItems.length < 1
+              ? 'imap_missing_requested_uid'
+              : 'imap_unrequested_uid');
+          }
+          parsedBody = parseFetchSection({
+            text: bodyFetched.fetchItems[0].text,
+            captures: bodyFetched.fetchItems[0].captures,
+          }, Object.freeze({
+            uid: prep.uid,
+            uidvalidity: prep.uidvalidity,
+            flags: prep.flags,
+            internalDate: prep.internalDate,
+            headers: prep.headers,
+            section: prep.selected.section,
+            encoding: prep.selected.encoding,
+            charset: prep.selected.charset,
+            octets: prep.selected.octets,
+          }));
+          if (!parsedBody) throw new Error('imap_malformed_response');
+        }
+        messages.push(parsedBody);
       }
       await session.logout();
       const maxUid = messages.reduce((acc, msg) => (msg.uid > acc ? msg.uid : acc), lastUid);
@@ -695,8 +853,11 @@ module.exports = Object.freeze({
   capabilityHasExactImap4rev1,
   parseUntaggedCapabilityAtoms,
   IMAP_VERIFY_COMMANDS,
-  IMAP_FETCH_ATTRS,
+  formatBodyPeekSection,
+  IMAP_PREFLIGHT_ATTRS,
   IMAP_FETCH_MAX_MESSAGES,
+  IMAP_FETCH_BATCH_MAX_BYTES,
+  IMAP_HEADER_FETCH_MAX,
   IMAP_SEARCH_MAX_WINDOW,
   IMAP_PORT,
   IMAP_TLS_MODE,
