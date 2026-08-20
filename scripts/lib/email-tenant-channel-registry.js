@@ -293,7 +293,7 @@ async function listTenantChannelEndpoints(args, deps) {
       SELECT id, client_id, location_id, channel, provider, public_address,
              secret_ref, provider_resource_id, capabilities,
              inbound_enabled, outbound_enabled, default_automation_mode, active,
-             auth_mode, connector_mode, binding_status,
+             auth_mode, connector_mode, binding_status, smtp_health_verified_at,
              created_at, updated_at, created_by, updated_by
         FROM tenant_channel_endpoints
        WHERE client_id = $1
@@ -304,7 +304,7 @@ async function listTenantChannelEndpoints(args, deps) {
       SELECT id, client_id, location_id, channel, provider, public_address,
              secret_ref, provider_resource_id, capabilities,
              inbound_enabled, outbound_enabled, default_automation_mode, active,
-             auth_mode, connector_mode, binding_status,
+             auth_mode, connector_mode, binding_status, smtp_health_verified_at,
              created_at, updated_at, created_by, updated_by
         FROM tenant_channel_endpoints
        WHERE client_id = $1

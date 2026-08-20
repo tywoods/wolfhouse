@@ -1143,6 +1143,26 @@
       "rationale": "Refuses rollback while any persisted body_text exists; otherwise drops the nullable body_text column.",
       "pairsWith": "082_tenant_email_inbound_body_text.sql",
       "sha256": "c79123d9a82c78ede9fdae48ff6f0697a2fb08d38978c4e92c3f949113c699fa"
+    },
+    {
+      "id": "083_tenant_channel_endpoint_smtp_health",
+      "filename": "083_tenant_channel_endpoint_smtp_health.sql",
+      "order": 79,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "EMAIL-SMTP-003 nullable durable timestamp for successful STARTTLS AUTH+QUIT health verification on an existing endpoint; does not activate capabilities.",
+      "downFilename": "083_tenant_channel_endpoint_smtp_health_down.sql",
+      "sha256": "5144713d30cdefdfc869f21afa731938ab76334a609a4e04ea66133ddf62206c"
+    },
+    {
+      "id": "083_tenant_channel_endpoint_smtp_health_down",
+      "filename": "083_tenant_channel_endpoint_smtp_health_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while durable SMTP health facts exist; otherwise drops the nullable health timestamp.",
+      "pairsWith": "083_tenant_channel_endpoint_smtp_health.sql",
+      "sha256": "ab6ae23c9709b4a8366ef72f9324086a65c02c5951f5ad41f64849f9eddfdfbe"
     }
   ]
 }
