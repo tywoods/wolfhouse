@@ -9,9 +9,14 @@
  * plus Gmail-valid BODYSTRUCTURE variants: quoted or atom types, NIL params,
  * MD5/disposition/language/location at their defined offsets, Gmail
  * list-of-pairs / RFC2231 parameter shapes, and MESSAGE/RFC822
- * envelope+nested-body+lines as an opaque unsafe node. Ambiguous leftover
+ * envelope nstrings + nested-body + lines as an unsafe node. Ambiguous leftover
  * nested arrays are never scanned for disposition. Multipart nodes whose
  * parsed disposition is attachment are never traversed for text/plain.
+ *
+ * S-expression scalars keep token provenance: quoted / atom / NIL / number.
+ * nstring slots (id, description, MD5, language, location, envelope nstrings)
+ * accept only quoted string or NIL. Atoms are valid only for media type/subtype,
+ * transfer encoding, and supported Gmail disposition/parameter shapes.
  *
  * @module email-imap-bodystructure
  */
@@ -70,6 +75,10 @@ function parseQuoted(s, i) {
   return null;
 }
 
+function makeScalar(kind, value) {
+  return Object.freeze({ kind, value });
+}
+
 function parseImapSexpr(s, i, depth, counters) {
   if (typeof s !== 'string' || i < 0 || i > s.length) return null;
   if (depth > IMAP_BODYSTRUCTURE_MAX_DEPTH) {
@@ -85,7 +94,9 @@ function parseImapSexpr(s, i, depth, counters) {
       counters.bounds = true;
       return null;
     }
-    return parseQuoted(s, i);
+    const quoted = parseQuoted(s, i);
+    if (!quoted) return null;
+    return { value: makeScalar('quoted', quoted.value), next: quoted.next };
   }
   if (s[i] === '(') {
     counters.lists += 1;
@@ -125,12 +136,12 @@ function parseImapSexpr(s, i, depth, counters) {
   if (/^(0|[1-9][0-9]{0,14})$/.test(atom[0])) {
     const n = Number(atom[0]);
     if (!Number.isInteger(n) || !Number.isSafeInteger(n) || n < 0) return null;
-    return { value: n, next: i + atom[0].length };
+    return { value: makeScalar('number', n), next: i + atom[0].length };
   }
   if (/^NIL$/i.test(atom[0])) {
-    return { value: null, next: i + atom[0].length };
+    return { value: makeScalar('nil', null), next: i + atom[0].length };
   }
-  return { value: atom[0], next: i + atom[0].length };
+  return { value: makeScalar('atom', atom[0]), next: i + atom[0].length };
 }
 
 function findBodystructureStart(raw) {
@@ -172,41 +183,75 @@ function findBodystructureStart(raw) {
   return start;
 }
 
+function isScalarKind(value, kind) {
+  return value != null
+    && typeof value === 'object'
+    && !Array.isArray(value)
+    && value.kind === kind
+    && Object.prototype.hasOwnProperty.call(value, 'value');
+}
+
+function isQuotedToken(value) {
+  return isScalarKind(value, 'quoted') && typeof value.value === 'string';
+}
+
+function isAtomToken(value) {
+  return isScalarKind(value, 'atom') && typeof value.value === 'string' && value.value.length > 0;
+}
+
+function isNilToken(value) {
+  return isScalarKind(value, 'nil') && value.value == null;
+}
+
+function isNumberToken(value) {
+  return isScalarKind(value, 'number')
+    && typeof value.value === 'number'
+    && Number.isInteger(value.value)
+    && Number.isSafeInteger(value.value)
+    && value.value >= 0;
+}
+
 function asAtom(value) {
-  if (typeof value !== 'string' || !value) return null;
-  return value.toLowerCase();
+  // Quoted or atom: RFC media-subtype/string plus Gmail unquoted type/subtype
+  // and supported Gmail disposition/parameter names.
+  if (!(isQuotedToken(value) || isAtomToken(value)) || !value.value) return null;
+  return value.value.toLowerCase();
+}
+
+function scalarText(value) {
+  if (isQuotedToken(value) || isAtomToken(value)) return value.value;
+  return null;
 }
 
 function isNstring(value) {
-  return value == null || typeof value === 'string';
+  return isNilToken(value) || isQuotedToken(value);
 }
 
 function isStringList(value) {
   if (!Array.isArray(value) || value.length < 1) return false;
   for (let i = 0; i < value.length; i += 1) {
-    if (typeof value[i] !== 'string') return false;
+    if (!isQuotedToken(value[i])) return false;
   }
   return true;
 }
 
 function paramScalar(value) {
-  if (typeof value === 'string') return value;
-  if (typeof value === 'number') {
-    if (!Number.isInteger(value) || !Number.isSafeInteger(value) || value < 0) return null;
-    return String(value);
-  }
-  // RFC 2231 extended value as (charset language value)
+  const text = scalarText(value);
+  if (text != null) return text;
+  if (isNumberToken(value)) return String(value.value);
+  // RFC 2231 extended value as (charset language value). Charset/language are
+  // nstrings; the value is a Gmail-supported quoted or atom string.
   if (Array.isArray(value) && value.length === 3
       && isNstring(value[0])
-      && isNstring(value[1])
-      && typeof value[2] === 'string') {
-    return value[2];
+      && isNstring(value[1])) {
+    const extended = scalarText(value[2]);
+    if (extended != null) return extended;
   }
   return null;
 }
 
 function parseParams(value) {
-  if (value == null) return Object.create(null);
+  if (isNilToken(value)) return Object.create(null);
   if (!Array.isArray(value)) return null;
   if (value.length === 0) return Object.create(null);
   const params = Object.create(null);
@@ -240,9 +285,7 @@ function parseParams(value) {
 function isBodyExtension(value, depth) {
   if ((depth || 0) > IMAP_BODYSTRUCTURE_MAX_DEPTH) return false;
   if (isNstring(value)) return true;
-  if (typeof value === 'number') {
-    return Number.isInteger(value) && Number.isSafeInteger(value) && value >= 0;
-  }
+  if (isNumberToken(value)) return true;
   if (!Array.isArray(value) || value.length < 1) return false;
   if (value.length > IMAP_BODYSTRUCTURE_MAX_LIST_ITEMS) return false;
   for (let i = 0; i < value.length; i += 1) {
@@ -252,7 +295,7 @@ function isBodyExtension(value, depth) {
 }
 
 function parseDisposition(value) {
-  if (value == null) return '';
+  if (isNilToken(value)) return '';
   if (!Array.isArray(value) || value.length !== 2) return null;
   const kind = asAtom(value[0]);
   if (!kind) return null;
@@ -296,6 +339,31 @@ function parseMultipartExtensions(list, start) {
   return parseDispositionLanguageLocation(list, start);
 }
 
+function envelopeScalarsAreNstrings(value, depth) {
+  if ((depth || 0) > IMAP_BODYSTRUCTURE_MAX_DEPTH) return false;
+  if (isNstring(value)) return true;
+  if (!Array.isArray(value)) return false;
+  if (value.length > IMAP_BODYSTRUCTURE_MAX_LIST_ITEMS) return false;
+  for (let i = 0; i < value.length; i += 1) {
+    if (!envelopeScalarsAreNstrings(value[i], (depth || 0) + 1)) return false;
+  }
+  return true;
+}
+
+function parseEnvelope(value) {
+  // MESSAGE/RFC822 envelope nstrings keep token provenance: every scalar
+  // must be quoted or NIL. Extra Gmail grouping lists are accepted; atoms
+  // and numbers are not valid envelope nstrings.
+  if (isNilToken(value)) return true;
+  if (!Array.isArray(value)) return false;
+  return envelopeScalarsAreNstrings(value);
+}
+
+function canonicalNumber(value) {
+  if (!isNumberToken(value)) return null;
+  return value.value;
+}
+
 function parseBodyNode(list, depth, counters) {
   if (!Array.isArray(list) || list.length < 1) return null;
   if (depth > 4) {
@@ -322,7 +390,7 @@ function parseBodyNode(list, depth, counters) {
     if (!subtype) return null;
     let params = Object.create(null);
     if (i + 1 < list.length) {
-      const parsedParams = parseParams(list[i + 1] == null ? null : list[i + 1]);
+      const parsedParams = parseParams(list[i + 1]);
       if (!parsedParams) return null;
       params = parsedParams;
     }
@@ -343,16 +411,18 @@ function parseBodyNode(list, depth, counters) {
   if (!type || !subtype) return null;
   const parsedParams = parseParams(list[2]);
   if (!parsedParams) return null;
+  if (!isNstring(list[3])) return null;
+  if (!isNstring(list[4])) return null;
   const unsafeType = UNSAFE_TYPES.has(type);
   const params = parsedParams;
-  const encodingRaw = list[5];
+  const encodingRaw = scalarText(list[5]);
   let encoding = null;
-  if (typeof encodingRaw === 'string' && encodingRaw) {
+  if (encodingRaw) {
     encoding = parseTransferEncoding(encodingRaw);
-  } else if (!unsafeType && type === 'text' && subtype === 'plain' && encodingRaw != null) {
+  } else if (!unsafeType && type === 'text' && subtype === 'plain') {
     return null;
   }
-  const octets = list[6];
+  const octets = canonicalNumber(list[6]);
   if (!Number.isInteger(octets) || octets < 0 || !Number.isSafeInteger(octets)) return null;
   // RFC 3501 body-type-text: body-fld-lines is mandatory immediately after
   // body-fld-octets and must be a canonical non-negative bounded decimal.
@@ -360,7 +430,7 @@ function parseBodyNode(list, depth, counters) {
   if (type === 'text') {
     if (list.length < 8) return null;
     const lines = list[7];
-    if (!Number.isInteger(lines) || lines < 0 || !Number.isSafeInteger(lines)) return null;
+    if (!isNumberToken(lines) || !Number.isInteger(lines.value) || lines.value < 0 || !Number.isSafeInteger(lines.value)) return null;
     extStart = 8;
   } else if (type === 'message' && subtype === 'rfc822') {
     // RFC 3501 body-type-msg: envelope SP body SP body-fld-lines, then
@@ -369,9 +439,9 @@ function parseBodyNode(list, depth, counters) {
     const envelope = list[7];
     const nestedBody = list[8];
     const lines = list[9];
-    if (envelope != null && !Array.isArray(envelope)) return null;
+    if (!parseEnvelope(envelope)) return null;
     if (!Array.isArray(nestedBody)) return null;
-    if (!Number.isInteger(lines) || lines < 0 || !Number.isSafeInteger(lines)) return null;
+    if (!isNumberToken(lines) || !Number.isInteger(lines.value) || lines.value < 0 || !Number.isSafeInteger(lines.value)) return null;
     extStart = 10;
   }
   const disposition = parseOnePartExtensions(list, extStart);

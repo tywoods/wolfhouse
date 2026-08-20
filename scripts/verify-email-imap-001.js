@@ -3564,6 +3564,46 @@ async function main() {
         name: 'malformed multipart param pair with three members',
         structure: `(${gmailPlain} "MIXED" (("BOUNDARY" "mix" "EXTRA")) NIL NIL NIL)`,
       },
+      {
+        name: 'MD5 atom ATTACHMENT',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 ATTACHMENT)`,
+      },
+      {
+        name: 'MD5 atom INLINE',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 INLINE)`,
+      },
+      {
+        name: 'MD5 atom FOO',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 FOO)`,
+      },
+      {
+        name: 'MD5 atom MIXED',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 MIXED)`,
+      },
+      {
+        name: 'content-id atom ATTACHMENT',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") ATTACHMENT NIL "7BIT" ${textOctets} 1)`,
+      },
+      {
+        name: 'description atom ATTACHMENT',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL ATTACHMENT "7BIT" ${textOctets} 1)`,
+      },
+      {
+        name: 'language atom after NIL MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL NIL EN)`,
+      },
+      {
+        name: 'location atom after NIL MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL ATTACHMENT)`,
+      },
+      {
+        name: 'rfc822 envelope subject nstring atom',
+        structure: `("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 (NIL SUBJECT NIL NIL NIL NIL NIL NIL NIL NIL) ${innerPlain} 10 NIL NIL NIL NIL)`,
+      },
+      {
+        name: 'rfc822 envelope address mailbox nstring atom',
+        structure: `("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 (NIL NIL ((NIL NIL MAILBOX "host.example")) NIL NIL NIL NIL NIL NIL NIL) ${innerPlain} 10 NIL NIL NIL NIL)`,
+      },
     ];
     for (const item of grammarAdversarial) {
       assertParserRejects(item.structure, item.name);
@@ -3577,6 +3617,54 @@ async function main() {
       assertPollNoIngestOrCommit(pollClosed, item.name);
     }
     ok('BODYSTRUCTURE extension grammar mutations fail closed without section FETCH, ingest, or cursor commit');
+
+    const nstringValid = [
+      {
+        name: 'quoted MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 "d41d8cd98f00b204e9800998ecf8427e")`,
+      },
+      {
+        name: 'NIL MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL)`,
+      },
+      {
+        name: 'quoted MD5 then NIL extensions',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 "d41d8cd98f00b204e9800998ecf8427e" NIL NIL NIL)`,
+      },
+      {
+        name: 'quoted content-id',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") "<cid@x>" NIL "7BIT" ${textOctets} 1 NIL)`,
+      },
+      {
+        name: 'quoted description',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL "plain text" "7BIT" ${textOctets} 1 NIL)`,
+      },
+    ];
+    for (const item of nstringValid) {
+      const fetchText = bodystructureFetchText(item.structure);
+      const parsed = bodystructureOwner.parseImapBodystructure(fetchText);
+      assert.ok(parsed, item.name);
+      const selected = bodystructureOwner.selectBoundedTextPlainFromFetchText(fetchText);
+      assert.ok(selected, item.name);
+      assert.equal(selected.section, '1', item.name);
+      assert.equal(selected.octets, textOctets, item.name);
+      const result = await fetchWithMime(simplePlainMime({
+        flags: '\\Seen',
+        encoding: '7BIT',
+        textSection: '1',
+        bodystructure: item.structure,
+        body: FIXTURE_BODY,
+        gmailOrder: true,
+      }));
+      assert.equal(result.fetched.ok, true, item.name);
+      assert.equal(result.fetched.messages.length, 1, item.name);
+      assert.equal(result.fetched.messages[0].bodyText, FIXTURE_BODY, item.name);
+      assertNoFullBodyOrSend(result.received);
+      const sectionLine = result.received.find((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line));
+      assert.ok(sectionLine, item.name);
+      assert.match(sectionLine, /BODY\.PEEK\[1\]<0\.\d+>/, item.name);
+    }
+    ok('quoted MD5, NIL MD5, and quoted content-id/description nstrings still select bounded text/plain');
   }
 
   {
@@ -3752,7 +3840,7 @@ async function main() {
   assert.match(bodystructureSrc, /if \(type === 'text'\)/);
   assert.match(bodystructureSrc, /list\.length < 8/);
   assert.match(bodystructureSrc, /const lines = list\[7\]/);
-  assert.match(bodystructureSrc, /Number\.isInteger\(lines\)/);
+  assert.match(bodystructureSrc, /Number\.isInteger\(lines\.value\)/);
   assert.doesNotMatch(bodystructureSrc, /const extStart = type === 'text' \? 8 : 7/);
   assert.match(bodystructureSrc, /body-type-msg/);
   assert.match(bodystructureSrc, /envelope SP body SP body-fld-lines/);
@@ -3767,6 +3855,15 @@ async function main() {
   assert.doesNotMatch(bodystructureSrc, /A valid disposition atom is enough/);
   assert.doesNotMatch(bodystructureSrc, /else if \(list\[i \+ 1\] != null && !Array\.isArray/);
   assert.match(bodystructureSrc, /if \(!isNstring\(list\[(?:i|start)\]\)\) return null/);
+  assert.match(bodystructureSrc, /if \(!isNstring\(list\[3\]\)\) return null/);
+  assert.match(bodystructureSrc, /if \(!isNstring\(list\[4\]\)\) return null/);
+  assert.match(bodystructureSrc, /makeScalar\('quoted'/);
+  assert.match(bodystructureSrc, /makeScalar\('atom'/);
+  assert.match(bodystructureSrc, /makeScalar\('nil'/);
+  assert.match(bodystructureSrc, /makeScalar\('number'/);
+  assert.match(bodystructureSrc, /function parseEnvelope/);
+  assert.doesNotMatch(bodystructureSrc, /return value == null \|\| typeof value === 'string'/);
+  assert.doesNotMatch(bodystructureSrc, /return \{ value: atom\[0\], next:/);
   assert.equal(bodystructureOwner.IMAP_BODYSTRUCTURE_MAX_LISTS, 64);
   assert.equal(bodystructureOwner.IMAP_BODYSTRUCTURE_MAX_TOKENS, 512);
   assert.doesNotMatch(bodystructureSrc, /BODY\.PEEK\[\]/);
