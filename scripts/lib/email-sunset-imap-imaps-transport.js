@@ -548,6 +548,12 @@ function createSunsetImapImapsTransport(deps = {}) {
       if (seen.size > IMAP_FETCH_MAX_MESSAGES || messages.length > IMAP_FETCH_MAX_MESSAGES) {
         throw new Error('imap_unrequested_uid');
       }
+      if (seen.size !== requested.size) {
+        throw new Error('imap_missing_requested_uid');
+      }
+      for (let i = 0; i < uids.length; i += 1) {
+        if (!seen.has(uids[i])) throw new Error('imap_missing_requested_uid');
+      }
       await session.logout();
       const maxUid = messages.reduce((acc, msg) => (msg.uid > acc ? msg.uid : acc), lastUid);
       const lastOut = parseRfcLastUid(maxUid);

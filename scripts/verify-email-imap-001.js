@@ -1944,6 +1944,79 @@ async function main() {
   }
 
   {
+    const incomplete = await withImapTlsServer((socket, line) => {
+      const parts = line.split(' ');
+      const tag = parts[0];
+      const verb = (parts[1] || '').toUpperCase();
+      if (verb === 'CAPABILITY') {
+        socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+      } else if (verb === 'LOGIN') {
+        socket.write(`${tag} OK LOGIN completed\r\n`);
+      } else if (verb === 'SELECT') {
+        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 2 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH 1 7\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        assert.match(line, /UID FETCH 1,7 /);
+        writeBodyFetch(socket, 1, 7, rfc822Plain());
+        socket.write(`${tag} OK FETCH completed\r\n`);
+      } else if (verb === 'LOGOUT') {
+        socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+        socket.end();
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const transport = createTestTransport(port);
+      const fetched = await transport.fetchInbox(CREDS, frozen({ uidvalidity: null, last_uid: 0 }));
+      const ingested = [];
+      const projected = [];
+      const { poller, pg } = pollService({
+        inboundEnabled: true,
+        ingested,
+        projected,
+        imapTransport: transport,
+        cursor: { uidvalidity: FIXTURE_UIDVALIDITY, last_uid: 0 },
+      });
+      let pollErr;
+      try {
+        await poller.pollVerifiedImapInbox(frozen({
+          clientId: SUNSET_ID, locationId: LOCATION, actorStaffUserId: ACTOR,
+        }));
+      } catch (caught) {
+        pollErr = caught;
+      }
+      return {
+        fetched,
+        pollErr,
+        ingested,
+        projected,
+        cursor: pg.getCursor(),
+        queries: pg.queries.slice(),
+        received,
+      };
+    });
+    assert.equal(incomplete.fetched.ok, false);
+    assert.deepEqual([...(incomplete.fetched.failed_secret_names || [])], ['sunset-imap-host']);
+    assert.equal(Object.prototype.hasOwnProperty.call(incomplete.fetched, 'last_uid'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(incomplete.fetched, 'messages'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(incomplete.fetched, 'uidvalidity'), false);
+    assertNoLeak(incomplete.fetched, 'incomplete FETCH');
+    const fetchLine = incomplete.received.find((line) => /UID FETCH /.test(line));
+    assert.match(fetchLine, /UID FETCH 1,7 /);
+    assert.ok(incomplete.pollErr);
+    assert.deepEqual([...(incomplete.pollErr.failed_secret_names || [])], ['sunset-imap-host']);
+    assertNoLeak(incomplete.pollErr, 'incomplete FETCH poll');
+    assert.equal(incomplete.ingested.length, 0);
+    assert.equal(incomplete.projected.length, 0);
+    assert.equal(Number(incomplete.cursor.last_uid), 0);
+    assert.equal(Number(incomplete.cursor.uidvalidity), FIXTURE_UIDVALIDITY);
+    assert.equal(incomplete.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false);
+    assert.equal(incomplete.queries.some((q) => q.text === pollSql.SQL_COMMIT_RESET), false);
+    ok('incomplete FETCH missing requested UID fails closed without cursor advancement or poll ingest');
+  }
+
+  {
     const cases = [
       {
         name: 'tagged OK without untagged CAPABILITY',
@@ -2390,6 +2463,8 @@ async function main() {
   assert.match(pollSrc, /SQL_CLAIM|lease_token/);
   assert.doesNotMatch(transportSrc, /uids\[0\]\}:\$\{uids/);
   assert.match(transportSrc, /formatUidSequenceSet/);
+  assert.match(transportSrc, /imap_missing_requested_uid/);
+  assert.match(transportSrc, /seen\.size !== requested\.size/);
   assert.match(transportSrc, /assertSafeImapCredential/);
   assert.match(transportSrc, /BODY\.PEEK\[\]/);
   assert.doesNotMatch(transportSrc, /BODY\.PEEK\[TEXT\]/);
