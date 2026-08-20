@@ -10,6 +10,7 @@
  */
 
 const tls = require('node:tls');
+const { parseRfc822SafeText } = require('./email-imap-rfc822-safe-text');
 
 const TIMEOUT_MS = 10000;
 const MAX_RESPONSE_BYTES = 131072;
@@ -23,10 +24,12 @@ const IMAP_UID_MIN = 1;
 const IMAP_UID_MAX = 4294967295;
 const IMAP_LAST_UID_MIN = 0;
 const IMAP_CREDENTIAL_MAX = 256;
+const IMAP_CAPABILITY_MAX_ATOMS = 64;
 const IMAP_PROHIBITED_CONTROLS = /[\u0000-\u001F\u007F]/;
 const IMAP_PRINTABLE_ASCII = /^[\u0020-\u007E]+$/;
 const IMAP_UNSIGNED_DECIMAL = /^(0|[1-9][0-9]{0,9})$/;
-const IMAP_FETCH_ATTRS = '(UID FLAGS INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] BODY.PEEK[TEXT])';
+const IMAP_ATOM_RE = /^[^\x00-\x20\x7f(){%*"\\\]]+$/;
+const IMAP_FETCH_ATTRS = '(UID FLAGS INTERNALDATE BODY.PEEK[])';
 
 function result(ok, failed, extra) {
   const out = Object.assign({ ok: ok === true }, extra || {});
@@ -164,6 +167,63 @@ function formatUidSequenceSet(uids) {
   return parts.join(',');
 }
 
+function parseCapabilityAtomList(raw) {
+  if (typeof raw !== 'string') return null;
+  if (raw.length === 0) return Object.freeze([]);
+  if (/[^\S ]/.test(raw) || raw !== raw.trim() || raw.includes('  ')) return null;
+  const parts = raw.split(' ');
+  if (parts.length < 1 || parts.length > IMAP_CAPABILITY_MAX_ATOMS) return null;
+  for (let i = 0; i < parts.length; i += 1) {
+    if (!parts[i] || !IMAP_ATOM_RE.test(parts[i])) return null;
+  }
+  return Object.freeze(parts.slice());
+}
+
+function capabilityHasExactImap4rev1(atoms) {
+  if (!Array.isArray(atoms) || atoms.length < 1) return false;
+  let count = 0;
+  for (let i = 0; i < atoms.length; i += 1) {
+    if (String(atoms[i]).toUpperCase() === 'IMAP4REV1') count += 1;
+  }
+  return count === 1;
+}
+
+function parseGreetingCapabilityAtoms(greetingText) {
+  if (typeof greetingText !== 'string') return { present: false };
+  const match = /\[CAPABILITY(?:\s+([^\]]*?))?\]/i.exec(greetingText);
+  if (!match) return { present: false };
+  const atoms = parseCapabilityAtomList(match[1] ? match[1].trim() : '');
+  if (atoms == null) return { present: true, malformed: true };
+  return { present: true, atoms };
+}
+
+function parseUntaggedCapabilityAtoms(untagged) {
+  if (!Array.isArray(untagged)) return null;
+  const hits = [];
+  for (let i = 0; i < untagged.length; i += 1) {
+    const line = untagged[i];
+    if (typeof line !== 'string') return null;
+    if (!/^CAPABILITY(?:\s|$)/i.test(line)) continue;
+    hits.push(line);
+  }
+  if (hits.length !== 1) return null;
+  const match = /^CAPABILITY(?:\s+(.*))?$/i.exec(hits[0]);
+  if (!match) return null;
+  return parseCapabilityAtomList(match[1] ? match[1] : '');
+}
+
+function requireExactImap4rev1FromCapability(untagged) {
+  const atoms = parseUntaggedCapabilityAtoms(untagged);
+  if (!capabilityHasExactImap4rev1(atoms)) {
+    throw new Error('imap_capability');
+  }
+  return atoms;
+}
+
+function isFullMessageBodyCapture(before) {
+  return typeof before === 'string' && /BODY(?:\.PEEK)?\[\]\s*$/i.test(before);
+}
+
 function parseUidvalidity(untagged) {
   for (let i = 0; i < untagged.length; i += 1) {
     const match = /\[UIDVALIDITY\s+(\d+)\]/i.exec(untagged[i]);
@@ -192,36 +252,26 @@ function parseFetchMessage(item, uidvalidity) {
     ? flagsMatch[1].trim().split(/\s+/).filter(Boolean)
     : [];
   const dateMatch = /\bINTERNALDATE\s+"([^"]+)"/i.exec(raw);
-  let headersText = '';
-  let bodyText = '';
   const captures = Array.isArray(item.captures) ? item.captures : [];
+  let rfc822 = null;
+  let bodyCaptures = 0;
   for (let i = 0; i < captures.length; i += 1) {
     const cap = captures[i];
-    if (!cap || typeof cap.before !== 'string') continue;
-    if (/HEADER\.FIELDS/i.test(cap.before)) headersText = cap.data;
-    else if (/BODY\[TEXT\]/i.test(cap.before)) bodyText = cap.data;
+    if (!cap || typeof cap.before !== 'string' || !Buffer.isBuffer(cap.bytes)) continue;
+    if (!isFullMessageBodyCapture(cap.before)) continue;
+    bodyCaptures += 1;
+    rfc822 = cap.bytes;
   }
-  const headers = {};
-  const lines = String(headersText || '').split(/\r\n/);
-  let current = null;
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-    if (current && /^[ \t]/.test(line)) {
-      headers[current] += ` ${line.trim()}`;
-      continue;
-    }
-    const idx = line.indexOf(':');
-    if (idx < 1) continue;
-    current = line.slice(0, idx).trim().toLowerCase();
-    headers[current] = line.slice(idx + 1).trim();
-  }
+  if (bodyCaptures !== 1 || !rfc822) return null;
+  const parsed = parseRfc822SafeText(rfc822);
+  if (!parsed) return null;
   return Object.freeze({
     uid,
     uidvalidity: parsedUidvalidity,
     flags: Object.freeze(flags.slice()),
     internalDate: dateMatch ? dateMatch[1] : '',
-    headers: Object.freeze(headers),
-    bodyText: typeof bodyText === 'string' ? bodyText : '',
+    headers: parsed.headers,
+    bodyText: parsed.bodyText,
   });
 }
 
@@ -286,9 +336,9 @@ function createSunsetImapImapsTransport(deps = {}) {
         const dataStart = crlf + 2;
         if (buf.length < dataStart + n) return null;
         const before = physical.slice(0, physical.length - lit[0].length);
-        const data = Buffer.from(buf.slice(dataStart, dataStart + n), 'latin1').toString('utf8');
-        captures.push({ before, data });
-        text += before + data;
+        const bytes = Buffer.from(buf.slice(dataStart, dataStart + n), 'latin1');
+        captures.push({ before, bytes });
+        text += before;
         i = dataStart + n;
       }
       return null;
@@ -391,10 +441,12 @@ function createSunsetImapImapsTransport(deps = {}) {
       throw new Error('imap_greeting');
     }
 
-    const greetingCaps = /\[CAPABILITY\s+([^\]]+)\]/i.exec(greeting.text);
-    if (!greetingCaps || !/\bIMAP4rev1\b/i.test(greetingCaps[1])) {
+    const greetingCaps = parseGreetingCapabilityAtoms(greeting.text);
+    if (greetingCaps.malformed) throw new Error('imap_capability');
+    if (!capabilityHasExactImap4rev1(greetingCaps.atoms || [])) {
       const caps = await command('CAPABILITY');
       if (caps.status !== 'OK') throw new Error('imap_capability');
+      requireExactImap4rev1FromCapability(caps.untagged);
     }
 
     const login = await command(`LOGIN ${quoteImapString(credentials.username)} ${quoteImapString(credentials.password)}`);
@@ -525,7 +577,11 @@ module.exports = Object.freeze({
   parseRfcLastUid,
   normalizeSearchUids,
   formatUidSequenceSet,
+  parseCapabilityAtomList,
+  capabilityHasExactImap4rev1,
+  parseUntaggedCapabilityAtoms,
   IMAP_VERIFY_COMMANDS,
+  IMAP_FETCH_ATTRS,
   IMAP_FETCH_MAX_MESSAGES,
   IMAP_PORT,
   IMAP_TLS_MODE,

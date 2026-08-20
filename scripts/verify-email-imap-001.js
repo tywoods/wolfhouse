@@ -1406,6 +1406,16 @@ async function main() {
     return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   }
 
+  const CREDS = frozen({
+    host: 'imap.example.test',
+    port: 993,
+    tlsMode: 'imaps',
+    username: MAILBOX,
+    password: PLANTED,
+  });
+  const GREETING_WITH_IMAP4REV1 = '* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] imap.example.test\r\n';
+  const GREETING_WITHOUT_CAPS = '* OK imap.example.test ready\r\n';
+
   function headerBlock() {
     return [
       `From: ${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
@@ -1416,11 +1426,74 @@ async function main() {
     ].join('\r\n');
   }
 
-  async function withImapTlsServer(handler, run) {
+  function rfc822Plain(opts) {
+    const from = opts && opts.from != null ? opts.from : `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`;
+    const subject = opts && opts.subject != null ? opts.subject : FIXTURE_SUBJECT;
+    const body = opts && opts.body != null ? opts.body : FIXTURE_BODY;
+    const extras = opts && Array.isArray(opts.headers) ? opts.headers : [];
+    const lines = [
+      `From: ${from}`,
+      `Subject: ${subject}`,
+      'Date: Thu, 20 Aug 2026 10:00:00 +0000',
+      `Message-ID: ${FIXTURE_MSG_ID}`,
+      ...extras,
+    ];
+    return Buffer.from(`${lines.join('\r\n')}\r\n\r\n${body}`, 'utf8');
+  }
+
+  function writeBodyFetch(socket, seq, uid, rfc822Buf) {
+    socket.write(`* ${seq} FETCH (UID ${uid} FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[] {${rfc822Buf.length}}\r\n`);
+    socket.write(rfc822Buf);
+    socket.write(')\r\n');
+  }
+
+  function createTestTransport(port, tlsOpts) {
+    return transportOwner.createSunsetImapImapsTransport(frozen({
+      tlsConnect(opts) {
+        return tls.connect({
+          host: '127.0.0.1',
+          port,
+          servername: tlsOpts && Object.prototype.hasOwnProperty.call(tlsOpts, 'servername')
+            ? tlsOpts.servername
+            : opts.servername,
+          rejectUnauthorized: true,
+          ca: [tlsPair.cert],
+          minVersion: 'TLSv1.2',
+        });
+      },
+    }));
+  }
+
+  function wroteLogin(received) {
+    return received.some((line) => /^A\d+\s+LOGIN\s/i.test(line));
+  }
+
+  function handleAuthSelectLogout(socket, line) {
+    const parts = line.split(' ');
+    const tag = parts[0];
+    const verb = (parts[1] || '').toUpperCase();
+    if (verb === 'LOGIN') {
+      socket.write(`${tag} OK LOGIN completed\r\n`);
+      return true;
+    }
+    if (verb === 'SELECT') {
+      socket.write(`* FLAGS (\\Seen)\r\n* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}] UIDs valid\r\n* 1 EXISTS\r\n${tag} OK [READ-WRITE] SELECT completed\r\n`);
+      return true;
+    }
+    if (verb === 'LOGOUT') {
+      socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+      socket.end();
+      return true;
+    }
+    return false;
+  }
+
+  async function withImapTlsServer(handler, run, opts) {
     const received = [];
+    const greeting = opts && typeof opts.greeting === 'string' ? opts.greeting : GREETING_WITH_IMAP4REV1;
     const server = tls.createServer({ key: tlsPair.key, cert: tlsPair.cert }, (socket) => {
       let buf = '';
-      socket.write('* OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] imap.example.test\r\n');
+      socket.write(greeting);
       socket.on('data', (chunk) => {
         buf += chunk.toString('utf8');
         let index;
@@ -1505,13 +1578,10 @@ async function main() {
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
         socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        const headers = headerBlock();
-        const body = FIXTURE_BODY;
-        socket.write(`* 1 FETCH (UID ${FIXTURE_UID} FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headers.length}}\r\n`);
-        socket.write(headers);
-        socket.write(` BODY[TEXT] {${body.length}}\r\n`);
-        socket.write(body);
-        socket.write(`)\r\n${tag} OK FETCH completed\r\n`);
+        assert.match(line, /BODY\.PEEK\[\]/);
+        assert.doesNotMatch(line, /BODY\.PEEK\[TEXT\]|HEADER\.FIELDS/);
+        writeBodyFetch(socket, 1, FIXTURE_UID, rfc822Plain());
+        socket.write(`${tag} OK FETCH completed\r\n`);
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
         socket.end();
@@ -1543,6 +1613,14 @@ async function main() {
     assert.equal(result.messages.length, 1);
     assert.equal(result.messages[0].uid, FIXTURE_UID);
     assert.equal(result.uidvalidity, FIXTURE_UIDVALIDITY);
+    assert.equal(result.messages[0].bodyText, FIXTURE_BODY);
+    assert.equal(result.messages[0].headers.from, `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`);
+    const mappedBody = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: result.messages[0],
+    }));
+    assert.equal(mappedBody.ok, true);
+    assert.equal(mappedBody.value.body_text, FIXTURE_BODY);
     ok('real IMAP fetch returns one bounded INBOX message');
   }
 
@@ -1730,13 +1808,7 @@ async function main() {
         assert.doesNotMatch(line, /100000:7|1:100000|100000:100000/);
         const uids = [1, 7, 100000];
         for (let i = 0; i < uids.length; i += 1) {
-          const headers = headerBlock();
-          const body = FIXTURE_BODY;
-          socket.write(`* ${i + 1} FETCH (UID ${uids[i]} FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headers.length}}\r\n`);
-          socket.write(headers);
-          socket.write(` BODY[TEXT] {${body.length}}\r\n`);
-          socket.write(body);
-          socket.write(')\r\n');
+          writeBodyFetch(socket, i + 1, uids[i], rfc822Plain());
         }
         socket.write(`${tag} OK FETCH completed\r\n`);
       } else if (verb === 'LOGOUT') {
@@ -1789,13 +1861,8 @@ async function main() {
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
         socket.write(`* SEARCH 1 7\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        const headers = headerBlock();
-        const body = FIXTURE_BODY;
-        socket.write(`* 1 FETCH (UID 99 FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headers.length}}\r\n`);
-        socket.write(headers);
-        socket.write(` BODY[TEXT] {${body.length}}\r\n`);
-        socket.write(body);
-        socket.write(`)\r\n${tag} OK FETCH completed\r\n`);
+        writeBodyFetch(socket, 1, 99, rfc822Plain());
+        socket.write(`${tag} OK FETCH completed\r\n`);
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
         socket.end();
@@ -1841,14 +1908,8 @@ async function main() {
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
         socket.write(`* SEARCH 1 7\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        const headers = headerBlock();
-        const body = FIXTURE_BODY;
         for (const uid of [1, 1]) {
-          socket.write(`* 1 FETCH (UID ${uid} FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headers.length}}\r\n`);
-          socket.write(headers);
-          socket.write(` BODY[TEXT] {${body.length}}\r\n`);
-          socket.write(body);
-          socket.write(')\r\n');
+          writeBodyFetch(socket, 1, uid, rfc822Plain());
         }
         socket.write(`${tag} OK FETCH completed\r\n`);
       } else if (verb === 'LOGOUT') {
@@ -1880,6 +1941,396 @@ async function main() {
     });
     assert.equal(duplicate.ok, false);
     ok('FETCH with duplicate UIDs fails closed');
+  }
+
+  {
+    const cases = [
+      {
+        name: 'tagged OK without untagged CAPABILITY',
+        write(socket, tag) {
+          socket.write(`${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'untagged CAPABILITY missing IMAP4rev1',
+        write(socket, tag) {
+          socket.write(`* CAPABILITY AUTH=PLAIN STARTTLS\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'substring lookalike IMAP4rev1x',
+        write(socket, tag) {
+          socket.write(`* CAPABILITY IMAP4rev1x AUTH=PLAIN\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'substring lookalike IMAP4rev10',
+        write(socket, tag) {
+          socket.write(`* CAPABILITY IMAP4rev10\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'substring lookalike XIMAP4rev1',
+        write(socket, tag) {
+          socket.write(`* CAPABILITY XIMAP4rev1 AUTH=PLAIN\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'substring lookalike IMAP4rev1.1',
+        write(socket, tag) {
+          socket.write(`* CAPABILITY IMAP4rev1.1\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'glued CAPABILITYIMAP4rev1',
+        write(socket, tag) {
+          socket.write(`* CAPABILITYIMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'duplicate untagged CAPABILITY lines',
+        write(socket, tag) {
+          socket.write(`* CAPABILITY IMAP4rev1\r\n* CAPABILITY AUTH=PLAIN\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'duplicate IMAP4rev1 tokens',
+        write(socket, tag) {
+          socket.write(`* CAPABILITY IMAP4rev1 IMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'malformed double-space atoms',
+        write(socket, tag) {
+          socket.write(`* CAPABILITY IMAP4rev1  AUTH=PLAIN\r\n${tag} OK CAPABILITY completed\r\n`);
+        },
+      },
+      {
+        name: 'tagged OK response-code CAPABILITY without untagged',
+        write(socket, tag) {
+          socket.write(`${tag} OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] CAPABILITY completed\r\n`);
+        },
+      },
+    ];
+    for (const item of cases) {
+      const probed = await withImapTlsServer((socket, line) => {
+        const parts = line.split(' ');
+        const tag = parts[0];
+        const verb = (parts[1] || '').toUpperCase();
+        if (verb === 'CAPABILITY') {
+          item.write(socket, tag);
+        } else if (verb === 'LOGIN') {
+          socket.write(`${tag} OK LOGIN completed\r\n`);
+        } else if (verb === 'LOGOUT') {
+          socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+          socket.end();
+        } else {
+          socket.write(`${tag} BAD not implemented\r\n`);
+        }
+      }, async (port, received) => {
+        const verified = await createTestTransport(port).verifySession(CREDS);
+        return { verified, received };
+      }, { greeting: GREETING_WITHOUT_CAPS });
+      assert.equal(probed.verified.ok, false, item.name);
+      assert.equal(wroteLogin(probed.received), false, `LOGIN must not be written: ${item.name}`);
+      assert.ok(probed.received.some((line) => /\bCAPABILITY\b/i.test(line)), item.name);
+    }
+    ok('CAPABILITY tagged OK without exact IMAP4rev1 never writes LOGIN');
+  }
+
+  {
+    const success = await withImapTlsServer((socket, line) => {
+      const parts = line.split(' ');
+      const tag = parts[0];
+      const verb = (parts[1] || '').toUpperCase();
+      if (verb === 'CAPABILITY') {
+        socket.write(`* CAPABILITY AUTH=PLAIN IMAP4rev1 STARTTLS\r\n${tag} OK CAPABILITY completed\r\n`);
+      } else if (!handleAuthSelectLogout(socket, line)) {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const verified = await createTestTransport(port).verifySession(CREDS);
+      return { verified, received };
+    }, { greeting: GREETING_WITHOUT_CAPS });
+    assert.equal(success.verified.ok, true);
+    assert.equal(wroteLogin(success.received), true);
+    ok('CAPABILITY untagged exact IMAP4rev1 allows LOGIN');
+  }
+
+  {
+    const lookalikeGreeting = await withImapTlsServer((socket, line) => {
+      const parts = line.split(' ');
+      const tag = parts[0];
+      const verb = (parts[1] || '').toUpperCase();
+      if (verb === 'CAPABILITY') {
+        socket.write(`* CAPABILITY IMAP4rev1x AUTH=PLAIN\r\n${tag} OK CAPABILITY completed\r\n`);
+      } else if (verb === 'LOGIN') {
+        socket.write(`${tag} OK LOGIN completed\r\n`);
+      } else if (verb === 'LOGOUT') {
+        socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+        socket.end();
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const verified = await createTestTransport(port).verifySession(CREDS);
+      return { verified, received };
+    }, { greeting: '* OK [CAPABILITY IMAP4rev1x AUTH=PLAIN] imap.example.test\r\n' });
+    assert.equal(lookalikeGreeting.verified.ok, false);
+    assert.equal(wroteLogin(lookalikeGreeting.received), false);
+    ok('greeting CAPABILITY lookalike does not skip exact IMAP4rev1 check');
+  }
+
+  async function fetchWithRfc822(rfc822, extraHandler) {
+    return withImapTlsServer((socket, line) => {
+      const parts = line.split(' ');
+      const tag = parts[0];
+      const verb = (parts[1] || '').toUpperCase();
+      if (verb === 'CAPABILITY') {
+        socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+      } else if (verb === 'LOGIN') {
+        socket.write(`${tag} OK LOGIN completed\r\n`);
+      } else if (verb === 'SELECT') {
+        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        assert.match(line, /BODY\.PEEK\[\]/);
+        assert.doesNotMatch(line, /BODY\.PEEK\[TEXT\]|HEADER\.FIELDS|BODY\[TEXT\]/);
+        if (extraHandler && extraHandler.fetch) {
+          extraHandler.fetch(socket, tag, line);
+        } else {
+          writeBodyFetch(socket, 1, FIXTURE_UID, rfc822);
+          socket.write(`${tag} OK FETCH completed\r\n`);
+        }
+      } else if (verb === 'LOGOUT') {
+        socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+        socket.end();
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const fetched = await createTestTransport(port).fetchInbox(CREDS, frozen({ uidvalidity: null, last_uid: 0 }));
+      return { fetched, received };
+    });
+  }
+
+  {
+    const unicodeBody = 'cafés — こんにちは';
+    assert.ok(Buffer.byteLength(unicodeBody, 'utf8') > unicodeBody.length);
+    const fixtures = [
+      {
+        name: 'plain UTF-8',
+        rfc822: rfc822Plain(),
+        body: FIXTURE_BODY,
+        subject: FIXTURE_SUBJECT,
+        from: `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
+      },
+      {
+        name: 'folded Subject/From',
+        rfc822: Buffer.from([
+          'From: Guest',
+          ' <guest@example.com>',
+          'Subject: Booking',
+          ' question',
+          'Date: Thu, 20 Aug 2026 10:00:00 +0000',
+          `Message-ID: ${FIXTURE_MSG_ID}`,
+          '',
+          FIXTURE_BODY,
+        ].join('\r\n'), 'utf8'),
+        body: FIXTURE_BODY,
+        subject: 'Booking question',
+        from: 'Guest <guest@example.com>',
+      },
+      {
+        name: 'quoted-printable',
+        rfc822: rfc822Plain({
+          headers: [
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset="UTF-8"',
+            'Content-Transfer-Encoding: quoted-printable',
+          ],
+          body: 'Hello Luna,=20I would like to book a lesson.',
+        }),
+        body: 'Hello Luna, I would like to book a lesson.',
+        subject: FIXTURE_SUBJECT,
+        from: `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
+      },
+      {
+        name: 'base64',
+        rfc822: rfc822Plain({
+          headers: [
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=utf-8',
+            'Content-Transfer-Encoding: base64',
+          ],
+          body: `${Buffer.from(FIXTURE_BODY, 'utf8').toString('base64')}\r\n`,
+        }),
+        body: FIXTURE_BODY,
+        subject: FIXTURE_SUBJECT,
+        from: `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
+      },
+      {
+        name: 'multipart text/plain',
+        rfc822: Buffer.from([
+          `From: ${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
+          `Subject: ${FIXTURE_SUBJECT}`,
+          'Date: Thu, 20 Aug 2026 10:00:00 +0000',
+          `Message-ID: ${FIXTURE_MSG_ID}`,
+          'MIME-Version: 1.0',
+          'Content-Type: multipart/alternative; boundary="000000000000abcd"',
+          '',
+          '--000000000000abcd',
+          'Content-Type: text/plain; charset="UTF-8"',
+          'Content-Transfer-Encoding: quoted-printable',
+          '',
+          'Hello Luna, I would like to book a lesson.',
+          '--000000000000abcd',
+          'Content-Type: text/html; charset="UTF-8"',
+          '',
+          '<p>Hello Luna, I would like to book a lesson.</p>',
+          '--000000000000abcd--',
+          '',
+        ].join('\r\n'), 'utf8'),
+        body: 'Hello Luna, I would like to book a lesson.',
+        subject: FIXTURE_SUBJECT,
+        from: `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
+      },
+      {
+        name: 'byte-length Unicode',
+        rfc822: rfc822Plain({
+          headers: [
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=UTF-8',
+            'Content-Transfer-Encoding: 8bit',
+          ],
+          body: unicodeBody,
+        }),
+        body: unicodeBody,
+        subject: FIXTURE_SUBJECT,
+        from: `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
+      },
+    ];
+    for (const fixture of fixtures) {
+      const result = await fetchWithRfc822(fixture.rfc822);
+      assert.equal(result.fetched.ok, true, fixture.name);
+      assert.equal(result.fetched.messages.length, 1, fixture.name);
+      assert.equal(result.fetched.messages[0].bodyText, fixture.body, fixture.name);
+      assert.equal(result.fetched.messages[0].headers.from, fixture.from, fixture.name);
+      assert.equal(result.fetched.messages[0].headers.subject, fixture.subject, fixture.name);
+      const mapped = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+        mailbox: MAILBOX,
+        message: result.fetched.messages[0],
+      }));
+      assert.equal(mapped.ok, true, fixture.name);
+      assert.equal(mapped.value.body_text, fixture.body, fixture.name);
+      const fetchLine = result.received.find((line) => /UID FETCH /.test(line));
+      assert.match(fetchLine, /BODY\.PEEK\[\]/, fixture.name);
+      assert.doesNotMatch(fetchLine, /HEADER\.FIELDS|BODY\.PEEK\[TEXT\]/, fixture.name);
+    }
+    ok('BODY[] fixtures parse plain UTF-8, multipart, QP, base64, folded headers, Unicode');
+  }
+
+  {
+    const jpegOnly = Buffer.from([
+      `From: ${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
+      `Subject: ${FIXTURE_SUBJECT}`,
+      'Date: Thu, 20 Aug 2026 10:00:00 +0000',
+      `Message-ID: ${FIXTURE_MSG_ID}`,
+      'MIME-Version: 1.0',
+      'Content-Type: multipart/mixed; boundary="onlyimg"',
+      '',
+      '--onlyimg',
+      'Content-Type: image/jpeg',
+      'Content-Transfer-Encoding: base64',
+      '',
+      '/9j/4AAQSkZJRgABAQAAAQABAAD/',
+      '--onlyimg--',
+      '',
+    ].join('\r\n'), 'utf8');
+    const adversarial = [
+      {
+        name: 'malformed RFC822 no header separator',
+        rfc822: Buffer.from('From: guest@example.com\r\nSubject: hi\r\nnot-a-body', 'utf8'),
+      },
+      {
+        name: 'NUL header injection',
+        rfc822: Buffer.from(`From: guest@example.com\0Bcc: evil@x.com\r\nSubject: hi\r\n\r\n${FIXTURE_BODY}`, 'utf8'),
+      },
+      {
+        name: 'malformed quoted-printable',
+        rfc822: rfc822Plain({
+          headers: [
+            'Content-Type: text/plain; charset=utf-8',
+            'Content-Transfer-Encoding: quoted-printable',
+          ],
+          body: 'Hello=ZZLuna',
+        }),
+      },
+      {
+        name: 'malformed base64',
+        rfc822: rfc822Plain({
+          headers: [
+            'Content-Type: text/plain; charset=utf-8',
+            'Content-Transfer-Encoding: base64',
+          ],
+          body: '!!!!not-base64!!!!',
+        }),
+      },
+      {
+        name: 'binary-only no safe text',
+        rfc822: jpegOnly,
+      },
+      {
+        name: 'oversized decoded body',
+        rfc822: rfc822Plain({ body: 'x'.repeat(70000) }),
+      },
+      {
+        name: 'unknown transfer encoding',
+        rfc822: rfc822Plain({
+          headers: ['Content-Transfer-Encoding: x-uuencode'],
+          body: FIXTURE_BODY,
+        }),
+      },
+    ];
+    for (const item of adversarial) {
+      const result = await fetchWithRfc822(item.rfc822);
+      assert.equal(result.fetched.ok, false, item.name);
+    }
+    const textOnlyCompat = await withImapTlsServer((socket, line) => {
+      const parts = line.split(' ');
+      const tag = parts[0];
+      const verb = (parts[1] || '').toUpperCase();
+      if (verb === 'CAPABILITY') {
+        socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+      } else if (verb === 'LOGIN') {
+        socket.write(`${tag} OK LOGIN completed\r\n`);
+      } else if (verb === 'SELECT') {
+        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        const headers = headerBlock();
+        const body = FIXTURE_BODY;
+        socket.write(`* 1 FETCH (UID ${FIXTURE_UID} FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headers.length}}\r\n`);
+        socket.write(headers);
+        socket.write(` BODY[TEXT] {${body.length}}\r\n`);
+        socket.write(body);
+        socket.write(`)\r\n${tag} OK FETCH completed\r\n`);
+      } else if (verb === 'LOGOUT') {
+        socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+        socket.end();
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const fetched = await createTestTransport(port).fetchInbox(CREDS, frozen({ uidvalidity: null, last_uid: 0 }));
+      return { fetched, received };
+    });
+    assert.equal(textOnlyCompat.fetched.ok, false);
+    const fetchLine = textOnlyCompat.received.find((line) => /UID FETCH /.test(line));
+    assert.match(fetchLine, /BODY\.PEEK\[\]/);
+    ok('malformed/oversized/binary BODY[] and BODY[TEXT]-only FETCH fail closed');
   }
 
   tlsPair.cleanup();
@@ -1940,6 +2391,18 @@ async function main() {
   assert.doesNotMatch(transportSrc, /uids\[0\]\}:\$\{uids/);
   assert.match(transportSrc, /formatUidSequenceSet/);
   assert.match(transportSrc, /assertSafeImapCredential/);
+  assert.match(transportSrc, /BODY\.PEEK\[\]/);
+  assert.doesNotMatch(transportSrc, /BODY\.PEEK\[TEXT\]/);
+  assert.doesNotMatch(transportSrc, /HEADER\.FIELDS/);
+  assert.match(transportSrc, /parseUntaggedCapabilityAtoms|capabilityHasExactImap4rev1/);
+  assert.equal(transportOwner.IMAP_FETCH_ATTRS, '(UID FLAGS INTERNALDATE BODY.PEEK[])');
+  const mimeRel = 'scripts/lib/email-imap-rfc822-safe-text.js';
+  const mimeSrc = fs.readFileSync(path.join(ROOT, mimeRel), 'utf8');
+  assert.match(mimeSrc, /quoted-printable|quotedPrintable/i);
+  assert.match(mimeSrc, /base64/i);
+  assert.match(mimeSrc, /multipart/i);
+  assert.doesNotMatch(mimeSrc, /console\.(log|info|debug|dir|error)/);
+  assert.doesNotMatch(transportSrc, /console\.(log|info|debug|dir)\(/);
   assert.ok(!/MAIL FROM|RCPT TO|\bDATA\b|sendMail|graph\.microsoft\.com\/v1\.0\/me\/sendMail/i.test(verifySrc));
   assert.ok(!/MAIL FROM|RCPT TO|\bDATA\b|sendMail/i.test(pollSrc));
   assert.ok(!/MAIL FROM|RCPT TO|\bDATA\b/i.test(workerSrc));
@@ -1989,6 +2452,7 @@ async function main() {
   ok('existing MATCH / event-store / inbox-bridge contracts remain the ingest path');
 
   void quoteImap;
+  void headerBlock;
   void SESSION;
   void settingsSrc;
   console.log(`PASS EMAIL-IMAP-001 (${pass} checks)`);

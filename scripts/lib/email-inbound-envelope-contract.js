@@ -668,6 +668,7 @@ module.exports = {
   EMAIL_INBOUND_ENVELOPE_PERSISTENCE_FORBIDDEN,
   EMAIL_INBOUND_ENVELOPE_LOGGING_FORBIDDEN,
   EMAIL_INBOUND_ENVELOPE_STRING_MAX,
+  EMAIL_INBOUND_BODY_TEXT_MAX,
   validateInboundEmailEnvelope,
   validateReceivedAt,
   inboundEmailEnvelopeIdentityTuple,
