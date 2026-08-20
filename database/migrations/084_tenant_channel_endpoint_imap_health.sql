@@ -23,7 +23,25 @@ CREATE TABLE tenant_email_imap_fetch_cursors (
   CONSTRAINT tenant_email_imap_fetch_cursors_mailbox_inbox
     CHECK (mailbox = 'INBOX'),
   CONSTRAINT tenant_email_imap_fetch_cursors_uid_bounds
-    CHECK (uidvalidity > 0 AND last_uid >= 0),
+    CHECK (
+      uidvalidity >= 1 AND uidvalidity <= 4294967295
+      AND last_uid >= 0 AND last_uid <= 4294967295
+    ),
+  CONSTRAINT tenant_email_imap_fetch_cursors_lease_consistency
+    CHECK (
+      (lease_owner IS NULL AND lease_token IS NULL AND lease_until IS NULL)
+      OR
+      (lease_owner IS NOT NULL AND lease_token IS NOT NULL AND lease_until IS NOT NULL)
+    ),
+  CONSTRAINT tenant_email_imap_fetch_cursors_lease_owner_shape
+    CHECK (
+      lease_owner IS NULL
+      OR (
+        lease_owner = btrim(lease_owner)
+        AND char_length(lease_owner) BETWEEN 1 AND 128
+        AND lease_owner !~ '[[:space:]]'
+      )
+    ),
   CONSTRAINT tenant_email_imap_fetch_cursors_location_fk
     FOREIGN KEY (client_id, location_id)
     REFERENCES tenant_locations (client_id, id)

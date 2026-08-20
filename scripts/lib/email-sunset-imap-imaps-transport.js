@@ -19,6 +19,14 @@ const IMAP_PORT = 993;
 const IMAP_TLS_MODE = 'imaps';
 const IMAP_VERIFY_COMMANDS = Object.freeze(['CAPABILITY', 'LOGIN', 'SELECT', 'LOGOUT']);
 const IMAP_FETCH_MAX_MESSAGES = 5;
+const IMAP_UID_MIN = 1;
+const IMAP_UID_MAX = 4294967295;
+const IMAP_LAST_UID_MIN = 0;
+const IMAP_CREDENTIAL_MAX = 256;
+const IMAP_PROHIBITED_CONTROLS = /[\u0000-\u001F\u007F]/;
+const IMAP_PRINTABLE_ASCII = /^[\u0020-\u007E]+$/;
+const IMAP_UNSIGNED_DECIMAL = /^(0|[1-9][0-9]{0,9})$/;
+const IMAP_FETCH_ATTRS = '(UID FLAGS INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] BODY.PEEK[TEXT])';
 
 function result(ok, failed, extra) {
   const out = Object.assign({ ok: ok === true }, extra || {});
@@ -26,8 +34,59 @@ function result(ok, failed, extra) {
   return Object.freeze(out);
 }
 
+function parseUnsignedDecimal(raw) {
+  if (typeof raw === 'number') {
+    if (!Number.isInteger(raw) || !Number.isSafeInteger(raw)) return null;
+    return raw;
+  }
+  if (typeof raw === 'string') {
+    if (!IMAP_UNSIGNED_DECIMAL.test(raw)) return null;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || !Number.isSafeInteger(value)) return null;
+    return value;
+  }
+  return null;
+}
+
+function parseRfcUid(raw) {
+  const value = parseUnsignedDecimal(raw);
+  if (value == null || value < IMAP_UID_MIN || value > IMAP_UID_MAX) return null;
+  return value;
+}
+
+function parseRfcUidvalidity(raw) {
+  return parseRfcUid(raw);
+}
+
+function parseRfcLastUid(raw) {
+  const value = parseUnsignedDecimal(raw);
+  if (value == null || value < IMAP_LAST_UID_MIN || value > IMAP_UID_MAX) return null;
+  return value;
+}
+
+function credentialFailed(name) {
+  return Object.assign(new Error('imap_credential'), { failedName: name });
+}
+
+function assertSafeImapCredential(value, failedName) {
+  if (typeof value !== 'string' || value.length < 1 || value.length > IMAP_CREDENTIAL_MAX) {
+    throw credentialFailed(failedName);
+  }
+  if (IMAP_PROHIBITED_CONTROLS.test(value) || !IMAP_PRINTABLE_ASCII.test(value)) {
+    throw credentialFailed(failedName);
+  }
+  return value;
+}
+
 function quoteImapString(value) {
-  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  if (typeof value !== 'string'
+      || value.length < 1
+      || value.length > IMAP_CREDENTIAL_MAX
+      || IMAP_PROHIBITED_CONTROLS.test(value)
+      || !IMAP_PRINTABLE_ASCII.test(value)) {
+    throw new Error('imap_unsafe_quoted_string');
+  }
+  return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 }
 
 function assertSameImapTag(expected, actual) {
@@ -64,20 +123,53 @@ function parseSearchUids(untagged) {
     if (!rest) continue;
     const parts = rest.split(/\s+/);
     for (let j = 0; j < parts.length; j += 1) {
-      const uid = Number(parts[j]);
-      if (!Number.isInteger(uid) || uid < 1) throw new Error('imap_malformed_response');
+      const uid = parseRfcUid(parts[j]);
+      if (uid == null) throw new Error('imap_malformed_response');
       uids.push(uid);
     }
   }
   return uids;
 }
 
+function normalizeSearchUids(rawUids) {
+  if (!Array.isArray(rawUids)) throw new Error('imap_malformed_response');
+  const seen = new Set();
+  const uids = [];
+  for (let i = 0; i < rawUids.length; i += 1) {
+    const uid = parseRfcUid(rawUids[i]);
+    if (uid == null) throw new Error('imap_malformed_response');
+    if (seen.has(uid)) continue;
+    seen.add(uid);
+    uids.push(uid);
+  }
+  uids.sort((a, b) => a - b);
+  if (uids.length > IMAP_FETCH_MAX_MESSAGES) {
+    return uids.slice(0, IMAP_FETCH_MAX_MESSAGES);
+  }
+  return uids;
+}
+
+function formatUidSequenceSet(uids) {
+  if (!Array.isArray(uids) || uids.length < 1 || uids.length > IMAP_FETCH_MAX_MESSAGES) {
+    throw new Error('imap_malformed_response');
+  }
+  const parts = [];
+  const seen = new Set();
+  for (let i = 0; i < uids.length; i += 1) {
+    const uid = parseRfcUid(uids[i]);
+    if (uid == null || seen.has(uid)) throw new Error('imap_malformed_response');
+    seen.add(uid);
+    parts.push(String(uid));
+  }
+  return parts.join(',');
+}
+
 function parseUidvalidity(untagged) {
   for (let i = 0; i < untagged.length; i += 1) {
     const match = /\[UIDVALIDITY\s+(\d+)\]/i.exec(untagged[i]);
     if (match) {
-      const value = Number(match[1]);
-      if (!Number.isInteger(value) || value < 1) throw new Error('imap_malformed_response');
+      const value = parseRfcUidvalidity(match[1]);
+      if (value == null) throw new Error('imap_malformed_response');
       return value;
     }
   }
@@ -91,8 +183,10 @@ function parseFetchMessage(item, uidvalidity) {
   }
   const uidMatch = /\bUID\s+(\d+)/i.exec(raw);
   if (!uidMatch) return null;
-  const uid = Number(uidMatch[1]);
-  if (!Number.isInteger(uid) || uid < 1) return null;
+  const uid = parseRfcUid(uidMatch[1]);
+  if (uid == null) return null;
+  const parsedUidvalidity = parseRfcUidvalidity(uidvalidity);
+  if (parsedUidvalidity == null) return null;
   const flagsMatch = /\bFLAGS\s+\(([^)]*)\)/i.exec(raw);
   const flags = flagsMatch && flagsMatch[1].trim()
     ? flagsMatch[1].trim().split(/\s+/).filter(Boolean)
@@ -123,12 +217,21 @@ function parseFetchMessage(item, uidvalidity) {
   }
   return Object.freeze({
     uid,
-    uidvalidity,
+    uidvalidity: parsedUidvalidity,
     flags: Object.freeze(flags.slice()),
     internalDate: dateMatch ? dateMatch[1] : '',
     headers: Object.freeze(headers),
     bodyText: typeof bodyText === 'string' ? bodyText : '',
   });
+}
+
+function transportFailureName(err) {
+  const name = err && err.failedName;
+  if (name === 'sunset-imap-password') return ['sunset-imap-password'];
+  if (name === 'sunset-imap-username') return ['sunset-imap-username'];
+  if (name === 'sunset-imap-tls-mode') return ['sunset-imap-tls-mode'];
+  if (name === 'sunset-imap-port') return ['sunset-imap-port'];
+  return ['sunset-imap-host'];
 }
 
 function createSunsetImapImapsTransport(deps = {}) {
@@ -144,6 +247,8 @@ function createSunsetImapImapsTransport(deps = {}) {
     if (!Number.isInteger(credentials.port) || credentials.port !== IMAP_PORT) {
       throw Object.assign(new Error('imap_port'), { failedName: 'sunset-imap-port' });
     }
+    assertSafeImapCredential(credentials.username, 'sunset-imap-username');
+    assertSafeImapCredential(credentials.password, 'sunset-imap-password');
 
     let socket;
     let buffer = '';
@@ -238,8 +343,13 @@ function createSunsetImapImapsTransport(deps = {}) {
     }
 
     function command(text) {
+      if (typeof text !== 'string' || IMAP_PROHIBITED_CONTROLS.test(text)) {
+        throw new Error('imap_unsafe_command');
+      }
       const tag = nextTag();
-      socket.write(`${tag} ${text}\r\n`);
+      const wire = `${tag} ${text}\r\n`;
+      if ((wire.match(/\r\n/g) || []).length !== 1) throw new Error('imap_unsafe_command');
+      socket.write(wire);
       return waitTagged(tag);
     }
 
@@ -316,11 +426,7 @@ function createSunsetImapImapsTransport(deps = {}) {
       await session.logout();
       return result(true);
     } catch (err) {
-      const name = err && err.failedName;
-      if (name === 'sunset-imap-password') return result(false, ['sunset-imap-password']);
-      if (name === 'sunset-imap-tls-mode') return result(false, ['sunset-imap-tls-mode']);
-      if (name === 'sunset-imap-port') return result(false, ['sunset-imap-port']);
-      return result(false, ['sunset-imap-host']);
+      return result(false, transportFailureName(err));
     } finally {
       if (session) session.destroy();
     }
@@ -330,23 +436,35 @@ function createSunsetImapImapsTransport(deps = {}) {
     let session;
     try {
       session = await openSession(credentials);
-      const uidvalidity = session.uidvalidity;
-      if (!Number.isInteger(uidvalidity) || uidvalidity < 1) {
+      const uidvalidity = parseRfcUidvalidity(session.uidvalidity);
+      if (uidvalidity == null) {
         await session.logout();
         return result(false, ['sunset-imap-host']);
       }
-      let lastUid = 0;
-      if (cursor && Number(cursor.uidvalidity) === uidvalidity && Number.isInteger(Number(cursor.last_uid))) {
-        lastUid = Number(cursor.last_uid);
-        if (lastUid < 0) lastUid = 0;
+      let lastUid = IMAP_LAST_UID_MIN;
+      if (cursor && cursor.uidvalidity != null) {
+        const cursorUidvalidity = parseRfcUidvalidity(cursor.uidvalidity);
+        const cursorLast = parseRfcLastUid(cursor.last_uid);
+        if (cursorUidvalidity == null || cursorLast == null) {
+          await session.logout();
+          return result(false, ['sunset-imap-host']);
+        }
+        if (cursorUidvalidity === uidvalidity) lastUid = cursorLast;
+      }
+      if (lastUid >= IMAP_UID_MAX) {
+        await session.logout();
+        return result(true, null, {
+          uidvalidity,
+          last_uid: lastUid,
+          messages: Object.freeze([]),
+        });
       }
       const search = await session.command(`UID SEARCH UID ${lastUid + 1}:*`);
       if (search.status !== 'OK') {
         await session.logout();
         return result(false, ['sunset-imap-host']);
       }
-      const uids = parseSearchUids(search.untagged).filter((uid) => uid > lastUid)
-        .slice(0, IMAP_FETCH_MAX_MESSAGES);
+      const uids = normalizeSearchUids(parseSearchUids(search.untagged).filter((uid) => uid > lastUid));
       if (uids.length === 0) {
         await session.logout();
         return result(true, null, {
@@ -355,34 +473,40 @@ function createSunsetImapImapsTransport(deps = {}) {
           messages: Object.freeze([]),
         });
       }
-      const spec = uids.length === 1 ? String(uids[0]) : `${uids[0]}:${uids[uids.length - 1]}`;
-      const fetched = await session.command(
-        `UID FETCH ${spec} (UID FLAGS INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] BODY.PEEK[TEXT])`,
-      );
+      const spec = formatUidSequenceSet(uids);
+      if (spec.includes(':')) throw new Error('imap_malformed_response');
+      const fetched = await session.command(`UID FETCH ${spec} ${IMAP_FETCH_ATTRS}`);
       if (fetched.status !== 'OK') {
         await session.logout();
         return result(false, ['sunset-imap-host']);
       }
+      const requested = new Set(uids);
+      const seen = new Set();
       const messages = [];
       for (let i = 0; i < fetched.fetchItems.length; i += 1) {
         const item = fetched.fetchItems[i];
         const parsed = parseFetchMessage({ text: item.text, captures: item.captures }, uidvalidity);
         if (!parsed) throw new Error('imap_malformed_response');
+        if (!requested.has(parsed.uid) || seen.has(parsed.uid)) {
+          throw new Error('imap_unrequested_uid');
+        }
+        seen.add(parsed.uid);
         messages.push(parsed);
+      }
+      if (seen.size > IMAP_FETCH_MAX_MESSAGES || messages.length > IMAP_FETCH_MAX_MESSAGES) {
+        throw new Error('imap_unrequested_uid');
       }
       await session.logout();
       const maxUid = messages.reduce((acc, msg) => (msg.uid > acc ? msg.uid : acc), lastUid);
+      const lastOut = parseRfcLastUid(maxUid);
+      if (lastOut == null) throw new Error('imap_malformed_response');
       return result(true, null, {
         uidvalidity,
-        last_uid: maxUid,
+        last_uid: lastOut,
         messages: Object.freeze(messages.slice()),
       });
     } catch (err) {
-      const name = err && err.failedName;
-      if (name === 'sunset-imap-password') return result(false, ['sunset-imap-password']);
-      if (name === 'sunset-imap-tls-mode') return result(false, ['sunset-imap-tls-mode']);
-      if (name === 'sunset-imap-port') return result(false, ['sunset-imap-port']);
-      return result(false, ['sunset-imap-host']);
+      return result(false, transportFailureName(err));
     } finally {
       if (session) session.destroy();
     }
@@ -394,8 +518,19 @@ function createSunsetImapImapsTransport(deps = {}) {
 module.exports = Object.freeze({
   createSunsetImapImapsTransport,
   assertSameImapTag,
+  assertSafeImapCredential,
+  quoteImapString,
+  parseRfcUid,
+  parseRfcUidvalidity,
+  parseRfcLastUid,
+  normalizeSearchUids,
+  formatUidSequenceSet,
   IMAP_VERIFY_COMMANDS,
   IMAP_FETCH_MAX_MESSAGES,
   IMAP_PORT,
   IMAP_TLS_MODE,
+  IMAP_UID_MIN,
+  IMAP_UID_MAX,
+  IMAP_LAST_UID_MIN,
+  IMAP_CREDENTIAL_MAX,
 });

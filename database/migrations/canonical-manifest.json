@@ -1172,7 +1172,7 @@
       "inForwardChain": true,
       "rationale": "EMAIL-IMAP-001 nullable durable timestamp for successful implicit-TLS IMAP LOGIN+SELECT+LOGOUT health verification plus UID/UIDVALIDITY fetch cursor; does not activate outbound/automation.",
       "downFilename": "084_tenant_channel_endpoint_imap_health_down.sql",
-      "sha256": "b7795f8ba43690d0d2eb5214143dad81558999a43af1695916aed03d2f69645a"
+      "sha256": "815fb5b53a2ff7d4ec328520c95e8dfe78b28e82a8d7d6f3016eb4e689ac125e"
     },
     {
       "id": "084_tenant_channel_endpoint_imap_health_down",

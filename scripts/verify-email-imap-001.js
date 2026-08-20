@@ -65,6 +65,13 @@ const FIXTURE_MSG_ID = '<msg17@example.com>';
 const FIXTURE_UIDVALIDITY = 3857529045;
 const FIXTURE_UID = 17;
 const PRIOR_HEALTH = '2026-08-19T00:00:00.000Z';
+const OWNER_A = 'sunset-imap-poll-a';
+const OWNER_B = 'sunset-imap-poll-b';
+const TOKEN_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+const TOKEN_B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
+const TOKEN_STALE = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc3';
+const pollSql = require('./lib/email-sunset-imap-inbound-poll');
+const transportSql = require('./lib/email-sunset-imap-imaps-transport');
 
 let pass = 0;
 function ok(name) {
@@ -198,12 +205,130 @@ function fakeImapTransport(opts) {
   return frozen({ verifySession, fetchInbox, sessions, fetches });
 }
 
+function createImapCursorLeaseMemory(opts) {
+  let nowMs = opts && opts.nowMs != null ? Number(opts.nowMs) : Date.now();
+  let row = null;
+  if (opts && opts.cursor) {
+    row = {
+      uidvalidity: Number(opts.cursor.uidvalidity),
+      last_uid: Number(opts.cursor.last_uid),
+      lease_owner: opts.cursor.lease_owner || null,
+      lease_token: opts.cursor.lease_token || null,
+      lease_until: opts.cursor.lease_until || null,
+    };
+  }
+  let chain = Promise.resolve();
+  function serialize(fn) {
+    const run = chain.then(fn, fn);
+    chain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+  function leaseHeld() {
+    if (!row || row.lease_token == null || row.lease_until == null) return false;
+    const until = row.lease_until instanceof Date
+      ? row.lease_until.getTime()
+      : Date.parse(row.lease_until);
+    return Number.isFinite(until) && until > nowMs;
+  }
+  function apply(sql, params) {
+    const text = String(sql);
+    if (text === pollSql.SQL_CLAIM) {
+      assert.equal(params.length, 6);
+      assert.equal(pollSql.SQL_CLAIM_PARAMS.clientId, 1);
+      assert.equal(pollSql.SQL_CLAIM_PARAMS.locationId, 2);
+      assert.equal(pollSql.SQL_CLAIM_PARAMS.endpointId, 3);
+      assert.equal(pollSql.SQL_CLAIM_PARAMS.leaseOwner, 4);
+      assert.equal(pollSql.SQL_CLAIM_PARAMS.leaseToken, 5);
+      assert.equal(pollSql.SQL_CLAIM_PARAMS.ttlSeconds, 6);
+      const owner = params[3];
+      const token = params[4];
+      const ttl = Number(params[5]);
+      const until = new Date(nowMs + ttl * 1000);
+      if (!row) {
+        row = {
+          uidvalidity: 1,
+          last_uid: 0,
+          lease_owner: owner,
+          lease_token: token,
+          lease_until: until,
+        };
+        return { rows: [Object.assign({}, row)], rowCount: 1 };
+      }
+      if (leaseHeld()) return { rows: [], rowCount: 0 };
+      row.lease_owner = owner;
+      row.lease_token = token;
+      row.lease_until = until;
+      return {
+        rows: [{
+          uidvalidity: row.uidvalidity,
+          last_uid: row.last_uid,
+          lease_owner: row.lease_owner,
+          lease_token: row.lease_token,
+          lease_until: row.lease_until,
+        }],
+        rowCount: 1,
+      };
+    }
+    if (text === pollSql.SQL_COMMIT_MONOTONIC) {
+      assert.equal(params.length, 6);
+      assert.equal(pollSql.SQL_COMMIT_PARAMS.lastUid, 6);
+      const owner = params[2];
+      const token = params[3];
+      const uv = Number(params[4]);
+      const last = Number(params[5]);
+      if (!row || !leaseHeld() || row.lease_owner !== owner || row.lease_token !== token
+          || Number(row.uidvalidity) !== uv || Number(row.last_uid) > last) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.last_uid = last;
+      return { rows: [{ uidvalidity: row.uidvalidity, last_uid: row.last_uid }], rowCount: 1 };
+    }
+    if (text === pollSql.SQL_COMMIT_RESET) {
+      assert.equal(params.length, 6);
+      const owner = params[2];
+      const token = params[3];
+      const uv = Number(params[4]);
+      const last = Number(params[5]);
+      if (!row || !leaseHeld() || row.lease_owner !== owner || row.lease_token !== token
+          || Number(row.uidvalidity) === uv) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.uidvalidity = uv;
+      row.last_uid = last;
+      return { rows: [{ uidvalidity: row.uidvalidity, last_uid: row.last_uid }], rowCount: 1 };
+    }
+    if (text === pollSql.SQL_RELEASE) {
+      assert.equal(params.length, 4);
+      assert.equal(pollSql.SQL_RELEASE_PARAMS.leaseToken, 4);
+      const owner = params[2];
+      const token = params[3];
+      if (!row || row.lease_owner !== owner || row.lease_token !== token) {
+        return { rows: [], rowCount: 0 };
+      }
+      row.lease_owner = null;
+      row.lease_token = null;
+      row.lease_until = null;
+      return { rows: [{ mailbox: 'INBOX' }], rowCount: 1 };
+    }
+    return null;
+  }
+  return {
+    apply,
+    query(sql, params) { return serialize(() => apply(sql, params)); },
+    advanceMs(ms) { nowMs += ms; },
+    getCursor() { return row ? Object.assign({}, row) : null; },
+    nowMs() { return nowMs; },
+  };
+}
+
 function fakePg(opts) {
   const health = opts && Object.prototype.hasOwnProperty.call(opts, 'imapHealth')
     ? opts.imapHealth
     : null;
   let inboundEnabled = opts && opts.inboundEnabled === true;
-  let cursor = opts && opts.cursor ? Object.assign({}, opts.cursor) : null;
+  const leases = opts && opts.leases
+    ? opts.leases
+    : createImapCursorLeaseMemory({ cursor: opts && opts.cursor, nowMs: opts && opts.nowMs });
   const persisted = [];
   const projected = [];
   const endpoint = opts && opts.missingEndpoint
@@ -227,6 +352,8 @@ function fakePg(opts) {
   const query = async (sql, params) => {
     const text = String(sql);
     queries.push({ text, params });
+    const leased = await leases.query(sql, params);
+    if (leased) return leased;
     if (/^\s*UPDATE tenant_channel_endpoints[\s\S]*imap_health_verified_at/i.test(text)) {
       if (opts && opts.markHealthMissing) return { rows: [] };
       endpoint.imap_health_verified_at = new Date().toISOString();
@@ -237,16 +364,6 @@ function fakePg(opts) {
       inboundEnabled = true;
       endpoint.inbound_enabled = true;
       return { rows: [{ id: ENDPOINT_ID, inbound_enabled: true }] };
-    }
-    if (/FROM tenant_email_imap_fetch_cursors/i.test(text)) {
-      return { rows: cursor ? [Object.assign({}, cursor)] : [] };
-    }
-    if (/INSERT INTO tenant_email_imap_fetch_cursors|UPDATE tenant_email_imap_fetch_cursors/i.test(text)) {
-      cursor = {
-        uidvalidity: Number(params[params.length - 2]),
-        last_uid: Number(params[params.length - 1]),
-      };
-      return { rows: [Object.assign({}, cursor)], rowCount: 1 };
     }
     if (/INSERT INTO tenant_email_inbound_events/i.test(text)) {
       persisted.push(params.slice());
@@ -263,15 +380,28 @@ function fakePg(opts) {
       if (opts && opts.locationMissing) return { rows: [] };
       return { rows: [{ location_id: LOCATION, id: LOCATION_UUID, active: true }] };
     }
-    if (/pg_advisory_xact_lock/i.test(text)) return { rows: [] };
+    if (/pg_advisory_xact_lock/i.test(text)) {
+      throw new Error('advisory xact lock must not be used for IMAP cursor');
+    }
     if (/FROM tenant_channel_endpoints/i.test(text) || /SELECT id[\s\S]*imap_smtp/i.test(text)) {
       if (!endpoint) return { rows: [] };
-      const row = Object.assign({}, endpoint, { inbound_enabled: inboundEnabled });
+      const row = Object.assign({}, endpoint, {
+        inbound_enabled: inboundEnabled,
+        location_uuid: LOCATION_UUID,
+      });
       return { rows: [row] };
     }
     return { rows: [] };
   };
-  return { query, queries, persisted, projected, getCursor: () => cursor, getEndpoint: () => endpoint };
+  return {
+    query,
+    queries,
+    persisted,
+    projected,
+    leases,
+    getCursor: () => leases.getCursor(),
+    getEndpoint: () => endpoint,
+  };
 }
 
 function fixtureEnvelope() {
@@ -808,6 +938,8 @@ async function main() {
       env,
       secretProvider,
       imapTransport,
+      leaseOwner: extra && extra.leaseOwner ? extra.leaseOwner : pollOwner.IMAP_LEASE_OWNER_DEFAULT,
+      randomUUID: extra && extra.randomUUID ? extra.randomUUID : undefined,
       persistEnvelopes: extra && extra.persistEnvelopes
         ? extra.persistEnvelopes
         : async (_authority, envelopes) => {
@@ -916,6 +1048,276 @@ async function main() {
     assert.ok(ack.fetched <= pollOwner.IMAP_FETCH_MAX_MESSAGES);
     assert.ok(pollOwner.IMAP_FETCH_MAX_MESSAGES <= 5);
     ok('fetch is bounded by max message count');
+  }
+
+  {
+    assert.equal(pollSql.SQL_CLAIM_PARAMS.clientId, 1);
+    assert.equal(pollSql.SQL_CLAIM_PARAMS.locationId, 2);
+    assert.equal(pollSql.SQL_CLAIM_PARAMS.endpointId, 3);
+    assert.equal(pollSql.SQL_CLAIM_PARAMS.leaseOwner, 4);
+    assert.equal(pollSql.SQL_CLAIM_PARAMS.leaseToken, 5);
+    assert.equal(pollSql.SQL_CLAIM_PARAMS.ttlSeconds, 6);
+    assert.equal(pollSql.SQL_COMMIT_PARAMS.clientId, 1);
+    assert.equal(pollSql.SQL_COMMIT_PARAMS.endpointId, 2);
+    assert.equal(pollSql.SQL_COMMIT_PARAMS.leaseOwner, 3);
+    assert.equal(pollSql.SQL_COMMIT_PARAMS.leaseToken, 4);
+    assert.equal(pollSql.SQL_COMMIT_PARAMS.uidvalidity, 5);
+    assert.equal(pollSql.SQL_COMMIT_PARAMS.lastUid, 6);
+    assert.equal(pollSql.SQL_RELEASE_PARAMS.leaseToken, 4);
+    assert.match(pollSql.SQL_CLAIM, /\$1::uuid.*\$2::uuid.*\$3::uuid.*\$4.*\$5::uuid.*\$6::text/);
+    assert.match(pollSql.SQL_COMMIT_MONOTONIC, /lease_owner = \$3 AND lease_token = \$4::uuid/);
+    assert.match(pollSql.SQL_COMMIT_MONOTONIC, /uidvalidity = \$5 AND last_uid <= \$6/);
+    assert.match(pollSql.SQL_COMMIT_RESET, /uidvalidity <> \$5/);
+    assert.doesNotMatch(pollSql.SQL_CLAIM + pollSql.SQL_COMMIT_MONOTONIC, /pg_advisory_xact_lock/);
+    ok('lease SQL parameter positions are exact');
+  }
+
+  {
+    const leases = createImapCursorLeaseMemory();
+    const delay = { wait: null, go: null };
+    delay.wait = new Promise((resolve) => { delay.go = resolve; });
+    let fetchStarts = 0;
+    function delayedTransport() {
+      return frozen({
+        async fetchInbox() {
+          fetchStarts += 1;
+          await delay.wait;
+          return frozen({
+            ok: true,
+            uidvalidity: FIXTURE_UIDVALIDITY,
+            last_uid: 50,
+            messages: frozen([Object.assign({}, fixtureFetchedMessage(), { uid: 50 })]),
+          });
+        },
+      });
+    }
+    const pgA = fakePg({
+      imapHealth: '2026-08-20T00:00:00.000Z',
+      inboundEnabled: true,
+      leases,
+    });
+    const pgB = fakePg({
+      imapHealth: '2026-08-20T00:00:00.000Z',
+      inboundEnabled: true,
+      leases,
+    });
+    const ingestedA = [];
+    const ingestedB = [];
+    const a = pollService({
+      pg: pgA,
+      inboundEnabled: true,
+      ingested: ingestedA,
+      projected: [],
+      imapTransport: delayedTransport(),
+      leaseOwner: OWNER_A,
+      randomUUID: () => TOKEN_A,
+    });
+    const b = pollService({
+      pg: pgB,
+      inboundEnabled: true,
+      ingested: ingestedB,
+      projected: [],
+      imapTransport: delayedTransport(),
+      leaseOwner: OWNER_B,
+      randomUUID: () => TOKEN_B,
+    });
+    const pA = a.poller.pollVerifiedImapInbox(frozen({
+      clientId: SUNSET_ID, locationId: LOCATION, actorStaffUserId: ACTOR,
+    }));
+    for (let i = 0; i < 40 && fetchStarts < 1; i += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    assert.equal(fetchStarts, 1);
+    const bSettled = await Promise.allSettled([
+      b.poller.pollVerifiedImapInbox(frozen({
+        clientId: SUNSET_ID, locationId: LOCATION, actorStaffUserId: ACTOR,
+      })),
+    ]);
+    delay.go();
+    const aSettled = await Promise.allSettled([pA]);
+    assert.equal(aSettled[0].status, 'fulfilled');
+    assert.equal(bSettled[0].status, 'rejected');
+    assert.equal(fetchStarts, 1);
+    assert.equal(ingestedA.length, 1);
+    assert.equal(ingestedB.length, 0);
+    const cursor = leases.getCursor();
+    assert.equal(Number(cursor.uidvalidity), FIXTURE_UIDVALIDITY);
+    assert.equal(Number(cursor.last_uid), 50);
+    assert.equal(cursor.lease_token, null);
+    ok('concurrent two-client poll: one claim, no cursor regression');
+  }
+
+  {
+    const leases = createImapCursorLeaseMemory({
+      cursor: {
+        uidvalidity: FIXTURE_UIDVALIDITY,
+        last_uid: 40,
+        lease_owner: OWNER_A,
+        lease_token: TOKEN_STALE,
+        lease_until: new Date(Date.now() + 60000).toISOString(),
+      },
+    });
+    const commit = await leases.query(pollSql.SQL_COMMIT_MONOTONIC, [
+      SUNSET_ID, ENDPOINT_ID, OWNER_A, TOKEN_STALE, FIXTURE_UIDVALIDITY, 10,
+    ]);
+    assert.equal(commit.rowCount, 0);
+    assert.equal(Number(leases.getCursor().last_uid), 40);
+    leases.advanceMs(120000);
+    const staleAfterExpiry = await leases.query(pollSql.SQL_COMMIT_MONOTONIC, [
+      SUNSET_ID, ENDPOINT_ID, OWNER_A, TOKEN_STALE, FIXTURE_UIDVALIDITY, 99,
+    ]);
+    assert.equal(staleAfterExpiry.rowCount, 0);
+    assert.equal(Number(leases.getCursor().last_uid), 40);
+    const claimed = await leases.query(pollSql.SQL_CLAIM, [
+      SUNSET_ID, LOCATION_UUID, ENDPOINT_ID, OWNER_B, TOKEN_B, '60',
+    ]);
+    assert.equal(claimed.rowCount, 1);
+    assert.equal(claimed.rows[0].lease_token, TOKEN_B);
+    const staleDuringNewLease = await leases.query(pollSql.SQL_COMMIT_MONOTONIC, [
+      SUNSET_ID, ENDPOINT_ID, OWNER_A, TOKEN_STALE, FIXTURE_UIDVALIDITY, 99,
+    ]);
+    assert.equal(staleDuringNewLease.rowCount, 0);
+    const advanced = await leases.query(pollSql.SQL_COMMIT_MONOTONIC, [
+      SUNSET_ID, ENDPOINT_ID, OWNER_B, TOKEN_B, FIXTURE_UIDVALIDITY, 41,
+    ]);
+    assert.equal(advanced.rowCount, 1);
+    assert.equal(Number(leases.getCursor().last_uid), 41);
+    const released = await leases.query(pollSql.SQL_RELEASE, [
+      SUNSET_ID, ENDPOINT_ID, OWNER_B, TOKEN_B,
+    ]);
+    assert.equal(released.rowCount, 1);
+    assert.equal(leases.getCursor().lease_token, null);
+    ok('stale owner cannot commit; crash/expiry converges on one owner');
+  }
+
+  {
+    assert.equal(transportSql.parseRfcUid(1), 1);
+    assert.equal(transportSql.parseRfcUid(4294967295), 4294967295);
+    assert.equal(transportSql.parseRfcUid('4294967295'), 4294967295);
+    assert.equal(transportSql.parseRfcLastUid(0), 0);
+    assert.equal(transportSql.parseRfcLastUid(4294967295), 4294967295);
+    assert.equal(transportSql.parseRfcUid(0), null);
+    assert.equal(transportSql.parseRfcUid(4294967296), null);
+    assert.equal(transportSql.parseRfcUidvalidity(4294967296), null);
+    assert.equal(transportSql.parseRfcLastUid(-1), null);
+    assert.equal(transportSql.parseRfcLastUid(4294967296), null);
+    assert.equal(transportSql.parseRfcUid(1.5), null);
+    assert.equal(transportSql.parseRfcUid(NaN), null);
+    assert.equal(transportSql.parseRfcUid(Infinity), null);
+    assert.equal(transportSql.parseRfcUid('01'), null);
+    assert.equal(transportSql.parseRfcUid('1e2'), null);
+    assert.equal(transportSql.parseRfcUid('4294967295.0'), null);
+    assert.equal(transportSql.parseRfcUid(Number.MAX_SAFE_INTEGER), null);
+    const mappedMin = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: Object.assign({}, fixtureFetchedMessage(), { uid: 1, uidvalidity: 1 }),
+    }));
+    assert.equal(mappedMin.ok, true);
+    const mappedMax = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: Object.assign({}, fixtureFetchedMessage(), { uid: 4294967295, uidvalidity: 4294967295 }),
+    }));
+    assert.equal(mappedMax.ok, true);
+    const mappedOver = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: Object.assign({}, fixtureFetchedMessage(), { uid: 4294967296 }),
+    }));
+    assert.equal(mappedOver.ok, false);
+    const mappedZero = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: Object.assign({}, fixtureFetchedMessage(), { uid: 0 }),
+    }));
+    assert.equal(mappedZero.ok, false);
+    const mappedUnsafe = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: Object.assign({}, fixtureFetchedMessage(), { uid: 9007199254740993 }),
+    }));
+    assert.equal(mappedUnsafe.ok, false);
+    ok('RFC unsigned 32-bit UID/UIDVALIDITY/last_uid min/max and over-bound');
+  }
+
+  {
+    const sparse = transportSql.normalizeSearchUids([100000, 1, 7, 1, 7]);
+    assert.deepEqual(sparse, [1, 7, 100000]);
+    assert.equal(transportSql.formatUidSequenceSet(sparse), '1,7,100000');
+    assert.ok(!transportSql.formatUidSequenceSet(sparse).includes(':'));
+    const capped = transportSql.normalizeSearchUids([9, 3, 1, 8, 2, 4, 7]);
+    assert.deepEqual(capped, [1, 2, 3, 4, 7]);
+    assert.equal(capped.length, 5);
+    ok('sparse UIDs are validated, deduped, sorted, capped at five, comma sequence-set');
+  }
+
+  {
+    const gmailFrom = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: frozen({
+        uid: FIXTURE_UID,
+        uidvalidity: FIXTURE_UIDVALIDITY,
+        flags: frozen([]),
+        internalDate: '20-Aug-2026 10:00:00 +0000',
+        headers: frozen({
+          from: '=?UTF-8?Q?Mar=C3=ADa_Guest?= <maria@example.com>, Other <other@example.com>',
+          subject: '=?UTF-8?B?UmVzZXJ2YQ==?= =?UTF-8?Q?_question?=',
+          date: 'Thu, 20 Aug 2026 10:00:00 +0000',
+          'message-id': FIXTURE_MSG_ID,
+        }),
+        bodyText: FIXTURE_BODY,
+      }),
+    }));
+    assert.equal(gmailFrom.ok, true);
+    assert.equal(gmailFrom.value.sender_address, 'maria@example.com');
+    assert.equal(gmailFrom.value.sender_display_name, 'María Guest');
+    assert.equal(gmailFrom.value.subject, 'Reserva question');
+    const quotedComma = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: Object.assign({}, fixtureFetchedMessage(), {
+        headers: frozen({
+          from: '"Doe, John" <john.doe+tag@example.com>',
+          subject: 'Re: =?UTF-8?Q?Hola?=',
+          'message-id': FIXTURE_MSG_ID,
+        }),
+      }),
+    }));
+    assert.equal(quotedComma.ok, true);
+    assert.equal(quotedComma.value.sender_address, 'john.doe+tag@example.com');
+    assert.equal(quotedComma.value.sender_display_name, 'Doe, John');
+    assert.equal(quotedComma.value.subject, 'Re: Hola');
+    const quotedTrap = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: Object.assign({}, fixtureFetchedMessage(), {
+        headers: frozen({
+          from: '"Foo <evil@x.com>" <real@example.com>',
+          subject: 'ok',
+          'message-id': FIXTURE_MSG_ID,
+        }),
+      }),
+    }));
+    assert.equal(quotedTrap.ok, true);
+    assert.equal(quotedTrap.value.sender_address, 'real@example.com');
+    const adversarial = [
+      '<not-an-email>',
+      'Name (comment@evil.com) <real@example.com>',
+      '=?UTF-8?Q?=00hidden?= <real@example.com>',
+      '=?UTF-8?Q?bad=0AInjected?= <real@example.com>',
+      'undisclosed-recipients:;',
+      'real@example.com\r\nBcc: evil@x.com',
+      'not-an-address',
+    ];
+    for (const from of adversarial) {
+      const mapped = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+        mailbox: MAILBOX,
+        message: Object.assign({}, fixtureFetchedMessage(), {
+          headers: frozen({ from, subject: 'x', 'message-id': FIXTURE_MSG_ID }),
+        }),
+      }));
+      assert.equal(mapped.ok, false, `expected reject for From=${from}`);
+    }
+    const oversizeBody = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: Object.assign({}, fixtureFetchedMessage(), { bodyText: 'x'.repeat(65537) }),
+    }));
+    assert.equal(oversizeBody.ok, false);
+    ok('Gmail encoded-word/mailbox-list fixtures accepted; adversarial From rejected');
   }
 
   {
@@ -1267,6 +1669,219 @@ async function main() {
     ok('SNI/certificate mismatch fails closed');
   }
 
+  {
+    const hostile = [
+      { username: `user\r\nUID SEARCH ALL\r\n`, password: 'ok-password', name: 'sunset-imap-username' },
+      { username: `user\nLOGOUT`, password: 'ok-password', name: 'sunset-imap-username' },
+      { username: 'ok-user', password: `pass\r\nSELECT INBOX\r\n`, name: 'sunset-imap-password' },
+      { username: 'ok-user\0x', password: 'ok-password', name: 'sunset-imap-username' },
+      { username: 'ok-user', password: 'pass\x1b', name: 'sunset-imap-password' },
+      { username: '', password: 'ok-password', name: 'sunset-imap-username' },
+      { username: 'ok-user', password: 'p'.repeat(300), name: 'sunset-imap-password' },
+    ];
+    for (const item of hostile) {
+      let opens = 0;
+      let writes = 0;
+      const transport = transportOwner.createSunsetImapImapsTransport(frozen({
+        tlsConnect() {
+          opens += 1;
+          return {
+            write() { writes += 1; },
+            on() {},
+            once() {},
+            setTimeout() {},
+            destroy() {},
+            removeListener() {},
+          };
+        },
+      }));
+      const verified = await transport.verifySession(frozen({
+        host: 'imap.example.test',
+        port: 993,
+        tlsMode: 'imaps',
+        username: item.username,
+        password: item.password,
+      }));
+      assert.equal(verified.ok, false);
+      assert.equal(opens, 0, 'hostile credential must not open a socket');
+      assert.equal(writes, 0, 'hostile credential must not write a command');
+      assert.deepEqual([...(verified.failed_secret_names || [])], [item.name]);
+      assertNoLeak(verified, 'hostile imap credential');
+      assert.throws(() => transportSql.quoteImapString(item.username === 'ok-user' ? item.password : item.username));
+    }
+    ok('hostile username/password rejected before socket open/write; name-only errors');
+  }
+
+  {
+    const result = await withImapTlsServer((socket, line) => {
+      const parts = line.split(' ');
+      const tag = parts[0];
+      const verb = (parts[1] || '').toUpperCase();
+      if (verb === 'CAPABILITY') {
+        socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+      } else if (verb === 'LOGIN') {
+        socket.write(`${tag} OK LOGIN completed\r\n`);
+      } else if (verb === 'SELECT') {
+        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 3 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH 100000 1 7\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        assert.match(line, /UID FETCH 1,7,100000 /);
+        assert.doesNotMatch(line, /100000:7|1:100000|100000:100000/);
+        const uids = [1, 7, 100000];
+        for (let i = 0; i < uids.length; i += 1) {
+          const headers = headerBlock();
+          const body = FIXTURE_BODY;
+          socket.write(`* ${i + 1} FETCH (UID ${uids[i]} FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headers.length}}\r\n`);
+          socket.write(headers);
+          socket.write(` BODY[TEXT] {${body.length}}\r\n`);
+          socket.write(body);
+          socket.write(')\r\n');
+        }
+        socket.write(`${tag} OK FETCH completed\r\n`);
+      } else if (verb === 'LOGOUT') {
+        socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+        socket.end();
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const transport = transportOwner.createSunsetImapImapsTransport(frozen({
+        tlsConnect(opts) {
+          return tls.connect({
+            host: '127.0.0.1',
+            port,
+            servername: opts.servername,
+            rejectUnauthorized: true,
+            ca: [tlsPair.cert],
+            minVersion: 'TLSv1.2',
+          });
+        },
+      }));
+      const fetched = await transport.fetchInbox(frozen({
+        host: 'imap.example.test',
+        port: 993,
+        tlsMode: 'imaps',
+        username: MAILBOX,
+        password: PLANTED,
+      }), frozen({ uidvalidity: null, last_uid: 0 }));
+      return { fetched, received };
+    });
+    assert.equal(result.fetched.ok, true);
+    assert.equal(result.fetched.messages.length, 3);
+    assert.deepEqual(result.fetched.messages.map((msg) => msg.uid), [1, 7, 100000]);
+    const fetchLine = result.received.find((line) => /UID FETCH /.test(line));
+    assert.match(fetchLine, /UID FETCH 1,7,100000 /);
+    ok('fake server sparse reordered SEARCH 100000 1 7 emits comma sequence-set');
+  }
+
+  {
+    const unexpected = await withImapTlsServer((socket, line) => {
+      const parts = line.split(' ');
+      const tag = parts[0];
+      const verb = (parts[1] || '').toUpperCase();
+      if (verb === 'CAPABILITY') {
+        socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+      } else if (verb === 'LOGIN') {
+        socket.write(`${tag} OK LOGIN completed\r\n`);
+      } else if (verb === 'SELECT') {
+        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH 1 7\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        const headers = headerBlock();
+        const body = FIXTURE_BODY;
+        socket.write(`* 1 FETCH (UID 99 FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headers.length}}\r\n`);
+        socket.write(headers);
+        socket.write(` BODY[TEXT] {${body.length}}\r\n`);
+        socket.write(body);
+        socket.write(`)\r\n${tag} OK FETCH completed\r\n`);
+      } else if (verb === 'LOGOUT') {
+        socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+        socket.end();
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port) => {
+      const transport = transportOwner.createSunsetImapImapsTransport(frozen({
+        tlsConnect(opts) {
+          return tls.connect({
+            host: '127.0.0.1',
+            port,
+            servername: opts.servername,
+            rejectUnauthorized: true,
+            ca: [tlsPair.cert],
+            minVersion: 'TLSv1.2',
+          });
+        },
+      }));
+      return transport.fetchInbox(frozen({
+        host: 'imap.example.test',
+        port: 993,
+        tlsMode: 'imaps',
+        username: MAILBOX,
+        password: PLANTED,
+      }), frozen({ uidvalidity: null, last_uid: 0 }));
+    });
+    assert.equal(unexpected.ok, false);
+    ok('FETCH with unrequested UID fails closed');
+  }
+
+  {
+    const duplicate = await withImapTlsServer((socket, line) => {
+      const parts = line.split(' ');
+      const tag = parts[0];
+      const verb = (parts[1] || '').toUpperCase();
+      if (verb === 'CAPABILITY') {
+        socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+      } else if (verb === 'LOGIN') {
+        socket.write(`${tag} OK LOGIN completed\r\n`);
+      } else if (verb === 'SELECT') {
+        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH 1 7\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        const headers = headerBlock();
+        const body = FIXTURE_BODY;
+        for (const uid of [1, 1]) {
+          socket.write(`* 1 FETCH (UID ${uid} FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headers.length}}\r\n`);
+          socket.write(headers);
+          socket.write(` BODY[TEXT] {${body.length}}\r\n`);
+          socket.write(body);
+          socket.write(')\r\n');
+        }
+        socket.write(`${tag} OK FETCH completed\r\n`);
+      } else if (verb === 'LOGOUT') {
+        socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+        socket.end();
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port) => {
+      const transport = transportOwner.createSunsetImapImapsTransport(frozen({
+        tlsConnect(opts) {
+          return tls.connect({
+            host: '127.0.0.1',
+            port,
+            servername: opts.servername,
+            rejectUnauthorized: true,
+            ca: [tlsPair.cert],
+            minVersion: 'TLSv1.2',
+          });
+        },
+      }));
+      return transport.fetchInbox(frozen({
+        host: 'imap.example.test',
+        port: 993,
+        tlsMode: 'imaps',
+        username: MAILBOX,
+        password: PLANTED,
+      }), frozen({ uidvalidity: null, last_uid: 0 }));
+    });
+    assert.equal(duplicate.ok, false);
+    ok('FETCH with duplicate UIDs fails closed');
+  }
+
   tlsPair.cleanup();
 
   const transportSrc = fs.readFileSync(path.join(ROOT, TRANSPORT_REL), 'utf8');
@@ -1320,6 +1935,11 @@ async function main() {
   assert.match(pollSrc, /email-inbound-match-ingest|email-inbound-event-store|email-inbound-inbox-bridge/);
   assert.ok(pollSrc.includes('createInboundEmailEventStore') || pollSrc.includes('email-inbound-event-store'));
   assert.ok(pollSrc.includes('createEmailInboundInboxBridge') || pollSrc.includes('email-inbound-inbox-bridge'));
+  assert.doesNotMatch(pollSrc, /pg_advisory_xact_lock/);
+  assert.match(pollSrc, /SQL_CLAIM|lease_token/);
+  assert.doesNotMatch(transportSrc, /uids\[0\]\}:\$\{uids/);
+  assert.match(transportSrc, /formatUidSequenceSet/);
+  assert.match(transportSrc, /assertSafeImapCredential/);
   assert.ok(!/MAIL FROM|RCPT TO|\bDATA\b|sendMail|graph\.microsoft\.com\/v1\.0\/me\/sendMail/i.test(verifySrc));
   assert.ok(!/MAIL FROM|RCPT TO|\bDATA\b|sendMail/i.test(pollSrc));
   assert.ok(!/MAIL FROM|RCPT TO|\bDATA\b/i.test(workerSrc));
@@ -1351,6 +1971,9 @@ async function main() {
   const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'database/migrations/canonical-manifest.json'), 'utf8'));
   assert.match(migration, /ADD COLUMN imap_health_verified_at TIMESTAMPTZ/);
   assert.match(migration, /tenant_email_imap_fetch_cursors/);
+  assert.match(migration, /uidvalidity >= 1 AND uidvalidity <= 4294967295/);
+  assert.match(migration, /last_uid >= 0 AND last_uid <= 4294967295/);
+  assert.match(migration, /lease_owner IS NOT NULL AND lease_token IS NOT NULL AND lease_until IS NOT NULL/);
   assert.doesNotMatch(migration, /inbound_enabled\s*=\s*TRUE|outbound_enabled\s*=\s*TRUE|active\s*=\s*TRUE/i);
   assert.match(migrationDown, /imap_health_verified_at IS NOT NULL/);
   assert.match(migrationDown, /tenant_email_imap_fetch_cursors/);
