@@ -431,6 +431,7 @@ async function main() {
   const contract = require('./lib/email-sunset-imap-secret-ref-contract');
   const verifyOwner = require('./lib/email-sunset-imap-live-verify');
   const transportOwner = require('./lib/email-sunset-imap-imaps-transport');
+  const bodystructureOwner = require('./lib/email-imap-bodystructure');
   const pollOwner = require('./lib/email-sunset-imap-inbound-poll');
   const mapper = require('./lib/email-imap-inbound-envelope-mapper');
   const workerOwner = require('./lib/email-imap-sunset-staging-worker');
@@ -1608,16 +1609,23 @@ async function main() {
     });
   }
 
-  function writePreflightFetch(socket, seq, uid, mime) {
+  function formatUidAttrs(uid, extra) {
+    if (extra && Array.isArray(extra.uidAttrs) && extra.uidAttrs.length > 0) {
+      return extra.uidAttrs.map((value) => `UID ${value}`).join(' ');
+    }
+    return `UID ${uid}`;
+  }
+
+  function writePreflightFetch(socket, seq, uid, mime, extra) {
     const headerBuf = Buffer.isBuffer(mime.headers) ? mime.headers : Buffer.from(String(mime.headers), 'utf8');
-    socket.write(`* ${seq} FETCH (UID ${uid} FLAGS (${mime.flags || ''}) INTERNALDATE "${mime.internalDate}" RFC822.SIZE ${mime.rfc822Size} BODYSTRUCTURE ${mime.bodystructure} BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headerBuf.length}}\r\n`);
+    socket.write(`* ${seq} FETCH (${formatUidAttrs(uid, extra)} FLAGS (${mime.flags || ''}) INTERNALDATE "${mime.internalDate}" RFC822.SIZE ${mime.rfc822Size} BODYSTRUCTURE ${mime.bodystructure} BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headerBuf.length}}\r\n`);
     socket.write(headerBuf);
     socket.write(')\r\n');
   }
 
-  function writeSectionFetch(socket, seq, uid, section, bytes) {
+  function writeSectionFetch(socket, seq, uid, section, bytes, extra) {
     const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes), 'utf8');
-    socket.write(`* ${seq} FETCH (UID ${uid} BODY[${section}]<0> {${buf.length}}\r\n`);
+    socket.write(`* ${seq} FETCH (${formatUidAttrs(uid, extra)} BODY[${section}]<0> {${buf.length}}\r\n`);
     socket.write(buf);
     socket.write(')\r\n');
   }
@@ -3037,6 +3045,208 @@ async function main() {
   }
 
   {
+    const octets = FIXTURE_BODY.length;
+    function bodystructureFetchText(structure) {
+      return `1 FETCH (UID ${FIXTURE_UID} RFC822.SIZE 180 BODYSTRUCTURE ${structure})`;
+    }
+    const validStructure = `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} 1)`;
+    const validSelected = bodystructureOwner.selectBoundedTextPlainFromFetchText(
+      bodystructureFetchText(validStructure),
+    );
+    assert.ok(validSelected);
+    assert.equal(validSelected.section, '1');
+    assert.equal(validSelected.octets, octets);
+    const grammarCases = [
+      {
+        name: 'missing body-fld-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets})`,
+      },
+      {
+        name: 'NIL body-fld-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} NIL)`,
+      },
+      {
+        name: 'quoted not-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} "not-lines")`,
+      },
+      {
+        name: 'quoted numeric lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} "1")`,
+      },
+      {
+        name: 'non-numeric atom lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} LINES)`,
+      },
+      {
+        name: 'negative body-fld-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} -1)`,
+      },
+      {
+        name: 'leading-zero body-fld-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} 01)`,
+      },
+      {
+        name: 'extra displacement before lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} NIL 1)`,
+      },
+      {
+        name: 'malformed BODYSTRUCTURE',
+        structure: '("TEXT" "PLAIN"',
+      },
+    ];
+    for (const item of grammarCases) {
+      const fetchText = bodystructureFetchText(item.structure);
+      assert.equal(bodystructureOwner.parseImapBodystructure(fetchText), null, item.name);
+      assert.equal(bodystructureOwner.selectBoundedTextPlainFromFetchText(fetchText), null, item.name);
+      const result = await fetchWithMime(simplePlainMime({ bodystructure: item.structure }));
+      assert.equal(result.fetched.ok, false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'last_uid'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'messages'), false, item.name);
+      assert.equal(
+        result.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)),
+        false,
+        item.name,
+      );
+    }
+    ok('text/* BODYSTRUCTURE without canonical body-fld-lines fails closed with no section selection');
+  }
+
+  {
+    const zero = await fetchWithMime(simplePlainMime({ octets: 0, body: '' }));
+    assert.equal(zero.fetched.ok, true);
+    assert.equal(zero.fetched.messages.length, 1);
+    assert.equal(zero.fetched.messages[0].bodyText, '');
+    assert.equal(zero.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)), false);
+    ok('declared-zero text part yields empty body without section FETCH');
+  }
+
+  async function fetchInboxAndPoll(handler) {
+    return withImapTlsServer(handler, async (port, received) => {
+      const transport = createTestTransport(port);
+      const fetched = await transport.fetchInbox(CREDS, frozen({ uidvalidity: null, last_uid: 0 }));
+      const ingested = [];
+      const projected = [];
+      const { poller, pg } = pollService({
+        inboundEnabled: true,
+        ingested,
+        projected,
+        imapTransport: transport,
+        cursor: { uidvalidity: FIXTURE_UIDVALIDITY, last_uid: 0 },
+      });
+      let pollErr;
+      try {
+        await poller.pollVerifiedImapInbox(frozen({
+          clientId: SUNSET_ID, locationId: LOCATION, actorStaffUserId: ACTOR,
+        }));
+      } catch (caught) {
+        pollErr = caught;
+      }
+      return {
+        fetched,
+        pollErr,
+        ingested,
+        projected,
+        cursor: pg.getCursor(),
+        queries: pg.queries.slice(),
+        received,
+      };
+    });
+  }
+
+  function handleSearchSelectFetch(socket, line, fetchHandler) {
+    const tag = line.split(' ')[0];
+    if (handleFetchAuth(socket, line)) return true;
+    const verb = (line.split(' ')[1] || '').toUpperCase();
+    if (verb === 'SELECT') {
+      writeSelectInbox(socket, tag);
+      return true;
+    }
+    if (verb === 'UID' && /SEARCH/i.test(line)) {
+      socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
+      return true;
+    }
+    if (verb === 'UID' && /FETCH/i.test(line)) {
+      fetchHandler(socket, tag, line);
+      return true;
+    }
+    return false;
+  }
+
+  {
+    const shortBody = FIXTURE_BODY.slice(0, 5);
+    assert.ok(shortBody.length > 0);
+    assert.ok(shortBody.length < FIXTURE_BODY.length);
+    const truncatedCases = [
+      { name: 'short selected-part literal', body: shortBody },
+      { name: 'empty selected-part literal when declared nonzero', body: '' },
+    ];
+    for (const item of truncatedCases) {
+      const truncated = await fetchInboxAndPoll((socket, line) => {
+        if (handleSearchSelectFetch(socket, line, (sock, tag, fetchLine) => {
+          if (isPreflightFetchLine(fetchLine)) {
+            writePreflightFetch(sock, 1, FIXTURE_UID, simplePlainMime());
+            sock.write(`${tag} OK FETCH completed\r\n`);
+            return;
+          }
+          writeSectionFetch(sock, 1, FIXTURE_UID, '1', item.body);
+          sock.write(`${tag} OK FETCH completed\r\n`);
+        })) return;
+        socket.write(`${line.split(' ')[0]} BAD not implemented\r\n`);
+      });
+      assert.equal(truncated.fetched.ok, false, item.name);
+      assert.deepEqual([...(truncated.fetched.failed_secret_names || [])], ['sunset-imap-host'], item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(truncated.fetched, 'last_uid'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(truncated.fetched, 'messages'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(truncated.fetched, 'uidvalidity'), false, item.name);
+      assert.ok(truncated.pollErr, item.name);
+      assert.deepEqual([...(truncated.pollErr.failed_secret_names || [])], ['sunset-imap-host'], item.name);
+      assert.equal(truncated.ingested.length, 0, item.name);
+      assert.equal(truncated.projected.length, 0, item.name);
+      assert.equal(Number(truncated.cursor.last_uid), 0, item.name);
+      assert.equal(Number(truncated.cursor.uidvalidity), FIXTURE_UIDVALIDITY, item.name);
+      assert.equal(truncated.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false, item.name);
+      assert.equal(truncated.queries.some((q) => q.text === pollSql.SQL_COMMIT_RESET), false, item.name);
+    }
+    ok('truncated selected-part literal fails closed without ingest or cursor commit');
+  }
+
+  {
+    const uidCases = [
+      { name: 'preflight duplicate same UID', preflightUids: [FIXTURE_UID, FIXTURE_UID] },
+      { name: 'preflight conflicting UID', preflightUids: [FIXTURE_UID, 999] },
+      { name: 'preflight conflicting UID 7 999', preflightUids: [7, 999] },
+      { name: 'section duplicate same UID', sectionUids: [FIXTURE_UID, FIXTURE_UID] },
+      { name: 'section conflicting UID', sectionUids: [FIXTURE_UID, 999] },
+      { name: 'section conflicting UID 7 999', sectionUids: [7, 999] },
+    ];
+    for (const item of uidCases) {
+      const result = await withImapTlsServer((socket, line) => {
+        if (handleSearchSelectFetch(socket, line, (sock, tag, fetchLine) => {
+          if (isPreflightFetchLine(fetchLine)) {
+            writePreflightFetch(sock, 1, FIXTURE_UID, simplePlainMime(), {
+              uidAttrs: item.preflightUids || [FIXTURE_UID],
+            });
+            sock.write(`${tag} OK FETCH completed\r\n`);
+            return;
+          }
+          writeSectionFetch(sock, 1, FIXTURE_UID, '1', FIXTURE_BODY, {
+            uidAttrs: item.sectionUids || [FIXTURE_UID],
+          });
+          sock.write(`${tag} OK FETCH completed\r\n`);
+        })) return;
+        socket.write(`${line.split(' ')[0]} BAD not implemented\r\n`);
+      }, async (port) => createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: null, last_uid: 0 }),
+      ));
+      assert.equal(result.ok, false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'last_uid'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'messages'), false, item.name);
+    }
+    ok('duplicate same-value and conflicting UID attributes fail closed in preflight and section FETCH');
+  }
+
+  {
     const batchUids = [11, 12, 13];
     const tooBig = await withImapTlsServer((socket, line) => {
       const tag = line.split(' ')[0];
@@ -3147,6 +3357,14 @@ async function main() {
   assert.match(transportSrc, /RFC822\.SIZE/);
   assert.match(transportSrc, /formatBodyPeekSection/);
   assert.match(transportSrc, /parseFetchPreflight/);
+  assert.match(transportSrc, /function parseFetchUidAttr/);
+  assert.match(transportSrc, /\\bUID\\s\+\(\\d\+\)\\b\/gi/);
+  assert.match(transportSrc, /matches\.length !== 1/);
+  assert.doesNotMatch(transportSrc, /const uidMatch = \/\\bUID\\s\+\(\\d\+\)\/i\.exec\(raw\)/);
+  assert.match(transportSrc, /bodyBytes\.length !== expected\.octets/);
+  assert.doesNotMatch(transportSrc, /bodyBytes\.length > expected\.octets/);
+  assert.doesNotMatch(transportSrc, /bodyBytes\.length <= expected\.octets/);
+  assert.match(transportSrc, /sectionSeen\.size !== requested\.size/);
   assert.match(transportSrc, /parseUntaggedCapabilityAtoms|capabilityHasExactImap4rev1/);
   assert.match(transportOwner.IMAP_PREFLIGHT_ATTRS, /UID FLAGS INTERNALDATE RFC822\.SIZE BODYSTRUCTURE/);
   assert.match(transportOwner.IMAP_PREFLIGHT_ATTRS, /BODY\.PEEK\[HEADER\.FIELDS \(FROM SUBJECT DATE MESSAGE-ID\)\]<0\.8192>/);
@@ -3161,6 +3379,12 @@ async function main() {
   assert.match(mimeSrc, /multipart/i);
   assert.match(bodystructureSrc, /selectSafeTextPlainPart/);
   assert.match(bodystructureSrc, /IMAP_BODYSTRUCTURE_MAX_PARTS/);
+  assert.match(bodystructureSrc, /body-fld-lines is mandatory immediately after/);
+  assert.match(bodystructureSrc, /if \(type === 'text'\)/);
+  assert.match(bodystructureSrc, /list\.length < 8/);
+  assert.match(bodystructureSrc, /const lines = list\[7\]/);
+  assert.match(bodystructureSrc, /Number\.isInteger\(lines\)/);
+  assert.doesNotMatch(bodystructureSrc, /const extStart = type === 'text' \? 8 : 7/);
   assert.doesNotMatch(bodystructureSrc, /BODY\.PEEK\[\]/);
   assert.doesNotMatch(mimeSrc, /console\.(log|info|debug|dir|error)/);
   assert.doesNotMatch(bodystructureSrc, /console\.(log|info|debug|dir|error)/);

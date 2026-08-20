@@ -351,11 +351,18 @@ function isSectionCapture(before, section) {
   return re.test(before);
 }
 
+function parseFetchUidAttr(raw) {
+  if (typeof raw !== 'string') return null;
+  const matches = raw.match(/\bUID\s+(\d+)\b/gi);
+  if (!matches || matches.length !== 1) return null;
+  const num = /\bUID\s+(\d+)\b/i.exec(matches[0]);
+  if (!num) return null;
+  return parseRfcUid(num[1]);
+}
+
 function parseFetchUidFlagsDate(raw, uidvalidity) {
   if (typeof raw !== 'string' || !/\bFETCH\b/i.test(raw)) return null;
-  const uidMatch = /\bUID\s+(\d+)/i.exec(raw);
-  if (!uidMatch) return null;
-  const uid = parseRfcUid(uidMatch[1]);
+  const uid = parseFetchUidAttr(raw);
   if (uid == null) return null;
   const parsedUidvalidity = parseRfcUidvalidity(uidvalidity);
   if (parsedUidvalidity == null) return null;
@@ -433,9 +440,7 @@ function parseFetchSection(item, expected) {
   if (!expected || !isValidImapSection(expected.section)) return null;
   const raw = item && item.text;
   if (typeof raw !== 'string' || !/\bFETCH\b/i.test(raw)) return null;
-  const uidMatch = /\bUID\s+(\d+)/i.exec(raw);
-  if (!uidMatch) return null;
-  const uid = parseRfcUid(uidMatch[1]);
+  const uid = parseFetchUidAttr(raw);
   if (uid == null || uid !== expected.uid) return null;
   const captures = Array.isArray(item.captures) ? item.captures : [];
   let bodyBytes = null;
@@ -451,8 +456,9 @@ function parseFetchSection(item, expected) {
     bodyBytes = cap.bytes;
   }
   if (bodyCaptures !== 1 || !Buffer.isBuffer(bodyBytes)) return null;
-  if (bodyBytes.length > expected.octets || bodyBytes.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
-  if (expected.octets > 0 && bodyBytes.length < 1) return null;
+  if (!Number.isInteger(expected.octets) || expected.octets < 0) return null;
+  if (bodyBytes.length !== expected.octets) return null;
+  if (bodyBytes.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
   const decoded = decodeTransfer(bodyBytes, expected.encoding);
   if (!decoded) return null;
   if (decoded.length > EMAIL_INBOUND_BODY_TEXT_MAX) return null;
@@ -772,6 +778,7 @@ function createSunsetImapImapsTransport(deps = {}) {
       }
       const byUid = new Map(prepared.map((item) => [item.uid, item]));
       const messages = [];
+      const sectionSeen = new Set();
       for (let i = 0; i < uids.length; i += 1) {
         const prep = byUid.get(uids[i]);
         if (!prep) throw new Error('imap_missing_requested_uid');
@@ -813,7 +820,17 @@ function createSunsetImapImapsTransport(deps = {}) {
           }));
           if (!parsedBody) throw new Error('imap_malformed_response');
         }
+        if (!requested.has(parsedBody.uid) || sectionSeen.has(parsedBody.uid)) {
+          throw new Error('imap_unrequested_uid');
+        }
+        sectionSeen.add(parsedBody.uid);
         messages.push(parsedBody);
+      }
+      if (sectionSeen.size !== requested.size) {
+        throw new Error('imap_missing_requested_uid');
+      }
+      for (let i = 0; i < uids.length; i += 1) {
+        if (!sectionSeen.has(uids[i])) throw new Error('imap_missing_requested_uid');
       }
       await session.logout();
       const maxUid = messages.reduce((acc, msg) => (msg.uid > acc ? msg.uid : acc), lastUid);

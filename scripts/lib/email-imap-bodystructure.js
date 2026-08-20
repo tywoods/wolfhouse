@@ -219,7 +219,15 @@ function parseBodyNode(list, depth, counters) {
   if (!encoding) return null;
   const octets = list[6];
   if (!Number.isInteger(octets) || octets < 0 || !Number.isSafeInteger(octets)) return null;
-  const extStart = type === 'text' ? 8 : 7;
+  // RFC 3501 body-type-text: body-fld-lines is mandatory immediately after
+  // body-fld-octets and must be a canonical non-negative bounded decimal.
+  let extStart = 7;
+  if (type === 'text') {
+    if (list.length < 8) return null;
+    const lines = list[7];
+    if (!Number.isInteger(lines) || lines < 0 || !Number.isSafeInteger(lines)) return null;
+    extStart = 8;
+  }
   const disposition = scanDisposition(list, extStart);
   if (disposition == null) return null;
   const charsetRaw = params.charset;
