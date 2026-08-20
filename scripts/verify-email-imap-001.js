@@ -431,6 +431,7 @@ async function main() {
   const contract = require('./lib/email-sunset-imap-secret-ref-contract');
   const verifyOwner = require('./lib/email-sunset-imap-live-verify');
   const transportOwner = require('./lib/email-sunset-imap-imaps-transport');
+  const bodystructureOwner = require('./lib/email-imap-bodystructure');
   const pollOwner = require('./lib/email-sunset-imap-inbound-poll');
   const mapper = require('./lib/email-imap-inbound-envelope-mapper');
   const workerOwner = require('./lib/email-imap-sunset-staging-worker');
@@ -1572,10 +1573,119 @@ async function main() {
     return Buffer.from(`${lines.join('\r\n')}\r\n\r\n${body}`, 'utf8');
   }
 
-  function writeBodyFetch(socket, seq, uid, rfc822Buf) {
-    socket.write(`* ${seq} FETCH (UID ${uid} FLAGS () INTERNALDATE "20-Aug-2026 10:00:00 +0000" BODY[] {${rfc822Buf.length}}\r\n`);
-    socket.write(rfc822Buf);
+  function headerFieldsBlock(opts) {
+    const from = opts && opts.from != null ? opts.from : `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`;
+    const subject = opts && opts.subject != null ? opts.subject : FIXTURE_SUBJECT;
+    const extras = opts && Array.isArray(opts.headers) ? opts.headers : [];
+    const lines = [
+      `From: ${from}`,
+      `Subject: ${subject}`,
+      'Date: Thu, 20 Aug 2026 10:00:00 +0000',
+      `Message-ID: ${FIXTURE_MSG_ID}`,
+      ...extras,
+    ];
+    return Buffer.from(`${lines.join('\r\n')}`, 'utf8');
+  }
+
+  function simplePlainMime(opts) {
+    const body = opts && opts.body != null ? opts.body : FIXTURE_BODY;
+    const textBytes = Buffer.isBuffer(body) ? body : Buffer.from(String(body), 'utf8');
+    const encoding = (opts && opts.encoding) || '8BIT';
+    const charset = (opts && opts.charset) || 'UTF-8';
+    const octets = opts && Number.isInteger(opts.octets) ? opts.octets : textBytes.length;
+    const charsetParam = charset
+      ? `("CHARSET" "${charset}")`
+      : 'NIL';
+    return frozen({
+      flags: (opts && opts.flags) || '',
+      internalDate: (opts && opts.internalDate) || '20-Aug-2026 10:00:00 +0000',
+      rfc822Size: (opts && opts.rfc822Size) || (textBytes.length + 180),
+      bodystructure: (opts && opts.bodystructure) || `("TEXT" "PLAIN" ${charsetParam} NIL NIL "${encoding}" ${octets} 1)`,
+      headers: (opts && opts.headers) || headerFieldsBlock(opts),
+      textSection: (opts && opts.textSection) || '1',
+      textBytes,
+      forbiddenSections: Object.freeze((opts && opts.forbiddenSections) || []),
+      forbiddenLiteralSize: (opts && opts.forbiddenLiteralSize) || (65536 + 8192 + 1),
+    });
+  }
+
+  function formatUidAttrs(uid, extra) {
+    if (extra && Array.isArray(extra.uidAttrs) && extra.uidAttrs.length > 0) {
+      return extra.uidAttrs.map((value) => `UID ${value}`).join(' ');
+    }
+    return `UID ${uid}`;
+  }
+
+  function writePreflightFetch(socket, seq, uid, mime, extra) {
+    const headerBuf = Buffer.isBuffer(mime.headers) ? mime.headers : Buffer.from(String(mime.headers), 'utf8');
+    socket.write(`* ${seq} FETCH (${formatUidAttrs(uid, extra)} FLAGS (${mime.flags || ''}) INTERNALDATE "${mime.internalDate}" RFC822.SIZE ${mime.rfc822Size} BODYSTRUCTURE ${mime.bodystructure} BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headerBuf.length}}\r\n`);
+    socket.write(headerBuf);
     socket.write(')\r\n');
+  }
+
+  function writeSectionFetch(socket, seq, uid, section, bytes, extra) {
+    const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes), 'utf8');
+    socket.write(`* ${seq} FETCH (${formatUidAttrs(uid, extra)} BODY[${section}]<0> {${buf.length}}\r\n`);
+    socket.write(buf);
+    socket.write(')\r\n');
+  }
+
+  function writeDeclaredOversized(socket, seq, uid, section, n) {
+    socket.write(`* ${seq} FETCH (UID ${uid} BODY[${section}] {${n}}\r\n`);
+  }
+
+  function parseFetchUidSet(line) {
+    const match = /\bUID FETCH (\d+(?:,\d+)*) /i.exec(String(line || ''));
+    if (!match) return null;
+    return match[1].split(',').map((part) => Number(part));
+  }
+
+  function isPreflightFetchLine(line) {
+    return /BODYSTRUCTURE/i.test(line)
+      || /HEADER\.FIELDS/i.test(line)
+      || /RFC822\.SIZE/i.test(line);
+  }
+
+  function dispatchMimeFetch(socket, tag, line, mimeForUid) {
+    const uids = parseFetchUidSet(line);
+    if (!uids || uids.length < 1) {
+      socket.write(`${tag} BAD not implemented\r\n`);
+      return;
+    }
+    if (/BODY\.PEEK\[\]/i.test(line) || /BODY(?:\.PEEK)?\[TEXT\]/i.test(line)) {
+      writeDeclaredOversized(socket, 1, uids[0], '', uids[0] && 65536 + 8192 + 1);
+      socket.write(`${tag} OK FETCH completed\r\n`);
+      return;
+    }
+    if (isPreflightFetchLine(line)) {
+      for (let i = 0; i < uids.length; i += 1) {
+        writePreflightFetch(socket, i + 1, uids[i], mimeForUid(uids[i]));
+      }
+      socket.write(`${tag} OK FETCH completed\r\n`);
+      return;
+    }
+    const sectionMatch = /BODY\.PEEK\[([0-9.]+)\]<0\.(\d+)>/i.exec(line);
+    if (sectionMatch && uids.length === 1) {
+      const mime = mimeForUid(uids[0]);
+      const section = sectionMatch[1];
+      if (section === mime.textSection) {
+        writeSectionFetch(socket, 1, uids[0], section, mime.textBytes);
+        socket.write(`${tag} OK FETCH completed\r\n`);
+        return;
+      }
+      writeDeclaredOversized(socket, 1, uids[0], section, mime.forbiddenLiteralSize);
+      socket.write(`${tag} OK FETCH completed\r\n`);
+      return;
+    }
+    writeDeclaredOversized(socket, 1, uids[0], '1', 65536 + 8192 + 1);
+    socket.write(`${tag} OK FETCH completed\r\n`);
+  }
+
+  function assertNoFullBodyOrSend(received) {
+    const text = (received || []).join('\n');
+    assert.doesNotMatch(text, /BODY\.PEEK\[\]/);
+    assert.doesNotMatch(text, /BODY(?:\.PEEK)?\[TEXT\]/i);
+    assert.doesNotMatch(text, /\bAPPEND\b|\bSTORE\b|\bCOPY\b|MAIL FROM|RCPT TO/i);
   }
 
   function writeSelectInbox(socket, tag, opts) {
@@ -1768,10 +1878,9 @@ async function main() {
         assertFiniteUidSearch(line, { maxWindow: transportOwner.IMAP_FETCH_MAX_MESSAGES, start: 13, end: 17 });
         socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        assert.match(line, /BODY\.PEEK\[\]/);
-        assert.doesNotMatch(line, /BODY\.PEEK\[TEXT\]|HEADER\.FIELDS/);
-        writeBodyFetch(socket, 1, FIXTURE_UID, rfc822Plain());
-        socket.write(`${tag} OK FETCH completed\r\n`);
+        assert.doesNotMatch(line, /BODY\.PEEK\[\]/);
+        assert.doesNotMatch(line, /BODY\.PEEK\[TEXT\]/);
+        dispatchMimeFetch(socket, tag, line, () => simplePlainMime());
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
         socket.end();
@@ -1999,13 +2108,11 @@ async function main() {
         });
         socket.write(`* SEARCH 100000 99997 99999\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        assert.match(line, /UID FETCH 99997,99999,100000 /);
-        assert.doesNotMatch(line, /100000:99997|99996:100000|100000:100000/);
-        const uids = [99997, 99999, 100000];
-        for (let i = 0; i < uids.length; i += 1) {
-          writeBodyFetch(socket, i + 1, uids[i], rfc822Plain());
+        if (isPreflightFetchLine(line)) {
+          assert.match(line, /UID FETCH 99997,99999,100000 /);
+          assert.doesNotMatch(line, /100000:99997|99996:100000|100000:100000/);
         }
-        socket.write(`${tag} OK FETCH completed\r\n`);
+        dispatchMimeFetch(socket, tag, line, () => simplePlainMime());
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
         socket.end();
@@ -2041,7 +2148,7 @@ async function main() {
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
         socket.write(`* SEARCH 13 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        writeBodyFetch(socket, 1, 99, rfc822Plain());
+        writePreflightFetch(socket, 1, 99, simplePlainMime());
         socket.write(`${tag} OK FETCH completed\r\n`);
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
@@ -2071,9 +2178,8 @@ async function main() {
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
         socket.write(`* SEARCH 13 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        for (const uid of [13, 13]) {
-          writeBodyFetch(socket, 1, uid, rfc822Plain());
-        }
+        writePreflightFetch(socket, 1, 13, simplePlainMime());
+        writePreflightFetch(socket, 1, 13, simplePlainMime());
         socket.write(`${tag} OK FETCH completed\r\n`);
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
@@ -2104,7 +2210,7 @@ async function main() {
         socket.write(`* SEARCH 13 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
         assert.match(line, /UID FETCH 13,17 /);
-        writeBodyFetch(socket, 1, 17, rfc822Plain());
+        writePreflightFetch(socket, 1, 17, simplePlainMime());
         socket.write(`${tag} OK FETCH completed\r\n`);
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
@@ -2201,12 +2307,10 @@ async function main() {
         }
         socket.write(`* SEARCH 49995 49996 49997 49998 49999\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        assert.match(line, /UID FETCH 49995,49996,49997,49998,49999 /);
-        const uids = [49995, 49996, 49997, 49998, 49999];
-        for (let i = 0; i < uids.length; i += 1) {
-          writeBodyFetch(socket, i + 1, uids[i], rfc822Plain());
+        if (isPreflightFetchLine(line)) {
+          assert.match(line, /UID FETCH 49995,49996,49997,49998,49999 /);
         }
-        socket.write(`${tag} OK FETCH completed\r\n`);
+        dispatchMimeFetch(socket, tag, line, () => simplePlainMime());
       } else {
         socket.write(`${tag} BAD not implemented\r\n`);
       }
@@ -2347,13 +2451,11 @@ async function main() {
         assertFiniteUidSearch(line, { start: 11, end: 99 });
         socket.write(`* SEARCH 18 11 12 13 14 15 16 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        assert.match(line, /UID FETCH 11,12,13,14,15 /);
-        assert.doesNotMatch(line, /16|17|18/);
-        const uids = [11, 12, 13, 14, 15];
-        for (let i = 0; i < uids.length; i += 1) {
-          writeBodyFetch(socket, i + 1, uids[i], rfc822Plain());
+        if (isPreflightFetchLine(line)) {
+          assert.match(line, /UID FETCH 11,12,13,14,15 /);
+          assert.doesNotMatch(line, /16|17|18/);
         }
-        socket.write(`${tag} OK FETCH completed\r\n`);
+        dispatchMimeFetch(socket, tag, line, () => simplePlainMime());
       } else {
         socket.write(`${tag} BAD not implemented\r\n`);
       }
@@ -2448,8 +2550,7 @@ async function main() {
         assertFiniteUidSearch(line, { start: 13, end: 17, maxWindow: 5 });
         socket.write(`* SEARCH 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        writeBodyFetch(socket, 1, 17, rfc822Plain());
-        socket.write(`${tag} OK FETCH completed\r\n`);
+        dispatchMimeFetch(socket, tag, line, () => simplePlainMime());
       } else {
         socket.write(`${tag} BAD not implemented\r\n`);
       }
@@ -2483,8 +2584,7 @@ async function main() {
         assertFiniteUidSearch(line, { start: 13, end: 17, maxWindow: 5 });
         socket.write(`* SEARCH 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        writeBodyFetch(socket, 1, 17, rfc822Plain());
-        socket.write(`${tag} OK FETCH completed\r\n`);
+        dispatchMimeFetch(socket, tag, line, () => simplePlainMime());
       } else {
         socket.write(`${tag} BAD not implemented\r\n`);
       }
@@ -2638,7 +2738,8 @@ async function main() {
     ok('greeting CAPABILITY lookalike does not skip exact IMAP4rev1 check');
   }
 
-  async function fetchWithRfc822(rfc822, extraHandler) {
+  async function fetchWithMime(mime, extraHandler) {
+    const fixture = mime || simplePlainMime();
     return withImapTlsServer((socket, line) => {
       const parts = line.split(' ');
       const tag = parts[0];
@@ -2653,13 +2754,12 @@ async function main() {
         assertFiniteUidSearch(line, { maxWindow: transportOwner.IMAP_FETCH_MAX_MESSAGES });
         socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        assert.match(line, /BODY\.PEEK\[\]/);
-        assert.doesNotMatch(line, /BODY\.PEEK\[TEXT\]|HEADER\.FIELDS|BODY\[TEXT\]/);
+        assert.doesNotMatch(line, /BODY\.PEEK\[\]/);
+        assert.doesNotMatch(line, /BODY\.PEEK\[TEXT\]|BODY\[TEXT\]/);
         if (extraHandler && extraHandler.fetch) {
           extraHandler.fetch(socket, tag, line);
         } else {
-          writeBodyFetch(socket, 1, FIXTURE_UID, rfc822);
-          socket.write(`${tag} OK FETCH completed\r\n`);
+          dispatchMimeFetch(socket, tag, line, () => fixture);
         }
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
@@ -2676,39 +2776,37 @@ async function main() {
   {
     const unicodeBody = 'cafés — こんにちは';
     assert.ok(Buffer.byteLength(unicodeBody, 'utf8') > unicodeBody.length);
+    const qpBody = 'Hello Luna,=20I would like to book a lesson.';
+    const b64Body = `${Buffer.from(FIXTURE_BODY, 'utf8').toString('base64')}\r\n`;
     const fixtures = [
       {
         name: 'plain UTF-8',
-        rfc822: rfc822Plain(),
+        mime: simplePlainMime(),
         body: FIXTURE_BODY,
         subject: FIXTURE_SUBJECT,
         from: `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
       },
       {
         name: 'folded Subject/From',
-        rfc822: Buffer.from([
-          'From: Guest',
-          ' <guest@example.com>',
-          'Subject: Booking',
-          ' question',
-          'Date: Thu, 20 Aug 2026 10:00:00 +0000',
-          `Message-ID: ${FIXTURE_MSG_ID}`,
-          '',
-          FIXTURE_BODY,
-        ].join('\r\n'), 'utf8'),
+        mime: simplePlainMime({
+          headers: Buffer.from([
+            'From: Guest',
+            ' <guest@example.com>',
+            'Subject: Booking',
+            ' question',
+            'Date: Thu, 20 Aug 2026 10:00:00 +0000',
+            `Message-ID: ${FIXTURE_MSG_ID}`,
+          ].join('\r\n'), 'utf8'),
+        }),
         body: FIXTURE_BODY,
         subject: 'Booking question',
         from: 'Guest <guest@example.com>',
       },
       {
         name: 'quoted-printable',
-        rfc822: rfc822Plain({
-          headers: [
-            'MIME-Version: 1.0',
-            'Content-Type: text/plain; charset="UTF-8"',
-            'Content-Transfer-Encoding: quoted-printable',
-          ],
-          body: 'Hello Luna,=20I would like to book a lesson.',
+        mime: simplePlainMime({
+          encoding: 'QUOTED-PRINTABLE',
+          body: qpBody,
         }),
         body: 'Hello Luna, I would like to book a lesson.',
         subject: FIXTURE_SUBJECT,
@@ -2716,13 +2814,9 @@ async function main() {
       },
       {
         name: 'base64',
-        rfc822: rfc822Plain({
-          headers: [
-            'MIME-Version: 1.0',
-            'Content-Type: text/plain; charset=utf-8',
-            'Content-Transfer-Encoding: base64',
-          ],
-          body: `${Buffer.from(FIXTURE_BODY, 'utf8').toString('base64')}\r\n`,
+        mime: simplePlainMime({
+          encoding: 'BASE64',
+          body: b64Body,
         }),
         body: FIXTURE_BODY,
         subject: FIXTURE_SUBJECT,
@@ -2730,38 +2824,22 @@ async function main() {
       },
       {
         name: 'multipart text/plain',
-        rfc822: Buffer.from([
-          `From: ${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
-          `Subject: ${FIXTURE_SUBJECT}`,
-          'Date: Thu, 20 Aug 2026 10:00:00 +0000',
-          `Message-ID: ${FIXTURE_MSG_ID}`,
-          'MIME-Version: 1.0',
-          'Content-Type: multipart/alternative; boundary="000000000000abcd"',
-          '',
-          '--000000000000abcd',
-          'Content-Type: text/plain; charset="UTF-8"',
-          'Content-Transfer-Encoding: quoted-printable',
-          '',
-          'Hello Luna, I would like to book a lesson.',
-          '--000000000000abcd',
-          'Content-Type: text/html; charset="UTF-8"',
-          '',
-          '<p>Hello Luna, I would like to book a lesson.</p>',
-          '--000000000000abcd--',
-          '',
-        ].join('\r\n'), 'utf8'),
-        body: 'Hello Luna, I would like to book a lesson.',
+        mime: simplePlainMime({
+          encoding: 'QUOTED-PRINTABLE',
+          textSection: '1',
+          forbiddenSections: ['2'],
+          bodystructure: `(("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "QUOTED-PRINTABLE" ${FIXTURE_BODY.length} 1)("TEXT" "HTML" ("CHARSET" "UTF-8") NIL NIL "7BIT" 48 1) "ALTERNATIVE")`,
+          body: FIXTURE_BODY,
+        }),
+        body: FIXTURE_BODY,
         subject: FIXTURE_SUBJECT,
         from: `${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
       },
       {
         name: 'byte-length Unicode',
-        rfc822: rfc822Plain({
-          headers: [
-            'MIME-Version: 1.0',
-            'Content-Type: text/plain; charset=UTF-8',
-            'Content-Transfer-Encoding: 8bit',
-          ],
+        mime: simplePlainMime({
+          encoding: '8BIT',
+          charset: 'UTF-8',
           body: unicodeBody,
         }),
         body: unicodeBody,
@@ -2770,7 +2848,7 @@ async function main() {
       },
     ];
     for (const fixture of fixtures) {
-      const result = await fetchWithRfc822(fixture.rfc822);
+      const result = await fetchWithMime(fixture.mime);
       assert.equal(result.fetched.ok, true, fixture.name);
       assert.equal(result.fetched.messages.length, 1, fixture.name);
       assert.equal(result.fetched.messages[0].bodyText, fixture.body, fixture.name);
@@ -2782,78 +2860,75 @@ async function main() {
       }));
       assert.equal(mapped.ok, true, fixture.name);
       assert.equal(mapped.value.body_text, fixture.body, fixture.name);
-      const fetchLine = result.received.find((line) => /UID FETCH /.test(line));
-      assert.match(fetchLine, /BODY\.PEEK\[\]/, fixture.name);
-      assert.doesNotMatch(fetchLine, /HEADER\.FIELDS|BODY\.PEEK\[TEXT\]/, fixture.name);
+      assertNoFullBodyOrSend(result.received);
+      const preflightLine = result.received.find((line) => /UID FETCH /.test(line) && /BODYSTRUCTURE/i.test(line));
+      assert.ok(preflightLine, fixture.name);
+      assert.match(preflightLine, /HEADER\.FIELDS/, fixture.name);
+      const sectionLine = result.received.find((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line));
+      assert.ok(sectionLine, fixture.name);
+      assert.doesNotMatch(sectionLine, /BODY\.PEEK\[TEXT\]/, fixture.name);
     }
-    ok('BODY[] fixtures parse plain UTF-8, multipart, QP, base64, folded headers, Unicode');
+    ok('bounded MIME fixtures parse plain UTF-8, multipart, QP, base64, folded headers, Unicode');
   }
 
   {
-    const jpegOnly = Buffer.from([
-      `From: ${FIXTURE_FROM_NAME} <${FIXTURE_FROM}>`,
-      `Subject: ${FIXTURE_SUBJECT}`,
-      'Date: Thu, 20 Aug 2026 10:00:00 +0000',
-      `Message-ID: ${FIXTURE_MSG_ID}`,
-      'MIME-Version: 1.0',
-      'Content-Type: multipart/mixed; boundary="onlyimg"',
-      '',
-      '--onlyimg',
-      'Content-Type: image/jpeg',
-      'Content-Transfer-Encoding: base64',
-      '',
-      '/9j/4AAQSkZJRgABAQAAAQABAAD/',
-      '--onlyimg--',
-      '',
-    ].join('\r\n'), 'utf8');
     const adversarial = [
       {
-        name: 'malformed RFC822 no header separator',
-        rfc822: Buffer.from('From: guest@example.com\r\nSubject: hi\r\nnot-a-body', 'utf8'),
+        name: 'malformed headers no colon',
+        mime: simplePlainMime({
+          headers: Buffer.from('From guest@example.com\r\nSubject hi', 'utf8'),
+        }),
       },
       {
         name: 'NUL header injection',
-        rfc822: Buffer.from(`From: guest@example.com\0Bcc: evil@x.com\r\nSubject: hi\r\n\r\n${FIXTURE_BODY}`, 'utf8'),
+        mime: simplePlainMime({
+          headers: Buffer.from(`From: guest@example.com\0Bcc: evil@x.com\r\nSubject: hi`, 'utf8'),
+        }),
       },
       {
         name: 'malformed quoted-printable',
-        rfc822: rfc822Plain({
-          headers: [
-            'Content-Type: text/plain; charset=utf-8',
-            'Content-Transfer-Encoding: quoted-printable',
-          ],
+        mime: simplePlainMime({
+          encoding: 'QUOTED-PRINTABLE',
           body: 'Hello=ZZLuna',
         }),
       },
       {
         name: 'malformed base64',
-        rfc822: rfc822Plain({
-          headers: [
-            'Content-Type: text/plain; charset=utf-8',
-            'Content-Transfer-Encoding: base64',
-          ],
+        mime: simplePlainMime({
+          encoding: 'BASE64',
           body: '!!!!not-base64!!!!',
         }),
       },
       {
         name: 'binary-only no safe text',
-        rfc822: jpegOnly,
+        mime: simplePlainMime({
+          bodystructure: '(("IMAGE" "JPEG" NIL NIL NIL "BASE64" 32 NIL ("ATTACHMENT" ("FILENAME" "x.jpg")) NIL NIL) "MIXED")',
+          textSection: '1',
+          forbiddenSections: ['1'],
+          body: '/9j/4AAQSkZJRgABAQAAAQABAAD/',
+        }),
       },
       {
-        name: 'oversized decoded body',
-        rfc822: rfc822Plain({ body: 'x'.repeat(70000) }),
+        name: 'oversized declared text part',
+        mime: simplePlainMime({
+          encoding: '7BIT',
+          octets: 70000,
+          body: 'x'.repeat(100),
+        }),
       },
       {
         name: 'unknown transfer encoding',
-        rfc822: rfc822Plain({
-          headers: ['Content-Transfer-Encoding: x-uuencode'],
+        mime: simplePlainMime({
+          encoding: 'X-UUENCODE',
           body: FIXTURE_BODY,
         }),
       },
     ];
     for (const item of adversarial) {
-      const result = await fetchWithRfc822(item.rfc822);
+      const result = await fetchWithMime(item.mime);
       assert.equal(result.fetched.ok, false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'last_uid'), false, item.name);
+      assertNoFullBodyOrSend(result.received);
     }
     const textOnlyCompat = await withImapTlsServer((socket, line) => {
       const parts = line.split(' ');
@@ -2887,8 +2962,321 @@ async function main() {
     });
     assert.equal(textOnlyCompat.fetched.ok, false);
     const fetchLine = textOnlyCompat.received.find((line) => /UID FETCH /.test(line));
-    assert.match(fetchLine, /BODY\.PEEK\[\]/);
-    ok('malformed/oversized/binary BODY[] and BODY[TEXT]-only FETCH fail closed');
+    assert.match(fetchLine, /BODYSTRUCTURE/);
+    assert.doesNotMatch(fetchLine, /BODY\.PEEK\[\]/);
+    ok('malformed/oversized/binary MIME and BODY[TEXT]-only FETCH fail closed');
+  }
+
+  {
+    const ATTACH_OCTETS = 6 * 1024 * 1024 + 2048;
+    const textPart = FIXTURE_BODY;
+    const mixedMime = simplePlainMime({
+      rfc822Size: ATTACH_OCTETS + textPart.length + 400,
+      encoding: '7BIT',
+      textSection: '1',
+      forbiddenSections: ['2'],
+      forbiddenLiteralSize: ATTACH_OCTETS,
+      bodystructure: `(("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textPart.length} 1 NIL NIL NIL NIL)("APPLICATION" "PDF" ("NAME" "invoice.pdf") NIL NIL "BASE64" ${ATTACH_OCTETS} NIL ("ATTACHMENT" ("FILENAME" "invoice.pdf")) NIL NIL) "MIXED" ("BOUNDARY" "mixbound") NIL NIL NIL)`,
+      body: textPart,
+    });
+    const huge = await fetchWithMime(mixedMime);
+    assert.equal(huge.fetched.ok, true);
+    assert.equal(huge.fetched.messages.length, 1);
+    assert.equal(huge.fetched.messages[0].bodyText, textPart);
+    const mappedHuge = mapper.mapImapFetchedMessageToInboundEnvelope(frozen({
+      mailbox: MAILBOX,
+      message: huge.fetched.messages[0],
+    }));
+    assert.equal(mappedHuge.ok, true);
+    assert.equal(mappedHuge.value.body_text, textPart);
+    assertNoFullBodyOrSend(huge.received);
+    assert.equal(huge.received.some((line) => /BODY\.PEEK\[2\]/.test(line)), false);
+    assert.equal(huge.received.some((line) => /BODY\.PEEK\[\]/.test(line)), false);
+    const sectionLine = huge.received.find((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line));
+    assert.match(sectionLine, /BODY\.PEEK\[1\]<0\.\d+>/);
+    ok('>6 MiB attachment-heavy multipart fetches only the bounded text/plain part');
+  }
+
+  {
+    const nestedText = FIXTURE_BODY;
+    const nestedMime = simplePlainMime({
+      rfc822Size: 6 * 1024 * 1024 + nestedText.length,
+      encoding: '7BIT',
+      textSection: '1.1',
+      forbiddenSections: ['1.2', '2'],
+      forbiddenLiteralSize: 6 * 1024 * 1024 + 1,
+      bodystructure: `((("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${nestedText.length} 1)("TEXT" "HTML" ("CHARSET" "UTF-8") NIL NIL "7BIT" 80 2) "ALTERNATIVE")("APPLICATION" "OCTET-STREAM" ("NAME" "scan.bin") NIL NIL "BASE64" 6293504 NIL ("ATTACHMENT" ("FILENAME" "scan.bin")) NIL) "MIXED")`,
+      body: nestedText,
+    });
+    const nested = await fetchWithMime(nestedMime);
+    assert.equal(nested.fetched.ok, true);
+    assert.equal(nested.fetched.messages[0].bodyText, nestedText);
+    assertNoFullBodyOrSend(nested.received);
+    const sectionLine = nested.received.find((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line));
+    assert.match(sectionLine, /BODY\.PEEK\[1\.1\]<0\.\d+>/);
+    assert.equal(nested.received.some((line) => /BODY\.PEEK\[1\.2\]/.test(line)), false);
+    assert.equal(nested.received.some((line) => /BODY\.PEEK\[2\]/.test(line)), false);
+    ok('nested multipart/alternative selects text/plain 1.1 and never html or attachment');
+  }
+
+  {
+    const mismatch = await fetchWithMime(simplePlainMime({
+      textSection: '1',
+      bodystructure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${FIXTURE_BODY.length} 1)`,
+    }), {
+      fetch(socket, tag, line) {
+        if (isPreflightFetchLine(line)) {
+          dispatchMimeFetch(socket, tag, line, () => simplePlainMime());
+          return;
+        }
+        socket.write(`* 1 FETCH (UID ${FIXTURE_UID} BODY[2]<0> {${FIXTURE_BODY.length}}\r\n`);
+        socket.write(FIXTURE_BODY);
+        socket.write(`)\r\n${tag} OK FETCH completed\r\n`);
+      },
+    });
+    assert.equal(mismatch.fetched.ok, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(mismatch.fetched, 'last_uid'), false);
+    const malformedBs = await fetchWithMime(simplePlainMime({
+      bodystructure: '("TEXT" "PLAIN"',
+    }));
+    assert.equal(malformedBs.fetched.ok, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(malformedBs.fetched, 'last_uid'), false);
+    ok('malformed BODYSTRUCTURE and section mismatch fail closed without cursor fields');
+  }
+
+  {
+    const octets = FIXTURE_BODY.length;
+    function bodystructureFetchText(structure) {
+      return `1 FETCH (UID ${FIXTURE_UID} RFC822.SIZE 180 BODYSTRUCTURE ${structure})`;
+    }
+    const validStructure = `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} 1)`;
+    const validSelected = bodystructureOwner.selectBoundedTextPlainFromFetchText(
+      bodystructureFetchText(validStructure),
+    );
+    assert.ok(validSelected);
+    assert.equal(validSelected.section, '1');
+    assert.equal(validSelected.octets, octets);
+    const grammarCases = [
+      {
+        name: 'missing body-fld-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets})`,
+      },
+      {
+        name: 'NIL body-fld-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} NIL)`,
+      },
+      {
+        name: 'quoted not-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} "not-lines")`,
+      },
+      {
+        name: 'quoted numeric lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} "1")`,
+      },
+      {
+        name: 'non-numeric atom lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} LINES)`,
+      },
+      {
+        name: 'negative body-fld-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} -1)`,
+      },
+      {
+        name: 'leading-zero body-fld-lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} 01)`,
+      },
+      {
+        name: 'extra displacement before lines',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${octets} NIL 1)`,
+      },
+      {
+        name: 'malformed BODYSTRUCTURE',
+        structure: '("TEXT" "PLAIN"',
+      },
+    ];
+    for (const item of grammarCases) {
+      const fetchText = bodystructureFetchText(item.structure);
+      assert.equal(bodystructureOwner.parseImapBodystructure(fetchText), null, item.name);
+      assert.equal(bodystructureOwner.selectBoundedTextPlainFromFetchText(fetchText), null, item.name);
+      const result = await fetchWithMime(simplePlainMime({ bodystructure: item.structure }));
+      assert.equal(result.fetched.ok, false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'last_uid'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'messages'), false, item.name);
+      assert.equal(
+        result.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)),
+        false,
+        item.name,
+      );
+    }
+    ok('text/* BODYSTRUCTURE without canonical body-fld-lines fails closed with no section selection');
+  }
+
+  {
+    const zero = await fetchWithMime(simplePlainMime({ octets: 0, body: '' }));
+    assert.equal(zero.fetched.ok, true);
+    assert.equal(zero.fetched.messages.length, 1);
+    assert.equal(zero.fetched.messages[0].bodyText, '');
+    assert.equal(zero.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)), false);
+    ok('declared-zero text part yields empty body without section FETCH');
+  }
+
+  async function fetchInboxAndPoll(handler) {
+    return withImapTlsServer(handler, async (port, received) => {
+      const transport = createTestTransport(port);
+      const fetched = await transport.fetchInbox(CREDS, frozen({ uidvalidity: null, last_uid: 0 }));
+      const ingested = [];
+      const projected = [];
+      const { poller, pg } = pollService({
+        inboundEnabled: true,
+        ingested,
+        projected,
+        imapTransport: transport,
+        cursor: { uidvalidity: FIXTURE_UIDVALIDITY, last_uid: 0 },
+      });
+      let pollErr;
+      try {
+        await poller.pollVerifiedImapInbox(frozen({
+          clientId: SUNSET_ID, locationId: LOCATION, actorStaffUserId: ACTOR,
+        }));
+      } catch (caught) {
+        pollErr = caught;
+      }
+      return {
+        fetched,
+        pollErr,
+        ingested,
+        projected,
+        cursor: pg.getCursor(),
+        queries: pg.queries.slice(),
+        received,
+      };
+    });
+  }
+
+  function handleSearchSelectFetch(socket, line, fetchHandler) {
+    const tag = line.split(' ')[0];
+    if (handleFetchAuth(socket, line)) return true;
+    const verb = (line.split(' ')[1] || '').toUpperCase();
+    if (verb === 'SELECT') {
+      writeSelectInbox(socket, tag);
+      return true;
+    }
+    if (verb === 'UID' && /SEARCH/i.test(line)) {
+      socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
+      return true;
+    }
+    if (verb === 'UID' && /FETCH/i.test(line)) {
+      fetchHandler(socket, tag, line);
+      return true;
+    }
+    return false;
+  }
+
+  {
+    const shortBody = FIXTURE_BODY.slice(0, 5);
+    assert.ok(shortBody.length > 0);
+    assert.ok(shortBody.length < FIXTURE_BODY.length);
+    const truncatedCases = [
+      { name: 'short selected-part literal', body: shortBody },
+      { name: 'empty selected-part literal when declared nonzero', body: '' },
+    ];
+    for (const item of truncatedCases) {
+      const truncated = await fetchInboxAndPoll((socket, line) => {
+        if (handleSearchSelectFetch(socket, line, (sock, tag, fetchLine) => {
+          if (isPreflightFetchLine(fetchLine)) {
+            writePreflightFetch(sock, 1, FIXTURE_UID, simplePlainMime());
+            sock.write(`${tag} OK FETCH completed\r\n`);
+            return;
+          }
+          writeSectionFetch(sock, 1, FIXTURE_UID, '1', item.body);
+          sock.write(`${tag} OK FETCH completed\r\n`);
+        })) return;
+        socket.write(`${line.split(' ')[0]} BAD not implemented\r\n`);
+      });
+      assert.equal(truncated.fetched.ok, false, item.name);
+      assert.deepEqual([...(truncated.fetched.failed_secret_names || [])], ['sunset-imap-host'], item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(truncated.fetched, 'last_uid'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(truncated.fetched, 'messages'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(truncated.fetched, 'uidvalidity'), false, item.name);
+      assert.ok(truncated.pollErr, item.name);
+      assert.deepEqual([...(truncated.pollErr.failed_secret_names || [])], ['sunset-imap-host'], item.name);
+      assert.equal(truncated.ingested.length, 0, item.name);
+      assert.equal(truncated.projected.length, 0, item.name);
+      assert.equal(Number(truncated.cursor.last_uid), 0, item.name);
+      assert.equal(Number(truncated.cursor.uidvalidity), FIXTURE_UIDVALIDITY, item.name);
+      assert.equal(truncated.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false, item.name);
+      assert.equal(truncated.queries.some((q) => q.text === pollSql.SQL_COMMIT_RESET), false, item.name);
+    }
+    ok('truncated selected-part literal fails closed without ingest or cursor commit');
+  }
+
+  {
+    const uidCases = [
+      { name: 'preflight duplicate same UID', preflightUids: [FIXTURE_UID, FIXTURE_UID] },
+      { name: 'preflight conflicting UID', preflightUids: [FIXTURE_UID, 999] },
+      { name: 'preflight conflicting UID 7 999', preflightUids: [7, 999] },
+      { name: 'section duplicate same UID', sectionUids: [FIXTURE_UID, FIXTURE_UID] },
+      { name: 'section conflicting UID', sectionUids: [FIXTURE_UID, 999] },
+      { name: 'section conflicting UID 7 999', sectionUids: [7, 999] },
+    ];
+    for (const item of uidCases) {
+      const result = await withImapTlsServer((socket, line) => {
+        if (handleSearchSelectFetch(socket, line, (sock, tag, fetchLine) => {
+          if (isPreflightFetchLine(fetchLine)) {
+            writePreflightFetch(sock, 1, FIXTURE_UID, simplePlainMime(), {
+              uidAttrs: item.preflightUids || [FIXTURE_UID],
+            });
+            sock.write(`${tag} OK FETCH completed\r\n`);
+            return;
+          }
+          writeSectionFetch(sock, 1, FIXTURE_UID, '1', FIXTURE_BODY, {
+            uidAttrs: item.sectionUids || [FIXTURE_UID],
+          });
+          sock.write(`${tag} OK FETCH completed\r\n`);
+        })) return;
+        socket.write(`${line.split(' ')[0]} BAD not implemented\r\n`);
+      }, async (port) => createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: null, last_uid: 0 }),
+      ));
+      assert.equal(result.ok, false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'last_uid'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'messages'), false, item.name);
+    }
+    ok('duplicate same-value and conflicting UID attributes fail closed in preflight and section FETCH');
+  }
+
+  {
+    const batchUids = [11, 12, 13];
+    const tooBig = await withImapTlsServer((socket, line) => {
+      const tag = line.split(' ')[0];
+      if (handleFetchAuth(socket, line)) return;
+      const verb = (line.split(' ')[1] || '').toUpperCase();
+      if (verb === 'SELECT') {
+        writeSelectInbox(socket, tag, { uidnext: 14, exists: 3 });
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH ${batchUids.join(' ')}\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        dispatchMimeFetch(socket, tag, line, () => simplePlainMime({
+          octets: 50000,
+          body: 'n'.repeat(50000),
+          rfc822Size: 51000,
+        }));
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const fetched = await createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: FIXTURE_UIDVALIDITY, last_uid: 10 }),
+      );
+      return { fetched, received };
+    });
+    assert.equal(tooBig.fetched.ok, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(tooBig.fetched, 'last_uid'), false);
+    assert.equal(tooBig.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)), false);
+    assertNoFullBodyOrSend(tooBig.received);
+    ok('cumulative declared text-part batch bound fails closed before section FETCH');
   }
 
   tlsPair.cleanup();
@@ -2962,17 +3350,44 @@ async function main() {
   assert.match(transportSrc, /imap_missing_requested_uid/);
   assert.match(transportSrc, /seen\.size !== requested\.size/);
   assert.match(transportSrc, /assertSafeImapCredential/);
-  assert.match(transportSrc, /BODY\.PEEK\[\]/);
+  assert.doesNotMatch(transportSrc, /BODY\.PEEK\[\]/);
   assert.doesNotMatch(transportSrc, /BODY\.PEEK\[TEXT\]/);
-  assert.doesNotMatch(transportSrc, /HEADER\.FIELDS/);
+  assert.match(transportSrc, /HEADER\.FIELDS/);
+  assert.match(transportSrc, /BODYSTRUCTURE/);
+  assert.match(transportSrc, /RFC822\.SIZE/);
+  assert.match(transportSrc, /formatBodyPeekSection/);
+  assert.match(transportSrc, /parseFetchPreflight/);
+  assert.match(transportSrc, /function parseFetchUidAttr/);
+  assert.match(transportSrc, /\\bUID\\s\+\(\\d\+\)\\b\/gi/);
+  assert.match(transportSrc, /matches\.length !== 1/);
+  assert.doesNotMatch(transportSrc, /const uidMatch = \/\\bUID\\s\+\(\\d\+\)\/i\.exec\(raw\)/);
+  assert.match(transportSrc, /bodyBytes\.length !== expected\.octets/);
+  assert.doesNotMatch(transportSrc, /bodyBytes\.length > expected\.octets/);
+  assert.doesNotMatch(transportSrc, /bodyBytes\.length <= expected\.octets/);
+  assert.match(transportSrc, /sectionSeen\.size !== requested\.size/);
   assert.match(transportSrc, /parseUntaggedCapabilityAtoms|capabilityHasExactImap4rev1/);
-  assert.equal(transportOwner.IMAP_FETCH_ATTRS, '(UID FLAGS INTERNALDATE BODY.PEEK[])');
+  assert.match(transportOwner.IMAP_PREFLIGHT_ATTRS, /UID FLAGS INTERNALDATE RFC822\.SIZE BODYSTRUCTURE/);
+  assert.match(transportOwner.IMAP_PREFLIGHT_ATTRS, /BODY\.PEEK\[HEADER\.FIELDS \(FROM SUBJECT DATE MESSAGE-ID\)\]<0\.8192>/);
+  assert.doesNotMatch(transportOwner.IMAP_PREFLIGHT_ATTRS, /BODY\.PEEK\[\]/);
+  assert.equal(transportOwner.IMAP_FETCH_BATCH_MAX_BYTES, 131072);
   const mimeRel = 'scripts/lib/email-imap-rfc822-safe-text.js';
   const mimeSrc = fs.readFileSync(path.join(ROOT, mimeRel), 'utf8');
+  const bodystructureRel = 'scripts/lib/email-imap-bodystructure.js';
+  const bodystructureSrc = fs.readFileSync(path.join(ROOT, bodystructureRel), 'utf8');
   assert.match(mimeSrc, /quoted-printable|quotedPrintable/i);
   assert.match(mimeSrc, /base64/i);
   assert.match(mimeSrc, /multipart/i);
+  assert.match(bodystructureSrc, /selectSafeTextPlainPart/);
+  assert.match(bodystructureSrc, /IMAP_BODYSTRUCTURE_MAX_PARTS/);
+  assert.match(bodystructureSrc, /body-fld-lines is mandatory immediately after/);
+  assert.match(bodystructureSrc, /if \(type === 'text'\)/);
+  assert.match(bodystructureSrc, /list\.length < 8/);
+  assert.match(bodystructureSrc, /const lines = list\[7\]/);
+  assert.match(bodystructureSrc, /Number\.isInteger\(lines\)/);
+  assert.doesNotMatch(bodystructureSrc, /const extStart = type === 'text' \? 8 : 7/);
+  assert.doesNotMatch(bodystructureSrc, /BODY\.PEEK\[\]/);
   assert.doesNotMatch(mimeSrc, /console\.(log|info|debug|dir|error)/);
+  assert.doesNotMatch(bodystructureSrc, /console\.(log|info|debug|dir|error)/);
   assert.doesNotMatch(transportSrc, /console\.(log|info|debug|dir)\(/);
   assert.ok(!/MAIL FROM|RCPT TO|\bDATA\b|sendMail|graph\.microsoft\.com\/v1\.0\/me\/sendMail/i.test(verifySrc));
   assert.ok(!/MAIL FROM|RCPT TO|\bDATA\b|sendMail/i.test(pollSrc));
@@ -3024,6 +3439,7 @@ async function main() {
 
   void quoteImap;
   void headerBlock;
+  void rfc822Plain;
   void SESSION;
   void settingsSrc;
   console.log(`PASS EMAIL-IMAP-001 (${pass} checks)`);
