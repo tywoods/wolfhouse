@@ -41646,11 +41646,15 @@ async function handleSunsetScheduleBookingUpdate(query, req, res, user) {
       return sendJSON(res, 409, { success: false, error: 'location_conflict' });
     }
   }
-  const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
+  // Staff edit of an existing booking may keep past service dates (equipment /
+  // payment status / notes). Create remains fail-closed without allowPast.
+  const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date(), { allowPast: true });
   if (!dateNorm.ok) {
     return sendJSON(res, 400, {
       success: false,
       error: dateNorm.reason || 'invalid_date',
+      reason: dateNorm.reason || 'invalid_date',
+      reason_code: dateNorm.reason || 'invalid_date',
       needs_clarification: dateNorm.needs_clarification === true,
     });
   }
@@ -42271,6 +42275,8 @@ async function handleSunsetScheduleBookingQuote(query, req, res, user) {
       pgClient: pg,
       verticalResolved: resolved,
       channel: VERTICAL_CHANNELS.MANUAL_STAFF,
+      // Edit drawer sends allow_past; Create omits it so past Create quotes stay blocked.
+      allowPastDates: body.allow_past === true || body.allowPast === true,
     }));
     appendAuditLog({
       ts: new Date().toISOString(),

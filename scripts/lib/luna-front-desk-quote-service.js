@@ -154,6 +154,9 @@ function buildSunsetQuoteCommand(opts) {
   )
     ? Math.max(0, opts.existingAccommodationStayCount)
     : null;
+  // Staff edit of an existing booking: trusted server option only. Never grant
+  // from transportBody (Create / Luna must stay fail-closed on past dates).
+  const allowPastDates = opts && opts.allowPastDates === true;
   return {
     ok: true,
     command: {
@@ -163,6 +166,7 @@ function buildSunsetQuoteCommand(opts) {
       transportBody,
       allowExistingAccommodationWhenDisabled,
       existingAccommodationStayCount,
+      allowPastDates,
       now: (opts && opts.now) instanceof Date ? opts.now : new Date(),
     },
   };
@@ -1645,7 +1649,10 @@ function normalizeCanonicalRentalsForQuote(transportBody, expectedDurationKey) {
  * Rentals-only (components: {}) is allowed; duration always from date_from/date_to.
  */
 function resolveQuoteComponentsAndRentalsInput(command) {
-  const dateNorm = normalizeSunsetBookingDatesInBody(command.transportBody, command.now);
+  const dateOpts = command && command.allowPastDates === true ? { allowPast: true } : {};
+  const dateNorm = normalizeSunsetBookingDatesInBody(
+    command.transportBody, command.now, dateOpts,
+  );
   if (!dateNorm.ok) {
     return {
       ok: false,
@@ -1680,6 +1687,7 @@ function resolveQuoteComponentsAndRentalsInput(command) {
       allowBlankGuest: true,
       allowEmptyComponents: hasAccommodation && !hasComponents && !hasLessons,
       refDate: command.now,
+      allowPast: command.allowPastDates === true,
       ...forceOpts,
     });
     if (!validated.ok) {

@@ -2984,6 +2984,35 @@ function scheduleDrawerClearQuotePreviewUi() {
   if (typeof scheduleDrawerSyncSaveEnabled === 'function') scheduleDrawerSyncSaveEnabled();
 }
 
+/** True when quote failed only because service dates are in the past (staff edit OK). */
+function scheduleDrawerIsPastDateQuoteFailure(result) {
+  var body = result && result.body && typeof result.body === 'object' ? result.body : {};
+  var rc = String(
+    (result && result.error)
+    || body.reason_code
+    || body.reason
+    || body.error
+    || '',
+  ).trim();
+  return rc === 'explicit_past_date';
+}
+
+/** Stored booking total from drawer context — never invent money. */
+function scheduleDrawerStoredQuoteTotalCents() {
+  try {
+    var ctx = scheduleDrawerState && scheduleDrawerState.ctx;
+    var pay = ctx && ctx.payment;
+    if (!pay) return null;
+    var raw = pay.total_cents != null ? pay.total_cents : pay.subtotal_cents;
+    if (typeof raw !== 'number' || !Number.isFinite(raw) || Math.floor(raw) !== raw || raw < 0) {
+      return null;
+    }
+    return raw;
+  } catch (_e) {
+    return null;
+  }
+}
+
 function scheduleDrawerShowQuoteChecking() {
   var box = el('ps-drawer-quote-preview');
   if (!box) return;
@@ -3039,23 +3068,56 @@ function scheduleDrawerRenderQuotePreview(result) {
   }
   if (result && result.checking) { scheduleDrawerShowQuoteChecking(); return; }
   if (!result || !result.ok) {
+    var pastDateFail = false;
+    if (typeof scheduleDrawerIsPastDateQuoteFailure === 'function') {
+      pastDateFail = scheduleDrawerIsPastDateQuoteFailure(result);
+    } else {
+      var _pb = result && result.body && typeof result.body === 'object' ? result.body : {};
+      var _prc = String(
+        (result && result.error) || _pb.reason_code || _pb.reason || _pb.error || '',
+      ).trim();
+      pastDateFail = _prc === 'explicit_past_date';
+    }
     scheduleDrawerQuoteState = null;
-    scheduleDrawerQuotePriceBlocked = true;
+    // Past-date quote failure must not hard-gate Save — payment status / equipment
+    // edits on existing bookings use stored prices when preview cannot requote.
+    scheduleDrawerQuotePriceBlocked = !pastDateFail;
     var err = (typeof schedulePortalQuoteFailureMessage === 'function')
       ? schedulePortalQuoteFailureMessage(result)
       : (portalT('schedule.create.quoteFailed') || 'Quote unavailable');
     if (!(typeof schedulePortalQuoteFailureMessage === 'function')) {
-      if (result && result.stale) err = portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before saving.';
-      else if (result && result.status === 503) err = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
-      else if (result && result.body && (result.body.reason_code === 'price_not_found'
+      if (pastDateFail) {
+        err = portalT('schedule.create.quotePastDate')
+          || portalT('schedule.create.privateLesson.sessionDatePast')
+          || 'Past date — save keeps stored prices.';
+      } else if (result && result.stale) {
+        err = portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before saving.';
+      } else if (result && result.status === 503) {
+        err = portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
+      } else if (result && result.body && (result.body.reason_code === 'price_not_found'
         || result.body.reason_code === 'price_missing'
         || result.body.reason_code === 'price_not_configured'
         || result.body.price_status === 'unpriced')) {
         err = portalT('schedule.create.priceNotConfigured') || 'Price not configured';
       }
     }
-    box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-unpriced" style="margin:0;color:var(--danger,#b33)" data-quote-status="unpriced">'
+    var storedCents = null;
+    if (pastDateFail) {
+      storedCents = (typeof scheduleDrawerStoredQuoteTotalCents === 'function')
+        ? scheduleDrawerStoredQuoteTotalCents()
+        : null;
+    }
+    var html = '<p class="portal-schedule-drawer-hint portal-schedule-quote-unpriced" style="margin:0;color:var(--danger,#b33)" data-quote-status="'
+      + (pastDateFail ? 'past_date' : 'unpriced') + '" data-reason-code="'
+      + escHtml(pastDateFail ? 'explicit_past_date' : 'quote_failed') + '">'
       + escHtml(String(err)) + '</p>';
+    if (storedCents != null) {
+      html += '<p class="portal-schedule-drawer-hint" style="margin:4px 0 0" data-quote-stored="1">'
+        + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total')
+          + ': \u20ac' + (storedCents / 100).toFixed(2))
+        + '</p>';
+    }
+    box.innerHTML = html;
     box.style.display = 'block';
     scheduleDrawerSyncSaveEnabled();
     return;
@@ -3302,6 +3364,8 @@ function scheduleDrawerRefreshQuote() {
         course_equipment: Array.isArray(payload.course_equipment) ? payload.course_equipment : [],
         surfer_count: payload.surfer_count != null ? payload.surfer_count : null,
         custom_line_items: Array.isArray(payload.custom_line_items) ? payload.custom_line_items : [],
+        // Staff edit of an existing booking — allow past service dates on preview quote.
+        allow_past: true,
       };
       var url = '/staff/schedule/bookings/quote?client=' + encodeURIComponent(
         typeof getClient === 'function' ? getClient() : 'sunset',

@@ -3,7 +3,8 @@
 /**
  * verify:sunset-staff-schedule-date-boundary
  *
- * Staff create/update must reject invalid/past/horizon dates before DB mutation.
+ * Staff create must reject invalid/past/horizon dates before DB mutation.
+ * Staff edit of an existing booking may keep past service dates (allowPast).
  * Run: node scripts/verify-sunset-staff-schedule-date-boundary.js
  */
 
@@ -14,6 +15,7 @@ const {
   createSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-writes');
 const { updateSunsetScheduleBooking } = require('./lib/sunset-schedule-booking-drawer');
+const { normalizeSunsetBookingDatesInBody } = require('./lib/sunset-guest-date-intake');
 
 let pass = 0;
 let fail = 0;
@@ -47,10 +49,11 @@ console.log('\nverify:sunset-staff-schedule-date-boundary\n');
 
 console.log('[1] Staff routes normalize dates before create/update');
 const apiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
-assert('POST /staff/schedule/bookings normalizes dates',
-  /handleSunsetScheduleBookingCreate[\s\S]*normalizeSunsetBookingDatesInBody/.test(apiSrc));
-assert('PATCH /staff/schedule/bookings normalizes dates',
-  /handleSunsetScheduleBookingUpdate[\s\S]*normalizeSunsetBookingDatesInBody/.test(apiSrc));
+const writesSrc = fs.readFileSync(path.join(__dirname, 'lib', 'sunset-schedule-booking-writes.js'), 'utf8');
+assert('create path still date-validates',
+  /validateScheduleBookingBody/.test(writesSrc));
+assert('PATCH /staff/schedule/bookings normalizes dates with allowPast',
+  /handleSunsetScheduleBookingUpdate[\s\S]{0,2500}normalizeSunsetBookingDatesInBody\(body,\s*new Date\(\),\s*\{\s*allowPast:\s*true\s*\}\)/.test(apiSrc));
 
 console.log('\n[2] Shared write boundary rejects invalid dates (ref 2026-07-13)');
 const cases = [
@@ -82,7 +85,28 @@ const horizonIso = madridHorizonIso(REF, HORIZON);
 assert('exact horizon accepted',
   validateScheduleBookingBody({ ...baseBody, service_date: horizonIso }, { refDate: REF, horizonDays: HORIZON }).ok);
 
-console.log('\n[4] create/update reject before BEGIN');
+console.log('\n[4] Staff edit allowPast — past dates OK for existing booking edits');
+const pastOk = validateScheduleBookingBody(
+  { ...baseBody, service_date: '2026-07-12' },
+  { refDate: REF, horizonDays: HORIZON, allowPast: true },
+);
+assert('validate accepts past with allowPast', pastOk.ok === true, JSON.stringify(pastOk));
+const pastNorm = normalizeSunsetBookingDatesInBody(
+  { date_from: '2026-07-12', date_to: '2026-07-14' },
+  REF,
+  { allowPast: true },
+);
+assert('normalize accepts past range with allowPast', pastNorm.ok === true, JSON.stringify(pastNorm));
+const pastBlocked = normalizeSunsetBookingDatesInBody(
+  { date_from: '2026-07-12', date_to: '2026-07-14' },
+  REF,
+  {},
+);
+assert('normalize still rejects past without allowPast',
+  pastBlocked.ok === false && pastBlocked.reason === 'explicit_past_date',
+  JSON.stringify(pastBlocked));
+
+console.log('\n[5] create rejects past before BEGIN; update no longer fails closed on past alone');
 (async () => {
   const pg = explodingPg();
   const create = await createSunsetScheduleBooking(pg, {
@@ -91,11 +115,33 @@ console.log('\n[4] create/update reject before BEGIN');
     locationId: 'sunset-somo',
   });
   assert('create rejects invalid date before DB', create.ok === false && pg.begins === 0);
+
+  const createPast = await createSunsetScheduleBooking(explodingPg(), {
+    clientSlug: 'sunset',
+    body: { ...baseBody, service_date: '2026-07-12' },
+    locationId: 'sunset-somo',
+    now: REF,
+  });
+  assert('create still rejects past date',
+    createPast.ok === false
+      && String((createPast.body && createPast.body.error) || createPast.error || '') === 'explicit_past_date',
+    JSON.stringify(createPast));
+
+  const drawerSrc = fs.readFileSync(
+    path.join(__dirname, 'lib', 'sunset-schedule-booking-drawer.js'), 'utf8',
+  );
+  assert('edit validateScheduleBookingBody passes allowPast: true',
+    /validateScheduleBookingBody\(\{[\s\S]*?allowPast:\s*true/.test(drawerSrc));
+  assert('edit authoritative pricing passes allowPastDates: true',
+    /applyAuthoritativeSchedulePricingInTxn\(pg, \{[\s\S]*?allowPastDates:\s*true/.test(drawerSrc));
+
+  // Smoke: update past-date body is not rejected at the date-boundary layer.
+  // Incomplete PG double may fail later — only assert we did not get explicit_past_date.
   const pg2 = {
     begins: 0,
     query(sql) {
       const q = String(sql);
-      if (/BEGIN/i.test(q)) { pg2.begins += 1; throw new Error('DB mutation must not begin'); }
+      if (/BEGIN/i.test(q)) { pg2.begins += 1; throw new Error('stop-after-begin'); }
       if (/FROM bookings b[\s\S]*INNER JOIN clients/i.test(q)) {
         return {
           rows: [{
@@ -114,13 +160,22 @@ console.log('\n[4] create/update reject before BEGIN');
       throw new Error(`unexpected query: ${q.slice(0, 80)}`);
     },
   };
-  const update = await updateSunsetScheduleBooking(pg2, {
-    clientSlug: 'sunset',
-    bookingId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
-    body: { ...baseBody, service_date: '2026-07-12' },
-    locationId: 'sunset-somo',
-  });
-  assert('update rejects past date before DB', update.ok === false && pg2.begins === 0);
+  let update;
+  try {
+    update = await updateSunsetScheduleBooking(pg2, {
+      clientSlug: 'sunset',
+      bookingId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      body: { ...baseBody, service_date: '2026-07-12' },
+      locationId: 'sunset-somo',
+      now: REF,
+    });
+  } catch (err) {
+    update = { ok: false, status: 500, body: { success: false, error: String(err && err.message || err) } };
+  }
+  const updErr = String((update && update.body && (update.body.error || update.body.reason_code)) || '');
+  assert('update does not fail-closed as explicit_past_date',
+    updErr !== 'explicit_past_date',
+    JSON.stringify(update));
 
   console.log(`\n── verify:sunset-staff-schedule-date-boundary ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
   if (fail > 0) process.exit(1);

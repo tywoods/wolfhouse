@@ -1462,6 +1462,9 @@ async function updateSunsetScheduleBooking(pg, opts) {
     allowEmptyComponents: genericPrep.genericRentals.length > 0
       || hasExactOfferingRentals
       || !!(editBody.accommodation && editBody.accommodation.enabled !== false),
+    // Existing bookings may keep past service dates (equipment / payment edits).
+    allowPast: true,
+    refDate: opts.now instanceof Date ? opts.now : undefined,
   });
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
@@ -2182,6 +2185,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       quoteProvenance: opts.quoteProvenance,
       allowExistingAccommodationWhenDisabled: hadStaffAccommodation,
       existingAccommodationStayCount,
+      allowPastDates: true,
       now: opts.now,
     });
 

@@ -3044,6 +3044,8 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
     )
       ? opts.existingAccommodationStayCount
       : null,
+    // Staff edit of an existing booking may re-quote past service dates.
+    allowPastDates: opts && opts.allowPastDates === true,
     now: opts.now instanceof Date ? opts.now : new Date(),
   });
   if (!quoteBuilt.ok) {
