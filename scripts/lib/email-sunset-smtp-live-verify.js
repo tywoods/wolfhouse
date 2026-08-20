@@ -3,8 +3,14 @@
 const contract = require('./email-sunset-smtp-secret-ref-contract');
 const { createSunsetSmtpStarttlsTransport } = require('./email-sunset-smtp-starttls-transport');
 const SQL_ENDPOINT = `SELECT id::text, public_address, provider, inbound_enabled, outbound_enabled,
- active, default_automation_mode, location_id FROM tenant_channel_endpoints
+ active, default_automation_mode, location_id, smtp_health_verified_at FROM tenant_channel_endpoints
  WHERE client_id=$1::uuid AND location_id=$2 AND provider='imap_smtp' LIMIT 2`.replace(/\s+/g, ' ').trim();
+const SQL_MARK_HEALTHY = `UPDATE tenant_channel_endpoints
+ SET smtp_health_verified_at=NOW(), updated_at=NOW()
+ WHERE id=$1::uuid AND client_id=$2::uuid AND location_id=$3 AND provider='imap_smtp'
+   AND active=FALSE AND inbound_enabled=FALSE AND outbound_enabled=FALSE
+   AND default_automation_mode='off'
+ RETURNING id::text, smtp_health_verified_at`.replace(/\s+/g, ' ').trim();
 
 function failure(kind, names) {
   const err = new Error('SMTP verification failed.');
@@ -53,10 +59,14 @@ function createSunsetSmtpLiveVerify(opts) {
         throw failure('failed_secret_names', names);
       }
       const row = found.rows[0];
+      const marked = await client.query(SQL_MARK_HEALTHY, [String(row.id), input.clientId, input.locationId]);
+      if (!marked || !Array.isArray(marked.rows) || marked.rows.length !== 1) {
+        throw failure('failed_secret_names', []);
+      }
       return Object.freeze({ endpointId: String(row.id), provider: 'imap_smtp', smtp_verified: true,
         inbound_enabled: false, outbound_enabled: false, active: false, default_automation_mode: 'off' });
     },
   });
 }
 module.exports = Object.freeze({ EMAIL_SMTP_VERIFY_PATH: contract.EMAIL_SMTP_VERIFY_PATH,
-  SQL_ENDPOINT, createSunsetSmtpLiveVerify });
+  SQL_ENDPOINT, SQL_MARK_HEALTHY, createSunsetSmtpLiveVerify });

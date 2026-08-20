@@ -9,6 +9,7 @@ const EMAIL_SETTINGS_PATH = '/staff/admin/email-settings';
 const EMAIL_SMTP_IDENTITY_PATH = smtpSecretContract.EMAIL_SMTP_IDENTITY_PATH;
 const EMAIL_SMTP_VERIFY_PATH = smtpSecretContract.EMAIL_SMTP_VERIFY_PATH;
 const SMTP_POST_BODY_KEYS = Object.freeze(['location_id', 'public_address']);
+const SMTP_VERIFY_BODY_KEYS = Object.freeze(['location_id']);
 const SMTP_ALLOWED_ROLES = Object.freeze(['admin', 'owner']);
 const UUID_RE_CI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOCATION_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -711,6 +712,21 @@ function snapshotSmtpPostBody(body) {
   }
 }
 
+function snapshotSmtpVerifyBody(body) {
+  try {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+    const proto = Object.getPrototypeOf(body);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(body);
+    if (actual.length !== 1 || actual[0] !== SMTP_VERIFY_BODY_KEYS[0]) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(body, 'location_id');
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        || descriptor.get || descriptor.set || !descriptor.enumerable
+        || typeof descriptor.value !== 'string' || !LOCATION_SLUG_RE.test(descriptor.value)) return null;
+    return Object.freeze({ location_id: descriptor.value });
+  } catch (_) { return null; }
+}
+
 function smtpSecretStatusDto(runtimeEnv) {
   const refs = smtpSecretContract.evaluateSunsetSmtpSecretRefs(runtimeEnv);
   return Object.freeze({
@@ -792,19 +808,6 @@ function createEmailSettingsRoutes(deps) {
           : new Map();
         const lastSyncByEndpoint = lastSyncMap instanceof Map ? lastSyncMap : new Map();
 
-        const smtpHealth = new Map();
-        let smtpFailure = null;
-        if (smtpSecretContract.isSunsetEmailSmtpVerifyEnabled(runtimeEnv)) {
-          for (const row of endpointRows) {
-            if (row.provider !== 'imap_smtp') continue;
-            try {
-              const ack = await createSmtpVerify(pg).verifyExistingImapSmtpEndpoint(Object.freeze({
-                clientId, locationId: row.location_id, actorStaffUserId: user.staff_user_id,
-              }));
-              if (ack.smtp_verified === true) smtpHealth.set(String(row.id), true);
-            } catch (err) { smtpFailure = err; }
-          }
-        }
         const endpoints = [];
         for (const row of endpointRows) {
           const atomicRow = atomicIndex ? atomicIndex.get(String(row.id)) : null;
@@ -821,7 +824,7 @@ function createEmailSettingsRoutes(deps) {
               has_active_lease: false,
             });
           const lastSync = lastSyncByEndpoint.get(String(row.id));
-          const projectionGrant = row.provider === 'imap_smtp' && smtpHealth.get(String(row.id))
+          const projectionGrant = row.provider === 'imap_smtp' && row.smtp_health_verified_at != null
             ? Object.freeze({ smtp_verified: true }) : publicGrant;
           endpoints.push(endpointDto(row, projectionGrant, {
             atomicRow,
@@ -848,12 +851,8 @@ function createEmailSettingsRoutes(deps) {
           const status = smtpSecretStatusDto(runtimeEnv);
           body.smtp_secret_status = {
             configured: status.configured,
-            missing_secret_names: smtpFailure && Array.isArray(smtpFailure.missing_secret_names)
-              ? smtpFailure.missing_secret_names.slice() : status.missing_secret_names,
+            missing_secret_names: status.missing_secret_names,
           };
-          if (smtpFailure && Array.isArray(smtpFailure.failed_secret_names)) {
-            body.smtp_secret_status.failed_secret_names = smtpFailure.failed_secret_names.slice();
-          }
         }
         return deps.sendJSON(res, 200, body);
       });
@@ -940,9 +939,9 @@ function createEmailSettingsRoutes(deps) {
     const authz = deps.authorizeAuthenticatedStaffRoute({ clientSlug: SUNSET_CLIENT_SLUG,
       method: 'POST', pathname: EMAIL_SMTP_VERIFY_PATH, env: runtimeEnv });
     if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
-    const locationId = body && typeof body.location_id === 'string' && LOCATION_SLUG_RE.test(body.location_id)
-      ? body.location_id : '';
-    if (!locationId) return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    const input = snapshotSmtpVerifyBody(body);
+    if (!input) return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    const locationId = input.location_id;
     try {
       return await deps.withPgClient(async (pg) => {
         const ack = await createSmtpVerify(pg).verifyExistingImapSmtpEndpoint(Object.freeze({

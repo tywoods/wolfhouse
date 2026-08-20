@@ -1396,7 +1396,7 @@ async function loadAuthSession(req) {
 // When STAFF_AUTH_REQUIRED=false: always returns {ok:true, user:null} (no-auth mode)
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function requireAuth(req, res, minRole) {
+async function requireAuth(req, res, minRole, options) {
   if (!STAFF_AUTH_REQUIRED) return { ok: true, user: null };
 
   let user;
@@ -1408,6 +1408,10 @@ async function requireAuth(req, res, minRole) {
   }
 
   if (!user) {
+    if (options && options.concealUnauthenticated === true) {
+      sendJSON(res, 404, { success: false, error: 'not_found' });
+      return { ok: false };
+    }
     sendJSON(res, 401, {
       success:  false,
       error:    'Authentication required. POST /staff/auth/login first.',
@@ -48320,7 +48324,7 @@ async function router(req, res) {
     if (!isSunsetEmailSmtpVerifyEnabled(process.env)) {
       return sendJSON(res, 404, { success: false, error: 'not_found' });
     }
-    const auth = await requireAuth(req, res, 'admin');
+    const auth = await requireAuth(req, res, 'admin', { concealUnauthenticated: true });
     if (!auth.ok) return;
     let smtpVerifyBody;
     try { smtpVerifyBody = JSON.parse((await readBody(req)) || '{}'); }

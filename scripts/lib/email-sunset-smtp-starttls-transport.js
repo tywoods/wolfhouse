@@ -13,6 +13,19 @@ function result(ok, failed) {
   return Object.freeze(out);
 }
 
+function hasStarttlsCapability(lines) {
+  return Array.isArray(lines) && lines.some((line) => /^250[ -]STARTTLS(?:[ \t]|$)/.test(line));
+}
+
+function assertSameResponseCode(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) throw new Error('smtp_malformed_response');
+  const code = /^(\d{3})/.exec(lines[0]);
+  if (!code || lines.some((line) => !new RegExp(`^${code[1]}[ -]`).test(line))) {
+    throw new Error('smtp_multiline_code_mismatch');
+  }
+  return Number(code[1]);
+}
+
 function createSunsetSmtpStarttlsTransport(deps = {}) {
   const netModule = deps.netModule || net;
   const tlsConnect = deps.tlsConnect || tls.connect.bind(tls);
@@ -37,9 +50,18 @@ function createSunsetSmtpStarttlsTransport(deps = {}) {
         buffer = buffer.slice(index + 2);
         waiter.lines.push(line);
         const match = /^(\d{3})([ -])/.exec(line);
-        if (match && match[2] === ' ') {
+        if (!match) {
+          const current = waiter; cleanupWaiter(); current.reject(new Error('smtp_malformed_response')); return;
+        }
+        const expectedCode = /^(\d{3})/.exec(waiter.lines[0])[1];
+        if (match[1] !== expectedCode) {
+          const current = waiter; cleanupWaiter(); current.reject(new Error('smtp_multiline_code_mismatch')); return;
+        }
+        if (match[2] === ' ') {
           const current = waiter;
           cleanupWaiter();
+          try { assertSameResponseCode(current.lines); }
+          catch (err) { current.reject(err); return; }
           current.resolve({ code: Number(match[1]), lines: current.lines });
           return;
         }
@@ -60,7 +82,7 @@ function createSunsetSmtpStarttlsTransport(deps = {}) {
       const greeting = await waitResponse();
       if (greeting.code !== 220) return result(false, ['sunset-smtp-host']);
       const hello = await command(`EHLO ${EHLO_NAME}`);
-      if (hello.code !== 250 || !hello.lines.some((line) => /STARTTLS/i.test(line))) return result(false, ['sunset-smtp-tls-mode']);
+      if (hello.code !== 250 || !hasStarttlsCapability(hello.lines)) return result(false, ['sunset-smtp-tls-mode']);
       if ((await command('STARTTLS')).code !== 220) return result(false, ['sunset-smtp-tls-mode']);
       socket.removeAllListeners('data');
       buffer = '';
@@ -89,4 +111,5 @@ function createSunsetSmtpStarttlsTransport(deps = {}) {
   return Object.freeze({ verifySession });
 }
 
-module.exports = Object.freeze({ createSunsetSmtpStarttlsTransport });
+module.exports = Object.freeze({ createSunsetSmtpStarttlsTransport,
+  hasStarttlsCapability, assertSameResponseCode });

@@ -1,8 +1,12 @@
 'use strict';
 
 /** Sunset-staging Key Vault secret reader using the established pinned managed identity. */
-const VAULT = 'https://luna-sunset-staging-kv.vault.azure.net';
-const MI_CLIENT_ID = '0e05fbe3-e8c5-48aa-a914-30aed284e6f7';
+const {
+  SUNSET_STAGING_MI_CLIENT_ID,
+  SUNSET_STAGING_TRUSTED_HOST,
+} = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
+const VAULT = `https://${SUNSET_STAGING_TRUSTED_HOST}`;
+const MI_CLIENT_ID = SUNSET_STAGING_MI_CLIENT_ID;
 const ALLOWED = new Set(['sunset-smtp-host', 'sunset-smtp-port', 'sunset-smtp-tls-mode',
   'sunset-smtp-username', 'sunset-smtp-password']);
 function createSunsetSmtpKvSecretProvider(deps = {}) {

@@ -147,8 +147,14 @@ function fakePg(opts) {
         connector_mode: null,
         location_id: LOCATION,
       };
-  const query = async (sql) => {
+  const queries = [];
+  const query = async (sql, params) => {
     const text = String(sql);
+    queries.push({ text, params });
+    if (/^\s*UPDATE tenant_channel_endpoints/i.test(text)) {
+      if (opts && opts.markHealthMissing) return { rows: [] };
+      return { rows: [{ id: ENDPOINT_ID, smtp_health_verified_at: new Date().toISOString() }] };
+    }
     if (/^\s*BEGIN\s*$/i.test(text)) return { rows: [] };
     if (/^\s*COMMIT\s*$/i.test(text)) return { rows: [] };
     if (/^\s*ROLLBACK\s*$/i.test(text)) return { rows: [] };
@@ -166,7 +172,7 @@ function fakePg(opts) {
     }
     return { rows: [] };
   };
-  return { query };
+  return { query, queries };
 }
 
 async function main() {
@@ -174,6 +180,13 @@ const contract = require('./lib/email-sunset-smtp-secret-ref-contract');
 const verifyOwner = require('./lib/email-sunset-smtp-live-verify');
 const transportOwner = require('./lib/email-sunset-smtp-starttls-transport');
 const settings = require('./lib/staff-email-settings-routes');
+
+assert.equal(transportOwner.assertSameResponseCode(['250-one', '250 two']), 250);
+assert.throws(() => transportOwner.assertSameResponseCode(['250-one', '220 two']), /smtp_multiline_code_mismatch/);
+assert.equal(transportOwner.hasStarttlsCapability(['250-example', '250 STARTTLS']), true);
+assert.equal(transportOwner.hasStarttlsCapability(['250-example', '250 XSTARTTLS']), false);
+assert.equal(transportOwner.hasStarttlsCapability(['250-example', '250 STARTTLSX']), false);
+ok('SMTP multiline replies require one exact code and STARTTLS is an exact capability token');
 
 assert.equal(contract.EMAIL_SMTP_VERIFY_PATH, VERIFY_PATH);
 assert.equal(contract.SMTP_VERIFY_ENABLED_ENV, VERIFY_FLAG);
@@ -436,6 +449,7 @@ function settingsRoutes(extra) {
         auth_mode: null,
         connector_mode: null,
         binding_status: null,
+        smtp_health_verified_at: extra && extra.durableHealth === true ? '2026-08-20T00:00:00.000Z' : null,
       }];
   const routes = settings.createEmailSettingsRoutes({
     runtimeEnv: env,
@@ -496,7 +510,7 @@ function settingsRoutes(extra) {
 }
 
 {
-  const { routes, res, smtpTransport } = settingsRoutes();
+  const { routes, res, smtpTransport } = settingsRoutes({ durableHealth: true });
   await routes.handleGet({ client: 'sunset' }, {}, res, {
     role: 'admin', staff_user_id: ACTOR, client_slug: 'sunset', client_id: SUNSET_ID, session_id: SESSION,
   });
@@ -507,14 +521,13 @@ function settingsRoutes(extra) {
   assert.equal(res.body.endpoints[0].endpoint_active, false);
   assert.equal(res.body.endpoints[0].automation_enabled, false);
   assert.equal(res.body.provider_actions.imap_smtp.connect, false);
-  assert.equal(smtpTransport.sessions.length, 1);
-  assert.deepEqual([...smtpTransport.sessions[0].commands], ['EHLO', 'STARTTLS', 'EHLO', 'AUTH', 'QUIT']);
-  assertNoLeak(res.body, 'GET success');
+  assert.equal(smtpTransport.sessions.length, 0);
+  assertNoLeak(res.body, 'GET durable success');
   const text = JSON.stringify(res.body);
   assert.ok(!text.includes(PLANTED));
   assert.ok(!text.includes('kv:'));
   assert.ok(!text.includes('smtp_verified'));
-  ok('GET settings live verify success returns connected_health capabilities off');
+  ok('GET derives connected_health from durable fact with zero SMTP and capabilities off');
 }
 
 {
@@ -526,10 +539,8 @@ function settingsRoutes(extra) {
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.endpoints[0].connection_state, 'registered_not_connected');
-  assert.deepEqual(res.body.smtp_secret_status.failed_secret_names, ['sunset-smtp-password']);
-  assertNoLeak(res.body, 'GET auth fail');
-  assert.equal(smtpTransport.sessions.length, 1);
-  ok('GET verify failure stays registered_not_connected and names failed secret');
+  assert.equal(smtpTransport.sessions.length, 0);
+  ok('GET without durable fact stays registered_not_connected and never opens SMTP');
 }
 
 {
@@ -564,6 +575,25 @@ function settingsRoutes(extra) {
   assert.equal(smtpTransport.sessions.length, 1);
   assertNoLeak(res.body, 'POST verify success');
   ok('admin POST verify returns connected_health without sending');
+}
+
+{
+  const invalidBodies = [
+    { location_id: LOCATION, extra: true },
+    Object.create({ location_id: LOCATION }),
+    Object.defineProperty({}, 'location_id', { enumerable: true, get() { throw new Error('accessed'); } }),
+    new Proxy({ location_id: LOCATION }, { ownKeys() { throw new Error('proxy'); } }),
+  ];
+  for (const body of invalidBodies) {
+    const { routes, res, smtpTransport } = settingsRoutes();
+    await routes.handleVerifyPost(body, {}, res, {
+      role: 'admin', staff_user_id: ACTOR, client_slug: 'sunset', client_id: SUNSET_ID,
+    });
+    assert.equal(res.status, 400);
+    assert.deepEqual(res.body, { success: false, error: 'invalid_request' });
+    assert.equal(smtpTransport.sessions.length, 0);
+  }
+  ok('POST verify accepts only exact plain own-data location_id body; extras/accessors/proxies rejected');
 }
 
 {
@@ -762,6 +792,16 @@ assert.ok(!verifySrc.includes(PLANTED));
 assert.ok(!inboxSrc.includes(VERIFY_PATH));
 assert.ok(!inboxSrc.includes('sunset-smtp-password'));
 assert.equal(settings.isSunsetEmailGoogleOAuthStartEnabled(configuredEnv()), false);
+assert.match(verifyBlock, /concealUnauthenticated:\s*true/);
+const migration = fs.readFileSync(path.join(ROOT, 'database/migrations/083_tenant_channel_endpoint_smtp_health.sql'), 'utf8');
+const migrationDown = fs.readFileSync(path.join(ROOT, 'database/migrations/083_tenant_channel_endpoint_smtp_health_down.sql'), 'utf8');
+const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'database/migrations/canonical-manifest.json'), 'utf8'));
+assert.match(migration, /ADD COLUMN smtp_health_verified_at TIMESTAMPTZ/);
+assert.doesNotMatch(migration, /inbound_enabled\s*=|outbound_enabled\s*=|active\s*=/i);
+assert.match(migrationDown, /smtp_health_verified_at IS NOT NULL/);
+assert.ok(manifest.entries.some((entry) => entry.id === '083_tenant_channel_endpoint_smtp_health'
+  && entry.sha256 === '5144713d30cdefdfc869f21afa731938ab76334a609a4e04ea66133ddf62206c'));
+ok('migration 083 durable nullable health fact + rollback refusal + manifest gate');
 ok('wiring + no send verbs + Gmail/Inbox/UI exclusions hold');
 
 console.log(`PASS EMAIL-SMTP-003 live verify (${pass} checks)`);
