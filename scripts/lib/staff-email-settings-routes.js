@@ -2,14 +2,18 @@
 
 const registry = require('./email-tenant-channel-registry');
 const smtpSecretContract = require('./email-sunset-smtp-secret-ref-contract');
+const imapSecretContract = require('./email-sunset-imap-secret-ref-contract');
 const { createSunsetSmtpIdentityRegister } = require('./email-sunset-smtp-identity-register');
 const { createSunsetSmtpLiveVerify } = require('./email-sunset-smtp-live-verify');
+const { createSunsetImapLiveVerify } = require('./email-sunset-imap-live-verify');
 
 const EMAIL_SETTINGS_PATH = '/staff/admin/email-settings';
 const EMAIL_SMTP_IDENTITY_PATH = smtpSecretContract.EMAIL_SMTP_IDENTITY_PATH;
 const EMAIL_SMTP_VERIFY_PATH = smtpSecretContract.EMAIL_SMTP_VERIFY_PATH;
+const EMAIL_IMAP_VERIFY_PATH = imapSecretContract.EMAIL_IMAP_VERIFY_PATH;
 const SMTP_POST_BODY_KEYS = Object.freeze(['location_id', 'public_address']);
 const SMTP_VERIFY_BODY_KEYS = Object.freeze(['location_id']);
+const IMAP_VERIFY_BODY_KEYS = Object.freeze(['location_id']);
 const SMTP_ALLOWED_ROLES = Object.freeze(['admin', 'owner']);
 const UUID_RE_CI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LOCATION_SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -571,7 +575,10 @@ async function loadMicrosoftEndpointLastSyncMap(pg, clientId) {
 
 function publicState(endpoint, grant) {
   if (!endpoint) return 'disconnected';
-  if (endpoint.provider === 'imap_smtp' && grant && grant.smtp_verified === true) return 'connected_health';
+  if (endpoint.provider === 'imap_smtp' && grant
+      && (grant.smtp_verified === true || grant.imap_verified === true)) {
+    return 'connected_health';
+  }
   if (!grant || grant.grant_present !== true) return 'registered_not_connected';
   if (grant.grant_status === 'revoked') return 'revoked';
   if (grant.grant_status === 'reauthorization_required' || endpoint.binding_status === 'reauthorization_required') return 'reauth_required';
@@ -616,7 +623,8 @@ function endpointDto(row, grant, options) {
       disconnectEligible = isEligibleDisconnectEndpoint(row, grantFact) === true;
     }
   }
-  if (row && row.provider === 'imap_smtp' && grant && grant.smtp_verified === true) {
+  if (row && row.provider === 'imap_smtp' && grant
+      && (grant.smtp_verified === true || grant.imap_verified === true)) {
     publicGrant = grant;
   }
   const dto = {
@@ -727,6 +735,21 @@ function snapshotSmtpVerifyBody(body) {
   } catch (_) { return null; }
 }
 
+function snapshotImapVerifyBody(body) {
+  try {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+    const proto = Object.getPrototypeOf(body);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(body);
+    if (actual.length !== 1 || actual[0] !== IMAP_VERIFY_BODY_KEYS[0]) return null;
+    const descriptor = Object.getOwnPropertyDescriptor(body, 'location_id');
+    if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+        || descriptor.get || descriptor.set || !descriptor.enumerable
+        || typeof descriptor.value !== 'string' || !LOCATION_SLUG_RE.test(descriptor.value)) return null;
+    return Object.freeze({ location_id: descriptor.value });
+  } catch (_) { return null; }
+}
+
 function smtpSecretStatusDto(runtimeEnv) {
   const refs = smtpSecretContract.evaluateSunsetSmtpSecretRefs(runtimeEnv);
   return Object.freeze({
@@ -762,6 +785,12 @@ function createEmailSettingsRoutes(deps) {
     : (client) => createSunsetSmtpLiveVerify(Object.freeze({
       client: Object.freeze({ query: client.query.bind(client) }), env: runtimeEnv,
       secretProvider: deps.secretProvider, smtpTransport: deps.smtpTransport,
+    }));
+  const createImapVerify = typeof deps.createImapLiveVerify === 'function'
+    ? deps.createImapLiveVerify
+    : (client) => createSunsetImapLiveVerify(Object.freeze({
+      client: Object.freeze({ query: client.query.bind(client) }), env: runtimeEnv,
+      secretProvider: deps.imapSecretProvider, imapTransport: deps.imapTransport,
     }));
 
   async function handleGet(query, req, res, user) {
@@ -824,8 +853,17 @@ function createEmailSettingsRoutes(deps) {
               has_active_lease: false,
             });
           const lastSync = lastSyncByEndpoint.get(String(row.id));
-          const projectionGrant = row.provider === 'imap_smtp' && row.smtp_health_verified_at != null
-            ? Object.freeze({ smtp_verified: true }) : publicGrant;
+          let projectionGrant = publicGrant;
+          if (row.provider === 'imap_smtp') {
+            const smtpHealthy = row.smtp_health_verified_at != null;
+            const imapHealthy = row.imap_health_verified_at != null;
+            if (smtpHealthy || imapHealthy) {
+              projectionGrant = Object.freeze({
+                smtp_verified: smtpHealthy === true,
+                imap_verified: imapHealthy === true,
+              });
+            }
+          }
           endpoints.push(endpointDto(row, projectionGrant, {
             atomicRow,
             reauthGateOn,
@@ -959,16 +997,58 @@ function createEmailSettingsRoutes(deps) {
     }
   }
 
-  return { handleGet, handlePost, handleVerifyPost };
+  async function handleImapVerifyPost(body, req, res, user) {
+    if (!imapSecretContract.isSunsetEmailImapVerifyEnabled(runtimeEnv)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    if (!user || SMTP_ALLOWED_ROLES.indexOf(user.role) < 0) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, SUNSET_CLIENT_SLUG, res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: SUNSET_CLIENT_SLUG,
+      method: 'POST',
+      pathname: EMAIL_IMAP_VERIFY_PATH,
+      env: runtimeEnv,
+    });
+    if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    const snap = snapshotImapVerifyBody(body);
+    if (!snap) return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const ack = await createImapVerify(pg).verifyExistingImapSmtpEndpoint(Object.freeze({
+          clientId: user.client_id, locationId: snap.location_id, actorStaffUserId: user.staff_user_id,
+        }));
+        return deps.sendJSON(res, 200, {
+          success: true,
+          endpoint_id: ack.endpointId,
+          provider: 'imap_smtp',
+          connection_state: 'connected_health',
+          inbound_enabled: false,
+          outbound_enabled: false,
+          active: false,
+        });
+      });
+    } catch (err) {
+      const out = { success: false, error: 'imap_verify_failed', connection_state: 'registered_not_connected' };
+      if (err && Array.isArray(err.missing_secret_names)) out.missing_secret_names = err.missing_secret_names.slice();
+      if (err && Array.isArray(err.failed_secret_names)) out.failed_secret_names = err.failed_secret_names.slice();
+      return deps.sendJSON(res, 400, out);
+    }
+  }
+
+  return { handleGet, handlePost, handleVerifyPost, handleImapVerifyPost };
 }
 
 module.exports = {
   EMAIL_SETTINGS_PATH,
   EMAIL_SMTP_IDENTITY_PATH,
   EMAIL_SMTP_VERIFY_PATH,
+  EMAIL_IMAP_VERIFY_PATH,
   SMTP_IDENTITY_REGISTER_ENABLED_ENV: smtpSecretContract.SMTP_IDENTITY_REGISTER_ENABLED_ENV,
   isSunsetEmailSmtpIdentityRegisterEnabled:
     smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled,
+  isSunsetEmailImapVerifyEnabled: imapSecretContract.isSunsetEmailImapVerifyEnabled,
   SUNSET_CLIENT_SLUG,
   DISCONNECT_ENABLED_ENV,
   PHASE_B_REAUTH_START_ENABLED_ENV,

@@ -356,6 +356,7 @@
     "verify:staff-email-registry-routes": "node scripts/verify-staff-email-registry-routes.js",
     "verify:sunset-email-settings": "node scripts/verify-sunset-email-settings.js",
     "verify:email-smtp-identity-register-002": "node scripts/verify-email-smtp-identity-register-002.js",
+    "verify:email-imap-001": "node scripts/verify-email-imap-001.js",
     "verify:sunset-email-smtp-ui-002": "node scripts/verify-sunset-email-smtp-ui-002.js",
     "verify:sunset-email-smtp-ui-003": "node scripts/verify-sunset-email-smtp-ui-003.js",
     "verify:email-last-sync-001": "node scripts/verify-email-last-sync-001.js",

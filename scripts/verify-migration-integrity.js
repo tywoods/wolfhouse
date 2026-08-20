@@ -66,7 +66,7 @@ pass(
 );
 pass(
   'green-forward-count',
-  forwardEntries(manifest).length === 79,
+  forwardEntries(manifest).length === 80,
   `forward=${forwardEntries(manifest).length}`,
 );
 pass(
