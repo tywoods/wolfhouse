@@ -214,13 +214,18 @@ const {
   EMAIL_SETTINGS_PATH,
   EMAIL_SMTP_IDENTITY_PATH,
   EMAIL_SMTP_VERIFY_PATH,
+  EMAIL_IMAP_VERIFY_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
 const {
   isSunsetEmailSmtpIdentityRegisterEnabled,
   isSunsetEmailSmtpVerifyEnabled,
 } = require('./lib/email-sunset-smtp-secret-ref-contract');
+const {
+  isSunsetEmailImapVerifyEnabled,
+} = require('./lib/email-sunset-imap-secret-ref-contract');
 const { createSunsetSmtpKvSecretProvider } = require('./lib/email-sunset-smtp-kv-secret-provider');
+const { createSunsetImapKvSecretProvider } = require('./lib/email-sunset-imap-kv-secret-provider');
 const { createSunsetGoogleEndpointPrepare } = require('./lib/email-sunset-google-endpoint-prepare');
 const { createSunsetStagingGoogleOAuthComposition } = require('./lib/email-google-oauth-sunset-staging-runtime-composition');
 const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
@@ -263,6 +268,12 @@ const {
 /** Frozen inert readiness only (default-off; never scheduler/worker run). */
 const EMAIL_DELTA_RUNTIME_READINESS =
   resolveEmailDeltaSunsetStagingRuntimeReadiness(process.env);
+const {
+  resolveEmailImapSunsetStagingRuntimeReadiness,
+  createEmailImapSunsetStagingRuntimeComposition,
+} = require('./lib/email-imap-sunset-staging-runtime-composition');
+const EMAIL_IMAP_RUNTIME_READINESS =
+  resolveEmailImapSunsetStagingRuntimeReadiness(process.env);
 // Sunset-staging email-delta operator recovery routes (default-off). Full gate
 // before requireAuth / body / DB / owner load. No worker/scheduler.
 const {
@@ -2818,9 +2829,10 @@ const emailSettingsRoutes = createEmailSettingsRoutes({
   authorizeAuthenticatedStaffRoute,
   withPgClient,
   secretProvider: createSunsetSmtpKvSecretProvider(),
+  imapSecretProvider: createSunsetImapKvSecretProvider(),
 });
 const { handleGet: handleEmailSettingsGet, handlePost: handleSmtpIdentityPost,
-  handleVerifyPost: handleSmtpVerifyPost } = emailSettingsRoutes;
+  handleVerifyPost: handleSmtpVerifyPost, handleImapVerifyPost } = emailSettingsRoutes;
 const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   sendJSON,
   assertStaffClientAccess,
@@ -48344,6 +48356,17 @@ async function router(req, res) {
     catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
     return handleSmtpVerifyPost(smtpVerifyBody, req, res, auth.user);
   }
+  if (pathname === EMAIL_IMAP_VERIFY_PATH && method === 'POST') {
+    if (!isSunsetEmailImapVerifyEnabled(process.env)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin', { concealUnauthenticated: true });
+    if (!auth.ok) return;
+    let imapVerifyBody;
+    try { imapVerifyBody = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return handleImapVerifyPost(imapVerifyBody, req, res, auth.user);
+  }
   if (pathname === EMAIL_SMTP_IDENTITY_PATH && method === 'POST') {
     if (!isSunsetEmailSmtpIdentityRegisterEnabled(process.env)) {
       return sendJSON(res, 404, { success: false, error: 'not_found' });
@@ -49295,6 +49318,7 @@ const server = shouldEagerCreateStaffQueryApiServer()
   : null;
 
 let EMAIL_DELTA_RUNTIME = null;
+let EMAIL_IMAP_RUNTIME = null;
 if (require.main === module) {
   const { attachStaffApiReadinessLifecycle, ON_SHUTDOWN_BEGIN_HOOK } = require('./lib/staff-api-readiness-lifecycle');
   attachStaffApiReadinessLifecycle(server);
@@ -49302,6 +49326,7 @@ if (require.main === module) {
   server[ON_SHUTDOWN_BEGIN_HOOK] = () => {
     const drains = [];
     if (EMAIL_DELTA_RUNTIME) drains.push(EMAIL_DELTA_RUNTIME.stop());
+    if (EMAIL_IMAP_RUNTIME) drains.push(EMAIL_IMAP_RUNTIME.stop());
     if (typeof priorShutdownBegin === 'function') drains.push(priorShutdownBegin());
     return Promise.allSettled(drains);
   };
@@ -49319,6 +49344,15 @@ async function startStaffQueryApiCli() {
       });
       // Runtime schema verification and scheduler readiness precede socket admission.
       await EMAIL_DELTA_RUNTIME.start();
+    }
+    if (EMAIL_IMAP_RUNTIME_READINESS.runtime_activation === true) {
+      EMAIL_IMAP_RUNTIME = createEmailImapSunsetStagingRuntimeComposition({
+        env: process.env,
+        withPgClient: _withPgClientImpl,
+        timers: { setTimeout, clearTimeout },
+        intervalMs: Number(process.env.LUNA_EMAIL_IMAP_POLL_INTERVAL_MS || 60000),
+      });
+      await EMAIL_IMAP_RUNTIME.start();
     }
   } catch {
     process.exitCode = 1;

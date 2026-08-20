@@ -45,9 +45,11 @@ const BRIDGE_IMPORT_ALLOWLIST = new Set([
   BRIDGE_REL,
   EVENT_STORE_COMPOSITION_REL,
   'scripts/lib/email-delta-sunset-staging-runtime-composition.js',
+  'scripts/lib/email-sunset-imap-inbound-poll.js',
   'scripts/verify-email-inbound-inbox-bridge.js',
   'scripts/verify-email-inbound-match-ingest.js',
   'scripts/verify-email-draft-open-002.js',
+  'scripts/verify-email-imap-001.js',
   PROVE_REL,
 ]);
 

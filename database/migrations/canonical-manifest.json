@@ -1163,6 +1163,26 @@
       "rationale": "Refuses rollback while durable SMTP health facts exist; otherwise drops the nullable health timestamp.",
       "pairsWith": "083_tenant_channel_endpoint_smtp_health.sql",
       "sha256": "ab6ae23c9709b4a8366ef72f9324086a65c02c5951f5ad41f64849f9eddfdfbe"
+    },
+    {
+      "id": "084_tenant_channel_endpoint_imap_health",
+      "filename": "084_tenant_channel_endpoint_imap_health.sql",
+      "order": 80,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "EMAIL-IMAP-001 nullable durable timestamp for successful implicit-TLS IMAP LOGIN+SELECT+LOGOUT health verification plus UID/UIDVALIDITY fetch cursor; does not activate outbound/automation.",
+      "downFilename": "084_tenant_channel_endpoint_imap_health_down.sql",
+      "sha256": "815fb5b53a2ff7d4ec328520c95e8dfe78b28e82a8d7d6f3016eb4e689ac125e"
+    },
+    {
+      "id": "084_tenant_channel_endpoint_imap_health_down",
+      "filename": "084_tenant_channel_endpoint_imap_health_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while durable IMAP health facts or fetch cursors exist; otherwise drops the cursor table and nullable health timestamp.",
+      "pairsWith": "084_tenant_channel_endpoint_imap_health.sql",
+      "sha256": "181ace35de24e841d6414d7523c0f1bc7b25327eb2401e2a02a4264fd3d0ed79"
     }
   ]
 }
