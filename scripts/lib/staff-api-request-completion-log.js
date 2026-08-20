@@ -206,6 +206,8 @@ const ROUTE_STATIC_SEGMENT_ALLOWLIST = Object.freeze([
   'readyz',
   'reassign',
   'record-cash-payment',
+  'void-manual-payment',
+  'update-manual-payment',
   'release',
   'remove-service',
   'rental-price',

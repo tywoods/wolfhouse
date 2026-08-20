@@ -900,25 +900,52 @@ function scheduleRenderSunsetMoneyActionsHtml(ctx){
   return html;
 }
 
+function scheduleDrawerManualMethodOptionsHtml(selected){
+  var cur = String(selected || 'bank_transfer');
+  function opt(val, key) {
+    return '<option value="' + val + '"' + (cur === val ? ' selected' : '') + '>' +
+      escHtml(portalT(key)) + '</option>';
+  }
+  return opt('bank_transfer', 'schedule.payment.paidBankTransfer') +
+    opt('in_store', 'schedule.payment.paidInStore') +
+    opt('link', 'schedule.payment.paidViaLink');
+}
+
+function scheduleDrawerOutstandingDefaultEur(ctx){
+  var pay = (ctx && ctx.payment) || {};
+  var due = pay.balance_due_cents != null ? Number(pay.balance_due_cents) : null;
+  if (!(due > 0)) return '';
+  return (due / 100).toFixed(2);
+}
+
 function scheduleRenderSunsetRecordPaymentHtml(ctx){
   if (!(ctx && ctx.booking_id)) return '';
-  var html = '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.recordPayment')) + '</summary>';
+  var pay = (ctx && ctx.payment) || {};
+  var due = pay.balance_due_cents != null ? Number(pay.balance_due_cents) : null;
+  var fullyPaid = pay.payment_status === 'paid' || (due != null && due <= 0 && Number(pay.paid_cents || 0) > 0);
+  if (fullyPaid) return '';
+  var defaultEur = scheduleDrawerOutstandingDefaultEur(ctx);
+  var html = '<div class="ps-invoice-pay-actions">';
+  html += '<div class="ps-mark-paid-row">' +
+    '<label class="ps-mark-paid-method">' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
+    '<select id="ps-drawer-mark-paid-method">' + scheduleDrawerManualMethodOptionsHtml('bank_transfer') + '</select></label>' +
+    '<button type="button" class="btn btn-primary" id="ps-drawer-mark-paid">' +
+    escHtml(portalT('schedule.drawer.markAsPaid')) + '</button></div>';
+  html += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.recordPayment')) + '</summary>';
   html += '<div id="ps-drawer-manual-pay" style="margin-top:8px">';
   html += '<div class="portal-schedule-manual-pay-grid">';
   html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
-    '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>';
+    '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"' +
+    (defaultEur ? (' value="' + escHtml(defaultEur) + '"') : '') + '></label>';
   html += '<label>' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
-    '<select id="ps-drawer-manual-method">' +
-    '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +
-    '<option value="in_store">' + escHtml(portalT('schedule.payment.paidInStore')) + '</option>' +
-    '</select></label>';
+    '<select id="ps-drawer-manual-method">' + scheduleDrawerManualMethodOptionsHtml('bank_transfer') + '</select></label>';
   html += '</div>';
   html += '<label class="portal-schedule-manual-pay-note">' + escHtml(portalT('schedule.drawer.manualPayNote')) +
     '<input id="ps-drawer-manual-note" type="text" maxlength="200"></label>';
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-manual-submit" style="margin-top:8px">' +
     escHtml(portalT('schedule.drawer.manualPaySubmit')) + '</button>';
   html += '<p id="ps-drawer-manual-msg" class="state-msg" style="display:none;margin-top:6px"></p>';
-  html += '</div></details>';
+  html += '</div></details></div>';
   return html;
 }
 
@@ -928,6 +955,28 @@ function scheduleRenderSunsetInvoiceCreditLabel(row) {
   if (method) return base + ' · ' + method;
   if (row && row.kind === 'card') return base + ' · ' + portalT('schedule.drawer.methodCard');
   return base;
+}
+
+function scheduleRenderSunsetInvoiceCreditRowHtml(row){
+  var amt = Number(row && row.amount_cents) || 0;
+  if (!(amt > 0)) return '';
+  var pid = row && row.payment_id ? String(row.payment_id) : '';
+  var method = String((row && row.method) || 'bank_transfer');
+  var html = '<div class="ps-invoice-credit-block" data-payment-id="' +
+    escHtml(pid) + '" data-amount-cents="' + escHtml(String(amt)) + '" data-method="' + escHtml(method) + '">';
+  html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-credit">';
+  html += '<span class="ctx-inv-total-label">' + escHtml(scheduleRenderSunsetInvoiceCreditLabel(row)) + '</span>';
+  html += '<span class="ctx-inv-total-amount paid ps-invoice-amt">\u2212' + escHtml(scheduleDrawerEur(amt)) + '</span>';
+  html += '</div>';
+  if (pid) {
+    html += '<div class="ps-invoice-credit-actions">' +
+      '<button type="button" class="btn btn-ghost btn-compact ps-payment-edit-btn" data-payment-id="' + escHtml(pid) + '">' +
+      escHtml(portalT('schedule.drawer.editPayment')) + '</button>' +
+      '<button type="button" class="btn btn-ghost btn-compact ps-payment-void-btn" data-payment-id="' + escHtml(pid) + '">' +
+      escHtml(portalT('schedule.drawer.voidPayment')) + '</button></div>';
+  }
+  html += '</div>';
+  return html;
 }
 
 function scheduleRenderSunsetInvoiceCardHtml(ctx){
@@ -1079,11 +1128,7 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
 
   var credits = Array.isArray(pay.paid_payments) ? pay.paid_payments : [];
   credits.forEach(function(row) {
-    var amt = Number(row && row.amount_cents) || 0;
-    if (!(amt > 0)) return;
-    html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-credit"><span class="ctx-inv-total-label">' +
-      escHtml(scheduleRenderSunsetInvoiceCreditLabel(row)) +
-      '</span><span class="ctx-inv-total-amount paid ps-invoice-amt">\u2212' + escHtml(scheduleDrawerEur(amt)) + '</span></div>';
+    html += scheduleRenderSunsetInvoiceCreditRowHtml(row);
   });
   var remainder = Number(pay.paid_ledger_remainder_cents || 0);
   if (remainder > 0) {
@@ -1108,8 +1153,7 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
       '</span><span class="ctx-inv-total-amount owing ps-invoice-amt" id="ps-drawer-remaining">' +
       escHtml(scheduleDrawerEur(due != null ? due : null)) + '</span></div>';
   }
-  html += '<span id="ps-drawer-paid" class="ps-invoice-paid-sr" style="position:absolute;left:-9999px" aria-hidden="true">' +
-    escHtml(scheduleDrawerEur(paid)) + '</span>';
+  // Do not render an unlabeled paid amount under balance due (was ps-invoice-paid-sr €0.00).
   html += '</div>';
 
   // Payment link + collapsible manual payment stay inside the invoice card
