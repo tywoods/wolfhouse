@@ -1606,6 +1606,7 @@ async function main() {
       textBytes,
       forbiddenSections: Object.freeze((opts && opts.forbiddenSections) || []),
       forbiddenLiteralSize: (opts && opts.forbiddenLiteralSize) || (65536 + 8192 + 1),
+      gmailOrder: opts && opts.gmailOrder === true,
     });
   }
 
@@ -1618,7 +1619,18 @@ async function main() {
 
   function writePreflightFetch(socket, seq, uid, mime, extra) {
     const headerBuf = Buffer.isBuffer(mime.headers) ? mime.headers : Buffer.from(String(mime.headers), 'utf8');
-    socket.write(`* ${seq} FETCH (${formatUidAttrs(uid, extra)} FLAGS (${mime.flags || ''}) INTERNALDATE "${mime.internalDate}" RFC822.SIZE ${mime.rfc822Size} BODYSTRUCTURE ${mime.bodystructure} BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headerBuf.length}}\r\n`);
+    const uidAttrs = formatUidAttrs(uid, extra);
+    const flags = mime.flags || '';
+    const gmailOrder = extra && extra.gmailOrder === true;
+    if (gmailOrder) {
+      // Gmail may emit the HEADER.FIELDS literal before BODYSTRUCTURE on the
+      // same FETCH. Combined logical text must still parse the structure.
+      socket.write(`* ${seq} FETCH (${uidAttrs} FLAGS (${flags}) INTERNALDATE "${mime.internalDate}" RFC822.SIZE ${mime.rfc822Size} BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headerBuf.length}}\r\n`);
+      socket.write(headerBuf);
+      socket.write(` BODYSTRUCTURE ${mime.bodystructure})\r\n`);
+      return;
+    }
+    socket.write(`* ${seq} FETCH (${uidAttrs} FLAGS (${flags}) INTERNALDATE "${mime.internalDate}" RFC822.SIZE ${mime.rfc822Size} BODYSTRUCTURE ${mime.bodystructure} BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {${headerBuf.length}}\r\n`);
     socket.write(headerBuf);
     socket.write(')\r\n');
   }
@@ -1659,7 +1671,10 @@ async function main() {
     }
     if (isPreflightFetchLine(line)) {
       for (let i = 0; i < uids.length; i += 1) {
-        writePreflightFetch(socket, i + 1, uids[i], mimeForUid(uids[i]));
+        const mime = mimeForUid(uids[i]);
+        writePreflightFetch(socket, i + 1, uids[i], mime, {
+          gmailOrder: mime && mime.gmailOrder === true,
+        });
       }
       socket.write(`${tag} OK FETCH completed\r\n`);
       return;
@@ -3112,6 +3127,161 @@ async function main() {
   }
 
   {
+    const textOctets = FIXTURE_BODY.length;
+    function gmailAddr(local) {
+      return `("${local}" NIL "${local}" "example.com")`;
+    }
+    function gmailEnvelope() {
+      return `("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd booking" (${gmailAddr('guest')}) (${gmailAddr('guest')}) (${gmailAddr('guest')}) (${gmailAddr('host')}${gmailAddr('desk')}) (${gmailAddr('cc1')}${gmailAddr('cc2')}) NIL NIL "<inner@example.com>")`;
+    }
+    const gmailPlain = `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL NIL)`;
+    const gmailHtml = `("TEXT" "HTML" ("CHARSET" "UTF-8") NIL NIL "7BIT" 80 2 NIL NIL NIL NIL)`;
+    const innerPlain = '("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" 100 4 NIL NIL NIL NIL)';
+    const innerHtml = '("TEXT" "HTML" ("CHARSET" "UTF-8") NIL NIL "7BIT" 200 6 NIL NIL NIL NIL)';
+    const innerAlt = `(${innerPlain}${innerHtml} "ALTERNATIVE" ("BOUNDARY" "inner-alt") NIL NIL NIL)`;
+    const rfc822Part = `("MESSAGE" "RFC822" ("NAME" "Forwarded message") NIL NIL "7BIT" 8000 ${gmailEnvelope()} ${innerAlt} 10 NIL ("ATTACHMENT" ("FILENAME" "Forwarded message" "SIZE" 8000)) NIL NIL)`;
+    const pdfRfc2231 = '("APPLICATION" "PDF" ("NAME*" ("UTF-8" "" "invoice.pdf")) NIL NIL "BINARY" 4096 NIL ("ATTACHMENT" (("FILENAME" "invoice.pdf") ("SIZE" 4096))) NIL NIL)';
+    const gmailRfc822Mixed = Object.freeze({
+      name: 'gmail rfc822+plain+rfc2231 pdf',
+      bodystructure: `(${gmailPlain}${rfc822Part}${pdfRfc2231} "MIXED" ("BOUNDARY" "000000000000mixbound12") NIL NIL NIL)`,
+      textSection: '1',
+      forbiddenSections: Object.freeze(['2', '2.1', '2.1.1', '3']),
+    });
+    const gmailNestedAlt = Object.freeze({
+      name: 'gmail nested alternative with lang/loc/ext',
+      bodystructure: `((${gmailPlain}${gmailHtml} "ALTERNATIVE" ("BOUNDARY" "000000000000altbound12") NIL ("en") NIL)("IMAGE" "PNG" ("NAME" "cid.png") "<cid@x>" NIL "BASE64" 80 NIL ("INLINE" ("FILENAME" "cid.png")) NIL NIL) "RELATED" ("BOUNDARY" "rel") NIL NIL NIL)`,
+      textSection: '1.1',
+      forbiddenSections: Object.freeze(['1.2', '2']),
+    });
+    const gmailSingleExt = Object.freeze({
+      name: 'gmail single-part NIL ext plus nested extension array',
+      bodystructure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL NIL ("X-EXT" ("NESTED" "VAL")) ("ATTACHMENT" NIL))`,
+      textSection: '1',
+      forbiddenSections: Object.freeze(['2']),
+    });
+    const gmailEmptyParams = Object.freeze({
+      name: 'gmail empty body-fld-param list',
+      bodystructure: `("TEXT" "PLAIN" () NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL NIL)`,
+      textSection: '1',
+      forbiddenSections: Object.freeze([]),
+    });
+    const gmailAtoms = Object.freeze({
+      name: 'gmail unquoted type/encoding atoms',
+      bodystructure: `(TEXT PLAIN ("CHARSET" UTF-8) NIL NIL 7BIT ${textOctets} 1 NIL ("INLINE" NIL) NIL NIL)`,
+      textSection: '1',
+      forbiddenSections: Object.freeze([]),
+    });
+
+    function bodystructureFetchText(structure) {
+      return `1 FETCH (UID ${FIXTURE_UID} RFC822.SIZE 180 BODYSTRUCTURE ${structure})`;
+    }
+
+    const validGmail = [
+      gmailRfc822Mixed,
+      gmailNestedAlt,
+      gmailSingleExt,
+      gmailEmptyParams,
+      gmailAtoms,
+    ];
+    for (const item of validGmail) {
+      const fetchText = bodystructureFetchText(item.bodystructure);
+      const parsed = bodystructureOwner.parseImapBodystructure(fetchText);
+      assert.ok(parsed, item.name);
+      const selected = bodystructureOwner.selectBoundedTextPlainFromFetchText(fetchText);
+      assert.ok(selected, item.name);
+      assert.equal(selected.section, item.textSection, item.name);
+      assert.equal(selected.octets, textOctets, item.name);
+      const inspected = bodystructureOwner.inspectImapBodystructure(fetchText);
+      assert.deepEqual(inspected, { ok: true, stage: 'ok' }, item.name);
+      const inspectText = JSON.stringify(inspected);
+      assert.equal(inspectText.includes(FIXTURE_BODY), false, item.name);
+      assert.equal(inspectText.includes(FIXTURE_FROM), false, item.name);
+      assert.equal(inspectText.includes(PLANTED), false, item.name);
+      if (item.name === 'gmail rfc822+plain+rfc2231 pdf') {
+        assert.equal(parsed.tree.kind, 'multipart', item.name);
+        assert.equal(parsed.tree.parts.length, 3, item.name);
+        assert.equal(parsed.tree.parts[0].type, 'text', item.name);
+        assert.equal(parsed.tree.parts[0].subtype, 'plain', item.name);
+        assert.equal(parsed.tree.parts[0].section, '1', item.name);
+        assert.equal(parsed.tree.parts[1].kind, 'single', item.name);
+        assert.equal(parsed.tree.parts[1].type, 'message', item.name);
+        assert.equal(parsed.tree.parts[1].subtype, 'rfc822', item.name);
+        assert.equal(parsed.tree.parts[1].section, '2', item.name);
+        assert.equal(Object.prototype.hasOwnProperty.call(parsed.tree.parts[1], 'parts'), false, item.name);
+        assert.equal(parsed.tree.parts[2].type, 'application', item.name);
+        assert.equal(parsed.tree.parts[2].subtype, 'pdf', item.name);
+      }
+      const mime = simplePlainMime({
+        flags: '\\Seen',
+        rfc822Size: 2400,
+        encoding: '7BIT',
+        textSection: item.textSection,
+        forbiddenSections: item.forbiddenSections,
+        bodystructure: item.bodystructure,
+        body: FIXTURE_BODY,
+        gmailOrder: true,
+      });
+      const result = await fetchWithMime(mime);
+      assert.equal(result.fetched.ok, true, item.name);
+      assert.equal(result.fetched.messages.length, 1, item.name);
+      assert.equal(result.fetched.messages[0].bodyText, FIXTURE_BODY, item.name);
+      assertNoFullBodyOrSend(result.received);
+      const sectionLine = result.received.find((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line));
+      assert.ok(sectionLine, item.name);
+      assert.match(sectionLine, new RegExp(`BODY\\.PEEK\\[${item.textSection.replace(/\./g, '\\.')}\\]<0\\.${textOctets}>`));
+      for (let i = 0; i < item.forbiddenSections.length; i += 1) {
+        const forbidden = item.forbiddenSections[i];
+        assert.equal(result.received.some((line) => (
+          new RegExp(`BODY\\.PEEK\\[${forbidden.replace(/\./g, '\\.')}\\]`).test(line)
+        )), false, `${item.name} fetched ${forbidden}`);
+      }
+    }
+    ok('Gmail BODYSTRUCTURE rfc822/nested/extension fixtures select only bounded text/plain');
+
+    const malformedGmail = [
+      {
+        name: 'rfc822 missing nested body',
+        structure: `(${gmailPlain}("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 ${gmailEnvelope()} 10 NIL NIL NIL NIL) "MIXED" ("BOUNDARY" "mix") NIL NIL NIL)`,
+      },
+      {
+        name: 'rfc822 quoted lines',
+        structure: `(${gmailPlain}("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 ${gmailEnvelope()} ${innerAlt} "10" NIL NIL NIL NIL) "MIXED" ("BOUNDARY" "mix") NIL NIL NIL)`,
+      },
+      {
+        name: 'rfc822-only no sibling text',
+        structure: rfc822Part,
+      },
+      {
+        name: 'unclosed Gmail BODYSTRUCTURE',
+        structure: `((${gmailPlain}${rfc822Part} "MIXED" ("BOUNDARY" "mix") NIL NIL NIL)`,
+      },
+    ];
+    for (const item of malformedGmail) {
+      const fetchText = bodystructureFetchText(item.structure);
+      const parsed = bodystructureOwner.parseImapBodystructure(fetchText);
+      const selected = bodystructureOwner.selectBoundedTextPlainFromFetchText(fetchText);
+      if (item.name === 'rfc822-only no sibling text') {
+        assert.ok(parsed, item.name);
+        assert.equal(selected, null, item.name);
+      } else {
+        assert.equal(parsed, null, item.name);
+        assert.equal(selected, null, item.name);
+      }
+      const result = await fetchWithMime(simplePlainMime({
+        flags: '\\Seen',
+        bodystructure: item.structure,
+        gmailOrder: true,
+      }));
+      assert.equal(result.fetched.ok, false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'last_uid'), false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'messages'), false, item.name);
+      assert.equal(result.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)), false, item.name);
+      assertNoFullBodyOrSend(result.received);
+    }
+    ok('Gmail BODYSTRUCTURE mutations fail closed without section FETCH or cursor fields');
+  }
+
+  {
     const zero = await fetchWithMime(simplePlainMime({ octets: 0, body: '' }));
     assert.equal(zero.fetched.ok, true);
     assert.equal(zero.fetched.messages.length, 1);
@@ -3208,6 +3378,442 @@ async function main() {
       assert.equal(truncated.queries.some((q) => q.text === pollSql.SQL_COMMIT_RESET), false, item.name);
     }
     ok('truncated selected-part literal fails closed without ingest or cursor commit');
+  }
+
+  {
+    const gmailPlain = `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${FIXTURE_BODY.length} 1 NIL NIL NIL NIL)`;
+    const truncatedRfc822 = `(${gmailPlain}("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 ("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd") 10 NIL NIL NIL NIL) "MIXED" ("BOUNDARY" "mix") NIL NIL NIL)`;
+    const pollClosed = await fetchInboxAndPoll((socket, line) => {
+      if (handleSearchSelectFetch(socket, line, (sock, tag, fetchLine) => {
+        if (isPreflightFetchLine(fetchLine)) {
+          writePreflightFetch(sock, 1, FIXTURE_UID, simplePlainMime({
+            flags: '\\Seen',
+            bodystructure: truncatedRfc822,
+            gmailOrder: true,
+          }), { gmailOrder: true });
+          sock.write(`${tag} OK FETCH completed\r\n`);
+          return;
+        }
+        sock.write(`${tag} BAD unexpected section fetch\r\n`);
+      })) return;
+      socket.write(`${line.split(' ')[0]} BAD not implemented\r\n`);
+    });
+    assert.equal(pollClosed.fetched.ok, false);
+    assert.ok(pollClosed.pollErr);
+    assert.equal(pollClosed.ingested.length, 0);
+    assert.equal(pollClosed.projected.length, 0);
+    assert.equal(Number(pollClosed.cursor.last_uid), 0);
+    assert.equal(pollClosed.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false);
+    assert.equal(pollClosed.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)), false);
+    ok('malformed Gmail rfc822 BODYSTRUCTURE fails poll without ingest or cursor commit');
+  }
+
+  {
+    const textOctets = FIXTURE_BODY.length;
+    function bodystructureFetchText(structure) {
+      return `1 FETCH (UID ${FIXTURE_UID} RFC822.SIZE 180 BODYSTRUCTURE ${structure})`;
+    }
+    function assertParserRejects(structure, name) {
+      const fetchText = bodystructureFetchText(structure);
+      assert.equal(bodystructureOwner.parseImapBodystructure(fetchText), null, name);
+      assert.equal(bodystructureOwner.selectBoundedTextPlainFromFetchText(fetchText), null, name);
+      assert.deepEqual(
+        bodystructureOwner.inspectImapBodystructure(fetchText),
+        { ok: false, stage: 'grammar' },
+        name,
+      );
+    }
+    function assertNoSectionFetchOrCursor(result, name) {
+      assert.equal(result.fetched.ok, false, name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'last_uid'), false, name);
+      assert.equal(Object.prototype.hasOwnProperty.call(result.fetched, 'messages'), false, name);
+      assert.equal(
+        result.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)),
+        false,
+        name,
+      );
+      assertNoFullBodyOrSend(result.received);
+    }
+    function assertPollNoIngestOrCommit(pollClosed, name) {
+      assert.equal(pollClosed.fetched.ok, false, name);
+      assert.ok(pollClosed.pollErr, name);
+      assert.equal(pollClosed.ingested.length, 0, name);
+      assert.equal(pollClosed.projected.length, 0, name);
+      assert.equal(Number(pollClosed.cursor.last_uid), 0, name);
+      assert.equal(pollClosed.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false, name);
+      assert.equal(pollClosed.queries.some((q) => q.text === pollSql.SQL_COMMIT_RESET), false, name);
+      assert.equal(
+        pollClosed.received.some((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)),
+        false,
+        name,
+      );
+      assertNoFullBodyOrSend(pollClosed.received);
+    }
+    async function pollStructureNoCommit(structure) {
+      return fetchInboxAndPoll((socket, line) => {
+        if (handleSearchSelectFetch(socket, line, (sock, tag, fetchLine) => {
+          if (isPreflightFetchLine(fetchLine)) {
+            writePreflightFetch(sock, 1, FIXTURE_UID, simplePlainMime({
+              flags: '\\Seen',
+              bodystructure: structure,
+              gmailOrder: true,
+            }), { gmailOrder: true });
+            sock.write(`${tag} OK FETCH completed\r\n`);
+            return;
+          }
+          sock.write(`${tag} BAD unexpected section fetch\r\n`);
+        })) return;
+        socket.write(`${line.split(' ')[0]} BAD not implemented\r\n`);
+      });
+    }
+
+    const innerPlain = `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL NIL)`;
+    const attachedMultipart = `(${innerPlain} "MIXED" ("BOUNDARY" "attbound") ("ATTACHMENT" ("FILENAME" "note.txt")) NIL NIL NIL)`;
+    const siblingAndAttached = `(${innerPlain}${attachedMultipart} "MIXED" ("BOUNDARY" "outer") NIL NIL NIL)`;
+
+    const attachedFetchText = bodystructureFetchText(attachedMultipart);
+    const attachedParsed = bodystructureOwner.parseImapBodystructure(attachedFetchText);
+    assert.ok(attachedParsed);
+    assert.equal(attachedParsed.tree.kind, 'multipart');
+    assert.equal(attachedParsed.tree.disposition, 'attachment');
+    assert.equal(attachedParsed.tree.parts.length, 1);
+    assert.equal(attachedParsed.tree.parts[0].type, 'text');
+    assert.equal(attachedParsed.tree.parts[0].subtype, 'plain');
+    assert.equal(attachedParsed.tree.parts[0].section, '1');
+    assert.equal(bodystructureOwner.selectBoundedTextPlainFromFetchText(attachedFetchText), null);
+    assert.equal(bodystructureOwner.selectSafeTextPlainPart(attachedParsed.tree), null);
+    assert.deepEqual(
+      bodystructureOwner.inspectImapBodystructure(attachedFetchText),
+      { ok: true, stage: 'ok' },
+    );
+    const inspectAttached = JSON.stringify(bodystructureOwner.inspectImapBodystructure(attachedFetchText));
+    assert.equal(inspectAttached.includes(FIXTURE_BODY), false);
+    assert.equal(inspectAttached.includes(PLANTED), false);
+
+    const siblingFetchText = bodystructureFetchText(siblingAndAttached);
+    const siblingParsed = bodystructureOwner.parseImapBodystructure(siblingFetchText);
+    assert.ok(siblingParsed);
+    assert.equal(siblingParsed.tree.kind, 'multipart');
+    assert.equal(siblingParsed.tree.disposition, '');
+    assert.equal(siblingParsed.tree.parts[1].kind, 'multipart');
+    assert.equal(siblingParsed.tree.parts[1].disposition, 'attachment');
+    const siblingSelected = bodystructureOwner.selectBoundedTextPlainFromFetchText(siblingFetchText);
+    assert.ok(siblingSelected);
+    assert.equal(siblingSelected.section, '1');
+    assert.equal(siblingSelected.octets, textOctets);
+    assert.equal(siblingSelected.section.includes('2'), false);
+
+    const attachedTransport = await fetchWithMime(simplePlainMime({
+      flags: '\\Seen',
+      bodystructure: attachedMultipart,
+      textSection: '1',
+      forbiddenSections: Object.freeze(['1']),
+      gmailOrder: true,
+    }));
+    assertNoSectionFetchOrCursor(attachedTransport, 'attached multipart transport');
+
+    const siblingTransport = await fetchWithMime(simplePlainMime({
+      flags: '\\Seen',
+      encoding: '7BIT',
+      textSection: '1',
+      forbiddenSections: Object.freeze(['2', '2.1']),
+      bodystructure: siblingAndAttached,
+      body: FIXTURE_BODY,
+      gmailOrder: true,
+    }));
+    assert.equal(siblingTransport.fetched.ok, true);
+    assert.equal(siblingTransport.fetched.messages.length, 1);
+    assert.equal(siblingTransport.fetched.messages[0].bodyText, FIXTURE_BODY);
+    const siblingSectionLine = siblingTransport.received.find((line) => (
+      /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line)
+    ));
+    assert.ok(siblingSectionLine);
+    assert.match(siblingSectionLine, /BODY\.PEEK\[1\]<0\.\d+>/);
+    assert.equal(siblingTransport.received.some((line) => /BODY\.PEEK\[2/.test(line)), false);
+    assertNoFullBodyOrSend(siblingTransport.received);
+
+    const attachedPoll = await pollStructureNoCommit(attachedMultipart);
+    assertPollNoIngestOrCommit(attachedPoll, 'attached multipart poll');
+    ok('attached multipart containing text/plain is never selected, fetched, ingested, or committed');
+
+    const gmailPlain = innerPlain;
+    const grammarAdversarial = [
+      {
+        name: 'scalar quoted disposition after MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL "ATTACHMENT")`,
+      },
+      {
+        name: 'scalar atom disposition after MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL ATTACHMENT)`,
+      },
+      {
+        name: 'extension list in MD5 slot',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 ("X-EXT" ("NESTED" "VAL")))`,
+      },
+      {
+        name: 'attachment list in MD5 slot',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 ("ATTACHMENT" NIL))`,
+      },
+      {
+        name: 'disposition extra malformed fields',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL ("ATTACHMENT" NIL "EXTRA") NIL NIL)`,
+      },
+      {
+        name: 'param pair with three members',
+        structure: `("TEXT" "PLAIN" (("CHARSET" "UTF-8" "EXTRA")) NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL NIL)`,
+      },
+      {
+        name: 'disposition param pair with three members',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL ("ATTACHMENT" (("FILENAME" "note.txt" "EXTRA"))) NIL NIL)`,
+      },
+      {
+        name: 'malformed multipart param odd list',
+        structure: `(${gmailPlain} "MIXED" ("BOUNDARY") NIL NIL NIL)`,
+      },
+      {
+        name: 'malformed multipart param unpaired leftover',
+        structure: `(${gmailPlain} "MIXED" ("BOUNDARY" "mix" "ORPHAN") NIL NIL NIL)`,
+      },
+      {
+        name: 'malformed multipart param pair with three members',
+        structure: `(${gmailPlain} "MIXED" (("BOUNDARY" "mix" "EXTRA")) NIL NIL NIL)`,
+      },
+      {
+        name: 'MD5 atom ATTACHMENT',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 ATTACHMENT)`,
+      },
+      {
+        name: 'MD5 atom INLINE',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 INLINE)`,
+      },
+      {
+        name: 'MD5 atom FOO',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 FOO)`,
+      },
+      {
+        name: 'MD5 atom MIXED',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 MIXED)`,
+      },
+      {
+        name: 'content-id atom ATTACHMENT',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") ATTACHMENT NIL "7BIT" ${textOctets} 1)`,
+      },
+      {
+        name: 'description atom ATTACHMENT',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL ATTACHMENT "7BIT" ${textOctets} 1)`,
+      },
+      {
+        name: 'language atom after NIL MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL NIL EN)`,
+      },
+      {
+        name: 'location atom after NIL MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL NIL NIL ATTACHMENT)`,
+      },
+      {
+        name: 'rfc822 envelope subject nstring atom',
+        structure: `("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 (NIL SUBJECT NIL NIL NIL NIL NIL NIL NIL NIL) ${innerPlain} 10 NIL NIL NIL NIL)`,
+      },
+      {
+        name: 'rfc822 envelope address mailbox nstring atom',
+        structure: `("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 (NIL NIL ((NIL NIL MAILBOX "host.example")) NIL NIL NIL NIL NIL NIL NIL) ${innerPlain} 10 NIL NIL NIL NIL)`,
+      },
+    ];
+    for (const item of grammarAdversarial) {
+      assertParserRejects(item.structure, item.name);
+      const result = await fetchWithMime(simplePlainMime({
+        flags: '\\Seen',
+        bodystructure: item.structure,
+        gmailOrder: true,
+      }));
+      assertNoSectionFetchOrCursor(result, item.name);
+      const pollClosed = await pollStructureNoCommit(item.structure);
+      assertPollNoIngestOrCommit(pollClosed, item.name);
+    }
+    ok('BODYSTRUCTURE extension grammar mutations fail closed without section FETCH, ingest, or cursor commit');
+
+    function rfc822Addr(local) {
+      return `("${local}" NIL "${local}" "example.com")`;
+    }
+    const validRfc822Envelope = `("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd booking" (${rfc822Addr('guest')}) (${rfc822Addr('guest')}) (${rfc822Addr('guest')}) (${rfc822Addr('host')}) NIL NIL NIL "<inner@example.com>")`;
+    function rfc822Node(envelope, nested, lines) {
+      return `("MESSAGE" "RFC822" NIL NIL NIL "7BIT" 8000 ${envelope} ${nested} ${lines} NIL NIL NIL NIL)`;
+    }
+    function mixedWithRfc822(rfc822Structure) {
+      return `(${gmailPlain}${rfc822Structure} "MIXED" ("BOUNDARY" "mix") NIL NIL NIL)`;
+    }
+    const rfc822GrammarAdversarial = [
+      {
+        name: 'rfc822 NIL envelope',
+        structure: rfc822Node('NIL', innerPlain, '10'),
+      },
+      {
+        name: 'rfc822 one-field envelope',
+        structure: rfc822Node('(NIL)', innerPlain, '10'),
+      },
+      {
+        name: 'rfc822 nine-field envelope',
+        structure: rfc822Node(
+          '("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" NIL NIL NIL NIL NIL NIL NIL)',
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 eleven-field envelope',
+        structure: rfc822Node(
+          '("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" NIL NIL NIL NIL NIL NIL NIL NIL NIL)',
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 empty address list',
+        structure: rfc822Node(
+          '("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" () NIL NIL NIL NIL NIL NIL "<id@example.com>")',
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 address arity 3',
+        structure: rfc822Node(
+          `("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" ((NIL NIL "guest")) NIL NIL NIL NIL NIL NIL "<id@example.com>")`,
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 address arity 5',
+        structure: rfc822Node(
+          `("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" ((NIL NIL "guest" "example.com" NIL)) NIL NIL NIL NIL NIL NIL "<id@example.com>")`,
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 extra-nested address wrap',
+        structure: rfc822Node(
+          `("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" ((${rfc822Addr('guest')})) NIL NIL NIL NIL NIL NIL "<id@example.com>")`,
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 address number field',
+        structure: rfc822Node(
+          '("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" ((NIL NIL 1 "example.com")) NIL NIL NIL NIL NIL NIL "<id@example.com>")',
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 address atom field',
+        structure: rfc822Node(
+          '("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" ((NIL NIL mailbox "example.com")) NIL NIL NIL NIL NIL NIL "<id@example.com>")',
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 unbalanced group start',
+        structure: rfc822Node(
+          '("Wed, 20 Aug 2026 09:00:00 +0000" "Fwd" (("Staff" NIL "staff" NIL)) NIL NIL NIL NIL NIL NIL "<id@example.com>")',
+          innerPlain,
+          '10',
+        ),
+      },
+      {
+        name: 'rfc822 empty nested body',
+        structure: rfc822Node(validRfc822Envelope, '()', '10'),
+      },
+      {
+        name: 'rfc822 malformed nested body',
+        structure: rfc822Node(validRfc822Envelope, '("TEXT")', '10'),
+      },
+      {
+        name: 'rfc822 scalar nested body',
+        structure: rfc822Node(validRfc822Envelope, '"not-a-body"', '10'),
+      },
+      {
+        name: 'rfc822 NIL nested body',
+        structure: rfc822Node(validRfc822Envelope, 'NIL', '10'),
+      },
+      {
+        name: 'rfc822 NIL body-fld-lines',
+        structure: rfc822Node(validRfc822Envelope, innerPlain, 'NIL'),
+      },
+      {
+        name: 'rfc822 quoted body-fld-lines',
+        structure: rfc822Node(validRfc822Envelope, innerPlain, '"10"'),
+      },
+      {
+        name: 'rfc822 negative body-fld-lines',
+        structure: rfc822Node(validRfc822Envelope, innerPlain, '-1'),
+      },
+    ];
+    for (const item of rfc822GrammarAdversarial) {
+      assertParserRejects(item.structure, item.name);
+      const mixed = mixedWithRfc822(item.structure);
+      assertParserRejects(mixed, `${item.name} mixed sibling`);
+      const result = await fetchWithMime(simplePlainMime({
+        flags: '\\Seen',
+        bodystructure: mixed,
+        gmailOrder: true,
+      }));
+      assertNoSectionFetchOrCursor(result, item.name);
+      const pollClosed = await pollStructureNoCommit(mixed);
+      assertPollNoIngestOrCommit(pollClosed, item.name);
+    }
+    ok('MESSAGE/RFC822 envelope and nested-body grammar mutations fail closed without section FETCH, ingest, or cursor commit');
+
+    const nstringValid = [
+      {
+        name: 'quoted MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 "d41d8cd98f00b204e9800998ecf8427e")`,
+      },
+      {
+        name: 'NIL MD5',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 NIL)`,
+      },
+      {
+        name: 'quoted MD5 then NIL extensions',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL NIL "7BIT" ${textOctets} 1 "d41d8cd98f00b204e9800998ecf8427e" NIL NIL NIL)`,
+      },
+      {
+        name: 'quoted content-id',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") "<cid@x>" NIL "7BIT" ${textOctets} 1 NIL)`,
+      },
+      {
+        name: 'quoted description',
+        structure: `("TEXT" "PLAIN" ("CHARSET" "UTF-8") NIL "plain text" "7BIT" ${textOctets} 1 NIL)`,
+      },
+    ];
+    for (const item of nstringValid) {
+      const fetchText = bodystructureFetchText(item.structure);
+      const parsed = bodystructureOwner.parseImapBodystructure(fetchText);
+      assert.ok(parsed, item.name);
+      const selected = bodystructureOwner.selectBoundedTextPlainFromFetchText(fetchText);
+      assert.ok(selected, item.name);
+      assert.equal(selected.section, '1', item.name);
+      assert.equal(selected.octets, textOctets, item.name);
+      const result = await fetchWithMime(simplePlainMime({
+        flags: '\\Seen',
+        encoding: '7BIT',
+        textSection: '1',
+        bodystructure: item.structure,
+        body: FIXTURE_BODY,
+        gmailOrder: true,
+      }));
+      assert.equal(result.fetched.ok, true, item.name);
+      assert.equal(result.fetched.messages.length, 1, item.name);
+      assert.equal(result.fetched.messages[0].bodyText, FIXTURE_BODY, item.name);
+      assertNoFullBodyOrSend(result.received);
+      const sectionLine = result.received.find((line) => /BODY\.PEEK\[[0-9.]+\]<0\.\d+>/.test(line));
+      assert.ok(sectionLine, item.name);
+      assert.match(sectionLine, /BODY\.PEEK\[1\]<0\.\d+>/, item.name);
+    }
+    ok('quoted MD5, NIL MD5, and quoted content-id/description nstrings still select bounded text/plain');
   }
 
   {
@@ -3383,8 +3989,44 @@ async function main() {
   assert.match(bodystructureSrc, /if \(type === 'text'\)/);
   assert.match(bodystructureSrc, /list\.length < 8/);
   assert.match(bodystructureSrc, /const lines = list\[7\]/);
-  assert.match(bodystructureSrc, /Number\.isInteger\(lines\)/);
+  assert.match(bodystructureSrc, /Number\.isInteger\(lines\.value\)/);
   assert.doesNotMatch(bodystructureSrc, /const extStart = type === 'text' \? 8 : 7/);
+  assert.match(bodystructureSrc, /body-type-msg/);
+  assert.match(bodystructureSrc, /envelope SP body SP body-fld-lines/);
+  assert.match(bodystructureSrc, /parseOnePartExtensions/);
+  assert.match(bodystructureSrc, /inspectImapBodystructure/);
+  assert.doesNotMatch(bodystructureSrc, /function scanDisposition/);
+  assert.match(bodystructureSrc, /node\.disposition === 'attachment'/);
+  assert.match(bodystructureSrc, /pair\.length !== 2/);
+  assert.match(bodystructureSrc, /value\.length !== 2/);
+  assert.match(bodystructureSrc, /if \(dsp == null\) return null/);
+  assert.doesNotMatch(bodystructureSrc, /if \(dsp == null\) return ''/);
+  assert.doesNotMatch(bodystructureSrc, /A valid disposition atom is enough/);
+  assert.doesNotMatch(bodystructureSrc, /else if \(list\[i \+ 1\] != null && !Array\.isArray/);
+  assert.match(bodystructureSrc, /if \(!isNstring\(list\[(?:i|start)\]\)\) return null/);
+  assert.match(bodystructureSrc, /if \(!isNstring\(list\[3\]\)\) return null/);
+  assert.match(bodystructureSrc, /if \(!isNstring\(list\[4\]\)\) return null/);
+  assert.match(bodystructureSrc, /makeScalar\('quoted'/);
+  assert.match(bodystructureSrc, /makeScalar\('atom'/);
+  assert.match(bodystructureSrc, /makeScalar\('nil'/);
+  assert.match(bodystructureSrc, /makeScalar\('number'/);
+  assert.match(bodystructureSrc, /function parseEnvelope/);
+  assert.match(bodystructureSrc, /function parseAddress\b/);
+  assert.match(bodystructureSrc, /function parseAddressList\b/);
+  assert.match(bodystructureSrc, /value\.length !== 10/);
+  assert.match(bodystructureSrc, /value\.length !== 4/);
+  assert.match(bodystructureSrc, /const envelope = list\[7\]/);
+  assert.match(bodystructureSrc, /const nestedBody = list\[8\]/);
+  assert.match(bodystructureSrc, /const lines = list\[9\]/);
+  assert.match(bodystructureSrc, /parseBodyNode\(nestedBody/);
+  assert.match(bodystructureSrc, /envelope SP body SP body-fld-lines/);
+  assert.doesNotMatch(bodystructureSrc, /Extra Gmail grouping lists are accepted/);
+  assert.doesNotMatch(bodystructureSrc, /envelopeScalarsAreNstrings/);
+  assert.doesNotMatch(bodystructureSrc, /node\.parts\s*=\s*nested|parts:\s*nested/);
+  assert.doesNotMatch(bodystructureSrc, /return value == null \|\| typeof value === 'string'/);
+  assert.doesNotMatch(bodystructureSrc, /return \{ value: atom\[0\], next:/);
+  assert.equal(bodystructureOwner.IMAP_BODYSTRUCTURE_MAX_LISTS, 64);
+  assert.equal(bodystructureOwner.IMAP_BODYSTRUCTURE_MAX_TOKENS, 512);
   assert.doesNotMatch(bodystructureSrc, /BODY\.PEEK\[\]/);
   assert.doesNotMatch(mimeSrc, /console\.(log|info|debug|dir|error)/);
   assert.doesNotMatch(bodystructureSrc, /console\.(log|info|debug|dir|error)/);
