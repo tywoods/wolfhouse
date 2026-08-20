@@ -1237,6 +1237,47 @@ async function main() {
   }
 
   {
+    assert.equal(transportSql.parseRfcUidnext(1), 1);
+    assert.equal(transportSql.parseRfcUidnext(4294967295), 4294967295);
+    assert.equal(transportSql.parseRfcUidnext(0), null);
+    assert.equal(transportSql.parseRfcUidnext('01'), null);
+    assert.equal(transportSql.parseRfcUidnext(4294967296), null);
+    assert.equal(transportSql.parseUidnext(['OK [UIDNEXT 18] Predicted next UID']), 18);
+    assert.equal(transportSql.parseUidnext(['OK [UIDVALIDITY 1] UIDs valid']), null);
+    assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 0]']));
+    assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 01]']));
+    assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 4294967296]']));
+    assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT foo]']));
+    assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 1]', 'OK [UIDNEXT 2]']));
+    assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 5]', 'OK [UIDNEXT 5]']));
+    assert.throws(() => transportSql.parseUidnext(['OK [UIDNEXT 1] [UIDNEXT 2]']));
+    assert.throws(() => transportSql.parseUidvalidity(['OK [UIDVALIDITY 1]', 'OK [UIDVALIDITY 2]']));
+    const empty = transportSql.boundedUidSearchRange(0, 1);
+    assert.equal(empty, null);
+    const tiny = transportSql.boundedUidSearchRange(0, 2);
+    assert.deepEqual(tiny, frozen({ start: 1, end: 1, bootstrap: true }));
+    const boot = transportSql.boundedUidSearchRange(0, 18);
+    assert.deepEqual(boot, frozen({ start: 13, end: 17, bootstrap: true }));
+    const hugeBoot = transportSql.boundedUidSearchRange(0, 50000);
+    assert.deepEqual(hugeBoot, frozen({ start: 49995, end: 49999, bootstrap: true }));
+    assert.equal(hugeBoot.end - hugeBoot.start + 1, transportSql.IMAP_FETCH_MAX_MESSAGES);
+    const forward = transportSql.boundedUidSearchRange(10, 10000);
+    assert.equal(forward.bootstrap, false);
+    assert.equal(forward.start, 11);
+    assert.equal(forward.end, 10 + transportSql.IMAP_SEARCH_MAX_WINDOW);
+    assert.equal(forward.end - forward.start + 1, transportSql.IMAP_SEARCH_MAX_WINDOW);
+    const caught = transportSql.boundedUidSearchRange(17, 18);
+    assert.equal(caught, null);
+    assert.throws(() => transportSql.boundedUidSearchRange(20, 18));
+    const cmd = transportSql.formatBoundedUidSearchCommand(13, 17);
+    assert.equal(cmd, 'UID SEARCH UID 13:17');
+    assert.ok(!cmd.includes('*'));
+    assert.throws(() => transportSql.formatBoundedUidSearchCommand(17, 13));
+    assert.throws(() => transportSql.formatBoundedUidSearchCommand(0, 5));
+    ok('UIDNEXT parse is strict; SEARCH ranges are finite numeric windows');
+  }
+
+  {
     const sparse = transportSql.normalizeSearchUids([100000, 1, 7, 1, 7]);
     assert.deepEqual(sparse, [1, 7, 100000]);
     assert.equal(transportSql.formatUidSequenceSet(sparse), '1,7,100000');
@@ -1447,6 +1488,60 @@ async function main() {
     socket.write(')\r\n');
   }
 
+  function writeSelectInbox(socket, tag, opts) {
+    const options = opts || {};
+    const uv = Object.prototype.hasOwnProperty.call(options, 'uidvalidity')
+      ? options.uidvalidity
+      : FIXTURE_UIDVALIDITY;
+    const un = Object.prototype.hasOwnProperty.call(options, 'uidnext')
+      ? options.uidnext
+      : FIXTURE_UID + 1;
+    const exists = options.exists != null ? options.exists : 1;
+    const lines = ['* FLAGS (\\Seen)'];
+    if (uv != null) lines.push(`* OK [UIDVALIDITY ${uv}] UIDs valid`);
+    if (options.uidnextRaw != null) {
+      lines.push(options.uidnextRaw);
+    } else if (un != null) {
+      lines.push(`* OK [UIDNEXT ${un}] Predicted next UID`);
+    }
+    if (Array.isArray(options.extraUntagged)) {
+      for (let i = 0; i < options.extraUntagged.length; i += 1) lines.push(options.extraUntagged[i]);
+    }
+    lines.push(`* ${exists} EXISTS`);
+    lines.push(`${tag} OK [READ-WRITE] SELECT completed`);
+    socket.write(`${lines.join('\r\n')}\r\n`);
+  }
+
+  function parseUidSearchRange(line) {
+    const match = /\bUID SEARCH UID (\d+):(\d+)\s*$/.exec(String(line || ''));
+    if (!match) return null;
+    return frozen({ start: Number(match[1]), end: Number(match[2]) });
+  }
+
+  function findUidSearchLine(received) {
+    return (received || []).find((line) => /\bUID SEARCH\b/i.test(line)) || null;
+  }
+
+  function assertFiniteUidSearch(line, opts) {
+    assert.ok(line, 'expected a UID SEARCH command');
+    assert.doesNotMatch(line, /:\*/);
+    assert.doesNotMatch(line, /\bSEARCH ALL\b/i);
+    assert.ok(!String(line).includes(':*'), 'SEARCH must not use unbounded *');
+    const range = parseUidSearchRange(line);
+    assert.ok(range, `expected finite UID SEARCH range: ${line}`);
+    assert.ok(Number.isInteger(range.start) && Number.isInteger(range.end));
+    assert.ok(range.start >= 1 && range.end >= range.start);
+    assert.ok(range.end <= 4294967295);
+    const width = range.end - range.start + 1;
+    const maxWindow = opts && opts.maxWindow != null
+      ? opts.maxWindow
+      : transportOwner.IMAP_SEARCH_MAX_WINDOW;
+    assert.ok(width <= maxWindow, `SEARCH width ${width} exceeds ${maxWindow}`);
+    if (opts && opts.start != null) assert.equal(range.start, opts.start);
+    if (opts && opts.end != null) assert.equal(range.end, opts.end);
+    return range;
+  }
+
   function createTestTransport(port, tlsOpts) {
     return transportOwner.createSunsetImapImapsTransport(frozen({
       tlsConnect(opts) {
@@ -1477,7 +1572,7 @@ async function main() {
       return true;
     }
     if (verb === 'SELECT') {
-      socket.write(`* FLAGS (\\Seen)\r\n* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}] UIDs valid\r\n* 1 EXISTS\r\n${tag} OK [READ-WRITE] SELECT completed\r\n`);
+      writeSelectInbox(socket, tag);
       return true;
     }
     if (verb === 'LOGOUT') {
@@ -1524,7 +1619,7 @@ async function main() {
       } else if (verb === 'LOGIN') {
         socket.write(`${tag} OK LOGIN completed\r\n`);
       } else if (verb === 'SELECT') {
-        socket.write(`* FLAGS (\\Seen)\r\n* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}] UIDs valid\r\n* 1 EXISTS\r\n${tag} OK [READ-WRITE] SELECT completed\r\n`);
+        writeSelectInbox(socket, tag);
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
         socket.end();
@@ -1574,8 +1669,9 @@ async function main() {
       } else if (verb === 'LOGIN') {
         socket.write(`${tag} OK LOGIN completed\r\n`);
       } else if (verb === 'SELECT') {
-        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+        writeSelectInbox(socket, tag);
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        assertFiniteUidSearch(line, { maxWindow: transportOwner.IMAP_FETCH_MAX_MESSAGES, start: 13, end: 17 });
         socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
         assert.match(line, /BODY\.PEEK\[\]/);
@@ -1800,13 +1896,18 @@ async function main() {
       } else if (verb === 'LOGIN') {
         socket.write(`${tag} OK LOGIN completed\r\n`);
       } else if (verb === 'SELECT') {
-        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 3 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+        writeSelectInbox(socket, tag, { uidnext: 100001, exists: 3 });
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
-        socket.write(`* SEARCH 100000 1 7\r\n${tag} OK SEARCH completed\r\n`);
+        assertFiniteUidSearch(line, {
+          maxWindow: transportOwner.IMAP_FETCH_MAX_MESSAGES,
+          start: 99996,
+          end: 100000,
+        });
+        socket.write(`* SEARCH 100000 99997 99999\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        assert.match(line, /UID FETCH 1,7,100000 /);
-        assert.doesNotMatch(line, /100000:7|1:100000|100000:100000/);
-        const uids = [1, 7, 100000];
+        assert.match(line, /UID FETCH 99997,99999,100000 /);
+        assert.doesNotMatch(line, /100000:99997|99996:100000|100000:100000/);
+        const uids = [99997, 99999, 100000];
         for (let i = 0; i < uids.length; i += 1) {
           writeBodyFetch(socket, i + 1, uids[i], rfc822Plain());
         }
@@ -1818,32 +1919,17 @@ async function main() {
         socket.write(`${tag} BAD not implemented\r\n`);
       }
     }, async (port, received) => {
-      const transport = transportOwner.createSunsetImapImapsTransport(frozen({
-        tlsConnect(opts) {
-          return tls.connect({
-            host: '127.0.0.1',
-            port,
-            servername: opts.servername,
-            rejectUnauthorized: true,
-            ca: [tlsPair.cert],
-            minVersion: 'TLSv1.2',
-          });
-        },
-      }));
-      const fetched = await transport.fetchInbox(frozen({
-        host: 'imap.example.test',
-        port: 993,
-        tlsMode: 'imaps',
-        username: MAILBOX,
-        password: PLANTED,
-      }), frozen({ uidvalidity: null, last_uid: 0 }));
+      const fetched = await createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: null, last_uid: 0 }),
+      );
       return { fetched, received };
     });
     assert.equal(result.fetched.ok, true);
     assert.equal(result.fetched.messages.length, 3);
-    assert.deepEqual(result.fetched.messages.map((msg) => msg.uid), [1, 7, 100000]);
+    assert.deepEqual(result.fetched.messages.map((msg) => msg.uid), [99997, 99999, 100000]);
     const fetchLine = result.received.find((line) => /UID FETCH /.test(line));
-    assert.match(fetchLine, /UID FETCH 1,7,100000 /);
+    assert.match(fetchLine, /UID FETCH 99997,99999,100000 /);
     ok('fake server sparse reordered SEARCH 100000 1 7 emits comma sequence-set');
   }
 
@@ -1857,9 +1943,9 @@ async function main() {
       } else if (verb === 'LOGIN') {
         socket.write(`${tag} OK LOGIN completed\r\n`);
       } else if (verb === 'SELECT') {
-        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+        writeSelectInbox(socket, tag);
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
-        socket.write(`* SEARCH 1 7\r\n${tag} OK SEARCH completed\r\n`);
+        socket.write(`* SEARCH 13 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
         writeBodyFetch(socket, 1, 99, rfc822Plain());
         socket.write(`${tag} OK FETCH completed\r\n`);
@@ -1869,27 +1955,10 @@ async function main() {
       } else {
         socket.write(`${tag} BAD not implemented\r\n`);
       }
-    }, async (port) => {
-      const transport = transportOwner.createSunsetImapImapsTransport(frozen({
-        tlsConnect(opts) {
-          return tls.connect({
-            host: '127.0.0.1',
-            port,
-            servername: opts.servername,
-            rejectUnauthorized: true,
-            ca: [tlsPair.cert],
-            minVersion: 'TLSv1.2',
-          });
-        },
-      }));
-      return transport.fetchInbox(frozen({
-        host: 'imap.example.test',
-        port: 993,
-        tlsMode: 'imaps',
-        username: MAILBOX,
-        password: PLANTED,
-      }), frozen({ uidvalidity: null, last_uid: 0 }));
-    });
+    }, async (port) => createTestTransport(port).fetchInbox(
+      CREDS,
+      frozen({ uidvalidity: null, last_uid: 0 }),
+    ));
     assert.equal(unexpected.ok, false);
     ok('FETCH with unrequested UID fails closed');
   }
@@ -1904,11 +1973,11 @@ async function main() {
       } else if (verb === 'LOGIN') {
         socket.write(`${tag} OK LOGIN completed\r\n`);
       } else if (verb === 'SELECT') {
-        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+        writeSelectInbox(socket, tag);
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
-        socket.write(`* SEARCH 1 7\r\n${tag} OK SEARCH completed\r\n`);
+        socket.write(`* SEARCH 13 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        for (const uid of [1, 1]) {
+        for (const uid of [13, 13]) {
           writeBodyFetch(socket, 1, uid, rfc822Plain());
         }
         socket.write(`${tag} OK FETCH completed\r\n`);
@@ -1918,27 +1987,10 @@ async function main() {
       } else {
         socket.write(`${tag} BAD not implemented\r\n`);
       }
-    }, async (port) => {
-      const transport = transportOwner.createSunsetImapImapsTransport(frozen({
-        tlsConnect(opts) {
-          return tls.connect({
-            host: '127.0.0.1',
-            port,
-            servername: opts.servername,
-            rejectUnauthorized: true,
-            ca: [tlsPair.cert],
-            minVersion: 'TLSv1.2',
-          });
-        },
-      }));
-      return transport.fetchInbox(frozen({
-        host: 'imap.example.test',
-        port: 993,
-        tlsMode: 'imaps',
-        username: MAILBOX,
-        password: PLANTED,
-      }), frozen({ uidvalidity: null, last_uid: 0 }));
-    });
+    }, async (port) => createTestTransport(port).fetchInbox(
+      CREDS,
+      frozen({ uidvalidity: null, last_uid: 0 }),
+    ));
     assert.equal(duplicate.ok, false);
     ok('FETCH with duplicate UIDs fails closed');
   }
@@ -1953,12 +2005,12 @@ async function main() {
       } else if (verb === 'LOGIN') {
         socket.write(`${tag} OK LOGIN completed\r\n`);
       } else if (verb === 'SELECT') {
-        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 2 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+        writeSelectInbox(socket, tag, { exists: 2 });
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
-        socket.write(`* SEARCH 1 7\r\n${tag} OK SEARCH completed\r\n`);
+        socket.write(`* SEARCH 13 17\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
-        assert.match(line, /UID FETCH 1,7 /);
-        writeBodyFetch(socket, 1, 7, rfc822Plain());
+        assert.match(line, /UID FETCH 13,17 /);
+        writeBodyFetch(socket, 1, 17, rfc822Plain());
         socket.write(`${tag} OK FETCH completed\r\n`);
       } else if (verb === 'LOGOUT') {
         socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
@@ -2003,7 +2055,7 @@ async function main() {
     assert.equal(Object.prototype.hasOwnProperty.call(incomplete.fetched, 'uidvalidity'), false);
     assertNoLeak(incomplete.fetched, 'incomplete FETCH');
     const fetchLine = incomplete.received.find((line) => /UID FETCH /.test(line));
-    assert.match(fetchLine, /UID FETCH 1,7 /);
+    assert.match(fetchLine, /UID FETCH 13,17 /);
     assert.ok(incomplete.pollErr);
     assert.deepEqual([...(incomplete.pollErr.failed_secret_names || [])], ['sunset-imap-host']);
     assertNoLeak(incomplete.pollErr, 'incomplete FETCH poll');
@@ -2014,6 +2066,290 @@ async function main() {
     assert.equal(incomplete.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), false);
     assert.equal(incomplete.queries.some((q) => q.text === pollSql.SQL_COMMIT_RESET), false);
     ok('incomplete FETCH missing requested UID fails closed without cursor advancement or poll ingest');
+  }
+
+  function handleFetchAuth(socket, line) {
+    const parts = line.split(' ');
+    const tag = parts[0];
+    const verb = (parts[1] || '').toUpperCase();
+    if (verb === 'CAPABILITY') {
+      socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK CAPABILITY completed\r\n`);
+      return true;
+    }
+    if (verb === 'LOGIN') {
+      socket.write(`${tag} OK LOGIN completed\r\n`);
+      return true;
+    }
+    if (verb === 'LOGOUT') {
+      socket.write(`* BYE\r\n${tag} OK LOGOUT completed\r\n`);
+      socket.end();
+      return true;
+    }
+    return false;
+  }
+
+  {
+    const HUGE_UIDNEXT = 50000;
+    const result = await withImapTlsServer((socket, line) => {
+      const tag = line.split(' ')[0];
+      if (handleFetchAuth(socket, line)) return;
+      const verb = (line.split(' ')[1] || '').toUpperCase();
+      if (verb === 'SELECT') {
+        writeSelectInbox(socket, tag, { uidnext: HUGE_UIDNEXT, exists: 49999 });
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        const range = parseUidSearchRange(line);
+        const unbounded = /:\*/.test(line) || !range || (range.end - range.start + 1 > 32);
+        if (unbounded) {
+          let payload = '* SEARCH';
+          for (let i = 1; i <= 30000; i += 1) payload += ` ${i}`;
+          socket.write(`${payload}\r\n${tag} OK SEARCH completed\r\n`);
+          return;
+        }
+        socket.write(`* SEARCH 49995 49996 49997 49998 49999\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        assert.match(line, /UID FETCH 49995,49996,49997,49998,49999 /);
+        const uids = [49995, 49996, 49997, 49998, 49999];
+        for (let i = 0; i < uids.length; i += 1) {
+          writeBodyFetch(socket, i + 1, uids[i], rfc822Plain());
+        }
+        socket.write(`${tag} OK FETCH completed\r\n`);
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const fetched = await createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: null, last_uid: 0 }),
+      );
+      return { fetched, received };
+    });
+    assert.equal(result.fetched.ok, true);
+    assert.equal(result.fetched.messages.length, 5);
+    assert.equal(result.fetched.last_uid, 49999);
+    assertFiniteUidSearch(findUidSearchLine(result.received), {
+      maxWindow: transportOwner.IMAP_FETCH_MAX_MESSAGES,
+      start: 49995,
+      end: 49999,
+    });
+    assert.equal(result.received.some((line) => /:\*/.test(line)), false);
+    ok('huge mailbox UIDNEXT bootstrap emits finite tail SEARCH and cannot overflow from SEARCH cardinality');
+  }
+
+  {
+    const emptyBox = await withImapTlsServer((socket, line) => {
+      const tag = line.split(' ')[0];
+      if (handleFetchAuth(socket, line)) return;
+      const verb = (line.split(' ')[1] || '').toUpperCase();
+      if (verb === 'SELECT') {
+        writeSelectInbox(socket, tag, { uidnext: 1, exists: 0 });
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH 1\r\n${tag} OK SEARCH completed\r\n`);
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const fetched = await createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: null, last_uid: 0 }),
+      );
+      return { fetched, received };
+    });
+    assert.equal(emptyBox.fetched.ok, true);
+    assert.deepEqual(emptyBox.fetched.messages, []);
+    assert.equal(emptyBox.fetched.last_uid, 0);
+    assert.equal(emptyBox.fetched.uidvalidity, FIXTURE_UIDVALIDITY);
+    assert.equal(findUidSearchLine(emptyBox.received), null);
+    assert.equal(emptyBox.received.some((line) => /UID FETCH /i.test(line)), false);
+    ok('empty mailbox UIDNEXT=1 succeeds with zero messages and no SEARCH');
+  }
+
+  {
+    const advanced = await withImapTlsServer((socket, line) => {
+      const tag = line.split(' ')[0];
+      if (handleFetchAuth(socket, line)) return;
+      const verb = (line.split(' ')[1] || '').toUpperCase();
+      if (verb === 'SELECT') {
+        writeSelectInbox(socket, tag, { uidnext: 100, exists: 0 });
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        assertFiniteUidSearch(line, { start: 11, end: 99 });
+        socket.write(`* SEARCH\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        socket.write(`${tag} BAD unexpected FETCH\r\n`);
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const transport = createTestTransport(port);
+      const fetched = await transport.fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: FIXTURE_UIDVALIDITY, last_uid: 10 }),
+      );
+      const ingested = [];
+      const projected = [];
+      const { poller, pg } = pollService({
+        inboundEnabled: true,
+        ingested,
+        projected,
+        imapTransport: fakeImapTransport({
+          messages: [],
+        }),
+        cursor: { uidvalidity: FIXTURE_UIDVALIDITY, last_uid: 10 },
+      });
+      return { fetched, received, ingested, projected, poller, pg };
+    });
+    assert.equal(advanced.fetched.ok, true);
+    assert.equal(advanced.fetched.messages.length, 0);
+    assert.equal(advanced.fetched.last_uid, 99);
+    assert.equal(advanced.received.some((line) => /UID FETCH /i.test(line)), false);
+    ok('sparse/expunged empty finite window advances scan cursor to range end');
+  }
+
+  {
+    const gapPoll = await withImapTlsServer((socket, line) => {
+      const tag = line.split(' ')[0];
+      if (handleFetchAuth(socket, line)) return;
+      const verb = (line.split(' ')[1] || '').toUpperCase();
+      if (verb === 'SELECT') {
+        writeSelectInbox(socket, tag, { uidnext: 100, exists: 0 });
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        socket.write(`* SEARCH\r\n${tag} OK SEARCH completed\r\n`);
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port) => {
+      const transport = createTestTransport(port);
+      const ingested = [];
+      const projected = [];
+      const { poller, pg } = pollService({
+        inboundEnabled: true,
+        ingested,
+        projected,
+        imapTransport: transport,
+        cursor: { uidvalidity: FIXTURE_UIDVALIDITY, last_uid: 10 },
+      });
+      const ack = await poller.pollVerifiedImapInbox(frozen({
+        clientId: SUNSET_ID, locationId: LOCATION, actorStaffUserId: ACTOR,
+      }));
+      return { ack, ingested, projected, cursor: pg.getCursor(), queries: pg.queries.slice() };
+    });
+    assert.equal(gapPoll.ack.ok, true);
+    assert.equal(gapPoll.ack.fetched, 0);
+    assert.equal(gapPoll.ingested.length, 0);
+    assert.equal(gapPoll.projected.length, 0);
+    assert.equal(Number(gapPoll.cursor.last_uid), 99);
+    assert.equal(Number(gapPoll.cursor.uidvalidity), FIXTURE_UIDVALIDITY);
+    assert.equal(gapPoll.queries.some((q) => q.text === pollSql.SQL_COMMIT_MONOTONIC), true);
+    ok('empty finite window poll commits advanced scan cursor without ingest');
+  }
+
+  {
+    const overFive = await withImapTlsServer((socket, line) => {
+      const tag = line.split(' ')[0];
+      if (handleFetchAuth(socket, line)) return;
+      const verb = (line.split(' ')[1] || '').toUpperCase();
+      if (verb === 'SELECT') {
+        writeSelectInbox(socket, tag, { uidnext: 100, exists: 8 });
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        assertFiniteUidSearch(line, { start: 11, end: 99 });
+        socket.write(`* SEARCH 18 11 12 13 14 15 16 17\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        assert.match(line, /UID FETCH 11,12,13,14,15 /);
+        assert.doesNotMatch(line, /16|17|18/);
+        const uids = [11, 12, 13, 14, 15];
+        for (let i = 0; i < uids.length; i += 1) {
+          writeBodyFetch(socket, i + 1, uids[i], rfc822Plain());
+        }
+        socket.write(`${tag} OK FETCH completed\r\n`);
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const fetched = await createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: FIXTURE_UIDVALIDITY, last_uid: 10 }),
+      );
+      return { fetched, received };
+    });
+    assert.equal(overFive.fetched.ok, true);
+    assert.equal(overFive.fetched.messages.length, 5);
+    assert.deepEqual(overFive.fetched.messages.map((msg) => msg.uid), [11, 12, 13, 14, 15]);
+    assert.equal(overFive.fetched.last_uid, 15);
+    const fetchLine = overFive.received.find((line) => /UID FETCH /.test(line));
+    assert.match(fetchLine, /UID FETCH 11,12,13,14,15 /);
+    assert.doesNotMatch(fetchLine, /16|17|18/);
+    ok('>5 UIDs in finite window FETCHes first five and leaves remainder for next poll');
+  }
+
+  {
+    const malformedCases = [
+      { name: 'UIDNEXT 0', uidnextRaw: '* OK [UIDNEXT 0] Predicted next UID' },
+      { name: 'UIDNEXT leading zero', uidnextRaw: '* OK [UIDNEXT 018] Predicted next UID' },
+      { name: 'UIDNEXT over uint32', uidnextRaw: '* OK [UIDNEXT 4294967296] Predicted next UID' },
+      { name: 'UIDNEXT foo', uidnextRaw: '* OK [UIDNEXT foo] Predicted next UID' },
+      { name: 'missing UIDNEXT', uidnext: null },
+      { name: 'conflicting UIDNEXT', uidnext: null, extraUntagged: ['* OK [UIDNEXT 18] a', '* OK [UIDNEXT 19] b'] },
+      { name: 'duplicate UIDNEXT', uidnext: null, extraUntagged: ['* OK [UIDNEXT 18] a', '* OK [UIDNEXT 18] b'] },
+      { name: 'same-line conflicting UIDNEXT', uidnextRaw: '* OK [UIDNEXT 18] [UIDNEXT 19] Predicted' },
+    ];
+    for (const item of malformedCases) {
+      const failed = await withImapTlsServer((socket, line) => {
+        const tag = line.split(' ')[0];
+        if (handleFetchAuth(socket, line)) return;
+        const verb = (line.split(' ')[1] || '').toUpperCase();
+        if (verb === 'SELECT') {
+          writeSelectInbox(socket, tag, {
+            uidnext: Object.prototype.hasOwnProperty.call(item, 'uidnext')
+              ? item.uidnext
+              : (item.uidnextRaw ? null : 18),
+            uidnextRaw: item.uidnextRaw,
+            extraUntagged: item.extraUntagged,
+          });
+        } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+          socket.write(`* SEARCH 17\r\n${tag} OK SEARCH completed\r\n`);
+        } else {
+          socket.write(`${tag} BAD not implemented\r\n`);
+        }
+      }, async (port, received) => {
+        const fetched = await createTestTransport(port).fetchInbox(
+          CREDS,
+          frozen({ uidvalidity: null, last_uid: 0 }),
+        );
+        return { fetched, received };
+      });
+      assert.equal(failed.fetched.ok, false, item.name);
+      assert.equal(Object.prototype.hasOwnProperty.call(failed.fetched, 'last_uid'), false, item.name);
+      assert.equal(failed.received.some((line) => /\bUID SEARCH\b/i.test(line)), false, item.name);
+    }
+    ok('malformed/conflicting/duplicate UIDNEXT fails closed before SEARCH');
+  }
+
+  {
+    const noStar = await withImapTlsServer((socket, line) => {
+      const tag = line.split(' ')[0];
+      if (handleFetchAuth(socket, line)) return;
+      const verb = (line.split(' ')[1] || '').toUpperCase();
+      if (verb === 'SELECT') {
+        writeSelectInbox(socket, tag, { uidnext: 18 });
+      } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        assert.ok(!line.includes(':*'));
+        assertFiniteUidSearch(line, { start: 13, end: 17, maxWindow: 5 });
+        socket.write(`* SEARCH 17\r\n${tag} OK SEARCH completed\r\n`);
+      } else if (verb === 'UID' && /FETCH/i.test(line)) {
+        writeBodyFetch(socket, 1, 17, rfc822Plain());
+        socket.write(`${tag} OK FETCH completed\r\n`);
+      } else {
+        socket.write(`${tag} BAD not implemented\r\n`);
+      }
+    }, async (port, received) => {
+      const fetched = await createTestTransport(port).fetchInbox(
+        CREDS,
+        frozen({ uidvalidity: null, last_uid: 0 }),
+      );
+      return { fetched, received };
+    });
+    assert.equal(noStar.fetched.ok, true);
+    assert.equal(noStar.received.some((line) => /:\*/.test(line)), false);
+    ok('UID SEARCH never issues unbounded start:*');
   }
 
   {
@@ -2164,8 +2500,9 @@ async function main() {
       } else if (verb === 'LOGIN') {
         socket.write(`${tag} OK LOGIN completed\r\n`);
       } else if (verb === 'SELECT') {
-        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+        writeSelectInbox(socket, tag);
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
+        assertFiniteUidSearch(line, { maxWindow: transportOwner.IMAP_FETCH_MAX_MESSAGES });
         socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
         assert.match(line, /BODY\.PEEK\[\]/);
@@ -2379,7 +2716,7 @@ async function main() {
       } else if (verb === 'LOGIN') {
         socket.write(`${tag} OK LOGIN completed\r\n`);
       } else if (verb === 'SELECT') {
-        socket.write(`* OK [UIDVALIDITY ${FIXTURE_UIDVALIDITY}]\r\n* 1 EXISTS\r\n${tag} OK SELECT completed\r\n`);
+        writeSelectInbox(socket, tag);
       } else if (verb === 'UID' && /SEARCH/i.test(line)) {
         socket.write(`* SEARCH ${FIXTURE_UID}\r\n${tag} OK SEARCH completed\r\n`);
       } else if (verb === 'UID' && /FETCH/i.test(line)) {
@@ -2462,6 +2799,13 @@ async function main() {
   assert.doesNotMatch(pollSrc, /pg_advisory_xact_lock/);
   assert.match(pollSrc, /SQL_CLAIM|lease_token/);
   assert.doesNotMatch(transportSrc, /uids\[0\]\}:\$\{uids/);
+  assert.ok(!transportSrc.includes('${lastUid + 1}:*'), 'must not SEARCH lastUid+1:*');
+  assert.match(transportSrc, /formatBoundedUidSearchCommand/);
+  assert.match(transportSrc, /parseUidnext/);
+  assert.match(transportSrc, /IMAP_SEARCH_MAX_WINDOW/);
+  assert.equal(transportOwner.IMAP_SEARCH_MAX_WINDOW, 1024);
+  assert.ok(transportOwner.IMAP_SEARCH_MAX_WINDOW >= transportOwner.IMAP_FETCH_MAX_MESSAGES);
+  assert.ok(transportOwner.IMAP_SEARCH_MAX_WINDOW * 12 < 131072);
   assert.match(transportSrc, /formatUidSequenceSet/);
   assert.match(transportSrc, /imap_missing_requested_uid/);
   assert.match(transportSrc, /seen\.size !== requested\.size/);
