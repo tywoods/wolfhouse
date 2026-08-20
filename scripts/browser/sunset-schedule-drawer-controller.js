@@ -59,6 +59,10 @@ function scheduleDrawerIsRequestActive(openGen, bookingKey){
  * Create modal CSS sets display:flex by default; closed state is inline display:none
  * + aria-hidden=true. Empty inline display must NOT count as open (that falsely blocks
  * Escape/unlock and leaves body overflow:hidden / blank cream).
+ *
+ * Never consult computed style: with Create's stylesheet default (display:flex),
+ * an emptied inline style would look "open" in the browser and keep scroll lock /
+ * steal Escape after the booking drawer closes.
  */
 function scheduleOverlayIsOpen(node){
   if (!node) return false;
@@ -68,18 +72,8 @@ function scheduleOverlayIsOpen(node){
   if (aria === 'true') return false;
   var d = '';
   try { d = (node.style && node.style.display) ? String(node.style.display) : ''; } catch (_d) { d = ''; }
-  if (d === 'none') return false;
-  if (d === 'flex' || d === 'block' || d === 'grid') return true;
-  // No explicit open display: prefer computed style when available.
-  if (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function') {
-    try {
-      var cs = window.getComputedStyle(node);
-      if (!cs) return false;
-      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
-      return cs.display === 'flex' || cs.display === 'block' || cs.display === 'grid';
-    } catch (_c) { return false; }
-  }
-  return false;
+  if (d === 'none' || d === '') return false;
+  return d === 'flex' || d === 'block' || d === 'grid';
 }
 
 function schedulePageHasOverlay(){
@@ -102,12 +96,17 @@ function scheduleDrawerEnsureDocumentLayer(){
   var backdrop = el('ps-drawer-backdrop');
   // Body is a column flex container; fixed overlays must not participate as flex items
   // or the active tab can collapse to blank cream until reload.
+  // Always re-append (backdrop, then drawer) so:
+  // 1) both escape #tab-portal-home's overflow:auto fixed containing block
+  // 2) drawer paints above #ps-drawer-backdrop (DOM order + higher z-index)
+  // Otherwise Reservas → Abrir en Agenda can leave an invisible full-viewport
+  // backdrop trapping clicks while the drawer sits underneath.
   if (backdrop) {
-    if (backdrop.parentNode !== document.body) document.body.appendChild(backdrop);
+    try { document.body.appendChild(backdrop); } catch (_ba) { /* ignore */ }
     try { backdrop.style.flex = 'none'; } catch (_bf) { /* ignore */ }
   }
   if (drawer) {
-    if (drawer.parentNode !== document.body) document.body.appendChild(drawer);
+    try { document.body.appendChild(drawer); } catch (_da) { /* ignore */ }
     try { drawer.style.flex = 'none'; } catch (_df) { /* ignore */ }
   }
 }
@@ -146,13 +145,13 @@ function scheduleDrawerUnlockPage(){
     return;
   }
   scheduleDrawerMarkDetailOpen(false);
-  if (createOpen) {
-    // Create modal still owns the scroll lock; do not clear overflow.
-    document.body.style.overflow = 'hidden';
-    if (document.documentElement) document.documentElement.style.overflow = 'hidden';
-    return;
-  }
+  // Always clear first so a false-open Create (empty inline display + CSS flex)
+  // cannot leave body/html overflow:hidden / blank cream after Escape or ✕.
   scheduleDrawerClearPageScrollLock();
+  if (createOpen) {
+    // Create modal still owns the scroll lock; re-apply after the clear.
+    scheduleDrawerLockPage();
+  }
 }
 
 function scheduleDrawerOnBackdropClick(ev){
@@ -209,6 +208,7 @@ function scheduleDrawerShowShell(){
     var editing = !!(drawer.querySelector && drawer.querySelector('#ps-drawer-edit-form'));
     drawer.style.display = editing ? 'flex' : 'block';
     drawer.style.zIndex = '9800';
+    try { drawer.style.pointerEvents = 'auto'; } catch (_pe) { /* ignore */ }
     try { drawer.style.flex = 'none'; } catch (_df2) { /* ignore */ }
     try { drawer.hidden = false; } catch (_dh) { /* ignore */ }
     try { drawer.setAttribute('aria-hidden', 'false'); } catch (_da) { /* ignore */ }
@@ -216,7 +216,9 @@ function scheduleDrawerShowShell(){
   if (backdrop) {
     backdrop.style.display = 'block';
     backdrop.style.zIndex = '9700';
+    try { backdrop.style.pointerEvents = 'auto'; } catch (_bpe) { /* ignore */ }
     try { backdrop.style.flex = 'none'; } catch (_bf2) { /* ignore */ }
+    try { backdrop.removeAttribute('hidden'); } catch (_bh) { /* ignore */ }
     try { backdrop.setAttribute('aria-hidden', 'false'); } catch (_ba) { /* ignore */ }
   }
   scheduleDrawerLockPage();
@@ -448,11 +450,15 @@ function closeScheduleDetailDrawer(){
   var backdrop = el('ps-drawer-backdrop');
   if (drawer) {
     drawer.style.display = 'none';
+    try { drawer.style.pointerEvents = 'none'; } catch (_dpe) { /* ignore */ }
     try { drawer.hidden = true; } catch (_dh2) { /* ignore */ }
     try { drawer.setAttribute('aria-hidden', 'true'); } catch (_da2) { /* ignore */ }
   }
   if (backdrop) {
     backdrop.style.display = 'none';
+    // Fail closed: a display:none backdrop must never keep capturing nav clicks.
+    try { backdrop.style.pointerEvents = 'none'; } catch (_bpe2) { /* ignore */ }
+    try { backdrop.setAttribute('hidden', ''); } catch (_bh2) { /* ignore */ }
     try { backdrop.setAttribute('aria-hidden', 'true'); } catch (_ba2) { /* ignore */ }
   }
   scheduleDrawerMarkDetailOpen(false);
