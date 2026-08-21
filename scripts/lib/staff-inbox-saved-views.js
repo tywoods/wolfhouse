@@ -54,8 +54,8 @@ const INBOX_VIEW_GROUP_IDS = Object.freeze(INBOX_VIEW_GROUPS.map((g) => g.id));
 
 /** Sort ids describe the ORDER BY already baked into each delegated builder. */
 const INBOX_VIEW_SORTS = Object.freeze({
-  /** conversations: needs_human DESC, handoff priority, updated_at DESC */
-  ATTENTION_THEN_RECENT: 'attention_then_recent',
+  /** conversations: updated_at DESC, id ASC (newest first; needs_human is filter-only) */
+  RECENT: 'recent',
   /** customers: booked DESC, last_contact_at DESC NULLS LAST, phone ASC */
   BOOKED_THEN_RECENT: 'booked_then_recent',
 });
@@ -132,7 +132,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     id: 'all',
     label: 'All',
     group: 'inbox',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     description: 'Every open or on-hold conversation on this tenant and location.',
   }),
@@ -140,7 +140,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     id: 'whatsapp',
     label: 'WhatsApp',
     group: 'inbox',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     channel: INBOX_VIEW_CHANNELS.WHATSAPP,
     description: 'Open conversations on the WhatsApp channel.',
@@ -149,7 +149,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     id: 'email',
     label: 'Email',
     group: 'inbox',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     channel: INBOX_VIEW_CHANNELS.EMAIL,
     description: 'Open conversations on the email channel.',
@@ -158,7 +158,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     id: 'snoozed',
     label: 'Snoozed',
     group: 'inbox',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
     requires: ['conversations.last_read_at'],
     description: 'Threads hidden until their snooze expires.',
   }),
@@ -166,7 +166,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     id: 'approvals',
     label: 'Approvals',
     group: 'needs_you',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
     requires: ['luna_outbound_approvals'],
     description: 'Luna drafts waiting for a staff decision, across WhatsApp and email.',
   }),
@@ -174,7 +174,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     id: 'needs_human',
     label: 'Needs human',
     group: 'needs_you',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     needsHuman: true,
     description: 'Open conversations with conversations.needs_human = TRUE.',
@@ -193,7 +193,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     id: 'unassigned',
     label: 'Unassigned',
     group: 'needs_you',
-    defaultSort: INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT,
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
     requires: ['conversations.assigned_to'],
     description: 'Open threads with no staff owner.',
   }),

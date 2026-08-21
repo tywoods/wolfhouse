@@ -108,16 +108,17 @@ function detailLocationWhereClause(scoped, paramIndex = 3) {
   return scoped ? `\n  AND ${sqlConversationLocationMatch('conv', paramIndex)}` : '';
 }
 
-/** Handoff urgency rank — owner of the inbox sort, the projection and the cursor. */
+/**
+ * Handoff urgency CASE expression (open handoff priority). Kept exported for
+ * callers that need a rank; inbox list ORDER BY is recency-only.
+ */
 const CONVERSATION_INBOX_PRIORITY_RANK_SQL = `CASE h.priority
     WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
     WHEN 'normal' THEN 2 ELSE 4
   END`;
 
-/** Row fields carrying the inbox sort key, in ORDER BY order. */
+/** Row fields carrying the inbox sort key, in ORDER BY order (newest first). */
 const CONVERSATION_INBOX_CURSOR_FIELDS = Object.freeze([
-  'needs_human',
-  'handoff_priority_rank',
   'last_activity',
   'conversation_id',
 ]);
@@ -137,30 +138,17 @@ function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped) {
 }
 
 /**
- * Rows strictly after the cursor under the inbox ORDER BY. conv.id breaks ties so
- * a page boundary cannot repeat or skip a thread when a new message lands.
+ * Rows strictly after the cursor under the inbox ORDER BY (updated_at DESC,
+ * id ASC). conv.id breaks ties so a page boundary cannot repeat or skip a
+ * thread when a new message lands.
  */
 function conversationInboxCursorClause(paramIndex) {
-  const attention = `$${paramIndex}::boolean`;
-  const rank = `$${paramIndex + 1}::int`;
-  const activity = `$${paramIndex + 2}::timestamptz`;
-  const id = `$${paramIndex + 3}::uuid`;
+  const activity = `$${paramIndex}::timestamptz`;
+  const id = `$${paramIndex + 1}::uuid`;
   return `
   AND (
-    conv.needs_human < ${attention}
-    OR (
-      conv.needs_human = ${attention}
-      AND (
-        (${CONVERSATION_INBOX_PRIORITY_RANK_SQL}) > ${rank}
-        OR (
-          (${CONVERSATION_INBOX_PRIORITY_RANK_SQL}) = ${rank}
-          AND (
-            conv.updated_at < ${activity}
-            OR (conv.updated_at = ${activity} AND conv.id > ${id})
-          )
-        )
-      )
-    )
+    conv.updated_at < ${activity}
+    OR (conv.updated_at = ${activity} AND conv.id > ${id})
   )`;
 }
 
@@ -171,8 +159,7 @@ function conversationInboxCursorClause(paramIndex) {
  * @param {boolean} [opts.needsHumanScoped] - Inbox "Needs human" view: only
  *   conversations.needs_human = TRUE (independent of CRM customers)
  * @param {{ limitParamIndex: number, cursorParamIndex?: number|null }} [opts.keyset]
- *   keyset page: bound LIMIT, tie-broken ORDER BY and the rank column the cursor
- *   carries, instead of the fixed LIMIT 200 of the legacy inbox list
+ *   keyset page: bound LIMIT, tie-broken ORDER BY (updated_at DESC, id ASC)
  * @returns {string} $1 = client slug; when locationScoped, $2 = location_id;
  *   when channelScoped, the next index is the channel value
  */
@@ -182,21 +169,17 @@ function getConversationInboxQuery(opts = {}) {
   const needsHumanScoped = !!opts.needsHumanScoped;
   const keyset = opts.keyset && typeof opts.keyset === 'object' ? opts.keyset : null;
   const cursorParamIndex = keyset && keyset.cursorParamIndex ? keyset.cursorParamIndex : null;
-  const rankProjection = keyset
-    ? `\n  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} AS handoff_priority_rank,`
-    : '';
   const cursorClause = cursorParamIndex ? conversationInboxCursorClause(cursorParamIndex) : '';
+  // Newest activity wins. needs_human stays a row flag + Needs-you filter only —
+  // it must not pin older handoffs above fresher mail.
   const pageSql = keyset
     ? `ORDER BY
-  conv.needs_human DESC,
-  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} ASC,
   conv.updated_at DESC,
   conv.id ASC
 LIMIT $${keyset.limitParamIndex}`
     : `ORDER BY
-  conv.needs_human DESC,
-  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} ASC,
-  conv.updated_at DESC
+  conv.updated_at DESC,
+  conv.id ASC
 LIMIT 200`;
   return `
 SELECT
@@ -213,7 +196,7 @@ SELECT
   conv.updated_at            AS last_activity,
   CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
   conv.metadata->>'guest_tester_class' AS guest_tester_class,
-${inboxChannelFieldsSql()}${rankProjection}
+${inboxChannelFieldsSql()}
   h.reason_code              AS handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
