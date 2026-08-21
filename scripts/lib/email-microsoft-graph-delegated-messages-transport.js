@@ -29,7 +29,8 @@
  * used verbatim as request target — append nothing). Success is one frozen DTO
  * `{ envelopes, tombstones, successor_cursor, observed_count }`. Exact one
  * `@odata.nextLink` XOR `@odata.deltaLink` is mandatory. Deleted rows map to
- * identity tombstones only. Continuation HTTP 410 brands unforgeable
+ * identity tombstones only; optional Graph `@odata.type` / `@odata.etag`
+ * annotations on deleted rows are validated then discarded. Continuation HTTP 410 brands unforgeable
  * `cursor_gone` via `readTrustedMessagesDeltaOutcome` (public error remains
  * generic). No DB/store/lease/grant/runtime/composition wiring.
  *
@@ -156,6 +157,15 @@ const MESSAGES_DELTA_TOMBSTONE_KEYS = Object.freeze([
 const MESSAGES_DELTA_REMOVED_KEY = '@removed';
 const MESSAGES_DELTA_REMOVED_REASON = 'deleted';
 const MESSAGES_DELTA_DELETED_ROW_KEYS = Object.freeze(['id', MESSAGES_DELTA_REMOVED_KEY]);
+const MESSAGES_DELTA_DELETED_ROW_WITH_TYPE = Object.freeze([
+  'id', MESSAGES_DELTA_REMOVED_KEY, ODATA_TYPE_KEY,
+]);
+const MESSAGES_DELTA_DELETED_ROW_WITH_ETAG = Object.freeze([
+  'id', MESSAGES_DELTA_REMOVED_KEY, ETAG_KEY,
+]);
+const MESSAGES_DELTA_DELETED_ROW_WITH_ETAG_AND_TYPE = Object.freeze([
+  'id', MESSAGES_DELTA_REMOVED_KEY, ETAG_KEY, ODATA_TYPE_KEY,
+]);
 const MESSAGES_DELTA_REMOVED_OBJECT_KEYS = Object.freeze(['reason']);
 /** Original list query keys from SELECT_QUERY ($top + $select). */
 const CATCHUP_BASE_QUERY_KEYS = Object.freeze(['$top', '$select']);
@@ -1629,18 +1639,38 @@ function readMessagesDeltaContinuationInput(input) {
 }
 
 /**
- * Classify a messages-delta deleted row: exact `{ id, '@removed': { reason: 'deleted' } }`.
- * Rejects mixed normal fields, malformed removed, wrong reason.
+ * Classify a messages-delta deleted row.
+ * Exact bounded Graph shapes only:
+ *   `{ id, '@removed' }`
+ *   `{ id, '@removed', '@odata.type' }`
+ *   `{ id, '@removed', '@odata.etag' }`
+ *   `{ id, '@removed', '@odata.etag', '@odata.type' }`
+ * Type must be a closed MESSAGE_ODATA_TYPES member; etag a required bounded
+ * string. Both annotations are discarded. Rejects mixed normal fields, unknown
+ * annotations/fields, malformed removed, wrong reason.
  *
  * @returns {'ok'|'row_keyset_invalid'|'row_value_invalid'}
  */
 function classifyMessagesDeltaDeletedRow(row) {
   try {
     if (!isPlainOwnDataObject(row)) return 'row_keyset_invalid';
-    // Mixed normal+deleted fields (e.g. subject + @removed) → keyset invalid.
-    if (!exactPlainData(row, MESSAGES_DELTA_DELETED_ROW_KEYS)) {
-      // If @removed is present with other keys, still keyset invalid (not normal row).
+    // Mixed normal+deleted fields (e.g. subject + @removed) or unknown
+    // annotations (e.g. @odata.id) → keyset invalid.
+    if (!exactPlainData(row, MESSAGES_DELTA_DELETED_ROW_KEYS)
+        && !exactPlainData(row, MESSAGES_DELTA_DELETED_ROW_WITH_TYPE)
+        && !exactPlainData(row, MESSAGES_DELTA_DELETED_ROW_WITH_ETAG)
+        && !exactPlainData(row, MESSAGES_DELTA_DELETED_ROW_WITH_ETAG_AND_TYPE)) {
       return 'row_keyset_invalid';
+    }
+    if (Object.prototype.hasOwnProperty.call(row, ODATA_TYPE_KEY)) {
+      const typeValue = ownData(row, ODATA_TYPE_KEY);
+      if (typeof typeValue !== 'string' || !MESSAGE_ODATA_TYPES.has(typeValue)) {
+        return 'row_value_invalid';
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(row, ETAG_KEY)
+        && !requiredBoundedString(ownData(row, ETAG_KEY))) {
+      return 'row_value_invalid';
     }
     if (!requiredBoundedString(ownData(row, 'id'))) return 'row_value_invalid';
     const removed = ownData(row, MESSAGES_DELTA_REMOVED_KEY);
