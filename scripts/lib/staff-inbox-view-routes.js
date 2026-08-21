@@ -70,7 +70,7 @@ const INBOX_LIST_MAX_LIMIT = 99;
 const INBOX_VIEW_COUNTS_CACHE_TTL_MS = 5000;
 const INBOX_VIEW_COUNTS_CACHE_MAX_KEYS = 64;
 
-const INBOX_LIST_CURSOR_VERSION = 1;
+const INBOX_LIST_CURSOR_VERSION = 2;
 
 const CURSOR_FIELDS_BY_SOURCE = Object.freeze({
   [INBOX_VIEW_SOURCES.CUSTOMERS]: CUSTOMER_LIST_CURSOR_FIELDS,
@@ -82,8 +82,6 @@ const CURSOR_FIELD_TYPES = Object.freeze({
   is_booked: 'boolean',
   last_contact_at: 'timestamp_or_null',
   phone: 'string',
-  needs_human: 'boolean',
-  handoff_priority_rank: 'integer',
   last_activity: 'timestamp',
   conversation_id: 'string',
 });

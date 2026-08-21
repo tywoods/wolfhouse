@@ -275,12 +275,12 @@ const CUSTOMER_FIXTURE = Object.freeze([
 ].map((r) => Object.freeze({ ...r, display_name: `P${r.phone.slice(-1)}`, booking_count: r.is_booked ? 1 : 0 })));
 
 const CONVERSATION_FIXTURE = Object.freeze([
-  { conversation_id: 'c1', last_activity: '2026-08-10T10:00:00.000Z', needs_human: true, handoff_priority_rank: 0 },
-  { conversation_id: 'c2', last_activity: '2026-08-10T10:00:00.000Z', needs_human: true, handoff_priority_rank: 0 },
-  { conversation_id: 'c3', last_activity: '2026-08-09T10:00:00.000Z', needs_human: true, handoff_priority_rank: 2 },
-  { conversation_id: 'c4', last_activity: '2026-08-12T10:00:00.000Z', needs_human: false, handoff_priority_rank: 4 },
-  { conversation_id: 'c5', last_activity: '2026-08-11T10:00:00.000Z', needs_human: false, handoff_priority_rank: 4 },
-  { conversation_id: 'c6', last_activity: '2026-08-08T10:00:00.000Z', needs_human: false, handoff_priority_rank: 4 },
+  { conversation_id: 'c1', last_activity: '2026-08-10T10:00:00.000Z', needs_human: true },
+  { conversation_id: 'c2', last_activity: '2026-08-10T10:00:00.000Z', needs_human: true },
+  { conversation_id: 'c3', last_activity: '2026-08-09T10:00:00.000Z', needs_human: true },
+  { conversation_id: 'c4', last_activity: '2026-08-12T10:00:00.000Z', needs_human: false },
+  { conversation_id: 'c5', last_activity: '2026-08-11T10:00:00.000Z', needs_human: false },
+  { conversation_id: 'c6', last_activity: '2026-08-08T10:00:00.000Z', needs_human: false },
 ].map((r) => Object.freeze({ ...r, phone: `+3461000000${r.conversation_id.slice(1)}`, guest_name: r.conversation_id })));
 
 const PAGING_CASES = Object.freeze([
@@ -296,7 +296,8 @@ const PAGING_CASES = Object.freeze([
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     tiebreaker: 'conv.id',
     fixture: CONVERSATION_FIXTURE,
-    inserted: { conversation_id: 'c0', last_activity: '2026-08-12T23:00:00.000Z', needs_human: true, handoff_priority_rank: 0, phone: '+34610000000', guest_name: 'c0' },
+    // Newer than page-1 cursor under recency-first sort (lands before mid-scroll).
+    inserted: { conversation_id: 'c0', last_activity: '2026-08-12T23:00:00.000Z', needs_human: true, phone: '+34610000000', guest_name: 'c0' },
   },
 ]);
 
@@ -673,6 +674,19 @@ ok('saved-view paths do not collide with the thread composite',
   }
 
   console.log('\n── paging is keyset, and stable under concurrent writes ──');
+  {
+    const whatsapp = buildInboxViewQuery({
+      view: 'whatsapp', clientSlug: CLIENT, query: {}, page: { limit: 3, cursor: null },
+    });
+    const terms = orderByTerms(whatsapp.sql);
+    ok('conversation views sort newest-first (updated_at DESC, id ASC)',
+      terms.length === 2
+      && terms[0].expr === 'conv.updated_at' && terms[0].desc
+      && terms[1].expr === 'conv.id' && !terms[1].desc);
+    ok('conversation sort does not pin needs_human above newer threads',
+      !/needs_human/i.test(terms.map((t) => t.expr).join(' '))
+      && CURSOR_FIELDS_BY_SOURCE[INBOX_VIEW_SOURCES.CONVERSATIONS].join(',') === 'last_activity,conversation_id');
+  }
   for (const testCase of PAGING_CASES) {
     const label = testCase.view;
     const fields = CURSOR_FIELDS_BY_SOURCE[testCase.source];

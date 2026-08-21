@@ -48,6 +48,7 @@ const {
   getConversationInboxQuery,
   getConversationInboxCountsQuery,
   conversationInboxChannelParamIndex,
+  CONVERSATION_INBOX_CURSOR_FIELDS,
 } = require('./lib/staff-conversation-queries');
 
 const ROOT = path.join(__dirname, '..');
@@ -142,9 +143,9 @@ assert('conversation views are not multi-selectable',
 assert('customer-source views declare the customer list sort',
   declarations.filter((v) => v.source === INBOX_VIEW_SOURCES.CUSTOMERS)
     .every((v) => v.defaultSort === INBOX_VIEW_SORTS.BOOKED_THEN_RECENT));
-assert('conversation-source views declare the attention sort',
+assert('conversation-source views declare the recent-first sort',
   declarations.filter((v) => v.source === INBOX_VIEW_SOURCES.CONVERSATIONS)
-    .every((v) => v.defaultSort === INBOX_VIEW_SORTS.ATTENTION_THEN_RECENT));
+    .every((v) => v.defaultSort === INBOX_VIEW_SORTS.RECENT));
 
 console.log('\n[2] Delegation — the registry restates no filter SQL');
 
@@ -298,6 +299,12 @@ console.log('\n[4] Conversation views — delegated inbox SQL plus parameterized
 const convAll = buildInboxViewQuery({ view: 'all', clientSlug: WOLFHOUSE, query: {} });
 assert('inbox All delegates to getConversationInboxQuery unchanged',
   convAll.ok === true && convAll.sql === getConversationInboxQuery({}));
+assert('inbox list sorts newest-first (updated_at DESC); needs_human is not a pin',
+  /ORDER BY\s+conv\.updated_at DESC\s*,\s*conv\.id ASC/i.test(convAll.sql.replace(/\s+/g, ' '))
+  && !/ORDER BY[\s\S]*needs_human\s+DESC/i.test(convAll.sql)
+  && !/handoff_priority_rank/i.test(convAll.sql));
+assert('conversation cursor is recency + id only',
+  CONVERSATION_INBOX_CURSOR_FIELDS.join(',') === 'last_activity,conversation_id');
 const convAllSunset = buildInboxViewQuery({ view: 'all', clientSlug: SUNSET, query: { location: 'sunset-sardinero' } });
 assert('inbox All (sunset) delegates to the location-scoped query',
   convAllSunset.ok === true && convAllSunset.sql === getConversationInboxQuery({ locationScoped: true }));
