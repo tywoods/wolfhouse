@@ -46,7 +46,16 @@ var INBOX_ROWS_CSS = [
   '#tab-conversations[data-inbox-multiselect="false"] .inbox-row-select,',
   '#inbox-shell .inbox-row-select,',
   '#tab-conversations .inbox-row-select{display:none!important}',
-  /* Needs-human attention: same orange as .inbox-needs-human-raise.is-on */
+  /* Soft Luna unread tint (existing inbox-row-unread class). Read rows stay shell grey. */
+  '#inbox-shell .conv-card.inbox-row-unread:not(.selected),',
+  '#tab-conversations .conv-card.inbox-row-unread:not(.selected){background:#E3EEF5}',
+  '#inbox-shell .conv-card.inbox-row-unread:not(.selected):hover,',
+  '#tab-conversations .conv-card.inbox-row-unread:not(.selected):hover{background:#D5E5EF}',
+  '[data-theme="dark"] #inbox-shell .conv-card.inbox-row-unread:not(.selected),',
+  '[data-theme="dark"] #tab-conversations .conv-card.inbox-row-unread:not(.selected){background:#1a2836}',
+  '[data-theme="dark"] #inbox-shell .conv-card.inbox-row-unread:not(.selected):hover,',
+  '[data-theme="dark"] #tab-conversations .conv-card.inbox-row-unread:not(.selected):hover{background:#203244}',
+  /* Needs-human attention: same orange as .inbox-needs-human-raise.is-on (not unread blue) */
   '.conv-card.inbox-row-needs-human .inbox-channel-badge{color:#E8893A}',
   '.conv-card.inbox-row-needs-human .inbox-channel-badge svg{stroke:currentColor}',
 ].join('');
