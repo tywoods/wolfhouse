@@ -17320,8 +17320,10 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-card-meta{margin-top:auto}
 .portal-admin-email-status{display:inline-flex;align-items:center;width:max-content;font-size:12px;font-weight:650;padding:4px 10px;border-radius:999px}
 .portal-admin-email-status.is-on{background:#E4F0E8;color:#2F6B45}
+.portal-admin-email-status.is-active{background:#2F6B45;color:#fff}
 .portal-admin-email-status.is-off{background:var(--surface-soft);color:var(--text-2)}
 .portal-admin-email-status.is-soon{background:#F3EDE4;color:#8A6A3B}
+.portal-admin-email-card.is-active-inbox{border-color:#2F6B45;box-shadow:0 0 0 1px #2F6B45,var(--shadow-soft)}
 .portal-admin-email-address{margin:0;font-size:14px;font-weight:600;word-break:break-word}
 .portal-admin-email-last-sync{margin:0;font-size:13px;color:var(--text-2)}
 .portal-admin-email-last-sync.is-stale{color:#8A6A3B}

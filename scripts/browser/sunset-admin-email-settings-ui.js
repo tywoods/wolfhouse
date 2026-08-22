@@ -653,7 +653,7 @@ function emailUiT(key, en, es){
   return isEs ? es : en;
 }
 function adminEmailStatusPill(kind, label){
-  var cls = kind === 'on' ? 'is-on' : (kind === 'soon' ? 'is-soon' : 'is-off');
+  var cls = kind === 'on' ? 'is-on' : (kind === 'active' ? 'is-active' : (kind === 'soon' ? 'is-soon' : 'is-off'));
   return '<span class="portal-admin-email-status ' + cls + '">' + escHtml(label) + '</span>';
 }
 function adminEmailLooksLikeAddress(raw){
@@ -801,30 +801,37 @@ function renderAdminEmailSettingsState(state, data, provider){
     hasConnect = false;
   }
   var hasAnyAction = hasPrepare || hasConnect || disconnectAllowed || hasReauthorize;
-  var pillKind = key === 'connected_health' ? 'on' : (key === 'reauth_required' ? 'soon' : 'off');
-  var pillLabel = key === 'connected_health'
-    ? emailUiT('admin.email.connected', 'Connected', 'Conectado')
-    : (key === 'reauth_required'
-      ? emailUiT('admin.email.needsAttention', 'Needs attention', 'Necesita atención')
-      : emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
   var failed = adminEmailProviderConnectFailed(provider);
   var failI18n = provider === 'gmail_api' ? 'admin.email.connectGoogleFailed' : 'admin.email.connectFailed';
   var empty = adminEmailIsEmptyState(key, provider);
-  var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '"' +
+  var connected = adminEmailMailboxConnected(key) && !failed;
+  var syncRaw = connected ? adminEmailLastSyncRaw(data) : '';
+  var isActiveInbox = connected && provider === 'microsoft_graph' && !!syncRaw;
+  var pillKind = isActiveInbox ? 'active' : (key === 'connected_health' ? 'on' : (key === 'reauth_required' ? 'soon' : 'off'));
+  var pillLabel = isActiveInbox
+    ? emailUiT('admin.email.activeInbox', 'Active Inbox', 'Bandeja activa')
+    : (key === 'connected_health'
+      ? emailUiT('admin.email.connected', 'Connected', 'Conectado')
+      : (key === 'reauth_required'
+        ? emailUiT('admin.email.needsAttention', 'Needs attention', 'Necesita atención')
+        : emailUiT('admin.email.notConnected', 'Not connected', 'No conectado')));
+  var statusCopy = isActiveInbox
+    ? emailUiT('admin.email.state.activeInbox', 'This is the mailbox Luna uses for guest Inbox.', 'Este es el buzón que Luna usa para la bandeja de huéspedes.')
+    : adminEmailStateCopy(key, provider);
+  var html = '<section class="portal-admin-email-settings portal-admin-email-card' + (isActiveInbox ? ' is-active-inbox' : '') + '" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '"' +
+    (isActiveInbox ? ' data-email-active-inbox="1"' : '') +
     (empty ? ' data-email-empty="1"' : '') + '>' +
     '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
     '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.' + provider, providerTitleEn, providerTitleEs)) + '</h2>' +
     adminEmailStatusPill(pillKind, pillLabel) +
     '<p role="status"' + (failed ? ' data-email-connect-failed data-i18n="' + failI18n + '"' : '') + '>' +
-    escHtml(adminEmailStateCopy(key, provider)) + '</p>';
-  var connected = adminEmailMailboxConnected(key) && !failed;
+    escHtml(statusCopy) + '</p>';
   var connectedAs = connected ? adminEmailLooksLikeAddress(data && data.public_address) : '';
   if (connectedAs) {
     html += '<p class="portal-admin-email-address" data-email-connected-as>' +
       '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.connectedAs', 'Connected as', 'Conectado como')) + '</span> ' +
       escHtml(connectedAs) + '</p>';
   }
-  var syncRaw = connected ? adminEmailLastSyncRaw(data) : '';
   var syncLabel = adminEmailFormatSyncRelative(syncRaw);
   var syncStale = adminEmailLastSyncStale(syncRaw, connected);
   if (syncLabel) {
@@ -901,11 +908,13 @@ function renderAdminEmailSettingsState(state, data, provider){
     html += '<p class="portal-admin-email-disconnect-safety" data-email-disconnect-safety data-i18n="admin.email.disconnectSafetyNote" role="note">' +
       escHtml(emailUiT('admin.email.disconnectSafetyNote', 'Disconnect revokes Microsoft mailbox access. Email processing stays off.', 'La desconexión revoca el acceso al buzón de Microsoft. El procesamiento de email sigue desactivado.')) + '</p>';
   }
-  // Off capability list always preserved.
-  html += '<dl><dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
-    '<dt>' + escHtml(portalT('admin.email.inbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
-    '<dt>' + escHtml(portalT('admin.email.outbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
-    '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd></dl>';
+  // Off capability list is identity-only chrome. Hide it on the live Inbox mailbox.
+  if (!isActiveInbox) {
+    html += '<dl><dt>' + escHtml(portalT('admin.email.endpointActive')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+      '<dt>' + escHtml(portalT('admin.email.inbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+      '<dt>' + escHtml(portalT('admin.email.outbound')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd>' +
+      '<dt>' + escHtml(portalT('admin.email.automation')) + '</dt><dd>' + escHtml(portalT('admin.email.off')) + '</dd></dl>';
+  }
   // actionsUnavailable ONLY when neither prepare nor connect nor disconnect nor reauthorize is true.
   if (!hasAnyAction) {
     html += '<p data-email-actions-unavailable>' + escHtml(portalT('admin.email.actionsUnavailable')) + '</p>';
@@ -992,7 +1001,8 @@ function adminEmailImapCardHtml(data){
   var title = escHtml(emailUiT('admin.email.provider.imap_smtp', 'IMAP / SMTP', 'IMAP / SMTP'));
   var stateKey = ep ? adminEmailStateKey(ep.connection_state) : '';
   var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="imap_smtp"' +
-    (stateKey ? ' data-email-state="' + escHtml(stateKey) + '"' : '') + '>' +
+    (stateKey ? ' data-email-state="' + escHtml(stateKey) + '"' : '') +
+    (stateKey === 'connected_health' ? ' data-email-not-inbox="1"' : '') + '>' +
     '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
     '<h3 class="portal-admin-email-card-title">' + title + '</h3>';
   if (ep) {
@@ -1017,6 +1027,11 @@ function adminEmailImapCardHtml(data){
           '<span class="portal-admin-email-fact-label">' + escHtml(emailUiT('admin.email.smtpMailboxLabel', 'Mailbox address', 'Dirección de correo')) + '</span> ' +
           escHtml(addr) + '</p>';
       }
+    }
+    if (stateKey === 'connected_health') {
+      html += '<p class="portal-admin-email-card-copy" data-email-not-inbox-note role="note">' +
+        escHtml(emailUiT('admin.email.notInboxMailbox', 'Not used for guest Inbox.', 'No se usa para la bandeja de huéspedes.')) +
+        '</p>';
     }
     html += adminEmailImapOffCapabilitiesHtml();
   } else if (missing.length) {

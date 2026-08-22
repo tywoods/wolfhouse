@@ -8,7 +8,7 @@ const { spawnSync } = require('node:child_process');
 const ROOT = path.join(__dirname, '..');
 const {
   createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
-  BODY_KEYS, SUCCESS_DTO_KEYS, BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SQL_RESOLVE, SQL_APPROVE, SQL_JOURNAL_EXISTS,
+  BODY_KEYS, SUCCESS_DTO_KEYS, BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SQL_RESOLVE, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_JOURNAL_EXISTS,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   snapshotGateEnv, snapshotEmailReplyBody, validateJsonContentType, validateSameOrigin,
   isExactApplicationJson, bodyDigestOf, exactOriginSerialization, normalizeConfiguredOrigin,
@@ -70,6 +70,7 @@ function createFakePg(opts = {}) {
   let authorityPresent = opts.authorityPresent !== false;
   let foreign = opts.foreign === true;
   let peMismatch = opts.peMismatch === true;
+  let visibleEmail = opts.visibleEmail === true;
   let authOverride = null;
   const locks = new Map();
   const client = { async query(sql, params) {
@@ -83,6 +84,12 @@ function createFakePg(opts = {}) {
           || String(params[1]).toLowerCase() !== A || String(params[2]).toLowerCase() !== V) return { rows: [] };
       const base = authOverride || authRow({ endpoint_outbound_enabled: endpointOutbound });
       return { rows: [{ ...base, endpoint_outbound_enabled: endpointOutbound }] };
+    }
+    if (n === SQL_VISIBLE_EMAIL || (/c\.phone ~ '\^\(emailv1\|email\):'/.test(n) && /LIMIT 1/.test(n) && !/INNER JOIN tenant_email_inbound/.test(n))) {
+      if (foreign || !visibleEmail || String(params[0]).toLowerCase() !== C || String(params[1]).toLowerCase() !== V) {
+        return { rows: [] };
+      }
+      return { rows: [{ conversation_id: V }] };
     }
     if (/^INSERT INTO tenant_email_reply_approvals/.test(n)) {
       const approvalId = String(params[0]).toLowerCase(); const operationId = String(params[1]).toLowerCase();
@@ -132,6 +139,7 @@ function createFakePg(opts = {}) {
     durable, journal, client,
     setEndpointOutbound(v) { endpointOutbound = v === true; },
     setAuthorityPresent(v) { authorityPresent = v === true; },
+    setVisibleEmail(v) { visibleEmail = v === true; },
     setForeign(v) { foreign = v === true; },
     setPeMismatch(v) { peMismatch = v === true; },
     setAuthOverride(v) { authOverride = v; },
@@ -257,6 +265,14 @@ async function main() {
   await routes.handleDraft(mockReq(dto()), {}, user(), gate);
   ok('missing authority wire-equivalent 404', send.calls[0].status === 404 && send.calls[0].body.error === 'not_found'
     && JSON.stringify(send.calls[0].body) === JSON.stringify(foreignBody));
+  pg.setVisibleEmail(true); send.calls.length = 0;
+  await routes.handleDraft(mockReq(dto()), {}, user(), gate);
+  ok('visible email without Microsoft authority 409 not_sendable', send.calls[0].status === 409
+    && send.calls[0].body.error === 'email_mailbox_not_sendable'
+    && send.calls[0].body.success === false
+    && !('conversation_id' in send.calls[0].body)
+    && pg.durable.size === 1 && dispatchHits === 0 && noLeak(send.calls[0].body));
+  pg.setVisibleEmail(false);
   pg.setAuthorityPresent(true);
   pg.setPeMismatch(true); send.calls.length = 0;
   await routes.handleDraft(mockReq(dto()), {}, user(), gate);

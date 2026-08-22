@@ -79,6 +79,7 @@ const FORBIDDEN_ORIGIN = Object.freeze({ success: false, error: 'origin_forbidde
 const INVALID_REQUEST = Object.freeze({ success: false, error: 'invalid_request' });
 const APPROVAL_CONFLICT = Object.freeze({ success: false, error: 'approval_conflict' });
 const BODY_MISMATCH = Object.freeze({ success: false, error: 'body_mismatch' });
+const MAILBOX_NOT_SENDABLE = Object.freeze({ success: false, error: 'email_mailbox_not_sendable' });
 if (EMAIL_AUTHORITY_BOUND_OUTBOUND_RUNTIME_WIRED !== false || EMAIL_AUTHORITY_BOUND_OUTBOUND_SAFE_FOR_RUNTIME_ROUTE !== false
     || EMAIL_AUTHORITY_BOUND_OUTBOUND_PERSISTENCE_READY !== false) throw new Error('staff_email_inbox_outbound_flags');
 const PINNED_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
@@ -444,6 +445,12 @@ WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('operator','admi
   AND ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   AND ev.provider_mailbox_id = ep.provider_resource_id
 ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
+const SQL_VISIBLE_EMAIL = `
+SELECT c.id::text AS conversation_id
+FROM conversations c
+WHERE c.client_id = $1::uuid AND c.id = $2::uuid
+  AND c.phone ~ '^(emailv1|email):'
+LIMIT 1`.replace(/\s+/g, ' ').trim();
 const SQL_INSERT_DRAFT = `
 INSERT INTO tenant_email_reply_approvals (
   approval_id, operation_id, client_id, location_id, location_key, endpoint_id, conversation_id,
@@ -612,6 +619,15 @@ function createStaffEmailInboxRoutes(deps) {
       endpoint_outbound_enabled: row.endpoint_outbound_enabled === true,
     });
   }
+  async function resolveSendableAuthority(pg, actor, conversationId) {
+    const auth = await resolveAuthority(pg, actor, conversationId);
+    if (auth) return { auth };
+    const visible = await pg.query(SQL_VISIBLE_EMAIL, [actor.client_id, conversationId]);
+    if (visible && Array.isArray(visible.rows) && visible.rows.length === 1 && visible.rows[0]) {
+      return { status: 409, body: MAILBOX_NOT_SENDABLE, code: 'email_mailbox_not_sendable' };
+    }
+    return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+  }
   async function preflight(req, res, user, gateEnv, enabled) {
     if (!enabled) { sendJSON(res, 404, NOT_FOUND); return null; }
     const origin = validateSameOrigin(req, gateEnv);
@@ -662,8 +678,9 @@ function createStaffEmailInboxRoutes(deps) {
     return resolved.value;
   }
   async function persistNewDraftThroughStaffOwner(pg, a, body, digest, expectedAuthority) {
-    const auth = await resolveAuthority(pg, a, body.conversation_id);
-    if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+    const resolved = await resolveSendableAuthority(pg, a, body.conversation_id);
+    if (!resolved.auth) return resolved;
+    const auth = resolved.auth;
     if (expectedAuthority && !authorityMatchesExpected(auth, expectedAuthority)) {
       return { status: 409, body: Object.freeze({ success: false, error: 'stale_authority' }), code: 'stale_authority' };
     }
@@ -679,8 +696,9 @@ function createStaffEmailInboxRoutes(deps) {
     return { status: 200, body: successDto(row.conversation_id, row.message_text, row.approval_id), code: 'draft_created', approval_id: row.approval_id };
   }
   async function persistUpdatedDraftThroughStaffOwner(pg, a, body, digest) {
-    const auth = await resolveAuthority(pg, a, body.conversation_id);
-    if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+    const resolved = await resolveSendableAuthority(pg, a, body.conversation_id);
+    if (!resolved.auth) return resolved;
+    const auth = resolved.auth;
     const subject = await resolvePersistedDraftSubject(pg, auth.client_id, auth.conversation_id, body);
     const upd = await pg.query(SQL_CAS_DRAFT, [
       body.approval_id, a.client_id, body.conversation_id, body.message_text, digest, a.staff_user_id,
@@ -832,11 +850,12 @@ function createStaffEmailInboxRoutes(deps) {
             if (began) await pg.query('ROLLBACK');
             return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
           }
-          const auth = await resolveAuthority(pg, actor, input.conversation_id);
-          if (!auth) {
+          const resolved = await resolveSendableAuthority(pg, actor, input.conversation_id);
+          if (!resolved.auth) {
             if (began) await pg.query('ROLLBACK');
-            return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+            return resolved;
           }
+          const auth = resolved.auth;
           if (!authorityMatchesApproval(auth, row)) {
             if (began) await pg.query('ROLLBACK');
             return { status: 409, body: APPROVAL_CONFLICT, code: 'authority_drift' };
@@ -1001,8 +1020,9 @@ function createStaffEmailInboxRoutes(deps) {
     }
     try {
       const result = await withPgClient(async (pg) => {
-        const auth = await resolveAuthority(pg, actor, input.conversation_id);
-        if (!auth) return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
+        const resolved = await resolveSendableAuthority(pg, actor, input.conversation_id);
+        if (!resolved.auth) return resolved;
+        const auth = resolved.auth;
         const loaded = await pg.query(SQL_LOAD_APPROVAL, [input.approval_id, actor.client_id, input.conversation_id]);
         if (!loaded || !loaded.rows || loaded.rows.length !== 1) {
           return { status: 404, body: NOT_FOUND, code: 'approval_not_found' };
@@ -1159,7 +1179,7 @@ module.exports = {
   ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
   BODY_KEYS, BODY_KEYS_UI, RECOVERY_BODY_KEYS, SUCCESS_DTO_KEYS, RECOVERY_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,
-  SQL_RESOLVE, SQL_APPROVE, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
+  SQL_RESOLVE, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
   createStaffEmailInboxRoutes,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   isEmailOutboundRuntimeCompositionEnabled,

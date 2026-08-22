@@ -1491,11 +1491,14 @@ function acceptEmailApproveSuccess(data, reqConvId, savedApprovalId){
     return { conversation_id: cid, approval_id: ap, approval_state: 'approved' };
   } catch (_e) { return null; }
 }
-function emailUiFailureCopy(op, status){
+function emailUiFailureCopy(op, status, data){
   var c = (typeof status === 'number' && isFinite(status)) ? status : 0;
   if (c === 400) return 'Request rejected';
   if (c === 401 || c === 403) return 'Unauthorized';
   if (c === 404) return 'Conversation unavailable';
+  if (c === 409 && emailOwnData(data, 'error') === 'email_mailbox_not_sendable') {
+    return 'This conversation is not on the Microsoft Inbox mailbox, so it cannot be sent.';
+  }
   if (c === 409) return 'Conflict — reload and try again';
   if (c === 503) return 'Temporarily unavailable';
   return op === 'approve' ? 'Approve failed' : 'Save failed';
@@ -1626,7 +1629,7 @@ function performEmailDraftSave(convId, targetEl, thenApprove){
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
       }
-      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('draft', out.status));
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('draft', out.status, out.data));
       setEmailReplyControlsDisabled(targetEl, false, st.locked);
     })
     .catch(function(){
@@ -1716,7 +1719,7 @@ function performEmailApproveSend(convId, targetEl){
           } catch (_reload) { /* ignore */ }
           return;
         }
-        showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status));
+        showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status, out.data));
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
       }
@@ -1740,7 +1743,7 @@ function performEmailApproveSend(convId, targetEl){
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
       }
-      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status));
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status, out.data));
       setEmailReplyControlsDisabled(targetEl, false, st.locked);
     })
     .catch(function(){
