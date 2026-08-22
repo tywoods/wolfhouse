@@ -214,6 +214,7 @@ const {
   EMAIL_SETTINGS_PATH,
   EMAIL_SMTP_IDENTITY_PATH,
   EMAIL_SMTP_VERIFY_PATH,
+  EMAIL_SMTP_DISCONNECT_PATH,
   EMAIL_IMAP_VERIFY_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
@@ -2832,7 +2833,7 @@ const emailSettingsRoutes = createEmailSettingsRoutes({
   imapSecretProvider: createSunsetImapKvSecretProvider(),
 });
 const { handleGet: handleEmailSettingsGet, handlePost: handleSmtpIdentityPost,
-  handleVerifyPost: handleSmtpVerifyPost, handleImapVerifyPost } = emailSettingsRoutes;
+  handleVerifyPost: handleSmtpVerifyPost, handleImapVerifyPost, handleDisconnectPost } = emailSettingsRoutes;
 const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   sendJSON,
   assertStaffClientAccess,
@@ -48379,6 +48380,17 @@ async function router(req, res) {
     try { smtpIdentityBody = JSON.parse((await readBody(req)) || '{}'); }
     catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
     return handleSmtpIdentityPost(smtpIdentityBody, req, res, auth.user);
+  }
+  if (pathname === EMAIL_SMTP_DISCONNECT_PATH && method === 'POST') {
+    if (!isSunsetEmailSmtpIdentityRegisterEnabled(process.env)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin', { concealUnauthenticated: true });
+    if (!auth.ok) return;
+    let smtpDisconnectBody;
+    try { smtpDisconnectBody = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return handleDisconnectPost(smtpDisconnectBody, req, res, auth.user);
   }
   if (pathname === OAUTH_PREPARE_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'admin');

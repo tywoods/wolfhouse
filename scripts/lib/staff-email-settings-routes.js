@@ -4,15 +4,18 @@ const registry = require('./email-tenant-channel-registry');
 const smtpSecretContract = require('./email-sunset-smtp-secret-ref-contract');
 const imapSecretContract = require('./email-sunset-imap-secret-ref-contract');
 const { createSunsetSmtpIdentityRegister } = require('./email-sunset-smtp-identity-register');
+const { createSunsetSmtpIdentityDisconnect } = require('./email-sunset-smtp-identity-disconnect');
 const { createSunsetSmtpLiveVerify } = require('./email-sunset-smtp-live-verify');
 const { createSunsetImapLiveVerify } = require('./email-sunset-imap-live-verify');
 
 const EMAIL_SETTINGS_PATH = '/staff/admin/email-settings';
 const EMAIL_SMTP_IDENTITY_PATH = smtpSecretContract.EMAIL_SMTP_IDENTITY_PATH;
 const EMAIL_SMTP_VERIFY_PATH = smtpSecretContract.EMAIL_SMTP_VERIFY_PATH;
+const EMAIL_SMTP_DISCONNECT_PATH = smtpSecretContract.EMAIL_SMTP_DISCONNECT_PATH;
 const EMAIL_IMAP_VERIFY_PATH = imapSecretContract.EMAIL_IMAP_VERIFY_PATH;
 const SMTP_POST_BODY_KEYS = Object.freeze(['location_id', 'public_address']);
 const SMTP_VERIFY_BODY_KEYS = Object.freeze(['location_id']);
+const SMTP_DISCONNECT_BODY_KEYS = Object.freeze(['location_id', 'endpoint_id']);
 const IMAP_VERIFY_BODY_KEYS = Object.freeze(['location_id']);
 const SMTP_ALLOWED_ROLES = Object.freeze(['admin', 'owner']);
 const UUID_RE_CI = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -575,6 +578,7 @@ async function loadMicrosoftEndpointLastSyncMap(pg, clientId) {
 
 function publicState(endpoint, grant) {
   if (!endpoint) return 'disconnected';
+  if (endpoint.provider === 'imap_smtp' && endpoint.binding_status === 'revoked') return 'disconnected';
   if (endpoint.provider === 'imap_smtp' && grant
       && (grant.smtp_verified === true || grant.imap_verified === true)) {
     return 'connected_health';
@@ -666,10 +670,11 @@ function providerActions(startOn, reauthOn, disconnectOn, provider, locations, e
     && !providerEndpoints.some((endpoint) => endpoint.location_id === location.location_id));
   const hasReauth = provider === 'microsoft_graph' && reauthOn
     && providerEndpoints.some((endpoint) => endpoint.reauthorize_eligible === true);
-  const hasDisconnect = provider === 'microsoft_graph' && disconnectOn
+  const hasMsDisconnect = provider === 'microsoft_graph' && disconnectOn
     && providerEndpoints.some((endpoint) => endpoint.disconnect_eligible === true);
+  const hasImapDisconnect = provider === 'imap_smtp' && providerEndpoints.length > 0;
   return Object.freeze({ prepare: startOn && hasActiveLocationWithoutEndpoint && !hasEligible,
-    connect: hasEligible, disconnect: hasDisconnect, reauthorize: hasReauth });
+    connect: hasEligible, disconnect: hasMsDisconnect || hasImapDisconnect, reauthorize: hasReauth });
 }
 
 function computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
@@ -750,6 +755,34 @@ function snapshotImapVerifyBody(body) {
   } catch (_) { return null; }
 }
 
+function snapshotSmtpDisconnectBody(body) {
+  try {
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+    const proto = Object.getPrototypeOf(body);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const actual = Reflect.ownKeys(body);
+    if (actual.length !== SMTP_DISCONNECT_BODY_KEYS.length) return null;
+    for (let i = 0; i < SMTP_DISCONNECT_BODY_KEYS.length; i += 1) {
+      if (actual[i] !== SMTP_DISCONNECT_BODY_KEYS[i]) return null;
+    }
+    const locationDesc = Object.getOwnPropertyDescriptor(body, 'location_id');
+    const endpointDesc = Object.getOwnPropertyDescriptor(body, 'endpoint_id');
+    if (!locationDesc || !endpointDesc
+        || !Object.prototype.hasOwnProperty.call(locationDesc, 'value')
+        || !Object.prototype.hasOwnProperty.call(endpointDesc, 'value')
+        || locationDesc.get || locationDesc.set || endpointDesc.get || endpointDesc.set
+        || !locationDesc.enumerable || !endpointDesc.enumerable
+        || typeof locationDesc.value !== 'string' || !LOCATION_SLUG_RE.test(locationDesc.value)
+        || typeof endpointDesc.value !== 'string' || !UUID_RE_CI.test(endpointDesc.value)) {
+      return null;
+    }
+    return Object.freeze({
+      location_id: locationDesc.value,
+      endpoint_id: endpointDesc.value.toLowerCase(),
+    });
+  } catch (_) { return null; }
+}
+
 function smtpSecretStatusDto(runtimeEnv) {
   const refs = smtpSecretContract.evaluateSunsetSmtpSecretRefs(runtimeEnv);
   return Object.freeze({
@@ -791,6 +824,12 @@ function createEmailSettingsRoutes(deps) {
     : (client) => createSunsetImapLiveVerify(Object.freeze({
       client: Object.freeze({ query: client.query.bind(client) }), env: runtimeEnv,
       secretProvider: deps.imapSecretProvider, imapTransport: deps.imapTransport,
+    }));
+  const createSmtpDisconnect = typeof deps.createSmtpIdentityDisconnect === 'function'
+    ? deps.createSmtpIdentityDisconnect
+    : (client) => createSunsetSmtpIdentityDisconnect(Object.freeze({
+      client: Object.freeze({ query: client.query.bind(client) }),
+      env: runtimeEnv,
     }));
 
   async function handleGet(query, req, res, user) {
@@ -864,12 +903,14 @@ function createEmailSettingsRoutes(deps) {
               });
             }
           }
-          endpoints.push(endpointDto(row, projectionGrant, {
+          const dto = endpointDto(row, projectionGrant, {
             atomicRow,
             reauthGateOn,
             disconnectGateOn,
             lastSync,
-          }));
+          });
+          if (dto.provider === 'imap_smtp' && dto.connection_state === 'disconnected') continue;
+          endpoints.push(dto);
         }
         const locations = locationsResult.value.map((row) => Object.freeze({
           location_id: row.location_id, display_name: row.display_name, active: row.active === true,
@@ -1037,13 +1078,60 @@ function createEmailSettingsRoutes(deps) {
     }
   }
 
-  return { handleGet, handlePost, handleVerifyPost, handleImapVerifyPost };
+  async function handleDisconnectPost(body, req, res, user) {
+    if (!smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
+      return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const role = user && typeof user.role === 'string' ? user.role : '';
+    if (SMTP_ALLOWED_ROLES.indexOf(role) < 0) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    if (!deps.assertStaffClientAccess(user, SUNSET_CLIENT_SLUG, res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({
+      clientSlug: SUNSET_CLIENT_SLUG,
+      method: 'POST',
+      pathname: EMAIL_SMTP_DISCONNECT_PATH,
+      env: runtimeEnv,
+    });
+    if (!authz.ok) {
+      return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+    }
+    const bodySnap = snapshotSmtpDisconnectBody(body);
+    if (!bodySnap) return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    const actor = user && typeof user.staff_user_id === 'string' ? user.staff_user_id : '';
+    const clientId = user && typeof user.client_id === 'string' ? user.client_id : '';
+    if (!UUID_RE_CI.test(actor) || !UUID_RE_CI.test(clientId)) {
+      return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+    }
+    try {
+      return await deps.withPgClient(async (pg) => {
+        const service = createSmtpDisconnect(pg);
+        const ack = await service.disconnectImapSmtpIdentity(Object.freeze({
+          clientId: clientId.toLowerCase(),
+          locationId: bodySnap.location_id,
+          endpointId: bodySnap.endpoint_id,
+          actorStaffUserId: actor.toLowerCase(),
+        }));
+        return deps.sendJSON(res, 200, {
+          success: true,
+          status: ack && ack.status === 'disconnected' ? 'disconnected' : 'disconnected',
+          endpoint_id: ack && typeof ack.endpointId === 'string' ? ack.endpointId : bodySnap.endpoint_id,
+          provider: 'imap_smtp',
+        });
+      });
+    } catch (_) {
+      return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+  }
+
+  return { handleGet, handlePost, handleVerifyPost, handleImapVerifyPost, handleDisconnectPost };
 }
 
 module.exports = {
   EMAIL_SETTINGS_PATH,
   EMAIL_SMTP_IDENTITY_PATH,
   EMAIL_SMTP_VERIFY_PATH,
+  EMAIL_SMTP_DISCONNECT_PATH,
   EMAIL_IMAP_VERIFY_PATH,
   SMTP_IDENTITY_REGISTER_ENABLED_ENV: smtpSecretContract.SMTP_IDENTITY_REGISTER_ENABLED_ENV,
   isSunsetEmailSmtpIdentityRegisterEnabled:

@@ -85,6 +85,7 @@ const SQL_ADVISORY_LOCK = 'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($
 const LOCK_NS_LOCATION = 'smtp-ep-reg-loc:';
 const LOCK_NS_ADDRESS = 'smtp-ep-reg-addr:';
 const SQL_EXISTING_BY_LOCATION = "SELECT id, public_address, inbound_enabled, outbound_enabled, active, default_automation_mode FROM tenant_channel_endpoints WHERE client_id = $1::uuid AND location_id = $2 AND provider = 'imap_smtp' LIMIT 1 FOR UPDATE";
+const SQL_UNREVOKE_EXISTING = "UPDATE tenant_channel_endpoints SET binding_status = NULL, smtp_health_verified_at = NULL, inbound_enabled = false, outbound_enabled = false, active = false, updated_at = NOW(), updated_by = $3::uuid WHERE id = $1::uuid AND client_id = $2::uuid AND provider = 'imap_smtp' RETURNING id";
 const SQL_EXISTING_BY_ADDRESS = "SELECT id FROM tenant_channel_endpoints WHERE client_id = $1::uuid AND lower(public_address) = lower($2) AND provider = 'imap_smtp' LIMIT 1 FOR UPDATE";
 const SQL_INSERT_ENDPOINT = `INSERT INTO tenant_channel_endpoints (
   client_id, location_id, channel, provider, public_address, secret_ref,
@@ -251,6 +252,12 @@ function createSunsetSmtpIdentityRegister(dependencies) {
             || String(existing.default_automation_mode) !== AUTOMATION_OFF) {
           throw failure();
         }
+        const reused = one(await query(SQL_UNREVOKE_EXISTING, [
+          existingId,
+          clientId,
+          data.actorStaffUserId,
+        ]), 'id', existingId);
+        if (!reused) throw failure();
         commitAttempted = true;
         await query(SQL_COMMIT);
         return disabledAck(existingId);

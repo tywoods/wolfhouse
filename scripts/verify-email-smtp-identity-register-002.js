@@ -219,6 +219,9 @@ function fakePg(opts) {
     if (/SELECT id[\s\S]*tenant_channel_endpoints/i.test(text)) {
       return { rows: stored.map((row) => Object.assign({}, row)) };
     }
+    if (/UPDATE tenant_channel_endpoints/i.test(text)) {
+      return { rows: stored.map((row) => ({ id: row.id })) };
+    }
     if (/INSERT INTO tenant_channel_endpoints/i.test(text)) {
       inserts.push({ sql: text, params: params.slice() });
       stored.push({

@@ -149,6 +149,8 @@ function baseActions(imapPrepare) {
   assert.match(imap, /Not connected/);
   assert.match(imap, /Mailbox registered, not connected/);
   assert.match(imap, /data-email-registered-as/);
+  assert.match(imap, /data-email-disconnect/);
+  assert.match(imap, /Disconnect IMAP/);
   assert.match(imap, new RegExp(MAILBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(imap, /Mailbox connection/);
   assert.match(imap, /Inbound/);
@@ -160,7 +162,7 @@ function baseActions(imapPrepare) {
   assert.doesNotMatch(imap, /Register mailbox/);
   assert.doesNotMatch(imap, /type="password"/);
   assert.doesNotMatch(imap, /Coming soon/);
-  assert.doesNotMatch(html, new RegExp(SMTP_ID));
+  assert.doesNotMatch(html.replace(/data-email-endpoint-id="[^"]+"/g, ''), new RegExp(SMTP_ID));
   assert.doesNotMatch(html, /kv:sunset-smtp-password/);
   assert.doesNotMatch(html, new RegExp(PLANTED));
 }
@@ -185,11 +187,13 @@ function baseActions(imapPrepare) {
   assert.match(imap, /data-email-state="connected_health"/);
   assert.match(imap, /Connected/);
   assert.match(imap, /data-email-connected-as/);
+  assert.match(imap, /data-email-disconnect/);
+  assert.match(imap, /Disconnect IMAP/);
   assert.match(imap, new RegExp(MAILBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(imap, /Off/);
   assert.doesNotMatch(imap, /data-email-connect=/);
   assert.doesNotMatch(imap, /type="password"/);
-  assert.doesNotMatch(html, new RegExp(SMTP_ID));
+  assert.doesNotMatch(html.replace(/data-email-endpoint-id="[^"]+"/g, ''), new RegExp(SMTP_ID));
 }
 
 // (3) Gmail/Microsoft cards unchanged when IMAP is registered
@@ -234,7 +238,6 @@ function baseActions(imapPrepare) {
   assert.match(imap, new RegExp(MAILBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(imap, /Not connected/);
   assert.doesNotMatch(imap, /data-email-connect=/);
-  assert.doesNotMatch(imap, new RegExp(SMTP_ID));
   // Microsoft may carry endpoint_id on disconnect controls; IMAP must never paint ids/refs as copy.
   const copyOnly = html.replace(/data-email-endpoint-id="[^"]+"/g, '');
   assert.doesNotMatch(copyOnly, new RegExp(SMTP_ID));
@@ -266,7 +269,7 @@ function baseActions(imapPrepare) {
   assert.match(cardHtml(html, 'imap_smtp'), new RegExp(MAILBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(html, new RegExp(PLANTED));
   assert.doesNotMatch(html, /kv:sunset-smtp/);
-  assert.doesNotMatch(html, new RegExp(SMTP_ID));
+  assert.doesNotMatch(html.replace(/data-email-endpoint-id="[^"]+"/g, ''), new RegExp(SMTP_ID));
 }
 
 console.log('PASS EMAIL-SMTP-UI-003 IMAP registered card paint');

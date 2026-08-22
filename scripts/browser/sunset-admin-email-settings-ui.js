@@ -29,6 +29,8 @@ var REAUTH_UI_MAX_TTL_MS = 15 * 60 * 1000;
 var REAUTH_UI_PATH = '/staff/admin/email-settings/oauth/microsoft/reauthorize';
 var DISCONNECT_UI_PATH = '/staff/admin/email-settings/oauth/microsoft/disconnect';
 var DISCONNECT_UI_SUCCESS_KEYS = ['success', 'status', 'grant_generation', 'grant_status', 'reconcile_state'];
+var SMTP_DISCONNECT_UI_PATH = '/staff/admin/email-settings/smtp/disconnect';
+var SMTP_DISCONNECT_UI_SUCCESS_KEYS = ['success', 'status', 'endpoint_id', 'provider'];
 
 function adminEmailStateKey(state){
   var allowed = ['unavailable','loading','disconnected','registered_not_connected','connected_health','reauth_required','revoked'];
@@ -604,6 +606,32 @@ function postMicrosoftOAuthDisconnect(locationId, endpointId){
   });
 }
 
+function validateSmtpDisconnectSuccessDto(dto){
+  try {
+    if (!exactOwnData(dto, SMTP_DISCONNECT_UI_SUCCESS_KEYS)) return null;
+    if (dto.success !== true) return null;
+    if (dto.status !== 'disconnected') return null;
+    if (dto.provider !== 'imap_smtp') return null;
+    if (typeof dto.endpoint_id !== 'string' || !REAUTH_UI_UUID_RE.test(dto.endpoint_id)) return null;
+    return dto;
+  } catch (_) { return null; }
+}
+
+function postSmtpDisconnect(locationId, endpointId){
+  return fetch(SMTP_DISCONNECT_UI_PATH, {
+    method: 'POST', credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ location_id: locationId, endpoint_id: endpointId })
+  }).then(function(r){
+    if (!r || r.ok !== true) return Promise.reject(new Error('unavailable'));
+    return r.json();
+  }).then(function(dto){
+    var validated = validateSmtpDisconnectSuccessDto(dto);
+    if (!validated) throw new Error('invalid_response');
+    return validated;
+  });
+}
+
 function wireDisconnectHandlers(body){
   var sections = typeof body.querySelectorAll==='function' ? body.querySelectorAll('.portal-admin-email-settings') : [];
   if(!sections.length)sections=[body.querySelector('.portal-admin-email-settings')];
@@ -623,8 +651,12 @@ function wireDisconnectHandlers(body){
       renderAdminEmailSettingsState('unavailable');
       return;
     }
+    var provider = adminEmailProviderFromRoot(section);
     setConnectBusy(section, true);
-    postMicrosoftOAuthDisconnect(locationId, endpointId)
+    var req = provider === 'imap_smtp'
+      ? postSmtpDisconnect(locationId, endpointId)
+      : postMicrosoftOAuthDisconnect(locationId, endpointId);
+    req
       .then(function(){
         loadAdminEmailSettings();
       })
@@ -1034,6 +1066,17 @@ function adminEmailImapCardHtml(data){
         '</p>';
     }
     html += adminEmailImapOffCapabilitiesHtml();
+    html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' +
+      escHtml(emailUiT('admin.email.smtpDisconnectLabel', 'IMAP / SMTP disconnect', 'Desconexión IMAP / SMTP')) + '">' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-provider="imap_smtp" data-email-location-id="' +
+      escHtml(ep.location_id || active) + '" data-email-endpoint-id="' + escHtml(ep.endpoint_id || '') + '">' +
+      escHtml(emailUiT('admin.email.smtpDisconnectButton', 'Disconnect IMAP / SMTP', 'Desconectar IMAP / SMTP')) +
+      '</button></div>' +
+      '<p class="portal-admin-email-disconnect-safety" data-email-disconnect-safety role="note">' +
+      escHtml(emailUiT('admin.email.smtpDisconnectSafetyNote',
+        'Disconnect removes this mailbox from Luna. Secrets stay in Key Vault. Email processing stays off.',
+        'La desconexión quita este buzón de Luna. Los secretos siguen en Key Vault. El procesamiento de email sigue desactivado.')) +
+      '</p>';
   } else if (missing.length) {
     html += '<p class="portal-admin-email-card-copy" role="status">' +
       escHtml(emailUiT('admin.email.smtpMissingSecrets', 'Missing Key Vault secret:', 'Falta el secreto de Key Vault:')) +
