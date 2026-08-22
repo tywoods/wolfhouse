@@ -74,6 +74,8 @@ const MESSAGE_MAX_BYTES = 8_000; // UTF-8 bytes; DTO always fits in BODY_MAX_BYT
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const DANGEROUS = new Set(['__proto__', 'prototype', 'constructor']);
 const NOT_FOUND = Object.freeze({ success: false, error: 'not_found' });
+const DRAFTS_UNAVAILABLE = Object.freeze({ success: false, error: 'email_drafts_unavailable' });
+const STAFF_REPLIES_UNAVAILABLE = Object.freeze({ success: false, error: 'email_staff_replies_unavailable' });
 const UNSUPPORTED_MEDIA = Object.freeze({ success: false, error: 'unsupported_media_type' });
 const FORBIDDEN_ORIGIN = Object.freeze({ success: false, error: 'origin_forbidden' });
 const INVALID_REQUEST = Object.freeze({ success: false, error: 'invalid_request' });
@@ -628,8 +630,8 @@ function createStaffEmailInboxRoutes(deps) {
     }
     return { status: 404, body: NOT_FOUND, code: 'conversation_not_found' };
   }
-  async function preflight(req, res, user, gateEnv, enabled) {
-    if (!enabled) { sendJSON(res, 404, NOT_FOUND); return null; }
+  async function preflight(req, res, user, gateEnv, enabled, unavailableBody) {
+    if (!enabled) { sendJSON(res, 404, unavailableBody || NOT_FOUND); return null; }
     const origin = validateSameOrigin(req, gateEnv);
     if (!origin.ok) { sendJSON(res, origin.status, origin.body); return null; }
     const ct = validateJsonContentType(req);
@@ -704,7 +706,9 @@ function createStaffEmailInboxRoutes(deps) {
       body.approval_id, a.client_id, body.conversation_id, body.message_text, digest, a.staff_user_id,
       subject,
     ]);
-    if (!upd || !upd.rows || upd.rows.length !== 1) return { status: 404, body: NOT_FOUND, code: 'draft_cas_miss' };
+    if (!upd || !upd.rows || upd.rows.length !== 1) {
+      return { status: 409, body: APPROVAL_CONFLICT, code: 'draft_cas_miss' };
+    }
     const row = upd.rows[0];
     return { status: 200, body: successDto(row.conversation_id, row.message_text, row.approval_id), code: 'draft_updated', approval_id: row.approval_id };
   }
@@ -717,7 +721,7 @@ function createStaffEmailInboxRoutes(deps) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
     let pre;
-    try { pre = await preflight(req, res, user, env, isEmailStaffDraftsEnabled(env)); }
+    try { pre = await preflight(req, res, user, env, isEmailStaffDraftsEnabled(env), DRAFTS_UNAVAILABLE); }
     catch {
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.draft', category: 'email_inbox_draft', success: false, code: 'draft_error' });
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' }));
@@ -810,7 +814,7 @@ function createStaffEmailInboxRoutes(deps) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
     let pre;
-    try { pre = await preflight(req, res, user, env, isEmailStaffOutboundEnabled(env)); }
+    try { pre = await preflight(req, res, user, env, isEmailStaffOutboundEnabled(env), STAFF_REPLIES_UNAVAILABLE); }
     catch {
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.approve_send', category: 'email_inbox_approve_send', success: false, code: 'approve_error' });
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'approve_failed' }));
@@ -997,7 +1001,7 @@ function createStaffEmailInboxRoutes(deps) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
     if (!isEmailStaffOutboundEnabled(env)) {
-      sendJSON(res, 404, NOT_FOUND);
+      sendJSON(res, 404, STAFF_REPLIES_UNAVAILABLE);
       return;
     }
     const origin = validateSameOrigin(req, env);

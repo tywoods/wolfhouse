@@ -237,7 +237,8 @@ async function main() {
   await createStaffEmailInboxRoutes({
     sendJSON: sendOff.sendJSON, withPgClient: async () => { dbHits += 1; throw new Error('no db'); }, runtimeEnv: {},
   }).handleApproveSend(mockReq(dto({ approval_id: crypto.randomUUID() })), {}, user(), snapshotGateEnv({}));
-  ok('disabled 404 zero DB', sendOff.calls.length === 2 && sendOff.calls.every((c) => c.status === 404 && c.body.error === 'not_found') && dbHits === 0);
+  ok('disabled 404 zero DB', sendOff.calls.length === 2 && sendOff.calls[0].status === 404 && sendOff.calls[0].body.error === 'email_drafts_unavailable'
+    && sendOff.calls[1].status === 404 && sendOff.calls[1].body.error === 'email_staff_replies_unavailable' && dbHits === 0);
   let ownerConstruct=0,ownerInvoke=0,dispatchHits=0;
   const pg = createFakePg();
   const send = captureSend();
@@ -280,7 +281,7 @@ async function main() {
   pg.setPeMismatch(false);
   send.calls.length = 0;
   await routes.handleDraft(mockReq(dto({ approval_id: crypto.randomUUID() })), {}, user(), gate);
-  ok('CAS miss 404', send.calls[0].status === 404);
+  ok('CAS miss 409 conflict', send.calls[0].status === 409 && send.calls[0].body.error === 'approval_conflict');
   send.calls.length = 0;
   await routes.handleDraft(mockReq(dto()), {}, user(), gate);
   const ap2 = send.calls[0].body.approval_id; send.calls.length = 0;
@@ -415,7 +416,9 @@ async function main() {
     && /070_down_refused/.test(down));
   let PGlite = null;
   try { PGlite = require('@electric-sql/pglite').PGlite; } catch {
-    try { PGlite = require('/opt/data/wolfhouse-agent/node_modules/@electric-sql/pglite').PGlite; } catch { PGlite = null; }
+    try { PGlite = require('/opt/data/cursor-workspace/WH/node_modules/@electric-sql/pglite').PGlite; } catch {
+      try { PGlite = require('/opt/data/wolfhouse-agent/node_modules/@electric-sql/pglite').PGlite; } catch { PGlite = null; }
+    }
   }
   if (!PGlite) ok('PGlite required', false, 'unavailable');
   else await provePglite(PGlite);
@@ -476,7 +479,7 @@ const ROOT=${JSON.stringify(ROOT)};const ORIGIN=${JSON.stringify(ORIGIN)};
 const C=${JSON.stringify(C)};const A=${JSON.stringify(A)};const V=${JSON.stringify(V)};const BODY=${JSON.stringify(BODY)};
 const DRAFT=${JSON.stringify(EMAIL_DRAFT_PATH)};const APPROVE=${JSON.stringify(EMAIL_APPROVE_SEND_PATH)};
 const STAFF=path.join(ROOT,'scripts/staff-query-api.js');const SESSION='email-inbox-offline-session-token';
-try{require.resolve('dotenv')}catch{const c=['/opt/data/wolfhouse-agent/node_modules',path.join(ROOT,'node_modules')].find(x=>fs.existsSync(path.join(x,'dotenv')));if(c){process.env.NODE_PATH=c+(process.env.NODE_PATH?path.delimiter+process.env.NODE_PATH:'');Module._initPaths()}}
+try{require.resolve('dotenv')}catch{const c=['/opt/data/cursor-workspace/WH/node_modules','/opt/data/wolfhouse-agent/node_modules',path.join(ROOT,'node_modules')].find(x=>{try{return fs.existsSync(path.join(x,'dotenv'))}catch{return false}});if(c){process.env.NODE_PATH=c+(process.env.NODE_PATH?path.delimiter+process.env.NODE_PATH:'');Module._initPaths()}}
 function clear(){for(const k of Object.keys(require.cache)){if(/staff-query-api\\.js$|staff-auth-config|staff-portal-clients|pg-connect|staff-email-inbox-routes/.test(k))delete require.cache[k]}}
 function listen(s){return new Promise((r,j)=>{s.listen(0,'127.0.0.1',()=>r(s.address().port));s.on('error',j)})}
 function close(s){return new Promise(r=>s.close(()=>r()))}
@@ -492,7 +495,7 @@ canAccessClient(u,s){return !!(u&&u.client_slug==='sunset'&&s==='sunset')}});
 const server=api.createStaffQueryApiHttpServer();const port=await listen(server);
 try{
 let r=await request(port,{method:'POST',path:DRAFT,headers:{'content-type':'application/json',origin:ORIGIN,cookie:'luna_staff_session='+SESSION},body:JSON.stringify({conversation_id:V,message_text:BODY,approval_id:null})});
-assert.equal(r.status,404);assert.equal(r.body.error,'not_found');assert.equal(dbCalls,0);assert.equal(String(r.raw).includes('Authentication required'),false);
+assert.equal(r.status,404);assert.equal(r.body.error,'email_drafts_unavailable');assert.equal(dbCalls,0);assert.equal(String(r.raw).includes('Authentication required'),false);
 process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED='true';process.env.EMAIL_STAFF_OUTBOUND_ENABLED='true';
 r=await request(port,{method:'POST',path:DRAFT,headers:{'content-type':'application/json',origin:ORIGIN},body:JSON.stringify({conversation_id:V,message_text:BODY,approval_id:null})});
 assert.ok(r.status===401||r.status===403);assert.equal(dbCalls,0);
@@ -511,7 +514,7 @@ console.log('real_router_ok');
 })().catch(e=>{console.error(e);process.exit(1)});`;
   const out = spawnSync(process.execPath, ['-e', script], {
     cwd: ROOT, encoding: 'utf8', timeout: 120000,
-    env: { ...process.env, NODE_PATH: process.env.NODE_PATH || '/opt/data/wolfhouse-agent/node_modules' },
+    env: { ...process.env, NODE_PATH: process.env.NODE_PATH || '/opt/data/cursor-workspace/WH/node_modules' },
   });
   ok('real-router offline integration', out.status === 0 && /real_router_ok/.test(out.stdout),
     (out.stderr || out.stdout || '').slice(0, 400));

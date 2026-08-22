@@ -576,6 +576,30 @@ async function loadMicrosoftEndpointLastSyncMap(pg, clientId) {
   }
 }
 
+/** Fail-closed own enumerable data boolean — never inherited, getter, or truthy-other. */
+function ownExactTrue(o, key) {
+  try {
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+    const d = Object.getOwnPropertyDescriptor(o, key);
+    return !!(d && Object.prototype.hasOwnProperty.call(d, 'value') && d.enumerable === true
+      && !d.get && !d.set && d.value === true);
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Fail-closed own enumerable string equals expected. */
+function ownExactString(o, key, expected) {
+  try {
+    if (!o || typeof o !== 'object' || Array.isArray(o) || typeof expected !== 'string') return false;
+    const d = Object.getOwnPropertyDescriptor(o, key);
+    return !!(d && Object.prototype.hasOwnProperty.call(d, 'value') && d.enumerable === true
+      && !d.get && !d.set && d.value === expected);
+  } catch (_) {
+    return false;
+  }
+}
+
 function publicState(endpoint, grant) {
   if (!endpoint) return 'disconnected';
   if (endpoint.provider === 'imap_smtp' && endpoint.binding_status === 'revoked') return 'disconnected';
@@ -639,10 +663,11 @@ function endpointDto(row, grant, options) {
     connection_state: publicState(row, publicGrant),
     grant_status: publicGrant && publicGrant.grant_present ? publicGrant.grant_status : null,
     reconcile_state: publicGrant && publicGrant.grant_present ? publicGrant.reconcile_state : null,
-    endpoint_active: false,
-    inbound_enabled: false,
-    outbound_enabled: false,
-    automation_enabled: false,
+    endpoint_active: ownExactTrue(row, 'active'),
+    inbound_enabled: ownExactTrue(row, 'inbound_enabled'),
+    outbound_enabled: ownExactTrue(row, 'outbound_enabled'),
+    staff_replies_enabled: ownExactTrue(row, 'outbound_enabled'),
+    automation_enabled: ownExactString(row, 'default_automation_mode', 'automatic'),
     start_eligible: startEligible,
     reauthorize_eligible: reauthorizeEligible === true,
     disconnect_eligible: disconnectEligible === true,

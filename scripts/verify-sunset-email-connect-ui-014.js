@@ -53,6 +53,8 @@ function boot(lang) {
         'admin.email.endpointActive': 'Mailbox connection',
         'admin.email.inbound': 'Inbound',
         'admin.email.outbound': 'Outbound',
+        'admin.email.staffReplies': 'Staff replies',
+        'admin.email.on': 'On',
         'admin.email.automation': 'Automation',
         'admin.email.off': 'Off',
       };
@@ -115,7 +117,7 @@ const payload = {
   assert.match(ms, /Connected as/);
   assert.match(ms, /support@sunset\.example/);
   assert.match(ms, /Last sync/);
-  assert.doesNotMatch(ms, /Mailbox connection/);
+  assert.match(ms, /Mailbox connection/);
   assert.doesNotMatch(ms, /Email processing remains off/);
   assert.doesNotMatch(ms, /data-email-not-inbox/);
   assert.match(imap, /data-email-not-inbox="1"/);

@@ -75,6 +75,8 @@ function boot(i18n) {
     'admin.email.endpointActive': 'Mailbox connection',
     'admin.email.inbound': 'Inbound',
     'admin.email.outbound': 'Outbound',
+    'admin.email.staffReplies': 'Staff replies',
+    'admin.email.on': 'On',
     'admin.email.automation': 'Automation',
     'admin.email.off': 'Off',
   };
@@ -154,7 +156,7 @@ function baseActions(imapPrepare) {
   assert.match(imap, new RegExp(MAILBOX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.match(imap, /Mailbox connection/);
   assert.match(imap, /Inbound/);
-  assert.match(imap, /Outbound/);
+  assert.match(imap, /Staff replies/);
   assert.match(imap, /Automation/);
   assert.match(imap, /Off/);
   assert.doesNotMatch(imap, /data-email-prepare-address/);
