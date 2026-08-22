@@ -47019,7 +47019,7 @@ async function router(req, res) {
   // Email inbox draft/approve-send (default-off; gate before auth/body/DB).
   if (pathname === EMAIL_DRAFT_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
-    if (!isEmailStaffDraftsEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!isEmailStaffDraftsEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_drafts_unavailable' });
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);
@@ -47028,7 +47028,7 @@ async function router(req, res) {
   }
   if (pathname === EMAIL_APPROVE_SEND_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
-    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_staff_replies_unavailable' });
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);
@@ -47038,7 +47038,7 @@ async function router(req, res) {
   // Staff-safe email outbound recovery/reconcile (already-approved; default-off with outbound UI).
   if (pathname === EMAIL_RECOVER_SEND_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
-    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_staff_replies_unavailable' });
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);

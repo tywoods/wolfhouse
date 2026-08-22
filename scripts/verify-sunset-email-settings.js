@@ -241,7 +241,7 @@ function futureExpires(msFromNow = 600000) {
     assert.deepStrictEqual(res.body.actions,{prepare:false,connect:false,disconnect:false,reauthorize:false});
     assert.strictEqual(res.body.endpoints[0].connection_state,'connected_health');
     assert.strictEqual(res.body.endpoints[0].endpoint_id,EP);
-    assert.strictEqual(res.body.endpoints[0].endpoint_active,false); assert.strictEqual(res.body.endpoints[0].inbound_enabled,false); assert.strictEqual(res.body.endpoints[0].outbound_enabled,false); assert.strictEqual(res.body.endpoints[0].automation_enabled,false);
+    assert.strictEqual(res.body.endpoints[0].endpoint_active,true); assert.strictEqual(res.body.endpoints[0].inbound_enabled,true); assert.strictEqual(res.body.endpoints[0].outbound_enabled,true); assert.strictEqual(res.body.endpoints[0].staff_replies_enabled,true); assert.strictEqual(res.body.endpoints[0].automation_enabled,false);
     assert.strictEqual(res.body.endpoints[0].reauthorize_eligible, false);
     const text=JSON.stringify(res.body); for (const forbidden of ['secret_ref','provider_tenant_id','client_id','has_active_lease','ciphertext','wrapped_dek','oauth','scope_version','grant_generation','lease_clear','phase_a_v2','phase_b_v1']) assert.ok(!text.includes(forbidden), forbidden);
     assert.deepStrictEqual(queries[0][1],['sunset']);
@@ -456,7 +456,7 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(/data-email-actions-unavailable/.test(src));
     // Prepare controls grouped before capability list (prepare marker precedes <dl>)
     const prepGroupIdx = src.indexOf('data-email-prepare-group');
-    const dlIdx = src.indexOf('<dl>');
+    const dlIdx = src.indexOf('<dl');
     assert.ok(prepGroupIdx > 0 && dlIdx > prepGroupIdx);
     new vm.Script(src);
 
@@ -707,7 +707,7 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(!htmlPrep.includes(i18nKeys['admin.email.actionsUnavailable']));
     assert.strictEqual((htmlPrep.match(/data-email-prepare-address/g) || []).length, 1);
     assert.strictEqual((htmlPrep.match(/data-email-connect="prepare"/g) || []).length, 1);
-    assert.ok(htmlPrep.indexOf('data-email-prepare-group') < htmlPrep.indexOf('<dl>'));
+    assert.ok(htmlPrep.indexOf('data-email-prepare-group') < htmlPrep.indexOf('<dl'));
     assert.ok(htmlPrep.includes(i18nKeys['admin.email.endpointActive']));
     assert.ok(htmlPrep.includes(i18nKeys['admin.email.off']));
 
