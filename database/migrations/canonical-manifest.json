@@ -1243,6 +1243,26 @@
       "rationale": "Refuses rollback while Luna journal handoff associations, luna_replay_owner_digest, or handoff_established/handed_off states exist; otherwise restores exact pre-087 journal constraints/protect function and the 086 queue-only handoff, dropping the digest column. Second empty execution is safe.",
       "pairsWith": "087_tenant_email_luna_automation_journal_handoff.sql",
       "sha256": "e63c7e2b0005ae894d66bbb9954b83f0dba318d41acb875beff3974c2bb22861"
+    },
+    {
+      "id": "088_tenant_email_luna_automation_principal_grants",
+      "filename": "088_tenant_email_luna_automation_principal_grants.sql",
+      "order": 84,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice A: default-off runtime DB principal/grant boundary for the Luna automation queue and canonical-journal handoff. Durable LOGIN session_user mapping to one client/location/kind; SECURITY DEFINER functions require that mapping (table owner remains administrator). Queue SELECT FOR UPDATE includes principal_authorized. Workers have no raw journal SELECT; tenant_email_luna_automation_journal_handoff_lock authorizes against the queue location before locking journal. No CREATE ROLE, no product GRANT, no fake login, no live credential. Queue RLS ENABLE not FORCE for SELECT scoping. Journal RLS not enabled (shared staff Graph table; scoped function removes worker SELECT). No provider authorization or runtime wiring.",
+      "downFilename": "088_tenant_email_luna_automation_principal_grants_down.sql",
+      "sha256": "149f9804c9841da24f83d199b9546528d9f6521c7860f6e11e6161bda192240e"
+    },
+    {
+      "id": "088_tenant_email_luna_automation_principal_grants_down",
+      "filename": "088_tenant_email_luna_automation_principal_grants_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while principal mapping rows exist; otherwise drops the mapping table, authorization helper, and scoped journal lock function, disables queue RLS, and restores 086 mutation functions plus the 087 journal handoff. Second empty execution is safe.",
+      "pairsWith": "088_tenant_email_luna_automation_principal_grants.sql",
+      "sha256": "4231a2f2908dc43bb08f52ccc22181940542149b443e1477075b728e82cad67c"
     }
   ]
 }

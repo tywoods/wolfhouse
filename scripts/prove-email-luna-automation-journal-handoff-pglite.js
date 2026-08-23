@@ -43,8 +43,12 @@ const UP_085 = fs.readFileSync(path.join(ROOT, 'database/migrations/085_tenant_e
 const UP_086 = fs.readFileSync(path.join(ROOT, 'database/migrations/086_tenant_email_luna_automation_queue.sql'), 'utf8');
 const UP_PATH = path.join(ROOT, 'database/migrations/087_tenant_email_luna_automation_journal_handoff.sql');
 const DOWN_PATH = path.join(ROOT, 'database/migrations/087_tenant_email_luna_automation_journal_handoff_down.sql');
+const UP_088_PATH = path.join(ROOT, 'database/migrations/088_tenant_email_luna_automation_principal_grants.sql');
+const DOWN_088_PATH = path.join(ROOT, 'database/migrations/088_tenant_email_luna_automation_principal_grants_down.sql');
 const UP = fs.readFileSync(UP_PATH, 'utf8');
 const DOWN = fs.readFileSync(DOWN_PATH, 'utf8');
+const UP_088 = fs.readFileSync(UP_088_PATH, 'utf8');
+const DOWN_088 = fs.readFileSync(DOWN_088_PATH, 'utf8');
 const STOCK_PG_ENV = 'EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_PG_POOL_URL';
 
 const ids = {
@@ -369,6 +373,7 @@ async function provePglite(PGlite) {
   assert.equal(pre087.includes('luna_automation_operation_id'), false);
   assert.equal(pre087.includes('handoff_established'), false);
   await db.exec(UP);
+  await db.exec(UP_088);
   const loaner = createLoaner(db);
   const auditStore = createEmailLunaPolicyAuditStore({
     ...loaner,
@@ -836,8 +841,8 @@ async function provePglite(PGlite) {
       CREATE ROLE luna_ch3b_worker NOLOGIN NOSUPERUSER NOINHERIT;
       GRANT USAGE ON SCHEMA public TO luna_ch3b_worker;
       GRANT SELECT ON TABLE public.tenant_email_luna_automation_queue TO luna_ch3b_worker;
-      GRANT SELECT ON TABLE public.tenant_email_outbound_send_journal TO luna_ch3b_worker;
       GRANT EXECUTE ON FUNCTION public.tenant_email_luna_automation_handoff(uuid, uuid) TO luna_ch3b_worker;
+      GRANT EXECUTE ON FUNCTION public.tenant_email_luna_automation_journal_handoff_lock(uuid, uuid) TO luna_ch3b_worker;
     `);
     workerRoleSupported = true;
   } catch (err) {
@@ -853,6 +858,9 @@ async function provePglite(PGlite) {
     });
     await assert.rejects(async () => {
       await db.query('SELECT state FROM public.tenant_email_luna_automation_cancel_pending($1::uuid, $2::uuid)', [ids.client, ids.operation]);
+    });
+    await assert.rejects(async () => {
+      await db.query('SELECT operation_id FROM public.tenant_email_outbound_send_journal');
     });
     await db.exec('RESET ROLE');
     console.log('ok - pglite 087 restricted worker cannot direct-DML or call operator pending functions');
@@ -876,6 +884,7 @@ async function provePglite(PGlite) {
   await db.exec('SET search_path TO public');
   console.log('ok - pglite 087 privileged calls hit only canonical public relations under shadow objects');
 
+  await db.exec(DOWN_088);
   await assert.rejects(async () => { await db.exec(DOWN); });
   try { await db.query('ROLLBACK'); } catch (_) { /* ignore */ }
   await db.query('DELETE FROM public.tenant_email_outbound_send_journal WHERE luna_automation_operation_id IS NOT NULL');

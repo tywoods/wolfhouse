@@ -159,8 +159,9 @@ assert.deepEqual(Object.keys(handoffModule).sort(), [
 assert.match(SQL_HANDOFF, /tenant_email_luna_automation_handoff\(\$1::uuid, \$2::uuid\)/);
 assert.match(SQL_LOCK_QUEUE, /tenant_email_luna_automation_queue/);
 assert.match(SQL_LOCK_QUEUE, /FOR UPDATE/);
-assert.match(SQL_LOCK_JOURNAL, /tenant_email_outbound_send_journal/);
-assert.match(SQL_LOCK_JOURNAL, /FOR UPDATE/);
+assert.match(SQL_LOCK_JOURNAL, /tenant_email_luna_automation_journal_handoff_lock\(\$1::uuid, \$2::uuid\)/);
+assert.equal(/FROM\s+(public\.)?tenant_email_outbound_send_journal/.test(SQL_LOCK_JOURNAL), false);
+assert.equal(/FOR UPDATE/.test(SQL_LOCK_JOURNAL), false);
 assert.equal(/INSERT INTO tenant_email_outbound_send_journal/.test(SQL_HANDOFF), false);
 assert.equal(/UPDATE tenant_email_luna_automation_queue/.test(SQL_HANDOFF), false);
 assert.equal(/createReply|sendMail|microsoft-graph|googleapis/.test(SQL_HANDOFF), false);
@@ -179,6 +180,19 @@ assert.equal(
 assert.equal(
   EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT.worker_execute_functions.includes('tenant_email_luna_automation_handoff'),
   true,
+);
+assert.equal(
+  EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT.worker_execute_functions.includes('tenant_email_luna_automation_journal_handoff_lock'),
+  true,
+);
+assert.equal(EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT.worker_journal_select, false);
+assert.deepEqual(
+  EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT.worker_table_privileges.tenant_email_outbound_send_journal.slice(),
+  [],
+);
+assert.deepEqual(
+  EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT.worker_table_privileges.tenant_email_luna_automation_queue.slice(),
+  ['SELECT'],
 );
 assert.ok(EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_RECORD_KEYS.includes('journal_operation_id'));
 assert.ok(EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_RECORD_KEYS.includes('handoff_id'));
@@ -247,6 +261,7 @@ assert.equal(/createReply|sendMail|microsoft-graph|googleapis/.test(storeSrc), f
 assert.equal(/\bDate\.now\b/.test(storeSrc), false);
 assert.equal(/\bpg\.Pool\b|\bnew Pool\b|\bnet\.connect\b/.test(storeSrc), false);
 assert.equal(/INSERT INTO tenant_email_outbound_send_journal/.test(storeSrc), false);
+assert.equal(/FROM\s+(public\.)?tenant_email_outbound_send_journal/.test(storeSrc), false);
 assert.equal(/UPDATE tenant_email_luna_automation_queue/.test(storeSrc), false);
 assert.equal(/current_setting\s*\(/.test(storeSrc), false);
 assert.equal(/console\.(log|info|debug|warn|error)/.test(storeSrc), false);

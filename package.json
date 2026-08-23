@@ -461,6 +461,8 @@
     "prove:email-luna-automation-queue-pglite": "node scripts/prove-email-luna-automation-queue-pglite.js",
     "verify:email-luna-automation-journal-handoff": "node scripts/verify-email-luna-automation-journal-handoff.js",
     "prove:email-luna-automation-journal-handoff-pglite": "node scripts/prove-email-luna-automation-journal-handoff-pglite.js",
+    "verify:email-luna-automation-principal-grants": "node scripts/verify-email-luna-automation-principal-grants.js",
+    "prove:email-luna-automation-principal-grants-pglite": "node scripts/prove-email-luna-automation-principal-grants-pglite.js",
     "verify:email-luna-draft-author": "node scripts/verify-email-luna-draft-author.js",
     "verify:email-luna-draft-author-deterministic": "node scripts/verify-email-luna-draft-author-deterministic.js",
     "verify:email-luna-draft-validator": "node scripts/verify-email-luna-draft-validator.js",

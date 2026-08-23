@@ -1,0 +1,59 @@
+{
+  "id": "email-luna-automation-principal-grants.ch4a-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice A",
+  "head_reviewed": "bf21dbdf88b9a534db6c0db7220c5a47407b4d09",
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "journal_rls": false,
+  "findings": [
+    {
+      "id": "raw-journal-select",
+      "severity": "blocking",
+      "red": "Worker GRANT SELECT on tenant_email_outbound_send_journal plus store SQL_LOCK_JOURNAL SELECT ... FOR UPDATE lets a shared LOGIN read and lock foreign-location journal rows, including staff Graph identity, with no session_user location check.",
+      "green": "Workers receive no raw journal SELECT. email-luna-automation-journal-handoff-store calls only tenant_email_luna_automation_journal_handoff_lock. That SECURITY DEFINER function authorizes session_user against the queue client/location before locking journal, requires operation + replay owner, validates owner digest and exact Luna handoff_established identity, and returns no row or metadata for a foreign location or wrong owner. PUBLIC is revoked; search_path is fixed; names are schema-qualified."
+    },
+    {
+      "id": "unbounded-create-role-txn",
+      "severity": "blocking",
+      "red": "Provisioner accepted a generic query function, so CREATE ROLE, GRANT, mapping INSERT, and final audit could hop pool connections. Failure after CREATE ROLE or GRANT could leave a durable role and privileges behind.",
+      "green": "Provisioner owns one exclusive connect() client. BEGIN then create/verify/map/grant/revoke/final-audit then COMMIT. Every failure ROLLBACKs; release runs in finally. Stock PostgreSQL CREATE ROLE/GRANT are transactional. PGlite is not the stock-PG contract even if a given build rolls back CREATE ROLE."
+    },
+    {
+      "id": "principal-adoption-drift",
+      "severity": "blocking",
+      "red": "An existing unmapped LOGIN with matching attributes was adopted. Membership, ownership, database CREATE, schema CREATE, extra overloads, and builtin-role grants were not audited. { secret: true } on query() was treated as password protection. trustedPrecreated skipped a clean pre-grant proof, so a role with extra ACL/owner/membership could be mapped after grants.",
+      "green": "Arbitrary unmapped roles are refused. Convergent rerun accepts only an already exact mapped role and re-audits all drift. Trusted pre-creation is retained only as an explicit separate contract that must not send a password and must prove zero ownership, zero membership, zero direct ACL, and safe ambient capability before mapping/grants. Final audit uses pg_shdepend owner/ACL completeness plus a separate PUBLIC ambient audit. Passwords are never returned or logged."
+    },
+    {
+      "id": "auth-after-lock",
+      "severity": "blocking",
+      "red": "tenant_email_luna_automation_handoff locked the queue row by UUID, then checked principal_authorized. A foreign UUID could lock and probe another location's row inside the SECURITY DEFINER (RLS-bypassing) function.",
+      "green": "principal_authorized is folded into the queue SELECT ... FOR UPDATE. The scoped journal function also authorizes against the queue location before locking journal. Replaced mutation functions keep authorization in the locking WHERE clause."
+    },
+    {
+      "id": "pool-query-hop",
+      "severity": "blocking",
+      "red": "A third query argument { secret: true } pretended to protect CREATE ROLE passwords on a transport that may log SQL or hop connections.",
+      "green": "A query function is refused. CREATE ROLE SQL is sent only on the exclusive client with no secret option. If that transport cannot be guaranteed, fail closed or use trusted pre-creation instead of sending a password."
+    },
+    {
+      "id": "cluster-incomplete-direct-acl",
+      "severity": "blocking",
+      "red": "Direct ACL audit scanned only public.pg_class / public functions. Other-schema tables, sequences, views, types, extra databases, and a direct TEMP grant masked by PUBLIC TEMP were invisible. Completeness was not cluster-wide.",
+      "green": "pg_catalog.pg_shdepend deptype ACL for the role is the completeness source across databases and object classes. Only current-database CONNECT, public USAGE, public queue SELECT, and exact allowed function OID EXECUTE are permitted; aclexplode must match that exact privilege with no grant option. Any other direct ACL, including other-schema relation/sequence/function, other-database grants, and direct TEMP even when PUBLIC has TEMP, is rejected. Production SQL stays stock-PG exact."
+    },
+    {
+      "id": "ambient-public-callable",
+      "severity": "blocking",
+      "red": "Direct ACL audit cannot see PUBLIC. Default PUBLIC EXECUTE on a public dangerous function, or attacker_schema USAGE plus default PUBLIC EXECUTE, left the mapped LOGIN able to call attacker code. PUBLIC CREATE on the current database was not rejected.",
+      "green": "A separate ambient PUBLIC audit accepts only current-database CONNECT/TEMP for PUBLIC, rejects PUBLIC CREATE on the current database, rejects CREATE on every schema the role can use, requires public USAGE, and allows only exact Luna function OIDs as effective callable functions outside pg_catalog/information_schema. No extension execute allowlist is opened."
+    },
+    {
+      "id": "incomplete-owner-dependencies",
+      "severity": "blocking",
+      "red": "Ownership audit listed only database/schema/pg_class/pg_proc. A type, server, extension, language, collation, operator, publication, tablespace, or future owner-bearing catalog owned by the role was missed.",
+      "green": "pg_catalog.pg_shdepend deptype owner for the role is the cluster completeness source. Any owner dependency is rejected, covering types/domains/languages/FDWs/servers/extensions/collations/conversions/operators/opclasses/opfamilies/text search/publications/subscriptions/tablespaces/large objects and future owner-bearing catalogs without a brittle list."
+    }
+  ]
+}
