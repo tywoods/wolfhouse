@@ -1223,6 +1223,26 @@
       "rationale": "Refuses rollback while any automation queue rows exist; otherwise drops the claim-queue table, function-only mutation surface, 086-owned audit inbound_event_id column, and 086-owned audit/inbound/projection keys. Second empty execution is safe. Does not drop the outbound send journal or policy audit table.",
       "pairsWith": "086_tenant_email_luna_automation_queue.sql",
       "sha256": "dba1204b2e8d66f514f29ab31c7d089bed2dc6bd4d1113988bb272618e1b7b2e"
+    },
+    {
+      "id": "087_tenant_email_luna_automation_journal_handoff",
+      "filename": "087_tenant_email_luna_automation_journal_handoff.sql",
+      "order": 83,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch3 Slice B: atomic queue-to-canonical-outbound-journal handoff. Adds sealed pre-provider handoff_established/handed_off on the canonical send journal, composite queue identity FK, 087-owned immutable one-way luna_replay_owner_digest, and replaces the 086 handoff function with a SECURITY DEFINER transaction that create-or-replays exactly one journal row then terminalizes queue handed_off with the journal-linked identity. Handed_off replay requires p_owner whose pg_catalog.sha256 digest equals the sealed digest; wrong owner returns no row. No provider authorization, send, or runtime wiring. Worker/operator grant contract remains comments/verifier only.",
+      "downFilename": "087_tenant_email_luna_automation_journal_handoff_down.sql",
+      "sha256": "5fdc5a11923062a8fb0ac610d05128a722ab5a56c8a70f3082603d241eb73b49"
+    },
+    {
+      "id": "087_tenant_email_luna_automation_journal_handoff_down",
+      "filename": "087_tenant_email_luna_automation_journal_handoff_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while Luna journal handoff associations, luna_replay_owner_digest, or handoff_established/handed_off states exist; otherwise restores exact pre-087 journal constraints/protect function and the 086 queue-only handoff, dropping the digest column. Second empty execution is safe.",
+      "pairsWith": "087_tenant_email_luna_automation_journal_handoff.sql",
+      "sha256": "e63c7e2b0005ae894d66bbb9954b83f0dba318d41acb875beff3974c2bb22861"
     }
   ]
 }
