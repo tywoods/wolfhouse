@@ -55,9 +55,10 @@ const EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT = objectFreeze({
   function_owner: 'table_owner',
   worker_table_privileges: objectFreeze({
     tenant_email_luna_automation_queue: objectFreeze(['SELECT']),
-    tenant_email_outbound_send_journal: objectFreeze(['SELECT']),
+    tenant_email_outbound_send_journal: objectFreeze([]),
   }),
   worker_table_denied: objectFreeze(['INSERT', 'UPDATE', 'DELETE']),
+  worker_journal_select: false,
   worker_execute_functions: objectFreeze([
     'tenant_email_luna_automation_enqueue',
     'tenant_email_luna_automation_claim',
@@ -65,6 +66,7 @@ const EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT = objectFreeze({
     'tenant_email_luna_automation_require_handoff_claimed',
     'tenant_email_luna_automation_handoff',
     'tenant_email_luna_automation_terminalize_attempt_cap',
+    'tenant_email_luna_automation_journal_handoff_lock',
   ]),
   operator_execute_functions: objectFreeze([
     'tenant_email_luna_automation_cancel_pending',
@@ -76,7 +78,8 @@ const EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT = objectFreeze({
   apply_in: 'ch4_runtime_worker_and_operator_roles',
   replay_authority: 'privileged_function_one_way_owner_digest',
   replay_owner_digest_prefix: 'luna-replay-owner-v1:',
-  replay_authority_note: 'This proof secures the privileged tenant_email_luna_automation_handoff replay function. General table SELECT scoping is a later runtime-role/RLS decision only if existing architecture already treats the worker as service-wide trusted.',
+  journal_read_lock_function: 'tenant_email_luna_automation_journal_handoff_lock',
+  replay_authority_note: 'This proof secures the privileged tenant_email_luna_automation_handoff replay function and the privileged tenant_email_luna_automation_journal_handoff_lock reader. Worker journal access is only that SECURITY DEFINER function, which authorizes session_user against the queue client/location before locking journal, requires operation + replay owner, and returns no row/metadata for a foreign location or wrong owner. Journal RLS is not enabled; raw journal SELECT is not granted.',
 });
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const LOCATION_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -85,7 +88,7 @@ const DIGEST_RE = /^[0-9a-f]{64}$/;
 const QUEUE_COLUMNS = QUEUE_KEYS.join(', ');
 const JOURNAL_COLUMNS = JOURNAL_KEYS.join(', ');
 const SQL_LOCK_QUEUE = `SELECT ${QUEUE_COLUMNS} FROM tenant_email_luna_automation_queue WHERE operation_id = $1::uuid FOR UPDATE`;
-const SQL_LOCK_JOURNAL = `SELECT ${JOURNAL_COLUMNS} FROM tenant_email_outbound_send_journal WHERE operation_id = $1::uuid FOR UPDATE`;
+const SQL_LOCK_JOURNAL = `SELECT ${JOURNAL_COLUMNS} FROM public.tenant_email_luna_automation_journal_handoff_lock($1::uuid, $2::uuid)`;
 const SQL_HANDOFF = `SELECT ${QUEUE_COLUMNS} FROM tenant_email_luna_automation_handoff($1::uuid, $2::uuid)`;
 
 function invalid() {
@@ -441,8 +444,16 @@ function createEmailLunaAutomationJournalHandoffStore(dependencies) {
           return output([['status', 'identity_conflict']]);
         }
         if (queueBefore.state === 'handed_off') {
-          const journals = queryRows(await Promise.resolve(client.query(SQL_LOCK_JOURNAL, [operationId])));
-          if (journals.length !== 1) return output([['status', 'identity_conflict']]);
+          let journals;
+          try {
+            journals = queryRows(await Promise.resolve(client.query(SQL_LOCK_JOURNAL, [operationId, owner])));
+          } catch (error) {
+            const code = ownErrorCode(error);
+            const message = ownErrorMessage(error);
+            if (code === '23514' && /journal identity conflict/.test(message)) return output([['status', 'identity_conflict']]);
+            throw error;
+          }
+          if (journals.length !== 1) return output([['status', 'conflict']]);
           const journal = publicJournal(journals[0]);
           if (!identityMatch(queueBefore, journal, proven.digest)) return output([['status', 'identity_conflict']]);
           if (journal.luna_replay_owner_digest !== replayOwnerDigest(owner)) {
@@ -474,7 +485,15 @@ function createEmailLunaAutomationJournalHandoffStore(dependencies) {
         }
         if (handed.length !== 1) return output([['status', 'conflict']]);
         const queueAfter = publicQueue(handed[0]);
-        const journals = queryRows(await Promise.resolve(client.query(SQL_LOCK_JOURNAL, [operationId])));
+        let journals;
+        try {
+          journals = queryRows(await Promise.resolve(client.query(SQL_LOCK_JOURNAL, [operationId, owner])));
+        } catch (error) {
+          const code = ownErrorCode(error);
+          const message = ownErrorMessage(error);
+          if (code === '23514' && /journal identity conflict/.test(message)) return output([['status', 'identity_conflict']]);
+          throw error;
+        }
         if (journals.length !== 1) return output([['status', 'identity_conflict']]);
         const journal = publicJournal(journals[0]);
         if (!identityMatch(queueAfter, journal, proven.digest)) return output([['status', 'identity_conflict']]);
