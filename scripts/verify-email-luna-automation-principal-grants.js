@@ -145,6 +145,13 @@ assert.deepEqual(deniedExecuteFunctionsFor('worker').slice().sort(), [
   'tenant_email_luna_automation_require_handoff_pending(uuid, uuid)',
 ].sort());
 assert.equal(executeFunctionsFor('operator').includes('tenant_email_luna_automation_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text)'), false);
+assert.deepEqual(executeFunctionsFor('producer').slice().sort(), [
+  'tenant_email_luna_automation_persist_and_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text, jsonb)',
+].sort());
+assert.equal(executeFunctionsFor('producer').includes('tenant_email_luna_automation_claim(uuid, uuid)'), false);
+assert.equal(executeFunctionsFor('producer').includes('tenant_email_luna_automation_principal_authorized(text, uuid, uuid, text)'), false);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.kinds.includes('producer'), true);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.producer_queue_select, false);
 
 assert.match(DOWN_088, /088_down_refused/);
 assert.match(DOWN_088, /DISABLE ROW LEVEL SECURITY/);
@@ -273,6 +280,35 @@ function mockSession(handler, tracker) {
     assert.equal(calls.some((c) => c.extraArg), false);
     assert.equal(tracker.released, 1);
     console.log('  PASS  dry-run provision is default-off and does not CREATE ROLE');
+  }).then(async () => {
+    const producerTracker = { calls: [], connected: 0, released: 0 };
+    let oid = 2000;
+    const producerSession = mockSession(async (sql) => {
+      if (/current_database/.test(sql)) return { rows: [{ database: 'postgres', session_user: 'postgres' }] };
+      if (/table_owner/.test(sql)) return { rows: [{ table_owner: 'postgres' }] };
+      if (/to_regprocedure/.test(sql)) {
+        oid += 1;
+        return { rows: [{ oid: String(oid) }] };
+      }
+      if (/FROM pg_catalog\.pg_roles/.test(sql) && /rolcanlogin/.test(sql)) return { rows: [] };
+      if (/tenant_email_luna_automation_principals/.test(sql) && /SELECT/.test(sql)) return { rows: [] };
+      return { rows: [] };
+    }, producerTracker);
+    const producerPlan = await provisionEmailLunaAutomationPrincipal(producerSession, {
+      roleName: 'luna_ch4b1_producer_a',
+      kind: 'producer',
+      client_id: '11111111-1111-4111-8111-111111111111',
+      location_id: '22222222-2222-4222-8222-222222222222',
+      location_key: 'sunset-somo',
+    });
+    assert.equal(producerPlan.ok, true);
+    assert.equal(producerPlan.apply, false);
+    assert.equal(producerPlan.kind, 'producer');
+    assert.ok(producerPlan.plan.some((line) => /persist_and_enqueue/.test(line)));
+    assert.equal(producerPlan.plan.some((line) => /GRANT SELECT ON TABLE public.tenant_email_luna_automation_queue/.test(line)), false);
+    assert.equal(producerPlan.plan.some((line) => /issuance_material_load/.test(line) && /GRANT EXECUTE/.test(line)), false);
+    assert.equal(producerPlan.plan.some((line) => /automation_claim/.test(line) && /GRANT EXECUTE/.test(line)), false);
+    console.log('  PASS  producer dry-run grants persist only and no queue SELECT');
   }).then(async () => {
     await assert.rejects(
       () => provisionEmailLunaAutomationPrincipal(async () => ({ rows: [] }), {

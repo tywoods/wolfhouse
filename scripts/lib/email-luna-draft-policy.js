@@ -557,6 +557,22 @@ function readEmailLunaDraftPolicyIssuanceIdentity(value) {
   return id;
 }
 
+function openPolicyFreshnessTurn() {
+  if (freshnessScopeOpen) throw invalid();
+  if (!numberIsSafeInteger(freshnessScopeGeneration) || freshnessScopeGeneration >= Number.MAX_SAFE_INTEGER - 1) {
+    throw invalid();
+  }
+  freshnessScopeOpen = true;
+  freshnessScopeGeneration += 1;
+}
+
+function closePolicyFreshnessTurn() {
+  freshnessScopeOpen = false;
+  if (numberIsSafeInteger(freshnessScopeGeneration) && freshnessScopeGeneration < Number.MAX_SAFE_INTEGER) {
+    freshnessScopeGeneration += 1;
+  }
+}
+
 function issueAndDecideEmailLunaDraftPolicy(input) {
   const request = exactInput(input);
   if (freshnessScopeOpen) throw invalid();
@@ -579,6 +595,36 @@ function issueAndDecideEmailLunaDraftPolicy(input) {
     if (numberIsSafeInteger(freshnessScopeGeneration) && freshnessScopeGeneration < Number.MAX_SAFE_INTEGER) {
       freshnessScopeGeneration += 1;
     }
+  }
+}
+
+/**
+ * Recovery-only reconstitution. Private to this module. Binds the ORIGINAL
+ * issuance_id onto newly branded evidence/decision during a new composition-turn.
+ * Live composition must keep using issueAndDecideEmailLunaDraftPolicy (which mints).
+ * Ordinary importers cannot obtain this function. Recovery is reachable only
+ * through createEmailLunaAutomationIssuanceMaterialStore(...).recoverAutomationIssuance
+ * after a WeakSet-branded scoped load.
+ */
+function recoverIssueAndDecideEmailLunaDraftPolicy(input) {
+  const request = copyExactProducerRecord(input, ['envelope', 'evidence', 'issuance_id'], Object.prototype);
+  if (typeof request.issuance_id !== 'string') throw invalid();
+  const issuanceId = request.issuance_id.toLowerCase();
+  if (!regexpTest(UUID_CANON, issuanceId) || request.issuance_id !== issuanceId) throw invalid();
+  openPolicyFreshnessTurn();
+  try {
+    const evidence = createEmailLunaDraftPolicyEvidence(request.evidence);
+    if (POLICY_ISSUANCE_IDS.get(evidence) !== undefined) throw invalid();
+    POLICY_ISSUANCE_IDS.set(evidence, issuanceId);
+    const decision = decideEmailLunaDraftPolicy({ envelope: request.envelope, evidence });
+    if (POLICY_ISSUANCE_IDS.get(decision) !== undefined) throw invalid();
+    POLICY_ISSUANCE_IDS.set(decision, issuanceId);
+    return output([
+      ['evidence', evidence],
+      ['decision', decision],
+    ]);
+  } finally {
+    closePolicyFreshnessTurn();
   }
 }
 
@@ -637,12 +683,35 @@ function assertEmailLunaDraftPolicyIssuance(input) {
   });
 }
 
+let boundIssuanceMaterialStoreCreate = null;
+
+function installIssuanceMaterialStoreFactory(createInternal) {
+  if (typeof createInternal !== 'function' || runtimeIsProxy(createInternal)) throw invalid();
+  boundIssuanceMaterialStoreCreate = function boundCreate(dependencies) {
+    return createInternal(dependencies, recoverIssueAndDecideEmailLunaDraftPolicy);
+  };
+}
+
+function createEmailLunaAutomationIssuanceMaterialStore(dependencies) {
+  if (boundIssuanceMaterialStoreCreate === null) {
+    require('./email-luna-automation-issuance-material-store');
+  }
+  if (typeof boundIssuanceMaterialStoreCreate !== 'function') throw invalid();
+  return boundIssuanceMaterialStoreCreate(dependencies);
+}
+
+// Node Module object only — not module.exports. The store installs once, then
+// the hook is deleted so ordinary importers and later require.cache callers
+// cannot obtain the private recovery closure.
+module.installIssuanceMaterialStoreFactory = installIssuanceMaterialStoreFactory;
+
 module.exports = {
   createEmailLunaDraftPolicyEvidence,
   decideEmailLunaDraftPolicy,
   issueAndDecideEmailLunaDraftPolicy,
   assertEmailLunaDraftPolicyIssuance,
   readEmailLunaDraftPolicyIssuanceIdentity,
+  createEmailLunaAutomationIssuanceMaterialStore,
   EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
   EMAIL_LUNA_DRAFT_POLICY_VERSION,
 };

@@ -504,12 +504,17 @@ function parseSchedulerProbe(result, label) {
     'EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS',
     'EMAIL_LUNA_DRAFT_POLICY_VERSION',
     'assertEmailLunaDraftPolicyIssuance',
+    'createEmailLunaAutomationIssuanceMaterialStore',
     'createEmailLunaDraftPolicyEvidence',
     'decideEmailLunaDraftPolicy',
     'issueAndDecideEmailLunaDraftPolicy',
     'readEmailLunaDraftPolicyIssuanceIdentity',
   ]);
+  assert.equal('recoverIssueAndDecideEmailLunaDraftPolicy' in policyModule, false);
+  assert.equal('installIssuanceMaterialStoreFactory' in policyModule, false);
   for (const forbidden of [
+    'recoverIssueAndDecideEmailLunaDraftPolicy',
+    'installIssuanceMaterialStoreFactory',
     'createEmailLunaDraftPolicyClock',
     'createEmailLunaDraftPolicyFreshness',
     'getEmailLunaDraftPolicyFreshness',
