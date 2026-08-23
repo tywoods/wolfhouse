@@ -722,6 +722,10 @@ const {
   MANUAL_BOOKING_ALLOWED_ROLES,
 } = require('./lib/staff-manual-booking-create-sql');
 const {
+  bridgeAvailable,
+} = require('./lib/external-calendar-inventory');
+const extCalRoutes = require('./lib/external-calendar-inventory-routes');
+const {
   calculateWolfhouseQuote,
 } = require('./lib/wolfhouse-quote-calculator');
 const {
@@ -19052,6 +19056,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD}
 .bc-block-blocked{background:#E4E2DE;color:#5E5C58;border-left:3px solid #B0AEA8}
+.bc-block-owner_schedule_blocked{background:#F6E56B;color:#4E5853;border-left:3px solid #C4A017}
 .bc-day-cell-turnover{position:relative;height:calc(36px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(4px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
 .bc-day-cell-turnover .bc-block{position:relative;z-index:2}
 .bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(calc(52px * var(--bc-zoom, 1)),34%)}
@@ -19065,6 +19070,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-checkout-marker.bc-block-tour_operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-blocked{background:linear-gradient(90deg,rgba(176,174,168,.30) 0%,rgba(176,174,168,.09) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-owner_schedule_blocked{background:linear-gradient(90deg,rgba(196,160,23,.35) 0%,rgba(246,229,107,.18) 40%,transparent 75%)}
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
@@ -19104,6 +19110,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-blocked{background:#E4E2DE;border-left-color:#B0AEA8}
+.bc-legend-sw-owner_schedule_blocked{background:#F6E56B;border-left-color:#C4A017}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
 @media (max-width:720px){
 .bc-controls-row{flex-direction:column;align-items:stretch}
@@ -19650,6 +19657,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-block-operator,[data-theme="dark"] .bc-block-tour_operator{background:#2a2436;color:#d8c8e8;border-left-color:#7a68a0}
 [data-theme="dark"] .bc-block-manual{background:#1e2a28;color:#b8c8bc;border-left-color:#569cd6}
 [data-theme="dark"] .bc-block-blocked{background:#2c2c2c;color:#b0b0b0;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-block-owner_schedule_blocked{background:#C9B22A;color:#1e1e1e;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-confirmed{background:#2a3a32;border-left-color:#569cd6}
 [data-theme="dark"] .bc-legend-sw-hold{background:#3a3428;border-left-color:#8a7355}
 [data-theme="dark"] .bc-legend-sw-payment{background:#1a2836;border-left-color:#569cd6}
@@ -19658,6 +19666,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-legend-sw-cancelled{background:#2a2a2a;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-legend-sw-manual{background:#1e2a28;border-left-color:#569cd6}
 [data-theme="dark"] .bc-legend-sw-blocked{background:#2c2c2c;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-legend-sw-owner_schedule_blocked{background:#C9B22A;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-balance{background:#3a3420;border-left-color:#c49a4a}
 [data-theme="dark"] .bc-detail-note,[data-theme="dark"] .bc-sel-warn{background:#3a3420;border-color:#5a5038;color:#e8c89a}
 [data-theme="dark"] #bc-warnings{background:#3a2828;border-color:#6a4040;color:#f0c0bc}
@@ -21849,6 +21858,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span><span data-i18n="calendar.legend.staff">Staff</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-owner_schedule_blocked"></span><span data-i18n="calendar.legend.ownerScheduleBlocked">Owner schedule blocked</span></span>
     </div>
     </div>
     </div>
@@ -22242,6 +22252,18 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </section>
 
+  <div class="card cc-section" id="cc-owner-schedule-bridge">
+    <div class="cc-section-hdr">Owner schedule</div>
+    <div class="cc-section-sub">Connect a Google Sheet to block beds. An empty or broken Sheet never removes a Luna booking or staff block.</div>
+    <div id="osb-status" class="al-hint"></div>
+    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
+      <input id="osb-name" type="text" placeholder="Connection name" autocomplete="off">
+      <input id="osb-sheet" type="text" placeholder="Spreadsheet id" autocomplete="off" spellcheck="false">
+      <input id="osb-tab" type="text" placeholder="inventory" autocomplete="off">
+      <button type="button" class="btn-ghost" id="osb-probe">Probe</button>
+    </div>
+    <pre id="osb-out" style="font-size:11px;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
+  </div>
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
     <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.numbers.sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
@@ -30347,6 +30369,33 @@ function staffWhatsappNumbersLoad(){
     });
 }
 
+function ownerScheduleBridgeProbe(){
+  var out = el('osb-out');
+  var status = el('osb-status');
+  if (status) status.textContent = 'Probing…';
+  var headers = ['unit_key','start_date','end_date','status','external_uid'];
+  fetch('/staff/luna-staff/calendar-bridge/probe?client=' + encodeURIComponent(getClient()), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: (el('osb-name') && el('osb-name').value || '').trim(),
+      spreadsheet_id: (el('osb-sheet') && el('osb-sheet').value || '').trim(),
+      sheet_name: (el('osb-tab') && el('osb-tab').value || 'inventory').trim(),
+      rows: [headers]
+    })
+  }).then(function(r){ return r.json().then(function(body){ return { status: r.status, body: body }; }); })
+    .then(function(res){
+      if (status) status.textContent = res.body && res.body.ok ? 'Probe ok (empty sheet keeps last blocks)' : ((res.body && res.body.error) || 'Probe failed');
+      if (out) out.textContent = JSON.stringify(res.body, null, 2);
+    })
+    .catch(function(err){
+      if (status) status.textContent = 'Probe failed';
+      if (out) out.textContent = String(err && err.message || err);
+    });
+}
+if (el('osb-probe')) el('osb-probe').addEventListener('click', ownerScheduleBridgeProbe);
+
 function staffWhatsappNumberAdd(){
   var phone = (el('swn-add-phone') && el('swn-add-phone').value || '').trim();
   var group = (el('swn-add-group') && el('swn-add-group').value || 'staff').trim();
@@ -33610,7 +33659,11 @@ function pickCalendarGuestDisplayName(src){
 function bcCalendarBlockDisplayLabel(blk){
   if (!blk) return '\u2014';
   var at = String(blk.assignment_type || '').toLowerCase();
+  if (at === 'external_inventory_block') return t('calendar.legend.ownerScheduleBlocked');
   if (at === 'private_room_block' || at === 'staff_block') return t('calendar.legend.blocked');
+  if (String(blk.status || '').toLowerCase() === 'blocked' && String(blk.color_type || '') === 'owner_schedule_blocked') {
+    return t('calendar.legend.ownerScheduleBlocked');
+  }
   if (String(blk.status || '').toLowerCase() === 'blocked') return t('calendar.legend.blocked');
   return pickCalendarGuestDisplayName(blk);
 }
@@ -44390,6 +44443,35 @@ async function handleCalendarBedBlockCreate(req, res, user) {
   });
 }
 
+async function handleOwnerScheduleBridgeProbe(req, res, user) {
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
+  }
+  const url = new URL(req.url, 'http://127.0.0.1');
+  const clientSlug = String(body.client || url.searchParams.get('client') || DEFAULT_CLIENT).trim();
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const gate = extCalRoutes.refuseClient(clientSlug);
+  if (!gate.ok) {
+    return sendJSON(res, gate.status, { success: false, ok: false, error: gate.error, client: clientSlug });
+  }
+  const result = extCalRoutes.handleProbeBody(body, body.maps || {}, body.occupancy || {}, body.connection_id || 'probe');
+  appendAuditLog({
+    ts: new Date().toISOString(),
+    intent: 'api:external_calendar_probe',
+    category: 'external_calendar',
+    client_slug: clientSlug,
+    staff_user_id: user && user.staff_user_id,
+    success: !!result.ok,
+    error: result.error || null,
+    keep_last_blocks: true,
+  });
+  return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ success: !!result.ok, client: clientSlug }, result));
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7g — Bed calendar handler (read-only)
 //
@@ -44459,6 +44541,7 @@ function bedCalendarIsTourOperatorSource(row) {
 function bedCalendarColorType(row) {
   row = row || {};
   const assignType = String(row.assignment_type || '').toLowerCase();
+  if (assignType === 'external_inventory_block') return 'owner_schedule_blocked';
   if (assignType === 'private_room_block' || assignType === 'staff_block') return 'blocked';
   if (String(row.booking_status || '').toLowerCase() === 'blocked') return 'blocked';
   if (bedCalendarIsLunaBotSource(row)) return 'payment_pending';
@@ -47361,6 +47444,16 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCalendarBedBlockCreate(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/luna-staff/calendar-bridge/probe') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleOwnerScheduleBridgeProbe(req, res, auth.user);
   }
 
   // ── Stage 8.4.11 — Stripe webhook payment truth ───────────────────────────

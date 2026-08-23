@@ -1263,6 +1263,26 @@
       "rationale": "Refuses rollback while principal mapping rows exist; otherwise drops the mapping table, authorization helper, and scoped journal lock function, disables queue RLS, and restores 086 mutation functions plus the 087 journal handoff. Second empty execution is safe.",
       "pairsWith": "088_tenant_email_luna_automation_principal_grants.sql",
       "sha256": "4231a2f2908dc43bb08f52ccc22181940542149b443e1477075b728e82cad67c"
+    },
+    {
+      "id": "089_external_calendar_inventory",
+      "filename": "089_external_calendar_inventory.sql",
+      "order": 85,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Calendar Inventory Bridge Slice 1: tenant-scoped Google Sheet connections, bed-only maps, and feed event identity. Occupancy remains on bookings/booking_beds. First activation wolfhouse-somo only.",
+      "downFilename": "089_external_calendar_inventory_down.sql",
+      "sha256": "fdf3a50d1a44cd0d9c5f9c4a7ff648f215493e8d7ba3bdb1503306cf07d04183"
+    },
+    {
+      "id": "089_external_calendar_inventory_down",
+      "filename": "089_external_calendar_inventory_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while imported owner-schedule events still link a booking; otherwise drops the four bridge tables. Second empty execution is safe.",
+      "pairsWith": "089_external_calendar_inventory.sql",
+      "sha256": "17466ce4c1150508aecc0b7356698451cf045d9b00d3fffe687ad71d34e03575"
     }
   ]
 }
