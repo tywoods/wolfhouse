@@ -502,10 +502,12 @@ function parseSchedulerProbe(result, label) {
   const policyModule = require('./lib/email-luna-draft-policy');
   assert.deepEqual(Object.keys(policyModule).sort(), [
     'EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS',
+    'EMAIL_LUNA_DRAFT_POLICY_VERSION',
     'assertEmailLunaDraftPolicyIssuance',
     'createEmailLunaDraftPolicyEvidence',
     'decideEmailLunaDraftPolicy',
     'issueAndDecideEmailLunaDraftPolicy',
+    'readEmailLunaDraftPolicyIssuanceIdentity',
   ]);
   for (const forbidden of [
     'createEmailLunaDraftPolicyClock',
