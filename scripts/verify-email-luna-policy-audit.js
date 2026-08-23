@@ -25,10 +25,16 @@ const {
   createEmailLunaPolicyAuditStore,
   EMAIL_LUNA_POLICY_AUDIT_RUNTIME_WIRED,
   EMAIL_LUNA_POLICY_AUDIT_LOGGING_FORBIDDEN,
+  EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085,
+  EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086,
   EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS,
+  EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086,
   SQL_LOCK_OPERATION,
   SQL_LOCK_ISSUANCE,
   SQL_INSERT,
+  SQL_LOCK_OPERATION_086,
+  SQL_LOCK_ISSUANCE_086,
+  SQL_INSERT_086,
 } = auditModule;
 
 const IDS = Object.freeze({
@@ -169,24 +175,35 @@ function cloneRow(row) {
   for (const key of RECORD_KEYS) copy[key] = key === 'fact_refs' ? row[key].slice() : row[key];
   return copy;
 }
-function createMemoryAuditDb() {
+function createMemoryAuditDb(options = {}) {
+  const schemaVersion = options.schemaVersion || EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085;
+  const keys = schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086
+    ? EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086
+    : RECORD_KEYS;
+  const sqlLockOp = schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086 ? SQL_LOCK_OPERATION_086 : SQL_LOCK_OPERATION;
+  const sqlLockIssuance = schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086 ? SQL_LOCK_ISSUANCE_086 : SQL_LOCK_ISSUANCE;
+  const sqlInsert = schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086 ? SQL_INSERT_086 : SQL_INSERT;
   const byOp = new Map();
   const byIssuance = new Map();
   const inserts = [];
+  function cloneSchemaRow(row) {
+    const copy = Object.create(null);
+    for (const key of keys) copy[key] = key === 'fact_refs' ? row[key].slice() : row[key];
+    return copy;
+  }
   async function withTransactionClient(work) {
     const client = {
       async query(text, params) {
-        if (text === SQL_LOCK_OPERATION) {
+        if (text === sqlLockOp) {
           const row = byOp.get(params[0]);
-          return { rows: row ? [cloneRow(row)] : [] };
+          return { rows: row ? [cloneSchemaRow(row)] : [] };
         }
-        if (text === SQL_LOCK_ISSUANCE) {
+        if (text === sqlLockIssuance) {
           const row = byIssuance.get(params[0]);
-          return { rows: row ? [cloneRow(row)] : [] };
+          return { rows: row ? [cloneSchemaRow(row)] : [] };
         }
-        if (text === SQL_INSERT) {
+        if (text === sqlInsert) {
           const row = Object.create(null);
-          const keys = RECORD_KEYS;
           for (let index = 0; index < keys.length; index += 1) {
             const key = keys[index];
             row[key] = key === 'fact_refs' ? params[index].slice() : params[index];
@@ -199,14 +216,14 @@ function createMemoryAuditDb() {
           byOp.set(row.operation_id, row);
           byIssuance.set(row.issuance_id, row);
           inserts.push(params.slice());
-          return { rows: [cloneRow(row)] };
+          return { rows: [cloneSchemaRow(row)] };
         }
         throw new Error('unexpected_sql');
       },
     };
     return work(client);
   }
-  return { withTransactionClient, byOp, byIssuance, inserts };
+  return { withTransactionClient, byOp, byIssuance, inserts, schemaVersion };
 }
 
 function persistInput(triplet, patch = {}) {
@@ -251,12 +268,24 @@ assert.equal(EMAIL_LUNA_POLICY_AUDIT_LOGGING_FORBIDDEN, true);
 assert.deepEqual(Object.keys(auditModule).sort(), [
   'EMAIL_LUNA_POLICY_AUDIT_LOGGING_FORBIDDEN',
   'EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS',
+  'EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086',
   'EMAIL_LUNA_POLICY_AUDIT_RUNTIME_WIRED',
+  'EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085',
+  'EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086',
   'SQL_INSERT',
+  'SQL_INSERT_086',
   'SQL_LOCK_ISSUANCE',
+  'SQL_LOCK_ISSUANCE_086',
   'SQL_LOCK_OPERATION',
+  'SQL_LOCK_OPERATION_086',
   'createEmailLunaPolicyAuditStore',
 ]);
+assert.equal(EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085, '085');
+assert.equal(EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086, '086');
+assert.equal(EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS.includes('inbound_event_id'), false);
+assert.equal(EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086.includes('inbound_event_id'), true);
+assert.match(SQL_INSERT_086, /inbound_event_id/);
+assert.equal(/inbound_event_id/.test(SQL_INSERT), false);
 assert.deepEqual(EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS, RECORD_KEYS);
 assert.equal(EMAIL_LUNA_DRAFT_POLICY_VERSION, 'email-luna-draft-policy.v1');
 assert.equal(EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_POLICY_VERSION, 'email-luna-autonomous-eligibility-policy.v1');
@@ -283,7 +312,7 @@ console.log('  PASS  canonical issue-and-decide mints a private non-secret issua
 
 async function main() {
 const db = createMemoryAuditDb();
-const store = createEmailLunaPolicyAuditStore({ withTransactionClient: db.withTransactionClient });
+const store = createEmailLunaPolicyAuditStore({ withTransactionClient: db.withTransactionClient, schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085 });
 const readyInput = persistInput(ready);
 assert.equal(readyInput.eligibility.status, 'eligible');
 const committed = await store.persistPolicyAudit(readyInput);
@@ -327,7 +356,7 @@ const handoffEligibility = decideEmailLunaAutonomousEligibility(handoffTriplet);
 assert.equal(handoffEligibility.status, 'handoff_required');
 assert.equal(handoffEligibility.reason, 'ambiguous_identity');
 const handoffDb = createMemoryAuditDb();
-const handoffStore = createEmailLunaPolicyAuditStore({ withTransactionClient: handoffDb.withTransactionClient });
+const handoffStore = createEmailLunaPolicyAuditStore({ withTransactionClient: handoffDb.withTransactionClient, schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085 });
 const handoffCommitted = await handoffStore.persistPolicyAudit(persistInput(handoffTriplet, { operation_id: OP_B }));
 assert.equal(handoffCommitted.status, 'committed');
 assertRecord(handoffCommitted.record, {
@@ -349,7 +378,7 @@ const paymentEligibility = decideEmailLunaAutonomousEligibility(payment);
 assert.equal(paymentEligibility.status, 'handoff_required');
 assert.equal(paymentEligibility.reason, 'unsupported_intent');
 const paymentDb = createMemoryAuditDb();
-const paymentStore = createEmailLunaPolicyAuditStore({ withTransactionClient: paymentDb.withTransactionClient });
+const paymentStore = createEmailLunaPolicyAuditStore({ withTransactionClient: paymentDb.withTransactionClient, schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085 });
 const paymentCommitted = await paymentStore.persistPolicyAudit(persistInput(payment, { operation_id: OP_A }));
 assertRecord(paymentCommitted.record, {
   canonical_status: 'draft_ready',
@@ -362,7 +391,7 @@ assert.equal(JSON.stringify(paymentDb.inserts[0]).includes('partially_paid'), fa
 console.log('  PASS  canonical draft_ready with eligibility handoff audits safe fact refs only');
 
 const conflictDb = createMemoryAuditDb();
-const conflictStore = createEmailLunaPolicyAuditStore({ withTransactionClient: conflictDb.withTransactionClient });
+const conflictStore = createEmailLunaPolicyAuditStore({ withTransactionClient: conflictDb.withTransactionClient, schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085 });
 const conflictReady = persistInput(ready);
 await conflictStore.persistPolicyAudit(conflictReady);
 const other = issue();
@@ -385,7 +414,9 @@ expectInvalid(() => store.persistPolicyAudit(persistInput(ready, { policy_versio
 expectInvalid(() => store.persistPolicyAudit(persistInput(ready, { issuance_id: OP_B })), 'caller issuance identity');
 expectInvalid(() => store.persistPolicyAudit(persistInput(ready, { grounded_results: { catalog: found('catalog') } })), 'full facts');
 expectInvalid(() => store.persistPolicyAudit(persistInput(ready, { metadata: { foo: 1 } })), 'caller metadata');
-expectInvalid(() => createEmailLunaPolicyAuditStore({ withTransactionClient: db.withTransactionClient, extra: true }), 'extra store dep');
+expectInvalid(() => createEmailLunaPolicyAuditStore({ withTransactionClient: db.withTransactionClient, schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085, extra: true }), 'extra store dep');
+expectInvalid(() => createEmailLunaPolicyAuditStore({ withTransactionClient: db.withTransactionClient }), 'missing schema version');
+expectInvalid(() => createEmailLunaPolicyAuditStore({ withTransactionClient: db.withTransactionClient, schemaVersion: '084' }), 'unknown schema version');
 const rebound = issue({ authorityPatch: { conversation_id: '88888888-8888-4888-8888-888888888888' } });
 expectInvalid(
   () => store.persistPolicyAudit(persistInput(ready, {
@@ -413,6 +444,29 @@ expectInvalid(
 );
 console.log('  PASS  persist requires authentic canonical issuance, not a lookalike triplet');
 
+{
+  const db086 = createMemoryAuditDb({ schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086 });
+  const store086 = createEmailLunaPolicyAuditStore({
+    withTransactionClient: db086.withTransactionClient,
+    schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086,
+  });
+  const committed086 = await store086.persistPolicyAudit(readyInput);
+  assert.equal(committed086.status, 'committed');
+  assert.equal(committed086.record.inbound_event_id, IDS.inbound_message_id);
+  assert.deepEqual(Object.keys(committed086.record), EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086.slice());
+  for (const key of FORBIDDEN_RECORD_KEYS) {
+    assert.equal(Object.hasOwn(committed086.record, key), false, `086 record must not persist ${key}`);
+  }
+  const insert086 = JSON.stringify(db086.inserts[0]);
+  assert.equal(insert086.includes('elena@example.test'), false);
+  assert.equal(insert086.includes('How much is a surf lesson'), false);
+  assert.equal(insert086.includes(IDS.inbound_message_id), true);
+  const replay086 = await store086.persistPolicyAudit(readyInput);
+  assert.equal(replay086.status, 'replayed');
+  assert.equal(replay086.record.inbound_event_id, IDS.inbound_message_id);
+  console.log('  PASS  086 schema persist writes authentic inbound_event_id and remains bounded identifiers only');
+}
+
 const storeSrc = fs.readFileSync(STORE_PATH, 'utf8');
 const policySrc = fs.readFileSync(POLICY_PATH, 'utf8');
 assert.equal(EMAIL_LUNA_POLICY_AUDIT_RUNTIME_WIRED, false);
@@ -434,6 +488,7 @@ function occurrences(source, block) {
 const FACTS_BLOCK = "const FACTS = objectFreeze(['catalog', 'availability', 'policy', 'booking', 'payment']);";
 assert.equal(occurrences(storeSrc, FACTS_BLOCK), 1);
 const sqlSrc = fs.readFileSync(SQL_PATH, 'utf8');
+assert.equal(/inbound_event_id/.test(sqlSrc), false);
 assert.match(sqlSrc, /CONSTRAINT tenant_email_luna_policy_audit_fact_refs_bounds CHECK/);
 assert.match(sqlSrc, /fact_refs IS NOT NULL/);
 assert.match(sqlSrc, /array_position\(fact_refs, NULL\) IS NULL/);
@@ -511,7 +566,10 @@ const TENANT_MUTANT = 'void 0;';
 async function expectMutationKilled(label, block, replacement, attack) {
   const mutant = loadMutant(label, replaceUnique(storeSrc, block, replacement, label));
   const mutantDb = createMemoryAuditDb();
-  const mutantStore = mutant.createEmailLunaPolicyAuditStore({ withTransactionClient: mutantDb.withTransactionClient });
+  const mutantStore = mutant.createEmailLunaPolicyAuditStore({
+    withTransactionClient: mutantDb.withTransactionClient,
+    schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085,
+  });
   let accepted = false;
   try {
     accepted = await attack(mutantStore, mutantDb) === true;
