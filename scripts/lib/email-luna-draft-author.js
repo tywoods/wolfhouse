@@ -56,9 +56,10 @@ function render(trusted,plan){const language=trusted.language,intent=plan.templa
   else if(intent==='payment_status_reply'){const f=facts.payment,copy=f&&PAYMENT_COPY[f.payment_status],paid=f&&f.currency==='EUR'?money(f.amount_paid_cents,language):null,due=f&&f.currency==='EUR'?money(f.balance_due_cents,language):null;if(!copy||!paid||!due)return null;subject=language==='es'?'Estado del pago':'Payment status';line=`${copy[language]} ${language==='es'?`Importe abonado: ${paid}. Saldo pendiente: ${due}.`:`Amount paid: ${paid}. Balance due: ${due}.`}`;}
   else return null;
   const hello=language==='es'?'Hola,':'Hi,';const ack=language==='es'?(plan.acknowledgment_key==='thanks'?'Gracias por escribirnos.':'He tomado nota de tu mensaje.'):(plan.acknowledgment_key==='thanks'?'Thanks for getting in touch.':'I’ve noted your message.');
-  let question='';if(plan.question_key==='ask_dates')question=language==='es'?' ¿Qué fechas tenéis en mente?':' What dates do you have in mind?';if(plan.question_key==='ask_guest_count')question=language==='es'?' ¿Cuántas personas seríais?':' How many guests would there be?';
+  let question='';if(plan.question_key==='ask_dates')question=language==='es'?'¿Qué fechas tenéis en mente?':'What dates do you have in mind?';if(plan.question_key==='ask_guest_count')question=language==='es'?'¿Cuántas personas seríais?':'How many guests would there be?';
   const signoff=language==='es'?'Un saludo cálido,':'Warm regards,';
-  const body=plan.tone==='concise'?`${hello}\n\n${line}${question}\n\nLuna`:`${hello}\n\n${ack} ${line}${question}\n\n${signoff}\nLuna`;
+  const next=question?`${question}\n\n`:'';
+  const body=plan.tone==='concise'?`${hello}\n\n${line}\n\n${next}Luna`:`${hello}\n\n${ack}\n\n${line}\n\n${next}${signoff}\nLuna`;
   return {subject,body,language};
 }
 function handoff(envelope,reason){return createEmailLunaDraftHandoff({envelope,reason});}
