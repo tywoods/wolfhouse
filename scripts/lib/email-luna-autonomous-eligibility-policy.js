@@ -54,6 +54,7 @@ const CANONICAL_HANDOFF_REASONS = objectFreeze({
   explicit_human_request: 'explicit_human_request',
   prompt_injection_detected: 'prompt_injection_detected',
   unsafe_transactional_request: 'sensitive_intent',
+  stale_evidence: 'stale_evidence',
 });
 const INPUT_KEYS = objectFreeze(['envelope', 'evidence', 'decision']);
 

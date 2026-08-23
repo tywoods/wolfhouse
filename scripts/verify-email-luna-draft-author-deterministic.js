@@ -1,7 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { createEmailLunaDraftEnvelope } = require('./lib/email-luna-draft-handoff-contract');
-const { createEmailLunaDraftPolicyEvidence, decideEmailLunaDraftPolicy } = require('./lib/email-luna-draft-policy');
+const { issueAndDecideEmailLunaDraftPolicy } = require('./lib/email-luna-draft-policy');
 const { createEmailLunaDraftAuthor, buildEmailLunaDraftAuthorPrompt } = require('./lib/email-luna-draft-author');
 
 const IDS = Object.freeze({
@@ -24,10 +24,10 @@ function envelope(language='en', contentPatch={}) { return createEmailLunaDraftE
 }}); }
 function issue(intent,fact,language='en',factPatch={},contentPatch={}) {
   const env=envelope(language,contentPatch); const grounded={fact,status:'found',client_id:IDS.client_id,location_id:IDS.location_id,...FACTS[fact],...factPatch};
-  const evidence=createEmailLunaDraftPolicyEvidence({client_id:IDS.client_id,location_id:IDS.location_id,conversation_id:IDS.conversation_id,
+  const issued=issueAndDecideEmailLunaDraftPolicy({envelope:env,evidence:{client_id:IDS.client_id,location_id:IDS.location_id,conversation_id:IDS.conversation_id,
     endpoint_id:IDS.endpoint_id,language,identity:'matched',intent,intent_support:'supported',requested_location_id:IDS.location_id,explicit_human_request:false,
-    attachment_interpretation_required:false,unsafe_transactional_request:false,required_facts:[fact],grounded_results:{[fact]:grounded}});
-  return {envelope:env,evidence,decision:decideEmailLunaDraftPolicy({envelope:env,evidence})};
+    attachment_interpretation_required:false,unsafe_transactional_request:false,required_facts:[fact],grounded_results:{[fact]:grounded}}});
+  return {envelope:env,evidence:issued.evidence,decision:issued.decision};
 }
 const plan=(template_id,tone='warm',question_key='none',acknowledgment_key='thanks')=>JSON.stringify({template_id,tone,question_key,acknowledgment_key});
 function safe(result) {

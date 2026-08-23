@@ -74,20 +74,22 @@ Luna drafts; staff reviews and sends. Luna never approves or sends.
 
 ```js
 const {
-  createEmailLunaDraftPolicyEvidence,
-  decideEmailLunaDraftPolicy,
+  issueAndDecideEmailLunaDraftPolicy,
 } = require('../scripts/lib/email-luna-draft-policy');
 
 // classifierSnapshot and groundedToolResults are outputs selected by trusted
-// server wiring. The producer validates/copies/freezes them; it does not infer truth.
-const evidence = createEmailLunaDraftPolicyEvidence({
-  ...classifierSnapshot,
-  grounded_results: groundedToolResults,
+// server wiring. The canonical operation validates/copies/freezes them and decides
+// synchronously inside one private freshness scope; it does not infer truth.
+const { evidence, decision } = issueAndDecideEmailLunaDraftPolicy({
+  envelope,
+  evidence: {
+    ...classifierSnapshot,
+    grounded_results: groundedToolResults,
+  },
 });
-const decision = decideEmailLunaDraftPolicy({ envelope, evidence });
 ```
 
-`createEmailLunaDraftPolicyEvidence` is a server-owned composition API only. Do not expose it through a model tool, email payload, browser bundle, or generic request handler. Production wiring remains a later slice and must supply the classifier and grounded-tool outputs.
+`issueAndDecideEmailLunaDraftPolicy` is the server-owned composition API. Do not expose it through a model tool, email payload, browser bundle, or generic request handler. Standalone evidence creation/decision is compatibility-only and deliberately fails closed as stale outside the private synchronous scope. Production wiring must supply the classifier and grounded-tool outputs.
 
 ### Slice 4.4 — Luna email author and SOUL
 

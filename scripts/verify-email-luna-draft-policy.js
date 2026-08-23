@@ -6,6 +6,7 @@ const policyModule = require('./lib/email-luna-draft-policy');
 const {
   createEmailLunaDraftPolicyEvidence,
   decideEmailLunaDraftPolicy,
+  issueAndDecideEmailLunaDraftPolicy,
   EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
 } = policyModule;
 
@@ -28,6 +29,7 @@ const REASONS = Object.freeze([
   'explicit_human_request',
   'prompt_injection_detected',
   'unsafe_transactional_request',
+  'stale_evidence',
 ]);
 
 function frozen(value) {
@@ -95,14 +97,11 @@ function evidence(patch = {}) {
   };
   return frozen(value);
 }
-const issueEvidence = typeof createEmailLunaDraftPolicyEvidence === 'function'
-  ? createEmailLunaDraftPolicyEvidence
-  : (value) => value;
 function decide(input = {}) {
-  const issuedEvidence = input.evidence
-    ? issueEvidence(input.evidence)
-    : issueEvidence(evidence());
-  return decideEmailLunaDraftPolicy({ envelope: input.envelope || envelope(), evidence: issuedEvidence });
+  return issueAndDecideEmailLunaDraftPolicy({
+    envelope: input.envelope || envelope(),
+    evidence: input.evidence || evidence(),
+  }).decision;
 }
 function plain(value) {
   return JSON.parse(JSON.stringify(value));
@@ -320,7 +319,9 @@ assert.equal(isolated.location_id, IDS.location_id, 'producer copies before call
 assert.equal(isolated.language, 'en', 'producer copies trusted language before caller mutation');
 assert.throws(() => { isolated.location_id = OTHER_LOCATION; }, TypeError);
 assert.throws(() => { isolated.grounded_results.booking.booking_status = 'cancelled'; }, TypeError);
-assert.equal(decideEmailLunaDraftPolicy({ envelope: envelope(), evidence: isolated }).status, 'draft_ready');
+assert.equal(issueAndDecideEmailLunaDraftPolicy({
+  envelope: envelope(), evidence: forgedExactEvidence,
+}).decision.status, 'draft_ready');
 
 const policyPath = require.resolve('./lib/email-luna-draft-policy');
 const originalCacheEntry = require.cache[policyPath];
@@ -339,8 +340,10 @@ try {
   WeakSet.prototype.has = function ambientAlwaysHas() { return true; };
   Array.prototype.includes = function ambientAlwaysIncludes() { return true; };
   expectInvalid({ envelope: envelope(), evidence: forgedExactEvidence }, 'ambient prototype patch cannot bless forged evidence');
-  const underPatch = createEmailLunaDraftPolicyEvidence(forgedExactEvidence);
-  assert.equal(decideEmailLunaDraftPolicy({ envelope: envelope(), evidence: underPatch }).status, 'draft_ready');
+  const underPatch = issueAndDecideEmailLunaDraftPolicy({
+    envelope: envelope(), evidence: forgedExactEvidence,
+  });
+  assert.equal(underPatch.decision.status, 'draft_ready');
 } finally {
   WeakSet.prototype.add = originalWeakSetAdd;
   WeakSet.prototype.has = originalWeakSetHas;
@@ -353,7 +356,7 @@ assert.equal(/\brequire\s*\(\s*['"](?:openai|axios|node-fetch|pg|postgres|sequel
 assert.equal(/\b(?:fetch|XMLHttpRequest|WebSocket|sendMail|send|write|insert|update|delete)\s*\(/i.test(source), false);
 assert.equal(/\b(?:model|provider|completion|database|network|recipient|approval)\b/i.test(source), false);
 assert.deepEqual(Object.keys(require('./lib/email-luna-draft-policy')).sort(), [
-  'EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS', 'assertEmailLunaDraftPolicyIssuance', 'createEmailLunaDraftPolicyEvidence', 'decideEmailLunaDraftPolicy',
+  'EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS', 'assertEmailLunaDraftPolicyIssuance', 'createEmailLunaDraftPolicyEvidence', 'decideEmailLunaDraftPolicy', 'issueAndDecideEmailLunaDraftPolicy',
 ]);
 console.log('  PASS  owner is pure: no prose/model/provider/network/DB/write/send capability');
 console.log('ALL OK — Slice 4.3 email Luna draft policy');
