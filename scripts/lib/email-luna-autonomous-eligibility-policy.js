@@ -9,6 +9,7 @@ const arrayIncludes = uncurryThis(Array.prototype.includes);
 const objectCreate = Object.create;
 const objectDefineProperty = Object.defineProperty;
 const objectFreeze = Object.freeze;
+const objectIsFrozen = Object.isFrozen;
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
@@ -17,6 +18,8 @@ const arrayIsArray = Array.isArray;
 const weakSetAdd = uncurryThis(WeakSet.prototype.add);
 const weakSetHas = uncurryThis(WeakSet.prototype.has);
 const CONSUMED_POLICY_DECISIONS = new WeakSet();
+const AUTHENTIC_ELIGIBILITY_OUTPUTS = new WeakSet();
+const EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_POLICY_VERSION = 'email-luna-autonomous-eligibility-policy.v1';
 
 const EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_HANDOFF_REASONS = objectFreeze([
   'ambiguous_identity',
@@ -100,7 +103,16 @@ function output(entries) {
       value: entries[index][1], enumerable: true, writable: true, configurable: true,
     });
   }
-  return objectFreeze(value);
+  const frozen = objectFreeze(value);
+  weakSetAdd(AUTHENTIC_ELIGIBILITY_OUTPUTS, frozen);
+  return frozen;
+}
+
+function assertEmailLunaAutonomousEligibilityOutput(value) {
+  if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)) throw invalid();
+  if (!weakSetHas(AUTHENTIC_ELIGIBILITY_OUTPUTS, value) || !objectIsFrozen(value)) throw invalid();
+  if (objectGetPrototypeOf(value) !== null) throw invalid();
+  return value;
 }
 
 function handoff(reason, binding) {
@@ -160,6 +172,8 @@ function decideEmailLunaAutonomousEligibility(input) {
 
 module.exports = {
   decideEmailLunaAutonomousEligibility,
+  assertEmailLunaAutonomousEligibilityOutput,
   EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_HANDOFF_REASONS,
   EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_INTENTS,
+  EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_POLICY_VERSION,
 };

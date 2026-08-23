@@ -455,6 +455,8 @@
     "verify:email-luna-draft-policy-mutations": "node scripts/verify-email-luna-draft-policy-mutations.js",
     "verify:email-luna-autonomous-eligibility-policy": "node scripts/verify-email-luna-autonomous-eligibility-policy.js",
     "verify:email-luna-draft-policy-freshness": "node scripts/verify-email-luna-draft-policy-freshness.js",
+    "verify:email-luna-policy-audit": "node scripts/verify-email-luna-policy-audit.js",
+    "prove:email-luna-policy-audit-pglite": "node scripts/prove-email-luna-policy-audit-pglite.js",
     "verify:email-luna-draft-author": "node scripts/verify-email-luna-draft-author.js",
     "verify:email-luna-draft-author-deterministic": "node scripts/verify-email-luna-draft-author-deterministic.js",
     "verify:email-luna-sunset-staging-runtime-composition": "node scripts/verify-email-luna-sunset-staging-runtime-composition.js",

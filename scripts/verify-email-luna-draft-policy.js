@@ -356,7 +356,7 @@ assert.equal(/\brequire\s*\(\s*['"](?:openai|axios|node-fetch|pg|postgres|sequel
 assert.equal(/\b(?:fetch|XMLHttpRequest|WebSocket|sendMail|send|write|insert|update|delete)\s*\(/i.test(source), false);
 assert.equal(/\b(?:model|provider|completion|database|network|recipient|approval)\b/i.test(source), false);
 assert.deepEqual(Object.keys(require('./lib/email-luna-draft-policy')).sort(), [
-  'EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS', 'assertEmailLunaDraftPolicyIssuance', 'createEmailLunaDraftPolicyEvidence', 'decideEmailLunaDraftPolicy', 'issueAndDecideEmailLunaDraftPolicy',
+  'EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS', 'EMAIL_LUNA_DRAFT_POLICY_VERSION', 'assertEmailLunaDraftPolicyIssuance', 'createEmailLunaDraftPolicyEvidence', 'decideEmailLunaDraftPolicy', 'issueAndDecideEmailLunaDraftPolicy', 'readEmailLunaDraftPolicyIssuanceIdentity',
 ]);
 console.log('  PASS  owner is pure: no prose/model/provider/network/DB/write/send capability');
 console.log('ALL OK — Slice 4.3 email Luna draft policy');

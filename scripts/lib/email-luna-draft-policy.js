@@ -2,7 +2,9 @@
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const runtimeIsProxy = require('node:util').types.isProxy.bind(undefined);
+const nodeCrypto = require('node:crypto');
 const { createEmailLunaDraftHandoff } = require('./email-luna-draft-handoff-contract');
+const cryptoRandomUUID = typeof nodeCrypto.randomUUID === 'function' ? nodeCrypto.randomUUID.bind(nodeCrypto) : null;
 
 const arrayIncludes = uncurryThis(Array.prototype.includes);
 const arrayPush = uncurryThis(Array.prototype.push);
@@ -25,7 +27,10 @@ const AUTHENTIC_POLICY_DECISIONS = new WeakSet();
 const POLICY_EVIDENCE_ENVELOPES = new WeakMap();
 const POLICY_DECISION_ISSUANCE = new WeakMap();
 const POLICY_EVIDENCE_FRESHNESS = new WeakMap();
+const POLICY_ISSUANCE_IDS = new WeakMap();
 const FRESHNESS_KEYS = objectFreeze(['turn']);
+const EMAIL_LUNA_DRAFT_POLICY_VERSION = 'email-luna-draft-policy.v1';
+const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 let freshnessScopeOpen = false;
 let freshnessScopeGeneration = 0;
 
@@ -526,6 +531,32 @@ function decideEmailLunaDraftPolicy(input) {
   ]));
 }
 
+function mintIssuanceIdentity(evidence) {
+  if (!weakSetHas(AUTHENTIC_POLICY_EVIDENCE, evidence)) throw invalid();
+  if (POLICY_ISSUANCE_IDS.get(evidence) !== undefined) throw invalid();
+  if (!cryptoRandomUUID) throw invalid();
+  let raw;
+  try {
+    raw = cryptoRandomUUID();
+  } catch (_) {
+    throw invalid();
+  }
+  if (typeof raw !== 'string') throw invalid();
+  const id = raw.toLowerCase();
+  if (!regexpTest(UUID_CANON, id)) throw invalid();
+  POLICY_ISSUANCE_IDS.set(evidence, id);
+  return id;
+}
+
+function readEmailLunaDraftPolicyIssuanceIdentity(value) {
+  if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)) throw invalid();
+  const authentic = weakSetHas(AUTHENTIC_POLICY_EVIDENCE, value) || weakSetHas(AUTHENTIC_POLICY_DECISIONS, value);
+  if (!authentic) throw invalid();
+  const id = POLICY_ISSUANCE_IDS.get(value);
+  if (typeof id !== 'string' || !regexpTest(UUID_CANON, id)) throw invalid();
+  return id;
+}
+
 function issueAndDecideEmailLunaDraftPolicy(input) {
   const request = exactInput(input);
   if (freshnessScopeOpen) throw invalid();
@@ -536,7 +567,9 @@ function issueAndDecideEmailLunaDraftPolicy(input) {
   freshnessScopeGeneration += 1;
   try {
     const evidence = createEmailLunaDraftPolicyEvidence(request.evidence);
+    const issuanceId = mintIssuanceIdentity(evidence);
     const decision = decideEmailLunaDraftPolicy({ envelope: request.envelope, evidence });
+    POLICY_ISSUANCE_IDS.set(decision, issuanceId);
     return output([
       ['evidence', evidence],
       ['decision', decision],
@@ -609,5 +642,7 @@ module.exports = {
   decideEmailLunaDraftPolicy,
   issueAndDecideEmailLunaDraftPolicy,
   assertEmailLunaDraftPolicyIssuance,
+  readEmailLunaDraftPolicyIssuanceIdentity,
   EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
+  EMAIL_LUNA_DRAFT_POLICY_VERSION,
 };

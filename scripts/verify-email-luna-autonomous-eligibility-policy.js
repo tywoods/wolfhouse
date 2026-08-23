@@ -204,6 +204,8 @@ assert.equal('createEmailLunaAutonomousEligibilityEvidence' in autonomousModule,
 assert.deepEqual(Object.keys(autonomousModule).sort(), [
   'EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_HANDOFF_REASONS',
   'EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_INTENTS',
+  'EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_POLICY_VERSION',
+  'assertEmailLunaAutonomousEligibilityOutput',
   'decideEmailLunaAutonomousEligibility',
 ]);
 assert.deepEqual(EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_HANDOFF_REASONS, REASONS);

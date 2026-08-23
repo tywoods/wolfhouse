@@ -1183,6 +1183,26 @@
       "rationale": "Refuses rollback while durable IMAP health facts or fetch cursors exist; otherwise drops the cursor table and nullable health timestamp.",
       "pairsWith": "084_tenant_channel_endpoint_imap_health.sql",
       "sha256": "181ace35de24e841d6414d7523c0f1bc7b25327eb2401e2a02a4264fd3d0ed79"
+    },
+    {
+      "id": "085_tenant_email_luna_policy_audit",
+      "filename": "085_tenant_email_luna_policy_audit.sql",
+      "order": 81,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch1 Slice C: bounded pre-send Luna policy audit journal. Authority identifiers, policy versions, issuance surrogate, and safe fact refs only. No send path, content blobs, or outbound send-journal reuse.",
+      "downFilename": "085_tenant_email_luna_policy_audit_down.sql",
+      "sha256": "c0e26ee408ffadbe6ef7904b8f0d5f8ad02f5d0d81f22ae59afaeb4207134a91"
+    },
+    {
+      "id": "085_tenant_email_luna_policy_audit_down",
+      "filename": "085_tenant_email_luna_policy_audit_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while any policy audit rows exist; otherwise drops the append-only audit table.",
+      "pairsWith": "085_tenant_email_luna_policy_audit.sql",
+      "sha256": "97c307429aa423287318a21bcf436f72632114a345ff53400fd8befcf11358d2"
     }
   ]
 }
