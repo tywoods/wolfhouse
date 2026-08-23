@@ -7,14 +7,19 @@ const uncurry = (fn) => Function.prototype.call.bind(fn);
 const isProxy = utilTypes.isProxy.bind(undefined);
 const isPromise = utilTypes.isPromise.bind(undefined);
 const freeze=Object.freeze, create=Object.create, defineProperty=uncurry(Object.defineProperty), getProto=Object.getPrototypeOf, getDesc=Object.getOwnPropertyDescriptor, hasOwn=Object.hasOwn;
-const ownKeys=Reflect.ownKeys, isArray=Array.isArray, stringify=JSON.stringify, parse=JSON.parse;
+const isFrozen=Object.isFrozen, ownKeys=Reflect.ownKeys, isArray=Array.isArray, stringify=JSON.stringify, parse=JSON.parse;
 const arrayIncludes=uncurry(Array.prototype.includes), arraySome=uncurry(Array.prototype.some);
 const test=uncurry(RegExp.prototype.test);
 const padStart=uncurry(String.prototype.padStart), toString=String;
 const floor=Math.floor.bind(Math), isSafeInteger=Number.isSafeInteger.bind(Number);
 const promiseRace=Promise.race.bind(Promise), NativePromise=Promise;
+const weakSetAdd=uncurry(WeakSet.prototype.add), weakSetHas=uncurry(WeakSet.prototype.has);
+const weakMapSet=uncurry(WeakMap.prototype.set), weakMapGet=uncurry(WeakMap.prototype.get);
+const AUTHENTIC_AUTHOR_DRAFTS=new WeakSet();
+const AUTHENTIC_AUTHOR_DRAFT_META=new WeakMap();
 const EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS=freeze(['model_malformed','model_timeout','model_provider_error','unsupported_claim','injection_echo_detected']);
 const REQUEST_KEYS=freeze(['envelope','decision','evidence']);
+const AUTHENTIC_RECOMPUTE_KEYS=freeze(['envelope','decision','evidence','draft']);
 const PLAN_KEYS=freeze(['template_id','tone','question_key','acknowledgment_key']);
 const TONES=freeze(['warm','concise']);
 const ACKS=freeze(['thanks','noted']);
@@ -63,7 +68,23 @@ function render(trusted,plan){const language=trusted.language,intent=plan.templa
   return {subject,body,language};
 }
 function handoff(envelope,reason){return createEmailLunaDraftHandoff({envelope,reason});}
-function ready(d,b){const out=create(null);for(const [k,v] of [['status','draft_ready'],['subject',d.subject],['body',d.body],['language',d.language],['client_id',b.client_id],['location_id',b.location_id],['conversation_id',b.conversation_id],['draft_only',true],['requires_staff_review',true],['send_allowed',false],['auto_send_allowed',false]])defineProperty(Object,out,k,{value:v,enumerable:true});return freeze(out);}
+function freezePlan(plan){const selected=create(null);for(const key of PLAN_KEYS)defineProperty(Object,selected,key,{value:plan[key],enumerable:true,writable:false,configurable:false});return freeze(selected);}
+function ready(d,b,plan,issuance){const out=create(null);for(const [k,v] of [['status','draft_ready'],['subject',d.subject],['body',d.body],['language',d.language],['client_id',b.client_id],['location_id',b.location_id],['conversation_id',b.conversation_id],['draft_only',true],['requires_staff_review',true],['send_allowed',false],['auto_send_allowed',false]])defineProperty(Object,out,k,{value:v,enumerable:true,writable:false,configurable:false});const frozen=freeze(out);const meta=create(null);for(const [k,v] of [['plan',freezePlan(plan)],['envelope',issuance.envelope],['decision',issuance.decision],['evidence',issuance.evidence]])defineProperty(Object,meta,k,{value:v,enumerable:true,writable:false,configurable:false});weakSetAdd(AUTHENTIC_AUTHOR_DRAFTS,frozen);weakMapSet(AUTHENTIC_AUTHOR_DRAFT_META,frozen,freeze(meta));return frozen;}
 function createEmailLunaDraftAuthor(configuration={}){const c=record(configuration,['callModel','timeoutMs'],false);const callModel=hasOwn(c,'callModel')?c.callModel:(p)=>callLunaAiJsonChat({...p,jsonObject:true,maxTokens:120,temperature:0,call_label:'email_luna_draft_author'});const timeoutMs=hasOwn(c,'timeoutMs')?c.timeoutMs:15000;if(typeof callModel!=='function'||!isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>120000)throw invalid();
-  async function authorDraft(input){const {r,trusted}=request(input);const prompt=buildEmailLunaDraftAuthorPrompt(input);let timer,result;try{result=callModel(prompt);if(isProxy(result)||!isPromise(result)||getProto(result)!==NativePromise.prototype)return handoff(r.envelope,'model_provider_error');const timeout=new NativePromise((_,reject)=>{timer=setTimeout(()=>{const e=new Error('timeout');e.code='EMAIL_LUNA_AUTHOR_TIMEOUT';reject(e);},timeoutMs);});result=await promiseRace([result,timeout]);}catch(e){return handoff(r.envelope,e&&e.code==='EMAIL_LUNA_AUTHOR_TIMEOUT'?'model_timeout':'model_provider_error');}finally{if(timer)clearTimeout(timer);}const plan=parsePlan(result,r.decision.intent);if(!plan)return handoff(r.envelope,'model_malformed');const draft=render(trusted,plan);if(!draft)return handoff(r.envelope,'unsupported_claim');return ready(draft,trusted.binding);}return freeze({authorDraft});}
-module.exports={EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS,buildEmailLunaDraftAuthorPrompt,createEmailLunaDraftAuthor};
+  async function authorDraft(input){const {r,trusted}=request(input);const prompt=buildEmailLunaDraftAuthorPrompt(input);let timer,result;try{result=callModel(prompt);if(isProxy(result)||!isPromise(result)||getProto(result)!==NativePromise.prototype)return handoff(r.envelope,'model_provider_error');const timeout=new NativePromise((_,reject)=>{timer=setTimeout(()=>{const e=new Error('timeout');e.code='EMAIL_LUNA_AUTHOR_TIMEOUT';reject(e);},timeoutMs);});result=await promiseRace([result,timeout]);}catch(e){return handoff(r.envelope,e&&e.code==='EMAIL_LUNA_AUTHOR_TIMEOUT'?'model_timeout':'model_provider_error');}finally{if(timer)clearTimeout(timer);}const plan=parsePlan(result,r.decision.intent);if(!plan)return handoff(r.envelope,'model_malformed');const draft=render(trusted,plan);if(!draft)return handoff(r.envelope,'unsupported_claim');return ready(draft,trusted.binding,plan,r);}return freeze({authorDraft});}
+function renderCanonicalRow(draft){const row=create(null);for(const [k,v] of [['subject',draft.subject],['body',draft.body],['language',draft.language]])defineProperty(Object,row,k,{value:v,enumerable:true,writable:false,configurable:false});return freeze(row);}
+function recomputeEmailLunaDraftCanonicalFromAuthentic(input){
+  const snapshot=record(input,AUTHENTIC_RECOMPUTE_KEYS);let trusted;
+  try{trusted=assertEmailLunaDraftPolicyIssuance({envelope:snapshot.envelope,decision:snapshot.decision,evidence:snapshot.evidence});}catch(_){throw invalid();}
+  if(!trusted||trusted.status!=='draft_ready')throw invalid();
+  const draft=snapshot.draft;
+  if(!draft||typeof draft!=='object'||isProxy(draft)||isArray(draft)||getProto(draft)!==null||!isFrozen(draft))throw invalid();
+  if(!weakSetHas(AUTHENTIC_AUTHOR_DRAFTS,draft))throw invalid();
+  const meta=weakMapGet(AUTHENTIC_AUTHOR_DRAFT_META,draft);
+  if(!meta||typeof meta!=='object'||isProxy(meta))throw invalid();
+  if(meta.envelope!==snapshot.envelope||meta.decision!==snapshot.decision||meta.evidence!==snapshot.evidence)throw invalid();
+  const plan=meta.plan;if(!plan||plan.template_id!==TEMPLATE_FOR_INTENT[trusted.intent])throw invalid();
+  const drafted=render(trusted,plan);if(!drafted)throw invalid();
+  return renderCanonicalRow(drafted);
+}
+module.exports={EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS,buildEmailLunaDraftAuthorPrompt,createEmailLunaDraftAuthor,recomputeEmailLunaDraftCanonicalFromAuthentic};
