@@ -78,12 +78,14 @@ function evidence(patch = {}) {
     client_id: IDS.client_id,
     location_id: IDS.location_id,
     conversation_id: IDS.conversation_id,
+    endpoint_id: IDS.endpoint_id,
     language: 'en',
     identity: 'matched',
     intent: 'booking_status_question',
     intent_support: 'supported',
     requested_location_id: IDS.location_id,
     explicit_human_request: false,
+    attachment_interpretation_required: false,
     unsafe_transactional_request: false,
     required_facts: ['booking'],
     grounded_results: {
@@ -169,6 +171,9 @@ assertHandoff(decide({ evidence: evidence({
   }) }),
 }) }), 'authority_mismatch');
 assertHandoff(decide({ evidence: evidence({ location_id: OTHER_LOCATION }) }), 'authority_mismatch');
+assertHandoff(decide({ evidence: evidence({ endpoint_id: '77777777-7777-4777-8777-777777777777' }) }), 'authority_mismatch');
+const attachedDraft = decide({ evidence: evidence({ attachment_interpretation_required: true }) });
+assert.equal(attachedDraft.status, 'draft_ready', 'human drafting still authors when attachments need interpretation');
 console.log('  PASS  fact absence, tool error, and every authority mismatch fail closed explicitly');
 
 for (const hostile of [

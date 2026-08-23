@@ -43,12 +43,14 @@ const EVIDENCE_KEYS = objectFreeze([
   'client_id',
   'location_id',
   'conversation_id',
+  'endpoint_id',
   'language',
   'identity',
   'intent',
   'intent_support',
   'requested_location_id',
   'explicit_human_request',
+  'attachment_interpretation_required',
   'unsafe_transactional_request',
   'required_facts',
   'grounded_results',
@@ -272,9 +274,11 @@ function frozenResults(value, requiredFacts) {
 
 function validateEvidenceScalars(evidence) {
   if (typeof evidence.client_id !== 'string' || typeof evidence.location_id !== 'string'
-      || typeof evidence.conversation_id !== 'string' || typeof evidence.requested_location_id !== 'string'
+      || typeof evidence.conversation_id !== 'string' || typeof evidence.endpoint_id !== 'string'
+      || typeof evidence.requested_location_id !== 'string'
       || typeof evidence.language !== 'string' || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
       || typeof evidence.intent_support !== 'string' || typeof evidence.explicit_human_request !== 'boolean'
+      || typeof evidence.attachment_interpretation_required !== 'boolean'
       || typeof evidence.unsafe_transactional_request !== 'boolean') throw invalid();
   if (!arrayIncludes(['en', 'es'], evidence.language)
       || !arrayIncludes(['matched', 'ambiguous', 'uncertain'], evidence.identity)
@@ -364,12 +368,14 @@ function createEmailLunaDraftPolicyEvidence(input) {
     client_id: evidence.client_id,
     location_id: evidence.location_id,
     conversation_id: evidence.conversation_id,
+    endpoint_id: evidence.endpoint_id,
     language: evidence.language,
     identity: evidence.identity,
     intent: evidence.intent,
     intent_support: evidence.intent_support,
     requested_location_id: evidence.requested_location_id,
     explicit_human_request: evidence.explicit_human_request,
+    attachment_interpretation_required: evidence.attachment_interpretation_required,
     unsafe_transactional_request: evidence.unsafe_transactional_request,
     required_facts: requiredFacts,
     grounded_results: groundedResults,
@@ -395,6 +401,15 @@ function handoff(reason, binding) {
     ['conversation_id', binding.conversation_id], ['draft_only', true],
     ['requires_staff_review', true], ['send_allowed', false], ['auto_send_allowed', false],
   ]);
+}
+
+function issueDecision(decision, envelope, evidence) {
+  weakSetAdd(AUTHENTIC_POLICY_DECISIONS, decision);
+  POLICY_DECISION_ISSUANCE.set(decision, objectFreeze({
+    envelope,
+    evidence,
+  }));
+  return decision;
 }
 
 function hasInjection(content) {
@@ -425,47 +440,46 @@ function decideEmailLunaDraftPolicy(input) {
   const requiredFacts = intentSupported ? INTENT_REQUIRED_FACTS[evidence.intent] : callerRequiredFacts;
   const results = frozenResults(evidence.grounded_results, requiredFacts);
 
-  if (evidence.conversation_id !== trusted.binding.conversation_id) {
-    return handoff('authority_mismatch', trusted.binding);
+  function finish(decision) {
+    return issueDecision(decision, request.envelope, request.evidence);
   }
-  if (hasInjection(trusted.untrustedContent)) return handoff('prompt_injection_detected', trusted.binding);
+
+  if (evidence.conversation_id !== trusted.binding.conversation_id
+      || evidence.endpoint_id !== trusted.authority.endpoint_id) {
+    return finish(handoff('authority_mismatch', trusted.binding));
+  }
+  if (hasInjection(trusted.untrustedContent)) return finish(handoff('prompt_injection_detected', trusted.binding));
   if (evidence.client_id !== trusted.binding.client_id || evidence.location_id !== trusted.binding.location_id) {
-    return handoff('authority_mismatch', trusted.binding);
+    return finish(handoff('authority_mismatch', trusted.binding));
   }
-  if (evidence.explicit_human_request) return handoff('explicit_human_request', trusted.binding);
-  if (evidence.unsafe_transactional_request) return handoff('unsafe_transactional_request', trusted.binding);
-  if (evidence.requested_location_id !== trusted.binding.location_id) return handoff('cross_location_request', trusted.binding);
-  if (evidence.identity !== 'matched') return handoff('ambiguous_identity', trusted.binding);
-  if (evidence.intent_support === 'uncertain' || evidence.intent === 'uncertain') return handoff('uncertain_intent', trusted.binding);
-  if (!intentSupported || evidence.intent_support !== 'supported') return handoff('unsupported_intent', trusted.binding);
+  if (evidence.explicit_human_request) return finish(handoff('explicit_human_request', trusted.binding));
+  if (evidence.unsafe_transactional_request) return finish(handoff('unsafe_transactional_request', trusted.binding));
+  if (evidence.requested_location_id !== trusted.binding.location_id) return finish(handoff('cross_location_request', trusted.binding));
+  if (evidence.identity !== 'matched') return finish(handoff('ambiguous_identity', trusted.binding));
+  if (evidence.intent_support === 'uncertain' || evidence.intent === 'uncertain') return finish(handoff('uncertain_intent', trusted.binding));
+  if (!intentSupported || evidence.intent_support !== 'supported') return finish(handoff('unsupported_intent', trusted.binding));
 
   for (let index = 0; index < requiredFacts.length; index += 1) {
     const result = results[requiredFacts[index]];
     if (result.client_id !== trusted.binding.client_id || result.location_id !== trusted.binding.location_id) {
-      return handoff('authority_mismatch', trusted.binding);
+      return finish(handoff('authority_mismatch', trusted.binding));
     }
     if (result.status === 'handoff_required') {
-      return handoff(result.reason === 'authority_mismatch' ? 'authority_mismatch' : 'tool_error', trusted.binding);
+      return finish(handoff(result.reason === 'authority_mismatch' ? 'authority_mismatch' : 'tool_error', trusted.binding));
     }
-    if (result.status === 'missing_fact') return handoff('missing_required_facts', trusted.binding);
+    if (result.status === 'missing_fact') return finish(handoff('missing_required_facts', trusted.binding));
   }
 
   const groundedFacts = [];
   for (let index = 0; index < requiredFacts.length; index += 1) arrayPush(groundedFacts, requiredFacts[index]);
   objectFreeze(groundedFacts);
-  const decision = output([
+  return finish(output([
     ['status', 'draft_ready'], ['intent', evidence.intent], ['language', evidence.language],
     ['client_id', trusted.binding.client_id], ['location_id', trusted.binding.location_id],
     ['conversation_id', trusted.binding.conversation_id], ['grounded_facts', groundedFacts],
     ['draft_only', true], ['requires_staff_review', true],
     ['send_allowed', false], ['auto_send_allowed', false],
-  ]);
-  weakSetAdd(AUTHENTIC_POLICY_DECISIONS, decision);
-  POLICY_DECISION_ISSUANCE.set(decision, objectFreeze({
-    envelope: request.envelope,
-    evidence: request.evidence,
-  }));
-  return decision;
+  ]));
 }
 
 function assertEmailLunaDraftPolicyIssuance(input) {
@@ -476,16 +490,36 @@ function assertEmailLunaDraftPolicyIssuance(input) {
   const issuance = POLICY_DECISION_ISSUANCE.get(request.decision);
   if (!issuance || issuance.envelope !== request.envelope || issuance.evidence !== request.evidence
       || POLICY_EVIDENCE_ENVELOPES.get(request.evidence) !== request.envelope) throw invalid();
+  const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
+  const statusDescriptor = objectGetOwnPropertyDescriptor(request.decision, 'status');
+  if (!statusDescriptor || !objectHasOwn(statusDescriptor, 'value')) throw invalid();
+  if (statusDescriptor.value === 'handoff_required') {
+    const decision = exactFrozenRecord(request.decision, [
+      'status', 'reason', 'client_id', 'location_id', 'conversation_id',
+      'draft_only', 'requires_staff_review', 'send_allowed', 'auto_send_allowed',
+    ], null);
+    if (decision.client_id !== trusted.binding.client_id || decision.location_id !== trusted.binding.location_id
+        || decision.conversation_id !== trusted.binding.conversation_id
+        || !arrayIncludes(EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS, decision.reason)
+        || decision.draft_only !== true || decision.requires_staff_review !== true
+        || decision.send_allowed !== false || decision.auto_send_allowed !== false) throw invalid();
+    return objectFreeze({
+      binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }), language: evidence.language,
+      untrusted_content: objectFreeze({ ...trusted.untrustedContent }), fact_ids: objectFreeze([]),
+      grounded_facts: objectFreeze({}), status: 'handoff_required', reason: decision.reason,
+      intent: evidence.intent, attachment_interpretation_required: evidence.attachment_interpretation_required,
+    });
+  }
   const decision = exactFrozenRecord(request.decision, [
     'status', 'intent', 'language', 'client_id', 'location_id', 'conversation_id', 'grounded_facts',
     'draft_only', 'requires_staff_review', 'send_allowed', 'auto_send_allowed',
   ], null);
-  const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
   if (decision.status !== 'draft_ready' || decision.client_id !== trusted.binding.client_id
       || decision.location_id !== trusted.binding.location_id || decision.conversation_id !== trusted.binding.conversation_id
       || evidence.client_id !== trusted.binding.client_id || evidence.location_id !== trusted.binding.location_id
-      || evidence.conversation_id !== trusted.binding.conversation_id || evidence.intent !== decision.intent
-      || evidence.language !== decision.language) throw invalid();
+      || evidence.conversation_id !== trusted.binding.conversation_id
+      || evidence.endpoint_id !== trusted.authority.endpoint_id
+      || evidence.intent !== decision.intent || evidence.language !== decision.language) throw invalid();
   const factIds = exactFrozenStringArray(decision.grounded_facts);
   const results = frozenResults(evidence.grounded_results, factIds);
   const facts = objectCreate(null);
@@ -495,9 +529,12 @@ function assertEmailLunaDraftPolicyIssuance(input) {
         || result.location_id !== trusted.binding.location_id) throw invalid();
     facts[id] = objectFreeze({ ...result });
   }
-  return objectFreeze({ binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }), language: evidence.language,
+  return objectFreeze({
+    binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }), language: evidence.language,
     untrusted_content: objectFreeze({ ...trusted.untrustedContent }), fact_ids: objectFreeze(factIds),
-    grounded_facts: objectFreeze(facts) });
+    grounded_facts: objectFreeze(facts), status: 'draft_ready', intent: evidence.intent,
+    attachment_interpretation_required: evidence.attachment_interpretation_required,
+  });
 }
 
 module.exports = {
