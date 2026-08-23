@@ -725,6 +725,8 @@ const {
   bridgeAvailable,
 } = require('./lib/external-calendar-inventory');
 const extCalRoutes = require('./lib/external-calendar-inventory-routes');
+const { loadBridgeState, createSyncScheduler, runConnectionSync } = require('./lib/external-calendar-inventory-sync');
+const { fetchSheetRows } = require('./lib/external-calendar-inventory-sheets');
 const {
   calculateWolfhouseQuote,
 } = require('./lib/wolfhouse-quote-calculator');
@@ -16114,6 +16116,7 @@ function buildUiHtml(port, portalDeployClient) {
   const portalDevTabsEnabled = staffPortalDevTabsEnabled();
   // Server-owned email Inbox UI flags (exact env === 'true'; default-off; no browser override).
   const emailStaffEmailDraftsUi = process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED === 'true';
+  const showOwnerScheduleBridge = bridgeAvailable(portalDefaultClient);
   const emailStaffOutboundUi = process.env.EMAIL_STAFF_OUTBOUND_ENABLED === 'true';
   const emailStaffLunaDraftUi = process.env.EMAIL_STAFF_LUNA_DRAFT_ENABLED === 'true'
     && process.env.EMAIL_LUNA_DRAFT_RUNTIME_ENABLED === 'true'
@@ -22252,6 +22255,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </section>
 
+${showOwnerScheduleBridge ? `
   <div class="card cc-section" id="cc-owner-schedule-bridge">
     <div class="cc-section-hdr">Owner schedule</div>
     <div class="cc-section-sub">Connect a Google Sheet to block beds. An empty or broken Sheet never removes a Luna booking or staff block.</div>
@@ -22260,10 +22264,13 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <input id="osb-name" type="text" placeholder="Connection name" autocomplete="off">
       <input id="osb-sheet" type="text" placeholder="Spreadsheet id" autocomplete="off" spellcheck="false">
       <input id="osb-tab" type="text" placeholder="inventory" autocomplete="off">
+      <button type="button" class="btn-ghost" id="osb-save">Save</button>
       <button type="button" class="btn-ghost" id="osb-probe">Probe</button>
+      <button type="button" class="btn-ghost" id="osb-sync">Sync now</button>
     </div>
+    <div id="osb-maps" class="al-hint">Map unit_key → bed after the first successful probe.</div>
     <pre id="osb-out" style="font-size:11px;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
-  </div>
+  </div>` : ''}
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
     <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.numbers.sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
@@ -30395,6 +30402,14 @@ function ownerScheduleBridgeProbe(){
     });
 }
 if (el('osb-probe')) el('osb-probe').addEventListener('click', ownerScheduleBridgeProbe);
+(function hideOwnerScheduleUnlessWolfhouse(){
+  var card = el('cc-owner-schedule-bridge');
+  if (!card) return;
+  if (getClient() !== 'wolfhouse-somo') {
+    card.style.display = 'none';
+    if (card.parentNode) card.parentNode.removeChild(card);
+  }
+})();
 
 function staffWhatsappNumberAdd(){
   var phone = (el('swn-add-phone') && el('swn-add-phone').value || '').trim();
@@ -44451,6 +44466,10 @@ async function handleOwnerScheduleBridgeProbe(req, res, user) {
   } catch (_) {
     return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
   }
+  const banned = extCalRoutes.rejectCallerAuthority(body);
+  if (banned) {
+    return sendJSON(res, banned.status, { success: false, ok: false, error: banned.error });
+  }
   const url = new URL(req.url, 'http://127.0.0.1');
   const clientSlug = String(body.client || url.searchParams.get('client') || DEFAULT_CLIENT).trim();
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
@@ -44458,7 +44477,16 @@ async function handleOwnerScheduleBridgeProbe(req, res, user) {
   if (!gate.ok) {
     return sendJSON(res, gate.status, { success: false, ok: false, error: gate.error, client: clientSlug });
   }
-  const result = extCalRoutes.handleProbeBody(body, body.maps || {}, body.occupancy || {}, body.connection_id || 'probe');
+  let dbState;
+  try {
+    dbState = await withPgClient((pg) => loadBridgeState(pg, {
+      clientSlug,
+      connectionId: url.searchParams.get('id') || null,
+    }));
+  } catch (err) {
+    return sendJSON(res, 503, { success: false, ok: false, error: 'bridge_state_unavailable' });
+  }
+  const result = extCalRoutes.handleProbeFromState(body, dbState);
   appendAuditLog({
     ts: new Date().toISOString(),
     intent: 'api:external_calendar_probe',
@@ -49467,6 +49495,39 @@ async function startStaffQueryApiCli() {
   }
   server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
+  if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {
+    const extCalSched = createSyncScheduler({
+      intervalMs: 60000,
+      withPgClient,
+      listDueConnections: async () => {
+        return withPgClient(async (pg) => {
+          const r = await pg.query(
+            `SELECT c.id, cl.slug AS client_slug
+               FROM external_calendar_connections c
+               JOIN clients cl ON cl.id = c.client_id
+              WHERE c.status IN ('pending','healthy','stale')
+                AND c.kind = 'gsheet'
+                AND cl.slug = 'wolfhouse-somo'`
+          );
+          return r.rows;
+        });
+      },
+      syncOne: async (pg, item) => {
+        const loaded = await loadBridgeState(pg, { clientSlug: item.client_slug, connectionId: item.id });
+        if (!loaded.ok) return;
+        const fetched = await fetchSheetRows(loaded.connection);
+        if (!fetched.ok) {
+          await runConnectionSync(pg, { clientSlug: item.client_slug, connectionId: item.id, rows: [] });
+          return;
+        }
+        await runConnectionSync(pg, { clientSlug: item.client_slug, connectionId: item.id, rows: fetched.rows });
+      },
+    });
+    extCalSched.start();
+    console.log('  Owner schedule sync: ENABLED (wolfhouse-somo)');
+  } else {
+    console.log('  Owner schedule sync: DISABLED');
+  }
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
   console.log(`  Booking move write: ${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED (BOOKING_MOVE_WRITE_ENABLED=true)' : 'DISABLED'}`);

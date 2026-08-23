@@ -1,11 +1,11 @@
 # External Calendar Inventory Bridge
 
-**Status:** implementation in progress on Wolfhouse staging (`wolfhouse-somo`). No Sunset activation. No production.  
-**Owner:** Deckhand (proposal) → review before any build slice.  
-**Scope:** Admin Portal → **Luna Staff**. Tenant-scoped, read-only Google Sheet ingest.  
-**First activation:** **Wolfhouse staging** / tenant **`wolfhouse-somo`** only.  
-**Not this programme:** Sunset configure, migrate, connect, deploy, or E2E. Schema stays reusable (`client_id`) but must not be turned on for Sunset.  
-**Master inspected:** `bb3d2c40` (later design refresh on current sandbox master).  
+**Status:** implementation in progress on Wolfhouse staging (`wolfhouse-somo`). No Sunset activation. No production.
+**Owner:** Deckhand (proposal) → review before any build slice.
+**Scope:** Admin Portal → **Luna Staff**. Tenant-scoped, read-only Google Sheet ingest.
+**First activation:** **Wolfhouse staging** / tenant **`wolfhouse-somo`** only.
+**Not this programme:** Sunset configure, migrate, connect, deploy, or E2E. Schema stays reusable (`client_id`) but must not be turned on for Sunset.
+**Master inspected:** `bb3d2c40` (later design refresh on current sandbox master).
 **Approved product decisions (Earthling via Skipper):**
 
 | # | Decision |
@@ -91,8 +91,8 @@ MVP inventory target: **Wolfhouse bed calendar** (`wolfhouse-somo`). Do not enab
 
 1. **Read-only ingest.** Read the Sheet. Write **only** Luna-owned owner-schedule block rows. Never write cells back to Google.
 2. **Busy → may block** only on **explicitly mapped beds**.
-3. **Free / deleted row → never release Luna inventory.** Sync may cancel/update only rows with  
-   `assignment_type = 'external_inventory_block'`  
+3. **Free / deleted row → never release Luna inventory.** Sync may cancel/update only rows with
+   `assignment_type = 'external_inventory_block'`
    **and** `metadata.external_calendar.connection_id = this connection`.
 4. **Fail closed + keep last blocks.** Stale, 401/403, parse fail, header drift, clock/TZ junk, unmapped unit, or overlap with a non-owned row → **keep last good owned blocks**, mark connection `stale` / `error`, list conflicts. Do **not** delete inventory because the Sheet went quiet or empty.
 5. **Bed-only maps.** One `external_unit_key` → one `bed_id`. No room-level “block all beds”.
@@ -170,7 +170,7 @@ Two options — pick at implement time; both read-only:
 
 **Recommend A** for staging MVP (one SA, one shared Sheet). Document “share this address, Viewer only.”
 
-Never request `spreadsheets` write scopes.  
+Never request `spreadsheets` write scopes.
 Never store the sheet as a published-to-web CSV URL (unauthenticated scrape) — that’s not fail-closed and leaks.
 
 `secret_ref` on the connection points at Key Vault / env. API responses expose `has_secret: true/false` only.
@@ -179,7 +179,7 @@ Never store the sheet as a published-to-web CSV URL (unauthenticated scrape) —
 
 ## 7. Data model (not implemented)
 
-All tables: `client_id NOT NULL REFERENCES clients(id) ON DELETE CASCADE`.  
+All tables: `client_id NOT NULL REFERENCES clients(id) ON DELETE CASCADE`.
 Optional `location_id` — required when tenant has locations.
 
 ```
@@ -228,7 +228,7 @@ external_inventory_events
 - `bookings.metadata.external_calendar = { connection_id, external_uid, source_kind: 'gsheet', label: 'owner_schedule_blocked' }`
 - `booking_code` prefix `XBLK-` (not staff `BLK-`)
 
-Calendar renderer (later slice) keys off `assignment_type` / metadata label → **yellow** + **Owner schedule blocked**.  
+Calendar renderer (later slice) keys off `assignment_type` / metadata label → **yellow** + **Owner schedule blocked**.
 `staff_block` stays grey **Blocked**. Guest stays stay Luna/Staff colours.
 
 ### What sync may mutate
@@ -296,7 +296,7 @@ Per **free** row or vanished `external_uid` (on a **successful** non-empty parse
 2. Connect — spreadsheet id, sheet name, secret-ref, **Probe**.
 3. Map — `unit_key` → bed picker (this tenant’s sellable beds only).
 4. Conflicts — read-only; staff fix the Sheet or the bed calendar; no force-overwrite.
-5. Disable / **Release owner blocks** — two-step confirm; copy:  
+5. Disable / **Release owner blocks** — two-step confirm; copy:
    “This only removes Owner schedule blocked cells. Luna bookings and staff blocks stay.”
 
 Banner copy: “The Sheet can block beds. An empty or broken Sheet never removes a Luna booking or staff block.”
@@ -359,10 +359,10 @@ ICS and Google Calendar are **not** later slices in this programme unless reopen
 
 ## 14. Decisions locked
 
-1. **Sheet only** — P1.  
-2. **Bed-only** maps.  
-3. **Luna Staff** UI.  
-4. **Keep last blocks** on stale/error/malformed/empty.  
+1. **Sheet only** — P1.
+2. **Bed-only** maps.
+3. **Luna Staff** UI.
+4. **Keep last blocks** on stale/error/malformed/empty.
 5. Calendar colour **yellow**, label **Owner schedule blocked**.
 
 No code until Slice 1 is explicitly assigned. Implementation branch off then-current `github/master`.

@@ -17,7 +17,7 @@ const CALENDAR_LEGEND_I18N = 'calendar.legend.ownerScheduleBlocked';
 const CALENDAR_LEGEND_EN = 'Owner schedule blocked';
 
 const REQUIRED_HEADERS = ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'];
-const OPTIONAL_HEADERS = ['notes', 'updated_at'];
+const OPTIONAL_HEADERS = [];
 const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const PROTECTED_ASSIGNMENT_TYPES = Object.freeze([
@@ -104,21 +104,17 @@ function normalizeHeaderCell(value) {
 }
 
 function validateHeaders(headerRow) {
-  const got = (headerRow || []).map(normalizeHeaderCell);
-  if (got.length < REQUIRED_HEADERS.length) {
-    return { ok: false, reason: 'header_missing_columns', got };
+  const raw = (headerRow || []).map(normalizeHeaderCell);
+  while (raw.length && raw[raw.length - 1] === '') raw.pop();
+  if (raw.length !== REQUIRED_HEADERS.length) {
+    return { ok: false, reason: raw.length < REQUIRED_HEADERS.length ? 'header_missing_columns' : 'header_unknown_column', got: raw };
   }
   for (let i = 0; i < REQUIRED_HEADERS.length; i++) {
-    if (got[i] !== REQUIRED_HEADERS[i]) {
-      return { ok: false, reason: 'header_drift', expected: REQUIRED_HEADERS, got };
+    if (raw[i] !== REQUIRED_HEADERS[i]) {
+      return { ok: false, reason: 'header_drift', expected: REQUIRED_HEADERS.slice(), got: raw };
     }
   }
-  for (let i = REQUIRED_HEADERS.length; i < got.length; i++) {
-    if (got[i] && OPTIONAL_HEADERS.indexOf(got[i]) < 0 && REQUIRED_HEADERS.indexOf(got[i]) < 0) {
-      return { ok: false, reason: 'header_unknown_column', column: got[i] };
-    }
-  }
-  return { ok: true, headers: got };
+  return { ok: true, headers: raw };
 }
 
 function parseSheetRow(cells, rowNumber) {
@@ -127,7 +123,6 @@ function parseSheetRow(cells, rowNumber) {
   const endRaw = cells[2];
   const status = String(cells[3] == null ? '' : cells[3]).trim().toLowerCase();
   const external_uid = String(cells[4] == null ? '' : cells[4]).trim();
-  const notes = cells.length > 5 ? String(cells[5] || '').trim().slice(0, 200) : '';
 
   if (!unit_key) return { ok: false, skip: true, reason: 'empty_unit_key', rowNumber };
   if (!external_uid) return { ok: false, skip: true, reason: 'empty_external_uid', rowNumber };
@@ -152,7 +147,6 @@ function parseSheetRow(cells, rowNumber) {
     end_date: end.value,
     status,
     external_uid,
-    notes,
   };
 }
 
@@ -205,7 +199,11 @@ function probeSheetRows(rows, opts) {
     }
     if (seenUid[parsed.external_uid]) {
       const prev = seenUid[parsed.external_uid];
-      if (prev.start_date !== parsed.start_date || prev.end_date !== parsed.end_date) {
+      const same = prev.start_date === parsed.start_date
+        && prev.end_date === parsed.end_date
+        && prev.status === parsed.status
+        && prev.unit_key === parsed.unit_key;
+      if (!same) {
         parseErrors.push({
           ok: false,
           reason: 'duplicate_uid_ambiguous',
@@ -219,11 +217,16 @@ function probeSheetRows(rows, opts) {
     events.push(parsed);
   });
 
-  if (parseErrors.some((e) => e.reason === 'duplicate_uid_ambiguous')) {
-    return { ok: false, status: 'error', reason: 'duplicate_uid_ambiguous', parseErrors, writes: [] };
-  }
-  if (parseErrors.length && events.filter((e) => e.status === 'busy').length === 0) {
-    return { ok: false, status: 'error', reason: 'no_valid_busy_rows', parseErrors, writes: [] };
+  if (parseErrors.length) {
+    return {
+      ok: false,
+      status: 'error',
+      reason: parseErrors[0].reason || 'malformed_rows',
+      parseErrors,
+      writes: [],
+      skipped: [],
+      keepLastBlocks: true,
+    };
   }
 
   const writes = [];
@@ -256,6 +259,18 @@ function probeSheetRows(rows, opts) {
     });
   });
 
+  if (skipped.length) {
+    return {
+      ok: false,
+      status: 'error',
+      reason: skipped[0].skip_reason || skipped[0].status,
+      writes: [],
+      skipped,
+      eventCount: events.length,
+      keepLastBlocks: true,
+    };
+  }
+
   const busyWrites = writes.filter((w) => w.action === 'insert_owned' || w.action === 'upsert_owned');
   const headerSha = sha256Hex(REQUIRED_HEADERS.join(','));
   return {
@@ -263,9 +278,9 @@ function probeSheetRows(rows, opts) {
     status: 'dry_run',
     headerSha,
     eventCount: events.length,
-    parseErrors,
+    parseErrors: [],
     writes,
-    skipped,
+    skipped: [],
     empty: busyWrites.length === 0 && events.filter((e) => e.status === 'busy').length === 0,
     keepLastBlocks: true,
   };
@@ -277,6 +292,11 @@ function nextConnectionStatus(prev, probe) {
     return 'error';
   }
   if (prev === 'disabled') return 'disabled';
+  if (probe.empty) {
+    if (prev === 'healthy') return 'healthy';
+    if (prev === 'stale') return 'stale';
+    return prev || 'pending';
+  }
   return 'healthy';
 }
 

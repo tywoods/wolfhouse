@@ -2,7 +2,8 @@
 
 /**
  * Calendar Inventory Bridge — apply a dry-run probe plan to occupancy.
- * Does not talk to Google. Callers supply occupancy + mutators.
+ * Overlap is date-range specific: a future/past foreign booking on the same
+ * bed does not reject a non-overlapping owner block.
  */
 
 const {
@@ -11,16 +12,29 @@ const {
   generateOwnerBlockCode,
   buildOwnedBlockMetadata,
   CALENDAR_LEGEND_EN,
+  rangesOverlap,
 } = require('./external-calendar-inventory');
 
 function applyProbePlan(plan, ctx) {
   ctx = ctx || {};
   const connectionId = ctx.connectionId;
-  const occupancy = ctx.occupancy || {}; // bed_id -> rows (mutated copy)
+  const occupancy = ctx.occupancy || {};
   const created = [];
   const cancelled = [];
   const skipped = (plan.skipped || []).slice();
   const rejected = [];
+
+  if (!plan || plan.ok === false) {
+    return {
+      occupancy,
+      created,
+      cancelled,
+      skipped,
+      rejected,
+      keepLastBlocks: true,
+      wrote: false,
+    };
+  }
 
   function rowsFor(bedId) {
     if (!occupancy[bedId]) occupancy[bedId] = [];
@@ -44,8 +58,9 @@ function applyProbePlan(plan, ctx) {
     }
     if (op.action === 'insert_owned' || op.action === 'upsert_owned') {
       const rows = rowsFor(op.bed_id);
-      const foreign = rows.filter((r) => !syncMayMutate(r, connectionId));
-      if (foreign.length) {
+      const foreignOverlap = rows.filter((r) => !syncMayMutate(r, connectionId)
+        && rangesOverlap(op.start_date, op.end_date, r.assignment_start_date, r.assignment_end_date));
+      if (foreignOverlap.length) {
         rejected.push({ reason: 'would_touch_foreign', external_uid: op.external_uid });
         return;
       }
@@ -78,7 +93,8 @@ function applyProbePlan(plan, ctx) {
     cancelled,
     skipped,
     rejected,
-    keepLastBlocks: plan.ok === false ? true : !!plan.keepLastBlocks,
+    keepLastBlocks: !!plan.keepLastBlocks,
+    wrote: created.length + cancelled.length > 0,
   };
 }
 

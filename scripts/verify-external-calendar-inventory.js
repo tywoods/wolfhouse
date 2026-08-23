@@ -75,7 +75,8 @@ function main() {
     maps, connectionId: CONN,
     occupancy: { [BED_A]: [guestRow()] },
   });
-  ok('busy vs guest is skipped_conflict', vsGuest.skipped[0] && vsGuest.skipped[0].status === 'skipped_conflict');
+  ok('busy vs guest fails entire sync closed',
+    vsGuest.ok === false && vsGuest.writes.length === 0 && vsGuest.keepLastBlocks === true);
 
   const vsStaff = lib.probeSheetRows([
     HEADERS,
@@ -84,7 +85,16 @@ function main() {
     maps, connectionId: CONN,
     occupancy: { [BED_A]: [staffBlock()] },
   });
-  ok('busy vs staff_block is skipped_conflict', vsStaff.skipped[0] && vsStaff.skipped[0].status === 'skipped_conflict');
+  ok('busy vs overlapping staff_block fails entire sync',
+    vsStaff.ok === false && vsStaff.writes.length === 0);
+
+  const mixedGoodAndBad = lib.probeSheetRows([
+    HEADERS,
+    ['R1A', '2026-09-01', '2026-09-03', 'busy', 'uid-ok'],
+    ['R1A', '10/09/2026', '12/09/2026', 'busy', 'uid-bad'],
+  ], { maps, connectionId: CONN, occupancy: {} });
+  ok('one malformed row fails whole sheet (zero writes)',
+    mixedGoodAndBad.ok === false && mixedGoodAndBad.writes.length === 0);
 
   const drift = lib.probeSheetRows([['unit', 'start', 'end', 'status', 'id']], { maps, connectionId: CONN });
   ok('header drift errors with no writes', drift.ok === false && drift.writes.length === 0);
@@ -111,7 +121,24 @@ function main() {
   ok('empty sheet is dry-run empty keep-last', empty.ok && empty.empty && empty.keepLastBlocks);
 
   const unmapped = lib.probeSheetRows(good, { maps: {}, connectionId: CONN });
-  ok('unmapped unit skipped', unmapped.skipped[0] && unmapped.skipped[0].status === 'skipped_unmapped');
+  ok('unmapped unit fails entire sync', unmapped.ok === false && unmapped.writes.length === 0);
+
+  ok('empty sheet does not become healthy',
+    lib.nextConnectionStatus('pending', empty) === 'pending');
+
+  const futureStaffOcc = { [BED_A]: [staffBlock()] };
+  const nonOverlap = lib.probeSheetRows([
+    HEADERS,
+    ['R1A', '2026-08-01', '2026-08-03', 'busy', 'uid-aug'],
+  ], { maps, connectionId: CONN, occupancy: futureStaffOcc });
+  ok('non-overlapping future staff block does not fail', nonOverlap.ok === true && nonOverlap.writes.length === 1);
+  const appliedRange = applyProbePlan(nonOverlap, {
+    connectionId: CONN,
+    occupancy: JSON.parse(JSON.stringify(futureStaffOcc)),
+  });
+  ok('apply keeps unrelated future staff block',
+    appliedRange.occupancy[BED_A].some((r) => r.booking_id === 'staff-1')
+    && appliedRange.created.length === 1);
 
   const occ = {};
   const applied = applyProbePlan(plan, { connectionId: CONN, occupancy: occ });
@@ -145,8 +172,20 @@ function main() {
   ok('no ICS adapter', !/kind IN \('ics'/.test(mig));
   ok('no gcal kind', !/gcal/.test(mig));
   ok('probe route exists', /\/staff\/luna-staff\/calendar-bridge\/probe/.test(api));
-  ok('Luna Staff owner schedule card exists', /id="cc-owner-schedule-bridge"/.test(api));
-  ok('probe handler refuses via refuseClient', /extCalRoutes\.refuseClient/.test(api));
+  ok('Luna Staff card gated on showOwnerScheduleBridge',
+    /showOwnerScheduleBridge \? `/.test(api) && /id="cc-owner-schedule-bridge"/.test(api));
+  ok('card removed unless wolfhouse-somo', /getClient\(\) !== 'wolfhouse-somo'/.test(api));
+  ok('handler rejects caller authority', /rejectCallerAuthority/.test(api));
+  ok('handler loads DB state', /loadBridgeState/.test(api));
+  ok('sheets adapter is read-only scope',
+    fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sheets.js'), 'utf8')
+      .includes('spreadsheets.readonly'));
+  ok('sync persist module exists',
+    fs.existsSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js')));
+  ok('scheduler exported',
+    /createSyncScheduler/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js'), 'utf8')));
+  ok('090 tenant integrity migration exists',
+    fs.existsSync(path.join(ROOT, 'database/migrations/090_external_calendar_inventory_tenant_integrity.sql')));
 
   const routes = require('./lib/external-calendar-inventory-routes');
   ok('routes refuse sunset', routes.refuseClient('sunset').ok === false);
