@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const SOURCE_PATH = require.resolve('./lib/email-luna-draft-policy');
 const HANDOFF_PATH = require.resolve('./lib/email-luna-draft-handoff-contract');
-const SOURCE_SHA256 = '22cd241b584c837ddb4ecdddf5b657ad8f6270f6a7b7cd9af52c39069b2d8b7b';
+const SOURCE_SHA256 = '38109fc270fb965bf5a0f81c94879dd67cf4a21dc5463f159de634b1f5bddcad';
 const CONSTRUCTOR_VALIDATION_BLOCK = [
   '  objectFreeze(copy);',
   '  frozenResult(copy, fact);',
@@ -127,14 +127,11 @@ function exerciseSafetyContract(policy, createEmailLunaDraftEnvelope) {
   for (const [label, makeResult, omittedKeys] of UNSAFE_PROBES) {
     let unsafeAccepted = false;
     try {
-      const issued = policy.createEmailLunaDraftPolicyEvidence(
-        evidence(materializeProbe(makeResult, omittedKeys)),
-      );
-      const decision = policy.decideEmailLunaDraftPolicy({
+      const issued = policy.issueAndDecideEmailLunaDraftPolicy({
         envelope: envelope(createEmailLunaDraftEnvelope),
-        evidence: issued,
+        evidence: evidence(materializeProbe(makeResult, omittedKeys)),
       });
-      unsafeAccepted = decision.status === 'draft_ready';
+      unsafeAccepted = issued.decision.status === 'draft_ready';
     } catch (error) {
       assert.equal(error && error.code, 'EMAIL_LUNA_DRAFT_POLICY_INVALID', `${label}: must fail closed with typed error`);
     }

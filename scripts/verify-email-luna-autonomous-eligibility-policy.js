@@ -7,8 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { createEmailLunaDraftEnvelope } = require('./lib/email-luna-draft-handoff-contract');
 const {
-  createEmailLunaDraftPolicyEvidence,
-  decideEmailLunaDraftPolicy,
+  issueAndDecideEmailLunaDraftPolicy,
   assertEmailLunaDraftPolicyIssuance,
 } = require('./lib/email-luna-draft-policy');
 const autonomousModule = require('./lib/email-luna-autonomous-eligibility-policy');
@@ -147,9 +146,11 @@ function evidence(patch = {}) {
 }
 function issue(input = {}) {
   const env = input.envelope || envelope(input.contentPatch, input.authorityPatch);
-  const issuedEvidence = createEmailLunaDraftPolicyEvidence(input.evidence || evidence());
-  const decision = decideEmailLunaDraftPolicy({ envelope: env, evidence: issuedEvidence });
-  return { envelope: env, evidence: issuedEvidence, decision };
+  const issued = issueAndDecideEmailLunaDraftPolicy({
+    envelope: env,
+    evidence: input.evidence || evidence(),
+  });
+  return { envelope: env, evidence: issued.evidence, decision: issued.decision };
 }
 function project(input) {
   return decideEmailLunaAutonomousEligibility(input);
@@ -450,9 +451,11 @@ function issueWith(modules, input = {}) {
     authority: authority(input.authorityPatch),
     untrusted_content: content(input.contentPatch),
   });
-  const issuedEvidence = modules.draft.createEmailLunaDraftPolicyEvidence(input.evidence || evidence());
-  const decision = modules.draft.decideEmailLunaDraftPolicy({ envelope: env, evidence: issuedEvidence });
-  return { envelope: env, evidence: issuedEvidence, decision };
+  const issued = modules.draft.issueAndDecideEmailLunaDraftPolicy({
+    envelope: env,
+    evidence: input.evidence || evidence(),
+  });
+  return { envelope: env, evidence: issued.evidence, decision: issued.decision };
 }
 
 const issuanceMutantSource = replaceUnique(

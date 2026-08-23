@@ -24,6 +24,10 @@ const AUTHENTIC_POLICY_EVIDENCE = new WeakSet();
 const AUTHENTIC_POLICY_DECISIONS = new WeakSet();
 const POLICY_EVIDENCE_ENVELOPES = new WeakMap();
 const POLICY_DECISION_ISSUANCE = new WeakMap();
+const POLICY_EVIDENCE_FRESHNESS = new WeakMap();
+const FRESHNESS_KEYS = objectFreeze(['turn']);
+let freshnessScopeOpen = false;
+let freshnessScopeGeneration = 0;
 
 const EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS = objectFreeze([
   'ambiguous_identity',
@@ -36,6 +40,7 @@ const EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS = objectFreeze([
   'explicit_human_request',
   'prompt_injection_detected',
   'unsafe_transactional_request',
+  'stale_evidence',
 ]);
 
 const INPUT_KEYS = objectFreeze(['envelope', 'evidence']);
@@ -325,6 +330,40 @@ function copyRequiredFacts(value) {
   return objectFreeze(copy);
 }
 
+function frozenFreshness(turn) {
+  const record = objectCreate(null);
+  objectDefineProperty(record, 'turn', {
+    value: turn, enumerable: true, writable: false, configurable: false,
+  });
+  return objectFreeze(record);
+}
+
+function stampIssuedEvidenceFreshness(issued) {
+  if (POLICY_EVIDENCE_FRESHNESS.get(issued) !== undefined) throw invalid();
+  const live = freshnessScopeOpen
+    && numberIsSafeInteger(freshnessScopeGeneration)
+    && freshnessScopeGeneration > 0;
+  POLICY_EVIDENCE_FRESHNESS.set(issued, frozenFreshness(live ? freshnessScopeGeneration : 0));
+}
+
+function inspectIssuedEvidenceFreshness(evidence) {
+  const record = POLICY_EVIDENCE_FRESHNESS.get(evidence);
+  if (record === undefined) return 'missing';
+  let snapshot;
+  try {
+    snapshot = exactFrozenRecord(record, FRESHNESS_KEYS, null);
+  } catch (_) {
+    return 'malformed';
+  }
+  const turn = snapshot.turn;
+  if (!numberIsSafeInteger(turn) || turn < 0) return 'malformed';
+  if (!freshnessScopeOpen) return 'stale';
+  if (turn === 0) return 'stale';
+  if (turn > freshnessScopeGeneration) return 'future';
+  if (turn !== freshnessScopeGeneration) return 'stale';
+  return 'fresh';
+}
+
 function copyGroundedResult(value, fact) {
   if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)) throw invalid();
   const prototype = objectGetPrototypeOf(value);
@@ -381,6 +420,7 @@ function createEmailLunaDraftPolicyEvidence(input) {
     grounded_results: groundedResults,
   });
   weakSetAdd(AUTHENTIC_POLICY_EVIDENCE, issued);
+  stampIssuedEvidenceFreshness(issued);
   return issued;
 }
 
@@ -444,6 +484,10 @@ function decideEmailLunaDraftPolicy(input) {
     return issueDecision(decision, request.envelope, request.evidence);
   }
 
+  const freshness = inspectIssuedEvidenceFreshness(request.evidence);
+  if (freshness === 'stale') return finish(handoff('stale_evidence', trusted.binding));
+  if (freshness !== 'fresh') throw invalid();
+
   if (evidence.conversation_id !== trusted.binding.conversation_id
       || evidence.endpoint_id !== trusted.authority.endpoint_id) {
     return finish(handoff('authority_mismatch', trusted.binding));
@@ -480,6 +524,29 @@ function decideEmailLunaDraftPolicy(input) {
     ['draft_only', true], ['requires_staff_review', true],
     ['send_allowed', false], ['auto_send_allowed', false],
   ]));
+}
+
+function issueAndDecideEmailLunaDraftPolicy(input) {
+  const request = exactInput(input);
+  if (freshnessScopeOpen) throw invalid();
+  if (!numberIsSafeInteger(freshnessScopeGeneration) || freshnessScopeGeneration >= Number.MAX_SAFE_INTEGER - 1) {
+    throw invalid();
+  }
+  freshnessScopeOpen = true;
+  freshnessScopeGeneration += 1;
+  try {
+    const evidence = createEmailLunaDraftPolicyEvidence(request.evidence);
+    const decision = decideEmailLunaDraftPolicy({ envelope: request.envelope, evidence });
+    return output([
+      ['evidence', evidence],
+      ['decision', decision],
+    ]);
+  } finally {
+    freshnessScopeOpen = false;
+    if (numberIsSafeInteger(freshnessScopeGeneration) && freshnessScopeGeneration < Number.MAX_SAFE_INTEGER) {
+      freshnessScopeGeneration += 1;
+    }
+  }
 }
 
 function assertEmailLunaDraftPolicyIssuance(input) {
@@ -540,6 +607,7 @@ function assertEmailLunaDraftPolicyIssuance(input) {
 module.exports = {
   createEmailLunaDraftPolicyEvidence,
   decideEmailLunaDraftPolicy,
+  issueAndDecideEmailLunaDraftPolicy,
   assertEmailLunaDraftPolicyIssuance,
   EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
 };
