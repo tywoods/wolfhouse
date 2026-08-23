@@ -1203,6 +1203,26 @@
       "rationale": "Refuses rollback while any policy audit rows exist; otherwise drops the append-only audit table.",
       "pairsWith": "085_tenant_email_luna_policy_audit.sql",
       "sha256": "97c307429aa423287318a21bcf436f72632114a345ff53400fd8befcf11358d2"
+    },
+    {
+      "id": "086_tenant_email_luna_automation_queue",
+      "filename": "086_tenant_email_luna_automation_queue.sql",
+      "order": 82,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch3 Slice A: bounded durable Luna automation claim queue with immutable operation identity, composite audit/inbound recipient authority including inbound_event_id, SECURITY DEFINER mutation with pinned pg_catalog,public search_path, lease/SKIP LOCKED claim, owner-scoped attempt-cap, and unique handoff identity. Worker/operator grant contract is comments/verifier only. Not a second outbound send journal; canonical send journal remains sole provider/exact-once owner.",
+      "downFilename": "086_tenant_email_luna_automation_queue_down.sql",
+      "sha256": "1fa5fd8427ebcc1378e1d1733ba31e6926419ed45a3b6932acd2bdede089006b"
+    },
+    {
+      "id": "086_tenant_email_luna_automation_queue_down",
+      "filename": "086_tenant_email_luna_automation_queue_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while any automation queue rows exist; otherwise drops the claim-queue table, function-only mutation surface, 086-owned audit inbound_event_id column, and 086-owned audit/inbound/projection keys. Second empty execution is safe. Does not drop the outbound send journal or policy audit table.",
+      "pairsWith": "086_tenant_email_luna_automation_queue.sql",
+      "sha256": "dba1204b2e8d66f514f29ab31c7d089bed2dc6bd4d1113988bb272618e1b7b2e"
     }
   ]
 }

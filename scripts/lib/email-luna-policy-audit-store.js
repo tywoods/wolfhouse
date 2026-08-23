@@ -23,10 +23,12 @@ const regexpTest = uncurryThis(RegExp.prototype.test);
 
 const EMAIL_LUNA_POLICY_AUDIT_RUNTIME_WIRED = false;
 const EMAIL_LUNA_POLICY_AUDIT_LOGGING_FORBIDDEN = true;
+const EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085 = '085';
+const EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086 = '086';
 const DRAFT_POLICY_VERSION = EMAIL_LUNA_DRAFT_POLICY_VERSION;
 const ELIGIBILITY_POLICY_VERSION = EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_POLICY_VERSION;
 const ELIGIBILITY_REASONS = EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_HANDOFF_REASONS;
-const STORE_DEPENDENCY_KEYS = objectFreeze(['withTransactionClient']);
+const STORE_DEPENDENCY_KEYS = objectFreeze(['withTransactionClient', 'schemaVersion']);
 const INPUT_KEYS = objectFreeze(['operation_id', 'envelope', 'evidence', 'decision', 'eligibility']);
 const EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS = objectFreeze([
   'operation_id',
@@ -44,15 +46,36 @@ const EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS = objectFreeze([
   'eligibility_reason',
   'fact_refs',
 ]);
+const EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086 = objectFreeze([
+  'operation_id',
+  'issuance_id',
+  'client_id',
+  'location_id',
+  'location_key',
+  'endpoint_id',
+  'conversation_id',
+  'inbound_event_id',
+  'policy_version',
+  'eligibility_policy_version',
+  'canonical_status',
+  'canonical_reason',
+  'eligibility_status',
+  'eligibility_reason',
+  'fact_refs',
+]);
 const FACTS = objectFreeze(['catalog', 'availability', 'policy', 'booking', 'payment']);
 const CANONICAL_STATUSES = objectFreeze(['draft_ready', 'handoff_required']);
 const ELIGIBILITY_STATUSES = objectFreeze(['eligible', 'handoff_required']);
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const LOCATION_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const COLUMNS = EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS.join(', ');
+const COLUMNS_086 = EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086.join(', ');
 const SQL_LOCK_OPERATION = `SELECT ${COLUMNS} FROM tenant_email_luna_policy_audit WHERE operation_id = $1::uuid FOR UPDATE`;
 const SQL_LOCK_ISSUANCE = `SELECT ${COLUMNS} FROM tenant_email_luna_policy_audit WHERE issuance_id = $1::uuid FOR UPDATE`;
 const SQL_INSERT = `INSERT INTO tenant_email_luna_policy_audit (${COLUMNS}) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::uuid, $7::uuid, $8::text, $9::text, $10::text, $11::text, $12::text, $13::text, $14::text[]) RETURNING ${COLUMNS}`;
+const SQL_LOCK_OPERATION_086 = `SELECT ${COLUMNS_086} FROM tenant_email_luna_policy_audit WHERE operation_id = $1::uuid FOR UPDATE`;
+const SQL_LOCK_ISSUANCE_086 = `SELECT ${COLUMNS_086} FROM tenant_email_luna_policy_audit WHERE issuance_id = $1::uuid FOR UPDATE`;
+const SQL_INSERT_086 = `INSERT INTO tenant_email_luna_policy_audit (${COLUMNS_086}) VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::text, $6::uuid, $7::uuid, $8::uuid, $9::text, $10::text, $11::text, $12::text, $13::text, $14::text, $15::text[]) RETURNING ${COLUMNS_086}`;
 
 function invalid() {
   const error = new Error('Email Luna policy audit failed.');
@@ -125,10 +148,34 @@ function canonicalFactRefs(trusted, decision) {
   return freeze(copy);
 }
 
-function publicRecord(source) {
+function schemaKeys(schemaVersion) {
+  if (schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086) return EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086;
+  if (schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085) return EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS;
+  throw invalid();
+}
+
+function schemaSql(schemaVersion) {
+  if (schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086) {
+    return {
+      lockOperation: SQL_LOCK_OPERATION_086,
+      lockIssuance: SQL_LOCK_ISSUANCE_086,
+      insert: SQL_INSERT_086,
+    };
+  }
+  if (schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085) {
+    return {
+      lockOperation: SQL_LOCK_OPERATION,
+      lockIssuance: SQL_LOCK_ISSUANCE,
+      insert: SQL_INSERT,
+    };
+  }
+  throw invalid();
+}
+
+function publicRecord(source, keys) {
   const record = objectCreate(null);
-  for (let index = 0; index < EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS.length; index += 1) {
-    const key = EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS[index];
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
     const descriptor = objectGetOwnPropertyDescriptor(source, key);
     if (!descriptor || !objectHasOwn(descriptor, 'value')) throw invalid();
     if (key === 'fact_refs') {
@@ -141,9 +188,9 @@ function publicRecord(source) {
   return freeze(record);
 }
 
-function recordsEqual(left, right) {
-  for (let index = 0; index < EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS.length; index += 1) {
-    const key = EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS[index];
+function recordsEqual(left, right, keys) {
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
     if (key === 'fact_refs') {
       const a = left[key];
       const b = right[key];
@@ -171,7 +218,7 @@ function queryRows(result) {
   return descriptor.value;
 }
 
-function buildRecord(input) {
+function buildRecord(input, keys, schemaVersion) {
   const request = exactPlain(input, INPUT_KEYS);
   const operationId = parseUuid(request.operation_id);
   let trusted;
@@ -210,6 +257,9 @@ function buildRecord(input) {
   record.location_key = locationKey;
   record.endpoint_id = trusted.authority.endpoint_id;
   record.conversation_id = trusted.binding.conversation_id;
+  if (schemaVersion === EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086) {
+    record.inbound_event_id = parseUuid(trusted.authority.inbound_message_id);
+  }
   record.policy_version = DRAFT_POLICY_VERSION;
   record.eligibility_policy_version = ELIGIBILITY_POLICY_VERSION;
   if (record.policy_version !== DRAFT_POLICY_VERSION || record.eligibility_policy_version !== ELIGIBILITY_POLICY_VERSION) throw invalid();
@@ -220,13 +270,13 @@ function buildRecord(input) {
   if (record.eligibility_status === 'handoff_required' && !arrayIncludes(ELIGIBILITY_REASONS, record.eligibility_reason)) throw invalid();
   if (record.canonical_status === 'handoff_required' && record.eligibility_status !== 'handoff_required') throw invalid();
   record.fact_refs = canonicalFactRefs(trusted, request.decision);
-  return publicRecord(record);
+  return publicRecord(record, keys);
 }
 
-function insertParams(record) {
+function insertParams(record, keys) {
   const params = [];
-  for (let index = 0; index < EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS.length; index += 1) {
-    const key = EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS[index];
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
     params[index] = key === 'fact_refs' ? record[key].slice() : record[key];
   }
   return params;
@@ -236,29 +286,33 @@ function createEmailLunaPolicyAuditStore(dependencies) {
   const deps = exactPlain(dependencies, STORE_DEPENDENCY_KEYS);
   const withTransactionClient = deps.withTransactionClient;
   if (typeof withTransactionClient !== 'function' || runtimeIsProxy(withTransactionClient)) throw invalid();
+  const schemaVersion = deps.schemaVersion;
+  if (schemaVersion !== EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085 && schemaVersion !== EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086) throw invalid();
+  const keys = schemaKeys(schemaVersion);
+  const sql = schemaSql(schemaVersion);
   function persistPolicyAudit(input) {
-    const record = buildRecord(input);
+    const record = buildRecord(input, keys, schemaVersion);
     return Promise.resolve(withTransactionClient(async (client) => {
       if (!client || typeof client !== 'object' || runtimeIsProxy(client) || typeof client.query !== 'function') throw invalid();
-      const existingOp = queryRows(await Promise.resolve(client.query(SQL_LOCK_OPERATION, [record.operation_id])));
+      const existingOp = queryRows(await Promise.resolve(client.query(sql.lockOperation, [record.operation_id])));
       if (existingOp.length > 1) throw invalid();
       if (existingOp.length === 1) {
-        const current = publicRecord(existingOp[0]);
-        if (recordsEqual(current, record)) return output([['status', 'replayed'], ['record', current]]);
+        const current = publicRecord(existingOp[0], keys);
+        if (recordsEqual(current, record, keys)) return output([['status', 'replayed'], ['record', current]]);
         return output([['status', 'conflict']]);
       }
-      const existingIssuance = queryRows(await Promise.resolve(client.query(SQL_LOCK_ISSUANCE, [record.issuance_id])));
+      const existingIssuance = queryRows(await Promise.resolve(client.query(sql.lockIssuance, [record.issuance_id])));
       if (existingIssuance.length > 1) throw invalid();
       if (existingIssuance.length === 1) return output([['status', 'conflict']]);
       let inserted;
       try {
-        inserted = queryRows(await Promise.resolve(client.query(SQL_INSERT, insertParams(record))));
+        inserted = queryRows(await Promise.resolve(client.query(sql.insert, insertParams(record, keys))));
       } catch (error) {
         if (ownErrorCode(error) === '23505') return output([['status', 'conflict']]);
         throw invalid();
       }
       if (inserted.length !== 1) throw invalid();
-      return output([['status', 'committed'], ['record', publicRecord(inserted[0])]]);
+      return output([['status', 'committed'], ['record', publicRecord(inserted[0], keys)]]);
     }));
   }
   return freeze({ persistPolicyAudit });
@@ -268,8 +322,14 @@ module.exports = {
   createEmailLunaPolicyAuditStore,
   EMAIL_LUNA_POLICY_AUDIT_RUNTIME_WIRED,
   EMAIL_LUNA_POLICY_AUDIT_LOGGING_FORBIDDEN,
+  EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085,
+  EMAIL_LUNA_POLICY_AUDIT_SCHEMA_086,
   EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS,
+  EMAIL_LUNA_POLICY_AUDIT_RECORD_KEYS_086,
   SQL_LOCK_OPERATION,
   SQL_LOCK_ISSUANCE,
   SQL_INSERT,
+  SQL_LOCK_OPERATION_086,
+  SQL_LOCK_ISSUANCE_086,
+  SQL_INSERT_086,
 };

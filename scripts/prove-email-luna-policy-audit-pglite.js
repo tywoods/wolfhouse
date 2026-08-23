@@ -25,7 +25,10 @@ const {
   decideEmailLunaAutonomousEligibility,
   EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_POLICY_VERSION,
 } = require('./lib/email-luna-autonomous-eligibility-policy');
-const { createEmailLunaPolicyAuditStore } = require('./lib/email-luna-policy-audit-store');
+const {
+  createEmailLunaPolicyAuditStore,
+  EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085,
+} = require('./lib/email-luna-policy-audit-store');
 
 const ROOT = path.resolve(__dirname, '..');
 const UP_PATH = path.join(ROOT, 'database/migrations/085_tenant_email_luna_policy_audit.sql');
@@ -392,7 +395,10 @@ async function provePglite(PGlite) {
   ]);
   assert.equal(names.includes('body_text'), false);
   assert.equal(names.includes('subject'), false);
-  const store = createEmailLunaPolicyAuditStore(createPgliteExclusiveLoaner(db));
+  const store = createEmailLunaPolicyAuditStore({
+    ...createPgliteExclusiveLoaner(db),
+    schemaVersion: EMAIL_LUNA_POLICY_AUDIT_SCHEMA_085,
+  });
   const triplet = catalogTriplet();
   const firstInput = {
     operation_id: ids.operation,
