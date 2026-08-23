@@ -453,6 +453,7 @@
     "verify:email-luna-grounded-tools": "node scripts/verify-email-luna-grounded-tools.js",
     "verify:email-luna-draft-policy": "node scripts/verify-email-luna-draft-policy.js",
     "verify:email-luna-draft-policy-mutations": "node scripts/verify-email-luna-draft-policy-mutations.js",
+    "verify:email-luna-autonomous-eligibility-policy": "node scripts/verify-email-luna-autonomous-eligibility-policy.js",
     "verify:email-luna-draft-author": "node scripts/verify-email-luna-draft-author.js",
     "verify:email-luna-draft-author-deterministic": "node scripts/verify-email-luna-draft-author-deterministic.js",
     "verify:email-luna-sunset-staging-runtime-composition": "node scripts/verify-email-luna-sunset-staging-runtime-composition.js",

@@ -31,7 +31,7 @@ function record(value,keys,exact=true,prototype=Object.prototype){
   if(arraySome(ks,k=>typeof k!=='string'||!arrayIncludes(keys,k))||(exact&&ks.length!==keys.length))throw invalid();const out=create(null);
   for(const key of keys){const d=getDesc(value,key);if(!d){if(exact)throw invalid();continue;}if(!hasOwn(d,'value')||!d.enumerable)throw invalid();out[key]=d.value;}return out;
 }
-function request(input){const r=record(input,REQUEST_KEYS);let trusted;try{trusted=assertEmailLunaDraftPolicyIssuance({envelope:r.envelope,decision:r.decision,evidence:r.evidence});}catch(_){throw invalid();}return {r,trusted};}
+function request(input){const r=record(input,REQUEST_KEYS);let trusted;try{trusted=assertEmailLunaDraftPolicyIssuance({envelope:r.envelope,decision:r.decision,evidence:r.evidence});}catch(_){throw invalid();}if(!trusted||trusted.status!=='draft_ready')throw invalid();return {r,trusted};}
 function json(value){try{return stringify(value);}catch(_){throw invalid();}}
 
 function buildEmailLunaDraftAuthorPrompt(input){const {trusted}=request(input);const intent=input.decision.intent;const template=TEMPLATE_FOR_INTENT[intent];

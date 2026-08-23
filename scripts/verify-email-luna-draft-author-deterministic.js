@@ -25,8 +25,8 @@ function envelope(language='en', contentPatch={}) { return createEmailLunaDraftE
 function issue(intent,fact,language='en',factPatch={},contentPatch={}) {
   const env=envelope(language,contentPatch); const grounded={fact,status:'found',client_id:IDS.client_id,location_id:IDS.location_id,...FACTS[fact],...factPatch};
   const evidence=createEmailLunaDraftPolicyEvidence({client_id:IDS.client_id,location_id:IDS.location_id,conversation_id:IDS.conversation_id,
-    language,identity:'matched',intent,intent_support:'supported',requested_location_id:IDS.location_id,explicit_human_request:false,
-    unsafe_transactional_request:false,required_facts:[fact],grounded_results:{[fact]:grounded}});
+    endpoint_id:IDS.endpoint_id,language,identity:'matched',intent,intent_support:'supported',requested_location_id:IDS.location_id,explicit_human_request:false,
+    attachment_interpretation_required:false,unsafe_transactional_request:false,required_facts:[fact],grounded_results:{[fact]:grounded}});
   return {envelope:env,evidence,decision:decideEmailLunaDraftPolicy({envelope:env,evidence})};
 }
 const plan=(template_id,tone='warm',question_key='none',acknowledgment_key='thanks')=>JSON.stringify({template_id,tone,question_key,acknowledgment_key});
