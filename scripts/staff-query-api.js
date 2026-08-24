@@ -30493,7 +30493,7 @@ function ownerScheduleSafeCopy(code){
 }
 function ownerScheduleParseSheetId(raw){
   raw = String(raw || '').trim();
-  var m = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  var m = raw.match(new RegExp('/spreadsheets/d/([a-zA-Z0-9-_]+)'));
   return m ? m[1] : raw;
 }
 function ownerScheduleDeriveName(sheetId){

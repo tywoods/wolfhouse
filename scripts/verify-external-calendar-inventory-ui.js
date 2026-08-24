@@ -43,11 +43,32 @@ function tryPlaywright() {
     let mod;
     try { mod = require(candidate); } catch (_) { continue; }
     try {
-      if (process.env.PLAYWRIGHT_BROWSERS_PATH && fs.existsSync(process.env.PLAYWRIGHT_BROWSERS_PATH)) return mod;
       if (fs.existsSync(mod.chromium.executablePath())) return mod;
     } catch (_) { /* browsers not downloaded */ }
   }
   return null;
+}
+
+function assertGeneratedScriptsParse(html) {
+  const { spawnSync } = require('child_process');
+  const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
+  let m;
+  let index = 0;
+  let checked = 0;
+  while ((m = re.exec(html))) {
+    index += 1;
+    const attrs = m[1] || '';
+    if (/\bsrc\s*=/i.test(attrs)) continue;
+    if (/type\s*=\s*['"]application\/(?:ld\+)?json['"]/i.test(attrs)) continue;
+    const body = m[2] || '';
+    if (!body.trim()) continue;
+    checked += 1;
+    const r = spawnSync(process.execPath, ['--check'], { input: body, encoding: 'utf8' });
+    if (r.status !== 0) {
+      throw new Error('generated script #' + index + ' invalid: ' + String(r.stderr || r.stdout || '').trim());
+    }
+  }
+  ok('generated inline scripts parse', checked > 0, 'checked=' + checked);
 }
 
 function buildHtml() {
@@ -152,14 +173,13 @@ async function openLunaStaff(page, consoleErrors, pageErrors, failedReqs) {
     throw err;
   }
 
-  const whLuna = page.locator('#wh-admin-tab-luna-staff');
-  const topLuna = page.locator('button.tab-btn[data-tab="ask-luna"]');
-  if (await whLuna.isVisible()) {
+  const lodgingLuna = page.locator('#wh-admin-tab-luna-staff');
+  if (await lodgingLuna.count()) {
     await page.locator('button.tab-btn[data-tab="admin"]').click();
     await page.waitForSelector('#tab-admin.tab-panel.active', { timeout: 20000 });
-    await whLuna.click();
+    await lodgingLuna.click();
   } else {
-    await topLuna.click();
+    await page.locator('button.tab-btn[data-tab="ask-luna"]').click();
   }
 
   await page.waitForFunction(() => {
@@ -182,6 +202,10 @@ function visible(page, sel) {
 async function main() {
   console.log('verify-external-calendar-inventory-ui');
   const html = buildHtml();
+  assertGeneratedScriptsParse(html);
+  ok('generated sheet parser is not a comment regex',
+    /new RegExp\('\/spreadsheets\/d\/\(\[a-zA-Z0-9\-_\]\+\)'\)/.test(html)
+    && !/match\(\/\/spreadsheets/.test(html));
   ok('generated /staff/ui includes Owner schedule card', /id="cc-owner-schedule-bridge"/.test(html));
   ok('generated empty CTA', /Connect Google Sheet/.test(html));
   ok('generated HTML has no SECRET_REF', !/SECRET_REF/.test(html));
