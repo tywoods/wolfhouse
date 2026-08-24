@@ -163,6 +163,37 @@ async function main() {
   ok('markAttempt allowlists hostile persist code',
     persistState.statusUpdates[0] && persistState.statusUpdates[0][1] === 'calendar_bridge_failed');
 
+  const skipState = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const skippedSync = await runConnectionSync(mockPg(skipState), {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: {
+      ok: true,
+      rows: [
+        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
+        ['UNMAPPED', '2026-09-10', '2026-09-12', 'busy', 'uid-x'],
+      ],
+    },
+  });
+  ok('sync skipped rows omit unknown internals',
+    skippedSync.ok === false
+    && skippedSync.skipped
+    && skippedSync.skipped[0].skip_reason === 'unmapped_unit_key'
+    && skippedSync.skipped[0].bed_id == null);
+  ok('sync persist of unmapped uses allowlisted code',
+    skipState.statusUpdates[0] && skipState.statusUpdates[0][1] === 'unmapped_unit_key');
+
+  const sqlState = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const sqlSync = await runConnectionSync(mockPg(sqlState), {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: { ok: false, reason: 'password=supersecret duplicate key value', keepLastBlocks: true },
+  });
+  ok('sync fetch SQL/credential reason is not stored raw',
+    sqlSync.reason === 'calendar_bridge_failed'
+    && sqlState.statusUpdates[0]
+    && sqlState.statusUpdates[0][1] === 'calendar_bridge_failed');
+
   console.log('\nverify-external-calendar-inventory-sync: ALL CHECKS PASSED');
 }
 

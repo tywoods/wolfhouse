@@ -723,7 +723,7 @@ const {
 } = require('./lib/staff-manual-booking-create-sql');
 const {
   bridgeAvailable,
-  storedErrorCode,
+  sanitizeAuditFields,
 } = require('./lib/external-calendar-inventory');
 const extCalRoutes = require('./lib/external-calendar-inventory-routes');
 const { loadLockedState, createSyncScheduler, runConnectionSync } = require('./lib/external-calendar-inventory-sync');
@@ -30414,6 +30414,12 @@ var OSB_SAFE = {
   invalid_connection: 'Name and spreadsheet id are required.',
   secret_ref_invalid: 'Secret must be a reference name, not a key.',
   maps_array_required: 'Maps must be a JSON array.',
+  invalid_map: 'Each map needs a unit key and a bed.',
+  bed_not_in_tenant: 'That bed is not in this house.',
+  maps_save_failed: 'Could not save maps. Last blocks were kept.',
+  unmapped_unit_key: 'A Sheet unit is not mapped. Last blocks were kept.',
+  overlaps_non_owned: 'The Sheet overlaps an existing stay or block. Last blocks were kept.',
+  overlap_conflict: 'That bed is already occupied. Last blocks were kept.',
   bridge_unavailable: 'Owner schedule is temporarily unavailable.',
   calendar_bridge_failed: 'Owner schedule request failed. Last blocks were kept.'
 };
@@ -44689,6 +44695,7 @@ async function handleOwnerScheduleBridge(req, res, user, action) {
       }
       return { ok: false, status: 400, error: 'unknown_action' };
     });
+    const auditSafe = sanitizeAuditFields(result);
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:external_calendar_' + action,
@@ -44696,7 +44703,7 @@ async function handleOwnerScheduleBridge(req, res, user, action) {
       client_slug: ctx.clientSlug,
       staff_user_id: user && user.staff_user_id,
       success: !!result.ok,
-      error: storedErrorCode(result.error || result.reason),
+      error: auditSafe.error,
     });
     const pub = extCalRoutes.publicResult(result);
     return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ client: ctx.clientSlug }, pub));

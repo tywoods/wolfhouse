@@ -6,9 +6,8 @@ const {
   probeSheetRows,
   nextConnectionStatus,
   publicErrorCode,
-  storedErrorCode,
-  PUBLIC_ERROR_CODES,
   sanitizeSkipped,
+  sanitizeAuditFields,
 } = require('./external-calendar-inventory');
 const { dtoHasAuthority, loadLockedState, runConnectionSync } = require('./external-calendar-inventory-sync');
 
@@ -30,29 +29,70 @@ function requireConnectionId(connectionId) {
   return { ok: true, id };
 }
 
+function publicMaps(maps) {
+  if (!Array.isArray(maps)) return undefined;
+  return maps.map((m) => {
+    if (!m || typeof m !== 'object') return { external_unit_key: '', bed_id: null };
+    return {
+      external_unit_key: typeof m.external_unit_key === 'string' ? m.external_unit_key.slice(0, 80) : '',
+      bed_id: typeof m.bed_id === 'string' ? m.bed_id : null,
+      bed_code: typeof m.bed_code === 'string' ? m.bed_code.slice(0, 80) : undefined,
+    };
+  }).map((m) => {
+    if (m.bed_code == null) delete m.bed_code;
+    return m;
+  });
+}
+
+function publicConnection(row) {
+  if (!row || typeof row !== 'object') return undefined;
+  if (Object.prototype.hasOwnProperty.call(row, 'last_error_code')
+    || Object.prototype.hasOwnProperty.call(row, 'secret_ref')
+    || Object.prototype.hasOwnProperty.call(row, 'last_error_detail')) {
+    return sanitizeConnection(row);
+  }
+  const out = {
+    id: row.id,
+    name: row.name,
+    kind: row.kind,
+    status: row.status,
+    spreadsheet_id: row.spreadsheet_id,
+    sheet_name: row.sheet_name,
+    last_success_at: row.last_success_at,
+    last_attempt_at: row.last_attempt_at,
+    last_error: row.last_error != null ? publicErrorCode(row.last_error) : undefined,
+    poll_seconds: row.poll_seconds,
+  };
+  if (row.has_secret === true) out.has_secret = true;
+  Object.keys(out).forEach((k) => { if (out[k] == null) delete out[k]; });
+  return out;
+}
+
 function publicResult(result) {
   if (!result || typeof result !== 'object') {
     return { ok: false, status: 500, error: 'calendar_bridge_failed' };
   }
-  const code = result.ok ? null : publicErrorCode(
-    PUBLIC_ERROR_CODES.indexOf(String(result.reason || '')) >= 0 ? result.reason : (result.error || result.reason)
-  );
+  const rawCode = result.ok ? null : (result.error || result.reason);
+  const code = result.ok ? null : publicErrorCode(rawCode);
+  const skipped = sanitizeSkipped(result.skipped);
   const out = {
     ok: !!result.ok,
     success: !!result.ok,
-    status: result.status,
+    status: typeof result.status === 'number' ? result.status : undefined,
     error: code,
     reason: code,
     keepLastBlocks: result.keepLastBlocks === true,
     wrote: result.wrote === true,
-    connections: result.connections,
-    connection: result.connection,
-    maps: result.maps,
-    skipped: sanitizeSkipped(result.skipped),
-    dry_run: result.dry_run,
-    empty: result.empty,
-    write_count: result.write_count,
-    next_status: result.next_status,
+    connections: Array.isArray(result.connections)
+      ? result.connections.map(publicConnection)
+      : undefined,
+    connection: result.connection ? publicConnection(result.connection) : undefined,
+    maps: publicMaps(result.maps),
+    skipped: skipped.length ? skipped : undefined,
+    dry_run: result.dry_run === true,
+    empty: result.empty === true,
+    write_count: typeof result.write_count === 'number' ? result.write_count : undefined,
+    next_status: typeof result.next_status === 'string' ? result.next_status : undefined,
     keep_last_blocks: result.keep_last_blocks === true || result.keepLastBlocks === true,
   };
   Object.keys(out).forEach((k) => { if (out[k] == null) delete out[k]; });
@@ -253,13 +293,13 @@ async function handleRealProbe(pg, { clientSlug, connectionId, fetchSheet }) {
   if (!need.ok) return need;
   connectionId = need.id;
   const locked = await loadLockedState(pg, { clientSlug, connectionId });
-  if (!locked.ok) return { ok: false, status: 404, error: locked.reason };
+  if (!locked.ok) return { ok: false, status: 404, error: publicErrorCode(locked.reason) };
   const fetched = await fetchSheet(locked.connection);
   if (!fetched.ok) {
     return {
       ok: false,
       status: 422,
-      error: fetched.reason,
+      error: publicErrorCode(fetched.reason),
       keep_last_blocks: true,
       next_status: nextConnectionStatus(locked.connection.status, { ok: false }),
     };
@@ -274,10 +314,10 @@ async function handleRealProbe(pg, { clientSlug, connectionId, fetchSheet }) {
     return {
       ok: false,
       status: 422,
-      error: plan.reason,
+      error: publicErrorCode(plan.reason),
       keep_last_blocks: true,
       next_status: next,
-      skipped: plan.skipped || [],
+      skipped: sanitizeSkipped(plan.skipped || []),
     };
   }
   return {
@@ -303,4 +343,6 @@ module.exports = {
   requireConnectionId,
   publicResult,
   runConnectionSync,
+  sanitizeSkipped,
+  sanitizeAuditFields,
 };

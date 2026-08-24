@@ -190,6 +190,10 @@ function main() {
     !/booking_beds_reject_overlap/.test(mig));
   ok('091 occupancy serialization exists',
     fs.existsSync(path.join(ROOT, 'database/migrations/091_booking_occupancy_serialization.sql')));
+  const mig091 = fs.readFileSync(path.join(ROOT, 'database/migrations/091_booking_occupancy_serialization.sql'), 'utf8');
+  ok('091 has no public _091 occupancy assert helpers',
+    !/CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\._091_occupancy_assert_/i.test(mig091)
+    && /DO\s+\$assert091\$/.test(mig091));
   ok('089 last_error_code not raw last_error',
     /last_error_code text NULL/.test(mig) && /last_error_detail text NULL/.test(mig));
   ok('089 uses location_key + tenant_locations FK',
@@ -204,10 +208,51 @@ function main() {
   ok('SQL text is not stored', lib.storedErrorCode('duplicate key value') === 'calendar_bridge_failed');
   ok('null stored error stays null', lib.storedErrorCode(null) === null);
   ok('known code stored as-is', lib.storedErrorCode('sheets_timeout') === 'sheets_timeout');
-  ok('hostile skip_reason omitted',
-    lib.sanitizeSkipped([{ skip_reason: 'duplicate key value', status: 'skipped_conflict' }])[0].skip_reason == null);
-  ok('known skip_reason kept',
-    lib.sanitizeSkipped([{ skip_reason: 'unmapped_unit_key', status: 'skipped_unmapped' }])[0].skip_reason === 'unmapped_unit_key');
+  ok('invalid_map stored as-is', lib.storedErrorCode('invalid_map') === 'invalid_map');
+  ok('bed_not_in_tenant stored as-is', lib.storedErrorCode('bed_not_in_tenant') === 'bed_not_in_tenant');
+  ok('maps_save_failed stored as-is', lib.storedErrorCode('maps_save_failed') === 'maps_save_failed');
+  ok('SQL payload is not a public skip code', lib.publicSkipCode('duplicate key value') === null);
+  ok('allowlisted skip code kept', lib.publicSkipCode('unmapped_unit_key') === 'unmapped_unit_key');
+  const nestedSkip = lib.sanitizeSkipped([{
+    skip_reason: { nested: 'duplicate key value violates unique constraint bookings_pkey' },
+    status: 'skipped_conflict',
+    bed_id: 'bed-secret',
+    connection_id: 'conn-internal',
+    stack: 'Error: boom\n    at Object.<anonymous>',
+  }]);
+  ok('nested skip_reason object omitted',
+    nestedSkip.length === 1
+    && nestedSkip[0].status === 'skipped_conflict'
+    && nestedSkip[0].skip_reason == null
+    && nestedSkip[0].bed_id == null
+    && nestedSkip[0].connection_id == null
+    && nestedSkip[0].stack == null);
+  const unknownSkip = lib.sanitizeSkipped([{ skip_reason: 'ECONNRESET', status: 'skipped_unmapped', unit_key: 'R1A', rowNumber: 2 }]);
+  ok('unknown skip_reason omitted',
+    unknownSkip.length === 1 && unknownSkip[0].skip_reason == null && unknownSkip[0].status === 'skipped_unmapped');
+  const credSkip = lib.sanitizeSkipped([{
+    skip_reason: 'ya29.access-token',
+    access_token: 'ya29.secret',
+    secret_ref: 'KV_LIVE_TOKEN',
+    password: 'hunter2',
+  }]);
+  ok('provider payload skipped row does not copy credentials',
+    credSkip.length === 1 && !/ya29|hunter2|KV_LIVE_TOKEN|secret_ref|access_token/.test(JSON.stringify(credSkip)));
+  ok('audit fields strip SQL and stacks',
+    lib.sanitizeAuditFields({
+      error: 'relation "bookings" does not exist\n    at Parser.parse',
+      reason: { skip_reason: 'duplicate key value' },
+      skipped: [{ skip_reason: 'password=supersecret' }],
+    }).error === 'calendar_bridge_failed');
+  ok('audit fields keep allowlisted route codes',
+    lib.sanitizeAuditFields({ error: 'invalid_map' }).error === 'invalid_map'
+    && lib.sanitizeAuditFields({ reason: 'bed_not_in_tenant' }).error === 'bed_not_in_tenant'
+    && lib.sanitizeAuditFields({ error: 'maps_save_failed' }).error === 'maps_save_failed');
+  ok('staff-query-api audits through sanitizeAuditFields',
+    /sanitizeAuditFields\(result\)/.test(api)
+    && /error: auditSafe\.error/.test(api));
+  ok('staff-query-api allowlists map route codes',
+    /invalid_map:/.test(api) && /bed_not_in_tenant:/.test(api) && /maps_save_failed:/.test(api));
   ok('routes refuse when flag off', routes.refuseClient('wolfhouse-somo').ok === false);
   const prevFlag = process.env.EXTERNAL_CALENDAR_INGEST_ENABLED;
   process.env.EXTERNAL_CALENDAR_INGEST_ENABLED = 'true';

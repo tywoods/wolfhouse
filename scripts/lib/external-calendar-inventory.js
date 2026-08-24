@@ -338,36 +338,41 @@ const PUBLIC_ERROR_CODES = Object.freeze([
   'connection_not_found',
   'empty_sheet',
   'header_unknown_column',
+  'header_drift',
   'invalid_connection',
+  'invalid_map',
+  'bed_not_in_tenant',
   'maps_array_required',
+  'maps_save_failed',
   'merged_cells',
   'save_failed',
   'secret_ref_invalid',
   'sheet_over_limit',
   'sheet_snapshot_incomplete',
   'sheet_tab_missing',
+  'sheet_fetch_required',
   'sheets_inaccessible',
   'sheets_malformed_json',
   'sheets_provider_5xx',
   'sheets_timeout',
   'sheets_token_denied',
   'overlap_conflict',
+  'overlaps_non_owned',
+  'unmapped_unit_key',
   'bridge_unavailable',
   'unknown_action',
-  'invalid_map',
-  'bed_not_in_tenant',
-  'maps_save_failed',
 ]);
 
 const PUBLIC_SKIP_CODES = Object.freeze([
   'unmapped_unit_key',
   'overlaps_non_owned',
-  'skipped_conflict',
-  'skipped_unmapped',
 ]);
 
 function storedErrorCode(value) {
   if (value == null) return null;
+  if (typeof value === 'object') {
+    return 'calendar_bridge_failed';
+  }
   const code = String(value).trim();
   if (!code) return null;
   if (PUBLIC_ERROR_CODES.indexOf(code) >= 0) return code;
@@ -379,17 +384,43 @@ function publicErrorCode(value) {
 }
 
 function publicSkipCode(value) {
-  const code = String(value == null ? '' : value).trim();
+  if (typeof value !== 'string') return null;
+  const code = value.trim();
+  if (!code) return null;
   if (PUBLIC_SKIP_CODES.indexOf(code) >= 0) return code;
   return null;
 }
 
 function sanitizeSkipped(skipped) {
-  if (!Array.isArray(skipped)) return undefined;
-  return skipped.map((row) => ({
-    status: publicSkipCode(row && row.status) || 'skipped_conflict',
-    skip_reason: publicSkipCode(row && row.skip_reason),
-  }));
+  if (!Array.isArray(skipped)) return [];
+  const out = [];
+  for (let i = 0; i < skipped.length; i++) {
+    const item = skipped[i];
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+    const status = item.status === 'skipped_unmapped' || item.status === 'skipped_conflict'
+      ? item.status
+      : 'skipped';
+    const row = { status };
+    if (typeof item.rowNumber === 'number' && Number.isFinite(item.rowNumber)) {
+      row.rowNumber = item.rowNumber;
+    }
+    if (typeof item.unit_key === 'string') {
+      row.unit_key = item.unit_key.slice(0, 80);
+    }
+    const skip = publicSkipCode(item.skip_reason);
+    if (skip) row.skip_reason = skip;
+    out.push(row);
+  }
+  return out;
+}
+
+function sanitizeAuditFields(result) {
+  const raw = result && typeof result === 'object'
+    ? (result.error || result.reason || null)
+    : null;
+  return {
+    error: storedErrorCode(raw),
+  };
 }
 
 module.exports = {
@@ -422,8 +453,10 @@ module.exports = {
   clientAllowed,
   bridgeAvailable,
   PUBLIC_ERROR_CODES,
+  PUBLIC_SKIP_CODES,
   storedErrorCode,
   publicErrorCode,
   publicSkipCode,
   sanitizeSkipped,
+  sanitizeAuditFields,
 };
