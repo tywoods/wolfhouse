@@ -20003,7 +20003,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   flex:0 0 var(--luna-banner-h);
   min-height:var(--luna-banner-h);
   /* no left padding: the carved panel is full-bleed, as it is in the art */
-  padding:0 clamp(14px,2.2vw,30px) 0 0;
+  padding:0 6px 0 0;
   background-color:var(--luna-banner-base);
   /* single pre-composed banner: carved LUNA sign, sunset shoreline and boards
      are all baked into one 1560x152 strip (owner-supplied), so we no longer
@@ -20105,7 +20105,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
      Stay off the baked-in surfboards on the lower right of the art. */
   align-self:flex-start;
   margin-top:clamp(6px,.8vw,10px);
-  margin-right:clamp(10px,1.2vw,18px);
+  margin-right:4px;
 }
 .luna-header-ui .banner-tools{
   display:flex;

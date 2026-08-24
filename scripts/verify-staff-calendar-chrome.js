@@ -29,7 +29,10 @@ assert.match(api, /\.btn-logout\{[^}]*font-family:'Instrument Sans'/);
 assert.doesNotMatch(api, /\.btn-logout\{[^}]*Iowan Old Style/);
 
 assert.match(api, /class="banner-tools-row"/);
-assert.match(api, /\.luna-header-ui \.banner-tools\{[\s\S]{0,80}flex-direction:column/);
+assert.match(api, /\.luna-header-ui \.banner-actions\{/);
+assert.match(api, /margin-right:4px;/);
+assert.match(api, /padding:0 6px 0 0;/);
+assert.match(api, /\.luna-header-ui \.banner-tools\{/);
 assert.match(api, /id="staff-theme-toggle"/);
 assert.match(api, /id="btn-logout"/);
 assert.match(api, /id="staff-lang-switch"/);
