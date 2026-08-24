@@ -21,4 +21,9 @@ assert.match(api, /id="bc-legend"/);
 assert.doesNotMatch(api, /id="bc-legend"[\s\S]{0,800}calendar\.legend\.ownerScheduleBlocked/);
 assert.match(api, /t\('calendar\.legend\.ownerScheduleBlocked'\)/);
 
+assert.match(api, /staff-portal-calendar:block-fonts/);
+assert.match(api, /\.book-ui \.bc-block-label[\s\S]{0,400}Instrument Sans/);
+assert.match(api, /\.btn-logout\{[^}]*font-family:'Instrument Sans'/);
+assert.doesNotMatch(api, /\.btn-logout\{[^}]*Iowan Old Style/);
+
 console.log('PASS staff-calendar-chrome: sunset fonts + no owner-schedule legend');

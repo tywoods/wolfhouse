@@ -16431,7 +16431,7 @@ button,.btn,.btn-primary,.btn-ghost,.btn-logout,
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0}
 #banner .brand-logo{height:100%;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
-.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 .cc-luna-staff-retired{display:none!important}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
@@ -19922,7 +19922,6 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .book-ui{--bk-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 .book-ui .toolbar h2,
 .book-ui .bc-detail-title,
-.book-ui .bc-block-label,
 .book-ui .bk-form-section-title,
 .book-ui .bc-sel-title,
 .book-ui .bc-drawer-card-title,
@@ -19933,6 +19932,21 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .book-ui .bc-room-hdr,
 .book-ui .bc-drawer-tab,
 .book-ui .bk-quote-section-title{font-family:var(--bk-serif)}
+/* staff-portal-calendar:block-fonts — names + pebbles + sign-out match sunset */
+.book-ui .bc-block,
+.book-ui .bc-block-label,
+.book-ui .bc-block-pay-badge,
+.book-ui .transfer-pebble,
+#tab-bed-calendar .bc-block,
+#tab-bed-calendar .bc-block-label,
+#tab-bed-calendar .bc-block-pay-badge,
+#tab-bed-calendar .transfer-pebble{
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif!important;
+}
+#tab-bed-calendar .bc-block-pay-badge,
+#tab-bed-calendar .transfer-pebble{
+  font-size:11px;
+}
 /* ===== END book-ui ===== */
 
 /* ═══ luna-header-ui ══════════════════════════════════════════════════════
@@ -20166,6 +20180,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   padding:5px 12px;
   font-size:12px;
   font-weight:600;
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif;
   color:var(--luna-cream);
   text-shadow:none;
   cursor:pointer;
