@@ -15,6 +15,7 @@ const { execFileSync } = require('node:child_process');
 const {
   applyThrough095,
   provePublicExecuteOnDatabase,
+  isDownRefused,
   UP,
   DOWN,
 } = require('./prove-email-luna-automation-public-execute-pglite');
@@ -125,7 +126,7 @@ async function main() {
     try { await empty.exec('ROLLBACK'); } catch (_) { /* ignore */ }
     await assert.rejects(
       () => empty.exec(DOWN),
-      (err) => /096_down_refused/.test(String(err && err.message)),
+      isDownRefused,
     );
     console.log('ok - stock-PG empty database fail-closes 096 and 096_down');
 

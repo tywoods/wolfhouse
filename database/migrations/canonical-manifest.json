@@ -1420,9 +1420,9 @@
       "order": null,
       "classification": "rollback_down",
       "inForwardChain": false,
-      "rationale": "Restores PostgreSQL default PUBLIC EXECUTE and the applying owner's default GRANT EXECUTE ON FUNCTIONS TO PUBLIC, then re-seals 086-095 Luna functions. Refuses if the 086 queue table is absent or session_user is not the queue owner. Second execution is safe.",
+      "rationale": "Intentionally irreversible fail-closed rollback. Exact pre-096 ACL/default-ACL state was not captured; broad PUBLIC EXECUTE restore would be unsafe. Performs no GRANT/REVOKE/ALTER DEFAULT PRIVILEGES. Paired down remains for canonical manifest conventions. Repeat refusal is safe.",
       "pairsWith": "096_tenant_email_luna_automation_public_execute.sql",
-      "sha256": "21cb8c356c9ee4b7118c789577d3bd04f05a3af482a46bfe099a109cd134c367"
+      "sha256": "693bb5e4e49016b4ac04c63977a494b3468953e453b1b9e4153b1a8d41bee6ee"
     }
   ]
 }

@@ -75,20 +75,49 @@ for (const marker of LIVE_MARKERS) {
 }
 console.log('  PASS  096 revokes ambient PUBLIC EXECUTE as the applying owner and does not GRANT/CREATE ROLE');
 
+function sqlWithoutComments(sql) {
+  return String(sql)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*--[^\n]*$/gm, '')
+    .replace(/[ \t]+--[^\n]*/g, '');
+}
+
+function hasBroadPublicGrant(sql) {
+  const body = sqlWithoutComments(sql);
+  return /GRANT\s+EXECUTE\s+ON\s+ALL\s+FUNCTIONS\s+IN\s+SCHEMA\s+public\s+TO\s+PUBLIC/i.test(sql)
+    || /GRANT[\s\S]*?\sTO\s+PUBLIC\b/i.test(body)
+    || /ALTER\s+DEFAULT\s+PRIVILEGES[\s\S]*?\bGRANT\b/i.test(body);
+}
+
+function hasAclMutation(sql) {
+  const body = sqlWithoutComments(sql);
+  return /\bGRANT\b/i.test(body)
+    || /\bREVOKE\b/i.test(body)
+    || /ALTER\s+DEFAULT\s+PRIVILEGES/i.test(body)
+    || /UPDATE\s+(?:pg_catalog\.)?pg_(?:proc|default_acl|class)\b/i.test(body);
+}
+
+const BROAD_PUBLIC_GRANT = 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO PUBLIC';
+assert.equal(hasBroadPublicGrant(BROAD_PUBLIC_GRANT), true);
+assert.equal(hasBroadPublicGrant(`EXECUTE '${BROAD_PUBLIC_GRANT}'`), true);
+assert.equal(hasBroadPublicGrant('ALTER DEFAULT PRIVILEGES FOR ROLE x GRANT EXECUTE ON FUNCTIONS TO PUBLIC'), true);
+assert.equal(hasAclMutation('REVOKE ALL ON FUNCTION public.fn() FROM PUBLIC'), true);
+assert.equal(hasBroadPublicGrant(DOWN), false, 'broad PUBLIC grant in 096_down is RED/forbidden');
+assert.equal(DOWN.includes(BROAD_PUBLIC_GRANT), false);
+assert.equal(hasAclMutation(DOWN), false, '096_down must be ACL mutation-free');
 assert.match(DOWN, /096_down_refused/);
-assert.match(DOWN, /GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO PUBLIC/);
-assert.match(DOWN, /ALTER DEFAULT PRIVILEGES FOR ROLE %I GRANT EXECUTE ON FUNCTIONS TO PUBLIC/);
-assert.match(DOWN, /ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO PUBLIC/);
-assert.match(DOWN, /REVOKE ALL ON FUNCTION public\.%s FROM PUBLIC/);
-assert.match(DOWN, /tenant_email_luna_automation_enqueue\(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text\)/);
-assert.match(DOWN, /tenant_email_luna_automation_claim_scoped\(uuid, uuid, uuid, text, uuid\)/);
-assert.match(DOWN, /must run as queue table\/function owner/);
+assert.match(DOWN, /exact pre-096 ACL\/default-ACL state was not captured/);
+assert.match(DOWN, /broad rollback would be unsafe/);
+assert.match(DOWN, /USING ERRCODE = '0A000'/);
+assert.match(sqlWithoutComments(DOWN), /RAISE EXCEPTION '096_down_refused:/);
 assert.equal(/^\s*CREATE ROLE/m.test(DOWN), false);
-assert.equal(/GRANT EXECUTE ON FUNCTION public\.tenant_email_luna_automation_[a-z_]+.*TO [a-z_]+/i.test(DOWN), false);
+assert.equal(/^\s*GRANT /m.test(DOWN), false);
+assert.equal(/^\s*REVOKE /m.test(DOWN), false);
+assert.equal(/^\s*ALTER DEFAULT PRIVILEGES/m.test(DOWN), false);
 for (const marker of LIVE_MARKERS) {
   assert.equal(DOWN.includes(marker), false, `down ${marker}`);
 }
-console.log('  PASS  096 down restores defaults, re-seals Luna functions, and names no live roles');
+console.log('  PASS  096 down is mutation-free, fail-closed, and treats broad PUBLIC grants as RED');
 
 const fwd = MANIFEST.entries.find((e) => e.id === '096_tenant_email_luna_automation_public_execute');
 const down = MANIFEST.entries.find((e) => e.id === '096_tenant_email_luna_automation_public_execute_down');

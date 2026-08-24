@@ -7,6 +7,8 @@
  * GREEN: 096 revokes PUBLIC EXECUTE, preserves owner + explicit grants,
  * defaults new functions non-PUBLIC, and principal audit then allowlists
  * only the contract (still catching reintroduced PUBLIC EXECUTE).
+ * 096_down is intentionally irreversible: it refuses without ACL mutation
+ * and leaves post-096 ACLs/defaults unchanged. Repeat refusal is safe.
  *
  * PGlite does not claim pgcrypto; stock-PG proof covers extension-owned
  * functions when CREATE EXTENSION is available.
@@ -47,8 +49,9 @@ const NOT_OWNER = 'luna_ch4c1_pub_notowner';
 const CANARY = 'luna_ch4c1_canary()';
 const NAMED = 'luna_ch4c1_named(integer)';
 const AFTER = 'luna_ch4c1_after()';
-const RESTORED = 'luna_ch4c1_restored()';
+const STILL = 'luna_ch4c1_still()';
 const ENQUEUE = FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue;
+const DOWN_REFUSED_SQLSTATE = '0A000';
 
 function tryLoadPglite() {
   for (const base of [
@@ -86,6 +89,15 @@ function assertStaticContract() {
   assert.equal(/^\s*GRANT /m.test(UP), false);
   assert.equal(/^\s*CREATE ROLE/m.test(UP), false);
   assert.match(DOWN, /096_down_refused/);
+  assert.match(DOWN, /exact pre-096 ACL\/default-ACL state was not captured/);
+  assert.match(DOWN, /broad rollback would be unsafe/);
+  assert.equal(/GRANT\s+EXECUTE\s+ON\s+ALL\s+FUNCTIONS\s+IN\s+SCHEMA\s+public\s+TO\s+PUBLIC/i.test(DOWN), false);
+  const downBody = String(DOWN)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*--[^\n]*$/gm, '');
+  assert.equal(/\bGRANT\b/i.test(downBody), false);
+  assert.equal(/\bREVOKE\b/i.test(downBody), false);
+  assert.equal(/ALTER\s+DEFAULT\s+PRIVILEGES/i.test(downBody), false);
   console.log('ok - static C1 public EXECUTE contract');
 }
 
@@ -133,6 +145,36 @@ async function publicCallableCount(db, role) {
        AND pg_catalog.has_function_privilege($1, p.oid, 'EXECUTE')
   `, [role]);
   return result.rows[0].n;
+}
+
+function isDownRefused(err) {
+  const text = errText(err);
+  return text.includes('096_down_refused')
+    && text.includes('exact pre-096 ACL/default-ACL state was not captured')
+    && text.includes('broad rollback would be unsafe')
+    && matchesSql(err, '096_down_refused', DOWN_REFUSED_SQLSTATE);
+}
+
+async function refuseDown(db) {
+  await assert.rejects(() => db.exec(DOWN), isDownRefused);
+  try { await db.exec('ROLLBACK'); } catch (_) { /* ignore */ }
+}
+
+async function snapshotPublicExecuteAcls(db) {
+  return {
+    canaryPublic: await publicExecute(db, CANARY),
+    canaryBystander: await roleExecute(db, BYSTANDER, CANARY),
+    canaryOwner: await roleExecute(db, 'postgres', CANARY),
+    namedPublic: await publicExecute(db, NAMED),
+    namedGrantee: await roleExecute(db, GRANTEE, NAMED),
+    namedBystander: await roleExecute(db, BYSTANDER, NAMED),
+    enqueueBystander: await roleExecute(db, BYSTANDER, ENQUEUE),
+    afterPublic: await publicExecute(db, AFTER),
+    afterBystander: await roleExecute(db, BYSTANDER, AFTER),
+    afterOwner: await roleExecute(db, 'postgres', AFTER),
+    bystanderCount: await publicCallableCount(db, BYSTANDER),
+    ownerDefaultPublic: await ownerDefaultPublicExecute(db, 'postgres'),
+  };
 }
 
 async function ownerDefaultPublicExecute(db, owner) {
@@ -347,14 +389,46 @@ async function provePublicExecuteOnDatabase(db, options) {
     }
   }
 
-  await db.exec(DOWN);
-  assert.equal(await publicExecute(db, CANARY), true);
-  assert.equal(await roleExecute(db, BYSTANDER, CANARY), true);
-  assert.equal(await roleExecute(db, BYSTANDER, ENQUEUE), false, 'down re-seals Luna functions');
-  await db.exec('CREATE FUNCTION public.luna_ch4c1_restored() RETURNS int LANGUAGE sql AS $$ SELECT 3 $$');
-  assert.equal(await publicExecute(db, RESTORED), true);
-  await db.exec(DOWN);
-  console.log('ok - GREEN 096 down restores defaults, re-seals Luna, and is repeatable');
+  const beforeDown = await snapshotPublicExecuteAcls(db);
+  assert.equal(beforeDown.canaryPublic, false);
+  assert.equal(beforeDown.canaryBystander, false, 'arbitrary LOGIN denied before down');
+  assert.equal(beforeDown.canaryOwner, true, 'owner remains before down');
+  assert.equal(beforeDown.namedGrantee, true, 'explicit grant remains before down');
+  assert.equal(beforeDown.namedBystander, false);
+  assert.equal(beforeDown.enqueueBystander, false);
+  assert.equal(beforeDown.afterPublic, false, 'newly created owner functions are non-PUBLIC before down');
+  assert.equal(beforeDown.afterBystander, false);
+  assert.equal(beforeDown.afterOwner, true);
+  if (expectDefaultPrivileges) {
+    assert.equal(beforeDown.ownerDefaultPublic, false);
+  }
+
+  await refuseDown(db);
+  const afterDown = await snapshotPublicExecuteAcls(db);
+  assert.deepEqual(afterDown, beforeDown, 'refused 096_down must leave post-096 ACLs/defaults unchanged');
+  assert.equal(afterDown.canaryBystander, false, 'arbitrary LOGIN remains denied');
+  assert.equal(afterDown.canaryOwner, true, 'owner remains');
+  assert.equal(afterDown.namedGrantee, true, 'explicit grant remains');
+  assert.equal(afterDown.afterPublic, false, 'newly created owner functions remain non-PUBLIC');
+  const stillAdopted = await adoptWorker(db);
+  assert.equal(stillAdopted.ok, true);
+  assert.equal(stillAdopted.roleAction, 'verify_noop', 'adoption remains contract-only');
+
+  if (expectDefaultPrivileges) {
+    await db.exec('CREATE FUNCTION public.luna_ch4c1_still() RETURNS int LANGUAGE sql AS $$ SELECT 4 $$');
+    assert.equal(await publicExecute(db, STILL), false);
+    assert.equal(await roleExecute(db, BYSTANDER, STILL), false);
+    assert.equal(await roleExecute(db, 'postgres', STILL), true);
+    assert.equal(await ownerDefaultPublicExecute(db, 'postgres'), false);
+    console.log('ok - GREEN refused 096_down left stock-PG default privileges unreverted');
+  }
+
+  await refuseDown(db);
+  const afterRepeat = await snapshotPublicExecuteAcls(db);
+  assert.deepEqual(afterRepeat, beforeDown, 'repeat 096_down refusal must leave post-096 ACLs/defaults unchanged');
+  const afterRepeatAdopt = await adoptWorker(db);
+  assert.equal(afterRepeatAdopt.roleAction, 'verify_noop');
+  console.log('ok - GREEN 096 down refuses atomically, mutates no ACLs, and is repeat-safe');
 }
 
 async function proveMissingQueue(PGlite) {
@@ -366,7 +440,7 @@ async function proveMissingQueue(PGlite) {
   try { await db.exec('ROLLBACK'); } catch (_) { /* ignore */ }
   await assert.rejects(
     () => db.exec(DOWN),
-    (err) => matchesSql(err, '096_down_refused', '23514'),
+    isDownRefused,
   );
   console.log('ok - GREEN missing queue fail-closes 096 and 096_down');
 }
@@ -401,6 +475,7 @@ module.exports = {
   provePublicExecuteOnDatabase,
   proveMissingQueue,
   tryLoadPglite,
+  isDownRefused,
   UP,
   DOWN,
 };
