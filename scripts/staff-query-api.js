@@ -275,6 +275,13 @@ const {
 } = require('./lib/email-imap-sunset-staging-runtime-composition');
 const EMAIL_IMAP_RUNTIME_READINESS =
   resolveEmailImapSunsetStagingRuntimeReadiness(process.env);
+const {
+  resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness,
+  createEmailLunaAutomationShadowSunsetStagingRuntimeComposition,
+} = require('./lib/email-luna-automation-shadow-sunset-staging-runtime-composition');
+/** Frozen inert readiness only (default-off; never scheduler/worker run). */
+const EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS =
+  resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(process.env);
 // Sunset-staging email-delta operator recovery routes (default-off). Full gate
 // before requireAuth / body / DB / owner load. No worker/scheduler.
 const {
@@ -50002,6 +50009,7 @@ const server = shouldEagerCreateStaffQueryApiServer()
 
 let EMAIL_DELTA_RUNTIME = null;
 let EMAIL_IMAP_RUNTIME = null;
+let EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
 if (require.main === module) {
   const { attachStaffApiReadinessLifecycle, ON_SHUTDOWN_BEGIN_HOOK } = require('./lib/staff-api-readiness-lifecycle');
   attachStaffApiReadinessLifecycle(server);
@@ -50010,6 +50018,7 @@ if (require.main === module) {
     const drains = [];
     if (EMAIL_DELTA_RUNTIME) drains.push(EMAIL_DELTA_RUNTIME.stop());
     if (EMAIL_IMAP_RUNTIME) drains.push(EMAIL_IMAP_RUNTIME.stop());
+    if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME) drains.push(EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.stop());
     if (typeof priorShutdownBegin === 'function') drains.push(priorShutdownBegin());
     return Promise.allSettled(drains);
   };
@@ -50036,6 +50045,15 @@ async function startStaffQueryApiCli() {
         intervalMs: Number(process.env.LUNA_EMAIL_IMAP_POLL_INTERVAL_MS || 60000),
       });
       await EMAIL_IMAP_RUNTIME.start();
+    }
+    if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS.runtime_activation === true) {
+      EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = createEmailLunaAutomationShadowSunsetStagingRuntimeComposition({
+        env: process.env,
+        withTransactionClient: (work) => _withPgClientImpl((client) => work(client)),
+        timers: { setTimeout, clearTimeout },
+        intervalMs: 60000,
+      });
+      await EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.start();
     }
   } catch {
     process.exitCode = 1;

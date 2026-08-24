@@ -82,8 +82,14 @@ assert.equal(
 assert.equal(executeFunctionsFor('producer').includes(FUNCTION_SIGNATURES.tenant_email_luna_automation_capture_shadow), false);
 assert.ok(EMAIL_LUNA_AUTOMATION_QUEUE_STATES.includes('shadow_captured'));
 assert.deepEqual(EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_STATES.slice(), [
-  'pending_human', 'agreement', 'disagreement', 'excluded', 'invalid',
+  'pending_human', 'staff_action_observed', 'disagreement', 'excluded', 'invalid',
 ]);
+assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.unique_human_would_send, 'staff_action_observed');
+assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.unique_human_kind, 'inbound_workflow_identity');
+assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.proves_provider_sent, false);
+assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.proves_same_luna_draft, false);
+assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.proves_content_agreement, false);
+assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.no_grant_in_094, true);
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.human_owner, 'tenant_email_reply_approvals');
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.infer_from_absence, false);
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.model_based, false);

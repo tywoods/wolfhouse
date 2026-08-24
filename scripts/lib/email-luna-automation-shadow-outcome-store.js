@@ -42,7 +42,9 @@ const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 const LOCATION_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-const EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_STATES = objectFreeze(['pending_human', 'agreement', 'disagreement', 'excluded', 'invalid']);
+const EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_STATES = objectFreeze([
+  'pending_human', 'staff_action_observed', 'disagreement', 'excluded', 'invalid',
+]);
 const EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_RECORD_KEYS = objectFreeze([
   'operation_id',
   'issuance_id',
@@ -100,7 +102,18 @@ const EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH = objectFreeze({
   duplicate_human: 'excluded',
   rebound_human: 'invalid',
   no_human: 'pending_human',
-  unique_human_would_send: 'agreement',
+  unique_human_would_send: 'staff_action_observed',
+  unique_human_kind: 'inbound_workflow_identity',
+  proves_provider_sent: false,
+  proves_same_luna_draft: false,
+  proves_same_recipient: false,
+  proves_content_agreement: false,
+  unsafe_labels: objectFreeze([
+    'agreement',
+    'staff sent Luna\'s mail',
+    'same draft',
+    'content agreement',
+  ]),
 });
 const EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT = objectFreeze({
   table: 'tenant_email_luna_automation_shadow_outcomes',
@@ -122,6 +135,8 @@ const EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT = objectFreeze({
   no_synthetic_runtime_role_in_migration: true,
   no_grant_in_093: true,
   no_create_role_in_093: true,
+  no_grant_in_094: true,
+  no_create_role_in_094: true,
   apply_in: 'ch4_runtime_worker_and_operator_roles',
   worker_shadow_outcome_select: false,
   producer_shadow_outcome_select: false,
@@ -132,7 +147,7 @@ const FORBIDDEN_INPUT_KEYS = objectFreeze([
   'client_id', 'location_id', 'recipient_address', 'recipient', 'capability',
   'facts', 'tenant', 'mode', 'send_allowed', 'auto_send_allowed', 'provider_invoked',
   'luna_decision', 'comparison_state', 'human_outcome', 'human_action_id',
-  'agreement', 'disagreement', 'reason', 'policy_version', 'eligibility_policy_version',
+  'agreement', 'staff_action_observed', 'disagreement', 'reason', 'policy_version', 'eligibility_policy_version',
   'validator_version', 'conversation_id', 'inbound_event_id',
   'endpoint_id', 'recipient_digest',
 ]);
@@ -290,12 +305,12 @@ function staffRecord(source) {
   const queueState = readField(source, 'queue_state');
   if (lunaDecision !== 'would_send') throw invalid();
   if (!arrayIncludes(EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_STATES, comparisonState)) throw invalid();
-  if (comparisonState === 'disagreement') throw invalid();
+  if (comparisonState === 'disagreement' || comparisonState === 'agreement') throw invalid();
   if (queueState !== 'shadow_captured') throw invalid();
   if (humanBound !== true && humanBound !== false) throw invalid();
   if (duplicateHuman !== true && duplicateHuman !== false) throw invalid();
   if (comparisonState === 'pending_human' && (humanBound !== false || duplicateHuman !== false)) throw invalid();
-  if (comparisonState === 'agreement' && (humanBound !== true || duplicateHuman !== false)) throw invalid();
+  if (comparisonState === 'staff_action_observed' && (humanBound !== true || duplicateHuman !== false)) throw invalid();
   if (comparisonState === 'excluded' && humanBound !== true) throw invalid();
   if (comparisonState === 'invalid' && (humanBound !== false || duplicateHuman !== false)) throw invalid();
   return authenticStaff([
@@ -335,7 +350,7 @@ function assertEmailLunaAutomationShadowComparisonProjection(value) {
   if (value.provider_invoked !== false || value.mode !== SHADOW_MODE) throw invalid();
   if (value.journal_handoff !== false || value.provider_transition !== false) throw invalid();
   if (value.luna_decision !== 'would_send') throw invalid();
-  if (value.comparison_state === 'disagreement') throw invalid();
+  if (value.comparison_state === 'disagreement' || value.comparison_state === 'agreement') throw invalid();
   const own = safeOwnKeys(value);
   if (own.length !== STAFF_PROJECTION_KEYS.length) throw invalid();
   for (let index = 0; index < STAFF_PROJECTION_KEYS.length; index += 1) {

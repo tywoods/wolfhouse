@@ -1363,6 +1363,26 @@
       "rationale": "Refuses rollback while shadow-outcome rows exist; otherwise drops 093 objects and restores the 086 queue protect trigger and state_values/state_coupling. Second empty execution is safe.",
       "pairsWith": "093_tenant_email_luna_automation_shadow_outcomes.sql",
       "sha256": "1648e6022895e2601a9638731f17cb755eae8c9869563f8f358aac1c25034dce"
+    },
+    {
+      "id": "094_tenant_email_luna_automation_shadow_outcome_identity_match",
+      "filename": "094_tenant_email_luna_automation_shadow_outcome_identity_match.sql",
+      "order": 90,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B5: replace 093 later-match projection label agreement with staff_action_observed. Identity-only inbound 070 match; not provider-sent, not same Luna draft, not content agreement. Does not rewrite stored pending_human rows. No GRANT/CREATE ROLE.",
+      "downFilename": "094_tenant_email_luna_automation_shadow_outcome_identity_match_down.sql",
+      "sha256": "60006058f1921150ea6d311f38afa2122ad55e09d9ed58babe8d20149d9cebd2"
+    },
+    {
+      "id": "094_tenant_email_luna_automation_shadow_outcome_identity_match_down",
+      "filename": "094_tenant_email_luna_automation_shadow_outcome_identity_match_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Restores the 093 project function body (unique 070 match labeled agreement). Refuses if the 093 outcomes table is absent. Does not drop 093 rows or hashes. Second execution is safe.",
+      "pairsWith": "094_tenant_email_luna_automation_shadow_outcome_identity_match.sql",
+      "sha256": "29f2f7be5e7975dcf5db78e216042a2f91a55cc3552ca54385362c2688f352dc"
     }
   ]
 }
