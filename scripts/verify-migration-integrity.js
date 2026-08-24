@@ -49,6 +49,55 @@ function pass(name, cond, detail) {
   }
 }
 
+function rollbackOwners(d, entries) {
+  const owners = new Map();
+  function add(e) {
+    if (e && e.classification !== 'rollback_down') owners.set(e.id || e.filename, e);
+  }
+  for (const e of entries) {
+    if (e.downFilename === d.filename) add(e);
+  }
+  if (d.pairsWith) {
+    add(entries.find((e) => e.filename === d.pairsWith));
+  }
+  const m = String(d.filename || '').match(/^(.*)_down\.sql$/);
+  if (m) add(entries.find((e) => e.filename === m[1] + '.sql'));
+  return Array.from(owners.values());
+}
+
+function rollbackPairing(man) {
+  const entries = man.entries || [];
+  const fwd = forwardEntries(man);
+  const rollback = entries.filter((e) => e.classification === 'rollback_down');
+  const names = rollback.map((d) => d.filename);
+  if (new Set(names).size !== names.length) {
+    return { ok: false, code: 'duplicate_rollback_filename' };
+  }
+  const referenced = [];
+  for (const f of fwd) {
+    if (!f.downFilename) continue;
+    const hits = rollback.filter((d) => d.filename === f.downFilename);
+    if (hits.length !== 1) {
+      return { ok: false, code: 'forward_down_unresolved', id: f.id };
+    }
+    referenced.push(f.downFilename);
+  }
+  if (new Set(referenced).size !== referenced.length) {
+    return { ok: false, code: 'rollback_referenced_twice' };
+  }
+  for (const d of rollback) {
+    const owners = rollbackOwners(d, entries);
+    if (owners.length !== 1) {
+      return {
+        ok: false,
+        code: owners.length === 0 ? 'orphan_rollback' : 'rollback_owner_ambiguous',
+        filename: d.filename,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 function deepClone(x) {
   return JSON.parse(JSON.stringify(x));
 }
@@ -110,15 +159,9 @@ pass(
   for (const e of manifest.entries) {
     byClass[e.classification] = (byClass[e.classification] || 0) + 1;
   }
-  const rollback = manifest.entries.filter((e) => e.classification === 'rollback_down');
-  const pairedDowns = forwards.filter((e) => e.downFilename);
   pass('green-has-proposed', (byClass.proposed_not_executable || 0) >= 4);
-  pass(
-    'green-has-rollback',
-    rollback.length === (byClass.rollback_down || 0)
-      && pairedDowns.every((f) => rollback.some((d) => d.filename === f.downFilename)),
-    `rollback=${rollback.length}`,
-  );
+  const pairing = rollbackPairing(manifest);
+  pass('green-has-rollback', pairing.ok === true, pairing.code);
   pass('green-no-unresolved', (byClass.unresolved || 0) === 0);
 }
 
@@ -172,6 +215,43 @@ pass(
   eightyNine.sha256 = '0'.repeat(64);
   const r = validateManifestIntegrity(m);
   pass('red-calendar-089-digest-invalid', !r.ok && r.errors.some((e) => e.code === 'checksum_mismatch'));
+}
+
+{
+  const m = deepClone(manifest);
+  m.entries.push({
+    id: 'rollback_orphan_probe',
+    filename: '999_orphan_down.sql',
+    classification: 'rollback_down',
+    inForwardChain: false,
+    sha256: 'ab'.repeat(32),
+  });
+  const pairing = rollbackPairing(m);
+  pass('red-rollback-orphan', pairing.ok === false && pairing.code === 'orphan_rollback');
+}
+
+{
+  const m = deepClone(manifest);
+  const down = m.entries.find((e) => e.id === '091_booking_occupancy_serialization_down');
+  m.entries.push({
+    ...down,
+    id: '091_booking_occupancy_serialization_down_dup',
+  });
+  const pairing = rollbackPairing(m);
+  pass('red-rollback-duplicate', pairing.ok === false && pairing.code === 'duplicate_rollback_filename');
+}
+
+{
+  const m = deepClone(manifest);
+  const eightyNine = m.entries.find((e) => e.id === '089_external_calendar_inventory');
+  const ninetyOne = m.entries.find((e) => e.id === '091_booking_occupancy_serialization');
+  ninetyOne.downFilename = eightyNine.downFilename;
+  const pairing = rollbackPairing(m);
+  pass(
+    'red-forward-wrong-rollback',
+    pairing.ok === false
+      && (pairing.code === 'rollback_referenced_twice' || pairing.code === 'orphan_rollback'),
+  );
 }
 
 // RED: unknown checksum mode
