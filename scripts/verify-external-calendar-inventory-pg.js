@@ -267,12 +267,14 @@ async function runOccupancyRaceMatrix(a, b, observer, fx) {
     }),
     'both');
   const bothRows = await a.query(
-    `SELECT booking_id::text AS booking_id,
-            bed_id::text AS bed_id,
-            assignment_start_date::text AS start_date,
-            assignment_end_date::text AS end_date
-       FROM booking_beds
-      WHERE booking_id IN ($1::uuid, $2::uuid)`,
+    `SELECT bb.booking_id::text AS booking_id,
+            bb.bed_id::text AS bed_id,
+            bb.assignment_start_date::text AS start_date,
+            bb.assignment_end_date::text AS end_date,
+            b.status::text AS booking_status
+       FROM booking_beds bb
+       JOIN bookings b ON b.id = bb.booking_id
+      WHERE bb.booking_id IN ($1::uuid, $2::uuid)`,
     [parA, parB]
   );
   if (bothRows.rows.length !== 2) throw new Error('both_rows_missing:' + bothRows.rows.length);
@@ -286,6 +288,8 @@ async function runOccupancyRaceMatrix(a, b, observer, fx) {
   if (byId[parB].start_date !== '2026-12-01' || byId[parB].end_date !== '2026-12-03') {
     throw new Error('parB_wrong_range');
   }
+  if (byId[parA].booking_status !== 'confirmed') throw new Error('parA_inactive_status');
+  if (byId[parB].booking_status !== 'confirmed') throw new Error('parB_inactive_status');
   ok('race different beds in parallel: both commit', true);
 
   const same = id();
@@ -620,7 +624,12 @@ async function main() {
   ok('five isolated 089 identity states',
     (prove089Body.match(/await run089State\(/g) || []).length === 5);
   ok('both-commit race queries resulting rows',
-    /both_rows_missing/.test(gateSrc) && /parA_wrong_bed/.test(gateSrc) && /parB_wrong_range/.test(gateSrc));
+    /both_rows_missing/.test(gateSrc)
+    && /parA_wrong_bed/.test(gateSrc)
+    && /parB_wrong_range/.test(gateSrc)
+    && /JOIN bookings/.test(gateSrc)
+    && /parA_inactive_status/.test(gateSrc)
+    && /parB_inactive_status/.test(gateSrc));
   ok('089 identity covers five states',
     /imported-unlinked/.test(gateSrc) && /tombstoned-linked/.test(gateSrc) && /skipped-conflict-linked/.test(gateSrc));
 
