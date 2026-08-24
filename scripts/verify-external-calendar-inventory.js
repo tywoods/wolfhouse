@@ -183,6 +183,9 @@ function main() {
     /includeGridData=true/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sheets.js'), 'utf8')));
   ok('save/sync/enable/maps actions exist',
     /id="osb-save"/.test(api) && /id="osb-sync"/.test(api) && /id="osb-enable"/.test(api) && /id="osb-save-maps"/.test(api));
+  ok('empty state connect CTA', /Connect Google Sheet/.test(api));
+  ok('no invented browser secret', !/EXTERNAL_CALENDAR_SHEETS_SA/.test(api) && !/SECRET_REF/.test(api));
+  ok('browser save does not send secret_ref', !/function ownerScheduleBridgeSave\(\)\{[\s\S]*?secret_ref/.test(api));
   ok('handler rejects caller authority', /rejectCallerAuthority/.test(api));
   ok('handler uses real probe', /handleRealProbe/.test(api));
   ok('FOR UPDATE OF c used', /FOR UPDATE OF c/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js'), 'utf8')));

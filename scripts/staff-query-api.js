@@ -18575,6 +18575,29 @@ body > .portal-schedule-drawer{flex:none;align-self:auto}
 /* Luna Staff (Ask Luna) portal — same serif house style as the rest of the portal. */
 #tab-ask-luna{--luna-staff-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
 #tab-ask-luna input,#tab-ask-luna textarea,#tab-ask-luna select{font-family:var(--font-sans)}
+#cc-owner-schedule-bridge{max-width:720px}
+#cc-owner-schedule-bridge .osb-stack{display:flex;flex-direction:column;gap:16px}
+#cc-owner-schedule-bridge .osb-empty{padding:8px 0 4px}
+#cc-owner-schedule-bridge .osb-empty p{margin:0 0 14px;color:var(--text-2);font-size:13px;line-height:1.45}
+#cc-owner-schedule-bridge .osb-field{display:flex;flex-direction:column;gap:6px;max-width:560px}
+#cc-owner-schedule-bridge .osb-field label{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2)}
+#cc-owner-schedule-bridge .osb-field input,#cc-owner-schedule-bridge .osb-map-row input,#cc-owner-schedule-bridge .osb-map-row select{
+  font-size:13.5px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--surface);color:var(--text);min-width:0;width:100%;box-sizing:border-box
+}
+#cc-owner-schedule-bridge .osb-field input:focus,#cc-owner-schedule-bridge .osb-map-row input:focus,#cc-owner-schedule-bridge .osb-map-row select:focus{
+  outline:2px solid #7AAB6E;outline-offset:1px
+}
+#cc-owner-schedule-bridge .osb-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#cc-owner-schedule-bridge [hidden]{display:none!important}
+#cc-owner-schedule-bridge .osb-summary{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+#cc-owner-schedule-bridge .osb-summary strong{font-size:14px}
+#cc-owner-schedule-bridge .osb-meta{font-size:12px;color:var(--text-2);line-height:1.45}
+#cc-owner-schedule-bridge .osb-advanced{margin:0}
+#cc-owner-schedule-bridge .osb-advanced summary{cursor:pointer;color:var(--text-2);font-size:12px;font-weight:600}
+#cc-owner-schedule-bridge .osb-map-row{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center}
+#cc-owner-schedule-bridge .osb-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+#cc-owner-schedule-bridge .osb-status{min-height:18px}
 #tab-customers .customers-header h2{font-weight:600;letter-spacing:.005em}
 #tab-customers .customers-school-heading{font-family:var(--font-display);font-weight:600;letter-spacing:normal}
 #tab-customers .customers-profile-name,#tab-customers .customers-card-name{font-weight:700;letter-spacing:.01em}
@@ -22259,32 +22282,70 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 ${showOwnerScheduleBridge ? `
   <div class="card cc-section" id="cc-owner-schedule-bridge">
     <div class="cc-section-hdr">Owner schedule</div>
-    <div class="cc-section-sub">Google Sheet blocks beds as <b>Owner schedule blocked</b>. An empty or broken Sheet never removes a Luna booking or staff block. Secret is a reference name only.</div>
-    <div id="osb-status" class="al-hint"></div>
-    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
-      <select id="osb-connections" aria-label="Owner schedule connections">
-        <option value="">Select a connection</option>
-      </select>
-      <button type="button" class="btn-ghost" id="osb-refresh">Refresh</button>
-      <button type="button" class="btn-ghost" id="osb-new">New connection</button>
+    <div class="cc-section-sub">A Google Sheet can mark beds as <b>Owner schedule blocked</b>. An empty or broken Sheet never removes a Luna booking or staff block.</div>
+    <div id="osb-status" class="al-hint osb-status" role="status"></div>
+    <div class="osb-stack">
+      <div id="osb-empty" class="osb-empty">
+        <p>No Google Sheet is connected yet.</p>
+      </div>
+      <div id="osb-load-error" class="osb-empty" hidden>
+        <p>Could not load Owner schedule. Refresh to try again.</p>
+        <button type="button" class="btn btn-ghost" id="osb-retry">Refresh</button>
+      </div>
+      <div class="osb-actions" id="osb-primary-actions">
+        <button type="button" class="btn btn-primary" id="osb-new">Connect Google Sheet</button>
+      </div>
+      <div id="osb-editor" hidden>
+        <div class="osb-field">
+          <label for="osb-sheet">Google Sheet URL or ID</label>
+          <input id="osb-sheet" type="text" autocomplete="off" spellcheck="false" placeholder="https://docs.google.com/spreadsheets/d/…">
+        </div>
+        <details class="osb-advanced">
+          <summary>Advanced</summary>
+          <div class="osb-field" style="margin-top:10px">
+            <label for="osb-tab">Sheet tab</label>
+            <input id="osb-tab" type="text" value="inventory" autocomplete="off">
+          </div>
+        </details>
+        <div class="osb-actions">
+          <button type="button" class="btn btn-primary" id="osb-save">Save</button>
+          <button type="button" class="btn btn-ghost" id="osb-cancel">Cancel</button>
+        </div>
+      </div>
+      <div id="osb-detail" hidden>
+        <div class="osb-summary">
+          <label class="osb-field" for="osb-connections" style="max-width:280px;margin:0">
+            <span>Connection</span>
+            <select id="osb-connections" aria-label="Owner schedule connections"><option value="">Select a connection</option></select>
+          </label>
+          <strong id="osb-detail-name">Owner schedule</strong>
+          <span class="pill pill-grey" id="osb-detail-status">Off</span>
+        </div>
+        <div class="osb-meta" id="osb-detail-meta"></div>
+        <div class="osb-meta" id="osb-access-hint" hidden>Platform Sheet access is not configured. You can save the Sheet, but Check and Update stay off until operations attach the server credential.</div>
+        <div class="osb-actions">
+          <button type="button" class="btn btn-ghost" id="osb-refresh">Refresh</button>
+          <button type="button" class="btn btn-ghost" id="osb-probe">Check Sheet</button>
+          <button type="button" class="btn btn-primary" id="osb-sync">Update from Sheet</button>
+          <button type="button" class="btn btn-ghost" id="osb-enable">Turn on</button>
+        </div>
+        <div class="osb-field">
+          <label>Match sheet units to Luna beds</label>
+          <div id="osb-map-rows"></div>
+          <div class="osb-actions">
+            <button type="button" class="btn btn-ghost" id="osb-map-add">Add match</button>
+            <button type="button" class="btn btn-primary" id="osb-save-maps">Save matches</button>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
-      <input id="osb-name" type="text" placeholder="Connection name" autocomplete="off">
-      <input id="osb-sheet" type="text" placeholder="Spreadsheet id" autocomplete="off" spellcheck="false">
-      <input id="osb-tab" type="text" placeholder="inventory" autocomplete="off">
-      <input id="osb-secret" type="text" placeholder="SECRET_REF" autocomplete="off" spellcheck="false">
+    <div class="osb-hidden" aria-hidden="true">
+      <input id="osb-name" type="text" tabindex="-1">
+      <input id="osb-secret" type="text" tabindex="-1">
+      <button type="button" id="osb-disable" tabindex="-1">Disable</button>
+      <textarea id="osb-map-json" rows="2" tabindex="-1"></textarea>
+      <pre id="osb-out"></pre>
     </div>
-    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
-      <button type="button" class="btn-ghost" id="osb-save">Save connection</button>
-      <button type="button" class="btn-ghost" id="osb-probe">Probe</button>
-      <button type="button" class="btn-ghost" id="osb-sync">Sync now</button>
-      <button type="button" class="btn-ghost" id="osb-enable">Enable</button>
-      <button type="button" class="btn-ghost" id="osb-disable">Disable</button>
-    </div>
-    <label class="al-hint" for="osb-map-json">Bed maps JSON</label>
-    <textarea id="osb-map-json" rows="4" placeholder='[{"external_unit_key":"R1A","bed_id":"..."}]'></textarea>
-    <button type="button" class="btn-ghost" id="osb-save-maps">Save maps</button>
-    <pre id="osb-out" style="font-size:11px;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
   </div>` : ''}
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
     <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
@@ -30395,6 +30456,11 @@ function ownerScheduleBridgeClient(){
   return encodeURIComponent(getClient());
 }
 var osbSelectedId = '';
+var osbView = 'rest';
+var osbConnections = [];
+var osbBeds = [];
+var osbLoadState = 'idle';
+var osbPendingMaps = [];
 var OSB_SAFE = {
   connection_id_required: 'Select a connection first.',
   connection_not_found: 'That connection was not found.',
@@ -30411,9 +30477,9 @@ var OSB_SAFE = {
   header_unknown_column: 'The Sheet has unexpected columns. Last blocks were kept.',
   merged_cells: 'The Sheet has merged cells. Last blocks were kept.',
   empty_sheet: 'The Sheet is empty. Last blocks were kept.',
-  invalid_connection: 'Name and spreadsheet id are required.',
-  secret_ref_invalid: 'Secret must be a reference name, not a key.',
-  maps_array_required: 'Maps must be a JSON array.',
+  invalid_connection: 'Paste a Google Sheet URL or ID.',
+  secret_ref_invalid: 'Sheet access is not configured on the server.',
+  maps_array_required: 'Each match needs a sheet unit and a Luna bed.',
   invalid_map: 'Each map needs a unit key and a bed.',
   bed_not_in_tenant: 'That bed is not in this house.',
   maps_save_failed: 'Could not save maps. Last blocks were kept.',
@@ -30425,6 +30491,79 @@ var OSB_SAFE = {
 };
 function ownerScheduleSafeCopy(code){
   return OSB_SAFE[code] || 'Owner schedule request failed. Last blocks were kept.';
+}
+function ownerScheduleParseSheetId(raw){
+  raw = String(raw || '').trim();
+  var m = raw.match(new RegExp('/spreadsheets/d/([a-zA-Z0-9-_]+)'));
+  return m ? m[1] : raw;
+}
+function ownerScheduleDeriveName(sheetId){
+  var id = String(sheetId || '');
+  return id ? ('Owner schedule · ' + id.slice(-6)) : 'Owner schedule';
+}
+function ownerScheduleSetHidden(id, on){
+  var n = el(id);
+  if (!n) return;
+  if (on) n.removeAttribute('hidden');
+  else n.setAttribute('hidden', '');
+}
+function ownerScheduleIngestOn(conn){
+  if (!conn) return false;
+  return conn.status === 'pending' || conn.status === 'healthy' || conn.status === 'stale';
+}
+function ownerSchedulePaint(){
+  var hasConn = osbConnections.length > 0;
+  if (osbLoadState === 'fail' && osbView !== 'editor') {
+    ownerScheduleSetHidden('osb-empty', false);
+    ownerScheduleSetHidden('osb-load-error', true);
+    ownerScheduleSetHidden('osb-editor', false);
+    ownerScheduleSetHidden('osb-detail', false);
+    ownerScheduleSetHidden('osb-primary-actions', false);
+    return;
+  }
+  if (osbView !== 'editor' && hasConn && osbSelectedId) osbView = 'detail';
+  if (osbView !== 'editor' && hasConn && !osbSelectedId) osbView = 'detail';
+  if (osbView !== 'editor' && !hasConn) osbView = 'rest';
+  ownerScheduleSetHidden('osb-load-error', false);
+  ownerScheduleSetHidden('osb-empty', osbView === 'rest');
+  ownerScheduleSetHidden('osb-editor', osbView === 'editor');
+  ownerScheduleSetHidden('osb-detail', osbView === 'detail' && hasConn);
+  ownerScheduleSetHidden('osb-primary-actions', osbLoadState === 'ok' && osbView === 'rest' && !hasConn);
+  var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+  var statusEl = el('osb-detail-status');
+  var nameEl = el('osb-detail-name');
+  var metaEl = el('osb-detail-meta');
+  var enableBtn = el('osb-enable');
+  var hint = el('osb-access-hint');
+  var probeBtn = el('osb-probe');
+  var syncBtn = el('osb-sync');
+  var connLabel = el('osb-connections') && el('osb-connections').parentNode;
+  if (connLabel && connLabel.style) connLabel.style.display = osbConnections.length > 1 ? '' : (osbConnections.length === 1 ? '' : 'none');
+  if (conn && nameEl) nameEl.textContent = conn.name || 'Owner schedule';
+  if (statusEl) {
+    var on = ownerScheduleIngestOn(conn);
+    statusEl.textContent = on ? 'On' : 'Off';
+    statusEl.className = on ? 'pill pill-green' : 'pill pill-grey';
+    if (enableBtn) {
+      enableBtn.textContent = on ? 'Turn off' : 'Turn on';
+      enableBtn.disabled = !(conn && conn.has_secret);
+    }
+  }
+  if (conn && metaEl) {
+    var bits = [];
+    if (conn.last_success_at) bits.push('Last update ' + String(conn.last_success_at).replace('T', ' ').slice(0, 16));
+    else bits.push('Not updated yet');
+    if (conn.last_error) bits.push(ownerScheduleSafeCopy(conn.last_error));
+    metaEl.textContent = bits.join(' · ');
+  }
+  var configured = !!(conn && conn.has_secret);
+  if (hint) {
+    if (osbView === 'detail' && conn && !configured) hint.removeAttribute('hidden');
+    else hint.setAttribute('hidden', '');
+  }
+  var validMaps = ownerScheduleValidMapCount();
+  if (probeBtn) probeBtn.disabled = !configured;
+  if (syncBtn) syncBtn.disabled = !(configured && ownerScheduleIngestOn(conn) && validMaps > 0);
 }
 function ownerScheduleSelectedId(){
   var sel = el('osb-connections');
@@ -30441,6 +30580,7 @@ function ownerScheduleFillForm(conn){
 }
 function ownerScheduleRenderList(connections, keepId){
   var sel = el('osb-connections');
+  osbConnections = connections || [];
   if (!sel) return;
   var wanted = keepId || osbSelectedId;
   sel.innerHTML = '';
@@ -30448,7 +30588,7 @@ function ownerScheduleRenderList(connections, keepId){
   blank.value = '';
   blank.textContent = 'Select a connection';
   sel.appendChild(blank);
-  (connections || []).forEach(function(c){
+  osbConnections.forEach(function(c){
     var opt = document.createElement('option');
     opt.value = c.id;
     opt.textContent = (c.name || c.id) + ' · ' + (c.status || '');
@@ -30457,10 +30597,74 @@ function ownerScheduleRenderList(connections, keepId){
   if (wanted && Array.prototype.some.call(sel.options, function(o){ return o.value === wanted; })) {
     sel.value = wanted;
     osbSelectedId = wanted;
+  } else if (osbConnections.length === 1) {
+    sel.value = osbConnections[0].id;
+    osbSelectedId = osbConnections[0].id;
   } else {
     sel.value = '';
     osbSelectedId = '';
   }
+  ownerSchedulePaint();
+}
+function ownerScheduleBedSelectHtml(selected){
+  var html = '<select data-osb-bed aria-label="Luna bed"><option value="">Choose a bed</option>';
+  var known = false;
+  osbBeds.forEach(function(b){
+    if (b.id === selected) known = true;
+    html += '<option value="' + escHtml(b.id) + '"' + (b.id === selected ? ' selected' : '') + '>' + escHtml(b.label) + '</option>';
+  });
+  if (selected && !known) {
+    html += '<option value="' + escHtml(selected) + '" selected data-osb-unavailable="1">Unavailable bed</option>';
+  }
+  return html + '</select>';
+}
+function ownerScheduleValidMapCount(){
+  var maps = ownerScheduleReadMaps();
+  var n = 0;
+  maps.forEach(function(m){
+    if (osbBeds.some(function(b){ return b.id === m.bed_id; })) n += 1;
+  });
+  return n;
+}
+function ownerScheduleAddMapRow(unit, bed){
+  var wrap = el('osb-map-rows');
+  if (!wrap) return;
+  var row = document.createElement('div');
+  row.className = 'osb-map-row';
+  row.innerHTML = '<input type="text" data-osb-unit placeholder="Sheet unit" autocomplete="off">'
+    + ownerScheduleBedSelectHtml(bed || '')
+    + '<button type="button" class="btn btn-ghost" data-osb-map-del>Remove</button>';
+  if (unit) row.querySelector('[data-osb-unit]').value = unit;
+  wrap.appendChild(row);
+}
+function ownerScheduleReadMaps(){
+  var rows = document.querySelectorAll('#osb-map-rows .osb-map-row');
+  var maps = [];
+  Array.prototype.forEach.call(rows, function(row){
+    var unit = (row.querySelector('[data-osb-unit]') && row.querySelector('[data-osb-unit]').value || '').trim();
+    var bed = (row.querySelector('[data-osb-bed]') && row.querySelector('[data-osb-bed]').value || '').trim();
+    if (unit && bed) maps.push({ external_unit_key: unit, bed_id: bed });
+  });
+  if (el('osb-map-json')) el('osb-map-json').value = JSON.stringify(maps);
+  return maps;
+}
+function ownerScheduleLoadBeds(){
+  return fetch('/staff/tour-operator/rooms?client=' + ownerScheduleBridgeClient(), { credentials: 'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(body){
+      osbBeds = [];
+      ((body && body.rooms) || []).forEach(function(room){
+        ((room && room.beds) || []).forEach(function(bed){
+          if (!bed || !bed.bed_id) return;
+          osbBeds.push({
+            id: String(bed.bed_id),
+            label: String(room.room_code || room.room_name || 'Room') + ' / ' + String(bed.bed_label || bed.bed_code || 'Bed')
+          });
+        });
+      });
+      return osbBeds;
+    })
+    .catch(function(){ osbBeds = []; return osbBeds; });
 }
 function ownerSchedulePublicPayload(body){
   var raw = (body && (body.error || body.reason)) || null;
@@ -30479,7 +30683,7 @@ function ownerSchedulePublicPayload(body){
 function ownerScheduleBridgeJson(path, method, body){
   var out = el('osb-out');
   var status = el('osb-status');
-  if (status) status.textContent = 'Working…';
+  if (status && method !== 'GET') status.textContent = 'Working…';
   var url = path + (path.indexOf('?') >= 0 ? '&' : '?') + 'client=' + ownerScheduleBridgeClient();
   var selected = ownerScheduleSelectedId();
   if (selected && url.indexOf('id=') < 0) url += '&id=' + encodeURIComponent(selected);
@@ -30491,7 +30695,7 @@ function ownerScheduleBridgeJson(path, method, body){
   }).then(function(r){ return r.json().then(function(b){ return { status: r.status, body: b }; }); })
     .then(function(res){
       var code = res.body && (res.body.error || res.body.reason);
-      if (status) status.textContent = (res.body && res.body.ok) ? 'OK' : ownerScheduleSafeCopy(code);
+      if (status && method !== 'GET') status.textContent = (res.body && res.body.ok) ? 'Saved' : ownerScheduleSafeCopy(code);
       if (out) out.textContent = JSON.stringify(ownerSchedulePublicPayload(res.body || {}), null, 2);
       return res;
     })
@@ -30500,17 +30704,32 @@ function ownerScheduleBridgeJson(path, method, body){
       if (out) out.textContent = JSON.stringify({ ok: false, error: 'bridge_unavailable' });
     });
 }
+function ownerScheduleSheetIdValid(raw){
+  raw = String(raw || '').trim();
+  if (!raw) return false;
+  var id = ownerScheduleParseSheetId(raw);
+  if (!id || id.length < 8) return false;
+  if (/^https?:/i.test(raw) && id === raw) return false;
+  return /^[a-zA-Z0-9-_]{8,}$/.test(id);
+}
 function ownerScheduleBridgeSave(){
+  var raw = (el('osb-sheet') && el('osb-sheet').value || '');
+  if (!ownerScheduleSheetIdValid(raw)) {
+    if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('invalid_connection');
+    return;
+  }
+  var sheetId = ownerScheduleParseSheetId(raw);
   var payload = {
-    name: (el('osb-name') && el('osb-name').value || '').trim(),
-    spreadsheet_id: (el('osb-sheet') && el('osb-sheet').value || '').trim(),
-    sheet_name: (el('osb-tab') && el('osb-tab').value || 'inventory').trim(),
-    secret_ref: (el('osb-secret') && el('osb-secret').value || '').trim()
+    name: ownerScheduleDeriveName(sheetId),
+    spreadsheet_id: sheetId,
+    sheet_name: (el('osb-tab') && el('osb-tab').value || 'inventory').trim() || 'inventory'
   };
+  if (el('osb-name')) el('osb-name').value = payload.name;
   if (osbSelectedId) payload.id = osbSelectedId;
   ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'POST', payload).then(function(res){
     if (res && res.body && res.body.connection && res.body.connection.id) {
       osbSelectedId = res.body.connection.id;
+      osbView = 'detail';
       ownerScheduleBridgeLoad();
     }
   });
@@ -30530,50 +30749,94 @@ function ownerScheduleBridgeSync(){
 }
 function ownerScheduleBridgeEnable(on){
   if (!ownerScheduleRequireSelected()) return;
-  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/enable', 'POST', { enabled: !!on });
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/enable', 'POST', { enabled: !!on }).then(function(){
+    ownerScheduleBridgeLoad();
+  });
 }
 function ownerScheduleBridgeSaveMaps(){
   if (!ownerScheduleRequireSelected()) return;
-  var raw = (el('osb-map-json') && el('osb-map-json').value || '').trim();
-  var maps;
-  try { maps = JSON.parse(raw); }
-  catch (e) {
-    if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('maps_array_required');
-    return;
-  }
+  var maps = ownerScheduleReadMaps();
   ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'PUT', { maps: maps });
 }
 function ownerScheduleBridgeNew(){
   osbSelectedId = '';
+  osbView = 'editor';
   if (el('osb-connections')) el('osb-connections').value = '';
   if (el('osb-name')) el('osb-name').value = '';
   if (el('osb-sheet')) el('osb-sheet').value = '';
   if (el('osb-tab')) el('osb-tab').value = 'inventory';
-  if (el('osb-secret')) el('osb-secret').value = '';
-  if (el('osb-status')) el('osb-status').textContent = 'New connection';
+  if (el('osb-status')) el('osb-status').textContent = '';
+  ownerSchedulePaint();
+}
+function ownerScheduleBridgeCancel(){
+  osbView = osbConnections.length ? 'detail' : 'rest';
+  if (!osbConnections.length) osbSelectedId = '';
+  ownerSchedulePaint();
+}
+function ownerSchedulePaintMaps(maps){
+  var wrap = el('osb-map-rows');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (maps || []).forEach(function(m){ ownerScheduleAddMapRow(m.external_unit_key || '', m.bed_id || ''); });
+  if (!(maps || []).length) ownerScheduleAddMapRow('', '');
 }
 function ownerScheduleBridgeLoad(){
-  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET').then(function(res){
-    if (!res || !res.body) return;
+  return Promise.all([
+    ownerScheduleLoadBeds(),
+    ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET')
+  ]).then(function(parts){
+    var res = parts[1];
+    if (!res || !res.body || res.body.ok === false) {
+      osbLoadState = 'fail';
+      ownerSchedulePaint();
+      return;
+    }
+    osbLoadState = 'ok';
     ownerScheduleRenderList(res.body.connections || [], osbSelectedId);
     var sel = (res.body.connections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
-    if (sel) ownerScheduleFillForm(sel);
+    if (sel) {
+      ownerScheduleFillForm(sel);
+      return ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'GET').then(function(mapRes){
+        ownerSchedulePaintMaps((mapRes && mapRes.body && mapRes.body.maps) || []);
+        ownerSchedulePaint();
+      });
+    }
+    ownerSchedulePaintMaps([]);
+    ownerSchedulePaint();
+  }).catch(function(){
+    osbLoadState = 'fail';
+    ownerSchedulePaint();
   });
 }
 function ownerScheduleOnSelect(){
   osbSelectedId = (el('osb-connections') && el('osb-connections').value) || '';
   if (!osbSelectedId) return;
+  osbView = 'detail';
   ownerScheduleBridgeLoad();
 }
 if (el('osb-save')) el('osb-save').addEventListener('click', ownerScheduleBridgeSave);
 if (el('osb-probe')) el('osb-probe').addEventListener('click', ownerScheduleBridgeProbe);
 if (el('osb-sync')) el('osb-sync').addEventListener('click', ownerScheduleBridgeSync);
-if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){ ownerScheduleBridgeEnable(true); });
+if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){
+  var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+  ownerScheduleBridgeEnable(!ownerScheduleIngestOn(conn));
+});
 if (el('osb-disable')) el('osb-disable').addEventListener('click', function(){ ownerScheduleBridgeEnable(false); });
 if (el('osb-save-maps')) el('osb-save-maps').addEventListener('click', ownerScheduleBridgeSaveMaps);
 if (el('osb-refresh')) el('osb-refresh').addEventListener('click', ownerScheduleBridgeLoad);
+if (el('osb-retry')) el('osb-retry').addEventListener('click', ownerScheduleBridgeLoad);
 if (el('osb-new')) el('osb-new').addEventListener('click', ownerScheduleBridgeNew);
+if (el('osb-cancel')) el('osb-cancel').addEventListener('click', ownerScheduleBridgeCancel);
+if (el('osb-map-add')) el('osb-map-add').addEventListener('click', function(){ ownerScheduleAddMapRow('', ''); });
+if (el('osb-map-rows')) el('osb-map-rows').addEventListener('click', function(ev){
+  var t = ev.target;
+  if (t && t.getAttribute && t.getAttribute('data-osb-map-del') != null) {
+    var row = t.closest ? t.closest('.osb-map-row') : t.parentNode;
+    if (row && row.parentNode) row.parentNode.removeChild(row);
+  }
+});
 if (el('osb-connections')) el('osb-connections').addEventListener('change', ownerScheduleOnSelect);
+if (el('cc-owner-schedule-bridge')) ownerScheduleBridgeLoad();
 (function hideOwnerScheduleUnlessWolfhouse(){
   var card = el('cc-owner-schedule-bridge');
   if (!card) return;
