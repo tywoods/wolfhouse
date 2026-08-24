@@ -64,10 +64,23 @@ pass(
   Array.isArray(manifest.intentionalGaps)
     && manifest.intentionalGaps.some((g) => String(g.number) === '015'),
 );
+const CALENDAR_BRIDGE_FORWARD_IDS = Object.freeze([
+  '089_external_calendar_inventory',
+  '090_external_calendar_inventory_tenant_integrity',
+  '091_booking_occupancy_serialization',
+]);
+
+const forwards = forwardEntries(manifest);
 pass(
   'green-forward-count',
-  forwardEntries(manifest).length === 84,
-  `forward=${forwardEntries(manifest).length}`,
+  forwards.length === manifest.entries.filter((e) => e.inForwardChain === true && e.classification === 'canonical_forward').length
+    && CALENDAR_BRIDGE_FORWARD_IDS.every((id) => forwards.some((e) => e.id === id)),
+  `forward=${forwards.length}`,
+);
+pass(
+  'green-calendar-bridge-forward-tail',
+  forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-3).map((e) => e.id).join(','),
 );
 pass(
   'green-all-sql-classified',
@@ -97,8 +110,15 @@ pass(
   for (const e of manifest.entries) {
     byClass[e.classification] = (byClass[e.classification] || 0) + 1;
   }
+  const rollback = manifest.entries.filter((e) => e.classification === 'rollback_down');
+  const pairedDowns = forwards.filter((e) => e.downFilename);
   pass('green-has-proposed', (byClass.proposed_not_executable || 0) >= 4);
-  pass('green-has-rollback', (byClass.rollback_down || 0) === 34);
+  pass(
+    'green-has-rollback',
+    rollback.length === (byClass.rollback_down || 0)
+      && pairedDowns.every((f) => rollback.some((d) => d.filename === f.downFilename)),
+    `rollback=${rollback.length}`,
+  );
   pass('green-no-unresolved', (byClass.unresolved || 0) === 0);
 }
 
@@ -109,6 +129,49 @@ pass(
   fwd.sha256 = '0'.repeat(64);
   const r = validateManifestIntegrity(m);
   pass('red-checksum-change', !r.ok && r.errors.some((e) => e.code === 'checksum_mismatch'));
+}
+
+{
+  const m = deepClone(manifest);
+  m.entries = m.entries.filter((e) => e.id !== '091_booking_occupancy_serialization');
+  const r = validateManifestIntegrity(m);
+  const tail = forwardEntries(m).slice(-3).map((e) => e.id);
+  pass(
+    'red-calendar-091-missing',
+    !r.ok && r.errors.some((e) => e.code === 'unclassified_sql')
+      && tail.join(',') !== CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  );
+}
+
+{
+  const m = deepClone(manifest);
+  const ninety = m.entries.find((e) => e.id === '090_external_calendar_inventory_tenant_integrity');
+  const ninetyOne = m.entries.find((e) => e.id === '091_booking_occupancy_serialization');
+  ninetyOne.order = ninety.order;
+  const r = validateManifestIntegrity(m);
+  pass('red-calendar-091-duplicate-order', !r.ok && r.errors.some((e) => e.code === 'duplicate_order'));
+}
+
+{
+  const m = deepClone(manifest);
+  const ninety = m.entries.find((e) => e.id === '090_external_calendar_inventory_tenant_integrity');
+  const ninetyOne = m.entries.find((e) => e.id === '091_booking_occupancy_serialization');
+  const tmp = ninety.order;
+  ninety.order = ninetyOne.order;
+  ninetyOne.order = tmp;
+  const tail = forwardEntries(m).slice(-3).map((e) => e.id);
+  pass(
+    'red-calendar-090-091-reordered',
+    tail.join(',') !== CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  );
+}
+
+{
+  const m = deepClone(manifest);
+  const eightyNine = m.entries.find((e) => e.id === '089_external_calendar_inventory');
+  eightyNine.sha256 = '0'.repeat(64);
+  const r = validateManifestIntegrity(m);
+  pass('red-calendar-089-digest-invalid', !r.ok && r.errors.some((e) => e.code === 'checksum_mismatch'));
 }
 
 // RED: unknown checksum mode
@@ -365,7 +428,7 @@ pass(
     const live = checksumMigrationFile(path.join(MIGRATIONS_DIR, e.filename), CHECKSUM_MODE_CANONICAL_LF_V1);
     if (live.ok && live.sha256 === e.sha256) forwardVerified += 1;
   }
-  pass('green-all-84-forward-canonical-lf-v1', forwardVerified === 84, `verified=${forwardVerified}`);
+  pass('green-all-forward-canonical-lf-v1', forwardVerified === forwards.length, `verified=${forwardVerified}`);
 
   // Previously CRLF Git files normalize identically (named in transition report)
   pass('green-transition-report-present', fs.existsSync(TRANSITION));
