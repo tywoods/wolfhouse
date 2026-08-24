@@ -20222,12 +20222,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .luna-header-ui #tabs .tab-btn{
   position:relative;
   font-weight:700;
-  font-size:13.5px;
+  font-size:14.5px;
   color:var(--luna-teal-dark);
   opacity:.82;
   border-bottom:none;
-  padding:13px 0 15px;
-  margin-right:clamp(18px,2.2vw,32px);
+  padding:15px 0 17px;
+  margin-right:clamp(20px,2.4vw,34px);
 }
 .luna-header-ui #tabs .tab-btn:hover{opacity:1}
 .luna-header-ui #tabs .tab-btn.active{
@@ -21211,15 +21211,15 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
   <button class="tab-btn" data-tab="portal-home" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></span><span class="tab-label" data-i18n="nav.tab.portalHome">Schedule</span></button>
-  <button class="tab-btn" data-tab="bed-calendar"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 14h18M6 10V8a1 1 0 0 1 1-1h4M3 18v2M21 18v2"/></svg></span><span class="tab-label" data-i18n="nav.tab.calendar">Booking Calendar</span></button>
-  <button class="tab-btn" data-tab="conversations"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg></span><span class="tab-label" data-i18n="nav.tab.whatsapp">WhatsApp</span></button>
-  <button class="tab-btn" data-tab="bookings" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-3.2-2-2.4 2-2.4-2L8.2 21 5 19V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span><span class="tab-label" data-i18n="nav.tab.bookings">Bookings</span></button>
+  <button class="tab-btn" data-tab="bed-calendar"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 14h18M6 10V8a1 1 0 0 1 1-1h4M3 18v2M21 18v2"/></svg></span><span class="tab-label" data-i18n="nav.tab.portalHome">Schedule</span></button>
+  <button class="tab-btn" data-tab="conversations"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg></span><span class="tab-label" data-i18n="nav.tab.inbox">Inbox</span></button>
+  <button class="tab-btn" data-tab="bookings"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-3.2-2-2.4 2-2.4-2L8.2 21 5 19V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span><span class="tab-label" data-i18n="nav.tab.bookings">Bookings</span></button>
   <button class="tab-btn" data-tab="day-schedule" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="tab-label" data-i18n="nav.tab.daySchedule">Day Schedule</span></button>
   <button class="tab-btn" data-tab="customers" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5M16 3.6a3 3 0 0 1 0 5.8M21 20c0-2.2-1.3-4-3.4-4.7"/></svg></span><span class="tab-label" data-i18n="nav.tab.customers">Customers</span></button>
   <button class="tab-btn" data-tab="ask-luna"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/></svg></span><span class="tab-label" data-i18n="nav.tab.lunaStaff">Luna Staff</span></button>
-  <button class="tab-btn" data-tab="admin" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="tab-label" data-i18n="nav.tab.admin">Admin</span></button>
   <button class="tab-btn" data-tab="services" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 3 12V4a1 1 0 0 1 1-1h8a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.6z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg></span><span class="tab-label">Camps, Lessons and Services</span></button>
   <button class="tab-btn" data-tab="tour-operator"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3 4v14l6 2 6-2 6 2V6l-6-2-6 2zM9 6v14M15 4v14"/></svg></span><span class="tab-label" data-i18n="nav.tab.tourOperator">Tour Operator</span></button>
+  <button class="tab-btn" data-tab="admin" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="tab-label" data-i18n="nav.tab.admin">Admin</span></button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
   <button class="tab-btn dev-tab" data-tab="luna-guest-simulator" data-i18n="nav.tab.simulator">Luna Guest Simulator</button>
   <div class="nav-menu-tools" id="nav-menu-tools" aria-label="Account"></div>
@@ -23969,7 +23969,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (tab === 'admin' && !profile.is_surf_vertical && !portalIsLodgingAdmin(clientSlug)) return true;
   // Bookings top-level: same surf-shop visibility as Admin (Sunset / surf vertical).
   // Lodging keeps Bookings inside its own Admin shell instead.
-  if (tab === 'bookings' && !profile.is_surf_vertical) return true;
+  if (tab === 'bookings' && !profile.is_surf_vertical && !portalIsLodgingAdmin(clientSlug) && String(clientSlug || getClient() || '') !== 'wolfhouse-somo') return true;
   if (tab === 'services' && clientSlug !== 'wolfhouse-somo') return true;
   if (tab === 'day-schedule') return true;
   return false;
@@ -24021,8 +24021,10 @@ function applySurfNavLabels(profile){
   if (homeBtn && profile.is_surf_vertical) setNavLabel(homeBtn, 'nav.tab.portalHome');
   var custBtn = document.querySelector('.tab-btn[data-tab="customers"]');
   if (custBtn && portalHasCustomersCrm(profile)) setNavLabel(custBtn, 'nav.tab.customers');
+  var calBtn = document.querySelector('.tab-btn[data-tab="bed-calendar"]');
+  if (calBtn && (profile.is_surf_vertical || portalIsLodgingAdmin())) setNavLabel(calBtn, 'nav.tab.portalHome');
   var convBtn = document.querySelector('.tab-btn[data-tab="conversations"]');
-  if (convBtn) setNavLabel(convBtn, profile.is_surf_vertical ? 'nav.tab.inbox' : 'nav.tab.whatsapp');
+  if (convBtn) setNavLabel(convBtn, (profile.is_surf_vertical || portalIsLodgingAdmin()) ? 'nav.tab.inbox' : 'nav.tab.whatsapp');
   var dsSub = document.querySelector('#tab-day-schedule [data-i18n="daySchedule.sub"]');
   if (dsSub) dsSub.textContent = portalT('daySchedule.sub');
   var dsSlots = document.querySelector('#tab-day-schedule [data-i18n="daySchedule.demoSlots"]');
