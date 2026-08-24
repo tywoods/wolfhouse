@@ -45,6 +45,8 @@ assert.match(api, /\.luna-header-ui\.luna-hdr-compact #banner \.brand-logo\{[\s\
 assert.match(api, /\.luna-header-ui\.luna-hdr-compact #tabs\{[\s\S]{0,280}padding-left:clamp\(12px,1\.6vw,22px\)/);
 assert.match(api, /staff-portal-calendar:side-drawer/);
 assert.match(api, /id="bc-side-drawer"/);
+assert.match(api, /staff-portal-calendar:side-drawer-desktop/);
+assert.match(api, /#tab-bed-calendar #bc-detail/);
 assert.match(api, /id="bc-detail"/);
 assert.match(api, /id="bc-sel-panel"/);
 assert.match(api, /function bcInitSideDrawer/);

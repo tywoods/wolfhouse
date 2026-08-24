@@ -19991,6 +19991,11 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 #bc-side-drawer .bc-drawer-footer{flex-direction:column;align-items:stretch}
 #bc-side-drawer .bc-drawer-footer-right{align-items:stretch;margin-left:0}
 #bc-side-drawer #bc-sel-panel{margin:0;box-shadow:none;border:0;background:transparent;padding:0}
+@media (min-width:769px){
+  /* staff-portal-calendar:side-drawer-desktop — bottom folder stays in the DOM for phones */
+  #tab-bed-calendar #bc-detail,
+  #tab-bed-calendar #wrap-bc #bc-sel-panel{display:none!important}
+}
 @media (prefers-reduced-motion:reduce){
   #bc-side-drawer{transition:none}
 }
