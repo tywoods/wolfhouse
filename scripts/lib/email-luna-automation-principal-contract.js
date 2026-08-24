@@ -49,6 +49,7 @@ const SUNSET_STAGING_TRUSTED_PRECREATED = objectFreeze({
   option: 'allowSunsetStagingTrustedPrecreated',
   database: 'sunset_staging',
   kind: 'worker',
+  client_slug: 'sunset',
   location_key: 'sunset-somo',
   require_trusted_precreated: true,
   require_apply: true,

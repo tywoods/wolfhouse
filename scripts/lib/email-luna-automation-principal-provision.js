@@ -677,10 +677,18 @@ async function provisionInTransaction(query, parsed) {
     const bindRows = await readRows(query, `
       SELECT 1 AS ok
         FROM public.tenant_locations
-       WHERE client_id = $1::uuid
-         AND id = $2::uuid
-         AND location_id = $3
-    `, [parsed.clientId, parsed.locationId, parsed.locationKey]);
+        JOIN public.clients
+          ON public.clients.id = public.tenant_locations.client_id
+       WHERE public.tenant_locations.client_id = $1::uuid
+         AND public.tenant_locations.id = $2::uuid
+         AND public.tenant_locations.location_id = $3
+         AND public.clients.slug = $4
+    `, [
+      parsed.clientId,
+      parsed.locationId,
+      SUNSET_STAGING_TRUSTED_PRECREATED.location_key,
+      SUNSET_STAGING_TRUSTED_PRECREATED.client_slug,
+    ]);
     if (bindRows.length !== 1) {
       throw fail(
         'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',

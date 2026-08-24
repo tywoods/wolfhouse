@@ -53,6 +53,7 @@ assert.deepEqual(FORBIDDEN_DATABASE_NAMES.slice(), [
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.option, 'allowSunsetStagingTrustedPrecreated');
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.database, 'sunset_staging');
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.kind, 'worker');
+assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.client_slug, 'sunset');
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.location_key, 'sunset-somo');
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.require_trusted_precreated, true);
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.require_apply, true);
@@ -79,6 +80,13 @@ assert.match(PROVISION_SRC, /EMAIL_LUNA_AUTOMATION_PRINCIPAL_SESSION_NOT_OWNER/)
 assert.match(PROVISION_SRC, /EMAIL_LUNA_AUTOMATION_PRINCIPAL_ROLE_CREATE_REFUSED/);
 assert.match(PROVISION_SRC, /database !== SUNSET_STAGING_TRUSTED_PRECREATED\.database/);
 assert.match(PROVISION_SRC, /sessionUser !== tableOwner/);
+assert.match(PROVISION_SRC, /JOIN public\.clients/);
+assert.match(PROVISION_SRC, /public\.clients\.id = public\.tenant_locations\.client_id/);
+assert.match(PROVISION_SRC, /public\.clients\.slug = \$4/);
+assert.match(PROVISION_SRC, /SUNSET_STAGING_TRUSTED_PRECREATED\.client_slug/);
+assert.match(PROVISION_SRC, /SUNSET_STAGING_TRUSTED_PRECREATED\.location_key/);
+assert.equal(/clients\.slug\s*=\s*'sunset'/.test(PROVISION_SRC), false);
+assert.equal(/location_id\s*=\s*'sunset-somo'/.test(PROVISION_SRC), false);
 assert.equal(/CREATE ROLE[\s\S]{0,200}allowSunsetStagingTrustedPrecreated/.test(PROVISION_SRC), false);
 console.log('  PASS  provisioner is env-free and fail-closed on the Sunset option');
 
@@ -133,11 +141,38 @@ function loginRow(patch) {
   }, patch);
 }
 
+function isSunsetBindingSql(sql) {
+  const text = String(sql);
+  return /FROM\s+public\.tenant_locations/i.test(text)
+    && /JOIN\s+public\.clients/i.test(text)
+    && /clients\.id\s*=\s*(?:public\.)?tenant_locations\.client_id/i.test(text)
+    && /tenant_locations\.client_id\s*=\s*\$1/i.test(text)
+    && /tenant_locations\.id\s*=\s*\$2/i.test(text)
+    && /tenant_locations\.location_id\s*=\s*\$3/i.test(text)
+    && /clients\.slug\s*=\s*\$4/i.test(text);
+}
+
+function isApprovedSunsetBinding(sql, params, expected) {
+  const bind = params || [];
+  const want = Object.assign({
+    clientId: CLIENT,
+    locationId: LOCATION,
+    locationKey: SUNSET_STAGING_TRUSTED_PRECREATED.location_key,
+    clientSlug: SUNSET_STAGING_TRUSTED_PRECREATED.client_slug,
+  }, expected);
+  return isSunsetBindingSql(sql)
+    && bind.length === 4
+    && bind[0] === want.clientId
+    && bind[1] === want.locationId
+    && bind[2] === want.locationKey
+    && bind[3] === want.clientSlug;
+}
+
 function identityHandler(database, sessionUser, extra) {
-  return async (sql) => {
+  return async (sql, params) => {
     if (/current_database/.test(sql)) return { rows: [{ database, session_user: sessionUser }] };
     if (/table_owner/.test(sql)) return { rows: [{ table_owner: 'postgres' }] };
-    if (typeof extra === 'function') return extra(sql);
+    if (typeof extra === 'function') return extra(sql, params || []);
     return { rows: [] };
   };
 }
@@ -261,17 +296,20 @@ Promise.resolve().then(async () => {
   console.log('  PASS  non-owner session_user fails closed');
 
   function sunsetOwnerHandler(extra) {
-    return async (sql) => {
+    return async (sql, params) => {
       if (/current_database/.test(sql)) {
         return { rows: [{ database: 'sunset_staging', session_user: 'postgres' }] };
       }
       if (/table_owner/.test(sql)) return { rows: [{ table_owner: 'postgres' }] };
-      if (/FROM public.tenant_locations/.test(sql)) return { rows: [{ ok: 1 }] };
-      if (typeof extra === 'function') return extra(sql);
+      if (isApprovedSunsetBinding(sql, params)) return { rows: [{ ok: 1 }] };
+      if (/tenant_locations/.test(sql) || /JOIN\s+public\.clients/i.test(sql)) return { rows: [] };
+      if (typeof extra === 'function') return extra(sql, params || []);
       return { rows: [] };
     };
   }
 
+  let capturedWrongLocationSql = null;
+  let capturedWrongLocationParams = null;
   await rejects(
     baseSpec({
       allowSunsetStagingTrustedPrecreated: true,
@@ -279,17 +317,75 @@ Promise.resolve().then(async () => {
       apply: true,
       location_id: '22222222-2222-4222-8222-222222222221',
     }),
-    mockSession(async (sql) => {
+    mockSession(async (sql, params) => {
       if (/current_database/.test(sql)) {
         return { rows: [{ database: 'sunset_staging', session_user: 'postgres' }] };
       }
       if (/table_owner/.test(sql)) return { rows: [{ table_owner: 'postgres' }] };
-      if (/FROM public.tenant_locations/.test(sql)) return { rows: [] };
+      if (/tenant_locations/.test(sql) || /JOIN\s+public\.clients/i.test(sql)) {
+        capturedWrongLocationSql = String(sql);
+        capturedWrongLocationParams = params || [];
+        assert.equal(isSunsetBindingSql(sql), true);
+        assert.equal(isApprovedSunsetBinding(sql, params, {
+          locationId: '22222222-2222-4222-8222-222222222221',
+        }), true);
+        return { rows: [] };
+      }
       return { rows: [] };
     }),
     'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
   );
+  assert.equal(isSunsetBindingSql(capturedWrongLocationSql), true);
+  assert.deepEqual(capturedWrongLocationParams, [
+    CLIENT,
+    '22222222-2222-4222-8222-222222222221',
+    SUNSET_STAGING_TRUSTED_PRECREATED.location_key,
+    SUNSET_STAGING_TRUSTED_PRECREATED.client_slug,
+  ]);
   console.log('  PASS  caller binding that is not the durable sunset-somo row fails closed');
+
+  const OTHER_CLIENT = '99999999-9999-4999-8999-999999999999';
+  const OTHER_LOCATION = '22222222-2222-4222-8222-222222222220';
+  let capturedAdversarySql = null;
+  let capturedAdversaryParams = null;
+  await rejects(
+    baseSpec({
+      allowSunsetStagingTrustedPrecreated: true,
+      trustedPrecreated: true,
+      apply: true,
+      client_id: OTHER_CLIENT,
+      location_id: OTHER_LOCATION,
+    }),
+    mockSession(async (sql, params) => {
+      if (/current_database/.test(sql)) {
+        return { rows: [{ database: 'sunset_staging', session_user: 'postgres' }] };
+      }
+      if (/table_owner/.test(sql)) return { rows: [{ table_owner: 'postgres' }] };
+      if (/FROM public\.tenant_locations/.test(sql) && !/JOIN\s+public\.clients/i.test(sql)) {
+        throw new Error('tenant_locations-only binding SQL must not be accepted');
+      }
+      if (/tenant_locations/.test(sql) || /JOIN\s+public\.clients/i.test(sql)) {
+        capturedAdversarySql = String(sql);
+        capturedAdversaryParams = params || [];
+        assert.equal(isSunsetBindingSql(sql), true);
+        assert.equal(isApprovedSunsetBinding(sql, params, {
+          clientId: OTHER_CLIENT,
+          locationId: OTHER_LOCATION,
+        }), true);
+        return { rows: [] };
+      }
+      return { rows: [] };
+    }),
+    'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
+  );
+  assert.equal(isSunsetBindingSql(capturedAdversarySql), true);
+  assert.deepEqual(capturedAdversaryParams, [
+    OTHER_CLIENT,
+    OTHER_LOCATION,
+    SUNSET_STAGING_TRUSTED_PRECREATED.location_key,
+    SUNSET_STAGING_TRUSTED_PRECREATED.client_slug,
+  ]);
+  console.log('  PASS  non-Sunset client holding sunset-somo is refused after clients.slug join');
 
   await rejects(
     baseSpec({
@@ -297,7 +393,7 @@ Promise.resolve().then(async () => {
       trustedPrecreated: true,
       apply: true,
     }),
-    mockSession(sunsetOwnerHandler(async (sql) => {
+    mockSession(sunsetOwnerHandler(async (sql, params) => {
       if (/to_regprocedure/.test(sql)) return { rows: [{ oid: '11' }] };
       if (/FROM pg_catalog\.pg_roles/.test(sql) && /rolcanlogin/.test(sql)) return { rows: [] };
       if (/tenant_email_luna_automation_principals/.test(sql) && /SELECT/.test(sql)) return { rows: [] };
@@ -313,7 +409,7 @@ Promise.resolve().then(async () => {
       trustedPrecreated: true,
       apply: true,
     }),
-    mockSession(sunsetOwnerHandler(async (sql) => {
+    mockSession(sunsetOwnerHandler(async (sql, params) => {
       if (/to_regprocedure/.test(sql)) return { rows: [{ oid: '11' }] };
       if (/FROM pg_catalog\.pg_roles/.test(sql) && /rolcanlogin/.test(sql)) {
         return { rows: [loginRow({ rolinherit: true })] };
@@ -331,7 +427,7 @@ Promise.resolve().then(async () => {
       trustedPrecreated: true,
       apply: true,
     }),
-    mockSession(sunsetOwnerHandler(async (sql) => {
+    mockSession(sunsetOwnerHandler(async (sql, params) => {
       if (/to_regprocedure/.test(sql)) return { rows: [{ oid: '11' }] };
       if (/FROM pg_catalog\.pg_roles/.test(sql) && /rolcanlogin/.test(sql)) {
         return { rows: [loginRow()] };

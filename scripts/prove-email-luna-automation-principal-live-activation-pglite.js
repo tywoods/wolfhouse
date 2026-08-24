@@ -32,6 +32,8 @@ const WRONG_ATTR_ROLE = 'luna_ch4c1_inherit';
 const WRONG_MAP_ROLE = 'luna_ch4c1_wrong_map';
 const MISSING_ROLE = 'luna_ch4c1_missing';
 const NOT_OWNER_ROLE = 'luna_ch4c1_notowner';
+const ADVERSARIAL_LOCATION = '22222222-2222-4222-8222-222222222220';
+const ADVERSARIAL_CLIENT_SLUG = 'other-tenant';
 const QUEUE_TABLE = 'tenant_email_luna_automation_queue';
 const JOURNAL_TABLE = 'tenant_email_outbound_send_journal';
 const PRINCIPAL_TABLE = 'tenant_email_luna_automation_principals';
@@ -77,8 +79,27 @@ function assertStaticContract() {
   assert.equal(RED.id, 'email-luna-automation-principal-live-activation.ch4c1-red.v1');
   assert.equal(RED.head_reviewed, 'a804f394e1f240ba996ca442d0d4a159f9fd86aa');
   assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.database, 'sunset_staging');
+  assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.client_slug, 'sunset');
+  assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.location_key, 'sunset-somo');
   assert.equal(IDENTITY_SQL, 'SELECT current_database() AS database, session_user AS session_user');
   console.log('ok - static C1 live-principal activation contract');
+}
+
+async function seedSunsetClientBinding(db) {
+  await db.exec('ALTER TABLE public.clients ADD COLUMN slug text');
+  await db.query(
+    'UPDATE public.clients SET slug = $1 WHERE id = $2::uuid',
+    [SUNSET_STAGING_TRUSTED_PRECREATED.client_slug, b1.ids.client],
+  );
+  await db.query(
+    'UPDATE public.clients SET slug = $1 WHERE id = $2::uuid',
+    [ADVERSARIAL_CLIENT_SLUG, b1.ids.client2],
+  );
+  await db.query(
+    `INSERT INTO public.tenant_locations (id, client_id, location_id)
+     VALUES ($1::uuid, $2::uuid, $3)`,
+    [ADVERSARIAL_LOCATION, b1.ids.client2, SUNSET_STAGING_TRUSTED_PRECREATED.location_key],
+  );
 }
 
 async function applyThrough095(db) {
@@ -88,6 +109,7 @@ async function applyThrough095(db) {
   await db.exec(b4.UP_094);
   await db.exec(b4.UP_095);
   await b1.revokePublicExecuteOutsideCatalogs(db);
+  await seedSunsetClientBinding(db);
 }
 
 function identitySession(db, identity) {
@@ -264,6 +286,39 @@ async function proveOnDatabase(db, options) {
   );
   console.log('ok - caller binding that is not durable sunset-somo fails closed');
 
+  const sunsetSomoRows = await db.query(
+    `SELECT c.slug AS slug, tl.client_id::text AS client_id, tl.id::text AS location_uuid
+       FROM public.tenant_locations tl
+       JOIN public.clients c ON c.id = tl.client_id
+      WHERE tl.location_id = $1
+      ORDER BY c.slug`,
+    [SUNSET_STAGING_TRUSTED_PRECREATED.location_key],
+  );
+  assert.equal(sunsetSomoRows.rows.length, 2);
+  assert.equal(sunsetSomoRows.rows[0].slug, ADVERSARIAL_CLIENT_SLUG);
+  assert.equal(sunsetSomoRows.rows[0].client_id, ids.client2);
+  assert.equal(sunsetSomoRows.rows[0].location_uuid, ADVERSARIAL_LOCATION);
+  assert.equal(sunsetSomoRows.rows[1].slug, SUNSET_STAGING_TRUSTED_PRECREATED.client_slug);
+  assert.equal(sunsetSomoRows.rows[1].client_id, ids.client);
+  const locationIdUniques = await db.query(
+    `SELECT 1
+       FROM pg_catalog.pg_constraint
+      WHERE conrelid = 'public.tenant_locations'::pg_catalog.regclass
+        AND contype IN ('u', 'p')
+        AND pg_catalog.pg_get_constraintdef(oid) ~ 'location_id'
+        AND pg_catalog.pg_get_constraintdef(oid) !~ 'client_id'`,
+  );
+  assert.equal(locationIdUniques.rows.length, 0);
+  await assert.rejects(
+    () => provisionEmailLunaAutomationPrincipal(liveSunset, sunsetSpec({
+      client_id: ids.client2,
+      location_id: ADVERSARIAL_LOCATION,
+      location_key: SUNSET_STAGING_TRUSTED_PRECREATED.location_key,
+    })),
+    (err) => err && err.code === 'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
+  );
+  console.log('ok - non-Sunset client holding sunset-somo is refused by clients.slug join');
+
   await db.exec(createRoleSql(NOT_OWNER_ROLE, b1.PASSWORD));
   await db.exec(`SET SESSION AUTHORIZATION ${NOT_OWNER_ROLE}`);
   try {
@@ -339,6 +394,10 @@ async function proveOnDatabase(db, options) {
   assert.equal(JSON.stringify(adopted).includes(b1.PASSWORD), false);
   assert.equal(adopted.plan.some((line) => /CREATE ROLE/i.test(line)), false);
   assertNoRoleOrPasswordSql(tracked.seen);
+  assert.equal(
+    tracked.seen.some((sql) => /JOIN public\.clients/.test(sql) && /public\.clients\.slug = \$4/.test(sql)),
+    true,
+  );
   const mapped = await mappingRow(db, WORKER_ROLE);
   assert.equal(mapped.principal_kind, 'worker');
   assert.equal(mapped.client_id, ids.client);
