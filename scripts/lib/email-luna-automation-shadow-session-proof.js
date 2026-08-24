@@ -7,7 +7,8 @@
  * Mapping is proven via SECURITY DEFINER principal_authorized (workers have
  * no SELECT on the principals table). Table-owner bypass of that function is
  * rejected separately (session_user must not be table owner).
- * Copy/validate plain scalars only. Never logs credentials.
+ * Copy/validate plain own scalars only. Binding getters/proxies must not
+ * feed SQL params. Never logs credentials.
  */
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
@@ -17,9 +18,12 @@ const objectCreate = Object.create;
 const objectDefineProperty = Object.defineProperty;
 const objectFreeze = Object.freeze;
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
+const objectPrototype = Object.prototype;
 const arrayIsArray = Array.isArray;
 const arrayIncludes = uncurryThis(Array.prototype.includes);
+const BINDING_KEYS = objectFreeze(['client_id', 'location_id', 'location_key']);
 
 const CLAIM_SCOPED_REG =
   'public.tenant_email_luna_automation_claim_scoped(uuid, uuid, uuid, text, uuid)';
@@ -126,6 +130,35 @@ function scopedClaimDefSafe(def) {
     && def.indexOf('session_user IS DISTINCT FROM') !== -1;
 }
 
+function copyPlainSessionBinding(binding) {
+  try {
+    if (!binding || typeof binding !== 'object' || runtimeIsProxy(binding) || arrayIsArray(binding)) {
+      return null;
+    }
+    const proto = objectGetPrototypeOf(binding);
+    if (proto !== objectPrototype && proto !== null) return null;
+    const copy = objectCreate(null);
+    for (let index = 0; index < BINDING_KEYS.length; index += 1) {
+      const key = BINDING_KEYS[index];
+      const descriptor = objectGetOwnPropertyDescriptor(binding, key);
+      if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) {
+        return null;
+      }
+      const value = descriptor.value;
+      if (value !== null && typeof value !== 'string') return null;
+      objectDefineProperty(copy, key, {
+        value,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return freeze(copy);
+  } catch (_) {
+    return null;
+  }
+}
+
 function copyPlainInspectRow(row) {
   try {
     if (!row || typeof row !== 'object' || runtimeIsProxy(row) || arrayIsArray(row)) return null;
@@ -196,13 +229,12 @@ async function inspectEmailLunaAutomationShadowWorkerSession(client, binding) {
       return failedInspect();
     }
     if (typeof client.query !== 'function' || runtimeIsProxy(client.query)) return failedInspect();
-    const clientId = binding && typeof binding.client_id === 'string' ? binding.client_id : null;
-    const locationId = binding && typeof binding.location_id === 'string' ? binding.location_id : null;
-    const locationKey = binding && typeof binding.location_key === 'string' ? binding.location_key : null;
+    const copied = copyPlainSessionBinding(binding);
+    if (!copied) return failedInspect();
     const result = await Promise.resolve(client.query(SESSION_PROOF_SQL, [
-      clientId,
-      locationId,
-      locationKey,
+      copied.client_id,
+      copied.location_id,
+      copied.location_key,
     ]));
     const rows = result && arrayIsArray(result.rows) ? result.rows : [];
     if (rows.length !== 1) return failedInspect();
@@ -218,6 +250,7 @@ module.exports = objectFreeze({
   SESSION_PROOF_SQL,
   INSPECT_KEYS,
   inspectEmailLunaAutomationShadowWorkerSession,
+  copyPlainSessionBinding,
   copyPlainInspectRow,
   evaluateInspectRow,
   projectDefSafe,

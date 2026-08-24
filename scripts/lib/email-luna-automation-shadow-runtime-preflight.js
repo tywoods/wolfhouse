@@ -80,6 +80,7 @@ const UNIT_TEST_INSPECT_KEY = 'unit_test_inspect';
 const OPERATOR_PREFLIGHT_KEYS = objectFreeze(['env', 'appConnectionString', 'workerConnection']);
 const INSPECT_AUTHENTICITY_DEDICATED = 'dedicated_worker_session';
 const INSPECT_AUTHENTICITY_UNIT_TEST = 'unit_test_inspect';
+const INSPECT_AUTHENTICITY_FAILED = 'inspect_failed';
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ERROR_CODE = 'EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_PREFLIGHT_INVALID';
 const FORBIDDEN_INPUT_KEYS = objectFreeze([
@@ -437,8 +438,11 @@ async function runEmailLunaAutomationShadowRuntimeOperatorPreflight(input) {
     if (schema.scoped_claim_applied === false && !arrayIncludes(blockers, 'scoped_claim_not_applied')) blockers.push('scoped_claim_not_applied');
     if (schema.worker_principal_ok === false && !arrayIncludes(blockers, 'worker_principal_unproven')) blockers.push('worker_principal_unproven');
   }
-  const authentic = INSPECT_AUTHENTICITY_DEDICATED;
+  const inspectAuthenticity = schema.inspect_failed === true
+    ? INSPECT_AUTHENTICITY_FAILED
+    : INSPECT_AUTHENTICITY_DEDICATED;
   const readyForActivationReview = blockers.length === 0
+    && inspectAuthenticity === INSPECT_AUTHENTICITY_DEDICATED
     && schema.schema_applied === true
     && schema.principal_applied === true
     && schema.identity_label_applied === true
@@ -463,7 +467,7 @@ async function runEmailLunaAutomationShadowRuntimeOperatorPreflight(input) {
     ['proves_content_agreement', false],
     ['files_ready', base.files_ready],
     ['inspect_required', false],
-    ['inspect_authenticity', authentic],
+    ['inspect_authenticity', inspectAuthenticity],
     ['migration_files_ready', base.migration_files_ready],
     ['principal_contract_ready', base.principal_contract_ready],
     ['schema_applied', schema.schema_applied],
@@ -489,5 +493,6 @@ module.exports = objectFreeze({
   UNIT_TEST_INSPECT_KEY,
   INSPECT_AUTHENTICITY_DEDICATED,
   INSPECT_AUTHENTICITY_UNIT_TEST,
+  INSPECT_AUTHENTICITY_FAILED,
   SCHEMA_SQL,
 });
