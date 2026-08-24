@@ -14,6 +14,8 @@ const {
   buildOwnedBlockMetadata,
   CALENDAR_LEGEND_EN,
   storedErrorCode,
+  publicErrorCode,
+  sanitizeSkipped,
 } = require('./external-calendar-inventory');
 
 const FORBIDDEN_DTO = ['rows', 'occupancy', 'connection_id', 'credentials', 'secret', 'private_key', 'access_token'];
@@ -276,7 +278,7 @@ async function runConnectionSync(pg, args) {
         });
       }
       await pg.query('COMMIT');
-      return { ok: false, wrote: false, keepLastBlocks: true, reason: fetched.reason };
+      return { ok: false, wrote: false, keepLastBlocks: true, reason: publicErrorCode(fetched.reason) };
     } catch (err) {
       await pg.query('ROLLBACK');
       throw err;
@@ -288,7 +290,7 @@ async function runConnectionSync(pg, args) {
     const locked = await loadLockedState(pg, args);
     if (!locked.ok) {
       await pg.query('ROLLBACK');
-      return { ok: false, wrote: false, keepLastBlocks: true, reason: locked.reason };
+      return { ok: false, wrote: false, keepLastBlocks: true, reason: publicErrorCode(locked.reason) };
     }
     const plan = probeSheetRows(fetched.rows, {
       maps: locked.maps,
@@ -307,9 +309,9 @@ async function runConnectionSync(pg, args) {
         ok: plan.ok === true,
         wrote: false,
         keepLastBlocks: true,
-        reason: plan.empty ? 'empty_sheet' : plan.reason,
+        reason: plan.empty ? 'empty_sheet' : publicErrorCode(plan.reason),
         status,
-        skipped: plan.skipped || [],
+        skipped: sanitizeSkipped(plan.skipped || []),
       };
     }
     const lockedBeds = await lockBedsAndRecheckOverlap(pg, {
@@ -328,7 +330,7 @@ async function runConnectionSync(pg, args) {
         ok: false,
         wrote: false,
         keepLastBlocks: true,
-        reason: lockedBeds.reason,
+        reason: publicErrorCode(lockedBeds.reason),
       };
     }
     const persisted = await persistOwnedWrites(pg, {

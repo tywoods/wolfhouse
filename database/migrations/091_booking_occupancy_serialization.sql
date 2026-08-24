@@ -1,10 +1,11 @@
 -- 091_booking_occupancy_serialization.sql
 -- Shared occupancy invariant. Each owned object is marked
 -- '091_booking_occupancy_serialization v1'. Up refuses foreign/newer objects.
+-- Ownership checks are inline DO blocks (no public._091_* helpers).
 
 BEGIN;
 
-DO $$
+DO $assert091$
 DECLARE
   owned text;
   oid oid;
@@ -13,44 +14,58 @@ BEGIN
   IF oid IS NOT NULL THEN
     SELECT obj_description(oid, 'pg_proc') INTO owned;
     IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
-      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)', 'booking_occupancy_lock_key', owned;
+      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)',
+        'public.booking_occupancy_lock_key(text,uuid)', owned;
     END IF;
   END IF;
+
   oid := to_regprocedure('public.booking_beds_reject_overlap()');
   IF oid IS NOT NULL THEN
     SELECT obj_description(oid, 'pg_proc') INTO owned;
     IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
-      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)', 'booking_beds_reject_overlap', owned;
+      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)',
+        'public.booking_beds_reject_overlap()', owned;
     END IF;
   END IF;
+
   oid := to_regprocedure('public.bookings_occupancy_status_guard()');
   IF oid IS NOT NULL THEN
     SELECT obj_description(oid, 'pg_proc') INTO owned;
     IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
-      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)', 'bookings_occupancy_status_guard', owned;
+      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)',
+        'public.bookings_occupancy_status_guard()', owned;
     END IF;
   END IF;
+
   IF to_regclass('public.booking_beds') IS NOT NULL THEN
     SELECT obj_description(t.oid, 'pg_trigger') INTO owned
       FROM pg_catalog.pg_trigger t
       JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public' AND c.relname = 'booking_beds' AND t.tgname = 'booking_beds_reject_overlap_trg';
+     WHERE n.nspname = 'public'
+       AND c.relname = 'booking_beds'
+       AND t.tgname = 'booking_beds_reject_overlap_trg';
     IF FOUND AND owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
-      RAISE EXCEPTION '091_refused: trigger %.% is not 091-owned (comment=%)', 'booking_beds', 'booking_beds_reject_overlap_trg', owned;
+      RAISE EXCEPTION '091_refused: trigger %.% is not 091-owned (comment=%)',
+        'booking_beds', 'booking_beds_reject_overlap_trg', owned;
     END IF;
   END IF;
+
   IF to_regclass('public.bookings') IS NOT NULL THEN
     SELECT obj_description(t.oid, 'pg_trigger') INTO owned
       FROM pg_catalog.pg_trigger t
       JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public' AND c.relname = 'bookings' AND t.tgname = 'bookings_occupancy_status_trg';
+     WHERE n.nspname = 'public'
+       AND c.relname = 'bookings'
+       AND t.tgname = 'bookings_occupancy_status_trg';
     IF FOUND AND owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
-      RAISE EXCEPTION '091_refused: trigger %.% is not 091-owned (comment=%)', 'bookings', 'bookings_occupancy_status_trg', owned;
+      RAISE EXCEPTION '091_refused: trigger %.% is not 091-owned (comment=%)',
+        'bookings', 'bookings_occupancy_status_trg', owned;
     END IF;
   END IF;
-END $$;
+END
+$assert091$;
 
 CREATE OR REPLACE FUNCTION public.booking_occupancy_lock_key(
   p_kind text,

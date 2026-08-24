@@ -1310,9 +1310,9 @@
       "order": 87,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Shared booking_beds occupancy serialization: booking then bed advisory locks, overlap reject, reversible down.",
+      "rationale": "Shared booking_beds occupancy serialization: booking then bed advisory locks, overlap reject, reversible down. Ownership checks are inline DO (no public._091 helpers).",
       "downFilename": "091_booking_occupancy_serialization_down.sql",
-      "sha256": "42f51cbd7332e34516c92427ac49ce65d57d36e747e622ed59601d8113f46ff9"
+      "sha256": "f5c03f76fd949d2e5695bccc03e1bcf4ced7d2836fbbc9646df27be15bca7976"
     },
     {
       "id": "091_booking_occupancy_serialization_down",
