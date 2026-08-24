@@ -41,7 +41,9 @@ assert.match(api, /tab === 'bookings' && !profile\.is_surf_vertical && !portalIs
 assert.match(api, /staff-portal-calendar:toolbar-row/);
 assert.match(api, /#tab-bed-calendar \.toolbar h2\{flex:0 0 auto;order:1/);
 assert.match(api, /#tab-bed-calendar \.bc-bed-cell\{padding:5px 14px\}/);
-assert.match(api, /id="bc-load"[\s\S]{0,80}<div class="bc-chips"/);
+assert.match(api, /function bcUpdateCalendarTitle/);
+assert.match(api, /month: 'long'/);
+assert.doesNotMatch(api, /t\('calendar\.title'\) \+ ' - '/);
 assert.match(api, /\.luna-header-ui \.banner-tools\{/);
 assert.match(api, /id="staff-theme-toggle"/);
 assert.match(api, /id="btn-logout"/);

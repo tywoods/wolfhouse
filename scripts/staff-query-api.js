@@ -21949,7 +21949,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <!-- Controls card -->
   <div class="card">
     <div class="toolbar">
-      <h2 id="bc-calendar-title" data-i18n="calendar.title">Booking Calendar</h2>
+      <h2 id="bc-calendar-title">August '26</h2>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
         <span data-i18n="calendar.from">From</span>&nbsp;<input id="bc-start" type="date" class="bc-date-input" autocomplete="off">
       </label>
@@ -40019,9 +40019,23 @@ function toOnTourOperatorTabOpen(){
 function bcUpdateCalendarTitle(){
   var titleEl = el('bc-calendar-title');
   if (!titleEl) return;
+  titleEl.removeAttribute('data-i18n');
   var start = bcReadDateField(el('bc-start'));
-  var year = (start && BC_YEAR_PREFIX_RE.test(start)) ? start.slice(0, 4) : String(new Date().getFullYear());
-  titleEl.textContent = t('calendar.title') + ' - ' + year;
+  var end = bcReadDateField(el('bc-end'));
+  var pick = start;
+  var today = new Date();
+  var todayIso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  if (start && end && todayIso >= start && todayIso <= end) pick = todayIso;
+  if (!pick || !BC_YEAR_PREFIX_RE.test(pick)) {
+    pick = todayIso;
+  }
+  var d = new Date(pick.slice(0, 10) + 'T12:00:00');
+  if (isNaN(d.getTime())) d = today;
+  var lang = (document.documentElement && document.documentElement.lang) || 'en';
+  var month = d.toLocaleString(lang, { month: 'long' });
+  if (month) month = month.charAt(0).toUpperCase() + month.slice(1);
+  var yy = String(d.getFullYear()).slice(-2);
+  titleEl.textContent = month + " '" + yy;
 }
 
 var bcLastBedCalendarData = null;
