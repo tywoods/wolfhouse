@@ -4,6 +4,7 @@ const {
   EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT,
   ROLE_ATTRIBUTES,
   FORBIDDEN_DATABASE_NAMES,
+  SUNSET_STAGING_TRUSTED_PRECREATED,
   FUNCTION_SIGNATURES,
   assertRoleName,
   assertUuid,
@@ -25,6 +26,10 @@ const JOURNAL_TABLE = 'tenant_email_outbound_send_journal';
 const PRINCIPAL_TABLE = 'tenant_email_luna_automation_principals';
 const MATERIAL_TABLE = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_table;
 const INJECT_STEPS = Object.freeze(['create_role', 'grants', 'mapping', 'final_audit']);
+const IDENTITY_SQL = 'SELECT current_database() AS database, session_user AS session_user';
+const CREATE_ROLE_SQL_RE = /\bCREATE\s+ROLE\b/i;
+const ALTER_ROLE_SQL_RE = /\bALTER\s+ROLE\b/i;
+const PASSWORD_SQL_RE = /\bPASSWORD\b/i;
 
 function fail(code, message, extra) {
   const error = new Error(message);
@@ -77,9 +82,42 @@ function requiredSpec(spec) {
   const locationKey = assertLocationKey(src.location_key);
   const apply = src.apply === true;
   const trustedPrecreated = src.trustedPrecreated === true;
+  const allowSunsetStagingTrustedPrecreated = src.allowSunsetStagingTrustedPrecreated === true;
   const injectFailAfter = src.injectFailAfter == null ? null : String(src.injectFailAfter);
   if (injectFailAfter && !INJECT_STEPS.includes(injectFailAfter)) {
     throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID', 'injectFailAfter is not a known test step');
+  }
+  if (allowSunsetStagingTrustedPrecreated) {
+    if (trustedPrecreated !== true) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
+        'sunset staging trusted pre-creation requires trustedPrecreated',
+      );
+    }
+    if (apply !== true) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
+        'sunset staging trusted pre-creation requires apply',
+      );
+    }
+    if (src.password != null) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_PASSWORD_REFUSED',
+        'trusted pre-creation must not send a password through the provisioner',
+      );
+    }
+    if (kind !== SUNSET_STAGING_TRUSTED_PRECREATED.kind) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
+        'sunset staging trusted pre-creation requires worker kind',
+      );
+    }
+    if (locationKey !== SUNSET_STAGING_TRUSTED_PRECREATED.location_key) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
+        'sunset staging trusted pre-creation requires the approved Sunset location_key',
+      );
+    }
   }
   if (trustedPrecreated && src.password != null) {
     throw fail(
@@ -95,6 +133,7 @@ function requiredSpec(spec) {
     locationKey,
     apply,
     trustedPrecreated,
+    allowSunsetStagingTrustedPrecreated,
     injectFailAfter,
     password: src.password,
   };
@@ -588,14 +627,24 @@ async function auditPrincipal(query, parsed, database, allowedFunctionOids, mode
   await auditAmbientPublic(query, parsed.roleName, allowedFunctionOids);
 }
 
+function planCreatesOrSetsPassword(plan) {
+  const joined = (plan || []).join('\n');
+  return CREATE_ROLE_SQL_RE.test(joined) || ALTER_ROLE_SQL_RE.test(joined) || PASSWORD_SQL_RE.test(joined);
+}
+
 async function provisionInTransaction(query, parsed) {
   const roleIdent = quoteIdent(parsed.roleName);
   const plan = [];
   const executed = [];
 
-  const dbRows = await readRows(query, 'SELECT current_database() AS database, session_user AS session_user');
+  const dbRows = await readRows(query, IDENTITY_SQL);
   const database = dbRows[0] && String(dbRows[0].database || '');
-  if (!database || FORBIDDEN_DATABASE_NAMES.includes(database.toLowerCase())) {
+  const sessionUser = dbRows[0] && String(dbRows[0].session_user || '');
+  if (parsed.allowSunsetStagingTrustedPrecreated) {
+    if (database !== SUNSET_STAGING_TRUSTED_PRECREATED.database) {
+      throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_FORBIDDEN_DATABASE', 'refusing live/staging product database');
+    }
+  } else if (!database || FORBIDDEN_DATABASE_NAMES.includes(database.toLowerCase())) {
     throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_FORBIDDEN_DATABASE', 'refusing live/staging product database');
   }
   const databaseIdent = quoteSqlIdent(database);
@@ -613,8 +662,31 @@ async function provisionInTransaction(query, parsed) {
   if (!tableOwner) {
     throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_MISSING_QUEUE', 'queue table owner missing');
   }
+  if (parsed.allowSunsetStagingTrustedPrecreated) {
+    if (!sessionUser || sessionUser !== tableOwner) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_SESSION_NOT_OWNER',
+        'sunset staging trusted pre-creation requires session_user to be the queue table owner',
+      );
+    }
+  }
   if (parsed.roleName === tableOwner) {
     throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_REFUSE_OWNER', 'refusing to map the table owner as a runtime principal');
+  }
+  if (parsed.allowSunsetStagingTrustedPrecreated) {
+    const bindRows = await readRows(query, `
+      SELECT 1 AS ok
+        FROM public.tenant_locations
+       WHERE client_id = $1::uuid
+         AND id = $2::uuid
+         AND location_id = $3
+    `, [parsed.clientId, parsed.locationId, parsed.locationKey]);
+    if (bindRows.length !== 1) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
+        'sunset staging trusted pre-creation requires the approved Sunset client/location binding',
+      );
+    }
   }
 
   const materialTableRows = MATERIAL_TABLE ? await readRows(query, `
@@ -721,6 +793,21 @@ async function provisionInTransaction(query, parsed) {
     }
   }
 
+  if (parsed.allowSunsetStagingTrustedPrecreated) {
+    if (roleAction === 'create' || parsed.password != null) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_ROLE_CREATE_REFUSED',
+        'sunset staging trusted pre-creation must not create a role or set a password',
+      );
+    }
+    if (roleAction !== 'trusted_precreated' && roleAction !== 'verify_noop') {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_ADOPTION_REFUSED',
+        'sunset staging trusted pre-creation requires a trusted precreated or exact mapped role',
+      );
+    }
+  }
+
   const grantSql = [];
   grantSql.push(`GRANT CONNECT ON DATABASE ${databaseIdent} TO ${roleIdent}`);
   grantSql.push(`REVOKE CREATE ON DATABASE ${databaseIdent} FROM ${roleIdent}`);
@@ -756,6 +843,13 @@ async function provisionInTransaction(query, parsed) {
     plan.push('INSERT mapping (role_name, principal_kind, client_id, location_id, location_key)');
   }
 
+  if (parsed.allowSunsetStagingTrustedPrecreated && planCreatesOrSetsPassword(plan)) {
+    throw fail(
+      'EMAIL_LUNA_AUTOMATION_PRINCIPAL_ROLE_CREATE_REFUSED',
+      'sunset staging trusted pre-creation must not create a role or set a password',
+    );
+  }
+
   if (!parsed.apply) {
     return {
       ok: true,
@@ -767,6 +861,7 @@ async function provisionInTransaction(query, parsed) {
       location_key: parsed.locationKey,
       roleAction,
       mappingAction,
+      allowSunsetStagingTrustedPrecreated: parsed.allowSunsetStagingTrustedPrecreated === true,
       default_off: true,
       plan,
       executed,
@@ -777,11 +872,24 @@ async function provisionInTransaction(query, parsed) {
     };
   }
 
+  if (parsed.allowSunsetStagingTrustedPrecreated && (roleAction === 'create' || parsed.password != null)) {
+    throw fail(
+      'EMAIL_LUNA_AUTOMATION_PRINCIPAL_ROLE_CREATE_REFUSED',
+      'sunset staging trusted pre-creation must not create a role or set a password',
+    );
+  }
+
   if (roleAction === 'trusted_precreated') {
     await auditPrincipal(query, parsed, database, allowedFunctionOids, 'pregrant');
   }
 
   if (roleAction === 'create') {
+    if (parsed.allowSunsetStagingTrustedPrecreated) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_ROLE_CREATE_REFUSED',
+        'sunset staging trusted pre-creation must not create a role or set a password',
+      );
+    }
     if (parsed.password == null) {
       throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_PASSWORD_REQUIRED', 'creating a LOGIN principal requires a password');
     }
@@ -837,6 +945,7 @@ async function provisionInTransaction(query, parsed) {
     location_key: parsed.locationKey,
     roleAction,
     mappingAction,
+    allowSunsetStagingTrustedPrecreated: parsed.allowSunsetStagingTrustedPrecreated === true,
     default_off: false,
     plan,
     executed,
@@ -882,4 +991,5 @@ module.exports = {
   provisionEmailLunaAutomationPrincipal,
   redact,
   REDACTED,
+  IDENTITY_SQL,
 };
