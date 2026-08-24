@@ -122,6 +122,7 @@ const ISSUANCE_MATERIAL_FORWARD_ID = '092_tenant_email_luna_automation_issuance_
 const SHADOW_OUTCOME_FORWARD_ID = '093_tenant_email_luna_automation_shadow_outcomes';
 const SHADOW_IDENTITY_MATCH_FORWARD_ID = '094_tenant_email_luna_automation_shadow_outcome_identity_match';
 const SHADOW_SCOPED_CLAIM_FORWARD_ID = '095_tenant_email_luna_automation_claim_scoped';
+const PUBLIC_EXECUTE_FORWARD_ID = '096_tenant_email_luna_automation_public_execute';
 const MASTER_CALENDAR_BRIDGE_DIGESTS = Object.freeze({
   '089_external_calendar_inventory': 'b07a7f87ca1b9e2c3da2da60ef161ccdc049a42726cf12fe4872b742740b9b6f',
   '090_external_calendar_inventory_tenant_integrity': '2e9b9d5219f79d89cc8eadbdb2679c0e2a47c7e7948ecdd0e4449c0eeac33893',
@@ -155,23 +156,25 @@ pass(
     && forwards.some((e) => e.id === ISSUANCE_MATERIAL_FORWARD_ID)
     && forwards.some((e) => e.id === SHADOW_OUTCOME_FORWARD_ID)
     && forwards.some((e) => e.id === SHADOW_IDENTITY_MATCH_FORWARD_ID)
-    && forwards.some((e) => e.id === SHADOW_SCOPED_CLAIM_FORWARD_ID),
+    && forwards.some((e) => e.id === SHADOW_SCOPED_CLAIM_FORWARD_ID)
+    && forwards.some((e) => e.id === PUBLIC_EXECUTE_FORWARD_ID),
   `forward=${forwards.length}`,
 );
 pass(
   'green-calendar-bridge-forward-tail',
   calendarBridgeSequence(forwards) === CALENDAR_BRIDGE_FORWARD_IDS.join(',')
-    && forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length - 4, -4).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
-  forwards.slice(-5).map((e) => e.id).join(','),
+    && forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length - 5, -5).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-6).map((e) => e.id).join(','),
 );
 pass(
   'green-issuance-material-forward-after-calendar-bridge',
-  forwards[forwards.length - 1] && forwards[forwards.length - 1].id === SHADOW_SCOPED_CLAIM_FORWARD_ID
-    && forwards[forwards.length - 2] && forwards[forwards.length - 2].id === SHADOW_IDENTITY_MATCH_FORWARD_ID
-    && forwards[forwards.length - 3] && forwards[forwards.length - 3].id === SHADOW_OUTCOME_FORWARD_ID
-    && forwards[forwards.length - 4] && forwards[forwards.length - 4].id === ISSUANCE_MATERIAL_FORWARD_ID
-    && calendarBridgeSequence(forwards.slice(0, -4)) === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
-  forwards.slice(-5).map((e) => e.id).join(','),
+  forwards[forwards.length - 1] && forwards[forwards.length - 1].id === PUBLIC_EXECUTE_FORWARD_ID
+    && forwards[forwards.length - 2] && forwards[forwards.length - 2].id === SHADOW_SCOPED_CLAIM_FORWARD_ID
+    && forwards[forwards.length - 3] && forwards[forwards.length - 3].id === SHADOW_IDENTITY_MATCH_FORWARD_ID
+    && forwards[forwards.length - 4] && forwards[forwards.length - 4].id === SHADOW_OUTCOME_FORWARD_ID
+    && forwards[forwards.length - 5] && forwards[forwards.length - 5].id === ISSUANCE_MATERIAL_FORWARD_ID
+    && calendarBridgeSequence(forwards.slice(0, -5)) === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-6).map((e) => e.id).join(','),
 );
 pass(
   'green-all-sql-classified',
@@ -299,7 +302,7 @@ pass(
 {
   const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
   const byNumber = numberedSqlBases(files);
-  const protectedNumbers = ['089', '090', '091', '092'];
+  const protectedNumbers = ['089', '090', '091', '092', '096'];
   const collisions = [...byNumber.entries()]
     .filter(([n, set]) => protectedNumbers.includes(n) && set.size > 1)
     .map(([n, set]) => `${n}:${[...set].join('|')}`);
