@@ -1,0 +1,50 @@
+{
+  "id": "email-luna-automation-shadow-activation-safety.ch4b6-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B6",
+  "head_reviewed": "5054b86647a2aaf28d65a5e180345a6526cde067",
+  "pr_reviewed": 704,
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "activation_authorized": false,
+  "send_permission": false,
+  "journal_terminal": false,
+  "findings": [
+    {
+      "id": "H1-owner-pool-unscoped-claim-handoff",
+      "severity": "critical",
+      "red": "PR #704 Staff API loans the process-wide table-owner pool into the Sunset shadow composition. 088 principal_authorized treats the table owner as authorized for every tenant. Unscoped claim can SKIP LOCKED an older non-Sunset row. bind mismatch then calls require_handoff_claimed and terminalizes a foreign tenant/location/endpoint row.",
+      "green": "Shadow loop uses a dedicated mapped worker DB principal/session, never the Staff API table-owner pool and never owner bypass. Canonical claim_scoped is exact client_id+location_id+location_key+endpoint_id plus durable worker mapping. 088 unscoped claim is unchanged for existing callers. Post-claim bind mismatch never require_handoff_claimed and never terminalizes a foreign row."
+    },
+    {
+      "id": "M1-stop-does-not-drain-timer-tick",
+      "severity": "high",
+      "red": "Composition stop() only awaits composition.tick()'s tickPromise. Timer-driven B3 loop.tick() is a separate in-flight path, so shutdown can cut a live claim or leave a handle.",
+      "green": "stop() cancels future timers and awaits the current claim with a bounded timeout. Double start/stop/restart and start-after-timed-out-stop are epoch-safe. No shutdown hang."
+    },
+    {
+      "id": "M2-endpoint-readiness-pin-not-runtime-bind",
+      "severity": "high",
+      "red": "Endpoint UUID is checked at readiness/create but not passed into the worker kernel or unscoped claim. bindMatches ignores endpoint_id. A valid wrong endpoint UUID can still activate and claim.",
+      "green": "Exact endpoint flows through kernel gate, scoped claim, and bindMatches. A valid UUID for another endpoint cannot claim or terminalize the bound endpoint's rows."
+    },
+    {
+      "id": "M3-preflight-leaks-query-errors",
+      "severity": "high",
+      "red": "Preflight inspectSchema does not catch query throws, so error.message/code/UUID/secret text can surface.",
+      "green": "Query failures return generic schema_inspect_failed only. No DB exception text, SQLSTATE, row dumps, or secrets."
+    },
+    {
+      "id": "M4-preflight-ok-without-live-inspect",
+      "severity": "high",
+      "red": "Preflight returns ok:true when query is absent and schema is unknown, because unknown !== false skips blockers.",
+      "green": "files_ready is split from activation readiness. ok requires proven live read-only inspection of schema/functions/094 label/principal and exact runtime flags/bindings. Query absent => ok false + inspect_required."
+    },
+    {
+      "id": "M5-multi-replica-undocumented",
+      "severity": "medium",
+      "red": "Process concurrency=1 is not a cluster-wide lock. Multiple Staff API replicas each start a worker. SKIP LOCKED prevents duplicate claims but does not prove global concurrency=1.",
+      "green": "Readiness/preflight require EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT exactly '1'. Enabling across multiple replicas is documented as multiple workers. Fail-closed unless the topology contract is explicit."
+    }
+  ]
+}

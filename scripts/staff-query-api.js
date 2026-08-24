@@ -74,7 +74,7 @@ const {
 } = require('./lib/meta-whatsapp-signature-config');
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
-const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired } = require('./lib/pg-connect');
+const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired, getConnectionString } = require('./lib/pg-connect');
 const {
   isInactiveInboxBookingStatus,
   filterActiveInboxBookings,
@@ -279,6 +279,9 @@ const {
   resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness,
   createEmailLunaAutomationShadowSunsetStagingRuntimeComposition,
 } = require('./lib/email-luna-automation-shadow-sunset-staging-runtime-composition');
+const {
+  createEmailLunaAutomationShadowWorkerConnection,
+} = require('./lib/email-luna-automation-shadow-worker-connection');
 /** Frozen inert readiness only (default-off; never scheduler/worker run). */
 const EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS =
   resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(process.env);
@@ -50040,15 +50043,35 @@ const server = shouldEagerCreateStaffQueryApiServer()
 let EMAIL_DELTA_RUNTIME = null;
 let EMAIL_IMAP_RUNTIME = null;
 let EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
+let EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = null;
+
+function drainStaffApiEmailRuntimes() {
+  const drains = [];
+  if (EMAIL_DELTA_RUNTIME) {
+    drains.push(Promise.resolve(EMAIL_DELTA_RUNTIME.stop()));
+    EMAIL_DELTA_RUNTIME = null;
+  }
+  if (EMAIL_IMAP_RUNTIME) {
+    drains.push(Promise.resolve(EMAIL_IMAP_RUNTIME.stop()));
+    EMAIL_IMAP_RUNTIME = null;
+  }
+  if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME) {
+    drains.push(Promise.resolve(EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.stop()));
+    EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
+  }
+  if (EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION) {
+    drains.push(Promise.resolve(EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION.close()));
+    EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = null;
+  }
+  return Promise.allSettled(drains);
+}
+
 if (require.main === module) {
   const { attachStaffApiReadinessLifecycle, ON_SHUTDOWN_BEGIN_HOOK } = require('./lib/staff-api-readiness-lifecycle');
   attachStaffApiReadinessLifecycle(server);
   const priorShutdownBegin = server[ON_SHUTDOWN_BEGIN_HOOK];
   server[ON_SHUTDOWN_BEGIN_HOOK] = () => {
-    const drains = [];
-    if (EMAIL_DELTA_RUNTIME) drains.push(EMAIL_DELTA_RUNTIME.stop());
-    if (EMAIL_IMAP_RUNTIME) drains.push(EMAIL_IMAP_RUNTIME.stop());
-    if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME) drains.push(EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.stop());
+    const drains = [drainStaffApiEmailRuntimes()];
     if (typeof priorShutdownBegin === 'function') drains.push(priorShutdownBegin());
     return Promise.allSettled(drains);
   };
@@ -50077,15 +50100,20 @@ async function startStaffQueryApiCli() {
       await EMAIL_IMAP_RUNTIME.start();
     }
     if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS.runtime_activation === true) {
+      EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = createEmailLunaAutomationShadowWorkerConnection({
+        env: process.env,
+        appConnectionString: getConnectionString(),
+      });
       EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = createEmailLunaAutomationShadowSunsetStagingRuntimeComposition({
         env: process.env,
-        withTransactionClient: (work) => _withPgClientImpl((client) => work(client)),
+        withTransactionClient: EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION.withTransactionClient,
         timers: { setTimeout, clearTimeout },
         intervalMs: 60000,
       });
       await EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.start();
     }
   } catch {
+    await drainStaffApiEmailRuntimes();
     process.exitCode = 1;
     return;
   }

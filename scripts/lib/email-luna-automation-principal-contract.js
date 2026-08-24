@@ -66,6 +66,7 @@ const OPERATOR_EXECUTE_FUNCTIONS = EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.op
 const FUNCTION_SIGNATURES = objectFreeze({
   tenant_email_luna_automation_enqueue: 'tenant_email_luna_automation_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text)',
   tenant_email_luna_automation_claim: 'tenant_email_luna_automation_claim(uuid, uuid)',
+  tenant_email_luna_automation_claim_scoped: 'tenant_email_luna_automation_claim_scoped(uuid, uuid, uuid, text, uuid)',
   tenant_email_luna_automation_cancel_claimed: 'tenant_email_luna_automation_cancel_claimed(uuid, uuid)',
   tenant_email_luna_automation_require_handoff_claimed: 'tenant_email_luna_automation_require_handoff_claimed(uuid, uuid)',
   tenant_email_luna_automation_handoff: 'tenant_email_luna_automation_handoff(uuid, uuid)',
@@ -125,6 +126,9 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   no_create_role_in_093: true,
   no_grant_in_094: true,
   no_create_role_in_094: true,
+  no_grant_in_095: true,
+  no_create_role_in_095: true,
+  scoped_claim_worker_execute_functions: EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.scoped_claim_worker_execute_functions,
   shadow_outcome_table: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.table,
   shadow_outcome_worker_execute_functions: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.worker_execute_functions,
   shadow_outcome_producer_denied_execute_functions: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.worker_execute_functions,

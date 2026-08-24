@@ -24,6 +24,7 @@ const {
 const {
   UP_093,
   DOWN_093,
+  UP_095,
   loadOwners,
   persistPending,
   workerDeps,
@@ -36,6 +37,7 @@ const CAPTURE_REG = `public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_c
 const LOAD_REG = `public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_shadow_outcome_load}`;
 const PROJECT_REG = `public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_shadow_outcome_project}`;
 const PERSIST_REG = `public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_persist_and_enqueue}`;
+const CLAIM_SCOPED_REG = `public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_claim_scoped}`;
 const UP_092 = fs.readFileSync(
   path.join(__dirname, '..', 'database/migrations/092_tenant_email_luna_automation_issuance_material.sql'),
   'utf8',
@@ -91,6 +93,7 @@ async function proveStockPg(client, connectClone) {
   await db.exec(DOWN_093);
   console.log('ok - stock-PG empty 093 down is repeatable');
   await db.exec(UP_093);
+  await db.exec(UP_095);
 
   await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
     roleName: 'luna_ch4b4_stock_producer',
@@ -113,8 +116,10 @@ async function proveStockPg(client, connectClone) {
   assert.equal(await hasExecute(client, 'luna_ch4b4_stock_worker', CAPTURE_REG), true);
   assert.equal(await hasExecute(client, 'luna_ch4b4_stock_worker', LOAD_REG), true);
   assert.equal(await hasExecute(client, 'luna_ch4b4_stock_worker', PROJECT_REG), true);
+  assert.equal(await hasExecute(client, 'luna_ch4b4_stock_worker', CLAIM_SCOPED_REG), true);
   assert.equal(await hasExecute(client, 'luna_ch4b4_stock_worker', PERSIST_REG), false);
   assert.equal(await hasExecute(client, 'luna_ch4b4_stock_producer', CAPTURE_REG), false);
+  assert.equal(await hasExecute(client, 'luna_ch4b4_stock_producer', CLAIM_SCOPED_REG), false);
   assert.equal(await hasExecute(client, 'luna_ch4b4_stock_producer', PERSIST_REG), true);
   console.log('ok - stock-PG ACL: worker capture/load/project; producer denied capture');
 

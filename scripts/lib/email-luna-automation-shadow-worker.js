@@ -4,15 +4,17 @@
  * FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B3: provider-inert shadow worker kernel
  * and optional default-off loop.
  *
- * Claims through the canonical queue owner, loads/recovers authentic issuance
- * material, revalidates Sunset gate/authority/eligibility, and returns shadow
- * comparison evidence. Successful would_send is captured through the shadow
- * outcome owner (queue shadow_captured, lease released, no journal). Each claim
- * mints a fresh UUID as the 086 lease owner so a stable worker can reclaim its
- * own expired prior lease. Recovery/material/authority failure uses
- * require_handoff_claimed. Transient load/query throws stay claimed/retryable.
- * Next-claim skips attempt-capped expired rows via the existing claim owner.
- * Never journals, never sends, never treats the projection as send authority.
+ * Claims through the canonical scoped queue owner (095 claim_scoped: exact
+ * client/location/location_key/endpoint plus durable worker mapping, no table-
+ * owner bypass). Loads/recovers authentic issuance material, revalidates Sunset
+ * gate/authority/eligibility, and returns shadow comparison evidence. Successful
+ * would_send is captured through the shadow outcome owner (queue shadow_captured,
+ * lease released, no journal). Each claim mints a fresh UUID as the 086 lease
+ * owner so a stable worker can reclaim its own expired prior lease. Recovery/
+ * material/authority failure uses require_handoff_claimed. Bind mismatch never
+ * terminalizes; it stays claimed/retryable. Transient load/query throws stay
+ * claimed/retryable. Never journals, never sends, never treats the projection
+ * as send authority.
  */
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
@@ -56,6 +58,8 @@ const EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_LOGGING_FORBIDDEN = true;
 const EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONCURRENCY = 1;
 const EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_MIN_INTERVAL_MS = 60000;
 const EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_MAX_INTERVAL_MS = 120000;
+const EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_STOP_DRAIN_TIMEOUT_MS = 5000;
+const nativeSetTimeout = setTimeout;
 const ENV_SHADOW_WORKER_ENABLED = 'EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SUNSET_LOCATION_KEY = 'sunset-somo';
@@ -67,7 +71,7 @@ const VALIDATOR_VERSION = EMAIL_LUNA_DRAFT_VALIDATOR_VERSION;
 const KERNEL_KEYS = objectFreeze(['withTransactionClient', 'env', 'tenant_location_gate', 'owner_token']);
 const LOOP_KEYS = objectFreeze(['kernel', 'timers', 'intervalMs']);
 const ENV_KEYS = objectFreeze(['LUNA_DEPLOYMENT', ENV_SHADOW_WORKER_ENABLED]);
-const GATE_KEYS = objectFreeze(['client_id', 'location_id', 'location_key', 'shadow_enabled']);
+const GATE_KEYS = objectFreeze(['client_id', 'location_id', 'location_key', 'shadow_enabled', 'endpoint_id']);
 const ENABLED_INPUT_KEYS = objectFreeze(['env', 'tenant_location_gate', 'authority']);
 const AUTHORITY_KEYS = objectFreeze(['client_id', 'location_id', 'location_key']);
 const TIMER_KEYS = objectFreeze(['setTimeout', 'clearTimeout']);
@@ -206,7 +210,8 @@ function isEmailLunaAutomationShadowWorkerEnabled(input) {
     && authority.location_key === SUNSET_LOCATION_KEY
     && typeof authority.client_id === 'string' && typeof authority.location_id === 'string'
     && gate.client_id === authority.client_id && gate.location_id === authority.location_id
-    && gate.location_key === authority.location_key);
+    && gate.location_key === authority.location_key
+    && typeof gate.endpoint_id === 'string');
 }
 
 function assertEmailLunaAutomationShadowWorkerEvidence(value) {
@@ -292,6 +297,7 @@ function bindMatches(record, gate, ownerToken) {
   return record.client_id === gate.client_id
     && record.location_id === gate.location_id
     && record.location_key === gate.location_key
+    && record.endpoint_id === gate.endpoint_id
     && record.lease_owner === ownerToken
     && record.state === 'claimed'
     && record.handoff_id === null;
@@ -326,6 +332,7 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
   const gate = exactPlain(deps.tenant_location_gate, GATE_KEYS);
   const gateClient = parseUuidRequired(gate.client_id);
   const gateLocation = parseUuidRequired(gate.location_id);
+  const gateEndpoint = parseUuidRequired(gate.endpoint_id);
   const ownerToken = parseUuidRequired(deps.owner_token);
   if (!ownerToken) throw invalid();
   if (env.LUNA_DEPLOYMENT !== SUNSET_DEPLOYMENT
@@ -338,12 +345,13 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
     client_id: gateClient,
     location_id: gateLocation,
     location_key: SUNSET_LOCATION_KEY,
+    endpoint_id: gateEndpoint,
   });
 
   const queueStore = createEmailLunaAutomationQueueStore({ withTransactionClient });
   const materialStore = createEmailLunaAutomationIssuanceMaterialStore({ withTransactionClient });
   const outcomeStore = createEmailLunaAutomationShadowOutcomeStore({ withTransactionClient });
-  if (!queueStore || typeof queueStore.claimAutomationOperation !== 'function') throw invalid();
+  if (!queueStore || typeof queueStore.claimScopedAutomationOperation !== 'function') throw invalid();
   if (typeof queueStore.requireHandoffAutomationOperation !== 'function') throw invalid();
   if (typeof queueStore.cancelAutomationOperation !== 'function') throw invalid();
   if (!materialStore || typeof materialStore.loadAutomationIssuanceMaterial !== 'function') throw invalid();
@@ -404,7 +412,13 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
     const leaseOwner = mintClaimLeaseOwner();
     let claimed;
     try {
-      claimed = await queueStore.claimAutomationOperation({ owner_token: leaseOwner });
+      claimed = await queueStore.claimScopedAutomationOperation({
+        owner_token: leaseOwner,
+        client_id: boundGate.client_id,
+        location_id: boundGate.location_id,
+        location_key: boundGate.location_key,
+        endpoint_id: boundGate.endpoint_id,
+      });
     } catch (error) {
       if (readErrorCode(error) === '23514') return idleEvidence('conflict', 'claim_conflict');
       throw invalid();
@@ -440,7 +454,14 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
     if (claimed.status !== 'claimed' || !claimed.record) throw invalid();
     const record = claimed.record;
     if (!bindMatches(record, boundGate, leaseOwner)) {
-      return failClosedClaimed(record, 'authority_mismatch');
+      return fromClaimed(record, {
+        status: 'conflict',
+        reason: 'bind_mismatch_retryable',
+        canonical_status: null,
+        eligibility_status: null,
+        state: record.state,
+        terminal: false,
+      });
     }
 
     let loaded;
@@ -599,16 +620,19 @@ function createEmailLunaAutomationShadowWorkerLoop(dependencies) {
   let timer = null;
   let stopped = true;
   let epoch = 0;
+  let inflight = null;
 
   async function tick() {
     if (arguments.length !== 0) throw invalid();
     if (stopped) return idleEvidence('stopped', 'stop_requested');
     if (running) return idleEvidence('overlap_skipped', null);
+    inflight = Promise.resolve(kernel.processNextShadowClaim());
     running = true;
     try {
-      return await kernel.processNextShadowClaim();
+      return await inflight;
     } finally {
       running = false;
+      inflight = null;
     }
   }
 
@@ -646,6 +670,15 @@ function createEmailLunaAutomationShadowWorkerLoop(dependencies) {
       timers.clearTimeout(timer);
       timer = null;
     }
+    const current = inflight;
+    if (!current) return Promise.resolve();
+    return Promise.race([
+      current.then(() => {}, () => {}),
+      new Promise((resolve) => {
+        const handle = nativeSetTimeout(resolve, EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_STOP_DRAIN_TIMEOUT_MS);
+        if (handle && typeof handle.unref === 'function') handle.unref();
+      }),
+    ]);
   }
 
   return freeze({
@@ -665,6 +698,7 @@ module.exports = objectFreeze({
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONCURRENCY,
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_MIN_INTERVAL_MS,
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_MAX_INTERVAL_MS,
+  EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_STOP_DRAIN_TIMEOUT_MS,
   ENV_SHADOW_WORKER_ENABLED,
   SUNSET_DEPLOYMENT,
   SUNSET_LOCATION_KEY,

@@ -634,6 +634,7 @@ async function provisionInTransaction(query, parsed) {
     optionalGrantNames = [
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_execute_functions,
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.shadow_outcome_worker_execute_functions || []),
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.scoped_claim_worker_execute_functions || []),
     ];
     optionalDenyNames = [
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_denied_execute_functions,
@@ -650,6 +651,7 @@ async function provisionInTransaction(query, parsed) {
     optionalDenyNames = [
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_producer_denied_execute_functions,
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.shadow_outcome_producer_denied_execute_functions || []),
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.scoped_claim_worker_execute_functions || []),
     ];
   } else {
     optionalGrantNames = [];
@@ -657,6 +659,7 @@ async function provisionInTransaction(query, parsed) {
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_execute_functions,
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_producer_execute_functions,
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.shadow_outcome_worker_execute_functions || []),
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.scoped_claim_worker_execute_functions || []),
     ];
   }
   const allowedFunctionOids = await resolveFunctionOids(query, allowedSignatures);

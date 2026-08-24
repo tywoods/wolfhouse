@@ -25,7 +25,13 @@ const UP_093 = fs.readFileSync(
   path.join(ROOT, 'database/migrations/093_tenant_email_luna_automation_shadow_outcomes.sql'),
   'utf8',
 );
+const UP_095 = fs.readFileSync(
+  path.join(ROOT, 'database/migrations/095_tenant_email_luna_automation_claim_scoped.sql'),
+  'utf8',
+);
 const b1 = require('./prove-email-luna-automation-issuance-material-pglite');
+const { provisionEmailLunaAutomationPrincipal } = require('./lib/email-luna-automation-principal-provision');
+const WORKER_ROLE = 'luna_ch4b6_worker';
 const {
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_RUNTIME_WIRED,
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONCURRENCY,
@@ -93,6 +99,7 @@ function workerDeps(loaner, clientId, locationId, ownerToken) {
       location_id: locationId,
       location_key: 'sunset-somo',
       shadow_enabled: true,
+      endpoint_id: b1.ids.endpoint,
     },
     owner_token: ownerToken,
   };
@@ -219,7 +226,37 @@ async function provePglite(PGlite) {
   await b1.applyThrough088(db);
   await db.exec(b1.UP);
   await db.exec(UP_093);
-  const loaner = b1.createLoaner(db);
+  await db.exec(UP_095);
+  await b1.revokePublicExecuteOutsideCatalogs(db);
+  await provisionEmailLunaAutomationPrincipal(b1.exclusiveSession(db), {
+    roleName: WORKER_ROLE,
+    kind: 'worker',
+    client_id: ids.client,
+    location_id: ids.location,
+    location_key: 'sunset-somo',
+    password: b1.PASSWORD,
+    apply: true,
+  });
+  const loaner = {
+    async withTransactionClient(work) {
+      await db.exec('SET SESSION AUTHORIZATION postgres');
+      return b1.createLoaner(db).withTransactionClient(work);
+    },
+  };
+  const workerLoaner = {
+    async withTransactionClient(work) {
+      await db.exec(`SET SESSION AUTHORIZATION ${WORKER_ROLE}`);
+      try {
+        return await work({
+          async query(text, params) {
+            return db.query(text, params);
+          },
+        });
+      } finally {
+        await db.exec('SET SESSION AUTHORIZATION postgres');
+      }
+    },
+  };
 
   const persisted = await persistPending(owners, loaner, ids, ids.operation);
   const pending = await db.query(
@@ -231,7 +268,7 @@ async function provePglite(PGlite) {
   assert.equal(pending.rows[0].handoff_id, null);
 
   const kernel = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
   );
   assert.deepEqual(Object.keys(kernel).sort(), ['processNextShadowClaim', 'requestStop', 'resume']);
   const first = await kernel.processNextShadowClaim();
@@ -260,7 +297,7 @@ async function provePglite(PGlite) {
   console.log('ok - GREEN claim/load/recover would-send captures shadow_captured; zero journal rows');
 
   const other = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+    workerDeps(workerLoaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
   );
   const [left, right] = await Promise.all([
     kernel.processNextShadowClaim(),
@@ -299,7 +336,7 @@ async function provePglite(PGlite) {
 
   owners = loadOwners();
   const sameOwnerRestart = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
   );
   const sameOwnerReplayed = await sameOwnerRestart.processNextShadowClaim();
   assert.equal(sameOwnerReplayed.status, 'empty');
@@ -308,7 +345,7 @@ async function provePglite(PGlite) {
 
   owners = loadOwners();
   const restarted = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+    workerDeps(workerLoaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
   );
   const replayed = await restarted.processNextShadowClaim();
   assert.equal(replayed.status, 'empty');
@@ -335,7 +372,7 @@ async function provePglite(PGlite) {
   const holder = { kernel: null };
   const stoppingLoaner = {
     async withTransactionClient(work) {
-      return loaner.withTransactionClient(async (client) => {
+      return workerLoaner.withTransactionClient(async (client) => {
         return work({
           async query(text, params) {
             if (/tenant_email_luna_automation_claim/.test(String(text))) {
@@ -371,7 +408,7 @@ async function provePglite(PGlite) {
   await persistPending(owners, loaner, ids, missingOp);
   const partialLoaner = {
     async withTransactionClient(work) {
-      return loaner.withTransactionClient(async (client) => {
+      return workerLoaner.withTransactionClient(async (client) => {
         const wrapped = {
           async query(text, params) {
             if (/issuance_material_load/.test(String(text))) return { rows: [] };
@@ -405,7 +442,7 @@ async function provePglite(PGlite) {
   await persistPending(owners, loaner, ids, throwOp);
   const throwingLoaner = {
     async withTransactionClient(work) {
-      return loaner.withTransactionClient(async (client) => {
+      return workerLoaner.withTransactionClient(async (client) => {
         return work({
           async query(text, params) {
             if (/issuance_material_load/.test(String(text))) {
@@ -438,12 +475,12 @@ async function provePglite(PGlite) {
   console.log('ok - load/query throw keeps claimed retryable lease; no require_handoff or journal');
 
   const callbackKernelAttempt = () => owners.createEmailLunaAutomationShadowWorkerKernel({
-    ...workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    ...workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
     callback: () => { throw new Error('injected'); },
   });
   assert.throws(callbackKernelAttempt);
   const keyKernelAttempt = () => owners.createEmailLunaAutomationShadowWorkerKernel({
-    ...workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    ...workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
     authorize_dispatch: true,
   });
   assert.throws(keyKernelAttempt);

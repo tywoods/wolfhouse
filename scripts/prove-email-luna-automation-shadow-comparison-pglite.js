@@ -20,7 +20,11 @@ const UP_093 = fs.readFileSync(path.join(ROOT, 'database/migrations/093_tenant_e
 const DOWN_093 = fs.readFileSync(path.join(ROOT, 'database/migrations/093_tenant_email_luna_automation_shadow_outcomes_down.sql'), 'utf8');
 const UP_094 = fs.readFileSync(path.join(ROOT, 'database/migrations/094_tenant_email_luna_automation_shadow_outcome_identity_match.sql'), 'utf8');
 const DOWN_094 = fs.readFileSync(path.join(ROOT, 'database/migrations/094_tenant_email_luna_automation_shadow_outcome_identity_match_down.sql'), 'utf8');
+const UP_095 = fs.readFileSync(path.join(ROOT, 'database/migrations/095_tenant_email_luna_automation_claim_scoped.sql'), 'utf8');
+const DOWN_095 = fs.readFileSync(path.join(ROOT, 'database/migrations/095_tenant_email_luna_automation_claim_scoped_down.sql'), 'utf8');
 const b1 = require('./prove-email-luna-automation-issuance-material-pglite');
+const { provisionEmailLunaAutomationPrincipal } = require('./lib/email-luna-automation-principal-provision');
+const WORKER_ROLE = 'luna_ch4b6_worker';
 const {
   EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_RUNTIME_WIRED,
   EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH,
@@ -78,7 +82,7 @@ function producerDeps(loaner, clientId, locationId) {
   };
 }
 
-function workerDeps(loaner, clientId, locationId, ownerToken) {
+function workerDeps(loaner, clientId, locationId, ownerToken, endpointId) {
   return {
     withTransactionClient: loaner.withTransactionClient,
     env: {
@@ -90,6 +94,7 @@ function workerDeps(loaner, clientId, locationId, ownerToken) {
       location_id: locationId,
       location_key: 'sunset-somo',
       shadow_enabled: true,
+      endpoint_id: endpointId || b1.ids.endpoint,
     },
     owner_token: ownerToken,
   };
@@ -235,16 +240,47 @@ async function provePglite(PGlite) {
   await db.exec(b1.UP);
   await db.exec(UP_093);
   await db.exec(UP_094);
+  await db.exec(UP_095);
   await db.exec(UP_070);
-  const loaner = b1.createLoaner(db);
+  await b1.revokePublicExecuteOutsideCatalogs(db);
+  await provisionEmailLunaAutomationPrincipal(b1.exclusiveSession(db), {
+    roleName: WORKER_ROLE,
+    kind: 'worker',
+    client_id: ids.client,
+    location_id: ids.location,
+    location_key: 'sunset-somo',
+    password: b1.PASSWORD,
+    apply: true,
+  });
+  const loaner = {
+    async withTransactionClient(work) {
+      await db.exec('SET SESSION AUTHORIZATION postgres');
+      return b1.createLoaner(db).withTransactionClient(work);
+    },
+  };
+  const workerLoaner = {
+    async withTransactionClient(work) {
+      await db.exec(`SET SESSION AUTHORIZATION ${WORKER_ROLE}`);
+      try {
+        return await work({
+          async query(text, params) {
+            return db.query(text, params);
+          },
+        });
+      } finally {
+        await db.exec('SET SESSION AUTHORIZATION postgres');
+      }
+    },
+  };
   const outcomeStore = owners.createEmailLunaAutomationShadowOutcomeStore(loaner);
   const assertProjection = owners.assertEmailLunaAutomationShadowComparisonProjection;
 
   const persisted = await persistPending(owners, loaner, ids, ids.operation);
   const kernel = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
   );
   const first = await kernel.processNextShadowClaim();
+  await db.exec('SET SESSION AUTHORIZATION postgres');
   assert.equal(first.status, 'would_send');
   assert.equal(first.state, 'shadow_captured');
   assert.equal(first.terminal, true);
@@ -302,7 +338,7 @@ async function provePglite(PGlite) {
 
   owners = loadOwners();
   const restartKernel = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
   );
   const restarted = await restartKernel.processNextShadowClaim();
   assert.equal(restarted.status, 'empty');
@@ -359,7 +395,7 @@ async function provePglite(PGlite) {
   owners = loadOwners();
   const reboundPersisted = await persistPending(owners, loaner, ids, reboundOp);
   const reboundKernel = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
   );
   const reboundCaptured = await reboundKernel.processNextShadowClaim();
   assert.equal(reboundCaptured.status, 'would_send');
@@ -407,10 +443,10 @@ async function provePglite(PGlite) {
   owners = loadOwners();
   await persistPending(owners, loaner, ids, concurrentOp);
   const leftKernel = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
   );
   const rightKernel = owners.createEmailLunaAutomationShadowWorkerKernel(
-    workerDeps(loaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
+    workerDeps(workerLoaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
   );
   const [left, right] = await Promise.all([
     leftKernel.processNextShadowClaim(),
@@ -489,6 +525,8 @@ module.exports = {
   DOWN_093,
   UP_094,
   DOWN_094,
+  UP_095,
+  DOWN_095,
   loadOwners,
   persistPending,
   producerDeps,

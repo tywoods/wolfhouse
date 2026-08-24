@@ -137,6 +137,8 @@ const EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT = objectFreeze({
   no_create_role_in_093: true,
   no_grant_in_094: true,
   no_create_role_in_094: true,
+  no_grant_in_095: true,
+  no_create_role_in_095: true,
   apply_in: 'ch4_runtime_worker_and_operator_roles',
   worker_shadow_outcome_select: false,
   producer_shadow_outcome_select: false,

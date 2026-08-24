@@ -38,6 +38,7 @@ const STORE_DEPENDENCY_KEYS = objectFreeze(['withTransactionClient']);
 const ENQUEUE_KEYS = objectFreeze(['operation_id', 'envelope', 'evidence', 'decision', 'eligibility', 'draft', 'validation']);
 const CLAIM_KEYS = objectFreeze(['owner_token', 'operation_id']);
 const CLAIM_NEXT_KEYS = objectFreeze(['owner_token']);
+const CLAIM_SCOPED_KEYS = objectFreeze(['owner_token', 'client_id', 'location_id', 'location_key', 'endpoint_id']);
 const OP_OWNER_KEYS = objectFreeze(['operation_id', 'owner_token']);
 const EMAIL_LUNA_AUTOMATION_QUEUE_STATES = objectFreeze([
   'pending', 'claimed', 'handed_off', 'handoff_required', 'cancelled', 'shadow_captured',
@@ -77,6 +78,11 @@ const EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT = objectFreeze({
     'tenant_email_luna_automation_handoff',
     'tenant_email_luna_automation_terminalize_attempt_cap',
   ]),
+  scoped_claim_worker_execute_functions: objectFreeze([
+    'tenant_email_luna_automation_claim_scoped',
+  ]),
+  no_grant_in_095: true,
+  no_create_role_in_095: true,
   operator_execute_functions: objectFreeze([
     'tenant_email_luna_automation_cancel_pending',
     'tenant_email_luna_automation_require_handoff_pending',
@@ -96,6 +102,7 @@ const SQL_LOCK_ISSUANCE = `SELECT ${COLUMNS} FROM tenant_email_luna_automation_q
 const SQL_LOCK_AUDIT = `SELECT operation_id, issuance_id, client_id, location_id, location_key, endpoint_id, conversation_id, inbound_event_id FROM tenant_email_luna_policy_audit WHERE issuance_id = $1::uuid FOR SHARE`;
 const SQL_ENQUEUE = `SELECT ${COLUMNS} FROM tenant_email_luna_automation_enqueue($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::text, $7::uuid, $8::uuid, $9::uuid, $10::text, $11::text, $12::text, $13::text, $14::text)`;
 const SQL_CLAIM = `SELECT ${COLUMNS} FROM tenant_email_luna_automation_claim($1::uuid, $2::uuid)`;
+const SQL_CLAIM_SCOPED = `SELECT ${COLUMNS} FROM tenant_email_luna_automation_claim_scoped($1::uuid, $2::uuid, $3::uuid, $4::text, $5::uuid)`;
 const SQL_ATTEMPT_CAP = `SELECT ${COLUMNS} FROM tenant_email_luna_automation_terminalize_attempt_cap($1::uuid, $2::uuid)`;
 const SQL_HANDOFF = `SELECT ${COLUMNS} FROM tenant_email_luna_automation_handoff($1::uuid, $2::uuid)`;
 const SQL_CANCEL_CLAIMED = `SELECT ${COLUMNS} FROM tenant_email_luna_automation_cancel_claimed($1::uuid, $2::uuid)`;
@@ -435,6 +442,30 @@ function createEmailLunaAutomationQueueStore(dependencies) {
     }));
   }
 
+  function claimScopedAutomationOperation(input) {
+    const request = exactPlain(input, CLAIM_SCOPED_KEYS);
+    const owner = parseUuidRequired(request.owner_token);
+    const clientId = parseUuidRequired(request.client_id);
+    const locationId = parseUuidRequired(request.location_id);
+    const endpointId = parseUuidRequired(request.endpoint_id);
+    const locationKey = request.location_key;
+    if (typeof locationKey !== 'string' || !regexpTest(LOCATION_KEY_RE, locationKey) || locationKey.length > 64) throw invalid();
+    return Promise.resolve(withTransactionClient(async (client) => {
+      if (!client || typeof client !== 'object' || runtimeIsProxy(client) || typeof client.query !== 'function') throw invalid();
+      const claimed = queryRows(await Promise.resolve(client.query(SQL_CLAIM_SCOPED, [
+        owner, clientId, locationId, locationKey, endpointId,
+      ])));
+      if (claimed.length !== 1) return output([['status', 'empty']]);
+      const record = publicRecord(claimed[0]);
+      if (record.client_id !== clientId || record.location_id !== locationId
+          || record.location_key !== locationKey || record.endpoint_id !== endpointId
+          || record.lease_owner !== owner || record.state !== 'claimed') {
+        return output([['status', 'conflict'], ['record', record]]);
+      }
+      return output([['status', 'claimed'], ['record', record]]);
+    }));
+  }
+
   function handOffAutomationOperation(input) {
     const request = exactPlain(input, OP_OWNER_KEYS);
     const operationId = parseUuidRequired(request.operation_id);
@@ -474,6 +505,7 @@ function createEmailLunaAutomationQueueStore(dependencies) {
   return freeze({
     enqueueAutomationOperation,
     claimAutomationOperation,
+    claimScopedAutomationOperation,
     handOffAutomationOperation,
     cancelAutomationOperation,
     requireHandoffAutomationOperation,
@@ -493,6 +525,7 @@ module.exports = {
   SQL_LOCK_AUDIT,
   SQL_ENQUEUE,
   SQL_CLAIM,
+  SQL_CLAIM_SCOPED,
   SQL_ATTEMPT_CAP,
   SQL_HANDOFF,
   SQL_CANCEL_CLAIMED,
