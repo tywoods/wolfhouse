@@ -3,6 +3,7 @@
 const { EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT } = require('./email-luna-automation-queue-store');
 const { EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT } = require('./email-luna-automation-journal-handoff-store');
 const { EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT } = require('./email-luna-automation-issuance-material-store');
+const { EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT } = require('./email-luna-automation-shadow-outcome-store');
 
 const objectFreeze = Object.freeze;
 
@@ -75,6 +76,9 @@ const FUNCTION_SIGNATURES = objectFreeze({
   tenant_email_luna_automation_principal_authorized: 'tenant_email_luna_automation_principal_authorized(text, uuid, uuid, text)',
   tenant_email_luna_automation_persist_and_enqueue: 'tenant_email_luna_automation_persist_and_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text, jsonb)',
   tenant_email_luna_automation_issuance_material_load: 'tenant_email_luna_automation_issuance_material_load(uuid, uuid)',
+  tenant_email_luna_automation_capture_shadow: 'tenant_email_luna_automation_capture_shadow(uuid, uuid)',
+  tenant_email_luna_automation_shadow_outcome_load: 'tenant_email_luna_automation_shadow_outcome_load(uuid, uuid)',
+  tenant_email_luna_automation_shadow_outcome_project: 'tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)',
 });
 
 const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
@@ -117,6 +121,12 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   producer_worker_roles_globally_distinct: true,
   no_grant_in_092: true,
   no_create_role_in_092: true,
+  no_grant_in_093: true,
+  no_create_role_in_093: true,
+  shadow_outcome_table: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.table,
+  shadow_outcome_worker_execute_functions: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.worker_execute_functions,
+  shadow_outcome_producer_denied_execute_functions: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.worker_execute_functions,
+  worker_shadow_outcome_select: false,
   queue_rls: objectFreeze({ enable: true, force: false, command: 'SELECT' }),
   journal_rls: objectFreeze({
     enable: false,

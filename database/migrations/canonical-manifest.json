@@ -1343,6 +1343,26 @@
       "rationale": "Refuses rollback while issuance-material rows or producer principal mappings exist; otherwise drops 092 objects, restores the 088 kind constraint and principal_authorized body, restores worker EXECUTE on 088 enqueue, and removes the queue-insert material prerequisite. Second empty execution is safe.",
       "pairsWith": "092_tenant_email_luna_automation_issuance_material.sql",
       "sha256": "d08a524cf838ad41ed810adbf09720c17b336afe42d7806d8782c29606758650"
+    },
+    {
+      "id": "093_tenant_email_luna_automation_shadow_outcomes",
+      "filename": "093_tenant_email_luna_automation_shadow_outcomes.sql",
+      "order": 89,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B4: append-only Luna-side shadow comparison outcome plus claimed→shadow_captured queue terminal. One row per exact operation/issuance with 085/086/092 identity coupling. Stores derived would_send and pending_human only; no subject/body/recipient/secrets. Later-match against 070 approved|terminal is read-time. Caller cannot select decision/comparison/identities. Not a journal or provider terminal. No GRANT/CREATE ROLE.",
+      "downFilename": "093_tenant_email_luna_automation_shadow_outcomes_down.sql",
+      "sha256": "f82db36611960f2913a47136636f8eafb9cfd08ae73735c195fd9c7c4332ae18"
+    },
+    {
+      "id": "093_tenant_email_luna_automation_shadow_outcomes_down",
+      "filename": "093_tenant_email_luna_automation_shadow_outcomes_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while shadow-outcome rows exist; otherwise drops 093 objects and restores the 086 queue protect trigger and state_values/state_coupling. Second empty execution is safe.",
+      "pairsWith": "093_tenant_email_luna_automation_shadow_outcomes.sql",
+      "sha256": "1648e6022895e2601a9638731f17cb755eae8c9869563f8f358aac1c25034dce"
     }
   ]
 }

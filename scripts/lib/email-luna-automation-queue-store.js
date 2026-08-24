@@ -40,7 +40,7 @@ const CLAIM_KEYS = objectFreeze(['owner_token', 'operation_id']);
 const CLAIM_NEXT_KEYS = objectFreeze(['owner_token']);
 const OP_OWNER_KEYS = objectFreeze(['operation_id', 'owner_token']);
 const EMAIL_LUNA_AUTOMATION_QUEUE_STATES = objectFreeze([
-  'pending', 'claimed', 'handed_off', 'handoff_required', 'cancelled',
+  'pending', 'claimed', 'handed_off', 'handoff_required', 'cancelled', 'shadow_captured',
 ]);
 const EMAIL_LUNA_AUTOMATION_QUEUE_RECORD_KEYS = objectFreeze([
   'operation_id',

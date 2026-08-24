@@ -21,6 +21,10 @@ const RED = JSON.parse(fs.readFileSync(
   path.join(ROOT, 'fixtures/email-luna-automation-shadow-worker-red.json'),
   'utf8',
 ));
+const UP_093 = fs.readFileSync(
+  path.join(ROOT, 'database/migrations/093_tenant_email_luna_automation_shadow_outcomes.sql'),
+  'utf8',
+);
 const b1 = require('./prove-email-luna-automation-issuance-material-pglite');
 const {
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_RUNTIME_WIRED,
@@ -48,6 +52,7 @@ function loadOwners() {
     try { delete require.cache[require.resolve(rel)]; } catch (_) { /* missing */ }
   }
   wipe('./lib/email-luna-automation-shadow-orchestration');
+  wipe('./lib/email-luna-automation-shadow-outcome-store');
   wipe('./lib/email-luna-automation-shadow-worker');
   const shadow = require('./lib/email-luna-automation-shadow-orchestration');
   const worker = require('./lib/email-luna-automation-shadow-worker');
@@ -213,6 +218,7 @@ async function provePglite(PGlite) {
   const db = new PGlite();
   await b1.applyThrough088(db);
   await db.exec(b1.UP);
+  await db.exec(UP_093);
   const loaner = b1.createLoaner(db);
 
   const persisted = await persistPending(owners, loaner, ids, ids.operation);
@@ -230,8 +236,9 @@ async function provePglite(PGlite) {
   assert.deepEqual(Object.keys(kernel).sort(), ['processNextShadowClaim', 'requestStop', 'resume']);
   const first = await kernel.processNextShadowClaim();
   assert.equal(first.status, 'would_send');
-  assert.equal(first.state, 'claimed');
-  assert.equal(first.terminal, false);
+  assert.equal(first.state, 'shadow_captured');
+  assert.equal(first.terminal, true);
+  assert.equal(first.comparison_state, 'pending_human');
   assert.equal(first.send_allowed, false);
   assert.equal(first.auto_send_allowed, false);
   assert.equal(first.provider_invoked, false);
@@ -244,12 +251,13 @@ async function provePglite(PGlite) {
     'SELECT state, handoff_id, attempt_count, lease_owner::text AS lease_owner FROM public.tenant_email_luna_automation_queue WHERE operation_id = $1',
     [ids.operation],
   );
-  assert.equal(queued.rows[0].state, 'claimed');
+  assert.equal(queued.rows[0].state, 'shadow_captured');
   assert.equal(queued.rows[0].handoff_id, null);
   assert.equal(queued.rows[0].attempt_count, 1);
+  assert.equal(queued.rows[0].lease_owner, null);
   const journal = await db.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_outbound_send_journal');
   assert.equal(journal.rows[0].n, 0);
-  console.log('ok - GREEN claim/load/recover would-send stays claimed; zero journal rows');
+  console.log('ok - GREEN claim/load/recover would-send captures shadow_captured; zero journal rows');
 
   const other = owners.createEmailLunaAutomationShadowWorkerKernel(
     workerDeps(loaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
@@ -262,12 +270,11 @@ async function provePglite(PGlite) {
   assert.equal(right.status, 'empty');
   const still = await db.query(
     'SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_automation_queue WHERE state = $1',
-    ['claimed'],
+    ['shadow_captured'],
   );
   assert.equal(still.rows[0].n, 1);
-  console.log('ok - concurrent live claim has no second winner');
+  console.log('ok - concurrent live claim has no second winner after capture');
 
-  await expireLease(db, ids.operation);
   const staleHandoff = owners.createEmailLunaAutomationQueueStore(loaner);
   const stale = await staleHandoff.handOffAutomationOperation({
     operation_id: ids.operation,
@@ -277,59 +284,49 @@ async function provePglite(PGlite) {
   const journalStale = await db.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_outbound_send_journal');
   assert.equal(journalStale.rows[0].n, 0);
 
-  let sameOwnerSqlState = null;
-  try {
-    await db.query(
-      'SELECT operation_id FROM public.tenant_email_luna_automation_claim($1::uuid, $2::uuid)',
-      [first.lease_owner, ids.operation],
-    );
-  } catch (error) {
-    sameOwnerSqlState = error && error.code;
-  }
-  assert.equal(sameOwnerSqlState, '23514');
-  const stillExpired = await db.query(
+  const claimedAgain = await db.query(
+    'SELECT operation_id FROM public.tenant_email_luna_automation_claim($1::uuid, $2::uuid)',
+    [first.lease_owner, ids.operation],
+  );
+  assert.equal(claimedAgain.rows.length, 0);
+  const stillCaptured = await db.query(
     'SELECT state, attempt_count, lease_owner::text AS lease_owner FROM public.tenant_email_luna_automation_queue WHERE operation_id = $1',
     [ids.operation],
   );
-  assert.equal(stillExpired.rows[0].state, 'claimed');
-  assert.equal(stillExpired.rows[0].attempt_count, 1);
-  assert.equal(stillExpired.rows[0].lease_owner, first.lease_owner);
+  assert.equal(stillCaptured.rows[0].state, 'shadow_captured');
+  assert.equal(stillCaptured.rows[0].attempt_count, 1);
+  assert.equal(stillCaptured.rows[0].lease_owner, null);
 
   owners = loadOwners();
   const sameOwnerRestart = owners.createEmailLunaAutomationShadowWorkerKernel(
     workerDeps(loaner, ids.client, ids.location, ids.ownerA),
   );
   const sameOwnerReplayed = await sameOwnerRestart.processNextShadowClaim();
-  assert.equal(sameOwnerReplayed.status, 'would_send');
+  assert.equal(sameOwnerReplayed.status, 'empty');
   assert.equal(sameOwnerReplayed.terminal, false);
-  assert.notEqual(sameOwnerReplayed.lease_owner, first.lease_owner);
-  assert.notEqual(sameOwnerReplayed.lease_owner, ids.ownerA);
-  assert.equal(sameOwnerReplayed.attempt_count, 2);
-  assert.equal(sameOwnerReplayed.issuance_id, persisted.issuanceId);
   assert.equal(sameOwnerReplayed.journal_handoff, false);
 
-  await expireLease(db, ids.operation);
   owners = loadOwners();
   const restarted = owners.createEmailLunaAutomationShadowWorkerKernel(
     workerDeps(loaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
   );
   const replayed = await restarted.processNextShadowClaim();
-  assert.equal(replayed.status, 'would_send');
-  assert.equal(replayed.terminal, false);
-  assert.notEqual(replayed.lease_owner, sameOwnerReplayed.lease_owner);
-  assert.notEqual(replayed.lease_owner, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
-  assert.equal(replayed.attempt_count, 3);
-  assert.equal(replayed.issuance_id, persisted.issuanceId);
-  assert.equal(replayed.journal_handoff, false);
+  assert.equal(replayed.status, 'empty');
   const afterReplay = await db.query(
-    'SELECT state, handoff_id FROM public.tenant_email_luna_automation_queue WHERE operation_id = $1',
+    'SELECT state, handoff_id, attempt_count FROM public.tenant_email_luna_automation_queue WHERE operation_id = $1',
     [ids.operation],
   );
-  assert.equal(afterReplay.rows[0].state, 'claimed');
+  assert.equal(afterReplay.rows[0].state, 'shadow_captured');
   assert.equal(afterReplay.rows[0].handoff_id, null);
+  assert.equal(afterReplay.rows[0].attempt_count, 1);
   const journalReplay = await db.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_outbound_send_journal');
   assert.equal(journalReplay.rows[0].n, 0);
-  console.log('ok - same-owner restart after expiry reclaims; 086 still refuses same-token 23514; other-owner expiry also replays');
+  const outcomeCount = await db.query(
+    'SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_automation_shadow_outcomes WHERE operation_id = $1',
+    [ids.operation],
+  );
+  assert.equal(outcomeCount.rows[0].n, 1);
+  console.log('ok - captured outcome is unique and restart does not reclaim or exhaust attempts');
 
   const stopOp = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8';
   owners = loadOwners();
