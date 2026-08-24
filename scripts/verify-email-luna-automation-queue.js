@@ -34,6 +34,7 @@ const {
   SQL_LOCK_AUDIT,
   SQL_ENQUEUE,
   SQL_CLAIM,
+  SQL_CLAIM_SCOPED,
   SQL_ATTEMPT_CAP,
   SQL_HANDOFF,
   SQL_CANCEL_CLAIMED,
@@ -483,6 +484,7 @@ assert.deepEqual(Object.keys(queueModule).sort(), [
   'SQL_ATTEMPT_CAP',
   'SQL_CANCEL_CLAIMED',
   'SQL_CLAIM',
+  'SQL_CLAIM_SCOPED',
   'SQL_ENQUEUE',
   'SQL_HANDOFF',
   'SQL_LOCK_AUDIT',
@@ -491,7 +493,8 @@ assert.deepEqual(Object.keys(queueModule).sort(), [
   'SQL_REQUIRE_HANDOFF_CLAIMED',
   'createEmailLunaAutomationQueueStore',
 ]);
-assert.match(SQL_CLAIM, /tenant_email_luna_automation_claim/);
+assert.match(SQL_CLAIM, /tenant_email_luna_automation_claim\(/);
+assert.match(SQL_CLAIM_SCOPED, /tenant_email_luna_automation_claim_scoped/);
 assert.match(SQL_ATTEMPT_CAP, /tenant_email_luna_automation_terminalize_attempt_cap/);
 assert.match(SQL_ENQUEUE, /tenant_email_luna_automation_enqueue/);
 assert.match(SQL_HANDOFF, /tenant_email_luna_automation_handoff/);
@@ -528,6 +531,11 @@ assert.equal(
 assert.equal(EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.no_custom_guc, true);
 assert.equal(EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.no_synthetic_runtime_role_in_migration, true);
 assert.equal(EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.no_grant_in_086, true);
+assert.deepEqual(EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.scoped_claim_worker_execute_functions.slice(), [
+  'tenant_email_luna_automation_claim_scoped',
+]);
+assert.equal(EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.no_grant_in_095, true);
+assert.equal(EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.no_create_role_in_095, true);
 assert.match(SQL_ATTEMPT_CAP, /tenant_email_luna_automation_terminalize_attempt_cap\(\$1::uuid, \$2::uuid\)/);
 assert.match(SQL_LOCK_AUDIT, /inbound_event_id/);
 console.log('  PASS  store remains import-inert with a closed claim/enqueue surface');

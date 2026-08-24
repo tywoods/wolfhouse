@@ -16,6 +16,7 @@ const {
   EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT,
   ROLE_ATTRIBUTES,
   RESERVED_ROLE_NAMES,
+  FUNCTION_SIGNATURES,
   createRoleSql,
   createRoleSqlPlan,
   executeFunctionsFor,
@@ -152,6 +153,17 @@ assert.equal(executeFunctionsFor('producer').includes('tenant_email_luna_automat
 assert.equal(executeFunctionsFor('producer').includes('tenant_email_luna_automation_principal_authorized(text, uuid, uuid, text)'), false);
 assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.kinds.includes('producer'), true);
 assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.producer_queue_select, false);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_grant_in_095, true);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_create_role_in_095, true);
+assert.equal(
+  FUNCTION_SIGNATURES.tenant_email_luna_automation_claim_scoped,
+  'tenant_email_luna_automation_claim_scoped(uuid, uuid, uuid, text, uuid)',
+);
+assert.deepEqual(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.scoped_claim_worker_execute_functions.slice(), [
+  'tenant_email_luna_automation_claim_scoped',
+]);
+assert.equal(executeFunctionsFor('worker').includes(FUNCTION_SIGNATURES.tenant_email_luna_automation_claim_scoped), false);
+assert.equal(executeFunctionsFor('producer').includes(FUNCTION_SIGNATURES.tenant_email_luna_automation_claim_scoped), false);
 
 assert.match(DOWN_088, /088_down_refused/);
 assert.match(DOWN_088, /DISABLE ROW LEVEL SECURITY/);

@@ -15,6 +15,8 @@ const {
   ENV_LOCATION_ID,
   ENV_LOCATION_KEY,
   ENV_ENDPOINT_ID,
+  ENV_REPLICA_COUNT,
+  MIGRATION_095_ID,
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   SUNSET_LOCATION_KEY,
@@ -71,6 +73,8 @@ assert.equal(SUNSET_LOCATION_KEY, 'sunset-somo');
 assert.equal(SHADOW_MODE, 'shadow');
 assert.equal(MIGRATION_093_ID, '093_tenant_email_luna_automation_shadow_outcomes');
 assert.equal(MIGRATION_094_ID, '094_tenant_email_luna_automation_shadow_outcome_identity_match');
+assert.equal(MIGRATION_095_ID, '095_tenant_email_luna_automation_claim_scoped');
+assert.equal(ENV_REPLICA_COUNT, 'EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT');
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.unique_human_would_send, 'staff_action_observed');
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.unique_human_kind, 'inbound_workflow_identity');
 assert.equal(RED.id, 'email-luna-automation-shadow-runtime-composition.ch4b5-red.v1');
@@ -98,8 +102,11 @@ assert.equal(/authorize_dispatch:\s*true/.test(COMP_SRC), false);
 assert.equal(/console\.log/.test(COMP_SRC), false);
 assert.match(STAFF_API_SRC, /email-luna-automation-shadow-sunset-staging-runtime-composition/);
 assert.match(STAFF_API_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS\.runtime_activation === true/);
-assert.match(STAFF_API_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME\.stop\(\)/);
-assert.doesNotMatch(STAFF_API_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED|email-luna-automation-shadow-worker/);
+assert.match(STAFF_API_SRC, /createEmailLunaAutomationShadowWorkerConnection/);
+assert.match(STAFF_API_SRC, /drainStaffApiEmailRuntimes/);
+assert.doesNotMatch(STAFF_API_SRC, /withTransactionClient:\s*\(work\)\s*=>\s*_withPgClientImpl/);
+assert.match(STAFF_API_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME\.stop\(\)|drainStaffApiEmailRuntimes/);
+assert.doesNotMatch(STAFF_API_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED|email-luna-automation-shadow-worker'/);
 assert.doesNotMatch(STAFF_API_SRC, /email-luna-automation-shadow-orchestration|EMAIL_LUNA_AUTOMATION_SHADOW_ENABLED/);
 assert.doesNotMatch(COMPOSE_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_ENABLED=true/);
 assert.doesNotMatch(DOCKERFILE_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_ENABLED/);
@@ -117,6 +124,9 @@ function enabledEnv(patch = {}) {
     EMAIL_LUNA_AUTOMATION_SHADOW_LOCATION_ID: L,
     EMAIL_LUNA_AUTOMATION_SHADOW_LOCATION_KEY: 'sunset-somo',
     EMAIL_LUNA_AUTOMATION_SHADOW_ENDPOINT_ID: E,
+    EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: '1',
+    EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_DATABASE_URL: 'postgres://luna_shadow_worker:worker-secret@127.0.0.1:5432/sunset',
+    WOLFHOUSE_DATABASE_URL: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset',
     ...patch,
   };
 }
@@ -150,7 +160,15 @@ for (const [label, env] of [
   ['missing worker flag', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED: undefined })],
   ['missing producer flag', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_ENABLED: undefined })],
   ['auto send refused', enabledEnv({ LUNA_AUTO_SEND_ENABLED: 'true' })],
+  ['auto send TRUE refused', enabledEnv({ LUNA_AUTO_SEND_ENABLED: 'TRUE' })],
+  ['auto send 1 refused', enabledEnv({ LUNA_AUTO_SEND_ENABLED: '1' })],
+  ['auto send yes refused', enabledEnv({ LUNA_AUTO_SEND_ENABLED: 'yes' })],
+  ['auto send on refused', enabledEnv({ LUNA_AUTO_SEND_ENABLED: 'on' })],
   ['outbound refused', enabledEnv({ EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED: 'true' })],
+  ['replica 2 refused', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: '2' })],
+  ['replica missing refused', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: undefined })],
+  ['owner pool DSN refused', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_DATABASE_URL: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset' })],
+  ['worker DSN missing refused', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_DATABASE_URL: undefined })],
 ]) {
   const snapshot = resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(env);
   assert.equal(snapshot.runtime_activation, false, label);
@@ -225,6 +243,9 @@ function schemaRow(patch = {}) {
     capture_fn: true,
     load_fn: true,
     project_fn: true,
+    scoped_claim_fn: true,
+    session_user: 'luna_shadow_worker',
+    table_owner: 'wolfhouse',
     project_def: "matched := 'staff_action_observed'; pending_human",
     ...patch,
   };
@@ -346,6 +367,69 @@ async function main() {
   assert.equal(stopped, true);
   assert.equal(drainTimerState.cleared >= 1, true);
   console.log('  PASS  stop drains in-flight tick and cancels timer');
+
+  let releaseTimerTick;
+  const timerBlocked = new Promise((resolve) => { releaseTimerTick = resolve; });
+  const timerDrainState = { cleared: 0, armed: [] };
+  const timerRuntime = createEmailLunaAutomationShadowSunsetStagingRuntimeComposition({
+    env: enabledEnv(),
+    async withTransactionClient(work) {
+      return work({
+        async query(text) {
+          if (/pg_get_functiondef/.test(String(text))) return { rows: [schemaRow()] };
+          await timerBlocked;
+          return { rows: [] };
+        },
+      });
+    },
+    timers: {
+      setTimeout(fn, ms) {
+        timerDrainState.armed.push({ fn, ms });
+        return timerDrainState.armed.length;
+      },
+      clearTimeout() { timerDrainState.cleared += 1; },
+    },
+    intervalMs: 60000,
+  });
+  await timerRuntime.start();
+  assert.equal(timerDrainState.armed.length, 1);
+  const timerTick = timerDrainState.armed[0].fn();
+  let timerStopped = false;
+  const timerStopping = timerRuntime.stop().then(() => { timerStopped = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(timerStopped, false);
+  releaseTimerTick();
+  await Promise.all([timerTick, timerStopping]);
+  assert.equal(timerStopped, true);
+  assert.equal(timerDrainState.cleared >= 1, true);
+  console.log('  PASS  M1 stop drains timer-driven B3 tick and cancels future timers');
+
+  const ownerSession = createRuntime({ schema: { session_user: 'wolfhouse', table_owner: 'wolfhouse' } });
+  await assert.rejects(
+    () => ownerSession.runtime.start(),
+    (error) => error && error.code === ERROR_CODE,
+  );
+  assert.equal(ownerSession.timerState.calls.length, 0);
+  console.log('  PASS  H1 table-owner session fails start closed');
+
+  const reboundClient = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const reboundLocation = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const reboundEndpoint = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const rebound = createEmailLunaAutomationShadowSunsetStagingRuntimeComposition({
+    env: enabledEnv({
+      EMAIL_LUNA_AUTOMATION_SHADOW_CLIENT_ID: reboundClient,
+      EMAIL_LUNA_AUTOMATION_SHADOW_LOCATION_ID: reboundLocation,
+      EMAIL_LUNA_AUTOMATION_SHADOW_ENDPOINT_ID: reboundEndpoint,
+    }),
+    withTransactionClient: inertLoaner,
+    timers,
+    intervalMs: 60000,
+  });
+  assert.equal(rebound.getBinding().client_id, reboundClient);
+  assert.equal(rebound.getBinding().location_id, reboundLocation);
+  assert.equal(rebound.getBinding().endpoint_id, reboundEndpoint);
+  assert.notEqual(rebound.getBinding().endpoint_id, E);
+  console.log('  PASS  valid UUID rebound is a distinct runtime bind, not a parse collapse');
 
   const staleKernel = {
     processNextShadowClaim() {

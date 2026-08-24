@@ -10,6 +10,11 @@
  * default-off: explicit start() after exact independent flags + Sunset
  * tenant/location/endpoint/environment gates. Provider-inert:
  * no dispatch authorization, no journal handoff.
+ *
+ * Replica topology is fail-closed: EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT
+ * must be the exact string '1'. Process concurrency=1 plus SKIP LOCKED prevents
+ * duplicate claims on one replica; enabling this composition on multiple Staff API
+ * replicas still starts multiple workers. That is not global concurrency=1.
  */
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
@@ -23,8 +28,13 @@ const {
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONCURRENCY,
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_MIN_INTERVAL_MS,
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_MAX_INTERVAL_MS,
+  EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_STOP_DRAIN_TIMEOUT_MS,
   ENV_SHADOW_WORKER_ENABLED,
 } = require('./email-luna-automation-shadow-worker');
+const {
+  ENV_WORKER_DATABASE_URL,
+  resolveEmailLunaAutomationShadowWorkerConnectionConfig,
+} = require('./email-luna-automation-shadow-worker-connection');
 const {
   isEmailLunaAutomationShadowEnabled,
   EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_WIRED,
@@ -63,12 +73,15 @@ const ENV_TENANT = 'DEFAULT_CLIENT_SLUG';
 const ENV_AUTO_SEND = 'LUNA_AUTO_SEND_ENABLED';
 const ENV_OUTBOUND = 'EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED';
 const ENV_DRAFT_RUNTIME = 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED';
+const ENV_REPLICA_COUNT = 'EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT';
+const nativeSetTimeout = setTimeout;
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SUNSET_TENANT = 'sunset';
 const SUNSET_LOCATION_KEY = 'sunset-somo';
 const SHADOW_MODE = 'shadow';
 const MIGRATION_093_ID = '093_tenant_email_luna_automation_shadow_outcomes';
 const MIGRATION_094_ID = '094_tenant_email_luna_automation_shadow_outcome_identity_match';
+const MIGRATION_095_ID = '095_tenant_email_luna_automation_claim_scoped';
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ERROR_CODE = 'EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_INVALID';
 const DISABLED_CODE = 'EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_DISABLED';
@@ -83,6 +96,7 @@ const COMPOSITION_ENV_KEYS = objectFreeze([
   ENV_LOCATION_ID,
   ENV_LOCATION_KEY,
   ENV_ENDPOINT_ID,
+  ENV_REPLICA_COUNT,
 ]);
 const CREATE_KEYS = objectFreeze(['env', 'withTransactionClient', 'timers', 'intervalMs']);
 const TIMER_KEYS = objectFreeze(['setTimeout', 'clearTimeout']);
@@ -104,6 +118,17 @@ const SCHEMA_SQL = [
   "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_capture_shadow(uuid, uuid)') IS NOT NULL AS capture_fn,",
   "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_shadow_outcome_load(uuid, uuid)') IS NOT NULL AS load_fn,",
   "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)') IS NOT NULL AS project_fn,",
+  "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_claim_scoped(uuid, uuid, uuid, text, uuid)') IS NOT NULL AS scoped_claim_fn,",
+  '  session_user::text AS session_user,',
+  '  (',
+  '    SELECT r.rolname::text',
+  '      FROM pg_catalog.pg_roles r',
+  '      JOIN pg_catalog.pg_class c ON c.relowner = r.oid',
+  '      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
+  "     WHERE n.nspname = 'public'",
+  "       AND c.relname = 'tenant_email_luna_automation_queue'",
+  "       AND c.relkind = 'r'",
+  '  ) AS table_owner,',
   '  CASE',
   "    WHEN pg_catalog.to_regprocedure('public.tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)') IS NULL THEN NULL",
   "    ELSE pg_catalog.pg_get_functiondef('public.tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)'::pg_catalog.regprocedure)",
@@ -225,11 +250,32 @@ function readBinding(env) {
   };
 }
 
+function isConflictTruthy(raw) {
+  if (raw === true) return true;
+  if (typeof raw !== 'string') return false;
+  const value = stringToLowerCase(stringTrim(raw));
+  return value === 'true' || value === '1' || value === 'yes' || value === 'on';
+}
+
 function refusedCapabilities(env) {
-  return envFlag(env, ENV_AUTO_SEND)
-    || envFlag(env, ENV_OUTBOUND)
-    || ownData(env, ENV_AUTO_SEND) === true
-    || ownData(env, ENV_OUTBOUND) === true;
+  return isConflictTruthy(ownData(env, ENV_AUTO_SEND))
+    || isConflictTruthy(ownData(env, ENV_OUTBOUND));
+}
+
+function replicaCountExact(env) {
+  return ownData(env, ENV_REPLICA_COUNT) === '1';
+}
+
+function workerConnectionReady(env) {
+  try {
+    const config = resolveEmailLunaAutomationShadowWorkerConnectionConfig({
+      env,
+      appConnectionString: ownData(env, 'WOLFHOUSE_DATABASE_URL') || ownData(env, 'DATABASE_URL'),
+    });
+    return Boolean(config && config.ok === true);
+  } catch (_) {
+    return false;
+  }
 }
 
 function flagsExact(env) {
@@ -252,20 +298,27 @@ function childGatesEnabled(env, binding) {
     location_id: binding.location_id,
     location_key: SUNSET_LOCATION_KEY,
   };
-  const gate = {
+  const producerGate = {
     client_id: binding.client_id,
     location_id: binding.location_id,
     location_key: SUNSET_LOCATION_KEY,
     shadow_enabled: true,
   };
+  const workerGate = {
+    client_id: binding.client_id,
+    location_id: binding.location_id,
+    location_key: SUNSET_LOCATION_KEY,
+    shadow_enabled: true,
+    endpoint_id: binding.endpoint_id,
+  };
   return isEmailLunaAutomationShadowEnabled({
     env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, [ENV_SHADOW_ENABLED]: 'true' },
-    tenant_location_gate: gate,
+    tenant_location_gate: producerGate,
     authority,
   }) === true
     && isEmailLunaAutomationShadowWorkerEnabled({
       env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, [ENV_SHADOW_WORKER_ENABLED]: 'true' },
-      tenant_location_gate: gate,
+      tenant_location_gate: workerGate,
       authority,
     }) === true;
 }
@@ -342,6 +395,32 @@ function resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(env) {
         ['reason', reason],
       ]);
     }
+    if (!replicaCountExact(env)) {
+      return output([
+        ['ok', false],
+        ['runtime_activation', false],
+        ['composition_wired', true],
+        ['provider_capability', false],
+        ['journal_handoff', false],
+        ['mode', SHADOW_MODE],
+        ['comparison_state_label', EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.unique_human_would_send],
+        ['comparison_kind', EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.unique_human_kind],
+        ['reason', 'replica_topology_unproven'],
+      ]);
+    }
+    if (!workerConnectionReady(env)) {
+      return output([
+        ['ok', false],
+        ['runtime_activation', false],
+        ['composition_wired', true],
+        ['provider_capability', false],
+        ['journal_handoff', false],
+        ['mode', SHADOW_MODE],
+        ['comparison_state_label', EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.unique_human_would_send],
+        ['comparison_kind', EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.unique_human_kind],
+        ['reason', 'worker_connection_required'],
+      ]);
+    }
     return output([
       ['ok', true],
       ['runtime_activation', true],
@@ -395,6 +474,7 @@ function createEmailLunaAutomationShadowSunsetStagingRuntimeComposition(dependen
       location_id: binding.location_id,
       location_key: SUNSET_LOCATION_KEY,
       shadow_enabled: true,
+      endpoint_id: binding.endpoint_id,
     },
     owner_token: ownerToken,
   });
@@ -422,6 +502,9 @@ function createEmailLunaAutomationShadowSunsetStagingRuntimeComposition(dependen
     if (!row || row.outcomes_table !== true || row.capture_fn !== true || row.load_fn !== true || row.project_fn !== true) {
       throw invalid();
     }
+    if (row.scoped_claim_fn !== true) throw invalid();
+    if (typeof row.session_user !== 'string' || typeof row.table_owner !== 'string') throw invalid();
+    if (row.session_user === row.table_owner) throw invalid();
     if (!projectDefSafe(row.project_def)) throw invalid();
     schemaVerified = true;
   }
@@ -465,8 +548,18 @@ function createEmailLunaAutomationShadowSunsetStagingRuntimeComposition(dependen
 
   async function stop() {
     started = false;
-    loop.stop();
-    if (tickPromise) await tickPromise;
+    const loopStop = Promise.resolve(loop.stop());
+    const currentTick = tickPromise;
+    await Promise.race([
+      Promise.all([
+        loopStop,
+        currentTick ? currentTick.then(() => {}, () => {}) : Promise.resolve(),
+      ]),
+      new Promise((resolve) => {
+        const handle = nativeSetTimeout(resolve, EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_STOP_DRAIN_TIMEOUT_MS);
+        if (handle && typeof handle.unref === 'function') handle.unref();
+      }),
+    ]);
   }
 
   return freeze({
@@ -492,12 +585,15 @@ module.exports = objectFreeze({
   ENV_LOCATION_ID,
   ENV_LOCATION_KEY,
   ENV_ENDPOINT_ID,
+  ENV_REPLICA_COUNT,
+  ENV_WORKER_DATABASE_URL,
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   SUNSET_LOCATION_KEY,
   SHADOW_MODE,
   MIGRATION_093_ID,
   MIGRATION_094_ID,
+  MIGRATION_095_ID,
   SCHEMA_SQL,
   COMPOSITION_ENV_KEYS,
   ERROR_CODE,

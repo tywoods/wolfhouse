@@ -18,6 +18,8 @@ const {
 const {
   runEmailLunaAutomationShadowRuntimePreflight,
 } = require('./lib/email-luna-automation-shadow-runtime-preflight');
+const { provisionEmailLunaAutomationPrincipal } = require('./lib/email-luna-automation-principal-provision');
+const WORKER_ROLE = 'luna_ch4b6_worker';
 
 const ROOT = path.resolve(__dirname, '..');
 const RED = JSON.parse(fs.readFileSync(
@@ -56,6 +58,9 @@ function enabledEnv() {
     EMAIL_LUNA_AUTOMATION_SHADOW_LOCATION_ID: L,
     EMAIL_LUNA_AUTOMATION_SHADOW_LOCATION_KEY: 'sunset-somo',
     EMAIL_LUNA_AUTOMATION_SHADOW_ENDPOINT_ID: E,
+    EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: '1',
+    EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_DATABASE_URL: 'postgres://luna_shadow_worker:worker-secret@127.0.0.1:5432/sunset',
+    WOLFHOUSE_DATABASE_URL: 'postgres://postgres:owner-secret@127.0.0.1:5432/sunset',
   };
 }
 
@@ -74,11 +79,41 @@ async function provePglite(PGlite) {
   await b1.applyThrough088(db);
   await db.exec(b1.UP);
   await db.exec(b4.UP_093);
+  await db.exec(b4.UP_095);
+  await b1.revokePublicExecuteOutsideCatalogs(db);
+  await provisionEmailLunaAutomationPrincipal(b1.exclusiveSession(db), {
+    roleName: WORKER_ROLE,
+    kind: 'worker',
+    client_id: ids.client,
+    location_id: ids.location,
+    location_key: 'sunset-somo',
+    password: b1.PASSWORD,
+    apply: true,
+  });
   const owners = b4.loadOwners();
-  const loaner = b1.createLoaner(db);
+  const loaner = {
+    async withTransactionClient(work) {
+      await db.exec('SET SESSION AUTHORIZATION postgres');
+      return b1.createLoaner(db).withTransactionClient(work);
+    },
+  };
+  const workerLoaner = {
+    async withTransactionClient(work) {
+      await db.exec(`SET SESSION AUTHORIZATION ${WORKER_ROLE}`);
+      try {
+        return await work({
+          async query(text, params) {
+            return db.query(text, params);
+          },
+        });
+      } finally {
+        await db.exec('SET SESSION AUTHORIZATION postgres');
+      }
+    },
+  };
   await b4.persistPending(owners, loaner, ids, ids.operation);
   const kernel = owners.createEmailLunaAutomationShadowWorkerKernel(
-    b4.workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+    b4.workerDeps(workerLoaner, ids.client, ids.location, ids.ownerA),
   );
   const first = await kernel.processNextShadowClaim();
   assert.equal(first.status, 'would_send');
@@ -115,7 +150,7 @@ async function provePglite(PGlite) {
   };
   const runtime = createEmailLunaAutomationShadowSunsetStagingRuntimeComposition({
     env: enabledEnv(),
-    withTransactionClient: loaner.withTransactionClient,
+    withTransactionClient: workerLoaner.withTransactionClient,
     timers,
     intervalMs: 60000,
   });
@@ -128,7 +163,10 @@ async function provePglite(PGlite) {
 
   const preflight = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv(),
-    query: (sql, params) => db.query(sql, params),
+    async query(sql, params) {
+      await db.exec(`SET SESSION AUTHORIZATION ${WORKER_ROLE}`);
+      return db.query(sql, params);
+    },
   });
   assert.equal(preflight.ok, true);
   assert.equal(preflight.schema_applied, true);
@@ -137,6 +175,7 @@ async function provePglite(PGlite) {
   assert.equal(preflight.comparison_state_label, 'staff_action_observed');
   console.log('ok - preflight sees applied 094 identity label and does not start runtime');
 
+  await db.exec('SET SESSION AUTHORIZATION postgres');
   await db.exec(b4.DOWN_094);
   const restored = await db.query(
     'SELECT comparison_state FROM public.tenant_email_luna_automation_shadow_outcome_project($1::uuid, $2::uuid)',

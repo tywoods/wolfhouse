@@ -90,6 +90,7 @@ assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.proves_provider
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.proves_same_luna_draft, false);
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.proves_content_agreement, false);
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.no_grant_in_094, true);
+assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.no_grant_in_095, true);
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.human_owner, 'tenant_email_reply_approvals');
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.infer_from_absence, false);
 assert.equal(EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH.model_based, false);

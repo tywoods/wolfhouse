@@ -41,6 +41,9 @@ function enabledEnv(patch = {}) {
     EMAIL_LUNA_AUTOMATION_SHADOW_LOCATION_ID: L,
     EMAIL_LUNA_AUTOMATION_SHADOW_LOCATION_KEY: 'sunset-somo',
     EMAIL_LUNA_AUTOMATION_SHADOW_ENDPOINT_ID: E,
+    EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: '1',
+    EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_DATABASE_URL: 'postgres://luna_shadow_worker:worker-secret@127.0.0.1:5432/sunset',
+    WOLFHOUSE_DATABASE_URL: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset',
     ...patch,
   };
 }
@@ -71,9 +74,12 @@ async function main() {
   assert.equal(absent.proves_same_luna_draft, false);
   assert.equal(absent.proves_content_agreement, false);
   assert.equal(absent.migration_files_ready, true);
+  assert.equal(absent.files_ready, true);
   assert.equal(absent.principal_contract_ready, true);
   assert.equal(absent.schema_applied, 'unknown');
-  assert.equal(absent.ok, true);
+  assert.equal(absent.ok, false);
+  assert.equal(absent.inspect_required, true);
+  assert.ok(absent.blockers.includes('inspect_required'));
   assert.equal(absent.readiness_reason, 'default_off');
   console.log('  PASS  default-off preflight is read-only, files ready, identity labels safe, does not start');
 
@@ -125,6 +131,9 @@ async function main() {
         rows: [{
           outcomes_table: false,
           principal_fn: false,
+          scoped_claim_fn: false,
+          session_user: 'luna_shadow_worker',
+          table_owner: 'wolfhouse',
           project_def: null,
         }],
       };
@@ -147,6 +156,9 @@ async function main() {
         rows: [{
           outcomes_table: true,
           principal_fn: true,
+          scoped_claim_fn: true,
+          session_user: 'luna_shadow_worker',
+          table_owner: 'wolfhouse',
           project_def: "matched := 'agreement'",
         }],
       };
@@ -164,6 +176,9 @@ async function main() {
         rows: [{
           outcomes_table: true,
           principal_fn: true,
+          scoped_claim_fn: true,
+          session_user: 'luna_shadow_worker',
+          table_owner: 'wolfhouse',
           project_def: "matched := 'staff_action_observed'",
         }],
       };
@@ -175,8 +190,69 @@ async function main() {
   assert.equal(readySchema.schema_applied, true);
   assert.equal(readySchema.identity_label_applied, true);
   assert.equal(readySchema.principal_applied, true);
+  assert.equal(readySchema.scoped_claim_applied, true);
+  assert.equal(readySchema.worker_principal_ok, true);
+  assert.equal(readySchema.inspect_required, false);
   assert.deepEqual(readySchema.blockers.slice(), []);
   console.log('  PASS  ready schema + identity label still does not start, apply, or provision');
+
+  const leakSecret = 'super-secret-password-do-not-leak';
+  const leakUuid = '99999999-9999-4999-8999-999999999999';
+  const leaked = await runEmailLunaAutomationShadowRuntimePreflight({
+    env: enabledEnv(),
+    async query() {
+      const error = new Error(`password=${leakSecret} uuid=${leakUuid} code=42501`);
+      error.code = '42501';
+      throw error;
+    },
+  });
+  assert.equal(leaked.ok, false);
+  assert.ok(leaked.blockers.includes('schema_inspect_failed'));
+  assert.equal(leaked.blockers.includes('migration_not_applied'), false);
+  const leakedDump = JSON.stringify(leaked);
+  assert.equal(leakedDump.includes(leakSecret), false);
+  assert.equal(leakedDump.includes(leakUuid), false);
+  assert.equal(leakedDump.includes('42501'), false);
+  assert.equal(leakedDump.includes('password='), false);
+  console.log('  PASS  M3 query throw is generic schema_inspect_failed and does not leak secrets/UUIDs/SQLSTATE');
+
+  const ownerSession = await runEmailLunaAutomationShadowRuntimePreflight({
+    env: enabledEnv(),
+    async query() {
+      return {
+        rows: [{
+          outcomes_table: true,
+          principal_fn: true,
+          scoped_claim_fn: true,
+          session_user: 'wolfhouse',
+          table_owner: 'wolfhouse',
+          project_def: "matched := 'staff_action_observed'",
+        }],
+      };
+    },
+  });
+  assert.equal(ownerSession.ok, false);
+  assert.ok(ownerSession.blockers.includes('worker_principal_unproven'));
+  console.log('  PASS  table-owner session_user is a preflight blocker');
+
+  const replica = await runEmailLunaAutomationShadowRuntimePreflight({
+    env: enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: '2' }),
+    async query() {
+      return {
+        rows: [{
+          outcomes_table: true,
+          principal_fn: true,
+          scoped_claim_fn: true,
+          session_user: 'luna_shadow_worker',
+          table_owner: 'wolfhouse',
+          project_def: "matched := 'staff_action_observed'",
+        }],
+      };
+    },
+  });
+  assert.equal(replica.ok, false);
+  assert.ok(replica.blockers.includes('replica_topology_unproven'));
+  console.log('  PASS  M5 replica count other than exact 1 is fail-closed');
 
   const sql094 = fs.readFileSync(path.join(ROOT, 'database/migrations/094_tenant_email_luna_automation_shadow_outcome_identity_match.sql'), 'utf8');
   assert.match(sql094, /inbound-workflow identity only/);

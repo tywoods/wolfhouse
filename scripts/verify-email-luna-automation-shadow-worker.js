@@ -112,13 +112,14 @@ assert.equal(/orchestrateShadowDecision/.test(WORKER_SRC), false);
 assert.equal(/authorize_dispatch:\s*true/.test(WORKER_SRC), false);
 assert.equal(/send_allowed:\s*true/.test(WORKER_SRC), false);
 assert.equal(/console\.log/.test(WORKER_SRC), false);
-assert.match(WORKER_SRC, /claimAutomationOperation/);
+assert.match(WORKER_SRC, /claimScopedAutomationOperation/);
 assert.match(WORKER_SRC, /loadAutomationIssuanceMaterial/);
 assert.match(WORKER_SRC, /recoverAutomationIssuance/);
 assert.match(WORKER_SRC, /requireHandoffAutomationOperation/);
 assert.match(WORKER_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED/);
 assert.doesNotMatch(RUNTIME_SRC, /email-luna-automation-shadow-worker|EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED/);
-assert.doesNotMatch(STAFF_API_SRC, /email-luna-automation-shadow-worker|EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED/);
+assert.doesNotMatch(STAFF_API_SRC, /email-luna-automation-shadow-worker'|EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED/);
+assert.match(STAFF_API_SRC, /email-luna-automation-shadow-worker-connection/);
 assert.doesNotMatch(COMPOSE_SRC, /email-luna-automation-shadow-worker|EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED/);
 assert.doesNotMatch(DOCKERFILE_SRC, /email-luna-automation-shadow-worker|EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED/);
 const workerExports = require('./lib/email-luna-automation-shadow-worker');
@@ -128,6 +129,7 @@ assert.deepEqual(Object.keys(workerExports).sort(), [
   'EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_MAX_INTERVAL_MS',
   'EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_MIN_INTERVAL_MS',
   'EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_RUNTIME_WIRED',
+  'EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_STOP_DRAIN_TIMEOUT_MS',
   'ENV_SHADOW_WORKER_ENABLED',
   'SHADOW_MODE',
   'SUNSET_DEPLOYMENT',
@@ -158,7 +160,7 @@ function env(patch = {}) {
   return { LUNA_DEPLOYMENT: 'sunset-staging', EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED: 'true', ...patch };
 }
 function gate(patch = {}) {
-  return { client_id: C, location_id: L, location_key: 'sunset-somo', shadow_enabled: true, ...patch };
+  return { client_id: C, location_id: L, location_key: 'sunset-somo', shadow_enabled: true, endpoint_id: ENDPOINT, ...patch };
 }
 function authority(patch = {}) {
   return { client_id: C, location_id: L, location_key: 'sunset-somo', ...patch };
@@ -447,6 +449,8 @@ function createMockState(options) {
     forgedLoad: options.forgedLoad === true,
     stopOnClaim: options.stopOnClaim === true,
     claimSqlState: options.claimSqlState || null,
+    foreignClaim: options.foreignClaim === true,
+    claimRowPatch: options.claimRowPatch || null,
     kernel: null,
     issuanceId: options.issuanceId,
     digest: options.digest,
@@ -467,7 +471,7 @@ function mockClient(state) {
         state.journal += 1;
         state.send += 1;
       }
-      if (/tenant_email_luna_automation_claim/.test(sql)) {
+      if (/tenant_email_luna_automation_claim_scoped/.test(sql) || /tenant_email_luna_automation_claim\(/.test(sql)) {
         if (state.stopOnClaim && state.kernel) state.kernel.requestStop();
         if (state.claimSqlState) {
           throw sqlStateError(state.claimSqlState, 'tenant_email_luna_automation_queue: illegal state transition');
@@ -481,12 +485,30 @@ function mockClient(state) {
         if (state.claimed && state.expired && state.claimOwner === params[0]) {
           throw sqlStateError('23514', 'tenant_email_luna_automation_queue: illegal state transition');
         }
+        if (/tenant_email_luna_automation_claim_scoped/.test(sql) && state.foreignClaim) {
+          const foreign = claimedRow(state.issuanceId, state.digest, params[0], 1);
+          foreign.client_id = OTHER;
+          foreign.location_id = OTHER;
+          foreign.endpoint_id = OTHER;
+          state.claimed = true;
+          state.claimOwner = params[0];
+          state.claimOwners.push(params[0]);
+          state.claimAttempts += 1;
+          return { rows: [foreign] };
+        }
+        if (/tenant_email_luna_automation_claim_scoped/.test(sql) && Array.isArray(params) && params.length >= 5) {
+          if (params[1] !== C || params[2] !== L || params[3] !== 'sunset-somo' || params[4] !== ENDPOINT) {
+            return { rows: [] };
+          }
+        }
         state.claimed = true;
         state.claimOwner = params[0];
         state.claimOwners.push(params[0]);
         state.claimAttempts += 1;
         state.expired = false;
-        return { rows: [claimedRow(state.issuanceId, state.digest, params[0], state.claimAttempts)] };
+        const row = claimedRow(state.issuanceId, state.digest, params[0], state.claimAttempts);
+        if (state.claimRowPatch) Object.assign(row, state.claimRowPatch);
+        return { rows: [row] };
       }
       if (/tenant_email_luna_automation_terminalize_attempt_cap/.test(sql)) {
         if (state.claimAttempts >= 3 && state.expired && params[1] === state.claimOwner) {
@@ -743,6 +765,30 @@ async function main() {
   assert.equal(stopDuring.queries.some((sql) => /require_handoff_claimed/.test(sql)), false);
   assert.equal(stopDuring.queries.some((sql) => /issuance_material_load/.test(sql)), false);
   console.log('  PASS  stop during claim keeps the lease nonterminal and skips load/journal');
+
+  const foreign = createMockState({ issuanceId, digest, plan, foreignClaim: true });
+  const foreignKernel = createKernel(foreign, OWNER_A);
+  const foreignResult = await foreignKernel.processNextShadowClaim();
+  assert.equal(foreignResult.status, 'conflict');
+  assert.equal(foreignResult.terminal, false);
+  assert.equal(foreign.requireCount, 0);
+  assert.equal(foreign.journal, 0);
+  assert.equal(foreign.queries.some((sql) => /require_handoff_claimed/.test(sql)), false);
+  console.log('  PASS  H1 bind mismatch never require_handoff_claimed and leaves the foreign row retryable');
+
+  const wrongEndpoint = createMockState({
+    issuanceId,
+    digest,
+    plan,
+    claimRowPatch: { endpoint_id: OTHER },
+  });
+  const wrongEndpointKernel = createKernel(wrongEndpoint, OWNER_A);
+  const wrongEndpointResult = await wrongEndpointKernel.processNextShadowClaim();
+  assert.equal(wrongEndpointResult.status, 'conflict');
+  assert.equal(wrongEndpointResult.terminal, false);
+  assert.equal(wrongEndpoint.requireCount, 0);
+  assert.equal(wrongEndpoint.queries.some((sql) => /require_handoff_claimed/.test(sql)), false);
+  console.log('  PASS  M2 valid wrong endpoint UUID does not terminalize; bindMatches includes endpoint');
 
   const missing = createMockState({ issuanceId, digest, plan, loadEmpty: true });
   const missingKernel = createKernel(missing, OWNER_A);
