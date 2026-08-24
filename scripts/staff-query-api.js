@@ -19928,6 +19928,52 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar .bc-bed-cell{padding:5px 14px}
   #tab-bed-calendar .bc-room-hdr{padding:6px 14px}
 }
+/* staff-portal-calendar:side-drawer — right rail shell (slice 1, preview open) */
+#bc-side-drawer{
+  position:fixed;
+  top:calc(var(--luna-banner-h, 140px) + 52px);
+  right:0;
+  bottom:0;
+  z-index:45;
+  width:min(420px,38vw);
+  min-width:360px;
+  display:flex;
+  flex-direction:column;
+  background:var(--surface,#F5F1EA);
+  border-left:1px solid var(--border-soft);
+  box-shadow:-8px 0 24px rgba(43,36,31,.12);
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif;
+  transform:translateX(100%);
+  transition:transform .22s ease;
+  pointer-events:none;
+}
+#bc-side-drawer.is-open{transform:none;pointer-events:auto}
+body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
+.bc-side-head{
+  flex:0 0 auto;
+  padding:14px 16px 10px;
+  border-bottom:1px solid var(--border-soft);
+}
+.bc-side-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.bc-side-title{margin:0;font-size:16px;font-weight:700;line-height:1.25;color:var(--text)}
+.bc-side-meta{margin:4px 0 0;font-size:12px;color:var(--text-2)}
+.bc-side-close{
+  flex:0 0 auto;width:28px;height:28px;padding:0;border:0;border-radius:8px;
+  background:transparent;color:var(--text-2);font-size:20px;line-height:1;cursor:pointer;
+}
+.bc-side-close:hover{background:var(--surface-soft);color:var(--text)}
+.bc-side-tabs{display:flex;gap:4px;margin-top:12px}
+.bc-side-tab{
+  flex:1 1 0;padding:6px 4px;border:1px solid var(--border-soft);border-radius:8px;
+  background:var(--surface-soft);color:var(--text-2);font-size:11px;font-weight:600;
+  text-align:center;cursor:default;
+}
+.bc-side-tab.is-on{background:var(--surface);color:var(--text);border-color:var(--tan,#D4C9BA)}
+.bc-side-body{flex:1 1 auto;overflow:auto;padding:16px;color:var(--text-2);font-size:13px;line-height:1.45}
+.bc-side-foot{flex:0 0 auto;padding:10px 16px 14px;border-top:1px solid var(--border-soft)}
+@media (max-width:768px){
+  #bc-side-drawer{display:none!important}
+}
 /* ===== BEGIN book-ui (serif typeface only; paperback restyle removed) =====
    Kept the literary serif on Booking Calendar + drawer headings; all the warm
    paperback colors/paper/spacing/borders were removed so the rest returns to the
@@ -22189,6 +22235,26 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <!-- Block detail panel (read-only) — carries "book-ui" too so drawer styling holds even if moved -->
   <div class="card${bookUiClass}" id="bc-detail" style="display:none"></div>
+
+<aside id="bc-side-drawer" class="is-open" data-mode="preview">
+  <header class="bc-side-head">
+    <div class="bc-side-head-row">
+      <div>
+        <h2 class="bc-side-title">Guest name</h2>
+        <p class="bc-side-meta">Stay dates · nights</p>
+      </div>
+      <button type="button" class="bc-side-close" id="bc-side-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="bc-side-tabs" role="tablist">
+      <span class="bc-side-tab is-on">Overview</span>
+      <span class="bc-side-tab">Service</span>
+      <span class="bc-side-tab">Transfer</span>
+      <span class="bc-side-tab">Payment</span>
+    </div>
+  </header>
+  <div class="bc-side-body" id="bc-side-body">Hover a booking will fill this panel. Bottom folder stays for now.</div>
+  <footer class="bc-side-foot" id="bc-side-foot"></footer>
+</aside>
 
 </div>
 </div><!-- /tab-bed-calendar -->
@@ -40188,10 +40254,23 @@ function bcChipKeyForCheckIn(iso){
 }
 
 var bcInitialLoadDone = false;
+function bcInitSideDrawer(){
+  var rail = el('bc-side-drawer');
+  var closeBtn = el('bc-side-close');
+  if (!rail || rail.dataset.sideWired === '1') return;
+  rail.dataset.sideWired = '1';
+  function closeRail(){ rail.classList.remove('is-open'); }
+  if (closeBtn) closeBtn.addEventListener('click', closeRail);
+  document.addEventListener('keydown', function(ev){
+    if (ev.key === 'Escape') closeRail();
+  });
+}
+
 function bcOnBedCalendarTabOpen(){
   bcInitCalendarResize();
   bcInitCalendarZoom();
   bcInitDetailCopyDelegation();
+  bcInitSideDrawer();
   var sEl = el('bc-start');
   var eEl = el('bc-end');
   if (!bcReadDateField(sEl) || !bcReadDateField(eEl)){
