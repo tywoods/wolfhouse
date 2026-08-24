@@ -7,6 +7,7 @@ var adminEmailSettingsLastData = null;
 var adminEmailSettingsView = '';
 var adminEmailSettingsConnectFailed = false;
 var adminEmailSettingsConnectFailedByProvider = {};
+var adminEmailSettingsDisconnectFailedByProvider = {};
 var adminEmailSettingsPrepareHintByProvider = {};
 var adminEmailConnectAttemptSeq = 0;
 var adminEmailConnectAttemptByProvider = {};
@@ -312,6 +313,7 @@ function clearAdminEmailProviderConnectFeedback(provider){
 function resetAdminEmailConnectFeedback(){
   adminEmailSettingsConnectFailed = false;
   adminEmailSettingsConnectFailedByProvider = {};
+  adminEmailSettingsDisconnectFailedByProvider = {};
   adminEmailSettingsPrepareHintByProvider = {};
   adminEmailConnectBusyByProvider = {};
   adminEmailConnectAttemptByProvider = {};
@@ -662,9 +664,12 @@ function wireDisconnectHandlers(body){
       })
       .catch(function(){
         setConnectBusy(section, false);
-        if (provider === 'imap_smtp' && adminEmailSettingsLastData) {
-          renderAdminEmailSettingsData(adminEmailSettingsLastData);
-          return;
+        if (provider === 'imap_smtp') {
+          adminEmailSettingsDisconnectFailedByProvider.imap_smtp = true;
+          if (adminEmailSettingsLastData) {
+            renderAdminEmailSettingsData(adminEmailSettingsLastData);
+            return;
+          }
         }
         renderAdminEmailSettingsState('error');
       });
@@ -1086,6 +1091,13 @@ function adminEmailImapCardHtml(data){
         '</p>';
     }
     html += adminEmailCapabilitiesHtml(ep);
+    if (adminEmailSettingsDisconnectFailedByProvider.imap_smtp === true) {
+      html += '<p class="portal-admin-email-card-copy" role="status" data-email-disconnect-failed>' +
+        escHtml(emailUiT('admin.email.smtpDisconnectFailed',
+          'Could not disconnect this mailbox. Try again.',
+          'No se pudo desconectar este buzón. Inténtalo de nuevo.')) +
+        '</p>';
+    }
     html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' +
       escHtml(emailUiT('admin.email.smtpDisconnectLabel', 'IMAP / SMTP disconnect', 'Desconexión IMAP / SMTP')) + '">' +
       '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-provider="imap_smtp" data-email-location-id="' +

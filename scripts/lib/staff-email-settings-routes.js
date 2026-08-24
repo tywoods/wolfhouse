@@ -602,7 +602,10 @@ function ownExactString(o, key, expected) {
 
 function publicState(endpoint, grant) {
   if (!endpoint) return 'disconnected';
-  if (endpoint.provider === 'imap_smtp' && endpoint.binding_status === 'revoked') return 'disconnected';
+  if (endpoint.provider === 'imap_smtp' && (
+    endpoint.binding_status === 'revoked'
+    || endpoint.provider_resource_id === 'disconnected'
+  )) return 'disconnected';
   if (endpoint.provider === 'imap_smtp' && grant
       && (grant.smtp_verified === true || grant.imap_verified === true)) {
     return 'connected_health';
