@@ -266,6 +266,26 @@ async function runOccupancyRaceMatrix(a, b, observer, fx) {
       ...fx, bookingId: parB, bedId: bed2.rows[0].id, start: '2026-12-01', end: '2026-12-03',
     }),
     'both');
+  const bothRows = await a.query(
+    `SELECT booking_id::text AS booking_id,
+            bed_id::text AS bed_id,
+            assignment_start_date::text AS start_date,
+            assignment_end_date::text AS end_date
+       FROM booking_beds
+      WHERE booking_id IN ($1::uuid, $2::uuid)`,
+    [parA, parB]
+  );
+  if (bothRows.rows.length !== 2) throw new Error('both_rows_missing:' + bothRows.rows.length);
+  const byId = Object.fromEntries(bothRows.rows.map((r) => [r.booking_id, r]));
+  if (!byId[parA] || !byId[parB]) throw new Error('both_booking_ids_missing');
+  if (byId[parA].bed_id !== String(fx.bedId)) throw new Error('parA_wrong_bed');
+  if (byId[parB].bed_id !== String(bed2.rows[0].id)) throw new Error('parB_wrong_bed');
+  if (byId[parA].start_date !== '2026-12-01' || byId[parA].end_date !== '2026-12-03') {
+    throw new Error('parA_wrong_range');
+  }
+  if (byId[parB].start_date !== '2026-12-01' || byId[parB].end_date !== '2026-12-03') {
+    throw new Error('parB_wrong_range');
+  }
   ok('race different beds in parallel: both commit', true);
 
   const same = id();
@@ -334,55 +354,82 @@ async function prove091OwnershipRefuse(pg) {
   ok('live 091 up/down refuse foreign and newer ownership', true);
 }
 
-async function refuseCount(pg) {
-  const r = await pg.query(
-    `SELECT count(*)::int AS n
-       FROM external_inventory_events
-      WHERE booking_id IS NOT NULL AND status = 'imported'`
-  );
-  return r.rows[0].n;
+async function tablePresent(pg, name) {
+  const r = await pg.query('SELECT to_regclass($1) AS reg', ['public.' + name]);
+  return r.rows[0].reg != null;
 }
 
-async function prove089IdentityMatrix(pg, fx, connectionId) {
-  async function insertEvent(uid, status, bookingId) {
-    await pg.query(
-      `INSERT INTO external_inventory_events (
-          connection_id, client_id, external_uid, period_start, period_end, booking_id, status
-        ) VALUES ($1, $2, $3, '2027-02-01', '2027-02-03', $4, $5)`,
-      [connectionId, fx.clientId, uid, bookingId, status]
-    );
+async function ensure089Up(pg) {
+  if (!(await tablePresent(pg, 'external_calendar_connections'))) {
+    await applySqlFile(pg, '089_external_calendar_inventory.sql');
+    await applySqlFile(pg, '090_external_calendar_inventory_tenant_integrity.sql');
   }
+}
+
+async function createBridgeConnection(pg, fx) {
+  const conn = await pg.query(
+    `INSERT INTO external_calendar_connections (client_id, name, spreadsheet_id, status)
+     VALUES ($1, 'gate-state', '12345678901234567890', 'disabled') RETURNING id`,
+    [fx.clientId]
+  );
+  return conn.rows[0].id;
+}
+
+async function run089State(pg, fx, { uid, status, bookingId, expect }) {
+  await ensure089Up(pg);
+  const connectionId = await createBridgeConnection(pg, fx);
+  await pg.query(
+    `INSERT INTO external_inventory_events (
+        connection_id, client_id, external_uid, period_start, period_end, booking_id, status
+      ) VALUES ($1, $2, $3, '2027-02-01', '2027-02-03', $4, $5)`,
+    [connectionId, fx.clientId, uid, bookingId, status]
+  );
+  let threw = null;
+  try {
+    await applySqlFile(pg, '089_external_calendar_inventory_down.sql');
+  } catch (err) {
+    threw = err;
+  }
+  if (expect === 'refuse') {
+    if (!threw || !/089_down_refused/.test(String(threw.message || threw))) {
+      throw new Error('089_down_did_not_refuse_' + uid);
+    }
+    if (!(await tablePresent(pg, 'external_calendar_connections'))) {
+      throw new Error('089_refuse_dropped_tables_' + uid);
+    }
+    await pg.query('DELETE FROM external_inventory_events');
+    ok('089 down refuses ' + uid, true);
+    return;
+  }
+  if (threw) throw new Error('089_down_unexpected_refuse_' + uid + ':' + threw.message);
+  if (await tablePresent(pg, 'external_calendar_connections')) {
+    throw new Error('089_allow_left_tables_' + uid);
+  }
+  if (await tablePresent(pg, 'external_inventory_events')) {
+    throw new Error('089_allow_left_events_' + uid);
+  }
+  ok('089 down accepts ' + uid, true);
+}
+
+async function prove089IdentityMatrix(pg, fx) {
   const linked = crypto.randomUUID();
   await insertMinimalOccupancy(pg, { ...fx, bookingId: linked, start: '2027-02-01', end: '2027-02-03' });
 
-  await insertEvent('uid-imported-linked', 'imported', linked);
-  if (await refuseCount(pg) < 1) throw new Error('imported_linked_not_counted');
-  let refused = false;
-  try { await applySqlFile(pg, '089_external_calendar_inventory_down.sql'); }
-  catch (err) { refused = /089_down_refused/.test(String(err.message || err)); }
-  if (!refused) throw new Error('089_down_did_not_refuse_imported_linked');
-  ok('089 refuses imported+linked', true);
-  await pg.query(`DELETE FROM external_inventory_events WHERE external_uid = 'uid-imported-linked'`);
-
-  await insertEvent('uid-imported-unlinked', 'imported', null);
-  if (await refuseCount(pg) !== 0) throw new Error('imported_unlinked_should_not_refuse');
-  ok('089 allow-predicate imported+unlinked', true);
-  await pg.query(`DELETE FROM external_inventory_events WHERE external_uid = 'uid-imported-unlinked'`);
-
-  await insertEvent('uid-tombstoned-linked', 'tombstoned', linked);
-  if (await refuseCount(pg) !== 0) throw new Error('tombstoned_linked_should_not_refuse');
-  ok('089 allow-predicate tombstoned+linked', true);
-  await pg.query(`DELETE FROM external_inventory_events WHERE external_uid = 'uid-tombstoned-linked'`);
-
-  await insertEvent('uid-skipped-unmapped', 'skipped_unmapped', linked);
-  if (await refuseCount(pg) !== 0) throw new Error('skipped_unmapped_should_not_refuse');
-  ok('089 allow-predicate skipped_unmapped+linked', true);
-  await pg.query(`DELETE FROM external_inventory_events WHERE external_uid = 'uid-skipped-unmapped'`);
-
-  await insertEvent('uid-skipped-conflict', 'skipped_conflict', linked);
-  if (await refuseCount(pg) !== 0) throw new Error('skipped_conflict_should_not_refuse');
-  ok('089 allow-predicate skipped_conflict+linked', true);
-  await pg.query(`DELETE FROM external_inventory_events`);
+  await run089State(pg, fx, {
+    uid: 'imported-linked', status: 'imported', bookingId: linked, expect: 'refuse',
+  });
+  await run089State(pg, fx, {
+    uid: 'imported-unlinked', status: 'imported', bookingId: null, expect: 'allow',
+  });
+  await run089State(pg, fx, {
+    uid: 'tombstoned-linked', status: 'tombstoned', bookingId: linked, expect: 'allow',
+  });
+  await run089State(pg, fx, {
+    uid: 'skipped-unmapped-linked', status: 'skipped_unmapped', bookingId: linked, expect: 'allow',
+  });
+  await run089State(pg, fx, {
+    uid: 'skipped-conflict-linked', status: 'skipped_conflict', bookingId: linked, expect: 'allow',
+  });
 
   await applySqlFile(pg, '089_external_calendar_inventory_down.sql');
   await applySqlFile(pg, '089_external_calendar_inventory_down.sql');
@@ -453,7 +500,7 @@ async function runLiveDisposableGate() {
     await applySqlFile(a, '090_external_calendar_inventory_tenant_integrity_down.sql');
     ok('live 090 down twice', true);
 
-    await prove089IdentityMatrix(a, fixture, connectionId);
+    await prove089IdentityMatrix(a, fixture);
 
     await applySqlFile(a, '089_external_calendar_inventory.sql');
     await applySqlFile(a, '090_external_calendar_inventory_tenant_integrity.sql');
@@ -558,8 +605,14 @@ async function main() {
   ok('gate closes clients independently', /Promise\.all\(\[closeQuiet\(a\), closeQuiet\(b\), closeQuiet\(observer\)\]\)/.test(gateSrc));
   ok('gate waits for advisory lock barrier', /waitForAdvisoryWait/.test(gateSrc) && /expected_overlap_conflict/.test(gateSrc));
   ok('date-change uses unused 09-05 range', /2026-09-05/.test(gateSrc) && /2026-09-07/.test(gateSrc));
+  ok('no copied 089 refuse predicate helper', !/async function refuseCount/.test(gateSrc));
+  ok('each 089 identity state applies canonical down',
+    /async function run089State/.test(gateSrc)
+    && (gateSrc.match(/089_external_calendar_inventory_down\.sql/g) || []).length >= 6);
+  ok('both-commit race queries resulting rows',
+    /both_rows_missing/.test(gateSrc) && /parA_wrong_bed/.test(gateSrc) && /parB_wrong_range/.test(gateSrc));
   ok('089 identity covers five states',
-    /imported\+unlinked/.test(gateSrc) && /tombstoned\+linked/.test(gateSrc) && /skipped_conflict\+linked/.test(gateSrc));
+    /imported-unlinked/.test(gateSrc) && /tombstoned-linked/.test(gateSrc) && /skipped-conflict-linked/.test(gateSrc));
 
   await runLiveDisposableGate();
 }
