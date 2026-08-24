@@ -115,8 +115,8 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   producer_material_select: false,
   producer_queue_select: false,
   producer_worker_roles_globally_distinct: true,
-  no_grant_in_089: true,
-  no_create_role_in_089: true,
+  no_grant_in_092: true,
+  no_create_role_in_092: true,
   queue_rls: objectFreeze({ enable: true, force: false, command: 'SELECT' }),
   journal_rls: objectFreeze({
     enable: false,

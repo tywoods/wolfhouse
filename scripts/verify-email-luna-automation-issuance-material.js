@@ -42,8 +42,8 @@ const {
 } = require('./lib/email-luna-automation-journal-handoff-store');
 
 const ROOT = path.join(__dirname, '..');
-const SQL_089 = fs.readFileSync(path.join(ROOT, 'database/migrations/089_tenant_email_luna_automation_issuance_material.sql'), 'utf8');
-const DOWN_089 = fs.readFileSync(path.join(ROOT, 'database/migrations/089_tenant_email_luna_automation_issuance_material_down.sql'), 'utf8');
+const SQL_092 = fs.readFileSync(path.join(ROOT, 'database/migrations/092_tenant_email_luna_automation_issuance_material.sql'), 'utf8');
+const DOWN_092 = fs.readFileSync(path.join(ROOT, 'database/migrations/092_tenant_email_luna_automation_issuance_material_down.sql'), 'utf8');
 const SQL_088 = fs.readFileSync(path.join(ROOT, 'database/migrations/088_tenant_email_luna_automation_principal_grants.sql'), 'utf8');
 const STORE_SRC = fs.readFileSync(require.resolve('./lib/email-luna-automation-issuance-material-store'), 'utf8');
 const POLICY_SRC = fs.readFileSync(require.resolve('./lib/email-luna-draft-policy'), 'utf8');
@@ -57,10 +57,10 @@ assert.equal(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_RUNTIME_WIRED, false);
 assert.equal(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_LOGGING_FORBIDDEN, true);
 assert.equal(EMAIL_LUNA_AUTOMATION_QUEUE_RUNTIME_WIRED, false);
 assert.equal(EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_RUNTIME_WIRED, false);
-assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_grant_in_089, true);
-assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_create_role_in_089, true);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_grant_in_092, true);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_create_role_in_092, true);
 assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.worker_material_select, false);
-assert.equal(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.no_grant_in_089, true);
+assert.equal(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.no_grant_in_092, true);
 assert.deepEqual(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.worker_table_privileges.slice(), []);
 assert.equal(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.worker_material_select, false);
 assert.deepEqual(
@@ -82,7 +82,7 @@ assert.deepEqual(
 assert.equal(
   executeFunctionsFor('worker').includes(FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue),
   true,
-  '088 worker grant list still names enqueue; 089 revokes it as ACL, not trigger inertness',
+  '088 worker grant list still names enqueue; 092 revokes it as ACL, not trigger inertness',
 );
 assert.deepEqual(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_table_privileges.slice(), []);
 assert.equal(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_material_select, false);
@@ -98,12 +98,12 @@ assert.equal(
 assert.equal(
   executeFunctionsFor('worker').includes(FUNCTION_SIGNATURES.tenant_email_luna_automation_persist_and_enqueue),
   false,
-  '088 worker grant list stays 088-only; 089 persist is producer-only',
+  '088 worker grant list stays 088-only; 092 persist is producer-only',
 );
 assert.equal(
   executeFunctionsFor('worker').includes(FUNCTION_SIGNATURES.tenant_email_luna_automation_issuance_material_load),
   false,
-  '088 worker grant list stays 088-only; 089 load is optional-when-present',
+  '088 worker grant list stays 088-only; 092 load is optional-when-present',
 );
 assert.deepEqual(executeFunctionsFor('producer').slice(), [
   FUNCTION_SIGNATURES.tenant_email_luna_automation_persist_and_enqueue,
@@ -124,36 +124,36 @@ assert.equal(RED.findings.length, 5);
 assert.ok(RED.findings.every((item) => item.severity === 'blocking' && item.red && item.green));
 console.log('  PASS  authentic RED artifact records bb3d2c40 restart failure');
 
-assert.equal(/^\s*CREATE ROLE/m.test(SQL_089), false);
-assert.equal(/^\s*GRANT /m.test(SQL_089), false);
-assert.equal(/current_setting\s*\(/.test(SQL_089), false);
-assert.equal(/PASSWORD\s+'/i.test(SQL_089), false);
-assert.match(SQL_089, /CREATE TABLE IF NOT EXISTS public\.tenant_email_luna_automation_issuance_material/);
-assert.match(SQL_089, /tenant_email_luna_automation_persist_and_enqueue/);
-assert.match(SQL_089, /tenant_email_luna_automation_issuance_material_load/);
-assert.match(SQL_089, /SET search_path TO pg_catalog, public/);
-assert.match(SQL_089, /SECURITY DEFINER/);
-assert.match(SQL_089, /principal_authorized/);
-assert.match(SQL_089, /principal_kind IN \('worker', 'operator', 'producer'\)/);
-assert.match(SQL_089, /'producer'/);
-assert.match(SQL_089, /queue insert returned no row/);
-assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_enqueue/.test(SQL_089), false);
+assert.equal(/^\s*CREATE ROLE/m.test(SQL_092), false);
+assert.equal(/^\s*GRANT /m.test(SQL_092), false);
+assert.equal(/current_setting\s*\(/.test(SQL_092), false);
+assert.equal(/PASSWORD\s+'/i.test(SQL_092), false);
+assert.match(SQL_092, /CREATE TABLE IF NOT EXISTS public\.tenant_email_luna_automation_issuance_material/);
+assert.match(SQL_092, /tenant_email_luna_automation_persist_and_enqueue/);
+assert.match(SQL_092, /tenant_email_luna_automation_issuance_material_load/);
+assert.match(SQL_092, /SET search_path TO pg_catalog, public/);
+assert.match(SQL_092, /SECURITY DEFINER/);
+assert.match(SQL_092, /principal_authorized/);
+assert.match(SQL_092, /principal_kind IN \('worker', 'operator', 'producer'\)/);
+assert.match(SQL_092, /'producer'/);
+assert.match(SQL_092, /queue insert returned no row/);
+assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_enqueue/.test(SQL_092), false);
 assert.match(SQL_088, /principal_kind IN \('worker', 'operator'\)/);
 assert.equal(/principal_kind IN \('worker', 'operator', 'producer'\)/.test(SQL_088), false);
-assert.match(DOWN_089, /producer principal mappings present/);
-assert.match(DOWN_089, /principal_kind IN \('worker', 'operator'\)/);
-assert.match(SQL_089, /issuance material missing/);
-assert.match(SQL_089, /ON DELETE RESTRICT/);
-assert.match(SQL_089, /append-only mutation refused/);
-assert.match(SQL_089, /Guest subject\/body_text stay on tenant_email_inbound_events/);
-assert.match(SQL_089, /Booking codes and payment amounts must not be copied to logs/);
-assert.match(SQL_089, /089_up_refused/);
-assert.match(SQL_089, /NOT \(grounded_facts \? 'policy_text'\)/);
-assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_enqueue/.test(SQL_089), false);
-assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_handoff/.test(SQL_089), false);
-assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_claim/.test(SQL_089), false);
+assert.match(DOWN_092, /producer principal mappings present/);
+assert.match(DOWN_092, /principal_kind IN \('worker', 'operator'\)/);
+assert.match(SQL_092, /issuance material missing/);
+assert.match(SQL_092, /ON DELETE RESTRICT/);
+assert.match(SQL_092, /append-only mutation refused/);
+assert.match(SQL_092, /Guest subject\/body_text stay on tenant_email_inbound_events/);
+assert.match(SQL_092, /Booking codes and payment amounts must not be copied to logs/);
+assert.match(SQL_092, /092_up_refused/);
+assert.match(SQL_092, /NOT \(grounded_facts \? 'policy_text'\)/);
+assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_enqueue/.test(SQL_092), false);
+assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_handoff/.test(SQL_092), false);
+assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_claim/.test(SQL_092), false);
 {
-  const persistFn = (SQL_089.split('tenant_email_luna_automation_persist_and_enqueue(')[2] || SQL_089.split('tenant_email_luna_automation_persist_and_enqueue(')[1] || '')
+  const persistFn = (SQL_092.split('tenant_email_luna_automation_persist_and_enqueue(')[2] || SQL_092.split('tenant_email_luna_automation_persist_and_enqueue(')[1] || '')
     .split('tenant_email_luna_automation_issuance_material_load')[0];
   assert.ok(persistFn.length > 100);
   assert.equal(/tenant_email_luna_automation_enqueue\(/.test(persistFn), false);
@@ -162,15 +162,15 @@ assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_cl
   assert.match(persistFn, /queue insert returned no row/);
   assert.match(persistFn, /persist_status/);
 }
-assert.match(DOWN_089, /089_down_refused/);
-assert.match(DOWN_089, /DROP TABLE IF EXISTS public\.tenant_email_luna_automation_issuance_material/);
+assert.match(DOWN_092, /092_down_refused/);
+assert.match(DOWN_092, /DROP TABLE IF EXISTS public\.tenant_email_luna_automation_issuance_material/);
 assert.equal(/^\s*GRANT /m.test(SQL_088), false);
-assert.match(SQL_089, /REVOKE ALL ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
-assert.match(SQL_089, /principal_kind = 'worker'/);
-assert.match(SQL_089, /Trigger-based inertness is not ACL separation/);
-assert.match(DOWN_089, /GRANT EXECUTE ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
-assert.equal(/^\s*GRANT /m.test(SQL_089), false);
-console.log('  PASS  089 schema is append-only, send-inert, no product GRANT, 088 SQL unrewritten, worker enqueue EXECUTE revoked');
+assert.match(SQL_092, /REVOKE ALL ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
+assert.match(SQL_092, /principal_kind = 'worker'/);
+assert.match(SQL_092, /Trigger-based inertness is not ACL separation/);
+assert.match(DOWN_092, /GRANT EXECUTE ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
+assert.equal(/^\s*GRANT /m.test(SQL_092), false);
+console.log('  PASS  092 schema is append-only, send-inert, no product GRANT, 088 SQL unrewritten, worker enqueue EXECUTE revoked');
 
 assert.match(STORE_SRC, /AUTHENTIC_LOADED_MATERIAL/);
 assert.match(STORE_SRC, /createEmailLunaAutomationIssuanceMaterialStoreInternal/);
@@ -504,19 +504,19 @@ async function main() {
     console.log('  PASS  mutation isolation kills loaded-material WeakSet seal');
   }
   {
-    const mutantSql = SQL_089.replace(
+    const mutantSql = SQL_092.replace(
       'AND public.tenant_email_luna_automation_principal_authorized(\n           \'worker\', mat.client_id, mat.location_id, mat.location_key\n         )',
       'AND TRUE',
     );
-    assert.notEqual(mutantSql, SQL_089);
+    assert.notEqual(mutantSql, SQL_092);
     console.log('  PASS  mutation isolation kills load auth-before-touch');
   }
   {
-    const mutantPersist = SQL_089.replace(
+    const mutantPersist = SQL_092.replace(
       "public.tenant_email_luna_automation_principal_authorized(\n           'producer', p_client_id, p_location_id, p_location_key",
       "public.tenant_email_luna_automation_principal_authorized(\n           'worker', p_client_id, p_location_id, p_location_key",
     );
-    assert.notEqual(mutantPersist, SQL_089);
+    assert.notEqual(mutantPersist, SQL_092);
     console.log('  PASS  mutation isolation kills persist producer-only authorization');
   }
   assert.equal(typeof digest, 'string');

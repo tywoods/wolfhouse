@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Prove migration 089 Luna issuance reconstitution material.
+ * Prove migration 092 Luna issuance reconstitution material.
  *
  * PGlite (when available):
  *   RED on 088: queue+audit+inbound cannot reconstruct author/validator after
@@ -30,8 +30,8 @@ const UP_085 = fs.readFileSync(path.join(ROOT, 'database/migrations/085_tenant_e
 const UP_086 = fs.readFileSync(path.join(ROOT, 'database/migrations/086_tenant_email_luna_automation_queue.sql'), 'utf8');
 const UP_087 = fs.readFileSync(path.join(ROOT, 'database/migrations/087_tenant_email_luna_automation_journal_handoff.sql'), 'utf8');
 const UP_088 = fs.readFileSync(path.join(ROOT, 'database/migrations/088_tenant_email_luna_automation_principal_grants.sql'), 'utf8');
-const UP_PATH = path.join(ROOT, 'database/migrations/089_tenant_email_luna_automation_issuance_material.sql');
-const DOWN_PATH = path.join(ROOT, 'database/migrations/089_tenant_email_luna_automation_issuance_material_down.sql');
+const UP_PATH = path.join(ROOT, 'database/migrations/092_tenant_email_luna_automation_issuance_material.sql');
+const DOWN_PATH = path.join(ROOT, 'database/migrations/092_tenant_email_luna_automation_issuance_material_down.sql');
 const UP = fs.readFileSync(UP_PATH, 'utf8');
 const DOWN = fs.readFileSync(DOWN_PATH, 'utf8');
 const STOCK_PG_ENV = 'EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_PG_POOL_URL';
@@ -340,7 +340,7 @@ function assertStaticContract() {
   assert.equal(RED_ARTIFACT.findings.length, 5);
   assert.equal(/^\s*GRANT /m.test(UP), false);
   assert.equal(/^\s*CREATE ROLE/m.test(UP), false);
-  assert.match(DOWN, /089_down_refused/);
+  assert.match(DOWN, /092_down_refused/);
   assert.match(DOWN, /producer principal mappings present/);
   assert.match(DOWN, /principal_kind IN \('worker', 'operator'\)/);
   assert.match(UP, /principal_kind IN \('worker', 'operator', 'producer'\)/);
@@ -348,7 +348,7 @@ function assertStaticContract() {
   assert.match(UP, /REVOKE ALL ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
   assert.match(UP, /Trigger-based inertness is not ACL separation/);
   assert.match(DOWN, /GRANT EXECUTE ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
-  console.log('ok - static 089 issuance-material contract');
+  console.log('ok - static 092 issuance-material contract');
 }
 
 async function proveRedRestart(PGlite) {
@@ -383,7 +383,7 @@ async function proveRedRestart(PGlite) {
   }));
   const materialMissing = await db.query('SELECT to_regclass(\'public.tenant_email_luna_automation_issuance_material\') AS rel');
   assert.equal(materialMissing.rows[0].rel, null);
-  console.log('ok - RED bb3d2c40: restart/new WeakSets cannot reconstruct from queue+audit+inbound; 089 table absent');
+  console.log('ok - RED bb3d2c40: restart/new WeakSets cannot reconstruct from queue+audit+inbound; 092 table absent');
 }
 
 async function provePglite(PGlite) {
@@ -572,7 +572,7 @@ async function provePglite(PGlite) {
     await db.exec(DOWN);
     assert.fail('nonempty down should refuse');
   } catch (error) {
-    assert.match(String(error.message), /089_down_refused/);
+    assert.match(String(error.message), /092_down_refused/);
   }
   await db.query('ROLLBACK');
 
@@ -604,7 +604,7 @@ async function provePglite(PGlite) {
     `SELECT pg_catalog.has_function_privilege('luna_ch4b1_worker', $1::regprocedure, 'EXECUTE') AS ok`,
     [`public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue}`],
   );
-  assert.equal(workerEnqueueAcl.rows[0].ok, false, '089 worker must not retain 088 enqueue EXECUTE');
+  assert.equal(workerEnqueueAcl.rows[0].ok, false, '092 worker must not retain 088 enqueue EXECUTE');
   const workerLoadAcl = await db.query(
     `SELECT pg_catalog.has_function_privilege('luna_ch4b1_worker', $1::regprocedure, 'EXECUTE') AS ok`,
     [`public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_issuance_material_load}`],
@@ -931,7 +931,7 @@ async function proveEmptyDown(PGlite) {
     [ids.client, ids.location],
   );
   assert.equal(producerKind.rows[0].ok, false);
-  console.log('ok - empty 089 down is repeatable and restores 088 kind constraint without producer');
+  console.log('ok - empty 092 down is repeatable and restores 088 kind constraint without producer');
 }
 
 async function proveProducerDownRefuse(PGlite) {
@@ -959,7 +959,7 @@ async function proveProducerDownRefuse(PGlite) {
   await db.query('ROLLBACK');
   const still = await db.query('SELECT to_regclass(\'public.tenant_email_luna_automation_issuance_material\') AS rel');
   assert.ok(still.rows[0].rel);
-  console.log('ok - 089 down refuses while producer mappings exist');
+  console.log('ok - 092 down refuses while producer mappings exist');
 }
 
 async function proveProducerProvisionRollback(PGlite) {
@@ -1008,7 +1008,7 @@ async function proveProducerProvisionRollback(PGlite) {
   }
 }
 
-async function proveWorkerEnqueueRevokedBy089(PGlite) {
+async function proveWorkerEnqueueRevokedBy092(PGlite) {
   const { FUNCTION_SIGNATURES } = require('./lib/email-luna-automation-principal-contract');
   const { provisionEmailLunaAutomationPrincipal } = require('./lib/email-luna-automation-principal-provision');
   const db = new PGlite();
@@ -1028,7 +1028,7 @@ async function proveWorkerEnqueueRevokedBy089(PGlite) {
     `SELECT pg_catalog.has_function_privilege('luna_ch4b1_enqueue_worker', $1::regprocedure, 'EXECUTE') AS ok`,
     [enqueueReg],
   );
-  assert.equal(before.rows[0].ok, true, '088 worker has enqueue EXECUTE before 089');
+  assert.equal(before.rows[0].ok, true, '088 worker has enqueue EXECUTE before 092');
   await db.exec(UP);
   const after = await db.query(
     `SELECT pg_catalog.has_function_privilege('luna_ch4b1_enqueue_worker', $1::regprocedure, 'EXECUTE') AS ok`,
@@ -1037,16 +1037,16 @@ async function proveWorkerEnqueueRevokedBy089(PGlite) {
   assert.equal(
     after.rows[0].ok,
     false,
-    '089 must REVOKE worker enqueue EXECUTE without re-provision; trigger inertness is not ACL',
+    '092 must REVOKE worker enqueue EXECUTE without re-provision; trigger inertness is not ACL',
   );
   await db.exec(DOWN);
   const restored = await db.query(
     `SELECT pg_catalog.has_function_privilege('luna_ch4b1_enqueue_worker', $1::regprocedure, 'EXECUTE') AS ok`,
     [enqueueReg],
   );
-  assert.equal(restored.rows[0].ok, true, '089 down restores worker enqueue EXECUTE');
+  assert.equal(restored.rows[0].ok, true, '092 down restores worker enqueue EXECUTE');
   await db.exec(DOWN);
-  console.log('ok - 089 revokes worker enqueue EXECUTE without re-provision; empty down restores it');
+  console.log('ok - 092 revokes worker enqueue EXECUTE without re-provision; empty down restores it');
 }
 
 async function proveEnqueueRequiresMaterial(PGlite) {
@@ -1079,7 +1079,7 @@ async function proveEnqueueRequiresMaterial(PGlite) {
     refused = error && (error.code === 'EMAIL_LUNA_AUTOMATION_QUEUE_INVALID'
       || /issuance material missing/.test(String(error.message)));
   }
-  assert.equal(refused, true, 'enqueue without material must fail closed after 089');
+  assert.equal(refused, true, 'enqueue without material must fail closed after 092');
   const pending = await db.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_automation_queue');
   assert.equal(pending.rows[0].n, 0);
   console.log('ok - no claimable queue row without material');
@@ -1089,7 +1089,7 @@ function runPgliteProof() {
   assertStaticContract();
   const PGlite = tryLoadPglite();
   if (!PGlite) {
-    console.log('ok - pglite unavailable; static 089 contract only');
+    console.log('ok - pglite unavailable; static 092 contract only');
     return Promise.resolve();
   }
   return Promise.resolve()
@@ -1097,7 +1097,7 @@ function runPgliteProof() {
     .then(() => proveEmptyDown(PGlite))
     .then(() => proveProducerDownRefuse(PGlite))
     .then(() => proveProducerProvisionRollback(PGlite))
-    .then(() => proveWorkerEnqueueRevokedBy089(PGlite))
+    .then(() => proveWorkerEnqueueRevokedBy092(PGlite))
     .then(() => proveEnqueueRequiresMaterial(PGlite))
     .then(() => {
       console.log('ALL OK — FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B1 issuance material pglite');

@@ -11,7 +11,7 @@
       "id": "process-local-issuance-weakset",
       "severity": "blocking",
       "red": "On bb3d2c40, policy evidence/decisions live only in AUTHENTIC_POLICY_EVIDENCE / AUTHENTIC_POLICY_DECISIONS WeakSets. issuance_id is minted with randomUUID() and cannot be rebound. After process restart or require.cache clear, JSON clones of queue+audit+inbound rows are unissued. Author recompute and 087 handoff require the original objects.",
-      "green": "089 persists one append-only issuance-material row per exact queue operation/issuance. Ch1 recoverIssueAndDecideEmailLunaDraftPolicy re-brands evidence/decision with the ORIGINAL issuance_id on a new composition-turn. Live issueAndDecideEmailLunaDraftPolicy still mints; recover is not a generic caller factory."
+      "green": "092 persists one append-only issuance-material row per exact queue operation/issuance. Ch1 recoverIssueAndDecideEmailLunaDraftPolicy re-brands evidence/decision with the ORIGINAL issuance_id on a new composition-turn. Live issueAndDecideEmailLunaDraftPolicy still mints; recover is not a generic caller factory."
     },
     {
       "id": "author-plan-not-durable",
@@ -29,13 +29,13 @@
       "id": "claimable-queue-without-material",
       "severity": "blocking",
       "red": "086/088 enqueue can commit a pending/claimable queue row with no reconstitution material. A restarted worker that claimed that row would have to invent facts, accept caller-trusted objects, or skip author+validator.",
-      "green": "089 BEFORE INSERT trigger refuses a queue row unless matching material already exists in the same transaction. persist_and_enqueue inserts material then enqueue atomically. Pre-089 nonempty queue without material fails 089 up. Empty migrate is required."
+      "green": "092 BEFORE INSERT trigger refuses a queue row unless matching material already exists in the same transaction. persist_and_enqueue inserts material then enqueue atomically. Pre-092 nonempty queue without material fails 092 up. Empty migrate is required."
     },
     {
       "id": "worker-raw-select",
       "severity": "blocking",
       "red": "A worker GRANT SELECT on the material table would leak booking codes and payment amounts across mapped-location RLS mistakes, and would let a caller read reconstitution JSON without the scoped load predicate.",
-      "green": "Workers receive no raw material SELECT/DML. Load is SECURITY DEFINER, authorizes session_user in the locking/selection predicate before touching the row, requires exact client/location and operation/issuance, joins inbound 082, and returns no row for foreign location, cancelled/handoff_required/handed_off, or missing inbound. PUBLIC revoked. 089 does not GRANT or CREATE ROLE."
+      "green": "Workers receive no raw material SELECT/DML. Load is SECURITY DEFINER, authorizes session_user in the locking/selection predicate before touching the row, requires exact client/location and operation/issuance, joins inbound 082, and returns no row for foreign location, cancelled/handoff_required/handed_off, or missing inbound. PUBLIC revoked. 092 does not GRANT or CREATE ROLE."
     }
   ]
 }

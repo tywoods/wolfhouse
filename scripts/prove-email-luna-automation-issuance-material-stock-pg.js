@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * Disposable stock PostgreSQL ACL + concurrency proof for 089 issuance material.
+ * Disposable stock PostgreSQL ACL + concurrency proof for 092 issuance material.
  * Starts an isolated embedded cluster on a high port, proves worker enqueue
- * EXECUTE is revoked by 089 (not trigger inertness), concurrent persist identity,
+ * EXECUTE is revoked by 092 (not trigger inertness), concurrent persist identity,
  * then stops and removes only this process's data directory.
  */
 
@@ -84,14 +84,14 @@ async function proveStockPg(client, connectClone) {
   assert.equal(
     await hasExecute(client, 'luna_ch4b1_stock_worker', ENQUEUE_REG),
     false,
-    '089 REVOKE worker enqueue EXECUTE without re-provision',
+    '092 REVOKE worker enqueue EXECUTE without re-provision',
   );
   await db.exec(DOWN);
   assert.equal(await hasExecute(client, 'luna_ch4b1_stock_worker', ENQUEUE_REG), true, 'down restores worker enqueue EXECUTE');
   await db.exec(DOWN);
-  console.log('ok - stock-PG empty 089 down restores worker enqueue EXECUTE and is repeatable');
+  console.log('ok - stock-PG empty 092 down restores worker enqueue EXECUTE and is repeatable');
   await db.exec(UP);
-  assert.equal(await hasExecute(client, 'luna_ch4b1_stock_worker', ENQUEUE_REG), false, 'second 089 up revokes enqueue again');
+  assert.equal(await hasExecute(client, 'luna_ch4b1_stock_worker', ENQUEUE_REG), false, 'second 092 up revokes enqueue again');
 
   await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
     roleName: 'luna_ch4b1_stock_producer',
@@ -187,10 +187,10 @@ async function proveStockPg(client, connectClone) {
     await db.exec(DOWN);
     assert.fail('nonempty material down should refuse');
   } catch (error) {
-    assert.match(String(error.message), /089_down_refused/);
+    assert.match(String(error.message), /092_down_refused/);
     try { await client.query('ROLLBACK'); } catch (_) { /* already idle */ }
   }
-  console.log('ok - stock-PG nonempty 089 down refuses reconstitution-truth loss');
+  console.log('ok - stock-PG nonempty 092 down refuses reconstitution-truth loss');
 }
 
 async function main() {
@@ -204,8 +204,8 @@ async function main() {
     throw failed;
   }
 
-  const dataDir = fs.mkdtempSync(path.join('/opt/data/local-postgres', 'ch4b-stock-'));
-  const port = 55441 + (process.pid % 40);
+  const dataDir = fs.mkdtempSync(path.join('/opt/data/local-postgres', 'ch4b1-092-stock-'));
+  const port = 56921 + (process.pid % 17);
   const password = 'local-disposable-ch4b';
   const cluster = new EmbeddedPostgres({
     databaseDir: dataDir,

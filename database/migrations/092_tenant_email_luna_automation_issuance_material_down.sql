@@ -1,9 +1,9 @@
--- Explicit down for 089_tenant_email_luna_automation_issuance_material.
+-- Explicit down for 092_tenant_email_luna_automation_issuance_material.
 -- Fail closed when issuance-material rows exist (refuse silent loss of
 -- reconstitution/audit truth, including confidential booking/payment values).
 -- Fail closed when producer mappings exist (refuse restoring the 088
 -- worker/operator kind constraint while producer rows remain).
--- Empty table and no producer mappings: drop 089 objects, restore the 088
+-- Empty table and no producer mappings: drop 092 objects, restore the 088
 -- principal-kind constraint and principal_authorized body, and restore
 -- worker EXECUTE on 088 enqueue. Does not drop 085/086/087/088, inbound,
 -- or queue rows. Second empty execution is safe.
@@ -21,7 +21,7 @@ BEGIN
        AND c.relkind = 'r'
   ) THEN
     IF EXISTS (SELECT 1 FROM public.tenant_email_luna_automation_issuance_material) THEN
-      RAISE EXCEPTION '089_down_refused: luna issuance material rows present — refuse silent reconstitution/audit truth loss' USING ERRCODE = '23514';
+      RAISE EXCEPTION '092_down_refused: luna issuance material rows present — refuse silent reconstitution/audit truth loss' USING ERRCODE = '23514';
     END IF;
   END IF;
 END $$;
@@ -41,7 +41,7 @@ BEGIN
         FROM public.tenant_email_luna_automation_principals
        WHERE principal_kind = 'producer'
     ) THEN
-      RAISE EXCEPTION '089_down_refused: producer principal mappings present — refuse restoring 088 kind constraint' USING ERRCODE = '23514';
+      RAISE EXCEPTION '092_down_refused: producer principal mappings present — refuse restoring 088 kind constraint' USING ERRCODE = '23514';
     END IF;
   END IF;
 END $$;

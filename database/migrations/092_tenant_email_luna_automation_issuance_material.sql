@@ -1,4 +1,4 @@
--- 089_tenant_email_luna_automation_issuance_material.sql
+-- 092_tenant_email_luna_automation_issuance_material.sql
 -- FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B1: append-only issuance reconstitution material.
 -- One owner. NOT a second queue, journal, or policy. Send-inert. Empty on migrate.
 --
@@ -23,20 +23,20 @@
 --   Queue INSERT requires matching material (BEFORE INSERT). Queue DELETE remains
 --   refused by 086. Do not CASCADE material from queue or audit — that would destroy
 --   reconstitution/audit truth. Down refuses while material rows exist.
---   Pre-089 queue rows without material fail this up (no silent claimable gap).
+--   Pre-092 queue rows without material fail this up (no silent claimable gap).
 --
 -- Mutation: SECURITY DEFINER persist_and_enqueue is the producer-only capability
 -- (validates 082/085/086 bindings then inserts material and the queue row
 -- atomically). issuance_material_load is the worker-only reconstitution capability
 -- (mapped worker session_user authorized in the locking/selection predicate
--- before touching a row). Direct table DML denied. 089 does not GRANT and does
+-- before touching a row). Direct table DML denied. 092 does not GRANT and does
 -- not CREATE ROLE. PUBLIC revoked. search_path pg_catalog, public. Function owner
 -- is the queue table owner.
 --
--- Principal kinds: 089 extends the 088 mapping constraint with exact `producer`.
+-- Principal kinds: 092 extends the 088 mapping constraint with exact `producer`.
 -- Producer EXECUTE is persist_and_enqueue only. Worker loses persist_and_enqueue
 -- EXECUTE and 088 enqueue EXECUTE, and gains issuance_material_load.
--- 089 REVOKEs enqueue from mapped worker principals so producer alone
+-- 092 REVOKEs enqueue from mapped worker principals so producer alone
 -- persists+enqueues. Trigger-based inertness is not ACL separation.
 -- persist_and_enqueue inserts the queue row directly (SECURITY DEFINER)
 -- rather than calling 088 enqueue, because enqueue authorizes worker and
@@ -106,7 +106,7 @@ BEGIN
        AND c.relkind = 'r'
   ) THEN
     IF EXISTS (SELECT 1 FROM public.tenant_email_luna_automation_queue) THEN
-      RAISE EXCEPTION '089_up_refused: luna automation queue rows exist without issuance material — refuse claimable queue without reconstitution material' USING ERRCODE = '23514';
+      RAISE EXCEPTION '092_up_refused: luna automation queue rows exist without issuance material — refuse claimable queue without reconstitution material' USING ERRCODE = '23514';
     END IF;
   END IF;
 END $$;
@@ -878,7 +878,7 @@ BEGIN
      AND c.relname = 'tenant_email_luna_automation_queue'
      AND c.relkind = 'r';
   IF table_owner IS NULL THEN
-    RAISE EXCEPTION '089: queue table owner missing';
+    RAISE EXCEPTION '092: queue table owner missing';
   END IF;
   EXECUTE format('ALTER TABLE public.tenant_email_luna_automation_issuance_material OWNER TO %I', table_owner);
   FOREACH fn_ident IN ARRAY fns LOOP
@@ -897,7 +897,7 @@ CREATE POLICY tenant_email_luna_automation_issuance_material_principal_select
   );
 
 COMMENT ON FUNCTION public.tenant_email_luna_automation_persist_and_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text, jsonb) IS
-  'Producer persist+enqueue. Authorizes session_user as exact producer. Validates canonical 082/085/086 bindings, inserts one issuance-material row, then inserts the queue row directly (does not call 088 enqueue). Same-identity replay returns the existing queue row. Crossed operation/issuance identity raises. Queue insert returning no row raises so material cannot commit as an orphan. Does not rewrite 088 enqueue. Worker enqueue EXECUTE is revoked by 089. Does not invoke a provider. Confidential values must not be logged. Authenticity boundary is principal separation, not a same-call 085 digest.';
+  'Producer persist+enqueue. Authorizes session_user as exact producer. Validates canonical 082/085/086 bindings, inserts one issuance-material row, then inserts the queue row directly (does not call 088 enqueue). Same-identity replay returns the existing queue row. Crossed operation/issuance identity raises. Queue insert returning no row raises so material cannot commit as an orphan. Does not rewrite 088 enqueue. Worker enqueue EXECUTE is revoked by 092. Does not invoke a provider. Confidential values must not be logged. Authenticity boundary is principal separation, not a same-call 085 digest.';
 COMMENT ON FUNCTION public.tenant_email_luna_automation_issuance_material_load(uuid, uuid) IS
   'Scoped worker reconstitution load. Authorizes session_user against the mapped worker client/location in the locking/selection predicate before touching the row. Requires exact operation/issuance. Joins inbound 082 for envelope reconstitution. Returns no row for foreign location, missing inbound, or queue state other than pending/claimed. Producer has no EXECUTE. No raw table SELECT.';
 
@@ -916,7 +916,7 @@ BEGIN
   IF pg_catalog.to_regprocedure(
        'public.tenant_email_luna_automation_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text)'
      ) IS NULL THEN
-    RAISE EXCEPTION '089: 088 enqueue function missing';
+    RAISE EXCEPTION '092: 088 enqueue function missing';
   END IF;
   IF EXISTS (
     SELECT 1
