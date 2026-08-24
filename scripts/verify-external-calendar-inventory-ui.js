@@ -230,7 +230,7 @@ async function main() {
       ],
     }],
   };
-  const connections = [
+  const fixtureConnections = [
     {
       id: FIRST_ID,
       name: 'Owner schedule · SHEETA',
@@ -248,6 +248,7 @@ async function main() {
       has_secret: true,
     },
   ];
+  let connections = [];
   const mapsById = {
     [FIRST_ID]: [
       { external_unit_key: 'R1A', bed_id: 'bed-live-1' },
@@ -332,44 +333,65 @@ async function main() {
     await openLunaStaff(page, consoleErrors, pageErrors, failedReqs);
 
     ok('card is truly visible after Luna Staff navigation', await visible(page, '#cc-owner-schedule-bridge'));
-    ok('Connect control is truly visible', await visible(page, '#osb-new'));
+    await page.waitForFunction(() => {
+      const wrap = document.getElementById('osb-primary-actions');
+      const empty = document.getElementById('osb-empty');
+      const btn = document.getElementById('osb-new');
+      return wrap && empty && btn && !wrap.hasAttribute('hidden') && !empty.hasAttribute('hidden')
+        && btn.offsetParent !== null;
+    });
+    ok('Connect is visible only on the empty state', await visible(page, '#osb-new'));
+    await page.screenshot({ path: path.join(SHOT_DIR, 'osb-empty.png') });
 
     const rest = await page.evaluate(() => {
       const card = document.getElementById('cc-owner-schedule-bridge');
-      const sel = document.getElementById('osb-connections');
       const r = card.getBoundingClientRect();
       return {
         secretVisible: /SECRET_REF/.test(card.innerText),
         jsonVisible: /Bed maps JSON/.test(card.innerText),
         overflow: card.scrollWidth > card.clientWidth + 1,
         width: r.width,
-        selected: sel ? sel.value : '',
-        optionCount: sel ? sel.options.length : 0,
+        emptyText: document.getElementById('osb-empty').innerText,
       };
     });
     ok('rest does not show SECRET_REF or JSON', rest.secretVisible === false && rest.jsonVisible === false);
-    ok('desktop card does not overflow', rest.overflow === false && rest.width > 200);
+    ok('empty state copy is isolated', /No Google Sheet is connected yet/.test(rest.emptyText));
+    ok('desktop empty card does not overflow', rest.overflow === false && rest.width > 200);
     ok('load/render issued no sync calls', posts.every((p) => p.path !== '/staff/luna-staff/calendar-bridge/sync'));
-    ok('does not silently force the first connection', rest.selected === '');
-
-    await page.screenshot({ path: path.join(SHOT_DIR, 'osb-light.png') });
 
     await page.locator('#osb-new').click();
     await page.waitForFunction(() => !document.getElementById('osb-editor').hasAttribute('hidden'));
     ok('Connect Google Sheet opens the editor', await visible(page, '#osb-sheet'));
+    await page.screenshot({ path: path.join(SHOT_DIR, 'osb-editor.png') });
+
+    const beforeInvalid = posts.length;
+    await page.fill('#osb-sheet', '');
+    await page.locator('#osb-save').click();
+    await page.fill('#osb-sheet', 'https://example.com/not-a-sheet');
+    await page.locator('#osb-save').click();
+    const statusCopy = await page.locator('#osb-status').innerText();
+    ok('validation shows safe inline copy', /Paste a Google Sheet URL or ID/.test(statusCopy));
+    ok('invalid save does not POST', posts.length === beforeInvalid);
+
     await page.fill('#osb-sheet', 'https://docs.google.com/spreadsheets/d/AbC_12345678/edit');
     await page.locator('#osb-save').click();
     await page.waitForTimeout(300);
     const savePost = posts.find((p) => p.path === '/staff/luna-staff/calendar-bridge' && p.method === 'POST');
     ok('save journey posted a spreadsheet id', !!(savePost && savePost.body.spreadsheet_id === 'AbC_12345678'));
     ok('save journey never sent secret_ref', !!(savePost && !Object.prototype.hasOwnProperty.call(savePost.body, 'secret_ref')));
-    await page.screenshot({ path: path.join(SHOT_DIR, 'osb-editor.png') });
 
-    const afterSave = await page.evaluate(() => ({
+    connections = fixtureConnections.slice();
+    await page.locator('#osb-refresh').click();
+    await page.waitForFunction(() => document.getElementById('osb-connections').options.length >= 3);
+    const afterLoad = await page.evaluate(() => ({
       optionCount: document.getElementById('osb-connections').options.length,
+      selected: document.getElementById('osb-connections').value,
       selectorVisible: document.getElementById('osb-connections').offsetParent !== null,
+      connectVisible: !!(document.getElementById('osb-new') && document.getElementById('osb-new').offsetParent),
     }));
-    ok('multiple connections stay selectable', afterSave.optionCount >= 3 && afterSave.selectorVisible === true);
+    ok('multiple connections stay selectable', afterLoad.optionCount >= 3 && afterLoad.selectorVisible === true);
+    ok('does not silently force the first connection', afterLoad.selected === '');
+    ok('Connect is hidden once connections exist', afterLoad.connectVisible === false);
 
     await page.selectOption('#osb-connections', FIRST_ID);
     await page.waitForFunction(() => document.querySelectorAll('#osb-map-rows .osb-map-row').length >= 2);
@@ -412,12 +434,7 @@ async function main() {
     ok('Update stays off without valid maps', second.updateDisabled === true);
     ok('pending ingest is On', second.status === 'On');
     await page.screenshot({ path: path.join(SHOT_DIR, 'osb-detail.png') });
-
-    failList = true;
-    await page.locator('#osb-refresh').click();
-    await page.waitForFunction(() => !document.getElementById('osb-load-error').hasAttribute('hidden'));
-    const failText = await page.locator('#osb-load-error').innerText();
-    ok('load failure does not show the empty connect lie', /Could not load/.test(failText));
+    await page.screenshot({ path: path.join(SHOT_DIR, 'osb-light.png') });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(150);
@@ -428,15 +445,27 @@ async function main() {
         overflow: card.scrollWidth > card.clientWidth + 2,
         right: r.right,
         visible: r.width > 8 && r.height > 8,
+        connectVisible: !!(document.getElementById('osb-new') && document.getElementById('osb-new').offsetParent),
       };
     });
     ok('narrow viewport keeps the card on screen', mobile.visible && mobile.right <= 390 && mobile.overflow === false);
+    ok('narrow detail does not show Connect', mobile.connectVisible === false);
     await page.screenshot({ path: path.join(SHOT_DIR, 'osb-narrow.png') });
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
     await page.screenshot({ path: path.join(SHOT_DIR, 'osb-dark.png') });
+
+    failList = true;
+    await page.locator('#osb-refresh').click();
+    await page.waitForFunction(() => !document.getElementById('osb-load-error').hasAttribute('hidden'));
+    const failState = await page.evaluate(() => ({
+      text: document.getElementById('osb-load-error').innerText,
+      connectVisible: !!(document.getElementById('osb-new') && document.getElementById('osb-new').offsetParent),
+    }));
+    ok('load failure does not show the empty connect lie', /Could not load/.test(failState.text));
+    ok('Connect is hidden on load failure', failState.connectVisible === false);
 
     ok('browser never posted secret_ref', posts.every((p) => !Object.prototype.hasOwnProperty.call(p.body || {}, 'secret_ref')));
     ok('no sync during the whole load/save/map journey except explicit Update',

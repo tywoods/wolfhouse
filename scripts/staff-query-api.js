@@ -30517,6 +30517,7 @@ function ownerSchedulePaint(){
     ownerScheduleSetHidden('osb-load-error', true);
     ownerScheduleSetHidden('osb-editor', false);
     ownerScheduleSetHidden('osb-detail', false);
+    ownerScheduleSetHidden('osb-primary-actions', false);
     return;
   }
   if (osbView !== 'editor' && hasConn && osbSelectedId) osbView = 'detail';
@@ -30526,7 +30527,7 @@ function ownerSchedulePaint(){
   ownerScheduleSetHidden('osb-empty', osbView === 'rest');
   ownerScheduleSetHidden('osb-editor', osbView === 'editor');
   ownerScheduleSetHidden('osb-detail', osbView === 'detail' && hasConn);
-  ownerScheduleSetHidden('osb-primary-actions', osbView !== 'editor');
+  ownerScheduleSetHidden('osb-primary-actions', osbLoadState === 'ok' && osbView === 'rest' && !hasConn);
   var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
   var statusEl = el('osb-detail-status');
   var nameEl = el('osb-detail-name');
@@ -30702,8 +30703,21 @@ function ownerScheduleBridgeJson(path, method, body){
       if (out) out.textContent = JSON.stringify({ ok: false, error: 'bridge_unavailable' });
     });
 }
+function ownerScheduleSheetIdValid(raw){
+  raw = String(raw || '').trim();
+  if (!raw) return false;
+  var id = ownerScheduleParseSheetId(raw);
+  if (!id || id.length < 8) return false;
+  if (/^https?:/i.test(raw) && id === raw) return false;
+  return /^[a-zA-Z0-9-_]{8,}$/.test(id);
+}
 function ownerScheduleBridgeSave(){
-  var sheetId = ownerScheduleParseSheetId(el('osb-sheet') && el('osb-sheet').value || '');
+  var raw = (el('osb-sheet') && el('osb-sheet').value || '');
+  if (!ownerScheduleSheetIdValid(raw)) {
+    if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('invalid_connection');
+    return;
+  }
+  var sheetId = ownerScheduleParseSheetId(raw);
   var payload = {
     name: ownerScheduleDeriveName(sheetId),
     spreadsheet_id: sheetId,
