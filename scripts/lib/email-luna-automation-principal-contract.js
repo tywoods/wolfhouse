@@ -45,6 +45,22 @@ const FORBIDDEN_DATABASE_NAMES = objectFreeze([
   'luna_prod',
 ]);
 
+const SUNSET_STAGING_TRUSTED_PRECREATED = objectFreeze({
+  option: 'allowSunsetStagingTrustedPrecreated',
+  database: 'sunset_staging',
+  kind: 'worker',
+  client_slug: 'sunset',
+  location_key: 'sunset-somo',
+  require_trusted_precreated: true,
+  require_apply: true,
+  require_password_absent: true,
+  require_session_user_is_queue_owner: true,
+  never_create_role: true,
+  never_set_password: true,
+  no_env_overlay: true,
+  caller_supplies_client_location_uuids: true,
+});
+
 const ROLE_ATTRIBUTES = objectFreeze({
   rolcanlogin: true,
   rolsuper: false,
@@ -168,6 +184,8 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   pglite_create_role_transactional: 'not_the_stock_pg_contract_prove_on_stock_pg',
   pglite_pg_shdepend: 'populated_for_acl_and_owner_keep_stock_pg_sql_exact',
   forbidden_databases: FORBIDDEN_DATABASE_NAMES,
+  allow_sunset_staging_trusted_precreated_default: false,
+  sunset_staging_trusted_precreated: SUNSET_STAGING_TRUSTED_PRECREATED,
 });
 
 function assertRoleName(roleName) {
@@ -281,6 +299,7 @@ module.exports = {
   ROLE_NAME_RE,
   RESERVED_ROLE_NAMES,
   FORBIDDEN_DATABASE_NAMES,
+  SUNSET_STAGING_TRUSTED_PRECREATED,
   FUNCTION_SIGNATURES,
   assertRoleName,
   assertUuid,

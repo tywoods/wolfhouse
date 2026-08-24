@@ -1,0 +1,27 @@
+{
+  "id": "email-luna-automation-principal-live-activation.ch4c1-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice C1",
+  "head_reviewed": "a804f394e1f240ba996ca442d0d4a159f9fd86aa",
+  "pr_reviewed": 708,
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "activation_authorized": false,
+  "create_role": false,
+  "password_transport": false,
+  "env_overlay": false,
+  "findings": [
+    {
+      "id": "sunset-staging-unconditional-refuse",
+      "severity": "blocking",
+      "red": "Canonical provisioner refused every product/staging database in FORBIDDEN_DATABASE_NAMES, including sunset_staging, before trustedPrecreated mapping/grants. Operator-approved live Sunset staging activation could not adopt an already-created worker LOGIN.",
+      "green": "Default refusal is preserved for sunset_staging, sunset_prod, wolfhouse_staging, wolfhouse_prod, luna_prod, and any other current_database(). allowSunsetStagingTrustedPrecreated is accepted only as an explicit spec boolean, never from env, and only when trustedPrecreated, apply, absent password, current_database()==='sunset_staging', session_user===queue table owner, existing fail-closed LOGIN, empty or exact mapping, worker kind, and caller-supplied sunset-somo binding all hold. This mode never CREATE ROLE / ALTER ROLE / PASSWORD; it only grant/revoke/map/audit."
+    },
+    {
+      "id": "option-alone-or-partial-conjuncts",
+      "severity": "blocking",
+      "red": "A boolean overlay, env flag, or trustedPrecreated without the rest of the live-Sunset conjuncts could have been enough to punch through the product-database gate.",
+      "green": "Option without trustedPrecreated, without apply, with a password, with create-role, with non-owner session_user, with the wrong database, kind, location_key, role attributes, or a non-exact mapping fails closed. Env overlays and string 'true' do not enable the path."
+    }
+  ]
+}
