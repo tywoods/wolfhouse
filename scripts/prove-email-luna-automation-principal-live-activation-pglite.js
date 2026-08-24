@@ -2,7 +2,7 @@
 
 /**
  * Prove Ch4 Slice C1 operator-approved Sunset staging trusted-precreated
- * activation against 088-095 on PGlite. Default-off. No live DB. No secrets.
+ * activation against 088-096 on PGlite. Default-off. No live DB. No secrets.
  */
 
 const assert = require('node:assert/strict');
@@ -59,6 +59,10 @@ const WORKER_DENIED_EXECUTE = Object.freeze([
   FUNCTION_SIGNATURES.tenant_email_luna_automation_cancel_pending,
   FUNCTION_SIGNATURES.tenant_email_luna_automation_require_handoff_pending,
 ]);
+const UP_096 = fs.readFileSync(
+  path.join(ROOT, 'database/migrations/096_tenant_email_luna_automation_public_execute.sql'),
+  'utf8',
+);
 
 function tryLoadPglite() {
   for (const base of [
@@ -108,7 +112,7 @@ async function applyThrough095(db) {
   await db.exec(b4.UP_093);
   await db.exec(b4.UP_094);
   await db.exec(b4.UP_095);
-  await b1.revokePublicExecuteOutsideCatalogs(db);
+  await db.exec(UP_096);
   await seedSunsetClientBinding(db);
 }
 

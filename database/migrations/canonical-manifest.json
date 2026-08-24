@@ -1403,6 +1403,26 @@
       "rationale": "Drops only claim_scoped. Refuses if the 086 queue table is absent. Does not rewrite 088 unscoped claim. Second execution is safe.",
       "pairsWith": "095_tenant_email_luna_automation_claim_scoped.sql",
       "sha256": "76c27443adf44d4020a89f303daaf17f97a29e43025d1edc18b5c0bc8105e336"
+    },
+    {
+      "id": "096_tenant_email_luna_automation_public_execute",
+      "filename": "096_tenant_email_luna_automation_public_execute.sql",
+      "order": 92,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice C1: revoke ambient PUBLIC EXECUTE on all public-schema functions and ALTER DEFAULT PRIVILEGES for the applying owner so future functions do not grant PUBLIC EXECUTE. Run as queue table/function owner. Preserves owner implicit EXECUTE and existing explicit role grants. No GRANT/CREATE ROLE/live identifiers. Fail-closes if any public-schema function remains PUBLIC-executable.",
+      "downFilename": "096_tenant_email_luna_automation_public_execute_down.sql",
+      "sha256": "06b32e0f46d04d6dba3cfbda3f4e61caaf44226147d44c8531dc1a1c9bded03c"
+    },
+    {
+      "id": "096_tenant_email_luna_automation_public_execute_down",
+      "filename": "096_tenant_email_luna_automation_public_execute_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Intentionally irreversible fail-closed rollback. Exact pre-096 ACL/default-ACL state was not captured; broad PUBLIC EXECUTE restore would be unsafe. Performs no GRANT/REVOKE/ALTER DEFAULT PRIVILEGES. Paired down remains for canonical manifest conventions. Repeat refusal is safe.",
+      "pairsWith": "096_tenant_email_luna_automation_public_execute.sql",
+      "sha256": "693bb5e4e49016b4ac04c63977a494b3468953e453b1b9e4153b1a8d41bee6ee"
     }
   ]
 }
