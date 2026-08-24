@@ -19974,6 +19974,26 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 @media (max-width:768px){
   #bc-side-drawer{display:none!important}
 }
+.bc-side-head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.bc-side-pin{
+  height:28px;padding:0 10px;border:1px solid var(--border-soft);border-radius:8px;
+  background:var(--surface-soft);color:var(--text-2);font-size:11px;font-weight:700;cursor:pointer;
+}
+.bc-side-pin.is-on{background:var(--surface);color:var(--text);border-color:var(--tan,#D4C9BA)}
+#bc-side-drawer .bc-drawer-tab-content-panel{min-height:0;padding:10px 12px 14px}
+#bc-side-drawer .bc-drawer-tab-panel[data-tab="transfers"].is-active{min-height:0}
+#bc-side-drawer .bc-drawer-tabs{width:100%;gap:4px;padding:0;overflow:visible}
+#bc-side-drawer .bc-drawer-tab{
+  flex:1 1 0;margin:0;padding:7px 4px;font-size:11px;font-weight:600;border-radius:8px;
+  text-align:center;border:1px solid var(--border-soft);
+}
+#bc-side-drawer .kv-grid{grid-template-columns:1fr!important}
+#bc-side-drawer .bc-drawer-footer{flex-direction:column;align-items:stretch}
+#bc-side-drawer .bc-drawer-footer-right{align-items:stretch;margin-left:0}
+#bc-side-drawer #bc-sel-panel{margin:0;box-shadow:none;border:0;background:transparent;padding:0}
+@media (prefers-reduced-motion:reduce){
+  #bc-side-drawer{transition:none}
+}
 /* ===== BEGIN book-ui (serif typeface only; paperback restyle removed) =====
    Kept the literary serif on Booking Calendar + drawer headings; all the warm
    paperback colors/paper/spacing/borders were removed so the rest returns to the
@@ -22236,23 +22256,26 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <!-- Block detail panel (read-only) — carries "book-ui" too so drawer styling holds even if moved -->
   <div class="card${bookUiClass}" id="bc-detail" style="display:none"></div>
 
-<aside id="bc-side-drawer" class="is-open" data-mode="preview">
+<aside id="bc-side-drawer" data-mode="">
   <header class="bc-side-head">
     <div class="bc-side-head-row">
       <div>
-        <h2 class="bc-side-title">Guest name</h2>
-        <p class="bc-side-meta">Stay dates · nights</p>
+        <h2 class="bc-side-title" id="bc-side-title">Booking</h2>
+        <p class="bc-side-meta" id="bc-side-meta"></p>
       </div>
-      <button type="button" class="bc-side-close" id="bc-side-close" aria-label="Close">&times;</button>
+      <div class="bc-side-head-actions">
+        <button type="button" class="bc-side-pin" id="bc-side-pin" aria-pressed="false" title="Pin">Pin</button>
+        <button type="button" class="bc-side-close" id="bc-side-close" aria-label="Close">&times;</button>
+      </div>
     </div>
-    <div class="bc-side-tabs" role="tablist">
+    <div class="bc-side-tabs" id="bc-side-tabs" hidden>
       <span class="bc-side-tab is-on">Overview</span>
       <span class="bc-side-tab">Service</span>
       <span class="bc-side-tab">Transfer</span>
       <span class="bc-side-tab">Payment</span>
     </div>
   </header>
-  <div class="bc-side-body" id="bc-side-body">Hover a booking will fill this panel. Bottom folder stays for now.</div>
+  <div class="bc-side-body" id="bc-side-body"></div>
   <footer class="bc-side-foot" id="bc-side-foot"></footer>
 </aside>
 
@@ -32560,6 +32583,9 @@ function bcClearSelection(){
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'none';
+  if (typeof bcCloseSideRail === 'function' && el('bc-side-drawer') && el('bc-side-drawer').dataset.mode === 'create') {
+    bcCloseSideRail();
+  }
   /* Reset quote result and disable Calculate Quote button (Stage 8.4.5) */
   var _qrClear = el('bc-quote-result');
   if (_qrClear) _qrClear.innerHTML = bcQuoteNotRunHtml();
@@ -32624,6 +32650,7 @@ function bcApplySelectionHighlight(){
   if (warnEl) warnEl.style.display = 'none';
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'block';
+  if (typeof bcDockCreatePanel === 'function') bcDockCreatePanel();
 
   /* Clear stale quote when selection changes */
   bcLastQuote = null;
@@ -34212,6 +34239,15 @@ function renderBedCalendar(data){
       var idx = parseInt(this.dataset.bidx, 10);
       bcOpenBookingDrawerOverview(blocks[idx]);
     });
+    bEl.addEventListener('mouseenter', function(){
+      if (!bcSideDrawerLive()) return;
+      var idx = parseInt(this.dataset.bidx, 10);
+      bcSideHoverEnter(blocks[idx]);
+    });
+    bEl.addEventListener('mouseleave', function(){
+      if (!bcSideDrawerLive()) return;
+      bcSideHoverLeave();
+    });
   });
 
   /* Wire empty-cell clicks for selection model (Stage 8.3c, read-only) */
@@ -34845,6 +34881,10 @@ function bcOpenBookingDrawerOverview(blk){
 
 function showBlockDetail(blk){
   if (!blk) return;
+  if (typeof bcSideDrawerLive === 'function' && bcSideDrawerLive()) {
+    bcOpenSideBooking(blk, { pin: true });
+    return;
+  }
   bcInitDetailCopyDelegation();
   bcClearSelection();
   bcLastOpenedBlock = blk;
@@ -34911,7 +34951,7 @@ function loadBlockDetail(bookingCode, opts){
   fetch(url)
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
-      var ctxEl = el('bc-ctx-body');
+      var ctxEl = opts.host || el('bc-ctx-body');
       if (!ctxEl) return;
       if (!res.ok || !res.data.success){
         ctxEl.innerHTML = '<div class="state-msg error">Context load failed: ' + escHtml((res.data && res.data.error) || 'error') + '</div>';
@@ -34942,7 +34982,7 @@ function loadBlockDetail(bookingCode, opts){
       bcBindLunaNotesDelete();
     })
     .catch(function(e){
-      var ctxEl = el('bc-ctx-body');
+      var ctxEl = opts.host || el('bc-ctx-body');
       if (ctxEl) ctxEl.innerHTML = '<div class="state-msg error">Network error: ' + escHtml(e.message) + '</div>';
     });
 }
@@ -40254,15 +40294,130 @@ function bcChipKeyForCheckIn(iso){
 }
 
 var bcInitialLoadDone = false;
+var bcSidePinned = false;
+var bcSideHoverTimer = null;
+var bcSideLeaveTimer = null;
+var bcSideHoverCode = null;
+
+function bcSideDrawerLive(){
+  return !!(el('bc-side-drawer') && window.innerWidth > 768);
+}
+
+function bcSetSidePinned(on){
+  bcSidePinned = !!on;
+  var rail = el('bc-side-drawer');
+  var pinBtn = el('bc-side-pin');
+  if (rail) rail.dataset.pinned = bcSidePinned ? '1' : '0';
+  if (pinBtn){
+    pinBtn.classList.toggle('is-on', bcSidePinned);
+    pinBtn.setAttribute('aria-pressed', bcSidePinned ? 'true' : 'false');
+    pinBtn.textContent = bcSidePinned ? 'Pinned' : 'Pin';
+  }
+}
+
+function bcUndockCreatePanel(){
+  var panel = el('bc-sel-panel');
+  var slot = el('bc-sel-panel-slot');
+  if (panel && slot && panel.parentNode !== slot.parentNode){
+    slot.parentNode.insertBefore(panel, slot.nextSibling);
+  }
+}
+
+function bcCloseSideRail(){
+  var rail = el('bc-side-drawer');
+  if (!rail) return;
+  rail.classList.remove('is-open');
+  rail.dataset.mode = '';
+  bcSetSidePinned(false);
+  bcSideHoverCode = null;
+  bcUndockCreatePanel();
+}
+
+function bcDockCreatePanel(){
+  if (!bcSideDrawerLive()) return;
+  var rail = el('bc-side-drawer');
+  var body = el('bc-side-body');
+  var panel = el('bc-sel-panel');
+  if (!rail || !body || !panel) return;
+  if (!el('bc-sel-panel-slot')){
+    var slot = document.createElement('div');
+    slot.id = 'bc-sel-panel-slot';
+    slot.style.display = 'none';
+    panel.parentNode.insertBefore(slot, panel);
+  }
+  if (panel.parentNode !== body) body.appendChild(panel);
+  panel.style.display = 'block';
+  panel.style.marginTop = '0';
+  rail.classList.add('is-open');
+  rail.dataset.mode = 'create';
+  bcSetSidePinned(true);
+  var title = el('bc-side-title');
+  var meta = el('bc-side-meta');
+  if (title) title.textContent = 'New booking';
+  if (meta){
+    var cin = el('bc-sel-cin');
+    var cout = el('bc-sel-cout');
+    meta.textContent = ((cin && cin.value) || '') + ((cout && cout.value) ? ' → ' + cout.value : '');
+  }
+}
+
+function bcOpenSideBooking(blk, opts){
+  opts = opts || {};
+  var rail = el('bc-side-drawer');
+  var body = el('bc-side-body');
+  if (!rail || !body || !blk) return;
+  bcUndockCreatePanel();
+  if (opts.pin) bcSetSidePinned(true);
+  rail.classList.add('is-open');
+  rail.dataset.mode = 'booking';
+  bcLastOpenedBlock = blk;
+  bcActiveDrawerTab = 'overview';
+  var title = el('bc-side-title');
+  var meta = el('bc-side-meta');
+  if (title) title.textContent = blk.guest_name || blk.booking_code || 'Booking';
+  var cin = blk.check_in || blk.start_date || '';
+  var cout = blk.check_out || blk.end_date || '';
+  if (meta) meta.textContent = [cin, cout].filter(Boolean).join(' → ');
+  var code = blk.booking_code;
+  if (code && bcLastBookingContext && bcLastBookingContext.booking &&
+      String(bcLastBookingContext.booking.booking_code) === String(code) &&
+      body.querySelector('.bc-drawer-file-tabs')){
+    return;
+  }
+  body.innerHTML = bcRenderBlockSummaryPreviewHtml(blk);
+  if (code) loadBlockDetail(code, { host: body, preserveTab: false, activeTab: 'overview' });
+}
+
+function bcSideHoverEnter(blk){
+  clearTimeout(bcSideLeaveTimer);
+  if (!blk || bcSidePinned) return;
+  clearTimeout(bcSideHoverTimer);
+  bcSideHoverTimer = setTimeout(function(){
+    bcSideHoverCode = blk.booking_code || null;
+    bcOpenSideBooking(blk, { pin: false });
+  }, 220);
+}
+
+function bcSideHoverLeave(){
+  clearTimeout(bcSideHoverTimer);
+  if (bcSidePinned) return;
+  bcSideLeaveTimer = setTimeout(function(){
+    if (!bcSidePinned) bcCloseSideRail();
+  }, 280);
+}
+
 function bcInitSideDrawer(){
   var rail = el('bc-side-drawer');
   var closeBtn = el('bc-side-close');
+  var pinBtn = el('bc-side-pin');
   if (!rail || rail.dataset.sideWired === '1') return;
   rail.dataset.sideWired = '1';
-  function closeRail(){ rail.classList.remove('is-open'); }
-  if (closeBtn) closeBtn.addEventListener('click', closeRail);
+  if (closeBtn) closeBtn.addEventListener('click', bcCloseSideRail);
+  if (pinBtn) pinBtn.addEventListener('click', function(){ bcSetSidePinned(!bcSidePinned); });
+  rail.addEventListener('mouseenter', function(){ clearTimeout(bcSideLeaveTimer); });
+  rail.addEventListener('mouseleave', function(){ bcSideHoverLeave(); });
   document.addEventListener('keydown', function(ev){
-    if (ev.key === 'Escape') closeRail();
+    if (ev.key === 'Escape') bcCloseSideRail();
   });
 }
 
