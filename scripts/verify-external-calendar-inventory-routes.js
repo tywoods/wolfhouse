@@ -48,6 +48,13 @@ async function main() {
       extCalRoutes.sanitizeConnection({ last_error_code: 'empty_sheet', last_error_detail: 'SQLSTATE 23505' }),
       'last_error_detail'
     ));
+  const nested = extCalRoutes.publicResult({
+    ok: false,
+    reason: 'empty_sheet',
+    skipped: [{ skip_reason: 'relation "booking_beds" does not exist', status: 'x' }],
+  });
+  ok('nested skipped SQL omitted from public result',
+    JSON.stringify(nested).indexOf('does not exist') < 0);
 
   delete process.env.EXTERNAL_CALENDAR_INGEST_ENABLED;
   console.log('\nverify-external-calendar-inventory-routes: ALL CHECKS PASSED');

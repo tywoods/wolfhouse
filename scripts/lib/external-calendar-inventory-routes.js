@@ -8,6 +8,7 @@ const {
   publicErrorCode,
   storedErrorCode,
   PUBLIC_ERROR_CODES,
+  sanitizeSkipped,
 } = require('./external-calendar-inventory');
 const { dtoHasAuthority, loadLockedState, runConnectionSync } = require('./external-calendar-inventory-sync');
 
@@ -47,7 +48,7 @@ function publicResult(result) {
     connections: result.connections,
     connection: result.connection,
     maps: result.maps,
-    skipped: result.skipped,
+    skipped: sanitizeSkipped(result.skipped),
     dry_run: result.dry_run,
     empty: result.empty,
     write_count: result.write_count,

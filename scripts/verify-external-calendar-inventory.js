@@ -204,6 +204,10 @@ function main() {
   ok('SQL text is not stored', lib.storedErrorCode('duplicate key value') === 'calendar_bridge_failed');
   ok('null stored error stays null', lib.storedErrorCode(null) === null);
   ok('known code stored as-is', lib.storedErrorCode('sheets_timeout') === 'sheets_timeout');
+  ok('hostile skip_reason omitted',
+    lib.sanitizeSkipped([{ skip_reason: 'duplicate key value', status: 'skipped_conflict' }])[0].skip_reason == null);
+  ok('known skip_reason kept',
+    lib.sanitizeSkipped([{ skip_reason: 'unmapped_unit_key', status: 'skipped_unmapped' }])[0].skip_reason === 'unmapped_unit_key');
   ok('routes refuse when flag off', routes.refuseClient('wolfhouse-somo').ok === false);
   const prevFlag = process.env.EXTERNAL_CALENDAR_INGEST_ENABLED;
   process.env.EXTERNAL_CALENDAR_INGEST_ENABLED = 'true';

@@ -354,6 +354,16 @@ const PUBLIC_ERROR_CODES = Object.freeze([
   'overlap_conflict',
   'bridge_unavailable',
   'unknown_action',
+  'invalid_map',
+  'bed_not_in_tenant',
+  'maps_save_failed',
+]);
+
+const PUBLIC_SKIP_CODES = Object.freeze([
+  'unmapped_unit_key',
+  'overlaps_non_owned',
+  'skipped_conflict',
+  'skipped_unmapped',
 ]);
 
 function storedErrorCode(value) {
@@ -366,6 +376,20 @@ function storedErrorCode(value) {
 
 function publicErrorCode(value) {
   return storedErrorCode(value);
+}
+
+function publicSkipCode(value) {
+  const code = String(value == null ? '' : value).trim();
+  if (PUBLIC_SKIP_CODES.indexOf(code) >= 0) return code;
+  return null;
+}
+
+function sanitizeSkipped(skipped) {
+  if (!Array.isArray(skipped)) return undefined;
+  return skipped.map((row) => ({
+    status: publicSkipCode(row && row.status) || 'skipped_conflict',
+    skip_reason: publicSkipCode(row && row.skip_reason),
+  }));
 }
 
 module.exports = {
@@ -400,4 +424,6 @@ module.exports = {
   PUBLIC_ERROR_CODES,
   storedErrorCode,
   publicErrorCode,
+  publicSkipCode,
+  sanitizeSkipped,
 };

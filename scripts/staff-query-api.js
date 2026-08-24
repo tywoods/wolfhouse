@@ -723,6 +723,7 @@ const {
 } = require('./lib/staff-manual-booking-create-sql');
 const {
   bridgeAvailable,
+  storedErrorCode,
 } = require('./lib/external-calendar-inventory');
 const extCalRoutes = require('./lib/external-calendar-inventory-routes');
 const { loadLockedState, createSyncScheduler, runConnectionSync } = require('./lib/external-calendar-inventory-sync');
@@ -44695,7 +44696,7 @@ async function handleOwnerScheduleBridge(req, res, user, action) {
       client_slug: ctx.clientSlug,
       staff_user_id: user && user.staff_user_id,
       success: !!result.ok,
-      error: result.error || result.reason || null,
+      error: storedErrorCode(result.error || result.reason),
     });
     const pub = extCalRoutes.publicResult(result);
     return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ client: ctx.clientSlug }, pub));

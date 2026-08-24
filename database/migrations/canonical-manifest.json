@@ -1312,7 +1312,7 @@
       "inForwardChain": true,
       "rationale": "Shared booking_beds occupancy serialization: booking then bed advisory locks, overlap reject, reversible down.",
       "downFilename": "091_booking_occupancy_serialization_down.sql",
-      "sha256": "6f12592e4ef5031b975e99b4490af77ec5979e10b75743abb624b07f1c58c91b"
+      "sha256": "42f51cbd7332e34516c92427ac49ce65d57d36e747e622ed59601d8113f46ff9"
     },
     {
       "id": "091_booking_occupancy_serialization_down",

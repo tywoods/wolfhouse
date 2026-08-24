@@ -4,51 +4,53 @@
 
 BEGIN;
 
-CREATE OR REPLACE FUNCTION public._091_occupancy_assert_fn(p_sig text)
-RETURNS void
-LANGUAGE plpgsql
-AS $$
+DO $$
 DECLARE
   owned text;
   oid oid;
 BEGIN
-  oid := to_regprocedure(p_sig);
-  IF oid IS NULL THEN
-    RETURN;
+  oid := to_regprocedure('public.booking_occupancy_lock_key(text,uuid)');
+  IF oid IS NOT NULL THEN
+    SELECT obj_description(oid, 'pg_proc') INTO owned;
+    IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
+      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)', 'booking_occupancy_lock_key', owned;
+    END IF;
   END IF;
-  SELECT obj_description(oid, 'pg_proc') INTO owned;
-  IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
-    RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)', p_sig, owned;
+  oid := to_regprocedure('public.booking_beds_reject_overlap()');
+  IF oid IS NOT NULL THEN
+    SELECT obj_description(oid, 'pg_proc') INTO owned;
+    IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
+      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)', 'booking_beds_reject_overlap', owned;
+    END IF;
   END IF;
-END;
-$$;
-
-CREATE OR REPLACE FUNCTION public._091_occupancy_assert_trg(p_table text, p_trigger text)
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  owned text;
-BEGIN
-  IF to_regclass('public.' || p_table) IS NULL THEN
-    RETURN;
+  oid := to_regprocedure('public.bookings_occupancy_status_guard()');
+  IF oid IS NOT NULL THEN
+    SELECT obj_description(oid, 'pg_proc') INTO owned;
+    IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
+      RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)', 'bookings_occupancy_status_guard', owned;
+    END IF;
   END IF;
-  SELECT obj_description(t.oid, 'pg_trigger') INTO owned
-    FROM pg_catalog.pg_trigger t
-    JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
-    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-   WHERE n.nspname = 'public' AND c.relname = p_table AND t.tgname = p_trigger;
-  IF FOUND AND owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
-    RAISE EXCEPTION '091_refused: trigger %.% is not 091-owned (comment=%)', p_table, p_trigger, owned;
+  IF to_regclass('public.booking_beds') IS NOT NULL THEN
+    SELECT obj_description(t.oid, 'pg_trigger') INTO owned
+      FROM pg_catalog.pg_trigger t
+      JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relname = 'booking_beds' AND t.tgname = 'booking_beds_reject_overlap_trg';
+    IF FOUND AND owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
+      RAISE EXCEPTION '091_refused: trigger %.% is not 091-owned (comment=%)', 'booking_beds', 'booking_beds_reject_overlap_trg', owned;
+    END IF;
   END IF;
-END;
-$$;
-
-SELECT public._091_occupancy_assert_fn('public.booking_occupancy_lock_key(text,uuid)');
-SELECT public._091_occupancy_assert_fn('public.booking_beds_reject_overlap()');
-SELECT public._091_occupancy_assert_fn('public.bookings_occupancy_status_guard()');
-SELECT public._091_occupancy_assert_trg('booking_beds', 'booking_beds_reject_overlap_trg');
-SELECT public._091_occupancy_assert_trg('bookings', 'bookings_occupancy_status_trg');
+  IF to_regclass('public.bookings') IS NOT NULL THEN
+    SELECT obj_description(t.oid, 'pg_trigger') INTO owned
+      FROM pg_catalog.pg_trigger t
+      JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relname = 'bookings' AND t.tgname = 'bookings_occupancy_status_trg';
+    IF FOUND AND owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
+      RAISE EXCEPTION '091_refused: trigger %.% is not 091-owned (comment=%)', 'bookings', 'bookings_occupancy_status_trg', owned;
+    END IF;
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION public.booking_occupancy_lock_key(
   p_kind text,
@@ -140,7 +142,6 @@ $$;
 COMMENT ON FUNCTION public.booking_beds_reject_overlap()
   IS '091_booking_occupancy_serialization v1';
 
-SELECT public._091_occupancy_assert_trg('booking_beds', 'booking_beds_reject_overlap_trg');
 DROP TRIGGER IF EXISTS booking_beds_reject_overlap_trg ON public.booking_beds;
 CREATE TRIGGER booking_beds_reject_overlap_trg
   BEFORE INSERT OR UPDATE OF booking_id, client_id, bed_id, assignment_start_date, assignment_end_date
@@ -190,7 +191,6 @@ $$;
 COMMENT ON FUNCTION public.bookings_occupancy_status_guard()
   IS '091_booking_occupancy_serialization v1';
 
-SELECT public._091_occupancy_assert_trg('bookings', 'bookings_occupancy_status_trg');
 DROP TRIGGER IF EXISTS bookings_occupancy_status_trg ON public.bookings;
 CREATE TRIGGER bookings_occupancy_status_trg
   BEFORE UPDATE OF status
@@ -199,8 +199,5 @@ CREATE TRIGGER bookings_occupancy_status_trg
   EXECUTE PROCEDURE public.bookings_occupancy_status_guard();
 COMMENT ON TRIGGER bookings_occupancy_status_trg ON public.bookings
   IS '091_booking_occupancy_serialization v1';
-
-DROP FUNCTION IF EXISTS public._091_occupancy_assert_fn(text);
-DROP FUNCTION IF EXISTS public._091_occupancy_assert_trg(text, text);
 
 COMMIT;
