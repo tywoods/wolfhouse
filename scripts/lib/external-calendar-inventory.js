@@ -44,6 +44,15 @@ const WHITE_EPS = 0.999;
  * Clear / available fills: absent, transparent (alpha 0), explicit white,
  * and theme BACKGROUND / UNSPECIFIED. Any other effective visible fill is
  * booked. Consecutive booked dates for one bed coalesce to a half-open range.
+ *
+ * Header width is the last parseable date column on row 1. Body rows may be
+ * shorter (trailing clear). Any fill or data signal to the right of that last
+ * date is `header_unknown_column` (zero writes, keep last).
+ *
+ * Cancellation is bounded to the represented half-open window
+ * `[min header date, max header date + 1 day)`. Fully outside owned inventory
+ * is preserved. A straddling owned range is split: cancel the old UID, then
+ * insert remainder interval(s) using the same connection ownership tags.
  */
 
 const PROTECTED_ASSIGNMENT_TYPES = Object.freeze([
@@ -257,6 +266,59 @@ function occupancyExternalUid(unitKey, startDate, endDate) {
   return ('grid:' + unitKey + ':' + startDate + ':' + endDate).slice(0, 160);
 }
 
+function cellHasOccupancySignal(cell) {
+  return cellDisplayText(cell).trim() !== '' || occupancyCellBooked(cell);
+}
+
+function isoDateOnly(value) {
+  if (value == null) return '';
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const s = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  return s;
+}
+
+/**
+ * Represented Sheet window is half-open [min header date, max header date + 1 day).
+ * Cancellation and remainder math use this span, not an unbounded bed history.
+ */
+function representedSheetWindow(dates) {
+  const list = Array.isArray(dates) ? dates : [];
+  let min = null;
+  let max = null;
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    const iso = isoDateOnly(item && typeof item === 'object' ? item.iso : item);
+    if (!DATE_RE.test(iso)) continue;
+    if (min == null || iso < min) min = iso;
+    if (max == null || iso > max) max = iso;
+  }
+  if (!min || !max) return null;
+  const end = addDaysIso(max, 1);
+  if (!end) return null;
+  return { start: min, end };
+}
+
+/**
+ * Subtract half-open [cutStart, cutEnd) from [start, end).
+ * Fully outside → original range. Fully inside → []. Partial → remaining owned intervals.
+ */
+function subtractHalfOpenRange(start, end, cutStart, cutEnd) {
+  const s = isoDateOnly(start);
+  const e = isoDateOnly(end);
+  const cs = isoDateOnly(cutStart);
+  const ce = isoDateOnly(cutEnd);
+  if (!DATE_RE.test(s) || !DATE_RE.test(e) || !(s < e)) return [];
+  if (!DATE_RE.test(cs) || !DATE_RE.test(ce) || !(cs < ce)) return [{ start: s, end: e }];
+  if (e <= cs || s >= ce) return [{ start: s, end: e }];
+  const remainders = [];
+  if (s < cs) remainders.push({ start: s, end: cs });
+  if (e > ce) remainders.push({ start: ce, end: e });
+  return remainders.filter((r) => r.start < r.end);
+}
+
 function coalesceBookedDates(unitKey, dates, bookedFlags, rowNumber) {
   const ranges = [];
   let i = 0;
@@ -391,6 +453,17 @@ function probeSheetRows(rows, opts) {
   const seenBeds = Object.create(null);
   const mentionedBedIds = Object.create(null);
   let namedRowCount = 0;
+  const lastDateCol = headers.dates[headers.dates.length - 1].col;
+  const sheetWindow = representedSheetWindow(headers.dates);
+
+  for (let r = 0; r < body.length; r++) {
+    const cells = body[r] || [];
+    for (let c = lastDateCol + 1; c < cells.length; c++) {
+      if (cellHasOccupancySignal(cells[c])) {
+        return failClosed('header_unknown_column', { rowNumber: r + 2, col: c + 1 });
+      }
+    }
+  }
 
   for (let r = 0; r < body.length; r++) {
     const cells = body[r] || [];
@@ -460,7 +533,7 @@ function probeSheetRows(rows, opts) {
     });
   }
 
-  if (namedRowCount > 0) {
+  if (namedRowCount > 0 && sheetWindow) {
     Object.keys(occupancy).forEach((bedId) => {
       if (!mentionedBedIds[bedId]) return;
       (occupancy[bedId] || []).forEach((row) => {
@@ -468,14 +541,33 @@ function probeSheetRows(rows, opts) {
         const meta = (row.metadata && row.metadata.external_calendar) || {};
         const uid = row.external_uid || meta.external_uid;
         if (!uid || busyUids[uid]) return;
+        const start = isoDateOnly(row.assignment_start_date);
+        const end = isoDateOnly(row.assignment_end_date);
+        if (!DATE_RE.test(start) || !DATE_RE.test(end) || !(start < end)) return;
+        if (end <= sheetWindow.start || start >= sheetWindow.end) return;
+        const remainders = subtractHalfOpenRange(start, end, sheetWindow.start, sheetWindow.end);
         writes.push({
           action: 'cancel_owned_if_present',
           bed_id: bedId,
           unit_key: mentionedBedIds[bedId],
           external_uid: uid,
-          start_date: row.assignment_start_date,
-          end_date: row.assignment_end_date,
+          start_date: start,
+          end_date: end,
           status: 'free',
+        });
+        remainders.forEach((rem) => {
+          const remUid = occupancyExternalUid(mentionedBedIds[bedId], rem.start, rem.end);
+          writes.push({
+            action: 'insert_owned',
+            bed_id: bedId,
+            unit_key: mentionedBedIds[bedId],
+            start_date: rem.start,
+            end_date: rem.end,
+            status: 'busy',
+            external_uid: remUid,
+            assignment_type: ASSIGNMENT_TYPE,
+            metadata: buildOwnedBlockMetadata(connectionId, remUid),
+          });
         });
       });
     });
@@ -667,6 +759,10 @@ module.exports = {
   parseDateHeaderCell,
   parseOccupancyDateHeaders,
   occupancyExternalUid,
+  cellHasOccupancySignal,
+  isoDateOnly,
+  representedSheetWindow,
+  subtractHalfOpenRange,
   coalesceBookedDates,
   validateHeaders,
   parseSheetRow,

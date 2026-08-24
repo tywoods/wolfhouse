@@ -520,6 +520,198 @@ function main() {
   ok('malformed snapshot keeps last imported blocks',
     malformedKeep.ok === false && malformedKeep.keepLastBlocks === true && malformedKeep.writes.length === 0);
 
+  function ownedBlock(opts) {
+    opts = opts || {};
+    const start = opts.start;
+    const end = opts.end;
+    const uid = opts.uid || ('grid:R1A:' + start + ':' + end);
+    const conn = opts.connectionId || CONN;
+    return {
+      assignment_type: lib.ASSIGNMENT_TYPE,
+      assignment_start_date: start,
+      assignment_end_date: end,
+      booking_id: opts.booking_id,
+      external_uid: uid,
+      metadata: lib.buildOwnedBlockMetadata(conn, uid),
+      status: 'blocked',
+    };
+  }
+
+  ok('occupancy signal helper treats color as visible',
+    typeof lib.cellHasOccupancySignal === 'function'
+    && lib.cellHasOccupancySignal(occCell({ effective: { backgroundColor: FILL_YELLOW } })) === true);
+  ok('occupancy signal helper treats nonempty text as visible',
+    lib.cellHasOccupancySignal(occCell({ text: 'NOTE' })) === true);
+  ok('occupancy signal helper ignores trailing clear cells',
+    lib.cellHasOccupancySignal(occCell({ text: '' })) === false
+    && lib.cellHasOccupancySignal(occCell({ effective: { backgroundColor: FILL_WHITE } })) === false);
+
+  const extraColorBody = [
+    occHeader(['2026-09-10', '2026-09-11']),
+    occBed('R1A', [true, true, 'yellow']),
+  ];
+  const extraColorPlan = lib.probeSheetRows(extraColorBody, { maps, connectionId: CONN, occupancy: ownedOcc });
+  ok('colored extra body cell beyond date headers fails closed with zero writes',
+    extraColorPlan.ok === false
+    && extraColorPlan.writes.length === 0
+    && extraColorPlan.keepLastBlocks === true
+    && extraColorPlan.reason === 'header_unknown_column');
+
+  const extraDataBody = [
+    occHeader(['2026-09-10', '2026-09-11']),
+    occBed('R1A', [true, true]).concat([occCell({ text: 'NOTE' })]),
+  ];
+  const extraDataPlan = lib.probeSheetRows(extraDataBody, { maps, connectionId: CONN, occupancy: ownedOcc });
+  ok('nonempty extra body cell beyond date headers fails closed with zero writes',
+    extraDataPlan.ok === false
+    && extraDataPlan.writes.length === 0
+    && extraDataPlan.keepLastBlocks === true
+    && extraDataPlan.reason === 'header_unknown_column');
+
+  const shortBody = [
+    occHeader(['2026-09-10', '2026-09-11', '2026-09-12']),
+    occBed('R1A', [true, true]),
+  ];
+  const shortPlan = lib.probeSheetRows(shortBody, { maps, connectionId: CONN, occupancy: {} });
+  ok('shorter body row is trailing-clear and still syncs',
+    shortPlan.ok === true
+    && shortPlan.writes.length === 1
+    && shortPlan.writes[0].start_date === '2026-09-10'
+    && shortPlan.writes[0].end_date === '2026-09-12');
+
+  const trailingClearBody = [
+    occHeader(['2026-09-10', '2026-09-11']),
+    occBed('R1A', [true, true, false, false]),
+  ];
+  const trailingClearPlan = lib.probeSheetRows(trailingClearBody, { maps, connectionId: CONN, occupancy: {} });
+  ok('trailing clear cells beyond last date header are not a mismatch',
+    trailingClearPlan.ok === true && trailingClearPlan.writes.length === 1);
+
+  const septDates = ['2026-09-01', '2026-09-02', '2026-09-03'];
+  ok('represented sheet window is half-open first/last header',
+    typeof lib.representedSheetWindow === 'function'
+    && JSON.stringify(lib.representedSheetWindow(septDates.map((iso, i) => ({ col: i + 1, iso }))))
+      === JSON.stringify({ start: '2026-09-01', end: '2026-09-04' }));
+  ok('interval subtract keeps fully-outside range',
+    typeof lib.subtractHalfOpenRange === 'function'
+    && JSON.stringify(lib.subtractHalfOpenRange('2026-10-01', '2026-10-10', '2026-09-01', '2026-09-04'))
+      === JSON.stringify([{ start: '2026-10-01', end: '2026-10-10' }]));
+  ok('interval subtract drops fully-inside range',
+    JSON.stringify(lib.subtractHalfOpenRange('2026-09-02', '2026-09-04', '2026-09-01', '2026-09-04'))
+      === JSON.stringify([]));
+  ok('interval subtract keeps right remainder at window end',
+    JSON.stringify(lib.subtractHalfOpenRange('2026-09-03', '2026-10-05', '2026-09-01', '2026-09-04'))
+      === JSON.stringify([{ start: '2026-09-04', end: '2026-10-05' }]));
+  ok('interval subtract keeps left remainder at window start',
+    JSON.stringify(lib.subtractHalfOpenRange('2026-08-20', '2026-09-02', '2026-09-01', '2026-09-04'))
+      === JSON.stringify([{ start: '2026-08-20', end: '2026-09-01' }]));
+  ok('interval subtract splits a range that spans both sides of the window',
+    JSON.stringify(lib.subtractHalfOpenRange('2026-08-20', '2026-10-05', '2026-09-01', '2026-09-04'))
+      === JSON.stringify([
+        { start: '2026-08-20', end: '2026-09-01' },
+        { start: '2026-09-04', end: '2026-10-05' },
+      ]));
+
+  const septClear = occGrid(septDates, [{ name: 'R1A', fills: [false, false, false] }]);
+  const octoberOwned = {
+    [BED_A]: [ownedBlock({ start: '2026-10-01', end: '2026-10-10', booking_id: 'xblk-oct' })],
+  };
+  const outsidePlan = lib.probeSheetRows(septClear, {
+    maps, connectionId: CONN, occupancy: octoberOwned,
+  });
+  ok('fully outside-window owned range is not cancelled',
+    outsidePlan.ok === true
+    && !outsidePlan.writes.some((w) => w.action === 'cancel_owned_if_present')
+    && !outsidePlan.writes.some((w) => w.external_uid === 'grid:R1A:2026-10-01:2026-10-10'));
+  const afterOutside = applyProbePlan(outsidePlan, {
+    connectionId: CONN,
+    occupancy: JSON.parse(JSON.stringify(octoberOwned)),
+  });
+  ok('September clear snapshot preserves October owned inventory',
+    afterOutside.cancelled.length === 0
+    && afterOutside.occupancy[BED_A].some((r) => r.booking_id === 'xblk-oct'
+      && r.assignment_start_date === '2026-10-01'
+      && r.assignment_end_date === '2026-10-10'));
+
+  const rightStraddle = {
+    [BED_A]: [ownedBlock({ start: '2026-09-03', end: '2026-10-05', booking_id: 'xblk-right' })],
+  };
+  const rightPlan = lib.probeSheetRows(septClear, {
+    maps, connectionId: CONN, occupancy: rightStraddle,
+  });
+  const afterRight = applyProbePlan(rightPlan, {
+    connectionId: CONN,
+    occupancy: JSON.parse(JSON.stringify(rightStraddle)),
+  });
+  ok('right-boundary partial overlap keeps only the outside remainder',
+    afterRight.occupancy[BED_A].length === 1
+    && afterRight.occupancy[BED_A][0].assignment_start_date === '2026-09-04'
+    && afterRight.occupancy[BED_A][0].assignment_end_date === '2026-10-05'
+    && afterRight.occupancy[BED_A][0].booking_id !== 'xblk-right'
+    && afterRight.occupancy[BED_A][0].assignment_type === lib.ASSIGNMENT_TYPE);
+
+  const leftStraddle = {
+    [BED_A]: [ownedBlock({ start: '2026-08-20', end: '2026-09-02', booking_id: 'xblk-left' })],
+  };
+  const afterLeft = applyProbePlan(lib.probeSheetRows(septClear, {
+    maps, connectionId: CONN, occupancy: leftStraddle,
+  }), {
+    connectionId: CONN,
+    occupancy: JSON.parse(JSON.stringify(leftStraddle)),
+  });
+  ok('left-boundary partial overlap keeps only the outside remainder',
+    afterLeft.occupancy[BED_A].length === 1
+    && afterLeft.occupancy[BED_A][0].assignment_start_date === '2026-08-20'
+    && afterLeft.occupancy[BED_A][0].assignment_end_date === '2026-09-01');
+
+  const bothStraddle = {
+    [BED_A]: [ownedBlock({ start: '2026-08-20', end: '2026-10-05', booking_id: 'xblk-both' })],
+  };
+  const afterBoth = applyProbePlan(lib.probeSheetRows(septClear, {
+    maps, connectionId: CONN, occupancy: bothStraddle,
+  }), {
+    connectionId: CONN,
+    occupancy: JSON.parse(JSON.stringify(bothStraddle)),
+  });
+  const bothRanges = (afterBoth.occupancy[BED_A] || []).slice().sort((a, b) =>
+    String(a.assignment_start_date).localeCompare(String(b.assignment_start_date)));
+  ok('span across the window splits into two owned remainders',
+    bothRanges.length === 2
+    && bothRanges[0].assignment_start_date === '2026-08-20' && bothRanges[0].assignment_end_date === '2026-09-01'
+    && bothRanges[1].assignment_start_date === '2026-09-04' && bothRanges[1].assignment_end_date === '2026-10-05');
+
+  const mixedWindowOcc = {
+    [BED_A]: [
+      {
+        assignment_type: 'manual',
+        assignment_start_date: '2026-09-02',
+        assignment_end_date: '2026-09-03',
+        status: 'confirmed',
+        booking_id: 'guest-sep',
+      },
+      staffBlock(),
+      ownedBlock({ start: '2026-10-01', end: '2026-10-10', booking_id: 'xblk-oct' }),
+      ownedBlock({
+        start: '2026-09-01',
+        end: '2026-09-02',
+        booking_id: 'xblk-other',
+        connectionId: 'conn-other',
+      }),
+    ],
+  };
+  const mixedWindowPlan = lib.probeSheetRows(septClear, {
+    maps, connectionId: CONN, occupancy: mixedWindowOcc,
+  });
+  const afterMixedWindow = applyProbePlan(mixedWindowPlan, {
+    connectionId: CONN,
+    occupancy: JSON.parse(JSON.stringify(mixedWindowOcc)),
+  });
+  ok('window cancellation never clears guest, staff, or other-connection rows',
+    afterMixedWindow.occupancy[BED_A].some((r) => r.booking_id === 'guest-sep')
+    && afterMixedWindow.occupancy[BED_A].some((r) => r.booking_id === 'staff-1')
+    && afterMixedWindow.occupancy[BED_A].some((r) => r.booking_id === 'xblk-other')
+    && afterMixedWindow.occupancy[BED_A].some((r) => r.booking_id === 'xblk-oct'));
+
   console.log('\nverify-external-calendar-inventory: ALL CHECKS PASSED');
 }
 

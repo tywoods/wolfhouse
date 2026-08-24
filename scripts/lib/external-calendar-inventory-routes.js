@@ -321,17 +321,27 @@ async function handleDelete(pg, clientSlug, connectionId, body) {
       return { ok: false, status: 400, error: 'confirm_name_mismatch' };
     }
     await pg.query(
-      `DELETE FROM bookings
-        WHERE client_id = $1
-          AND id IN (
-            SELECT DISTINCT bk.id
+      `DELETE FROM booking_beds bb
+        WHERE bb.client_id = $1
+          AND bb.assignment_type = 'external_inventory_block'
+          AND EXISTS (
+            SELECT 1
               FROM bookings bk
-              JOIN booking_beds bb
-                ON bb.booking_id = bk.id
-               AND bb.client_id = bk.client_id
-             WHERE bk.client_id = $1
-               AND bb.assignment_type = 'external_inventory_block'
+             WHERE bk.id = bb.booking_id
+               AND bk.client_id = $1
                AND bk.metadata -> 'external_calendar' ->> 'connection_id' = $2
+          )`,
+      [clientId, String(connectionId)]
+    );
+    await pg.query(
+      `DELETE FROM bookings bk
+        WHERE bk.client_id = $1
+          AND bk.metadata -> 'external_calendar' ->> 'connection_id' = $2
+          AND NOT EXISTS (
+            SELECT 1
+              FROM booking_beds bb
+             WHERE bb.booking_id = bk.id
+               AND bb.client_id = bk.client_id
           )`,
       [clientId, String(connectionId)]
     );

@@ -129,6 +129,7 @@ async function main() {
         }
         if (/DELETE FROM booking_beds/.test(text)) {
           pg.deletedBedsSql = (pg.deletedBedsSql || []).concat([{ sql: text, params }]);
+          if (pg.failDeleteBeds) throw new Error('injected delete beds');
           return { rows: [] };
         }
         if (/DELETE FROM external_calendar_connections/.test(text)) {
@@ -185,15 +186,23 @@ async function main() {
   const removed = await extCalRoutes.handleDelete(okState, 'wolfhouse-somo', CONN_ID, { confirm_name: 'Owner schedule · SHEETA' });
   ok('disabled delete succeeds', removed.ok === true && removed.deleted === true);
   ok('delete uses one transaction', okState.begins === 1 && okState.commits === 1 && okState.rollbacks === 0);
+  const bedSql = ((okState.deletedBedsSql || [])[0] && okState.deletedBedsSql[0].sql) || '';
   const bookingSql = (okState.deletedBookingSql[0] && okState.deletedBookingSql[0].sql) || '';
-  ok('owned booking delete is scoped to external_inventory_block', /external_inventory_block/.test(bookingSql));
-  ok('owned booking delete matches this connection_id metadata',
-    /external_calendar/.test(bookingSql) && /connection_id/.test(bookingSql));
-  ok('owned booking delete stays on tenant client_id', /client_id/.test(bookingSql));
-  ok('owned booking delete does not target staff_block/operator_block',
-    !/staff_block/.test(bookingSql) && !/operator_block/.test(bookingSql));
-  ok('connection row deleted after owned bookings',
+  ok('owned bed delete is scoped to external_inventory_block', /external_inventory_block/.test(bedSql));
+  ok('owned bed delete matches this connection_id metadata',
+    /external_calendar/.test(bedSql) && /connection_id/.test(bedSql));
+  ok('owned bed delete stays on tenant client_id', /client_id/.test(bedSql));
+  ok('owned bed delete does not target staff_block/operator_block',
+    !/staff_block/.test(bedSql) && !/operator_block/.test(bedSql));
+  ok('owned parent delete is tenant + metadata + empty remaining beds',
+    /external_calendar/.test(bookingSql) && /connection_id/.test(bookingSql)
+    && /client_id/.test(bookingSql) && /NOT EXISTS/i.test(bookingSql)
+    && !/external_inventory_block/.test(bookingSql)
+    && !/staff_block/.test(bookingSql) && !/operator_block/.test(bookingSql));
+  ok('connection row deleted after owned beds and bookings',
     okState.deletedConnectionSql.length === 1
+    && okState.queries.findIndex((q) => /DELETE FROM booking_beds/.test(q.sql))
+      < okState.queries.findIndex((q) => /DELETE FROM bookings/.test(q.sql))
     && okState.queries.findIndex((q) => /DELETE FROM bookings/.test(q.sql))
       < okState.queries.findIndex((q) => /DELETE FROM external_calendar_connections/.test(q.sql)));
   const pubDel = extCalRoutes.publicResult(removed);
@@ -215,6 +224,163 @@ async function main() {
   const cross = await extCalRoutes.handleDelete(otherTenant, 'wolfhouse-somo', CONN_ID, { confirm_name: 'Owner schedule · SHEETA' });
   ok('delete unknown tenant is 404', cross.error === 'client_not_found');
   ok('cross-tenant delete issues no booking delete', (otherTenant.deletedBookingSql || []).length === 0);
+
+  function parentConnId(booking) {
+    const meta = booking.metadata && booking.metadata.external_calendar;
+    return meta ? String(meta.connection_id || '') : '';
+  }
+
+  function semanticDeletePg(init) {
+    const pg = deletePg(init);
+    pg.deletedBedIds = [];
+    pg.deletedBookingIds = [];
+    pg.cascadedBedIds = [];
+    const origQuery = pg.query.bind(pg);
+    pg.query = async function query(sql, params) {
+      const text = String(sql);
+      const result = await origQuery(sql, params);
+      if (!pg.store) return result;
+      if (/DELETE FROM booking_beds/.test(text)) {
+        const clientId = params[0];
+        const connId = String(params[1]);
+        const scoped = /external_inventory_block/.test(text)
+          && /connection_id/.test(text)
+          && /client_id/.test(text)
+          && !/staff_block/.test(text)
+          && !/operator_block/.test(text)
+          && !/private_room_block/.test(text);
+        pg.store.beds = pg.store.beds.filter((bed) => {
+          if (bed.client_id !== clientId) return true;
+          if (!scoped) {
+            pg.deletedBedIds.push(bed.id);
+            return false;
+          }
+          if (bed.assignment_type !== 'external_inventory_block') return true;
+          const parent = pg.store.bookings.find((b) => b.id === bed.booking_id);
+          if (!parent || parentConnId(parent) !== connId) return true;
+          pg.deletedBedIds.push(bed.id);
+          return false;
+        });
+        return { rows: pg.deletedBedIds.map((id) => ({ id })) };
+      }
+      if (/DELETE FROM bookings/.test(text)) {
+        const clientId = params[0];
+        const connId = String(params[1]);
+        const emptyOnly = /NOT EXISTS/i.test(text);
+        const metadataScoped = /external_calendar/.test(text) && /connection_id/.test(text) && /client_id/.test(text);
+        const deletedIds = [];
+        pg.store.bookings = pg.store.bookings.filter((bk) => {
+          if (bk.client_id !== clientId) return true;
+          if (!metadataScoped || parentConnId(bk) !== connId) return true;
+          if (emptyOnly) {
+            const remaining = pg.store.beds.filter((b) => b.booking_id === bk.id);
+            if (remaining.length) return true;
+          }
+          deletedIds.push(bk.id);
+          return false;
+        });
+        pg.deletedBookingIds = pg.deletedBookingIds.concat(deletedIds);
+        const gone = Object.create(null);
+        deletedIds.forEach((id) => { gone[id] = true; });
+        pg.store.beds = pg.store.beds.filter((bed) => {
+          if (gone[bed.booking_id]) {
+            pg.cascadedBedIds.push(bed.id);
+            return false;
+          }
+          return true;
+        });
+        return { rows: deletedIds.map((id) => ({ id })) };
+      }
+      return result;
+    };
+    return pg;
+  }
+
+  const mixedStore = {
+    bookings: [
+      {
+        id: 'mixed-parent',
+        client_id: CLIENT_ID,
+        metadata: { external_calendar: { connection_id: CONN_ID } },
+      },
+      {
+        id: 'pure-owned',
+        client_id: CLIENT_ID,
+        metadata: { external_calendar: { connection_id: CONN_ID } },
+      },
+      {
+        id: 'guest-parent',
+        client_id: CLIENT_ID,
+        metadata: {},
+      },
+      {
+        id: 'other-conn-parent',
+        client_id: CLIENT_ID,
+        metadata: { external_calendar: { connection_id: OTHER_CONN } },
+      },
+      {
+        id: 'protected-parent',
+        client_id: CLIENT_ID,
+        metadata: {},
+      },
+    ],
+    beds: [
+      { id: 'bb-owned-mixed', booking_id: 'mixed-parent', client_id: CLIENT_ID, assignment_type: 'external_inventory_block' },
+      { id: 'bb-guest-mixed', booking_id: 'mixed-parent', client_id: CLIENT_ID, assignment_type: 'manual' },
+      { id: 'bb-staff-mixed', booking_id: 'mixed-parent', client_id: CLIENT_ID, assignment_type: 'staff_block' },
+      { id: 'bb-protected-mixed', booking_id: 'mixed-parent', client_id: CLIENT_ID, assignment_type: 'operator_block' },
+      { id: 'bb-pure', booking_id: 'pure-owned', client_id: CLIENT_ID, assignment_type: 'external_inventory_block' },
+      { id: 'bb-guest', booking_id: 'guest-parent', client_id: CLIENT_ID, assignment_type: 'manual' },
+      { id: 'bb-other', booking_id: 'other-conn-parent', client_id: CLIENT_ID, assignment_type: 'external_inventory_block' },
+      { id: 'bb-protected', booking_id: 'protected-parent', client_id: CLIENT_ID, assignment_type: 'private_room_block' },
+    ],
+  };
+  const mixedState = semanticDeletePg({
+    connection: {
+      id: CONN_ID, client_id: CLIENT_ID, name: 'Owner schedule · SHEETA',
+      status: 'disabled',
+    },
+    store: mixedStore,
+  });
+  const mixedRemoved = await extCalRoutes.handleDelete(
+    mixedState, 'wolfhouse-somo', CONN_ID, { confirm_name: 'Owner schedule · SHEETA' }
+  );
+  const mixedIds = (id) => mixedState.store.beds.some((b) => b.id === id);
+  const mixedParents = (id) => mixedState.store.bookings.some((b) => b.id === id);
+  ok('mixed-booking delete succeeds in one transaction',
+    mixedRemoved.ok === true && mixedState.begins === 1 && mixedState.commits === 1 && mixedState.rollbacks === 0);
+  ok('mixed-booking delete removes only this connection owned bed rows',
+    mixedIds('bb-owned-mixed') === false && mixedIds('bb-pure') === false);
+  ok('mixed-booking delete preserves guest/staff/protected beds on the mixed parent',
+    mixedIds('bb-guest-mixed') === true
+    && mixedIds('bb-staff-mixed') === true
+    && mixedIds('bb-protected-mixed') === true);
+  ok('mixed-booking delete keeps the mixed parent because assignments remain',
+    mixedParents('mixed-parent') === true);
+  ok('mixed-booking delete removes empty connection-owned parent',
+    mixedParents('pure-owned') === false);
+  ok('mixed-booking delete preserves guest, other-connection, and protected parents',
+    mixedParents('guest-parent') === true
+    && mixedParents('other-conn-parent') === true
+    && mixedParents('protected-parent') === true
+    && mixedIds('bb-guest') === true
+    && mixedIds('bb-other') === true
+    && mixedIds('bb-protected') === true);
+  ok('mixed-booking delete never cascades remaining assignments',
+    mixedState.cascadedBedIds.length === 0);
+  const mixedBedSql = ((mixedState.deletedBedsSql || [])[0] && mixedState.deletedBedsSql[0].sql) || '';
+  const mixedBookingSql = ((mixedState.deletedBookingSql || [])[0] && mixedState.deletedBookingSql[0].sql) || '';
+  ok('bed delete happens before parent delete',
+    mixedState.queries.findIndex((q) => /DELETE FROM booking_beds/.test(q.sql))
+      < mixedState.queries.findIndex((q) => /DELETE FROM bookings/.test(q.sql)));
+  ok('bed delete is tenant + assignment_type + connection metadata scoped',
+    /external_inventory_block/.test(mixedBedSql)
+    && /connection_id/.test(mixedBedSql)
+    && /client_id/.test(mixedBedSql));
+  ok('parent delete is tenant + metadata + empty remaining beds',
+    /connection_id/.test(mixedBookingSql)
+    && /client_id/.test(mixedBookingSql)
+    && /NOT EXISTS/i.test(mixedBookingSql));
 
   const otherConnBody = extCalRoutes.publicResult({
     ok: true,

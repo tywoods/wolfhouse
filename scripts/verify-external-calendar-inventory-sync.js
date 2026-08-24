@@ -195,6 +195,125 @@ async function main() {
     /effectiveFormat/.test(src) && /backgroundColorStyle/.test(src) && /userEnteredFormat/.test(src));
   ok('Sheets request does not fetch conditionalFormats rules',
     !/conditionalFormats/.test(src));
+  const extraColorSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        {
+          rowData: [
+            { values: [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')] },
+            { values: [nameCell('R1A'), yellowCell(), yellowCell(), yellowCell()] },
+          ],
+        },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('snapshot preserves colored body cell beyond final date header',
+    extraColorSnap.ok === true
+    && extraColorSnap.rows[1].length === 4
+    && extraColorSnap.rows[1][3]
+    && extraColorSnap.rows[1][3].effectiveFormat
+    && extraColorSnap.rows[1][3].effectiveFormat.backgroundColor
+    && extraColorSnap.rows[1][3].effectiveFormat.backgroundColor.red === 1);
+  const extraDataSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        {
+          rowData: [
+            { values: [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')] },
+            { values: [nameCell('R1A'), yellowCell(), yellowCell(), { formattedValue: 'NOTE' }] },
+          ],
+        },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('snapshot preserves nonempty extra body cell beyond final date header',
+    extraDataSnap.ok === true
+    && extraDataSnap.rows[1].length === 4
+    && extraDataSnap.rows[1][3]
+    && extraDataSnap.rows[1][3].formattedValue === 'NOTE');
+  const extraColorSync = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const extraColorSyncRes = await runConnectionSync(mockPg(extraColorSync), {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: extraColorSnap,
+  });
+  ok('extra colored body cell fails closed with zero writes and keep-last',
+    extraColorSyncRes.ok === false
+    && extraColorSyncRes.keepLastBlocks === true
+    && extraColorSync.bookingInserts === 0
+    && extraColorSync.bedInserts === 0
+    && extraColorSyncRes.reason === 'header_unknown_column');
+  const extraDataSync = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const extraDataSyncRes = await runConnectionSync(mockPg(extraDataSync), {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: extraDataSnap,
+  });
+  ok('extra nonempty body cell fails closed with zero writes and keep-last',
+    extraDataSyncRes.ok === false
+    && extraDataSyncRes.keepLastBlocks === true
+    && extraDataSync.bookingInserts === 0
+    && extraDataSyncRes.reason === 'header_unknown_column');
+
+  const octoberUid = 'grid:R1A:2026-10-01:2026-10-10';
+  const octoberOccState = {
+    queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0,
+    occupancyRows: [{
+      bed_id: 'bed-a',
+      assignment_type: 'external_inventory_block',
+      assignment_start_date: '2026-10-01',
+      assignment_end_date: '2026-10-10',
+      booking_id: 'bk-oct',
+      status: 'blocked',
+      metadata: {
+        external_calendar: {
+          connection_id: 'conn-1',
+          external_uid: octoberUid,
+        },
+      },
+    }],
+    cancelledBookingIds: [],
+  };
+  const octoberPg = mockPg(octoberOccState);
+  const octOrig = octoberPg.query.bind(octoberPg);
+  octoberPg.query = async (sql, params) => {
+    if (/FROM booking_beds/.test(sql) && !/INSERT/.test(sql) && !/DELETE/.test(sql) && !/UPDATE/.test(sql)) {
+      octoberOccState.queries.push({ sql, params });
+      if (/assignment_start_date < \$4/.test(sql)) return { rows: [] };
+      return { rows: octoberOccState.occupancyRows };
+    }
+    if (/SELECT bk.id/.test(sql)) {
+      octoberOccState.queries.push({ sql, params });
+      if (params && params[2] === octoberUid) return { rows: [{ id: 'bk-oct' }] };
+      return { rows: [] };
+    }
+    if (/UPDATE bookings SET status = 'cancelled'/.test(sql)) {
+      octoberOccState.cancelledBookingIds.push(params[0]);
+    }
+    return octOrig(sql, params);
+  };
+  const octoberSync = await runConnectionSync(octoberPg, {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: {
+      ok: true,
+      rows: [
+        [nameCell(''), dateCell('2026-09-01'), dateCell('2026-09-02'), dateCell('2026-09-03')],
+        [nameCell('R1A'), yellowCell(), yellowCell(), yellowCell()],
+      ],
+    },
+  });
+  ok('September sync does not cancel a fully outside October owned block',
+    octoberSync.ok === true
+    && octoberOccState.cancelledBookingIds.indexOf('bk-oct') < 0
+    && octoberOccState.bookingInserts >= 1);
+
   ok('column overflow with fill fails closed', parseSpreadsheetSnapshot({
     sheets: [{
       properties: { title: 'inventory' },

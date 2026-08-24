@@ -143,7 +143,9 @@ We do **not** fetch `sheets.conditionalFormats` rules. Conditional formatting is
 | Absent, transparent (`alpha: 0`), explicit white, theme `BACKGROUND` / `UNSPECIFIED` | **AVAILABLE** |
 | Any other effective fill (rgb or non-default theme, including CF-applied colour) | **BOOKED** |
 
-Consecutive booked dates for the same bed coalesce into a half-open range `[start, end)`. Clearing fills on a valid mapped grid cancels **only** `external_inventory_block` rows owned by this connection. Guest stays, staff blocks, and other connections are never removed.
+Consecutive booked dates for the same bed coalesce into a half-open range `[start, end)`. Clearing fills on a valid mapped grid cancels **only** `external_inventory_block` rows owned by this connection, and only inside the represented half-open Sheet date window `[first header date, last header date + 1 day)`. Owned inventory fully outside that window is preserved. A connection-owned range that straddles the window is split with interval subtraction: the in-window portion follows the snapshot, and any outside remainder is kept as owned block(s). Guest stays, staff blocks, and other connections are never removed.
+
+Removing a disabled connection deletes only matching `external_inventory_block` `booking_beds` rows (tenant + parent `metadata.external_calendar.connection_id`). The parent `bookings` row is deleted only when it is that connection’s metadata and has zero remaining `booking_beds`. Mixed/legacy parents keep every guest, staff, protected, or other-connection assignment.
 
 ### Validation (fail closed — keep last imported blocks)
 
@@ -158,6 +160,7 @@ Consecutive booked dates for the same bed coalesce into a half-open range `[star
 | Empty bed name with no color | skip row |
 | Unmapped colored row | `skipped_unmapped`; entire sync fails closed |
 | Booked range overlaps non-owned `booking_beds` | `skipped_conflict`; **keep guest/staff row** |
+| Body row has fill or data beyond the last date header | `header_unknown_column`; zero writes, keep last. Trailing *clear* cells (or a shorter body row) are allowed |
 | Empty grid (dates only, no bed rows) | dry-run empty; **do not** mass-cancel |
 
 Timezone: dates are **calendar dates in the tenant hostel TZ** (Wolfhouse: Europe/Madrid unless config says otherwise). No times in MVP.

@@ -7,7 +7,7 @@
 
 const crypto = require('crypto');
 const https = require('https');
-const { occupancyCellBooked, cellDisplayText } = require('./external-calendar-inventory');
+const { cellDisplayText, cellHasOccupancySignal } = require('./external-calendar-inventory');
 
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_HOST = 'oauth2.googleapis.com';
@@ -175,7 +175,7 @@ function detectExtraColumns(rows, maxContractCols) {
 }
 
 function cellHasGridSignal(cell) {
-  return cellDisplayText(cell).trim() !== '' || occupancyCellBooked(cell);
+  return cellHasOccupancySignal(cell);
 }
 
 function detectOverflowRows(overflowRows) {
