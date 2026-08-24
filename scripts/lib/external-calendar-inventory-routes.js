@@ -91,6 +91,7 @@ function publicResult(result) {
     skipped: skipped.length ? skipped : undefined,
     dry_run: result.dry_run === true,
     empty: result.empty === true,
+    deleted: result.deleted === true ? true : undefined,
     write_count: typeof result.write_count === 'number' ? result.write_count : undefined,
     next_status: typeof result.next_status === 'string' ? result.next_status : undefined,
     keep_last_blocks: result.keep_last_blocks === true || result.keepLastBlocks === true,
@@ -288,6 +289,80 @@ async function handleListMaps(pg, clientSlug, connectionId) {
   return { ok: true, maps: r.rows };
 }
 
+async function handleDelete(pg, clientSlug, connectionId, body) {
+  const need = requireConnectionId(connectionId);
+  if (!need.ok) return need;
+  connectionId = need.id;
+  const confirmName = String((body && body.confirm_name) || '').trim();
+  if (!confirmName) return { ok: false, status: 400, error: 'confirm_name_required' };
+  const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
+  if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
+  const clientId = client.rows[0].id;
+  await pg.query('BEGIN');
+  try {
+    const locked = await pg.query(
+      `SELECT c.id, c.client_id, c.name, c.status
+         FROM external_calendar_connections c
+        WHERE c.id = $1::uuid AND c.client_id = $2
+        FOR UPDATE`,
+      [connectionId, clientId]
+    );
+    if (!locked.rows[0]) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 404, error: 'connection_not_found' };
+    }
+    const conn = locked.rows[0];
+    if (conn.status !== 'disabled') {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 409, error: 'connection_not_disabled' };
+    }
+    if (String(conn.name || '').trim() !== confirmName) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 400, error: 'confirm_name_mismatch' };
+    }
+    await pg.query(
+      `DELETE FROM booking_beds bb
+        WHERE bb.client_id = $1
+          AND bb.assignment_type = 'external_inventory_block'
+          AND EXISTS (
+            SELECT 1
+              FROM bookings bk
+             WHERE bk.id = bb.booking_id
+               AND bk.client_id = $1
+               AND bk.metadata -> 'external_calendar' ->> 'connection_id' = $2
+          )`,
+      [clientId, String(connectionId)]
+    );
+    await pg.query(
+      `DELETE FROM bookings bk
+        WHERE bk.client_id = $1
+          AND bk.metadata -> 'external_calendar' ->> 'connection_id' = $2
+          AND NOT EXISTS (
+            SELECT 1
+              FROM booking_beds bb
+             WHERE bb.booking_id = bk.id
+               AND bb.client_id = bk.client_id
+          )`,
+      [clientId, String(connectionId)]
+    );
+    const gone = await pg.query(
+      `DELETE FROM external_calendar_connections
+        WHERE id = $1::uuid AND client_id = $2 AND status = 'disabled'
+        RETURNING id`,
+      [connectionId, clientId]
+    );
+    if (!gone.rows[0]) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 409, error: 'connection_not_disabled' };
+    }
+    await pg.query('COMMIT');
+    return { ok: true, deleted: true, connection: { id: connectionId } };
+  } catch (err) {
+    try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    return { ok: false, status: 500, error: 'delete_failed' };
+  }
+}
+
 async function handleRealProbe(pg, { clientSlug, connectionId, fetchSheet }) {
   const need = requireConnectionId(connectionId);
   if (!need.ok) return need;
@@ -339,6 +414,7 @@ module.exports = {
   handleSaveMaps,
   handleEnable,
   handleListMaps,
+  handleDelete,
   handleRealProbe,
   requireConnectionId,
   publicResult,

@@ -115,8 +115,7 @@ async function lockBedsAndRecheckOverlap(pg, { clientId, connectionId, plan }) {
       const meta = row.metadata && row.metadata.external_calendar;
       const owned = row.assignment_type === ASSIGNMENT_TYPE
         && meta
-        && String(meta.connection_id) === String(connectionId)
-        && String(meta.external_uid) === String(op.external_uid);
+        && String(meta.connection_id) === String(connectionId);
       return !owned;
     });
     if (foreign.length) return { ok: false, reason: 'overlap_conflict' };
@@ -126,7 +125,10 @@ async function lockBedsAndRecheckOverlap(pg, { clientId, connectionId, plan }) {
 
 async function persistOwnedWrites(pg, { clientId, connection, plan }) {
   const results = [];
-  for (const op of plan.writes || []) {
+  const writes = plan.writes || [];
+  const ordered = writes.filter((op) => op.action === 'cancel_owned_if_present')
+    .concat(writes.filter((op) => op.action !== 'cancel_owned_if_present'));
+  for (const op of ordered) {
     if (op.action === 'cancel_owned_if_present') {
       const found = await pg.query(
         `SELECT bk.id
@@ -139,8 +141,20 @@ async function persistOwnedWrites(pg, { clientId, connection, plan }) {
       );
       for (const row of found.rows) {
         await pg.query(
+          `DELETE FROM booking_beds
+            WHERE client_id = $1
+              AND booking_id = $2
+              AND assignment_type = $3
+              AND ($4::text IS NULL OR bed_id::text = $4::text)`,
+          [clientId, row.id, ASSIGNMENT_TYPE, op.bed_id || null]
+        );
+        await pg.query(
           `UPDATE bookings SET status = 'cancelled', updated_at = NOW()
-            WHERE id = $1 AND client_id = $2`,
+            WHERE id = $1 AND client_id = $2
+              AND NOT EXISTS (
+                SELECT 1 FROM booking_beds bb
+                 WHERE bb.booking_id = $1 AND bb.client_id = $2
+              )`,
           [row.id, clientId]
         );
         await pg.query(

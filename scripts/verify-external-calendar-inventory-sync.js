@@ -1,7 +1,29 @@
 'use strict';
 
 const { runConnectionSync, createSyncScheduler, dtoHasAuthority, listDueSql, markAttempt } = require('./lib/external-calendar-inventory-sync');
-const { detectGridMergesForTab, detectExtraColumns, detectOverflowRows, classifyHttp, parseSpreadsheetSnapshot } = require('./lib/external-calendar-inventory-sheets');
+const sheets = require('./lib/external-calendar-inventory-sheets');
+const {
+  detectGridMergesForTab, detectExtraColumns, detectOverflowRows, classifyHttp, parseSpreadsheetSnapshot,
+} = sheets;
+
+function yellowCell() {
+  return {
+    formattedValue: '',
+    effectiveFormat: { backgroundColor: { red: 1, green: 0.85, blue: 0.2 } },
+  };
+}
+function dateCell(iso) {
+  return { formattedValue: iso };
+}
+function nameCell(name) {
+  return { formattedValue: name };
+}
+function occupancyRows() {
+  return [
+    [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')],
+    [nameCell('R1A'), yellowCell(), yellowCell()],
+  ];
+}
 
 function ok(label, cond, detail) {
   if (!cond) {
@@ -81,10 +103,7 @@ async function main() {
     connectionId: CID,
     fetched: {
       ok: true,
-      rows: [
-        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
-        ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
-      ],
+      rows: occupancyRows(),
     },
   });
   ok('valid fetch persists booking in one txn', okSync.ok && good.bookingInserts === 1 && good.begins === 1 && good.commits === 1);
@@ -101,10 +120,7 @@ async function main() {
     connectionId: CID,
     fetched: {
       ok: true,
-      rows: [
-        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
-        ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
-      ],
+      rows: occupancyRows(),
     },
   });
   ok('inject write failure rolls back with public code',
@@ -132,7 +148,7 @@ async function main() {
       properties: { title: 'inventory' },
       merges: [],
       data: [
-        { rowData: [{ values: [{ formattedValue: 'unit_key' }, { formattedValue: 'start_date' }, { formattedValue: 'end_date' }, { formattedValue: 'status' }, { formattedValue: 'external_uid' }] }] },
+        { rowData: [{ values: [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')] }] },
         { rowData: [] },
       ],
     }],
@@ -140,6 +156,250 @@ async function main() {
   ok('incomplete snapshot fails', parseSpreadsheetSnapshot({
     sheets: [{ properties: { title: 'inventory' }, data: [{ rowData: [] }] }],
   }, 'inventory').reason === 'sheet_snapshot_incomplete');
+  const coloredSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        {
+          rowData: [
+            { values: [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')] },
+            { values: [nameCell('R1A'), yellowCell(), yellowCell()] },
+          ],
+        },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('snapshot keeps effectiveFormat fill for occupancy cells',
+    coloredSnap.ok === true
+    && coloredSnap.rows[1][1]
+    && coloredSnap.rows[1][1].effectiveFormat
+    && coloredSnap.rows[1][1].effectiveFormat.backgroundColor
+    && coloredSnap.rows[1][1].effectiveFormat.backgroundColor.red === 1);
+  const wideDates = [nameCell('')].concat(Array.from({ length: 8 }, (_, i) => dateCell('2026-09-' + String(i + 1).padStart(2, '0'))));
+  const wideSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        { rowData: [{ values: wideDates }] },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('occupancy grid may be wider than five columns',
+    wideSnap.ok === true && wideSnap.rows[0].length === 9);
+  const src = require('fs').readFileSync(require('path').join(__dirname, 'lib/external-calendar-inventory-sheets.js'), 'utf8');
+  ok('Sheets request asks for effectiveFormat fill fields',
+    /effectiveFormat/.test(src) && /backgroundColorStyle/.test(src) && /userEnteredFormat/.test(src));
+  ok('Sheets request does not fetch conditionalFormats rules',
+    !/conditionalFormats/.test(src));
+  const extraColorSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        {
+          rowData: [
+            { values: [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')] },
+            { values: [nameCell('R1A'), yellowCell(), yellowCell(), yellowCell()] },
+          ],
+        },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('snapshot preserves colored body cell beyond final date header',
+    extraColorSnap.ok === true
+    && extraColorSnap.rows[1].length === 4
+    && extraColorSnap.rows[1][3]
+    && extraColorSnap.rows[1][3].effectiveFormat
+    && extraColorSnap.rows[1][3].effectiveFormat.backgroundColor
+    && extraColorSnap.rows[1][3].effectiveFormat.backgroundColor.red === 1);
+  const extraDataSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        {
+          rowData: [
+            { values: [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')] },
+            { values: [nameCell('R1A'), yellowCell(), yellowCell(), { formattedValue: 'NOTE' }] },
+          ],
+        },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('snapshot preserves nonempty extra body cell beyond final date header',
+    extraDataSnap.ok === true
+    && extraDataSnap.rows[1].length === 4
+    && extraDataSnap.rows[1][3]
+    && extraDataSnap.rows[1][3].formattedValue === 'NOTE');
+  const extraColorSync = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const extraColorSyncRes = await runConnectionSync(mockPg(extraColorSync), {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: extraColorSnap,
+  });
+  ok('extra colored body cell fails closed with zero writes and keep-last',
+    extraColorSyncRes.ok === false
+    && extraColorSyncRes.keepLastBlocks === true
+    && extraColorSync.bookingInserts === 0
+    && extraColorSync.bedInserts === 0
+    && extraColorSyncRes.reason === 'header_unknown_column');
+  const extraDataSync = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const extraDataSyncRes = await runConnectionSync(mockPg(extraDataSync), {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: extraDataSnap,
+  });
+  ok('extra nonempty body cell fails closed with zero writes and keep-last',
+    extraDataSyncRes.ok === false
+    && extraDataSyncRes.keepLastBlocks === true
+    && extraDataSync.bookingInserts === 0
+    && extraDataSyncRes.reason === 'header_unknown_column');
+
+  const reversedUid = 'grid:R1A:2026-09-01:2026-09-04';
+  const reversedOccState = {
+    queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0,
+    occupancyRows: [{
+      bed_id: 'bed-a',
+      assignment_type: 'external_inventory_block',
+      assignment_start_date: '2026-09-01',
+      assignment_end_date: '2026-09-04',
+      booking_id: 'bk-reversed',
+      status: 'blocked',
+      metadata: {
+        external_calendar: {
+          connection_id: 'conn-1',
+          external_uid: reversedUid,
+        },
+      },
+    }],
+    cancelledBookingIds: [],
+    deletedBedSql: [],
+  };
+  const reversedPg = mockPg(reversedOccState);
+  const reversedOrig = reversedPg.query.bind(reversedPg);
+  reversedPg.query = async (sql, params) => {
+    if (/FROM booking_beds/.test(sql) && !/INSERT/.test(sql) && !/DELETE/.test(sql) && !/UPDATE/.test(sql)) {
+      reversedOccState.queries.push({ sql, params });
+      if (/assignment_start_date < \$4/.test(sql)) return { rows: [] };
+      return { rows: reversedOccState.occupancyRows };
+    }
+    if (/SELECT bk.id/.test(sql)) {
+      reversedOccState.queries.push({ sql, params });
+      if (params && params[2] === reversedUid) return { rows: [{ id: 'bk-reversed' }] };
+      return { rows: [] };
+    }
+    if (/DELETE FROM booking_beds/.test(sql)) {
+      reversedOccState.deletedBedSql.push({ sql, params });
+    }
+    if (/UPDATE bookings SET status = 'cancelled'/.test(sql)) {
+      reversedOccState.cancelledBookingIds.push(params[0]);
+    }
+    return reversedOrig(sql, params);
+  };
+  const reversedSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        {
+          rowData: [
+            { values: [nameCell(''), dateCell('2026-09-03'), dateCell('2026-09-01')] },
+            { values: [nameCell('R1A'), { formattedValue: '' }, { formattedValue: '' }] },
+          ],
+        },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('reversed header snapshot still parses grid cells',
+    reversedSnap.ok === true
+    && reversedSnap.rows[0][1].formattedValue === '2026-09-03'
+    && reversedSnap.rows[0][2].formattedValue === '2026-09-01');
+  const reversedSync = await runConnectionSync(reversedPg, {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: reversedSnap,
+  });
+  ok('reversed date headers fail closed with zero writes and keep-last',
+    reversedSync.ok === false
+    && reversedSync.keepLastBlocks === true
+    && reversedSync.wrote === false
+    && reversedSync.reason === 'date_header_order'
+    && reversedOccState.bookingInserts === 0
+    && reversedOccState.bedInserts === 0
+    && reversedOccState.cancelledBookingIds.length === 0
+    && reversedOccState.deletedBedSql.length === 0);
+
+  const octoberUid = 'grid:R1A:2026-10-01:2026-10-10';
+  const octoberOccState = {
+    queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0,
+    occupancyRows: [{
+      bed_id: 'bed-a',
+      assignment_type: 'external_inventory_block',
+      assignment_start_date: '2026-10-01',
+      assignment_end_date: '2026-10-10',
+      booking_id: 'bk-oct',
+      status: 'blocked',
+      metadata: {
+        external_calendar: {
+          connection_id: 'conn-1',
+          external_uid: octoberUid,
+        },
+      },
+    }],
+    cancelledBookingIds: [],
+  };
+  const octoberPg = mockPg(octoberOccState);
+  const octOrig = octoberPg.query.bind(octoberPg);
+  octoberPg.query = async (sql, params) => {
+    if (/FROM booking_beds/.test(sql) && !/INSERT/.test(sql) && !/DELETE/.test(sql) && !/UPDATE/.test(sql)) {
+      octoberOccState.queries.push({ sql, params });
+      if (/assignment_start_date < \$4/.test(sql)) return { rows: [] };
+      return { rows: octoberOccState.occupancyRows };
+    }
+    if (/SELECT bk.id/.test(sql)) {
+      octoberOccState.queries.push({ sql, params });
+      if (params && params[2] === octoberUid) return { rows: [{ id: 'bk-oct' }] };
+      return { rows: [] };
+    }
+    if (/UPDATE bookings SET status = 'cancelled'/.test(sql)) {
+      octoberOccState.cancelledBookingIds.push(params[0]);
+    }
+    return octOrig(sql, params);
+  };
+  const octoberSync = await runConnectionSync(octoberPg, {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: {
+      ok: true,
+      rows: [
+        [nameCell(''), dateCell('2026-09-01'), dateCell('2026-09-02'), dateCell('2026-09-03')],
+        [nameCell('R1A'), yellowCell(), yellowCell(), yellowCell()],
+      ],
+    },
+  });
+  ok('September sync does not cancel a fully outside October owned block',
+    octoberSync.ok === true
+    && octoberOccState.cancelledBookingIds.indexOf('bk-oct') < 0
+    && octoberOccState.bookingInserts >= 1);
+
+  ok('column overflow with fill fails closed', parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        { rowData: [{ values: [nameCell(''), dateCell('2026-09-10')] }] },
+        { rowData: [] },
+        { rowData: [{ values: [yellowCell()] }] },
+      ],
+    }],
+  }, 'inventory').reason === 'sheet_over_limit');
   ok('503 classified provider 5xx', classifyHttp(503) === 'sheets_provider_5xx');
   ok('valid fetch locks beds before write', okSync.ok && good.bedLocks >= 1);
 
@@ -170,8 +430,8 @@ async function main() {
     fetched: {
       ok: true,
       rows: [
-        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
-        ['UNMAPPED', '2026-09-10', '2026-09-12', 'busy', 'uid-x'],
+        [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')],
+        [nameCell('UNMAPPED'), yellowCell(), yellowCell()],
       ],
     },
   });

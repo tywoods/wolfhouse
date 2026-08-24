@@ -41,7 +41,10 @@ function applyProbePlan(plan, ctx) {
     return occupancy[bedId];
   }
 
-  (plan.writes || []).forEach((op) => {
+  const writes = plan.writes || [];
+  const ordered = writes.filter((op) => op.action === 'cancel_owned_if_present')
+    .concat(writes.filter((op) => op.action !== 'cancel_owned_if_present'));
+  ordered.forEach((op) => {
     if (op.action === 'cancel_owned_if_present') {
       const rows = rowsFor(op.bed_id);
       const keep = [];

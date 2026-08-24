@@ -18596,6 +18596,11 @@ body > .portal-schedule-drawer{flex:none;align-self:auto}
 #cc-owner-schedule-bridge .osb-advanced{margin:0}
 #cc-owner-schedule-bridge .osb-advanced summary{cursor:pointer;color:var(--text-2);font-size:12px;font-weight:600}
 #cc-owner-schedule-bridge .osb-map-row{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center}
+#cc-owner-schedule-bridge .osb-map-head{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2)}
+#cc-owner-schedule-bridge .osb-map-help{margin:0 0 8px;color:var(--text-2);font-size:13px;line-height:1.45;text-transform:none;letter-spacing:0;font-weight:400}
+#cc-owner-schedule-bridge .osb-help{margin:0}
+#cc-owner-schedule-bridge .osb-help ul{margin:8px 0 0;padding-left:18px;color:var(--text-2);font-size:13px;line-height:1.45}
+#cc-owner-schedule-bridge .osb-help li{margin:0 0 4px}
 #cc-owner-schedule-bridge .osb-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
 #cc-owner-schedule-bridge .osb-status{min-height:18px}
 #tab-customers .customers-header h2{font-weight:600;letter-spacing:.005em}
@@ -22283,6 +22288,15 @@ ${showOwnerScheduleBridge ? `
   <div class="card cc-section" id="cc-owner-schedule-bridge">
     <div class="cc-section-hdr">Owner schedule</div>
     <div class="cc-section-sub">A Google Sheet can mark beds as <b>Owner schedule blocked</b>. An empty or broken Sheet never removes a Luna booking or staff block.</div>
+    <details class="osb-help osb-advanced">
+      <summary>How should my Sheet look?</summary>
+      <ul>
+        <li>The first column has bed names.</li>
+        <li>The top row has dates, increasing left to right.</li>
+        <li>A colored cell means that bed is booked on that date.</li>
+        <li>A clear cell means it is available.</li>
+      </ul>
+    </details>
     <div id="osb-status" class="al-hint osb-status" role="status"></div>
     <div class="osb-stack">
       <div id="osb-empty" class="osb-empty">
@@ -22328,13 +22342,20 @@ ${showOwnerScheduleBridge ? `
           <button type="button" class="btn btn-ghost" id="osb-probe">Check Sheet</button>
           <button type="button" class="btn btn-primary" id="osb-sync">Update from Sheet</button>
           <button type="button" class="btn btn-ghost" id="osb-enable">Turn on</button>
+          <button type="button" class="btn btn-danger-light" id="osb-remove">Remove connected Sheet</button>
         </div>
         <div class="osb-field">
-          <label>Match sheet units to Luna beds</label>
+          <label>Match beds from your Sheet</label>
+          <p class="osb-map-help">Tell Luna which bed each name in the Sheet refers to. This makes sure colored dates block the correct bed.</p>
+          <div class="osb-map-head">
+            <span>Name used in Sheet</span>
+            <span>Luna bed</span>
+            <span></span>
+          </div>
           <div id="osb-map-rows"></div>
           <div class="osb-actions">
-            <button type="button" class="btn btn-ghost" id="osb-map-add">Add match</button>
-            <button type="button" class="btn btn-primary" id="osb-save-maps">Save matches</button>
+            <button type="button" class="btn btn-ghost" id="osb-map-add">Add bed match</button>
+            <button type="button" class="btn btn-primary" id="osb-save-maps">Save bed matches</button>
           </div>
         </div>
       </div>
@@ -30479,13 +30500,23 @@ var OSB_SAFE = {
   empty_sheet: 'The Sheet is empty. Last blocks were kept.',
   invalid_connection: 'Paste a Google Sheet URL or ID.',
   secret_ref_invalid: 'Sheet access is not configured on the server.',
-  maps_array_required: 'Each match needs a sheet unit and a Luna bed.',
-  invalid_map: 'Each map needs a unit key and a bed.',
+  maps_array_required: 'Each match needs a Sheet name and a Luna bed.',
+  invalid_map: 'Each match needs a Sheet name and a Luna bed.',
   bed_not_in_tenant: 'That bed is not in this house.',
-  maps_save_failed: 'Could not save maps. Last blocks were kept.',
-  unmapped_unit_key: 'A Sheet unit is not mapped. Last blocks were kept.',
+  maps_save_failed: 'Could not save bed matches. Last blocks were kept.',
+  unmapped_unit_key: 'A Sheet bed name is not mapped. Last blocks were kept.',
   overlaps_non_owned: 'The Sheet overlaps an existing stay or block. Last blocks were kept.',
   overlap_conflict: 'That bed is already occupied. Last blocks were kept.',
+  date_header_invalid: 'The Sheet date headers are not valid. Last blocks were kept.',
+  date_header_duplicate: 'The Sheet has the same date twice. Last blocks were kept.',
+  date_header_order: 'The Sheet dates are not in left-to-right order. Last blocks were kept.',
+  duplicate_bed_name: 'The Sheet has the same bed name twice. Last blocks were kept.',
+  empty_bed_name: 'A colored row is missing a bed name. Last blocks were kept.',
+  unknown_structure: 'The Sheet is not a bed-by-date grid. Last blocks were kept.',
+  connection_not_disabled: 'Turn the Sheet off before removing it.',
+  confirm_name_required: 'Name the connected Sheet to remove it.',
+  confirm_name_mismatch: 'That name does not match the connected Sheet.',
+  delete_failed: 'Could not remove the connected Sheet. Last blocks were kept.',
   bridge_unavailable: 'Owner schedule is temporarily unavailable.',
   calendar_bridge_failed: 'Owner schedule request failed. Last blocks were kept.'
 };
@@ -30537,6 +30568,7 @@ function ownerSchedulePaint(){
   var hint = el('osb-access-hint');
   var probeBtn = el('osb-probe');
   var syncBtn = el('osb-sync');
+  var removeBtn = el('osb-remove');
   var connLabel = el('osb-connections') && el('osb-connections').parentNode;
   if (connLabel && connLabel.style) connLabel.style.display = osbConnections.length > 1 ? '' : (osbConnections.length === 1 ? '' : 'none');
   if (conn && nameEl) nameEl.textContent = conn.name || 'Owner schedule';
@@ -30564,6 +30596,7 @@ function ownerSchedulePaint(){
   var validMaps = ownerScheduleValidMapCount();
   if (probeBtn) probeBtn.disabled = !configured;
   if (syncBtn) syncBtn.disabled = !(configured && ownerScheduleIngestOn(conn) && validMaps > 0);
+  if (removeBtn) removeBtn.disabled = !(conn && !ownerScheduleIngestOn(conn));
 }
 function ownerScheduleSelectedId(){
   var sel = el('osb-connections');
@@ -30631,7 +30664,7 @@ function ownerScheduleAddMapRow(unit, bed){
   if (!wrap) return;
   var row = document.createElement('div');
   row.className = 'osb-map-row';
-  row.innerHTML = '<input type="text" data-osb-unit placeholder="Sheet unit" autocomplete="off">'
+  row.innerHTML = '<input type="text" data-osb-unit placeholder="Name used in Sheet" aria-label="Name used in Sheet" autocomplete="off">'
     + ownerScheduleBedSelectHtml(bed || '')
     + '<button type="button" class="btn btn-ghost" data-osb-map-del>Remove</button>';
   if (unit) row.querySelector('[data-osb-unit]').value = unit;
@@ -30758,6 +30791,23 @@ function ownerScheduleBridgeSaveMaps(){
   var maps = ownerScheduleReadMaps();
   ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'PUT', { maps: maps });
 }
+function ownerScheduleBridgeRemove(){
+  if (!ownerScheduleRequireSelected()) return;
+  var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+  if (!conn) return;
+  if (ownerScheduleIngestOn(conn)) {
+    if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('connection_not_disabled');
+    return;
+  }
+  var name = conn.name || 'Owner schedule';
+  if (!window.confirm('Remove connected Sheet "' + name + '"? This only removes Owner schedule blocked dates from this Sheet. Luna bookings and staff blocks stay.')) return;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'DELETE', { confirm_name: name }).then(function(res){
+    if (res && res.body && res.body.ok) {
+      osbSelectedId = '';
+      ownerScheduleBridgeLoad();
+    }
+  });
+}
 function ownerScheduleBridgeNew(){
   osbSelectedId = '';
   osbView = 'editor';
@@ -30823,6 +30873,7 @@ if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){
 });
 if (el('osb-disable')) el('osb-disable').addEventListener('click', function(){ ownerScheduleBridgeEnable(false); });
 if (el('osb-save-maps')) el('osb-save-maps').addEventListener('click', ownerScheduleBridgeSaveMaps);
+if (el('osb-remove')) el('osb-remove').addEventListener('click', ownerScheduleBridgeRemove);
 if (el('osb-refresh')) el('osb-refresh').addEventListener('click', ownerScheduleBridgeLoad);
 if (el('osb-retry')) el('osb-retry').addEventListener('click', ownerScheduleBridgeLoad);
 if (el('osb-new')) el('osb-new').addEventListener('click', ownerScheduleBridgeNew);
@@ -44939,6 +44990,7 @@ async function handleOwnerScheduleBridge(req, res, user, action) {
       if (action === 'maps-get') return extCalRoutes.handleListMaps(pg, ctx.clientSlug, ctx.connectionId);
       if (action === 'maps-put') return extCalRoutes.handleSaveMaps(pg, ctx.clientSlug, ctx.connectionId, parsed.body.maps);
       if (action === 'enable') return extCalRoutes.handleEnable(pg, ctx.clientSlug, ctx.connectionId, parsed.body.enabled === true);
+      if (action === 'delete') return extCalRoutes.handleDelete(pg, ctx.clientSlug, ctx.connectionId, parsed.body);
       if (action === 'probe') {
         return extCalRoutes.handleRealProbe(pg, {
           clientSlug: ctx.clientSlug,
@@ -47973,7 +48025,10 @@ async function router(req, res) {
     if (pathname === '/staff/luna-staff/calendar-bridge/sync' && method === 'POST') {
       return handleOwnerScheduleBridge(req, res, auth.user, 'sync');
     }
-    res.writeHead(405, { Allow: 'GET, POST, PUT' });
+    if (pathname === '/staff/luna-staff/calendar-bridge' && method === 'DELETE') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'delete');
+    }
+    res.writeHead(405, { Allow: 'GET, POST, PUT, DELETE' });
     return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
   }
 
