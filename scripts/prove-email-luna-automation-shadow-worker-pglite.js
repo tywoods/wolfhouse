@@ -237,7 +237,8 @@ async function provePglite(PGlite) {
   assert.equal(first.provider_invoked, false);
   assert.equal(first.journal_handoff, false);
   assert.equal(first.issuance_id, persisted.issuanceId);
-  assert.equal(first.lease_owner, ids.ownerA);
+  assert.match(first.lease_owner, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assert.notEqual(first.lease_owner, ids.ownerA);
   assert.equal(first.attempt_count, 1);
   const queued = await db.query(
     'SELECT state, handoff_id, attempt_count, lease_owner::text AS lease_owner FROM public.tenant_email_luna_automation_queue WHERE operation_id = $1',
@@ -270,12 +271,44 @@ async function provePglite(PGlite) {
   const staleHandoff = owners.createEmailLunaAutomationQueueStore(loaner);
   const stale = await staleHandoff.handOffAutomationOperation({
     operation_id: ids.operation,
-    owner_token: ids.ownerA,
+    owner_token: first.lease_owner,
   });
   assert.equal(stale.status, 'conflict');
   const journalStale = await db.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_outbound_send_journal');
   assert.equal(journalStale.rows[0].n, 0);
 
+  let sameOwnerSqlState = null;
+  try {
+    await db.query(
+      'SELECT operation_id FROM public.tenant_email_luna_automation_claim($1::uuid, $2::uuid)',
+      [first.lease_owner, ids.operation],
+    );
+  } catch (error) {
+    sameOwnerSqlState = error && error.code;
+  }
+  assert.equal(sameOwnerSqlState, '23514');
+  const stillExpired = await db.query(
+    'SELECT state, attempt_count, lease_owner::text AS lease_owner FROM public.tenant_email_luna_automation_queue WHERE operation_id = $1',
+    [ids.operation],
+  );
+  assert.equal(stillExpired.rows[0].state, 'claimed');
+  assert.equal(stillExpired.rows[0].attempt_count, 1);
+  assert.equal(stillExpired.rows[0].lease_owner, first.lease_owner);
+
+  owners = loadOwners();
+  const sameOwnerRestart = owners.createEmailLunaAutomationShadowWorkerKernel(
+    workerDeps(loaner, ids.client, ids.location, ids.ownerA),
+  );
+  const sameOwnerReplayed = await sameOwnerRestart.processNextShadowClaim();
+  assert.equal(sameOwnerReplayed.status, 'would_send');
+  assert.equal(sameOwnerReplayed.terminal, false);
+  assert.notEqual(sameOwnerReplayed.lease_owner, first.lease_owner);
+  assert.notEqual(sameOwnerReplayed.lease_owner, ids.ownerA);
+  assert.equal(sameOwnerReplayed.attempt_count, 2);
+  assert.equal(sameOwnerReplayed.issuance_id, persisted.issuanceId);
+  assert.equal(sameOwnerReplayed.journal_handoff, false);
+
+  await expireLease(db, ids.operation);
   owners = loadOwners();
   const restarted = owners.createEmailLunaAutomationShadowWorkerKernel(
     workerDeps(loaner, ids.client, ids.location, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'),
@@ -283,8 +316,9 @@ async function provePglite(PGlite) {
   const replayed = await restarted.processNextShadowClaim();
   assert.equal(replayed.status, 'would_send');
   assert.equal(replayed.terminal, false);
-  assert.equal(replayed.lease_owner, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
-  assert.equal(replayed.attempt_count, 2);
+  assert.notEqual(replayed.lease_owner, sameOwnerReplayed.lease_owner);
+  assert.notEqual(replayed.lease_owner, 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee');
+  assert.equal(replayed.attempt_count, 3);
   assert.equal(replayed.issuance_id, persisted.issuanceId);
   assert.equal(replayed.journal_handoff, false);
   const afterReplay = await db.query(
@@ -295,7 +329,7 @@ async function provePglite(PGlite) {
   assert.equal(afterReplay.rows[0].handoff_id, null);
   const journalReplay = await db.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_outbound_send_journal');
   assert.equal(journalReplay.rows[0].n, 0);
-  console.log('ok - restart/WeakSet wipe + lease reclaim recovers authentic material and replays would-send');
+  console.log('ok - same-owner restart after expiry reclaims; 086 still refuses same-token 23514; other-owner expiry also replays');
 
   const stopOp = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa8';
   owners = loadOwners();
@@ -368,6 +402,43 @@ async function provePglite(PGlite) {
   const partialJournal = await db.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_outbound_send_journal');
   assert.equal(partialJournal.rows[0].n, 0);
   console.log('ok - partial load failure require_handoff_claimed; still no journal');
+
+  const throwOp = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa6';
+  owners = loadOwners();
+  await persistPending(owners, loaner, ids, throwOp);
+  const throwingLoaner = {
+    async withTransactionClient(work) {
+      return loaner.withTransactionClient(async (client) => {
+        return work({
+          async query(text, params) {
+            if (/issuance_material_load/.test(String(text))) {
+              const error = new Error('simulated infrastructure load failure');
+              error.code = '08000';
+              throw error;
+            }
+            return client.query(text, params);
+          },
+        });
+      });
+    },
+  };
+  const throwKernel = owners.createEmailLunaAutomationShadowWorkerKernel(
+    workerDeps(throwingLoaner, ids.client, ids.location, ids.ownerA),
+  );
+  const thrown = await throwKernel.processNextShadowClaim();
+  assert.equal(thrown.status, 'conflict');
+  assert.equal(thrown.reason, 'retryable_load');
+  assert.equal(thrown.terminal, false);
+  assert.equal(thrown.state, 'claimed');
+  const throwQueue = await db.query(
+    'SELECT state, handoff_id FROM public.tenant_email_luna_automation_queue WHERE operation_id = $1',
+    [throwOp],
+  );
+  assert.equal(throwQueue.rows[0].state, 'claimed');
+  assert.equal(throwQueue.rows[0].handoff_id, null);
+  const throwJournal = await db.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_outbound_send_journal');
+  assert.equal(throwJournal.rows[0].n, 0);
+  console.log('ok - load/query throw keeps claimed retryable lease; no require_handoff or journal');
 
   const callbackKernelAttempt = () => owners.createEmailLunaAutomationShadowWorkerKernel({
     ...workerDeps(loaner, ids.client, ids.location, ids.ownerA),

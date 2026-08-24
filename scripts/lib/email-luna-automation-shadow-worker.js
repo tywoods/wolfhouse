@@ -7,13 +7,16 @@
  * Claims through the canonical queue owner, loads/recovers authentic issuance
  * material, revalidates Sunset gate/authority/eligibility, and returns shadow
  * comparison evidence. Success is NONTERMINAL (row stays claimed, no journal).
- * Recovery/material/authority failure uses require_handoff_claimed. Next-claim
- * skips attempt-capped expired rows via the existing claim owner. Never journals,
- * never sends, never treats the projection as send authority.
+ * Each claim mints a fresh UUID as the 086 lease owner so a stable worker can
+ * reclaim its own expired prior lease. Recovery/material/authority failure uses
+ * require_handoff_claimed. Transient load/query throws stay claimed/retryable.
+ * Next-claim skips attempt-capped expired rows via the existing claim owner.
+ * Never journals, never sends, never treats the projection as send authority.
  */
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const runtimeIsProxy = require('node:util').types.isProxy.bind(undefined);
+const nodeCrypto = require('node:crypto');
 const { createEmailLunaAutomationQueueStore } = require('./email-luna-automation-queue-store');
 const {
   createEmailLunaAutomationIssuanceMaterialStore,
@@ -43,6 +46,7 @@ const stringTrim = uncurryThis(String.prototype.trim);
 const stringToLowerCase = uncurryThis(String.prototype.toLowerCase);
 const weakSetAdd = uncurryThis(WeakSet.prototype.add);
 const weakSetHas = uncurryThis(WeakSet.prototype.has);
+const cryptoRandomUUID = typeof nodeCrypto.randomUUID === 'function' ? nodeCrypto.randomUUID.bind(nodeCrypto) : null;
 
 const AUTHENTIC_WORKER_EVIDENCE = new WeakSet();
 const EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_RUNTIME_WIRED = false;
@@ -158,6 +162,23 @@ function parseUuidRequired(raw) {
   const id = stringToLowerCase(text);
   if (!regexpTest(UUID_CANON, id) || stringTrim(text) !== text) throw invalid();
   return id;
+}
+
+function mintClaimLeaseOwner() {
+  if (typeof cryptoRandomUUID !== 'function') throw invalid();
+  return parseUuidRequired(cryptoRandomUUID());
+}
+
+function readErrorCode(error) {
+  try {
+    if (error === null || typeof error !== 'object' || runtimeIsProxy(error)) return undefined;
+    const descriptor = objectGetOwnPropertyDescriptor(error, 'code');
+    if (descriptor && objectHasOwn(descriptor, 'value') && typeof descriptor.value === 'string') return descriptor.value;
+    if (typeof error.code === 'string') return error.code;
+    return undefined;
+  } catch (_) {
+    return undefined;
+  }
 }
 
 function refuseForbiddenKeys(value) {
@@ -299,6 +320,7 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
   const gateClient = parseUuidRequired(gate.client_id);
   const gateLocation = parseUuidRequired(gate.location_id);
   const ownerToken = parseUuidRequired(deps.owner_token);
+  if (!ownerToken) throw invalid();
   if (env.LUNA_DEPLOYMENT !== SUNSET_DEPLOYMENT
       || env[ENV_SHADOW_WORKER_ENABLED] !== 'true'
       || gate.shadow_enabled !== true
@@ -334,7 +356,7 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
     try {
       required = await queueStore.requireHandoffAutomationOperation({
         operation_id: record.operation_id,
-        owner_token: ownerToken,
+        owner_token: record.lease_owner,
       });
     } catch (_) {
       return fromClaimed(record, {
@@ -370,10 +392,12 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
     if (arguments.length !== 0) throw invalid();
     if (stopped) return idleEvidence('stopped', 'stop_requested');
 
+    const leaseOwner = mintClaimLeaseOwner();
     let claimed;
     try {
-      claimed = await queueStore.claimAutomationOperation({ owner_token: ownerToken });
-    } catch (_) {
+      claimed = await queueStore.claimAutomationOperation({ owner_token: leaseOwner });
+    } catch (error) {
+      if (readErrorCode(error) === '23514') return idleEvidence('conflict', 'claim_conflict');
       throw invalid();
     }
     if (stopped) {
@@ -406,7 +430,7 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
     }
     if (claimed.status !== 'claimed' || !claimed.record) throw invalid();
     const record = claimed.record;
-    if (!bindMatches(record, boundGate, ownerToken)) {
+    if (!bindMatches(record, boundGate, leaseOwner)) {
       return failClosedClaimed(record, 'authority_mismatch');
     }
 
@@ -417,7 +441,14 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
         issuance_id: record.issuance_id,
       });
     } catch (_) {
-      return failClosedClaimed(record, 'recovery_mismatch');
+      return fromClaimed(record, {
+        status: 'conflict',
+        reason: 'retryable_load',
+        canonical_status: null,
+        eligibility_status: null,
+        state: record.state,
+        terminal: false,
+      });
     }
     if (!loaded || loaded.status !== 'loaded' || !loaded.record) {
       return failClosedClaimed(record, 'material_missing');
@@ -509,6 +540,7 @@ function createEmailLunaAutomationShadowWorkerLoop(dependencies) {
   let running = false;
   let timer = null;
   let stopped = true;
+  let epoch = 0;
 
   async function tick() {
     if (arguments.length !== 0) throw invalid();
@@ -522,15 +554,20 @@ function createEmailLunaAutomationShadowWorkerLoop(dependencies) {
     }
   }
 
-  function arm() {
-    if (stopped) return;
+  function arm(ownedEpoch) {
+    if (stopped || ownedEpoch !== epoch) return;
+    if (timer !== null) {
+      timers.clearTimeout(timer);
+      timer = null;
+    }
     timer = timers.setTimeout(async () => {
+      if (stopped || ownedEpoch !== epoch) return;
       try {
         await tick();
       } catch (_) {
         /* logging forbidden */
       } finally {
-        arm();
+        if (!stopped && ownedEpoch === epoch) arm(ownedEpoch);
       }
     }, intervalMs);
   }
@@ -539,11 +576,13 @@ function createEmailLunaAutomationShadowWorkerLoop(dependencies) {
     if (!stopped) return;
     kernel.resume();
     stopped = false;
-    arm();
+    epoch += 1;
+    arm(epoch);
   }
 
   function stop() {
     stopped = true;
+    epoch += 1;
     kernel.requestStop();
     if (timer !== null) {
       timers.clearTimeout(timer);
