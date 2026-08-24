@@ -16484,7 +16484,7 @@ body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
 [data-theme="dark"] .nav-menu-tools .btn-logout{background:#cccccc;color:#1e1e1e;border-color:#cccccc}
 [data-theme="dark"] .nav-menu-tools .staff-theme-toggle{background:#252526;border-color:#3c3c3c;color:#cccccc}
 
-#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:52px;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
+#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:44px;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:var(--surface);box-shadow:-16px 0 12px -8px var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:var(--surface);border:0}
 #tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:var(--font-sans)}
@@ -16493,7 +16493,7 @@ body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
 #tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 #tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 #tabs .tabs-global-pause .tabs-global-pause-help,#tabs #luna-global-pause-status{display:none!important}
-.tab-btn{padding:14px 22px;font-size:14px;font-weight:500;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:var(--font-sans);letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
+.tab-btn{padding:8px 14px;font-size:13px;font-weight:500;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:var(--font-sans);letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
 /* Hide unused dev tabs (Developer Tools + Luna Guest Simulator) from the nav. */
 #tabs .tab-btn.dev-tab{display:none!important}
 .tab-btn:hover{color:var(--text)}
@@ -19827,6 +19827,13 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
 #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #tab-bed-calendar .bc-grid{min-width:840px}
+#tab-bed-calendar,#tab-bed-calendar .bc-grid,#tab-bed-calendar .bc-block,#tab-bed-calendar .bc-legend,#tab-bed-calendar .bc-chip,#tab-bed-calendar .toolbar,#tab-bed-calendar .bc-bed-cell{
+  font-family:var(--font-sans);
+}
+#tab-bed-calendar .toolbar h2{
+  font-family:var(--font-display);
+  font-weight:600;
+}
 #tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:11px;padding:9px 6px;white-space:normal;line-height:1.25;min-height:34px;border-bottom:1px solid var(--border-soft)}
 #tab-bed-calendar .bc-day-cell,#tab-bed-calendar .bc-day-cell-turnover{min-height:34px;padding:5px 3px}
 #tab-bed-calendar .bc-room-hdr{padding:9px 10px}
@@ -20125,8 +20132,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   box-shadow:none;
   -webkit-backdrop-filter:none;
   backdrop-filter:none;
-  padding:7px 18px;
-  font-size:13px;
+  padding:5px 12px;
+  font-size:12px;
   font-weight:600;
   color:var(--luna-cream);
   text-shadow:none;
@@ -20146,13 +20153,13 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .luna-header-ui #tabs .tab-btn{
   position:relative;
-  font-weight:700;
-  font-size:13.5px;
+  font-weight:600;
+  font-size:12.5px;
   color:var(--luna-teal-dark);
   opacity:.82;
   border-bottom:none;
-  padding:13px 0 15px;
-  margin-right:clamp(18px,2.4vw,38px);
+  padding:8px 0 10px;
+  margin-right:clamp(12px,1.6vw,22px);
 }
 .luna-header-ui #tabs .tab-btn:hover{opacity:1}
 .luna-header-ui #tabs .tab-btn.active{
@@ -20218,7 +20225,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    pad it clear of the logo (left) and the controls cluster (right). #banner
    keeps the logo + controls; the tab buttons float in the open middle band. */
 .luna-header-ui.luna-hdr-compact #banner{
-  height:68px;flex:0 0 68px;min-height:68px;
+  height:52px;flex:0 0 52px;min-height:52px;
   background-image:none;
   background:var(--surface);
   border-bottom:1px solid var(--border-soft);
@@ -20234,7 +20241,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    nav stays tight (it does not widen to make room). */
 .luna-header-ui.luna-hdr-compact #banner .brand{width:auto;height:auto;align-self:center;flex:0 0 auto}
 .luna-header-ui.luna-hdr-compact #banner .brand-logo{
-  display:block;height:60px;width:auto;max-width:300px;object-fit:contain;object-position:left center;
+  display:block;height:40px;width:auto;max-width:220px;object-fit:contain;object-position:left center;
 }
 /* controls sit centred on the row, no surfboard gap / top offset */
 .luna-header-ui.luna-hdr-compact .banner-actions{
@@ -20245,14 +20252,14 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    through as the single bar. pointer-events:none on the container lets the empty
    middle pass clicks down to the logo/controls; the tab buttons re-enable it. */
 .luna-header-ui.luna-hdr-compact #tabs{
-  margin-top:-68px;height:68px;min-height:68px;
+  margin-top:-52px;height:52px;min-height:52px;
   background:transparent;border-bottom:none;box-shadow:none;
   align-items:center;position:relative;z-index:7;pointer-events:none;
   padding-left:clamp(170px,14vw,235px);  /* clear the logo */
   padding-right:clamp(260px,24vw,360px); /* clear the controls cluster */
 }
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs{background:transparent;border-bottom:none}
-.luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:68px;line-height:68px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
+.luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:52px;line-height:52px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
 .luna-header-ui.luna-hdr-compact #tabs .tab-btn.active .tab-label::after{bottom:-9px}
 /* compact hides the global-pause card from the bar to keep the row clean (owner). */
 .luna-header-ui.luna-hdr-compact #tabs .tabs-global-pause{display:none}
@@ -21897,7 +21904,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span><span data-i18n="calendar.legend.staff">Staff</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-owner_schedule_blocked"></span><span data-i18n="calendar.legend.ownerScheduleBlocked">Owner schedule blocked</span></span>
     </div>
     </div>
     </div>

@@ -227,7 +227,9 @@ function main() {
   ok('free leaves guest stay', freeAgain.occupancy[BED_A].some((r) => r.booking_id === 'guest-1'));
 
   ok('calendar yellow swatch in portal CSS', /\.bc-legend-sw-owner_schedule_blocked\{/.test(api));
-  ok('legend i18n key in HTML', /calendar\.legend\.ownerScheduleBlocked/.test(api));
+  const legendHtml = api.slice(Math.max(0, api.indexOf('id="bc-legend"')), api.indexOf('id="bc-legend"') + 900);
+  ok('legend omits owner-schedule item', legendHtml.includes('id="bc-legend"') && !legendHtml.includes('ownerScheduleBlocked'));
+  ok('cell titles still use owner-schedule i18n', /t\('calendar\.legend\.ownerScheduleBlocked'\)/.test(api));
   ok('color type maps external_inventory_block', /external_inventory_block/.test(api) && /owner_schedule_blocked/.test(api));
   ok('EN legend exact string', /'calendar\.legend\.ownerScheduleBlocked': 'Owner schedule blocked'/.test(i18n));
   ok('staff_block still grey blocked', /assignType === 'private_room_block' \|\| assignType === 'staff_block'\) return 'blocked'/.test(api));
