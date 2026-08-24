@@ -13,6 +13,8 @@ try {
 const ROOT = path.join(__dirname, '..');
 const UP089 = fs.readFileSync(path.join(ROOT, 'database/migrations/089_external_calendar_inventory.sql'), 'utf8');
 const UP090 = fs.readFileSync(path.join(ROOT, 'database/migrations/090_external_calendar_inventory_tenant_integrity.sql'), 'utf8');
+const UP091 = fs.readFileSync(path.join(ROOT, 'database/migrations/091_booking_occupancy_serialization.sql'), 'utf8');
+const DOWN091 = fs.readFileSync(path.join(ROOT, 'database/migrations/091_booking_occupancy_serialization_down.sql'), 'utf8');
 
 function ok(label, cond, detail) {
   if (!cond) {
@@ -119,17 +121,22 @@ async function main() {
   } catch (e) { threw = e.code === '23514'; }
   ok('hostile foreign booking event rejected', threw);
 
-  ok('089 occupancy advisory lock present', /pg_advisory_xact_lock/.test(UP089));
-  ok('089 overlap trigger on booking_beds', /booking_beds_reject_overlap_trg/.test(UP089));
-  ok('089 reactivate guard on bookings', /bookings_reactivate_occupancy_trg/.test(UP089));
-  const down089 = fs.readFileSync(path.join(ROOT, 'database/migrations/089_external_calendar_inventory_down.sql'), 'utf8');
-  ok('089 down keeps occupancy trigger', !/booking_beds_reject_overlap/.test(down089));
+  assertStockSql(UP091, '091');
+  ok('091 lock order is booking then bed',
+    /lock_key\('booking'/.test(UP091) && /lock_key\('bed'/.test(UP091));
+  ok('091 excludes assignment by row id', /bb\.id IS DISTINCT FROM NEW\.id/.test(UP091));
+  ok('091 fires on booking_id client_id bed_id dates',
+    /UPDATE OF booking_id, client_id, bed_id, assignment_start_date, assignment_end_date/.test(UP091));
+  ok('091 down drops only occupancy objects',
+    /DROP TRIGGER IF EXISTS bookings_occupancy_status_trg/.test(DOWN091)
+    && /DROP FUNCTION IF EXISTS public.booking_occupancy_lock_key/.test(DOWN091));
+  ok('089 occupancy is not in bridge migration', !/booking_beds_reject_overlap/.test(UP089));
 
   const live = await tryLivePostgres();
   if (!live) {
-    console.log('LIVE GATE SKIPPED — no stock PostgreSQL daemon. Static SQL checks are not PG proof.');
+    console.log('LIVE GATE SKIPPED — no stock PostgreSQL daemon. Two-session races not executed.');
     console.log('verify-external-calendar-inventory-pg: STATIC CHECKS PASSED; LIVE PG SKIPPED');
-    return;
+    process.exit(2);
   }
   try {
     await live.query('BEGIN');

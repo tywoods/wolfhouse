@@ -1272,7 +1272,7 @@
       "inForwardChain": true,
       "rationale": "Calendar Inventory Bridge: tenant-scoped Google Sheet connections, bed-only maps, location_key composite FK to tenant_locations. Occupancy remains on bookings/booking_beds.",
       "downFilename": "089_external_calendar_inventory_down.sql",
-      "sha256": "bf3a9116bf982464dffe874b2ef673d1fcaad76f2ed3d050f6c584ee2cb7ab5e"
+      "sha256": "b07a7f87ca1b9e2c3da2da60ef161ccdc049a42726cf12fe4872b742740b9b6f"
     },
     {
       "id": "089_external_calendar_inventory_down",
@@ -1282,7 +1282,7 @@
       "inForwardChain": false,
       "rationale": "Refuses rollback while imported owner-schedule events still link a booking; otherwise drops the four bridge tables. Second empty execution is safe.",
       "pairsWith": "089_external_calendar_inventory.sql",
-      "sha256": "2622caa1ea98067f4183454bba996e5ea7eb948bb690aa91e76d80eeff5631de"
+      "sha256": "789b23e65694433c1d627c71d20df8d160516f4ff1583bf9cb84918ea84e0716"
     },
     {
       "id": "090_external_calendar_inventory_tenant_integrity",
@@ -1303,6 +1303,26 @@
       "rationale": "Drops 090 tenant-integrity triggers and function. Safe if objects are missing.",
       "pairsWith": "090_external_calendar_inventory_tenant_integrity.sql",
       "sha256": "a88691f8029eeedbe62df96bcdc48ca6d5b63278e551c8feedf1d15754ea778b"
+    },
+    {
+      "id": "091_booking_occupancy_serialization",
+      "filename": "091_booking_occupancy_serialization.sql",
+      "order": 87,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Shared booking_beds occupancy serialization: booking then bed advisory locks, overlap reject, reversible down.",
+      "downFilename": "091_booking_occupancy_serialization_down.sql",
+      "sha256": "15565688258ebe7e4bff56f07786dcfe969149a6daccd564d1220e4022729e31"
+    },
+    {
+      "id": "091_booking_occupancy_serialization_down",
+      "filename": "091_booking_occupancy_serialization_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Drops exactly the 091 occupancy triggers and helper functions. Repeatable if already absent.",
+      "pairsWith": "091_booking_occupancy_serialization.sql",
+      "sha256": "aa780df30ca215d7425d3432fe953c9f7119fe39f043f307df2a15c756e64509"
     }
   ]
 }

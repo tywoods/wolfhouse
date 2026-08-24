@@ -186,6 +186,10 @@ function main() {
   ok('handler rejects caller authority', /rejectCallerAuthority/.test(api));
   ok('handler uses real probe', /handleRealProbe/.test(api));
   ok('FOR UPDATE OF c used', /FOR UPDATE OF c/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js'), 'utf8')));
+  ok('089 occupancy is not in bridge migration',
+    !/booking_beds_reject_overlap/.test(mig));
+  ok('091 occupancy serialization exists',
+    fs.existsSync(path.join(ROOT, 'database/migrations/091_booking_occupancy_serialization.sql')));
   ok('089 last_error_code not raw last_error',
     /last_error_code text NULL/.test(mig) && /last_error_detail text NULL/.test(mig));
   ok('089 uses location_key + tenant_locations FK',
