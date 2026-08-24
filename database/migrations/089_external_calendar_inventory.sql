@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS public.external_calendar_connections (
   stale_after interval NOT NULL DEFAULT interval '6 hours',
   last_success_at timestamptz NULL,
   last_attempt_at timestamptz NULL,
-  last_error text NULL,
+  last_error_code text NULL,
+  last_error_detail text NULL,
   last_header_sha text NULL,
   last_content_sha256 text NULL,
   consecutive_empty_ok integer NOT NULL DEFAULT 0,
@@ -110,5 +111,116 @@ CREATE TABLE IF NOT EXISTS public.external_inventory_events (
 CREATE INDEX IF NOT EXISTS idx_extcal_events_booking
   ON public.external_inventory_events (booking_id)
   WHERE booking_id IS NOT NULL;
+
+-- Occupancy serialization for every booking_beds writer (bridge and legacy).
+-- Not dropped by 089 down: it is a shared inventory invariant.
+
+CREATE OR REPLACE FUNCTION public.booking_beds_occupancy_lock_key(
+  p_client_id uuid,
+  p_bed_id uuid
+) RETURNS bigint
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT ('x' || substr(md5(p_client_id::text || ':' || p_bed_id::text), 1, 16))::bit(64)::bigint;
+$$;
+
+CREATE OR REPLACE FUNCTION public.booking_beds_reject_overlap()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  conflict_id uuid;
+  booking_status text;
+BEGIN
+  IF NEW.bed_id IS NULL OR NEW.client_id IS NULL
+     OR NEW.assignment_start_date IS NULL OR NEW.assignment_end_date IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF NEW.assignment_end_date <= NEW.assignment_start_date THEN
+    RAISE EXCEPTION 'booking_beds_invalid_range';
+  END IF;
+
+  SELECT b.status::text INTO booking_status
+    FROM public.bookings b
+   WHERE b.id = NEW.booking_id;
+  IF booking_status IN ('cancelled', 'expired') THEN
+    RETURN NEW;
+  END IF;
+
+  PERFORM pg_advisory_xact_lock(
+    public.booking_beds_occupancy_lock_key(NEW.client_id, NEW.bed_id)
+  );
+
+  SELECT bb.booking_id INTO conflict_id
+    FROM public.booking_beds bb
+    JOIN public.bookings bk ON bk.id = bb.booking_id
+   WHERE bb.client_id = NEW.client_id
+     AND bb.bed_id = NEW.bed_id
+     AND bb.booking_id IS DISTINCT FROM NEW.booking_id
+     AND bb.assignment_start_date < NEW.assignment_end_date
+     AND bb.assignment_end_date > NEW.assignment_start_date
+     AND bk.status::text NOT IN ('cancelled', 'expired')
+   LIMIT 1;
+
+  IF conflict_id IS NOT NULL THEN
+    RAISE EXCEPTION 'booking_beds_overlap_conflict';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS booking_beds_reject_overlap_trg ON public.booking_beds;
+CREATE TRIGGER booking_beds_reject_overlap_trg
+  BEFORE INSERT OR UPDATE OF bed_id, assignment_start_date, assignment_end_date
+  ON public.booking_beds
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.booking_beds_reject_overlap();
+
+CREATE OR REPLACE FUNCTION public.bookings_reactivate_occupancy_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  rec record;
+  conflict_id uuid;
+BEGIN
+  IF TG_OP = 'UPDATE'
+     AND OLD.status::text IN ('cancelled', 'expired')
+     AND NEW.status::text NOT IN ('cancelled', 'expired') THEN
+    FOR rec IN
+      SELECT bb.client_id, bb.bed_id, bb.assignment_start_date, bb.assignment_end_date, bb.booking_id
+        FROM public.booking_beds bb
+       WHERE bb.booking_id = NEW.id
+       ORDER BY bb.client_id, bb.bed_id
+    LOOP
+      PERFORM pg_advisory_xact_lock(
+        public.booking_beds_occupancy_lock_key(rec.client_id, rec.bed_id)
+      );
+      SELECT bb.booking_id INTO conflict_id
+        FROM public.booking_beds bb
+        JOIN public.bookings bk ON bk.id = bb.booking_id
+       WHERE bb.client_id = rec.client_id
+         AND bb.bed_id = rec.bed_id
+         AND bb.booking_id IS DISTINCT FROM rec.booking_id
+         AND bb.assignment_start_date < rec.assignment_end_date
+         AND bb.assignment_end_date > rec.assignment_start_date
+         AND bk.status::text NOT IN ('cancelled', 'expired')
+       LIMIT 1;
+      IF conflict_id IS NOT NULL THEN
+        RAISE EXCEPTION 'booking_beds_overlap_conflict';
+      END IF;
+    END LOOP;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS bookings_reactivate_occupancy_trg ON public.bookings;
+CREATE TRIGGER bookings_reactivate_occupancy_trg
+  BEFORE UPDATE OF status
+  ON public.bookings
+  FOR EACH ROW
+  EXECUTE PROCEDURE public.bookings_reactivate_occupancy_guard();
 
 COMMIT;

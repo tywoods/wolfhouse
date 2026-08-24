@@ -60,7 +60,7 @@ function el(id){ return document.getElementById(id); }
 function getClient(){ return 'wolfhouse-somo'; }
 var store = {
   connections: [
-    { id: '11111111-1111-1111-1111-111111111111', name: 'A', spreadsheet_id: 'sheetAAAAAA', sheet_name: 'inventory', status: 'pending' },
+    { id: '11111111-1111-1111-1111-111111111111', name: 'A', spreadsheet_id: 'sheetAAAAAA', sheet_name: 'inventory', status: 'pending', last_error: 'calendar_bridge_failed' },
     { id: '22222222-2222-2222-2222-222222222222', name: 'B', spreadsheet_id: 'sheetBBBBBB', sheet_name: 'inventory', status: 'pending' }
   ]
 };

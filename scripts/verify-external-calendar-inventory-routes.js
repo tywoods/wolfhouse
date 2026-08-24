@@ -37,10 +37,17 @@ async function main() {
   }, { clientSlug: 'wolfhouse-somo', fetchSheet: async () => ({ ok: true, rows: [] }) });
   ok('probe without id is 400', missingId.error === 'connection_id_required' && missingId.status === 400);
   ok('requireConnectionId rejects empty', extCalRoutes.requireConnectionId('').error === 'connection_id_required');
-  ok('public result hides injected SQL',
-    !JSON.stringify(extCalRoutes.publicResult({
-      ok: false, reason: 'calendar_sync_rolled_back', error: 'duplicate key value violates unique constraint',
-    })).includes('duplicate key'));
+  ok('hostile stored SQL last_error is allowlisted',
+    extCalRoutes.sanitizeConnection({
+      id: '11111111-1111-1111-1111-111111111111',
+      name: 'x',
+      last_error_code: 'duplicate key value violates unique constraint bookings_pkey',
+    }).last_error === 'calendar_bridge_failed');
+  ok('sanitize never copies last_error_detail',
+    !Object.prototype.hasOwnProperty.call(
+      extCalRoutes.sanitizeConnection({ last_error_code: 'empty_sheet', last_error_detail: 'SQLSTATE 23505' }),
+      'last_error_detail'
+    ));
 
   delete process.env.EXTERNAL_CALENDAR_INGEST_ENABLED;
   console.log('\nverify-external-calendar-inventory-routes: ALL CHECKS PASSED');

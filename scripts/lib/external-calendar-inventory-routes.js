@@ -108,7 +108,7 @@ function sanitizeConnection(row) {
     sheet_name: row.sheet_name,
     last_success_at: row.last_success_at,
     last_attempt_at: row.last_attempt_at,
-    last_error: row.last_error,
+    last_error: row.last_error_code ? publicCode(row.last_error_code) : null,
     has_secret: !!row.secret_ref,
     poll_seconds: row.poll_seconds,
   };
@@ -118,7 +118,9 @@ async function handleList(pg, clientSlug) {
   const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
   if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
   const r = await pg.query(
-    `SELECT c.*, s.secret_ref
+    `SELECT c.id, c.name, c.kind, c.status, c.spreadsheet_id, c.sheet_name,
+            c.last_success_at, c.last_attempt_at, c.last_error_code, c.poll_seconds,
+            s.secret_ref
        FROM external_calendar_connections c
        LEFT JOIN external_calendar_secrets s ON s.connection_id = c.id
       WHERE c.client_id = $1
@@ -176,7 +178,9 @@ async function handleSave(pg, clientSlug, body, actorId) {
       );
     }
     const row = await pg.query(
-      `SELECT c.*, s.secret_ref
+      `SELECT c.id, c.name, c.kind, c.status, c.spreadsheet_id, c.sheet_name,
+              c.last_success_at, c.last_attempt_at, c.last_error_code, c.poll_seconds,
+              s.secret_ref
          FROM external_calendar_connections c
          LEFT JOIN external_calendar_secrets s ON s.connection_id = c.id
         WHERE c.id = $1 AND c.client_id = $2`,

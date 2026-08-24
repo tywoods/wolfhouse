@@ -119,10 +119,16 @@ async function main() {
   } catch (e) { threw = e.code === '23514'; }
   ok('hostile foreign booking event rejected', threw);
 
+  ok('089 occupancy advisory lock present', /pg_advisory_xact_lock/.test(UP089));
+  ok('089 overlap trigger on booking_beds', /booking_beds_reject_overlap_trg/.test(UP089));
+  ok('089 reactivate guard on bookings', /bookings_reactivate_occupancy_trg/.test(UP089));
+  const down089 = fs.readFileSync(path.join(ROOT, 'database/migrations/089_external_calendar_inventory_down.sql'), 'utf8');
+  ok('089 down keeps occupancy trigger', !/booking_beds_reject_overlap/.test(down089));
+
   const live = await tryLivePostgres();
   if (!live) {
-    ok('live stock postgres skipped — no daemon; this is not PG proof', true);
-    console.log('\nverify-external-calendar-inventory-pg: ALL CHECKS PASSED');
+    console.log('LIVE GATE SKIPPED — no stock PostgreSQL daemon. Static SQL checks are not PG proof.');
+    console.log('verify-external-calendar-inventory-pg: STATIC CHECKS PASSED; LIVE PG SKIPPED');
     return;
   }
   try {

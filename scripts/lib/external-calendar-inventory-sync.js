@@ -29,7 +29,7 @@ async function loadLockedState(pg, { clientSlug, connectionId }) {
   if (!connectionId) return { ok: false, reason: 'connection_id_required', clientId };
   const connRes = await pg.query(
     `SELECT c.id, c.client_id, c.kind, c.name, c.status, c.spreadsheet_id, c.sheet_name,
-            c.poll_seconds, c.stale_after, c.last_success_at, c.last_attempt_at, c.last_error,
+            c.poll_seconds, c.stale_after, c.last_success_at, c.last_attempt_at, c.last_error_code,
             s.secret_ref
        FROM external_calendar_connections c
        LEFT JOIN external_calendar_secrets s ON s.connection_id = c.id
@@ -243,7 +243,8 @@ async function markAttempt(pg, connection, patch) {
   await pg.query(
     `UPDATE external_calendar_connections
         SET last_attempt_at = NOW(),
-            last_error = $2,
+            last_error_code = $2,
+            last_error_detail = NULL,
             status = $3,
             last_success_at = CASE WHEN $4 THEN NOW() ELSE last_success_at END,
             updated_at = NOW()

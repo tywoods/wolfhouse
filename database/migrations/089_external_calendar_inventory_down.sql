@@ -1,6 +1,7 @@
 -- Explicit down for 089_external_calendar_inventory.
 -- Refuse if any imported events still point at a booking (would orphan XBLK
--- identity). Empty: drop the four tables. Second empty execution is safe.
+-- identity). Empty: drop the four tables. Occupancy triggers on booking_beds
+-- / bookings are a shared invariant and are NOT dropped.
 
 BEGIN;
 
