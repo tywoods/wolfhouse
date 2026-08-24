@@ -185,14 +185,14 @@ async function runOccupancyRaceMatrix(a, b, fx) {
   await sessionRace(a, b,
     async (pg) => {
       await pg.query(
-        `UPDATE booking_beds SET assignment_start_date = '2026-09-20', assignment_end_date = '2026-09-22'
+        `UPDATE booking_beds SET assignment_start_date = '2026-09-10', assignment_end_date = '2026-09-12'
           WHERE booking_id = $1`,
         [stayA]
       );
     },
     async (pg) => {
       await pg.query(
-        `UPDATE booking_beds SET assignment_start_date = '2026-09-20', assignment_end_date = '2026-09-22'
+        `UPDATE booking_beds SET assignment_start_date = '2026-09-10', assignment_end_date = '2026-09-12'
           WHERE booking_id = $1`,
         [stayB]
       );
@@ -205,8 +205,6 @@ async function runOccupancyRaceMatrix(a, b, fx) {
     [fx.hostelId]
   );
   const moveA = id();
-  const occupy = id();
-  await insertMinimalOccupancy(a, { ...fx, bookingId: occupy, bedId: bed2.rows[0].id, start: '2026-10-01', end: '2026-10-03' });
   await insertMinimalOccupancy(a, { ...fx, bookingId: moveA, start: '2026-10-01', end: '2026-10-03' });
   await sessionRace(a, b,
     async (pg) => {
@@ -350,7 +348,6 @@ async function runLiveDisposableGate() {
   const quoted = quoteIdent(dbName);
   let a;
   let b;
-  let cleanupFailed = null;
   try {
     await admin.query('CREATE DATABASE ' + quoted);
     const connStr = databaseUrlForName(adminUrl, dbName);
@@ -387,6 +384,13 @@ async function runLiveDisposableGate() {
     const connectionId = await live090Hostile(a, fixture);
     await prove091OwnershipRefuse(a);
 
+    await applySqlFile(a, '091_booking_occupancy_serialization_down.sql');
+    await applySqlFile(a, '091_booking_occupancy_serialization_down.sql');
+    ok('live 091 down twice', true);
+    await applySqlFile(a, '090_external_calendar_inventory_tenant_integrity_down.sql');
+    await applySqlFile(a, '090_external_calendar_inventory_tenant_integrity_down.sql');
+    ok('live 090 down twice', true);
+
     await prove089IdentityMatrix(a, fixture, connectionId);
 
     await applySqlFile(a, '089_external_calendar_inventory.sql');
@@ -400,8 +404,12 @@ async function runLiveDisposableGate() {
       'one');
     ok('live final overlap smoke race', true);
   } finally {
-    if (a) await a.end();
-    if (b) await b.end();
+    const cleanupErrors = [];
+    async function closeQuiet(client) {
+      if (!client) return;
+      try { await client.end(); } catch (err) { cleanupErrors.push(err); }
+    }
+    await Promise.all([closeQuiet(a), closeQuiet(b)]);
     try {
       await admin.query(
         `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
@@ -409,13 +417,13 @@ async function runLiveDisposableGate() {
       );
       await admin.query('DROP DATABASE IF EXISTS ' + quoted);
     } catch (err) {
-      cleanupFailed = err;
+      cleanupErrors.push(err);
     }
-    await admin.end();
-  }
-  if (cleanupFailed) {
-    console.error('LIVE CLEANUP FAILED', cleanupFailed.message || cleanupFailed);
-    process.exit(1);
+    await closeQuiet(admin);
+    if (cleanupErrors.length) {
+      console.error('LIVE CLEANUP FAILED', cleanupErrors.map((e) => e.message || e).join(' | '));
+      process.exit(1);
+    }
   }
   console.log('\nverify-external-calendar-inventory-pg: LIVE CHECKS PASSED');
 }
@@ -484,6 +492,8 @@ async function main() {
   ok('gate has live 090 hostile write', /090_live_did_not_reject_foreign_bed/.test(gateSrc));
   ok('gate injects foreign 091 comments', /COMMENT ON FUNCTION public.booking_occupancy_lock_key/.test(gateSrc));
   ok('gate requires sha256 on every selected file', /missing_sha256/.test(gateSrc));
+  ok('gate downs 091 then 090 twice', /live 091 down twice/.test(gateSrc) && /live 090 down twice/.test(gateSrc));
+  ok('gate closes clients independently', /Promise\.all\(\[closeQuiet\(a\), closeQuiet\(b\)\]\)/.test(gateSrc));
 
   await runLiveDisposableGate();
 }
