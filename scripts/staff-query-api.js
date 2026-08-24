@@ -18589,6 +18589,7 @@ body > .portal-schedule-drawer{flex:none;align-self:auto}
   outline:2px solid #7AAB6E;outline-offset:1px
 }
 #cc-owner-schedule-bridge .osb-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#cc-owner-schedule-bridge [hidden]{display:none!important}
 #cc-owner-schedule-bridge .osb-summary{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
 #cc-owner-schedule-bridge .osb-summary strong{font-size:14px}
 #cc-owner-schedule-bridge .osb-meta{font-size:12px;color:var(--text-2);line-height:1.45}

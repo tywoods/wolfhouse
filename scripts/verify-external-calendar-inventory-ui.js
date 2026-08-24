@@ -208,6 +208,7 @@ async function main() {
     && !/match\(\/\/spreadsheets/.test(html));
   ok('generated /staff/ui includes Owner schedule card', /id="cc-owner-schedule-bridge"/.test(html));
   ok('generated empty CTA', /Connect Google Sheet/.test(html));
+  ok('hidden wins over osb-actions flex', /#cc-owner-schedule-bridge \[hidden\]\{display:none!important\}/.test(html));
   ok('generated HTML has no SECRET_REF', !/SECRET_REF/.test(html));
   ok('generated save has no secret_ref payload', !/function ownerScheduleBridgeSave\(\)\{[\s\S]{0,400}secret_ref/.test(html));
   ok('generated bed control is a select', /data-osb-bed/.test(html));
