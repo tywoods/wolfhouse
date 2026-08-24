@@ -605,10 +605,20 @@ async function main() {
   ok('gate closes clients independently', /Promise\.all\(\[closeQuiet\(a\), closeQuiet\(b\), closeQuiet\(observer\)\]\)/.test(gateSrc));
   ok('gate waits for advisory lock barrier', /waitForAdvisoryWait/.test(gateSrc) && /expected_overlap_conflict/.test(gateSrc));
   ok('date-change uses unused 09-05 range', /2026-09-05/.test(gateSrc) && /2026-09-07/.test(gateSrc));
-  ok('no copied 089 refuse predicate helper', !/async function refuseCount/.test(gateSrc));
-  ok('each 089 identity state applies canonical down',
-    /async function run089State/.test(gateSrc)
-    && (gateSrc.match(/089_external_calendar_inventory_down\.sql/g) || []).length >= 6);
+  const run089Body = gateSrc.slice(
+    gateSrc.indexOf('async function run089State'),
+    gateSrc.indexOf('async function prove089IdentityMatrix')
+  );
+  ok('run089State applies canonical down',
+    run089Body.indexOf('089_external_calendar_inventory_down.sql') >= 0);
+  ok('run089State does not re-count refuse rows',
+    run089Body.indexOf('count(*)') < 0 && run089Body.indexOf('status = \'imported\'') < 0);
+  const prove089Body = gateSrc.slice(
+    gateSrc.indexOf('async function prove089IdentityMatrix'),
+    gateSrc.indexOf('async function runLiveDisposableGate')
+  );
+  ok('five isolated 089 identity states',
+    (prove089Body.match(/await run089State\(/g) || []).length === 5);
   ok('both-commit race queries resulting rows',
     /both_rows_missing/.test(gateSrc) && /parA_wrong_bed/.test(gateSrc) && /parB_wrong_range/.test(gateSrc));
   ok('089 identity covers five states',
