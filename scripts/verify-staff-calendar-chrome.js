@@ -31,7 +31,7 @@ assert.doesNotMatch(api, /\.btn-logout\{[^}]*Iowan Old Style/);
 assert.match(api, /class="banner-tools-row"/);
 assert.match(api, /\.luna-header-ui \.banner-actions\{/);
 assert.match(api, /margin-right:4px;/);
-assert.match(api, /padding:0 6px 0 0;/);
+assert.match(api, /\.luna-header-ui \.staff-lang-btn\{font-size:10px/);
 assert.match(api, /\.luna-header-ui \.banner-tools\{/);
 assert.match(api, /id="staff-theme-toggle"/);
 assert.match(api, /id="btn-logout"/);

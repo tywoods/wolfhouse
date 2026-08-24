@@ -20153,6 +20153,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   cursor:pointer;
   white-space:nowrap;
 }
+.luna-header-ui .staff-lang-switch{gap:5px;font-size:10px;letter-spacing:.06em}
+.luna-header-ui .staff-lang-btn{font-size:10px;font-weight:600;padding:0 2px}
 .luna-header-ui .staff-school-btn:hover,
 .luna-header-ui .staff-lang-btn:hover{opacity:.9}
 .luna-header-ui .staff-school-btn.is-active,
