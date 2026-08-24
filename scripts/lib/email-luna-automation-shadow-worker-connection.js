@@ -4,10 +4,14 @@
  * FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B6/B7: dedicated Sunset shadow-worker
  * DB connection contract. Code/config only — does not create secrets, roles,
  * or GRANT. Fail closed if the worker DSN is absent, unparseable, uses a
- * query/session role overlay, or the same login identity as the Staff API
- * table-owner / app pool. Pre-connect DSN comparison is not live session
- * verification. Never SET ROLE. Errors and return values must not include
- * credentials. Pool close is bounded; idle errors are generic and non-fatal.
+ * query string (empty allowlist), or the same login identity as the Staff API
+ * table-owner / app pool. Identities follow pg-connection-string@2.13.0
+ * assignment semantics used by pg.Pool, without ssl/file side effects.
+ * localhost/127.0.0.1/::1 and default port 5432 canonicalize. Pre-connect
+ * DSN comparison is not live session verification. Never SET ROLE. Errors
+ * and return values must not include credentials. Pool close is bounded;
+ * idle errors are generic and non-fatal. Do not await pool.end() after
+ * forced client removal.
  */
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
@@ -26,6 +30,8 @@ const arrayIncludes = uncurryThis(Array.prototype.includes);
 const stringTrim = uncurryThis(String.prototype.trim);
 const stringToLowerCase = uncurryThis(String.prototype.toLowerCase);
 const stringReplace = uncurryThis(String.prototype.replace);
+const stringSlice = uncurryThis(String.prototype.slice);
+const regexpTest = uncurryThis(RegExp.prototype.test);
 const weakSetAdd = uncurryThis(WeakSet.prototype.add);
 const weakSetHas = uncurryThis(WeakSet.prototype.has);
 const nativeSetTimeout = setTimeout;
@@ -40,10 +46,33 @@ const DRAIN_KEYS = objectFreeze(['runtime', 'connection']);
 const FORBIDDEN_INPUT_KEYS = objectFreeze([
   'password', 'secret', 'token', 'dsn', 'connectionString', 'roleName', 'setRole',
 ]);
+const WORKER_DSN_QUERY_ALLOWLIST = objectFreeze([]);
 const OVERLAY_QUERY_KEYS = objectFreeze([
   'user',
   'username',
   'role',
+  'options',
+  'session_authorization',
+  'host',
+  'hostname',
+  'hostaddr',
+  'port',
+  'database',
+  'dbname',
+  'service',
+  'passfile',
+  'sslcert',
+  'sslkey',
+  'sslrootcert',
+  'sslpassword',
+]);
+const APP_UNPROVEN_QUERY_KEYS = objectFreeze([
+  'passfile',
+  'sslcert',
+  'sslkey',
+  'sslrootcert',
+  'sslpassword',
+  'service',
   'options',
   'session_authorization',
 ]);
@@ -115,46 +144,135 @@ function boundedAwait(promise, timeoutMs) {
 }
 
 function collectQueryValues(url) {
-  const map = objectCreate(null);
+  const lower = objectCreate(null);
+  const exact = objectCreate(null);
+  const exactCounts = objectCreate(null);
   try {
     const params = url.searchParams;
-    if (!params || typeof params.entries !== 'function') return map;
+    if (!params || typeof params.entries !== 'function') {
+      return { lower, exact, exactCounts };
+    }
     for (const entry of params.entries()) {
       if (!entry || entry.length < 1) continue;
       const rawKey = entry[0];
       const rawValue = entry[1];
       if (typeof rawKey !== 'string') continue;
       const key = stringToLowerCase(rawKey);
-      if (!map[key]) map[key] = [];
-      map[key].push(typeof rawValue === 'string' ? rawValue : '');
+      const value = typeof rawValue === 'string' ? rawValue : '';
+      if (!lower[key]) lower[key] = [];
+      lower[key].push(value);
+      exact[rawKey] = value;
+      exactCounts[rawKey] = (exactCounts[rawKey] || 0) + 1;
     }
   } catch (_) {
-    return objectCreate(null);
+    return {
+      lower: objectCreate(null),
+      exact: objectCreate(null),
+      exactCounts: objectCreate(null),
+    };
   }
-  return map;
+  return { lower, exact, exactCounts };
 }
 
-function hasOverlayQuery(queryMap) {
-  for (let index = 0; index < OVERLAY_QUERY_KEYS.length; index += 1) {
-    const key = OVERLAY_QUERY_KEYS[index];
-    if (queryMap[key] && queryMap[key].length > 0) return true;
+function hasExactDuplicateKeys(exactCounts) {
+  const keys = reflectOwnKeys(exactCounts);
+  for (let index = 0; index < keys.length; index += 1) {
+    const key = keys[index];
+    if (typeof key === 'string' && exactCounts[key] > 1) return true;
   }
   return false;
+}
+
+function dsnHasQueryMarker(text) {
+  if (typeof text !== 'string') return false;
+  const hashIndex = text.indexOf('#');
+  const clipped = hashIndex === -1 ? text : stringSlice(text, 0, hashIndex);
+  return clipped.indexOf('?') !== -1;
+}
+
+function workerQueryForbidden(url, query, rawText) {
+  if (dsnHasQueryMarker(rawText)) return true;
+  if (typeof url.search === 'string' && url.search !== '') return true;
+  const lowerKeys = reflectOwnKeys(query.lower);
+  for (let index = 0; index < lowerKeys.length; index += 1) {
+    const key = lowerKeys[index];
+    if (typeof key !== 'string' || !arrayIncludes(WORKER_DSN_QUERY_ALLOWLIST, key)) return true;
+  }
+  const exactKeys = reflectOwnKeys(query.exact);
+  for (let index = 0; index < exactKeys.length; index += 1) {
+    const key = exactKeys[index];
+    if (typeof key !== 'string') return true;
+    if (!arrayIncludes(WORKER_DSN_QUERY_ALLOWLIST, stringToLowerCase(key))) return true;
+  }
+  return false;
+}
+
+function appQueryUnproven(query) {
+  for (let index = 0; index < APP_UNPROVEN_QUERY_KEYS.length; index += 1) {
+    const key = APP_UNPROVEN_QUERY_KEYS[index];
+    if (query.lower[key] && query.lower[key].length > 0) return true;
+  }
+  return false;
+}
+
+function unwrapIpv6Host(host) {
+  if (typeof host !== 'string' || host.length < 2) return host;
+  if (host.charAt(0) === '[' && host.charAt(host.length - 1) === ']') {
+    return stringSlice(host, 1, host.length - 1);
+  }
+  return host;
+}
+
+function canonicalizeHost(host) {
+  if (typeof host !== 'string') return '';
+  const normalized = stringToLowerCase(stringTrim(unwrapIpv6Host(host)));
+  if (normalized === 'localhost'
+      || normalized === '127.0.0.1'
+      || normalized === '::1'
+      || normalized === '0:0:0:0:0:0:0:1'
+      || normalized === '::ffff:127.0.0.1') {
+    return 'loopback';
+  }
+  return normalized;
+}
+
+function canonicalizePort(port) {
+  if (port == null || port === '') return '5432';
+  const text = stringTrim(String(port));
+  if (!regexpTest(/^[0-9]+$/, text)) return null;
+  const parsed = Number.parseInt(text, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) return null;
+  return String(parsed);
 }
 
 function identityFromParts(user, host, port, database) {
   if (typeof user !== 'string' || typeof host !== 'string' || typeof database !== 'string') return null;
   const normalizedUser = stringToLowerCase(stringTrim(user));
-  const normalizedHost = stringToLowerCase(stringTrim(host));
+  const normalizedHost = canonicalizeHost(host);
   const normalizedDatabase = stringToLowerCase(stringReplace(stringTrim(database), /\/+$/g, ''));
-  const normalizedPort = port ? stringTrim(port) : '5432';
-  if (!normalizedUser || !normalizedHost || !normalizedDatabase) return null;
+  const normalizedPort = canonicalizePort(port);
+  if (!normalizedUser || !normalizedHost || !normalizedDatabase || !normalizedPort) return null;
   return freeze({
     user: normalizedUser,
     host: normalizedHost,
-    port: normalizedPort || '5432',
+    port: normalizedPort,
     database: normalizedDatabase,
   });
+}
+
+function pushUnique(list, value) {
+  if (typeof value !== 'string') return;
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index] === value) return;
+  }
+  list.push(value);
+}
+
+function pushAll(list, values) {
+  if (!values) return;
+  for (let index = 0; index < values.length; index += 1) {
+    pushUnique(list, values[index]);
+  }
 }
 
 function decodeUserinfo(raw) {
@@ -167,8 +285,15 @@ function decodeUserinfo(raw) {
 }
 
 /**
- * Pre-connect DSN identity only. Not a substitute for live session_user /
- * current_user / mapping / EXECUTE verification on the dedicated client.
+ * Pre-connect DSN identity using pg-connection-string@2.13.0 / pg.Pool
+ * assignment semantics, without executing ssl/file side effects:
+ *   query params last-wins, case-sensitive keys
+ *   config.user = query user || URL username
+ *   config.host = query host || URL hostname
+ *   config.port = query port || URL port
+ *   config.database always from pathname
+ * Worker DSNs may not carry any query string (empty allowlist).
+ * Not a substitute for live session_user / current_user / mapping / EXECUTE.
  */
 function parseDsnIdentities(raw, mode) {
   if (typeof raw !== 'string') {
@@ -179,48 +304,77 @@ function parseDsnIdentities(raw, mode) {
   try {
     const normalized = stringReplace(text, /^postgres(ql)?:/i, 'http:');
     const url = new URL(normalized);
-    const database = stringReplace(stringTrim(url.pathname || ''), /^\//, '').split('?')[0];
+    const query = collectQueryValues(url);
+    const pathnameDatabase = stringReplace(stringTrim(url.pathname || ''), /^\//, '').split('?')[0];
     const urlUser = decodeUserinfo(url.username || '');
-    const host = url.hostname;
-    const port = url.port || '5432';
-    const queryMap = collectQueryValues(url);
-    const overlay = hasOverlayQuery(queryMap);
+    const urlHost = url.hostname;
+    const urlPort = url.port || '';
     if (mode === 'worker') {
-      if (overlay) return { identities: [], invalid: true };
-      const identity = identityFromParts(urlUser, host, port, database);
+      if (workerQueryForbidden(url, query, text)) return { identities: [], invalid: true };
+      const identity = identityFromParts(urlUser, urlHost, urlPort, pathnameDatabase);
       if (!identity) return { identities: [], invalid: true };
       return { identities: [identity], invalid: false };
     }
+    if (hasExactDuplicateKeys(query.exactCounts)) return { identities: [], invalid: true };
+    if (appQueryUnproven(query)) return { identities: [], invalid: true };
+    const pgUser = objectHasOwn(query.exact, 'user') ? decodeUserinfo(query.exact.user) : urlUser;
+    const pgHost = objectHasOwn(query.exact, 'host') ? query.exact.host : urlHost;
+    const pgPort = objectHasOwn(query.exact, 'port') && query.exact.port !== '' ? query.exact.port : urlPort;
+    const users = [];
+    pushUnique(users, urlUser);
+    pushUnique(users, pgUser);
+    if (query.lower.user) {
+      for (let index = 0; index < query.lower.user.length; index += 1) {
+        pushUnique(users, decodeUserinfo(query.lower.user[index]));
+      }
+    }
+    if (query.lower.username) {
+      for (let index = 0; index < query.lower.username.length; index += 1) {
+        pushUnique(users, decodeUserinfo(query.lower.username[index]));
+      }
+    }
+    if (query.lower.role) {
+      for (let index = 0; index < query.lower.role.length; index += 1) {
+        pushUnique(users, decodeUserinfo(query.lower.role[index]));
+      }
+    }
+    const hosts = [];
+    pushUnique(hosts, urlHost);
+    pushUnique(hosts, pgHost);
+    pushAll(hosts, query.lower.hostname);
+    pushAll(hosts, query.lower.hostaddr);
+    if (query.lower.host) {
+      for (let index = 0; index < query.lower.host.length; index += 1) {
+        pushUnique(hosts, query.lower.host[index]);
+      }
+    }
+    const ports = [];
+    pushUnique(ports, urlPort);
+    pushUnique(ports, pgPort);
+    if (query.lower.port) {
+      for (let index = 0; index < query.lower.port.length; index += 1) {
+        pushUnique(ports, query.lower.port[index]);
+      }
+    }
+    const databases = [];
+    pushUnique(databases, pathnameDatabase);
+    pushAll(databases, query.lower.database);
+    pushAll(databases, query.lower.dbname);
     const identities = [];
     const seen = new Set();
-    const candidates = [urlUser];
-    const queryUsers = [];
-    if (queryMap.user) {
-      for (let i = 0; i < queryMap.user.length; i += 1) queryUsers.push(queryMap.user[i]);
-    }
-    if (queryMap.username) {
-      for (let i = 0; i < queryMap.username.length; i += 1) queryUsers.push(queryMap.username[i]);
-    }
-    if (queryMap.role) {
-      for (let i = 0; i < queryMap.role.length; i += 1) queryUsers.push(queryMap.role[i]);
-    }
-    for (let i = 0; i < queryUsers.length; i += 1) candidates.push(decodeUserinfo(queryUsers[i]));
-    if (queryMap.user && queryMap.user.length > 1) {
-      return { identities: [], invalid: true };
-    }
-    if (queryMap.username && queryMap.username.length > 1) {
-      return { identities: [], invalid: true };
-    }
-    if (queryMap.role && queryMap.role.length > 1) {
-      return { identities: [], invalid: true };
-    }
-    for (let i = 0; i < candidates.length; i += 1) {
-      const identity = identityFromParts(candidates[i], host, port, database);
-      if (!identity) continue;
-      const key = `${identity.user}@${identity.host}:${identity.port}/${identity.database}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      identities.push(identity);
+    for (let u = 0; u < users.length; u += 1) {
+      for (let h = 0; h < hosts.length; h += 1) {
+        for (let p = 0; p < ports.length; p += 1) {
+          for (let d = 0; d < databases.length; d += 1) {
+            const identity = identityFromParts(users[u], hosts[h], ports[p], databases[d]);
+            if (!identity) continue;
+            const key = `${identity.user}@${identity.host}:${identity.port}/${identity.database}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            identities.push(identity);
+          }
+        }
+      }
     }
     if (!identities.length) return { identities: [], invalid: true };
     return { identities, invalid: false };
@@ -377,6 +531,9 @@ async function closeEmailLunaAutomationShadowWorkerPool(pool, timeoutMs) {
   const outcome = await boundedAwait(ended, ms);
   if (outcome === 'timeout') {
     forceCloseShadowWorkerPool(pool);
+    // Bounded termination only. Do not await pool.end() after forced
+    // client removal; that promise may never settle. Force-close is not
+    // live socket proof.
     return 'timeout';
   }
   return outcome === 'ok' ? 'ok' : 'rejected';
@@ -521,6 +678,8 @@ module.exports = objectFreeze({
   ERROR_CODE,
   CREATE_KEYS,
   OVERLAY_QUERY_KEYS,
+  WORKER_DSN_QUERY_ALLOWLIST,
+  APP_UNPROVEN_QUERY_KEYS,
   PRE_CONNECT_DISTINCTNESS_IS_NOT_LIVE_SESSION_PROOF,
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION_CLOSE_TIMEOUT_MS,
   resolveEmailLunaAutomationShadowWorkerConnectionConfig,

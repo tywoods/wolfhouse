@@ -481,6 +481,8 @@
     "verify:email-luna-automation-shadow-session-hardening": "node scripts/verify-email-luna-automation-shadow-session-hardening.js",
     "prove:email-luna-automation-shadow-session-hardening-pglite": "node scripts/prove-email-luna-automation-shadow-session-hardening-pglite.js",
     "prove:email-luna-automation-shadow-session-hardening-stock-pg": "node scripts/prove-email-luna-automation-shadow-session-hardening-stock-pg.js",
+    "verify:email-luna-automation-shadow-dsn-activation-source": "node scripts/verify-email-luna-automation-shadow-dsn-activation-source.js",
+    "prove:email-luna-automation-shadow-dsn-activation-source-pglite": "node scripts/prove-email-luna-automation-shadow-dsn-activation-source-pglite.js",
     "verify:email-luna-draft-author": "node scripts/verify-email-luna-draft-author.js",
     "verify:email-luna-draft-author-deterministic": "node scripts/verify-email-luna-draft-author-deterministic.js",
     "verify:email-luna-draft-validator": "node scripts/verify-email-luna-draft-validator.js",

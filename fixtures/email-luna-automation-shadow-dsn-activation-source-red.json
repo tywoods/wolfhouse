@@ -1,0 +1,38 @@
+{
+  "id": "email-luna-automation-shadow-dsn-activation-source.ch4b8-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B8",
+  "head_reviewed": "27f71394c8329868d177f2d9b50a0dbfb5ca6b75",
+  "pr_reviewed": 706,
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "activation_authorized": false,
+  "send_permission": false,
+  "journal_terminal": false,
+  "findings": [
+    {
+      "id": "M1-dsn-query-host-port-overlay",
+      "severity": "medium",
+      "red": "Worker DSN denylist is user/username/role/options/session_authorization only. Node-pg pg-connection-string last-wins query host/hostname/port/database/dbname/service (and encoded, mixed-case, duplicate, whitespace lookalikes) can change the live connect target while URL identity comparison still sees the authority host. Example: postgres://wolfhouse@decoy/db?host=127.0.0.1 connects as app owner to loopback; localhost vs 127.0.0.1 vs ::1 and default port 5432 are not canonicalized. passfile/ssl cert query refs are path/secret ambiguity.",
+      "green": "Worker DSN allowlist is empty: any query string is rejected, including host/hostname/hostaddr/port/database/dbname/service/user/username/role/options/session_authorization/passfile/sslcert and unknown keys, encoded, mixed-case, duplicate, and whitespace tricks. App and worker identities use pg-connection-string@2.13.0 assignment semantics (query host/user/port last-wins; pathname database) without executing ssl/file side effects. localhost/127.0.0.1/::1 and default port 5432 canonicalize for distinctness. Pre-connect comparison remains not live session proof. Passwords never leak."
+    },
+    {
+      "id": "L1-session-proof-binding-getter",
+      "severity": "low",
+      "red": "inspectEmailLunaAutomationShadowWorkerSession reads binding.client_id/location_id/location_key by property access, so a getter or Proxy can feed SQL params.",
+      "green": "Inspect copies/validates plain own scalar binding into a null-prototype structure before query. Getters, proxies, and non-plain bindings fail closed without querying."
+    },
+    {
+      "id": "L2-operator-failed-inspect-authenticity-label",
+      "severity": "low",
+      "red": "Operator preflight always labels inspect_authenticity=dedicated_worker_session, including when inspect_failed is true or the dedicated connection could not be created/used.",
+      "green": "inspect_authenticity=dedicated_worker_session only after a successful authentic inspect (inspect_failed is not true). Failure labels inspect_failed and never implies authenticity. ok cannot be true without dedicated_worker_session."
+    },
+    {
+      "id": "L3-force-close-bounded-termination-documented",
+      "severity": "low",
+      "red": "pool.end() may never settle after clients are force-removed on close timeout.",
+      "green": "Documented residual: close timeout force-removes remaining clients and returns timeout without awaiting pool.end(). Bounded termination is verified; force-close is not live socket proof and must not be waited on."
+    }
+  ]
+}
