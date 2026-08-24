@@ -143,12 +143,11 @@ async function handleSave(pg, clientSlug, body, actorId) {
   const name = String(body.name || '').trim().slice(0, 120);
   const spreadsheetId = String(body.spreadsheet_id || '').trim();
   const sheetName = String(body.sheet_name || 'inventory').trim().slice(0, 80);
-  const secretRef = String(body.secret_ref || '').trim();
+  if (body && Object.prototype.hasOwnProperty.call(body, 'secret_ref')) {
+    return { ok: false, status: 400, error: 'caller_authority_rejected' };
+  }
   if (!name || spreadsheetId.length < 8) {
     return { ok: false, status: 400, error: 'invalid_connection' };
-  }
-  if (secretRef && !/^[A-Z][A-Z0-9_]{2,80}$/.test(secretRef)) {
-    return { ok: false, status: 400, error: 'secret_ref_invalid' };
   }
   const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
   if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
@@ -177,14 +176,6 @@ async function handleSave(pg, clientSlug, body, actorId) {
         [clientId, name, spreadsheetId, sheetName, actorId || null]
       );
       id = ins.rows[0].id;
-    }
-    if (secretRef) {
-      await pg.query(
-        `INSERT INTO external_calendar_secrets (connection_id, secret_ref)
-         VALUES ($1,$2)
-         ON CONFLICT (connection_id) DO UPDATE SET secret_ref = EXCLUDED.secret_ref, updated_at = NOW()`,
-        [id, secretRef]
-      );
     }
     const row = await pg.query(
       `SELECT c.id, c.name, c.kind, c.status, c.spreadsheet_id, c.sheet_name,
