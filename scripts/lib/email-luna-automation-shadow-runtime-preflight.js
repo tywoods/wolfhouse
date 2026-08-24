@@ -35,7 +35,13 @@ const {
 } = require('./email-luna-automation-shadow-sunset-staging-runtime-composition');
 const {
   resolveEmailLunaAutomationShadowWorkerConnectionConfig,
+  createEmailLunaAutomationShadowWorkerConnection,
+  isAuthenticEmailLunaAutomationShadowWorkerConnection,
 } = require('./email-luna-automation-shadow-worker-connection');
+const {
+  SESSION_PROOF_SQL,
+  inspectEmailLunaAutomationShadowWorkerSession,
+} = require('./email-luna-automation-shadow-session-proof');
 const {
   EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH,
   EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_RUNTIME_WIRED,
@@ -70,38 +76,17 @@ const stringTrim = uncurryThis(String.prototype.trim);
 const ROOT = path.join(__dirname, '..', '..');
 const PREFLIGHT_KEYS = objectFreeze(['env']);
 const OPTIONAL_QUERY_KEY = 'query';
+const UNIT_TEST_INSPECT_KEY = 'unit_test_inspect';
+const OPERATOR_PREFLIGHT_KEYS = objectFreeze(['env', 'appConnectionString', 'workerConnection']);
+const INSPECT_AUTHENTICITY_DEDICATED = 'dedicated_worker_session';
+const INSPECT_AUTHENTICITY_UNIT_TEST = 'unit_test_inspect';
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ERROR_CODE = 'EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_PREFLIGHT_INVALID';
 const FORBIDDEN_INPUT_KEYS = objectFreeze([
   'apply', 'provision', 'start', 'stop', 'send', 'provider', 'callback',
   'onSend', 'authorize_dispatch', 'migrate', 'roleName', 'password',
 ]);
-const SCHEMA_SQL = [
-  'SELECT',
-  '  EXISTS (',
-  '    SELECT 1 FROM pg_catalog.pg_class c',
-  '    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-  "    WHERE n.nspname = 'public'",
-  "      AND c.relname = 'tenant_email_luna_automation_shadow_outcomes'",
-  "      AND c.relkind = 'r'",
-  '  ) AS outcomes_table,',
-  "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_principal_authorized(text, uuid, uuid, text)') IS NOT NULL AS principal_fn,",
-  "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_claim_scoped(uuid, uuid, uuid, text, uuid)') IS NOT NULL AS scoped_claim_fn,",
-  '  session_user::text AS session_user,',
-  '  (',
-  '    SELECT r.rolname::text',
-  '      FROM pg_catalog.pg_roles r',
-  '      JOIN pg_catalog.pg_class c ON c.relowner = r.oid',
-  '      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-  "     WHERE n.nspname = 'public'",
-  "       AND c.relname = 'tenant_email_luna_automation_queue'",
-  "       AND c.relkind = 'r'",
-  '  ) AS table_owner,',
-  "  CASE",
-  "    WHEN pg_catalog.to_regprocedure('public.tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)') IS NULL THEN NULL",
-  "    ELSE pg_catalog.pg_get_functiondef('public.tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)'::pg_catalog.regprocedure)",
-  '  END AS project_def',
-].join('\n');
+const SCHEMA_SQL = SESSION_PROOF_SQL;
 
 function invalid() {
   const error = new Error('Email Luna automation shadow runtime preflight failed.');
@@ -181,52 +166,17 @@ function fileReady(rel, needles, forbidden) {
   return true;
 }
 
-function projectDefSafe(def) {
-  if (typeof def !== 'string') return false;
-  return def.indexOf("matched := 'staff_action_observed'") !== -1
-    && def.indexOf("matched := 'agreement'") === -1;
+async function inspectSchema(query, binding) {
+  if (typeof query !== 'function' || runtimeIsProxy(query)) throw invalid();
+  return inspectEmailLunaAutomationShadowWorkerSession({ query }, binding);
 }
 
-async function inspectSchema(query) {
-  if (typeof query !== 'function' || runtimeIsProxy(query)) throw invalid();
-  try {
-    const result = await Promise.resolve(query(SCHEMA_SQL, []));
-    const rows = result && arrayIsArray(result.rows) ? result.rows : [];
-    if (rows.length !== 1) {
-      return {
-        schema_applied: false,
-        principal_applied: false,
-        identity_label_applied: false,
-        scoped_claim_applied: false,
-        worker_principal_ok: false,
-        inspect_failed: false,
-      };
-    }
-    const row = rows[0];
-    const sessionUser = row.session_user;
-    const tableOwner = row.table_owner;
-    const workerPrincipalOk = typeof sessionUser === 'string'
-      && typeof tableOwner === 'string'
-      && sessionUser !== tableOwner
-      && row.principal_fn === true;
-    return {
-      schema_applied: row.outcomes_table === true,
-      principal_applied: row.principal_fn === true,
-      identity_label_applied: projectDefSafe(row.project_def),
-      scoped_claim_applied: row.scoped_claim_fn === true,
-      worker_principal_ok: workerPrincipalOk,
-      inspect_failed: false,
-    };
-  } catch (_) {
-    return {
-      schema_applied: false,
-      principal_applied: false,
-      identity_label_applied: false,
-      scoped_claim_applied: false,
-      worker_principal_ok: false,
-      inspect_failed: true,
-    };
-  }
+function readBindingFromEnv(env) {
+  return {
+    client_id: parseUuid(ownData(env, ENV_CLIENT_ID)),
+    location_id: parseUuid(ownData(env, ENV_LOCATION_ID)),
+    location_key: ownData(env, ENV_LOCATION_KEY) === SUNSET_LOCATION_KEY ? SUNSET_LOCATION_KEY : null,
+  };
 }
 
 function runEmailLunaAutomationShadowRuntimePreflight(input) {
@@ -235,14 +185,20 @@ function runEmailLunaAutomationShadowRuntimePreflight(input) {
   if (objectGetPrototypeOf(input) !== objectPrototype) throw invalid();
   refuseForbiddenKeys(input);
   const env = ownData(input, 'env');
-  const query = objectHasOwn(objectGetOwnPropertyDescriptor(input, OPTIONAL_QUERY_KEY) || {}, 'value')
-    ? ownData(input, OPTIONAL_QUERY_KEY)
-    : undefined;
+  const hasQueryKey = objectHasOwn(objectGetOwnPropertyDescriptor(input, OPTIONAL_QUERY_KEY) || {}, 'value');
+  const hasUnitTestKey = objectHasOwn(objectGetOwnPropertyDescriptor(input, UNIT_TEST_INSPECT_KEY) || {}, 'value');
+  const query = hasQueryKey ? ownData(input, OPTIONAL_QUERY_KEY) : undefined;
+  const unitTestInspect = hasUnitTestKey ? ownData(input, UNIT_TEST_INSPECT_KEY) : undefined;
   const own = safeOwnKeys(input);
   for (let index = 0; index < own.length; index += 1) {
-    if (own[index] !== 'env' && own[index] !== OPTIONAL_QUERY_KEY) throw invalid();
+    if (own[index] !== 'env' && own[index] !== OPTIONAL_QUERY_KEY && own[index] !== UNIT_TEST_INSPECT_KEY) {
+      throw invalid();
+    }
   }
   if (query !== undefined && (typeof query !== 'function' || runtimeIsProxy(query))) throw invalid();
+  if (query !== undefined && unitTestInspect !== true) throw invalid();
+  if (unitTestInspect !== undefined && unitTestInspect !== true) throw invalid();
+  if (unitTestInspect === true && query === undefined) throw invalid();
   const readiness = resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(env);
   const later = EMAIL_LUNA_AUTOMATION_SHADOW_COMPARISON_LATER_MATCH;
   const sql094 = readFileIfPresent(`database/migrations/${MIGRATION_094_ID}.sql`);
@@ -305,16 +261,16 @@ function runEmailLunaAutomationShadowRuntimePreflight(input) {
     ['endpoint_id', parseUuid(ownData(env, ENV_ENDPOINT_ID))],
   ]);
 
-  function finish(schema) {
+  function finish(schema, inspectAuthenticity) {
     const blockers = [];
-    const inspectRequired = !query;
+    const inspectRequired = !query && inspectAuthenticity !== INSPECT_AUTHENTICITY_DEDICATED;
     if (!migrationFilesReady) blockers.push('migration_files_not_ready');
     if (!principalReady) blockers.push('principal_contract_not_ready');
     if (!unsafeLabelAbsent) blockers.push('unsafe_comparison_label');
     if (inspectRequired) blockers.push('inspect_required');
     if (schema.inspect_failed === true) {
       blockers.push('schema_inspect_failed');
-    } else {
+    } else if (!inspectRequired) {
       if (schema.schema_applied === false) blockers.push('migration_not_applied');
       if (schema.principal_applied === false) blockers.push('principal_not_applied');
       if (schema.identity_label_applied === false) blockers.push('identity_label_not_applied');
@@ -329,7 +285,11 @@ function runEmailLunaAutomationShadowRuntimePreflight(input) {
     if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_WIRED !== false) blockers.push('producer_runtime_wired');
     if (EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_RUNTIME_WIRED !== false) blockers.push('outcome_runtime_wired');
     if (readiness.provider_capability !== false) blockers.push('provider_capability');
+    const authenticInspect = inspectAuthenticity === INSPECT_AUTHENTICITY_DEDICATED
+      || inspectAuthenticity === INSPECT_AUTHENTICITY_UNIT_TEST;
+    if (!inspectRequired && !authenticInspect) blockers.push('inspect_authenticity_unproven');
     const readyForActivationReview = blockers.length === 0
+      && authenticInspect === true
       && schema.schema_applied === true
       && schema.principal_applied === true
       && schema.identity_label_applied === true
@@ -354,6 +314,7 @@ function runEmailLunaAutomationShadowRuntimePreflight(input) {
       ['proves_content_agreement', false],
       ['files_ready', migrationFilesReady],
       ['inspect_required', inspectRequired],
+      ['inspect_authenticity', inspectAuthenticity || null],
       ['migration_files_ready', migrationFilesReady],
       ['principal_contract_ready', principalReady],
       ['schema_applied', schema.schema_applied],
@@ -378,14 +339,155 @@ function runEmailLunaAutomationShadowRuntimePreflight(input) {
       scoped_claim_applied: 'unknown',
       worker_principal_ok: 'unknown',
       inspect_failed: false,
-    }));
+    }, null));
   }
-  return inspectSchema(query).then(finish);
+  const inspectBinding = readBindingFromEnv(env);
+  return inspectSchema(query, inspectBinding).then((schema) => finish(schema, INSPECT_AUTHENTICITY_UNIT_TEST));
+}
+
+async function runEmailLunaAutomationShadowRuntimeOperatorPreflight(input) {
+  if (arguments.length !== 1) throw invalid();
+  if (!input || typeof input !== 'object' || runtimeIsProxy(input) || arrayIsArray(input)) throw invalid();
+  if (objectGetPrototypeOf(input) !== objectPrototype) throw invalid();
+  refuseForbiddenKeys(input);
+  const env = ownData(input, 'env');
+  const appConnectionString = ownData(input, 'appConnectionString');
+  const workerConnection = ownData(input, 'workerConnection');
+  const own = safeOwnKeys(input);
+  for (let index = 0; index < own.length; index += 1) {
+    if (!arrayIncludes(OPERATOR_PREFLIGHT_KEYS, own[index])) throw invalid();
+  }
+  if (objectHasOwn(objectGetOwnPropertyDescriptor(input, OPTIONAL_QUERY_KEY) || {}, 'value')) throw invalid();
+  if (objectHasOwn(objectGetOwnPropertyDescriptor(input, UNIT_TEST_INSPECT_KEY) || {}, 'value')) throw invalid();
+  if (appConnectionString !== undefined && typeof appConnectionString !== 'string') throw invalid();
+  if (workerConnection !== undefined && !isAuthenticEmailLunaAutomationShadowWorkerConnection(workerConnection)) {
+    throw invalid();
+  }
+
+  async function inspectWithConnection(connection) {
+    if (!connection || typeof connection.withTransactionClient !== 'function') {
+      return {
+        schema_applied: false,
+        principal_applied: false,
+        identity_label_applied: false,
+        scoped_claim_applied: false,
+        worker_principal_ok: false,
+        inspect_failed: true,
+      };
+    }
+    try {
+      return await connection.withTransactionClient(async (client) => (
+        inspectEmailLunaAutomationShadowWorkerSession(client, readBindingFromEnv(env))
+      ));
+    } catch (_) {
+      return {
+        schema_applied: false,
+        principal_applied: false,
+        identity_label_applied: false,
+        scoped_claim_applied: false,
+        worker_principal_ok: false,
+        inspect_failed: true,
+      };
+    }
+  }
+
+  let schema;
+  if (workerConnection) {
+    schema = await inspectWithConnection(workerConnection);
+  } else {
+    let created;
+    try {
+      created = createEmailLunaAutomationShadowWorkerConnection({
+        env,
+        appConnectionString,
+      });
+    } catch (_) {
+      created = null;
+    }
+    if (!created) {
+      schema = {
+        schema_applied: false,
+        principal_applied: false,
+        identity_label_applied: false,
+        scoped_claim_applied: false,
+        worker_principal_ok: false,
+        inspect_failed: true,
+      };
+    } else {
+      try {
+        schema = await inspectWithConnection(created);
+      } finally {
+        try { await created.close(); } catch (_) { /* bounded close */ }
+      }
+    }
+  }
+
+  const libraryInput = { env };
+  const base = await runEmailLunaAutomationShadowRuntimePreflight(libraryInput);
+  const blockers = [];
+  for (let index = 0; index < base.blockers.length; index += 1) {
+    if (base.blockers[index] !== 'inspect_required') blockers.push(base.blockers[index]);
+  }
+  if (schema.inspect_failed === true) {
+    if (!arrayIncludes(blockers, 'schema_inspect_failed')) blockers.push('schema_inspect_failed');
+  } else {
+    if (schema.schema_applied === false && !arrayIncludes(blockers, 'migration_not_applied')) blockers.push('migration_not_applied');
+    if (schema.principal_applied === false && !arrayIncludes(blockers, 'principal_not_applied')) blockers.push('principal_not_applied');
+    if (schema.identity_label_applied === false && !arrayIncludes(blockers, 'identity_label_not_applied')) blockers.push('identity_label_not_applied');
+    if (schema.scoped_claim_applied === false && !arrayIncludes(blockers, 'scoped_claim_not_applied')) blockers.push('scoped_claim_not_applied');
+    if (schema.worker_principal_ok === false && !arrayIncludes(blockers, 'worker_principal_unproven')) blockers.push('worker_principal_unproven');
+  }
+  const authentic = INSPECT_AUTHENTICITY_DEDICATED;
+  const readyForActivationReview = blockers.length === 0
+    && schema.schema_applied === true
+    && schema.principal_applied === true
+    && schema.identity_label_applied === true
+    && schema.scoped_claim_applied === true
+    && schema.worker_principal_ok === true
+    && base.would_activate === true;
+  return output([
+    ['ok', readyForActivationReview],
+    ['would_activate', base.would_activate],
+    ['activation_started', false],
+    ['migration_applied', false],
+    ['roles_provisioned', false],
+    ['runtime_started', false],
+    ['provider_capability', false],
+    ['journal_handoff', false],
+    ['send_allowed', false],
+    ['composition_wired', base.composition_wired],
+    ['comparison_state_label', base.comparison_state_label],
+    ['comparison_kind', base.comparison_kind],
+    ['proves_provider_sent', false],
+    ['proves_same_luna_draft', false],
+    ['proves_content_agreement', false],
+    ['files_ready', base.files_ready],
+    ['inspect_required', false],
+    ['inspect_authenticity', authentic],
+    ['migration_files_ready', base.migration_files_ready],
+    ['principal_contract_ready', base.principal_contract_ready],
+    ['schema_applied', schema.schema_applied],
+    ['principal_applied', schema.principal_applied],
+    ['identity_label_applied', schema.identity_label_applied],
+    ['scoped_claim_applied', schema.scoped_claim_applied],
+    ['worker_principal_ok', schema.worker_principal_ok],
+    ['replica_count_ok', base.replica_count_ok],
+    ['worker_connection_ok', base.worker_connection_ok],
+    ['flags', base.flags],
+    ['binding', base.binding],
+    ['blockers', freeze(blockers.slice())],
+    ['readiness_reason', base.readiness_reason],
+  ]);
 }
 
 module.exports = objectFreeze({
   runEmailLunaAutomationShadowRuntimePreflight,
+  runEmailLunaAutomationShadowRuntimeOperatorPreflight,
   ERROR_CODE,
   PREFLIGHT_KEYS,
+  OPERATOR_PREFLIGHT_KEYS,
+  UNIT_TEST_INSPECT_KEY,
+  INSPECT_AUTHENTICITY_DEDICATED,
+  INSPECT_AUTHENTICITY_UNIT_TEST,
   SCHEMA_SQL,
 });

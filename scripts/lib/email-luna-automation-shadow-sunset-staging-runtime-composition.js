@@ -36,6 +36,10 @@ const {
   resolveEmailLunaAutomationShadowWorkerConnectionConfig,
 } = require('./email-luna-automation-shadow-worker-connection');
 const {
+  SESSION_PROOF_SQL,
+  inspectEmailLunaAutomationShadowWorkerSession,
+} = require('./email-luna-automation-shadow-session-proof');
+const {
   isEmailLunaAutomationShadowEnabled,
   EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_WIRED,
   ENV_SHADOW_ENABLED,
@@ -106,34 +110,7 @@ const FORBIDDEN_INPUT_KEYS = objectFreeze([
   'https', 'graph', 'transport', 'capability',
   'auto_send_allowed', 'provider_invoked', 'journal_handoff',
 ]);
-const SCHEMA_SQL = [
-  'SELECT',
-  '  EXISTS (',
-  '    SELECT 1 FROM pg_catalog.pg_class c',
-  '    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-  "    WHERE n.nspname = 'public'",
-  "      AND c.relname = 'tenant_email_luna_automation_shadow_outcomes'",
-  "      AND c.relkind = 'r'",
-  '  ) AS outcomes_table,',
-  "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_capture_shadow(uuid, uuid)') IS NOT NULL AS capture_fn,",
-  "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_shadow_outcome_load(uuid, uuid)') IS NOT NULL AS load_fn,",
-  "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)') IS NOT NULL AS project_fn,",
-  "  pg_catalog.to_regprocedure('public.tenant_email_luna_automation_claim_scoped(uuid, uuid, uuid, text, uuid)') IS NOT NULL AS scoped_claim_fn,",
-  '  session_user::text AS session_user,',
-  '  (',
-  '    SELECT r.rolname::text',
-  '      FROM pg_catalog.pg_roles r',
-  '      JOIN pg_catalog.pg_class c ON c.relowner = r.oid',
-  '      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-  "     WHERE n.nspname = 'public'",
-  "       AND c.relname = 'tenant_email_luna_automation_queue'",
-  "       AND c.relkind = 'r'",
-  '  ) AS table_owner,',
-  '  CASE',
-  "    WHEN pg_catalog.to_regprocedure('public.tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)') IS NULL THEN NULL",
-  "    ELSE pg_catalog.pg_get_functiondef('public.tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)'::pg_catalog.regprocedure)",
-  '  END AS project_def',
-].join('\n');
+const SCHEMA_SQL = SESSION_PROOF_SQL;
 
 if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_WIRED !== true
     || EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_ACTIVATION !== false
@@ -490,22 +467,20 @@ function createEmailLunaAutomationShadowSunsetStagingRuntimeComposition(dependen
 
   async function verifySchema() {
     if (schemaVerified) return;
-    const row = await withTransactionClient(async (client) => {
+    const proof = await withTransactionClient(async (client) => {
       if (!client || typeof client !== 'object' || runtimeIsProxy(client) || typeof client.query !== 'function') {
         throw invalid();
       }
-      const result = await Promise.resolve(client.query(SCHEMA_SQL, []));
-      const rows = result && arrayIsArray(result.rows) ? result.rows : [];
-      if (rows.length !== 1) throw invalid();
-      return rows[0];
+      return inspectEmailLunaAutomationShadowWorkerSession(client, {
+        client_id: binding.client_id,
+        location_id: binding.location_id,
+        location_key: SUNSET_LOCATION_KEY,
+      });
     });
-    if (!row || row.outcomes_table !== true || row.capture_fn !== true || row.load_fn !== true || row.project_fn !== true) {
-      throw invalid();
-    }
-    if (row.scoped_claim_fn !== true) throw invalid();
-    if (typeof row.session_user !== 'string' || typeof row.table_owner !== 'string') throw invalid();
-    if (row.session_user === row.table_owner) throw invalid();
-    if (!projectDefSafe(row.project_def)) throw invalid();
+    if (!proof || proof.inspect_failed === true || proof.ok !== true) throw invalid();
+    if (proof.schema_applied !== true || proof.principal_applied !== true) throw invalid();
+    if (proof.identity_label_applied !== true || proof.scoped_claim_applied !== true) throw invalid();
+    if (proof.worker_principal_ok !== true) throw invalid();
     schemaVerified = true;
   }
 

@@ -48,6 +48,26 @@ function enabledEnv(patch = {}) {
   };
 }
 
+function inspectRow(patch = {}) {
+  return {
+    outcomes_table: true,
+    capture_fn: true,
+    load_fn: true,
+    project_fn: true,
+    principal_fn: true,
+    scoped_claim_fn: true,
+    session_user: 'luna_shadow_worker',
+    current_user: 'luna_shadow_worker',
+    table_owner: 'wolfhouse',
+    session_matches_current: true,
+    worker_mapping_ok: true,
+    scoped_claim_execute: true,
+    project_def: "matched := 'staff_action_observed'",
+    scoped_claim_def: "FOR UPDATE SKIP LOCKED principal_kind = 'worker' session_user IS DISTINCT FROM owner",
+    ...patch,
+  };
+}
+
 function expectInvalid(fn) {
   return Promise.resolve()
     .then(fn)
@@ -126,16 +146,18 @@ async function main() {
 
   const notReady = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv(),
+    unit_test_inspect: true,
     async query() {
       return {
-        rows: [{
+        rows: [inspectRow({
           outcomes_table: false,
           principal_fn: false,
           scoped_claim_fn: false,
-          session_user: 'luna_shadow_worker',
-          table_owner: 'wolfhouse',
           project_def: null,
-        }],
+          scoped_claim_def: null,
+          worker_mapping_ok: false,
+          scoped_claim_execute: false,
+        })],
       };
     },
   });
@@ -151,16 +173,12 @@ async function main() {
 
   const unsafe = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv(),
+    unit_test_inspect: true,
     async query() {
       return {
-        rows: [{
-          outcomes_table: true,
-          principal_fn: true,
-          scoped_claim_fn: true,
-          session_user: 'luna_shadow_worker',
-          table_owner: 'wolfhouse',
+        rows: [inspectRow({
           project_def: "matched := 'agreement'",
-        }],
+        })],
       };
     },
   });
@@ -171,16 +189,10 @@ async function main() {
 
   const readySchema = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv(),
+    unit_test_inspect: true,
     async query() {
       return {
-        rows: [{
-          outcomes_table: true,
-          principal_fn: true,
-          scoped_claim_fn: true,
-          session_user: 'luna_shadow_worker',
-          table_owner: 'wolfhouse',
-          project_def: "matched := 'staff_action_observed'",
-        }],
+        rows: [inspectRow()],
       };
     },
   });
@@ -193,6 +205,7 @@ async function main() {
   assert.equal(readySchema.scoped_claim_applied, true);
   assert.equal(readySchema.worker_principal_ok, true);
   assert.equal(readySchema.inspect_required, false);
+  assert.equal(readySchema.inspect_authenticity, 'unit_test_inspect');
   assert.deepEqual(readySchema.blockers.slice(), []);
   console.log('  PASS  ready schema + identity label still does not start, apply, or provision');
 
@@ -200,6 +213,7 @@ async function main() {
   const leakUuid = '99999999-9999-4999-8999-999999999999';
   const leaked = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv(),
+    unit_test_inspect: true,
     async query() {
       const error = new Error(`password=${leakSecret} uuid=${leakUuid} code=42501`);
       error.code = '42501';
@@ -218,16 +232,15 @@ async function main() {
 
   const ownerSession = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv(),
+    unit_test_inspect: true,
     async query() {
       return {
-        rows: [{
-          outcomes_table: true,
-          principal_fn: true,
-          scoped_claim_fn: true,
+        rows: [inspectRow({
           session_user: 'wolfhouse',
+          current_user: 'wolfhouse',
           table_owner: 'wolfhouse',
-          project_def: "matched := 'staff_action_observed'",
-        }],
+          worker_mapping_ok: false,
+        })],
       };
     },
   });
@@ -237,16 +250,10 @@ async function main() {
 
   const replica = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: '2' }),
+    unit_test_inspect: true,
     async query() {
       return {
-        rows: [{
-          outcomes_table: true,
-          principal_fn: true,
-          scoped_claim_fn: true,
-          session_user: 'luna_shadow_worker',
-          table_owner: 'wolfhouse',
-          project_def: "matched := 'staff_action_observed'",
-        }],
+        rows: [inspectRow()],
       };
     },
   });

@@ -243,10 +243,16 @@ function schemaRow(patch = {}) {
     capture_fn: true,
     load_fn: true,
     project_fn: true,
+    principal_fn: true,
     scoped_claim_fn: true,
     session_user: 'luna_shadow_worker',
+    current_user: 'luna_shadow_worker',
     table_owner: 'wolfhouse',
+    session_matches_current: true,
+    worker_mapping_ok: true,
+    scoped_claim_execute: true,
     project_def: "matched := 'staff_action_observed'; pending_human",
+    scoped_claim_def: "FOR UPDATE SKIP LOCKED principal_kind = 'worker' session_user IS DISTINCT FROM owner",
     ...patch,
   };
 }
@@ -404,13 +410,36 @@ async function main() {
   assert.equal(timerDrainState.cleared >= 1, true);
   console.log('  PASS  M1 stop drains timer-driven B3 tick and cancels future timers');
 
-  const ownerSession = createRuntime({ schema: { session_user: 'wolfhouse', table_owner: 'wolfhouse' } });
+  const ownerSession = createRuntime({ schema: { session_user: 'wolfhouse', current_user: 'wolfhouse', table_owner: 'wolfhouse' } });
   await assert.rejects(
     () => ownerSession.runtime.start(),
     (error) => error && error.code === ERROR_CODE,
   );
   assert.equal(ownerSession.timerState.calls.length, 0);
   console.log('  PASS  H1 table-owner session fails start closed');
+
+  const setRole = createRuntime({
+    schema: {
+      session_user: 'luna_shadow_worker',
+      current_user: 'overlay_role',
+      session_matches_current: false,
+    },
+  });
+  await assert.rejects(
+    () => setRole.runtime.start(),
+    (error) => error && error.code === ERROR_CODE,
+  );
+  const unmapped = createRuntime({ schema: { worker_mapping_ok: false } });
+  await assert.rejects(
+    () => unmapped.runtime.start(),
+    (error) => error && error.code === ERROR_CODE,
+  );
+  const missingExec = createRuntime({ schema: { scoped_claim_execute: false } });
+  await assert.rejects(
+    () => missingExec.runtime.start(),
+    (error) => error && error.code === ERROR_CODE,
+  );
+  console.log('  PASS  SET ROLE overlay, unmapped worker, and missing 095 EXECUTE fail start closed');
 
   const reboundClient = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   const reboundLocation = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';

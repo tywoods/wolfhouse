@@ -133,6 +133,7 @@ async function main() {
   assert.ok(noQuery.blockers.includes('inspect_required'));
   const inspectFail = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv(),
+    unit_test_inspect: true,
     async query() {
       const error = new Error('password=do-not-leak uuid=99999999-9999-4999-8999-999999999999');
       error.code = '42501';

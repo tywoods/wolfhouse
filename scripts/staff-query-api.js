@@ -281,7 +281,11 @@ const {
 } = require('./lib/email-luna-automation-shadow-sunset-staging-runtime-composition');
 const {
   createEmailLunaAutomationShadowWorkerConnection,
+  drainEmailLunaAutomationShadowRuntimePair,
 } = require('./lib/email-luna-automation-shadow-worker-connection');
+const {
+  runEmailLunaAutomationShadowRuntimeOperatorPreflight,
+} = require('./lib/email-luna-automation-shadow-runtime-preflight');
 /** Frozen inert readiness only (default-off; never scheduler/worker run). */
 const EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS =
   resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(process.env);
@@ -50055,14 +50059,14 @@ function drainStaffApiEmailRuntimes() {
     drains.push(Promise.resolve(EMAIL_IMAP_RUNTIME.stop()));
     EMAIL_IMAP_RUNTIME = null;
   }
-  if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME) {
-    drains.push(Promise.resolve(EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.stop()));
-    EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
-  }
-  if (EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION) {
-    drains.push(Promise.resolve(EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION.close()));
-    EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = null;
-  }
+  const shadowRuntime = EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME;
+  const shadowConnection = EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION;
+  EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
+  EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = null;
+  drains.push(drainEmailLunaAutomationShadowRuntimePair({
+    runtime: shadowRuntime,
+    connection: shadowConnection,
+  }));
   return Promise.allSettled(drains);
 }
 
@@ -50104,6 +50108,16 @@ async function startStaffQueryApiCli() {
         env: process.env,
         appConnectionString: getConnectionString(),
       });
+      const shadowPreflight = await runEmailLunaAutomationShadowRuntimeOperatorPreflight({
+        env: process.env,
+        appConnectionString: getConnectionString(),
+        workerConnection: EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION,
+      });
+      if (!shadowPreflight || shadowPreflight.ok !== true) {
+        await drainStaffApiEmailRuntimes();
+        process.exitCode = 1;
+        return;
+      }
       EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = createEmailLunaAutomationShadowSunsetStagingRuntimeComposition({
         env: process.env,
         withTransactionClient: EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION.withTransactionClient,
