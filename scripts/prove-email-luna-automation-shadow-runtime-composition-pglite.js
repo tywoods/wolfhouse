@@ -163,9 +163,14 @@ async function provePglite(PGlite) {
 
   const preflight = await runEmailLunaAutomationShadowRuntimePreflight({
     env: enabledEnv(),
+    unit_test_inspect: true,
     async query(sql, params) {
       await db.exec(`SET SESSION AUTHORIZATION ${WORKER_ROLE}`);
-      return db.query(sql, params);
+      try {
+        return await db.query(sql, params);
+      } finally {
+        await db.exec('SET SESSION AUTHORIZATION postgres');
+      }
     },
   });
   assert.equal(preflight.ok, true);
