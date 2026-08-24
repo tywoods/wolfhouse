@@ -722,6 +722,13 @@ const {
   MANUAL_BOOKING_ALLOWED_ROLES,
 } = require('./lib/staff-manual-booking-create-sql');
 const {
+  bridgeAvailable,
+  storedErrorCode,
+} = require('./lib/external-calendar-inventory');
+const extCalRoutes = require('./lib/external-calendar-inventory-routes');
+const { loadLockedState, createSyncScheduler, runConnectionSync } = require('./lib/external-calendar-inventory-sync');
+const { fetchSheetRows } = require('./lib/external-calendar-inventory-sheets');
+const {
   calculateWolfhouseQuote,
 } = require('./lib/wolfhouse-quote-calculator');
 const {
@@ -16110,6 +16117,7 @@ function buildUiHtml(port, portalDeployClient) {
   const portalDevTabsEnabled = staffPortalDevTabsEnabled();
   // Server-owned email Inbox UI flags (exact env === 'true'; default-off; no browser override).
   const emailStaffEmailDraftsUi = process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED === 'true';
+  const showOwnerScheduleBridge = bridgeAvailable(portalDefaultClient);
   const emailStaffOutboundUi = process.env.EMAIL_STAFF_OUTBOUND_ENABLED === 'true';
   const emailStaffLunaDraftUi = process.env.EMAIL_STAFF_LUNA_DRAFT_ENABLED === 'true'
     && process.env.EMAIL_LUNA_DRAFT_RUNTIME_ENABLED === 'true'
@@ -19052,6 +19060,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD}
 .bc-block-blocked{background:#E4E2DE;color:#5E5C58;border-left:3px solid #B0AEA8}
+.bc-block-owner_schedule_blocked{background:#F6E56B;color:#4E5853;border-left:3px solid #C4A017}
 .bc-day-cell-turnover{position:relative;height:calc(36px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(4px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
 .bc-day-cell-turnover .bc-block{position:relative;z-index:2}
 .bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(calc(52px * var(--bc-zoom, 1)),34%)}
@@ -19065,6 +19074,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-checkout-marker.bc-block-tour_operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-blocked{background:linear-gradient(90deg,rgba(176,174,168,.30) 0%,rgba(176,174,168,.09) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-owner_schedule_blocked{background:linear-gradient(90deg,rgba(196,160,23,.35) 0%,rgba(246,229,107,.18) 40%,transparent 75%)}
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
@@ -19104,6 +19114,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-blocked{background:#E4E2DE;border-left-color:#B0AEA8}
+.bc-legend-sw-owner_schedule_blocked{background:#F6E56B;border-left-color:#C4A017}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
 @media (max-width:720px){
 .bc-controls-row{flex-direction:column;align-items:stretch}
@@ -19650,6 +19661,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-block-operator,[data-theme="dark"] .bc-block-tour_operator{background:#2a2436;color:#d8c8e8;border-left-color:#7a68a0}
 [data-theme="dark"] .bc-block-manual{background:#1e2a28;color:#b8c8bc;border-left-color:#569cd6}
 [data-theme="dark"] .bc-block-blocked{background:#2c2c2c;color:#b0b0b0;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-block-owner_schedule_blocked{background:#C9B22A;color:#1e1e1e;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-confirmed{background:#2a3a32;border-left-color:#569cd6}
 [data-theme="dark"] .bc-legend-sw-hold{background:#3a3428;border-left-color:#8a7355}
 [data-theme="dark"] .bc-legend-sw-payment{background:#1a2836;border-left-color:#569cd6}
@@ -19658,6 +19670,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-legend-sw-cancelled{background:#2a2a2a;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-legend-sw-manual{background:#1e2a28;border-left-color:#569cd6}
 [data-theme="dark"] .bc-legend-sw-blocked{background:#2c2c2c;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-legend-sw-owner_schedule_blocked{background:#C9B22A;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-balance{background:#3a3420;border-left-color:#c49a4a}
 [data-theme="dark"] .bc-detail-note,[data-theme="dark"] .bc-sel-warn{background:#3a3420;border-color:#5a5038;color:#e8c89a}
 [data-theme="dark"] #bc-warnings{background:#3a2828;border-color:#6a4040;color:#f0c0bc}
@@ -21849,6 +21862,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span><span data-i18n="calendar.legend.staff">Staff</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-owner_schedule_blocked"></span><span data-i18n="calendar.legend.ownerScheduleBlocked">Owner schedule blocked</span></span>
     </div>
     </div>
     </div>
@@ -22242,6 +22256,36 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </section>
 
+${showOwnerScheduleBridge ? `
+  <div class="card cc-section" id="cc-owner-schedule-bridge">
+    <div class="cc-section-hdr">Owner schedule</div>
+    <div class="cc-section-sub">Google Sheet blocks beds as <b>Owner schedule blocked</b>. An empty or broken Sheet never removes a Luna booking or staff block. Secret is a reference name only.</div>
+    <div id="osb-status" class="al-hint"></div>
+    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
+      <select id="osb-connections" aria-label="Owner schedule connections">
+        <option value="">Select a connection</option>
+      </select>
+      <button type="button" class="btn-ghost" id="osb-refresh">Refresh</button>
+      <button type="button" class="btn-ghost" id="osb-new">New connection</button>
+    </div>
+    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
+      <input id="osb-name" type="text" placeholder="Connection name" autocomplete="off">
+      <input id="osb-sheet" type="text" placeholder="Spreadsheet id" autocomplete="off" spellcheck="false">
+      <input id="osb-tab" type="text" placeholder="inventory" autocomplete="off">
+      <input id="osb-secret" type="text" placeholder="SECRET_REF" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
+      <button type="button" class="btn-ghost" id="osb-save">Save connection</button>
+      <button type="button" class="btn-ghost" id="osb-probe">Probe</button>
+      <button type="button" class="btn-ghost" id="osb-sync">Sync now</button>
+      <button type="button" class="btn-ghost" id="osb-enable">Enable</button>
+      <button type="button" class="btn-ghost" id="osb-disable">Disable</button>
+    </div>
+    <label class="al-hint" for="osb-map-json">Bed maps JSON</label>
+    <textarea id="osb-map-json" rows="4" placeholder='[{"external_unit_key":"R1A","bed_id":"..."}]'></textarea>
+    <button type="button" class="btn-ghost" id="osb-save-maps">Save maps</button>
+    <pre id="osb-out" style="font-size:11px;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
+  </div>` : ''}
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
     <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.numbers.sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
@@ -30347,6 +30391,192 @@ function staffWhatsappNumbersLoad(){
     });
 }
 
+function ownerScheduleBridgeClient(){
+  return encodeURIComponent(getClient());
+}
+var osbSelectedId = '';
+var OSB_SAFE = {
+  connection_id_required: 'Select a connection first.',
+  connection_not_found: 'That connection was not found.',
+  calendar_sync_rolled_back: 'Sync did not apply. Last blocks were kept.',
+  calendar_bridge_disabled: 'Owner schedule is off for this tenant.',
+  calendar_bridge_client_not_allowed: 'Owner schedule is not available here.',
+  caller_authority_rejected: 'That request is not allowed.',
+  sheets_inaccessible: 'Could not read the Sheet. Last blocks were kept.',
+  sheets_token_denied: 'Sheet access was denied. Last blocks were kept.',
+  sheets_timeout: 'Sheet request timed out. Last blocks were kept.',
+  sheets_malformed_json: 'Sheet response was invalid. Last blocks were kept.',
+  sheets_provider_5xx: 'Google Sheets is unavailable. Last blocks were kept.',
+  sheet_over_limit: 'The Sheet is larger than allowed. Last blocks were kept.',
+  header_unknown_column: 'The Sheet has unexpected columns. Last blocks were kept.',
+  merged_cells: 'The Sheet has merged cells. Last blocks were kept.',
+  empty_sheet: 'The Sheet is empty. Last blocks were kept.',
+  invalid_connection: 'Name and spreadsheet id are required.',
+  secret_ref_invalid: 'Secret must be a reference name, not a key.',
+  maps_array_required: 'Maps must be a JSON array.',
+  bridge_unavailable: 'Owner schedule is temporarily unavailable.',
+  calendar_bridge_failed: 'Owner schedule request failed. Last blocks were kept.'
+};
+function ownerScheduleSafeCopy(code){
+  return OSB_SAFE[code] || 'Owner schedule request failed. Last blocks were kept.';
+}
+function ownerScheduleSelectedId(){
+  var sel = el('osb-connections');
+  if (sel && sel.value) osbSelectedId = sel.value;
+  return osbSelectedId || '';
+}
+function ownerScheduleFillForm(conn){
+  if (!conn) return;
+  osbSelectedId = conn.id || '';
+  if (el('osb-name')) el('osb-name').value = conn.name || '';
+  if (el('osb-sheet')) el('osb-sheet').value = conn.spreadsheet_id || '';
+  if (el('osb-tab')) el('osb-tab').value = conn.sheet_name || 'inventory';
+  if (el('osb-connections') && conn.id) el('osb-connections').value = conn.id;
+}
+function ownerScheduleRenderList(connections, keepId){
+  var sel = el('osb-connections');
+  if (!sel) return;
+  var wanted = keepId || osbSelectedId;
+  sel.innerHTML = '';
+  var blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = 'Select a connection';
+  sel.appendChild(blank);
+  (connections || []).forEach(function(c){
+    var opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = (c.name || c.id) + ' · ' + (c.status || '');
+    sel.appendChild(opt);
+  });
+  if (wanted && Array.prototype.some.call(sel.options, function(o){ return o.value === wanted; })) {
+    sel.value = wanted;
+    osbSelectedId = wanted;
+  } else {
+    sel.value = '';
+    osbSelectedId = '';
+  }
+}
+function ownerSchedulePublicPayload(body){
+  var raw = (body && (body.error || body.reason)) || null;
+  var code = (raw && OSB_SAFE[raw]) ? raw : (raw ? 'calendar_bridge_failed' : null);
+  return {
+    ok: !!(body && body.ok),
+    error: code,
+    status: body && body.next_status,
+    wrote: !!(body && body.wrote),
+    empty: !!(body && body.empty),
+    write_count: body && body.write_count,
+    connections: body && body.connections,
+    connection: body && body.connection
+  };
+}
+function ownerScheduleBridgeJson(path, method, body){
+  var out = el('osb-out');
+  var status = el('osb-status');
+  if (status) status.textContent = 'Working…';
+  var url = path + (path.indexOf('?') >= 0 ? '&' : '?') + 'client=' + ownerScheduleBridgeClient();
+  var selected = ownerScheduleSelectedId();
+  if (selected && url.indexOf('id=') < 0) url += '&id=' + encodeURIComponent(selected);
+  return fetch(url, {
+    method: method,
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(r){ return r.json().then(function(b){ return { status: r.status, body: b }; }); })
+    .then(function(res){
+      var code = res.body && (res.body.error || res.body.reason);
+      if (status) status.textContent = (res.body && res.body.ok) ? 'OK' : ownerScheduleSafeCopy(code);
+      if (out) out.textContent = JSON.stringify(ownerSchedulePublicPayload(res.body || {}), null, 2);
+      return res;
+    })
+    .catch(function(){
+      if (status) status.textContent = ownerScheduleSafeCopy('bridge_unavailable');
+      if (out) out.textContent = JSON.stringify({ ok: false, error: 'bridge_unavailable' });
+    });
+}
+function ownerScheduleBridgeSave(){
+  var payload = {
+    name: (el('osb-name') && el('osb-name').value || '').trim(),
+    spreadsheet_id: (el('osb-sheet') && el('osb-sheet').value || '').trim(),
+    sheet_name: (el('osb-tab') && el('osb-tab').value || 'inventory').trim(),
+    secret_ref: (el('osb-secret') && el('osb-secret').value || '').trim()
+  };
+  if (osbSelectedId) payload.id = osbSelectedId;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'POST', payload).then(function(res){
+    if (res && res.body && res.body.connection && res.body.connection.id) {
+      osbSelectedId = res.body.connection.id;
+      ownerScheduleBridgeLoad();
+    }
+  });
+}
+function ownerScheduleRequireSelected(){
+  if (ownerScheduleSelectedId()) return true;
+  if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('connection_id_required');
+  return false;
+}
+function ownerScheduleBridgeProbe(){
+  if (!ownerScheduleRequireSelected()) return;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/probe', 'POST', {});
+}
+function ownerScheduleBridgeSync(){
+  if (!ownerScheduleRequireSelected()) return;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/sync', 'POST', {});
+}
+function ownerScheduleBridgeEnable(on){
+  if (!ownerScheduleRequireSelected()) return;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/enable', 'POST', { enabled: !!on });
+}
+function ownerScheduleBridgeSaveMaps(){
+  if (!ownerScheduleRequireSelected()) return;
+  var raw = (el('osb-map-json') && el('osb-map-json').value || '').trim();
+  var maps;
+  try { maps = JSON.parse(raw); }
+  catch (e) {
+    if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('maps_array_required');
+    return;
+  }
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'PUT', { maps: maps });
+}
+function ownerScheduleBridgeNew(){
+  osbSelectedId = '';
+  if (el('osb-connections')) el('osb-connections').value = '';
+  if (el('osb-name')) el('osb-name').value = '';
+  if (el('osb-sheet')) el('osb-sheet').value = '';
+  if (el('osb-tab')) el('osb-tab').value = 'inventory';
+  if (el('osb-secret')) el('osb-secret').value = '';
+  if (el('osb-status')) el('osb-status').textContent = 'New connection';
+}
+function ownerScheduleBridgeLoad(){
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET').then(function(res){
+    if (!res || !res.body) return;
+    ownerScheduleRenderList(res.body.connections || [], osbSelectedId);
+    var sel = (res.body.connections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+    if (sel) ownerScheduleFillForm(sel);
+  });
+}
+function ownerScheduleOnSelect(){
+  osbSelectedId = (el('osb-connections') && el('osb-connections').value) || '';
+  if (!osbSelectedId) return;
+  ownerScheduleBridgeLoad();
+}
+if (el('osb-save')) el('osb-save').addEventListener('click', ownerScheduleBridgeSave);
+if (el('osb-probe')) el('osb-probe').addEventListener('click', ownerScheduleBridgeProbe);
+if (el('osb-sync')) el('osb-sync').addEventListener('click', ownerScheduleBridgeSync);
+if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){ ownerScheduleBridgeEnable(true); });
+if (el('osb-disable')) el('osb-disable').addEventListener('click', function(){ ownerScheduleBridgeEnable(false); });
+if (el('osb-save-maps')) el('osb-save-maps').addEventListener('click', ownerScheduleBridgeSaveMaps);
+if (el('osb-refresh')) el('osb-refresh').addEventListener('click', ownerScheduleBridgeLoad);
+if (el('osb-new')) el('osb-new').addEventListener('click', ownerScheduleBridgeNew);
+if (el('osb-connections')) el('osb-connections').addEventListener('change', ownerScheduleOnSelect);
+(function hideOwnerScheduleUnlessWolfhouse(){
+  var card = el('cc-owner-schedule-bridge');
+  if (!card) return;
+  if (getClient() !== 'wolfhouse-somo') {
+    card.style.display = 'none';
+    if (card.parentNode) card.parentNode.removeChild(card);
+  }
+})();
+
 function staffWhatsappNumberAdd(){
   var phone = (el('swn-add-phone') && el('swn-add-phone').value || '').trim();
   var group = (el('swn-add-group') && el('swn-add-group').value || 'staff').trim();
@@ -33610,7 +33840,11 @@ function pickCalendarGuestDisplayName(src){
 function bcCalendarBlockDisplayLabel(blk){
   if (!blk) return '\u2014';
   var at = String(blk.assignment_type || '').toLowerCase();
+  if (at === 'external_inventory_block') return t('calendar.legend.ownerScheduleBlocked');
   if (at === 'private_room_block' || at === 'staff_block') return t('calendar.legend.blocked');
+  if (String(blk.status || '').toLowerCase() === 'blocked' && String(blk.color_type || '') === 'owner_schedule_blocked') {
+    return t('calendar.legend.ownerScheduleBlocked');
+  }
   if (String(blk.status || '').toLowerCase() === 'blocked') return t('calendar.legend.blocked');
   return pickCalendarGuestDisplayName(blk);
 }
@@ -44390,6 +44624,87 @@ async function handleCalendarBedBlockCreate(req, res, user) {
   });
 }
 
+async function ownerScheduleParseBody(req) {
+  try {
+    const raw = await readBody(req);
+    if (!raw) return { ok: true, body: {} };
+    return { ok: true, body: JSON.parse(raw) };
+  } catch (_) {
+    return { ok: false, error: 'invalid or missing JSON body' };
+  }
+}
+
+async function ownerScheduleGate(req, res, user, body) {
+  const banned = extCalRoutes.rejectCallerAuthority(body || {});
+  if (banned) {
+    sendJSON(res, banned.status, { success: false, ok: false, error: banned.error });
+    return null;
+  }
+  const url = new URL(req.url, 'http://127.0.0.1');
+  const clientSlug = String((body && body.client) || url.searchParams.get('client') || DEFAULT_CLIENT).trim();
+  if (!assertStaffClientAccess(user, clientSlug, res)) return null;
+  const gate = extCalRoutes.refuseClient(clientSlug);
+  if (!gate.ok) {
+    sendJSON(res, gate.status, { success: false, ok: false, error: gate.error, client: clientSlug });
+    return null;
+  }
+  return { clientSlug, connectionId: url.searchParams.get('id') || (body && body.id) || null };
+}
+
+async function handleOwnerScheduleBridge(req, res, user, action) {
+  const parsed = (req.method === 'GET') ? { ok: true, body: {} } : await ownerScheduleParseBody(req);
+  if (!parsed.ok) return sendJSON(res, 400, { success: false, error: parsed.error });
+  const ctx = await ownerScheduleGate(req, res, user, parsed.body);
+  if (!ctx) return;
+  const fetchSheet = (conn) => fetchSheetRows(conn);
+  const needsId = action !== 'list' && action !== 'save';
+  if (needsId) {
+    const need = extCalRoutes.requireConnectionId(ctx.connectionId);
+    if (!need.ok) return sendJSON(res, 400, { success: false, ok: false, error: need.error });
+    ctx.connectionId = need.id;
+  }
+  try {
+    const result = await withPgClient(async (pg) => {
+      if (action === 'list') return extCalRoutes.handleList(pg, ctx.clientSlug);
+      if (action === 'save') return extCalRoutes.handleSave(pg, ctx.clientSlug, parsed.body, user && user.staff_user_id);
+      if (action === 'maps-get') return extCalRoutes.handleListMaps(pg, ctx.clientSlug, ctx.connectionId);
+      if (action === 'maps-put') return extCalRoutes.handleSaveMaps(pg, ctx.clientSlug, ctx.connectionId, parsed.body.maps);
+      if (action === 'enable') return extCalRoutes.handleEnable(pg, ctx.clientSlug, ctx.connectionId, parsed.body.enabled === true);
+      if (action === 'probe') {
+        return extCalRoutes.handleRealProbe(pg, {
+          clientSlug: ctx.clientSlug,
+          connectionId: ctx.connectionId,
+          fetchSheet,
+        });
+      }
+      if (action === 'sync') {
+        const locked = await loadLockedState(pg, ctx);
+        if (!locked.ok) return { ok: false, status: locked.reason === 'connection_id_required' ? 400 : 404, error: locked.reason };
+        const fetched = await fetchSheet(locked.connection);
+        return runConnectionSync(pg, {
+          clientSlug: ctx.clientSlug,
+          connectionId: locked.connection.id,
+          fetched,
+        });
+      }
+      return { ok: false, status: 400, error: 'unknown_action' };
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:external_calendar_' + action,
+      category: 'external_calendar',
+      client_slug: ctx.clientSlug,
+      staff_user_id: user && user.staff_user_id,
+      success: !!result.ok,
+      error: storedErrorCode(result.error || result.reason),
+    });
+    const pub = extCalRoutes.publicResult(result);
+    return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ client: ctx.clientSlug }, pub));
+  } catch (err) {
+    return sendJSON(res, 503, { success: false, ok: false, error: 'bridge_unavailable' });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7g — Bed calendar handler (read-only)
 //
@@ -44459,6 +44774,7 @@ function bedCalendarIsTourOperatorSource(row) {
 function bedCalendarColorType(row) {
   row = row || {};
   const assignType = String(row.assignment_type || '').toLowerCase();
+  if (assignType === 'external_inventory_block') return 'owner_schedule_blocked';
   if (assignType === 'private_room_block' || assignType === 'staff_block') return 'blocked';
   if (String(row.booking_status || '').toLowerCase() === 'blocked') return 'blocked';
   if (bedCalendarIsLunaBotSource(row)) return 'payment_pending';
@@ -47363,6 +47679,34 @@ async function router(req, res) {
     return handleCalendarBedBlockCreate(req, res, auth.user);
   }
 
+  if (pathname === '/staff/luna-staff/calendar-bridge' || pathname.indexOf('/staff/luna-staff/calendar-bridge/') === 0) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    if (pathname === '/staff/luna-staff/calendar-bridge' && method === 'GET') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'list');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'save');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/maps' && method === 'GET') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'maps-get');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/maps' && method === 'PUT') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'maps-put');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/enable' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'enable');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/probe' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'probe');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/sync' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'sync');
+    }
+    res.writeHead(405, { Allow: 'GET, POST, PUT' });
+    return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
+  }
+
   // ── Stage 8.4.11 — Stripe webhook payment truth ───────────────────────────
   // POST /staff/stripe/webhook
   // No session auth — identity via Stripe HMAC signature (or SKIP_VERIFY for local dev).
@@ -49374,6 +49718,24 @@ async function startStaffQueryApiCli() {
   }
   server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
+  if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {
+    const extCalSched = createSyncScheduler({
+      intervalMs: 60000,
+      withPgClient,
+      fetchSheet: async (item) => {
+        const locked = await withPgClient((pg) => loadLockedState(pg, {
+          clientSlug: item.client_slug,
+          connectionId: item.id,
+        }));
+        if (!locked.ok) return { ok: false, reason: locked.reason, keepLastBlocks: true };
+        return fetchSheetRows(locked.connection);
+      },
+    });
+    extCalSched.start();
+    console.log('  Owner schedule sync: ENABLED (wolfhouse-somo)');
+  } else {
+    console.log('  Owner schedule sync: DISABLED');
+  }
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
   console.log(`  Booking move write: ${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED (BOOKING_MOVE_WRITE_ENABLED=true)' : 'DISABLED'}`);

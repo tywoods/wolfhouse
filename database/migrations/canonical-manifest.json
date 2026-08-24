@@ -1263,6 +1263,66 @@
       "rationale": "Refuses rollback while principal mapping rows exist; otherwise drops the mapping table, authorization helper, and scoped journal lock function, disables queue RLS, and restores 086 mutation functions plus the 087 journal handoff. Second empty execution is safe.",
       "pairsWith": "088_tenant_email_luna_automation_principal_grants.sql",
       "sha256": "4231a2f2908dc43bb08f52ccc22181940542149b443e1477075b728e82cad67c"
+    },
+    {
+      "id": "089_external_calendar_inventory",
+      "filename": "089_external_calendar_inventory.sql",
+      "order": 85,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Calendar Inventory Bridge: tenant-scoped Google Sheet connections, bed-only maps, location_key composite FK to tenant_locations. Occupancy remains on bookings/booking_beds.",
+      "downFilename": "089_external_calendar_inventory_down.sql",
+      "sha256": "b07a7f87ca1b9e2c3da2da60ef161ccdc049a42726cf12fe4872b742740b9b6f"
+    },
+    {
+      "id": "089_external_calendar_inventory_down",
+      "filename": "089_external_calendar_inventory_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while imported owner-schedule events still link a booking; otherwise drops the four bridge tables. Second empty execution is safe.",
+      "pairsWith": "089_external_calendar_inventory.sql",
+      "sha256": "789b23e65694433c1d627c71d20df8d160516f4ff1583bf9cb84918ea84e0716"
+    },
+    {
+      "id": "090_external_calendar_inventory_tenant_integrity",
+      "filename": "090_external_calendar_inventory_tenant_integrity.sql",
+      "order": 86,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Tenant-consistent connection/map/bed/event/booking triggers for the Calendar Inventory Bridge. Stock plpgsql only.",
+      "downFilename": "090_external_calendar_inventory_tenant_integrity_down.sql",
+      "sha256": "2e9b9d5219f79d89cc8eadbdb2679c0e2a47c7e7948ecdd0e4449c0eeac33893"
+    },
+    {
+      "id": "090_external_calendar_inventory_tenant_integrity_down",
+      "filename": "090_external_calendar_inventory_tenant_integrity_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Drops 090 tenant-integrity triggers and function. Safe if objects are missing.",
+      "pairsWith": "090_external_calendar_inventory_tenant_integrity.sql",
+      "sha256": "a88691f8029eeedbe62df96bcdc48ca6d5b63278e551c8feedf1d15754ea778b"
+    },
+    {
+      "id": "091_booking_occupancy_serialization",
+      "filename": "091_booking_occupancy_serialization.sql",
+      "order": 87,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Shared booking_beds occupancy serialization: booking then bed advisory locks, overlap reject, reversible down.",
+      "downFilename": "091_booking_occupancy_serialization_down.sql",
+      "sha256": "42f51cbd7332e34516c92427ac49ce65d57d36e747e622ed59601d8113f46ff9"
+    },
+    {
+      "id": "091_booking_occupancy_serialization_down",
+      "filename": "091_booking_occupancy_serialization_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Drops exactly the 091 occupancy triggers and helper functions. Repeatable if already absent.",
+      "pairsWith": "091_booking_occupancy_serialization.sql",
+      "sha256": "6f58da44603f2ed9eb7967df417648d86dff37c06e206a8a88e272c7f83cbc2f"
     }
   ]
 }

@@ -495,6 +495,7 @@ module.exports = {
   'calendar.block.success': 'Fechas bloqueadas.',
   'calendar.block.title': 'Bloquear fechas',
   'calendar.legend.blocked': 'Bloqueado',
+  'calendar.legend.ownerScheduleBlocked': 'Owner schedule blocked',
   'customers.contact.unknown': 'Teléfono/email desconocido',
   'customers.detail.email': 'Email',
   'customers.detail.error': 'No se pudieron cargar los detalles del cliente.',
