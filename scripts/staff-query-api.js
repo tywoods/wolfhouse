@@ -19865,12 +19865,13 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #bc-legend [data-i18n="calendar.legend.ownerScheduleBlocked"]{
   display:none!important;
 }
-#tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:13px;padding:9px 6px;white-space:normal;line-height:1.25;min-height:34px;border-bottom:1px solid var(--border-soft)}
+#tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:14px;font-weight:700;padding:4px 6px;white-space:normal;line-height:1.15;min-height:0;border-bottom:1px solid var(--border-soft)}
 #tab-bed-calendar .bc-day-cell,#tab-bed-calendar .bc-day-cell-turnover{min-height:34px;padding:5px 3px}
-#tab-bed-calendar .bc-room-hdr{padding:9px 10px}
-#tab-bed-calendar .bc-room-hdr-row td{padding-top:7px}
-#tab-bed-calendar .bc-block{font-size:13px;padding:3px 6px 3px 8px;gap:3px 5px}
-#tab-bed-calendar .bc-block-pay-badge{font-size:8.5px;padding:1px 4px}
+#tab-bed-calendar .bc-room-hdr{padding:6px 10px}
+#tab-bed-calendar .bc-room-hdr-row td{padding-top:4px}
+#tab-bed-calendar .bc-block{font-size:12px;padding:2px 6px 2px 7px;gap:3px 5px}
+#tab-bed-calendar .bc-block-label{font-size:12px;font-weight:700;line-height:1.2}
+#tab-bed-calendar .bc-block-pay-badge{font-size:12px;padding:1px 4px}
 #tab-bed-calendar .toolbar{flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
 #tab-bed-calendar .toolbar h2{flex:1 1 100%;font-size:15px;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;margin:0 0 2px}
 #tab-bed-calendar .toolbar label{flex:1 1 auto;flex-direction:row;align-items:center;gap:4px;font-size:12px;font-weight:600;margin:0;padding:0;min-width:0!important}
@@ -19959,7 +19960,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 #tab-bed-calendar .bc-block-pay-badge,
 #tab-bed-calendar .transfer-pebble{
-  font-size:11px;
+  font-size:12px;
+  font-weight:700;
 }
 /* ===== END book-ui ===== */
 
