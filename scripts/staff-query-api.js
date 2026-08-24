@@ -19987,10 +19987,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   --luna-cream:#fff8e9;
   /* sampled from the art's deep sea, so the base never reads as a seam */
   --luna-banner-base:#123a44;
-  /* Height tracks width between ~1230px and ~1740px so the scene holds a
-     constant crop across the sizes staff actually resize between; the clamp
-     ends keep it off the schedule board on a big monitor. */
-  --luna-banner-h:clamp(116px,9.4vw,164px);
+  /* Native banner is 4016×391. Size the bar to that ratio so cover cannot
+     crop the sign or the boards the way a 164px cap does on a wide screen. */
+  --luna-banner-h:calc(100vw * 391 / 4016);
 }
 
 /* ── banner ─────────────────────────────────────────────────────────────── */
@@ -20009,10 +20008,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
      are all baked into one 1560x152 strip (owner-supplied), so we no longer
      split it into scene + sign slices — the whole art is the background. */
   background-image:url('/staff/assets/luna-header-banner.png?v=8');
-  background-size:cover;
-  /* the strip's aspect (~10.3:1) is a hair narrower than the bar, so cover only
-     shaves top/bottom — full width (sign … water … boards) stays in frame.
-     Sit dead-centre to keep the sun and wave band front-and-centre. */
+  background-size:100% 100%;
+  /* Fill the bar exactly — no cover-crop of the thatch or the boards. */
   background-position:center 50%;
   background-repeat:no-repeat;
   border-bottom:none;
@@ -20224,13 +20221,13 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 .luna-header-ui #tabs .tab-btn{
   position:relative;
-  font-weight:600;
-  font-size:12.5px;
+  font-weight:700;
+  font-size:13.5px;
   color:var(--luna-teal-dark);
   opacity:.82;
   border-bottom:none;
-  padding:8px 0 10px;
-  margin-right:clamp(12px,1.6vw,22px);
+  padding:13px 0 15px;
+  margin-right:clamp(18px,2.2vw,32px);
 }
 .luna-header-ui #tabs .tab-btn:hover{opacity:1}
 .luna-header-ui #tabs .tab-btn.active{
