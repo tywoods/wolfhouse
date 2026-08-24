@@ -19915,6 +19915,19 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #cc-automated-staff-notifications .asn-actions .btn{width:100%}
 #cc-automated-staff-notifications .asn-item-actions .btn{flex:1 1 calc(50% - 4px);min-width:0}
 }
+/* staff-portal-calendar:toolbar-row — chips + legend on the title line */
+@media (min-width:769px){
+  #tab-bed-calendar #wrap-bc{padding:4px 16px 12px!important}
+  #tab-bed-calendar .card{margin:0 auto 8px;padding:6px 12px 12px}
+  #tab-bed-calendar .toolbar{flex-wrap:nowrap;align-items:center;gap:8px 10px;margin-bottom:8px}
+  #tab-bed-calendar .toolbar h2{flex:0 0 auto;order:1;margin:0;white-space:nowrap;font-size:15px}
+  #tab-bed-calendar .bc-chips{flex:1 1 auto;order:2;min-width:0;flex-wrap:nowrap;overflow:hidden}
+  #tab-bed-calendar .bc-legend-row{flex:0 0 auto;order:3}
+  #tab-bed-calendar .toolbar label{flex:0 0 auto;order:4}
+  #tab-bed-calendar #bc-load{order:4}
+  #tab-bed-calendar .bc-bed-cell{padding:5px 14px}
+  #tab-bed-calendar .bc-room-hdr{padding:6px 14px}
+}
 /* ===== BEGIN book-ui (serif typeface only; paperback restyle removed) =====
    Kept the literary serif on Booking Calendar + drawer headings; all the warm
    paperback colors/paper/spacing/borders were removed so the rest returns to the
@@ -21931,7 +21944,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <!-- ── Booking Calendar tab (Stage 7.7h) ──────────────────────────────────── -->
 <!-- "book-ui" scoping class (warm paperback restyle) — controlled by STAFF_PORTAL_BOOK_UI -->
 <div id="tab-bed-calendar" class="tab-panel${bookUiClass}">
-<div id="wrap-bc" style="max-width:100%;padding:16px 20px">
+<div id="wrap-bc" style="max-width:100%;padding:4px 16px 12px">
 
   <!-- Controls card -->
   <div class="card">
@@ -21945,10 +21958,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </label>
       <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
       <button class="btn btn-primary" id="bc-load">&#128197; <span data-i18n="calendar.load">Load</span></button>
-    </div>
-
-    <!-- Date shortcut chips + compact legend (Stage 26h.5) -->
-    <div class="bc-controls-row">
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week" data-i18n="calendar.chip.week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days" data-i18n="calendar.chip.30days">Next 30 days</span>
@@ -21960,7 +21969,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-chip" data-chip="sep-oct" data-i18n="calendar.chip.sepOct">Sep - Oct</span>
       <span class="bc-chip" data-chip="oct-nov" data-i18n="calendar.chip.octNov">Oct - Nov</span>
     </div>
-
     <div class="bc-legend-row">
     <div class="bc-zoom-bar" id="bc-zoom-bar" aria-label="Calendar zoom">
       <button type="button" class="bc-zoom-btn" id="bc-zoom-out" data-i18n-title="calendar.zoom.out" title="Zoom out" aria-label="Zoom out">−</button>
