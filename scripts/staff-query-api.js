@@ -22288,6 +22288,10 @@ ${showOwnerScheduleBridge ? `
         <p>No Google Sheet is connected yet.</p>
         <button type="button" class="btn btn-primary" id="osb-new">Connect Google Sheet</button>
       </div>
+      <div id="osb-load-error" class="osb-empty" hidden>
+        <p>Could not load Owner schedule. Refresh to try again.</p>
+        <button type="button" class="btn btn-ghost" id="osb-retry">Refresh</button>
+      </div>
       <div id="osb-editor" hidden>
         <div class="osb-field">
           <label for="osb-sheet">Google Sheet URL or ID</label>
@@ -22307,6 +22311,10 @@ ${showOwnerScheduleBridge ? `
       </div>
       <div id="osb-detail" hidden>
         <div class="osb-summary">
+          <label class="osb-field" for="osb-connections" style="max-width:280px;margin:0">
+            <span>Connection</span>
+            <select id="osb-connections" aria-label="Owner schedule connections"><option value="">Select a connection</option></select>
+          </label>
           <strong id="osb-detail-name">Owner schedule</strong>
           <span class="pill pill-grey" id="osb-detail-status">Off</span>
         </div>
@@ -22329,7 +22337,6 @@ ${showOwnerScheduleBridge ? `
       </div>
     </div>
     <div class="osb-hidden" aria-hidden="true">
-      <select id="osb-connections" aria-label="Owner schedule connections"><option value="">Select a connection</option></select>
       <input id="osb-name" type="text" tabindex="-1">
       <input id="osb-secret" type="text" tabindex="-1">
       <button type="button" id="osb-disable" tabindex="-1">Disable</button>
@@ -30449,6 +30456,8 @@ var osbSelectedId = '';
 var osbView = 'rest';
 var osbConnections = [];
 var osbBeds = [];
+var osbLoadState = 'idle';
+var osbPendingMaps = [];
 var OSB_SAFE = {
   connection_id_required: 'Select a connection first.',
   connection_not_found: 'That connection was not found.',
@@ -30495,13 +30504,26 @@ function ownerScheduleSetHidden(id, on){
   if (on) n.removeAttribute('hidden');
   else n.setAttribute('hidden', '');
 }
+function ownerScheduleIngestOn(conn){
+  if (!conn) return false;
+  return conn.status === 'pending' || conn.status === 'healthy' || conn.status === 'stale';
+}
 function ownerSchedulePaint(){
   var hasConn = osbConnections.length > 0;
+  if (osbLoadState === 'fail' && osbView !== 'editor') {
+    ownerScheduleSetHidden('osb-empty', false);
+    ownerScheduleSetHidden('osb-load-error', true);
+    ownerScheduleSetHidden('osb-editor', false);
+    ownerScheduleSetHidden('osb-detail', false);
+    return;
+  }
   if (osbView !== 'editor' && hasConn && osbSelectedId) osbView = 'detail';
+  if (osbView !== 'editor' && hasConn && !osbSelectedId) osbView = 'detail';
   if (osbView !== 'editor' && !hasConn) osbView = 'rest';
+  ownerScheduleSetHidden('osb-load-error', false);
   ownerScheduleSetHidden('osb-empty', osbView === 'rest');
   ownerScheduleSetHidden('osb-editor', osbView === 'editor');
-  ownerScheduleSetHidden('osb-detail', osbView === 'detail' && !!osbSelectedId);
+  ownerScheduleSetHidden('osb-detail', osbView === 'detail' && hasConn);
   var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
   var statusEl = el('osb-detail-status');
   var nameEl = el('osb-detail-name');
@@ -30510,12 +30532,17 @@ function ownerSchedulePaint(){
   var hint = el('osb-access-hint');
   var probeBtn = el('osb-probe');
   var syncBtn = el('osb-sync');
+  var connLabel = el('osb-connections') && el('osb-connections').parentNode;
+  if (connLabel && connLabel.style) connLabel.style.display = osbConnections.length > 1 ? '' : (osbConnections.length === 1 ? '' : 'none');
   if (conn && nameEl) nameEl.textContent = conn.name || 'Owner schedule';
-  if (conn && statusEl) {
-    var on = conn.status && conn.status !== 'disabled';
+  if (statusEl) {
+    var on = ownerScheduleIngestOn(conn);
     statusEl.textContent = on ? 'On' : 'Off';
     statusEl.className = on ? 'pill pill-green' : 'pill pill-grey';
-    if (enableBtn) enableBtn.textContent = on ? 'Turn off' : 'Turn on';
+    if (enableBtn) {
+      enableBtn.textContent = on ? 'Turn off' : 'Turn on';
+      enableBtn.disabled = !(conn && conn.has_secret);
+    }
   }
   if (conn && metaEl) {
     var bits = [];
@@ -30529,8 +30556,9 @@ function ownerSchedulePaint(){
     if (osbView === 'detail' && conn && !configured) hint.removeAttribute('hidden');
     else hint.setAttribute('hidden', '');
   }
+  var validMaps = ownerScheduleValidMapCount();
   if (probeBtn) probeBtn.disabled = !configured;
-  if (syncBtn) syncBtn.disabled = !configured;
+  if (syncBtn) syncBtn.disabled = !(configured && ownerScheduleIngestOn(conn) && validMaps > 0);
 }
 function ownerScheduleSelectedId(){
   var sel = el('osb-connections');
@@ -30564,7 +30592,7 @@ function ownerScheduleRenderList(connections, keepId){
   if (wanted && Array.prototype.some.call(sel.options, function(o){ return o.value === wanted; })) {
     sel.value = wanted;
     osbSelectedId = wanted;
-  } else if (osbConnections[0]) {
+  } else if (osbConnections.length === 1) {
     sel.value = osbConnections[0].id;
     osbSelectedId = osbConnections[0].id;
   } else {
@@ -30575,10 +30603,23 @@ function ownerScheduleRenderList(connections, keepId){
 }
 function ownerScheduleBedSelectHtml(selected){
   var html = '<select data-osb-bed aria-label="Luna bed"><option value="">Choose a bed</option>';
+  var known = false;
   osbBeds.forEach(function(b){
+    if (b.id === selected) known = true;
     html += '<option value="' + escHtml(b.id) + '"' + (b.id === selected ? ' selected' : '') + '>' + escHtml(b.label) + '</option>';
   });
+  if (selected && !known) {
+    html += '<option value="' + escHtml(selected) + '" selected data-osb-unavailable="1">Unavailable bed</option>';
+  }
   return html + '</select>';
+}
+function ownerScheduleValidMapCount(){
+  var maps = ownerScheduleReadMaps();
+  var n = 0;
+  maps.forEach(function(m){
+    if (osbBeds.some(function(b){ return b.id === m.bed_id; })) n += 1;
+  });
+  return n;
 }
 function ownerScheduleAddMapRow(unit, bed){
   var wrap = el('osb-map-rows');
@@ -30714,22 +30755,38 @@ function ownerScheduleBridgeCancel(){
   if (!osbConnections.length) osbSelectedId = '';
   ownerSchedulePaint();
 }
+function ownerSchedulePaintMaps(maps){
+  var wrap = el('osb-map-rows');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (maps || []).forEach(function(m){ ownerScheduleAddMapRow(m.external_unit_key || '', m.bed_id || ''); });
+  if (!(maps || []).length) ownerScheduleAddMapRow('', '');
+}
 function ownerScheduleBridgeLoad(){
-  ownerScheduleLoadBeds();
-  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET').then(function(res){
-    if (!res || !res.body) return;
+  return Promise.all([
+    ownerScheduleLoadBeds(),
+    ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET')
+  ]).then(function(parts){
+    var res = parts[1];
+    if (!res || !res.body || res.body.ok === false) {
+      osbLoadState = 'fail';
+      ownerSchedulePaint();
+      return;
+    }
+    osbLoadState = 'ok';
     ownerScheduleRenderList(res.body.connections || [], osbSelectedId);
     var sel = (res.body.connections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
     if (sel) {
       ownerScheduleFillForm(sel);
-      ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'GET').then(function(mapRes){
-        var wrap = el('osb-map-rows');
-        if (wrap) wrap.innerHTML = '';
-        var maps = (mapRes && mapRes.body && mapRes.body.maps) || [];
-        maps.forEach(function(m){ ownerScheduleAddMapRow(m.external_unit_key || '', m.bed_id || ''); });
-        if (!maps.length) ownerScheduleAddMapRow('', '');
+      return ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'GET').then(function(mapRes){
+        ownerSchedulePaintMaps((mapRes && mapRes.body && mapRes.body.maps) || []);
+        ownerSchedulePaint();
       });
     }
+    ownerSchedulePaintMaps([]);
+    ownerSchedulePaint();
+  }).catch(function(){
+    osbLoadState = 'fail';
     ownerSchedulePaint();
   });
 }
@@ -30750,6 +30807,7 @@ if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){
 if (el('osb-disable')) el('osb-disable').addEventListener('click', function(){ ownerScheduleBridgeEnable(false); });
 if (el('osb-save-maps')) el('osb-save-maps').addEventListener('click', ownerScheduleBridgeSaveMaps);
 if (el('osb-refresh')) el('osb-refresh').addEventListener('click', ownerScheduleBridgeLoad);
+if (el('osb-retry')) el('osb-retry').addEventListener('click', ownerScheduleBridgeLoad);
 if (el('osb-new')) el('osb-new').addEventListener('click', ownerScheduleBridgeNew);
 if (el('osb-cancel')) el('osb-cancel').addEventListener('click', ownerScheduleBridgeCancel);
 if (el('osb-map-add')) el('osb-map-add').addEventListener('click', function(){ ownerScheduleAddMapRow('', ''); });

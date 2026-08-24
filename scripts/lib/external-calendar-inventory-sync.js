@@ -18,7 +18,7 @@ const {
   sanitizeSkipped,
 } = require('./external-calendar-inventory');
 
-const FORBIDDEN_DTO = ['rows', 'occupancy', 'connection_id', 'credentials', 'secret', 'secret_ref', 'private_key', 'access_token'];
+const FORBIDDEN_DTO = ['rows', 'occupancy', 'connection_id', 'credentials', 'secret', 'private_key', 'access_token'];
 
 function dtoHasAuthority(body) {
   if (!body || typeof body !== 'object') return false;

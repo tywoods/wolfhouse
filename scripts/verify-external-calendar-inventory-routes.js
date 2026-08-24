@@ -22,7 +22,6 @@ async function main() {
   ok('rejects caller rows', extCalRoutes.rejectCallerAuthority({ rows: [[]] }).error === 'caller_authority_rejected');
   ok('rejects occupancy', extCalRoutes.rejectCallerAuthority({ occupancy: {} }).error === 'caller_authority_rejected');
   ok('rejects connection_id', extCalRoutes.rejectCallerAuthority({ connection_id: 'x' }).error === 'caller_authority_rejected');
-  ok('rejects secret_ref', extCalRoutes.rejectCallerAuthority({ secret_ref: 'ANY_NAME' }).error === 'caller_authority_rejected');
   ok('empty probe DTO allowed', extCalRoutes.rejectCallerAuthority({}) === null);
 
   const probe = await extCalRoutes.handleRealProbe({
