@@ -87,7 +87,7 @@ const FORBIDDEN_RECORD_KEYS = Object.freeze([
   'auto_send_allowed', 'send_allowed', 'recipient', 'model', 'phase',
   'send_invocation_count', 'immutable_draft_id', 'approval_id',
 ]);
-const STATES = Object.freeze(['pending', 'claimed', 'handed_off', 'handoff_required', 'cancelled']);
+const STATES = Object.freeze(['pending', 'claimed', 'handed_off', 'handoff_required', 'cancelled', 'shadow_captured']);
 const STORE_PATH = require.resolve('./lib/email-luna-automation-queue-store');
 const SQL_PATH = path.join(__dirname, '..', 'database/migrations/086_tenant_email_luna_automation_queue.sql');
 const DOWN_PATH = path.join(__dirname, '..', 'database/migrations/086_tenant_email_luna_automation_queue_down.sql');

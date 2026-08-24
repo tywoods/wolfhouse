@@ -6,9 +6,10 @@
  *
  * Claims through the canonical queue owner, loads/recovers authentic issuance
  * material, revalidates Sunset gate/authority/eligibility, and returns shadow
- * comparison evidence. Success is NONTERMINAL (row stays claimed, no journal).
- * Each claim mints a fresh UUID as the 086 lease owner so a stable worker can
- * reclaim its own expired prior lease. Recovery/material/authority failure uses
+ * comparison evidence. Successful would_send is captured through the shadow
+ * outcome owner (queue shadow_captured, lease released, no journal). Each claim
+ * mints a fresh UUID as the 086 lease owner so a stable worker can reclaim its
+ * own expired prior lease. Recovery/material/authority failure uses
  * require_handoff_claimed. Transient load/query throws stay claimed/retryable.
  * Next-claim skips attempt-capped expired rows via the existing claim owner.
  * Never journals, never sends, never treats the projection as send authority.
@@ -28,6 +29,7 @@ const {
   EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_POLICY_VERSION,
 } = require('./email-luna-autonomous-eligibility-policy');
 const { EMAIL_LUNA_DRAFT_VALIDATOR_VERSION } = require('./email-luna-draft-validator');
+const { createEmailLunaAutomationShadowOutcomeStore } = require('./email-luna-automation-shadow-outcome-store');
 
 const arrayIncludes = uncurryThis(Array.prototype.includes);
 const arraySome = uncurryThis(Array.prototype.some);
@@ -78,6 +80,8 @@ const FORBIDDEN_INPUT_KEYS = objectFreeze([
   'client_id', 'location_id', 'recipient_address', 'recipient', 'capability',
   'facts', 'tenant', 'mode', 'send_allowed', 'auto_send_allowed', 'provider_invoked',
   'operation_id', 'issuance_id', 'conversation_id', 'endpoint_id', 'inbound_event_id',
+  'luna_decision', 'comparison_state', 'human_outcome', 'human_action_id',
+  'agreement', 'disagreement',
 ]);
 
 function invalid() {
@@ -226,6 +230,7 @@ function evidence(fields) {
     ['validator_version', VALIDATOR_VERSION],
     ['canonical_status', fields.canonical_status],
     ['eligibility_status', fields.eligibility_status],
+    ['comparison_state', fields.comparison_state == null ? null : fields.comparison_state],
     ['state', fields.state],
     ['terminal', fields.terminal === true],
     ['operation_id', fields.operation_id],
@@ -251,6 +256,7 @@ function idleEvidence(status, reason) {
     reason,
     canonical_status: null,
     eligibility_status: null,
+    comparison_state: null,
     state: 'not_claimed',
     terminal: false,
     operation_id: null,
@@ -269,6 +275,7 @@ function fromClaimed(record, extra) {
     reason: extra.reason,
     canonical_status: extra.canonical_status,
     eligibility_status: extra.eligibility_status,
+    comparison_state: extra.comparison_state == null ? null : extra.comparison_state,
     state: extra.state || record.state,
     terminal: extra.terminal === true,
     operation_id: record.operation_id,
@@ -335,11 +342,13 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
 
   const queueStore = createEmailLunaAutomationQueueStore({ withTransactionClient });
   const materialStore = createEmailLunaAutomationIssuanceMaterialStore({ withTransactionClient });
+  const outcomeStore = createEmailLunaAutomationShadowOutcomeStore({ withTransactionClient });
   if (!queueStore || typeof queueStore.claimAutomationOperation !== 'function') throw invalid();
   if (typeof queueStore.requireHandoffAutomationOperation !== 'function') throw invalid();
   if (typeof queueStore.cancelAutomationOperation !== 'function') throw invalid();
   if (!materialStore || typeof materialStore.loadAutomationIssuanceMaterial !== 'function') throw invalid();
   if (typeof materialStore.recoverAutomationIssuance !== 'function') throw invalid();
+  if (!outcomeStore || typeof outcomeStore.captureShadowOutcome !== 'function') throw invalid();
 
   let stopped = false;
 
@@ -502,13 +511,62 @@ function createEmailLunaAutomationShadowWorkerKernel(dependencies) {
       return failClosedClaimed(record, 'recovery_mismatch');
     }
 
-    return fromClaimed(record, {
+    let captured;
+    try {
+      captured = await outcomeStore.captureShadowOutcome({
+        operation_id: record.operation_id,
+        owner_token: record.lease_owner,
+      });
+    } catch (_) {
+      return fromClaimed(record, {
+        status: 'conflict',
+        reason: 'retryable_load',
+        canonical_status: null,
+        eligibility_status: null,
+        comparison_state: null,
+        state: record.state,
+        terminal: false,
+      });
+    }
+    if (!captured || (captured.status !== 'committed' && captured.status !== 'replayed') || !captured.record) {
+      return fromClaimed(record, {
+        status: 'conflict',
+        reason: 'stale_lease',
+        canonical_status: null,
+        eligibility_status: null,
+        comparison_state: null,
+        state: record.state,
+        terminal: false,
+      });
+    }
+    if (captured.record.luna_decision !== 'would_send'
+        || captured.record.comparison_state !== 'pending_human'
+        || captured.record.queue_state !== 'shadow_captured'
+        || captured.record.operation_id !== record.operation_id
+        || captured.record.issuance_id !== record.issuance_id
+        || captured.record.client_id !== boundGate.client_id
+        || captured.record.location_id !== boundGate.location_id
+        || captured.record.conversation_id !== record.conversation_id) {
+      return failClosedClaimed(record, 'recovery_mismatch');
+    }
+
+    return fromClaimed({
+      operation_id: captured.record.operation_id,
+      issuance_id: captured.record.issuance_id,
+      client_id: captured.record.client_id,
+      location_id: captured.record.location_id,
+      conversation_id: captured.record.conversation_id,
+      lease_owner: captured.record.claim_lease_owner,
+      attempt_count: captured.record.attempt_count,
+      state: captured.record.queue_state,
+    }, {
       status: 'would_send',
       reason: null,
       canonical_status: 'draft_ready',
       eligibility_status: 'eligible',
-      state: 'claimed',
-      terminal: false,
+      comparison_state: 'pending_human',
+      state: 'shadow_captured',
+      terminal: true,
     });
   }
 

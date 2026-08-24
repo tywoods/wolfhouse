@@ -1,0 +1,38 @@
+{
+  "id": "email-luna-automation-shadow-comparison.ch4b4-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B4",
+  "head_reviewed": "9c1fdba39fd7bcd640c78d9b2f8a68ef300f7713",
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "worker_loop": false,
+  "send_permission": false,
+  "journal_terminal": false,
+  "human_comparison_bound": false,
+  "findings": [
+    {
+      "id": "no-durable-shadow-comparison-outcome",
+      "severity": "blocking",
+      "red": "On 9c1fdba3, B3 computes staff-safe would_send after claim/load/recover but stores nothing. 085 is producer-time policy audit, 086 is claim/lease identity, 092 is reconstitution material, 070 reply approvals are a distinct staff operation_id, and 078 outbound approvals are conversation-level without inbound_event_id. Restart, JSON projection, or a later HTTP path can lose or forge the comparison.",
+      "green": "One append-only shadow-outcome owner persists exact operation + capturing claim lease + issuance + tenant/location/conversation/inbound/recipient digest + policy versions. It stores derived luna_decision=would_send and comparison_state=pending_human only. Caller cannot select would_send, reason, versions, human outcome, comparison result, or identities."
+    },
+    {
+      "id": "b3-nonterminal-success-exhausts-attempts",
+      "severity": "blocking",
+      "red": "Successful B3 would_send remains claimed. Lease expiry reclaim increments attempt_count and can hit attempt_cap. Misusing journal handoff_established would mint send-capable identity. Cancel is the wrong semantic.",
+      "green": "Atomic current-lease CAS capture inserts the outcome and transitions claimed→shadow_captured (lease released, handoff_id null, attempt_count unchanged). Restart/replay returns the same outcome. Stale owners cannot overwrite. Attempts do not increment after successful capture. Zero journal rows."
+    },
+    {
+      "id": "human-match-not-grounded",
+      "severity": "blocking",
+      "red": "Absence of a staff send is not disagreement. Conversation-only 078 rows and duplicate 070 approvals cannot bind a unique human action. Caller-selected human_action_id or rebound conversation/inbound/recipient would fake agreement.",
+      "green": "Capture stores pending_human with null human identity. A deterministic later-match contract reads tenant_email_reply_approvals by exact client/location/endpoint/conversation/source_inbound_event_id and approved|terminal only. Zero matches stay pending_human. One unique match is agreement. Duplicates are excluded. Rebound inbound/conversation/location/endpoint is invalid. Disagreement is not grounded and is never inferred from absence."
+    },
+    {
+      "id": "runtime-wiring-or-truthy-gate",
+      "severity": "blocking",
+      "red": "A generic truthy env coerce or require() from staff-query-api / Luna runtime composition would activate comparison or treat it as send.",
+      "green": "Default-off, import-inert, start-inert. No Graph/SMTP/nodemailer/send callback. staff-query-api, docker compose, and Luna runtime composition do not import or start the owner. Staff-safe projection hides raw UUIDs, recipient digest, secrets, and internal errors."
+    }
+  ]
+}

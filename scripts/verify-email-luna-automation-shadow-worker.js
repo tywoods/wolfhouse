@@ -354,6 +354,30 @@ function claimedRow(issuanceId, digest, owner, attempt) {
   return row;
 }
 
+function capturedRow(issuanceId, digest, owner, attempt) {
+  const row = Object.create(null);
+  row.persist_status = 'committed';
+  row.operation_id = OP;
+  row.issuance_id = issuanceId;
+  row.audit_operation_id = AUDIT;
+  row.claim_lease_owner = owner;
+  row.client_id = C;
+  row.location_id = L;
+  row.location_key = 'sunset-somo';
+  row.endpoint_id = ENDPOINT;
+  row.conversation_id = CONV;
+  row.inbound_event_id = INBOUND;
+  row.recipient_digest = crypto.createHash('sha256').update('elena@example.test').digest('hex');
+  row.policy_version = EMAIL_LUNA_DRAFT_POLICY_VERSION;
+  row.eligibility_policy_version = EMAIL_LUNA_AUTONOMOUS_ELIGIBILITY_POLICY_VERSION;
+  row.validator_version = EMAIL_LUNA_DRAFT_VALIDATOR_VERSION;
+  row.luna_decision = 'would_send';
+  row.comparison_state = 'pending_human';
+  row.queue_state = 'shadow_captured';
+  row.attempt_count = attempt;
+  return row;
+}
+
 function loadRow(issuanceId, digest, plan) {
   const row = Object.create(null);
   row.operation_id = OP;
@@ -430,6 +454,7 @@ function createMockState(options) {
     requireCount: 0,
     journal: 0,
     send: 0,
+    captured: false,
   };
 }
 
@@ -447,6 +472,7 @@ function mockClient(state) {
         if (state.claimSqlState) {
           throw sqlStateError(state.claimSqlState, 'tenant_email_luna_automation_queue: illegal state transition');
         }
+        if (state.captured) return { rows: [] };
         if (state.claimed && !state.expired) return { rows: [] };
         if (state.emptyAfterClaim && state.claimed) return { rows: [] };
         // Authentic 086: expired attempt-capped rows are not selected.
@@ -493,6 +519,17 @@ function mockClient(state) {
         state.claimed = false;
         return { rows: [row] };
       }
+      if (/tenant_email_luna_automation_capture_shadow/.test(sql)) {
+        if (state.captured) {
+          const replay = capturedRow(state.issuanceId, state.digest, state.claimOwner, state.claimAttempts);
+          replay.persist_status = 'replayed';
+          return { rows: [replay] };
+        }
+        if (state.requireConflict || state.expired || params[1] !== state.claimOwner) return { rows: [] };
+        state.captured = true;
+        state.claimed = false;
+        return { rows: [capturedRow(state.issuanceId, state.digest, params[1], state.claimAttempts)] };
+      }
       if (/tenant_email_luna_automation_handoff\(/.test(sql) || /journal_handoff_lock/.test(sql)) {
         state.journal += 1;
         return { rows: [] };
@@ -523,7 +560,7 @@ function assertEvidenceShape(result) {
   assertEmailLunaAutomationShadowWorkerEvidence(result);
   assert.deepEqual(Object.keys(result), [
     'status', 'reason', 'mode', 'policy_version', 'eligibility_policy_version', 'validator_version',
-    'canonical_status', 'eligibility_status', 'state', 'terminal',
+    'canonical_status', 'eligibility_status', 'comparison_state', 'state', 'terminal',
     'operation_id', 'issuance_id', 'client_id', 'location_id', 'conversation_id',
     'lease_owner', 'attempt_count',
     'draft_only', 'requires_staff_review', 'send_allowed', 'auto_send_allowed',
@@ -561,8 +598,9 @@ async function main() {
   assertEvidenceShape(wouldSend);
   assert.equal(wouldSend.status, 'would_send');
   assert.equal(wouldSend.reason, null);
-  assert.equal(wouldSend.state, 'claimed');
-  assert.equal(wouldSend.terminal, false);
+  assert.equal(wouldSend.state, 'shadow_captured');
+  assert.equal(wouldSend.terminal, true);
+  assert.equal(wouldSend.comparison_state, 'pending_human');
   assert.equal(wouldSend.operation_id, OP);
   assert.equal(wouldSend.issuance_id, issuanceId);
   assert.equal(wouldSend.client_id, C);
@@ -579,8 +617,9 @@ async function main() {
   assert.equal(happy.requireCount, 0);
   assert.ok(happy.queries.some((sql) => /tenant_email_luna_automation_claim/.test(sql)));
   assert.ok(happy.queries.some((sql) => /issuance_material_load/.test(sql)));
+  assert.ok(happy.queries.some((sql) => /tenant_email_luna_automation_capture_shadow/.test(sql)));
   assert.equal(happy.queries.some((sql) => /tenant_email_luna_automation_handoff\(/.test(sql)), false);
-  console.log('  PASS  claim+load+recover projects would-send, stays claimed/nonterminal, zero journal/provider');
+  console.log('  PASS  claim+load+recover captures would-send as shadow_captured/pending_human, zero journal/provider');
 
   const emptyState = createMockState({ issuanceId, digest, plan, emptyAfterClaim: false });
   emptyState.claimed = true;
@@ -628,8 +667,9 @@ async function main() {
   const firstExpire = createKernel(expire, OWNER_A);
   const firstClaimed = await firstExpire.processNextShadowClaim();
   assert.equal(firstClaimed.status, 'would_send');
+  assert.equal(firstClaimed.state, 'shadow_captured');
+  assert.equal(firstClaimed.terminal, true);
   expire.expired = true;
-  expire.claimed = true;
   const reclaimKernel = createEmailLunaAutomationShadowWorkerKernel({
     async withTransactionClient(work) {
       return work(mockClient(expire));
@@ -639,15 +679,12 @@ async function main() {
     owner_token: OWNER_B,
   });
   const reclaimed = await reclaimKernel.processNextShadowClaim();
-  assert.equal(reclaimed.status, 'would_send');
-  assert.match(reclaimed.lease_owner, UUID_RE);
-  assert.equal(reclaimed.lease_owner, expire.claimOwner);
-  assert.notEqual(reclaimed.lease_owner, OWNER_B);
-  assert.notEqual(reclaimed.lease_owner, firstClaimed.lease_owner);
-  assert.equal(reclaimed.attempt_count, 2);
+  assert.equal(reclaimed.status, 'empty');
   assert.equal(reclaimed.terminal, false);
+  assert.equal(expire.claimAttempts, 1);
+  assert.equal(expire.captured, true);
   assert.equal(expire.journal, 0);
-  console.log('  PASS  lease expiry reclaim by new owner replays would-send; still nonterminal/no journal');
+  console.log('  PASS  successful capture is shadow_captured; expiry does not reclaim or increment attempts');
 
   const sameOwnerExpire = createMockState({ issuanceId, digest, plan });
   const sameOwnerFirst = createKernel(sameOwnerExpire, OWNER_A);
@@ -655,7 +692,6 @@ async function main() {
   assert.equal(sameOwnerWouldSend.status, 'would_send');
   const firstLease = sameOwnerWouldSend.lease_owner;
   sameOwnerExpire.expired = true;
-  sameOwnerExpire.claimed = true;
   const restartedSameOwner = createEmailLunaAutomationShadowWorkerKernel({
     async withTransactionClient(work) {
       return work(mockClient(sameOwnerExpire));
@@ -666,16 +702,14 @@ async function main() {
   });
   const sameOwnerReclaim = await restartedSameOwner.processNextShadowClaim();
   assertEvidenceShape(sameOwnerReclaim);
-  assert.equal(sameOwnerReclaim.status, 'would_send');
+  assert.equal(sameOwnerReclaim.status, 'empty');
   assert.equal(sameOwnerReclaim.terminal, false);
-  assert.equal(sameOwnerReclaim.state, 'claimed');
-  assert.equal(sameOwnerReclaim.attempt_count, 2);
-  assert.notEqual(sameOwnerReclaim.lease_owner, firstLease);
-  assert.match(sameOwnerReclaim.lease_owner, UUID_RE);
+  assert.equal(sameOwnerExpire.claimAttempts, 1);
+  assert.equal(sameOwnerExpire.captured, true);
+  assert.equal(sameOwnerWouldSend.lease_owner, firstLease);
   assert.equal(sameOwnerExpire.journal, 0);
   assert.equal(sameOwnerExpire.requireCount, 0);
-  assert.equal(sameOwnerExpire.queries.filter((sql) => /tenant_email_luna_automation_claim/.test(sql)).length, 2);
-  console.log('  PASS  same-owner restart after expiry reclaims with a new lease identity; no 23514 crash');
+  console.log('  PASS  same-owner restart after capture does not reclaim or exhaust attempts');
 
   const cap = createMockState({ issuanceId, digest, plan });
   cap.claimed = true;
@@ -798,17 +832,14 @@ async function main() {
   assert.equal(liveLease.status, 'would_send');
   const priorLease = liveLease.lease_owner;
   staleToken.expired = true;
-  staleToken.claimed = true;
   staleToken.loadEmpty = true;
-  const reclaimThenMissing = await staleTokenKernel.processNextShadowClaim();
-  assert.ok(reclaimThenMissing.status === 'would_not_send' || reclaimThenMissing.status === 'conflict');
+  const afterCapture = await staleTokenKernel.processNextShadowClaim();
+  assert.equal(afterCapture.status, 'empty');
   assert.equal(staleToken.journal, 0);
-  if (staleToken.requireOwners.length) {
-    assert.ok(staleToken.requireOwners.every((owner) => owner !== priorLease));
-    assert.ok(staleToken.requireOwners.every((owner) => owner === staleToken.claimOwner));
-  }
-  assert.notEqual(staleToken.claimOwner, priorLease);
-  console.log('  PASS  stale prior lease token cannot terminalize after reclaim');
+  assert.equal(staleToken.requireCount, 0);
+  assert.equal(staleToken.claimOwner, priorLease);
+  assert.equal(staleToken.captured, true);
+  console.log('  PASS  stale prior lease token cannot overwrite a captured shadow outcome');
 
   let releaseTick;
   const deferredKernel = {
