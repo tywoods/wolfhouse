@@ -1,20 +1,19 @@
 -- 089_external_calendar_inventory.sql
--- Calendar Inventory Bridge Slice 1: tenant-scoped Google Sheet connections,
+-- Calendar Inventory Bridge: tenant-scoped Google Sheet connections,
 -- bed-only maps, and feed-side event identity. Occupancy still lives on
 -- bookings + booking_beds. This migration does not write blocks.
 --
--- Owned occupancy rows (later slices) MUST use:
+-- Owned occupancy rows MUST use:
 --   booking_beds.assignment_type = 'external_inventory_block'
 --   bookings.metadata.external_calendar.connection_id = this connection
--- Sync may mutate only those rows. Guest / staff_block / operator_block /
--- private_room_block are never updated by this programme.
+-- Sync may mutate only those rows.
 
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.external_calendar_connections (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   client_id uuid NOT NULL REFERENCES public.clients (id) ON DELETE CASCADE,
-  location_id uuid NULL,
+  location_key text NULL,
   kind text NOT NULL DEFAULT 'gsheet',
   name text NOT NULL,
   status text NOT NULL DEFAULT 'disabled',
@@ -43,7 +42,12 @@ CREATE TABLE IF NOT EXISTS public.external_calendar_connections (
   CONSTRAINT external_calendar_connections_poll_chk
     CHECK (poll_seconds BETWEEN 60 AND 86400),
   CONSTRAINT external_calendar_connections_empty_ok_chk
-    CHECK (consecutive_empty_ok >= 0)
+    CHECK (consecutive_empty_ok >= 0),
+  CONSTRAINT external_calendar_connections_location_fk
+    FOREIGN KEY (client_id, location_key)
+    REFERENCES public.tenant_locations (client_id, location_id)
+    ON UPDATE CASCADE
+    ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_extcal_conn_client

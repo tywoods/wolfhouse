@@ -89,6 +89,49 @@ async function loadLockedState(pg, { clientSlug, connectionId }) {
   return { ok: true, clientId, connection, maps, occupancy, mapRows: mapsRes.rows };
 }
 
+async function lockBedsAndRecheckOverlap(pg, { clientId, connectionId, plan }) {
+  const bedIds = [];
+  (plan.writes || []).forEach((op) => {
+    if (op.bed_id && bedIds.indexOf(op.bed_id) < 0) bedIds.push(op.bed_id);
+  });
+  if (!bedIds.length) return { ok: true };
+  // Same bed-row lock as staff-manual-booking-create-sql `bed_locks`.
+  await pg.query(
+    `SELECT id
+       FROM beds
+      WHERE client_id = $1
+        AND id = ANY($2::uuid[])
+      ORDER BY id
+      FOR UPDATE`,
+    [clientId, bedIds]
+  );
+  for (let i = 0; i < (plan.writes || []).length; i++) {
+    const op = plan.writes[i];
+    if (op.action !== 'insert_owned' && op.action !== 'upsert_owned') continue;
+    const r = await pg.query(
+      `SELECT bb.booking_id, bb.assignment_type, bk.metadata
+         FROM booking_beds bb
+         JOIN bookings bk ON bk.id = bb.booking_id
+        WHERE bb.client_id = $1
+          AND bb.bed_id = $2
+          AND bb.assignment_start_date < $4::date
+          AND bb.assignment_end_date > $3::date
+          AND bk.status::text NOT IN ('cancelled', 'expired')`,
+      [clientId, op.bed_id, op.start_date, op.end_date]
+    );
+    const foreign = r.rows.filter((row) => {
+      const meta = row.metadata && row.metadata.external_calendar;
+      const owned = row.assignment_type === ASSIGNMENT_TYPE
+        && meta
+        && String(meta.connection_id) === String(connectionId)
+        && String(meta.external_uid) === String(op.external_uid);
+      return !owned;
+    });
+    if (foreign.length) return { ok: false, reason: 'overlap_conflict' };
+  }
+  return { ok: true };
+}
+
 async function persistOwnedWrites(pg, { clientId, connection, plan }) {
   const results = [];
   for (const op of plan.writes || []) {
@@ -278,6 +321,25 @@ async function runConnectionSync(pg, args) {
         skipped: plan.skipped || [],
       };
     }
+    const lockedBeds = await lockBedsAndRecheckOverlap(pg, {
+      clientId: locked.clientId,
+      connectionId: locked.connection.id,
+      plan,
+    });
+    if (!lockedBeds.ok) {
+      await markAttempt(pg, locked.connection, {
+        last_error: lockedBeds.reason,
+        status: nextConnectionStatus(locked.connection.status, { ok: false }),
+        success: false,
+      });
+      await pg.query('COMMIT');
+      return {
+        ok: false,
+        wrote: false,
+        keepLastBlocks: true,
+        reason: lockedBeds.reason,
+      };
+    }
     const persisted = await persistOwnedWrites(pg, {
       clientId: locked.clientId,
       connection: locked.connection,
@@ -347,6 +409,7 @@ module.exports = {
   dtoHasAuthority,
   FORBIDDEN_DTO,
   loadLockedState,
+  lockBedsAndRecheckOverlap,
   persistOwnedWrites,
   runConnectionSync,
   createSyncScheduler,

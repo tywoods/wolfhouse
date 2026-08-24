@@ -2,7 +2,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const { Client } = require('pg');
+
+let Client = null;
+try {
+  ({ Client } = require('pg'));
+} catch (_) {
+  Client = null;
+}
 
 const ROOT = path.join(__dirname, '..');
 const UP089 = fs.readFileSync(path.join(ROOT, 'database/migrations/089_external_calendar_inventory.sql'), 'utf8');
@@ -54,6 +60,7 @@ function createMemDb() {
 }
 
 async function tryLivePostgres() {
+  if (!Client) return null;
   const url = process.env.EXTCAL_PG_URL || process.env.DATABASE_URL;
   if (!url && !process.env.EXTCAL_PG_PORT) return null;
   const client = new Client({

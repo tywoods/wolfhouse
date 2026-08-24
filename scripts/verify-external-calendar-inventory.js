@@ -179,8 +179,11 @@ function main() {
   ok('handler rejects caller authority', /rejectCallerAuthority/.test(api));
   ok('handler uses real probe', /handleRealProbe/.test(api));
   ok('FOR UPDATE OF c used', /FOR UPDATE OF c/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js'), 'utf8')));
-  ok('091 location_key migration exists',
-    fs.existsSync(path.join(ROOT, 'database/migrations/091_external_calendar_location_key.sql')));
+  ok('089 uses location_key + tenant_locations FK',
+    /location_key text NULL/.test(mig) && /tenant_locations \(client_id, location_id\)/.test(mig));
+  ok('089 has no uuid location_id', !/location_id uuid/.test(mig));
+  ok('091 migration removed',
+    !fs.existsSync(path.join(ROOT, 'database/migrations/091_external_calendar_location_key.sql')));
 
   const routes = require('./lib/external-calendar-inventory-routes');
   ok('routes refuse sunset', routes.refuseClient('sunset').ok === false);

@@ -1270,9 +1270,9 @@
       "order": 85,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "Calendar Inventory Bridge Slice 1: tenant-scoped Google Sheet connections, bed-only maps, and feed event identity. Occupancy remains on bookings/booking_beds. First activation wolfhouse-somo only.",
+      "rationale": "Calendar Inventory Bridge: tenant-scoped Google Sheet connections, bed-only maps, location_key composite FK to tenant_locations. Occupancy remains on bookings/booking_beds.",
       "downFilename": "089_external_calendar_inventory_down.sql",
-      "sha256": "fdf3a50d1a44cd0d9c5f9c4a7ff648f215493e8d7ba3bdb1503306cf07d04183"
+      "sha256": "a665929b1135c4c9405ea3dff42feda71d82608515ff351720c37a0032338520"
     },
     {
       "id": "089_external_calendar_inventory_down",
@@ -1303,26 +1303,6 @@
       "rationale": "Drops 090 tenant-integrity triggers and function. Safe if objects are missing.",
       "pairsWith": "090_external_calendar_inventory_tenant_integrity.sql",
       "sha256": "a88691f8029eeedbe62df96bcdc48ca6d5b63278e551c8feedf1d15754ea778b"
-    },
-    {
-      "id": "091_external_calendar_location_key",
-      "filename": "091_external_calendar_location_key.sql",
-      "order": 87,
-      "classification": "canonical_forward",
-      "inForwardChain": true,
-      "rationale": "Replace uuid location_id with tenant_locations location_key text + composite FK when that table exists.",
-      "downFilename": "091_external_calendar_location_key_down.sql",
-      "sha256": "43c39ed89cc54c675b70e08b53ef99059593ff6c22f241661fdd7efb5c76c874"
-    },
-    {
-      "id": "091_external_calendar_location_key_down",
-      "filename": "091_external_calendar_location_key_down.sql",
-      "order": null,
-      "classification": "rollback_down",
-      "inForwardChain": false,
-      "rationale": "Drops location_key FK/column. Safe if already absent.",
-      "pairsWith": "091_external_calendar_location_key.sql",
-      "sha256": "23fa924d3490ca475d8a75d02267075e8947b2623a7939b31f673d73c4add2f4"
     }
   ]
 }

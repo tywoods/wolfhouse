@@ -1,7 +1,7 @@
 'use strict';
 
 const { runConnectionSync, createSyncScheduler, dtoHasAuthority, listDueSql } = require('./lib/external-calendar-inventory-sync');
-const { detectGridMerges, classifyHttp } = require('./lib/external-calendar-inventory-sheets');
+const { detectGridMergesForTab, detectExtraColumns, detectOverflowRows, classifyHttp } = require('./lib/external-calendar-inventory-sheets');
 
 function ok(label, cond, detail) {
   if (!cond) {
@@ -12,6 +12,7 @@ function ok(label, cond, detail) {
 }
 
 function mockPg(state) {
+  state.bedLocks = state.bedLocks || 0;
   return {
     async query(sql, params) {
       state.queries.push({ sql, params });
@@ -27,6 +28,10 @@ function mockPg(state) {
       }
       if (/FROM external_calendar_unit_maps/.test(sql)) {
         return { rows: [{ external_unit_key: 'R1A', bed_id: 'bed-a', map_id: 'm1' }] };
+      }
+      if (/FROM beds/.test(sql) && /FOR UPDATE/.test(sql)) {
+        state.bedLocks += 1;
+        return { rows: (params[1] || []).map((id) => ({ id })) };
       }
       if (/FROM booking_beds/.test(sql)) return { rows: [] };
       if (/UPDATE external_calendar_connections/.test(sql)) {
@@ -101,17 +106,31 @@ async function main() {
   ok('inject write failure rolls back', rolled.reason === 'sync_rollback' && boom.rollbacks === 1);
 
   ok('due SQL uses poll_seconds and stale_after', /poll_seconds/.test(listDueSql()) && /stale_after/.test(listDueSql()));
-  ok('grid merges detected from Sheets metadata', detectGridMerges({
-    sheets: [{ merges: [{ startRowIndex: 0, endRowIndex: 2 }] }],
-  }).merged === true);
+  ok('grid merges scoped to configured tab', detectGridMergesForTab({
+    sheets: [
+      { properties: { title: 'other' }, merges: [{ startRowIndex: 0 }] },
+      { properties: { title: 'inventory' }, merges: [] },
+    ],
+  }, 'inventory').merged === false);
+  ok('merge on configured tab fails', detectGridMergesForTab({
+    sheets: [{ properties: { title: 'inventory' }, merges: [{ startRowIndex: 0 }] }],
+  }, 'inventory').merged === true);
+  ok('missing tab fails', detectGridMergesForTab({
+    sheets: [{ properties: { title: 'other' }, merges: [] }],
+  }, 'inventory').reason === 'sheet_tab_missing');
+  ok('column F populated is extra', detectExtraColumns([
+    ['unit_key', 'start_date', 'end_date', 'status', 'external_uid', 'notes'],
+  ], 5).extra === true);
+  ok('row 5003 after blank is overflow', detectOverflowRows([[], ['R1', '2026-09-10', '2026-09-12', 'busy', 'u']]).overflow === true);
   ok('401 classified inaccessible', classifyHttp(401) === 'sheets_inaccessible');
   ok('503 classified provider 5xx', classifyHttp(503) === 'sheets_provider_5xx');
+  ok('valid fetch locks beds before write', okSync.ok && good.bedLocks >= 1);
 
   let ticks = 0;
   const sched = createSyncScheduler({
     intervalMs: 999999,
     withPgClient: async (fn) => fn(mockPg({
-      queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0,
+      queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0, bedLocks: 0,
     })),
     listDueConnections: async () => [{ id: 'c', client_slug: 'wolfhouse-somo' }],
     fetchSheet: async () => {
