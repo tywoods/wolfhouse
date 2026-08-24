@@ -20318,11 +20318,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #banner{background:#252526}
 .luna-header-ui.luna-hdr-compact #banner::after{display:none}
-/* bigger brand logo on the slim bar — the logo grows by shedding padding, the
-   nav stays tight (it does not widen to make room). */
-.luna-header-ui.luna-hdr-compact #banner .brand{width:auto;height:auto;align-self:center;flex:0 0 auto}
+/* compact: no logo — tabs sit left, controls stay right */
+.luna-header-ui.luna-hdr-compact #banner .brand,
 .luna-header-ui.luna-hdr-compact #banner .brand-logo{
-  display:block;height:40px;width:auto;max-width:220px;object-fit:contain;object-position:left center;
+  display:none!important;
 }
 /* controls sit centred on the row, no surfboard gap / top offset */
 .luna-header-ui.luna-hdr-compact .banner-actions{
@@ -20341,7 +20340,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   margin-top:-52px;height:52px;min-height:52px;
   background:transparent;border-bottom:none;box-shadow:none;
   align-items:center;position:relative;z-index:7;pointer-events:none;
-  padding-left:clamp(170px,14vw,235px);  /* clear the logo */
+  padding-left:clamp(12px,1.6vw,22px);
   padding-right:clamp(260px,24vw,360px); /* clear the controls cluster */
 }
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs{background:transparent;border-bottom:none}
