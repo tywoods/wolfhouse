@@ -19858,7 +19858,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #tab-bed-calendar .toolbar h2,
 #tab-bed-calendar .bc-detail-title,
 #tab-bed-calendar .bc-op-title{
-  font-family:'Newsreader',var(--font-display),serif!important;
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif!important;
   font-weight:600;
 }
 #bc-legend .bc-legend-item:has(.bc-legend-sw-owner_schedule_blocked),
@@ -19920,6 +19920,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    original look. Still scoped under .book-ui and gated by STAFF_PORTAL_BOOK_UI
    (set =false to drop the serif too and fully restore the prior look). ===== */
 .book-ui{--bk-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+/* staff-portal-calendar:drawer-fonts — title + all four drawer tabs match sunset */
 .book-ui .toolbar h2,
 .book-ui .bc-detail-title,
 .book-ui .bk-form-section-title,
@@ -19927,11 +19928,24 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .book-ui .bc-drawer-card-title,
 .book-ui .bc-drawer-card-subtitle,
 .book-ui .ctx-section h3,
+.book-ui .kv,
 .book-ui .kv .k,
+.book-ui .kv .v,
 .book-ui .bc-grid thead th.bc-bed-head,
 .book-ui .bc-room-hdr,
 .book-ui .bc-drawer-tab,
-.book-ui .bk-quote-section-title{font-family:var(--bk-serif)}
+.book-ui .bc-drawer-tab-content-panel,
+.book-ui .bc-drawer-tab-content-panel *,
+.book-ui .bk-quote-section-title,
+#tab-bed-calendar .toolbar h2,
+#tab-bed-calendar .bc-detail,
+#tab-bed-calendar .bc-detail *,
+#tab-bed-calendar .bc-drawer-tab,
+#tab-bed-calendar .bc-drawer-tabs,
+#tab-bed-calendar .bc-drawer-tab-content-panel,
+#tab-bed-calendar .bc-drawer-tab-content-panel *{
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif!important;
+}
 /* staff-portal-calendar:block-fonts — names + pebbles + sign-out match sunset */
 .book-ui .bc-block,
 .book-ui .bc-block-label,
@@ -20082,18 +20096,25 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   position:relative;
   z-index:1;
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   gap:clamp(8px,1vw,14px);
   margin-left:auto;
-  /* Sit the controls along the TOP edge of the banner (the new art leaves open
-     sky under the plaque there), not floating mid-height or on the bottom.
-     Small top gap so they don't touch the edge. */
+  /* Top-right sky: moon + Sign out on one row, language under them.
+     Stay off the baked-in surfboards on the lower right of the art. */
   align-self:flex-start;
-  margin-top:clamp(9px,1.1vw,16px);
-  /* The surfboards are baked into the far-right of the art, so pull the whole
-     control cluster in from the right edge to leave a clear gap over them
-     instead of the sign-out sitting on top of the boards. */
-  margin-right:clamp(64px,6vw,120px);
+  margin-top:clamp(6px,.8vw,10px);
+  margin-right:clamp(10px,1.2vw,18px);
+}
+.luna-header-ui .banner-tools{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:4px;
+}
+.luna-header-ui .banner-tools-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
 }
 
 /* ── flat ghost controls (matches sunset-staging simple header) ─────────── */
@@ -20292,6 +20313,11 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 /* controls sit centred on the row, no surfboard gap / top offset */
 .luna-header-ui.luna-hdr-compact .banner-actions{
   align-self:center;margin-top:0;margin-bottom:0;margin-right:0;
+}
+.luna-header-ui.luna-hdr-compact .banner-tools{
+  flex-direction:row;
+  align-items:center;
+  gap:8px;
 }
 /* lift the nav row up onto the banner and clear the logo / controls.
    The row floats ABOVE the banner (transparent), so the banner's surface shows
@@ -21162,14 +21188,16 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <span class="nav-menu-toggle-bars" aria-hidden="true"></span>
   </button>
   <div class="banner-tools" id="banner-tools">
-    <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
-      ${renderStaffLangSwitchButtons(false)}
-    </div>
+    <div class="banner-tools-row">
     <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
       <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
       <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
     </button>
     <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
+    </div>
+    <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
+      ${renderStaffLangSwitchButtons(false)}
+    </div>
   </div>
   </div>
 </div>
