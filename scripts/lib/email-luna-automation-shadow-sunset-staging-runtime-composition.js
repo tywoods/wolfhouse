@@ -8,8 +8,11 @@
  * import-inert adapter around the existing provider-inert worker loop.
  * RUNTIME_WIRED is true for composition code only. Activation remains
  * default-off: explicit start() after exact independent flags + Sunset
- * tenant/location/endpoint/environment gates. Provider-inert:
- * no dispatch authorization, no journal handoff.
+ * tenant/location/endpoint/environment gates. Shadow runtime is
+ * provider-inert: no dispatch authorization, no journal handoff.
+ * Staff/manual EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED is a separate
+ * per-request Staff API lifecycle and does not refuse this composition.
+ * LUNA_AUTO_SEND_ENABLED remains a hard refusal.
  *
  * Replica topology is fail-closed: EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT
  * must be the exact string '1'. Process concurrency=1 plus SKIP LOCKED prevents
@@ -235,8 +238,11 @@ function isConflictTruthy(raw) {
 }
 
 function refusedCapabilities(env) {
-  return isConflictTruthy(ownData(env, ENV_AUTO_SEND))
-    || isConflictTruthy(ownData(env, ENV_OUTBOUND));
+  // Luna auto-send is autonomous provider-send and remains a hard refusal.
+  // Staff/manual EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED is a separate
+  // per-request Staff API dispatch lifecycle. This shadow runtime has no
+  // provider capability, so that flag must not refuse shadow readiness.
+  return isConflictTruthy(ownData(env, ENV_AUTO_SEND));
 }
 
 function replicaCountExact(env) {
@@ -556,6 +562,8 @@ module.exports = objectFreeze({
   EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_ACTIVATION,
   EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_LOGGING_FORBIDDEN,
   ENV_COMPOSITION_ENABLED,
+  ENV_AUTO_SEND,
+  ENV_OUTBOUND,
   ENV_CLIENT_ID,
   ENV_LOCATION_ID,
   ENV_LOCATION_KEY,
