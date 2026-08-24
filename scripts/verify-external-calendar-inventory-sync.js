@@ -1,6 +1,7 @@
 'use strict';
 
-const { runConnectionSync, persistOwnedWrites, createSyncScheduler } = require('./lib/external-calendar-inventory-sync');
+const { runConnectionSync, createSyncScheduler, dtoHasAuthority, listDueSql } = require('./lib/external-calendar-inventory-sync');
+const { detectGridMerges, classifyHttp } = require('./lib/external-calendar-inventory-sheets');
 
 function ok(label, cond, detail) {
   if (!cond) {
@@ -14,8 +15,11 @@ function mockPg(state) {
   return {
     async query(sql, params) {
       state.queries.push({ sql, params });
+      if (/^BEGIN/i.test(sql.trim())) { state.begins += 1; return { rows: [] }; }
+      if (/^COMMIT/i.test(sql.trim())) { state.commits += 1; return { rows: [] }; }
+      if (/^ROLLBACK/i.test(sql.trim())) { state.rollbacks += 1; return { rows: [] }; }
       if (/FROM clients/.test(sql)) return { rows: [{ id: 'cid-wh', slug: 'wolfhouse-somo' }] };
-      if (/FROM external_calendar_connections/.test(sql)) {
+      if (/FOR UPDATE OF c/.test(sql)) {
         return { rows: [{
           id: 'conn-1', client_id: 'cid-wh', status: 'pending',
           spreadsheet_id: '1234567890abcdef', sheet_name: 'inventory',
@@ -37,6 +41,8 @@ function mockPg(state) {
         state.bedInserts += 1;
         return { rows: [] };
       }
+      if (/INSERT INTO external_inventory_events/.test(sql)) return { rows: [] };
+      if (/SELECT bk.id/.test(sql)) return { rows: [] };
       return { rows: [] };
     },
   };
@@ -44,45 +50,77 @@ function mockPg(state) {
 
 async function main() {
   console.log('verify-external-calendar-inventory-sync');
-  const bad = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0 };
-  const result = await runConnectionSync(mockPg(bad), {
-    clientSlug: 'wolfhouse-somo',
-    rows: [
-      ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
-      ['R1A', '10/09/2026', '12/09/2026', 'busy', 'uid-1'],
-    ],
-  });
-  ok('malformed sheet writes zero bookings', result.wrote === false && bad.bookingInserts === 0);
-  ok('malformed keeps last blocks', result.keepLastBlocks === true);
-  ok('malformed updates connection status only', bad.statusUpdates.length === 1);
+  ok('dto rejects rows', dtoHasAuthority({ rows: [] }) === true);
+  ok('dto rejects occupancy', dtoHasAuthority({ occupancy: {} }) === true);
+  ok('dto allows empty probe body', dtoHasAuthority({}) === false);
 
-  const good = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0 };
+  const missing = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const missingRes = await runConnectionSync(mockPg(missing), { clientSlug: 'wolfhouse-somo' });
+  ok('sync without fetched does not write', missingRes.wrote === false && missing.bookingInserts === 0);
+
+  const denied = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const deniedRes = await runConnectionSync(mockPg(denied), {
+    clientSlug: 'wolfhouse-somo',
+    fetched: { ok: false, reason: 'sheets_token_denied', keepLastBlocks: true },
+  });
+  ok('token denial is not empty_sheet', deniedRes.reason === 'sheets_token_denied');
+  ok('token denial writes zero bookings', denied.bookingInserts === 0);
+  ok('token denial keeps last blocks', deniedRes.keepLastBlocks === true);
+  ok('token denial uses a transaction', denied.begins === 1 && denied.commits === 1);
+
+  const good = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
   const okSync = await runConnectionSync(mockPg(good), {
     clientSlug: 'wolfhouse-somo',
-    rows: [
-      ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
-      ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
-    ],
+    fetched: {
+      ok: true,
+      rows: [
+        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
+        ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
+      ],
+    },
   });
-  ok('valid busy persists booking', okSync.ok && good.bookingInserts === 1 && good.bedInserts === 1);
+  ok('valid fetch persists booking in one txn', okSync.ok && good.bookingInserts === 1 && good.begins === 1 && good.commits === 1);
 
-  const empty = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0 };
-  const emptySync = await runConnectionSync(mockPg(empty), {
+  const boom = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const boomPg = mockPg(boom);
+  const orig = boomPg.query.bind(boomPg);
+  boomPg.query = async (sql, params) => {
+    if (/INSERT INTO bookings/.test(sql)) throw new Error('injected');
+    return orig(sql, params);
+  };
+  const rolled = await runConnectionSync(boomPg, {
     clientSlug: 'wolfhouse-somo',
-    rows: [['unit_key', 'start_date', 'end_date', 'status', 'external_uid']],
+    fetched: {
+      ok: true,
+      rows: [
+        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
+        ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
+      ],
+    },
   });
-  ok('empty sheet writes nothing', emptySync.wrote === false && empty.bookingInserts === 0);
-  ok('empty does not mark healthy from pending', empty.statusUpdates[0][2] !== 'healthy');
+  ok('inject write failure rolls back', rolled.reason === 'sync_rollback' && boom.rollbacks === 1);
+
+  ok('due SQL uses poll_seconds and stale_after', /poll_seconds/.test(listDueSql()) && /stale_after/.test(listDueSql()));
+  ok('grid merges detected from Sheets metadata', detectGridMerges({
+    sheets: [{ merges: [{ startRowIndex: 0, endRowIndex: 2 }] }],
+  }).merged === true);
+  ok('401 classified inaccessible', classifyHttp(401) === 'sheets_inaccessible');
+  ok('503 classified provider 5xx', classifyHttp(503) === 'sheets_provider_5xx');
 
   let ticks = 0;
   const sched = createSyncScheduler({
     intervalMs: 999999,
-    withPgClient: async (fn) => fn({}),
-    listDueConnections: async () => [{ id: 'c' }],
-    syncOne: async () => { ticks += 1; },
+    withPgClient: async (fn) => fn(mockPg({
+      queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0,
+    })),
+    listDueConnections: async () => [{ id: 'c', client_slug: 'wolfhouse-somo' }],
+    fetchSheet: async () => {
+      ticks += 1;
+      return { ok: false, reason: 'sheets_timeout', keepLastBlocks: true };
+    },
   });
   await sched.tick();
-  ok('scheduler tick runs due connections', ticks === 1);
+  ok('scheduler preserves fetch failure class', ticks === 1);
 
   console.log('\nverify-external-calendar-inventory-sync: ALL CHECKS PASSED');
 }

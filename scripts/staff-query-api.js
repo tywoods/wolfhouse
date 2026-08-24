@@ -725,7 +725,7 @@ const {
   bridgeAvailable,
 } = require('./lib/external-calendar-inventory');
 const extCalRoutes = require('./lib/external-calendar-inventory-routes');
-const { loadBridgeState, createSyncScheduler, runConnectionSync } = require('./lib/external-calendar-inventory-sync');
+const { loadLockedState, createSyncScheduler, runConnectionSync } = require('./lib/external-calendar-inventory-sync');
 const { fetchSheetRows } = require('./lib/external-calendar-inventory-sheets');
 const {
   calculateWolfhouseQuote,
@@ -22258,17 +22258,25 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 ${showOwnerScheduleBridge ? `
   <div class="card cc-section" id="cc-owner-schedule-bridge">
     <div class="cc-section-hdr">Owner schedule</div>
-    <div class="cc-section-sub">Connect a Google Sheet to block beds. An empty or broken Sheet never removes a Luna booking or staff block.</div>
+    <div class="cc-section-sub">Google Sheet blocks beds as <b>Owner schedule blocked</b>. An empty or broken Sheet never removes a Luna booking or staff block. Secret is a reference name only.</div>
     <div id="osb-status" class="al-hint"></div>
     <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
       <input id="osb-name" type="text" placeholder="Connection name" autocomplete="off">
       <input id="osb-sheet" type="text" placeholder="Spreadsheet id" autocomplete="off" spellcheck="false">
       <input id="osb-tab" type="text" placeholder="inventory" autocomplete="off">
-      <button type="button" class="btn-ghost" id="osb-save">Save</button>
+      <input id="osb-secret" type="text" placeholder="SECRET_REF" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
+      <button type="button" class="btn-ghost" id="osb-refresh">Refresh</button>
+      <button type="button" class="btn-ghost" id="osb-save">Save connection</button>
       <button type="button" class="btn-ghost" id="osb-probe">Probe</button>
       <button type="button" class="btn-ghost" id="osb-sync">Sync now</button>
+      <button type="button" class="btn-ghost" id="osb-enable">Enable</button>
+      <button type="button" class="btn-ghost" id="osb-disable">Disable</button>
     </div>
-    <div id="osb-maps" class="al-hint">Map unit_key → bed after the first successful probe.</div>
+    <label class="al-hint" for="osb-map-json">Bed maps JSON</label>
+    <textarea id="osb-map-json" rows="4" placeholder='[{"external_unit_key":"R1A","bed_id":"..."}]'></textarea>
+    <button type="button" class="btn-ghost" id="osb-save-maps">Save maps</button>
     <pre id="osb-out" style="font-size:11px;white-space:pre-wrap;max-height:180px;overflow:auto"></pre>
   </div>` : ''}
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
@@ -30376,32 +30384,66 @@ function staffWhatsappNumbersLoad(){
     });
 }
 
-function ownerScheduleBridgeProbe(){
+function ownerScheduleBridgeClient(){
+  return encodeURIComponent(getClient());
+}
+function ownerScheduleBridgeJson(path, method, body){
   var out = el('osb-out');
   var status = el('osb-status');
-  if (status) status.textContent = 'Probing…';
-  var headers = ['unit_key','start_date','end_date','status','external_uid'];
-  fetch('/staff/luna-staff/calendar-bridge/probe?client=' + encodeURIComponent(getClient()), {
-    method: 'POST',
+  if (status) status.textContent = 'Working…';
+  return fetch(path + (path.indexOf('?') >= 0 ? '&' : '?') + 'client=' + ownerScheduleBridgeClient(), {
+    method: method,
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      name: (el('osb-name') && el('osb-name').value || '').trim(),
-      spreadsheet_id: (el('osb-sheet') && el('osb-sheet').value || '').trim(),
-      sheet_name: (el('osb-tab') && el('osb-tab').value || 'inventory').trim(),
-      rows: [headers]
-    })
-  }).then(function(r){ return r.json().then(function(body){ return { status: r.status, body: body }; }); })
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(r){ return r.json().then(function(b){ return { status: r.status, body: b }; }); })
     .then(function(res){
-      if (status) status.textContent = res.body && res.body.ok ? 'Probe ok (empty sheet keeps last blocks)' : ((res.body && res.body.error) || 'Probe failed');
+      if (status) status.textContent = (res.body && (res.body.ok || res.body.success)) ? 'OK' : ((res.body && res.body.error) || 'Failed');
       if (out) out.textContent = JSON.stringify(res.body, null, 2);
+      return res;
     })
     .catch(function(err){
-      if (status) status.textContent = 'Probe failed';
+      if (status) status.textContent = 'Failed';
       if (out) out.textContent = String(err && err.message || err);
     });
 }
+function ownerScheduleBridgeSave(){
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'POST', {
+    name: (el('osb-name') && el('osb-name').value || '').trim(),
+    spreadsheet_id: (el('osb-sheet') && el('osb-sheet').value || '').trim(),
+    sheet_name: (el('osb-tab') && el('osb-tab').value || 'inventory').trim(),
+    secret_ref: (el('osb-secret') && el('osb-secret').value || '').trim()
+  });
+}
+function ownerScheduleBridgeProbe(){
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/probe', 'POST', {});
+}
+function ownerScheduleBridgeSync(){
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/sync', 'POST', {});
+}
+function ownerScheduleBridgeEnable(on){
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/enable', 'POST', { enabled: !!on });
+}
+function ownerScheduleBridgeSaveMaps(){
+  var raw = (el('osb-map-json') && el('osb-map-json').value || '').trim();
+  var maps;
+  try { maps = JSON.parse(raw); }
+  catch (e) {
+    if (el('osb-status')) el('osb-status').textContent = 'Maps must be JSON [{external_unit_key,bed_id}]';
+    return;
+  }
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'PUT', { maps: maps });
+}
+function ownerScheduleBridgeLoad(){
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET');
+}
+if (el('osb-save')) el('osb-save').addEventListener('click', ownerScheduleBridgeSave);
 if (el('osb-probe')) el('osb-probe').addEventListener('click', ownerScheduleBridgeProbe);
+if (el('osb-sync')) el('osb-sync').addEventListener('click', ownerScheduleBridgeSync);
+if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){ ownerScheduleBridgeEnable(true); });
+if (el('osb-disable')) el('osb-disable').addEventListener('click', function(){ ownerScheduleBridgeEnable(false); });
+if (el('osb-save-maps')) el('osb-save-maps').addEventListener('click', ownerScheduleBridgeSaveMaps);
+if (el('osb-refresh')) el('osb-refresh').addEventListener('click', ownerScheduleBridgeLoad);
 (function hideOwnerScheduleUnlessWolfhouse(){
   var card = el('cc-owner-schedule-bridge');
   if (!card) return;
@@ -44458,46 +44500,78 @@ async function handleCalendarBedBlockCreate(req, res, user) {
   });
 }
 
-async function handleOwnerScheduleBridgeProbe(req, res, user) {
-  let body = {};
+async function ownerScheduleParseBody(req) {
   try {
     const raw = await readBody(req);
-    body = JSON.parse(raw || '{}');
+    if (!raw) return { ok: true, body: {} };
+    return { ok: true, body: JSON.parse(raw) };
   } catch (_) {
-    return sendJSON(res, 400, { success: false, error: 'invalid or missing JSON body' });
+    return { ok: false, error: 'invalid or missing JSON body' };
   }
-  const banned = extCalRoutes.rejectCallerAuthority(body);
+}
+
+async function ownerScheduleGate(req, res, user, body) {
+  const banned = extCalRoutes.rejectCallerAuthority(body || {});
   if (banned) {
-    return sendJSON(res, banned.status, { success: false, ok: false, error: banned.error });
+    sendJSON(res, banned.status, { success: false, ok: false, error: banned.error });
+    return null;
   }
   const url = new URL(req.url, 'http://127.0.0.1');
-  const clientSlug = String(body.client || url.searchParams.get('client') || DEFAULT_CLIENT).trim();
-  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const clientSlug = String((body && body.client) || url.searchParams.get('client') || DEFAULT_CLIENT).trim();
+  if (!assertStaffClientAccess(user, clientSlug, res)) return null;
   const gate = extCalRoutes.refuseClient(clientSlug);
   if (!gate.ok) {
-    return sendJSON(res, gate.status, { success: false, ok: false, error: gate.error, client: clientSlug });
+    sendJSON(res, gate.status, { success: false, ok: false, error: gate.error, client: clientSlug });
+    return null;
   }
-  let dbState;
+  return { clientSlug, connectionId: url.searchParams.get('id') || (body && body.id) || null };
+}
+
+async function handleOwnerScheduleBridge(req, res, user, action) {
+  const parsed = (req.method === 'GET') ? { ok: true, body: {} } : await ownerScheduleParseBody(req);
+  if (!parsed.ok) return sendJSON(res, 400, { success: false, error: parsed.error });
+  const ctx = await ownerScheduleGate(req, res, user, parsed.body);
+  if (!ctx) return;
+  const fetchSheet = (conn) => fetchSheetRows(conn);
   try {
-    dbState = await withPgClient((pg) => loadBridgeState(pg, {
-      clientSlug,
-      connectionId: url.searchParams.get('id') || null,
-    }));
+    const result = await withPgClient(async (pg) => {
+      if (action === 'list') return extCalRoutes.handleList(pg, ctx.clientSlug);
+      if (action === 'save') return extCalRoutes.handleSave(pg, ctx.clientSlug, parsed.body, user && user.staff_user_id);
+      if (action === 'maps-get') return extCalRoutes.handleListMaps(pg, ctx.clientSlug, ctx.connectionId);
+      if (action === 'maps-put') return extCalRoutes.handleSaveMaps(pg, ctx.clientSlug, ctx.connectionId, parsed.body.maps);
+      if (action === 'enable') return extCalRoutes.handleEnable(pg, ctx.clientSlug, ctx.connectionId, parsed.body.enabled === true);
+      if (action === 'probe') {
+        return extCalRoutes.handleRealProbe(pg, {
+          clientSlug: ctx.clientSlug,
+          connectionId: ctx.connectionId,
+          fetchSheet,
+        });
+      }
+      if (action === 'sync') {
+        const locked = await loadLockedState(pg, ctx);
+        if (!locked.ok) return { ok: false, status: 404, error: locked.reason };
+        const fetched = await fetchSheet(locked.connection);
+        return runConnectionSync(pg, {
+          clientSlug: ctx.clientSlug,
+          connectionId: locked.connection.id,
+          fetched,
+        });
+      }
+      return { ok: false, status: 400, error: 'unknown_action' };
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:external_calendar_' + action,
+      category: 'external_calendar',
+      client_slug: ctx.clientSlug,
+      staff_user_id: user && user.staff_user_id,
+      success: !!result.ok,
+      error: result.error || result.reason || null,
+    });
+    return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ success: !!result.ok, client: ctx.clientSlug }, result));
   } catch (err) {
-    return sendJSON(res, 503, { success: false, ok: false, error: 'bridge_state_unavailable' });
+    return sendJSON(res, 503, { success: false, ok: false, error: 'bridge_unavailable' });
   }
-  const result = extCalRoutes.handleProbeFromState(body, dbState);
-  appendAuditLog({
-    ts: new Date().toISOString(),
-    intent: 'api:external_calendar_probe',
-    category: 'external_calendar',
-    client_slug: clientSlug,
-    staff_user_id: user && user.staff_user_id,
-    success: !!result.ok,
-    error: result.error || null,
-    keep_last_blocks: true,
-  });
-  return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ success: !!result.ok, client: clientSlug }, result));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47474,14 +47548,32 @@ async function router(req, res) {
     return handleCalendarBedBlockCreate(req, res, auth.user);
   }
 
-  if (pathname === '/staff/luna-staff/calendar-bridge/probe') {
-    if (method !== 'POST') {
-      res.writeHead(405, { Allow: 'POST' });
-      return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
-    }
+  if (pathname === '/staff/luna-staff/calendar-bridge' || pathname.indexOf('/staff/luna-staff/calendar-bridge/') === 0) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
-    return handleOwnerScheduleBridgeProbe(req, res, auth.user);
+    if (pathname === '/staff/luna-staff/calendar-bridge' && method === 'GET') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'list');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'save');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/maps' && method === 'GET') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'maps-get');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/maps' && method === 'PUT') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'maps-put');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/enable' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'enable');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/probe' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'probe');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/sync' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'sync');
+    }
+    res.writeHead(405, { Allow: 'GET, POST, PUT' });
+    return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
   }
 
   // ── Stage 8.4.11 — Stripe webhook payment truth ───────────────────────────
@@ -49499,28 +49591,13 @@ async function startStaffQueryApiCli() {
     const extCalSched = createSyncScheduler({
       intervalMs: 60000,
       withPgClient,
-      listDueConnections: async () => {
-        return withPgClient(async (pg) => {
-          const r = await pg.query(
-            `SELECT c.id, cl.slug AS client_slug
-               FROM external_calendar_connections c
-               JOIN clients cl ON cl.id = c.client_id
-              WHERE c.status IN ('pending','healthy','stale')
-                AND c.kind = 'gsheet'
-                AND cl.slug = 'wolfhouse-somo'`
-          );
-          return r.rows;
-        });
-      },
-      syncOne: async (pg, item) => {
-        const loaded = await loadBridgeState(pg, { clientSlug: item.client_slug, connectionId: item.id });
-        if (!loaded.ok) return;
-        const fetched = await fetchSheetRows(loaded.connection);
-        if (!fetched.ok) {
-          await runConnectionSync(pg, { clientSlug: item.client_slug, connectionId: item.id, rows: [] });
-          return;
-        }
-        await runConnectionSync(pg, { clientSlug: item.client_slug, connectionId: item.id, rows: fetched.rows });
+      fetchSheet: async (item) => {
+        const locked = await withPgClient((pg) => loadLockedState(pg, {
+          clientSlug: item.client_slug,
+          connectionId: item.id,
+        }));
+        if (!locked.ok) return { ok: false, reason: locked.reason, keepLastBlocks: true };
+        return fetchSheetRows(locked.connection);
       },
     });
     extCalSched.start();

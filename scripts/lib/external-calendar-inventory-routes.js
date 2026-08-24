@@ -1,17 +1,12 @@
 'use strict';
 
-/**
- * Calendar Inventory Bridge HTTP helpers.
- * Wolfhouse-somo first. Sunset slugs always refused.
- * maps / occupancy / connection_id are never caller authority.
- */
-
 const {
   bridgeAvailable,
   clientAllowed,
   probeSheetRows,
   nextConnectionStatus,
 } = require('./external-calendar-inventory');
+const { dtoHasAuthority, loadLockedState, runConnectionSync } = require('./external-calendar-inventory-sync');
 
 function refuseClient(slug) {
   if (!clientAllowed(slug)) {
@@ -24,10 +19,7 @@ function refuseClient(slug) {
 }
 
 function rejectCallerAuthority(body) {
-  if (!body || typeof body !== 'object') return null;
-  if (Object.prototype.hasOwnProperty.call(body, 'maps')
-    || Object.prototype.hasOwnProperty.call(body, 'occupancy')
-    || Object.prototype.hasOwnProperty.call(body, 'connection_id')) {
+  if (dtoHasAuthority(body)) {
     return { ok: false, status: 400, error: 'caller_authority_rejected' };
   }
   return null;
@@ -37,39 +29,190 @@ function sanitizeConnection(row) {
   if (!row) return null;
   return {
     id: row.id,
-    client_slug: row.client_slug || row.client_id,
-    kind: row.kind,
     name: row.name,
+    kind: row.kind,
     status: row.status,
     spreadsheet_id: row.spreadsheet_id,
     sheet_name: row.sheet_name,
     last_success_at: row.last_success_at,
     last_attempt_at: row.last_attempt_at,
     last_error: row.last_error,
-    has_secret: !!row.has_secret,
+    has_secret: !!row.secret_ref,
+    poll_seconds: row.poll_seconds,
   };
 }
 
-/**
- * Probe using DB-loaded maps/occupancy/connection only.
- * body.rows may be used by tests; live path loads rows from the Sheet adapter.
- */
-function handleProbeFromState(body, dbState) {
-  const banned = rejectCallerAuthority(body);
-  if (banned) return banned;
-  if (!dbState || !dbState.ok) {
-    return { ok: false, status: 404, error: (dbState && dbState.reason) || 'connection_not_found' };
+async function handleList(pg, clientSlug) {
+  const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
+  if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
+  const r = await pg.query(
+    `SELECT c.*, s.secret_ref
+       FROM external_calendar_connections c
+       LEFT JOIN external_calendar_secrets s ON s.connection_id = c.id
+      WHERE c.client_id = $1
+      ORDER BY c.created_at ASC`,
+    [client.rows[0].id]
+  );
+  return { ok: true, connections: r.rows.map(sanitizeConnection) };
+}
+
+async function handleSave(pg, clientSlug, body, actorId) {
+  const name = String(body.name || '').trim().slice(0, 120);
+  const spreadsheetId = String(body.spreadsheet_id || '').trim();
+  const sheetName = String(body.sheet_name || 'inventory').trim().slice(0, 80);
+  const secretRef = String(body.secret_ref || '').trim();
+  if (!name || spreadsheetId.length < 8) {
+    return { ok: false, status: 400, error: 'invalid_connection' };
   }
-  const rows = body && Array.isArray(body.rows) ? body.rows : dbState.rows;
-  if (!rows) {
-    return { ok: false, status: 400, error: 'rows_required_for_probe' };
+  if (secretRef && !/^[A-Z][A-Z0-9_]{2,80}$/.test(secretRef)) {
+    return { ok: false, status: 400, error: 'secret_ref_invalid' };
   }
-  const plan = probeSheetRows(rows, {
-    maps: dbState.maps || {},
-    occupancy: dbState.occupancy || {},
-    connectionId: dbState.connection && dbState.connection.id,
+  const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
+  if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
+  const clientId = client.rows[0].id;
+  await pg.query('BEGIN');
+  try {
+    let id = body.id ? String(body.id) : null;
+    if (id) {
+      const upd = await pg.query(
+        `UPDATE external_calendar_connections
+            SET name = $2, spreadsheet_id = $3, sheet_name = $4, updated_at = NOW()
+          WHERE id = $1::uuid AND client_id = $5
+          RETURNING *`,
+        [id, name, spreadsheetId, sheetName, clientId]
+      );
+      if (!upd.rows[0]) {
+        await pg.query('ROLLBACK');
+        return { ok: false, status: 404, error: 'connection_not_found' };
+      }
+    } else {
+      const ins = await pg.query(
+        `INSERT INTO external_calendar_connections (
+            client_id, kind, name, status, spreadsheet_id, sheet_name, created_by_staff_id
+          ) VALUES ($1,'gsheet',$2,'disabled',$3,$4,$5)
+          RETURNING *`,
+        [clientId, name, spreadsheetId, sheetName, actorId || null]
+      );
+      id = ins.rows[0].id;
+    }
+    if (secretRef) {
+      await pg.query(
+        `INSERT INTO external_calendar_secrets (connection_id, secret_ref)
+         VALUES ($1,$2)
+         ON CONFLICT (connection_id) DO UPDATE SET secret_ref = EXCLUDED.secret_ref, updated_at = NOW()`,
+        [id, secretRef]
+      );
+    }
+    const row = await pg.query(
+      `SELECT c.*, s.secret_ref
+         FROM external_calendar_connections c
+         LEFT JOIN external_calendar_secrets s ON s.connection_id = c.id
+        WHERE c.id = $1 AND c.client_id = $2`,
+      [id, clientId]
+    );
+    await pg.query('COMMIT');
+    return { ok: true, connection: sanitizeConnection(row.rows[0]) };
+  } catch (err) {
+    await pg.query('ROLLBACK');
+    return { ok: false, status: 500, error: 'save_failed' };
+  }
+}
+
+async function handleSaveMaps(pg, clientSlug, connectionId, maps) {
+  if (!Array.isArray(maps)) return { ok: false, status: 400, error: 'maps_array_required' };
+  const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
+  if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
+  const clientId = client.rows[0].id;
+  await pg.query('BEGIN');
+  try {
+    const conn = await pg.query(
+      `SELECT id FROM external_calendar_connections WHERE id = $1::uuid AND client_id = $2 FOR UPDATE`,
+      [connectionId, clientId]
+    );
+    if (!conn.rows[0]) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 404, error: 'connection_not_found' };
+    }
+    await pg.query(
+      `DELETE FROM external_calendar_unit_maps WHERE connection_id = $1 AND client_id = $2`,
+      [connectionId, clientId]
+    );
+    for (const m of maps) {
+      const key = String(m.external_unit_key || '').trim();
+      const bedId = String(m.bed_id || '').trim();
+      if (!key || !bedId) {
+        await pg.query('ROLLBACK');
+        return { ok: false, status: 400, error: 'invalid_map' };
+      }
+      const bed = await pg.query(
+        `SELECT id FROM beds WHERE id = $1::uuid AND client_id = $2`,
+        [bedId, clientId]
+      );
+      if (!bed.rows[0]) {
+        await pg.query('ROLLBACK');
+        return { ok: false, status: 400, error: 'bed_not_in_tenant' };
+      }
+      await pg.query(
+        `INSERT INTO external_calendar_unit_maps (connection_id, client_id, external_unit_key, bed_id)
+         VALUES ($1,$2,$3,$4::uuid)`,
+        [connectionId, clientId, key, bedId]
+      );
+    }
+    await pg.query('COMMIT');
+    return { ok: true, count: maps.length };
+  } catch (err) {
+    await pg.query('ROLLBACK');
+    return { ok: false, status: 500, error: 'maps_save_failed' };
+  }
+}
+
+async function handleEnable(pg, clientSlug, connectionId, enabled) {
+  const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
+  if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
+  const status = enabled ? 'pending' : 'disabled';
+  const r = await pg.query(
+    `UPDATE external_calendar_connections
+        SET status = $3, updated_at = NOW()
+      WHERE id = $1::uuid AND client_id = $2
+      RETURNING id, status`,
+    [connectionId, client.rows[0].id, status]
+  );
+  if (!r.rows[0]) return { ok: false, status: 404, error: 'connection_not_found' };
+  return { ok: true, connection: r.rows[0] };
+}
+
+async function handleListMaps(pg, clientSlug, connectionId) {
+  const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
+  if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
+  const r = await pg.query(
+    `SELECT m.external_unit_key, m.bed_id, b.bed_code
+       FROM external_calendar_unit_maps m
+       JOIN beds b ON b.id = m.bed_id AND b.client_id = m.client_id
+      WHERE m.connection_id = $1::uuid AND m.client_id = $2`,
+    [connectionId, client.rows[0].id]
+  );
+  return { ok: true, maps: r.rows };
+}
+
+async function handleRealProbe(pg, { clientSlug, connectionId, fetchSheet }) {
+  const locked = await loadLockedState(pg, { clientSlug, connectionId });
+  if (!locked.ok) return { ok: false, status: 404, error: locked.reason };
+  const fetched = await fetchSheet(locked.connection);
+  if (!fetched.ok) {
+    return {
+      ok: false,
+      status: 422,
+      error: fetched.reason,
+      keep_last_blocks: true,
+      next_status: nextConnectionStatus(locked.connection.status, { ok: false }),
+    };
+  }
+  const plan = probeSheetRows(fetched.rows, {
+    maps: locked.maps,
+    occupancy: locked.occupancy,
+    connectionId: locked.connection.id,
   });
-  const next = nextConnectionStatus(dbState.connection && dbState.connection.status, plan);
+  const next = nextConnectionStatus(locked.connection.status, plan);
   if (!plan.ok) {
     return {
       ok: false,
@@ -94,5 +237,11 @@ module.exports = {
   refuseClient,
   rejectCallerAuthority,
   sanitizeConnection,
-  handleProbeFromState,
+  handleList,
+  handleSave,
+  handleSaveMaps,
+  handleEnable,
+  handleListMaps,
+  handleRealProbe,
+  runConnectionSync,
 };

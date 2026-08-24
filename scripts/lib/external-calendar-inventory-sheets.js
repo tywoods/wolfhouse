@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Read-only Google Sheets adapter (service account JWT).
- * No write scopes. Timeout + inaccessible fail closed (no occupancy writes).
+ * Read-only Google Sheets adapter.
+ * Errors keep their real class — never rewritten as empty_sheet.
  */
 
 const crypto = require('crypto');
@@ -12,6 +12,7 @@ const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_HOST = 'oauth2.googleapis.com';
 const SHEETS_HOST = 'sheets.googleapis.com';
 const DEFAULT_TIMEOUT_MS = 10000;
+const MAX_DATA_ROWS = 5000;
 
 function b64url(buf) {
   return Buffer.from(buf).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -29,8 +30,7 @@ function signJwt(serviceAccount, nowSec) {
   const input = header + '.' + payload;
   const sign = crypto.createSign('RSA-SHA256');
   sign.update(input);
-  const sig = b64url(sign.sign(serviceAccount.private_key));
-  return input + '.' + sig;
+  return input + '.' + b64url(sign.sign(serviceAccount.private_key));
 }
 
 function httpsRequest(opts, body, deps) {
@@ -46,12 +46,7 @@ function httpsRequest(opts, body, deps) {
     }, (res) => {
       const chunks = [];
       res.on('data', (c) => chunks.push(c));
-      res.on('end', () => {
-        resolve({
-          status: res.statusCode,
-          body: Buffer.concat(chunks).toString('utf8'),
-        });
-      });
+      res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
     });
     req.on('error', reject);
     req.setTimeout(timeoutMs, () => {
@@ -65,12 +60,18 @@ function httpsRequest(opts, body, deps) {
   });
 }
 
+function classifyHttp(status) {
+  if (status === 401 || status === 403 || status === 404) return 'sheets_inaccessible';
+  if (status >= 500) return 'sheets_provider_5xx';
+  return 'sheets_http_' + status;
+}
+
 function parseServiceAccountJson(raw) {
   let parsed;
   try { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; }
-  catch (_) { return { ok: false, reason: 'secret_not_json' }; }
+  catch (_) { return { ok: false, reason: 'secret_not_json', keepLastBlocks: true }; }
   if (!parsed || parsed.type !== 'service_account' || !parsed.client_email || !parsed.private_key) {
-    return { ok: false, reason: 'secret_not_service_account' };
+    return { ok: false, reason: 'secret_not_service_account', keepLastBlocks: true };
   }
   return { ok: true, serviceAccount: parsed };
 }
@@ -78,11 +79,15 @@ function parseServiceAccountJson(raw) {
 function resolveSecretRef(secretRef, env) {
   env = env || process.env;
   const name = String(secretRef || '').trim();
-  if (!name) return { ok: false, reason: 'missing_secret_ref' };
-  if (!/^[A-Z][A-Z0-9_]{2,80}$/.test(name)) return { ok: false, reason: 'secret_ref_invalid' };
+  if (!name) return { ok: false, reason: 'secret_missing', keepLastBlocks: true };
+  if (!/^[A-Z][A-Z0-9_]{2,80}$/.test(name)) return { ok: false, reason: 'secret_ref_invalid', keepLastBlocks: true };
   const raw = env[name];
-  if (!raw) return { ok: false, reason: 'secret_unresolved' };
+  if (!raw) return { ok: false, reason: 'secret_unresolved', keepLastBlocks: true };
   return parseServiceAccountJson(raw);
+}
+
+function fail(reason, extra) {
+  return Object.assign({ ok: false, status: 'error', reason, keepLastBlocks: true, writes: [] }, extra || {});
 }
 
 async function fetchAccessToken(serviceAccount, deps) {
@@ -93,85 +98,117 @@ async function fetchAccessToken(serviceAccount, deps) {
     hostname: TOKEN_HOST,
     method: 'POST',
     path: '/token',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'Content-Length': Buffer.byteLength(form),
-    },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(form) },
     timeoutMs: (deps && deps.timeoutMs) || DEFAULT_TIMEOUT_MS,
   }, form, deps);
   if (res.status !== 200) {
     const err = new Error('sheets_token_denied');
-    err.code = 'sheets_inaccessible';
+    err.code = 'sheets_token_denied';
     err.status = res.status;
     throw err;
   }
-  const json = JSON.parse(res.body);
+  let json;
+  try { json = JSON.parse(res.body); }
+  catch (_) {
+    const err = new Error('sheets_token_not_json');
+    err.code = 'sheets_malformed_json';
+    throw err;
+  }
   if (!json.access_token) {
     const err = new Error('sheets_token_missing');
-    err.code = 'sheets_inaccessible';
+    err.code = 'sheets_token_denied';
     throw err;
   }
   return json.access_token;
 }
 
+function detectGridMerges(spreadsheet) {
+  const sheets = (spreadsheet && spreadsheet.sheets) || [];
+  for (let i = 0; i < sheets.length; i++) {
+    const merges = sheets[i].merges || [];
+    if (merges.length) {
+      return { merged: true, count: merges.length, merge: merges[0] };
+    }
+  }
+  return { merged: false };
+}
+
 async function fetchSheetRows(connection, deps) {
   deps = deps || {};
-  const secret = resolveSecretRef(connection.secret_ref, deps.env);
-  if (!secret.ok) {
-    return { ok: false, status: 'error', reason: secret.reason, keepLastBlocks: true, writes: [] };
+  if (typeof deps.fetchSheetRows === 'function') {
+    return deps.fetchSheetRows(connection, deps);
   }
+  const secret = resolveSecretRef(connection.secret_ref, deps.env);
+  if (!secret.ok) return fail(secret.reason);
+
   let token;
   try {
     token = await fetchAccessToken(secret.serviceAccount, deps);
   } catch (err) {
-    return {
-      ok: false,
-      status: 'error',
-      reason: err.code || 'sheets_inaccessible',
-      keepLastBlocks: true,
-      writes: [],
-    };
+    return fail(err.code || 'sheets_token_denied');
   }
-  const range = encodeURIComponent((connection.sheet_name || 'inventory') + '!A1:E5000');
-  const path = '/v4/spreadsheets/' + encodeURIComponent(connection.spreadsheet_id)
-    + '/values/' + range + '?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
-  let res;
+
+  const sheetName = connection.sheet_name || 'inventory';
+  const overflowRange = encodeURIComponent(sheetName + '!A' + (MAX_DATA_ROWS + 2) + ':E' + (MAX_DATA_ROWS + 2));
+  const valuesPath = '/v4/spreadsheets/' + encodeURIComponent(connection.spreadsheet_id)
+    + '/values/' + encodeURIComponent(sheetName + '!A1:E' + (MAX_DATA_ROWS + 1))
+    + '?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
+  const metaPath = '/v4/spreadsheets/' + encodeURIComponent(connection.spreadsheet_id)
+    + '?fields=' + encodeURIComponent('sheets.merges,sheets.properties.title');
+  const overflowPath = '/v4/spreadsheets/' + encodeURIComponent(connection.spreadsheet_id)
+    + '/values/' + overflowRange + '?majorDimension=ROWS';
+
+  let valuesRes;
+  let metaRes;
+  let overflowRes;
   try {
-    res = await httpsRequest({
-      hostname: SHEETS_HOST,
-      method: 'GET',
-      path,
-      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
-      timeoutMs: deps.timeoutMs || DEFAULT_TIMEOUT_MS,
-    }, null, deps);
+    const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };
+    const timeoutMs = deps.timeoutMs || DEFAULT_TIMEOUT_MS;
+    valuesRes = await httpsRequest({ hostname: SHEETS_HOST, method: 'GET', path: valuesPath, headers, timeoutMs }, null, deps);
+    metaRes = await httpsRequest({ hostname: SHEETS_HOST, method: 'GET', path: metaPath, headers, timeoutMs }, null, deps);
+    overflowRes = await httpsRequest({ hostname: SHEETS_HOST, method: 'GET', path: overflowPath, headers, timeoutMs }, null, deps);
   } catch (err) {
-    return {
-      ok: false,
-      status: 'error',
-      reason: err.code || 'sheets_inaccessible',
-      keepLastBlocks: true,
-      writes: [],
-    };
+    return fail(err.code || 'sheets_timeout');
   }
-  if (res.status === 401 || res.status === 403 || res.status === 404) {
-    return { ok: false, status: 'error', reason: 'sheets_inaccessible', http: res.status, keepLastBlocks: true, writes: [] };
+
+  if (valuesRes.status !== 200) return fail(classifyHttp(valuesRes.status), { http: valuesRes.status });
+  if (metaRes.status !== 200) return fail(classifyHttp(metaRes.status), { http: metaRes.status });
+
+  let valuesJson;
+  let metaJson;
+  try {
+    valuesJson = JSON.parse(valuesRes.body);
+    metaJson = JSON.parse(metaRes.body);
+  } catch (_) {
+    return fail('sheets_malformed_json');
   }
-  if (res.status !== 200) {
-    return { ok: false, status: 'error', reason: 'sheets_http_' + res.status, keepLastBlocks: true, writes: [] };
+
+  const merges = detectGridMerges(metaJson);
+  if (merges.merged) return fail('merged_cells', { merges });
+
+  if (overflowRes.status === 200) {
+    try {
+      const overflowJson = JSON.parse(overflowRes.body);
+      const overflow = Array.isArray(overflowJson.values) ? overflowJson.values : [];
+      const nonempty = overflow.some((row) => row && row.some((c) => String(c == null ? '' : c).trim() !== ''));
+      if (nonempty) return fail('sheet_over_limit', { max_data_rows: MAX_DATA_ROWS });
+    } catch (_) {
+      return fail('sheets_malformed_json');
+    }
   }
-  let json;
-  try { json = JSON.parse(res.body); }
-  catch (_) {
-    return { ok: false, status: 'error', reason: 'sheets_not_json', keepLastBlocks: true, writes: [] };
-  }
-  const rows = Array.isArray(json.values) ? json.values : [];
-  return { ok: true, rows };
+
+  const rows = Array.isArray(valuesJson.values) ? valuesJson.values : [];
+  if (rows.length > MAX_DATA_ROWS + 1) return fail('sheet_over_limit', { max_data_rows: MAX_DATA_ROWS });
+  return { ok: true, rows, mergeChecked: true, overflowChecked: true };
 }
 
 module.exports = {
   SHEETS_SCOPE,
+  MAX_DATA_ROWS,
   parseServiceAccountJson,
   resolveSecretRef,
   signJwt,
+  detectGridMerges,
+  classifyHttp,
   fetchSheetRows,
 };

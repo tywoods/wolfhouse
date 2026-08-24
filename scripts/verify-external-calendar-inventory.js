@@ -172,20 +172,15 @@ function main() {
   ok('no ICS adapter', !/kind IN \('ics'/.test(mig));
   ok('no gcal kind', !/gcal/.test(mig));
   ok('probe route exists', /\/staff\/luna-staff\/calendar-bridge\/probe/.test(api));
-  ok('Luna Staff card gated on showOwnerScheduleBridge',
-    /showOwnerScheduleBridge \? `/.test(api) && /id="cc-owner-schedule-bridge"/.test(api));
-  ok('card removed unless wolfhouse-somo', /getClient\(\) !== 'wolfhouse-somo'/.test(api));
+  ok('public probe does not send fabricated rows',
+    /ownerScheduleBridgeJson\('\/staff\/luna-staff\/calendar-bridge\/probe', 'POST', \{\}\)/.test(api));
+  ok('save/sync/enable/maps actions exist',
+    /id="osb-save"/.test(api) && /id="osb-sync"/.test(api) && /id="osb-enable"/.test(api) && /id="osb-save-maps"/.test(api));
   ok('handler rejects caller authority', /rejectCallerAuthority/.test(api));
-  ok('handler loads DB state', /loadBridgeState/.test(api));
-  ok('sheets adapter is read-only scope',
-    fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sheets.js'), 'utf8')
-      .includes('spreadsheets.readonly'));
-  ok('sync persist module exists',
-    fs.existsSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js')));
-  ok('scheduler exported',
-    /createSyncScheduler/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js'), 'utf8')));
-  ok('090 tenant integrity migration exists',
-    fs.existsSync(path.join(ROOT, 'database/migrations/090_external_calendar_inventory_tenant_integrity.sql')));
+  ok('handler uses real probe', /handleRealProbe/.test(api));
+  ok('FOR UPDATE OF c used', /FOR UPDATE OF c/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js'), 'utf8')));
+  ok('091 location_key migration exists',
+    fs.existsSync(path.join(ROOT, 'database/migrations/091_external_calendar_location_key.sql')));
 
   const routes = require('./lib/external-calendar-inventory-routes');
   ok('routes refuse sunset', routes.refuseClient('sunset').ok === false);

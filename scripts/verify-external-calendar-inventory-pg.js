@@ -114,7 +114,7 @@ async function main() {
 
   const live = await tryLivePostgres();
   if (!live) {
-    ok('live stock postgres skipped (no daemon on this host)', true);
+    ok('live stock postgres skipped — no daemon; this is not PG proof', true);
     console.log('\nverify-external-calendar-inventory-pg: ALL CHECKS PASSED');
     return;
   }

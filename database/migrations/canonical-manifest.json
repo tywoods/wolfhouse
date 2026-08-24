@@ -1302,7 +1302,27 @@
       "inForwardChain": false,
       "rationale": "Drops 090 tenant-integrity triggers and function. Safe if objects are missing.",
       "pairsWith": "090_external_calendar_inventory_tenant_integrity.sql",
-      "sha256": "ef88d14e477933a5f707d6ea32bf14bdd9f4eb1b7af40888c315c176aec49c41"
+      "sha256": "a88691f8029eeedbe62df96bcdc48ca6d5b63278e551c8feedf1d15754ea778b"
+    },
+    {
+      "id": "091_external_calendar_location_key",
+      "filename": "091_external_calendar_location_key.sql",
+      "order": 87,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Replace uuid location_id with tenant_locations location_key text + composite FK when that table exists.",
+      "downFilename": "091_external_calendar_location_key_down.sql",
+      "sha256": "43c39ed89cc54c675b70e08b53ef99059593ff6c22f241661fdd7efb5c76c874"
+    },
+    {
+      "id": "091_external_calendar_location_key_down",
+      "filename": "091_external_calendar_location_key_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Drops location_key FK/column. Safe if already absent.",
+      "pairsWith": "091_external_calendar_location_key.sql",
+      "sha256": "23fa924d3490ca475d8a75d02267075e8947b2623a7939b31f673d73c4add2f4"
     }
   ]
 }
