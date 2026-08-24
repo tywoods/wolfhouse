@@ -281,6 +281,10 @@ function main() {
   ok('invalid_map stored as-is', lib.storedErrorCode('invalid_map') === 'invalid_map');
   ok('bed_not_in_tenant stored as-is', lib.storedErrorCode('bed_not_in_tenant') === 'bed_not_in_tenant');
   ok('maps_save_failed stored as-is', lib.storedErrorCode('maps_save_failed') === 'maps_save_failed');
+  ok('date_header_order stored as-is', lib.storedErrorCode('date_header_order') === 'date_header_order');
+  ok('date_header_order is public-safe', lib.PUBLIC_ERROR_CODES.indexOf('date_header_order') >= 0);
+  ok('date_header_order has public-safe operator copy',
+    /date_header_order: 'The Sheet dates are not in left-to-right order\. Last blocks were kept\.'/.test(api));
   ok('SQL payload is not a public skip code', lib.publicSkipCode('duplicate key value') === null);
   ok('allowlisted skip code kept', lib.publicSkipCode('unmapped_unit_key') === 'unmapped_unit_key');
   const nestedSkip = lib.sanitizeSkipped([{
@@ -424,6 +428,33 @@ function main() {
   ok('duplicate date headers fail closed with no writes',
     dupDate.ok === false && dupDate.writes.length === 0 && dupDate.keepLastBlocks === true
     && dupDate.reason === 'date_header_duplicate');
+
+  const descHeaders = lib.parseOccupancyDateHeaders(['', '2026-09-03', '2026-09-01']);
+  ok('descending date headers fail closed as date_header_order',
+    descHeaders.ok === false && descHeaders.reason === 'date_header_order' && descHeaders.dates.length === 0);
+
+  const unsortedHeaders = lib.parseOccupancyDateHeaders(['', '2026-09-01', '2026-09-03', '2026-09-02']);
+  ok('non-strictly-ascending date headers fail closed as date_header_order',
+    unsortedHeaders.ok === false && unsortedHeaders.reason === 'date_header_order' && unsortedHeaders.dates.length === 0);
+
+  const equalAdjacent = lib.parseOccupancyDateHeaders(['', '2026-09-01', '2026-09-01']);
+  ok('adjacent duplicate dates keep date_header_duplicate',
+    equalAdjacent.ok === false && equalAdjacent.reason === 'date_header_duplicate');
+
+  const ascGapHeaders = lib.parseOccupancyDateHeaders(['', '2026-09-01', '2026-09-03']);
+  ok('strictly ascending date headers with a gap still parse',
+    ascGapHeaders.ok === true
+    && ascGapHeaders.dates.map((d) => d.iso).join(',') === '2026-09-01,2026-09-03');
+
+  const descProbe = lib.probeSheetRows(occGrid(
+    ['2026-09-03', '2026-09-01'],
+    [{ name: 'R1A', fills: [true, true] }]
+  ), { maps, connectionId: CONN, occupancy: {} });
+  ok('descending occupancy grid fails closed with zero writes',
+    descProbe.ok === false
+    && descProbe.reason === 'date_header_order'
+    && descProbe.writes.length === 0
+    && descProbe.keepLastBlocks === true);
 
   const badDate = lib.probeSheetRows(occGrid(
     ['2026-09-10', '10/09/2026'],
@@ -592,6 +623,9 @@ function main() {
     typeof lib.representedSheetWindow === 'function'
     && JSON.stringify(lib.representedSheetWindow(septDates.map((iso, i) => ({ col: i + 1, iso }))))
       === JSON.stringify({ start: '2026-09-01', end: '2026-09-04' }));
+  ok('represented window does not min/max-recover reversed headers',
+    lib.representedSheetWindow(['2026-09-03', '2026-09-01']) == null
+    && lib.representedSheetWindow(['2026-09-01', '2026-09-03', '2026-09-02']) == null);
   ok('interval subtract keeps fully-outside range',
     typeof lib.subtractHalfOpenRange === 'function'
     && JSON.stringify(lib.subtractHalfOpenRange('2026-10-01', '2026-10-10', '2026-09-01', '2026-09-04'))
@@ -711,6 +745,41 @@ function main() {
     && afterMixedWindow.occupancy[BED_A].some((r) => r.booking_id === 'staff-1')
     && afterMixedWindow.occupancy[BED_A].some((r) => r.booking_id === 'xblk-other')
     && afterMixedWindow.occupancy[BED_A].some((r) => r.booking_id === 'xblk-oct'));
+
+  const reversedOwned = {
+    [BED_A]: [ownedBlock({ start: '2026-09-01', end: '2026-09-04', booking_id: 'xblk-reversed' })],
+  };
+  const reversedPlan = lib.probeSheetRows(occGrid(
+    ['2026-09-03', '2026-09-01'],
+    [{ name: 'R1A', fills: [false, false] }]
+  ), { maps, connectionId: CONN, occupancy: reversedOwned });
+  ok('reversed date headers fail closed with zero writes and keep-last',
+    reversedPlan.ok === false
+    && reversedPlan.reason === 'date_header_order'
+    && reversedPlan.writes.length === 0
+    && reversedPlan.keepLastBlocks === true
+    && reversedPlan.writes.every((w) => w.action !== 'cancel_owned_if_present'));
+  const afterReversed = applyProbePlan(reversedPlan, {
+    connectionId: CONN,
+    occupancy: JSON.parse(JSON.stringify(reversedOwned)),
+  });
+  ok('reversed headers do not cancel the existing owned September block',
+    afterReversed.cancelled.length === 0
+    && afterReversed.wrote === false
+    && afterReversed.keepLastBlocks === true
+    && afterReversed.occupancy[BED_A].some((r) => r.booking_id === 'xblk-reversed'
+      && r.assignment_start_date === '2026-09-01'
+      && r.assignment_end_date === '2026-09-04'));
+
+  const shuffledPlan = lib.probeSheetRows(occGrid(
+    ['2026-09-01', '2026-09-03', '2026-09-02'],
+    [{ name: 'R1A', fills: [true, true, true] }]
+  ), { maps, connectionId: CONN, occupancy: reversedOwned });
+  ok('shuffled non-ascending headers fail closed with zero writes',
+    shuffledPlan.ok === false
+    && shuffledPlan.reason === 'date_header_order'
+    && shuffledPlan.writes.length === 0
+    && shuffledPlan.keepLastBlocks === true);
 
   console.log('\nverify-external-calendar-inventory: ALL CHECKS PASSED');
 }

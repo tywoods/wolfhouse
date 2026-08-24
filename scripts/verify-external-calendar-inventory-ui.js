@@ -223,6 +223,7 @@ async function main() {
   ok('Sheet shape help disclosure', /How should my Sheet look\?/.test(html));
   ok('help says first column is bed names', /first column/i.test(html) && /bed names/i.test(html));
   ok('help says top row is dates', /top row/i.test(html) && /dates/i.test(html));
+  ok('help says dates increase left to right', /left to right/i.test(html));
   ok('help says colored means booked', /colored/i.test(html) && /booked/i.test(html));
   ok('help says clear means available', /clear/i.test(html) && /available/i.test(html));
   ok('Remove connected Sheet action exists', /Remove connected Sheet/.test(html) && /id="osb-remove"/.test(html));

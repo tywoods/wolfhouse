@@ -22292,7 +22292,7 @@ ${showOwnerScheduleBridge ? `
       <summary>How should my Sheet look?</summary>
       <ul>
         <li>The first column has bed names.</li>
-        <li>The top row has dates.</li>
+        <li>The top row has dates, increasing left to right.</li>
         <li>A colored cell means that bed is booked on that date.</li>
         <li>A clear cell means it is available.</li>
       </ul>
@@ -30509,6 +30509,7 @@ var OSB_SAFE = {
   overlap_conflict: 'That bed is already occupied. Last blocks were kept.',
   date_header_invalid: 'The Sheet date headers are not valid. Last blocks were kept.',
   date_header_duplicate: 'The Sheet has the same date twice. Last blocks were kept.',
+  date_header_order: 'The Sheet dates are not in left-to-right order. Last blocks were kept.',
   duplicate_bed_name: 'The Sheet has the same bed name twice. Last blocks were kept.',
   empty_bed_name: 'A colored row is missing a bed name. Last blocks were kept.',
   unknown_structure: 'The Sheet is not a bed-by-date grid. Last blocks were kept.',

@@ -49,10 +49,16 @@ const WHITE_EPS = 0.999;
  * shorter (trailing clear). Any fill or data signal to the right of that last
  * date is `header_unknown_column` (zero writes, keep last).
  *
+ * Date headers must strictly increase left-to-right. Duplicate dates stay
+ * `date_header_duplicate`. Decreasing or out-of-order dates are
+ * `date_header_order` (zero writes, keep last). No min/max recovery of a
+ * reversed or shuffled grid.
+ *
  * Cancellation is bounded to the represented half-open window
- * `[min header date, max header date + 1 day)`. Fully outside owned inventory
- * is preserved. A straddling owned range is split: cancel the old UID, then
- * insert remainder interval(s) using the same connection ownership tags.
+ * `[first header date, last header date + 1 day)` on a strictly ascending
+ * header row. Fully outside owned inventory is preserved. A straddling owned
+ * range is split: cancel the old UID, then insert remainder interval(s) using
+ * the same connection ownership tags.
  */
 
 const PROTECTED_ASSIGNMENT_TYPES = Object.freeze([
@@ -255,6 +261,9 @@ function parseOccupancyDateHeaders(headerRow) {
     if (seen[parsed.value]) {
       return { ok: false, reason: 'date_header_duplicate', dates: [], value: parsed.value, col: c + 1 };
     }
+    if (dates.length && !(parsed.value > dates[dates.length - 1].iso)) {
+      return { ok: false, reason: 'date_header_order', dates: [], value: parsed.value, col: c + 1 };
+    }
     seen[parsed.value] = true;
     dates.push({ col: c, iso: parsed.value });
   }
@@ -281,24 +290,24 @@ function isoDateOnly(value) {
 }
 
 /**
- * Represented Sheet window is half-open [min header date, max header date + 1 day).
+ * Represented Sheet window is half-open [first header date, last header date + 1 day).
+ * Callers must pass strictly ascending headers (parseOccupancyDateHeaders).
  * Cancellation and remainder math use this span, not an unbounded bed history.
  */
 function representedSheetWindow(dates) {
   const list = Array.isArray(dates) ? dates : [];
-  let min = null;
-  let max = null;
+  const isos = [];
   for (let i = 0; i < list.length; i++) {
     const item = list[i];
     const iso = isoDateOnly(item && typeof item === 'object' ? item.iso : item);
     if (!DATE_RE.test(iso)) continue;
-    if (min == null || iso < min) min = iso;
-    if (max == null || iso > max) max = iso;
+    if (isos.length && !(iso > isos[isos.length - 1])) return null;
+    isos.push(iso);
   }
-  if (!min || !max) return null;
-  const end = addDaysIso(max, 1);
+  if (!isos.length) return null;
+  const end = addDaysIso(isos[isos.length - 1], 1);
   if (!end) return null;
-  return { start: min, end };
+  return { start: isos[0], end };
 }
 
 /**
@@ -644,6 +653,7 @@ const PUBLIC_ERROR_CODES = Object.freeze([
   'duplicate_bed_name',
   'date_header_invalid',
   'date_header_duplicate',
+  'date_header_order',
   'unknown_structure',
   'header_unknown_column',
   'header_drift',

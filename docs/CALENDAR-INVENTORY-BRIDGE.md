@@ -123,7 +123,7 @@ One tab (name configured). The Sheet is an **occupancy grid**, not a row-per-sta
 | | Meaning |
 |--|---------|
 | First column | Bed / unit names as they appear in the Sheet |
-| Top row | Dates (`YYYY-MM-DD` in `formattedValue`; locale strings and leaked Excel serials fail closed) |
+| Top row | Dates (`YYYY-MM-DD` in `formattedValue`; must strictly increase left-to-right; locale strings and leaked Excel serials fail closed) |
 | Intersection cell | That bed on that date |
 
 **Booking authority is visible cell fill, never cell text.** A cell that says `BOOKED` but has default/clear fill is available. A yellow cell with no text is booked.
@@ -143,7 +143,7 @@ We do **not** fetch `sheets.conditionalFormats` rules. Conditional formatting is
 | Absent, transparent (`alpha: 0`), explicit white, theme `BACKGROUND` / `UNSPECIFIED` | **AVAILABLE** |
 | Any other effective fill (rgb or non-default theme, including CF-applied colour) | **BOOKED** |
 
-Consecutive booked dates for the same bed coalesce into a half-open range `[start, end)`. Clearing fills on a valid mapped grid cancels **only** `external_inventory_block` rows owned by this connection, and only inside the represented half-open Sheet date window `[first header date, last header date + 1 day)`. Owned inventory fully outside that window is preserved. A connection-owned range that straddles the window is split with interval subtraction: the in-window portion follows the snapshot, and any outside remainder is kept as owned block(s). Guest stays, staff blocks, and other connections are never removed.
+Consecutive booked dates for the same bed coalesce into a half-open range `[start, end)`. Clearing fills on a valid mapped grid cancels **only** `external_inventory_block` rows owned by this connection, and only inside the represented half-open Sheet date window `[first header date, last header date + 1 day)` — that window is used only when date headers strictly increase left-to-right. Out-of-order or reversed headers fail closed (`date_header_order`); there is no min/max recovery of a malformed grid. Owned inventory fully outside that window is preserved. A connection-owned range that straddles the window is split with interval subtraction: the in-window portion follows the snapshot, and any outside remainder is kept as owned block(s). Guest stays, staff blocks, and other connections are never removed.
 
 Removing a disabled connection deletes only matching `external_inventory_block` `booking_beds` rows (tenant + parent `metadata.external_calendar.connection_id`). The parent `bookings` row is deleted only when it is that connection’s metadata and has zero remaining `booking_beds`. Mixed/legacy parents keep every guest, staff, protected, or other-connection assignment.
 
@@ -153,6 +153,7 @@ Removing a disabled connection deletes only matching `external_inventory_block` 
 |------|-------------|
 | Missing grid / unknown structure / no parseable date headers | `error`, no writes |
 | Duplicate or invalid date headers (locale, Excel serial) | `error`, no writes |
+| Decreasing or out-of-order date headers | `date_header_order`; zero writes, keep last. No min/max recovery of reversed order |
 | Merged cells in used range | `error` |
 | Grid overflow (too many rows or date columns) | `sheet_over_limit` |
 | Duplicate bed names | `error` |

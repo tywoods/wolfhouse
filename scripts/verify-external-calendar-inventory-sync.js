@@ -261,6 +261,81 @@ async function main() {
     && extraDataSync.bookingInserts === 0
     && extraDataSyncRes.reason === 'header_unknown_column');
 
+  const reversedUid = 'grid:R1A:2026-09-01:2026-09-04';
+  const reversedOccState = {
+    queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0,
+    occupancyRows: [{
+      bed_id: 'bed-a',
+      assignment_type: 'external_inventory_block',
+      assignment_start_date: '2026-09-01',
+      assignment_end_date: '2026-09-04',
+      booking_id: 'bk-reversed',
+      status: 'blocked',
+      metadata: {
+        external_calendar: {
+          connection_id: 'conn-1',
+          external_uid: reversedUid,
+        },
+      },
+    }],
+    cancelledBookingIds: [],
+    deletedBedSql: [],
+  };
+  const reversedPg = mockPg(reversedOccState);
+  const reversedOrig = reversedPg.query.bind(reversedPg);
+  reversedPg.query = async (sql, params) => {
+    if (/FROM booking_beds/.test(sql) && !/INSERT/.test(sql) && !/DELETE/.test(sql) && !/UPDATE/.test(sql)) {
+      reversedOccState.queries.push({ sql, params });
+      if (/assignment_start_date < \$4/.test(sql)) return { rows: [] };
+      return { rows: reversedOccState.occupancyRows };
+    }
+    if (/SELECT bk.id/.test(sql)) {
+      reversedOccState.queries.push({ sql, params });
+      if (params && params[2] === reversedUid) return { rows: [{ id: 'bk-reversed' }] };
+      return { rows: [] };
+    }
+    if (/DELETE FROM booking_beds/.test(sql)) {
+      reversedOccState.deletedBedSql.push({ sql, params });
+    }
+    if (/UPDATE bookings SET status = 'cancelled'/.test(sql)) {
+      reversedOccState.cancelledBookingIds.push(params[0]);
+    }
+    return reversedOrig(sql, params);
+  };
+  const reversedSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        {
+          rowData: [
+            { values: [nameCell(''), dateCell('2026-09-03'), dateCell('2026-09-01')] },
+            { values: [nameCell('R1A'), { formattedValue: '' }, { formattedValue: '' }] },
+          ],
+        },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('reversed header snapshot still parses grid cells',
+    reversedSnap.ok === true
+    && reversedSnap.rows[0][1].formattedValue === '2026-09-03'
+    && reversedSnap.rows[0][2].formattedValue === '2026-09-01');
+  const reversedSync = await runConnectionSync(reversedPg, {
+    clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
+    fetched: reversedSnap,
+  });
+  ok('reversed date headers fail closed with zero writes and keep-last',
+    reversedSync.ok === false
+    && reversedSync.keepLastBlocks === true
+    && reversedSync.wrote === false
+    && reversedSync.reason === 'date_header_order'
+    && reversedOccState.bookingInserts === 0
+    && reversedOccState.bedInserts === 0
+    && reversedOccState.cancelledBookingIds.length === 0
+    && reversedOccState.deletedBedSql.length === 0);
+
   const octoberUid = 'grid:R1A:2026-10-01:2026-10-10';
   const octoberOccState = {
     queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0,

@@ -83,6 +83,9 @@ async function main() {
     extCalRoutes.publicResult({ ok: false, error: 'invalid_map' }).error === 'invalid_map'
     && extCalRoutes.publicResult({ ok: false, error: 'bed_not_in_tenant' }).error === 'bed_not_in_tenant'
     && extCalRoutes.publicResult({ ok: false, error: 'maps_save_failed' }).error === 'maps_save_failed');
+  ok('date_header_order stays public-safe',
+    extCalRoutes.publicResult({ ok: false, reason: 'date_header_order', keepLastBlocks: true }).error === 'date_header_order'
+    && extCalRoutes.publicResult({ ok: false, reason: 'date_header_order', keepLastBlocks: true }).keepLastBlocks === true);
   ok('allowlisted skip_reason survives publicResult',
     extCalRoutes.publicResult({
       ok: false,
