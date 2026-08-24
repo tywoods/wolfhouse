@@ -111,31 +111,28 @@ function selectForwardChainThrough(targetId) {
 
 async function applySqlFile(client, filename) {
   const sql = fs.readFileSync(path.join(ROOT, 'database/migrations', filename), 'utf8');
-  await client.query(sql);
+  try {
+    await client.query(sql);
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* already idle */ }
+    throw err;
+  }
 }
 
-async function insertMinimalOccupancy(pg, { bookingId, bedId, hostelId, clientId, start, end, status }) {
+async function insertMinimalOccupancy(pg, { bookingId, bedId, clientId, start, end, status }) {
+  const code = 'GATE-' + String(bookingId).replace(/-/g, '').slice(0, 16);
   await pg.query(
-    `INSERT INTO bookings (id, hostel_id, status, check_in, check_out)
-     VALUES ($1::uuid, $2::uuid, $3::booking_status, $4::date, $5::date)
+    `INSERT INTO bookings (id, client_id, booking_code, status, check_in, check_out)
+     VALUES ($1::uuid, $2::uuid, $3, $4::booking_status, $5::date, $6::date)
      ON CONFLICT (id) DO NOTHING`,
-    [bookingId, hostelId, status || 'confirmed', start, end]
+    [bookingId, clientId, code, status || 'confirmed', start, end]
   );
-  try {
-    await pg.query(`UPDATE bookings SET client_id = $2 WHERE id = $1`, [bookingId, clientId]);
-  } catch (_) { /* column may be absent on older prefixes */ }
   await pg.query(
     `INSERT INTO booking_beds (
-        id, hostel_id, booking_id, bed_id, assignment_start_date, assignment_end_date, assignment_type
+        id, client_id, booking_id, bed_id, assignment_start_date, assignment_end_date, assignment_type
       ) VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, $4::date, $5::date, 'external_inventory_block')`,
-    [hostelId, bookingId, bedId, start, end]
+    [clientId, bookingId, bedId, start, end]
   );
-  try {
-    await pg.query(
-      `UPDATE booking_beds SET client_id = $2 WHERE booking_id = $1`,
-      [bookingId, clientId]
-    );
-  } catch (_) { /* optional */ }
 }
 
 async function waitForAdvisoryWait(observer, pid, timeoutMs) {
@@ -229,8 +226,9 @@ async function runOccupancyRaceMatrix(a, b, observer, fx) {
   ok('race date-change vs date-change: one commit', true);
 
   const bed2 = await a.query(
-    `INSERT INTO beds (hostel_id, room_code, bed_code) VALUES ($1, 'R1', 'B') RETURNING id`,
-    [fx.hostelId]
+    `INSERT INTO beds (client_id, room_id, bed_code)
+     VALUES ($1, $2, 'B') RETURNING id`,
+    [fx.clientId, fx.roomId]
   );
   const moveA = id();
   await insertMinimalOccupancy(a, { ...fx, bookingId: moveA, start: '2026-10-01', end: '2026-10-03' });
@@ -305,16 +303,19 @@ async function runOccupancyRaceMatrix(a, b, observer, fx) {
 }
 
 async function live090Hostile(pg, fx) {
-  const other = await pg.query(`INSERT INTO clients (slug) VALUES ('sunset-gate') RETURNING id`).catch(async () => {
-    const r = await pg.query(`SELECT id FROM clients WHERE slug = 'sunset-gate' LIMIT 1`);
-    return r;
-  });
+  const other = await pg.query(
+    `INSERT INTO clients (slug, name) VALUES ('sunset-gate', 'Sunset gate')
+     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id`
+  );
   const otherId = other.rows[0].id;
   const otherBed = await pg.query(
-    `INSERT INTO beds (hostel_id, room_code, bed_code) VALUES ($1, 'SS', '1') RETURNING id`,
-    [fx.hostelId]
-  );
-  try { await pg.query(`UPDATE beds SET client_id = $2 WHERE id = $1`, [otherBed.rows[0].id, otherId]); } catch (_) {}
+    `INSERT INTO rooms (client_id, room_code) VALUES ($1, 'SS') RETURNING id`,
+    [otherId]
+  ).then(async (room) => pg.query(
+    `INSERT INTO beds (client_id, room_id, bed_code) VALUES ($1, $2, '1') RETURNING id`,
+    [otherId, room.rows[0].id]
+  ));
   const conn = await pg.query(
     `INSERT INTO external_calendar_connections (client_id, name, spreadsheet_id, status)
      VALUES ($1, 'gate', '12345678901234567890', 'disabled') RETURNING id`,
@@ -473,23 +474,23 @@ async function runLiveDisposableGate() {
     for (const m of chain) await applySqlFile(a, m.filename);
     ok('live applied canonical chain through 091', chain[chain.length - 1].id === '091_booking_occupancy_serialization');
 
-    const hostel = await a.query(`INSERT INTO hostels (name) VALUES ('gate') RETURNING id`);
-    const hostelId = hostel.rows[0].id;
-    let clientId = hostelId;
-    try {
-      const cl = await a.query(`INSERT INTO clients (id, slug) VALUES ($1, 'wolfhouse-somo') RETURNING id`, [hostelId]);
-      clientId = cl.rows[0].id;
-    } catch (_) {
-      const cl = await a.query(`SELECT id FROM clients WHERE slug = 'wolfhouse-somo' LIMIT 1`);
-      if (cl.rows[0]) clientId = cl.rows[0].id;
-    }
+    const hostel = await a.query(
+      `INSERT INTO clients (slug, name) VALUES ('wolfhouse-somo', 'Wolfhouse')
+       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`
+    );
+    const clientId = hostel.rows[0].id;
+    const room = await a.query(
+      `INSERT INTO rooms (client_id, room_code) VALUES ($1, 'R1') RETURNING id`,
+      [clientId]
+    );
     const bed = await a.query(
-      `INSERT INTO beds (hostel_id, room_code, bed_code) VALUES ($1, 'R1', 'A') RETURNING id`,
-      [hostelId]
+      `INSERT INTO beds (client_id, room_id, bed_code) VALUES ($1, $2, 'A') RETURNING id`,
+      [clientId, room.rows[0].id]
     );
     const fixture = {
-      hostelId,
       clientId,
+      roomId: room.rows[0].id,
       bedId: bed.rows[0].id,
     };
 
