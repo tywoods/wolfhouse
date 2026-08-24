@@ -22286,11 +22286,13 @@ ${showOwnerScheduleBridge ? `
     <div class="osb-stack">
       <div id="osb-empty" class="osb-empty">
         <p>No Google Sheet is connected yet.</p>
-        <button type="button" class="btn btn-primary" id="osb-new">Connect Google Sheet</button>
       </div>
       <div id="osb-load-error" class="osb-empty" hidden>
         <p>Could not load Owner schedule. Refresh to try again.</p>
         <button type="button" class="btn btn-ghost" id="osb-retry">Refresh</button>
+      </div>
+      <div class="osb-actions" id="osb-primary-actions">
+        <button type="button" class="btn btn-primary" id="osb-new">Connect Google Sheet</button>
       </div>
       <div id="osb-editor" hidden>
         <div class="osb-field">
@@ -30524,6 +30526,7 @@ function ownerSchedulePaint(){
   ownerScheduleSetHidden('osb-empty', osbView === 'rest');
   ownerScheduleSetHidden('osb-editor', osbView === 'editor');
   ownerScheduleSetHidden('osb-detail', osbView === 'detail' && hasConn);
+  ownerScheduleSetHidden('osb-primary-actions', osbView !== 'editor');
   var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
   var statusEl = el('osb-detail-status');
   var nameEl = el('osb-detail-name');
@@ -30801,8 +30804,7 @@ if (el('osb-probe')) el('osb-probe').addEventListener('click', ownerScheduleBrid
 if (el('osb-sync')) el('osb-sync').addEventListener('click', ownerScheduleBridgeSync);
 if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){
   var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
-  var on = !(conn && conn.status && conn.status !== 'disabled');
-  ownerScheduleBridgeEnable(on);
+  ownerScheduleBridgeEnable(!ownerScheduleIngestOn(conn));
 });
 if (el('osb-disable')) el('osb-disable').addEventListener('click', function(){ ownerScheduleBridgeEnable(false); });
 if (el('osb-save-maps')) el('osb-save-maps').addEventListener('click', ownerScheduleBridgeSaveMaps);

@@ -3,12 +3,13 @@
 /**
  * Generated-browser gate for the Owner schedule card.
  * Serves production buildUiHtmlForOfflineTest HTML and drives Chromium events.
- * Playwright missing → exit 2 (skip ≠ pass).
+ * Playwright/Chromium missing → exit 2 (skip ≠ pass).
  */
 
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { URL } = require('url');
 
 process.env.NODE_ENV = 'test';
 process.env.STAFF_UI_BUILDER_TEST_SEAM = '1';
@@ -16,8 +17,11 @@ process.env.STAFF_AUTH_REQUIRED = 'false';
 process.env.STAFF_AUTH_ALLOW_OPEN = 'true';
 process.env.EXTERNAL_CALENDAR_INGEST_ENABLED = 'true';
 process.env.DEFAULT_CLIENT_SLUG = 'wolfhouse-somo';
+process.env.STAFF_PORTAL_LOCALES = process.env.STAFF_PORTAL_LOCALES || 'en,es,it';
 
 const SHOT_DIR = path.join('/opt/data/workspace/patches', 'osb-ui-shots');
+const FIRST_ID = '11111111-1111-1111-1111-111111111111';
+const SECOND_ID = '22222222-2222-2222-2222-222222222222';
 
 function ok(label, cond, detail) {
   if (!cond) {
@@ -39,6 +43,7 @@ function tryPlaywright() {
     let mod;
     try { mod = require(candidate); } catch (_) { continue; }
     try {
+      if (process.env.PLAYWRIGHT_BROWSERS_PATH && fs.existsSync(process.env.PLAYWRIGHT_BROWSERS_PATH)) return mod;
       if (fs.existsSync(mod.chromium.executablePath())) return mod;
     } catch (_) { /* browsers not downloaded */ }
   }
@@ -56,25 +61,43 @@ function buildHtml() {
   return api.buildUiHtmlForOfflineTest(0, 'wolfhouse-somo');
 }
 
-function serve(html, handler) {
-  return new Promise((resolve, reject) => {
-    const server = http.createServer((req, res) => {
-      const url = req.url.split('?')[0];
-      if (url === '/' || url === '/staff/ui') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(html);
-        return;
-      }
-      handler(req, res);
-    });
-    server.listen(0, '127.0.0.1', () => resolve({ server, origin: `http://127.0.0.1:${server.address().port}` }));
-    server.once('error', reject);
+function json(res, code, body) {
+  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(body));
+}
+
+function visible(page, sel) {
+  return page.locator(sel).evaluate((n) => {
+    const r = n.getBoundingClientRect();
+    const st = window.getComputedStyle(n);
+    return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 0 && r.height > 0;
   });
 }
 
-function json(res, code, body) {
-  res.writeHead(code, { 'content-type': 'application/json' });
-  res.end(JSON.stringify(body));
+async function openLunaStaff(page) {
+  await page.waitForFunction(() => (
+    document.body
+    && !document.body.classList.contains('portal-profile-pending')
+    && document.querySelector('#c-client option[value="wolfhouse-somo"]')
+  ), null, { timeout: 30000 });
+
+  const whLuna = page.locator('#wh-admin-tab-luna-staff');
+  const topLuna = page.locator('button.tab-btn[data-tab="ask-luna"]');
+  if (await whLuna.isVisible()) {
+    await page.locator('button.tab-btn[data-tab="admin"]').click();
+    await page.waitForSelector('#tab-admin.tab-panel.active', { timeout: 20000 });
+    await whLuna.click();
+  } else {
+    await topLuna.click();
+  }
+
+  await page.waitForFunction(() => {
+    const card = document.getElementById('cc-owner-schedule-bridge');
+    if (!card) return false;
+    const st = window.getComputedStyle(card);
+    const r = card.getBoundingClientRect();
+    return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 8 && r.height > 8;
+  }, null, { timeout: 20000 });
 }
 
 async function main() {
@@ -85,6 +108,7 @@ async function main() {
   ok('generated HTML has no SECRET_REF', !/SECRET_REF/.test(html));
   ok('generated save has no secret_ref payload', !/function ownerScheduleBridgeSave\(\)\{[\s\S]{0,400}secret_ref/.test(html));
   ok('generated bed control is a select', /data-osb-bed/.test(html));
+  ok('toggle uses ownerScheduleIngestOn', /ownerScheduleBridgeEnable\(!ownerScheduleIngestOn\(conn\)\)/.test(html));
 
   const playwright = tryPlaywright();
   if (!playwright) {
@@ -92,6 +116,7 @@ async function main() {
     process.exit(2);
   }
 
+  const { getAccessibleClients, buildClientProfilesMap } = require('./lib/staff-portal-clients');
   const rooms = {
     success: true,
     rooms: [{
@@ -105,7 +130,7 @@ async function main() {
   };
   const connections = [
     {
-      id: '11111111-1111-1111-1111-111111111111',
+      id: FIRST_ID,
       name: 'Owner schedule · SHEETA',
       status: 'disabled',
       spreadsheet_id: 'sheetAAAAAA',
@@ -113,7 +138,7 @@ async function main() {
       has_secret: true,
     },
     {
-      id: '22222222-2222-2222-2222-222222222222',
+      id: SECOND_ID,
       name: 'Owner schedule · SHEETB',
       status: 'pending',
       spreadsheet_id: 'sheetBBBBBB',
@@ -122,97 +147,137 @@ async function main() {
     },
   ];
   const mapsById = {
-    '11111111-1111-1111-1111-111111111111': [
+    [FIRST_ID]: [
       { external_unit_key: 'R1A', bed_id: 'bed-live-1' },
       { external_unit_key: 'OLD', bed_id: 'bed-gone' },
     ],
-    '22222222-2222-2222-2222-222222222222': [],
+    [SECOND_ID]: [],
   };
   let failList = false;
   const posts = [];
 
-  const { server, origin } = await serve(html, (req, res) => {
-    const url = new URL(req.url, origin);
-    if (url.pathname === '/staff/tour-operator/rooms') return json(res, 200, rooms);
-    if (url.pathname === '/staff/luna-staff/calendar-bridge' && req.method === 'GET') {
-      if (failList) return json(res, 500, { ok: false, error: 'calendar_bridge_failed' });
-      return json(res, 200, { ok: true, connections });
-    }
-    if (url.pathname === '/staff/luna-staff/calendar-bridge/maps' && req.method === 'GET') {
-      const id = url.searchParams.get('id');
-      return json(res, 200, { ok: true, maps: mapsById[id] || [] });
-    }
-    if (req.method === 'POST' || req.method === 'PUT') {
-      let raw = '';
-      req.on('data', (c) => { raw += c; });
-      req.on('end', () => {
-        let body = {};
-        try { body = raw ? JSON.parse(raw) : {}; } catch (_) { body = {}; }
-        posts.push({ path: url.pathname, method: req.method, body });
-        json(res, 200, { ok: true, connection: connections[0] });
-      });
-      return;
-    }
-    json(res, 404, { ok: false, error: 'not_found' });
+  const server = await new Promise((resolve, reject) => {
+    const s = http.createServer((req, res) => {
+      const parsed = new URL(req.url, 'http://127.0.0.1');
+      const pathname = parsed.pathname;
+      if (pathname === '/' || pathname === '/staff/ui') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(html);
+        return;
+      }
+      if (pathname === '/staff/auth/session') {
+        return json(res, 200, {
+          success: true,
+          auth_required: false,
+          role: 'owner',
+          email: null,
+          display_name: null,
+          clients: getAccessibleClients(null),
+          client_profiles: buildClientProfilesMap(null),
+          can_use_owner_insights: true,
+        });
+      }
+      if (pathname === '/staff/tour-operator/rooms') return json(res, 200, rooms);
+      if (pathname === '/staff/luna-staff/calendar-bridge' && req.method === 'GET') {
+        if (failList) return json(res, 500, { ok: false, error: 'calendar_bridge_failed' });
+        return json(res, 200, { ok: true, connections });
+      }
+      if (pathname === '/staff/luna-staff/calendar-bridge/maps' && req.method === 'GET') {
+        return json(res, 200, { ok: true, maps: mapsById[parsed.searchParams.get('id')] || [] });
+      }
+      if (pathname === '/staff/luna-staff/calendar-bridge/sync') {
+        posts.push({ path: pathname, method: req.method, body: {} });
+        return json(res, 200, { ok: true });
+      }
+      if (req.method === 'POST' || req.method === 'PUT') {
+        let raw = '';
+        req.on('data', (c) => { raw += c; });
+        req.on('end', () => {
+          let body = {};
+          try { body = raw ? JSON.parse(raw) : {}; } catch (_) { body = {}; }
+          posts.push({ path: pathname, method: req.method, body });
+          if (pathname === '/staff/luna-staff/calendar-bridge' && req.method === 'POST') {
+            const saved = {
+              id: '33333333-3333-3333-3333-333333333333',
+              name: body.name || 'Owner schedule',
+              status: 'disabled',
+              spreadsheet_id: body.spreadsheet_id,
+              sheet_name: body.sheet_name || 'inventory',
+              has_secret: false,
+            };
+            connections.push(saved);
+            return json(res, 200, { ok: true, connection: saved });
+          }
+          json(res, 200, { ok: true, connection: connections[0] });
+        });
+        return;
+      }
+      if (pathname.startsWith('/staff/')) {
+        return json(res, 200, {
+          success: true, ok: true, rows: [], conversations: [], offerings: [],
+          services: [], days: [], counts: {}, numbers: [], prompts: [],
+        });
+      }
+      json(res, 404, { ok: false, error: 'not_found' });
+    });
+    s.listen(0, '127.0.0.1', () => resolve(s));
+    s.once('error', reject);
   });
-
+  const origin = `http://127.0.0.1:${server.address().port}`;
   fs.mkdirSync(SHOT_DIR, { recursive: true });
+
   const browser = await playwright.chromium.launch({ headless: true });
   try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    await page.addInitScript(() => {
-      window.getClient = function () { return 'wolfhouse-somo'; };
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    await context.addInitScript(() => {
+      localStorage.setItem('staff_portal_client', 'wolfhouse-somo');
     });
-    await page.goto(origin + '/staff/ui', { waitUntil: 'domcontentloaded' });
-    await page.evaluate(() => {
-      if (typeof window.getClient !== 'function') window.getClient = function () { return 'wolfhouse-somo'; };
-      const tab = document.querySelector('[data-tab="ask-luna"], #tab-ask-luna');
-      if (tab && tab.click) tab.click();
-      const panel = document.getElementById('tab-ask-luna');
-      if (panel) panel.classList.add('active');
-    });
-    await page.waitForSelector('#cc-owner-schedule-bridge', { timeout: 8000 });
-    await page.waitForTimeout(400);
+    const page = await context.newPage();
+    await page.goto(origin + '/staff/ui', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await openLunaStaff(page);
+
+    ok('card is truly visible after Luna Staff navigation', await visible(page, '#cc-owner-schedule-bridge'));
+    ok('Connect control is truly visible', await visible(page, '#osb-new'));
 
     const rest = await page.evaluate(() => {
       const card = document.getElementById('cc-owner-schedule-bridge');
-      const empty = document.getElementById('osb-empty');
-      const editor = document.getElementById('osb-editor');
-      const detail = document.getElementById('osb-detail');
       const sel = document.getElementById('osb-connections');
+      const r = card.getBoundingClientRect();
       return {
-        cardText: card ? card.innerText : '',
-        emptyHidden: !empty || empty.hasAttribute('hidden'),
-        editorHidden: !editor || editor.hasAttribute('hidden'),
-        detailHidden: !detail || detail.hasAttribute('hidden'),
-        optionCount: sel ? sel.options.length : 0,
+        secretVisible: /SECRET_REF/.test(card.innerText),
+        jsonVisible: /Bed maps JSON/.test(card.innerText),
+        overflow: card.scrollWidth > card.clientWidth + 1,
+        width: r.width,
         selected: sel ? sel.value : '',
-        secretVisible: /SECRET_REF/.test(card ? card.innerText : ''),
-        jsonVisible: /Bed maps JSON/.test(card ? card.innerText : ''),
+        optionCount: sel ? sel.options.length : 0,
       };
     });
     ok('rest does not show SECRET_REF or JSON', rest.secretVisible === false && rest.jsonVisible === false);
+    ok('desktop card does not overflow', rest.overflow === false && rest.width > 200);
+    ok('load/render issued no sync calls', posts.every((p) => p.path !== '/staff/luna-staff/calendar-bridge/sync'));
+    ok('does not silently force the first connection', rest.selected === '');
 
-    await page.click('#osb-new');
-    await page.waitForTimeout(100);
-    const editorOpen = await page.evaluate(() => !document.getElementById('osb-editor').hasAttribute('hidden'));
-    ok('Connect Google Sheet opens the editor', editorOpen === true);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'osb-light.png') });
+
+    await page.locator('#osb-new').click();
+    await page.waitForFunction(() => !document.getElementById('osb-editor').hasAttribute('hidden'));
+    ok('Connect Google Sheet opens the editor', await visible(page, '#osb-sheet'));
+    await page.fill('#osb-sheet', 'https://docs.google.com/spreadsheets/d/AbC_12345678/edit');
+    await page.locator('#osb-save').click();
+    await page.waitForTimeout(300);
+    const savePost = posts.find((p) => p.path === '/staff/luna-staff/calendar-bridge' && p.method === 'POST');
+    ok('save journey posted a spreadsheet id', !!(savePost && savePost.body.spreadsheet_id === 'AbC_12345678'));
+    ok('save journey never sent secret_ref', !!(savePost && !Object.prototype.hasOwnProperty.call(savePost.body, 'secret_ref')));
     await page.screenshot({ path: path.join(SHOT_DIR, 'osb-editor.png') });
 
-    await page.click('#osb-cancel');
-    await page.waitForTimeout(200);
-    const afterLoad = await page.evaluate(() => ({
-      emptyHidden: document.getElementById('osb-empty').hasAttribute('hidden'),
-      detailHidden: document.getElementById('osb-detail').hasAttribute('hidden'),
+    const afterSave = await page.evaluate(() => ({
       optionCount: document.getElementById('osb-connections').options.length,
-      selected: document.getElementById('osb-connections').value,
       selectorVisible: document.getElementById('osb-connections').offsetParent !== null,
     }));
-    ok('multiple connections stay selectable', afterLoad.optionCount >= 3 && afterLoad.selectorVisible === true);
-    ok('does not silently force the first connection', afterLoad.selected === '' || afterLoad.selected === '11111111-1111-1111-1111-111111111111');
+    ok('multiple connections stay selectable', afterSave.optionCount >= 3 && afterSave.selectorVisible === true);
 
-    await page.selectOption('#osb-connections', '11111111-1111-1111-1111-111111111111');
-    await page.waitForTimeout(400);
+    await page.selectOption('#osb-connections', FIRST_ID);
+    await page.waitForFunction(() => document.querySelectorAll('#osb-map-rows .osb-map-row').length >= 2);
     const mapped = await page.evaluate(() => {
       const rows = [...document.querySelectorAll('#osb-map-rows .osb-map-row')];
       const labels = rows.map((row) => [...row.querySelectorAll('[data-osb-bed] option')].map((o) => ({
@@ -229,13 +294,20 @@ async function main() {
       };
     });
     ok('maps wait for beds then render rows', mapped.rowCount === 2);
-    ok('historical bed sentinel present', mapped.labels.some((opts) => opts.some((o) => o.unavailable && o.selected && o.text.indexOf('Unavailable') >= 0)));
+    ok('historical bed sentinel present', mapped.labels.some((opts) => opts.some((o) => o.unavailable && o.selected && /Unavailable/.test(o.text))));
     ok('live beds are labeled room / bed', mapped.labels[0].some((o) => o.text === 'R1 / A'));
     ok('Update stays off while connection is disabled', mapped.updateDisabled === true);
     ok('disabled connection is Off', mapped.status === 'Off');
 
-    await page.selectOption('#osb-connections', '22222222-2222-2222-2222-222222222222');
-    await page.waitForTimeout(400);
+    await page.selectOption('#osb-map-rows .osb-map-row [data-osb-bed]', 'bed-live-1');
+    await page.locator('#osb-save-maps').click();
+    await page.waitForTimeout(200);
+    const mapPut = posts.find((p) => p.path === '/staff/luna-staff/calendar-bridge/maps' && p.method === 'PUT');
+    ok('map save posts canonical bed ids', !!(mapPut && Array.isArray(mapPut.body.maps) && mapPut.body.maps.some((m) => m.bed_id === 'bed-live-1')));
+    ok('map save has no secret_ref', !!(mapPut && !Object.prototype.hasOwnProperty.call(mapPut.body, 'secret_ref')));
+
+    await page.selectOption('#osb-connections', SECOND_ID);
+    await page.waitForTimeout(300);
     const second = await page.evaluate(() => ({
       name: document.getElementById('osb-detail-name').textContent,
       status: document.getElementById('osb-detail-status').textContent,
@@ -247,21 +319,33 @@ async function main() {
     await page.screenshot({ path: path.join(SHOT_DIR, 'osb-detail.png') });
 
     failList = true;
-    await page.click('#osb-refresh');
-    await page.waitForTimeout(300);
-    const failed = await page.evaluate(() => ({
-      errHidden: document.getElementById('osb-load-error').hasAttribute('hidden'),
-      emptyHidden: document.getElementById('osb-empty').hasAttribute('hidden'),
-      emptyText: document.getElementById('osb-empty').innerText,
-    }));
-    ok('load failure does not show the empty connect lie', failed.errHidden === false && /Could not load/.test(await page.locator('#osb-load-error').innerText()));
+    await page.locator('#osb-refresh').click();
+    await page.waitForFunction(() => !document.getElementById('osb-load-error').hasAttribute('hidden'));
+    const failText = await page.locator('#osb-load-error').innerText();
+    ok('load failure does not show the empty connect lie', /Could not load/.test(failText));
 
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(150);
+    const mobile = await page.evaluate(() => {
+      const card = document.getElementById('cc-owner-schedule-bridge');
+      const r = card.getBoundingClientRect();
+      return {
+        overflow: card.scrollWidth > card.clientWidth + 2,
+        right: r.right,
+        visible: r.width > 8 && r.height > 8,
+      };
+    });
+    ok('narrow viewport keeps the card on screen', mobile.visible && mobile.right <= 390 && mobile.overflow === false);
+    await page.screenshot({ path: path.join(SHOT_DIR, 'osb-narrow.png') });
+
+    await page.setViewportSize({ width: 1280, height: 900 });
     await page.emulateMedia({ colorScheme: 'dark' });
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
     await page.screenshot({ path: path.join(SHOT_DIR, 'osb-dark.png') });
 
-    const saveBodies = posts.filter((p) => p.path === '/staff/luna-staff/calendar-bridge' && p.method === 'POST');
-    ok('browser never posted secret_ref', saveBodies.every((p) => !Object.prototype.hasOwnProperty.call(p.body, 'secret_ref')));
+    ok('browser never posted secret_ref', posts.every((p) => !Object.prototype.hasOwnProperty.call(p.body || {}, 'secret_ref')));
+    ok('no sync during the whole load/save/map journey except explicit Update',
+      posts.filter((p) => p.path === '/staff/luna-staff/calendar-bridge/sync').length === 0);
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));
