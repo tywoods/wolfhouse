@@ -123,6 +123,8 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   no_create_role_in_092: true,
   no_grant_in_093: true,
   no_create_role_in_093: true,
+  no_grant_in_094: true,
+  no_create_role_in_094: true,
   shadow_outcome_table: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.table,
   shadow_outcome_worker_execute_functions: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.worker_execute_functions,
   shadow_outcome_producer_denied_execute_functions: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.worker_execute_functions,

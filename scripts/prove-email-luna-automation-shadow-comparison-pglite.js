@@ -18,6 +18,8 @@ const RED = JSON.parse(fs.readFileSync(
 const UP_070 = fs.readFileSync(path.join(ROOT, 'database/migrations/070_tenant_email_reply_approvals.sql'), 'utf8');
 const UP_093 = fs.readFileSync(path.join(ROOT, 'database/migrations/093_tenant_email_luna_automation_shadow_outcomes.sql'), 'utf8');
 const DOWN_093 = fs.readFileSync(path.join(ROOT, 'database/migrations/093_tenant_email_luna_automation_shadow_outcomes_down.sql'), 'utf8');
+const UP_094 = fs.readFileSync(path.join(ROOT, 'database/migrations/094_tenant_email_luna_automation_shadow_outcome_identity_match.sql'), 'utf8');
+const DOWN_094 = fs.readFileSync(path.join(ROOT, 'database/migrations/094_tenant_email_luna_automation_shadow_outcome_identity_match_down.sql'), 'utf8');
 const b1 = require('./prove-email-luna-automation-issuance-material-pglite');
 const {
   EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_RUNTIME_WIRED,
@@ -232,6 +234,7 @@ async function provePglite(PGlite) {
   await b1.applyThrough088(db);
   await db.exec(b1.UP);
   await db.exec(UP_093);
+  await db.exec(UP_094);
   await db.exec(UP_070);
   const loaner = b1.createLoaner(db);
   const outcomeStore = owners.createEmailLunaAutomationShadowOutcomeStore(loaner);
@@ -329,10 +332,16 @@ async function provePglite(PGlite) {
     operation_id: ids.operation,
     issuance_id: persisted.issuanceId,
   });
-  assert.equal(agreed.record.comparison_state, 'agreement');
+  assert.equal(agreed.record.comparison_state, 'staff_action_observed');
   assert.equal(agreed.record.human_bound, true);
   assert.equal(agreed.record.duplicate_human, false);
-  console.log('ok - unique 070 approved/terminal on exact inbound is agreement');
+  const storedAfterLabel = await db.query(
+    'SELECT comparison_state FROM public.tenant_email_luna_automation_shadow_outcomes WHERE operation_id = $1',
+    [ids.operation],
+  );
+  assert.equal(storedAfterLabel.rows[0].comparison_state, 'pending_human');
+  console.log('ok - unique 070 approved/terminal on exact inbound is staff_action_observed identity match');
+  console.log('ok - 094 does not rewrite immutable stored pending_human capture');
 
   await insertHumanApproval(db, ids, {
     approval_id: 'a2222222-2222-4222-8222-222222222222',
@@ -367,7 +376,7 @@ async function provePglite(PGlite) {
   });
   assert.equal(rebound.record.comparison_state, 'invalid');
   assert.equal(rebound.record.human_bound, false);
-  console.log('ok - human-thread rebind is invalid, not agreement');
+  console.log('ok - human-thread rebind is invalid, not staff_action_observed');
 
   await db.query('DELETE FROM tenant_email_reply_approvals');
   await insertHumanApproval(db, ids, {
@@ -478,10 +487,13 @@ if (require.main === module) {
 module.exports = {
   UP_093,
   DOWN_093,
+  UP_094,
+  DOWN_094,
   loadOwners,
   persistPending,
   producerDeps,
   workerDeps,
+  insertHumanApproval,
   runPgliteProof,
   assertStaticContract,
 };
