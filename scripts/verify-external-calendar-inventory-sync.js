@@ -1,7 +1,29 @@
 'use strict';
 
 const { runConnectionSync, createSyncScheduler, dtoHasAuthority, listDueSql, markAttempt } = require('./lib/external-calendar-inventory-sync');
-const { detectGridMergesForTab, detectExtraColumns, detectOverflowRows, classifyHttp, parseSpreadsheetSnapshot } = require('./lib/external-calendar-inventory-sheets');
+const sheets = require('./lib/external-calendar-inventory-sheets');
+const {
+  detectGridMergesForTab, detectExtraColumns, detectOverflowRows, classifyHttp, parseSpreadsheetSnapshot,
+} = sheets;
+
+function yellowCell() {
+  return {
+    formattedValue: '',
+    effectiveFormat: { backgroundColor: { red: 1, green: 0.85, blue: 0.2 } },
+  };
+}
+function dateCell(iso) {
+  return { formattedValue: iso };
+}
+function nameCell(name) {
+  return { formattedValue: name };
+}
+function occupancyRows() {
+  return [
+    [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')],
+    [nameCell('R1A'), yellowCell(), yellowCell()],
+  ];
+}
 
 function ok(label, cond, detail) {
   if (!cond) {
@@ -81,10 +103,7 @@ async function main() {
     connectionId: CID,
     fetched: {
       ok: true,
-      rows: [
-        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
-        ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
-      ],
+      rows: occupancyRows(),
     },
   });
   ok('valid fetch persists booking in one txn', okSync.ok && good.bookingInserts === 1 && good.begins === 1 && good.commits === 1);
@@ -101,10 +120,7 @@ async function main() {
     connectionId: CID,
     fetched: {
       ok: true,
-      rows: [
-        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
-        ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
-      ],
+      rows: occupancyRows(),
     },
   });
   ok('inject write failure rolls back with public code',
@@ -132,7 +148,7 @@ async function main() {
       properties: { title: 'inventory' },
       merges: [],
       data: [
-        { rowData: [{ values: [{ formattedValue: 'unit_key' }, { formattedValue: 'start_date' }, { formattedValue: 'end_date' }, { formattedValue: 'status' }, { formattedValue: 'external_uid' }] }] },
+        { rowData: [{ values: [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')] }] },
         { rowData: [] },
       ],
     }],
@@ -140,6 +156,56 @@ async function main() {
   ok('incomplete snapshot fails', parseSpreadsheetSnapshot({
     sheets: [{ properties: { title: 'inventory' }, data: [{ rowData: [] }] }],
   }, 'inventory').reason === 'sheet_snapshot_incomplete');
+  const coloredSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        {
+          rowData: [
+            { values: [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')] },
+            { values: [nameCell('R1A'), yellowCell(), yellowCell()] },
+          ],
+        },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('snapshot keeps effectiveFormat fill for occupancy cells',
+    coloredSnap.ok === true
+    && coloredSnap.rows[1][1]
+    && coloredSnap.rows[1][1].effectiveFormat
+    && coloredSnap.rows[1][1].effectiveFormat.backgroundColor
+    && coloredSnap.rows[1][1].effectiveFormat.backgroundColor.red === 1);
+  const wideDates = [nameCell('')].concat(Array.from({ length: 8 }, (_, i) => dateCell('2026-09-' + String(i + 1).padStart(2, '0'))));
+  const wideSnap = parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        { rowData: [{ values: wideDates }] },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory');
+  ok('occupancy grid may be wider than five columns',
+    wideSnap.ok === true && wideSnap.rows[0].length === 9);
+  const src = require('fs').readFileSync(require('path').join(__dirname, 'lib/external-calendar-inventory-sheets.js'), 'utf8');
+  ok('Sheets request asks for effectiveFormat fill fields',
+    /effectiveFormat/.test(src) && /backgroundColorStyle/.test(src) && /userEnteredFormat/.test(src));
+  ok('Sheets request does not fetch conditionalFormats rules',
+    !/conditionalFormats/.test(src));
+  ok('column overflow with fill fails closed', parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        { rowData: [{ values: [nameCell(''), dateCell('2026-09-10')] }] },
+        { rowData: [] },
+        { rowData: [{ values: [yellowCell()] }] },
+      ],
+    }],
+  }, 'inventory').reason === 'sheet_over_limit');
   ok('503 classified provider 5xx', classifyHttp(503) === 'sheets_provider_5xx');
   ok('valid fetch locks beds before write', okSync.ok && good.bedLocks >= 1);
 
@@ -170,8 +236,8 @@ async function main() {
     fetched: {
       ok: true,
       rows: [
-        ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
-        ['UNMAPPED', '2026-09-10', '2026-09-12', 'busy', 'uid-x'],
+        [nameCell(''), dateCell('2026-09-10'), dateCell('2026-09-11')],
+        [nameCell('UNMAPPED'), yellowCell(), yellowCell()],
       ],
     },
   });

@@ -7,12 +7,37 @@
 
 const crypto = require('crypto');
 const https = require('https');
+const { occupancyCellBooked, cellDisplayText } = require('./external-calendar-inventory');
 
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_HOST = 'oauth2.googleapis.com';
 const SHEETS_HOST = 'sheets.googleapis.com';
 const DEFAULT_TIMEOUT_MS = 10000;
 const MAX_DATA_ROWS = 5000;
+const MAX_DATE_COLS = 366;
+const MAX_GRID_COLS = MAX_DATE_COLS + 1; // column A is bed names
+const GRID_FIELDS = [
+  'sheets.properties.title',
+  'sheets.merges',
+  'sheets.data.rowData.values.formattedValue',
+  'sheets.data.rowData.values.effectiveValue',
+  'sheets.data.rowData.values.userEnteredFormat.backgroundColor',
+  'sheets.data.rowData.values.userEnteredFormat.backgroundColorStyle',
+  'sheets.data.rowData.values.effectiveFormat.backgroundColor',
+  'sheets.data.rowData.values.effectiveFormat.backgroundColorStyle',
+].join(',');
+
+function colToA1(n) {
+  let s = '';
+  let x = Number(n);
+  if (!Number.isFinite(x) || x < 1) return 'A';
+  while (x > 0) {
+    const r = (x - 1) % 26;
+    s = String.fromCharCode(65 + r) + s;
+    x = Math.floor((x - 1) / 26);
+  }
+  return s;
+}
 
 function b64url(buf) {
   return Buffer.from(buf).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -149,9 +174,13 @@ function detectExtraColumns(rows, maxContractCols) {
   return { extra: false };
 }
 
+function cellHasGridSignal(cell) {
+  return cellDisplayText(cell).trim() !== '' || occupancyCellBooked(cell);
+}
+
 function detectOverflowRows(overflowRows) {
   const list = Array.isArray(overflowRows) ? overflowRows : [];
-  const nonempty = list.some((row) => row && row.some((c) => String(c == null ? '' : c).trim() !== ''));
+  const nonempty = list.some((row) => row && row.some((c) => cellHasGridSignal(c)));
   return { overflow: nonempty };
 }
 
@@ -166,19 +195,64 @@ function requireOkJson(res, label) {
   }
 }
 
-function cellDisplayValue(cell) {
-  if (!cell || typeof cell !== 'object') return '';
-  if (cell.formattedValue != null) return String(cell.formattedValue);
-  if (cell.effectiveValue && cell.effectiveValue.stringValue != null) return String(cell.effectiveValue.stringValue);
-  if (cell.effectiveValue && cell.effectiveValue.numberValue != null) return cell.effectiveValue.numberValue;
-  return '';
+function snapshotCell(cell) {
+  if (!cell || typeof cell !== 'object') {
+    return { formattedValue: cell == null ? '' : String(cell) };
+  }
+  const out = {};
+  if (cell.formattedValue != null) out.formattedValue = String(cell.formattedValue);
+  if (cell.effectiveValue && typeof cell.effectiveValue === 'object') {
+    out.effectiveValue = {};
+    if (cell.effectiveValue.stringValue != null) {
+      out.effectiveValue.stringValue = String(cell.effectiveValue.stringValue);
+    }
+    if (typeof cell.effectiveValue.numberValue === 'number') {
+      out.effectiveValue.numberValue = cell.effectiveValue.numberValue;
+    }
+    if (!Object.keys(out.effectiveValue).length) delete out.effectiveValue;
+  }
+  function copyFill(src) {
+    if (!src || typeof src !== 'object') return undefined;
+    const fmt = {};
+    if (src.backgroundColor && typeof src.backgroundColor === 'object') {
+      fmt.backgroundColor = {
+        red: src.backgroundColor.red,
+        green: src.backgroundColor.green,
+        blue: src.backgroundColor.blue,
+      };
+      if (src.backgroundColor.alpha != null) fmt.backgroundColor.alpha = src.backgroundColor.alpha;
+    }
+    if (src.backgroundColorStyle && typeof src.backgroundColorStyle === 'object') {
+      fmt.backgroundColorStyle = {};
+      if (src.backgroundColorStyle.themeColor != null) {
+        fmt.backgroundColorStyle.themeColor = String(src.backgroundColorStyle.themeColor);
+      }
+      if (src.backgroundColorStyle.rgbColor && typeof src.backgroundColorStyle.rgbColor === 'object') {
+        fmt.backgroundColorStyle.rgbColor = {
+          red: src.backgroundColorStyle.rgbColor.red,
+          green: src.backgroundColorStyle.rgbColor.green,
+          blue: src.backgroundColorStyle.rgbColor.blue,
+        };
+        if (src.backgroundColorStyle.rgbColor.alpha != null) {
+          fmt.backgroundColorStyle.rgbColor.alpha = src.backgroundColorStyle.rgbColor.alpha;
+        }
+      }
+      if (!Object.keys(fmt.backgroundColorStyle).length) delete fmt.backgroundColorStyle;
+    }
+    return Object.keys(fmt).length ? fmt : undefined;
+  }
+  const entered = copyFill(cell.userEnteredFormat);
+  const effective = copyFill(cell.effectiveFormat);
+  if (entered) out.userEnteredFormat = entered;
+  if (effective) out.effectiveFormat = effective;
+  return out;
 }
 
 function gridDataToRows(grid) {
   const rowData = (grid && grid.rowData) || [];
   return rowData.map((row) => {
     const values = (row && row.values) || [];
-    return values.map(cellDisplayValue);
+    return values.map(snapshotCell);
   });
 }
 
@@ -193,17 +267,21 @@ function parseSpreadsheetSnapshot(json, sheetName) {
   if (merges.length) return fail('merged_cells', { tab: want, count: merges.length });
   const data = Array.isArray(tab.data) ? tab.data : [];
   if (data.length < 2) return fail('sheet_snapshot_incomplete', { tab: want });
-  const accepted = gridDataToRows(data[0]);
+  const accepted = gridDataToRows(data[0]).map((r) => (r || []).slice(0, MAX_GRID_COLS));
   const overflow = gridDataToRows(data[1]);
-  const extra = detectExtraColumns(accepted.concat(overflow), 5);
-  if (extra.extra) return fail('header_unknown_column', extra);
+  const colOverflow = data[2] ? gridDataToRows(data[2]) : [];
   const over = detectOverflowRows(overflow);
-  if (over.overflow || accepted.length > MAX_DATA_ROWS + 1) {
-    return fail('sheet_over_limit', { max_data_rows: MAX_DATA_ROWS });
+  const extraCols = detectOverflowRows(colOverflow);
+  const extraInAccepted = detectExtraColumns(
+    accepted.map((row) => (row || []).map((c) => cellDisplayText(c))),
+    MAX_GRID_COLS
+  );
+  if (over.overflow || extraCols.overflow || extraInAccepted.extra || accepted.length > MAX_DATA_ROWS + 1) {
+    return fail('sheet_over_limit', { max_data_rows: MAX_DATA_ROWS, max_date_cols: MAX_DATE_COLS });
   }
   return {
     ok: true,
-    rows: accepted.map((r) => (r || []).slice(0, 5)),
+    rows: accepted,
     mergeChecked: true,
     overflowChecked: true,
     extraColumnsChecked: true,
@@ -228,13 +306,17 @@ async function fetchSheetRows(connection, deps) {
 
   const sheetName = connection.sheet_name || 'inventory';
   const id = encodeURIComponent(connection.spreadsheet_id);
-  const r1 = encodeURIComponent(sheetName + '!A1:Z' + (MAX_DATA_ROWS + 1));
-  const r2 = encodeURIComponent(sheetName + '!A' + (MAX_DATA_ROWS + 2) + ':Z');
+  const lastAccepted = colToA1(MAX_GRID_COLS);
+  const overflowCol = colToA1(MAX_GRID_COLS + 1);
+  const r1 = encodeURIComponent(sheetName + '!A1:' + lastAccepted + (MAX_DATA_ROWS + 1));
+  const r2 = encodeURIComponent(sheetName + '!A' + (MAX_DATA_ROWS + 2) + ':' + lastAccepted);
+  const r3 = encodeURIComponent(sheetName + '!' + overflowCol + '1:' + overflowCol + (MAX_DATA_ROWS + 1));
   const path = '/v4/spreadsheets/' + id
     + '?includeGridData=true'
     + '&ranges=' + r1
     + '&ranges=' + r2
-    + '&fields=' + encodeURIComponent('sheets.properties,sheets.merges,sheets.data');
+    + '&ranges=' + r3
+    + '&fields=' + encodeURIComponent(GRID_FIELDS);
 
   let res;
   try {
@@ -256,6 +338,10 @@ async function fetchSheetRows(connection, deps) {
 module.exports = {
   SHEETS_SCOPE,
   MAX_DATA_ROWS,
+  MAX_DATE_COLS,
+  MAX_GRID_COLS,
+  GRID_FIELDS,
+  colToA1,
   parseServiceAccountJson,
   resolveSecretRef,
   signJwt,

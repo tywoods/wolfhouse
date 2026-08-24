@@ -213,6 +213,21 @@ async function main() {
   ok('generated save has no secret_ref payload', !/function ownerScheduleBridgeSave\(\)\{[\s\S]{0,400}secret_ref/.test(html));
   ok('generated bed control is a select', /data-osb-bed/.test(html));
   ok('toggle uses ownerScheduleIngestOn', /ownerScheduleBridgeEnable\(!ownerScheduleIngestOn\(conn\)\)/.test(html));
+  ok('mapping heading is Match beds from your Sheet', /Match beds from your Sheet/.test(html));
+  ok('old unit-matching heading is gone', !/Match sheet units to Luna beds/.test(html));
+  ok('mapping explanation mentions colored dates', /colored dates block the correct bed/.test(html));
+  ok('Name used in Sheet label is present', /Name used in Sheet/.test(html));
+  ok('Luna bed mapping label is present', /Luna bed/.test(html));
+  ok('Add bed match button copy', />Add bed match</.test(html) || /Add bed match/.test(html));
+  ok('Save bed matches button copy', /Save bed matches/.test(html));
+  ok('Sheet shape help disclosure', /How should my Sheet look\?/.test(html));
+  ok('help says first column is bed names', /first column/i.test(html) && /bed names/i.test(html));
+  ok('help says top row is dates', /top row/i.test(html) && /dates/i.test(html));
+  ok('help says colored means booked', /colored/i.test(html) && /booked/i.test(html));
+  ok('help says clear means available', /clear/i.test(html) && /available/i.test(html));
+  ok('Remove connected Sheet action exists', /Remove connected Sheet/.test(html) && /id="osb-remove"/.test(html));
+  ok('staff-facing Match sheet units jargon is gone', !/sheet units to Luna/i.test(html));
+  ok('map save still posts external_unit_key payload', /external_unit_key/.test(html));
 
   const playwright = tryPlaywright();
   if (!playwright) {
@@ -258,6 +273,7 @@ async function main() {
     [SECOND_ID]: [],
   };
   let failList = false;
+  let failDelete = false;
   const posts = [];
   const consoleErrors = [];
   const pageErrors = [];
@@ -299,9 +315,9 @@ async function main() {
       const u = new URL(req.url());
       const method = req.method();
       let body = {};
-      if (method === 'POST' || method === 'PUT') {
+      if (method === 'POST' || method === 'PUT' || method === 'DELETE') {
         try { body = req.postDataJSON() || {}; } catch (_) { body = {}; }
-        posts.push({ path: u.pathname, method, body });
+        posts.push({ path: u.pathname, method, body, id: u.searchParams.get('id') });
       }
       if (u.pathname === '/staff/luna-staff/calendar-bridge' && method === 'GET') {
         if (failList) {
@@ -315,6 +331,22 @@ async function main() {
       if (u.pathname === '/staff/luna-staff/calendar-bridge/sync') {
         posts.push({ path: u.pathname, method, body: {} });
         return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+      }
+      if (u.pathname === '/staff/luna-staff/calendar-bridge' && method === 'DELETE') {
+        if (failDelete) {
+          return route.fulfill({
+            status: 500,
+            contentType: 'application/json',
+            body: JSON.stringify({ ok: false, error: 'delete_failed' }),
+          });
+        }
+        const id = u.searchParams.get('id');
+        connections = connections.filter((c) => c.id !== id);
+        return route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ok: true, deleted: true, connection: { id } }),
+        });
       }
       if (u.pathname === '/staff/luna-staff/calendar-bridge' && method === 'POST') {
         const saved = {
@@ -359,6 +391,8 @@ async function main() {
     ok('empty state copy is isolated', /No Google Sheet is connected yet/.test(rest.emptyText));
     ok('desktop empty card does not overflow', rest.overflow === false && rest.width > 200);
     ok('load/render issued no sync calls', posts.every((p) => p.path !== '/staff/luna-staff/calendar-bridge/sync'));
+    ok('load issued no probe, enable, or delete', posts.every((p) =>
+      p.path.indexOf('/probe') < 0 && p.path.indexOf('/enable') < 0 && p.method !== 'DELETE'));
 
     await page.locator('#osb-new').click();
     await page.waitForFunction(() => !document.getElementById('osb-editor').hasAttribute('hidden'));
@@ -434,6 +468,60 @@ async function main() {
     ok('second connection is reachable', /SHEETB/.test(second.name));
     ok('Update stays off without valid maps', second.updateDisabled === true);
     ok('pending ingest is On', second.status === 'On');
+    const onRemove = await page.evaluate(() => {
+      const btn = document.getElementById('osb-remove');
+      return { exists: !!btn, disabled: !!(btn && btn.disabled), visible: !!(btn && btn.offsetParent) };
+    });
+    ok('Remove is disabled while the selected Sheet is On', onRemove.exists && onRemove.disabled === true);
+
+    await page.selectOption('#osb-connections', FIRST_ID);
+    await page.waitForTimeout(200);
+    await page.evaluate(() => {
+      window.__osbConfirm = false;
+      window.confirm = function (msg) {
+        window.__lastConfirm = String(msg || '');
+        return window.__osbConfirm === true;
+      };
+    });
+    const beforeCancelDelete = posts.filter((p) => p.method === 'DELETE').length;
+    await page.locator('#osb-remove').click();
+    await page.waitForTimeout(200);
+    const cancelMsg = await page.evaluate(() => window.__lastConfirm || '');
+    ok('remove confirmation names the connection', /Owner schedule · SHEETA/.test(cancelMsg));
+    ok('canceling remove sends zero DELETE', posts.filter((p) => p.method === 'DELETE').length === beforeCancelDelete);
+
+    failDelete = true;
+    await page.evaluate(() => { window.__osbConfirm = true; });
+    await page.locator('#osb-remove').click();
+    await page.waitForTimeout(300);
+    const failedDeletes = posts.filter((p) => p.method === 'DELETE');
+    ok('confirmed remove DELETEs the selected connection',
+      failedDeletes.length === 1
+      && failedDeletes[0].id === FIRST_ID
+      && failedDeletes[0].body.confirm_name === 'Owner schedule · SHEETA');
+    const failUi = await page.evaluate(() => ({
+      selected: document.getElementById('osb-connections').value,
+      name: document.getElementById('osb-detail-name').textContent,
+      status: document.getElementById('osb-status').textContent,
+      optionCount: document.getElementById('osb-connections').options.length,
+    }));
+    ok('failed remove keeps the connected Sheet selected', failUi.selected === FIRST_ID && /SHEETA/.test(failUi.name));
+    ok('failed remove shows a staff-readable error', /Could not remove|Last blocks were kept/.test(failUi.status));
+
+    failDelete = false;
+    connections = fixtureConnections.slice();
+    await page.evaluate(() => { window.__osbConfirm = true; });
+    await page.locator('#osb-remove').click();
+    await page.waitForTimeout(400);
+    const successDeletes = posts.filter((p) => p.method === 'DELETE' && p.id === FIRST_ID);
+    ok('successful remove DELETEs only the selected connection', successDeletes.length >= 1);
+    const afterRemove = await page.evaluate(() => ({
+      options: [...document.getElementById('osb-connections').options].map((o) => o.value),
+      selected: document.getElementById('osb-connections').value,
+    }));
+    ok('successful remove refreshes the selector without the deleted connection',
+      afterRemove.options.indexOf(FIRST_ID) < 0 && afterRemove.options.indexOf(SECOND_ID) >= 0);
+
     await page.screenshot({ path: path.join(SHOT_DIR, 'osb-detail.png') });
     await page.screenshot({ path: path.join(SHOT_DIR, 'osb-light.png') });
 

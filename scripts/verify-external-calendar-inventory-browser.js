@@ -60,8 +60,8 @@ function el(id){ return document.getElementById(id); }
 function getClient(){ return 'wolfhouse-somo'; }
 var store = {
   connections: [
-    { id: '11111111-1111-1111-1111-111111111111', name: 'A', spreadsheet_id: 'sheetAAAAAA', sheet_name: 'inventory', status: 'pending', last_error: 'calendar_bridge_failed' },
-    { id: '22222222-2222-2222-2222-222222222222', name: 'B', spreadsheet_id: 'sheetBBBBBB', sheet_name: 'inventory', status: 'pending' }
+    { id: '11111111-1111-1111-1111-111111111111', name: 'A', spreadsheet_id: 'sheetAAAAAA', sheet_name: 'inventory', status: 'pending', last_error: 'calendar_bridge_failed', has_secret: true },
+    { id: '22222222-2222-2222-2222-222222222222', name: 'B', spreadsheet_id: 'sheetBBBBBB', sheet_name: 'inventory', status: 'pending', has_secret: true }
   ]
 };
 window.fetch = function(url, opts){
@@ -108,8 +108,8 @@ ${handlers}
     await page.fill('#osb-name', 'A-updated');
     await page.click('#osb-save');
     await page.waitForTimeout(40);
-    const saveCall = calls.find((c) => /calendar-bridge\?/.test(c.url) && c.method === 'POST' && c.body && /A-updated/.test(c.body));
-    if (!saveCall || !/"id":"11111111-1111-1111-1111-111111111111"/.test(saveCall.body)) {
+    const saveCall = calls.find((c) => /calendar-bridge\?/.test(c.url) && c.method === 'POST' && c.body && /"id":"11111111-1111-1111-1111-111111111111"/.test(c.body));
+    if (!saveCall) {
       throw new Error('update did not send selected id');
     }
     console.log('  PASS  save updates the selected connection id');
@@ -128,7 +128,7 @@ ${handlers}
     await page.fill('#osb-sheet', 'sheetCCCCCCCC');
     await page.click('#osb-save');
     await page.waitForTimeout(40);
-    const createCall = calls.filter((c) => c.method === 'POST' && /calendar-bridge\?/.test(c.url) && c.body && /"name":"C"/.test(c.body)).pop();
+    const createCall = calls.filter((c) => c.method === 'POST' && /calendar-bridge\?/.test(c.url) && c.body && /sheetCCCCCCCC/.test(c.body)).pop();
     if (!createCall) throw new Error('create not called');
     if (/"id":"11111111/.test(createCall.body || '')) throw new Error('new connection reused old id');
     console.log('  PASS  new connection does not reuse previous id');

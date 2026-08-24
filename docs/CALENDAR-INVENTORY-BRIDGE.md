@@ -108,7 +108,7 @@ MVP inventory target: **Wolfhouse bed calendar** (`wolfhouse-somo`). Do not enab
 |--|-------------------|------------|-----------------|
 | Status | **Build this** | Out of programme | Out of programme |
 | Auth | OAuth **or** service account + share | n/a | n/a |
-| Shape | Frozen header + one row per occupancy | — | — |
+| Shape | Occupancy grid: first column bed names, top row dates, colored=booked | — | — |
 | Failure | Header drift, locale dates, merged cells | — | — |
 | Write-back | **Forbidden** | — | — |
 
@@ -118,44 +118,49 @@ Ops already live in a spreadsheet: one strict contract beats a calendar parser.
 
 ## 5. Strict Sheet contract
 
-One tab (name configured). **Row 1 is frozen headers — exact strings, exact order.** Any drift → probe/sync **error**, no writes, last blocks kept.
+One tab (name configured). The Sheet is an **occupancy grid**, not a row-per-stay table.
 
-### Required columns (row 1)
+| | Meaning |
+|--|---------|
+| First column | Bed / unit names as they appear in the Sheet |
+| Top row | Dates (`YYYY-MM-DD` in `formattedValue`; locale strings and leaked Excel serials fail closed) |
+| Intersection cell | That bed on that date |
 
-| # | Header (exact) | Meaning |
-|---|----------------|---------|
-| A | `unit_key` | External unit id (maps 1:1 to a Luna bed) |
-| B | `start_date` | Occupied from (inclusive), `YYYY-MM-DD` |
-| C | `end_date` | Occupied until (exclusive), `YYYY-MM-DD` |
-| D | `status` | `busy` or `free` (lowercase) |
-| E | `external_uid` | Stable row id (never reuse for a different stay) |
+**Booking authority is visible cell fill, never cell text.** A cell that says `BOOKED` but has default/clear fill is available. A yellow cell with no text is booked.
 
-### Optional columns (must still match if present)
+### Fill detection (Sheets API payload actually requested)
 
-| Header | Meaning |
-|--------|---------|
-| `notes` | Staff-visible note, max 200 chars, no PII required |
-| `updated_at` | ISO-8601; used only for ordering, not occupancy |
+`spreadsheets.get` is bounded: `includeGridData=true` plus a field mask for
 
-### Validation (fail closed)
+- `formattedValue` / `effectiveValue`
+- `userEnteredFormat.backgroundColor` / `backgroundColorStyle`
+- `effectiveFormat.backgroundColor` / `backgroundColorStyle`
+
+We do **not** fetch `sheets.conditionalFormats` rules. Conditional formatting is visible through **`effectiveFormat`**, which Google already resolves. `userEnteredFormat` is used only when `effectiveFormat` is absent.
+
+| Visible fill | Occupancy |
+|--------------|-----------|
+| Absent, transparent (`alpha: 0`), explicit white, theme `BACKGROUND` / `UNSPECIFIED` | **AVAILABLE** |
+| Any other effective fill (rgb or non-default theme, including CF-applied colour) | **BOOKED** |
+
+Consecutive booked dates for the same bed coalesce into a half-open range `[start, end)`. Clearing fills on a valid mapped grid cancels **only** `external_inventory_block` rows owned by this connection. Guest stays, staff blocks, and other connections are never removed.
+
+### Validation (fail closed — keep last imported blocks)
 
 | Rule | Fail action |
 |------|-------------|
-| Header row ≠ contract (name, order, extra required missing) | `error`, no writes |
+| Missing grid / unknown structure / no parseable date headers | `error`, no writes |
+| Duplicate or invalid date headers (locale, Excel serial) | `error`, no writes |
 | Merged cells in used range | `error` |
-| `unit_key` empty | skip row, count as unmapped |
-| Dates not `YYYY-MM-DD` (no `DD/MM/YYYY`, no Excel serial leaked as float) | skip row + increment parse_errors; if parse_errors > 0 **and** zero valid busy rows → `error` |
-| `end_date` ≤ `start_date` | skip row |
-| `status` not `busy`/`free` | skip row |
-| `external_uid` empty | skip row |
-| Duplicate `(external_uid)` with different dates | `error` (ambiguous identity) |
-| `status=free` | **do not create a block**; if an owned XBLK exists for that uid, cancel **only that** XBLK |
-| Unmapped `unit_key` | `skipped_unmapped`; no insert |
-| Valid `busy` overlaps non-owned `booking_beds` | `skipped_conflict`; **keep guest/staff row** |
+| Grid overflow (too many rows or date columns) | `sheet_over_limit` |
+| Duplicate bed names | `error` |
+| Empty bed name with colored cells | `error` |
+| Empty bed name with no color | skip row |
+| Unmapped colored row | `skipped_unmapped`; entire sync fails closed |
+| Booked range overlaps non-owned `booking_beds` | `skipped_conflict`; **keep guest/staff row** |
+| Empty grid (dates only, no bed rows) | dry-run empty; **do not** mass-cancel |
 
 Timezone: dates are **calendar dates in the tenant hostel TZ** (Wolfhouse: Europe/Madrid unless config says otherwise). No times in MVP.
-
-Empty sheet / only headers: treat as “no busy rows” — **do not** mass-cancel owned blocks on a single empty fetch. Require **N consecutive successful empty parses** (recommend N=3) **or** explicit Disable+Release. First empty success → `healthy` + warning, blocks kept.
 
 ---
 

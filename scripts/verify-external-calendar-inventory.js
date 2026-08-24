@@ -8,7 +8,6 @@ const ROOT = path.join(__dirname, '..');
 const lib = require('./lib/external-calendar-inventory');
 const { applyProbePlan } = require('./lib/external-calendar-inventory-apply');
 
-const HEADERS = ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'];
 const CONN = 'conn-wh-1';
 const BED_A = 'bed-a';
 
@@ -40,6 +39,70 @@ function staffBlock() {
   };
 }
 
+function rgb(r, g, b, a) {
+  const c = { red: r, green: g, blue: b };
+  if (a != null) c.alpha = a;
+  return c;
+}
+const FILL_WHITE = rgb(1, 1, 1);
+const FILL_YELLOW = rgb(1, 0.85, 0.2);
+const FILL_RED = rgb(0.86, 0.15, 0.12);
+
+function occCell(opts) {
+  opts = opts || {};
+  const cell = {};
+  if (Object.prototype.hasOwnProperty.call(opts, 'formattedValue')) {
+    cell.formattedValue = opts.formattedValue;
+  } else if (opts.text != null) {
+    cell.formattedValue = opts.text;
+  }
+  if (opts.numberValue != null) {
+    cell.effectiveValue = { numberValue: opts.numberValue };
+  }
+  if (opts.stringValue != null) {
+    cell.effectiveValue = Object.assign(cell.effectiveValue || {}, { stringValue: opts.stringValue });
+  }
+  function paint(formatOpts) {
+    if (!formatOpts) return undefined;
+    const fmt = {};
+    if (formatOpts.backgroundColor) fmt.backgroundColor = formatOpts.backgroundColor;
+    if (formatOpts.backgroundColorStyle) fmt.backgroundColorStyle = formatOpts.backgroundColorStyle;
+    return Object.keys(fmt).length ? fmt : undefined;
+  }
+  const effective = paint(opts.effective);
+  const entered = paint(opts.entered);
+  if (effective) cell.effectiveFormat = effective;
+  if (entered) cell.userEnteredFormat = entered;
+  if (opts.merged === true) cell.merged = true;
+  return cell;
+}
+
+function occHeader(dates) {
+  return [occCell({ text: '' })].concat(dates.map((d) => occCell({ text: d })));
+}
+
+function occBed(name, fills, texts) {
+  return [occCell({ text: name })].concat(fills.map((fill, i) => {
+    const cellOpts = { text: texts && texts[i] != null ? texts[i] : '' };
+    if (fill && fill !== 'clear') {
+      if (fill === true || fill === 'yellow') {
+        cellOpts.effective = { backgroundColor: FILL_YELLOW };
+      } else if (fill === 'red') {
+        cellOpts.effective = { backgroundColor: FILL_RED };
+      } else if (fill === 'white') {
+        cellOpts.effective = { backgroundColor: FILL_WHITE };
+      } else if (typeof fill === 'object') {
+        Object.assign(cellOpts, fill);
+      }
+    }
+    return occCell(cellOpts);
+  }));
+}
+
+function occGrid(dates, beds) {
+  return [occHeader(dates)].concat(beds.map((b) => occBed(b.name, b.fills, b.texts)));
+}
+
 function main() {
   console.log('verify-external-calendar-inventory');
 
@@ -62,10 +125,10 @@ function main() {
   }) === true);
   ok('flag off disables wolfhouse', lib.bridgeAvailable('wolfhouse-somo', {}) === false);
 
-  const good = [
-    HEADERS,
-    ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
-  ];
+  const good = occGrid(
+    ['2026-09-10', '2026-09-11'],
+    [{ name: 'R1A', fills: [true, true] }]
+  );
   const maps = { R1A: BED_A };
   const plan = lib.probeSheetRows(good, { maps, connectionId: CONN, occupancy: {} });
   ok('good busy row dry-run inserts owned', plan.ok && plan.writes[0].action === 'insert_owned');
@@ -78,46 +141,45 @@ function main() {
   ok('busy vs guest fails entire sync closed',
     vsGuest.ok === false && vsGuest.writes.length === 0 && vsGuest.keepLastBlocks === true);
 
-  const vsStaff = lib.probeSheetRows([
-    HEADERS,
-    ['R1A', '2026-09-20', '2026-09-22', 'busy', 'uid-staff'],
-  ], {
+  const vsStaff = lib.probeSheetRows(occGrid(
+    ['2026-09-20', '2026-09-21'],
+    [{ name: 'R1A', fills: [true, true] }]
+  ), {
     maps, connectionId: CONN,
     occupancy: { [BED_A]: [staffBlock()] },
   });
   ok('busy vs overlapping staff_block fails entire sync',
     vsStaff.ok === false && vsStaff.writes.length === 0);
 
-  const mixedGoodAndBad = lib.probeSheetRows([
-    HEADERS,
-    ['R1A', '2026-09-01', '2026-09-03', 'busy', 'uid-ok'],
-    ['R1A', '10/09/2026', '12/09/2026', 'busy', 'uid-bad'],
-  ], { maps, connectionId: CONN, occupancy: {} });
+  const mixedGoodAndBad = lib.probeSheetRows(occGrid(
+    ['2026-09-01', '10/09/2026'],
+    [{ name: 'R1A', fills: [true, true] }]
+  ), { maps, connectionId: CONN, occupancy: {} });
   ok('one malformed row fails whole sheet (zero writes)',
     mixedGoodAndBad.ok === false && mixedGoodAndBad.writes.length === 0);
 
   const drift = lib.probeSheetRows([['unit', 'start', 'end', 'status', 'id']], { maps, connectionId: CONN });
   ok('header drift errors with no writes', drift.ok === false && drift.writes.length === 0);
 
-  const locale = lib.probeSheetRows([
-    HEADERS,
-    ['R1A', '10/09/2026', '12/09/2026', 'busy', 'uid-2'],
-  ], { maps, connectionId: CONN });
+  const locale = lib.probeSheetRows(occGrid(
+    ['10/09/2026', '12/09/2026'],
+    [{ name: 'R1A', fills: [true, true] }]
+  ), { maps, connectionId: CONN });
   ok('locale date fails closed', locale.ok === false);
 
   const serial = lib.probeSheetRows([
-    HEADERS,
-    ['R1A', 45910, 45912, 'busy', 'uid-3'],
+    [occCell({ text: '' }), occCell({ numberValue: 45910 }), occCell({ numberValue: 45912 })],
+    occBed('R1A', [true, true]),
   ], { maps, connectionId: CONN });
   ok('excel serial fails closed', serial.ok === false);
 
   const merged = lib.probeSheetRows([
-    HEADERS,
-    ['R1A', { merged: true, value: '2026-09-10' }, '2026-09-12', 'busy', 'uid-4'],
+    occHeader(['2026-09-10', '2026-09-11']),
+    [occCell({ text: 'R1A' }), occCell({ merged: true, effective: { backgroundColor: FILL_YELLOW } }), occCell({ effective: { backgroundColor: FILL_YELLOW } })],
   ], { maps, connectionId: CONN });
   ok('merged cells fail closed', merged.ok === false && merged.reason === 'merged_cells');
 
-  const empty = lib.probeSheetRows([HEADERS], { maps, connectionId: CONN });
+  const empty = lib.probeSheetRows(occGrid(['2026-09-10', '2026-09-11'], []), { maps, connectionId: CONN });
   ok('empty sheet is dry-run empty keep-last', empty.ok && empty.empty && empty.keepLastBlocks);
 
   const unmapped = lib.probeSheetRows(good, { maps: {}, connectionId: CONN });
@@ -127,10 +189,10 @@ function main() {
     lib.nextConnectionStatus('pending', empty) === 'pending');
 
   const futureStaffOcc = { [BED_A]: [staffBlock()] };
-  const nonOverlap = lib.probeSheetRows([
-    HEADERS,
-    ['R1A', '2026-08-01', '2026-08-03', 'busy', 'uid-aug'],
-  ], { maps, connectionId: CONN, occupancy: futureStaffOcc });
+  const nonOverlap = lib.probeSheetRows(occGrid(
+    ['2026-08-01', '2026-08-02'],
+    [{ name: 'R1A', fills: [true, true] }]
+  ), { maps, connectionId: CONN, occupancy: futureStaffOcc });
   ok('non-overlapping future staff block does not fail', nonOverlap.ok === true && nonOverlap.writes.length === 1);
   const appliedRange = applyProbePlan(nonOverlap, {
     connectionId: CONN,
@@ -151,10 +213,10 @@ function main() {
   ok('keep last on error', failed.keepLastBlocks === true);
   assert.deepStrictEqual(before[BED_A][0].booking_id, occ[BED_A][0].booking_id);
 
-  const freePlan = lib.probeSheetRows([
-    HEADERS,
-    ['R1A', '2026-09-10', '2026-09-12', 'free', 'uid-1'],
-  ], { maps, connectionId: CONN, occupancy: occ });
+  const freePlan = lib.probeSheetRows(occGrid(
+    ['2026-09-10', '2026-09-11'],
+    [{ name: 'R1A', fills: [false, false] }]
+  ), { maps, connectionId: CONN, occupancy: occ });
   const afterFree = applyProbePlan(freePlan, { connectionId: CONN, occupancy: JSON.parse(JSON.stringify(occ)) });
   ok('free cancels only owned XBLK', afterFree.cancelled.length === 1 && afterFree.occupancy[BED_A].length === 0);
 
@@ -172,6 +234,11 @@ function main() {
   ok('no ICS adapter', !/kind IN \('ics'/.test(mig));
   ok('no gcal kind', !/gcal/.test(mig));
   ok('probe route exists', /\/staff\/luna-staff\/calendar-bridge\/probe/.test(api));
+  ok('delete route exists', /method === 'DELETE'/.test(api) && /handleDelete/.test(api));
+  ok('remove action confirms then DELETE',
+    /function ownerScheduleBridgeRemove\(\)\{/.test(api)
+    && /window\.confirm\('Remove connected Sheet/.test(api)
+    && /ownerScheduleBridgeJson\('\/staff\/luna-staff\/calendar-bridge', 'DELETE'/.test(api));
   ok('public probe does not send fabricated rows',
     /ownerScheduleBridgeJson\('\/staff\/luna-staff\/calendar-bridge\/probe', 'POST', \{\}\)/.test(api));
   ok('connection select + new action exist',
@@ -262,6 +329,196 @@ function main() {
   ok('routes allow wolfhouse when flag on', routes.refuseClient('wolfhouse-somo').ok === true);
   if (prevFlag === undefined) delete process.env.EXTERNAL_CALENDAR_INGEST_ENABLED;
   else process.env.EXTERNAL_CALENDAR_INGEST_ENABLED = prevFlag;
+
+  // Occupancy color-grid contract (Sheet fill is booking authority).
+  ok('occupancy fill helper exported', typeof lib.occupancyCellBooked === 'function');
+  ok('clear/absent fill is available', lib.occupancyCellBooked({}) === false);
+  ok('explicit white backgroundColor is available', lib.occupancyCellBooked(occCell({
+    effective: { backgroundColor: FILL_WHITE },
+  })) === false);
+  ok('white rgb backgroundColorStyle is available', lib.occupancyCellBooked(occCell({
+    effective: { backgroundColorStyle: { rgbColor: FILL_WHITE } },
+  })) === false);
+  ok('theme BACKGROUND fill is available', lib.occupancyCellBooked(occCell({
+    effective: { backgroundColorStyle: { themeColor: 'BACKGROUND' } },
+  })) === false);
+  ok('transparent alpha-0 fill is available', lib.occupancyCellBooked(occCell({
+    effective: { backgroundColor: rgb(1, 0, 0, 0) },
+  })) === false);
+  ok('non-white backgroundColor is booked', lib.occupancyCellBooked(occCell({
+    effective: { backgroundColor: FILL_YELLOW },
+  })) === true);
+  ok('non-white backgroundColorStyle rgb is booked', lib.occupancyCellBooked(occCell({
+    effective: { backgroundColorStyle: { rgbColor: FILL_RED } },
+  })) === true);
+  ok('non-default theme fill is booked', lib.occupancyCellBooked(occCell({
+    effective: { backgroundColorStyle: { themeColor: 'ACCENT1' } },
+  })) === true);
+  ok('effectiveFormat wins over userEnteredFormat for conditional fill',
+    lib.occupancyCellBooked(occCell({
+      entered: { backgroundColor: FILL_WHITE },
+      effective: { backgroundColor: FILL_YELLOW },
+    })) === true);
+  ok('conditional format that resolves to white is available',
+    lib.occupancyCellBooked(occCell({
+      entered: { backgroundColor: FILL_YELLOW },
+      effective: { backgroundColor: FILL_WHITE },
+    })) === false);
+  ok('userEnteredFormat is used only when effectiveFormat is absent',
+    lib.occupancyCellBooked(occCell({
+      entered: { backgroundColor: FILL_RED },
+    })) === true);
+
+  const dates3 = ['2026-09-10', '2026-09-11', '2026-09-12'];
+  const colorBusy = occGrid(dates3, [{ name: 'R1A', fills: [true, true, false] }]);
+  const colorPlan = lib.probeSheetRows(colorBusy, { maps, connectionId: CONN, occupancy: {} });
+  ok('colored consecutive cells coalesce to half-open range',
+    colorPlan.ok === true
+    && colorPlan.writes.length === 1
+    && colorPlan.writes[0].action === 'insert_owned'
+    && colorPlan.writes[0].start_date === '2026-09-10'
+    && colorPlan.writes[0].end_date === '2026-09-12'
+    && colorPlan.writes[0].unit_key === 'R1A');
+  ok('color grid does not treat cell text as booking authority',
+    lib.probeSheetRows(occGrid(dates3, [{
+      name: 'R1A',
+      fills: [false, false, false],
+      texts: ['BOOKED', 'busy', 'uid-1'],
+    }]), { maps, connectionId: CONN, occupancy: {} }).empty === true);
+  ok('text in a colored cell still follows fill, not text',
+    lib.probeSheetRows(occGrid(dates3, [{
+      name: 'R1A',
+      fills: [true, false, false],
+      texts: ['AVAILABLE', '', ''],
+    }]), { maps, connectionId: CONN, occupancy: {} }).writes[0].end_date === '2026-09-11');
+
+  const split = lib.probeSheetRows(occGrid(dates3, [{
+    name: 'R1A', fills: [true, false, true],
+  }]), { maps, connectionId: CONN, occupancy: {} });
+  ok('non-consecutive colored cells become two half-open ranges',
+    split.ok && split.writes.length === 2
+    && split.writes[0].start_date === '2026-09-10' && split.writes[0].end_date === '2026-09-11'
+    && split.writes[1].start_date === '2026-09-12' && split.writes[1].end_date === '2026-09-13');
+
+  const vsGuestColor = lib.probeSheetRows(colorBusy, {
+    maps, connectionId: CONN,
+    occupancy: { [BED_A]: [guestRow()] },
+  });
+  ok('colored overlap vs guest fails entire sync closed',
+    vsGuestColor.ok === false && vsGuestColor.writes.length === 0 && vsGuestColor.keepLastBlocks === true);
+
+  const vsStaffColor = lib.probeSheetRows(occGrid(
+    ['2026-09-20', '2026-09-21'],
+    [{ name: 'R1A', fills: [true, true] }]
+  ), {
+    maps, connectionId: CONN,
+    occupancy: { [BED_A]: [staffBlock()] },
+  });
+  ok('colored overlap vs staff_block fails entire sync',
+    vsStaffColor.ok === false && vsStaffColor.writes.length === 0);
+
+  const dupDate = lib.probeSheetRows(occGrid(
+    ['2026-09-10', '2026-09-10'],
+    [{ name: 'R1A', fills: [true, true] }]
+  ), { maps, connectionId: CONN });
+  ok('duplicate date headers fail closed with no writes',
+    dupDate.ok === false && dupDate.writes.length === 0 && dupDate.keepLastBlocks === true
+    && dupDate.reason === 'date_header_duplicate');
+
+  const badDate = lib.probeSheetRows(occGrid(
+    ['2026-09-10', '10/09/2026'],
+    [{ name: 'R1A', fills: [true, true] }]
+  ), { maps, connectionId: CONN });
+  ok('locale date headers fail closed',
+    badDate.ok === false && badDate.writes.length === 0 && badDate.keepLastBlocks === true);
+
+  const serialHeader = lib.probeSheetRows([
+    [occCell({ text: '' }), occCell({ numberValue: 46266 })],
+    occBed('R1A', [true]),
+  ], { maps, connectionId: CONN });
+  ok('excel serial date header fails closed',
+    serialHeader.ok === false && serialHeader.writes.length === 0);
+
+  const dupBed = lib.probeSheetRows(occGrid(dates3, [
+    { name: 'R1A', fills: [true, false, false] },
+    { name: 'R1A', fills: [false, true, false] },
+  ]), { maps, connectionId: CONN });
+  ok('duplicate bed names fail closed',
+    dupBed.ok === false && dupBed.writes.length === 0 && dupBed.reason === 'duplicate_bed_name');
+
+  const emptyNameColored = lib.probeSheetRows(occGrid(dates3, [
+    { name: '', fills: [true, false, false] },
+  ]), { maps, connectionId: CONN });
+  ok('empty bed name with colored cells fails closed',
+    emptyNameColored.ok === false && emptyNameColored.writes.length === 0);
+
+  const emptyNameClear = lib.probeSheetRows(occGrid(dates3, [
+    { name: '', fills: [false, false, false] },
+    { name: 'R1A', fills: [true, false, false] },
+  ]), { maps, connectionId: CONN, occupancy: {} });
+  ok('empty clear bed row is skipped without deleting inventory',
+    emptyNameClear.ok === true && emptyNameClear.writes.length === 1
+    && emptyNameClear.writes[0].unit_key === 'R1A');
+
+  const unmappedColor = lib.probeSheetRows(occGrid(dates3, [
+    { name: 'UNKNOWN', fills: [true, false, false] },
+  ]), { maps, connectionId: CONN });
+  ok('unmapped colored row fails entire sync',
+    unmappedColor.ok === false && unmappedColor.writes.length === 0
+    && unmappedColor.keepLastBlocks === true
+    && unmappedColor.reason === 'unmapped_unit_key');
+
+  const emptyGrid = lib.probeSheetRows(occGrid(dates3, []), { maps, connectionId: CONN });
+  ok('empty occupancy grid is dry-run empty keep-last',
+    emptyGrid.ok && emptyGrid.empty && emptyGrid.keepLastBlocks
+    && emptyGrid.writes.length === 0);
+
+  const missingGrid = lib.probeSheetRows([], { maps, connectionId: CONN });
+  ok('missing grid data fails closed keep-last',
+    missingGrid.ok === false && missingGrid.keepLastBlocks === true && missingGrid.writes.length === 0);
+
+  const unknown = lib.probeSheetRows([
+    ['unit_key', 'start_date', 'end_date', 'status', 'external_uid'],
+    ['R1A', '2026-09-10', '2026-09-12', 'busy', 'uid-1'],
+  ], { maps, connectionId: CONN });
+  ok('legacy text occupancy rows are unknown structure, not booking authority',
+    unknown.ok === false && unknown.writes.length === 0 && unknown.keepLastBlocks === true);
+
+  const ownedOcc = {
+    [BED_A]: [{
+      assignment_type: lib.ASSIGNMENT_TYPE,
+      assignment_start_date: '2026-09-10',
+      assignment_end_date: '2026-09-12',
+      booking_id: 'xblk-keep',
+      external_uid: 'grid:R1A:2026-09-10:2026-09-12',
+      metadata: lib.buildOwnedBlockMetadata(CONN, 'grid:R1A:2026-09-10:2026-09-12'),
+      status: 'blocked',
+    }],
+  };
+  const cleared = lib.probeSheetRows(occGrid(dates3, [{
+    name: 'R1A', fills: [false, false, false],
+  }]), { maps, connectionId: CONN, occupancy: ownedOcc });
+  ok('clearing colored cells cancels only owned blocks for this connection',
+    cleared.ok === true
+    && cleared.writes.some((w) => w.action === 'cancel_owned_if_present' && w.external_uid === 'grid:R1A:2026-09-10:2026-09-12')
+    && !cleared.writes.some((w) => w.action === 'insert_owned' || w.action === 'upsert_owned'));
+  const mixedKeep = {
+    [BED_A]: [guestRow(), ownedOcc[BED_A][0], staffBlock()],
+  };
+  const afterClear = applyProbePlan(cleared, {
+    connectionId: CONN,
+    occupancy: JSON.parse(JSON.stringify(mixedKeep)),
+  });
+  ok('clear apply leaves guest stay and staff block',
+    afterClear.occupancy[BED_A].some((r) => r.booking_id === 'guest-1')
+    && afterClear.occupancy[BED_A].some((r) => r.booking_id === 'staff-1')
+    && !afterClear.occupancy[BED_A].some((r) => r.booking_id === 'xblk-keep'));
+
+  const malformedKeep = lib.probeSheetRows([['not', 'a', 'grid']], {
+    maps, connectionId: CONN, occupancy: ownedOcc,
+  });
+  ok('malformed snapshot keeps last imported blocks',
+    malformedKeep.ok === false && malformedKeep.keepLastBlocks === true && malformedKeep.writes.length === 0);
 
   console.log('\nverify-external-calendar-inventory: ALL CHECKS PASSED');
 }
