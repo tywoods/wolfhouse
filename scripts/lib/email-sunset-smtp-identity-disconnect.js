@@ -3,8 +3,8 @@
 /**
  * Sunset IMAP/SMTP identity disconnect — EMAIL-SMTP-004.
  *
- * Revokes a disabled imap_smtp identity (clears SMTP health). No secret
- * material, no socket, no send. Same-address register can reuse the row.
+ * Removes the imap_smtp identity. Does not set binding_status (073 forbids
+ * it for IMAP). No secret material, no socket, no send.
  *
  * @module email-sunset-smtp-identity-disconnect
  */
@@ -28,7 +28,18 @@ const SQL_ROLLBACK = 'ROLLBACK';
 const SQL_PROVE_SUNSET_CLIENT = "SELECT id::text AS client_id FROM clients WHERE slug = 'sunset' AND id = $1::uuid LIMIT 1 FOR UPDATE";
 const SQL_LOCK_ACTIVE_LOCATION = 'SELECT location_id FROM tenant_locations WHERE client_id = $1::uuid AND location_id = $2 AND active = true FOR SHARE';
 const SQL_LOCK_ENDPOINT = "SELECT id::text AS endpoint_id FROM tenant_channel_endpoints WHERE id = $1::uuid AND client_id = $2::uuid AND location_id = $3 AND provider = 'imap_smtp' LIMIT 1 FOR UPDATE";
-const SQL_REVOKE = "UPDATE tenant_channel_endpoints SET binding_status = 'revoked', smtp_health_verified_at = NULL, inbound_enabled = false, outbound_enabled = false, active = false, updated_at = NOW(), updated_by = $4::uuid WHERE id = $1::uuid AND client_id = $2::uuid AND location_id = $3 AND provider = 'imap_smtp' RETURNING id::text AS endpoint_id";
+// imap_smtp must keep binding_status NULL (073). Disconnect deletes the identity.
+const SQL_CLEAR_IMAP_CURSORS = 'DELETE FROM tenant_email_imap_fetch_cursors WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_INBOX_PROJECTIONS = 'DELETE FROM tenant_email_inbound_inbox_projections WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_DELTA_STATES = 'DELETE FROM tenant_email_inbound_delta_states WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_INBOUND_EVENTS = 'DELETE FROM tenant_email_inbound_events WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_OUTBOUND_JOURNAL = 'DELETE FROM tenant_email_outbound_send_journal WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_REPLY_APPROVALS = 'DELETE FROM tenant_email_reply_approvals WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_GRANTS = 'DELETE FROM tenant_email_delegated_grants WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_OAUTH_TX = 'DELETE FROM tenant_email_oauth_transactions WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_RECOVERY = 'DELETE FROM tenant_email_delta_recovery_operations WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_CLEAR_POLICY_AUDIT = 'DELETE FROM tenant_email_luna_policy_audit WHERE client_id = $1::uuid AND endpoint_id = $2::uuid';
+const SQL_DELETE_ENDPOINT = "DELETE FROM tenant_channel_endpoints WHERE id = $1::uuid AND client_id = $2::uuid AND location_id = $3 AND provider = 'imap_smtp' RETURNING id::text AS endpoint_id";
 
 function failure() {
   const error = new Error(ERROR_MESSAGE);
@@ -73,8 +84,8 @@ function one(result, key, expected) {
   if (!rows || rows.length !== 1 || !rows[0]) return null;
   const value = rows[0][key];
   if (value == null) return null;
-  const text = String(value);
-  if (expected != null && text !== expected) return null;
+  const text = String(value).toLowerCase();
+  if (expected != null && text !== String(expected).toLowerCase()) return null;
   return text;
 }
 
@@ -107,15 +118,26 @@ function createSunsetSmtpIdentityDisconnect(dependencies) {
       if (!one(await query(SQL_LOCK_ENDPOINT, [data.endpointId, clientId, data.locationId]), 'endpoint_id', data.endpointId)) {
         throw failure();
       }
-      const revoked = one(
-        await query(SQL_REVOKE, [data.endpointId, clientId, data.locationId, data.actorStaffUserId]),
+      const childParams = [clientId, data.endpointId];
+      await query(SQL_CLEAR_IMAP_CURSORS, childParams);
+      await query(SQL_CLEAR_INBOX_PROJECTIONS, childParams);
+      await query(SQL_CLEAR_DELTA_STATES, childParams);
+      await query(SQL_CLEAR_INBOUND_EVENTS, childParams);
+      await query(SQL_CLEAR_OUTBOUND_JOURNAL, childParams);
+      await query(SQL_CLEAR_REPLY_APPROVALS, childParams);
+      await query(SQL_CLEAR_GRANTS, childParams);
+      await query(SQL_CLEAR_OAUTH_TX, childParams);
+      await query(SQL_CLEAR_RECOVERY, childParams);
+      await query(SQL_CLEAR_POLICY_AUDIT, childParams);
+      const removed = one(
+        await query(SQL_DELETE_ENDPOINT, [data.endpointId, clientId, data.locationId]),
         'endpoint_id',
         data.endpointId,
       );
-      if (!revoked) throw failure();
+      if (!removed) throw failure();
       commitAttempted = true;
       await query(SQL_COMMIT);
-      return Object.freeze({ endpointId: revoked, status: 'disconnected' });
+      return Object.freeze({ endpointId: removed, status: 'disconnected' });
     } catch (err) {
       if (began && !commitAttempted) {
         try { await query(SQL_ROLLBACK); } catch { /* sanitized */ }

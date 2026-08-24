@@ -71,7 +71,7 @@ function settingsRoutes(opts) {
     if (String(sql).includes('FROM tenant_channel_endpoints') && String(sql).includes('FOR UPDATE')) {
       return { rows: [{ endpoint_id: ENDPOINT }] };
     }
-    if (String(sql).startsWith('UPDATE tenant_channel_endpoints')) {
+    if (String(sql).startsWith('DELETE FROM tenant_channel_endpoints')) {
       return { rows: [{ endpoint_id: ENDPOINT }] };
     }
     return { rows: [] };
@@ -116,7 +116,8 @@ function settingsRoutes(opts) {
     assert.equal(res.body.status, 'disconnected');
     assert.equal(res.body.provider, 'imap_smtp');
     assert.equal(res.body.endpoint_id, ENDPOINT);
-    assert.ok(pg.queries.some((q) => String(q.sql).includes("binding_status = 'revoked'")));
+    assert.ok(pg.queries.some((q) => String(q.sql).includes('DELETE FROM tenant_channel_endpoints')));
+    assert.ok(!pg.queries.some((q) => String(q.sql).includes("binding_status = 'revoked'")));
     assert.ok(!JSON.stringify(res.body).includes('kv:'));
     assert.ok(!JSON.stringify(res.body).includes('password'));
   }

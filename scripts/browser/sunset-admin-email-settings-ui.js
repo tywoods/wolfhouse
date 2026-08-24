@@ -662,6 +662,10 @@ function wireDisconnectHandlers(body){
       })
       .catch(function(){
         setConnectBusy(section, false);
+        if (provider === 'imap_smtp' && adminEmailSettingsLastData) {
+          renderAdminEmailSettingsData(adminEmailSettingsLastData);
+          return;
+        }
         renderAdminEmailSettingsState('error');
       });
   });
