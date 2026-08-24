@@ -1,0 +1,36 @@
+{
+  "id": "email-luna-automation-shadow-orchestration.ch4b2-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B2",
+  "head_reviewed": "566c2d6915718b5e04110284075e3f9a37ff65ce",
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "worker_loop": false,
+  "send_permission": false,
+  "findings": [
+    {
+      "id": "no-shadow-orchestration-owner",
+      "severity": "blocking",
+      "red": "On 566c2d69, Ch4A principals and Ch4B1 persist_and_enqueue exist, but nothing consumes a canonical policy issuance, persists authentic material+queue identity through producer authority, and returns staff-safe would-send/handoff evidence. A later worker or HTTP path could invent that comparison or jump to claim/journal/provider.",
+      "green": "One default-off shadow orchestrator owns that sequence. It reuses issueAndDecide, eligibility, 086 audit, and producer persist_and_enqueue. It never mints policy evidence, never claims, never journals, and never invokes a provider."
+    },
+    {
+      "id": "forged-copied-json-issuance",
+      "severity": "blocking",
+      "red": "JSON clones and copied WeakSet objects are unissued. Without a closed owner, a caller could treat them as sendable or persist caller-trusted facts.",
+      "green": "Forged/copied/JSON issuance is deterministic would-not-send (unissued_evidence). No audit row, no queue row, send_allowed false."
+    },
+    {
+      "id": "caller-selected-shadow-or-send",
+      "severity": "blocking",
+      "red": "A caller could pass tenant, location, recipient, provider, facts, capability, would_send, or a provider callback and obtain a send-capable decision.",
+      "green": "Factory binds env+tenant_location_gate only. Envelope authority is the tenant source. Extra send/provider/claim/handoff/result keys fail closed. Projection is derived, never caller-selected, and always send_allowed=false / auto_send_allowed=false / provider_invoked=false / mode=shadow."
+    },
+    {
+      "id": "stale-rebinding-beyond-shadow",
+      "severity": "blocking",
+      "red": "Stale consumed decisions, tenant/location/recipient/thread rebinding, persist replay, or a claim/handoff/send method could transition past shadow into a send-capable path.",
+      "green": "Stale/unsafe/unsupported stay would-not-send. Rebinding and gate mismatch fail closed. Replay of the same identity stays pending/replayed would-send with one queue row. Orchestrator has no claim/handoff/send. Queue state other than pending is conflict/would-not-send. Runtime composition stays unwired."
+    }
+  ]
+}
