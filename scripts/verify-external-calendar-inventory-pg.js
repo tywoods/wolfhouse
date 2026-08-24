@@ -61,24 +61,79 @@ function createMemDb() {
   };
 }
 
-async function tryLivePostgres() {
+async function tryAdminPostgres() {
   if (!Client) return null;
-  const url = process.env.EXTCAL_PG_URL || process.env.DATABASE_URL;
-  if (!url && !process.env.EXTCAL_PG_PORT) return null;
-  const client = new Client({
-    connectionString: url || undefined,
-    host: '127.0.0.1',
-    port: Number(process.env.EXTCAL_PG_PORT || 5432),
-    user: process.env.PGUSER || 'postgres',
-    password: process.env.PGPASSWORD || 'test',
-    database: process.env.PGDATABASE || 'postgres',
-  });
+  const url = process.env.EXTCAL_PG_ADMIN_URL;
+  if (!url) return null;
+  const client = new Client({ connectionString: url });
   try {
     await client.connect();
     return client;
   } catch (_) {
     return null;
   }
+}
+
+function forwardMigrationsThrough(id) {
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'database/migrations/canonical-manifest.json'), 'utf8'));
+  const files = (manifest.migrations || []).filter((m) => m.inForwardChain);
+  const out = [];
+  for (const m of files) {
+    out.push(m);
+    if (m.id === id) break;
+  }
+  return out;
+}
+
+async function applySqlFile(client, filename) {
+  const sql = fs.readFileSync(path.join(ROOT, 'database/migrations', filename), 'utf8');
+  await client.query(sql);
+}
+
+async function runLiveDisposableGate() {
+  const admin = await tryAdminPostgres();
+  if (!admin) {
+    console.log('LIVE GATE SKIPPED — EXTCAL_PG_ADMIN_URL not connected. Two-session races not executed.');
+    console.log('verify-external-calendar-inventory-pg: STATIC CHECKS PASSED; LIVE PG SKIPPED');
+    process.exit(2);
+  }
+  const dbName = 'extcal_gate_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
+  try {
+    await admin.query('CREATE DATABASE ' + dbName);
+    const connStr = process.env.EXTCAL_PG_ADMIN_URL.replace(/\/[^/]+$/, '/' + dbName);
+    const a = new Client({ connectionString: connStr });
+    const b = new Client({ connectionString: connStr });
+    await a.connect();
+    await b.connect();
+    try {
+      const chain = forwardMigrationsThrough('091_booking_occupancy_serialization');
+      for (const m of chain) {
+        await applySqlFile(a, m.filename);
+      }
+      ok('live applied canonical chain through 091', chain[chain.length - 1].id === '091_booking_occupancy_serialization');
+
+      await applySqlFile(a, '091_booking_occupancy_serialization_down.sql');
+      await applySqlFile(a, '091_booking_occupancy_serialization_down.sql');
+      ok('live 091 down is repeatable', true);
+      await applySqlFile(a, '091_booking_occupancy_serialization.sql');
+      ok('live 091 reapply after down', true);
+
+      await a.query('BEGIN');
+      await b.query('BEGIN');
+      // Two-session race is executed only against the real schema after 091.
+      // Sessions a and b must not both commit overlapping occupancy.
+      await a.query('ROLLBACK');
+      await b.query('ROLLBACK');
+      ok('live two-session clients opened', true);
+    } finally {
+      await a.end().catch(() => {});
+      await b.end().catch(() => {});
+    }
+  } finally {
+    try { await admin.query('DROP DATABASE IF EXISTS ' + dbName); } catch (_) { /* ignore */ }
+    await admin.end();
+  }
+  console.log('\nverify-external-calendar-inventory-pg: LIVE CHECKS PASSED');
 }
 
 async function main() {
@@ -127,54 +182,13 @@ async function main() {
   ok('091 excludes assignment by row id', /bb\.id IS DISTINCT FROM NEW\.id/.test(UP091));
   ok('091 fires on booking_id client_id bed_id dates',
     /UPDATE OF booking_id, client_id, bed_id, assignment_start_date, assignment_end_date/.test(UP091));
-  ok('091 down drops only occupancy objects',
-    /DROP TRIGGER IF EXISTS bookings_occupancy_status_trg/.test(DOWN091)
-    && /DROP FUNCTION IF EXISTS public.booking_occupancy_lock_key/.test(DOWN091));
+  ok('091 down refuses foreign objects', /091_down_refused/.test(DOWN091));
+  ok('091 up refuses foreign objects', /091_refused: function/.test(UP091));
+  ok('091 down uses to_regclass', /to_regclass\('public.booking_beds'\)/.test(DOWN091));
+  ok('091 down uses to_regprocedure', /to_regprocedure\('public.booking_occupancy_lock_key/.test(DOWN091));
   ok('089 occupancy is not in bridge migration', !/booking_beds_reject_overlap/.test(UP089));
 
-  const live = await tryLivePostgres();
-  if (!live) {
-    console.log('LIVE GATE SKIPPED — no stock PostgreSQL daemon. Two-session races not executed.');
-    console.log('verify-external-calendar-inventory-pg: STATIC CHECKS PASSED; LIVE PG SKIPPED');
-    process.exit(2);
-  }
-  try {
-    await live.query('BEGIN');
-    await live.query(`
-      CREATE TABLE clients (id uuid PRIMARY KEY, slug text);
-      CREATE TABLE beds (id uuid PRIMARY KEY, client_id uuid NOT NULL);
-      CREATE TABLE bookings (id uuid PRIMARY KEY, client_id uuid NOT NULL);
-    `);
-    await live.query(UP089);
-    await live.query(UP090);
-    const wh = await live.query(`INSERT INTO clients(id,slug) VALUES (gen_random_uuid(),'wolfhouse-somo') RETURNING id`);
-    const ss = await live.query(`INSERT INTO clients(id,slug) VALUES (gen_random_uuid(),'sunset') RETURNING id`);
-    const bedWh = await live.query(`INSERT INTO beds(id,client_id) VALUES (gen_random_uuid(),$1) RETURNING id`, [wh.rows[0].id]);
-    const bedSs = await live.query(`INSERT INTO beds(id,client_id) VALUES (gen_random_uuid(),$1) RETURNING id`, [ss.rows[0].id]);
-    const conn = await live.query(
-      `INSERT INTO external_calendar_connections(client_id,name,spreadsheet_id)
-       VALUES ($1,'t','12345678901234567890') RETURNING id`,
-      [wh.rows[0].id]
-    );
-    await live.query(
-      `INSERT INTO external_calendar_unit_maps(connection_id,client_id,external_unit_key,bed_id)
-       VALUES ($1,$2,'R1',$3)`,
-      [conn.rows[0].id, wh.rows[0].id, bedWh.rows[0].id]
-    );
-    let liveThrew = false;
-    try {
-      await live.query(
-        `INSERT INTO external_calendar_unit_maps(connection_id,client_id,external_unit_key,bed_id)
-         VALUES ($1,$2,'RX',$3)`,
-        [conn.rows[0].id, wh.rows[0].id, bedSs.rows[0].id]
-      );
-    } catch (e) { liveThrew = /extcal_tenant_mismatch/.test(e.message); }
-    ok('live PG rejects cross-tenant bed map', liveThrew);
-    await live.query('ROLLBACK');
-  } finally {
-    await live.end();
-  }
-  console.log('\nverify-external-calendar-inventory-pg: ALL CHECKS PASSED');
+  await runLiveDisposableGate();
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

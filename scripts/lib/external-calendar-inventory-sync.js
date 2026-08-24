@@ -9,9 +9,11 @@ const {
   probeSheetRows,
   nextConnectionStatus,
   ASSIGNMENT_TYPE,
+  BOOKING_CODE_PREFIX,
   generateOwnerBlockCode,
   buildOwnedBlockMetadata,
   CALENDAR_LEGEND_EN,
+  storedErrorCode,
 } = require('./external-calendar-inventory');
 
 const FORBIDDEN_DTO = ['rows', 'occupancy', 'connection_id', 'credentials', 'secret', 'private_key', 'access_token'];
@@ -249,7 +251,7 @@ async function markAttempt(pg, connection, patch) {
             last_success_at = CASE WHEN $4 THEN NOW() ELSE last_success_at END,
             updated_at = NOW()
       WHERE id = $1`,
-    [connection.id, patch.last_error || null, patch.status, patch.success === true]
+    [connection.id, storedErrorCode(patch.last_error), patch.status, patch.success === true]
   );
 }
 

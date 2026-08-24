@@ -5,6 +5,9 @@ const {
   clientAllowed,
   probeSheetRows,
   nextConnectionStatus,
+  publicErrorCode,
+  storedErrorCode,
+  PUBLIC_ERROR_CODES,
 } = require('./external-calendar-inventory');
 const { dtoHasAuthority, loadLockedState, runConnectionSync } = require('./external-calendar-inventory-sync');
 
@@ -26,47 +29,12 @@ function requireConnectionId(connectionId) {
   return { ok: true, id };
 }
 
-const PUBLIC_CODES = new Set([
-  'calendar_bridge_client_not_allowed',
-  'calendar_bridge_disabled',
-  'calendar_bridge_failed',
-  'calendar_sync_rolled_back',
-  'caller_authority_rejected',
-  'client_not_found',
-  'connection_id_required',
-  'connection_not_found',
-  'empty_sheet',
-  'header_unknown_column',
-  'invalid_connection',
-  'maps_array_required',
-  'merged_cells',
-  'save_failed',
-  'secret_ref_invalid',
-  'sheet_over_limit',
-  'sheet_snapshot_incomplete',
-  'sheet_tab_missing',
-  'sheets_inaccessible',
-  'sheets_malformed_json',
-  'sheets_provider_5xx',
-  'sheets_timeout',
-  'sheets_token_denied',
-  'overlap_conflict',
-  'bridge_unavailable',
-  'unknown_action',
-]);
-
-function publicCode(value) {
-  const code = String(value || '').trim();
-  if (PUBLIC_CODES.has(code)) return code;
-  return 'calendar_bridge_failed';
-}
-
 function publicResult(result) {
   if (!result || typeof result !== 'object') {
     return { ok: false, status: 500, error: 'calendar_bridge_failed' };
   }
-  const code = result.ok ? null : publicCode(
-    PUBLIC_CODES.has(String(result.reason || '')) ? result.reason : (result.error || result.reason)
+  const code = result.ok ? null : publicErrorCode(
+    PUBLIC_ERROR_CODES.indexOf(String(result.reason || '')) >= 0 ? result.reason : (result.error || result.reason)
   );
   const out = {
     ok: !!result.ok,
@@ -108,7 +76,7 @@ function sanitizeConnection(row) {
     sheet_name: row.sheet_name,
     last_success_at: row.last_success_at,
     last_attempt_at: row.last_attempt_at,
-    last_error: row.last_error_code ? publicCode(row.last_error_code) : null,
+    last_error: row.last_error_code ? publicErrorCode(row.last_error_code) : null,
     has_secret: !!row.secret_ref,
     poll_seconds: row.poll_seconds,
   };

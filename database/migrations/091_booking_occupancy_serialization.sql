@@ -1,20 +1,54 @@
 -- 091_booking_occupancy_serialization.sql
--- Shared occupancy invariant for every booking_beds writer.
--- Owned by this migration (comment version). Down removes exactly these objects.
+-- Shared occupancy invariant. Each owned object is marked
+-- '091_booking_occupancy_serialization v1'. Up refuses foreign/newer objects.
 
 BEGIN;
 
-DO $$
+CREATE OR REPLACE FUNCTION public._091_occupancy_assert_fn(p_sig text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  owned text;
+  oid oid;
+BEGIN
+  oid := to_regprocedure(p_sig);
+  IF oid IS NULL THEN
+    RETURN;
+  END IF;
+  SELECT obj_description(oid, 'pg_proc') INTO owned;
+  IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
+    RAISE EXCEPTION '091_refused: function % is not 091-owned (comment=%)', p_sig, owned;
+  END IF;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public._091_occupancy_assert_trg(p_table text, p_trigger text)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
 DECLARE
   owned text;
 BEGIN
-  IF to_regprocedure('public.booking_occupancy_lock_key(text,uuid)') IS NOT NULL THEN
-    SELECT obj_description('public.booking_occupancy_lock_key(text,uuid)'::regprocedure) INTO owned;
-    IF owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
-      RAISE EXCEPTION '091_refused: occupancy lock function exists without 091 ownership';
-    END IF;
+  IF to_regclass('public.' || p_table) IS NULL THEN
+    RETURN;
   END IF;
-END $$;
+  SELECT obj_description(t.oid, 'pg_trigger') INTO owned
+    FROM pg_catalog.pg_trigger t
+    JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'public' AND c.relname = p_table AND t.tgname = p_trigger;
+  IF FOUND AND owned IS DISTINCT FROM '091_booking_occupancy_serialization v1' THEN
+    RAISE EXCEPTION '091_refused: trigger %.% is not 091-owned (comment=%)', p_table, p_trigger, owned;
+  END IF;
+END;
+$$;
+
+SELECT public._091_occupancy_assert_fn('public.booking_occupancy_lock_key(text,uuid)');
+SELECT public._091_occupancy_assert_fn('public.booking_beds_reject_overlap()');
+SELECT public._091_occupancy_assert_fn('public.bookings_occupancy_status_guard()');
+SELECT public._091_occupancy_assert_trg('booking_beds', 'booking_beds_reject_overlap_trg');
+SELECT public._091_occupancy_assert_trg('bookings', 'bookings_occupancy_status_trg');
 
 CREATE OR REPLACE FUNCTION public.booking_occupancy_lock_key(
   p_kind text,
@@ -49,7 +83,6 @@ BEGIN
     RAISE EXCEPTION 'booking_beds_invalid_range';
   END IF;
 
-  -- 1. Booking locks, sorted.
   IF TG_OP = 'UPDATE' AND OLD.booking_id IS DISTINCT FROM NEW.booking_id THEN
     FOR rec IN
       SELECT x.id
@@ -63,7 +96,6 @@ BEGIN
     PERFORM pg_advisory_xact_lock(public.booking_occupancy_lock_key('booking', NEW.booking_id));
   END IF;
 
-  -- 2. Bed locks, sorted (old+new on reassignment).
   IF TG_OP = 'UPDATE'
      AND (OLD.bed_id IS DISTINCT FROM NEW.bed_id OR OLD.client_id IS DISTINCT FROM NEW.client_id) THEN
     FOR rec IN
@@ -75,15 +107,12 @@ BEGIN
         ) beds
        ORDER BY client_id, bed_id
     LOOP
-      PERFORM pg_advisory_xact_lock(
-        public.booking_occupancy_lock_key('bed', rec.bed_id)
-      );
+      PERFORM pg_advisory_xact_lock(public.booking_occupancy_lock_key('bed', rec.bed_id));
     END LOOP;
   ELSE
     PERFORM pg_advisory_xact_lock(public.booking_occupancy_lock_key('bed', NEW.bed_id));
   END IF;
 
-  -- 3. Recheck status after locks.
   SELECT b.status::text INTO booking_status
     FROM public.bookings b
    WHERE b.id = NEW.booking_id;
@@ -91,7 +120,6 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- 4. Overlap: exclude this assignment row only.
   SELECT bb.id INTO conflict_row
     FROM public.booking_beds bb
     JOIN public.bookings bk ON bk.id = bb.booking_id
@@ -112,6 +140,7 @@ $$;
 COMMENT ON FUNCTION public.booking_beds_reject_overlap()
   IS '091_booking_occupancy_serialization v1';
 
+SELECT public._091_occupancy_assert_trg('booking_beds', 'booking_beds_reject_overlap_trg');
 DROP TRIGGER IF EXISTS booking_beds_reject_overlap_trg ON public.booking_beds;
 CREATE TRIGGER booking_beds_reject_overlap_trg
   BEFORE INSERT OR UPDATE OF booking_id, client_id, bed_id, assignment_start_date, assignment_end_date
@@ -129,7 +158,6 @@ DECLARE
   rec record;
   conflict_row uuid;
 BEGIN
-  -- Always serialize on the booking before any status change.
   PERFORM pg_advisory_xact_lock(public.booking_occupancy_lock_key('booking', NEW.id));
 
   IF OLD.status::text IN ('cancelled', 'expired')
@@ -162,6 +190,7 @@ $$;
 COMMENT ON FUNCTION public.bookings_occupancy_status_guard()
   IS '091_booking_occupancy_serialization v1';
 
+SELECT public._091_occupancy_assert_trg('bookings', 'bookings_occupancy_status_trg');
 DROP TRIGGER IF EXISTS bookings_occupancy_status_trg ON public.bookings;
 CREATE TRIGGER bookings_occupancy_status_trg
   BEFORE UPDATE OF status
@@ -170,5 +199,8 @@ CREATE TRIGGER bookings_occupancy_status_trg
   EXECUTE PROCEDURE public.bookings_occupancy_status_guard();
 COMMENT ON TRIGGER bookings_occupancy_status_trg ON public.bookings
   IS '091_booking_occupancy_serialization v1';
+
+DROP FUNCTION IF EXISTS public._091_occupancy_assert_fn(text);
+DROP FUNCTION IF EXISTS public._091_occupancy_assert_trg(text, text);
 
 COMMIT;

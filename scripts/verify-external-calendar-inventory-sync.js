@@ -1,6 +1,6 @@
 'use strict';
 
-const { runConnectionSync, createSyncScheduler, dtoHasAuthority, listDueSql } = require('./lib/external-calendar-inventory-sync');
+const { runConnectionSync, createSyncScheduler, dtoHasAuthority, listDueSql, markAttempt } = require('./lib/external-calendar-inventory-sync');
 const { detectGridMergesForTab, detectExtraColumns, detectOverflowRows, classifyHttp, parseSpreadsheetSnapshot } = require('./lib/external-calendar-inventory-sheets');
 
 function ok(label, cond, detail) {
@@ -157,6 +157,11 @@ async function main() {
   });
   await sched.tick();
   ok('scheduler preserves fetch failure class', ticks === 1);
+
+  const persistState = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  await markAttempt(mockPg(persistState), { id: CID }, { last_error: 'ECONNRESET', status: 'error', success: false });
+  ok('markAttempt allowlists hostile persist code',
+    persistState.statusUpdates[0] && persistState.statusUpdates[0][1] === 'calendar_bridge_failed');
 
   console.log('\nverify-external-calendar-inventory-sync: ALL CHECKS PASSED');
 }

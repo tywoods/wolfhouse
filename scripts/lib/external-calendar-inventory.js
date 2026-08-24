@@ -327,6 +327,47 @@ function bridgeAvailable(slug, env) {
   return ingestEnabled(env) && clientAllowed(slug, env);
 }
 
+const PUBLIC_ERROR_CODES = Object.freeze([
+  'calendar_bridge_client_not_allowed',
+  'calendar_bridge_disabled',
+  'calendar_bridge_failed',
+  'calendar_sync_rolled_back',
+  'caller_authority_rejected',
+  'client_not_found',
+  'connection_id_required',
+  'connection_not_found',
+  'empty_sheet',
+  'header_unknown_column',
+  'invalid_connection',
+  'maps_array_required',
+  'merged_cells',
+  'save_failed',
+  'secret_ref_invalid',
+  'sheet_over_limit',
+  'sheet_snapshot_incomplete',
+  'sheet_tab_missing',
+  'sheets_inaccessible',
+  'sheets_malformed_json',
+  'sheets_provider_5xx',
+  'sheets_timeout',
+  'sheets_token_denied',
+  'overlap_conflict',
+  'bridge_unavailable',
+  'unknown_action',
+]);
+
+function storedErrorCode(value) {
+  if (value == null) return null;
+  const code = String(value).trim();
+  if (!code) return null;
+  if (PUBLIC_ERROR_CODES.indexOf(code) >= 0) return code;
+  return 'calendar_bridge_failed';
+}
+
+function publicErrorCode(value) {
+  return storedErrorCode(value);
+}
+
 module.exports = {
   ASSIGNMENT_TYPE,
   BOOKING_CODE_PREFIX,
@@ -356,4 +397,7 @@ module.exports = {
   ingestEnabled,
   clientAllowed,
   bridgeAvailable,
+  PUBLIC_ERROR_CODES,
+  storedErrorCode,
+  publicErrorCode,
 };

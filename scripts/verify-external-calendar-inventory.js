@@ -200,6 +200,10 @@ function main() {
 
   const routes = require('./lib/external-calendar-inventory-routes');
   ok('routes refuse sunset', routes.refuseClient('sunset').ok === false);
+  ok('ECONNRESET is not stored', lib.storedErrorCode('ECONNRESET') === 'calendar_bridge_failed');
+  ok('SQL text is not stored', lib.storedErrorCode('duplicate key value') === 'calendar_bridge_failed');
+  ok('null stored error stays null', lib.storedErrorCode(null) === null);
+  ok('known code stored as-is', lib.storedErrorCode('sheets_timeout') === 'sheets_timeout');
   ok('routes refuse when flag off', routes.refuseClient('wolfhouse-somo').ok === false);
   const prevFlag = process.env.EXTERNAL_CALENDAR_INGEST_ENABLED;
   process.env.EXTERNAL_CALENDAR_INGEST_ENABLED = 'true';
