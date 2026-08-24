@@ -138,12 +138,31 @@ async function insertMinimalOccupancy(pg, { bookingId, bedId, hostelId, clientId
   } catch (_) { /* optional */ }
 }
 
-async function sessionRace(a, b, workA, workB, expect) {
+async function waitForAdvisoryWait(observer, pid, timeoutMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const r = await observer.query(
+      `SELECT 1
+         FROM pg_locks
+        WHERE locktype = 'advisory'
+          AND granted = false
+          AND pid = $1
+        LIMIT 1`,
+      [pid]
+    );
+    if (r.rows.length) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('barrier_timeout_waiting_for_advisory_lock');
+}
+
+async function sessionRace(a, b, observer, workA, workB, expect) {
   await a.query('BEGIN');
   await workA(a);
   await b.query('BEGIN');
-  await b.query(`SET LOCAL lock_timeout = '2s'`);
-  await b.query(`SET LOCAL statement_timeout = '4s'`);
+  const pidRes = await b.query('SELECT pg_backend_pid() AS pid');
+  const bPid = pidRes.rows[0].pid;
+  await b.query(`SET LOCAL lock_timeout = '8s'`);
   let bCommitted = false;
   let bErr = null;
   const bWork = (async () => {
@@ -156,23 +175,32 @@ async function sessionRace(a, b, workA, workB, expect) {
       try { await b.query('ROLLBACK'); } catch (_) { /* ignore */ }
     }
   })();
-  await a.query('COMMIT');
-  await bWork;
   if (expect === 'one') {
+    await waitForAdvisoryWait(observer, bPid, 5000);
+    await a.query('COMMIT');
+    await bWork;
     if (bCommitted) throw new Error('both_conflicting_occupancies_committed');
-    if (!bErr) throw new Error('second_session_did_not_error');
-    return { loserError: String(bErr.message || bErr) };
+    const msg = String(bErr && bErr.message || '');
+    if (/lock_timeout|statement_timeout|canceling statement/i.test(msg)) {
+      throw new Error('race_lost_to_timeout:' + msg);
+    }
+    if (!/booking_beds_overlap_conflict/.test(msg)) {
+      throw new Error('expected_overlap_conflict_got:' + msg);
+    }
+    return { loserError: msg };
   }
   if (expect === 'both') {
+    await a.query('COMMIT');
+    await bWork;
     if (!bCommitted) throw new Error('parallel_nonoverlap_failed:' + (bErr && bErr.message));
     return { both: true };
   }
   throw new Error('unknown_expect');
 }
 
-async function runOccupancyRaceMatrix(a, b, fx) {
+async function runOccupancyRaceMatrix(a, b, observer, fx) {
   const id = () => crypto.randomUUID();
-  await sessionRace(a, b,
+  await sessionRace(a, b, observer,
     (pg) => insertMinimalOccupancy(pg, { ...fx, bookingId: id(), start: '2026-09-10', end: '2026-09-12' }),
     (pg) => insertMinimalOccupancy(pg, { ...fx, bookingId: id(), start: '2026-09-10', end: '2026-09-12' }),
     'one');
@@ -182,17 +210,17 @@ async function runOccupancyRaceMatrix(a, b, fx) {
   const stayB = id();
   await insertMinimalOccupancy(a, { ...fx, bookingId: stayA, start: '2026-09-01', end: '2026-09-03' });
   await insertMinimalOccupancy(a, { ...fx, bookingId: stayB, start: '2026-09-20', end: '2026-09-22' });
-  await sessionRace(a, b,
+  await sessionRace(a, b, observer,
     async (pg) => {
       await pg.query(
-        `UPDATE booking_beds SET assignment_start_date = '2026-09-10', assignment_end_date = '2026-09-12'
+        `UPDATE booking_beds SET assignment_start_date = '2026-09-05', assignment_end_date = '2026-09-07'
           WHERE booking_id = $1`,
         [stayA]
       );
     },
     async (pg) => {
       await pg.query(
-        `UPDATE booking_beds SET assignment_start_date = '2026-09-10', assignment_end_date = '2026-09-12'
+        `UPDATE booking_beds SET assignment_start_date = '2026-09-05', assignment_end_date = '2026-09-07'
           WHERE booking_id = $1`,
         [stayB]
       );
@@ -206,7 +234,7 @@ async function runOccupancyRaceMatrix(a, b, fx) {
   );
   const moveA = id();
   await insertMinimalOccupancy(a, { ...fx, bookingId: moveA, start: '2026-10-01', end: '2026-10-03' });
-  await sessionRace(a, b,
+  await sessionRace(a, b, observer,
     async (pg) => {
       await pg.query(`UPDATE booking_beds SET bed_id = $2 WHERE booking_id = $1`, [moveA, bed2.rows[0].id]);
     },
@@ -220,7 +248,7 @@ async function runOccupancyRaceMatrix(a, b, fx) {
 
   const inactive = id();
   await insertMinimalOccupancy(a, { ...fx, bookingId: inactive, start: '2026-11-01', end: '2026-11-03', status: 'cancelled' });
-  await sessionRace(a, b,
+  await sessionRace(a, b, observer,
     async (pg) => {
       await pg.query(`UPDATE bookings SET status = 'confirmed' WHERE id = $1`, [inactive]);
     },
@@ -232,7 +260,7 @@ async function runOccupancyRaceMatrix(a, b, fx) {
 
   const parA = id();
   const parB = id();
-  await sessionRace(a, b,
+  await sessionRace(a, b, observer,
     (pg) => insertMinimalOccupancy(pg, { ...fx, bookingId: parA, start: '2026-12-01', end: '2026-12-03' }),
     (pg) => insertMinimalOccupancy(pg, {
       ...fx, bookingId: parB, bedId: bed2.rows[0].id, start: '2026-12-01', end: '2026-12-03',
@@ -306,28 +334,59 @@ async function prove091OwnershipRefuse(pg) {
   ok('live 091 up/down refuse foreign and newer ownership', true);
 }
 
-async function prove089IdentityMatrix(pg, fx, connectionId) {
-  const bookingId = crypto.randomUUID();
-  await insertMinimalOccupancy(pg, { ...fx, bookingId, start: '2027-02-01', end: '2027-02-03' });
-  await pg.query(
-    `INSERT INTO external_inventory_events (
-        connection_id, client_id, external_uid, period_start, period_end, booking_id, status
-      ) VALUES ($1, $2, 'uid-imported', '2027-02-01', '2027-02-03', $3, 'imported')`,
-    [connectionId, fx.clientId, bookingId]
+async function refuseCount(pg) {
+  const r = await pg.query(
+    `SELECT count(*)::int AS n
+       FROM external_inventory_events
+      WHERE booking_id IS NOT NULL AND status = 'imported'`
   );
-  let refusedImported = false;
-  try {
-    await applySqlFile(pg, '089_external_calendar_inventory_down.sql');
-  } catch (err) {
-    refusedImported = /089_down_refused/.test(String(err.message || err));
-  }
-  if (!refusedImported) throw new Error('089_down_did_not_refuse_imported');
-  ok('live 089 down refuses imported+linked event', true);
+  return r.rows[0].n;
+}
 
-  await pg.query(`UPDATE external_inventory_events SET status = 'tombstoned', booking_id = NULL WHERE external_uid = 'uid-imported'`);
+async function prove089IdentityMatrix(pg, fx, connectionId) {
+  async function insertEvent(uid, status, bookingId) {
+    await pg.query(
+      `INSERT INTO external_inventory_events (
+          connection_id, client_id, external_uid, period_start, period_end, booking_id, status
+        ) VALUES ($1, $2, $3, '2027-02-01', '2027-02-03', $4, $5)`,
+      [connectionId, fx.clientId, uid, bookingId, status]
+    );
+  }
+  const linked = crypto.randomUUID();
+  await insertMinimalOccupancy(pg, { ...fx, bookingId: linked, start: '2027-02-01', end: '2027-02-03' });
+
+  await insertEvent('uid-imported-linked', 'imported', linked);
+  if (await refuseCount(pg) < 1) throw new Error('imported_linked_not_counted');
+  let refused = false;
+  try { await applySqlFile(pg, '089_external_calendar_inventory_down.sql'); }
+  catch (err) { refused = /089_down_refused/.test(String(err.message || err)); }
+  if (!refused) throw new Error('089_down_did_not_refuse_imported_linked');
+  ok('089 refuses imported+linked', true);
+  await pg.query(`DELETE FROM external_inventory_events WHERE external_uid = 'uid-imported-linked'`);
+
+  await insertEvent('uid-imported-unlinked', 'imported', null);
+  if (await refuseCount(pg) !== 0) throw new Error('imported_unlinked_should_not_refuse');
+  ok('089 allow-predicate imported+unlinked', true);
+  await pg.query(`DELETE FROM external_inventory_events WHERE external_uid = 'uid-imported-unlinked'`);
+
+  await insertEvent('uid-tombstoned-linked', 'tombstoned', linked);
+  if (await refuseCount(pg) !== 0) throw new Error('tombstoned_linked_should_not_refuse');
+  ok('089 allow-predicate tombstoned+linked', true);
+  await pg.query(`DELETE FROM external_inventory_events WHERE external_uid = 'uid-tombstoned-linked'`);
+
+  await insertEvent('uid-skipped-unmapped', 'skipped_unmapped', linked);
+  if (await refuseCount(pg) !== 0) throw new Error('skipped_unmapped_should_not_refuse');
+  ok('089 allow-predicate skipped_unmapped+linked', true);
+  await pg.query(`DELETE FROM external_inventory_events WHERE external_uid = 'uid-skipped-unmapped'`);
+
+  await insertEvent('uid-skipped-conflict', 'skipped_conflict', linked);
+  if (await refuseCount(pg) !== 0) throw new Error('skipped_conflict_should_not_refuse');
+  ok('089 allow-predicate skipped_conflict+linked', true);
+  await pg.query(`DELETE FROM external_inventory_events`);
+
   await applySqlFile(pg, '089_external_calendar_inventory_down.sql');
   await applySqlFile(pg, '089_external_calendar_inventory_down.sql');
-  ok('live 089 down twice after tombstone', true);
+  ok('live 089 down twice after every identity state', true);
 }
 
 async function runLiveDisposableGate() {
@@ -348,13 +407,16 @@ async function runLiveDisposableGate() {
   const quoted = quoteIdent(dbName);
   let a;
   let b;
+  let observer;
   try {
     await admin.query('CREATE DATABASE ' + quoted);
     const connStr = databaseUrlForName(adminUrl, dbName);
     a = new Client({ connectionString: connStr });
     b = new Client({ connectionString: connStr });
+    observer = new Client({ connectionString: connStr });
     await a.connect();
     await b.connect();
+    await observer.connect();
 
     const chain = selectForwardChainThrough('091_booking_occupancy_serialization');
     for (const m of chain) await applySqlFile(a, m.filename);
@@ -380,7 +442,7 @@ async function runLiveDisposableGate() {
       bedId: bed.rows[0].id,
     };
 
-    await runOccupancyRaceMatrix(a, b, fixture);
+    await runOccupancyRaceMatrix(a, b, observer, fixture);
     const connectionId = await live090Hostile(a, fixture);
     await prove091OwnershipRefuse(a);
 
@@ -398,7 +460,7 @@ async function runLiveDisposableGate() {
     await applySqlFile(a, '091_booking_occupancy_serialization.sql');
     ok('live reapply 089-091', true);
 
-    await sessionRace(a, b,
+    await sessionRace(a, b, observer,
       (pg) => insertMinimalOccupancy(pg, { ...fixture, bookingId: crypto.randomUUID(), start: '2027-03-01', end: '2027-03-03' }),
       (pg) => insertMinimalOccupancy(pg, { ...fixture, bookingId: crypto.randomUUID(), start: '2027-03-01', end: '2027-03-03' }),
       'one');
@@ -409,7 +471,7 @@ async function runLiveDisposableGate() {
       if (!client) return;
       try { await client.end(); } catch (err) { cleanupErrors.push(err); }
     }
-    await Promise.all([closeQuiet(a), closeQuiet(b)]);
+    await Promise.all([closeQuiet(a), closeQuiet(b), closeQuiet(observer)]);
     try {
       await admin.query(
         `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()`,
@@ -493,7 +555,11 @@ async function main() {
   ok('gate injects foreign 091 comments', /COMMENT ON FUNCTION public.booking_occupancy_lock_key/.test(gateSrc));
   ok('gate requires sha256 on every selected file', /missing_sha256/.test(gateSrc));
   ok('gate downs 091 then 090 twice', /live 091 down twice/.test(gateSrc) && /live 090 down twice/.test(gateSrc));
-  ok('gate closes clients independently', /Promise\.all\(\[closeQuiet\(a\), closeQuiet\(b\)\]\)/.test(gateSrc));
+  ok('gate closes clients independently', /Promise\.all\(\[closeQuiet\(a\), closeQuiet\(b\), closeQuiet\(observer\)\]\)/.test(gateSrc));
+  ok('gate waits for advisory lock barrier', /waitForAdvisoryWait/.test(gateSrc) && /expected_overlap_conflict/.test(gateSrc));
+  ok('date-change uses unused 09-05 range', /2026-09-05/.test(gateSrc) && /2026-09-07/.test(gateSrc));
+  ok('089 identity covers five states',
+    /imported\+unlinked/.test(gateSrc) && /tombstoned\+linked/.test(gateSrc) && /skipped_conflict\+linked/.test(gateSrc));
 
   await runLiveDisposableGate();
 }
