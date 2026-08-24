@@ -617,13 +617,31 @@ async function provisionInTransaction(query, parsed) {
     throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_REFUSE_OWNER', 'refusing to map the table owner as a runtime principal');
   }
 
-  const allowedSignatures = executeFunctionsFor(parsed.kind);
-  const allowedFunctionOids = await resolveFunctionOids(query, allowedSignatures);
+  const materialTableRows = MATERIAL_TABLE ? await readRows(query, `
+    SELECT 1 AS ok
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = $1
+       AND c.relkind = 'r'
+  `, [MATERIAL_TABLE]) : [];
+  const materialTablePresent = materialTableRows.length === 1;
+
+  let allowedSignatures = [...executeFunctionsFor(parsed.kind)];
   let optionalGrantNames = [];
   let optionalDenyNames = [];
   if (parsed.kind === 'worker') {
     optionalGrantNames = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_execute_functions;
-    optionalDenyNames = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_denied_execute_functions;
+    optionalDenyNames = [
+      ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_denied_execute_functions,
+    ];
+    if (materialTablePresent) {
+      const enqueueSig = FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue;
+      allowedSignatures = allowedSignatures.filter((signature) => signature !== enqueueSig);
+      optionalDenyNames.push(
+        ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_revoked_legacy_execute_functions,
+      );
+    }
   } else if (parsed.kind === 'producer') {
     optionalGrantNames = [];
     optionalDenyNames = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_producer_denied_execute_functions;
@@ -634,21 +652,13 @@ async function provisionInTransaction(query, parsed) {
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_producer_execute_functions,
     ];
   }
+  const allowedFunctionOids = await resolveFunctionOids(query, allowedSignatures);
   const optionalGrantSignatures = (optionalGrantNames || []).map((name) => FUNCTION_SIGNATURES[name]).filter(Boolean);
   const optionalPresent = await resolvePresentFunctionSignatures(query, optionalGrantSignatures);
   for (const oid of optionalPresent.oids) allowedFunctionOids.push(oid);
   const grantSignatures = allowedSignatures.concat(optionalPresent.present);
   const optionalDenySignatures = (optionalDenyNames || []).map((name) => FUNCTION_SIGNATURES[name]).filter(Boolean);
   const optionalDenyPresent = await resolvePresentFunctionSignatures(query, optionalDenySignatures);
-  const materialTableRows = MATERIAL_TABLE ? await readRows(query, `
-    SELECT 1 AS ok
-      FROM pg_catalog.pg_class c
-      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'public'
-       AND c.relname = $1
-       AND c.relkind = 'r'
-  `, [MATERIAL_TABLE]) : [];
-  const materialTablePresent = materialTableRows.length === 1;
 
   const roleRows = await readRows(query, `
     SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolinherit, rolreplication, rolbypassrls

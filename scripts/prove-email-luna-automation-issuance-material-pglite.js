@@ -345,6 +345,9 @@ function assertStaticContract() {
   assert.match(DOWN, /principal_kind IN \('worker', 'operator'\)/);
   assert.match(UP, /principal_kind IN \('worker', 'operator', 'producer'\)/);
   assert.match(UP, /'producer'/);
+  assert.match(UP, /REVOKE ALL ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
+  assert.match(UP, /Trigger-based inertness is not ACL separation/);
+  assert.match(DOWN, /GRANT EXECUTE ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
   console.log('ok - static 089 issuance-material contract');
 }
 
@@ -597,7 +600,17 @@ async function provePglite(PGlite) {
     }
   });
   assert.match(workerPersist, /permission denied|not have permission/i);
-  console.log('ok - worker direct persist_and_enqueue EXECUTE is denied');
+  const workerEnqueueAcl = await db.query(
+    `SELECT pg_catalog.has_function_privilege('luna_ch4b1_worker', $1::regprocedure, 'EXECUTE') AS ok`,
+    [`public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue}`],
+  );
+  assert.equal(workerEnqueueAcl.rows[0].ok, false, '089 worker must not retain 088 enqueue EXECUTE');
+  const workerLoadAcl = await db.query(
+    `SELECT pg_catalog.has_function_privilege('luna_ch4b1_worker', $1::regprocedure, 'EXECUTE') AS ok`,
+    [`public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_issuance_material_load}`],
+  );
+  assert.equal(workerLoadAcl.rows[0].ok, true);
+  console.log('ok - worker direct persist_and_enqueue EXECUTE is denied; enqueue EXECUTE revoked; load granted');
 
   const producerDenied = await asRole(db, 'luna_ch4b1_producer', async () => {
     const out = { load: null, claim: null, handoff: null, select: null, insert: null, enqueue: null };
@@ -995,6 +1008,47 @@ async function proveProducerProvisionRollback(PGlite) {
   }
 }
 
+async function proveWorkerEnqueueRevokedBy089(PGlite) {
+  const { FUNCTION_SIGNATURES } = require('./lib/email-luna-automation-principal-contract');
+  const { provisionEmailLunaAutomationPrincipal } = require('./lib/email-luna-automation-principal-provision');
+  const db = new PGlite();
+  await applyThrough088(db);
+  await revokePublicExecuteOutsideCatalogs(db);
+  await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
+    roleName: 'luna_ch4b1_enqueue_worker',
+    kind: 'worker',
+    client_id: ids.client,
+    location_id: ids.location,
+    location_key: 'sunset-somo',
+    password: PASSWORD,
+    apply: true,
+  });
+  const enqueueReg = `public.${FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue}`;
+  const before = await db.query(
+    `SELECT pg_catalog.has_function_privilege('luna_ch4b1_enqueue_worker', $1::regprocedure, 'EXECUTE') AS ok`,
+    [enqueueReg],
+  );
+  assert.equal(before.rows[0].ok, true, '088 worker has enqueue EXECUTE before 089');
+  await db.exec(UP);
+  const after = await db.query(
+    `SELECT pg_catalog.has_function_privilege('luna_ch4b1_enqueue_worker', $1::regprocedure, 'EXECUTE') AS ok`,
+    [enqueueReg],
+  );
+  assert.equal(
+    after.rows[0].ok,
+    false,
+    '089 must REVOKE worker enqueue EXECUTE without re-provision; trigger inertness is not ACL',
+  );
+  await db.exec(DOWN);
+  const restored = await db.query(
+    `SELECT pg_catalog.has_function_privilege('luna_ch4b1_enqueue_worker', $1::regprocedure, 'EXECUTE') AS ok`,
+    [enqueueReg],
+  );
+  assert.equal(restored.rows[0].ok, true, '089 down restores worker enqueue EXECUTE');
+  await db.exec(DOWN);
+  console.log('ok - 089 revokes worker enqueue EXECUTE without re-provision; empty down restores it');
+}
+
 async function proveEnqueueRequiresMaterial(PGlite) {
   const db = new PGlite();
   await applyThrough088(db);
@@ -1031,29 +1085,47 @@ async function proveEnqueueRequiresMaterial(PGlite) {
   console.log('ok - no claimable queue row without material');
 }
 
-assertStaticContract();
-const PGlite = tryLoadPglite();
-if (!PGlite) {
-  console.log('ok - pglite unavailable; static 089 contract only');
-} else {
-  Promise.resolve()
+function runPgliteProof() {
+  assertStaticContract();
+  const PGlite = tryLoadPglite();
+  if (!PGlite) {
+    console.log('ok - pglite unavailable; static 089 contract only');
+    return Promise.resolve();
+  }
+  return Promise.resolve()
     .then(() => provePglite(PGlite))
     .then(() => proveEmptyDown(PGlite))
     .then(() => proveProducerDownRefuse(PGlite))
     .then(() => proveProducerProvisionRollback(PGlite))
+    .then(() => proveWorkerEnqueueRevokedBy089(PGlite))
     .then(() => proveEnqueueRequiresMaterial(PGlite))
     .then(() => {
-      if (!process.env[STOCK_PG_ENV]) {
-        console.log(`ok - stock-PG UNAVAILABLE (${STOCK_PG_ENV} unset) — not counted as PASS`);
-        return;
-      }
-      console.log('ok - stock-PG URL present; PGlite remains the required DB proof');
-    })
-    .then(() => {
       console.log('ALL OK — FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B1 issuance material pglite');
-    })
-    .catch((error) => {
-      console.error(error);
-      process.exit(1);
     });
 }
+
+if (require.main === module) {
+  runPgliteProof().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  STOCK_PG_ENV,
+  ids,
+  PASSWORD,
+  UP,
+  DOWN,
+  shellSql,
+  loadOwners,
+  prepareBundle,
+  persistAudit,
+  createLoaner,
+  exclusiveSession,
+  asRole,
+  applyThrough088,
+  revokePublicExecuteOutsideCatalogs,
+  assertStaticContract,
+  runPgliteProof,
+};

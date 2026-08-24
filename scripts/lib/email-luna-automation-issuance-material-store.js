@@ -3,7 +3,6 @@
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const runtimeIsProxy = require('node:util').types.isProxy.bind(undefined);
 const nodeCrypto = require('node:crypto');
-const { createEmailLunaDraftEnvelope } = require('./email-luna-draft-handoff-contract');
 const {
   assertEmailLunaDraftPolicyIssuance,
   readEmailLunaDraftPolicyIssuanceIdentity,
@@ -16,12 +15,9 @@ const {
 const {
   recomputeEmailLunaDraftCanonicalFromAuthentic,
   readEmailLunaDraftAuthorPlan,
-  recoverEmailLunaDraftAuthorFromAuthenticPlan,
-  emailLunaDraftPolicyTextForKey,
 } = require('./email-luna-draft-author');
 const {
   assertEmailLunaDraftValidation,
-  validateEmailLunaDraft,
   EMAIL_LUNA_DRAFT_VALIDATOR_VERSION,
 } = require('./email-luna-draft-validator');
 
@@ -124,6 +120,9 @@ const EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT = objectFreeze({
   worker_material_select: false,
   producer_material_select: false,
   producer_queue_select: false,
+  worker_revoked_legacy_execute_functions: objectFreeze([
+    'tenant_email_luna_automation_enqueue',
+  ]),
 });
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const LOCATION_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -413,43 +412,6 @@ function publicLoaded(source) {
   return brandLoaded(frozen);
 }
 
-function rebuildEvidenceSnapshot(material) {
-  const fact = material.required_facts[0];
-  const stored = material.grounded_facts[fact];
-  const found = objectCreate(null);
-  const allowed = FACT_FIELD_KEYS[fact];
-  for (let index = 0; index < allowed.length; index += 1) {
-    const key = allowed[index];
-    if (objectHasOwn(stored, key)) found[key] = stored[key];
-  }
-  if (fact === 'policy') {
-    const text = emailLunaDraftPolicyTextForKey(stored.policy_key, material.language);
-    if (typeof text !== 'string') throw invalid();
-    found.policy_text = text;
-  }
-  objectFreeze(found);
-  const grounded = {};
-  grounded[fact] = found;
-  objectFreeze(grounded);
-  const evidence = {
-    client_id: material.client_id,
-    location_id: material.location_id,
-    conversation_id: material.conversation_id,
-    endpoint_id: material.endpoint_id,
-    language: material.language,
-    identity: material.identity,
-    intent: material.intent,
-    intent_support: material.intent_support,
-    requested_location_id: material.requested_location_id,
-    explicit_human_request: material.explicit_human_request,
-    attachment_interpretation_required: material.attachment_interpretation_required,
-    unsafe_transactional_request: material.unsafe_transactional_request,
-    required_facts: material.required_facts.slice(),
-    grounded_results: grounded,
-  };
-  return evidence;
-}
-
 function buildPersistIdentity(input) {
   const request = exactPlain(input, PERSIST_KEYS);
   const operationId = parseUuidRequired(request.operation_id);
@@ -533,73 +495,8 @@ function persistParams(record) {
   ];
 }
 
-function recoverFromLoaded(material, recoverIssueAndDecideEmailLunaDraftPolicy) {
-  if (typeof recoverIssueAndDecideEmailLunaDraftPolicy !== 'function' || runtimeIsProxy(recoverIssueAndDecideEmailLunaDraftPolicy)) {
-    throw invalid();
-  }
-  assertAuthenticLoadedMaterial(material);
-  const envelope = createEmailLunaDraftEnvelope({
-    authority: {
-      client_id: material.client_id,
-      location_id: material.location_id,
-      location_key: material.location_key,
-      conversation_id: material.conversation_id,
-      endpoint_id: material.endpoint_id,
-      inbound_message_id: material.inbound_event_id,
-    },
-    untrusted_content: {
-      subject: material.envelope_subject,
-      body_text: material.envelope_body_text,
-      quoted_history: '',
-      from_display_name: material.envelope_from_display_name,
-      from_address: material.envelope_from_address,
-    },
-  });
-  const issued = recoverIssueAndDecideEmailLunaDraftPolicy({
-    envelope,
-    evidence: rebuildEvidenceSnapshot(material),
-    issuance_id: material.issuance_id,
-  });
-  if (!issued || issued.decision.status !== 'draft_ready') throw invalid();
-  if (readEmailLunaDraftPolicyIssuanceIdentity(issued.evidence) !== material.issuance_id) throw invalid();
-  if (readEmailLunaDraftPolicyIssuanceIdentity(issued.decision) !== material.issuance_id) throw invalid();
-  const plan = {
-    template_id: material.template_id,
-    tone: material.tone,
-    question_key: material.question_key,
-    acknowledgment_key: material.acknowledgment_key,
-  };
-  const draft = recoverEmailLunaDraftAuthorFromAuthenticPlan({
-    envelope,
-    evidence: issued.evidence,
-    decision: issued.decision,
-    plan,
-  });
-  const digest = draftDigest(draft);
-  if (digest !== material.draft_digest) throw invalid();
-  const validation = validateEmailLunaDraft({
-    envelope,
-    evidence: issued.evidence,
-    decision: issued.decision,
-    draft,
-  });
-  if (validation.status !== 'valid') throw invalid();
-  return freeze({
-    envelope,
-    evidence: issued.evidence,
-    decision: issued.decision,
-    draft,
-    validation,
-    issuance_id: material.issuance_id,
-    draft_digest: digest,
-    operation_id: material.operation_id,
-  });
-}
-
-function createEmailLunaAutomationIssuanceMaterialStoreInternal(dependencies, recoverIssueAndDecideEmailLunaDraftPolicy) {
-  if (typeof recoverIssueAndDecideEmailLunaDraftPolicy !== 'function' || runtimeIsProxy(recoverIssueAndDecideEmailLunaDraftPolicy)) {
-    throw invalid();
-  }
+function createEmailLunaAutomationIssuanceMaterialStoreInternal(dependencies) {
+  if (arguments.length !== 1) throw invalid();
   const deps = exactPlain(dependencies, STORE_DEPENDENCY_KEYS);
   const withTransactionClient = deps.withTransactionClient;
   if (typeof withTransactionClient !== 'function' || runtimeIsProxy(withTransactionClient)) throw invalid();
@@ -642,22 +539,16 @@ function createEmailLunaAutomationIssuanceMaterialStoreInternal(dependencies, re
     }));
   }
 
-  function recoverAutomationIssuance(input) {
-    const request = exactPlain(input, ['material']);
-    try {
-      const recovered = recoverFromLoaded(request.material, recoverIssueAndDecideEmailLunaDraftPolicy);
-      return output([['status', 'recovered'], ['record', recovered]]);
-    } catch (error) {
-      if (error && error.code === 'EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_INVALID') throw error;
-      throw invalid();
-    }
-  }
-
   return freeze({
     persistAndEnqueueAutomationIssuance,
     loadAutomationIssuanceMaterial,
-    recoverAutomationIssuance,
+    assertAuthenticLoadedMaterial,
   });
+}
+
+function createEmailLunaAutomationIssuanceMaterialPersistence(dependencies) {
+  if (arguments.length !== 1) throw invalid();
+  return createEmailLunaAutomationIssuanceMaterialStoreInternal(dependencies);
 }
 
 function createEmailLunaAutomationIssuanceMaterialStore(dependencies) {
@@ -667,19 +558,12 @@ function createEmailLunaAutomationIssuanceMaterialStore(dependencies) {
   return policy.createEmailLunaAutomationIssuanceMaterialStore(dependencies);
 }
 
-const policyModulePath = require.resolve('./email-luna-draft-policy');
-const policyModuleNode = require.cache[policyModulePath];
-if (!policyModuleNode || typeof policyModuleNode.installIssuanceMaterialStoreFactory !== 'function') {
-  throw invalid();
-}
-policyModuleNode.installIssuanceMaterialStoreFactory(createEmailLunaAutomationIssuanceMaterialStoreInternal);
-delete policyModuleNode.installIssuanceMaterialStoreFactory;
-
-module.exports = {
+module.exports = objectFreeze({
   createEmailLunaAutomationIssuanceMaterialStore,
+  createEmailLunaAutomationIssuanceMaterialPersistence,
   EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_RUNTIME_WIRED,
   EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_LOGGING_FORBIDDEN,
   EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT,
   MATERIAL_PUBLIC_KEYS,
   LOAD_ROW_KEYS,
-};
+});

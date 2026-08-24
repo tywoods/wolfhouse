@@ -3,8 +3,9 @@
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const runtimeIsProxy = require('node:util').types.isProxy.bind(undefined);
 const nodeCrypto = require('node:crypto');
-const { createEmailLunaDraftHandoff } = require('./email-luna-draft-handoff-contract');
+const { createEmailLunaDraftHandoff, createEmailLunaDraftEnvelope } = require('./email-luna-draft-handoff-contract');
 const cryptoRandomUUID = typeof nodeCrypto.randomUUID === 'function' ? nodeCrypto.randomUUID.bind(nodeCrypto) : null;
+const cryptoCreateHash = typeof nodeCrypto.createHash === 'function' ? nodeCrypto.createHash.bind(nodeCrypto) : null;
 
 const arrayIncludes = uncurryThis(Array.prototype.includes);
 const arrayPush = uncurryThis(Array.prototype.push);
@@ -31,6 +32,7 @@ const POLICY_ISSUANCE_IDS = new WeakMap();
 const FRESHNESS_KEYS = objectFreeze(['turn']);
 const EMAIL_LUNA_DRAFT_POLICY_VERSION = 'email-luna-draft-policy.v1';
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const DIGEST_CANON = /^[0-9a-f]{64}$/;
 let freshnessScopeOpen = false;
 let freshnessScopeGeneration = 0;
 
@@ -683,29 +685,169 @@ function assertEmailLunaDraftPolicyIssuance(input) {
   });
 }
 
-let boundIssuanceMaterialStoreCreate = null;
+function issuanceMaterialInvalid(error) {
+  if (error && error.code === 'EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_INVALID') throw error;
+  const failed = new Error('Email Luna automation issuance material failed.');
+  failed.code = 'EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_INVALID';
+  throw failed;
+}
 
-function installIssuanceMaterialStoreFactory(createInternal) {
-  if (typeof createInternal !== 'function' || runtimeIsProxy(createInternal)) throw invalid();
-  boundIssuanceMaterialStoreCreate = function boundCreate(dependencies) {
-    return createInternal(dependencies, recoverIssueAndDecideEmailLunaDraftPolicy);
+function digestCanonicalDraft(draft) {
+  if (!cryptoCreateHash) throw invalid();
+  if (draft === null || typeof draft !== 'object' || runtimeIsProxy(draft) || arrayIsArray(draft)) throw invalid();
+  const subject = objectGetOwnPropertyDescriptor(draft, 'subject');
+  const body = objectGetOwnPropertyDescriptor(draft, 'body');
+  const language = objectGetOwnPropertyDescriptor(draft, 'language');
+  if (!subject || !body || language === undefined || typeof subject.value !== 'string'
+      || typeof body.value !== 'string' || typeof language.value !== 'string') throw invalid();
+  const hasher = cryptoCreateHash('sha256');
+  const feed = hasher.update.bind(hasher);
+  feed(subject.value);
+  feed('\0');
+  feed(body.value);
+  feed('\0');
+  feed(language.value);
+  const digest = hasher.digest('hex');
+  if (typeof digest !== 'string' || !regexpTest(DIGEST_CANON, digest)) throw invalid();
+  return digest;
+}
+
+function rebuildEvidenceSnapshotFromMaterial(material) {
+  const {
+    emailLunaDraftPolicyTextForKey,
+  } = require('./email-luna-draft-author');
+  const fact = material.required_facts[0];
+  const stored = material.grounded_facts[fact];
+  if (stored === null || typeof stored !== 'object' || runtimeIsProxy(stored) || arrayIsArray(stored)) throw invalid();
+  const found = objectCreate(null);
+  const storedKeys = reflectOwnKeys(stored);
+  for (let index = 0; index < storedKeys.length; index += 1) {
+    const key = storedKeys[index];
+    if (typeof key !== 'string') throw invalid();
+    found[key] = stored[key];
+  }
+  if (fact === 'policy') {
+    const text = emailLunaDraftPolicyTextForKey(stored.policy_key, material.language);
+    if (typeof text !== 'string') throw invalid();
+    found.policy_text = text;
+  }
+  objectFreeze(found);
+  const grounded = {};
+  grounded[fact] = found;
+  objectFreeze(grounded);
+  return {
+    client_id: material.client_id,
+    location_id: material.location_id,
+    conversation_id: material.conversation_id,
+    endpoint_id: material.endpoint_id,
+    language: material.language,
+    identity: material.identity,
+    intent: material.intent,
+    intent_support: material.intent_support,
+    requested_location_id: material.requested_location_id,
+    explicit_human_request: material.explicit_human_request,
+    attachment_interpretation_required: material.attachment_interpretation_required,
+    unsafe_transactional_request: material.unsafe_transactional_request,
+    required_facts: material.required_facts.slice(),
+    grounded_results: grounded,
   };
 }
 
-function createEmailLunaAutomationIssuanceMaterialStore(dependencies) {
-  if (boundIssuanceMaterialStoreCreate === null) {
-    require('./email-luna-automation-issuance-material-store');
-  }
-  if (typeof boundIssuanceMaterialStoreCreate !== 'function') throw invalid();
-  return boundIssuanceMaterialStoreCreate(dependencies);
+function recoverFromLoadedIssuanceMaterial(material) {
+  const {
+    recoverEmailLunaDraftAuthorFromAuthenticPlan,
+  } = require('./email-luna-draft-author');
+  const { validateEmailLunaDraft } = require('./email-luna-draft-validator');
+  const envelope = createEmailLunaDraftEnvelope({
+    authority: {
+      client_id: material.client_id,
+      location_id: material.location_id,
+      location_key: material.location_key,
+      conversation_id: material.conversation_id,
+      endpoint_id: material.endpoint_id,
+      inbound_message_id: material.inbound_event_id,
+    },
+    untrusted_content: {
+      subject: material.envelope_subject,
+      body_text: material.envelope_body_text,
+      quoted_history: '',
+      from_display_name: material.envelope_from_display_name,
+      from_address: material.envelope_from_address,
+    },
+  });
+  const issued = recoverIssueAndDecideEmailLunaDraftPolicy({
+    envelope,
+    evidence: rebuildEvidenceSnapshotFromMaterial(material),
+    issuance_id: material.issuance_id,
+  });
+  if (!issued || issued.decision.status !== 'draft_ready') throw invalid();
+  if (readEmailLunaDraftPolicyIssuanceIdentity(issued.evidence) !== material.issuance_id) throw invalid();
+  if (readEmailLunaDraftPolicyIssuanceIdentity(issued.decision) !== material.issuance_id) throw invalid();
+  const plan = {
+    template_id: material.template_id,
+    tone: material.tone,
+    question_key: material.question_key,
+    acknowledgment_key: material.acknowledgment_key,
+  };
+  const draft = recoverEmailLunaDraftAuthorFromAuthenticPlan({
+    envelope,
+    evidence: issued.evidence,
+    decision: issued.decision,
+    plan,
+  });
+  if (digestCanonicalDraft(draft) !== material.draft_digest) throw invalid();
+  const validation = validateEmailLunaDraft({
+    envelope,
+    evidence: issued.evidence,
+    decision: issued.decision,
+    draft,
+  });
+  if (validation.status !== 'valid') throw invalid();
+  return objectFreeze({
+    envelope,
+    evidence: issued.evidence,
+    decision: issued.decision,
+    draft,
+    validation,
+    issuance_id: material.issuance_id,
+    draft_digest: material.draft_digest,
+    operation_id: material.operation_id,
+  });
 }
 
-// Node Module object only — not module.exports. The store installs once, then
-// the hook is deleted so ordinary importers and later require.cache callers
-// cannot obtain the private recovery closure.
-module.installIssuanceMaterialStoreFactory = installIssuanceMaterialStoreFactory;
+function createEmailLunaAutomationIssuanceMaterialStore(dependencies) {
+  if (arguments.length !== 1) throw invalid();
+  const storeMod = require('./email-luna-automation-issuance-material-store');
+  const factory = storeMod.createEmailLunaAutomationIssuanceMaterialPersistence;
+  if (typeof factory !== 'function' || runtimeIsProxy(factory) || factory.length !== 1) throw invalid();
+  const raw = factory(dependencies);
+  if (!raw || typeof raw !== 'object' || runtimeIsProxy(raw)
+      || typeof raw.persistAndEnqueueAutomationIssuance !== 'function'
+      || typeof raw.loadAutomationIssuanceMaterial !== 'function'
+      || typeof raw.assertAuthenticLoadedMaterial !== 'function'
+      || typeof raw.recoverAutomationIssuance === 'function') throw invalid();
+  const persistAndEnqueueAutomationIssuance = raw.persistAndEnqueueAutomationIssuance;
+  const loadAutomationIssuanceMaterial = raw.loadAutomationIssuanceMaterial;
+  const assertAuthenticLoadedMaterial = raw.assertAuthenticLoadedMaterial;
+  return objectFreeze({
+    persistAndEnqueueAutomationIssuance,
+    loadAutomationIssuanceMaterial,
+    recoverAutomationIssuance(input) {
+      try {
+        const request = copyExactProducerRecord(input, ['material'], Object.prototype);
+        assertAuthenticLoadedMaterial(request.material);
+        return output([
+          ['status', 'recovered'],
+          ['record', recoverFromLoadedIssuanceMaterial(request.material)],
+        ]);
+      } catch (error) {
+        issuanceMaterialInvalid(error);
+      }
+    },
+  });
+}
 
-module.exports = {
+module.exports = objectFreeze({
   createEmailLunaDraftPolicyEvidence,
   decideEmailLunaDraftPolicy,
   issueAndDecideEmailLunaDraftPolicy,
@@ -714,4 +856,4 @@ module.exports = {
   createEmailLunaAutomationIssuanceMaterialStore,
   EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
   EMAIL_LUNA_DRAFT_POLICY_VERSION,
-};
+});

@@ -4,8 +4,9 @@
 -- Fail closed when producer mappings exist (refuse restoring the 088
 -- worker/operator kind constraint while producer rows remain).
 -- Empty table and no producer mappings: drop 089 objects, restore the 088
--- principal-kind constraint and principal_authorized body. Does not drop
--- 085/086/087/088, inbound, or queue rows. Second empty execution is safe.
+-- principal-kind constraint and principal_authorized body, and restore
+-- worker EXECUTE on 088 enqueue. Does not drop 085/086/087/088, inbound,
+-- or queue rows. Second empty execution is safe.
 
 BEGIN;
 
@@ -140,5 +141,35 @@ AS $$
       )
     END;
 $$;
+
+DO $$
+DECLARE
+  r record;
+BEGIN
+  IF pg_catalog.to_regprocedure(
+       'public.tenant_email_luna_automation_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text)'
+     ) IS NULL THEN
+    RETURN;
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'tenant_email_luna_automation_principals'
+       AND c.relkind = 'r'
+  ) THEN
+    FOR r IN
+      SELECT p.role_name
+        FROM public.tenant_email_luna_automation_principals p
+       WHERE p.principal_kind = 'worker'
+    LOOP
+      EXECUTE format(
+        'GRANT EXECUTE ON FUNCTION public.tenant_email_luna_automation_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text) TO %I',
+        r.role_name
+      );
+    END LOOP;
+  END IF;
+END $$;
 
 COMMIT;

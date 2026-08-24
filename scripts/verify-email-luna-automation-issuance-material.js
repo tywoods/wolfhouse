@@ -71,6 +71,19 @@ assert.deepEqual(
   EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_execute_functions.slice().sort(),
   ['tenant_email_luna_automation_persist_and_enqueue'].sort(),
 );
+assert.deepEqual(
+  EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.worker_revoked_legacy_execute_functions.slice().sort(),
+  ['tenant_email_luna_automation_enqueue'].sort(),
+);
+assert.deepEqual(
+  EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_revoked_legacy_execute_functions.slice().sort(),
+  ['tenant_email_luna_automation_enqueue'].sort(),
+);
+assert.equal(
+  executeFunctionsFor('worker').includes(FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue),
+  true,
+  '088 worker grant list still names enqueue; 089 revokes it as ACL, not trigger inertness',
+);
 assert.deepEqual(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_table_privileges.slice(), []);
 assert.equal(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_material_select, false);
 assert.equal(EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_queue_select, false);
@@ -152,18 +165,27 @@ assert.equal(/CREATE OR REPLACE FUNCTION public\.tenant_email_luna_automation_cl
 assert.match(DOWN_089, /089_down_refused/);
 assert.match(DOWN_089, /DROP TABLE IF EXISTS public\.tenant_email_luna_automation_issuance_material/);
 assert.equal(/^\s*GRANT /m.test(SQL_088), false);
-console.log('  PASS  089 schema is append-only, send-inert, no product GRANT, 088 SQL unrewritten');
+assert.match(SQL_089, /REVOKE ALL ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
+assert.match(SQL_089, /principal_kind = 'worker'/);
+assert.match(SQL_089, /Trigger-based inertness is not ACL separation/);
+assert.match(DOWN_089, /GRANT EXECUTE ON FUNCTION public\.tenant_email_luna_automation_enqueue/);
+assert.equal(/^\s*GRANT /m.test(SQL_089), false);
+console.log('  PASS  089 schema is append-only, send-inert, no product GRANT, 088 SQL unrewritten, worker enqueue EXECUTE revoked');
 
 assert.match(STORE_SRC, /AUTHENTIC_LOADED_MATERIAL/);
-assert.match(STORE_SRC, /recoverIssueAndDecideEmailLunaDraftPolicy/);
 assert.match(STORE_SRC, /createEmailLunaAutomationIssuanceMaterialStoreInternal/);
-assert.match(STORE_SRC, /installIssuanceMaterialStoreFactory/);
-assert.match(STORE_SRC, /recoverEmailLunaDraftAuthorFromAuthenticPlan/);
-assert.match(STORE_SRC, /quoted_history: ''/);
-assert.match(STORE_SRC, /emailLunaDraftPolicyTextForKey/);
+assert.match(STORE_SRC, /createEmailLunaAutomationIssuanceMaterialPersistence/);
+assert.equal(/installIssuanceMaterialStoreFactory/.test(STORE_SRC), false);
+assert.equal(/installIssuanceMaterialStoreFactory/.test(POLICY_SRC), false);
+assert.equal(/module\.install/.test(POLICY_SRC), false);
+assert.equal(/recoverIssueAndDecideEmailLunaDraftPolicy/.test(STORE_SRC), false);
+assert.match(POLICY_SRC, /function recoverIssueAndDecideEmailLunaDraftPolicy/);
+assert.match(POLICY_SRC, /recoverFromLoadedIssuanceMaterial/);
+assert.match(POLICY_SRC, /quoted_history: ''/);
+assert.match(POLICY_SRC, /emailLunaDraftPolicyTextForKey/);
+assert.match(POLICY_SRC, /recoverEmailLunaDraftAuthorFromAuthenticPlan/);
 assert.equal(/console\.log/.test(STORE_SRC), false);
 assert.equal(/booking_code/.test(STORE_SRC.split('FACT_FIELD_KEYS')[1].slice(0, 800)), true);
-assert.match(POLICY_SRC, /function recoverIssueAndDecideEmailLunaDraftPolicy/);
 assert.match(POLICY_SRC, /Live composition must keep/);
 assert.equal(/recoverIssueAndDecideEmailLunaDraftPolicy,/.test(POLICY_SRC.split('module.exports')[1] || ''), false);
 assert.match(AUTHOR_SRC, /recoverEmailLunaDraftAuthorFromAuthenticPlan/);
@@ -298,6 +320,18 @@ async function main() {
   const storeExports = require('./lib/email-luna-automation-issuance-material-store');
   assert.equal(typeof storeExports.createEmailLunaAutomationIssuanceMaterialStoreInternal, 'undefined');
   assert.equal('recoverIssueAndDecideEmailLunaDraftPolicy' in storeExports, false);
+  assert.equal(typeof storeExports.createEmailLunaAutomationIssuanceMaterialPersistence, 'function');
+  assert.throws(() => storeExports.createEmailLunaAutomationIssuanceMaterialPersistence(
+    { withTransactionClient() { return Promise.resolve(); } },
+    () => {},
+  ));
+  const persistenceOnly = storeExports.createEmailLunaAutomationIssuanceMaterialPersistence({
+    async withTransactionClient(work) {
+      return work({ async query() { return { rows: [] }; } });
+    },
+  });
+  assert.equal('recoverAutomationIssuance' in persistenceOnly, false);
+  assert.equal(typeof persistenceOnly.assertAuthenticLoadedMaterial, 'function');
   const minted = issueAndDecideEmailLunaDraftPolicy({
     envelope: triplet.envelope,
     evidence: {
@@ -406,11 +440,41 @@ async function main() {
 
   const fresh = spawnSync(process.execPath, ['-e', `
     const assert = require('node:assert/strict');
-    const policy = require(${JSON.stringify(require.resolve('./lib/email-luna-draft-policy'))});
+    const policyPath = ${JSON.stringify(require.resolve('./lib/email-luna-draft-policy'))};
+    const storePath = ${JSON.stringify(require.resolve('./lib/email-luna-automation-issuance-material-store'))};
+    const policy = require(policyPath);
     assert.equal('recoverIssueAndDecideEmailLunaDraftPolicy' in policy, false);
     assert.equal('installIssuanceMaterialStoreFactory' in policy, false);
-    const store = require(${JSON.stringify(require.resolve('./lib/email-luna-automation-issuance-material-store'))});
+    const node = require.cache[policyPath];
+    assert.equal(typeof node.installIssuanceMaterialStoreFactory, 'undefined');
+    assert.equal('installIssuanceMaterialStoreFactory' in node, false);
+    assert.equal(Reflect.ownKeys(node).includes('installIssuanceMaterialStoreFactory'), false);
+    assert.equal(typeof globalThis.installIssuanceMaterialStoreFactory, 'undefined');
+    assert.equal(typeof globalThis.recoverIssueAndDecideEmailLunaDraftPolicy, 'undefined');
+    const hook = node.installIssuanceMaterialStoreFactory;
+    process.stdout.write('hook_before=' + typeof hook + '\\n');
+    let captured = null;
+    if (typeof hook === 'function') {
+      hook(function maliciousFactory(dependencies, recover) {
+        captured = recover;
+        return {
+          persistAndEnqueueAutomationIssuance() { return { status: 'noop' }; },
+          loadAutomationIssuanceMaterial() { return { status: 'empty' }; },
+          recoverAutomationIssuance() { return { status: 'unbound' }; },
+        };
+      });
+    }
+    policy.createEmailLunaAutomationIssuanceMaterialStore({
+      async withTransactionClient(work) {
+        return work({ async query() { return { rows: [] }; } });
+      },
+    });
+    process.stdout.write('captured=' + (captured === null ? 'null' : typeof captured) + '\\n');
+    assert.equal(typeof hook, 'undefined');
+    assert.equal(captured, null);
+    const store = require(storePath);
     assert.equal(typeof store.createEmailLunaAutomationIssuanceMaterialStoreInternal, 'undefined');
+    assert.equal(typeof store.createEmailLunaAutomationIssuanceMaterialPersistence, 'function');
     const created = store.createEmailLunaAutomationIssuanceMaterialStore({
       async withTransactionClient(work) {
         return work({ async query() { return { rows: [] }; } });
@@ -423,8 +487,10 @@ async function main() {
     process.stdout.write('fresh-ok');
   `], { encoding: 'utf8' });
   assert.equal(fresh.status, 0, fresh.stderr || fresh.stdout);
+  assert.match(fresh.stdout, /hook_before=undefined/);
+  assert.match(fresh.stdout, /captured=null/);
   assert.match(fresh.stdout, /fresh-ok/);
-  console.log('  PASS  fresh process: policy exports cannot recover; store recover requires branded load');
+  console.log('  PASS  fresh process: policy exports cannot recover; store recover requires branded load; require.cache hook is gone');
 
   {
     const store = fs.mkdtempSync(path.join(os.tmpdir(), 'email-luna-issuance-material-'));
