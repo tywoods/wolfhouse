@@ -23,6 +23,7 @@ const TABLE_DENIED = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.worker_table_denie
 const QUEUE_TABLE = 'tenant_email_luna_automation_queue';
 const JOURNAL_TABLE = 'tenant_email_outbound_send_journal';
 const PRINCIPAL_TABLE = 'tenant_email_luna_automation_principals';
+const MATERIAL_TABLE = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_table;
 const INJECT_STEPS = Object.freeze(['create_role', 'grants', 'mapping', 'final_audit']);
 
 function fail(code, message, extra) {
@@ -164,6 +165,20 @@ async function resolveFunctionOids(query, signatures) {
   return oids;
 }
 
+async function resolvePresentFunctionSignatures(query, signatures) {
+  const present = [];
+  const oids = [];
+  for (const signature of signatures) {
+    const rows = await readRows(query, 'SELECT pg_catalog.to_regprocedure($1)::pg_catalog.oid::text AS oid', [`public.${signature}`]);
+    const oid = rows[0] && rows[0].oid;
+    if (oid) {
+      present.push(signature);
+      oids.push(String(oid));
+    }
+  }
+  return { present, oids };
+}
+
 async function auditMemberships(query, roleName) {
   const rows = await readRows(query, `
     WITH RECURSIVE mem AS (
@@ -287,7 +302,7 @@ async function explodeDirectPrivileges(query, roleName, row) {
   return null;
 }
 
-async function auditDirectAclDependencies(query, roleName, allowedFunctionOids, mode) {
+async function auditDirectAclDependencies(query, roleName, allowedFunctionOids, mode, kind) {
   const current = await readRows(query, `
     SELECT oid::text AS oid, datname
       FROM pg_catalog.pg_database
@@ -472,7 +487,14 @@ async function auditDirectAclDependencies(query, roleName, allowedFunctionOids, 
   if (!intended.schemaUsage) {
     throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_MISSING_USAGE', 'principal must have public schema USAGE');
   }
-  if (!intended.queueSelect) {
+  if (kind === 'producer') {
+    if (intended.queueSelect) {
+      throw fail(
+        'EMAIL_LUNA_AUTOMATION_PRINCIPAL_EXCESS_ACL',
+        'producer must not have queue SELECT',
+      );
+    }
+  } else if (!intended.queueSelect) {
     throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_MISSING_QUEUE_SELECT', 'principal must have queue SELECT');
   }
   for (const oid of allowed) {
@@ -562,7 +584,7 @@ async function auditAmbientPublic(query, roleName, allowedFunctionOids) {
 async function auditPrincipal(query, parsed, database, allowedFunctionOids, mode) {
   await auditMemberships(query, parsed.roleName);
   await auditOwnerDependencies(query, parsed.roleName);
-  await auditDirectAclDependencies(query, parsed.roleName, allowedFunctionOids, mode);
+  await auditDirectAclDependencies(query, parsed.roleName, allowedFunctionOids, mode, parsed.kind);
   await auditAmbientPublic(query, parsed.roleName, allowedFunctionOids);
 }
 
@@ -595,8 +617,48 @@ async function provisionInTransaction(query, parsed) {
     throw fail('EMAIL_LUNA_AUTOMATION_PRINCIPAL_REFUSE_OWNER', 'refusing to map the table owner as a runtime principal');
   }
 
-  const allowedSignatures = executeFunctionsFor(parsed.kind);
+  const materialTableRows = MATERIAL_TABLE ? await readRows(query, `
+    SELECT 1 AS ok
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = $1
+       AND c.relkind = 'r'
+  `, [MATERIAL_TABLE]) : [];
+  const materialTablePresent = materialTableRows.length === 1;
+
+  let allowedSignatures = [...executeFunctionsFor(parsed.kind)];
+  let optionalGrantNames = [];
+  let optionalDenyNames = [];
+  if (parsed.kind === 'worker') {
+    optionalGrantNames = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_execute_functions;
+    optionalDenyNames = [
+      ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_denied_execute_functions,
+    ];
+    if (materialTablePresent) {
+      const enqueueSig = FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue;
+      allowedSignatures = allowedSignatures.filter((signature) => signature !== enqueueSig);
+      optionalDenyNames.push(
+        ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_revoked_legacy_execute_functions,
+      );
+    }
+  } else if (parsed.kind === 'producer') {
+    optionalGrantNames = [];
+    optionalDenyNames = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_producer_denied_execute_functions;
+  } else {
+    optionalGrantNames = [];
+    optionalDenyNames = [
+      ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_execute_functions,
+      ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_producer_execute_functions,
+    ];
+  }
   const allowedFunctionOids = await resolveFunctionOids(query, allowedSignatures);
+  const optionalGrantSignatures = (optionalGrantNames || []).map((name) => FUNCTION_SIGNATURES[name]).filter(Boolean);
+  const optionalPresent = await resolvePresentFunctionSignatures(query, optionalGrantSignatures);
+  for (const oid of optionalPresent.oids) allowedFunctionOids.push(oid);
+  const grantSignatures = allowedSignatures.concat(optionalPresent.present);
+  const optionalDenySignatures = (optionalDenyNames || []).map((name) => FUNCTION_SIGNATURES[name]).filter(Boolean);
+  const optionalDenyPresent = await resolvePresentFunctionSignatures(query, optionalDenySignatures);
 
   const roleRows = await readRows(query, `
     SELECT rolname, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolinherit, rolreplication, rolbypassrls
@@ -654,8 +716,10 @@ async function provisionInTransaction(query, parsed) {
   grantSql.push(`REVOKE CREATE ON DATABASE ${databaseIdent} FROM ${roleIdent}`);
   grantSql.push(`GRANT USAGE ON SCHEMA public TO ${roleIdent}`);
   grantSql.push(`REVOKE CREATE ON SCHEMA public FROM ${roleIdent}`);
-  grantSql.push(tablePrivilegeSql(roleIdent, QUEUE_TABLE, 'SELECT'));
-  for (const signature of allowedSignatures) {
+  if (parsed.kind !== 'producer') {
+    grantSql.push(tablePrivilegeSql(roleIdent, QUEUE_TABLE, 'SELECT'));
+  }
+  for (const signature of grantSignatures) {
     grantSql.push(`GRANT EXECUTE ON FUNCTION public.${signature} TO ${roleIdent}`);
   }
   const revokeSql = [];
@@ -663,11 +727,17 @@ async function provisionInTransaction(query, parsed) {
     revokeSql.push(`REVOKE ${privilege} ON TABLE public.${QUEUE_TABLE} FROM ${roleIdent}`);
     revokeSql.push(`REVOKE ${privilege} ON TABLE public.${JOURNAL_TABLE} FROM ${roleIdent}`);
     revokeSql.push(`REVOKE ${privilege} ON TABLE public.${PRINCIPAL_TABLE} FROM ${roleIdent}`);
+    if (materialTablePresent) {
+      revokeSql.push(`REVOKE ${privilege} ON TABLE public.${MATERIAL_TABLE} FROM ${roleIdent}`);
+    }
   }
   revokeSql.push(`REVOKE SELECT ON TABLE public.${JOURNAL_TABLE} FROM ${roleIdent}`);
   revokeSql.push(`REVOKE SELECT ON TABLE public.${PRINCIPAL_TABLE} FROM ${roleIdent}`);
   revokeSql.push(`REVOKE ALL ON TABLE public.${PRINCIPAL_TABLE} FROM ${roleIdent}`);
   for (const signature of deniedExecuteFunctionsFor(parsed.kind)) {
+    revokeSql.push(`REVOKE ALL ON FUNCTION public.${signature} FROM ${roleIdent}`);
+  }
+  for (const signature of optionalDenyPresent.present) {
     revokeSql.push(`REVOKE ALL ON FUNCTION public.${signature} FROM ${roleIdent}`);
   }
 

@@ -2,6 +2,7 @@
 
 const { EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT } = require('./email-luna-automation-queue-store');
 const { EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT } = require('./email-luna-automation-journal-handoff-store');
+const { EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT } = require('./email-luna-automation-issuance-material-store');
 
 const objectFreeze = Object.freeze;
 
@@ -53,7 +54,7 @@ const ROLE_ATTRIBUTES = objectFreeze({
   rolbypassrls: false,
 });
 
-const PRINCIPAL_KINDS = objectFreeze(['worker', 'operator']);
+const PRINCIPAL_KINDS = objectFreeze(['worker', 'operator', 'producer']);
 
 const WORKER_EXECUTE_FUNCTIONS = objectFreeze(Array.from(new Set([
   ...EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.worker_execute_functions,
@@ -72,6 +73,8 @@ const FUNCTION_SIGNATURES = objectFreeze({
   tenant_email_luna_automation_cancel_pending: 'tenant_email_luna_automation_cancel_pending(uuid, uuid)',
   tenant_email_luna_automation_require_handoff_pending: 'tenant_email_luna_automation_require_handoff_pending(uuid, uuid)',
   tenant_email_luna_automation_principal_authorized: 'tenant_email_luna_automation_principal_authorized(text, uuid, uuid, text)',
+  tenant_email_luna_automation_persist_and_enqueue: 'tenant_email_luna_automation_persist_and_enqueue(uuid, uuid, uuid, uuid, uuid, text, uuid, uuid, uuid, text, text, text, text, text, jsonb)',
+  tenant_email_luna_automation_issuance_material_load: 'tenant_email_luna_automation_issuance_material_load(uuid, uuid)',
 });
 
 const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
@@ -99,7 +102,21 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   worker_journal_select: false,
   worker_execute_functions: WORKER_EXECUTE_FUNCTIONS,
   operator_execute_functions: OPERATOR_EXECUTE_FUNCTIONS,
+  producer_execute_functions: EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_execute_functions,
   support_execute_functions: objectFreeze(['tenant_email_luna_automation_principal_authorized']),
+  issuance_material_worker_execute_functions: EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.worker_execute_functions,
+  issuance_material_producer_execute_functions: EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_execute_functions,
+  issuance_material_worker_denied_execute_functions: EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.producer_execute_functions,
+  issuance_material_producer_denied_execute_functions: EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.worker_execute_functions,
+  issuance_material_worker_revoked_legacy_execute_functions:
+    EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.worker_revoked_legacy_execute_functions,
+  issuance_material_table: EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT.table,
+  worker_material_select: false,
+  producer_material_select: false,
+  producer_queue_select: false,
+  producer_worker_roles_globally_distinct: true,
+  no_grant_in_092: true,
+  no_create_role_in_092: true,
   queue_rls: objectFreeze({ enable: true, force: false, command: 'SELECT' }),
   journal_rls: objectFreeze({
     enable: false,
@@ -215,6 +232,11 @@ function createRoleSqlPlan(roleName) {
 
 function executeFunctionsFor(kind) {
   const k = assertKind(kind);
+  if (k === 'producer') {
+    return objectFreeze(
+      EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.producer_execute_functions.map((name) => FUNCTION_SIGNATURES[name]),
+    );
+  }
   const names = k === 'worker'
     ? [...WORKER_EXECUTE_FUNCTIONS, ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.support_execute_functions]
     : [...OPERATOR_EXECUTE_FUNCTIONS, ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.support_execute_functions];
@@ -223,6 +245,14 @@ function executeFunctionsFor(kind) {
 
 function deniedExecuteFunctionsFor(kind) {
   const k = assertKind(kind);
+  if (k === 'producer') {
+    const names = [
+      ...WORKER_EXECUTE_FUNCTIONS,
+      ...OPERATOR_EXECUTE_FUNCTIONS,
+      ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.support_execute_functions,
+    ];
+    return objectFreeze(names.map((name) => FUNCTION_SIGNATURES[name]));
+  }
   const names = k === 'worker' ? [...OPERATOR_EXECUTE_FUNCTIONS] : [...WORKER_EXECUTE_FUNCTIONS];
   return objectFreeze(names.map((name) => FUNCTION_SIGNATURES[name]));
 }

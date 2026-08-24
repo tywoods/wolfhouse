@@ -87,4 +87,35 @@ function recomputeEmailLunaDraftCanonicalFromAuthentic(input){
   const drafted=render(trusted,plan);if(!drafted)throw invalid();
   return renderCanonicalRow(drafted);
 }
-module.exports={EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS,buildEmailLunaDraftAuthorPrompt,createEmailLunaDraftAuthor,recomputeEmailLunaDraftCanonicalFromAuthentic};
+function readEmailLunaDraftAuthorPlan(draft){
+  if(!draft||typeof draft!=='object'||isProxy(draft)||isArray(draft)||getProto(draft)!==null||!isFrozen(draft))throw invalid();
+  if(!weakSetHas(AUTHENTIC_AUTHOR_DRAFTS,draft))throw invalid();
+  const meta=weakMapGet(AUTHENTIC_AUTHOR_DRAFT_META,draft);
+  if(!meta||typeof meta!=='object'||isProxy(meta)||!isFrozen(meta))throw invalid();
+  const plan=meta.plan;if(!plan||typeof plan!=='object'||isProxy(plan)||!isFrozen(plan))throw invalid();
+  const snapshot=record(plan,PLAN_KEYS,true,null);
+  if(!arrayIncludes(TONES,snapshot.tone)||!arrayIncludes(ACKS,snapshot.acknowledgment_key))throw invalid();
+  const expectedQuestions=QUESTIONS[snapshot.template_id];
+  if(!expectedQuestions||!arrayIncludes(expectedQuestions,snapshot.question_key))throw invalid();
+  return freezePlan(snapshot);
+}
+function emailLunaDraftPolicyTextForKey(policyKey,language){
+  if(typeof policyKey!=='string'||(language!=='en'&&language!=='es'))return null;
+  const copy=POLICY_COPY[policyKey];
+  if(!copy||typeof copy[language]!=='string')return null;
+  return copy[language];
+}
+function recoverEmailLunaDraftAuthorFromAuthenticPlan(input){
+  const snapshot=record(input,['envelope','decision','evidence','plan']);
+  let trusted;
+  try{trusted=assertEmailLunaDraftPolicyIssuance({envelope:snapshot.envelope,decision:snapshot.decision,evidence:snapshot.evidence});}catch(_){throw invalid();}
+  if(!trusted||trusted.status!=='draft_ready')throw invalid();
+  const plan=record(snapshot.plan,PLAN_KEYS,true,getProto(snapshot.plan)===null?null:Object.prototype);
+  if(plan.template_id!==TEMPLATE_FOR_INTENT[trusted.intent])throw invalid();
+  if(!arrayIncludes(TONES,plan.tone)||!arrayIncludes(ACKS,plan.acknowledgment_key))throw invalid();
+  const expectedQuestions=QUESTIONS[plan.template_id];
+  if(!expectedQuestions||!arrayIncludes(expectedQuestions,plan.question_key))throw invalid();
+  const drafted=render(trusted,plan);if(!drafted)throw invalid();
+  return ready(drafted,trusted.binding,plan,{envelope:snapshot.envelope,decision:snapshot.decision,evidence:snapshot.evidence});
+}
+module.exports={EMAIL_LUNA_DRAFT_AUTHOR_HANDOFF_REASONS,buildEmailLunaDraftAuthorPrompt,createEmailLunaDraftAuthor,recomputeEmailLunaDraftCanonicalFromAuthentic,readEmailLunaDraftAuthorPlan,recoverEmailLunaDraftAuthorFromAuthenticPlan,emailLunaDraftPolicyTextForKey};

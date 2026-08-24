@@ -1323,6 +1323,26 @@
       "rationale": "Drops exactly the 091 occupancy triggers and helper functions. Repeatable if already absent.",
       "pairsWith": "091_booking_occupancy_serialization.sql",
       "sha256": "6f58da44603f2ed9eb7967df417648d86dff37c06e206a8a88e272c7f83cbc2f"
+    },
+    {
+      "id": "092_tenant_email_luna_automation_issuance_material",
+      "filename": "092_tenant_email_luna_automation_issuance_material.sql",
+      "order": 88,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B1: append-only issuance reconstitution material. One row per exact queue operation/issuance with 085/086/082 authority coupling. Persists classifier, grounded found-fields, and author plan only. Guest body stays on inbound 082. Producer-only persist_and_enqueue plus scoped worker load. Worker 088 enqueue EXECUTE is revoked. No GRANT/CREATE ROLE. Queue INSERT requires matching material. Confidential booking/payment values live only in this table. Authenticity boundary is producer/worker principal separation, not a same-call 085 digest.",
+      "downFilename": "092_tenant_email_luna_automation_issuance_material_down.sql",
+      "sha256": "7d2f8d93d637ab1dadfbb3bfe34cd397aa53d3e1e3130f8542a28ba2e4c48116"
+    },
+    {
+      "id": "092_tenant_email_luna_automation_issuance_material_down",
+      "filename": "092_tenant_email_luna_automation_issuance_material_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while issuance-material rows or producer principal mappings exist; otherwise drops 092 objects, restores the 088 kind constraint and principal_authorized body, restores worker EXECUTE on 088 enqueue, and removes the queue-insert material prerequisite. Second empty execution is safe.",
+      "pairsWith": "092_tenant_email_luna_automation_issuance_material.sql",
+      "sha256": "d08a524cf838ad41ed810adbf09720c17b336afe42d7806d8782c29606758650"
     }
   ]
 }

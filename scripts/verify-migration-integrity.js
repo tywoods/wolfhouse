@@ -118,18 +118,51 @@ const CALENDAR_BRIDGE_FORWARD_IDS = Object.freeze([
   '090_external_calendar_inventory_tenant_integrity',
   '091_booking_occupancy_serialization',
 ]);
+const ISSUANCE_MATERIAL_FORWARD_ID = '092_tenant_email_luna_automation_issuance_material';
+const MASTER_CALENDAR_BRIDGE_DIGESTS = Object.freeze({
+  '089_external_calendar_inventory': 'b07a7f87ca1b9e2c3da2da60ef161ccdc049a42726cf12fe4872b742740b9b6f',
+  '090_external_calendar_inventory_tenant_integrity': '2e9b9d5219f79d89cc8eadbdb2679c0e2a47c7e7948ecdd0e4449c0eeac33893',
+  '091_booking_occupancy_serialization': 'f5c03f76fd949d2e5695bccc03e1bcf4ced7d2836fbbc9646df27be15bca7976',
+});
+
+function calendarBridgeSequence(fwd) {
+  const ids = fwd.map((e) => e.id);
+  const start = ids.indexOf(CALENDAR_BRIDGE_FORWARD_IDS[0]);
+  if (start < 0) return '';
+  return ids.slice(start, start + CALENDAR_BRIDGE_FORWARD_IDS.length).join(',');
+}
+
+function numberedSqlBases(files) {
+  const byNumber = new Map();
+  for (const filename of files) {
+    const match = String(filename).match(/^(\d{3})_(.+?)(?:_down)?\.sql$/);
+    if (!match) continue;
+    const base = `${match[1]}_${match[2]}.sql`;
+    if (!byNumber.has(match[1])) byNumber.set(match[1], new Set());
+    byNumber.get(match[1]).add(base);
+  }
+  return byNumber;
+}
 
 const forwards = forwardEntries(manifest);
 pass(
   'green-forward-count',
   forwards.length === manifest.entries.filter((e) => e.inForwardChain === true && e.classification === 'canonical_forward').length
-    && CALENDAR_BRIDGE_FORWARD_IDS.every((id) => forwards.some((e) => e.id === id)),
+    && CALENDAR_BRIDGE_FORWARD_IDS.every((id) => forwards.some((e) => e.id === id))
+    && forwards.some((e) => e.id === ISSUANCE_MATERIAL_FORWARD_ID),
   `forward=${forwards.length}`,
 );
 pass(
   'green-calendar-bridge-forward-tail',
-  forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
-  forwards.slice(-3).map((e) => e.id).join(','),
+  calendarBridgeSequence(forwards) === CALENDAR_BRIDGE_FORWARD_IDS.join(',')
+    && forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length - 1, -1).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-4).map((e) => e.id).join(','),
+);
+pass(
+  'green-issuance-material-forward-after-calendar-bridge',
+  forwards[forwards.length - 1] && forwards[forwards.length - 1].id === ISSUANCE_MATERIAL_FORWARD_ID
+    && calendarBridgeSequence(forwards.slice(0, -1)) === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-4).map((e) => e.id).join(','),
 );
 pass(
   'green-all-sql-classified',
@@ -178,11 +211,12 @@ pass(
   const m = deepClone(manifest);
   m.entries = m.entries.filter((e) => e.id !== '091_booking_occupancy_serialization');
   const r = validateManifestIntegrity(m);
-  const tail = forwardEntries(m).slice(-3).map((e) => e.id);
+  const fwd = forwardEntries(m);
   pass(
     'red-calendar-091-missing',
     !r.ok && r.errors.some((e) => e.code === 'unclassified_sql')
-      && tail.join(',') !== CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+      && !fwd.some((e) => e.id === '091_booking_occupancy_serialization')
+      && calendarBridgeSequence(fwd) !== CALENDAR_BRIDGE_FORWARD_IDS.join(','),
   );
 }
 
@@ -202,10 +236,9 @@ pass(
   const tmp = ninety.order;
   ninety.order = ninetyOne.order;
   ninetyOne.order = tmp;
-  const tail = forwardEntries(m).slice(-3).map((e) => e.id);
   pass(
     'red-calendar-090-091-reordered',
-    tail.join(',') !== CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+    calendarBridgeSequence(forwardEntries(m)) !== CALENDAR_BRIDGE_FORWARD_IDS.join(','),
   );
 }
 
@@ -251,6 +284,55 @@ pass(
     'red-forward-wrong-rollback',
     pairing.ok === false
       && (pairing.code === 'rollback_referenced_twice' || pairing.code === 'orphan_rollback'),
+  );
+}
+
+{
+  const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
+  const byNumber = numberedSqlBases(files);
+  const protectedNumbers = ['089', '090', '091', '092'];
+  const collisions = [...byNumber.entries()]
+    .filter(([n, set]) => protectedNumbers.includes(n) && set.size > 1)
+    .map(([n, set]) => `${n}:${[...set].join('|')}`);
+  pass('green-no-duplicate-forward-migration-numbers', collisions.length === 0, collisions.join(','));
+  pass(
+    'green-master-calendar-089-090-091-not-overwritten',
+    files.includes('089_external_calendar_inventory.sql')
+      && files.includes('089_external_calendar_inventory_down.sql')
+      && files.includes('090_external_calendar_inventory_tenant_integrity.sql')
+      && files.includes('091_booking_occupancy_serialization.sql')
+      && files.includes('092_tenant_email_luna_automation_issuance_material.sql')
+      && !files.some((f) => /089_.*issuance_material/.test(f)),
+  );
+  pass(
+    'green-master-calendar-bridge-digests-pinned',
+    Object.entries(MASTER_CALENDAR_BRIDGE_DIGESTS).every(([id, sha]) => {
+      const entry = manifest.entries.find((e) => e.id === id);
+      return entry && entry.sha256 === sha && entry.filename === `${id}.sql`;
+    }),
+  );
+}
+
+{
+  const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
+  const collided = numberedSqlBases(files.concat(['089_tenant_email_luna_automation_issuance_material.sql']));
+  pass(
+    'red-issuance-089-duplicate-number-collision',
+    collided.get('089') && collided.get('089').size > 1
+      && collided.get('089').has('089_external_calendar_inventory.sql')
+      && collided.get('089').has('089_tenant_email_luna_automation_issuance_material.sql'),
+  );
+}
+
+{
+  const m = deepClone(manifest);
+  const issuance = m.entries.find((e) => e.id === ISSUANCE_MATERIAL_FORWARD_ID);
+  const calendar = m.entries.find((e) => e.id === '089_external_calendar_inventory');
+  issuance.order = calendar.order;
+  const r = validateManifestIntegrity(m);
+  pass(
+    'red-issuance-cannot-reuse-calendar-089-order',
+    !r.ok && r.errors.some((e) => e.code === 'duplicate_order'),
   );
 }
 
