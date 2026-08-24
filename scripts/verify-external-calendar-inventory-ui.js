@@ -61,25 +61,96 @@ function buildHtml() {
   return api.buildUiHtmlForOfflineTest(0, 'wolfhouse-somo');
 }
 
-function json(res, code, body) {
-  res.writeHead(code, { 'content-type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(body));
-}
-
-function visible(page, sel) {
-  return page.locator(sel).evaluate((n) => {
-    const r = n.getBoundingClientRect();
-    const st = window.getComputedStyle(n);
-    return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+function createPortalServer(html) {
+  const { buildClientProfilesMap, getAccessibleClients } = require('./lib/staff-portal-clients');
+  function sendJson(res, status, body) {
+    const payload = JSON.stringify(body);
+    res.writeHead(status, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(payload),
+    });
+    res.end(payload);
+  }
+  return http.createServer((req, res) => {
+    const parsed = require('url').parse(req.url, true);
+    const pathname = parsed.pathname || '/';
+    if (pathname === '/staff/ui' || pathname === '/') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end(html);
+    }
+    if (pathname === '/staff/auth/session') {
+      return sendJson(res, 200, {
+        success: true,
+        auth_required: false,
+        role: 'owner',
+        email: null,
+        display_name: null,
+        clients: getAccessibleClients(null),
+        client_profiles: buildClientProfilesMap(null),
+        can_use_owner_insights: true,
+      });
+    }
+    if (pathname.startsWith('/staff/assets/')) {
+      res.writeHead(204);
+      return res.end();
+    }
+    if (pathname.startsWith('/staff/')) {
+      return sendJson(res, 200, {
+        success: true,
+        rows: [],
+        conversations: [],
+        offerings: [],
+        services: [],
+        days: [],
+        counts: {},
+        numbers: [],
+        prompts: [],
+      });
+    }
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('not found');
   });
 }
 
-async function openLunaStaff(page) {
-  await page.waitForFunction(() => (
-    document.body
-    && !document.body.classList.contains('portal-profile-pending')
-    && document.querySelector('#c-client option[value="wolfhouse-somo"]')
-  ), null, { timeout: 30000 });
+async function dumpBootDiagnostics(page, consoleErrors, pageErrors, failedReqs) {
+  let snap = {};
+  try {
+    snap = await page.evaluate(() => {
+      const sel = document.getElementById('c-client');
+      return {
+        href: location.href,
+        bodyClass: document.body ? document.body.className : null,
+        title: document.title,
+        clientOptions: sel ? [...sel.options].map((o) => o.value) : [],
+        clientValue: sel ? sel.value : null,
+        visibleText: (document.body && document.body.innerText || '').slice(0, 800),
+      };
+    });
+  } catch (err) {
+    snap = { evaluateError: String(err && err.message || err) };
+  }
+  console.error('BOOT DIAGNOSTICS');
+  console.error(JSON.stringify({
+    snap,
+    consoleErrors,
+    pageErrors,
+    failedReqs,
+  }, null, 2));
+}
+
+async function openLunaStaff(page, consoleErrors, pageErrors, failedReqs) {
+  try {
+    await page.waitForFunction(() => {
+      const select = document.getElementById('c-client');
+      return document.body
+        && !document.body.classList.contains('portal-profile-pending')
+        && select
+        && select.value === 'wolfhouse-somo';
+    }, null, { timeout: 30000 });
+  } catch (err) {
+    await dumpBootDiagnostics(page, consoleErrors, pageErrors, failedReqs);
+    throw err;
+  }
 
   const whLuna = page.locator('#wh-admin-tab-luna-staff');
   const topLuna = page.locator('button.tab-btn[data-tab="ask-luna"]');
@@ -100,6 +171,14 @@ async function openLunaStaff(page) {
   }, null, { timeout: 20000 });
 }
 
+function visible(page, sel) {
+  return page.locator(sel).evaluate((n) => {
+    const r = n.getBoundingClientRect();
+    const st = window.getComputedStyle(n);
+    return st.display !== 'none' && st.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+  });
+}
+
 async function main() {
   console.log('verify-external-calendar-inventory-ui');
   const html = buildHtml();
@@ -116,7 +195,6 @@ async function main() {
     process.exit(2);
   }
 
-  const { getAccessibleClients, buildClientProfilesMap } = require('./lib/staff-portal-clients');
   const rooms = {
     success: true,
     rooms: [{
@@ -155,73 +233,14 @@ async function main() {
   };
   let failList = false;
   const posts = [];
+  const consoleErrors = [];
+  const pageErrors = [];
+  const failedReqs = [];
 
-  const server = await new Promise((resolve, reject) => {
-    const s = http.createServer((req, res) => {
-      const parsed = new URL(req.url, 'http://127.0.0.1');
-      const pathname = parsed.pathname;
-      if (pathname === '/' || pathname === '/staff/ui') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(html);
-        return;
-      }
-      if (pathname === '/staff/auth/session') {
-        return json(res, 200, {
-          success: true,
-          auth_required: false,
-          role: 'owner',
-          email: null,
-          display_name: null,
-          clients: getAccessibleClients(null),
-          client_profiles: buildClientProfilesMap(null),
-          can_use_owner_insights: true,
-        });
-      }
-      if (pathname === '/staff/tour-operator/rooms') return json(res, 200, rooms);
-      if (pathname === '/staff/luna-staff/calendar-bridge' && req.method === 'GET') {
-        if (failList) return json(res, 500, { ok: false, error: 'calendar_bridge_failed' });
-        return json(res, 200, { ok: true, connections });
-      }
-      if (pathname === '/staff/luna-staff/calendar-bridge/maps' && req.method === 'GET') {
-        return json(res, 200, { ok: true, maps: mapsById[parsed.searchParams.get('id')] || [] });
-      }
-      if (pathname === '/staff/luna-staff/calendar-bridge/sync') {
-        posts.push({ path: pathname, method: req.method, body: {} });
-        return json(res, 200, { ok: true });
-      }
-      if (req.method === 'POST' || req.method === 'PUT') {
-        let raw = '';
-        req.on('data', (c) => { raw += c; });
-        req.on('end', () => {
-          let body = {};
-          try { body = raw ? JSON.parse(raw) : {}; } catch (_) { body = {}; }
-          posts.push({ path: pathname, method: req.method, body });
-          if (pathname === '/staff/luna-staff/calendar-bridge' && req.method === 'POST') {
-            const saved = {
-              id: '33333333-3333-3333-3333-333333333333',
-              name: body.name || 'Owner schedule',
-              status: 'disabled',
-              spreadsheet_id: body.spreadsheet_id,
-              sheet_name: body.sheet_name || 'inventory',
-              has_secret: false,
-            };
-            connections.push(saved);
-            return json(res, 200, { ok: true, connection: saved });
-          }
-          json(res, 200, { ok: true, connection: connections[0] });
-        });
-        return;
-      }
-      if (pathname.startsWith('/staff/')) {
-        return json(res, 200, {
-          success: true, ok: true, rows: [], conversations: [], offerings: [],
-          services: [], days: [], counts: {}, numbers: [], prompts: [],
-        });
-      }
-      json(res, 404, { ok: false, error: 'not_found' });
-    });
-    s.listen(0, '127.0.0.1', () => resolve(s));
-    s.once('error', reject);
+  const server = createPortalServer(html);
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
   });
   const origin = `http://127.0.0.1:${server.address().port}`;
   fs.mkdirSync(SHOT_DIR, { recursive: true });
@@ -231,10 +250,62 @@ async function main() {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await context.addInitScript(() => {
       localStorage.setItem('staff_portal_client', 'wolfhouse-somo');
+      localStorage.setItem('wh_staff_portal_locale', 'en');
     });
     const page = await context.newPage();
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+    page.on('pageerror', (err) => pageErrors.push(String(err && err.message || err)));
+    page.on('requestfailed', (req) => {
+      failedReqs.push({ url: req.url(), error: req.failure() && req.failure().errorText });
+    });
+    page.on('response', (res) => {
+      if (res.status() >= 400) failedReqs.push({ url: res.url(), status: res.status() });
+    });
+    await page.route('**/staff/tour-operator/rooms**', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(rooms),
+    }));
+    await page.route('**/staff/luna-staff/calendar-bridge**', async (route) => {
+      const req = route.request();
+      const u = new URL(req.url());
+      const method = req.method();
+      let body = {};
+      if (method === 'POST' || method === 'PUT') {
+        try { body = req.postDataJSON() || {}; } catch (_) { body = {}; }
+        posts.push({ path: u.pathname, method, body });
+      }
+      if (u.pathname === '/staff/luna-staff/calendar-bridge' && method === 'GET') {
+        if (failList) {
+          return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'calendar_bridge_failed' }) });
+        }
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, connections }) });
+      }
+      if (u.pathname === '/staff/luna-staff/calendar-bridge/maps' && method === 'GET') {
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, maps: mapsById[u.searchParams.get('id')] || [] }) });
+      }
+      if (u.pathname === '/staff/luna-staff/calendar-bridge/sync') {
+        posts.push({ path: u.pathname, method, body: {} });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
+      }
+      if (u.pathname === '/staff/luna-staff/calendar-bridge' && method === 'POST') {
+        const saved = {
+          id: '33333333-3333-3333-3333-333333333333',
+          name: body.name || 'Owner schedule',
+          status: 'disabled',
+          spreadsheet_id: body.spreadsheet_id,
+          sheet_name: body.sheet_name || 'inventory',
+          has_secret: false,
+        };
+        connections.push(saved);
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, connection: saved }) });
+      }
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, connection: connections[0] }) });
+    });
     await page.goto(origin + '/staff/ui', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await openLunaStaff(page);
+    await openLunaStaff(page, consoleErrors, pageErrors, failedReqs);
 
     ok('card is truly visible after Luna Staff navigation', await visible(page, '#cc-owner-schedule-bridge'));
     ok('Connect control is truly visible', await visible(page, '#osb-new'));
