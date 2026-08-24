@@ -1,0 +1,28 @@
+{
+  "id": "email-luna-automation-shadow-runtime-coexistence.ch4c1-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice C1",
+  "head_reviewed": "120b457f0fed3c960cf561330d9808e56268b6bd",
+  "pr_reviewed": 707,
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "activation_authorized": false,
+  "send_permission": false,
+  "journal_terminal": false,
+  "whole_process_provider_inertness": false,
+  "shadow_runtime_provider_inertness": true,
+  "findings": [
+    {
+      "id": "M1-staff-outbound-composition-blocks-shadow",
+      "severity": "blocking",
+      "red": "PR #707 independently reviewed shadow runtime treats EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED=true as a global provider-capability refusal. Live Sunset staging already uses that exact flag for healthy staff/manual approve-send. Shadow readiness therefore cannot activate without disabling staff outbound.",
+      "green": "Provider-inert Luna shadow capture may be ready when EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED=true because the shadow runtime has no provider capability and a separate Staff API lifecycle: dedicated worker DSN/session versus lazy per-request staff/manual outbound dispatch. Staff outbound remains the staff/manual path."
+    },
+    {
+      "id": "M2-auto-send-and-shadow-inertness-must-hold",
+      "severity": "blocking",
+      "red": "Allowing staff outbound coexistence could be over-read as whole-process provider inertness, or as permission for LUNA_AUTO_SEND_ENABLED or shadow provider/send/journal activation.",
+      "green": "LUNA_AUTO_SEND_ENABLED remains a hard refusal, including when staff outbound composition is true. Shadow runtime cannot call provider/send/journal. Default-off and prior B8 DSN/session/scoped-claim/exact tenant-location-endpoint/one-replica gates remain. Claims are shadow-runtime provider inertness only; staff/manual outbound may exist in the same Staff API process."
+    }
+  ]
+}

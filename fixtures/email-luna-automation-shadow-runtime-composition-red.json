@@ -20,7 +20,7 @@
       "id": "provider-or-partial-flag-activation",
       "severity": "blocking",
       "red": "A generic truthy coerce, partial flag set, wrong deployment/location/endpoint, or injected Graph/SMTP/nodemailer/callback/authorize_dispatch could start a loop or treat shadow as send.",
-      "green": "All required flags are independent exact 'true'. Wrong deployment/location/endpoint, partial sets, auto-send/outbound, and injected provider/send/callback fail closed. No journal handoff. Concurrency=1. Graceful shutdown drains the in-flight tick."
+      "green": "All required flags are independent exact 'true'. Wrong deployment/location/endpoint, partial sets, auto-send, and injected provider/send/callback fail closed. Staff/manual EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED is not a shadow-runtime refusal. No journal handoff. Concurrency=1. Graceful shutdown drains the in-flight tick."
     },
     {
       "id": "no-controlled-comparison-preflight",

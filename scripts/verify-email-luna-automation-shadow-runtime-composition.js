@@ -111,7 +111,7 @@ assert.doesNotMatch(STAFF_API_SRC, /email-luna-automation-shadow-orchestration|E
 assert.doesNotMatch(COMPOSE_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_ENABLED=true/);
 assert.doesNotMatch(DOCKERFILE_SRC, /EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_COMPOSITION_ENABLED/);
 assert.match(SCHEMA_SQL, /staff_action_observed|shadow_outcome_project/);
-console.log('  PASS  composition is provider-inert, Staff API-owned, default-off in docker, 094 identity label');
+console.log('  PASS  shadow runtime is provider-inert, Staff API-owned, default-off in docker, 094 identity label');
 
 function enabledEnv(patch = {}) {
   return {
@@ -164,7 +164,6 @@ for (const [label, env] of [
   ['auto send 1 refused', enabledEnv({ LUNA_AUTO_SEND_ENABLED: '1' })],
   ['auto send yes refused', enabledEnv({ LUNA_AUTO_SEND_ENABLED: 'yes' })],
   ['auto send on refused', enabledEnv({ LUNA_AUTO_SEND_ENABLED: 'on' })],
-  ['outbound refused', enabledEnv({ EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED: 'true' })],
   ['replica 2 refused', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: '2' })],
   ['replica missing refused', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_REPLICA_COUNT: undefined })],
   ['owner pool DSN refused', enabledEnv({ EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_DATABASE_URL: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset' })],
@@ -173,6 +172,11 @@ for (const [label, env] of [
   const snapshot = resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(env);
   assert.equal(snapshot.runtime_activation, false, label);
 }
+const coexistOutbound = resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(enabledEnv({
+  EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED: 'true',
+}));
+assert.equal(coexistOutbound.runtime_activation, true);
+assert.equal(coexistOutbound.provider_capability, false);
 console.log('  PASS  exact independent flags + Sunset tenant/location/endpoint; no truthy coerce or substitutes');
 
 function expectDisabled(fn) {
