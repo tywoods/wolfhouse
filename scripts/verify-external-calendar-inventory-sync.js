@@ -1,7 +1,7 @@
 'use strict';
 
 const { runConnectionSync, createSyncScheduler, dtoHasAuthority, listDueSql } = require('./lib/external-calendar-inventory-sync');
-const { detectGridMergesForTab, detectExtraColumns, detectOverflowRows, classifyHttp } = require('./lib/external-calendar-inventory-sheets');
+const { detectGridMergesForTab, detectExtraColumns, detectOverflowRows, classifyHttp, parseSpreadsheetSnapshot } = require('./lib/external-calendar-inventory-sheets');
 
 function ok(label, cond, detail) {
   if (!cond) {
@@ -60,12 +60,14 @@ async function main() {
   ok('dto allows empty probe body', dtoHasAuthority({}) === false);
 
   const missing = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
+  const CID = '11111111-1111-1111-1111-111111111111';
   const missingRes = await runConnectionSync(mockPg(missing), { clientSlug: 'wolfhouse-somo' });
   ok('sync without fetched does not write', missingRes.wrote === false && missing.bookingInserts === 0);
 
   const denied = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
   const deniedRes = await runConnectionSync(mockPg(denied), {
     clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
     fetched: { ok: false, reason: 'sheets_token_denied', keepLastBlocks: true },
   });
   ok('token denial is not empty_sheet', deniedRes.reason === 'sheets_token_denied');
@@ -76,6 +78,7 @@ async function main() {
   const good = { queries: [], statusUpdates: [], bookingInserts: 0, bedInserts: 0, begins: 0, commits: 0, rollbacks: 0 };
   const okSync = await runConnectionSync(mockPg(good), {
     clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
     fetched: {
       ok: true,
       rows: [
@@ -95,6 +98,7 @@ async function main() {
   };
   const rolled = await runConnectionSync(boomPg, {
     clientSlug: 'wolfhouse-somo',
+    connectionId: CID,
     fetched: {
       ok: true,
       rows: [
@@ -103,7 +107,8 @@ async function main() {
       ],
     },
   });
-  ok('inject write failure rolls back', rolled.reason === 'sync_rollback' && boom.rollbacks === 1);
+  ok('inject write failure rolls back with public code',
+    rolled.reason === 'calendar_sync_rolled_back' && boom.rollbacks === 1 && rolled.error == null);
 
   ok('due SQL uses poll_seconds and stale_after', /poll_seconds/.test(listDueSql()) && /stale_after/.test(listDueSql()));
   ok('grid merges scoped to configured tab', detectGridMergesForTab({
@@ -122,7 +127,19 @@ async function main() {
     ['unit_key', 'start_date', 'end_date', 'status', 'external_uid', 'notes'],
   ], 5).extra === true);
   ok('row 5003 after blank is overflow', detectOverflowRows([[], ['R1', '2026-09-10', '2026-09-12', 'busy', 'u']]).overflow === true);
-  ok('401 classified inaccessible', classifyHttp(401) === 'sheets_inaccessible');
+  ok('one snapshot parser accepts grid data', parseSpreadsheetSnapshot({
+    sheets: [{
+      properties: { title: 'inventory' },
+      merges: [],
+      data: [
+        { rowData: [{ values: [{ formattedValue: 'unit_key' }, { formattedValue: 'start_date' }, { formattedValue: 'end_date' }, { formattedValue: 'status' }, { formattedValue: 'external_uid' }] }] },
+        { rowData: [] },
+      ],
+    }],
+  }, 'inventory').ok === true);
+  ok('incomplete snapshot fails', parseSpreadsheetSnapshot({
+    sheets: [{ properties: { title: 'inventory' }, data: [{ rowData: [] }] }],
+  }, 'inventory').reason === 'sheet_snapshot_incomplete');
   ok('503 classified provider 5xx', classifyHttp(503) === 'sheets_provider_5xx');
   ok('valid fetch locks beds before write', okSync.ok && good.bedLocks >= 1);
 

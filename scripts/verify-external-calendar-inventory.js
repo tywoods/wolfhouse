@@ -174,6 +174,13 @@ function main() {
   ok('probe route exists', /\/staff\/luna-staff\/calendar-bridge\/probe/.test(api));
   ok('public probe does not send fabricated rows',
     /ownerScheduleBridgeJson\('\/staff\/luna-staff\/calendar-bridge\/probe', 'POST', \{\}\)/.test(api));
+  ok('connection select + new action exist',
+    /id="osb-connections"/.test(api) && /id="osb-new"/.test(api));
+  ok('oldest connection fallback removed',
+    !/ORDER BY c\.created_at ASC\s+LIMIT 1\s+FOR UPDATE OF c/.test(
+      fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sync.js'), 'utf8')));
+  ok('single spreadsheets.get snapshot',
+    /includeGridData=true/.test(fs.readFileSync(path.join(ROOT, 'scripts/lib/external-calendar-inventory-sheets.js'), 'utf8')));
   ok('save/sync/enable/maps actions exist',
     /id="osb-save"/.test(api) && /id="osb-sync"/.test(api) && /id="osb-enable"/.test(api) && /id="osb-save-maps"/.test(api));
   ok('handler rejects caller authority', /rejectCallerAuthority/.test(api));

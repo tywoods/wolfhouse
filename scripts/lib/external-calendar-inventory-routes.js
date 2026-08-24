@@ -18,6 +18,78 @@ function refuseClient(slug) {
   return { ok: true };
 }
 
+function requireConnectionId(connectionId) {
+  const id = String(connectionId || '').trim();
+  if (!/^[0-9a-fA-F-]{36}$/.test(id)) {
+    return { ok: false, status: 400, error: 'connection_id_required' };
+  }
+  return { ok: true, id };
+}
+
+const PUBLIC_CODES = new Set([
+  'calendar_bridge_client_not_allowed',
+  'calendar_bridge_disabled',
+  'calendar_bridge_failed',
+  'calendar_sync_rolled_back',
+  'caller_authority_rejected',
+  'client_not_found',
+  'connection_id_required',
+  'connection_not_found',
+  'empty_sheet',
+  'header_unknown_column',
+  'invalid_connection',
+  'maps_array_required',
+  'merged_cells',
+  'save_failed',
+  'secret_ref_invalid',
+  'sheet_over_limit',
+  'sheet_snapshot_incomplete',
+  'sheet_tab_missing',
+  'sheets_inaccessible',
+  'sheets_malformed_json',
+  'sheets_provider_5xx',
+  'sheets_timeout',
+  'sheets_token_denied',
+  'overlap_conflict',
+  'bridge_unavailable',
+  'unknown_action',
+]);
+
+function publicCode(value) {
+  const code = String(value || '').trim();
+  if (PUBLIC_CODES.has(code)) return code;
+  return 'calendar_bridge_failed';
+}
+
+function publicResult(result) {
+  if (!result || typeof result !== 'object') {
+    return { ok: false, status: 500, error: 'calendar_bridge_failed' };
+  }
+  const code = result.ok ? null : publicCode(
+    PUBLIC_CODES.has(String(result.reason || '')) ? result.reason : (result.error || result.reason)
+  );
+  const out = {
+    ok: !!result.ok,
+    success: !!result.ok,
+    status: result.status,
+    error: code,
+    reason: code,
+    keepLastBlocks: result.keepLastBlocks === true,
+    wrote: result.wrote === true,
+    connections: result.connections,
+    connection: result.connection,
+    maps: result.maps,
+    skipped: result.skipped,
+    dry_run: result.dry_run,
+    empty: result.empty,
+    write_count: result.write_count,
+    next_status: result.next_status,
+    keep_last_blocks: result.keep_last_blocks === true || result.keepLastBlocks === true,
+  };
+  Object.keys(out).forEach((k) => { if (out[k] == null) delete out[k]; });
+  return out;
+}
+
 function rejectCallerAuthority(body) {
   if (dtoHasAuthority(body)) {
     return { ok: false, status: 400, error: 'caller_authority_rejected' };
@@ -119,6 +191,9 @@ async function handleSave(pg, clientSlug, body, actorId) {
 }
 
 async function handleSaveMaps(pg, clientSlug, connectionId, maps) {
+  const need = requireConnectionId(connectionId);
+  if (!need.ok) return need;
+  connectionId = need.id;
   if (!Array.isArray(maps)) return { ok: false, status: 400, error: 'maps_array_required' };
   const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
   if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
@@ -167,6 +242,9 @@ async function handleSaveMaps(pg, clientSlug, connectionId, maps) {
 }
 
 async function handleEnable(pg, clientSlug, connectionId, enabled) {
+  const need = requireConnectionId(connectionId);
+  if (!need.ok) return need;
+  connectionId = need.id;
   const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
   if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
   const status = enabled ? 'pending' : 'disabled';
@@ -182,6 +260,9 @@ async function handleEnable(pg, clientSlug, connectionId, enabled) {
 }
 
 async function handleListMaps(pg, clientSlug, connectionId) {
+  const need = requireConnectionId(connectionId);
+  if (!need.ok) return need;
+  connectionId = need.id;
   const client = await pg.query(`SELECT id FROM clients WHERE slug = $1`, [clientSlug]);
   if (!client.rows[0]) return { ok: false, status: 404, error: 'client_not_found' };
   const r = await pg.query(
@@ -195,6 +276,9 @@ async function handleListMaps(pg, clientSlug, connectionId) {
 }
 
 async function handleRealProbe(pg, { clientSlug, connectionId, fetchSheet }) {
+  const need = requireConnectionId(connectionId);
+  if (!need.ok) return need;
+  connectionId = need.id;
   const locked = await loadLockedState(pg, { clientSlug, connectionId });
   if (!locked.ok) return { ok: false, status: 404, error: locked.reason };
   const fetched = await fetchSheet(locked.connection);
@@ -243,5 +327,7 @@ module.exports = {
   handleEnable,
   handleListMaps,
   handleRealProbe,
+  requireConnectionId,
+  publicResult,
   runConnectionSync,
 };

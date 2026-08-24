@@ -32,7 +32,15 @@ async function main() {
     fetchSheet: async () => ({ ok: false, reason: 'sheets_inaccessible', keepLastBlocks: true }),
   });
   // loadLockedState will fail client lookup shape — that's ok if we get a structured error
-  ok('real probe never reads body.rows', !Object.prototype.hasOwnProperty.call(probe, 'rows'));
+  const missingId = await extCalRoutes.handleRealProbe({
+    async query() { return { rows: [{ id: 'cid', slug: 'wolfhouse-somo' }] }; },
+  }, { clientSlug: 'wolfhouse-somo', fetchSheet: async () => ({ ok: true, rows: [] }) });
+  ok('probe without id is 400', missingId.error === 'connection_id_required' && missingId.status === 400);
+  ok('requireConnectionId rejects empty', extCalRoutes.requireConnectionId('').error === 'connection_id_required');
+  ok('public result hides injected SQL',
+    !JSON.stringify(extCalRoutes.publicResult({
+      ok: false, reason: 'calendar_sync_rolled_back', error: 'duplicate key value violates unique constraint',
+    })).includes('duplicate key'));
 
   delete process.env.EXTERNAL_CALENDAR_INGEST_ENABLED;
   console.log('\nverify-external-calendar-inventory-routes: ALL CHECKS PASSED');

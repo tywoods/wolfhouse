@@ -22261,13 +22261,19 @@ ${showOwnerScheduleBridge ? `
     <div class="cc-section-sub">Google Sheet blocks beds as <b>Owner schedule blocked</b>. An empty or broken Sheet never removes a Luna booking or staff block. Secret is a reference name only.</div>
     <div id="osb-status" class="al-hint"></div>
     <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
+      <select id="osb-connections" aria-label="Owner schedule connections">
+        <option value="">Select a connection</option>
+      </select>
+      <button type="button" class="btn-ghost" id="osb-refresh">Refresh</button>
+      <button type="button" class="btn-ghost" id="osb-new">New connection</button>
+    </div>
+    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
       <input id="osb-name" type="text" placeholder="Connection name" autocomplete="off">
       <input id="osb-sheet" type="text" placeholder="Spreadsheet id" autocomplete="off" spellcheck="false">
       <input id="osb-tab" type="text" placeholder="inventory" autocomplete="off">
       <input id="osb-secret" type="text" placeholder="SECRET_REF" autocomplete="off" spellcheck="false">
     </div>
     <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
-      <button type="button" class="btn-ghost" id="osb-refresh">Refresh</button>
       <button type="button" class="btn-ghost" id="osb-save">Save connection</button>
       <button type="button" class="btn-ghost" id="osb-probe">Probe</button>
       <button type="button" class="btn-ghost" id="osb-sync">Sync now</button>
@@ -30387,55 +30393,170 @@ function staffWhatsappNumbersLoad(){
 function ownerScheduleBridgeClient(){
   return encodeURIComponent(getClient());
 }
+var osbSelectedId = '';
+var OSB_SAFE = {
+  connection_id_required: 'Select a connection first.',
+  connection_not_found: 'That connection was not found.',
+  calendar_sync_rolled_back: 'Sync did not apply. Last blocks were kept.',
+  calendar_bridge_disabled: 'Owner schedule is off for this tenant.',
+  calendar_bridge_client_not_allowed: 'Owner schedule is not available here.',
+  caller_authority_rejected: 'That request is not allowed.',
+  sheets_inaccessible: 'Could not read the Sheet. Last blocks were kept.',
+  sheets_token_denied: 'Sheet access was denied. Last blocks were kept.',
+  sheets_timeout: 'Sheet request timed out. Last blocks were kept.',
+  sheets_malformed_json: 'Sheet response was invalid. Last blocks were kept.',
+  sheets_provider_5xx: 'Google Sheets is unavailable. Last blocks were kept.',
+  sheet_over_limit: 'The Sheet is larger than allowed. Last blocks were kept.',
+  header_unknown_column: 'The Sheet has unexpected columns. Last blocks were kept.',
+  merged_cells: 'The Sheet has merged cells. Last blocks were kept.',
+  empty_sheet: 'The Sheet is empty. Last blocks were kept.',
+  invalid_connection: 'Name and spreadsheet id are required.',
+  secret_ref_invalid: 'Secret must be a reference name, not a key.',
+  maps_array_required: 'Maps must be a JSON array.',
+  bridge_unavailable: 'Owner schedule is temporarily unavailable.',
+  calendar_bridge_failed: 'Owner schedule request failed. Last blocks were kept.'
+};
+function ownerScheduleSafeCopy(code){
+  return OSB_SAFE[code] || 'Owner schedule request failed. Last blocks were kept.';
+}
+function ownerScheduleSelectedId(){
+  var sel = el('osb-connections');
+  if (sel && sel.value) osbSelectedId = sel.value;
+  return osbSelectedId || '';
+}
+function ownerScheduleFillForm(conn){
+  if (!conn) return;
+  osbSelectedId = conn.id || '';
+  if (el('osb-name')) el('osb-name').value = conn.name || '';
+  if (el('osb-sheet')) el('osb-sheet').value = conn.spreadsheet_id || '';
+  if (el('osb-tab')) el('osb-tab').value = conn.sheet_name || 'inventory';
+  if (el('osb-connections') && conn.id) el('osb-connections').value = conn.id;
+}
+function ownerScheduleRenderList(connections, keepId){
+  var sel = el('osb-connections');
+  if (!sel) return;
+  var wanted = keepId || osbSelectedId;
+  sel.innerHTML = '';
+  var blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = 'Select a connection';
+  sel.appendChild(blank);
+  (connections || []).forEach(function(c){
+    var opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = (c.name || c.id) + ' · ' + (c.status || '');
+    sel.appendChild(opt);
+  });
+  if (wanted && Array.prototype.some.call(sel.options, function(o){ return o.value === wanted; })) {
+    sel.value = wanted;
+    osbSelectedId = wanted;
+  } else {
+    sel.value = '';
+    osbSelectedId = '';
+  }
+}
+function ownerSchedulePublicPayload(body){
+  var raw = (body && (body.error || body.reason)) || null;
+  var code = (raw && OSB_SAFE[raw]) ? raw : (raw ? 'calendar_bridge_failed' : null);
+  return {
+    ok: !!(body && body.ok),
+    error: code,
+    status: body && body.next_status,
+    wrote: !!(body && body.wrote),
+    empty: !!(body && body.empty),
+    write_count: body && body.write_count,
+    connections: body && body.connections,
+    connection: body && body.connection
+  };
+}
 function ownerScheduleBridgeJson(path, method, body){
   var out = el('osb-out');
   var status = el('osb-status');
   if (status) status.textContent = 'Working…';
-  return fetch(path + (path.indexOf('?') >= 0 ? '&' : '?') + 'client=' + ownerScheduleBridgeClient(), {
+  var url = path + (path.indexOf('?') >= 0 ? '&' : '?') + 'client=' + ownerScheduleBridgeClient();
+  var selected = ownerScheduleSelectedId();
+  if (selected && url.indexOf('id=') < 0) url += '&id=' + encodeURIComponent(selected);
+  return fetch(url, {
     method: method,
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined
   }).then(function(r){ return r.json().then(function(b){ return { status: r.status, body: b }; }); })
     .then(function(res){
-      if (status) status.textContent = (res.body && (res.body.ok || res.body.success)) ? 'OK' : ((res.body && res.body.error) || 'Failed');
-      if (out) out.textContent = JSON.stringify(res.body, null, 2);
+      var code = res.body && (res.body.error || res.body.reason);
+      if (status) status.textContent = (res.body && res.body.ok) ? 'OK' : ownerScheduleSafeCopy(code);
+      if (out) out.textContent = JSON.stringify(ownerSchedulePublicPayload(res.body || {}), null, 2);
       return res;
     })
-    .catch(function(err){
-      if (status) status.textContent = 'Failed';
-      if (out) out.textContent = String(err && err.message || err);
+    .catch(function(){
+      if (status) status.textContent = ownerScheduleSafeCopy('bridge_unavailable');
+      if (out) out.textContent = JSON.stringify({ ok: false, error: 'bridge_unavailable' });
     });
 }
 function ownerScheduleBridgeSave(){
-  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'POST', {
+  var payload = {
     name: (el('osb-name') && el('osb-name').value || '').trim(),
     spreadsheet_id: (el('osb-sheet') && el('osb-sheet').value || '').trim(),
     sheet_name: (el('osb-tab') && el('osb-tab').value || 'inventory').trim(),
     secret_ref: (el('osb-secret') && el('osb-secret').value || '').trim()
+  };
+  if (osbSelectedId) payload.id = osbSelectedId;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'POST', payload).then(function(res){
+    if (res && res.body && res.body.connection && res.body.connection.id) {
+      osbSelectedId = res.body.connection.id;
+      ownerScheduleBridgeLoad();
+    }
   });
 }
+function ownerScheduleRequireSelected(){
+  if (ownerScheduleSelectedId()) return true;
+  if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('connection_id_required');
+  return false;
+}
 function ownerScheduleBridgeProbe(){
+  if (!ownerScheduleRequireSelected()) return;
   ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/probe', 'POST', {});
 }
 function ownerScheduleBridgeSync(){
+  if (!ownerScheduleRequireSelected()) return;
   ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/sync', 'POST', {});
 }
 function ownerScheduleBridgeEnable(on){
+  if (!ownerScheduleRequireSelected()) return;
   ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/enable', 'POST', { enabled: !!on });
 }
 function ownerScheduleBridgeSaveMaps(){
+  if (!ownerScheduleRequireSelected()) return;
   var raw = (el('osb-map-json') && el('osb-map-json').value || '').trim();
   var maps;
   try { maps = JSON.parse(raw); }
   catch (e) {
-    if (el('osb-status')) el('osb-status').textContent = 'Maps must be JSON [{external_unit_key,bed_id}]';
+    if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('maps_array_required');
     return;
   }
   ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'PUT', { maps: maps });
 }
+function ownerScheduleBridgeNew(){
+  osbSelectedId = '';
+  if (el('osb-connections')) el('osb-connections').value = '';
+  if (el('osb-name')) el('osb-name').value = '';
+  if (el('osb-sheet')) el('osb-sheet').value = '';
+  if (el('osb-tab')) el('osb-tab').value = 'inventory';
+  if (el('osb-secret')) el('osb-secret').value = '';
+  if (el('osb-status')) el('osb-status').textContent = 'New connection';
+}
 function ownerScheduleBridgeLoad(){
-  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET');
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET').then(function(res){
+    if (!res || !res.body) return;
+    ownerScheduleRenderList(res.body.connections || [], osbSelectedId);
+    var sel = (res.body.connections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+    if (sel) ownerScheduleFillForm(sel);
+  });
+}
+function ownerScheduleOnSelect(){
+  osbSelectedId = (el('osb-connections') && el('osb-connections').value) || '';
+  if (!osbSelectedId) return;
+  ownerScheduleBridgeLoad();
 }
 if (el('osb-save')) el('osb-save').addEventListener('click', ownerScheduleBridgeSave);
 if (el('osb-probe')) el('osb-probe').addEventListener('click', ownerScheduleBridgeProbe);
@@ -30444,6 +30565,8 @@ if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){ own
 if (el('osb-disable')) el('osb-disable').addEventListener('click', function(){ ownerScheduleBridgeEnable(false); });
 if (el('osb-save-maps')) el('osb-save-maps').addEventListener('click', ownerScheduleBridgeSaveMaps);
 if (el('osb-refresh')) el('osb-refresh').addEventListener('click', ownerScheduleBridgeLoad);
+if (el('osb-new')) el('osb-new').addEventListener('click', ownerScheduleBridgeNew);
+if (el('osb-connections')) el('osb-connections').addEventListener('change', ownerScheduleOnSelect);
 (function hideOwnerScheduleUnlessWolfhouse(){
   var card = el('cc-owner-schedule-bridge');
   if (!card) return;
@@ -44533,6 +44656,12 @@ async function handleOwnerScheduleBridge(req, res, user, action) {
   const ctx = await ownerScheduleGate(req, res, user, parsed.body);
   if (!ctx) return;
   const fetchSheet = (conn) => fetchSheetRows(conn);
+  const needsId = action !== 'list' && action !== 'save';
+  if (needsId) {
+    const need = extCalRoutes.requireConnectionId(ctx.connectionId);
+    if (!need.ok) return sendJSON(res, 400, { success: false, ok: false, error: need.error });
+    ctx.connectionId = need.id;
+  }
   try {
     const result = await withPgClient(async (pg) => {
       if (action === 'list') return extCalRoutes.handleList(pg, ctx.clientSlug);
@@ -44549,7 +44678,7 @@ async function handleOwnerScheduleBridge(req, res, user, action) {
       }
       if (action === 'sync') {
         const locked = await loadLockedState(pg, ctx);
-        if (!locked.ok) return { ok: false, status: 404, error: locked.reason };
+        if (!locked.ok) return { ok: false, status: locked.reason === 'connection_id_required' ? 400 : 404, error: locked.reason };
         const fetched = await fetchSheet(locked.connection);
         return runConnectionSync(pg, {
           clientSlug: ctx.clientSlug,
@@ -44568,7 +44697,8 @@ async function handleOwnerScheduleBridge(req, res, user, action) {
       success: !!result.ok,
       error: result.error || result.reason || null,
     });
-    return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ success: !!result.ok, client: ctx.clientSlug }, result));
+    const pub = extCalRoutes.publicResult(result);
+    return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ client: ctx.clientSlug }, pub));
   } catch (err) {
     return sendJSON(res, 503, { success: false, ok: false, error: 'bridge_unavailable' });
   }

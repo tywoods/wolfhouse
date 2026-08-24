@@ -26,29 +26,17 @@ async function loadLockedState(pg, { clientSlug, connectionId }) {
   if (!client.rows[0]) return { ok: false, reason: 'client_not_found' };
   const clientId = client.rows[0].id;
 
-  const connRes = connectionId
-    ? await pg.query(
-      `SELECT c.id, c.client_id, c.kind, c.name, c.status, c.spreadsheet_id, c.sheet_name,
-              c.poll_seconds, c.stale_after, c.last_success_at, c.last_attempt_at, c.last_error,
-              s.secret_ref
-         FROM external_calendar_connections c
-         LEFT JOIN external_calendar_secrets s ON s.connection_id = c.id
-        WHERE c.id = $1::uuid AND c.client_id = $2
-        FOR UPDATE OF c`,
-      [connectionId, clientId]
-    )
-    : await pg.query(
-      `SELECT c.id, c.client_id, c.kind, c.name, c.status, c.spreadsheet_id, c.sheet_name,
-              c.poll_seconds, c.stale_after, c.last_success_at, c.last_attempt_at, c.last_error,
-              s.secret_ref
-         FROM external_calendar_connections c
-         LEFT JOIN external_calendar_secrets s ON s.connection_id = c.id
-        WHERE c.client_id = $1
-        ORDER BY c.created_at ASC
-        LIMIT 1
-        FOR UPDATE OF c`,
-      [clientId]
-    );
+  if (!connectionId) return { ok: false, reason: 'connection_id_required', clientId };
+  const connRes = await pg.query(
+    `SELECT c.id, c.client_id, c.kind, c.name, c.status, c.spreadsheet_id, c.sheet_name,
+            c.poll_seconds, c.stale_after, c.last_success_at, c.last_attempt_at, c.last_error,
+            s.secret_ref
+       FROM external_calendar_connections c
+       LEFT JOIN external_calendar_secrets s ON s.connection_id = c.id
+      WHERE c.id = $1::uuid AND c.client_id = $2
+      FOR UPDATE OF c`,
+    [connectionId, clientId]
+  );
   const connection = connRes.rows[0] || null;
   if (!connection) return { ok: false, reason: 'connection_not_found', clientId };
 
@@ -350,7 +338,7 @@ async function runConnectionSync(pg, args) {
     return { ok: true, wrote: persisted.length > 0, persisted, status: 'healthy' };
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_) { /* ignore */ }
-    return { ok: false, wrote: false, keepLastBlocks: true, reason: 'sync_rollback', error: String(err && err.message || err) };
+    return { ok: false, wrote: false, keepLastBlocks: true, reason: 'calendar_sync_rolled_back' };
   }
 }
 

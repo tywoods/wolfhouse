@@ -166,6 +166,51 @@ function requireOkJson(res, label) {
   }
 }
 
+function cellDisplayValue(cell) {
+  if (!cell || typeof cell !== 'object') return '';
+  if (cell.formattedValue != null) return String(cell.formattedValue);
+  if (cell.effectiveValue && cell.effectiveValue.stringValue != null) return String(cell.effectiveValue.stringValue);
+  if (cell.effectiveValue && cell.effectiveValue.numberValue != null) return cell.effectiveValue.numberValue;
+  return '';
+}
+
+function gridDataToRows(grid) {
+  const rowData = (grid && grid.rowData) || [];
+  return rowData.map((row) => {
+    const values = (row && row.values) || [];
+    return values.map(cellDisplayValue);
+  });
+}
+
+function parseSpreadsheetSnapshot(json, sheetName) {
+  const want = String(sheetName || 'inventory');
+  if (!json || !Array.isArray(json.sheets) || json.sheets.length === 0) {
+    return fail('sheet_snapshot_incomplete');
+  }
+  const tab = json.sheets.find((s) => s && s.properties && String(s.properties.title) === want);
+  if (!tab) return fail('sheet_tab_missing', { tab: want });
+  const merges = tab.merges || [];
+  if (merges.length) return fail('merged_cells', { tab: want, count: merges.length });
+  const data = Array.isArray(tab.data) ? tab.data : [];
+  if (data.length < 2) return fail('sheet_snapshot_incomplete', { tab: want });
+  const accepted = gridDataToRows(data[0]);
+  const overflow = gridDataToRows(data[1]);
+  const extra = detectExtraColumns(accepted.concat(overflow), 5);
+  if (extra.extra) return fail('header_unknown_column', extra);
+  const over = detectOverflowRows(overflow);
+  if (over.overflow || accepted.length > MAX_DATA_ROWS + 1) {
+    return fail('sheet_over_limit', { max_data_rows: MAX_DATA_ROWS });
+  }
+  return {
+    ok: true,
+    rows: accepted.map((r) => (r || []).slice(0, 5)),
+    mergeChecked: true,
+    overflowChecked: true,
+    extraColumnsChecked: true,
+    snapshot: true,
+  };
+}
+
 async function fetchSheetRows(connection, deps) {
   deps = deps || {};
   if (typeof deps.fetchSheetRows === 'function') {
@@ -183,54 +228,29 @@ async function fetchSheetRows(connection, deps) {
 
   const sheetName = connection.sheet_name || 'inventory';
   const id = encodeURIComponent(connection.spreadsheet_id);
-  const valuesRange = encodeURIComponent(sheetName + '!A1:Z' + (MAX_DATA_ROWS + 1));
-  const overflowRange = encodeURIComponent(sheetName + '!A' + (MAX_DATA_ROWS + 2) + ':Z');
-  const valuesPath = '/v4/spreadsheets/' + id + '/values/' + valuesRange
-    + '?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
-  const overflowPath = '/v4/spreadsheets/' + id + '/values/' + overflowRange
-    + '?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE';
-  const metaPath = '/v4/spreadsheets/' + id
-    + '?fields=' + encodeURIComponent('sheets.merges,sheets.properties.title,sheets.properties.gridProperties');
+  const r1 = encodeURIComponent(sheetName + '!A1:Z' + (MAX_DATA_ROWS + 1));
+  const r2 = encodeURIComponent(sheetName + '!A' + (MAX_DATA_ROWS + 2) + ':Z');
+  const path = '/v4/spreadsheets/' + id
+    + '?includeGridData=true'
+    + '&ranges=' + r1
+    + '&ranges=' + r2
+    + '&fields=' + encodeURIComponent('sheets.properties,sheets.merges,sheets.data');
 
-  let valuesRes;
-  let metaRes;
-  let overflowRes;
+  let res;
   try {
-    const headers = { Authorization: 'Bearer ' + token, Accept: 'application/json' };
-    const timeoutMs = deps.timeoutMs || DEFAULT_TIMEOUT_MS;
-    valuesRes = await httpsRequest({ hostname: SHEETS_HOST, method: 'GET', path: valuesPath, headers, timeoutMs }, null, deps);
-    metaRes = await httpsRequest({ hostname: SHEETS_HOST, method: 'GET', path: metaPath, headers, timeoutMs }, null, deps);
-    overflowRes = await httpsRequest({ hostname: SHEETS_HOST, method: 'GET', path: overflowPath, headers, timeoutMs }, null, deps);
+    res = await httpsRequest({
+      hostname: SHEETS_HOST,
+      method: 'GET',
+      path,
+      headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' },
+      timeoutMs: deps.timeoutMs || DEFAULT_TIMEOUT_MS,
+    }, null, deps);
   } catch (err) {
     return fail(err.code || 'sheets_timeout');
   }
-
-  const valuesOk = requireOkJson(valuesRes, 'values');
-  if (!valuesOk.ok) return valuesOk;
-  const metaOk = requireOkJson(metaRes, 'metadata');
-  if (!metaOk.ok) return metaOk;
-  const overflowOk = requireOkJson(overflowRes, 'overflow');
-  if (!overflowOk.ok) return overflowOk;
-
-  const tabMerges = detectGridMergesForTab(metaOk.json, sheetName);
-  if (tabMerges.ok === false) return fail(tabMerges.reason, { tab: sheetName });
-  if (tabMerges.merged) return fail('merged_cells', tabMerges);
-
-  const rows = Array.isArray(valuesOk.json.values) ? valuesOk.json.values : [];
-  const extra = detectExtraColumns(rows, 5);
-  if (extra.extra) return fail('header_unknown_column', extra);
-
-  const overflow = detectOverflowRows(overflowOk.json.values);
-  if (overflow.overflow) return fail('sheet_over_limit', { max_data_rows: MAX_DATA_ROWS });
-  if (rows.length > MAX_DATA_ROWS + 1) return fail('sheet_over_limit', { max_data_rows: MAX_DATA_ROWS });
-
-  return {
-    ok: true,
-    rows: rows.map((r) => (r || []).slice(0, 5)),
-    mergeChecked: true,
-    overflowChecked: true,
-    extraColumnsChecked: true,
-  };
+  const parsed = requireOkJson(res, 'spreadsheets.get');
+  if (!parsed.ok) return parsed;
+  return parseSpreadsheetSnapshot(parsed.json, sheetName);
 }
 
 module.exports = {
@@ -242,6 +262,7 @@ module.exports = {
   detectGridMergesForTab,
   detectExtraColumns,
   detectOverflowRows,
+  parseSpreadsheetSnapshot,
   classifyHttp,
   fetchSheetRows,
 };
