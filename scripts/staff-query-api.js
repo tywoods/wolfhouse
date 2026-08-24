@@ -19827,18 +19827,42 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
 #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #tab-bed-calendar .bc-grid{min-width:840px}
-#tab-bed-calendar,#tab-bed-calendar .bc-grid,#tab-bed-calendar .bc-block,#tab-bed-calendar .bc-legend,#tab-bed-calendar .bc-chip,#tab-bed-calendar .toolbar,#tab-bed-calendar .bc-bed-cell{
-  font-family:var(--font-sans);
+/* staff-portal-calendar:sunset-fonts — every booking-cal glyph uses sunset type */
+#tab-bed-calendar,
+#tab-bed-calendar *,
+#tab-bed-calendar .bc-grid,
+#tab-bed-calendar .bc-grid th,
+#tab-bed-calendar .bc-grid td,
+#tab-bed-calendar .bc-block,
+#tab-bed-calendar .bc-block-label,
+#tab-bed-calendar .bc-bed-cell,
+#tab-bed-calendar .bc-room-hdr,
+#tab-bed-calendar .bc-chip,
+#tab-bed-calendar .bc-legend,
+#tab-bed-calendar .bc-legend-item,
+#tab-bed-calendar .toolbar,
+#tab-bed-calendar .toolbar label,
+#tab-bed-calendar .toolbar span,
+#tab-bed-calendar button,
+#tab-bed-calendar input,
+#tab-bed-calendar select{
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif!important;
 }
-#tab-bed-calendar .toolbar h2{
-  font-family:var(--font-display);
+#tab-bed-calendar .toolbar h2,
+#tab-bed-calendar .bc-detail-title,
+#tab-bed-calendar .bc-op-title{
+  font-family:'Newsreader',var(--font-display),serif!important;
   font-weight:600;
 }
-#tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:11px;padding:9px 6px;white-space:normal;line-height:1.25;min-height:34px;border-bottom:1px solid var(--border-soft)}
+#bc-legend .bc-legend-item:has(.bc-legend-sw-owner_schedule_blocked),
+#bc-legend [data-i18n="calendar.legend.ownerScheduleBlocked"]{
+  display:none!important;
+}
+#tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:13px;padding:9px 6px;white-space:normal;line-height:1.25;min-height:34px;border-bottom:1px solid var(--border-soft)}
 #tab-bed-calendar .bc-day-cell,#tab-bed-calendar .bc-day-cell-turnover{min-height:34px;padding:5px 3px}
 #tab-bed-calendar .bc-room-hdr{padding:9px 10px}
 #tab-bed-calendar .bc-room-hdr-row td{padding-top:7px}
-#tab-bed-calendar .bc-block{font-size:10.5px;padding:2px 4px 2px 7px;gap:2px 4px}
+#tab-bed-calendar .bc-block{font-size:13px;padding:3px 6px 3px 8px;gap:3px 5px}
 #tab-bed-calendar .bc-block-pay-badge{font-size:8.5px;padding:1px 4px}
 #tab-bed-calendar .toolbar{flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
 #tab-bed-calendar .toolbar h2{flex:1 1 100%;font-size:15px;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;margin:0 0 2px}
