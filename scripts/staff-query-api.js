@@ -20128,6 +20128,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-side-drawer .bc-transfer-cards,
 #bc-side-drawer .bc-transfer-grid,
 #bc-side-drawer .ctx-payments-tab-layout{grid-template-columns:1fr}
+#bc-side-drawer #bc-overview-invoice,
+#bc-side-drawer #bc-running-invoice{
+  max-width:none;margin:0;padding:14px 16px;box-shadow:none;
+}
 #bc-move-bed .bc-card-collapse{
   display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
   padding:0;margin:0 0 0;border:0;background:none;cursor:pointer;color:inherit;font:inherit;text-align:left;
@@ -20137,10 +20141,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 #bc-move-bed:not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
 #bc-move-bed.is-collapsed .bc-move-bed-body{display:none}
 #tab-bed-calendar.bc-cal-side-pinned #wrap-bc{
-  width:calc(100% - 428px)!important;
-  max-width:calc(100% - 428px)!important;
+  width:calc(100% - 419px)!important;
+  max-width:calc(100% - 419px)!important;
   box-sizing:border-box;
-  padding-right:12px!important;
+  padding-right:3px!important;
 }
 #tab-bed-calendar.bc-cal-side-pinned #wrap-bc > .card{
   margin-right:0;
@@ -36178,7 +36182,9 @@ function bcRenderGuestPaymentLinkControlsHtml(bookingGuests){
   return html;
 }
 
-function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLines, bookingGuests, perPerson){
+function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLines, bookingGuests, perPerson, opts){
+  opts = opts || {};
+  var overview = !!opts.overview;
   var html = '';
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
@@ -36215,9 +36221,13 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   var paidCents = fin.paidCents;
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
 
-  html += '<div class="ctx-section ctx-payments-tab-layout">';
-  html += '<div class="ctx-payments-col-main">';
-  html += '<div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-running-invoice">';
+  if (overview) {
+    html += '<div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-overview-invoice">';
+  } else {
+    html += '<div class="ctx-section ctx-payments-tab-layout">';
+    html += '<div class="ctx-payments-col-main">';
+    html += '<div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-running-invoice">';
+  }
 
   /* Accommodation */
   html += '<div class="ctx-inv-group" id="bc-inv-accommodation">';
@@ -36300,7 +36310,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   }
   if (invoiceTotal != null && paidCents != null){
     if (invoiceTotal > paidCents){
-      var canGenBalLink = !bcBookingStatusIsCancelled(bk.status);
+      var canGenBalLink = !overview && !bcBookingStatusIsCancelled(bk.status);
       html += '<div class="ctx-inv-total-row" style="align-items:center">' +
         '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
         '<span style="display:inline-flex;align-items:center;gap:8px">' +
@@ -36323,6 +36333,11 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   html += '</div>';
 
   html += bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson);
+
+  if (overview) {
+    html += '</div>';
+    return html;
+  }
 
   var needsRefund = invoiceTotal != null && paidCents != null && invoiceTotal < paidCents;
   var balanceDue = (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents)
@@ -36618,14 +36633,25 @@ function bcInitGuestPaymentLinkShell(data){
 }
 
 function bcUpdateOverviewPaymentSummary(data){
-  var brief = el('bc-payment-summary-brief');
-  if (!brief || !data) return;
+  var card = el('bc-overview-invoice') || el('bc-payment-summary-brief');
+  if (!card || !data) return;
   var bk = data.booking || {};
-  var svcRows = data.service_records || [];
-  var pmt = data.payments || {};
-  var transferRows = data.transfers || [];
-  var guestAccLines = data.guest_accommodation_lines || [];
-  brief.outerHTML = bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows, guestAccLines);
+  var html;
+  if (card.id === 'bc-overview-invoice') {
+    html = bcRenderRunningInvoiceHtml(
+      bk,
+      data.service_records || [],
+      data.payments || {},
+      data.transfers || [],
+      data.guest_accommodation_lines || [],
+      data.booking_guests || [],
+      data.per_person || [],
+      { overview: true }
+    );
+  } else {
+    html = bcRenderPaymentSummaryBriefHtml(bk, data.service_records || [], data.payments || {}, data.transfers || [], data.guest_accommodation_lines || []);
+  }
+  card.outerHTML = html;
 }
 
 function bcRefreshPaymentsTab(bk){
@@ -40104,7 +40130,7 @@ function renderBookingContextDrawer(data){
   html += '</div>';
 
   if (!isSunset) {
-    html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
+    html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || [], data.booking_guests || [], data.per_person || [], { overview: true });
   }
 
   if (!isSurf) {
