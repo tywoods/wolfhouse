@@ -19983,6 +19983,33 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 #bc-side-drawer #bc-drawer-card-booking{padding:16px 16px 18px}
 #bc-side-drawer #bc-drawer-card-booking > .bc-drawer-card-title{display:none}
+#bc-side-drawer .bc-conv-handoff-block{display:none}
+#bc-side-drawer #bc-drawer-card-conversation{
+  padding:14px 16px 16px;
+}
+.bc-notes-head{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;
+}
+.bc-notes-head .bc-drawer-card-title{margin:0;font-size:13px}
+#bc-side-drawer #bc-luna-notes-edit{
+  background:transparent;border-color:transparent;box-shadow:none;
+}
+#bc-side-drawer #bc-luna-notes-edit:hover{background:transparent;color:var(--text)}
+.bc-luna-notes-list{margin:0;padding:0;list-style:none}
+.bc-luna-note-item{
+  margin:0 0 8px;padding:8px 10px;border-radius:8px;background:var(--surface-soft,#f4f1ea);
+  font-size:12px;line-height:1.45;
+}
+.bc-luna-note-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.bc-luna-note-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bc-luna-note-when{font-size:10px;color:var(--text-2)}
+.bc-luna-notes-compose[hidden]{display:none!important}
+.bc-luna-notes-compose{
+  margin-top:10px;display:flex;flex-direction:column;gap:8px;
+}
+.bc-notes-input{width:100%;box-sizing:border-box;min-height:72px;resize:vertical}
+.bc-notes-actions{display:flex;align-items:center;gap:8px}
+.bc-notes-result{margin-top:6px;font-size:11px;color:var(--text-2)}
 #bc-side-drawer #bc-field-group-contact .kv:nth-child(1){display:none!important}
 #bc-side-drawer #bc-field-group-contact .kv:nth-child(2){grid-column:1!important}
 #bc-side-drawer #bc-field-group-contact .kv:nth-child(3){grid-column:2!important}
@@ -34659,34 +34686,40 @@ function formatThreadMessageHtml(text){
 
 function bcRenderLunaGuestNotesHtml(data){
   var notes = (data && data.luna_guest_notes) || [];
-  var html = '<div class="bc-luna-notes-wrap" id="bc-luna-notes-wrap" style="margin-top:12px">';
-  html += '<div class="bc-drawer-card-title" style="font-size:12px;margin-bottom:6px">' + escHtml(t('drawer.notes')) + '</div>';
+  var html = '<div class="bc-luna-notes-wrap" id="bc-luna-notes-wrap">';
+  html += '<div class="bc-notes-head">';
+  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.notes')) + '</h3>';
+  html += '<button type="button" class="btn-bc-field-edit" id="bc-luna-notes-edit" aria-label="Edit notes" title="Edit notes">' + '\u270E' + '</button>';
+  html += '</div>';
   if (!notes.length){
     html += '<div class="ctx-none" id="bc-luna-notes-empty">' + escHtml(t('drawer.notes.empty')) + '</div>';
   } else {
-    html += '<ul class="bc-luna-notes-list" id="bc-luna-notes-list" style="margin:0;padding:0;list-style:none">';
+    html += '<ul class="bc-luna-notes-list" id="bc-luna-notes-list">';
     notes.forEach(function(n){
       var src = (n.source === 'staff') ? t('drawer.notes.staff') : t('drawer.notes.luna');
       var when = n.at ? new Date(n.at).toLocaleString() : '';
       var noteId = String(n.id || '');
-      html += '<li class="bc-luna-note-item" style="margin:0 0 8px;padding:8px 10px;border-radius:8px;background:var(--surface-2,#f4f4f5);font-size:12px;line-height:1.45"' +
+      html += '<li class="bc-luna-note-item"' +
         (noteId ? ' data-note-id="' + escHtml(noteId) + '"' : '') + '>';
       html += '<div class="bc-luna-note-head">';
       html += '<div class="bc-luna-note-meta">';
-      html += '<span class="pill pill-neutral" style="font-size:10px">' + escHtml(src) + '</span>';
-      if (when) html += '<span style="font-size:10px;color:var(--muted,#71717a)">' + escHtml(when) + '</span>';
+      html += '<span class="pill pill-neutral">' + escHtml(src) + '</span>';
+      if (when) html += '<span class="bc-luna-note-when">' + escHtml(when) + '</span>';
       html += '</div>';
       if (n.source === 'staff' && noteId) {
-        html += '<button type="button" class="bc-luna-note-delete" data-note-id="' + escHtml(noteId) + '" title="' + escHtml(t('drawer.notes.delete')) + '" aria-label="' + escHtml(t('drawer.notes.delete')) + '">\u00d7</button>';
+        html += '<button type="button" class="bc-luna-note-delete" data-note-id="' + escHtml(noteId) + '" title="' + escHtml(t('drawer.notes.delete')) + '" aria-label="' + escHtml(t('drawer.notes.delete')) + '">' + '\u00d7' + '</button>';
       }
-      html += '</div><div>' + escHtml(n.text || '') + '</div></li>';
+      html += '</div><div class="bc-luna-note-text">' + escHtml(n.text || '') + '</div></li>';
     });
     html += '</ul>';
   }
-  html += '<div class="bc-luna-notes-compose">';
-  html += '<textarea id="bc-luna-staff-note-input" class="bk-input-sm" rows="2" placeholder="' + escHtml(t('drawer.notes.placeholder')) + '"></textarea>';
-  html += '<button type="button" class="btn btn-secondary btn-sm" id="bc-luna-staff-note-save">' + escHtml(t('drawer.notes.add')) + '</button>';
-  html += '</div><div id="bc-luna-staff-note-result" style="margin-top:4px;font-size:11px"></div></div>';
+  html += '<div class="bc-luna-notes-compose" id="bc-luna-notes-compose" hidden>';
+  html += '<textarea id="bc-luna-staff-note-input" class="bk-input-sm bc-notes-input" rows="3" placeholder="' + escHtml(t('drawer.notes.placeholder')) + '"></textarea>';
+  html += '<div class="bc-notes-actions">';
+  html += '<button type="button" class="btn btn-primary" id="bc-luna-staff-note-save">' + escHtml(t('drawer.field.save')) + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="bc-luna-notes-done">Done</button>';
+  html += '</div></div>';
+  html += '<div id="bc-luna-staff-note-result" class="bc-notes-result"></div></div>';
   return html;
 }
 
@@ -34697,8 +34730,37 @@ function bcRefreshLunaNotesInDrawer(){
   if (!card || !old) return;
   old.remove();
   card.insertAdjacentHTML('beforeend', bcRenderLunaGuestNotesHtml(bcLastBookingContext));
+  bcBindLunaNotesEdit();
   bcBindLunaNotesSave();
   bcBindLunaNotesDelete();
+}
+
+function bcBindLunaNotesEdit(){
+  var editBtn = el('bc-luna-notes-edit');
+  var compose = el('bc-luna-notes-compose');
+  var doneBtn = el('bc-luna-notes-done');
+  var input = el('bc-luna-staff-note-input');
+  if (editBtn && !editBtn._bcLunaNoteEditBound) {
+    editBtn._bcLunaNoteEditBound = true;
+    editBtn.addEventListener('click', function(){
+      if (!compose) compose = el('bc-luna-notes-compose');
+      if (!compose) return;
+      compose.hidden = false;
+      compose.classList.add('is-open');
+      var inp = el('bc-luna-staff-note-input');
+      if (inp) inp.focus();
+    });
+  }
+  if (doneBtn && !doneBtn._bcLunaNoteDoneBound) {
+    doneBtn._bcLunaNoteDoneBound = true;
+    doneBtn.addEventListener('click', function(){
+      var box = el('bc-luna-notes-compose');
+      if (box) { box.hidden = true; box.classList.remove('is-open'); }
+      if (input) input.value = '';
+      var resultEl = el('bc-luna-staff-note-result');
+      if (resultEl) resultEl.textContent = '';
+    });
+  }
 }
 
 function bcBindLunaNotesSave(){
@@ -34737,6 +34799,8 @@ function bcBindLunaNotesSave(){
       }
       input.value = '';
       if (resultEl) resultEl.textContent = 'Note saved.';
+      var compose = el('bc-luna-notes-compose');
+      if (compose) { compose.hidden = true; compose.classList.remove('is-open'); }
       if (bcLastBookingContext){
         bcLastBookingContext.luna_guest_notes = j.luna_guest_notes || [];
         bcRefreshLunaNotesInDrawer();
@@ -35128,6 +35192,7 @@ function loadBlockDetail(bookingCode, opts){
       bcInitBookingCancelShell(res.data);
       bcInitNewConversationShell(res.data);
       bcWireOpenConversationButtons(res.data);
+      bcBindLunaNotesEdit();
       bcBindLunaNotesSave();
       bcBindLunaNotesDelete();
     })
@@ -40053,6 +40118,7 @@ function renderBookingContextDrawer(data){
   html += bcRenderPendingManualServicesOverviewHtml(data.pending_manual_services || []);
 
   html += '<div class="bc-drawer-overview-card ctx-section" id="bc-drawer-card-conversation">';
+  html += '<div class="bc-conv-handoff-block">';
   html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.conversation')) + '</h3>';
   if (data.conversation){
     var conv = data.conversation;
@@ -40075,6 +40141,7 @@ function renderBookingContextDrawer(data){
       if (hf.opened_at)      html += kvBC(t('drawer.kv.opened'), new Date(hf.opened_at).toLocaleString());
       html += '</div>';
   }
+  html += '</div>';
   html += bcRenderLunaGuestNotesHtml(data);
   html += '</div>';
 
@@ -40527,6 +40594,7 @@ function bcRefreshOpenDrawerI18n(){
   bcInitBookingCancelShell(bcLastBookingContext);
   bcInitNewConversationShell(bcLastBookingContext);
   bcWireOpenConversationButtons(bcLastBookingContext);
+  bcBindLunaNotesEdit();
   bcBindLunaNotesSave();
   bcBindLunaNotesDelete();
 }
@@ -40705,9 +40773,9 @@ function bcSideStayMetaHtml(cin, cout, guests){
     nights = bcStayNightsFromCheckInOut(cin, cout) || 0;
   }
   var extra = '';
-  if (nights > 0) extra += ' <span class="bc-side-nights">- ' + escHtml(String(nights) + ' nights') + '</span>';
+  if (nights > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(nights) + ' nights') + '</span>';
   var gc = parseInt(guests, 10);
-  if (gc > 0) extra += ' <span class="bc-side-nights">- ' + escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests')) + '</span>';
+  if (gc > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests')) + '</span>';
   return escHtml(dates) + extra;
 }
 
