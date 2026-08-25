@@ -17,7 +17,7 @@
  * module does **not** import the bridge — projection remains runtime-unwired.
  */
 
-const { getConversationDetailQuery } = require('./staff-conversation-queries');
+const { getConversationDetailQuery, isEmailInboundSubjectSchemaError } = require('./staff-conversation-queries');
 
 const DEFAULT_CLIENT_SLUG = 'wolfhouse-somo';
 const STAFF_REPLY_SOURCE = 'staff_inbox_reply';
@@ -153,10 +153,16 @@ function buildStaffInboxGuestReplyBody(input) {
  * }>}
  */
 async function resolveAuthoritativeInboxSendTarget(pg, clientSlug, conversationId, callerTo) {
-  const r = await pg.query(
-    getConversationDetailQuery({ includeInboundProjections: false }),
-    [clientSlug, conversationId],
-  );
+  let r;
+  try {
+    r = await pg.query(getConversationDetailQuery(), [clientSlug, conversationId]);
+  } catch (err) {
+    if (!isEmailInboundSubjectSchemaError(err)) throw err;
+    r = await pg.query(
+      getConversationDetailQuery({ includeEmailSubject: false }),
+      [clientSlug, conversationId],
+    );
+  }
   const row = r && r.rows && r.rows[0];
   if (!row) {
     return { ok: false, status: 404, error: 'conversation not found' };

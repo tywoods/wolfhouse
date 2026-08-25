@@ -437,11 +437,11 @@ function conversationPageParamIndexes(locationScoped, channelScoped) {
   return { limitParamIndex: idx + 1, cursorParamIndex: idx + 2 };
 }
 
-function buildConversationSourceQuery(view, clientSlug, query, page, extra) {
+function buildConversationSourceQuery(view, clientSlug, query, page, opts) {
   const scope = resolveInboxConversationLocationScope(clientSlug, query);
   const channelScoped = !!view.channel;
   const needsHumanScoped = !!view.needsHuman;
-  const includeInboundProjections = !(extra && extra.includeInboundProjections === false);
+  const includeEmailSubject = !(opts && opts.includeEmailSubject === false);
   const params = [clientSlug];
   if (scope.scoped) params.push(scope.locationId);
   if (channelScoped) params.push(view.channel);
@@ -466,9 +466,13 @@ function buildConversationSourceQuery(view, clientSlug, query, page, extra) {
 
   return {
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
-    sql: getConversationInboxQuery(keyset
-      ? { locationScoped: scope.scoped, channelScoped, needsHumanScoped, keyset, includeInboundProjections }
-      : { locationScoped: scope.scoped, channelScoped, needsHumanScoped, includeInboundProjections }),
+    sql: getConversationInboxQuery({
+      locationScoped: scope.scoped,
+      channelScoped,
+      needsHumanScoped,
+      includeEmailSubject,
+      ...(keyset ? { keyset } : {}),
+    }),
     params,
     crmFilter: null,
     filterSql: '',
@@ -523,11 +527,12 @@ function buildInboxViewQuery(input) {
   const view = decorateView(declared, req.capabilities);
   const clientSlug = String(req.clientSlug || req.client_slug || '').trim();
   const page = req.page && typeof req.page === 'object' ? req.page : null;
+  const conversationOpts = {
+    includeEmailSubject: req.includeEmailSubject !== false,
+  };
   const built = declared.source === INBOX_VIEW_SOURCES.CUSTOMERS
     ? buildCustomerSourceQuery(declared, clientSlug, req.query, page)
-    : buildConversationSourceQuery(declared, clientSlug, req.query, page, {
-      includeInboundProjections: req.includeInboundProjections,
-    });
+    : buildConversationSourceQuery(declared, clientSlug, req.query, page, conversationOpts);
 
   return {
     ok: true,

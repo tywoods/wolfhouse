@@ -178,6 +178,9 @@ function makePg(plan) {
 
   function cannedFor(sql) {
     if (sql === getConversationDetailQuery(opts)) return plan.detail;
+    if (sql === getConversationDetailQuery({ ...opts, includeEmailSubject: false })) {
+      return plan.detailWithoutEmailSubject || plan.detail;
+    }
     if (sql === getConversationMessagesQuery(opts)) return plan.messages;
     if (sql === getConversationContextQuery(opts)) return plan.context;
     if (sql === getConversationBookingsQuery(opts)) return plan.bookings;
@@ -631,6 +634,20 @@ ok('the orphaned fetchBotPauseState helper is gone', !/function\s+fetchBotPauseS
     ok('detail failure answers 500', res.out.statusCode === 500);
     ok('detail failure still closes the snapshot',
       deps.pg.state.inTx === false && deps.pg.log.some((e) => /^(COMMIT|ROLLBACK)$/i.test(e.sql)));
+  }
+  {
+    const missingEmail = pgError('42P01', 'relation "tenant_email_inbound_inbox_projections" does not exist');
+    const { res, body, deps } = await runComposite({
+      detail: missingEmail,
+      detailWithoutEmailSubject: { rows: [DETAIL_ROW] },
+    });
+    ok('missing email inbound tables still return the thread',
+      res.out.statusCode === 200 && body && body.success === true && body.detail && body.detail.success === true,
+      `status=${res.out.statusCode}`);
+    ok('missing email inbound tables retry detail without those relations',
+      deps.pg.log.filter((e) => /FROM conversations/i.test(e.sql)).length >= 2
+      && deps.pg.log.some((e) => /tenant_email_inbound_/.test(e.sql))
+      && deps.pg.log.some((e) => /NULL::text/.test(e.sql) && /email_subject/.test(e.sql)));
   }
 
   console.log('\n── transaction cleanup uncertainty ──');

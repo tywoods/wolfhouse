@@ -444,10 +444,7 @@ const {
   getConversationBookingsQuery,
   getConversationDraftQuery,
   getConversationStaffStateQuery,
-  resolveEmailInboundInboxReady,
-  markEmailInboundInboxMissing,
-  isMissingEmailInboundRelation,
-  emailInboundInboxAssumedReady,
+  isEmailInboundSubjectSchemaError,
 } = require('./lib/staff-conversation-queries');
 const {
   CRM_TAG_KEYS,
@@ -20690,6 +20687,7 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs{background:transparent;border-bottom:none}
 .luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:52px;line-height:52px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
+.luna-header-ui.luna-hdr-compact #tabs .inbox-layout-controls{pointer-events:auto}
 .luna-header-ui.luna-hdr-compact #tabs .tab-btn.active .tab-label::after{bottom:-9px}
 /* compact hides the global-pause card from the bar to keep the row clean (owner). */
 .luna-header-ui.luna-hdr-compact #tabs .tabs-global-pause{display:none}
@@ -23552,7 +23550,8 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
     document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
     this.classList.add('active');
-    el('tab-' + target).classList.add('active');
+    var panel = el('tab-' + target);
+    if (panel) panel.classList.add('active');
     // The primary top-nav listener owns normal tab clicks (it does not call switchToTab).
     // Clear only rental-card errors when leaving Admin; shared Admin notices keep their lifecycle.
     if (prevTab === 'admin' && target !== 'admin' && typeof adminClearEquipErrors === 'function') {
@@ -44510,26 +44509,27 @@ async function handleConversationInbox(query, res, user) {
   try {
     rows = await withPgClient(async (pg) => {
       const params = scope.scoped ? [clientSlug, scope.locationId] : [clientSlug];
-      const includeInboundProjections = emailInboundInboxAssumedReady();
-      try {
-        const r = await pg.query(
-          getConversationInboxQuery({ ...scope.queryOpts, includeInboundProjections }),
-          params,
-        );
-        return r.rows;
-      } catch (err) {
-        if (!includeInboundProjections || !isMissingEmailInboundRelation(err)) throw err;
-        markEmailInboundInboxMissing();
-        const r = await pg.query(
-          getConversationInboxQuery({ ...scope.queryOpts, includeInboundProjections: false }),
-          params,
-        );
-        return r.rows;
-      }
+      const r = await pg.query(getConversationInboxQuery(scope.queryOpts), params);
+      return r.rows;
     });
   } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'query failed' });
+    if (!isEmailInboundSubjectSchemaError(err)) {
+      appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'query failed' });
+    }
+    try {
+      rows = await withPgClient(async (pg) => {
+        const params = scope.scoped ? [clientSlug, scope.locationId] : [clientSlug];
+        const r = await pg.query(
+          getConversationInboxQuery({ ...scope.queryOpts, includeEmailSubject: false }),
+          params,
+        );
+        return r.rows;
+      });
+    } catch (err2) {
+      appendAuditLog({ ...auditBase, success: false, error: err2.message, elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'query failed' });
+    }
   }
 
   const elapsed = Date.now() - started;
@@ -44569,26 +44569,29 @@ async function handleConversationDetail(convId, query, res, user) {
   let rows;
   try {
     rows = await withPgClient(async (pg) => {
-      const includeInboundProjections = emailInboundInboxAssumedReady();
-      try {
-        const r = await pg.query(
-          getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections }),
-          conversationDetailQueryParams(clientSlug, convId, scope),
-        );
-        return r.rows;
-      } catch (err) {
-        if (!includeInboundProjections || !isMissingEmailInboundRelation(err)) throw err;
-        markEmailInboundInboxMissing();
-        const r = await pg.query(
-          getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections: false }),
-          conversationDetailQueryParams(clientSlug, convId, scope),
-        );
-        return r.rows;
-      }
+      const r = await pg.query(
+        getConversationDetailQuery(scope.queryOpts),
+        conversationDetailQueryParams(clientSlug, convId, scope),
+      );
+      return r.rows;
     });
   } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'query failed' });
+    if (!isEmailInboundSubjectSchemaError(err)) {
+      appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'query failed' });
+    }
+    try {
+      rows = await withPgClient(async (pg) => {
+        const r = await pg.query(
+          getConversationDetailQuery({ ...scope.queryOpts, includeEmailSubject: false }),
+          conversationDetailQueryParams(clientSlug, convId, scope),
+        );
+        return r.rows;
+      });
+    } catch (err2) {
+      appendAuditLog({ ...auditBase, success: false, error: err2.message, elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'query failed' });
+    }
   }
 
   const elapsed = Date.now() - started;
