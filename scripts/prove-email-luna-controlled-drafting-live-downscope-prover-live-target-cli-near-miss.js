@@ -14,7 +14,16 @@ const {
   liveModeAllowed,
   LIVE_DEPLOY_SHA_ALLOWLIST,
   CONFIRMATION_PHRASE,
+  LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
+  createEmailLunaControlledDraftingLiveDownscopeProver,
+  readTrustedLiveDownscopeProverFailure,
+  ERROR_CODE,
+  SUNSET_DEPLOYMENT,
 } = require('./lib/email-luna-controlled-drafting-live-downscope-prover');
+const {
+  createFakeEmailGrantEnvelopeProvider,
+  fakeSealRefreshToken,
+} = require('./lib/email-grant-envelope-fake-provider');
 
 const DEPLOYED_SHA = 'f6ee511273160cb46c72e345137800878d4c6512';
 const REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
@@ -184,10 +193,77 @@ async function main() {
 
   const execFromSourceTest = runCli(completeSunsetArgs(['--execute-once']), env);
   assert.equal(execFromSourceTest.ok, false);
-  assert.equal(execFromSourceTest.reason, 'source_test_cannot_consume_live_attempt');
+  assert.equal(execFromSourceTest.reason, 'live_execute_not_authorized_in_this_chapter');
   assert.equal(execFromSourceTest.live_evidence, false);
   assert.equal(execFromSourceTest.token_verified, false);
   assert.equal(liveTargetLoaded(), false);
+  assert.equal(LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER, false);
+  assert.throws(() => {
+    const owner = require('./lib/email-luna-controlled-drafting-live-downscope-prover');
+    owner.LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = true;
+  });
+  assert.equal(LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER, false);
+
+  {
+    const envelope = createFakeEmailGrantEnvelopeProvider();
+    const sealed = await fakeSealRefreshToken(envelope, {
+      refreshToken: 'rt-old-NEVER_LEAK',
+      clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      endpointId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      grantGeneration: 1,
+      operationId: '11111111-1111-4111-8111-111111111111',
+    });
+    assert.equal(Boolean(sealed), true);
+    let loginHits = 0;
+    const prover = createEmailLunaControlledDraftingLiveDownscopeProver({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: '12345678-1234-4234-8234-123456789abc',
+      withPgClient: async (work) => {
+        loginHits += 1;
+        return work({ async query() { return { rows: [], rowCount: 0 }; } });
+      },
+      envelopeProvider: envelope,
+      createSecretProvider: () => Object.freeze({
+        getClientSecret: async () => 'app-secret-NEVER_LEAK',
+      }),
+      transport: Object.freeze({
+        postTokenForm: async () => { throw new Error('token_owner_must_not_be_called'); },
+      }),
+      createSignatureVerifier: () => Object.freeze({
+        async verify() { throw new Error('jwks_owner_must_not_be_called'); },
+      }),
+      binding: {
+        clientId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        locationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        endpointId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        mailboxId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      },
+      workerId: 'email-luna-controlled-drafting-live-downscope-prover',
+      login: {
+        producerClient: { async query() { loginHits += 1; return { rows: [], rowCount: 0 }; } },
+        workerClient: { async query() { loginHits += 1; return { rows: [], rowCount: 0 }; } },
+      },
+      preflight: {
+        ops097: 0, rows098: 0, replica: 1, sourceSha: 'b'.repeat(40), deploySha: DEPLOYED_SHA,
+      },
+    });
+    await assert.rejects(() => prover.runProof({
+      parsed: parsedExecute,
+      env,
+      independentLivePreflight: {
+        ok: true, ops_097: 0, transitions_097: 0, authorizations_098: 0,
+        replica: 1, deploy_sha: DEPLOYED_SHA,
+      },
+      liveExecuteAuthorized: true,
+    }), (error) => {
+      const note = readTrustedLiveDownscopeProverFailure(error);
+      return error.code === ERROR_CODE
+        && note
+        && note.code === 'live_execute_not_authorized_in_this_chapter'
+        && loginHits === 0;
+    });
+    assert.equal(liveTargetLoaded(), false);
+  }
 
   const cacheHits = Object.keys(require.cache).filter((key) => {
     const n = String(key).replace(/\\/g, '/');

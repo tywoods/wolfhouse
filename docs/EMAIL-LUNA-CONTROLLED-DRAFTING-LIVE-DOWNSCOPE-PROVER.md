@@ -1,6 +1,6 @@
 # Email Luna controlled-drafting live downscope prover (Chapter 4E)
 
-**Slice:** FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E + 4G — source-only operator prover for a future live Microsoft downscope + shared Phase B grant continuity proof. Chapter 4G wires the exact deployed Sunset staging SHA. Live proof is still **NOT EXECUTED**.
+**Slice:** FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E + 4G — source-only operator prover for a future live Microsoft downscope + shared Phase B grant continuity proof. Chapter 4G wires the exact deployed Sunset staging SHA. Live compose/runProof are **structurally disabled** (`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false`). Live proof is still **NOT EXECUTED**. There is no independent Azure ACA / PG reader in this chapter; caller snapshots cannot mint a live brand.
 
 **Owner:** `scripts/lib/email-luna-controlled-drafting-live-downscope-prover.js`
 
@@ -78,7 +78,7 @@ Chapter 4G wired the exact-deployed-SHA target. A **later separately authorized 
 | Digest | `sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a` |
 | Allowlist | singleton of that full SHA only |
 
-**Operator-prover compatibility rule** (`chapter_4g_operator_cli_may_differ_from_deployed_app_sha`): the live target is the **deployed Staff API image**, not the operator CLI tree HEAD. Current origin/master may differ from `f6ee5112…` (this assignment: Pricing Code-field hide only). Canonical 4C/4E runtime owners listed in `CANONICAL_RUNTIME_OWNER_DIGESTS` must remain byte-identical to those files at the deployed SHA. The Chapter 4G CLI/prover wiring is allowed to differ. Do **not** blindly require `source_sha === deploy_sha` and do **not** trust caller text for that claim. Frozen SHA-256 digests of those owner files are the contract.
+**Operator-prover compatibility rule** (`chapter_4g_operator_cli_may_differ_from_deployed_app_sha`): the live target is the **deployed Staff API image**, not the operator CLI tree HEAD. Current origin/master may differ from `f6ee5112…` (this assignment: Pricing Code-field hide only). Canonical 4C/4E runtime owners listed in `CANONICAL_RUNTIME_OWNER_DIGESTS` are a **source-tree self-hash attestation**, not an independent image measurement, and **cannot establish deployed image truth**. A future fixed reader must compare the actual immutable deployed image/revision/digest against this exact approved compatibility contract. The Chapter 4G CLI/prover wiring is allowed to differ. Do **not** blindly require `source_sha === deploy_sha` and do **not** trust caller text for that claim.
 
 **CLI (sole operator entry):**
 
@@ -97,7 +97,11 @@ Without `--execute-once` this is **preparation/attestation only**: zero token, J
 
 `--execute-once` plus the typed confirmation bound to target/revision/SHA/digest/nonce/time-window is required before any sensitive dependency is acquired. This chapter still **does not authorize** that sensitive phase (`live_execute_not_authorized_in_this_chapter`). A source verify/prove harness cannot consume the live attempt (`source_test_cannot_consume_live_attempt`). One process; nonce replay fails; no automatic retry after an ambiguous Microsoft response.
 
-**Independent live preflight (server-owned; do not trust caller-injected counts):**
+**Independent live preflight (NOT implemented this chapter; server-owned when a future reader exists; do not trust caller-injected counts):**
+
+This chapter has **no** owned Azure ACA / live PG reader. `evaluateSunsetStagingLiveAppSnapshot` validates untrusted caller snapshots against exact pins and **must not** mint `independent_read` or a live-proof brand. `runProof` / public compose refuse with `live_execute_not_authorized_in_this_chapter` before acquiring KV/token/JWKS/PG. 097/098 counts are never accepted from caller fields.
+
+A later chapter must supply a **private/internal** reader that actually reads Azure ACA and PG. If that reader is absent, live proof fails closed. Future reader steps:
 
 1. Confirm target **Sunset staging only**. Refuse production / Wolfhouse / `--target live` / `--target azure`.
 2. Independently read the candidate app: exact revision, image SHA, digest, Running, latest-ready, 100% traffic, replica 1 / min=max=1.
@@ -113,7 +117,7 @@ Without `--execute-once` this is **preparation/attestation only**: zero token, J
 12. Unscoped staff-send access-session → staff-send `scp` proof. No Graph.
 13. Readback. Write sanitized evidence JSON. Do not send. Do not flip flags.
 
-`microsoft_live` / `jwks_live` are measured from branded canonical live owners (`createMicrosoftTokenHttpTransport`, `createMicrosoftOidcJwksSignatureVerifier`), never hardcoded true.
+`microsoft_live` / `jwks_live` mean **actual provider invocation / signature verification**, never composition-alone. Canonical live-owner composition is reported separately (`canonical_live_microsoft_transport_composed` / `canonical_live_jwks_factory_composed`). This chapter never contacts Microsoft.
 
 If live proof fundamentally needs a separate grant, account, or broader capability than this shared Phase B downscope, **stop**. That is an architecture decision, not a code workaround.
 
@@ -164,13 +168,13 @@ Replica: `EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_REPLICA_COUNT=1`.
 
 ## Evidence schema (sanitized)
 
-Safe JSON only: `ok`, command, target, simulation/preparation/execute_once, `live_evidence`, `offline_fake_proof`, `microsoft_live`, `jwks_live` (measured, never hardcoded true), token/graph/send/journal/098 booleans, source_sha, deploy_sha, revision, digest, replica, `flags_all_false` / `flags_all_literal_false`, ops_097, transitions_097, rows_098, confirmation_accepted, LOGIN booleans + sha256 fingerprints, binding/own-user/mailbox booleans, principal/mailbox fingerprints (not raw IDs), downscope/continuity status + `scp` names, generations, grant_status, reconcile_state, kid/alg, iss/aud/oid/tid/ver/exp booleans, timestamps, phase statuses, compatibility_rule_id. **Never** raw DSNs, secrets, tokens, JWTs, mailbox addresses, PII, host/user/password, or message content.
+Safe JSON only: `ok`, command, target, simulation/preparation/execute_once, `live_evidence`, `offline_fake_proof`, `microsoft_live`, `jwks_live` (actual invocation/verification only, never composition-alone), token/graph/send/journal/098 booleans, source_sha, deploy_sha, revision, digest, replica, `flags_all_false` / `flags_all_literal_false`, ops_097, transitions_097, rows_098, confirmation_accepted, LOGIN booleans + sha256 fingerprints, binding/own-user/mailbox booleans, principal/mailbox fingerprints (not raw IDs), downscope/continuity status + `scp` names, generations, grant_status, reconcile_state, kid/alg, iss/aud/oid/tid/ver/exp booleans, timestamps, phase statuses, compatibility_rule_id. **Never** raw DSNs, secrets, tokens, JWTs, mailbox addresses, PII, host/user/password, or message content.
 
 Raw tokens remain inside closed owners and are zeroized after inspect. Hostile cyclic/proxy/getter/thenable/planted-secret errors must not leak them.
 
 ## Live dependency graph (fixed internal; CLI-only)
 
-`env` (existing Sunset keys only) → `createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition` → `createSunsetMicrosoftOAuthClientSecretProvider` → `createMicrosoftTokenHttpTransport` (node:https) → `createMicrosoftOidcJwksSignatureVerifier` (node:https/crypto/timers) → `createEmailLunaControlledDraftingPrincipalConnectionPair` → internal app `withPgClient` from existing `WOLFHOUSE_DATABASE_URL`. No Graph provider, no public factory callback, no Staff API import, no ACA command/flag edit, no new env vars/identities/OAuth apps/migrations.
+Public compose is gated by frozen `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false` **before** inspecting env/getters. Future authorized composition (not this chapter): `env` (existing Sunset keys only) → `createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition` → `createSunsetMicrosoftOAuthClientSecretProvider` → `createMicrosoftTokenHttpTransport` (node:https) → `createMicrosoftOidcJwksSignatureVerifier` (node:https/crypto/timers) → `createEmailLunaControlledDraftingPrincipalConnectionPair` → live custody `withPgClient` from the **worker direct LOGIN DSN** (`EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL`), never Staff API admin `WOLFHOUSE_DATABASE_URL`. Connect failures sanitize as `pg_connect`; post-connect prover/custody failure identity is preserved; unknown work errors sanitize as `pg_work`. No Graph provider, no public factory callback, no Staff API import, no ACA command/flag edit, no new env vars/identities/OAuth apps/migrations.
 
 ## Non-goals
 

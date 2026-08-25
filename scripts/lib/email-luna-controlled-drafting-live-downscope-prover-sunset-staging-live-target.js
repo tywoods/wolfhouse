@@ -8,8 +8,10 @@
  * Composition uses existing canonical owners only. No public generic
  * callback, token consumer, HTTP route, Graph provider, or send method.
  *
- * Live proof remains NOT EXECUTED by this chapter. A later separately
- * authorized execution chapter may invoke compose after --execute-once.
+ * Live compose/runProof are structurally disabled this chapter. A later
+ * chapter must supply a fixed internal reader that actually performs
+ * Azure ACA and PG reads. Caller snapshots are untrusted validation
+ * inputs and never mint an independent/live proof brand.
  *
  * @module email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target
  */
@@ -22,10 +24,19 @@ const nodeTimers = require('node:timers');
 const {
   isProxySurface,
   ownData,
-  exactOwnData,
   isCanonUuid,
-  digestUtf8,
 } = require('./email-luna-controlled-drafting-closed-data');
+const {
+  LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
+  SUNSET_DEPLOYMENT,
+  SUNSET_TENANT,
+  SUNSET_LOCATION_KEY,
+  EXPECTED_DATABASE,
+  EXPECTED_LIVE_TARGET,
+  OPERATOR_PROVER_COMPATIBILITY_RULE,
+  LIVE_CUSTODY_DSN_ENV_KEY,
+  LIVE_CUSTODY_REFUSES_ADMIN_DSN_ENV_KEY,
+} = require('./email-luna-controlled-drafting-live-downscope-prover-live-target-constants');
 const {
   createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition,
   SUNSET_STAGING_TRUSTED_HOST,
@@ -52,45 +63,26 @@ const {
   ENV_WORKER_DATABASE_URL,
 } = require('./email-luna-controlled-drafting-principal-connection');
 
+const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
 const objectCreate = Object.create;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
 const reflectOwnKeys = Reflect.ownKeys;
 const arrayIsArray = Array.isArray;
+const arrayIncludes = uncurryThis(Array.prototype.includes);
 
 const ERROR_CODE = 'EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_TARGET_INVALID';
 const ERROR_MESSAGE = 'Email Luna controlled drafting live-target wiring failed.';
-const SUNSET_DEPLOYMENT = 'sunset-staging';
-const SUNSET_TENANT = 'sunset';
-const SUNSET_LOCATION_KEY = 'sunset-somo';
-const EXPECTED_DATABASE = 'sunset_staging';
+const PROVER_ERROR_CODE = 'EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_DOWNSCOPE_PROVER_INVALID';
 const WORKER_ID_DEFAULT = 'email-luna-controlled-drafting-live-downscope-prover';
 const LIVE_FACTORY_KEYS = objectFreeze(['env']);
 const INDEPENDENT_LIVE_PREFLIGHTS = new WeakSet();
 const CANONICAL_LIVE_MICROSOFT_TRANSPORTS = new WeakSet();
 const CANONICAL_LIVE_JWKS_FACTORIES = new WeakSet();
-
-const EXPECTED_LIVE_TARGET = objectFreeze({
-  resourceGroup: 'luna-sunset-staging-rg',
-  appName: 'luna-sunset-staging-staff-api',
-  revision: 'luna-sunset-staging-staff-api--ch4f-f6ee5112',
-  deployedSha: 'f6ee511273160cb46c72e345137800878d4c6512',
-  digest: 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a',
-  tenant: SUNSET_TENANT,
-  locationKey: SUNSET_LOCATION_KEY,
-  database: EXPECTED_DATABASE,
-  replica: 1,
-});
-
-const OPERATOR_PROVER_COMPATIBILITY_RULE = objectFreeze({
-  rule_id: 'chapter_4g_operator_cli_may_differ_from_deployed_app_sha',
-  deployedSha: EXPECTED_LIVE_TARGET.deployedSha,
-  chapter4ePr: 719,
-  allowsOperatorCliSourceShaToDiffer: true,
-  requiresCanonicalRuntimeOwnerByteMatch: true,
-  doesNotTrustCallerText: true,
-  liveTargetIsDeployedStaffApiImage: true,
+const CONNECTED_PG_KEYS = objectFreeze(['Client', 'connectionString', 'work']);
+const LIVE_EXECUTE_INTERNAL_AUTHORIZATION = objectFreeze({
+  authorized: LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
 });
 
 const EIGHT_FLAGS = objectFreeze([
@@ -148,6 +140,12 @@ const CANONICAL_RUNTIME_OWNER_DIGESTS = objectFreeze({
 if (SECRET_SUNSET !== SUNSET_DEPLOYMENT) {
   throw new Error('controlled_drafting_live_target_sunset_deployment_mismatch');
 }
+if (LIVE_CUSTODY_DSN_ENV_KEY !== ENV_WORKER_DATABASE_URL) {
+  throw new Error('controlled_drafting_live_target_worker_dsn_key_mismatch');
+}
+if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== false) {
+  throw new Error('controlled_drafting_live_execute_must_be_disabled_in_this_chapter');
+}
 
 function failure(code) {
   const error = new Error(ERROR_MESSAGE);
@@ -158,7 +156,22 @@ function failure(code) {
 }
 
 function refuse() {
-  return objectFreeze({ ok: false, reason: 'live_target_refused' });
+  return objectFreeze({
+    ok: false,
+    reason: 'live_target_refused',
+    independent_read: false,
+    untrusted_caller_snapshot: true,
+    live_authority: false,
+  });
+}
+
+function refuseLiveExecuteIfDisabled() {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+    throw failure('live_execute_not_authorized_in_this_chapter');
+  }
+  if (LIVE_EXECUTE_INTERNAL_AUTHORIZATION.authorized !== true) {
+    throw failure('live_execute_not_authorized_in_this_chapter');
+  }
 }
 
 function sha256File(abs) {
@@ -173,7 +186,7 @@ function exactPlainData(object, keys) {
   }
   const actual = reflectOwnKeys(object);
   if (actual.length !== keys.length
-      || actual.some((key) => typeof key !== 'string' || !keys.includes(key))) {
+      || actual.some((key) => typeof key !== 'string' || !arrayIncludes(keys, key))) {
     return false;
   }
   return keys.every((key) => {
@@ -224,7 +237,15 @@ function proveCanonicalRuntimeOwnersMatchDeployedContract() {
     try {
       digest = sha256File(abs);
     } catch (_) {
-      return objectFreeze({ ok: false, matched: false, file_count: files.length, mismatches: objectFreeze([rel]) });
+      return objectFreeze({
+        ok: false,
+        matched: false,
+        file_count: files.length,
+        attestation_kind: 'source_tree_self_hash',
+        independent_image_measurement: false,
+        cannot_establish_deployed_image_truth: true,
+        mismatches: objectFreeze([rel]),
+      });
     }
     if (digest !== CANONICAL_RUNTIME_OWNER_DIGESTS[rel]) mismatches.push(rel);
   }
@@ -234,6 +255,9 @@ function proveCanonicalRuntimeOwnersMatchDeployedContract() {
     file_count: files.length,
     deployed_sha: EXPECTED_LIVE_TARGET.deployedSha,
     rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
+    attestation_kind: 'source_tree_self_hash',
+    independent_image_measurement: false,
+    cannot_establish_deployed_image_truth: true,
     mismatches: objectFreeze(mismatches),
   });
 }
@@ -269,7 +293,7 @@ function evaluateSunsetStagingLiveAppSnapshot(snapshot) {
     if (ownData(snapshot, 'hasActiveOperation') !== false) return refuse();
     const owners = proveCanonicalRuntimeOwnersMatchDeployedContract();
     if (!owners.ok) return refuse();
-    const branded = objectFreeze({
+    return objectFreeze({
       ok: true,
       resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
       app_name: EXPECTED_LIVE_TARGET.appName,
@@ -284,22 +308,14 @@ function evaluateSunsetStagingLiveAppSnapshot(snapshot) {
       location_key: SUNSET_LOCATION_KEY,
       database: EXPECTED_DATABASE,
       flags_all_literal_false: true,
-      ops_097: 0,
-      transitions_097: 0,
-      authorizations_098: 0,
-      binding_ok: true,
-      own_user: true,
-      mailbox_ready: true,
-      grant_status: 'active',
-      reconcile_state: 'clean',
-      has_active_lease: false,
-      has_active_operation: false,
-      independent_read: true,
+      caller_097_098_are_not_authority: true,
+      independent_read: false,
+      untrusted_caller_snapshot: true,
+      live_authority: false,
       compatibility_rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
       canonical_owners_matched: true,
+      canonical_owners_attestation_kind: 'source_tree_self_hash',
     });
-    INDEPENDENT_LIVE_PREFLIGHTS.add(branded);
-    return branded;
   } catch (_) {
     return refuse();
   }
@@ -308,7 +324,8 @@ function evaluateSunsetStagingLiveAppSnapshot(snapshot) {
 function isIndependentLivePreflight(value) {
   try {
     if (!value || (typeof value !== 'object' && typeof value !== 'function')) return false;
-    return INDEPENDENT_LIVE_PREFLIGHTS.has(value) && value.ok === true;
+    return INDEPENDENT_LIVE_PREFLIGHTS.has(value) && value.ok === true
+      && value.independent_read === true;
   } catch (_) {
     return false;
   }
@@ -345,7 +362,63 @@ function flagsAllLiteralFalse(env) {
   return true;
 }
 
+function looksLikeAdminStaffApiDsn(connectionString) {
+  if (typeof connectionString !== 'string' || connectionString.length < 1) return false;
+  const userinfo = connectionString.split('@')[0] || '';
+  return /(?:^|[/:])wolfhouse_admin(?:[:@]|$)/i.test(userinfo) === true;
+}
+
+function isTrustedWorkFailure(err) {
+  try {
+    if (!err || (typeof err !== 'object' && typeof err !== 'function')) return false;
+    if (err.code === ERROR_CODE) return true;
+    if (err.code === PROVER_ERROR_CODE) return true;
+    if (objectGetPrototypeOf(err) !== Object.prototype) return false;
+    if (!Object.isFrozen(err)) return false;
+    if (ownData(err, 'ok') !== false) return false;
+    return typeof ownData(err, 'error') === 'string';
+  } catch (_) {
+    return false;
+  }
+}
+
+async function withSunsetStagingLiveTargetConnectedPgClient(input) {
+  try {
+    if (!exactPlainData(input, CONNECTED_PG_KEYS)) throw failure('with_pg');
+    const Client = ownData(input, 'Client');
+    const connectionString = ownData(input, 'connectionString');
+    const work = ownData(input, 'work');
+    if (typeof Client !== 'function' || isProxySurface(Client)) throw failure('pg_module');
+    if (typeof connectionString !== 'string' || connectionString.length < 1) {
+      throw failure('worker_dsn_missing');
+    }
+    if (typeof work !== 'function' || isProxySurface(work)) throw failure('with_pg');
+    if (looksLikeAdminStaffApiDsn(connectionString)) throw failure('admin_dsn_refused');
+    const client = new Client(objectFreeze({ connectionString }));
+    try {
+      try {
+        await client.connect();
+      } catch (_) {
+        throw failure('pg_connect');
+      }
+      try {
+        return await work(client);
+      } catch (err) {
+        if (isTrustedWorkFailure(err)) throw err;
+        throw failure('pg_work');
+      }
+    } finally {
+      try { await client.end(); } catch (_) { /* sanitized */ }
+    }
+  } catch (err) {
+    if (err && err.code === ERROR_CODE) throw err;
+    if (isTrustedWorkFailure(err)) throw err;
+    throw failure('with_pg');
+  }
+}
+
 function composeSunsetStagingLiveDownscopeProverDependencies(input) {
+  refuseLiveExecuteIfDisabled();
   try {
     if (!exactPlainData(input, LIVE_FACTORY_KEYS)) throw failure('factory_keys');
     const env = ownData(input, 'env');
@@ -374,8 +447,11 @@ function composeSunsetStagingLiveDownscopeProverDependencies(input) {
       throw failure('binding');
     }
     if (typeof envString(env, ENV_PRODUCER_DATABASE_URL) !== 'string') throw failure('producer_dsn_missing');
-    if (typeof envString(env, ENV_WORKER_DATABASE_URL) !== 'string') throw failure('worker_dsn_missing');
-    if (typeof envString(env, 'WOLFHOUSE_DATABASE_URL') !== 'string') throw failure('app_dsn_missing');
+    const workerDsn = envString(env, LIVE_CUSTODY_DSN_ENV_KEY);
+    if (typeof workerDsn !== 'string') throw failure('worker_dsn_missing');
+    const adminDsn = envString(env, LIVE_CUSTODY_REFUSES_ADMIN_DSN_ENV_KEY);
+    if (typeof adminDsn !== 'string') throw failure('app_dsn_missing');
+    if (adminDsn === workerDsn) throw failure('admin_dsn_alias');
     if (envString(env, 'EMAIL_GRANT_ENVELOPE_AZURE_KV_SUNSET_STAGING_RUNTIME_ACTIVATION_ENABLED') !== 'true') {
       throw failure('kv_activation');
     }
@@ -420,7 +496,7 @@ function composeSunsetStagingLiveDownscopeProverDependencies(input) {
 
     const loginPair = createEmailLunaControlledDraftingPrincipalConnectionPair(objectFreeze({
       env,
-      appConnectionString: envString(env, 'WOLFHOUSE_DATABASE_URL'),
+      appConnectionString: adminDsn,
     }));
     if (!isAuthenticEmailLunaControlledDraftingPrincipalConnectionPair(loginPair)) {
       throw failure('login_pair');
@@ -449,18 +525,11 @@ function composeSunsetStagingLiveDownscopeProverDependencies(input) {
       }
       const Client = pg && pg.Client;
       if (typeof Client !== 'function') throw failure('pg_module');
-      const client = new Client({
-        connectionString: envString(env, 'WOLFHOUSE_DATABASE_URL'),
-      });
-      try {
-        await client.connect();
-        return await work(client);
-      } catch (err) {
-        if (err && err.code === ERROR_CODE) throw err;
-        throw failure('pg_connect');
-      } finally {
-        try { await client.end(); } catch (_) { /* sanitized */ }
-      }
+      return withSunsetStagingLiveTargetConnectedPgClient(objectFreeze({
+        Client,
+        connectionString: workerDsn,
+        work,
+      }));
     }
 
     return objectFreeze({
@@ -496,16 +565,34 @@ function composeSunsetStagingLiveDownscopeProverDependencies(input) {
 function measureLiveOwners(deps) {
   try {
     if (!deps || typeof deps !== 'object') {
-      return objectFreeze({ microsoft_live: false, jwks_live: false });
+      return objectFreeze({
+        microsoft_live: false,
+        jwks_live: false,
+        canonical_live_microsoft_transport_composed: false,
+        canonical_live_jwks_factory_composed: false,
+        provider_invoked: false,
+        signature_verified: false,
+      });
     }
     const transport = ownData(deps, 'transport');
     const createSignatureVerifier = ownData(deps, 'createSignatureVerifier');
     return objectFreeze({
-      microsoft_live: isCanonicalLiveMicrosoftTransport(transport) === true,
-      jwks_live: isCanonicalLiveJwksFactory(createSignatureVerifier) === true,
+      microsoft_live: false,
+      jwks_live: false,
+      canonical_live_microsoft_transport_composed: isCanonicalLiveMicrosoftTransport(transport) === true,
+      canonical_live_jwks_factory_composed: isCanonicalLiveJwksFactory(createSignatureVerifier) === true,
+      provider_invoked: false,
+      signature_verified: false,
     });
   } catch (_) {
-    return objectFreeze({ microsoft_live: false, jwks_live: false });
+    return objectFreeze({
+      microsoft_live: false,
+      jwks_live: false,
+      canonical_live_microsoft_transport_composed: false,
+      canonical_live_jwks_factory_composed: false,
+      provider_invoked: false,
+      signature_verified: false,
+    });
   }
 }
 
@@ -521,11 +608,15 @@ module.exports = objectFreeze({
   CANONICAL_RUNTIME_OWNER_DIGESTS,
   EIGHT_FLAGS,
   LIVE_FACTORY_KEYS,
+  LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
+  LIVE_CUSTODY_DSN_ENV_KEY,
+  LIVE_CUSTODY_REFUSES_ADMIN_DSN_ENV_KEY,
   evaluateSunsetStagingLiveAppSnapshot,
   proveCanonicalRuntimeOwnersMatchDeployedContract,
   isIndependentLivePreflight,
   isCanonicalLiveMicrosoftTransport,
   isCanonicalLiveJwksFactory,
   composeSunsetStagingLiveDownscopeProverDependencies,
+  withSunsetStagingLiveTargetConnectedPgClient,
   measureLiveOwners,
 });

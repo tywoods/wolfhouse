@@ -39,7 +39,9 @@ async function main() {
   assert.equal(proveCli.ok, false);
   assert.equal(proveCli.reason, 'cli_prove_requires_offline_harness');
   assert.equal(parsed.command, 'simulate');
-  console.log('  PASS  offline simulation labels itself simulation; live structurally absent');
+  assert.equal(okSim.live_mode_structurally_absent, false);
+  assert.equal(okSim.live_execution_gated, true);
+  console.log('  PASS  offline simulation labels itself simulation; live execution structurally disabled in this chapter');
 }
 
 main().catch((error) => {

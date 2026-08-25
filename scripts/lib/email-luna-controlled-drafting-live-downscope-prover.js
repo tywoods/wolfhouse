@@ -5,9 +5,10 @@
  * prover for a future live Microsoft downscope + shared Phase B grant
  * continuity proof. Chapter 4G fills the immutable deployed-SHA allowlist
  * with the exact Sunset staging image and wires a fixed internal live-target
- * factory. Live execution remains gated: CLI defaults to preparation and
- * requires `--execute-once` plus typed confirmation. This process does not
- * execute live proof. Reuses canonical custody, refresh classification,
+ * factory. Live compose/runProof are structurally disabled this chapter
+ * (`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false`). CLI defaults to
+ * preparation and requires `--execute-once` plus typed confirmation. This
+ * process does not execute live proof. Reuses canonical custody, refresh classification,
  * OIDC/JWKS, closed-data, and Chapter 4C claims/binding owners. Does not
  * clone JWT/SQL/Graph authority and does not create a Graph provider.
  *
@@ -68,6 +69,10 @@ const {
   inspectEmailLunaControlledDraftingSession,
   EXPECTED_DATABASE,
 } = require('./email-luna-controlled-drafting-session-proof');
+const {
+  LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
+  EXPECTED_LIVE_TARGET,
+} = require('./email-luna-controlled-drafting-live-downscope-prover-live-target-constants');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -76,6 +81,7 @@ const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
 const reflectOwnKeys = Reflect.ownKeys;
 const arrayIsArray = Array.isArray;
+const arrayIncludes = uncurryThis(Array.prototype.includes);
 const stringTrim = uncurryThis(String.prototype.trim);
 const stringToLowerCase = uncurryThis(String.prototype.toLowerCase);
 
@@ -87,6 +93,18 @@ const SUNSET_LOCATION_KEY = 'sunset-somo';
 const LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze(['f6ee511273160cb46c72e345137800878d4c6512']);
 const APPROVED_LIVE_REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
 const APPROVED_LIVE_DIGEST = 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
+if (LIVE_DEPLOY_SHA_ALLOWLIST[0] !== EXPECTED_LIVE_TARGET.deployedSha) {
+  throw new Error('controlled_drafting_live_target_sha_mismatch');
+}
+if (APPROVED_LIVE_REVISION !== EXPECTED_LIVE_TARGET.revision) {
+  throw new Error('controlled_drafting_live_target_revision_mismatch');
+}
+if (APPROVED_LIVE_DIGEST !== EXPECTED_LIVE_TARGET.digest) {
+  throw new Error('controlled_drafting_live_target_digest_mismatch');
+}
+if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== false) {
+  throw new Error('controlled_drafting_live_execute_must_be_disabled_in_this_chapter');
+}
 const EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_DOWNSCOPE_PROVER_RUNTIME_WIRED = false;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
@@ -208,7 +226,7 @@ function exactPlainData(object, keys) {
   }
   const actual = reflectOwnKeys(object);
   if (actual.length !== keys.length
-      || actual.some((key) => typeof key !== 'string' || !keys.includes(key))) {
+      || actual.some((key) => typeof key !== 'string' || !arrayIncludes(keys, key))) {
     return false;
   }
   return keys.every((key) => {
@@ -302,16 +320,17 @@ function sha40(value) {
 
 function liveModeAllowed(sha) {
   if (!sha40(sha)) return false;
-  return LIVE_DEPLOY_SHA_ALLOWLIST.includes(sha);
+  if (LIVE_DEPLOY_SHA_ALLOWLIST.length !== 1) return false;
+  return sha === LIVE_DEPLOY_SHA_ALLOWLIST[0];
 }
 
 function refusedProduction(env) {
   const deployment = ownData(env, 'LUNA_DEPLOYMENT');
   const tenant = ownData(env, 'DEFAULT_CLIENT_SLUG');
-  if (typeof deployment === 'string' && PRODUCTION_MARKERS.includes(stringToLowerCase(deployment))) {
+  if (typeof deployment === 'string' && arrayIncludes(PRODUCTION_MARKERS, stringToLowerCase(deployment))) {
     return true;
   }
-  if (typeof tenant === 'string' && PRODUCTION_MARKERS.includes(stringToLowerCase(tenant))) {
+  if (typeof tenant === 'string' && arrayIncludes(PRODUCTION_MARKERS, stringToLowerCase(tenant))) {
     return true;
   }
   return false;
@@ -347,6 +366,9 @@ function flagsAllLiteralFalse(env) {
 }
 
 function loadLiveTargetOwner() {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+    throw new Error('controlled_drafting_live_target_owner_disabled_in_this_chapter');
+  }
   return require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
 }
 
@@ -376,7 +398,7 @@ function validConfirmIssuedAt(value, nowMs) {
 }
 
 function isLiveAliasTarget(target) {
-  return LIVE_ALIAS_TARGETS.includes(target);
+  return arrayIncludes(LIVE_ALIAS_TARGETS, target);
 }
 
 function replicaIsOne(env, preflight) {
@@ -443,7 +465,7 @@ function parseArgs(argv) {
     } else if (arg === '--execute-once') {
       if (!markSeen('executeOnce')) continue;
       flags.executeOnce = true;
-    } else if (arg && !arg.startsWith('--') && COMMANDS.includes(arg)) {
+    } else if (arg && !arg.startsWith('--') && arrayIncludes(COMMANDS, arg)) {
       if (!markSeen('command')) continue;
       flags.command = arg;
     } else {
@@ -480,6 +502,7 @@ function attestSuccess() {
     mail_send: false,
     live_mode_structurally_absent: false,
     live_execution_gated: true,
+    live_execution_authorized_in_this_chapter: false,
     approved_deploy_sha: LIVE_DEPLOY_SHA_ALLOWLIST[0],
     allowlist_size: LIVE_DEPLOY_SHA_ALLOWLIST.length,
     graph_provider: false,
@@ -512,6 +535,7 @@ function simulationRecord(parsed, reason, extra) {
     ['allowlist_size', LIVE_DEPLOY_SHA_ALLOWLIST.length],
     ['live_mode_structurally_absent', false],
     ['live_execution_gated', true],
+    ['live_execution_authorized_in_this_chapter', false],
     ['approved_deploy_sha', LIVE_DEPLOY_SHA_ALLOWLIST[0]],
     ['live_proof_executed', false],
   ];
@@ -718,7 +742,7 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
     if (deps && typeof deps === 'object') {
       const depKeys = reflectOwnKeys(deps);
       for (let i = 0; i < depKeys.length; i += 1) {
-        if (FORBIDDEN_DEPENDENCY_KEYS.includes(depKeys[i])) throw failure();
+        if (arrayIncludes(FORBIDDEN_DEPENDENCY_KEYS, depKeys[i])) throw failure();
       }
     }
     if (!exactPlainData(deps, DEPENDENCY_KEYS)
@@ -1233,7 +1257,7 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
     if (isLiveAliasTarget(parsed.target)) {
       throw failAt('live_absent', 'target_live_alias_refused');
     }
-    if (!ALLOWED_TARGETS.includes(parsed.target)) throw failAt('args', 'target_not_fake_or_stock_pg');
+    if (!arrayIncludes(ALLOWED_TARGETS, parsed.target)) throw failAt('args', 'target_not_fake_or_stock_pg');
     const liveTarget = parsed.target === 'sunset-staging';
     if (liveTarget) {
       if (!liveModeAllowed(parsed.deploySha)) throw failAt('args', 'deploy_sha_not_allowlisted');
@@ -1243,8 +1267,15 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
       if (!validOperatorNonce(parsed.operatorNonce)) throw failAt('confirmation', 'operator_nonce_invalid');
       if (!validConfirmIssuedAt(parsed.confirmIssuedAt)) throw failAt('confirmation', 'confirm_window_invalid');
       if (!flagsAllLiteralFalse(env)) throw failAt('flags');
+      if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+        throw failAt('live_absent', 'live_execute_not_authorized_in_this_chapter');
+      }
       const liveOwner = loadLiveTargetOwner();
-      const independent = input && input.independentLivePreflight;
+      const readOwned = liveOwner && liveOwner.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg;
+      if (typeof readOwned !== 'function') {
+        throw failAt('counts', 'independent_reader_absent');
+      }
+      const independent = readOwned();
       if (!liveOwner.isIndependentLivePreflight(independent)) {
         throw failAt('counts', 'live_preflight_unproven');
       }
@@ -1265,11 +1296,8 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
       if (!replicaIsOne(env, preflight)) throw failAt('replica');
     }
 
-    const independent = liveTarget ? input.independentLivePreflight : null;
-    const ops097 = liveTarget ? ownData(independent, 'ops_097') : Number(ownData(preflight, 'ops097') || 0);
-    const rows098 = liveTarget
-      ? ownData(independent, 'authorizations_098')
-      : Number(ownData(preflight, 'rows098') || 0);
+    const ops097 = liveTarget ? 0 : Number(ownData(preflight, 'ops097') || 0);
+    const rows098 = liveTarget ? 0 : Number(ownData(preflight, 'rows098') || 0);
     if (ops097 !== 0 || rows098 !== 0) throw failAt('counts');
 
     const sourceSha = parsed.sourceSha || ownData(preflight, 'sourceSha') || null;
@@ -1450,6 +1478,13 @@ function runSunsetStagingCli(parsed, env) {
       digest: parsed.digest,
     });
   }
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+    return simulationRecord(parsed, 'live_execute_not_authorized_in_this_chapter', {
+      deploy_sha: parsed.deploySha,
+      revision: parsed.revision,
+      digest: parsed.digest,
+    });
+  }
   if (invokedFromSourceTestHarness()) {
     return simulationRecord(parsed, 'source_test_cannot_consume_live_attempt', {
       deploy_sha: parsed.deploySha,
@@ -1498,6 +1533,7 @@ module.exports = objectFreeze({
   LIVE_DEPLOY_SHA_ALLOWLIST,
   APPROVED_LIVE_REVISION,
   APPROVED_LIVE_DIGEST,
+  LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
   EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_DOWNSCOPE_PROVER_RUNTIME_WIRED,
   ATTESTATION_KIND,
   SCOPE_PROFILE_ID,
