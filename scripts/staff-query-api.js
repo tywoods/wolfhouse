@@ -20687,6 +20687,7 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs{background:transparent;border-bottom:none}
 .luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:52px;line-height:52px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
+.luna-header-ui.luna-hdr-compact #tabs .inbox-layout-controls{pointer-events:auto}
 .luna-header-ui.luna-hdr-compact #tabs .tab-btn.active .tab-label::after{bottom:-9px}
 /* compact hides the global-pause card from the bar to keep the row clean (owner). */
 .luna-header-ui.luna-hdr-compact #tabs .tabs-global-pause{display:none}
@@ -23549,7 +23550,8 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
     document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
     this.classList.add('active');
-    el('tab-' + target).classList.add('active');
+    var panel = el('tab-' + target);
+    if (panel) panel.classList.add('active');
     // The primary top-nav listener owns normal tab clicks (it does not call switchToTab).
     // Clear only rental-card errors when leaving Admin; shared Admin notices keep their lifecycle.
     if (prevTab === 'admin' && target !== 'admin' && typeof adminClearEquipErrors === 'function') {
