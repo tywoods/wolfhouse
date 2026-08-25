@@ -1,9 +1,12 @@
 'use strict';
 
 /**
- * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E CLI.
- * Source/offline only. Live Microsoft downscope is structurally absent.
- * This process never loads Azure, KV, live PG, or tokens.
+ * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E/4G CLI.
+ * Source/offline operator entry. Default is preparation/attestation only.
+ * `--target sunset-staging` is the sole live target name; `--target live`
+ * remains refused. `--execute-once` is gated and is NOT authorized to
+ * acquire Azure/KV/live PG/Microsoft in this chapter. Live proof is
+ * NOT EXECUTED here.
  */
 
 const {

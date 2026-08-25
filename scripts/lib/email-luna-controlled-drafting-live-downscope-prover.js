@@ -1,17 +1,20 @@
 'use strict';
 
 /**
- * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E — source-only operator
+ * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E/4G — source-only operator
  * prover for a future live Microsoft downscope + shared Phase B grant
- * continuity proof. Disabled by construction: empty deployed-SHA allowlist
- * and no live execution. Reuses canonical custody, refresh classification,
+ * continuity proof. Chapter 4G fills the immutable deployed-SHA allowlist
+ * with the exact Sunset staging image and wires a fixed internal live-target
+ * factory. Live execution remains gated: CLI defaults to preparation and
+ * requires `--execute-once` plus typed confirmation. This process does not
+ * execute live proof. Reuses canonical custody, refresh classification,
  * OIDC/JWKS, closed-data, and Chapter 4C claims/binding owners. Does not
  * clone JWT/SQL/Graph authority and does not create a Graph provider.
  *
  * Public surface is {attest, simulate, runProof} only. No callback,
  * getAccessToken, runClosed, raw token return, or generic HTTP. A fixed
  * internal consumer inspects signature-verified claims and returns a
- * descriptor-safe sanitized summary.
+ * descriptor-safe sanitized summary. CLI is the sole operator entry.
  *
  * @module email-luna-controlled-drafting-live-downscope-prover
  */
@@ -81,8 +84,15 @@ const ERROR_MESSAGE = 'Email Luna controlled drafting live downscope prover fail
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SUNSET_TENANT = 'sunset';
 const SUNSET_LOCATION_KEY = 'sunset-somo';
-const LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze([]);
+const LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze(['f6ee511273160cb46c72e345137800878d4c6512']);
+const APPROVED_LIVE_REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
+const APPROVED_LIVE_DIGEST = 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
 const EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_DOWNSCOPE_PROVER_RUNTIME_WIRED = false;
+const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
+const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
+const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
+const USED_OPERATOR_NONCES = new Set();
+const LIVE_EXECUTE_CONSUMED = { value: false };
 const ATTESTATION_KIND = 'configured_contract_only';
 const SCOPE_PROFILE_ID = CONTROLLED_DRAFTING_SCOPE_VERSION;
 const REQUESTED_SCOPE = CONTROLLED_DRAFTING_REQUEST_SCOPE;
@@ -94,7 +104,8 @@ const EXPECTED_DOWNSCOPE_SCP = REQUIRED_SCP.join(' ');
 const EXPECTED_STAFF_SEND_SCP = STAFF_SEND_REQUIRED_SCP.join(' ');
 
 const COMMANDS = objectFreeze(['simulate', 'prove']);
-const ALLOWED_TARGETS = objectFreeze(['fake', 'stock-pg']);
+const ALLOWED_TARGETS = objectFreeze(['fake', 'stock-pg', 'sunset-staging']);
+const LIVE_ALIAS_TARGETS = objectFreeze(['live', 'azure', 'sunset-live']);
 const EIGHT_FLAGS = objectFreeze([
   'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_ENABLED',
   'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_ENABLED',
@@ -327,6 +338,47 @@ function flagsAllFalse(env) {
   return true;
 }
 
+function flagsAllLiteralFalse(env) {
+  for (let i = 0; i < EIGHT_FLAGS.length; i += 1) {
+    const raw = ownData(env, EIGHT_FLAGS[i]);
+    if (raw !== false && raw !== 'false') return false;
+  }
+  return true;
+}
+
+function loadLiveTargetOwner() {
+  return require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
+}
+
+function invokedFromSourceTestHarness() {
+  try {
+    const main = require.main && require.main.filename;
+    if (typeof main !== 'string') return false;
+    const base = main.replace(/\\/g, '/').split('/').pop();
+    return /^(verify|prove)-email-luna-controlled-drafting-live-downscope-prover/.test(base);
+  } catch (_) {
+    return true;
+  }
+}
+
+function validOperatorNonce(value) {
+  return typeof value === 'string' && OPERATOR_NONCE_RE.test(value);
+}
+
+function validConfirmIssuedAt(value, nowMs) {
+  if (typeof value !== 'string' || value.length < 20 || value.length > 40) return false;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return false;
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  if (ms > now + CONFIRM_FUTURE_SKEW_MS) return false;
+  if (now - ms > CONFIRM_WINDOW_MS) return false;
+  return true;
+}
+
+function isLiveAliasTarget(target) {
+  return LIVE_ALIAS_TARGETS.includes(target);
+}
+
 function replicaIsOne(env, preflight) {
   const fromPre = ownData(preflight, 'replica');
   if (fromPre !== undefined && fromPre !== null) return fromPre === 1 || fromPre === '1';
@@ -343,6 +395,11 @@ function parseArgs(argv) {
   flags.confirm = null;
   flags.deploySha = null;
   flags.sourceSha = null;
+  flags.revision = null;
+  flags.digest = null;
+  flags.operatorNonce = null;
+  flags.confirmIssuedAt = null;
+  flags.executeOnce = false;
   flags.invalid = false;
   flags.invalidReason = null;
   function markSeen(name) {
@@ -375,6 +432,17 @@ function parseArgs(argv) {
       i = takeValue('deploySha', i);
     } else if (arg === '--source-sha') {
       i = takeValue('sourceSha', i);
+    } else if (arg === '--revision') {
+      i = takeValue('revision', i);
+    } else if (arg === '--digest') {
+      i = takeValue('digest', i);
+    } else if (arg === '--operator-nonce') {
+      i = takeValue('operatorNonce', i);
+    } else if (arg === '--confirm-issued-at') {
+      i = takeValue('confirmIssuedAt', i);
+    } else if (arg === '--execute-once') {
+      if (!markSeen('executeOnce')) continue;
+      flags.executeOnce = true;
     } else if (arg && !arg.startsWith('--') && COMMANDS.includes(arg)) {
       if (!markSeen('command')) continue;
       flags.command = arg;
@@ -389,6 +457,11 @@ function parseArgs(argv) {
     confirm: flags.confirm,
     deploySha: flags.deploySha,
     sourceSha: flags.sourceSha,
+    revision: flags.revision,
+    digest: flags.digest,
+    operatorNonce: flags.operatorNonce,
+    confirmIssuedAt: flags.confirmIssuedAt,
+    executeOnce: flags.executeOnce === true,
     invalid: flags.invalid === true,
     invalidReason: flags.invalidReason,
   });
@@ -405,19 +478,24 @@ function attestSuccess() {
     oidc_scopes_in_scp: false,
     send_capable: false,
     mail_send: false,
-    live_mode_structurally_absent: LIVE_DEPLOY_SHA_ALLOWLIST.length === 0,
+    live_mode_structurally_absent: false,
+    live_execution_gated: true,
+    approved_deploy_sha: LIVE_DEPLOY_SHA_ALLOWLIST[0],
     allowlist_size: LIVE_DEPLOY_SHA_ALLOWLIST.length,
     graph_provider: false,
     runtime_wired: EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_DOWNSCOPE_PROVER_RUNTIME_WIRED,
   });
 }
 
-function simulationRecord(parsed, reason) {
-  return output([
+function simulationRecord(parsed, reason, extra) {
+  const preparation = extra && extra.preparation === true;
+  const pairs = [
     ['ok', parsed && parsed.invalid !== true && !reason],
     ['command', parsed && parsed.command ? parsed.command : 'simulate'],
     ['target', parsed && parsed.target ? parsed.target : 'fake'],
     ['simulation', true],
+    ['preparation', preparation],
+    ['execute_once', parsed && parsed.executeOnce === true],
     ['live_evidence', false],
     ['offline_fake_proof', false],
     ['token_returned', false],
@@ -427,12 +505,20 @@ function simulationRecord(parsed, reason) {
     ['mutated_098', false],
     ['token_verified', false],
     ['jwks_live', false],
+    ['microsoft_live', false],
     ['login_proven', false],
     ['custody_proven', false],
     ['reason', reason || (parsed && parsed.invalidReason) || null],
     ['allowlist_size', LIVE_DEPLOY_SHA_ALLOWLIST.length],
-    ['live_mode_structurally_absent', true],
-  ]);
+    ['live_mode_structurally_absent', false],
+    ['live_execution_gated', true],
+    ['approved_deploy_sha', LIVE_DEPLOY_SHA_ALLOWLIST[0]],
+    ['live_proof_executed', false],
+  ];
+  if (extra && extra.deploy_sha) pairs.push(['deploy_sha', extra.deploy_sha]);
+  if (extra && extra.revision) pairs.push(['revision', extra.revision]);
+  if (extra && extra.digest) pairs.push(['digest', extra.digest]);
+  return output(pairs);
 }
 
 function acceptedGrantScope(version) {
@@ -576,7 +662,7 @@ async function proveDirectLogins(login, binding, target) {
   if (producerId.db_ok !== true || workerId.db_ok !== true) {
     return { ok: false, reason: 'database_unproven' };
   }
-  const tlsRequired = target === 'live';
+  const tlsRequired = target === 'sunset-staging';
   if (tlsRequired && (producerId.tls_ok !== true || workerId.tls_ok !== true)) {
     return { ok: false, reason: 'tls_unproven' };
   }
@@ -686,8 +772,14 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
       return simulationRecord(parsed, 'production_or_wolfhouse_refused');
     }
     if (proxyPresent(env)) return simulationRecord(parsed, 'proxy_refused');
-    if (parsed.target === 'live' || parsed.target === 'azure' || parsed.target === 'sunset-live') {
-      return simulationRecord(parsed, 'live_mode_structurally_absent_until_reviewed_sha');
+    if (isLiveAliasTarget(parsed.target)) {
+      return simulationRecord(parsed, 'target_live_alias_refused');
+    }
+    if (parsed.target === 'sunset-staging') {
+      return simulationRecord(parsed, null, {
+        preparation: true,
+        deploy_sha: liveModeAllowed(parsed.deploySha) ? parsed.deploySha : null,
+      });
     }
     if (parsed.target !== 'fake' && parsed.target !== 'stock-pg') {
       return simulationRecord(parsed, 'target_not_fake_or_stock_pg');
@@ -1138,24 +1230,52 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
     if (parsed.invalid === true) throw failAt('args', parsed.invalidReason || 'unknown_or_hostile_arg');
     if (refusedProduction(env)) throw failAt('production');
     if (proxyPresent(env)) throw failAt('proxy');
-    if (parsed.target === 'live' || parsed.target === 'azure' || parsed.target === 'sunset-live'
-        || parsed.target === 'sunset-staging') {
-      throw failAt('live_absent', 'live_mode_structurally_absent_until_reviewed_sha');
+    if (isLiveAliasTarget(parsed.target)) {
+      throw failAt('live_absent', 'target_live_alias_refused');
     }
     if (!ALLOWED_TARGETS.includes(parsed.target)) throw failAt('args', 'target_not_fake_or_stock_pg');
-    if (parsed.confirm !== CONFIRMATION_PHRASE) throw failAt('confirmation');
-    if (!flagsAllFalse(env)) throw failAt('flags');
-    if (!replicaIsOne(env, preflight)) throw failAt('replica');
+    const liveTarget = parsed.target === 'sunset-staging';
+    if (liveTarget) {
+      if (!liveModeAllowed(parsed.deploySha)) throw failAt('args', 'deploy_sha_not_allowlisted');
+      if (parsed.revision !== APPROVED_LIVE_REVISION) throw failAt('args', 'revision_mismatch');
+      if (parsed.digest !== APPROVED_LIVE_DIGEST) throw failAt('args', 'digest_mismatch');
+      if (parsed.confirm !== CONFIRMATION_PHRASE) throw failAt('confirmation');
+      if (!validOperatorNonce(parsed.operatorNonce)) throw failAt('confirmation', 'operator_nonce_invalid');
+      if (!validConfirmIssuedAt(parsed.confirmIssuedAt)) throw failAt('confirmation', 'confirm_window_invalid');
+      if (!flagsAllLiteralFalse(env)) throw failAt('flags');
+      const liveOwner = loadLiveTargetOwner();
+      const independent = input && input.independentLivePreflight;
+      if (!liveOwner.isIndependentLivePreflight(independent)) {
+        throw failAt('counts', 'live_preflight_unproven');
+      }
+      if (ownData(independent, 'deploy_sha') !== parsed.deploySha
+          || ownData(independent, 'revision') !== parsed.revision
+          || ownData(independent, 'digest') !== parsed.digest) {
+        throw failAt('args', 'preflight_target_mismatch');
+      }
+      if (ownData(independent, 'replica') !== 1) throw failAt('replica');
+      if (ownData(independent, 'ops_097') !== 0
+          || ownData(independent, 'transitions_097') !== 0
+          || ownData(independent, 'authorizations_098') !== 0) {
+        throw failAt('counts');
+      }
+    } else {
+      if (parsed.confirm !== CONFIRMATION_PHRASE) throw failAt('confirmation');
+      if (!flagsAllFalse(env)) throw failAt('flags');
+      if (!replicaIsOne(env, preflight)) throw failAt('replica');
+    }
 
-    const ops097 = Number(ownData(preflight, 'ops097') || 0);
-    const rows098 = Number(ownData(preflight, 'rows098') || 0);
+    const independent = liveTarget ? input.independentLivePreflight : null;
+    const ops097 = liveTarget ? ownData(independent, 'ops_097') : Number(ownData(preflight, 'ops097') || 0);
+    const rows098 = liveTarget
+      ? ownData(independent, 'authorizations_098')
+      : Number(ownData(preflight, 'rows098') || 0);
     if (ops097 !== 0 || rows098 !== 0) throw failAt('counts');
 
     const sourceSha = parsed.sourceSha || ownData(preflight, 'sourceSha') || null;
-    const deploySha = parsed.deploySha || ownData(preflight, 'deploySha') || null;
-    if (parsed.target === 'live' && sourceSha && deploySha && sourceSha !== deploySha) {
-      throw failAt('live_absent', 'source_deploy_sha_mismatch');
-    }
+    const deploySha = liveTarget
+      ? parsed.deploySha
+      : (parsed.deploySha || ownData(preflight, 'deploySha') || null);
 
     const logins = await proveDirectLogins(login, binding, parsed.target);
     if (!logins.ok) throw failAt('login', logins.reason || 'login_unproven');
@@ -1205,6 +1325,13 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
       }
 
       const startedAt = new Date().toISOString();
+      let measured = objectFreeze({ microsoft_live: false, jwks_live: false });
+      if (liveTarget) {
+        measured = loadLiveTargetOwner().measureLiveOwners(objectFreeze({
+          transport,
+          createSignatureVerifier,
+        }));
+      }
       const downscope = await runDownscope(client, ids);
       const afterDown = await getDelegatedGrantPublicStatus({
         clientId: ids.clientId,
@@ -1232,10 +1359,14 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
         ['command', 'prove'],
         ['target', parsed.target],
         ['simulation', false],
-        ['live_evidence', false],
-        ['offline_fake_proof', true],
-        ['microsoft_live', false],
-        ['jwks_live', false],
+        ['live_evidence', liveTarget === true && measured.microsoft_live === true && measured.jwks_live === true],
+        ['offline_fake_proof', liveTarget !== true],
+        ['microsoft_live', measured.microsoft_live === true],
+        ['jwks_live', measured.jwks_live === true],
+        ['live_proof_executed', liveTarget === true && measured.microsoft_live === true],
+        ['compatibility_rule_id', liveTarget
+          ? 'chapter_4g_operator_cli_may_differ_from_deployed_app_sha'
+          : null],
         ['token_returned', false],
         ['graph_called', false],
         ['send_called', false],
@@ -1298,14 +1429,59 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
   });
 }
 
+function sunsetStagingCliGate(parsed) {
+  if (!liveModeAllowed(parsed.deploySha)) return 'deploy_sha_not_allowlisted';
+  if (parsed.revision !== APPROVED_LIVE_REVISION) return 'revision_mismatch';
+  if (parsed.digest !== APPROVED_LIVE_DIGEST) return 'digest_mismatch';
+  if (parsed.confirm !== CONFIRMATION_PHRASE) return 'confirmation_required';
+  if (!validOperatorNonce(parsed.operatorNonce)) return 'operator_nonce_invalid';
+  if (!validConfirmIssuedAt(parsed.confirmIssuedAt)) return 'confirm_window_invalid';
+  return null;
+}
+
+function runSunsetStagingCli(parsed, env) {
+  const gate = sunsetStagingCliGate(parsed);
+  if (gate) return simulationRecord(parsed, gate);
+  if (parsed.executeOnce !== true) {
+    return simulationRecord(parsed, null, {
+      preparation: true,
+      deploy_sha: parsed.deploySha,
+      revision: parsed.revision,
+      digest: parsed.digest,
+    });
+  }
+  if (invokedFromSourceTestHarness()) {
+    return simulationRecord(parsed, 'source_test_cannot_consume_live_attempt', {
+      deploy_sha: parsed.deploySha,
+      revision: parsed.revision,
+      digest: parsed.digest,
+    });
+  }
+  if (LIVE_EXECUTE_CONSUMED.value === true) {
+    return simulationRecord(parsed, 'execute_once_already_consumed');
+  }
+  if (USED_OPERATOR_NONCES.has(parsed.operatorNonce)) {
+    return simulationRecord(parsed, 'operator_nonce_replay');
+  }
+  USED_OPERATOR_NONCES.add(parsed.operatorNonce);
+  LIVE_EXECUTE_CONSUMED.value = true;
+  return simulationRecord(parsed, 'live_execute_not_authorized_in_this_chapter', {
+    deploy_sha: parsed.deploySha,
+    revision: parsed.revision,
+    digest: parsed.digest,
+  });
+}
+
 function runCli(argv, env) {
   const parsed = parseArgs(argv);
   if (parsed.invalid === true) return simulationRecord(parsed);
   if (refusedProduction(env || {})) return simulationRecord(parsed, 'production_or_wolfhouse_refused');
   if (proxyPresent(env || {})) return simulationRecord(parsed, 'proxy_refused');
-  if (parsed.target === 'live' || parsed.target === 'azure' || parsed.target === 'sunset-live'
-      || parsed.target === 'sunset-staging') {
-    return simulationRecord(parsed, 'live_mode_structurally_absent_until_reviewed_sha');
+  if (isLiveAliasTarget(parsed.target)) {
+    return simulationRecord(parsed, 'target_live_alias_refused');
+  }
+  if (parsed.target === 'sunset-staging') {
+    return runSunsetStagingCli(parsed, env);
   }
   if (parsed.command === 'prove') {
     return simulationRecord(parsed, 'cli_prove_requires_offline_harness');
@@ -1320,6 +1496,8 @@ module.exports = objectFreeze({
   SUNSET_TENANT,
   SUNSET_LOCATION_KEY,
   LIVE_DEPLOY_SHA_ALLOWLIST,
+  APPROVED_LIVE_REVISION,
+  APPROVED_LIVE_DIGEST,
   EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_DOWNSCOPE_PROVER_RUNTIME_WIRED,
   ATTESTATION_KIND,
   SCOPE_PROFILE_ID,

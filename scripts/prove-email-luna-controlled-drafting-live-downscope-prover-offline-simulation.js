@@ -15,7 +15,8 @@ const {
 async function main() {
   console.log('FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E offline simulation');
   console.log('This is not a live Microsoft/JWKS/LOGIN/custody proof.');
-  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 0);
+  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 1);
+  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST[0], 'f6ee511273160cb46c72e345137800878d4c6512');
   const env = { LUNA_DEPLOYMENT: 'sunset-staging', DEFAULT_CLIENT_SLUG: 'sunset' };
   const equalsForm = runCli(['simulate', '--target=fake'], env);
   assert.equal(equalsForm.ok, false);
@@ -30,7 +31,10 @@ async function main() {
   assert.equal(okSim.custody_proven, false);
   const live = runCli(['prove', '--target', 'live', '--deploy-sha', 'a'.repeat(40)], env);
   assert.equal(live.ok, false);
-  assert.equal(live.reason, 'live_mode_structurally_absent_until_reviewed_sha');
+  assert.equal(live.reason, 'target_live_alias_refused');
+  const sunsetMissing = runCli(['prove', '--target', 'sunset-staging'], env);
+  assert.equal(sunsetMissing.ok, false);
+  assert.equal(sunsetMissing.reason, 'deploy_sha_not_allowlisted');
   const proveCli = runCli(['prove', '--target', 'fake', '--confirm', 'I_UNDERSTAND_SUNSET_STAGING_DOWNSCOPE_PROOF'], env);
   assert.equal(proveCli.ok, false);
   assert.equal(proveCli.reason, 'cli_prove_requires_offline_harness');

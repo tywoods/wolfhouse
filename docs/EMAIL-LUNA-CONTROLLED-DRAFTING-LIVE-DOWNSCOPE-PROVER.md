@@ -1,10 +1,10 @@
 # Email Luna controlled-drafting live downscope prover (Chapter 4E)
 
-**Slice:** FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E — source-only, disabled-by-construction operator prover for a future live Microsoft downscope + shared Phase B grant continuity proof.
+**Slice:** FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E + 4G — source-only operator prover for a future live Microsoft downscope + shared Phase B grant continuity proof. Chapter 4G wires the exact deployed Sunset staging SHA. Live proof is still **NOT EXECUTED**.
 
 **Owner:** `scripts/lib/email-luna-controlled-drafting-live-downscope-prover.js`
 
-**CLI:** `scripts/email-luna-controlled-drafting-live-downscope-prover.js` (simulate / refuse-live only)
+**CLI:** `scripts/email-luna-controlled-drafting-live-downscope-prover.js` (simulate / sunset-staging preparation; live execute gated)
 
 **Verifier:** `npm run verify:email-luna-controlled-drafting-live-downscope-prover`
 
@@ -12,7 +12,7 @@
 
 **Stock-PG LOGIN:** `npm run prove:email-luna-controlled-drafting-live-downscope-prover-stock-pg`
 
-This chapter does **not** deploy, mint/refresh/introspect a live token, fetch Microsoft JWKS, call Graph/mailbox, mutate 098, flip flags, send, or change consent/grants. Live execution is structurally absent: `LIVE_DEPLOY_SHA_ALLOWLIST` is immutable empty. `--target=live` and `--target=sunset-staging` fail closed until a later exact-head review fills **one** exact deployed SHA.
+This chapter does **not** deploy, mint/refresh/introspect a live token, fetch Microsoft JWKS, call Graph/mailbox, mutate 098, flip flags, send, or change consent/grants. Chapter 4G fills `LIVE_DEPLOY_SHA_ALLOWLIST` with the immutable singleton `f6ee511273160cb46c72e345137800878d4c6512` (Sunset staging revision `luna-sunset-staging-staff-api--ch4f-f6ee5112`, digest `sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a`). Exact `--target sunset-staging` is the only live target name. `--target live`, `--target azure`, Wolfhouse, production, aliases, equals-form flags, duplicates, extra args, and proxies still fail closed. CLI default for sunset-staging is **preparation/attestation only**. `--execute-once` is an additional gate and is **not authorized to acquire Azure/KV/live PG/Microsoft in this PR**. **Live proof remains NOT EXECUTED.**
 
 ## Architecture
 
@@ -64,21 +64,56 @@ Issuer `https://login.microsoftonline.com/{tid}/v2.0` (or `https://sts.windows.n
 - One process / one replica. Refuse active 097 ops, held leases, or uncertain grants. Sequence is downscope then continuity **once**. Rerun requires a new typed confirmation and a new prover instance.
 - Evidence JSON: identifiers, fingerprints, scope names, kid/alg, equality booleans, generations, timestamps, phase statuses. No PII, mailbox address, IDs, DSNs, tokens, refresh tokens, secrets, or message content.
 
-## Future live runbook (not executable in this source)
+## Later live execution runbook / preflight (NOT EXECUTED in this PR)
 
-Do **not** run this until a later exact-head review fills `LIVE_DEPLOY_SHA_ALLOWLIST` with exactly one deployed SHA and the operator has confirmed Sunset staging revision `--0000679` (or the then-current disabled revision), image digest, all eight flags false, replica 1, 097 ops=0, 098 auth=0.
+Chapter 4G wired the exact-deployed-SHA target. A **later separately authorized execution chapter** may run the sensitive phase. This PR must not.
 
-1. Confirm target **Sunset staging only**. Refuse production / Wolfhouse.
-2. Read back exact deployed SHA / revision / digest. Fail if source SHA ≠ deployed SHA.
-3. Confirm all eight flags false and replica `1`.
-4. Confirm 097 and 098 counts are zero. Do not consume 098.
-5. Typed confirmation: `--confirm I_UNDERSTAND_SUNSET_STAGING_DOWNSCOPE_PROOF` (equals-form flags are hostile and fail closed)
-6. Direct LOGIN producer then worker. Abort on owner / `SET ROLE` / unmapped / wrong ACL / TLS failure.
-7. Binding + grant `active` + `reconcile_state=clean`. Abort if lease held or uncertain.
-8. Downscope refresh (`controlled_drafting_v1`) → JWKS verify → draft `scp` proof → reseal/CAS or omitted-RT abort.
-9. Readback generation/status.
-10. Unscoped staff-send access-session → staff-send `scp` proof. No Graph.
-11. Readback. Write sanitized evidence JSON. Do not send. Do not flip flags.
+**Exact live target (immutable, no prefix, no env override, no secondary SHA):**
+
+| Fact | Value |
+| --- | --- |
+| RG / app | `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` |
+| Revision | `luna-sunset-staging-staff-api--ch4f-f6ee5112` |
+| Deployed source/image SHA | `f6ee511273160cb46c72e345137800878d4c6512` |
+| Digest | `sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a` |
+| Allowlist | singleton of that full SHA only |
+
+**Operator-prover compatibility rule** (`chapter_4g_operator_cli_may_differ_from_deployed_app_sha`): the live target is the **deployed Staff API image**, not the operator CLI tree HEAD. Current origin/master may differ from `f6ee5112…` (this assignment: Pricing Code-field hide only). Canonical 4C/4E runtime owners listed in `CANONICAL_RUNTIME_OWNER_DIGESTS` must remain byte-identical to those files at the deployed SHA. The Chapter 4G CLI/prover wiring is allowed to differ. Do **not** blindly require `source_sha === deploy_sha` and do **not** trust caller text for that claim. Frozen SHA-256 digests of those owner files are the contract.
+
+**CLI (sole operator entry):**
+
+```text
+node scripts/email-luna-controlled-drafting-live-downscope-prover.js prove \
+  --target sunset-staging \
+  --deploy-sha f6ee511273160cb46c72e345137800878d4c6512 \
+  --revision luna-sunset-staging-staff-api--ch4f-f6ee5112 \
+  --digest sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a \
+  --confirm I_UNDERSTAND_SUNSET_STAGING_DOWNSCOPE_PROOF \
+  --operator-nonce <64-lowercase-hex> \
+  --confirm-issued-at <ISO-8601 now, 15-minute window>
+```
+
+Without `--execute-once` this is **preparation/attestation only**: zero token, JWKS, Graph, send, 098, Azure, KV, or live PG calls. Equals-form (`--target=sunset-staging`) is hostile.
+
+`--execute-once` plus the typed confirmation bound to target/revision/SHA/digest/nonce/time-window is required before any sensitive dependency is acquired. This chapter still **does not authorize** that sensitive phase (`live_execute_not_authorized_in_this_chapter`). A source verify/prove harness cannot consume the live attempt (`source_test_cannot_consume_live_attempt`). One process; nonce replay fails; no automatic retry after an ambiguous Microsoft response.
+
+**Independent live preflight (server-owned; do not trust caller-injected counts):**
+
+1. Confirm target **Sunset staging only**. Refuse production / Wolfhouse / `--target live` / `--target azure`.
+2. Independently read the candidate app: exact revision, image SHA, digest, Running, latest-ready, 100% traffic, replica 1 / min=max=1.
+3. All eight flags must be **explicitly present and literal `false`**. Unset fails (unlike offline fake, where unset is treated as false).
+4. Independently read Sunset tenant / `sunset-somo` / database `sunset_staging`.
+5. Canonical owner digest contract matches the deployed SHA.
+6. Independently read 097 operations=0, 097 transitions=0, 098 authorizations=0. Do not consume 098. Do not trust argv/preflight injection.
+7. Typed confirmation + fresh operator nonce + 15-minute issued-at window.
+8. Direct LOGIN producer then worker. Abort on owner / `SET ROLE` / unmapped / wrong ACL / TLS failure. TLS is required for `sunset-staging`.
+9. Binding + grant `active` + `reconcile_state=clean`. Abort if lease held, uncertain, or an active 097 operation exists.
+10. Downscope refresh (`controlled_drafting_v1`) → JWKS verify → draft `scp` proof → reseal/CAS or omitted-RT abort.
+11. Readback generation/status.
+12. Unscoped staff-send access-session → staff-send `scp` proof. No Graph.
+13. Readback. Write sanitized evidence JSON. Do not send. Do not flip flags.
+
+`microsoft_live` / `jwks_live` are measured from branded canonical live owners (`createMicrosoftTokenHttpTransport`, `createMicrosoftOidcJwksSignatureVerifier`), never hardcoded true.
 
 If live proof fundamentally needs a separate grant, account, or broader capability than this shared Phase B downscope, **stop**. That is an architecture decision, not a code workaround.
 
@@ -94,7 +129,9 @@ If live proof fundamentally needs a separate grant, account, or broader capabili
 | `invalid_grant` mark-success | `dead_grant` (mark released the lease). |
 | `invalid_grant` mark-fail | Leave lease. `persistence_unproven`. Not `dead_grant`. |
 | Access-session continuity `uncertain` | Fail-closed. Do not claim staff-send continuity. |
-| Operator abort | Do not retry after an ambiguous Microsoft response. New human confirmation required. |
+| Operator abort | Do not retry after an ambiguous Microsoft response. New human confirmation, nonce, and issued-at required. |
+| This-PR `--execute-once` | Do not acquire Azure/KV/PG/token/JWKS. Return gated reason. No lease. No 098. |
+| Rollback / abort of a later live attempt | Leave grant fail-closed if post-Microsoft uncertainty persistence is unproven. Do not flip flags. Do not republish stale custody clean. Do not send. |
 
 ## Truth table
 
@@ -106,7 +143,11 @@ If live proof fundamentally needs a separate grant, account, or broader capabili
 | Fake continuity success + new RT | omitted | `User.Read Mail.ReadWrite Mail.Send` | true in **claims only** | N→N+1 | no | grant remains staff-send capable |
 | Token-endpoint omits `Mail.Send` but JWT has it | draft set | includes `Mail.Send` | true | mark-first / claims fail | no | fail closed |
 | Token-endpoint includes `Mail.Send` on downscope | send set | n/a | n/a | uncertain | no | fail closed |
-| Live `--target=live` today | n/a | n/a | n/a | n/a | no | `live_mode_structurally_absent_until_reviewed_sha` |
+| Live `--target=live` / `azure` | n/a | n/a | n/a | n/a | no | `target_live_alias_refused` |
+| `sunset-staging` without exact SHA | n/a | n/a | n/a | n/a | no | `deploy_sha_not_allowlisted` (prefix/case/extra refused) |
+| `sunset-staging` preparation (no `--execute-once`) | none | none | n/a | unchanged | no | `preparation=true`, `live_evidence=false`, zero sensitive deps |
+| `sunset-staging --execute-once` in this PR | none | none | n/a | unchanged | no | `live_execute_not_authorized_in_this_chapter` (source tests: `source_test_cannot_consume_live_attempt`) |
+| Later authorized live execute (NOT this PR) | draft then omitted | draft then staff-send | false then claims-only | N→N+1→N+2 | no | only if independent preflight branded-clean |
 
 ## Eight flags (all must be false)
 
@@ -121,12 +162,24 @@ If live proof fundamentally needs a separate grant, account, or broader capabili
 
 Replica: `EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_REPLICA_COUNT=1`.
 
+## Evidence schema (sanitized)
+
+Safe JSON only: `ok`, command, target, simulation/preparation/execute_once, `live_evidence`, `offline_fake_proof`, `microsoft_live`, `jwks_live` (measured, never hardcoded true), token/graph/send/journal/098 booleans, source_sha, deploy_sha, revision, digest, replica, `flags_all_false` / `flags_all_literal_false`, ops_097, transitions_097, rows_098, confirmation_accepted, LOGIN booleans + sha256 fingerprints, binding/own-user/mailbox booleans, principal/mailbox fingerprints (not raw IDs), downscope/continuity status + `scp` names, generations, grant_status, reconcile_state, kid/alg, iss/aud/oid/tid/ver/exp booleans, timestamps, phase statuses, compatibility_rule_id. **Never** raw DSNs, secrets, tokens, JWTs, mailbox addresses, PII, host/user/password, or message content.
+
+Raw tokens remain inside closed owners and are zeroized after inspect. Hostile cyclic/proxy/getter/thenable/planted-secret errors must not leak them.
+
+## Live dependency graph (fixed internal; CLI-only)
+
+`env` (existing Sunset keys only) → `createActiveEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition` → `createSunsetMicrosoftOAuthClientSecretProvider` → `createMicrosoftTokenHttpTransport` (node:https) → `createMicrosoftOidcJwksSignatureVerifier` (node:https/crypto/timers) → `createEmailLunaControlledDraftingPrincipalConnectionPair` → internal app `withPgClient` from existing `WOLFHOUSE_DATABASE_URL`. No Graph provider, no public factory callback, no Staff API import, no ACA command/flag edit, no new env vars/identities/OAuth apps/migrations.
+
 ## Non-goals
 
 - No deploy, Azure/KV/ACA change, migration apply, or 098 live authorize/consume
-- No live token mint/refresh/introspect, JWKS fetch against Microsoft, Graph call, or mailbox draft
+- No live token mint/refresh/introspect, JWKS fetch against Microsoft, Graph call, or mailbox draft **in this PR**
 - No consent/grant mutation
 - No send, schedule-send, forward, or journal handoff
 - No second OAuth architecture
 - No generic token callback / header / client / fetch / request escape
-- No new Azure resources, OAuth app, account, or consent
+- No new Azure resources, OAuth app, account, consent, env vars, identities, routes, ACA commands, or runtime startup wiring
+- No deployment-flag edits
+- Live proof remains **NOT EXECUTED** in this PR

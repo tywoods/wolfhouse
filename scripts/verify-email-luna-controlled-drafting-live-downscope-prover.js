@@ -592,7 +592,8 @@ async function main() {
   console.log('FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E live-downscope prover verifier');
 
   assert.equal(EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_DOWNSCOPE_PROVER_RUNTIME_WIRED, false);
-  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 0);
+  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 1);
+  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST[0], 'f6ee511273160cb46c72e345137800878d4c6512');
   assert.equal(SCOPE_PROFILE_ID, 'controlled_drafting_v1');
   assert.equal(REQUESTED_SCOPE, LOAN_SCOPE);
   assert.equal(REQUESTED_SCOPE.includes('Mail.Send'), false);
@@ -605,6 +606,8 @@ async function main() {
   assert.deepEqual([...COMMANDS], ['simulate', 'prove']);
   assert.equal(PKG.scripts['verify:email-luna-controlled-drafting-live-downscope-prover'],
     'node scripts/verify-email-luna-controlled-drafting-live-downscope-prover.js');
+  assert.equal(PKG.scripts['verify:email-luna-controlled-drafting-live-downscope-prover-live-target'],
+    'node scripts/verify-email-luna-controlled-drafting-live-downscope-prover-live-target.js');
   assert.equal(typeof createEmailLunaControlledDraftingLiveDownscopeProver, 'function');
 
   const ownerMod = require('./lib/email-luna-controlled-drafting-live-downscope-prover');
@@ -629,7 +632,7 @@ async function main() {
   assert.match(PROVER_SRC, /createDelegatedGrantAccessSession/);
   assert.match(PROVER_SRC, /createControlledDraftingAccessTokenClaimsInspector/);
   assert.match(PROVER_SRC, /createStaffSendPhaseBAccessTokenClaimsInspector/);
-  assert.match(PROVER_SRC, /LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze\(\[\]\)/);
+  assert.match(PROVER_SRC, /LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze\(\['f6ee511273160cb46c72e345137800878d4c6512'\]\)/);
   assert.match(PROVER_SRC, /I_UNDERSTAND_SUNSET_STAGING_DOWNSCOPE_PROOF/);
   assert.match(DOC_SRC, /Threat model/i);
   assert.match(DOC_SRC, /runbook/i);
@@ -647,18 +650,19 @@ async function main() {
     assert.match(ig, /uncertainty_persistence/);
     assert.match(ig, /persistence_unproven/);
   }
-  console.log('  PASS  static surface; no Graph/send/098/token export; empty live allowlist');
+  console.log('  PASS  static surface; no Graph/send/098/token export; singleton live allowlist');
 
   assert.equal(liveModeAllowed('a'.repeat(40)), false);
+  assert.equal(liveModeAllowed('f6ee511273160cb46c72e345137800878d4c6512'), true);
   assert.equal(refusedProduction({ DEFAULT_CLIENT_SLUG: 'wolfhouse' }), true);
   assert.equal(parseArgs(['prove', '--target', 'live']).target, 'live');
   const liveCli = runCli(['prove', '--target', 'live', '--deploy-sha', 'a'.repeat(40)], disabledEnv());
   assert.equal(liveCli.ok, false);
   assert.equal(liveCli.simulation, true);
   assert.equal(liveCli.live_evidence, false);
-  assert.equal(liveCli.reason, 'live_mode_structurally_absent_until_reviewed_sha');
+  assert.equal(liveCli.reason, 'target_live_alias_refused');
   assert.equal(runCli(['prove', '--target', 'sunset-staging'], disabledEnv()).reason,
-    'live_mode_structurally_absent_until_reviewed_sha');
+    'deploy_sha_not_allowlisted');
   assert.equal(runCli(['simulate', '--target', 'fake', '--target', 'fake'], disabledEnv()).reason,
     'duplicate_arg');
   assert.equal(runCli(['simulate', '--nope'], disabledEnv()).reason, 'unknown_or_hostile_arg');
@@ -669,7 +673,7 @@ async function main() {
   assert.equal(runCli(['simulate'], disabledEnv()).token_verified, false);
   assert.equal(runCli(['simulate'], disabledEnv()).login_proven, false);
   assert.equal(runCli(['simulate'], disabledEnv()).custody_proven, false);
-  console.log('  PASS  live args absent/empty allowlist; hostile args/env/proxy fail; simulation unlabeled as proof');
+  console.log('  PASS  live aliases refused; singleton SHA; hostile args/env/proxy fail; simulation unlabeled as proof');
 
   {
     const { prover } = await makeProver();
@@ -677,7 +681,9 @@ async function main() {
     assert.equal(att.ok, true);
     assert.equal(att.graph_provider, false);
     assert.equal(att.mail_send, false);
-    assert.equal(att.live_mode_structurally_absent, true);
+    assert.equal(att.live_mode_structurally_absent, false);
+    assert.equal(att.allowlist_size, 1);
+    assert.equal(att.live_execution_gated, true);
     assert.deepEqual([...Reflect.ownKeys(prover)].sort(), ['attest', 'runProof', 'simulate']);
     assert.equal(typeof prover.getAccessToken, 'undefined');
     assert.equal(typeof prover.runClosed, 'undefined');
@@ -1123,6 +1129,7 @@ async function main() {
   runChild('verify-staff-query-api-startup-smoke.js');
   runChild('verify-migration-integrity.js');
   runChild('prove-email-luna-controlled-drafting-live-downscope-prover-offline-simulation.js');
+  runChild('verify-email-luna-controlled-drafting-live-downscope-prover-live-target.js');
   const diffCheck = spawnSync('git', ['diff', '--check'], {
     cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
   });
