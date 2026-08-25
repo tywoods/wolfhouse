@@ -49,6 +49,7 @@ const {
   getConversationInboxCountsQuery,
   conversationInboxChannelParamIndex,
   CONVERSATION_INBOX_CURSOR_FIELDS,
+  isEmailInboundSubjectSchemaError,
 } = require('./lib/staff-conversation-queries');
 
 const ROOT = path.join(__dirname, '..');
@@ -299,9 +300,31 @@ console.log('\n[4] Conversation views — delegated inbox SQL plus parameterized
 const convAll = buildInboxViewQuery({ view: 'all', clientSlug: WOLFHOUSE, query: {} });
 assert('inbox All delegates to getConversationInboxQuery unchanged',
   convAll.ok === true && convAll.sql === getConversationInboxQuery({}));
-assert('inbox list can drop inbound email tables so WhatsApp still loads',
-  !getConversationInboxQuery({ includeInboundProjections: false }).includes('tenant_email_inbound')
-  && getConversationInboxQuery({}).includes('tenant_email_inbound_events'));
+assert('default inbox All still uses inbound subject tables',
+  /tenant_email_inbound_events/.test(convAll.sql)
+  && /tenant_email_inbound_inbox_projections/.test(convAll.sql));
+const convAllNoEmail = buildInboxViewQuery({
+  view: 'all', clientSlug: WOLFHOUSE, query: {}, includeEmailSubject: false,
+});
+assert('inbox All without email tables omits inbound subject SQL',
+  convAllNoEmail.ok === true
+  && convAllNoEmail.sql === getConversationInboxQuery({ includeEmailSubject: false })
+  && !/tenant_email_inbound_/.test(convAllNoEmail.sql)
+  && /NULL::text\s+AS email_subject/.test(convAllNoEmail.sql));
+{
+  const missing = new Error('relation "tenant_email_inbound_inbox_projections" does not exist');
+  missing.code = '42P01';
+  const denied = new Error('permission denied for table tenant_email_inbound_events');
+  denied.code = '42501';
+  const other = new Error('column conv.display_name does not exist');
+  other.code = '42703';
+  assert('missing email inbound relation is a subject-schema error',
+    isEmailInboundSubjectSchemaError(missing) === true);
+  assert('email inbound permission denied is a subject-schema error',
+    isEmailInboundSubjectSchemaError(denied) === true);
+  assert('unrelated column errors are not subject-schema errors',
+    isEmailInboundSubjectSchemaError(other) === false);
+}
 assert('inbox list sorts newest-first (updated_at DESC); needs_human is not a pin',
   /ORDER BY\s+conv\.updated_at DESC\s*,\s*conv\.id ASC/i.test(convAll.sql.replace(/\s+/g, ' '))
   && !/ORDER BY[\s\S]*needs_human\s+DESC/i.test(convAll.sql)
@@ -325,8 +348,8 @@ for (const [viewId, channel] of [['whatsapp', 'whatsapp'], ['email', 'email']]) 
       built.ok === true
       && built.channelParamIndex === idx
       && built.params[idx - 1] === channel
-      && !built.sql.includes(`'${channel}' =`)
-      && (channel === 'whatsapp' || !built.sql.includes(`'${channel}'`)));
+      && built.sql.includes(`= $${idx}`)
+      && !built.sql.includes(`session_state->>'channel', 'whatsapp') = '${channel}'`));
   }
 }
 

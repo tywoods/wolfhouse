@@ -32,9 +32,7 @@ const {
   getConversationContextQuery,
   getConversationBookingsQuery,
   getConversationDraftQuery,
-  markEmailInboundInboxMissing,
-  isMissingEmailInboundRelation,
-  emailInboundInboxAssumedReady,
+  isEmailInboundSubjectSchemaError,
 } = require('./staff-conversation-queries');
 const { getPauseState } = require('./staff-bot-pause-sql');
 
@@ -135,15 +133,13 @@ function createInboxThreadCompositeRoutes(deps) {
   async function readThreadSnapshot(pg, clientSlug, convId, scope) {
     const params = conversationDetailQueryParams(clientSlug, convId, scope);
 
-    const includeInboundProjections = emailInboundInboxAssumedReady();
     let detail = await readSection(pg, () => pg.query(
-      getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections }),
+      getConversationDetailQuery(scope.queryOpts),
       params,
     ));
-    if (!detail.ok && includeInboundProjections && isMissingEmailInboundRelation(detail.error)) {
-      markEmailInboundInboxMissing();
+    if (!detail.ok && isEmailInboundSubjectSchemaError(detail.error)) {
       detail = await readSection(pg, () => pg.query(
-        getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections: false }),
+        getConversationDetailQuery({ ...scope.queryOpts, includeEmailSubject: false }),
         params,
       ));
     }

@@ -47,14 +47,8 @@ function sqlConversationChannelExpr(convAlias) {
 /**
  * Current email subject from persisted inbound events + outbound staff replies.
  * Does not invent placeholder subjects and does not copy conversation metadata.
- *
- * When inbound projection tables are not on this database, callers pass
- * includeInboundProjections: false so the inbox list still loads.
  */
-function sqlCurrentEmailSubjectExpr(convAlias, opts) {
-  if (opts && opts.includeInboundProjections === false) {
-    return `NULL::text`;
-  }
+function sqlCurrentEmailSubjectExpr(convAlias) {
   const conv = convAlias || 'conv';
   return `(
     SELECT sub.subject
@@ -80,46 +74,34 @@ function sqlCurrentEmailSubjectExpr(convAlias, opts) {
   )`;
 }
 
-let emailInboundInboxReady;
-
-function isMissingEmailInboundRelation(err) {
-  const msg = String((err && err.message) || '');
-  return (err && err.code === '42P01') && /tenant_email_inbound/.test(msg);
+/**
+ * Missing or unreadable email inbound tables must not 500 the WhatsApp inbox.
+ * Sunset keeps the correlated subject subquery; Wolfhouse staging often has
+ * the tables absent or without SELECT for the staff-api role.
+ */
+function isEmailInboundSubjectSchemaError(err) {
+  if (!err) return false;
+  const msg = String(err.message || '');
+  if (!/tenant_email_inbound_(events|inbox_projections)/i.test(msg)) return false;
+  if (err.code === '42P01' || err.code === '42501') return true;
+  return /does not exist|undefined[_ ]table|permission denied/i.test(msg);
 }
 
-async function resolveEmailInboundInboxReady(withPgClient) {
-  if (emailInboundInboxReady !== undefined) return emailInboundInboxReady;
-  if (typeof withPgClient !== 'function') return true;
-  try {
-    const rows = await withPgClient(async (pg) => {
-      const r = await pg.query(`
-        SELECT
-          to_regclass('public.tenant_email_inbound_inbox_projections') IS NOT NULL
-          AND to_regclass('public.tenant_email_inbound_events') IS NOT NULL AS ok
-      `);
-      return (r && r.rows) || [];
-    });
-    if (!rows[0] || rows[0].ok == null) return true;
-    emailInboundInboxReady = !!rows[0].ok;
-  } catch (_) {
-    return true;
-  }
-  return emailInboundInboxReady;
+function includeEmailSubjectSql(opts) {
+  return !(opts && opts.includeEmailSubject === false);
 }
 
-function markEmailInboundInboxMissing() {
-  emailInboundInboxReady = false;
-}
-
-function emailInboundInboxAssumedReady() {
-  return emailInboundInboxReady !== false;
+function sqlEmailSubjectSelectExpr(convAlias, opts) {
+  return includeEmailSubjectSql(opts)
+    ? sqlCurrentEmailSubjectExpr(convAlias)
+    : 'NULL::text';
 }
 
 function inboxChannelFieldsSql(opts) {
   return `
   ${sqlConversationChannelExpr('conv')} AS channel,
   conv.email                                         AS guest_email,
-  ${sqlCurrentEmailSubjectExpr('conv', opts)}              AS email_subject,
+  ${sqlEmailSubjectSelectExpr('conv', opts)}         AS email_subject,
   ${sqlConversationLocationExpr('conv')}             AS location_id,
   conv.customer_id::text                             AS customer_id,
   cust_link.phone                                    AS customer_phone,`;
@@ -199,6 +181,8 @@ function conversationInboxCursorClause(paramIndex) {
  * @param {boolean} [opts.channelScoped]
  * @param {boolean} [opts.needsHumanScoped] - Inbox "Needs human" view: only
  *   conversations.needs_human = TRUE (independent of CRM customers)
+ * @param {boolean} [opts.includeEmailSubject=true] - correlated subquery over
+ *   tenant_email_inbound_* tables. False when those relations are missing.
  * @param {{ limitParamIndex: number, cursorParamIndex?: number|null }} [opts.keyset]
  *   keyset page: bound LIMIT, tie-broken ORDER BY (updated_at DESC, id ASC)
  * @returns {string} $1 = client slug; when locationScoped, $2 = location_id;
@@ -369,7 +353,7 @@ SELECT
   conv.created_at,
   conv.updated_at,
   COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
-  ${sqlCurrentEmailSubjectExpr('conv', opts)} AS email_subject,
+  ${sqlEmailSubjectSelectExpr('conv', opts)} AS email_subject,
   ${sqlConversationLocationExpr('conv')} AS location_id,
   conv.customer_id::text     AS customer_id,
   cust_link.phone            AS customer_phone,
@@ -791,10 +775,7 @@ module.exports = {
   DEFAULT_SUNSET_LOCATION_ID,
   sqlConversationChannelExpr,
   sqlCurrentEmailSubjectExpr,
-  resolveEmailInboundInboxReady,
-  markEmailInboundInboxMissing,
-  isMissingEmailInboundRelation,
-  emailInboundInboxAssumedReady,
+  isEmailInboundSubjectSchemaError,
   conversationInboxChannelParamIndex,
   conversationInboxWhereSql,
   conversationInboxCursorClause,

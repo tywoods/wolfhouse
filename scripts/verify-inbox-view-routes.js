@@ -862,6 +862,38 @@ ok('saved-view paths do not collide with the thread composite',
     ok('a failed rail query answers 500', rail.res.out.statusCode === 500);
     ok('a failed rail query is audited', railBoom.audit[0].success === false);
   }
+  {
+    const emailMissingRows = [{
+      conversation_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      last_activity: '2026-08-12T12:00:00.000Z',
+      guest_name: 'Ada',
+      phone: '+34600000001',
+    }];
+    const deps = makeDeps({}, emailMissingRows);
+    deps.withPgClient = async function(fn) {
+      deps.calls.withPgClient += 1;
+      return fn({
+        async query(sql, params) {
+          deps.log.push({ sql: String(sql), params });
+          if (/tenant_email_inbound_/.test(String(sql))) {
+            const err = new Error('relation "tenant_email_inbound_inbox_projections" does not exist');
+            err.code = '42P01';
+            throw err;
+          }
+          return { rows: emailMissingRows.slice() };
+        },
+      });
+    };
+    const { res, body } = await runList({ view: 'all' }, { deps });
+    ok('missing email inbound tables still list conversations',
+      res.out.statusCode === 200 && body && body.success === true && Array.isArray(body.rows) && body.rows.length === 1,
+      `status=${res.out.statusCode} rows=${body && body.rows && body.rows.length}`);
+    ok('missing email inbound tables retry without those relations',
+      deps.calls.withPgClient === 2
+      && deps.log.some((e) => /tenant_email_inbound_/.test(e.sql))
+      && deps.log.some((e) => !/tenant_email_inbound_/.test(e.sql) && /FROM conversations/i.test(e.sql)));
+    ok('fallback list query_count is 2', body && body.query_count === 2);
+  }
 
   console.log(`\n── Summary: ${pass} passed, ${fail} failed ──`);
   if (fail) {

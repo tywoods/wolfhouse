@@ -47,12 +47,7 @@ const {
   clampLimit,
   normalizeCustomerPhone,
 } = require('./staff-customer-queries');
-const {
-  CONVERSATION_INBOX_CURSOR_FIELDS,
-  markEmailInboundInboxMissing,
-  isMissingEmailInboundRelation,
-  emailInboundInboxAssumedReady,
-} = require('./staff-conversation-queries');
+const { CONVERSATION_INBOX_CURSOR_FIELDS, isEmailInboundSubjectSchemaError } = require('./staff-conversation-queries');
 
 const INBOX_VIEWS_PATH = '/staff/inbox/views';
 const INBOX_LIST_PATH = '/staff/inbox/list';
@@ -507,7 +502,6 @@ function createInboxViewRoutes(deps) {
       query: listQuery,
       capabilities,
       page: { limit: limit + 1, cursor },
-      includeInboundProjections: emailInboundInboxAssumedReady(),
     });
     if (!built.ok) {
       return sendJSON(res, 409, {
@@ -531,30 +525,40 @@ function createInboxViewRoutes(deps) {
     };
 
     let rows;
+    let queryCount = 1;
     try {
       rows = await withPgClient(async (pg) => {
-        try {
-          const result = await pg.query(built.sql, built.params);
-          return (result && result.rows) || [];
-        } catch (err) {
-          if (!isMissingEmailInboundRelation(err)) throw err;
-          markEmailInboundInboxMissing();
-          const fallback = buildInboxViewQuery({
-            view: declaration.id,
-            clientSlug,
-            query: listQuery,
-            capabilities,
-            page: { limit: limit + 1, cursor },
-            includeInboundProjections: false,
-          });
-          if (!fallback.ok) throw err;
-          const result = await pg.query(fallback.sql, fallback.params);
-          return (result && result.rows) || [];
-        }
+        const result = await pg.query(built.sql, built.params);
+        return (result && result.rows) || [];
       });
     } catch (err) {
-      appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-      return sendJSON(res, 500, { success: false, error: 'query failed' });
+      if (declaration.source !== INBOX_VIEW_SOURCES.CONVERSATIONS
+        || !isEmailInboundSubjectSchemaError(err)) {
+        appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+        return sendJSON(res, 500, { success: false, error: 'query failed' });
+      }
+      const fallback = buildInboxViewQuery({
+        view: declaration.id,
+        clientSlug,
+        query: listQuery,
+        capabilities,
+        page: { limit: limit + 1, cursor },
+        includeEmailSubject: false,
+      });
+      if (!fallback.ok) {
+        appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+        return sendJSON(res, 500, { success: false, error: 'query failed' });
+      }
+      queryCount = 2;
+      try {
+        rows = await withPgClient(async (pg) => {
+          const result = await pg.query(fallback.sql, fallback.params);
+          return (result && result.rows) || [];
+        });
+      } catch (err2) {
+        appendAuditLog({ ...auditBase, success: false, error: err2.message, elapsed_ms: Date.now() - started });
+        return sendJSON(res, 500, { success: false, error: 'query failed' });
+      }
     }
 
     const hasMore = rows.length > limit;
@@ -587,7 +591,7 @@ function createInboxViewRoutes(deps) {
       limit,
       has_more: hasMore,
       next_cursor: nextCursor,
-      query_count: 1,
+      query_count: queryCount,
       elapsed_ms: elapsed,
     });
   }
