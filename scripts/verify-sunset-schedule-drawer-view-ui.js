@@ -222,6 +222,7 @@ function buildRenderCtx(viewModSrc, portalModSrc, apiSrc) {
     'scheduleRenderSunsetViewDrawerHtml',
     'scheduleRenderViewDrawerHtml',
     'scheduleDrawerEur',
+    'scheduleDrawerEurInputValue',
     'scheduleRenderDrawerPaymentSectionViewHtml',
   ];
   fns.forEach((name) => {
@@ -546,6 +547,9 @@ assert('fixture4: controls inside invoice card',
   partialHtml.includes('ps-drawer-stripe-link')
   && partialHtml.includes('ps-drawer-manual-submit')
   && partialHtml.includes('ps-drawer-payment-box'));
+assert('fixture4: manual pay prefills outstanding balance',
+  partialHtml.includes('id="ps-drawer-manual-amount"')
+  && partialHtml.includes('value="400.00"'));
 
 // Fixture 5: multiple paid rows + aggregate remainder fallback
 const multiHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
@@ -1259,6 +1263,8 @@ const sparseCtx = { booking_id: '22222222-2222-2222-2222-222222222222', payment:
 const sparseHtml = ctx.scheduleRenderSunsetViewDrawerHtml(STAFF_ROW, sparseCtx, false);
 assert('missing phone shows safely', sparseHtml.includes('portal-schedule-drawer-kv') || sparseHtml.includes('portal-schedule-drawer-hero'));
 assert('empty payment eur dash', ctx.scheduleDrawerEur(null) === '—');
+assert('eur input helper empty for null', ctx.scheduleDrawerEurInputValue(null) === '');
+assert('eur input helper formats outstanding cents', ctx.scheduleDrawerEurInputValue(13000) === '130.00');
 assert('empty components summary', ctx.scheduleFormatComponentsView(null) === '—');
 
 console.log('\n[9] Wolfhouse classic view path preserved');
