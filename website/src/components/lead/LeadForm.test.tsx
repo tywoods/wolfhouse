@@ -28,12 +28,12 @@ describe('LeadForm (compile-time disabled)', () => {
 
   it('retains values, offers mailto, and makes no network call on submit', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const { container, getByTestId, queryByText } = render(<LeadForm />);
+    const { container, getByTestId, queryByText, queryByTestId } = render(<LeadForm />);
     fillValid(container);
     fireEvent.submit(container.querySelector('form')!);
 
     await waitFor(() => {
-      expect(getByTestId('lead-local-outcome')).toBeTruthy();
+      expect(getByTestId('lead-mailto')).toBeTruthy();
     });
 
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -49,10 +49,19 @@ describe('LeadForm (compile-time disabled)', () => {
     expect(mailto.getAttribute('href')).toMatch(/^mailto:hello@lunafrontdesk\.com\?/);
     expect(mailto.getAttribute('href')).toContain(encodeURIComponent('Maria Garcia'));
 
+    // No confirmation ("thanks") until the lead actually reaches us.
+    expect(queryByTestId('lead-reached-notice')).toBeNull();
     expect(queryByText(/you're on the list/i)).toBeNull();
     expect(queryByText(/we've noted/i)).toBeNull();
+    expect(queryByText(/thank/i)).toBeNull();
     expect(queryByText(/captured/i)).toBeNull();
-    expect(getByTestId('lead-local-outcome').textContent).toMatch(/Nothing was sent or saved/i);
+
+    // Once the guest opens the email, the confirmation appears.
+    fireEvent.click(mailto);
+    await waitFor(() => {
+      expect(getByTestId('lead-reached-notice')).toBeTruthy();
+    });
+    expect(getByTestId('lead-reached-notice').textContent).toMatch(/thank/i);
     fetchSpy.mockRestore();
   });
 
