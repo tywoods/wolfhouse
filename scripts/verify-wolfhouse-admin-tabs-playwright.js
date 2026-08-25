@@ -22,7 +22,7 @@ const EXPECTED_WH_SUBTABS = ['finance', 'pricing', 'luna-staff', 'services', 'to
 const EXPECTED_WH_LABELS = ['Finance', 'Pricing', 'Luna Staff', 'Camps, Lessons and Services', 'Tour Operator', 'Email'];
 // Pricing is no longer a placeholder — scripts/browser/wolfhouse-admin-pricing-ui.js
 // owns that panel. Its own gate is verify:wolfhouse-admin-pricing.
-const PLACEHOLDER_SUBTABS = ['finance', 'email'];
+const PLACEHOLDER_SUBTABS = ['email'];
 const HOSTED_SUBTABS = { 'luna-staff': 'tab-ask-luna', services: 'tab-services', 'tour-operator': 'tab-tour-operator' };
 const NESTED_NAV_TABS = ['ask-luna', 'services', 'tour-operator'];
 

@@ -83,7 +83,7 @@ const {
   buildPausedStateResponse,
 } = require('./lib/staff-inbox-helpers');
 const { createBotPauseStateRoutes } = require('./lib/staff-bot-pause-state-handler');
-const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
+const { fetchSunsetFinanceData, fetchLodgingFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const { createBookingsAdminRoutes } = require('./lib/sunset-bookings-admin-routes');
 const {
@@ -42031,11 +42031,16 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
   const rawClient = query.client != null ? query.client : query.client_slug;
   const clientSlug = typeof rawClient === 'string' ? rawClient.trim() : '';
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid request');
-  if (clientSlug !== 'sunset') {
+  const lodging = clientSlug === 'wolfhouse-somo';
+  if (!lodging && clientSlug !== 'sunset') {
     return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
   }
   const locationId = typeof query.location === 'string' ? query.location.trim() : '';
-  if (locationId !== 'sunset-somo') {
+  if (lodging) {
+    if (locationId && locationId.indexOf('sunset-') === 0) {
+      return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
+    }
+  } else if (locationId !== 'sunset-somo') {
     return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
   }
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
@@ -42049,7 +42054,9 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     const end = typeof query.end === 'string' ? query.end.trim() : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(start)) view.start = start;
     if (/^\d{4}-\d{2}-\d{2}$/.test(end)) view.end = end;
-    const data = await withPgClient((pg) => fetchSunsetFinanceData(pg, { clientSlug, locationId }));
+    const data = lodging
+      ? await withPgClient((pg) => fetchLodgingFinanceData(pg, { clientSlug }))
+      : await withPgClient((pg) => fetchSunsetFinanceData(pg, { clientSlug, locationId }));
     const summary = computeSunsetFinanceSummary({ now: new Date(), timeZone: 'Europe/Madrid', view, ...data });
     return sendJSON(res, 200, {
       success: true,

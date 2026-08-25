@@ -7,10 +7,9 @@
  * sibling `#admin-wh-shell` / `#wh-admin-*` shell and never reads or writes
  * Sunset admin state, config, or endpoints.
  *
- * Finance / Bookings / Pricing / Email are placeholders until their lodging
- * data models exist. Luna Staff, Camps-Lessons-Services and Tour Operator host
- * the production top-level panels, relocated (not cloned) by
- * applyClientPortalProfile so their existing owners keep working.
+ * Pricing / Email are placeholders until their lodging data models exist.
+ * Luna Staff, Camps-Lessons-Services and Tour Operator host the production
+ * top-level panels, relocated (not cloned) by applyClientPortalProfile.
  */
 (function () {
   var WH_ADMIN_CLIENT = 'wolfhouse-somo';
@@ -32,7 +31,6 @@
    * owns `#wh-admin-pricing-body` and must not be overwritten by a placeholder.
    */
   var WH_ADMIN_PLACEHOLDERS = {
-    finance: { body: 'wh-admin-finance-body', title: 'admin.tabs.finance', fallback: 'Finance' },
     email: { body: 'wh-admin-email-body', title: 'admin.tabs.email', fallback: 'Email' },
   };
 
@@ -127,6 +125,7 @@
       if (hosted) hosted.classList.toggle('active', subKey === next);
     }
 
+    if (next === 'finance' && typeof loadAdminFinanceSummary === 'function') loadAdminFinanceSummary();
     if (next === 'pricing' && typeof loadWolfhouseAdminPricing === 'function') loadWolfhouseAdminPricing();
     if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
     if (next === 'services' && typeof loadServicesTab === 'function') loadServicesTab();

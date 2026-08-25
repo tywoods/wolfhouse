@@ -2957,9 +2957,23 @@ function wireFinanceRedesignNav(body){
 }
 
 
+function financeSummaryHost(){
+  try {
+    if (typeof portalIsLodgingAdmin === 'function' && portalIsLodgingAdmin()) {
+      return el('wh-admin-finance-body') || el('admin-finance-body');
+    }
+  } catch (_e) { /* fall through */ }
+  try {
+    if (typeof getClient === 'function' && getClient() === 'wolfhouse-somo') {
+      return el('wh-admin-finance-body') || el('admin-finance-body');
+    }
+  } catch (_g) { /* fall through */ }
+  return el('admin-finance-body');
+}
+
 function loadAdminFinanceSummary(opts){
   opts = opts || {};
-  var body = el('admin-finance-body');
+  var body = financeSummaryHost();
   if (!body) return;
   var seq = ++financeLoadSeq;
   var originClient = getClient();
@@ -3016,7 +3030,7 @@ function loadAdminFinanceForCurrentScope(){
   // Scope changes invalidate any in-flight response even when the destination
   // tenant has no Finance endpoint. This request is separate from config loads.
   ++financeLoadSeq;
-  if (getClient() === 'sunset') loadAdminFinanceSummary();
+  if (getClient() === 'sunset' || getClient() === 'wolfhouse-somo') loadAdminFinanceSummary();
 }
 
 function wireFinanceRetry(){

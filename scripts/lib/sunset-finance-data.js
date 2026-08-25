@@ -348,6 +348,160 @@ async function fetchSunsetFinanceData(pg, scope) {
   }
 }
 
+const LODGING_BOOKINGS_SQL = `
+  SELECT b.id AS booking_id,
+         b.total_amount_cents,
+         b.balance_due_cents,
+         b.check_in::text AS check_in,
+         b.created_at
+    FROM bookings b
+    JOIN clients c ON b.client_id = c.id
+   WHERE c.slug = $1
+     AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
+`;
+
+const LODGING_BSR_SQL = `
+  SELECT b.id::text AS service_record_id,
+         b.id AS booking_id,
+         COALESCE(b.check_in::text, to_char(b.created_at AT TIME ZONE 'Europe/Madrid', 'YYYY-MM-DD')) AS service_date,
+         'accommodation'::text AS service_type,
+         1 AS quantity,
+         b.total_amount_cents AS amount_due_cents,
+         '{}'::jsonb AS metadata
+    FROM bookings b
+    JOIN clients c ON b.client_id = c.id
+   WHERE c.slug = $1
+     AND b.status::text NOT IN ${BOOKING_EXCLUSIONS}
+     AND (b.check_in IS NOT NULL OR b.created_at IS NOT NULL)
+`;
+
+const LODGING_PAYMENTS_SQL = `
+  SELECT p.id::text AS payment_id, p.booking_id, p.amount_paid_cents, p.paid_at
+    FROM payments p
+    JOIN bookings b ON b.id = p.booking_id AND p.client_id = b.client_id
+    JOIN clients c ON b.client_id = c.id
+   WHERE c.slug = $1
+     AND p.status = 'paid'
+     AND p.paid_at IS NOT NULL
+     AND COALESCE((p.metadata->>'test_booking_cancelled')::boolean, false) = false
+`;
+
+const LODGING_REFUNDS_SQL = `
+  SELECT r.id::text AS refund_id,
+         r.booking_id::text AS booking_id,
+         r.amount_cents,
+         r.effective_date::text AS effective_date,
+         r.location_id,
+         r.source
+    FROM booking_refund_records r
+    JOIN clients c ON c.id = r.client_id
+   WHERE c.slug = $1
+     AND r.source = 'staff_manual_record'
+`;
+
+async function fetchLodgingFinanceData(pg, scope) {
+  const clientSlug = String((scope && scope.clientSlug) || '').trim();
+  const params = [clientSlug];
+  await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+  let bsrRes; let bookingsRes; let paymentsRes; let refundsRes;
+  let refundLedgerUnavailable = false;
+  try {
+    bsrRes = await pg.query(LODGING_BSR_SQL, params);
+    bookingsRes = await pg.query(LODGING_BOOKINGS_SQL, params);
+    paymentsRes = await pg.query(LODGING_PAYMENTS_SQL, params);
+    try {
+      await pg.query('SAVEPOINT finance_refunds_sp');
+      try {
+        refundsRes = await pg.query(LODGING_REFUNDS_SQL, params);
+        await pg.query('RELEASE SAVEPOINT finance_refunds_sp');
+      } catch (err) {
+        if (isMissingRelationError(err)) {
+          try { await pg.query('ROLLBACK TO SAVEPOINT finance_refunds_sp'); } catch (_rb) { /* best effort */ }
+          try { await pg.query('RELEASE SAVEPOINT finance_refunds_sp'); } catch (_rel) { /* already rolled back */ }
+          refundsRes = { rows: [] };
+          refundLedgerUnavailable = true;
+        } else {
+          try { await pg.query('ROLLBACK TO SAVEPOINT finance_refunds_sp'); } catch (_rb) { /* best effort */ }
+          throw err;
+        }
+      }
+    } catch (err) {
+      throw err;
+    }
+
+    const bsr = rows(bsrRes).map(mapBsr);
+    const bookings = rows(bookingsRes).map((r) => ({
+      booking_id: r.booking_id,
+      total_amount_cents: r.total_amount_cents,
+      balance_due_cents: r.balance_due_cents,
+    }));
+    const payments = rows(paymentsRes).map((r) => ({
+      payment_id: r.payment_id != null ? String(r.payment_id) : null,
+      booking_id: r.booking_id,
+      amount_paid_cents: r.amount_paid_cents,
+      paid_at: r.paid_at,
+    }));
+    const refund_records = rows(refundsRes).map(mapRefund);
+    const diagnostics = createFinanceDiagnostics();
+    softScanFinanceRows({ bsr, bookings, payments, refund_records }, diagnostics);
+    const incompleteBsrBookingIds = new Set();
+    const cleanPayments = payments.filter((p) => parseCanonicalIntCents(p.amount_paid_cents).ok);
+    const cleanBookings = bookings.filter((b) => {
+      if (b.total_amount_cents != null && !parseCanonicalIntCents(b.total_amount_cents).ok) return false;
+      if (b.balance_due_cents != null && !parseCanonicalIntCents(b.balance_due_cents).ok) return false;
+      const badPay = payments.some((p) => String(p.booking_id) === String(b.booking_id)
+        && !parseCanonicalIntCents(p.amount_paid_cents).ok);
+      return !badPay;
+    });
+    const cleanBsr = bsr.filter((row) => {
+      const ok = parseCanonicalIntCents(row.amount_due_cents).ok;
+      if (!ok && row.booking_id != null) incompleteBsrBookingIds.add(String(row.booking_id));
+      return ok;
+    });
+    let reconcileResult;
+    try {
+      reconcileResult = reconcileBookingBalances({
+        bookings: cleanBookings,
+        bsr: cleanBsr,
+        payments: cleanPayments,
+        diagnostics,
+        report: true,
+        incompleteBsrBookingIds,
+      });
+    } catch (err) {
+      throw err instanceof FinanceDataQualityError ? err : new FinanceDataQualityError();
+    }
+    await pg.query('COMMIT');
+    const reconUnavailable = (reconcileResult && Array.isArray(reconcileResult.reconciliation_unavailable))
+      ? reconcileResult.reconciliation_unavailable.slice()
+      : (diagnostics.reconciliation_unavailable || []).slice();
+    return {
+      bsr,
+      bookings,
+      payments,
+      pending_refund_payments: [],
+      refund_records,
+      refund_ledger_unavailable: refundLedgerUnavailable,
+      rental_stock: [],
+      surf_packs: [],
+      data_quality: {
+        malformed_count: diagnostics.malformed.length,
+        malformed: diagnostics.malformed.slice(),
+        balance_drift_count: diagnostics.balance_drift.length,
+        balance_drift: diagnostics.balance_drift.slice(),
+        flagged_booking_ids: (reconcileResult && reconcileResult.flagged_booking_ids)
+          ? reconcileResult.flagged_booking_ids.slice()
+          : [],
+        reconciliation_unavailable: reconUnavailable,
+        reconciliation_unavailable_count: reconUnavailable.length,
+      },
+    };
+  } catch (err) {
+    try { await pg.query('ROLLBACK'); } catch (_) { /* preserve original */ }
+    throw err;
+  }
+}
+
 module.exports = {
   BSR_SQL,
   BOOKINGS_SQL,
@@ -356,6 +510,7 @@ module.exports = {
   RENTAL_STOCK_SQL,
   SURF_PACKS_SQL,
   fetchSunsetFinanceData,
+  fetchLodgingFinanceData,
   FinanceDataQualityError,
   // Deprecated export kept so any stale require of PENDING_REFUND_SQL does not crash
   // at module load; Slice 2 no longer queries it.
