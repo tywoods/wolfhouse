@@ -38,6 +38,9 @@ const {
   readControlledDraftingKnownCreateDraftId,
   brandControlledDraftingKnownCreateDraftId,
 } = require('./email-luna-controlled-drafting-graph-draft-transport');
+const {
+  readTrustedControlledDraftingTokenLoanFailure,
+} = require('./email-luna-controlled-drafting-token-loan');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -816,6 +819,7 @@ function createEmailLunaControlledDraftingProvider(dependencies) {
     try {
       innerResult = await transport.createReplyDraft(copyKeys(CREATE_INNER_KEYS, request));
     } catch (error) {
+      if (readTrustedControlledDraftingTokenLoanFailure(error)) throw error;
       if (error && error.code === ERROR_CODE && objectIsFrozen(error)) throw error;
       throw invalid();
     }
@@ -848,6 +852,7 @@ function createEmailLunaControlledDraftingProvider(dependencies) {
     try {
       innerResult = await transport.reconcileDraft(copyKeys(RECONCILE_INNER_KEYS, request));
     } catch (error) {
+      if (readTrustedControlledDraftingTokenLoanFailure(error)) throw error;
       if (error && error.code === ERROR_CODE && objectIsFrozen(error)) throw error;
       throw invalid();
     }

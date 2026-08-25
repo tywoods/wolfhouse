@@ -516,6 +516,17 @@ function fetchJwks(https, timers) {
   });
 }
 
+const CANONICAL_MICROSOFT_OIDC_JWKS_VERIFIERS = new WeakSet();
+
+function isCanonicalMicrosoftOidcJwksSignatureVerifier(value) {
+  try {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) return false;
+    return CANONICAL_MICROSOFT_OIDC_JWKS_VERIFIERS.has(value);
+  } catch {
+    return false;
+  }
+}
+
 function createMicrosoftOidcJwksSignatureVerifier(dependencies) {
   const { https, crypto, timers } = readDependencies(dependencies);
   let used = false;
@@ -548,7 +559,12 @@ function createMicrosoftOidcJwksSignatureVerifier(dependencies) {
     }
   }
 
-  return Object.freeze({ verify });
+  const verifier = Object.freeze({ verify });
+  CANONICAL_MICROSOFT_OIDC_JWKS_VERIFIERS.add(verifier);
+  return verifier;
 }
 
-module.exports = Object.freeze({ createMicrosoftOidcJwksSignatureVerifier });
+module.exports = Object.freeze({
+  createMicrosoftOidcJwksSignatureVerifier,
+  isCanonicalMicrosoftOidcJwksSignatureVerifier,
+});

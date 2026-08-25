@@ -46,6 +46,9 @@ const {
   validateMicrosoftDelegatedScopePlan,
 } = require('./lib/email-microsoft-delegated-oauth-contract');
 const {
+  createTestControlledDraftingGraphDraftTransport,
+} = require('./lib/email-luna-controlled-drafting-token-loan.test-support');
+const {
   HOST,
   buildCreateReplyPath,
   buildMessagePath,
@@ -640,9 +643,9 @@ async function main() {
       return { statusCode: 200, body: JSON.stringify(graphMessage()) };
     },
   });
-  const graphTransport = createEmailLunaControlledDraftingGraphDraftTransport({
+  const graphTransport = createTestControlledDraftingGraphDraftTransport({
     httpsImpl: graphHttps,
-    getAccessToken: () => TOKEN,
+    accessToken: TOKEN,
   });
   assert.deepEqual(Object.keys(graphTransport).sort(), ['createReplyDraft', 'reconcileDraft']);
   assert.equal(typeof graphTransport.sendDraft, 'undefined');
@@ -677,9 +680,9 @@ async function main() {
       statusCode: statusCode || 200,
       body: typeof body === 'string' ? body : JSON.stringify(body),
     });
-    const transport = createEmailLunaControlledDraftingGraphDraftTransport({
+    const transport = createTestControlledDraftingGraphDraftTransport({
       httpsImpl,
-      getAccessToken: () => TOKEN,
+      accessToken: TOKEN,
     });
     const provider = createEmailLunaControlledDraftingProvider({
       authority: authority(),
@@ -745,9 +748,9 @@ async function main() {
     },
     clearTimeout() {},
   };
-  const timeoutTransport = createEmailLunaControlledDraftingGraphDraftTransport({
+  const timeoutTransport = createTestControlledDraftingGraphDraftTransport({
     httpsImpl: timeoutHttps,
-    getAccessToken: () => TOKEN,
+    accessToken: TOKEN,
     timers: slowTimers,
   });
   const timeoutProvider = createEmailLunaControlledDraftingProvider({
@@ -813,6 +816,7 @@ async function main() {
   }));
   console.log('  PASS  malformed responses, planted secrets, accessors, and proxies fail closed without leakage');
 
+  assert.match(LIB_SRC, /readTrustedControlledDraftingTokenLoanFailure/);
   assert.equal(LIB_SRC.includes('process.env'), false);
   assert.equal(LIB_SRC.includes('LUNA_AUTO_SEND_ENABLED'), false);
   assert.doesNotMatch(STAFF_API_SRC, /email-luna-controlled-drafting-provider-contract/);

@@ -353,6 +353,7 @@ function acceptBindingDto(value) {
   const provider = ownData(value, 'provider');
   const providerMailboxId = ownData(value, 'providerMailboxId');
   const providerTenantId = ownData(value, 'providerTenantId');
+  const providerPrincipalOid = ownData(value, 'providerPrincipalOid');
   const bindingStatus = ownData(value, 'bindingStatus');
   if (typeof clientId !== 'string' || !UUID_CANON.test(clientId)) return null;
   if (typeof locationId !== 'string' || !UUID_CANON.test(locationId)) return null;
@@ -364,6 +365,10 @@ function acceptBindingDto(value) {
   if (typeof providerTenantId !== 'string' || !UUID_CANON.test(providerTenantId)) {
     return null;
   }
+  if (providerPrincipalOid != null
+      && (typeof providerPrincipalOid !== 'string' || !UUID_CANON.test(providerPrincipalOid))) {
+    return null;
+  }
   if (bindingStatus !== 'verified') return null;
   return Object.freeze({
     clientId,
@@ -372,6 +377,7 @@ function acceptBindingDto(value) {
     provider,
     providerMailboxId,
     providerTenantId,
+    providerPrincipalOid,
     bindingStatus,
   });
 }
