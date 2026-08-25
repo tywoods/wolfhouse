@@ -16920,6 +16920,22 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #wh-admin-pricing-body .portal-admin-icon-btn.portal-admin-row-edit{width:28px;height:28px;min-height:28px;padding:0;display:grid;place-items:center;border-radius:999px;font-size:14px;line-height:1}
 #wh-admin-pricing-body .portal-admin-soft-delete,
 #wh-admin-pricing-body .portal-admin-danger.portal-admin-soft-delete{color:#9a4a4a;background:rgba(184,92,92,.10);border-color:rgba(184,92,92,.28);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;min-height:32px}
+#wh-admin-pricing-body .portal-admin-sections{gap:18px}
+#wh-admin-pricing-body .portal-admin-section{padding:14px 16px}
+#wh-admin-pricing-body .portal-admin-section-hdr{margin-bottom:8px}
+#wh-admin-pricing-body .portal-admin-subsection{margin-top:14px}
+#wh-admin-pricing-body .portal-admin-subsection:first-child{margin-top:0}
+#wh-admin-pricing-body .portal-admin-card-grid{gap:10px;margin-top:6px}
+#wh-admin-pricing-body .portal-admin-price-card{padding:10px 12px}
+#wh-admin-pricing-body .portal-admin-edit-form{padding:12px;gap:12px;margin-top:8px}
+#wh-admin-pricing-body .portal-admin-section-note{margin:2px 0 0;line-height:1.4}
+#wh-admin-pricing-body .wh-price-scope{display:flex;flex-direction:column;gap:6px}
+#wh-admin-pricing-body .wh-price-scope > span{font-size:11px;font-weight:700;color:var(--text-2)}
+#wh-admin-pricing-body .wh-price-scope-opts{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+#wh-admin-pricing-body .wh-price-scope-opts label{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;margin:0}
+#wh-admin-pricing-body .wh-price-scope-opts input{width:auto;max-width:none;margin:0}
+#wh-admin-pricing-body .wh-price-extra-form:has(#wh-price-extra-kind option[value="deposit"]:checked) .wh-price-extra-sup{display:none}
+#wh-admin-pricing-body .wh-price-extra-form:has(#wh-price-extra-kind option[value="supplement"]:checked) .wh-price-scope{display:none}
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
 .portal-admin-equipment-editor{grid-column:1/-1;min-width:0}
 /* Equipment heading: title; empty-state + beside title; filled rows carry + next to × */

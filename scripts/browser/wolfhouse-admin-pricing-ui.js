@@ -827,25 +827,55 @@
 
   // ── Extras (deposits + room supplements) ───────────────────────────────────
 
+  function depositScopeRadiosHtml(selected) {
+    var scope = selected === 'per_person' ? 'per_person' : 'per_booking';
+    return '<div class="portal-admin-edit-field wh-price-scope">'
+      + '<span>' + whEsc(whT('admin.wh.pricing.depositScope', 'Deposit is')) + '</span>'
+      + '<div class="wh-price-scope-opts">'
+      + '<label class="portal-admin-radio"><input type="radio" name="wh-deposit-scope" value="per_booking"'
+      + (scope !== 'per_person' ? ' checked' : '') + '> '
+      + whEsc(whT('admin.wh.pricing.perBooking', 'Per booking')) + '</label>'
+      + '<label class="portal-admin-radio"><input type="radio" name="wh-deposit-scope" value="per_person"'
+      + (scope === 'per_person' ? ' checked' : '') + '> '
+      + whEsc(whT('admin.wh.pricing.perPerson', 'Per person')) + '</label>'
+      + '</div></div>';
+  }
+
+  function renderNewExtraForm() {
+    return '<div class="portal-admin-edit-form wh-price-extra-form">'
+      + '<div class="portal-admin-edit-field"><label for="wh-price-extra-kind">'
+      + whEsc(whT('admin.wh.pricing.extraType', 'Type')) + '</label>'
+      + '<select id="wh-price-extra-kind">'
+      + '<option value="deposit">' + whEsc(whT('admin.wh.pricing.deposits', 'Deposits')) + '</option>'
+      + '<option value="supplement">' + whEsc(whT('admin.wh.pricing.supplements', 'Room supplements')) + '</option>'
+      + '</select></div>'
+      + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
+      + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
+      + '<input type="text" id="wh-price-item-label" maxlength="120" placeholder="'
+      + whEsc(whT('admin.wh.pricing.extraNamePh', 'Standard deposit')) + '"></div>'
+      + '<div class="portal-admin-edit-field"><label for="wh-price-item-code">'
+      + whEsc(whT('admin.wh.pricing.itemCode', 'Code')) + '</label>'
+      + '<input type="text" id="wh-price-item-code" maxlength="64" placeholder="standard_deposit"></div>'
+      + amountField('wh-price-item-amount', null)
+      + depositScopeRadiosHtml('per_booking')
+      + '<div class="portal-admin-edit-field wh-price-extra-sup"><label for="wh-price-item-unit">'
+      + whEsc(whT('admin.wh.pricing.chargedPer', 'Charged per')) + '</label>'
+      + '<select id="wh-price-item-unit">'
+      + '<option value="per_room_per_night">' + whEsc(unitLabel('per_room_per_night')) + '</option>'
+      + '<option value="per_person_per_night">' + whEsc(unitLabel('per_person_per_night')) + '</option>'
+      + '</select></div>'
+      + editActions('save-new-extra')
+      + '</div>';
+  }
+
   function renderExtrasRow(kind, row) {
     var key = 'price:' + kind + ':' + row.code;
     if (isEditing(key)) {
       var scopeUnit = row.unit === 'per_person' ? 'per_person' : (row.unit || 'per_booking');
-      var scopeRadios = kind === 'deposit'
-        ? '<div class="portal-admin-edit-field" style="margin-top:10px">'
-          + '<div class="portal-admin-muted">' + whEsc(whT('admin.wh.pricing.depositScope', 'Deposit is')) + '</div>'
-          + '<label class="portal-admin-radio"><input type="radio" name="wh-deposit-scope" value="per_booking"'
-          + (scopeUnit !== 'per_person' ? ' checked' : '') + '> '
-          + whEsc(whT('admin.wh.pricing.perBooking', 'Per booking')) + '</label> '
-          + '<label class="portal-admin-radio"><input type="radio" name="wh-deposit-scope" value="per_person"'
-          + (scopeUnit === 'per_person' ? ' checked' : '') + '> '
-          + whEsc(whT('admin.wh.pricing.perPerson', 'Per person')) + '</label>'
-          + '</div>'
-        : '';
       return '<div class="portal-admin-price-card is-editing">'
         + '<div class="portal-admin-price-title">' + whEsc(row.label || humanize(row.code)) + '</div>'
         + amountField('wh-price-amount', row.amount_cents)
-        + scopeRadios
+        + (kind === 'deposit' ? depositScopeRadiosHtml(scopeUnit) : '')
         + editActions('save-extra',
           ' data-wh-extra-kind="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code)
           + '" data-wh-unit="' + whEsc(row.unit) + '"',
@@ -871,6 +901,7 @@
   function renderExtrasSection() {
     var extras = state.view.extras || {};
     var html = '';
+    if (isEditing('item:extra:__new__')) html += renderNewExtraForm();
     var groups = [
       { kind: 'deposit', rows: extras.deposits || [], title: whT('admin.wh.pricing.deposits', 'Deposits') },
       { kind: 'supplement', rows: extras.supplements || [], title: whT('admin.wh.pricing.supplements', 'Room supplements') },
@@ -889,10 +920,14 @@
       }
       html += '</div></div>';
     }
+    var headerExtra = canWrite() && !isEditing('item:extra:__new__')
+      ? actionBtn('new-extra', '+ ' + whT('admin.wh.pricing.addExtras', 'Add extras'))
+      : '';
     return sectionShell(
       whT('admin.wh.pricing.extras', 'Extras'),
       whT('admin.wh.pricing.extrasNote', 'Deposits taken at booking and per-night room supplements.'),
       html,
+      headerExtra,
     );
   }
 
@@ -1228,6 +1263,54 @@
     'new-item': function (btn) {
       state.editing = 'item:' + btn.getAttribute('data-wh-item-type') + ':__new__';
       render();
+    },
+    'new-extra': function () {
+      state.editing = 'item:extra:__new__';
+      render();
+    },
+    'save-new-extra': function () {
+      var kind = inputValue('wh-price-extra-kind') || 'deposit';
+      var code = inputValue('wh-price-item-code').toLowerCase().replace(/\s+/g, '_');
+      var label = inputValue('wh-price-item-label');
+      var unit = kind === 'deposit'
+        ? ((document.querySelector('input[name="wh-deposit-scope"]:checked') || {}).value || 'per_booking')
+        : (inputValue('wh-price-item-unit') || 'per_room_per_night');
+      var amount = inputValue('wh-price-item-amount');
+      if (state.busy) return;
+      state.busy = true;
+      state.error = null;
+      state.notice = null;
+      request('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
+        item_type: kind, item_code: code, label: label,
+      }).then(function (r) {
+        if (!(r.status === 200 && r.data && r.data.success)) {
+          state.busy = false;
+          state.error = (r.data && (r.data.message || r.data.error))
+            || whT('admin.wh.pricing.saveFailed', 'Could not save.');
+          render();
+          return null;
+        }
+        return request('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
+          item_type: kind, item_code: code, unit: unit, amount_eur: amount,
+        }).then(function (pr) {
+          state.busy = false;
+          if (pr.status === 200 && pr.data && pr.data.success) {
+            state.view = pr.data;
+            state.editing = null;
+            state.notice = whT('admin.wh.pricing.saved', 'Saved.');
+          } else {
+            if (r.data && r.data.success) state.view = r.data;
+            state.editing = null;
+            state.error = whT('admin.wh.pricing.itemSavedNoPrice',
+              'Item created, but the price was rejected. Set it with Edit.');
+          }
+          render();
+        });
+      }).catch(function () {
+        state.busy = false;
+        state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
+        render();
+      });
     },
     /**
      * Two writes: the catalog identity, then its opening price. The item is

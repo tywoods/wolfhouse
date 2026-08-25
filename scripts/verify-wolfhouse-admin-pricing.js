@@ -1078,8 +1078,17 @@ function uiChecks() {
   ok('deposit edit offers per-booking and per-person radios',
     runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
       .includes('name="wh-deposit-scope"')
-      && runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
-        .includes('Per booking'));
+    && runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+      .includes('Per booking')
+    && runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+      .includes('Per person'));
+  ok('editable mode offers Add extras',
+    html.includes('data-wh-price-action="new-extra"'));
+  ok('the new-extra form asks for type, amount, and deposit scope',
+    runPricingUi(writable, 'item:extra:__new__').html.includes('wh-price-extra-kind')
+    && runPricingUi(writable, 'item:extra:__new__').html.includes('wh-price-item-amount')
+    && runPricingUi(writable, 'item:extra:__new__').html.includes('name="wh-deposit-scope"')
+    && runPricingUi(writable, 'item:extra:__new__').html.includes('save-new-extra'));
 
   ok('editable mode offers Edit controls',
     html.includes('data-wh-price-action="edit-package-price"'));
