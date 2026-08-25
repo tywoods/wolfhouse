@@ -360,7 +360,7 @@ const ES_OVERRIDES = {
   'drawer.transfers.scheduledPebble': 'Traslado programado',
   'drawer.transfers.airport': 'Aeropuerto',
   'drawer.transfers.dateTime': 'Fecha/hora del traslado',
-  'drawer.transfers.exceptionOverride': 'Excepción manual',
+  'drawer.transfers.exceptionOverride': 'Override de precio',
   'drawer.transfers.charge': 'Cargo del traslado',
   'drawer.transfers.flightOptional': 'Número de vuelo (opcional)',
   'drawer.transfers.notes': 'Notas',

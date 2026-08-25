@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const api = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+const i18n = fs.readFileSync(path.join(__dirname, 'lib/staff-portal-i18n.js'), 'utf8');
 const start = api.indexOf('staff-portal-calendar:sunset-fonts');
 assert.ok(start > 0, 'sunset-fonts marker');
 const chunk = api.slice(start, start + 1800);
@@ -73,6 +74,10 @@ assert.match(api, /padding-right:3px!important/);
 assert.match(api, /function bcRenderTransferCard/);
 assert.match(api, /drawer\.transfers\.flightOptional/);
 assert.match(api, /class="btn btn-primary bc-transfer-save"/);
+assert.match(api, /\.bc-transfer-card-footer\{display:flex;align-items:center;justify-content:flex-end/);
+assert.match(i18n, /'drawer\.transfers\.exceptionOverride': 'Price Override'/);
+assert.match(api, /#bc-field-group-guests\.is-editing \.btn-bc-field-edit\{display:none/);
+assert.match(api, /#bc-drawer-card-booking #bc-inline-edit-bar/);
 assert.doesNotMatch(api, /bc-transfer-lookup/);
 assert.doesNotMatch(api, /function bcLookupFlight/);
 assert.doesNotMatch(api, /function bcTransferWireLookupControls/);

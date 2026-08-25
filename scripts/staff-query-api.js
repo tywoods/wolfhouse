@@ -19315,14 +19315,14 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-transfer-grid .ctx-field-label{margin:0 0 2px;font-size:10px}
 .bc-transfer-grid .bk-input-sm{padding:4px 7px;font-size:12px}
 .bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
-.bc-transfer-card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px}
+.bc-transfer-card-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px}
 .bc-transfer-override-toggle{align-self:flex-start;margin-top:4px;font-size:10px;font-weight:500;padding:2px 8px;line-height:1.35;color:var(--text-2);border-color:var(--border-soft);background:transparent}
 .bc-transfer-override-toggle:hover{background:var(--surface-soft);color:var(--text)}
-.bc-transfer-override-wrap{margin-top:4px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);display:inline-block;width:100%;max-width:120px;box-sizing:border-box}
+.bc-transfer-override-wrap{margin-top:4px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);display:block;width:100%;max-width:100%;box-sizing:border-box}
 .bc-transfer-override-wrap .bk-input-sm{max-width:100%;width:100%;min-width:0;padding:3px 6px;font-size:12px;box-sizing:border-box}
 .bc-transfer-override-amount{max-width:100%;width:100%;box-sizing:border-box}
 .bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap}
-.bc-transfer-remove{margin-left:auto;font-size:11px;color:#9C5742;border-color:rgba(156,87,66,.35);padding:4px 10px}
+.bc-transfer-remove{font-size:11px;color:#9C5742;border-color:rgba(156,87,66,.35);padding:4px 10px}
 .bc-transfer-remove:hover{background:rgba(156,87,66,.06)}
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
 .bc-drawer-file-tabs{margin-top:4px}
@@ -19981,7 +19981,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   flex:1 1 0;margin:0;padding:7px 4px;font-size:11px;font-weight:600;border-radius:8px;
   text-align:center;border:1px solid var(--border-soft);
 }
-#bc-side-drawer #bc-drawer-card-booking{padding:16px 16px 18px}
+#bc-side-drawer #bc-drawer-card-booking{padding:16px 16px 18px;position:relative}
+#bc-side-drawer #bc-drawer-card-booking:has(#bc-field-group-guests.is-editing){padding-bottom:56px}
+#bc-side-drawer #bc-field-group-guests.is-editing .btn-bc-field-edit{display:none!important}
+#bc-side-drawer #bc-field-group-guests.is-editing .ctx-field-header{display:none}
 #bc-side-drawer #bc-drawer-card-booking > .bc-drawer-card-title{display:none}
 #bc-side-drawer .bc-conv-handoff-block{display:none}
 #bc-side-drawer #bc-drawer-card-conversation{
@@ -20072,15 +20075,14 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 #bc-side-drawer input[type="date"].bc-inline-input{min-width:0}
 #bc-side-drawer .bc-inline-guest-name{display:block;margin:0 0 6px;max-width:100%}
-.bc-inline-edit-bar{display:none;align-items:center;gap:6px;margin-left:auto}
-#bc-side-drawer #bc-field-group-guests.is-editing .ctx-field-read-row{
-  flex-wrap:wrap;align-items:flex-start;
+.bc-inline-edit-bar{display:none;align-items:center;gap:6px}
+#bc-side-drawer #bc-drawer-card-booking #bc-inline-edit-bar{
+  position:absolute;right:16px;bottom:14px;margin:0;
 }
-#bc-side-drawer #bc-field-group-guests.is-editing .kv-grid{flex:1 1 100%}
-#bc-side-drawer #bc-field-group-guests.is-editing .ctx-field-header{
-  width:auto;flex:1 1 100%;justify-content:flex-end;gap:8px;margin-top:4px;
+#bc-side-drawer #bc-field-group-guests.is-editing ~ #bc-inline-edit-bar,
+#bc-side-drawer #bc-drawer-card-booking:has(#bc-field-group-guests.is-editing) #bc-inline-edit-bar{
+  display:inline-flex;
 }
-#bc-side-drawer #bc-field-group-guests.is-editing #bc-inline-edit-bar{display:inline-flex}
 #bc-inline-edit-bar[hidden]{display:none!important}
 #bc-side-drawer #bc-inline-save{padding:4px 10px;font-size:12px;min-height:28px}
 #bc-side-drawer #bc-inline-cancel{padding:4px 10px;font-size:12px;min-height:28px}
@@ -37710,10 +37712,6 @@ function bcRenderFieldEditSectionsHtml(data, mode){
     '<div class="kv-grid ctx-field-kv-grid ctx-field-kv-grid--3">' + guestsReadInner + '</div>' +
     '<div class="ctx-field-header">' +
     bcRenderFieldEditPencilBtn('guests', t('drawer.field.editGuests')) +
-    '<span class="bc-inline-edit-bar" id="bc-inline-edit-bar" hidden>' +
-      '<button type="button" class="btn btn-primary" id="bc-inline-save">Save</button>' +
-      '<button type="button" class="btn btn-ghost" id="bc-inline-cancel">Cancel</button>' +
-    '</span>' +
     '</div></div></div>';
   html += '<div class="ctx-field-edit ctx-field-guests-edit" id="bc-field-guests-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
@@ -39247,14 +39245,12 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(xfer.pricing) + '</div>';
   html += '<div id="' + prefix + '-result" style="margin-top:6px;display:none;font-size:11px"></div>';
   html += '<div class="bc-transfer-card-footer">';
-  html += '<div class="bc-transfer-actions">';
-  html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '"' +
-    (scheduled ? ' disabled' : '') + '>' + escHtml(bcTransferSaveButtonLabel(direction)) + '</button>';
-  html += '</div>';
   if (removable) {
     html += '<button type="button" class="btn btn-ghost bc-transfer-remove" data-direction="' + direction + '">' +
       escHtml(removeLabel) + '</button>';
   }
+  html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '"' +
+    (scheduled ? ' disabled' : '') + '>' + escHtml(bcTransferSaveButtonLabel(direction)) + '</button>';
   html += '</div></div>';
   return html;
 }
@@ -40009,6 +40005,10 @@ function renderBookingContextDrawer(data){
   html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.bookingDetails')) + '</h3>';
   html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
+  html += '<div class="bc-inline-edit-bar" id="bc-inline-edit-bar" hidden>' +
+    '<button type="button" class="btn btn-primary" id="bc-inline-save">Save</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-inline-cancel">Cancel</button>' +
+    '</div>';
   html += '</div>';
 
   if (!isSunset) {
