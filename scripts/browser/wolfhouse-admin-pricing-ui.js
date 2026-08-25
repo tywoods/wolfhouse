@@ -171,6 +171,37 @@
    * item would come straight back from the JSON seed on the next load, so it is
    * labelled built-in rather than given a button that silently does nothing.
    */
+  // ── Packages ───────────────────────────────────────────────────────────────
+
+  var PACKAGE_PEBBLES = [
+    { token: 'sand', label: 'Sand' },
+    { token: 'clay', label: 'Clay' },
+    { token: 'peach', label: 'Peach' },
+    { token: 'rose', label: 'Rose' },
+    { token: 'blush', label: 'Blush' },
+    { token: 'butter', label: 'Butter' },
+    { token: 'sage', label: 'Sage' },
+    { token: 'mist', label: 'Mist' },
+    { token: 'lilac', label: 'Lilac' },
+    { token: 'stone', label: 'Stone' },
+  ];
+
+  function pebbleDropdownHtml(selected) {
+    var current = selected || 'peach';
+    var html = '<div class="portal-admin-edit-field"><label for="wh-price-item-pebble">'
+      + whEsc(whT('admin.wh.pricing.pebbleColor', 'Pebble color')) + '</label>'
+      + '<div class="wh-price-pebble-select-row">'
+      + '<span class="pkg-pebble pkg-pebble-' + whEsc(current) + '" id="wh-price-pebble-preview"></span>'
+      + '<select id="wh-price-item-pebble" class="portal-admin-select">';
+    for (var i = 0; i < PACKAGE_PEBBLES.length; i++) {
+      var p = PACKAGE_PEBBLES[i];
+      html += '<option value="' + whEsc(p.token) + '"'
+        + (p.token === current ? ' selected' : '') + '>'
+        + whEsc(p.label) + '</option>';
+    }
+    return html + '</select></div></div>';
+  }
+
   function catalogTitleActions(itemType, entry) {
     if (!canWrite()) return '';
     if (entry.source !== 'db') {
@@ -178,6 +209,10 @@
         + whEsc(whT('admin.wh.pricing.builtIn', 'built-in')) + '</span>';
     }
     return '<div class="portal-admin-card-actions">'
+      + (itemType === 'package'
+        ? actionBtn('edit-package', whT('admin.action.edit', 'Edit'),
+          ' data-wh-item-code="' + whEsc(entry.code) + '"')
+        : '')
       + actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
         ' data-wh-item-type="' + whEsc(itemType)
         + '" data-wh-item-code="' + whEsc(entry.code) + '"',
@@ -325,13 +360,27 @@
 
     for (var i = 0; i < packages.length; i++) {
       var p = packages[i];
-      html += '<div class="portal-admin-subsection">'
-        + '<div class="portal-admin-subsection-title-row">'
-        + '<div class="portal-admin-subsection-title">' + whEsc(p.label || humanize(p.code))
-        + '</div>'
-        + catalogTitleActions('package', p)
-        + '</div>'
-        + '<div class="portal-admin-card-grid">';
+      var pkgEditKey = 'item:package:' + p.code;
+      html += '<div class="portal-admin-subsection">';
+      if (isEditing(pkgEditKey)) {
+        html += '<div class="portal-admin-edit-form">'
+          + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
+          + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
+          + '<input type="text" id="wh-price-item-label" maxlength="120" value="'
+          + whEsc(p.label || humanize(p.code)) + '"></div>'
+          + pebbleDropdownHtml(p.pebble)
+          + editActions('save-package-item', ' data-wh-item-code="' + whEsc(p.code) + '"')
+          + '</div>';
+      } else {
+        html += '<div class="portal-admin-subsection-title-row">'
+          + '<div class="portal-admin-subsection-title">'
+          + '<span class="pkg-pebble pkg-pebble-' + whEsc(p.pebble || 'stone') + '"></span> '
+          + whEsc(p.label || humanize(p.code))
+          + '</div>'
+          + catalogTitleActions('package', p)
+          + '</div>';
+      }
+      html += '<div class="portal-admin-card-grid">';
 
       for (var j = 0; j < (p.prices || []).length; j++) {
         var slot = p.prices[j];
@@ -384,35 +433,6 @@
 
   // ── Catalog sections (rentals + services) ──────────────────────────────────
 
-  var PACKAGE_PEBBLES = [
-    { token: 'sand', label: 'Sand' },
-    { token: 'clay', label: 'Clay' },
-    { token: 'peach', label: 'Peach' },
-    { token: 'rose', label: 'Rose' },
-    { token: 'blush', label: 'Blush' },
-    { token: 'butter', label: 'Butter' },
-    { token: 'sage', label: 'Sage' },
-    { token: 'mist', label: 'Mist' },
-    { token: 'lilac', label: 'Lilac' },
-    { token: 'stone', label: 'Stone' },
-  ];
-
-  function pebblePickerHtml(selected) {
-    var current = selected || 'peach';
-    var html = '<div class="portal-admin-edit-field"><span>'
-      + whEsc(whT('admin.wh.pricing.pebbleColor', 'Pebble color')) + '</span>'
-      + '<div class="wh-price-pebble-picker" role="radiogroup">';
-    for (var i = 0; i < PACKAGE_PEBBLES.length; i++) {
-      var p = PACKAGE_PEBBLES[i];
-      html += '<label class="wh-price-pebble-opt">'
-        + '<input type="radio" name="wh-price-item-pebble" value="' + whEsc(p.token) + '"'
-        + (p.token === current ? ' checked' : '') + '>'
-        + '<span class="pkg-pebble pkg-pebble-' + whEsc(p.token) + '">' + whEsc(p.label) + '</span>'
-        + '</label>';
-    }
-    return html + '</div></div>';
-  }
-
   var NEW_ITEM_PLACEHOLDERS = {
     package: ['Malibu', 'malibu'],
     rental: ['Longboard', 'longboard_rental'],
@@ -442,7 +462,7 @@
       + '<input type="text" id="wh-price-item-code" maxlength="64" placeholder="'
       + whEsc(placeholders[1]) + '"></div>'
       + (isPackage
-        ? pebblePickerHtml()
+        ? pebbleDropdownHtml()
           + '<p class="portal-admin-section-note">'
           + whEsc(whT('admin.wh.pricing.newPackageNote',
             'Set a weekly price for each season once the package is created.')) + '</p>'
@@ -1049,6 +1069,18 @@
         + ':' + btn.getAttribute('data-wh-season');
       render();
     },
+    'edit-package': function (btn) {
+      state.editing = 'item:package:' + btn.getAttribute('data-wh-item-code');
+      render();
+    },
+    'save-package-item': function (btn) {
+      commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
+        item_type: 'package',
+        item_code: btn.getAttribute('data-wh-item-code'),
+        label: inputValue('wh-price-item-label'),
+        metadata: { pebble: inputValue('wh-price-item-pebble') || 'stone' },
+      });
+    },
     'save-package-price': function (btn) {
       commit('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
         item_type: 'package',
@@ -1131,13 +1163,12 @@
       if (itemType === 'package') {
         // Priced per season, so creating the package is a single write and the
         // season cards it gains are where the amounts get set.
-        var pebbleEl = document.querySelector('input[name="wh-price-item-pebble"]:checked');
         commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(),
           {
             item_type: 'package',
             item_code: code,
             label: label,
-            metadata: { pebble: pebbleEl && pebbleEl.value ? pebbleEl.value : 'stone' },
+            metadata: { pebble: inputValue('wh-price-item-pebble') || 'stone' },
           },
           whT('admin.wh.pricing.packageCreated',
             'Package created. Set a price for each season.'));

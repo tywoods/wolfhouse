@@ -1095,9 +1095,17 @@ function uiChecks() {
   // portal must not show a Delete that quietly does nothing.
   ok('a promoted package can be deleted',
     html.includes('data-wh-item-type="package" data-wh-item-code="malibu"'));
-  ok('the new-package form offers pebble colors',
-    runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-pebble')
-    && runPricingUi(writable, 'item:package:__new__').html.includes('pkg-pebble-sage'));
+  ok('the new-package form offers pebble colors in a dropdown',
+    runPricingUi(writable, 'item:package:__new__').html.includes('id="wh-price-item-pebble"')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('<select')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('value="sage"')
+    && !runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-pebble-picker'));
+  ok('each package offers Edit next to Delete',
+    html.includes('data-wh-price-action="edit-package"')
+    && html.includes('data-wh-item-code="malibu"'));
+  ok('package edit can change pebble color',
+    runPricingUi(writable, 'item:package:malibu').html.includes('id="wh-price-item-pebble"')
+    && runPricingUi(writable, 'item:package:malibu').html.includes('save-package-item'));
   ok('a config-sourced transfer is labelled default',
     html.includes('default'));
 
