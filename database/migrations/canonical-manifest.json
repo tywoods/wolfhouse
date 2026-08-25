@@ -1410,9 +1410,9 @@
       "order": 92,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice C1: revoke ambient PUBLIC EXECUTE on all public-schema functions and ALTER DEFAULT PRIVILEGES for the applying owner so future functions do not grant PUBLIC EXECUTE. Run as queue table/function owner. Preserves owner implicit EXECUTE and existing explicit role grants. No GRANT/CREATE ROLE/live identifiers. Fail-closes if any public-schema function remains PUBLIC-executable.",
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice C1: revoke ambient PUBLIC EXECUTE on all public-schema functions the applying owner can revoke and ALTER DEFAULT PRIVILEGES so future owner functions do not grant PUBLIC EXECUTE. Remaining PUBLIC-executable public-schema routines fail closed except the frozen catalog-proven stock pgcrypto 1.3 computational allowlist (36 signatures; membership via pg_depend deptype=e; not SECURITY DEFINER; LANGUAGE c). In-place correction of merged 096 that never ledgered on Sunset (atomic rollback). Prior canonical sha256 06b32e0f46d04d6dba3cfbda3f4e61caaf44226147d44c8531dc1a1c9bded03c is not legacySha256: any database that applied the prior bytes must fail reconcile rather than be treated as this residual-exempt 096. Run as queue table/function owner. Preserves owner implicit EXECUTE and existing explicit role grants. No GRANT/CREATE ROLE/live identifiers.",
       "downFilename": "096_tenant_email_luna_automation_public_execute_down.sql",
-      "sha256": "06b32e0f46d04d6dba3cfbda3f4e61caaf44226147d44c8531dc1a1c9bded03c"
+      "sha256": "b211cc0e2b6e25fd800371e83e89e61ca05545ff3cc877893958fc1d3f8f675c"
     },
     {
       "id": "096_tenant_email_luna_automation_public_execute_down",

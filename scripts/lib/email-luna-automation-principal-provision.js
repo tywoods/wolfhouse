@@ -18,6 +18,7 @@ const {
   executeFunctionsFor,
   deniedExecuteFunctionsFor,
 } = require('./email-luna-automation-principal-contract');
+const { provenPgcryptoResidualOidSql } = require('./email-luna-automation-pgcrypto-residual-contract');
 
 const REDACTED = '***REDACTED***';
 const TABLE_DENIED = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.worker_table_denied;
@@ -596,6 +597,8 @@ async function auditAmbientPublic(query, roleName, allowedFunctionOids) {
   }
 
   const allowed = new Set((allowedFunctionOids || []).map(String));
+  const provenResidual = await readRows(query, provenPgcryptoResidualOidSql());
+  const provenResidualOids = new Set(provenResidual.map((row) => String(row.oid)));
   const callable = await readRows(query, `
     SELECT p.oid::text AS oid,
            n.nspname AS schema_name,
@@ -610,7 +613,9 @@ async function auditAmbientPublic(query, roleName, allowedFunctionOids) {
        AND pg_catalog.has_function_privilege($1, p.oid, 'EXECUTE')
      ORDER BY n.nspname, p.proname, 4
   `, [roleName]);
-  const excessExec = callable.filter((row) => !allowed.has(String(row.oid)));
+  const excessExec = callable.filter((row) => (
+    !allowed.has(String(row.oid)) && !provenResidualOids.has(String(row.oid))
+  ));
   if (excessExec.length) {
     throw fail(
       'EMAIL_LUNA_AUTOMATION_PRINCIPAL_EXCESS_EXECUTE',
@@ -961,6 +966,9 @@ async function provisionInTransaction(query, parsed) {
     function_signatures: FUNCTION_SIGNATURES,
     password_transport: EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.password_transport,
     ambient_public_database_privileges: EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_public_database_privileges,
+    ambient_callable_functions: EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_callable_functions,
+    ambient_pgcrypto_residual: EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_pgcrypto_residual,
+    worker_pgcrypto_residual_capability: EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.worker_pgcrypto_residual_capability,
   };
 }
 

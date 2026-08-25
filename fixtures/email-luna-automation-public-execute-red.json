@@ -1,8 +1,8 @@
 {
   "id": "email-luna-automation-public-execute.ch4c1-red.v1",
   "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice C1",
-  "head_reviewed": "45757de136a7f7f503989511b51df7bf69b9c5c1",
-  "pr_reviewed": 709,
+  "head_reviewed": "3144efb83ae6f0e08d2b085be14f3d4418bb4a43",
+  "pr_reviewed": 710,
   "severity": "blocking",
   "provider_transition": false,
   "runtime_activation": false,
@@ -14,19 +14,25 @@
       "id": "ambient-public-execute",
       "severity": "blocking",
       "red": "After 088-095, an arbitrary LOGIN with only ambient public-schema USAGE can EXECUTE public-schema functions that still default-grant PUBLIC (pgcrypto, trigger helpers, business functions). Direct ACL audit cannot see PUBLIC. Trusted-precreated pregrant audit therefore refuses adoption.",
-      "green": "Canonical 096, run as the queue table/function owner, REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC. A LOGIN with only ambient public USAGE cannot execute any non-explicit public-schema function. Function owners keep implicit EXECUTE. Existing explicit GRANT EXECUTE to named roles survive. 096 does not GRANT the worker or name live roles/UUIDs."
+      "green": "Canonical 096, run as the queue table/function owner, REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC. A LOGIN with only ambient public USAGE cannot execute any non-explicit public-schema function except the frozen catalog-proven stock pgcrypto 1.3 computational residual. Function owners keep implicit EXECUTE. Existing explicit GRANT EXECUTE to named roles survive. 096 does not GRANT the worker or name live roles/UUIDs."
     },
     {
       "id": "default-privileges-reintroduce",
       "severity": "blocking",
       "red": "PostgreSQL default privileges keep granting EXECUTE to PUBLIC on newly created functions, so a later CREATE FUNCTION or CREATE EXTENSION by the same owner reopens ambient execute.",
-      "green": "096 ALTER DEFAULT PRIVILEGES FOR ROLE <applying owner> IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC. Existing and newly created functions owned by that role default non-PUBLIC. Owner nuance: default privileges do not bind another owner; an extension script that GRANT EXECUTE TO PUBLIC explicitly can reintroduce ambient execute. The principal ambient audit still fail-closes on reintroduction. Procedures are outside ALL FUNCTIONS."
+      "green": "096 ALTER DEFAULT PRIVILEGES FOR ROLE <applying owner> IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC. Existing and newly created functions owned by that role default non-PUBLIC. Owner nuance: default privileges do not bind another owner; an extension script that GRANT EXECUTE TO PUBLIC explicitly can reintroduce ambient execute. The principal ambient audit still fail-closes on reintroduction unless the same frozen pgcrypto 1.3 catalog proof matches. Procedures are outside ALL FUNCTIONS."
     },
     {
       "id": "adoption-blocked-by-public-execute",
       "severity": "blocking",
       "red": "Live Sunset staging trusted-precreated worker adoption correctly refused because pregrant audit found dozens of effective public-schema functions callable through ambient PUBLIC EXECUTE. The worker LOGIN stayed parked NOLOGIN with no mapping/grants.",
-      "green": "After 096, automation principal audit/adoption permits only the contract allowlist. Re-GRANT EXECUTE TO PUBLIC on any public-schema function is still rejected by the ambient PUBLIC audit. No runtime flags, provider, or live role changes."
+      "green": "After 096, automation principal audit/adoption permits only the contract allowlist plus the frozen catalog-proven pgcrypto 1.3 residual. That residual is computational only and confers no database read/write authority. Re-GRANT EXECUTE TO PUBLIC on any non-allowlisted public-schema function is still rejected as EXCESS_EXECUTE. No runtime flags, provider, or live role changes."
+    },
+    {
+      "id": "azure-pgcrypto-residual",
+      "severity": "blocking",
+      "red": "Reviewed 096 on exact-master 3144efb8 rolled back atomically on Sunset: REVOKE ALL FUNCTIONS cannot touch 36 public-schema pgcrypto members owned by a different role, the applying owner has no grant option, and 096 fail-closed on any remaining PUBLIC execute. Ledger 096 remains absent. Adding 097 cannot help because 096 never applies.",
+      "green": "096 still revokes every function it can. Remaining PUBLIC-executable public-schema routines fail closed unless they are the frozen stock pgcrypto 1.3 signatures proven by catalogs as extension members with exact version 1.3, prokind=f, LANGUAGE c, not SECURITY DEFINER, no dangerous proconfig, and expected volatility/strictness. Owner name is not trusted. Fake same-name, non-member, wrong version/properties, extra members, and arbitrary PUBLIC functions fail atomically. DOWN remains refusal-only."
     }
   ]
 }

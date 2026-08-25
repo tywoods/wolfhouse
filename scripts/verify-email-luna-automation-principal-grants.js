@@ -71,8 +71,16 @@ assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.mapped_rerun_reaudits_drif
 assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_public_database_privileges.CREATE, 'rejected');
 assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_public_database_privileges.TEMP, 'public_current_database_accepted_direct_temp_rejected');
 assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_public_database_privileges.CONNECT, 'public_current_database_accepted');
-assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_callable_functions, 'exact_luna_oids_only');
-assert.deepEqual(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_extension_execute_allowlist.slice(), []);
+assert.equal(
+  EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_callable_functions,
+  'exact_luna_oids_plus_frozen_pgcrypto_1_3_residual',
+);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_extension_execute_allowlist.length, 36);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.ambient_pgcrypto_residual.extversion, '1.3');
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.worker_pgcrypto_residual_capability.computationalOnly, true);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.worker_pgcrypto_residual_capability.databaseRead, false);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.worker_pgcrypto_residual_capability.databaseWrite, false);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.worker_pgcrypto_residual_capability.notAGrant, true);
 assert.equal(ROLE_ATTRIBUTES.rolcanlogin, true);
 assert.equal(ROLE_ATTRIBUTES.rolsuper, false);
 assert.equal(ROLE_ATTRIBUTES.rolcreatedb, false);
@@ -193,6 +201,8 @@ assert.match(PROVISION_SRC, /pg_catalog\.aclexplode/);
 assert.match(PROVISION_SRC, /direct TEMP is rejected even if PUBLIC has TEMP/);
 assert.match(PROVISION_SRC, /trusted pre-creation requires zero direct ACL dependencies before mapping\/grants/);
 assert.match(PROVISION_SRC, /direct ACL audit does not see PUBLIC/);
+assert.match(PROVISION_SRC, /provenPgcryptoResidualOidSql/);
+assert.match(PROVISION_SRC, /worker_pgcrypto_residual_capability/);
 assert.equal(/direct TEMP grant beyond ambient PUBLIC/.test(PROVISION_SRC), false);
 assert.equal(/n\.nspname = 'public'\s+AND c\.relacl IS NOT NULL/.test(PROVISION_SRC), false);
 assert.equal(/secret:\s*true/.test(PROVISION_SRC), false);
