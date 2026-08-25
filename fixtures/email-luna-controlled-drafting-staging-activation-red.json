@@ -1,0 +1,46 @@
+{
+  "id": "email-luna-controlled-drafting-staging-activation.ch4a-red.v1",
+  "slice": "FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4A",
+  "head_reviewed": "cf7a3da8269ffb1c0c15055fbbf2bb2eabfd4deb",
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "worker_loop": true,
+  "send_permission": false,
+  "journal_terminal": false,
+  "live_graph": false,
+  "migration_applied": false,
+  "azure_changed": false,
+  "cost_new_azure_resources": 0,
+  "canonical_process": "staff-api",
+  "canonical_app": "luna-sunset-staging-staff-api",
+  "canonical_rg": "luna-sunset-staging-rg",
+  "canonical_database": "sunset_staging",
+  "canonical_tenant": "sunset",
+  "findings": [
+    {
+      "id": "no-staff-api-runtime-wiring",
+      "severity": "blocking",
+      "red": "On cf7a3da8 after Chapters 1–3, Chapter 3 composition exists as import-inert reserve/tick with no Staff API lifecycle, no producer/worker LOGIN pair, no start/stop loop, and no 097 readiness gate before a timer.",
+      "green": "One Staff API-owned Sunset-staging activation wraps Chapter 3 composition. Import/create is inert. Default-off. Explicit start/stop, concurrency=1, bounded interval, kill-switch recheck before reserve/claim/provider. RUNTIME_WIRED is true only for activation code. Activation remains false."
+    },
+    {
+      "id": "no-097-principal-direct-login-preflight",
+      "severity": "blocking",
+      "red": "An operator cannot prove 097 checksum/schema/functions/grants/mapping and dedicated producer+worker direct LOGIN connectivity before worker start without applying migration or using owner+SET ROLE.",
+      "green": "Read-only preflight proves canonical 097 checksum, schema/functions/grants/mapping, and producer/worker session_user LOGIN distinct from owner and each other. Owner, operator, SET ROLE, swapped, unmapped, and revoked principals fail closed before timer/provider. No migration apply, no GRANT/CREATE ROLE in 097, no SET ROLE shortcut."
+    },
+    {
+      "id": "arbitrary-queue-or-send-activation",
+      "severity": "blocking",
+      "red": "A truthy coerce, partial flag, Wolfhouse/prod/wildcard binding, send/campaign/outreach gate, Gate 3 send transport, or first-activation scan of existing eligible 086 rows could draft or send.",
+      "green": "Exact independent flags for runtime, composition, producer intake, worker tick, and live provider-draft. Near-miss/unknown refuse. Exact Sunset tenant/location/mailbox/endpoint/microsoft_graph only. LUNA_AUTO_SEND_ENABLED and campaign/outreach/send automation flags hard-refuse. Controlled test scope (exact operation+issuance+operator test recipient) is required to consume work. No guest/customer recipient. No send/journal/raw Graph."
+    },
+    {
+      "id": "live-provider-authority-unspecified",
+      "severity": "blocking",
+      "red": "Live Sunset staff outbound uses Phase B delegated grants (User.Read + Mail.ReadWrite + Mail.Send) through the Gate 3 send-capable reply-draft transport. Chapter 1 residual notes Mail.Send may still be consented. Wiring that adapter, requesting Mail.Send, or calling Graph from health/readiness would weaken the draft-only contract.",
+      "green": "Chapter 4A composes only the Chapter 1 closed surface. Live provider-draft stays a separate exact gate. Missing Mail.ReadWrite/draft token loan or any send-capable adapter yields a precise blocked readiness result. Health/readiness never call the provider. Offline preflight is separate from later controlled live proof."
+    }
+  ]
+}

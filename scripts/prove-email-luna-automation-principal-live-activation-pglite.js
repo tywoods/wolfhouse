@@ -27,6 +27,7 @@ const RED = JSON.parse(fs.readFileSync(
   'utf8',
 ));
 const WORKER_ROLE = 'luna_ch4c1_pre_worker';
+const PRODUCER_ROLE = 'luna_ch4a_pre_producer';
 const DEFAULT_ROLE = 'luna_ch4c1_default_pre';
 const WRONG_ATTR_ROLE = 'luna_ch4c1_inherit';
 const WRONG_MAP_ROLE = 'luna_ch4c1_wrong_map';
@@ -431,6 +432,46 @@ async function proveOnDatabase(db, options) {
   assert.equal(await hasTablePrivilege(db, WORKER_ROLE, PRINCIPAL_TABLE, 'SELECT'), false);
   assert.equal(await hasTablePrivilege(db, WORKER_ROLE, MATERIAL_TABLE, 'SELECT'), false);
   console.log('ok - GREEN worker received only contract capabilities');
+
+  await assert.rejects(
+    () => provisionEmailLunaAutomationPrincipal(liveSunset, sunsetSpec({
+      allowSunsetStagingTrustedPrecreatedProducer: true,
+      kind: 'worker',
+    })),
+    (err) => err && err.code === 'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID',
+  );
+  await db.exec(createRoleSql(PRODUCER_ROLE, b1.PASSWORD));
+  const producerTracked = trackingSession(liveSunset);
+  const producerAdopted = await provisionEmailLunaAutomationPrincipal(producerTracked, {
+    roleName: PRODUCER_ROLE,
+    kind: 'producer',
+    client_id: ids.client,
+    location_id: ids.location,
+    location_key: 'sunset-somo',
+    trustedPrecreated: true,
+    apply: true,
+    allowSunsetStagingTrustedPrecreatedProducer: true,
+  });
+  assert.equal(producerAdopted.ok, true);
+  assert.equal(producerAdopted.kind, 'producer');
+  assert.equal(producerAdopted.allowSunsetStagingTrustedPrecreatedProducer, true);
+  assert.equal(producerAdopted.allowSunsetStagingTrustedPrecreated, false);
+  assert.equal(producerAdopted.roleAction, 'trusted_precreated');
+  assertNoRoleOrPasswordSql(producerTracked.seen);
+  assert.equal(await hasTablePrivilege(db, PRODUCER_ROLE, QUEUE_TABLE, 'SELECT'), false);
+  assert.equal(
+    await hasExecute(db, PRODUCER_ROLE, FUNCTION_SIGNATURES.tenant_email_luna_automation_persist_and_enqueue),
+    true,
+  );
+  assert.equal(
+    await hasExecute(db, PRODUCER_ROLE, FUNCTION_SIGNATURES.tenant_email_luna_automation_principal_authorized),
+    true,
+  );
+  assert.equal(
+    await hasExecute(db, PRODUCER_ROLE, FUNCTION_SIGNATURES.tenant_email_luna_automation_claim),
+    false,
+  );
+  console.log('ok - GREEN exact trusted precreated Sunset producer is adopted without queue SELECT/claim');
 }
 
 function runPgliteProof() {

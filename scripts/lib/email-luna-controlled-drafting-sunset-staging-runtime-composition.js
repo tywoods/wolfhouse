@@ -460,6 +460,74 @@ async function attestMappedPrincipal(loaner, expectedKind, binding) {
   });
 }
 
+function failedMappedPrincipalInspect() {
+  return freeze({
+    ok: false,
+    inspect_failed: true,
+    login_ok: false,
+    mapping_ok: false,
+    execute_ok: false,
+    principal_applied: false,
+    session_user: null,
+    reason: 'inspect_failed',
+  });
+}
+
+async function inspectEmailLunaControlledDraftingMappedPrincipal(client, binding, kind) {
+  if (kind !== 'producer' && kind !== 'worker') return failedMappedPrincipalInspect();
+  let closed;
+  try {
+    closed = closedAttestBinding(binding);
+  } catch (_) {
+    return failedMappedPrincipalInspect();
+  }
+  const queryFn = resolveQuery(client);
+  if (typeof queryFn !== 'function' || isProxySurface(queryFn)) return failedMappedPrincipalInspect();
+  const sql = kind === 'producer' ? PRODUCER_ATTEST_SQL : WORKER_ATTEST_SQL;
+  let result;
+  try {
+    result = await queryFn.call(client, sql, [closed.client_id, closed.location_id, closed.location_key]);
+  } catch (_) {
+    return failedMappedPrincipalInspect();
+  }
+  try {
+    const row = readAttestRow(result);
+    acceptAttestRow(row);
+    return freeze({
+      ok: true,
+      inspect_failed: false,
+      login_ok: true,
+      mapping_ok: true,
+      execute_ok: true,
+      principal_applied: true,
+      session_user: null,
+      reason: 'ready',
+    });
+  } catch (_) {
+    let mappingOk = false;
+    let executeOk = false;
+    let loginOk = false;
+    try {
+      const row = readAttestRow(result);
+      mappingOk = ownData(row, 'mapping_ok') === true;
+      executeOk = ownData(row, 'execute_ok') === true;
+      loginOk = ownData(row, 'session_matches_current') === true
+        && ownData(row, 'session_distinct_from_owner') === true
+        && ownData(row, 'login_contract_ok') === true;
+    } catch (__) { /* unreadable */ }
+    return freeze({
+      ok: false,
+      inspect_failed: false,
+      login_ok: loginOk,
+      mapping_ok: mappingOk,
+      execute_ok: executeOk,
+      principal_applied: mappingOk,
+      session_user: null,
+      reason: 'principal_unproven',
+    });
+  }
+}
+
 function envFlag(env, key) {
   return ownData(env, key) === 'true';
 }
@@ -1071,4 +1139,5 @@ module.exports = objectFreeze({
   createEmailLunaControlledDraftingSunsetStagingRuntimeComposition,
   bindProducerWithTransactionClient,
   bindWorkerWithTransactionClient,
+  inspectEmailLunaControlledDraftingMappedPrincipal,
 });

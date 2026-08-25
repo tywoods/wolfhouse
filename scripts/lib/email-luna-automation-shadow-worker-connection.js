@@ -37,10 +37,16 @@ const weakSetHas = uncurryThis(WeakSet.prototype.has);
 const nativeSetTimeout = setTimeout;
 
 const AUTHENTIC_WORKER_CONNECTIONS = new WeakSet();
+const AUTHENTIC_DIRECT_LOGIN_CONNECTIONS = new WeakSet();
+const AUTHENTIC_DIRECT_LOGIN_PAIRS = new WeakSet();
 const ENV_WORKER_DATABASE_URL = 'EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_DATABASE_URL';
 const ENV_APP_DATABASE_URL = 'WOLFHOUSE_DATABASE_URL';
 const ENV_DATABASE_URL = 'DATABASE_URL';
+const ENV_DIRECT_LOGIN_PG_CA = 'EMAIL_LUNA_DIRECT_LOGIN_PG_CA';
 const ERROR_CODE = 'EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION_INVALID';
+const DIRECT_LOGIN_CONNECTION_TIMEOUT_MS = 5000;
+const EXPECTED_DATABASE_SUNSET_STAGING = 'sunset_staging';
+const AZURE_PG_HOST_RE = /\.postgres\.database\.azure\.com$/i;
 const CREATE_KEYS = objectFreeze(['env', 'appConnectionString']);
 const DRAIN_KEYS = objectFreeze(['runtime', 'connection']);
 const FORBIDDEN_INPUT_KEYS = objectFreeze([
@@ -587,35 +593,113 @@ function isAuthenticEmailLunaAutomationShadowWorkerConnection(value) {
   }
 }
 
-function createEmailLunaAutomationShadowWorkerConnection(input) {
-  if (arguments.length !== 1) throw invalid();
-  if (!input || typeof input !== 'object' || runtimeIsProxy(input) || arrayIsArray(input)) throw invalid();
-  if (objectGetPrototypeOf(input) !== objectPrototype) throw invalid();
-  refuseForbiddenKeys(input);
-  const env = ownData(input, 'env');
-  const appConnectionString = ownData(input, 'appConnectionString');
-  const own = safeOwnKeys(input);
-  for (let index = 0; index < own.length; index += 1) {
-    if (own[index] !== 'env' && own[index] !== 'appConnectionString') throw invalid();
+function tlsHostFromDsn(raw) {
+  if (typeof raw !== 'string') return '';
+  try {
+    const text = stringTrim(raw);
+    const normalized = stringReplace(text, /^postgres(ql)?:/i, 'http:');
+    const url = new URL(normalized);
+    return stringToLowerCase(stringTrim(unwrapIpv6Host(url.hostname || '')));
+  } catch (_) {
+    return '';
   }
-  const config = resolveEmailLunaAutomationShadowWorkerConnectionConfig({
-    env,
-    appConnectionString,
-  });
-  if (!config || config.ok !== true) throw invalid();
-  const connectionString = ownData(env, ENV_WORKER_DATABASE_URL);
+}
+
+function resolveEmailLunaDirectLoginPoolTransport(input) {
+  try {
+    if (!input || typeof input !== 'object' || runtimeIsProxy(input) || arrayIsArray(input)) {
+      return output([
+        ['ok', false],
+        ['reason', 'pg_tls_unproven'],
+        ['connectionTimeoutMillis', DIRECT_LOGIN_CONNECTION_TIMEOUT_MS],
+        ['ssl', null],
+        ['tls_mode', 'unproven'],
+      ]);
+    }
+    const host = ownData(input, 'host');
+    const caText = ownData(input, 'caText');
+    if (typeof host !== 'string' || stringTrim(host) === '') {
+      return output([
+        ['ok', false],
+        ['reason', 'pg_tls_host_unproven'],
+        ['connectionTimeoutMillis', DIRECT_LOGIN_CONNECTION_TIMEOUT_MS],
+        ['ssl', null],
+        ['tls_mode', 'unproven'],
+      ]);
+    }
+    if (canonicalizeHost(host) === 'loopback') {
+      return output([
+        ['ok', true],
+        ['reason', 'loopback_cleartext'],
+        ['connectionTimeoutMillis', DIRECT_LOGIN_CONNECTION_TIMEOUT_MS],
+        ['ssl', false],
+        ['tls_mode', 'loopback_cleartext'],
+      ]);
+    }
+    const rawHost = stringToLowerCase(stringTrim(unwrapIpv6Host(host)));
+    if (typeof caText !== 'string' || caText.indexOf('BEGIN CERTIFICATE') === -1) {
+      return output([
+        ['ok', false],
+        ['reason', 'pg_ca_unproven'],
+        ['connectionTimeoutMillis', DIRECT_LOGIN_CONNECTION_TIMEOUT_MS],
+        ['ssl', null],
+        ['tls_mode', 'unproven'],
+      ]);
+    }
+    const ssl = freeze({
+      rejectUnauthorized: true,
+      ca: caText,
+      servername: rawHost,
+    });
+    return output([
+      ['ok', true],
+      ['reason', AZURE_PG_HOST_RE.test(rawHost) ? 'verify-full' : 'verify-full'],
+      ['connectionTimeoutMillis', DIRECT_LOGIN_CONNECTION_TIMEOUT_MS],
+      ['ssl', ssl],
+      ['tls_mode', 'verify-full'],
+    ]);
+  } catch (_) {
+    return output([
+      ['ok', false],
+      ['reason', 'pg_tls_unproven'],
+      ['connectionTimeoutMillis', DIRECT_LOGIN_CONNECTION_TIMEOUT_MS],
+      ['ssl', null],
+      ['tls_mode', 'unproven'],
+    ]);
+  }
+}
+
+function instantiateDirectLoginConnection(connectionString, options) {
   if (typeof connectionString !== 'string') throw invalid();
+  const idleReason = options && options.idleReason === 'worker_pool_idle_error'
+    ? 'worker_pool_idle_error'
+    : 'principal_pool_idle_error';
+  const caText = options && options.caText;
+  const transport = resolveEmailLunaDirectLoginPoolTransport({
+    host: tlsHostFromDsn(connectionString),
+    caText,
+  });
+  if (!transport || transport.ok !== true) throw invalid();
   let Pool;
   try {
     ({ Pool } = require('pg'));
   } catch (_) {
     throw invalid();
   }
-  const pool = new Pool({
+  const poolConfig = {
     connectionString,
     max: 1,
     allowExitOnIdle: true,
-  });
+    connectionTimeoutMillis: DIRECT_LOGIN_CONNECTION_TIMEOUT_MS,
+  };
+  if (transport.ssl && typeof transport.ssl === 'object') {
+    poolConfig.ssl = {
+      rejectUnauthorized: transport.ssl.rejectUnauthorized === true,
+      ca: transport.ssl.ca,
+      servername: transport.ssl.servername,
+    };
+  }
+  const pool = new Pool(poolConfig);
   let closed = false;
   let idleFailure = false;
   attachEmailLunaAutomationShadowWorkerPoolIdleGuard(pool, () => {
@@ -666,15 +750,230 @@ function createEmailLunaAutomationShadowWorkerConnection(input) {
   const handle = freeze({
     withTransactionClient,
     close,
-    getConfig: () => config,
-    getReadinessFailure: () => (idleFailure ? 'worker_pool_idle_error' : null),
+    getReadinessFailure: () => (idleFailure ? idleReason : null),
+    getTransport: () => transport,
   });
-  weakSetAdd(AUTHENTIC_WORKER_CONNECTIONS, handle);
+  weakSetAdd(AUTHENTIC_DIRECT_LOGIN_CONNECTIONS, handle);
   return handle;
+}
+
+function parseDedicatedDsn(raw) {
+  if (typeof raw !== 'string' || stringTrim(raw) === '') {
+    return { ok: false, reason: 'principal_connection_required' };
+  }
+  const parsed = parseDsnIdentities(raw, 'worker');
+  if (parsed.invalid || parsed.identities.length !== 1) {
+    return { ok: false, reason: 'principal_connection_invalid' };
+  }
+  return { ok: true, identity: parsed.identities[0] };
+}
+
+function resolveEmailLunaDirectLoginPairConfig(input) {
+  if (arguments.length !== 1) throw invalid();
+  if (!input || typeof input !== 'object' || runtimeIsProxy(input) || arrayIsArray(input)) throw invalid();
+  if (objectGetPrototypeOf(input) !== objectPrototype) throw invalid();
+  refuseForbiddenKeys(input);
+  const own = safeOwnKeys(input);
+  for (let index = 0; index < own.length; index += 1) {
+    if (
+      own[index] !== 'env'
+      && own[index] !== 'appConnectionString'
+      && own[index] !== 'producerEnvKey'
+      && own[index] !== 'workerEnvKey'
+      && own[index] !== 'expectedDatabase'
+    ) {
+      throw invalid();
+    }
+  }
+  const env = ownData(input, 'env');
+  const appConnectionString = ownData(input, 'appConnectionString');
+  const producerEnvKey = ownData(input, 'producerEnvKey');
+  const workerEnvKey = ownData(input, 'workerEnvKey');
+  const expectedDatabase = ownData(input, 'expectedDatabase');
+  if (appConnectionString !== undefined && typeof appConnectionString !== 'string') throw invalid();
+  if (typeof producerEnvKey !== 'string' || typeof workerEnvKey !== 'string') throw invalid();
+  if (expectedDatabase !== undefined && typeof expectedDatabase !== 'string') throw invalid();
+  const producerParsed = parseDedicatedDsn(ownData(env, producerEnvKey));
+  const workerParsed = parseDedicatedDsn(ownData(env, workerEnvKey));
+  if (!producerParsed.ok || !workerParsed.ok) {
+    return output([
+      ['ok', false],
+      ['configured', producerParsed.ok || workerParsed.ok],
+      ['producer_distinct_from_app', false],
+      ['worker_distinct_from_app', false],
+      ['producer_distinct_from_worker', false],
+      ['database_ok', false],
+      ['reason', !producerParsed.ok ? producerParsed.reason : workerParsed.reason],
+    ]);
+  }
+  if (sameLoginIdentity(producerParsed.identity, workerParsed.identity)) {
+    return output([
+      ['ok', false],
+      ['configured', true],
+      ['producer_distinct_from_app', false],
+      ['worker_distinct_from_app', false],
+      ['producer_distinct_from_worker', false],
+      ['database_ok', false],
+      ['reason', 'producer_worker_identity_collision'],
+    ]);
+  }
+  const databaseOk = expectedDatabase == null
+    || (
+      producerParsed.identity.database === expectedDatabase
+      && workerParsed.identity.database === expectedDatabase
+    );
+  if (!databaseOk) {
+    return output([
+      ['ok', false],
+      ['configured', true],
+      ['producer_distinct_from_app', false],
+      ['worker_distinct_from_app', false],
+      ['producer_distinct_from_worker', true],
+      ['database_ok', false],
+      ['reason', 'principal_database_unproven'],
+    ]);
+  }
+  const producerTransport = resolveEmailLunaDirectLoginPoolTransport({
+    host: tlsHostFromDsn(ownData(env, producerEnvKey)),
+    caText: ownData(env, ENV_DIRECT_LOGIN_PG_CA),
+  });
+  const workerTransport = resolveEmailLunaDirectLoginPoolTransport({
+    host: tlsHostFromDsn(ownData(env, workerEnvKey)),
+    caText: ownData(env, ENV_DIRECT_LOGIN_PG_CA),
+  });
+  if (!producerTransport.ok || !workerTransport.ok) {
+    return output([
+      ['ok', false],
+      ['configured', true],
+      ['producer_distinct_from_app', false],
+      ['worker_distinct_from_app', false],
+      ['producer_distinct_from_worker', true],
+      ['database_ok', true],
+      ['reason', producerTransport.reason || workerTransport.reason || 'pg_tls_unproven'],
+    ]);
+  }
+  const app = collectAppIdentities(env, appConnectionString);
+  if (app.unproven || app.identities.length === 0) {
+    return output([
+      ['ok', false],
+      ['configured', true],
+      ['producer_distinct_from_app', false],
+      ['worker_distinct_from_app', false],
+      ['producer_distinct_from_worker', true],
+      ['database_ok', true],
+      ['reason', 'app_connection_unproven'],
+    ]);
+  }
+  let producerDistinct = true;
+  let workerDistinct = true;
+  for (let index = 0; index < app.identities.length; index += 1) {
+    if (sameLoginIdentity(producerParsed.identity, app.identities[index])) producerDistinct = false;
+    if (sameLoginIdentity(workerParsed.identity, app.identities[index])) workerDistinct = false;
+  }
+  if (!producerDistinct || !workerDistinct) {
+    return output([
+      ['ok', false],
+      ['configured', true],
+      ['producer_distinct_from_app', producerDistinct],
+      ['worker_distinct_from_app', workerDistinct],
+      ['producer_distinct_from_worker', true],
+      ['database_ok', true],
+      ['reason', 'principal_connection_is_app_owner'],
+    ]);
+  }
+  return output([
+    ['ok', true],
+    ['configured', true],
+    ['producer_distinct_from_app', true],
+    ['worker_distinct_from_app', true],
+    ['producer_distinct_from_worker', true],
+    ['database_ok', true],
+    ['reason', 'dedicated_producer_worker_logins'],
+  ]);
+}
+
+function isAuthenticEmailLunaDirectLoginConnection(value) {
+  try {
+    return Boolean(value && typeof value === 'object' && weakSetHas(AUTHENTIC_DIRECT_LOGIN_CONNECTIONS, value));
+  } catch (_) {
+    return false;
+  }
+}
+
+function isAuthenticEmailLunaDirectLoginConnectionPair(value) {
+  try {
+    return Boolean(value && typeof value === 'object' && weakSetHas(AUTHENTIC_DIRECT_LOGIN_PAIRS, value));
+  } catch (_) {
+    return false;
+  }
+}
+
+function createEmailLunaDirectLoginConnectionPair(input) {
+  if (arguments.length !== 1) throw invalid();
+  const config = resolveEmailLunaDirectLoginPairConfig(input);
+  if (!config || config.ok !== true) throw invalid();
+  const env = ownData(input, 'env');
+  const producerEnvKey = ownData(input, 'producerEnvKey');
+  const workerEnvKey = ownData(input, 'workerEnvKey');
+  const caText = ownData(env, ENV_DIRECT_LOGIN_PG_CA);
+  const producer = instantiateDirectLoginConnection(ownData(env, producerEnvKey), {
+    idleReason: 'principal_pool_idle_error',
+    caText,
+  });
+  const worker = instantiateDirectLoginConnection(ownData(env, workerEnvKey), {
+    idleReason: 'principal_pool_idle_error',
+    caText,
+  });
+  async function close() {
+    try { await producer.close(); } catch (_) { /* bounded */ }
+    try { await worker.close(); } catch (_) { /* bounded */ }
+  }
+  const handle = freeze({
+    producer,
+    worker,
+    close,
+    getConfig: () => config,
+  });
+  weakSetAdd(AUTHENTIC_DIRECT_LOGIN_PAIRS, handle);
+  return handle;
+}
+
+function createEmailLunaAutomationShadowWorkerConnection(input) {
+  if (arguments.length !== 1) throw invalid();
+  if (!input || typeof input !== 'object' || runtimeIsProxy(input) || arrayIsArray(input)) throw invalid();
+  if (objectGetPrototypeOf(input) !== objectPrototype) throw invalid();
+  refuseForbiddenKeys(input);
+  const env = ownData(input, 'env');
+  const appConnectionString = ownData(input, 'appConnectionString');
+  const own = safeOwnKeys(input);
+  for (let index = 0; index < own.length; index += 1) {
+    if (own[index] !== 'env' && own[index] !== 'appConnectionString') throw invalid();
+  }
+  const config = resolveEmailLunaAutomationShadowWorkerConnectionConfig({
+    env,
+    appConnectionString,
+  });
+  if (!config || config.ok !== true) throw invalid();
+  const connectionString = ownData(env, ENV_WORKER_DATABASE_URL);
+  if (typeof connectionString !== 'string') throw invalid();
+  const handle = instantiateDirectLoginConnection(connectionString, {
+    idleReason: 'worker_pool_idle_error',
+    caText: ownData(env, ENV_DIRECT_LOGIN_PG_CA),
+  });
+  const wrapped = freeze({
+    withTransactionClient: handle.withTransactionClient,
+    close: handle.close,
+    getConfig: () => config,
+    getReadinessFailure: handle.getReadinessFailure,
+    getTransport: handle.getTransport,
+  });
+  weakSetAdd(AUTHENTIC_WORKER_CONNECTIONS, wrapped);
+  return wrapped;
 }
 
 module.exports = objectFreeze({
   ENV_WORKER_DATABASE_URL,
+  ENV_DIRECT_LOGIN_PG_CA,
   ERROR_CODE,
   CREATE_KEYS,
   OVERLAY_QUERY_KEYS,
@@ -682,10 +981,17 @@ module.exports = objectFreeze({
   APP_UNPROVEN_QUERY_KEYS,
   PRE_CONNECT_DISTINCTNESS_IS_NOT_LIVE_SESSION_PROOF,
   EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION_CLOSE_TIMEOUT_MS,
+  DIRECT_LOGIN_CONNECTION_TIMEOUT_MS,
+  EXPECTED_DATABASE_SUNSET_STAGING,
   resolveEmailLunaAutomationShadowWorkerConnectionConfig,
+  resolveEmailLunaDirectLoginPoolTransport,
+  resolveEmailLunaDirectLoginPairConfig,
   createEmailLunaAutomationShadowWorkerConnection,
+  createEmailLunaDirectLoginConnectionPair,
   drainEmailLunaAutomationShadowRuntimePair,
   closeEmailLunaAutomationShadowWorkerPool,
   attachEmailLunaAutomationShadowWorkerPoolIdleGuard,
   isAuthenticEmailLunaAutomationShadowWorkerConnection,
+  isAuthenticEmailLunaDirectLoginConnection,
+  isAuthenticEmailLunaDirectLoginConnectionPair,
 });

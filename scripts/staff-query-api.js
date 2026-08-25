@@ -289,6 +289,20 @@ const {
 /** Frozen inert readiness only (default-off; never scheduler/worker run). */
 const EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS =
   resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(process.env);
+const {
+  resolveEmailLunaControlledDraftingSunsetStagingRuntimeReadiness,
+  createEmailLunaControlledDraftingSunsetStagingRuntimeActivation,
+} = require('./lib/email-luna-controlled-drafting-sunset-staging-runtime-activation');
+const {
+  createEmailLunaControlledDraftingPrincipalConnectionPair,
+  drainEmailLunaControlledDraftingRuntimePair,
+} = require('./lib/email-luna-controlled-drafting-principal-connection');
+const {
+  runEmailLunaControlledDraftingRuntimeOperatorPreflight,
+} = require('./lib/email-luna-controlled-drafting-runtime-preflight');
+/** Frozen inert readiness only (default-off; never scheduler/worker run). */
+const EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_READINESS =
+  resolveEmailLunaControlledDraftingSunsetStagingRuntimeReadiness(process.env);
 // Sunset-staging email-delta operator recovery routes (default-off). Full gate
 // before requireAuth / body / DB / owner load. No worker/scheduler.
 const {
@@ -50929,6 +50943,8 @@ let EMAIL_DELTA_RUNTIME = null;
 let EMAIL_IMAP_RUNTIME = null;
 let EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
 let EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = null;
+let EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = null;
+let EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION = null;
 
 function drainStaffApiEmailRuntimes() {
   const drains = [];
@@ -50947,6 +50963,14 @@ function drainStaffApiEmailRuntimes() {
   drains.push(drainEmailLunaAutomationShadowRuntimePair({
     runtime: shadowRuntime,
     connection: shadowConnection,
+  }));
+  const draftingRuntime = EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME;
+  const draftingConnection = EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION;
+  EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = null;
+  EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION = null;
+  drains.push(drainEmailLunaControlledDraftingRuntimePair({
+    runtime: draftingRuntime,
+    connection: draftingConnection,
   }));
   return Promise.allSettled(drains);
 }
@@ -51006,6 +51030,32 @@ async function startStaffQueryApiCli() {
         intervalMs: 60000,
       });
       await EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.start();
+    }
+    if (EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_READINESS.runtime_activation === true) {
+      EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION = createEmailLunaControlledDraftingPrincipalConnectionPair({
+        env: process.env,
+        appConnectionString: getConnectionString(),
+      });
+      const draftingPreflight = await runEmailLunaControlledDraftingRuntimeOperatorPreflight({
+        env: process.env,
+        appConnectionString: getConnectionString(),
+        connection: EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION,
+      });
+      if (!draftingPreflight || draftingPreflight.ok !== true) {
+        await drainStaffApiEmailRuntimes();
+        process.exitCode = 1;
+        return;
+      }
+      EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = createEmailLunaControlledDraftingSunsetStagingRuntimeActivation({
+        env: process.env,
+        producerWithTransactionClient:
+          EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION.producer.withTransactionClient,
+        workerWithTransactionClient:
+          EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION.worker.withTransactionClient,
+        timers: { setTimeout, clearTimeout },
+        intervalMs: 60000,
+      });
+      await EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME.start();
     }
   } catch {
     await drainStaffApiEmailRuntimes();

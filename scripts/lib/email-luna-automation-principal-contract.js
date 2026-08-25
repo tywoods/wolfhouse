@@ -66,6 +66,27 @@ const SUNSET_STAGING_TRUSTED_PRECREATED = objectFreeze({
   caller_supplies_client_location_uuids: true,
 });
 
+const SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER = objectFreeze({
+  option: 'allowSunsetStagingTrustedPrecreatedProducer',
+  database: 'sunset_staging',
+  kind: 'producer',
+  client_slug: 'sunset',
+  location_key: 'sunset-somo',
+  require_trusted_precreated: true,
+  require_apply: true,
+  require_password_absent: true,
+  require_session_user_is_queue_owner: true,
+  never_create_role: true,
+  never_set_password: true,
+  no_env_overlay: true,
+  caller_supplies_client_location_uuids: true,
+  no_queue_select: true,
+  no_claim_record_reconcile: true,
+  no_handoff: true,
+  no_journal: true,
+  no_send: true,
+});
+
 const ROLE_ATTRIBUTES = objectFreeze({
   rolcanlogin: true,
   rolsuper: false,
@@ -106,6 +127,11 @@ const FUNCTION_SIGNATURES = objectFreeze({
   tenant_email_luna_controlled_draft_record_create: 'tenant_email_luna_controlled_draft_record_create(uuid, uuid, integer, jsonb)',
   tenant_email_luna_controlled_draft_reconcile: 'tenant_email_luna_controlled_draft_reconcile(uuid, uuid, integer, jsonb)',
   tenant_email_luna_controlled_draft_load: 'tenant_email_luna_controlled_draft_load(uuid, uuid)',
+  tenant_email_luna_controlled_draft_staging_schema_ready: 'tenant_email_luna_controlled_draft_staging_schema_ready()',
+  tenant_email_luna_controlled_draft_staging_test_authorize: 'tenant_email_luna_controlled_draft_staging_test_authorize(uuid, uuid, uuid)',
+  tenant_email_luna_controlled_draft_staging_test_prove: 'tenant_email_luna_controlled_draft_staging_test_prove(uuid, uuid, uuid, text)',
+  tenant_email_luna_controlled_draft_staging_test_consume: 'tenant_email_luna_controlled_draft_staging_test_consume(uuid, uuid, uuid)',
+  tenant_email_luna_controlled_draft_staging_test_revoke: 'tenant_email_luna_controlled_draft_staging_test_revoke(uuid)',
 });
 
 const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
@@ -156,6 +182,8 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   no_create_role_in_095: true,
   no_grant_in_097: true,
   no_create_role_in_097: true,
+  no_grant_in_098: true,
+  no_create_role_in_098: true,
   canonical_queue_workers_require_unscoped_claim_execute: true,
   sunset_shadow_runtime_calls_unscoped_claim: false,
   scoped_claim_worker_execute_functions: EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.scoped_claim_worker_execute_functions,
@@ -219,6 +247,7 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   forbidden_databases: FORBIDDEN_DATABASE_NAMES,
   allow_sunset_staging_trusted_precreated_default: false,
   sunset_staging_trusted_precreated: SUNSET_STAGING_TRUSTED_PRECREATED,
+  sunset_staging_trusted_precreated_producer: SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER,
 });
 
 function assertRoleName(roleName) {
@@ -334,6 +363,7 @@ module.exports = {
   RESERVED_ROLE_NAMES,
   FORBIDDEN_DATABASE_NAMES,
   SUNSET_STAGING_TRUSTED_PRECREATED,
+  SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER,
   FUNCTION_SIGNATURES,
   assertRoleName,
   assertUuid,
