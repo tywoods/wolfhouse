@@ -64,6 +64,8 @@ assert.match(api, /class="bc-refresh-btn"/);
 assert.match(api, /function bcInitRangePicker/);
 assert.match(api, /function bcSyncSideDrawerTop/);
 assert.match(api, /bannerBottom/);
+assert.match(api, /border-radius:var\(--radius,14px\)/);
+assert.match(api, /right:16px/);
 assert.match(api, /function bcFieldEditPaintInline/);
 assert.match(api, /id="bc-inline-edit-bar"/);
 assert.match(api, /guest' : ' guests'/);
