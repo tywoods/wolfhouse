@@ -235,10 +235,10 @@ function adminBookingsBuildQuery(extra) {
   var params = new URLSearchParams();
   var client = '';
   try { client = String(getClient() || '').trim(); } catch (_c) { client = ''; }
-  if (!client) {
-    try { client = String((typeof window !== 'undefined' && window.PORTAL_DEFAULT_CLIENT) || '').trim(); } catch (_d) { client = ''; }
-  }
-  var lodging = client === 'wolfhouse-somo' || adminBookingsIsLodging();
+  var defaultClient = '';
+  try { defaultClient = String((typeof window !== 'undefined' && window.PORTAL_DEFAULT_CLIENT) || '').trim(); } catch (_d) { defaultClient = ''; }
+  if (!client) client = defaultClient;
+  var lodging = client === 'wolfhouse-somo' || defaultClient === 'wolfhouse-somo' || adminBookingsIsLodging();
   params.set('client', lodging ? 'wolfhouse-somo' : (client || 'sunset'));
   if (!lodging) {
     params.set('location', getSunsetLocation() || 'sunset-somo');

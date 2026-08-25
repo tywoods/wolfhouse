@@ -38,7 +38,14 @@ assert.match(api, /\.luna-header-ui #tabs \.tab-btn\{[\s\S]{0,160}font-size:14\.
 assert.match(api, /data-tab="bed-calendar"[\s\S]{0,400}data-i18n="nav\.tab\.portalHome">Schedule/);
 assert.match(api, /data-tab="conversations"[\s\S]{0,400}data-i18n="nav\.tab\.inbox">Inbox/);
 assert.match(api, /data-tab="bookings"><span class="tab-ico"/);
-assert.match(api, /lodgingAdmin \|\| clientSlug === 'wolfhouse-somo'/);
+assert.match(
+  fs.readFileSync(path.join(__dirname, 'lib/sunset-bookings-admin-data.js'), 'utf8'),
+  /function fetchLodgingBookingRowsFallback/,
+);
+assert.match(
+  fs.readFileSync(path.join(__dirname, 'lib/sunset-bookings-admin-data.js'), 'utf8'),
+  /LIST_BOOKINGS_SQL_LODGING_BASE[\s\S]{0,800}COALESCE\(NULLIF\(b\.metadata->>'hidden'/,
+);
 assert.match(
   fs.readFileSync(path.join(__dirname, 'browser/sunset-admin-bookings-ui.js'), 'utf8'),
   /params\.set\('client', lodging \? 'wolfhouse-somo'/,

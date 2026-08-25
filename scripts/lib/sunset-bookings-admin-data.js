@@ -142,7 +142,7 @@ SELECT
   b.amount_paid_cents,
   b.balance_due_cents,
   b.metadata,
-  b.hidden,
+  COALESCE(NULLIF(b.metadata->>'hidden', '')::boolean, false) AS hidden,
   b.created_at,
   c.id AS client_id,
   c.slug AS client_slug,
@@ -362,6 +362,49 @@ async function fetchScopedBookingRows(pg, clientSlug, locationId, sortOpts) {
   });
 }
 
+async function fetchLodgingBookingRowsFallback(pg, clientSlug) {
+  const result = await pg.query(
+    `SELECT
+       b.id::text AS booking_id,
+       b.booking_code,
+       b.guest_name,
+       b.phone,
+       b.email,
+       b.status::text AS status,
+       b.payment_status::text AS payment_status,
+       b.booking_source::text AS booking_source,
+       b.operator_name,
+       b.check_in::text AS check_in,
+       b.check_out::text AS check_out,
+       b.package_code,
+       b.total_amount_cents,
+       b.amount_paid_cents,
+       b.balance_due_cents,
+       b.metadata,
+       false AS hidden,
+       b.created_at,
+       c.id AS client_id,
+       c.slug AS client_slug,
+       NULL::text AS location_id
+     FROM bookings b
+     INNER JOIN clients c ON c.id = b.client_id
+     WHERE c.slug = $1
+     ORDER BY b.created_at DESC NULLS LAST, b.booking_code ASC
+     LIMIT 500`,
+    [clientSlug],
+  );
+  return rows(result).map((b) => buildBookingListRow({
+    booking: b,
+    services: [],
+    collected_cents: clampNonNegative(b.amount_paid_cents || 0),
+    refunded_cents: 0,
+    refunds: [],
+    location_id: null,
+    catalog_label_map: null,
+    waiver: null,
+  }));
+}
+
 /**
  * List bookings for Admin Bookings panel. Summary is filter-global;
  * `rows` is the requested page slice.
@@ -378,17 +421,29 @@ async function listSunsetBookingsAdmin(pg, scope, query) {
   // Force location match to scope (query location filter may not broaden).
   filters.location_id = lodging ? null : locationId;
 
-  await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   let allRows;
-  try {
-    allRows = await fetchScopedBookingRows(pg, clientSlug, locationId, {
-      sort: filters.sort,
-      dir: filters.dir,
-    });
-    await pg.query('COMMIT');
-  } catch (err) {
-    try { await pg.query('ROLLBACK'); } catch (_e) { /* ignore */ }
-    throw err;
+  if (lodging) {
+    try {
+      allRows = await fetchScopedBookingRows(pg, clientSlug, locationId, {
+        sort: filters.sort,
+        dir: filters.dir,
+      });
+    } catch (err) {
+      console.error('[admin.bookings.list] lodging scoped read failed:', err && err.code, err && err.message);
+      allRows = await fetchLodgingBookingRowsFallback(pg, clientSlug);
+    }
+  } else {
+    await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    try {
+      allRows = await fetchScopedBookingRows(pg, clientSlug, locationId, {
+        sort: filters.sort,
+        dir: filters.dir,
+      });
+      await pg.query('COMMIT');
+    } catch (err) {
+      try { await pg.query('ROLLBACK'); } catch (_e) { /* ignore */ }
+      throw err;
+    }
   }
 
   const filtered = filterBookingRows(allRows, filters);
