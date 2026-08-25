@@ -1432,7 +1432,7 @@
       "inForwardChain": true,
       "rationale": "FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 2: dedicated controlled provider-draft operation table plus append-only transition journal. One row per authentic Stage 1 issuance/operation. States are reserved / create_dispatched_outcome_unknown / provider_draft_reconciled_exact / modified_by_staff / removed_by_staff / provider_mismatch_blocked. At most one create-dispatch claim. No send phase, send counter, send authorization, or outbound journal handoff. Trusted scope is loaded from 092/086/082/063. No GRANT/CREATE ROLE.",
       "downFilename": "097_tenant_email_luna_controlled_draft_operations_down.sql",
-      "sha256": "908d9514a86bc5cea6bcf532bbb525ee860ffaa78c474d234474e7f423676f42"
+      "sha256": "e36e2028eaf6d473e399a2326b988c40aad55e58d5f8fb6cfec35f96acfbfb62"
     },
     {
       "id": "097_tenant_email_luna_controlled_draft_operations_down",
@@ -1442,7 +1442,7 @@
       "inForwardChain": false,
       "rationale": "Refuses rollback while controlled-draft operation or transition rows exist; otherwise drops 097 functions/tables and the inbound identity unique added for this slice. Second empty execution is safe. Does not drop Stage 1 or send-journal objects.",
       "pairsWith": "097_tenant_email_luna_controlled_draft_operations.sql",
-      "sha256": "43c88bf0d39a260f975aea1ee301fe0b81da6b38b731eaed481ab4ce8baa0b0f"
+      "sha256": "c8bc12db0b0d1ed3cb2dc29a28a3cf4e35105747c2f9dcc30064122577276242"
     }
   ]
 }

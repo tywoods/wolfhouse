@@ -106,6 +106,8 @@ const DIGEST_RE = /^[0-9a-f]{64}$/;
 const LOCATION_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const PUBLIC_ADDRESS_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const GRAPH_ID_RE = /^[\x21-\x7e]+$/;
+const PROVIDER_ID_FORBIDDEN_RE = /[/?#%\\]/;
+const PROVIDER_ID_PERCENT_CONFUSION_RE = /%2e%2e|%2f|%5c/;
 
 const EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT = objectFreeze({
   table: 'tenant_email_luna_controlled_draft_operations',
@@ -253,13 +255,12 @@ function parseOptionalGeneration(raw) {
 }
 
 function isProviderId(value) {
-  return typeof value === 'string'
-    && value.length >= 1
-    && value.length <= 2048
-    && value !== '.'
-    && value !== '..'
-    && regexpTest(GRAPH_ID_RE, value)
-    && !/[/?#]/.test(value);
+  if (typeof value !== 'string' || value.length < 1 || value.length > 2048) return false;
+  if (value === '.' || value === '..') return false;
+  if (!regexpTest(GRAPH_ID_RE, value)) return false;
+  if (regexpTest(PROVIDER_ID_FORBIDDEN_RE, value)) return false;
+  if (regexpTest(PROVIDER_ID_PERCENT_CONFUSION_RE, stringToLowerCase(value))) return false;
+  return true;
 }
 
 function digestUtf8(value) {
@@ -303,8 +304,17 @@ function queryRows(result) {
 }
 
 function readField(source, key) {
-  const descriptor = objectGetOwnPropertyDescriptor(source, key);
-  return descriptor && objectHasOwn(descriptor, 'value') ? descriptor.value : source[key];
+  if (source === null || typeof source !== 'object' || isProxySurface(source) || arrayIsArray(source)) throw invalid();
+  if (typeof key !== 'string') throw invalid();
+  try {
+    if (!objectHasOwn(source, key)) throw invalid();
+    const descriptor = objectGetOwnPropertyDescriptor(source, key);
+    if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) throw invalid();
+    return descriptor.value;
+  } catch (error) {
+    if (error && error.code === ERROR_CODE) throw error;
+    throw invalid();
+  }
 }
 
 function resolveQuery(client) {

@@ -14,7 +14,11 @@
 --
 -- Canonical key: one row per authentic Stage 1 queue operation / issuance
 -- (operation_id PK, unique issuance_id). Trusted scope is loaded from 092/086/082
--- /085/057 rows. Callers cannot invent tenant/location/mailbox/inbound/thread.
+-- /085/057/063 rows. Callers cannot invent tenant/location/mailbox/inbound/thread.
+-- Reserve recomputes subject/body digests with pgcrypto SHA-256 over UTF-8 and the
+-- exact 092 draft digest (subject || NUL || body || NUL || language). Caller digest
+-- fields are not authority; only recomputed values are persisted. Reserve and claim
+-- require the authentic 086 queue row to remain pending or claimed.
 --
 -- States (explicit; never claim delivery or send):
 --   reserved
@@ -75,8 +79,15 @@ AS $$
     AND char_length(p_id) BETWEEN 1 AND 2048
     AND p_id IS DISTINCT FROM '.'
     AND p_id IS DISTINCT FROM '..'
-    AND p_id !~ '[/?#]'
-    AND p_id ~ '^[\x21-\x7e]+$';
+    AND p_id ~ '^[\x21-\x7e]+$'
+    AND position('/' in p_id) = 0
+    AND position('?' in p_id) = 0
+    AND position('#' in p_id) = 0
+    AND position('%' in p_id) = 0
+    AND position(E'\\' in p_id) = 0
+    AND lower(p_id) NOT LIKE '%\%2e%2e%' ESCAPE '\'
+    AND lower(p_id) NOT LIKE '%\%2f%' ESCAPE '\'
+    AND lower(p_id) NOT LIKE '%\%5c%' ESCAPE '\';
 $$;
 
 CREATE TABLE IF NOT EXISTS public.tenant_email_luna_controlled_draft_operations (
@@ -510,6 +521,9 @@ DECLARE
   e public.tenant_email_inbound_events;
   op public.tenant_email_luna_controlled_draft_operations;
   actor text;
+  v_subject_digest text;
+  v_body_digest text;
+  v_draft_digest text;
 BEGIN
   IF p_operation_id IS NULL OR p_issuance_id IS NULL
      OR p_canonical_subject IS NULL OR p_canonical_body IS NULL
@@ -524,6 +538,36 @@ BEGIN
      OR p_draft_digest !~ '^[0-9a-f]{64}$'
      OR p_language NOT IN ('en', 'es') THEN
     RAISE EXCEPTION 'tenant_email_luna_controlled_draft_reserve: material shape refused' USING ERRCODE = '23514';
+  END IF;
+
+  -- pgcrypto SHA-256 over UTF-8. Same primitive 086 uses for recipient_digest:
+  -- encode(sha256(convert_to(..., 'UTF8')), 'hex') ≡ digest(bytea, 'sha256').
+  v_subject_digest := pg_catalog.encode(
+    pg_catalog.sha256(pg_catalog.convert_to(p_canonical_subject, 'UTF8')),
+    'hex'
+  );
+  v_body_digest := pg_catalog.encode(
+    pg_catalog.sha256(pg_catalog.convert_to(p_canonical_body, 'UTF8')),
+    'hex'
+  );
+  v_draft_digest := pg_catalog.encode(
+    pg_catalog.sha256(
+      pg_catalog.convert_to(p_canonical_subject, 'UTF8')
+      || E'\\x00'::bytea
+      || pg_catalog.convert_to(p_canonical_body, 'UTF8')
+      || E'\\x00'::bytea
+      || pg_catalog.convert_to(p_language, 'UTF8')
+    ),
+    'hex'
+  );
+  IF v_subject_digest IS NULL OR v_body_digest IS NULL OR v_draft_digest IS NULL
+     OR v_subject_digest !~ '^[0-9a-f]{64}$'
+     OR v_body_digest !~ '^[0-9a-f]{64}$'
+     OR v_draft_digest !~ '^[0-9a-f]{64}$'
+     OR p_subject_digest IS DISTINCT FROM v_subject_digest
+     OR p_body_digest IS DISTINCT FROM v_body_digest
+     OR p_draft_digest IS DISTINCT FROM v_draft_digest THEN
+    RAISE EXCEPTION 'tenant_email_luna_controlled_draft_reserve: digest/language mismatch' USING ERRCODE = '23514';
   END IF;
 
   SELECT * INTO m
@@ -559,8 +603,11 @@ BEGIN
      OR q.draft_digest IS DISTINCT FROM m.draft_digest THEN
     RAISE EXCEPTION 'tenant_email_luna_controlled_draft_reserve: issuance/queue identity conflict' USING ERRCODE = '23514';
   END IF;
+  IF q.state IS DISTINCT FROM 'pending' AND q.state IS DISTINCT FROM 'claimed' THEN
+    RAISE EXCEPTION 'tenant_email_luna_controlled_draft_reserve: queue not live' USING ERRCODE = '23514';
+  END IF;
   IF m.language IS DISTINCT FROM p_language
-     OR m.draft_digest IS DISTINCT FROM p_draft_digest THEN
+     OR m.draft_digest IS DISTINCT FROM v_draft_digest THEN
     RAISE EXCEPTION 'tenant_email_luna_controlled_draft_reserve: digest/language mismatch' USING ERRCODE = '23514';
   END IF;
 
@@ -592,9 +639,9 @@ BEGIN
        OR op.issuance_id IS DISTINCT FROM p_issuance_id
        OR op.canonical_subject IS DISTINCT FROM p_canonical_subject
        OR op.canonical_body IS DISTINCT FROM p_canonical_body
-       OR op.subject_digest IS DISTINCT FROM p_subject_digest
-       OR op.body_digest IS DISTINCT FROM p_body_digest
-       OR op.draft_digest IS DISTINCT FROM p_draft_digest THEN
+       OR op.subject_digest IS DISTINCT FROM v_subject_digest
+       OR op.body_digest IS DISTINCT FROM v_body_digest
+       OR op.draft_digest IS DISTINCT FROM v_draft_digest THEN
       RAISE EXCEPTION 'tenant_email_luna_controlled_draft_reserve: identity conflict' USING ERRCODE = '23514';
     END IF;
     status := 'replayed';
@@ -642,7 +689,7 @@ BEGIN
       m.operation_id, m.issuance_id, m.audit_operation_id, m.client_id, m.location_id, m.location_key,
       m.endpoint_id, m.conversation_id, m.inbound_event_id, e.provider, e.provider_mailbox_id,
       e.provider_message_id, e.conversation_id, m.recipient_address,
-      p_canonical_subject, p_canonical_body, p_subject_digest, p_body_digest, m.draft_digest,
+      p_canonical_subject, p_canonical_body, v_subject_digest, v_body_digest, v_draft_digest,
       q.policy_version, q.eligibility_policy_version, q.validator_version,
       'reserved', FALSE, NULL, NULL, NULL, 1
     )
@@ -653,7 +700,7 @@ BEGIN
         FROM public.tenant_email_luna_controlled_draft_operations AS o
        WHERE o.operation_id = p_operation_id
          AND o.issuance_id = p_issuance_id
-         AND o.draft_digest = p_draft_digest
+         AND o.draft_digest = v_draft_digest
        FOR SHARE;
       IF op.operation_id IS NULL THEN
         RAISE EXCEPTION 'tenant_email_luna_controlled_draft_reserve: identity conflict' USING ERRCODE = '23514';
@@ -767,11 +814,24 @@ SET search_path TO pg_catalog, public
 AS $$
 DECLARE
   op public.tenant_email_luna_controlled_draft_operations;
+  q public.tenant_email_luna_automation_queue;
   actor text;
   claimed_at timestamptz;
 BEGIN
   IF p_operation_id IS NULL OR p_issuance_id IS NULL THEN
     RETURN;
+  END IF;
+
+  SELECT * INTO q
+    FROM public.tenant_email_luna_automation_queue AS qq
+   WHERE qq.operation_id = p_operation_id
+     AND qq.issuance_id = p_issuance_id
+   FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'tenant_email_luna_controlled_draft_claim_create: authentic queue missing' USING ERRCODE = '23514';
+  END IF;
+  IF q.state IS DISTINCT FROM 'pending' AND q.state IS DISTINCT FROM 'claimed' THEN
+    RAISE EXCEPTION 'tenant_email_luna_controlled_draft_claim_create: queue not live' USING ERRCODE = '23514';
   END IF;
 
   SELECT * INTO op
@@ -1495,9 +1555,9 @@ CREATE POLICY tenant_email_luna_controlled_draft_operations_principal_select
   );
 
 COMMENT ON FUNCTION public.tenant_email_luna_controlled_draft_reserve(uuid, uuid, text, text, text, text, text, text) IS
-  'Producer reserve of one controlled provider-draft operation from authentic Stage 1 issuance/queue/inbound rows. Does not invent tenant/location/mailbox/inbound identity. Same-identity replay returns the existing row. No send.';
+  'Producer reserve of one controlled provider-draft operation from authentic Stage 1 issuance/queue/inbound rows. Recomputes subject/body/draft digests with pgcrypto SHA-256 over UTF-8 using the 092 NUL-separated algorithm; caller digest arguments are not authority and must equal the recomputed values. Requires the authentic 086 queue row to remain pending or claimed. Does not invent tenant/location/mailbox/inbound identity. Same-identity replay returns the existing row. No send.';
 COMMENT ON FUNCTION public.tenant_email_luna_controlled_draft_claim_create(uuid, uuid, integer) IS
-  'Worker one-shot create-dispatch claim. Repeated claims return the existing state and never increment an attempt counter. Unknown outcome cannot return to reserved.';
+  'Worker one-shot create-dispatch claim. Requires the authentic 086 queue row to remain pending or claimed. Repeated claims return the existing state and never increment an attempt counter. Unknown outcome cannot return to reserved.';
 COMMENT ON FUNCTION public.tenant_email_luna_controlled_draft_record_create(uuid, uuid, integer, jsonb) IS
   'Worker record of a trusted create acknowledgement. Requires exact provider draft id, is_draft true, and exact stored bindings. Mismatch is fail-closed and never overwrites identity. No send.';
 COMMENT ON FUNCTION public.tenant_email_luna_controlled_draft_reconcile(uuid, uuid, integer, jsonb) IS

@@ -1,11 +1,37 @@
 -- Explicit down for 097_tenant_email_luna_controlled_draft_operations.
 -- Fail closed when operation or transition rows exist (refuse silent loss of
 -- provider-draft identity, create-dispatch evidence, or mismatch review state).
--- Empty tables: drop 097 functions, tables, and the inbound identity unique
--- added for this slice. Does not drop 063/085/086/092 rows or send-journal
--- objects. Second empty execution is safe.
+-- ACCESS EXCLUSIVE locks child transitions then parent operations before the
+-- emptiness checks so a concurrent reserve/insert cannot commit between the
+-- check and DROP. Empty tables: drop 097 functions, tables, and the inbound
+-- identity unique added for this slice. Does not drop 063/085/086/092 rows or
+-- send-journal objects. Second empty execution is safe.
 
 BEGIN;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'tenant_email_luna_controlled_draft_transitions'
+       AND c.relkind = 'r'
+  ) THEN
+    LOCK TABLE public.tenant_email_luna_controlled_draft_transitions IN ACCESS EXCLUSIVE MODE;
+  END IF;
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = 'tenant_email_luna_controlled_draft_operations'
+       AND c.relkind = 'r'
+  ) THEN
+    LOCK TABLE public.tenant_email_luna_controlled_draft_operations IN ACCESS EXCLUSIVE MODE;
+  END IF;
+END $$;
 
 DO $$
 BEGIN

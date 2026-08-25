@@ -26,7 +26,8 @@ Trusted scope is loaded from existing Stage 1 rows:
 - mailbox, inbound provider message, inbound provider thread from `063`
 - recipient and draft digest from `092` / inbound sender
 - policy / eligibility / validator versions from `086`
-- canonical subject / body supplied at reserve must match the authentic `092` draft digest and language
+- canonical subject / body supplied at reserve are hashed in SQL with pgcrypto SHA-256 over UTF-8 using the exact `092` algorithm (`subject || NUL || body || NUL || language`); caller digest fields are not authority
+- the authentic `086` queue row must remain `pending` or `claimed` for reserve and claim
 
 A request cannot invent tenant, location, mailbox, inbound, thread, recipient, issuance, or operation identity.
 
@@ -47,7 +48,7 @@ Create dispatch is claimed at most once. Repeated claims return the existing row
 
 Staff-modified and staff-removed states are not recreate-ready. Recording success requires the exact provider draft id, `is_draft=true`, and the exact stored bindings. Mismatch never overwrites a stored provider draft id.
 
-Provider ids reject `.` and `..` even though reused Graph path grammar would permit them.
+Provider ids reject `.`, `..`, `/`, `?`, `#`, `%`, backslash, whitespace/control/C0/DEL, and encoding/path-confusion equivalents such as `%2e%2e`, `%2f`, and `%5c` regardless of case. Legitimate opaque Graph ids from the existing Chapter 2 contract remain accepted.
 
 ## Store surface
 
@@ -78,4 +79,4 @@ One pinned client owns `BEGIN` / row locks / writes / `COMMIT` / `ROLLBACK`. The
 
 ## Rollback
 
-`097_tenant_email_luna_controlled_draft_operations_down.sql` refuses while operation or transition rows exist. Empty rollback is repeatable and does not reopen send authority.
+`097_tenant_email_luna_controlled_draft_operations_down.sql` takes ACCESS EXCLUSIVE locks on transitions then operations before emptiness checks, and refuses while rows exist. Empty rollback is repeatable and does not reopen send authority.

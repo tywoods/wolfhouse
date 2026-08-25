@@ -90,6 +90,13 @@ assert.match(SQL_097, /SECURITY DEFINER/);
 assert.match(SQL_097, /principal_authorized/);
 assert.match(SQL_097, /p_id IS DISTINCT FROM '\.'/);
 assert.match(SQL_097, /p_id IS DISTINCT FROM '\.\.'/);
+assert.match(SQL_097, /position\('\/' in p_id\) = 0/);
+assert.match(SQL_097, /position\('%' in p_id\) = 0/);
+assert.match(SQL_097, /NOT LIKE '%\\%2e%2e%' ESCAPE '\\'/);
+assert.match(SQL_097, /pg_catalog\.sha256\(pg_catalog\.convert_to\(p_canonical_subject, 'UTF8'\)\)/);
+assert.match(SQL_097, /queue not live/);
+assert.match(DOWN_097, /LOCK TABLE public\.tenant_email_luna_controlled_draft_transitions IN ACCESS EXCLUSIVE MODE/);
+assert.match(DOWN_097, /LOCK TABLE public\.tenant_email_luna_controlled_draft_operations IN ACCESS EXCLUSIVE MODE/);
 assert.match(SQL_097, /create_dispatched_outcome_unknown/);
 assert.match(SQL_097, /unknown outcome is reconcile-only/);
 assert.match(SQL_097, /provider_draft_id replacement refused/);
@@ -123,8 +130,12 @@ assert.equal(/function sendDraft|async sendDraft|\.sendDraft\s*=/.test(STORE_SRC
 assert.doesNotMatch(STAFF_API_SRC, /email-luna-controlled-drafting-operation-store/);
 assert.doesNotMatch(COMPOSE_SRC, /email-luna-controlled-drafting-operation-store|controlled_draft_reserve/);
 assert.match(CONTRACT_SRC, /isGraphId/);
-assert.match(STORE_SRC, /value !== '\.'/);
-assert.match(STORE_SRC, /value !== '\.\.'/);
+assert.match(STORE_SRC, /value === '\.' \|\| value === '\.\.'/);
+assert.match(STORE_SRC, /PROVIDER_ID_FORBIDDEN_RE/);
+assert.match(STORE_SRC, /%2e%2e\|%2f\|%5c/);
+assert.match(STORE_SRC, /if \(!objectHasOwn\(source, key\)\) throw invalid\(\)/);
+assert.doesNotMatch(STORE_SRC, /descriptor\.value \? descriptor\.value : source\[key\]/);
+assert.equal(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_history_table, 'tenant_email_luna_controlled_draft_transitions');
 console.log('  PASS  store does not accept request-selected tenant/mailbox; Chapter 1 remains unwired');
 
 const store = createEmailLunaControlledDraftingOperationStore({

@@ -26,7 +26,7 @@ const {
   UP,
   DOWN,
   assertStaticContract,
-  ensureInboundProviderIdentity,
+  applyCommittedInbound063Identity,
   loadDraftStore,
   ackFor,
   persistIssuance,
@@ -77,7 +77,7 @@ async function proveStockPg(client, connectClone) {
   assertStaticContract();
   await applyThrough088(db);
   await db.exec(UP_092);
-  await ensureInboundProviderIdentity(db);
+  await applyCommittedInbound063Identity(db);
   await revokePublicExecuteOutsideCatalogs(db);
   await db.exec(DOWN);
   await db.exec(UP);
@@ -111,7 +111,18 @@ async function proveStockPg(client, connectClone) {
   assert.equal(await hasExecute(client, 'luna_ch2_stock_producer', RESERVE_REG), true);
   assert.equal(await hasExecute(client, 'luna_ch2_stock_producer', LOAD_REG), true);
   assert.equal(await hasExecute(client, 'luna_ch2_stock_producer', CLAIM_REG), false);
-  console.log('ok - stock-PG ACL: producer reserve/load; worker claim/record/load; no PUBLIC');
+  const tableAcl = await client.query(`
+    SELECT
+      pg_catalog.has_table_privilege('luna_ch2_stock_producer', 'public.tenant_email_luna_controlled_draft_operations', 'SELECT') AS producer_select,
+      pg_catalog.has_table_privilege('luna_ch2_stock_worker', 'public.tenant_email_luna_controlled_draft_operations', 'INSERT') AS worker_insert,
+      pg_catalog.has_table_privilege('luna_ch2_stock_producer', 'public.tenant_email_luna_controlled_draft_transitions', 'DELETE') AS producer_tr_delete,
+      pg_catalog.has_table_privilege('luna_ch2_stock_worker', 'public.tenant_email_luna_controlled_draft_transitions', 'SELECT') AS worker_tr_select
+  `);
+  assert.equal(tableAcl.rows[0].producer_select, false);
+  assert.equal(tableAcl.rows[0].worker_insert, false);
+  assert.equal(tableAcl.rows[0].producer_tr_delete, false);
+  assert.equal(tableAcl.rows[0].worker_tr_select, false);
+  console.log('ok - stock-PG ACL: producer reserve/load; worker claim/record/load; no PUBLIC; 097 table DML revoked');
 
   const publicExec = await client.query(
     `SELECT pg_catalog.has_function_privilege('public', $1::regprocedure, 'EXECUTE') AS ok`,
@@ -158,12 +169,47 @@ async function proveStockPg(client, connectClone) {
       canonical_body: seeded.bundle.draft.body,
       language: seeded.bundle.draft.language,
     };
+
+    const locker = await connectClone();
+    const racer = await connectClone();
+    try {
+      await locker.query('BEGIN');
+      await locker.query('LOCK TABLE public.tenant_email_luna_controlled_draft_transitions IN ACCESS EXCLUSIVE MODE');
+      await locker.query('LOCK TABLE public.tenant_email_luna_controlled_draft_operations IN ACCESS EXCLUSIVE MODE');
+      const emptyOps = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_operations');
+      const emptyTr = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_transitions');
+      assert.equal(emptyOps.rows[0].n, 0);
+      assert.equal(emptyTr.rows[0].n, 0);
+      await racer.query("SET lock_timeout = '800ms'");
+      let raceErr = null;
+      try {
+        await racer.query(
+          'INSERT INTO public.tenant_email_luna_controlled_draft_operations SELECT * FROM public.tenant_email_luna_controlled_draft_operations',
+        );
+      } catch (error) {
+        raceErr = error;
+      }
+      assert.ok(raceErr, 'concurrent insert must not commit while ACCESS EXCLUSIVE is held');
+      assert.match(String(raceErr.code || raceErr.message), /55P03|lock timeout|canceling statement/i);
+      const stillEmpty = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_operations');
+      assert.equal(stillEmpty.rows[0].n, 0);
+      await locker.query('ROLLBACK');
+    } finally {
+      try { await locker.query('ROLLBACK'); } catch (_) { /* ignore */ }
+      try { await locker.end(); } catch (_) { /* ignore */ }
+      try { await racer.end(); } catch (_) { /* ignore */ }
+    }
+    console.log('ok - stock-PG two-session DOWN race: insert cannot commit between emptiness check and DROP');
+
     const reserved = await Promise.all([
       storeFor(producerA).reserveControlledDraft(reserveInput),
       storeFor(producerB).reserveControlledDraft(reserveInput),
     ]);
+    const reservedWins = reserved.filter((row) => row.status === 'reserved');
+    const reservedReplays = reserved.filter((row) => row.status === 'replayed');
+    assert.equal(reservedWins.length, 1, 'exactly one first reserve winner');
+    assert.equal(reservedReplays.length, reserved.length - 1);
     assert.ok(reserved.every((row) => row.status === 'reserved' || row.status === 'replayed'));
-    assert.ok(reserved.some((row) => row.status === 'reserved' || row.status === 'replayed'));
     const opCount = await client.query(
       'SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_operations WHERE operation_id = $1',
       [ids.operation],
@@ -182,10 +228,10 @@ async function proveStockPg(client, connectClone) {
         expected_generation: null,
       }),
     ]);
-    assert.ok(claims.some((row) => row.status === 'create_dispatched_outcome_unknown'));
-    assert.ok(claims.every((row) => (
-      row.status === 'create_dispatched_outcome_unknown' || row.status === 'replayed'
-    )));
+    const claimWins = claims.filter((row) => row.status === 'create_dispatched_outcome_unknown');
+    const claimReplays = claims.filter((row) => row.status === 'replayed');
+    assert.equal(claimWins.length, 1, 'exactly one first claim transition');
+    assert.equal(claimReplays.length, claims.length - 1);
     assert.ok(claims.every((row) => row.record.create_dispatch_claimed === true));
     assert.equal(new Set(claims.map((row) => row.record.state_generation)).size, 1);
     const winner = claims.find((row) => row.status === 'create_dispatched_outcome_unknown') || claims[0];
