@@ -19980,11 +19980,17 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 }
 #bc-side-drawer #bc-drawer-card-booking{padding:16px 16px 18px}
 #bc-side-drawer #bc-drawer-card-booking > .bc-drawer-card-title{display:none}
-#bc-side-drawer #bc-field-group-contact .kv-grid > .kv:first-child{display:none}
-#bc-side-drawer #bc-field-group-package .kv-grid > .kv:nth-child(2){display:none}
+#bc-side-drawer #bc-field-group-contact .kv:nth-child(1){display:none!important}
+#bc-side-drawer #bc-field-group-contact .kv:nth-child(2){grid-column:1!important}
+#bc-side-drawer #bc-field-group-contact .kv:nth-child(3){grid-column:2!important}
+#bc-side-drawer #bc-field-group-contact .ctx-field-kv-grid{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+}
+#bc-side-drawer #bc-field-group-dates .kv:nth-child(3){display:none!important}
+#bc-side-drawer #bc-field-group-package .kv:nth-child(2){display:none}
 #bc-side-drawer #bc-drawer-card-booking .ctx-field-edit-group{padding:12px 0 14px}
-#bc-side-drawer #bc-drawer-card-booking .ctx-field-kv-grid--3{grid-template-columns:1fr 1fr!important;gap:14px 18px}
 #bc-side-drawer #bc-drawer-card-booking .kv-grid{gap:14px 18px}
+.bc-side-nights{font-size:11px;font-weight:600;color:var(--text-2);margin-left:6px}
 #bc-side-drawer .bc-drawer-footer{flex-direction:column;align-items:stretch}
 #bc-side-drawer .bc-drawer-footer-right{align-items:stretch;margin-left:0}
 #bc-side-drawer #bc-sel-panel{margin:0;box-shadow:none;border:0;background:transparent;padding:0}
@@ -20003,6 +20009,11 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
   width:calc(100% - 400px)!important;
   max-width:calc(100% - 400px)!important;
   box-sizing:border-box;
+  padding-right:0!important;
+}
+#tab-bed-calendar.bc-cal-side-pinned #wrap-bc > .card{
+  margin-right:0;
+  padding-right:6px;
 }
 #tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer{
   position:fixed;
@@ -40381,6 +40392,18 @@ function bcCloseSideRail(){
   bcUndockCreatePanel();
 }
 
+function bcSideStayMetaHtml(cin, cout){
+  var dates = [cin, cout].filter(Boolean).join(' → ');
+  var nights = 0;
+  if (cin && cout && typeof bcStayNightsFromCheckInOut === 'function') {
+    nights = bcStayNightsFromCheckInOut(cin, cout) || 0;
+  }
+  if (nights > 0) {
+    return escHtml(dates) + ' <span class="bc-side-nights">' + escHtml(String(nights) + 'n') + '</span>';
+  }
+  return escHtml(dates);
+}
+
 function bcDockCreatePanel(){
   if (!bcSideDrawerLive()) return;
   var rail = el('bc-side-drawer');
@@ -40393,6 +40416,9 @@ function bcDockCreatePanel(){
     slot.style.display = 'none';
     panel.parentNode.insertBefore(slot, panel);
   }
+  Array.prototype.slice.call(body.childNodes).forEach(function(node){
+    if (node !== panel) body.removeChild(node);
+  });
   if (panel.parentNode !== body) body.appendChild(panel);
   panel.style.display = 'block';
   panel.style.marginTop = '0';
@@ -40405,7 +40431,7 @@ function bcDockCreatePanel(){
   if (meta){
     var cin = el('bc-sel-cin');
     var cout = el('bc-sel-cout');
-    meta.textContent = ((cin && cin.value) || '') + ((cout && cout.value) ? ' → ' + cout.value : '');
+    meta.innerHTML = bcSideStayMetaHtml(cin && cin.value, cout && cout.value);
   }
 }
 
@@ -40415,6 +40441,9 @@ function bcOpenSideBooking(blk, opts){
   var body = el('bc-side-body');
   if (!rail || !body || !blk) return;
   bcUndockCreatePanel();
+  Array.prototype.slice.call(body.childNodes).forEach(function(node){
+    if (node.id !== 'bc-sel-panel') body.removeChild(node);
+  });
   rail.classList.add('is-open');
   if (opts.pin) bcSetSidePinned(true);
   rail.dataset.mode = 'booking';
@@ -40425,7 +40454,7 @@ function bcOpenSideBooking(blk, opts){
   if (title) title.textContent = blk.guest_name || blk.booking_code || 'Booking';
   var cin = blk.check_in || blk.start_date || '';
   var cout = blk.check_out || blk.end_date || '';
-  if (meta) meta.textContent = [cin, cout].filter(Boolean).join(' → ');
+  if (meta) meta.innerHTML = bcSideStayMetaHtml(cin, cout);
   var code = blk.booking_code;
   if (code && bcLastBookingContext && bcLastBookingContext.booking &&
       String(bcLastBookingContext.booking.booking_code) === String(code) &&
