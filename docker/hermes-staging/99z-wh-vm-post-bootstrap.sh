@@ -203,6 +203,11 @@ model:
   provider: xai-oauth
 agent:
   reasoning_effort: medium
+tools:
+  # xAI reserves this function name for its native tool-search API. Keep
+  # Hermes progressive disclosure off for Deckhand and expose tools directly.
+  tool_search:
+    enabled: off
 curator:
   enabled: false
 terminal:
@@ -225,6 +230,11 @@ model:
   provider: xai-oauth
 agent:
   reasoning_effort: medium
+tools:
+  # xAI reserves this function name for its native tool-search API. Keep
+  # Hermes progressive disclosure off for Deckhand and expose tools directly.
+  tool_search:
+    enabled: off
 curator:
   enabled: false
 terminal:

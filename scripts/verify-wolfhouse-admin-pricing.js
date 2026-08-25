@@ -36,7 +36,18 @@ function ok(label, condition, detail) {
 
 const config = resolve.loadPricingConfig();
 const seasons = resolve.configSeasons(config);
-const rules = resolve.configPricingRules(config);
+const rules = resolve.configPricingRules(config).concat(
+  resolve.listConfigPackageSeeds(config).flatMap((s) => (s.prices || []).map((pr) => ({
+    item_type: 'package',
+    item_code: s.code,
+    season_code: pr.season_code,
+    unit: pr.unit,
+    amount_cents: pr.amount_cents,
+    currency: 'EUR',
+    source: 'config',
+    label: s.label,
+  }))),
+);
 
 // ── Season windows ──────────────────────────────────────────────────────────
 console.log('\n── Season windows ──');
@@ -133,13 +144,11 @@ ok('every package season price is flattened',
 ok('package unit is per person per week',
   find('package', 'malibu', 'august').unit === 'per_person_per_week');
 
-ok('private room supplement is 1000 per room per night',
-  find('supplement', 'private', null).amount_cents === 1000
-  && find('supplement', 'private', null).unit === 'per_room_per_night');
+ok('private room supplement seeds as a staff extra',
+  resolve.listConfigExtraSeeds(config).some((s) => s.code === 'private' && s.amount_cents === 1000 && s.unit === 'per_room_per_night'));
 
-ok('the free shared room stays in the catalog at zero',
-  find('supplement', 'shared', null).amount_cents === 0
-  && find('supplement', 'shared', null).unit === 'per_person_per_night');
+ok('the free shared room stays in the extra seeds at zero',
+  resolve.listConfigExtraSeeds(config).some((s) => s.code === 'shared' && s.amount_cents === 0 && s.unit === 'per_person_per_night'));
 
 ok('a zero supplement is writable but a zero rental is not',
   writes.validatePriceRuleBody({
@@ -149,29 +158,25 @@ ok('a zero supplement is writable but a zero rental is not',
     item_type: 'rental', item_code: 'wetsuit_rental__1_day', unit: 'per_day', amount_cents: 0,
   }).ok === false);
 
-ok('both deposit tiers are flattened',
-  find('deposit', 'standard_package', null).amount_cents === 20000
-  && find('deposit', 'custom_or_short_stay', null).amount_cents === 10000);
+ok('deposit tiers become staff extra seeds',
+  resolve.listConfigExtraSeeds(config).filter((s) => s.item_type === 'deposit').length === 2
+  && resolve.listConfigExtraSeeds(config).some((s) => s.code === 'standard_package' && s.amount_cents === 20000));
 
-ok('gear add-ons flatten to rentals with a duration suffix',
-  find('rental', 'wetsuit_rental__1_day', null).amount_cents === 500
-  && find('rental', 'hard_board_rental__1_day', null).amount_cents === 2000
-  && find('rental', 'wetsuit_soft_top_combo__1_day', null).amount_cents === 1500);
+ok('gear add-ons are not flattened as built-in rental rules',
+  !find('rental', 'wetsuit_rental__1_day', null)
+  && !find('rental', 'hard_board_rental__1_day', null));
+ok('gear add-ons become staff rental seeds with titles',
+  resolve.listConfigRentalSeeds(config).some((s) => s.code === 'wetsuit_rental' && s.amount_cents === 500 && s.label === 'Wetsuit rental'));
 
-ok('non-gear add-ons flatten to services',
-  find('service', 'yoga_class', null).amount_cents === 1500
-  && find('service', 'yoga_class', null).unit === 'per_class');
+ok('non-gear add-ons become staff service seeds',
+  resolve.listConfigServiceSeeds(config).some((s) => s.code === 'yoga_class' && s.amount_cents === 1500 && s.unit === 'per_class'));
 
-ok('the multi-lesson bundle uses its price_cents_each',
-  find('service', 'surf_lesson_multi', null).amount_cents === 3000);
+ok('the multi-lesson bundle seed uses its price_cents_each',
+  resolve.listConfigServiceSeeds(config).some((s) => s.code === 'surf_lesson_multi' && s.amount_cents === 3000));
 
-// The config ships both `meal` and `meals` at the same price, and its bytes are
-// pinned by the factory certificate chain, so the duplicate cannot simply be
-// deleted. Collapsing them here is what stops the portal from offering two
-// meal services whose prices could drift apart.
-ok('duplicated meal/meals config entries collapse to one service',
-  rules.filter((r) => r.item_type === 'service' && r.item_code === 'meal').length === 1
-  && find('service', 'meals', null) === null);
+ok('duplicated meal/meals config entries collapse to one service seed',
+  resolve.listConfigServiceSeeds(config).filter((s) => s.code === 'meal').length === 1
+  && !resolve.listConfigServiceSeeds(config).some((s) => s.code === 'meals'));
 
 ok('no config rule carries a negative or non-integer amount',
   rules.every((r) => Number.isInteger(r.amount_cents) && r.amount_cents >= 0));
@@ -444,32 +449,138 @@ ok('view reports the write flag so the UI can render read-only',
 ok('view lists every season', view.seasons.length === seasons.length);
 ok('view keeps the closed season flagged unbookable',
   view.seasons.find((s) => s.code === 'closed').bookable === false);
+ok('empty overlay has no built-in packages', view.packages.length === 0);
 
-const malibuView = view.packages.find((p) => p.code === 'malibu');
+const packageSeeds = resolve.listConfigPackageSeeds(config);
+const viewPromotedPackages = resolve.buildAdminPricingView({
+  config,
+  transferConfig,
+  dbSeasons: [],
+  dbRules: packageSeeds.flatMap((s) => (s.prices || []).map((pr) => ({
+    item_type: 'package', item_code: s.code, season_code: pr.season_code,
+    unit: pr.unit, amount_cents: pr.amount_cents, currency: 'EUR', active: true, label: s.label,
+  }))),
+  dbItems: packageSeeds.map((s) => ({
+    item_type: 'package', item_code: s.code, label: s.label,
+    metadata: { pebble: s.pebble }, active: true,
+  })),
+  dbTransferRules: [],
+  writesEnabled: true,
+});
+const malibuView = viewPromotedPackages.packages.find((p) => p.code === 'malibu');
+ok('promoted packages are staff-owned',
+  viewPromotedPackages.packages.length === 3
+  && viewPromotedPackages.packages.every((p) => p.source === 'db'));
 ok('every package carries one slot per season',
   malibuView.prices.length === view.seasons.length);
-ok('a package price is filled from the config seed',
+ok('a package price is filled from the promoted seed',
   malibuView.prices.find((p) => p.season_code === 'august').price.amount_cents === 34900);
 ok('a season with no package price surfaces as null, not zero',
   malibuView.prices.find((p) => p.season_code === 'closed').price === null);
+ok('promoted packages keep pebble tokens without underscores',
+  viewPromotedPackages.packages.every((p) => p.pebble && !/_/.test(p.pebble)));
 
-const wetsuitView = view.rentals.find((r) => r.code === 'wetsuit_rental');
-ok('rentals group their duration rows',
-  wetsuitView && wetsuitView.durations.length === 1
-  && wetsuitView.durations[0].duration === '1_day'
-  && wetsuitView.durations[0].amount_cents === 500);
-ok('rentals keep the full item_code for writes',
-  wetsuitView.durations[0].item_code === 'wetsuit_rental__1_day');
+ok('config rentals are no longer listed as built-in catalog rows',
+  !view.rentals.some((r) => r.code === 'wetsuit_rental'));
+ok('empty overlay has no built-in rentals',
+  view.rentals.every((r) => r.source === 'db'));
 
-ok('services appear with their unit',
-  view.services.find((s) => s.code === 'yoga_class').price.unit === 'per_class');
+const rentalSeeds = resolve.listConfigRentalSeeds(config);
+ok('config rental seeds keep human titles without underscores',
+  rentalSeeds.length === 5
+  && rentalSeeds.every((s) => s.label && !/_/.test(s.label)));
+
+const viewPromoted = resolve.buildAdminPricingView({
+  config,
+  transferConfig,
+  dbSeasons: [],
+  dbRules: rentalSeeds.map((s) => ({
+    item_type: 'rental',
+    item_code: `${s.code}__${s.duration}`,
+    season_code: null,
+    unit: s.unit,
+    amount_cents: s.amount_cents,
+    currency: 'EUR',
+    active: true,
+    label: s.label,
+  })),
+  dbItems: rentalSeeds.map((s) => ({
+    item_type: 'rental', item_code: s.code, label: s.label, metadata: {}, active: true,
+  })),
+  dbTransferRules: [],
+  writesEnabled: true,
+});
+ok('promoted rentals are staff-owned',
+  viewPromoted.rentals.length === 5
+  && viewPromoted.rentals.every((r) => r.source === 'db'));
+ok('promoted rental titles have no underscores',
+  viewPromoted.rentals.every((r) => r.label && !/_/.test(r.label)));
+ok('promoted wetsuit still prices per day at the live amount',
+  viewPromoted.rentals.find((r) => r.code === 'wetsuit_rental').durations[0].amount_cents === 500);
+
+const overlayCfg = resolve.applyOverlayPricesToConfig(config, [{
+  item_type: 'rental', item_code: 'wetsuit_rental__1_day', amount_cents: 777, active: true,
+}]);
+ok('overlay rental prices win over JSON add-on cents',
+  overlayCfg.add_ons.wetsuit_rental.price_cents === 777
+  && config.add_ons.wetsuit_rental.price_cents === 500);
+
+const overlayAll = resolve.applyOverlayPricesToConfig(config, [
+  { item_type: 'package', item_code: 'malibu', season_code: 'august', amount_cents: 11100, active: true },
+  { item_type: 'service', item_code: 'yoga_class', amount_cents: 1800, unit: 'per_class', active: true },
+  { item_type: 'deposit', item_code: 'standard_package', amount_cents: 25000, unit: 'per_person', active: true },
+  { item_type: 'supplement', item_code: 'private', amount_cents: 1500, unit: 'per_room_per_night', active: true },
+]);
+ok('overlay package prices win over JSON seasonal cents',
+  overlayAll.packages.find((p) => p.code === 'malibu').seasonal_prices.august.weekly_per_person_cents === 11100);
+ok('overlay service prices win over JSON add-on cents',
+  overlayAll.add_ons.yoga_class.price_cents === 1800);
+ok('overlay deposit prices and scope win over JSON',
+  overlayAll.deposits.tiers.standard_package.amount_cents === 25000
+  && overlayAll.deposits.scope === 'per_person');
+ok('overlay room supplement prices win over JSON',
+  overlayAll.room_supplements.private.per_room_per_night_cents === 1500);
+
+ok('empty overlay has no built-in services or extras',
+  view.services.length === 0
+  && view.extras.deposits.length === 0
+  && view.extras.supplements.length === 0);
+
+const serviceSeeds = resolve.listConfigServiceSeeds(config);
+const extraSeeds = resolve.listConfigExtraSeeds(config);
+const viewPromotedCatalog = resolve.buildAdminPricingView({
+  config,
+  transferConfig,
+  dbSeasons: [],
+  dbRules: serviceSeeds.concat(extraSeeds).map((s) => ({
+    item_type: s.item_type,
+    item_code: s.rule_code || s.code,
+    season_code: null,
+    unit: s.unit,
+    amount_cents: s.amount_cents,
+    currency: 'EUR',
+    active: true,
+    label: s.label,
+  })),
+  dbItems: serviceSeeds.concat(extraSeeds).map((s) => ({
+    item_type: s.item_type, item_code: s.code, label: s.label, metadata: {}, active: true,
+  })),
+  dbTransferRules: [],
+  writesEnabled: true,
+});
+ok('promoted services are staff-owned',
+  viewPromotedCatalog.services.length === serviceSeeds.length
+  && viewPromotedCatalog.services.every((s) => s.source === 'db'));
+ok('promoted extras are staff-owned and titled',
+  viewPromotedCatalog.extras.deposits.length === 2
+  && viewPromotedCatalog.extras.supplements.length === extraSeeds.filter((s) => s.item_type === 'supplement').length
+  && viewPromotedCatalog.extras.deposits.every((d) => d.source === 'db' && d.label && !/_/.test(d.label)));
+ok('promoted yoga still prices per class',
+  viewPromotedCatalog.services.find((s) => s.code === 'yoga_class').price.unit === 'per_class');
 
 const sdrView = view.transfers.find((t) => t.airport_code === 'SDR');
 ok('transfers merge eligibility with price',
   sdrView && sdrView.included_when_package === true && sdrView.price.amount_cents === 2500);
-
-ok('extras split deposits and supplements',
-  view.extras.deposits.length === 2 && view.extras.supplements.length === 3);
 
 ok('every config-sourced price is tagged config',
   view.packages.every((p) => p.prices.every((s) => !s.price || s.price.source === 'config')));
@@ -494,8 +605,8 @@ ok('an edited price shows the DB value tagged as db',
   viewWithDb.packages.find((p) => p.code === 'malibu').prices
     .find((s) => s.season_code === 'august').price.amount_cents === 37500);
 
-ok('a config-seeded package is marked config-owned',
-  view.packages.find((p) => p.code === 'malibu').source === 'config');
+ok('a price-only overlay package without a catalog item stays config-owned',
+  viewWithDb.packages.find((p) => p.code === 'malibu').source === 'config');
 ok('a staff-created rental is marked staff-owned',
   viewWithDb.rentals.find((r) => r.code === 'longboard_rental').source === 'db');
 ok('editing a config item price does not make staff the owner of the item',
@@ -709,8 +820,8 @@ async function runRouteChecks() {
   const read = readHarness.sent[0];
   ok('a read succeeds with the write flag off', read.status === 200 && read.body.success === true);
   ok('a read reports writes as disabled', read.body.writes_enabled === false);
-  ok('a read returns the merged catalog',
-    Array.isArray(read.body.packages) && read.body.packages.length > 0
+  ok('a read returns seasons even without a catalog overlay',
+    Array.isArray(read.body.packages)
     && Array.isArray(read.body.seasons) && read.body.seasons.length > 0);
 
   const wrongClient = harness();
@@ -742,9 +853,9 @@ async function runRouteChecks() {
   ok('a read still succeeds when the overlay is unreadable', broken.status === 200);
   ok('a degraded read says so instead of pretending',
     broken.body.overlay_available === false && !!broken.body.overlay_error);
-  ok('a degraded read still serves the config prices',
-    broken.body.packages.find((p) => p.code === 'malibu').prices
-      .find((s) => s.season_code === 'august').price.amount_cents === 34900);
+  ok('a degraded read still serves seasons from config',
+    Array.isArray(broken.body.seasons) && broken.body.seasons.length > 0
+    && Array.isArray(broken.body.packages) && broken.body.packages.length === 0);
 
   // Writes are gated
   const flagOff = harness({ body: { code: 'x', label: 'X', ranges: [{ start_month: 8, start_day: 1, end_month: 8, end_day: 31 }] } });
@@ -922,7 +1033,10 @@ function runPricingUi(viewPayload, editing) {
 function uiChecks() {
   console.log('\n── Browser UI ──');
 
-  const writable = Object.assign({}, view, { writes_enabled: true });
+  const writable = Object.assign({}, view, {
+    writes_enabled: true,
+    packages: viewPromotedPackages.packages,
+  });
   const { html, window: win } = runPricingUi(writable);
 
   ok('the module exposes its entry point',
@@ -952,8 +1066,29 @@ function uiChecks() {
   ok('recurring ranges render as month and day', /Aug 1\s*–\s*Aug 31/.test(html));
   ok('a transfer shows its airport code', html.includes('(SDR)'));
   ok('Bilbao surfaces its group minimum', html.includes('min group') && html.includes('4'));
-  ok('deposits render in euros', html.includes('€200.00'));
-  ok('the private room supplement renders', html.includes('€10.00'));
+  ok('deposits render in euros',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('€200.00'));
+  ok('the private room supplement renders',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('€10.00'));
+  ok('promoted extras offer Delete inside the edit panel',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+      .includes('data-wh-item-type="deposit"')
+    && !runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html
+      .includes('data-wh-price-action="delete-item"'));
+  ok('deposit edit offers per-booking and per-person radios',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+      .includes('name="wh-deposit-scope"')
+    && runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+      .includes('Per booking')
+    && runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+      .includes('Per person'));
+  ok('editable mode offers Add extras',
+    html.includes('data-wh-price-action="new-extra"'));
+  ok('the new-extra form asks for type, amount, and deposit scope',
+    runPricingUi(writable, 'item:extra:__new__').html.includes('wh-price-extra-kind')
+    && runPricingUi(writable, 'item:extra:__new__').html.includes('wh-price-item-amount')
+    && runPricingUi(writable, 'item:extra:__new__').html.includes('name="wh-deposit-scope"')
+    && runPricingUi(writable, 'item:extra:__new__').html.includes('save-new-extra'));
 
   ok('editable mode offers Edit controls',
     html.includes('data-wh-price-action="edit-package-price"'));
@@ -969,23 +1104,50 @@ function uiChecks() {
 
   // A config-seeded item cannot be deleted — the JSON seed re-adds it — so the
   // portal must not show a Delete that quietly does nothing.
-  ok('a config-seeded package shows no Delete button',
-    !html.includes('data-wh-item-type="package" data-wh-item-code="malibu"'));
-  ok('a config-seeded catalog item is labelled built-in',
-    html.includes('built-in'));
+  ok('a promoted package can be deleted from its edit panel',
+    runPricingUi(writable, 'item:package:malibu').html
+      .includes('data-wh-item-type="package" data-wh-item-code="malibu"')
+    && !html.includes('data-wh-price-action="delete-item"'));
+  ok('closed packages show a pencil, not Delete',
+    html.includes('data-wh-price-action="edit-package"')
+    && html.includes('aria-label="Edit"'));
+  ok('the new-package form offers pebble colors in a dropdown',
+    runPricingUi(writable, 'item:package:__new__').html.includes('id="wh-price-item-pebble"')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-pebble-dd')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('pkg-pebble-sage')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('pick-pebble')
+    && !runPricingUi(writable, 'item:package:__new__').html.includes('<select id="wh-price-item-pebble"'));
+  ok('each package offers a pencil to open edit',
+    html.includes('data-wh-price-action="edit-package"')
+    && html.includes('data-wh-item-code="malibu"'));
+  ok('package edit can change pebble color',
+    runPricingUi(writable, 'item:package:malibu').html.includes('id="wh-price-item-pebble"')
+    && runPricingUi(writable, 'item:package:malibu').html.includes('save-package-item'));
+  ok('create package asks for minimum days and daily proration',
+    runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-min-days')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-prorate'));
+  ok('edit package asks for minimum days and daily proration',
+    runPricingUi(writable, 'item:package:malibu').html.includes('wh-price-item-min-days')
+    && runPricingUi(writable, 'item:package:malibu').html.includes('Allow daily proration'));
+  ok('a config-sourced transfer is labelled default',
+    html.includes('default'));
 
   const newPackageForm = runPricingUi(writable, 'item:package:__new__').html;
-  ok('the new-package form asks for a name and a code',
+  ok('the new-package form asks for a name',
     newPackageForm.includes('wh-price-item-label')
-    && newPackageForm.includes('wh-price-item-code'));
+    && !newPackageForm.includes('wh-price-item-code'));
   ok('the new-package form asks for no single amount',
     !newPackageForm.includes('wh-price-item-amount')
     && newPackageForm.includes('data-wh-price-action="save-new-item"'));
   ok('the new-rental form still asks for a unit and an amount',
-    runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-amount'));
+    runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-amount')
+    && !runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-code'));
 
   // Read-only mode
-  const readOnly = runPricingUi(Object.assign({}, view, { writes_enabled: false })).html;
+  const readOnly = runPricingUi(Object.assign({}, view, {
+    writes_enabled: false,
+    packages: viewPromotedPackages.packages,
+  })).html;
   ok('read-only mode explains itself', readOnly.includes('Read-only'));
   ok('read-only mode hides every write control',
     !readOnly.includes('data-wh-price-action="edit-package-price"')

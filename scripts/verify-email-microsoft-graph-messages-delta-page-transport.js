@@ -733,6 +733,79 @@ async function main() {
         && dto.successor_cursor.cursor_url === nextLinkUrl());
     }
 
+    // ── Official Graph deleted row: @odata.type (+ optional etag) discarded ─
+    {
+      const officialDeleted = {
+        '@odata.type': '#microsoft.graph.message',
+        id: MSG_B,
+        '@removed': { reason: 'deleted' },
+      };
+      const tType = transportWith(mockHttps(
+        200,
+        deltaBody([officialDeleted], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      const dtoType = await tType.fetchInitialPage(goodInitial());
+      ok('official-deleted-type-tombstone', dtoType.tombstones.length === 1
+        && dtoType.envelopes.length === 0
+        && dtoType.tombstones[0].provider_message_id === MSG_B);
+      ok(
+        'official-deleted-type-not-on-result',
+        ser(dtoType).includes('@odata.type') === false
+          && ser(dtoType).includes('#microsoft.graph.message') === false,
+      );
+
+      const withEtag = {
+        '@odata.type': '#microsoft.graph.message',
+        '@odata.etag': VALID_ETAG,
+        id: MSG_B,
+        '@removed': { reason: 'deleted' },
+      };
+      const tBoth = transportWith(mockHttps(
+        200,
+        deltaBody([withEtag], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      const dtoBoth = await tBoth.fetchInitialPage(goodInitial());
+      ok('deleted-type-etag-tombstone', dtoBoth.tombstones.length === 1
+        && ser(dtoBoth).includes('@odata.etag') === false
+        && ser(dtoBoth).includes(VALID_ETAG) === false);
+
+      const etagOnly = {
+        id: MSG_B,
+        '@odata.etag': VALID_ETAG,
+        '@removed': { reason: 'deleted' },
+      };
+      const tEtag = transportWith(mockHttps(
+        200,
+        deltaBody([etagOnly], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      const dtoEtag = await tEtag.fetchInitialPage(goodInitial());
+      ok('deleted-etag-only-tombstone', dtoEtag.tombstones.length === 1);
+
+      const calType = {
+        '@odata.type': '#microsoft.graph.calendarSharingMessage',
+        id: MSG_B,
+        '@removed': { reason: 'deleted' },
+      };
+      const tCal = transportWith(mockHttps(
+        200,
+        deltaBody([calType], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      const dtoCal = await tCal.fetchInitialPage(goodInitial());
+      ok('deleted-closed-odata-type-tombstone', dtoCal.tombstones.length === 1);
+    }
+
     // ── Zero rows valid (still needs exact one successor link) ────────────
     {
       const body = deltaBody([], { '@odata.deltaLink': deltaLinkUrl() });
@@ -861,6 +934,86 @@ async function main() {
       ));
       await mustFailStage(() => t.fetchInitialPage(goodInitial()), 'row_keyset_invalid');
       ok('mixed-normal-deleted-reject', true);
+    }
+
+    // ── Deleted-row unknown annotations / wrong type fail closed ──────────
+    {
+      const extraId = {
+        '@odata.type': '#microsoft.graph.message',
+        '@odata.id': 'https://graph.microsoft.com/v1.0/x',
+        id: MSG_B,
+        '@removed': { reason: 'deleted' },
+      };
+      const tExtra = transportWith(mockHttps(
+        200,
+        deltaBody([extraId], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      await mustFailStage(() => tExtra.fetchInitialPage(goodInitial()), 'row_keyset_invalid');
+      ok('deleted-unknown-odata-id-reject', true);
+
+      const extraField = {
+        '@odata.type': '#microsoft.graph.message',
+        id: MSG_B,
+        parentFolderId: 'x',
+        '@removed': { reason: 'deleted' },
+      };
+      const tField = transportWith(mockHttps(
+        200,
+        deltaBody([extraField], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      await mustFailStage(() => tField.fetchInitialPage(goodInitial()), 'row_keyset_invalid');
+      ok('deleted-unknown-field-reject', true);
+
+      const wrongType = {
+        '@odata.type': '#microsoft.graph.event',
+        id: MSG_B,
+        '@removed': { reason: 'deleted' },
+      };
+      const tWrong = transportWith(mockHttps(
+        200,
+        deltaBody([wrongType], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      await mustFailStage(() => tWrong.fetchInitialPage(goodInitial()), 'row_value_invalid');
+      ok('deleted-unrecognized-odata-type-reject', true);
+
+      const emptyType = {
+        '@odata.type': '',
+        id: MSG_B,
+        '@removed': { reason: 'deleted' },
+      };
+      const tEmpty = transportWith(mockHttps(
+        200,
+        deltaBody([emptyType], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      await mustFailStage(() => tEmpty.fetchInitialPage(goodInitial()), 'row_value_invalid');
+      ok('deleted-empty-odata-type-reject', true);
+
+      const badEtag = {
+        id: MSG_B,
+        '@odata.etag': '',
+        '@removed': { reason: 'deleted' },
+      };
+      const tBadEtag = transportWith(mockHttps(
+        200,
+        deltaBody([badEtag], { '@odata.deltaLink': deltaLinkUrl() }),
+        {},
+        null,
+        expectedInitialPath(),
+      ));
+      await mustFailStage(() => tBadEtag.fetchInitialPage(goodInitial()), 'row_value_invalid');
+      ok('deleted-empty-etag-reject', true);
     }
 
     // ── Malformed removed ─────────────────────────────────────────────────

@@ -120,6 +120,12 @@ function createFakePg(opts = {}) {
         }
         return { rows: [authRow({ endpoint_outbound_enabled: endpointOutbound })] };
       }
+      if (/c\.phone ~ '\^\(emailv1\|email\):'/.test(n) && /LIMIT 1/.test(n)) {
+        if (foreign || String(params[0]).toLowerCase() !== C || String(params[1]).toLowerCase() !== V) {
+          return { rows: [] };
+        }
+        return { rows: [] };
+      }
       if (/FROM tenant_email_reply_approvals/.test(n)) {
         const row = approvals.get(String(params[0]).toLowerCase());
         if (!row || row.client_id !== String(params[1]).toLowerCase()
@@ -287,7 +293,7 @@ async function main() {
   }
   ok('gate-off recover → 404 zero dispatch',
     send.calls.length === 1 && send.calls[0].status === 404
-    && send.calls[0].body.error === 'not_found' && dispatchHits === 0);
+    && send.calls[0].body.error === 'email_staff_replies_unavailable' && dispatchHits === 0);
 
   const gate = mod.snapshotGateEnv(enabledEnv());
   send.calls.length = 0; dispatchHits = 0;
@@ -802,7 +808,7 @@ async function main() {
   function runChild(source) {
     return spawnSync(process.execPath, ['-e', source], {
       cwd: ROOT, encoding: 'utf8', timeout: 30000,
-      env: { ...process.env, NODE_PATH: process.env.NODE_PATH || '/opt/data/wolfhouse-agent/node_modules' },
+      env: { ...process.env, NODE_PATH: process.env.NODE_PATH || '/opt/data/cursor-workspace/WH/node_modules' },
     });
   }
   function parseChildJson(ch) {
@@ -1455,7 +1461,7 @@ const ROOT=${JSON.stringify(ROOT)};const ORIGIN=${JSON.stringify(ORIGIN)};
 const C=${JSON.stringify(C)};const A=${JSON.stringify(A)};const V=${JSON.stringify(V)};const AP=${JSON.stringify(AP)};
 const RECOVER='/staff/inbox/email/recover-send';
 const STAFF=path.join(ROOT,'scripts/staff-query-api.js');const SESSION='email-recovery-offline-session';
-try{require.resolve('dotenv')}catch{const c=['/opt/data/wolfhouse-agent/node_modules',path.join(ROOT,'node_modules')].find(x=>fs.existsSync(path.join(x,'dotenv')));if(c){process.env.NODE_PATH=c+(process.env.NODE_PATH?path.delimiter+process.env.NODE_PATH:'');Module._initPaths()}}
+try{require.resolve('dotenv')}catch{const c=['/opt/data/cursor-workspace/WH/node_modules','/opt/data/wolfhouse-agent/node_modules',path.join(ROOT,'node_modules')].find(x=>{try{return fs.existsSync(path.join(x,'dotenv'))}catch{return false}});if(c){process.env.NODE_PATH=c+(process.env.NODE_PATH?path.delimiter+process.env.NODE_PATH:'');Module._initPaths()}}
 function clear(){for(const k of Object.keys(require.cache)){if(/staff-query-api\\.js$|staff-auth-config|staff-portal-clients|pg-connect|staff-email-inbox-routes/.test(k))delete require.cache[k]}}
 function listen(s){return new Promise((r,j)=>{s.listen(0,'127.0.0.1',()=>r(s.address().port));s.on('error',j)})}
 function close(s){return new Promise(r=>s.close(()=>r()))}
@@ -1471,7 +1477,7 @@ canAccessClient(u,s){return !!(u&&u.client_slug==='sunset'&&s==='sunset')}});
 const server=api.createStaffQueryApiHttpServer();const port=await listen(server);
 try{
 let r=await request(port,{method:'POST',path:RECOVER,headers:{'content-type':'application/json',origin:ORIGIN,cookie:'luna_staff_session='+SESSION},body:JSON.stringify({conversation_id:V,approval_id:AP})});
-assert.equal(r.status,404);assert.equal(r.body.error,'not_found');assert.equal(dbCalls,0);
+assert.equal(r.status,404);assert.equal(r.body.error,'email_staff_replies_unavailable');assert.equal(dbCalls,0);
 process.env.EMAIL_STAFF_OUTBOUND_ENABLED='true';
 r=await request(port,{method:'POST',path:RECOVER,headers:{'content-type':'application/json',origin:ORIGIN},body:JSON.stringify({conversation_id:V,approval_id:AP})});
 assert.ok(r.status===401||r.status===403);assert.equal(dbCalls,0);
@@ -1488,7 +1494,7 @@ console.log('recovery_router_ok');
 })().catch(e=>{console.error(e);process.exit(1)});`;
   const out = spawnSync(process.execPath, ['-e', routerScript], {
     cwd: ROOT, encoding: 'utf8', timeout: 120000,
-    env: { ...process.env, NODE_PATH: process.env.NODE_PATH || '/opt/data/wolfhouse-agent/node_modules' },
+    env: { ...process.env, NODE_PATH: process.env.NODE_PATH || '/opt/data/cursor-workspace/WH/node_modules' },
   });
   ok('real-router recovery wiring', out.status === 0 && /recovery_router_ok/.test(out.stdout),
     (out.stderr || out.stdout || '').slice(0, 400));

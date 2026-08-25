@@ -1183,6 +1183,286 @@
       "rationale": "Refuses rollback while durable IMAP health facts or fetch cursors exist; otherwise drops the cursor table and nullable health timestamp.",
       "pairsWith": "084_tenant_channel_endpoint_imap_health.sql",
       "sha256": "181ace35de24e841d6414d7523c0f1bc7b25327eb2401e2a02a4264fd3d0ed79"
+    },
+    {
+      "id": "085_tenant_email_luna_policy_audit",
+      "filename": "085_tenant_email_luna_policy_audit.sql",
+      "order": 81,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch1 Slice C: bounded pre-send Luna policy audit journal. Authority identifiers, policy versions, issuance surrogate, and safe fact refs only. No send path, content blobs, or outbound send-journal reuse.",
+      "downFilename": "085_tenant_email_luna_policy_audit_down.sql",
+      "sha256": "c0e26ee408ffadbe6ef7904b8f0d5f8ad02f5d0d81f22ae59afaeb4207134a91"
+    },
+    {
+      "id": "085_tenant_email_luna_policy_audit_down",
+      "filename": "085_tenant_email_luna_policy_audit_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while any policy audit rows exist; otherwise drops the append-only audit table.",
+      "pairsWith": "085_tenant_email_luna_policy_audit.sql",
+      "sha256": "97c307429aa423287318a21bcf436f72632114a345ff53400fd8befcf11358d2"
+    },
+    {
+      "id": "086_tenant_email_luna_automation_queue",
+      "filename": "086_tenant_email_luna_automation_queue.sql",
+      "order": 82,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch3 Slice A: bounded durable Luna automation claim queue with immutable operation identity, composite audit/inbound recipient authority including inbound_event_id, SECURITY DEFINER mutation with pinned pg_catalog,public search_path, lease/SKIP LOCKED claim, owner-scoped attempt-cap, and unique handoff identity. Worker/operator grant contract is comments/verifier only. Not a second outbound send journal; canonical send journal remains sole provider/exact-once owner.",
+      "downFilename": "086_tenant_email_luna_automation_queue_down.sql",
+      "sha256": "1fa5fd8427ebcc1378e1d1733ba31e6926419ed45a3b6932acd2bdede089006b"
+    },
+    {
+      "id": "086_tenant_email_luna_automation_queue_down",
+      "filename": "086_tenant_email_luna_automation_queue_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while any automation queue rows exist; otherwise drops the claim-queue table, function-only mutation surface, 086-owned audit inbound_event_id column, and 086-owned audit/inbound/projection keys. Second empty execution is safe. Does not drop the outbound send journal or policy audit table.",
+      "pairsWith": "086_tenant_email_luna_automation_queue.sql",
+      "sha256": "dba1204b2e8d66f514f29ab31c7d089bed2dc6bd4d1113988bb272618e1b7b2e"
+    },
+    {
+      "id": "087_tenant_email_luna_automation_journal_handoff",
+      "filename": "087_tenant_email_luna_automation_journal_handoff.sql",
+      "order": 83,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch3 Slice B: atomic queue-to-canonical-outbound-journal handoff. Adds sealed pre-provider handoff_established/handed_off on the canonical send journal, composite queue identity FK, 087-owned immutable one-way luna_replay_owner_digest, and replaces the 086 handoff function with a SECURITY DEFINER transaction that create-or-replays exactly one journal row then terminalizes queue handed_off with the journal-linked identity. Handed_off replay requires p_owner whose pg_catalog.sha256 digest equals the sealed digest; wrong owner returns no row. No provider authorization, send, or runtime wiring. Worker/operator grant contract remains comments/verifier only.",
+      "downFilename": "087_tenant_email_luna_automation_journal_handoff_down.sql",
+      "sha256": "5fdc5a11923062a8fb0ac610d05128a722ab5a56c8a70f3082603d241eb73b49"
+    },
+    {
+      "id": "087_tenant_email_luna_automation_journal_handoff_down",
+      "filename": "087_tenant_email_luna_automation_journal_handoff_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while Luna journal handoff associations, luna_replay_owner_digest, or handoff_established/handed_off states exist; otherwise restores exact pre-087 journal constraints/protect function and the 086 queue-only handoff, dropping the digest column. Second empty execution is safe.",
+      "pairsWith": "087_tenant_email_luna_automation_journal_handoff.sql",
+      "sha256": "e63c7e2b0005ae894d66bbb9954b83f0dba318d41acb875beff3974c2bb22861"
+    },
+    {
+      "id": "088_tenant_email_luna_automation_principal_grants",
+      "filename": "088_tenant_email_luna_automation_principal_grants.sql",
+      "order": 84,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice A: default-off runtime DB principal/grant boundary for the Luna automation queue and canonical-journal handoff. Durable LOGIN session_user mapping to one client/location/kind; SECURITY DEFINER functions require that mapping (table owner remains administrator). Queue SELECT FOR UPDATE includes principal_authorized. Workers have no raw journal SELECT; tenant_email_luna_automation_journal_handoff_lock authorizes against the queue location before locking journal. No CREATE ROLE, no product GRANT, no fake login, no live credential. Queue RLS ENABLE not FORCE for SELECT scoping. Journal RLS not enabled (shared staff Graph table; scoped function removes worker SELECT). No provider authorization or runtime wiring.",
+      "downFilename": "088_tenant_email_luna_automation_principal_grants_down.sql",
+      "sha256": "149f9804c9841da24f83d199b9546528d9f6521c7860f6e11e6161bda192240e"
+    },
+    {
+      "id": "088_tenant_email_luna_automation_principal_grants_down",
+      "filename": "088_tenant_email_luna_automation_principal_grants_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while principal mapping rows exist; otherwise drops the mapping table, authorization helper, and scoped journal lock function, disables queue RLS, and restores 086 mutation functions plus the 087 journal handoff. Second empty execution is safe.",
+      "pairsWith": "088_tenant_email_luna_automation_principal_grants.sql",
+      "sha256": "4231a2f2908dc43bb08f52ccc22181940542149b443e1477075b728e82cad67c"
+    },
+    {
+      "id": "089_external_calendar_inventory",
+      "filename": "089_external_calendar_inventory.sql",
+      "order": 85,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Calendar Inventory Bridge: tenant-scoped Google Sheet connections, bed-only maps, location_key composite FK to tenant_locations. Occupancy remains on bookings/booking_beds.",
+      "downFilename": "089_external_calendar_inventory_down.sql",
+      "sha256": "b07a7f87ca1b9e2c3da2da60ef161ccdc049a42726cf12fe4872b742740b9b6f"
+    },
+    {
+      "id": "089_external_calendar_inventory_down",
+      "filename": "089_external_calendar_inventory_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while imported owner-schedule events still link a booking; otherwise drops the four bridge tables. Second empty execution is safe.",
+      "pairsWith": "089_external_calendar_inventory.sql",
+      "sha256": "789b23e65694433c1d627c71d20df8d160516f4ff1583bf9cb84918ea84e0716"
+    },
+    {
+      "id": "090_external_calendar_inventory_tenant_integrity",
+      "filename": "090_external_calendar_inventory_tenant_integrity.sql",
+      "order": 86,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Tenant-consistent connection/map/bed/event/booking triggers for the Calendar Inventory Bridge. Stock plpgsql only.",
+      "downFilename": "090_external_calendar_inventory_tenant_integrity_down.sql",
+      "sha256": "2e9b9d5219f79d89cc8eadbdb2679c0e2a47c7e7948ecdd0e4449c0eeac33893"
+    },
+    {
+      "id": "090_external_calendar_inventory_tenant_integrity_down",
+      "filename": "090_external_calendar_inventory_tenant_integrity_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Drops 090 tenant-integrity triggers and function. Safe if objects are missing.",
+      "pairsWith": "090_external_calendar_inventory_tenant_integrity.sql",
+      "sha256": "a88691f8029eeedbe62df96bcdc48ca6d5b63278e551c8feedf1d15754ea778b"
+    },
+    {
+      "id": "091_booking_occupancy_serialization",
+      "filename": "091_booking_occupancy_serialization.sql",
+      "order": 87,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Shared booking_beds occupancy serialization: booking then bed advisory locks, overlap reject, reversible down. Ownership checks are inline DO (no public._091 helpers).",
+      "downFilename": "091_booking_occupancy_serialization_down.sql",
+      "sha256": "f5c03f76fd949d2e5695bccc03e1bcf4ced7d2836fbbc9646df27be15bca7976"
+    },
+    {
+      "id": "091_booking_occupancy_serialization_down",
+      "filename": "091_booking_occupancy_serialization_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Drops exactly the 091 occupancy triggers and helper functions. Repeatable if already absent.",
+      "pairsWith": "091_booking_occupancy_serialization.sql",
+      "sha256": "6f58da44603f2ed9eb7967df417648d86dff37c06e206a8a88e272c7f83cbc2f"
+    },
+    {
+      "id": "092_tenant_email_luna_automation_issuance_material",
+      "filename": "092_tenant_email_luna_automation_issuance_material.sql",
+      "order": 88,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B1: append-only issuance reconstitution material. One row per exact queue operation/issuance with 085/086/082 authority coupling. Persists classifier, grounded found-fields, and author plan only. Guest body stays on inbound 082. Producer-only persist_and_enqueue plus scoped worker load. Worker 088 enqueue EXECUTE is revoked. No GRANT/CREATE ROLE. Queue INSERT requires matching material. Confidential booking/payment values live only in this table. Authenticity boundary is producer/worker principal separation, not a same-call 085 digest.",
+      "downFilename": "092_tenant_email_luna_automation_issuance_material_down.sql",
+      "sha256": "7d2f8d93d637ab1dadfbb3bfe34cd397aa53d3e1e3130f8542a28ba2e4c48116"
+    },
+    {
+      "id": "092_tenant_email_luna_automation_issuance_material_down",
+      "filename": "092_tenant_email_luna_automation_issuance_material_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while issuance-material rows or producer principal mappings exist; otherwise drops 092 objects, restores the 088 kind constraint and principal_authorized body, restores worker EXECUTE on 088 enqueue, and removes the queue-insert material prerequisite. Second empty execution is safe.",
+      "pairsWith": "092_tenant_email_luna_automation_issuance_material.sql",
+      "sha256": "d08a524cf838ad41ed810adbf09720c17b336afe42d7806d8782c29606758650"
+    },
+    {
+      "id": "093_tenant_email_luna_automation_shadow_outcomes",
+      "filename": "093_tenant_email_luna_automation_shadow_outcomes.sql",
+      "order": 89,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B4: append-only Luna-side shadow comparison outcome plus claimed→shadow_captured queue terminal. One row per exact operation/issuance with 085/086/092 identity coupling. Stores derived would_send and pending_human only; no subject/body/recipient/secrets. Later-match against 070 approved|terminal is read-time. Caller cannot select decision/comparison/identities. Not a journal or provider terminal. No GRANT/CREATE ROLE.",
+      "downFilename": "093_tenant_email_luna_automation_shadow_outcomes_down.sql",
+      "sha256": "f82db36611960f2913a47136636f8eafb9cfd08ae73735c195fd9c7c4332ae18"
+    },
+    {
+      "id": "093_tenant_email_luna_automation_shadow_outcomes_down",
+      "filename": "093_tenant_email_luna_automation_shadow_outcomes_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while shadow-outcome rows exist; otherwise drops 093 objects and restores the 086 queue protect trigger and state_values/state_coupling. Second empty execution is safe.",
+      "pairsWith": "093_tenant_email_luna_automation_shadow_outcomes.sql",
+      "sha256": "1648e6022895e2601a9638731f17cb755eae8c9869563f8f358aac1c25034dce"
+    },
+    {
+      "id": "094_tenant_email_luna_automation_shadow_outcome_identity_match",
+      "filename": "094_tenant_email_luna_automation_shadow_outcome_identity_match.sql",
+      "order": 90,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B5: replace 093 later-match projection label agreement with staff_action_observed. Identity-only inbound 070 match; not provider-sent, not same Luna draft, not content agreement. Does not rewrite stored pending_human rows. No GRANT/CREATE ROLE.",
+      "downFilename": "094_tenant_email_luna_automation_shadow_outcome_identity_match_down.sql",
+      "sha256": "60006058f1921150ea6d311f38afa2122ad55e09d9ed58babe8d20149d9cebd2"
+    },
+    {
+      "id": "094_tenant_email_luna_automation_shadow_outcome_identity_match_down",
+      "filename": "094_tenant_email_luna_automation_shadow_outcome_identity_match_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Restores the 093 project function body (unique 070 match labeled agreement). Refuses if the 093 outcomes table is absent. Does not drop 093 rows or hashes. Second execution is safe.",
+      "pairsWith": "094_tenant_email_luna_automation_shadow_outcome_identity_match.sql",
+      "sha256": "29f2f7be5e7975dcf5db78e216042a2f91a55cc3552ca54385362c2688f352dc"
+    },
+    {
+      "id": "095_tenant_email_luna_automation_claim_scoped",
+      "filename": "095_tenant_email_luna_automation_claim_scoped.sql",
+      "order": 91,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B6: worker next-claim scoped by exact client_id+location_id+location_key+endpoint_id and durable worker session_user mapping. No table-owner bypass. Does not rewrite 088 unscoped claim. No GRANT/CREATE ROLE.",
+      "downFilename": "095_tenant_email_luna_automation_claim_scoped_down.sql",
+      "sha256": "29b18387e1699e0f85de6ad90c0d39950c08430423d24d8badc4c53585d076f4"
+    },
+    {
+      "id": "095_tenant_email_luna_automation_claim_scoped_down",
+      "filename": "095_tenant_email_luna_automation_claim_scoped_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Drops only claim_scoped. Refuses if the 086 queue table is absent. Does not rewrite 088 unscoped claim. Second execution is safe.",
+      "pairsWith": "095_tenant_email_luna_automation_claim_scoped.sql",
+      "sha256": "76c27443adf44d4020a89f303daaf17f97a29e43025d1edc18b5c0bc8105e336"
+    },
+    {
+      "id": "096_tenant_email_luna_automation_public_execute",
+      "filename": "096_tenant_email_luna_automation_public_execute.sql",
+      "order": 92,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice C1: revoke ambient PUBLIC EXECUTE on all public-schema functions the applying owner can revoke and ALTER DEFAULT PRIVILEGES so future owner functions do not grant PUBLIC EXECUTE. Remaining PUBLIC-executable public-schema routines fail closed except the frozen catalog-proven stock pgcrypto 1.3 computational allowlist (36 signatures; membership via pg_depend deptype=e; not SECURITY DEFINER; LANGUAGE c). In-place correction of merged 096 that never ledgered on Sunset (atomic rollback). Prior canonical sha256 06b32e0f46d04d6dba3cfbda3f4e61caaf44226147d44c8531dc1a1c9bded03c is not legacySha256: any database that applied the prior bytes must fail reconcile rather than be treated as this residual-exempt 096. Run as queue table/function owner. Preserves owner implicit EXECUTE and existing explicit role grants. No GRANT/CREATE ROLE/live identifiers.",
+      "downFilename": "096_tenant_email_luna_automation_public_execute_down.sql",
+      "sha256": "b211cc0e2b6e25fd800371e83e89e61ca05545ff3cc877893958fc1d3f8f675c"
+    },
+    {
+      "id": "096_tenant_email_luna_automation_public_execute_down",
+      "filename": "096_tenant_email_luna_automation_public_execute_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Intentionally irreversible fail-closed rollback. Exact pre-096 ACL/default-ACL state was not captured; broad PUBLIC EXECUTE restore would be unsafe. Performs no GRANT/REVOKE/ALTER DEFAULT PRIVILEGES. Paired down remains for canonical manifest conventions. Repeat refusal is safe.",
+      "pairsWith": "096_tenant_email_luna_automation_public_execute.sql",
+      "sha256": "693bb5e4e49016b4ac04c63977a494b3468953e453b1b9e4153b1a8d41bee6ee"
+    },
+    {
+      "id": "097_tenant_email_luna_controlled_draft_operations",
+      "filename": "097_tenant_email_luna_controlled_draft_operations.sql",
+      "order": 93,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 2: dedicated controlled provider-draft operation table plus append-only transition journal. One row per authentic Stage 1 issuance/operation. States are reserved / create_dispatched_outcome_unknown / provider_draft_reconciled_exact / modified_by_staff / removed_by_staff / provider_mismatch_blocked. At most one create-dispatch claim. No send phase, send counter, send authorization, or outbound journal handoff. Trusted scope is loaded from 092/086/082/063. No GRANT/CREATE ROLE.",
+      "downFilename": "097_tenant_email_luna_controlled_draft_operations_down.sql",
+      "sha256": "e36e2028eaf6d473e399a2326b988c40aad55e58d5f8fb6cfec35f96acfbfb62"
+    },
+    {
+      "id": "097_tenant_email_luna_controlled_draft_operations_down",
+      "filename": "097_tenant_email_luna_controlled_draft_operations_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while controlled-draft operation or transition rows exist; otherwise drops 097 functions/tables and the inbound identity unique added for this slice. ACCESS EXCLUSIVE lock order is parent operations then child transitions before emptiness checks (matches producer reserve / worker claim; avoids 40P01). Second empty execution is safe. Does not drop Stage 1 or send-journal objects.",
+      "pairsWith": "097_tenant_email_luna_controlled_draft_operations.sql",
+      "sha256": "1c4feae3e7eb11b3e1ab82e90f55f5e6274f26e47fe720d28eda80848c41964a"
+    },
+    {
+      "id": "098_tenant_email_luna_controlled_drafting_staging_test_authorization",
+      "filename": "098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql",
+      "order": 94,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4A: durable server-owned Sunset staging test authorization. Binds one existing 092 issuance/063 inbound to exact Sunset mailbox/recipient with purpose controlled_drafting_staging_proof. One-shot consumed/revoked lifecycle. Default no rows. No GRANT/CREATE ROLE. No subject/body/secret/send.",
+      "downFilename": "098_tenant_email_luna_controlled_drafting_staging_test_authorization_down.sql",
+      "sha256": "8d181becd9708416d0b02755deba9bf056b7fc927029fa22afd62dc06368d0cc"
+    },
+    {
+      "id": "098_tenant_email_luna_controlled_drafting_staging_test_authorization_down",
+      "filename": "098_tenant_email_luna_controlled_drafting_staging_test_authorization_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while staging test authorization rows exist; otherwise drops 098 functions/table. ACCESS EXCLUSIVE before emptiness check. Second empty execution is safe. Does not drop 063/092/097 objects.",
+      "pairsWith": "098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql",
+      "sha256": "fcc0cced7b8a390684b05b274d57fe8887164fe42f2b1c4e86597e858abb0914"
     }
   ]
 }

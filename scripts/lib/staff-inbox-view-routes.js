@@ -47,7 +47,12 @@ const {
   clampLimit,
   normalizeCustomerPhone,
 } = require('./staff-customer-queries');
-const { CONVERSATION_INBOX_CURSOR_FIELDS } = require('./staff-conversation-queries');
+const {
+  CONVERSATION_INBOX_CURSOR_FIELDS,
+  markEmailInboundInboxMissing,
+  isMissingEmailInboundRelation,
+  emailInboundInboxAssumedReady,
+} = require('./staff-conversation-queries');
 
 const INBOX_VIEWS_PATH = '/staff/inbox/views';
 const INBOX_LIST_PATH = '/staff/inbox/list';
@@ -70,7 +75,7 @@ const INBOX_LIST_MAX_LIMIT = 99;
 const INBOX_VIEW_COUNTS_CACHE_TTL_MS = 5000;
 const INBOX_VIEW_COUNTS_CACHE_MAX_KEYS = 64;
 
-const INBOX_LIST_CURSOR_VERSION = 1;
+const INBOX_LIST_CURSOR_VERSION = 2;
 
 const CURSOR_FIELDS_BY_SOURCE = Object.freeze({
   [INBOX_VIEW_SOURCES.CUSTOMERS]: CUSTOMER_LIST_CURSOR_FIELDS,
@@ -82,8 +87,6 @@ const CURSOR_FIELD_TYPES = Object.freeze({
   is_booked: 'boolean',
   last_contact_at: 'timestamp_or_null',
   phone: 'string',
-  needs_human: 'boolean',
-  handoff_priority_rank: 'integer',
   last_activity: 'timestamp',
   conversation_id: 'string',
 });
@@ -504,6 +507,7 @@ function createInboxViewRoutes(deps) {
       query: listQuery,
       capabilities,
       page: { limit: limit + 1, cursor },
+      includeInboundProjections: emailInboundInboxAssumedReady(),
     });
     if (!built.ok) {
       return sendJSON(res, 409, {
@@ -529,8 +533,24 @@ function createInboxViewRoutes(deps) {
     let rows;
     try {
       rows = await withPgClient(async (pg) => {
-        const result = await pg.query(built.sql, built.params);
-        return (result && result.rows) || [];
+        try {
+          const result = await pg.query(built.sql, built.params);
+          return (result && result.rows) || [];
+        } catch (err) {
+          if (!isMissingEmailInboundRelation(err)) throw err;
+          markEmailInboundInboxMissing();
+          const fallback = buildInboxViewQuery({
+            view: declaration.id,
+            clientSlug,
+            query: listQuery,
+            capabilities,
+            page: { limit: limit + 1, cursor },
+            includeInboundProjections: false,
+          });
+          if (!fallback.ok) throw err;
+          const result = await pg.query(fallback.sql, fallback.params);
+          return (result && result.rows) || [];
+        }
       });
     } catch (err) {
       appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });

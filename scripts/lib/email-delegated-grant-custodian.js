@@ -63,7 +63,7 @@ const DELEGATED_READ_AUTHORITY_INPUT_KEYS = Object.freeze([
 ]);
 
 /**
- * Frozen internal DTO keys only. Never public_address or provider_principal_oid.
+ * Frozen public DTO keys only. Never public_address or provider_principal_oid.
  * providerMailboxId is always endpoint.provider_resource_id (resource id wins).
  * Public resolve deliberately omits providerTenantId (local-only binding field).
  */
@@ -77,9 +77,10 @@ const DELEGATED_READ_AUTHORITY_DTO_KEYS = Object.freeze([
 ]);
 
 /**
- * Local-only binding DTO keys (includes private provider_tenant_id row field).
- * Used by createDelegatedReadAuthorityBindingVerifier and delta composition —
- * never public status / routes / read-health.
+ * Local-only binding DTO keys (includes private provider_tenant_id and
+ * provider_principal_oid row fields). Used by createDelegatedReadAuthorityBindingVerifier,
+ * delta composition, and Chapter 4C JWT oid binding — never public status /
+ * routes / read-health. Public DTO keys stay unchanged.
  */
 const DELEGATED_READ_AUTHORITY_BINDING_DTO_KEYS = Object.freeze([
   'clientId',
@@ -88,6 +89,7 @@ const DELEGATED_READ_AUTHORITY_BINDING_DTO_KEYS = Object.freeze([
   'provider',
   'providerMailboxId',
   'providerTenantId',
+  'providerPrincipalOid',
   'bindingStatus',
 ]);
 
@@ -1127,8 +1129,9 @@ function resolveReadAuthorityDb(deps) {
  * Snapshot + validate exact own-data driver row (SQL textual key set).
  * Re-validates ownership/provider identity/modes/status after SQL; never trusts
  * SQL alone.
- * public_address and provider_principal_oid are observed once and discarded —
- * never mapped into the internal DTO. providerMailboxId always uses resource_id.
+ * public_address is observed once and discarded — never mapped into any DTO.
+ * Local binding retains provider_principal_oid for JWT oid binding; public DTO
+ * still omits it. providerMailboxId always uses resource_id.
  *
  * Order: type → pinned proxy → prototype → ownKeys → enumerable own data
  * descriptors once. Rejects nonenumerable/accessor/symbol/extra/inherited/proxy.
@@ -1176,6 +1179,7 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
       return null;
     }
     let provider;
+    let providerPrincipalOid = null;
     if (own.provider === 'microsoft_graph') {
       if (own.connector_mode !== 'microsoft_delegated_oauth'
           || typeof own.provider_tenant_id !== 'string'
@@ -1184,9 +1188,14 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
           || !UUID_CANON.test(own.provider_resource_id)) {
         return null;
       }
-      // Microsoft principal may be null or differ; resource_id always wins.
-      if (own.provider_principal_oid != null
-          && typeof own.provider_principal_oid !== 'string') {
+      // Resource id always wins as mailbox id. Principal oid is retained for
+      // JWT oid binding and may differ; null is kept as null (callers refuse).
+      if (own.provider_principal_oid == null) {
+        providerPrincipalOid = null;
+      } else if (typeof own.provider_principal_oid === 'string'
+          && UUID_CANON.test(own.provider_principal_oid)) {
+        providerPrincipalOid = own.provider_principal_oid;
+      } else {
         return null;
       }
       provider = 'microsoft_graph';
@@ -1199,6 +1208,7 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
           || !/^[\x21-\x7e]{1,255}$/.test(own.provider_resource_id)) {
         return null;
       }
+      providerPrincipalOid = own.provider_principal_oid;
       provider = 'gmail_api';
     } else {
       return null;
@@ -1207,9 +1217,8 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
       return null;
     }
 
-    // Fresh frozen local binding — includes private provider_tenant_id for
-    // seal/init/verifyBinding. Public resolve strips providerTenantId.
-    // Never principal/address.
+    // Fresh frozen local binding — includes private provider_tenant_id and
+    // provider_principal_oid. Public resolve strips both. Never address.
     return Object.freeze({
       clientId: expected.clientId,
       locationId: expected.locationId,
@@ -1217,6 +1226,7 @@ function snapshotAndValidateReadAuthorityRow(row, expected) {
       provider,
       providerMailboxId: own.provider_resource_id,
       providerTenantId: own.provider_tenant_id,
+      providerPrincipalOid,
       bindingStatus: 'verified',
     });
   } catch {

@@ -7,16 +7,15 @@
  * sibling `#admin-wh-shell` / `#wh-admin-*` shell and never reads or writes
  * Sunset admin state, config, or endpoints.
  *
- * Finance / Bookings / Pricing / Email are placeholders until their lodging
- * data models exist. Luna Staff, Camps-Lessons-Services and Tour Operator host
- * the production top-level panels, relocated (not cloned) by
- * applyClientPortalProfile so their existing owners keep working.
+ * Pricing / Email are placeholders until their lodging data models exist.
+ * Luna Staff, Camps-Lessons-Services and Tour Operator host the production
+ * top-level panels, relocated (not cloned) by applyClientPortalProfile.
  */
 (function () {
   var WH_ADMIN_CLIENT = 'wolfhouse-somo';
   var WH_ADMIN_DEFAULT_SUBTAB = 'finance';
   var WH_ADMIN_SUBTABS = [
-    'finance', 'bookings', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email',
+    'finance', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email',
   ];
 
   /** Sub-tab key → id of the relocated top-level `.tab-panel` it hosts. */
@@ -32,8 +31,6 @@
    * owns `#wh-admin-pricing-body` and must not be overwritten by a placeholder.
    */
   var WH_ADMIN_PLACEHOLDERS = {
-    finance: { body: 'wh-admin-finance-body', title: 'admin.tabs.finance', fallback: 'Finance' },
-    bookings: { body: 'wh-admin-bookings-body', title: 'admin.tabs.bookings', fallback: 'Bookings' },
     email: { body: 'wh-admin-email-body', title: 'admin.tabs.email', fallback: 'Email' },
   };
 
@@ -128,6 +125,7 @@
       if (hosted) hosted.classList.toggle('active', subKey === next);
     }
 
+    if (next === 'finance' && typeof loadAdminFinanceSummary === 'function') loadAdminFinanceSummary();
     if (next === 'pricing' && typeof loadWolfhouseAdminPricing === 'function') loadWolfhouseAdminPricing();
     if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
     if (next === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
@@ -140,7 +138,8 @@
     list.dataset.whAdminSubtabsWired = '1';
 
     function tabButtons() {
-      return Array.prototype.slice.call(list.querySelectorAll('[role="tab"][data-wh-admin-tab]'));
+      return Array.prototype.slice.call(list.querySelectorAll('[role="tab"][data-wh-admin-tab]'))
+        .filter(function (btn) { return !btn.hidden; });
     }
 
     function selectByIndex(idx, focus) {

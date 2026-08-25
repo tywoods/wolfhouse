@@ -161,6 +161,19 @@ async function main() {
       'phase_b_v1',
       response(200, successBody(LEGACY_SCOPE)),
     );
+    const DRAFT_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite';
+    const draftOk = classifyMicrosoftRefreshTokenResponseForScopeVersion(
+      'controlled_drafting_v1',
+      response(200, successBody(DRAFT_SCOPE)),
+    );
+    assert.equal(draftOk.kind, 'success');
+    assert.equal(draftOk.selected.scope.includes('Mail.ReadWrite'), true);
+    assert.equal(draftOk.selected.scope.includes('Mail.Send'), false);
+    assertUncertain(
+      'controlled_drafting_v1 + Mail.Send is broader than requested',
+      'controlled_drafting_v1',
+      response(200, successBody(PHASE_B_SCOPE)),
+    );
     assertUncertain(
       'Phase A grant + incomplete scopes (missing Mail.Send)',
       'phase_a_v2',

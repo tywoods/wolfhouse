@@ -200,7 +200,7 @@ assert('Sunset booking-context payment summary precedes booking card',
   bcDrawerFn.includes('if (!isSunset) {') &&
   bcPayIdx > -1 && bcCardIdx > -1 && bcPayIdx < bcCardIdx);
 assert('non-Sunset booking-context keeps payment summary after booking card',
-  bcDrawerFn.lastIndexOf('bcRenderPaymentSummaryBriefHtml') > bcCardIdx);
+  bcDrawerFn.lastIndexOf('bcRenderRunningInvoiceHtml') > bcCardIdx);
 
 console.log('\n[7] i18n — invoice + registration share hint EN/ES parity');
 [

@@ -74,7 +74,7 @@ const {
 } = require('./lib/meta-whatsapp-signature-config');
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
-const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired } = require('./lib/pg-connect');
+const { withPgClient: _withPgClientImpl, markPgClientDiscardRequired, getConnectionString } = require('./lib/pg-connect');
 const {
   isInactiveInboxBookingStatus,
   filterActiveInboxBookings,
@@ -83,7 +83,7 @@ const {
   buildPausedStateResponse,
 } = require('./lib/staff-inbox-helpers');
 const { createBotPauseStateRoutes } = require('./lib/staff-bot-pause-state-handler');
-const { fetchSunsetFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
+const { fetchSunsetFinanceData, fetchLodgingFinanceData, FinanceDataQualityError } = require('./lib/sunset-finance-data');
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const { createBookingsAdminRoutes } = require('./lib/sunset-bookings-admin-routes');
 const {
@@ -186,6 +186,8 @@ const {
 const {
   createWolfhousePricingRoutes,
 } = require('./lib/wolfhouse-pricing-routes');
+const wolfhousePricingStore = require('./lib/wolfhouse-pricing-store');
+const { applyOverlayRentalPricesToConfig } = require('./lib/wolfhouse-pricing-resolve');
 const {
   getHouseNotes: getTenantHouseNotes,
   setHouseNotes: setTenantHouseNotes,
@@ -214,6 +216,7 @@ const {
   EMAIL_SETTINGS_PATH,
   EMAIL_SMTP_IDENTITY_PATH,
   EMAIL_SMTP_VERIFY_PATH,
+  EMAIL_SMTP_DISCONNECT_PATH,
   EMAIL_IMAP_VERIFY_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
@@ -274,6 +277,38 @@ const {
 } = require('./lib/email-imap-sunset-staging-runtime-composition');
 const EMAIL_IMAP_RUNTIME_READINESS =
   resolveEmailImapSunsetStagingRuntimeReadiness(process.env);
+const {
+  resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness,
+  createEmailLunaAutomationShadowSunsetStagingRuntimeComposition,
+} = require('./lib/email-luna-automation-shadow-sunset-staging-runtime-composition');
+const {
+  createEmailLunaAutomationShadowWorkerConnection,
+  drainEmailLunaAutomationShadowRuntimePair,
+} = require('./lib/email-luna-automation-shadow-worker-connection');
+const {
+  runEmailLunaAutomationShadowRuntimeOperatorPreflight,
+} = require('./lib/email-luna-automation-shadow-runtime-preflight');
+/** Frozen inert readiness only (default-off; never scheduler/worker run). */
+const EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS =
+  resolveEmailLunaAutomationShadowSunsetStagingRuntimeReadiness(process.env);
+const {
+  resolveEmailLunaControlledDraftingSunsetStagingRuntimeReadiness,
+  createEmailLunaControlledDraftingSunsetStagingRuntimeActivation,
+  ENV_LIVE_PROVIDER_DRAFT_ENABLED,
+} = require('./lib/email-luna-controlled-drafting-sunset-staging-runtime-activation');
+const {
+  createEmailLunaControlledDraftingSunsetStagingLiveGraphProvider,
+} = require('./lib/email-luna-controlled-drafting-sunset-staging-token-loan');
+const {
+  createEmailLunaControlledDraftingPrincipalConnectionPair,
+  drainEmailLunaControlledDraftingRuntimePair,
+} = require('./lib/email-luna-controlled-drafting-principal-connection');
+const {
+  runEmailLunaControlledDraftingRuntimeOperatorPreflight,
+} = require('./lib/email-luna-controlled-drafting-runtime-preflight');
+/** Frozen inert readiness only (default-off; never scheduler/worker run). */
+const EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_READINESS =
+  resolveEmailLunaControlledDraftingSunsetStagingRuntimeReadiness(process.env);
 // Sunset-staging email-delta operator recovery routes (default-off). Full gate
 // before requireAuth / body / DB / owner load. No worker/scheduler.
 const {
@@ -409,6 +444,10 @@ const {
   getConversationBookingsQuery,
   getConversationDraftQuery,
   getConversationStaffStateQuery,
+  resolveEmailInboundInboxReady,
+  markEmailInboundInboxMissing,
+  isMissingEmailInboundRelation,
+  emailInboundInboxAssumedReady,
 } = require('./lib/staff-conversation-queries');
 const {
   CRM_TAG_KEYS,
@@ -721,7 +760,15 @@ const {
   MANUAL_BOOKING_ALLOWED_ROLES,
 } = require('./lib/staff-manual-booking-create-sql');
 const {
+  bridgeAvailable,
+  sanitizeAuditFields,
+} = require('./lib/external-calendar-inventory');
+const extCalRoutes = require('./lib/external-calendar-inventory-routes');
+const { loadLockedState, createSyncScheduler, runConnectionSync } = require('./lib/external-calendar-inventory-sync');
+const { fetchSheetRows } = require('./lib/external-calendar-inventory-sheets');
+const {
   calculateWolfhouseQuote,
+  loadConfig,
 } = require('./lib/wolfhouse-quote-calculator');
 const {
   executeWolfhouseAccommodationQuote,
@@ -2832,7 +2879,7 @@ const emailSettingsRoutes = createEmailSettingsRoutes({
   imapSecretProvider: createSunsetImapKvSecretProvider(),
 });
 const { handleGet: handleEmailSettingsGet, handlePost: handleSmtpIdentityPost,
-  handleVerifyPost: handleSmtpVerifyPost, handleImapVerifyPost } = emailSettingsRoutes;
+  handleVerifyPost: handleSmtpVerifyPost, handleImapVerifyPost, handleDisconnectPost } = emailSettingsRoutes;
 const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   sendJSON,
   assertStaffClientAccess,
@@ -9993,13 +10040,27 @@ async function handleBookingRemoveService(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
+// Route: POST /staff/quote-preview  (Stage 8.4.4 — quote preview, no writes)
 //
-// Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
-// No Stripe. No WhatsApp. No n8n.
+// Calls calculateWolfhouseQuote() with the request body. Overlay rental prices
+// from Admin Pricing are applied when readable; otherwise JSON config.
+// No Stripe. No WhatsApp. No n8n. No booking writes.
 // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
 // Requires auth (viewer+ when STAFF_AUTH_REQUIRED=true).
 // ─────────────────────────────────────────────────────────────────────────────
+
+async function loadWolfhouseQuoteConfigWithOverlay() {
+  const base = loadConfig();
+  try {
+    return await withPgClient(async (pg) => {
+      await wolfhousePricingStore.ensureWolfhousePricingTables(pg);
+      const rules = await wolfhousePricingStore.loadRules(pg, 'wolfhouse-somo');
+      return applyOverlayRentalPricesToConfig(base, rules);
+    });
+  } catch (_err) {
+    return base;
+  }
+}
 
 async function handleQuotePreview(req, res, user) {
   const started = Date.now();
@@ -10057,6 +10118,7 @@ async function handleQuotePreview(req, res, user) {
   const actorRole = user ? user.role          : 'viewer';
 
   let quote;
+  const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay();
   const quoteResult = executeWolfhouseAccommodationQuote({
     client_slug: clientSlug,
     check_in: checkIn,
@@ -10069,7 +10131,7 @@ async function handleQuotePreview(req, res, user) {
     payment_choice: paymentChoice,
     add_ons: addOns,
     manual_price_per_night_cents: manualPricePerNightCents,
-  });
+  }, { config: quoteConfig });
   if (quoteResult.status === 400 && quoteResult.body && quoteResult.body.package_night_violation) {
     const packageNightCheck = quoteResult.body.package_night_violation;
     appendAuditLog({
@@ -15672,6 +15734,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       transportBody: body,
       actorHints: { staff_user_id: actorId, staff_role: actorRole, source },
       pgClient: pg,
+      quoteConfig: await loadWolfhouseQuoteConfigWithOverlay(),
     }));
   } catch (err) {
     appendAuditLog({
@@ -15885,6 +15948,7 @@ async function handleManualBookingCreate(req, res, user) {
       trustedClientSlug: clientSlug,
       transportBody: body,
       actorHints: { staff_user_id: actorId, staff_role: actorRole, email: user && user.email },
+      quoteConfig: await loadWolfhouseQuoteConfigWithOverlay(),
     });
   } catch (err) {
     appendAuditLog({
@@ -16109,6 +16173,7 @@ function buildUiHtml(port, portalDeployClient) {
   const portalDevTabsEnabled = staffPortalDevTabsEnabled();
   // Server-owned email Inbox UI flags (exact env === 'true'; default-off; no browser override).
   const emailStaffEmailDraftsUi = process.env.EMAIL_STAFF_EMAIL_DRAFTS_ENABLED === 'true';
+  const showOwnerScheduleBridge = bridgeAvailable(portalDefaultClient);
   const emailStaffOutboundUi = process.env.EMAIL_STAFF_OUTBOUND_ENABLED === 'true';
   const emailStaffLunaDraftUi = process.env.EMAIL_STAFF_LUNA_DRAFT_ENABLED === 'true'
     && process.env.EMAIL_LUNA_DRAFT_RUNTIME_ENABLED === 'true'
@@ -16408,7 +16473,7 @@ button,.btn,.btn-primary,.btn-ghost,.btn-logout,
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0}
 #banner .brand-logo{height:100%;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
-.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 .cc-luna-staff-retired{display:none!important}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
@@ -16468,7 +16533,7 @@ body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
 [data-theme="dark"] .nav-menu-tools .btn-logout{background:#cccccc;color:#1e1e1e;border-color:#cccccc}
 [data-theme="dark"] .nav-menu-tools .staff-theme-toggle{background:#252526;border-color:#3c3c3c;color:#cccccc}
 
-#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:52px;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
+#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:44px;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:var(--surface);box-shadow:-16px 0 12px -8px var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:var(--surface);border:0}
 #tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:var(--font-sans)}
@@ -16477,7 +16542,7 @@ body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
 #tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 #tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 #tabs .tabs-global-pause .tabs-global-pause-help,#tabs #luna-global-pause-status{display:none!important}
-.tab-btn{padding:14px 22px;font-size:14px;font-weight:500;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:var(--font-sans);letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
+.tab-btn{padding:8px 14px;font-size:13px;font-weight:500;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:var(--font-sans);letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
 /* Hide unused dev tabs (Developer Tools + Luna Guest Simulator) from the nav. */
 #tabs .tab-btn.dev-tab{display:none!important}
 .tab-btn:hover{color:var(--text)}
@@ -16855,6 +16920,26 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #wh-admin-pricing-body .wh-price-banner-warn{border-color:rgba(200,138,0,.4);color:#8a6100}
 #wh-admin-pricing-body .wh-price-banner-ok{border-color:rgba(46,139,87,.4);color:#256b45}
 #wh-admin-pricing-body .portal-admin-price-card{gap:8px}
+#wh-admin-pricing-body .portal-admin-edit-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;grid-column:1 / -1;margin-top:4px;flex-wrap:wrap}
+#wh-admin-pricing-body .portal-admin-icon-btn.portal-admin-row-edit{width:28px;height:28px;min-height:28px;padding:0;display:grid;place-items:center;border-radius:999px;font-size:14px;line-height:1}
+#wh-admin-pricing-body .portal-admin-soft-delete,
+#wh-admin-pricing-body .portal-admin-danger.portal-admin-soft-delete{color:#9a4a4a;background:rgba(184,92,92,.10);border-color:rgba(184,92,92,.28);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;min-height:32px}
+#wh-admin-pricing-body .portal-admin-sections{gap:18px}
+#wh-admin-pricing-body .portal-admin-section{padding:14px 16px}
+#wh-admin-pricing-body .portal-admin-section-hdr{margin-bottom:8px}
+#wh-admin-pricing-body .portal-admin-subsection{margin-top:14px}
+#wh-admin-pricing-body .portal-admin-subsection:first-child{margin-top:0}
+#wh-admin-pricing-body .portal-admin-card-grid{gap:10px;margin-top:6px}
+#wh-admin-pricing-body .portal-admin-price-card{padding:10px 12px}
+#wh-admin-pricing-body .portal-admin-edit-form{padding:12px;gap:12px;margin-top:8px}
+#wh-admin-pricing-body .portal-admin-section-note{margin:2px 0 0;line-height:1.4}
+#wh-admin-pricing-body .wh-price-scope{display:flex;flex-direction:column;gap:6px}
+#wh-admin-pricing-body .wh-price-scope > span{font-size:11px;font-weight:700;color:var(--text-2)}
+#wh-admin-pricing-body .wh-price-scope-opts{display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+#wh-admin-pricing-body .wh-price-scope-opts label{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;cursor:pointer;margin:0}
+#wh-admin-pricing-body .wh-price-scope-opts input{width:auto;max-width:none;margin:0}
+#wh-admin-pricing-body .wh-price-extra-form:has(#wh-price-extra-kind option[value="deposit"]:checked) .wh-price-extra-sup{display:none}
+#wh-admin-pricing-body .wh-price-extra-form:has(#wh-price-extra-kind option[value="supplement"]:checked) .wh-price-scope{display:none}
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
 .portal-admin-equipment-editor{grid-column:1/-1;min-width:0}
 /* Equipment heading: title; empty-state + beside title; filled rows carry + next to × */
@@ -17320,8 +17405,10 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-card-meta{margin-top:auto}
 .portal-admin-email-status{display:inline-flex;align-items:center;width:max-content;font-size:12px;font-weight:650;padding:4px 10px;border-radius:999px}
 .portal-admin-email-status.is-on{background:#E4F0E8;color:#2F6B45}
+.portal-admin-email-status.is-active{background:#2F6B45;color:#fff}
 .portal-admin-email-status.is-off{background:var(--surface-soft);color:var(--text-2)}
 .portal-admin-email-status.is-soon{background:#F3EDE4;color:#8A6A3B}
+.portal-admin-email-card.is-active-inbox{border-color:#2F6B45;box-shadow:0 0 0 1px #2F6B45,var(--shadow-soft)}
 .portal-admin-email-address{margin:0;font-size:14px;font-weight:600;word-break:break-word}
 .portal-admin-email-last-sync{margin:0;font-size:13px;color:var(--text-2)}
 .portal-admin-email-last-sync.is-stale{color:#8A6A3B}
@@ -18564,6 +18651,34 @@ body > .portal-schedule-drawer{flex:none;align-self:auto}
 /* Luna Staff (Ask Luna) portal — same serif house style as the rest of the portal. */
 #tab-ask-luna{--luna-staff-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
 #tab-ask-luna input,#tab-ask-luna textarea,#tab-ask-luna select{font-family:var(--font-sans)}
+#cc-owner-schedule-bridge{max-width:720px}
+#cc-owner-schedule-bridge .osb-stack{display:flex;flex-direction:column;gap:16px}
+#cc-owner-schedule-bridge .osb-empty{padding:8px 0 4px}
+#cc-owner-schedule-bridge .osb-empty p{margin:0 0 14px;color:var(--text-2);font-size:13px;line-height:1.45}
+#cc-owner-schedule-bridge .osb-field{display:flex;flex-direction:column;gap:6px;max-width:560px}
+#cc-owner-schedule-bridge .osb-field label{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2)}
+#cc-owner-schedule-bridge .osb-field input,#cc-owner-schedule-bridge .osb-map-row input,#cc-owner-schedule-bridge .osb-map-row select{
+  font-size:13.5px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--surface);color:var(--text);min-width:0;width:100%;box-sizing:border-box
+}
+#cc-owner-schedule-bridge .osb-field input:focus,#cc-owner-schedule-bridge .osb-map-row input:focus,#cc-owner-schedule-bridge .osb-map-row select:focus{
+  outline:2px solid #7AAB6E;outline-offset:1px
+}
+#cc-owner-schedule-bridge .osb-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#cc-owner-schedule-bridge [hidden]{display:none!important}
+#cc-owner-schedule-bridge .osb-summary{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+#cc-owner-schedule-bridge .osb-summary strong{font-size:14px}
+#cc-owner-schedule-bridge .osb-meta{font-size:12px;color:var(--text-2);line-height:1.45}
+#cc-owner-schedule-bridge .osb-advanced{margin:0}
+#cc-owner-schedule-bridge .osb-advanced summary{cursor:pointer;color:var(--text-2);font-size:12px;font-weight:600}
+#cc-owner-schedule-bridge .osb-map-row{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center}
+#cc-owner-schedule-bridge .osb-map-head{display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:center;font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2)}
+#cc-owner-schedule-bridge .osb-map-help{margin:0 0 8px;color:var(--text-2);font-size:13px;line-height:1.45;text-transform:none;letter-spacing:0;font-weight:400}
+#cc-owner-schedule-bridge .osb-help{margin:0}
+#cc-owner-schedule-bridge .osb-help ul{margin:8px 0 0;padding-left:18px;color:var(--text-2);font-size:13px;line-height:1.45}
+#cc-owner-schedule-bridge .osb-help li{margin:0 0 4px}
+#cc-owner-schedule-bridge .osb-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+#cc-owner-schedule-bridge .osb-status{min-height:18px}
 #tab-customers .customers-header h2{font-weight:600;letter-spacing:.005em}
 #tab-customers .customers-school-heading{font-family:var(--font-display);font-weight:600;letter-spacing:normal}
 #tab-customers .customers-profile-name,#tab-customers .customers-card-name{font-weight:700;letter-spacing:.01em}
@@ -18605,10 +18720,24 @@ body > .portal-schedule-drawer{flex:none;align-self:auto}
 .pill-guest-context-reset:hover{background:#EDD4D4}
 /* ── Package pebbles (per-guest package display) ─────────────────────────── */
 .pkg-pebble{display:inline-block;border-radius:12px;padding:2px 10px;font-size:0.78rem;font-weight:600;margin:2px;white-space:nowrap}
-.pkg-pebble-malibu{background:#FFD6B4;color:#7A3800}
-.pkg-pebble-uluwatu{background:#F5D5DC;color:#7A5560}
-.pkg-pebble-waimea{background:#F3E8B8;color:#6B5A40}
-.pkg-pebble-default{background:#E4E4E4;color:#444}
+.pkg-pebble-malibu,.pkg-pebble-peach{background:#FFD6B4;color:#7A3800}
+.pkg-pebble-uluwatu,.pkg-pebble-rose{background:#F5D5DC;color:#7A5560}
+.pkg-pebble-waimea,.pkg-pebble-butter{background:#F3E8B8;color:#6B5A40}
+.pkg-pebble-sand{background:#F3E6D4;color:#6B4F32}
+.pkg-pebble-clay{background:#E8C4B0;color:#6A3A28}
+.pkg-pebble-blush{background:#F3C6D4;color:#6B3A4A}
+.pkg-pebble-sage{background:#D7E4D2;color:#3E5340}
+.pkg-pebble-mist{background:#D5DEE8;color:#3A4A5C}
+.pkg-pebble-lilac{background:#E3D7F0;color:#534066}
+.pkg-pebble-stone,.pkg-pebble-default{background:#E4E4E4;color:#444}
+.wh-price-pebble-dd{position:relative;max-width:280px}
+.wh-price-pebble-dd-btn{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:4px 10px;border:1px solid var(--border-soft,#d4d0c8);border-radius:10px;background:var(--surface,#fff);color:inherit;cursor:pointer;font:inherit;text-align:left}
+.wh-price-pebble-dd-btn .pkg-pebble{margin:0;min-width:18px;min-height:18px}
+.wh-price-pebble-dd-menu{display:none;position:absolute;left:0;right:auto;top:calc(100% + 4px);z-index:40;width:260px;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:8px;border:1px solid var(--border-soft,#d4d0c8);border-radius:12px;background:var(--surface,#fff);box-shadow:0 8px 24px rgba(40,36,32,.14)}
+.wh-price-pebble-dd.is-open .wh-price-pebble-dd-menu{display:grid}
+.wh-price-pebble-dd-menu .pkg-pebble{margin:0;cursor:pointer;border:1px solid transparent;text-align:center;font:inherit;font-size:12px;font-weight:600}
+.wh-price-pebble-dd-menu .pkg-pebble.is-selected{box-shadow:0 0 0 2px var(--sched-primary,#4E5853)}
+.portal-admin-check{display:flex;align-items:flex-start;gap:8px;margin:10px 0 4px;font-size:13px;line-height:1.35}
 .kv .v.pkg-pebbles-wrap{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
 .bc-svc-summary-headline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:8px}
 .bc-svc-nights-label{font-size:12px;color:var(--text-muted,#6B6560)}
@@ -19049,6 +19178,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD}
 .bc-block-blocked{background:#E4E2DE;color:#5E5C58;border-left:3px solid #B0AEA8}
+.bc-block-owner_schedule_blocked{background:#F6E56B;color:#4E5853;border-left:3px solid #C4A017}
 .bc-day-cell-turnover{position:relative;height:calc(36px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(4px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
 .bc-day-cell-turnover .bc-block{position:relative;z-index:2}
 .bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(calc(52px * var(--bc-zoom, 1)),34%)}
@@ -19062,6 +19192,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-checkout-marker.bc-block-tour_operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-blocked{background:linear-gradient(90deg,rgba(176,174,168,.30) 0%,rgba(176,174,168,.09) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-owner_schedule_blocked{background:linear-gradient(90deg,rgba(196,160,23,.35) 0%,rgba(246,229,107,.18) 40%,transparent 75%)}
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
@@ -19101,6 +19232,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-blocked{background:#E4E2DE;border-left-color:#B0AEA8}
+.bc-legend-sw-owner_schedule_blocked{background:#F6E56B;border-left-color:#C4A017}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
 @media (max-width:720px){
 .bc-controls-row{flex-direction:column;align-items:stretch}
@@ -19151,6 +19283,7 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-section:first-of-type{margin-top:4px;padding-top:0;border-top:none}
 .ctx-section h3{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
 .ctx-loading{color:var(--text-3);font-size:12px;font-style:italic;padding:10px 0}
+.bc-drawer-loading{padding:18px 4px 8px}
 .bc-drawer-preview .ctx-loading{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-2)}
 .ctx-none{color:var(--text-3);font-size:12px;font-style:italic}
 .btn-open-conv{background:var(--olive);color:#fff;border:none;border-radius:var(--radius-sm);padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s}
@@ -19259,14 +19392,14 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-transfer-grid .ctx-field-label{margin:0 0 2px;font-size:10px}
 .bc-transfer-grid .bk-input-sm{padding:4px 7px;font-size:12px}
 .bc-transfer-grid .bc-transfer-span-2{grid-column:1/-1}
-.bc-transfer-card-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px}
+.bc-transfer-card-footer{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:10px}
 .bc-transfer-override-toggle{align-self:flex-start;margin-top:4px;font-size:10px;font-weight:500;padding:2px 8px;line-height:1.35;color:var(--text-2);border-color:var(--border-soft);background:transparent}
 .bc-transfer-override-toggle:hover{background:var(--surface-soft);color:var(--text)}
-.bc-transfer-override-wrap{margin-top:4px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);display:inline-block;width:100%;max-width:120px;box-sizing:border-box}
+.bc-transfer-override-wrap{margin-top:4px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);display:block;width:100%;max-width:100%;box-sizing:border-box}
 .bc-transfer-override-wrap .bk-input-sm{max-width:100%;width:100%;min-width:0;padding:3px 6px;font-size:12px;box-sizing:border-box}
 .bc-transfer-override-amount{max-width:100%;width:100%;box-sizing:border-box}
 .bc-transfer-actions{display:flex;gap:8px;flex-wrap:wrap}
-.bc-transfer-remove{margin-left:auto;font-size:11px;color:#9C5742;border-color:rgba(156,87,66,.35);padding:4px 10px}
+.bc-transfer-remove{font-size:11px;color:#9C5742;border-color:rgba(156,87,66,.35);padding:4px 10px}
 .bc-transfer-remove:hover{background:rgba(156,87,66,.06)}
 .bc-transfer-pricing{margin-top:6px;font-size:11px;color:var(--text-2)}
 .bc-drawer-file-tabs{margin-top:4px}
@@ -19647,6 +19780,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-block-operator,[data-theme="dark"] .bc-block-tour_operator{background:#2a2436;color:#d8c8e8;border-left-color:#7a68a0}
 [data-theme="dark"] .bc-block-manual{background:#1e2a28;color:#b8c8bc;border-left-color:#569cd6}
 [data-theme="dark"] .bc-block-blocked{background:#2c2c2c;color:#b0b0b0;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-block-owner_schedule_blocked{background:#C9B22A;color:#1e1e1e;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-confirmed{background:#2a3a32;border-left-color:#569cd6}
 [data-theme="dark"] .bc-legend-sw-hold{background:#3a3428;border-left-color:#8a7355}
 [data-theme="dark"] .bc-legend-sw-payment{background:#1a2836;border-left-color:#569cd6}
@@ -19655,6 +19789,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-legend-sw-cancelled{background:#2a2a2a;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-legend-sw-manual{background:#1e2a28;border-left-color:#569cd6}
 [data-theme="dark"] .bc-legend-sw-blocked{background:#2c2c2c;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-legend-sw-owner_schedule_blocked{background:#C9B22A;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-balance{background:#3a3420;border-left-color:#c49a4a}
 [data-theme="dark"] .bc-detail-note,[data-theme="dark"] .bc-sel-warn{background:#3a3420;border-color:#5a5038;color:#e8c89a}
 [data-theme="dark"] #bc-warnings{background:#3a2828;border-color:#6a4040;color:#f0c0bc}
@@ -19668,6 +19803,16 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-block-pay-refund{background:#3a2838;color:#f0b0c0;border-color:#7a5068;font-weight:700}
 [data-theme="dark"] .bc-block-pay-link{background:#1a2836;color:#b8d4e8;border-color:#569cd6}
 [data-theme="dark"] .transfer-pebble{background:#2a2436;color:#d8c8e8;border-color:#7a68a0}
+[data-theme="dark"] .pkg-pebble-malibu,[data-theme="dark"] .pkg-pebble-peach{background:#3A2A1E;color:#FFD6B4}
+[data-theme="dark"] .pkg-pebble-uluwatu,[data-theme="dark"] .pkg-pebble-rose{background:#3A2830;color:#F5D5DC}
+[data-theme="dark"] .pkg-pebble-waimea,[data-theme="dark"] .pkg-pebble-butter{background:#3A3524;color:#F3E8B8}
+[data-theme="dark"] .pkg-pebble-sand{background:#3A3128;color:#E8D5B8}
+[data-theme="dark"] .pkg-pebble-clay{background:#3A2A24;color:#E8C4B0}
+[data-theme="dark"] .pkg-pebble-blush{background:#3A2430;color:#F3C6D4}
+[data-theme="dark"] .pkg-pebble-sage{background:#263028;color:#D7E4D2}
+[data-theme="dark"] .pkg-pebble-mist{background:#242C36;color:#D5DEE8}
+[data-theme="dark"] .pkg-pebble-lilac{background:#2E2838;color:#E3D7F0}
+[data-theme="dark"] .pkg-pebble-stone,[data-theme="dark"] .pkg-pebble-default{background:#2C2C2C;color:#D8D8D8}
 [data-theme="dark"] #tab-bed-calendar .toolbar label{color:var(--text-2)!important}
 [data-theme="dark"] .bk-form-section{border-color:var(--border-soft)}
 [data-theme="dark"] .bk-input,[data-theme="dark"] input.bc-date-input,[data-theme="dark"] select,[data-theme="dark"] textarea.bk-input{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
@@ -19776,12 +19921,44 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
 #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #tab-bed-calendar .bc-grid{min-width:840px}
-#tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:11px;padding:9px 6px;white-space:normal;line-height:1.25;min-height:34px;border-bottom:1px solid var(--border-soft)}
+/* staff-portal-calendar:sunset-fonts — every booking-cal glyph uses sunset type */
+#tab-bed-calendar,
+#tab-bed-calendar *,
+#tab-bed-calendar .bc-grid,
+#tab-bed-calendar .bc-grid th,
+#tab-bed-calendar .bc-grid td,
+#tab-bed-calendar .bc-block,
+#tab-bed-calendar .bc-block-label,
+#tab-bed-calendar .bc-bed-cell,
+#tab-bed-calendar .bc-room-hdr,
+#tab-bed-calendar .bc-chip,
+#tab-bed-calendar .bc-legend,
+#tab-bed-calendar .bc-legend-item,
+#tab-bed-calendar .toolbar,
+#tab-bed-calendar .toolbar label,
+#tab-bed-calendar .toolbar span,
+#tab-bed-calendar button,
+#tab-bed-calendar input,
+#tab-bed-calendar select{
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif!important;
+}
+#tab-bed-calendar .toolbar h2,
+#tab-bed-calendar .bc-detail-title,
+#tab-bed-calendar .bc-op-title{
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif!important;
+  font-weight:600;
+}
+#bc-legend .bc-legend-item:has(.bc-legend-sw-owner_schedule_blocked),
+#bc-legend [data-i18n="calendar.legend.ownerScheduleBlocked"]{
+  display:none!important;
+}
+#tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:14px;font-weight:700;padding:4px 6px;white-space:normal;line-height:1.15;min-height:0;border-bottom:1px solid var(--border-soft)}
 #tab-bed-calendar .bc-day-cell,#tab-bed-calendar .bc-day-cell-turnover{min-height:34px;padding:5px 3px}
-#tab-bed-calendar .bc-room-hdr{padding:9px 10px}
-#tab-bed-calendar .bc-room-hdr-row td{padding-top:7px}
-#tab-bed-calendar .bc-block{font-size:10.5px;padding:2px 4px 2px 7px;gap:2px 4px}
-#tab-bed-calendar .bc-block-pay-badge{font-size:8.5px;padding:1px 4px}
+#tab-bed-calendar .bc-room-hdr{padding:6px 10px}
+#tab-bed-calendar .bc-room-hdr-row td{padding-top:4px}
+#tab-bed-calendar .bc-block{font-size:12px;padding:2px 6px 2px 7px;gap:3px 5px}
+#tab-bed-calendar .bc-block-label{font-size:12px;font-weight:700;line-height:1.2}
+#tab-bed-calendar .bc-block-pay-badge{font-size:12px;padding:1px 4px}
 #tab-bed-calendar .toolbar{flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
 #tab-bed-calendar .toolbar h2{flex:1 1 100%;font-size:15px;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;margin:0 0 2px}
 #tab-bed-calendar .toolbar label{flex:1 1 auto;flex-direction:row;align-items:center;gap:4px;font-size:12px;font-weight:600;margin:0;padding:0;min-width:0!important}
@@ -19825,25 +20002,325 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #cc-automated-staff-notifications .asn-actions .btn{width:100%}
 #cc-automated-staff-notifications .asn-item-actions .btn{flex:1 1 calc(50% - 4px);min-width:0}
 }
+/* staff-portal-calendar:toolbar-row — chips + legend on the title line */
+@media (min-width:769px){
+  #tab-bed-calendar #wrap-bc{padding:4px 16px 12px!important}
+  #tab-bed-calendar .card{margin:0 auto 8px;padding:6px 12px 12px}
+  #tab-bed-calendar .toolbar{flex-wrap:nowrap;align-items:center;gap:8px 10px;margin-bottom:8px}
+  #tab-bed-calendar .toolbar h2{flex:0 0 auto;order:1;margin:0;white-space:nowrap;font-size:15px}
+  #tab-bed-calendar .bc-chips{flex:1 1 auto;order:2;min-width:0;flex-wrap:nowrap;overflow:hidden}
+  #tab-bed-calendar .bc-range-wrap{flex:0 0 auto;order:3}
+  #tab-bed-calendar #bc-load{flex:0 0 auto;order:3}
+  #tab-bed-calendar .bc-legend-row{flex:0 0 auto;order:4}
+  #tab-bed-calendar .bc-bed-cell{padding:5px 14px}
+  #tab-bed-calendar .bc-room-hdr{padding:6px 14px}
+}
+/* staff-portal-calendar:side-drawer — right rail shell (slice 1, preview open) */
+#bc-side-drawer{
+  position:fixed;
+  top:calc(var(--luna-banner-h, 140px) + 52px);
+  right:16px;
+  bottom:12px;
+  z-index:45;
+  width:min(420px,38vw);
+  min-width:360px;
+  display:flex;
+  flex-direction:column;
+  background:var(--surface,#F5F1EA);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius,14px);
+  overflow:hidden;
+  box-shadow:var(--shadow,0 8px 24px rgba(43,36,31,.12));
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif;
+  transform:translateX(calc(100% + 40px));
+  transition:transform .22s ease, top .18s ease;
+  pointer-events:none;
+}
+#bc-side-drawer.is-open{transform:none;pointer-events:auto}
+body.luna-header-ui.luna-hdr-compact #bc-side-drawer,
+body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
+.bc-side-head{
+  flex:0 0 auto;
+  padding:10px 12px 8px;
+  border-bottom:1px solid var(--border-soft);
+}
+.bc-side-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text)}
+.bc-side-meta{margin:4px 0 0;font-size:12px;color:var(--text-2)}
+.bc-side-head-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.bc-side-pin,.bc-side-close{
+  flex:0 0 auto;width:32px;height:32px;padding:0;border:1px solid var(--border-soft);border-radius:8px;
+  background:var(--surface-soft);color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;
+  cursor:pointer;line-height:1;
+}
+.bc-side-pin svg{display:block;transform:rotate(45deg);overflow:visible}
+.bc-side-pin.is-on{background:#E7EEE9;color:#2c5f56;border-color:#8AA396}
+.bc-side-pin.is-on svg{transform:none}
+.bc-side-close{font-size:18px}
+.bc-side-pin:hover,.bc-side-close:hover{background:var(--surface);color:var(--text)}
+.bc-side-body{flex:1 1 auto;overflow:auto;padding:8px 12px 12px;color:var(--text-2);font-size:13px;line-height:1.45}
+.bc-side-foot{flex:0 0 auto;padding:0;border:0;min-height:0}
+#bc-side-drawer .bc-drawer-file-tabs{margin-top:0}
+#bc-side-drawer .bc-drawer-tab-content-panel{min-height:0;padding:10px 12px 14px}
+#bc-side-drawer .bc-drawer-tab-panel[data-tab="transfers"].is-active{min-height:0}
+#bc-side-drawer .bc-drawer-tabs{width:100%;gap:4px;padding:0;overflow:visible}
+#bc-side-drawer .bc-drawer-tab{
+  flex:1 1 0;margin:0;padding:7px 4px;font-size:11px;font-weight:600;border-radius:8px;
+  text-align:center;border:1px solid var(--border-soft);
+}
+#bc-side-drawer #bc-drawer-card-booking{padding:16px 16px 18px;position:relative}
+#bc-side-drawer #bc-drawer-card-booking:has(#bc-field-group-guests.is-editing){padding-bottom:56px}
+#bc-side-drawer #bc-field-group-guests.is-editing .btn-bc-field-edit{display:none!important}
+#bc-side-drawer #bc-field-group-guests.is-editing .ctx-field-header{display:none}
+#bc-side-drawer #bc-drawer-card-booking > .bc-drawer-card-title{display:none}
+#bc-side-drawer .bc-conv-handoff-block{display:none}
+#bc-side-drawer #bc-drawer-card-conversation{
+  padding:14px 16px 16px;
+}
+.bc-notes-head{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 0 8px;
+}
+.bc-notes-head .bc-drawer-card-title{margin:0;font-size:13px}
+#bc-side-drawer #bc-luna-notes-edit{
+  background:transparent;border-color:transparent;box-shadow:none;
+}
+#bc-side-drawer #bc-luna-notes-edit:hover{background:transparent;color:var(--text)}
+.bc-luna-notes-list{margin:0;padding:0;list-style:none}
+.bc-luna-note-item{
+  margin:0 0 8px;padding:8px 10px;border-radius:8px;background:var(--surface-soft,#f4f1ea);
+  font-size:12px;line-height:1.45;
+}
+.bc-luna-note-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.bc-luna-note-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.bc-luna-note-when{font-size:10px;color:var(--text-2)}
+.bc-luna-notes-compose[hidden]{display:none!important}
+.bc-luna-notes-compose{
+  margin-top:10px;display:flex;flex-direction:column;gap:8px;
+}
+.bc-notes-input{width:100%;box-sizing:border-box;min-height:72px;resize:vertical}
+.bc-notes-actions{display:flex;align-items:center;gap:8px}
+.bc-notes-result{margin-top:6px;font-size:11px;color:var(--text-2)}
+#bc-side-drawer #bc-field-group-contact .kv:nth-child(1){display:none!important}
+#bc-side-drawer #bc-field-group-contact .kv:nth-child(2){grid-column:1!important}
+#bc-side-drawer #bc-field-group-contact .kv:nth-child(3){grid-column:2!important}
+#bc-side-drawer #bc-field-group-contact .ctx-field-kv-grid{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+}
+#bc-side-drawer #bc-field-group-dates .kv:nth-child(3){display:none!important}
+#bc-side-drawer #bc-field-group-package .kv:nth-child(2){display:none}
+#bc-side-drawer #bc-drawer-card-booking .ctx-field-edit-group{padding:12px 0 14px}
+#bc-side-drawer #bc-drawer-card-booking .kv-grid{gap:14px 18px}
+.bc-side-nights{font-size:11px;font-weight:600;color:var(--text-2);margin-left:6px}
+.bc-range-wrap{position:relative;display:inline-flex;align-items:center}
+.bc-range-btn{
+  height:30px;padding:0 10px;border:1px solid var(--border-soft);border-radius:8px;
+  background:var(--surface);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;
+  white-space:nowrap;
+}
+.bc-range-btn:hover{background:var(--surface-soft)}
+.bc-range-pick{
+  position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;cursor:pointer;
+}
+.bc-refresh-btn{
+  width:30px;height:30px;padding:0;border:1px solid var(--border-soft);border-radius:8px;
+  background:transparent;color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;
+  cursor:pointer;
+}
+.bc-refresh-btn:hover{background:var(--surface-soft);color:var(--text)}
+.bc-refresh-btn:disabled{opacity:.4;cursor:default}
+#bc-side-drawer .kv .k{white-space:nowrap}
+#bc-side-drawer .kv .v{white-space:nowrap;min-width:0}
+#bc-side-drawer .is-editing .kv .v{white-space:normal}
+#bc-side-drawer #bc-field-group-dates .ctx-field-kv-grid{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+}
+#bc-side-drawer #bc-field-group-dates .kv:nth-child(2){grid-column:2!important}
+#bc-side-drawer #bc-field-private-room-read-kv{
+  flex-direction:column;align-items:flex-start;gap:6px;
+}
+#bc-side-drawer #bc-field-private-room-read-kv .k{margin:0;white-space:nowrap}
+#bc-side-drawer #bc-field-group-package .kv:nth-child(2){display:flex;grid-column:2!important}
+#bc-side-drawer #bc-drawer-card-booking .ctx-field-header{display:none}
+#bc-side-drawer #bc-field-group-guests .ctx-field-header{display:flex}
+#bc-side-drawer #bc-field-group-guests .btn-bc-field-edit{
+  background:transparent;border-color:transparent;box-shadow:none;
+}
+#bc-side-drawer #bc-field-group-guests .btn-bc-field-edit:hover{
+  background:transparent;color:var(--text);
+}
+#bc-side-drawer #bc-field-guests-kv-only .k{display:none}
+#bc-side-drawer #bc-field-guests-kv-only .v{
+  font-size:14px;font-weight:600;text-decoration:none;white-space:normal;
+}
+.bc-guest-count{display:none}
+.bc-guest-names{display:block;margin-top:0;font-size:14px;font-weight:600;text-decoration:none!important;white-space:normal;line-height:1.4}
+.bc-guest-name-line{display:block}
+#bc-side-drawer .ctx-field-edit{display:none!important}
+#bc-side-drawer .bc-inline-input{
+  width:100%;max-width:100%;min-width:0;height:28px;font-size:13px;padding:3px 8px;
+  border:1px solid var(--border-soft);border-radius:6px;background:#fff;box-sizing:border-box;
+}
+#bc-side-drawer input[type="date"].bc-inline-input{min-width:0}
+#bc-side-drawer .bc-inline-guest-name{display:block;margin:0 0 6px;max-width:100%}
+.bc-inline-edit-bar{display:none;align-items:center;gap:6px}
+#bc-side-drawer #bc-drawer-card-booking #bc-inline-edit-bar{
+  position:absolute;right:16px;bottom:14px;margin:0;
+}
+#bc-side-drawer #bc-field-group-guests.is-editing ~ #bc-inline-edit-bar,
+#bc-side-drawer #bc-drawer-card-booking:has(#bc-field-group-guests.is-editing) #bc-inline-edit-bar{
+  display:inline-flex;
+}
+#bc-inline-edit-bar[hidden]{display:none!important}
+#bc-side-drawer #bc-inline-save{padding:4px 10px;font-size:12px;min-height:28px}
+#bc-side-drawer #bc-inline-cancel{padding:4px 10px;font-size:12px;min-height:28px}
+#bc-side-drawer .ctx-field-edit-group.is-editing .bc-private-room-switch-wrap.is-readonly{pointer-events:auto;opacity:1}
+#bc-side-drawer .ctx-field-label{
+  font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4px;color:var(--text-2);
+}
+#bc-side-drawer .ctx-field-edit .bk-input{height:30px;font-size:13px;padding:4px 8px}
+#bc-side-drawer .ctx-field-edit-actions{margin-top:8px}
+#bc-side-drawer #bc-field-contact-edit,
+#bc-side-drawer #bc-field-dates-edit{
+  display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;align-items:end;
+}
+#bc-side-drawer #bc-field-contact-edit label[for="bc-field-contact-name"],
+#bc-side-drawer #bc-field-contact-name{display:none!important}
+#bc-side-drawer #bc-field-contact-edit label[for="bc-field-contact-phone"]{grid-column:1;grid-row:1}
+#bc-side-drawer #bc-field-contact-phone{grid-column:1;grid-row:2}
+#bc-side-drawer #bc-field-contact-edit label[for="bc-field-contact-email"]{grid-column:2;grid-row:1}
+#bc-side-drawer #bc-field-contact-email{grid-column:2;grid-row:2}
+#bc-side-drawer #bc-field-contact-edit .ctx-field-edit-actions,
+#bc-side-drawer #bc-field-contact-edit .ctx-field-preview-result{grid-column:1/-1}
+#bc-side-drawer #bc-field-dates-edit label[for="bc-field-dates-check-in"]{grid-column:1;grid-row:1}
+#bc-side-drawer #bc-field-dates-check-in{grid-column:1;grid-row:2}
+#bc-side-drawer #bc-field-dates-edit label[for="bc-field-dates-check-out"]{grid-column:2;grid-row:1}
+#bc-side-drawer #bc-field-dates-check-out{grid-column:2;grid-row:2}
+#bc-side-drawer #bc-field-dates-nights,
+#bc-side-drawer #bc-field-dates-error,
+#bc-side-drawer #bc-field-dates-edit .ctx-field-edit-actions,
+#bc-side-drawer #bc-field-dates-edit .ctx-field-preview-result{grid-column:1/-1}
+#bc-side-drawer #bc-field-guests-edit .ctx-field-private-room-edit{display:none}
+.bc-range-pop{
+  position:absolute;top:calc(100% + 6px);right:0;z-index:80;
+  width:268px;padding:10px;background:var(--surface,#fff);border:1px solid var(--border-soft);
+  border-radius:10px;box-shadow:0 8px 24px rgba(43,36,31,.16);
+}
+.bc-range-pop[hidden]{display:none!important}
+.bc-range-pop-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.bc-range-pop-title{font-size:13px;font-weight:700}
+.bc-range-pop-nav{border:0;background:transparent;cursor:pointer;font-size:16px;line-height:1;padding:2px 6px;color:var(--text-2)}
+.bc-range-pop-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.bc-range-pop-dow{font-size:10px;font-weight:700;color:var(--text-2);text-align:center;padding:2px 0}
+.bc-range-pop-day{
+  border:0;background:transparent;border-radius:6px;height:28px;font-size:12px;cursor:pointer;color:var(--text);
+}
+.bc-range-pop-day.is-out{visibility:hidden}
+.bc-range-pop-day.is-in{background:#E7EEE9}
+.bc-range-pop-day.is-end{background:#2c5f56;color:#fff}
+.bc-range-pop-hint{margin-top:8px;font-size:11px;color:var(--text-2)}
+#tab-bed-calendar .bc-legend-row{display:flex;align-items:center;gap:8px}
+#tab-bed-calendar .bc-range-wrap{order:3}
+#tab-bed-calendar .bc-legend-row{order:4}
+#bc-side-drawer .bc-drawer-footer{flex-direction:column;align-items:stretch}
+#bc-side-drawer .bc-drawer-footer-right{align-items:stretch;margin-left:0}
+#bc-side-drawer #bc-sel-panel{margin:0;box-shadow:none;border:0;background:transparent;padding:0}
+#bc-side-drawer .bc-transfer-cards,
+#bc-side-drawer .bc-transfer-grid,
+#bc-side-drawer .ctx-payments-tab-layout{grid-template-columns:1fr}
+#bc-side-drawer #bc-overview-invoice,
+#bc-side-drawer #bc-running-invoice{
+  max-width:none;margin:0;padding:14px 16px;box-shadow:none;
+}
+#bc-move-bed .bc-card-collapse{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
+  padding:0;margin:0 0 0;border:0;background:none;cursor:pointer;color:inherit;font:inherit;text-align:left;
+}
+#bc-move-bed .bc-card-collapse .bc-drawer-card-title{margin:0}
+#bc-move-bed .bc-card-chevron{flex:0 0 auto;font-size:16px;line-height:1;color:var(--text-2);transform:rotate(-90deg);transition:transform .15s}
+#bc-move-bed:not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
+#bc-move-bed.is-collapsed .bc-move-bed-body{display:none}
+#tab-bed-calendar.bc-cal-side-pinned #wrap-bc{
+  width:calc(100% - 419px)!important;
+  max-width:calc(100% - 419px)!important;
+  box-sizing:border-box;
+  padding-right:3px!important;
+}
+#tab-bed-calendar.bc-cal-side-pinned #wrap-bc > .card{
+  margin-right:0;
+  padding-right:6px;
+}
+#tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer.is-open{
+  position:fixed;
+  right:16px;
+  bottom:12px;
+  transform:none;
+  width:400px;
+  min-width:400px;
+  max-width:400px;
+  pointer-events:auto;
+  z-index:46;
+}
+@media (max-width:768px){
+  #bc-side-drawer{display:none!important}
+}
+@media (min-width:769px){
+  /* staff-portal-calendar:side-drawer-desktop — bottom folder stays in the DOM for phones */
+  #tab-bed-calendar #bc-detail,
+  #tab-bed-calendar #wrap-bc > #bc-sel-panel{display:none!important}
+  #tab-bed-calendar #bc-side-drawer #bc-sel-panel{display:block!important}
+}
+@media (prefers-reduced-motion:reduce){
+  #bc-side-drawer{transition:none}
+  #bc-move-bed .bc-card-chevron{transition:none}
+}
 /* ===== BEGIN book-ui (serif typeface only; paperback restyle removed) =====
    Kept the literary serif on Booking Calendar + drawer headings; all the warm
    paperback colors/paper/spacing/borders were removed so the rest returns to the
    original look. Still scoped under .book-ui and gated by STAFF_PORTAL_BOOK_UI
    (set =false to drop the serif too and fully restore the prior look). ===== */
 .book-ui{--bk-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+/* staff-portal-calendar:drawer-fonts — title + all four drawer tabs match sunset */
 .book-ui .toolbar h2,
 .book-ui .bc-detail-title,
-.book-ui .bc-block-label,
 .book-ui .bk-form-section-title,
 .book-ui .bc-sel-title,
 .book-ui .bc-drawer-card-title,
 .book-ui .bc-drawer-card-subtitle,
 .book-ui .ctx-section h3,
+.book-ui .kv,
 .book-ui .kv .k,
+.book-ui .kv .v,
 .book-ui .bc-grid thead th.bc-bed-head,
 .book-ui .bc-room-hdr,
 .book-ui .bc-drawer-tab,
-.book-ui .bk-quote-section-title{font-family:var(--bk-serif)}
+.book-ui .bc-drawer-tab-content-panel,
+.book-ui .bc-drawer-tab-content-panel *,
+.book-ui .bk-quote-section-title,
+#tab-bed-calendar .toolbar h2,
+#tab-bed-calendar .bc-detail,
+#tab-bed-calendar .bc-detail *,
+#tab-bed-calendar .bc-drawer-tab,
+#tab-bed-calendar .bc-drawer-tabs,
+#tab-bed-calendar .bc-drawer-tab-content-panel,
+#tab-bed-calendar .bc-drawer-tab-content-panel *{
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif!important;
+}
+/* staff-portal-calendar:block-fonts — names + pebbles + sign-out match sunset */
+.book-ui .bc-block,
+.book-ui .bc-block-label,
+.book-ui .bc-block-pay-badge,
+.book-ui .transfer-pebble,
+#tab-bed-calendar .bc-block,
+#tab-bed-calendar .bc-block-label,
+#tab-bed-calendar .bc-block-pay-badge,
+#tab-bed-calendar .transfer-pebble{
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif!important;
+}
+#tab-bed-calendar .bc-block-pay-badge,
+#tab-bed-calendar .transfer-pebble{
+  font-size:12px;
+  font-weight:700;
+}
 /* ===== END book-ui ===== */
 
 /* ═══ luna-header-ui ══════════════════════════════════════════════════════
@@ -19868,10 +20345,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   --luna-cream:#fff8e9;
   /* sampled from the art's deep sea, so the base never reads as a seam */
   --luna-banner-base:#123a44;
-  /* Height tracks width between ~1230px and ~1740px so the scene holds a
-     constant crop across the sizes staff actually resize between; the clamp
-     ends keep it off the schedule board on a big monitor. */
-  --luna-banner-h:clamp(116px,9.4vw,164px);
+  /* Native banner is 4016×391. Size the bar to that ratio so cover cannot
+     crop the sign or the boards the way a 164px cap does on a wide screen. */
+  --luna-banner-h:calc(100vw * 391 / 4016);
 }
 
 /* ── banner ─────────────────────────────────────────────────────────────── */
@@ -19884,16 +20360,14 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   flex:0 0 var(--luna-banner-h);
   min-height:var(--luna-banner-h);
   /* no left padding: the carved panel is full-bleed, as it is in the art */
-  padding:0 clamp(14px,2.2vw,30px) 0 0;
+  padding:0 6px 0 0;
   background-color:var(--luna-banner-base);
   /* single pre-composed banner: carved LUNA sign, sunset shoreline and boards
      are all baked into one 1560x152 strip (owner-supplied), so we no longer
      split it into scene + sign slices — the whole art is the background. */
   background-image:url('/staff/assets/luna-header-banner.png?v=8');
-  background-size:cover;
-  /* the strip's aspect (~10.3:1) is a hair narrower than the bar, so cover only
-     shaves top/bottom — full width (sign … water … boards) stays in frame.
-     Sit dead-centre to keep the sun and wave band front-and-centre. */
+  background-size:100% 100%;
+  /* Fill the bar exactly — no cover-crop of the thatch or the boards. */
   background-position:center 50%;
   background-repeat:no-repeat;
   border-bottom:none;
@@ -19979,18 +20453,25 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   position:relative;
   z-index:1;
   display:flex;
-  align-items:center;
+  align-items:flex-start;
   gap:clamp(8px,1vw,14px);
   margin-left:auto;
-  /* Sit the controls along the TOP edge of the banner (the new art leaves open
-     sky under the plaque there), not floating mid-height or on the bottom.
-     Small top gap so they don't touch the edge. */
+  /* Top-right sky: moon + Sign out on one row, language under them.
+     Stay off the baked-in surfboards on the lower right of the art. */
   align-self:flex-start;
-  margin-top:clamp(9px,1.1vw,16px);
-  /* The surfboards are baked into the far-right of the art, so pull the whole
-     control cluster in from the right edge to leave a clear gap over them
-     instead of the sign-out sitting on top of the boards. */
-  margin-right:clamp(64px,6vw,120px);
+  margin-top:clamp(6px,.8vw,10px);
+  margin-right:4px;
+}
+.luna-header-ui .banner-tools{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:4px;
+}
+.luna-header-ui .banner-tools-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
 }
 
 /* ── flat ghost controls (matches sunset-staging simple header) ─────────── */
@@ -20027,6 +20508,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   cursor:pointer;
   white-space:nowrap;
 }
+.luna-header-ui .staff-lang-switch{gap:5px;font-size:10px;letter-spacing:.06em}
+.luna-header-ui .staff-lang-btn{font-size:10px;font-weight:600;padding:0 2px}
 .luna-header-ui .staff-school-btn:hover,
 .luna-header-ui .staff-lang-btn:hover{opacity:.9}
 .luna-header-ui .staff-school-btn.is-active,
@@ -20074,9 +20557,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   box-shadow:none;
   -webkit-backdrop-filter:none;
   backdrop-filter:none;
-  padding:7px 18px;
-  font-size:13px;
+  padding:5px 12px;
+  font-size:12px;
   font-weight:600;
+  font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif;
   color:var(--luna-cream);
   text-shadow:none;
   cursor:pointer;
@@ -20096,12 +20580,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 .luna-header-ui #tabs .tab-btn{
   position:relative;
   font-weight:700;
-  font-size:13.5px;
+  font-size:14.5px;
   color:var(--luna-teal-dark);
   opacity:.82;
   border-bottom:none;
-  padding:13px 0 15px;
-  margin-right:clamp(18px,2.4vw,38px);
+  padding:15px 0 17px;
+  margin-right:clamp(20px,2.4vw,34px);
 }
 .luna-header-ui #tabs .tab-btn:hover{opacity:1}
 .luna-header-ui #tabs .tab-btn.active{
@@ -20167,7 +20651,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
    pad it clear of the logo (left) and the controls cluster (right). #banner
    keeps the logo + controls; the tab buttons float in the open middle band. */
 .luna-header-ui.luna-hdr-compact #banner{
-  height:68px;flex:0 0 68px;min-height:68px;
+  height:52px;flex:0 0 52px;min-height:52px;
   background-image:none;
   background:var(--surface);
   border-bottom:1px solid var(--border-soft);
@@ -20179,29 +20663,33 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #banner{background:#252526}
 .luna-header-ui.luna-hdr-compact #banner::after{display:none}
-/* bigger brand logo on the slim bar — the logo grows by shedding padding, the
-   nav stays tight (it does not widen to make room). */
-.luna-header-ui.luna-hdr-compact #banner .brand{width:auto;height:auto;align-self:center;flex:0 0 auto}
+/* compact: no logo — tabs sit left, controls stay right */
+.luna-header-ui.luna-hdr-compact #banner .brand,
 .luna-header-ui.luna-hdr-compact #banner .brand-logo{
-  display:block;height:60px;width:auto;max-width:300px;object-fit:contain;object-position:left center;
+  display:none!important;
 }
 /* controls sit centred on the row, no surfboard gap / top offset */
 .luna-header-ui.luna-hdr-compact .banner-actions{
   align-self:center;margin-top:0;margin-bottom:0;margin-right:0;
+}
+.luna-header-ui.luna-hdr-compact .banner-tools{
+  flex-direction:row;
+  align-items:center;
+  gap:8px;
 }
 /* lift the nav row up onto the banner and clear the logo / controls.
    The row floats ABOVE the banner (transparent), so the banner's surface shows
    through as the single bar. pointer-events:none on the container lets the empty
    middle pass clicks down to the logo/controls; the tab buttons re-enable it. */
 .luna-header-ui.luna-hdr-compact #tabs{
-  margin-top:-68px;height:68px;min-height:68px;
+  margin-top:-52px;height:52px;min-height:52px;
   background:transparent;border-bottom:none;box-shadow:none;
   align-items:center;position:relative;z-index:7;pointer-events:none;
-  padding-left:clamp(170px,14vw,235px);  /* clear the logo */
+  padding-left:clamp(12px,1.6vw,22px);
   padding-right:clamp(260px,24vw,360px); /* clear the controls cluster */
 }
 [data-theme="dark"] .luna-header-ui.luna-hdr-compact #tabs{background:transparent;border-bottom:none}
-.luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:68px;line-height:68px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
+.luna-header-ui.luna-hdr-compact #tabs .tab-btn{height:52px;line-height:52px;padding-top:0;padding-bottom:0;margin-right:clamp(14px,1.8vw,26px);pointer-events:auto}
 .luna-header-ui.luna-hdr-compact #tabs .tab-btn.active .tab-label::after{bottom:-9px}
 /* compact hides the global-pause card from the bar to keep the row clean (owner). */
 .luna-header-ui.luna-hdr-compact #tabs .tabs-global-pause{display:none}
@@ -21058,14 +21546,16 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <span class="nav-menu-toggle-bars" aria-hidden="true"></span>
   </button>
   <div class="banner-tools" id="banner-tools">
-    <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
-      ${renderStaffLangSwitchButtons(false)}
-    </div>
+    <div class="banner-tools-row">
     <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
       <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
       <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
     </button>
     <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
+    </div>
+    <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
+      ${renderStaffLangSwitchButtons(false)}
+    </div>
   </div>
   </div>
 </div>
@@ -21078,15 +21568,15 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
   <button class="tab-btn" data-tab="portal-home" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg></span><span class="tab-label" data-i18n="nav.tab.portalHome">Schedule</span></button>
-  <button class="tab-btn" data-tab="bed-calendar"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 14h18M6 10V8a1 1 0 0 1 1-1h4M3 18v2M21 18v2"/></svg></span><span class="tab-label" data-i18n="nav.tab.calendar">Booking Calendar</span></button>
-  <button class="tab-btn" data-tab="conversations"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg></span><span class="tab-label" data-i18n="nav.tab.whatsapp">WhatsApp</span></button>
-  <button class="tab-btn" data-tab="bookings" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-3.2-2-2.4 2-2.4-2L8.2 21 5 19V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span><span class="tab-label" data-i18n="nav.tab.bookings">Bookings</span></button>
+  <button class="tab-btn" data-tab="bed-calendar"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v6M3 14h18M6 10V8a1 1 0 0 1 1-1h4M3 18v2M21 18v2"/></svg></span><span class="tab-label" data-i18n="nav.tab.portalHome">Schedule</span></button>
+  <button class="tab-btn" data-tab="conversations"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg></span><span class="tab-label" data-i18n="nav.tab.inbox">Inbox</span></button>
+  <button class="tab-btn" data-tab="bookings"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-3.2-2-2.4 2-2.4-2L8.2 21 5 19V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span><span class="tab-label" data-i18n="nav.tab.bookings">Bookings</span></button>
   <button class="tab-btn" data-tab="day-schedule" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="tab-label" data-i18n="nav.tab.daySchedule">Day Schedule</span></button>
   <button class="tab-btn" data-tab="customers" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5M16 3.6a3 3 0 0 1 0 5.8M21 20c0-2.2-1.3-4-3.4-4.7"/></svg></span><span class="tab-label" data-i18n="nav.tab.customers">Customers</span></button>
   <button class="tab-btn" data-tab="ask-luna"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/></svg></span><span class="tab-label" data-i18n="nav.tab.lunaStaff">Luna Staff</span></button>
-  <button class="tab-btn" data-tab="admin" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="tab-label" data-i18n="nav.tab.admin">Admin</span></button>
   <button class="tab-btn" data-tab="services" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 3 12V4a1 1 0 0 1 1-1h8a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.6z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg></span><span class="tab-label">Camps, Lessons and Services</span></button>
   <button class="tab-btn" data-tab="tour-operator"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3 4v14l6 2 6-2 6 2V6l-6-2-6 2zM9 6v14M15 4v14"/></svg></span><span class="tab-label" data-i18n="nav.tab.tourOperator">Tour Operator</span></button>
+  <button class="tab-btn" data-tab="admin" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span><span class="tab-label" data-i18n="nav.tab.admin">Admin</span></button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
   <button class="tab-btn dev-tab" data-tab="luna-guest-simulator" data-i18n="nav.tab.simulator">Luna Guest Simulator</button>
   <div class="nav-menu-tools" id="nav-menu-tools" aria-label="Account"></div>
@@ -21486,7 +21976,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div class="portal-admin-wrap" id="admin-wh-shell" hidden>
   <div class="portal-admin-subtabs" id="wh-admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
-    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings">Bookings</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings" hidden>Bookings</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-luna-staff" data-wh-admin-tab="luna-staff" aria-controls="wh-admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff">Luna Staff</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-services" data-wh-admin-tab="services" aria-controls="wh-admin-panel-services" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.services">Camps, Lessons and Services</button>
@@ -21798,24 +22288,12 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <!-- ── Booking Calendar tab (Stage 7.7h) ──────────────────────────────────── -->
 <!-- "book-ui" scoping class (warm paperback restyle) — controlled by STAFF_PORTAL_BOOK_UI -->
 <div id="tab-bed-calendar" class="tab-panel${bookUiClass}">
-<div id="wrap-bc" style="max-width:100%;padding:16px 20px">
+<div id="wrap-bc" style="max-width:100%;padding:4px 16px 12px">
 
   <!-- Controls card -->
   <div class="card">
     <div class="toolbar">
-      <h2 id="bc-calendar-title" data-i18n="calendar.title">Booking Calendar</h2>
-      <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        <span data-i18n="calendar.from">From</span>&nbsp;<input id="bc-start" type="date" class="bc-date-input" autocomplete="off">
-      </label>
-      <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        <span data-i18n="calendar.to">To</span>&nbsp;<input id="bc-end" type="date" class="bc-date-input" autocomplete="off">
-      </label>
-      <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
-      <button class="btn btn-primary" id="bc-load">&#128197; <span data-i18n="calendar.load">Load</span></button>
-    </div>
-
-    <!-- Date shortcut chips + compact legend (Stage 26h.5) -->
-    <div class="bc-controls-row">
+      <h2 id="bc-calendar-title">August '26</h2>
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week" data-i18n="calendar.chip.week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days" data-i18n="calendar.chip.30days">Next 30 days</span>
@@ -21827,7 +22305,13 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-chip" data-chip="sep-oct" data-i18n="calendar.chip.sepOct">Sep - Oct</span>
       <span class="bc-chip" data-chip="oct-nov" data-i18n="calendar.chip.octNov">Oct - Nov</span>
     </div>
-
+      <div class="bc-range-wrap" id="bc-range-wrap">
+        <button type="button" class="bc-range-btn" id="bc-range-btn" aria-label="Date range">Select dates</button>
+        <div class="bc-range-pop" id="bc-range-pop" hidden></div>
+      </div>
+      <label style="display:none"><span data-i18n="calendar.from">From</span><input id="bc-start" type="date" class="bc-date-input" autocomplete="off"></label>
+      <label style="display:none"><span data-i18n="calendar.to">To</span><input id="bc-end" type="date" class="bc-date-input" autocomplete="off"></label>
+      <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
     <div class="bc-legend-row">
     <div class="bc-zoom-bar" id="bc-zoom-bar" aria-label="Calendar zoom">
       <button type="button" class="bc-zoom-btn" id="bc-zoom-out" data-i18n-title="calendar.zoom.out" title="Zoom out" aria-label="Zoom out">−</button>
@@ -21847,6 +22331,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
     </div>
+      <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+      </button>
     </div>
     </div>
 
@@ -22013,7 +22500,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="bk-form-section">
       <div class="bk-form-section-title" data-i18n="calendar.create.notesSection">Notes</div>
       <div class="bk-notes-block">
-        <label class="bk-label" for="bk-notes" data-i18n="calendar.create.staffNotes">Staff notes</label>
         <textarea id="bk-notes" class="bk-input" rows="3" data-i18n-placeholder="calendar.create.notesPlaceholder" placeholder="Internal booking notes..."></textarea>
       </div>
     </div>
@@ -22049,6 +22535,25 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <!-- Block detail panel (read-only) — carries "book-ui" too so drawer styling holds even if moved -->
   <div class="card${bookUiClass}" id="bc-detail" style="display:none"></div>
+
+<aside id="bc-side-drawer" data-mode="">
+  <header class="bc-side-head">
+    <div class="bc-side-head-row">
+      <div>
+        <h2 class="bc-side-title" id="bc-side-title">Booking</h2>
+        <p class="bc-side-meta" id="bc-side-meta"></p>
+      </div>
+      <div class="bc-side-head-actions">
+        <button type="button" class="bc-side-pin" id="bc-side-pin" aria-pressed="false" title="Pin" aria-label="Pin">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+        </button>
+        <button type="button" class="bc-side-close" id="bc-side-close" title="Close" aria-label="Close"><span aria-hidden="true">&#8594;</span></button>
+      </div>
+    </div>
+  </header>
+  <div class="bc-side-body" id="bc-side-body"></div>
+  <footer class="bc-side-foot" id="bc-side-foot"></footer>
+</aside>
 
 </div>
 </div><!-- /tab-bed-calendar -->
@@ -22239,6 +22744,90 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </section>
 
+${showOwnerScheduleBridge ? `
+  <div class="card cc-section" id="cc-owner-schedule-bridge">
+    <div class="cc-section-hdr">Owner schedule</div>
+    <div class="cc-section-sub">A Google Sheet can mark beds as <b>Owner schedule blocked</b>. An empty or broken Sheet never removes a Luna booking or staff block.</div>
+    <details class="osb-help osb-advanced">
+      <summary>How should my Sheet look?</summary>
+      <ul>
+        <li>The first column has bed names.</li>
+        <li>The top row has dates, increasing left to right.</li>
+        <li>A colored cell means that bed is booked on that date.</li>
+        <li>A clear cell means it is available.</li>
+      </ul>
+    </details>
+    <div id="osb-status" class="al-hint osb-status" role="status"></div>
+    <div class="osb-stack">
+      <div id="osb-empty" class="osb-empty">
+        <p>No Google Sheet is connected yet.</p>
+      </div>
+      <div id="osb-load-error" class="osb-empty" hidden>
+        <p>Could not load Owner schedule. Refresh to try again.</p>
+        <button type="button" class="btn btn-ghost" id="osb-retry">Refresh</button>
+      </div>
+      <div class="osb-actions" id="osb-primary-actions">
+        <button type="button" class="btn btn-primary" id="osb-new">Connect Google Sheet</button>
+      </div>
+      <div id="osb-editor" hidden>
+        <div class="osb-field">
+          <label for="osb-sheet">Google Sheet URL or ID</label>
+          <input id="osb-sheet" type="text" autocomplete="off" spellcheck="false" placeholder="https://docs.google.com/spreadsheets/d/…">
+        </div>
+        <details class="osb-advanced">
+          <summary>Advanced</summary>
+          <div class="osb-field" style="margin-top:10px">
+            <label for="osb-tab">Sheet tab</label>
+            <input id="osb-tab" type="text" value="inventory" autocomplete="off">
+          </div>
+        </details>
+        <div class="osb-actions">
+          <button type="button" class="btn btn-primary" id="osb-save">Save</button>
+          <button type="button" class="btn btn-ghost" id="osb-cancel">Cancel</button>
+        </div>
+      </div>
+      <div id="osb-detail" hidden>
+        <div class="osb-summary">
+          <label class="osb-field" for="osb-connections" style="max-width:280px;margin:0">
+            <span>Connection</span>
+            <select id="osb-connections" aria-label="Owner schedule connections"><option value="">Select a connection</option></select>
+          </label>
+          <strong id="osb-detail-name">Owner schedule</strong>
+          <span class="pill pill-grey" id="osb-detail-status">Off</span>
+        </div>
+        <div class="osb-meta" id="osb-detail-meta"></div>
+        <div class="osb-meta" id="osb-access-hint" hidden>Platform Sheet access is not configured. You can save the Sheet, but Check and Update stay off until operations attach the server credential.</div>
+        <div class="osb-actions">
+          <button type="button" class="btn btn-ghost" id="osb-refresh">Refresh</button>
+          <button type="button" class="btn btn-ghost" id="osb-probe">Check Sheet</button>
+          <button type="button" class="btn btn-primary" id="osb-sync">Update from Sheet</button>
+          <button type="button" class="btn btn-ghost" id="osb-enable">Turn on</button>
+          <button type="button" class="btn btn-danger-light" id="osb-remove">Remove connected Sheet</button>
+        </div>
+        <div class="osb-field">
+          <label>Match beds from your Sheet</label>
+          <p class="osb-map-help">Tell Luna which bed each name in the Sheet refers to. This makes sure colored dates block the correct bed.</p>
+          <div class="osb-map-head">
+            <span>Name used in Sheet</span>
+            <span>Luna bed</span>
+            <span></span>
+          </div>
+          <div id="osb-map-rows"></div>
+          <div class="osb-actions">
+            <button type="button" class="btn btn-ghost" id="osb-map-add">Add bed match</button>
+            <button type="button" class="btn btn-primary" id="osb-save-maps">Save bed matches</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="osb-hidden" aria-hidden="true">
+      <input id="osb-name" type="text" tabindex="-1">
+      <input id="osb-secret" type="text" tabindex="-1">
+      <button type="button" id="osb-disable" tabindex="-1">Disable</button>
+      <textarea id="osb-map-json" rows="2" tabindex="-1"></textarea>
+      <pre id="osb-out"></pre>
+    </div>
+  </div>` : ''}
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
     <div class="cc-section-hdr" data-i18n="lunaStaff.numbers.title">Staff &amp; Owner Numbers</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.numbers.sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
@@ -23752,7 +24341,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (tab === 'admin' && !profile.is_surf_vertical && !portalIsLodgingAdmin(clientSlug)) return true;
   // Bookings top-level: same surf-shop visibility as Admin (Sunset / surf vertical).
   // Lodging keeps Bookings inside its own Admin shell instead.
-  if (tab === 'bookings' && !profile.is_surf_vertical) return true;
+  if (tab === 'bookings' && !profile.is_surf_vertical && !portalIsLodgingAdmin(clientSlug) && String(clientSlug || getClient() || '') !== 'wolfhouse-somo') return true;
   if (tab === 'services' && clientSlug !== 'wolfhouse-somo') return true;
   if (tab === 'day-schedule') return true;
   return false;
@@ -23804,8 +24393,10 @@ function applySurfNavLabels(profile){
   if (homeBtn && profile.is_surf_vertical) setNavLabel(homeBtn, 'nav.tab.portalHome');
   var custBtn = document.querySelector('.tab-btn[data-tab="customers"]');
   if (custBtn && portalHasCustomersCrm(profile)) setNavLabel(custBtn, 'nav.tab.customers');
+  var calBtn = document.querySelector('.tab-btn[data-tab="bed-calendar"]');
+  if (calBtn && (profile.is_surf_vertical || portalIsLodgingAdmin())) setNavLabel(calBtn, 'nav.tab.portalHome');
   var convBtn = document.querySelector('.tab-btn[data-tab="conversations"]');
-  if (convBtn) setNavLabel(convBtn, profile.is_surf_vertical ? 'nav.tab.inbox' : 'nav.tab.whatsapp');
+  if (convBtn) setNavLabel(convBtn, (profile.is_surf_vertical || portalIsLodgingAdmin()) ? 'nav.tab.inbox' : 'nav.tab.whatsapp');
   var dsSub = document.querySelector('#tab-day-schedule [data-i18n="daySchedule.sub"]');
   if (dsSub) dsSub.textContent = portalT('daySchedule.sub');
   var dsSlots = document.querySelector('#tab-day-schedule [data-i18n="daySchedule.demoSlots"]');
@@ -23916,6 +24507,10 @@ function applyClientPortalProfile(clientSlug){
   var whShell = el('admin-wh-shell');
   if (sunsetShell) sunsetShell.hidden = lodgingAdmin;
   if (whShell) whShell.hidden = !lodgingAdmin;
+  var whBookingsTab = el('wh-admin-tab-bookings');
+  var whBookingsPanel = el('wh-admin-panel-bookings');
+  if (whBookingsTab) whBookingsTab.hidden = true;
+  if (whBookingsPanel) whBookingsPanel.hidden = true;
   if (lunaNav) lunaNav.style.display = lunaInAdmin ? 'none' : '';
   if (lunaAdminTab) lunaAdminTab.hidden = !sunsetLunaInAdmin;
   portalHostAdminPanel('tab-ask-luna',
@@ -23941,7 +24536,7 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'bookings') {
-      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      btn.style.display = (profile.is_surf_vertical || lodgingAdmin || clientSlug === 'wolfhouse-somo') ? '' : 'none';
       return;
     }
     if (tab === 'ask-luna' && lunaInAdmin) {
@@ -30344,6 +30939,430 @@ function staffWhatsappNumbersLoad(){
     });
 }
 
+function ownerScheduleBridgeClient(){
+  return encodeURIComponent(getClient());
+}
+var osbSelectedId = '';
+var osbView = 'rest';
+var osbConnections = [];
+var osbBeds = [];
+var osbLoadState = 'idle';
+var osbPendingMaps = [];
+var OSB_SAFE = {
+  connection_id_required: 'Select a connection first.',
+  connection_not_found: 'That connection was not found.',
+  calendar_sync_rolled_back: 'Sync did not apply. Last blocks were kept.',
+  calendar_bridge_disabled: 'Owner schedule is off for this tenant.',
+  calendar_bridge_client_not_allowed: 'Owner schedule is not available here.',
+  caller_authority_rejected: 'That request is not allowed.',
+  sheets_inaccessible: 'Could not read the Sheet. Last blocks were kept.',
+  sheets_token_denied: 'Sheet access was denied. Last blocks were kept.',
+  sheets_timeout: 'Sheet request timed out. Last blocks were kept.',
+  sheets_malformed_json: 'Sheet response was invalid. Last blocks were kept.',
+  sheets_provider_5xx: 'Google Sheets is unavailable. Last blocks were kept.',
+  sheet_over_limit: 'The Sheet is larger than allowed. Last blocks were kept.',
+  header_unknown_column: 'The Sheet has unexpected columns. Last blocks were kept.',
+  merged_cells: 'The Sheet has merged cells. Last blocks were kept.',
+  empty_sheet: 'The Sheet is empty. Last blocks were kept.',
+  invalid_connection: 'Paste a Google Sheet URL or ID.',
+  secret_ref_invalid: 'Sheet access is not configured on the server.',
+  maps_array_required: 'Each match needs a Sheet name and a Luna bed.',
+  invalid_map: 'Each match needs a Sheet name and a Luna bed.',
+  bed_not_in_tenant: 'That bed is not in this house.',
+  maps_save_failed: 'Could not save bed matches. Last blocks were kept.',
+  unmapped_unit_key: 'A Sheet bed name is not mapped. Last blocks were kept.',
+  overlaps_non_owned: 'The Sheet overlaps an existing stay or block. Last blocks were kept.',
+  overlap_conflict: 'That bed is already occupied. Last blocks were kept.',
+  date_header_invalid: 'The Sheet date headers are not valid. Last blocks were kept.',
+  date_header_duplicate: 'The Sheet has the same date twice. Last blocks were kept.',
+  date_header_order: 'The Sheet dates are not in left-to-right order. Last blocks were kept.',
+  duplicate_bed_name: 'The Sheet has the same bed name twice. Last blocks were kept.',
+  empty_bed_name: 'A colored row is missing a bed name. Last blocks were kept.',
+  unknown_structure: 'The Sheet is not a bed-by-date grid. Last blocks were kept.',
+  connection_not_disabled: 'Turn the Sheet off before removing it.',
+  confirm_name_required: 'Name the connected Sheet to remove it.',
+  confirm_name_mismatch: 'That name does not match the connected Sheet.',
+  delete_failed: 'Could not remove the connected Sheet. Last blocks were kept.',
+  bridge_unavailable: 'Owner schedule is temporarily unavailable.',
+  calendar_bridge_failed: 'Owner schedule request failed. Last blocks were kept.'
+};
+function ownerScheduleSafeCopy(code){
+  return OSB_SAFE[code] || 'Owner schedule request failed. Last blocks were kept.';
+}
+function ownerScheduleParseSheetId(raw){
+  raw = String(raw || '').trim();
+  var m = raw.match(new RegExp('/spreadsheets/d/([a-zA-Z0-9-_]+)'));
+  return m ? m[1] : raw;
+}
+function ownerScheduleDeriveName(sheetId){
+  var id = String(sheetId || '');
+  return id ? ('Owner schedule · ' + id.slice(-6)) : 'Owner schedule';
+}
+function ownerScheduleSetHidden(id, on){
+  var n = el(id);
+  if (!n) return;
+  if (on) n.removeAttribute('hidden');
+  else n.setAttribute('hidden', '');
+}
+function ownerScheduleIngestOn(conn){
+  if (!conn) return false;
+  return conn.status === 'pending' || conn.status === 'healthy' || conn.status === 'stale';
+}
+function ownerSchedulePaint(){
+  var hasConn = osbConnections.length > 0;
+  if (osbLoadState === 'fail' && osbView !== 'editor') {
+    ownerScheduleSetHidden('osb-empty', false);
+    ownerScheduleSetHidden('osb-load-error', true);
+    ownerScheduleSetHidden('osb-editor', false);
+    ownerScheduleSetHidden('osb-detail', false);
+    ownerScheduleSetHidden('osb-primary-actions', false);
+    return;
+  }
+  if (osbView !== 'editor' && hasConn && osbSelectedId) osbView = 'detail';
+  if (osbView !== 'editor' && hasConn && !osbSelectedId) osbView = 'detail';
+  if (osbView !== 'editor' && !hasConn) osbView = 'rest';
+  ownerScheduleSetHidden('osb-load-error', false);
+  ownerScheduleSetHidden('osb-empty', osbView === 'rest');
+  ownerScheduleSetHidden('osb-editor', osbView === 'editor');
+  ownerScheduleSetHidden('osb-detail', osbView === 'detail' && hasConn);
+  ownerScheduleSetHidden('osb-primary-actions', osbLoadState === 'ok' && osbView === 'rest' && !hasConn);
+  var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+  var statusEl = el('osb-detail-status');
+  var nameEl = el('osb-detail-name');
+  var metaEl = el('osb-detail-meta');
+  var enableBtn = el('osb-enable');
+  var hint = el('osb-access-hint');
+  var probeBtn = el('osb-probe');
+  var syncBtn = el('osb-sync');
+  var removeBtn = el('osb-remove');
+  var connLabel = el('osb-connections') && el('osb-connections').parentNode;
+  if (connLabel && connLabel.style) connLabel.style.display = osbConnections.length > 1 ? '' : (osbConnections.length === 1 ? '' : 'none');
+  if (conn && nameEl) nameEl.textContent = conn.name || 'Owner schedule';
+  if (statusEl) {
+    var on = ownerScheduleIngestOn(conn);
+    statusEl.textContent = on ? 'On' : 'Off';
+    statusEl.className = on ? 'pill pill-green' : 'pill pill-grey';
+    if (enableBtn) {
+      enableBtn.textContent = on ? 'Turn off' : 'Turn on';
+      enableBtn.disabled = !(conn && conn.has_secret);
+    }
+  }
+  if (conn && metaEl) {
+    var bits = [];
+    if (conn.last_success_at) bits.push('Last update ' + String(conn.last_success_at).replace('T', ' ').slice(0, 16));
+    else bits.push('Not updated yet');
+    if (conn.last_error) bits.push(ownerScheduleSafeCopy(conn.last_error));
+    metaEl.textContent = bits.join(' · ');
+  }
+  var configured = !!(conn && conn.has_secret);
+  if (hint) {
+    if (osbView === 'detail' && conn && !configured) hint.removeAttribute('hidden');
+    else hint.setAttribute('hidden', '');
+  }
+  var validMaps = ownerScheduleValidMapCount();
+  if (probeBtn) probeBtn.disabled = !configured;
+  if (syncBtn) syncBtn.disabled = !(configured && ownerScheduleIngestOn(conn) && validMaps > 0);
+  if (removeBtn) removeBtn.disabled = !(conn && !ownerScheduleIngestOn(conn));
+}
+function ownerScheduleSelectedId(){
+  var sel = el('osb-connections');
+  if (sel && sel.value) osbSelectedId = sel.value;
+  return osbSelectedId || '';
+}
+function ownerScheduleFillForm(conn){
+  if (!conn) return;
+  osbSelectedId = conn.id || '';
+  if (el('osb-name')) el('osb-name').value = conn.name || '';
+  if (el('osb-sheet')) el('osb-sheet').value = conn.spreadsheet_id || '';
+  if (el('osb-tab')) el('osb-tab').value = conn.sheet_name || 'inventory';
+  if (el('osb-connections') && conn.id) el('osb-connections').value = conn.id;
+}
+function ownerScheduleRenderList(connections, keepId){
+  var sel = el('osb-connections');
+  osbConnections = connections || [];
+  if (!sel) return;
+  var wanted = keepId || osbSelectedId;
+  sel.innerHTML = '';
+  var blank = document.createElement('option');
+  blank.value = '';
+  blank.textContent = 'Select a connection';
+  sel.appendChild(blank);
+  osbConnections.forEach(function(c){
+    var opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = (c.name || c.id) + ' · ' + (c.status || '');
+    sel.appendChild(opt);
+  });
+  if (wanted && Array.prototype.some.call(sel.options, function(o){ return o.value === wanted; })) {
+    sel.value = wanted;
+    osbSelectedId = wanted;
+  } else if (osbConnections.length === 1) {
+    sel.value = osbConnections[0].id;
+    osbSelectedId = osbConnections[0].id;
+  } else {
+    sel.value = '';
+    osbSelectedId = '';
+  }
+  ownerSchedulePaint();
+}
+function ownerScheduleBedSelectHtml(selected){
+  var html = '<select data-osb-bed aria-label="Luna bed"><option value="">Choose a bed</option>';
+  var known = false;
+  osbBeds.forEach(function(b){
+    if (b.id === selected) known = true;
+    html += '<option value="' + escHtml(b.id) + '"' + (b.id === selected ? ' selected' : '') + '>' + escHtml(b.label) + '</option>';
+  });
+  if (selected && !known) {
+    html += '<option value="' + escHtml(selected) + '" selected data-osb-unavailable="1">Unavailable bed</option>';
+  }
+  return html + '</select>';
+}
+function ownerScheduleValidMapCount(){
+  var maps = ownerScheduleReadMaps();
+  var n = 0;
+  maps.forEach(function(m){
+    if (osbBeds.some(function(b){ return b.id === m.bed_id; })) n += 1;
+  });
+  return n;
+}
+function ownerScheduleAddMapRow(unit, bed){
+  var wrap = el('osb-map-rows');
+  if (!wrap) return;
+  var row = document.createElement('div');
+  row.className = 'osb-map-row';
+  row.innerHTML = '<input type="text" data-osb-unit placeholder="Name used in Sheet" aria-label="Name used in Sheet" autocomplete="off">'
+    + ownerScheduleBedSelectHtml(bed || '')
+    + '<button type="button" class="btn btn-ghost" data-osb-map-del>Remove</button>';
+  if (unit) row.querySelector('[data-osb-unit]').value = unit;
+  wrap.appendChild(row);
+}
+function ownerScheduleReadMaps(){
+  var rows = document.querySelectorAll('#osb-map-rows .osb-map-row');
+  var maps = [];
+  Array.prototype.forEach.call(rows, function(row){
+    var unit = (row.querySelector('[data-osb-unit]') && row.querySelector('[data-osb-unit]').value || '').trim();
+    var bed = (row.querySelector('[data-osb-bed]') && row.querySelector('[data-osb-bed]').value || '').trim();
+    if (unit && bed) maps.push({ external_unit_key: unit, bed_id: bed });
+  });
+  if (el('osb-map-json')) el('osb-map-json').value = JSON.stringify(maps);
+  return maps;
+}
+function ownerScheduleLoadBeds(){
+  return fetch('/staff/tour-operator/rooms?client=' + ownerScheduleBridgeClient(), { credentials: 'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(body){
+      osbBeds = [];
+      ((body && body.rooms) || []).forEach(function(room){
+        ((room && room.beds) || []).forEach(function(bed){
+          if (!bed || !bed.bed_id) return;
+          osbBeds.push({
+            id: String(bed.bed_id),
+            label: String(room.room_code || room.room_name || 'Room') + ' / ' + String(bed.bed_label || bed.bed_code || 'Bed')
+          });
+        });
+      });
+      return osbBeds;
+    })
+    .catch(function(){ osbBeds = []; return osbBeds; });
+}
+function ownerSchedulePublicPayload(body){
+  var raw = (body && (body.error || body.reason)) || null;
+  var code = (raw && OSB_SAFE[raw]) ? raw : (raw ? 'calendar_bridge_failed' : null);
+  return {
+    ok: !!(body && body.ok),
+    error: code,
+    status: body && body.next_status,
+    wrote: !!(body && body.wrote),
+    empty: !!(body && body.empty),
+    write_count: body && body.write_count,
+    connections: body && body.connections,
+    connection: body && body.connection
+  };
+}
+function ownerScheduleBridgeJson(path, method, body){
+  var out = el('osb-out');
+  var status = el('osb-status');
+  if (status && method !== 'GET') status.textContent = 'Working…';
+  var url = path + (path.indexOf('?') >= 0 ? '&' : '?') + 'client=' + ownerScheduleBridgeClient();
+  var selected = ownerScheduleSelectedId();
+  if (selected && url.indexOf('id=') < 0) url += '&id=' + encodeURIComponent(selected);
+  return fetch(url, {
+    method: method,
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(r){ return r.json().then(function(b){ return { status: r.status, body: b }; }); })
+    .then(function(res){
+      var code = res.body && (res.body.error || res.body.reason);
+      if (status && method !== 'GET') status.textContent = (res.body && res.body.ok) ? 'Saved' : ownerScheduleSafeCopy(code);
+      if (out) out.textContent = JSON.stringify(ownerSchedulePublicPayload(res.body || {}), null, 2);
+      return res;
+    })
+    .catch(function(){
+      if (status) status.textContent = ownerScheduleSafeCopy('bridge_unavailable');
+      if (out) out.textContent = JSON.stringify({ ok: false, error: 'bridge_unavailable' });
+    });
+}
+function ownerScheduleSheetIdValid(raw){
+  raw = String(raw || '').trim();
+  if (!raw) return false;
+  var id = ownerScheduleParseSheetId(raw);
+  if (!id || id.length < 8) return false;
+  if (/^https?:/i.test(raw) && id === raw) return false;
+  return /^[a-zA-Z0-9-_]{8,}$/.test(id);
+}
+function ownerScheduleBridgeSave(){
+  var raw = (el('osb-sheet') && el('osb-sheet').value || '');
+  if (!ownerScheduleSheetIdValid(raw)) {
+    if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('invalid_connection');
+    return;
+  }
+  var sheetId = ownerScheduleParseSheetId(raw);
+  var payload = {
+    name: ownerScheduleDeriveName(sheetId),
+    spreadsheet_id: sheetId,
+    sheet_name: (el('osb-tab') && el('osb-tab').value || 'inventory').trim() || 'inventory'
+  };
+  if (el('osb-name')) el('osb-name').value = payload.name;
+  if (osbSelectedId) payload.id = osbSelectedId;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'POST', payload).then(function(res){
+    if (res && res.body && res.body.connection && res.body.connection.id) {
+      osbSelectedId = res.body.connection.id;
+      osbView = 'detail';
+      ownerScheduleBridgeLoad();
+    }
+  });
+}
+function ownerScheduleRequireSelected(){
+  if (ownerScheduleSelectedId()) return true;
+  if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('connection_id_required');
+  return false;
+}
+function ownerScheduleBridgeProbe(){
+  if (!ownerScheduleRequireSelected()) return;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/probe', 'POST', {});
+}
+function ownerScheduleBridgeSync(){
+  if (!ownerScheduleRequireSelected()) return;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/sync', 'POST', {});
+}
+function ownerScheduleBridgeEnable(on){
+  if (!ownerScheduleRequireSelected()) return;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/enable', 'POST', { enabled: !!on }).then(function(){
+    ownerScheduleBridgeLoad();
+  });
+}
+function ownerScheduleBridgeSaveMaps(){
+  if (!ownerScheduleRequireSelected()) return;
+  var maps = ownerScheduleReadMaps();
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'PUT', { maps: maps });
+}
+function ownerScheduleBridgeRemove(){
+  if (!ownerScheduleRequireSelected()) return;
+  var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+  if (!conn) return;
+  if (ownerScheduleIngestOn(conn)) {
+    if (el('osb-status')) el('osb-status').textContent = ownerScheduleSafeCopy('connection_not_disabled');
+    return;
+  }
+  var name = conn.name || 'Owner schedule';
+  if (!window.confirm('Remove connected Sheet "' + name + '"? This only removes Owner schedule blocked dates from this Sheet. Luna bookings and staff blocks stay.')) return;
+  ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'DELETE', { confirm_name: name }).then(function(res){
+    if (res && res.body && res.body.ok) {
+      osbSelectedId = '';
+      ownerScheduleBridgeLoad();
+    }
+  });
+}
+function ownerScheduleBridgeNew(){
+  osbSelectedId = '';
+  osbView = 'editor';
+  if (el('osb-connections')) el('osb-connections').value = '';
+  if (el('osb-name')) el('osb-name').value = '';
+  if (el('osb-sheet')) el('osb-sheet').value = '';
+  if (el('osb-tab')) el('osb-tab').value = 'inventory';
+  if (el('osb-status')) el('osb-status').textContent = '';
+  ownerSchedulePaint();
+}
+function ownerScheduleBridgeCancel(){
+  osbView = osbConnections.length ? 'detail' : 'rest';
+  if (!osbConnections.length) osbSelectedId = '';
+  ownerSchedulePaint();
+}
+function ownerSchedulePaintMaps(maps){
+  var wrap = el('osb-map-rows');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  (maps || []).forEach(function(m){ ownerScheduleAddMapRow(m.external_unit_key || '', m.bed_id || ''); });
+  if (!(maps || []).length) ownerScheduleAddMapRow('', '');
+}
+function ownerScheduleBridgeLoad(){
+  return Promise.all([
+    ownerScheduleLoadBeds(),
+    ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge', 'GET')
+  ]).then(function(parts){
+    var res = parts[1];
+    if (!res || !res.body || res.body.ok === false) {
+      osbLoadState = 'fail';
+      ownerSchedulePaint();
+      return;
+    }
+    osbLoadState = 'ok';
+    ownerScheduleRenderList(res.body.connections || [], osbSelectedId);
+    var sel = (res.body.connections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+    if (sel) {
+      ownerScheduleFillForm(sel);
+      return ownerScheduleBridgeJson('/staff/luna-staff/calendar-bridge/maps', 'GET').then(function(mapRes){
+        ownerSchedulePaintMaps((mapRes && mapRes.body && mapRes.body.maps) || []);
+        ownerSchedulePaint();
+      });
+    }
+    ownerSchedulePaintMaps([]);
+    ownerSchedulePaint();
+  }).catch(function(){
+    osbLoadState = 'fail';
+    ownerSchedulePaint();
+  });
+}
+function ownerScheduleOnSelect(){
+  osbSelectedId = (el('osb-connections') && el('osb-connections').value) || '';
+  if (!osbSelectedId) return;
+  osbView = 'detail';
+  ownerScheduleBridgeLoad();
+}
+if (el('osb-save')) el('osb-save').addEventListener('click', ownerScheduleBridgeSave);
+if (el('osb-probe')) el('osb-probe').addEventListener('click', ownerScheduleBridgeProbe);
+if (el('osb-sync')) el('osb-sync').addEventListener('click', ownerScheduleBridgeSync);
+if (el('osb-enable')) el('osb-enable').addEventListener('click', function(){
+  var conn = (osbConnections || []).filter(function(c){ return c.id === osbSelectedId; })[0];
+  ownerScheduleBridgeEnable(!ownerScheduleIngestOn(conn));
+});
+if (el('osb-disable')) el('osb-disable').addEventListener('click', function(){ ownerScheduleBridgeEnable(false); });
+if (el('osb-save-maps')) el('osb-save-maps').addEventListener('click', ownerScheduleBridgeSaveMaps);
+if (el('osb-remove')) el('osb-remove').addEventListener('click', ownerScheduleBridgeRemove);
+if (el('osb-refresh')) el('osb-refresh').addEventListener('click', ownerScheduleBridgeLoad);
+if (el('osb-retry')) el('osb-retry').addEventListener('click', ownerScheduleBridgeLoad);
+if (el('osb-new')) el('osb-new').addEventListener('click', ownerScheduleBridgeNew);
+if (el('osb-cancel')) el('osb-cancel').addEventListener('click', ownerScheduleBridgeCancel);
+if (el('osb-map-add')) el('osb-map-add').addEventListener('click', function(){ ownerScheduleAddMapRow('', ''); });
+if (el('osb-map-rows')) el('osb-map-rows').addEventListener('click', function(ev){
+  var t = ev.target;
+  if (t && t.getAttribute && t.getAttribute('data-osb-map-del') != null) {
+    var row = t.closest ? t.closest('.osb-map-row') : t.parentNode;
+    if (row && row.parentNode) row.parentNode.removeChild(row);
+  }
+});
+if (el('osb-connections')) el('osb-connections').addEventListener('change', ownerScheduleOnSelect);
+if (el('cc-owner-schedule-bridge')) ownerScheduleBridgeLoad();
+(function hideOwnerScheduleUnlessWolfhouse(){
+  var card = el('cc-owner-schedule-bridge');
+  if (!card) return;
+  if (getClient() !== 'wolfhouse-somo') {
+    card.style.display = 'none';
+    if (card.parentNode) card.parentNode.removeChild(card);
+  }
+})();
+
 function staffWhatsappNumberAdd(){
   var phone = (el('swn-add-phone') && el('swn-add-phone').value || '').trim();
   var group = (el('swn-add-group') && el('swn-add-group').value || 'staff').trim();
@@ -31844,12 +32863,53 @@ function bcClearSelection(){
   if (warnEl){ warnEl.textContent = ''; warnEl.style.display = 'none'; }
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'none';
+  if (typeof bcCloseSideRail === 'function' && el('bc-side-drawer') && el('bc-side-drawer').dataset.mode === 'create') {
+    bcCloseSideRail();
+  }
   /* Reset quote result and disable Calculate Quote button (Stage 8.4.5) */
   var _qrClear = el('bc-quote-result');
   if (_qrClear) _qrClear.innerHTML = bcQuoteNotRunHtml();
   var _qBtnClear = el('bc-sel-quote');
   if (_qBtnClear){ _qBtnClear.disabled = true; _qBtnClear.title = t('calendar.create.quoteTitleHint'); }
   bcUpdateBlockButton();
+}
+
+function bcCreateStayOverlaps(start, end, cin, cout){
+  if (!start || !end || !cin || !cout) return false;
+  return start < cout && end > cin;
+}
+
+function bcRoomHasOverlappingBookings(roomCode, cin, cout){
+  return (bcCalendarBlocks || []).some(function(blk){
+    if (!blk || blk.room_code !== roomCode) return false;
+    var a = blk.start_date || blk.check_in;
+    var b = blk.end_date || blk.check_out;
+    return bcCreateStayOverlaps(a, b, cin, cout);
+  });
+}
+
+function bcUpdateCreateRoomTypeLock(){
+  var sel = el('bk-room-type');
+  if (!sel) return;
+  var cin = el('bc-sel-cin') && el('bc-sel-cin').value;
+  var cout = el('bc-sel-cout') && el('bc-sel-cout').value;
+  var rooms = [];
+  var seen = {};
+  (bcSelectedBeds || []).forEach(function(b){
+    var r = b && b.room_code;
+    if (!r || seen[r]) return;
+    seen[r] = true;
+    rooms.push(r);
+  });
+  var canPrivate = rooms.length === 1 && !!cin && !!cout && !bcRoomHasOverlappingBookings(rooms[0], cin, cout);
+  if (!canPrivate) {
+    sel.value = 'shared';
+    sel.disabled = true;
+    sel.title = 'Private is only available when this room has no other bookings on these dates.';
+  } else {
+    sel.disabled = false;
+    sel.removeAttribute('title');
+  }
 }
 
 function bcApplySelectionHighlight(){
@@ -31908,6 +32968,8 @@ function bcApplySelectionHighlight(){
   if (warnEl) warnEl.style.display = 'none';
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'block';
+  if (typeof bcDockCreatePanel === 'function') bcDockCreatePanel();
+  if (typeof bcUpdateCreateRoomTypeLock === 'function') bcUpdateCreateRoomTypeLock();
 
   /* Clear stale quote when selection changes */
   bcLastQuote = null;
@@ -33496,6 +34558,15 @@ function renderBedCalendar(data){
       var idx = parseInt(this.dataset.bidx, 10);
       bcOpenBookingDrawerOverview(blocks[idx]);
     });
+    bEl.addEventListener('mouseenter', function(){
+      if (!bcSideDrawerLive()) return;
+      var idx = parseInt(this.dataset.bidx, 10);
+      bcSideHoverEnter(blocks[idx]);
+    });
+    bEl.addEventListener('mouseleave', function(){
+      if (!bcSideDrawerLive()) return;
+      bcSideHoverLeave();
+    });
   });
 
   /* Wire empty-cell clicks for selection model (Stage 8.3c, read-only) */
@@ -33607,7 +34678,11 @@ function pickCalendarGuestDisplayName(src){
 function bcCalendarBlockDisplayLabel(blk){
   if (!blk) return '\u2014';
   var at = String(blk.assignment_type || '').toLowerCase();
+  if (at === 'external_inventory_block') return t('calendar.legend.ownerScheduleBlocked');
   if (at === 'private_room_block' || at === 'staff_block') return t('calendar.legend.blocked');
+  if (String(blk.status || '').toLowerCase() === 'blocked' && String(blk.color_type || '') === 'owner_schedule_blocked') {
+    return t('calendar.legend.ownerScheduleBlocked');
+  }
   if (String(blk.status || '').toLowerCase() === 'blocked') return t('calendar.legend.blocked');
   return pickCalendarGuestDisplayName(blk);
 }
@@ -33757,34 +34832,40 @@ function formatThreadMessageHtml(text){
 
 function bcRenderLunaGuestNotesHtml(data){
   var notes = (data && data.luna_guest_notes) || [];
-  var html = '<div class="bc-luna-notes-wrap" id="bc-luna-notes-wrap" style="margin-top:12px">';
-  html += '<div class="bc-drawer-card-title" style="font-size:12px;margin-bottom:6px">' + escHtml(t('drawer.notes')) + '</div>';
+  var html = '<div class="bc-luna-notes-wrap" id="bc-luna-notes-wrap">';
+  html += '<div class="bc-notes-head">';
+  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.notes')) + '</h3>';
+  html += '<button type="button" class="btn-bc-field-edit" id="bc-luna-notes-edit" aria-label="Edit notes" title="Edit notes">' + '\u270E' + '</button>';
+  html += '</div>';
   if (!notes.length){
     html += '<div class="ctx-none" id="bc-luna-notes-empty">' + escHtml(t('drawer.notes.empty')) + '</div>';
   } else {
-    html += '<ul class="bc-luna-notes-list" id="bc-luna-notes-list" style="margin:0;padding:0;list-style:none">';
+    html += '<ul class="bc-luna-notes-list" id="bc-luna-notes-list">';
     notes.forEach(function(n){
       var src = (n.source === 'staff') ? t('drawer.notes.staff') : t('drawer.notes.luna');
       var when = n.at ? new Date(n.at).toLocaleString() : '';
       var noteId = String(n.id || '');
-      html += '<li class="bc-luna-note-item" style="margin:0 0 8px;padding:8px 10px;border-radius:8px;background:var(--surface-2,#f4f4f5);font-size:12px;line-height:1.45"' +
+      html += '<li class="bc-luna-note-item"' +
         (noteId ? ' data-note-id="' + escHtml(noteId) + '"' : '') + '>';
       html += '<div class="bc-luna-note-head">';
       html += '<div class="bc-luna-note-meta">';
-      html += '<span class="pill pill-neutral" style="font-size:10px">' + escHtml(src) + '</span>';
-      if (when) html += '<span style="font-size:10px;color:var(--muted,#71717a)">' + escHtml(when) + '</span>';
+      html += '<span class="pill pill-neutral">' + escHtml(src) + '</span>';
+      if (when) html += '<span class="bc-luna-note-when">' + escHtml(when) + '</span>';
       html += '</div>';
       if (n.source === 'staff' && noteId) {
-        html += '<button type="button" class="bc-luna-note-delete" data-note-id="' + escHtml(noteId) + '" title="' + escHtml(t('drawer.notes.delete')) + '" aria-label="' + escHtml(t('drawer.notes.delete')) + '">\u00d7</button>';
+        html += '<button type="button" class="bc-luna-note-delete" data-note-id="' + escHtml(noteId) + '" title="' + escHtml(t('drawer.notes.delete')) + '" aria-label="' + escHtml(t('drawer.notes.delete')) + '">' + '\u00d7' + '</button>';
       }
-      html += '</div><div>' + escHtml(n.text || '') + '</div></li>';
+      html += '</div><div class="bc-luna-note-text">' + escHtml(n.text || '') + '</div></li>';
     });
     html += '</ul>';
   }
-  html += '<div class="bc-luna-notes-compose">';
-  html += '<textarea id="bc-luna-staff-note-input" class="bk-input-sm" rows="2" placeholder="' + escHtml(t('drawer.notes.placeholder')) + '"></textarea>';
-  html += '<button type="button" class="btn btn-secondary btn-sm" id="bc-luna-staff-note-save">' + escHtml(t('drawer.notes.add')) + '</button>';
-  html += '</div><div id="bc-luna-staff-note-result" style="margin-top:4px;font-size:11px"></div></div>';
+  html += '<div class="bc-luna-notes-compose" id="bc-luna-notes-compose" hidden>';
+  html += '<textarea id="bc-luna-staff-note-input" class="bk-input-sm bc-notes-input" rows="3" placeholder="' + escHtml(t('drawer.notes.placeholder')) + '"></textarea>';
+  html += '<div class="bc-notes-actions">';
+  html += '<button type="button" class="btn btn-primary" id="bc-luna-staff-note-save">' + escHtml(t('drawer.field.save')) + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="bc-luna-notes-done">Done</button>';
+  html += '</div></div>';
+  html += '<div id="bc-luna-staff-note-result" class="bc-notes-result"></div></div>';
   return html;
 }
 
@@ -33795,8 +34876,37 @@ function bcRefreshLunaNotesInDrawer(){
   if (!card || !old) return;
   old.remove();
   card.insertAdjacentHTML('beforeend', bcRenderLunaGuestNotesHtml(bcLastBookingContext));
+  bcBindLunaNotesEdit();
   bcBindLunaNotesSave();
   bcBindLunaNotesDelete();
+}
+
+function bcBindLunaNotesEdit(){
+  var editBtn = el('bc-luna-notes-edit');
+  var compose = el('bc-luna-notes-compose');
+  var doneBtn = el('bc-luna-notes-done');
+  var input = el('bc-luna-staff-note-input');
+  if (editBtn && !editBtn._bcLunaNoteEditBound) {
+    editBtn._bcLunaNoteEditBound = true;
+    editBtn.addEventListener('click', function(){
+      if (!compose) compose = el('bc-luna-notes-compose');
+      if (!compose) return;
+      compose.hidden = false;
+      compose.classList.add('is-open');
+      var inp = el('bc-luna-staff-note-input');
+      if (inp) inp.focus();
+    });
+  }
+  if (doneBtn && !doneBtn._bcLunaNoteDoneBound) {
+    doneBtn._bcLunaNoteDoneBound = true;
+    doneBtn.addEventListener('click', function(){
+      var box = el('bc-luna-notes-compose');
+      if (box) { box.hidden = true; box.classList.remove('is-open'); }
+      if (input) input.value = '';
+      var resultEl = el('bc-luna-staff-note-result');
+      if (resultEl) resultEl.textContent = '';
+    });
+  }
 }
 
 function bcBindLunaNotesSave(){
@@ -33835,6 +34945,8 @@ function bcBindLunaNotesSave(){
       }
       input.value = '';
       if (resultEl) resultEl.textContent = 'Note saved.';
+      var compose = el('bc-luna-notes-compose');
+      if (compose) { compose.hidden = true; compose.classList.remove('is-open'); }
       if (bcLastBookingContext){
         bcLastBookingContext.luna_guest_notes = j.luna_guest_notes || [];
         bcRefreshLunaNotesInDrawer();
@@ -33956,10 +35068,28 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
   }
   return html;
 }
+function bcGuestCountFrom(bk, blk, guestRows){
+  var n = parseInt(bk && bk.guest_count, 10);
+  if (n > 0) return n;
+  n = parseInt(blk && (blk.guest_count || blk.guests), 10);
+  if (n > 0) return n;
+  if (guestRows && guestRows.length) return guestRows.length;
+  return 0;
+}
+
+function bcPaintSideStayMeta(bk, blk, guestRows){
+  var meta = el('bc-side-meta');
+  if (!meta) return;
+  var cin = (bk && bk.check_in) || (blk && (blk.check_in || blk.start_date)) || '';
+  var cout = (bk && bk.check_out) || (blk && (blk.check_out || blk.end_date)) || '';
+  meta.innerHTML = bcSideStayMetaHtml(cin, cout, bcGuestCountFrom(bk, blk, guestRows));
+}
+
 function updateBcDetailHeader(data){
+  var bk = (data && data.booking) || {};
+  bcPaintSideStayMeta(bk, bcLastOpenedBlock, (data && data.booking_guests) || []);
   var meta = el('bc-detail-meta');
   if (!meta) return;
-  var bk = (data && data.booking) || {};
   var transferRows = (data && data.transfers) || [];
   var ledger = bcBookingLedgerBalance(
     bk,
@@ -34084,6 +35214,12 @@ function bcRefreshBlockDetail(){
   loadBlockDetail(blk.booking_code);
 }
 
+function bcRenderDrawerLoadingHtml(){
+  return '<div class="bc-drawer-loading" id="bc-drawer-preview" aria-busy="true">' +
+    '<div class="ctx-loading">' + escHtml(t('calendar.create.loadingDetails')) + '</div>' +
+    '</div>';
+}
+
 function bcRenderBlockSummaryPreviewHtml(blk){
   blk = blk || {};
   var html = '<div class="bc-drawer-preview" id="bc-drawer-preview">';
@@ -34110,6 +35246,10 @@ function bcRenderBlockSummaryPreviewHtml(blk){
 
 function bcOpenBookingDrawerOverview(blk){
   if (!blk) return;
+  if (typeof bcSideDrawerLive === 'function' && bcSideDrawerLive()) {
+    bcOpenSideBooking(blk, { pin: true });
+    return;
+  }
   bcActiveDrawerTab = 'overview';
   bcPendingScrollToOverview = true;
   var sameBooking = bcLastBookingContext && bcLastBookingContext.booking && blk.booking_code &&
@@ -34125,6 +35265,10 @@ function bcOpenBookingDrawerOverview(blk){
 
 function showBlockDetail(blk){
   if (!blk) return;
+  if (typeof bcSideDrawerLive === 'function' && bcSideDrawerLive()) {
+    bcOpenSideBooking(blk, { pin: true });
+    return;
+  }
   bcInitDetailCopyDelegation();
   bcClearSelection();
   bcLastOpenedBlock = blk;
@@ -34191,7 +35335,7 @@ function loadBlockDetail(bookingCode, opts){
   fetch(url)
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
-      var ctxEl = el('bc-ctx-body');
+      var ctxEl = opts.host || el('bc-ctx-body');
       if (!ctxEl) return;
       if (!res.ok || !res.data.success){
         ctxEl.innerHTML = '<div class="state-msg error">Context load failed: ' + escHtml((res.data && res.data.error) || 'error') + '</div>';
@@ -34218,11 +35362,12 @@ function loadBlockDetail(bookingCode, opts){
       bcInitBookingCancelShell(res.data);
       bcInitNewConversationShell(res.data);
       bcWireOpenConversationButtons(res.data);
+      bcBindLunaNotesEdit();
       bcBindLunaNotesSave();
       bcBindLunaNotesDelete();
     })
     .catch(function(e){
-      var ctxEl = el('bc-ctx-body');
+      var ctxEl = opts.host || el('bc-ctx-body');
       if (ctxEl) ctxEl.innerHTML = '<div class="state-msg error">Network error: ' + escHtml(e.message) + '</div>';
     });
 }
@@ -34528,6 +35673,15 @@ function bcRunMoveWrite(){
 }
 
 function bcInitMovePanel(data){
+  var toggle = el('bc-move-bed-toggle');
+  var card = el('bc-move-bed');
+  if (toggle && card && toggle.dataset.wired !== '1'){
+    toggle.dataset.wired = '1';
+    toggle.addEventListener('click', function(){
+      var open = card.classList.toggle('is-collapsed') === false;
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
   var bk = (data && data.booking) || {};
   var rm = (data && data.rooming) || {};
   var assigns = rm.assignments || [];
@@ -35176,7 +36330,9 @@ function bcRenderGuestPaymentLinkControlsHtml(bookingGuests){
   return html;
 }
 
-function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLines, bookingGuests, perPerson){
+function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLines, bookingGuests, perPerson, opts){
+  opts = opts || {};
+  var overview = !!opts.overview;
   var html = '';
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
@@ -35213,9 +36369,13 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   var paidCents = fin.paidCents;
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
 
-  html += '<div class="ctx-section ctx-payments-tab-layout">';
-  html += '<div class="ctx-payments-col-main">';
-  html += '<div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-running-invoice">';
+  if (overview) {
+    html += '<div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-overview-invoice">';
+  } else {
+    html += '<div class="ctx-section ctx-payments-tab-layout">';
+    html += '<div class="ctx-payments-col-main">';
+    html += '<div class="ctx-pay-box ctx-running-invoice bc-drawer-overview-card" id="bc-running-invoice">';
+  }
 
   /* Accommodation */
   html += '<div class="ctx-inv-group" id="bc-inv-accommodation">';
@@ -35298,7 +36458,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   }
   if (invoiceTotal != null && paidCents != null){
     if (invoiceTotal > paidCents){
-      var canGenBalLink = !bcBookingStatusIsCancelled(bk.status);
+      var canGenBalLink = !overview && !bcBookingStatusIsCancelled(bk.status);
       html += '<div class="ctx-inv-total-row" style="align-items:center">' +
         '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
         '<span style="display:inline-flex;align-items:center;gap:8px">' +
@@ -35321,6 +36481,11 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   html += '</div>';
 
   html += bcRenderPerGuestPaymentsHtml(bookingGuests, perPerson);
+
+  if (overview) {
+    html += '</div>';
+    return html;
+  }
 
   var needsRefund = invoiceTotal != null && paidCents != null && invoiceTotal < paidCents;
   var balanceDue = (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents)
@@ -35616,14 +36781,25 @@ function bcInitGuestPaymentLinkShell(data){
 }
 
 function bcUpdateOverviewPaymentSummary(data){
-  var brief = el('bc-payment-summary-brief');
-  if (!brief || !data) return;
+  var card = el('bc-overview-invoice') || el('bc-payment-summary-brief');
+  if (!card || !data) return;
   var bk = data.booking || {};
-  var svcRows = data.service_records || [];
-  var pmt = data.payments || {};
-  var transferRows = data.transfers || [];
-  var guestAccLines = data.guest_accommodation_lines || [];
-  brief.outerHTML = bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows, guestAccLines);
+  var html;
+  if (card.id === 'bc-overview-invoice') {
+    html = bcRenderRunningInvoiceHtml(
+      bk,
+      data.service_records || [],
+      data.payments || {},
+      data.transfers || [],
+      data.guest_accommodation_lines || [],
+      data.booking_guests || [],
+      data.per_person || [],
+      { overview: true }
+    );
+  } else {
+    html = bcRenderPaymentSummaryBriefHtml(bk, data.service_records || [], data.payments || {}, data.transfers || [], data.guest_accommodation_lines || []);
+  }
+  card.outerHTML = html;
 }
 
 function bcRefreshPaymentsTab(bk){
@@ -36426,10 +37602,13 @@ function bcGuestPackages(bk){
 
 function bcPackagePebbleClass(code){
   var c = code ? String(code).trim().toLowerCase() : '';
-  if (c === 'malibu') return 'pkg-pebble-malibu';
-  if (c === 'uluwatu') return 'pkg-pebble-uluwatu';
-  if (c === 'waimea') return 'pkg-pebble-waimea';
-  return 'pkg-pebble-default';
+  if (window.WH_PACKAGE_PEBBLE_BY_CODE && window.WH_PACKAGE_PEBBLE_BY_CODE[c]) {
+    return 'pkg-pebble-' + window.WH_PACKAGE_PEBBLE_BY_CODE[c];
+  }
+  if (c === 'malibu') return 'pkg-pebble-peach';
+  if (c === 'uluwatu') return 'pkg-pebble-rose';
+  if (c === 'waimea') return 'pkg-pebble-butter';
+  return 'pkg-pebble-stone';
 }
 
 function bcRenderPackagePebblesHtml(guestPackages){
@@ -36652,6 +37831,42 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   var html = '';
 
   if (mode === 'all' || mode === 'before-addons'){
+  var guestNames = [];
+  ((data && data.booking_guests) || []).forEach(function(g){
+    if (g && g.guest_name) guestNames.push(String(g.guest_name).trim());
+  });
+  if (!guestNames.length && bk.guest_name) guestNames.push(String(bk.guest_name).trim());
+  while (guestNames.length < guestCount) guestNames.push('');
+  var guestLine = String(guestCount) + (guestNames.length ? ' · ' + guestNames.join(', ') : '');
+  html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
+  var guestsReadInner =
+    '<div class="kv" id="bc-field-guests-kv-only">' +
+      '<span class="k"></span>' +
+      '<span class="v"><span class="bc-guest-names" id="bc-guest-names">' +
+        guestNames.map(function(n){ return '<span class="bc-guest-name-line">' + escHtml(n) + '</span>'; }).join('') +
+      '</span></span>' +
+    '</div>';
+  html += '<div class="ctx-field-read" id="bc-field-guests-read">' +
+    '<div class="ctx-field-read-row">' +
+    '<div class="kv-grid ctx-field-kv-grid ctx-field-kv-grid--3">' + guestsReadInner + '</div>' +
+    '<div class="ctx-field-header">' +
+    bcRenderFieldEditPencilBtn('guests', t('drawer.field.editGuests')) +
+    '</div></div></div>';
+  html += '<div class="ctx-field-edit ctx-field-guests-edit" id="bc-field-guests-edit" style="display:none">';
+  html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
+  html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
+  for (var g = guestCount; g >= 1; g--){
+    html += '<option value="' + g + '">' + g + '</option>';
+  }
+  html += '</select>';
+  html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
+  html += '<div class="ctx-field-private-room-edit">';
+  html += '<label class="ctx-field-label" for="bc-field-private-room-switch">' + escHtml(t('drawer.field.privateRoom')) + '</label>';
+  html += bcPrivateRoomSwitchHtml(bcBookingPrivateRoomEnabled(bk), { id: 'bc-field-private-room-switch' });
+  html += '</div>';
+  html += bcRenderFieldEditActionsHtml('guests');
+  html += '</div></div>';
+
   html += '<div class="ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
   var contactKv = kvBC(t('drawer.field.name'), bk.guest_name) + kvBC(t('drawer.field.phone'), bk.phone) + kvBC(t('drawer.field.email'), bk.email);
   html += bcRenderFieldEditReadRow('contact', t('drawer.field.editContact'), contactKv, 3);
@@ -36683,42 +37898,12 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '<div class="ctx-field-dates-error" id="bc-field-dates-error">' + escHtml(t('drawer.field.datesError')) + '</div>';
   html += bcRenderFieldEditActionsHtml('dates');
   html += '</div></div>';
-
-  html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  var privateRoomOn = bcBookingPrivateRoomEnabled(bk);
-  var guestsReadInner =
-    '<div class="kv" id="bc-field-guests-kv-only">' +
-      '<span class="k">' + escHtml(t('drawer.field.guests')) + '</span>' +
-      '<span class="v">' + escHtml(String(guestCount)) + '</span>' +
-    '</div>' +
-    bcPrivateRoomReadKv(privateRoomOn) +
-    '<div class="kv kv--pad" aria-hidden="true"><span class="k"></span><span class="v"></span></div>';
-  html += '<div class="ctx-field-read" id="bc-field-guests-read">' +
-    '<div class="ctx-field-read-row">' +
-    '<div class="kv-grid ctx-field-kv-grid ctx-field-kv-grid--3">' + guestsReadInner + '</div>' +
-    '<div class="ctx-field-header">' +
-    bcRenderFieldEditPencilBtn('guests', t('drawer.field.editGuests')) +
-    '</div></div></div>';
-  html += '<div class="ctx-field-edit ctx-field-guests-edit" id="bc-field-guests-edit" style="display:none">';
-  html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
-  html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
-  for (var g = guestCount; g >= 1; g--){
-    html += '<option value="' + g + '">' + g + '</option>';
-  }
-  html += '</select>';
-  html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
-  html += '<div class="ctx-field-private-room-edit">';
-  html += '<label class="ctx-field-label" for="bc-field-private-room-switch">' + escHtml(t('drawer.field.privateRoom')) + '</label>';
-  html += bcPrivateRoomSwitchHtml(privateRoomOn, { id: 'bc-field-private-room-switch' });
-  html += '</div>';
-  html += bcRenderFieldEditActionsHtml('guests');
-  html += '</div></div>';
   }
 
   if (mode === 'all' || mode === 'after-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   var packageKv = kvBCHtml(t('drawer.field.package'), bcRenderPackagePebblesHtml(bcGuestPackages(bk)));
-  if (roomPref) packageKv += kvBC(t('drawer.field.roomPref'), roomPref);
+  packageKv += bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));
   html += bcRenderFieldEditReadRow('package', t('drawer.field.editPackage'), packageKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
   html += bcRenderFieldEditPackageGuestSelectsHtml(bk);
@@ -36918,30 +38103,219 @@ function bcFieldEditCloseAll(){
     guestPrev.textContent = '';
   }
   bcFieldEditClearPreviewResults();
+  bcFieldEditRestoreInline();
   bcFieldEditRestoreForms();
 }
 
 function bcFieldEditActivate(group){
   if (!group) return;
+  if (group === 'guests' || group === 'all') {
+    bcFieldEditActivateAll();
+    return;
+  }
   if (bcFieldEditState.activeGroup === group) return;
   bcFieldEditCloseAll();
   bcFieldEditState.activeGroup = group;
+  bcFieldEditShowGroup(group);
+}
+
+function bcFieldEditShowGroup(group){
   var root = bcFieldEditGroupEl(group);
   if (!root) return;
   root.classList.add('is-editing');
   var read = root.querySelector('.ctx-field-read');
   var edit = root.querySelector('.ctx-field-edit');
-  if (read) read.style.display = 'none';
-  if (edit) edit.style.display = '';
+  var inRail = !!(el('bc-side-drawer') && el('bc-side-drawer').contains(root));
+  if (inRail) {
+    if (read) read.style.display = '';
+    if (edit) edit.style.display = 'none';
+    bcFieldEditPaintInline(group);
+  } else {
+    if (read) read.style.display = 'none';
+    if (edit) edit.style.display = '';
+  }
   if (group === 'guests') {
     bcFieldEditInitPrivateRoomToggle();
+    bcFieldEditEnablePrivateRoomInline();
     bcFieldEditUpdateGuestPreview();
     bcFieldEditUpdateGuestsSaveState();
   }
-  if (group === 'dates') bcFieldEditUpdateDatesPreview();
+  if (group === 'dates') {
+    bcFieldEditUpdateDatesPreview();
+    bcFieldEditUpdateDatesSaveState();
+  }
   if (group === 'contact') bcFieldEditUpdateContactSaveState();
   if (group === 'package') bcFieldEditUpdatePackageSaveState();
-  if (group === 'dates') bcFieldEditUpdateDatesSaveState();
+}
+
+function bcFieldEditMoveInputToValue(vEl, input){
+  if (!vEl || !input) return;
+  if (!input._bcHome) input._bcHome = input.parentNode;
+  vEl.textContent = '';
+  vEl.appendChild(input);
+  input.classList.add('bc-inline-input');
+}
+
+function bcFieldEditPaintInline(group){
+  if (group === 'contact') {
+    var kvs = document.querySelectorAll('#bc-field-group-contact .kv-grid > .kv');
+    if (kvs[1]) bcFieldEditMoveInputToValue(kvs[1].querySelector('.v'), el('bc-field-contact-phone'));
+    if (kvs[2]) bcFieldEditMoveInputToValue(kvs[2].querySelector('.v'), el('bc-field-contact-email'));
+  }
+  if (group === 'dates') {
+    var dkv = document.querySelectorAll('#bc-field-group-dates .kv-grid > .kv');
+    if (dkv[0]) bcFieldEditMoveInputToValue(dkv[0].querySelector('.v'), el('bc-field-dates-check-in'));
+    if (dkv[1]) bcFieldEditMoveInputToValue(dkv[1].querySelector('.v'), el('bc-field-dates-check-out'));
+  }
+  if (group === 'guests') {
+    var wrap = el('bc-guest-names');
+    if (wrap && !wrap.dataset.bcInline) {
+      wrap.dataset.bcInline = '1';
+      wrap.dataset.bcReadHtml = wrap.innerHTML;
+      var names = [];
+      wrap.querySelectorAll('.bc-guest-name-line').forEach(function(n){ names.push(n.textContent.trim()); });
+      var count = Math.max(1, parseInt(bcFieldEditState.guestCount, 10) || names.length || 1);
+      while (names.length < count) names.push('');
+      if (names.length > count) names = names.slice(0, count);
+      wrap.innerHTML = '';
+      names.forEach(function(name, i){
+        var inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = 'bk-input bk-input-sm bc-inline-input bc-inline-guest-name';
+        inp.value = name;
+        inp.placeholder = 'Guest ' + (i + 1);
+        inp.setAttribute('aria-label', 'Guest ' + (i + 1));
+        inp.setAttribute('data-guest-i', String(i));
+        if (i === 0) {
+          inp.addEventListener('input', function(){
+            var n = el('bc-field-contact-name');
+            if (n) n.value = inp.value;
+            var title = el('bc-side-title');
+            if (title && inp.value) title.textContent = inp.value;
+            bcFieldEditUpdateContactSaveState();
+          });
+        }
+        wrap.appendChild(inp);
+      });
+    }
+    var bar = el('bc-inline-edit-bar');
+    if (bar) bar.hidden = false;
+  }
+}
+
+function bcFieldEditEnablePrivateRoomInline(){
+  var sw = el('bc-field-private-room-read-switch');
+  var wrap = sw && sw.closest('.bc-private-room-switch-wrap');
+  if (sw) {
+    sw.disabled = false;
+    sw.onchange = function(){
+      var dest = el('bc-field-private-room-switch');
+      if (dest) dest.checked = sw.checked;
+      bcFieldEditUpdateGuestsSaveState();
+    };
+  }
+  if (wrap) wrap.classList.remove('is-readonly');
+}
+
+function bcFieldEditRestoreInline(){
+  document.querySelectorAll('#bc-side-drawer .bc-inline-input').forEach(function(input){
+    if (input._bcHome) input._bcHome.appendChild(input);
+    input.classList.remove('bc-inline-input');
+  });
+  var wrap = el('bc-guest-names');
+  if (wrap && wrap.dataset.bcReadHtml) {
+    wrap.innerHTML = wrap.dataset.bcReadHtml;
+    wrap.removeAttribute('data-bc-inline');
+    wrap.removeAttribute('data-bc-read-html');
+  }
+  var bar = el('bc-inline-edit-bar');
+  if (bar) bar.hidden = true;
+  var sw = el('bc-field-private-room-read-switch');
+  var swWrap = sw && sw.closest('.bc-private-room-switch-wrap');
+  if (sw) sw.disabled = true;
+  if (swWrap) swWrap.classList.add('is-readonly');
+}
+
+function bcFieldEditPostEdit(body){
+  return fetch('/staff/bookings/edit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(function(r){
+    return r.json().then(function(d){
+      if (!r.ok || !d || !d.success) {
+        var err = new Error((d && (d.error || d.message)) || ('Save failed (HTTP ' + r.status + ')'));
+        throw err;
+      }
+      return d;
+    });
+  });
+}
+
+function bcFieldEditSaveInlineAll(){
+  var name0 = document.querySelector('#bc-side-drawer .bc-inline-guest-name');
+  var nameEl = el('bc-field-contact-name');
+  if (name0 && nameEl) nameEl.value = String(name0.value || '').trim();
+  var prRead = el('bc-field-private-room-read-switch');
+  var prEdit = el('bc-field-private-room-switch');
+  if (prRead && prEdit) prEdit.checked = prRead.checked;
+  var s = bcFieldEditState.snapshot || {};
+  var phoneEl = el('bc-field-contact-phone');
+  var emailEl = el('bc-field-contact-email');
+  var cinEl = el('bc-field-dates-check-in');
+  var coutEl = el('bc-field-dates-check-out');
+  var contactDirty = !!(nameEl && (
+    nameEl.value !== String(s.guest_name || '') ||
+    (phoneEl && phoneEl.value !== String(s.phone || '')) ||
+    (emailEl && emailEl.value !== String(s.email || ''))
+  ));
+  var datesDirty = !!(cinEl && coutEl && (
+    cinEl.value !== String(s.check_in || '') ||
+    coutEl.value !== String(s.check_out || '')
+  ));
+  var prDirty = !!(prEdit && !!prEdit.checked !== !!s.private_room);
+  var jobs = Promise.resolve();
+  if (contactDirty) {
+    var c = bcFieldEditBuildContactWritePayload();
+    if (c.error) { alert(c.error); return; }
+    jobs = jobs.then(function(){ return bcFieldEditPostEdit(c); });
+  }
+  if (datesDirty) {
+    jobs = jobs.then(function(){
+      var d = bcFieldEditBuildDatesWritePayload();
+      if (d.error) throw new Error(d.error);
+      return bcFieldEditPostEdit(d);
+    });
+  }
+  if (prDirty) {
+    jobs = jobs.then(function(){
+      return bcFieldEditPostEdit({
+        client_slug: bcFieldEditState.clientSlug || getBcClient(),
+        booking_id: bcFieldEditState.bookingId,
+        booking_code: bcFieldEditState.bookingCode,
+        edit_type: 'private_room',
+        private_room_enabled: !!prEdit.checked,
+        idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
+        reason: 'Staff portal private room toggle',
+      });
+    });
+  }
+  var saveBtn = el('bc-inline-save');
+  if (saveBtn) saveBtn.disabled = true;
+  jobs.then(function(){
+    var code = bcFieldEditState.bookingCode;
+    bcFieldEditCloseAll();
+    if (code) loadBlockDetail(code);
+  }).catch(function(err){
+    if (saveBtn) saveBtn.disabled = false;
+    alert(err && err.message ? err.message : 'Save failed');
+  });
+}
+
+function bcFieldEditActivateAll(){
+  bcFieldEditCloseAll();
+  bcFieldEditState.activeGroup = 'all';
+  ['guests', 'contact', 'dates', 'package'].forEach(bcFieldEditShowGroup);
 }
 
 function bcFieldEditUpdateDatesPreview(){
@@ -37767,6 +39141,7 @@ function bcInitFieldEditShell(data){
     package_code: bk.package_code ? String(bk.package_code).toLowerCase() : 'no_package',
     guest_packages: bcGuestPackages(bk),
     guest_count: bcFieldEditState.guestCount,
+    private_room: bcBookingPrivateRoomEnabled(bk),
   };
   bcFieldEditState.activeGroup = null;
   bcFieldEditCloseAll();
@@ -37777,6 +39152,10 @@ function bcInitFieldEditShell(data){
       if (g) bcFieldEditActivate(g);
     };
   });
+  var inlineSave = el('bc-inline-save');
+  var inlineCancel = el('bc-inline-cancel');
+  if (inlineSave) inlineSave.onclick = function(e){ e.preventDefault(); bcFieldEditSaveInlineAll(); };
+  if (inlineCancel) inlineCancel.onclick = function(){ bcFieldEditCloseAll(); };
   document.querySelectorAll('[data-bc-field-cancel]').forEach(function(btn){
     btn.onclick = function(){ bcFieldEditCloseAll(); };
   });
@@ -37884,7 +39263,6 @@ var bcTransferCtx = {
   bookingId: null,
   clientSlug: null,
   data: null,
-  lookupMeta: { arrival: null, departure: null },
   existingStatus: { arrival: null, departure: null },
 };
 
@@ -38004,18 +39382,14 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(xfer.notes || '') + '</textarea></div>';
   html += '</div></div>';
   html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(xfer.pricing) + '</div>';
-  html += '<div id="' + prefix + '-lookup-note" class="ctx-none" style="margin-top:6px;font-size:11px"></div>';
   html += '<div id="' + prefix + '-result" style="margin-top:6px;display:none;font-size:11px"></div>';
   html += '<div class="bc-transfer-card-footer">';
-  html += '<div class="bc-transfer-actions">';
-  html += '<button type="button" class="btn btn-ghost bc-transfer-lookup" data-direction="' + direction + '" disabled>' + escHtml(t('drawer.transfers.lookupFlight')) + '</button>';
-  html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '"' +
-    (scheduled ? ' disabled' : '') + '>' + escHtml(bcTransferSaveButtonLabel(direction)) + '</button>';
-  html += '</div>';
   if (removable) {
     html += '<button type="button" class="btn btn-ghost bc-transfer-remove" data-direction="' + direction + '">' +
       escHtml(removeLabel) + '</button>';
   }
+  html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '"' +
+    (scheduled ? ' disabled' : '') + '>' + escHtml(bcTransferSaveButtonLabel(direction)) + '</button>';
   html += '</div></div>';
   return html;
 }
@@ -38034,7 +39408,6 @@ function bcRenderTransferCards(data){
 
 function bcTransferCollectPayload(direction){
   var prefix = 'bc-transfer-' + direction;
-  var meta = (bcTransferCtx.lookupMeta && bcTransferCtx.lookupMeta[direction]) || {};
   var airport = (el(prefix + '-airport') && el(prefix + '-airport').value) || 'SDR';
   var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || null;
   var scheduled = (el(prefix + '-scheduled') && el(prefix + '-scheduled').value) || null;
@@ -38062,9 +39435,6 @@ function bcTransferCollectPayload(direction){
       payload.manual_override_euros = parseFloat(overrideAmt.value.trim());
     }
   }
-  if (meta.flight_lookup_provider) payload.flight_lookup_provider = meta.flight_lookup_provider;
-  if (meta.flight_lookup_status) payload.flight_lookup_status = meta.flight_lookup_status;
-  if (meta.flight_lookup_summary) payload.flight_lookup_summary = meta.flight_lookup_summary;
   return payload;
 }
 
@@ -38078,125 +39448,6 @@ function bcTransferValidateOverrideAmount(direction){
   var euros = parseFloat(raw);
   if (!Number.isFinite(euros) || euros < 0) return t('drawer.transfers.chargeMinZero');
   return null;
-}
-
-function bcTransferLookupErrorLabel(code, message, diagnostic){
-  if (message) return message;
-  var m = {
-    aerodatabox_not_configured: 'Flight lookup is not configured.',
-    aerodatabox_auth_error: 'AeroDataBox auth/quota issue. Check API key or plan.',
-    aerodatabox_quota_or_plan_error: 'AeroDataBox auth/quota issue. Check API key or plan.',
-    aerodatabox_rate_limited: 'AeroDataBox rate limit reached. Try again shortly.',
-    aerodatabox_bad_request: 'Flight lookup request was rejected. Check flight number and try again.',
-    flight_not_found: 'Couldn\u2019t find that flight. Enter the flight details manually.',
-    airport_mismatch: 'Flight found, but airport did not match. Enter manually or change airport.',
-    aerodatabox_api_error: 'Flight lookup failed. Enter the flight details manually.',
-    aerodatabox_request_failed: 'Flight lookup request failed.',
-    missing_flight_number: 'Flight number is required for lookup.',
-  };
-  if (code === 'flight_not_found' && diagnostic && diagnostic.lookup_dates_tried && diagnostic.lookup_dates_tried.length) {
-    var fn = diagnostic.flight_number || 'flight';
-    return 'No matching flight found for ' + fn + ' on ' + diagnostic.lookup_dates_tried.join(' or ') + '. Enter details manually.';
-  }
-  return m[code] || (code ? String(code).replace(/_/g, ' ') : 'Flight lookup failed.');
-}
-
-function bcTransferFormatLookupNote(patch, direction){
-  if (!patch) return '';
-  var fn = patch.flight_number || '\u2014';
-  var ap = patch.airport_code || '\u2014';
-  var local = patch.scheduled_at_local || '';
-  var timePart = local ? local.slice(11, 16) : '';
-  var verb = direction === 'arrival' ? 'arriving' : 'departing';
-  return 'Flight found: ' + fn + ' ' + verb + ' ' + ap + (timePart ? ' at ' + timePart : '');
-}
-
-function bcTransferUpdateLookupButtonState(direction){
-  var prefix = 'bc-transfer-' + direction;
-  var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || '';
-  var btn = document.querySelector('.bc-transfer-lookup[data-direction="' + direction + '"]');
-  if (btn) btn.disabled = !flight;
-}
-
-function bcTransferApplyLookupPatch(direction, patch){
-  if (!patch) return;
-  var prefix = 'bc-transfer-' + direction;
-  var airportEl = el(prefix + '-airport');
-  if (airportEl && patch.airport_code) airportEl.value = patch.airport_code;
-  var flightEl = el(prefix + '-flight');
-  if (flightEl && patch.flight_number) flightEl.value = patch.flight_number;
-  var schedEl = el(prefix + '-scheduled');
-  if (schedEl && patch.scheduled_at_local) schedEl.value = patch.scheduled_at_local;
-  bcTransferCtx.lookupMeta = bcTransferCtx.lookupMeta || { arrival: null, departure: null };
-  bcTransferCtx.lookupMeta[direction] = {
-    flight_lookup_provider: patch.flight_lookup_provider || null,
-    flight_lookup_status: patch.flight_lookup_status || null,
-    flight_lookup_summary: patch.flight_lookup_summary || null,
-  };
-  var noteEl = el(prefix + '-lookup-note');
-  if (noteEl){
-    noteEl.style.display = 'block';
-    noteEl.className = 'state-msg';
-    noteEl.textContent = bcTransferFormatLookupNote(patch, direction);
-  }
-}
-
-function bcLookupFlight(direction){
-  if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
-  var prefix = 'bc-transfer-' + direction;
-  var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || '';
-  var airport = (el(prefix + '-airport') && el(prefix + '-airport').value) || 'SDR';
-  if (!flight){
-    bcTransferShowResult(direction, 'Flight number is required for lookup.', true);
-    return;
-  }
-  var btn = document.querySelector('.bc-transfer-lookup[data-direction="' + direction + '"]');
-  if (btn) btn.disabled = true;
-  bcTransferShowResult(direction, 'Looking up flight\u2026', false);
-  fetch('/staff/bookings/' + encodeURIComponent(bcTransferCtx.bookingId) + '/transfers/lookup-flight', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_slug: bcTransferCtx.clientSlug,
-      direction: direction,
-      flight_number: flight,
-      airport_code: airport,
-    }),
-  })
-    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
-    .then(function(res){
-      bcTransferUpdateLookupButtonState(direction);
-      if (!res.ok || !res.data.success){
-        bcTransferShowResult(direction, escHtml(bcTransferLookupErrorLabel(
-          res.data && res.data.error,
-          res.data && res.data.message,
-          res.data && res.data.diagnostic
-        )), true);
-        return;
-      }
-      bcTransferApplyLookupPatch(direction, res.data.suggested_transfer_patch);
-      bcTransferShowResult(direction, 'Flight details applied \u2014 review and Save when ready.', false);
-    })
-    .catch(function(e){
-      bcTransferUpdateLookupButtonState(direction);
-      bcTransferShowResult(direction, escHtml(e.message || 'Network error'), true);
-    });
-}
-
-function bcTransferWireLookupControls(){
-  ['arrival', 'departure'].forEach(function(direction){
-    bcTransferUpdateLookupButtonState(direction);
-    var input = el('bc-transfer-' + direction + '-flight');
-    if (!input) return;
-    var handler = function(){ bcTransferUpdateLookupButtonState(direction); };
-    input.oninput = handler;
-    input.onchange = handler;
-  });
-  document.querySelectorAll('.bc-transfer-lookup').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      bcLookupFlight(btn.getAttribute('data-direction'));
-    });
-  });
 }
 
 function bcTransferShowResult(direction, html, isErr){
@@ -38268,15 +39519,10 @@ function bcClearTransferForm(direction){
   if (overrideToggle) overrideToggle.setAttribute('aria-expanded', 'false');
   var pricingEl = el(prefix + '-pricing');
   if (pricingEl) pricingEl.innerHTML = '';
-  var noteEl = el(prefix + '-lookup-note');
-  if (noteEl){ noteEl.style.display = 'none'; noteEl.textContent = ''; }
   var resultEl = el(prefix + '-result');
   if (resultEl){ resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
-  bcTransferCtx.lookupMeta = bcTransferCtx.lookupMeta || { arrival: null, departure: null };
-  bcTransferCtx.lookupMeta[direction] = null;
   bcTransferCtx.existingStatus = bcTransferCtx.existingStatus || { arrival: null, departure: null };
   bcTransferCtx.existingStatus[direction] = null;
-  bcTransferUpdateLookupButtonState(direction);
   var removeBtn = document.querySelector('.bc-transfer-remove[data-direction="' + direction + '"]');
   if (removeBtn) removeBtn.remove();
   bcTransferUpdateScheduledUi(direction, null);
@@ -38379,7 +39625,6 @@ function bcApplyTransferDrawerPayload(payload, contextData, cardsEl){
   if (!cardsEl) cardsEl = el('bc-transfer-cards');
   if (!cardsEl || !payload) return;
   bcTransferCtx.data = payload;
-  bcTransferCtx.lookupMeta = { arrival: null, departure: null };
   bcTransferCtx.existingStatus = { arrival: null, departure: null };
   (payload.transfers || []).forEach(function(t){
     if (t.direction === 'arrival') bcTransferCtx.existingStatus.arrival = t.status;
@@ -38411,7 +39656,6 @@ function bcApplyTransferDrawerPayload(payload, contextData, cardsEl){
       btn.setAttribute('aria-expanded', open ? 'false' : 'true');
     });
   });
-  bcTransferWireLookupControls();
 }
 
 function bcInitTransferShell(contextData){
@@ -38900,14 +40144,26 @@ function renderBookingContextDrawer(data){
   html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.bookingDetails')) + '</h3>';
   html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
+  html += '<div class="bc-inline-edit-bar" id="bc-inline-edit-bar" hidden>' +
+    '<button type="button" class="btn btn-primary" id="bc-inline-save">Save</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-inline-cancel">Cancel</button>' +
+    '</div>';
   html += '</div>';
+
+  if (!isSunset) {
+    html += bcRenderRunningInvoiceHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || [], data.booking_guests || [], data.per_person || [], { overview: true });
+  }
 
   if (!isSurf) {
     var rmMove = data.rooming || {};
     var moveAssigns = rmMove.assignments || [];
     var moveNoBeds = moveAssigns.length === 0;
-    html += '<div class="bc-drawer-overview-card ctx-section ctx-move-bed" id="bc-move-bed">';
+    html += '<div class="bc-drawer-overview-card ctx-section ctx-move-bed is-collapsed" id="bc-move-bed">';
+    html += '<button type="button" class="bc-card-collapse" id="bc-move-bed-toggle" aria-expanded="false">';
     html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.moveBed')) + '</h3>';
+    html += '<span class="bc-card-chevron" aria-hidden="true">&gt;</span>';
+    html += '</button>';
+    html += '<div class="bc-move-bed-body">';
     if (moveNoBeds){
       html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">' + escHtml(t('drawer.moveBed.noAssignments')) + '</div>';
     } else {
@@ -38921,16 +40177,13 @@ function renderBookingContextDrawer(data){
     html += '<div id="bc-move-result"></div>';
     html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
     html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>' + escHtml(t('drawer.moveBed.btn')) + '</button>';
-    html += '</div></div>';
-  }
-
-  if (!isSunset) {
-    html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
+    html += '</div></div></div>';
   }
 
   html += bcRenderPendingManualServicesOverviewHtml(data.pending_manual_services || []);
 
   html += '<div class="bc-drawer-overview-card ctx-section" id="bc-drawer-card-conversation">';
+  html += '<div class="bc-conv-handoff-block">';
   html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.conversation')) + '</h3>';
   if (data.conversation){
     var conv = data.conversation;
@@ -38953,6 +40206,7 @@ function renderBookingContextDrawer(data){
       if (hf.opened_at)      html += kvBC(t('drawer.kv.opened'), new Date(hf.opened_at).toLocaleString());
       html += '</div>';
   }
+  html += '</div>';
   html += bcRenderLunaGuestNotesHtml(data);
   html += '</div>';
 
@@ -39364,9 +40618,23 @@ function toOnTourOperatorTabOpen(){
 function bcUpdateCalendarTitle(){
   var titleEl = el('bc-calendar-title');
   if (!titleEl) return;
+  titleEl.removeAttribute('data-i18n');
   var start = bcReadDateField(el('bc-start'));
-  var year = (start && BC_YEAR_PREFIX_RE.test(start)) ? start.slice(0, 4) : String(new Date().getFullYear());
-  titleEl.textContent = t('calendar.title') + ' - ' + year;
+  var end = bcReadDateField(el('bc-end'));
+  var pick = start;
+  var today = new Date();
+  var todayIso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+  if (start && end && todayIso >= start && todayIso <= end) pick = todayIso;
+  if (!pick || !BC_YEAR_PREFIX_RE.test(pick)) {
+    pick = todayIso;
+  }
+  var d = new Date(pick.slice(0, 10) + 'T12:00:00');
+  if (isNaN(d.getTime())) d = today;
+  var lang = (document.documentElement && document.documentElement.lang) || 'en';
+  var month = d.toLocaleString(lang, { month: 'long' });
+  if (month) month = month.charAt(0).toUpperCase() + month.slice(1);
+  var yy = String(d.getFullYear()).slice(-2);
+  titleEl.textContent = month + " '" + yy;
 }
 
 var bcLastBedCalendarData = null;
@@ -39391,6 +40659,7 @@ function bcRefreshOpenDrawerI18n(){
   bcInitBookingCancelShell(bcLastBookingContext);
   bcInitNewConversationShell(bcLastBookingContext);
   bcWireOpenConversationButtons(bcLastBookingContext);
+  bcBindLunaNotesEdit();
   bcBindLunaNotesSave();
   bcBindLunaNotesDelete();
 }
@@ -39520,10 +40789,197 @@ function bcChipKeyForCheckIn(iso){
 }
 
 var bcInitialLoadDone = false;
+var bcSidePinned = false;
+var bcSideHoverTimer = null;
+var bcSideLeaveTimer = null;
+var bcSideHoverCode = null;
+
+function bcSideDrawerLive(){
+  return !!(el('bc-side-drawer') && window.innerWidth > 768);
+}
+
+function bcSetSidePinned(on){
+  bcSidePinned = !!on;
+  var rail = el('bc-side-drawer');
+  var pinBtn = el('bc-side-pin');
+  var tab = el('tab-bed-calendar');
+  if (rail) rail.dataset.pinned = bcSidePinned ? '1' : '0';
+  if (pinBtn){
+    pinBtn.classList.toggle('is-on', bcSidePinned);
+    pinBtn.setAttribute('aria-pressed', bcSidePinned ? 'true' : 'false');
+  }
+  if (tab) tab.classList.toggle('bc-cal-side-pinned', !!(bcSidePinned && rail && rail.classList.contains('is-open')));
+}
+
+function bcUndockCreatePanel(){
+  var panel = el('bc-sel-panel');
+  var slot = el('bc-sel-panel-slot');
+  if (panel && slot && panel.parentNode !== slot.parentNode){
+    slot.parentNode.insertBefore(panel, slot.nextSibling);
+  }
+}
+
+function bcCloseSideRail(){
+  var rail = el('bc-side-drawer');
+  if (!rail) return;
+  rail.classList.remove('is-open');
+  rail.dataset.mode = '';
+  var tab = el('tab-bed-calendar');
+  if (tab) tab.classList.remove('bc-cal-side-pinned');
+  bcSetSidePinned(false);
+  bcSideHoverCode = null;
+  bcUndockCreatePanel();
+}
+
+function bcSideStayMetaHtml(cin, cout, guests){
+  var dates = [cin, cout].filter(Boolean).join(' → ');
+  var nights = 0;
+  if (cin && cout && typeof bcStayNightsFromCheckInOut === 'function') {
+    nights = bcStayNightsFromCheckInOut(cin, cout) || 0;
+  }
+  var extra = '';
+  if (nights > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(nights) + ' nights') + '</span>';
+  var gc = parseInt(guests, 10);
+  if (gc > 0) extra += ' <span class="bc-side-nights">· ' + escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests')) + '</span>';
+  return escHtml(dates) + extra;
+}
+
+function bcDockCreatePanel(){
+  if (!bcSideDrawerLive()) return;
+  var rail = el('bc-side-drawer');
+  var body = el('bc-side-body');
+  var panel = el('bc-sel-panel');
+  if (!rail || !body || !panel) return;
+  if (!el('bc-sel-panel-slot')){
+    var slot = document.createElement('div');
+    slot.id = 'bc-sel-panel-slot';
+    slot.style.display = 'none';
+    panel.parentNode.insertBefore(slot, panel);
+  }
+  Array.prototype.slice.call(body.childNodes).forEach(function(node){
+    if (node !== panel) body.removeChild(node);
+  });
+  if (panel.parentNode !== body) body.appendChild(panel);
+  panel.style.display = 'block';
+  panel.style.marginTop = '0';
+  rail.classList.add('is-open');
+  rail.dataset.mode = 'create';
+  if (typeof bcSyncSideDrawerTop === 'function') bcSyncSideDrawerTop();
+  bcSetSidePinned(true);
+  var title = el('bc-side-title');
+  var meta = el('bc-side-meta');
+  if (title) title.textContent = 'New booking';
+  if (meta){
+    var cin = el('bc-sel-cin');
+    var cout = el('bc-sel-cout');
+    meta.innerHTML = bcSideStayMetaHtml(cin && cin.value, cout && cout.value);
+  }
+}
+
+function bcOpenSideBooking(blk, opts){
+  opts = opts || {};
+  var rail = el('bc-side-drawer');
+  var body = el('bc-side-body');
+  if (!rail || !body || !blk) return;
+  bcUndockCreatePanel();
+  Array.prototype.slice.call(body.childNodes).forEach(function(node){
+    if (node.id !== 'bc-sel-panel') body.removeChild(node);
+  });
+  rail.classList.add('is-open');
+  if (opts.pin) bcSetSidePinned(true);
+  if (typeof bcSyncSideDrawerTop === 'function') bcSyncSideDrawerTop();
+  rail.dataset.mode = 'booking';
+  bcLastOpenedBlock = blk;
+  bcActiveDrawerTab = 'overview';
+  var title = el('bc-side-title');
+  var meta = el('bc-side-meta');
+  if (title) title.textContent = blk.guest_name || blk.booking_code || 'Booking';
+  bcPaintSideStayMeta(null, blk, null);
+  var code = blk.booking_code;
+  if (code && bcLastBookingContext && bcLastBookingContext.booking &&
+      String(bcLastBookingContext.booking.booking_code) === String(code) &&
+      body.querySelector('.bc-drawer-file-tabs')){
+    return;
+  }
+  body.innerHTML = bcRenderDrawerLoadingHtml();
+  if (code) loadBlockDetail(code, { host: body, preserveTab: false, activeTab: 'overview' });
+}
+
+function bcSideHoverEnter(blk){
+  clearTimeout(bcSideLeaveTimer);
+  if (!blk || bcSidePinned) return;
+  clearTimeout(bcSideHoverTimer);
+  bcSideHoverTimer = setTimeout(function(){
+    bcSideHoverCode = blk.booking_code || null;
+    bcOpenSideBooking(blk, { pin: false });
+  }, 220);
+}
+
+function bcSideHoverLeave(){
+  clearTimeout(bcSideHoverTimer);
+  if (bcSidePinned) return;
+  bcSideLeaveTimer = setTimeout(function(){
+    if (!bcSidePinned) bcCloseSideRail();
+  }, 560);
+}
+
+function bcSyncSideDrawerTop(){
+  var rail = el('bc-side-drawer');
+  if (!rail) return;
+  var banner = document.getElementById('banner');
+  var tabs = document.getElementById('tabs');
+  var bannerBottom = 0;
+  var tabsBottom = 0;
+  if (banner) {
+    var br = banner.getBoundingClientRect();
+    if (br.bottom > 8 && br.height > 16) bannerBottom = Math.round(br.bottom);
+  }
+  if (tabs) {
+    var tr = tabs.getBoundingClientRect();
+    if (tr.bottom > 0) tabsBottom = Math.round(tr.bottom);
+  }
+  var y = Math.max(bannerBottom, tabsBottom, 0);
+  if (bannerBottom > 0 && tabsBottom <= bannerBottom + 8) y = bannerBottom + 52;
+  rail.style.top = (y + 4) + 'px';
+}
+
+function bcInitSideDrawer(){
+  var rail = el('bc-side-drawer');
+  var closeBtn = el('bc-side-close');
+  var pinBtn = el('bc-side-pin');
+  if (!rail || rail.dataset.sideWired === '1') return;
+  rail.dataset.sideWired = '1';
+  if (closeBtn) closeBtn.addEventListener('click', bcCloseSideRail);
+  if (pinBtn) pinBtn.addEventListener('click', function(ev){
+    ev.preventDefault();
+    ev.stopPropagation();
+    clearTimeout(bcSideLeaveTimer);
+    bcSetSidePinned(!bcSidePinned);
+  });
+  rail.addEventListener('mouseenter', function(){ clearTimeout(bcSideLeaveTimer); });
+  rail.addEventListener('mouseleave', function(){ bcSideHoverLeave(); });
+  document.addEventListener('keydown', function(ev){
+    if (ev.key === 'Escape') bcCloseSideRail();
+  });
+  bcSyncSideDrawerTop();
+  window.addEventListener('scroll', bcSyncSideDrawerTop, { passive: true });
+  window.addEventListener('resize', bcSyncSideDrawerTop);
+  document.addEventListener('transitionend', function(ev){
+    if (ev.target && (ev.target.id === 'banner' || ev.target.id === 'tabs')) bcSyncSideDrawerTop();
+  });
+  if (typeof MutationObserver === 'function' && !window.bcSideTopMo) {
+    window.bcSideTopMo = new MutationObserver(bcSyncSideDrawerTop);
+    window.bcSideTopMo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    var header = document.querySelector('.luna-header-ui');
+    if (header) window.bcSideTopMo.observe(header, { attributes: true, attributeFilter: ['class'] });
+  }
+}
+
 function bcOnBedCalendarTabOpen(){
   bcInitCalendarResize();
   bcInitCalendarZoom();
   bcInitDetailCopyDelegation();
+  bcInitSideDrawer();
   var sEl = el('bc-start');
   var eEl = el('bc-end');
   if (!bcReadDateField(sEl) || !bcReadDateField(eEl)){
@@ -39546,6 +41002,7 @@ function bcSetRange(start, end, chipKey){
   bcSetDateField(el('bc-start'), start);
   bcSetDateField(el('bc-end'), end);
   bcUpdateCalendarTitle();
+  if (typeof bcSyncRangeBtn === 'function') bcSyncRangeBtn();
   /* Update active chip */
   document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
   if (chipKey){
@@ -39570,9 +41027,129 @@ function bcSetRange(start, end, chipKey){
     inp.addEventListener('blur', function(){
       bcNormalizeDateInput(inp);
       bcUpdateCalendarTitle();
+      if (typeof bcSyncRangeBtn === 'function') bcSyncRangeBtn();
     });
   });
+  if (typeof bcInitRangePicker === 'function') bcInitRangePicker();
 })();
+
+function bcFormatRangeLabel(iso){
+  if (!iso) return '';
+  var d = new Date(String(iso).slice(0, 10) + 'T12:00:00');
+  if (isNaN(d.getTime())) return String(iso);
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[d.getMonth()] + ' ' + d.getDate();
+}
+
+function bcSyncRangeBtn(){
+  var btn = el('bc-range-btn');
+  if (!btn) return;
+  var start = bcReadDateField(el('bc-start'));
+  var end = bcReadDateField(el('bc-end'));
+  if (start && end) btn.textContent = bcFormatRangeLabel(start) + ' – ' + bcFormatRangeLabel(end);
+  else btn.textContent = 'Select dates';
+}
+
+function bcInitRangePicker(){
+  var btn = el('bc-range-btn');
+  var pop = el('bc-range-pop');
+  if (!btn || !pop || pop.dataset.wired === '1') return;
+  pop.dataset.wired = '1';
+  window.bcRangePopState = { view: null, start: null, end: null };
+  bcSyncRangeBtn();
+  btn.addEventListener('click', function(ev){
+    ev.stopPropagation();
+    if (!pop.hidden){ pop.hidden = true; return; }
+    var start = bcReadDateField(el('bc-start'));
+    var end = bcReadDateField(el('bc-end'));
+    window.bcRangePopState.start = start || null;
+    window.bcRangePopState.end = end || null;
+    window.bcRangePopState.view = start || bcIso(new Date());
+    bcRenderRangePop();
+    pop.hidden = false;
+  });
+  document.addEventListener('click', function(ev){
+    if (pop.hidden) return;
+    if (pop.contains(ev.target) || btn.contains(ev.target)) return;
+    pop.hidden = true;
+  });
+}
+
+function bcRangePopShift(delta){
+  var iso = (window.bcRangePopState && window.bcRangePopState.view) || bcIso(new Date());
+  var d = new Date(iso.slice(0, 10) + 'T12:00:00');
+  d.setMonth(d.getMonth() + delta);
+  window.bcRangePopState.view = bcIso(d);
+  bcRenderRangePop();
+}
+
+function bcRenderRangePop(){
+  var pop = el('bc-range-pop');
+  if (!pop) return;
+  var viewIso = (window.bcRangePopState && window.bcRangePopState.view) || bcIso(new Date());
+  var view = new Date(viewIso.slice(0, 10) + 'T12:00:00');
+  var y = view.getFullYear();
+  var m = view.getMonth();
+  var months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var start = window.bcRangePopState.start;
+  var end = window.bcRangePopState.end;
+  var first = new Date(y, m, 1);
+  var startDow = first.getDay();
+  var daysIn = new Date(y, m + 1, 0).getDate();
+  var html = '<div class="bc-range-pop-head">';
+  html += '<button type="button" class="bc-range-pop-nav" data-bc-range-shift="-1" aria-label="Previous month">‹</button>';
+  html += '<div class="bc-range-pop-title">' + escHtml(months[m] + ' ' + y) + '</div>';
+  html += '<button type="button" class="bc-range-pop-nav" data-bc-range-shift="1" aria-label="Next month">›</button>';
+  html += '</div><div class="bc-range-pop-grid">';
+  ['S','M','T','W','T','F','S'].forEach(function(d){ html += '<div class="bc-range-pop-dow">' + d + '</div>'; });
+  var i;
+  for (i = 0; i < startDow; i++) html += '<button type="button" class="bc-range-pop-day is-out" tabindex="-1"></button>';
+  for (i = 1; i <= daysIn; i++){
+    var iso = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(i).padStart(2, '0');
+    var cls = 'bc-range-pop-day';
+    if (start && iso === start) cls += ' is-end';
+    else if (end && iso === end) cls += ' is-end';
+    else if (start && end && iso > start && iso < end) cls += ' is-in';
+    html += '<button type="button" class="' + cls + '" data-bc-range-day="' + iso + '">' + i + '</button>';
+  }
+  html += '</div><div class="bc-range-pop-hint">' + (end ? 'Range selected' : (start ? 'Pick the end date' : 'Pick the start date')) + '</div>';
+  pop.innerHTML = html;
+  pop.querySelectorAll('[data-bc-range-shift]').forEach(function(b){
+    b.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      bcRangePopShift(parseInt(b.getAttribute('data-bc-range-shift'), 10));
+    });
+  });
+  pop.querySelectorAll('[data-bc-range-day]').forEach(function(b){
+    b.addEventListener('click', function(ev){
+      ev.stopPropagation();
+      bcRangePopPick(b.getAttribute('data-bc-range-day'));
+    });
+  });
+}
+
+function bcRangePopPick(iso){
+  if (!iso) return;
+  var st = window.bcRangePopState;
+  if (!st.start || st.end){
+    st.start = iso;
+    st.end = null;
+    bcRenderRangePop();
+    return;
+  }
+  st.end = iso;
+  var start = st.start;
+  var end = st.end;
+  if (end < start){ var tmp = start; start = end; end = tmp; }
+  document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
+  bcSetDateField(el('bc-start'), start);
+  bcSetDateField(el('bc-end'), end);
+  bcSyncRangeBtn();
+  bcUpdateCalendarTitle();
+  var pop = el('bc-range-pop');
+  if (pop) pop.hidden = true;
+  loadBedCalendar();
+}
 
 document.querySelectorAll('.bc-chip').forEach(function(chip){
   chip.addEventListener('click', function(){
@@ -40529,11 +42106,16 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
   const rawClient = query.client != null ? query.client : query.client_slug;
   const clientSlug = typeof rawClient === 'string' ? rawClient.trim() : '';
   if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid request');
-  if (clientSlug !== 'sunset') {
+  const lodging = clientSlug === 'wolfhouse-somo';
+  if (!lodging && clientSlug !== 'sunset') {
     return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
   }
   const locationId = typeof query.location === 'string' ? query.location.trim() : '';
-  if (locationId !== 'sunset-somo') {
+  if (lodging) {
+    if (locationId && locationId.indexOf('sunset-') === 0) {
+      return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
+    }
+  } else if (locationId !== 'sunset-somo') {
     return sendJSON(res, 403, { success: false, error: 'finance unavailable' });
   }
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
@@ -40547,7 +42129,9 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     const end = typeof query.end === 'string' ? query.end.trim() : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(start)) view.start = start;
     if (/^\d{4}-\d{2}-\d{2}$/.test(end)) view.end = end;
-    const data = await withPgClient((pg) => fetchSunsetFinanceData(pg, { clientSlug, locationId }));
+    const data = lodging
+      ? await withPgClient((pg) => fetchLodgingFinanceData(pg, { clientSlug }))
+      : await withPgClient((pg) => fetchSunsetFinanceData(pg, { clientSlug, locationId }));
     const summary = computeSunsetFinanceSummary({ now: new Date(), timeZone: 'Europe/Madrid', view, ...data });
     return sendJSON(res, 200, {
       success: true,
@@ -42926,8 +44510,22 @@ async function handleConversationInbox(query, res, user) {
   try {
     rows = await withPgClient(async (pg) => {
       const params = scope.scoped ? [clientSlug, scope.locationId] : [clientSlug];
-      const r = await pg.query(getConversationInboxQuery(scope.queryOpts), params);
-      return r.rows;
+      const includeInboundProjections = emailInboundInboxAssumedReady();
+      try {
+        const r = await pg.query(
+          getConversationInboxQuery({ ...scope.queryOpts, includeInboundProjections }),
+          params,
+        );
+        return r.rows;
+      } catch (err) {
+        if (!includeInboundProjections || !isMissingEmailInboundRelation(err)) throw err;
+        markEmailInboundInboxMissing();
+        const r = await pg.query(
+          getConversationInboxQuery({ ...scope.queryOpts, includeInboundProjections: false }),
+          params,
+        );
+        return r.rows;
+      }
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -42971,11 +44569,22 @@ async function handleConversationDetail(convId, query, res, user) {
   let rows;
   try {
     rows = await withPgClient(async (pg) => {
-      const r = await pg.query(
-        getConversationDetailQuery(scope.queryOpts),
-        conversationDetailQueryParams(clientSlug, convId, scope),
-      );
-      return r.rows;
+      const includeInboundProjections = emailInboundInboxAssumedReady();
+      try {
+        const r = await pg.query(
+          getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections }),
+          conversationDetailQueryParams(clientSlug, convId, scope),
+        );
+        return r.rows;
+      } catch (err) {
+        if (!includeInboundProjections || !isMissingEmailInboundRelation(err)) throw err;
+        markEmailInboundInboxMissing();
+        const r = await pg.query(
+          getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections: false }),
+          conversationDetailQueryParams(clientSlug, convId, scope),
+        );
+        return r.rows;
+      }
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -44393,6 +46002,89 @@ async function handleCalendarBedBlockCreate(req, res, user) {
   });
 }
 
+async function ownerScheduleParseBody(req) {
+  try {
+    const raw = await readBody(req);
+    if (!raw) return { ok: true, body: {} };
+    return { ok: true, body: JSON.parse(raw) };
+  } catch (_) {
+    return { ok: false, error: 'invalid or missing JSON body' };
+  }
+}
+
+async function ownerScheduleGate(req, res, user, body) {
+  const banned = extCalRoutes.rejectCallerAuthority(body || {});
+  if (banned) {
+    sendJSON(res, banned.status, { success: false, ok: false, error: banned.error });
+    return null;
+  }
+  const url = new URL(req.url, 'http://127.0.0.1');
+  const clientSlug = String((body && body.client) || url.searchParams.get('client') || DEFAULT_CLIENT).trim();
+  if (!assertStaffClientAccess(user, clientSlug, res)) return null;
+  const gate = extCalRoutes.refuseClient(clientSlug);
+  if (!gate.ok) {
+    sendJSON(res, gate.status, { success: false, ok: false, error: gate.error, client: clientSlug });
+    return null;
+  }
+  return { clientSlug, connectionId: url.searchParams.get('id') || (body && body.id) || null };
+}
+
+async function handleOwnerScheduleBridge(req, res, user, action) {
+  const parsed = (req.method === 'GET') ? { ok: true, body: {} } : await ownerScheduleParseBody(req);
+  if (!parsed.ok) return sendJSON(res, 400, { success: false, error: parsed.error });
+  const ctx = await ownerScheduleGate(req, res, user, parsed.body);
+  if (!ctx) return;
+  const fetchSheet = (conn) => fetchSheetRows(conn);
+  const needsId = action !== 'list' && action !== 'save';
+  if (needsId) {
+    const need = extCalRoutes.requireConnectionId(ctx.connectionId);
+    if (!need.ok) return sendJSON(res, 400, { success: false, ok: false, error: need.error });
+    ctx.connectionId = need.id;
+  }
+  try {
+    const result = await withPgClient(async (pg) => {
+      if (action === 'list') return extCalRoutes.handleList(pg, ctx.clientSlug);
+      if (action === 'save') return extCalRoutes.handleSave(pg, ctx.clientSlug, parsed.body, user && user.staff_user_id);
+      if (action === 'maps-get') return extCalRoutes.handleListMaps(pg, ctx.clientSlug, ctx.connectionId);
+      if (action === 'maps-put') return extCalRoutes.handleSaveMaps(pg, ctx.clientSlug, ctx.connectionId, parsed.body.maps);
+      if (action === 'enable') return extCalRoutes.handleEnable(pg, ctx.clientSlug, ctx.connectionId, parsed.body.enabled === true);
+      if (action === 'delete') return extCalRoutes.handleDelete(pg, ctx.clientSlug, ctx.connectionId, parsed.body);
+      if (action === 'probe') {
+        return extCalRoutes.handleRealProbe(pg, {
+          clientSlug: ctx.clientSlug,
+          connectionId: ctx.connectionId,
+          fetchSheet,
+        });
+      }
+      if (action === 'sync') {
+        const locked = await loadLockedState(pg, ctx);
+        if (!locked.ok) return { ok: false, status: locked.reason === 'connection_id_required' ? 400 : 404, error: locked.reason };
+        const fetched = await fetchSheet(locked.connection);
+        return runConnectionSync(pg, {
+          clientSlug: ctx.clientSlug,
+          connectionId: locked.connection.id,
+          fetched,
+        });
+      }
+      return { ok: false, status: 400, error: 'unknown_action' };
+    });
+    const auditSafe = sanitizeAuditFields(result);
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:external_calendar_' + action,
+      category: 'external_calendar',
+      client_slug: ctx.clientSlug,
+      staff_user_id: user && user.staff_user_id,
+      success: !!result.ok,
+      error: auditSafe.error,
+    });
+    const pub = extCalRoutes.publicResult(result);
+    return sendJSON(res, result.status || (result.ok ? 200 : 422), Object.assign({ client: ctx.clientSlug }, pub));
+  } catch (err) {
+    return sendJSON(res, 503, { success: false, ok: false, error: 'bridge_unavailable' });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7g — Bed calendar handler (read-only)
 //
@@ -44462,6 +46154,7 @@ function bedCalendarIsTourOperatorSource(row) {
 function bedCalendarColorType(row) {
   row = row || {};
   const assignType = String(row.assignment_type || '').toLowerCase();
+  if (assignType === 'external_inventory_block') return 'owner_schedule_blocked';
   if (assignType === 'private_room_block' || assignType === 'staff_block') return 'blocked';
   if (String(row.booking_status || '').toLowerCase() === 'blocked') return 'blocked';
   if (bedCalendarIsLunaBotSource(row)) return 'payment_pending';
@@ -44686,6 +46379,7 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       booking_id:        row.booking_id,
       booking_code:      row.booking_code,
       guest_name:        displayGuestOrNull,
+      guest_count:       row.guest_count != null ? Number(row.guest_count) : null,
       bed_guest_name:    String(row.bed_guest_name || '').trim() || null,
       planning_row_label: row.planning_row_label || null,
       assignment_label:  row.assignment_label || null,
@@ -47022,7 +48716,7 @@ async function router(req, res) {
   // Email inbox draft/approve-send (default-off; gate before auth/body/DB).
   if (pathname === EMAIL_DRAFT_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
-    if (!isEmailStaffDraftsEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!isEmailStaffDraftsEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_drafts_unavailable' });
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);
@@ -47031,7 +48725,7 @@ async function router(req, res) {
   }
   if (pathname === EMAIL_APPROVE_SEND_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
-    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_staff_replies_unavailable' });
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);
@@ -47041,7 +48735,7 @@ async function router(req, res) {
   // Staff-safe email outbound recovery/reconcile (already-approved; default-off with outbound UI).
   if (pathname === EMAIL_RECOVER_SEND_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
-    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_staff_replies_unavailable' });
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);
@@ -47364,6 +49058,37 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCalendarBedBlockCreate(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/luna-staff/calendar-bridge' || pathname.indexOf('/staff/luna-staff/calendar-bridge/') === 0) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    if (pathname === '/staff/luna-staff/calendar-bridge' && method === 'GET') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'list');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'save');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/maps' && method === 'GET') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'maps-get');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/maps' && method === 'PUT') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'maps-put');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/enable' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'enable');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/probe' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'probe');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge/sync' && method === 'POST') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'sync');
+    }
+    if (pathname === '/staff/luna-staff/calendar-bridge' && method === 'DELETE') {
+      return handleOwnerScheduleBridge(req, res, auth.user, 'delete');
+    }
+    res.writeHead(405, { Allow: 'GET, POST, PUT, DELETE' });
+    return res.end(JSON.stringify({ success: false, error: 'Method not allowed' }));
   }
 
   // ── Stage 8.4.11 — Stripe webhook payment truth ───────────────────────────
@@ -48384,6 +50109,17 @@ async function router(req, res) {
     catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
     return handleSmtpIdentityPost(smtpIdentityBody, req, res, auth.user);
   }
+  if (pathname === EMAIL_SMTP_DISCONNECT_PATH && method === 'POST') {
+    if (!isSunsetEmailSmtpIdentityRegisterEnabled(process.env)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
+    const auth = await requireAuth(req, res, 'admin', { concealUnauthenticated: true });
+    if (!auth.ok) return;
+    let smtpDisconnectBody;
+    try { smtpDisconnectBody = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return handleDisconnectPost(smtpDisconnectBody, req, res, auth.user);
+  }
   if (pathname === OAUTH_PREPARE_PATH && method === 'POST') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
@@ -49325,14 +51061,46 @@ const server = shouldEagerCreateStaffQueryApiServer()
 
 let EMAIL_DELTA_RUNTIME = null;
 let EMAIL_IMAP_RUNTIME = null;
+let EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
+let EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = null;
+let EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = null;
+let EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION = null;
+
+function drainStaffApiEmailRuntimes() {
+  const drains = [];
+  if (EMAIL_DELTA_RUNTIME) {
+    drains.push(Promise.resolve(EMAIL_DELTA_RUNTIME.stop()));
+    EMAIL_DELTA_RUNTIME = null;
+  }
+  if (EMAIL_IMAP_RUNTIME) {
+    drains.push(Promise.resolve(EMAIL_IMAP_RUNTIME.stop()));
+    EMAIL_IMAP_RUNTIME = null;
+  }
+  const shadowRuntime = EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME;
+  const shadowConnection = EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION;
+  EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
+  EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = null;
+  drains.push(drainEmailLunaAutomationShadowRuntimePair({
+    runtime: shadowRuntime,
+    connection: shadowConnection,
+  }));
+  const draftingRuntime = EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME;
+  const draftingConnection = EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION;
+  EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = null;
+  EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION = null;
+  drains.push(drainEmailLunaControlledDraftingRuntimePair({
+    runtime: draftingRuntime,
+    connection: draftingConnection,
+  }));
+  return Promise.allSettled(drains);
+}
+
 if (require.main === module) {
   const { attachStaffApiReadinessLifecycle, ON_SHUTDOWN_BEGIN_HOOK } = require('./lib/staff-api-readiness-lifecycle');
   attachStaffApiReadinessLifecycle(server);
   const priorShutdownBegin = server[ON_SHUTDOWN_BEGIN_HOOK];
   server[ON_SHUTDOWN_BEGIN_HOOK] = () => {
-    const drains = [];
-    if (EMAIL_DELTA_RUNTIME) drains.push(EMAIL_DELTA_RUNTIME.stop());
-    if (EMAIL_IMAP_RUNTIME) drains.push(EMAIL_IMAP_RUNTIME.stop());
+    const drains = [drainStaffApiEmailRuntimes()];
     if (typeof priorShutdownBegin === 'function') drains.push(priorShutdownBegin());
     return Promise.allSettled(drains);
   };
@@ -49360,12 +51128,92 @@ async function startStaffQueryApiCli() {
       });
       await EMAIL_IMAP_RUNTIME.start();
     }
+    if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS.runtime_activation === true) {
+      EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = createEmailLunaAutomationShadowWorkerConnection({
+        env: process.env,
+        appConnectionString: getConnectionString(),
+      });
+      const shadowPreflight = await runEmailLunaAutomationShadowRuntimeOperatorPreflight({
+        env: process.env,
+        appConnectionString: getConnectionString(),
+        workerConnection: EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION,
+      });
+      if (!shadowPreflight || shadowPreflight.ok !== true) {
+        await drainStaffApiEmailRuntimes();
+        process.exitCode = 1;
+        return;
+      }
+      EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = createEmailLunaAutomationShadowSunsetStagingRuntimeComposition({
+        env: process.env,
+        withTransactionClient: EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION.withTransactionClient,
+        timers: { setTimeout, clearTimeout },
+        intervalMs: 60000,
+      });
+      await EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.start();
+    }
+    if (EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_READINESS.runtime_activation === true) {
+      EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION = createEmailLunaControlledDraftingPrincipalConnectionPair({
+        env: process.env,
+        appConnectionString: getConnectionString(),
+      });
+      const draftingPreflight = await runEmailLunaControlledDraftingRuntimeOperatorPreflight({
+        env: process.env,
+        appConnectionString: getConnectionString(),
+        connection: EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION,
+      });
+      if (!draftingPreflight || draftingPreflight.ok !== true) {
+        await drainStaffApiEmailRuntimes();
+        process.exitCode = 1;
+        return;
+      }
+      const draftingActivation = {
+        env: process.env,
+        producerWithTransactionClient:
+          EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION.producer.withTransactionClient,
+        workerWithTransactionClient:
+          EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION.worker.withTransactionClient,
+        timers: { setTimeout, clearTimeout },
+        intervalMs: 60000,
+      };
+      if (process.env[ENV_LIVE_PROVIDER_DRAFT_ENABLED] === 'true') {
+        draftingActivation.graphProvider = createEmailLunaControlledDraftingSunsetStagingLiveGraphProvider({
+          env: process.env,
+          withPgClient: _withPgClientImpl,
+          https,
+          crypto,
+          timers: { setTimeout, clearTimeout },
+        });
+      }
+      EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(
+        draftingActivation,
+      );
+      await EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME.start();
+    }
   } catch {
+    await drainStaffApiEmailRuntimes();
     process.exitCode = 1;
     return;
   }
   server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
+  if (bridgeAvailable(process.env.DEFAULT_CLIENT_SLUG || DEFAULT_CLIENT)) {
+    const extCalSched = createSyncScheduler({
+      intervalMs: 60000,
+      withPgClient,
+      fetchSheet: async (item) => {
+        const locked = await withPgClient((pg) => loadLockedState(pg, {
+          clientSlug: item.client_slug,
+          connectionId: item.id,
+        }));
+        if (!locked.ok) return { ok: false, reason: locked.reason, keepLastBlocks: true };
+        return fetchSheetRows(locked.connection);
+      },
+    });
+    extCalSched.start();
+    console.log('  Owner schedule sync: ENABLED (wolfhouse-somo)');
+  } else {
+    console.log('  Owner schedule sync: DISABLED');
+  }
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
   console.log(`  Booking move write: ${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED (BOOKING_MOVE_WRITE_ENABLED=true)' : 'DISABLED'}`);

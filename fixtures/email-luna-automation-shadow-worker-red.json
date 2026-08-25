@@ -1,0 +1,37 @@
+{
+  "id": "email-luna-automation-shadow-worker.ch4b3-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B3",
+  "head_reviewed": "d1b2d55985a4801fe2e3986c0a51cf672b96330c",
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "worker_loop": true,
+  "send_permission": false,
+  "journal_terminal": false,
+  "findings": [
+    {
+      "id": "no-shadow-worker-kernel",
+      "severity": "blocking",
+      "red": "On d1b2d559, B2 shadow orchestration persists pending identity but nothing claims a bounded pending operation, loads/recovers authentic issuance material after restart, revalidates authority, or produces shadow comparison evidence. A later HTTP or runtime path could jump to journal handoff or a provider.",
+      "green": "One default-off, import-inert, start-inert kernel claims through the canonical queue owner, loads through the canonical issuance-material owner, recovers branded material, revalidates gate/authority/eligibility, and returns staff-safe would-send evidence. It never calls journal handoff, never invokes a provider, and never treats the projection as send authority."
+    },
+    {
+      "id": "no-safe-shadow-terminal-without-journal",
+      "severity": "blocking",
+      "red": "Queue terminals after claim are handed_off (canonical journal), cancelled, or handoff_required. Misusing handoff_established would mint send-capable journal identity. Leaving claimed without a defined kernel would burn attempts via an unbounded loop.",
+      "green": "Successful shadow comparison is NONTERMINAL: the row stays claimed with the live lease and no journal row. Recovery/authority/material failure uses require_handoff_claimed (handoff_required, still no journal). Attempt cap uses the existing claim/terminalize_attempt_cap owner. The optional loop is concurrency=1, default-off, and start-inert."
+    },
+    {
+      "id": "stale-lease-reclaim-stop-race",
+      "severity": "blocking",
+      "red": "Without a kernel, concurrent claim, stale owner, lease expiry reclaim, stop-during-claim, crash/restart, and partial load failure have no fail-closed owner. A copied owner_token or injected callback could rebind tenant/operation or dispatch.",
+      "green": "Factory binds env, Sunset gate, and owner_token. processNextShadowClaim takes no caller identity. Stale/expired owner transitions conflict. Stop before claim does not claim; stop during claim finishes without journal. Restart reclaims after expiry, reloads branded material, and replays the same would-send evidence."
+    },
+    {
+      "id": "runtime-wiring-or-truthy-gate",
+      "severity": "blocking",
+      "red": "A generic truthy env coerce or a require() of a worker module from staff-query-api / Luna runtime composition would start polling or treat shadow as send.",
+      "green": "EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_ENABLED must be the exact string true with LUNA_DEPLOYMENT=sunset-staging and the Sunset location gate. RUNTIME_WIRED=false. staff-query-api, docker compose, and Luna runtime composition do not import or start the worker."
+    }
+  ]
+}

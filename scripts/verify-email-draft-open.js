@@ -649,8 +649,9 @@ function harnessGraph(payload, { status = 200, ct = 'Application/JSON; charset=u
   assert.match(contentCompSrc, /Mail\.ReadWrite/);
   assert.doesNotMatch(contentCompSrc, /validateContentReadTokenScope/);
   assert.match(policySrc, /createEmailLunaDraftEnvelope/);
-  assert.match(policySrc, /createEmailLunaDraftPolicyEvidence/);
-  assert.match(policySrc, /decideEmailLunaDraftPolicy/);
+  assert.match(policySrc, /issueAndDecideEmailLunaDraftPolicy/);
+  assert.doesNotMatch(policySrc, /createEmailLunaDraftPolicyEvidence/);
+  assert.doesNotMatch(policySrc, /decideEmailLunaDraftPolicy/);
   assert.match(policySrc, /createEmailLunaGroundedTools/);
   assert.match(resolverSrc, /SQL_RESOLVE_CURRENT_MESSAGE_CONTENT_AUTHORITY/);
   assert.doesNotMatch(resolverSrc, /gmail_api/);

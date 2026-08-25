@@ -1,0 +1,41 @@
+{
+  "id": "email-luna-automation-issuance-material.ch4b1-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B1",
+  "head_reviewed": "bb3d2c402603f8aa8a0a3df6d6aedcff4ad748dd",
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "worker_loop": false,
+  "findings": [
+    {
+      "id": "process-local-issuance-weakset",
+      "severity": "blocking",
+      "red": "On bb3d2c40, policy evidence/decisions live only in AUTHENTIC_POLICY_EVIDENCE / AUTHENTIC_POLICY_DECISIONS WeakSets. issuance_id is minted with randomUUID() and cannot be rebound. After process restart or require.cache clear, JSON clones of queue+audit+inbound rows are unissued. Author recompute and 087 handoff require the original objects.",
+      "green": "092 persists one append-only issuance-material row per exact queue operation/issuance. Ch1 recoverIssueAndDecideEmailLunaDraftPolicy re-brands evidence/decision with the ORIGINAL issuance_id on a new composition-turn. Live issueAndDecideEmailLunaDraftPolicy still mints; recover is not a generic caller factory."
+    },
+    {
+      "id": "author-plan-not-durable",
+      "severity": "blocking",
+      "red": "Canonical draft authenticity is AUTHENTIC_AUTHOR_DRAFTS plus a WeakMap plan (template_id, tone, question_key, acknowledgment_key). Queue stores only draft_digest. Re-running the model after restart can change the plan, so the digest will not match. inbound 063/082 has subject/body_text/sender but not classifier, grounded values, or plan.",
+      "green": "Material stores the four plan enums plus classifier scalars and grounded found-fields (no rendered subject/body, no policy_text, no quoted_history). Ch2 recoverEmailLunaDraftAuthorFromAuthenticPlan renders deterministically with no model call and brands AUTHENTIC_AUTHOR_DRAFTS. Digest must equal the queued digest or fail closed."
+    },
+    {
+      "id": "audit-forbids-fact-values",
+      "severity": "blocking",
+      "red": "085/086 audit stores fact_refs[] only: no guest content, fact values, or JSON. Queue is claim/lease identity. Journal is handoff_established body_digest. None of these can reconstruct grounded booking/payment/catalog facts after restart.",
+      "green": "tenant_email_luna_automation_issuance_material is a new one-owner table. Confidential booking codes and payment amounts live only there. They never appear in logs, exceptions, queue, audit, or journal. Guest body stays on inbound 082; persist/load join the inbound reference."
+    },
+    {
+      "id": "claimable-queue-without-material",
+      "severity": "blocking",
+      "red": "086/088 enqueue can commit a pending/claimable queue row with no reconstitution material. A restarted worker that claimed that row would have to invent facts, accept caller-trusted objects, or skip author+validator.",
+      "green": "092 BEFORE INSERT trigger refuses a queue row unless matching material already exists in the same transaction. persist_and_enqueue inserts material then enqueue atomically. Pre-092 nonempty queue without material fails 092 up. Empty migrate is required."
+    },
+    {
+      "id": "worker-raw-select",
+      "severity": "blocking",
+      "red": "A worker GRANT SELECT on the material table would leak booking codes and payment amounts across mapped-location RLS mistakes, and would let a caller read reconstitution JSON without the scoped load predicate.",
+      "green": "Workers receive no raw material SELECT/DML. Load is SECURITY DEFINER, authorizes session_user in the locking/selection predicate before touching the row, requires exact client/location and operation/issuance, joins inbound 082, and returns no row for foreign location, cancelled/handoff_required/handed_off, or missing inbound. PUBLIC revoked. 092 does not GRANT or CREATE ROLE."
+    }
+  ]
+}

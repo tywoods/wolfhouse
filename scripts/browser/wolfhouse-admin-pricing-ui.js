@@ -149,6 +149,14 @@
       + (extraAttrs || '') + '>' + whEsc(label) + '</button>';
   }
 
+  function pencilBtn(action, extraAttrs) {
+    return '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-row-edit"'
+      + ' data-wh-price-action="' + whEsc(action) + '"'
+      + (extraAttrs || '')
+      + ' aria-label="' + whEsc(whT('admin.action.edit', 'Edit')) + '"'
+      + ' title="' + whEsc(whT('admin.action.edit', 'Edit')) + '">✎</button>';
+  }
+
   function amountField(id, cents, label) {
     return '<div class="portal-admin-edit-field"><label for="' + whEsc(id) + '">'
       + whEsc(label || whT('admin.wh.pricing.amountEur', 'Amount (€)')) + '</label>'
@@ -156,14 +164,22 @@
       + whEsc(cents == null ? '' : eurosFromCents(cents)) + '"></div>';
   }
 
-  function editActions(saveAction, extraAttrs) {
+  function editActions(saveAction, extraAttrs, deleteHtml) {
     return '<div class="portal-admin-edit-actions">'
+      + (deleteHtml || '')
+      + '<button type="button" class="btn btn-ghost" data-wh-price-action="cancel">'
+      + whEsc(whT('admin.action.cancel', 'Cancel')) + '</button>'
       + '<button type="button" class="btn btn-primary" data-wh-price-action="'
       + whEsc(saveAction) + '"' + (extraAttrs || '') + '>'
       + whEsc(whT('admin.action.save', 'Save')) + '</button>'
-      + '<button type="button" class="btn btn-ghost" data-wh-price-action="cancel">'
-      + whEsc(whT('admin.action.cancel', 'Cancel')) + '</button>'
       + '</div>';
+  }
+
+  function deleteItemBtn(itemType, itemCode) {
+    return actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
+      ' data-wh-item-type="' + whEsc(itemType)
+      + '" data-wh-item-code="' + whEsc(itemCode) + '"',
+      'btn-ghost portal-admin-danger portal-admin-soft-delete');
   }
 
   /**
@@ -171,18 +187,89 @@
    * item would come straight back from the JSON seed on the next load, so it is
    * labelled built-in rather than given a button that silently does nothing.
    */
+  // ── Packages ───────────────────────────────────────────────────────────────
+
+  var PACKAGE_PEBBLES = [
+    { token: 'sand', label: 'Sand' },
+    { token: 'clay', label: 'Clay' },
+    { token: 'peach', label: 'Peach' },
+    { token: 'rose', label: 'Rose' },
+    { token: 'blush', label: 'Blush' },
+    { token: 'butter', label: 'Butter' },
+    { token: 'sage', label: 'Sage' },
+    { token: 'mist', label: 'Mist' },
+    { token: 'lilac', label: 'Lilac' },
+    { token: 'stone', label: 'Stone' },
+  ];
+
+  function pebbleLabel(token) {
+    for (var i = 0; i < PACKAGE_PEBBLES.length; i++) {
+      if (PACKAGE_PEBBLES[i].token === token) return PACKAGE_PEBBLES[i].label;
+    }
+    return token;
+  }
+
+  function pebbleDropdownHtml(selected) {
+    var current = selected || 'peach';
+    var html = '<div class="portal-admin-edit-field"><span>'
+      + whEsc(whT('admin.wh.pricing.pebbleColor', 'Pebble color')) + '</span>'
+      + '<div class="wh-price-pebble-dd">'
+      + '<input type="hidden" id="wh-price-item-pebble" value="' + whEsc(current) + '">'
+      + '<button type="button" class="wh-price-pebble-dd-btn" data-wh-price-action="toggle-pebble-dd">'
+      + '<span class="pkg-pebble pkg-pebble-' + whEsc(current) + '"></span>'
+      + '<span class="wh-price-pebble-dd-label">' + whEsc(pebbleLabel(current)) + '</span>'
+      + '</button>'
+      + '<div class="wh-price-pebble-dd-menu" role="listbox">';
+    for (var i = 0; i < PACKAGE_PEBBLES.length; i++) {
+      var p = PACKAGE_PEBBLES[i];
+      html += '<button type="button" class="pkg-pebble pkg-pebble-' + whEsc(p.token)
+        + (p.token === current ? ' is-selected' : '')
+        + '" data-wh-price-action="pick-pebble" data-wh-pebble="' + whEsc(p.token)
+        + '" title="' + whEsc(p.label) + '">' + whEsc(p.label) + '</button>';
+    }
+    return html + '</div></div></div>';
+  }
+
+  function packageStayFieldsHtml(pkg) {
+    var meta = (pkg && pkg.metadata) || {};
+    var days = Number(pkg && pkg.min_days != null ? pkg.min_days : meta.min_days);
+    if (!Number.isFinite(days) || days < 1) days = 7;
+    var prorate = pkg && pkg.allow_daily_proration != null
+      ? pkg.allow_daily_proration !== false
+      : meta.allow_daily_proration !== false;
+    return '<div class="portal-admin-edit-field"><label for="wh-price-item-min-days">'
+      + whEsc(whT('admin.wh.pricing.minDays', 'Minimum days')) + '</label>'
+      + '<input type="number" id="wh-price-item-min-days" min="1" max="365" value="'
+      + whEsc(String(days)) + '"></div>'
+      + '<label class="portal-admin-check">'
+      + '<input type="checkbox" id="wh-price-item-prorate"' + (prorate ? ' checked' : '') + '> '
+      + whEsc(whT('admin.wh.pricing.allowDailyProration',
+        'Allow daily proration for more days'))
+      + '</label>';
+  }
+
+  function packageMetaFromForm() {
+    var days = parseInt(inputValue('wh-price-item-min-days'), 10);
+    if (!Number.isFinite(days) || days < 1) days = 7;
+    return {
+      pebble: inputValue('wh-price-item-pebble') || 'stone',
+      min_days: days,
+      allow_daily_proration: checkboxValue('wh-price-item-prorate'),
+    };
+  }
+
   function catalogTitleActions(itemType, entry) {
     if (!canWrite()) return '';
     if (entry.source !== 'db') {
       return '<span class="portal-admin-price-meta">'
         + whEsc(whT('admin.wh.pricing.builtIn', 'built-in')) + '</span>';
     }
-    return '<div class="portal-admin-card-actions">'
-      + actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
-        ' data-wh-item-type="' + whEsc(itemType)
-        + '" data-wh-item-code="' + whEsc(entry.code) + '"',
-        'btn-ghost portal-admin-danger')
-      + '</div>';
+    if (itemType === 'package') {
+      return '<div class="portal-admin-card-actions">'
+        + pencilBtn('edit-package', ' data-wh-item-code="' + whEsc(entry.code) + '"')
+        + '</div>';
+    }
+    return '';
   }
 
   function sectionShell(title, note, bodyHtml, headerExtra) {
@@ -251,7 +338,10 @@
       + '<div id="wh-price-season-ranges">' + rangesHtml + '</div>'
       + actionBtn('add-range', '+ ' + whT('admin.wh.pricing.addRange', 'Add range'))
       + '</div>'
-      + editActions('save-season', ' data-wh-season-code="' + whEsc(s.code) + '"')
+      + editActions('save-season', ' data-wh-season-code="' + whEsc(s.code) + '"',
+        isNew ? '' : actionBtn('delete-season', whT('admin.action.delete', 'Delete'),
+          ' data-wh-season-code="' + whEsc(s.code) + '"',
+          'btn-ghost portal-admin-danger portal-admin-soft-delete'))
       + '</div>';
   }
 
@@ -289,10 +379,7 @@
         + ' · ' + sourceBadge(s.source) + '</div></div>'
         + (canWrite()
           ? '<div class="portal-admin-card-actions">'
-            + actionBtn('edit-season', whT('admin.action.edit', 'Edit'),
-              ' data-wh-season-code="' + whEsc(s.code) + '"')
-            + actionBtn('delete-season', whT('admin.action.delete', 'Delete'),
-              ' data-wh-season-code="' + whEsc(s.code) + '"', 'btn-ghost portal-admin-danger')
+            + pencilBtn('edit-season', ' data-wh-season-code="' + whEsc(s.code) + '"')
             + '</div>'
           : '')
         + '</div></div>';
@@ -325,13 +412,36 @@
 
     for (var i = 0; i < packages.length; i++) {
       var p = packages[i];
-      html += '<div class="portal-admin-subsection">'
-        + '<div class="portal-admin-subsection-title-row">'
-        + '<div class="portal-admin-subsection-title">' + whEsc(p.label || humanize(p.code))
-        + '</div>'
-        + catalogTitleActions('package', p)
-        + '</div>'
-        + '<div class="portal-admin-card-grid">';
+      var pkgEditKey = 'item:package:' + p.code;
+      html += '<div class="portal-admin-subsection">';
+      if (isEditing(pkgEditKey)) {
+        html += '<div class="portal-admin-edit-form">'
+          + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
+          + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
+          + '<input type="text" id="wh-price-item-label" maxlength="120" value="'
+          + whEsc(p.label || humanize(p.code)) + '"></div>'
+          + pebbleDropdownHtml(p.pebble)
+          + packageStayFieldsHtml(p)
+          + editActions('save-package-item', ' data-wh-item-code="' + whEsc(p.code) + '"',
+            p.source === 'db' ? deleteItemBtn('package', p.code) : '')
+          + '</div>';
+      } else {
+        html += '<div class="portal-admin-subsection-title-row">'
+          + '<div class="portal-admin-subsection-title">'
+          + '<span class="pkg-pebble pkg-pebble-' + whEsc(p.pebble || 'stone') + '"></span> '
+          + whEsc(p.label || humanize(p.code))
+          + '<span class="portal-admin-price-meta"> · '
+          + whEsc(String(p.min_days || 7)) + ' '
+          + whEsc(whT('admin.wh.pricing.days', 'days'))
+          + (p.allow_daily_proration === false
+            ? ''
+            : ' · ' + whEsc(whT('admin.wh.pricing.prorates', 'prorates')))
+          + '</span>'
+          + '</div>'
+          + catalogTitleActions('package', p)
+          + '</div>';
+      }
+      html += '<div class="portal-admin-card-grid">';
 
       for (var j = 0; j < (p.prices || []).length; j++) {
         var slot = p.prices[j];
@@ -359,7 +469,7 @@
           + '</div>'
           + (canWrite()
             ? '<div class="portal-admin-card-actions">'
-              + actionBtn('edit-package-price', whT('admin.action.edit', 'Edit'),
+              + pencilBtn('edit-package-price',
                 ' data-wh-package="' + whEsc(p.code) + '" data-wh-season="' + whEsc(slot.season_code) + '"')
               + '</div>'
             : '')
@@ -384,17 +494,19 @@
 
   // ── Catalog sections (rentals + services) ──────────────────────────────────
 
-  var NEW_ITEM_PLACEHOLDERS = {
-    package: ['Malibu', 'malibu'],
-    rental: ['Longboard', 'longboard_rental'],
-    service: ['Yoga class', 'yoga_class'],
-  };
+  function slugFromLabel(label, fallback) {
+    var slug = String(label || '').toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 64);
+    return slug || fallback || 'item';
+  }
 
   function renderNewItemForm(itemType) {
     // A package carries one price per season, so it is created empty and priced
     // from the season cards it gains — there is no single amount to ask for here.
     var isPackage = itemType === 'package';
-    var placeholders = NEW_ITEM_PLACEHOLDERS[itemType] || ['', ''];
+    var namePh = itemType === 'package' ? 'Malibu' : (itemType === 'rental' ? 'Longboard' : 'Yoga class');
     var unitOptions = itemType === 'rental'
       ? ['per_day', 'per_stay', 'flat']
       : ['per_day', 'per_class', 'per_lesson', 'per_meal', 'per_person', 'per_stay'];
@@ -407,13 +519,11 @@
       + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
       + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
       + '<input type="text" id="wh-price-item-label" maxlength="120" placeholder="'
-      + whEsc(placeholders[0]) + '"></div>'
-      + '<div class="portal-admin-edit-field"><label for="wh-price-item-code">'
-      + whEsc(whT('admin.wh.pricing.itemCode', 'Code')) + '</label>'
-      + '<input type="text" id="wh-price-item-code" maxlength="64" placeholder="'
-      + whEsc(placeholders[1]) + '"></div>'
+      + whEsc(namePh) + '"></div>'
       + (isPackage
-        ? '<p class="portal-admin-section-note">'
+        ? pebbleDropdownHtml()
+          + packageStayFieldsHtml(null)
+          + '<p class="portal-admin-section-note">'
           + whEsc(whT('admin.wh.pricing.newPackageNote',
             'Set a weekly price for each season once the package is created.')) + '</p>'
         : '<div class="portal-admin-edit-field"><label for="wh-price-item-unit">'
@@ -441,6 +551,9 @@
         + '<div class="portal-admin-subsection-title">' + whEsc(r.label || humanize(r.code))
         + '</div>'
         + catalogTitleActions('rental', r)
+        + (!(r.durations || []).length && r.source === 'db' && canWrite()
+          ? '<div class="portal-admin-card-actions">' + deleteItemBtn('rental', r.code) + '</div>'
+          : '')
         + '</div><div class="portal-admin-card-grid">';
 
       if (!(r.durations || []).length) {
@@ -455,7 +568,8 @@
             + '<div class="portal-admin-price-title">' + whEsc(humanize(d.duration)) + '</div>'
             + amountField('wh-price-amount', d.amount_cents)
             + editActions('save-rental-price',
-              ' data-wh-item-code="' + whEsc(d.item_code) + '" data-wh-unit="' + whEsc(d.unit) + '"')
+              ' data-wh-item-code="' + whEsc(d.item_code) + '" data-wh-unit="' + whEsc(d.unit) + '"',
+              r.source === 'db' ? deleteItemBtn('rental', r.code) : '')
             + '</div>';
           continue;
         }
@@ -468,8 +582,7 @@
           + '</div></div>'
           + (canWrite()
             ? '<div class="portal-admin-card-actions">'
-              + actionBtn('edit-rental-price', whT('admin.action.edit', 'Edit'),
-                ' data-wh-item-code="' + whEsc(d.item_code) + '"')
+              + pencilBtn('edit-rental-price', ' data-wh-item-code="' + whEsc(d.item_code) + '"')
               + '</div>'
             : '')
           + '</div>';
@@ -522,7 +635,7 @@
         + '</div>'
         + (canWrite()
           ? '<div class="portal-admin-card-actions">'
-            + actionBtn('edit-full-day', whT('admin.action.edit', 'Edit'))
+            + pencilBtn('edit-full-day')
             + '</div>'
           : '')
         + '</div>';
@@ -554,7 +667,8 @@
           + amountField('wh-price-amount', s.price ? s.price.amount_cents : null)
           + editActions('save-service-price',
             ' data-wh-item-code="' + whEsc(s.code) + '" data-wh-unit="'
-            + whEsc(s.price ? s.price.unit : 'per_stay') + '"')
+            + whEsc(s.price ? s.price.unit : 'per_stay') + '"',
+            s.source === 'db' ? deleteItemBtn('service', s.code) : '')
           + '</div>';
         continue;
       }
@@ -569,13 +683,7 @@
         + '</div>'
         + (canWrite()
           ? '<div class="portal-admin-card-actions">'
-            + actionBtn('edit-service-price', whT('admin.action.edit', 'Edit'),
-              ' data-wh-item-code="' + whEsc(s.code) + '"')
-            + (s.source === 'db'
-              ? actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
-                ' data-wh-item-type="service" data-wh-item-code="' + whEsc(s.code) + '"',
-                'btn-ghost portal-admin-danger')
-              : '')
+            + pencilBtn('edit-service-price', ' data-wh-item-code="' + whEsc(s.code) + '"')
             + '</div>'
           : '')
         + '</div>';
@@ -649,7 +757,10 @@
       + '</label>'
       + '<input type="text" id="wh-price-transfer-msg-group" maxlength="300" value="'
       + whEsc(v.unavailable_below_min_group_message || '') + '"></div>'
-      + editActions('save-transfer', ' data-wh-airport="' + whEsc(v.airport_code) + '"')
+      + editActions('save-transfer', ' data-wh-airport="' + whEsc(v.airport_code) + '"',
+        isNew ? '' : actionBtn('delete-transfer', whT('admin.action.delete', 'Delete'),
+          ' data-wh-airport="' + whEsc(v.airport_code) + '"',
+          'btn-ghost portal-admin-danger portal-admin-soft-delete'))
       + '</div>';
   }
 
@@ -693,10 +804,7 @@
         + '</div>'
         + (canWrite()
           ? '<div class="portal-admin-card-actions">'
-            + actionBtn('edit-transfer', whT('admin.action.edit', 'Edit'),
-              ' data-wh-airport="' + whEsc(tr.airport_code) + '"')
-            + actionBtn('delete-transfer', whT('admin.action.delete', 'Delete'),
-              ' data-wh-airport="' + whEsc(tr.airport_code) + '"', 'btn-ghost portal-admin-danger')
+            + pencilBtn('edit-transfer', ' data-wh-airport="' + whEsc(tr.airport_code) + '"')
             + '</div>'
           : '')
         + '</div>';
@@ -717,27 +825,68 @@
 
   // ── Extras (deposits + room supplements) ───────────────────────────────────
 
+  function depositScopeRadiosHtml(selected) {
+    var scope = selected === 'per_person' ? 'per_person' : 'per_booking';
+    return '<div class="portal-admin-edit-field wh-price-scope">'
+      + '<span>' + whEsc(whT('admin.wh.pricing.depositScope', 'Deposit is')) + '</span>'
+      + '<div class="wh-price-scope-opts">'
+      + '<label class="portal-admin-radio"><input type="radio" name="wh-deposit-scope" value="per_booking"'
+      + (scope !== 'per_person' ? ' checked' : '') + '> '
+      + whEsc(whT('admin.wh.pricing.perBooking', 'Per booking')) + '</label>'
+      + '<label class="portal-admin-radio"><input type="radio" name="wh-deposit-scope" value="per_person"'
+      + (scope === 'per_person' ? ' checked' : '') + '> '
+      + whEsc(whT('admin.wh.pricing.perPerson', 'Per person')) + '</label>'
+      + '</div></div>';
+  }
+
+  function renderNewExtraForm() {
+    return '<div class="portal-admin-edit-form wh-price-extra-form">'
+      + '<div class="portal-admin-edit-field"><label for="wh-price-extra-kind">'
+      + whEsc(whT('admin.wh.pricing.extraType', 'Type')) + '</label>'
+      + '<select id="wh-price-extra-kind">'
+      + '<option value="deposit">' + whEsc(whT('admin.wh.pricing.deposits', 'Deposits')) + '</option>'
+      + '<option value="supplement">' + whEsc(whT('admin.wh.pricing.supplements', 'Room supplements')) + '</option>'
+      + '</select></div>'
+      + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
+      + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
+      + '<input type="text" id="wh-price-item-label" maxlength="120" placeholder="'
+      + whEsc(whT('admin.wh.pricing.extraNamePh', 'Standard deposit')) + '"></div>'
+      + amountField('wh-price-item-amount', null)
+      + depositScopeRadiosHtml('per_booking')
+      + '<div class="portal-admin-edit-field wh-price-extra-sup"><label for="wh-price-item-unit">'
+      + whEsc(whT('admin.wh.pricing.chargedPer', 'Charged per')) + '</label>'
+      + '<select id="wh-price-item-unit">'
+      + '<option value="per_room_per_night">' + whEsc(unitLabel('per_room_per_night')) + '</option>'
+      + '<option value="per_person_per_night">' + whEsc(unitLabel('per_person_per_night')) + '</option>'
+      + '</select></div>'
+      + editActions('save-new-extra')
+      + '</div>';
+  }
+
   function renderExtrasRow(kind, row) {
     var key = 'price:' + kind + ':' + row.code;
     if (isEditing(key)) {
+      var scopeUnit = row.unit === 'per_person' ? 'per_person' : (row.unit || 'per_booking');
       return '<div class="portal-admin-price-card is-editing">'
-        + '<div class="portal-admin-price-title">' + whEsc(humanize(row.code)) + '</div>'
+        + '<div class="portal-admin-price-title">' + whEsc(row.label || humanize(row.code)) + '</div>'
         + amountField('wh-price-amount', row.amount_cents)
+        + (kind === 'deposit' ? depositScopeRadiosHtml(scopeUnit) : '')
         + editActions('save-extra',
           ' data-wh-extra-kind="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code)
-          + '" data-wh-unit="' + whEsc(row.unit) + '"')
+          + '" data-wh-unit="' + whEsc(row.unit) + '"',
+          row.source === 'db' ? deleteItemBtn(kind, row.code) : '')
         + '</div>';
     }
     return '<div class="portal-admin-price-card">'
       + '<div class="portal-admin-price-card-main">'
-      + '<div><div class="portal-admin-price-title">' + whEsc(humanize(row.code)) + '</div>'
+      + '<div><div class="portal-admin-price-title">' + whEsc(row.label || humanize(row.code)) + '</div>'
       + '<div class="portal-admin-price-meta">' + whEsc(unitLabel(row.unit)) + ' · '
       + sourceBadge(row.source) + '</div></div>'
       + '<div class="portal-admin-price-amount">€' + whEsc(eurosFromCents(row.amount_cents))
       + '</div></div>'
       + (canWrite()
         ? '<div class="portal-admin-card-actions">'
-          + actionBtn('edit-extra', whT('admin.action.edit', 'Edit'),
+          + pencilBtn('edit-extra',
             ' data-wh-extra-kind="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code) + '"')
           + '</div>'
         : '')
@@ -747,6 +896,7 @@
   function renderExtrasSection() {
     var extras = state.view.extras || {};
     var html = '';
+    if (isEditing('item:extra:__new__')) html += renderNewExtraForm();
     var groups = [
       { kind: 'deposit', rows: extras.deposits || [], title: whT('admin.wh.pricing.deposits', 'Deposits') },
       { kind: 'supplement', rows: extras.supplements || [], title: whT('admin.wh.pricing.supplements', 'Room supplements') },
@@ -765,16 +915,28 @@
       }
       html += '</div></div>';
     }
+    var headerExtra = canWrite() && !isEditing('item:extra:__new__')
+      ? actionBtn('new-extra', '+ ' + whT('admin.wh.pricing.addExtras', 'Add extras'))
+      : '';
     return sectionShell(
       whT('admin.wh.pricing.extras', 'Extras'),
       whT('admin.wh.pricing.extrasNote', 'Deposits taken at booking and per-night room supplements.'),
       html,
+      headerExtra,
     );
   }
 
   // ── Shell ──────────────────────────────────────────────────────────────────
 
   function render() {
+    if (state.view && Array.isArray(state.view.packages)) {
+      var pebbleMap = {};
+      for (var pi = 0; pi < state.view.packages.length; pi++) {
+        var pk = state.view.packages[pi];
+        if (pk && pk.code && pk.pebble) pebbleMap[pk.code] = pk.pebble;
+      }
+      window.WH_PACKAGE_PEBBLE_BY_CODE = pebbleMap;
+    }
     var body = node('wh-admin-pricing-body');
     if (!body) return;
 
@@ -993,6 +1155,40 @@
         + ':' + btn.getAttribute('data-wh-season');
       render();
     },
+    'edit-package': function (btn) {
+      state.editing = 'item:package:' + btn.getAttribute('data-wh-item-code');
+      render();
+    },
+    'toggle-pebble-dd': function (btn) {
+      var wrap = btn.closest ? btn.closest('.wh-price-pebble-dd') : null;
+      if (!wrap) return;
+      wrap.classList.toggle('is-open');
+    },
+    'pick-pebble': function (btn) {
+      var token = btn.getAttribute('data-wh-pebble') || 'stone';
+      var wrap = btn.closest ? btn.closest('.wh-price-pebble-dd') : null;
+      if (!wrap) return;
+      var hidden = wrap.querySelector('#wh-price-item-pebble');
+      if (hidden) hidden.value = token;
+      var chip = wrap.querySelector('.wh-price-pebble-dd-btn .pkg-pebble');
+      if (chip) chip.className = 'pkg-pebble pkg-pebble-' + token;
+      var lab = wrap.querySelector('.wh-price-pebble-dd-label');
+      if (lab) lab.textContent = pebbleLabel(token);
+      var chips = wrap.querySelectorAll('.wh-price-pebble-dd-menu .pkg-pebble');
+      for (var i = 0; i < chips.length; i++) {
+        if (chips[i].getAttribute('data-wh-pebble') === token) chips[i].classList.add('is-selected');
+        else chips[i].classList.remove('is-selected');
+      }
+      wrap.classList.remove('is-open');
+    },
+    'save-package-item': function (btn) {
+      commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
+        item_type: 'package',
+        item_code: btn.getAttribute('data-wh-item-code'),
+        label: inputValue('wh-price-item-label'),
+        metadata: packageMetaFromForm(),
+      });
+    },
     'save-package-price': function (btn) {
       commit('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
         item_type: 'package',
@@ -1045,10 +1241,16 @@
       render();
     },
     'save-extra': function (btn) {
+      var extraKind = btn.getAttribute('data-wh-extra-kind');
+      var unit = btn.getAttribute('data-wh-unit');
+      if (extraKind === 'deposit') {
+        var scoped = document.querySelector('input[name="wh-deposit-scope"]:checked');
+        if (scoped && scoped.value) unit = scoped.value;
+      }
       commit('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
-        item_type: btn.getAttribute('data-wh-extra-kind'),
+        item_type: extraKind,
         item_code: btn.getAttribute('data-wh-item-code'),
-        unit: btn.getAttribute('data-wh-unit'),
+        unit: unit,
         amount_eur: inputValue('wh-price-amount'),
       });
     },
@@ -1057,6 +1259,54 @@
       state.editing = 'item:' + btn.getAttribute('data-wh-item-type') + ':__new__';
       render();
     },
+    'new-extra': function () {
+      state.editing = 'item:extra:__new__';
+      render();
+    },
+    'save-new-extra': function () {
+      var kind = inputValue('wh-price-extra-kind') || 'deposit';
+      var label = inputValue('wh-price-item-label');
+      var code = slugFromLabel(label, kind);
+      var unit = kind === 'deposit'
+        ? ((document.querySelector('input[name="wh-deposit-scope"]:checked') || {}).value || 'per_booking')
+        : (inputValue('wh-price-item-unit') || 'per_room_per_night');
+      var amount = inputValue('wh-price-item-amount');
+      if (state.busy) return;
+      state.busy = true;
+      state.error = null;
+      state.notice = null;
+      request('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
+        item_type: kind, item_code: code, label: label,
+      }).then(function (r) {
+        if (!(r.status === 200 && r.data && r.data.success)) {
+          state.busy = false;
+          state.error = (r.data && (r.data.message || r.data.error))
+            || whT('admin.wh.pricing.saveFailed', 'Could not save.');
+          render();
+          return null;
+        }
+        return request('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
+          item_type: kind, item_code: code, unit: unit, amount_eur: amount,
+        }).then(function (pr) {
+          state.busy = false;
+          if (pr.status === 200 && pr.data && pr.data.success) {
+            state.view = pr.data;
+            state.editing = null;
+            state.notice = whT('admin.wh.pricing.saved', 'Saved.');
+          } else {
+            if (r.data && r.data.success) state.view = r.data;
+            state.editing = null;
+            state.error = whT('admin.wh.pricing.itemSavedNoPrice',
+              'Item created, but the price was rejected. Set it with Edit.');
+          }
+          render();
+        });
+      }).catch(function () {
+        state.busy = false;
+        state.error = whT('admin.wh.pricing.saveFailed', 'Could not save.');
+        render();
+      });
+    },
     /**
      * Two writes: the catalog identity, then its opening price. The item is
      * saved first so a rejected price still leaves a usable, priceable item
@@ -1064,13 +1314,18 @@
      */
     'save-new-item': function (btn) {
       var itemType = btn.getAttribute('data-wh-item-type');
-      var code = inputValue('wh-price-item-code').toLowerCase().replace(/\s+/g, '_');
       var label = inputValue('wh-price-item-label');
+      var code = slugFromLabel(label, itemType);
       if (itemType === 'package') {
         // Priced per season, so creating the package is a single write and the
         // season cards it gains are where the amounts get set.
         commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(),
-          { item_type: 'package', item_code: code, label: label },
+          {
+            item_type: 'package',
+            item_code: code,
+            label: label,
+            metadata: packageMetaFromForm(),
+          },
           whT('admin.wh.pricing.packageCreated',
             'Package created. Set a price for each season.'));
         return;

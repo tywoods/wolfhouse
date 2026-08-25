@@ -67,6 +67,28 @@ function classifyMicrosoftRefreshTokenResponseForScopeVersion(scopeVersion, resp
         validateContentReadTokenScope,
       );
     }
+    if (scopeVersion === 'controlled_drafting_v1') {
+      // Lazy require avoids a load-time cycle with Chapter 1/4C owners.
+      // Mail.Send or any extra dangerous Graph scope → null → uncertain.
+      let validateControlledDraftingTokenResponseScope;
+      try {
+        ({ validateControlledDraftingTokenResponseScope } = require('./email-luna-controlled-drafting-provider-contract'));
+      } catch (_) {
+        return uncertain();
+      }
+      if (typeof validateControlledDraftingTokenResponseScope !== 'function') return uncertain();
+      return classifyMicrosoftRefreshTokenResponseWithScopeValidator(
+        response,
+        (scope) => {
+          try {
+            const normalized = validateControlledDraftingTokenResponseScope(scope);
+            return typeof normalized === 'string' ? normalized : null;
+          } catch (_) {
+            return null;
+          }
+        },
+      );
+    }
     return uncertain();
   } catch (_) {
     return uncertain();
@@ -78,5 +100,6 @@ module.exports = Object.freeze({
   EMAIL_MS_DELEGATED_SCOPE_VERSION,
   EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION,
   CONTENT_SCOPE_VERSION,
+  CONTROLLED_DRAFTING_SCOPE_VERSION: 'controlled_drafting_v1',
   classifyMicrosoftRefreshTokenResponseForScopeVersion,
 });

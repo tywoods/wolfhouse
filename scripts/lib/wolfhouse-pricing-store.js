@@ -15,7 +15,7 @@
  * @module wolfhouse-pricing-store
  */
 
-const { WH_PRICING_CLIENT_SLUG } = require('./wolfhouse-pricing-resolve');
+const { WH_PRICING_CLIENT_SLUG, listConfigCatalogSeeds } = require('./wolfhouse-pricing-resolve');
 
 function assertWolfhouseScope(clientSlug) {
   if (String(clientSlug || '').trim() !== WH_PRICING_CLIENT_SLUG) {
@@ -390,6 +390,93 @@ async function deactivateTransferRule(pg, clientSlug, airportCode, actorId) {
   return r.rowCount > 0;
 }
 
+async function promoteConfigCatalogToStaffItems(pg, config, actorId) {
+  const slug = assertWolfhouseScope(WH_PRICING_CLIENT_SLUG);
+  const seeds = listConfigCatalogSeeds(config);
+  let created = 0;
+  for (const seed of seeds) {
+    const itemType = seed.item_type || 'rental';
+    const existing = await pg.query(
+      `SELECT id, active, label FROM wh_pricing_items
+        WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+        ORDER BY active DESC, updated_at DESC NULLS LAST
+        LIMIT 1`,
+      [slug, itemType, seed.code],
+    );
+    if (!existing.rows.length) {
+      await saveItem(pg, slug, {
+        item_type: itemType,
+        item_code: seed.code,
+        label: seed.label,
+        description: null,
+        metadata: Object.assign(
+          { promoted_from: 'config' },
+          seed.pebble ? { pebble: seed.pebble } : {},
+          seed.min_days ? { min_days: seed.min_days } : {},
+          { allow_daily_proration: seed.allow_daily_proration !== false },
+        ),
+        active: true,
+      }, actorId);
+      created += 1;
+    } else if (existing.rows[0].active && /_/.test(String(existing.rows[0].label || ''))) {
+      await saveItem(pg, slug, {
+        item_type: itemType,
+        item_code: seed.code,
+        label: seed.label,
+        description: null,
+        metadata: { promoted_from: 'config' },
+        active: true,
+      }, actorId);
+    }
+    if (Array.isArray(seed.prices) && seed.prices.length) {
+      for (const price of seed.prices) {
+        if (price.amount_cents == null) continue;
+        const seasonCode = price.season_code || null;
+        const ruleRows = await pg.query(
+          `SELECT id FROM wh_pricing_rules
+            WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+              AND COALESCE(season_code, '') = COALESCE($4, '') AND active = true`,
+          [slug, itemType, seed.rule_code || seed.code, seasonCode],
+        );
+        if (!ruleRows.rows.length) {
+          await savePriceRule(pg, slug, {
+            item_type: itemType,
+            item_code: seed.rule_code || seed.code,
+            season_code: seasonCode,
+            unit: price.unit || seed.unit || 'per_person_per_week',
+            amount_cents: price.amount_cents,
+            currency: 'EUR',
+            active: true,
+          }, actorId);
+        }
+      }
+      continue;
+    }
+    if (seed.amount_cents == null) continue;
+    const ruleCode = seed.rule_code || seed.code;
+    const ruleRows = await pg.query(
+      `SELECT id FROM wh_pricing_rules
+        WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+          AND COALESCE(season_code, '') = '' AND active = true`,
+      [slug, itemType, ruleCode],
+    );
+    if (!ruleRows.rows.length) {
+      await savePriceRule(pg, slug, {
+        item_type: itemType,
+        item_code: ruleCode,
+        season_code: null,
+        unit: seed.unit || 'per_stay',
+        amount_cents: seed.amount_cents,
+        currency: 'EUR',
+        active: true,
+      }, actorId);
+    }
+  }
+  return { created, count: seeds.length };
+}
+
+const promoteConfigRentalsToStaffItems = promoteConfigCatalogToStaffItems;
+
 module.exports = {
   CREATE_SQL,
   assertWolfhouseScope,
@@ -407,4 +494,6 @@ module.exports = {
   deactivateItem,
   saveTransferRule,
   deactivateTransferRule,
+  promoteConfigRentalsToStaffItems,
+  promoteConfigCatalogToStaffItems,
 };

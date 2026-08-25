@@ -18,11 +18,11 @@ process.env.STAFF_PORTAL_LOCALES = 'en,es,it';
 
 const WH_CLIENT = 'wolfhouse-somo';
 const SUNSET_CLIENT = 'sunset';
-const EXPECTED_WH_SUBTABS = ['finance', 'bookings', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email'];
-const EXPECTED_WH_LABELS = ['Finance', 'Bookings', 'Pricing', 'Luna Staff', 'Camps, Lessons and Services', 'Tour Operator', 'Email'];
+const EXPECTED_WH_SUBTABS = ['finance', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email'];
+const EXPECTED_WH_LABELS = ['Finance', 'Pricing', 'Luna Staff', 'Camps, Lessons and Services', 'Tour Operator', 'Email'];
 // Pricing is no longer a placeholder — scripts/browser/wolfhouse-admin-pricing-ui.js
 // owns that panel. Its own gate is verify:wolfhouse-admin-pricing.
-const PLACEHOLDER_SUBTABS = ['finance', 'bookings', 'email'];
+const PLACEHOLDER_SUBTABS = ['email'];
 const HOSTED_SUBTABS = { 'luna-staff': 'tab-ask-luna', services: 'tab-services', 'tour-operator': 'tab-tour-operator' };
 const NESTED_NAV_TABS = ['ask-luna', 'services', 'tour-operator'];
 
@@ -179,7 +179,7 @@ async function runWolfhouse(playwright, browser) {
     check('Wolfhouse admin shell is shown', shells.whHidden === false, JSON.stringify(shells));
 
     const subTabs = await page.evaluate(() => Array.prototype.slice
-      .call(document.querySelectorAll('#wh-admin-subtab-list [data-wh-admin-tab]'))
+      .call(document.querySelectorAll('#wh-admin-subtab-list [data-wh-admin-tab]:not([hidden])'))
       .map((btn) => ({ key: btn.getAttribute('data-wh-admin-tab'), label: btn.textContent.trim(), selected: btn.getAttribute('aria-selected') })));
     equal('Wolfhouse Admin sub-tab order', subTabs.map((s) => s.key), EXPECTED_WH_SUBTABS);
     equal('Wolfhouse Admin sub-tab labels (EN)', subTabs.map((s) => s.label), EXPECTED_WH_LABELS);

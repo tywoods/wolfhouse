@@ -177,6 +177,7 @@ CREATE TABLE tenant_email_inbound_events (
   provider_message_id TEXT NOT NULL,
   received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   is_read BOOLEAN NOT NULL DEFAULT false,
+  subject TEXT,
   UNIQUE (client_id, id)
 );
 
@@ -184,6 +185,11 @@ CREATE TABLE messages (
   id UUID PRIMARY KEY,
   client_id UUID NOT NULL,
   conversation_id UUID NOT NULL,
+  direction TEXT,
+  source TEXT,
+  route TEXT,
+  metadata JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (client_id, conversation_id, id)
 );
 
@@ -657,6 +663,7 @@ async function provePglite(PGlite) {
       approved_actor_staff_user_id UUID,
       message_text TEXT NOT NULL,
       body_digest TEXT NOT NULL,
+      subject TEXT,
       state TEXT NOT NULL,
       drafted_at TIMESTAMPTZ,
       approved_at TIMESTAMPTZ
@@ -690,7 +697,7 @@ async function provePglite(PGlite) {
     `status=${calls[0] && calls[0].status} body=${calls[0] && JSON.stringify(calls[0].body)}`,
   );
 
-  // Broken-path simulation: null provider_resource_id → draft 404 not_found.
+  // Broken-path simulation: null provider_resource_id → visible email 409 not sendable.
   await db.query(
     `UPDATE tenant_channel_endpoints SET provider_resource_id = NULL
      WHERE id = $1 AND client_id = $2`,
@@ -704,12 +711,12 @@ async function provePglite(PGlite) {
     gate,
   );
   ok(
-    'missing provider_resource_id → draft 404 not_found (fail closed)',
+    'missing provider_resource_id → draft 409 mailbox not sendable (fail closed)',
     calls.length === 1
-      && calls[0].status === 404
+      && calls[0].status === 409
       && calls[0].body
       && calls[0].body.success === false
-      && calls[0].body.error === 'not_found'
+      && calls[0].body.error === 'email_mailbox_not_sendable'
       && !String(JSON.stringify(calls[0].body)).includes(PUBLIC)
       && !String(JSON.stringify(calls[0].body)).includes(MAILBOX),
     `status=${calls[0] && calls[0].status}`,
@@ -739,11 +746,11 @@ async function provePglite(PGlite) {
     gate,
   );
   ok(
-    'stale/foreign event mailbox → draft 404 not_found',
+    'stale/foreign event mailbox → draft 409 mailbox not sendable',
     calls.length === 1
-      && calls[0].status === 404
+      && calls[0].status === 409
       && calls[0].body
-      && calls[0].body.error === 'not_found',
+      && calls[0].body.error === 'email_mailbox_not_sendable',
     `status=${calls[0] && calls[0].status}`,
   );
 

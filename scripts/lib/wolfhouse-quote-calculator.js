@@ -599,9 +599,19 @@ function calculateWolfhouseQuote(input, config) {
       }
     }
   }
-  const deposit_required_cents = per_guest_deposits.length > 0
+  const overlayDepositTier = usesPackageDeposit
+    ? (config.deposits && config.deposits.tiers && config.deposits.tiers.standard_package)
+    : (config.deposits && config.deposits.tiers && config.deposits.tiers.custom_or_short_stay);
+  const overlayDepositScope = overlayDepositTier && overlayDepositTier.scope;
+  let deposit_required_cents = per_guest_deposits.length > 0
     ? per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0)
     : singleTierDepositCents;
+  // Pricing-tab radio wins when set: per_booking is one amount, per_person is per guest.
+  if (overlayDepositScope === 'per_booking') {
+    deposit_required_cents = singleTierDepositCents;
+  } else if (overlayDepositScope === 'per_person' && per_guest_deposits.length === 0) {
+    deposit_required_cents = singleTierDepositCents * Math.max(1, guests);
+  }
 
   // ── 12. Payment link amount ───────────────────────────────────────────────
   let payment_link_amount_cents = 0;

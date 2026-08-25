@@ -47,8 +47,14 @@ function sqlConversationChannelExpr(convAlias) {
 /**
  * Current email subject from persisted inbound events + outbound staff replies.
  * Does not invent placeholder subjects and does not copy conversation metadata.
+ *
+ * When inbound projection tables are not on this database, callers pass
+ * includeInboundProjections: false so the inbox list still loads.
  */
-function sqlCurrentEmailSubjectExpr(convAlias) {
+function sqlCurrentEmailSubjectExpr(convAlias, opts) {
+  if (opts && opts.includeInboundProjections === false) {
+    return `NULL::text`;
+  }
   const conv = convAlias || 'conv';
   return `(
     SELECT sub.subject
@@ -74,11 +80,46 @@ function sqlCurrentEmailSubjectExpr(convAlias) {
   )`;
 }
 
-function inboxChannelFieldsSql() {
+let emailInboundInboxReady;
+
+function isMissingEmailInboundRelation(err) {
+  const msg = String((err && err.message) || '');
+  return (err && err.code === '42P01') && /tenant_email_inbound/.test(msg);
+}
+
+async function resolveEmailInboundInboxReady(withPgClient) {
+  if (emailInboundInboxReady !== undefined) return emailInboundInboxReady;
+  if (typeof withPgClient !== 'function') return true;
+  try {
+    const rows = await withPgClient(async (pg) => {
+      const r = await pg.query(`
+        SELECT
+          to_regclass('public.tenant_email_inbound_inbox_projections') IS NOT NULL
+          AND to_regclass('public.tenant_email_inbound_events') IS NOT NULL AS ok
+      `);
+      return (r && r.rows) || [];
+    });
+    if (!rows[0] || rows[0].ok == null) return true;
+    emailInboundInboxReady = !!rows[0].ok;
+  } catch (_) {
+    return true;
+  }
+  return emailInboundInboxReady;
+}
+
+function markEmailInboundInboxMissing() {
+  emailInboundInboxReady = false;
+}
+
+function emailInboundInboxAssumedReady() {
+  return emailInboundInboxReady !== false;
+}
+
+function inboxChannelFieldsSql(opts) {
   return `
   ${sqlConversationChannelExpr('conv')} AS channel,
   conv.email                                         AS guest_email,
-  ${sqlCurrentEmailSubjectExpr('conv')}              AS email_subject,
+  ${sqlCurrentEmailSubjectExpr('conv', opts)}              AS email_subject,
   ${sqlConversationLocationExpr('conv')}             AS location_id,
   conv.customer_id::text                             AS customer_id,
   cust_link.phone                                    AS customer_phone,`;
@@ -108,16 +149,17 @@ function detailLocationWhereClause(scoped, paramIndex = 3) {
   return scoped ? `\n  AND ${sqlConversationLocationMatch('conv', paramIndex)}` : '';
 }
 
-/** Handoff urgency rank — owner of the inbox sort, the projection and the cursor. */
+/**
+ * Handoff urgency CASE expression (open handoff priority). Kept exported for
+ * callers that need a rank; inbox list ORDER BY is recency-only.
+ */
 const CONVERSATION_INBOX_PRIORITY_RANK_SQL = `CASE h.priority
     WHEN 'urgent' THEN 0 WHEN 'high' THEN 1
     WHEN 'normal' THEN 2 ELSE 4
   END`;
 
-/** Row fields carrying the inbox sort key, in ORDER BY order. */
+/** Row fields carrying the inbox sort key, in ORDER BY order (newest first). */
 const CONVERSATION_INBOX_CURSOR_FIELDS = Object.freeze([
-  'needs_human',
-  'handoff_priority_rank',
   'last_activity',
   'conversation_id',
 ]);
@@ -137,30 +179,17 @@ function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped) {
 }
 
 /**
- * Rows strictly after the cursor under the inbox ORDER BY. conv.id breaks ties so
- * a page boundary cannot repeat or skip a thread when a new message lands.
+ * Rows strictly after the cursor under the inbox ORDER BY (updated_at DESC,
+ * id ASC). conv.id breaks ties so a page boundary cannot repeat or skip a
+ * thread when a new message lands.
  */
 function conversationInboxCursorClause(paramIndex) {
-  const attention = `$${paramIndex}::boolean`;
-  const rank = `$${paramIndex + 1}::int`;
-  const activity = `$${paramIndex + 2}::timestamptz`;
-  const id = `$${paramIndex + 3}::uuid`;
+  const activity = `$${paramIndex}::timestamptz`;
+  const id = `$${paramIndex + 1}::uuid`;
   return `
   AND (
-    conv.needs_human < ${attention}
-    OR (
-      conv.needs_human = ${attention}
-      AND (
-        (${CONVERSATION_INBOX_PRIORITY_RANK_SQL}) > ${rank}
-        OR (
-          (${CONVERSATION_INBOX_PRIORITY_RANK_SQL}) = ${rank}
-          AND (
-            conv.updated_at < ${activity}
-            OR (conv.updated_at = ${activity} AND conv.id > ${id})
-          )
-        )
-      )
-    )
+    conv.updated_at < ${activity}
+    OR (conv.updated_at = ${activity} AND conv.id > ${id})
   )`;
 }
 
@@ -171,8 +200,7 @@ function conversationInboxCursorClause(paramIndex) {
  * @param {boolean} [opts.needsHumanScoped] - Inbox "Needs human" view: only
  *   conversations.needs_human = TRUE (independent of CRM customers)
  * @param {{ limitParamIndex: number, cursorParamIndex?: number|null }} [opts.keyset]
- *   keyset page: bound LIMIT, tie-broken ORDER BY and the rank column the cursor
- *   carries, instead of the fixed LIMIT 200 of the legacy inbox list
+ *   keyset page: bound LIMIT, tie-broken ORDER BY (updated_at DESC, id ASC)
  * @returns {string} $1 = client slug; when locationScoped, $2 = location_id;
  *   when channelScoped, the next index is the channel value
  */
@@ -182,21 +210,17 @@ function getConversationInboxQuery(opts = {}) {
   const needsHumanScoped = !!opts.needsHumanScoped;
   const keyset = opts.keyset && typeof opts.keyset === 'object' ? opts.keyset : null;
   const cursorParamIndex = keyset && keyset.cursorParamIndex ? keyset.cursorParamIndex : null;
-  const rankProjection = keyset
-    ? `\n  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} AS handoff_priority_rank,`
-    : '';
   const cursorClause = cursorParamIndex ? conversationInboxCursorClause(cursorParamIndex) : '';
+  // Newest activity wins. needs_human stays a row flag + Needs-you filter only —
+  // it must not pin older handoffs above fresher mail.
   const pageSql = keyset
     ? `ORDER BY
-  conv.needs_human DESC,
-  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} ASC,
   conv.updated_at DESC,
   conv.id ASC
 LIMIT $${keyset.limitParamIndex}`
     : `ORDER BY
-  conv.needs_human DESC,
-  ${CONVERSATION_INBOX_PRIORITY_RANK_SQL} ASC,
-  conv.updated_at DESC
+  conv.updated_at DESC,
+  conv.id ASC
 LIMIT 200`;
   return `
 SELECT
@@ -213,7 +237,7 @@ SELECT
   conv.updated_at            AS last_activity,
   CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
   conv.metadata->>'guest_tester_class' AS guest_tester_class,
-${inboxChannelFieldsSql()}${rankProjection}
+${inboxChannelFieldsSql(opts)}
   h.reason_code              AS handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
@@ -345,7 +369,7 @@ SELECT
   conv.created_at,
   conv.updated_at,
   COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
-  ${sqlCurrentEmailSubjectExpr('conv')} AS email_subject,
+  ${sqlCurrentEmailSubjectExpr('conv', opts)} AS email_subject,
   ${sqlConversationLocationExpr('conv')} AS location_id,
   conv.customer_id::text     AS customer_id,
   cust_link.phone            AS customer_phone,
@@ -767,6 +791,10 @@ module.exports = {
   DEFAULT_SUNSET_LOCATION_ID,
   sqlConversationChannelExpr,
   sqlCurrentEmailSubjectExpr,
+  resolveEmailInboundInboxReady,
+  markEmailInboundInboxMissing,
+  isMissingEmailInboundRelation,
+  emailInboundInboxAssumedReady,
   conversationInboxChannelParamIndex,
   conversationInboxWhereSql,
   conversationInboxCursorClause,

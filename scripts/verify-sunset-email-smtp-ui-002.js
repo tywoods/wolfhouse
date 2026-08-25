@@ -177,7 +177,7 @@ function boot() {
   assert.doesNotMatch(imap, /data-email-connect=/);
   assert.doesNotMatch(imap, /data-email-prepare-address/);
   assert.doesNotMatch(imap, /type="password"/);
-  assert.doesNotMatch(html, new RegExp(SMTP_ID));
+  assert.doesNotMatch(html.replace(/data-email-endpoint-id="[^"]+"/g, ''), new RegExp(SMTP_ID));
 }
 
 {

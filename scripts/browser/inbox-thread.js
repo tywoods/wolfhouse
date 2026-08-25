@@ -1491,12 +1491,22 @@ function acceptEmailApproveSuccess(data, reqConvId, savedApprovalId){
     return { conversation_id: cid, approval_id: ap, approval_state: 'approved' };
   } catch (_e) { return null; }
 }
-function emailUiFailureCopy(op, status){
+function emailUiFailureCopy(op, status, data){
   var c = (typeof status === 'number' && isFinite(status)) ? status : 0;
+  var err = emailOwnData(data, 'error');
   if (c === 400) return 'Request rejected';
   if (c === 401 || c === 403) return 'Unauthorized';
+  if (c === 404 && err === 'email_drafts_unavailable') return 'Email drafting is unavailable.';
+  if (c === 404 && err === 'email_staff_replies_unavailable') return 'Staff email replies are currently disabled.';
   if (c === 404) return 'Conversation unavailable';
+  if (c === 409 && err === 'email_mailbox_not_sendable') {
+    return 'This conversation is not on the Microsoft Inbox mailbox, so it cannot be sent.';
+  }
   if (c === 409) return 'Conflict — reload and try again';
+  if (c === 503 && err === 'email_send_disabled') return 'Staff email replies are currently disabled.';
+  if (c === 503 && err === 'email_send_outcome_unknown') {
+    return 'Send outcome is unknown. Reload this conversation — do not retry.';
+  }
   if (c === 503) return 'Temporarily unavailable';
   return op === 'approve' ? 'Approve failed' : 'Save failed';
 }
@@ -1606,8 +1616,8 @@ function performEmailDraftSave(convId, targetEl, thenApprove){
     .then(function(out){
       if (mySeq !== st.seq) return;
       st.inFlight = false;
-      if (selectedConvId !== snapConv) return;
       if (!out.parseOk) {
+        if (selectedConvId !== snapConv) return;
         showDraftSendStatus(statusEl, 'error', 'Invalid response');
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
@@ -1617,6 +1627,9 @@ function performEmailDraftSave(convId, targetEl, thenApprove){
         st.approvalId = accepted.approval_id;
         st.savedText = snapText;
         st.savedSubject = subjectText;
+      }
+      if (selectedConvId !== snapConv) return;
+      if (accepted) {
         if (thenApprove) {
           setEmailReplyControlsDisabled(targetEl, false, st.locked);
           performEmailApproveSend(convId, targetEl);
@@ -1626,7 +1639,7 @@ function performEmailDraftSave(convId, targetEl, thenApprove){
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
       }
-      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('draft', out.status));
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('draft', out.status, out.data));
       setEmailReplyControlsDisabled(targetEl, false, st.locked);
     })
     .catch(function(){
@@ -1716,11 +1729,17 @@ function performEmailApproveSend(convId, targetEl){
           } catch (_reload) { /* ignore */ }
           return;
         }
-        showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status));
+        showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status, out.data));
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
       }
       if (out.status === 503) {
+        if (emailOwnData(out.data, 'error') === 'email_send_outcome_unknown') {
+          st.locked = true;
+          showDraftSendStatus(statusEl, 'blocked', emailUiFailureCopy('approve', 503, out.data));
+          setEmailReplyControlsDisabled(targetEl, false, true);
+          return;
+        }
         var accepted = acceptEmailApproveDisabled503(out.data, snapConv, snapApprovalId);
         if (accepted && accepted.approval_state === 'approved') {
           if (ta.value !== snapText) ta.value = snapText;
@@ -1740,7 +1759,7 @@ function performEmailApproveSend(convId, targetEl){
         setEmailReplyControlsDisabled(targetEl, false, st.locked);
         return;
       }
-      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status));
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('approve', out.status, out.data));
       setEmailReplyControlsDisabled(targetEl, false, st.locked);
     })
     .catch(function(){

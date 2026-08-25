@@ -49,6 +49,55 @@ function pass(name, cond, detail) {
   }
 }
 
+function rollbackOwners(d, entries) {
+  const owners = new Map();
+  function add(e) {
+    if (e && e.classification !== 'rollback_down') owners.set(e.id || e.filename, e);
+  }
+  for (const e of entries) {
+    if (e.downFilename === d.filename) add(e);
+  }
+  if (d.pairsWith) {
+    add(entries.find((e) => e.filename === d.pairsWith));
+  }
+  const m = String(d.filename || '').match(/^(.*)_down\.sql$/);
+  if (m) add(entries.find((e) => e.filename === m[1] + '.sql'));
+  return Array.from(owners.values());
+}
+
+function rollbackPairing(man) {
+  const entries = man.entries || [];
+  const fwd = forwardEntries(man);
+  const rollback = entries.filter((e) => e.classification === 'rollback_down');
+  const names = rollback.map((d) => d.filename);
+  if (new Set(names).size !== names.length) {
+    return { ok: false, code: 'duplicate_rollback_filename' };
+  }
+  const referenced = [];
+  for (const f of fwd) {
+    if (!f.downFilename) continue;
+    const hits = rollback.filter((d) => d.filename === f.downFilename);
+    if (hits.length !== 1) {
+      return { ok: false, code: 'forward_down_unresolved', id: f.id };
+    }
+    referenced.push(f.downFilename);
+  }
+  if (new Set(referenced).size !== referenced.length) {
+    return { ok: false, code: 'rollback_referenced_twice' };
+  }
+  for (const d of rollback) {
+    const owners = rollbackOwners(d, entries);
+    if (owners.length !== 1) {
+      return {
+        ok: false,
+        code: owners.length === 0 ? 'orphan_rollback' : 'rollback_owner_ambiguous',
+        filename: d.filename,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 function deepClone(x) {
   return JSON.parse(JSON.stringify(x));
 }
@@ -64,10 +113,74 @@ pass(
   Array.isArray(manifest.intentionalGaps)
     && manifest.intentionalGaps.some((g) => String(g.number) === '015'),
 );
+const CALENDAR_BRIDGE_FORWARD_IDS = Object.freeze([
+  '089_external_calendar_inventory',
+  '090_external_calendar_inventory_tenant_integrity',
+  '091_booking_occupancy_serialization',
+]);
+const ISSUANCE_MATERIAL_FORWARD_ID = '092_tenant_email_luna_automation_issuance_material';
+const SHADOW_OUTCOME_FORWARD_ID = '093_tenant_email_luna_automation_shadow_outcomes';
+const SHADOW_IDENTITY_MATCH_FORWARD_ID = '094_tenant_email_luna_automation_shadow_outcome_identity_match';
+const SHADOW_SCOPED_CLAIM_FORWARD_ID = '095_tenant_email_luna_automation_claim_scoped';
+const PUBLIC_EXECUTE_FORWARD_ID = '096_tenant_email_luna_automation_public_execute';
+const CONTROLLED_DRAFT_FORWARD_ID = '097_tenant_email_luna_controlled_draft_operations';
+const CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID = '098_tenant_email_luna_controlled_drafting_staging_test_authorization';
+const MASTER_CALENDAR_BRIDGE_DIGESTS = Object.freeze({
+  '089_external_calendar_inventory': 'b07a7f87ca1b9e2c3da2da60ef161ccdc049a42726cf12fe4872b742740b9b6f',
+  '090_external_calendar_inventory_tenant_integrity': '2e9b9d5219f79d89cc8eadbdb2679c0e2a47c7e7948ecdd0e4449c0eeac33893',
+  '091_booking_occupancy_serialization': 'f5c03f76fd949d2e5695bccc03e1bcf4ced7d2836fbbc9646df27be15bca7976',
+});
+
+function calendarBridgeSequence(fwd) {
+  const ids = fwd.map((e) => e.id);
+  const start = ids.indexOf(CALENDAR_BRIDGE_FORWARD_IDS[0]);
+  if (start < 0) return '';
+  return ids.slice(start, start + CALENDAR_BRIDGE_FORWARD_IDS.length).join(',');
+}
+
+function numberedSqlBases(files) {
+  const byNumber = new Map();
+  for (const filename of files) {
+    const match = String(filename).match(/^(\d{3})_(.+?)(?:_down)?\.sql$/);
+    if (!match) continue;
+    const base = `${match[1]}_${match[2]}.sql`;
+    if (!byNumber.has(match[1])) byNumber.set(match[1], new Set());
+    byNumber.get(match[1]).add(base);
+  }
+  return byNumber;
+}
+
+const forwards = forwardEntries(manifest);
 pass(
   'green-forward-count',
-  forwardEntries(manifest).length === 80,
-  `forward=${forwardEntries(manifest).length}`,
+  forwards.length === manifest.entries.filter((e) => e.inForwardChain === true && e.classification === 'canonical_forward').length
+    && CALENDAR_BRIDGE_FORWARD_IDS.every((id) => forwards.some((e) => e.id === id))
+    && forwards.some((e) => e.id === ISSUANCE_MATERIAL_FORWARD_ID)
+    && forwards.some((e) => e.id === SHADOW_OUTCOME_FORWARD_ID)
+    && forwards.some((e) => e.id === SHADOW_IDENTITY_MATCH_FORWARD_ID)
+    && forwards.some((e) => e.id === SHADOW_SCOPED_CLAIM_FORWARD_ID)
+    && forwards.some((e) => e.id === PUBLIC_EXECUTE_FORWARD_ID)
+    && forwards.some((e) => e.id === CONTROLLED_DRAFT_FORWARD_ID)
+    && forwards.some((e) => e.id === CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID),
+  `forward=${forwards.length}`,
+);
+pass(
+  'green-calendar-bridge-forward-tail',
+  calendarBridgeSequence(forwards) === CALENDAR_BRIDGE_FORWARD_IDS.join(',')
+    && forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length - 7, -7).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-8).map((e) => e.id).join(','),
+);
+pass(
+  'green-issuance-material-forward-after-calendar-bridge',
+  forwards[forwards.length - 1] && forwards[forwards.length - 1].id === CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID
+    && forwards[forwards.length - 2] && forwards[forwards.length - 2].id === CONTROLLED_DRAFT_FORWARD_ID
+    && forwards[forwards.length - 3] && forwards[forwards.length - 3].id === PUBLIC_EXECUTE_FORWARD_ID
+    && forwards[forwards.length - 4] && forwards[forwards.length - 4].id === SHADOW_SCOPED_CLAIM_FORWARD_ID
+    && forwards[forwards.length - 5] && forwards[forwards.length - 5].id === SHADOW_IDENTITY_MATCH_FORWARD_ID
+    && forwards[forwards.length - 6] && forwards[forwards.length - 6].id === SHADOW_OUTCOME_FORWARD_ID
+    && forwards[forwards.length - 7] && forwards[forwards.length - 7].id === ISSUANCE_MATERIAL_FORWARD_ID
+    && calendarBridgeSequence(forwards.slice(0, -7)) === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-8).map((e) => e.id).join(','),
 );
 pass(
   'green-all-sql-classified',
@@ -98,7 +211,8 @@ pass(
     byClass[e.classification] = (byClass[e.classification] || 0) + 1;
   }
   pass('green-has-proposed', (byClass.proposed_not_executable || 0) >= 4);
-  pass('green-has-rollback', (byClass.rollback_down || 0) === 30);
+  const pairing = rollbackPairing(manifest);
+  pass('green-has-rollback', pairing.ok === true, pairing.code);
   pass('green-no-unresolved', (byClass.unresolved || 0) === 0);
 }
 
@@ -109,6 +223,135 @@ pass(
   fwd.sha256 = '0'.repeat(64);
   const r = validateManifestIntegrity(m);
   pass('red-checksum-change', !r.ok && r.errors.some((e) => e.code === 'checksum_mismatch'));
+}
+
+{
+  const m = deepClone(manifest);
+  m.entries = m.entries.filter((e) => e.id !== '091_booking_occupancy_serialization');
+  const r = validateManifestIntegrity(m);
+  const fwd = forwardEntries(m);
+  pass(
+    'red-calendar-091-missing',
+    !r.ok && r.errors.some((e) => e.code === 'unclassified_sql')
+      && !fwd.some((e) => e.id === '091_booking_occupancy_serialization')
+      && calendarBridgeSequence(fwd) !== CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  );
+}
+
+{
+  const m = deepClone(manifest);
+  const ninety = m.entries.find((e) => e.id === '090_external_calendar_inventory_tenant_integrity');
+  const ninetyOne = m.entries.find((e) => e.id === '091_booking_occupancy_serialization');
+  ninetyOne.order = ninety.order;
+  const r = validateManifestIntegrity(m);
+  pass('red-calendar-091-duplicate-order', !r.ok && r.errors.some((e) => e.code === 'duplicate_order'));
+}
+
+{
+  const m = deepClone(manifest);
+  const ninety = m.entries.find((e) => e.id === '090_external_calendar_inventory_tenant_integrity');
+  const ninetyOne = m.entries.find((e) => e.id === '091_booking_occupancy_serialization');
+  const tmp = ninety.order;
+  ninety.order = ninetyOne.order;
+  ninetyOne.order = tmp;
+  pass(
+    'red-calendar-090-091-reordered',
+    calendarBridgeSequence(forwardEntries(m)) !== CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  );
+}
+
+{
+  const m = deepClone(manifest);
+  const eightyNine = m.entries.find((e) => e.id === '089_external_calendar_inventory');
+  eightyNine.sha256 = '0'.repeat(64);
+  const r = validateManifestIntegrity(m);
+  pass('red-calendar-089-digest-invalid', !r.ok && r.errors.some((e) => e.code === 'checksum_mismatch'));
+}
+
+{
+  const m = deepClone(manifest);
+  m.entries.push({
+    id: 'rollback_orphan_probe',
+    filename: '999_orphan_down.sql',
+    classification: 'rollback_down',
+    inForwardChain: false,
+    sha256: 'ab'.repeat(32),
+  });
+  const pairing = rollbackPairing(m);
+  pass('red-rollback-orphan', pairing.ok === false && pairing.code === 'orphan_rollback');
+}
+
+{
+  const m = deepClone(manifest);
+  const down = m.entries.find((e) => e.id === '091_booking_occupancy_serialization_down');
+  m.entries.push({
+    ...down,
+    id: '091_booking_occupancy_serialization_down_dup',
+  });
+  const pairing = rollbackPairing(m);
+  pass('red-rollback-duplicate', pairing.ok === false && pairing.code === 'duplicate_rollback_filename');
+}
+
+{
+  const m = deepClone(manifest);
+  const eightyNine = m.entries.find((e) => e.id === '089_external_calendar_inventory');
+  const ninetyOne = m.entries.find((e) => e.id === '091_booking_occupancy_serialization');
+  ninetyOne.downFilename = eightyNine.downFilename;
+  const pairing = rollbackPairing(m);
+  pass(
+    'red-forward-wrong-rollback',
+    pairing.ok === false
+      && (pairing.code === 'rollback_referenced_twice' || pairing.code === 'orphan_rollback'),
+  );
+}
+
+{
+  const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
+  const byNumber = numberedSqlBases(files);
+  const protectedNumbers = ['089', '090', '091', '092', '096'];
+  const collisions = [...byNumber.entries()]
+    .filter(([n, set]) => protectedNumbers.includes(n) && set.size > 1)
+    .map(([n, set]) => `${n}:${[...set].join('|')}`);
+  pass('green-no-duplicate-forward-migration-numbers', collisions.length === 0, collisions.join(','));
+  pass(
+    'green-master-calendar-089-090-091-not-overwritten',
+    files.includes('089_external_calendar_inventory.sql')
+      && files.includes('089_external_calendar_inventory_down.sql')
+      && files.includes('090_external_calendar_inventory_tenant_integrity.sql')
+      && files.includes('091_booking_occupancy_serialization.sql')
+      && files.includes('092_tenant_email_luna_automation_issuance_material.sql')
+      && !files.some((f) => /089_.*issuance_material/.test(f)),
+  );
+  pass(
+    'green-master-calendar-bridge-digests-pinned',
+    Object.entries(MASTER_CALENDAR_BRIDGE_DIGESTS).every(([id, sha]) => {
+      const entry = manifest.entries.find((e) => e.id === id);
+      return entry && entry.sha256 === sha && entry.filename === `${id}.sql`;
+    }),
+  );
+}
+
+{
+  const files = fs.readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
+  const collided = numberedSqlBases(files.concat(['089_tenant_email_luna_automation_issuance_material.sql']));
+  pass(
+    'red-issuance-089-duplicate-number-collision',
+    collided.get('089') && collided.get('089').size > 1
+      && collided.get('089').has('089_external_calendar_inventory.sql')
+      && collided.get('089').has('089_tenant_email_luna_automation_issuance_material.sql'),
+  );
+}
+
+{
+  const m = deepClone(manifest);
+  const issuance = m.entries.find((e) => e.id === ISSUANCE_MATERIAL_FORWARD_ID);
+  const calendar = m.entries.find((e) => e.id === '089_external_calendar_inventory');
+  issuance.order = calendar.order;
+  const r = validateManifestIntegrity(m);
+  pass(
+    'red-issuance-cannot-reuse-calendar-089-order',
+    !r.ok && r.errors.some((e) => e.code === 'duplicate_order'),
+  );
 }
 
 // RED: unknown checksum mode
@@ -365,7 +608,7 @@ pass(
     const live = checksumMigrationFile(path.join(MIGRATIONS_DIR, e.filename), CHECKSUM_MODE_CANONICAL_LF_V1);
     if (live.ok && live.sha256 === e.sha256) forwardVerified += 1;
   }
-  pass('green-all-80-forward-canonical-lf-v1', forwardVerified === 80, `verified=${forwardVerified}`);
+  pass('green-all-forward-canonical-lf-v1', forwardVerified === forwards.length, `verified=${forwardVerified}`);
 
   // Previously CRLF Git files normalize identically (named in transition report)
   pass('green-transition-report-present', fs.existsSync(TRANSITION));

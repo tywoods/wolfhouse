@@ -8,7 +8,7 @@ const path = require('node:path');
 
 const SOURCE_PATH = require.resolve('./lib/email-luna-draft-policy');
 const HANDOFF_PATH = require.resolve('./lib/email-luna-draft-handoff-contract');
-const SOURCE_SHA256 = 'dc39247e5f75f5bae7b6188dc37445fb83a840fa321f1c3e2c4164401a7beaf8';
+const SOURCE_SHA256 = '059249779ae7e71b5cd6ae8ee632e1a7926d6c6d1c5cd8cf0f12a298061ed305';
 const CONSTRUCTOR_VALIDATION_BLOCK = [
   '  objectFreeze(copy);',
   '  frozenResult(copy, fact);',
@@ -95,12 +95,14 @@ function evidence(groundedResult) {
     client_id: IDS.client_id,
     location_id: IDS.location_id,
     conversation_id: IDS.conversation_id,
+    endpoint_id: IDS.endpoint_id,
     language: 'en',
     identity: 'matched',
     intent: 'booking_status_question',
     intent_support: 'supported',
     requested_location_id: IDS.location_id,
     explicit_human_request: false,
+    attachment_interpretation_required: false,
     unsafe_transactional_request: false,
     required_facts: ['booking'],
     grounded_results: { booking: groundedResult },
@@ -125,14 +127,11 @@ function exerciseSafetyContract(policy, createEmailLunaDraftEnvelope) {
   for (const [label, makeResult, omittedKeys] of UNSAFE_PROBES) {
     let unsafeAccepted = false;
     try {
-      const issued = policy.createEmailLunaDraftPolicyEvidence(
-        evidence(materializeProbe(makeResult, omittedKeys)),
-      );
-      const decision = policy.decideEmailLunaDraftPolicy({
+      const issued = policy.issueAndDecideEmailLunaDraftPolicy({
         envelope: envelope(createEmailLunaDraftEnvelope),
-        evidence: issued,
+        evidence: evidence(materializeProbe(makeResult, omittedKeys)),
       });
-      unsafeAccepted = decision.status === 'draft_ready';
+      unsafeAccepted = issued.decision.status === 'draft_ready';
     } catch (error) {
       assert.equal(error && error.code, 'EMAIL_LUNA_DRAFT_POLICY_INVALID', `${label}: must fail closed with typed error`);
     }

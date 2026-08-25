@@ -2,7 +2,10 @@
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const runtimeIsProxy = require('node:util').types.isProxy.bind(undefined);
-const { createEmailLunaDraftHandoff } = require('./email-luna-draft-handoff-contract');
+const nodeCrypto = require('node:crypto');
+const { createEmailLunaDraftHandoff, createEmailLunaDraftEnvelope } = require('./email-luna-draft-handoff-contract');
+const cryptoRandomUUID = typeof nodeCrypto.randomUUID === 'function' ? nodeCrypto.randomUUID.bind(nodeCrypto) : null;
+const cryptoCreateHash = typeof nodeCrypto.createHash === 'function' ? nodeCrypto.createHash.bind(nodeCrypto) : null;
 
 const arrayIncludes = uncurryThis(Array.prototype.includes);
 const arrayPush = uncurryThis(Array.prototype.push);
@@ -24,6 +27,14 @@ const AUTHENTIC_POLICY_EVIDENCE = new WeakSet();
 const AUTHENTIC_POLICY_DECISIONS = new WeakSet();
 const POLICY_EVIDENCE_ENVELOPES = new WeakMap();
 const POLICY_DECISION_ISSUANCE = new WeakMap();
+const POLICY_EVIDENCE_FRESHNESS = new WeakMap();
+const POLICY_ISSUANCE_IDS = new WeakMap();
+const FRESHNESS_KEYS = objectFreeze(['turn']);
+const EMAIL_LUNA_DRAFT_POLICY_VERSION = 'email-luna-draft-policy.v1';
+const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const DIGEST_CANON = /^[0-9a-f]{64}$/;
+let freshnessScopeOpen = false;
+let freshnessScopeGeneration = 0;
 
 const EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS = objectFreeze([
   'ambiguous_identity',
@@ -36,6 +47,7 @@ const EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS = objectFreeze([
   'explicit_human_request',
   'prompt_injection_detected',
   'unsafe_transactional_request',
+  'stale_evidence',
 ]);
 
 const INPUT_KEYS = objectFreeze(['envelope', 'evidence']);
@@ -43,12 +55,14 @@ const EVIDENCE_KEYS = objectFreeze([
   'client_id',
   'location_id',
   'conversation_id',
+  'endpoint_id',
   'language',
   'identity',
   'intent',
   'intent_support',
   'requested_location_id',
   'explicit_human_request',
+  'attachment_interpretation_required',
   'unsafe_transactional_request',
   'required_facts',
   'grounded_results',
@@ -272,9 +286,11 @@ function frozenResults(value, requiredFacts) {
 
 function validateEvidenceScalars(evidence) {
   if (typeof evidence.client_id !== 'string' || typeof evidence.location_id !== 'string'
-      || typeof evidence.conversation_id !== 'string' || typeof evidence.requested_location_id !== 'string'
+      || typeof evidence.conversation_id !== 'string' || typeof evidence.endpoint_id !== 'string'
+      || typeof evidence.requested_location_id !== 'string'
       || typeof evidence.language !== 'string' || typeof evidence.identity !== 'string' || typeof evidence.intent !== 'string'
       || typeof evidence.intent_support !== 'string' || typeof evidence.explicit_human_request !== 'boolean'
+      || typeof evidence.attachment_interpretation_required !== 'boolean'
       || typeof evidence.unsafe_transactional_request !== 'boolean') throw invalid();
   if (!arrayIncludes(['en', 'es'], evidence.language)
       || !arrayIncludes(['matched', 'ambiguous', 'uncertain'], evidence.identity)
@@ -321,6 +337,40 @@ function copyRequiredFacts(value) {
   return objectFreeze(copy);
 }
 
+function frozenFreshness(turn) {
+  const record = objectCreate(null);
+  objectDefineProperty(record, 'turn', {
+    value: turn, enumerable: true, writable: false, configurable: false,
+  });
+  return objectFreeze(record);
+}
+
+function stampIssuedEvidenceFreshness(issued) {
+  if (POLICY_EVIDENCE_FRESHNESS.get(issued) !== undefined) throw invalid();
+  const live = freshnessScopeOpen
+    && numberIsSafeInteger(freshnessScopeGeneration)
+    && freshnessScopeGeneration > 0;
+  POLICY_EVIDENCE_FRESHNESS.set(issued, frozenFreshness(live ? freshnessScopeGeneration : 0));
+}
+
+function inspectIssuedEvidenceFreshness(evidence) {
+  const record = POLICY_EVIDENCE_FRESHNESS.get(evidence);
+  if (record === undefined) return 'missing';
+  let snapshot;
+  try {
+    snapshot = exactFrozenRecord(record, FRESHNESS_KEYS, null);
+  } catch (_) {
+    return 'malformed';
+  }
+  const turn = snapshot.turn;
+  if (!numberIsSafeInteger(turn) || turn < 0) return 'malformed';
+  if (!freshnessScopeOpen) return 'stale';
+  if (turn === 0) return 'stale';
+  if (turn > freshnessScopeGeneration) return 'future';
+  if (turn !== freshnessScopeGeneration) return 'stale';
+  return 'fresh';
+}
+
 function copyGroundedResult(value, fact) {
   if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)) throw invalid();
   const prototype = objectGetPrototypeOf(value);
@@ -364,17 +414,20 @@ function createEmailLunaDraftPolicyEvidence(input) {
     client_id: evidence.client_id,
     location_id: evidence.location_id,
     conversation_id: evidence.conversation_id,
+    endpoint_id: evidence.endpoint_id,
     language: evidence.language,
     identity: evidence.identity,
     intent: evidence.intent,
     intent_support: evidence.intent_support,
     requested_location_id: evidence.requested_location_id,
     explicit_human_request: evidence.explicit_human_request,
+    attachment_interpretation_required: evidence.attachment_interpretation_required,
     unsafe_transactional_request: evidence.unsafe_transactional_request,
     required_facts: requiredFacts,
     grounded_results: groundedResults,
   });
   weakSetAdd(AUTHENTIC_POLICY_EVIDENCE, issued);
+  stampIssuedEvidenceFreshness(issued);
   return issued;
 }
 
@@ -395,6 +448,15 @@ function handoff(reason, binding) {
     ['conversation_id', binding.conversation_id], ['draft_only', true],
     ['requires_staff_review', true], ['send_allowed', false], ['auto_send_allowed', false],
   ]);
+}
+
+function issueDecision(decision, envelope, evidence) {
+  weakSetAdd(AUTHENTIC_POLICY_DECISIONS, decision);
+  POLICY_DECISION_ISSUANCE.set(decision, objectFreeze({
+    envelope,
+    evidence,
+  }));
+  return decision;
 }
 
 function hasInjection(content) {
@@ -425,47 +487,147 @@ function decideEmailLunaDraftPolicy(input) {
   const requiredFacts = intentSupported ? INTENT_REQUIRED_FACTS[evidence.intent] : callerRequiredFacts;
   const results = frozenResults(evidence.grounded_results, requiredFacts);
 
-  if (evidence.conversation_id !== trusted.binding.conversation_id) {
-    return handoff('authority_mismatch', trusted.binding);
+  function finish(decision) {
+    return issueDecision(decision, request.envelope, request.evidence);
   }
-  if (hasInjection(trusted.untrustedContent)) return handoff('prompt_injection_detected', trusted.binding);
+
+  const freshness = inspectIssuedEvidenceFreshness(request.evidence);
+  if (freshness === 'stale') return finish(handoff('stale_evidence', trusted.binding));
+  if (freshness !== 'fresh') throw invalid();
+
+  if (evidence.conversation_id !== trusted.binding.conversation_id
+      || evidence.endpoint_id !== trusted.authority.endpoint_id) {
+    return finish(handoff('authority_mismatch', trusted.binding));
+  }
+  if (hasInjection(trusted.untrustedContent)) return finish(handoff('prompt_injection_detected', trusted.binding));
   if (evidence.client_id !== trusted.binding.client_id || evidence.location_id !== trusted.binding.location_id) {
-    return handoff('authority_mismatch', trusted.binding);
+    return finish(handoff('authority_mismatch', trusted.binding));
   }
-  if (evidence.explicit_human_request) return handoff('explicit_human_request', trusted.binding);
-  if (evidence.unsafe_transactional_request) return handoff('unsafe_transactional_request', trusted.binding);
-  if (evidence.requested_location_id !== trusted.binding.location_id) return handoff('cross_location_request', trusted.binding);
-  if (evidence.identity !== 'matched') return handoff('ambiguous_identity', trusted.binding);
-  if (evidence.intent_support === 'uncertain' || evidence.intent === 'uncertain') return handoff('uncertain_intent', trusted.binding);
-  if (!intentSupported || evidence.intent_support !== 'supported') return handoff('unsupported_intent', trusted.binding);
+  if (evidence.explicit_human_request) return finish(handoff('explicit_human_request', trusted.binding));
+  if (evidence.unsafe_transactional_request) return finish(handoff('unsafe_transactional_request', trusted.binding));
+  if (evidence.requested_location_id !== trusted.binding.location_id) return finish(handoff('cross_location_request', trusted.binding));
+  if (evidence.identity !== 'matched') return finish(handoff('ambiguous_identity', trusted.binding));
+  if (evidence.intent_support === 'uncertain' || evidence.intent === 'uncertain') return finish(handoff('uncertain_intent', trusted.binding));
+  if (!intentSupported || evidence.intent_support !== 'supported') return finish(handoff('unsupported_intent', trusted.binding));
 
   for (let index = 0; index < requiredFacts.length; index += 1) {
     const result = results[requiredFacts[index]];
     if (result.client_id !== trusted.binding.client_id || result.location_id !== trusted.binding.location_id) {
-      return handoff('authority_mismatch', trusted.binding);
+      return finish(handoff('authority_mismatch', trusted.binding));
     }
     if (result.status === 'handoff_required') {
-      return handoff(result.reason === 'authority_mismatch' ? 'authority_mismatch' : 'tool_error', trusted.binding);
+      return finish(handoff(result.reason === 'authority_mismatch' ? 'authority_mismatch' : 'tool_error', trusted.binding));
     }
-    if (result.status === 'missing_fact') return handoff('missing_required_facts', trusted.binding);
+    if (result.status === 'missing_fact') return finish(handoff('missing_required_facts', trusted.binding));
   }
 
   const groundedFacts = [];
   for (let index = 0; index < requiredFacts.length; index += 1) arrayPush(groundedFacts, requiredFacts[index]);
   objectFreeze(groundedFacts);
-  const decision = output([
+  return finish(output([
     ['status', 'draft_ready'], ['intent', evidence.intent], ['language', evidence.language],
     ['client_id', trusted.binding.client_id], ['location_id', trusted.binding.location_id],
     ['conversation_id', trusted.binding.conversation_id], ['grounded_facts', groundedFacts],
     ['draft_only', true], ['requires_staff_review', true],
     ['send_allowed', false], ['auto_send_allowed', false],
-  ]);
-  weakSetAdd(AUTHENTIC_POLICY_DECISIONS, decision);
-  POLICY_DECISION_ISSUANCE.set(decision, objectFreeze({
-    envelope: request.envelope,
-    evidence: request.evidence,
-  }));
-  return decision;
+  ]));
+}
+
+function mintIssuanceIdentity(evidence) {
+  if (!weakSetHas(AUTHENTIC_POLICY_EVIDENCE, evidence)) throw invalid();
+  if (POLICY_ISSUANCE_IDS.get(evidence) !== undefined) throw invalid();
+  if (!cryptoRandomUUID) throw invalid();
+  let raw;
+  try {
+    raw = cryptoRandomUUID();
+  } catch (_) {
+    throw invalid();
+  }
+  if (typeof raw !== 'string') throw invalid();
+  const id = raw.toLowerCase();
+  if (!regexpTest(UUID_CANON, id)) throw invalid();
+  POLICY_ISSUANCE_IDS.set(evidence, id);
+  return id;
+}
+
+function readEmailLunaDraftPolicyIssuanceIdentity(value) {
+  if (value === null || typeof value !== 'object' || runtimeIsProxy(value) || arrayIsArray(value)) throw invalid();
+  const authentic = weakSetHas(AUTHENTIC_POLICY_EVIDENCE, value) || weakSetHas(AUTHENTIC_POLICY_DECISIONS, value);
+  if (!authentic) throw invalid();
+  const id = POLICY_ISSUANCE_IDS.get(value);
+  if (typeof id !== 'string' || !regexpTest(UUID_CANON, id)) throw invalid();
+  return id;
+}
+
+function openPolicyFreshnessTurn() {
+  if (freshnessScopeOpen) throw invalid();
+  if (!numberIsSafeInteger(freshnessScopeGeneration) || freshnessScopeGeneration >= Number.MAX_SAFE_INTEGER - 1) {
+    throw invalid();
+  }
+  freshnessScopeOpen = true;
+  freshnessScopeGeneration += 1;
+}
+
+function closePolicyFreshnessTurn() {
+  freshnessScopeOpen = false;
+  if (numberIsSafeInteger(freshnessScopeGeneration) && freshnessScopeGeneration < Number.MAX_SAFE_INTEGER) {
+    freshnessScopeGeneration += 1;
+  }
+}
+
+function issueAndDecideEmailLunaDraftPolicy(input) {
+  const request = exactInput(input);
+  if (freshnessScopeOpen) throw invalid();
+  if (!numberIsSafeInteger(freshnessScopeGeneration) || freshnessScopeGeneration >= Number.MAX_SAFE_INTEGER - 1) {
+    throw invalid();
+  }
+  freshnessScopeOpen = true;
+  freshnessScopeGeneration += 1;
+  try {
+    const evidence = createEmailLunaDraftPolicyEvidence(request.evidence);
+    const issuanceId = mintIssuanceIdentity(evidence);
+    const decision = decideEmailLunaDraftPolicy({ envelope: request.envelope, evidence });
+    POLICY_ISSUANCE_IDS.set(decision, issuanceId);
+    return output([
+      ['evidence', evidence],
+      ['decision', decision],
+    ]);
+  } finally {
+    freshnessScopeOpen = false;
+    if (numberIsSafeInteger(freshnessScopeGeneration) && freshnessScopeGeneration < Number.MAX_SAFE_INTEGER) {
+      freshnessScopeGeneration += 1;
+    }
+  }
+}
+
+/**
+ * Recovery-only reconstitution. Private to this module. Binds the ORIGINAL
+ * issuance_id onto newly branded evidence/decision during a new composition-turn.
+ * Live composition must keep using issueAndDecideEmailLunaDraftPolicy (which mints).
+ * Ordinary importers cannot obtain this function. Recovery is reachable only
+ * through createEmailLunaAutomationIssuanceMaterialStore(...).recoverAutomationIssuance
+ * after a WeakSet-branded scoped load.
+ */
+function recoverIssueAndDecideEmailLunaDraftPolicy(input) {
+  const request = copyExactProducerRecord(input, ['envelope', 'evidence', 'issuance_id'], Object.prototype);
+  if (typeof request.issuance_id !== 'string') throw invalid();
+  const issuanceId = request.issuance_id.toLowerCase();
+  if (!regexpTest(UUID_CANON, issuanceId) || request.issuance_id !== issuanceId) throw invalid();
+  openPolicyFreshnessTurn();
+  try {
+    const evidence = createEmailLunaDraftPolicyEvidence(request.evidence);
+    if (POLICY_ISSUANCE_IDS.get(evidence) !== undefined) throw invalid();
+    POLICY_ISSUANCE_IDS.set(evidence, issuanceId);
+    const decision = decideEmailLunaDraftPolicy({ envelope: request.envelope, evidence });
+    if (POLICY_ISSUANCE_IDS.get(decision) !== undefined) throw invalid();
+    POLICY_ISSUANCE_IDS.set(decision, issuanceId);
+    return output([
+      ['evidence', evidence],
+      ['decision', decision],
+    ]);
+  } finally {
+    closePolicyFreshnessTurn();
+  }
 }
 
 function assertEmailLunaDraftPolicyIssuance(input) {
@@ -476,16 +638,36 @@ function assertEmailLunaDraftPolicyIssuance(input) {
   const issuance = POLICY_DECISION_ISSUANCE.get(request.decision);
   if (!issuance || issuance.envelope !== request.envelope || issuance.evidence !== request.evidence
       || POLICY_EVIDENCE_ENVELOPES.get(request.evidence) !== request.envelope) throw invalid();
+  const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
+  const statusDescriptor = objectGetOwnPropertyDescriptor(request.decision, 'status');
+  if (!statusDescriptor || !objectHasOwn(statusDescriptor, 'value')) throw invalid();
+  if (statusDescriptor.value === 'handoff_required') {
+    const decision = exactFrozenRecord(request.decision, [
+      'status', 'reason', 'client_id', 'location_id', 'conversation_id',
+      'draft_only', 'requires_staff_review', 'send_allowed', 'auto_send_allowed',
+    ], null);
+    if (decision.client_id !== trusted.binding.client_id || decision.location_id !== trusted.binding.location_id
+        || decision.conversation_id !== trusted.binding.conversation_id
+        || !arrayIncludes(EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS, decision.reason)
+        || decision.draft_only !== true || decision.requires_staff_review !== true
+        || decision.send_allowed !== false || decision.auto_send_allowed !== false) throw invalid();
+    return objectFreeze({
+      binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }), language: evidence.language,
+      untrusted_content: objectFreeze({ ...trusted.untrustedContent }), fact_ids: objectFreeze([]),
+      grounded_facts: objectFreeze({}), status: 'handoff_required', reason: decision.reason,
+      intent: evidence.intent, attachment_interpretation_required: evidence.attachment_interpretation_required,
+    });
+  }
   const decision = exactFrozenRecord(request.decision, [
     'status', 'intent', 'language', 'client_id', 'location_id', 'conversation_id', 'grounded_facts',
     'draft_only', 'requires_staff_review', 'send_allowed', 'auto_send_allowed',
   ], null);
-  const evidence = exactFrozenRecord(request.evidence, EVIDENCE_KEYS, Object.prototype);
   if (decision.status !== 'draft_ready' || decision.client_id !== trusted.binding.client_id
       || decision.location_id !== trusted.binding.location_id || decision.conversation_id !== trusted.binding.conversation_id
       || evidence.client_id !== trusted.binding.client_id || evidence.location_id !== trusted.binding.location_id
-      || evidence.conversation_id !== trusted.binding.conversation_id || evidence.intent !== decision.intent
-      || evidence.language !== decision.language) throw invalid();
+      || evidence.conversation_id !== trusted.binding.conversation_id
+      || evidence.endpoint_id !== trusted.authority.endpoint_id
+      || evidence.intent !== decision.intent || evidence.language !== decision.language) throw invalid();
   const factIds = exactFrozenStringArray(decision.grounded_facts);
   const results = frozenResults(evidence.grounded_results, factIds);
   const facts = objectCreate(null);
@@ -495,14 +677,183 @@ function assertEmailLunaDraftPolicyIssuance(input) {
         || result.location_id !== trusted.binding.location_id) throw invalid();
     facts[id] = objectFreeze({ ...result });
   }
-  return objectFreeze({ binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }), language: evidence.language,
+  return objectFreeze({
+    binding: trusted.binding, authority: objectFreeze({ ...trusted.authority }), language: evidence.language,
     untrusted_content: objectFreeze({ ...trusted.untrustedContent }), fact_ids: objectFreeze(factIds),
-    grounded_facts: objectFreeze(facts) });
+    grounded_facts: objectFreeze(facts), status: 'draft_ready', intent: evidence.intent,
+    attachment_interpretation_required: evidence.attachment_interpretation_required,
+  });
 }
 
-module.exports = {
+function issuanceMaterialInvalid(error) {
+  if (error && error.code === 'EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_INVALID') throw error;
+  const failed = new Error('Email Luna automation issuance material failed.');
+  failed.code = 'EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_INVALID';
+  throw failed;
+}
+
+function digestCanonicalDraft(draft) {
+  if (!cryptoCreateHash) throw invalid();
+  if (draft === null || typeof draft !== 'object' || runtimeIsProxy(draft) || arrayIsArray(draft)) throw invalid();
+  const subject = objectGetOwnPropertyDescriptor(draft, 'subject');
+  const body = objectGetOwnPropertyDescriptor(draft, 'body');
+  const language = objectGetOwnPropertyDescriptor(draft, 'language');
+  if (!subject || !body || language === undefined || typeof subject.value !== 'string'
+      || typeof body.value !== 'string' || typeof language.value !== 'string') throw invalid();
+  const hasher = cryptoCreateHash('sha256');
+  const feed = hasher.update.bind(hasher);
+  feed(subject.value);
+  feed('\0');
+  feed(body.value);
+  feed('\0');
+  feed(language.value);
+  const digest = hasher.digest('hex');
+  if (typeof digest !== 'string' || !regexpTest(DIGEST_CANON, digest)) throw invalid();
+  return digest;
+}
+
+function rebuildEvidenceSnapshotFromMaterial(material) {
+  const {
+    emailLunaDraftPolicyTextForKey,
+  } = require('./email-luna-draft-author');
+  const fact = material.required_facts[0];
+  const stored = material.grounded_facts[fact];
+  if (stored === null || typeof stored !== 'object' || runtimeIsProxy(stored) || arrayIsArray(stored)) throw invalid();
+  const found = objectCreate(null);
+  const storedKeys = reflectOwnKeys(stored);
+  for (let index = 0; index < storedKeys.length; index += 1) {
+    const key = storedKeys[index];
+    if (typeof key !== 'string') throw invalid();
+    found[key] = stored[key];
+  }
+  if (fact === 'policy') {
+    const text = emailLunaDraftPolicyTextForKey(stored.policy_key, material.language);
+    if (typeof text !== 'string') throw invalid();
+    found.policy_text = text;
+  }
+  objectFreeze(found);
+  const grounded = {};
+  grounded[fact] = found;
+  objectFreeze(grounded);
+  return {
+    client_id: material.client_id,
+    location_id: material.location_id,
+    conversation_id: material.conversation_id,
+    endpoint_id: material.endpoint_id,
+    language: material.language,
+    identity: material.identity,
+    intent: material.intent,
+    intent_support: material.intent_support,
+    requested_location_id: material.requested_location_id,
+    explicit_human_request: material.explicit_human_request,
+    attachment_interpretation_required: material.attachment_interpretation_required,
+    unsafe_transactional_request: material.unsafe_transactional_request,
+    required_facts: material.required_facts.slice(),
+    grounded_results: grounded,
+  };
+}
+
+function recoverFromLoadedIssuanceMaterial(material) {
+  const {
+    recoverEmailLunaDraftAuthorFromAuthenticPlan,
+  } = require('./email-luna-draft-author');
+  const { validateEmailLunaDraft } = require('./email-luna-draft-validator');
+  const envelope = createEmailLunaDraftEnvelope({
+    authority: {
+      client_id: material.client_id,
+      location_id: material.location_id,
+      location_key: material.location_key,
+      conversation_id: material.conversation_id,
+      endpoint_id: material.endpoint_id,
+      inbound_message_id: material.inbound_event_id,
+    },
+    untrusted_content: {
+      subject: material.envelope_subject,
+      body_text: material.envelope_body_text,
+      quoted_history: '',
+      from_display_name: material.envelope_from_display_name,
+      from_address: material.envelope_from_address,
+    },
+  });
+  const issued = recoverIssueAndDecideEmailLunaDraftPolicy({
+    envelope,
+    evidence: rebuildEvidenceSnapshotFromMaterial(material),
+    issuance_id: material.issuance_id,
+  });
+  if (!issued || issued.decision.status !== 'draft_ready') throw invalid();
+  if (readEmailLunaDraftPolicyIssuanceIdentity(issued.evidence) !== material.issuance_id) throw invalid();
+  if (readEmailLunaDraftPolicyIssuanceIdentity(issued.decision) !== material.issuance_id) throw invalid();
+  const plan = {
+    template_id: material.template_id,
+    tone: material.tone,
+    question_key: material.question_key,
+    acknowledgment_key: material.acknowledgment_key,
+  };
+  const draft = recoverEmailLunaDraftAuthorFromAuthenticPlan({
+    envelope,
+    evidence: issued.evidence,
+    decision: issued.decision,
+    plan,
+  });
+  if (digestCanonicalDraft(draft) !== material.draft_digest) throw invalid();
+  const validation = validateEmailLunaDraft({
+    envelope,
+    evidence: issued.evidence,
+    decision: issued.decision,
+    draft,
+  });
+  if (validation.status !== 'valid') throw invalid();
+  return objectFreeze({
+    envelope,
+    evidence: issued.evidence,
+    decision: issued.decision,
+    draft,
+    validation,
+    issuance_id: material.issuance_id,
+    draft_digest: material.draft_digest,
+    operation_id: material.operation_id,
+  });
+}
+
+function createEmailLunaAutomationIssuanceMaterialStore(dependencies) {
+  if (arguments.length !== 1) throw invalid();
+  const storeMod = require('./email-luna-automation-issuance-material-store');
+  const factory = storeMod.createEmailLunaAutomationIssuanceMaterialPersistence;
+  if (typeof factory !== 'function' || runtimeIsProxy(factory) || factory.length !== 1) throw invalid();
+  const raw = factory(dependencies);
+  if (!raw || typeof raw !== 'object' || runtimeIsProxy(raw)
+      || typeof raw.persistAndEnqueueAutomationIssuance !== 'function'
+      || typeof raw.loadAutomationIssuanceMaterial !== 'function'
+      || typeof raw.assertAuthenticLoadedMaterial !== 'function'
+      || typeof raw.recoverAutomationIssuance === 'function') throw invalid();
+  const persistAndEnqueueAutomationIssuance = raw.persistAndEnqueueAutomationIssuance;
+  const loadAutomationIssuanceMaterial = raw.loadAutomationIssuanceMaterial;
+  const assertAuthenticLoadedMaterial = raw.assertAuthenticLoadedMaterial;
+  return objectFreeze({
+    persistAndEnqueueAutomationIssuance,
+    loadAutomationIssuanceMaterial,
+    recoverAutomationIssuance(input) {
+      try {
+        const request = copyExactProducerRecord(input, ['material'], Object.prototype);
+        assertAuthenticLoadedMaterial(request.material);
+        return output([
+          ['status', 'recovered'],
+          ['record', recoverFromLoadedIssuanceMaterial(request.material)],
+        ]);
+      } catch (error) {
+        issuanceMaterialInvalid(error);
+      }
+    },
+  });
+}
+
+module.exports = objectFreeze({
   createEmailLunaDraftPolicyEvidence,
   decideEmailLunaDraftPolicy,
+  issueAndDecideEmailLunaDraftPolicy,
   assertEmailLunaDraftPolicyIssuance,
+  readEmailLunaDraftPolicyIssuanceIdentity,
+  createEmailLunaAutomationIssuanceMaterialStore,
   EMAIL_LUNA_DRAFT_POLICY_HANDOFF_REASONS,
-};
+  EMAIL_LUNA_DRAFT_POLICY_VERSION,
+});

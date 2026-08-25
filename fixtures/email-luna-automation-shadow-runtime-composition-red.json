@@ -1,0 +1,38 @@
+{
+  "id": "email-luna-automation-shadow-runtime-composition.ch4b5-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B5",
+  "head_reviewed": "525d3f6580ccf1aea612485868e5f48f31a2ea3b",
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "worker_loop": true,
+  "send_permission": false,
+  "journal_terminal": false,
+  "human_comparison_bound": false,
+  "findings": [
+    {
+      "id": "no-sunset-shadow-runtime-composition",
+      "severity": "blocking",
+      "red": "On 525d3f65, B2/B3/B4 exist as import-inert owners with no canonical Staff API lifecycle. There is no default-off Sunset-only composition that binds exact independent flags plus tenant/location/endpoint/environment gates, concurrency=1, bounded interval, and explicit start/stop.",
+      "green": "One Staff API-owned Sunset-staging composition wraps B2+B3+B4. RUNTIME_WIRED is true only for composition code. Activation remains default-off. Import/create is inert. Explicit start/stop only. Exact-string flags cannot be substituted by producer/draft/provider flags."
+    },
+    {
+      "id": "provider-or-partial-flag-activation",
+      "severity": "blocking",
+      "red": "A generic truthy coerce, partial flag set, wrong deployment/location/endpoint, or injected Graph/SMTP/nodemailer/callback/authorize_dispatch could start a loop or treat shadow as send.",
+      "green": "All required flags are independent exact 'true'. Wrong deployment/location/endpoint, partial sets, auto-send, and injected provider/send/callback fail closed. Staff/manual EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED is not a shadow-runtime refusal. No journal handoff. Concurrency=1. Graceful shutdown drains the in-flight tick."
+    },
+    {
+      "id": "no-controlled-comparison-preflight",
+      "severity": "blocking",
+      "red": "An operator cannot confirm 093/094/principal readiness, exact flags, endpoint binding, zero provider capability, or safe comparison labels before later activation without applying migration or starting runtime.",
+      "green": "A read-only preflight/CLI reports migration/principal files, optional schema inspection, exact flags, binding, zero provider capability, and staff_action_observed identity wording. It never applies migration, provisions roles, starts runtime, or sends."
+    },
+    {
+      "id": "unsafe-agreement-wording",
+      "severity": "blocking",
+      "red": "093 later-match projects a unique 070 approved|terminal exact inbound match as agreement even though 070 does not prove provider sent, same Luna draft, or same recipient. Runtime/UI could call that staff sent Luna's mail.",
+      "green": "094 and staff-facing output label the unique identity match staff_action_observed / inbound_workflow_identity. Stored capture stays pending_human. Pending/duplicate/rebound semantics are preserved. Disagreement remains ungrounded. agreement is rejected at read time."
+    }
+  ]
+}

@@ -46,6 +46,9 @@ var INBOX_ROWS_CSS = [
   '#tab-conversations[data-inbox-multiselect="false"] .inbox-row-select,',
   '#inbox-shell .inbox-row-select,',
   '#tab-conversations .inbox-row-select{display:none!important}',
+  /* Needs-human attention: same orange as .inbox-needs-human-raise.is-on */
+  '.conv-card.inbox-row-needs-human .inbox-channel-badge{color:#E8893A}',
+  '.conv-card.inbox-row-needs-human .inbox-channel-badge svg{stroke:currentColor}',
 ].join('');
 
 var inboxRowsRuntime = { wired: false };
@@ -220,6 +223,7 @@ function inboxRowsWrapConvCardHtml(html, row) {
   var extras = ' inbox-row';
   if (unread) extras += ' inbox-row-unread';
   if (multi) extras += ' inbox-row-multiselect';
+  if (row && row.needs_human === true) extras += ' inbox-row-needs-human';
   var newOpen = open.replace(/class="([^"]*)"/, 'class="$1' + extras + '"');
   if (key && newOpen.indexOf('data-inbox-row-key=') < 0) {
     newOpen = newOpen.replace(/<div\b/, '<div data-inbox-row-key="' + inboxRowsEsc(key) + '"');

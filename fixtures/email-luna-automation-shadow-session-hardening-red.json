@@ -1,0 +1,44 @@
+{
+  "id": "email-luna-automation-shadow-session-hardening.ch4b7-red.v1",
+  "slice": "FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice B7",
+  "head_reviewed": "9239b83cb7b85f75c78c143d3f0a03a7bf76feb6",
+  "pr_reviewed": 705,
+  "severity": "blocking",
+  "provider_transition": false,
+  "runtime_activation": false,
+  "activation_authorized": false,
+  "send_permission": false,
+  "journal_terminal": false,
+  "findings": [
+    {
+      "id": "M1-dsn-identity-not-libpq",
+      "severity": "medium",
+      "red": "parseDsnIdentity is not full pg/libpq identity. Username comparison is case-sensitive. Worker URL query user, options, and role can defeat the pre-connect distinctness check. Duplicate/encoded overlay keys are ignored.",
+      "green": "Worker DSNs with query/session role overlays (user, username, role, options, session_authorization, encoded/duplicate) are rejected. Usernames compare case-insensitively. App DSN host/port/query variants fail closed when they name the same login. Pre-connect comparison is not live session proof."
+    },
+    {
+      "id": "M2-live-session-mapping-unproven",
+      "severity": "medium",
+      "red": "verifySchema and preflight only compare session_user to table_owner. SET ROLE overlay, unmapped worker, wrong tenant/location mapping, and missing 095 EXECUTE can still start. Preflight query injection can claim ok:true without a dedicated connection authenticity marker.",
+      "green": "Runtime verifySchema and operator preflight prove session_user=current_user, non-owner, exact worker mapping for Sunset client/location/location_key, 095 EXECUTE, and 094/095 contracts on the dedicated worker session. Staff API operator preflight constructs/uses that connection. Unit-test query injection is explicit and impossible in the production operator API."
+    },
+    {
+      "id": "M3-unbounded-shutdown",
+      "severity": "medium",
+      "red": "drainStaffApiEmailRuntimes runs runtime.stop and connection.close in parallel. pool.end() is unbounded if a client is checked out. No idle pool error handler, so idle errors can crash the process.",
+      "green": "Stop is awaited first (existing 5s bound), then close with its own bounded timeout. Close timeout force-closes remaining clients when supported. Idle pool errors record only a generic readiness failure and do not crash. Credentials and error text never leak. Double shutdown is idempotent."
+    },
+    {
+      "id": "L1-proxy-getter-rows",
+      "severity": "low",
+      "red": "Preflight inspect reads row fields by property access, so a Proxy or getter can forge ok:true.",
+      "green": "Inspect copies/validates plain own scalar values into a null-prototype structure and rejects getters, proxies, and non-plain rows."
+    },
+    {
+      "id": "L2-worker-088-unscoped-execute",
+      "severity": "low",
+      "red": "Canonical worker principals still receive EXECUTE on 088 unscoped claim. B6 Sunset runtime uses only 095 scoped claim.",
+      "green": "Existing canonical queue workers still require 088 unscoped EXECUTE (queue store claimAutomationOperation, journal, issuance). Sunset shadow runtime cannot call it: kernel uses only claimScopedAutomationOperation. Documented on the principal contract. Do not revoke 088 from all workers."
+    }
+  ]
+}

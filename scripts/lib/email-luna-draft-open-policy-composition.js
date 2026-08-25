@@ -12,8 +12,7 @@
 const util = require('node:util');
 const { createEmailLunaDraftEnvelope } = require('./email-luna-draft-handoff-contract');
 const {
-  createEmailLunaDraftPolicyEvidence,
-  decideEmailLunaDraftPolicy,
+  issueAndDecideEmailLunaDraftPolicy,
 } = require('./email-luna-draft-policy');
 const { createEmailLunaGroundedTools } = require('./email-luna-grounded-tools');
 
@@ -157,12 +156,14 @@ function snapshotClassifier(raw, authority, language) {
     client_id: authority.client_id,
     location_id: authority.location_id,
     conversation_id: authority.conversation_id,
+    endpoint_id: authority.endpoint_id,
     language: lang,
     identity,
     intent,
     intent_support: intentSupport,
     requested_location_id: typeof requested === 'string' && requested ? requested : authority.location_id,
     explicit_human_request: ownData(raw, 'explicit_human_request') === true,
+    attachment_interpretation_required: ownData(raw, 'attachment_interpretation_required') === true,
     unsafe_transactional_request: ownData(raw, 'unsafe_transactional_request') === true,
     required_facts: requiredFacts,
   };
@@ -245,21 +246,27 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
     let evidence;
     let decision;
     try {
-      evidence = createEmailLunaDraftPolicyEvidence({
-        client_id: classified.client_id,
-        location_id: classified.location_id,
-        conversation_id: classified.conversation_id,
-        language: classified.language,
-        identity: classified.identity,
-        intent: classified.intent,
-        intent_support: classified.intent_support,
-        requested_location_id: classified.requested_location_id,
-        explicit_human_request: classified.explicit_human_request,
-        unsafe_transactional_request: classified.unsafe_transactional_request,
-        required_facts: classified.required_facts,
-        grounded_results: groundedResults,
+      const issued = issueAndDecideEmailLunaDraftPolicy({
+        envelope,
+        evidence: {
+          client_id: classified.client_id,
+          location_id: classified.location_id,
+          conversation_id: classified.conversation_id,
+          endpoint_id: classified.endpoint_id,
+          language: classified.language,
+          identity: classified.identity,
+          intent: classified.intent,
+          intent_support: classified.intent_support,
+          requested_location_id: classified.requested_location_id,
+          explicit_human_request: classified.explicit_human_request,
+          attachment_interpretation_required: classified.attachment_interpretation_required,
+          unsafe_transactional_request: classified.unsafe_transactional_request,
+          required_facts: classified.required_facts,
+          grounded_results: groundedResults,
+        },
       });
-      decision = decideEmailLunaDraftPolicy({ envelope, evidence });
+      evidence = issued.evidence;
+      decision = issued.decision;
     } catch {
       return safeDraft(classified.language, 'uncertain_intent');
     }

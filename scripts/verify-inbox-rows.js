@@ -244,6 +244,11 @@ ok('rows module owns the Needs human chip rewrite (inbox-thread untouched)',
   && rowsSrc.includes("inbox.detail.needsHuman.raise")
   && rowsSrc.includes('inboxRowsRewriteNeedsHumanChip(String(html || \'\'), row)')
   && !threadSrc.includes('function inboxRowsRewriteNeedsHumanChip('));
+ok('needs_human rows color the channel icon with Luna attention orange',
+  rowsSrc.includes('inbox-row-needs-human')
+  && rowsSrc.includes('#E8893A')
+  && /inbox-row-needs-human[^}]*inbox-channel-badge\{color:#E8893A\}/.test(rowsSrc.replace(/\s+/g, ''))
+  && !threadSrc.includes('inbox-row-needs-human'));
 ok('label uses existing Needs human raise key (not invented ES strings)',
   rowsSrc.includes("'inbox.detail.needsHuman.raise'")
   && rowsSrc.includes("'inbox.detail.meta.needsStaffReply'")
@@ -259,6 +264,9 @@ ok('label uses existing Needs human raise key (not invented ES strings)',
     flagged.includes('<div class="conv-card-handoff">Needs human</div>')
     && !flagged.includes('Needs staff reply')
     && flagged.includes('inbox-row-avatar'));
+  ok('needs_human row marks channel icon attention class',
+    flagged.includes('inbox-row-needs-human')
+    && /class="[^"]*inbox-row-needs-human/.test(flagged));
   const viaRender = sandbox.renderInboxConvCardHtml({
     conversation_id: 'tw2',
     guest_name: 'Tyler Woods',
@@ -268,6 +276,9 @@ ok('label uses existing Needs human raise key (not invented ES strings)',
   ok('wrapped renderer rewrites staff-reply chip on needs_human rows',
     viaRender.includes('<div class="conv-card-handoff">Needs human</div>')
     && !viaRender.includes('Needs staff reply'));
+  ok('wrapped renderer oranges channel icon via inbox-row-needs-human',
+    viaRender.includes('inbox-row-needs-human')
+    && viaRender.includes('inbox-channel-badge'));
 }
 {
   const plain = fns.wrapConvCardHtml(
@@ -278,6 +289,8 @@ ok('label uses existing Needs human raise key (not invented ES strings)',
   ok('unflagged rows leave the staff-reply chip alone',
     plain.includes('<div class="conv-card-handoff">Needs staff reply</div>')
     && !plain.includes('>Needs human</div>'));
+  ok('unflagged rows keep default channel icon (no needs-human attention class)',
+    !plain.includes('inbox-row-needs-human'));
   const otherReason = fns.wrapConvCardHtml(
     '<div class="conv-card" data-id="c5"><div class="conv-card-name">Ana</div>' +
       '<div class="conv-card-handoff">Payment question</div></div>',
@@ -286,6 +299,8 @@ ok('label uses existing Needs human raise key (not invented ES strings)',
   ok('other handoff reasons are not rewritten even when needs_human',
     otherReason.includes('<div class="conv-card-handoff">Payment question</div>')
     && !otherReason.includes('Needs human'));
+  ok('needs_human still oranges the channel icon when handoff reason is custom',
+    otherReason.includes('inbox-row-needs-human'));
 }
 {
   const esSandbox = {

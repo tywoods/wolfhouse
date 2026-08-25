@@ -457,7 +457,7 @@ async function buildWolfhouseBookingCreateCommand(opts) {
     add_ons: addOns,
     manual_price_per_night_cents: manualPricePerNightCents,
     uses_per_guest_deposits: usesPerGuestModel,
-  });
+  }, opts.quoteConfig);
   if (!quote.success || quote.blockers.length > 0) {
     return fail(400, 'quote_failed', 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
   }

@@ -3,7 +3,10 @@
 const assert = require('assert/strict');
 const nativeCrypto = require('crypto');
 const { EventEmitter } = require('events');
-const { createMicrosoftOidcJwksSignatureVerifier } = require('./lib/email-microsoft-oidc-jwks-verifier');
+const {
+  createMicrosoftOidcJwksSignatureVerifier,
+  isCanonicalMicrosoftOidcJwksSignatureVerifier,
+} = require('./lib/email-microsoft-oidc-jwks-verifier');
 const { createMicrosoftOidcIdTokenValidator } = require('./lib/email-microsoft-oidc-id-token');
 
 const FAILURE_CODE = 'MICROSOFT_OIDC_JWKS_VERIFICATION_FAILED';
@@ -173,6 +176,30 @@ const tests = [];
 function test(name, run) {
   tests.push({ name, run });
 }
+
+test('brands canonical instances and refuses structural/proxy/clone/spread forgeries', async function checksCanonicalBrand() {
+  const harness = makeHarness();
+  const verifier = createMicrosoftOidcJwksSignatureVerifier(harness.dependencies);
+  assert.equal(isCanonicalMicrosoftOidcJwksSignatureVerifier(verifier), true);
+  assert.equal(isCanonicalMicrosoftOidcJwksSignatureVerifier(Object.freeze({
+    async verify() { return Object.seal({ verified: true }); },
+  })), false);
+  assert.equal(isCanonicalMicrosoftOidcJwksSignatureVerifier({ ...verifier }), false);
+  assert.equal(isCanonicalMicrosoftOidcJwksSignatureVerifier(Object.assign({}, verifier)), false);
+  assert.equal(isCanonicalMicrosoftOidcJwksSignatureVerifier(
+    new Proxy(verifier, { get(target, prop) { return target[prop]; } }),
+  ), false);
+  const getter = {};
+  Object.defineProperty(getter, 'verify', {
+    get() { return verifier.verify; },
+    enumerable: true,
+  });
+  assert.equal(isCanonicalMicrosoftOidcJwksSignatureVerifier(Object.freeze(getter)), false);
+  assert.equal(isCanonicalMicrosoftOidcJwksSignatureVerifier({
+    verify: verifier.verify,
+    extra: true,
+  }), false);
+});
 
 test('accepts a generated RSA signature and returns an exact sealed acknowledgement', async function acceptsSignature() {
   const { harness, result } = await verifyWith({});

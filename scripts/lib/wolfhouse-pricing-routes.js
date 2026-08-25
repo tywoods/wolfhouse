@@ -147,6 +147,11 @@ function createWolfhousePricingRoutes(deps) {
       overlay = await withPgClient(async (pg) => {
         await ensureTablesOnce(pg);
         const slug = resolve.WH_PRICING_CLIENT_SLUG;
+        try {
+          await store.promoteConfigCatalogToStaffItems(pg, config, null);
+        } catch (promoErr) {
+          console.error('[wh.pricing] catalog promote failed:', promoErr && promoErr.message);
+        }
         return {
           seasons: await store.loadSeasons(pg, slug),
           rules: await store.loadRules(pg, slug),
