@@ -1423,6 +1423,26 @@
       "rationale": "Intentionally irreversible fail-closed rollback. Exact pre-096 ACL/default-ACL state was not captured; broad PUBLIC EXECUTE restore would be unsafe. Performs no GRANT/REVOKE/ALTER DEFAULT PRIVILEGES. Paired down remains for canonical manifest conventions. Repeat refusal is safe.",
       "pairsWith": "096_tenant_email_luna_automation_public_execute.sql",
       "sha256": "693bb5e4e49016b4ac04c63977a494b3468953e453b1b9e4153b1a8d41bee6ee"
+    },
+    {
+      "id": "097_tenant_email_luna_controlled_draft_operations",
+      "filename": "097_tenant_email_luna_controlled_draft_operations.sql",
+      "order": 93,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 2: dedicated controlled provider-draft operation table plus append-only transition journal. One row per authentic Stage 1 issuance/operation. States are reserved / create_dispatched_outcome_unknown / provider_draft_reconciled_exact / modified_by_staff / removed_by_staff / provider_mismatch_blocked. At most one create-dispatch claim. No send phase, send counter, send authorization, or outbound journal handoff. Trusted scope is loaded from 092/086/082/063. No GRANT/CREATE ROLE.",
+      "downFilename": "097_tenant_email_luna_controlled_draft_operations_down.sql",
+      "sha256": "e36e2028eaf6d473e399a2326b988c40aad55e58d5f8fb6cfec35f96acfbfb62"
+    },
+    {
+      "id": "097_tenant_email_luna_controlled_draft_operations_down",
+      "filename": "097_tenant_email_luna_controlled_draft_operations_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while controlled-draft operation or transition rows exist; otherwise drops 097 functions/tables and the inbound identity unique added for this slice. ACCESS EXCLUSIVE lock order is parent operations then child transitions before emptiness checks (matches producer reserve / worker claim; avoids 40P01). Second empty execution is safe. Does not drop Stage 1 or send-journal objects.",
+      "pairsWith": "097_tenant_email_luna_controlled_draft_operations.sql",
+      "sha256": "1c4feae3e7eb11b3e1ab82e90f55f5e6274f26e47fe720d28eda80848c41964a"
     }
   ]
 }

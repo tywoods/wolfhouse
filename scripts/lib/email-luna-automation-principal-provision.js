@@ -26,6 +26,9 @@ const QUEUE_TABLE = 'tenant_email_luna_automation_queue';
 const JOURNAL_TABLE = 'tenant_email_outbound_send_journal';
 const PRINCIPAL_TABLE = 'tenant_email_luna_automation_principals';
 const MATERIAL_TABLE = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_table;
+const CONTROLLED_DRAFT_TABLE = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_table;
+const CONTROLLED_DRAFT_HISTORY_TABLE = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_history_table;
+const CONTROLLED_DRAFT_TABLE_DENIED = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_table_denied;
 const INJECT_STEPS = Object.freeze(['create_role', 'grants', 'mapping', 'final_audit']);
 const IDENTITY_SQL = 'SELECT current_database() AS database, session_user AS session_user';
 const CREATE_ROLE_SQL_RE = /\bCREATE\s+ROLE\b/i;
@@ -711,6 +714,15 @@ async function provisionInTransaction(query, parsed) {
        AND c.relkind = 'r'
   `, [MATERIAL_TABLE]) : [];
   const materialTablePresent = materialTableRows.length === 1;
+  const controlledDraftTableRows = CONTROLLED_DRAFT_TABLE ? await readRows(query, `
+    SELECT 1 AS ok
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public'
+       AND c.relname = $1
+       AND c.relkind = 'r'
+  `, [CONTROLLED_DRAFT_TABLE]) : [];
+  const controlledDraftTablesPresent = controlledDraftTableRows.length === 1;
 
   let allowedSignatures = [...executeFunctionsFor(parsed.kind)];
   let optionalGrantNames = [];
@@ -720,9 +732,11 @@ async function provisionInTransaction(query, parsed) {
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_execute_functions,
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.shadow_outcome_worker_execute_functions || []),
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.scoped_claim_worker_execute_functions || []),
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_worker_execute_functions || []),
     ];
     optionalDenyNames = [
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_worker_denied_execute_functions,
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_worker_denied_execute_functions || []),
     ];
     if (materialTablePresent) {
       const enqueueSig = FUNCTION_SIGNATURES.tenant_email_luna_automation_enqueue;
@@ -732,11 +746,14 @@ async function provisionInTransaction(query, parsed) {
       );
     }
   } else if (parsed.kind === 'producer') {
-    optionalGrantNames = [];
+    optionalGrantNames = [
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_producer_execute_functions || []),
+    ];
     optionalDenyNames = [
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_producer_denied_execute_functions,
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.shadow_outcome_producer_denied_execute_functions || []),
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.scoped_claim_worker_execute_functions || []),
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_producer_denied_execute_functions || []),
     ];
   } else {
     optionalGrantNames = [];
@@ -745,6 +762,8 @@ async function provisionInTransaction(query, parsed) {
       ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.issuance_material_producer_execute_functions,
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.shadow_outcome_worker_execute_functions || []),
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.scoped_claim_worker_execute_functions || []),
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_worker_execute_functions || []),
+      ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_producer_execute_functions || []),
     ];
   }
   const allowedFunctionOids = await resolveFunctionOids(query, allowedSignatures);
@@ -839,6 +858,14 @@ async function provisionInTransaction(query, parsed) {
     revokeSql.push(`REVOKE ${privilege} ON TABLE public.${PRINCIPAL_TABLE} FROM ${roleIdent}`);
     if (materialTablePresent) {
       revokeSql.push(`REVOKE ${privilege} ON TABLE public.${MATERIAL_TABLE} FROM ${roleIdent}`);
+    }
+  }
+  if (controlledDraftTablesPresent) {
+    for (const privilege of (CONTROLLED_DRAFT_TABLE_DENIED || TABLE_DENIED)) {
+      revokeSql.push(`REVOKE ${privilege} ON TABLE public.${CONTROLLED_DRAFT_TABLE} FROM ${roleIdent}`);
+      if (CONTROLLED_DRAFT_HISTORY_TABLE) {
+        revokeSql.push(`REVOKE ${privilege} ON TABLE public.${CONTROLLED_DRAFT_HISTORY_TABLE} FROM ${roleIdent}`);
+      }
     }
   }
   revokeSql.push(`REVOKE SELECT ON TABLE public.${JOURNAL_TABLE} FROM ${roleIdent}`);
