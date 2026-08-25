@@ -492,6 +492,13 @@ ok('promoted rental titles have no underscores',
 ok('promoted wetsuit still prices per day at the live amount',
   viewPromoted.rentals.find((r) => r.code === 'wetsuit_rental').durations[0].amount_cents === 500);
 
+const overlayCfg = resolve.applyOverlayRentalPricesToConfig(config, [{
+  item_type: 'rental', item_code: 'wetsuit_rental__1_day', amount_cents: 777, active: true,
+}]);
+ok('overlay rental prices win over JSON add-on cents',
+  overlayCfg.add_ons.wetsuit_rental.price_cents === 777
+  && config.add_ons.wetsuit_rental.price_cents === 500);
+
 ok('services appear with their unit',
   view.services.find((s) => s.code === 'yoga_class').price.unit === 'per_class');
 

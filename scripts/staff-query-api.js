@@ -186,6 +186,8 @@ const {
 const {
   createWolfhousePricingRoutes,
 } = require('./lib/wolfhouse-pricing-routes');
+const wolfhousePricingStore = require('./lib/wolfhouse-pricing-store');
+const { applyOverlayRentalPricesToConfig } = require('./lib/wolfhouse-pricing-resolve');
 const {
   getHouseNotes: getTenantHouseNotes,
   setHouseNotes: setTenantHouseNotes,
@@ -762,6 +764,7 @@ const { loadLockedState, createSyncScheduler, runConnectionSync } = require('./l
 const { fetchSheetRows } = require('./lib/external-calendar-inventory-sheets');
 const {
   calculateWolfhouseQuote,
+  loadConfig,
 } = require('./lib/wolfhouse-quote-calculator');
 const {
   executeWolfhouseAccommodationQuote,
@@ -10033,13 +10036,27 @@ async function handleBookingRemoveService(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Route: POST /staff/quote-preview  (Stage 8.4.4 — pure quote preview, no DB)
+// Route: POST /staff/quote-preview  (Stage 8.4.4 — quote preview, no writes)
 //
-// Calls calculateWolfhouseQuote() with the request body. No DB reads or writes.
-// No Stripe. No WhatsApp. No n8n.
+// Calls calculateWolfhouseQuote() with the request body. Overlay rental prices
+// from Admin Pricing are applied when readable; otherwise JSON config.
+// No Stripe. No WhatsApp. No n8n. No booking writes.
 // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
 // Requires auth (viewer+ when STAFF_AUTH_REQUIRED=true).
 // ─────────────────────────────────────────────────────────────────────────────
+
+async function loadWolfhouseQuoteConfigWithOverlay() {
+  const base = loadConfig();
+  try {
+    return await withPgClient(async (pg) => {
+      await wolfhousePricingStore.ensureWolfhousePricingTables(pg);
+      const rules = await wolfhousePricingStore.loadRules(pg, 'wolfhouse-somo');
+      return applyOverlayRentalPricesToConfig(base, rules);
+    });
+  } catch (_err) {
+    return base;
+  }
+}
 
 async function handleQuotePreview(req, res, user) {
   const started = Date.now();
@@ -10097,6 +10114,7 @@ async function handleQuotePreview(req, res, user) {
   const actorRole = user ? user.role          : 'viewer';
 
   let quote;
+  const quoteConfig = await loadWolfhouseQuoteConfigWithOverlay();
   const quoteResult = executeWolfhouseAccommodationQuote({
     client_slug: clientSlug,
     check_in: checkIn,
@@ -10109,7 +10127,7 @@ async function handleQuotePreview(req, res, user) {
     payment_choice: paymentChoice,
     add_ons: addOns,
     manual_price_per_night_cents: manualPricePerNightCents,
-  });
+  }, { config: quoteConfig });
   if (quoteResult.status === 400 && quoteResult.body && quoteResult.body.package_night_violation) {
     const packageNightCheck = quoteResult.body.package_night_violation;
     appendAuditLog({
@@ -15712,6 +15730,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       transportBody: body,
       actorHints: { staff_user_id: actorId, staff_role: actorRole, source },
       pgClient: pg,
+      quoteConfig: await loadWolfhouseQuoteConfigWithOverlay(),
     }));
   } catch (err) {
     appendAuditLog({
@@ -15925,6 +15944,7 @@ async function handleManualBookingCreate(req, res, user) {
       trustedClientSlug: clientSlug,
       transportBody: body,
       actorHints: { staff_user_id: actorId, staff_role: actorRole, email: user && user.email },
+      quoteConfig: await loadWolfhouseQuoteConfigWithOverlay(),
     });
   } catch (err) {
     appendAuditLog({

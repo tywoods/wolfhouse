@@ -530,6 +530,25 @@ function listConfigRentalSeeds(config) {
   return out;
 }
 
+function applyOverlayRentalPricesToConfig(config, dbRules) {
+  const next = config && typeof config === 'object'
+    ? JSON.parse(JSON.stringify(config))
+    : { add_ons: {} };
+  if (!next.add_ons || typeof next.add_ons !== 'object') next.add_ons = {};
+  for (const rule of (Array.isArray(dbRules) ? dbRules : [])) {
+    if (!rule || rule.item_type !== 'rental' || rule.active === false) continue;
+    const cents = Number(rule.amount_cents);
+    if (!Number.isFinite(cents)) continue;
+    const offering = splitRentalCode(rule.item_code).offering;
+    if (!offering || !next.add_ons[offering]) continue;
+    next.add_ons[offering] = Object.assign({}, next.add_ons[offering], {
+      price_cents: cents,
+      _eur: cents / 100,
+    });
+  }
+  return next;
+}
+
 module.exports = {
   WH_PRICING_CLIENT_SLUG,
   splitRentalCode,
@@ -540,6 +559,7 @@ module.exports = {
   DEFAULT_RENTAL_DURATION,
   listConfigRentalSeeds,
   rentalTitleFromAddon,
+  applyOverlayRentalPricesToConfig,
   daysInMonth,
   monthDayOrdinal,
   seasonRangeCoversMonthDay,
