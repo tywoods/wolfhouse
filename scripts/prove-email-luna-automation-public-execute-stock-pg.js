@@ -15,7 +15,9 @@ const { execFileSync } = require('node:child_process');
 const {
   applyThrough095,
   provePublicExecuteOnDatabase,
+  proveNonSuperuserPgcryptoResidual,
   isDownRefused,
+  isResidualRefuse,
   UP,
   DOWN,
 } = require('./prove-email-luna-automation-public-execute-pglite');
@@ -101,14 +103,16 @@ async function main() {
     password,
     database: 'postgres',
   });
-  let proof = null;
+  const clients = [];
   try {
     await cluster.initialise();
     await cluster.start();
     started = true;
     await admin.connect();
     await admin.query('CREATE DATABASE ch4c1_public_execute');
-    proof = new Client({
+    await admin.query('CREATE DATABASE ch4c1_pgcrypto_residual');
+    await admin.query('CREATE DATABASE ch4c1_pgcrypto_wrongver');
+    const proof = new Client({
       host: '127.0.0.1',
       port,
       user: 'postgres',
@@ -116,7 +120,28 @@ async function main() {
       database: 'ch4c1_public_execute',
     });
     await proof.connect();
+    clients.push(proof);
+    const residual = new Client({
+      host: '127.0.0.1',
+      port,
+      user: 'postgres',
+      password,
+      database: 'ch4c1_pgcrypto_residual',
+    });
+    await residual.connect();
+    clients.push(residual);
+    const wrongver = new Client({
+      host: '127.0.0.1',
+      port,
+      user: 'postgres',
+      password,
+      database: 'ch4c1_pgcrypto_wrongver',
+    });
+    await wrongver.connect();
+    clients.push(wrongver);
     const db = wrapClient(proof);
+    const residualDb = wrapClient(residual);
+    const wrongverDb = wrapClient(wrongver);
     const empty = wrapClient(admin);
 
     await assert.rejects(
@@ -136,9 +161,34 @@ async function main() {
     assert.equal(identity.rows[0].database, 'ch4c1_public_execute');
     assert.equal(identity.rows[0].session_user, 'postgres');
     assert.equal(/sunset_staging|wolfhouse_prod/.test(identity.rows[0].database), false);
+
+    await proveNonSuperuserPgcryptoResidual(residualDb, {
+      realPgcrypto: true,
+      expectDefaultPrivileges: true,
+    });
+
+    await wrongverDb.exec('GRANT USAGE, CREATE ON SCHEMA public TO luna_ch4c1_appowner');
+    await wrongverDb.exec('SET SESSION AUTHORIZATION luna_ch4c1_appowner');
+    await applyThrough095(wrongverDb);
+    await wrongverDb.exec('SET SESSION AUTHORIZATION postgres');
+    await wrongverDb.exec('CREATE EXTENSION pgcrypto');
+    const installed = await wrongver.query('SELECT extversion FROM pg_catalog.pg_extension WHERE extname = \'pgcrypto\'');
+    const defaultVersion = installed.rows[0] && installed.rows[0].extversion;
+    if (defaultVersion && defaultVersion !== '1.3') {
+      await wrongverDb.exec('SET SESSION AUTHORIZATION luna_ch4c1_appowner');
+      await assert.rejects(() => wrongverDb.exec(UP), isResidualRefuse);
+      try { await wrongverDb.exec('ROLLBACK'); } catch (_) { /* ignore */ }
+      await wrongverDb.exec('SET SESSION AUTHORIZATION postgres');
+      console.log(`ok - GREEN default pgcrypto ${defaultVersion} residual fail-closes (not pinned 1.3)`);
+    } else {
+      console.log(`ok - default pgcrypto is ${defaultVersion || 'absent'}; wrong-version gate uses 1.3 pin in residual db`);
+    }
+
     console.log(`ALL OK — FULL SAIL Stage 1 NIGHTWATCH Ch4 Slice C1 public EXECUTE stock-PG (${dataDir} port ${port})`);
   } finally {
-    try { if (proof) await proof.end(); } catch (_) { /* ignore */ }
+    for (const client of clients) {
+      try { await client.end(); } catch (_) { /* ignore */ }
+    }
     try { await admin.end(); } catch (_) { /* ignore */ }
     if (started) {
       try { await cluster.stop(); } catch (_) { /* ignore */ }

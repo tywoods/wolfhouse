@@ -4,6 +4,10 @@ const { EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT } = require('./email-luna-aut
 const { EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT } = require('./email-luna-automation-journal-handoff-store');
 const { EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT } = require('./email-luna-automation-issuance-material-store');
 const { EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT } = require('./email-luna-automation-shadow-outcome-store');
+const {
+  PGCRYPTO_1_3_RESIDUAL,
+  PGCRYPTO_1_3_SIGNATURES,
+} = require('./email-luna-automation-pgcrypto-residual-contract');
 
 const objectFreeze = Object.freeze;
 
@@ -179,8 +183,17 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   }),
   ambient_public_schema_create: 'rejected_on_every_accessible_schema',
   ambient_public_schema_usage: 'public_required',
-  ambient_callable_functions: 'exact_luna_oids_only',
-  ambient_extension_execute_allowlist: objectFreeze([]),
+  ambient_callable_functions: 'exact_luna_oids_plus_frozen_pgcrypto_1_3_residual',
+  ambient_extension_execute_allowlist: PGCRYPTO_1_3_SIGNATURES,
+  ambient_pgcrypto_residual: PGCRYPTO_1_3_RESIDUAL,
+  worker_pgcrypto_residual_capability: objectFreeze({
+    disclose: true,
+    computationalOnly: true,
+    databaseRead: false,
+    databaseWrite: false,
+    grantedBy: 'ambient_public_catalog_proven_pgcrypto_1_3_only',
+    notAGrant: true,
+  }),
   pglite_create_role_transactional: 'not_the_stock_pg_contract_prove_on_stock_pg',
   pglite_pg_shdepend: 'populated_for_acl_and_owner_keep_stock_pg_sql_exact',
   forbidden_databases: FORBIDDEN_DATABASE_NAMES,
@@ -295,6 +308,8 @@ function deniedExecuteFunctionsFor(kind) {
 
 module.exports = {
   EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT,
+  PGCRYPTO_1_3_RESIDUAL,
+  PGCRYPTO_1_3_SIGNATURES,
   ROLE_ATTRIBUTES,
   ROLE_NAME_RE,
   RESERVED_ROLE_NAMES,
