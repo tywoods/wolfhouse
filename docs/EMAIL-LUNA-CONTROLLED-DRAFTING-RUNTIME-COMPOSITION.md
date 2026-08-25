@@ -16,7 +16,7 @@ Canonical owners remain:
 - Chapter 1 closed provider (`attest`, `createReplyDraft`, `reconcileDraft`)
 - Chapter 2 operation store (producer reserve, worker claim/record/reconcile)
 
-This package is a small factory plus a worker-tick API. Producer and worker `withTransactionClient` functions stay distinct principals. Each store transition uses one pinned Chapter 2 transaction. The provider is never the Gate 3 Graph adapter; send/sendMail/raw token/fetch/request are not reachable.
+This package is a small factory plus a worker-tick API. Producer and worker `withTransactionClient` functions are capability-split facades (producer: reserve/load; worker: load/claim/record/reconcile). Identical references, aliases of a shared store, swapped brands, table-owner, operator, and unmapped sessions are refused via branded loaners plus canonical `session_user` principal attestation. Each store transition uses one pinned Chapter 2 transaction. The provider is never the Gate 3 Graph adapter; send/sendMail/raw token/fetch/request are not reachable.
 
 Default is fail-closed and disabled. Activation requires the exact string `true` on the composition flag plus exact Sunset tenant, location, mailbox, endpoint, and `microsoft_graph`. Wolfhouse, production, default, and flag substitutes are refused. `LUNA_AUTO_SEND_ENABLED` remains a hard refusal.
 
@@ -27,7 +27,8 @@ Microsoft Graph `createReply` (`POST /v1.0/users/{mailbox}/messages/{id}/createR
 - is **not** idempotent; each POST creates a new draft
 - `client-request-id` is correlation, not an idempotency key
 - clients cannot assign the Graph message `id`
-- Chapter 1 `reconcileDraft` is GET by `provider_draft_id` only (`$select=id,isDraft` plus optional classified observation of a known id)
+- Chapter 1 `reconcileDraft` is GET by `provider_draft_id` only (`$select=id,isDraft,subject,body,toRecipients,conversationId`); missing required observations never become exact
+- Chapter 1 create is POST createReply → PATCH → GET before any exact acknowledgement
 - Chapter 1 has no list, search, or `$filter` surface
 
 A createReply response lost before the draft id is persisted therefore **cannot** be observed with the real Chapter 1 capability. This chapter does not invent a search API and does not treat fake-transport replay as live Graph at-most-once.

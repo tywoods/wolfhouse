@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { EventEmitter } = require('node:events');
 const {
   ERROR_CODE,
   ERROR_MESSAGE,
@@ -27,11 +28,15 @@ const {
   EMAIL_MS_CONTROLLED_DRAFTING_PROVIDER_FACTS,
   createEmailLunaControlledDraftingProvider,
   createEmailLunaControlledDraftingFakeTransport,
+  createEmailLunaControlledDraftingGraphDraftTransport,
   pickEmailLunaControlledDraftingTransportMethods,
   resolveControlledDraftingGraphCall,
+  buildControlledDraftingGetPath,
   validateControlledDraftingScopeProfile,
   validateControlledDraftingTokenResponseScope,
   attestEmailLunaControlledDraftingCapabilities,
+  EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT,
+  readControlledDraftingKnownCreateDraftId,
 } = require('./lib/email-luna-controlled-drafting-provider-contract');
 const contractModule = require('./lib/email-luna-controlled-drafting-provider-contract');
 const {
@@ -48,6 +53,9 @@ const {
   REPLY_DRAFT_METHOD_KEYS,
   createMicrosoftGraphReplyDraftTransport,
 } = require('./lib/email-microsoft-graph-reply-draft-transport');
+const {
+  mapGraphDraftObservation,
+} = require('./lib/email-luna-controlled-drafting-graph-draft-transport');
 
 const ROOT = path.join(__dirname, '..');
 const LIB_ABS = path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-provider-contract.js');
@@ -94,17 +102,21 @@ const EXPECTED_EXPORTS = Object.freeze([
   'EMAIL_LUNA_CONTROLLED_DRAFTING_CREATE_RESPONSE_KEYS',
   'EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_REQUEST_KEYS',
   'EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS',
+  'EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT',
   'RECONCILE_OUTCOMES',
   'EMAIL_LUNA_CONTROLLED_DRAFTING_CAPABILITY_MANIFEST',
   'EMAIL_MS_CONTROLLED_DRAFTING_SCOPE_PROFILE',
   'EMAIL_MS_CONTROLLED_DRAFTING_PROVIDER_FACTS',
   'createEmailLunaControlledDraftingProvider',
   'createEmailLunaControlledDraftingFakeTransport',
+  'createEmailLunaControlledDraftingGraphDraftTransport',
   'pickEmailLunaControlledDraftingTransportMethods',
   'resolveControlledDraftingGraphCall',
+  'buildControlledDraftingGetPath',
   'validateControlledDraftingScopeProfile',
   'validateControlledDraftingTokenResponseScope',
   'attestEmailLunaControlledDraftingCapabilities',
+  'readControlledDraftingKnownCreateDraftId',
 ]);
 
 function digest(value) {
@@ -349,9 +361,9 @@ async function main() {
   assert.equal(present.provider_draft_id, created.provider_draft_id);
   assert.deepEqual(Object.keys(present).sort(), [...EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS].sort());
   const calls = fake.getCalls();
-  assert.equal(calls.length, 2);
-  assert.equal(calls[0].operation, 'create_reply_draft');
-  assert.equal(calls[1].operation, 'reconcile_draft');
+  assert.equal(calls.filter((row) => row.operation === 'create_reply_draft').length, 1);
+  assert.equal(calls.filter((row) => row.operation === 'patch_reply_draft').length, 1);
+  assert.ok(calls.filter((row) => row.operation === 'reconcile_draft').length >= 1);
   assert.equal(Object.hasOwn(calls[0], 'subject'), false);
   assert.equal(Object.hasOwn(calls[0], 'body_text'), false);
   console.log('  PASS  fake transport allows create_reply_draft then reconcile_draft with bound identities');
@@ -379,7 +391,10 @@ async function main() {
   assert.equal(patchCall.method, 'PATCH');
   assert.equal(patchCall.path, buildMessagePath(MAILBOX, created.provider_draft_id, 'patch'));
   assert.equal(getCall.method, 'GET');
-  assert.equal(getCall.path, buildMessagePath(MAILBOX, created.provider_draft_id, 'get'));
+  assert.equal(getCall.path, buildControlledDraftingGetPath(MAILBOX, created.provider_draft_id));
+  assert.equal(EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT, 'id,isDraft,subject,body,toRecipients,conversationId');
+  assert.equal(getCall.path.includes(`$select=${EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT}`), true);
+  assert.equal(getCall.path.includes('$select=id,isDraft&') || getCall.path.endsWith('$select=id,isDraft'), false);
   const sendPath = buildMessagePath(MAILBOX, created.provider_draft_id, 'send');
   const sendMailPath = buildSendMailPath(MAILBOX);
   const allowedPaths = [createCall.path, patchCall.path, getCall.path];
@@ -486,18 +501,21 @@ async function main() {
   await expectInvalidAsync(() => provider.createReplyDraft(createRequest({
     path: '/v1.0/users/x/sendMail',
   })));
-  await expectInvalidAsync(() => provider.reconcileDraft(reconcileRequest(created.provider_draft_id, {
+  const wrongRecipient = await provider.reconcileDraft(reconcileRequest(created.provider_draft_id, {
     recipient_address: 'other@example.test',
-  })));
-  await expectInvalidAsync(() => provider.reconcileDraft(reconcileRequest(created.provider_draft_id, {
+  }));
+  assert.equal(wrongRecipient.outcome, 'draft_mismatch');
+  const wrongThread = await provider.reconcileDraft(reconcileRequest(created.provider_draft_id, {
     inbound_provider_thread_id: 'AAQk-OTHER-THREAD',
-  })));
+  }));
+  assert.equal(wrongThread.outcome, 'draft_mismatch');
   await expectInvalidAsync(() => provider.reconcileDraft(reconcileRequest(created.provider_draft_id, {
     mailbox_id: OTHER_MAILBOX,
   })));
-  await expectInvalidAsync(() => provider.reconcileDraft(reconcileRequest(created.provider_draft_id, {
+  const wrongDigest = await provider.reconcileDraft(reconcileRequest(created.provider_draft_id, {
     body_digest: digest('nope'),
-  })));
+  }));
+  assert.equal(wrongDigest.outcome, 'draft_modified');
   await expectInvalidAsync(() => provider.reconcileDraft(reconcileRequest('AAMkAGI2-MISSING')));
   console.log('  PASS  wrong tenant/location/provider/mailbox/recipient/thread/digest and extras fail closed');
 
@@ -541,6 +559,205 @@ async function main() {
   );
   assert.equal(classifiedMissing.outcome, 'draft_not_found');
   console.log('  PASS  classifying transport maps exact/modified/mismatch/not-found without a search API');
+
+  const idOnlyFake = createEmailLunaControlledDraftingFakeTransport({
+    classify: true,
+    reconcileResult: {
+      provider_draft_id: classifiedCreated.provider_draft_id,
+      is_draft: true,
+    },
+  });
+  const idOnlyProvider = createEmailLunaControlledDraftingProvider({
+    authority: authority(),
+    transport: pickEmailLunaControlledDraftingTransportMethods({
+      createReplyDraft: idOnlyFake.createReplyDraft,
+      reconcileDraft: idOnlyFake.reconcileDraft,
+    }),
+  });
+  const idOnlyCreated = await idOnlyProvider.createReplyDraft(createRequest());
+  const idOnlyReconcile = await idOnlyProvider.reconcileDraft(
+    reconcileRequest(idOnlyCreated.provider_draft_id),
+  );
+  assert.equal(idOnlyReconcile.outcome, 'draft_mismatch');
+  assert.notEqual(idOnlyReconcile.outcome, 'draft_present');
+  console.log('  PASS  Graph-shaped id+isDraft-only result cannot become exact');
+
+  function graphMessage(patch = {}) {
+    return {
+      id: 'AAMkAGI2-LIVE-DRAFT',
+      isDraft: true,
+      subject: SUBJECT,
+      body: { contentType: 'text', content: BODY },
+      toRecipients: [{ emailAddress: { address: RECIPIENT, name: 'Elena' } }],
+      conversationId: THREAD,
+      '@odata.context': 'https://graph.microsoft.com/v1.0/$metadata#messages/$entity',
+      ...patch,
+    };
+  }
+  function mockHttps(handler) {
+    const captured = [];
+    function request(options, onResponse) {
+      captured.push({
+        method: options.method,
+        path: options.path,
+        hostname: options.hostname,
+        headers: options.headers,
+      });
+      const planned = handler.next ? handler.next(options, captured.length) : handler;
+      const response = new EventEmitter();
+      response.statusCode = planned.statusCode;
+      Object.defineProperty(response, 'headers', {
+        value: { 'content-type': planned.contentType === undefined ? 'application/json' : planned.contentType },
+        enumerable: true,
+        configurable: true,
+      });
+      const req = new EventEmitter();
+      req.end = (body) => {
+        captured[captured.length - 1].body = body || null;
+        queueMicrotask(() => {
+          onResponse(response);
+          if (planned.body) response.emit('data', Buffer.from(planned.body, 'utf8'));
+          response.emit('end');
+        });
+      };
+      req.destroy = () => {};
+      response.destroy = () => {};
+      response.on = response.on.bind(response);
+      response.once = response.once.bind(response);
+      return req;
+    }
+    request.captured = captured;
+    return request;
+  }
+  const graphHttps = mockHttps({
+    next(_options, n) {
+      if (n === 1) {
+        return { statusCode: 201, body: JSON.stringify({ id: 'AAMkAGI2-LIVE-DRAFT', isDraft: true }) };
+      }
+      if (n === 2) {
+        return { statusCode: 200, body: JSON.stringify({ id: 'AAMkAGI2-LIVE-DRAFT' }) };
+      }
+      return { statusCode: 200, body: JSON.stringify(graphMessage()) };
+    },
+  });
+  const graphTransport = createEmailLunaControlledDraftingGraphDraftTransport({
+    httpsImpl: graphHttps,
+    getAccessToken: () => TOKEN,
+  });
+  assert.deepEqual(Object.keys(graphTransport).sort(), ['createReplyDraft', 'reconcileDraft']);
+  assert.equal(typeof graphTransport.sendDraft, 'undefined');
+  assert.equal(typeof graphTransport.sendMail, 'undefined');
+  assert.equal(Object.hasOwn(graphTransport, 'accessToken'), false);
+  const graphProvider = createEmailLunaControlledDraftingProvider({
+    authority: authority(),
+    transport: pickEmailLunaControlledDraftingTransportMethods(graphTransport),
+  });
+  const graphCreated = await graphProvider.createReplyDraft(createRequest());
+  assert.equal(graphCreated.outcome, 'draft_created');
+  assert.equal(graphCreated.provider_draft_id, 'AAMkAGI2-LIVE-DRAFT');
+  assert.equal(graphCreated.subject_digest, SUBJECT_DIGEST);
+  assert.equal(graphCreated.body_digest, BODY_DIGEST);
+  const createCalls = graphHttps.captured;
+  assert.equal(createCalls.length, 3);
+  assert.equal(createCalls[0].method, 'POST');
+  assert.equal(createCalls[0].path, buildCreateReplyPath(MAILBOX, SOURCE_MSG));
+  assert.equal(createCalls[0].hostname, HOST);
+  assert.equal(createCalls[1].method, 'PATCH');
+  assert.equal(createCalls[1].path, buildMessagePath(MAILBOX, 'AAMkAGI2-LIVE-DRAFT', 'patch'));
+  assert.equal(JSON.parse(createCalls[1].body).body.contentType, 'Text');
+  assert.equal(JSON.parse(createCalls[1].body).toRecipients[0].emailAddress.address, RECIPIENT);
+  assert.equal(createCalls[2].method, 'GET');
+  assert.equal(createCalls[2].path, buildControlledDraftingGetPath(MAILBOX, 'AAMkAGI2-LIVE-DRAFT'));
+  assert.equal(createCalls.some((row) => String(row.path).endsWith('/send')), false);
+  const graphExact = await graphProvider.reconcileDraft(reconcileRequest('AAMkAGI2-LIVE-DRAFT'));
+  assert.equal(graphExact.outcome, 'draft_present');
+
+  async function reconcileShape(body, statusCode) {
+    const httpsImpl = mockHttps({
+      statusCode: statusCode || 200,
+      body: typeof body === 'string' ? body : JSON.stringify(body),
+    });
+    const transport = createEmailLunaControlledDraftingGraphDraftTransport({
+      httpsImpl,
+      getAccessToken: () => TOKEN,
+    });
+    const provider = createEmailLunaControlledDraftingProvider({
+      authority: authority(),
+      transport: pickEmailLunaControlledDraftingTransportMethods(transport),
+    });
+    return provider.reconcileDraft(reconcileRequest('AAMkAGI2-LIVE-DRAFT'));
+  }
+  const modified = await reconcileShape(graphMessage({ subject: 'staff changed subject' }));
+  assert.equal(modified.outcome, 'draft_modified');
+  const recipientMismatch = await reconcileShape(graphMessage({
+    toRecipients: [{ emailAddress: { address: 'other@example.test' } }],
+  }));
+  assert.equal(recipientMismatch.outcome, 'draft_mismatch');
+  const threadMismatch = await reconcileShape(graphMessage({ conversationId: 'AAQk-OTHER-THREAD' }));
+  assert.equal(threadMismatch.outcome, 'draft_mismatch');
+  const sentClosed = await reconcileShape(graphMessage({ isDraft: false }));
+  assert.equal(sentClosed.outcome, 'draft_mismatch');
+  assert.equal(sentClosed.is_draft, false);
+  const multiple = await reconcileShape(graphMessage({
+    toRecipients: [
+      { emailAddress: { address: RECIPIENT } },
+      { emailAddress: { address: 'cc@example.test' } },
+    ],
+  }));
+  assert.equal(multiple.outcome, 'draft_mismatch');
+  const html = await reconcileShape(graphMessage({
+    body: { contentType: 'HTML', content: `<p>${BODY}</p>` },
+  }));
+  assert.equal(html.outcome, 'draft_mismatch');
+  const extraField = await reconcileShape(graphMessage({ internetMessageId: '<extra@id>' }));
+  assert.equal(extraField.outcome, 'draft_mismatch');
+  const removed = await reconcileShape('{"error":{"code":"ErrorItemNotFound"}}', 404);
+  assert.equal(removed.outcome, 'draft_not_found');
+  const hostileBody = {};
+  Object.defineProperty(hostileBody, 'contentType', { value: 'text', enumerable: true });
+  Object.defineProperty(hostileBody, 'content', {
+    get() { throw new Error(TOKEN); }, enumerable: true,
+  });
+  const hostileMapped = mapGraphDraftObservation({
+    id: 'AAMkAGI2-LIVE-DRAFT',
+    isDraft: true,
+    subject: SUBJECT,
+    body: hostileBody,
+    toRecipients: [{ emailAddress: { address: RECIPIENT } }],
+    conversationId: THREAD,
+  }, { provider_draft_id: 'AAMkAGI2-LIVE-DRAFT', mailbox_id: MAILBOX });
+  assert.equal(hostileMapped.kind, 'unusable');
+  console.log('  PASS  live Graph mapping: POST→PATCH→GET; exact/modified/mismatch/sent/HTML/extras fail closed; no send');
+
+  const timeoutHttps = mockHttps({
+    next(_options, n) {
+      if (n === 1) return { statusCode: 201, body: JSON.stringify({ id: 'AAMkAGI2-LOST', isDraft: true }) };
+      return { statusCode: 200, body: JSON.stringify({ id: 'AAMkAGI2-LOST' }) };
+    },
+  });
+  let timerCalls = 0;
+  const slowTimers = {
+    setTimeout(fn) {
+      timerCalls += 1;
+      if (timerCalls === 1) return 1;
+      fn();
+      return timerCalls;
+    },
+    clearTimeout() {},
+  };
+  const timeoutTransport = createEmailLunaControlledDraftingGraphDraftTransport({
+    httpsImpl: timeoutHttps,
+    getAccessToken: () => TOKEN,
+    timers: slowTimers,
+  });
+  const timeoutProvider = createEmailLunaControlledDraftingProvider({
+    authority: authority(),
+    transport: pickEmailLunaControlledDraftingTransportMethods(timeoutTransport),
+  });
+  const timeoutErr = await expectInvalidAsync(() => timeoutProvider.createReplyDraft(createRequest()));
+  assert.equal(readControlledDraftingKnownCreateDraftId(timeoutErr), 'AAMkAGI2-LOST');
+  assert.equal(noLeak(timeoutErr), true);
+  console.log('  PASS  PATCH/GET timeout after POST preserves known id without leaking secrets');
 
   const leakFake = createEmailLunaControlledDraftingFakeTransport({
     createError: new Error(`graph failed ${TOKEN} ${PLANTED}`),

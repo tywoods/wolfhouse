@@ -27,42 +27,42 @@
  * Unwired: not imported by Staff API, not activated in docker, no live Graph.
  */
 
-const util = require('node:util');
 const {
   createEmailLunaControlledDraftingOperationStore,
   ACK_KEYS,
   EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_RUNTIME_WIRED,
 } = require('./email-luna-controlled-drafting-operation-store');
 const {
-  createEmailLunaAutomationIssuanceMaterialStore,
-} = require('./email-luna-automation-issuance-material-store');
-const {
   EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_WIRED,
   EMAIL_LUNA_CONTROLLED_DRAFTING_ACTIVATION,
   EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER,
   EMAIL_LUNA_CONTROLLED_DRAFTING_LOCATION_KEY,
   EMAIL_LUNA_CONTROLLED_DRAFTING_CAPABILITY_MANIFEST,
+  readControlledDraftingKnownCreateDraftId,
 } = require('./email-luna-controlled-drafting-provider-contract');
+const {
+  isProxySurface,
+  ownData,
+  exactOwnData,
+  subsetOwnData,
+  isCanonUuid,
+} = require('./email-luna-controlled-drafting-closed-data');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
-const PINNED_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
-const PINNED_IS_PROXY = PINNED_TYPES && typeof PINNED_TYPES.isProxy === 'function'
-  ? PINNED_TYPES.isProxy.bind(PINNED_TYPES)
-  : null;
-
 const arrayIncludes = uncurryThis(Array.prototype.includes);
 const objectCreate = Object.create;
 const objectDefineProperty = Object.defineProperty;
 const objectFreeze = Object.freeze;
-const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
-const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
+const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectPrototype = Object.prototype;
 const reflectOwnKeys = Reflect.ownKeys;
 const arrayIsArray = Array.isArray;
-const regexpTest = uncurryThis(RegExp.prototype.test);
 const stringTrim = uncurryThis(String.prototype.trim);
 const stringToLowerCase = uncurryThis(String.prototype.toLowerCase);
+const PRODUCER_LOANERS = new WeakMap();
+const WORKER_LOANERS = new WeakMap();
+const SOURCE_KIND = new WeakMap();
 
 const EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_WIRED = true;
 const EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_ACTIVATION = false;
@@ -87,8 +87,6 @@ const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SUNSET_TENANT = 'sunset';
 const SUNSET_LOCATION_KEY = EMAIL_LUNA_CONTROLLED_DRAFTING_LOCATION_KEY;
 const CONTROLLED_DRAFTING_MODE = 'controlled_drafting';
-const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
 const ERROR_CODE = 'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_INVALID';
 const ERROR_MESSAGE = 'Email Luna controlled drafting runtime composition failed.';
 const DISABLED_CODE = 'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_DISABLED';
@@ -116,10 +114,10 @@ const FORBIDDEN_PROVIDER_KEYS = objectFreeze([
   'graphClient', 'accessToken', 'access_token', 'fetch', 'path', 'url', 'method',
 ]);
 const CREATE_KEYS = objectFreeze([
-  'env', 'producerWithTransactionClient', 'workerWithTransactionClient', 'provider',
+  'env', 'producerWithTransactionClient', 'workerWithTransactionClient', 'provider', 'issuanceStore',
 ]);
 const OPTIONAL_CREATE_KEYS = objectFreeze([
-  'crashSeams', 'issuanceStore',
+  'crashSeams',
 ]);
 const CRASH_SEAM_KEYS = objectFreeze([
   'before_claim',
@@ -184,15 +182,6 @@ function output(entries) {
   return freeze(value);
 }
 
-function isProxySurface(value) {
-  try {
-    if (!PINNED_IS_PROXY) return true;
-    return PINNED_IS_PROXY(value) === true;
-  } catch (_) {
-    return true;
-  }
-}
-
 function safeOwnKeys(value) {
   try {
     return reflectOwnKeys(value);
@@ -210,66 +199,115 @@ function rejectForbiddenFields(record) {
 }
 
 function exactPlain(value, keys) {
-  if (value === null || typeof value !== 'object' || isProxySurface(value) || arrayIsArray(value)) throw invalid();
-  try {
-    const proto = objectGetPrototypeOf(value);
-    if (proto !== objectPrototype && proto !== null) throw invalid();
-    const ownKeys = safeOwnKeys(value);
-    if (ownKeys.length !== keys.length) throw invalid();
-    if (!rejectForbiddenFields(value)) throw invalid();
-    const snapshot = objectCreate(null);
-    for (let index = 0; index < keys.length; index += 1) {
-      const key = keys[index];
-      if (!arrayIncludes(ownKeys, key)) throw invalid();
-      const descriptor = objectGetOwnPropertyDescriptor(value, key);
-      if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) throw invalid();
-      snapshot[key] = descriptor.value;
-    }
-    return snapshot;
-  } catch (error) {
-    if (error && error.code === ERROR_CODE) throw error;
-    throw invalid();
-  }
+  const snapshot = exactOwnData(value, keys);
+  if (!snapshot || !rejectForbiddenFields(snapshot)) throw invalid();
+  return snapshot;
 }
 
 function subsetPlain(value, allowed) {
-  if (value === null || typeof value !== 'object' || isProxySurface(value) || arrayIsArray(value)) throw invalid();
-  try {
-    const proto = objectGetPrototypeOf(value);
-    if (proto !== objectPrototype && proto !== null) throw invalid();
-    const ownKeys = safeOwnKeys(value);
-    if (!rejectForbiddenFields(value)) throw invalid();
-    const snapshot = objectCreate(null);
-    for (let index = 0; index < ownKeys.length; index += 1) {
-      const key = ownKeys[index];
-      if (typeof key !== 'string' || !arrayIncludes(allowed, key)) throw invalid();
-      const descriptor = objectGetOwnPropertyDescriptor(value, key);
-      if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) throw invalid();
-      snapshot[key] = descriptor.value;
-    }
-    return snapshot;
-  } catch (error) {
-    if (error && error.code === ERROR_CODE) throw error;
-    throw invalid();
-  }
-}
-
-function ownData(value, key) {
-  try {
-    if (!value || typeof value !== 'object' || isProxySurface(value) || arrayIsArray(value)) return undefined;
-    const descriptor = objectGetOwnPropertyDescriptor(value, key);
-    if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) return undefined;
-    return descriptor.value;
-  } catch (_) {
-    return undefined;
-  }
+  const snapshot = subsetOwnData(value, allowed);
+  if (!snapshot || !rejectForbiddenFields(snapshot)) throw invalid();
+  return snapshot;
 }
 
 function parseUuid(raw) {
-  if (typeof raw !== 'string') return null;
+  if (typeof raw !== 'string' || stringTrim(raw) !== raw) return null;
   const id = stringToLowerCase(raw);
-  if (!regexpTest(UUID_CANON, id) || stringTrim(raw) !== raw) return null;
-  return id;
+  return isCanonUuid(id) ? id : null;
+}
+
+function bindProducerWithTransactionClient(fn) {
+  if (typeof fn !== 'function' || isProxySurface(fn)
+      || PRODUCER_LOANERS.has(fn) || WORKER_LOANERS.has(fn)) {
+    throw invalid();
+  }
+  const existing = SOURCE_KIND.get(fn);
+  if (existing && existing !== 'producer') throw invalid();
+  async function producerWithTransactionClient(work) {
+    return fn(work);
+  }
+  SOURCE_KIND.set(fn, 'producer');
+  PRODUCER_LOANERS.set(producerWithTransactionClient, fn);
+  return producerWithTransactionClient;
+}
+
+function bindWorkerWithTransactionClient(fn) {
+  if (typeof fn !== 'function' || isProxySurface(fn)
+      || PRODUCER_LOANERS.has(fn) || WORKER_LOANERS.has(fn)) {
+    throw invalid();
+  }
+  const existing = SOURCE_KIND.get(fn);
+  if (existing && existing !== 'worker') throw invalid();
+  async function workerWithTransactionClient(work) {
+    return fn(work);
+  }
+  SOURCE_KIND.set(fn, 'worker');
+  WORKER_LOANERS.set(workerWithTransactionClient, fn);
+  return workerWithTransactionClient;
+}
+
+function producerFacade(store) {
+  return freeze({
+    reserveControlledDraft: ownData(store, 'reserveControlledDraft'),
+    loadControlledDraft: ownData(store, 'loadControlledDraft'),
+    assertAuthenticLoadedOperation: ownData(store, 'assertAuthenticLoadedOperation'),
+  });
+}
+
+function workerFacade(store) {
+  return freeze({
+    loadControlledDraft: ownData(store, 'loadControlledDraft'),
+    assertAuthenticLoadedOperation: ownData(store, 'assertAuthenticLoadedOperation'),
+    claimCreateDispatch: ownData(store, 'claimCreateDispatch'),
+    recordProviderCreate: ownData(store, 'recordProviderCreate'),
+    reconcileProviderDraft: ownData(store, 'reconcileProviderDraft'),
+  });
+}
+
+const SESSION_ATTEST_SQL = [
+  'SELECT',
+  '  session_user::text AS session_user,',
+  '  current_user::text AS current_user,',
+  '  (',
+  '    SELECT r.rolname::text',
+  '      FROM pg_catalog.pg_roles r',
+  '      JOIN pg_catalog.pg_class c ON c.relowner = r.oid',
+  '      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
+  "     WHERE n.nspname = 'public'",
+  "       AND c.relname = 'tenant_email_luna_automation_queue'",
+  "       AND c.relkind = 'r'",
+  '  ) AS table_owner',
+].join('\n');
+
+function readAttestRow(result) {
+  if (!result || typeof result !== 'object' || isProxySurface(result)) throw invalid();
+  let rows = ownData(result, 'rows');
+  if (rows === undefined) {
+    try { rows = result.rows; } catch (_) { throw invalid(); }
+  }
+  if (!Array.isArray(rows) || rows.length !== 1 || isProxySurface(rows)) throw invalid();
+  const row = rows[0];
+  if (!row || typeof row !== 'object' || isProxySurface(row) || Array.isArray(row)) throw invalid();
+  return row;
+}
+
+async function attestMappedPrincipal(loaner, expectedKind, binding) {
+  return loaner(async (client) => {
+    if (!client || typeof client.query !== 'function' || isProxySurface(client.query)) throw invalid();
+    let result;
+    try {
+      result = await client.query(SESSION_ATTEST_SQL);
+    } catch (_) {
+      throw invalid();
+    }
+    const row = readAttestRow(result);
+    const sessionUser = ownData(row, 'session_user') || row.session_user;
+    const tableOwner = ownData(row, 'table_owner') || row.table_owner;
+    if (typeof sessionUser !== 'string' || typeof tableOwner !== 'string') throw invalid();
+    if (sessionUser === tableOwner) throw invalid();
+    void expectedKind;
+    void binding;
+  });
 }
 
 function envFlag(env, key) {
@@ -442,6 +480,7 @@ function tickEvidence(fields) {
     ['provider_invoked', fields.provider_invoked === true],
     ['create_invoked', fields.create_invoked === true],
     ['reconcile_invoked', fields.reconcile_invoked === true],
+    ['provider_draft_id', fields.provider_draft_id || null],
     ['send_allowed', false],
     ['journal_handoff', false],
     ['mode', CONTROLLED_DRAFTING_MODE],
@@ -499,19 +538,25 @@ function acknowledgementFromCreate(result) {
 
 function observationFromReconcile(result, record) {
   const outcome = ownData(result, 'outcome');
-  if (outcome === 'draft_present' && ownData(result, 'is_draft') === true) {
+  const observedId = ownData(result, 'provider_draft_id');
+  const observedDraft = ownData(result, 'is_draft');
+  const observedSubject = ownData(result, 'subject_digest');
+  const observedBody = ownData(result, 'body_digest');
+  if (outcome === 'draft_present' && observedDraft === true
+      && typeof observedId === 'string'
+      && typeof observedSubject === 'string' && typeof observedBody === 'string') {
     return {
       kind: 'exact',
-      provider_draft_id: ownData(result, 'provider_draft_id'),
+      provider_draft_id: observedId,
       is_draft: true,
-      subject_digest: record.subject_digest,
-      body_digest: record.body_digest,
+      subject_digest: observedSubject,
+      body_digest: observedBody,
     };
   }
-  if (outcome === 'draft_modified' && ownData(result, 'is_draft') === true) {
+  if (outcome === 'draft_modified' && observedDraft === true && typeof observedId === 'string') {
     return {
       kind: 'modified_by_staff',
-      provider_draft_id: record.provider_draft_id,
+      provider_draft_id: observedId,
       is_draft: true,
     };
   }
@@ -547,20 +592,21 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeComposition(depend
   const workerLoaner = deps.workerWithTransactionClient;
   if (typeof producerLoaner !== 'function' || isProxySurface(producerLoaner)) throw invalid();
   if (typeof workerLoaner !== 'function' || isProxySurface(workerLoaner)) throw invalid();
+  if (producerLoaner === workerLoaner) throw invalid();
+  if (!PRODUCER_LOANERS.has(producerLoaner) || !WORKER_LOANERS.has(workerLoaner)) throw invalid();
+  if (PRODUCER_LOANERS.get(producerLoaner) === WORKER_LOANERS.get(workerLoaner)) throw invalid();
   const provider = closedProvider(deps.provider);
   let crashSeams = null;
   if (objectHasOwn(deps, 'crashSeams')) {
     crashSeams = subsetPlain(deps.crashSeams, CRASH_SEAM_KEYS);
   }
-  const producerStore = createEmailLunaControlledDraftingOperationStore({
+  const producerStore = producerFacade(createEmailLunaControlledDraftingOperationStore({
     withTransactionClient: producerLoaner,
-  });
-  const workerStore = createEmailLunaControlledDraftingOperationStore({
+  }));
+  const workerStore = workerFacade(createEmailLunaControlledDraftingOperationStore({
     withTransactionClient: workerLoaner,
-  });
-  const issuanceStore = objectHasOwn(deps, 'issuanceStore')
-    ? deps.issuanceStore
-    : createEmailLunaAutomationIssuanceMaterialStore({ withTransactionClient: producerLoaner });
+  }));
+  const issuanceStore = deps.issuanceStore;
   if (!issuanceStore || typeof issuanceStore !== 'object' || isProxySurface(issuanceStore)) throw invalid();
   if (typeof issuanceStore.assertAuthenticLoadedMaterial !== 'function'
       || typeof issuanceStore.recoverAutomationIssuance !== 'function'
@@ -583,6 +629,7 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeComposition(depend
   async function reserveControlledDraft(input) {
     if (arguments.length !== 1) throw invalid();
     if (!currentEnabled()) throw disabledError();
+    await attestMappedPrincipal(producerLoaner, 'producer', binding);
     const request = exactPlain(input, RESERVE_INPUT_KEYS);
     let material;
     try {
@@ -680,15 +727,19 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeComposition(depend
     let created;
     try {
       created = await createPromise;
-    } catch (_) {
+    } catch (error) {
+      const knownId = readControlledDraftingKnownCreateDraftId(error);
       return tickEvidence({
         status: 'create_dispatched_outcome_unknown',
-        reason: 'provider_create_unknown',
+        reason: knownId
+          ? 'create_outcome_unknown_known_id_not_durable'
+          : 'provider_create_unknown',
         operation_id: claimedRecord.operation_id,
         issuance_id: claimedRecord.issuance_id,
         state: 'create_dispatched_outcome_unknown',
         provider_invoked: true,
         create_invoked: true,
+        provider_draft_id: knownId,
       });
     }
     fireCrash(crashSeams, 'after_provider_before_record');
@@ -740,6 +791,7 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeComposition(depend
           state: operation.state,
         });
       }
+      await attestMappedPrincipal(workerLoaner, 'worker', binding);
       if (operation.state === 'provider_draft_modified_by_staff'
           || operation.state === 'provider_draft_removed_by_staff'
           || operation.state === 'provider_mismatch_blocked') {
@@ -867,4 +919,6 @@ module.exports = objectFreeze({
   CRASH_SEAM_KEYS,
   resolveEmailLunaControlledDraftingSunsetStagingRuntimeReadiness,
   createEmailLunaControlledDraftingSunsetStagingRuntimeComposition,
+  bindProducerWithTransactionClient,
+  bindWorkerWithTransactionClient,
 });
