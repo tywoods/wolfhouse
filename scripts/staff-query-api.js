@@ -20038,9 +20038,11 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 .bc-refresh-btn:hover{background:var(--surface-soft);color:var(--text)}
 .bc-refresh-btn:disabled{opacity:.4;cursor:default}
-#bc-side-drawer .kv .k,#bc-side-drawer .kv .v{white-space:nowrap}
+#bc-side-drawer .kv .k{white-space:nowrap}
+#bc-side-drawer .kv .v{white-space:nowrap;min-width:0}
+#bc-side-drawer .is-editing .kv .v{white-space:normal}
 #bc-side-drawer #bc-field-group-dates .ctx-field-kv-grid{
-  grid-template-columns:minmax(148px,1fr) minmax(148px,1fr)!important;
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
 }
 #bc-side-drawer #bc-field-group-dates .kv:nth-child(2){grid-column:2!important}
 #bc-side-drawer #bc-field-private-room-read-kv{
@@ -20065,11 +20067,19 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-guest-name-line{display:block}
 #bc-side-drawer .ctx-field-edit{display:none!important}
 #bc-side-drawer .bc-inline-input{
-  width:100%;max-width:100%;height:28px;font-size:13px;padding:3px 8px;
+  width:100%;max-width:100%;min-width:0;height:28px;font-size:13px;padding:3px 8px;
   border:1px solid var(--border-soft);border-radius:6px;background:#fff;box-sizing:border-box;
 }
-#bc-side-drawer .bc-inline-guest-name{display:block;margin:0 0 6px;max-width:220px}
-.bc-inline-edit-bar{display:none;align-items:center;gap:6px;margin-left:8px}
+#bc-side-drawer input[type="date"].bc-inline-input{min-width:0}
+#bc-side-drawer .bc-inline-guest-name{display:block;margin:0 0 6px;max-width:100%}
+.bc-inline-edit-bar{display:none;align-items:center;gap:6px;margin-left:auto}
+#bc-side-drawer #bc-field-group-guests.is-editing .ctx-field-read-row{
+  flex-wrap:wrap;align-items:flex-start;
+}
+#bc-side-drawer #bc-field-group-guests.is-editing .kv-grid{flex:1 1 100%}
+#bc-side-drawer #bc-field-group-guests.is-editing .ctx-field-header{
+  width:auto;flex:1 1 100%;justify-content:flex-end;gap:8px;margin-top:4px;
+}
 #bc-side-drawer #bc-field-group-guests.is-editing #bc-inline-edit-bar{display:inline-flex}
 #bc-inline-edit-bar[hidden]{display:none!important}
 #bc-side-drawer #bc-inline-save{padding:4px 10px;font-size:12px;min-height:28px}
@@ -37685,6 +37695,7 @@ function bcRenderFieldEditSectionsHtml(data, mode){
     if (g && g.guest_name) guestNames.push(String(g.guest_name).trim());
   });
   if (!guestNames.length && bk.guest_name) guestNames.push(String(bk.guest_name).trim());
+  while (guestNames.length < guestCount) guestNames.push('');
   var guestLine = String(guestCount) + (guestNames.length ? ' · ' + guestNames.join(', ') : '');
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
   var guestsReadInner =
@@ -38026,13 +38037,17 @@ function bcFieldEditPaintInline(group){
       wrap.dataset.bcReadHtml = wrap.innerHTML;
       var names = [];
       wrap.querySelectorAll('.bc-guest-name-line').forEach(function(n){ names.push(n.textContent.trim()); });
-      if (!names.length) names = [''];
+      var count = Math.max(1, parseInt(bcFieldEditState.guestCount, 10) || names.length || 1);
+      while (names.length < count) names.push('');
+      if (names.length > count) names = names.slice(0, count);
       wrap.innerHTML = '';
       names.forEach(function(name, i){
         var inp = document.createElement('input');
         inp.type = 'text';
         inp.className = 'bk-input bk-input-sm bc-inline-input bc-inline-guest-name';
         inp.value = name;
+        inp.placeholder = 'Guest ' + (i + 1);
+        inp.setAttribute('aria-label', 'Guest ' + (i + 1));
         inp.setAttribute('data-guest-i', String(i));
         if (i === 0) {
           inp.addEventListener('input', function(){
@@ -39111,7 +39126,6 @@ var bcTransferCtx = {
   bookingId: null,
   clientSlug: null,
   data: null,
-  lookupMeta: { arrival: null, departure: null },
   existingStatus: { arrival: null, departure: null },
 };
 
@@ -39231,11 +39245,9 @@ function bcRenderTransferCard(direction, label, transfer, airports, defaults){
   html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(xfer.notes || '') + '</textarea></div>';
   html += '</div></div>';
   html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(xfer.pricing) + '</div>';
-  html += '<div id="' + prefix + '-lookup-note" class="ctx-none" style="margin-top:6px;font-size:11px"></div>';
   html += '<div id="' + prefix + '-result" style="margin-top:6px;display:none;font-size:11px"></div>';
   html += '<div class="bc-transfer-card-footer">';
   html += '<div class="bc-transfer-actions">';
-  html += '<button type="button" class="btn btn-ghost bc-transfer-lookup" data-direction="' + direction + '" disabled>' + escHtml(t('drawer.transfers.lookupFlight')) + '</button>';
   html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '"' +
     (scheduled ? ' disabled' : '') + '>' + escHtml(bcTransferSaveButtonLabel(direction)) + '</button>';
   html += '</div>';
@@ -39261,7 +39273,6 @@ function bcRenderTransferCards(data){
 
 function bcTransferCollectPayload(direction){
   var prefix = 'bc-transfer-' + direction;
-  var meta = (bcTransferCtx.lookupMeta && bcTransferCtx.lookupMeta[direction]) || {};
   var airport = (el(prefix + '-airport') && el(prefix + '-airport').value) || 'SDR';
   var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || null;
   var scheduled = (el(prefix + '-scheduled') && el(prefix + '-scheduled').value) || null;
@@ -39289,9 +39300,6 @@ function bcTransferCollectPayload(direction){
       payload.manual_override_euros = parseFloat(overrideAmt.value.trim());
     }
   }
-  if (meta.flight_lookup_provider) payload.flight_lookup_provider = meta.flight_lookup_provider;
-  if (meta.flight_lookup_status) payload.flight_lookup_status = meta.flight_lookup_status;
-  if (meta.flight_lookup_summary) payload.flight_lookup_summary = meta.flight_lookup_summary;
   return payload;
 }
 
@@ -39305,125 +39313,6 @@ function bcTransferValidateOverrideAmount(direction){
   var euros = parseFloat(raw);
   if (!Number.isFinite(euros) || euros < 0) return t('drawer.transfers.chargeMinZero');
   return null;
-}
-
-function bcTransferLookupErrorLabel(code, message, diagnostic){
-  if (message) return message;
-  var m = {
-    aerodatabox_not_configured: 'Flight lookup is not configured.',
-    aerodatabox_auth_error: 'AeroDataBox auth/quota issue. Check API key or plan.',
-    aerodatabox_quota_or_plan_error: 'AeroDataBox auth/quota issue. Check API key or plan.',
-    aerodatabox_rate_limited: 'AeroDataBox rate limit reached. Try again shortly.',
-    aerodatabox_bad_request: 'Flight lookup request was rejected. Check flight number and try again.',
-    flight_not_found: 'Couldn\u2019t find that flight. Enter the flight details manually.',
-    airport_mismatch: 'Flight found, but airport did not match. Enter manually or change airport.',
-    aerodatabox_api_error: 'Flight lookup failed. Enter the flight details manually.',
-    aerodatabox_request_failed: 'Flight lookup request failed.',
-    missing_flight_number: 'Flight number is required for lookup.',
-  };
-  if (code === 'flight_not_found' && diagnostic && diagnostic.lookup_dates_tried && diagnostic.lookup_dates_tried.length) {
-    var fn = diagnostic.flight_number || 'flight';
-    return 'No matching flight found for ' + fn + ' on ' + diagnostic.lookup_dates_tried.join(' or ') + '. Enter details manually.';
-  }
-  return m[code] || (code ? String(code).replace(/_/g, ' ') : 'Flight lookup failed.');
-}
-
-function bcTransferFormatLookupNote(patch, direction){
-  if (!patch) return '';
-  var fn = patch.flight_number || '\u2014';
-  var ap = patch.airport_code || '\u2014';
-  var local = patch.scheduled_at_local || '';
-  var timePart = local ? local.slice(11, 16) : '';
-  var verb = direction === 'arrival' ? 'arriving' : 'departing';
-  return 'Flight found: ' + fn + ' ' + verb + ' ' + ap + (timePart ? ' at ' + timePart : '');
-}
-
-function bcTransferUpdateLookupButtonState(direction){
-  var prefix = 'bc-transfer-' + direction;
-  var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || '';
-  var btn = document.querySelector('.bc-transfer-lookup[data-direction="' + direction + '"]');
-  if (btn) btn.disabled = !flight;
-}
-
-function bcTransferApplyLookupPatch(direction, patch){
-  if (!patch) return;
-  var prefix = 'bc-transfer-' + direction;
-  var airportEl = el(prefix + '-airport');
-  if (airportEl && patch.airport_code) airportEl.value = patch.airport_code;
-  var flightEl = el(prefix + '-flight');
-  if (flightEl && patch.flight_number) flightEl.value = patch.flight_number;
-  var schedEl = el(prefix + '-scheduled');
-  if (schedEl && patch.scheduled_at_local) schedEl.value = patch.scheduled_at_local;
-  bcTransferCtx.lookupMeta = bcTransferCtx.lookupMeta || { arrival: null, departure: null };
-  bcTransferCtx.lookupMeta[direction] = {
-    flight_lookup_provider: patch.flight_lookup_provider || null,
-    flight_lookup_status: patch.flight_lookup_status || null,
-    flight_lookup_summary: patch.flight_lookup_summary || null,
-  };
-  var noteEl = el(prefix + '-lookup-note');
-  if (noteEl){
-    noteEl.style.display = 'block';
-    noteEl.className = 'state-msg';
-    noteEl.textContent = bcTransferFormatLookupNote(patch, direction);
-  }
-}
-
-function bcLookupFlight(direction){
-  if (!bcTransferCtx.bookingId || !bcTransferCtx.clientSlug) return;
-  var prefix = 'bc-transfer-' + direction;
-  var flight = (el(prefix + '-flight') && el(prefix + '-flight').value.trim()) || '';
-  var airport = (el(prefix + '-airport') && el(prefix + '-airport').value) || 'SDR';
-  if (!flight){
-    bcTransferShowResult(direction, 'Flight number is required for lookup.', true);
-    return;
-  }
-  var btn = document.querySelector('.bc-transfer-lookup[data-direction="' + direction + '"]');
-  if (btn) btn.disabled = true;
-  bcTransferShowResult(direction, 'Looking up flight\u2026', false);
-  fetch('/staff/bookings/' + encodeURIComponent(bcTransferCtx.bookingId) + '/transfers/lookup-flight', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      client_slug: bcTransferCtx.clientSlug,
-      direction: direction,
-      flight_number: flight,
-      airport_code: airport,
-    }),
-  })
-    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
-    .then(function(res){
-      bcTransferUpdateLookupButtonState(direction);
-      if (!res.ok || !res.data.success){
-        bcTransferShowResult(direction, escHtml(bcTransferLookupErrorLabel(
-          res.data && res.data.error,
-          res.data && res.data.message,
-          res.data && res.data.diagnostic
-        )), true);
-        return;
-      }
-      bcTransferApplyLookupPatch(direction, res.data.suggested_transfer_patch);
-      bcTransferShowResult(direction, 'Flight details applied \u2014 review and Save when ready.', false);
-    })
-    .catch(function(e){
-      bcTransferUpdateLookupButtonState(direction);
-      bcTransferShowResult(direction, escHtml(e.message || 'Network error'), true);
-    });
-}
-
-function bcTransferWireLookupControls(){
-  ['arrival', 'departure'].forEach(function(direction){
-    bcTransferUpdateLookupButtonState(direction);
-    var input = el('bc-transfer-' + direction + '-flight');
-    if (!input) return;
-    var handler = function(){ bcTransferUpdateLookupButtonState(direction); };
-    input.oninput = handler;
-    input.onchange = handler;
-  });
-  document.querySelectorAll('.bc-transfer-lookup').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      bcLookupFlight(btn.getAttribute('data-direction'));
-    });
-  });
 }
 
 function bcTransferShowResult(direction, html, isErr){
@@ -39495,15 +39384,10 @@ function bcClearTransferForm(direction){
   if (overrideToggle) overrideToggle.setAttribute('aria-expanded', 'false');
   var pricingEl = el(prefix + '-pricing');
   if (pricingEl) pricingEl.innerHTML = '';
-  var noteEl = el(prefix + '-lookup-note');
-  if (noteEl){ noteEl.style.display = 'none'; noteEl.textContent = ''; }
   var resultEl = el(prefix + '-result');
   if (resultEl){ resultEl.style.display = 'none'; resultEl.innerHTML = ''; }
-  bcTransferCtx.lookupMeta = bcTransferCtx.lookupMeta || { arrival: null, departure: null };
-  bcTransferCtx.lookupMeta[direction] = null;
   bcTransferCtx.existingStatus = bcTransferCtx.existingStatus || { arrival: null, departure: null };
   bcTransferCtx.existingStatus[direction] = null;
-  bcTransferUpdateLookupButtonState(direction);
   var removeBtn = document.querySelector('.bc-transfer-remove[data-direction="' + direction + '"]');
   if (removeBtn) removeBtn.remove();
   bcTransferUpdateScheduledUi(direction, null);
@@ -39606,7 +39490,6 @@ function bcApplyTransferDrawerPayload(payload, contextData, cardsEl){
   if (!cardsEl) cardsEl = el('bc-transfer-cards');
   if (!cardsEl || !payload) return;
   bcTransferCtx.data = payload;
-  bcTransferCtx.lookupMeta = { arrival: null, departure: null };
   bcTransferCtx.existingStatus = { arrival: null, departure: null };
   (payload.transfers || []).forEach(function(t){
     if (t.direction === 'arrival') bcTransferCtx.existingStatus.arrival = t.status;
@@ -39638,7 +39521,6 @@ function bcApplyTransferDrawerPayload(payload, contextData, cardsEl){
       btn.setAttribute('aria-expanded', open ? 'false' : 'true');
     });
   });
-  bcTransferWireLookupControls();
 }
 
 function bcInitTransferShell(contextData){
