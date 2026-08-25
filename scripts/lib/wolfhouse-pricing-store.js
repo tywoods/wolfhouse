@@ -412,6 +412,8 @@ async function promoteConfigCatalogToStaffItems(pg, config, actorId) {
         metadata: Object.assign(
           { promoted_from: 'config' },
           seed.pebble ? { pebble: seed.pebble } : {},
+          seed.min_days ? { min_days: seed.min_days } : {},
+          { allow_daily_proration: seed.allow_daily_proration !== false },
         ),
         active: true,
       }, actorId);

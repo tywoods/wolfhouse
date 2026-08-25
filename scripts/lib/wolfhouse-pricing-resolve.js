@@ -386,6 +386,8 @@ function buildAdminPricingView(input) {
     pebble: PACKAGE_PEBBLE_TOKENS.includes(meta.pebble)
       ? meta.pebble
       : (DEFAULT_PACKAGE_PEBBLES[code] || 'stone'),
+    min_days: Number(meta.min_days) > 0 ? Number(meta.min_days) : 7,
+    allow_daily_proration: meta.allow_daily_proration !== false,
     metadata: meta,
     prices: seasons.map((s) => ({
       season_code: s.code,
@@ -566,6 +568,8 @@ function listConfigPackageSeeds(config) {
       amount_cents: null,
       unit: 'per_person_per_week',
       pebble: DEFAULT_PACKAGE_PEBBLES[pkg.code] || 'stone',
+      min_days: 7,
+      allow_daily_proration: true,
       prices,
     });
   }

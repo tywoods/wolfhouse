@@ -186,20 +186,60 @@
     { token: 'stone', label: 'Stone' },
   ];
 
+  function pebbleLabel(token) {
+    for (var i = 0; i < PACKAGE_PEBBLES.length; i++) {
+      if (PACKAGE_PEBBLES[i].token === token) return PACKAGE_PEBBLES[i].label;
+    }
+    return token;
+  }
+
   function pebbleDropdownHtml(selected) {
     var current = selected || 'peach';
-    var html = '<div class="portal-admin-edit-field"><label for="wh-price-item-pebble">'
-      + whEsc(whT('admin.wh.pricing.pebbleColor', 'Pebble color')) + '</label>'
-      + '<div class="wh-price-pebble-select-row">'
-      + '<span class="pkg-pebble pkg-pebble-' + whEsc(current) + '" id="wh-price-pebble-preview"></span>'
-      + '<select id="wh-price-item-pebble" class="portal-admin-select">';
+    var html = '<div class="portal-admin-edit-field"><span>'
+      + whEsc(whT('admin.wh.pricing.pebbleColor', 'Pebble color')) + '</span>'
+      + '<div class="wh-price-pebble-dd">'
+      + '<input type="hidden" id="wh-price-item-pebble" value="' + whEsc(current) + '">'
+      + '<button type="button" class="wh-price-pebble-dd-btn" data-wh-price-action="toggle-pebble-dd">'
+      + '<span class="pkg-pebble pkg-pebble-' + whEsc(current) + '"></span>'
+      + '<span class="wh-price-pebble-dd-label">' + whEsc(pebbleLabel(current)) + '</span>'
+      + '</button>'
+      + '<div class="wh-price-pebble-dd-menu" role="listbox">';
     for (var i = 0; i < PACKAGE_PEBBLES.length; i++) {
       var p = PACKAGE_PEBBLES[i];
-      html += '<option value="' + whEsc(p.token) + '"'
-        + (p.token === current ? ' selected' : '') + '>'
-        + whEsc(p.label) + '</option>';
+      html += '<button type="button" class="pkg-pebble pkg-pebble-' + whEsc(p.token)
+        + (p.token === current ? ' is-selected' : '')
+        + '" data-wh-price-action="pick-pebble" data-wh-pebble="' + whEsc(p.token)
+        + '" title="' + whEsc(p.label) + '">' + whEsc(p.label) + '</button>';
     }
-    return html + '</select></div></div>';
+    return html + '</div></div></div>';
+  }
+
+  function packageStayFieldsHtml(pkg) {
+    var meta = (pkg && pkg.metadata) || {};
+    var days = Number(pkg && pkg.min_days != null ? pkg.min_days : meta.min_days);
+    if (!Number.isFinite(days) || days < 1) days = 7;
+    var prorate = pkg && pkg.allow_daily_proration != null
+      ? pkg.allow_daily_proration !== false
+      : meta.allow_daily_proration !== false;
+    return '<div class="portal-admin-edit-field"><label for="wh-price-item-min-days">'
+      + whEsc(whT('admin.wh.pricing.minDays', 'Minimum days')) + '</label>'
+      + '<input type="number" id="wh-price-item-min-days" min="1" max="365" value="'
+      + whEsc(String(days)) + '"></div>'
+      + '<label class="portal-admin-check">'
+      + '<input type="checkbox" id="wh-price-item-prorate"' + (prorate ? ' checked' : '') + '> '
+      + whEsc(whT('admin.wh.pricing.allowDailyProration',
+        'Allow daily proration for more days'))
+      + '</label>';
+  }
+
+  function packageMetaFromForm() {
+    var days = parseInt(inputValue('wh-price-item-min-days'), 10);
+    if (!Number.isFinite(days) || days < 1) days = 7;
+    return {
+      pebble: inputValue('wh-price-item-pebble') || 'stone',
+      min_days: days,
+      allow_daily_proration: checkboxValue('wh-price-item-prorate'),
+    };
   }
 
   function catalogTitleActions(itemType, entry) {
@@ -369,6 +409,7 @@
           + '<input type="text" id="wh-price-item-label" maxlength="120" value="'
           + whEsc(p.label || humanize(p.code)) + '"></div>'
           + pebbleDropdownHtml(p.pebble)
+          + packageStayFieldsHtml(p)
           + editActions('save-package-item', ' data-wh-item-code="' + whEsc(p.code) + '"')
           + '</div>';
       } else {
@@ -376,6 +417,13 @@
           + '<div class="portal-admin-subsection-title">'
           + '<span class="pkg-pebble pkg-pebble-' + whEsc(p.pebble || 'stone') + '"></span> '
           + whEsc(p.label || humanize(p.code))
+          + '<span class="portal-admin-price-meta"> · '
+          + whEsc(String(p.min_days || 7)) + ' '
+          + whEsc(whT('admin.wh.pricing.days', 'days'))
+          + (p.allow_daily_proration === false
+            ? ''
+            : ' · ' + whEsc(whT('admin.wh.pricing.prorates', 'prorates')))
+          + '</span>'
           + '</div>'
           + catalogTitleActions('package', p)
           + '</div>';
@@ -463,6 +511,7 @@
       + whEsc(placeholders[1]) + '"></div>'
       + (isPackage
         ? pebbleDropdownHtml()
+          + packageStayFieldsHtml(null)
           + '<p class="portal-admin-section-note">'
           + whEsc(whT('admin.wh.pricing.newPackageNote',
             'Set a weekly price for each season once the package is created.')) + '</p>'
@@ -1073,12 +1122,34 @@
       state.editing = 'item:package:' + btn.getAttribute('data-wh-item-code');
       render();
     },
+    'toggle-pebble-dd': function (btn) {
+      var wrap = btn.closest ? btn.closest('.wh-price-pebble-dd') : null;
+      if (!wrap) return;
+      wrap.classList.toggle('is-open');
+    },
+    'pick-pebble': function (btn) {
+      var token = btn.getAttribute('data-wh-pebble') || 'stone';
+      var wrap = btn.closest ? btn.closest('.wh-price-pebble-dd') : null;
+      if (!wrap) return;
+      var hidden = wrap.querySelector('#wh-price-item-pebble');
+      if (hidden) hidden.value = token;
+      var chip = wrap.querySelector('.wh-price-pebble-dd-btn .pkg-pebble');
+      if (chip) chip.className = 'pkg-pebble pkg-pebble-' + token;
+      var lab = wrap.querySelector('.wh-price-pebble-dd-label');
+      if (lab) lab.textContent = pebbleLabel(token);
+      var chips = wrap.querySelectorAll('.wh-price-pebble-dd-menu .pkg-pebble');
+      for (var i = 0; i < chips.length; i++) {
+        if (chips[i].getAttribute('data-wh-pebble') === token) chips[i].classList.add('is-selected');
+        else chips[i].classList.remove('is-selected');
+      }
+      wrap.classList.remove('is-open');
+    },
     'save-package-item': function (btn) {
       commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(), {
         item_type: 'package',
         item_code: btn.getAttribute('data-wh-item-code'),
         label: inputValue('wh-price-item-label'),
-        metadata: { pebble: inputValue('wh-price-item-pebble') || 'stone' },
+        metadata: packageMetaFromForm(),
       });
     },
     'save-package-price': function (btn) {
@@ -1168,7 +1239,7 @@
             item_type: 'package',
             item_code: code,
             label: label,
-            metadata: { pebble: inputValue('wh-price-item-pebble') || 'stone' },
+            metadata: packageMetaFromForm(),
           },
           whT('admin.wh.pricing.packageCreated',
             'Package created. Set a price for each season.'));

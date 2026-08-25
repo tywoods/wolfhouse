@@ -1097,15 +1097,22 @@ function uiChecks() {
     html.includes('data-wh-item-type="package" data-wh-item-code="malibu"'));
   ok('the new-package form offers pebble colors in a dropdown',
     runPricingUi(writable, 'item:package:__new__').html.includes('id="wh-price-item-pebble"')
-    && runPricingUi(writable, 'item:package:__new__').html.includes('<select')
-    && runPricingUi(writable, 'item:package:__new__').html.includes('value="sage"')
-    && !runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-pebble-picker'));
+    && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-pebble-dd')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('pkg-pebble-sage')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('pick-pebble')
+    && !runPricingUi(writable, 'item:package:__new__').html.includes('<select id="wh-price-item-pebble"'));
   ok('each package offers Edit next to Delete',
     html.includes('data-wh-price-action="edit-package"')
     && html.includes('data-wh-item-code="malibu"'));
   ok('package edit can change pebble color',
     runPricingUi(writable, 'item:package:malibu').html.includes('id="wh-price-item-pebble"')
     && runPricingUi(writable, 'item:package:malibu').html.includes('save-package-item'));
+  ok('create package asks for minimum days and daily proration',
+    runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-min-days')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-prorate'));
+  ok('edit package asks for minimum days and daily proration',
+    runPricingUi(writable, 'item:package:malibu').html.includes('wh-price-item-min-days')
+    && runPricingUi(writable, 'item:package:malibu').html.includes('Allow daily proration'));
   ok('a config-sourced transfer is labelled default',
     html.includes('default'));
 
