@@ -19221,6 +19221,7 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-section:first-of-type{margin-top:4px;padding-top:0;border-top:none}
 .ctx-section h3{font-size:10.5px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
 .ctx-loading{color:var(--text-3);font-size:12px;font-style:italic;padding:10px 0}
+.bc-drawer-loading{padding:18px 4px 8px}
 .bc-drawer-preview .ctx-loading{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-2)}
 .ctx-none{color:var(--text-3);font-size:12px;font-style:italic}
 .btn-open-conv{background:var(--olive);color:#fff;border:none;border-radius:var(--radius-sm);padding:7px 14px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s}
@@ -35141,6 +35142,12 @@ function bcRefreshBlockDetail(){
   loadBlockDetail(blk.booking_code);
 }
 
+function bcRenderDrawerLoadingHtml(){
+  return '<div class="bc-drawer-loading" id="bc-drawer-preview" aria-busy="true">' +
+    '<div class="ctx-loading">' + escHtml(t('calendar.create.loadingDetails')) + '</div>' +
+    '</div>';
+}
+
 function bcRenderBlockSummaryPreviewHtml(blk){
   blk = blk || {};
   var html = '<div class="bc-drawer-preview" id="bc-drawer-preview">';
@@ -40819,7 +40826,7 @@ function bcOpenSideBooking(blk, opts){
       body.querySelector('.bc-drawer-file-tabs')){
     return;
   }
-  body.innerHTML = bcRenderBlockSummaryPreviewHtml(blk);
+  body.innerHTML = bcRenderDrawerLoadingHtml();
   if (code) loadBlockDetail(code, { host: body, preserveTab: false, activeTab: 'overview' });
 }
 
