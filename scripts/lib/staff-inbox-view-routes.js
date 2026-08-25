@@ -47,7 +47,12 @@ const {
   clampLimit,
   normalizeCustomerPhone,
 } = require('./staff-customer-queries');
-const { CONVERSATION_INBOX_CURSOR_FIELDS } = require('./staff-conversation-queries');
+const {
+  CONVERSATION_INBOX_CURSOR_FIELDS,
+  markEmailInboundInboxMissing,
+  isMissingEmailInboundRelation,
+  emailInboundInboxAssumedReady,
+} = require('./staff-conversation-queries');
 
 const INBOX_VIEWS_PATH = '/staff/inbox/views';
 const INBOX_LIST_PATH = '/staff/inbox/list';
@@ -502,6 +507,7 @@ function createInboxViewRoutes(deps) {
       query: listQuery,
       capabilities,
       page: { limit: limit + 1, cursor },
+      includeInboundProjections: emailInboundInboxAssumedReady(),
     });
     if (!built.ok) {
       return sendJSON(res, 409, {
@@ -527,8 +533,24 @@ function createInboxViewRoutes(deps) {
     let rows;
     try {
       rows = await withPgClient(async (pg) => {
-        const result = await pg.query(built.sql, built.params);
-        return (result && result.rows) || [];
+        try {
+          const result = await pg.query(built.sql, built.params);
+          return (result && result.rows) || [];
+        } catch (err) {
+          if (!isMissingEmailInboundRelation(err)) throw err;
+          markEmailInboundInboxMissing();
+          const fallback = buildInboxViewQuery({
+            view: declaration.id,
+            clientSlug,
+            query: listQuery,
+            capabilities,
+            page: { limit: limit + 1, cursor },
+            includeInboundProjections: false,
+          });
+          if (!fallback.ok) throw err;
+          const result = await pg.query(fallback.sql, fallback.params);
+          return (result && result.rows) || [];
+        }
       });
     } catch (err) {
       appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });

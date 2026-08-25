@@ -32,6 +32,9 @@ const {
   getConversationContextQuery,
   getConversationBookingsQuery,
   getConversationDraftQuery,
+  markEmailInboundInboxMissing,
+  isMissingEmailInboundRelation,
+  emailInboundInboxAssumedReady,
 } = require('./staff-conversation-queries');
 const { getPauseState } = require('./staff-bot-pause-sql');
 
@@ -132,10 +135,18 @@ function createInboxThreadCompositeRoutes(deps) {
   async function readThreadSnapshot(pg, clientSlug, convId, scope) {
     const params = conversationDetailQueryParams(clientSlug, convId, scope);
 
-    const detail = await readSection(pg, () => pg.query(
-      getConversationDetailQuery(scope.queryOpts),
+    const includeInboundProjections = emailInboundInboxAssumedReady();
+    let detail = await readSection(pg, () => pg.query(
+      getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections }),
       params,
     ));
+    if (!detail.ok && includeInboundProjections && isMissingEmailInboundRelation(detail.error)) {
+      markEmailInboundInboxMissing();
+      detail = await readSection(pg, () => pg.query(
+        getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections: false }),
+        params,
+      ));
+    }
     if (!detail.ok) return { outcome: 'query_failed', error: detail.error };
 
     const detailRows = detail.value.rows || [];

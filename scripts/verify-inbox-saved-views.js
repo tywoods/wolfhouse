@@ -299,6 +299,9 @@ console.log('\n[4] Conversation views — delegated inbox SQL plus parameterized
 const convAll = buildInboxViewQuery({ view: 'all', clientSlug: WOLFHOUSE, query: {} });
 assert('inbox All delegates to getConversationInboxQuery unchanged',
   convAll.ok === true && convAll.sql === getConversationInboxQuery({}));
+assert('inbox list can drop inbound email tables so WhatsApp still loads',
+  !getConversationInboxQuery({ includeInboundProjections: false }).includes('tenant_email_inbound')
+  && getConversationInboxQuery({}).includes('tenant_email_inbound_events'));
 assert('inbox list sorts newest-first (updated_at DESC); needs_human is not a pin',
   /ORDER BY\s+conv\.updated_at DESC\s*,\s*conv\.id ASC/i.test(convAll.sql.replace(/\s+/g, ' '))
   && !/ORDER BY[\s\S]*needs_human\s+DESC/i.test(convAll.sql)

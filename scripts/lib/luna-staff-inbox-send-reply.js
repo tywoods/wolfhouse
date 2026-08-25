@@ -153,7 +153,10 @@ function buildStaffInboxGuestReplyBody(input) {
  * }>}
  */
 async function resolveAuthoritativeInboxSendTarget(pg, clientSlug, conversationId, callerTo) {
-  const r = await pg.query(getConversationDetailQuery(), [clientSlug, conversationId]);
+  const r = await pg.query(
+    getConversationDetailQuery({ includeInboundProjections: false }),
+    [clientSlug, conversationId],
+  );
   const row = r && r.rows && r.rows[0];
   if (!row) {
     return { ok: false, status: 404, error: 'conversation not found' };

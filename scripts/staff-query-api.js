@@ -444,6 +444,10 @@ const {
   getConversationBookingsQuery,
   getConversationDraftQuery,
   getConversationStaffStateQuery,
+  resolveEmailInboundInboxReady,
+  markEmailInboundInboxMissing,
+  isMissingEmailInboundRelation,
+  emailInboundInboxAssumedReady,
 } = require('./lib/staff-conversation-queries');
 const {
   CRM_TAG_KEYS,
@@ -44500,8 +44504,22 @@ async function handleConversationInbox(query, res, user) {
   try {
     rows = await withPgClient(async (pg) => {
       const params = scope.scoped ? [clientSlug, scope.locationId] : [clientSlug];
-      const r = await pg.query(getConversationInboxQuery(scope.queryOpts), params);
-      return r.rows;
+      const includeInboundProjections = emailInboundInboxAssumedReady();
+      try {
+        const r = await pg.query(
+          getConversationInboxQuery({ ...scope.queryOpts, includeInboundProjections }),
+          params,
+        );
+        return r.rows;
+      } catch (err) {
+        if (!includeInboundProjections || !isMissingEmailInboundRelation(err)) throw err;
+        markEmailInboundInboxMissing();
+        const r = await pg.query(
+          getConversationInboxQuery({ ...scope.queryOpts, includeInboundProjections: false }),
+          params,
+        );
+        return r.rows;
+      }
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
@@ -44545,11 +44563,22 @@ async function handleConversationDetail(convId, query, res, user) {
   let rows;
   try {
     rows = await withPgClient(async (pg) => {
-      const r = await pg.query(
-        getConversationDetailQuery(scope.queryOpts),
-        conversationDetailQueryParams(clientSlug, convId, scope),
-      );
-      return r.rows;
+      const includeInboundProjections = emailInboundInboxAssumedReady();
+      try {
+        const r = await pg.query(
+          getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections }),
+          conversationDetailQueryParams(clientSlug, convId, scope),
+        );
+        return r.rows;
+      } catch (err) {
+        if (!includeInboundProjections || !isMissingEmailInboundRelation(err)) throw err;
+        markEmailInboundInboxMissing();
+        const r = await pg.query(
+          getConversationDetailQuery({ ...scope.queryOpts, includeInboundProjections: false }),
+          conversationDetailQueryParams(clientSlug, convId, scope),
+        );
+        return r.rows;
+      }
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });

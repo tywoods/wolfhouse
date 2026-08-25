@@ -437,10 +437,11 @@ function conversationPageParamIndexes(locationScoped, channelScoped) {
   return { limitParamIndex: idx + 1, cursorParamIndex: idx + 2 };
 }
 
-function buildConversationSourceQuery(view, clientSlug, query, page) {
+function buildConversationSourceQuery(view, clientSlug, query, page, extra) {
   const scope = resolveInboxConversationLocationScope(clientSlug, query);
   const channelScoped = !!view.channel;
   const needsHumanScoped = !!view.needsHuman;
+  const includeInboundProjections = !(extra && extra.includeInboundProjections === false);
   const params = [clientSlug];
   if (scope.scoped) params.push(scope.locationId);
   if (channelScoped) params.push(view.channel);
@@ -466,8 +467,8 @@ function buildConversationSourceQuery(view, clientSlug, query, page) {
   return {
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     sql: getConversationInboxQuery(keyset
-      ? { locationScoped: scope.scoped, channelScoped, needsHumanScoped, keyset }
-      : { locationScoped: scope.scoped, channelScoped, needsHumanScoped }),
+      ? { locationScoped: scope.scoped, channelScoped, needsHumanScoped, keyset, includeInboundProjections }
+      : { locationScoped: scope.scoped, channelScoped, needsHumanScoped, includeInboundProjections }),
     params,
     crmFilter: null,
     filterSql: '',
@@ -524,7 +525,9 @@ function buildInboxViewQuery(input) {
   const page = req.page && typeof req.page === 'object' ? req.page : null;
   const built = declared.source === INBOX_VIEW_SOURCES.CUSTOMERS
     ? buildCustomerSourceQuery(declared, clientSlug, req.query, page)
-    : buildConversationSourceQuery(declared, clientSlug, req.query, page);
+    : buildConversationSourceQuery(declared, clientSlug, req.query, page, {
+      includeInboundProjections: req.includeInboundProjections,
+    });
 
   return {
     ok: true,

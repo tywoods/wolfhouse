@@ -47,8 +47,14 @@ function sqlConversationChannelExpr(convAlias) {
 /**
  * Current email subject from persisted inbound events + outbound staff replies.
  * Does not invent placeholder subjects and does not copy conversation metadata.
+ *
+ * When inbound projection tables are not on this database, callers pass
+ * includeInboundProjections: false so the inbox list still loads.
  */
-function sqlCurrentEmailSubjectExpr(convAlias) {
+function sqlCurrentEmailSubjectExpr(convAlias, opts) {
+  if (opts && opts.includeInboundProjections === false) {
+    return `NULL::text`;
+  }
   const conv = convAlias || 'conv';
   return `(
     SELECT sub.subject
@@ -74,11 +80,46 @@ function sqlCurrentEmailSubjectExpr(convAlias) {
   )`;
 }
 
-function inboxChannelFieldsSql() {
+let emailInboundInboxReady;
+
+function isMissingEmailInboundRelation(err) {
+  const msg = String((err && err.message) || '');
+  return (err && err.code === '42P01') && /tenant_email_inbound/.test(msg);
+}
+
+async function resolveEmailInboundInboxReady(withPgClient) {
+  if (emailInboundInboxReady !== undefined) return emailInboundInboxReady;
+  if (typeof withPgClient !== 'function') return true;
+  try {
+    const rows = await withPgClient(async (pg) => {
+      const r = await pg.query(`
+        SELECT
+          to_regclass('public.tenant_email_inbound_inbox_projections') IS NOT NULL
+          AND to_regclass('public.tenant_email_inbound_events') IS NOT NULL AS ok
+      `);
+      return (r && r.rows) || [];
+    });
+    if (!rows[0] || rows[0].ok == null) return true;
+    emailInboundInboxReady = !!rows[0].ok;
+  } catch (_) {
+    return true;
+  }
+  return emailInboundInboxReady;
+}
+
+function markEmailInboundInboxMissing() {
+  emailInboundInboxReady = false;
+}
+
+function emailInboundInboxAssumedReady() {
+  return emailInboundInboxReady !== false;
+}
+
+function inboxChannelFieldsSql(opts) {
   return `
   ${sqlConversationChannelExpr('conv')} AS channel,
   conv.email                                         AS guest_email,
-  ${sqlCurrentEmailSubjectExpr('conv')}              AS email_subject,
+  ${sqlCurrentEmailSubjectExpr('conv', opts)}              AS email_subject,
   ${sqlConversationLocationExpr('conv')}             AS location_id,
   conv.customer_id::text                             AS customer_id,
   cust_link.phone                                    AS customer_phone,`;
@@ -196,7 +237,7 @@ SELECT
   conv.updated_at            AS last_activity,
   CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
   conv.metadata->>'guest_tester_class' AS guest_tester_class,
-${inboxChannelFieldsSql()}
+${inboxChannelFieldsSql(opts)}
   h.reason_code              AS handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
@@ -328,7 +369,7 @@ SELECT
   conv.created_at,
   conv.updated_at,
   COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
-  ${sqlCurrentEmailSubjectExpr('conv')} AS email_subject,
+  ${sqlCurrentEmailSubjectExpr('conv', opts)} AS email_subject,
   ${sqlConversationLocationExpr('conv')} AS location_id,
   conv.customer_id::text     AS customer_id,
   cust_link.phone            AS customer_phone,
@@ -750,6 +791,10 @@ module.exports = {
   DEFAULT_SUNSET_LOCATION_ID,
   sqlConversationChannelExpr,
   sqlCurrentEmailSubjectExpr,
+  resolveEmailInboundInboxReady,
+  markEmailInboundInboxMissing,
+  isMissingEmailInboundRelation,
+  emailInboundInboxAssumedReady,
   conversationInboxChannelParamIndex,
   conversationInboxWhereSql,
   conversationInboxCursorClause,
