@@ -633,6 +633,62 @@ async function proveNonSuperuserPgcryptoResidual(db, options) {
     await db.exec('ALTER FUNCTION public.digest(text, text) IMMUTABLE');
     console.log('ok - GREEN wrong pgcrypto properties fail closed');
 
+    await db.exec('ALTER FUNCTION public.digest(text, text) SET search_path = pg_catalog');
+    const proconfig = await db.query(`
+      SELECT pg_catalog.cardinality(p.proconfig) AS n
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public'
+         AND p.proname = 'digest'
+         AND pg_catalog.oidvectortypes(p.proargtypes) = 'text, text'
+    `);
+    assert.ok(Number(proconfig.rows[0].n) > 0, 'catalog-proven pgcrypto member must have nonempty proconfig');
+    await withSession(db, APPOWNER, async () => {
+      await assert.rejects(() => db.exec(UP), isResidualRefuse);
+    });
+    await assert.rejects(
+      () => adoptWorker(db, splitWorker),
+      (err) => err && err.code === 'EMAIL_LUNA_AUTOMATION_PRINCIPAL_EXCESS_EXECUTE',
+    );
+    await db.exec('ALTER FUNCTION public.digest(text, text) RESET search_path');
+    const resetCfg = await db.query(`
+      SELECT COALESCE(pg_catalog.cardinality(p.proconfig), 0) AS n
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'public'
+         AND p.proname = 'digest'
+         AND pg_catalog.oidvectortypes(p.proargtypes) = 'text, text'
+    `);
+    assert.equal(Number(resetCfg.rows[0].n), 0);
+    const recoveredCfg = await adoptWorker(db, splitWorker);
+    assert.equal(recoveredCfg.roleAction, 'verify_noop');
+    console.log('ok - GREEN nonempty proconfig on catalog-proven pgcrypto fails 096 and principal audit');
+
+    await db.exec(`
+      CREATE PROCEDURE public.luna_ch4c1_proc()
+      LANGUAGE sql
+      AS $$ SELECT 1 $$;
+    `);
+    await db.exec(`ALTER PROCEDURE public.luna_ch4c1_proc() OWNER TO ${EXTOWNER}`);
+    await withSession(db, APPOWNER, async () => {
+      await assert.rejects(() => db.exec(UP), isResidualRefuse);
+    });
+    await db.exec('DROP PROCEDURE public.luna_ch4c1_proc()');
+    console.log('ok - GREEN arbitrary PUBLIC procedure fails closed');
+
+    await db.exec(`
+      CREATE AGGREGATE public.luna_ch4c1_agg(integer) (
+        SFUNC = pg_catalog.int4pl,
+        STYPE = integer
+      );
+    `);
+    await db.exec(`ALTER AGGREGATE public.luna_ch4c1_agg(integer) OWNER TO ${EXTOWNER}`);
+    await withSession(db, APPOWNER, async () => {
+      await assert.rejects(() => db.exec(UP), isResidualRefuse);
+    });
+    await db.exec('DROP AGGREGATE public.luna_ch4c1_agg(integer)');
+    console.log('ok - GREEN arbitrary PUBLIC aggregate fails closed');
+
     await db.exec(`
       CREATE FUNCTION public.luna_ch4c1_pgcrypto_extra() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;
     `);

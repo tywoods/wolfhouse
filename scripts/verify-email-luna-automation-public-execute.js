@@ -8,6 +8,11 @@ const {
   PGCRYPTO_1_3_RESIDUAL,
   PGCRYPTO_1_3_SIGNATURES,
   PRIOR_096_CANONICAL_SHA256,
+  ALLOWLIST_BEGIN,
+  ALLOWLIST_END,
+  allowlistValuesSql,
+  extractMigrationAllowlistValuesSql,
+  normalizeAllowlistSql,
   assertMigrationAllowlistParity,
 } = require('./lib/email-luna-automation-pgcrypto-residual-contract');
 const { EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT } = require('./lib/email-luna-automation-principal-contract');
@@ -98,6 +103,142 @@ assert.equal(/^\s*GRANT /m.test(UP), false);
 assert.equal(/CREATE TABLE/i.test(UP), false);
 assert.equal(/INSERT INTO/i.test(UP), false);
 assert.equal(assertMigrationAllowlistParity(UP), true);
+assert.equal(
+  normalizeAllowlistSql(extractMigrationAllowlistValuesSql(UP)),
+  normalizeAllowlistSql(allowlistValuesSql()),
+);
+const CONTRACT_SRC = fs.readFileSync(
+  path.join(__dirname, 'lib/email-luna-automation-pgcrypto-residual-contract.js'),
+  'utf8',
+);
+assert.equal(CONTRACT_SRC.includes('parseMigrationAllowlist'), false);
+assert.equal(CONTRACT_SRC.includes("const re = /\\('([^']*)'"), false);
+assert.match(CONTRACT_SRC, /normalizeAllowlistSql/);
+assert.match(CONTRACT_SRC, /extractMigrationAllowlistValuesSql/);
+
+function replaceAllowlistInterior(sql, interior) {
+  const lines = String(sql).replace(/\r\n/g, '\n').split('\n');
+  const begin = lines.findIndex((line) => line.trim() === `-- ${ALLOWLIST_BEGIN}`);
+  const end = lines.findIndex((line) => line.trim() === `-- ${ALLOWLIST_END}`);
+  assert.ok(begin >= 0 && end > begin, '096 allowlist markers present for mutant construction');
+  const indent = `${lines[begin].match(/^[ \t]*/)[0]}`;
+  const rendered = (Array.isArray(interior) ? interior : String(interior).split('\n'))
+    .map((line) => (line.length ? indent + line : line));
+  return [...lines.slice(0, begin + 1), ...rendered, ...lines.slice(end)].join('\n');
+}
+
+function canonicalAllowlistLines() {
+  return normalizeAllowlistSql(allowlistValuesSql()).split('\n');
+}
+
+function mutantAllowlist(transform) {
+  return replaceAllowlistInterior(UP, transform(canonicalAllowlistLines().slice()));
+}
+
+function expectAllowlistParityFail(sql, label) {
+  assert.throws(
+    () => assertMigrationAllowlistParity(sql),
+    (err) => err instanceof Error && /096 pgcrypto allowlist/.test(String(err && err.message)),
+    label,
+  );
+}
+
+function legacyRegexTupleCount(sql) {
+  const text = String(sql || '');
+  const begin = text.indexOf(ALLOWLIST_BEGIN);
+  const end = text.indexOf(ALLOWLIST_END);
+  const block = begin >= 0 && end > begin ? text.slice(begin, end) : text;
+  const re = /\('([^']*)',\s*'([^']*)',\s*'([isv])',\s*(TRUE|FALSE),\s*(TRUE|FALSE)\)/g;
+  return [...block.matchAll(re)].length;
+}
+
+const sneakyExtra = mutantAllowlist((rows) => {
+  rows.splice(1, 0, "( 'sneaky_extra', 'text', 'v', false, true),");
+  return rows;
+});
+assert.equal(
+  legacyRegexTupleCount(sneakyExtra),
+  36,
+  'reported sneaky extra tuple must be invisible to the old regex scanner',
+);
+expectAllowlistParityFail(sneakyExtra, 'sneaky extra tuple');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows.splice(1, 0, "('sneaky_regex_shaped', 'text', 'v', FALSE, TRUE),");
+  return rows;
+}), 'extra regex-shaped tuple');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows.splice(2, 1);
+  return rows;
+}), 'missing row');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = rows[0].replace("'armor'", "'Armor'");
+  return rows;
+}), 'changed proname casing');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = rows[0].replace("'bytea'", "'bytea, text'");
+  return rows;
+}), 'changed identity args');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = rows[0].replace("'i'", "'v'");
+  return rows;
+}), 'changed volatility');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = rows[0].replace('FALSE, TRUE', 'TRUE, TRUE');
+  return rows;
+}), 'changed boolean');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = rows[0].replace('FALSE, TRUE', 'false, true');
+  return rows;
+}), 'alternate lowercase booleans');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = "('armor'::text, 'bytea', 'i', FALSE, TRUE),";
+  return rows;
+}), 'cast');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = "('arm' || 'or', 'bytea', 'i', FALSE, TRUE),";
+  return rows;
+}), 'concatenation');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  return [`SELECT 1,`, ...rows];
+}), 'prefix SQL inside block');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  const last = rows.length - 1;
+  rows[last] = `${rows[last]},`;
+  rows.push('(SELECT 1)');
+  return rows;
+}), 'suffix SQL inside block');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows.splice(1, 0, "/* ('sneaky_comment', 'text', 'v', FALSE, TRUE), */");
+  return rows;
+}), 'block comment hiding extra tuple');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = "('digest', 'text, text' /* x */, 'i', FALSE, TRUE),";
+  return rows;
+}), 'inline comment altering tuple');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows.splice(1, 0, "-- ('sneaky_line', 'text', 'v', FALSE, TRUE),");
+  return rows;
+}), 'line comment inside block');
+expectAllowlistParityFail(mutantAllowlist((rows) => {
+  rows[0] = "('armor', 'bytea', 'i', FALSE TRUE),";
+  return rows;
+}), 'malformed content');
+expectAllowlistParityFail(
+  UP.replace(`-- ${ALLOWLIST_BEGIN}`, `-- ${ALLOWLIST_BEGIN}\n           -- ${ALLOWLIST_BEGIN}`),
+  'duplicate begin marker',
+);
+expectAllowlistParityFail(
+  UP.replace(`-- ${ALLOWLIST_END}`, `-- ${ALLOWLIST_END}\n           -- ${ALLOWLIST_END}`),
+  'duplicate end marker',
+);
+expectAllowlistParityFail(UP.replace(`-- ${ALLOWLIST_BEGIN}\n`, ''), 'missing begin marker');
+expectAllowlistParityFail(UP.replace(`-- ${ALLOWLIST_END}`, ''), 'missing end marker');
+expectAllowlistParityFail(
+  UP.replace(`-- ${ALLOWLIST_BEGIN}`, `SELECT '${ALLOWLIST_BEGIN}'`),
+  'begin marker is not a whole-line comment',
+);
+console.log('  PASS  096 allowlist parity is exact VALUES text, not regex tuple scanning');
+
 assert.equal(PGCRYPTO_1_3_SIGNATURES.length, 36);
 assert.equal(PGCRYPTO_1_3_RESIDUAL.extversion, '1.3');
 assert.equal(PGCRYPTO_1_3_RESIDUAL.capability.databaseRead, false);

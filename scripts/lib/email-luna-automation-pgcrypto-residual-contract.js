@@ -131,52 +131,85 @@ function signatureOf(proname, identityArgs) {
   return `${proname}(${identityArgs})`;
 }
 
-function parseMigrationAllowlist(sql) {
-  const text = String(sql || '');
-  const begin = text.indexOf(ALLOWLIST_BEGIN);
-  const end = text.indexOf(ALLOWLIST_END);
-  if (begin < 0 || end < 0 || end <= begin) {
-    throw new Error('096 missing pgcrypto 1.3 allowlist markers');
+function countOccurrences(text, token) {
+  if (!token) return 0;
+  let count = 0;
+  let from = 0;
+  const haystack = String(text || '');
+  while (from < haystack.length) {
+    const index = haystack.indexOf(token, from);
+    if (index < 0) break;
+    count += 1;
+    from = index + token.length;
   }
-  const block = text.slice(begin, end);
-  const rows = [];
-  const re = /\('([^']*)',\s*'([^']*)',\s*'([isv])',\s*(TRUE|FALSE),\s*(TRUE|FALSE)\)/g;
-  let match = re.exec(block);
-  while (match) {
-    rows.push(freezeRow({
-      proname: match[1],
-      identityArgs: match[2],
-      provolatile: match[3],
-      proretset: match[4] === 'TRUE',
-      proisstrict: match[5] === 'TRUE',
-    }));
-    match = re.exec(block);
+  return count;
+}
+
+function isWholeLineMarkerComment(line, marker) {
+  const trimmed = String(line || '').trim();
+  return trimmed === `-- ${marker}` || trimmed === `--${marker}`;
+}
+
+function normalizeLineEndings(sql) {
+  return String(sql || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
+/**
+ * Whitespace-only normalization for allowlist VALUES comparison.
+ * Line endings become LF; leading/trailing horizontal space per line is
+ * trimmed; empty lines are dropped. Internal spaces, quotes, commas,
+ * booleans, casts, and concatenation are preserved so valid extra SQL
+ * cannot be omitted.
+ */
+function normalizeAllowlistSql(sql) {
+  return normalizeLineEndings(sql)
+    .split('\n')
+    .map((line) => line.replace(/[ \t]+$/g, '').replace(/^[ \t]+/g, ''))
+    .filter((line) => line.length > 0)
+    .join('\n');
+}
+
+function assertAllowlistBlockHasNoComments(block) {
+  const lines = normalizeLineEndings(block).split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (trimmed.includes('--') || trimmed.includes('/*') || trimmed.includes('*/')) {
+      throw new Error('096 pgcrypto allowlist VALUES block must not contain comments');
+    }
   }
-  return rows;
+}
+
+function extractMigrationAllowlistValuesSql(sql) {
+  const text = normalizeLineEndings(sql);
+  if (countOccurrences(text, ALLOWLIST_BEGIN) !== 1 || countOccurrences(text, ALLOWLIST_END) !== 1) {
+    throw new Error('096 pgcrypto allowlist markers must appear exactly once each');
+  }
+  const lines = text.split('\n');
+  const begins = [];
+  const ends = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (isWholeLineMarkerComment(lines[i], ALLOWLIST_BEGIN)) begins.push(i);
+    if (isWholeLineMarkerComment(lines[i], ALLOWLIST_END)) ends.push(i);
+  }
+  if (begins.length !== 1 || ends.length !== 1) {
+    throw new Error('096 pgcrypto allowlist markers must be unique whole-line comments');
+  }
+  if (ends[0] <= begins[0]) {
+    throw new Error('096 pgcrypto allowlist markers out of order');
+  }
+  return lines.slice(begins[0] + 1, ends[0]).join('\n');
 }
 
 function assertMigrationAllowlistParity(sql) {
-  const parsed = parseMigrationAllowlist(sql);
-  if (parsed.length !== PGCRYPTO_1_3_FUNCTIONS.length) {
+  const extracted = extractMigrationAllowlistValuesSql(sql);
+  assertAllowlistBlockHasNoComments(extracted);
+  const got = normalizeAllowlistSql(extracted);
+  const expected = normalizeAllowlistSql(allowlistValuesSql());
+  if (!got || got !== expected) {
     throw new Error(
-      `096 pgcrypto allowlist count ${parsed.length} != JS contract ${PGCRYPTO_1_3_FUNCTIONS.length}`,
+      '096 pgcrypto allowlist VALUES block does not match canonical allowlistValuesSql()',
     );
-  }
-  for (let i = 0; i < parsed.length; i += 1) {
-    const got = parsed[i];
-    const expected = PGCRYPTO_1_3_FUNCTIONS[i];
-    if (
-      got.proname !== expected.proname
-      || got.identityArgs !== expected.identityArgs
-      || got.provolatile !== expected.provolatile
-      || got.proretset !== expected.proretset
-      || got.proisstrict !== expected.proisstrict
-    ) {
-      throw new Error(
-        `096 pgcrypto allowlist parity mismatch at ${i}: `
-        + `${signatureOf(got.proname, got.identityArgs)} != ${signatureOf(expected.proname, expected.identityArgs)}`,
-      );
-    }
   }
   return true;
 }
@@ -234,7 +267,8 @@ module.exports = {
   ALLOWLIST_END,
   PRIOR_096_CANONICAL_SHA256,
   allowlistValuesSql,
-  parseMigrationAllowlist,
+  extractMigrationAllowlistValuesSql,
+  normalizeAllowlistSql,
   assertMigrationAllowlistParity,
   provenPgcryptoResidualOidSql,
   publicExecuteResidualSignaturesSql,
