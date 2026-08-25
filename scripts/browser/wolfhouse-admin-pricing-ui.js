@@ -149,6 +149,14 @@
       + (extraAttrs || '') + '>' + whEsc(label) + '</button>';
   }
 
+  function pencilBtn(action, extraAttrs) {
+    return '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-row-edit"'
+      + ' data-wh-price-action="' + whEsc(action) + '"'
+      + (extraAttrs || '')
+      + ' aria-label="' + whEsc(whT('admin.action.edit', 'Edit')) + '"'
+      + ' title="' + whEsc(whT('admin.action.edit', 'Edit')) + '">✎</button>';
+  }
+
   function amountField(id, cents, label) {
     return '<div class="portal-admin-edit-field"><label for="' + whEsc(id) + '">'
       + whEsc(label || whT('admin.wh.pricing.amountEur', 'Amount (€)')) + '</label>'
@@ -156,14 +164,22 @@
       + whEsc(cents == null ? '' : eurosFromCents(cents)) + '"></div>';
   }
 
-  function editActions(saveAction, extraAttrs) {
+  function editActions(saveAction, extraAttrs, deleteHtml) {
     return '<div class="portal-admin-edit-actions">'
+      + (deleteHtml || '')
+      + '<button type="button" class="btn btn-ghost" data-wh-price-action="cancel">'
+      + whEsc(whT('admin.action.cancel', 'Cancel')) + '</button>'
       + '<button type="button" class="btn btn-primary" data-wh-price-action="'
       + whEsc(saveAction) + '"' + (extraAttrs || '') + '>'
       + whEsc(whT('admin.action.save', 'Save')) + '</button>'
-      + '<button type="button" class="btn btn-ghost" data-wh-price-action="cancel">'
-      + whEsc(whT('admin.action.cancel', 'Cancel')) + '</button>'
       + '</div>';
+  }
+
+  function deleteItemBtn(itemType, itemCode) {
+    return actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
+      ' data-wh-item-type="' + whEsc(itemType)
+      + '" data-wh-item-code="' + whEsc(itemCode) + '"',
+      'btn-ghost portal-admin-danger portal-admin-soft-delete');
   }
 
   /**
@@ -248,16 +264,12 @@
       return '<span class="portal-admin-price-meta">'
         + whEsc(whT('admin.wh.pricing.builtIn', 'built-in')) + '</span>';
     }
-    return '<div class="portal-admin-card-actions">'
-      + (itemType === 'package'
-        ? actionBtn('edit-package', whT('admin.action.edit', 'Edit'),
-          ' data-wh-item-code="' + whEsc(entry.code) + '"')
-        : '')
-      + actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
-        ' data-wh-item-type="' + whEsc(itemType)
-        + '" data-wh-item-code="' + whEsc(entry.code) + '"',
-        'btn-ghost portal-admin-danger')
-      + '</div>';
+    if (itemType === 'package') {
+      return '<div class="portal-admin-card-actions">'
+        + pencilBtn('edit-package', ' data-wh-item-code="' + whEsc(entry.code) + '"')
+        + '</div>';
+    }
+    return '';
   }
 
   function sectionShell(title, note, bodyHtml, headerExtra) {
@@ -326,7 +338,10 @@
       + '<div id="wh-price-season-ranges">' + rangesHtml + '</div>'
       + actionBtn('add-range', '+ ' + whT('admin.wh.pricing.addRange', 'Add range'))
       + '</div>'
-      + editActions('save-season', ' data-wh-season-code="' + whEsc(s.code) + '"')
+      + editActions('save-season', ' data-wh-season-code="' + whEsc(s.code) + '"',
+        isNew ? '' : actionBtn('delete-season', whT('admin.action.delete', 'Delete'),
+          ' data-wh-season-code="' + whEsc(s.code) + '"',
+          'btn-ghost portal-admin-danger portal-admin-soft-delete'))
       + '</div>';
   }
 
@@ -364,10 +379,7 @@
         + ' · ' + sourceBadge(s.source) + '</div></div>'
         + (canWrite()
           ? '<div class="portal-admin-card-actions">'
-            + actionBtn('edit-season', whT('admin.action.edit', 'Edit'),
-              ' data-wh-season-code="' + whEsc(s.code) + '"')
-            + actionBtn('delete-season', whT('admin.action.delete', 'Delete'),
-              ' data-wh-season-code="' + whEsc(s.code) + '"', 'btn-ghost portal-admin-danger')
+            + pencilBtn('edit-season', ' data-wh-season-code="' + whEsc(s.code) + '"')
             + '</div>'
           : '')
         + '</div></div>';
@@ -410,7 +422,8 @@
           + whEsc(p.label || humanize(p.code)) + '"></div>'
           + pebbleDropdownHtml(p.pebble)
           + packageStayFieldsHtml(p)
-          + editActions('save-package-item', ' data-wh-item-code="' + whEsc(p.code) + '"')
+          + editActions('save-package-item', ' data-wh-item-code="' + whEsc(p.code) + '"',
+            p.source === 'db' ? deleteItemBtn('package', p.code) : '')
           + '</div>';
       } else {
         html += '<div class="portal-admin-subsection-title-row">'
@@ -456,7 +469,7 @@
           + '</div>'
           + (canWrite()
             ? '<div class="portal-admin-card-actions">'
-              + actionBtn('edit-package-price', whT('admin.action.edit', 'Edit'),
+              + pencilBtn('edit-package-price',
                 ' data-wh-package="' + whEsc(p.code) + '" data-wh-season="' + whEsc(slot.season_code) + '"')
               + '</div>'
             : '')
@@ -540,6 +553,9 @@
         + '<div class="portal-admin-subsection-title">' + whEsc(r.label || humanize(r.code))
         + '</div>'
         + catalogTitleActions('rental', r)
+        + (!(r.durations || []).length && r.source === 'db' && canWrite()
+          ? '<div class="portal-admin-card-actions">' + deleteItemBtn('rental', r.code) + '</div>'
+          : '')
         + '</div><div class="portal-admin-card-grid">';
 
       if (!(r.durations || []).length) {
@@ -554,7 +570,8 @@
             + '<div class="portal-admin-price-title">' + whEsc(humanize(d.duration)) + '</div>'
             + amountField('wh-price-amount', d.amount_cents)
             + editActions('save-rental-price',
-              ' data-wh-item-code="' + whEsc(d.item_code) + '" data-wh-unit="' + whEsc(d.unit) + '"')
+              ' data-wh-item-code="' + whEsc(d.item_code) + '" data-wh-unit="' + whEsc(d.unit) + '"',
+              r.source === 'db' ? deleteItemBtn('rental', r.code) : '')
             + '</div>';
           continue;
         }
@@ -567,8 +584,7 @@
           + '</div></div>'
           + (canWrite()
             ? '<div class="portal-admin-card-actions">'
-              + actionBtn('edit-rental-price', whT('admin.action.edit', 'Edit'),
-                ' data-wh-item-code="' + whEsc(d.item_code) + '"')
+              + pencilBtn('edit-rental-price', ' data-wh-item-code="' + whEsc(d.item_code) + '"')
               + '</div>'
             : '')
           + '</div>';
@@ -621,7 +637,7 @@
         + '</div>'
         + (canWrite()
           ? '<div class="portal-admin-card-actions">'
-            + actionBtn('edit-full-day', whT('admin.action.edit', 'Edit'))
+            + pencilBtn('edit-full-day')
             + '</div>'
           : '')
         + '</div>';
@@ -653,7 +669,8 @@
           + amountField('wh-price-amount', s.price ? s.price.amount_cents : null)
           + editActions('save-service-price',
             ' data-wh-item-code="' + whEsc(s.code) + '" data-wh-unit="'
-            + whEsc(s.price ? s.price.unit : 'per_stay') + '"')
+            + whEsc(s.price ? s.price.unit : 'per_stay') + '"',
+            s.source === 'db' ? deleteItemBtn('service', s.code) : '')
           + '</div>';
         continue;
       }
@@ -668,13 +685,7 @@
         + '</div>'
         + (canWrite()
           ? '<div class="portal-admin-card-actions">'
-            + actionBtn('edit-service-price', whT('admin.action.edit', 'Edit'),
-              ' data-wh-item-code="' + whEsc(s.code) + '"')
-            + (s.source === 'db'
-              ? actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
-                ' data-wh-item-type="service" data-wh-item-code="' + whEsc(s.code) + '"',
-                'btn-ghost portal-admin-danger')
-              : '')
+            + pencilBtn('edit-service-price', ' data-wh-item-code="' + whEsc(s.code) + '"')
             + '</div>'
           : '')
         + '</div>';
@@ -748,7 +759,10 @@
       + '</label>'
       + '<input type="text" id="wh-price-transfer-msg-group" maxlength="300" value="'
       + whEsc(v.unavailable_below_min_group_message || '') + '"></div>'
-      + editActions('save-transfer', ' data-wh-airport="' + whEsc(v.airport_code) + '"')
+      + editActions('save-transfer', ' data-wh-airport="' + whEsc(v.airport_code) + '"',
+        isNew ? '' : actionBtn('delete-transfer', whT('admin.action.delete', 'Delete'),
+          ' data-wh-airport="' + whEsc(v.airport_code) + '"',
+          'btn-ghost portal-admin-danger portal-admin-soft-delete'))
       + '</div>';
   }
 
@@ -792,10 +806,7 @@
         + '</div>'
         + (canWrite()
           ? '<div class="portal-admin-card-actions">'
-            + actionBtn('edit-transfer', whT('admin.action.edit', 'Edit'),
-              ' data-wh-airport="' + whEsc(tr.airport_code) + '"')
-            + actionBtn('delete-transfer', whT('admin.action.delete', 'Delete'),
-              ' data-wh-airport="' + whEsc(tr.airport_code) + '"', 'btn-ghost portal-admin-danger')
+            + pencilBtn('edit-transfer', ' data-wh-airport="' + whEsc(tr.airport_code) + '"')
             + '</div>'
           : '')
         + '</div>';
@@ -837,7 +848,8 @@
         + scopeRadios
         + editActions('save-extra',
           ' data-wh-extra-kind="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code)
-          + '" data-wh-unit="' + whEsc(row.unit) + '"')
+          + '" data-wh-unit="' + whEsc(row.unit) + '"',
+          row.source === 'db' ? deleteItemBtn(kind, row.code) : '')
         + '</div>';
     }
     return '<div class="portal-admin-price-card">'
@@ -849,13 +861,8 @@
       + '</div></div>'
       + (canWrite()
         ? '<div class="portal-admin-card-actions">'
-          + actionBtn('edit-extra', whT('admin.action.edit', 'Edit'),
+          + pencilBtn('edit-extra',
             ' data-wh-extra-kind="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code) + '"')
-          + (row.source === 'db'
-            ? actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
-              ' data-wh-item-type="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code) + '"',
-              'btn-ghost portal-admin-danger')
-            : '')
           + '</div>'
         : '')
       + '</div>';

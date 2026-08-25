@@ -16916,6 +16916,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #wh-admin-pricing-body .wh-price-banner-warn{border-color:rgba(200,138,0,.4);color:#8a6100}
 #wh-admin-pricing-body .wh-price-banner-ok{border-color:rgba(46,139,87,.4);color:#256b45}
 #wh-admin-pricing-body .portal-admin-price-card{gap:8px}
+#wh-admin-pricing-body .portal-admin-edit-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;grid-column:1 / -1;margin-top:4px;flex-wrap:wrap}
+#wh-admin-pricing-body .portal-admin-icon-btn.portal-admin-row-edit{width:28px;height:28px;min-height:28px;padding:0;display:grid;place-items:center;border-radius:999px;font-size:14px;line-height:1}
+#wh-admin-pricing-body .portal-admin-soft-delete,
+#wh-admin-pricing-body .portal-admin-danger.portal-admin-soft-delete{color:#9a4a4a;background:rgba(184,92,92,.10);border-color:rgba(184,92,92,.28);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;min-height:32px}
 .portal-admin-course-equipment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,240px));gap:12px;max-width:100%}
 .portal-admin-equipment-editor{grid-column:1/-1;min-width:0}
 /* Equipment heading: title; empty-state + beside title; filled rows carry + next to × */

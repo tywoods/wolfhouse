@@ -1070,9 +1070,11 @@ function uiChecks() {
     runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('€200.00'));
   ok('the private room supplement renders',
     runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('€10.00'));
-  ok('promoted extras offer Delete',
-    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html
-      .includes('data-wh-item-type="deposit"'));
+  ok('promoted extras offer Delete inside the edit panel',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+      .includes('data-wh-item-type="deposit"')
+    && !runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html
+      .includes('data-wh-price-action="delete-item"'));
   ok('deposit edit offers per-booking and per-person radios',
     runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
       .includes('name="wh-deposit-scope"')
@@ -1093,15 +1095,20 @@ function uiChecks() {
 
   // A config-seeded item cannot be deleted — the JSON seed re-adds it — so the
   // portal must not show a Delete that quietly does nothing.
-  ok('a promoted package can be deleted',
-    html.includes('data-wh-item-type="package" data-wh-item-code="malibu"'));
+  ok('a promoted package can be deleted from its edit panel',
+    runPricingUi(writable, 'item:package:malibu').html
+      .includes('data-wh-item-type="package" data-wh-item-code="malibu"')
+    && !html.includes('data-wh-price-action="delete-item"'));
+  ok('closed packages show a pencil, not Delete',
+    html.includes('data-wh-price-action="edit-package"')
+    && html.includes('aria-label="Edit"'));
   ok('the new-package form offers pebble colors in a dropdown',
     runPricingUi(writable, 'item:package:__new__').html.includes('id="wh-price-item-pebble"')
     && runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-pebble-dd')
     && runPricingUi(writable, 'item:package:__new__').html.includes('pkg-pebble-sage')
     && runPricingUi(writable, 'item:package:__new__').html.includes('pick-pebble')
     && !runPricingUi(writable, 'item:package:__new__').html.includes('<select id="wh-price-item-pebble"'));
-  ok('each package offers Edit next to Delete',
+  ok('each package offers a pencil to open edit',
     html.includes('data-wh-price-action="edit-package"')
     && html.includes('data-wh-item-code="malibu"'));
   ok('package edit can change pebble color',
