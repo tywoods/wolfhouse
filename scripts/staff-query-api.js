@@ -20029,13 +20029,23 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 #bc-side-drawer #bc-field-guests-kv-only .k{display:none}
 #bc-side-drawer #bc-field-guests-kv-only .v{
-  font-size:15px;font-weight:700;text-decoration:none;white-space:normal;
+  font-size:14px;font-weight:600;text-decoration:none;white-space:normal;
 }
-.bc-guest-count{text-decoration:underline;text-underline-offset:3px}
-.bc-guest-names{display:block;margin-top:4px;font-size:13px;font-weight:500;text-decoration:none!important;white-space:normal;line-height:1.35}
-#bc-side-drawer .ctx-field-edit{
-  margin:0;padding:0;background:transparent;border:0;max-width:none;
+.bc-guest-count{display:none}
+.bc-guest-names{display:block;margin-top:0;font-size:14px;font-weight:600;text-decoration:none!important;white-space:normal;line-height:1.4}
+.bc-guest-name-line{display:block}
+#bc-side-drawer .ctx-field-edit{display:none!important}
+#bc-side-drawer .bc-inline-input{
+  width:100%;max-width:100%;height:28px;font-size:13px;padding:3px 8px;
+  border:1px solid var(--border-soft);border-radius:6px;background:#fff;box-sizing:border-box;
 }
+#bc-side-drawer .bc-inline-guest-name{display:block;margin:0 0 6px;max-width:220px}
+.bc-inline-edit-bar{display:none;align-items:center;gap:6px;margin-left:8px}
+#bc-side-drawer #bc-field-group-guests.is-editing #bc-inline-edit-bar{display:inline-flex}
+#bc-inline-edit-bar[hidden]{display:none!important}
+#bc-side-drawer #bc-inline-save{padding:4px 10px;font-size:12px;min-height:28px}
+#bc-side-drawer #bc-inline-cancel{padding:4px 10px;font-size:12px;min-height:28px}
+#bc-side-drawer .ctx-field-edit-group.is-editing .bc-private-room-switch-wrap.is-readonly{pointer-events:auto;opacity:1}
 #bc-side-drawer .ctx-field-label{
   font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4px;color:var(--text-2);
 }
@@ -37567,16 +37577,20 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
   var guestsReadInner =
     '<div class="kv" id="bc-field-guests-kv-only">' +
-      '<span class="k">' + escHtml(t('drawer.field.guests')) + '</span>' +
-      '<span class="v"><span class="bc-guest-count">' + escHtml(String(guestCount) + (guestCount === 1 ? ' Guest' : ' Guests')) + '</span>' +
-        (guestNames.length ? '<span class="bc-guest-names">' + escHtml(guestNames.join(', ')) + '</span>' : '') +
-      '</span>' +
+      '<span class="k"></span>' +
+      '<span class="v"><span class="bc-guest-names" id="bc-guest-names">' +
+        guestNames.map(function(n){ return '<span class="bc-guest-name-line">' + escHtml(n) + '</span>'; }).join('') +
+      '</span></span>' +
     '</div>';
   html += '<div class="ctx-field-read" id="bc-field-guests-read">' +
     '<div class="ctx-field-read-row">' +
     '<div class="kv-grid ctx-field-kv-grid ctx-field-kv-grid--3">' + guestsReadInner + '</div>' +
     '<div class="ctx-field-header">' +
     bcRenderFieldEditPencilBtn('guests', t('drawer.field.editGuests')) +
+    '<span class="bc-inline-edit-bar" id="bc-inline-edit-bar" hidden>' +
+      '<button type="button" class="btn btn-primary" id="bc-inline-save">Save</button>' +
+      '<button type="button" class="btn btn-ghost" id="bc-inline-cancel">Cancel</button>' +
+    '</span>' +
     '</div></div></div>';
   html += '<div class="ctx-field-edit ctx-field-guests-edit" id="bc-field-guests-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
@@ -37829,6 +37843,7 @@ function bcFieldEditCloseAll(){
     guestPrev.textContent = '';
   }
   bcFieldEditClearPreviewResults();
+  bcFieldEditRestoreInline();
   bcFieldEditRestoreForms();
 }
 
@@ -37850,10 +37865,18 @@ function bcFieldEditShowGroup(group){
   root.classList.add('is-editing');
   var read = root.querySelector('.ctx-field-read');
   var edit = root.querySelector('.ctx-field-edit');
-  if (read) read.style.display = 'none';
-  if (edit) edit.style.display = '';
+  var inRail = !!(el('bc-side-drawer') && el('bc-side-drawer').contains(root));
+  if (inRail) {
+    if (read) read.style.display = '';
+    if (edit) edit.style.display = 'none';
+    bcFieldEditPaintInline(group);
+  } else {
+    if (read) read.style.display = 'none';
+    if (edit) edit.style.display = '';
+  }
   if (group === 'guests') {
     bcFieldEditInitPrivateRoomToggle();
+    bcFieldEditEnablePrivateRoomInline();
     bcFieldEditUpdateGuestPreview();
     bcFieldEditUpdateGuestsSaveState();
   }
@@ -37863,6 +37886,166 @@ function bcFieldEditShowGroup(group){
   }
   if (group === 'contact') bcFieldEditUpdateContactSaveState();
   if (group === 'package') bcFieldEditUpdatePackageSaveState();
+}
+
+function bcFieldEditMoveInputToValue(vEl, input){
+  if (!vEl || !input) return;
+  if (!input._bcHome) input._bcHome = input.parentNode;
+  vEl.textContent = '';
+  vEl.appendChild(input);
+  input.classList.add('bc-inline-input');
+}
+
+function bcFieldEditPaintInline(group){
+  if (group === 'contact') {
+    var kvs = document.querySelectorAll('#bc-field-group-contact .kv-grid > .kv');
+    if (kvs[1]) bcFieldEditMoveInputToValue(kvs[1].querySelector('.v'), el('bc-field-contact-phone'));
+    if (kvs[2]) bcFieldEditMoveInputToValue(kvs[2].querySelector('.v'), el('bc-field-contact-email'));
+  }
+  if (group === 'dates') {
+    var dkv = document.querySelectorAll('#bc-field-group-dates .kv-grid > .kv');
+    if (dkv[0]) bcFieldEditMoveInputToValue(dkv[0].querySelector('.v'), el('bc-field-dates-check-in'));
+    if (dkv[1]) bcFieldEditMoveInputToValue(dkv[1].querySelector('.v'), el('bc-field-dates-check-out'));
+  }
+  if (group === 'guests') {
+    var wrap = el('bc-guest-names');
+    if (wrap && !wrap.dataset.bcInline) {
+      wrap.dataset.bcInline = '1';
+      wrap.dataset.bcReadHtml = wrap.innerHTML;
+      var names = [];
+      wrap.querySelectorAll('.bc-guest-name-line').forEach(function(n){ names.push(n.textContent.trim()); });
+      if (!names.length) names = [''];
+      wrap.innerHTML = '';
+      names.forEach(function(name, i){
+        var inp = document.createElement('input');
+        inp.type = 'text';
+        inp.className = 'bk-input bk-input-sm bc-inline-input bc-inline-guest-name';
+        inp.value = name;
+        inp.setAttribute('data-guest-i', String(i));
+        if (i === 0) {
+          inp.addEventListener('input', function(){
+            var n = el('bc-field-contact-name');
+            if (n) n.value = inp.value;
+            var title = el('bc-side-title');
+            if (title && inp.value) title.textContent = inp.value;
+            bcFieldEditUpdateContactSaveState();
+          });
+        }
+        wrap.appendChild(inp);
+      });
+    }
+    var bar = el('bc-inline-edit-bar');
+    if (bar) bar.hidden = false;
+  }
+}
+
+function bcFieldEditEnablePrivateRoomInline(){
+  var sw = el('bc-field-private-room-read-switch');
+  var wrap = sw && sw.closest('.bc-private-room-switch-wrap');
+  if (sw) {
+    sw.disabled = false;
+    sw.onchange = function(){
+      var dest = el('bc-field-private-room-switch');
+      if (dest) dest.checked = sw.checked;
+      bcFieldEditUpdateGuestsSaveState();
+    };
+  }
+  if (wrap) wrap.classList.remove('is-readonly');
+}
+
+function bcFieldEditRestoreInline(){
+  document.querySelectorAll('#bc-side-drawer .bc-inline-input').forEach(function(input){
+    if (input._bcHome) input._bcHome.appendChild(input);
+    input.classList.remove('bc-inline-input');
+  });
+  var wrap = el('bc-guest-names');
+  if (wrap && wrap.dataset.bcReadHtml) {
+    wrap.innerHTML = wrap.dataset.bcReadHtml;
+    wrap.removeAttribute('data-bc-inline');
+    wrap.removeAttribute('data-bc-read-html');
+  }
+  var bar = el('bc-inline-edit-bar');
+  if (bar) bar.hidden = true;
+  var sw = el('bc-field-private-room-read-switch');
+  var swWrap = sw && sw.closest('.bc-private-room-switch-wrap');
+  if (sw) sw.disabled = true;
+  if (swWrap) swWrap.classList.add('is-readonly');
+}
+
+function bcFieldEditPostEdit(body){
+  return fetch('/staff/bookings/edit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(function(r){
+    return r.json().then(function(d){
+      if (!r.ok || !d || !d.success) {
+        var err = new Error((d && (d.error || d.message)) || ('Save failed (HTTP ' + r.status + ')'));
+        throw err;
+      }
+      return d;
+    });
+  });
+}
+
+function bcFieldEditSaveInlineAll(){
+  var name0 = document.querySelector('#bc-side-drawer .bc-inline-guest-name');
+  var nameEl = el('bc-field-contact-name');
+  if (name0 && nameEl) nameEl.value = String(name0.value || '').trim();
+  var prRead = el('bc-field-private-room-read-switch');
+  var prEdit = el('bc-field-private-room-switch');
+  if (prRead && prEdit) prEdit.checked = prRead.checked;
+  var s = bcFieldEditState.snapshot || {};
+  var phoneEl = el('bc-field-contact-phone');
+  var emailEl = el('bc-field-contact-email');
+  var cinEl = el('bc-field-dates-check-in');
+  var coutEl = el('bc-field-dates-check-out');
+  var contactDirty = !!(nameEl && (
+    nameEl.value !== String(s.guest_name || '') ||
+    (phoneEl && phoneEl.value !== String(s.phone || '')) ||
+    (emailEl && emailEl.value !== String(s.email || ''))
+  ));
+  var datesDirty = !!(cinEl && coutEl && (
+    cinEl.value !== String(s.check_in || '') ||
+    coutEl.value !== String(s.check_out || '')
+  ));
+  var prDirty = !!(prEdit && !!prEdit.checked !== !!s.private_room);
+  var jobs = Promise.resolve();
+  if (contactDirty) {
+    var c = bcFieldEditBuildContactWritePayload();
+    if (c.error) { alert(c.error); return; }
+    jobs = jobs.then(function(){ return bcFieldEditPostEdit(c); });
+  }
+  if (datesDirty) {
+    jobs = jobs.then(function(){
+      var d = bcFieldEditBuildDatesWritePayload();
+      if (d.error) throw new Error(d.error);
+      return bcFieldEditPostEdit(d);
+    });
+  }
+  if (prDirty) {
+    jobs = jobs.then(function(){
+      return bcFieldEditPostEdit({
+        client_slug: bcFieldEditState.clientSlug || getBcClient(),
+        booking_id: bcFieldEditState.bookingId,
+        booking_code: bcFieldEditState.bookingCode,
+        edit_type: 'private_room',
+        private_room_enabled: !!prEdit.checked,
+        idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
+        reason: 'Staff portal private room toggle',
+      });
+    });
+  }
+  var saveBtn = el('bc-inline-save');
+  if (saveBtn) saveBtn.disabled = true;
+  jobs.then(function(){
+    var code = bcFieldEditState.bookingCode;
+    bcFieldEditCloseAll();
+    if (code) loadBlockDetail(code);
+  }).catch(function(err){
+    if (saveBtn) saveBtn.disabled = false;
+    alert(err && err.message ? err.message : 'Save failed');
+  });
 }
 
 function bcFieldEditActivateAll(){
@@ -38694,6 +38877,7 @@ function bcInitFieldEditShell(data){
     package_code: bk.package_code ? String(bk.package_code).toLowerCase() : 'no_package',
     guest_packages: bcGuestPackages(bk),
     guest_count: bcFieldEditState.guestCount,
+    private_room: bcBookingPrivateRoomEnabled(bk),
   };
   bcFieldEditState.activeGroup = null;
   bcFieldEditCloseAll();
@@ -38704,6 +38888,10 @@ function bcInitFieldEditShell(data){
       if (g) bcFieldEditActivate(g);
     };
   });
+  var inlineSave = el('bc-inline-save');
+  var inlineCancel = el('bc-inline-cancel');
+  if (inlineSave) inlineSave.onclick = function(e){ e.preventDefault(); bcFieldEditSaveInlineAll(); };
+  if (inlineCancel) inlineCancel.onclick = function(){ bcFieldEditCloseAll(); };
   document.querySelectorAll('[data-bc-field-cancel]').forEach(function(btn){
     btn.onclick = function(){ bcFieldEditCloseAll(); };
   });
@@ -40507,16 +40695,17 @@ function bcCloseSideRail(){
   bcUndockCreatePanel();
 }
 
-function bcSideStayMetaHtml(cin, cout){
+function bcSideStayMetaHtml(cin, cout, guests){
   var dates = [cin, cout].filter(Boolean).join(' → ');
   var nights = 0;
   if (cin && cout && typeof bcStayNightsFromCheckInOut === 'function') {
     nights = bcStayNightsFromCheckInOut(cin, cout) || 0;
   }
-  if (nights > 0) {
-    return escHtml(dates) + ' <span class="bc-side-nights">- ' + escHtml(String(nights) + ' nights') + '</span>';
-  }
-  return escHtml(dates);
+  var extra = '';
+  if (nights > 0) extra += ' <span class="bc-side-nights">- ' + escHtml(String(nights) + ' nights') + '</span>';
+  var gc = parseInt(guests, 10);
+  if (gc > 0) extra += ' <span class="bc-side-nights">- ' + escHtml(String(gc) + (gc === 1 ? ' guest' : ' guests')) + '</span>';
+  return escHtml(dates) + extra;
 }
 
 function bcDockCreatePanel(){
@@ -40571,7 +40760,7 @@ function bcOpenSideBooking(blk, opts){
   if (title) title.textContent = blk.guest_name || blk.booking_code || 'Booking';
   var cin = blk.check_in || blk.start_date || '';
   var cout = blk.check_out || blk.end_date || '';
-  if (meta) meta.innerHTML = bcSideStayMetaHtml(cin, cout);
+  if (meta) meta.innerHTML = bcSideStayMetaHtml(cin, cout, blk.guest_count || blk.guests);
   var code = blk.booking_code;
   if (code && bcLastBookingContext && bcLastBookingContext.booking &&
       String(bcLastBookingContext.booking.booking_code) === String(code) &&
