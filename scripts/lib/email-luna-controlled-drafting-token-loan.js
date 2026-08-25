@@ -644,14 +644,26 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
         }
 
         if (classified.kind === 'invalid_grant') {
-          await markDelegatedGrantReauthorizationRequired({
-            clientId: ids.clientId,
-            endpointId: ids.endpointId,
-            leaseToken: lease.lease_token,
-            expectedGeneration: lease.grant_generation,
-            reason: 'invalid_grant',
-          }, { client });
+          dropTokenRefs();
+          const held = lease;
+          suppressLeaseAbort = true;
           lease = null;
+          if (!held) throw failAt('dead_grant');
+          let reauth;
+          try {
+            reauth = await markDelegatedGrantReauthorizationRequired({
+              clientId: ids.clientId,
+              endpointId: ids.endpointId,
+              leaseToken: held.lease_token,
+              expectedGeneration: held.grant_generation,
+              reason: 'invalid_grant',
+            }, { client });
+          } catch (_) {
+            throw failAt('uncertainty_persistence', 'persistence_unproven');
+          }
+          if (!reauth || reauth.ok !== true) {
+            throw failAt('uncertainty_persistence', 'persistence_unproven');
+          }
           throw failAt('dead_grant');
         }
 

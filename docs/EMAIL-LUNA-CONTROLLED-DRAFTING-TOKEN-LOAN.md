@@ -31,7 +31,7 @@ Microsoft identity platform v2 documents that a `refresh_token` grant may includ
 5. Binds JWT `oid` to the canonical database `provider_principal_oid` (not mailbox / `provider_resource_id`). Separately requires `provider_resource_id ===` configured mailbox id and exact own-user binding.
 6. If Microsoft omits a new refresh token, releases the lease through the canonical owner **without** resealing, generation-bumping, or marking uncertainty. If Microsoft returns a new refresh token, uses canonical reseal/CAS. Token HTTP timeout, unknown transport, unparseable body, classification failure (including broader `Mail.Send`), and missing access token after the request may have reached Microsoft are potentially rotating or unknown — they use the same mark-first helper even before a new refresh token is known, and are not a safe abort. **Any** later failure after a potentially rotating or unknown response and before custody commit succeeds (binding, JWKS/claims, kill, AAD, reseal, envelope validation, CAS/commit, or marker persistence) uses the same canonical uncertainty helper — not only CAS/seal, and not only a known new refresh token.
 
-**Live downscoping is unproven** until a signed token `scp` excludes `Mail.Send` **and** a later unscoped staff-send refresh succeeds. Microsoft does not guarantee tenant downscope behavior. If live Microsoft ignores downscope and always returns `Mail.Send` while staff send remains enabled on the same endpoint, this source **fails closed**.
+**Live downscoping is unproven** until a signed token `scp` excludes `Mail.Send` **and** a later unscoped staff-send refresh succeeds. Microsoft does not guarantee tenant downscope behavior. If live Microsoft ignores downscope and always returns `Mail.Send` while staff send remains enabled on the same endpoint, this source **fails closed**. Chapter 4E (`docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-DOWNSCOPE-PROVER.md`) is the source-only, disabled-by-construction operator prover for that future live sequence.
 
 Staff send continues to refresh **without** a `scope` parameter, so it still receives the full grant.
 
@@ -92,7 +92,9 @@ Mark-success → abort-preserve: if and only if mark succeeds, abort the lease. 
 
 Mark-fail / fenced / expired → leave the lease: do **not** abort. Null token/refresh refs and throw branded `uncertainty_persistence` / `persistence_unproven`. Never claim the marker persisted. Leaving `lease_held` is required because abort of an expired own lease would succeed and could republish the stale envelope as `active` without the uncertain marker.
 
-Stale CAS responses cannot overwrite a newer generation. Raw secrets never appear in status or errors. **Live downscoping remains unproven.**
+On conclusive `invalid_grant`, inspect `markDelegatedGrantReauthorizationRequired`. Mark-success → branded `dead_grant` (the mark already released the lease). Mark-fail / fenced / throw → leave the lease fail-closed and throw `uncertainty_persistence` / `persistence_unproven`. Do **not** claim `dead_grant` when persistence is unproven. No Graph.
+
+Stale CAS responses cannot overwrite a newer generation. Raw secrets never appear in status or errors. **Live downscoping remains unproven.** The source-only Chapter 4E operator prover is `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-DOWNSCOPE-PROVER.md`.
 
 ## Non-goals
 
