@@ -73,6 +73,8 @@ const stringTrim = uncurryThis(String.prototype.trim);
 
 const ERROR_CODE = 'EMAIL_LUNA_CONTROLLED_DRAFTING_TOKEN_LOAN_INVALID';
 const ERROR_MESSAGE = 'Email Luna controlled drafting token loan failed.';
+const PROVIDER_INVALID_CODE = 'EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER_INVALID';
+const PROVIDER_INVALID_MESSAGE = 'Email Luna controlled drafting provider failed.';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SCOPE_PROFILE_ID = 'controlled_drafting_v1';
 const REQUESTED_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite';
@@ -141,8 +143,36 @@ const TOKEN_LOAN_STAGES = objectFreeze([
   'reseal',
   'commit',
   'release',
+  'uncertainty_persistence',
+]);
+const TOKEN_LOAN_NO_PROVIDER_POST_STAGES = objectFreeze([
+  'kill_switch',
+  'status',
+  'lease',
+  'open',
+  'grant_scope',
+  'secret',
+  'token',
+  'response',
+  'claims',
+  'binding',
+  'dead_grant',
+  'reseal',
+  'commit',
+  'uncertainty_persistence',
 ]);
 const STAGE_SET = new Set(TOKEN_LOAN_STAGES);
+const NO_PROVIDER_POST_STAGE_SET = new Set(TOKEN_LOAN_NO_PROVIDER_POST_STAGES);
+const ROTATING_RESPONSE_UNCERTAINTY_DETAILS = objectFreeze({
+  binding: 'post_ms_binding',
+  claims: 'post_ms_claims',
+  kill_switch: 'post_ms_kill_switch',
+  reseal: 'post_ms_pre_seal',
+  commit: 'post_ms_cas_conflict',
+  response: 'ms_refresh_uncertain',
+  uncertainty_persistence: 'persistence_unproven',
+});
+const DETAIL_CODE_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
 if (REQUEST_SUNSET !== SUNSET_DEPLOYMENT) {
   throw new Error('controlled_drafting_token_loan_sunset_deployment_mismatch');
@@ -205,10 +235,11 @@ function snapshotBinding(raw) {
   });
 }
 
-function freezeStageNote(stage) {
+function freezeStageNote(stage, code) {
   try {
     if (typeof stage !== 'string' || !STAGE_SET.has(stage)) return null;
-    const note = { stage, code: stage };
+    const resolved = typeof code === 'string' && DETAIL_CODE_RE.test(code) ? code : stage;
+    const note = { stage, code: resolved };
     if (!exactPlainData(note, TOKEN_LOAN_FAILURE_NOTE_KEYS)) return null;
     return objectFreeze(note);
   } catch (_) {
@@ -216,11 +247,12 @@ function freezeStageNote(stage) {
   }
 }
 
-function brandTokenLoanFailure(target, stage) {
+function brandTokenLoanFailure(target, stage, code) {
   try {
     if (target == null || (typeof target !== 'object' && typeof target !== 'function')) return target;
-    if (typeof stage !== 'string' || !STAGE_SET.has(stage)) return target;
-    TOKEN_LOAN_FAILURE_BRAND.set(target, stage);
+    const note = freezeStageNote(stage, code);
+    if (!note) return target;
+    TOKEN_LOAN_FAILURE_BRAND.set(target, note);
     return target;
   } catch (_) {
     return target;
@@ -230,10 +262,57 @@ function brandTokenLoanFailure(target, stage) {
 function readTrustedControlledDraftingTokenLoanFailure(target) {
   try {
     if (target == null || (typeof target !== 'object' && typeof target !== 'function')) return null;
-    return freezeStageNote(TOKEN_LOAN_FAILURE_BRAND.get(target));
+    const stored = TOKEN_LOAN_FAILURE_BRAND.get(target);
+    if (!stored) return null;
+    if (typeof stored === 'string') return freezeStageNote(stored);
+    if (stored && typeof stored === 'object') return freezeStageNote(stored.stage, stored.code);
+    return null;
   } catch (_) {
     return null;
   }
+}
+
+function isTrustedControlledDraftingTokenLoanNoProviderPostFailure(target) {
+  try {
+    const note = readTrustedControlledDraftingTokenLoanFailure(target);
+    if (!note) return false;
+    return NO_PROVIDER_POST_STAGE_SET.has(note.stage);
+  } catch (_) {
+    return false;
+  }
+}
+
+function providerInvalid() {
+  const error = new Error(PROVIDER_INVALID_MESSAGE);
+  error.code = PROVIDER_INVALID_CODE;
+  objectFreeze(error);
+  return error;
+}
+
+function isFrozenProviderInvalid(error) {
+  try {
+    return Boolean(
+      error
+      && error.code === PROVIDER_INVALID_CODE
+      && Object.isFrozen(error),
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function pinCommandMailbox(command, mailboxId) {
+  if (!command || typeof command !== 'object' || isProxySurface(command) || arrayIsArray(command)) {
+    return command;
+  }
+  const keys = reflectOwnKeys(command);
+  const out = {};
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    if (typeof key !== 'string') continue;
+    out[key] = key === 'mailbox_id' ? mailboxId : ownData(command, key);
+  }
+  return objectFreeze(out);
 }
 
 function isClosedControlledDraftingGraphProvider(value) {
@@ -369,9 +448,9 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
   let chain = Promise.resolve();
   let service = null;
 
-  function failAt(stage) {
+  function failAt(stage, code) {
     const error = failure();
-    brandTokenLoanFailure(error, stage);
+    brandTokenLoanFailure(error, stage, code);
     return error;
   }
 
@@ -383,6 +462,8 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
     if (typeof operation === 'function' || isProxySurface(operation)) throw failAt('release');
     const op = exactOwnData(operation, GRAPH_OPERATION_KEYS);
     if (!op || !GRAPH_OPERATION_KINDS.includes(op.kind)) throw failAt('release');
+    if (ownData(op.command, 'mailbox_id') !== binding.mailboxId) throw failAt('binding');
+    const pinnedCommand = pinCommandMailbox(op.command, binding.mailboxId);
     if (killSwitchOn(service)) throw failAt('kill_switch');
 
     return withPgClient(async (client) => {
@@ -404,10 +485,78 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
       let selectedOwner = null;
       let sealedOwner = null;
       let refreshTokenOmitted = false;
+      let receivedRotatingRefresh = false;
+      let suppressLeaseAbort = false;
       const ids = objectFreeze({
         clientId: binding.clientId,
         endpointId: binding.endpointId,
       });
+
+      function dropTokenRefs() {
+        accessCandidate = null;
+        accessTokenOwner = null;
+        refreshToken = null;
+        refreshToSeal = null;
+        classified = null;
+        selectedOwner = null;
+        sealedOwner = null;
+        openedOwner = null;
+      }
+
+      async function refuseAfterRotatingMicrosoftResponse(stage, detailCode) {
+        const held = lease;
+        lease = null;
+        suppressLeaseAbort = true;
+        dropTokenRefs();
+        const detail = typeof detailCode === 'string' && DETAIL_CODE_RE.test(detailCode)
+          ? detailCode
+          : (ROTATING_RESPONSE_UNCERTAINTY_DETAILS[stage] || 'post_ms_pre_commit');
+        if (!held) throw failAt(stage);
+        let marked;
+        try {
+          marked = await markDelegatedGrantReconciliation({
+            clientId: ids.clientId,
+            endpointId: ids.endpointId,
+            leaseToken: held.lease_token,
+            expectedGeneration: held.grant_generation,
+            reconcileState: 'ms_response_uncertain',
+            reconcileDetailCode: detail,
+          }, { client });
+        } catch (_) {
+          throw failAt('uncertainty_persistence', 'persistence_unproven');
+        }
+        if (!marked || marked.ok !== true) {
+          throw failAt('uncertainty_persistence', 'persistence_unproven');
+        }
+        let aborted;
+        try {
+          aborted = await abortDelegatedGrantLease({
+            clientId: ids.clientId,
+            endpointId: ids.endpointId,
+            leaseToken: held.lease_token,
+            expectedGeneration: held.grant_generation,
+          }, { client });
+        } catch (_) {
+          throw failAt(stage);
+        }
+        if (aborted && aborted.ok === true) {
+          const dto = aborted.value;
+          if (!dto || dto.reconcile_state !== 'ms_response_uncertain') {
+            throw failAt('uncertainty_persistence', 'persistence_unproven');
+          }
+        }
+        throw failAt(stage);
+      }
+
+      async function refuseBeforeCommit(stage, detailCode) {
+        if (receivedRotatingRefresh === true) {
+          await refuseAfterRotatingMicrosoftResponse(stage, detailCode);
+        }
+        dropTokenRefs();
+        await safeAbort(client, ids, lease);
+        lease = null;
+        throw failAt(stage);
+      }
 
       try {
         if (killSwitchOn(service)) throw failAt('kill_switch');
@@ -545,11 +694,13 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
               throw failAt('response');
             }
             refreshTokenOmitted = true;
+            receivedRotatingRefresh = false;
             refreshToSeal = null;
           } else if (selectedOwner.refreshTokenOmitted === false
               && typeof selectedOwner.refreshToken === 'string'
               && selectedOwner.refreshToken) {
             refreshTokenOmitted = false;
+            receivedRotatingRefresh = true;
             refreshToSeal = selectedOwner.refreshToken;
           } else {
             accessTokenOwner = null;
@@ -576,18 +727,12 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
             || typeof bound.value.providerPrincipalOid !== 'string'
             || !isCanonUuid(bound.value.providerPrincipalOid)
             || bound.value.bindingStatus !== 'verified') {
-          accessTokenOwner = null;
-          await safeAbort(client, ids, lease);
-          lease = null;
-          throw failAt('binding');
+          await refuseBeforeCommit('binding', ROTATING_RESPONSE_UNCERTAINTY_DETAILS.binding);
         }
 
         const verifier = createSignatureVerifier();
         if (!verifier || typeof ownData(verifier, 'verify') !== 'function') {
-          accessTokenOwner = null;
-          await safeAbort(client, ids, lease);
-          lease = null;
-          throw failAt('claims');
+          await refuseBeforeCommit('claims', ROTATING_RESPONSE_UNCERTAINTY_DETAILS.claims);
         }
         const inspector = createControlledDraftingAccessTokenClaimsInspector(objectFreeze({
           signatureVerifier: verifier,
@@ -601,17 +746,11 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
             nowEpochSeconds: Math.floor(Date.now() / 1000),
           }));
         } catch (_) {
-          accessTokenOwner = null;
-          await safeAbort(client, ids, lease);
-          lease = null;
-          throw failAt('claims');
+          await refuseBeforeCommit('claims', ROTATING_RESPONSE_UNCERTAINTY_DETAILS.claims);
         }
 
         if (killSwitchOn(service)) {
-          accessTokenOwner = null;
-          await safeAbort(client, ids, lease);
-          lease = null;
-          throw failAt('kill_switch');
+          await refuseBeforeCommit('kill_switch', ROTATING_RESPONSE_UNCERTAINTY_DETAILS.kill_switch);
         }
 
         if (refreshTokenOmitted === true) {
@@ -639,11 +778,7 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
               operationId: nextOperationId,
             });
           } catch (_) {
-            accessTokenOwner = null;
-            refreshToSeal = null;
-            await safeAbort(client, ids, lease);
-            lease = null;
-            throw failAt('reseal');
+            await refuseBeforeCommit('reseal', 'post_ms_pre_seal');
           }
 
           try {
@@ -653,18 +788,7 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
               operation_id: nextOperationId,
             });
           } catch (_) {
-            accessTokenOwner = null;
-            await markDelegatedGrantReconciliation({
-              clientId: ids.clientId,
-              endpointId: ids.endpointId,
-              leaseToken: lease.lease_token,
-              expectedGeneration: lease.grant_generation,
-              reconcileState: 'ms_response_uncertain',
-              reconcileDetailCode: 'post_ms_pre_seal',
-            }, { client });
-            await safeAbort(client, ids, lease);
-            lease = null;
-            throw failAt('reseal');
+            await refuseBeforeCommit('reseal', 'post_ms_pre_seal');
           } finally {
             refreshToSeal = null;
           }
@@ -672,18 +796,7 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
           const envCheck = validateGrantEnvelopeRecordV1(sealedOwner);
           sealedOwner = null;
           if (!envCheck.ok) {
-            accessTokenOwner = null;
-            await markDelegatedGrantReconciliation({
-              clientId: ids.clientId,
-              endpointId: ids.endpointId,
-              leaseToken: lease.lease_token,
-              expectedGeneration: lease.grant_generation,
-              reconcileState: 'ms_response_uncertain',
-              reconcileDetailCode: 'post_ms_pre_commit',
-            }, { client });
-            await safeAbort(client, ids, lease);
-            lease = null;
-            throw failAt('reseal');
+            await refuseBeforeCommit('reseal', 'post_ms_pre_commit');
           }
 
           const committed = await commitDelegatedGrantRotation({
@@ -695,20 +808,10 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
             envelope: envCheck.value,
           }, { client });
           if (!committed.ok) {
-            accessTokenOwner = null;
-            await markDelegatedGrantReconciliation({
-              clientId: ids.clientId,
-              endpointId: ids.endpointId,
-              leaseToken: lease.lease_token,
-              expectedGeneration: lease.grant_generation,
-              reconcileState: 'ms_response_uncertain',
-              reconcileDetailCode: 'post_ms_cas_conflict',
-            }, { client });
-            await safeAbort(client, ids, lease);
-            lease = null;
-            throw failAt('commit');
+            await refuseBeforeCommit('commit', 'post_ms_cas_conflict');
           }
           lease = null;
+          receivedRotatingRefresh = false;
         }
 
         if (killSwitchOn(service)) {
@@ -724,21 +827,23 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
             tokenForConsumer,
             objectFreeze({
               kind: op.kind,
-              command: op.command,
+              command: pinnedCommand,
             }),
           ]);
         } catch (consumerErr) {
-          if (valueContainsSecret(consumerErr, tokenForConsumer)) throw failAt('release');
-          throw consumerErr;
+          if (valueContainsSecret(consumerErr, tokenForConsumer)) throw providerInvalid();
+          if (isFrozenProviderInvalid(consumerErr)) throw consumerErr;
+          throw providerInvalid();
         } finally {
           accessTokenOwner = null;
         }
-        if (valueContainsSecret(value, tokenForConsumer)) throw failAt('release');
+        if (valueContainsSecret(value, tokenForConsumer)) throw providerInvalid();
         return value;
       } catch (err) {
-        await safeAbort(client, ids, lease);
+        if (!suppressLeaseAbort) await safeAbort(client, ids, lease);
         lease = null;
         if (readTrustedControlledDraftingTokenLoanFailure(err)) throw err;
+        if (isFrozenProviderInvalid(err)) throw err;
         throw failAt('release');
       } finally {
         accessCandidate = null;
@@ -803,9 +908,11 @@ module.exports = objectFreeze({
   SERVICE_KEYS,
   ATTEST_KEYS,
   TOKEN_LOAN_STAGES,
+  TOKEN_LOAN_NO_PROVIDER_POST_STAGES,
   createEmailLunaControlledDraftingGraphProvider,
   isClosedControlledDraftingGraphProvider,
   bindControlledDraftingTokenLoanKillSwitch,
   readTrustedControlledDraftingTokenLoanFailure,
+  isTrustedControlledDraftingTokenLoanNoProviderPostFailure,
   attestEmailLunaControlledDraftingTokenLoan: attestSuccess,
 });

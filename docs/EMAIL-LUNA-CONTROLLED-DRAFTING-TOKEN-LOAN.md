@@ -12,7 +12,9 @@
 
 **Verifier:** `npm run verify:email-luna-controlled-drafting-token-loan`
 
-**Stock PostgreSQL proof:** `npm run prove:email-luna-controlled-drafting-token-loan-stock-pg` (SKIPs honestly when embedded PostgreSQL is unavailable)
+**Offline simulation proof:** `npm run prove:email-luna-controlled-drafting-token-loan-offline-simulation` (fake harness / in-memory only; not a PostgreSQL proof)
+
+**Compatibility wrapper:** `npm run prove:email-luna-controlled-drafting-token-loan-stock-pg` (same offline simulation; output states it is **not** a PostgreSQL proof)
 
 This chapter adds a construction-time-fixed Microsoft Graph access-token capability for Chapter 1 draft transport, plus an operator **offline simulation** that currently runs against fakes/stock-PG only. It is not an operator live harness and cannot prove OAuth, Graph, or 098. It does not deploy, apply migrations, mint a live token, call Graph, create a mailbox draft, or send. A later separately reviewed chapter owns live operations.
 
@@ -27,7 +29,7 @@ Microsoft identity platform v2 documents that a `refresh_token` grant may includ
 3. Classifies the token-response `scope` with `controlled_drafting_v1`. Broader tokens (including `Mail.Send`) are `uncertain` and refuse before Graph.
 4. Verifies compact JWS access-token signatures with the existing OIDC JWKS RS256 owner, then inspects `scp` / `aud` / `tid` / `azp|appid` / `oid` / `exp` / `nbf`. App-only `roles`, opaque/JWE/`alg none`, and unsigned decoded claims are refused.
 5. Binds JWT `oid` to the canonical database `provider_principal_oid` (not mailbox / `provider_resource_id`). Separately requires `provider_resource_id ===` configured mailbox id and exact own-user binding.
-6. If Microsoft omits a new refresh token, releases the lease through the canonical owner **without** resealing or generation-bumping the shared Phase B grant. If Microsoft returns a new refresh token, uses canonical reseal/CAS; CAS/commit failure after a potentially rotating response marks `ms_response_uncertain` before returning.
+6. If Microsoft omits a new refresh token, releases the lease through the canonical owner **without** resealing, generation-bumping, or marking uncertainty. If Microsoft returns a new refresh token, uses canonical reseal/CAS. **Any** failure after that potentially rotating response and before custody commit succeeds (binding, JWKS/claims, kill, AAD, reseal, envelope validation, CAS/commit, or marker persistence) uses one canonical uncertainty helper — not only CAS/seal.
 
 **Live downscoping is unproven** until a signed token `scp` excludes `Mail.Send` **and** a later unscoped staff-send refresh succeeds. Microsoft does not guarantee tenant downscope behavior. If live Microsoft ignores downscope and always returns `Mail.Send` while staff send remains enabled on the same endpoint, this source **fails closed**.
 
@@ -59,7 +61,7 @@ Test injection, if needed, lives in `scripts/lib/email-luna-controlled-drafting-
 
 Staff API may construct the Chapter 1 closed live provider only after the exact live flag (`EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_PROVIDER_DRAFT_ENABLED=true`) and a valid closed Graph-provider attestation (`attestation_kind=configured_contract_only`). Default-off import/start remains inert and does not mint or refresh tokens.
 
-Live provider flag without a valid closed Graph provider fails before reserve/claim/Graph. Chapter 3 still **claims create authority before refresh/Graph** (`createReplyDraft`). That terminal claim-before-refresh behavior is intentional: a token-loan failure after claim with no Graph POST is recorded as `token_loan_failed_after_claim_no_provider_post` (`provider_invoked=false`). Create authority is not unclaimed (097 at-most-once); a second POST is never authorized.
+Live provider flag without a valid closed Graph provider fails before reserve/claim/Graph. Chapter 3 still **claims create authority before refresh/Graph** (`createReplyDraft`). That terminal claim-before-refresh behavior is intentional. Composition records `token_loan_failed_after_claim_no_provider_post` (`provider_invoked=false`) **only** when Chapter 1 rethrows a trusted token-loan failure, there is no known provider draft id, and the branded stage is in the exact pre-POST whitelist: `kill_switch`, `status`, `lease`, `open`, `grant_scope`, `secret`, `token`, `response`, `claims`, `binding`, `dead_grant`, `reseal`, `commit`, `uncertainty_persistence`. `release`, unknown stages, Graph/consumer errors, and Chapter 1 `PROVIDER_INVALID` stay `provider_create_unknown` (`provider_invoked=true`) because Graph may already have been invoked. Create authority is not unclaimed (097 at-most-once); a second POST is never authorized.
 
 Kill switch / stop-drain prevents new provider calls. No Gate 3 send adapter, journal, or staff send route changes. Graph remains POST createReply → PATCH → GET only.
 
@@ -81,11 +83,15 @@ The Phase B grant is shared with staff send. Downscope refresh must not lock or 
 
 | Microsoft response | Custody action |
 | --- | --- |
-| `refreshTokenOmitted` | Release/complete the lease via `abortDelegatedGrantLease`. Do **not** reseal or generation-bump. |
-| New refresh token | Canonical reseal + CAS. Exactly one generation on success. |
-| CAS/commit fail after a potentially rotating response | Mark `ms_response_uncertain` via canonical reconciliation **before** returning failure. Never leave DB claiming the old envelope is safely current. |
+| `refreshTokenOmitted` | Release/complete the lease via `abortDelegatedGrantLease`. Do **not** reseal, generation-bump, or mark `ms_response_uncertain`. |
+| New refresh token | Canonical reseal + CAS. Exactly one generation on success. The access token must not reach Graph unless reseal/CAS commit succeeds. |
+| Any failure after a new refresh token and before commit succeeds | Canonical helper: `markDelegatedGrantReconciliation` under the original lease token and expected generation with `reconcile_state=ms_response_uncertain` and a bounded detail code for that stage (`post_ms_binding`, `post_ms_claims`, `post_ms_kill_switch`, `post_ms_pre_seal`, `post_ms_pre_commit`, `post_ms_cas_conflict`, …). |
 
-Stale CAS responses cannot overwrite a newer generation. Raw secrets never appear in status or errors.
+Mark-success → abort-preserve: if and only if mark succeeds, abort the lease. Abort must preserve `reconcile_state=ms_response_uncertain` (active + uncertain, never republished as `active/clean` with the stale envelope). Then throw the original branded stage.
+
+Mark-fail / fenced / expired → leave the lease: do **not** abort. Null token/refresh refs and throw branded `uncertainty_persistence` / `persistence_unproven`. Never claim the marker persisted. Leaving `lease_held` is required because abort of an expired own lease would succeed and could republish the stale envelope as `active` without the uncertain marker.
+
+Stale CAS responses cannot overwrite a newer generation. Raw secrets never appear in status or errors. **Live downscoping remains unproven.**
 
 ## Non-goals
 

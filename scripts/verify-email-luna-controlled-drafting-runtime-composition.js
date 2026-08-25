@@ -283,6 +283,10 @@ async function main() {
     'before_claim', 'after_claim_before_provider', 'during_provider',
     'after_provider_before_record', 'after_record',
   ]);
+  assert.match(RUNTIME_SRC, /isTrustedControlledDraftingTokenLoanNoProviderPostFailure/);
+  assert.match(RUNTIME_SRC, /token_loan_failed_after_claim_no_provider_post/);
+  assert.match(DOC_SRC, /uncertainty_persistence/);
+  assert.match(DOC_SRC, /provider_create_unknown/);
   console.log('  PASS  composition wired, activation default-off, unknown-create policy is fail-closed');
 
   assert.equal(resolveEmailLunaControlledDraftingSunsetStagingRuntimeReadiness({}).runtime_activation, false);

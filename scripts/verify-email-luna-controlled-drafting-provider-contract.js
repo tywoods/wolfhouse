@@ -816,6 +816,7 @@ async function main() {
   }));
   console.log('  PASS  malformed responses, planted secrets, accessors, and proxies fail closed without leakage');
 
+  assert.match(LIB_SRC, /readTrustedControlledDraftingTokenLoanFailure/);
   assert.equal(LIB_SRC.includes('process.env'), false);
   assert.equal(LIB_SRC.includes('LUNA_AUTO_SEND_ENABLED'), false);
   assert.doesNotMatch(STAFF_API_SRC, /email-luna-controlled-drafting-provider-contract/);

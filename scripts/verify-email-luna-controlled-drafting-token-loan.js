@@ -16,6 +16,9 @@ const {
   isClosedControlledDraftingGraphProvider,
   bindControlledDraftingTokenLoanKillSwitch,
   readTrustedControlledDraftingTokenLoanFailure,
+  isTrustedControlledDraftingTokenLoanNoProviderPostFailure,
+  TOKEN_LOAN_NO_PROVIDER_POST_STAGES,
+  TOKEN_LOAN_STAGES,
   ERROR_CODE,
   SUNSET_DEPLOYMENT,
   SCOPE_PROFILE_ID,
@@ -26,6 +29,19 @@ const {
   SERVICE_KEYS,
   EMAIL_LUNA_CONTROLLED_DRAFTING_TOKEN_LOAN_RUNTIME_WIRED,
 } = require('./lib/email-luna-controlled-drafting-token-loan');
+const {
+  createEmailLunaControlledDraftingProvider,
+  pickEmailLunaControlledDraftingTransportMethods,
+  ERROR_CODE: PROVIDER_INVALID_CODE,
+} = require('./lib/email-luna-controlled-drafting-provider-contract');
+const {
+  createEmailLunaControlledDraftingSunsetStagingRuntimeComposition,
+  bindProducerWithTransactionClient,
+  bindWorkerWithTransactionClient,
+} = require('./lib/email-luna-controlled-drafting-sunset-staging-runtime-composition');
+const {
+  createEmailLunaControlledDraftingOperationStore,
+} = require('./lib/email-luna-controlled-drafting-operation-store');
 const {
   createControlledDraftingAccessTokenClaimsInspector,
   GRAPH_AUDIENCES,
@@ -103,6 +119,12 @@ const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ENDPOINT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const MAILBOX = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const OTHER_MAILBOX = 'abababab-abab-4bbb-8ccc-dddddddddddd';
+const AUDIT = '77777777-7777-4777-8777-777777777777';
+const CONVERSATION = '88888888-8888-4888-8888-888888888888';
+const INBOUND_EVENT = '99999999-9999-4999-8999-999999999999';
+const ISSUANCE = '55555555-5555-4555-8555-555555555555';
+const OPERATION = '66666666-6666-4666-8666-666666666666';
 const PRINCIPAL = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const APP_ID = '12345678-1234-4234-8234-123456789abc';
 const TID = '01234567-89ab-4def-8123-456789abcdef';
@@ -326,19 +348,20 @@ function draftCommand() {
     body_text: BODY,
     subject_digest: SUBJECT_DIGEST,
     body_digest: BODY_DIGEST,
-    issuance_id: '55555555-5555-4555-8555-555555555555',
-    operation_id: '66666666-6666-4666-8666-666666666666',
+    issuance_id: ISSUANCE,
+    operation_id: OPERATION,
   };
 }
 
 function mockGrantLifecycle({
   sealed, opId, onCommit, failCommit, priorStatus, noGrant, scopeVersion, failLease,
-  bindingRow, events, failAbort, generation,
+  bindingRow, events, failAbort, generation, failMark, staleLease,
 }) {
   let leaseTok = null;
   const scopeVer = scopeVersion === undefined ? 'phase_b_v1' : scopeVersion;
   const log = events || [];
   let currentGeneration = generation || 1;
+  let reconcileState = 'clean';
   const prior = priorStatus || {
     client_id: CLIENT, endpoint_id: ENDPOINT,
     grant_generation: currentGeneration, grant_status: 'active', reconcile_state: 'clean',
@@ -443,11 +466,30 @@ function mockGrantLifecycle({
     {
       match: (t) => /SET reconcile_state=/i.test(t),
       run: (_t, p) => {
-        log.push({ type: 'uncertain', generation: currentGeneration, state: p && p[2] });
+        if (failMark === true || failMark === 'empty' || staleLease === true) {
+          log.push({
+            type: 'uncertain_fail',
+            generation: currentGeneration,
+            state: p && p[2],
+            detail: p && p[3],
+          });
+          return empty();
+        }
+        if (failMark === 'throw') {
+          log.push({ type: 'uncertain_throw', generation: currentGeneration });
+          throw new Error('mark_threw');
+        }
+        reconcileState = p && p[2] ? p[2] : 'ms_response_uncertain';
+        log.push({
+          type: 'uncertain',
+          generation: currentGeneration,
+          state: reconcileState,
+          detail: p && p[3],
+        });
         return rows({
           client_id: CLIENT, endpoint_id: ENDPOINT,
           grant_generation: currentGeneration, grant_status: 'lease_held',
-          reconcile_state: 'ms_response_uncertain',
+          reconcile_state: reconcileState,
           scope_version: scopeVer,
         });
       },
@@ -457,11 +499,15 @@ function mockGrantLifecycle({
         && !/SET grant_generation=/i.test(t),
       run: () => {
         if (failAbort) return empty();
-        log.push({ type: 'abort', generation: currentGeneration });
+        log.push({
+          type: 'abort',
+          generation: currentGeneration,
+          reconcile_state: reconcileState,
+        });
         return rows({
           client_id: CLIENT, endpoint_id: ENDPOINT,
           grant_generation: currentGeneration, grant_status: 'active',
-          reconcile_state: 'clean',
+          reconcile_state: reconcileState,
           scope_version: scopeVer,
         });
       },
@@ -536,6 +582,183 @@ function runChild(name) {
   assert.equal(result.status, 0, name);
 }
 
+function chapter1Authority() {
+  return {
+    client_id: CLIENT,
+    location_id: LOCATION,
+    location_key: 'sunset-somo',
+    endpoint_id: ENDPOINT,
+    provider: 'microsoft_graph',
+    mailbox_id: MAILBOX,
+  };
+}
+
+function chapter1CreateRequest() {
+  return {
+    ...chapter1Authority(),
+    inbound_provider_message_id: SOURCE_MSG,
+    inbound_provider_thread_id: THREAD,
+    recipient_address: RECIPIENT,
+    subject: SUBJECT,
+    body_text: BODY,
+    subject_digest: SUBJECT_DIGEST,
+    body_digest: BODY_DIGEST,
+    issuance_id: ISSUANCE,
+    operation_id: OPERATION,
+  };
+}
+
+function wrapChapter1(graphProvider) {
+  return createEmailLunaControlledDraftingProvider({
+    authority: chapter1Authority(),
+    transport: pickEmailLunaControlledDraftingTransportMethods({
+      createReplyDraft: graphProvider.createReplyDraft,
+      reconcileDraft: graphProvider.reconcileDraft,
+    }),
+  });
+}
+
+function attestRow() {
+  return {
+    session_user: 'luna_cd_worker',
+    current_user: 'luna_cd_worker',
+    table_owner: 'postgres',
+    session_distinct_from_owner: true,
+    session_matches_current: true,
+    mapping_ok: true,
+    login_contract_ok: true,
+    execute_ok: true,
+  };
+}
+
+function compositionOperationRow(patch = {}) {
+  return {
+    status: patch.status || 'loaded',
+    operation_id: OPERATION,
+    issuance_id: ISSUANCE,
+    audit_operation_id: AUDIT,
+    client_id: CLIENT,
+    location_id: LOCATION,
+    location_key: 'sunset-somo',
+    endpoint_id: ENDPOINT,
+    conversation_id: CONVERSATION,
+    inbound_event_id: INBOUND_EVENT,
+    provider: 'microsoft_graph',
+    mailbox_id: MAILBOX,
+    inbound_provider_message_id: SOURCE_MSG,
+    inbound_provider_thread_id: THREAD,
+    recipient_address: RECIPIENT,
+    canonical_subject: SUBJECT,
+    canonical_body: BODY,
+    subject_digest: SUBJECT_DIGEST,
+    body_digest: BODY_DIGEST,
+    draft_digest: SUBJECT_DIGEST,
+    policy_version: 'email-luna-draft-policy.v1',
+    eligibility_policy_version: 'email-luna-autonomous-eligibility-policy.v1',
+    validator_version: 'email-luna-draft-validator.v1',
+    state: patch.state || 'reserved',
+    create_dispatch_claimed: patch.create_dispatch_claimed === true,
+    provider_draft_id: patch.provider_draft_id == null ? null : patch.provider_draft_id,
+    is_draft: patch.is_draft == null ? null : patch.is_draft,
+    state_generation: patch.state_generation || 1,
+  };
+}
+
+function compositionSqlClient(state) {
+  return {
+    async query(text) {
+      const t = String(text);
+      if (t === 'BEGIN' || t === 'COMMIT' || t === 'ROLLBACK') return { rows: [] };
+      if (/session_user::text AS session_user/.test(t)) {
+        return { rows: [attestRow()] };
+      }
+      if (/tenant_email_luna_controlled_draft_load/.test(t)) {
+        if (state.claimed) {
+          return { rows: [compositionOperationRow({
+            status: 'loaded',
+            state: 'create_dispatched_outcome_unknown',
+            create_dispatch_claimed: true,
+            state_generation: 2,
+          })] };
+        }
+        return { rows: [compositionOperationRow({ status: 'loaded', state: 'reserved' })] };
+      }
+      if (/tenant_email_luna_controlled_draft_claim_create/.test(t)) {
+        state.claimed = true;
+        state.claims += 1;
+        return { rows: [compositionOperationRow({
+          status: 'create_dispatched_outcome_unknown',
+          state: 'create_dispatched_outcome_unknown',
+          create_dispatch_claimed: true,
+          state_generation: 2,
+        })] };
+      }
+      throw new Error(`unmatched_composition_sql:${t.slice(0, 80)}`);
+    },
+  };
+}
+
+async function tickThroughComposition(graphProvider) {
+  const wrapped = wrapChapter1(graphProvider);
+  const state = { claimed: false, claims: 0 };
+  const producerFn = async (work) => work(compositionSqlClient(state));
+  const workerFn = async (work) => work(compositionSqlClient(state));
+  const runtime = createEmailLunaControlledDraftingSunsetStagingRuntimeComposition({
+    env: {
+      LUNA_DEPLOYMENT: 'sunset-staging',
+      DEFAULT_CLIENT_SLUG: 'sunset',
+      EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_ENABLED: 'true',
+      EMAIL_LUNA_CONTROLLED_DRAFTING_CLIENT_ID: CLIENT,
+      EMAIL_LUNA_CONTROLLED_DRAFTING_LOCATION_ID: LOCATION,
+      EMAIL_LUNA_CONTROLLED_DRAFTING_LOCATION_KEY: 'sunset-somo',
+      EMAIL_LUNA_CONTROLLED_DRAFTING_ENDPOINT_ID: ENDPOINT,
+      EMAIL_LUNA_CONTROLLED_DRAFTING_MAILBOX_ID: MAILBOX,
+      EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER: 'microsoft_graph',
+    },
+    producerWithTransactionClient: bindProducerWithTransactionClient(producerFn),
+    workerWithTransactionClient: bindWorkerWithTransactionClient(workerFn),
+    provider: wrapped,
+    issuanceStore: {
+      assertAuthenticLoadedMaterial() {
+        throw Object.freeze(Object.assign(new Error('unused'), { code: 'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_INVALID' }));
+      },
+      recoverAutomationIssuance() {
+        throw Object.freeze(Object.assign(new Error('unused'), { code: 'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_INVALID' }));
+      },
+    },
+  });
+  const store = createEmailLunaControlledDraftingOperationStore({
+    withTransactionClient: bindWorkerWithTransactionClient(async (work) => work(compositionSqlClient(state))),
+  });
+  const loaded = await store.loadControlledDraft({
+    operation_id: OPERATION,
+    issuance_id: ISSUANCE,
+  });
+  const first = await runtime.tick({ operation: loaded.record });
+  const loadedAgain = await store.loadControlledDraft({
+    operation_id: OPERATION,
+    issuance_id: ISSUANCE,
+  });
+  const second = await runtime.tick({ operation: loadedAgain.record });
+  return { first, second, claims: state.claims, wrapped };
+}
+
+function sealFailingEnvelope(inner) {
+  return Object.freeze({
+    async sealGrantPayload() { throw new Error('seal-fail'); },
+    openGrantPayload(...args) { return inner.openGrantPayload(...args); },
+    rewrapGrantDek(...args) { return inner.rewrapGrantDek(...args); },
+  });
+}
+
+function invalidSealEnvelope(inner) {
+  return Object.freeze({
+    async sealGrantPayload() { return { envelope_version: 'nope' }; },
+    openGrantPayload(...args) { return inner.openGrantPayload(...args); },
+    rewrapGrantDek(...args) { return inner.rewrapGrantDek(...args); },
+  });
+}
+
 async function makeProvider(overrides = {}) {
   const envelope = overrides.envelopeProvider || createFakeEmailGrantEnvelopeProvider();
   const op = overrides.opId || crypto.randomUUID();
@@ -550,6 +773,7 @@ async function makeProvider(overrides = {}) {
       || (async (work) => work(mockGrantLifecycle({
         sealed, opId: op, events, failCommit: overrides.failCommit,
         bindingRow: overrides.bindingRow, failAbort: overrides.failAbort,
+        failMark: overrides.failMark, staleLease: overrides.staleLease,
       }))),
     envelopeProvider: envelope,
     transport: overrides.transport || successTransport(overrides.accessJwt || liveJwt()),
@@ -575,11 +799,22 @@ async function main() {
   ]);
   assert.deepEqual([...BINDING_KEYS], ['clientId', 'locationId', 'endpointId', 'mailboxId']);
   assert.deepEqual([...SERVICE_KEYS], ['attest', 'createReplyDraft', 'reconcileDraft']);
+  assert.deepEqual([...TOKEN_LOAN_NO_PROVIDER_POST_STAGES], [
+    'kill_switch', 'status', 'lease', 'open', 'grant_scope', 'secret', 'token',
+    'response', 'claims', 'binding', 'dead_grant', 'reseal', 'commit',
+    'uncertainty_persistence',
+  ]);
+  assert.equal(TOKEN_LOAN_STAGES.includes('release'), true);
+  assert.equal(TOKEN_LOAN_NO_PROVIDER_POST_STAGES.includes('release'), false);
   assert.deepEqual([...REQUIRED_SCP], ['User.Read', 'Mail.ReadWrite']);
   assert.ok(GRAPH_AUDIENCES.includes('00000003-0000-0000-c000-000000000000'));
   assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 0);
   assert.equal(PKG.scripts['verify:email-luna-controlled-drafting-token-loan'],
     'node scripts/verify-email-luna-controlled-drafting-token-loan.js');
+  assert.equal(PKG.scripts['prove:email-luna-controlled-drafting-token-loan-offline-simulation'],
+    'node scripts/prove-email-luna-controlled-drafting-token-loan-offline-simulation.js');
+  assert.equal(PKG.scripts['prove:email-luna-controlled-drafting-token-loan-stock-pg'],
+    'node scripts/prove-email-luna-controlled-drafting-token-loan-stock-pg.js');
 
   const loanModule = require('./lib/email-luna-controlled-drafting-token-loan');
   assert.equal(loanModule.createEmailLunaControlledDraftingTokenLoan, undefined);
@@ -619,6 +854,15 @@ async function main() {
   assert.match(DOC_SRC, /unproven/);
   assert.match(DOC_SRC, /simulation/);
   assert.match(DOC_SRC, /claim-before-refresh|claims create authority before/);
+  assert.match(DOC_SRC, /Mark-success → abort-preserve/);
+  assert.match(DOC_SRC, /persistence_unproven|persistence is unproven|Leave the lease/);
+  assert.match(DOC_SRC, /uncertainty_persistence/);
+  assert.match(DOC_SRC, /not a PostgreSQL proof/);
+  assert.match(DOC_SRC, /token_loan_failed_after_claim_no_provider_post/);
+  assert.match(DOC_SRC, /kill_switch.*status.*lease.*open.*grant_scope.*secret.*token.*response.*claims.*binding.*dead_grant.*reseal.*commit.*uncertainty_persistence/s);
+  assert.match(LOAN_SRC, /refuseAfterRotatingMicrosoftResponse/);
+  assert.match(LOAN_SRC, /persistence_unproven/);
+  assert.doesNotMatch(LOAN_SRC, /brandTokenLoanFailure,/);
   assert.match(TEST_SUPPORT_SRC, /TEST-ONLY/);
   assert.match(CLAIMS_SRC, /isCanonicalMicrosoftOidcJwksSignatureVerifier/);
   assert.match(CUSTODIAN_SRC, /providerPrincipalOid/);
@@ -764,6 +1008,475 @@ async function main() {
     );
   }
   console.log('  PASS  M2 null principal oid and mailbox-as-oid refuse; no PII in errors');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      accessJwt: liveJwt(),
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+      bindingRow: {
+        client_id: CLIENT,
+        location_id: LOCATION,
+        endpoint_id: ENDPOINT,
+        provider: 'microsoft_graph',
+        channel: 'email',
+        auth_mode: 'delegated_authorization_code',
+        connector_mode: 'microsoft_delegated_oauth',
+        binding_status: 'verified',
+        provider_tenant_id: TID,
+        provider_resource_id: MAILBOX,
+        provider_principal_oid: null,
+        mailbox_kind: 'user',
+        mailbox_access_kind: 'own_user',
+        public_address: 'operator-test@example.test',
+        grant_client_id: CLIENT,
+        grant_endpoint_id: ENDPOINT,
+      },
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'binding' && noLeak(error);
+      },
+    );
+    const uncertain = events.filter((row) => row.type === 'uncertain');
+    const abort = events.filter((row) => row.type === 'abort');
+    assert.equal(uncertain.length, 1, 'RED: rotating response + binding fail must mark ms_response_uncertain');
+    assert.equal(uncertain[0].state, 'ms_response_uncertain');
+    assert.equal(uncertain[0].detail, 'post_ms_binding');
+    assert.equal(abort.length, 1, 'mark success must abort');
+    assert.equal(abort[0].reconcile_state, 'ms_response_uncertain');
+    assert.equal(graphCalls, 0);
+    assert.equal(events.some((row) => row.type === 'commit'), false);
+  }
+  console.log('  PASS  M1 RED reproduction: new RT + binding fail marks uncertain then abort; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      accessJwt: liveJwt({ oid: MAILBOX }),
+      transport: successTransport(liveJwt({ oid: MAILBOX }), DRAFT_SCOPE, NEW_RT),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'claims' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+    assert.equal(events.filter((row) => row.type === 'uncertain')[0].detail, 'post_ms_claims');
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort')[0].reconcile_state, 'ms_response_uncertain');
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  M1 claims/JWKS fail after rotating response marks then abort; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    let refreshed = false;
+    const { provider } = await makeProvider({
+      events,
+      transport: frozenMethod('postTokenForm', async () => {
+        const body = JSON.stringify({
+          token_type: 'Bearer',
+          expires_in: 3600,
+          access_token: liveJwt(),
+          refresh_token: NEW_RT,
+          scope: DRAFT_SCOPE,
+        });
+        refreshed = true;
+        return Object.freeze({
+          statusCode: 200,
+          contentType: 'application/json',
+          body,
+        });
+      }),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    bindControlledDraftingTokenLoanKillSwitch(provider, () => refreshed);
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'kill_switch' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+    assert.equal(events.filter((row) => row.type === 'uncertain')[0].detail, 'post_ms_kill_switch');
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  M1 kill after claims on rotating response marks then abort; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    const inner = createFakeEmailGrantEnvelopeProvider();
+    const opSeal = crypto.randomUUID();
+    const sealedSeal = await fakeSealRefreshToken(inner, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: opSeal,
+    });
+    const provider = createEmailLunaControlledDraftingGraphProvider(loanDeps({
+      withPgClient: async (work) => work(mockGrantLifecycle({
+        sealed: sealedSeal, opId: opSeal, events,
+      })),
+      envelopeProvider: sealFailingEnvelope(inner),
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    }));
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'reseal' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+    assert.equal(events.filter((row) => row.type === 'uncertain')[0].detail, 'post_ms_pre_seal');
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort')[0].reconcile_state, 'ms_response_uncertain');
+    assert.equal(graphCalls, 0);
+  }
+  {
+    const events = [];
+    let graphCalls = 0;
+    const inner = createFakeEmailGrantEnvelopeProvider();
+    const opInv = crypto.randomUUID();
+    const sealedInv = await fakeSealRefreshToken(inner, {
+      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+      grantGeneration: 1, operationId: opInv,
+    });
+    const provider = createEmailLunaControlledDraftingGraphProvider(loanDeps({
+      withPgClient: async (work) => work(mockGrantLifecycle({
+        sealed: sealedInv, opId: opInv, events,
+      })),
+      envelopeProvider: invalidSealEnvelope(inner),
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    }));
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'reseal' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+    assert.equal(events.filter((row) => row.type === 'uncertain')[0].detail, 'post_ms_pre_commit');
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  M1 AAD/seal/validate fail after rotating response marks then abort; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      failCommit: true,
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'commit' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+    assert.equal(events.filter((row) => row.type === 'uncertain')[0].detail, 'post_ms_cas_conflict');
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort')[0].reconcile_state, 'ms_response_uncertain');
+    assert.equal(events.some((row) => row.type === 'commit'), false);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  M1 CAS fail after rotating response marks then abort; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      failMark: true,
+      accessJwt: liveJwt(),
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+      bindingRow: {
+        client_id: CLIENT,
+        location_id: LOCATION,
+        endpoint_id: ENDPOINT,
+        provider: 'microsoft_graph',
+        channel: 'email',
+        auth_mode: 'delegated_authorization_code',
+        connector_mode: 'microsoft_delegated_oauth',
+        binding_status: 'verified',
+        provider_tenant_id: TID,
+        provider_resource_id: MAILBOX,
+        provider_principal_oid: null,
+        mailbox_kind: 'user',
+        mailbox_access_kind: 'own_user',
+        public_address: 'operator-test@example.test',
+        grant_client_id: CLIENT,
+        grant_endpoint_id: ENDPOINT,
+      },
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note
+          && note.stage === 'uncertainty_persistence'
+          && note.code === 'persistence_unproven'
+          && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain_fail').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+    assert.equal(events.some((row) => row.type === 'commit'), false);
+    assert.equal(graphCalls, 0);
+  }
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      staleLease: true,
+      failCommit: true,
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'uncertainty_persistence' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  M1 mark fail/fenced/expired does not abort; persistence unproven; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, null),
+      bindingRow: {
+        client_id: CLIENT,
+        location_id: LOCATION,
+        endpoint_id: ENDPOINT,
+        provider: 'microsoft_graph',
+        channel: 'email',
+        auth_mode: 'delegated_authorization_code',
+        connector_mode: 'microsoft_delegated_oauth',
+        binding_status: 'verified',
+        provider_tenant_id: TID,
+        provider_resource_id: MAILBOX,
+        provider_principal_oid: null,
+        mailbox_kind: 'user',
+        mailbox_access_kind: 'own_user',
+        public_address: 'operator-test@example.test',
+        grant_client_id: CLIENT,
+        grant_endpoint_id: ENDPOINT,
+      },
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'binding' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 0);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(events.some((row) => row.type === 'commit'), false);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  M1 omitted refresh stays abort-only; no uncertainty mark; Graph=0');
+
+  {
+    let oauthCalls = 0;
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      transport: frozenMethod('postTokenForm', async () => {
+        oauthCalls += 1;
+        throw new Error('oauth-must-not-run');
+      }),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    const wrong = { ...draftCommand(), mailbox_id: OTHER_MAILBOX };
+    await assert.rejects(
+      () => provider.createReplyDraft(wrong),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'binding' && noLeak(error);
+      },
+    );
+    assert.equal(oauthCalls, 0);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  LOW-1 direct-factory wrong mailbox refuses before OAuth/Graph');
+
+  {
+    const events = [];
+    const { provider } = await makeProvider({
+      events,
+      accessJwt: liveJwt({ oid: MAILBOX }),
+      transport: successTransport(liveJwt({ oid: MAILBOX }), DRAFT_SCOPE, NEW_RT),
+      httpsImpl() { throw new Error('graph-must-not-run'); },
+    });
+    const wrapped = wrapChapter1(provider);
+    let wrappedErr;
+    await assert.rejects(
+      () => wrapped.createReplyDraft(chapter1CreateRequest()),
+      (error) => {
+        wrappedErr = error;
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'claims' && error.code === ERROR_CODE && noLeak(error);
+      },
+    );
+    assert.equal(isTrustedControlledDraftingTokenLoanNoProviderPostFailure(wrappedErr), true);
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+  }
+  console.log('  PASS  M2 Chapter 1 wrap preserves trusted token-loan brand');
+
+  {
+    const events = [];
+    const graphState = { captured: [] };
+    const { provider } = await makeProvider({
+      events,
+      accessJwt: liveJwt({ oid: MAILBOX }),
+      transport: successTransport(liveJwt({ oid: MAILBOX }), DRAFT_SCOPE, NEW_RT),
+      graphState,
+      httpsImpl() { throw new Error('graph-must-not-run'); },
+    });
+    const { first, second, claims } = await tickThroughComposition(provider);
+    assert.equal(first.reason, 'token_loan_failed_after_claim_no_provider_post');
+    assert.equal(first.provider_invoked, false);
+    assert.equal(first.create_invoked, false);
+    assert.equal(second.reason, 'unknown_create_unobservable');
+    assert.equal(second.provider_invoked, false);
+    assert.equal(claims, 1);
+    assert.equal(graphState.captured.length, 0);
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+  }
+  console.log('  PASS  M2 pre-POST claims failure through wrap/composition is no-post; no second POST');
+
+  {
+    const events = [];
+    const graphState = { captured: [] };
+    const { provider } = await makeProvider({
+      events,
+      failCommit: true,
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+      graphState,
+      httpsImpl() { throw new Error('graph-must-not-run'); },
+    });
+    const { first, second } = await tickThroughComposition(provider);
+    assert.equal(first.reason, 'token_loan_failed_after_claim_no_provider_post');
+    assert.equal(first.provider_invoked, false);
+    assert.equal(second.reason, 'unknown_create_unobservable');
+    assert.equal(graphState.captured.length, 0);
+  }
+  console.log('  PASS  M2 rotating uncertainty failure through wrap/composition is no-post; Graph=0');
+
+  {
+    const graphState = { captured: [] };
+    const { provider: postTimeoutProvider } = await makeProvider({
+      graphState,
+      httpsImpl() {
+        const req = new EventEmitter();
+        req.end = () => {};
+        req.destroy = () => {};
+        return req;
+      },
+      timers: {
+        setTimeout(fn) { fn(); return 1; },
+        clearTimeout() {},
+      },
+    });
+    const wrapped = wrapChapter1(postTimeoutProvider);
+    await assert.rejects(
+      () => wrapped.createReplyDraft(chapter1CreateRequest()),
+      (error) => error && error.code === PROVIDER_INVALID_CODE
+        && !readTrustedControlledDraftingTokenLoanFailure(error)
+        && noLeak(error),
+    );
+    const { first, second, claims } = await tickThroughComposition(postTimeoutProvider);
+    assert.equal(first.reason, 'provider_create_unknown');
+    assert.equal(first.provider_invoked, true);
+    assert.equal(second.reason, 'unknown_create_unobservable');
+    assert.equal(second.provider_invoked, false);
+    assert.equal(claims, 1);
+  }
+  {
+    const graphState = { captured: [] };
+    const original = mockGraphHttps(graphState);
+    function afterPostHang(options, onResponse) {
+      if (!graphState.captured || graphState.captured.length === 0) {
+        return original(options, onResponse);
+      }
+      const req = new EventEmitter();
+      req.end = () => {};
+      req.destroy = () => {};
+      return req;
+    }
+    const { provider } = await makeProvider({
+      httpsImpl: afterPostHang,
+      graphState,
+      timers: {
+        setTimeout(fn) { fn(); return 1; },
+        clearTimeout() {},
+      },
+    });
+    const { first, second } = await tickThroughComposition(provider);
+    assert.equal(first.provider_invoked, true);
+    assert.notEqual(first.reason, 'token_loan_failed_after_claim_no_provider_post');
+    assert.equal(second.reason, 'unknown_create_unobservable');
+    assert.equal(second.provider_invoked, false);
+  }
+  console.log('  PASS  M2 Graph POST/PATCH timeout through wrap/composition is invoked/ambiguous; no second POST');
+
+  {
+    const { provider: leakProvider } = await makeProvider({
+      httpsImpl(options) {
+        const header = options && options.headers && options.headers.Authorization;
+        throw new Error(`graph failed ${PLANTED} ${header || ''}`);
+      },
+    });
+    const wrapped = wrapChapter1(leakProvider);
+    await assert.rejects(
+      () => wrapped.createReplyDraft(chapter1CreateRequest()),
+      (error) => error
+        && error.code === PROVIDER_INVALID_CODE
+        && !readTrustedControlledDraftingTokenLoanFailure(error)
+        && noLeak(error),
+    );
+    const { provider: leakTick } = await makeProvider({
+      httpsImpl(options) {
+        const header = options && options.headers && options.headers.Authorization;
+        throw new Error(`graph failed ${PLANTED} ${header || ''}`);
+      },
+    });
+    const { first } = await tickThroughComposition(leakTick);
+    assert.equal(first.reason, 'provider_create_unknown');
+    assert.equal(first.provider_invoked, true);
+  }
+  console.log('  PASS  M2 planted token / Graph consumer errors sanitize without false no-post');
 
   {
     const events = [];
@@ -1095,7 +1808,16 @@ async function main() {
   runChild('verify-email-microsoft-refresh-token-request.js');
   runChild('verify-email-microsoft-refresh-token-response-by-scope-version.js');
   runChild('verify-staff-query-api-startup-smoke.js');
-  runChild('prove-email-luna-controlled-drafting-token-loan-stock-pg.js');
+  runChild('prove-email-luna-controlled-drafting-token-loan-offline-simulation.js');
+  const stockPg = spawnSync(process.execPath, [
+    path.join(__dirname, 'prove-email-luna-controlled-drafting-token-loan-stock-pg.js'),
+  ], {
+    cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+  });
+  if (stockPg.stdout) process.stdout.write(stockPg.stdout);
+  if (stockPg.stderr) process.stderr.write(stockPg.stderr);
+  assert.equal(stockPg.status, 0, 'prove-email-luna-controlled-drafting-token-loan-stock-pg.js');
+  assert.match(stockPg.stdout, /not a PostgreSQL proof/);
   const diffCheck = spawnSync('git', ['diff', '--check'], {
     cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
   });

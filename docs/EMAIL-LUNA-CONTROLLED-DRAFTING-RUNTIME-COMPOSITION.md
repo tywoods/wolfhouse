@@ -44,7 +44,7 @@ Fail-closed at-most-once is the Chapter 2 claim bit:
 
 1. Claim commits to `create_dispatched_outcome_unknown` before the provider call.
 2. `createReplyDraft` runs only on first claim authority (`status !== replayed`).
-3. Timeout, reset, abort, crash, or malformed/secret-bearing create results stay unknown. No second create, no PATCH-back, no send.
+3. Timeout, reset, abort, crash, or malformed/secret-bearing create results stay unknown. No second create, no PATCH-back, no send. Trusted Chapter 4C token-loan failures that are definitely pre-POST (`kill_switch`, `status`, `lease`, `open`, `grant_scope`, `secret`, `token`, `response`, `claims`, `binding`, `dead_grant`, `reseal`, `commit`, `uncertainty_persistence`) record `token_loan_failed_after_claim_no_provider_post` with `provider_invoked=false`. Graph/consumer timeouts, `PROVIDER_INVALID`, `release`, and unknown stages remain `provider_create_unknown` (`provider_invoked=true`) because Graph may already have been invoked.
 4. Unknown **without** a persisted provider draft id is `unknown_create_unobservable`: no provider call, never recreate-ready, possible orphan draft in the mailbox.
 5. Unknown **with** a persisted provider draft id is GET-reconciled through Chapter 1.
 

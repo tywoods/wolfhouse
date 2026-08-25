@@ -41,7 +41,7 @@ const {
   readControlledDraftingKnownCreateDraftId,
 } = require('./email-luna-controlled-drafting-provider-contract');
 const {
-  readTrustedControlledDraftingTokenLoanFailure,
+  isTrustedControlledDraftingTokenLoanNoProviderPostFailure,
 } = require('./email-luna-controlled-drafting-token-loan');
 const {
   isProxySurface,
@@ -950,8 +950,7 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeComposition(depend
       created = await createPromise;
     } catch (error) {
       const knownId = readControlledDraftingKnownCreateDraftId(error);
-      const tokenFail = readTrustedControlledDraftingTokenLoanFailure(error);
-      if (tokenFail && !knownId) {
+      if (isTrustedControlledDraftingTokenLoanNoProviderPostFailure(error) && !knownId) {
         return tickEvidence({
           status: 'create_dispatched_outcome_unknown',
           reason: 'token_loan_failed_after_claim_no_provider_post',
