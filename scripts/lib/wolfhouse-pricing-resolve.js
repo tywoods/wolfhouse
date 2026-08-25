@@ -211,9 +211,7 @@ function configPricingRules(config) {
     if (!Number.isFinite(Number(cents))) continue;
 
     if (CONFIG_RENTAL_ADDON_CODES.has(code)) {
-      out.push(rule('rental', `${code}__${DEFAULT_RENTAL_DURATION}`, null, 'per_day', cents, {
-        label: addon.name || code,
-      }));
+      // Rentals are staff catalog items, not built-in config rows.
       continue;
     }
     // `meal` and `meals` are the same product duplicated in the fixture.
@@ -505,6 +503,33 @@ function buildAdminPricingView(input) {
   };
 }
 
+function rentalTitleFromAddon(code, addon) {
+  const name = String((addon && (addon.name || addon.label)) || '').trim();
+  if (name && !/_/.test(name)) return name;
+  return humanizeCode(code);
+}
+
+/** Config rentals to recreate as staff catalog items (labels never use underscores). */
+function listConfigRentalSeeds(config) {
+  const addOns = (config && config.add_ons) || {};
+  const out = [];
+  for (const code of CONFIG_RENTAL_ADDON_CODES) {
+    const addon = addOns[code];
+    if (!addon) continue;
+    const cents = Number.isFinite(Number(addon.price_cents))
+      ? Number(addon.price_cents)
+      : Number(addon.price_cents_each);
+    out.push({
+      code,
+      label: rentalTitleFromAddon(code, addon),
+      amount_cents: Number.isFinite(cents) ? cents : null,
+      duration: DEFAULT_RENTAL_DURATION,
+      unit: 'per_day',
+    });
+  }
+  return out;
+}
+
 module.exports = {
   WH_PRICING_CLIENT_SLUG,
   splitRentalCode,
@@ -513,6 +538,8 @@ module.exports = {
   PRICING_CONFIG_PATH,
   CONFIG_RENTAL_ADDON_CODES,
   DEFAULT_RENTAL_DURATION,
+  listConfigRentalSeeds,
+  rentalTitleFromAddon,
   daysInMonth,
   monthDayOrdinal,
   seasonRangeCoversMonthDay,

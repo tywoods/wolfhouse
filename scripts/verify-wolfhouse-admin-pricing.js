@@ -153,10 +153,11 @@ ok('both deposit tiers are flattened',
   find('deposit', 'standard_package', null).amount_cents === 20000
   && find('deposit', 'custom_or_short_stay', null).amount_cents === 10000);
 
-ok('gear add-ons flatten to rentals with a duration suffix',
-  find('rental', 'wetsuit_rental__1_day', null).amount_cents === 500
-  && find('rental', 'hard_board_rental__1_day', null).amount_cents === 2000
-  && find('rental', 'wetsuit_soft_top_combo__1_day', null).amount_cents === 1500);
+ok('gear add-ons are not flattened as built-in rental rules',
+  !find('rental', 'wetsuit_rental__1_day', null)
+  && !find('rental', 'hard_board_rental__1_day', null));
+ok('gear add-ons become staff rental seeds with titles',
+  resolve.listConfigRentalSeeds(config).some((s) => s.code === 'wetsuit_rental' && s.amount_cents === 500 && s.label === 'Wetsuit rental'));
 
 ok('non-gear add-ons flatten to services',
   find('service', 'yoga_class', null).amount_cents === 1500
@@ -453,13 +454,43 @@ ok('a package price is filled from the config seed',
 ok('a season with no package price surfaces as null, not zero',
   malibuView.prices.find((p) => p.season_code === 'closed').price === null);
 
-const wetsuitView = view.rentals.find((r) => r.code === 'wetsuit_rental');
-ok('rentals group their duration rows',
-  wetsuitView && wetsuitView.durations.length === 1
-  && wetsuitView.durations[0].duration === '1_day'
-  && wetsuitView.durations[0].amount_cents === 500);
-ok('rentals keep the full item_code for writes',
-  wetsuitView.durations[0].item_code === 'wetsuit_rental__1_day');
+ok('config rentals are no longer listed as built-in catalog rows',
+  !view.rentals.some((r) => r.code === 'wetsuit_rental'));
+ok('empty overlay has no built-in rentals',
+  view.rentals.every((r) => r.source === 'db'));
+
+const rentalSeeds = resolve.listConfigRentalSeeds(config);
+ok('config rental seeds keep human titles without underscores',
+  rentalSeeds.length === 5
+  && rentalSeeds.every((s) => s.label && !/_/.test(s.label)));
+
+const viewPromoted = resolve.buildAdminPricingView({
+  config,
+  transferConfig,
+  dbSeasons: [],
+  dbRules: rentalSeeds.map((s) => ({
+    item_type: 'rental',
+    item_code: `${s.code}__${s.duration}`,
+    season_code: null,
+    unit: s.unit,
+    amount_cents: s.amount_cents,
+    currency: 'EUR',
+    active: true,
+    label: s.label,
+  })),
+  dbItems: rentalSeeds.map((s) => ({
+    item_type: 'rental', item_code: s.code, label: s.label, metadata: {}, active: true,
+  })),
+  dbTransferRules: [],
+  writesEnabled: true,
+});
+ok('promoted rentals are staff-owned',
+  viewPromoted.rentals.length === 5
+  && viewPromoted.rentals.every((r) => r.source === 'db'));
+ok('promoted rental titles have no underscores',
+  viewPromoted.rentals.every((r) => r.label && !/_/.test(r.label)));
+ok('promoted wetsuit still prices per day at the live amount',
+  viewPromoted.rentals.find((r) => r.code === 'wetsuit_rental').durations[0].amount_cents === 500);
 
 ok('services appear with their unit',
   view.services.find((s) => s.code === 'yoga_class').price.unit === 'per_class');
