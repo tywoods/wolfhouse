@@ -124,6 +124,7 @@ const SHADOW_IDENTITY_MATCH_FORWARD_ID = '094_tenant_email_luna_automation_shado
 const SHADOW_SCOPED_CLAIM_FORWARD_ID = '095_tenant_email_luna_automation_claim_scoped';
 const PUBLIC_EXECUTE_FORWARD_ID = '096_tenant_email_luna_automation_public_execute';
 const CONTROLLED_DRAFT_FORWARD_ID = '097_tenant_email_luna_controlled_draft_operations';
+const CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID = '098_tenant_email_luna_controlled_drafting_staging_test_authorization';
 const MASTER_CALENDAR_BRIDGE_DIGESTS = Object.freeze({
   '089_external_calendar_inventory': 'b07a7f87ca1b9e2c3da2da60ef161ccdc049a42726cf12fe4872b742740b9b6f',
   '090_external_calendar_inventory_tenant_integrity': '2e9b9d5219f79d89cc8eadbdb2679c0e2a47c7e7948ecdd0e4449c0eeac33893',
@@ -159,25 +160,27 @@ pass(
     && forwards.some((e) => e.id === SHADOW_IDENTITY_MATCH_FORWARD_ID)
     && forwards.some((e) => e.id === SHADOW_SCOPED_CLAIM_FORWARD_ID)
     && forwards.some((e) => e.id === PUBLIC_EXECUTE_FORWARD_ID)
-    && forwards.some((e) => e.id === CONTROLLED_DRAFT_FORWARD_ID),
+    && forwards.some((e) => e.id === CONTROLLED_DRAFT_FORWARD_ID)
+    && forwards.some((e) => e.id === CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID),
   `forward=${forwards.length}`,
 );
 pass(
   'green-calendar-bridge-forward-tail',
   calendarBridgeSequence(forwards) === CALENDAR_BRIDGE_FORWARD_IDS.join(',')
-    && forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length - 6, -6).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
-  forwards.slice(-7).map((e) => e.id).join(','),
+    && forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length - 7, -7).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-8).map((e) => e.id).join(','),
 );
 pass(
   'green-issuance-material-forward-after-calendar-bridge',
-  forwards[forwards.length - 1] && forwards[forwards.length - 1].id === CONTROLLED_DRAFT_FORWARD_ID
-    && forwards[forwards.length - 2] && forwards[forwards.length - 2].id === PUBLIC_EXECUTE_FORWARD_ID
-    && forwards[forwards.length - 3] && forwards[forwards.length - 3].id === SHADOW_SCOPED_CLAIM_FORWARD_ID
-    && forwards[forwards.length - 4] && forwards[forwards.length - 4].id === SHADOW_IDENTITY_MATCH_FORWARD_ID
-    && forwards[forwards.length - 5] && forwards[forwards.length - 5].id === SHADOW_OUTCOME_FORWARD_ID
-    && forwards[forwards.length - 6] && forwards[forwards.length - 6].id === ISSUANCE_MATERIAL_FORWARD_ID
-    && calendarBridgeSequence(forwards.slice(0, -6)) === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
-  forwards.slice(-7).map((e) => e.id).join(','),
+  forwards[forwards.length - 1] && forwards[forwards.length - 1].id === CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID
+    && forwards[forwards.length - 2] && forwards[forwards.length - 2].id === CONTROLLED_DRAFT_FORWARD_ID
+    && forwards[forwards.length - 3] && forwards[forwards.length - 3].id === PUBLIC_EXECUTE_FORWARD_ID
+    && forwards[forwards.length - 4] && forwards[forwards.length - 4].id === SHADOW_SCOPED_CLAIM_FORWARD_ID
+    && forwards[forwards.length - 5] && forwards[forwards.length - 5].id === SHADOW_IDENTITY_MATCH_FORWARD_ID
+    && forwards[forwards.length - 6] && forwards[forwards.length - 6].id === SHADOW_OUTCOME_FORWARD_ID
+    && forwards[forwards.length - 7] && forwards[forwards.length - 7].id === ISSUANCE_MATERIAL_FORWARD_ID
+    && calendarBridgeSequence(forwards.slice(0, -7)) === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
+  forwards.slice(-8).map((e) => e.id).join(','),
 );
 pass(
   'green-all-sql-classified',

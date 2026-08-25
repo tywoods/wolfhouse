@@ -8,6 +8,7 @@ const {
   EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT,
   FORBIDDEN_DATABASE_NAMES,
   SUNSET_STAGING_TRUSTED_PRECREATED,
+  SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER,
 } = require('./lib/email-luna-automation-principal-contract');
 const {
   provisionEmailLunaAutomationPrincipal,
@@ -63,6 +64,15 @@ assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.never_create_role, true);
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.never_set_password, true);
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.no_env_overlay, true);
 assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED.caller_supplies_client_location_uuids, true);
+assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER.option, 'allowSunsetStagingTrustedPrecreatedProducer');
+assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER.database, 'sunset_staging');
+assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER.kind, 'producer');
+assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER.never_create_role, true);
+assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER.no_queue_select, true);
+assert.equal(
+  EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.sunset_staging_trusted_precreated_producer,
+  SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER,
+);
 assert.equal(
   EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.sunset_staging_trusted_precreated,
   SUNSET_STAGING_TRUSTED_PRECREATED,
@@ -78,13 +88,13 @@ assert.match(PROVISION_SRC, /IDENTITY_SQL/);
 assert.equal(IDENTITY_SQL, 'SELECT current_database() AS database, session_user AS session_user');
 assert.match(PROVISION_SRC, /EMAIL_LUNA_AUTOMATION_PRINCIPAL_SESSION_NOT_OWNER/);
 assert.match(PROVISION_SRC, /EMAIL_LUNA_AUTOMATION_PRINCIPAL_ROLE_CREATE_REFUSED/);
-assert.match(PROVISION_SRC, /database !== SUNSET_STAGING_TRUSTED_PRECREATED\.database/);
+assert.match(PROVISION_SRC, /database !== parsed\.sunsetTrusted\.database/);
 assert.match(PROVISION_SRC, /sessionUser !== tableOwner/);
 assert.match(PROVISION_SRC, /JOIN public\.clients/);
 assert.match(PROVISION_SRC, /public\.clients\.id = public\.tenant_locations\.client_id/);
 assert.match(PROVISION_SRC, /public\.clients\.slug = \$4/);
-assert.match(PROVISION_SRC, /SUNSET_STAGING_TRUSTED_PRECREATED\.client_slug/);
-assert.match(PROVISION_SRC, /SUNSET_STAGING_TRUSTED_PRECREATED\.location_key/);
+assert.match(PROVISION_SRC, /parsed\.sunsetTrusted\.client_slug/);
+assert.match(PROVISION_SRC, /parsed\.sunsetTrusted\.location_key/);
 assert.equal(/clients\.slug\s*=\s*'sunset'/.test(PROVISION_SRC), false);
 assert.equal(/location_id\s*=\s*'sunset-somo'/.test(PROVISION_SRC), false);
 assert.equal(/CREATE ROLE[\s\S]{0,200}allowSunsetStagingTrustedPrecreated/.test(PROVISION_SRC), false);
@@ -220,6 +230,27 @@ Promise.resolve().then(async () => {
   console.log('  PASS  option with non-worker kind fails closed');
 
   await rejects(baseSpec({
+    allowSunsetStagingTrustedPrecreatedProducer: true,
+    trustedPrecreated: true,
+    apply: true,
+    kind: 'worker',
+  }), dummySession(), 'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID');
+  await rejects(baseSpec({
+    allowSunsetStagingTrustedPrecreated: true,
+    allowSunsetStagingTrustedPrecreatedProducer: true,
+    trustedPrecreated: true,
+    apply: true,
+  }), dummySession(), 'EMAIL_LUNA_AUTOMATION_PRINCIPAL_INVALID');
+  await rejects(baseSpec({
+    allowSunsetStagingTrustedPrecreatedProducer: true,
+    trustedPrecreated: true,
+    apply: true,
+    kind: 'producer',
+    password: PASSWORD,
+  }), dummySession(), 'EMAIL_LUNA_AUTOMATION_PRINCIPAL_PASSWORD_REFUSED');
+  console.log('  PASS  producer option refuses worker/kind swap, dual options, and password');
+
+  await rejects(baseSpec({
     allowSunsetStagingTrustedPrecreated: true,
     trustedPrecreated: true,
     apply: true,
@@ -283,6 +314,21 @@ Promise.resolve().then(async () => {
     );
   }
   console.log('  PASS  option on non-sunset_staging databases fails closed');
+
+  for (const database of ['postgres', 'sunset_prod', 'wolfhouse_staging']) {
+    await rejects(
+      baseSpec({
+        allowSunsetStagingTrustedPrecreatedProducer: true,
+        trustedPrecreated: true,
+        apply: true,
+        kind: 'producer',
+        roleName: 'luna_ch4a_pre_producer',
+      }),
+      mockSession(identityHandler(database, 'postgres')),
+      'EMAIL_LUNA_AUTOMATION_PRINCIPAL_FORBIDDEN_DATABASE',
+    );
+  }
+  console.log('  PASS  producer option on non-sunset_staging databases fails closed');
 
   await rejects(
     baseSpec({

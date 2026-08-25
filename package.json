@@ -505,6 +505,7 @@
     "prove:email-luna-controlled-drafting-runtime-composition-stock-pg": "node scripts/prove-email-luna-controlled-drafting-runtime-composition-stock-pg.js",
     "verify:email-luna-controlled-drafting-staging-activation": "node scripts/verify-email-luna-controlled-drafting-staging-activation.js",
     "prove:email-luna-controlled-drafting-staging-activation-stock-pg": "node scripts/prove-email-luna-controlled-drafting-staging-activation-stock-pg.js",
+    "prepare:email-luna-controlled-drafting-staging-test-authorization": "node scripts/prepare-email-luna-controlled-drafting-staging-test-authorization.js",
     "verify:email-luna-slice4-4-red": "npm run verify:email-luna-draft-author && npm run verify:email-luna-draft-validator && npm run verify:email-luna-nightwatch-corpus && npm run verify:email-luna-sunset-staging-runtime-composition",
     "verify:email-outbound-forced-post-send-uncertainty-seam": "node scripts/verify-email-outbound-forced-post-send-uncertainty-seam.js",
     "verify:staff-email-inbox-routes": "node scripts/verify-staff-email-inbox-routes.js",

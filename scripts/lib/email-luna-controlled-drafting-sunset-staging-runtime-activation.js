@@ -65,7 +65,10 @@ const {
 } = require('./email-luna-draft-policy');
 const {
   inspectEmailLunaControlledDraftingSession,
+  proveEmailLunaControlledDraftingStagingTestAuthorization,
+  consumeEmailLunaControlledDraftingStagingTestAuthorization,
   MIGRATION_097_ID,
+  MIGRATION_098_ID,
 } = require('./email-luna-controlled-drafting-session-proof');
 const {
   resolveEmailLunaControlledDraftingPrincipalConnectionConfig,
@@ -104,6 +107,7 @@ const ENV_REPLICA_COUNT = 'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_REPLICA_COUNT'
 const ENV_TEST_OPERATION_ID = 'EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_OPERATION_ID';
 const ENV_TEST_ISSUANCE_ID = 'EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_ISSUANCE_ID';
 const ENV_TEST_RECIPIENT_ADDRESS = 'EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS';
+const ENV_TEST_AUTHORIZATION_ID = 'EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_AUTHORIZATION_ID';
 const ENV_DEPLOYMENT = 'LUNA_DEPLOYMENT';
 const ENV_TENANT = 'DEFAULT_CLIENT_SLUG';
 const ENV_DRAFT_RUNTIME = 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED';
@@ -265,13 +269,15 @@ function principalConnectionOk(env) {
 function testScopeFromEnv(env) {
   const operationId = parseUuid(ownData(env, ENV_TEST_OPERATION_ID));
   const issuanceId = parseUuid(ownData(env, ENV_TEST_ISSUANCE_ID));
+  const authorizationId = parseUuid(ownData(env, ENV_TEST_AUTHORIZATION_ID));
   const recipient = ownData(env, ENV_TEST_RECIPIENT_ADDRESS);
-  if (!operationId || !issuanceId) return null;
+  if (!operationId || !issuanceId || !authorizationId) return null;
   if (typeof recipient !== 'string' || stringTrim(recipient) !== recipient) return null;
   if (!regexpTest(RECIPIENT_RE, recipient) || recipient !== stringToLowerCase(recipient)) return null;
   return freeze({
     operation_id: operationId,
     issuance_id: issuanceId,
+    authorization_id: authorizationId,
     recipient_configured: true,
     recipient_address: recipient,
   });
@@ -637,6 +643,18 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(depende
       circuit = 'open';
       return output([['status', 'blocked_disabled'], ['reason', 'kill_switch'], ['provider_invoked', false]]);
     }
+    const proven = await brandedProducer(async (client) => (
+      proveEmailLunaControlledDraftingStagingTestAuthorization(client, {
+        authorization_id: scope.authorization_id,
+        operation_id: scope.operation_id,
+        issuance_id: scope.issuance_id,
+        recipient_address: scope.recipient_address,
+      })
+    ));
+    if (!proven || proven.ok !== true || proven.status !== 'authorized') {
+      lastReason = (proven && proven.reason) || 'authorization_unproven';
+      return output([['status', 'blocked'], ['reason', lastReason], ['provider_invoked', false]]);
+    }
     const loaded = await issuanceStore.loadAutomationIssuanceMaterial({
       operation_id: scope.operation_id,
       issuance_id: scope.issuance_id,
@@ -656,6 +674,13 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(depende
       throw invalid();
     }
     const reserved = await composition.reserveControlledDraft({ material });
+    await brandedProducer(async (client) => (
+      consumeEmailLunaControlledDraftingStagingTestAuthorization(client, {
+        authorization_id: scope.authorization_id,
+        operation_id: scope.operation_id,
+        issuance_id: scope.issuance_id,
+      })
+    ));
     const state = ownData(ownData(reserved, 'record'), 'state') || ownData(reserved, 'status');
     if (arrayIncludes(SAFE_STATES, state)) counts = incrementCount(counts, state);
     lastReason = 'reserved';
@@ -688,6 +713,18 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(depende
       lastReason = 'kill_switch';
       circuit = 'open';
       return output([['status', 'blocked_disabled'], ['reason', 'kill_switch'], ['provider_invoked', false]]);
+    }
+    const proven = await brandedWorker(async (client) => (
+      proveEmailLunaControlledDraftingStagingTestAuthorization(client, {
+        authorization_id: scope.authorization_id,
+        operation_id: scope.operation_id,
+        issuance_id: scope.issuance_id,
+        recipient_address: scope.recipient_address,
+      })
+    ));
+    if (!proven || proven.ok !== true) {
+      lastReason = (proven && proven.reason) || 'authorization_unproven';
+      return output([['status', 'blocked'], ['reason', lastReason], ['provider_invoked', false]]);
     }
     const loaded = await workerStore.loadControlledDraft({
       operation_id: scope.operation_id,
@@ -853,6 +890,8 @@ module.exports = objectFreeze({
   ENV_TEST_OPERATION_ID,
   ENV_TEST_ISSUANCE_ID,
   ENV_TEST_RECIPIENT_ADDRESS,
+  ENV_TEST_AUTHORIZATION_ID,
+  MIGRATION_098_ID,
   ENV_PRODUCER_DATABASE_URL,
   ENV_WORKER_DATABASE_URL,
   ENV_AUTO_SEND,

@@ -37,6 +37,7 @@ const {
   ENV_TEST_OPERATION_ID,
   ENV_TEST_ISSUANCE_ID,
   ENV_TEST_RECIPIENT_ADDRESS,
+  ENV_TEST_AUTHORIZATION_ID,
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   SUNSET_LOCATION_KEY,
@@ -49,6 +50,8 @@ const {
 const {
   MIGRATION_097_ID,
   MIGRATION_097_SHA256,
+  MIGRATION_098_ID,
+  MIGRATION_098_SHA256,
   EXPECTED_CHECKSUM_MODE,
   inspectEmailLunaControlledDraftingSession,
 } = require('./email-luna-controlled-drafting-session-proof');
@@ -171,9 +174,12 @@ function fileReady(rel, needles, forbidden) {
 }
 
 function fileChecksumOk() {
-  const abs = path.join(ROOT, 'database/migrations', `${MIGRATION_097_ID}.sql`);
-  const live = checksumMigrationFile(abs, CHECKSUM_MODE_CANONICAL_LF_V1);
-  return Boolean(live && live.ok === true && live.sha256 === MIGRATION_097_SHA256
+  const abs097 = path.join(ROOT, 'database/migrations', `${MIGRATION_097_ID}.sql`);
+  const abs098 = path.join(ROOT, 'database/migrations', `${MIGRATION_098_ID}.sql`);
+  const live097 = checksumMigrationFile(abs097, CHECKSUM_MODE_CANONICAL_LF_V1);
+  const live098 = checksumMigrationFile(abs098, CHECKSUM_MODE_CANONICAL_LF_V1);
+  return Boolean(live097 && live097.ok === true && live097.sha256 === MIGRATION_097_SHA256
+    && live098 && live098.ok === true && live098.sha256 === MIGRATION_098_SHA256
     && CHECKSUM_MODE_CANONICAL_LF_V1 === EXPECTED_CHECKSUM_MODE);
 }
 
@@ -189,6 +195,7 @@ function testScopeConfigured(env) {
   return Boolean(
     isCanonUuid(parseUuid(ownData(env, ENV_TEST_OPERATION_ID)))
     && isCanonUuid(parseUuid(ownData(env, ENV_TEST_ISSUANCE_ID)))
+    && isCanonUuid(parseUuid(ownData(env, ENV_TEST_AUTHORIZATION_ID)))
     && typeof ownData(env, ENV_TEST_RECIPIENT_ADDRESS) === 'string'
     && ownData(env, ENV_TEST_RECIPIENT_ADDRESS).length > 0,
   );
@@ -246,9 +253,25 @@ function runEmailLunaControlledDraftingRuntimePreflight(input) {
     `database/migrations/${MIGRATION_097_ID}_down.sql`,
     ['ACCESS EXCLUSIVE', '097_down_refused'],
     [/^\s*GRANT /m, /^\s*CREATE ROLE/m],
+  ) && fileReady(
+    `database/migrations/${MIGRATION_098_ID}.sql`,
+    [
+      'tenant_email_luna_controlled_drafting_staging_test_authorizations',
+      'controlled_drafting_staging_proof',
+      'tenant_email_luna_controlled_draft_staging_schema_ready',
+      'tenant_email_luna_controlled_draft_staging_test_prove',
+      'REVOKE ALL ON FUNCTION',
+    ],
+    [/^\s*GRANT /m, /^\s*CREATE ROLE/m],
+  ) && fileReady(
+    `database/migrations/${MIGRATION_098_ID}_down.sql`,
+    ['ACCESS EXCLUSIVE', '098_down_refused'],
+    [/^\s*GRANT /m, /^\s*CREATE ROLE/m],
   ) && fileChecksumOk();
   const principalReady = EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_grant_in_097 === true
     && EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_create_role_in_097 === true
+    && EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_grant_in_098 === true
+    && EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.no_create_role_in_098 === true
     && EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT.no_grant_in_097 === true
     && EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT.no_create_role_in_097 === true;
   let principalConnectionOk = false;
@@ -525,6 +548,8 @@ module.exports = objectFreeze({
   ERROR_CODE,
   MIGRATION_097_ID,
   MIGRATION_097_SHA256,
+  MIGRATION_098_ID,
+  MIGRATION_098_SHA256,
   runEmailLunaControlledDraftingRuntimePreflight,
   runEmailLunaControlledDraftingRuntimeOperatorPreflight,
 });

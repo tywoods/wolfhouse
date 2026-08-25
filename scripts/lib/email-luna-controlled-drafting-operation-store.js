@@ -134,6 +134,8 @@ const EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT = objectFreeze({
   no_synthetic_runtime_role_in_migration: true,
   no_grant_in_097: true,
   no_create_role_in_097: true,
+  no_grant_in_098: true,
+  no_create_role_in_098: true,
   apply_in: 'ch4_runtime_worker_and_operator_roles',
   worker_operation_select: false,
   producer_operation_select: false,

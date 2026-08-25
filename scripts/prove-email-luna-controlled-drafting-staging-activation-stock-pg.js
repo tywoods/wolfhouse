@@ -16,8 +16,14 @@ const {
 } = require('./lib/email-luna-controlled-drafting-sunset-staging-runtime-activation');
 const {
   inspectEmailLunaControlledDraftingSession,
+  proveEmailLunaControlledDraftingStagingTestAuthorization,
+  MIGRATION_097_ID,
   MIGRATION_097_SHA256,
+  MIGRATION_098_ID,
+  MIGRATION_098_SHA256,
+  EXPECTED_CHECKSUM_MODE,
 } = require('./lib/email-luna-controlled-drafting-session-proof');
+const { LEDGER_DDL } = require('./lib/migration-integrity');
 const {
   createEmailLunaControlledDraftingProvider,
   createEmailLunaControlledDraftingFakeTransport,
@@ -53,6 +59,13 @@ const UP_097 = fs.readFileSync(
   path.join(ROOT, 'database/migrations/097_tenant_email_luna_controlled_draft_operations.sql'),
   'utf8',
 );
+const UP_098 = fs.readFileSync(
+  path.join(ROOT, 'database/migrations/098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql'),
+  'utf8',
+);
+const AUTH = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc0';
+const PRODUCER_ROLE = 'luna_ch4a_producer';
+const WORKER_ROLE = 'luna_ch4a_worker';
 const LIVE_097 = checksumMigrationFile(
   path.join(ROOT, 'database/migrations/097_tenant_email_luna_controlled_draft_operations.sql'),
   CHECKSUM_MODE_CANONICAL_LF_V1,
@@ -83,11 +96,12 @@ function enabledEnv(issuanceId) {
     EMAIL_LUNA_CONTROLLED_DRAFTING_MAILBOX_ID: GRAPH_MAILBOX,
     EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER: 'microsoft_graph',
     EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_REPLICA_COUNT: '1',
-    EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL: 'postgres://luna_ch4a_producer:x@127.0.0.1:5432/postgres',
-    EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL: 'postgres://luna_ch4a_worker:x@127.0.0.1:5432/postgres',
-    WOLFHOUSE_DATABASE_URL: 'postgres://postgres:x@127.0.0.1:5432/postgres',
+    EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL: `postgres://${PRODUCER_ROLE}:x@127.0.0.1:5432/sunset_staging`,
+    EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL: `postgres://${WORKER_ROLE}:x@127.0.0.1:5432/sunset_staging`,
+    WOLFHOUSE_DATABASE_URL: 'postgres://postgres:x@127.0.0.1:5432/sunset_staging',
     EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_OPERATION_ID: ids.operation,
     EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_ISSUANCE_ID: issuanceId,
+    EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_AUTHORIZATION_ID: AUTH,
     EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS: 'elena@example.test',
   };
 }
@@ -166,14 +180,33 @@ function authenticIssuanceStore(workerClient, bundle, issuanceId) {
   };
 }
 
-async function proveStockPg(client, connectClone) {
+async function insertLedger(db, id, sha) {
+  await db.query(
+    `INSERT INTO public.schema_migration_ledger
+       (id, filename, checksum_sha256, apply_order, apply_kind, checksum_mode)
+     VALUES ($1, $2, $3, (SELECT COALESCE(MAX(apply_order), 0) + 1 FROM public.schema_migration_ledger),
+             'executed_by_canonical_runner', $4)
+     ON CONFLICT (id) DO UPDATE
+       SET checksum_sha256 = EXCLUDED.checksum_sha256,
+           checksum_mode = EXCLUDED.checksum_mode`,
+    [id, `${id}.sql`, sha, EXPECTED_CHECKSUM_MODE],
+  );
+}
+
+async function proveStockPg(client, connectLogin, connectOwner, connectPostgres) {
   assert.equal(LIVE_097.ok, true);
   assert.equal(LIVE_097.sha256, MIGRATION_097_SHA256);
   const db = wrapClient(client);
   await applyThrough088(db);
+  await db.exec('ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS slug text');
+  await db.query('UPDATE public.clients SET slug = $1 WHERE id = $2::uuid', ['sunset', ids.client]);
   await db.exec(UP_092);
   await applyCommittedInbound063Identity(db);
   await db.exec(UP_097);
+  await db.exec(LEDGER_DDL);
+  await insertLedger(db, MIGRATION_097_ID, MIGRATION_097_SHA256);
+  await db.exec(UP_098);
+  await insertLedger(db, MIGRATION_098_ID, MIGRATION_098_SHA256);
   await revokePublicExecuteOutsideCatalogs(db);
   await db.exec(`
     UPDATE public.tenant_email_inbound_events
@@ -181,27 +214,32 @@ async function proveStockPg(client, connectClone) {
      WHERE id = '${ids.inbound}'
   `);
 
+  await db.exec(createRoleSql(WORKER_ROLE, PASSWORD));
+  await db.exec(createRoleSql(PRODUCER_ROLE, PASSWORD));
+  await db.exec(createRoleSql('luna_ch4a_unmapped', PASSWORD));
+  await db.exec('GRANT CONNECT ON DATABASE sunset_staging TO luna_ch4a_unmapped');
+  await db.exec('GRANT USAGE ON SCHEMA public TO luna_ch4a_unmapped');
+
   await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
-    roleName: 'luna_ch4a_worker',
+    roleName: WORKER_ROLE,
     kind: 'worker',
     client_id: ids.client,
     location_id: ids.location,
     location_key: 'sunset-somo',
-    password: PASSWORD,
+    trustedPrecreated: true,
     apply: true,
+    allowSunsetStagingTrustedPrecreated: true,
   });
   await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
-    roleName: 'luna_ch4a_producer',
+    roleName: PRODUCER_ROLE,
     kind: 'producer',
     client_id: ids.client,
     location_id: ids.location,
     location_key: 'sunset-somo',
-    password: PASSWORD,
+    trustedPrecreated: true,
     apply: true,
+    allowSunsetStagingTrustedPrecreatedProducer: true,
   });
-  await db.exec(createRoleSql('luna_ch4a_unmapped', PASSWORD));
-  await db.exec('GRANT CONNECT ON DATABASE postgres TO luna_ch4a_unmapped');
-  await db.exec('GRANT USAGE ON SCHEMA public TO luna_ch4a_unmapped');
 
   const owners = loadOwners();
   const ownerLoaner = {
@@ -217,20 +255,30 @@ async function proveStockPg(client, connectClone) {
        SET provider_mailbox_id = '${GRAPH_MAILBOX}'
      WHERE id = '${ids.inbound}'
   `);
+  await db.query(
+    'SELECT public.tenant_email_luna_controlled_draft_staging_test_authorize($1::uuid, $2::uuid, $3::uuid)',
+    [AUTH, ids.operation, seeded.issuanceId],
+  );
 
-  const producer = await connectClone();
-  const worker = await connectClone();
-  const owner = await connectClone();
-  const setRole = await connectClone();
-  const unmapped = await connectClone();
-  const workerB = await connectClone();
-  const clones = [producer, worker, owner, setRole, unmapped, workerB];
+  const guestOp = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2';
+  const guestAudit = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc1';
+  let guest = { issuanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1' };
   try {
-    await producer.query('SET SESSION AUTHORIZATION luna_ch4a_producer');
-    await worker.query('SET SESSION AUTHORIZATION luna_ch4a_worker');
-    await workerB.query('SET SESSION AUTHORIZATION luna_ch4a_worker');
-    await unmapped.query('SET SESSION AUTHORIZATION luna_ch4a_unmapped');
-    await setRole.query('SET ROLE luna_ch4a_producer');
+    guest = await persistIssuance(db, owners, ownerLoaner, guestOp, guestAudit);
+  } catch (_) {
+    /* second issuance is optional; prove still refuses unmatched ids */
+  }
+
+  const producer = await connectLogin(PRODUCER_ROLE);
+  const worker = await connectLogin(WORKER_ROLE);
+  const owner = await connectOwner();
+  const setRole = await connectOwner();
+  const unmapped = await connectLogin('luna_ch4a_unmapped');
+  const workerB = await connectLogin(WORKER_ROLE);
+  const postgresDb = await connectPostgres();
+  const clones = [producer, worker, owner, setRole, unmapped, workerB, postgresDb];
+  try {
+    await setRole.query(`SET ROLE ${PRODUCER_ROLE}`);
 
     const binding = {
       client_id: ids.client,
@@ -252,6 +300,59 @@ async function proveStockPg(client, connectClone) {
     const unmappedProof = await inspectEmailLunaControlledDraftingSession(unmapped, binding, 'producer');
     assert.equal(unmappedProof.ok, false);
     console.log('ok - owner, SET ROLE, and unmapped LOGIN fail closed before timer/provider');
+
+    const postgresProof = await inspectEmailLunaControlledDraftingSession(postgresDb, binding, 'producer');
+    assert.equal(postgresProof.ok, false);
+    assert.equal(postgresProof.checksum_ok, false);
+    console.log('ok - wrong database postgres is refused');
+
+    await db.query(
+      'UPDATE public.schema_migration_ledger SET checksum_sha256 = $1 WHERE id = $2',
+      ['0'.repeat(64), MIGRATION_097_ID],
+    );
+    const badChecksum = await inspectEmailLunaControlledDraftingSession(producer, binding, 'producer');
+    assert.equal(badChecksum.ok, false);
+    assert.equal(badChecksum.checksum_ok, false);
+    await insertLedger(db, MIGRATION_097_ID, MIGRATION_097_SHA256);
+    await db.query(
+      "UPDATE public.schema_migration_ledger SET checksum_mode = 'not_canonical' WHERE id = $1",
+      [MIGRATION_097_ID],
+    ).then(() => {}, () => {});
+    try {
+      await db.query(
+        "UPDATE public.schema_migration_ledger SET checksum_mode = 'not_canonical' WHERE id = $1",
+        [MIGRATION_097_ID],
+      );
+      const badMode = await inspectEmailLunaControlledDraftingSession(producer, binding, 'producer');
+      assert.equal(badMode.checksum_ok, false);
+    } catch (error) {
+      assert.match(String(error && error.message), /checksum_mode|check/i);
+    }
+    await insertLedger(db, MIGRATION_097_ID, MIGRATION_097_SHA256);
+    console.log('ok - missing/wrong migration ledger checksum/mode refused');
+
+    const proven = await proveEmailLunaControlledDraftingStagingTestAuthorization(producer, {
+      authorization_id: AUTH,
+      operation_id: ids.operation,
+      issuance_id: seeded.issuanceId,
+      recipient_address: 'elena@example.test',
+    });
+    assert.equal(proven.ok, true);
+    const guestProve = await proveEmailLunaControlledDraftingStagingTestAuthorization(producer, {
+      authorization_id: AUTH,
+      operation_id: guestOp,
+      issuance_id: guest.issuanceId,
+      recipient_address: 'elena@example.test',
+    });
+    assert.equal(guestProve.ok, false);
+    const missingAuth = await proveEmailLunaControlledDraftingStagingTestAuthorization(producer, {
+      authorization_id: 'dddddddd-dddd-4ddd-8ddd-ddddddddddd0',
+      operation_id: ids.operation,
+      issuance_id: seeded.issuanceId,
+      recipient_address: 'elena@example.test',
+    });
+    assert.equal(missingAuth.ok, false);
+    console.log('ok - synthetic authorization passes; guest-shaped issuance without marker fails');
 
     const made = makeProvider();
     const env = enabledEnv(seeded.issuanceId);
@@ -300,6 +401,7 @@ async function proveStockPg(client, connectClone) {
 
     const otherEnv = enabledEnv('cccccccc-cccc-4ccc-8ccc-ccccccccccc1');
     otherEnv.EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_OPERATION_ID = 'dddddddd-dddd-4ddd-8ddd-ddddddddddd1';
+    otherEnv.EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_AUTHORIZATION_ID = AUTH;
     const scoped = createEmailLunaControlledDraftingSunsetStagingRuntimeActivation({
       env: otherEnv,
       producerWithTransactionClient: roleLoaner(producer),
@@ -349,24 +451,57 @@ async function main() {
     onError(message) { console.error(String(message)); },
   });
   let started = false;
-  const client = new Client({
+  const admin = new Client({
     host: '127.0.0.1', port, user: 'postgres', password, database: 'postgres',
+    connectionTimeoutMillis: 5000,
   });
+  let client;
   try {
     await cluster.initialise();
     await cluster.start();
     started = true;
-    await client.connect();
-    await proveStockPg(client, async () => {
-      const clone = new Client({
-        host: '127.0.0.1', port, user: 'postgres', password, database: 'postgres',
-      });
-      await clone.connect();
-      return clone;
+    await admin.connect();
+    await admin.query('CREATE DATABASE sunset_staging');
+    client = new Client({
+      host: '127.0.0.1', port, user: 'postgres', password, database: 'sunset_staging',
+      connectionTimeoutMillis: 5000,
     });
+    await client.connect();
+    await proveStockPg(
+      client,
+      async (role) => {
+        const clone = new Client({
+          host: '127.0.0.1',
+          port,
+          user: role,
+          password: PASSWORD,
+          database: 'sunset_staging',
+          connectionTimeoutMillis: 5000,
+        });
+        await clone.connect();
+        return clone;
+      },
+      async () => {
+        const clone = new Client({
+          host: '127.0.0.1', port, user: 'postgres', password, database: 'sunset_staging',
+          connectionTimeoutMillis: 5000,
+        });
+        await clone.connect();
+        return clone;
+      },
+      async () => {
+        const clone = new Client({
+          host: '127.0.0.1', port, user: 'postgres', password, database: 'postgres',
+          connectionTimeoutMillis: 5000,
+        });
+        await clone.connect();
+        return clone;
+      },
+    );
     console.log(`ALL OK — Stage 2 Chapter 4A stock-PG staging activation (${dataDir} port ${port})`);
   } finally {
-    try { await client.end(); } catch (_) { /* ignore */ }
+    try { if (client) await client.end(); } catch (_) { /* ignore */ }
+    try { await admin.end(); } catch (_) { /* ignore */ }
     if (started) {
       try { await cluster.stop(); } catch (_) { /* ignore */ }
     }

@@ -3,10 +3,9 @@
 /**
  * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4A.
  *
- * Read-only producer/worker session proof for migration 097 and mapped
- * direct LOGIN principals. Never SET ROLE. Never applies migration.
- * Copy/validate plain own scalars only. Binding getters/proxies must not
- * feed SQL params. Never logs credentials, recipients, or tokens.
+ * Tiny composition over Chapter 3 mapped-principal attestation plus the
+ * canonical schema_migration_ledger. Never sets checksum_ok from table
+ * existence. Never applies migration. Never logs credentials.
  */
 
 const {
@@ -14,6 +13,9 @@ const {
   ownData,
   isCanonUuid,
 } = require('./email-luna-controlled-drafting-closed-data');
+const {
+  inspectEmailLunaControlledDraftingMappedPrincipal,
+} = require('./email-luna-controlled-drafting-sunset-staging-runtime-composition');
 
 const objectCreate = Object.create;
 const objectDefineProperty = Object.defineProperty;
@@ -23,150 +25,29 @@ const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
 const objectPrototype = Object.prototype;
 const arrayIsArray = Array.isArray;
-const arrayIncludes = Function.prototype.call.bind(Array.prototype.includes);
 
-const BINDING_KEYS = objectFreeze(['client_id', 'location_id', 'location_key']);
 const MIGRATION_097_ID = '097_tenant_email_luna_controlled_draft_operations';
 const MIGRATION_097_SHA256 = 'e36e2028eaf6d473e399a2326b988c40aad55e58d5f8fb6cfec35f96acfbfb62';
+const MIGRATION_098_ID = '098_tenant_email_luna_controlled_drafting_staging_test_authorization';
+const MIGRATION_098_SHA256 = '8d181becd9708416d0b02755deba9bf056b7fc927029fa22afd62dc06368d0cc';
 const EXPECTED_CHECKSUM_MODE = 'canonical_lf_v1';
-const SUNSET_LOCATION_KEY = 'sunset-somo';
+const EXPECTED_DATABASE = 'sunset_staging';
 
-const PRINCIPAL_REG =
-  'public.tenant_email_luna_automation_principal_authorized(text, uuid, uuid, text)';
-const RESERVE_REG =
-  'public.tenant_email_luna_controlled_draft_reserve(uuid, uuid, text, text, text, text, text, text)';
-const CLAIM_REG = 'public.tenant_email_luna_controlled_draft_claim_create(uuid, uuid, integer)';
-const RECORD_REG = 'public.tenant_email_luna_controlled_draft_record_create(uuid, uuid, integer, jsonb)';
-const RECONCILE_REG = 'public.tenant_email_luna_controlled_draft_reconcile(uuid, uuid, integer, jsonb)';
-const LOAD_REG = 'public.tenant_email_luna_controlled_draft_load(uuid, uuid)';
+const LEDGER_SQL = [
+  'SELECT current_database, ledger_097_id, ledger_097_checksum, ledger_097_mode,',
+  '       ledger_098_id, ledger_098_checksum, ledger_098_mode',
+  '  FROM public.tenant_email_luna_controlled_draft_staging_schema_ready()',
+].join('\n');
 
-const BOOLEAN_KEYS = objectFreeze([
-  'operations_table',
-  'transitions_table',
-  'reserve_fn',
-  'claim_fn',
-  'record_fn',
-  'reconcile_fn',
-  'load_fn',
-  'principal_fn',
-  'session_matches_current',
-  'session_distinct_from_owner',
-  'login_contract_ok',
-  'mapping_ok',
-  'execute_ok',
-]);
-const STRING_KEYS = objectFreeze(['session_user', 'current_user', 'table_owner']);
-const NULLABLE_STRING_KEYS = objectFreeze([]);
-const INSPECT_KEYS = objectFreeze([
-  ...BOOLEAN_KEYS,
-  ...STRING_KEYS,
-  ...NULLABLE_STRING_KEYS,
-]);
-
-function privilegeSql(reg) {
-  return [
-    'CASE',
-    `  WHEN pg_catalog.to_regprocedure('${reg}') IS NULL THEN FALSE`,
-    '  ELSE pg_catalog.has_function_privilege(',
-    '    session_user,',
-    `    '${reg}'::pg_catalog.regprocedure,`,
-    "    'EXECUTE'",
-    '  )',
-    'END',
-  ].join('\n');
-}
-
-function mappingSql(kindLiteral) {
-  return [
-    'CASE',
-    `  WHEN pg_catalog.to_regprocedure('${PRINCIPAL_REG}') IS NULL THEN FALSE`,
-    `  WHEN NOT pg_catalog.has_function_privilege(`,
-    '    session_user,',
-    `    '${PRINCIPAL_REG}'::pg_catalog.regprocedure,`,
-    "    'EXECUTE'",
-    '  ) THEN FALSE',
-    `  ELSE public.tenant_email_luna_automation_principal_authorized('${kindLiteral}', $1::uuid, $2::uuid, $3::text)`,
-    'END',
-  ].join('\n');
-}
-
-function attestSql(kindLiteral, executeRegs) {
-  if (kindLiteral !== 'producer' && kindLiteral !== 'worker') {
-    throw new Error('controlled_drafting_session_proof_kind');
-  }
-  const executeParts = [];
-  for (let i = 0; i < executeRegs.length; i += 1) {
-    if (i > 0) executeParts.push(' AND ');
-    executeParts.push('(\n', privilegeSql(executeRegs[i]), '\n)');
-  }
-  return [
-    'SELECT',
-    '  EXISTS (',
-    '    SELECT 1 FROM pg_catalog.pg_class c',
-    '    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-    "    WHERE n.nspname = 'public'",
-    "      AND c.relname = 'tenant_email_luna_controlled_draft_operations'",
-    "      AND c.relkind = 'r'",
-    '  ) AS operations_table,',
-    '  EXISTS (',
-    '    SELECT 1 FROM pg_catalog.pg_class c',
-    '    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-    "    WHERE n.nspname = 'public'",
-    "      AND c.relname = 'tenant_email_luna_controlled_draft_transitions'",
-    "      AND c.relkind = 'r'",
-    '  ) AS transitions_table,',
-    `  pg_catalog.to_regprocedure('${RESERVE_REG}') IS NOT NULL AS reserve_fn,`,
-    `  pg_catalog.to_regprocedure('${CLAIM_REG}') IS NOT NULL AS claim_fn,`,
-    `  pg_catalog.to_regprocedure('${RECORD_REG}') IS NOT NULL AS record_fn,`,
-    `  pg_catalog.to_regprocedure('${RECONCILE_REG}') IS NOT NULL AS reconcile_fn,`,
-    `  pg_catalog.to_regprocedure('${LOAD_REG}') IS NOT NULL AS load_fn,`,
-    `  pg_catalog.to_regprocedure('${PRINCIPAL_REG}') IS NOT NULL AS principal_fn,`,
-    '  session_user::text AS session_user,',
-    '  current_user::text AS current_user,',
-    '  session_user::text IS NOT DISTINCT FROM current_user::text AS session_matches_current,',
-    '  (',
-    '    SELECT r.rolname::text',
-    '      FROM pg_catalog.pg_roles r',
-    '      JOIN pg_catalog.pg_class c ON c.relowner = r.oid',
-    '      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-    "     WHERE n.nspname = 'public'",
-    "       AND c.relname = 'tenant_email_luna_automation_queue'",
-    "       AND c.relkind = 'r'",
-    '  ) AS table_owner,',
-    '  (',
-    '    session_user IS NOT NULL',
-    '    AND owner.rolname IS NOT NULL',
-    '    AND session_user::text IS DISTINCT FROM owner.rolname::text',
-    '  ) AS session_distinct_from_owner,',
-    '  EXISTS (',
-    '    SELECT 1',
-    '      FROM pg_catalog.pg_roles r',
-    '     WHERE r.rolname = session_user',
-    '       AND r.rolcanlogin IS TRUE',
-    '       AND r.rolsuper IS FALSE',
-    '       AND r.rolcreatedb IS FALSE',
-    '       AND r.rolcreaterole IS FALSE',
-    '       AND r.rolreplication IS FALSE',
-    '       AND r.rolbypassrls IS FALSE',
-    '  ) AS login_contract_ok,',
-    `  (\n${mappingSql(kindLiteral)}\n  ) AS mapping_ok,`,
-    `  (\n${executeParts.join('')}\n  ) AS execute_ok`,
-    'FROM (',
-    '  SELECT r.rolname',
-    '    FROM pg_catalog.pg_roles r',
-    '    JOIN pg_catalog.pg_class c ON c.relowner = r.oid',
-    '    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-    "   WHERE n.nspname = 'public'",
-    "     AND c.relname = 'tenant_email_luna_automation_queue'",
-    "     AND c.relkind = 'r'",
-    ') AS owner',
-  ].join('\n');
-}
-
-const PRODUCER_SESSION_PROOF_SQL = attestSql('producer', objectFreeze([RESERVE_REG, LOAD_REG]));
-const WORKER_SESSION_PROOF_SQL = attestSql('worker', objectFreeze([
-  CLAIM_REG, RECORD_REG, RECONCILE_REG, LOAD_REG,
-]));
+const PROVE_SQL = [
+  'SELECT ok, status, operation_id::text AS operation_id, issuance_id::text AS issuance_id,',
+  '       client_id::text AS client_id, location_id::text AS location_id,',
+  '       location_key, endpoint_id::text AS endpoint_id, mailbox_id, provider',
+  '  FROM public.tenant_email_luna_controlled_draft_staging_test_prove(',
+  '    $1::uuid, $2::uuid, $3::uuid, $4::text',
+  '  )',
+].join('\n');
+const CONSUME_SQL = 'SELECT public.tenant_email_luna_controlled_draft_staging_test_consume($1::uuid, $2::uuid, $3::uuid) AS ok';
 
 function freeze(value) {
   return objectFreeze(value);
@@ -183,103 +64,8 @@ function failedInspect() {
     mapping_ok: false,
     execute_ok: false,
     session_user: null,
+    current_database: null,
     reason: 'inspect_failed',
-  });
-}
-
-function copyPlainSessionBinding(binding) {
-  try {
-    if (!binding || typeof binding !== 'object' || isProxySurface(binding) || arrayIsArray(binding)) {
-      return null;
-    }
-    const proto = objectGetPrototypeOf(binding);
-    if (proto !== objectPrototype && proto !== null) return null;
-    const copy = objectCreate(null);
-    for (let index = 0; index < BINDING_KEYS.length; index += 1) {
-      const key = BINDING_KEYS[index];
-      const descriptor = objectGetOwnPropertyDescriptor(binding, key);
-      if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) {
-        return null;
-      }
-      const value = descriptor.value;
-      if (value !== null && typeof value !== 'string') return null;
-      objectDefineProperty(copy, key, {
-        value,
-        enumerable: true,
-        writable: true,
-        configurable: true,
-      });
-    }
-    if (!isCanonUuid(copy.client_id) || !isCanonUuid(copy.location_id)) return null;
-    if (copy.location_key !== SUNSET_LOCATION_KEY) return null;
-    return freeze(copy);
-  } catch (_) {
-    return null;
-  }
-}
-
-function copyPlainInspectRow(row) {
-  try {
-    if (!row || typeof row !== 'object' || isProxySurface(row) || arrayIsArray(row)) return null;
-    const copy = objectCreate(null);
-    for (let index = 0; index < INSPECT_KEYS.length; index += 1) {
-      const key = INSPECT_KEYS[index];
-      const descriptor = objectGetOwnPropertyDescriptor(row, key);
-      if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) {
-        return null;
-      }
-      const value = descriptor.value;
-      if (arrayIncludes(BOOLEAN_KEYS, key)) {
-        if (value !== true && value !== false) return null;
-      } else if (arrayIncludes(STRING_KEYS, key)) {
-        if (typeof value !== 'string') return null;
-      } else if (arrayIncludes(NULLABLE_STRING_KEYS, key)) {
-        if (value !== null && typeof value !== 'string') return null;
-      } else {
-        return null;
-      }
-      objectDefineProperty(copy, key, {
-        value,
-        enumerable: true,
-        writable: true,
-        configurable: true,
-      });
-    }
-    return copy;
-  } catch (_) {
-    return null;
-  }
-}
-
-function evaluateInspectRow(copy) {
-  if (!copy) return failedInspect();
-  const schemaApplied = copy.operations_table === true
-    && copy.transitions_table === true
-    && copy.reserve_fn === true
-    && copy.claim_fn === true
-    && copy.record_fn === true
-    && copy.reconcile_fn === true
-    && copy.load_fn === true
-    && copy.principal_fn === true;
-  const loginOk = copy.session_matches_current === true
-    && copy.session_distinct_from_owner === true
-    && copy.login_contract_ok === true
-    && typeof copy.session_user === 'string'
-    && copy.session_user.length > 0
-    && copy.session_user !== copy.table_owner;
-  const principalOk = copy.mapping_ok === true && copy.execute_ok === true && loginOk;
-  const ok = schemaApplied === true && principalOk === true;
-  return freeze({
-    ok,
-    inspect_failed: false,
-    schema_applied: schemaApplied,
-    checksum_ok: schemaApplied,
-    principal_applied: copy.mapping_ok === true,
-    login_ok: loginOk,
-    mapping_ok: copy.mapping_ok === true,
-    execute_ok: copy.execute_ok === true,
-    session_user: null,
-    reason: ok ? 'ready' : (schemaApplied ? 'principal_unproven' : 'schema_unproven'),
   });
 }
 
@@ -310,33 +96,161 @@ function resolveQuery(client) {
   return null;
 }
 
+function copyLedgerRow(row) {
+  try {
+    if (!row || typeof row !== 'object' || isProxySurface(row) || arrayIsArray(row)) return null;
+    const copy = objectCreate(null);
+    const keys = [
+      'current_database', 'ledger_097_id', 'ledger_097_checksum', 'ledger_097_mode',
+      'ledger_098_id', 'ledger_098_checksum', 'ledger_098_mode',
+    ];
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      const descriptor = objectGetOwnPropertyDescriptor(row, key);
+      if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) {
+        return null;
+      }
+      const value = descriptor.value;
+      if (value !== null && typeof value !== 'string') return null;
+      objectDefineProperty(copy, key, {
+        value, enumerable: true, writable: true, configurable: true,
+      });
+    }
+    return copy;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function inspectEmailLunaControlledDraftingSession(client, binding, kind) {
   if (kind !== 'producer' && kind !== 'worker') return failedInspect();
-  const closed = copyPlainSessionBinding(binding);
-  if (!closed) return failedInspect();
   const queryFn = resolveQuery(client);
   if (typeof queryFn !== 'function' || isProxySurface(queryFn)) return failedInspect();
-  const sql = kind === 'producer' ? PRODUCER_SESSION_PROOF_SQL : WORKER_SESSION_PROOF_SQL;
-  let result;
+  let ledgerResult;
   try {
-    result = await queryFn.call(client, sql, [closed.client_id, closed.location_id, closed.location_key]);
+    ledgerResult = await queryFn.call(client, LEDGER_SQL);
   } catch (_) {
     return failedInspect();
   }
-  if (!result || typeof result !== 'object' || isProxySurface(result) || arrayIsArray(result)) {
+  if (!ledgerResult || typeof ledgerResult !== 'object' || isProxySurface(ledgerResult) || arrayIsArray(ledgerResult)) {
     return failedInspect();
   }
-  const rows = ownData(result, 'rows');
+  const rows = ownData(ledgerResult, 'rows');
   if (!arrayIsArray(rows) || rows.length !== 1 || isProxySurface(rows)) return failedInspect();
+  const ledger = copyLedgerRow(ownData(rows, 0));
+  if (!ledger) return failedInspect();
+  const databaseOk = ledger.current_database === EXPECTED_DATABASE;
+  const checksum097 = databaseOk
+    && ledger.ledger_097_id === MIGRATION_097_ID
+    && ledger.ledger_097_checksum === MIGRATION_097_SHA256
+    && ledger.ledger_097_mode === EXPECTED_CHECKSUM_MODE;
+  const checksum098 = databaseOk
+    && ledger.ledger_098_id === MIGRATION_098_ID
+    && ledger.ledger_098_checksum === MIGRATION_098_SHA256
+    && ledger.ledger_098_mode === EXPECTED_CHECKSUM_MODE;
+  const checksumOk = checksum097 === true && checksum098 === true;
+  const principal = await inspectEmailLunaControlledDraftingMappedPrincipal(client, binding, kind);
+  const inspectFailed = principal.inspect_failed === true;
+  const schemaApplied = checksumOk === true && principal.execute_ok === true;
+  const ok = inspectFailed !== true
+    && checksumOk === true
+    && principal.ok === true
+    && principal.login_ok === true
+    && principal.mapping_ok === true
+    && principal.execute_ok === true;
+  return freeze({
+    ok,
+    inspect_failed: inspectFailed,
+    schema_applied: schemaApplied,
+    checksum_ok: checksumOk,
+    principal_applied: principal.principal_applied === true,
+    login_ok: principal.login_ok === true,
+    mapping_ok: principal.mapping_ok === true,
+    execute_ok: principal.execute_ok === true,
+    session_user: null,
+    current_database: databaseOk ? EXPECTED_DATABASE : null,
+    reason: ok ? 'ready' : (checksumOk ? (principal.ok ? 'schema_unproven' : 'principal_unproven') : 'checksum_unproven'),
+  });
+}
+
+async function proveEmailLunaControlledDraftingStagingTestAuthorization(client, input) {
+  const queryFn = resolveQuery(client);
+  if (typeof queryFn !== 'function' || isProxySurface(queryFn)) return freeze({ ok: false, reason: 'inspect_failed' });
+  if (!input || typeof input !== 'object' || isProxySurface(input) || arrayIsArray(input)) {
+    return freeze({ ok: false, reason: 'authorization_unproven' });
+  }
+  const authorizationId = ownData(input, 'authorization_id');
+  const operationId = ownData(input, 'operation_id');
+  const issuanceId = ownData(input, 'issuance_id');
+  const recipient = ownData(input, 'recipient_address');
+  if (!isCanonUuid(authorizationId) || !isCanonUuid(operationId) || !isCanonUuid(issuanceId)) {
+    return freeze({ ok: false, reason: 'authorization_unproven' });
+  }
+  if (typeof recipient !== 'string' || recipient.length < 3) {
+    return freeze({ ok: false, reason: 'authorization_unproven' });
+  }
+  let result;
+  try {
+    result = await queryFn.call(client, PROVE_SQL, [authorizationId, operationId, issuanceId, recipient]);
+  } catch (_) {
+    return freeze({ ok: false, reason: 'authorization_unproven' });
+  }
+  const rows = ownData(result, 'rows');
+  if (!arrayIsArray(rows) || rows.length !== 1 || isProxySurface(rows)) {
+    return freeze({ ok: false, reason: 'authorization_unproven' });
+  }
   const row = ownData(rows, 0);
-  return evaluateInspectRow(copyPlainInspectRow(row));
+  if (ownData(row, 'operation_id') !== operationId || ownData(row, 'issuance_id') !== issuanceId) {
+    return freeze({ ok: false, reason: 'authorization_binding_mismatch' });
+  }
+  const status = ownData(row, 'status');
+  if (status === 'revoked') {
+    return freeze({ ok: false, reason: 'authorization_revoked', status: 'revoked' });
+  }
+  if (status !== 'authorized' && status !== 'consumed') {
+    return freeze({ ok: false, reason: 'authorization_unproven' });
+  }
+  return freeze({
+    ok: true,
+    reason: status,
+    status,
+    authorization_id: authorizationId,
+    operation_id: operationId,
+    issuance_id: issuanceId,
+    client_id: ownData(row, 'client_id') || null,
+    location_id: ownData(row, 'location_id') || null,
+    location_key: ownData(row, 'location_key') || null,
+    endpoint_id: ownData(row, 'endpoint_id') || null,
+    mailbox_id: ownData(row, 'mailbox_id') || null,
+    provider: ownData(row, 'provider') || null,
+  });
+}
+
+async function consumeEmailLunaControlledDraftingStagingTestAuthorization(client, input) {
+  const queryFn = resolveQuery(client);
+  if (typeof queryFn !== 'function' || isProxySurface(queryFn)) return false;
+  const authorizationId = ownData(input, 'authorization_id');
+  const operationId = ownData(input, 'operation_id');
+  const issuanceId = ownData(input, 'issuance_id');
+  if (!isCanonUuid(authorizationId) || !isCanonUuid(operationId) || !isCanonUuid(issuanceId)) return false;
+  try {
+    const result = await queryFn.call(client, CONSUME_SQL, [authorizationId, operationId, issuanceId]);
+    const rows = ownData(result, 'rows');
+    return arrayIsArray(rows) && rows.length === 1 && ownData(ownData(rows, 0), 'ok') === true;
+  } catch (_) {
+    return false;
+  }
 }
 
 module.exports = objectFreeze({
   MIGRATION_097_ID,
   MIGRATION_097_SHA256,
+  MIGRATION_098_ID,
+  MIGRATION_098_SHA256,
   EXPECTED_CHECKSUM_MODE,
-  PRODUCER_SESSION_PROOF_SQL,
-  WORKER_SESSION_PROOF_SQL,
+  EXPECTED_DATABASE,
+  LEDGER_SQL,
   inspectEmailLunaControlledDraftingSession,
+  proveEmailLunaControlledDraftingStagingTestAuthorization,
+  consumeEmailLunaControlledDraftingStagingTestAuthorization,
 });

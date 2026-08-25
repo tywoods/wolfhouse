@@ -4,9 +4,15 @@
 
 **Owner:** `scripts/lib/email-luna-controlled-drafting-sunset-staging-runtime-activation.js`
 
-**Connections:** `scripts/lib/email-luna-controlled-drafting-principal-connection.js`
+**Connections:** `scripts/lib/email-luna-controlled-drafting-principal-connection.js` (thin pair over Stage 1 `email-luna-automation-shadow-worker-connection.js`)
 
 **Preflight:** `scripts/lib/email-luna-controlled-drafting-runtime-preflight.js`
+
+**Session proof:** Chapter 3 `inspectEmailLunaControlledDraftingMappedPrincipal` plus canonical `schema_migration_ledger` / `current_database()='sunset_staging'`
+
+**Staging test authorization:** `098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql`
+
+**Operator prepare:** `npm run prepare:email-luna-controlled-drafting-staging-test-authorization` (default dry-run)
 
 **Verifier:** `npm run verify:email-luna-controlled-drafting-staging-activation`
 
@@ -24,7 +30,7 @@ Canonical process owner is Staff API (`luna-sunset-staging-staff-api` in `luna-s
 | Chapter 1 closed provider | `attest` / `createReplyDraft` / `reconcileDraft` only |
 | Chapter 2 operation store | Producer reserve, worker claim/record/reconcile/load |
 | Chapter 3 composition | Mapped producer/worker loaners + closed provider |
-| Chapter 4A activation | Staff API start/stop loop, 097/LOGIN preflight, test-scope intake, status |
+| Chapter 4A activation | Staff API start/stop loop, 097+098/LOGIN preflight, durable test authorization, status |
 
 Producer and worker are dedicated PostgreSQL LOGIN roles. 092/097 authorize from `session_user`. Owner+`SET ROLE` is refused. Pre-connect DSN distinctness is not live session proof.
 
@@ -56,13 +62,16 @@ Producer and worker are dedicated PostgreSQL LOGIN roles. 092/097 authorize from
 
 Near-miss / `TRUE` / `1` / unknown refuse. Wolfhouse, production, wildcard, and request-selected bindings refuse.
 
-Controlled test scope is required before any queue work is consumed:
+Controlled test scope is required before any queue work is consumed. Env may name the opaque authorization id; it does not confer authority. Preflight loads the durable 098 marker and exact binding.
 
+- `EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_AUTHORIZATION_ID` (opaque id of a 098 row)
 - `EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_OPERATION_ID`
 - `EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_ISSUANCE_ID`
-- `EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS` (operator test mailbox only; no guest/customer recipient)
+- `EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS` (must match the server-owned authorization)
 
-Arbitrary existing eligible 086 rows are not scanned.
+Prepare with `npm run prepare:email-luna-controlled-drafting-staging-test-authorization` (default dry-run, refuses production, does not fabricate issuance). Do not use manual SQL as the documented path.
+
+Existing real guest 092 rows without a matching authorized 098 marker fail before reserve/tick/provider. Arbitrary existing eligible 086 rows are not scanned.
 
 ## Direct LOGIN secret refs (create later; not in this slice)
 
@@ -73,15 +82,19 @@ Future Key Vault names (existing vault `luna-sunset-staging-kv`, no new vault):
 - `sunset-controlled-drafting-producer-database-url` → `EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL`
 - `sunset-controlled-drafting-worker-database-url` → `EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL`
 
-DSNs must have no query string (no `options` / `session_authorization` / SET ROLE overlay). Producer, worker, and app-owner identities must be pairwise distinct.
+DSNs must have no query string (no `options` / `session_authorization` / SET ROLE overlay / sslmode escape). Database pathname must be exactly `sunset_staging`. Producer, worker, and app-owner identities must be pairwise distinct. TLS for Azure Flexible Server is `pg.Pool` `ssl: { rejectUnauthorized: true, ca, servername }` with bounded `connectionTimeoutMillis`. Missing CA fails preflight with `pg_ca_unproven`; loopback stock-PG is cleartext. Never `rejectUnauthorized: false`.
 
 ## Migration / principal readiness
 
-- Canonical forward: `097_tenant_email_luna_controlled_draft_operations` (checksum `canonical_lf_v1`).
-- Down `097_tenant_email_luna_controlled_draft_operations_down.sql` stays intact (ACCESS EXCLUSIVE parent-then-child; refuse while rows exist).
-- 097 does not GRANT or CREATE ROLE.
-- Apply 097 with the canonical runner on the operator laptop, then provision exact mapped producer+worker LOGINs with the existing principal provisioner (`allowSunsetStagingTrustedPrecreated` for `sunset_staging`).
-- Code startup never applies migration.
+- Canonical forward: `097_tenant_email_luna_controlled_draft_operations` then `098_tenant_email_luna_controlled_drafting_staging_test_authorization` (checksum `canonical_lf_v1`).
+- Down files stay intact (ACCESS EXCLUSIVE; refuse while rows exist).
+- 097/098 do not GRANT or CREATE ROLE.
+- Apply 097 then 098 with the canonical runner on the operator laptop. Provision exact mapped producer+worker LOGINs with the existing principal provisioner:
+  - worker: `allowSunsetStagingTrustedPrecreated`
+  - producer: `allowSunsetStagingTrustedPrecreatedProducer`
+  Both require `trustedPrecreated: true`, `apply: true`, owner session, no password, no CREATE ROLE. Option/kind swaps are refused.
+- Prepare one 098 authorization through the operator command above. Do not use manual SQL as the documented path.
+- Code startup never applies migration. Preflight proves `current_database()='sunset_staging'` and exact ledger checksum/mode for 097 and 098.
 
 ## Live provider authority (blocked unless a later reviewed loan exists)
 
@@ -102,13 +115,13 @@ Expected incremental Azure resource cost is **zero**. Reuse `luna-sunset-staging
 
 1. On the **operator laptop**, `node scripts/assert-repo-sync.js` (mandatory; **cannot pass in this cloud environment** — that is an environment limit, not a sync problem).
 2. `npm run deploy:preflight` / `node scripts/assert-deploy-from-master.js` and tag the image with the master SHA.
-3. Apply canonical migrations including 097 to `sunset_staging`. Capture ledger id/checksum/mode.
-4. Provision exact producer+worker LOGINs; store DSNs in Key Vault secret refs only.
+3. Apply canonical migrations including 097 and 098 to `sunset_staging`. Capture ledger id/checksum/mode for both.
+4. Provision exact producer+worker LOGINs through the trusted-precreated options above; store DSNs in Key Vault secret refs only.
 5. Bind exact Sunset client/location/endpoint/mailbox ids. Set all drafting flags **false**. Replica count `1`.
 6. Deploy the Staff API revision (still default-off). Confirm `/healthz` liveness and `/readyz` without Graph.
 7. Run operator preflight against the dedicated LOGIN pair. Confirm `ok` with `activation_started=false`, `send_allowed=false`.
 8. Enable runtime + composition only. Confirm status: enabled/configured/ready/running, no provider calls.
-9. Install one-shot test scope (operation + issuance + operator test recipient). Enable producer intake, then worker tick, then live provider-draft **only** after the later live-proof review.
+9. Prepare one-shot 098 authorization with the operator command (dry-run first). Enable producer intake, then worker tick, then live provider-draft **only** after the later live-proof review.
 10. Capture DB operation state + Graph draft id (`isDraft=true`) for the test mailbox. Confirm send journal unused.
 
 ## Rollback / kill

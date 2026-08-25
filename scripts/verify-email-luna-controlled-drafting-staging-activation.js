@@ -23,6 +23,7 @@ const {
   ENV_TEST_OPERATION_ID,
   ENV_TEST_ISSUANCE_ID,
   ENV_TEST_RECIPIENT_ADDRESS,
+  ENV_TEST_AUTHORIZATION_ID,
   ENV_PRODUCER_DATABASE_URL,
   ENV_WORKER_DATABASE_URL,
   SUNSET_DEPLOYMENT,
@@ -35,11 +36,21 @@ const {
 } = require('./lib/email-luna-controlled-drafting-sunset-staging-runtime-activation');
 const {
   resolveEmailLunaControlledDraftingPrincipalConnectionConfig,
+  EXPECTED_DATABASE,
 } = require('./lib/email-luna-controlled-drafting-principal-connection');
 const {
   runEmailLunaControlledDraftingRuntimePreflight,
   MIGRATION_097_SHA256,
+  MIGRATION_098_ID,
+  MIGRATION_098_SHA256,
 } = require('./lib/email-luna-controlled-drafting-runtime-preflight');
+const {
+  resolveEmailLunaDirectLoginPoolTransport,
+  DIRECT_LOGIN_CONNECTION_TIMEOUT_MS,
+} = require('./lib/email-luna-automation-shadow-worker-connection');
+const {
+  SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER,
+} = require('./lib/email-luna-automation-principal-contract');
 const {
   EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_WIRED,
   EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_ACTIVATION,
@@ -94,6 +105,26 @@ const DOWN_097 = fs.readFileSync(
   path.join(ROOT, 'database/migrations/097_tenant_email_luna_controlled_draft_operations_down.sql'),
   'utf8',
 );
+const SQL_098 = fs.readFileSync(
+  path.join(ROOT, 'database/migrations/098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql'),
+  'utf8',
+);
+const DOWN_098 = fs.readFileSync(
+  path.join(ROOT, 'database/migrations/098_tenant_email_luna_controlled_drafting_staging_test_authorization_down.sql'),
+  'utf8',
+);
+const SESSION_SRC = fs.readFileSync(
+  require.resolve('./lib/email-luna-controlled-drafting-session-proof'),
+  'utf8',
+);
+const PRINCIPAL_SRC = fs.readFileSync(
+  require.resolve('./lib/email-luna-controlled-drafting-principal-connection'),
+  'utf8',
+);
+const STAGE1_CONN_SRC = fs.readFileSync(
+  require.resolve('./lib/email-luna-automation-shadow-worker-connection'),
+  'utf8',
+);
 
 const C = '11111111-1111-4111-8111-111111111111';
 const L = '22222222-2222-4222-8222-222222222222';
@@ -101,6 +132,7 @@ const E = '44444444-4444-4444-8444-444444444444';
 const MAILBOX = '22222222-2222-4222-8222-2222222222ab';
 const OP = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
 const ISS = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1';
+const AUTH = 'cccccccc-cccc-4ccc-8ccc-ccccccccccc0';
 
 console.log('FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4A staging activation verifier');
 
@@ -148,7 +180,31 @@ assert.equal(/^\s*GRANT /m.test(SQL_097), false);
 assert.equal(/^\s*CREATE ROLE/m.test(SQL_097), false);
 assert.match(DOWN_097, /ACCESS EXCLUSIVE/);
 assert.match(DOWN_097, /097_down_refused/);
-console.log('  PASS  097 checksum/schema/down preservation');
+const live098 = checksumMigrationFile(
+  path.join(ROOT, 'database/migrations/098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql'),
+  CHECKSUM_MODE_CANONICAL_LF_V1,
+);
+assert.equal(live098.ok, true);
+assert.equal(live098.sha256, MIGRATION_098_SHA256);
+assert.equal(MIGRATION_098_ID, '098_tenant_email_luna_controlled_drafting_staging_test_authorization');
+assert.match(SQL_098, /controlled_drafting_staging_proof/);
+assert.match(SQL_098, /tenant_email_luna_controlled_draft_staging_test_prove/);
+assert.equal(/^\s*GRANT /m.test(SQL_098), false);
+assert.equal(/^\s*CREATE ROLE/m.test(SQL_098), false);
+assert.match(DOWN_098, /ACCESS EXCLUSIVE/);
+assert.match(DOWN_098, /098_down_refused/);
+assert.doesNotMatch(SESSION_SRC, /function attestSql/);
+assert.match(SESSION_SRC, /inspectEmailLunaControlledDraftingMappedPrincipal/);
+assert.match(SESSION_SRC, /schema_migration_ledger/);
+assert.match(PRINCIPAL_SRC, /createEmailLunaDirectLoginConnectionPair/);
+assert.match(PRINCIPAL_SRC, /EXPECTED_DATABASE_SUNSET_STAGING/);
+assert.doesNotMatch(PRINCIPAL_SRC, /function parseDsnIdentities/);
+assert.match(STAGE1_CONN_SRC, /rejectUnauthorized: true/);
+assert.doesNotMatch(STAGE1_CONN_SRC, /rejectUnauthorized:\s*false/);
+assert.match(STAGE1_CONN_SRC, /connectionTimeoutMillis/);
+assert.equal(EXPECTED_DATABASE, 'sunset_staging');
+assert.equal(SUNSET_STAGING_TRUSTED_PRECREATED_PRODUCER.kind, 'producer');
+console.log('  PASS  097/098 checksum/schema/down; session/connection owners reused not copied');
 
 assert.match(STAFF_API_SRC, /email-luna-controlled-drafting-sunset-staging-runtime-activation/);
 assert.match(STAFF_API_SRC, /EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_READINESS\.runtime_activation === true/);
@@ -183,11 +239,12 @@ function enabledEnv(patch = {}) {
     EMAIL_LUNA_CONTROLLED_DRAFTING_MAILBOX_ID: MAILBOX,
     EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER: 'microsoft_graph',
     EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_REPLICA_COUNT: '1',
-    EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL: 'postgres://luna_cd_producer:producer-secret@127.0.0.1:5432/sunset',
-    EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL: 'postgres://luna_cd_worker:worker-secret@127.0.0.1:5432/sunset',
-    WOLFHOUSE_DATABASE_URL: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset',
+    EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL: 'postgres://luna_cd_producer:producer-secret@127.0.0.1:5432/sunset_staging',
+    EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL: 'postgres://luna_cd_worker:worker-secret@127.0.0.1:5432/sunset_staging',
+    WOLFHOUSE_DATABASE_URL: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset_staging',
     EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_OPERATION_ID: OP,
     EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_ISSUANCE_ID: ISS,
+    EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_AUTHORIZATION_ID: AUTH,
     EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS: 'operator-test@sunset.example',
     ...patch,
   };
@@ -228,10 +285,13 @@ for (const [label, env] of [
   ['outreach', enabledEnv({ CUSTOMER_OUTREACH_WHATSAPP_ENABLED: 'true' })],
   ['campaign', enabledEnv({ STAFF_AUTOMATED_NOTIFICATIONS_LIVE_ENABLED: 'true' })],
   ['owner pool producer', enabledEnv({
-    EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset',
+    EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset_staging',
   })],
   ['producer worker collision', enabledEnv({
-    EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL: 'postgres://luna_cd_producer:producer-secret@127.0.0.1:5432/sunset',
+    EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL: 'postgres://luna_cd_producer:producer-secret@127.0.0.1:5432/sunset_staging',
+  })],
+  ['wrong database postgres', enabledEnv({
+    EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL: 'postgres://luna_cd_producer:producer-secret@127.0.0.1:5432/postgres',
   })],
   ['worker DSN missing', enabledEnv({ EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL: undefined })],
 ]) {
@@ -363,18 +423,46 @@ function issuanceDouble() {
 assert.doesNotMatch(JSON.stringify(resolveEmailLunaControlledDraftingSunsetStagingRuntimeReadiness(enabledEnv())), /producer-secret|operator-test@/);
 
 const dsnMissing = resolveEmailLunaControlledDraftingPrincipalConnectionConfig({
-  env: { WOLFHOUSE_DATABASE_URL: 'postgres://wolfhouse:x@127.0.0.1:5432/sunset' },
-  appConnectionString: 'postgres://wolfhouse:x@127.0.0.1:5432/sunset',
+  env: { WOLFHOUSE_DATABASE_URL: 'postgres://wolfhouse:x@127.0.0.1:5432/sunset_staging' },
+  appConnectionString: 'postgres://wolfhouse:x@127.0.0.1:5432/sunset_staging',
 });
 assert.equal(dsnMissing.ok, false);
 const dsnQuery = resolveEmailLunaControlledDraftingPrincipalConnectionConfig({
   env: enabledEnv({
     EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL:
-      'postgres://luna_cd_producer:x@127.0.0.1:5432/sunset?options=-c%20session_authorization%3Dwolfhouse',
+      'postgres://luna_cd_producer:x@127.0.0.1:5432/sunset_staging?options=-c%20session_authorization%3Dwolfhouse',
   }),
-  appConnectionString: 'postgres://wolfhouse:x@127.0.0.1:5432/sunset',
+  appConnectionString: 'postgres://wolfhouse:x@127.0.0.1:5432/sunset_staging',
 });
 assert.equal(dsnQuery.ok, false);
+const dsnOk = resolveEmailLunaControlledDraftingPrincipalConnectionConfig({
+  env: enabledEnv(),
+  appConnectionString: 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset_staging',
+});
+assert.equal(dsnOk.ok, true);
+assert.equal(dsnOk.database_ok, true);
+
+const loopbackTls = resolveEmailLunaDirectLoginPoolTransport({ host: '127.0.0.1' });
+assert.equal(loopbackTls.ok, true);
+assert.equal(loopbackTls.ssl, false);
+assert.equal(loopbackTls.tls_mode, 'loopback_cleartext');
+assert.equal(loopbackTls.connectionTimeoutMillis, DIRECT_LOGIN_CONNECTION_TIMEOUT_MS);
+const azureNoCa = resolveEmailLunaDirectLoginPoolTransport({
+  host: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
+});
+assert.equal(azureNoCa.ok, false);
+assert.equal(azureNoCa.reason, 'pg_ca_unproven');
+assert.equal(azureNoCa.ssl, null);
+const azureCa = resolveEmailLunaDirectLoginPoolTransport({
+  host: 'luna-sunset-staging-pg-app.postgres.database.azure.com',
+  caText: '-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----',
+});
+assert.equal(azureCa.ok, true);
+assert.equal(azureCa.ssl.rejectUnauthorized, true);
+assert.equal(azureCa.ssl.servername, 'luna-sunset-staging-pg-app.postgres.database.azure.com');
+assert.equal(azureCa.tls_mode, 'verify-full');
+assert.equal(DIRECT_LOGIN_CONNECTION_TIMEOUT_MS > 0 && DIRECT_LOGIN_CONNECTION_TIMEOUT_MS <= 10000, true);
+console.log('  PASS  TLS config is truthful; Azure missing CA fails; loopback is cleartext; timeout bounded');
 
 function runChild(script) {
   const proof = spawnSync(process.execPath, [path.join(ROOT, 'scripts', script)], {
@@ -411,11 +499,27 @@ console.log('  … concurrency/start/stop/kill-switch');
   assert.ok(preflight.blockers.includes('inspect_required'));
   const missing097 = await runEmailLunaControlledDraftingRuntimePreflight({
     env: enabledEnv(),
-    query: async () => ({ rows: [{ operations_table: false }] }),
+    query: async (sql) => {
+      if (String(sql).includes('schema_ready') || String(sql).includes('schema_migration_ledger')) {
+        return {
+          rows: [{
+            current_database: 'sunset_staging',
+            ledger_097_id: null,
+            ledger_097_checksum: null,
+            ledger_097_mode: null,
+            ledger_098_id: null,
+            ledger_098_checksum: null,
+            ledger_098_mode: null,
+          }],
+        };
+      }
+      return { rows: [{ session_user: 'luna_cd_producer', current_user: 'luna_cd_producer', table_owner: 'wolfhouse', session_distinct_from_owner: true, session_matches_current: true, mapping_ok: true, login_contract_ok: true, execute_ok: true }] };
+    },
     unit_test_inspect: true,
   });
   assert.equal(missing097.ok, false);
-  console.log('  PASS  preflight never applies migration/start/send; missing 097 inspect fails closed');
+  assert.equal(missing097.producer_checksum_ok, false);
+  console.log('  PASS  preflight never applies migration/start/send; missing 097 ledger checksum fails closed');
 
   const handles = [];
   let timerId = 0;
@@ -432,29 +536,47 @@ console.log('  … concurrency/start/stop/kill-switch');
   };
   function inspectLoaner(sessionUser) {
     return async (work) => work({
-      async query() {
+      async query(sql) {
+        const text = String(sql);
+        if (text.includes('schema_ready') || text.includes('schema_migration_ledger') || text.includes('current_database')) {
+          return {
+            rows: [{
+              current_database: 'sunset_staging',
+              ledger_097_id: '097_tenant_email_luna_controlled_draft_operations',
+              ledger_097_checksum: MIGRATION_097_SHA256,
+              ledger_097_mode: 'canonical_lf_v1',
+              ledger_098_id: MIGRATION_098_ID,
+              ledger_098_checksum: MIGRATION_098_SHA256,
+              ledger_098_mode: 'canonical_lf_v1',
+            }],
+          };
+        }
+        if (text.includes('staging_test_prove') || text.includes('staging_test_consume')) {
+          return {
+            rows: [{
+              ok: true,
+              status: 'authorized',
+              operation_id: OP,
+              issuance_id: ISS,
+              client_id: C,
+              location_id: L,
+              location_key: 'sunset-somo',
+              endpoint_id: E,
+              mailbox_id: MAILBOX,
+              provider: 'microsoft_graph',
+            }],
+          };
+        }
         return {
           rows: [{
-            operations_table: true,
-            transitions_table: true,
-            reserve_fn: true,
-            claim_fn: true,
-            record_fn: true,
-            reconcile_fn: true,
-            load_fn: true,
-            principal_fn: true,
             session_user: sessionUser,
             current_user: sessionUser,
             table_owner: 'wolfhouse',
-            session_matches_current: true,
             session_distinct_from_owner: true,
-            login_contract_ok: true,
+            session_matches_current: true,
             mapping_ok: true,
+            login_contract_ok: true,
             execute_ok: true,
-            ledger_present: true,
-            ledger_checksum: MIGRATION_097_SHA256,
-            ledger_mode: 'canonical_lf_v1',
-            checksum_ok: true,
           }],
         };
       },
@@ -498,6 +620,7 @@ console.log('  … concurrency/start/stop/kill-switch');
   assert.equal(ENV_TEST_OPERATION_ID, 'EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_OPERATION_ID');
   assert.equal(ENV_TEST_ISSUANCE_ID, 'EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_ISSUANCE_ID');
   assert.equal(ENV_TEST_RECIPIENT_ADDRESS, 'EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS');
+  assert.equal(ENV_TEST_AUTHORIZATION_ID, 'EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_AUTHORIZATION_ID');
   assert.equal(ENV_PRODUCER_DATABASE_URL, 'EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_DATABASE_URL');
   assert.equal(ENV_WORKER_DATABASE_URL, 'EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_DATABASE_URL');
 
@@ -517,6 +640,22 @@ console.log('  … concurrency/start/stop/kill-switch');
 
   console.log('  … Chapter 3 runtime composition (includes Chapter 1 + stock-PG)');
   runChild('verify-email-luna-controlled-drafting-runtime-composition.js');
+  console.log('  … Chapter 2 operation store');
+  runChild('verify-email-luna-controlled-drafting-operation-store.js');
+  runChild('prove-email-luna-controlled-drafting-operation-store-pglite.js');
+  runChild('prove-email-luna-controlled-drafting-operation-store-stock-pg.js');
+  console.log('  … Stage 1 principal live activation');
+  runChild('verify-email-luna-automation-principal-live-activation.js');
+  runChild('prove-email-luna-automation-principal-live-activation-pglite.js');
+  console.log('  … Staff API startup smoke + migration integrity + diff-check');
+  runChild('verify-staff-query-api-startup-smoke.js');
+  runChild('verify-migration-integrity.js');
+  const diffCheck = spawnSync('git', ['diff', '--check'], {
+    cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
+  });
+  if (diffCheck.stdout) process.stdout.write(diffCheck.stdout);
+  if (diffCheck.stderr) process.stderr.write(diffCheck.stderr);
+  assert.equal(diffCheck.status, 0, 'git diff --check must stay green');
   console.log('  … Chapter 4A stock-PG');
   runChild('prove-email-luna-controlled-drafting-staging-activation-stock-pg.js');
   console.log('ALL OK — Stage 2 Chapter 4A controlled-drafting staging activation');
