@@ -342,7 +342,7 @@ function buildPaidPaymentLedger(paidRows, paidCentsAggregate) {
     let method = methodRaw;
     if (method === 'cash' || method === 'staff_cash' || method === 'staff_in_store') method = 'in_store';
     if (method === 'staff_bank_transfer') method = 'bank_transfer';
-    if (method === 'card' || method === 'stripe' || method === 'payment_link') method = 'link';
+    if (method === 'card' || method === 'stripe' || method === 'payment_link' || method === 'staff_link') method = 'link';
     if (!method) {
       const src = String(meta.source || '').toLowerCase();
       if (src.includes('bank')) method = 'bank_transfer';

@@ -749,6 +749,7 @@
     "verify:sunset-generated-schedule-equipment": "node scripts/verify-sunset-generated-schedule-equipment.js",
     "verify:issue275-included-equipment": "npm run verify:sunset-course-included-equipment && npm run verify:sunset-course-included-equipment-production && npm run verify:sunset-generated-schedule-equipment",
     "verify:sunset-schedule-drawer-view-ui": "node scripts/verify-sunset-schedule-drawer-view-ui.js",
+    "verify:sunset-invoice-drawer-payments": "node scripts/verify-sunset-invoice-drawer-payments.js",
     "verify:sunset-schedule-drawer-edit-ui": "node scripts/verify-sunset-schedule-drawer-edit-ui.js",
     "verify:sunset-schedule-edit-multi-equipment-playwright": "node scripts/verify-sunset-schedule-edit-multi-equipment-playwright.js",
     "verify:sunset-schedule-edit-private-multi-equipment-playwright": "node scripts/verify-sunset-schedule-edit-private-multi-equipment-playwright.js",

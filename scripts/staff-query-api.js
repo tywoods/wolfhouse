@@ -600,6 +600,14 @@ const {
   loadBookingWithServices,
 } = require('./lib/sunset-stripe-payment-links');
 const {
+  normalizeStaffManualMethod,
+  staffManualMethodSource,
+  voidStaffPaidPayment,
+  updateStaffPaidPayment,
+  outstandingBalanceCents,
+  applyBookingMoneyFromLedger,
+} = require('./lib/staff-booking-manual-payment-mutate');
+const {
   getSunsetScheduleBookingDrawerContext,
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
@@ -8675,19 +8683,22 @@ async function handleBookingRecordCashPayment(req, res, user) {
   const idempotencyKey = String(body.idempotency_key || '').trim();
   const note           = body.note != null ? String(body.note).trim().slice(0, 500) : null;
   const paymentDateIn  = String(body.payment_date || '').trim();
-  const amountCents    = Math.floor(Number(body.amount_cents));
-  // Optional staff payment method from a safe allowlist; defaults to cash. Does not affect payment math.
-  const STAFF_MANUAL_METHODS = { cash: 'staff_cash', bank_transfer: 'staff_bank_transfer', in_store: 'staff_in_store' };
-  const methodIn       = String(body.method || 'cash').trim().toLowerCase();
-  const method         = STAFF_MANUAL_METHODS[methodIn] ? methodIn : 'cash';
-  const methodSource   = STAFF_MANUAL_METHODS[method];
+  const markPaid       = body.mark_paid === true || body.mark_paid === 'true' || body.mark_paid === 1;
+  // Optional staff payment method from BOOKING-PAYMENT-METHOD-001 allowlist (+ cash alias).
+  // Stored methods: link / bank_transfer / in_store (cash → in_store).
+  const methodNorm     = normalizeStaffManualMethod(body.method || 'cash') || 'in_store';
+  const method         = methodNorm;
+  const methodSource   = staffManualMethodSource(method);
+  let amountCents      = Math.floor(Number(body.amount_cents));
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!clientSlug) return send400(res, 'client_slug is required');
   if (!bookingId && !bookingCode) return send400(res, 'booking_id or booking_code is required');
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
-  if (!amountCents || amountCents <= 0) return send400(res, 'amount_cents must be greater than zero');
+  if (!markPaid && (!amountCents || amountCents <= 0)) {
+    return send400(res, 'amount_cents must be greater than zero');
+  }
 
   let paymentDate = paymentDateIn;
   if (!paymentDate || !DATE_RE.test(paymentDate) || !parseCalendarDate(paymentDate)) {
@@ -8705,7 +8716,9 @@ async function handleBookingRecordCashPayment(req, res, user) {
     client_slug:     clientSlug,
     booking_id:      bookingId || null,
     booking_code:    bookingCode || null,
-    amount_cents:    amountCents,
+    amount_cents:    amountCents || null,
+    mark_paid:       markPaid,
+    method,
     idempotency_key: idempotencyKey,
     staff_user_id:   actorId,
     staff_role:      actorRole,
@@ -8738,16 +8751,6 @@ async function handleBookingRecordCashPayment(req, res, user) {
     });
   }
 
-  const pmMeta = {
-    source: methodSource,
-    method: method,
-    idempotency_key: idempotencyKey,
-    note: note,
-    payment_date: paymentDate,
-    recorded_by: actorLabel,
-    staff_portal: true,
-  };
-
   try {
     const result = await withPgClient(async (pg) => {
       const idem = await pg.query(
@@ -8763,23 +8766,12 @@ async function handleBookingRecordCashPayment(req, res, user) {
         [bookingRow.booking_id, clientSlug, idempotencyKey]
       );
       if (idem.rows[0]) {
-        const sumIdem = await pg.query(
-          `SELECT COALESCE(SUM(p.amount_paid_cents), 0)::int AS total
-             FROM payments p
-            INNER JOIN bookings b ON b.id = p.booking_id
-            INNER JOIN clients c ON c.id = b.client_id
-            WHERE p.booking_id = $1::uuid
-              AND c.slug = $2
-              AND p.status = 'paid'::payment_record_status`,
-          [bookingRow.booking_id, clientSlug]
-        );
-        const paidTotal = Number(sumIdem.rows[0].total || 0);
-        const bkTotal = Number(bookingRow.total_amount_cents || 0);
+        const owed = await outstandingBalanceCents(pg, bookingRow.booking_id, clientSlug);
         return {
           idempotent: true,
           payment: idem.rows[0],
-          booking_paid_cents: paidTotal,
-          balance_due_cents: bkTotal > 0 ? Math.max(bkTotal - paidTotal, 0) : 0,
+          booking_paid_cents: owed.ok ? owed.paid_cents : 0,
+          balance_due_cents: owed.ok ? owed.balance_due_cents : 0,
         };
       }
 
@@ -8792,6 +8784,40 @@ async function handleBookingRecordCashPayment(req, res, user) {
 
       await pg.query('BEGIN');
       try {
+        // mark_paid: amount always from Staff API outstanding — never invent client totals.
+        if (markPaid) {
+          const owed = await outstandingBalanceCents(pg, bookingRow.booking_id, clientSlug);
+          if (!owed.ok) {
+            const err = new Error(owed.error || 'outstanding_lookup_failed');
+            err.httpStatus = owed.status || 500;
+            err.payload = { success: false, error: owed.error };
+            throw err;
+          }
+          if (!(owed.balance_due_cents > 0)) {
+            const err = new Error('no_balance_due');
+            err.httpStatus = 409;
+            err.payload = {
+              success: false,
+              error: 'no_balance_due',
+              reason_code: 'no_balance_due',
+              balance_due_cents: 0,
+            };
+            throw err;
+          }
+          amountCents = owed.balance_due_cents;
+          auditBase.amount_cents = amountCents;
+        }
+
+        const pmMeta = {
+          source: methodSource,
+          method: method,
+          idempotency_key: idempotencyKey,
+          note: note,
+          payment_date: paymentDate,
+          recorded_by: actorLabel,
+          staff_portal: true,
+          mark_paid: !!markPaid,
+        };
         const paidAt = paymentDate + 'T12:00:00.000Z';
         const ins = await pg.query(
           `INSERT INTO payments (
@@ -8807,34 +8833,26 @@ async function handleBookingRecordCashPayment(req, res, user) {
         );
         const payment = ins.rows[0];
 
-        const sumRes = await pg.query(
-          `SELECT COALESCE(SUM(p.amount_paid_cents), 0)::int AS total
-             FROM payments p
-            INNER JOIN bookings b ON b.id = p.booking_id
-            INNER JOIN clients c ON c.id = b.client_id
-            WHERE p.booking_id = $1::uuid
-              AND c.slug = $2
-              AND p.status = 'paid'::payment_record_status`,
-          [bookingRow.booking_id, clientSlug]
-        );
-        const newBkPaid = Number(sumRes.rows[0].total || 0);
-        const bkTotal = Number(bookingRow.total_amount_cents || 0);
-        const newBalance = bkTotal > 0 ? Math.max(bkTotal - newBkPaid, 0) : 0;
-        let newBkPayStatus = bookingRow.payment_status;
-        if (bkTotal > 0 && newBalance === 0) newBkPayStatus = 'paid';
-        else if (newBkPaid > 0 && newBkPayStatus === 'not_requested') newBkPayStatus = 'deposit_paid';
-
-        await pg.query(
-          `UPDATE bookings
-              SET amount_paid_cents = $1,
-                  balance_due_cents = $2,
-                  payment_status = $3::payment_status
-            WHERE id = $4::uuid`,
-          [newBkPaid, newBalance, newBkPayStatus, bookingRow.booking_id]
-        );
+        const applied = await applyBookingMoneyFromLedger(pg, {
+          bookingId: bookingRow.booking_id,
+          clientSlug,
+          methodForMeta: method,
+        });
+        if (!applied.ok) {
+          const err = new Error(applied.error || 'booking_payment_update_failed');
+          err.httpStatus = applied.status || 409;
+          err.payload = { success: false, error: applied.error };
+          throw err;
+        }
 
         await pg.query('COMMIT');
-        return { idempotent: false, payment: payment, booking_paid_cents: newBkPaid, balance_due_cents: newBalance };
+        return {
+          idempotent: false,
+          payment,
+          booking_paid_cents: applied.booking_paid_cents,
+          balance_due_cents: applied.balance_due_cents,
+          payment_status: applied.payment_status,
+        };
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
         throw e;
@@ -8856,17 +8874,154 @@ async function handleBookingRecordCashPayment(req, res, user) {
       payment: result.payment,
       booking_paid_cents: result.booking_paid_cents,
       balance_due_cents: result.balance_due_cents,
+      payment_status: result.payment_status || null,
+      mark_paid: !!markPaid,
       message: result.idempotent
         ? 'Cash payment already recorded (idempotent).'
-        : 'Cash payment recorded. No Stripe, payment link, WhatsApp, or n8n action was taken.',
+        : (markPaid
+          ? 'Booking marked paid. No Stripe Checkout, WhatsApp, or n8n action was taken.'
+          : 'Cash payment recorded. No Stripe, payment link, WhatsApp, or n8n action was taken.'),
       no_stripe: true,
       no_whatsapp: true,
       no_n8n: true,
       elapsed_ms: elapsed,
     });
   } catch (err) {
+    if (err && err.payload) {
+      appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+      return sendJSON(res, err.httpStatus || 400, err.payload);
+    }
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'cash payment failed', detail: err.message });
+  }
+}
+
+// POST /staff/bookings/void-manual-payment — cancel a paid ledger row (never DELETE)
+async function handleBookingVoidManualPayment(req, res, user) {
+  const started = Date.now();
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId = String(body.booking_id || '').trim();
+  const paymentId = String(body.payment_id || '').trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug || !bookingId || !paymentId) return send400(res, 'client_slug, booking_id, and payment_id are required');
+  if (!UUID_VALIDATE_RE.test(bookingId) || !UUID_VALIDATE_RE.test(paymentId)) {
+    return send400(res, 'booking_id and payment_id must be valid UUIDs');
+  }
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+  const actorLabel = user ? (user.email || user.staff_user_id) : 'dev-void-pay-local';
+  try {
+    const result = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const out = await voidStaffPaidPayment(pg, {
+          bookingId,
+          clientSlug,
+          paymentId,
+          actorLabel,
+          reason: 'staff_invoice_void',
+        });
+        if (!out.ok) {
+          const err = new Error(out.error || 'void_failed');
+          err.httpStatus = out.status || 400;
+          err.payload = { success: false, error: out.error };
+          throw err;
+        }
+        await pg.query('COMMIT');
+        return out;
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      payment_id: result.payment_id,
+      voided: true,
+      booking_paid_cents: result.booking_paid_cents,
+      balance_due_cents: result.balance_due_cents,
+      payment_status: result.payment_status,
+      no_delete: true,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    if (err && err.payload) return sendJSON(res, err.httpStatus || 400, err.payload);
+    return sendJSON(res, 500, { success: false, error: 'void payment failed', detail: err.message });
+  }
+}
+
+// POST /staff/bookings/update-manual-payment — edit amount/method on a paid ledger row
+async function handleBookingUpdateManualPayment(req, res, user) {
+  const started = Date.now();
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const bookingId = String(body.booking_id || '').trim();
+  const paymentId = String(body.payment_id || '').trim();
+  const idempotencyKey = String(body.idempotency_key || '').trim();
+  const amountCents = Math.floor(Number(body.amount_cents));
+  const method = normalizeStaffManualMethod(body.method);
+  const note = body.note != null ? String(body.note).trim().slice(0, 500) : null;
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug || !bookingId || !paymentId) return send400(res, 'client_slug, booking_id, and payment_id are required');
+  if (!UUID_VALIDATE_RE.test(bookingId) || !UUID_VALIDATE_RE.test(paymentId)) {
+    return send400(res, 'booking_id and payment_id must be valid UUIDs');
+  }
+  if (!idempotencyKey) return send400(res, 'idempotency_key is required');
+  if (!(amountCents > 0)) return send400(res, 'amount_cents must be greater than zero');
+  if (!method) return send400(res, 'invalid payment method');
+  const actorLabel = user ? (user.email || user.staff_user_id) : 'dev-edit-pay-local';
+  try {
+    const result = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const out = await updateStaffPaidPayment(pg, {
+          bookingId,
+          clientSlug,
+          paymentId,
+          amountCents,
+          method,
+          note,
+          actorLabel,
+        });
+        if (!out.ok) {
+          const err = new Error(out.error || 'update_failed');
+          err.httpStatus = out.status || 400;
+          err.payload = { success: false, error: out.error };
+          throw err;
+        }
+        await pg.query('COMMIT');
+        return out;
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      payment_id: result.payment_id,
+      amount_cents: result.amount_cents,
+      method: result.method,
+      booking_paid_cents: result.booking_paid_cents,
+      balance_due_cents: result.balance_due_cents,
+      payment_status: result.payment_status,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    if (err && err.payload) return sendJSON(res, err.httpStatus || 400, err.payload);
+    return sendJSON(res, 500, { success: false, error: 'update payment failed', detail: err.message });
   }
 }
 
@@ -17803,6 +17958,13 @@ button.portal-schedule-ops-rental-guest-open.is-cancelled {
 .ps-invoice-balance.is-due .ctx-inv-total-amount,.ps-invoice-balance.is-due .ps-invoice-amt{color:#9C5742}
 .ps-invoice-balance.is-paid .ctx-inv-total-amount,.ps-invoice-balance.is-refund .ctx-inv-total-amount{color:#3F6B4F}
 .ps-invoice-credit .ctx-inv-total-amount{color:#3F6B4F;font-weight:600}
+.ps-invoice-credit-block{margin:0}
+.ps-invoice-credit-actions{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px;justify-content:flex-end}
+.ps-invoice-credit-actions .btn{font-size:11px;padding:4px 8px;min-height:32px}
+.ps-mark-paid-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:8px 0 4px}
+.ps-mark-paid-row .btn{min-height:44px}
+.ps-mark-paid-method{flex:1 1 140px;display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-2)}
+.ps-invoice-pay-actions{margin-top:8px}
 .ps-invoice-amt,.ps-svc-amt{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ps-money-headline{font-size:23px;font-weight:700;letter-spacing:-.015em;line-height:1.1;margin:0 0 2px}
 .ps-money-headline.is-due{color:#B4534A}
@@ -48939,6 +49101,26 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingRecordCashPayment(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/bookings/void-manual-payment') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/void-manual-payment' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingVoidManualPayment(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/bookings/update-manual-payment') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/update-manual-payment' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingUpdateManualPayment(req, res, auth.user);
   }
 
   // ── Phase 10.6c — Generate payment link for booking balance ────────────────

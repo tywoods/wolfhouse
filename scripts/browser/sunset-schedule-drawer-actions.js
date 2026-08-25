@@ -17,6 +17,9 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     stripeCreate: false,
     stripeDelete: false,
     manualPay: false,
+    markPaid: false,
+    paymentEdit: false,
+    paymentVoid: false,
     waiverCreate: false,
     deleteBooking: false,
     cancelBooking: false,
@@ -134,16 +137,20 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
 
   function renderManualPaymentHtml(ctx) {
     if (!(ctx && ctx.booking_id) || paymentFullyPaid(ctx)) return '';
+    var due = ctx.payment && ctx.payment.balance_due_cents != null ? Number(ctx.payment.balance_due_cents) : null;
+    var defaultEur = (due > 0) ? (due / 100).toFixed(2) : '';
     var html = '<div id="ps-drawer-manual-pay" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)">';
     html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
       escHtml(portalT('schedule.drawer.addManualPayment')) + '</div>';
     html += '<div class="portal-schedule-manual-pay-grid">';
     html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
-      '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>';
+      '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"' +
+      (defaultEur ? (' value="' + escHtml(defaultEur) + '"') : '') + '></label>';
     html += '<label>' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
       '<select id="ps-drawer-manual-method">' +
       '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +
       '<option value="in_store">' + escHtml(portalT('schedule.payment.paidInStore')) + '</option>' +
+      '<option value="link">' + escHtml(portalT('schedule.payment.paidViaLink')) + '</option>' +
       '</select></label>';
     html += '</div>';
     html += '<label class="portal-schedule-manual-pay-note">' + escHtml(portalT('schedule.drawer.manualPayNote')) +
@@ -230,7 +237,11 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     if (fresh) box.parentNode.replaceChild(fresh, box);
     wireStripeCopyOpen(ctx);
     var row = scheduleDrawerState && scheduleDrawerState.row;
-    if (row) wireManualPayment(row);
+    if (row) {
+      wireManualPayment(row);
+      wireMarkAsPaid(row, ctx);
+      wirePaymentLedgerEdits(row, ctx);
+    }
   }
 
   function wireStripeCopyOpen(ctx) {
@@ -308,22 +319,63 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
 
   function wireManualPayment(row) {
     var btn = el('ps-drawer-manual-submit');
+    var ctx = (scheduleDrawerState && scheduleDrawerState.ctx) || null;
+    if (btn && row && row.booking_id) {
+      btn.onclick = function() {
+        if (flight.manualPay) return;
+        var identity = captureIdentity(row);
+        if (!actionIsActive(identity)) return;
+        var amtEl = el('ps-drawer-manual-amount');
+        var methodEl = el('ps-drawer-manual-method');
+        var noteEl = el('ps-drawer-manual-note');
+        var msg = el('ps-drawer-manual-msg');
+        var euros = parseFloat((amtEl && amtEl.value) || '');
+        if (!(euros > 0)) {
+          if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.manualPayAmountRequired'); msg.style.display = 'block'; }
+          return;
+        }
+        var amountCents = Math.round(euros * 100);
+        flight.manualPay = true;
+        btn.disabled = true;
+        if (msg) msg.style.display = 'none';
+        requestJson('/staff/bookings/record-cash-payment', {
+          method: 'POST',
+          body: {
+            client_slug: getClient(),
+            booking_id: row.booking_id,
+            amount_cents: amountCents,
+            method: (methodEl && methodEl.value) || 'bank_transfer',
+            note: (noteEl && noteEl.value || '').trim() || null,
+            idempotency_key: 'sunset-drawer-pay-' + row.booking_id + '-' + Date.now(),
+          },
+        }).then(function(res) {
+          if (!actionIsActive(identity)) return;
+          if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Failed');
+          if (msg) { msg.className = 'state-msg success'; msg.textContent = portalT('schedule.drawer.manualPaySaved'); msg.style.display = 'block'; }
+          return paymentRefetchAndRemount(row, identity);
+        }).catch(function(err) {
+          if (!actionIsActive(identity)) return;
+          if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.manualPayFailed') + ' ' + errorText(err); msg.style.display = 'block'; }
+        }).finally(function() {
+          flight.manualPay = false;
+          btn.disabled = false;
+        });
+      };
+    }
+    wireMarkAsPaid(row, ctx);
+    wirePaymentLedgerEdits(row, ctx);
+  }
+
+  function wireMarkAsPaid(row, ctx) {
+    var btn = el('ps-drawer-mark-paid');
     if (!btn || !row || !row.booking_id) return;
     btn.onclick = function() {
-      if (flight.manualPay) return;
+      if (flight.markPaid) return;
       var identity = captureIdentity(row);
       if (!actionIsActive(identity)) return;
-      var amtEl = el('ps-drawer-manual-amount');
-      var methodEl = el('ps-drawer-manual-method');
-      var noteEl = el('ps-drawer-manual-note');
+      var methodEl = el('ps-drawer-mark-paid-method') || el('ps-drawer-manual-method');
       var msg = el('ps-drawer-manual-msg');
-      var euros = parseFloat((amtEl && amtEl.value) || '');
-      if (!(euros > 0)) {
-        if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.manualPayAmountRequired'); msg.style.display = 'block'; }
-        return;
-      }
-      var amountCents = Math.round(euros * 100);
-      flight.manualPay = true;
+      flight.markPaid = true;
       btn.disabled = true;
       if (msg) msg.style.display = 'none';
       requestJson('/staff/bookings/record-cash-payment', {
@@ -331,24 +383,111 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
         body: {
           client_slug: getClient(),
           booking_id: row.booking_id,
-          amount_cents: amountCents,
-          method: (methodEl && methodEl.value) || 'cash',
-          note: (noteEl && noteEl.value || '').trim() || null,
-          idempotency_key: 'sunset-drawer-pay-' + row.booking_id + '-' + Date.now(),
+          mark_paid: true,
+          method: (methodEl && methodEl.value) || 'bank_transfer',
+          idempotency_key: 'sunset-drawer-mark-paid-' + row.booking_id + '-' + Date.now(),
         },
       }).then(function(res) {
         if (!actionIsActive(identity)) return;
         if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Failed');
-        if (msg) { msg.className = 'state-msg success'; msg.textContent = portalT('schedule.drawer.manualPaySaved'); msg.style.display = 'block'; }
+        if (msg) { msg.className = 'state-msg success'; msg.textContent = portalT('schedule.drawer.markAsPaidSaved'); msg.style.display = 'block'; }
         return paymentRefetchAndRemount(row, identity);
       }).catch(function(err) {
         if (!actionIsActive(identity)) return;
-        if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.manualPayFailed') + ' ' + errorText(err); msg.style.display = 'block'; }
+        if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.markAsPaidFailed') + ' ' + errorText(err); msg.style.display = 'block'; }
       }).finally(function() {
-        flight.manualPay = false;
+        flight.markPaid = false;
         btn.disabled = false;
       });
     };
+  }
+
+  function wirePaymentLedgerEdits(row, ctx) {
+    var box = el('ps-drawer-payment-box');
+    if (!box || !row || !row.booking_id) return;
+    var voidBtns = box.querySelectorAll('.ps-payment-void-btn');
+    Array.prototype.forEach.call(voidBtns, function(btn) {
+      btn.onclick = function() {
+        if (flight.paymentVoid) return;
+        var paymentId = btn.getAttribute('data-payment-id');
+        if (!paymentId) return;
+        var identity = captureIdentity(row);
+        if (!actionIsActive(identity)) return;
+        if (typeof window !== 'undefined' && window.confirm && !window.confirm(portalT('schedule.drawer.voidPaymentConfirm'))) return;
+        if (!actionIsActive(identity)) return;
+        flight.paymentVoid = true;
+        btn.disabled = true;
+        requestJson('/staff/bookings/void-manual-payment', {
+          method: 'POST',
+          body: {
+            client_slug: getClient(),
+            booking_id: row.booking_id,
+            payment_id: paymentId,
+            idempotency_key: 'sunset-drawer-void-' + paymentId + '-' + Date.now(),
+          },
+        }).then(function(res) {
+          if (!actionIsActive(identity)) return;
+          if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Failed');
+          return paymentRefetchAndRemount(row, identity);
+        }).catch(function(err) {
+          if (!actionIsActive(identity)) return;
+          var msg = el('ps-drawer-manual-msg') || el('ps-drawer-stripe-msg');
+          if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.voidPaymentFailed') + ' ' + errorText(err); msg.style.display = 'block'; }
+          btn.disabled = false;
+        }).finally(function() { flight.paymentVoid = false; });
+      };
+    });
+    var editBtns = box.querySelectorAll('.ps-payment-edit-btn');
+    Array.prototype.forEach.call(editBtns, function(btn) {
+      btn.onclick = function() {
+        if (flight.paymentEdit) return;
+        var paymentId = btn.getAttribute('data-payment-id');
+        if (!paymentId) return;
+        var block = btn.closest ? btn.closest('.ps-invoice-credit-block') : null;
+        var amtCents = block ? Number(block.getAttribute('data-amount-cents') || 0) : 0;
+        var method = block ? String(block.getAttribute('data-method') || 'bank_transfer') : 'bank_transfer';
+        var eurosDefault = amtCents > 0 ? (amtCents / 100).toFixed(2) : '';
+        var eurosRaw = (typeof window !== 'undefined' && window.prompt)
+          ? window.prompt(portalT('schedule.drawer.editPaymentAmountPrompt'), eurosDefault)
+          : eurosDefault;
+        if (eurosRaw == null) return;
+        var euros = parseFloat(String(eurosRaw).replace(',', '.'));
+        if (!(euros > 0)) return;
+        var methodRaw = (typeof window !== 'undefined' && window.prompt)
+          ? window.prompt(portalT('schedule.drawer.editPaymentMethodPrompt'), method)
+          : method;
+        if (methodRaw == null) return;
+        var nextMethod = String(methodRaw || '').trim().toLowerCase();
+        if (nextMethod === 'stripe' || nextMethod === 'card' || nextMethod === 'paid_via_link') nextMethod = 'link';
+        if (nextMethod === 'cash' || nextMethod === 'paid_in_store') nextMethod = 'in_store';
+        if (nextMethod === 'paid_bank_transfer') nextMethod = 'bank_transfer';
+        if (nextMethod !== 'link' && nextMethod !== 'bank_transfer' && nextMethod !== 'in_store') return;
+        var identity = captureIdentity(row);
+        if (!actionIsActive(identity)) return;
+        flight.paymentEdit = true;
+        btn.disabled = true;
+        requestJson('/staff/bookings/update-manual-payment', {
+          method: 'POST',
+          body: {
+            client_slug: getClient(),
+            booking_id: row.booking_id,
+            payment_id: paymentId,
+            amount_cents: Math.round(euros * 100),
+            method: nextMethod,
+            idempotency_key: 'sunset-drawer-edit-' + paymentId + '-' + Date.now(),
+          },
+        }).then(function(res) {
+          if (!actionIsActive(identity)) return;
+          if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Failed');
+          return paymentRefetchAndRemount(row, identity);
+        }).catch(function(err) {
+          if (!actionIsActive(identity)) return;
+          var msg = el('ps-drawer-manual-msg') || el('ps-drawer-stripe-msg');
+          if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.editPaymentFailed') + ' ' + errorText(err); msg.style.display = 'block'; }
+          btn.disabled = false;
+        }).finally(function() { flight.paymentEdit = false; });
+      };
+    });
   }
 
   // ── Waiver ─────────────────────────────────────────────────────────────
@@ -862,6 +1001,8 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     deleteStripeLink: deleteStripeLink,
     createStripeLink: createStripeLink,
     wireManualPayment: wireManualPayment,
+    wireMarkAsPaid: wireMarkAsPaid,
+    wirePaymentLedgerEdits: wirePaymentLedgerEdits,
     waiverStatusLabel: waiverStatusLabel,
     waiverIsGroup: waiverIsGroup,
     waiverTargetCount: waiverTargetCount,

@@ -113,6 +113,8 @@ const ELIGIBLE_ROUTES = Object.freeze({
   'POST /staff/bookings/edit': ROUTE_CLASSES.WRITE_SIDE_EFFECT,
   'POST /staff/bookings/move': ROUTE_CLASSES.WRITE_SIDE_EFFECT,
   'POST /staff/bookings/record-cash-payment': ROUTE_CLASSES.WRITE_SIDE_EFFECT,
+  'POST /staff/bookings/void-manual-payment': ROUTE_CLASSES.WRITE_SIDE_EFFECT,
+  'POST /staff/bookings/update-manual-payment': ROUTE_CLASSES.WRITE_SIDE_EFFECT,
   'POST /staff/bookings/generate-payment-link': ROUTE_CLASSES.WRITE_SIDE_EFFECT,
   'POST /staff/manual-bookings/create': ROUTE_CLASSES.WRITE_SIDE_EFFECT,
   'POST /staff/bot/bookings/create': ROUTE_CLASSES.WRITE_SIDE_EFFECT,
