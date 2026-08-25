@@ -16,8 +16,11 @@ Chapter 1 adds a package-first boundary in front of the same Graph provider:
 
 - Public operations: `createReplyDraft`, `reconcileDraft`, plus `attest`.
 - Identities bound on every call: tenant, location, endpoint, mailbox, inbound provider message/thread, exact recipient, subject/body digest, issuance id, operation id, and draft id (reconcile).
-- Graph path grammar is reused from the existing transport: `POST .../createReply`, internal `PATCH` of that draft, `GET ...?$select=id,isDraft`. `/send` and `/sendMail` are not mapped.
-- Typed fake transport only. No network, no OAuth, no worker composition.
+- Graph path grammar: `POST .../createReply`, internal `PATCH` of that exact new draft, `GET ...?$select=id,isDraft,subject,body,toRecipients,conversationId`. `/send` and `/sendMail` are not mapped. Gate 3's send-capable transport is not the Stage 2 surface.
+- Create is POST → validate `id,isDraft` → PATCH canonical subject/body/bound recipient → GET/reconcile observed fields before `draft_created`. Request digests are never stored as provider observations.
+- Reconcile GET of a **known** id must observe all five fields (`subject_digest`, `body_digest`, `recipient_address`, `inbound_provider_thread_id`, `mailbox_id`). Mailbox is the bound request path, not provider JSON. Missing/HTML/extra/accessor/multiple-recipient observations are never `draft_present`. `isDraft=false` is mismatch/sent-closed. 404 is `draft_not_found`.
+- Typed fake transport plus a closed draft-only Graph transport. No OAuth, no worker composition, no generic HTTP/path/token export.
+- Classified GET-by-id observation (`draft_present`, `draft_modified`, `draft_not_found`, `draft_mismatch`) for a **known** provider draft id only. This is not a search API and cannot observe a lost createReply without a persisted draft id.
 
 ## Capability manifest
 

@@ -11,8 +11,6 @@
  * transport, its sendDraft/sendMail methods, tokens, or generic HTTP.
  */
 
-const util = require('node:util');
-const nodeCrypto = require('node:crypto');
 const {
   HOST,
   PREFER_IMMUTABLE_ID,
@@ -23,26 +21,34 @@ const {
   EMAIL_MS_DELEGATED_PHASE_B_V1_GRAPH_DELEGATED_SCOPES,
   EMAIL_MS_DELEGATED_PHASE_B_SCOPE_VERSION,
 } = require('./email-microsoft-delegated-oauth-contract');
+const {
+  UUID_CANON,
+  DIGEST_CANON,
+  isProxySurface,
+  ownData,
+  exactOwnData,
+  subsetOwnData,
+  isCanonUuid,
+  digestUtf8,
+} = require('./email-luna-controlled-drafting-closed-data');
+const {
+  EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT,
+  buildControlledDraftingGetPath,
+  createEmailLunaControlledDraftingGraphDraftTransport,
+  readControlledDraftingKnownCreateDraftId,
+  brandControlledDraftingKnownCreateDraftId,
+} = require('./email-luna-controlled-drafting-graph-draft-transport');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
 const objectCreate = Object.create;
 const objectHasOwn = Object.hasOwn;
 const objectIsFrozen = Object.isFrozen;
-const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const reflectOwnKeys = Reflect.ownKeys;
 const arrayIsArray = Array.isArray;
 const regexpTest = uncurryThis(RegExp.prototype.test);
 const arrayIncludes = uncurryThis(Array.prototype.includes);
-
-const PINNED_TYPES = util.types && typeof util.types === 'object' ? util.types : null;
-const PINNED_IS_PROXY = PINNED_TYPES && typeof PINNED_TYPES.isProxy === 'function'
-  ? PINNED_TYPES.isProxy.bind(PINNED_TYPES)
-  : null;
-const cryptoCreateHash = typeof nodeCrypto.createHash === 'function'
-  ? nodeCrypto.createHash.bind(nodeCrypto)
-  : null;
 
 const ERROR_CODE = 'EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER_INVALID';
 const ERROR_MESSAGE = 'Email Luna controlled drafting provider failed.';
@@ -165,7 +171,31 @@ const RECONCILE_INNER_KEYS = objectFreeze([
   'operation_id',
   'provider_draft_id',
 ]);
-const TRANSPORT_RESULT_KEYS = objectFreeze(['provider_draft_id', 'is_draft']);
+const OBSERVATION_KEYS = objectFreeze([
+  'subject_digest',
+  'body_digest',
+  'recipient_address',
+  'inbound_provider_thread_id',
+  'mailbox_id',
+]);
+const TRANSPORT_RESULT_KEYS = objectFreeze([
+  'provider_draft_id',
+  'is_draft',
+  ...OBSERVATION_KEYS,
+]);
+const RECONCILE_TRANSPORT_RESULT_KEYS = objectFreeze([
+  'provider_draft_id',
+  'is_draft',
+  'found',
+  'observation_unusable',
+  ...OBSERVATION_KEYS,
+]);
+const RECONCILE_OUTCOMES = objectFreeze([
+  'draft_present',
+  'draft_modified',
+  'draft_not_found',
+  'draft_mismatch',
+]);
 const FACTORY_KEYS = objectFreeze(['authority', 'transport']);
 const CAPABILITY_KEYS = objectFreeze([
   'create_reply_draft',
@@ -274,8 +304,6 @@ const EMAIL_MS_CONTROLLED_DRAFTING_PROVIDER_FACTS = objectFreeze({
   source: 'Microsoft Graph permissions reference: Mail.ReadWrite allows create, read, update, and delete of user mail and does not include permission to send mail. Mail.Send is required to send.',
 });
 
-const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const DIGEST_CANON = /^[0-9a-f]{64}$/;
 const LOCATION_KEY_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const RECIPIENT_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const GRAPH_ID_RE = /^[\x21-\x7e]+$/;
@@ -300,6 +328,7 @@ const FAKE_OPTION_KEYS = objectFreeze([
   'reconcileResult',
   'createError',
   'reconcileError',
+  'classify',
 ]);
 const PROVIDER_SURFACE_KEYS = objectFreeze(['attest', 'createReplyDraft', 'reconcileDraft']);
 
@@ -340,86 +369,12 @@ function invalid() {
   return error;
 }
 
-function isProxySurface(value) {
-  try {
-    if (!PINNED_IS_PROXY) return true;
-    return PINNED_IS_PROXY(value) === true;
-  } catch (_) {
-    return true;
-  }
-}
-
-function ownData(object, key) {
-  try {
-    const descriptor = objectGetOwnPropertyDescriptor(object, key);
-    if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) {
-      return undefined;
-    }
-    return descriptor.value;
-  } catch (_) {
-    return undefined;
-  }
-}
-
-function exactOwnData(value, keys) {
-  if (value === null || typeof value !== 'object' || arrayIsArray(value) || isProxySurface(value)) {
-    return null;
-  }
-  try {
-    const proto = objectGetPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null) return null;
-    const actual = reflectOwnKeys(value);
-    if (actual.length !== keys.length) return null;
-    const copy = objectCreate(null);
-    for (let i = 0; i < keys.length; i += 1) {
-      const key = keys[i];
-      if (!arrayIncludes(actual, key) || typeof key !== 'string') return null;
-      const descriptor = objectGetOwnPropertyDescriptor(value, key);
-      if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) {
-        return null;
-      }
-      copy[key] = descriptor.value;
-    }
-    return copy;
-  } catch (_) {
-    return null;
-  }
-}
-
-function subsetOwnData(value, allowed) {
-  if (value === null || typeof value !== 'object' || arrayIsArray(value) || isProxySurface(value)) {
-    return null;
-  }
-  try {
-    const proto = objectGetPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null) return null;
-    const actual = reflectOwnKeys(value);
-    const copy = objectCreate(null);
-    for (let i = 0; i < actual.length; i += 1) {
-      const key = actual[i];
-      if (typeof key !== 'string' || !arrayIncludes(allowed, key)) return null;
-      const descriptor = objectGetOwnPropertyDescriptor(value, key);
-      if (!descriptor || !objectHasOwn(descriptor, 'value') || descriptor.get || descriptor.set) {
-        return null;
-      }
-      copy[key] = descriptor.value;
-    }
-    return copy;
-  } catch (_) {
-    return null;
-  }
-}
-
 function freezeExact(keys, values) {
   const out = {};
   for (let i = 0; i < keys.length; i += 1) {
     out[keys[i]] = values[keys[i]];
   }
   return objectFreeze(out);
-}
-
-function isCanonUuid(value) {
-  return typeof value === 'string' && regexpTest(UUID_CANON, value);
 }
 
 function isGraphId(value) {
@@ -437,18 +392,6 @@ function isRecipient(value) {
     && value.length >= 3
     && value.length <= 320
     && regexpTest(RECIPIENT_RE, value);
-}
-
-function digestUtf8(value) {
-  if (!cryptoCreateHash || typeof value !== 'string') return null;
-  try {
-    const hasher = cryptoCreateHash('sha256');
-    hasher.update(value, 'utf8');
-    const hex = hasher.digest('hex');
-    return typeof hex === 'string' && regexpTest(DIGEST_CANON, hex) ? hex : null;
-  } catch (_) {
-    return null;
-  }
 }
 
 function rejectForbiddenFields(record) {
@@ -520,7 +463,7 @@ function readReconcileRequest(raw) {
   if (!regexpTest(DIGEST_CANON, parsed.subject_digest) || !regexpTest(DIGEST_CANON, parsed.body_digest)) return null;
   if (!isCanonUuid(parsed.issuance_id) || !isCanonUuid(parsed.operation_id)) return null;
   if (!isGraphId(parsed.provider_draft_id)) return null;
-  if (buildMessagePath(parsed.mailbox_id, parsed.provider_draft_id, 'get') === null) return null;
+  if (buildControlledDraftingGetPath(parsed.mailbox_id, parsed.provider_draft_id) === null) return null;
   return parsed;
 }
 
@@ -530,11 +473,72 @@ function copyKeys(keys, source) {
   return objectFreeze(out);
 }
 
+function readObservedFields(parsed) {
+  if (!regexpTest(DIGEST_CANON, parsed.subject_digest) || !regexpTest(DIGEST_CANON, parsed.body_digest)) {
+    return null;
+  }
+  if (!isRecipient(parsed.recipient_address) || !isGraphId(parsed.inbound_provider_thread_id)) return null;
+  if (!isCanonUuid(parsed.mailbox_id) && !isGraphId(parsed.mailbox_id)) return null;
+  return {
+    subject_digest: parsed.subject_digest,
+    body_digest: parsed.body_digest,
+    recipient_address: parsed.recipient_address,
+    inbound_provider_thread_id: parsed.inbound_provider_thread_id,
+    mailbox_id: parsed.mailbox_id,
+  };
+}
+
 function readTransportResult(raw) {
   const parsed = exactOwnData(raw, TRANSPORT_RESULT_KEYS);
   if (!parsed) return null;
   if (!isGraphId(parsed.provider_draft_id) || parsed.is_draft !== true) return null;
-  return parsed;
+  const observed = readObservedFields(parsed);
+  if (!observed) return null;
+  return objectFreeze({
+    provider_draft_id: parsed.provider_draft_id,
+    is_draft: true,
+    ...observed,
+  });
+}
+
+function readReconcileTransportResult(raw) {
+  const parsed = subsetOwnData(raw, RECONCILE_TRANSPORT_RESULT_KEYS);
+  if (!parsed) return null;
+  if (parsed.found === false) {
+    const keys = reflectOwnKeys(parsed);
+    if (keys.length !== 1) return null;
+    return objectFreeze({ kind: 'not_found' });
+  }
+  if (!isGraphId(parsed.provider_draft_id)) return null;
+  if (parsed.is_draft === false) {
+    return objectFreeze({
+      kind: 'mismatch',
+      provider_draft_id: parsed.provider_draft_id,
+      is_draft: false,
+    });
+  }
+  if (parsed.is_draft !== true) return null;
+  if (parsed.observation_unusable === true) {
+    return objectFreeze({
+      kind: 'unusable',
+      provider_draft_id: parsed.provider_draft_id,
+      is_draft: true,
+    });
+  }
+  const observed = readObservedFields(parsed);
+  if (!observed) {
+    return objectFreeze({
+      kind: 'unusable',
+      provider_draft_id: parsed.provider_draft_id,
+      is_draft: true,
+    });
+  }
+  return objectFreeze({
+    kind: 'present',
+    provider_draft_id: parsed.provider_draft_id,
+    is_draft: true,
+    ...observed,
+  });
 }
 
 function pickEmailLunaControlledDraftingTransportMethods(transport) {
@@ -645,8 +649,9 @@ function resolveControlledDraftingGraphCall(raw) {
   if (operation === 'patch_reply_draft' || operation === 'reconcile_draft') {
     const keys = exactOwnData(raw, objectFreeze(['operation', 'mailbox_id', 'provider_draft_id']));
     if (!keys) throw invalid();
-    const suffix = operation === 'patch_reply_draft' ? 'patch' : 'get';
-    const path = buildMessagePath(mailboxId, keys.provider_draft_id, suffix);
+    const path = operation === 'patch_reply_draft'
+      ? buildMessagePath(mailboxId, keys.provider_draft_id, 'patch')
+      : buildControlledDraftingGetPath(mailboxId, keys.provider_draft_id);
     if (!path) throw invalid();
     return objectFreeze({
       operation,
@@ -654,16 +659,12 @@ function resolveControlledDraftingGraphCall(raw) {
       host: HOST,
       path,
       prefer: PREFER_IMMUTABLE_ID,
+      ...(operation === 'reconcile_draft'
+        ? { select: EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT }
+        : {}),
     });
   }
   throw invalid();
-}
-
-function sameStored(stored, incoming, keys) {
-  for (let i = 0; i < keys.length; i += 1) {
-    if (stored[keys[i]] !== incoming[keys[i]]) return false;
-  }
-  return true;
 }
 
 function createEmailLunaControlledDraftingFakeTransport(options = {}) {
@@ -690,10 +691,11 @@ function createEmailLunaControlledDraftingFakeTransport(options = {}) {
     const command = exactOwnData(input, CREATE_INNER_KEYS);
     if (!command) return Promise.reject(invalid());
     record('create_reply_draft', command);
+    record('patch_reply_draft', command);
     if (objectHasOwn(parsed, 'createResult')) return Promise.resolve(parsed.createResult);
     seq += 1;
     const providerDraftId = `AAMkAGI2-CTRL-DRAFT-${seq}`;
-    drafts.set(providerDraftId, objectFreeze({
+    const stored = objectFreeze({
       mailbox_id: command.mailbox_id,
       inbound_provider_message_id: command.inbound_provider_message_id,
       inbound_provider_thread_id: command.inbound_provider_thread_id,
@@ -704,10 +706,17 @@ function createEmailLunaControlledDraftingFakeTransport(options = {}) {
       operation_id: command.operation_id,
       provider_draft_id: providerDraftId,
       is_draft: true,
-    }));
+    });
+    drafts.set(providerDraftId, stored);
+    record('reconcile_draft', { ...command, provider_draft_id: providerDraftId });
     return Promise.resolve(objectFreeze({
       provider_draft_id: providerDraftId,
       is_draft: true,
+      subject_digest: stored.subject_digest,
+      body_digest: stored.body_digest,
+      recipient_address: stored.recipient_address,
+      inbound_provider_thread_id: stored.inbound_provider_thread_id,
+      mailbox_id: stored.mailbox_id,
     }));
   }
 
@@ -717,12 +726,29 @@ function createEmailLunaControlledDraftingFakeTransport(options = {}) {
     if (!command) return Promise.reject(invalid());
     record('reconcile_draft', command);
     if (objectHasOwn(parsed, 'reconcileResult')) return Promise.resolve(parsed.reconcileResult);
+    const classify = parsed.classify === true;
     const stored = drafts.get(command.provider_draft_id);
-    if (!stored || stored.is_draft !== true) return Promise.reject(invalid());
-    if (!sameStored(stored, command, RECONCILE_INNER_KEYS)) return Promise.reject(invalid());
+    if (!stored) {
+      return classify
+        ? Promise.resolve(objectFreeze({ found: false }))
+        : Promise.reject(invalid());
+    }
+    if (stored.is_draft !== true) {
+      return classify
+        ? Promise.resolve(objectFreeze({
+          provider_draft_id: stored.provider_draft_id,
+          is_draft: false,
+        }))
+        : Promise.reject(invalid());
+    }
     return Promise.resolve(objectFreeze({
       provider_draft_id: stored.provider_draft_id,
       is_draft: true,
+      subject_digest: stored.subject_digest,
+      body_digest: stored.body_digest,
+      recipient_address: stored.recipient_address,
+      inbound_provider_thread_id: stored.inbound_provider_thread_id,
+      mailbox_id: stored.mailbox_id,
     }));
   }
 
@@ -730,7 +756,41 @@ function createEmailLunaControlledDraftingFakeTransport(options = {}) {
     return objectFreeze(calls.slice());
   }
 
-  return objectFreeze({ createReplyDraft, reconcileDraft, getCalls });
+  function mutateDraft(providerDraftId, patch) {
+    if (!isGraphId(providerDraftId) || !patch || typeof patch !== 'object') throw invalid();
+    const stored = drafts.get(providerDraftId);
+    if (!stored) throw invalid();
+    const next = {
+      mailbox_id: stored.mailbox_id,
+      inbound_provider_message_id: stored.inbound_provider_message_id,
+      inbound_provider_thread_id: stored.inbound_provider_thread_id,
+      recipient_address: stored.recipient_address,
+      subject_digest: stored.subject_digest,
+      body_digest: stored.body_digest,
+      issuance_id: stored.issuance_id,
+      operation_id: stored.operation_id,
+      provider_draft_id: stored.provider_draft_id,
+      is_draft: stored.is_draft,
+    };
+    const allowed = objectFreeze([
+      'subject_digest', 'body_digest', 'recipient_address', 'inbound_provider_thread_id',
+      'mailbox_id', 'is_draft',
+    ]);
+    const own = reflectOwnKeys(patch);
+    for (let i = 0; i < own.length; i += 1) {
+      const key = own[i];
+      if (typeof key !== 'string' || !arrayIncludes(allowed, key)) throw invalid();
+      next[key] = patch[key];
+    }
+    drafts.set(providerDraftId, objectFreeze(next));
+  }
+
+  function deleteDraft(providerDraftId) {
+    if (!isGraphId(providerDraftId)) throw invalid();
+    drafts.delete(providerDraftId);
+  }
+
+  return objectFreeze({ createReplyDraft, reconcileDraft, getCalls, mutateDraft, deleteDraft });
 }
 
 function createEmailLunaControlledDraftingProvider(dependencies) {
@@ -761,10 +821,22 @@ function createEmailLunaControlledDraftingProvider(dependencies) {
     }
     const result = readTransportResult(innerResult);
     if (!result) throw invalid();
-    if (buildMessagePath(request.mailbox_id, result.provider_draft_id, 'get') === null) throw invalid();
+    if (buildControlledDraftingGetPath(request.mailbox_id, result.provider_draft_id) === null) throw invalid();
+    if (result.mailbox_id !== request.mailbox_id
+        || result.recipient_address !== request.recipient_address
+        || result.inbound_provider_thread_id !== request.inbound_provider_thread_id
+        || result.subject_digest !== request.subject_digest
+        || result.body_digest !== request.body_digest) {
+      throw brandControlledDraftingKnownCreateDraftId(invalid(), result.provider_draft_id);
+    }
     return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_CREATE_RESPONSE_KEYS, {
       outcome: 'draft_created',
       ...request,
+      subject_digest: result.subject_digest,
+      body_digest: result.body_digest,
+      recipient_address: result.recipient_address,
+      inbound_provider_thread_id: result.inbound_provider_thread_id,
+      mailbox_id: result.mailbox_id,
       provider_draft_id: result.provider_draft_id,
     });
   }
@@ -779,12 +851,57 @@ function createEmailLunaControlledDraftingProvider(dependencies) {
       if (error && error.code === ERROR_CODE && objectIsFrozen(error)) throw error;
       throw invalid();
     }
-    const result = readTransportResult(innerResult);
+    const result = readReconcileTransportResult(innerResult);
     if (!result) throw invalid();
+    if (result.kind === 'not_found') {
+      return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
+        outcome: 'draft_not_found',
+        ...request,
+        is_draft: false,
+      });
+    }
     if (result.provider_draft_id !== request.provider_draft_id) throw invalid();
+    if (result.kind === 'mismatch' || result.kind === 'unusable' || result.is_draft !== true) {
+      return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
+        outcome: 'draft_mismatch',
+        ...request,
+        is_draft: result.is_draft === true,
+      });
+    }
+    const digestMismatch = result.subject_digest !== request.subject_digest
+      || result.body_digest !== request.body_digest;
+    const bindingMismatch = result.recipient_address !== request.recipient_address
+      || result.inbound_provider_thread_id !== request.inbound_provider_thread_id
+      || result.mailbox_id !== request.mailbox_id;
+    if (bindingMismatch) {
+      return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
+        outcome: 'draft_mismatch',
+        ...request,
+        subject_digest: result.subject_digest,
+        body_digest: result.body_digest,
+        recipient_address: result.recipient_address,
+        inbound_provider_thread_id: result.inbound_provider_thread_id,
+        mailbox_id: result.mailbox_id,
+        is_draft: true,
+      });
+    }
+    if (digestMismatch) {
+      return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
+        outcome: 'draft_modified',
+        ...request,
+        subject_digest: result.subject_digest,
+        body_digest: result.body_digest,
+        is_draft: true,
+      });
+    }
     return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
       outcome: 'draft_present',
       ...request,
+      subject_digest: result.subject_digest,
+      body_digest: result.body_digest,
+      recipient_address: result.recipient_address,
+      inbound_provider_thread_id: result.inbound_provider_thread_id,
+      mailbox_id: result.mailbox_id,
       is_draft: true,
     });
   }
@@ -819,14 +936,19 @@ module.exports = objectFreeze({
   EMAIL_LUNA_CONTROLLED_DRAFTING_CREATE_RESPONSE_KEYS,
   EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_REQUEST_KEYS,
   EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS,
+  EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT,
+  RECONCILE_OUTCOMES,
   EMAIL_LUNA_CONTROLLED_DRAFTING_CAPABILITY_MANIFEST,
   EMAIL_MS_CONTROLLED_DRAFTING_SCOPE_PROFILE,
   EMAIL_MS_CONTROLLED_DRAFTING_PROVIDER_FACTS,
   createEmailLunaControlledDraftingProvider,
   createEmailLunaControlledDraftingFakeTransport,
+  createEmailLunaControlledDraftingGraphDraftTransport,
   pickEmailLunaControlledDraftingTransportMethods,
   resolveControlledDraftingGraphCall,
+  buildControlledDraftingGetPath,
   validateControlledDraftingScopeProfile,
   validateControlledDraftingTokenResponseScope,
   attestEmailLunaControlledDraftingCapabilities,
+  readControlledDraftingKnownCreateDraftId,
 });

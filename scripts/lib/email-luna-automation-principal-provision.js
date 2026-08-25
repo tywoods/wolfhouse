@@ -747,6 +747,9 @@ async function provisionInTransaction(query, parsed) {
     }
   } else if (parsed.kind === 'producer') {
     optionalGrantNames = [
+      // SECURITY DEFINER mapping probe. Mapped producers have no SELECT on
+      // principals; Chapter 3 composition attests through this boolean.
+      'tenant_email_luna_automation_principal_authorized',
       ...(EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.controlled_draft_producer_execute_functions || []),
     ];
     optionalDenyNames = [
