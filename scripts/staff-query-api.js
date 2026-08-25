@@ -19963,9 +19963,9 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
   background:var(--surface-soft);color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;
   cursor:pointer;line-height:1;
 }
-.bc-side-pin svg{display:block}
-.bc-side-pin.is-on{background:var(--surface);color:var(--text);border-color:var(--tan,#D4C9BA)}
-.bc-side-pin.is-on svg{transform:rotate(45deg)}
+.bc-side-pin svg{display:block;transform:rotate(45deg);overflow:visible}
+.bc-side-pin.is-on{background:#E7EEE9;color:#2c5f56;border-color:#8AA396}
+.bc-side-pin.is-on svg{transform:none}
 .bc-side-close{font-size:18px}
 .bc-side-pin:hover,.bc-side-close:hover{background:var(--surface);color:var(--text)}
 .bc-side-body{flex:1 1 auto;overflow:auto;padding:8px 12px 12px;color:var(--text-2);font-size:13px;line-height:1.45}
@@ -19978,7 +19978,13 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
   flex:1 1 0;margin:0;padding:7px 4px;font-size:11px;font-weight:600;border-radius:8px;
   text-align:center;border:1px solid var(--border-soft);
 }
-#bc-side-drawer .kv-grid{grid-template-columns:1fr!important}
+#bc-side-drawer #bc-drawer-card-booking{padding:16px 16px 18px}
+#bc-side-drawer #bc-drawer-card-booking > .bc-drawer-card-title{display:none}
+#bc-side-drawer #bc-field-group-contact .kv-grid > .kv:first-child{display:none}
+#bc-side-drawer #bc-field-group-package .kv-grid > .kv:nth-child(2){display:none}
+#bc-side-drawer #bc-drawer-card-booking .ctx-field-edit-group{padding:12px 0 14px}
+#bc-side-drawer #bc-drawer-card-booking .ctx-field-kv-grid--3{grid-template-columns:1fr 1fr!important;gap:14px 18px}
+#bc-side-drawer #bc-drawer-card-booking .kv-grid{gap:14px 18px}
 #bc-side-drawer .bc-drawer-footer{flex-direction:column;align-items:stretch}
 #bc-side-drawer .bc-drawer-footer-right{align-items:stretch;margin-left:0}
 #bc-side-drawer #bc-sel-panel{margin:0;box-shadow:none;border:0;background:transparent;padding:0}
@@ -19993,17 +19999,21 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 #bc-move-bed .bc-card-chevron{flex:0 0 auto;font-size:16px;line-height:1;color:var(--text-2);transform:rotate(-90deg);transition:transform .15s}
 #bc-move-bed:not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
 #bc-move-bed.is-collapsed .bc-move-bed-body{display:none}
-#tab-bed-calendar.tab-panel.active.bc-cal-side-pinned{
-  display:flex!important;flex-direction:row;align-items:stretch;min-height:0;
+#tab-bed-calendar.bc-cal-side-pinned #wrap-bc{
+  width:calc(100% - 400px)!important;
+  max-width:calc(100% - 400px)!important;
+  box-sizing:border-box;
 }
-#tab-bed-calendar.bc-cal-side-pinned #wrap-bc{flex:1 1 auto;min-width:0;max-width:none}
 #tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer{
-  position:relative;top:auto;right:auto;bottom:auto;transform:none;
-  width:400px;min-width:360px;max-width:420px;flex:0 0 400px;
-  height:auto;min-height:calc(100vh - 160px);z-index:6;pointer-events:auto;
-  box-shadow:none;
+  position:fixed;
+  right:0;
+  transform:none;
+  width:400px;
+  min-width:400px;
+  max-width:400px;
+  pointer-events:auto;
+  z-index:46;
 }
-body.luna-header-ui.luna-hdr-compact #tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer{top:auto}
 @media (max-width:768px){
   #bc-side-drawer{display:none!important}
 }
@@ -34884,6 +34894,10 @@ function bcRenderBlockSummaryPreviewHtml(blk){
 
 function bcOpenBookingDrawerOverview(blk){
   if (!blk) return;
+  if (typeof bcSideDrawerLive === 'function' && bcSideDrawerLive()) {
+    bcOpenSideBooking(blk, { pin: true });
+    return;
+  }
   bcActiveDrawerTab = 'overview';
   bcPendingScrollToOverview = true;
   var sameBooking = bcLastBookingContext && bcLastBookingContext.booking && blk.booking_code &&
@@ -40447,7 +40461,12 @@ function bcInitSideDrawer(){
   if (!rail || rail.dataset.sideWired === '1') return;
   rail.dataset.sideWired = '1';
   if (closeBtn) closeBtn.addEventListener('click', bcCloseSideRail);
-  if (pinBtn) pinBtn.addEventListener('click', function(){ bcSetSidePinned(!bcSidePinned); });
+  if (pinBtn) pinBtn.addEventListener('click', function(ev){
+    ev.preventDefault();
+    ev.stopPropagation();
+    clearTimeout(bcSideLeaveTimer);
+    bcSetSidePinned(!bcSidePinned);
+  });
   rail.addEventListener('mouseenter', function(){ clearTimeout(bcSideLeaveTimer); });
   rail.addEventListener('mouseleave', function(){ bcSideHoverLeave(); });
   document.addEventListener('keydown', function(ev){

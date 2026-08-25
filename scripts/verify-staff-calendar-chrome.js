@@ -57,6 +57,8 @@ assert.match(api, /id="bc-side-pin"/);
 assert.match(api, /M12 17v5/);
 assert.match(api, /}, 3280\)/);
 assert.match(api, /bc-cal-side-pinned/);
+assert.match(api, /\.bc-side-pin svg\{display:block;transform:rotate\(45deg\)/);
+assert.match(api, /bcOpenSideBooking\(blk, \{ pin: true \}\)/);
 assert.doesNotMatch(api, /id="bc-side-tabs"/);
 assert.match(api, /opts\.host \|\| el\('bc-ctx-body'\)/);
 assert.match(api, /function bcUpdateCalendarTitle/);
