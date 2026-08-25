@@ -19948,14 +19948,15 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   pointer-events:none;
 }
 #bc-side-drawer.is-open{transform:none;pointer-events:auto}
-body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
+body.luna-header-ui.luna-hdr-compact #bc-side-drawer,
+body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 .bc-side-head{
   flex:0 0 auto;
   padding:10px 12px 8px;
   border-bottom:1px solid var(--border-soft);
 }
 .bc-side-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
-.bc-side-title{margin:0;font-size:16px;font-weight:700;line-height:1.25;color:var(--text)}
+.bc-side-title{margin:0;font-size:22px;font-weight:700;line-height:1.2;color:var(--text)}
 .bc-side-meta{margin:4px 0 0;font-size:12px;color:var(--text-2)}
 .bc-side-head-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
 .bc-side-pin,.bc-side-close{
@@ -20020,8 +20021,40 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 #bc-side-drawer #bc-field-group-package .kv:nth-child(2){display:flex;grid-column:2!important}
 #bc-side-drawer #bc-drawer-card-booking .ctx-field-header{display:none}
 #bc-side-drawer #bc-field-group-guests .ctx-field-header{display:flex}
-.bc-guest-names{display:block;margin-top:3px;font-size:12px;font-weight:500;white-space:normal;line-height:1.35}
-#bc-side-drawer #bc-field-guests-kv-only .v{white-space:normal}
+#bc-side-drawer #bc-field-guests-kv-only .k{display:none}
+#bc-side-drawer #bc-field-guests-kv-only .v{
+  font-size:15px;font-weight:700;text-decoration:underline;text-underline-offset:3px;white-space:normal;
+}
+.bc-guest-names{display:block;margin-top:4px;font-size:13px;font-weight:500;text-decoration:none;white-space:normal;line-height:1.35}
+#bc-side-drawer .ctx-field-edit{
+  margin:0;padding:0;background:transparent;border:0;max-width:none;
+}
+#bc-side-drawer .ctx-field-label{
+  font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin:0 0 4px;color:var(--text-2);
+}
+#bc-side-drawer .ctx-field-edit .bk-input{height:30px;font-size:13px;padding:4px 8px}
+#bc-side-drawer .ctx-field-edit-actions{margin-top:8px}
+#bc-side-drawer #bc-field-contact-edit,
+#bc-side-drawer #bc-field-dates-edit{
+  display:grid;grid-template-columns:1fr 1fr;gap:4px 18px;align-items:end;
+}
+#bc-side-drawer #bc-field-contact-edit label[for="bc-field-contact-name"],
+#bc-side-drawer #bc-field-contact-name{display:none!important}
+#bc-side-drawer #bc-field-contact-edit label[for="bc-field-contact-phone"]{grid-column:1;grid-row:1}
+#bc-side-drawer #bc-field-contact-phone{grid-column:1;grid-row:2}
+#bc-side-drawer #bc-field-contact-edit label[for="bc-field-contact-email"]{grid-column:2;grid-row:1}
+#bc-side-drawer #bc-field-contact-email{grid-column:2;grid-row:2}
+#bc-side-drawer #bc-field-contact-edit .ctx-field-edit-actions,
+#bc-side-drawer #bc-field-contact-edit .ctx-field-preview-result{grid-column:1/-1}
+#bc-side-drawer #bc-field-dates-edit label[for="bc-field-dates-check-in"]{grid-column:1;grid-row:1}
+#bc-side-drawer #bc-field-dates-check-in{grid-column:1;grid-row:2}
+#bc-side-drawer #bc-field-dates-edit label[for="bc-field-dates-check-out"]{grid-column:2;grid-row:1}
+#bc-side-drawer #bc-field-dates-check-out{grid-column:2;grid-row:2}
+#bc-side-drawer #bc-field-dates-nights,
+#bc-side-drawer #bc-field-dates-error,
+#bc-side-drawer #bc-field-dates-edit .ctx-field-edit-actions,
+#bc-side-drawer #bc-field-dates-edit .ctx-field-preview-result{grid-column:1/-1}
+#bc-side-drawer #bc-field-guests-edit .ctx-field-private-room-edit{display:none}
 .bc-range-pop{
   position:absolute;top:calc(100% + 6px);right:0;z-index:80;
   width:268px;padding:10px;background:var(--surface,#fff);border:1px solid var(--border-soft);
@@ -40499,6 +40532,7 @@ function bcDockCreatePanel(){
   panel.style.marginTop = '0';
   rail.classList.add('is-open');
   rail.dataset.mode = 'create';
+  if (typeof bcSyncSideDrawerTop === 'function') bcSyncSideDrawerTop();
   bcSetSidePinned(true);
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
@@ -40521,6 +40555,7 @@ function bcOpenSideBooking(blk, opts){
   });
   rail.classList.add('is-open');
   if (opts.pin) bcSetSidePinned(true);
+  if (typeof bcSyncSideDrawerTop === 'function') bcSyncSideDrawerTop();
   rail.dataset.mode = 'booking';
   bcLastOpenedBlock = blk;
   bcActiveDrawerTab = 'overview';
@@ -40558,6 +40593,18 @@ function bcSideHoverLeave(){
   }, 3280);
 }
 
+function bcSyncSideDrawerTop(){
+  var rail = el('bc-side-drawer');
+  if (!rail) return;
+  var tabs = document.getElementById('tabs');
+  var y = 52;
+  if (tabs) {
+    var rect = tabs.getBoundingClientRect();
+    y = Math.max(0, Math.round(rect.bottom));
+  }
+  rail.style.top = y + 'px';
+}
+
 function bcInitSideDrawer(){
   var rail = el('bc-side-drawer');
   var closeBtn = el('bc-side-close');
@@ -40576,6 +40623,9 @@ function bcInitSideDrawer(){
   document.addEventListener('keydown', function(ev){
     if (ev.key === 'Escape') bcCloseSideRail();
   });
+  bcSyncSideDrawerTop();
+  window.addEventListener('scroll', bcSyncSideDrawerTop, { passive: true });
+  window.addEventListener('resize', bcSyncSideDrawerTop);
 }
 
 function bcOnBedCalendarTabOpen(){
