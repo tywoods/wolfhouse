@@ -4,6 +4,7 @@ const { EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT } = require('./email-luna-aut
 const { EMAIL_LUNA_AUTOMATION_JOURNAL_HANDOFF_GRANT_CONTRACT } = require('./email-luna-automation-journal-handoff-store');
 const { EMAIL_LUNA_AUTOMATION_ISSUANCE_MATERIAL_GRANT_CONTRACT } = require('./email-luna-automation-issuance-material-store');
 const { EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT } = require('./email-luna-automation-shadow-outcome-store');
+const { EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT } = require('./email-luna-controlled-drafting-operation-store');
 const {
   PGCRYPTO_1_3_RESIDUAL,
   PGCRYPTO_1_3_SIGNATURES,
@@ -100,6 +101,11 @@ const FUNCTION_SIGNATURES = objectFreeze({
   tenant_email_luna_automation_capture_shadow: 'tenant_email_luna_automation_capture_shadow(uuid, uuid)',
   tenant_email_luna_automation_shadow_outcome_load: 'tenant_email_luna_automation_shadow_outcome_load(uuid, uuid)',
   tenant_email_luna_automation_shadow_outcome_project: 'tenant_email_luna_automation_shadow_outcome_project(uuid, uuid)',
+  tenant_email_luna_controlled_draft_reserve: 'tenant_email_luna_controlled_draft_reserve(uuid, uuid, text, text, text, text, text, text)',
+  tenant_email_luna_controlled_draft_claim_create: 'tenant_email_luna_controlled_draft_claim_create(uuid, uuid, integer)',
+  tenant_email_luna_controlled_draft_record_create: 'tenant_email_luna_controlled_draft_record_create(uuid, uuid, integer, jsonb)',
+  tenant_email_luna_controlled_draft_reconcile: 'tenant_email_luna_controlled_draft_reconcile(uuid, uuid, integer, jsonb)',
+  tenant_email_luna_controlled_draft_load: 'tenant_email_luna_controlled_draft_load(uuid, uuid)',
 });
 
 const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
@@ -148,6 +154,8 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   no_create_role_in_094: true,
   no_grant_in_095: true,
   no_create_role_in_095: true,
+  no_grant_in_097: true,
+  no_create_role_in_097: true,
   canonical_queue_workers_require_unscoped_claim_execute: true,
   sunset_shadow_runtime_calls_unscoped_claim: false,
   scoped_claim_worker_execute_functions: EMAIL_LUNA_AUTOMATION_QUEUE_GRANT_CONTRACT.scoped_claim_worker_execute_functions,
@@ -155,6 +163,16 @@ const EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT = objectFreeze({
   shadow_outcome_worker_execute_functions: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.worker_execute_functions,
   shadow_outcome_producer_denied_execute_functions: EMAIL_LUNA_AUTOMATION_SHADOW_OUTCOME_GRANT_CONTRACT.worker_execute_functions,
   worker_shadow_outcome_select: false,
+  controlled_draft_table: EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT.table,
+  controlled_draft_worker_execute_functions: EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT.worker_execute_functions,
+  controlled_draft_producer_execute_functions: EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT.producer_execute_functions,
+  controlled_draft_worker_denied_execute_functions: EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT.producer_execute_functions.filter(
+    (name) => name !== 'tenant_email_luna_controlled_draft_load',
+  ),
+  controlled_draft_producer_denied_execute_functions: EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_GRANT_CONTRACT.worker_execute_functions.filter(
+    (name) => name !== 'tenant_email_luna_controlled_draft_load',
+  ),
+  worker_controlled_draft_select: false,
   queue_rls: objectFreeze({ enable: true, force: false, command: 'SELECT' }),
   journal_rls: objectFreeze({
     enable: false,
