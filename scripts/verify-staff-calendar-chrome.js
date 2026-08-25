@@ -63,6 +63,8 @@ assert.match(api, /id="bc-range-pop"/);
 assert.match(api, /class="bc-refresh-btn"/);
 assert.match(api, /function bcInitRangePicker/);
 assert.match(api, /function bcSyncSideDrawerTop/);
+assert.match(api, /bannerBottom/);
+assert.match(api, /bc-guest-count/);
 assert.match(api, /header-collapsed #bc-side-drawer/);
 assert.match(api, /\.bc-side-title\{margin:0;font-size:22px/);
 assert.match(api, /#bc-field-guests-kv-only \.k\{display:none\}/);

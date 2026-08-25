@@ -19944,7 +19944,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   box-shadow:-8px 0 24px rgba(43,36,31,.12);
   font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif;
   transform:translateX(100%);
-  transition:transform .22s ease;
+  transition:transform .22s ease, top .18s ease;
   pointer-events:none;
 }
 #bc-side-drawer.is-open{transform:none;pointer-events:auto}
@@ -20015,17 +20015,24 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 }
 #bc-side-drawer #bc-field-group-dates .kv:nth-child(2){grid-column:2!important}
 #bc-side-drawer #bc-field-private-room-read-kv{
-  flex-direction:row;align-items:center;gap:8px;
+  flex-direction:column;align-items:flex-start;gap:6px;
 }
 #bc-side-drawer #bc-field-private-room-read-kv .k{margin:0;white-space:nowrap}
 #bc-side-drawer #bc-field-group-package .kv:nth-child(2){display:flex;grid-column:2!important}
 #bc-side-drawer #bc-drawer-card-booking .ctx-field-header{display:none}
 #bc-side-drawer #bc-field-group-guests .ctx-field-header{display:flex}
+#bc-side-drawer #bc-field-group-guests .btn-bc-field-edit{
+  background:transparent;border-color:transparent;box-shadow:none;
+}
+#bc-side-drawer #bc-field-group-guests .btn-bc-field-edit:hover{
+  background:transparent;color:var(--text);
+}
 #bc-side-drawer #bc-field-guests-kv-only .k{display:none}
 #bc-side-drawer #bc-field-guests-kv-only .v{
-  font-size:15px;font-weight:700;text-decoration:underline;text-underline-offset:3px;white-space:normal;
+  font-size:15px;font-weight:700;text-decoration:none;white-space:normal;
 }
-.bc-guest-names{display:block;margin-top:4px;font-size:13px;font-weight:500;text-decoration:none;white-space:normal;line-height:1.35}
+.bc-guest-count{text-decoration:underline;text-underline-offset:3px}
+.bc-guest-names{display:block;margin-top:4px;font-size:13px;font-weight:500;text-decoration:none!important;white-space:normal;line-height:1.35}
 #bc-side-drawer .ctx-field-edit{
   margin:0;padding:0;background:transparent;border:0;max-width:none;
 }
@@ -37561,7 +37568,7 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   var guestsReadInner =
     '<div class="kv" id="bc-field-guests-kv-only">' +
       '<span class="k">' + escHtml(t('drawer.field.guests')) + '</span>' +
-      '<span class="v">' + escHtml(String(guestCount) + (guestCount === 1 ? ' Guest' : ' Guests')) +
+      '<span class="v"><span class="bc-guest-count">' + escHtml(String(guestCount) + (guestCount === 1 ? ' Guest' : ' Guests')) + '</span>' +
         (guestNames.length ? '<span class="bc-guest-names">' + escHtml(guestNames.join(', ')) + '</span>' : '') +
       '</span>' +
     '</div>';
@@ -40596,12 +40603,20 @@ function bcSideHoverLeave(){
 function bcSyncSideDrawerTop(){
   var rail = el('bc-side-drawer');
   if (!rail) return;
+  var banner = document.getElementById('banner');
   var tabs = document.getElementById('tabs');
-  var y = 52;
-  if (tabs) {
-    var rect = tabs.getBoundingClientRect();
-    y = Math.max(0, Math.round(rect.bottom));
+  var bannerBottom = 0;
+  var tabsBottom = 0;
+  if (banner) {
+    var br = banner.getBoundingClientRect();
+    if (br.bottom > 8 && br.height > 16) bannerBottom = Math.round(br.bottom);
   }
+  if (tabs) {
+    var tr = tabs.getBoundingClientRect();
+    if (tr.bottom > 0) tabsBottom = Math.round(tr.bottom);
+  }
+  var y = Math.max(bannerBottom, tabsBottom, 0);
+  if (bannerBottom > 0 && tabsBottom <= bannerBottom + 8) y = bannerBottom + 52;
   rail.style.top = y + 'px';
 }
 
@@ -40626,6 +40641,15 @@ function bcInitSideDrawer(){
   bcSyncSideDrawerTop();
   window.addEventListener('scroll', bcSyncSideDrawerTop, { passive: true });
   window.addEventListener('resize', bcSyncSideDrawerTop);
+  document.addEventListener('transitionend', function(ev){
+    if (ev.target && (ev.target.id === 'banner' || ev.target.id === 'tabs')) bcSyncSideDrawerTop();
+  });
+  if (typeof MutationObserver === 'function' && !window.bcSideTopMo) {
+    window.bcSideTopMo = new MutationObserver(bcSyncSideDrawerTop);
+    window.bcSideTopMo.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+    var header = document.querySelector('.luna-header-ui');
+    if (header) window.bcSideTopMo.observe(header, { attributes: true, attributeFilter: ['class'] });
+  }
 }
 
 function bcOnBedCalendarTabOpen(){
