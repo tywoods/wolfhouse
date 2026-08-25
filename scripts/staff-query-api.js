@@ -40838,7 +40838,7 @@ function bcSideHoverLeave(){
   if (bcSidePinned) return;
   bcSideLeaveTimer = setTimeout(function(){
     if (!bcSidePinned) bcCloseSideRail();
-  }, 3280);
+  }, 560);
 }
 
 function bcSyncSideDrawerTop(){

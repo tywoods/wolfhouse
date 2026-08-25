@@ -71,7 +71,7 @@ assert.match(i18n, /'calendar.create.pay.depositLinkPerGuest': 'Deposit link —
 assert.match(api, /function bcSideHoverEnter/);
 assert.match(api, /id="bc-side-pin"/);
 assert.match(api, /M12 17v5/);
-assert.match(api, /}, 3280\)/);
+assert.match(api, /}, 560\)/);
 assert.match(api, /bc-cal-side-pinned/);
 assert.match(api, /\.bc-side-pin svg\{display:block;transform:rotate\(45deg\)/);
 assert.match(api, /id="bc-range-btn"/);
