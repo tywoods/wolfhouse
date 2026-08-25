@@ -196,6 +196,7 @@ function baseClaims(patch = {}) {
     iss: `https://login.microsoftonline.com/${TID}/v2.0`,
     azp: APP_ID,
     scp: 'User.Read Mail.ReadWrite',
+    ver: '2.0',
     exp: NOW + 600,
     iat: NOW - 10,
     nbf: NOW - 10,
@@ -355,7 +356,7 @@ function draftCommand() {
 
 function mockGrantLifecycle({
   sealed, opId, onCommit, failCommit, priorStatus, noGrant, scopeVersion, failLease,
-  bindingRow, events, failAbort, generation, failMark, staleLease,
+  bindingRow, events, failAbort, generation, failMark, staleLease, failReauth,
 }) {
   let leaseTok = null;
   const scopeVer = scopeVersion === undefined ? 'phase_b_v1' : scopeVersion;
@@ -509,6 +510,24 @@ function mockGrantLifecycle({
           grant_generation: currentGeneration, grant_status: 'active',
           reconcile_state: reconcileState,
           scope_version: scopeVer,
+        });
+      },
+    },
+    {
+      match: (t) => /SET grant_status='reauthorization_required'/i.test(t),
+      run: () => {
+        if (failReauth === true || failReauth === 'empty') {
+          log.push({ type: 'reauth_fail', generation: currentGeneration });
+          return empty();
+        }
+        if (failReauth === 'throw') {
+          log.push({ type: 'reauth_throw', generation: currentGeneration });
+          throw new Error('reauth_threw');
+        }
+        log.push({ type: 'reauth', generation: currentGeneration });
+        return rows({
+          grant_generation: currentGeneration,
+          grant_status: 'reauthorization_required',
         });
       },
     },
@@ -774,6 +793,7 @@ async function makeProvider(overrides = {}) {
         sealed, opId: op, events, failCommit: overrides.failCommit,
         bindingRow: overrides.bindingRow, failAbort: overrides.failAbort,
         failMark: overrides.failMark, staleLease: overrides.staleLease,
+        failReauth: overrides.failReauth,
       }))),
     envelopeProvider: envelope,
     transport: overrides.transport || successTransport(overrides.accessJwt || liveJwt()),
@@ -813,6 +833,14 @@ function missingAccessTokenTransport() {
       refresh_token: NEW_RT,
       scope: DRAFT_SCOPE,
     }),
+  }));
+}
+
+function invalidGrantTransport() {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 400,
+    contentType: 'application/json',
+    body: JSON.stringify({ error: 'invalid_grant' }),
   }));
 }
 
@@ -1011,6 +1039,10 @@ async function main() {
     assert.equal(result.ok, true);
     assert.equal(result.mail_send, false);
     assert.equal(result.scp, 'User.Read Mail.ReadWrite');
+    assert.equal(result.kid, KID);
+    assert.equal(result.alg, 'RS256');
+    assert.equal(result.ver_matches, true);
+    assert.equal(result.oid_matches, true);
     const badSig = signJwt({ alg: 'RS256', kid: KID, typ: 'JWT' }, baseClaims());
     const tampered = `${badSig.slice(0, -4)}abcd`;
     await rejectedClaims(inspector().inspect(inspectInput(tampered)));
@@ -1027,6 +1059,7 @@ async function main() {
     await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ oid: APP_ID }))));
     await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ exp: NOW - 1000 }))));
     await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ nbf: NOW + 1000 }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ ver: '1.0' }))));
     const cloned = { ...canonicalVerifier() };
     assert.throws(() => createControlledDraftingAccessTokenClaimsInspector({
       signatureVerifier: Object.freeze(cloned),
@@ -1403,6 +1436,84 @@ async function main() {
     await assertFailMarkLeavesLease(missingAccessTokenTransport(), 'ms_refresh_uncertain');
   }
   console.log('  PASS  RED failMark after MS exchange/timeout/parse/classify/missing-token does not abort; Graph=0');
+
+  {
+    const igIdx = LOAN_SRC.indexOf("classified.kind === 'invalid_grant'");
+    assert.ok(igIdx > 0);
+    const igBlock = LOAN_SRC.slice(igIdx, igIdx + 1200);
+    assert.match(igBlock, /markDelegatedGrantReauthorizationRequired/);
+    assert.match(igBlock, /reauth\.ok/);
+    assert.match(igBlock, /uncertainty_persistence/);
+    assert.match(igBlock, /persistence_unproven/);
+    assert.match(igBlock, /suppressLeaseAbort/);
+  }
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      transport: invalidGrantTransport(),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'dead_grant' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'reauth').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+    assert.equal(graphCalls, 0);
+  }
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      failReauth: true,
+      transport: invalidGrantTransport(),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note
+          && note.stage === 'uncertainty_persistence'
+          && note.code === 'persistence_unproven'
+          && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'reauth_fail').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+    assert.equal(events.filter((row) => row.type === 'reauth').length, 0);
+    assert.equal(graphCalls, 0);
+  }
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      failReauth: 'throw',
+      transport: invalidGrantTransport(),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note
+          && note.stage === 'uncertainty_persistence'
+          && note.code === 'persistence_unproven'
+          && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'reauth_throw').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  RED invalid_grant mark fail/fenced leaves lease; persistence unproven not dead_grant; Graph=0');
 
   {
     const events = [];

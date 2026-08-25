@@ -6,7 +6,8 @@
  * Graph access-token claims inspector. Signature authority is the existing
  * Microsoft OIDC JWKS RS256 verifier. Compact JWS split is structural only —
  * unsigned decoded claims are never authority. JWE, alg none, opaque tokens,
- * app-only `roles`, Mail.Send, wrong aud/tid/azp/appid/oid all refuse.
+ * app-only `roles`, wrong aud/tid/azp/appid/oid/ver, and profile-forbidden
+ * `scp` (Mail.Send on the draft profile) all refuse.
  *
  * Trust boundary (documented, not faked):
  * - Token issuance: canonical TLS Microsoft v2 token endpoint.
@@ -34,6 +35,7 @@ const objectCreate = Object.create;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectHasOwn = Object.hasOwn;
 const reflectOwnKeys = Reflect.ownKeys;
+const arrayIsArray = Array.isArray;
 const regexpTest = uncurryThis(RegExp.prototype.test);
 
 const ERROR_CODE = 'EMAIL_LUNA_CONTROLLED_DRAFTING_ACCESS_TOKEN_CLAIMS_INVALID';
@@ -56,9 +58,9 @@ const GRAPH_AUDIENCES = objectFreeze([
   '00000003-0000-0000-c000-000000000000',
 ]);
 const REQUIRED_SCP = objectFreeze(['User.Read', 'Mail.ReadWrite']);
-const SCP_ALLOWED = new Set(REQUIRED_SCP);
-const FORBIDDEN_SCP = new Set([
-  'Mail.Send',
+const STAFF_SEND_REQUIRED_SCP = objectFreeze(['User.Read', 'Mail.ReadWrite', 'Mail.Send']);
+const EXPECTED_TOKEN_VER = '2.0';
+const FORBIDDEN_SCP_COMMON = objectFreeze([
   'Mail.Send.Shared',
   'Mail.ReadWrite.Shared',
   'Mail.Read.Shared',
@@ -68,6 +70,23 @@ const FORBIDDEN_SCP = new Set([
   'Mail.Send.All',
   '/.default',
 ]);
+const CONTROLLED_DRAFTING_SCOPE_PROFILE = objectFreeze({
+  id: 'controlled_drafting_v1',
+  required: REQUIRED_SCP,
+  mailSend: false,
+  forbidMailSend: true,
+});
+const STAFF_SEND_SCOPE_PROFILE = objectFreeze({
+  id: 'staff_send_phase_b_v1',
+  required: STAFF_SEND_REQUIRED_SCP,
+  mailSend: true,
+  forbidMailSend: false,
+});
+const OIDC_SCOPES_IN_SCP = objectFreeze({
+  requested_on_downscope: objectFreeze(['openid', 'profile', 'offline_access']),
+  appear_in_graph_access_token_scp: false,
+  accepted_in_scp: false,
+});
 const INPUT_KEYS = objectFreeze([
   'accessToken',
   'expectedTenantId',
@@ -245,21 +264,26 @@ function decodeJson(segment, limit) {
   return parseStrictJson(text);
 }
 
-function parseScp(value) {
+function parseScp(value, profile) {
   if (typeof value !== 'string' || value.length < 1 || value.length > 512) return null;
   if (value !== value.trim() || /[^\S ]/.test(value) || /  /.test(value)) return null;
+  if (!profile || !arrayIsArray(profile.required)) return null;
+  const allowed = new Set(profile.required);
   const parts = value.split(' ');
   const seen = new Set();
   for (let i = 0; i < parts.length; i += 1) {
     const part = parts[i];
-    if (!part || seen.has(part) || FORBIDDEN_SCP.has(part) || !SCP_ALLOWED.has(part)) return null;
+    if (!part || seen.has(part)) return null;
+    if (FORBIDDEN_SCP_COMMON.includes(part)) return null;
+    if (profile.forbidMailSend === true && part === 'Mail.Send') return null;
+    if (!allowed.has(part)) return null;
     seen.add(part);
   }
-  for (let i = 0; i < REQUIRED_SCP.length; i += 1) {
-    if (!seen.has(REQUIRED_SCP[i])) return null;
+  for (let i = 0; i < profile.required.length; i += 1) {
+    if (!seen.has(profile.required[i])) return null;
   }
-  if (seen.size !== REQUIRED_SCP.length) return null;
-  return REQUIRED_SCP.join(' ');
+  if (seen.size !== profile.required.length) return null;
+  return profile.required.join(' ');
 }
 
 function issuerForTid(tid) {
@@ -294,7 +318,10 @@ function pinVerifier(dependencies) {
   return { verifier, verify };
 }
 
-function createControlledDraftingAccessTokenClaimsInspector(dependencies) {
+function createAccessTokenClaimsInspector(dependencies, profile) {
+  if (!profile || typeof profile.id !== 'string' || !arrayIsArray(profile.required)) {
+    throw failure();
+  }
   const pinned = pinVerifier(dependencies);
   let used = false;
 
@@ -368,8 +395,9 @@ function createControlledDraftingAccessTokenClaimsInspector(dependencies) {
       const azpOk = typeof azp === 'string' && uuidEqual(azp, client);
       const appidOk = typeof appid === 'string' && uuidEqual(appid, client);
       if (!azpOk && !appidOk) throw failure();
-      const scp = parseScp(claims.scp);
+      const scp = parseScp(claims.scp, profile);
       if (!scp) throw failure();
+      if (claims.ver !== EXPECTED_TOKEN_VER) throw failure();
       const { exp, iat, nbf } = claims;
       const now = data.nowEpochSeconds;
       if (![exp, iat].every(Number.isSafeInteger)) throw failure();
@@ -385,11 +413,20 @@ function createControlledDraftingAccessTokenClaimsInspector(dependencies) {
       }
       return objectFreeze({
         ok: true,
-        scope_profile_id: 'controlled_drafting_v1',
+        scope_profile_id: profile.id,
         scp,
-        mail_send: false,
+        mail_send: profile.mailSend === true,
         mail_readwrite: true,
         app_only: false,
+        kid: header.kid,
+        alg: header.alg,
+        iss_matches: true,
+        aud_matches: true,
+        oid_matches: true,
+        tid_matches: true,
+        ver_matches: true,
+        exp_window_ok: true,
+        token_lifetime_seconds: exp - iat,
       });
     } catch (_) {
       throw failure();
@@ -399,6 +436,14 @@ function createControlledDraftingAccessTokenClaimsInspector(dependencies) {
   return objectFreeze({ inspect });
 }
 
+function createControlledDraftingAccessTokenClaimsInspector(dependencies) {
+  return createAccessTokenClaimsInspector(dependencies, CONTROLLED_DRAFTING_SCOPE_PROFILE);
+}
+
+function createStaffSendPhaseBAccessTokenClaimsInspector(dependencies) {
+  return createAccessTokenClaimsInspector(dependencies, STAFF_SEND_SCOPE_PROFILE);
+}
+
 module.exports = objectFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
@@ -406,5 +451,11 @@ module.exports = objectFreeze({
   INSPECTOR_KEYS,
   GRAPH_AUDIENCES,
   REQUIRED_SCP,
+  STAFF_SEND_REQUIRED_SCP,
+  EXPECTED_TOKEN_VER,
+  CONTROLLED_DRAFTING_SCOPE_PROFILE,
+  STAFF_SEND_SCOPE_PROFILE,
+  OIDC_SCOPES_IN_SCP,
   createControlledDraftingAccessTokenClaimsInspector,
+  createStaffSendPhaseBAccessTokenClaimsInspector,
 });
