@@ -78,6 +78,14 @@ const {
 const {
   createMicrosoftGraphReplyDraftTransport,
 } = require('./lib/email-microsoft-graph-reply-draft-transport');
+const {
+  parseArgs: parsePrepareArgs,
+  refusedProduction,
+  normalizeRecipientAddress,
+  runPrepare,
+  READBACK_SQL,
+  AUTHORIZE_SQL,
+} = require('./prepare-email-luna-controlled-drafting-staging-test-authorization');
 
 const ROOT = path.join(__dirname, '..');
 const RED = JSON.parse(fs.readFileSync(
@@ -111,6 +119,10 @@ const SQL_098 = fs.readFileSync(
 );
 const DOWN_098 = fs.readFileSync(
   path.join(ROOT, 'database/migrations/098_tenant_email_luna_controlled_drafting_staging_test_authorization_down.sql'),
+  'utf8',
+);
+const PREPARE_SRC = fs.readFileSync(
+  path.join(ROOT, 'scripts/prepare-email-luna-controlled-drafting-staging-test-authorization.js'),
   'utf8',
 );
 const SESSION_SRC = fs.readFileSync(
@@ -224,7 +236,44 @@ assert.doesNotMatch(ACT_SRC.replace(/FORBIDDEN[\s\S]*?;/g, ''), /sendMail|sendDr
 assert.match(DOC_SRC, /luna-sunset-staging-staff-api/);
 assert.match(DOC_SRC, /assert-repo-sync/);
 assert.match(DOC_SRC, /incremental Azure resource cost is \*\*zero\*\*/);
+assert.match(DOC_SRC, /operator-selected existing Sunset/);
+assert.match(DOC_SRC, /server_synthetic_evidence: false/);
+assert.match(DOC_SRC, /authority: "queue_table_owner_session"/);
+assert.match(DOC_SRC, /queue-table-owner intent bound durably/);
+assert.match(DOC_SRC, /--recipient-address/);
+assert.match(DOC_SRC, /inbound sender is not a substitute/);
+assert.doesNotMatch(DOC_SRC, /synthetic Sunset inbound/);
 console.log('  PASS  Staff API owns activation; Chapters 1–3 stay unwired in Staff API source; docker default-off');
+
+assert.match(PREPARE_SRC, /m\.recipient_address/);
+assert.match(PREPARE_SRC, /e\.sender_address_normalized/);
+assert.match(PREPARE_SRC, /server_synthetic_evidence: false/);
+assert.match(PREPARE_SRC, /queue_table_owner_session/);
+assert.match(PREPARE_SRC, /--recipient-address/);
+assert.match(PREPARE_SRC, /controlled_drafting_staging_proof/);
+assert.match(READBACK_SQL, /m\.recipient_address/);
+assert.match(READBACK_SQL, /e\.sender_address_normalized/);
+assert.match(AUTHORIZE_SQL, /tenant_email_luna_controlled_draft_staging_test_authorize/);
+assert.doesNotMatch(PREPARE_SRC, /EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS/);
+assert.doesNotMatch(PREPARE_SRC, /existing synthetic/);
+assert.doesNotMatch(PREPARE_SRC, /synthetic Sunset/);
+assert.equal(PKG.scripts['prepare:email-luna-controlled-drafting-staging-test-authorization'],
+  'node scripts/prepare-email-luna-controlled-drafting-staging-test-authorization.js');
+assert.equal(normalizeRecipientAddress('  Elena@Example.TEST '), 'elena@example.test');
+assert.equal(normalizeRecipientAddress({ toString() { return 'elena@example.test'; } }), null);
+assert.equal(normalizeRecipientAddress('not-an-email'), null);
+assert.throws(() => parsePrepareArgs(['--wat']), /unknown argument/);
+assert.throws(() => parsePrepareArgs(['--recipient-address', 'a@b.c', '--recipient-address', 'a@b.c']), /duplicate argument/);
+assert.throws(() => parsePrepareArgs(['--apply', '--apply']), /duplicate argument/);
+assert.throws(() => parsePrepareArgs(['--recipient-address']), /requires a value/);
+assert.throws(() => parsePrepareArgs(['--recipient-address', '--apply']), /requires a value/);
+assert.throws(() => parsePrepareArgs(['--operation-id', 1]), /malformed arguments/);
+const getterArgv = ['--recipient-address'];
+Object.defineProperty(getterArgv, 1, { get() { return 'elena@example.test'; } });
+assert.throws(() => parsePrepareArgs(getterArgv), /malformed arguments/);
+assert.throws(() => parsePrepareArgs(new Proxy(['--help'], {})), /malformed arguments/);
+assert.equal(refusedProduction({ LUNA_DEPLOYMENT: 'production' }), true);
+console.log('  PASS  prepare command pins server recipient/sender readback; no env recipient authority; hostile argv fails');
 
 function enabledEnv(patch = {}) {
   return {
@@ -473,6 +522,285 @@ function runChild(script) {
   assert.equal(proof.status, 0, `${script} must stay green`);
 }
 
+const PREPARE_RECIPIENT = 'elena@example.test';
+const PREPARE_SENDER = 'elena@example.test';
+const PREPARE_DSN = 'postgres://wolfhouse:owner-secret@127.0.0.1:5432/sunset_staging';
+
+function prepareIssuanceRow(patch = {}) {
+  return {
+    operation_id: OP,
+    issuance_id: ISS,
+    client_id: C,
+    location_id: L,
+    location_key: 'sunset-somo',
+    endpoint_id: E,
+    inbound_event_id: '55555555-5555-4555-8555-555555555555',
+    conversation_id: '66666666-6666-4666-8666-666666666666',
+    recipient_address: PREPARE_RECIPIENT,
+    provider: 'microsoft_graph',
+    mailbox_id: MAILBOX,
+    sender_address_normalized: PREPARE_SENDER,
+    ...patch,
+  };
+}
+
+function prepareEnv(patch = {}) {
+  return {
+    LUNA_DEPLOYMENT: 'sunset-staging',
+    DEFAULT_CLIENT_SLUG: 'sunset',
+    PGDATABASE: 'sunset_staging',
+    WOLFHOUSE_DATABASE_URL: PREPARE_DSN,
+    EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS: PREPARE_RECIPIENT,
+    ...patch,
+  };
+}
+
+function throwPrepareFail(message) {
+  const error = new Error(message);
+  error.code = 'PREPARE_FAIL';
+  throw error;
+}
+
+function makePrepareConnect(row, { database = 'sunset_staging', extraRow, queries } = {}) {
+  const seen = queries || [];
+  return async function connect() {
+    return {
+      async query(sql, params) {
+        seen.push({ sql: String(sql), params: params || [] });
+        if (String(sql).includes('current_database()')) {
+          return { rows: [{ database }] };
+        }
+        if (String(sql).includes('tenant_email_luna_automation_issuance_material')) {
+          const rows = extraRow ? [row, extraRow] : [row];
+          return { rows };
+        }
+        if (String(sql).includes('staging_test_authorize')) {
+          return { rows: [{ authorization_id: params[0] }] };
+        }
+        throw new Error(`unexpected sql: ${sql}`);
+      },
+      async end() {},
+    };
+  };
+}
+
+async function expectPrepareFail(input, pattern) {
+  await assert.rejects(() => runPrepare(input), (error) => {
+    assert.equal(error && error.code, 'PREPARE_FAIL');
+    assert.match(String(error && error.message), pattern);
+    return true;
+  });
+}
+
+async function testPrepareCommand() {
+  const queries = [];
+  const lines = [];
+  const row = prepareIssuanceRow();
+  await runPrepare({
+    argv: ['--operation-id', OP, '--issuance-id', ISS],
+    env: prepareEnv(),
+    connect: makePrepareConnect(row, { queries }),
+    print: (line) => lines.push(String(line)),
+    fail: throwPrepareFail,
+  });
+  const dry = JSON.parse(lines[0]);
+  assert.equal(dry.dry_run, true);
+  assert.equal(dry.apply, false);
+  assert.equal(dry.server_synthetic_evidence, false);
+  assert.equal(dry.authority, 'queue_table_owner_session');
+  assert.equal(dry.purpose, 'controlled_drafting_staging_proof');
+  assert.equal(dry.recipient_address, PREPARE_RECIPIENT);
+  assert.equal(dry.sender_address_normalized, PREPARE_SENDER);
+  assert.equal(dry.recipient_confirmation_supplied, false);
+  assert.equal(dry.recipient_address_match, null);
+  assert.equal(queries.some((item) => item.sql.includes('staging_test_authorize')), false);
+  assert.doesNotMatch(lines.join('\n'), /owner-secret|postgres:\/\//);
+  assert.doesNotMatch(JSON.stringify(dry), /synthetic Sunset|existing synthetic/);
+
+  const mismatchLines = [];
+  const mismatchQueries = [];
+  await runPrepare({
+    argv: ['--operation-id', OP, '--issuance-id', ISS, '--recipient-address', 'other@example.test'],
+    env: prepareEnv(),
+    connect: makePrepareConnect(row, { queries: mismatchQueries }),
+    print: (line) => mismatchLines.push(String(line)),
+    fail: throwPrepareFail,
+  });
+  const mismatch = JSON.parse(mismatchLines[0]);
+  assert.equal(mismatch.dry_run, true);
+  assert.equal(mismatch.recipient_address_match, false);
+  assert.equal(mismatch.recipient_address, PREPARE_RECIPIENT);
+  assert.equal(mismatchQueries.some((item) => item.sql.includes('staging_test_authorize')), false);
+
+  const missingQueries = [];
+  await expectPrepareFail({
+    argv: ['--operation-id', OP, '--issuance-id', ISS, '--apply'],
+    env: prepareEnv(),
+    connect: makePrepareConnect(row, { queries: missingQueries }),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /--apply requires explicit --recipient-address/);
+  assert.equal(missingQueries.length, 0);
+
+  const wrongQueries = [];
+  await expectPrepareFail({
+    argv: ['--apply', '--operation-id', OP, '--issuance-id', ISS, '--recipient-address', 'attacker@evil.test'],
+    env: prepareEnv(),
+    connect: makePrepareConnect(row, { queries: wrongQueries }),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /does not match server-read issuance recipient/);
+  assert.equal(wrongQueries.some((item) => item.sql.includes('staging_test_authorize')), false);
+  assert.equal(wrongQueries.some((item) => item.sql.includes('issuance_material')), true);
+
+  const senderAsSubstitute = [];
+  const senderRow = prepareIssuanceRow({
+    recipient_address: PREPARE_RECIPIENT,
+    sender_address_normalized: 'inbound-sender@example.test',
+  });
+  await expectPrepareFail({
+    argv: ['--apply', '--operation-id', OP, '--issuance-id', ISS, '--recipient-address', 'inbound-sender@example.test'],
+    env: prepareEnv(),
+    connect: makePrepareConnect(senderRow, { queries: senderAsSubstitute }),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /inbound sender is not a substitute/);
+  assert.equal(senderAsSubstitute.some((item) => item.sql.includes('staging_test_authorize')), false);
+
+  const applyLines = [];
+  const applyQueries = [];
+  await runPrepare({
+    argv: [
+      '--apply',
+      '--operation-id', OP,
+      '--issuance-id', ISS,
+      '--recipient-address', '  Elena@Example.TEST ',
+      '--authorization-id', AUTH,
+    ],
+    env: prepareEnv(),
+    connect: makePrepareConnect(row, { queries: applyQueries }),
+    print: (line) => applyLines.push(String(line)),
+    fail: throwPrepareFail,
+  });
+  const applyPayload = JSON.parse(applyLines[0]);
+  assert.equal(applyPayload.dry_run, false);
+  assert.equal(applyPayload.apply, true);
+  assert.equal(applyPayload.server_synthetic_evidence, false);
+  assert.equal(applyPayload.authority, 'queue_table_owner_session');
+  assert.equal(applyPayload.recipient_address_match, true);
+  assert.equal(applyPayload.recipient_address, PREPARE_RECIPIENT);
+  assert.equal(applyPayload.sender_address_normalized, PREPARE_SENDER);
+  const applied = JSON.parse(applyLines[1]);
+  assert.equal(applied.applied, true);
+  assert.equal(applied.authorization_id, AUTH);
+  assert.equal(applyQueries.filter((item) => item.sql.includes('staging_test_authorize')).length, 1);
+  assert.doesNotMatch(applyLines.join('\n'), /owner-secret/);
+
+  await expectPrepareFail({
+    argv: ['--operation-id', OP, '--issuance-id', ISS, '--recipient-address', 'not-an-email'],
+    env: prepareEnv(),
+    connect: makePrepareConnect(row),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /malformed --recipient-address/);
+
+  const extraArg = ['--operation-id', OP, '--issuance-id', ISS, '--wat'];
+  await expectPrepareFail({
+    argv: extraArg,
+    env: prepareEnv(),
+    connect: makePrepareConnect(row),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /unknown argument/);
+
+  const coerced = Object.assign(['--operation-id', OP, '--issuance-id', ISS, '--recipient-address'], {});
+  coerced.push({ toString() { return PREPARE_RECIPIENT; }, valueOf() { return PREPARE_RECIPIENT; } });
+  await expectPrepareFail({
+    argv: coerced,
+    env: prepareEnv(),
+    connect: makePrepareConnect(row),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /malformed arguments/);
+
+  const getterRow = prepareIssuanceRow();
+  Object.defineProperty(getterRow, 'recipient_address', {
+    get() { return PREPARE_RECIPIENT; }, enumerable: true,
+  });
+  await expectPrepareFail({
+    argv: ['--operation-id', OP, '--issuance-id', ISS],
+    env: prepareEnv(),
+    connect: makePrepareConnect(getterRow),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /malformed/);
+
+  const extraKeyRow = prepareIssuanceRow({ extra: 'nope' });
+  await expectPrepareFail({
+    argv: ['--operation-id', OP, '--issuance-id', ISS],
+    env: prepareEnv(),
+    connect: makePrepareConnect(extraKeyRow),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /malformed/);
+
+  const proxyRow = new Proxy(prepareIssuanceRow(), {});
+  await expectPrepareFail({
+    argv: ['--operation-id', OP, '--issuance-id', ISS],
+    env: prepareEnv(),
+    connect: makePrepareConnect(proxyRow),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /malformed/);
+
+  const extraRowQueries = [];
+  await expectPrepareFail({
+    argv: ['--apply', '--operation-id', OP, '--issuance-id', ISS, '--recipient-address', PREPARE_RECIPIENT],
+    env: prepareEnv(),
+    connect: makePrepareConnect(row, { extraRow: prepareIssuanceRow(), queries: extraRowQueries }),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /not found|will not fabricate/);
+  assert.equal(extraRowQueries.some((item) => item.sql.includes('staging_test_authorize')), false);
+
+  const getterQueryClient = {
+    get query() {
+      return async () => ({ rows: [{ database: 'sunset_staging' }] });
+    },
+    async end() {},
+  };
+  await expectPrepareFail({
+    argv: ['--operation-id', OP, '--issuance-id', ISS],
+    env: prepareEnv(),
+    connect: async () => getterQueryClient,
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /query is unusable/);
+
+  const leakQueries = [];
+  await expectPrepareFail({
+    argv: ['--operation-id', OP, '--issuance-id', ISS],
+    env: prepareEnv(),
+    connect: async () => {
+      leakQueries.push('connect');
+      throw new Error(`password=owner-secret ${PREPARE_DSN}`);
+    },
+    print: (line) => leakQueries.push(String(line)),
+    fail: throwPrepareFail,
+  }, /^prepare failed$/);
+
+  const envRecipientQueries = [];
+  await expectPrepareFail({
+    argv: ['--operation-id', OP, '--issuance-id', ISS, '--apply'],
+    env: prepareEnv({ EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS: PREPARE_RECIPIENT }),
+    connect: makePrepareConnect(row, { queries: envRecipientQueries }),
+    print: () => {},
+    fail: throwPrepareFail,
+  }, /--apply requires explicit --recipient-address/);
+  assert.equal(envRecipientQueries.length, 0);
+  console.log('  PASS  prepare command dry-run truth, recipient confirm, hostile/malformed refuse, zero authorize, no DSN leak');
+}
+
 assert.equal(PKG.scripts['verify:email-luna-controlled-drafting-staging-activation'],
   'node scripts/verify-email-luna-controlled-drafting-staging-activation.js');
 
@@ -637,6 +965,8 @@ console.log('  … concurrency/start/stop/kill-switch');
   });
   assert.ok(preflightNoScope.blockers.includes('controlled_test_scope_required'));
   console.log('  PASS  controlled-test scope required before consuming work');
+
+  await testPrepareCommand();
 
   console.log('  … Chapter 3 runtime composition (includes Chapter 1 + stock-PG)');
   runChild('verify-email-luna-controlled-drafting-runtime-composition.js');

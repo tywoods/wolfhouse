@@ -12,7 +12,7 @@
 
 **Staging test authorization:** `098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql`
 
-**Operator prepare:** `npm run prepare:email-luna-controlled-drafting-staging-test-authorization` (default dry-run)
+**Operator prepare:** `npm run prepare:email-luna-controlled-drafting-staging-test-authorization` (default dry-run). Operator-selected existing Sunset issuance; no server synthetic evidence. `--apply` requires `--recipient-address` matching the server-read issuance recipient.
 
 **Verifier:** `npm run verify:email-luna-controlled-drafting-staging-activation`
 
@@ -69,7 +69,18 @@ Controlled test scope is required before any queue work is consumed. Env may nam
 - `EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_ISSUANCE_ID`
 - `EMAIL_LUNA_CONTROLLED_DRAFTING_TEST_RECIPIENT_ADDRESS` (must match the server-owned authorization)
 
-Prepare with `npm run prepare:email-luna-controlled-drafting-staging-test-authorization` (default dry-run, refuses production, does not fabricate issuance). Do not use manual SQL as the documented path.
+Prepare with `npm run prepare:email-luna-controlled-drafting-staging-test-authorization` (default dry-run, refuses production, does not fabricate issuance). The command reads an operator-selected existing Sunset 092 issuance / 063 inbound. Dry-run JSON prints the server-read `recipient_address` and inbound `sender_address_normalized`, with `server_synthetic_evidence: false` and `authority: "queue_table_owner_session"`. Operator must inspect those values. `--apply` requires explicit `--recipient-address` equal to the server-read issuance recipient (ASCII lowercase+trim); the inbound sender is not a substitute. Missing or mismatched `--apply` performs zero 098 authorize SQL. Migration 098 authorization is queue-table-owner intent bound durably to that existing issuance — not send authority, not a fabricated row. Do not use manual SQL as the documented path.
+
+Example (dry-run, then confirm recipient):
+
+```
+npm run prepare:email-luna-controlled-drafting-staging-test-authorization -- \
+  --operation-id <uuid> --issuance-id <uuid>
+
+npm run prepare:email-luna-controlled-drafting-staging-test-authorization -- \
+  --operation-id <uuid> --issuance-id <uuid> \
+  --recipient-address <server-read-issuance-recipient> --apply
+```
 
 Existing real guest 092 rows without a matching authorized 098 marker fail before reserve/tick/provider. Arbitrary existing eligible 086 rows are not scanned.
 
@@ -93,7 +104,7 @@ DSNs must have no query string (no `options` / `session_authorization` / SET ROL
   - worker: `allowSunsetStagingTrustedPrecreated`
   - producer: `allowSunsetStagingTrustedPrecreatedProducer`
   Both require `trustedPrecreated: true`, `apply: true`, owner session, no password, no CREATE ROLE. Option/kind swaps are refused.
-- Prepare one 098 authorization through the operator command above. Do not use manual SQL as the documented path.
+- Prepare one 098 authorization through the operator command above after inspecting the server-read issuance recipient. Do not use manual SQL as the documented path.
 - Code startup never applies migration. Preflight proves `current_database()='sunset_staging'` and exact ledger checksum/mode for 097 and 098.
 
 ## Live provider authority (blocked unless a later reviewed loan exists)
@@ -121,7 +132,7 @@ Expected incremental Azure resource cost is **zero**. Reuse `luna-sunset-staging
 6. Deploy the Staff API revision (still default-off). Confirm `/healthz` liveness and `/readyz` without Graph.
 7. Run operator preflight against the dedicated LOGIN pair. Confirm `ok` with `activation_started=false`, `send_allowed=false`.
 8. Enable runtime + composition only. Confirm status: enabled/configured/ready/running, no provider calls.
-9. Prepare one-shot 098 authorization with the operator command (dry-run first). Enable producer intake, then worker tick, then live provider-draft **only** after the later live-proof review.
+9. Prepare one-shot 098 authorization with the operator command (dry-run first). Inspect the server-read issuance recipient and inbound sender (`server_synthetic_evidence` is false). Then `--apply --recipient-address <exact-issuance-recipient>`. This is queue-table-owner intent bound durably to the existing issuance; it is not send authority. Enable producer intake, then worker tick, then live provider-draft **only** after the later live-proof review.
 10. Capture DB operation state + Graph draft id (`isDraft=true`) for the test mailbox. Confirm send journal unused.
 
 ## Rollback / kill
