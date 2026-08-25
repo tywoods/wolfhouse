@@ -19945,7 +19945,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   overflow:hidden;
   box-shadow:var(--shadow,0 8px 24px rgba(43,36,31,.12));
   font-family:'Instrument Sans',var(--font-sans),system-ui,sans-serif;
-  transform:translateX(100%);
+  transform:translateX(calc(100% + 40px));
   transition:transform .22s ease, top .18s ease;
   pointer-events:none;
 }
@@ -20162,7 +20162,7 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   margin-right:0;
   padding-right:6px;
 }
-#tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer{
+#tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer.is-open{
   position:fixed;
   right:16px;
   bottom:12px;
@@ -20179,7 +20179,8 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 @media (min-width:769px){
   /* staff-portal-calendar:side-drawer-desktop — bottom folder stays in the DOM for phones */
   #tab-bed-calendar #bc-detail,
-  #tab-bed-calendar #wrap-bc #bc-sel-panel{display:none!important}
+  #tab-bed-calendar #wrap-bc > #bc-sel-panel{display:none!important}
+  #tab-bed-calendar #bc-side-drawer #bc-sel-panel{display:block!important}
 }
 @media (prefers-reduced-motion:reduce){
   #bc-side-drawer{transition:none}
