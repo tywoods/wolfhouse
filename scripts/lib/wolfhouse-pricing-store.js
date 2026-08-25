@@ -409,7 +409,10 @@ async function promoteConfigCatalogToStaffItems(pg, config, actorId) {
         item_code: seed.code,
         label: seed.label,
         description: null,
-        metadata: { promoted_from: 'config' },
+        metadata: Object.assign(
+          { promoted_from: 'config' },
+          seed.pebble ? { pebble: seed.pebble } : {},
+        ),
         active: true,
       }, actorId);
       created += 1;
@@ -422,6 +425,30 @@ async function promoteConfigCatalogToStaffItems(pg, config, actorId) {
         metadata: { promoted_from: 'config' },
         active: true,
       }, actorId);
+    }
+    if (Array.isArray(seed.prices) && seed.prices.length) {
+      for (const price of seed.prices) {
+        if (price.amount_cents == null) continue;
+        const seasonCode = price.season_code || null;
+        const ruleRows = await pg.query(
+          `SELECT id FROM wh_pricing_rules
+            WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+              AND COALESCE(season_code, '') = COALESCE($4, '') AND active = true`,
+          [slug, itemType, seed.rule_code || seed.code, seasonCode],
+        );
+        if (!ruleRows.rows.length) {
+          await savePriceRule(pg, slug, {
+            item_type: itemType,
+            item_code: seed.rule_code || seed.code,
+            season_code: seasonCode,
+            unit: price.unit || seed.unit || 'per_person_per_week',
+            amount_cents: price.amount_cents,
+            currency: 'EUR',
+            active: true,
+          }, actorId);
+        }
+      }
+      continue;
     }
     if (seed.amount_cents == null) continue;
     const ruleCode = seed.rule_code || seed.code;

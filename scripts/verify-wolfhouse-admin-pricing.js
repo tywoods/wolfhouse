@@ -36,7 +36,18 @@ function ok(label, condition, detail) {
 
 const config = resolve.loadPricingConfig();
 const seasons = resolve.configSeasons(config);
-const rules = resolve.configPricingRules(config);
+const rules = resolve.configPricingRules(config).concat(
+  resolve.listConfigPackageSeeds(config).flatMap((s) => (s.prices || []).map((pr) => ({
+    item_type: 'package',
+    item_code: s.code,
+    season_code: pr.season_code,
+    unit: pr.unit,
+    amount_cents: pr.amount_cents,
+    currency: 'EUR',
+    source: 'config',
+    label: s.label,
+  }))),
+);
 
 // ── Season windows ──────────────────────────────────────────────────────────
 console.log('\n── Season windows ──');
@@ -438,14 +449,36 @@ ok('view reports the write flag so the UI can render read-only',
 ok('view lists every season', view.seasons.length === seasons.length);
 ok('view keeps the closed season flagged unbookable',
   view.seasons.find((s) => s.code === 'closed').bookable === false);
+ok('empty overlay has no built-in packages', view.packages.length === 0);
 
-const malibuView = view.packages.find((p) => p.code === 'malibu');
+const packageSeeds = resolve.listConfigPackageSeeds(config);
+const viewPromotedPackages = resolve.buildAdminPricingView({
+  config,
+  transferConfig,
+  dbSeasons: [],
+  dbRules: packageSeeds.flatMap((s) => (s.prices || []).map((pr) => ({
+    item_type: 'package', item_code: s.code, season_code: pr.season_code,
+    unit: pr.unit, amount_cents: pr.amount_cents, currency: 'EUR', active: true, label: s.label,
+  }))),
+  dbItems: packageSeeds.map((s) => ({
+    item_type: 'package', item_code: s.code, label: s.label,
+    metadata: { pebble: s.pebble }, active: true,
+  })),
+  dbTransferRules: [],
+  writesEnabled: true,
+});
+const malibuView = viewPromotedPackages.packages.find((p) => p.code === 'malibu');
+ok('promoted packages are staff-owned',
+  viewPromotedPackages.packages.length === 3
+  && viewPromotedPackages.packages.every((p) => p.source === 'db'));
 ok('every package carries one slot per season',
   malibuView.prices.length === view.seasons.length);
-ok('a package price is filled from the config seed',
+ok('a package price is filled from the promoted seed',
   malibuView.prices.find((p) => p.season_code === 'august').price.amount_cents === 34900);
 ok('a season with no package price surfaces as null, not zero',
   malibuView.prices.find((p) => p.season_code === 'closed').price === null);
+ok('promoted packages keep pebble tokens without underscores',
+  viewPromotedPackages.packages.every((p) => p.pebble && !/_/.test(p.pebble)));
 
 ok('config rentals are no longer listed as built-in catalog rows',
   !view.rentals.some((r) => r.code === 'wetsuit_rental'));
@@ -485,12 +518,28 @@ ok('promoted rental titles have no underscores',
 ok('promoted wetsuit still prices per day at the live amount',
   viewPromoted.rentals.find((r) => r.code === 'wetsuit_rental').durations[0].amount_cents === 500);
 
-const overlayCfg = resolve.applyOverlayRentalPricesToConfig(config, [{
+const overlayCfg = resolve.applyOverlayPricesToConfig(config, [{
   item_type: 'rental', item_code: 'wetsuit_rental__1_day', amount_cents: 777, active: true,
 }]);
 ok('overlay rental prices win over JSON add-on cents',
   overlayCfg.add_ons.wetsuit_rental.price_cents === 777
   && config.add_ons.wetsuit_rental.price_cents === 500);
+
+const overlayAll = resolve.applyOverlayPricesToConfig(config, [
+  { item_type: 'package', item_code: 'malibu', season_code: 'august', amount_cents: 11100, active: true },
+  { item_type: 'service', item_code: 'yoga_class', amount_cents: 1800, unit: 'per_class', active: true },
+  { item_type: 'deposit', item_code: 'standard_package', amount_cents: 25000, unit: 'per_person', active: true },
+  { item_type: 'supplement', item_code: 'private', amount_cents: 1500, unit: 'per_room_per_night', active: true },
+]);
+ok('overlay package prices win over JSON seasonal cents',
+  overlayAll.packages.find((p) => p.code === 'malibu').seasonal_prices.august.weekly_per_person_cents === 11100);
+ok('overlay service prices win over JSON add-on cents',
+  overlayAll.add_ons.yoga_class.price_cents === 1800);
+ok('overlay deposit prices and scope win over JSON',
+  overlayAll.deposits.tiers.standard_package.amount_cents === 25000
+  && overlayAll.deposits.scope === 'per_person');
+ok('overlay room supplement prices win over JSON',
+  overlayAll.room_supplements.private.per_room_per_night_cents === 1500);
 
 ok('empty overlay has no built-in services or extras',
   view.services.length === 0
@@ -556,8 +605,8 @@ ok('an edited price shows the DB value tagged as db',
   viewWithDb.packages.find((p) => p.code === 'malibu').prices
     .find((s) => s.season_code === 'august').price.amount_cents === 37500);
 
-ok('a config-seeded package is marked config-owned',
-  view.packages.find((p) => p.code === 'malibu').source === 'config');
+ok('a price-only overlay package without a catalog item stays config-owned',
+  viewWithDb.packages.find((p) => p.code === 'malibu').source === 'config');
 ok('a staff-created rental is marked staff-owned',
   viewWithDb.rentals.find((r) => r.code === 'longboard_rental').source === 'db');
 ok('editing a config item price does not make staff the owner of the item',
@@ -771,8 +820,8 @@ async function runRouteChecks() {
   const read = readHarness.sent[0];
   ok('a read succeeds with the write flag off', read.status === 200 && read.body.success === true);
   ok('a read reports writes as disabled', read.body.writes_enabled === false);
-  ok('a read returns the merged catalog',
-    Array.isArray(read.body.packages) && read.body.packages.length > 0
+  ok('a read returns seasons even without a catalog overlay',
+    Array.isArray(read.body.packages)
     && Array.isArray(read.body.seasons) && read.body.seasons.length > 0);
 
   const wrongClient = harness();
@@ -804,9 +853,9 @@ async function runRouteChecks() {
   ok('a read still succeeds when the overlay is unreadable', broken.status === 200);
   ok('a degraded read says so instead of pretending',
     broken.body.overlay_available === false && !!broken.body.overlay_error);
-  ok('a degraded read still serves the config prices',
-    broken.body.packages.find((p) => p.code === 'malibu').prices
-      .find((s) => s.season_code === 'august').price.amount_cents === 34900);
+  ok('a degraded read still serves seasons from config',
+    Array.isArray(broken.body.seasons) && broken.body.seasons.length > 0
+    && Array.isArray(broken.body.packages) && broken.body.packages.length === 0);
 
   // Writes are gated
   const flagOff = harness({ body: { code: 'x', label: 'X', ranges: [{ start_month: 8, start_day: 1, end_month: 8, end_day: 31 }] } });
@@ -984,7 +1033,10 @@ function runPricingUi(viewPayload, editing) {
 function uiChecks() {
   console.log('\n── Browser UI ──');
 
-  const writable = Object.assign({}, view, { writes_enabled: true });
+  const writable = Object.assign({}, view, {
+    writes_enabled: true,
+    packages: viewPromotedPackages.packages,
+  });
   const { html, window: win } = runPricingUi(writable);
 
   ok('the module exposes its entry point',
@@ -1021,6 +1073,11 @@ function uiChecks() {
   ok('promoted extras offer Delete',
     runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html
       .includes('data-wh-item-type="deposit"'));
+  ok('deposit edit offers per-booking and per-person radios',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+      .includes('name="wh-deposit-scope"')
+      && runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true }), 'price:deposit:standard_package').html
+        .includes('Per booking'));
 
   ok('editable mode offers Edit controls',
     html.includes('data-wh-price-action="edit-package-price"'));
@@ -1036,10 +1093,13 @@ function uiChecks() {
 
   // A config-seeded item cannot be deleted — the JSON seed re-adds it — so the
   // portal must not show a Delete that quietly does nothing.
-  ok('a config-seeded package shows no Delete button',
-    !html.includes('data-wh-item-type="package" data-wh-item-code="malibu"'));
-  ok('a config-seeded catalog item is labelled built-in',
-    html.includes('built-in'));
+  ok('a promoted package can be deleted',
+    html.includes('data-wh-item-type="package" data-wh-item-code="malibu"'));
+  ok('the new-package form offers pebble colors',
+    runPricingUi(writable, 'item:package:__new__').html.includes('wh-price-item-pebble')
+    && runPricingUi(writable, 'item:package:__new__').html.includes('pkg-pebble-sage'));
+  ok('a config-sourced transfer is labelled default',
+    html.includes('default'));
 
   const newPackageForm = runPricingUi(writable, 'item:package:__new__').html;
   ok('the new-package form asks for a name and a code',
@@ -1052,7 +1112,10 @@ function uiChecks() {
     runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-amount'));
 
   // Read-only mode
-  const readOnly = runPricingUi(Object.assign({}, view, { writes_enabled: false })).html;
+  const readOnly = runPricingUi(Object.assign({}, view, {
+    writes_enabled: false,
+    packages: viewPromotedPackages.packages,
+  })).html;
   ok('read-only mode explains itself', readOnly.includes('Read-only'));
   ok('read-only mode hides every write control',
     !readOnly.includes('data-wh-price-action="edit-package-price"')

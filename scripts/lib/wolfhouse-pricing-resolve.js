@@ -34,6 +34,16 @@ const CONFIG_RENTAL_ADDON_CODES = new Set([
 /** Default duration suffix for config-seeded rentals, which are all per-day. */
 const DEFAULT_RENTAL_DURATION = '1_day';
 
+const PACKAGE_PEBBLE_TOKENS = Object.freeze([
+  'sand', 'clay', 'peach', 'rose', 'blush', 'butter', 'sage', 'mist', 'lilac', 'stone',
+]);
+
+const DEFAULT_PACKAGE_PEBBLES = Object.freeze({
+  malibu: 'peach',
+  uluwatu: 'rose',
+  waimea: 'butter',
+});
+
 const MONTH_LENGTHS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 function daysInMonth(month) {
@@ -161,18 +171,7 @@ function configPricingRules(config) {
   const out = [];
   if (!config) return out;
 
-  for (const pkg of (Array.isArray(config.packages) ? config.packages : [])) {
-    const seasonal = pkg.seasonal_prices || {};
-    for (const seasonCode of Object.keys(seasonal)) {
-      const cents = seasonal[seasonCode] && seasonal[seasonCode].weekly_per_person_cents;
-      if (!Number.isFinite(Number(cents))) continue;
-      out.push(rule('package', pkg.code, seasonCode, 'per_person_per_week', cents, {
-        label: pkg.name || pkg.code,
-      }));
-    }
-  }
-
-  // Services, extras, and rentals are staff catalog items — not built-in rows.
+  // Packages, services, extras, and rentals are staff catalog items — not built-in rows.
 
   return out;
 }
@@ -377,12 +376,17 @@ function buildAdminPricingView(input) {
     items.some((it) => it.item_type === type && it.item_code === code) ? 'db' : 'config'
   );
 
-  const packages = codesFor('package',
-    (Array.isArray(config && config.packages) ? config.packages : []).map((p) => p.code),
-  ).map((code) => ({
+  const packages = codesFor('package').map((code) => {
+    const item = items.find((it) => it.item_type === 'package' && it.item_code === code);
+    const meta = (item && item.metadata) || {};
+    return {
     code,
     label: labelFor('package', code),
     source: catalogSource('package', code),
+    pebble: PACKAGE_PEBBLE_TOKENS.includes(meta.pebble)
+      ? meta.pebble
+      : (DEFAULT_PACKAGE_PEBBLES[code] || 'stone'),
+    metadata: meta,
     prices: seasons.map((s) => ({
       season_code: s.code,
       season_label: s.label,
@@ -391,7 +395,8 @@ function buildAdminPricingView(input) {
         item_type: 'package', item_code: code, season_code: s.code,
       })),
     })),
-  }));
+  };
+  });
 
   const rentals = codesFor('rental').map((offering) => ({
     code: offering,
@@ -537,12 +542,46 @@ function listConfigExtraSeeds(config) {
   return out;
 }
 
+function listConfigPackageSeeds(config) {
+  const out = [];
+  for (const pkg of (Array.isArray(config && config.packages) ? config.packages : [])) {
+    if (!pkg || !pkg.code || String(pkg.code).startsWith('_')) continue;
+    const seasonal = pkg.seasonal_prices || {};
+    const prices = [];
+    for (const seasonCode of Object.keys(seasonal)) {
+      if (seasonCode.startsWith('_')) continue;
+      const cents = Number(seasonal[seasonCode] && seasonal[seasonCode].weekly_per_person_cents);
+      if (!Number.isFinite(cents)) continue;
+      prices.push({
+        season_code: seasonCode,
+        amount_cents: cents,
+        unit: 'per_person_per_week',
+      });
+    }
+    out.push({
+      item_type: 'package',
+      code: pkg.code,
+      rule_code: pkg.code,
+      label: rentalTitleFromAddon(pkg.code, { name: pkg.name }),
+      amount_cents: null,
+      unit: 'per_person_per_week',
+      pebble: DEFAULT_PACKAGE_PEBBLES[pkg.code] || 'stone',
+      prices,
+    });
+  }
+  return out;
+}
+
 function listConfigCatalogSeeds(config) {
   const rentals = listConfigRentalSeeds(config).map((s) => Object.assign({}, s, {
     item_type: 'rental',
     rule_code: `${s.code}__${s.duration || DEFAULT_RENTAL_DURATION}`,
   }));
-  return rentals.concat(listConfigServiceSeeds(config), listConfigExtraSeeds(config));
+  return rentals.concat(
+    listConfigPackageSeeds(config),
+    listConfigServiceSeeds(config),
+    listConfigExtraSeeds(config),
+  );
 }
 
 function listConfigRentalSeeds(config) {
@@ -565,24 +604,93 @@ function listConfigRentalSeeds(config) {
   return out;
 }
 
-function applyOverlayRentalPricesToConfig(config, dbRules) {
+function applyOverlayPricesToConfig(config, dbRules) {
   const next = config && typeof config === 'object'
     ? JSON.parse(JSON.stringify(config))
-    : { add_ons: {} };
+    : { add_ons: {}, packages: [], deposits: { tiers: {} }, room_supplements: {} };
   if (!next.add_ons || typeof next.add_ons !== 'object') next.add_ons = {};
+  if (!Array.isArray(next.packages)) next.packages = [];
+  if (!next.deposits || typeof next.deposits !== 'object') next.deposits = { tiers: {} };
+  if (!next.deposits.tiers || typeof next.deposits.tiers !== 'object') next.deposits.tiers = {};
+  if (!next.room_supplements || typeof next.room_supplements !== 'object') next.room_supplements = {};
+
   for (const rule of (Array.isArray(dbRules) ? dbRules : [])) {
-    if (!rule || rule.item_type !== 'rental' || rule.active === false) continue;
+    if (!rule || rule.active === false) continue;
     const cents = Number(rule.amount_cents);
     if (!Number.isFinite(cents)) continue;
-    const offering = splitRentalCode(rule.item_code).offering;
-    if (!offering || !next.add_ons[offering]) continue;
-    next.add_ons[offering] = Object.assign({}, next.add_ons[offering], {
-      price_cents: cents,
-      _eur: cents / 100,
-    });
+    const type = String(rule.item_type || '');
+    const code = String(rule.item_code || '');
+    if (!code) continue;
+
+    if (type === 'rental') {
+      const offering = splitRentalCode(code).offering;
+      if (!offering) continue;
+      const existing = next.add_ons[offering] || { code: offering };
+      next.add_ons[offering] = Object.assign({}, existing, {
+        price_cents: cents,
+        _eur: cents / 100,
+      });
+      continue;
+    }
+
+    if (type === 'service') {
+      const existing = next.add_ons[code] || { code };
+      const patch = { price_cents: cents, _eur: cents / 100 };
+      if (existing.price_cents_each != null || rule.unit === 'per_lesson') {
+        patch.price_cents_each = cents;
+        patch._eur_each = cents / 100;
+      }
+      next.add_ons[code] = Object.assign({}, existing, patch);
+      if (code === 'meal' && next.add_ons.meals) {
+        next.add_ons.meals = Object.assign({}, next.add_ons.meals, patch);
+      }
+      continue;
+    }
+
+    if (type === 'package') {
+      const season = rule.season_code;
+      if (!season) continue;
+      let pkg = next.packages.find((p) => p && p.code === code);
+      if (!pkg) {
+        pkg = { code, name: rule.label || code, seasonal_prices: {} };
+        next.packages.push(pkg);
+      }
+      if (!pkg.seasonal_prices || typeof pkg.seasonal_prices !== 'object') pkg.seasonal_prices = {};
+      pkg.seasonal_prices[season] = Object.assign({}, pkg.seasonal_prices[season] || {}, {
+        weekly_per_person_cents: cents,
+        _eur: cents / 100,
+      });
+      continue;
+    }
+
+    if (type === 'deposit') {
+      const existing = next.deposits.tiers[code] || {};
+      const scope = String(rule.unit || '') === 'per_person' ? 'per_person' : 'per_booking';
+      next.deposits.tiers[code] = Object.assign({}, existing, {
+        amount_cents: cents,
+        _eur: cents / 100,
+        scope,
+      });
+      if (code === 'standard_package') next.deposits.scope = scope;
+      continue;
+    }
+
+    if (type === 'supplement') {
+      const existing = next.room_supplements[code] || {};
+      const patch = {};
+      if (String(rule.unit || '') === 'per_person_per_night') {
+        patch.per_person_per_night_cents = cents;
+      } else {
+        patch.per_room_per_night_cents = cents;
+      }
+      patch._eur = cents / 100;
+      next.room_supplements[code] = Object.assign({}, existing, patch);
+    }
   }
   return next;
 }
+
+const applyOverlayRentalPricesToConfig = applyOverlayPricesToConfig;
 
 module.exports = {
   WH_PRICING_CLIENT_SLUG,
@@ -595,9 +703,13 @@ module.exports = {
   listConfigRentalSeeds,
   listConfigServiceSeeds,
   listConfigExtraSeeds,
+  listConfigPackageSeeds,
   listConfigCatalogSeeds,
+  PACKAGE_PEBBLE_TOKENS,
+  DEFAULT_PACKAGE_PEBBLES,
   rentalTitleFromAddon,
   applyOverlayRentalPricesToConfig,
+  applyOverlayPricesToConfig,
   daysInMonth,
   monthDayOrdinal,
   seasonRangeCoversMonthDay,

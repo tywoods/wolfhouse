@@ -384,6 +384,35 @@
 
   // ── Catalog sections (rentals + services) ──────────────────────────────────
 
+  var PACKAGE_PEBBLES = [
+    { token: 'sand', label: 'Sand' },
+    { token: 'clay', label: 'Clay' },
+    { token: 'peach', label: 'Peach' },
+    { token: 'rose', label: 'Rose' },
+    { token: 'blush', label: 'Blush' },
+    { token: 'butter', label: 'Butter' },
+    { token: 'sage', label: 'Sage' },
+    { token: 'mist', label: 'Mist' },
+    { token: 'lilac', label: 'Lilac' },
+    { token: 'stone', label: 'Stone' },
+  ];
+
+  function pebblePickerHtml(selected) {
+    var current = selected || 'peach';
+    var html = '<div class="portal-admin-edit-field"><span>'
+      + whEsc(whT('admin.wh.pricing.pebbleColor', 'Pebble color')) + '</span>'
+      + '<div class="wh-price-pebble-picker" role="radiogroup">';
+    for (var i = 0; i < PACKAGE_PEBBLES.length; i++) {
+      var p = PACKAGE_PEBBLES[i];
+      html += '<label class="wh-price-pebble-opt">'
+        + '<input type="radio" name="wh-price-item-pebble" value="' + whEsc(p.token) + '"'
+        + (p.token === current ? ' checked' : '') + '>'
+        + '<span class="pkg-pebble pkg-pebble-' + whEsc(p.token) + '">' + whEsc(p.label) + '</span>'
+        + '</label>';
+    }
+    return html + '</div></div>';
+  }
+
   var NEW_ITEM_PLACEHOLDERS = {
     package: ['Malibu', 'malibu'],
     rental: ['Longboard', 'longboard_rental'],
@@ -413,7 +442,8 @@
       + '<input type="text" id="wh-price-item-code" maxlength="64" placeholder="'
       + whEsc(placeholders[1]) + '"></div>'
       + (isPackage
-        ? '<p class="portal-admin-section-note">'
+        ? pebblePickerHtml()
+          + '<p class="portal-admin-section-note">'
           + whEsc(whT('admin.wh.pricing.newPackageNote',
             'Set a weekly price for each season once the package is created.')) + '</p>'
         : '<div class="portal-admin-edit-field"><label for="wh-price-item-unit">'
@@ -720,9 +750,22 @@
   function renderExtrasRow(kind, row) {
     var key = 'price:' + kind + ':' + row.code;
     if (isEditing(key)) {
+      var scopeUnit = row.unit === 'per_person' ? 'per_person' : (row.unit || 'per_booking');
+      var scopeRadios = kind === 'deposit'
+        ? '<div class="portal-admin-edit-field" style="margin-top:10px">'
+          + '<div class="portal-admin-muted">' + whEsc(whT('admin.wh.pricing.depositScope', 'Deposit is')) + '</div>'
+          + '<label class="portal-admin-radio"><input type="radio" name="wh-deposit-scope" value="per_booking"'
+          + (scopeUnit !== 'per_person' ? ' checked' : '') + '> '
+          + whEsc(whT('admin.wh.pricing.perBooking', 'Per booking')) + '</label> '
+          + '<label class="portal-admin-radio"><input type="radio" name="wh-deposit-scope" value="per_person"'
+          + (scopeUnit === 'per_person' ? ' checked' : '') + '> '
+          + whEsc(whT('admin.wh.pricing.perPerson', 'Per person')) + '</label>'
+          + '</div>'
+        : '';
       return '<div class="portal-admin-price-card is-editing">'
-        + '<div class="portal-admin-price-title">' + whEsc(humanize(row.code)) + '</div>'
+        + '<div class="portal-admin-price-title">' + whEsc(row.label || humanize(row.code)) + '</div>'
         + amountField('wh-price-amount', row.amount_cents)
+        + scopeRadios
         + editActions('save-extra',
           ' data-wh-extra-kind="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code)
           + '" data-wh-unit="' + whEsc(row.unit) + '"')
@@ -780,6 +823,14 @@
   // ── Shell ──────────────────────────────────────────────────────────────────
 
   function render() {
+    if (state.view && Array.isArray(state.view.packages)) {
+      var pebbleMap = {};
+      for (var pi = 0; pi < state.view.packages.length; pi++) {
+        var pk = state.view.packages[pi];
+        if (pk && pk.code && pk.pebble) pebbleMap[pk.code] = pk.pebble;
+      }
+      window.WH_PACKAGE_PEBBLE_BY_CODE = pebbleMap;
+    }
     var body = node('wh-admin-pricing-body');
     if (!body) return;
 
@@ -1050,10 +1101,16 @@
       render();
     },
     'save-extra': function (btn) {
+      var extraKind = btn.getAttribute('data-wh-extra-kind');
+      var unit = btn.getAttribute('data-wh-unit');
+      if (extraKind === 'deposit') {
+        var scoped = document.querySelector('input[name="wh-deposit-scope"]:checked');
+        if (scoped && scoped.value) unit = scoped.value;
+      }
       commit('PUT', WH_PRICING_BASE + '/prices' + clientQuery(), {
-        item_type: btn.getAttribute('data-wh-extra-kind'),
+        item_type: extraKind,
         item_code: btn.getAttribute('data-wh-item-code'),
-        unit: btn.getAttribute('data-wh-unit'),
+        unit: unit,
         amount_eur: inputValue('wh-price-amount'),
       });
     },
@@ -1074,8 +1131,14 @@
       if (itemType === 'package') {
         // Priced per season, so creating the package is a single write and the
         // season cards it gains are where the amounts get set.
+        var pebbleEl = document.querySelector('input[name="wh-price-item-pebble"]:checked');
         commit('PUT', WH_PRICING_BASE + '/items' + clientQuery(),
-          { item_type: 'package', item_code: code, label: label },
+          {
+            item_type: 'package',
+            item_code: code,
+            label: label,
+            metadata: { pebble: pebbleEl && pebbleEl.value ? pebbleEl.value : 'stone' },
+          },
           whT('admin.wh.pricing.packageCreated',
             'Package created. Set a price for each season.'));
         return;
