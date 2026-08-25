@@ -46,6 +46,9 @@ const {
   validateMicrosoftDelegatedScopePlan,
 } = require('./lib/email-microsoft-delegated-oauth-contract');
 const {
+  createEmailLunaControlledDraftingFakeClosedTokenLoan,
+} = require('./lib/email-luna-controlled-drafting-token-loan');
+const {
   HOST,
   buildCreateReplyPath,
   buildMessagePath,
@@ -642,7 +645,7 @@ async function main() {
   });
   const graphTransport = createEmailLunaControlledDraftingGraphDraftTransport({
     httpsImpl: graphHttps,
-    getAccessToken: () => TOKEN,
+    tokenLoan: createEmailLunaControlledDraftingFakeClosedTokenLoan({ accessToken: TOKEN }),
   });
   assert.deepEqual(Object.keys(graphTransport).sort(), ['createReplyDraft', 'reconcileDraft']);
   assert.equal(typeof graphTransport.sendDraft, 'undefined');
@@ -679,7 +682,7 @@ async function main() {
     });
     const transport = createEmailLunaControlledDraftingGraphDraftTransport({
       httpsImpl,
-      getAccessToken: () => TOKEN,
+      tokenLoan: createEmailLunaControlledDraftingFakeClosedTokenLoan({ accessToken: TOKEN }),
     });
     const provider = createEmailLunaControlledDraftingProvider({
       authority: authority(),
@@ -747,7 +750,7 @@ async function main() {
   };
   const timeoutTransport = createEmailLunaControlledDraftingGraphDraftTransport({
     httpsImpl: timeoutHttps,
-    getAccessToken: () => TOKEN,
+    tokenLoan: createEmailLunaControlledDraftingFakeClosedTokenLoan({ accessToken: TOKEN }),
     timers: slowTimers,
   });
   const timeoutProvider = createEmailLunaControlledDraftingProvider({

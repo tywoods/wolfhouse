@@ -55,7 +55,12 @@ const {
   EMAIL_LUNA_CONTROLLED_DRAFTING_CAPABILITY_MANIFEST,
   EMAIL_MS_CONTROLLED_DRAFTING_SCOPE_PROFILE,
   EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER,
+  EMAIL_LUNA_CONTROLLED_DRAFTING_SCOPE_VERSION,
 } = require('./email-luna-controlled-drafting-provider-contract');
+const {
+  isClosedControlledDraftingTokenLoan,
+  bindControlledDraftingTokenLoanKillSwitch,
+} = require('./email-luna-controlled-drafting-token-loan');
 const {
   createEmailLunaControlledDraftingOperationStore,
   EMAIL_LUNA_CONTROLLED_DRAFTING_OPERATION_RUNTIME_WIRED,
@@ -124,7 +129,7 @@ const CREATE_KEYS = objectFreeze([
   'env', 'producerWithTransactionClient', 'workerWithTransactionClient', 'timers', 'intervalMs',
 ]);
 const OPTIONAL_CREATE_KEYS = objectFreeze([
-  'provider', 'issuanceStore', 'crashSeams', 'getAccessToken', 'httpsImpl',
+  'provider', 'issuanceStore', 'crashSeams', 'tokenLoan', 'httpsImpl',
 ]);
 const TIMER_KEYS = objectFreeze(['setTimeout', 'clearTimeout']);
 const FORBIDDEN_CREATE_KEYS = objectFreeze([
@@ -381,14 +386,22 @@ function closedOfflineProvider(authority) {
   });
 }
 
-function assembleLiveProvider(authority, getAccessToken, httpsImpl, timers) {
-  if (typeof getAccessToken !== 'function' || isProxySurface(getAccessToken)) {
+function assembleLiveProvider(authority, tokenLoan, httpsImpl, timers) {
+  if (!isClosedControlledDraftingTokenLoan(tokenLoan)) {
     return { ok: false, reason: 'no_controlled_drafting_v1_token_loan' };
   }
   try {
+    const attestation = tokenLoan.attest();
+    if (!attestation
+        || attestation.ok !== true
+        || attestation.send_capable !== false
+        || attestation.mail_send !== false
+        || attestation.scope_profile_id !== EMAIL_LUNA_CONTROLLED_DRAFTING_SCOPE_VERSION) {
+      return { ok: false, reason: 'no_controlled_drafting_v1_token_loan' };
+    }
     const transport = createEmailLunaControlledDraftingGraphDraftTransport({
       httpsImpl,
-      getAccessToken,
+      tokenLoan,
       timers,
     });
     const picked = pickEmailLunaControlledDraftingTransportMethods({
@@ -400,11 +413,12 @@ function assembleLiveProvider(authority, getAccessToken, httpsImpl, timers) {
       transport: picked,
     });
     const attest = provider.attest();
-    if (!attest || attest.create_reply_draft !== true) {
+    const caps = ownData(attest, 'capabilities') || (attest && attest.capabilities);
+    if (!attest || !caps || caps.create_reply_draft !== true || caps.reconcile_draft !== true) {
       return { ok: false, reason: 'provider_manifest_mismatch' };
     }
-    const caps = ownData(attest, 'capabilities') || attest.capabilities;
-    if (caps && (caps.send === true || caps.send_draft === true || caps.send_mail === true)) {
+    if (caps.send === true || caps.send_draft === true || caps.send_mail === true
+        || caps.access_token_export === true) {
       return { ok: false, reason: 'send_like_capability_rejected' };
     }
     return { ok: true, provider };
@@ -505,13 +519,18 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(depende
     mailbox_id: binding.mailbox_id,
   });
 
+  const killState = { stopped: true };
   let provider = ownData(deps, 'provider');
   let liveBlock = liveProviderBlockReason(env, { hasClosedProvider: Boolean(provider) });
   if (envFlag(env, ENV_LIVE_PROVIDER_DRAFT_ENABLED)) {
     if (!provider) {
+      const tokenLoan = ownData(deps, 'tokenLoan');
+      if (isClosedControlledDraftingTokenLoan(tokenLoan)) {
+        bindControlledDraftingTokenLoanKillSwitch(tokenLoan, () => killState.stopped === true);
+      }
       const assembled = assembleLiveProvider(
         authority,
-        ownData(deps, 'getAccessToken'),
+        tokenLoan,
         ownData(deps, 'httpsImpl'),
         timers,
       );
@@ -806,6 +825,7 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(depende
     await verifySchema();
     started = true;
     stopped = false;
+    killState.stopped = false;
     epoch += 1;
     lastReason = 'running';
     arm(epoch);
@@ -813,6 +833,7 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(depende
 
   async function stop() {
     stopped = true;
+    killState.stopped = true;
     started = false;
     epoch += 1;
     lastReason = 'paused';
@@ -843,8 +864,8 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(depende
       principal: schemaVerified ? 'mapped_direct_login' : null,
       circuit,
       reason: lastReason,
-      live_provider_draft: snapshot.live_provider_draft === true,
-      live_provider_block_reason: snapshot.live_provider_block_reason,
+      live_provider_draft: liveBlock === null && envFlag(env, ENV_LIVE_PROVIDER_DRAFT_ENABLED),
+      live_provider_block_reason: liveBlock,
       test_scope_configured: Boolean(testScopeFromEnv(env)),
       counts,
     });

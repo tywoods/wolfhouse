@@ -15,6 +15,8 @@ const {
 
 const FAILURE_CODE = 'microsoft_refresh_token_exchange_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
+const CONTROLLED_DRAFTING_SCOPE_VERSION = 'controlled_drafting_v1';
+const CONTROLLED_DRAFTING_REQUEST_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite';
 const CLIENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REFRESH_TOKEN_LIMIT_CHARS = 8192;
 const CLIENT_SECRET_LIMIT_CHARS = 4096;
@@ -156,12 +158,18 @@ function createMicrosoftRefreshTokenRequestService(deps) {
       const clientSecret = await Reflect.apply(getClientSecret, secretProvider, []);
       if (!printable(clientSecret, CLIENT_SECRET_LIMIT_CHARS)) throw failure();
       stage = 'token';
-      const body = new URLSearchParams([
+      const fields = [
         ['client_id', applicationClientId],
         ['client_secret', clientSecret],
         ['grant_type', 'refresh_token'],
         ['refresh_token', inputSnapshot.refreshToken],
-      ]).toString();
+      ];
+      // Downscope is bound to the closed controlled_drafting_v1 profile only.
+      // Callers cannot select raw scopes. Phase A/B omit `scope` (unchanged).
+      if (inputSnapshot.scopeVersion === CONTROLLED_DRAFTING_SCOPE_VERSION) {
+        fields.push(['scope', CONTROLLED_DRAFTING_REQUEST_SCOPE]);
+      }
+      const body = new URLSearchParams(fields).toString();
       if (Buffer.byteLength(body, 'utf8') > REQUEST_LIMIT_BYTES) throw failure();
       const rawResponse = await Reflect.apply(postTokenForm, transport, [
         Object.freeze({ body }),
@@ -188,6 +196,8 @@ function createMicrosoftRefreshTokenRequestService(deps) {
 module.exports = Object.freeze({
   FAILURE_CODE,
   SUNSET_DEPLOYMENT,
+  CONTROLLED_DRAFTING_SCOPE_VERSION,
+  CONTROLLED_DRAFTING_REQUEST_SCOPE,
   REFRESH_TOKEN_LIMIT_CHARS,
   CLIENT_SECRET_LIMIT_CHARS,
   SCOPE_VERSION_LIMIT_CHARS,

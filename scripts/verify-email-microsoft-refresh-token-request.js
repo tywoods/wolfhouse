@@ -80,6 +80,46 @@ async function main() {
     assert.equal(new URLSearchParams(captured.body).has('scope'), false);
     assert.equal(new URLSearchParams(captured.body).has('redirect_uri'), false);
 
+    let draftCaptured;
+    const draftBody = Object.freeze({
+      statusCode: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        token_type: 'Bearer',
+        expires_in: 3600,
+        access_token: PLANTED_AT,
+        refresh_token: 'rt-rotated-NEVER_LEAK',
+        scope: 'openid profile offline_access User.Read Mail.ReadWrite',
+      }),
+    });
+    const draft = await createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => SECRET),
+      frozenMethod('postTokenForm', async function postTokenForm(arg) {
+        draftCaptured = arg;
+        return draftBody;
+      }),
+    )).exchangeRefreshToken(input({ scopeVersion: 'controlled_drafting_v1' }));
+    assert.equal(draft.kind, 'success');
+    assert.equal(draft.selected.scope.includes('Mail.ReadWrite'), true);
+    assert.equal(draft.selected.scope.includes('Mail.Send'), false);
+    assert.equal(new URLSearchParams(draftCaptured.body).get('scope'),
+      'openid profile offline_access User.Read Mail.ReadWrite');
+    const broader = await createMicrosoftRefreshTokenRequestService(deps(
+      frozenMethod('getClientSecret', async () => SECRET),
+      frozenMethod('postTokenForm', async () => Object.freeze({
+        statusCode: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          token_type: 'Bearer',
+          expires_in: 3600,
+          access_token: PLANTED_AT,
+          refresh_token: 'rt-rotated-NEVER_LEAK',
+          scope: 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send',
+        }),
+      })),
+    )).exchangeRefreshToken(input({ scopeVersion: 'controlled_drafting_v1' }));
+    assert.equal(broader.kind, 'uncertain');
+
     // Phase B scope_version + Phase B MS body → success (phase-aware owner).
     const phaseBBody = Object.freeze({
       statusCode: 200,

@@ -116,7 +116,7 @@ Sunset staff outbound already uses Phase B delegated grants (`User.Read Mail.Rea
 - reuse Gate 3 send/sendMail/journal
 - call Graph from `/healthz` or `/readyz`
 
-Live provider-draft remains a separate exact gate. Missing `Mail.ReadWrite` draft-only token loan, or any send-capable adapter, yields `live_provider_block_reason=no_controlled_drafting_v1_token_loan` (or `send_like_capability_rejected`). Offline preflight is separate from the later controlled live mailbox proof.
+Live provider-draft remains a separate exact gate. Chapter 4C owns the closed `Mail.ReadWrite` draft-only token loan (`docs/EMAIL-LUNA-CONTROLLED-DRAFTING-TOKEN-LOAN.md`). Missing that loan, or any send-capable adapter, yields `live_provider_block_reason=no_controlled_drafting_v1_token_loan` (or `send_like_capability_rejected`). Offline preflight is separate from the later controlled live mailbox proof.
 
 ## Azure cost
 
