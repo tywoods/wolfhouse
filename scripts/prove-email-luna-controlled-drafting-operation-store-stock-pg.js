@@ -6,6 +6,7 @@
  */
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
@@ -30,6 +31,7 @@ const {
   loadDraftStore,
   ackFor,
   persistIssuance,
+  assert097DownParentBeforeChildLocks,
 } = require('./prove-email-luna-controlled-drafting-operation-store-pglite');
 
 const PG_MODULE = '/opt/data/calendar-inventory-bridge-bf/node_modules/pg';
@@ -50,6 +52,146 @@ function resolvePg() {
     const failed = new Error(`stock-PG blocker: cannot require pg from ${PG_MODULE}: ${error && error.message ? error.message : error}`);
     failed.code = 'STOCK_PG_PG_MODULE_MISSING';
     throw failed;
+  }
+}
+
+function digestUtf8(value) {
+  return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+function draftDigest(subject, body, language) {
+  return crypto.createHash('sha256')
+    .update(subject, 'utf8')
+    .update('\0')
+    .update(body, 'utf8')
+    .update('\0')
+    .update(language, 'utf8')
+    .digest('hex');
+}
+
+function leadingLockDoSql(downSql) {
+  const match = downSql.match(/BEGIN;\s*(DO \$\$[\s\S]*?END \$\$;)/);
+  assert.ok(match, '097 DOWN must BEGIN then acquire ACCESS EXCLUSIVE locks in a leading DO');
+  return match[1];
+}
+
+function isDeadlock(error) {
+  return Boolean(error) && (error.code === '40P01' || /deadlock detected/i.test(String(error.message || '')));
+}
+
+function isBlockOrTimeout(error) {
+  const code = error && error.code;
+  return code === '55P03' || code === '57014'
+    || /lock timeout|statement timeout|canceling statement/i.test(String(error && error.message || ''));
+}
+
+function withJsTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const failed = new Error(`${label} exceeded ${ms}ms`);
+      failed.code = 'PROOF_TIMEOUT';
+      reject(failed);
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function reserveSqlArgs(seeded) {
+  const subject = seeded.bundle.draft.subject;
+  const body = seeded.bundle.draft.body;
+  const language = seeded.bundle.draft.language;
+  return [
+    ids.operation,
+    seeded.issuanceId,
+    subject,
+    body,
+    language,
+    digestUtf8(subject),
+    digestUtf8(body),
+    draftDigest(subject, body, language),
+  ];
+}
+
+async function callMappedReserve(client, seeded) {
+  return client.query(
+    'SELECT * FROM public.tenant_email_luna_controlled_draft_reserve($1::uuid, $2::uuid, $3::text, $4::text, $5::text, $6::text, $7::text, $8::text)',
+    reserveSqlArgs(seeded),
+  );
+}
+
+async function callMappedClaim(client, seeded) {
+  return client.query(
+    'SELECT * FROM public.tenant_email_luna_controlled_draft_claim_create($1::uuid, $2::uuid, $3::integer)',
+    [ids.operation, seeded.issuanceId, null],
+  );
+}
+
+async function boundRacer(client) {
+  await client.query("SET statement_timeout = '2500ms'");
+  await client.query("SET lock_timeout = '800ms'");
+  await client.query("SET deadlock_timeout = '200ms'");
+}
+
+async function proveDownLocksVsMappedFunction({
+  connectClone,
+  lockSql,
+  role,
+  run,
+  expectEmpty,
+  expectUnclaimed,
+}) {
+  const locker = await connectClone();
+  const racer = await connectClone();
+  try {
+    await locker.query("SET statement_timeout = '8s'");
+    await locker.query("SET lock_timeout = '5s'");
+    await locker.query("SET deadlock_timeout = '200ms'");
+    await locker.query('BEGIN');
+    await locker.query(lockSql);
+    const emptyOps = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_operations');
+    const emptyTr = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_transitions');
+    if (expectEmpty) {
+      assert.equal(emptyOps.rows[0].n, 0, 'emptiness check must run after both ACCESS EXCLUSIVE locks');
+      assert.equal(emptyTr.rows[0].n, 0, 'emptiness check must run after both ACCESS EXCLUSIVE locks');
+    } else {
+      assert.ok(emptyOps.rows[0].n >= 1, 'claim race requires an existing operation');
+    }
+    await boundRacer(racer);
+    await racer.query(`SET SESSION AUTHORIZATION ${role}`);
+    let raceErr = null;
+    try {
+      await withJsTimeout(run(racer), 6000, `${role} vs DOWN locks`);
+    } catch (error) {
+      raceErr = error;
+    }
+    assert.ok(raceErr, `${role} must not commit while both ACCESS EXCLUSIVE locks are held`);
+    assert.equal(isDeadlock(raceErr), false, `${role} vs DOWN locks deadlocked (40P01): ${raceErr && raceErr.message}`);
+    assert.ok(
+      isBlockOrTimeout(raceErr),
+      `${role} must block/timeout under ACCESS EXCLUSIVE, got ${raceErr && raceErr.code} ${raceErr && raceErr.message}`,
+    );
+    const stillOps = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_operations');
+    const stillTr = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_transitions');
+    if (expectEmpty) {
+      assert.equal(stillOps.rows[0].n, 0, 'reserve cannot commit between emptiness check and DROP');
+      assert.equal(stillTr.rows[0].n, 0, 'reserve cannot commit between emptiness check and DROP');
+    } else {
+      assert.equal(stillOps.rows[0].n, emptyOps.rows[0].n);
+      if (expectUnclaimed) {
+        const claimed = await locker.query(
+          'SELECT create_dispatch_claimed FROM public.tenant_email_luna_controlled_draft_operations WHERE operation_id = $1',
+          [ids.operation],
+        );
+        assert.equal(claimed.rows[0].create_dispatch_claimed, false, 'claim cannot commit while ACCESS EXCLUSIVE is held');
+      }
+    }
+    await locker.query('ROLLBACK');
+    return { raceErr };
+  } finally {
+    try { await locker.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    try { await locker.end(); } catch (_) { /* ignore */ }
+    try { await racer.end(); } catch (_) { /* ignore */ }
   }
 }
 
@@ -170,36 +312,47 @@ async function proveStockPg(client, connectClone) {
       language: seeded.bundle.draft.language,
     };
 
-    const locker = await connectClone();
-    const racer = await connectClone();
-    try {
-      await locker.query('BEGIN');
-      await locker.query('LOCK TABLE public.tenant_email_luna_controlled_draft_transitions IN ACCESS EXCLUSIVE MODE');
-      await locker.query('LOCK TABLE public.tenant_email_luna_controlled_draft_operations IN ACCESS EXCLUSIVE MODE');
-      const emptyOps = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_operations');
-      const emptyTr = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_transitions');
-      assert.equal(emptyOps.rows[0].n, 0);
-      assert.equal(emptyTr.rows[0].n, 0);
-      await racer.query("SET lock_timeout = '800ms'");
-      let raceErr = null;
-      try {
-        await racer.query(
-          'INSERT INTO public.tenant_email_luna_controlled_draft_operations SELECT * FROM public.tenant_email_luna_controlled_draft_operations',
-        );
-      } catch (error) {
-        raceErr = error;
-      }
-      assert.ok(raceErr, 'concurrent insert must not commit while ACCESS EXCLUSIVE is held');
-      assert.match(String(raceErr.code || raceErr.message), /55P03|lock timeout|canceling statement/i);
-      const stillEmpty = await locker.query('SELECT COUNT(*)::int AS n FROM public.tenant_email_luna_controlled_draft_operations');
-      assert.equal(stillEmpty.rows[0].n, 0);
-      await locker.query('ROLLBACK');
-    } finally {
-      try { await locker.query('ROLLBACK'); } catch (_) { /* ignore */ }
-      try { await locker.end(); } catch (_) { /* ignore */ }
-      try { await racer.end(); } catch (_) { /* ignore */ }
-    }
-    console.log('ok - stock-PG two-session DOWN race: insert cannot commit between emptiness check and DROP');
+    assert097DownParentBeforeChildLocks(DOWN);
+    const lockSql = leadingLockDoSql(DOWN);
+
+    await proveDownLocksVsMappedFunction({
+      connectClone,
+      lockSql,
+      role: 'luna_ch2_stock_producer',
+      run: (racer) => callMappedReserve(racer, seeded),
+      expectEmpty: true,
+    });
+    console.log('ok - stock-PG two-session DOWN vs producer reserve: no 40P01; reserve cannot commit between emptiness check and DROP');
+
+    await db.exec(DOWN);
+    await db.exec(DOWN);
+    const gone = await client.query(
+      'SELECT to_regclass(\'public.tenant_email_luna_controlled_draft_operations\') AS rel',
+    );
+    assert.equal(gone.rows[0].rel, null);
+    console.log('ok - stock-PG empty DOWN remains repeatable after rollback of empty DOWN lock transaction');
+    await db.exec(UP);
+    await revokePublicExecuteOutsideCatalogs(db);
+    await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
+      roleName: 'luna_ch2_stock_worker',
+      kind: 'worker',
+      client_id: ids.client,
+      location_id: ids.location,
+      location_key: 'sunset-somo',
+      password: PASSWORD,
+      apply: true,
+    });
+    await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
+      roleName: 'luna_ch2_stock_producer',
+      kind: 'producer',
+      client_id: ids.client,
+      location_id: ids.location,
+      location_key: 'sunset-somo',
+      password: PASSWORD,
+      apply: true,
+    });
+    assert.equal(await hasExecute(client, 'luna_ch2_stock_producer', RESERVE_REG), true);
+    assert.equal(await hasExecute(client, 'luna_ch2_stock_worker', CLAIM_REG), true);
 
     const reserved = await Promise.all([
       storeFor(producerA).reserveControlledDraft(reserveInput),
@@ -215,6 +368,16 @@ async function proveStockPg(client, connectClone) {
       [ids.operation],
     );
     assert.equal(opCount.rows[0].n, 1);
+
+    await proveDownLocksVsMappedFunction({
+      connectClone,
+      lockSql,
+      role: 'luna_ch2_stock_worker',
+      run: (racer) => callMappedClaim(racer, seeded),
+      expectEmpty: false,
+      expectUnclaimed: true,
+    });
+    console.log('ok - stock-PG two-session DOWN vs worker claim: no 40P01; claim cannot commit while ACCESS EXCLUSIVE is held');
 
     const claims = await Promise.all([
       storeFor(workerA).claimCreateDispatch({

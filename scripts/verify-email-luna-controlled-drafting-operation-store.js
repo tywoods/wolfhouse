@@ -25,6 +25,9 @@ const {
 const {
   EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_WIRED,
 } = require('./lib/email-luna-controlled-drafting-provider-contract');
+const {
+  assert097DownParentBeforeChildLocks,
+} = require('./prove-email-luna-controlled-drafting-operation-store-pglite');
 
 const ROOT = path.join(__dirname, '..');
 const SQL_097 = fs.readFileSync(path.join(ROOT, 'database/migrations/097_tenant_email_luna_controlled_draft_operations.sql'), 'utf8');
@@ -95,8 +98,10 @@ assert.match(SQL_097, /position\('%' in p_id\) = 0/);
 assert.match(SQL_097, /NOT LIKE '%\\%2e%2e%' ESCAPE '\\'/);
 assert.match(SQL_097, /pg_catalog\.sha256\(pg_catalog\.convert_to\(p_canonical_subject, 'UTF8'\)\)/);
 assert.match(SQL_097, /queue not live/);
-assert.match(DOWN_097, /LOCK TABLE public\.tenant_email_luna_controlled_draft_transitions IN ACCESS EXCLUSIVE MODE/);
-assert.match(DOWN_097, /LOCK TABLE public\.tenant_email_luna_controlled_draft_operations IN ACCESS EXCLUSIVE MODE/);
+assert097DownParentBeforeChildLocks(DOWN_097);
+assert.match(DOC_SRC, /parent operations then child transitions/);
+assert.doesNotMatch(DOC_SRC, /transitions then operations/);
+assert.doesNotMatch(DOWN_097, /locks child transitions then parent operations/);
 assert.match(SQL_097, /create_dispatched_outcome_unknown/);
 assert.match(SQL_097, /unknown outcome is reconcile-only/);
 assert.match(SQL_097, /provider_draft_id replacement refused/);

@@ -56,6 +56,60 @@ const MESSAGE = 'AAMkAGI2thMessageId';
 const THREAD = 'AAMkAGI2thThreadId';
 const DRAFT_ID = 'AAMkAGI2thDraftId';
 
+const PARENT_REL = 'tenant_email_luna_controlled_draft_operations';
+const CHILD_REL = 'tenant_email_luna_controlled_draft_transitions';
+
+function lockTableNamesInOrder(block) {
+  const names = [];
+  const re = /LOCK TABLE\s+([\s\S]+?)\s+IN ACCESS EXCLUSIVE MODE/gi;
+  let match;
+  while ((match = re.exec(block))) {
+    for (const part of match[1].split(',')) {
+      const name = part.trim().replace(/^public\./, '');
+      if (name) names.push(name);
+    }
+  }
+  return names;
+}
+
+function assert097DownParentBeforeChildLocks(sql) {
+  const beginIdx = sql.search(/(?:^|\n)BEGIN;/);
+  assert.ok(beginIdx >= 0, '097 DOWN must open a transaction');
+  const firstDo = sql.indexOf('DO $$', beginIdx);
+  assert.ok(firstDo > beginIdx, '097 DOWN must acquire locks inside the leading transaction');
+  const firstDoEnd = sql.indexOf('END $$', firstDo);
+  assert.ok(firstDoEnd > firstDo, '097 DOWN leading lock DO must close');
+  const lockBlock = sql.slice(firstDo, firstDoEnd);
+  const refusedIdx = sql.indexOf('097_down_refused');
+  assert.ok(refusedIdx > firstDoEnd, 'emptiness checks must follow parent-then-child lock acquisition');
+  const dropChild = sql.indexOf(`DROP TABLE IF EXISTS public.${CHILD_REL}`);
+  const dropParent = sql.indexOf(`DROP TABLE IF EXISTS public.${PARENT_REL}`);
+  assert.ok(dropChild > refusedIdx, 'DROP child must follow emptiness checks');
+  assert.ok(dropParent > dropChild, 'DROP child then parent after both locks are held');
+
+  assert.equal(
+    /LOCK TABLE\s+public\.tenant_email_luna_controlled_draft_transitions\s*,\s*public\.tenant_email_luna_controlled_draft_operations/i.test(lockBlock),
+    false,
+    'reversed LOCK TABLE child, parent is forbidden',
+  );
+  assert.match(
+    lockBlock,
+    /LOCK TABLE public\.tenant_email_luna_controlled_draft_operations,\s*public\.tenant_email_luna_controlled_draft_transitions IN ACCESS EXCLUSIVE MODE/,
+  );
+
+  const ordered = lockTableNamesInOrder(lockBlock);
+  const parentIdx = ordered.indexOf(PARENT_REL);
+  const childIdx = ordered.indexOf(CHILD_REL);
+  assert.ok(parentIdx >= 0, 'DOWN must ACCESS EXCLUSIVE lock parent operations');
+  assert.ok(childIdx >= 0, 'DOWN must ACCESS EXCLUSIVE lock child transitions');
+  assert.ok(
+    parentIdx < childIdx,
+    'DOWN must lock parent operations before child transitions; reversed child-before-parent is forbidden',
+  );
+  assert.doesNotMatch(sql, /ACCESS EXCLUSIVE locks child transitions then parent/i);
+  assert.doesNotMatch(sql, /locks child transitions then parent operations/i);
+}
+
 function tryLoadPglite() {
   for (const base of [
     process.env.NODE_PATH,
@@ -87,8 +141,16 @@ function assertStaticContract() {
   assert.match(UP, /NOT LIKE '%\\%2e%2e%' ESCAPE '\\'/);
   assert.match(UP, /pg_catalog\.sha256\(pg_catalog\.convert_to\(p_canonical_subject, 'UTF8'\)\)/);
   assert.match(UP, /queue not live/);
-  assert.match(DOWN, /LOCK TABLE public\.tenant_email_luna_controlled_draft_transitions IN ACCESS EXCLUSIVE MODE/);
-  assert.match(DOWN, /LOCK TABLE public\.tenant_email_luna_controlled_draft_operations IN ACCESS EXCLUSIVE MODE/);
+  assert097DownParentBeforeChildLocks(DOWN);
+  assert.throws(
+    () => assert097DownParentBeforeChildLocks(
+      DOWN.replace(
+        'public.tenant_email_luna_controlled_draft_operations, public.tenant_email_luna_controlled_draft_transitions',
+        'public.tenant_email_luna_controlled_draft_transitions, public.tenant_email_luna_controlled_draft_operations',
+      ),
+    ),
+    (error) => error && /forbidden|before child|reversed/i.test(String(error.message)),
+  );
   assert.equal(/send_invocation_count|send_dispatched|authorize_send|reconciled_sent/.test(UP), false);
   assert.equal(/\btenant_email_outbound_send_journal\b/.test(UP), false);
   assert.match(UP, /NOT an outbound send journal/);
@@ -1234,6 +1296,7 @@ module.exports = {
   THREAD,
   DRAFT_ID,
   assertStaticContract,
+  assert097DownParentBeforeChildLocks,
   applyCommittedInbound063Identity,
   loadDraftStore,
   ackFor,

@@ -79,4 +79,4 @@ One pinned client owns `BEGIN` / row locks / writes / `COMMIT` / `ROLLBACK`. The
 
 ## Rollback
 
-`097_tenant_email_luna_controlled_draft_operations_down.sql` takes ACCESS EXCLUSIVE locks on transitions then operations before emptiness checks, and refuses while rows exist. Empty rollback is repeatable and does not reopen send authority.
+`097_tenant_email_luna_controlled_draft_operations_down.sql` takes ACCESS EXCLUSIVE locks on parent operations then child transitions before emptiness checks (matching producer reserve / worker claim; never child-before-parent, which deadlocks as `40P01`), and refuses while rows exist. Empty rollback is repeatable and does not reopen send authority.
