@@ -34922,10 +34922,28 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
   }
   return html;
 }
+function bcGuestCountFrom(bk, blk, guestRows){
+  var n = parseInt(bk && bk.guest_count, 10);
+  if (n > 0) return n;
+  n = parseInt(blk && (blk.guest_count || blk.guests), 10);
+  if (n > 0) return n;
+  if (guestRows && guestRows.length) return guestRows.length;
+  return 0;
+}
+
+function bcPaintSideStayMeta(bk, blk, guestRows){
+  var meta = el('bc-side-meta');
+  if (!meta) return;
+  var cin = (bk && bk.check_in) || (blk && (blk.check_in || blk.start_date)) || '';
+  var cout = (bk && bk.check_out) || (blk && (blk.check_out || blk.end_date)) || '';
+  meta.innerHTML = bcSideStayMetaHtml(cin, cout, bcGuestCountFrom(bk, blk, guestRows));
+}
+
 function updateBcDetailHeader(data){
+  var bk = (data && data.booking) || {};
+  bcPaintSideStayMeta(bk, bcLastOpenedBlock, (data && data.booking_guests) || []);
   var meta = el('bc-detail-meta');
   if (!meta) return;
-  var bk = (data && data.booking) || {};
   var transferRows = (data && data.transfers) || [];
   var ledger = bcBookingLedgerBalance(
     bk,
@@ -40829,9 +40847,7 @@ function bcOpenSideBooking(blk, opts){
   var title = el('bc-side-title');
   var meta = el('bc-side-meta');
   if (title) title.textContent = blk.guest_name || blk.booking_code || 'Booking';
-  var cin = blk.check_in || blk.start_date || '';
-  var cout = blk.check_out || blk.end_date || '';
-  if (meta) meta.innerHTML = bcSideStayMetaHtml(cin, cout, blk.guest_count || blk.guests);
+  bcPaintSideStayMeta(null, blk, null);
   var code = blk.booking_code;
   if (code && bcLastBookingContext && bcLastBookingContext.booking &&
       String(bcLastBookingContext.booking.booking_code) === String(code) &&
@@ -46278,6 +46294,7 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       booking_id:        row.booking_id,
       booking_code:      row.booking_code,
       guest_name:        displayGuestOrNull,
+      guest_count:       row.guest_count != null ? Number(row.guest_count) : null,
       bed_guest_name:    String(row.bed_guest_name || '').trim() || null,
       planning_row_label: row.planning_row_label || null,
       assignment_label:  row.assignment_label || null,
