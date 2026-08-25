@@ -318,7 +318,6 @@ function deniedExecuteFunctionsFor(kind) {
     const names = [
       ...WORKER_EXECUTE_FUNCTIONS,
       ...OPERATOR_EXECUTE_FUNCTIONS,
-      ...EMAIL_LUNA_AUTOMATION_PRINCIPAL_CONTRACT.support_execute_functions,
     ];
     return objectFreeze(names.map((name) => FUNCTION_SIGNATURES[name]));
   }

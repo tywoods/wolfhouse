@@ -141,7 +141,123 @@ function runChild(script) {
   assert.equal(proof.status, 0, `${script} must stay green`);
 }
 
-function main() {
+async function proveClosedAttestParsing(provider, issuanceStore) {
+  async function expectGetterReject(loanerFactory, flag) {
+    const runtime = createEmailLunaControlledDraftingSunsetStagingRuntimeComposition({
+      env: enabledEnv(),
+      producerWithTransactionClient: bindProducerWithTransactionClient(loanerFactory),
+      workerWithTransactionClient: brandedPair().worker,
+      provider,
+      issuanceStore,
+    });
+    let rejected = false;
+    try {
+      await runtime.reserveControlledDraft({ material: Object.freeze({}) });
+    } catch (error) {
+      rejected = error && error.code === ERROR_CODE;
+    }
+    assert.equal(rejected, true);
+    assert.equal(flag.ran, false);
+  }
+
+  const resultFlag = { ran: false };
+  await expectGetterReject(async (work) => work({
+    async query() {
+      const result = {};
+      Object.defineProperty(result, 'rows', {
+        enumerable: true,
+        configurable: true,
+        get() {
+          resultFlag.ran = true;
+          return [{}];
+        },
+      });
+      return result;
+    },
+  }), resultFlag);
+
+  const rowFlag = { ran: false };
+  await expectGetterReject(async (work) => work({
+    async query() {
+      const rows = [];
+      Object.defineProperty(rows, '0', {
+        enumerable: true,
+        configurable: true,
+        get() {
+          rowFlag.ran = true;
+          return {
+            session_user: 'luna',
+            current_user: 'luna',
+            table_owner: 'postgres',
+            session_distinct_from_owner: true,
+            session_matches_current: true,
+            mapping_ok: true,
+            login_contract_ok: true,
+            execute_ok: true,
+          };
+        },
+      });
+      Object.defineProperty(rows, 'length', {
+        value: 1, enumerable: false, writable: true, configurable: true,
+      });
+      const result = {};
+      Object.defineProperty(result, 'rows', {
+        value: rows, enumerable: true, writable: true, configurable: true,
+      });
+      return result;
+    },
+  }), rowFlag);
+
+  const extraFlag = { ran: false };
+  await expectGetterReject(async (work) => work({
+    async query() {
+      extraFlag.ran = true;
+      const row = {
+        session_user: 'luna',
+        current_user: 'luna',
+        table_owner: 'postgres',
+        session_distinct_from_owner: true,
+        session_matches_current: true,
+        mapping_ok: true,
+        login_contract_ok: true,
+        execute_ok: true,
+        extra: true,
+      };
+      return { rows: [row] };
+    },
+  }), { ran: false });
+  assert.equal(extraFlag.ran, true, 'exact extra-column row is read via ownData then refused');
+
+  const proxyFlag = { ran: false };
+  await expectGetterReject(async (work) => work({
+    async query() {
+      const row = new Proxy({
+        session_user: 'luna',
+        current_user: 'luna',
+        table_owner: 'postgres',
+        session_distinct_from_owner: true,
+        session_matches_current: true,
+        mapping_ok: true,
+        login_contract_ok: true,
+        execute_ok: true,
+      }, {
+        get(target, prop, receiver) {
+          proxyFlag.ran = true;
+          return Reflect.get(target, prop, receiver);
+        },
+      });
+      const result = {};
+      Object.defineProperty(result, 'rows', {
+        value: [row], enumerable: true, writable: true, configurable: true,
+      });
+      return result;
+    },
+  }), proxyFlag);
+
+  console.log('  PASS  getter/proxy/extra attest rows fail closed without inherited accessors');
+}
+
+async function main() {
   console.log('FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 3 runtime composition verifier');
 
   assert.equal(EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_WIRED, true);
@@ -290,6 +406,23 @@ function main() {
   assert.match(RUNTIME_SRC, /bindProducerWithTransactionClient/);
   assert.match(RUNTIME_SRC, /producerFacade/);
   assert.match(RUNTIME_SRC, /attestMappedPrincipal/);
+  assert.match(RUNTIME_SRC, /PRODUCER_ATTEST_SQL = attestSql\('producer'/);
+  assert.match(RUNTIME_SRC, /WORKER_ATTEST_SQL = attestSql\('worker'/);
+  assert.match(RUNTIME_SRC, /has_function_privilege/);
+  assert.match(RUNTIME_SRC, /tenant_email_luna_automation_principal_authorized\('\$\{kindLiteral\}'/);
+  assert.match(RUNTIME_SRC, /expectedKind === 'producer'/);
+  assert.match(RUNTIME_SRC, /expectedKind === 'worker'/);
+  assert.match(RUNTIME_SRC, /session_user::text IS DISTINCT FROM owner\.rolname::text/);
+  assert.match(RUNTIME_SRC, /session_user::text IS NOT DISTINCT FROM current_user::text/);
+  assert.match(RUNTIME_SRC, /ownData\(result, 'rows'\)/);
+  assert.match(RUNTIME_SRC, /ownData\(rows, 0\)/);
+  assert.match(RUNTIME_SRC, /exactOwnData\(row, ATTEST_KEYS\)/);
+  assert.equal(RUNTIME_SRC.includes('|| result.rows'), false);
+  assert.equal(RUNTIME_SRC.includes('rows = result.rows'), false);
+  assert.equal(RUNTIME_SRC.includes('|| row.session_user'), false);
+  assert.match(DOC_SRC, /has_function_privilege\(session_user/);
+  assert.match(DOC_SRC, /principal_authorized/);
+  assert.match(DOC_SRC, /SET ROLE/);
   assert.doesNotMatch(STAFF_API_SRC, /email-luna-controlled-drafting-sunset-staging-runtime-composition/);
   assert.doesNotMatch(COMPOSE_SRC, /EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_ENABLED/);
   assert.doesNotMatch(DOCKERFILE_SRC, /EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_ENABLED/);
@@ -303,6 +436,8 @@ function main() {
   assert.equal(STORE_SRC.includes('createEmailLunaControlledDraftingSunsetStagingRuntimeComposition'), false);
   console.log('  PASS  mutation isolation: no send/journal/raw Graph; no memory SQL clone; not deployed');
 
+  await proveClosedAttestParsing(provider, issuanceStore);
+
   console.log('  … Chapter 1 provider contract (Graph mapping truth)');
   runChild('verify-email-luna-controlled-drafting-provider-contract.js');
   console.log('  … Chapter 3 PGlite runtime composition');
@@ -313,4 +448,7 @@ function main() {
   console.log('ALL OK — Stage 2 Chapter 3 controlled-drafting runtime composition');
 }
 
-main();
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

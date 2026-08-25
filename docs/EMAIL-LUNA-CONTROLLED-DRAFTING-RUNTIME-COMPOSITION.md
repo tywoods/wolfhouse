@@ -16,7 +16,14 @@ Canonical owners remain:
 - Chapter 1 closed provider (`attest`, `createReplyDraft`, `reconcileDraft`)
 - Chapter 2 operation store (producer reserve, worker claim/record/reconcile)
 
-This package is a small factory plus a worker-tick API. Producer and worker `withTransactionClient` functions are capability-split facades (producer: reserve/load; worker: load/claim/record/reconcile). Identical references, aliases of a shared store, swapped brands, table-owner, operator, and unmapped sessions are refused via branded loaners plus canonical `session_user` principal attestation. Each store transition uses one pinned Chapter 2 transaction. The provider is never the Gate 3 Graph adapter; send/sendMail/raw token/fetch/request are not reachable.
+This package is a small factory plus a worker-tick API. Producer and worker `withTransactionClient` functions are capability-split facades (producer: reserve/load; worker: load/claim/record/reconcile). Identical references, aliases of a shared store, and swapped brands are refused via branded loaners. Composition positively attests the session before any operation SQL or provider call:
+
+- `session_user` is non-null and distinct from the owner of `public.tenant_email_luna_automation_queue`
+- `current_user` equals `session_user` (owner+`SET ROLE` overlays are refused; 092/097 authorize from `session_user`, not `current_user`)
+- an exact canonical mapping row exists in `public.tenant_email_luna_automation_principals` for `role_name=session_user`, the expected `principal_kind` (`producer` or `worker`), and the runtime `client_id`/`location_id`/`location_key` (proven via SECURITY DEFINER `principal_authorized`, because mapped LOGINs have no table SELECT; the table-owner bypass of that function is refused)
+- `has_function_privilege(session_user, regprocedure, 'EXECUTE')` is true for every required 097 function: producer reserve+load; worker claim-create+record-create+reconcile+load
+
+Table privileges are not authority. Unmapped, operator, table-owner, inherited, swapped-kind, wrong-location, EXECUTE-revoked, getter/proxy result, and owner-session wrapper sessions fail closed at attestation with zero operation SQL and zero provider calls. Each store transition uses one pinned Chapter 2 transaction. The provider is never the Gate 3 Graph adapter; send/sendMail/raw token/fetch/request are not reachable.
 
 Default is fail-closed and disabled. Activation requires the exact string `true` on the composition flag plus exact Sunset tenant, location, mailbox, endpoint, and `microsoft_graph`. Wolfhouse, production, default, and flag substitutes are refused. `LUNA_AUTO_SEND_ENABLED` remains a hard refusal.
 

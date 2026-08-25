@@ -54,6 +54,7 @@ const objectCreate = Object.create;
 const objectDefineProperty = Object.defineProperty;
 const objectFreeze = Object.freeze;
 const objectHasOwn = Object.hasOwn;
+const objectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
 const objectGetPrototypeOf = Object.getPrototypeOf;
 const objectPrototype = Object.prototype;
 const reflectOwnKeys = Reflect.ownKeys;
@@ -264,49 +265,198 @@ function workerFacade(store) {
   });
 }
 
-const SESSION_ATTEST_SQL = [
-  'SELECT',
-  '  session_user::text AS session_user,',
-  '  current_user::text AS current_user,',
-  '  (',
-  '    SELECT r.rolname::text',
-  '      FROM pg_catalog.pg_roles r',
-  '      JOIN pg_catalog.pg_class c ON c.relowner = r.oid',
-  '      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
-  "     WHERE n.nspname = 'public'",
-  "       AND c.relname = 'tenant_email_luna_automation_queue'",
-  "       AND c.relkind = 'r'",
-  '  ) AS table_owner',
-].join('\n');
+const PRINCIPAL_AUTHORIZED_REG =
+  'public.tenant_email_luna_automation_principal_authorized(text, uuid, uuid, text)';
+const RESERVE_REG =
+  'public.tenant_email_luna_controlled_draft_reserve(uuid, uuid, text, text, text, text, text, text)';
+const CLAIM_REG = 'public.tenant_email_luna_controlled_draft_claim_create(uuid, uuid, integer)';
+const RECORD_REG = 'public.tenant_email_luna_controlled_draft_record_create(uuid, uuid, integer, jsonb)';
+const RECONCILE_REG = 'public.tenant_email_luna_controlled_draft_reconcile(uuid, uuid, integer, jsonb)';
+const LOAD_REG = 'public.tenant_email_luna_controlled_draft_load(uuid, uuid)';
+const ATTEST_KEYS = objectFreeze([
+  'session_user',
+  'current_user',
+  'table_owner',
+  'session_distinct_from_owner',
+  'session_matches_current',
+  'mapping_ok',
+  'login_contract_ok',
+  'execute_ok',
+]);
+
+function privilegeSql(reg) {
+  return [
+    'CASE',
+    `  WHEN pg_catalog.to_regprocedure('${reg}') IS NULL THEN FALSE`,
+    '  ELSE pg_catalog.has_function_privilege(',
+    '    session_user,',
+    `    '${reg}'::pg_catalog.regprocedure,`,
+    "    'EXECUTE'",
+    '  )',
+    'END',
+  ].join('\n');
+}
+
+function mappingSql(kindLiteral) {
+  return [
+    'CASE',
+    `  WHEN pg_catalog.to_regprocedure('${PRINCIPAL_AUTHORIZED_REG}') IS NULL THEN FALSE`,
+    `  WHEN NOT pg_catalog.has_function_privilege(`,
+    '    session_user,',
+    `    '${PRINCIPAL_AUTHORIZED_REG}'::pg_catalog.regprocedure,`,
+    "    'EXECUTE'",
+    '  ) THEN FALSE',
+    `  ELSE public.tenant_email_luna_automation_principal_authorized('${kindLiteral}', $1::uuid, $2::uuid, $3::text)`,
+    'END',
+  ].join('\n');
+}
+
+function attestSql(kindLiteral, executeRegs) {
+  if (kindLiteral !== 'producer' && kindLiteral !== 'worker') {
+    throw new Error('controlled_drafting_attest_sql_kind');
+  }
+  const executeParts = [];
+  for (let i = 0; i < executeRegs.length; i += 1) {
+    if (i > 0) executeParts.push(' AND ');
+    executeParts.push('(\n', privilegeSql(executeRegs[i]), '\n)');
+  }
+  return [
+    'SELECT',
+    '  session_user::text AS session_user,',
+    '  current_user::text AS current_user,',
+    '  owner.rolname::text AS table_owner,',
+    '  (',
+    '    session_user IS NOT NULL',
+    '    AND owner.rolname IS NOT NULL',
+    '    AND session_user::text IS DISTINCT FROM owner.rolname::text',
+    '  ) AS session_distinct_from_owner,',
+    '  (',
+    '    session_user IS NOT NULL',
+    '    AND session_user::text IS NOT DISTINCT FROM current_user::text',
+    '  ) AS session_matches_current,',
+    `  (\n${mappingSql(kindLiteral)}\n  ) AS mapping_ok,`,
+    '  EXISTS (',
+    '    SELECT 1',
+    '      FROM pg_catalog.pg_roles r',
+    '     WHERE r.rolname = session_user',
+    '       AND r.rolcanlogin IS TRUE',
+    '       AND r.rolsuper IS FALSE',
+    '       AND r.rolcreatedb IS FALSE',
+    '       AND r.rolcreaterole IS FALSE',
+    '       AND r.rolreplication IS FALSE',
+    '       AND r.rolbypassrls IS FALSE',
+    '  ) AS login_contract_ok,',
+    `  (\n${executeParts.join('')}\n  ) AS execute_ok`,
+    'FROM (',
+    '  SELECT r.rolname',
+    '    FROM pg_catalog.pg_roles r',
+    '    JOIN pg_catalog.pg_class c ON c.relowner = r.oid',
+    '    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace',
+    "   WHERE n.nspname = 'public'",
+    "     AND c.relname = 'tenant_email_luna_automation_queue'",
+    "     AND c.relkind = 'r'",
+    ') AS owner',
+  ].join('\n');
+}
+
+// Fixed producer/worker variants. expectedKind only selects between these;
+// caller strings are never concatenated into SQL or regprocedure literals.
+// Mapping is SECURITY DEFINER principal_authorized (088/092): mapped LOGINs
+// have no SELECT on principals. Table-owner bypass of that function is refused.
+const PRODUCER_ATTEST_SQL = attestSql('producer', objectFreeze([RESERVE_REG, LOAD_REG]));
+const WORKER_ATTEST_SQL = attestSql('worker', objectFreeze([CLAIM_REG, RECORD_REG, RECONCILE_REG, LOAD_REG]));
 
 function readAttestRow(result) {
-  if (!result || typeof result !== 'object' || isProxySurface(result)) throw invalid();
-  let rows = ownData(result, 'rows');
-  if (rows === undefined) {
-    try { rows = result.rows; } catch (_) { throw invalid(); }
+  if (!result || typeof result !== 'object' || isProxySurface(result) || arrayIsArray(result)) {
+    throw invalid();
   }
-  if (!Array.isArray(rows) || rows.length !== 1 || isProxySurface(rows)) throw invalid();
-  const row = rows[0];
-  if (!row || typeof row !== 'object' || isProxySurface(row) || Array.isArray(row)) throw invalid();
-  return row;
+  const rows = ownData(result, 'rows');
+  if (!arrayIsArray(rows) || rows.length !== 1 || isProxySurface(rows)) throw invalid();
+  const row = ownData(rows, 0);
+  if (!row || typeof row !== 'object' || isProxySurface(row) || arrayIsArray(row)) throw invalid();
+  const parsed = exactOwnData(row, ATTEST_KEYS);
+  if (!parsed) throw invalid();
+  return parsed;
+}
+
+function closedAttestBinding(binding) {
+  if (!binding || typeof binding !== 'object' || isProxySurface(binding) || arrayIsArray(binding)) {
+    throw invalid();
+  }
+  const clientId = ownData(binding, 'client_id');
+  const locationId = ownData(binding, 'location_id');
+  const locationKey = ownData(binding, 'location_key');
+  if (!isCanonUuid(clientId) || !isCanonUuid(locationId)) throw invalid();
+  if (typeof locationKey !== 'string' || locationKey !== SUNSET_LOCATION_KEY) throw invalid();
+  return objectFreeze({
+    client_id: clientId,
+    location_id: locationId,
+    location_key: locationKey,
+  });
+}
+
+function resolveQuery(client) {
+  if (!client || (typeof client !== 'object' && typeof client !== 'function') || isProxySurface(client)) {
+    return null;
+  }
+  const own = objectGetOwnPropertyDescriptor(client, 'query');
+  if (own) {
+    return objectHasOwn(own, 'value') && typeof own.value === 'function' && !own.get && !own.set
+      ? own.value
+      : null;
+  }
+  let proto = objectGetPrototypeOf(client);
+  let depth = 0;
+  while (proto && proto !== objectPrototype && depth < 8) {
+    if (isProxySurface(proto)) return null;
+    const descriptor = objectGetOwnPropertyDescriptor(proto, 'query');
+    if (descriptor) {
+      return objectHasOwn(descriptor, 'value') && typeof descriptor.value === 'function'
+        && !descriptor.get && !descriptor.set
+        ? descriptor.value
+        : null;
+    }
+    proto = objectGetPrototypeOf(proto);
+    depth += 1;
+  }
+  return null;
+}
+
+function acceptAttestRow(row) {
+  const sessionUser = ownData(row, 'session_user');
+  const currentUser = ownData(row, 'current_user');
+  const tableOwner = ownData(row, 'table_owner');
+  if (typeof sessionUser !== 'string' || sessionUser.length < 1) throw invalid();
+  if (typeof currentUser !== 'string' || currentUser.length < 1) throw invalid();
+  if (typeof tableOwner !== 'string' || tableOwner.length < 1) throw invalid();
+  if (sessionUser !== currentUser) throw invalid();
+  if (sessionUser === tableOwner) throw invalid();
+  if (ownData(row, 'session_distinct_from_owner') !== true) throw invalid();
+  if (ownData(row, 'session_matches_current') !== true) throw invalid();
+  if (ownData(row, 'mapping_ok') !== true) throw invalid();
+  if (ownData(row, 'login_contract_ok') !== true) throw invalid();
+  if (ownData(row, 'execute_ok') !== true) throw invalid();
 }
 
 async function attestMappedPrincipal(loaner, expectedKind, binding) {
+  let sql;
+  if (expectedKind === 'producer') sql = PRODUCER_ATTEST_SQL;
+  else if (expectedKind === 'worker') sql = WORKER_ATTEST_SQL;
+  else throw invalid();
+  const closed = closedAttestBinding(binding);
   return loaner(async (client) => {
-    if (!client || typeof client.query !== 'function' || isProxySurface(client.query)) throw invalid();
+    if (!client || typeof client !== 'object' || isProxySurface(client) || arrayIsArray(client)) {
+      throw invalid();
+    }
+    const queryFn = resolveQuery(client);
+    if (typeof queryFn !== 'function' || isProxySurface(queryFn)) throw invalid();
     let result;
     try {
-      result = await client.query(SESSION_ATTEST_SQL);
+      result = await queryFn.call(client, sql, [closed.client_id, closed.location_id, closed.location_key]);
     } catch (_) {
       throw invalid();
     }
-    const row = readAttestRow(result);
-    const sessionUser = ownData(row, 'session_user') || row.session_user;
-    const tableOwner = ownData(row, 'table_owner') || row.table_owner;
-    if (typeof sessionUser !== 'string' || typeof tableOwner !== 'string') throw invalid();
-    if (sessionUser === tableOwner) throw invalid();
-    void expectedKind;
-    void binding;
+    acceptAttestRow(readAttestRow(result));
   });
 }
 

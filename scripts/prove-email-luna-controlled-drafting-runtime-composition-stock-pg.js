@@ -35,6 +35,7 @@ const {
 const {
   provisionEmailLunaAutomationPrincipal,
 } = require('./lib/email-luna-automation-principal-provision');
+const { createRoleSql } = require('./lib/email-luna-automation-principal-contract');
 
 const PG_MODULE = '/opt/data/calendar-inventory-bridge-bf/node_modules/pg';
 const EMBEDDED_MODULE = '/opt/data/calendar-inventory-bridge-bf/node_modules/embedded-postgres/dist/index.js';
@@ -155,12 +156,31 @@ function wrapClient(client) {
   };
 }
 
-function roleLoaner(client) {
+const OPERATION_CALL_RE = /FROM public\.tenant_email_luna_controlled_draft_(reserve|claim_create|record_create|reconcile|load)\s*\(/i;
+
+function roleLoaner(client, stats) {
   return async (work) => work({
     async query(text, params) {
+      const sql = String(text || '');
+      if (stats && OPERATION_CALL_RE.test(sql)) stats.operations += 1;
       return client.query(text, params);
     },
   });
+}
+
+async function expectReject(fn, stats, provider, createCallsBefore) {
+  let rejected = false;
+  try {
+    await fn();
+  } catch (error) {
+    rejected = error && error.code === ERROR_CODE;
+  }
+  assert.equal(rejected, true);
+  assert.equal(stats.operations, 0);
+  const creates = provider.fake
+    ? provider.fake.getCalls().filter((row) => row.operation === 'create_reply_draft').length
+    : 0;
+  assert.equal(creates, createCallsBefore);
 }
 
 async function proveStockPg(client, connectClone) {
@@ -194,6 +214,34 @@ async function proveStockPg(client, connectClone) {
     password: PASSWORD,
     apply: true,
   });
+  await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
+    roleName: 'luna_ch3_operator',
+    kind: 'operator',
+    client_id: ids.client,
+    location_id: ids.location,
+    location_key: 'sunset-somo',
+    password: PASSWORD,
+    apply: true,
+  });
+  await provisionEmailLunaAutomationPrincipal(exclusiveSession(db), {
+    roleName: 'luna_ch3_wrong_loc',
+    kind: 'producer',
+    client_id: ids.client,
+    location_id: ids.locationB,
+    location_key: 'sunset-sardinero',
+    password: PASSWORD,
+    apply: true,
+  });
+  await db.exec(createRoleSql('luna_ch3_unmapped', PASSWORD));
+  await db.exec('GRANT CONNECT ON DATABASE postgres TO luna_ch3_unmapped');
+  await db.exec('GRANT USAGE ON SCHEMA public TO luna_ch3_unmapped');
+  await db.exec(`
+    CREATE ROLE luna_ch3_inherited LOGIN PASSWORD '${PASSWORD}'
+      NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS
+  `);
+  await db.exec('GRANT CONNECT ON DATABASE postgres TO luna_ch3_inherited');
+  await db.exec('GRANT USAGE ON SCHEMA public TO luna_ch3_inherited');
+  await db.exec('GRANT luna_ch3_stock_producer TO luna_ch3_inherited');
 
   const owners = loadOwners();
   const ownerLoaner = {
@@ -214,16 +262,29 @@ async function proveStockPg(client, connectClone) {
   const worker = await connectClone();
   const owner = await connectClone();
   const workerB = await connectClone();
+  const unmapped = await connectClone();
+  const operator = await connectClone();
+  const inherited = await connectClone();
+  const wrongLoc = await connectClone();
+  const setRole = await connectClone();
+  const clones = [producer, worker, owner, workerB, unmapped, operator, inherited, wrongLoc, setRole];
   try {
     await producer.query('SET SESSION AUTHORIZATION luna_ch3_stock_producer');
     await worker.query('SET SESSION AUTHORIZATION luna_ch3_stock_worker');
     await workerB.query('SET SESSION AUTHORIZATION luna_ch3_stock_worker');
+    await unmapped.query('SET SESSION AUTHORIZATION luna_ch3_unmapped');
+    await operator.query('SET SESSION AUTHORIZATION luna_ch3_operator');
+    await inherited.query('SET SESSION AUTHORIZATION luna_ch3_inherited');
+    await wrongLoc.query('SET SESSION AUTHORIZATION luna_ch3_wrong_loc');
+    await setRole.query('SET ROLE luna_ch3_stock_producer');
     const issuance = issuanceDouble(seeded.bundle.draft.subject, seeded.bundle.draft.body);
     const made = makeProvider();
+    const producerStats = { operations: 0 };
+    const workerStats = { operations: 0 };
     const runtime = createEmailLunaControlledDraftingSunsetStagingRuntimeComposition({
       env: enabledEnv(),
-      producerWithTransactionClient: bindProducerWithTransactionClient(roleLoaner(producer)),
-      workerWithTransactionClient: bindWorkerWithTransactionClient(roleLoaner(worker)),
+      producerWithTransactionClient: bindProducerWithTransactionClient(roleLoaner(producer, producerStats)),
+      workerWithTransactionClient: bindWorkerWithTransactionClient(roleLoaner(worker, workerStats)),
       provider: made.provider,
       issuanceStore: issuance.store,
     });
@@ -231,6 +292,7 @@ async function proveStockPg(client, connectClone) {
       material: authenticMaterial(issuance.branded, seeded.issuanceId),
     });
     assert.equal(reserved.status, 'reserved');
+    assert.equal(producerStats.operations >= 1, true);
     const loaded = await storeMod.createEmailLunaControlledDraftingOperationStore({
       withTransactionClient: roleLoaner(worker),
     }).loadControlledDraft({
@@ -240,24 +302,163 @@ async function proveStockPg(client, connectClone) {
     const first = await runtime.tick({ operation: loaded.record });
     assert.equal(first.create_invoked, true);
     assert.equal(made.fake.getCalls().filter((row) => row.operation === 'create_reply_draft').length, 1);
+    assert.equal(workerStats.operations >= 1, true);
+    console.log('ok - stock-PG mapped producer attest+reserve; mapped worker attest+claim/record/reconcile/load');
 
-    const ownerRuntime = createEmailLunaControlledDraftingSunsetStagingRuntimeComposition({
+    function rejectRuntime(producerClient, workerClient) {
+      const stats = { operations: 0 };
+      const provider = makeProvider();
+      const composed = createEmailLunaControlledDraftingSunsetStagingRuntimeComposition({
+        env: enabledEnv(),
+        producerWithTransactionClient: bindProducerWithTransactionClient(roleLoaner(producerClient, stats)),
+        workerWithTransactionClient: bindWorkerWithTransactionClient(roleLoaner(workerClient, stats)),
+        provider: provider.provider,
+        issuanceStore: issuance.store,
+      });
+      return { composed, stats, provider };
+    }
+
+    const unmappedCase = rejectRuntime(unmapped, workerB);
+    await expectReject(
+      () => unmappedCase.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      unmappedCase.stats,
+      unmappedCase.provider,
+      0,
+    );
+    console.log('ok - unmapped LOGIN rejected at composition attest');
+
+    const operatorCase = rejectRuntime(operator, workerB);
+    await expectReject(
+      () => operatorCase.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      operatorCase.stats,
+      operatorCase.provider,
+      0,
+    );
+    console.log('ok - operator rejected at composition attest');
+
+    const ownerCase = rejectRuntime(owner, workerB);
+    await expectReject(
+      () => ownerCase.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      ownerCase.stats,
+      ownerCase.provider,
+      0,
+    );
+    const ownerWrapA = rejectRuntime(owner, workerB);
+    const ownerWrapB = rejectRuntime(owner, workerB);
+    await expectReject(
+      () => ownerWrapA.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      ownerWrapA.stats,
+      ownerWrapA.provider,
+      0,
+    );
+    await expectReject(
+      () => ownerWrapB.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      ownerWrapB.stats,
+      ownerWrapB.provider,
+      0,
+    );
+    console.log('ok - table owner and two wrappers over one owner session rejected at attest');
+
+    const setRoleWho = await setRole.query(
+      'SELECT session_user::text AS session_user, current_user::text AS current_user',
+    );
+    assert.notEqual(setRoleWho.rows[0].session_user, setRoleWho.rows[0].current_user);
+    const setRoleCase = rejectRuntime(setRole, workerB);
+    await expectReject(
+      () => setRoleCase.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      setRoleCase.stats,
+      setRoleCase.provider,
+      0,
+    );
+    console.log('ok - owner + SET ROLE producer rejected because session_user/current_user differ');
+
+    const workerAsProducer = rejectRuntime(worker, workerB);
+    await expectReject(
+      () => workerAsProducer.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      workerAsProducer.stats,
+      workerAsProducer.provider,
+      0,
+    );
+    console.log('ok - mapped worker supplied as producer rejected at attest');
+
+    const producerAsWorkerStats = { operations: 0 };
+    const producerAsWorkerProvider = makeProvider();
+    const producerAsWorker = createEmailLunaControlledDraftingSunsetStagingRuntimeComposition({
       env: enabledEnv(),
-      producerWithTransactionClient: bindProducerWithTransactionClient(roleLoaner(owner)),
-      workerWithTransactionClient: bindWorkerWithTransactionClient(roleLoaner(workerB)),
-      provider: makeProvider().provider,
+      producerWithTransactionClient: bindProducerWithTransactionClient(roleLoaner(producer)),
+      workerWithTransactionClient: bindWorkerWithTransactionClient(roleLoaner(producer, producerAsWorkerStats)),
+      provider: producerAsWorkerProvider.provider,
       issuanceStore: issuance.store,
     });
-    let ownerRefused = false;
-    try {
-      await ownerRuntime.reserveControlledDraft({
+    const afterCreate = await storeMod.createEmailLunaControlledDraftingOperationStore({
+      withTransactionClient: roleLoaner(worker),
+    }).loadControlledDraft({
+      operation_id: ids.operation,
+      issuance_id: seeded.issuanceId,
+    });
+    await expectReject(
+      () => producerAsWorker.tick({ operation: afterCreate.record }),
+      producerAsWorkerStats,
+      producerAsWorkerProvider,
+      0,
+    );
+    console.log('ok - mapped producer supplied as worker rejected at attest');
+
+    const inheritedCase = rejectRuntime(inherited, workerB);
+    await expectReject(
+      () => inheritedCase.composed.reserveControlledDraft({
         material: authenticMaterial(issuance.branded, seeded.issuanceId),
-      });
-    } catch (error) {
-      ownerRefused = error && error.code === ERROR_CODE;
-    }
-    assert.equal(ownerRefused, true);
-    console.log('ok - stock-PG table-owner composition refused; mapped producer/worker create once');
+      }),
+      inheritedCase.stats,
+      inheritedCase.provider,
+      0,
+    );
+    console.log('ok - inherited/non-mapped role rejected at attest');
+
+    const wrongLocCase = rejectRuntime(wrongLoc, workerB);
+    await expectReject(
+      () => wrongLocCase.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      wrongLocCase.stats,
+      wrongLocCase.provider,
+      0,
+    );
+    console.log('ok - wrong tenant/location/location_key mapping rejected at attest');
+
+    await client.query(
+      `REVOKE EXECUTE ON FUNCTION public.tenant_email_luna_controlled_draft_reserve(uuid, uuid, text, text, text, text, text, text) FROM luna_ch3_stock_producer`,
+    );
+    const revokedProducer = await connectClone();
+    clones.push(revokedProducer);
+    await revokedProducer.query('SET SESSION AUTHORIZATION luna_ch3_stock_producer');
+    const revokedCase = rejectRuntime(revokedProducer, workerB);
+    await expectReject(
+      () => revokedCase.composed.reserveControlledDraft({
+        material: authenticMaterial(issuance.branded, seeded.issuanceId),
+      }),
+      revokedCase.stats,
+      revokedCase.provider,
+      0,
+    );
+    await client.query(
+      `GRANT EXECUTE ON FUNCTION public.tenant_email_luna_controlled_draft_reserve(uuid, uuid, text, text, text, text, text, text) TO luna_ch3_stock_producer`,
+    );
+    console.log('ok - mapping correct but required EXECUTE revoked rejected at attest');
 
     const runtimeB = createEmailLunaControlledDraftingSunsetStagingRuntimeComposition({
       env: enabledEnv(),
@@ -280,7 +481,7 @@ async function proveStockPg(client, connectClone) {
     assert.equal(made.fake.getCalls().filter((row) => row.operation === 'create_reply_draft').length, 1);
     console.log('ok - stock-PG two sessions/runtimes: exactly one POST authority');
   } finally {
-    for (const clone of [producer, worker, owner, workerB]) {
+    for (const clone of clones) {
       try { await clone.end(); } catch (_) { /* ignore */ }
     }
   }
