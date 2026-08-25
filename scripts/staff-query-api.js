@@ -19922,9 +19922,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   #tab-bed-calendar .toolbar{flex-wrap:nowrap;align-items:center;gap:8px 10px;margin-bottom:8px}
   #tab-bed-calendar .toolbar h2{flex:0 0 auto;order:1;margin:0;white-space:nowrap;font-size:15px}
   #tab-bed-calendar .bc-chips{flex:1 1 auto;order:2;min-width:0;flex-wrap:nowrap;overflow:hidden}
-  #tab-bed-calendar .bc-legend-row{flex:0 0 auto;order:3}
-  #tab-bed-calendar .toolbar label{flex:0 0 auto;order:4}
-  #tab-bed-calendar #bc-load{order:4}
+  #tab-bed-calendar .bc-range-wrap{flex:0 0 auto;order:3}
+  #tab-bed-calendar #bc-load{flex:0 0 auto;order:3}
+  #tab-bed-calendar .bc-legend-row{flex:0 0 auto;order:4}
   #tab-bed-calendar .bc-bed-cell{padding:5px 14px}
   #tab-bed-calendar .bc-room-hdr{padding:6px 14px}
 }
@@ -19991,6 +19991,30 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 #bc-side-drawer #bc-drawer-card-booking .ctx-field-edit-group{padding:12px 0 14px}
 #bc-side-drawer #bc-drawer-card-booking .kv-grid{gap:14px 18px}
 .bc-side-nights{font-size:11px;font-weight:600;color:var(--text-2);margin-left:6px}
+.bc-range-wrap{position:relative;display:inline-flex;align-items:center}
+.bc-range-btn{
+  height:30px;padding:0 10px;border:1px solid var(--border-soft);border-radius:8px;
+  background:var(--surface);color:var(--text);font-size:12px;font-weight:600;cursor:pointer;
+  white-space:nowrap;
+}
+.bc-range-btn:hover{background:var(--surface-soft)}
+.bc-range-pick{
+  position:absolute;inset:0;opacity:0;width:100%;height:100%;border:0;padding:0;cursor:pointer;
+}
+.bc-refresh-btn{
+  width:30px;height:30px;padding:0;border:1px solid var(--border-soft);border-radius:8px;
+  background:transparent;color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;
+  cursor:pointer;
+}
+.bc-refresh-btn:hover{background:var(--surface-soft);color:var(--text)}
+.bc-refresh-btn:disabled{opacity:.4;cursor:default}
+#bc-side-drawer .kv .k{white-space:nowrap}
+#bc-side-drawer #bc-field-group-dates .kv:nth-child(2){grid-column:2!important}
+#bc-side-drawer #bc-field-private-room-read-kv{
+  flex-direction:row;align-items:center;gap:8px;
+}
+#bc-side-drawer #bc-field-private-room-read-kv .k{margin:0;white-space:nowrap}
+#bc-side-drawer #bc-field-group-package .kv:nth-child(2){display:block;grid-column:2!important}
 #bc-side-drawer .bc-drawer-footer{flex-direction:column;align-items:stretch}
 #bc-side-drawer .bc-drawer-footer-right{align-items:stretch;margin-left:0}
 #bc-side-drawer #bc-sel-panel{margin:0;box-shadow:none;border:0;background:transparent;padding:0}
@@ -22058,14 +22082,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div class="card">
     <div class="toolbar">
       <h2 id="bc-calendar-title">August '26</h2>
-      <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        <span data-i18n="calendar.from">From</span>&nbsp;<input id="bc-start" type="date" class="bc-date-input" autocomplete="off">
-      </label>
-      <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        <span data-i18n="calendar.to">To</span>&nbsp;<input id="bc-end" type="date" class="bc-date-input" autocomplete="off">
-      </label>
-      <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
-      <button class="btn btn-primary" id="bc-load">&#128197; <span data-i18n="calendar.load">Load</span></button>
     <div class="bc-chips" id="bc-chips">
       <span class="bc-chip" data-chip="week" data-i18n="calendar.chip.week">This week</span>
       <span class="bc-chip bc-chip-active" data-chip="30days" data-i18n="calendar.chip.30days">Next 30 days</span>
@@ -22077,6 +22093,16 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <span class="bc-chip" data-chip="sep-oct" data-i18n="calendar.chip.sepOct">Sep - Oct</span>
       <span class="bc-chip" data-chip="oct-nov" data-i18n="calendar.chip.octNov">Oct - Nov</span>
     </div>
+      <div class="bc-range-wrap" id="bc-range-wrap">
+        <button type="button" class="bc-range-btn" id="bc-range-btn" aria-label="Date range">Select dates</button>
+        <input type="date" id="bc-range-pick" class="bc-range-pick" tabindex="-1" aria-hidden="true">
+      </div>
+      <button type="button" class="bc-refresh-btn" id="bc-load" title="Refresh" aria-label="Refresh">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg>
+      </button>
+      <label style="display:none"><span data-i18n="calendar.from">From</span><input id="bc-start" type="date" class="bc-date-input" autocomplete="off"></label>
+      <label style="display:none"><span data-i18n="calendar.to">To</span><input id="bc-end" type="date" class="bc-date-input" autocomplete="off"></label>
+      <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
     <div class="bc-legend-row">
     <div class="bc-zoom-bar" id="bc-zoom-bar" aria-label="Calendar zoom">
       <button type="button" class="bc-zoom-btn" id="bc-zoom-out" data-i18n-title="calendar.zoom.out" title="Zoom out" aria-label="Zoom out">−</button>
@@ -37464,6 +37490,39 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   var html = '';
 
   if (mode === 'all' || mode === 'before-addons'){
+  var guestNames = [];
+  ((data && data.booking_guests) || []).forEach(function(g){
+    if (g && g.guest_name) guestNames.push(String(g.guest_name).trim());
+  });
+  if (!guestNames.length && bk.guest_name) guestNames.push(String(bk.guest_name).trim());
+  var guestLine = String(guestCount) + (guestNames.length ? ' · ' + guestNames.join(', ') : '');
+  html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
+  var guestsReadInner =
+    '<div class="kv" id="bc-field-guests-kv-only">' +
+      '<span class="k">' + escHtml(t('drawer.field.guests')) + '</span>' +
+      '<span class="v">' + escHtml(guestLine) + '</span>' +
+    '</div>';
+  html += '<div class="ctx-field-read" id="bc-field-guests-read">' +
+    '<div class="ctx-field-read-row">' +
+    '<div class="kv-grid ctx-field-kv-grid ctx-field-kv-grid--3">' + guestsReadInner + '</div>' +
+    '<div class="ctx-field-header">' +
+    bcRenderFieldEditPencilBtn('guests', t('drawer.field.editGuests')) +
+    '</div></div></div>';
+  html += '<div class="ctx-field-edit ctx-field-guests-edit" id="bc-field-guests-edit" style="display:none">';
+  html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
+  html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
+  for (var g = guestCount; g >= 1; g--){
+    html += '<option value="' + g + '">' + g + '</option>';
+  }
+  html += '</select>';
+  html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
+  html += '<div class="ctx-field-private-room-edit">';
+  html += '<label class="ctx-field-label" for="bc-field-private-room-switch">' + escHtml(t('drawer.field.privateRoom')) + '</label>';
+  html += bcPrivateRoomSwitchHtml(bcBookingPrivateRoomEnabled(bk), { id: 'bc-field-private-room-switch' });
+  html += '</div>';
+  html += bcRenderFieldEditActionsHtml('guests');
+  html += '</div></div>';
+
   html += '<div class="ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
   var contactKv = kvBC(t('drawer.field.name'), bk.guest_name) + kvBC(t('drawer.field.phone'), bk.phone) + kvBC(t('drawer.field.email'), bk.email);
   html += bcRenderFieldEditReadRow('contact', t('drawer.field.editContact'), contactKv, 3);
@@ -37495,42 +37554,12 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '<div class="ctx-field-dates-error" id="bc-field-dates-error">' + escHtml(t('drawer.field.datesError')) + '</div>';
   html += bcRenderFieldEditActionsHtml('dates');
   html += '</div></div>';
-
-  html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  var privateRoomOn = bcBookingPrivateRoomEnabled(bk);
-  var guestsReadInner =
-    '<div class="kv" id="bc-field-guests-kv-only">' +
-      '<span class="k">' + escHtml(t('drawer.field.guests')) + '</span>' +
-      '<span class="v">' + escHtml(String(guestCount)) + '</span>' +
-    '</div>' +
-    bcPrivateRoomReadKv(privateRoomOn) +
-    '<div class="kv kv--pad" aria-hidden="true"><span class="k"></span><span class="v"></span></div>';
-  html += '<div class="ctx-field-read" id="bc-field-guests-read">' +
-    '<div class="ctx-field-read-row">' +
-    '<div class="kv-grid ctx-field-kv-grid ctx-field-kv-grid--3">' + guestsReadInner + '</div>' +
-    '<div class="ctx-field-header">' +
-    bcRenderFieldEditPencilBtn('guests', t('drawer.field.editGuests')) +
-    '</div></div></div>';
-  html += '<div class="ctx-field-edit ctx-field-guests-edit" id="bc-field-guests-edit" style="display:none">';
-  html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
-  html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
-  for (var g = guestCount; g >= 1; g--){
-    html += '<option value="' + g + '">' + g + '</option>';
-  }
-  html += '</select>';
-  html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
-  html += '<div class="ctx-field-private-room-edit">';
-  html += '<label class="ctx-field-label" for="bc-field-private-room-switch">' + escHtml(t('drawer.field.privateRoom')) + '</label>';
-  html += bcPrivateRoomSwitchHtml(privateRoomOn, { id: 'bc-field-private-room-switch' });
-  html += '</div>';
-  html += bcRenderFieldEditActionsHtml('guests');
-  html += '</div></div>';
   }
 
   if (mode === 'all' || mode === 'after-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
   var packageKv = kvBCHtml(t('drawer.field.package'), bcRenderPackagePebblesHtml(bcGuestPackages(bk)));
-  if (roomPref) packageKv += kvBC(t('drawer.field.roomPref'), roomPref);
+  packageKv += bcPrivateRoomReadKv(bcBookingPrivateRoomEnabled(bk));
   html += bcRenderFieldEditReadRow('package', t('drawer.field.editPackage'), packageKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
   html += bcRenderFieldEditPackageGuestSelectsHtml(bk);
@@ -40530,6 +40559,7 @@ function bcSetRange(start, end, chipKey){
   bcSetDateField(el('bc-start'), start);
   bcSetDateField(el('bc-end'), end);
   bcUpdateCalendarTitle();
+  if (typeof bcSyncRangeBtn === 'function') bcSyncRangeBtn();
   /* Update active chip */
   document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
   if (chipKey){
@@ -40554,9 +40584,66 @@ function bcSetRange(start, end, chipKey){
     inp.addEventListener('blur', function(){
       bcNormalizeDateInput(inp);
       bcUpdateCalendarTitle();
+      if (typeof bcSyncRangeBtn === 'function') bcSyncRangeBtn();
     });
   });
+  if (typeof bcInitRangePicker === 'function') bcInitRangePicker();
 })();
+
+function bcFormatRangeLabel(iso){
+  if (!iso) return '';
+  var d = new Date(String(iso).slice(0, 10) + 'T12:00:00');
+  if (isNaN(d.getTime())) return String(iso);
+  var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return months[d.getMonth()] + ' ' + d.getDate();
+}
+
+function bcSyncRangeBtn(){
+  var btn = el('bc-range-btn');
+  if (!btn) return;
+  var start = bcReadDateField(el('bc-start'));
+  var end = bcReadDateField(el('bc-end'));
+  if (start && end) btn.textContent = bcFormatRangeLabel(start) + ' – ' + bcFormatRangeLabel(end);
+  else btn.textContent = 'Select dates';
+}
+
+function bcInitRangePicker(){
+  var pick = el('bc-range-pick');
+  var btn = el('bc-range-btn');
+  if (!pick || pick.dataset.wired === '1') return;
+  pick.dataset.wired = '1';
+  pick.dataset.rangeStep = 'start';
+  bcSyncRangeBtn();
+  if (btn) btn.addEventListener('click', function(){
+    pick.dataset.rangeStep = 'start';
+    if (typeof pick.showPicker === 'function') pick.showPicker();
+    else pick.click();
+  });
+  pick.addEventListener('change', function(){
+    var val = pick.value;
+    if (!val) return;
+    if (pick.dataset.rangeStep !== 'end'){
+      bcSetDateField(el('bc-start'), val);
+      pick.dataset.rangeStep = 'end';
+      bcSyncRangeBtn();
+      setTimeout(function(){
+        if (typeof pick.showPicker === 'function') pick.showPicker();
+        else pick.click();
+      }, 50);
+      return;
+    }
+    var start = bcReadDateField(el('bc-start')) || val;
+    var end = val;
+    if (end < start){ var tmp = start; start = end; end = tmp; }
+    pick.dataset.rangeStep = 'start';
+    document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
+    bcSetDateField(el('bc-start'), start);
+    bcSetDateField(el('bc-end'), end);
+    bcSyncRangeBtn();
+    bcUpdateCalendarTitle();
+    loadBedCalendar();
+  });
+}
 
 document.querySelectorAll('.bc-chip').forEach(function(chip){
   chip.addEventListener('click', function(){
