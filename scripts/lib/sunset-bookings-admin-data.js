@@ -33,9 +33,16 @@ const {
 
 const DEFAULT_LOCATION = 'sunset-somo';
 
+const LODGING_BOOKINGS_CLIENT_SLUG = 'wolfhouse-somo';
+
+function isLodgingBookingsClient(slug) {
+  return String(slug || '').trim() === LODGING_BOOKINGS_CLIENT_SLUG;
+}
+
 /**
  * Resolve and validate list/write scope. Unknown/conflicting location fails closed.
- * @returns {{ ok:true, clientSlug:string, locationId:string } | { ok:false, status:number, error:string }}
+ * Lodging (wolfhouse-somo) is client-scoped — no Sunset school location.
+ * @returns {{ ok:true, clientSlug:string, locationId:string|null, lodging?:boolean } | { ok:false, status:number, error:string }}
  */
 function resolveBookingsAdminScope(query, opts) {
   const q = query || {};
@@ -44,6 +51,14 @@ function resolveBookingsAdminScope(query, opts) {
   if (!clientSlug) return { ok: false, status: 400, error: 'invalid request' };
   if (opts && opts.sqlInjectRe && opts.sqlInjectRe.test(clientSlug)) {
     return { ok: false, status: 400, error: 'invalid request' };
+  }
+  if (isLodgingBookingsClient(clientSlug)) {
+    const rawLoc = typeof q.location === 'string' ? q.location.trim()
+      : (typeof q.location_id === 'string' ? q.location_id.trim() : '');
+    if (rawLoc && isSunsetLocationId(rawLoc)) {
+      return { ok: false, status: 403, error: 'bookings unavailable' };
+    }
+    return { ok: true, clientSlug, locationId: null, lodging: true };
   }
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
     return { ok: false, status: 403, error: 'bookings unavailable' };
@@ -93,6 +108,7 @@ SELECT
   b.operator_name,
   b.check_in::text AS check_in,
   b.check_out::text AS check_out,
+  b.package_code,
   b.total_amount_cents,
   b.amount_paid_cents,
   b.balance_due_cents,
@@ -108,18 +124,41 @@ WHERE c.slug = $1
   AND ${LOCATION_SQL} = $2
 `;
 
-/** Default ORDER BY (no sort param) — created_at DESC. */
+const LIST_BOOKINGS_SQL_LODGING_BASE = `
+SELECT
+  b.id::text AS booking_id,
+  b.booking_code,
+  b.guest_name,
+  b.phone,
+  b.email,
+  b.status::text AS status,
+  b.payment_status::text AS payment_status,
+  b.booking_source::text AS booking_source,
+  b.operator_name,
+  b.check_in::text AS check_in,
+  b.check_out::text AS check_out,
+  b.package_code,
+  b.total_amount_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents,
+  b.metadata,
+  b.hidden,
+  b.created_at,
+  c.id AS client_id,
+  c.slug AS client_slug,
+  NULL::text AS location_id
+FROM bookings b
+INNER JOIN clients c ON c.id = b.client_id
+WHERE c.slug = $1
+`;
+
 const LIST_BOOKINGS_SQL = `${LIST_BOOKINGS_SQL_BASE}
 ORDER BY b.created_at DESC NULLS LAST, b.booking_code ASC
 `;
 
-/**
- * Build list SQL with whitelist ORDER BY from sort/dir.
- * Replaces the fixed created_at order when a sortable booking-table column is requested.
- */
-function buildListBookingsSql(sort, dir) {
+function buildListBookingsSql(sort, dir, lodging) {
   const orderBy = buildListBookingsOrderBySql(sort, dir);
-  return `${LIST_BOOKINGS_SQL_BASE}
+  return `${lodging ? LIST_BOOKINGS_SQL_LODGING_BASE : LIST_BOOKINGS_SQL_BASE}
 ${orderBy}
 `;
 }
@@ -221,11 +260,13 @@ function sumRefunds(refundRows) {
 }
 
 async function fetchScopedBookingRows(pg, clientSlug, locationId, sortOpts) {
+  const lodging = !locationId;
   const listSql = buildListBookingsSql(
     sortOpts && sortOpts.sort,
     sortOpts && sortOpts.dir,
+    lodging,
   );
-  const bookingRes = await pg.query(listSql, [clientSlug, locationId]);
+  const bookingRes = await pg.query(listSql, lodging ? [clientSlug] : [clientSlug, locationId]);
   const bookingRows = rows(bookingRes);
   if (!bookingRows.length) return [];
 
@@ -320,13 +361,14 @@ async function fetchScopedBookingRows(pg, clientSlug, locationId, sortOpts) {
 async function listSunsetBookingsAdmin(pg, scope, query) {
   const clientSlug = String((scope && scope.clientSlug) || '').trim();
   const locationId = String((scope && scope.locationId) || '').trim();
-  if (clientSlug !== SUNSET_CLIENT_SLUG || !isSunsetLocationId(locationId)) {
+  const lodging = !!(scope && scope.lodging);
+  if (!lodging && (clientSlug !== SUNSET_CLIENT_SLUG || !isSunsetLocationId(locationId))) {
     throw new BookingsAdminError('bookings_unavailable', 'bookings unavailable', 403);
   }
 
   const filters = parseListQuery(query, { mode: 'list' });
   // Force location match to scope (query location filter may not broaden).
-  filters.location_id = locationId;
+  filters.location_id = lodging ? null : locationId;
 
   await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
   let allRows;
@@ -378,12 +420,13 @@ async function listSunsetBookingsAdmin(pg, scope, query) {
 async function exportSunsetBookingsAdminCsv(pg, scope, query) {
   const clientSlug = String((scope && scope.clientSlug) || '').trim();
   const locationId = String((scope && scope.locationId) || '').trim();
-  if (clientSlug !== SUNSET_CLIENT_SLUG || !isSunsetLocationId(locationId)) {
+  const lodging = !!(scope && scope.lodging);
+  if (!lodging && (clientSlug !== SUNSET_CLIENT_SLUG || !isSunsetLocationId(locationId))) {
     throw new BookingsAdminError('bookings_unavailable', 'bookings unavailable', 403);
   }
 
   const filters = parseListQuery(query, { mode: 'export' });
-  filters.location_id = locationId;
+  filters.location_id = lodging ? null : locationId;
   filters.offset = 0;
 
   await pg.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');

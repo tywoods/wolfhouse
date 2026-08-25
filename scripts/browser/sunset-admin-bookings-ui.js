@@ -213,11 +213,23 @@ function adminBookingsStatusChipsHtml(row) {
   }).join(' ');
 }
 
+function adminBookingsIsLodging() {
+  try {
+    if (typeof portalIsLodgingAdmin === 'function') return !!portalIsLodgingAdmin();
+  } catch (_e) { /* fall through */ }
+  try {
+    if (typeof getClient === 'function') return getClient() === 'wolfhouse-somo';
+  } catch (_g) { /* fall through */ }
+  return false;
+}
+
 function adminBookingsBuildQuery(extra) {
   var f = adminBookingsState.filters;
   var params = new URLSearchParams();
   params.set('client', getClient() || 'sunset');
-  params.set('location', getSunsetLocation() || 'sunset-somo');
+  if (!adminBookingsIsLodging()) {
+    params.set('location', getSunsetLocation() || 'sunset-somo');
+  }
   if (f.q) params.set('q', f.q);
   if (f.date_from) params.set('date_from', f.date_from);
   if (f.date_to) params.set('date_to', f.date_to);
@@ -315,9 +327,12 @@ function renderAdminBookingsShell(opts) {
       '<div id="admin-bookings-msg" class="state-msg" style="display:none" role="status"></div>' +
     '</div>';
   wireAdminBookingsPanel();
-  // Shell markup resets hidden date inputs to "". Always re-hydrate from state so
-  // a later search cannot read empty inputs and drop the active date range.
   adminBookingsRestoreFiltersToDom();
+  if (adminBookingsIsLodging()) {
+    var typeSel = el('admin-bookings-type');
+    var typeWrap = typeSel && typeSel.closest ? typeSel.closest('.portal-admin-bookings-field') : null;
+    if (typeWrap) typeWrap.style.display = 'none';
+  }
   if (opts && opts.skipLoad && adminBookingsState.data) {
     renderAdminBookingsSummary();
     renderAdminBookingsTable();
@@ -850,7 +865,7 @@ function renderAdminBookingsTable() {
       adminBookingsTh('admin.bookings.col.booking', 'booking') +
       adminBookingsTh('admin.bookings.col.guest', 'guest') +
       adminBookingsTh('admin.bookings.col.created', 'created') +
-      adminBookingsTh('admin.bookings.col.type', 'type') +
+      adminBookingsTh(adminBookingsIsLodging() ? 'admin.bookings.col.package' : 'admin.bookings.col.type', 'type') +
       adminBookingsTh('admin.bookings.col.total', 'total', 'num') +
       adminBookingsTh('admin.bookings.col.paid', 'paid', 'num') +
       adminBookingsTh('admin.bookings.col.status', 'status', 'status') +
@@ -1069,6 +1084,15 @@ function adminBookingsOpenInSchedule(bookingId, hint) {
 }
 
 function adminBookingsTypeChipsHtml(row) {
+  if (adminBookingsIsLodging()) {
+    var pkg = String((row && row.package_code) || '').trim();
+    if (!pkg || pkg === 'package_none' || pkg === 'no_package' || pkg === 'none') {
+      return '<span class="portal-admin-bookings-muted">—</span>';
+    }
+    var pkgLabel = pkg.replace(/_/g, ' ');
+    pkgLabel = pkgLabel.charAt(0).toUpperCase() + pkgLabel.slice(1);
+    return '<span class="portal-admin-bookings-type-text">' + escHtml(pkgLabel) + '</span>';
+  }
   // Prefer server-derived type_categories / type_flags (component-based).
   var cats = Array.isArray(row && row.type_categories) ? row.type_categories.slice() : [];
   var flags = row && row.type_flags && typeof row.type_flags === 'object' ? row.type_flags : null;
@@ -1104,6 +1128,9 @@ function adminBookingsTypeChipsHtml(row) {
 function adminBookingsTh(key, sortKey, align) {
   var label = portalT(key);
   // Fallback if col.type not yet in i18n bundle (keep col.what as alias).
+  if ((!label || label === key) && key === 'admin.bookings.col.package') {
+    label = 'Package';
+  }
   if ((!label || label === key) && key === 'admin.bookings.col.type') {
     label = portalT('admin.bookings.col.what');
     if (!label || label === 'admin.bookings.col.what') label = 'Type';

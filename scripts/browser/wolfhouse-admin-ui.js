@@ -16,7 +16,7 @@
   var WH_ADMIN_CLIENT = 'wolfhouse-somo';
   var WH_ADMIN_DEFAULT_SUBTAB = 'finance';
   var WH_ADMIN_SUBTABS = [
-    'finance', 'bookings', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email',
+    'finance', 'pricing', 'luna-staff', 'services', 'tour-operator', 'email',
   ];
 
   /** Sub-tab key → id of the relocated top-level `.tab-panel` it hosts. */
@@ -33,7 +33,6 @@
    */
   var WH_ADMIN_PLACEHOLDERS = {
     finance: { body: 'wh-admin-finance-body', title: 'admin.tabs.finance', fallback: 'Finance' },
-    bookings: { body: 'wh-admin-bookings-body', title: 'admin.tabs.bookings', fallback: 'Bookings' },
     email: { body: 'wh-admin-email-body', title: 'admin.tabs.email', fallback: 'Email' },
   };
 
@@ -140,7 +139,8 @@
     list.dataset.whAdminSubtabsWired = '1';
 
     function tabButtons() {
-      return Array.prototype.slice.call(list.querySelectorAll('[role="tab"][data-wh-admin-tab]'));
+      return Array.prototype.slice.call(list.querySelectorAll('[role="tab"][data-wh-admin-tab]'))
+        .filter(function (btn) { return !btn.hidden; });
     }
 
     function selectByIndex(idx, focus) {

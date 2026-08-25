@@ -21889,7 +21889,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div class="portal-admin-wrap" id="admin-wh-shell" hidden>
   <div class="portal-admin-subtabs" id="wh-admin-subtab-list" role="tablist" data-i18n-aria="admin.tabs.listLabel" aria-label="Admin sections">
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-finance" data-wh-admin-tab="finance" aria-controls="wh-admin-panel-finance" aria-selected="true" tabindex="0" data-i18n="admin.tabs.finance">Finance</button>
-    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings">Bookings</button>
+    <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-bookings" data-wh-admin-tab="bookings" aria-controls="wh-admin-panel-bookings" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.bookings" hidden>Bookings</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-pricing" data-wh-admin-tab="pricing" aria-controls="wh-admin-panel-pricing" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.pricing">Pricing</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-luna-staff" data-wh-admin-tab="luna-staff" aria-controls="wh-admin-panel-luna-staff" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.lunaStaff">Luna Staff</button>
     <button type="button" class="portal-admin-subtab" role="tab" id="wh-admin-tab-services" data-wh-admin-tab="services" aria-controls="wh-admin-panel-services" aria-selected="false" tabindex="-1" data-i18n="admin.tabs.services">Camps, Lessons and Services</button>
@@ -24420,6 +24420,10 @@ function applyClientPortalProfile(clientSlug){
   var whShell = el('admin-wh-shell');
   if (sunsetShell) sunsetShell.hidden = lodgingAdmin;
   if (whShell) whShell.hidden = !lodgingAdmin;
+  var whBookingsTab = el('wh-admin-tab-bookings');
+  var whBookingsPanel = el('wh-admin-panel-bookings');
+  if (whBookingsTab) whBookingsTab.hidden = true;
+  if (whBookingsPanel) whBookingsPanel.hidden = true;
   if (lunaNav) lunaNav.style.display = lunaInAdmin ? 'none' : '';
   if (lunaAdminTab) lunaAdminTab.hidden = !sunsetLunaInAdmin;
   portalHostAdminPanel('tab-ask-luna',
@@ -24445,7 +24449,7 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'bookings') {
-      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      btn.style.display = (profile.is_surf_vertical || lodgingAdmin || clientSlug === 'wolfhouse-somo') ? '' : 'none';
       return;
     }
     if (tab === 'ask-luna' && lunaInAdmin) {

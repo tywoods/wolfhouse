@@ -38,7 +38,7 @@ assert.match(api, /\.luna-header-ui #tabs \.tab-btn\{[\s\S]{0,160}font-size:14\.
 assert.match(api, /data-tab="bed-calendar"[\s\S]{0,400}data-i18n="nav\.tab\.portalHome">Schedule/);
 assert.match(api, /data-tab="conversations"[\s\S]{0,400}data-i18n="nav\.tab\.inbox">Inbox/);
 assert.match(api, /data-tab="bookings"><span class="tab-ico"/);
-assert.match(api, /tab === 'bookings' && !profile\.is_surf_vertical && !portalIsLodgingAdmin/);
+assert.match(api, /lodgingAdmin \|\| clientSlug === 'wolfhouse-somo'/);
 assert.match(api, /staff-portal-calendar:toolbar-row/);
 assert.match(api, /#tab-bed-calendar \.toolbar h2\{flex:0 0 auto;order:1/);
 assert.match(api, /#tab-bed-calendar \.bc-bed-cell\{padding:5px 14px\}/);
