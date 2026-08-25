@@ -107,7 +107,10 @@ function validateSunsetGuestDateBounds(iso, refDate, opts) {
   if (comparable == null) {
     return { ok: false, reason: 'invalid_iso_format' };
   }
-  if (opts.explicit && comparable < today) {
+  // Staff edit of an existing booking may keep (or re-quote) past service dates.
+  // Guest / Create paths never set allowPast — past ISO dates stay fail-closed.
+  const allowPast = opts.allowPast === true || opts.allow_past === true;
+  if (opts.explicit && !allowPast && comparable < today) {
     return { ok: false, reason: 'explicit_past_date', needs_clarification: true, iso };
   }
   const horizonDays = resolveSunsetMaxBookingHorizonDays(opts.horizonDays);

@@ -168,6 +168,10 @@ const surfSchoolVerticalAdapter = {
       channel: mapQuoteChannel(request.channel),
       trustedLocationId: request.resolved.locationId,
       transportBody: request.transportBody || {},
+      allowPastDates: request.allowPastDates === true,
+      allowExistingAccommodationWhenDisabled:
+        request.allowExistingAccommodationWhenDisabled === true,
+      existingAccommodationStayCount: request.existingAccommodationStayCount,
     });
     if (!built.ok) return { ok: false, status: built.status, body: built.body };
     if (pg) {

@@ -688,6 +688,8 @@
     "verify:luna-front-desk-booking-create-service": "node scripts/verify-luna-front-desk-booking-create-service.js",
     "verify:luna-front-desk-quote-service": "node scripts/verify-luna-front-desk-quote-service.js",
     "verify:sunset-edit-authoritative-requote": "node scripts/verify-sunset-edit-authoritative-requote.js",
+    "verify:sunset-staff-edit-past-quote-save": "node scripts/verify-sunset-staff-edit-past-quote-save.js",
+    "verify:sunset-staff-schedule-date-boundary": "node scripts/verify-sunset-staff-schedule-date-boundary.js",
     "verify:sunset-batch-d4-course-rental-quote": "node scripts/verify-sunset-batch-d4-course-rental-quote.js",
     "verify:sunset-batch-inbox-sidebar-toggle": "node scripts/verify-sunset-batch-inbox-sidebar-toggle.js",
     "verify:sunset-finance-revenue-by-product-f2": "node scripts/verify-sunset-finance-revenue-by-product-f2.js",

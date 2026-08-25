@@ -132,6 +132,7 @@ function calendarDayCountFromBody(body) {
  * @param {object} opts.pgClient open PG client
  * @param {object} opts.verticalResolved resolveBusinessVertical result (ok:true)
  * @param {string} [opts.channel] default MANUAL_STAFF
+ * @param {boolean} [opts.allowPastDates] staff edit of existing booking — skip past-date guard
  * @param {function} [opts.prepareGenericRentals] inject for tests
  * @param {function} [opts.buildGenericQuote] inject for tests
  * @param {function} [opts.invokeVertical] inject for tests
@@ -168,6 +169,11 @@ async function executeSunsetStaffScheduleBookingQuote(opts) {
   const buildGq = o.buildGenericQuote || buildGenericRentalAuthoritativeQuote;
   const invokeFn = o.invokeVertical || invokeVerticalOperation;
   const channel = o.channel || VERTICAL_CHANNELS.MANUAL_STAFF;
+  // Trusted server option only — never grant from a client-forged transport field
+  // alone. Edit UI sends allow_past; HTTP handler maps it here. Create omits it.
+  const allowPastDates = o.allowPastDates === true
+    || body.allow_past === true
+    || body.allowPast === true;
 
   const requestedRentals = Array.isArray(body.rentals) ? body.rentals : [];
   const genericPrep = await prepFn({
@@ -218,6 +224,7 @@ async function executeSunsetStaffScheduleBookingQuote(opts) {
     ? await invokeFn(resolved, 'quoteOffering', pg, {
       channel,
       transportBody,
+      allowPastDates,
     })
     : {
       ok: true,

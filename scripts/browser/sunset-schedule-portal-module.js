@@ -57,6 +57,11 @@ function schedulePortalQuoteFailureMessage(result) {
       ? ('Este curso solo tiene ' + String(seats) + ' plazas.')
       : ('This course only has ' + String(seats) + ' seats.');
   }
+  if (rc === 'explicit_past_date') {
+    return portalT('schedule.create.quotePastDate')
+      || portalT('schedule.create.privateLesson.sessionDatePast')
+      || 'Past date — save keeps stored prices.';
+  }
   if (result && result.stale) {
     return portalT('schedule.create.quoteStale') || 'Price changed — refresh quote before creating.';
   }
