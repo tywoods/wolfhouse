@@ -37,6 +37,10 @@
  */
 
 const CUSTOM_LINE_MARKERS = Object.freeze(['staff_custom_line']);
+const {
+  isStaffAccommodationMeta,
+  occupiedNights,
+} = require('./sunset-accommodation-price-resolver');
 
 class FinanceDataQualityError extends Error {
   constructor() {
@@ -545,6 +549,9 @@ function revenueItemKeyAndLabel(row) {
     return { kind: 'lessons', key: 'lessons', label: 'Lessons' };
   }
   const offering = String(md.offering_key || '').trim();
+  if (isStaffAccommodationMeta(md) || offering === 'staff_accommodation') {
+    return { kind: 'item', key: 'staff_accommodation', label: 'Accommodation' };
+  }
   if (offering) {
     let label = String(md.offering_label || md.label || md.staff_ui_service_type || offering)
       .replace(/_/g, ' ')
@@ -809,6 +816,62 @@ function pctInt(num, den) {
   return Math.round((100 * num) / den);
 }
 
+function periodDayCount(range) {
+  if (!range || !range.start || !range.end) return 1;
+  const days = eachDate(range).length;
+  return days > 0 ? days : 1;
+}
+
+/**
+ * Rental stock is per calendar day; period utilization denominators are stock × days.
+ */
+function scaledPeriodStockCapacity(stockQuantity, periodDays) {
+  if (stockQuantity == null || !Number.isFinite(stockQuantity) || stockQuantity <= 0) return null;
+  const days = Number.isFinite(periodDays) && periodDays > 0 ? Math.trunc(periodDays) : 1;
+  return stockQuantity * days;
+}
+
+function isAccommodationOfferingKey(key) {
+  const k = String(key || '').trim().toLowerCase();
+  return k === 'staff_accommodation'
+    || k === 'staff_accommodation_component'
+    || k === 'misc:staff_accommodation';
+}
+
+function isAccommodationCapacityRow(row) {
+  if (!row) return false;
+  if (isAccommodationOfferingKey(row.key)) return true;
+  if (Array.isArray(row.offering_keys) && row.offering_keys.some((k) => isAccommodationOfferingKey(k))) return true;
+  const label = String(row.label || '').trim();
+  return /^accommodation$/i.test(label);
+}
+
+/**
+ * Guest-nights from staff accommodation metadata overlapping a period.
+ */
+function accommodationGuestNightsInRange(metadata, range) {
+  const md = metadata || {};
+  let nights = [];
+  if (Array.isArray(md.occupied_nights) && md.occupied_nights.length) {
+    nights = md.occupied_nights
+      .map((d) => String(d || '').trim().slice(0, 10))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+  } else if (md.check_in && md.check_out) {
+    const res = occupiedNights(String(md.check_in).slice(0, 10), String(md.check_out).slice(0, 10));
+    if (res.ok) nights = res.nights;
+  }
+  if (!nights.length) return 0;
+  return nights.filter((d) => inRange(d, range)).length;
+}
+
+function accommodationBedCapacity(accommodationSettings) {
+  const raw = accommodationSettings && accommodationSettings.bed_capacity;
+  if (raw == null || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0 || !Number.isInteger(n)) return null;
+  return n;
+}
+
 function deltaPct(current, previous) {
   if (previous == null || previous === 0) {
     if (current == null || current === 0) return null;
@@ -869,6 +932,10 @@ function computeSunsetFinanceSummary(args) {
   const refundLedgerUnavailable = !!(args && args.refund_ledger_unavailable);
   const rentalStock = Array.isArray(args && args.rental_stock) ? args.rental_stock : [];
   const surfPacks = Array.isArray(args && args.surf_packs) ? args.surf_packs : [];
+  const accommodationSettings = (args && args.accommodation_settings && typeof args.accommodation_settings === 'object')
+    ? args.accommodation_settings
+    : null;
+  const accommodationBeds = accommodationBedCapacity(accommodationSettings);
 
   // Soft-fail diagnostics for this pass (malformed rows → 0; overflow still hard-fails).
   const diagnostics = (args && args.diagnostics && typeof args.diagnostics === 'object')
@@ -1131,6 +1198,7 @@ function computeSunsetFinanceSummary(args) {
     unitsByOffering.set(id.key, (unitsByOffering.get(id.key) || 0) + qty);
   }
   const capacity_by_product = revenue_by_product.filter((p) => p.slot !== 'other').map((p) => {
+    const periodDays = periodDayCount(primaryRange);
     if (p.slot === 'lessons') {
       const filled = capacityKnown ? seats_filled : lessonQty;
       const cap = capacityKnown ? seats_capacity : null;
@@ -1142,11 +1210,34 @@ function computeSunsetFinanceSummary(args) {
         stock: cap,
         pct: cap != null && cap > 0 ? pctInt(filled, cap) : null,
         detail: cap != null ? `${filled}/${cap}` : String(filled != null ? filled : '—'),
+        oversold: cap != null && cap > 0 && filled > cap,
       };
     }
     const keys = Array.isArray(p.offering_keys) && p.offering_keys.length
       ? p.offering_keys
       : (p.key && p.key !== 'rank_1' && p.key !== 'rank_2' && p.key !== 'course_included' ? [p.key] : []);
+    const isAccommodation = isAccommodationCapacityRow(p)
+      || keys.some((k) => isAccommodationOfferingKey(k));
+    if (isAccommodation) {
+      if (accommodationBeds == null) return null;
+      let usedNights = 0;
+      for (const r of datedBsr) {
+        if (!isStaffAccommodationMeta(r.metadata)) continue;
+        usedNights += accommodationGuestNightsInRange(r.metadata, primaryRange);
+      }
+      const cap = scaledPeriodStockCapacity(accommodationBeds, periodDays);
+      return {
+        key: p.key,
+        label: p.label,
+        slot: p.slot,
+        used: usedNights,
+        stock: cap,
+        pct: cap != null && cap > 0 ? pctInt(usedNights, cap) : null,
+        detail: cap != null ? `${usedNights}/${cap}` : (usedNights ? String(usedNights) : '—'),
+        offering_keys: keys,
+        oversold: cap != null && cap > 0 && usedNights > cap,
+      };
+    }
     let used = 0;
     let stockSum = 0;
     let stockKnown = false;
@@ -1161,17 +1252,19 @@ function computeSunsetFinanceSummary(args) {
     if (p.slot === 'course_included' && keys.length === 0) {
       // no keys → zero util
     }
+    const periodStock = stockKnown ? scaledPeriodStockCapacity(stockSum, periodDays) : null;
     return {
       key: p.key,
       label: p.label,
       slot: p.slot,
       used,
-      stock: stockKnown ? stockSum : null,
-      pct: stockKnown && stockSum > 0 ? pctInt(used, stockSum) : null,
-      detail: stockKnown ? `${used}/${stockSum}` : (used ? String(used) : '—'),
+      stock: periodStock,
+      pct: periodStock != null && periodStock > 0 ? pctInt(used, periodStock) : null,
+      detail: periodStock != null ? `${used}/${periodStock}` : (used ? String(used) : '—'),
       offering_keys: keys,
+      oversold: periodStock != null && periodStock > 0 && used > periodStock,
     };
-  });
+  }).filter(Boolean);
 
   const avg_lesson_price_cents = lessonQty > 0 ? Math.round(lessonDue / lessonQty) : null;
   const left_on_table_cents = (unsold_seats != null && avg_lesson_price_cents != null)
@@ -1180,6 +1273,13 @@ function computeSunsetFinanceSummary(args) {
 
   const gear = gearOutFromBsr(datedBsr, primaryRange);
   const stock = stockTotals(rentalStock);
+  const periodDays = periodDayCount(primaryRange);
+  const boardsPeriodStock = stock.boards_stock != null
+    ? scaledPeriodStockCapacity(stock.boards_stock, periodDays)
+    : null;
+  const wetsuitsPeriodStock = stock.wetsuits_stock != null
+    ? scaledPeriodStockCapacity(stock.wetsuits_stock, periodDays)
+    : null;
 
   // Daily trend for primary range + last-year ghost (gross collected + booked)
   const trendDates = eachDate(primaryRange);
@@ -1255,11 +1355,11 @@ function computeSunsetFinanceSummary(args) {
       avg_lesson_price_cents,
       left_on_table_cents,
       boards_out: gear.boards_out,
-      boards_stock: stock.boards_stock,
-      boards_pct: stock.boards_stock != null ? pctInt(gear.boards_out, stock.boards_stock) : null,
+      boards_stock: boardsPeriodStock,
+      boards_pct: boardsPeriodStock != null ? pctInt(gear.boards_out, boardsPeriodStock) : null,
       wetsuits_out: gear.wetsuits_out,
-      wetsuits_stock: stock.wetsuits_stock,
-      wetsuits_pct: stock.wetsuits_stock != null ? pctInt(gear.wetsuits_out, stock.wetsuits_stock) : null,
+      wetsuits_stock: wetsuitsPeriodStock,
+      wetsuits_pct: wetsuitsPeriodStock != null ? pctInt(gear.wetsuits_out, wetsuitsPeriodStock) : null,
       by_product: capacity_by_product,
     },
     daily_gross_trend,
@@ -1514,6 +1614,11 @@ module.exports = {
   monthlyCollectedGrossTrend,
   sumBookedDuesForRange,
   stockTotals,
+  periodDayCount,
+  scaledPeriodStockCapacity,
+  accommodationGuestNightsInRange,
+  accommodationBedCapacity,
+  isAccommodationCapacityRow,
   isStaffCustomLine,
   capPeriodOutstandingToBooked,
   reconcileBookingBalances,
