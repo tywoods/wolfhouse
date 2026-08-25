@@ -267,6 +267,10 @@ def main() -> int:
         "overlay_provider_xai_oauth": re.search(
             r"provider:\s*xai-oauth\b", deckhand_yaml
         ) is not None,
+        "overlay_xai_reserved_tool_search_disabled_in_both_variants": (
+            deckhand_role.count("tool_search:") == 2
+            and deckhand_role.count("enabled: off") == 2
+        ),
         # Scan the whole role arm (both A2A on/off heredocs), not just the first EOF body.
         "overlay_provider_not_api_key_xai": re.search(
             r"(?m)^\s*provider:\s*xai\s*$", deckhand_role
