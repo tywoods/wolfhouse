@@ -2,18 +2,19 @@
 'use strict';
 
 /**
- * Operator CLI for Chapter 4C one-shot live-proof. Default dry-run.
- * Refuses production/Wolfhouse. Live Azure mode is structurally absent.
+ * Compatibility wrapper for Chapter 4C offline simulation.
+ * This is not an operator live harness and cannot prove OAuth, Graph, or 098.
+ * Default dry-run. Refuses production/Wolfhouse. Live Azure is structurally absent.
  */
 
 const {
   parseArgs,
-  runOneShotLiveProof,
+  runOfflineSimulation,
 } = require('./lib/email-luna-controlled-drafting-one-shot-live-proof');
 
 function main(argv) {
   const parsed = parseArgs(argv.slice(2));
-  const result = runOneShotLiveProof({
+  const result = runOfflineSimulation({
     parsed,
     env: process.env,
     argv: argv.slice(2),

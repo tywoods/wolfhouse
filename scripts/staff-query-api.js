@@ -295,7 +295,7 @@ const {
   ENV_LIVE_PROVIDER_DRAFT_ENABLED,
 } = require('./lib/email-luna-controlled-drafting-sunset-staging-runtime-activation');
 const {
-  createEmailLunaControlledDraftingSunsetStagingLiveTokenLoan,
+  createEmailLunaControlledDraftingSunsetStagingLiveGraphProvider,
 } = require('./lib/email-luna-controlled-drafting-sunset-staging-token-loan');
 const {
   createEmailLunaControlledDraftingPrincipalConnectionPair,
@@ -51060,14 +51060,13 @@ async function startStaffQueryApiCli() {
         intervalMs: 60000,
       };
       if (process.env[ENV_LIVE_PROVIDER_DRAFT_ENABLED] === 'true') {
-        draftingActivation.tokenLoan = createEmailLunaControlledDraftingSunsetStagingLiveTokenLoan({
+        draftingActivation.graphProvider = createEmailLunaControlledDraftingSunsetStagingLiveGraphProvider({
           env: process.env,
           withPgClient: _withPgClientImpl,
           https,
           crypto,
           timers: { setTimeout, clearTimeout },
         });
-        draftingActivation.httpsImpl = https.request;
       }
       EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(
         draftingActivation,

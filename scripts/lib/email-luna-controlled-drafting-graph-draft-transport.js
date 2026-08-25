@@ -3,8 +3,10 @@
 /**
  * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 1 live Graph mapping.
  *
- * Draft-only Microsoft Graph transport: POST createReply → PATCH that draft →
+ * Draft-only Microsoft Graph HTTP consumer: POST createReply → PATCH that draft →
  * GET exact observations. No send, sendMail, generic path, or token export.
+ * The access token is accepted only by this privately bound consumer; results
+ * and errors are sanitized so the token cannot be retained, returned, or thrown.
  * Gate 3 reply-draft transport remains the staff send owner and is not reused
  * as this package's surface.
  */
@@ -27,10 +29,6 @@ const {
   isCanonUuid,
   digestUtf8,
 } = require('./email-luna-controlled-drafting-closed-data');
-const {
-  isClosedControlledDraftingTokenLoan,
-  readTrustedControlledDraftingTokenLoanFailure,
-} = require('./email-luna-controlled-drafting-token-loan');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -86,9 +84,15 @@ const RECONCILE_INNER_KEYS = objectFreeze([
   'operation_id',
   'provider_draft_id',
 ]);
-const FACTORY_KEYS = objectFreeze(['httpsImpl', 'tokenLoan', 'timers']);
+const FACTORY_KEYS = objectFreeze(['httpsImpl', 'timers']);
 const TIMER_KEYS = objectFreeze(['setTimeout', 'clearTimeout']);
 const TRANSPORT_KEYS = objectFreeze(['createReplyDraft', 'reconcileDraft']);
+const GRAPH_OPERATION_KEYS = objectFreeze(['kind', 'command']);
+const GRAPH_OPERATION_KINDS = objectFreeze(['create_reply_draft', 'reconcile_draft']);
+const FORBIDDEN_FACTORY_KEYS = objectFreeze([
+  'tokenLoan', 'getAccessToken', 'runClosed', 'withToken', 'accessToken',
+  'consumer', 'callback', 'fetch', 'request', 'client',
+]);
 const KNOWN_CREATE_IDS = new WeakMap();
 
 const PINNED_IM = http.IncomingMessage;
@@ -177,13 +181,36 @@ function buildControlledDraftingGetPath(mailboxId, draftId) {
   return `${base}?$select=${EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT}`;
 }
 
-function readLoanToken(access) {
-  if (!access || typeof access !== 'object' || isProxySurface(access)) return null;
-  const token = ownData(access, 'accessToken');
+function readAccessToken(token) {
   if (typeof token !== 'string' || token.length < 1 || token.length > TOKEN_LIMIT || !/^[\x21-\x7e]+$/.test(token)) {
     return null;
   }
   return token;
+}
+
+function resultContainsSecret(result, token) {
+  if (typeof token !== 'string' || token.length < 1) return false;
+  try {
+    if (typeof result === 'string') return result.includes(token);
+    if (result && typeof result === 'object') {
+      return JSON.stringify(result).includes(token);
+    }
+  } catch (_) {
+    return true;
+  }
+  return false;
+}
+
+function errorContainsSecret(error, token) {
+  if (typeof token !== 'string' || token.length < 1 || error == null) return false;
+  try {
+    if (typeof error === 'string') return error.includes(token);
+    const message = ownData(error, 'message');
+    if (typeof message === 'string' && message.includes(token)) return true;
+    return JSON.stringify(error).includes(token);
+  } catch (_) {
+    return true;
+  }
 }
 
 function resolveLc(surface, name) {
@@ -514,9 +541,14 @@ function observationToTransportResult(mapped) {
 }
 
 function resolveFactory(dependencies) {
+  if (dependencies && typeof dependencies === 'object' && !arrayIsArray(dependencies)) {
+    const keys = reflectOwnKeys(dependencies);
+    for (let i = 0; i < keys.length; i += 1) {
+      if (FORBIDDEN_FACTORY_KEYS.includes(keys[i])) throw invalid();
+    }
+  }
   const parsed = subsetOwnData(dependencies, FACTORY_KEYS);
   if (!parsed) throw invalid();
-  if (!isClosedControlledDraftingTokenLoan(parsed.tokenLoan)) throw invalid();
   let requestFn;
   if (parsed.httpsImpl === undefined) requestFn = https.request;
   else if (typeof parsed.httpsImpl === 'function' && !isProxySurface(parsed.httpsImpl)) requestFn = parsed.httpsImpl;
@@ -533,173 +565,182 @@ function resolveFactory(dependencies) {
       throw invalid();
     }
   }
-  return { requestFn, setTimer, clearTimer, tokenLoan: parsed.tokenLoan };
+  return { requestFn, setTimer, clearTimer };
+}
+
+async function runCreateReplyDraft(ctx, token, input) {
+  const command = exactOwnData(input, CREATE_INNER_KEYS);
+  if (!command) throw invalid();
+  if (!isCanonUuid(command.mailbox_id) || !isGraphId(command.inbound_provider_message_id)) {
+    throw invalid();
+  }
+  const createPath = buildCreateReplyPath(command.mailbox_id, command.inbound_provider_message_id);
+  if (!createPath) throw invalid();
+  let created;
+  try {
+    created = await issueGraphRequest({
+      requestFn: ctx.requestFn,
+      setTimer: ctx.setTimer,
+      clearTimer: ctx.clearTimer,
+      method: 'POST',
+      path: createPath,
+      token,
+      bodyText: '{}',
+      prefer: PREFER_IMMUTABLE_ID,
+      successStatuses: [200, 201],
+      notFoundIsRemoved: false,
+    });
+  } catch (error) {
+    if (error && error.code === ERROR_CODE) throw error;
+    throw invalid();
+  }
+  const posted = readCreatePostBody(created);
+  if (!posted) throw invalid();
+  const draftId = posted.provider_draft_id;
+  const patchPath = buildMessagePath(command.mailbox_id, draftId, 'patch');
+  const getPath = buildControlledDraftingGetPath(command.mailbox_id, draftId);
+  if (!patchPath || !getPath) throw unknownCreateError(draftId);
+  let patchBody;
+  try {
+    patchBody = JSON.stringify({
+      subject: command.subject,
+      body: { contentType: 'Text', content: command.body_text },
+      toRecipients: [{ emailAddress: { address: command.recipient_address } }],
+    });
+  } catch (_) {
+    throw unknownCreateError(draftId);
+  }
+  try {
+    await issueGraphRequest({
+      requestFn: ctx.requestFn,
+      setTimer: ctx.setTimer,
+      clearTimer: ctx.clearTimer,
+      method: 'PATCH',
+      path: patchPath,
+      token,
+      bodyText: patchBody,
+      prefer: PREFER_IMMUTABLE_ID,
+      successStatuses: [200],
+      notFoundIsRemoved: false,
+    });
+  } catch (_) {
+    throw unknownCreateError(draftId);
+  }
+  let got;
+  try {
+    got = await issueGraphRequest({
+      requestFn: ctx.requestFn,
+      setTimer: ctx.setTimer,
+      clearTimer: ctx.clearTimer,
+      method: 'GET',
+      path: getPath,
+      token,
+      bodyText: null,
+      prefer: `${PREFER_IMMUTABLE_ID}, outlook.body-content-type="text"`,
+      successStatuses: [200],
+      notFoundIsRemoved: true,
+    });
+  } catch (_) {
+    throw unknownCreateError(draftId);
+  }
+  const mapped = mapGraphDraftObservation(got, {
+    provider_draft_id: draftId,
+    mailbox_id: command.mailbox_id,
+  });
+  const result = observationToTransportResult(mapped);
+  if (!result || result.found === false || result.is_draft !== true || result.observation_unusable === true) {
+    throw unknownCreateError(draftId);
+  }
+  if (result.mailbox_id !== command.mailbox_id) throw unknownCreateError(draftId);
+  return objectFreeze({
+    provider_draft_id: result.provider_draft_id,
+    is_draft: true,
+    subject_digest: result.subject_digest,
+    body_digest: result.body_digest,
+    recipient_address: result.recipient_address,
+    inbound_provider_thread_id: result.inbound_provider_thread_id,
+    mailbox_id: result.mailbox_id,
+  });
+}
+
+async function runReconcileDraft(ctx, token, input) {
+  const command = exactOwnData(input, RECONCILE_INNER_KEYS);
+  if (!command) throw invalid();
+  const getPath = buildControlledDraftingGetPath(command.mailbox_id, command.provider_draft_id);
+  if (!getPath) throw invalid();
+  let got;
+  try {
+    got = await issueGraphRequest({
+      requestFn: ctx.requestFn,
+      setTimer: ctx.setTimer,
+      clearTimer: ctx.clearTimer,
+      method: 'GET',
+      path: getPath,
+      token,
+      bodyText: null,
+      prefer: `${PREFER_IMMUTABLE_ID}, outlook.body-content-type="text"`,
+      successStatuses: [200],
+      notFoundIsRemoved: true,
+    });
+  } catch (error) {
+    if (error && error.code === ERROR_CODE) throw error;
+    throw invalid();
+  }
+  const mappedInner = mapGraphDraftObservation(got, {
+    provider_draft_id: command.provider_draft_id,
+    mailbox_id: command.mailbox_id,
+  });
+  const resultInner = observationToTransportResult(mappedInner);
+  if (!resultInner) {
+    return objectFreeze({
+      provider_draft_id: command.provider_draft_id,
+      is_draft: true,
+      observation_unusable: true,
+    });
+  }
+  return resultInner;
+}
+
+function createEmailLunaControlledDraftingGraphDraftHttpConsumer(dependencies) {
+  const resolved = resolveFactory(dependencies);
+
+  async function consumeGraphDraft(accessToken, operation) {
+    let token = readAccessToken(accessToken);
+    try {
+      if (!token) throw invalid();
+      const op = exactOwnData(operation, GRAPH_OPERATION_KEYS);
+      if (!op || !GRAPH_OPERATION_KINDS.includes(op.kind)) throw invalid();
+      let result;
+      if (op.kind === 'create_reply_draft') {
+        result = await runCreateReplyDraft(resolved, token, op.command);
+      } else {
+        result = await runReconcileDraft(resolved, token, op.command);
+      }
+      if (resultContainsSecret(result, token)) throw invalid();
+      return result;
+    } catch (error) {
+      if (errorContainsSecret(error, token)) throw invalid();
+      throw error;
+    } finally {
+      token = null;
+      accessToken = null;
+    }
+  }
+
+  return consumeGraphDraft;
 }
 
 function createEmailLunaControlledDraftingGraphDraftTransport(dependencies) {
-  const resolved = resolveFactory(dependencies);
-  const base = () => ({
-    requestFn: resolved.requestFn,
-    setTimer: resolved.setTimer,
-    clearTimer: resolved.clearTimer,
-  });
-
-  async function createReplyDraft(input) {
-    const command = exactOwnData(input, CREATE_INNER_KEYS);
-    if (!command) return Promise.reject(invalid());
-    if (!isCanonUuid(command.mailbox_id) || !isGraphId(command.inbound_provider_message_id)) {
-      return Promise.reject(invalid());
-    }
-    const createPath = buildCreateReplyPath(command.mailbox_id, command.inbound_provider_message_id);
-    if (!createPath) return Promise.reject(invalid());
-    try {
-      return await resolved.tokenLoan.runClosed(async (access) => {
-        const token = readLoanToken(access);
-        if (!token) throw invalid();
-        let created;
-        try {
-          created = await issueGraphRequest({
-            ...base(),
-            method: 'POST',
-            path: createPath,
-            token,
-            bodyText: '{}',
-            prefer: PREFER_IMMUTABLE_ID,
-            successStatuses: [200, 201],
-            notFoundIsRemoved: false,
-          });
-        } catch (error) {
-          if (error && error.code === ERROR_CODE) throw error;
-          throw invalid();
-        }
-        const posted = readCreatePostBody(created);
-        if (!posted) throw invalid();
-        const draftId = posted.provider_draft_id;
-        const patchPath = buildMessagePath(command.mailbox_id, draftId, 'patch');
-        const getPath = buildControlledDraftingGetPath(command.mailbox_id, draftId);
-        if (!patchPath || !getPath) throw unknownCreateError(draftId);
-        let patchBody;
-        try {
-          patchBody = JSON.stringify({
-            subject: command.subject,
-            body: { contentType: 'Text', content: command.body_text },
-            toRecipients: [{ emailAddress: { address: command.recipient_address } }],
-          });
-        } catch (_) {
-          throw unknownCreateError(draftId);
-        }
-        try {
-          await issueGraphRequest({
-            ...base(),
-            method: 'PATCH',
-            path: patchPath,
-            token,
-            bodyText: patchBody,
-            prefer: PREFER_IMMUTABLE_ID,
-            successStatuses: [200],
-            notFoundIsRemoved: false,
-          });
-        } catch (_) {
-          throw unknownCreateError(draftId);
-        }
-        let got;
-        try {
-          got = await issueGraphRequest({
-            ...base(),
-            method: 'GET',
-            path: getPath,
-            token,
-            bodyText: null,
-            prefer: `${PREFER_IMMUTABLE_ID}, outlook.body-content-type="text"`,
-            successStatuses: [200],
-            notFoundIsRemoved: true,
-          });
-        } catch (_) {
-          throw unknownCreateError(draftId);
-        }
-        const mapped = mapGraphDraftObservation(got, {
-          provider_draft_id: draftId,
-          mailbox_id: command.mailbox_id,
-        });
-        const result = observationToTransportResult(mapped);
-        if (!result || result.found === false || result.is_draft !== true || result.observation_unusable === true) {
-          throw unknownCreateError(draftId);
-        }
-        if (result.mailbox_id !== command.mailbox_id) throw unknownCreateError(draftId);
-        return objectFreeze({
-          provider_draft_id: result.provider_draft_id,
-          is_draft: true,
-          subject_digest: result.subject_digest,
-          body_digest: result.body_digest,
-          recipient_address: result.recipient_address,
-          inbound_provider_thread_id: result.inbound_provider_thread_id,
-          mailbox_id: result.mailbox_id,
-        });
-      });
-    } catch (error) {
-      if (readTrustedControlledDraftingTokenLoanFailure(error)) throw error;
-      throw error;
-    }
-  }
-
-  async function reconcileDraft(input) {
-    const command = exactOwnData(input, RECONCILE_INNER_KEYS);
-    if (!command) return Promise.reject(invalid());
-    const getPath = buildControlledDraftingGetPath(command.mailbox_id, command.provider_draft_id);
-    if (!getPath) return Promise.reject(invalid());
-    try {
-      return await resolved.tokenLoan.runClosed(async (access) => {
-        const token = readLoanToken(access);
-        if (!token) throw invalid();
-        let got;
-        try {
-          got = await issueGraphRequest({
-            ...base(),
-            method: 'GET',
-            path: getPath,
-            token,
-            bodyText: null,
-            prefer: `${PREFER_IMMUTABLE_ID}, outlook.body-content-type="text"`,
-            successStatuses: [200],
-            notFoundIsRemoved: true,
-          });
-        } catch (error) {
-          if (error && error.code === ERROR_CODE) throw error;
-          throw invalid();
-        }
-        const mappedInner = mapGraphDraftObservation(got, {
-          provider_draft_id: command.provider_draft_id,
-          mailbox_id: command.mailbox_id,
-        });
-        const resultInner = observationToTransportResult(mappedInner);
-        if (!resultInner) {
-          return objectFreeze({
-            provider_draft_id: command.provider_draft_id,
-            is_draft: true,
-            observation_unusable: true,
-          });
-        }
-        return resultInner;
-      });
-    } catch (error) {
-      if (readTrustedControlledDraftingTokenLoanFailure(error)) throw error;
-      throw error;
-    }
-  }
-
-  const transport = objectFreeze({
-    createReplyDraft,
-    reconcileDraft,
-  });
-  const keys = reflectOwnKeys(transport);
-  if (keys.length !== TRANSPORT_KEYS.length) throw invalid();
-  return transport;
+  throw invalid();
 }
 
 module.exports = objectFreeze({
   EMAIL_LUNA_CONTROLLED_DRAFTING_GET_SELECT,
+  GRAPH_OPERATION_KEYS,
+  GRAPH_OPERATION_KINDS,
   buildControlledDraftingGetPath,
   mapGraphDraftObservation,
+  createEmailLunaControlledDraftingGraphDraftHttpConsumer,
   createEmailLunaControlledDraftingGraphDraftTransport,
   readControlledDraftingKnownCreateDraftId,
   brandControlledDraftingKnownCreateDraftId,

@@ -24,6 +24,9 @@ const {
   ownData,
   exactOwnData,
 } = require('./email-luna-controlled-drafting-closed-data');
+const {
+  isCanonicalMicrosoftOidcJwksSignatureVerifier,
+} = require('./email-microsoft-oidc-jwks-verifier');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -278,6 +281,7 @@ function pinVerifier(dependencies) {
   const parsed = exactOwnData(dependencies, objectFreeze(['signatureVerifier']));
   if (!parsed) throw failure();
   const verifier = parsed.signatureVerifier;
+  if (!isCanonicalMicrosoftOidcJwksSignatureVerifier(verifier)) throw failure();
   if (!verifier
       || objectGetPrototypeOf(verifier) !== Object.prototype
       || !Object.isFrozen(verifier)

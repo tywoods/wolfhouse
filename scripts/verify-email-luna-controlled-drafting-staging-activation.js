@@ -79,9 +79,6 @@ const {
   createMicrosoftGraphReplyDraftTransport,
 } = require('./lib/email-microsoft-graph-reply-draft-transport');
 const {
-  createEmailLunaControlledDraftingFakeClosedTokenLoan,
-} = require('./lib/email-luna-controlled-drafting-token-loan');
-const {
   parseArgs: parsePrepareArgs,
   refusedProduction,
   normalizeRecipientAddress,
@@ -228,9 +225,9 @@ assert.match(STAFF_API_SRC, /drainEmailLunaControlledDraftingRuntimePair/);
 assert.doesNotMatch(STAFF_API_SRC, /email-luna-controlled-drafting-sunset-staging-runtime-composition/);
 assert.doesNotMatch(STAFF_API_SRC, /email-luna-controlled-drafting-provider-contract/);
 assert.doesNotMatch(STAFF_API_SRC, /email-luna-controlled-drafting-operation-store/);
-assert.match(STAFF_API_SRC, /createEmailLunaControlledDraftingSunsetStagingLiveTokenLoan/);
+assert.match(STAFF_API_SRC, /createEmailLunaControlledDraftingSunsetStagingLiveGraphProvider/);
 assert.match(STAFF_API_SRC, /process\.env\[ENV_LIVE_PROVIDER_DRAFT_ENABLED\] === 'true'/);
-assert.doesNotMatch(ACT_SRC, /getAccessToken/);
+assert.doesNotMatch(ACT_SRC, /function getAccessToken|getAccessToken\s*\(/);
 assert.doesNotMatch(STAFF_API_SRC, /withTransactionClient:\s*\(work\)\s*=>\s*_withPgClientImpl/);
 assert.doesNotMatch(COMPOSE_SRC, /EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_ENABLED=true/);
 assert.doesNotMatch(COMPOSE_SRC, /EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_ENABLED/);
@@ -444,23 +441,34 @@ assert.throws(() => createEmailLunaControlledDraftingSunsetStagingRuntimeActivat
   },
 }), (error) => error && (error.code === ERROR_CODE || error.code === DISABLED_CODE));
 assert.equal(typeof createMicrosoftGraphReplyDraftTransport, 'function');
-const closedLoan = createEmailLunaControlledDraftingFakeClosedTokenLoan({
-  accessToken: 'closed-loan-not-a-secret',
+const closedFake = createEmailLunaControlledDraftingFakeTransport({ classify: true });
+const closedProvider = createEmailLunaControlledDraftingProvider({
+  authority: {
+    client_id: C,
+    location_id: L,
+    location_key: SUNSET_LOCATION_KEY,
+    endpoint_id: E,
+    provider: 'microsoft_graph',
+    mailbox_id: MAILBOX,
+  },
+  transport: pickEmailLunaControlledDraftingTransportMethods({
+    createReplyDraft: closedFake.createReplyDraft,
+    reconcileDraft: closedFake.reconcileDraft,
+  }),
 });
-const liveWithLoan = createEmailLunaControlledDraftingSunsetStagingRuntimeActivation({
+const liveWithProvider = createEmailLunaControlledDraftingSunsetStagingRuntimeActivation({
   env: enabledEnv({ EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_PROVIDER_DRAFT_ENABLED: 'true' }),
   producerWithTransactionClient: dummyLoaner,
   workerWithTransactionClient: async (work) => work({ async query() { return { rows: [] }; } }),
   timers,
   intervalMs: 60000,
-  tokenLoan: closedLoan,
-  httpsImpl() { throw new Error('graph-must-not-run'); },
+  provider: closedProvider,
 });
-assert.equal(liveWithLoan.getStatus().live_provider_draft, true);
-assert.equal(liveWithLoan.getStatus().live_provider_block_reason, null);
-assert.equal(liveWithLoan.getStatus().send_allowed, false);
-assert.doesNotMatch(JSON.stringify(liveWithLoan.getStatus()), /closed-loan-not-a-secret|accessToken|Mail\.Send/);
-console.log('  PASS  live provider without token loan blocked; send-capable provider rejected; closed loan assembles');
+assert.equal(liveWithProvider.getStatus().live_provider_draft, true);
+assert.equal(liveWithProvider.getStatus().live_provider_block_reason, null);
+assert.equal(liveWithProvider.getStatus().send_allowed, false);
+assert.doesNotMatch(JSON.stringify(liveWithProvider.getStatus()), /accessToken|Mail\.Send|runClosed/);
+console.log('  PASS  live provider without graph provider blocked; send-capable provider rejected; closed Chapter 1 provider assembles');
 
 function issuanceDouble() {
   const branded = new WeakSet();

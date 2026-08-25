@@ -1,10 +1,13 @@
 'use strict';
 
 /**
- * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4C — one-shot live-proof harness
- * library. Operator-controlled, default dry-run, refuses production/Wolfhouse.
- * This source operates against fakes / stock-PG only. Live Azure mode is
- * structurally absent until a later reviewed deploy SHA is allowlisted.
+ * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4C — offline simulation harness.
+ * Operator-controlled, default dry-run, refuses production/Wolfhouse.
+ * This is not an operator live harness and cannot prove OAuth, Graph, or 098.
+ * Fake / in-memory / stock-PG mode never emits live provider/DB evidence.
+ * Live Azure mode is structurally absent until a later reviewed chapter owns
+ * live operations. A compatibility wrapper may keep the old CLI name; output
+ * still says simulation.
  *
  * @module email-luna-controlled-drafting-one-shot-live-proof
  */
@@ -83,6 +86,7 @@ function output(pairs) {
 
 function parseArgs(argv) {
   const args = Array.isArray(argv) ? argv.slice() : [];
+  const seen = objectCreate(null);
   const flags = objectCreate(null);
   flags.apply = false;
   flags.target = 'fake';
@@ -93,18 +97,53 @@ function parseArgs(argv) {
   flags.recipientAddress = null;
   flags.confirmRecipient = null;
   flags.deploySha = null;
+  flags.invalid = false;
+  flags.invalidReason = null;
+  function markSeen(name) {
+    if (seen[name] === true) {
+      flags.invalid = true;
+      flags.invalidReason = 'duplicate_arg';
+      return false;
+    }
+    seen[name] = true;
+    return true;
+  }
+  function takeValue(name, i) {
+    const value = args[i + 1];
+    if (typeof value !== 'string' || value.length < 1 || value.startsWith('--')) {
+      flags.invalid = true;
+      flags.invalidReason = 'missing_arg_value';
+      return i;
+    }
+    if (!markSeen(name)) return i + 1;
+    flags[name] = value;
+    return i + 1;
+  }
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === '--apply') flags.apply = true;
-    else if (arg === '--target' && args[i + 1]) { flags.target = args[i + 1]; i += 1; }
-    else if (arg === '--authorization-id' && args[i + 1]) { flags.authorizationId = args[i + 1]; i += 1; }
-    else if (arg === '--operation-id' && args[i + 1]) { flags.operationId = args[i + 1]; i += 1; }
-    else if (arg === '--issuance-id' && args[i + 1]) { flags.issuanceId = args[i + 1]; i += 1; }
-    else if (arg === '--recipient-address' && args[i + 1]) { flags.recipientAddress = args[i + 1]; i += 1; }
-    else if (arg === '--confirm-recipient' && args[i + 1]) { flags.confirmRecipient = args[i + 1]; i += 1; }
-    else if (arg === '--deploy-sha' && args[i + 1]) { flags.deploySha = args[i + 1]; i += 1; }
-    else if (arg && !arg.startsWith('--') && COMMANDS.includes(arg) && flags.command === 'preflight') {
+    if (arg === '--apply') {
+      if (!markSeen('apply')) continue;
+      flags.apply = true;
+    } else if (arg === '--target') {
+      i = takeValue('target', i);
+    } else if (arg === '--authorization-id') {
+      i = takeValue('authorizationId', i);
+    } else if (arg === '--operation-id') {
+      i = takeValue('operationId', i);
+    } else if (arg === '--issuance-id') {
+      i = takeValue('issuanceId', i);
+    } else if (arg === '--recipient-address') {
+      i = takeValue('recipientAddress', i);
+    } else if (arg === '--confirm-recipient') {
+      i = takeValue('confirmRecipient', i);
+    } else if (arg === '--deploy-sha') {
+      i = takeValue('deploySha', i);
+    } else if (arg && !arg.startsWith('--') && COMMANDS.includes(arg)) {
+      if (!markSeen('command')) continue;
       flags.command = arg;
+    } else {
+      flags.invalid = true;
+      flags.invalidReason = 'unknown_or_hostile_arg';
     }
   }
   return objectFreeze({
@@ -117,6 +156,8 @@ function parseArgs(argv) {
     recipientAddress: flags.recipientAddress,
     confirmRecipient: flags.confirmRecipient,
     deploySha: flags.deploySha,
+    invalid: flags.invalid === true,
+    invalidReason: flags.invalidReason,
   });
 }
 
@@ -172,9 +213,9 @@ function createFakeHarnessState(seed) {
     ops097: Number(ownData(state, 'ops097') || 0),
     rows098: Number(ownData(state, 'rows098') || 0),
     journalUnchanged: ownData(state, 'journalUnchanged') !== false,
-    providerIsDraft: ownData(state, 'providerIsDraft'),
-    consumed098: ownData(state, 'consumed098') === true,
-    graphSendCalled: ownData(state, 'graphSendCalled') === true,
+    wouldRequireProviderIsDraft: ownData(state, 'wouldRequireProviderIsDraft'),
+    wouldConsume098: ownData(state, 'wouldConsume098') === true,
+    wouldCallGraph: ownData(state, 'wouldCallGraph') === true,
     guestWithoutMarker: ownData(state, 'guestWithoutMarker') === true,
   };
 }
@@ -203,9 +244,11 @@ function preflightFromState(state, parsed) {
     ['checksum_097', state.checksum097],
     ['checksum_098', state.checksum098],
     ['logins_ready', state.loginsReady === true],
-    ['token_loan_ready', capabilitySendAbsent()],
+    ['configured_contract_only', capabilitySendAbsent()],
     ['token_returned', false],
-    ['graph_called', false],
+    ['would_call_graph', false],
+    ['live_evidence', false],
+    ['simulation', true],
     ['authorization_present', state.authorizationPresent === true],
     ['ops_097', state.ops097],
     ['rows_098', state.rows098],
@@ -230,9 +273,19 @@ function requireTypedIds(parsed) {
   return null;
 }
 
-function runOneShotLiveProof(input) {
+function runOfflineSimulation(input) {
   const parsed = input && input.parsed ? input.parsed : parseArgs(input && input.argv);
   const env = (input && input.env) || {};
+  if (parsed && parsed.invalid === true) {
+    return output([
+      ['ok', false],
+      ['command', parsed.command],
+      ['reason', parsed.invalidReason || 'unknown_or_hostile_arg'],
+      ['apply', false],
+      ['simulation', true],
+      ['live_evidence', false],
+    ]);
+  }
   if (refusedProduction(env)) {
     return output([
       ['ok', false],
@@ -357,16 +410,18 @@ function runOneShotLiveProof(input) {
           ['apply', false], ['server_synthetic_evidence', false],
         ]);
       }
-      if (state.providerIsDraft === false) {
+      if (state.wouldRequireProviderIsDraft === false) {
         return output([
           ['ok', false], ['command', parsed.command], ['reason', 'provider_is_draft_false'],
-          ['apply', false], ['server_synthetic_evidence', false],
+          ['apply', false], ['server_synthetic_evidence', false], ['simulation', true],
+          ['live_evidence', false],
         ]);
       }
-      if (state.graphSendCalled === true) {
+      if (state.wouldCallGraph === true) {
         return output([
           ['ok', false], ['command', parsed.command], ['reason', 'graph_send_called'],
-          ['apply', false], ['server_synthetic_evidence', false],
+          ['apply', false], ['server_synthetic_evidence', false], ['simulation', true],
+          ['live_evidence', false],
         ]);
       }
     }
@@ -394,12 +449,14 @@ function runOneShotLiveProof(input) {
         ['evidence_preserved', true],
         ['server_synthetic_evidence', false],
         ['send_allowed', false],
+        ['simulation', true],
+        ['live_evidence', false],
       ]);
     }
     if (parsed.command === 'enable-live-provider') {
       state.flags.EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_PROVIDER_DRAFT_ENABLED = 'true';
-      state.providerIsDraft = true;
-      state.consumed098 = true;
+      state.wouldRequireProviderIsDraft = true;
+      state.wouldConsume098 = true;
       state.flags.EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_PROVIDER_DRAFT_ENABLED = 'false';
       state.flags.EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_INTAKE_ENABLED = 'false';
       state.flags.EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_TICK_ENABLED = 'false';
@@ -407,14 +464,17 @@ function runOneShotLiveProof(input) {
         ['ok', true],
         ['command', 'enable-live-provider'],
         ['apply', true],
-        ['provider_is_draft', true],
-        ['consumed_098', true],
+        ['simulated_transition', true],
+        ['would_require_provider_is_draft', true],
+        ['would_consume_098', true],
         ['journal_unchanged', true],
-        ['graph_send_called', false],
+        ['would_call_graph', false],
         ['live_disabled_after', true],
         ['server_synthetic_evidence', false],
         ['send_allowed', false],
         ['token_returned', false],
+        ['simulation', true],
+        ['live_evidence', false],
       ]);
     }
     return output([
@@ -435,6 +495,10 @@ function runOneShotLiveProof(input) {
   ]);
 }
 
+function runOneShotLiveProof(input) {
+  return runOfflineSimulation(input);
+}
+
 module.exports = objectFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
@@ -448,5 +512,6 @@ module.exports = objectFreeze({
   refusedProduction,
   liveModeAllowed,
   createFakeHarnessState,
+  runOfflineSimulation,
   runOneShotLiveProof,
 });

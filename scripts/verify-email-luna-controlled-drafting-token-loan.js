@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4C: closed draft-only token loan
- * and one-shot live-proof harness. Offline fakes only. No live Graph/OAuth.
+ * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4C: Graph-bound draft-only
+ * token assembly and offline simulation. Offline fakes only. No live Graph/OAuth.
  */
 
 const assert = require('node:assert/strict');
@@ -10,16 +10,17 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 const {
-  createEmailLunaControlledDraftingTokenLoan,
-  createEmailLunaControlledDraftingFakeClosedTokenLoan,
-  isClosedControlledDraftingTokenLoan,
+  createEmailLunaControlledDraftingGraphProvider,
+  isClosedControlledDraftingGraphProvider,
   bindControlledDraftingTokenLoanKillSwitch,
   readTrustedControlledDraftingTokenLoanFailure,
   ERROR_CODE,
   SUNSET_DEPLOYMENT,
   SCOPE_PROFILE_ID,
   REQUESTED_SCOPE,
+  ATTESTATION_KIND,
   DEPENDENCY_KEYS,
   BINDING_KEYS,
   SERVICE_KEYS,
@@ -35,6 +36,10 @@ const {
   createEmailLunaControlledDraftingGraphDraftTransport,
 } = require('./lib/email-luna-controlled-drafting-graph-draft-transport');
 const {
+  createMicrosoftOidcJwksSignatureVerifier,
+  isCanonicalMicrosoftOidcJwksSignatureVerifier,
+} = require('./lib/email-microsoft-oidc-jwks-verifier');
+const {
   createFakeEmailGrantEnvelopeProvider,
   fakeSealRefreshToken,
 } = require('./lib/email-grant-envelope-fake-provider');
@@ -43,6 +48,7 @@ const {
 } = require('./lib/email-microsoft-refresh-token-request');
 const {
   parseArgs,
+  runOfflineSimulation,
   runOneShotLiveProof,
   createFakeHarnessState,
   LIVE_DEPLOY_SHA_ALLOWLIST,
@@ -82,11 +88,22 @@ const DOC_SRC = fs.readFileSync(
   path.join(ROOT, 'docs/EMAIL-LUNA-CONTROLLED-DRAFTING-TOKEN-LOAN.md'),
   'utf8',
 );
+const TEST_SUPPORT_REL = 'scripts/lib/email-luna-controlled-drafting-token-loan.test-support.js';
+const TEST_SUPPORT_SRC = fs.readFileSync(path.join(ROOT, TEST_SUPPORT_REL), 'utf8');
+const CLAIMS_SRC = fs.readFileSync(
+  require.resolve('./lib/email-luna-controlled-drafting-access-token-claims'),
+  'utf8',
+);
+const CUSTODIAN_SRC = fs.readFileSync(
+  require.resolve('./lib/email-delegated-grant-custodian'),
+  'utf8',
+);
 
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ENDPOINT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const MAILBOX = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const PRINCIPAL = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const APP_ID = '12345678-1234-4234-8234-123456789abc';
 const TID = '01234567-89ab-4def-8123-456789abcdef';
 const OLD_RT = 'rt-old-NEVER_LEAK';
@@ -96,6 +113,17 @@ const PLANTED = 'planted-NEVER_LEAK-secret';
 const NOW = 1_900_000_000;
 const DRAFT_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite';
 const SEND_SCOPE = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
+const SUBJECT = 'Lesson availability';
+const BODY = 'Yes.';
+const SUBJECT_DIGEST = crypto.createHash('sha256').update(SUBJECT, 'utf8').digest('hex');
+const BODY_DIGEST = crypto.createHash('sha256').update(BODY, 'utf8').digest('hex');
+const SOURCE_MSG = 'AAMkAGI2-SRC';
+const THREAD = 'AAQkAGI2-THREAD';
+const DRAFT_ID = 'AAMkAGI2-LIVE-DRAFT';
+const RECIPIENT = 'operator-test@example.test';
+const pair = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+const exportedJwk = pair.publicKey.export({ format: 'jwk' });
+const KID = 'key-1';
 
 function noLeak(value) {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
@@ -130,14 +158,18 @@ function b64(value) {
   return Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)).toString('base64url');
 }
 
-function jwt(header, claims, signature = Buffer.from([0, 1, 2, 254, 255])) {
-  return `${b64(header)}.${b64(claims)}.${Buffer.from(signature).toString('base64url')}`;
+function signJwt(header, claims) {
+  const encodedHeader = b64(header);
+  const encodedClaims = b64(claims);
+  const input = `${encodedHeader}.${encodedClaims}`;
+  const signature = crypto.sign('RSA-SHA256', Buffer.from(input), pair.privateKey).toString('base64url');
+  return `${input}.${signature}`;
 }
 
 function baseClaims(patch = {}) {
   return {
     tid: TID,
-    oid: MAILBOX,
+    oid: PRINCIPAL,
     aud: '00000003-0000-0000-c000-000000000000',
     iss: `https://login.microsoftonline.com/${TID}/v2.0`,
     azp: APP_ID,
@@ -150,12 +182,12 @@ function baseClaims(patch = {}) {
 }
 
 function goodJwt(patch) {
-  return jwt({ alg: 'RS256', kid: 'key-1', typ: 'JWT' }, baseClaims(patch));
+  return signJwt({ alg: 'RS256', kid: KID, typ: 'JWT' }, baseClaims(patch));
 }
 
 function liveJwt(patch) {
   const now = Math.floor(Date.now() / 1000);
-  return jwt({ alg: 'RS256', kid: 'key-1', typ: 'JWT' }, baseClaims({
+  return signJwt({ alg: 'RS256', kid: KID, typ: 'JWT' }, baseClaims({
     exp: now + 600,
     iat: now - 10,
     nbf: now - 10,
@@ -163,19 +195,56 @@ function liveJwt(patch) {
   }));
 }
 
-function verifier(spec = {}) {
-  return Object.freeze({
-    async verify(request) {
-      if (spec.throw) throw new Error(`${PLANTED} verifier`);
-      if (spec.ack !== undefined) return spec.ack;
-      return Object.seal({ verified: true });
-    },
+function validJwks() {
+  return JSON.stringify({
+    keys: [{ ...exportedJwk, kid: KID, use: 'sig', alg: 'RS256' }],
   });
 }
 
-function inspector(spec) {
+function makeJwksHarness() {
+  const response = new EventEmitter();
+  response.statusCode = 200;
+  response.headers = { 'content-type': 'application/json' };
+  response.destroy = function destroyResponse() {};
+  const request = new EventEmitter();
+  let onResponse = null;
+  request.destroy = function destroyRequest() {};
+  request.end = function endRequest() {
+    if (typeof onResponse === 'function') onResponse(response);
+    response.emit('data', Buffer.from(validJwks()));
+    response.emit('end');
+    response.emit('close');
+  };
+  const httpsBag = Object.freeze({
+    request(options, callback) {
+      onResponse = callback;
+      return request;
+    },
+  });
+  const cryptoBag = Object.freeze({
+    createPublicKey(input) { return crypto.createPublicKey(input); },
+    verify(...args) { return crypto.verify(...args); },
+  });
+  const timersBag = Object.freeze({
+    setTimeout() { return Object.freeze({ id: 1 }); },
+    clearTimeout() {},
+  });
+  return Object.freeze({
+    dependencies: Object.freeze({
+      https: httpsBag,
+      crypto: cryptoBag,
+      timers: timersBag,
+    }),
+  });
+}
+
+function canonicalVerifier() {
+  return createMicrosoftOidcJwksSignatureVerifier(makeJwksHarness().dependencies);
+}
+
+function inspector() {
   return createControlledDraftingAccessTokenClaimsInspector({
-    signatureVerifier: verifier(spec),
+    signatureVerifier: canonicalVerifier(),
   });
 }
 
@@ -184,21 +253,95 @@ function inspectInput(token = goodJwt(), patch = {}) {
     accessToken: token,
     expectedTenantId: TID,
     expectedClientId: APP_ID,
-    expectedPrincipalOid: MAILBOX,
+    expectedPrincipalOid: PRINCIPAL,
     nowEpochSeconds: NOW,
     ...patch,
   };
 }
 
+function graphMessage() {
+  return {
+    id: DRAFT_ID,
+    isDraft: true,
+    subject: SUBJECT,
+    body: { contentType: 'text', content: BODY },
+    toRecipients: [{ emailAddress: { address: RECIPIENT, name: 'Elena' } }],
+    conversationId: THREAD,
+    '@odata.context': 'https://graph.microsoft.com/v1.0/$metadata#messages/$entity',
+  };
+}
+
+function mockGraphHttps(state) {
+  const captured = [];
+  function request(options, onResponse) {
+    captured.push({
+      method: options.method,
+      path: options.path,
+      hostname: options.hostname,
+      headers: options.headers,
+    });
+    const n = captured.length;
+    let planned;
+    if (n === 1) {
+      planned = { statusCode: 201, body: JSON.stringify({ id: DRAFT_ID, isDraft: true }) };
+    } else if (n === 2) {
+      planned = { statusCode: 200, body: JSON.stringify({ id: DRAFT_ID }) };
+    } else {
+      planned = { statusCode: 200, body: JSON.stringify(graphMessage()) };
+    }
+    const response = new EventEmitter();
+    response.statusCode = planned.statusCode;
+    Object.defineProperty(response, 'headers', {
+      value: { 'content-type': 'application/json' },
+      enumerable: true,
+      configurable: true,
+    });
+    const req = new EventEmitter();
+    req.end = (body) => {
+      captured[captured.length - 1].body = body || null;
+      queueMicrotask(() => {
+        onResponse(response);
+        if (planned.body) response.emit('data', Buffer.from(planned.body, 'utf8'));
+        response.emit('end');
+      });
+    };
+    req.destroy = () => {};
+    response.destroy = () => {};
+    response.on = response.on.bind(response);
+    response.once = response.once.bind(response);
+    return req;
+  }
+  request.captured = captured;
+  if (state) state.captured = captured;
+  return request;
+}
+
+function draftCommand() {
+  return {
+    mailbox_id: MAILBOX,
+    inbound_provider_message_id: SOURCE_MSG,
+    inbound_provider_thread_id: THREAD,
+    recipient_address: RECIPIENT,
+    subject: SUBJECT,
+    body_text: BODY,
+    subject_digest: SUBJECT_DIGEST,
+    body_digest: BODY_DIGEST,
+    issuance_id: '55555555-5555-4555-8555-555555555555',
+    operation_id: '66666666-6666-4666-8666-666666666666',
+  };
+}
+
 function mockGrantLifecycle({
   sealed, opId, onCommit, failCommit, priorStatus, noGrant, scopeVersion, failLease,
-  bindingRow,
+  bindingRow, events, failAbort, generation,
 }) {
   let leaseTok = null;
   const scopeVer = scopeVersion === undefined ? 'phase_b_v1' : scopeVersion;
+  const log = events || [];
+  let currentGeneration = generation || 1;
   const prior = priorStatus || {
     client_id: CLIENT, endpoint_id: ENDPOINT,
-    grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+    grant_generation: currentGeneration, grant_status: 'active', reconcile_state: 'clean',
     grant_lease_token: null,
     scope_version: scopeVer,
   };
@@ -207,7 +350,7 @@ function mockGrantLifecycle({
       match: (t) => /FROM tenant_email_delegated_grants/i.test(t)
         && !/FOR UPDATE/i.test(t) && !/UPDATE/i.test(t) && !/INSERT/i.test(t)
         && !/tenant_channel_endpoints/i.test(t),
-      run: () => (noGrant ? empty() : rows(prior)),
+      run: () => (noGrant ? empty() : rows({ ...prior, grant_generation: currentGeneration })),
     },
     {
       match: (t) => /tenant_channel_endpoints/i.test(t) && /tenant_locations/i.test(t),
@@ -222,7 +365,7 @@ function mockGrantLifecycle({
         binding_status: 'verified',
         provider_tenant_id: TID,
         provider_resource_id: MAILBOX,
-        provider_principal_oid: MAILBOX,
+        provider_principal_oid: PRINCIPAL,
         mailbox_kind: 'user',
         mailbox_access_kind: 'own_user',
         public_address: 'operator-test@example.test',
@@ -234,7 +377,7 @@ function mockGrantLifecycle({
       match: (t) => /FOR UPDATE OF g/i.test(t) || (/SELECT g\.\*/i.test(t) && /FOR UPDATE/i.test(t)),
       run: () => rows({
         client_id: CLIENT, endpoint_id: ENDPOINT,
-        grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+        grant_generation: currentGeneration, grant_status: 'active', reconcile_state: 'clean',
         grant_lease_token: null, grant_lease_until: null,
         last_operation_id: opId,
         scope_version: scopeVer,
@@ -251,9 +394,10 @@ function mockGrantLifecycle({
       run: (_t, p) => {
         if (failLease) return empty();
         leaseTok = p[3];
+        log.push({ type: 'lease', generation: currentGeneration });
         return rows({
           client_id: CLIENT, endpoint_id: ENDPOINT,
-          grant_generation: 1, grant_status: 'lease_held',
+          grant_generation: currentGeneration, grant_status: 'lease_held',
           grant_lease_token: leaseTok,
           grant_lease_until: new Date(Date.now() + 60000).toISOString(),
           last_operation_id: opId,
@@ -266,7 +410,7 @@ function mockGrantLifecycle({
         && /envelope_version/i.test(t),
       run: () => rows({
         client_id: CLIENT, endpoint_id: ENDPOINT,
-        grant_generation: 1, grant_status: 'lease_held',
+        grant_generation: currentGeneration, grant_status: 'lease_held',
         grant_lease_token: leaseTok,
         grant_lease_until: new Date(Date.now() + 60000).toISOString(),
         last_operation_id: opId,
@@ -281,11 +425,16 @@ function mockGrantLifecycle({
     {
       match: (t) => /SET grant_generation=/i.test(t) && /grant_status='active'/i.test(t),
       run: (_t, p) => {
-        if (failCommit) return empty();
-        if (typeof onCommit === 'function') onCommit(Number(p[2]));
+        if (failCommit) {
+          log.push({ type: 'commit_fail', generation: currentGeneration });
+          return empty();
+        }
+        currentGeneration = Number(p[2]);
+        if (typeof onCommit === 'function') onCommit(currentGeneration);
+        log.push({ type: 'commit', generation: currentGeneration });
         return rows({
           client_id: CLIENT, endpoint_id: ENDPOINT,
-          grant_generation: Number(p[2]), grant_status: 'active',
+          grant_generation: currentGeneration, grant_status: 'active',
           reconcile_state: 'clean',
           scope_version: scopeVer,
         });
@@ -293,25 +442,33 @@ function mockGrantLifecycle({
     },
     {
       match: (t) => /SET reconcile_state=/i.test(t),
-      run: () => rows({
-        client_id: CLIENT, endpoint_id: ENDPOINT,
-        grant_generation: 1, grant_status: 'lease_held',
-        reconcile_state: 'ms_response_uncertain',
-        scope_version: scopeVer,
-      }),
+      run: (_t, p) => {
+        log.push({ type: 'uncertain', generation: currentGeneration, state: p && p[2] });
+        return rows({
+          client_id: CLIENT, endpoint_id: ENDPOINT,
+          grant_generation: currentGeneration, grant_status: 'lease_held',
+          reconcile_state: 'ms_response_uncertain',
+          scope_version: scopeVer,
+        });
+      },
     },
     {
-      match: (t) => /SET grant_status='active'/i.test(t) && /grant_lease_owner=NULL/i.test(t),
-      run: () => rows({
-        client_id: CLIENT, endpoint_id: ENDPOINT,
-        grant_generation: 1, grant_status: 'active',
-        reconcile_state: 'ms_response_uncertain',
-        scope_version: scopeVer,
-      }),
+      match: (t) => /SET grant_status='active'/i.test(t) && /grant_lease_owner=NULL/i.test(t)
+        && !/SET grant_generation=/i.test(t),
+      run: () => {
+        if (failAbort) return empty();
+        log.push({ type: 'abort', generation: currentGeneration });
+        return rows({
+          client_id: CLIENT, endpoint_id: ENDPOINT,
+          grant_generation: currentGeneration, grant_status: 'active',
+          reconcile_state: 'clean',
+          scope_version: scopeVer,
+        });
+      },
     },
     {
       match: (t) => /reauthorization_required/i.test(t),
-      run: () => rows({ grant_generation: 1, grant_status: 'reauthorization_required' }),
+      run: () => rows({ grant_generation: currentGeneration, grant_status: 'reauthorization_required' }),
     },
     {
       match: (t) => /UPDATE tenant_channel_endpoints/i.test(t),
@@ -321,21 +478,23 @@ function mockGrantLifecycle({
   ]);
 }
 
-function successTransport(accessToken, scope = DRAFT_SCOPE) {
+function successTransport(accessToken, scope = DRAFT_SCOPE, refreshToken = NEW_RT) {
+  const body = {
+    token_type: 'Bearer',
+    expires_in: 3600,
+    access_token: accessToken,
+    scope,
+  };
+  if (refreshToken !== null) body.refresh_token = refreshToken;
   return frozenMethod('postTokenForm', async () => Object.freeze({
     statusCode: 200,
     contentType: 'application/json',
-    body: JSON.stringify({
-      token_type: 'Bearer',
-      expires_in: 3600,
-      access_token: accessToken,
-      refresh_token: NEW_RT,
-      scope,
-    }),
+    body: JSON.stringify(body),
   }));
 }
 
 function loanDeps(overrides = {}) {
+  const graphState = overrides.graphState || {};
   return {
     deployment: SUNSET_DEPLOYMENT,
     applicationClientId: APP_ID,
@@ -345,12 +504,17 @@ function loanDeps(overrides = {}) {
       || (() => frozenMethod('getClientSecret', async () => SECRET)),
     transport: overrides.transport,
     workerId: 'email-luna-controlled-drafting-token-loan',
-    createSignatureVerifier: overrides.createSignatureVerifier || (() => verifier()),
+    createSignatureVerifier: overrides.createSignatureVerifier || (() => canonicalVerifier()),
     binding: {
       clientId: CLIENT,
       locationId: LOCATION,
       endpointId: ENDPOINT,
       mailboxId: MAILBOX,
+    },
+    httpsImpl: overrides.httpsImpl || mockGraphHttps(graphState),
+    timers: overrides.timers || {
+      setTimeout(fn) { return setTimeout(fn, 10_000); },
+      clearTimeout(handle) { clearTimeout(handle); },
     },
   };
 }
@@ -372,41 +536,92 @@ function runChild(name) {
   assert.equal(result.status, 0, name);
 }
 
+async function makeProvider(overrides = {}) {
+  const envelope = overrides.envelopeProvider || createFakeEmailGrantEnvelopeProvider();
+  const op = overrides.opId || crypto.randomUUID();
+  const sealed = overrides.sealed || await fakeSealRefreshToken(envelope, {
+    refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
+    grantGeneration: 1, operationId: op,
+  });
+  const events = overrides.events || [];
+  const graphState = overrides.graphState || {};
+  const provider = createEmailLunaControlledDraftingGraphProvider(loanDeps({
+    withPgClient: overrides.withPgClient
+      || (async (work) => work(mockGrantLifecycle({
+        sealed, opId: op, events, failCommit: overrides.failCommit,
+        bindingRow: overrides.bindingRow, failAbort: overrides.failAbort,
+      }))),
+    envelopeProvider: envelope,
+    transport: overrides.transport || successTransport(overrides.accessJwt || liveJwt()),
+    httpsImpl: overrides.httpsImpl || mockGraphHttps(graphState),
+    createSignatureVerifier: overrides.createSignatureVerifier,
+    graphState,
+  }));
+  return { provider, graphState, events, envelope };
+}
+
 async function main() {
   console.log('FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4C token loan verifier');
 
   assert.equal(EMAIL_LUNA_CONTROLLED_DRAFTING_TOKEN_LOAN_RUNTIME_WIRED, false);
   assert.equal(SCOPE_PROFILE_ID, 'controlled_drafting_v1');
   assert.equal(REQUESTED_SCOPE, CONTROLLED_DRAFTING_REQUEST_SCOPE);
+  assert.equal(ATTESTATION_KIND, 'configured_contract_only');
   assert.equal(REQUESTED_SCOPE.includes('Mail.Send'), false);
   assert.deepEqual([...DEPENDENCY_KEYS], [
     'deployment', 'applicationClientId', 'withPgClient', 'envelopeProvider',
     'createSecretProvider', 'transport', 'workerId', 'createSignatureVerifier', 'binding',
+    'httpsImpl', 'timers',
   ]);
   assert.deepEqual([...BINDING_KEYS], ['clientId', 'locationId', 'endpointId', 'mailboxId']);
-  assert.deepEqual([...SERVICE_KEYS], ['attest', 'runClosed']);
+  assert.deepEqual([...SERVICE_KEYS], ['attest', 'createReplyDraft', 'reconcileDraft']);
   assert.deepEqual([...REQUIRED_SCP], ['User.Read', 'Mail.ReadWrite']);
   assert.ok(GRAPH_AUDIENCES.includes('00000003-0000-0000-c000-000000000000'));
   assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 0);
   assert.equal(PKG.scripts['verify:email-luna-controlled-drafting-token-loan'],
     'node scripts/verify-email-luna-controlled-drafting-token-loan.js');
 
+  const loanModule = require('./lib/email-luna-controlled-drafting-token-loan');
+  assert.equal(loanModule.createEmailLunaControlledDraftingTokenLoan, undefined);
+  assert.equal(loanModule.createEmailLunaControlledDraftingFakeClosedTokenLoan, undefined);
+  assert.equal(loanModule.runClosed, undefined);
+  assert.equal(loanModule.withToken, undefined);
+  assert.equal(loanModule.getAccessToken, undefined);
+  assert.doesNotMatch(LOAN_SRC, /function runClosed|runClosed\s*\(/);
+  assert.doesNotMatch(LOAN_SRC, /function withToken|withToken\s*\(/);
+  assert.doesNotMatch(LOAN_SRC, /function getAccessToken|getAccessToken\s*\(/);
+  assert.doesNotMatch(LOAN_SRC, /createEmailLunaControlledDraftingFakeClosedTokenLoan/);
+  assert.doesNotMatch(GRAPH_SRC, /function getAccessToken|getAccessToken\s*\(/);
+  assert.doesNotMatch(GRAPH_SRC, /\/send/);
+  assert.doesNotMatch(GRAPH_SRC, /tokenLoan\.runClosed/);
   assert.match(LOAN_SRC, /controlled_drafting_v1/);
   assert.match(LOAN_SRC, /tryAcquireDelegatedGrantLease/);
-  assert.doesNotMatch(LOAN_SRC, /getAccessToken\b/);
-  assert.doesNotMatch(LOAN_SRC, /sendMail|sendDraft/);
+  assert.match(LOAN_SRC, /createEmailLunaControlledDraftingGraphDraftHttpConsumer/);
   assert.match(REFRESH_SRC, /CONTROLLED_DRAFTING_REQUEST_SCOPE/);
-  assert.match(GRAPH_SRC, /tokenLoan/);
-  assert.doesNotMatch(GRAPH_SRC, /getAccessToken/);
-  assert.doesNotMatch(GRAPH_SRC, /\/send/);
-  assert.match(STAFF_API_SRC, /createEmailLunaControlledDraftingSunsetStagingLiveTokenLoan/);
+  assert.match(STAFF_API_SRC, /createEmailLunaControlledDraftingSunsetStagingLiveGraphProvider/);
+  assert.doesNotMatch(
+    STAFF_API_SRC,
+    new RegExp(TEST_SUPPORT_REL.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+  );
+  assert.doesNotMatch(STAFF_API_SRC, /createEmailLunaControlledDraftingGraphDraftHttpConsumer/);
   assert.match(STAFF_API_SRC, /process\.env\[ENV_LIVE_PROVIDER_DRAFT_ENABLED\] === 'true'/);
   assert.doesNotMatch(LIVE_SRC, /createMicrosoftGraphReplyDraftTransport/);
   assert.doesNotMatch(LIVE_SRC, /sendDraft|sendMail/);
   assert.match(HARNESS_SRC, /live_mode_structurally_absent_until_reviewed_sha/);
-  assert.match(HARNESS_SRC, /server_synthetic_evidence/);
+  assert.match(HARNESS_SRC, /simulation/);
+  assert.match(HARNESS_SRC, /live_evidence/);
+  assert.doesNotMatch(HARNESS_SRC, /consumed_098:\s*true/);
+  assert.doesNotMatch(HARNESS_SRC, /provider_is_draft:\s*true/);
+  assert.doesNotMatch(HARNESS_SRC, /graph_called:\s*true/);
   assert.match(DOC_SRC, /Mail\.ReadWrite/);
   assert.match(DOC_SRC, /does \*\*not\*\* include permission to send/);
+  assert.match(DOC_SRC, /configured_contract_only/);
+  assert.match(DOC_SRC, /unproven/);
+  assert.match(DOC_SRC, /simulation/);
+  assert.match(DOC_SRC, /claim-before-refresh|claims create authority before/);
+  assert.match(TEST_SUPPORT_SRC, /TEST-ONLY/);
+  assert.match(CLAIMS_SRC, /isCanonicalMicrosoftOidcJwksSignatureVerifier/);
+  assert.match(CUSTODIAN_SRC, /providerPrincipalOid/);
   console.log('  PASS  static surface; no generic token callback; no send paths');
 
   assert.throws(
@@ -416,90 +631,192 @@ async function main() {
     }),
     (error) => error && error.code === 'EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER_INVALID',
   );
-  console.log('  PASS  RED missing closed loan / getAccessToken refused');
-
-  const fake = createEmailLunaControlledDraftingFakeClosedTokenLoan({ accessToken: 'tok' });
-  assert.equal(isClosedControlledDraftingTokenLoan(fake), true);
-  const att = fake.attest();
-  assert.equal(att.ok, true);
-  assert.equal(att.send_capable, false);
-  assert.equal(att.mail_send, false);
-  assert.equal(JSON.stringify(att).includes('tok'), false);
-  let seen = null;
-  await fake.runClosed(async (loan) => { seen = loan.accessToken; });
-  assert.equal(seen, 'tok');
-
-  const missing = createEmailLunaControlledDraftingFakeClosedTokenLoan({ failRun: true });
-  await assert.rejects(
-    () => missing.runClosed(async () => {}),
-    (error) => readTrustedControlledDraftingTokenLoanFailure(error)
-      && noLeak(error),
+  assert.throws(
+    () => createEmailLunaControlledDraftingGraphDraftTransport({
+      httpsImpl() {},
+      tokenLoan: { runClosed() {} },
+    }),
+    (error) => error && error.code === 'EMAIL_LUNA_CONTROLLED_DRAFTING_PROVIDER_INVALID',
   );
-  console.log('  PASS  fake closed loan attest/runClosed; failure branded without secrets');
+  console.log('  PASS  RED missing closed loan / getAccessToken / runClosed refused');
 
   {
+    const { provider, graphState } = await makeProvider();
+    assert.equal(isClosedControlledDraftingGraphProvider(provider), true);
+    const att = provider.attest();
+    assert.equal(att.ok, true);
+    assert.equal(att.attestation_kind, 'configured_contract_only');
+    assert.equal(att.send_capable, false);
+    assert.equal(att.mail_send, false);
+    assert.equal(typeof provider.runClosed, 'undefined');
+    assert.equal(typeof provider.withToken, 'undefined');
+    assert.equal(typeof provider.getAccessToken, 'undefined');
+    assert.deepEqual([...Reflect.ownKeys(provider)].sort(), [
+      'attest', 'createReplyDraft', 'reconcileDraft',
+    ]);
+    assert.equal(Object.getPrototypeOf(provider), Object.prototype);
+    for (const key of Reflect.ownKeys(provider)) {
+      assert.equal(typeof key, 'string');
+    }
+    assert.equal(Object.getOwnPropertySymbols(provider).length, 0);
+    assert.throws(() => provider.runClosed(async (token) => token));
+    const created = await provider.createReplyDraft(draftCommand());
+    assert.equal(created.is_draft, true);
+    assert.equal(created.provider_draft_id, DRAFT_ID);
+    assert.equal(JSON.stringify(created).includes(PLANTED), false);
+    assert.equal(noLeak(created), true);
+    assert.equal(JSON.stringify(att).includes('eyJ'), false);
+    const auth = graphState.captured[0].headers.Authorization;
+    assert.match(auth, /^Bearer /);
+    assert.equal(JSON.stringify(created).includes(auth.slice(7)), false);
+    assert.throws(() => createEmailLunaControlledDraftingGraphProvider({
+      ...loanDeps({
+        withPgClient: async (work) => work({ async query() { return empty(); } }),
+        envelopeProvider: createFakeEmailGrantEnvelopeProvider(),
+        transport: successTransport(liveJwt()),
+      }),
+      consumer: async (token) => token,
+    }));
+    console.log('  PASS  H1 independent reproduction: no token escape via callback/own/symbol/prototype');
+  }
+
+  {
+    const structural = Object.freeze({
+      async verify() { return Object.seal({ verified: true }); },
+    });
+    assert.equal(isCanonicalMicrosoftOidcJwksSignatureVerifier(structural), false);
+    assert.throws(
+      () => createControlledDraftingAccessTokenClaimsInspector({
+        signatureVerifier: structural,
+      }),
+      (error) => error && error.code === CLAIMS_CODE,
+    );
     const good = inspector();
     const result = await good.inspect(inspectInput());
     assert.equal(result.ok, true);
     assert.equal(result.mail_send, false);
     assert.equal(result.scp, 'User.Read Mail.ReadWrite');
-    assert.equal(JSON.stringify(result).includes(PLANTED), false);
+    const badSig = signJwt({ alg: 'RS256', kid: KID, typ: 'JWT' }, baseClaims());
+    const tampered = `${badSig.slice(0, -4)}abcd`;
+    await rejectedClaims(inspector().inspect(inspectInput(tampered)));
+    await rejectedClaims(inspector().inspect(inspectInput('opaque-token')));
+    await rejectedClaims(inspector().inspect(inspectInput(
+      signJwt({ alg: 'none', kid: KID }, baseClaims()),
+    )));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ scp: 'User.Read Mail.ReadWrite Mail.Send' }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ roles: ['Mail.Send'] }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ aud: APP_ID }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ tid: APP_ID }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ azp: MAILBOX, appid: MAILBOX }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ oid: MAILBOX }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ oid: APP_ID }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ exp: NOW - 1000 }))));
+    await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ nbf: NOW + 1000 }))));
+    const cloned = { ...canonicalVerifier() };
+    assert.throws(() => createControlledDraftingAccessTokenClaimsInspector({
+      signatureVerifier: Object.freeze(cloned),
+    }));
+    console.log('  PASS  M1 canonical JWKS brand; real RS256 good/bad; oid≠mailbox refuse');
   }
-  await rejectedClaims(inspector().inspect(inspectInput('opaque-token')));
-  await rejectedClaims(inspector().inspect(inspectInput(jwt({ alg: 'none', kid: 'k' }, baseClaims()))));
-  await rejectedClaims(inspector().inspect(inspectInput(`${goodJwt()}.extra.part`)));
-  await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ scp: 'User.Read Mail.ReadWrite Mail.Send' }))));
-  await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ roles: ['Mail.Send'] }))));
-  await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ aud: APP_ID }))));
-  await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ tid: APP_ID }))));
-  await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ azp: MAILBOX, appid: MAILBOX }))));
-  await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ oid: APP_ID }))));
-  await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ exp: NOW - 1000 }))));
-  await rejectedClaims(inspector().inspect(inspectInput(goodJwt({ nbf: NOW + 1000 }))));
-  await rejectedClaims(inspector({ ack: Object.seal({ verified: false }) }).inspect(inspectInput()));
-  await rejectedClaims(inspector({ throw: true }).inspect(inspectInput()));
-  console.log('  PASS  JWT claims: scp Mail.ReadWrite accepted; Mail.Send/roles/aud/tid/azp/oid/exp/nbf/alg none/opaque/unsigned refuse');
 
-  const envelope = createFakeEmailGrantEnvelopeProvider();
-  const op = crypto.randomUUID();
-  const sealed = await fakeSealRefreshToken(envelope, {
-    refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
-    grantGeneration: 1, operationId: op,
-  });
-  const accessJwt = liveJwt();
-  let capturedBody;
-  const loan = createEmailLunaControlledDraftingTokenLoan(loanDeps({
-    withPgClient: async (work) => work(mockGrantLifecycle({ sealed, opId: op })),
-    envelopeProvider: envelope,
-    transport: frozenMethod('postTokenForm', async (arg) => {
-      capturedBody = arg.body;
-      return Object.freeze({
-        statusCode: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          token_type: 'Bearer',
-          expires_in: 3600,
-          access_token: accessJwt,
-          refresh_token: NEW_RT,
-          scope: DRAFT_SCOPE,
-        }),
-      });
-    }),
-  }));
-  const status = loan.attest();
-  assert.equal(status.ok, true);
-  assert.equal(status.scope_profile_id, SCOPE_PROFILE_ID);
-  assert.doesNotMatch(JSON.stringify(status), /NEVER_LEAK|access_token|refresh_token/);
-  let consumed = null;
-  const value = await loan.runClosed(async (inner) => {
-    consumed = inner.accessToken;
-    return { used: true };
-  });
-  assert.equal(value.used, true);
-  assert.equal(consumed, accessJwt);
-  assert.equal(new URLSearchParams(capturedBody).get('scope'), REQUESTED_SCOPE);
-  assert.equal(new URLSearchParams(capturedBody).get('scope').includes('Mail.Send'), false);
-  console.log('  PASS  exact downscope requested; closed consumer sees token only inside runClosed');
+  {
+    const events = [];
+    const { provider } = await makeProvider({
+      events,
+      accessJwt: liveJwt(),
+      bindingRow: {
+        client_id: CLIENT,
+        location_id: LOCATION,
+        endpoint_id: ENDPOINT,
+        provider: 'microsoft_graph',
+        channel: 'email',
+        auth_mode: 'delegated_authorization_code',
+        connector_mode: 'microsoft_delegated_oauth',
+        binding_status: 'verified',
+        provider_tenant_id: TID,
+        provider_resource_id: MAILBOX,
+        provider_principal_oid: null,
+        mailbox_kind: 'user',
+        mailbox_access_kind: 'own_user',
+        public_address: 'operator-test@example.test',
+        grant_client_id: CLIENT,
+        grant_endpoint_id: ENDPOINT,
+      },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'binding' && noLeak(error);
+      },
+    );
+  }
+  {
+    const { provider } = await makeProvider({
+      accessJwt: liveJwt({ oid: MAILBOX }),
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'claims' && noLeak(error);
+      },
+    );
+  }
+  console.log('  PASS  M2 null principal oid and mailbox-as-oid refuse; no PII in errors');
+
+  {
+    const events = [];
+    let capturedBody;
+    const { provider } = await makeProvider({
+      events,
+      transport: frozenMethod('postTokenForm', async (arg) => {
+        capturedBody = arg.body;
+        return Object.freeze({
+          statusCode: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            token_type: 'Bearer',
+            expires_in: 3600,
+            access_token: liveJwt(),
+            scope: DRAFT_SCOPE,
+          }),
+        });
+      }),
+    });
+    await provider.createReplyDraft(draftCommand());
+    assert.equal(new URLSearchParams(capturedBody).get('scope'), REQUESTED_SCOPE);
+    assert.equal(events.some((row) => row.type === 'commit'), false);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(events[events.length - 1].generation, 1);
+    console.log('  PASS  M3 omitted refresh token: no generation bump; lease released');
+  }
+
+  {
+    const events = [];
+    const { provider } = await makeProvider({
+      events,
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+    });
+    await provider.createReplyDraft(draftCommand());
+    const commits = events.filter((row) => row.type === 'commit');
+    assert.equal(commits.length, 1);
+    assert.equal(commits[0].generation, 2);
+    console.log('  PASS  M3 new refresh token: exactly one generation bump');
+  }
+
+  {
+    const events = [];
+    const { provider } = await makeProvider({
+      events,
+      failCommit: true,
+      transport: successTransport(liveJwt(), DRAFT_SCOPE, NEW_RT),
+    });
+    await assert.rejects(() => provider.createReplyDraft(draftCommand()));
+    assert.equal(events.some((row) => row.type === 'uncertain'), true);
+    assert.equal(events.some((row) => row.type === 'commit'), false);
+    console.log('  PASS  M3 CAS failure after rotating response marks ms_response_uncertain');
+  }
 
   {
     const env2 = createFakeEmailGrantEnvelopeProvider();
@@ -508,40 +825,18 @@ async function main() {
       refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
       grantGeneration: 1, operationId: op2,
     });
-    const broader = createEmailLunaControlledDraftingTokenLoan(loanDeps({
+    const broader = createEmailLunaControlledDraftingGraphProvider(loanDeps({
       withPgClient: async (work) => work(mockGrantLifecycle({ sealed: sealed2, opId: op2 })),
       envelopeProvider: env2,
       transport: successTransport(liveJwt(), SEND_SCOPE),
+      httpsImpl() { throw new Error('graph-must-not-run'); },
     }));
     await assert.rejects(
-      () => broader.runClosed(async () => { throw new Error('graph-must-not-run'); }),
+      () => broader.createReplyDraft(draftCommand()),
       (error) => readTrustedControlledDraftingTokenLoanFailure(error) && noLeak(error),
     );
   }
   console.log('  PASS  broader Mail.Send token response refuses before Graph');
-
-  {
-    const env3 = createFakeEmailGrantEnvelopeProvider();
-    const op3 = crypto.randomUUID();
-    const sealed3 = await fakeSealRefreshToken(env3, {
-      refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
-      grantGeneration: 1, operationId: op3,
-    });
-    const sendJwt = liveJwt({ scp: 'User.Read Mail.ReadWrite Mail.Send' });
-    const claimsFail = createEmailLunaControlledDraftingTokenLoan(loanDeps({
-      withPgClient: async (work) => work(mockGrantLifecycle({ sealed: sealed3, opId: op3 })),
-      envelopeProvider: env3,
-      transport: successTransport(sendJwt, DRAFT_SCOPE),
-    }));
-    await assert.rejects(
-      () => claimsFail.runClosed(async () => { throw new Error('graph-must-not-run'); }),
-      (error) => {
-        const note = readTrustedControlledDraftingTokenLoanFailure(error);
-        return note && note.stage === 'claims' && noLeak(error);
-      },
-    );
-  }
-  console.log('  PASS  response scope clean but JWT scp has Mail.Send → claims refuse, zero Graph');
 
   {
     const env4 = createFakeEmailGrantEnvelopeProvider();
@@ -550,14 +845,15 @@ async function main() {
       refreshToken: OLD_RT, clientId: CLIENT, endpointId: ENDPOINT,
       grantGeneration: 1, operationId: op4,
     });
-    const killed = createEmailLunaControlledDraftingTokenLoan(loanDeps({
+    const killed = createEmailLunaControlledDraftingGraphProvider(loanDeps({
       withPgClient: async (work) => work(mockGrantLifecycle({ sealed: sealed4, opId: op4 })),
       envelopeProvider: env4,
       transport: successTransport(liveJwt(), DRAFT_SCOPE),
+      httpsImpl() { throw new Error('graph-must-not-run'); },
     }));
     bindControlledDraftingTokenLoanKillSwitch(killed, () => true);
     await assert.rejects(
-      () => killed.runClosed(async () => { throw new Error('graph-must-not-run'); }),
+      () => killed.createReplyDraft(draftCommand()),
       (error) => {
         const note = readTrustedControlledDraftingTokenLoanFailure(error);
         return note && note.stage === 'kill_switch' && noLeak(error);
@@ -575,7 +871,7 @@ async function main() {
     });
     let inFlight = 0;
     let max = 0;
-    const sequential = createEmailLunaControlledDraftingTokenLoan(loanDeps({
+    const sequential = createEmailLunaControlledDraftingGraphProvider(loanDeps({
       withPgClient: async (work) => work(mockGrantLifecycle({ sealed: sealed5, opId: op5 })),
       envelopeProvider: env5,
       transport: frozenMethod('postTokenForm', async () => {
@@ -597,8 +893,8 @@ async function main() {
       }),
     }));
     await Promise.all([
-      sequential.runClosed(async () => 1).catch(() => 0),
-      sequential.runClosed(async () => 2).catch(() => 0),
+      sequential.createReplyDraft(draftCommand()).catch(() => 0),
+      sequential.createReplyDraft(draftCommand()).catch(() => 0),
     ]);
     assert.equal(max, 1);
   }
@@ -607,31 +903,41 @@ async function main() {
   const parsed = parseArgs(['preflight']);
   assert.equal(parsed.command, 'preflight');
   assert.equal(parsed.apply, false);
-  const prod = runOneShotLiveProof({ parsed, env: { LUNA_DEPLOYMENT: 'production' } });
+  const prod = runOfflineSimulation({ parsed, env: { LUNA_DEPLOYMENT: 'production' } });
   assert.equal(prod.ok, false);
   assert.equal(prod.reason, 'production_or_wolfhouse_refused');
-  const live = runOneShotLiveProof({
+  const live = runOfflineSimulation({
     parsed: parseArgs(['preflight', '--target', 'live']),
     env: { LUNA_DEPLOYMENT: 'sunset-staging' },
   });
   assert.equal(live.ok, false);
   assert.equal(live.reason, 'live_mode_structurally_absent_until_reviewed_sha');
-  const pf = runOneShotLiveProof({
+  const hostile = parseArgs(['preflight', '--wat']);
+  assert.equal(hostile.invalid, true);
+  const duplicate = parseArgs(['--target', 'fake', '--target', 'stock-pg']);
+  assert.equal(duplicate.invalid, true);
+  const eqLive = parseArgs(['--target=live']);
+  assert.equal(eqLive.invalid, true);
+  const pf = runOfflineSimulation({
     parsed,
     env: { LUNA_DEPLOYMENT: 'sunset-staging' },
     state: createFakeHarnessState(),
   });
   assert.equal(pf.ok, true);
   assert.equal(pf.token_returned, false);
-  assert.equal(pf.server_synthetic_evidence, false);
-  const plan = runOneShotLiveProof({
+  assert.equal(pf.simulation, true);
+  assert.equal(pf.live_evidence, false);
+  assert.equal(pf.configured_contract_only, true);
+  assert.equal(Object.hasOwn(pf, 'graph_called'), false);
+  assert.equal(Object.hasOwn(pf, 'consumed_098'), false);
+  const plan = runOfflineSimulation({
     parsed: parseArgs(['plan-activation']),
     env: { LUNA_DEPLOYMENT: 'sunset-staging' },
   });
   assert.equal(plan.ok, true);
   assert.equal(plan.combined_irreversible, false);
   assert.deepEqual([...plan.order], [...ACTIVATION_ORDER]);
-  const mismatch = runOneShotLiveProof({
+  const mismatch = runOfflineSimulation({
     parsed: parseArgs([
       'enable-live-provider',
       '--authorization-id', CLIENT,
@@ -644,7 +950,7 @@ async function main() {
     state: createFakeHarnessState({ replica: 1 }),
   });
   assert.equal(mismatch.reason, 'recipient_mismatch');
-  const missing098 = runOneShotLiveProof({
+  const missing098 = runOfflineSimulation({
     parsed: parseArgs([
       'enable-live-provider', '--apply',
       '--authorization-id', CLIENT,
@@ -666,20 +972,20 @@ async function main() {
     }),
   });
   assert.equal(missing098.reason, 'missing_098');
-  const replica = runOneShotLiveProof({
+  const replica = runOfflineSimulation({
     parsed: parseArgs(['enable-runtime', '--apply']),
     env: { LUNA_DEPLOYMENT: 'sunset-staging' },
     state: createFakeHarnessState({ replica: 2 }),
   });
   assert.equal(replica.reason, 'replica_not_1');
-  const stale = runOneShotLiveProof({
+  const stale = runOfflineSimulation({
     parsed: parseArgs(['enable-runtime', '--apply']),
     env: { LUNA_DEPLOYMENT: 'sunset-staging' },
     state: createFakeHarnessState({ revision: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' }),
     expectedRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
   });
   assert.equal(stale.reason, 'stale_revision');
-  const journal = runOneShotLiveProof({
+  const journal = runOfflineSimulation({
     parsed: parseArgs([
       'capture-evidence', '--apply',
       '--authorization-id', CLIENT,
@@ -692,7 +998,7 @@ async function main() {
     state: createFakeHarnessState({ journalUnchanged: false, authorizationPresent: true }),
   });
   assert.equal(journal.reason, 'journal_changed');
-  const notDraft = runOneShotLiveProof({
+  const notDraft = runOfflineSimulation({
     parsed: parseArgs([
       'capture-evidence', '--apply',
       '--authorization-id', CLIENT,
@@ -702,10 +1008,13 @@ async function main() {
       '--confirm-recipient', 'a@b.co',
     ]),
     env: { LUNA_DEPLOYMENT: 'sunset-staging' },
-    state: createFakeHarnessState({ providerIsDraft: false, authorizationPresent: true }),
+    state: createFakeHarnessState({
+      wouldRequireProviderIsDraft: false,
+      authorizationPresent: true,
+    }),
   });
   assert.equal(notDraft.reason, 'provider_is_draft_false');
-  const guest = runOneShotLiveProof({
+  const guest = runOfflineSimulation({
     parsed: parseArgs([
       'prepare-authorization', '--apply',
       '--authorization-id', CLIENT,
@@ -718,9 +1027,38 @@ async function main() {
     state: createFakeHarnessState({ guestWithoutMarker: true, authorizationPresent: false }),
   });
   assert.equal(guest.reason, 'guest_row_without_098_marker');
+  const applied = runOfflineSimulation({
+    parsed: parseArgs([
+      'enable-live-provider', '--apply',
+      '--authorization-id', CLIENT,
+      '--operation-id', LOCATION,
+      '--issuance-id', ENDPOINT,
+      '--recipient-address', 'a@b.co',
+      '--confirm-recipient', 'a@b.co',
+    ]),
+    env: { LUNA_DEPLOYMENT: 'sunset-staging' },
+    state: createFakeHarnessState({
+      flags: {
+        EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_ENABLED: 'true',
+        EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_COMPOSITION_ENABLED: 'true',
+        EMAIL_LUNA_CONTROLLED_DRAFTING_PRODUCER_INTAKE_ENABLED: 'true',
+        EMAIL_LUNA_CONTROLLED_DRAFTING_WORKER_TICK_ENABLED: 'true',
+        EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_PROVIDER_DRAFT_ENABLED: 'false',
+      },
+      authorizationPresent: true,
+    }),
+  });
+  assert.equal(applied.ok, true);
+  assert.equal(applied.simulated_transition, true);
+  assert.equal(applied.would_consume_098, true);
+  assert.equal(applied.would_require_provider_is_draft, true);
+  assert.equal(applied.live_evidence, false);
+  assert.equal(Object.hasOwn(applied, 'consumed_098'), false);
+  assert.equal(Object.hasOwn(applied, 'provider_is_draft'), false);
+  assert.equal(runOneShotLiveProof({ parsed, env: { LUNA_DEPLOYMENT: 'sunset-staging' } }).simulation, true);
   assert.equal(refusedProduction({ DEFAULT_CLIENT_SLUG: 'wolfhouse' }), true);
   assert.equal(COMMANDS.includes('preflight'), true);
-  console.log('  PASS  one-shot harness: dry-run default, live absent, recipient/098/replica/revision/journal/isDraft/guest refuse');
+  console.log('  PASS  M4 offline simulation: no live-looking fields; unknown/duplicate/hostile args fail');
 
   const dummyLoaner = async (work) => work({ async query() { return { rows: [] }; } });
   assert.throws(
@@ -750,7 +1088,7 @@ async function main() {
     (error) => error && (error.code === 'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_ACTIVATION_DISABLED'
       || error.code === 'EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_ACTIVATION_INVALID'),
   );
-  console.log('  PASS  live flag without closed loan refuses');
+  console.log('  PASS  live flag without closed graph provider refuses');
 
   console.log('  … Chapter 4A (includes Chapters 1–3, Staff API smoke, stock-PG)');
   runChild('verify-email-luna-controlled-drafting-staging-activation.js');
@@ -764,7 +1102,7 @@ async function main() {
   if (diffCheck.stdout) process.stdout.write(diffCheck.stdout);
   if (diffCheck.stderr) process.stderr.write(diffCheck.stderr);
   assert.equal(diffCheck.status, 0, 'git diff --check must stay green');
-  console.log('ALL OK — Stage 2 Chapter 4C token loan and one-shot live-proof source');
+  console.log('ALL OK — Stage 2 Chapter 4C Graph-bound token assembly and offline simulation');
 }
 
 main().catch((error) => {

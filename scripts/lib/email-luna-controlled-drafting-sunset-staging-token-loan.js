@@ -16,7 +16,7 @@ const {
   isCanonUuid,
 } = require('./email-luna-controlled-drafting-closed-data');
 const {
-  createEmailLunaControlledDraftingTokenLoan,
+  createEmailLunaControlledDraftingGraphProvider,
   SUNSET_DEPLOYMENT,
   WORKER_ID_DEFAULT,
 } = require('./email-luna-controlled-drafting-token-loan');
@@ -130,7 +130,7 @@ function createEmailLunaControlledDraftingSunsetStagingLiveTokenLoan(dependencie
       timers: timersPinned,
     }));
 
-    return createEmailLunaControlledDraftingTokenLoan({
+    return createEmailLunaControlledDraftingGraphProvider({
       deployment: SUNSET_DEPLOYMENT,
       applicationClientId: applicationClientId.toLowerCase(),
       withPgClient: deps.withPgClient,
@@ -152,6 +152,8 @@ function createEmailLunaControlledDraftingSunsetStagingLiveTokenLoan(dependencie
         endpointId: endpointId.toLowerCase(),
         mailboxId: mailboxId.toLowerCase(),
       },
+      httpsImpl: ownData(httpsPinned, 'request'),
+      timers: timersPinned,
     });
   } catch (err) {
     if (err && err.code === ERROR_CODE) throw err;
@@ -165,5 +167,7 @@ module.exports = objectFreeze({
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   LIVE_FACTORY_KEYS,
+  createEmailLunaControlledDraftingSunsetStagingLiveGraphProvider:
+    createEmailLunaControlledDraftingSunsetStagingLiveTokenLoan,
   createEmailLunaControlledDraftingSunsetStagingLiveTokenLoan,
 });

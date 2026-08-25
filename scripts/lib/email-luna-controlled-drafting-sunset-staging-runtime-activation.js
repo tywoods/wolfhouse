@@ -48,7 +48,6 @@ const {
 const {
   createEmailLunaControlledDraftingProvider,
   createEmailLunaControlledDraftingFakeTransport,
-  createEmailLunaControlledDraftingGraphDraftTransport,
   pickEmailLunaControlledDraftingTransportMethods,
   EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_WIRED,
   EMAIL_LUNA_CONTROLLED_DRAFTING_ACTIVATION,
@@ -58,8 +57,9 @@ const {
   EMAIL_LUNA_CONTROLLED_DRAFTING_SCOPE_VERSION,
 } = require('./email-luna-controlled-drafting-provider-contract');
 const {
-  isClosedControlledDraftingTokenLoan,
+  isClosedControlledDraftingGraphProvider,
   bindControlledDraftingTokenLoanKillSwitch,
+  ATTESTATION_KIND,
 } = require('./email-luna-controlled-drafting-token-loan');
 const {
   createEmailLunaControlledDraftingOperationStore,
@@ -129,12 +129,13 @@ const CREATE_KEYS = objectFreeze([
   'env', 'producerWithTransactionClient', 'workerWithTransactionClient', 'timers', 'intervalMs',
 ]);
 const OPTIONAL_CREATE_KEYS = objectFreeze([
-  'provider', 'issuanceStore', 'crashSeams', 'tokenLoan', 'httpsImpl',
+  'provider', 'issuanceStore', 'crashSeams', 'graphProvider',
 ]);
 const TIMER_KEYS = objectFreeze(['setTimeout', 'clearTimeout']);
 const FORBIDDEN_CREATE_KEYS = objectFreeze([
   'send', 'onSend', 'graph', 'callback', 'fetch', 'authorize_send', 'journal',
-  'accessToken', 'sendDraft', 'sendMail',
+  'accessToken', 'sendDraft', 'sendMail', 'tokenLoan', 'runClosed', 'withToken',
+  'getAccessToken', 'httpsImpl',
 ]);
 const FORBIDDEN_FIELD_NAMES = objectFreeze([
   'access_token', 'refresh_token', 'id_token', 'accessToken', 'refreshToken',
@@ -386,27 +387,23 @@ function closedOfflineProvider(authority) {
   });
 }
 
-function assembleLiveProvider(authority, tokenLoan, httpsImpl, timers) {
-  if (!isClosedControlledDraftingTokenLoan(tokenLoan)) {
+function assembleLiveProvider(authority, graphProvider) {
+  if (!isClosedControlledDraftingGraphProvider(graphProvider)) {
     return { ok: false, reason: 'no_controlled_drafting_v1_token_loan' };
   }
   try {
-    const attestation = tokenLoan.attest();
+    const attestation = graphProvider.attest();
     if (!attestation
         || attestation.ok !== true
+        || attestation.attestation_kind !== ATTESTATION_KIND
         || attestation.send_capable !== false
         || attestation.mail_send !== false
         || attestation.scope_profile_id !== EMAIL_LUNA_CONTROLLED_DRAFTING_SCOPE_VERSION) {
       return { ok: false, reason: 'no_controlled_drafting_v1_token_loan' };
     }
-    const transport = createEmailLunaControlledDraftingGraphDraftTransport({
-      httpsImpl,
-      tokenLoan,
-      timers,
-    });
     const picked = pickEmailLunaControlledDraftingTransportMethods({
-      createReplyDraft: ownData(transport, 'createReplyDraft'),
-      reconcileDraft: ownData(transport, 'reconcileDraft'),
+      createReplyDraft: ownData(graphProvider, 'createReplyDraft'),
+      reconcileDraft: ownData(graphProvider, 'reconcileDraft'),
     });
     const provider = createEmailLunaControlledDraftingProvider({
       authority,
@@ -524,15 +521,13 @@ function createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(depende
   let liveBlock = liveProviderBlockReason(env, { hasClosedProvider: Boolean(provider) });
   if (envFlag(env, ENV_LIVE_PROVIDER_DRAFT_ENABLED)) {
     if (!provider) {
-      const tokenLoan = ownData(deps, 'tokenLoan');
-      if (isClosedControlledDraftingTokenLoan(tokenLoan)) {
-        bindControlledDraftingTokenLoanKillSwitch(tokenLoan, () => killState.stopped === true);
+      const graphProvider = ownData(deps, 'graphProvider');
+      if (isClosedControlledDraftingGraphProvider(graphProvider)) {
+        bindControlledDraftingTokenLoanKillSwitch(graphProvider, () => killState.stopped === true);
       }
       const assembled = assembleLiveProvider(
         authority,
-        tokenLoan,
-        ownData(deps, 'httpsImpl'),
-        timers,
+        graphProvider,
       );
       if (!assembled.ok) {
         throw disabledError();

@@ -7,7 +7,7 @@
 
 const assert = require('node:assert/strict');
 const {
-  runOneShotLiveProof,
+  runOfflineSimulation,
   createFakeHarnessState,
   parseArgs,
 } = require('./lib/email-luna-controlled-drafting-one-shot-live-proof');
@@ -54,17 +54,22 @@ async function main() {
     '--recipient-address', 'operator-test@example.test',
     '--confirm-recipient', 'operator-test@example.test',
   ];
-  const live = runOneShotLiveProof({
+  const live = runOfflineSimulation({
     parsed: parseArgs(['enable-live-provider', '--apply', ...typed]),
     env,
     state,
   });
   assert.equal(live.ok, true);
-  assert.equal(live.provider_is_draft, true);
-  assert.equal(live.graph_send_called, false);
+  assert.equal(live.simulated_transition, true);
+  assert.equal(live.would_require_provider_is_draft, true);
+  assert.equal(live.would_consume_098, true);
+  assert.equal(live.would_call_graph, false);
+  assert.equal(live.live_evidence, false);
   assert.equal(live.token_returned, false);
   assert.equal(live.live_disabled_after, true);
-  const abort = runOneShotLiveProof({
+  assert.equal(Object.hasOwn(live, 'consumed_098'), false);
+  assert.equal(Object.hasOwn(live, 'provider_is_draft'), false);
+  const abort = runOfflineSimulation({
     parsed: parseArgs(['abort', '--apply']),
     env,
     state,
