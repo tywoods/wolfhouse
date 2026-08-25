@@ -21,6 +21,7 @@ const {
   EMAIL_LUNA_CONTROLLED_DRAFTING_CREATE_RESPONSE_KEYS,
   EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_REQUEST_KEYS,
   EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS,
+  RECONCILE_OUTCOMES,
   EMAIL_LUNA_CONTROLLED_DRAFTING_CAPABILITY_MANIFEST,
   EMAIL_MS_CONTROLLED_DRAFTING_SCOPE_PROFILE,
   EMAIL_MS_CONTROLLED_DRAFTING_PROVIDER_FACTS,
@@ -93,6 +94,7 @@ const EXPECTED_EXPORTS = Object.freeze([
   'EMAIL_LUNA_CONTROLLED_DRAFTING_CREATE_RESPONSE_KEYS',
   'EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_REQUEST_KEYS',
   'EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS',
+  'RECONCILE_OUTCOMES',
   'EMAIL_LUNA_CONTROLLED_DRAFTING_CAPABILITY_MANIFEST',
   'EMAIL_MS_CONTROLLED_DRAFTING_SCOPE_PROFILE',
   'EMAIL_MS_CONTROLLED_DRAFTING_PROVIDER_FACTS',
@@ -498,6 +500,47 @@ async function main() {
   })));
   await expectInvalidAsync(() => provider.reconcileDraft(reconcileRequest('AAMkAGI2-MISSING')));
   console.log('  PASS  wrong tenant/location/provider/mailbox/recipient/thread/digest and extras fail closed');
+
+  assert.deepEqual([...RECONCILE_OUTCOMES], [
+    'draft_present', 'draft_modified', 'draft_not_found', 'draft_mismatch',
+  ]);
+  const classifying = createEmailLunaControlledDraftingFakeTransport({ classify: true });
+  const classifyingProvider = createEmailLunaControlledDraftingProvider({
+    authority: authority(),
+    transport: pickEmailLunaControlledDraftingTransportMethods({
+      createReplyDraft: classifying.createReplyDraft,
+      reconcileDraft: classifying.reconcileDraft,
+    }),
+  });
+  const classifiedCreated = await classifyingProvider.createReplyDraft(createRequest());
+  const classifiedExact = await classifyingProvider.reconcileDraft(
+    reconcileRequest(classifiedCreated.provider_draft_id),
+  );
+  assert.equal(classifiedExact.outcome, 'draft_present');
+  classifying.mutateDraft(classifiedCreated.provider_draft_id, {
+    subject_digest: digest('staff edited subject'),
+    body_digest: digest('staff edited body'),
+  });
+  const classifiedModified = await classifyingProvider.reconcileDraft(
+    reconcileRequest(classifiedCreated.provider_draft_id),
+  );
+  assert.equal(classifiedModified.outcome, 'draft_modified');
+  assert.equal(classifiedModified.is_draft, true);
+  classifying.mutateDraft(classifiedCreated.provider_draft_id, {
+    subject_digest: SUBJECT_DIGEST,
+    body_digest: BODY_DIGEST,
+    recipient_address: 'other@example.test',
+  });
+  const classifiedMismatch = await classifyingProvider.reconcileDraft(
+    reconcileRequest(classifiedCreated.provider_draft_id),
+  );
+  assert.equal(classifiedMismatch.outcome, 'draft_mismatch');
+  classifying.deleteDraft(classifiedCreated.provider_draft_id);
+  const classifiedMissing = await classifyingProvider.reconcileDraft(
+    reconcileRequest(classifiedCreated.provider_draft_id),
+  );
+  assert.equal(classifiedMissing.outcome, 'draft_not_found');
+  console.log('  PASS  classifying transport maps exact/modified/mismatch/not-found without a search API');
 
   const leakFake = createEmailLunaControlledDraftingFakeTransport({
     createError: new Error(`graph failed ${TOKEN} ${PLANTED}`),

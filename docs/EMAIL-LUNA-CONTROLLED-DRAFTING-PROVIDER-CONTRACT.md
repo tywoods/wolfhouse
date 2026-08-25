@@ -18,6 +18,7 @@ Chapter 1 adds a package-first boundary in front of the same Graph provider:
 - Identities bound on every call: tenant, location, endpoint, mailbox, inbound provider message/thread, exact recipient, subject/body digest, issuance id, operation id, and draft id (reconcile).
 - Graph path grammar is reused from the existing transport: `POST .../createReply`, internal `PATCH` of that draft, `GET ...?$select=id,isDraft`. `/send` and `/sendMail` are not mapped.
 - Typed fake transport only. No network, no OAuth, no worker composition.
+- Optional classified GET-by-id observation (`draft_present`, `draft_modified`, `draft_not_found`, `draft_mismatch`) when a closed transport reports those facts for a **known** provider draft id. This is not a search API and cannot observe a lost createReply without a persisted draft id.
 
 ## Capability manifest
 

@@ -166,6 +166,22 @@ const RECONCILE_INNER_KEYS = objectFreeze([
   'provider_draft_id',
 ]);
 const TRANSPORT_RESULT_KEYS = objectFreeze(['provider_draft_id', 'is_draft']);
+const RECONCILE_TRANSPORT_RESULT_KEYS = objectFreeze([
+  'provider_draft_id',
+  'is_draft',
+  'found',
+  'subject_digest',
+  'body_digest',
+  'recipient_address',
+  'inbound_provider_thread_id',
+  'mailbox_id',
+]);
+const RECONCILE_OUTCOMES = objectFreeze([
+  'draft_present',
+  'draft_modified',
+  'draft_not_found',
+  'draft_mismatch',
+]);
 const FACTORY_KEYS = objectFreeze(['authority', 'transport']);
 const CAPABILITY_KEYS = objectFreeze([
   'create_reply_draft',
@@ -300,6 +316,7 @@ const FAKE_OPTION_KEYS = objectFreeze([
   'reconcileResult',
   'createError',
   'reconcileError',
+  'classify',
 ]);
 const PROVIDER_SURFACE_KEYS = objectFreeze(['attest', 'createReplyDraft', 'reconcileDraft']);
 
@@ -537,6 +554,36 @@ function readTransportResult(raw) {
   return parsed;
 }
 
+function readReconcileTransportResult(raw) {
+  const parsed = subsetOwnData(raw, RECONCILE_TRANSPORT_RESULT_KEYS);
+  if (!parsed) return null;
+  if (parsed.found === false) {
+    const keys = reflectOwnKeys(parsed);
+    if (keys.length !== 1) return null;
+    return objectFreeze({ kind: 'not_found' });
+  }
+  if (!isGraphId(parsed.provider_draft_id)) return null;
+  if (parsed.is_draft === false) {
+    return objectFreeze({
+      kind: 'mismatch',
+      provider_draft_id: parsed.provider_draft_id,
+      is_draft: false,
+    });
+  }
+  if (parsed.is_draft !== true) return null;
+  return objectFreeze({
+    kind: 'present',
+    provider_draft_id: parsed.provider_draft_id,
+    is_draft: true,
+    subject_digest: objectHasOwn(parsed, 'subject_digest') ? parsed.subject_digest : null,
+    body_digest: objectHasOwn(parsed, 'body_digest') ? parsed.body_digest : null,
+    recipient_address: objectHasOwn(parsed, 'recipient_address') ? parsed.recipient_address : null,
+    inbound_provider_thread_id: objectHasOwn(parsed, 'inbound_provider_thread_id')
+      ? parsed.inbound_provider_thread_id : null,
+    mailbox_id: objectHasOwn(parsed, 'mailbox_id') ? parsed.mailbox_id : null,
+  });
+}
+
 function pickEmailLunaControlledDraftingTransportMethods(transport) {
   const parsed = exactOwnData(transport, EMAIL_LUNA_CONTROLLED_DRAFTING_TRANSPORT_KEYS);
   if (!parsed) throw invalid();
@@ -717,9 +764,33 @@ function createEmailLunaControlledDraftingFakeTransport(options = {}) {
     if (!command) return Promise.reject(invalid());
     record('reconcile_draft', command);
     if (objectHasOwn(parsed, 'reconcileResult')) return Promise.resolve(parsed.reconcileResult);
+    const classify = parsed.classify === true;
     const stored = drafts.get(command.provider_draft_id);
-    if (!stored || stored.is_draft !== true) return Promise.reject(invalid());
-    if (!sameStored(stored, command, RECONCILE_INNER_KEYS)) return Promise.reject(invalid());
+    if (!stored) {
+      return classify
+        ? Promise.resolve(objectFreeze({ found: false }))
+        : Promise.reject(invalid());
+    }
+    if (stored.is_draft !== true) {
+      return classify
+        ? Promise.resolve(objectFreeze({
+          provider_draft_id: stored.provider_draft_id,
+          is_draft: false,
+        }))
+        : Promise.reject(invalid());
+    }
+    if (!sameStored(stored, command, RECONCILE_INNER_KEYS)) {
+      if (!classify) return Promise.reject(invalid());
+      return Promise.resolve(objectFreeze({
+        provider_draft_id: stored.provider_draft_id,
+        is_draft: true,
+        subject_digest: stored.subject_digest,
+        body_digest: stored.body_digest,
+        recipient_address: stored.recipient_address,
+        inbound_provider_thread_id: stored.inbound_provider_thread_id,
+        mailbox_id: stored.mailbox_id,
+      }));
+    }
     return Promise.resolve(objectFreeze({
       provider_draft_id: stored.provider_draft_id,
       is_draft: true,
@@ -730,7 +801,41 @@ function createEmailLunaControlledDraftingFakeTransport(options = {}) {
     return objectFreeze(calls.slice());
   }
 
-  return objectFreeze({ createReplyDraft, reconcileDraft, getCalls });
+  function mutateDraft(providerDraftId, patch) {
+    if (!isGraphId(providerDraftId) || !patch || typeof patch !== 'object') throw invalid();
+    const stored = drafts.get(providerDraftId);
+    if (!stored) throw invalid();
+    const next = {
+      mailbox_id: stored.mailbox_id,
+      inbound_provider_message_id: stored.inbound_provider_message_id,
+      inbound_provider_thread_id: stored.inbound_provider_thread_id,
+      recipient_address: stored.recipient_address,
+      subject_digest: stored.subject_digest,
+      body_digest: stored.body_digest,
+      issuance_id: stored.issuance_id,
+      operation_id: stored.operation_id,
+      provider_draft_id: stored.provider_draft_id,
+      is_draft: stored.is_draft,
+    };
+    const allowed = objectFreeze([
+      'subject_digest', 'body_digest', 'recipient_address', 'inbound_provider_thread_id',
+      'mailbox_id', 'is_draft',
+    ]);
+    const own = reflectOwnKeys(patch);
+    for (let i = 0; i < own.length; i += 1) {
+      const key = own[i];
+      if (typeof key !== 'string' || !arrayIncludes(allowed, key)) throw invalid();
+      next[key] = patch[key];
+    }
+    drafts.set(providerDraftId, objectFreeze(next));
+  }
+
+  function deleteDraft(providerDraftId) {
+    if (!isGraphId(providerDraftId)) throw invalid();
+    drafts.delete(providerDraftId);
+  }
+
+  return objectFreeze({ createReplyDraft, reconcileDraft, getCalls, mutateDraft, deleteDraft });
 }
 
 function createEmailLunaControlledDraftingProvider(dependencies) {
@@ -779,9 +884,43 @@ function createEmailLunaControlledDraftingProvider(dependencies) {
       if (error && error.code === ERROR_CODE && objectIsFrozen(error)) throw error;
       throw invalid();
     }
-    const result = readTransportResult(innerResult);
+    const result = readReconcileTransportResult(innerResult);
     if (!result) throw invalid();
+    if (result.kind === 'not_found') {
+      return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
+        outcome: 'draft_not_found',
+        ...request,
+        is_draft: false,
+      });
+    }
     if (result.provider_draft_id !== request.provider_draft_id) throw invalid();
+    if (result.kind === 'mismatch' || result.is_draft !== true) {
+      return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
+        outcome: 'draft_mismatch',
+        ...request,
+        is_draft: false,
+      });
+    }
+    const digestMismatch = (result.subject_digest && result.subject_digest !== request.subject_digest)
+      || (result.body_digest && result.body_digest !== request.body_digest);
+    const bindingMismatch = (result.recipient_address && result.recipient_address !== request.recipient_address)
+      || (result.inbound_provider_thread_id
+        && result.inbound_provider_thread_id !== request.inbound_provider_thread_id)
+      || (result.mailbox_id && result.mailbox_id !== request.mailbox_id);
+    if (bindingMismatch) {
+      return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
+        outcome: 'draft_mismatch',
+        ...request,
+        is_draft: true,
+      });
+    }
+    if (digestMismatch) {
+      return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
+        outcome: 'draft_modified',
+        ...request,
+        is_draft: true,
+      });
+    }
     return freezeExact(EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS, {
       outcome: 'draft_present',
       ...request,
@@ -819,6 +958,7 @@ module.exports = objectFreeze({
   EMAIL_LUNA_CONTROLLED_DRAFTING_CREATE_RESPONSE_KEYS,
   EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_REQUEST_KEYS,
   EMAIL_LUNA_CONTROLLED_DRAFTING_RECONCILE_RESPONSE_KEYS,
+  RECONCILE_OUTCOMES,
   EMAIL_LUNA_CONTROLLED_DRAFTING_CAPABILITY_MANIFEST,
   EMAIL_MS_CONTROLLED_DRAFTING_SCOPE_PROFILE,
   EMAIL_MS_CONTROLLED_DRAFTING_PROVIDER_FACTS,
