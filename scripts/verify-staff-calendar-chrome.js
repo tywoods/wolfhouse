@@ -55,6 +55,8 @@ assert.match(api, /id="bc-sel-panel"/);
 assert.match(api, /function bcInitSideDrawer/);
 assert.match(api, /function bcOpenSideBooking/);
 assert.match(api, /function bcDockCreatePanel/);
+assert.match(api, /function bcUpdateCreateRoomTypeLock/);
+assert.match(i18n, /'calendar.create.pay.depositLinkPerGuest': 'Deposit link — per guest'/);
 assert.match(api, /function bcSideHoverEnter/);
 assert.match(api, /id="bc-side-pin"/);
 assert.match(api, /M12 17v5/);

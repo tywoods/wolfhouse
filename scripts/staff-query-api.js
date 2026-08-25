@@ -22413,7 +22413,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="bk-form-section">
       <div class="bk-form-section-title" data-i18n="calendar.create.notesSection">Notes</div>
       <div class="bk-notes-block">
-        <label class="bk-label" for="bk-notes" data-i18n="calendar.create.staffNotes">Staff notes</label>
         <textarea id="bk-notes" class="bk-input" rows="3" data-i18n-placeholder="calendar.create.notesPlaceholder" placeholder="Internal booking notes..."></textarea>
       </div>
     </div>
@@ -32784,6 +32783,44 @@ function bcClearSelection(){
   bcUpdateBlockButton();
 }
 
+function bcCreateStayOverlaps(start, end, cin, cout){
+  if (!start || !end || !cin || !cout) return false;
+  return start < cout && end > cin;
+}
+
+function bcRoomHasOverlappingBookings(roomCode, cin, cout){
+  return (bcCalendarBlocks || []).some(function(blk){
+    if (!blk || blk.room_code !== roomCode) return false;
+    var a = blk.start_date || blk.check_in;
+    var b = blk.end_date || blk.check_out;
+    return bcCreateStayOverlaps(a, b, cin, cout);
+  });
+}
+
+function bcUpdateCreateRoomTypeLock(){
+  var sel = el('bk-room-type');
+  if (!sel) return;
+  var cin = el('bc-sel-cin') && el('bc-sel-cin').value;
+  var cout = el('bc-sel-cout') && el('bc-sel-cout').value;
+  var rooms = [];
+  var seen = {};
+  (bcSelectedBeds || []).forEach(function(b){
+    var r = b && b.room_code;
+    if (!r || seen[r]) return;
+    seen[r] = true;
+    rooms.push(r);
+  });
+  var canPrivate = rooms.length === 1 && !!cin && !!cout && !bcRoomHasOverlappingBookings(rooms[0], cin, cout);
+  if (!canPrivate) {
+    sel.value = 'shared';
+    sel.disabled = true;
+    sel.title = 'Private is only available when this room has no other bookings on these dates.';
+  } else {
+    sel.disabled = false;
+    sel.removeAttribute('title');
+  }
+}
+
 function bcApplySelectionHighlight(){
   /* Remove previous highlight */
   document.querySelectorAll('.bc-day-cell.bc-sel, .bc-day-cell.bc-sel-anchor').forEach(function(td){
@@ -32841,6 +32878,7 @@ function bcApplySelectionHighlight(){
   var panel = el('bc-sel-panel');
   if (panel) panel.style.display = 'block';
   if (typeof bcDockCreatePanel === 'function') bcDockCreatePanel();
+  if (typeof bcUpdateCreateRoomTypeLock === 'function') bcUpdateCreateRoomTypeLock();
 
   /* Clear stale quote when selection changes */
   bcLastQuote = null;

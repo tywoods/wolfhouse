@@ -293,6 +293,7 @@ module.exports = {
   "calendar.create.quoteTitleHint": "Selecciona camas, fechas y paquete para calcular el presupuesto",
   "calendar.create.createTitleHint": "Calcula primero el presupuesto, luego completa los campos obligatorios.",
   "calendar.create.pay.depositLink": "Enlace de pago del depósito",
+  "calendar.create.pay.depositLinkPerGuest": "Enlace de depósito — por huésped",
   "calendar.create.pay.fullLink": "Enlace de pago completo seguro",
   "calendar.create.pay.paidCash": "Ya pagado en efectivo",
   "calendar.create.pay.paidBank": "Ya pagado por transferencia",
