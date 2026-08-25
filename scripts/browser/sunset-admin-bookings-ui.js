@@ -214,20 +214,33 @@ function adminBookingsStatusChipsHtml(row) {
 }
 
 function adminBookingsIsLodging() {
+  var slug = '';
   try {
-    if (typeof portalIsLodgingAdmin === 'function') return !!portalIsLodgingAdmin();
+    if (typeof getClient === 'function') slug = String(getClient() || '').trim();
+  } catch (_g) { slug = ''; }
+  if (!slug) {
+    try {
+      slug = String((typeof window !== 'undefined' && window.PORTAL_DEFAULT_CLIENT) || '').trim();
+    } catch (_p) { slug = ''; }
+  }
+  if (slug === 'wolfhouse-somo') return true;
+  try {
+    if (typeof portalIsLodgingAdmin === 'function') return !!portalIsLodgingAdmin(slug || undefined);
   } catch (_e) { /* fall through */ }
-  try {
-    if (typeof getClient === 'function') return getClient() === 'wolfhouse-somo';
-  } catch (_g) { /* fall through */ }
   return false;
 }
 
 function adminBookingsBuildQuery(extra) {
   var f = adminBookingsState.filters;
   var params = new URLSearchParams();
-  params.set('client', getClient() || 'sunset');
-  if (!adminBookingsIsLodging()) {
+  var client = '';
+  try { client = String(getClient() || '').trim(); } catch (_c) { client = ''; }
+  if (!client) {
+    try { client = String((typeof window !== 'undefined' && window.PORTAL_DEFAULT_CLIENT) || '').trim(); } catch (_d) { client = ''; }
+  }
+  var lodging = client === 'wolfhouse-somo' || adminBookingsIsLodging();
+  params.set('client', lodging ? 'wolfhouse-somo' : (client || 'sunset'));
+  if (!lodging) {
     params.set('location', getSunsetLocation() || 'sunset-somo');
   }
   if (f.q) params.set('q', f.q);

@@ -272,20 +272,28 @@ async function fetchScopedBookingRows(pg, clientSlug, locationId, sortOpts) {
 
   const ids = bookingRows.map((b) => b.booking_id);
   const [svcRes, payRes, refundRes, waiverRes] = await Promise.all([
-    pg.query(SERVICES_FOR_BOOKINGS_SQL, [clientSlug, ids]),
-    pg.query(PAYMENTS_FOR_BOOKINGS_SQL, [clientSlug, ids]),
+    pg.query(SERVICES_FOR_BOOKINGS_SQL, [clientSlug, ids]).catch((err) => {
+      console.error('[admin.bookings.list] services read failed:', err && err.code, err && err.message);
+      return { rows: [] };
+    }),
+    pg.query(PAYMENTS_FOR_BOOKINGS_SQL, [clientSlug, ids]).catch((err) => {
+      console.error('[admin.bookings.list] payments read failed:', err && err.code, err && err.message);
+      return { rows: [] };
+    }),
     pg.query(REFUNDS_FOR_BOOKINGS_SQL, [clientSlug, ids]).catch((err) => {
       // Table may be absent on older DBs before migration apply — fail soft to empty.
       if (err && (err.code === '42P01' || /booking_refund_records/i.test(String(err.message || '')))) {
         return { rows: [] };
       }
-      throw err;
+      console.error('[admin.bookings.list] refunds read failed:', err && err.code, err && err.message);
+      return { rows: [] };
     }),
     pg.query(WAIVER_FOR_BOOKINGS_SQL, [clientSlug, ids]).catch((err) => {
       if (err && (err.code === '42P01' || /waiver_form/i.test(String(err.message || '')))) {
         return { rows: [] };
       }
-      throw err;
+      console.error('[admin.bookings.list] waivers read failed:', err && err.code, err && err.message);
+      return { rows: [] };
     }),
   ]);
 
