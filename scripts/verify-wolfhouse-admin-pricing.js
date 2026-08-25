@@ -1133,14 +1133,15 @@ function uiChecks() {
     html.includes('default'));
 
   const newPackageForm = runPricingUi(writable, 'item:package:__new__').html;
-  ok('the new-package form asks for a name and a code',
+  ok('the new-package form asks for a name',
     newPackageForm.includes('wh-price-item-label')
-    && newPackageForm.includes('wh-price-item-code'));
+    && !newPackageForm.includes('wh-price-item-code'));
   ok('the new-package form asks for no single amount',
     !newPackageForm.includes('wh-price-item-amount')
     && newPackageForm.includes('data-wh-price-action="save-new-item"'));
   ok('the new-rental form still asks for a unit and an amount',
-    runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-amount'));
+    runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-amount')
+    && !runPricingUi(writable, 'item:rental:__new__').html.includes('wh-price-item-code'));
 
   // Read-only mode
   const readOnly = runPricingUi(Object.assign({}, view, {

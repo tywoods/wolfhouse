@@ -494,17 +494,19 @@
 
   // ── Catalog sections (rentals + services) ──────────────────────────────────
 
-  var NEW_ITEM_PLACEHOLDERS = {
-    package: ['Malibu', 'malibu'],
-    rental: ['Longboard', 'longboard_rental'],
-    service: ['Yoga class', 'yoga_class'],
-  };
+  function slugFromLabel(label, fallback) {
+    var slug = String(label || '').toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 64);
+    return slug || fallback || 'item';
+  }
 
   function renderNewItemForm(itemType) {
     // A package carries one price per season, so it is created empty and priced
     // from the season cards it gains — there is no single amount to ask for here.
     var isPackage = itemType === 'package';
-    var placeholders = NEW_ITEM_PLACEHOLDERS[itemType] || ['', ''];
+    var namePh = itemType === 'package' ? 'Malibu' : (itemType === 'rental' ? 'Longboard' : 'Yoga class');
     var unitOptions = itemType === 'rental'
       ? ['per_day', 'per_stay', 'flat']
       : ['per_day', 'per_class', 'per_lesson', 'per_meal', 'per_person', 'per_stay'];
@@ -517,11 +519,7 @@
       + '<div class="portal-admin-edit-field"><label for="wh-price-item-label">'
       + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
       + '<input type="text" id="wh-price-item-label" maxlength="120" placeholder="'
-      + whEsc(placeholders[0]) + '"></div>'
-      + '<div class="portal-admin-edit-field"><label for="wh-price-item-code">'
-      + whEsc(whT('admin.wh.pricing.itemCode', 'Code')) + '</label>'
-      + '<input type="text" id="wh-price-item-code" maxlength="64" placeholder="'
-      + whEsc(placeholders[1]) + '"></div>'
+      + whEsc(namePh) + '"></div>'
       + (isPackage
         ? pebbleDropdownHtml()
           + packageStayFieldsHtml(null)
@@ -853,9 +851,6 @@
       + whEsc(whT('admin.wh.pricing.itemName', 'Name')) + '</label>'
       + '<input type="text" id="wh-price-item-label" maxlength="120" placeholder="'
       + whEsc(whT('admin.wh.pricing.extraNamePh', 'Standard deposit')) + '"></div>'
-      + '<div class="portal-admin-edit-field"><label for="wh-price-item-code">'
-      + whEsc(whT('admin.wh.pricing.itemCode', 'Code')) + '</label>'
-      + '<input type="text" id="wh-price-item-code" maxlength="64" placeholder="standard_deposit"></div>'
       + amountField('wh-price-item-amount', null)
       + depositScopeRadiosHtml('per_booking')
       + '<div class="portal-admin-edit-field wh-price-extra-sup"><label for="wh-price-item-unit">'
@@ -1270,8 +1265,8 @@
     },
     'save-new-extra': function () {
       var kind = inputValue('wh-price-extra-kind') || 'deposit';
-      var code = inputValue('wh-price-item-code').toLowerCase().replace(/\s+/g, '_');
       var label = inputValue('wh-price-item-label');
+      var code = slugFromLabel(label, kind);
       var unit = kind === 'deposit'
         ? ((document.querySelector('input[name="wh-deposit-scope"]:checked') || {}).value || 'per_booking')
         : (inputValue('wh-price-item-unit') || 'per_room_per_night');
@@ -1319,8 +1314,8 @@
      */
     'save-new-item': function (btn) {
       var itemType = btn.getAttribute('data-wh-item-type');
-      var code = inputValue('wh-price-item-code').toLowerCase().replace(/\s+/g, '_');
       var label = inputValue('wh-price-item-label');
+      var code = slugFromLabel(label, itemType);
       if (itemType === 'package') {
         // Priced per season, so creating the package is a single write and the
         // season cards it gains are where the amounts get set.
