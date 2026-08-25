@@ -779,9 +779,41 @@ async function makeProvider(overrides = {}) {
     transport: overrides.transport || successTransport(overrides.accessJwt || liveJwt()),
     httpsImpl: overrides.httpsImpl || mockGraphHttps(graphState),
     createSignatureVerifier: overrides.createSignatureVerifier,
+    createSecretProvider: overrides.createSecretProvider,
     graphState,
   }));
   return { provider, graphState, events, envelope };
+}
+
+function throwingTokenTransport() {
+  return frozenMethod('postTokenForm', async () => {
+    throw new Error('token-http-timeout');
+  });
+}
+
+function unparseableTokenTransport() {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 200,
+    contentType: 'application/json',
+    body: '{not-json',
+  }));
+}
+
+function broaderScopeWithNewRtTransport() {
+  return successTransport(liveJwt(), SEND_SCOPE, NEW_RT);
+}
+
+function missingAccessTokenTransport() {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      token_type: 'Bearer',
+      expires_in: 3600,
+      refresh_token: NEW_RT,
+      scope: DRAFT_SCOPE,
+    }),
+  }));
 }
 
 async function main() {
@@ -861,7 +893,46 @@ async function main() {
   assert.match(DOC_SRC, /token_loan_failed_after_claim_no_provider_post/);
   assert.match(DOC_SRC, /kill_switch.*status.*lease.*open.*grant_scope.*secret.*token.*response.*claims.*binding.*dead_grant.*reseal.*commit.*uncertainty_persistence/s);
   assert.match(LOAN_SRC, /refuseAfterRotatingMicrosoftResponse/);
+  assert.match(LOAN_SRC, /potentially rotating or unknown Microsoft/);
   assert.match(LOAN_SRC, /persistence_unproven/);
+  {
+    const helperStart = LOAN_SRC.indexOf('async function refuseAfterRotatingMicrosoftResponse');
+    const helperEnd = LOAN_SRC.indexOf('async function refuseBeforeCommit');
+    assert.ok(helperStart > 0 && helperEnd > helperStart);
+    const helperSrc = LOAN_SRC.slice(helperStart, helperEnd);
+    const outsideHelper = LOAN_SRC.slice(0, helperStart) + LOAN_SRC.slice(helperEnd);
+    assert.match(helperSrc, /suppressLeaseAbort = true/);
+    assert.ok(helperSrc.indexOf('suppressLeaseAbort = true') < helperSrc.indexOf('markDelegatedGrantReconciliation'));
+    assert.equal((helperSrc.match(/markDelegatedGrantReconciliation/g) || []).length, 1);
+    assert.equal((LOAN_SRC.match(/markDelegatedGrantReconciliation/g) || []).length, 2);
+    assert.doesNotMatch(outsideHelper, /await markDelegatedGrantReconciliation/);
+    assert.doesNotMatch(
+      LOAN_SRC,
+      /await markDelegatedGrantReconciliation\([\s\S]{0,400}?await safeAbort/,
+    );
+    const postMs = LOAN_SRC.slice(LOAN_SRC.indexOf('exchange.exchangeRefreshToken'));
+    assert.match(postMs, /refuseAfterRotatingMicrosoftResponse\('token', 'ms_refresh_transport'\)/);
+    assert.match(postMs, /refuseAfterRotatingMicrosoftResponse\('response', 'ms_refresh_uncertain'\)/);
+    assert.doesNotMatch(
+      postMs,
+      /await markDelegatedGrantReconciliation\([\s\S]{0,400}?await safeAbort/,
+    );
+    assert.match(LOAN_SRC, /if \(!suppressLeaseAbort\) await safeAbort/);
+  }
+  {
+    const secretAssign = REFRESH_SRC.indexOf("stage = 'secret'");
+    const tokenAfterSecret = REFRESH_SRC.indexOf("stage = 'token'", secretAssign);
+    const postTokenForm = REFRESH_SRC.indexOf('postTokenForm', tokenAfterSecret);
+    const responseAssign = REFRESH_SRC.indexOf("stage = 'response'");
+    assert.ok(secretAssign > 0);
+    assert.ok(tokenAfterSecret > secretAssign);
+    assert.ok(postTokenForm > tokenAfterSecret);
+    assert.ok(responseAssign > postTokenForm);
+  }
+  assert.match(DOC_SRC, /Token HTTP timeout/);
+  assert.match(DOC_SRC, /unparseable body/);
+  assert.match(DOC_SRC, /classification failure/);
+  assert.match(DOC_SRC, /mark-first/);
   assert.doesNotMatch(LOAN_SRC, /brandTokenLoanFailure,/);
   assert.match(TEST_SUPPORT_SRC, /TEST-ONLY/);
   assert.match(CLAIMS_SRC, /isCanonicalMicrosoftOidcJwksSignatureVerifier/);
@@ -1268,6 +1339,195 @@ async function main() {
   }
   console.log('  PASS  M1 mark fail/fenced/expired does not abort; persistence unproven; Graph=0');
 
+  async function assertFailMarkLeavesLease(transport, expectedDetail) {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      failMark: true,
+      transport,
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note
+          && note.stage === 'uncertainty_persistence'
+          && note.code === 'persistence_unproven'
+          && noLeak(error);
+      },
+    );
+    const failed = events.filter((row) => row.type === 'uncertain_fail' || row.type === 'uncertain_throw');
+    assert.equal(failed.length, 1);
+    if (expectedDetail && failed[0].type === 'uncertain_fail') {
+      assert.equal(failed[0].detail, expectedDetail);
+    }
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+    assert.equal(events.some((row) => row.type === 'abort' && row.reconcile_state === 'clean'), false);
+    assert.equal(events.some((row) => row.type === 'commit'), false);
+    assert.equal(graphCalls, 0);
+    return events;
+  }
+
+  {
+    await assertFailMarkLeavesLease(throwingTokenTransport(), 'ms_refresh_transport');
+  }
+  {
+    await assertFailMarkLeavesLease(unparseableTokenTransport(), 'ms_refresh_uncertain');
+  }
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      failMark: 'throw',
+      transport: unparseableTokenTransport(),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'uncertainty_persistence' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain_throw').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+    assert.equal(graphCalls, 0);
+  }
+  {
+    await assertFailMarkLeavesLease(broaderScopeWithNewRtTransport(), 'ms_refresh_uncertain');
+  }
+  {
+    await assertFailMarkLeavesLease(missingAccessTokenTransport(), 'ms_refresh_uncertain');
+  }
+  console.log('  PASS  RED failMark after MS exchange/timeout/parse/classify/missing-token does not abort; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      failAbort: true,
+      transport: throwingTokenTransport(),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'token' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+    assert.equal(events.filter((row) => row.type === 'uncertain')[0].detail, 'ms_refresh_transport');
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+    assert.equal(events.some((row) => row.type === 'abort' && row.reconcile_state === 'clean'), false);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  mark success + abort fail on token timeout leaves uncertain; no active/clean; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      transport: throwingTokenTransport(),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'token' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+    assert.equal(events.filter((row) => row.type === 'uncertain')[0].detail, 'ms_refresh_transport');
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort')[0].reconcile_state, 'ms_response_uncertain');
+    assert.equal(graphCalls, 0);
+  }
+  {
+    const events = [];
+    let graphCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      transport: broaderScopeWithNewRtTransport(),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'response' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 1);
+    assert.equal(events.filter((row) => row.type === 'uncertain')[0].detail, 'ms_refresh_uncertain');
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort')[0].reconcile_state, 'ms_response_uncertain');
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  mark success + abort success after MS timeout/broader scope is active+uncertain; Graph=0');
+
+  {
+    const events = [];
+    let graphCalls = 0;
+    let oauthCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      createSecretProvider: () => null,
+      transport: frozenMethod('postTokenForm', async () => {
+        oauthCalls += 1;
+        throw new Error('oauth-must-not-run');
+      }),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'secret' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 0);
+    assert.equal(events.filter((row) => row.type === 'uncertain_fail').length, 0);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(events.filter((row) => row.type === 'abort')[0].reconcile_state, 'clean');
+    assert.equal(oauthCalls, 0);
+    assert.equal(graphCalls, 0);
+  }
+  {
+    const events = [];
+    let graphCalls = 0;
+    let oauthCalls = 0;
+    const { provider } = await makeProvider({
+      events,
+      createSecretProvider: () => frozenMethod('getClientSecret', async () => {
+        throw new Error('kv-secret-fail');
+      }),
+      transport: frozenMethod('postTokenForm', async () => {
+        oauthCalls += 1;
+        throw new Error('oauth-must-not-run');
+      }),
+      httpsImpl() { graphCalls += 1; throw new Error('graph-must-not-run'); },
+    });
+    await assert.rejects(
+      () => provider.createReplyDraft(draftCommand()),
+      (error) => {
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'secret' && noLeak(error);
+      },
+    );
+    assert.equal(events.filter((row) => row.type === 'uncertain').length, 0);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 1);
+    assert.equal(oauthCalls, 0);
+    assert.equal(graphCalls, 0);
+  }
+  console.log('  PASS  authentic pre-HTTP secret fail stays abort-only; timeout is not secret');
+
   {
     const events = [];
     let graphCalls = 0;
@@ -1393,6 +1653,57 @@ async function main() {
     assert.equal(graphState.captured.length, 0);
   }
   console.log('  PASS  M2 rotating uncertainty failure through wrap/composition is no-post; Graph=0');
+
+  {
+    const events = [];
+    const graphState = { captured: [] };
+    const { provider } = await makeProvider({
+      events,
+      failMark: true,
+      transport: throwingTokenTransport(),
+      graphState,
+      httpsImpl() { throw new Error('graph-must-not-run'); },
+    });
+    const wrapped = wrapChapter1(provider);
+    let wrappedErr;
+    await assert.rejects(
+      () => wrapped.createReplyDraft(chapter1CreateRequest()),
+      (error) => {
+        wrappedErr = error;
+        const note = readTrustedControlledDraftingTokenLoanFailure(error);
+        return note && note.stage === 'uncertainty_persistence' && error.code === ERROR_CODE && noLeak(error);
+      },
+    );
+    assert.equal(isTrustedControlledDraftingTokenLoanNoProviderPostFailure(wrappedErr), true);
+    const { first, second, claims } = await tickThroughComposition(provider);
+    assert.equal(first.reason, 'token_loan_failed_after_claim_no_provider_post');
+    assert.equal(first.provider_invoked, false);
+    assert.equal(first.create_invoked, false);
+    assert.equal(second.reason, 'unknown_create_unobservable');
+    assert.equal(second.provider_invoked, false);
+    assert.equal(claims, 1);
+    assert.equal(graphState.captured.length, 0);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+  }
+  {
+    const events = [];
+    const graphState = { captured: [] };
+    const { provider } = await makeProvider({
+      events,
+      failMark: true,
+      transport: broaderScopeWithNewRtTransport(),
+      graphState,
+      httpsImpl() { throw new Error('graph-must-not-run'); },
+    });
+    const { first, second, claims } = await tickThroughComposition(provider);
+    assert.equal(first.reason, 'token_loan_failed_after_claim_no_provider_post');
+    assert.equal(first.provider_invoked, false);
+    assert.equal(second.reason, 'unknown_create_unobservable');
+    assert.equal(claims, 1);
+    assert.equal(graphState.captured.length, 0);
+    assert.equal(events.filter((row) => row.type === 'abort').length, 0);
+  }
+  console.log('  PASS  wrap/composition MS timeout/classify failMark is no-post; provider_invoked=false; no second POST');
 
   {
     const graphState = { captured: [] };

@@ -169,6 +169,7 @@ const ROTATING_RESPONSE_UNCERTAINTY_DETAILS = objectFreeze({
   kill_switch: 'post_ms_kill_switch',
   reseal: 'post_ms_pre_seal',
   commit: 'post_ms_cas_conflict',
+  token: 'ms_refresh_transport',
   response: 'ms_refresh_uncertain',
   uncertainty_persistence: 'persistence_unproven',
 });
@@ -503,6 +504,11 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
         openedOwner = null;
       }
 
+      // Canonical owner for a potentially rotating or unknown Microsoft
+      // token response. Callable even before receivedRotatingRefresh is
+      // known. Sets suppressLeaseAbort before mark so outer catch/finally
+      // cannot abort. Abort only after a persisted ms_response_uncertain
+      // mark; abort DTO must preserve uncertain.
       async function refuseAfterRotatingMicrosoftResponse(stage, detailCode) {
         const held = lease;
         lease = null;
@@ -622,18 +628,19 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
         } catch (exchangeErr) {
           const refreshNote = readTrustedMicrosoftRefreshTokenRequestStage(exchangeErr);
           const exchangeStage = refreshNote && refreshNote.stage ? refreshNote.stage : 'token';
-          const gen = lease.grant_generation;
-          await markDelegatedGrantReconciliation({
-            clientId: ids.clientId,
-            endpointId: ids.endpointId,
-            leaseToken: lease.lease_token,
-            expectedGeneration: gen,
-            reconcileState: 'ms_response_uncertain',
-            reconcileDetailCode: 'ms_refresh_transport',
-          }, { client });
-          await safeAbort(client, ids, lease);
-          lease = null;
-          throw failAt(exchangeStage);
+          // Authentic request-stage machine: `secret` is only assigned around
+          // getClientSecret, then reset to `token` before postTokenForm.
+          // A post-request timeout cannot be branded `secret`.
+          if (exchangeStage === 'secret') {
+            dropTokenRefs();
+            await safeAbort(client, ids, lease);
+            lease = null;
+            throw failAt('secret');
+          }
+          if (exchangeStage === 'response') {
+            await refuseAfterRotatingMicrosoftResponse('response', 'ms_refresh_uncertain');
+          }
+          await refuseAfterRotatingMicrosoftResponse('token', 'ms_refresh_transport');
         }
 
         if (classified.kind === 'invalid_grant') {
@@ -650,17 +657,7 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
 
         if (classified.kind !== 'success' || !classified.selected) {
           classified = null;
-          await markDelegatedGrantReconciliation({
-            clientId: ids.clientId,
-            endpointId: ids.endpointId,
-            leaseToken: lease.lease_token,
-            expectedGeneration: lease.grant_generation,
-            reconcileState: 'ms_response_uncertain',
-            reconcileDetailCode: 'ms_refresh_uncertain',
-          }, { client });
-          await safeAbort(client, ids, lease);
-          lease = null;
-          throw failAt('response');
+          await refuseAfterRotatingMicrosoftResponse('response', 'ms_refresh_uncertain');
         }
 
         try {
@@ -673,17 +670,7 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
           }
           if (typeof accessCandidate !== 'string' || !accessCandidate) {
             accessCandidate = null;
-            await markDelegatedGrantReconciliation({
-              clientId: ids.clientId,
-              endpointId: ids.endpointId,
-              leaseToken: lease.lease_token,
-              expectedGeneration: lease.grant_generation,
-              reconcileState: 'ms_response_uncertain',
-              reconcileDetailCode: 'ms_refresh_uncertain',
-            }, { client });
-            await safeAbort(client, ids, lease);
-            lease = null;
-            throw failAt('response');
+            await refuseAfterRotatingMicrosoftResponse('response', 'ms_refresh_uncertain');
           }
           accessTokenOwner = accessCandidate;
           accessCandidate = null;
@@ -691,7 +678,7 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
           if (selectedOwner.refreshTokenOmitted === true) {
             if (typeof refreshToken !== 'string' || !refreshToken) {
               accessTokenOwner = null;
-              throw failAt('response');
+              await refuseAfterRotatingMicrosoftResponse('response', 'ms_refresh_uncertain');
             }
             refreshTokenOmitted = true;
             receivedRotatingRefresh = false;
@@ -704,7 +691,7 @@ function createEmailLunaControlledDraftingGraphProvider(deps) {
             refreshToSeal = selectedOwner.refreshToken;
           } else {
             accessTokenOwner = null;
-            throw failAt('response');
+            await refuseAfterRotatingMicrosoftResponse('response', 'ms_refresh_uncertain');
           }
         } finally {
           classified = null;
