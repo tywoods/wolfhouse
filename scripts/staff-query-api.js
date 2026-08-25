@@ -19951,35 +19951,26 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 .bc-side-head{
   flex:0 0 auto;
-  padding:14px 16px 10px;
+  padding:10px 12px 8px;
   border-bottom:1px solid var(--border-soft);
 }
 .bc-side-head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .bc-side-title{margin:0;font-size:16px;font-weight:700;line-height:1.25;color:var(--text)}
 .bc-side-meta{margin:4px 0 0;font-size:12px;color:var(--text-2)}
-.bc-side-close{
-  flex:0 0 auto;width:28px;height:28px;padding:0;border:0;border-radius:8px;
-  background:transparent;color:var(--text-2);font-size:20px;line-height:1;cursor:pointer;
+.bc-side-head-actions{display:flex;align-items:center;gap:4px;flex-shrink:0}
+.bc-side-pin,.bc-side-close{
+  flex:0 0 auto;width:32px;height:32px;padding:0;border:1px solid var(--border-soft);border-radius:8px;
+  background:var(--surface-soft);color:var(--text-2);display:inline-flex;align-items:center;justify-content:center;
+  cursor:pointer;line-height:1;
 }
-.bc-side-close:hover{background:var(--surface-soft);color:var(--text)}
-.bc-side-tabs{display:flex;gap:4px;margin-top:12px}
-.bc-side-tab{
-  flex:1 1 0;padding:6px 4px;border:1px solid var(--border-soft);border-radius:8px;
-  background:var(--surface-soft);color:var(--text-2);font-size:11px;font-weight:600;
-  text-align:center;cursor:default;
-}
-.bc-side-tab.is-on{background:var(--surface);color:var(--text);border-color:var(--tan,#D4C9BA)}
-.bc-side-body{flex:1 1 auto;overflow:auto;padding:16px;color:var(--text-2);font-size:13px;line-height:1.45}
-.bc-side-foot{flex:0 0 auto;padding:10px 16px 14px;border-top:1px solid var(--border-soft)}
-@media (max-width:768px){
-  #bc-side-drawer{display:none!important}
-}
-.bc-side-head-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
-.bc-side-pin{
-  height:28px;padding:0 10px;border:1px solid var(--border-soft);border-radius:8px;
-  background:var(--surface-soft);color:var(--text-2);font-size:11px;font-weight:700;cursor:pointer;
-}
+.bc-side-pin svg{display:block}
 .bc-side-pin.is-on{background:var(--surface);color:var(--text);border-color:var(--tan,#D4C9BA)}
+.bc-side-pin.is-on svg{transform:rotate(45deg)}
+.bc-side-close{font-size:18px}
+.bc-side-pin:hover,.bc-side-close:hover{background:var(--surface);color:var(--text)}
+.bc-side-body{flex:1 1 auto;overflow:auto;padding:8px 12px 12px;color:var(--text-2);font-size:13px;line-height:1.45}
+.bc-side-foot{flex:0 0 auto;padding:0;border:0;min-height:0}
+#bc-side-drawer .bc-drawer-file-tabs{margin-top:0}
 #bc-side-drawer .bc-drawer-tab-content-panel{min-height:0;padding:10px 12px 14px}
 #bc-side-drawer .bc-drawer-tab-panel[data-tab="transfers"].is-active{min-height:0}
 #bc-side-drawer .bc-drawer-tabs{width:100%;gap:4px;padding:0;overflow:visible}
@@ -19991,6 +19982,31 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 #bc-side-drawer .bc-drawer-footer{flex-direction:column;align-items:stretch}
 #bc-side-drawer .bc-drawer-footer-right{align-items:stretch;margin-left:0}
 #bc-side-drawer #bc-sel-panel{margin:0;box-shadow:none;border:0;background:transparent;padding:0}
+#bc-side-drawer .bc-transfer-cards,
+#bc-side-drawer .bc-transfer-grid,
+#bc-side-drawer .ctx-payments-tab-layout{grid-template-columns:1fr}
+#bc-move-bed .bc-card-collapse{
+  display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;
+  padding:0;margin:0 0 0;border:0;background:none;cursor:pointer;color:inherit;font:inherit;text-align:left;
+}
+#bc-move-bed .bc-card-collapse .bc-drawer-card-title{margin:0}
+#bc-move-bed .bc-card-chevron{flex:0 0 auto;font-size:16px;line-height:1;color:var(--text-2);transform:rotate(-90deg);transition:transform .15s}
+#bc-move-bed:not(.is-collapsed) .bc-card-chevron{transform:rotate(90deg)}
+#bc-move-bed.is-collapsed .bc-move-bed-body{display:none}
+#tab-bed-calendar.tab-panel.active.bc-cal-side-pinned{
+  display:flex!important;flex-direction:row;align-items:stretch;min-height:0;
+}
+#tab-bed-calendar.bc-cal-side-pinned #wrap-bc{flex:1 1 auto;min-width:0;max-width:none}
+#tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer{
+  position:relative;top:auto;right:auto;bottom:auto;transform:none;
+  width:400px;min-width:360px;max-width:420px;flex:0 0 400px;
+  height:auto;min-height:calc(100vh - 160px);z-index:6;pointer-events:auto;
+  box-shadow:none;
+}
+body.luna-header-ui.luna-hdr-compact #tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer{top:auto}
+@media (max-width:768px){
+  #bc-side-drawer{display:none!important}
+}
 @media (min-width:769px){
   /* staff-portal-calendar:side-drawer-desktop — bottom folder stays in the DOM for phones */
   #tab-bed-calendar #bc-detail,
@@ -19998,6 +20014,7 @@ body.luna-header-ui.luna-hdr-compact #bc-side-drawer{top:52px}
 }
 @media (prefers-reduced-motion:reduce){
   #bc-side-drawer{transition:none}
+  #bc-move-bed .bc-card-chevron{transition:none}
 }
 /* ===== BEGIN book-ui (serif typeface only; paperback restyle removed) =====
    Kept the literary serif on Booking Calendar + drawer headings; all the warm
@@ -22269,15 +22286,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <p class="bc-side-meta" id="bc-side-meta"></p>
       </div>
       <div class="bc-side-head-actions">
-        <button type="button" class="bc-side-pin" id="bc-side-pin" aria-pressed="false" title="Pin">Pin</button>
-        <button type="button" class="bc-side-close" id="bc-side-close" aria-label="Close">&times;</button>
+        <button type="button" class="bc-side-pin" id="bc-side-pin" aria-pressed="false" title="Pin" aria-label="Pin">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+        </button>
+        <button type="button" class="bc-side-close" id="bc-side-close" title="Close" aria-label="Close"><span aria-hidden="true">&#8594;</span></button>
       </div>
-    </div>
-    <div class="bc-side-tabs" id="bc-side-tabs" hidden>
-      <span class="bc-side-tab is-on">Overview</span>
-      <span class="bc-side-tab">Service</span>
-      <span class="bc-side-tab">Transfer</span>
-      <span class="bc-side-tab">Payment</span>
     </div>
   </header>
   <div class="bc-side-body" id="bc-side-body"></div>
@@ -35293,6 +35306,15 @@ function bcRunMoveWrite(){
 }
 
 function bcInitMovePanel(data){
+  var toggle = el('bc-move-bed-toggle');
+  var card = el('bc-move-bed');
+  if (toggle && card && toggle.dataset.wired !== '1'){
+    toggle.dataset.wired = '1';
+    toggle.addEventListener('click', function(){
+      var open = card.classList.toggle('is-collapsed') === false;
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  }
   var bk = (data && data.booking) || {};
   var rm = (data && data.rooming) || {};
   var assigns = rm.assignments || [];
@@ -39667,12 +39689,20 @@ function renderBookingContextDrawer(data){
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
   html += '</div>';
 
+  if (!isSunset) {
+    html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
+  }
+
   if (!isSurf) {
     var rmMove = data.rooming || {};
     var moveAssigns = rmMove.assignments || [];
     var moveNoBeds = moveAssigns.length === 0;
-    html += '<div class="bc-drawer-overview-card ctx-section ctx-move-bed" id="bc-move-bed">';
+    html += '<div class="bc-drawer-overview-card ctx-section ctx-move-bed is-collapsed" id="bc-move-bed">';
+    html += '<button type="button" class="bc-card-collapse" id="bc-move-bed-toggle" aria-expanded="false">';
     html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.moveBed')) + '</h3>';
+    html += '<span class="bc-card-chevron" aria-hidden="true">&gt;</span>';
+    html += '</button>';
+    html += '<div class="bc-move-bed-body">';
     if (moveNoBeds){
       html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">' + escHtml(t('drawer.moveBed.noAssignments')) + '</div>';
     } else {
@@ -39686,11 +39716,7 @@ function renderBookingContextDrawer(data){
     html += '<div id="bc-move-result"></div>';
     html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
     html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>' + escHtml(t('drawer.moveBed.btn')) + '</button>';
-    html += '</div></div>';
-  }
-
-  if (!isSunset) {
-    html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
+    html += '</div></div></div>';
   }
 
   html += bcRenderPendingManualServicesOverviewHtml(data.pending_manual_services || []);
@@ -40312,12 +40338,13 @@ function bcSetSidePinned(on){
   bcSidePinned = !!on;
   var rail = el('bc-side-drawer');
   var pinBtn = el('bc-side-pin');
+  var tab = el('tab-bed-calendar');
   if (rail) rail.dataset.pinned = bcSidePinned ? '1' : '0';
   if (pinBtn){
     pinBtn.classList.toggle('is-on', bcSidePinned);
     pinBtn.setAttribute('aria-pressed', bcSidePinned ? 'true' : 'false');
-    pinBtn.textContent = bcSidePinned ? 'Pinned' : 'Pin';
   }
+  if (tab) tab.classList.toggle('bc-cal-side-pinned', !!(bcSidePinned && rail && rail.classList.contains('is-open')));
 }
 
 function bcUndockCreatePanel(){
@@ -40333,6 +40360,8 @@ function bcCloseSideRail(){
   if (!rail) return;
   rail.classList.remove('is-open');
   rail.dataset.mode = '';
+  var tab = el('tab-bed-calendar');
+  if (tab) tab.classList.remove('bc-cal-side-pinned');
   bcSetSidePinned(false);
   bcSideHoverCode = null;
   bcUndockCreatePanel();
@@ -40372,8 +40401,8 @@ function bcOpenSideBooking(blk, opts){
   var body = el('bc-side-body');
   if (!rail || !body || !blk) return;
   bcUndockCreatePanel();
-  if (opts.pin) bcSetSidePinned(true);
   rail.classList.add('is-open');
+  if (opts.pin) bcSetSidePinned(true);
   rail.dataset.mode = 'booking';
   bcLastOpenedBlock = blk;
   bcActiveDrawerTab = 'overview';
@@ -40408,7 +40437,7 @@ function bcSideHoverLeave(){
   if (bcSidePinned) return;
   bcSideLeaveTimer = setTimeout(function(){
     if (!bcSidePinned) bcCloseSideRail();
-  }, 280);
+  }, 3280);
 }
 
 function bcInitSideDrawer(){
