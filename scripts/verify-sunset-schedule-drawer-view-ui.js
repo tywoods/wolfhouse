@@ -587,6 +587,38 @@ const paidFullHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
   },
 });
 assert('fixture6a: paid in full state', paidFullHtml.includes('Paid in full'));
+assert('fixture6a: paid-in-full footer shows recorded paid total',
+  paidFullHtml.includes('€120.00') && !/>€0\.00<\/span><\/div>\s*<span id="ps-drawer-paid"/.test(paidFullHtml));
+const camPaidHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-08-01',
+  date_to: '2026-08-01',
+  payment: {
+    subtotal_cents: 3500,
+    paid_cents: 3500,
+    balance_due_cents: 0,
+    payment_status: 'paid',
+    line_items: [{ service_date: '2026-08-01', service_type: 'course', label: 'Lesson · 1', line_cents: 3500, quantity: 1 }],
+    paid_payments: [{ payment_id: 'store', amount_cents: 3500, method: 'in_store', kind: 'manual' }],
+  },
+});
+assert('fixture6c: in-store €35 paid-in-full shows €35.00 not €0.00',
+  camPaidHtml.includes('Paid in full') && camPaidHtml.includes('€35.00'));
+const unpaidLargeHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
+  date_from: '2026-08-01',
+  date_to: '2026-08-01',
+  payment: {
+    subtotal_cents: 192000,
+    paid_cents: 0,
+    balance_due_cents: 192000,
+    payment_status: 'unpaid',
+    line_items: [{ service_date: '2026-08-01', service_type: 'course', label: 'Course · 1', line_cents: 192000, quantity: 1 }],
+    paid_payments: [],
+  },
+});
+assert('fixture6d: unpaid booking shows balance due not paid-in-full',
+  !unpaidLargeHtml.includes('Paid in full')
+  && unpaidLargeHtml.includes('€1920.00')
+  && (unpaidLargeHtml.includes('Balance due') || unpaidLargeHtml.includes('due')));
 const overpaidHtml = ctx.scheduleRenderSunsetInvoiceCardHtml({
   date_from: '2026-07-20',
   date_to: '2026-07-20',

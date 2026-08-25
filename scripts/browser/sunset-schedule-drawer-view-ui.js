@@ -1072,7 +1072,8 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
   var due = (pay.balance_due_cents != null) ? Number(pay.balance_due_cents) : null;
   var refund = Number(pay.refund_credit_cents || 0);
   if (!(refund > 0) && paid > sub && sub >= 0) refund = paid - sub;
-  var fullyPaid = pay.payment_status === 'paid' || (sub > 0 && due != null && due <= 0 && paid > 0 && refund <= 0);
+  // Chip ↔ drawer parity: never label Pagado from status enums when paid cents are €0.
+  var fullyPaid = paid > 0 && refund <= 0 && (due == null || due <= 0);
   var overpaid = refund > 0;
 
   html += '<div class="ps-invoice-totals">';
@@ -1104,7 +1105,7 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
     html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-balance is-paid"><span class="ctx-inv-total-label">' +
       escHtml(portalT('schedule.drawer.paidInFull')) +
       '</span><span class="ctx-inv-total-amount paid ps-invoice-amt" id="ps-drawer-remaining">' +
-      escHtml(scheduleDrawerEur(0)) + '</span></div>';
+      escHtml(scheduleDrawerEur(paid)) + '</span></div>';
   } else {
     html += '<div class="ctx-inv-total-row ps-invoice-total-row ps-invoice-balance is-due"><span class="ctx-inv-total-label">' +
       escHtml(portalT('schedule.drawer.balanceDue')) +
