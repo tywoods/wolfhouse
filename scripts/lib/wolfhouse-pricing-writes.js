@@ -19,7 +19,7 @@ const WRITE_ENV_FLAG = 'WOLFHOUSE_ADMIN_WRITES_ENABLED';
 const WRITE_MIN_ROLE = 'admin';
 const ROLE_RANK = { viewer: 1, operator: 2, admin: 3, owner: 4 };
 
-const ITEM_TYPES = new Set(['package', 'rental', 'service']);
+const ITEM_TYPES = new Set(['package', 'rental', 'service', 'supplement', 'deposit']);
 
 const RULE_ITEM_TYPES = new Set([
   'package', 'rental', 'service', 'transfer', 'addon', 'supplement', 'deposit',

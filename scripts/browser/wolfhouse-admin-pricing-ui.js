@@ -730,7 +730,7 @@
     }
     return '<div class="portal-admin-price-card">'
       + '<div class="portal-admin-price-card-main">'
-      + '<div><div class="portal-admin-price-title">' + whEsc(humanize(row.code)) + '</div>'
+      + '<div><div class="portal-admin-price-title">' + whEsc(row.label || humanize(row.code)) + '</div>'
       + '<div class="portal-admin-price-meta">' + whEsc(unitLabel(row.unit)) + ' · '
       + sourceBadge(row.source) + '</div></div>'
       + '<div class="portal-admin-price-amount">€' + whEsc(eurosFromCents(row.amount_cents))
@@ -739,6 +739,11 @@
         ? '<div class="portal-admin-card-actions">'
           + actionBtn('edit-extra', whT('admin.action.edit', 'Edit'),
             ' data-wh-extra-kind="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code) + '"')
+          + (row.source === 'db'
+            ? actionBtn('delete-item', whT('admin.action.delete', 'Delete'),
+              ' data-wh-item-type="' + whEsc(kind) + '" data-wh-item-code="' + whEsc(row.code) + '"',
+              'btn-ghost portal-admin-danger')
+            : '')
           + '</div>'
         : '')
       + '</div>';

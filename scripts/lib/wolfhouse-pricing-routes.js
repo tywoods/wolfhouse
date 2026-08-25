@@ -148,9 +148,9 @@ function createWolfhousePricingRoutes(deps) {
         await ensureTablesOnce(pg);
         const slug = resolve.WH_PRICING_CLIENT_SLUG;
         try {
-          await store.promoteConfigRentalsToStaffItems(pg, config, null);
+          await store.promoteConfigCatalogToStaffItems(pg, config, null);
         } catch (promoErr) {
-          console.error('[wh.pricing] rental promote failed:', promoErr && promoErr.message);
+          console.error('[wh.pricing] catalog promote failed:', promoErr && promoErr.message);
         }
         return {
           seasons: await store.loadSeasons(pg, slug),

@@ -172,56 +172,7 @@ function configPricingRules(config) {
     }
   }
 
-  const supplements = config.room_supplements || {};
-  for (const roomType of Object.keys(supplements)) {
-    if (roomType.startsWith('_')) continue;
-    const supplement = supplements[roomType] || {};
-    // Per-room is the charged form for double/private; shared carries only the
-    // per-person key at zero. Keep shared in the catalog so Admin can show all
-    // three room types instead of silently omitting the free one.
-    const perRoom = supplement.per_room_per_night_cents;
-    const perPerson = supplement.per_person_per_night_cents;
-    if (Number.isFinite(Number(perRoom))) {
-      out.push(rule('supplement', roomType, null, 'per_room_per_night', perRoom, {
-        label: roomType,
-      }));
-    } else if (Number.isFinite(Number(perPerson))) {
-      out.push(rule('supplement', roomType, null, 'per_person_per_night', perPerson, {
-        label: roomType,
-      }));
-    }
-  }
-
-  const tiers = (config.deposits && config.deposits.tiers) || {};
-  for (const tier of Object.keys(tiers)) {
-    if (tier.startsWith('_')) continue;
-    const cents = tiers[tier] && tiers[tier].amount_cents;
-    if (!Number.isFinite(Number(cents))) continue;
-    out.push(rule('deposit', tier, null, 'per_booking', cents, { label: tier }));
-  }
-
-  const addOns = config.add_ons || {};
-  const seenServiceCodes = new Set();
-  for (const code of Object.keys(addOns)) {
-    if (code.startsWith('_')) continue;
-    const addon = addOns[code] || {};
-    const cents = Number.isFinite(Number(addon.price_cents))
-      ? addon.price_cents
-      : addon.price_cents_each;
-    if (!Number.isFinite(Number(cents))) continue;
-
-    if (CONFIG_RENTAL_ADDON_CODES.has(code)) {
-      // Rentals are staff catalog items, not built-in config rows.
-      continue;
-    }
-    // `meal` and `meals` are the same product duplicated in the fixture.
-    const serviceCode = code === 'meals' ? 'meal' : code;
-    if (seenServiceCodes.has(serviceCode)) continue;
-    seenServiceCodes.add(serviceCode);
-    out.push(rule('service', serviceCode, null, configServiceUnit(addon), cents, {
-      label: addon.name || serviceCode,
-    }));
-  }
+  // Services, extras, and rentals are staff catalog items — not built-in rows.
 
   return out;
 }
@@ -477,7 +428,11 @@ function buildAdminPricingView(input) {
 
   const extrasOf = (type) => rules
     .filter((r) => r.item_type === type)
-    .map((r) => Object.assign({ code: r.item_code, label: labelFor(type, r.item_code) }, priceOf(r)));
+    .map((r) => Object.assign({
+      code: r.item_code,
+      label: labelFor(type, r.item_code),
+      source: catalogSource(type, r.item_code),
+    }, priceOf(r)));
 
   return {
     client_slug: WH_PRICING_CLIENT_SLUG,
@@ -510,6 +465,86 @@ function rentalTitleFromAddon(code, addon) {
 }
 
 /** Config rentals to recreate as staff catalog items (labels never use underscores). */
+function addonAmountCents(addon) {
+  const cents = Number.isFinite(Number(addon && addon.price_cents))
+    ? Number(addon.price_cents)
+    : Number(addon && addon.price_cents_each);
+  return Number.isFinite(cents) ? cents : null;
+}
+
+function listConfigServiceSeeds(config) {
+  const addOns = (config && config.add_ons) || {};
+  const out = [];
+  const seen = new Set();
+  for (const code of Object.keys(addOns)) {
+    if (code.startsWith('_')) continue;
+    if (CONFIG_RENTAL_ADDON_CODES.has(code)) continue;
+    const serviceCode = code === 'meals' ? 'meal' : code;
+    if (seen.has(serviceCode)) continue;
+    seen.add(serviceCode);
+    const addon = addOns[code] || {};
+    out.push({
+      item_type: 'service',
+      code: serviceCode,
+      rule_code: serviceCode,
+      label: rentalTitleFromAddon(serviceCode, addon),
+      amount_cents: addonAmountCents(addon),
+      unit: configServiceUnit(addon),
+    });
+  }
+  return out;
+}
+
+function listConfigExtraSeeds(config) {
+  const out = [];
+  const supplements = (config && config.room_supplements) || {};
+  for (const roomType of Object.keys(supplements)) {
+    if (roomType.startsWith('_')) continue;
+    const supplement = supplements[roomType] || {};
+    const perRoom = Number(supplement.per_room_per_night_cents);
+    const perPerson = Number(supplement.per_person_per_night_cents);
+    let amount = null;
+    let unit = 'per_room_per_night';
+    if (Number.isFinite(perRoom)) {
+      amount = perRoom;
+      unit = 'per_room_per_night';
+    } else if (Number.isFinite(perPerson)) {
+      amount = perPerson;
+      unit = 'per_person_per_night';
+    }
+    out.push({
+      item_type: 'supplement',
+      code: roomType,
+      rule_code: roomType,
+      label: rentalTitleFromAddon(roomType, { name: humanizeCode(roomType) }),
+      amount_cents: amount,
+      unit,
+    });
+  }
+  const tiers = (config && config.deposits && config.deposits.tiers) || {};
+  for (const tier of Object.keys(tiers)) {
+    if (tier.startsWith('_')) continue;
+    const cents = Number(tiers[tier] && tiers[tier].amount_cents);
+    out.push({
+      item_type: 'deposit',
+      code: tier,
+      rule_code: tier,
+      label: rentalTitleFromAddon(tier, { name: humanizeCode(tier) }),
+      amount_cents: Number.isFinite(cents) ? cents : null,
+      unit: 'per_booking',
+    });
+  }
+  return out;
+}
+
+function listConfigCatalogSeeds(config) {
+  const rentals = listConfigRentalSeeds(config).map((s) => Object.assign({}, s, {
+    item_type: 'rental',
+    rule_code: `${s.code}__${s.duration || DEFAULT_RENTAL_DURATION}`,
+  }));
+  return rentals.concat(listConfigServiceSeeds(config), listConfigExtraSeeds(config));
+}
+
 function listConfigRentalSeeds(config) {
   const addOns = (config && config.add_ons) || {};
   const out = [];
@@ -558,6 +593,9 @@ module.exports = {
   CONFIG_RENTAL_ADDON_CODES,
   DEFAULT_RENTAL_DURATION,
   listConfigRentalSeeds,
+  listConfigServiceSeeds,
+  listConfigExtraSeeds,
+  listConfigCatalogSeeds,
   rentalTitleFromAddon,
   applyOverlayRentalPricesToConfig,
   daysInMonth,

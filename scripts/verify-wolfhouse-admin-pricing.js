@@ -133,13 +133,11 @@ ok('every package season price is flattened',
 ok('package unit is per person per week',
   find('package', 'malibu', 'august').unit === 'per_person_per_week');
 
-ok('private room supplement is 1000 per room per night',
-  find('supplement', 'private', null).amount_cents === 1000
-  && find('supplement', 'private', null).unit === 'per_room_per_night');
+ok('private room supplement seeds as a staff extra',
+  resolve.listConfigExtraSeeds(config).some((s) => s.code === 'private' && s.amount_cents === 1000 && s.unit === 'per_room_per_night'));
 
-ok('the free shared room stays in the catalog at zero',
-  find('supplement', 'shared', null).amount_cents === 0
-  && find('supplement', 'shared', null).unit === 'per_person_per_night');
+ok('the free shared room stays in the extra seeds at zero',
+  resolve.listConfigExtraSeeds(config).some((s) => s.code === 'shared' && s.amount_cents === 0 && s.unit === 'per_person_per_night'));
 
 ok('a zero supplement is writable but a zero rental is not',
   writes.validatePriceRuleBody({
@@ -149,9 +147,9 @@ ok('a zero supplement is writable but a zero rental is not',
     item_type: 'rental', item_code: 'wetsuit_rental__1_day', unit: 'per_day', amount_cents: 0,
   }).ok === false);
 
-ok('both deposit tiers are flattened',
-  find('deposit', 'standard_package', null).amount_cents === 20000
-  && find('deposit', 'custom_or_short_stay', null).amount_cents === 10000);
+ok('deposit tiers become staff extra seeds',
+  resolve.listConfigExtraSeeds(config).filter((s) => s.item_type === 'deposit').length === 2
+  && resolve.listConfigExtraSeeds(config).some((s) => s.code === 'standard_package' && s.amount_cents === 20000));
 
 ok('gear add-ons are not flattened as built-in rental rules',
   !find('rental', 'wetsuit_rental__1_day', null)
@@ -159,20 +157,15 @@ ok('gear add-ons are not flattened as built-in rental rules',
 ok('gear add-ons become staff rental seeds with titles',
   resolve.listConfigRentalSeeds(config).some((s) => s.code === 'wetsuit_rental' && s.amount_cents === 500 && s.label === 'Wetsuit rental'));
 
-ok('non-gear add-ons flatten to services',
-  find('service', 'yoga_class', null).amount_cents === 1500
-  && find('service', 'yoga_class', null).unit === 'per_class');
+ok('non-gear add-ons become staff service seeds',
+  resolve.listConfigServiceSeeds(config).some((s) => s.code === 'yoga_class' && s.amount_cents === 1500 && s.unit === 'per_class'));
 
-ok('the multi-lesson bundle uses its price_cents_each',
-  find('service', 'surf_lesson_multi', null).amount_cents === 3000);
+ok('the multi-lesson bundle seed uses its price_cents_each',
+  resolve.listConfigServiceSeeds(config).some((s) => s.code === 'surf_lesson_multi' && s.amount_cents === 3000));
 
-// The config ships both `meal` and `meals` at the same price, and its bytes are
-// pinned by the factory certificate chain, so the duplicate cannot simply be
-// deleted. Collapsing them here is what stops the portal from offering two
-// meal services whose prices could drift apart.
-ok('duplicated meal/meals config entries collapse to one service',
-  rules.filter((r) => r.item_type === 'service' && r.item_code === 'meal').length === 1
-  && find('service', 'meals', null) === null);
+ok('duplicated meal/meals config entries collapse to one service seed',
+  resolve.listConfigServiceSeeds(config).filter((s) => s.code === 'meal').length === 1
+  && !resolve.listConfigServiceSeeds(config).some((s) => s.code === 'meals'));
 
 ok('no config rule carries a negative or non-integer amount',
   rules.every((r) => Number.isInteger(r.amount_cents) && r.amount_cents >= 0));
@@ -499,15 +492,46 @@ ok('overlay rental prices win over JSON add-on cents',
   overlayCfg.add_ons.wetsuit_rental.price_cents === 777
   && config.add_ons.wetsuit_rental.price_cents === 500);
 
-ok('services appear with their unit',
-  view.services.find((s) => s.code === 'yoga_class').price.unit === 'per_class');
+ok('empty overlay has no built-in services or extras',
+  view.services.length === 0
+  && view.extras.deposits.length === 0
+  && view.extras.supplements.length === 0);
+
+const serviceSeeds = resolve.listConfigServiceSeeds(config);
+const extraSeeds = resolve.listConfigExtraSeeds(config);
+const viewPromotedCatalog = resolve.buildAdminPricingView({
+  config,
+  transferConfig,
+  dbSeasons: [],
+  dbRules: serviceSeeds.concat(extraSeeds).map((s) => ({
+    item_type: s.item_type,
+    item_code: s.rule_code || s.code,
+    season_code: null,
+    unit: s.unit,
+    amount_cents: s.amount_cents,
+    currency: 'EUR',
+    active: true,
+    label: s.label,
+  })),
+  dbItems: serviceSeeds.concat(extraSeeds).map((s) => ({
+    item_type: s.item_type, item_code: s.code, label: s.label, metadata: {}, active: true,
+  })),
+  dbTransferRules: [],
+  writesEnabled: true,
+});
+ok('promoted services are staff-owned',
+  viewPromotedCatalog.services.length === serviceSeeds.length
+  && viewPromotedCatalog.services.every((s) => s.source === 'db'));
+ok('promoted extras are staff-owned and titled',
+  viewPromotedCatalog.extras.deposits.length === 2
+  && viewPromotedCatalog.extras.supplements.length === extraSeeds.filter((s) => s.item_type === 'supplement').length
+  && viewPromotedCatalog.extras.deposits.every((d) => d.source === 'db' && d.label && !/_/.test(d.label)));
+ok('promoted yoga still prices per class',
+  viewPromotedCatalog.services.find((s) => s.code === 'yoga_class').price.unit === 'per_class');
 
 const sdrView = view.transfers.find((t) => t.airport_code === 'SDR');
 ok('transfers merge eligibility with price',
   sdrView && sdrView.included_when_package === true && sdrView.price.amount_cents === 2500);
-
-ok('extras split deposits and supplements',
-  view.extras.deposits.length === 2 && view.extras.supplements.length === 3);
 
 ok('every config-sourced price is tagged config',
   view.packages.every((p) => p.prices.every((s) => !s.price || s.price.source === 'config')));
@@ -990,8 +1014,13 @@ function uiChecks() {
   ok('recurring ranges render as month and day', /Aug 1\s*–\s*Aug 31/.test(html));
   ok('a transfer shows its airport code', html.includes('(SDR)'));
   ok('Bilbao surfaces its group minimum', html.includes('min group') && html.includes('4'));
-  ok('deposits render in euros', html.includes('€200.00'));
-  ok('the private room supplement renders', html.includes('€10.00'));
+  ok('deposits render in euros',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('€200.00'));
+  ok('the private room supplement renders',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html.includes('€10.00'));
+  ok('promoted extras offer Delete',
+    runPricingUi(Object.assign({}, viewPromotedCatalog, { writes_enabled: true })).html
+      .includes('data-wh-item-type="deposit"'));
 
   ok('editable mode offers Edit controls',
     html.includes('data-wh-price-action="edit-package-price"'));

@@ -15,7 +15,7 @@
  * @module wolfhouse-pricing-store
  */
 
-const { WH_PRICING_CLIENT_SLUG, listConfigRentalSeeds, DEFAULT_RENTAL_DURATION } = require('./wolfhouse-pricing-resolve');
+const { WH_PRICING_CLIENT_SLUG, listConfigCatalogSeeds } = require('./wolfhouse-pricing-resolve');
 
 function assertWolfhouseScope(clientSlug) {
   if (String(clientSlug || '').trim() !== WH_PRICING_CLIENT_SLUG) {
@@ -390,21 +390,22 @@ async function deactivateTransferRule(pg, clientSlug, airportCode, actorId) {
   return r.rowCount > 0;
 }
 
-async function promoteConfigRentalsToStaffItems(pg, config, actorId) {
+async function promoteConfigCatalogToStaffItems(pg, config, actorId) {
   const slug = assertWolfhouseScope(WH_PRICING_CLIENT_SLUG);
-  const seeds = listConfigRentalSeeds(config);
+  const seeds = listConfigCatalogSeeds(config);
   let created = 0;
   for (const seed of seeds) {
+    const itemType = seed.item_type || 'rental';
     const existing = await pg.query(
       `SELECT id, active, label FROM wh_pricing_items
-        WHERE client_slug = $1 AND item_type = 'rental' AND item_code = $2
+        WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
         ORDER BY active DESC, updated_at DESC NULLS LAST
         LIMIT 1`,
-      [slug, seed.code],
+      [slug, itemType, seed.code],
     );
     if (!existing.rows.length) {
       await saveItem(pg, slug, {
-        item_type: 'rental',
+        item_type: itemType,
         item_code: seed.code,
         label: seed.label,
         description: null,
@@ -414,7 +415,7 @@ async function promoteConfigRentalsToStaffItems(pg, config, actorId) {
       created += 1;
     } else if (existing.rows[0].active && /_/.test(String(existing.rows[0].label || ''))) {
       await saveItem(pg, slug, {
-        item_type: 'rental',
+        item_type: itemType,
         item_code: seed.code,
         label: seed.label,
         description: null,
@@ -423,19 +424,19 @@ async function promoteConfigRentalsToStaffItems(pg, config, actorId) {
       }, actorId);
     }
     if (seed.amount_cents == null) continue;
-    const ruleCode = `${seed.code}__${seed.duration || DEFAULT_RENTAL_DURATION}`;
+    const ruleCode = seed.rule_code || seed.code;
     const ruleRows = await pg.query(
       `SELECT id FROM wh_pricing_rules
-        WHERE client_slug = $1 AND item_type = 'rental' AND item_code = $2
+        WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
           AND COALESCE(season_code, '') = '' AND active = true`,
-      [slug, ruleCode],
+      [slug, itemType, ruleCode],
     );
     if (!ruleRows.rows.length) {
       await savePriceRule(pg, slug, {
-        item_type: 'rental',
+        item_type: itemType,
         item_code: ruleCode,
         season_code: null,
-        unit: seed.unit || 'per_day',
+        unit: seed.unit || 'per_stay',
         amount_cents: seed.amount_cents,
         currency: 'EUR',
         active: true,
@@ -444,6 +445,8 @@ async function promoteConfigRentalsToStaffItems(pg, config, actorId) {
   }
   return { created, count: seeds.length };
 }
+
+const promoteConfigRentalsToStaffItems = promoteConfigCatalogToStaffItems;
 
 module.exports = {
   CREATE_SQL,
@@ -463,4 +466,5 @@ module.exports = {
   saveTransferRule,
   deactivateTransferRule,
   promoteConfigRentalsToStaffItems,
+  promoteConfigCatalogToStaffItems,
 };
