@@ -132,14 +132,26 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
     return '';
   }
 
+  function manualPayDefaultAmount(ctx) {
+    var pay = ctx && ctx.payment;
+    if (typeof scheduleDrawerEurInputValue === 'function') {
+      return scheduleDrawerEurInputValue(pay && pay.balance_due_cents);
+    }
+    var cents = pay && pay.balance_due_cents;
+    if (cents == null || isNaN(Number(cents)) || Number(cents) <= 0) return '';
+    return (Number(cents) / 100).toFixed(2);
+  }
+
   function renderManualPaymentHtml(ctx) {
     if (!(ctx && ctx.booking_id) || paymentFullyPaid(ctx)) return '';
+    var defaultAmount = manualPayDefaultAmount(ctx);
     var html = '<div id="ps-drawer-manual-pay" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)">';
     html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
       escHtml(portalT('schedule.drawer.addManualPayment')) + '</div>';
     html += '<div class="portal-schedule-manual-pay-grid">';
     html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
-      '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>';
+      '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"' +
+      (defaultAmount ? ' value="' + escHtml(defaultAmount) + '"' : '') + '></label>';
     html += '<label>' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
       '<select id="ps-drawer-manual-method">' +
       '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +

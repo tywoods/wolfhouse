@@ -156,6 +156,7 @@ assert('commercial lines omit ISO dates from labels',
   drawerSrc.includes('function scheduleDrawerStripLabelDate(')
   && bookingDrawerLib.includes('formatSunsetDrawerDailyItemLabel'));
 assert('record-payment collapsible keeps manual IDs', recordFn.includes('id="ps-drawer-manual-submit"') && recordFn.includes('id="ps-drawer-manual-amount"'));
+assert('record-payment prefills outstanding balance input', recordFn.includes('scheduleDrawerEurInputValue') && recordFn.includes('balance_due_cents'));
 assert('invoice card preserves payment-box id', invoiceCardFn.includes('id="ps-drawer-payment-box"'));
 assert('invoice keeps stripe copy/delete ids', drawerSrc.includes("'ps-drawer-stripe-copy'") && drawerSrc.includes('id="ps-drawer-stripe-delete"'));
 assert('invoice keeps payment-link create id', drawerSrc.includes('id="ps-drawer-stripe-link"'));

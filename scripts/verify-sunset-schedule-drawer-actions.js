@@ -394,6 +394,11 @@ const paid = {
   payment: { subtotal_cents: 5000, paid_cents: 5000, balance_due_cents: 0 },
 };
 assert('paid booking hides manual pay shell', ctx.scheduleRenderDrawerManualPaymentHtml(paid) === '');
+const manualPayHtml = ctx.scheduleRenderDrawerManualPaymentHtml(unpaid);
+assert('unpaid manual pay prefills outstanding balance',
+  manualPayHtml.includes('id="ps-drawer-manual-amount"')
+  && manualPayHtml.includes('value="50.00"'));
+assert('zero balance manual pay leaves amount empty', !ctx.scheduleRenderDrawerManualPaymentHtml(paid).includes('ps-drawer-manual-amount'));
 assert('payment router delegates view mode', ctx.scheduleRenderDrawerPaymentSectionHtml(unpaid, false).includes('view'));
 assert('payment router delegates edit mode', ctx.scheduleRenderDrawerPaymentSectionHtml(unpaid, true).includes('edit'));
 

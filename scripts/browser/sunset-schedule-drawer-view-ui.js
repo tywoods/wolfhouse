@@ -902,11 +902,14 @@ function scheduleRenderSunsetMoneyActionsHtml(ctx){
 
 function scheduleRenderSunsetRecordPaymentHtml(ctx){
   if (!(ctx && ctx.booking_id)) return '';
+  var pay = (ctx && ctx.payment) || {};
+  var defaultAmount = scheduleDrawerEurInputValue(pay.balance_due_cents);
   var html = '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.recordPayment')) + '</summary>';
   html += '<div id="ps-drawer-manual-pay" style="margin-top:8px">';
   html += '<div class="portal-schedule-manual-pay-grid">';
   html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
-    '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>';
+    '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"' +
+    (defaultAmount ? ' value="' + escHtml(defaultAmount) + '"' : '') + '></label>';
   html += '<label>' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
     '<select id="ps-drawer-manual-method">' +
     '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +
@@ -1166,6 +1169,13 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
 function scheduleDrawerEur(cents){
   if (cents == null || isNaN(Number(cents))) return '—';
   return '\u20ac' + (Number(cents) / 100).toFixed(2);
+}
+
+function scheduleDrawerEurInputValue(cents){
+  if (cents == null || isNaN(Number(cents))) return '';
+  var n = Number(cents);
+  if (n <= 0) return '';
+  return (n / 100).toFixed(2);
 }
 
 function scheduleRenderDrawerPaymentSectionViewHtml(ctx){
