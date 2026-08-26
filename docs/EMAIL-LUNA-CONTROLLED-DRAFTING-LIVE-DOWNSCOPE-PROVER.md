@@ -1,6 +1,6 @@
 # Email Luna controlled-drafting live downscope prover (Chapter 4E)
 
-**Slice:** FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E + 4G + 4H — source-only operator prover for a future live Microsoft downscope + shared Phase B grant continuity proof. Chapter 4G wires the exact deployed Sunset staging SHA. Chapter 4H adds the private owned Azure/ACR/PG preflight reader. Live compose/runProof remain **structurally disabled** (`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false`). Live proof is still **NOT EXECUTED**. Caller snapshots cannot mint a live brand.
+**Slice:** FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E + 4G + 4H + 4I — source-only operator prover plus a dedicated Chapter 4I one-shot execution owner for a future live Microsoft downscope + shared Phase B grant continuity proof. Chapter 4G wires the exact deployed Sunset staging SHA. Chapter 4H adds the private owned Azure/ACR/PG preflight reader (merged as **#735**, `82a9eb9ae647d13e7ef11629fc87a44b94d067c6`). Chapter 4I owns the closed Sunset-only one-shot execution entrypoint. Live compose/runProof on this 4E owner remain **structurally disabled** (`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false`). Do not flip that broadly imported constant. Live proof is still **NOT EXECUTED**. Caller snapshots cannot mint a live brand.
 
 **Owner:** `scripts/lib/email-luna-controlled-drafting-live-downscope-prover.js`
 
@@ -64,7 +64,7 @@ Issuer `https://login.microsoftonline.com/{tid}/v2.0` (or `https://sts.windows.n
 - One process / one replica. Refuse active 097 ops, held leases, or uncertain grants. Sequence is downscope then continuity **once**. Rerun requires a new typed confirmation and a new prover instance.
 - Evidence JSON: identifiers, fingerprints, scope names, kid/alg, equality booleans, generations, timestamps, phase statuses. No PII, mailbox address, IDs, DSNs, tokens, refresh tokens, secrets, or message content.
 
-## Later live execution runbook / preflight (NOT EXECUTED in this PR)
+## Chapter 4I later live execution runbook / preflight (NOT EXECUTED in this builder)
 
 Chapter 4G wired the exact-deployed-SHA target. A **later separately authorized execution chapter** may run the sensitive phase. This PR must not.
 
@@ -95,7 +95,7 @@ node scripts/email-luna-controlled-drafting-live-downscope-prover.js prove \
 
 Without `--execute-once` this is **preparation/attestation only**: zero token, JWKS, Graph, send, 098, Azure, KV, or live PG calls. Equals-form (`--target=sunset-staging`) is hostile.
 
-`--execute-once` plus the typed confirmation bound to target/revision/SHA/digest/nonce/time-window is required before any sensitive dependency is acquired. This chapter still **does not authorize** that sensitive phase (`live_execute_not_authorized_in_this_chapter`). A source verify/prove harness cannot consume the live attempt (`source_test_cannot_consume_live_attempt`). One process; nonce replay fails; no automatic retry after an ambiguous Microsoft response.
+`--execute-once` plus the typed confirmation bound to target/revision/SHA/digest/nonce/time-window is required before any sensitive dependency is acquired. This 4E/4G owner still **does not authorize** that sensitive phase (`live_execute_not_authorized_in_this_chapter`). Chapter 4I is the dedicated one-shot execution owner; see `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-SUNSET-STAGING-LIVE-EXECUTION.md`. A source verify/prove harness cannot consume the live attempt (`source_test_cannot_consume_live_attempt`). One process; nonce replay fails; no automatic retry after an ambiguous Microsoft response. Do not retry `outcome_unknown`. Zero-send boundary: no Graph `/messages`, no provider send, no 097 operation create, no 098 consume. Post-proof audit is read-only.
 
 **Independent live preflight (Chapter 4H implements the owned reader; live execute remains unauthorized):**
 

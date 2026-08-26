@@ -78,4 +78,4 @@ Evidence fields such as `oauth_called: false` / `kv_secret_called: false` / `tok
 
 ## Next gate
 
-A later separately authorized execution chapter may call the branded reader from live `runProof` after flipping chapter authority. That chapter still must not send, must not flip flags, and must not trust caller snapshots.
+Chapter 4I owns a dedicated one-shot Sunset staging execution entrypoint. It must invoke this production reader first and consume the unexported brand through `inspectIndependentLivePreflight` before Key Vault / token / JWKS / custody PG. It must not flip `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER` on this owner. Staff API startup stays inert. That chapter still must not send, must not flip flags, and must not trust caller snapshots.

@@ -68,6 +68,9 @@ const {
   readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg,
   isIndependentLivePreflight,
 } = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader');
+const {
+  isChapter4IBrandedPreflightPhase,
+} = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -138,12 +141,12 @@ function refuse() {
 }
 
 function refuseLiveExecuteIfDisabled() {
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
-    throw failure('live_execute_not_authorized_in_this_chapter');
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER === true
+      && LIVE_EXECUTE_INTERNAL_AUTHORIZATION.authorized === true) {
+    return;
   }
-  if (LIVE_EXECUTE_INTERNAL_AUTHORIZATION.authorized !== true) {
-    throw failure('live_execute_not_authorized_in_this_chapter');
-  }
+  if (isChapter4IBrandedPreflightPhase() === true) return;
+  throw failure('live_execute_not_authorized_in_this_chapter');
 }
 
 function exactPlainData(object, keys) {

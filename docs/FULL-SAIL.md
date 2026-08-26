@@ -12,7 +12,7 @@ Chief-facing index for Luna Nightwatch (Stage 1) and controlled-drafting (Stage 
 | App | `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` |
 | Status | Disabled-by-construction for controlled-drafting live proof |
 
-These pins were inherited from the Chapter 4F deploy / Chapter 4G live-target wiring. Chapter 4H is source-only and does not re-measure them. Treat them as current unless a later **read-only** measurement proves otherwise.
+These pins were inherited from the Chapter 4F deploy / Chapter 4G live-target wiring. Chapter 4H and Chapter 4I are source-only and do not re-measure them. Treat them as current unless a later **read-only** measurement proves otherwise. Do not claim live PASS.
 
 ## Stage 2 CONTROLLED DRAFTING chapters
 
@@ -27,16 +27,18 @@ These pins were inherited from the Chapter 4F deploy / Chapter 4G live-target wi
 | 4F | Disabled Sunset Staff API deploy of the pinned SHA | Deployed; flags false | (artifact pins above) |
 | 4G | Exact-SHA live-target wiring for the 4E prover | `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER=false` | `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-DOWNSCOPE-PROVER.md` |
 | 4H | Private server-owned Azure/ACR/PG preflight reader | Reader tested with fakes; live proof still not executed | `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-PREFLIGHT-READER.md` |
+| 4I | One-shot Sunset staging downscope + staff-send continuity execution owner | Source-only; live proof still not executed | `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-SUNSET-STAGING-LIVE-EXECUTION.md` |
 
-Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (Chapter 4G). Chapter 4H is the next source-only PR on that path.
+Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (Chapter 4G), **#735** (Chapter 4H, merge `82a9eb9ae647d13e7ef11629fc87a44b94d067c6`). Chapter 4I is the next source-only PR on that path. It does not authorize OAuth consent, grant broadening, Graph draft/send, flag flips, or production.
 
 ## Disabled / live-proof state
 
-- Frozen `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false` with load-time throws.
+- Frozen `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false` with load-time throws on the Chapter 4E/4G/4H owners. Do not flip that broadly imported constant.
 - Public compose, live `runProof`, and CLI `--execute-once` refuse before KV / token / JWKS / live PG / this reader execute.
+- Chapter 4I adds a dedicated one-shot Sunset-only execution owner. Staff API startup and ordinary imports remain inert.
 - Eight controlled-drafting / send flags must stay literal `false` on the live app.
 - Caller snapshots cannot mint an independent live-proof brand.
-- Chapter 4H brands evidence only from the owned reader after measured Azure/PG facts.
+- Chapter 4H brands evidence only from the owned reader after measured Azure/PG facts. Chapter 4I must consume that unexported brand through `inspectIndependentLivePreflight` before Key Vault / token / JWKS / custody PG.
 
 ## Threat boundaries
 
@@ -51,6 +53,7 @@ Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (
 - This index: `docs/FULL-SAIL.md`
 - Live prover + 4G wiring: `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-DOWNSCOPE-PROVER.md`
 - Preflight reader: `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-PREFLIGHT-READER.md`
+- Chapter 4I execution owner: `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-SUNSET-STAGING-LIVE-EXECUTION.md`
 - Token loan: `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-TOKEN-LOAN.md`
 - Staging activation: `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-STAGING-ACTIVATION.md`
 - Agent map: `AGENTS.md`
@@ -58,6 +61,7 @@ Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (
 ## Verification commands
 
 ```bash
+npm run verify:email-luna-controlled-drafting-sunset-staging-live-execution
 npm run verify:email-luna-controlled-drafting-live-downscope-prover-live-preflight-reader
 npm run verify:email-luna-controlled-drafting-live-downscope-prover-live-target
 npm run verify:email-luna-controlled-drafting-live-downscope-prover
@@ -67,8 +71,8 @@ npm run verify:staff-query-api-startup-smoke
 npm run verify:migration-integrity
 ```
 
-Do not run live `--execute-once` against Sunset from this chapter.
+Do not run live Chapter 4I `execute-once` against Sunset from this builder.
 
 ## Next gate
 
-A later separately authorized **execution** chapter may flip chapter live-execute authority, call the branded Chapter 4H reader, and run the downscope + staff-send continuity proof **once** against Sunset staging. It must still fail closed on reader absence, brand forgery, flag/replica/count drift, and must not send or flip flags.
+Independent exact-head security / OAuth / live-operations review of the Chapter 4I PR, then merge, then a **separately gated** bounded deployment/execution chapter. That later operation may run the reviewed Chapter 4I script **once** from an authenticated operator runner against the existing disabled Sunset artifact (operator CLI SHA may differ from deploy SHA; see `chapter_4g_operator_cli_may_differ_from_deployed_app_sha`). It must still fail closed on reader absence, brand forgery, flag/replica/count/grant/lease drift, and must not send, flip flags, broaden OAuth consent, or retry an `outcome_unknown` result. Post-proof audit is read-only.

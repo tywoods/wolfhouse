@@ -51,6 +51,9 @@ const {
 const {
   proveCanonicalRuntimeOwnersMatchDeployedContract,
 } = require('./email-luna-controlled-drafting-live-downscope-prover-canonical-owners');
+const {
+  isActiveChapter4ISunsetStagingOneShotAuthority,
+} = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -673,12 +676,24 @@ function brandEvidence(pairs) {
 function invokedFromSourceTestHarness() {
   try {
     const main = require.main && require.main.filename;
-    if (typeof main !== 'string') return false;
-    const base = main.replace(/\\/g, '/').split('/').pop();
-    return /^(verify|prove)-email-luna-controlled-drafting-live-downscope-prover/.test(base);
+    if (typeof main === 'string') {
+      const base = main.replace(/\\/g, '/').split('/').pop();
+      if (/^(verify|prove)-email-luna-controlled-drafting-/.test(base)) return true;
+    }
+    const cached = Object.keys(require.cache || {});
+    for (let i = 0; i < cached.length; i += 1) {
+      const base = cached[i].replace(/\\/g, '/').split('/').pop();
+      if (/^(verify|prove)-email-luna-controlled-drafting-/.test(base)) return true;
+    }
+    return false;
   } catch (_) {
     return true;
   }
+}
+
+function chapterAllowsProductionLiveAdapters() {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER === true) return true;
+  return isActiveChapter4ISunsetStagingOneShotAuthority() === true;
 }
 
 function createOwnedSunsetStagingLivePreflightReader(input) {
@@ -943,7 +958,8 @@ function closedAcrDigestFromManifestResponse(res) {
 }
 
 function createProductionAdapters() {
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true
+      && chapterAllowsProductionLiveAdapters() !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   const armBase = `https://${AZURE_OWNER.armHost}/subscriptions/${AZURE_OWNER.subscriptionId}`
@@ -1060,7 +1076,8 @@ async function withReadOnlyPreflightClient(handle, work) {
 }
 
 async function withProductionLoginClient(kind, work) {
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true
+      && chapterAllowsProductionLiveAdapters() !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   if (typeof work !== 'function' || isProxySurface(work)) throw failure('pg_unproven');
@@ -1084,7 +1101,8 @@ async function withProductionLoginClient(kind, work) {
 
 async function readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg() {
   if (arguments.length !== 0) throw failure('caller_input_refused');
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true
+      && chapterAllowsProductionLiveAdapters() !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   if (invokedFromSourceTestHarness()) throw failure('source_test_cannot_consume_live_azure_pg');
