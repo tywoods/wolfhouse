@@ -2320,7 +2320,8 @@ function adminRefreshOnLocaleChange(){
   } catch (_e) { /* ignore */ }
   var adminRoot = (typeof el === 'function') ? el('tab-admin') : null;
   if (adminRoot && typeof applyStaffPortalI18n === 'function') applyStaffPortalI18n(adminRoot);
-  var fin = (typeof el === 'function') ? el('admin-finance-body') : null;
+  var fin = (typeof financeSummaryHost === 'function') ? financeSummaryHost() : null;
+  if (!fin && typeof el === 'function') fin = el('admin-finance-body');
   if (fin && typeof financeLastSummary !== 'undefined' && financeLastSummary && typeof renderFinanceRedesignHtml === 'function') {
     fin.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
     if (typeof wireFinanceRedesignNav === 'function') wireFinanceRedesignNav(fin);
@@ -2394,10 +2395,33 @@ function financeViewQuery(){
   if (g === 'custom'){
     if (financeViewState.start) q += '&start=' + encodeURIComponent(financeViewState.start);
     if (financeViewState.end) q += '&end=' + encodeURIComponent(financeViewState.end);
+  } else if (g === 'year') {
+    var seed = financeViewSeedAnchor();
+    var bounds = financeYearBoundsFromAnchor(seed);
+    if (financeViewState.anchor) q += '&anchor=' + encodeURIComponent(financeViewState.anchor);
+    else if (seed) q += '&anchor=' + encodeURIComponent(seed);
+    if (bounds) {
+      q += '&start=' + encodeURIComponent(bounds.start);
+      q += '&end=' + encodeURIComponent(bounds.end);
+    }
   } else if (financeViewState.anchor){
     q += '&anchor=' + encodeURIComponent(financeViewState.anchor);
   }
   return q;
+}
+
+function financeViewSeedAnchor(){
+  var anchor = financeViewState && financeViewState.anchor;
+  if (anchor && /^\d{4}-\d{2}-\d{2}$/.test(anchor)) return anchor;
+  return financeTodayIso();
+}
+
+function financeYearBoundsFromAnchor(anchor){
+  var iso = String(anchor || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  var y = Number(iso.slice(0, 4));
+  if (!Number.isFinite(y)) return null;
+  return { start: y + '-01-01', end: y + '-12-31' };
 }
 
 function financeAddDaysIso(iso, days){
@@ -2553,7 +2577,8 @@ function financeEnsureCustomRangePop(){
     if (existing) return existing;
   } catch (_e) { /* ignore */ }
   var body = null;
-  try { body = el('admin-finance-body'); } catch (_e2) { body = null; }
+  try { body = typeof financeSummaryHost === 'function' ? financeSummaryHost() : null; } catch (_eHost) { body = null; }
+  if (!body) try { body = el('admin-finance-body'); } catch (_e2) { body = null; }
   if (!body || typeof document === 'undefined' || !document.createElement) return null;
   var host = body.querySelector ? body.querySelector('.pfb-custom-row--client-host') : null;
   if (!host) {
@@ -2939,113 +2964,119 @@ function wireFinanceCustomRange(){
   financeSyncCustomUi();
 }
 
-function wireFinanceRedesignNav(body){
+function financeRedesignNavClick(ev){
+  var body = financeSummaryHost();
   if (!body) return;
-  wireFinanceCustomRange();
-  if (body.dataset.financeNavWired === '1') return;
-  body.dataset.financeNavWired = '1';
-  body.addEventListener('click', function(ev){
-    var t = ev.target;
-    if (!t || !t.closest) return;
-    var btn = t.closest('[data-finance-nav], [data-finance-gran], [data-finance-trend], [data-pfb-cal]');
-    if (!btn || !body.contains(btn)) return;
+  var t = ev.target;
+  if (!t || !t.closest) return;
+  var btn = t.closest('[data-finance-nav], [data-finance-gran], [data-finance-trend], [data-pfb-cal]');
+  if (!btn || !body.contains(btn)) return;
 
-    var calNav = btn.getAttribute('data-pfb-cal');
-    if (calNav === 'prev' || calNav === 'next') {
-      if (ev && ev.preventDefault) ev.preventDefault();
-      var ym = (financeCustomViewYm || financeTodayIso().slice(0, 7)).split('-');
-      var y = Number(ym[0]); var m = Number(ym[1]);
-      if (calNav === 'prev') { m -= 1; if (m < 1) { m = 12; y -= 1; } }
-      else { m += 1; if (m > 12) { m = 1; y += 1; } }
-      financeCustomViewYm = y + '-' + String(m).padStart(2, '0');
-      if (typeof financeRenderCustomCalendar === 'function') financeRenderCustomCalendar();
-      return;
-    }
-    if (calNav === 'clear') {
-      financeCustomDraft = { start: null, end: null };
-      financeCustomFocusIso = null;
-      if (typeof financeRenderCustomCalendar === 'function') financeRenderCustomCalendar();
-      return;
-    }
-    if (calNav === 'close') {
-      financeCustomClosePopover({ restoreFocus: true, discard: false });
-      return;
-    }
+  var calNav = btn.getAttribute('data-pfb-cal');
+  if (calNav === 'prev' || calNav === 'next') {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    var ym = (financeCustomViewYm || financeTodayIso().slice(0, 7)).split('-');
+    var y = Number(ym[0]); var m = Number(ym[1]);
+    if (calNav === 'prev') { m -= 1; if (m < 1) { m = 12; y -= 1; } }
+    else { m += 1; if (m > 12) { m = 1; y += 1; } }
+    financeCustomViewYm = y + '-' + String(m).padStart(2, '0');
+    if (typeof financeRenderCustomCalendar === 'function') financeRenderCustomCalendar();
+    return;
+  }
+  if (calNav === 'clear') {
+    financeCustomDraft = { start: null, end: null };
+    financeCustomFocusIso = null;
+    if (typeof financeRenderCustomCalendar === 'function') financeRenderCustomCalendar();
+    return;
+  }
+  if (calNav === 'close') {
+    financeCustomClosePopover({ restoreFocus: true, discard: false });
+    return;
+  }
 
-    var trend = btn.getAttribute('data-finance-trend');
-    if (trend === 'days' || trend === 'month' || trend === 'year' || trend === '12m' || trend === 'months') {
-      if (ev && ev.preventDefault) ev.preventDefault();
-      var mode = (trend === 'year' || trend === '12m' || trend === 'months') ? 'year' : 'days';
-      try { window.__financeTrendMode = mode; } catch (_t) { /* ignore */ }
-      // P2: 12-month chart must carry Year-window KPIs (Staff API dues for that year).
-      // Re-rendering a Month summary under a year chart left totals stuck on August.
-      if (mode === 'year') {
-        financeViewState.granularity = 'year';
-        financeViewState.start = null;
-        financeViewState.end = null;
-        financeCustomDraft = { start: null, end: null };
-        financeCustomClosePopover({ restoreFocus: false, discard: false });
-        financeViewState.anchor = financeTodayIso();
-        loadAdminFinanceSummary();
-        return;
-      }
-      if (financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
-      else loadAdminFinanceSummary();
-      return;
-    }
-
-    var gran = btn.getAttribute('data-finance-gran');
-    if (gran){
-      if (gran === 'custom') {
-        if (ev && ev.preventDefault) ev.preventDefault();
-        financeCustomTogglePopover();
-        return;
-      }
-      financeViewState.granularity = gran;
+  var trend = btn.getAttribute('data-finance-trend');
+  if (trend === 'days' || trend === 'month' || trend === 'year' || trend === '12m' || trend === 'months') {
+    if (ev && ev.preventDefault) ev.preventDefault();
+    var mode = (trend === 'year' || trend === '12m' || trend === 'months') ? 'year' : 'days';
+    try { window.__financeTrendMode = mode; } catch (_t) { /* ignore */ }
+    // P2: 12-month chart must carry Year-window KPIs (Staff API dues for that year).
+    // Re-rendering a Month summary under a year chart left totals stuck on August.
+    if (mode === 'year') {
+      financeViewState.granularity = 'year';
       financeViewState.start = null;
       financeViewState.end = null;
       financeCustomDraft = { start: null, end: null };
-      try {
-        if (el('pfb-custom-start')) el('pfb-custom-start').value = '';
-        if (el('pfb-custom-end')) el('pfb-custom-end').value = '';
-      } catch (_h) { /* ignore */ }
       financeCustomClosePopover({ restoreFocus: false, discard: false });
-      financeViewState.anchor = financeTodayIso();
-      if (gran === 'year') {
-        try { window.__financeTrendMode = 'year'; } catch (_yt) { /* ignore */ }
-      } else if (gran === 'day' || gran === 'month') {
-        try { window.__financeTrendMode = 'days'; } catch (_dt) { /* ignore */ }
-      }
+      financeViewState.anchor = financeViewSeedAnchor();
       loadAdminFinanceSummary();
       return;
     }
+    if (financeLastSummary && typeof renderFinanceRedesignHtml === 'function') body.innerHTML = renderFinanceRedesignHtml(financeLastSummary);
+    else loadAdminFinanceSummary();
+    return;
+  }
 
-    var nav = btn.getAttribute('data-finance-nav');
-    if (nav === 'prev' || nav === 'next'){
-      var dir = nav === 'prev' ? -1 : 1;
-      var g = financeViewState.granularity || 'month';
-      if (g === 'custom') {
-        var cStart = financeViewState.start;
-        var cEnd = financeViewState.end || cStart;
-        if (!cStart || !financeDateIsValidIso(cStart)) return;
-        var span = financeInclusiveDayCount(cStart, cEnd);
-        financeViewState.start = financeAddDaysIso(cStart, dir * span);
-        financeViewState.end = financeAddDaysIso(cEnd || cStart, dir * span);
-        financeViewState.anchor = financeViewState.start;
-        loadAdminFinanceSummary();
-        return;
-      }
-      var anchor = financeViewState.anchor || financeTodayIso();
-      financeViewState.anchor = financeShiftAnchor(anchor, g, dir);
-      loadAdminFinanceSummary();
-      return;
-    }
-    if (nav === 'open-custom-range'){
+  var gran = btn.getAttribute('data-finance-gran');
+  if (gran){
+    if (gran === 'custom') {
       if (ev && ev.preventDefault) ev.preventDefault();
       financeCustomTogglePopover();
       return;
     }
-  });
+    financeViewState.granularity = gran;
+    financeViewState.start = null;
+    financeViewState.end = null;
+    financeCustomDraft = { start: null, end: null };
+    try {
+      if (el('pfb-custom-start')) el('pfb-custom-start').value = '';
+      if (el('pfb-custom-end')) el('pfb-custom-end').value = '';
+    } catch (_h) { /* ignore */ }
+    financeCustomClosePopover({ restoreFocus: false, discard: false });
+    if (gran === 'day') financeViewState.anchor = financeTodayIso();
+    else financeViewState.anchor = financeViewSeedAnchor();
+    if (gran === 'year') {
+      try { window.__financeTrendMode = 'year'; } catch (_yt) { /* ignore */ }
+    } else if (gran === 'day' || gran === 'month') {
+      try { window.__financeTrendMode = 'days'; } catch (_dt) { /* ignore */ }
+    }
+    loadAdminFinanceSummary();
+    return;
+  }
+
+  var nav = btn.getAttribute('data-finance-nav');
+  if (nav === 'prev' || nav === 'next'){
+    var dir = nav === 'prev' ? -1 : 1;
+    var g = financeViewState.granularity || 'month';
+    if (g === 'custom') {
+      var cStart = financeViewState.start;
+      var cEnd = financeViewState.end || cStart;
+      if (!cStart || !financeDateIsValidIso(cStart)) return;
+      var span = financeInclusiveDayCount(cStart, cEnd);
+      financeViewState.start = financeAddDaysIso(cStart, dir * span);
+      financeViewState.end = financeAddDaysIso(cEnd || cStart, dir * span);
+      financeViewState.anchor = financeViewState.start;
+      loadAdminFinanceSummary();
+      return;
+    }
+    var anchor = financeViewState.anchor || financeTodayIso();
+    financeViewState.anchor = financeShiftAnchor(anchor, g, dir);
+    loadAdminFinanceSummary();
+    return;
+  }
+  if (nav === 'open-custom-range'){
+    if (ev && ev.preventDefault) ev.preventDefault();
+    financeCustomTogglePopover();
+    return;
+  }
+}
+
+function wireFinanceRedesignNav(body){
+  if (!body) return;
+  wireFinanceCustomRange();
+  if (typeof document !== 'undefined' && document.body && document.body.dataset.financeNavGlobalWired !== '1') {
+    document.body.dataset.financeNavGlobalWired = '1';
+    document.body.addEventListener('click', financeRedesignNavClick);
+  }
 }
 
 
@@ -3079,7 +3110,7 @@ function loadAdminFinanceSummary(opts){
   });
   function clearFinanceTimeout(){ if (timeoutId != null){ clearTimeout(timeoutId); timeoutId = null; } }
   try {
-    var request = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    var request = fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
       .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); });
     Promise.race([request, timeout])
       .then(function(data){
