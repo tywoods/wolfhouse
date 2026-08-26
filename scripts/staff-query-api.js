@@ -16208,6 +16208,8 @@ ${getStaffPortalThemeEarlyScript()}
    Sand light must not apply in dark (:not([data-theme=dark])).
    Missing wh_staff_color_profile → salt. Moon toggle is Light/Dark.
    Do not set #banner { background } shorthand in dark — it flattens Sunset/Moonlight art.
+   Bed calendar: --room-bar is warm stone/charcoal (not --sage). Booking pills use
+   --booking-confirmed-* paper fills — not olive/sage green.
    ─────────────────────────────────────────────────────────────────────── */
 :root{
   --font-sans:'Instrument Sans',system-ui,sans-serif;
@@ -16217,7 +16219,7 @@ ${getStaffPortalThemeEarlyScript()}
   --surface-soft:#EBE4D8;
   --sand:#E4D8C8;
   --tan:#D2C2A8;
-  --sage:#7A8458;         /* room bars — warm olive sage */
+  --sage:#7A8458;         /* accent only — NOT bed-calendar room bars */
   --olive:#6A7348;
   --dusty-blue:#8A8E86;   /* stone, not sky blue */
   --ocean:#6E7A70;        /* muted olive-grey, not blue */
@@ -16256,11 +16258,16 @@ ${getStaffPortalThemeEarlyScript()}
   --chip-refund-bg:#F3DDE8;
   --chip-refund-fg:#7A3A52;
   --chip-refund-border:#D4A8BC;
-  --booking-confirmed-bg:#E0E6D0;
+  /* Bed calendar: stone room bars + paper booking pills (not olive/sage fills) */
+  --room-bar:#4A4540;
+  --room-bar-fg:#FFFBF4;
+  --booking-confirmed-bg:#FFFBF4;
   --booking-confirmed-fg:#1C1914;
+  --booking-confirmed-border:#E2D6C6;
+  --booking-confirmed-rail:#4A4540;
   --booking-pending-bg:#E8E4DC;
   --booking-pending-fg:#5A5348;
-  --inbox-active-bg:#DCE4C8;
+  --inbox-active-bg:#EBE4D8;
   --finance-pos:#3D5C4A;
   --finance-neg:#B4534A;
   --finance-amber:#A06A20;
@@ -16319,8 +16326,12 @@ ${getStaffPortalThemeEarlyScript()}
   --chip-refund-bg:#3a2838;
   --chip-refund-fg:#f0b0c0;
   --chip-refund-border:#7a5068;
-  --booking-confirmed-bg:#2a3a32;
-  --booking-confirmed-fg:#b8d8c8;
+  --room-bar:#3c3c3c;
+  --room-bar-fg:#eeeeee;
+  --booking-confirmed-bg:#2d2d2d;
+  --booking-confirmed-fg:#cccccc;
+  --booking-confirmed-border:#3c3c3c;
+  --booking-confirmed-rail:#6e6e6e;
   --booking-pending-bg:#1a2836;
   --booking-pending-fg:#b8d4e8;
   --inbox-active-bg:#173322;
@@ -16374,11 +16385,15 @@ ${getStaffPortalThemeEarlyScript()}
   --chip-refund-bg:#F3DDE8;
   --chip-refund-fg:#7A3A52;
   --chip-refund-border:#D4A8BC;
-  --booking-confirmed-bg:#CEDFBF;
-  --booking-confirmed-fg:#45673A;
-  --booking-pending-bg:#D5E5EF;
-  --booking-pending-fg:#3F6070;
-  --inbox-active-bg:#c5d6ce;
+  --room-bar:#4E5853;
+  --room-bar-fg:#F5F1EA;
+  --booking-confirmed-bg:#F5F1EA;
+  --booking-confirmed-fg:#4E5853;
+  --booking-confirmed-border:#DDD5C9;
+  --booking-confirmed-rail:#4E5853;
+  --booking-pending-bg:#E8EEF2;
+  --booking-pending-fg:#4A6270;
+  --inbox-active-bg:#E8E2D8;
   --finance-pos:#2f7a4a;
   --finance-neg:#c0534a;
   --finance-amber:#b7791f;
@@ -19257,7 +19272,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-grid-resize-handle::after{content:'';width:40px;height:3px;border-radius:2px;background:#B8A99A;opacity:.85}
 .bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:#8A7A6C}
 .conv-list-handoff-pill{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC}
-.bc-room-hdr{background:var(--sage);color:#fff;font-weight:700;font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));letter-spacing:.02em}
+.bc-room-hdr{background:var(--room-bar,#4A4540);color:var(--room-bar-fg,#fff);font-weight:700;font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));letter-spacing:.02em}
 .bc-room-hdr-inner{display:inline;align-items:baseline}
 .bc-room-hide-btn{font-size:10px;font-weight:400;letter-spacing:.02em;background:none;border:none;color:rgba(255,255,255,.92);padding:0;margin-left:6px;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:rgba(255,255,255,.55)}
 .bc-room-hide-btn:hover{color:#fff;text-decoration-color:#fff}
@@ -19287,7 +19302,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .transfer-pebble-drawer{font-size:11px;padding:2px 8px;border-radius:999px}
 .bc-block:hover{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
 .bc-block.bc-block-active,.bc-block-checkout-marker.bc-block-active{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
-.bc-block-confirmed{background:var(--booking-confirmed-bg);color:var(--booking-confirmed-fg);border-left:3px solid var(--sage)}
+.bc-block-confirmed{background:var(--booking-confirmed-bg,var(--surface));color:var(--booking-confirmed-fg,var(--text));border:1px solid var(--booking-confirmed-border,var(--border));border-left:3px solid var(--booking-confirmed-rail,var(--room-bar,#4A4540))}
 .bc-block-hold{background:#F2E7D3;color:#8A6F4F;border-left:3px solid #DCC8B7}
 .bc-block-payment_pending{background:var(--booking-pending-bg);color:var(--booking-pending-fg);border-left:3px solid var(--dusty-blue)}
 .bc-block-needs_review{background:#F3DCC1;color:#9B6320;border-left:3px solid #D9A057}
@@ -19295,7 +19310,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-conflict{background:#EFD9D0;color:#9C5742;border-left:3px solid #C98B76}
 .bc-block-operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
-.bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD}
+.bc-block-manual{background:var(--sand,#E4D8C8);color:var(--text);border:1px solid var(--border);border-left:3px solid var(--room-bar,#4A4540)}
 .bc-block-blocked{background:#E4E2DE;color:#5E5C58;border-left:3px solid #B0AEA8}
 .bc-block-owner_schedule_blocked{background:#F6E56B;color:#4E5853;border-left:3px solid #C4A017}
 .bc-day-cell-turnover{position:relative;height:calc(36px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(4px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
@@ -19303,11 +19318,11 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(calc(52px * var(--bc-zoom, 1)),34%)}
 .bc-day-cell-turnover .bc-block-checkin-layer{position:relative;z-index:2;height:calc(28px * var(--bc-zoom, 1));width:100%;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
 .bc-block-checkout-marker{position:absolute;left:calc(3px * var(--bc-zoom, 1));right:calc(3px * var(--bc-zoom, 1));top:calc(2px * var(--bc-zoom, 1));bottom:calc(2px * var(--bc-zoom, 1));z-index:1;border-radius:calc(7px * var(--bc-zoom, 1));opacity:.42;cursor:pointer;border-left:3px solid rgba(68,80,74,.45);background:linear-gradient(90deg,rgba(68,80,74,.12) 0%,rgba(68,80,74,.04) 38%,transparent 72%)}
-.bc-block-checkout-marker.bc-block-confirmed{background:linear-gradient(90deg,rgba(134,168,124,.28) 0%,rgba(134,168,124,.08) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-confirmed{background:linear-gradient(90deg,rgba(74,69,64,.22) 0%,rgba(74,69,64,.06) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-hold{background:linear-gradient(90deg,rgba(217,200,183,.35) 0%,rgba(217,200,183,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-payment_pending{background:linear-gradient(90deg,rgba(122,170,187,.28) 0%,rgba(122,170,187,.08) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-needs_review{background:linear-gradient(90deg,rgba(217,160,87,.28) 0%,rgba(217,160,87,.08) 40%,transparent 75%)}
-.bc-block-checkout-marker.bc-block-manual{background:linear-gradient(90deg,rgba(181,211,173,.32) 0%,rgba(181,211,173,.10) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-manual{background:linear-gradient(90deg,rgba(74,69,64,.18) 0%,rgba(74,69,64,.05) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-tour_operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-blocked{background:linear-gradient(90deg,rgba(176,174,168,.30) 0%,rgba(176,174,168,.09) 40%,transparent 75%)}
@@ -19342,14 +19357,14 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend{display:inline-flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:4px 8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%;height:32px;min-height:32px;box-sizing:border-box}
 .bc-legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .bc-legend-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;border-left:2px solid transparent;flex-shrink:0}
-.bc-legend-sw-confirmed{background:#CEDFBF;border-left-color:#87A87C}
+.bc-legend-sw-confirmed{background:var(--booking-confirmed-bg,var(--surface));border-left-color:var(--booking-confirmed-rail,var(--room-bar,#4A4540))}
 .bc-legend-sw-hold{background:#F2E7D3;border-left-color:#DCC8B7}
 .bc-legend-sw-payment{background:#D5E5EF;border-left-color:#7AAABB}
 .bc-legend-sw-review{background:#F3DCC1;border-left-color:#D9A057}
 .bc-legend-sw-operator{background:#E8DDF5;border-left-color:#B39BCB}
 .bc-legend-sw-tour_operator{background:#E8DDF5;border-left-color:#B39BCB}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
-.bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
+.bc-legend-sw-manual{background:var(--sand,#E4D8C8);border-left-color:var(--room-bar,#4A4540)}
 .bc-legend-sw-blocked{background:#E4E2DE;border-left-color:#B0AEA8}
 .bc-legend-sw-owner_schedule_blocked{background:#F6E56B;border-left-color:#C4A017}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
@@ -19879,7 +19894,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-grid-resize-handle::after{background:#6e6e6e}
 [data-theme="dark"] .bc-grid thead th{background:#2d2d2d;color:var(--text-2)}
 [data-theme="dark"] .bc-grid thead th.bc-bed-head{background:linear-gradient(180deg,#3c3c3c 0%,#2d2d2d 100%);border-right-color:var(--staff-green-border)}
-[data-theme="dark"] .bc-room-hdr{background:linear-gradient(90deg,var(--surface-soft) 0%,var(--sage) 100%)}
+[data-theme="dark"] .bc-room-hdr{background:var(--room-bar,var(--sand));color:var(--room-bar-fg,var(--text))}
 [data-theme="dark"] .bc-bed-cell{background:#2d2d2d;border-right-color:var(--staff-green-border)}
 [data-theme="dark"] .bc-day-cell:not(:has(.bc-block)){background:rgba(24,24,24,.55)}
 [data-theme="dark"] .bc-day-cell[data-date]:hover{background:rgba(74,124,89,.14)}
@@ -19890,23 +19905,23 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-chip.bc-chip-active{background:var(--primary);border-color:var(--primary);color:#fff}
 [data-theme="dark"] .bc-legend,[data-theme="dark"] .bc-zoom-bar{background:#2d2d2d;border-color:var(--border-soft)}
 [data-theme="dark"] .bc-zoom-btn{background:var(--surface);border-color:var(--border);color:var(--text)}
-[data-theme="dark"] .bc-block-confirmed{background:var(--booking-confirmed-bg);color:var(--booking-confirmed-fg);border-left-color:var(--sage)}
+[data-theme="dark"] .bc-block-confirmed{background:var(--booking-confirmed-bg);color:var(--booking-confirmed-fg);border-color:var(--booking-confirmed-border,var(--border));border-left-color:var(--booking-confirmed-rail,var(--room-bar))}
 [data-theme="dark"] .bc-block-hold{background:#3a3428;color:#e8dcc8;border-left-color:#8a7355}
 [data-theme="dark"] .bc-block-payment_pending{background:var(--booking-pending-bg);color:var(--booking-pending-fg);border-left-color:var(--dusty-blue)}
 [data-theme="dark"] .bc-block-needs_review{background:#3a3420;color:#f0d4a8;border-left-color:#c49a4a}
 [data-theme="dark"] .bc-block-cancelled{background:#2a2a2a;color:#9a9a9a;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-block-conflict{background:#3a2828;color:#f0c0bc;border-left-color:#b86a58}
 [data-theme="dark"] .bc-block-operator,[data-theme="dark"] .bc-block-tour_operator{background:#2a2436;color:#d8c8e8;border-left-color:#7a68a0}
-[data-theme="dark"] .bc-block-manual{background:#1e2a28;color:#b8c8bc;border-left-color:var(--dusty-blue)}
+[data-theme="dark"] .bc-block-manual{background:var(--surface-soft);color:var(--text);border-color:var(--border);border-left-color:var(--room-bar)}
 [data-theme="dark"] .bc-block-blocked{background:#2c2c2c;color:#b0b0b0;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-block-owner_schedule_blocked{background:#C9B22A;color:#1e1e1e;border-left-color:#E8D34A}
-[data-theme="dark"] .bc-legend-sw-confirmed{background:var(--booking-confirmed-bg);border-left-color:var(--sage)}
+[data-theme="dark"] .bc-legend-sw-confirmed{background:var(--booking-confirmed-bg);border-left-color:var(--booking-confirmed-rail,var(--room-bar))}
 [data-theme="dark"] .bc-legend-sw-hold{background:#3a3428;border-left-color:#8a7355}
 [data-theme="dark"] .bc-legend-sw-payment{background:var(--booking-pending-bg);border-left-color:var(--dusty-blue)}
 [data-theme="dark"] .bc-legend-sw-review{background:#3a3420;border-left-color:#c49a4a}
 [data-theme="dark"] .bc-legend-sw-operator,[data-theme="dark"] .bc-legend-sw-tour_operator{background:#2a2436;border-left-color:#7a68a0}
 [data-theme="dark"] .bc-legend-sw-cancelled{background:#2a2a2a;border-left-color:#6e6e6e}
-[data-theme="dark"] .bc-legend-sw-manual{background:#1e2a28;border-left-color:var(--dusty-blue)}
+[data-theme="dark"] .bc-legend-sw-manual{background:var(--surface-soft);border-left-color:var(--room-bar)}
 [data-theme="dark"] .bc-legend-sw-blocked{background:#2c2c2c;border-left-color:#6e6e6e}
 [data-theme="dark"] .bc-legend-sw-owner_schedule_blocked{background:#C9B22A;border-left-color:#E8D34A}
 [data-theme="dark"] .bc-legend-sw-balance{background:#3a3420;border-left-color:#c49a4a}

@@ -213,7 +213,13 @@ assert.ok(apiSrc.includes('luna-header-mode-pencil'), 'pencil affordance present
 assert.ok(!/<section[^>]*id="luna-header-mode-card"/.test(apiSrc), 'no standalone Header style section');
 assert.ok(adminUi.includes('function wireLunaStaffHeaderModeCard'), 'header mode wire stays');
 assert.ok(apiSrc.includes('--chip-transfer-bg'), 'transfer chip token');
-assert.ok(/\.bc-room-hdr\{background:var\(--sage\)/.test(apiSrc), 'room bars use --sage');
+assert.ok(/\.bc-room-hdr\{background:var\(--room-bar/.test(apiSrc), 'room bars use --room-bar not sage');
+assert.ok(!/\.bc-room-hdr\{background:var\(--sage\)/.test(apiSrc), 'room bars must not use --sage fill');
+assert.ok(/--room-bar:#4A4540/.test(apiSrc), 'Salt room-bar is warm stone');
+assert.ok(/--booking-confirmed-bg:#FFFBF4/.test(apiSrc), 'Salt confirmed pill is paper not green');
+assert.ok(!/--booking-confirmed-bg:#E0E6D0/.test(apiSrc), 'no pale olive confirmed fill');
+assert.ok(!/--booking-confirmed-bg:#CEDFBF/.test(apiSrc), 'Sand confirmed not pale green');
+assert.ok(/\.bc-block-confirmed\{[^}]*booking-confirmed-bg/.test(apiSrc), 'confirmed block uses booking-confirmed tokens');
 assert.ok(!/function sendWhatsApp|handleInbound/.test(i18nSrc), 'i18n bootstrap stayed CSS/layout');
 
 const styleStart = apiSrc.indexOf('/* ── Palette (soft boutique-hospitality)');
@@ -401,7 +407,11 @@ ${early}
 ${style}
 body{margin:0;background:var(--cream);color:var(--text)}
 #probe{background:var(--surface);color:var(--text);border:1px solid var(--border)}
-.bc-room-hdr{background:var(--sage);color:#fff;padding:8px}
+.bc-room-hdr{background:var(--room-bar,#4A4540);color:var(--room-bar-fg,#fff);padding:8px}
+.bc-block-confirmed{background:var(--booking-confirmed-bg);color:var(--booking-confirmed-fg);border:1px solid var(--booking-confirmed-border);border-left:3px solid var(--booking-confirmed-rail);padding:8px;display:inline-block}
+.pill-purple{background:var(--chip-transfer-bg);color:var(--chip-transfer-fg);border:1px solid var(--chip-transfer-border);padding:2px 6px}
+.bc-block-pay-balance{background:var(--chip-balance-bg);color:var(--chip-balance-fg);border:1px solid var(--chip-balance-border);padding:2px 6px}
+.bc-block-pay-link{background:var(--chip-link-bg);color:var(--chip-link-fg);border:1px solid var(--chip-link-border);padding:2px 6px}
 </style>
 ${boot}
 </head>
@@ -432,6 +442,7 @@ ${boot}
   </div>
 </section>
 <div class="bc-room-hdr" id="probe-room">Room 1</div>
+<div class="bc-block-confirmed" id="probe-booking">Ty <span class="pill-purple">Transfer</span><span class="bc-block-pay-balance">Balance due</span><span class="bc-block-pay-link">Link sent</span></div>
 <div id="probe">probe</div>
 </body>
 </html>`;
@@ -494,31 +505,51 @@ ${boot}
   const saltProbe = await page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const room = getComputedStyle(document.getElementById('probe-room'));
+    const booking = getComputedStyle(document.getElementById('probe-booking'));
     return {
       cream: cs.getPropertyValue('--cream').trim().toUpperCase(),
       surface: cs.getPropertyValue('--surface').trim().toUpperCase(),
       primary: cs.getPropertyValue('--primary').trim().toUpperCase(),
       sage: cs.getPropertyValue('--sage').trim().toUpperCase(),
+      roomBar: cs.getPropertyValue('--room-bar').trim().toUpperCase(),
+      confirmedBg: cs.getPropertyValue('--booking-confirmed-bg').trim().toUpperCase(),
       roomBg: room.backgroundColor,
+      bookingBg: booking.backgroundColor,
     };
   });
   await page.click('[data-color-profile="sand"]');
   const sandProbe = await page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const room = getComputedStyle(document.getElementById('probe-room'));
+    const booking = getComputedStyle(document.getElementById('probe-booking'));
     return {
       cream: cs.getPropertyValue('--cream').trim().toUpperCase(),
       surface: cs.getPropertyValue('--surface').trim().toUpperCase(),
       primary: cs.getPropertyValue('--primary').trim().toUpperCase(),
       sage: cs.getPropertyValue('--sage').trim().toUpperCase(),
+      roomBar: cs.getPropertyValue('--room-bar').trim().toUpperCase(),
+      confirmedBg: cs.getPropertyValue('--booking-confirmed-bg').trim().toUpperCase(),
       roomBg: room.backgroundColor,
+      bookingBg: booking.backgroundColor,
     };
   });
   assert.notStrictEqual(saltProbe.cream, sandProbe.cream, 'Salt cream ≠ Sand cream');
   assert.notStrictEqual(saltProbe.surface, sandProbe.surface, 'Salt surface ≠ Sand surface');
   assert.notStrictEqual(saltProbe.primary, sandProbe.primary, 'Salt primary ≠ Sand primary');
-  assert.notStrictEqual(saltProbe.sage, sandProbe.sage, 'Salt sage (room bars) ≠ Sand sage');
+  assert.strictEqual(saltProbe.roomBar, '#4A4540', 'Salt room-bar is warm stone');
+  assert.strictEqual(sandProbe.roomBar, '#4E5853', 'Sand room-bar is charcoal not sage');
+  assert.notStrictEqual(saltProbe.roomBar, saltProbe.sage, 'room-bar split from sage');
+  assert.notStrictEqual(sandProbe.roomBar, sandProbe.sage, 'Sand room-bar is not sage green');
   assert.notStrictEqual(saltProbe.roomBg, sandProbe.roomBg, 'room header color changes with palette');
+  assert.strictEqual(saltProbe.roomBg, 'rgb(74, 69, 64)', 'Salt room hdr fill is warm stone #4A4540');
+  assert.strictEqual(sandProbe.roomBg, 'rgb(78, 88, 83)', 'Sand room hdr fill is charcoal #4E5853');
+  assert.ok(!/rgb\(122,\s*132,\s*88\)|rgb\(184,\s*203,\s*176\)/i.test(saltProbe.roomBg + sandProbe.roomBg), 'room bars not sage green');
+  assert.strictEqual(saltProbe.confirmedBg, '#FFFBF4', 'Salt confirmed pill is paper');
+  assert.strictEqual(sandProbe.confirmedBg, '#F5F1EA', 'Sand confirmed pill is surface not green');
+  assert.strictEqual(saltProbe.bookingBg, 'rgb(255, 251, 244)', 'Salt confirmed pill fill is paper');
+  assert.strictEqual(sandProbe.bookingBg, 'rgb(245, 241, 234)', 'Sand confirmed pill fill is surface');
+  assert.ok(!/E0E6D0|CEDFBF|DCEAD2/i.test(saltProbe.confirmedBg + sandProbe.confirmedBg), 'no pale olive booking fill');
+  assert.ok(!/rgb\(224,\s*230,\s*208\)|rgb\(206,\s*223,\s*191\)|rgb\(220,\s*234,\s*210\)/i.test(saltProbe.bookingBg + sandProbe.bookingBg), 'booking pill fills not pale olive');
   assert.strictEqual(saltProbe.cream, '#F3EEE6');
   assert.strictEqual(sandProbe.cream, '#EDE8E0');
   assert.strictEqual(saltProbe.primary, '#3D5C4A');
