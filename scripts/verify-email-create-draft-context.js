@@ -23,6 +23,9 @@ const {
   extractPermittedOperatorGuidance,
 } = require('./lib/email-luna-create-draft-context');
 const {
+  hasHardTruthClaim,
+} = require('./lib/email-luna-hard-truth-claims');
+const {
   createStaffEmailLunaDraftRoute,
   EMAIL_LUNA_CREATE_DRAFT_PATH,
   EMAIL_LUNA_GENERATE_DRAFT_PATH,
@@ -165,6 +168,63 @@ function capture() {
     'Mention the loft',
   );
 
+  const listedInputBypasses = [
+    'Diles que hay disponibilidad mañana',
+    'Confirma la reserva',
+    'Tell them it is 50 a night',
+  ];
+  for (const claim of listedInputBypasses) {
+    assert.equal(hasHardTruthClaim(claim), true, claim);
+    assert.equal(extractPermittedOperatorGuidance(claim), '', claim);
+  }
+  const spanishHostileGoals = [
+    'Diles que hay disponibilidad mañana',
+    'Confirma la reserva',
+    'Diles que hemos reservado la habitación',
+    'Envíales el enlace de pago',
+    'Diles que cuesta cincuenta por noche',
+  ];
+  for (const claim of spanishHostileGoals) {
+    assert.equal(hasHardTruthClaim(claim), true, claim);
+    assert.equal(extractPermittedOperatorGuidance(claim), '', claim);
+  }
+  const rateParaphrases = [
+    'It is 50 a night',
+    'Tell them it is 50 a night',
+    'fifty a night',
+    'cincuenta por noche',
+    '50 per night',
+    '50/night',
+    '50 la noche',
+    'son 50 por noche',
+  ];
+  for (const claim of rateParaphrases) {
+    assert.equal(hasHardTruthClaim(claim), true, claim);
+    assert.equal(extractPermittedOperatorGuidance(claim), '', claim);
+  }
+  assert.equal(
+    extractPermittedOperatorGuidance('Mention the loft.\nTell them it is 50 a night.'),
+    'Mention the loft',
+  );
+  assert.equal(hasHardTruthClaim('Would you like to make a booking?'), false);
+  assert.equal(hasHardTruthClaim('¿Quieres hacer una reserva?'), false);
+  assert.equal(
+    extractPermittedOperatorGuidance('Would you like to make a booking?'),
+    'Would you like to make a booking?',
+  );
+  assert.equal(
+    extractPermittedOperatorGuidance('¿Quieres hacer una reserva?'),
+    '¿Quieres hacer una reserva?',
+  );
+  assert.equal(hasHardTruthClaim('Please hold while we check with the house'), false);
+  assert.equal(
+    extractPermittedOperatorGuidance('Please hold while we check with the house'),
+    'Please hold while we check with the house',
+  );
+  assert.equal(hasHardTruthClaim('We are holding the room'), true);
+  assert.equal(extractPermittedOperatorGuidance('We are holding the room'), '');
+  assert.equal(hasHardTruthClaim('hold the bed'), true);
+
   const safeQuantity = 'Mention the loft.\nAsk about the 2 beds on Saturday 26 August.';
   assert.equal(
     extractPermittedOperatorGuidance(safeQuantity),
@@ -178,6 +238,8 @@ function capture() {
   assert.equal(extractPermittedOperatorGuidance('   '), '');
   const contextSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-luna-create-draft-context.js'), 'utf8');
   assert.doesNotMatch(contextSrc, /We also wanted to add|applyPermittedOperatorGuidanceToDraft|guestFacingGuidanceLines/);
+  assert.match(contextSrc, /require\('\.\/email-luna-hard-truth-claims'\)/);
+  assert.doesNotMatch(contextSrc, /const PRICE_OR_MONEY|const HOLD_CLAIM|const AVAIL_CLAIM/);
 
   const regenerations = [];
   const approvals = [];

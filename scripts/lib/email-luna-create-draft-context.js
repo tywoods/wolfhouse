@@ -9,6 +9,7 @@
 
 const crypto = require('node:crypto');
 const util = require('node:util');
+const { hasHardTruthClaim } = require('./email-luna-hard-truth-claims');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -100,24 +101,8 @@ function operatorDraftContextDigest(context) {
   return crypto.createHash('sha256').update(context, 'utf8').digest('hex');
 }
 
-// Reject symbols/codes, adjoining amount+ISO, decimal amounts, price/cost
-// claims, and common EN/ES currency word forms plus slang. Do not treat
-// plain quantities/dates as money.
-const PRICE_OR_MONEY = /€|\$|£|\b(?:eur|usd|gbp)\b|\d(?:eur|usd|gbp)\b|\b(?:eur|usd|gbp)\d|\b\d+[.,]\d{2}\b|\b(?:prices?|precios?|cost[eo]?s?|cuesta)\b|\b(?:euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?|bucks?|quid)\b|\d(?:euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?|bucks?|quid)\b/i;
-const URLISH = /https?:\/\/|\bwww\.|\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\.[a-z]{2,}\b/i;
-const PAYMENT_CLAIM = /\bpay\s+now\b|\bpayment\s+(?:link|url)\b|\bstripe\b|\bdeposit\b/i;
-const HOLD_CLAIM = /\bholds?\b|\bholding\b/i;
-const AVAIL_CLAIM = /\bavailab(?:le|ility)\b/i;
-const BOOKING_AUTHORITY_CLAIM = /\bbooking\s+(?:is|code|confirmed|created|id)\b|\bcreate(?:d)?\s+the\s+booking\b|\bwe(?:['’]ve| have)\s+booked\b|\bi\s+booked\b/i;
-
 function sentenceHasAuthorityClaim(text) {
-  return PRICE_OR_MONEY.test(text)
-    || URLISH.test(text)
-    || PAYMENT_CLAIM.test(text)
-    || HOLD_CLAIM.test(text)
-    || AVAIL_CLAIM.test(text)
-    || BOOKING_AUTHORITY_CLAIM.test(text)
-    || INJECTION.test(text);
+  return hasHardTruthClaim(text) || INJECTION.test(text);
 }
 
 function extractPermittedOperatorGuidance(context) {

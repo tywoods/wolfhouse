@@ -31,7 +31,7 @@ Staff Inbox thread UI:
 - Existing generate-on-open may remain.
 - Auto-send stays off.
 
-Operator context is bounded plain guidance. Server-side validation length-limits and normalizes it. Context is never authority for prices, availability, payment URLs, or bookings. Conversation/event/endpoint authority binding and stale-selection protections stay in force. Regeneration uses the existing draft producer and replaces/updates the standing draft in the established durable/UI flow without creating an approval or outbound journal.
+Operator context is bounded plain guidance. Server-side validation length-limits and normalizes it. Context is never authority for prices, availability, payment URLs, or bookings. Canonical EN/ES hard-truth detection drops invented price, availability, booking confirmation/creation, payment-link, and inventory-hold claims from private staff goals and rejects them in model output. Asking whether the guest wants to make a booking remains allowed. Conversation/event/endpoint authority binding and stale-selection protections stay in force. Regeneration uses the existing draft producer and replaces/updates the standing draft in the established durable/UI flow without creating an approval or outbound journal.
 
 ## 008 booking-from-email — product rule only (LATER)
 

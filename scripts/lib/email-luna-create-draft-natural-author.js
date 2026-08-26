@@ -10,6 +10,7 @@
 
 const util = require('node:util');
 const { callLunaAiJsonChat } = require('./luna-ai-provider');
+const { hasHardTruthClaim } = require('./email-luna-hard-truth-claims');
 const {
   extractPermittedOperatorGuidance,
 } = require('./email-luna-create-draft-context');
@@ -31,12 +32,6 @@ const GENERIC_REVIEW = /we['’]ll review it and get back to you shortly|lo revi
 const WRAPPER = /we also wanted to add|tambi[eé]n quer[ií]amos a[nñ]adir/i;
 const STAFF_VOICE = /staff notes|staff instruction|operator context|\bthank them\b|\bask them\b|\btell them\b/i;
 const INJECTION_ECHO = /(?:\bsystem\s*:|\[\s*system\s*\]|immutable system policy|ignore\s+(?:all\s+)?previous\s+instructions?|\bdeveloper\s+(?:message|instruction)|override\s+policy|send_allowed|draft_ready|low_confidence|location_id\s*=|required_facts)/i;
-const PRICE_OR_MONEY = /€|\$|£|\b(?:eur|usd|gbp)\b|\d(?:eur|usd|gbp)\b|\b(?:eur|usd|gbp)\d|\b\d+[.,]\d{2}\b|\b(?:prices?|precios?|cost[eo]?s?|cuesta)\b|\b(?:euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?|bucks?|quid)\b/i;
-const URLISH = /https?:\/\/|\bwww\.|\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\.[a-z]{2,}\b/i;
-const PAYMENT_CLAIM = /\bpay\s+now\b|\bpayment\s+(?:link|url)\b|\bstripe\b|\bdeposit\b/i;
-const HOLD_CLAIM = /\bholds?\b|\bholding\b/i;
-const AVAIL_CLAIM = /\bavailab(?:le|ility)\b/i;
-const BOOKING_AUTHORITY_CLAIM = /\bbooking\s+(?:is|code|confirmed|created|id)\b|\bcreate(?:d)?\s+the\s+booking\b|\bwe(?:['’]ve| have)\s+booked\b|\bi\s+booked\b/i;
 const ES_MARKERS = /\b(hola|gracias|buenos|buenas|reserva|precio|disponibilidad|necesito|por favor|alquiler|pago|tabla|ustedes|nosotros|días|noches|mensaje|quieres|camas)\b/gi;
 const EN_MARKERS = /\b(hello|hi|thanks|please|booking|price|available|need|message|boards?|lesson|would)\b/gi;
 const LUNA_DRAFTING_GOALS = freeze([
@@ -93,15 +88,6 @@ function isNearVerbatim(draft, goals) {
     }
   }
   return false;
-}
-
-function hasAuthorityClaim(text) {
-  return PRICE_OR_MONEY.test(text)
-    || URLISH.test(text)
-    || PAYMENT_CLAIM.test(text)
-    || HOLD_CLAIM.test(text)
-    || AVAIL_CLAIM.test(text)
-    || BOOKING_AUTHORITY_CLAIM.test(text);
 }
 
 function detectLanguage(subject, body) {
@@ -189,7 +175,7 @@ function validateDraftBody(body, goals, language) {
     return 'unsupported_claim';
   }
   if (INJECTION_ECHO.test(text)) return 'injection_echo_detected';
-  if (hasAuthorityClaim(text)) return 'unsupported_claim';
+  if (hasHardTruthClaim(text)) return 'unsupported_claim';
   if (isNearVerbatim(text, goals) || text.includes(goals)) return 'unsupported_claim';
   if (languageMismatch(text, language)) return 'unsupported_claim';
   return null;
