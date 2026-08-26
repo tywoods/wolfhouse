@@ -12,11 +12,11 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 | --- | --- | --- | --- |
 | **001** | Create Draft + context | Yes | Source slice: explicit staff click regenerates the standing draft from the authoritative thread plus private staff goals. The model may return only a closed enumerated drafting plan; a deterministic Luna renderer writes the guest-facing EN/ES copy. No paste wrapper, no send, no approval, no outbound journal. |
 | **002** | Ty live proof | No | Later. Controlled Sunset mailbox proof of 001 on staging. Not this PR. |
-| **003** | auto create-and-send | Yes (this PR) | Microsoft-only automatic create-and-send. Default remains OFF. Both `LUNA_AUTO_SEND_ENABLED=true` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true` are required for provider auto-send. Reuses Create Draft author + staff Approve & send owners. |
+| **003** | auto create-and-send | No | Microsoft-only automatic create-and-send. Default remains OFF. Both `LUNA_AUTO_SEND_ENABLED=true` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true` are required for provider auto-send. Reuses Create Draft author + staff Approve & send owners. Dormant. |
 | **004** | auto proof | No | Later. Proof of automatic create-and-send. Auto-send stays off until an explicit later slice. |
 | **005** | generic IMAP inbound | No | Later. Generic IMAP inbound connector. Not this PR. |
 | **006** | generic SMTP send | No | Later. Generic SMTP send. Every future send remains journaled. Not this PR. |
-| **007** | Email Luna Hermes managed by Skipper | No | Later. Hermes email Luna managed by Skipper. Not this PR. |
+| **007** | Email Luna Hermes managed by Skipper | Yes (this PR) | Dedicated Skipper-managed `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`) draft-only runtime. Durable config pins `openai-codex` / `gpt-5.6-sol`. Staff Create Draft and generate-on-open use it on Sunset staging when dedicated gates are set. Not an env flip of `LUNA_AI_MODEL`. Auto remains OFF. |
 | **008** | booking-from-email | No — **LATER** | Product rule only. Do not implement booking in this document's current slice. |
 
 ## 003 Microsoft auto create-and-send
@@ -28,6 +28,26 @@ When Email channel mode is Auto, the conversation is Luna On, `needs_human` is f
 Luna Off, `needs_human`, global pause, and pause-lookup failure all block before draft/send. Author/tool/provider failure fail closed and do not mark sent. Generic IMAP/SMTP, Graph direct-send shortcuts, campaigns, WhatsApp, and booking create are excluded. `CUSTOMER_OUTREACH_EMAIL_ENABLED` is not a send gate.
 
 WhatsApp add-on: `.hermes/plans/2026-08-26-sunset-whatsapp-autonomy-wiring.md` is not present; no WhatsApp evaluator cleanup in this slice.
+
+## 007 Email Luna Hermes Sol (Skipper-managed)
+
+Sunset staging only. Dedicated internal draft service `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`) beside WhatsApp `hermes-sunset-luna`. Durable Hermes config pins `model.provider: openai-codex` and `model.default: gpt-5.6-sol`. Isolated `HERMES_HOME` at `/var/lib/hermes-sunset-email-luna`. No WhatsApp/Discord gateway, no Staff booking plugin, no outbound email authority.
+
+Staff API remains the sole renderer and the sole authority for prices, availability, bookings, holds, confirmations, and payment links. Hermes receives a closed drafting envelope and returns a closed enumerated plan plus server-owned provenance. Staff rejects any provider/model other than `openai-codex` / `gpt-5.6-sol`.
+
+Activation is separate from WhatsApp and from auto-send:
+
+- `EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED=true`
+- `EMAIL_LUNA_HERMES_SOL_BASE_URL` (origin only)
+- `EMAIL_LUNA_HERMES_SOL_TOKEN` (matches the draft service `API_SERVER_KEY`)
+- existing Create Draft gates (`LUNA_DEPLOYMENT=sunset-staging`, `EMAIL_STAFF_LUNA_DRAFT_ENABLED=true`, `EMAIL_LUNA_DRAFT_RUNTIME_ENABLED=true`)
+- tenant/location `sunset` / `sunset-somo`
+
+Do **not** set `LUNA_AI_MODEL=gpt-5.6-sol` on Staff API. Sol is a Hermes openai-codex model id; the Chat Completions `luna-ai-provider` path cannot use it. If Hermes is unavailable, Create Draft with notes uses the reviewed FIX-3 deterministic closed-plan compile. Timeout, malformed output, extra keys, and provenance mismatch fail closed and do not overwrite the standing draft. Empty notes stay the safe thread-only draft.
+
+Auto remains OFF. Approve & send is unchanged. Existing `hermes-sunset-luna` and Wolfhouse `hermes-luna` compose blocks are pinned.
+
+Owner / proof: `npm run verify:mail-mvp-007`. Live Skipper steps: `docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md`.
 
 ## 001 Create Draft + context
 

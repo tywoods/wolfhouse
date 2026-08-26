@@ -21,6 +21,9 @@ const {
 const {
   createEmailLunaCreateDraftNaturalAuthor,
 } = require('./email-luna-create-draft-natural-author');
+const {
+  snapshotSunsetEmailHermesSolEnv,
+} = require('./email-luna-sunset-email-hermes-sol-activation');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -345,6 +348,10 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
     };
     if (input && typeof input.callModel === 'function') runtimeConfig.callModel = input.callModel;
     if (input && Number.isSafeInteger(input.timeoutMs)) runtimeConfig.timeoutMs = input.timeoutMs;
+    const hermes = input && input.hermes && typeof input.hermes === 'object'
+      ? input.hermes
+      : snapshotSunsetEmailHermesSolEnv(srcEnv);
+    if (hermes) runtimeConfig.hermes = hermes;
     return runtimeConfig;
   }
 

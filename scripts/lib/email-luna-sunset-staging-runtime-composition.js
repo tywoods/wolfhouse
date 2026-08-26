@@ -3,6 +3,12 @@
 const runtimeIsProxy = require('node:util').types.isProxy.bind(undefined);
 const { createEmailLunaDraftAuthor } = require('./email-luna-draft-author');
 const { createEmailLunaCreateDraftNaturalAuthor } = require('./email-luna-create-draft-natural-author');
+const {
+  isSunsetEmailHermesSolAuthorEnabled,
+} = require('./email-luna-sunset-email-hermes-sol-activation');
+const {
+  createEmailLunaSunsetEmailHermesSolAuthors,
+} = require('./email-luna-sunset-email-hermes-sol-author');
 
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SUNSET_LOCATION_KEY = 'sunset-somo';
@@ -48,7 +54,7 @@ function isEmailLunaDraftRuntimeEnabled(input) {
     && gate.client_id === authority.client_id && gate.location_id === authority.location_id);
 }
 function createEmailLunaSunsetStagingRuntimeComposition(configuration) {
-  const config = data(configuration, ['env', 'authority', 'tenant_location_gate', 'callModel', 'timeoutMs'], false);
+  const config = data(configuration, ['env', 'authority', 'tenant_location_gate', 'callModel', 'timeoutMs', 'hermes'], false);
   const gateInput = config && { env: config.env, authority: config.authority, tenant_location_gate: config.tenant_location_gate };
   if (!gateInput || !isEmailLunaDraftRuntimeEnabled(gateInput)) {
     const error = new Error('Email Luna draft runtime disabled.');
@@ -58,6 +64,20 @@ function createEmailLunaSunsetStagingRuntimeComposition(configuration) {
   const authorConfig = {};
   if (objectHasOwn(config, 'callModel')) authorConfig.callModel = config.callModel;
   if (objectHasOwn(config, 'timeoutMs')) authorConfig.timeoutMs = config.timeoutMs;
+  const hermes = objectHasOwn(config, 'hermes') ? config.hermes : null;
+  if (hermes && isSunsetEmailHermesSolAuthorEnabled({ env: hermes })) {
+    const hermesConfig = { env: hermes };
+    if (Number.isSafeInteger(authorConfig.timeoutMs)) hermesConfig.timeoutMs = authorConfig.timeoutMs;
+    const hermesRequest = hermes && objectGetOwnPropertyDescriptor(hermes, 'request');
+    if (hermesRequest && objectHasOwn(hermesRequest, 'value') && typeof hermesRequest.value === 'function') {
+      hermesConfig.request = hermesRequest.value;
+    }
+    const hermesAuthors = createEmailLunaSunsetEmailHermesSolAuthors(hermesConfig);
+    return objectFreeze({
+      authorDraft: hermesAuthors.authorDraft,
+      authorNaturalGuestReply: hermesAuthors.authorNaturalGuestReply,
+    });
+  }
   const author = createEmailLunaDraftAuthor(authorConfig);
   const natural = createEmailLunaCreateDraftNaturalAuthor(authorConfig);
   return objectFreeze({

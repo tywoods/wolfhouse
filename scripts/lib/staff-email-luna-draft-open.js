@@ -27,6 +27,9 @@ const {
   snapshotOperatorDraftContext,
   operatorDraftContextDigest,
 } = require('./email-luna-create-draft-context');
+const {
+  snapshotSunsetEmailHermesSolEnv,
+} = require('./email-luna-sunset-email-hermes-sol-activation');
 
 const EMAIL_DRAFT_OPEN_DECKHAND_FIELD = 'draft_text';
 const EMAIL_DRAFT_OPEN_STORAGE_FIELD = 'conversations.staff_reply_draft';
@@ -776,6 +779,7 @@ function createStaffEmailLunaDraftOpen(deps) {
           from_address: typeof row.from_address === 'string' ? row.from_address : '',
         },
         env,
+        hermes: snapshotSunsetEmailHermesSolEnv(deps.runtimeEnv || env || process.env),
         callModel: deps.callModel,
         timeoutMs: deps.timeoutMs,
       });
@@ -915,6 +919,7 @@ function createStaffEmailLunaDraftOpen(deps) {
         untrusted_content: untrusted,
         operator_context: operatorGuidance,
         env,
+        hermes: snapshotSunsetEmailHermesSolEnv(deps.runtimeEnv || env || process.env),
         callModel: deps.callModel,
         timeoutMs: deps.timeoutMs,
       });
