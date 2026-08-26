@@ -70,6 +70,7 @@ function loadFns() {
     window: {},
     document: undefined,
     console,
+    customersCache: undefined,
     escHtml: (s) => String(s == null ? '' : s)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -79,6 +80,13 @@ function loadFns() {
       'customers.tags.hot_lead': 'Hot lead',
       'customers.tags.surf_school': 'Courses',
       'customers.detail.createBooking': 'Create booking',
+      'customers.detail.linkedBookings': 'Linked bookings',
+      'customers.detail.noLinkedBookings': 'No linked bookings yet',
+      'customers.card.bookings': 'Bookings',
+      'customers.card.classes': 'Lessons',
+      'customers.card.checkedIn': 'Checked in',
+      'customers.card.balanceDue': 'Unpaid balance',
+      'customers.card.waiverStatus': 'Waiver status',
       'customers.editProfile': 'Edit profile',
       'inbox.detail.bookings.none': 'No bookings for this guest yet.',
       'inbox.detail.sidebar.hide': 'Hide bookings',
@@ -95,7 +103,9 @@ function loadFns() {
   sandbox.window = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(`${contextSrc}\nthis.__inboxContext = window.__inboxContext;`, sandbox);
-  return sandbox.window.__inboxContext;
+  const api = sandbox.window.__inboxContext;
+  api.__sandbox = sandbox;
+  return api;
 }
 
 console.log('\nverify:inbox-context — column 4 guest card\n');
@@ -391,6 +401,105 @@ ok('narrow guest-card edit no longer forces a 60% width clip',
 ok('profile field label column can shrink (minmax) instead of a rigid 7.6em',
   contextSrc.includes('grid-template-columns:minmax(4.5em,7.6em) minmax(0,1fr)')
   && contextSrc.includes('.inbox-customer-card .customers-profile-field-label{min-width:0'));
+console.log('\n── Bug Finder #13: guest card booking count ──');
+{
+  ok('exports resolve/stat helpers for booking count',
+    typeof fns.customerResolveBookings === 'function'
+    && typeof fns.customerStatCount === 'function');
+
+  // Before: CRM cache booking_count:0 won over Staff API bookings → card showed 0.
+  ok('stat count prefers real booking list over CRM cache 0',
+    fns.customerStatCount(1, 0) === 1
+    && fns.customerStatCount(2, null) === 2
+    && fns.customerStatCount(0, 3) === 3
+    && fns.customerStatCount(0, 0) === 0
+    && fns.customerStatCount(0, null) === 0);
+
+  const emptyCustomer = {
+    success: true,
+    phone: '+34600009999',
+    identity: { display_name: 'Simulate Guest' },
+    bookings: [],
+    service_records: [],
+    waivers: [],
+  };
+  const compositeWithHold = {
+    success: true,
+    context: {
+      success: true,
+      bookings: [{
+        booking_id: 'bk-d12ae3',
+        booking_code: 'SUNSET-20260714-D12AE3',
+        booking_status: 'confirmed',
+        booking_payment_status: 'paid',
+        check_in: '2026-07-14',
+        check_out: '2026-07-16',
+        guest_name: 'Simulate Guest',
+      }],
+    },
+  };
+  const resolved = fns.customerResolveBookings(emptyCustomer, compositeWithHold);
+  ok('resolve bookings fills empty customer context from thread composite',
+    resolved.length === 1
+    && resolved[0].booking_code === 'SUNSET-20260714-D12AE3');
+
+  const beforeCache = fns.__sandbox.customersCache;
+  // Simulate people-list cache claiming 0 bookings while thread has a linked booking.
+  fns.__sandbox.customersCache = [{ phone: '+34600009999', booking_count: 0, service_count: 0, display_name: 'Simulate Guest' }];
+  try {
+    const condensedBeforeShape = fns.customerCondensedHtml(emptyCustomer, {});
+    ok('BEFORE shape: empty context + no composite → Bookings 0 and no linked bookings',
+      condensedBeforeShape.includes('No linked bookings yet')
+      && /Bookings[\s\S]{0,120}>0</.test(condensedBeforeShape));
+
+    const condensedAfter = fns.customerCondensedHtml(emptyCustomer, { composite: compositeWithHold });
+    ok('AFTER: composite-linked booking shows count 1 and code (not No linked bookings)',
+      condensedAfter.includes('SUNSET-20260714-D12AE3')
+      && !condensedAfter.includes('No linked bookings yet')
+      && condensedAfter.includes('Bookings')
+      && /Bookings[\s\S]{0,120}>1</.test(condensedAfter));
+
+    const fullAfter = fns.customerFullHtml(emptyCustomer, { composite: compositeWithHold });
+    ok('AFTER full card: linked bookings table includes composite booking code',
+      fullAfter.includes('SUNSET-20260714-D12AE3')
+      && !fullAfter.includes('No linked bookings yet'));
+
+    // Cache 0 must not hide customer-context bookings either.
+    const withCtxBookings = Object.assign({}, emptyCustomer, {
+      bookings: [{
+        booking_id: 'bk-ctx',
+        booking_code: 'SUNSET-CTX-1',
+        booking_status: 'confirmed',
+        payment_status: 'paid',
+        check_in: '2026-08-01',
+        check_out: '2026-08-03',
+      }],
+    });
+    const condensedCtx = fns.customerCondensedHtml(withCtxBookings, {});
+    ok('AFTER: customer-context bookings beat CRM cache booking_count 0',
+      condensedCtx.includes('SUNSET-CTX-1')
+      && /Bookings[\s\S]{0,120}>1</.test(condensedCtx)
+      && !condensedCtx.includes('No linked bookings yet'));
+  } finally {
+    fns.__sandbox.customersCache = beforeCache;
+  }
+
+  const merged = fns.customerResolveBookings({
+    bookings: [{ booking_id: 'bk-1', booking_code: 'A', booking_status: 'confirmed' }],
+  }, {
+    context: {
+      success: true,
+      bookings: [
+        { booking_id: 'bk-1', booking_code: 'A', booking_status: 'confirmed' },
+        { booking_id: 'bk-2', booking_code: 'B', booking_status: 'confirmed' },
+      ],
+    },
+  });
+  ok('resolve de-dupes by booking_id and unions composite extras',
+    merged.length === 2
+    && merged.some((b) => b.booking_code === 'A')
+    && merged.some((b) => b.booking_code === 'B'));
+}
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
