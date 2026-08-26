@@ -9,7 +9,7 @@ The approved sequence is:
 1. **Stage 2 — CONTROLLED DRAFTING:** finish the bounded Sunset proof and independent post-proof audit.
 2. **Stage 3 — SIGNAL FLEET:** **deferred**. Campaigns, broadcasts, and real customer outreach are not prerequisites for ordinary front-desk email.
 3. **Stage 4 — HARBORMASTER:** deploy ordinary front-desk email to one exact production tenant without campaign capability, then canary, observe, and prove rollback.
-4. **Stage 5 — OPEN CHANNEL:** add generic IMAP/SMTP only when provider-neutral mailbox support is required. Microsoft-only launch does not wait for Stage 5.
+4. **Stage 5 — OPEN CHANNEL:** complete generic IMAP/SMTP as required launch scope because it is the expected path for most clients. Microsoft Graph may launch first, but FULL SAIL does not close until the generic connector passes staging and production acceptance.
 5. **Luna email readiness:** configure policy, train the email behavior, evaluate it in shadow and staff-reviewed modes, then activate one proven low-risk intent at a time.
 
 Deferring Stage 3 excludes campaign audience selection, bulk scheduling, outreach, and campaign canaries from Stage 4 acceptance. `CUSTOMER_OUTREACH_EMAIL_ENABLED` remains off. No real-recipient outreach is authorized by this plan.
@@ -50,6 +50,12 @@ Training is a product workstream, not a substitute for deployment or operations.
 | Luna production-ready | One exact production tenant passes controlled inbound and staff-reviewed reply canaries with monitoring and rollback. |
 | Luna autonomous-ready | Explicit low-risk intents pass shadow metrics and controlled canaries, then are enabled at bounded scope. |
 | Campaign-ready | Deferred Stage 3 is separately implemented and accepted; real outreach still requires its exact business packet. |
+
+### Stage 5 reuse boundary
+
+Stage 5 is a **partial-foundation completion**, not a greenfield email rebuild. Reuse the canonical tenant/location registry, inbound event store, Inbox bridge, approval table, outbound journal, IMAP transport/cursor canary, SMTP STARTTLS health transport, Email Settings shell, and Key Vault secret-reference patterns. Do not create a second Inbox, approval table, outbound journal, tenant registry, campaign-based sender, or OAuth grant envelope for IMAP passwords.
+
+The critical remaining generic-connector delta is: per-endpoint identity and secret binding; an activatable default-off IMAP worker; `imap_smtp` Inbox/approval authority; SMTP DATA and RFC reply headers; widening the canonical journal with a legal SMTP state graph; pre-DATA versus post-DATA uncertainty; settings health/pause controls; controlled Sunset mailbox proof; and a production-specific connector profile. Existing source-only register, health, cursor, MIME/plain-text, disconnect, and poll components are not live Stage 5 acceptance evidence.
 
 ## Current deployed Sunset Staff API artifact
 

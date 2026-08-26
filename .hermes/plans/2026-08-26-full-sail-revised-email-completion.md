@@ -17,10 +17,10 @@ The project follows this sequence:
 1. Stage 2 — Controlled Drafting
 2. Stage 3 — Signal Fleet campaigns: **deferred**
 3. Stage 4 — Harbormaster production rollout without campaigns
-4. Stage 5 — Open Channel generic IMAP/SMTP: required only for provider-neutral launch
+4. Stage 5 — Open Channel generic IMAP/SMTP: required launch scope because it is expected to serve most clients
 5. Luna email policy, training, evaluation, and bounded activation
 
-A Microsoft-only launch may close without Stage 5. No campaign or real-recipient outreach is authorized.
+Microsoft Graph may launch first, but FULL SAIL does not close without Stage 5 staging and production acceptance. No campaign or real-recipient outreach is authorized.
 
 ## Universal lifecycle gate for every applicable stage
 
@@ -125,12 +125,13 @@ Campaign audience selection, consent/suppression, bulk scheduling, broadcasts, a
 
 # Stage 5 — OPEN CHANNEL
 
-**Applicability:** Required only when generic IMAP/SMTP mailbox support is part of launch. Skip for Microsoft-only completion.
+**Applicability:** Required. Generic IMAP/SMTP is expected to serve most clients. Microsoft Graph work may proceed independently, but provider-neutral FULL SAIL completion includes this stage.
 
 **Outcome:** One controlled generic mailbox ingests and sends correctly threaded, staff-approved SMTP replies exactly once through the shared Inbox/journal architecture.
 
 ## Chapter 13 — Connector authority
-- Exact endpoint/provider/capability identity, Key Vault custody/rotation, verified TLS, hostname validation, bounded timeouts, and no plaintext fallback.
+- Generalize the existing Sunset-hardcoded canary into per-endpoint provider/capability identity and Key Vault secret references; do not place IMAP passwords in OAuth delegated-grant envelopes.
+- Preserve verified TLS, hostname validation, bounded timeouts, and no plaintext fallback.
 
 ## Chapter 14 — IMAP durability
 - UIDVALIDITY/UID cursor generations, leases, bounded MIME/HTML/attachment handling, tenant isolation, and exactly-once Inbox projection.
@@ -141,6 +142,31 @@ Campaign audience selection, consent/suppression, bulk scheduling, broadcasts, a
 ## Chapter 16 — Staging then production acceptance
 - Controlled mailbox ingest/reply/replay/restart/uncertainty proof on Sunset.
 - Repeat the universal immutable deployment, live validation, policy, monitoring, rollback, and sign-off gates for the exact production connector target.
+
+## Stage 5 reuse contract and measured delta
+
+The current codebase is `PARTIAL FOUNDATION`, not greenfield and not ready to enable. Reuse:
+
+- tenant/location endpoint registry and `imap_smtp` provider identity;
+- canonical inbound envelope, event store, Inbox bridge, and IMAP UIDVALIDITY/UID lease cursor;
+- existing IMAPS transport, MIME/plain-text parser, SMTP STARTTLS health transport, and Key Vault reference grammar;
+- staff approval table, Inbox UI, canonical outbound journal owner, uncertainty vocabulary, Email Settings shell, and disconnect patterns.
+
+Do not rebuild a second Inbox, approval table, outbound journal, tenant registry, provider send shortcut, conversation-key system, or campaign sender. Do not force SMTP into Microsoft Graph's remote-draft phase machine.
+
+Measured critical path:
+
+1. Generalize `imap_smtp` endpoint auth/capability identity and per-endpoint Key Vault refs.
+2. Make the IMAP runtime activatable only through exact default-off gates; retain cursor/lease ownership.
+3. Extend Inbox/approval authority to `imap_smtp` without Graph UUID assumptions.
+4. Add SMTP `MAIL FROM`/`RCPT TO`/`DATA`, server-owned recipients, and safe `Message-ID`/`In-Reply-To`/`References` construction.
+5. Widen the canonical journal provider contract and add an SMTP-specific state graph; no second journal.
+6. Classify pre-DATA failure versus post-DATA uncertainty and prohibit blind retry.
+7. Add Settings verify/health/pause controls without browser-visible passwords.
+8. Deploy default-off to Sunset and prove one controlled mailbox ingest, staff-approved reply, replay/restart, and forced uncertainty.
+9. Add production-specific identity/custody/configuration and repeat immutable deployment, canary, monitoring, cost, rollback, and sign-off.
+
+HTML extraction, attachment custody, richer RFC thread joining, presets, and broader rate controls may trail the first plain-text controlled-mailbox acceptance unless a launch tenant requires them. Stage 3 campaigns and Gmail are not dependencies.
 
 ---
 
@@ -212,6 +238,6 @@ Campaign audience selection, consent/suppression, bulk scheduling, broadcasts, a
 Every update reports:
 
 - `ACTIVE STAGE` bar based on that stage's deployed exit gate.
-- `WHOLE PROGRAM` applicable exits closed, explicitly stating whether Stage 5 is in the denominator.
+- `WHOLE PROGRAM` applicable exits closed with Stage 5 always in the denominator; report Microsoft Graph launch separately when it lands earlier.
 - `Done / Now / Next`.
 - Separate labels for source-ready, merged, deployed-off, live-proven, policy-configured, and rollout-accepted.
