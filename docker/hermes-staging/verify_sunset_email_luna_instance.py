@@ -191,6 +191,20 @@ def main() -> int:
         and "gid=0," not in aca
         and "uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600" in runbook
         and "Do not add `noperm`" in runbook,
+        "runbook_kv_secrets_exact_hex_no_newline": "secrets.token_hex(32)" in runbook
+        and "fh.write(secrets.token_hex(32))" in runbook
+        and "chmod 0600" in runbook
+        and "shred -u" in runbook
+        and "trap cleanup_kv_secret_files EXIT INT TERM" in runbook
+        and '--file "$TOKEN_FILE"' in runbook
+        and '--file "$HMAC_FILE"' in runbook
+        and "/dev/stdin" not in runbook
+        and "--file /dev/stdin" not in runbook
+        and "TOKEN_EOF" not in runbook
+        and "HMAC_EOF" not in runbook
+        and "TOKEN=$(openssl rand -hex 32)" not in runbook
+        and "Keep `$TOKEN` in memory" not in runbook
+        and "unset TOKEN" not in runbook,
     }
     failed = [name for name, ok in checks.items() if not ok]
     if failed:

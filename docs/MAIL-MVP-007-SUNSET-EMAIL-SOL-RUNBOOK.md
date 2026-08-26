@@ -205,22 +205,61 @@ Hermes Dockerfile/context is `docker/hermes-staging`. Staff overlay assertions a
 
 ### 5. Bearer + response HMAC secrets (not auth.json)
 
+Store **exact 64 lowercase hex bytes with no newline** for both
+`email-luna-hermes-sol-token` (Staff `EMAIL_LUNA_HERMES_SOL_TOKEN` / runtime
+`API_SERVER_KEY`) and `email-luna-hermes-sol-hmac` (Staff and runtime
+`EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET`).
+
+A heredoc (or `echo` / `printf` that emits a trailing newline) stored as a
+Key Vault secret appends that extra byte. ACA injects it;
+`email_draft_server.py` correctly rejects leading/trailing whitespace and
+crashloops. Do not pipe a heredoc into `az keyvault secret set`. Do not
+use `--value` (argv / history). Do not keep `$TOKEN` or `$HMAC` in the
+shell. Staff later binds Key Vault references; it does not need the raw
+bytes in memory.
+
 ```bash
 set +o history
-TOKEN=$(openssl rand -hex 32)
-HMAC=$(openssl rand -hex 32)
-"$AZ" keyvault secret set --vault-name "$KV" --name email-luna-hermes-sol-token --file /dev/stdin --encoding utf-8 <<TOKEN_EOF >/dev/null
-$TOKEN
-TOKEN_EOF
-"$AZ" keyvault secret set --vault-name "$KV" --name email-luna-hermes-sol-hmac --file /dev/stdin --encoding utf-8 <<HMAC_EOF >/dev/null
-$HMAC
-HMAC_EOF
-# TOKEN is also Staff EMAIL_LUNA_HERMES_SOL_TOKEN; HMAC is EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET
-unset HMAC
+TOKEN_FILE=
+HMAC_FILE=
+cleanup_kv_secret_files() {
+  [ -n "${TOKEN_FILE:-}" ] && { shred -u "$TOKEN_FILE" 2>/dev/null || rm -f "$TOKEN_FILE"; }
+  [ -n "${HMAC_FILE:-}" ] && { shred -u "$HMAC_FILE" 2>/dev/null || rm -f "$HMAC_FILE"; }
+  TOKEN_FILE=
+  HMAC_FILE=
+}
+trap cleanup_kv_secret_files EXIT INT TERM
+TOKEN_FILE=$(mktemp) || exit 1
+HMAC_FILE=$(mktemp) || exit 1
+chmod 0600 "$TOKEN_FILE" "$HMAC_FILE" || exit 1
+python3 - "$TOKEN_FILE" "$HMAC_FILE" <<'PY' || exit 1
+import secrets
+import sys
+
+for path in sys.argv[1:]:
+    with open(path, "w", encoding="ascii") as fh:
+        fh.write(secrets.token_hex(32))
+PY
+python3 - "$TOKEN_FILE" "$HMAC_FILE" <<'PY' || exit 1
+import re
+import sys
+from pathlib import Path
+
+exact = re.compile(rb"^[0-9a-f]{64}\Z")
+for path in sys.argv[1:]:
+    raw = Path(path).read_bytes()
+    if not exact.match(raw):
+        raise SystemExit("refuse: secret file is not exact 64 lowercase hex bytes")
+PY
+"$AZ" keyvault secret set --vault-name "$KV" --name email-luna-hermes-sol-token --file "$TOKEN_FILE" --encoding utf-8 >/dev/null || exit 1
+"$AZ" keyvault secret set --vault-name "$KV" --name email-luna-hermes-sol-hmac --file "$HMAC_FILE" --encoding utf-8 >/dev/null || exit 1
+cleanup_kv_secret_files
+trap - EXIT INT TERM
 set -o history
 ```
 
-Keep `$TOKEN` in memory only until the Staff secret set below, then `unset TOKEN`.
+Staff binds the same Key Vault names via `keyvaultref` below. Do not `cat`
+the temp files or print `az` output.
 
 ### 6. Fill YAML and create/update only `luna-sunset-staging-email-luna`
 
@@ -298,7 +337,6 @@ set +o history
     EMAIL_LUNA_HERMES_SOL_TOKEN=secretref:hermes-sol-token \
     EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET=secretref:hermes-sol-hmac \
   >/dev/null
-unset TOKEN
 set -o history
 ```
 
