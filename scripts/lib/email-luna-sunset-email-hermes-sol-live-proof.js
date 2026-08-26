@@ -29,6 +29,7 @@ const EMAIL_LUNA_APP = 'luna-sunset-staging-email-luna';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const PROOF_REMOTE_ENV_PATH = '/tmp/mail-mvp-007-proof.env';
 const PROOF_REMOTE_NODE = 'scripts/prove-mail-mvp-007-create-draft.js';
+const MUTATION_ISSUED_MARKER = 'MAIL_MVP_007_MUTATION_ISSUED';
 const LOGS_TAIL = '200';
 const LOG_WINDOW_MS = 15 * 60 * 1000;
 const SAFE_AZ_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/;
@@ -617,7 +618,8 @@ function encodeProofEnvPayload(conversationId, attemptId, reconcileOnly) {
 function buildStaffOwnerRemoteCommand(conversationId, attemptId, reconcileOnly) {
   const b64 = encodeProofEnvPayload(conversationId, attemptId, reconcileOnly);
   if (!b64) return null;
-  return `sh -c 'printf %s ${b64} | base64 -d > ${PROOF_REMOTE_ENV_PATH} && set -a && . ${PROOF_REMOTE_ENV_PATH} && set +a && exec node ${PROOF_REMOTE_NODE}'`;
+  const issued = reconcileOnly === true ? '' : ` && echo ${MUTATION_ISSUED_MARKER}`;
+  return `sh -c 'printf %s ${b64} | base64 -d > ${PROOF_REMOTE_ENV_PATH} && set -a && . ${PROOF_REMOTE_ENV_PATH} && set +a${issued} && exec node ${PROOF_REMOTE_NODE}'`;
 }
 
 function buildStaffOwnerExecAzArgs(options) {
@@ -1214,15 +1216,14 @@ async function runDeployedCreateDraftProof(input) {
     nowMs,
   };
   let execResult;
-  let mutationIssued = false;
   try {
-    mutationIssued = true;
     execResult = await execFn(harness);
   } catch {
-    return reconcileDeployedProof(input, reconContext);
+    return fail('staff_exec_failed', { attempt_id: attemptId });
   }
   const execStatus = execResult && Number.isSafeInteger(execResult.status) ? execResult.status : 1;
   const execOut = `${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`;
+  const mutationIssued = execOut.includes(MUTATION_ISSUED_MARKER);
   const inner = extractProofJson(execOut, secrets);
   if (execStatus === 0 && inner && (inner.ok === true || inner.ok === false)) {
     if (inner.success === true && inner.message_text && inner.hmac_verified !== true) {

@@ -1193,7 +1193,9 @@ function assertNoSecretsLogged(hits) {
       assert.equal(spec.args[4], '/dev/null');
       assert.equal(spec.reconcileOnly, false);
       assert.match(spec.args[3], /containerapp/);
-      assert.match(spec.azArgs[spec.azArgs.indexOf('--command') + 1], /^sh -c '/);
+      const mutateCmd = spec.azArgs[spec.azArgs.indexOf('--command') + 1];
+      assert.match(mutateCmd, /^sh -c '/);
+      assert.match(mutateCmd, /MAIL_MVP_007_MUTATION_ISSUED/);
       return { status: 0, stdout: innerOkJson() };
     },
     showLogs: async (args) => {
@@ -1277,12 +1279,13 @@ function assertNoSecretsLogged(hits) {
     execStaff: async (spec) => {
       disconnectCalls.push({ kind: 'mutate', reconcileOnly: spec.reconcileOnly, args: spec.azArgs.slice() });
       ownerInvocations += spec.reconcileOnly === true ? 0 : 1;
-      return { status: 1, stdout: '', stderr: 'WebSocket disconnected ClusterExecFailure' };
+      return { status: 1, stdout: 'MAIL_MVP_007_MUTATION_ISSUED\n', stderr: 'WebSocket disconnected ClusterExecFailure' };
     },
     reconcileStaff: async (spec) => {
       disconnectCalls.push({ kind: 'reconcile', reconcileOnly: spec.reconcileOnly, args: spec.azArgs.slice() });
       assert.equal(spec.reconcileOnly, true);
       const recCmd = spec.azArgs[spec.azArgs.indexOf('--command') + 1];
+      assert.doesNotMatch(recCmd, /MAIL_MVP_007_MUTATION_ISSUED/);
       const recB64 = recCmd.match(/printf %s ([A-Za-z0-9+/]+=*) /)[1];
       const recEnv = Buffer.from(recB64, 'base64').toString('utf8');
       assert.match(recEnv, /MAIL_MVP_007_RECONCILE_ONLY=1/);
@@ -1304,6 +1307,30 @@ function assertNoSecretsLogged(hits) {
   assert.equal(disconnectCalls.filter((c) => c.kind === 'mutate').length, 1);
   assert.equal(disconnectCalls.filter((c) => c.kind === 'reconcile').length, 1);
 
+  let preDispatchReconcileCalls = 0;
+  const preDispatchFailure = await runDeployedCreateDraftProof({
+    env: { LUNA_DEPLOYMENT: 'sunset-staging' },
+    conversation_id: V,
+    attempt_id: RID,
+    replica: STAFF_REPLICA,
+    revision: STAFF_REV,
+    emailLunaRevision: LUNA_REV,
+    nowMs: NOW_MS,
+    execStaff: async () => ({
+      status: 1,
+      stdout: '',
+      stderr: 'WebSocket disconnected before remote command',
+    }),
+    reconcileStaff: async () => {
+      preDispatchReconcileCalls += 1;
+      return { status: 0, stdout: '' };
+    },
+    showLogs: async () => ({ status: 0, stdout: '' }),
+  });
+  assert.equal(preDispatchFailure.ok, false);
+  assert.equal(preDispatchFailure.reason, 'staff_exec_failed');
+  assert.equal(preDispatchReconcileCalls, 0);
+
   const ownerThrow = await runDeployedCreateDraftProof({
     env: { LUNA_DEPLOYMENT: 'sunset-staging' },
     conversation_id: V,
@@ -1312,7 +1339,7 @@ function assertNoSecretsLogged(hits) {
     revision: STAFF_REV,
     emailLunaRevision: LUNA_REV,
     nowMs: NOW_MS,
-    execStaff: async () => ({ status: 1, stderr: 'ClusterExecFailure after connect' }),
+    execStaff: async () => ({ status: 1, stdout: 'MAIL_MVP_007_MUTATION_ISSUED\n', stderr: 'ClusterExecFailure after connect' }),
     reconcileStaff: async () => { throw new Error('owner_throw'); },
     showLogs: async () => ({ status: 0, stdout: `${ndjsonLog(RID)}\n` }),
   });
