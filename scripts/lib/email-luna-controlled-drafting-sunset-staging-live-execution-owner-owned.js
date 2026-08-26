@@ -14,6 +14,8 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const {
   isProxySurface,
   ownData,
@@ -24,8 +26,6 @@ const {
   tryAcquireDelegatedGrantLease,
   openDelegatedGrantUnderLease,
   commitDelegatedGrantRotation,
-  markDelegatedGrantReauthorizationRequired,
-  markDelegatedGrantReconciliation,
   abortDelegatedGrantLease,
   getDelegatedGrantPublicStatus,
   resolveDelegatedReadAuthorityBinding,
@@ -71,16 +71,10 @@ const {
 const {
   AZURE_OWNER,
 } = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader');
-const {
-  composeSunsetStagingLiveDownscopeProverDependencies,
-} = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
-const {
-  consumeChapter4ISunsetStagingOneShotAuthority,
-  isActiveChapter4ISunsetStagingOneShotAuthority,
-  markChapter4IBrandedPreflight,
-  markChapter4IExecuting,
-  markChapter4ITerminal,
-} = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
+const liveTargetOwner = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
+const chapter4IAuthority = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
+const chapter4IReceipt = require('./email-luna-controlled-drafting-chapter-4i-durable-receipt');
+const readerOwnedModule = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader-owned');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -103,6 +97,7 @@ const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
 const USED_OPERATOR_NONCES = new Set();
+const PENDING_CLAIMED_STORES = new WeakSet();
 const DOWNSCOPE_WORKER_ID = 'email-luna-controlled-drafting-chapter-4i-downscope';
 const CONTINUITY_WORKER_ID = 'email-luna-controlled-drafting-chapter-4i-continuity';
 const SCOPE_PROFILE_ID = CONTROLLED_DRAFTING_SCOPE_VERSION;
@@ -115,8 +110,17 @@ const INVOCATION_KEYS = objectFreeze([
 const ADAPTER_KEYS = objectFreeze([
   'readIndependentLivePreflight', 'envelopeProvider', 'createSecretProvider',
   'transport', 'createSignatureVerifier', 'withPgClient', 'binding',
-  'applicationClientId', 'clock',
+  'applicationClientId', 'clock', 'receiptStore', 'commandRunner',
 ]);
+const SOURCE_TRACKED_FILES = objectFreeze([
+  'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js',
+  'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner.js',
+  'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned.js',
+  'scripts/lib/email-luna-controlled-drafting-chapter-4i-one-shot-authority.js',
+  'scripts/lib/email-luna-controlled-drafting-chapter-4i-durable-receipt.js',
+]);
+const RECEIPT_STORE_KEYS = objectFreeze(['path', 'claim', 'read', 'advance']);
+const COMMAND_RUNNER_KEYS = objectFreeze(['execFileSync']);
 const BINDING_KEYS = objectFreeze(['clientId', 'locationId', 'endpointId', 'mailboxId']);
 const FORBIDDEN_ADAPTER_KEYS = objectFreeze([
   'consumer', 'callback', 'runClosed', 'withToken', 'getAccessToken',
@@ -141,9 +145,11 @@ const MACHINE_RECORD_KEYS = objectFreeze([
   'resource_group', 'app_name', 'source_sha', 'deploy_sha', 'revision', 'digest',
   'preflight_started_at', 'preflight_finished_at', 'fence_generation',
   'downscope_mail_send_absent', 'continuity_expected_scope_present',
-  'refresh_call_count', 'graph_call_count', 'send_call_count', 'write_count',
+  'refresh_call_count', 'graph_call_count', 'send_call_count',
+  'local_receipt_write_count', 'custody_write_count', 'operational_write_count',
   'compatibility_rule_id',
 ]);
+const RECEIPT_STATES = chapter4IReceipt.RECEIPT_STATES;
 const CLAIMS_SUMMARY_KEYS = objectFreeze([
   'ok', 'scope_profile_id', 'scp', 'mail_send', 'mail_readwrite', 'app_only',
   'kid', 'alg', 'iss_matches', 'aud_matches', 'oid_matches', 'tid_matches',
@@ -347,6 +353,7 @@ function machineRecord(fields) {
 }
 
 function refusedRecord(detail, extra) {
+  const refresh = extra && typeof extra.refresh_call_count === 'number' ? extra.refresh_call_count : 0;
   return machineRecord({
     proof_version: PROOF_VERSION,
     ok: false,
@@ -360,18 +367,180 @@ function refusedRecord(detail, extra) {
     deploy_sha: extra && extra.deploy_sha ? extra.deploy_sha : EXPECTED_LIVE_TARGET.deployedSha,
     revision: extra && extra.revision ? extra.revision : EXPECTED_LIVE_TARGET.revision,
     digest: extra && extra.digest ? extra.digest : EXPECTED_LIVE_TARGET.digest,
-    preflight_started_at: null,
-    preflight_finished_at: null,
-    fence_generation: null,
-    downscope_mail_send_absent: null,
-    continuity_expected_scope_present: null,
-    refresh_call_count: extra && typeof extra.refresh_call_count === 'number' ? extra.refresh_call_count : 0,
+    preflight_started_at: extra && extra.preflight_started_at ? extra.preflight_started_at : null,
+    preflight_finished_at: extra && extra.preflight_finished_at ? extra.preflight_finished_at : null,
+    fence_generation: extra && extra.fence_generation !== undefined ? extra.fence_generation : null,
+    downscope_mail_send_absent: extra && extra.downscope_mail_send_absent !== undefined
+      ? extra.downscope_mail_send_absent
+      : null,
+    continuity_expected_scope_present: extra && extra.continuity_expected_scope_present !== undefined
+      ? extra.continuity_expected_scope_present
+      : null,
+    refresh_call_count: refresh,
     graph_call_count: 0,
     send_call_count: 0,
-    write_count: 0,
+    local_receipt_write_count: extra && typeof extra.local_receipt_write_count === 'number'
+      ? extra.local_receipt_write_count
+      : 0,
+    custody_write_count: extra && typeof extra.custody_write_count === 'number'
+      ? extra.custody_write_count
+      : 0,
+    operational_write_count: 0,
     compatibility_rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
     reason: detail,
   });
+}
+
+function authenticLibCaller(allowedBasenames) {
+  const libDir = fs.realpathSync(__dirname);
+  const self = fs.realpathSync(__filename);
+  const previous = Error.prepareStackTrace;
+  let stack;
+  try {
+    Error.prepareStackTrace = (_, frames) => frames;
+    const err = new Error();
+    Error.captureStackTrace(err, authenticLibCaller);
+    stack = err.stack;
+  } catch (_) {
+    return false;
+  } finally {
+    Error.prepareStackTrace = previous;
+  }
+  if (!arrayIsArray(stack) || stack.length < 1) return false;
+  for (let i = 0; i < stack.length; i += 1) {
+    const frame = stack[i];
+    if (!frame || typeof frame.getFileName !== 'function') continue;
+    const file = frame.getFileName();
+    if (typeof file !== 'string' || file.length < 1) continue;
+    let real;
+    try {
+      real = fs.realpathSync(file);
+    } catch (_) {
+      continue;
+    }
+    if (real === self) continue;
+    if (path.dirname(real) !== libDir) return false;
+    return arrayIncludes(allowedBasenames, path.basename(real));
+  }
+  return false;
+}
+
+function resolveRepositoryRoot() {
+  const libDir = fs.realpathSync(__dirname);
+  const scriptsDir = path.dirname(libDir);
+  const root = path.dirname(scriptsDir);
+  let gitPath;
+  try {
+    gitPath = fs.realpathSync(path.join(root, '.git'));
+  } catch (_) {
+    throw failure('source_sha_mismatch');
+  }
+  if (typeof gitPath !== 'string' || gitPath.length < 1) throw failure('source_sha_mismatch');
+  return root;
+}
+
+function runGit(runner, root, args) {
+  if (!runner || typeof ownData(runner, 'execFileSync') !== 'function') {
+    throw failure('source_sha_mismatch');
+  }
+  let out;
+  try {
+    out = ownData(runner, 'execFileSync').call(runner, 'git', args, objectFreeze({
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }));
+  } catch (_) {
+    throw failure('source_sha_mismatch');
+  }
+  if (typeof out !== 'string') throw failure('source_sha_mismatch');
+  return stringTrim(out);
+}
+
+function assertExecutingSource(expectedSha, runner) {
+  if (!sha40(expectedSha)) throw failure('source_sha_invalid');
+  const root = resolveRepositoryRoot();
+  const head = runGit(runner, root, ['rev-parse', 'HEAD']);
+  if (head !== expectedSha) throw failure('source_sha_mismatch');
+  const status = runGit(runner, root, ['status', '--porcelain']);
+  if (status.length > 0) throw failure('source_tree_dirty');
+  for (let i = 0; i < SOURCE_TRACKED_FILES.length; i += 1) {
+    const rel = SOURCE_TRACKED_FILES[i];
+    runGit(runner, root, ['ls-files', '--error-unmatch', rel]);
+    let abs;
+    try {
+      abs = fs.realpathSync(path.join(root, rel));
+    } catch (_) {
+      throw failure('source_symlink_escape');
+    }
+    const rootPrefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+    if (abs !== path.join(root, rel) && abs.indexOf(rootPrefix) !== 0) {
+      throw failure('source_symlink_escape');
+    }
+    if (abs.indexOf(rootPrefix) !== 0 && abs !== root) {
+      throw failure('source_symlink_escape');
+    }
+  }
+  return head;
+}
+
+function createProductionCommandRunner() {
+  return objectFreeze({
+    execFileSync(file, args, options) {
+      return execFileSync(file, args, options);
+    },
+  });
+}
+
+function snapshotReceiptStore(raw) {
+  if (!raw || typeof raw !== 'object' || isProxySurface(raw) || arrayIsArray(raw)) return null;
+  const pathValue = ownData(raw, 'path');
+  const claim = ownData(raw, 'claim');
+  const read = ownData(raw, 'read');
+  const advance = ownData(raw, 'advance');
+  const claimedInThisHandle = ownData(raw, 'claimedInThisHandle');
+  if (typeof pathValue !== 'string' || !path.isAbsolute(pathValue)) return null;
+  if (typeof claim !== 'function' || typeof read !== 'function' || typeof advance !== 'function') return null;
+  void claimedInThisHandle;
+  return raw;
+}
+
+function snapshotCommandRunner(raw) {
+  if (!raw || typeof raw !== 'object' || isProxySurface(raw)) return null;
+  const exec = ownData(raw, 'execFileSync');
+  if (typeof exec !== 'function') return null;
+  return objectFreeze({
+    execFileSync: exec,
+  });
+}
+
+function closeHandle(handle) {
+  if (!handle || (typeof handle !== 'object' && typeof handle !== 'function')) return;
+  const methods = ['end', 'destroy', 'close'];
+  for (let i = 0; i < methods.length; i += 1) {
+    const fn = ownData(handle, methods[i]);
+    if (typeof fn === 'function') {
+      const result = fn.call(handle);
+      if (result && typeof result.then === 'function') {
+        return Promise.resolve(result).catch(() => { /* sanitized */ });
+      }
+      return;
+    }
+    if (typeof handle[methods[i]] === 'function') {
+      const result = handle[methods[i]]();
+      if (result && typeof result.then === 'function') {
+        return Promise.resolve(result).catch(() => { /* sanitized */ });
+      }
+      return;
+    }
+  }
+}
+
+function sameGeneration(actual, expected) {
+  if (typeof expected !== 'number' || !Number.isInteger(expected) || expected < 0) return false;
+  if (typeof actual !== 'number' || !Number.isInteger(actual) || actual < 0) return false;
+  return actual === expected;
 }
 
 function parseArgs(argv) {
@@ -530,9 +699,8 @@ function requirePinnedLiveOwner() {
 
 function sameProofTarget(a, b, expectedGeneration) {
   if (!a || !b) return false;
-  const genOk = expectedGeneration === undefined
-    ? ownData(a, 'grant_generation') === ownData(b, 'grant_generation')
-    : ownData(b, 'grant_generation') === expectedGeneration;
+  if (!sameGeneration(ownData(b, 'grant_generation'), expectedGeneration)) return false;
+  if (!sameGeneration(ownData(a, 'grant_generation'), ownData(a, 'grant_generation'))) return false;
   return ownData(a, 'deploy_sha') === ownData(b, 'deploy_sha')
     && ownData(a, 'revision') === ownData(b, 'revision')
     && ownData(a, 'digest') === ownData(b, 'digest')
@@ -557,7 +725,20 @@ function sameProofTarget(a, b, expectedGeneration) {
     && ownData(b, 'resource_group') === EXPECTED_LIVE_TARGET.resourceGroup
     && ownData(a, 'app_name') === EXPECTED_LIVE_TARGET.appName
     && ownData(b, 'app_name') === EXPECTED_LIVE_TARGET.appName
-    && genOk;
+    && ownData(a, 'tenant') === SUNSET_TENANT
+    && ownData(b, 'tenant') === SUNSET_TENANT
+    && ownData(a, 'database') === EXPECTED_DATABASE
+    && ownData(b, 'database') === EXPECTED_DATABASE
+    && ownData(a, 'client_id') === ownData(b, 'client_id')
+    && ownData(a, 'location_id') === ownData(b, 'location_id')
+    && ownData(a, 'endpoint_id') === ownData(b, 'endpoint_id')
+    && ownData(a, 'mailbox_id') === ownData(b, 'mailbox_id')
+    && ownData(a, 'producer_login_fingerprint') === ownData(b, 'producer_login_fingerprint')
+    && ownData(a, 'worker_login_fingerprint') === ownData(b, 'worker_login_fingerprint')
+    && typeof ownData(a, 'producer_login_fingerprint') === 'string'
+    && typeof ownData(b, 'worker_login_fingerprint') === 'string'
+    && isCanonUuid(ownData(a, 'client_id'))
+    && isCanonUuid(ownData(b, 'mailbox_id'));
 }
 
 function recheckBrandedEligibility(independent) {
@@ -582,6 +763,21 @@ function recheckBrandedEligibility(independent) {
   if (ownData(independent, 'app_name') !== EXPECTED_LIVE_TARGET.appName) throw failure('azure_owner_mismatch');
   if (ownData(independent, 'database') !== EXPECTED_DATABASE) throw failure('database_mismatch');
   if (ownData(independent, 'tenant') !== SUNSET_TENANT) throw failure('tenant_mismatch');
+  const generation = ownData(independent, 'grant_generation');
+  if (typeof generation !== 'number' || !Number.isInteger(generation) || generation < 0) {
+    throw failure('grant_unproven');
+  }
+  if (!isCanonUuid(ownData(independent, 'client_id'))
+      || !isCanonUuid(ownData(independent, 'location_id'))
+      || !isCanonUuid(ownData(independent, 'endpoint_id'))
+      || !isCanonUuid(ownData(independent, 'mailbox_id'))) {
+    throw failure('binding');
+  }
+  const producerFp = ownData(independent, 'producer_login_fingerprint');
+  const workerFp = ownData(independent, 'worker_login_fingerprint');
+  if (typeof producerFp !== 'string' || !/^[0-9a-f]{64}$/.test(producerFp)) throw failure('login_unproven');
+  if (typeof workerFp !== 'string' || !/^[0-9a-f]{64}$/.test(workerFp)) throw failure('login_unproven');
+  if (producerFp === workerFp) throw failure('login_alias');
 }
 
 async function inspectClosedClaims(createInspector, createSignatureVerifierFn, token, expected, counters) {
@@ -627,6 +823,8 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
   const binding = snapshotBinding(ownData(input, 'binding'));
   const applicationClientId = ownData(input, 'applicationClientId');
   const clock = ownData(input, 'clock');
+  const receiptStore = snapshotReceiptStore(ownData(input, 'receiptStore'));
+  const commandRunner = snapshotCommandRunner(ownData(input, 'commandRunner'));
   if (typeof readIndependentLivePreflight !== 'function' || isProxySurface(readIndependentLivePreflight)) {
     throw failure('reader_adapters');
   }
@@ -642,6 +840,8 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
     throw failure('application_client');
   }
   if (!clock || typeof ownData(clock, 'nowMs') !== 'function') throw failure('reader_adapters');
+  if (!receiptStore) throw failure('reader_adapters');
+  if (!commandRunner) throw failure('reader_adapters');
   const prov = validateEmailGrantEnvelopeProvider(envelopeProviderInput);
   if (!prov.ok) throw failure('reader_adapters');
   const envelopeProvider = prov.value;
@@ -655,8 +855,10 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
     custodyPg: 0,
     graph: 0,
     send: 0,
-    writes: 0,
+    receiptWrites: 0,
+    custodyWrites: 0,
   };
+  const acquiredHandles = [];
   let used = false;
   const liveOwner = requirePinnedLiveOwner();
 
@@ -666,6 +868,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       return ownData(transport, 'postTokenForm').call(transport, arg);
     },
   });
+  acquiredHandles.push(transport);
 
   function wrapEnvelope(provider) {
     return objectFreeze({
@@ -716,11 +919,91 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
     return independent;
   }
 
+  function trackHandle(handle) {
+    if (handle && (typeof handle === 'object' || typeof handle === 'function')) {
+      acquiredHandles.push(handle);
+    }
+    return handle;
+  }
+
+  function terminalRecord(status, ok, extra) {
+    const refresh = counters.token;
+    const fields = {
+      proof_version: PROOF_VERSION,
+      ok: ok === true,
+      status,
+      deployment: SUNSET_DEPLOYMENT,
+      tenant: SUNSET_TENANT,
+      database: EXPECTED_DATABASE,
+      resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
+      app_name: EXPECTED_LIVE_TARGET.appName,
+      source_sha: extra && extra.source_sha ? extra.source_sha : null,
+      deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
+      revision: EXPECTED_LIVE_TARGET.revision,
+      digest: EXPECTED_LIVE_TARGET.digest,
+      preflight_started_at: extra && extra.preflight_started_at ? extra.preflight_started_at : null,
+      preflight_finished_at: extra && extra.preflight_finished_at ? extra.preflight_finished_at : null,
+      fence_generation: extra && extra.fence_generation !== undefined ? extra.fence_generation : null,
+      downscope_mail_send_absent: extra && extra.downscope_mail_send_absent !== undefined
+        ? extra.downscope_mail_send_absent
+        : null,
+      continuity_expected_scope_present: extra && extra.continuity_expected_scope_present !== undefined
+        ? extra.continuity_expected_scope_present
+        : null,
+      refresh_call_count: refresh,
+      graph_call_count: 0,
+      send_call_count: 0,
+      local_receipt_write_count: counters.receiptWrites,
+      custody_write_count: counters.custodyWrites,
+      operational_write_count: 0,
+      compatibility_rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
+    };
+    return machineRecord(fields);
+  }
+
   async function executeOnce(parsed) {
     if (used) throw failure('one_shot_already_consumed');
     used = true;
     const gate = validateExactInvocation(parsed, ownData(clock, 'nowMs')());
     if (gate) throw failure(gate);
+    assertExecutingSource(parsed.sourceSha, commandRunner);
+    const alreadyClaimed = PENDING_CLAIMED_STORES.has(receiptStore) === true;
+    if (alreadyClaimed === true) PENDING_CLAIMED_STORES.delete(receiptStore);
+    if (alreadyClaimed !== true) {
+      const existingReceipt = receiptStore.read();
+      if (existingReceipt) throw failure('operator_receipt_replay');
+      const claimedAt = new Date(ownData(clock, 'nowMs')()).toISOString();
+      receiptStore.claim(objectFreeze({
+        chapter_id: chapter4IReceipt.CHAPTER_ID,
+        source_sha: parsed.sourceSha,
+        deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
+        revision: EXPECTED_LIVE_TARGET.revision,
+        digest: EXPECTED_LIVE_TARGET.digest,
+        deployment: SUNSET_DEPLOYMENT,
+        tenant: SUNSET_TENANT,
+        database: EXPECTED_DATABASE,
+        resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
+        app_name: EXPECTED_LIVE_TARGET.appName,
+        operator_nonce: parsed.operatorNonce,
+        confirm_issued_at: parsed.confirmIssuedAt,
+        status: RECEIPT_STATES.claimed,
+        refresh_call_count: 0,
+        local_receipt_write_count: 1,
+        custody_write_count: 0,
+        operational_write_count: 0,
+        claimed_at: claimedAt,
+        updated_at: claimedAt,
+      }));
+      counters.receiptWrites += 1;
+    } else {
+      const existingReceipt = receiptStore.read();
+      if (!existingReceipt || ownData(existingReceipt, 'status') !== RECEIPT_STATES.claimed) {
+        throw failure('operator_receipt_replay');
+      }
+      counters.receiptWrites += typeof ownData(existingReceipt, 'local_receipt_write_count') === 'number'
+        ? ownData(existingReceipt, 'local_receipt_write_count')
+        : 1;
+    }
     USED_OPERATOR_NONCES.add(parsed.operatorNonce);
 
     let independent;
@@ -731,27 +1014,52 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
     }
     recheckBrandedEligibility(independent);
     const initialGeneration = ownData(independent, 'grant_generation');
+    if (typeof initialGeneration !== 'number' || !Number.isInteger(initialGeneration) || initialGeneration < 0) {
+      throw failure('grant_unproven');
+    }
     const startedAt = ownData(independent, 'started_at');
 
-    let refreshCountAtUnknown = 0;
-    let outcomeUnknown = false;
     let downscopeMailSendAbsent = null;
     let continuityExpectedScopePresent = null;
     let cleanupInstalled = false;
+    let cleanupFailed = false;
     let tokensDropped = false;
+    let secretProviderHandle = null;
+    let verifierHandle = null;
 
     function dropTokens() {
       tokensDropped = true;
+      secretProviderHandle = null;
+      verifierHandle = null;
     }
 
     function installCleanup() {
       cleanupInstalled = true;
       return function runCleanup() {
         dropTokens();
+        for (let i = 0; i < acquiredHandles.length; i += 1) {
+          try {
+            const result = closeHandle(acquiredHandles[i]);
+            void result;
+          } catch (_) {
+            cleanupFailed = true;
+          }
+        }
+        acquiredHandles.length = 0;
       };
     }
 
     const runCleanup = installCleanup();
+
+    function advanceReceipt(status, extra) {
+      const next = receiptStore.advance(status, Object.assign({
+        refresh_call_count: counters.token,
+        custody_write_count: counters.custodyWrites,
+        operational_write_count: 0,
+      }, extra || {}));
+      counters.receiptWrites += 1;
+      return next;
+    }
 
     try {
       if (cleanupInstalled !== true) throw failure('cleanup_unproven');
@@ -764,6 +1072,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
 
       const result = await withPgClient(async (client) => {
         counters.custodyPg += 1;
+        trackHandle(client);
         if (!client || typeof client !== 'object' || typeof client.query !== 'function') {
           throw failure('grant_ineligible');
         }
@@ -803,41 +1112,53 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
           throw failure('binding');
         }
 
+        advanceReceipt(RECEIPT_STATES.refresh_1_started);
         let downscope;
         try {
           downscope = await runDownscope(client, ids, bound.value, countedSecretProvider, countedEnvelope, countedTransport, counters);
         } catch (err) {
-          refreshCountAtUnknown = counters.token;
           if (counters.token >= 1) {
-            outcomeUnknown = true;
             throw failure('outcome_unknown');
           }
           refuseDetail(err, 'token');
         }
         if (!downscope || downscope.claims.mail_send !== false) throw failure('claims');
         downscopeMailSendAbsent = true;
+        advanceReceipt(RECEIPT_STATES.refresh_1_completed, {
+          fence_generation: downscope.generation,
+        });
 
-        const toctouBeforeContinuity = await readBranded();
-        if (ownData(toctouBeforeContinuity, 'ops_097') !== 0
-            || ownData(toctouBeforeContinuity, 'transitions_097') !== 0
-            || ownData(toctouBeforeContinuity, 'authorizations_098') !== 0) {
-          throw failure('counts_nonzero');
+        const expectedContinuityGeneration = downscope.rotated === true
+          ? initialGeneration + 1
+          : initialGeneration;
+        if (typeof expectedContinuityGeneration !== 'number'
+            || !Number.isInteger(expectedContinuityGeneration)) {
+          throw failure('grant_unproven');
         }
-        if (ownData(toctouBeforeContinuity, 'deploy_sha') !== EXPECTED_LIVE_TARGET.deployedSha
-            || ownData(toctouBeforeContinuity, 'revision') !== EXPECTED_LIVE_TARGET.revision
-            || ownData(toctouBeforeContinuity, 'digest') !== EXPECTED_LIVE_TARGET.digest) {
+        const toctouBeforeContinuity = await readBranded();
+        recheckBrandedEligibility(toctouBeforeContinuity);
+        if (!sameProofTarget(independent, toctouBeforeContinuity, expectedContinuityGeneration)
+            && !sameProofTarget(toctouBeforeDownscope, toctouBeforeContinuity, expectedContinuityGeneration)) {
+          throw failure('revision_drift');
+        }
+        if (!sameGeneration(ownData(toctouBeforeContinuity, 'grant_generation'), expectedContinuityGeneration)) {
           throw failure('revision_drift');
         }
 
+        advanceReceipt(RECEIPT_STATES.refresh_2_started);
         let continuity;
         try {
           continuity = await runContinuity(client, ids, bound.value, countedSecretProvider, countedEnvelope, countedTransport, counters);
         } catch (err) {
+          if (counters.token >= 1) {
+            throw failure('outcome_unknown');
+          }
           refuseDetail(err, 'continuity');
         }
         if (!continuity || continuity.claims.mail_send !== true) throw failure('claims');
         if (continuity.claims.scp !== EXPECTED_STAFF_SEND_SCP) throw failure('claims');
         continuityExpectedScopePresent = true;
+        advanceReceipt(RECEIPT_STATES.refresh_2_completed);
 
         if (counters.token !== 2) throw failure('refresh_call_count');
         if (counters.graph !== 0) throw failure('graph_forbidden');
@@ -851,64 +1172,72 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       });
 
       dropTokens();
-      return machineRecord({
-        proof_version: PROOF_VERSION,
-        ok: true,
-        status: 'offline_fake_pass',
-        deployment: SUNSET_DEPLOYMENT,
-        tenant: SUNSET_TENANT,
-        database: EXPECTED_DATABASE,
-        resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
-        app_name: EXPECTED_LIVE_TARGET.appName,
+      try {
+        runCleanup();
+      } catch (_) {
+        cleanupFailed = true;
+      }
+      if (cleanupFailed === true) {
+        try {
+          advanceReceipt(RECEIPT_STATES.terminal_unknown);
+        } catch (_) {
+          counters.receiptWrites += 0;
+        }
+        return terminalRecord('outcome_unknown', false, {
+          source_sha: parsed.sourceSha,
+          preflight_started_at: startedAt,
+          fence_generation: initialGeneration,
+          downscope_mail_send_absent: downscopeMailSendAbsent,
+          continuity_expected_scope_present: continuityExpectedScopePresent,
+        });
+      }
+      advanceReceipt(RECEIPT_STATES.terminal_success);
+      return terminalRecord('offline_fake_pass', true, {
         source_sha: parsed.sourceSha,
-        deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
-        revision: EXPECTED_LIVE_TARGET.revision,
-        digest: EXPECTED_LIVE_TARGET.digest,
         preflight_started_at: startedAt,
         preflight_finished_at: result.finishedAt,
         fence_generation: initialGeneration,
         downscope_mail_send_absent: true,
         continuity_expected_scope_present: true,
-        refresh_call_count: 2,
-        graph_call_count: 0,
-        send_call_count: 0,
-        write_count: 0,
-        compatibility_rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
       });
     } catch (err) {
-      runCleanup();
-      if (err && err.code === ERROR_CODE && err.detail === 'outcome_unknown') {
-        return machineRecord({
-          proof_version: PROOF_VERSION,
-          ok: false,
-          status: 'outcome_unknown',
-          deployment: SUNSET_DEPLOYMENT,
-          tenant: SUNSET_TENANT,
-          database: EXPECTED_DATABASE,
-          resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
-          app_name: EXPECTED_LIVE_TARGET.appName,
+      try {
+        runCleanup();
+      } catch (_) {
+        cleanupFailed = true;
+      }
+      const postToken = counters.token >= 1;
+      const status = (postToken || (err && err.detail === 'outcome_unknown') || cleanupFailed === true)
+        ? 'outcome_unknown'
+        : 'fail_closed';
+      try {
+        advanceReceipt(status === 'outcome_unknown'
+          ? RECEIPT_STATES.terminal_unknown
+          : RECEIPT_STATES.terminal_refused);
+      } catch (_) {
+        cleanupFailed = true;
+      }
+      if (postToken || (err && err.code === ERROR_CODE && err.detail === 'outcome_unknown') || cleanupFailed === true) {
+        return terminalRecord('outcome_unknown', false, {
           source_sha: parsed.sourceSha,
-          deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
-          revision: EXPECTED_LIVE_TARGET.revision,
-          digest: EXPECTED_LIVE_TARGET.digest,
           preflight_started_at: startedAt,
-          preflight_finished_at: null,
           fence_generation: initialGeneration,
           downscope_mail_send_absent: downscopeMailSendAbsent,
-          continuity_expected_scope_present: null,
-          refresh_call_count: refreshCountAtUnknown || counters.token,
-          graph_call_count: 0,
-          send_call_count: 0,
-          write_count: 0,
-          compatibility_rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
+          continuity_expected_scope_present: continuityExpectedScopePresent,
         });
       }
       if (err && err.code === ERROR_CODE) throw err;
-      throw failure(outcomeUnknown ? 'outcome_unknown' : 'reader_invalid');
+      throw failure('reader_invalid');
     } finally {
-      runCleanup();
+      try {
+        runCleanup();
+      } catch (_) {
+        cleanupFailed = true;
+      }
       dropTokens();
       void tokensDropped;
+      void secretProviderHandle;
+      void verifierHandle;
     }
   }
 
@@ -948,6 +1277,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
           leaseToken: held.lease_token,
           expectedGeneration: held.grant_generation,
         }, { client });
+        counters.custodyWrites += 1;
       } catch (_) { /* sanitized */ }
     }
 
@@ -956,24 +1286,9 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       lease = null;
       suppressLeaseAbort = true;
       dropTokenRefs();
-      const detail = typeof detailCode === 'string' && DETAIL_RE.test(detailCode)
-        ? detailCode
-        : (ROTATING_RESPONSE_UNCERTAINTY_DETAILS[stage] || 'post_ms_pre_commit');
-      if (!held) throw failure(stage);
-      let marked;
-      try {
-        marked = await markDelegatedGrantReconciliation({
-          clientId: ids.clientId,
-          endpointId: ids.endpointId,
-          leaseToken: held.lease_token,
-          expectedGeneration: held.grant_generation,
-          reconcileState: 'ms_response_uncertain',
-          reconcileDetailCode: detail,
-        }, { client });
-      } catch (_) {
-        throw failure('outcome_unknown');
-      }
-      if (!marked || marked.ok !== true) throw failure('outcome_unknown');
+      void stage;
+      void detailCode;
+      if (!held) throw failure('outcome_unknown');
       try {
         await abortDelegatedGrantLease({
           clientId: ids.clientId,
@@ -981,6 +1296,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
           leaseToken: held.lease_token,
           expectedGeneration: held.grant_generation,
         }, { client });
+        counters.custodyWrites += 1;
       } catch (_) { /* sanitized */ }
       throw failure('outcome_unknown');
     }
@@ -1003,6 +1319,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       }, { client });
       if (!acquired.ok) throw failure('lease_held');
       lease = acquired.value;
+      counters.custodyWrites += 1;
       if (!acceptedGrantScope(lease.scope_version)) {
         await safeAbort(lease);
         lease = null;
@@ -1053,19 +1370,15 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
         suppressLeaseAbort = true;
         lease = null;
         if (!held) throw failure('grant_ineligible');
-        let reauth;
         try {
-          reauth = await markDelegatedGrantReauthorizationRequired({
+          await abortDelegatedGrantLease({
             clientId: ids.clientId,
             endpointId: ids.endpointId,
             leaseToken: held.lease_token,
             expectedGeneration: held.grant_generation,
-            reason: 'invalid_grant',
           }, { client });
-        } catch (_) {
-          throw failure('outcome_unknown');
-        }
-        if (!reauth || reauth.ok !== true) throw failure('outcome_unknown');
+          counters.custodyWrites += 1;
+        } catch (_) { /* sanitized */ }
         throw failure('grant_ineligible');
       }
 
@@ -1144,6 +1457,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
           leaseToken: lease.lease_token,
           expectedGeneration: lease.grant_generation,
         }, { client });
+        counters.custodyWrites += 1;
         if (!released.ok) throw failure('release');
         generationAfter = lease.grant_generation;
         lease = null;
@@ -1184,6 +1498,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
           operationId: nextOperationId,
           envelope: envCheck.value,
         }, { client });
+        counters.custodyWrites += 1;
         if (!committed.ok) await refuseBeforeCommit('commit');
         generationAfter = nextGeneration;
         lease = null;
@@ -1288,6 +1603,12 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
   });
 }
 
+function createProductionReceiptStore() {
+  const createStore = chapter4IReceipt.createChapter4IReceiptStore;
+  if (typeof createStore !== 'function') throw failure('operator_receipt_unproven');
+  return createStore();
+}
+
 async function executeOnceSunsetStagingLiveProof(input) {
   if (invokedFromSourceTestHarness()) throw failure('source_test_cannot_consume_live_attempt');
   const parsed = input && input.parsed ? input.parsed : parseArgs(input && input.argv);
@@ -1298,41 +1619,82 @@ async function executeOnceSunsetStagingLiveProof(input) {
   if (envAliasPresent(env)) throw failure('env_alias_refused');
   const gate = validateExactInvocation(parsed);
   if (gate) throw failure(gate);
-
-  const brand = consumeChapter4ISunsetStagingOneShotAuthority(objectFreeze({
-    operatorNonce: parsed.operatorNonce,
+  const commandRunner = createProductionCommandRunner();
+  assertExecutingSource(parsed.sourceSha, commandRunner);
+  const receiptStore = createProductionReceiptStore();
+  if (receiptStore.read()) throw failure('operator_receipt_replay');
+  const claimedAt = new Date().toISOString();
+  receiptStore.claim(objectFreeze({
+    chapter_id: chapter4IReceipt.CHAPTER_ID,
+    source_sha: parsed.sourceSha,
+    deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
+    revision: EXPECTED_LIVE_TARGET.revision,
+    digest: EXPECTED_LIVE_TARGET.digest,
+    deployment: SUNSET_DEPLOYMENT,
+    tenant: SUNSET_TENANT,
+    database: EXPECTED_DATABASE,
+    resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
+    app_name: EXPECTED_LIVE_TARGET.appName,
+    operator_nonce: parsed.operatorNonce,
+    confirm_issued_at: parsed.confirmIssuedAt,
+    status: RECEIPT_STATES.claimed,
+    refresh_call_count: 0,
+    local_receipt_write_count: 1,
+    custody_write_count: 0,
+    operational_write_count: 0,
+    claimed_at: claimedAt,
+    updated_at: claimedAt,
   }));
-  if (isActiveChapter4ISunsetStagingOneShotAuthority() !== true) {
-    throw failure('one_shot_already_consumed');
+  PENDING_CLAIMED_STORES.add(receiptStore);
+
+  const mintRead = chapter4IAuthority.mintExactlyOneProductionReadCapability;
+  const mintCompose = chapter4IAuthority.mintExactlyOneComposeCapability;
+  if (typeof mintRead !== 'function' || typeof mintCompose !== 'function') {
+    throw failure('capability_refused');
+  }
+  const readCap = mintRead();
+  const takeReader = readerOwnedModule.takeProductionReaderWithChapter4ICapability;
+  if (typeof takeReader !== 'function') throw failure('live_execute_not_authorized_in_this_chapter');
+  const productionReader = takeReader(readCap);
+  if (!productionReader || typeof ownData(productionReader, 'read') !== 'function') {
+    throw failure('independent_reader_absent');
   }
 
   const liveOwner = requirePinnedLiveOwner();
+  const wrapperHandles = [];
   let independent;
-  try {
-    independent = await liveOwner.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg();
-  } catch (err) {
-    markChapter4ITerminal();
-    refuseDetail(err, 'live_preflight_unproven');
-  }
-  const branded = inspectIndependentLivePreflight(liveOwner, independent);
-  if (!branded || branded.ok !== true) {
-    markChapter4ITerminal();
-    throw failure((branded && branded.reason) || 'live_preflight_unproven');
-  }
-  markChapter4IBrandedPreflight(brand);
-  recheckBrandedEligibility(independent);
-
   let deps;
   try {
-    deps = composeSunsetStagingLiveDownscopeProverDependencies(objectFreeze({ env }));
+    try {
+      independent = await ownData(productionReader, 'read').call(productionReader);
+    } catch (err) {
+      refuseDetail(err, 'live_preflight_unproven');
+    }
+    const branded = inspectIndependentLivePreflight(liveOwner, independent);
+    if (!branded || branded.ok !== true) {
+      throw failure((branded && branded.reason) || 'live_preflight_unproven');
+    }
+    recheckBrandedEligibility(independent);
+
+    const composeCap = mintCompose(independent);
+    const composeOnce = liveTargetOwner.composeSunsetStagingLiveDownscopeProverDependenciesOnceWithChapter4ICapability;
+    if (typeof composeOnce !== 'function') throw failure('live_execute_not_authorized_in_this_chapter');
+    try {
+      deps = composeOnce(composeCap, objectFreeze({ env }));
+    } catch (err) {
+      refuseDetail(err, 'compose');
+    }
+    wrapperHandles.push(ownData(deps, 'transport'));
+    wrapperHandles.push(ownData(deps, 'envelopeProvider'));
   } catch (err) {
-    markChapter4ITerminal();
-    refuseDetail(err, 'compose');
+    for (let i = 0; i < wrapperHandles.length; i += 1) {
+      try { closeHandle(wrapperHandles[i]); } catch (_) { /* sanitized */ }
+    }
+    throw err;
   }
 
-  markChapter4IExecuting();
   const owner = createOwnedSunsetStagingLiveExecutionOwner(objectFreeze({
-    readIndependentLivePreflight: () => liveOwner.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg(),
+    readIndependentLivePreflight: () => ownData(productionReader, 'read').call(productionReader),
     envelopeProvider: ownData(deps, 'envelopeProvider'),
     createSecretProvider: ownData(deps, 'createSecretProvider'),
     transport: ownData(deps, 'transport'),
@@ -1341,18 +1703,14 @@ async function executeOnceSunsetStagingLiveProof(input) {
     binding: ownData(deps, 'binding'),
     applicationClientId: ownData(deps, 'applicationClientId'),
     clock: objectFreeze({ nowMs() { return Date.now(); } }),
+    receiptStore,
+    commandRunner,
   }));
-  try {
-    const record = await owner.executeOnce(invocationFromParsed(parsed));
-    markChapter4ITerminal();
-    if (record && record.ok === true) {
-      return machineRecord(Object.assign({}, record, { status: 'pass' }));
-    }
-    return record;
-  } catch (err) {
-    markChapter4ITerminal();
-    throw err;
+  const record = await owner.executeOnce(invocationFromParsed(parsed));
+  if (record && record.ok === true) {
+    return machineRecord(Object.assign({}, record, { status: 'pass' }));
   }
+  return record;
 }
 
 async function runCli(argv, env) {
@@ -1375,13 +1733,14 @@ async function runCli(argv, env) {
       return refusedRecord(err.detail, {
         source_sha: parsed.sourceSha,
         status: err.detail === 'outcome_unknown' ? 'outcome_unknown' : 'fail_closed',
+        refresh_call_count: 0,
       });
     }
     return refusedRecord('reader_invalid', { source_sha: parsed.sourceSha, status: 'fail_closed' });
   }
 }
 
-module.exports = objectFreeze({
+const publicOwned = objectFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   PROOF_VERSION,
@@ -1397,7 +1756,6 @@ module.exports = objectFreeze({
   SUNSET_TENANT,
   EXPECTED_DATABASE,
   LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
-  createOwnedSunsetStagingLiveExecutionOwner,
   executeOnceSunsetStagingLiveProof,
   parseArgs,
   runCli,
@@ -1405,4 +1763,32 @@ module.exports = objectFreeze({
   refusedRecord,
   machineRecord,
   invokedFromSourceTestHarness,
+});
+
+module.exports = new Proxy(publicOwned, {
+  get(target, prop) {
+    if (prop === 'createOwnedSunsetStagingLiveExecutionOwner') {
+      if (authenticLibCaller([
+        'email-luna-controlled-drafting-sunset-staging-live-execution-owner.test-support.js',
+      ]) !== true) {
+        return undefined;
+      }
+      return createOwnedSunsetStagingLiveExecutionOwner;
+    }
+    return target[prop];
+  },
+  has(target, prop) {
+    if (prop === 'createOwnedSunsetStagingLiveExecutionOwner') return false;
+    return Object.prototype.hasOwnProperty.call(target, prop);
+  },
+  ownKeys() {
+    return Reflect.ownKeys(publicOwned);
+  },
+  getOwnPropertyDescriptor(target, prop) {
+    if (prop === 'createOwnedSunsetStagingLiveExecutionOwner') return undefined;
+    return Object.getOwnPropertyDescriptor(target, prop);
+  },
+  set() { return false; },
+  defineProperty() { return false; },
+  deleteProperty() { return false; },
 });

@@ -33,9 +33,9 @@ Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (
 
 ## Disabled / live-proof state
 
-- Frozen `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false` with load-time throws on the Chapter 4E/4G/4H owners. Do not flip that broadly imported constant.
+- Frozen `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false` with load-time throws on the Chapter 4E/4G/4H owners. Do not flip that broadly imported constant. Chapter 4I does not OR an ambient mint into 4H adapters or 4G compose.
 - Public compose, live `runProof`, and CLI `--execute-once` refuse before KV / token / JWKS / live PG / this reader execute.
-- Chapter 4I adds a dedicated one-shot Sunset-only execution owner. Staff API startup and ordinary imports remain inert.
+- Chapter 4I adds a dedicated closed one-shot Sunset-only execution owner (durable receipt + git-bound `--source-sha` + unexported capabilities). Staff API startup and ordinary imports remain inert. Direct 4H production reads still fail before IMDS after any 4I import.
 - Eight controlled-drafting / send flags must stay literal `false` on the live app.
 - Caller snapshots cannot mint an independent live-proof brand.
 - Chapter 4H brands evidence only from the owned reader after measured Azure/PG facts. Chapter 4I must consume that unexported brand through `inspectIndependentLivePreflight` before Key Vault / token / JWKS / custody PG.

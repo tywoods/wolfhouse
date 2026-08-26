@@ -51,9 +51,7 @@ const {
 const {
   proveCanonicalRuntimeOwnersMatchDeployedContract,
 } = require('./email-luna-controlled-drafting-live-downscope-prover-canonical-owners');
-const {
-  isActiveChapter4ISunsetStagingOneShotAuthority,
-} = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
+const chapter4IAuthority = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -123,6 +121,7 @@ const GRANT_KEYS = objectFreeze([
   'grant_generation', 'grant_status', 'reconcile_state', 'has_active_lease',
 ]);
 const BINDING_KEYS = objectFreeze(['binding_ok', 'own_user', 'mailbox_ready', 'has_active_operation']);
+const HEX64_RE = /^[0-9a-f]{64}$/;
 const AZURE_ADAPTER_KEYS = objectFreeze(['readApp', 'listRevisions', 'readRevision']);
 const ACR_ADAPTER_KEYS = objectFreeze(['readManifestDigest']);
 const PG_ADAPTER_KEYS = objectFreeze(['withProducerClient', 'withWorkerClient']);
@@ -692,8 +691,19 @@ function invokedFromSourceTestHarness() {
 }
 
 function chapterAllowsProductionLiveAdapters() {
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER === true) return true;
-  return isActiveChapter4ISunsetStagingOneShotAuthority() === true;
+  return LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER === true;
+}
+
+function requireHex64Fingerprint(value) {
+  if (typeof value !== 'string' || !HEX64_RE.test(value)) throw failure('login_unproven');
+  return value;
+}
+
+function requireBrandedGeneration(value) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw failure('grant_unproven');
+  }
+  return value;
 }
 
 function createOwnedSunsetStagingLivePreflightReader(input) {
@@ -782,12 +792,19 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
         ['binding_ok', true],
         ['own_user', true],
         ['mailbox_ready', true],
+        ['client_id', azureB.app.clientId],
+        ['location_id', azureB.app.locationId],
+        ['endpoint_id', azureB.app.endpointId],
+        ['mailbox_id', azureB.app.mailboxId],
+        ['grant_generation', requireBrandedGeneration(pgB.grant.grant_generation)],
         ['grant_status', pgB.grant.grant_status],
         ['reconcile_state', pgB.grant.reconcile_state],
         ['has_active_lease', false],
         ['has_active_operation', false],
         ['producer_login_ok', true],
         ['worker_login_ok', true],
+        ['producer_login_fingerprint', requireHex64Fingerprint(pgB.producer.fingerprint)],
+        ['worker_login_fingerprint', requireHex64Fingerprint(pgB.worker.fingerprint)],
         ['logins_distinct', true],
         ['tls_ok', true],
         ['acl_ok', true],
@@ -957,9 +974,9 @@ function closedAcrDigestFromManifestResponse(res) {
   throw failure('acr_unproven');
 }
 
-function createProductionAdapters() {
+function createProductionAdapters(authorizedByChapter4ICapability) {
   if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true
-      && chapterAllowsProductionLiveAdapters() !== true) {
+      && authorizedByChapter4ICapability !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   const armBase = `https://${AZURE_OWNER.armHost}/subscriptions/${AZURE_OWNER.subscriptionId}`
@@ -1034,10 +1051,10 @@ function createProductionAdapters() {
     },
     pg: {
       async withProducerClient(work) {
-        return withProductionLoginClient('producer', work);
+        return withProductionLoginClient('producer', work, authorizedByChapter4ICapability === true);
       },
       async withWorkerClient(work) {
-        return withProductionLoginClient('worker', work);
+        return withProductionLoginClient('worker', work, authorizedByChapter4ICapability === true);
       },
     },
     clock: {
@@ -1075,9 +1092,9 @@ async function withReadOnlyPreflightClient(handle, work) {
   }
 }
 
-async function withProductionLoginClient(kind, work) {
+async function withProductionLoginClient(kind, work, authorizedByChapter4ICapability) {
   if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true
-      && chapterAllowsProductionLiveAdapters() !== true) {
+      && authorizedByChapter4ICapability !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   if (typeof work !== 'function' || isProxySurface(work)) throw failure('pg_unproven');
@@ -1101,13 +1118,21 @@ async function withProductionLoginClient(kind, work) {
 
 async function readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg() {
   if (arguments.length !== 0) throw failure('caller_input_refused');
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true
-      && chapterAllowsProductionLiveAdapters() !== true) {
+  if (chapterAllowsProductionLiveAdapters() !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   if (invokedFromSourceTestHarness()) throw failure('source_test_cannot_consume_live_azure_pg');
-  const reader = createOwnedSunsetStagingLivePreflightReader(createProductionAdapters());
+  const reader = createOwnedSunsetStagingLivePreflightReader(createProductionAdapters(false));
   return reader.read();
+}
+
+function takeProductionReaderWithChapter4ICapability(capability) {
+  if (arguments.length !== 1) throw failure('caller_input_refused');
+  const consume = chapter4IAuthority.consumeProductionReadCapability;
+  if (typeof consume !== 'function') throw failure('live_execute_not_authorized_in_this_chapter');
+  if (consume(capability) !== true) throw failure('live_execute_not_authorized_in_this_chapter');
+  if (invokedFromSourceTestHarness()) throw failure('source_test_cannot_consume_live_azure_pg');
+  return createOwnedSunsetStagingLivePreflightReader(createProductionAdapters(true));
 }
 
 function isIndependentLivePreflight(value) {
@@ -1119,7 +1144,7 @@ function isIndependentLivePreflight(value) {
   }
 }
 
-module.exports = objectFreeze({
+const publicOwned = objectFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   EIGHT_FLAGS,
@@ -1135,4 +1160,27 @@ module.exports = objectFreeze({
   isIndependentLivePreflight,
   withReadOnlyPreflightClient,
   closedAcrDigestFromManifestResponse,
+});
+
+module.exports = new Proxy(publicOwned, {
+  get(target, prop) {
+    if (prop === 'takeProductionReaderWithChapter4ICapability') {
+      return takeProductionReaderWithChapter4ICapability;
+    }
+    return target[prop];
+  },
+  has(target, prop) {
+    if (prop === 'takeProductionReaderWithChapter4ICapability') return false;
+    return Object.prototype.hasOwnProperty.call(target, prop);
+  },
+  ownKeys() {
+    return Reflect.ownKeys(publicOwned);
+  },
+  getOwnPropertyDescriptor(target, prop) {
+    if (prop === 'takeProductionReaderWithChapter4ICapability') return undefined;
+    return Object.getOwnPropertyDescriptor(target, prop);
+  },
+  set() { return false; },
+  defineProperty() { return false; },
+  deleteProperty() { return false; },
 });
