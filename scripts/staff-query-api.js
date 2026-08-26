@@ -334,6 +334,9 @@ const {
   snapshotEmailLunaGenerateGateEnv, isEmailLunaGenerateDraftEnabled,
 } = require('./lib/staff-email-luna-draft-route');
 const {
+  createStaffInboxLunaModeRoutes, INBOX_LUNA_MODE_PATH,
+} = require('./lib/staff-inbox-luna-mode-routes');
+const {
   createStaffEmailLunaDraftOpen,
   applyEmailLunaOpenDraftToSection,
   applyEmailLunaOpenDraftToDetail,
@@ -2949,6 +2952,9 @@ const emailLunaDraftRoute = createStaffEmailLunaDraftRoute({
   createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
   saveDraftThroughStaffOwner: emailInboxRoutes.saveDraftThroughStaffOwner,
   regenerateEmailLunaDraftOnStaffClick: (input) => emailLunaDraftOpen.regenerateEmailLunaDraftOnStaffClick(input),
+});
+const inboxLunaModeRoutes = createStaffInboxLunaModeRoutes({
+  sendJSON, withPgClient,
 });
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
@@ -48981,6 +48987,20 @@ async function router(req, res) {
       lunaActor = Object.freeze(out);
     } catch (_) { lunaActor = null; }
     return emailLunaDraftRoute.handleGenerateLunaDraft(req, res, lunaActor, gate);
+  }
+
+  if (pathname === INBOX_LUNA_MODE_PATH && (method === 'PUT' || method === 'GET')) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    if (method === 'GET') return inboxLunaModeRoutes.handleGet(req, res, auth.user);
+    let body = {};
+    try {
+      const raw = await readBody(req, 2048);
+      body = JSON.parse(Buffer.isBuffer(raw) ? raw.toString('utf8') : raw);
+    } catch {
+      return sendJSON(res, 400, { success: false, error: 'invalid_request' });
+    }
+    return inboxLunaModeRoutes.handlePut(req, res, auth.user, body);
   }
 
   // Explicit Staff Create Draft (default-off; same Luna draft gate; no send/approve/journal).

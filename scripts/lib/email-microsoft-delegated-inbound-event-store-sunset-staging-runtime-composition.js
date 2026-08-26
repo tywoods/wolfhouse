@@ -445,19 +445,55 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
       }));
       const consumer = async (envelopes) => {
         const acknowledged = await durableConsumer(envelopes);
+        const {
+          isEmailMicrosoftAutoSendEmergencyEnabled,
+          shouldSuppressInboundNeedsHuman,
+          afterMicrosoftInboundProjected,
+        } = require('./email-luna-microsoft-auto-create-send');
+        const autoFlagsOn = isEmailMicrosoftAutoSendEmergencyEnabled(ready.env);
+        let suppressNeedsHuman = false;
+        if (autoFlagsOn) {
+          try {
+            suppressNeedsHuman = await shouldSuppressInboundNeedsHuman({
+              env: ready.env,
+              clientId: ids.clientId,
+              withTransactionClient,
+            });
+          } catch {
+            suppressNeedsHuman = false;
+          }
+        }
         for (const envelope of envelopes) {
-          const projected = await inboxBridge.projectInboundEvent({
+          const projectInput = {
             clientId: ids.clientId,
             locationId: ids.locationId,
             endpointId: ids.endpointId,
             provider: envelope.provider,
             providerMailboxId: envelope.provider_mailbox_id,
             providerMessageId: envelope.provider_message_id,
-          });
+          };
+          if (suppressNeedsHuman) projectInput.setNeedsHuman = false;
+          const projected = await inboxBridge.projectInboundEvent(Object.freeze(projectInput));
           if (!projected
               || (projected.status !== 'projected'
                 && projected.status !== 'already_projected')) {
             throw failure();
+          }
+          if (autoFlagsOn) {
+            try {
+              await afterMicrosoftInboundProjected({
+                env: ready.env,
+                pgClient,
+                withTransactionClient,
+                https: natives.https,
+                timers: natives.timers,
+                authority: ids,
+                envelope,
+                projection: projected,
+              });
+            } catch {
+              // Auto failure must not unwind inbound durability.
+            }
           }
         }
         return acknowledged;

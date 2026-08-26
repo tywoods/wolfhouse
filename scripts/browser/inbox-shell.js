@@ -5,7 +5,9 @@
  * (no thread required):
  *
  *   WhatsApp  Auto | Draft | Off
- *   Email     Draft | Off     (never Auto — email does not auto-send)
+ *   Email     Auto | Draft | Off  (Auto create-and-send stays dormant until
+ *     LUNA_AUTO_SEND_ENABLED and LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED are both
+ *     the literal string true; default stored value remains Draft)
  *
  * Replaces the tenant/company select (`#c-client`, "Sunset Surf School") that
  * sat in `.inbox-toolbar-top` under the header. School flip stays
@@ -44,8 +46,7 @@ function inboxShellT(key, fallback){
   return fallback;
 }
 
-function inboxShellChannelOptions(channel){
-  if (channel === 'email') return ['draft', 'off'];
+function inboxShellChannelOptions(_channel){
   return ['auto', 'draft', 'off'];
 }
 
@@ -55,7 +56,7 @@ function inboxShellNormalizeWhatsApp(value){
 }
 
 function inboxShellNormalizeEmail(value){
-  if (value === 'off' || value === 'draft') return value;
+  if (value === 'off' || value === 'draft' || value === 'auto') return value;
   return 'draft';
 }
 

@@ -810,6 +810,156 @@ function createStaffEmailInboxRoutes(deps) {
       }
     });
   }
+  async function executeApproveAndDispatch(pg, actor, input, digest, env) {
+    let began = false;
+    try { await pg.query('BEGIN'); began = true; } catch { began = false; }
+    try {
+      const approvalId = input.approval_id;
+      const locked = await pg.query(SQL_LOCK, [approvalId, actor.client_id, input.conversation_id]);
+      if (!locked || !locked.rows || locked.rows.length !== 1) {
+        if (began) await pg.query('ROLLBACK');
+        return { status: 404, body: NOT_FOUND, code: 'approval_not_found' };
+      }
+      const row = locked.rows[0];
+      if (row.state !== 'draft' && row.state !== 'approved') {
+        if (began) await pg.query('ROLLBACK');
+        return { status: 409, body: APPROVAL_CONFLICT, code: 'approval_not_dispatchable' };
+      }
+      if (row.message_text !== input.message_text || row.body_digest !== digest) {
+        if (began) await pg.query('ROLLBACK');
+        return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
+      }
+      const lockedSubject = (row.subject == null || row.subject === '') ? null : String(row.subject);
+      if (hasExplicitSubjectOverride(input) && input.subject !== lockedSubject) {
+        if (began) await pg.query('ROLLBACK');
+        return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
+      }
+      const resolved = await resolveSendableAuthority(pg, actor, input.conversation_id);
+      if (!resolved.auth) {
+        if (began) await pg.query('ROLLBACK');
+        return resolved;
+      }
+      const auth = resolved.auth;
+      if (!authorityMatchesApproval(auth, row)) {
+        if (began) await pg.query('ROLLBACK');
+        return { status: 409, body: APPROVAL_CONFLICT, code: 'authority_drift' };
+      }
+      // Kill switch: bound endpoint outbound must be true before durable approve CAS.
+      if (auth.endpoint_outbound_enabled !== true) {
+        if (began) await pg.query('ROLLBACK');
+        return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'draft' }),
+          code: 'email_send_disabled', approval_id: approvalId, approved: false };
+      }
+      const sendSubject = lockedSubject;
+      const lockedOperationId = parseUuid(typeof row.operation_id === 'string' ? row.operation_id : null);
+      if (!lockedOperationId) {
+        if (began) await pg.query('ROLLBACK');
+        return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_operation_missing' };
+      }
+      if (row.state === 'approved') {
+        // Dispatch an approved record here only if this immutable operation
+        // has never entered the journal. Any row or malformed result closes.
+        const journal = await pg.query(SQL_JOURNAL_EXISTS, [
+          actor.client_id, approvalId, lockedOperationId, input.conversation_id,
+        ]);
+        if (!journal || !Array.isArray(journal.rows) || journal.rows.length !== 0) {
+          if (began) await pg.query('ROLLBACK');
+          return { status: 409, body: APPROVAL_CONFLICT, code: 'approved_operation_already_dispatched' };
+        }
+      } else {
+        const approved = await pg.query(SQL_APPROVE, [
+          approvalId, actor.client_id, input.conversation_id, lockedOperationId,
+          actor.staff_user_id, input.message_text, digest, sendSubject,
+        ]);
+        if (!approved || !approved.rows || approved.rows.length !== 1) {
+          if (began) await pg.query('ROLLBACK');
+          return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_cas_miss' };
+        }
+        row.state = 'approved';
+      }
+      if (began) await pg.query('COMMIT');
+      // Post-COMMIT only. Global send + composition flags independently required.
+      // Hard-false owner constants remain; no token/Graph when either flag is off.
+      const sendEnabled = isEmailOutboundSendEnabled(env);
+      const compositionEnabled = isEmailOutboundRuntimeCompositionEnabled(env);
+      if (!sendEnabled || !compositionEnabled) {
+        return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+          code: 'email_send_disabled', approval_id: approvalId, approved: true };
+      }
+      const sealed = sealApprovedDispatchRequest(row, auth, actor, lockedOperationId, sendSubject);
+      if (!sealed) {
+        return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+          code: 'email_send_unavailable', approval_id: approvalId, approved: true };
+      }
+      let dispatchResult = null;
+      // Full runtime env for owner pins (gateEnv is flag snapshot only).
+      const compositionEnv = deps.runtimeEnv || process.env;
+      if (typeof createOutboundDispatch === 'function') {
+        // Lazy construction on pinned post-COMMIT client; never release here.
+        try {
+          const surface = createOutboundDispatch(pg, compositionEnv);
+          if (!surface || typeof surface.dispatchApprovedOutbound !== 'function') {
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+              code: 'email_send_unavailable', approval_id: approvalId, approved: true };
+          }
+          dispatchResult = await surface.dispatchApprovedOutbound(sealed);
+        } catch {
+          return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+            code: 'email_send_unavailable', approval_id: approvalId, approved: true };
+        }
+      } else if (typeof outboundDispatch === 'function') {
+        dispatchResult = await outboundDispatch(sealed);
+      } else {
+        return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+          code: 'email_send_disabled_unreachable', approval_id: approvalId, approved: true };
+      }
+      const mapped = mapDispatchToRoute(dispatchResult, input.conversation_id, approvalId);
+      return {
+        ...mapped,
+        approval_id: approvalId,
+        send_subject: sendSubject,
+        message_text: row.message_text,
+        journaled: true,
+        provider_invoked: true,
+      };
+    } catch (err) {
+      if (began) { try { await pg.query('ROLLBACK'); } catch { /* */ } }
+      throw err;
+    }
+  }
+  async function approveAndDispatchEmailOutbound(input) {
+    const a = input && input.actor;
+    const raw = input && {
+      conversation_id: input.conversation_id,
+      message_text: input.message_text,
+      approval_id: input.approval_id,
+    };
+    if (raw && input && (Object.prototype.hasOwnProperty.call(input, 'subject')
+        || Object.prototype.hasOwnProperty.call(input, 'email_subject'))) {
+      raw.subject = input.subject;
+      raw.email_subject = Object.prototype.hasOwnProperty.call(input, 'email_subject')
+        ? input.email_subject : input.subject;
+    }
+    const body = snapshotEmailReplyBody(raw);
+    if (!a || !body || body.approval_id == null) throw new Error('invalid approve owner input');
+    const digest = bodyDigestOf(body.message_text);
+    const env = input.env || snapshotGateEnv(deps.runtimeEnv || process.env);
+    const result = await withPgClient(async (pg) => executeApproveAndDispatch(pg, a, body, digest, env));
+    const deliveryCommitted = result.code === 'email_send_committed'
+      && result.status === 200
+      && result.body
+      && result.body.success === true;
+    if (deliveryCommitted === true) {
+      await mirrorCommittedOutboundThread(
+        a,
+        body.conversation_id,
+        result.approval_id,
+        typeof result.message_text === 'string' ? result.message_text : body.message_text,
+        result.send_subject,
+      );
+    }
+    return result;
+  }
   async function handleApproveSend(req, res, user, gateEnv) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
@@ -830,116 +980,7 @@ function createStaffEmailInboxRoutes(deps) {
       return sendJSON(res, 400, INVALID_REQUEST);
     }
     try {
-      const result = await withPgClient(async (pg) => {
-        let began = false;
-        try { await pg.query('BEGIN'); began = true; } catch { began = false; }
-        try {
-          const approvalId = input.approval_id;
-          const locked = await pg.query(SQL_LOCK, [approvalId, actor.client_id, input.conversation_id]);
-          if (!locked || !locked.rows || locked.rows.length !== 1) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 404, body: NOT_FOUND, code: 'approval_not_found' };
-          }
-          const row = locked.rows[0];
-          if (row.state !== 'draft' && row.state !== 'approved') {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: APPROVAL_CONFLICT, code: 'approval_not_dispatchable' };
-          }
-          if (row.message_text !== input.message_text || row.body_digest !== digest) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
-          }
-          const lockedSubject = (row.subject == null || row.subject === '') ? null : String(row.subject);
-          if (hasExplicitSubjectOverride(input) && input.subject !== lockedSubject) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: BODY_MISMATCH, code: 'body_mismatch' };
-          }
-          const resolved = await resolveSendableAuthority(pg, actor, input.conversation_id);
-          if (!resolved.auth) {
-            if (began) await pg.query('ROLLBACK');
-            return resolved;
-          }
-          const auth = resolved.auth;
-          if (!authorityMatchesApproval(auth, row)) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: APPROVAL_CONFLICT, code: 'authority_drift' };
-          }
-          // Kill switch: bound endpoint outbound must be true before durable approve CAS.
-          if (auth.endpoint_outbound_enabled !== true) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'draft' }),
-              code: 'email_send_disabled', approval_id: approvalId, approved: false };
-          }
-          const sendSubject = lockedSubject;
-          const lockedOperationId = parseUuid(typeof row.operation_id === 'string' ? row.operation_id : null);
-          if (!lockedOperationId) {
-            if (began) await pg.query('ROLLBACK');
-            return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_operation_missing' };
-          }
-          if (row.state === 'approved') {
-            // Dispatch an approved record here only if this immutable operation
-            // has never entered the journal. Any row or malformed result closes.
-            const journal = await pg.query(SQL_JOURNAL_EXISTS, [
-              actor.client_id, approvalId, lockedOperationId, input.conversation_id,
-            ]);
-            if (!journal || !Array.isArray(journal.rows) || journal.rows.length !== 0) {
-              if (began) await pg.query('ROLLBACK');
-              return { status: 409, body: APPROVAL_CONFLICT, code: 'approved_operation_already_dispatched' };
-            }
-          } else {
-            const approved = await pg.query(SQL_APPROVE, [
-              approvalId, actor.client_id, input.conversation_id, lockedOperationId,
-              actor.staff_user_id, input.message_text, digest, sendSubject,
-            ]);
-            if (!approved || !approved.rows || approved.rows.length !== 1) {
-              if (began) await pg.query('ROLLBACK');
-              return { status: 409, body: APPROVAL_CONFLICT, code: 'approve_cas_miss' };
-            }
-            row.state = 'approved';
-          }
-          if (began) await pg.query('COMMIT');
-          // Post-COMMIT only. Global send + composition flags independently required.
-          // Hard-false owner constants remain; no token/Graph when either flag is off.
-          const sendEnabled = isEmailOutboundSendEnabled(env);
-          const compositionEnabled = isEmailOutboundRuntimeCompositionEnabled(env);
-          if (!sendEnabled || !compositionEnabled) {
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
-              code: 'email_send_disabled', approval_id: approvalId, approved: true };
-          }
-          const sealed = sealApprovedDispatchRequest(row, auth, actor, lockedOperationId, sendSubject);
-          if (!sealed) {
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
-              code: 'email_send_unavailable', approval_id: approvalId, approved: true };
-          }
-          let dispatchResult = null;
-          // Full runtime env for owner pins (gateEnv is flag snapshot only).
-          const compositionEnv = deps.runtimeEnv || process.env;
-          if (typeof createOutboundDispatch === 'function') {
-            // Lazy construction on pinned post-COMMIT client; never release here.
-            try {
-              const surface = createOutboundDispatch(pg, compositionEnv);
-              if (!surface || typeof surface.dispatchApprovedOutbound !== 'function') {
-                return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
-                  code: 'email_send_unavailable', approval_id: approvalId, approved: true };
-              }
-              dispatchResult = await surface.dispatchApprovedOutbound(sealed);
-            } catch {
-              return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
-                code: 'email_send_unavailable', approval_id: approvalId, approved: true };
-            }
-          } else if (typeof outboundDispatch === 'function') {
-            dispatchResult = await outboundDispatch(sealed);
-          } else {
-            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
-              code: 'email_send_disabled_unreachable', approval_id: approvalId, approved: true };
-          }
-          const mapped = mapDispatchToRoute(dispatchResult, input.conversation_id, approvalId);
-          return { ...mapped, approval_id: approvalId, send_subject: sendSubject, message_text: row.message_text };
-        } catch (err) {
-          if (began) { try { await pg.query('ROLLBACK'); } catch { /* */ } }
-          throw err;
-        }
-      });
+      const result = await withPgClient(async (pg) => executeApproveAndDispatch(pg, actor, input, digest, env));
       // Audit success only for exact committed delivery — not mere approval persistence.
       const deliveryCommitted = result.code === 'email_send_committed'
         && result.status === 200
@@ -1176,6 +1217,7 @@ function createStaffEmailInboxRoutes(deps) {
   return Object.freeze({
     EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
     handleDraft, handleApproveSend, handleRecoverSend, saveDraftThroughStaffOwner,
+    approveAndDispatchEmailOutbound,
   });
 }
 module.exports = {

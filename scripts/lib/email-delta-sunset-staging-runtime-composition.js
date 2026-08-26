@@ -87,7 +87,56 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
     const result=await operation.runAuthorityBoundMessagesDeltaPage(cleanAuthority);
     if(!result||result.ok!==true){sink.recordFromTrustedPageResult(result,readTrustedAuthorityBoundPageInternalStage);throw fail();} return result.value;
    },
-   projectEvent:async event=>createEmailInboundInboxBridge({withTransactionClient:async work=>work(currentClient)}).projectInboundEvent({clientId:event.clientId,locationId:event.locationId,endpointId:event.endpointId,provider:event.provider,providerMailboxId:event.providerMailboxId,providerMessageId:event.providerMessageId}),
+   projectEvent:async event=>{
+    const {
+      isEmailMicrosoftAutoSendEmergencyEnabled,
+      shouldSuppressInboundNeedsHuman,
+      afterMicrosoftInboundProjected,
+    } = require('./email-luna-microsoft-auto-create-send');
+    const autoFlagsOn = isEmailMicrosoftAutoSendEmergencyEnabled(deps.env);
+    const projectInput = {
+      clientId: event.clientId,
+      locationId: event.locationId,
+      endpointId: event.endpointId,
+      provider: event.provider,
+      providerMailboxId: event.providerMailboxId,
+      providerMessageId: event.providerMessageId,
+    };
+    if (autoFlagsOn) {
+      try {
+        if (await shouldSuppressInboundNeedsHuman({
+          env: deps.env,
+          clientId: event.clientId,
+          withTransactionClient: async work => work(currentClient),
+        })) projectInput.setNeedsHuman = false;
+      } catch (_err) { /* keep generate-on-open latch */ }
+    }
+    const projected = await createEmailInboundInboxBridge({ withTransactionClient: async work => work(currentClient) })
+      .projectInboundEvent(Object.freeze(projectInput));
+    if (autoFlagsOn) {
+      try {
+        await afterMicrosoftInboundProjected({
+          env: deps.env,
+          pgClient: currentClient,
+          withTransactionClient: async work => work(currentClient),
+          https: observedHttps,
+          timers: deps.timers,
+          authority: Object.freeze({
+            clientId: event.clientId,
+            locationId: event.locationId,
+            endpointId: event.endpointId,
+          }),
+          envelope: Object.freeze({
+            provider: event.provider,
+            provider_mailbox_id: event.providerMailboxId,
+            provider_message_id: event.providerMessageId,
+          }),
+          projection: projected,
+        });
+      } catch (_err) { /* never fail inbound durability */ }
+    }
+    return projected;
+   },
   });
   let tickPromise=null,timer=null,stopped=true,schemaVerified=false;
   async function verifySchema(){if(schemaVerified)return;try{await deps.withPgClient(async client=>{const r=await client.query(SCHEMA_VERIFY_SQL,[]);if(!r||!r.rows||r.rows.length!==1||r.rows[0].boundary_table!==true||r.rows[0].query_constraint!==true)throw fail();});}catch(err){sink.recordFromSchemaFailure();throw err;}schemaVerified=true;}
