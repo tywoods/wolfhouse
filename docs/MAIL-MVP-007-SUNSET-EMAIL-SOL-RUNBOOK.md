@@ -4,7 +4,7 @@ Sunset staging only. Do not restart WhatsApp or Wolfhouse gateways. Do not enabl
 
 Staff Create Draft reaches Sol through a **colocated Azure Container App** in the Sunset Staff ACA environment. Lunabox loopback `127.0.0.1:8093` is a Skipper-local probe only — it is not the Staff path.
 
-YAML and this runbook are **one path**. Skipper queries Azure IDs, fills `docker/hermes-staging/sunset-email-luna.aca.yaml.example` into a temp file, then `az containerapp create|update --yaml` **without** `--environment` (`--yaml` ignores other create flags; `environmentId` must be in the YAML). Ingress is internal (`external: false`). Isolated Codex refresh state is a **dedicated Azure Files** mount of `/opt/data` with canonical Hermes home `/opt/data/.hermes`. The one durable credential is `/opt/data/.hermes/auth.json`. No Key Vault `auth.json` snapshot. No copies, hardlinks, or symlinks. No shared WhatsApp pool.
+YAML and this runbook are **one path**. Skipper queries Azure IDs, fills `docker/hermes-staging/sunset-email-luna.aca.yaml.example` into a temp file, then `az containerapp create|update --yaml` **without** `--environment` (`--yaml` ignores other create flags; `environmentId` must be in the YAML). Ingress is internal (`external: false`). Isolated Codex refresh state is a **dedicated Azure Files** mount of `/opt/data` with canonical Hermes home `/opt/data/.hermes`. The one durable credential is `/opt/data/.hermes/auth.json`. No Key Vault `auth.json` snapshot. No copies, hardlinks, or symlinks. No shared WhatsApp pool. CIFS mount options stay `uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600`. Live `noperm` / `gid=0` did not make setup-owned `SOUL.md` overwritable; do not weaken modes. Email-role bootstrap (`99-wh-staging-bootstrap`, after upstream `01-hermes-setup`) unlinks the setup SOUL, installs the Sunset/staging SOUL + overlay, then writes `.env` with bearer/HMAC from imported s6 container environment.
 
 Use this exact Azure CLI executable:
 
@@ -178,6 +178,19 @@ set -o history
 ```
 
 Do not upload WhatsApp `/var/lib/hermes-shared/auth.json`. Do not print `$STORAGE_KEY`.
+
+### 3b. CIFS modes and s6 startup order (do not weaken)
+
+Keep YAML `mountOptions: uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600`. Do not add `noperm`, `uid=0`, or `gid=0`. Those were tried live and did not fix overwrite of the setup-owned `SOUL.md`.
+
+Startup on the dedicated share:
+
+1. s6 `01-hermes-setup` seeds `/opt/data/.hermes` including a default `SOUL.md` (often DOS-readonly / chmod -w on CIFS). Config writes can still succeed because those files are new.
+2. s6 `99-wh-staging-bootstrap` (`docker/hermes-staging/bootstrap.sh`) imports `/run/s6/container_environment` (Key Vault secretRef is already synced here).
+3. Email role **unlinks** setup `SOUL.md` (`rm -f`; parent dir is writable), then installs Sunset/staging SOUL + email overlay with mode/ownership, and **verifies** the replacement. Fail closed if it cannot.
+4. `write_sunset_email_luna_env` persists `API_SERVER_KEY` and `EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET` into `$HERMES_HOME/.env` without printing values. The Python draft server loads that file for any missing keys.
+
+WhatsApp / Wolfhouse / orchestrator / deckhand role bootstrap is unchanged (plain `cp`). Do not change CIFS options as a substitute for this email-role unlink.
 
 ### 4. Build/push BOTH immutable images from exact master SHA
 
