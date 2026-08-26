@@ -248,6 +248,34 @@ function findCoveringRange(ranges, nightIso) {
  * Collapse consecutive uncovered nights into human spans for error messages.
  * e.g. ['2026-07-01','2026-07-02','2026-07-05'] → '2026-07-01–2026-07-02, 2026-07-05'
  */
+/**
+ * Calendar gaps between sorted accommodation season ranges (half-open windows).
+ * Adjacent ranges (prev.check_out === cur.check_in) have no gap.
+ * @returns {Array<{gap_start:string,gap_end:string}>} uncovered half-open windows
+ */
+function findAccommodationCoverageGaps(ranges) {
+  const rows = (Array.isArray(ranges) ? ranges : [])
+    .filter((r) => r
+      && isIsoDate(r.check_in)
+      && isIsoDate(r.check_out)
+      && compareIso(r.check_out, r.check_in) > 0)
+    .slice()
+    .sort((a, b) => {
+      const byIn = compareIso(a.check_in, b.check_in);
+      if (byIn) return byIn;
+      return compareIso(a.check_out, b.check_out);
+    });
+  const gaps = [];
+  for (let i = 1; i < rows.length; i += 1) {
+    const prev = rows[i - 1];
+    const cur = rows[i];
+    if (compareIso(prev.check_out, cur.check_in) < 0) {
+      gaps.push({ gap_start: prev.check_out, gap_end: cur.check_in });
+    }
+  }
+  return gaps;
+}
+
 function formatUncoveredSpan(uncoveredNights) {
   const nights = (uncoveredNights || []).map((d) => String(d).slice(0, 10)).filter(isIsoDate);
   if (!nights.length) return '';
@@ -809,6 +837,7 @@ module.exports = {
   normalizeAccommodationRanges,
   rangeCoversNight,
   findCoveringRange,
+  findAccommodationCoverageGaps,
   formatUncoveredSpan,
   uncoveredErrorMessage,
   priceAccommodationStay,
