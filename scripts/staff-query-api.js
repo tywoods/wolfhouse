@@ -330,6 +330,7 @@ const {
 } = require('./lib/staff-email-inbox-routes');
 const {
   createStaffEmailLunaDraftRoute, EMAIL_LUNA_GENERATE_DRAFT_PATH,
+  EMAIL_LUNA_CREATE_DRAFT_PATH,
   snapshotEmailLunaGenerateGateEnv, isEmailLunaGenerateDraftEnabled,
 } = require('./lib/staff-email-luna-draft-route');
 const {
@@ -2929,11 +2930,6 @@ const emailInboxRoutes = createStaffEmailInboxRoutes({
 });
 // Luna composition remains lazy and capability-limited to authorDraft. Persistence
 // crosses only the existing manual draft owner; no approve/send owner is provided.
-const emailLunaDraftRoute = createStaffEmailLunaDraftRoute({
-  sendJSON, withPgClient, runtimeEnv: process.env,
-  createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
-  saveDraftThroughStaffOwner: emailInboxRoutes.saveDraftThroughStaffOwner,
-});
 const emailLunaDraftOpen = createStaffEmailLunaDraftOpen({
   withPgClient,
   runtimeEnv: process.env,
@@ -2948,6 +2944,12 @@ const emailLunaDraftOpen = createStaffEmailLunaDraftOpen({
   },
 });
 emailLunaDraftOpenHolder.ensureEmailLunaDraftOnOpen = emailLunaDraftOpen.ensureEmailLunaDraftOnOpen;
+const emailLunaDraftRoute = createStaffEmailLunaDraftRoute({
+  sendJSON, withPgClient, runtimeEnv: process.env,
+  createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
+  saveDraftThroughStaffOwner: emailInboxRoutes.saveDraftThroughStaffOwner,
+  regenerateEmailLunaDraftOnStaffClick: (input) => emailLunaDraftOpen.regenerateEmailLunaDraftOnStaffClick(input),
+});
 
 // Staff Inbox routes (extracted module). Auth stays in the router with
 // per-route minRole (viewer reads / operator writes) — do not homogenize.
@@ -19140,11 +19142,18 @@ body > .portal-schedule-drawer{flex:none;align-self:auto}
 .btn-email-save-draft{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
 #btn-email-save-draft{display:none!important}
 #btn-email-generate-luna-draft{display:none!important}
+.inbox-email-create-draft-context{flex:1 1 140px;min-width:120px;max-width:240px;min-height:44px;height:auto;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font:inherit;font-size:13px}
+.btn-email-create-draft{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.btn-email-create-draft:hover{background:#7FA3B8}
+.btn-email-create-draft:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
 .btn-email-save-draft:hover{background:#7FA3B8}
 .btn-email-save-draft:disabled,.btn-email-approve-send:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
 .btn-email-approve-send{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
 .btn-email-approve-send:hover{background:var(--primary-hover)}
 [data-theme="dark"] .btn-email-save-draft{background:#1e4a68;color:#c8dce8}
+[data-theme="dark"] .btn-email-create-draft{background:#1e4a68;color:#c8dce8}
+[data-theme="dark"] .btn-email-create-draft:hover{background:#265878}
+[data-theme="dark"] .btn-email-create-draft:disabled{background:#333333;color:#6e6e6e}
 [data-theme="dark"] .btn-email-approve-send{background:var(--primary);color:#f0f4f0}
 [data-theme="dark"] .btn-email-save-draft:disabled,[data-theme="dark"] .btn-email-approve-send:disabled{background:#333333;color:#6e6e6e}
 .inbox-whatsapp-draft{flex-shrink:0;margin-top:12px}
@@ -19202,7 +19211,7 @@ body > .portal-schedule-drawer{flex:none;align-self:auto}
   #draft-textarea{width:100%;box-sizing:border-box;min-height:80px;font-size:16px}
   .draft-actions{width:100%}
   .btn-send-reply{min-height:44px;padding:10px 18px;font-size:13px;margin-left:auto}
-  .btn-email-save-draft,.btn-email-approve-send{min-height:44px;padding:10px 18px;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
+  .btn-email-save-draft,.btn-email-create-draft,.btn-email-approve-send{min-height:44px;padding:10px 18px;font-size:13px;display:inline-flex;align-items:center;justify-content:center}
   .draft-warning{min-width:0;flex:1 1 100%}
   .inbox-filter-btn{min-height:40px;padding:8px 12px}
   .inbox-refresh-btn{min-width:44px;min-height:44px;padding:8px 12px}
@@ -21078,8 +21087,10 @@ body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .msg.outb
 body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .draft-panel,
 body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .draft-panel{margin-top:12px;padding-top:8px}
 body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-create-draft,
 body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send,
 body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-create-draft,
 body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send{
   min-height:0;height:auto;padding:9px 16px;font-size:12px;
 }
@@ -48966,6 +48977,27 @@ async function router(req, res) {
       lunaActor = Object.freeze(out);
     } catch (_) { lunaActor = null; }
     return emailLunaDraftRoute.handleGenerateLunaDraft(req, res, lunaActor, gate);
+  }
+
+  // Explicit Staff Create Draft (default-off; same Luna draft gate; no send/approve/journal).
+  if (pathname === EMAIL_LUNA_CREATE_DRAFT_PATH && method === 'POST') {
+    const gate = snapshotEmailLunaGenerateGateEnv(process.env);
+    if (!isEmailLunaGenerateDraftEnabled(gate)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    let lunaActor = null;
+    try {
+      const source = auth.user;
+      const out = Object.create(null);
+      for (const key of ['staff_user_id', 'client_id', 'role']) {
+        const descriptor = Object.getOwnPropertyDescriptor(source, key);
+        if (!descriptor || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+            || !descriptor.enumerable || descriptor.get || descriptor.set) throw new Error('invalid_actor');
+        out[key] = descriptor.value;
+      }
+      lunaActor = Object.freeze(out);
+    } catch (_) { lunaActor = null; }
+    return emailLunaDraftRoute.handleCreateDraft(req, res, lunaActor, gate);
   }
 
   // Email inbox draft/approve-send (default-off; gate before auth/body/DB).

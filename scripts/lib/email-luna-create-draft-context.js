@@ -1,0 +1,109 @@
+'use strict';
+
+/**
+ * MAIL-MVP-001 — bounded operator Create Draft context.
+ *
+ * Plain staff guidance only. Never authority for prices, availability,
+ * payment URLs, bookings, tenant/location/endpoint, or send/approve.
+ */
+
+const crypto = require('node:crypto');
+const util = require('node:util');
+
+const isProxy = util.types.isProxy.bind(undefined);
+const freeze = Object.freeze;
+const getDescriptor = Object.getOwnPropertyDescriptor;
+const hasOwn = Object.hasOwn;
+const ownKeys = Reflect.ownKeys;
+
+const OPERATOR_DRAFT_CONTEXT_MAX_CHARS = 500;
+const OPERATOR_DRAFT_CONTEXT_MAX_UTF8_BYTES = 2000;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+const INJECTION = /(?:\bsystem\s*:|\[\s*system\s*\]|\bdeveloper\s+(?:message|instruction)|ignore\s+(?:all\s+)?previous\s+instructions?|override\s+policy|switch\s+tenant|call\s+[a-z_$][\w$]*\s*\(|<\s*\/?\s*system\b|\b(?:location_id|required_facts|send_allowed|draft_ready|low_confidence)\s*=|"(?:authority|policy|low_confidence)"\s*:)/i;
+
+function ownData(value, key) {
+  try {
+    const descriptor = getDescriptor(value, key);
+    return descriptor && hasOwn(descriptor, 'value') && descriptor.enumerable && !descriptor.get && !descriptor.set
+      ? descriptor.value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function uuid(value) {
+  return typeof value === 'string' && UUID.test(value.toLowerCase()) ? value.toLowerCase() : null;
+}
+
+function exactCreateDraftKeys(value) {
+  try {
+    if (!value || typeof value !== 'object' || isProxy(value) || Array.isArray(value)) return null;
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return null;
+    const keys = ownKeys(value);
+    if (!keys.length || keys.some((key) => typeof key !== 'string')) return null;
+    if (!keys.includes('conversation_id')) return null;
+    for (const key of keys) {
+      if (key !== 'conversation_id' && key !== 'context') return null;
+    }
+    return keys;
+  } catch {
+    return null;
+  }
+}
+
+function snapshotOperatorDraftContext(raw) {
+  if (raw === undefined || raw === null) {
+    return freeze({ ok: true, context: '', dropped: false });
+  }
+  if (typeof raw !== 'string') {
+    return freeze({ ok: false, error: 'invalid_context' });
+  }
+  if (raw.length > OPERATOR_DRAFT_CONTEXT_MAX_CHARS
+      || Buffer.byteLength(raw, 'utf8') > OPERATOR_DRAFT_CONTEXT_MAX_UTF8_BYTES) {
+    return freeze({ ok: false, error: 'context_too_long' });
+  }
+  let text;
+  try {
+    text = raw.normalize('NFC');
+  } catch {
+    return freeze({ ok: false, error: 'invalid_context' });
+  }
+  text = text.replace(/\r\n?/g, '\n').replace(CONTROL_CHARS, '').trim();
+  if (text.length > OPERATOR_DRAFT_CONTEXT_MAX_CHARS
+      || Buffer.byteLength(text, 'utf8') > OPERATOR_DRAFT_CONTEXT_MAX_UTF8_BYTES) {
+    return freeze({ ok: false, error: 'context_too_long' });
+  }
+  if (INJECTION.test(text)) {
+    return freeze({ ok: true, context: '', dropped: true });
+  }
+  return freeze({ ok: true, context: text, dropped: false });
+}
+
+function snapshotEmailLunaCreateDraftBody(raw) {
+  const keys = exactCreateDraftKeys(raw);
+  if (!keys) return null;
+  const conversationId = uuid(ownData(raw, 'conversation_id'));
+  if (!conversationId) return null;
+  if (!keys.includes('context')) {
+    return freeze({ conversation_id: conversationId, context: '' });
+  }
+  const snapped = snapshotOperatorDraftContext(ownData(raw, 'context'));
+  if (!snapped.ok) return null;
+  return freeze({ conversation_id: conversationId, context: snapped.context, context_dropped: snapped.dropped });
+}
+
+function operatorDraftContextDigest(context) {
+  if (typeof context !== 'string' || !context) return null;
+  return crypto.createHash('sha256').update(context, 'utf8').digest('hex');
+}
+
+module.exports = freeze({
+  OPERATOR_DRAFT_CONTEXT_MAX_CHARS,
+  OPERATOR_DRAFT_CONTEXT_MAX_UTF8_BYTES,
+  snapshotOperatorDraftContext,
+  snapshotEmailLunaCreateDraftBody,
+  operatorDraftContextDigest,
+});

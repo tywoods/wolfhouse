@@ -1410,6 +1410,7 @@ var EMAIL_DRAFT_MAX_UTF8_BYTES = 8000;
 var INBOX_EMAIL_SENT_STATUS_MS = 20000;
 var EMAIL_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var EMAIL_DRAFT_OK_KEYS = ['success','conversation_id','message_text','approval_id'];
+var EMAIL_CREATE_DRAFT_OK_KEYS = ['success','conversation_id','message_text'];
 var EMAIL_APPROVE_503_KEYS = ['success','error','conversation_id','approval_id','approval_state'];
 var EMAIL_APPROVE_OK_KEYS = ['success','conversation_id','approval_id','approval_state'];
 var _emailReplyStateByConv = Object.create(null);
@@ -1466,6 +1467,15 @@ function acceptEmailDraftSuccess(data, reqConvId, reqText){
     return { conversation_id: cid, message_text: reqText, approval_id: ap };
   } catch (_e) { return null; }
 }
+function acceptEmailCreateDraftSuccess(data, reqConvId){
+  try {
+    if (!emailExactPlainKeys(data, EMAIL_CREATE_DRAFT_OK_KEYS) || emailOwnData(data, 'success') !== true) return null;
+    var cid = emailCanonicalUuid(emailOwnData(data, 'conversation_id'));
+    var text = emailOwnData(data, 'message_text');
+    if (!cid || cid !== String(reqConvId || '').toLowerCase() || typeof text !== 'string' || !text.length) return null;
+    return { conversation_id: cid, message_text: text };
+  } catch (_e) { return null; }
+}
 function acceptEmailApproveDisabled503(data, reqConvId, savedApprovalId){
   try {
     if (!emailExactPlainKeys(data, EMAIL_APPROVE_503_KEYS) || emailOwnData(data, 'success') !== false) return null;
@@ -1507,7 +1517,9 @@ function emailUiFailureCopy(op, status, data){
   if (c === 503 && err === 'email_send_outcome_unknown') {
     return 'Send outcome is unknown. Reload this conversation — do not retry.';
   }
+  if (c === 503 && err === 'email_create_draft_unavailable') return 'Could not create draft. Reload and try again.';
   if (c === 503) return 'Temporarily unavailable';
+  if (op === 'create') return 'Create draft failed';
   return op === 'approve' ? 'Approve failed' : 'Save failed';
 }
 function emailParseFetchJson(r){
@@ -1540,12 +1552,16 @@ function setEmailReplyControlsDisabled(targetEl, disabled, locked){
   var saveBtn = targetEl.querySelector('#btn-email-save-draft');
   var apprBtn = targetEl.querySelector('#btn-email-approve-send');
   var lunaBtn = targetEl.querySelector('#btn-email-generate-luna-draft');
+  var createBtn = targetEl.querySelector('#btn-email-create-draft');
+  var contextEl = targetEl.querySelector('#inbox-email-create-draft-context');
   var freeze = !!(disabled || locked);
   if (ta) ta.disabled = freeze;
   if (subjectEl) subjectEl.disabled = freeze;
   if (saveBtn) saveBtn.disabled = freeze;
   if (apprBtn) apprBtn.disabled = freeze;
   if (lunaBtn) lunaBtn.disabled = freeze;
+  if (createBtn) createBtn.disabled = freeze;
+  if (contextEl) contextEl.disabled = freeze;
 }
 function emailReplyActionPanel(buttonEl, targetEl){
   if (!buttonEl || !targetEl || typeof buttonEl.closest !== 'function') return null;
@@ -1554,6 +1570,53 @@ function emailReplyActionPanel(buttonEl, targetEl){
   if (panel.querySelectorAll('#draft-textarea').length !== 1) return null;
   if (panel.querySelectorAll('#btn-email-save-draft').length !== 1) return null;
   return panel;
+}
+function performEmailCreateDraft(convId, targetEl){
+  var st = emailReplyState(convId);
+  var ta = targetEl.querySelector('#draft-textarea');
+  var statusEl = targetEl.querySelector('#draft-send-status');
+  var contextEl = targetEl.querySelector('#inbox-email-create-draft-context');
+  if (!ta || st.locked || st.inFlight || st.generationUncertain) return;
+  var snapConv = String(convId);
+  var mySeq = ++st.seq;
+  st.inFlight = true;
+  setEmailReplyControlsDisabled(targetEl, true, false);
+  showDraftSendStatus(statusEl, '', 'Creating draft…');
+  var contextText = contextEl ? String(contextEl.value == null ? '' : contextEl.value) : '';
+  fetch('/staff/inbox/email/create-draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conversation_id: convId, context: contextText }),
+  })
+  .then(emailParseFetchJson).then(function(out){
+    if (mySeq !== st.seq) return;
+    st.inFlight = false;
+    var accepted = out.parseOk && out.status === 200 ? acceptEmailCreateDraftSuccess(out.data, snapConv) : null;
+    if (accepted) { st.approvalId = null; st.savedText = accepted.message_text; st.generationUncertain = false; }
+    if (selectedConvId !== snapConv) return;
+    if (accepted) {
+      ta.value = accepted.message_text;
+      updateEmailDraftByteCount(targetEl, ta.value);
+      showDraftSendStatus(statusEl, 'ok', 'Draft created — review before sending.');
+    } else if (out.status === 409) {
+      showDraftSendStatus(statusEl, 'blocked', 'Conflict — reload and try again');
+    } else if (!out.parseOk || (out.status === 200 && !accepted)) {
+      st.approvalId = null; st.savedText = ''; st.generationUncertain = true;
+      showDraftSendStatus(statusEl, 'blocked', 'Draft save outcome is unknown. Reload the conversation or page before creating again.');
+    } else {
+      showDraftSendStatus(statusEl, 'error', emailUiFailureCopy('create', out.status, out.data));
+    }
+    setEmailReplyControlsDisabled(targetEl, st.generationUncertain, st.locked);
+  }).catch(function(){
+    if (mySeq !== st.seq) return;
+    st.inFlight = false;
+    st.approvalId = null;
+    st.savedText = '';
+    st.generationUncertain = true;
+    if (selectedConvId !== snapConv) return;
+    showDraftSendStatus(statusEl, 'blocked', 'Draft save outcome is unknown. Reload the conversation or page before creating again.');
+    setEmailReplyControlsDisabled(targetEl, true, st.locked);
+  });
 }
 function performEmailLunaDraftGenerate(convId, targetEl){
   var st=emailReplyState(convId),ta=targetEl.querySelector('#draft-textarea'),statusEl=targetEl.querySelector('#draft-send-status');
@@ -1775,6 +1838,7 @@ function wireInboxEmailReply(convId, targetEl){
   var saveBtn = targetEl.querySelector('#btn-email-save-draft');
   var apprBtn = targetEl.querySelector('#btn-email-approve-send');
   var lunaBtn = targetEl.querySelector('#btn-email-generate-luna-draft');
+  var createBtn = targetEl.querySelector('#btn-email-create-draft');
   if (!ta || !saveBtn) return;
   var st = emailReplyState(convId);
   if (st.locked || st.sent) {
@@ -1800,6 +1864,10 @@ function wireInboxEmailReply(convId, targetEl){
   if (lunaBtn) lunaBtn.addEventListener('click', function(){
     var panel = emailReplyActionPanel(lunaBtn, targetEl);
     if (panel) performEmailLunaDraftGenerate(convId, panel);
+  });
+  if (createBtn) createBtn.addEventListener('click', function(){
+    var panel = emailReplyActionPanel(createBtn, targetEl);
+    if (panel) performEmailCreateDraft(convId, panel);
   });
   if (apprBtn) apprBtn.addEventListener('click', function(){
     var panel = emailReplyActionPanel(apprBtn, targetEl);
@@ -2181,6 +2249,10 @@ function loadConvDetail(convId, targetEl){
       }
       html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft" hidden' +
               (emailSt && emailSt.locked ? ' disabled' : '') + '>Save draft</button>';
+      html += '<input type="text" id="inbox-email-create-draft-context" class="inbox-email-create-draft-context" maxlength="500" placeholder="Context (optional)" aria-label="Draft context"' +
+              (emailSt && emailSt.locked ? ' disabled' : '') + '>';
+      html += '<button type="button" class="btn-email-create-draft" id="btn-email-create-draft"' +
+              (emailSt && emailSt.locked ? ' disabled' : '') + '>Create Draft</button>';
       if (staffEmailOutboundUiEnabled()) {
         html += '<button type="button" class="btn-email-approve-send" id="btn-email-approve-send"' +
                 (emailSt && emailSt.locked ? ' disabled' : '') + '>Approve &amp; send</button>';

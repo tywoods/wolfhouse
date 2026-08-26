@@ -1,11 +1,18 @@
 'use strict';
 /** Staff-only, draft-only Luna email generation boundary. */
 const util = require('node:util');
+const {
+  snapshotEmailLunaCreateDraftBody,
+} = require('./email-luna-create-draft-context');
 const EMAIL_LUNA_GENERATE_DRAFT_PATH = '/staff/inbox/email/generate-luna-draft';
+const EMAIL_LUNA_CREATE_DRAFT_PATH = '/staff/inbox/email/create-draft';
 const EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV = 'EMAIL_STAFF_LUNA_DRAFT_ENABLED';
 const EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR = 'luna_email_generation_capability_unavailable';
 const EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON = 'authoritative_content_and_grounded_policy_not_configured';
+const EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR = 'email_create_draft_unavailable';
 const EMAIL_LUNA_GENERATE_BODY_KEYS = Object.freeze(['conversation_id']);
+const EMAIL_LUNA_CREATE_DRAFT_SUCCESS_KEYS = Object.freeze(['success', 'conversation_id', 'message_text']);
+const CREATE_DRAFT_BODY_MAX_BYTES = 4096;
 const READY_KEYS = Object.freeze(['status','subject','body','language','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
 const HANDOFF_KEYS = Object.freeze(['status','reason','client_id','location_id','conversation_id','draft_only','requires_staff_review','send_allowed','auto_send_allowed']);
 const SAVE_RECEIPT_KEYS = Object.freeze(['status','conversation_id','approval_id']);
@@ -109,6 +116,18 @@ async function readBody(req) {
   });
   return snapshotEmailLunaGenerateBody(JSON.parse(Buffer.concat(chunks).toString('utf8')));
 }
+async function readCreateDraftBody(req) {
+  const chunks = []; let bytes = 0;
+  await new Promise((resolve, reject) => {
+    req.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > CREATE_DRAFT_BODY_MAX_BYTES) reject(new Error('large'));
+      else chunks.push(chunk);
+    });
+    req.on('end', resolve); req.on('error', reject);
+  });
+  return snapshotEmailLunaCreateDraftBody(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+}
 function safeRow(row, expectedActor, conversationId) {
   try {
     if (!row || typeof row !== 'object' || isProxy(row)) return null;
@@ -199,13 +218,60 @@ function createStaffEmailLunaDraftRoute(deps) {
       error: EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR,
       reason: EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON }));
   }
-  route = { handleGenerateLunaDraft, runtimeEnv: deps.runtimeEnv || process.env, withPgClient: deps.withPgClient };
+  async function handleCreateDraft(req, res, user, gateEnv) {
+    const env = gateEnv || snapshotEmailLunaGenerateGateEnv(deps.runtimeEnv || process.env);
+    if (!isEmailLunaGenerateDraftEnabled(env)) return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
+    const a = actor(user);
+    if (!a) return deps.sendJSON(res, user ? 403 : 401, freeze({ success: false, error: user ? 'forbidden' : 'unauthorized' }));
+    const headers = req && req.headers;
+    if (!headers || headers['content-type'] !== 'application/json' || headers.origin !== ownData(env, 'STAFF_PORTAL_ORIGIN'))
+      return deps.sendJSON(res, 403, freeze({ success: false, error: 'invalid_request' }));
+    let input; try { input = await readCreateDraftBody(req); } catch { input = null; }
+    if (!input) return deps.sendJSON(res, 400, freeze({ success: false, error: 'invalid_request' }));
+    if (typeof deps.regenerateEmailLunaDraftOnStaffClick !== 'function') {
+      return deps.sendJSON(res, 503, freeze({ success: false, error: EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR }));
+    }
+    let result;
+    try {
+      result = await deps.regenerateEmailLunaDraftOnStaffClick({
+        actor: a,
+        conversation_id: input.conversation_id,
+        operator_context: input.context,
+        gateEnv: env,
+      });
+    } catch {
+      return deps.sendJSON(res, 503, freeze({ success: false, error: EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR }));
+    }
+    if (result && result.status === 'draft_ready'
+        && result.conversation_id === input.conversation_id
+        && typeof result.draft_text === 'string' && result.draft_text
+        && result.send_allowed === false && result.auto_send_allowed === false) {
+      return deps.sendJSON(res, 200, freeze({
+        success: true,
+        conversation_id: result.conversation_id,
+        message_text: result.draft_text,
+      }));
+    }
+    if (result && result.status === 'conflict') {
+      return deps.sendJSON(res, 409, freeze({ success: false, error: 'conflict' }));
+    }
+    return deps.sendJSON(res, 503, freeze({ success: false, error: EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR }));
+  }
+  route = {
+    handleGenerateLunaDraft,
+    handleCreateDraft,
+    runtimeEnv: deps.runtimeEnv || process.env,
+    withPgClient: deps.withPgClient,
+  };
   // The handler resolves this property at call time for the established offline
   // router probe; production wiring never mutates it.
   return route;
 }
 module.exports = { createStaffEmailLunaDraftRoute, EMAIL_LUNA_GENERATE_DRAFT_PATH,
+  EMAIL_LUNA_CREATE_DRAFT_PATH,
   EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV, EMAIL_LUNA_GENERATE_BODY_KEYS,
+  EMAIL_LUNA_CREATE_DRAFT_SUCCESS_KEYS,
   EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR, EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON,
+  EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR,
   SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, snapshotEmailLunaGenerateBody,
   snapshotEmailLunaGenerateGateEnv, isEmailLunaGenerateDraftEnabled };
