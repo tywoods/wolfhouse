@@ -8,7 +8,7 @@
  * pills in Inbox chrome (no thread required).
  *
  *   WhatsApp  Auto | Draft | Off
- *   Email     Draft | Off     (never Auto)
+ *   Email     Auto | Draft | Off  (default stored value remains Draft)
  *
  * Persist: prefer PUT /staff/inbox/luna-mode; if that route is not mounted,
  * WhatsApp Off uses today's /staff/bot/global-pause + /staff/bot/global-resume.
@@ -110,19 +110,19 @@ function main() {
   const i18nEsSrc = read(I18N_ES);
   const fns = loadShellFns();
 
-  console.log('[1] Channel options (WhatsApp three, Email two, no Email Auto)');
+  console.log('[1] Channel options (WhatsApp and Email Auto|Draft|Off; email default Draft)');
   assert('whatsapp options are Auto|Draft|Off',
     JSON.stringify(fns.inboxShellChannelOptions('whatsapp')) === JSON.stringify(['auto', 'draft', 'off']));
-  assert('email options are Draft|Off',
-    JSON.stringify(fns.inboxShellChannelOptions('email')) === JSON.stringify(['draft', 'off']));
-  assert('email options do not include auto',
-    fns.inboxShellChannelOptions('email').indexOf('auto') < 0);
-  assert('unknown channel does not invent email Auto',
+  assert('email options are Auto|Draft|Off',
+    JSON.stringify(fns.inboxShellChannelOptions('email')) === JSON.stringify(['auto', 'draft', 'off']));
+  assert('email options include auto',
+    fns.inboxShellChannelOptions('email').indexOf('auto') >= 0);
+  assert('unknown channel does not invent extra modes',
     JSON.stringify(fns.inboxShellChannelOptions('sms')) === JSON.stringify(['auto', 'draft', 'off']));
-  assert('email Off/Draft normalize; Auto falls back to Draft',
+  assert('email Off/Draft/Auto normalize; unknown falls back to Draft',
     fns.inboxShellNormalizeEmail('off') === 'off'
     && fns.inboxShellNormalizeEmail('draft') === 'draft'
-    && fns.inboxShellNormalizeEmail('auto') === 'draft'
+    && fns.inboxShellNormalizeEmail('auto') === 'auto'
     && fns.inboxShellNormalizeEmail('nope') === 'draft');
 
   console.log('\n[2] Both selectors render without a thread selected');
@@ -142,13 +142,14 @@ function main() {
     && /<option value="off"/.test(html));
   {
     const emailBlock = html.slice(html.indexOf('data-inbox-shell-channel="email"'));
-    assert('email has Draft and Off',
-      /<option value="draft"/.test(emailBlock) && /<option value="off"/.test(emailBlock));
-    assert('email DOM has no Auto option', !/<option value="auto"/.test(emailBlock));
+    assert('email has Auto, Draft and Off',
+      /<option value="auto"/.test(emailBlock)
+      && /<option value="draft"/.test(emailBlock)
+      && /<option value="off"/.test(emailBlock));
   }
   const emailOnly = fns.inboxShellChannelSelectHtml('email', 'draft');
-  assert('email-only fragment has no Auto',
-    !/value="auto"/.test(emailOnly) && !/>Auto</.test(emailOnly));
+  assert('email-only fragment includes Auto and defaults to Draft',
+    /value="auto"/.test(emailOnly) && /value="draft" selected/.test(emailOnly));
   assert('keeps channel badges and select handlers; restyle adds nav-stroke icons',
     /inbox-channel-badge-whatsapp/.test(html) && /inbox-channel-badge-email/.test(html)
     && /inbox-shell-channel-ico/.test(html)
@@ -160,21 +161,21 @@ function main() {
     /id="inbox-live-status"/.test(apiSrc) && /class="inbox-live-status"/.test(apiSrc)
     && !/⌘K/.test(html) && !/\+ New/.test(html));
 
-  console.log('\n[3] Email has no Auto in i18n');
-  assert('no inbox.shell.email.auto key in en',
-    emailI18nAutoHits(STAFF_PORTAL_STRINGS.en).length === 0);
-  assert('no inbox.shell.email.auto key in es',
-    emailI18nAutoHits(STAFF_PORTAL_STRINGS.es).length === 0);
-  assert('no inbox.shell.email.auto key in it',
-    emailI18nAutoHits(STAFF_PORTAL_STRINGS.it).length === 0);
-  assert('shell email i18n files have no Auto option copy',
-    !/inbox\.shell\.email\.auto/.test(i18nSrc)
-    && !/inbox\.shell\.email\.auto/.test(i18nEsSrc));
-  assert('whatsapp shell help includes Auto; email help does not',
+  console.log('\n[3] Email Auto help exists; default remains Draft');
+  assert('inbox.shell.email.autoHelp key in en',
+    emailI18nAutoHits(STAFF_PORTAL_STRINGS.en).length >= 1);
+  assert('inbox.shell.email.autoHelp key in es',
+    emailI18nAutoHits(STAFF_PORTAL_STRINGS.es).length >= 1);
+  assert('inbox.shell.email.autoHelp key in it',
+    emailI18nAutoHits(STAFF_PORTAL_STRINGS.it).length >= 1);
+  assert('shell email i18n files have Auto option copy',
+    /inbox\.shell\.email\.autoHelp/.test(i18nSrc)
+    && /inbox\.shell\.email\.autoHelp/.test(i18nEsSrc));
+  assert('whatsapp and email shell help include Auto',
     /inbox\.shell\.whatsapp\.autoHelp/.test(i18nSrc)
+    && /inbox\.shell\.email\.autoHelp/.test(i18nSrc)
     && /inbox\.shell\.email\.draftHelp/.test(i18nSrc)
-    && /inbox\.shell\.email\.offHelp/.test(i18nSrc)
-    && !/inbox\.shell\.email\.autoHelp/.test(i18nSrc));
+    && /inbox\.shell\.email\.offHelp/.test(i18nSrc));
 
   console.log('\n[4] Persist path: luna-mode if routed, else pause/resume; Draft does not send');
   const persistFn = sliceFn(shellSrc, 'persistInboxShellChannelMode');

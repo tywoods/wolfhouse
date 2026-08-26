@@ -491,6 +491,7 @@ function parseProjectInput(input) {
     const allowed = new Set([
       'clientId', 'locationId', 'endpointId',
       'inboundEventId', 'provider', 'providerMailboxId', 'providerMessageId',
+      'setNeedsHuman',
     ]);
     for (const k of keys) {
       if (DANGEROUS_KEYS.has(k) || !allowed.has(k)) return null;
@@ -498,6 +499,7 @@ function parseProjectInput(input) {
       if (!desc || desc.get || desc.set || !desc.enumerable) return null;
     }
 
+    const setNeedsHuman = ownData(input, 'setNeedsHuman');
     return Object.freeze({
       clientId,
       locationId,
@@ -506,6 +508,7 @@ function parseProjectInput(input) {
       provider: hasIdentity ? provider : null,
       providerMailboxId: hasIdentity ? providerMailboxId : null,
       providerMessageId: hasIdentity ? providerMessageId : null,
+      setNeedsHuman: setNeedsHuman === false ? false : null,
     });
   } catch {
     return null;
@@ -712,6 +715,8 @@ async function runProjectTransaction(client, parsed) {
     // WhatsApp destination. 067 customer sync skips emailv1:/email: phones.
     // Microsoft inbound only: set needs_human so generate-on-open can persist
     // the safe no-claims draft. Other providers leave the existing flag.
+    // MAIL-MVP-003 Auto create-and-send may pass setNeedsHuman=false so a
+    // staff-raised needs_human stays authoritative and Auto is not latched.
     const convResult = await client.query(SQL_UPSERT_CONVERSATION, [
       parsed.clientId,
       identityKey,
@@ -723,7 +728,7 @@ async function runProjectTransaction(client, parsed) {
       preview,
       JSON.stringify(convMetadata),
       JSON.stringify(sessionState),
-      event.provider === 'microsoft_graph',
+      parsed.setNeedsHuman === false ? false : event.provider === 'microsoft_graph',
     ]);
     const convRows = convResult && Array.isArray(convResult.rows) ? convResult.rows : [];
     if (!convRows.length) {

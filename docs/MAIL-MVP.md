@@ -12,12 +12,22 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 | --- | --- | --- | --- |
 | **001** | Create Draft + context | Yes | Source slice: explicit staff click regenerates the standing draft from the authoritative thread plus private staff goals. The model may return only a closed enumerated drafting plan; a deterministic Luna renderer writes the guest-facing EN/ES copy. No paste wrapper, no send, no approval, no outbound journal. |
 | **002** | Ty live proof | No | Later. Controlled Sunset mailbox proof of 001 on staging. Not this PR. |
-| **003** | auto create-and-send | No | Later. Automatic create-and-send remains off. Luna:On and `needs_human` are later-auto inputs only. |
+| **003** | auto create-and-send | Yes (this PR) | Microsoft-only automatic create-and-send. Default remains OFF. Both `LUNA_AUTO_SEND_ENABLED=true` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true` are required for provider auto-send. Reuses Create Draft author + staff Approve & send owners. |
 | **004** | auto proof | No | Later. Proof of automatic create-and-send. Auto-send stays off until an explicit later slice. |
 | **005** | generic IMAP inbound | No | Later. Generic IMAP inbound connector. Not this PR. |
 | **006** | generic SMTP send | No | Later. Generic SMTP send. Every future send remains journaled. Not this PR. |
 | **007** | Email Luna Hermes managed by Skipper | No | Later. Hermes email Luna managed by Skipper. Not this PR. |
 | **008** | booking-from-email | No — **LATER** | Product rule only. Do not implement booking in this document's current slice. |
+
+## 003 Microsoft auto create-and-send
+
+Sunset Microsoft inbound only. Default remains OFF. Live flags stay false.
+
+When Email channel mode is Auto, the conversation is Luna On, `needs_human` is false, and both emergency flags are the literal string `true` (`LUNA_AUTO_SEND_ENABLED` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED`), Luna authors the same empty-context Create Draft standing draft and sends it through the same approval + outbound journal + provider transport owners as staff Approve & send. Exactly one approval, journal, and provider send per inbound operation. Duplicate Microsoft delivery is idempotent.
+
+Luna Off, `needs_human`, global pause, and pause-lookup failure all block before draft/send. Author/tool/provider failure fail closed and do not mark sent. Generic IMAP/SMTP, Graph direct-send shortcuts, campaigns, WhatsApp, and booking create are excluded. `CUSTOMER_OUTREACH_EMAIL_ENABLED` is not a send gate.
+
+WhatsApp add-on: `.hermes/plans/2026-08-26-sunset-whatsapp-autonomy-wiring.md` is not present; no WhatsApp evaluator cleanup in this slice.
 
 ## 001 Create Draft + context
 
