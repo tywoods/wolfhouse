@@ -513,6 +513,7 @@
     "email-luna-controlled-drafting-offline-simulation": "node scripts/email-luna-controlled-drafting-one-shot-live-proof.js",
     "verify:email-luna-controlled-drafting-live-downscope-prover": "node scripts/verify-email-luna-controlled-drafting-live-downscope-prover.js",
     "verify:email-luna-controlled-drafting-live-downscope-prover-live-target": "node scripts/verify-email-luna-controlled-drafting-live-downscope-prover-live-target.js",
+    "verify:email-luna-controlled-drafting-live-downscope-prover-live-preflight-reader": "node scripts/verify-email-luna-controlled-drafting-live-downscope-prover-live-preflight-reader.js",
     "prove:email-luna-controlled-drafting-live-downscope-prover-offline-simulation": "node scripts/prove-email-luna-controlled-drafting-live-downscope-prover-offline-simulation.js",
     "prove:email-luna-controlled-drafting-live-downscope-prover-stock-pg": "node scripts/prove-email-luna-controlled-drafting-live-downscope-prover-stock-pg.js",
     "email-luna-controlled-drafting-live-downscope-prover": "node scripts/email-luna-controlled-drafting-live-downscope-prover.js",

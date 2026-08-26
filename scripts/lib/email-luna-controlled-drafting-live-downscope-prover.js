@@ -1275,8 +1275,10 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
       if (typeof readOwned !== 'function') {
         throw failAt('counts', 'independent_reader_absent');
       }
-      const independent = readOwned();
-      if (!liveOwner.isIndependentLivePreflight(independent)) {
+      let independent;
+      try {
+        independent = await readOwned();
+      } catch (_) {
         throw failAt('counts', 'live_preflight_unproven');
       }
       if (ownData(independent, 'deploy_sha') !== parsed.deploySha
