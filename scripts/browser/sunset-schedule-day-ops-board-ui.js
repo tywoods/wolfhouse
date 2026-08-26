@@ -382,11 +382,30 @@ function scheduleBuildRentalPickupLines(gearGroups){
   return lines;
 }
 
-function scheduleRenderRentalPickupsHeader(sortMode, filterText){
+function scheduleHorarioShortDateLabel(dateIso) {
+  var iso = String(dateIso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+  var dt = new Date(iso + 'T00:00:00');
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function scheduleOpsRentalPickupsTitle(isToday, dateIso) {
+  if (isToday) return portalT('schedule.ops.rentalPickupsToday');
+  var dateLabel = scheduleHorarioShortDateLabel(dateIso);
+  var raw = portalT('schedule.ops.rentalPickupsDay');
+  if (raw && raw !== 'schedule.ops.rentalPickupsDay') {
+    return raw.split('{date}').join(dateLabel);
+  }
+  return dateLabel ? ('Rental pickups · ' + dateLabel) : portalT('schedule.ops.rentalPickupsToday');
+}
+
+function scheduleRenderRentalPickupsHeader(sortMode, filterText, isToday, dateIso){
   var guestOn = sortMode === 'guest';
   var itemOn = sortMode === 'item';
   var html = '<header class="portal-schedule-ops-rental-pickups-hdr">' +
-    '<span class="portal-schedule-ops-rental-pickups-title">' + escHtml(portalT('schedule.ops.rentalPickupsToday')) + '</span>' +
+    '<span class="portal-schedule-ops-rental-pickups-title">' +
+    escHtml(scheduleOpsRentalPickupsTitle(isToday === true, dateIso)) + '</span>' +
     '<div class="portal-schedule-ops-rental-pickups-tools">';
   // Filter first (left of Guest/Item) — only in guest sort mode.
   if (guestOn) {
@@ -551,7 +570,7 @@ function scheduleRenderRentalPickupsByItem(lines){
   return html;
 }
 
-function scheduleRenderRentalPickupsSection(gearGroups){
+function scheduleRenderRentalPickupsSection(gearGroups, isToday, dateIso){
   var lines = scheduleBuildRentalPickupLines(gearGroups);
   if (!lines.length && !(gearGroups || []).length) return '';
   var sortMode = scheduleRentalPickupsSortMode === 'item' ? 'item' : 'guest';
@@ -563,7 +582,7 @@ function scheduleRenderRentalPickupsSection(gearGroups){
     body = '<div class="portal-schedule-ops-rental-pickups-empty">' + escHtml(portalT('schedule.ops.rentalNothingScheduled')) + '</div>';
   }
   return '<section class="portal-schedule-ops-rental-pickups" data-rp-sort="' + escHtml(sortMode) + '">' +
-    scheduleRenderRentalPickupsHeader(sortMode, filterText) +
+    scheduleRenderRentalPickupsHeader(sortMode, filterText, isToday, dateIso) +
     body +
     '</section>';
 }
@@ -1256,7 +1275,7 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
     ? scheduleSelectRentalPickupGroups(activeRows)
     : scheduleBuildDisplayGroups(activeRows).filter(scheduleGroupHasRentalPickups);
   if (gearGroups.length){
-    html += scheduleRenderRentalPickupsSection(gearGroups);
+    html += scheduleRenderRentalPickupsSection(gearGroups, isToday, dateIso);
   }
   if (!html) {
     var loadingBoard = false;

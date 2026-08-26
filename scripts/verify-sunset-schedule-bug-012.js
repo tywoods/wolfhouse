@@ -33,9 +33,21 @@ vm.runInContext(
   + '\nthis.scheduleCockpitPrepTitle = scheduleCockpitPrepTitle;',
   box
 );
-assert.ok(box.scheduleCockpitPrepTitle(true).indexOf('TODAY') >= 0 || box.scheduleCockpitPrepTitle(true) === "TODAY'S PREP");
-assert.strictEqual(box.scheduleCockpitPrepTitle(false), 'PREP');
+assert.ok(box.scheduleCockpitPrepTitle(true, '2026-08-12').indexOf('TODAY') >= 0 || box.scheduleCockpitPrepTitle(true, '2026-08-12') === "TODAY'S PREP");
+box.portalT = function (key) {
+  if (key === 'schedule.cockpit.prepTitleOther') return 'PREP FOR {date}';
+  return key;
+};
+const nonToday = box.scheduleCockpitPrepTitle(false, '2026-08-12');
+assert.ok(nonToday.indexOf('PREP FOR') === 0, nonToday);
+assert.ok(nonToday.indexOf('HOY') < 0, nonToday);
 box.portalLang = 'es';
-assert.strictEqual(box.scheduleCockpitPrepTitle(false), 'PREPARACIÓN');
+box.portalT = function (key) {
+  const es = require('./lib/staff-portal-i18n-es-sunset');
+  return Object.prototype.hasOwnProperty.call(es, key) ? es[key] : key;
+};
+const esOther = box.scheduleCockpitPrepTitle(false, '2026-08-12');
+assert.ok(esOther.indexOf('PREPARACIÓN ·') === 0, esOther);
+assert.ok(esOther !== 'PREPARACIÓN', esOther);
 
 console.log('PASS BUG-012 Horario chrome + Finanzas placeholders + labeled ×');
