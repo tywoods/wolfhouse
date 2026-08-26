@@ -10,7 +10,7 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 
 | Slice | Name | This job? | Status |
 | --- | --- | --- | --- |
-| **001** | Create Draft + context | Yes | Source slice: explicit staff click regenerates the standing draft from authoritative thread context plus optional operator-entered context. No send, no approval, no outbound journal. |
+| **001** | Create Draft + context | Yes | Source slice: explicit staff click regenerates the standing draft from the authoritative thread plus private staff goals. Luna authors a natural guest-facing reply. No paste wrapper, no send, no approval, no outbound journal. |
 | **002** | Ty live proof | No | Later. Controlled Sunset mailbox proof of 001 on staging. Not this PR. |
 | **003** | auto create-and-send | No | Later. Automatic create-and-send remains off. Luna:On and `needs_human` are later-auto inputs only. |
 | **004** | auto proof | No | Later. Proof of automatic create-and-send. Auto-send stays off until an explicit later slice. |
@@ -25,7 +25,7 @@ Staff Inbox thread UI:
 
 - Two-row context textarea in its own wider area **left** of **Create Draft**. It is a real editable notes field, not a chip, and is not squeezed into the button row.
 - **Create Draft** sits **next to** existing **Approve & send**.
-- Explicit staff click regenerates the standing draft from authoritative thread content plus the operator-entered context. Non-empty normalized context must materially change the draft away from the generic review stub while remaining untrusted guidance.
+- Explicit staff click regenerates the standing draft from the authoritative thread plus private staff goals (the context field) plus Luna drafting goals. Context is untrusted private instruction for this draft, never guest copy. Luna authors a natural guest-facing reply. Do not paste staff notes, quote them, or wrap them with “We also wanted to add”. Empty context keeps a safe thread-only Luna draft. Fail closed if the author/model is unavailable.
 - Must not send, approve, or invoke outbound/provider transport.
 - **Approve & send** stays behaviorally unchanged and remains the only send path in this slice.
 - Existing generate-on-open may remain.

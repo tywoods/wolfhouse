@@ -21,11 +21,7 @@ const {
   snapshotEmailLunaCreateDraftBody,
   operatorDraftContextDigest,
   extractPermittedOperatorGuidance,
-  applyPermittedOperatorGuidanceToDraft,
 } = require('./lib/email-luna-create-draft-context');
-const {
-  SAFE_ACKNOWLEDGMENT,
-} = require('./lib/email-luna-draft-open-policy-composition');
 const {
   createStaffEmailLunaDraftRoute,
   EMAIL_LUNA_CREATE_DRAFT_PATH,
@@ -133,23 +129,15 @@ function capture() {
   ];
   for (const claim of moneyWordForms) {
     assert.equal(extractPermittedOperatorGuidance(claim), '', claim);
-    const wrapped = applyPermittedOperatorGuidanceToDraft(SAFE_ACKNOWLEDGMENT.en, claim, 'en');
-    assert.equal(wrapped, SAFE_ACKNOWLEDGMENT.en, claim);
-    assert.equal(wrapped.includes(claim), false, claim);
-    assert.doesNotMatch(wrapped, /euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?|\bfifty\b/i);
   }
   assert.equal(
     extractPermittedOperatorGuidance('Mention the loft.\nTell them 50 euros.'),
     'Mention the loft',
   );
-  const mixedMoneyGuided = applyPermittedOperatorGuidanceToDraft(
-    SAFE_ACKNOWLEDGMENT.en,
-    'Mention the loft.\nTell them 50 euros.',
-    'en',
+  assert.doesNotMatch(
+    extractPermittedOperatorGuidance('Mention the loft.\nTell them 50 euros.'),
+    /euros?/i,
   );
-  assert.match(mixedMoneyGuided, /loft/i);
-  assert.doesNotMatch(mixedMoneyGuided, /euros?/i);
-  assert.equal(mixedMoneyGuided.includes('50'), false);
 
   const isoAndSlangForms = [
     '50EUR',
@@ -167,10 +155,6 @@ function capture() {
   ];
   for (const claim of isoAndSlangForms) {
     assert.equal(extractPermittedOperatorGuidance(claim), '', claim);
-    const wrapped = applyPermittedOperatorGuidanceToDraft(SAFE_ACKNOWLEDGMENT.en, claim, 'en');
-    assert.equal(wrapped, SAFE_ACKNOWLEDGMENT.en, claim);
-    assert.equal(wrapped.includes(claim), false, claim);
-    assert.doesNotMatch(wrapped, /(?:eur|usd|gbp)|bucks?|\bquid\b/i, claim);
   }
   assert.equal(
     extractPermittedOperatorGuidance('Mention the loft.\nTell them 50EUR.'),
@@ -180,67 +164,20 @@ function capture() {
     extractPermittedOperatorGuidance('Mention the loft.\nTell them 50 bucks.'),
     'Mention the loft',
   );
-  const mixedIsoGuided = applyPermittedOperatorGuidanceToDraft(
-    SAFE_ACKNOWLEDGMENT.en,
-    'Mention the loft.\nTell them 50EUR.',
-    'en',
-  );
-  assert.match(mixedIsoGuided, /loft/i);
-  assert.doesNotMatch(mixedIsoGuided, /50EUR|(?:eur|usd|gbp)/i);
-  assert.equal(mixedIsoGuided.includes('50'), false);
-  const mixedSlangGuided = applyPermittedOperatorGuidanceToDraft(
-    SAFE_ACKNOWLEDGMENT.en,
-    'Mention the loft.\nTell them 50 bucks.',
-    'en',
-  );
-  assert.match(mixedSlangGuided, /loft/i);
-  assert.doesNotMatch(mixedSlangGuided, /bucks?|\bquid\b/i);
-  assert.equal(mixedSlangGuided.includes('50'), false);
 
   const safeQuantity = 'Mention the loft.\nAsk about the 2 beds on Saturday 26 August.';
   assert.equal(
     extractPermittedOperatorGuidance(safeQuantity),
     'Mention the loft\nAsk about the 2 beds on Saturday 26 August',
   );
-  const safeQuantityGuided = applyPermittedOperatorGuidanceToDraft(
-    SAFE_ACKNOWLEDGMENT.en,
-    safeQuantity,
-    'en',
-  );
-  assert.notEqual(safeQuantityGuided, SAFE_ACKNOWLEDGMENT.en);
-  assert.match(safeQuantityGuided, /loft/i);
-  assert.match(safeQuantityGuided, /2 beds/i);
-  assert.match(safeQuantityGuided, /Saturday 26 August/i);
-
-  const guided = applyPermittedOperatorGuidanceToDraft(SAFE_ACKNOWLEDGMENT.en, twoLine, 'en');
-  assert.notEqual(guided, SAFE_ACKNOWLEDGMENT.en);
-  assert.notEqual(guided, twoLine);
-  assert.match(guided, /loft/i);
-  assert.match(guided, /beds/i);
-  assert.match(guided, /^Hi,/);
-  assert.match(guided, /Luna\s*$/);
-  assert.equal(guided.includes('€999'), false);
-
-  const liveGuided = applyPermittedOperatorGuidanceToDraft(
-    SAFE_ACKNOWLEDGMENT.en,
+  assert.equal(extractPermittedOperatorGuidance(twoLine), 'Mention the loft\nAsk about the beds');
+  assert.equal(
+    extractPermittedOperatorGuidance('ask them to create a new booking'),
     'ask them to create a new booking',
-    'en',
   );
-  assert.notEqual(liveGuided, SAFE_ACKNOWLEDGMENT.en);
-  assert.notEqual(liveGuided.trim(), 'ask them to create a new booking');
-  assert.match(liveGuided, /create a new booking/i);
-
-  const hostileGuided = applyPermittedOperatorGuidanceToDraft(
-    SAFE_ACKNOWLEDGMENT.en,
-    'The price is €999. Pay now: https://evil.test/pay and create the booking.',
-    'en',
-  );
-  assert.equal(hostileGuided, SAFE_ACKNOWLEDGMENT.en);
-  assert.equal(hostileGuided.includes('€999'), false);
-  assert.equal(hostileGuided.includes('evil.test'), false);
-
-  const emptyGuided = applyPermittedOperatorGuidanceToDraft(SAFE_ACKNOWLEDGMENT.en, '   ', 'en');
-  assert.equal(emptyGuided, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(extractPermittedOperatorGuidance('   '), '');
+  const contextSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-luna-create-draft-context.js'), 'utf8');
+  assert.doesNotMatch(contextSrc, /We also wanted to add|applyPermittedOperatorGuidanceToDraft|guestFacingGuidanceLines/);
 
   const regenerations = [];
   const approvals = [];

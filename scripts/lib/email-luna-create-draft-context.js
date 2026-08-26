@@ -143,55 +143,6 @@ function extractPermittedOperatorGuidance(context) {
   return kept.join('\n');
 }
 
-function guestFacingGuidanceLines(permitted, language) {
-  const es = language === 'es';
-  const lines = [];
-  if (typeof permitted !== 'string' || !permitted.trim()) return '';
-  for (const raw of permitted.split('\n')) {
-    const line = raw.trim();
-    if (!line) continue;
-    let match;
-    if ((match = /^(?:please\s+)?(?:mention|include|note)\s+(?:the\s+)?(.+)$/i.exec(line))) {
-      const topic = match[1].trim();
-      lines.push(es ? `Queríamos mencionar ${topic}.` : `We wanted to mention ${topic}.`);
-      continue;
-    }
-    if ((match = /^(?:please\s+)?ask (?:them|the guest) to (.+)$/i.exec(line))) {
-      const rest = match[1].trim();
-      lines.push(es ? `Por favor, ${rest}.` : `Please ${rest}.`);
-      continue;
-    }
-    if ((match = /^(?:please\s+)?ask about (?:the\s+)?(.+)$/i.exec(line))) {
-      const topic = match[1].trim();
-      lines.push(es ? `¿Podrías contarnos sobre ${topic}?` : `Could you tell us about ${topic}?`);
-      continue;
-    }
-    if (/^(?:please\s+)?reply in (?:spanish|english|es|en)$/i.test(line)) continue;
-    lines.push(es ? `También queríamos añadir: ${line}.` : `We also wanted to add: ${line}.`);
-  }
-  return lines.join('\n');
-}
-
-function applyPermittedOperatorGuidanceToDraft(baseBody, operatorContext, language) {
-  const lang = language === 'es' ? 'es' : 'en';
-  const source = typeof baseBody === 'string' ? baseBody : '';
-  const permitted = extractPermittedOperatorGuidance(operatorContext);
-  if (!permitted) return source;
-  const guest = guestFacingGuidanceLines(permitted, lang);
-  if (!guest) return source;
-  if (source === guest || source === permitted || source === operatorContext) return source;
-  const trimmed = source.trim();
-  if (!trimmed) return source;
-  const signoff = lang === 'es' ? 'Un saludo cálido,' : 'Warm regards,';
-  if (trimmed.includes(signoff)) {
-    return trimmed.replace(signoff, `${guest}\n\n${signoff}`);
-  }
-  if (/\nLuna\s*$/.test(trimmed)) {
-    return trimmed.replace(/\nLuna\s*$/, `\n\n${guest}\n\nLuna`);
-  }
-  return `${trimmed}\n\n${guest}`;
-}
-
 module.exports = freeze({
   OPERATOR_DRAFT_CONTEXT_MAX_CHARS,
   OPERATOR_DRAFT_CONTEXT_MAX_UTF8_BYTES,
@@ -199,5 +150,4 @@ module.exports = freeze({
   snapshotEmailLunaCreateDraftBody,
   operatorDraftContextDigest,
   extractPermittedOperatorGuidance,
-  applyPermittedOperatorGuidanceToDraft,
 });

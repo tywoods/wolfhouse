@@ -2,6 +2,7 @@
 
 const runtimeIsProxy = require('node:util').types.isProxy.bind(undefined);
 const { createEmailLunaDraftAuthor } = require('./email-luna-draft-author');
+const { createEmailLunaCreateDraftNaturalAuthor } = require('./email-luna-create-draft-natural-author');
 
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SUNSET_LOCATION_KEY = 'sunset-somo';
@@ -58,7 +59,11 @@ function createEmailLunaSunsetStagingRuntimeComposition(configuration) {
   if (objectHasOwn(config, 'callModel')) authorConfig.callModel = config.callModel;
   if (objectHasOwn(config, 'timeoutMs')) authorConfig.timeoutMs = config.timeoutMs;
   const author = createEmailLunaDraftAuthor(authorConfig);
-  return objectFreeze({ authorDraft: author.authorDraft });
+  const natural = createEmailLunaCreateDraftNaturalAuthor(authorConfig);
+  return objectFreeze({
+    authorDraft: author.authorDraft,
+    authorNaturalGuestReply: natural.authorNaturalGuestReply,
+  });
 }
 
 module.exports = {

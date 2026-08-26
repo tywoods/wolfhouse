@@ -81,8 +81,9 @@ const composition = createEmailLunaSunsetStagingRuntimeComposition({
   ...enabledInput(),
   callModel: async () => JSON.stringify({ subject: 'Hello', body: 'Hello there.', language: 'en' }),
 });
-assert.deepEqual(Object.keys(composition), ['authorDraft']);
+assert.deepEqual(Object.keys(composition), ['authorDraft', 'authorNaturalGuestReply']);
 assert.equal(typeof composition.authorDraft, 'function');
+assert.equal(typeof composition.authorNaturalGuestReply, 'function');
 assert.equal(Object.isFrozen(composition), true);
 for (const disabled of [
   enabledInput({ env: {} }),
@@ -93,7 +94,7 @@ for (const disabled of [
     assert.equal(error && error.code, 'EMAIL_LUNA_DRAFT_RUNTIME_DISABLED'); return true;
   });
 }
-console.log('  PASS  factory is fail-closed and exposes authorDraft only after exact gates');
+console.log('  PASS  factory is fail-closed and exposes draft-only author methods after exact gates');
 
 const originalSome = Array.prototype.some;
 try {
