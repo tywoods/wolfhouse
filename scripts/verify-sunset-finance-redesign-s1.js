@@ -188,6 +188,8 @@ ok('admin ui sends granularity query', /financeViewQuery|granularity=/.test(admi
 ok('browser source injects redesign module', fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'sunset-admin-browser-source.js'), 'utf8').includes('sunset-admin-finance-redesign-ui.js'));
 ok('route accepts view params', /query\.granularity/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8')));
 ok('CSS has Option B classes', /\.pfb-hero/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8')));
+ok('Finance cards use palette --surface (Salt white / Sand paper)', /\.pfb-card\{[^}]*background:var\(--surface\)/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8')));
+ok('Finance cards are not the grey --surface-soft inset', !/\.pfb-card\{[^}]*background:var\(--surface-soft\)/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8')));
 ok('CSS font-weight never 800+', !/pfb-[^}]*font-weight:\s*8\d\d/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8')));
 
 console.log(`\n── verify:sunset-finance-redesign-s1: ${pass} passed, ${fail} failed ──`);

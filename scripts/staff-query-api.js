@@ -17581,7 +17581,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-fact-label{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:650;color:var(--text-3);margin-bottom:2px}
 .portal-admin-email-loading{margin:0;color:var(--text-2);font-size:14px}
 .portal-admin-email-card.is-disabled .portal-admin-email-action-btn:disabled{opacity:.55}
-.portal-admin-finance-shell{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft)}
+.portal-admin-finance-shell{background:transparent;border:0;border-radius:var(--radius);padding:0;box-shadow:none}
 .portal-admin-finance-shell p{margin:0;font-size:14px;line-height:1.5;color:var(--text-2)}
 .portal-admin-finance{display:flex;flex-direction:column;gap:14px;max-width:100%}
 .pf-gross-note{margin:0;font-size:12px;line-height:1.45;color:var(--text-3)}
@@ -17627,7 +17627,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .pfb-custom-apply{min-height:44px}
 .pfb-hero{display:grid;grid-template-columns:1fr;gap:12px}
 @media(min-width:900px){.pfb-hero{grid-template-columns:repeat(3,minmax(0,1fr))}}
-.pfb-card{display:flex;flex-direction:column;justify-content:space-between;gap:12px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 14px;min-width:0}
+.pfb-card{display:flex;flex-direction:column;justify-content:space-between;gap:12px;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 14px;min-width:0}
 .pfb-card--hero{min-height:180px}
 .pfb-lbl{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2)}
 .pfb-big{font-family:var(--font-display,var(--font-sans));font-size:34px;font-weight:600;line-height:1.1;color:var(--text);font-variant-numeric:tabular-nums}
