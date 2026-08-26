@@ -18130,6 +18130,8 @@ body > .portal-schedule-drawer{flex:none;align-self:auto}
 .portal-schedule-create-date-range-dow{font-size:10px;font-weight:700;text-align:center;color:var(--text-3);padding:4px 0;letter-spacing:.02em}
 .portal-schedule-create-date-range-day{min-height:40px;min-width:0;width:100%;border:none;border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer;padding:6px 0;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .portal-schedule-create-date-range-day.is-outside{opacity:.35}
+.portal-schedule-create-date-range-day.is-past,.portal-schedule-create-date-range-day:disabled{opacity:.35;cursor:not-allowed}
+.portal-schedule-create-date-range-past-warn{margin:0 0 8px;font-size:13px;color:var(--danger,#b33)}
 .portal-schedule-create-date-range-day.is-in-range{background:rgba(78,88,83,.14)}
 .portal-schedule-create-date-range-day.is-selected-start,.portal-schedule-create-date-range-day.is-selected-end,.portal-schedule-create-date-range-day.is-selected{background:var(--sched-primary,#4E5853);color:#fff;font-weight:700}
 .portal-schedule-create-date-range-day:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:1px}
@@ -21932,6 +21934,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <button type="button" id="ps-create-date-range-next" data-i18n-aria="schedule.create.dateRange.nextMonth" aria-label="Next month">&#8250;</button>
             </div>
             <div id="ps-create-date-range-grid" class="portal-schedule-create-date-range-grid" role="group" aria-labelledby="ps-create-date-range-month-label"></div>
+            <p id="ps-create-date-range-past-warn" class="portal-schedule-create-date-range-past-warn" role="alert" hidden style="display:none"></p>
             <div class="portal-schedule-create-date-range-actions">
               <button type="button" class="btn btn-ghost" id="ps-create-date-range-cancel" data-i18n="schedule.create.dateRange.cancel">Cancel</button>
               <button type="button" class="btn btn-primary" id="ps-create-date-range-apply" data-i18n="schedule.create.dateRange.apply">Apply</button>
@@ -22050,6 +22053,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
                   <button type="button" id="ps-create-accommodation-date-range-next" data-i18n-aria="schedule.create.dateRange.nextMonth" aria-label="Next month">&#8250;</button>
                 </div>
                 <div id="ps-create-accommodation-date-range-grid" class="portal-schedule-create-date-range-grid" role="group" aria-labelledby="ps-create-accommodation-date-range-month-label"></div>
+                <p id="ps-create-accommodation-date-range-past-warn" class="portal-schedule-create-date-range-past-warn" role="alert" hidden style="display:none"></p>
                 <div class="portal-schedule-create-date-range-actions">
                   <button type="button" class="btn btn-ghost" id="ps-create-accommodation-date-range-cancel" data-i18n="schedule.create.dateRange.cancel">Cancel</button>
                   <button type="button" class="btn btn-primary" id="ps-create-accommodation-date-range-apply" data-i18n="schedule.create.dateRange.apply">Apply</button>
@@ -26277,12 +26281,9 @@ function scheduleSyncCreateAccomDateRangeUi(){
   var apply = el('ps-create-accommodation-date-range-apply');
   if (apply) {
     var draft = scheduleCreateAccomDateRangeDraft || {};
-    var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
-      ? scheduleCreateDateRangeIsValidIso
-      : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
-    var ready = !!(valid(draft.start) && (!draft.end || valid(draft.end)));
-    apply.disabled = !ready;
+    apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
   }
+  scheduleCreateDateRangeSyncPastWarning('ps-create-accommodation-date-range-past-warn', scheduleCreateAccomDateRangeDraft || {});
 }
 
 function scheduleCreateAccomDateRangeIsOpen(){
@@ -26386,6 +26387,7 @@ function scheduleRenderCreateAccomDateRangeCalendar(){
   var dEnd = draft.end || null;
   var rangeLo = dStart && dEnd ? (dStart < dEnd ? dStart : dEnd) : dStart;
   var rangeHi = dStart && dEnd ? (dStart < dEnd ? dEnd : dStart) : dEnd;
+  var minIso = scheduleCreateDateRangeMinIso();
   var html = '';
   var dows = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   for (var d = 0; d < 7; d += 1) {
@@ -26429,36 +26431,45 @@ function scheduleRenderCreateAccomDateRangeCalendar(){
     if (dStart && cells.some(function(c){ return c.iso === dStart; })) focusIso = dStart;
     else {
       for (var fi = 0; fi < cells.length; fi += 1) {
-        if (!cells[fi].outside) { focusIso = cells[fi].iso; break; }
+        if (!cells[fi].outside && !(minIso && cells[fi].iso < minIso)) {
+          focusIso = cells[fi].iso;
+          break;
+        }
       }
     }
     scheduleCreateAccomDateRangeFocusIso = focusIso;
   }
-  var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
-    ? scheduleCreateDateRangeIsValidIso
-    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
   cells.forEach(function(c){
     var cls = 'portal-schedule-create-date-range-day';
     var selected = false;
+    var isPast = !!(minIso && scheduleCreateDateRangeIsValidIso(c.iso) && c.iso < minIso);
     if (c.outside) cls += ' is-outside';
+    if (isPast) cls += ' is-past';
     if (dStart && c.iso === dStart) { cls += ' is-selected-start is-selected'; selected = true; }
     if (dEnd && c.iso === dEnd) { cls += ' is-selected-end is-selected'; selected = true; }
     if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi) cls += ' is-in-range';
     var tab = (focusIso && c.iso === focusIso) ? '0' : '-1';
     html += '<button type="button" class="' + cls + '" tabindex="' + tab
       + '" data-date="' + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso)
-      + '" aria-pressed="' + (selected ? 'true' : 'false') + '">'
+      + '" aria-pressed="' + (selected ? 'true' : 'false') + '"'
+      + (isPast ? ' disabled aria-disabled="true"' : '')
+      + '>'
       + escHtml(String(c.day)) + '</button>';
   });
   grid.innerHTML = html;
   grid._dateRangeCells = cells;
   var apply = el('ps-create-accommodation-date-range-apply');
-  if (apply) apply.disabled = !(valid(dStart) && (!dEnd || valid(dEnd)));
+  if (apply) apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
+  scheduleCreateDateRangeSyncPastWarning('ps-create-accommodation-date-range-past-warn', draft);
 }
 
 /** Write calendar draft into hidden half-open check-in/out (same-day → +1 night). */
 function scheduleApplyCreateAccomDateRangeDraft(){
   var draft = scheduleCreateAccomDateRangeDraft || {};
+  if (scheduleCreateDateRangeDraftHasPast(draft)) {
+    scheduleCreateDateRangeSyncPastWarning('ps-create-accommodation-date-range-past-warn', draft);
+    return false;
+  }
   var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
     ? scheduleCreateDateRangeIsValidIso
     : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
@@ -26473,6 +26484,7 @@ function scheduleApplyCreateAccomDateRangeDraft(){
   if (cin) cin.value = start;
   if (cout) cout.value = end;
   scheduleSyncCreateAccomDateRangeUi();
+  scheduleCreateDateRangeSyncPastWarning('ps-create-accommodation-date-range-past-warn', { start: start, end: end });
   scheduleCreateAccomDateRangeClosePopover({ restoreFocus: true, applied: true, discard: false });
   return true;
 }
@@ -26519,6 +26531,7 @@ function scheduleWireCreateAccomDateRange(){
       var t = ev && ev.target;
       var btn = t && t.closest ? t.closest('[data-date]') : null;
       if (!btn || !(grid.contains ? grid.contains(btn) : true)) return;
+      if (btn.disabled || btn.classList.contains('is-past')) return;
       var iso = btn.getAttribute('data-date');
       var select = typeof scheduleCreateDateRangeSelectDay === 'function'
         ? scheduleCreateDateRangeSelectDay
@@ -27195,12 +27208,61 @@ function scheduleCreateDateRangeIsValidIso(iso){
   }
 }
 
+/** Staff-create only: earliest selectable service day (today in portal TZ). */
+function scheduleCreateDateRangeMinIso(){
+  return typeof scheduleTodayIso === 'function' ? scheduleTodayIso() : '';
+}
+
+function scheduleCreateDateRangeIsPastIso(iso){
+  iso = String(iso || '').slice(0, 10);
+  var min = scheduleCreateDateRangeMinIso();
+  if (!scheduleCreateDateRangeIsValidIso(iso) || !min) return false;
+  return iso < min;
+}
+
+function scheduleCreateDateRangeDraftHasPast(draft){
+  draft = draft || {};
+  if (scheduleCreateDateRangeIsPastIso(draft.start)) return true;
+  if (draft.end && scheduleCreateDateRangeIsPastIso(draft.end)) return true;
+  return false;
+}
+
+function scheduleCreateDateRangeDraftReady(draft){
+  draft = draft || {};
+  var start = draft.start ? String(draft.start).slice(0, 10) : '';
+  var end = draft.end ? String(draft.end).slice(0, 10) : null;
+  if (!scheduleCreateDateRangeIsValidIso(start)) return false;
+  if (scheduleCreateDateRangeDraftHasPast(draft)) return false;
+  if (end && !scheduleCreateDateRangeIsValidIso(end)) return false;
+  return true;
+}
+
+function scheduleCreateDateRangePastMessage(){
+  return portalT('schedule.create.dateRange.pastDate')
+    || 'Dates cannot be in the past.';
+}
+
+function scheduleCreateDateRangeSyncPastWarning(warnId, draft){
+  var warn = el(warnId);
+  if (!warn) return;
+  if (scheduleCreateDateRangeDraftHasPast(draft)) {
+    warn.textContent = scheduleCreateDateRangePastMessage();
+    warn.hidden = false;
+    if (warn.style) warn.style.display = '';
+  } else {
+    warn.textContent = '';
+    warn.hidden = true;
+    if (warn.style) warn.style.display = 'none';
+  }
+}
+
 function scheduleCreateDateRangeSelectDay(state, iso){
   state = state || {};
   var start = state.start ? String(state.start).slice(0, 10) : null;
   var end = state.end ? String(state.end).slice(0, 10) : null;
   iso = String(iso || '').slice(0, 10);
   if (!scheduleCreateDateRangeIsValidIso(iso)) return { start: start, end: end };
+  if (scheduleCreateDateRangeIsPastIso(iso)) return { start: start, end: end };
   // Restart after a complete range, or when no start yet.
   if (!start || (start && end)) return { start: iso, end: null };
   // Earlier second selection restarts as the new start (no end yet).
@@ -27308,12 +27370,9 @@ function scheduleSyncCreateDateRangeUi(){
   var apply = el('ps-create-date-range-apply');
   if (apply) {
     var draft = scheduleCreateDateRangeDraft || {};
-    // One-day reservations: a valid start alone is enough (Apply commits from=to=start).
-    // Multi-day still uses second-click end when present.
-    var ready = !!(scheduleCreateDateRangeIsValidIso(draft.start)
-      && (!draft.end || scheduleCreateDateRangeIsValidIso(draft.end)));
-    apply.disabled = !ready;
+    apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
   }
+  scheduleCreateDateRangeSyncPastWarning('ps-create-date-range-past-warn', scheduleCreateDateRangeDraft || {});
 }
 
 function scheduleCreateDateRangeClosePopover(opts){
@@ -27347,7 +27406,8 @@ function scheduleCreateDateRangeFocusInto(){
     try { btn = grid.querySelector('[data-date="' + focusIso + '"]'); } catch (_q) { btn = null; }
   }
   if (!btn && grid && typeof grid.querySelector === 'function') {
-    btn = grid.querySelector('.portal-schedule-create-date-range-day:not(.is-outside)')
+    btn = grid.querySelector('.portal-schedule-create-date-range-day:not(.is-outside):not(.is-past):not([disabled])')
+      || grid.querySelector('.portal-schedule-create-date-range-day:not(.is-outside)')
       || grid.querySelector('[data-date]');
   }
   if (btn && typeof btn.focus === 'function') {
@@ -27430,6 +27490,7 @@ function scheduleRenderCreateDateRangeCalendar(){
   var dEnd = draft.end || null;
   var rangeLo = dStart && dEnd ? (dStart < dEnd ? dStart : dEnd) : dStart;
   var rangeHi = dStart && dEnd ? (dStart < dEnd ? dEnd : dStart) : dEnd;
+  var minIso = scheduleCreateDateRangeMinIso();
   var html = '';
   var dows = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
   for (var d = 0; d < 7; d += 1) {
@@ -27475,7 +27536,10 @@ function scheduleRenderCreateDateRangeCalendar(){
     if (dStart && cells.some(function(c){ return c.iso === dStart; })) focusIso = dStart;
     else {
       for (var fi = 0; fi < cells.length; fi += 1) {
-        if (!cells[fi].outside) { focusIso = cells[fi].iso; break; }
+        if (!cells[fi].outside && !(minIso && cells[fi].iso < minIso)) {
+          focusIso = cells[fi].iso;
+          break;
+        }
       }
     }
     scheduleCreateDateRangeFocusIso = focusIso;
@@ -27483,7 +27547,9 @@ function scheduleRenderCreateDateRangeCalendar(){
   cells.forEach(function(c){
     var cls = 'portal-schedule-create-date-range-day';
     var selected = false;
+    var isPast = !!(minIso && scheduleCreateDateRangeIsValidIso(c.iso) && c.iso < minIso);
     if (c.outside) cls += ' is-outside';
+    if (isPast) cls += ' is-past';
     if (dStart && c.iso === dStart) { cls += ' is-selected-start is-selected'; selected = true; }
     if (dEnd && c.iso === dEnd) { cls += ' is-selected-end is-selected'; selected = true; }
     // Inclusive highlight between start and end (same-day gets selected classes only).
@@ -27492,20 +27558,25 @@ function scheduleRenderCreateDateRangeCalendar(){
     // Real date buttons (no gridcell): roving tabindex + aria-pressed selected state.
     html += '<button type="button" class="' + cls + '" tabindex="' + tab
       + '" data-date="' + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso)
-      + '" aria-pressed="' + (selected ? 'true' : 'false') + '">'
+      + '" aria-pressed="' + (selected ? 'true' : 'false') + '"'
+      + (isPast ? ' disabled aria-disabled="true"' : '')
+      + '>' 
       + escHtml(String(c.day)) + '</button>';
   });
   grid.innerHTML = html;
   // Expose parsed cells for lightweight runtime behavioral tests / focus helpers.
   grid._dateRangeCells = cells;
   var apply = el('ps-create-date-range-apply');
-  // Enable Apply once a valid start exists (one-day = start-only; multi-day = start+end).
-  if (apply) apply.disabled = !(scheduleCreateDateRangeIsValidIso(dStart)
-    && (!dEnd || scheduleCreateDateRangeIsValidIso(dEnd)));
+  if (apply) apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
+  scheduleCreateDateRangeSyncPastWarning('ps-create-date-range-past-warn', draft);
 }
 
 function scheduleApplyCreateDateRangeDraft(){
   var draft = scheduleCreateDateRangeDraft || {};
+  if (scheduleCreateDateRangeDraftHasPast(draft)) {
+    scheduleCreateDateRangeSyncPastWarning('ps-create-date-range-past-warn', draft);
+    return false;
+  }
   var start = draft.start ? String(draft.start).slice(0, 10) : '';
   if (!scheduleCreateDateRangeIsValidIso(start)) return false;
   // One-day: start-only draft commits date_from = date_to = start.
@@ -27530,6 +27601,7 @@ function scheduleApplyCreateDateRangeDraft(){
     if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
   }
   scheduleSyncCreateDateRangeUi();
+  scheduleCreateDateRangeSyncPastWarning('ps-create-date-range-past-warn', { start: start, end: end });
   scheduleCreateDateRangeClosePopover({ restoreFocus: true, applied: true, discard: false });
   return true;
 }
@@ -27596,6 +27668,7 @@ function scheduleWireCreateDateRange(){
       var t = ev && ev.target;
       var btn = t && t.closest ? t.closest('[data-date]') : null;
       if (!btn || !(grid.contains ? grid.contains(btn) : true)) return;
+      if (btn.disabled || btn.classList.contains('is-past')) return;
       var iso = btn.getAttribute('data-date');
       scheduleCreateDateRangeDraft = scheduleCreateDateRangeSelectDay(scheduleCreateDateRangeDraft, iso);
       scheduleCreateDateRangeFocusIso = iso;
@@ -27609,6 +27682,7 @@ function scheduleWireCreateDateRange(){
       var t = ev.target;
       var btn = t && t.closest ? t.closest('[data-date]') : null;
       if (!btn || !(grid.contains ? grid.contains(btn) : true)) return;
+      if (btn.disabled || btn.classList.contains('is-past')) return;
       var iso = btn.getAttribute('data-date');
       var key = ev.key || ev.code;
       if (key === 'Enter' || key === ' ' || key === 'Spacebar' || key === 'Space') {

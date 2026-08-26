@@ -112,6 +112,7 @@ function makeSandbox() {
     el: (id) => nodes[id] || null,
     portalT: (k) => ({
       'calendar.state.invalidDateRange': 'Enter valid dates as DD/MM/YYYY.',
+      'schedule.create.dateRange.pastDate': 'Dates cannot be in the past.',
       'schedule.create.privateLesson.sessionDatePast': 'Session dates cannot be in the past.',
       'schedule.create.courseOrTurnOff': 'Select a course or turn off Group Course',
       'schedule.create.courseRequired': 'Select a course or turn off Group Course',
@@ -171,9 +172,9 @@ console.log('\n[2] Soft validate rejects past service dates');
     components: {},
     rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
   }, { soft: true });
-  assert('soft past → softInvalid invalidDateRange',
+  assert('soft past → softInvalid pastDate',
     past && past.ok === false && past.softInvalid === true
-    && past.errorKey === 'calendar.state.invalidDateRange',
+    && past.errorKey === 'schedule.create.dateRange.pastDate',
     JSON.stringify(past));
 
   const todayOk = sb.schedulePortalValidateCreatePayload({
@@ -195,7 +196,7 @@ console.log('\n[2] Soft validate rejects past service dates');
     rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
   }, { soft: false });
   assert('hard past blocked',
-    hardPast && hardPast.ok === false && hardPast.errorKey === 'calendar.state.invalidDateRange');
+    hardPast && hardPast.ok === false && hardPast.errorKey === 'schedule.create.dateRange.pastDate');
 }
 
 console.log('\n[3] Soft past-date paints + disables Create');
@@ -208,13 +209,13 @@ console.log('\n[3] Soft past-date paints + disables Create');
   sb.schedulePortalRenderCreateQuotePreview({
     ok: false,
     softInvalid: true,
-    errorKey: 'calendar.state.invalidDateRange',
+    errorKey: 'schedule.create.dateRange.pastDate',
   });
   const box = sb._nodes['ps-create-quote-preview'];
   assert('past soft paints invalid-date status',
     /invalid-date/.test(box.innerHTML) && box.style.display === 'block');
-  assert('past soft message is human',
-    /Enter valid dates/.test(box.innerHTML) && !/calendar\.state\./.test(box.innerHTML));
+  assert('past soft message is human past-date copy',
+    /Dates cannot be in the past/.test(box.innerHTML) && !/calendar\.state\./.test(box.innerHTML));
   assert('past soft sets QuotePriceBlocked', sb.schedulePortalQuotePriceBlocked === true);
   assert('past soft disables Create', sb._nodes['ps-create-submit'].disabled === true);
 

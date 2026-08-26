@@ -755,6 +755,7 @@ module.exports = {
   'schedule.create.dateRange.placeholder': 'Seleccionar fechas',
   'schedule.create.dateRange.cancel': 'Cancelar',
   'schedule.create.dateRange.apply': 'Aplicar',
+  'schedule.create.dateRange.pastDate': 'No puedes reservar fechas pasadas.',
   'schedule.create.dateRange.done': 'Listo',
   'schedule.create.dateRange.prevMonth': 'Mes anterior',
   'schedule.create.dateRange.nextMonth': 'Mes siguiente',
