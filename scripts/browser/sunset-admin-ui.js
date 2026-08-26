@@ -2084,6 +2084,95 @@ function adminFormatAccomEuro(cents){
   return (n / 100).toFixed(2);
 }
 
+function adminAccommodationIsIsoDate(iso){
+  var s = String(iso == null ? '' : iso).trim().slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+function adminAccommodationAddDaysIso(iso, days){
+  if (!adminAccommodationIsIsoDate(iso)) return '';
+  var parts = String(iso).slice(0, 10).split('-').map(Number);
+  return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]) + (days * 86400000)).toISOString().slice(0, 10);
+}
+
+function adminFormatAccomIsoDate(iso){
+  var s = String(iso || '').slice(0, 10);
+  if (!adminAccommodationIsIsoDate(s)) return s;
+  if (typeof financeRedesignFormatIsoDate === 'function') {
+    return financeRedesignFormatIsoDate(s);
+  }
+  try {
+    var loc = 'en-GB';
+    if (typeof getStaffLocale === 'function') {
+      var tag = String(getStaffLocale() || 'en').toLowerCase();
+      if (tag.indexOf('es') === 0) loc = 'es-ES';
+      else if (tag.indexOf('it') === 0) loc = 'it-IT';
+    }
+    var parts = s.split('-').map(Number);
+    return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2], 12, 0, 0)).toLocaleDateString(loc, {
+      day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+    });
+  } catch (_e) {
+    return s;
+  }
+}
+
+function adminFormatAccomDateRange(checkIn, checkOut){
+  var from = String(checkIn || '').slice(0, 10);
+  var to = String(checkOut || '').slice(0, 10);
+  if (!adminAccommodationIsIsoDate(from)) return adminFormatAccomIsoDate(to) || '—';
+  if (!adminAccommodationIsIsoDate(to) || from === to) return adminFormatAccomIsoDate(from);
+  if (typeof financeRedesignFormatIsoRange === 'function') {
+    return financeRedesignFormatIsoRange(from, to).replace(' – ', ' → ');
+  }
+  return adminFormatAccomIsoDate(from) + ' → ' + adminFormatAccomIsoDate(to);
+}
+
+function adminFindAccommodationCoverageGaps(ranges){
+  var rows = (Array.isArray(ranges) ? ranges : []).filter(function(r){
+    return r
+      && adminAccommodationIsIsoDate(r.check_in)
+      && adminAccommodationIsIsoDate(r.check_out)
+      && String(r.check_out).slice(0, 10) > String(r.check_in).slice(0, 10);
+  }).slice().sort(function(a, b){
+    var byIn = String(a.check_in).slice(0, 10).localeCompare(String(b.check_in).slice(0, 10));
+    if (byIn) return byIn;
+    return String(a.check_out).slice(0, 10).localeCompare(String(b.check_out).slice(0, 10));
+  });
+  var gaps = [];
+  for (var i = 1; i < rows.length; i += 1) {
+    var prev = rows[i - 1];
+    var cur = rows[i];
+    if (String(prev.check_out).slice(0, 10) < String(cur.check_in).slice(0, 10)) {
+      gaps.push({ gap_start: String(prev.check_out).slice(0, 10), gap_end: String(cur.check_in).slice(0, 10) });
+    }
+  }
+  return gaps;
+}
+
+function adminFormatAccommodationGapLabel(gap){
+  if (!gap || !adminAccommodationIsIsoDate(gap.gap_start) || !adminAccommodationIsIsoDate(gap.gap_end)) {
+    return '';
+  }
+  var lastNight = adminAccommodationAddDaysIso(gap.gap_end, -1);
+  if (!adminAccommodationIsIsoDate(lastNight)) return adminFormatAccomIsoDate(gap.gap_start);
+  if (gap.gap_start === lastNight) return adminFormatAccomIsoDate(gap.gap_start);
+  return adminFormatAccomDateRange(gap.gap_start, lastNight);
+}
+
+function renderAdminAccommodationCoverageWarning(ranges){
+  var gaps = adminFindAccommodationCoverageGaps(ranges);
+  if (!gaps.length) return '';
+  var labels = gaps.map(adminFormatAccommodationGapLabel).filter(Boolean);
+  if (!labels.length) return '';
+  var template = portalT('admin.accommodation.coverageGap')
+    || 'Some dates have no seasonal price: {gaps}. Stays including these nights cannot be quoted.';
+  var text = String(template).replace('{gaps}', labels.join('; '));
+  return '<div class="portal-admin-banner portal-admin-accommodation-coverage-warn"'
+    + ' data-testid="admin-accommodation-coverage-warning" role="status">'
+    + escHtml(text) + '</div>';
+}
+
 function renderAdminAccommodationRangeRows(ranges, editing){
   var html = '';
   if (!ranges.length){
@@ -2118,7 +2207,7 @@ function renderAdminAccommodationRangeRows(ranges, editing){
       html += '<div class="portal-admin-accommodation-range-row" data-testid="admin-accommodation-range-row">';
       html += '<span class="portal-admin-accommodation-range-title">' + escHtml(r.title || '—') + '</span>';
       html += '<span class="portal-admin-accommodation-range-dates">' +
-        escHtml((r.check_in || '') + ' → ' + (r.check_out || '')) + '</span>';
+        escHtml(adminFormatAccomDateRange(r.check_in, r.check_out)) + '</span>';
       html += '<span class="portal-admin-accommodation-range-price">€' + escHtml(adminFormatAccomEuro(r.amount_cents)) +
         ' <span class="portal-admin-muted">' + escHtml(portalT('admin.accommodation.perNight') || '/ night') + '</span></span>';
       html += '</div>';
@@ -2173,6 +2262,7 @@ function renderAdminSectionAccommodationFromConfig(cfg){
       escHtml(portalT('admin.action.cancel') || 'Cancel') + '</button>';
     html += '</div></div>';
   } else {
+    html += renderAdminAccommodationCoverageWarning(ac.ranges);
     html += renderAdminAccommodationRangeRows(ac.ranges, false);
   }
   html += '</div>';

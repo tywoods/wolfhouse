@@ -16964,6 +16964,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-accommodation-range-row.is-editing > div{min-width:0}
 .portal-admin-accommodation-range-row.is-editing label{font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:2px}
 .portal-admin-accommodation-range-row.is-editing input{width:100%;max-width:100%;min-width:0;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box}
+.portal-admin-accommodation-coverage-warn{margin:10px 0 0;border-color:rgba(200,138,0,.4);color:#8a6100}
 @media (max-width:520px){
   .portal-admin-accommodation-range-row{grid-template-columns:1fr 1fr;gap:6px 8px}
   .portal-admin-accommodation-range-title{grid-column:1 / -1}

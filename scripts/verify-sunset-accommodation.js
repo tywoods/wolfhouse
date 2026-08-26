@@ -81,6 +81,17 @@ const ov = resolver.normalizeAccommodationRanges([
 ]);
 ok('overlap rejected', ov.ok === false && ov.reason_code === 'accommodation_ranges_overlap', ov.error);
 
+const gapRanges = resolver.normalizeAccommodationRanges([
+  { title: 'Spring', check_in: '2026-03-01', check_out: '2026-12-01', amount_cents: 4000 },
+  { title: 'Next spring', check_in: '2027-03-01', check_out: '2027-12-01', amount_cents: 5000 },
+]).value;
+const gaps = resolver.findAccommodationCoverageGaps(gapRanges);
+ok('coverage gap finder finds winter hole', gaps.length === 1
+  && gaps[0].gap_start === '2026-12-01'
+  && gaps[0].gap_end === '2027-03-01');
+ok('adjacent ranges have no coverage gap',
+  resolver.findAccommodationCoverageGaps(adj.value).length === 0);
+
 const single = resolver.priceAccommodationStay({
   ranges: adj.value, checkIn: D(0), checkOut: D(3),
 });

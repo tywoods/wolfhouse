@@ -249,6 +249,7 @@ module.exports = {
   'admin.accommodation.addRange': 'Añadir temporada',
   'admin.accommodation.removeRange': 'Quitar temporada',
   'admin.accommodation.saved': 'Alojamiento guardado.',
+  'admin.accommodation.coverageGap': 'Algunas fechas no tienen precio de temporada: {gaps}. Las estancias que incluyan esas noches no se pueden cotizar.',
   'schedule.create.accommodation.title': 'Alojamiento',
   'schedule.create.accommodation.add': 'Alojamiento +',
   'schedule.create.accommodation.checkIn': 'Entrada',

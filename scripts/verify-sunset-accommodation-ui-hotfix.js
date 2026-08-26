@@ -381,6 +381,18 @@ ok('Admin edit toggle + save-accommodation preserved',
   /edit-accommodation/.test(adminUi)
   && /save-accommodation/.test(adminUi)
   && /admin-accom-enabled/.test(adminUi));
+ok('Admin range readout uses locale formatter (not raw ISO concat)',
+  /adminFormatAccomDateRange\(r\.check_in, r\.check_out\)/.test(adminUi)
+  && !/escHtml\(\(r\.check_in \|\| ''\) \+ ' → ' \+ \(r\.check_out \|\| ''\)\)/.test(adminUi));
+ok('Admin coverage gap warning rendered in readout mode',
+  /renderAdminAccommodationCoverageWarning/.test(adminUi)
+  && /data-testid="admin-accommodation-coverage-warning"/.test(adminUi)
+  && /adminFindAccommodationCoverageGaps/.test(adminUi));
+ok('Admin coverage gap warning CSS present',
+  /portal-admin-accommodation-coverage-warn/.test(apiSrc));
+ok('Admin coverage gap i18n EN/ES',
+  /'admin\.accommodation\.coverageGap'/.test(i18nEn)
+  && /'admin\.accommodation\.coverageGap'/.test(i18nEs));
 
 // ── 5) i18n EN/ES/IT ───────────────────────────────────────────────────────
 console.log('\n[5] i18n EN/ES/IT for checkInOut + Save');
@@ -781,6 +793,112 @@ ok('Edit nights/attach/card owners parse together', (() => {
   } catch (e) {
     return false;
   }
+})());
+
+// ── 8) Admin accommodation locale dates + coverage gap warning ───────────────
+console.log('\n[8] Admin accommodation locale dates + coverage gap warning');
+ok('Admin accommodation format/gap owners parse together', (() => {
+  try {
+    const chunk = [
+      extractNamedFn(adminUi, 'adminAccommodationIsIsoDate'),
+      extractNamedFn(adminUi, 'adminAccommodationAddDaysIso'),
+      extractNamedFn(adminUi, 'adminFormatAccomIsoDate'),
+      extractNamedFn(adminUi, 'adminFormatAccomDateRange'),
+      extractNamedFn(adminUi, 'adminFindAccommodationCoverageGaps'),
+      extractNamedFn(adminUi, 'adminFormatAccommodationGapLabel'),
+      extractNamedFn(adminUi, 'renderAdminAccommodationCoverageWarning'),
+    ].join('\n');
+    new Function('financeRedesignFormatIsoDate', 'financeRedesignFormatIsoRange', 'getStaffLocale', 'portalT', 'escHtml', chunk);
+    return true;
+  } catch (e) {
+    return false;
+  }
+})());
+ok('Admin locale date range EN includes month name not raw ISO', (() => {
+  const chunk = [
+    extractNamedFn(adminUi, 'adminAccommodationIsIsoDate'),
+    extractNamedFn(adminUi, 'adminAccommodationAddDaysIso'),
+    extractNamedFn(adminUi, 'adminFormatAccomIsoDate'),
+    extractNamedFn(adminUi, 'adminFormatAccomDateRange'),
+  ].join('\n');
+  const financeRedesignFormatIsoDate = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+  });
+  const financeRedesignFormatIsoRange = (start, end) => {
+    const a = financeRedesignFormatIsoDate(start);
+    const b = financeRedesignFormatIsoDate(end);
+    return a + ' – ' + b;
+  };
+  const fn = new Function(
+    'financeRedesignFormatIsoDate',
+    'financeRedesignFormatIsoRange',
+    'getStaffLocale',
+    chunk + '; return adminFormatAccomDateRange("2026-03-01", "2026-04-30");',
+  );
+  const out = fn(financeRedesignFormatIsoDate, financeRedesignFormatIsoRange, () => 'en');
+  return /Mar/.test(out) && /2026/.test(out) && !/2026-03-01/.test(out);
+})());
+ok('Admin locale date range ES includes Spanish month', (() => {
+  const chunk = [
+    extractNamedFn(adminUi, 'adminAccommodationIsIsoDate'),
+    extractNamedFn(adminUi, 'adminAccommodationAddDaysIso'),
+    extractNamedFn(adminUi, 'adminFormatAccomIsoDate'),
+    extractNamedFn(adminUi, 'adminFormatAccomDateRange'),
+  ].join('\n');
+  const financeRedesignFormatIsoDate = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('es-ES', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+  });
+  const financeRedesignFormatIsoRange = (start, end) => {
+    const a = financeRedesignFormatIsoDate(start);
+    const b = financeRedesignFormatIsoDate(end);
+    return a + ' – ' + b;
+  };
+  const fn = new Function(
+    'financeRedesignFormatIsoDate',
+    'financeRedesignFormatIsoRange',
+    'getStaffLocale',
+    chunk + '; return adminFormatAccomIsoDate("2026-03-01");',
+  );
+  const out = fn(financeRedesignFormatIsoDate, financeRedesignFormatIsoRange, () => 'es');
+  return /mar/i.test(out) && /2026/.test(out) && !/2026-03-01/.test(out);
+})());
+ok('Admin coverage gap warning surfaces Dec–Feb hole', (() => {
+  const chunk = [
+    extractNamedFn(adminUi, 'adminAccommodationIsIsoDate'),
+    extractNamedFn(adminUi, 'adminAccommodationAddDaysIso'),
+    extractNamedFn(adminUi, 'adminFormatAccomIsoDate'),
+    extractNamedFn(adminUi, 'adminFormatAccomDateRange'),
+    extractNamedFn(adminUi, 'adminFindAccommodationCoverageGaps'),
+    extractNamedFn(adminUi, 'adminFormatAccommodationGapLabel'),
+    extractNamedFn(adminUi, 'renderAdminAccommodationCoverageWarning'),
+  ].join('\n');
+  const financeRedesignFormatIsoDate = (iso) => new Date(iso + 'T12:00:00Z').toLocaleDateString('en-GB', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+  });
+  const financeRedesignFormatIsoRange = (start, end) => financeRedesignFormatIsoDate(start) + ' – ' + financeRedesignFormatIsoDate(end);
+  const portalT = (key) => (key === 'admin.accommodation.coverageGap'
+    ? 'Uncovered: {gaps}'
+    : key);
+  const escHtml = (s) => String(s);
+  const fn = new Function(
+    'financeRedesignFormatIsoDate',
+    'financeRedesignFormatIsoRange',
+    'getStaffLocale',
+    'portalT',
+    'escHtml',
+    chunk + '; return renderAdminAccommodationCoverageWarning([{check_in:"2026-03-01",check_out:"2026-12-01"},{check_in:"2027-03-01",check_out:"2027-12-01"}]);',
+  );
+  const html = fn(
+    financeRedesignFormatIsoDate,
+    financeRedesignFormatIsoRange,
+    () => 'en',
+    portalT,
+    escHtml,
+  );
+  return /admin-accommodation-coverage-warning/.test(html)
+    && /Uncovered:/.test(html)
+    && /Dec/.test(html)
+    && /Feb/.test(html);
 })());
 
 console.log(`\n${fail === 0 ? 'OK' : 'FAIL'}  ${pass} passed, ${fail} failed\n`);
