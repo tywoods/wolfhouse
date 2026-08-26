@@ -68,6 +68,10 @@ const PLANTED = 'planted-NEVER_LEAK-secret';
 const PRODUCER_FP = 'aa'.repeat(32);
 const WORKER_FP = 'bb'.repeat(32);
 const IMAGE = `whstagingacr.azurecr.io/luna-sunset-staff-api:${DEPLOYED_SHA}`;
+const FOREIGN_LOGIN_IMAGE = `evil.azurecr.io/luna-sunset-staff-api:${DEPLOYED_SHA}`;
+const FOREIGN_REPO_IMAGE = `whstagingacr.azurecr.io/not-luna-sunset-staff-api:${DEPLOYED_SHA}`;
+const DRIFT_TAG_IMAGE = `whstagingacr.azurecr.io/luna-sunset-staff-api:${'0'.repeat(40)}`;
+const OTHER_DIGEST = 'sha256:00d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
 const CHAPTER_DISABLED = 'live_execute_not_authorized_in_this_chapter';
 
 function childEnv(patch = {}) {
@@ -272,6 +276,38 @@ function assertReaderFailure(err, detail) {
     && noLeak(err);
 }
 
+function imageUnprovenOrDrift(err) {
+  return assertReaderFailure(err, 'image_unproven') || assertReaderFailure(err, 'revision_drift');
+}
+
+function digestClosed(err) {
+  return assertReaderFailure(err, 'digest_mismatch')
+    || assertReaderFailure(err, 'azure_unproven')
+    || assertReaderFailure(err, 'acr_unproven');
+}
+
+function listDirectRevision(listPatch, directPatch) {
+  return {
+    listRevisions() { return [revisionFacts(listPatch)]; },
+    readRevision() { return revisionFacts(directPatch); },
+  };
+}
+
+function secondFenceRevision(secondPatch) {
+  let lists = 0;
+  let revs = 0;
+  return {
+    listRevisions() {
+      lists += 1;
+      return [lists >= 2 ? revisionFacts(secondPatch) : revisionFacts()];
+    },
+    readRevision() {
+      revs += 1;
+      return revs >= 2 ? revisionFacts(secondPatch) : revisionFacts();
+    },
+  };
+}
+
 function completeSnapshot() {
   return {
     resourceGroup: 'luna-sunset-staging-rg',
@@ -421,6 +457,8 @@ async function main() {
   assert.equal(evidence.independent_read, true);
   assert.equal(evidence.digest, DIGEST);
   assert.equal(evidence.deploy_sha, DEPLOYED_SHA);
+  assert.equal(evidence.image_login_server, AZURE_OWNER.acrLoginServer);
+  assert.equal(evidence.image_repository, `${AZURE_OWNER.acrLoginServer}/${AZURE_OWNER.acrRepository}`);
   assert.equal(evidence.image_tag, DEPLOYED_SHA);
   assert.equal(evidence.revision, REVISION);
   assert.equal(evidence.replica, 1);
@@ -494,7 +532,7 @@ async function main() {
   }
 
   await assert.rejects(
-    () => readWith(hitsTemplate(), { digest: 'sha256:00d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a' }),
+    () => readWith(hitsTemplate(), { digest: OTHER_DIGEST }),
     (err) => assertReaderFailure(err, 'digest_mismatch'),
   );
   await assert.rejects(
@@ -502,6 +540,139 @@ async function main() {
     (err) => assertReaderFailure(err, 'counts_nonzero'),
   );
   console.log('  PASS  mutation: ACR/count substitution cannot fall back to hardcoded pins');
+
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { image: FOREIGN_LOGIN_IMAGE } }),
+    (err) => assertReaderFailure(err, 'image_unproven'),
+    'revision loginServer foreign on both reads',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { image: FOREIGN_REPO_IMAGE } }),
+    (err) => assertReaderFailure(err, 'image_unproven'),
+    'revision repository foreign on both reads',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { image: DRIFT_TAG_IMAGE } }),
+    (err) => assertReaderFailure(err, 'image_unproven'),
+    'revision tag drift on both reads',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { image: IMAGE },
+      revision: { image: FOREIGN_LOGIN_IMAGE },
+    }),
+    (err) => assertReaderFailure(err, 'image_unproven'),
+    'app template pinned but revision loginServer foreign',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { image: IMAGE },
+      revision: { image: FOREIGN_REPO_IMAGE },
+    }),
+    (err) => assertReaderFailure(err, 'image_unproven'),
+    'app template pinned but revision repository foreign',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { image: IMAGE },
+      revision: { image: DRIFT_TAG_IMAGE },
+    }),
+    (err) => assertReaderFailure(err, 'image_unproven'),
+    'app template pinned but revision tag foreign',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), listDirectRevision({}, { image: FOREIGN_LOGIN_IMAGE })),
+    imageUnprovenOrDrift,
+    'list pinned / direct foreign loginServer',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), listDirectRevision({}, { image: FOREIGN_REPO_IMAGE })),
+    imageUnprovenOrDrift,
+    'list pinned / direct foreign repository',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), listDirectRevision({}, { image: DRIFT_TAG_IMAGE })),
+    imageUnprovenOrDrift,
+    'list pinned / direct foreign tag',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), listDirectRevision({ image: FOREIGN_LOGIN_IMAGE }, {})),
+    imageUnprovenOrDrift,
+    'list foreign loginServer / direct pinned',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), listDirectRevision({ image: FOREIGN_REPO_IMAGE }, {})),
+    imageUnprovenOrDrift,
+    'list foreign repository / direct pinned',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), listDirectRevision({ image: DRIFT_TAG_IMAGE }, {})),
+    imageUnprovenOrDrift,
+    'list foreign tag / direct pinned',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), secondFenceRevision({ image: FOREIGN_LOGIN_IMAGE })),
+    imageUnprovenOrDrift,
+    'first fence pinned / second foreign loginServer',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), secondFenceRevision({ image: FOREIGN_REPO_IMAGE })),
+    imageUnprovenOrDrift,
+    'first fence pinned / second foreign repository',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), secondFenceRevision({ image: DRIFT_TAG_IMAGE })),
+    imageUnprovenOrDrift,
+    'first fence pinned / second foreign tag',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { imageDigest: null } }),
+    digestClosed,
+    'runtime digest null',
+  );
+  {
+    const missingDigest = revisionFacts();
+    delete missingDigest.imageDigest;
+    await assert.rejects(
+      () => readWith(hitsTemplate(), {
+        listRevisions() { return [missingDigest]; },
+        readRevision() { return Object.assign({}, missingDigest); },
+      }),
+      digestClosed,
+      'runtime digest missing',
+    );
+  }
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { imageDigest: '' } }),
+    digestClosed,
+    'runtime digest empty',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { imageDigest: 'sha256:deadbeef' } }),
+    digestClosed,
+    'runtime digest malformed',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { imageDigest: OTHER_DIGEST } }),
+    (err) => assertReaderFailure(err, 'digest_mismatch'),
+    'runtime digest differs from ACR digest',
+  );
+  assert.match(ownedSrc, /function sameImageIdentity/);
+  assert.match(ownedSrc, /a\.revision\.image\.loginServer === b\.revision\.image\.loginServer/);
+  assert.match(ownedSrc, /a\.revision\.image\.repository === b\.revision\.image\.repository/);
+  assert.match(ownedSrc, /listedRevision\.image/);
+  assert.match(ownedSrc, /azureB\.revision\.image\.loginServer/);
+  assert.match(ownedSrc, /azureB\.revision\.image\.repository/);
+  assert.match(ownedSrc, /azureB\.revision\.image\.tag/);
+  assert.doesNotMatch(ownedSrc, /if \(runtimeDigest && runtimeDigest !== digest\)/);
+  assert.doesNotMatch(
+    ownedSrc,
+    /\['image_repository', `\$\{AZURE_OWNER\.acrLoginServer\}\/\$\{AZURE_OWNER\.acrRepository\}`\]/,
+  );
+  assert.doesNotMatch(ownedSrc, /constructor that is not on[\s\S]{0,80}this module's exports/);
+  assert.match(ownedSrc, /readAcrFence\(acr, azureA\.revision\.image/);
+  assert.match(ownedSrc, /readAcrFence\(acr, azureB\.revision\.image/);
+  console.log('  PASS  revision image identity is fully pinned; runtime digest required and equal to ACR');
 
   {
     const proverHits = { login: 0, pg: 0, token: 0, jwks: 0 };

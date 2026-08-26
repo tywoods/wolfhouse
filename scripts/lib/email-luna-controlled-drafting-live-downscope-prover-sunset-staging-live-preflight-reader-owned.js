@@ -8,9 +8,10 @@
  * Production surface is {readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg,
  * isIndependentLivePreflight} plus frozen pins/error identity. There is no
  * public callback/factory that a caller can use to brand evidence. Fake
- * adapters are injected only through a closed constructor that is not on
- * this module's exports (test-support sibling). Production never selects
- * adapters by env/opts.
+ * adapters are injected only through a closed constructor exported by this
+ * owned implementation module and reached from tests via the test-support
+ * sibling. Production owner and live-target re-exports omit that constructor.
+ * Production never selects adapters by env/opts.
  *
  * Live compose/runProof remain structurally disabled this chapter
  * (`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false` on the constants
@@ -280,6 +281,25 @@ function parseImageRef(image) {
   });
 }
 
+function sameImageIdentity(a, b) {
+  return !!(a && b
+    && a.loginServer === b.loginServer
+    && a.repository === b.repository
+    && a.tag === b.tag);
+}
+
+function requirePinnedImageIdentity(image) {
+  if (!image || typeof image !== 'object') throw failure('image_unproven');
+  if (image.loginServer !== AZURE_OWNER.acrLoginServer) throw failure('image_unproven');
+  if (image.repository !== AZURE_OWNER.acrRepository) throw failure('image_unproven');
+  if (image.tag !== EXPECTED_LIVE_TARGET.deployedSha) throw failure('image_unproven');
+}
+
+function requireRuntimeDigest(value) {
+  if (typeof value !== 'string' || !DIGEST_RE.test(value)) throw failure('digest_mismatch');
+  return value;
+}
+
 function literalFalseEnv(envList) {
   if (!arrayIsArray(envList) || isProxySurface(envList)) return { ok: false, reason: 'flags_unproven' };
   const seen = objectCreate(null);
@@ -419,9 +439,7 @@ function measureApp(app) {
   if (locationKey !== SUNSET_LOCATION_KEY) throw failure('tenant_mismatch');
   const image = parseImageRef(ownData(app, 'image'));
   if (!image) throw failure('image_unproven');
-  if (image.loginServer !== AZURE_OWNER.acrLoginServer) throw failure('image_unproven');
-  if (image.repository !== AZURE_OWNER.acrRepository) throw failure('image_unproven');
-  if (image.tag !== EXPECTED_LIVE_TARGET.deployedSha) throw failure('image_unproven');
+  requirePinnedImageIdentity(image);
   const clientId = envString(ownData(app, 'env'), 'EMAIL_LUNA_CONTROLLED_DRAFTING_CLIENT_ID');
   const locationId = envString(ownData(app, 'env'), 'EMAIL_LUNA_CONTROLLED_DRAFTING_LOCATION_ID');
   const endpointId = envString(ownData(app, 'env'), 'EMAIL_LUNA_CONTROLLED_DRAFTING_ENDPOINT_ID');
@@ -452,16 +470,17 @@ function measureRevision(revision, expectedImage) {
   if (ownData(revision, 'provisioningState') !== 'Provisioned') throw failure('azure_unproven');
   if (ownData(revision, 'replicas') !== 1) throw failure('replica_not_one');
   const image = parseImageRef(ownData(revision, 'image'));
-  if (!image || image.tag !== expectedImage.tag || image.repository !== expectedImage.repository) {
-    throw failure('image_unproven');
-  }
-  const runtimeDigest = ownData(revision, 'imageDigest');
-  if (runtimeDigest !== null && runtimeDigest !== undefined) {
-    if (typeof runtimeDigest !== 'string' || !DIGEST_RE.test(runtimeDigest)) throw failure('digest_mismatch');
+  if (!image) throw failure('image_unproven');
+  requirePinnedImageIdentity(image);
+  requirePinnedImageIdentity(expectedImage);
+  if (!sameImageIdentity(image, expectedImage)) throw failure('image_unproven');
+  const runtimeDigest = requireRuntimeDigest(ownData(revision, 'imageDigest'));
+  if (image.runtimeDigest !== null && image.runtimeDigest !== runtimeDigest) {
+    throw failure('digest_mismatch');
   }
   return objectFreeze({
     replicas: 1,
-    runtimeDigest: typeof runtimeDigest === 'string' ? runtimeDigest : null,
+    runtimeDigest,
     image,
   });
 }
@@ -539,7 +558,10 @@ async function readAzureFence(azure) {
   const direct = measureRevision(await azure.readRevision(EXPECTED_LIVE_TARGET.revision), app.image);
   if (listedRevision.replicas !== direct.replicas) throw failure('revision_drift');
   if (listedRevision.runtimeDigest !== direct.runtimeDigest) throw failure('revision_drift');
-  if (direct.image.tag !== app.image.tag) throw failure('image_unproven');
+  if (!sameImageIdentity(listedRevision.image, direct.image)) throw failure('revision_drift');
+  if (!sameImageIdentity(direct.image, app.image)) throw failure('image_unproven');
+  requirePinnedImageIdentity(direct.image);
+  requirePinnedImageIdentity(app.image);
   return objectFreeze({
     app,
     revision: direct,
@@ -547,6 +569,8 @@ async function readAzureFence(azure) {
 }
 
 async function readAcrFence(acr, image, runtimeDigest) {
+  requirePinnedImageIdentity(image);
+  const requiredRuntime = requireRuntimeDigest(runtimeDigest);
   const digest = await acr.readManifestDigest(objectFreeze({
     loginServer: image.loginServer,
     repository: image.repository,
@@ -554,7 +578,7 @@ async function readAcrFence(acr, image, runtimeDigest) {
   }));
   if (typeof digest !== 'string' || !DIGEST_RE.test(digest)) throw failure('acr_unproven');
   if (digest !== EXPECTED_LIVE_TARGET.digest) throw failure('digest_mismatch');
-  if (runtimeDigest && runtimeDigest !== digest) throw failure('digest_mismatch');
+  if (requiredRuntime !== digest) throw failure('digest_mismatch');
   return digest;
 }
 
@@ -615,6 +639,8 @@ function sameFence(a, b) {
     && a.revision.replicas === b.revision.replicas
     && a.revision.runtimeDigest === b.revision.runtimeDigest
     && a.revision.image.tag === b.revision.image.tag
+    && a.revision.image.loginServer === b.revision.image.loginServer
+    && a.revision.image.repository === b.revision.image.repository
     && a.digest === b.digest
     && a.pg.counts.ops_097 === b.pg.counts.ops_097
     && a.pg.counts.transitions_097 === b.pg.counts.transitions_097
@@ -673,7 +699,8 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
       if (typeof t0 !== 'number' || !Number.isFinite(t0)) throw failure('freshness');
       started = new Date(t0).toISOString();
       const azureA = await readAzureFence(azure);
-      const digestA = await readAcrFence(acr, azureA.app.image, azureA.revision.runtimeDigest);
+      if (!sameImageIdentity(azureA.app.image, azureA.revision.image)) throw failure('image_unproven');
+      const digestA = await readAcrFence(acr, azureA.revision.image, azureA.revision.runtimeDigest);
       const pgA = await readPgFence(pg, {
         clientId: azureA.app.clientId,
         locationId: azureA.app.locationId,
@@ -681,7 +708,8 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
         mailboxId: azureA.app.mailboxId,
       });
       const azureB = await readAzureFence(azure);
-      const digestB = await readAcrFence(acr, azureB.app.image, azureB.revision.runtimeDigest);
+      if (!sameImageIdentity(azureB.app.image, azureB.revision.image)) throw failure('image_unproven');
+      const digestB = await readAcrFence(acr, azureB.revision.image, azureB.revision.runtimeDigest);
       const pgB = await readPgFence(pg, {
         clientId: azureB.app.clientId,
         locationId: azureB.app.locationId,
@@ -724,9 +752,10 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
         ['replica', 1],
         ['min_replicas', 1],
         ['max_replicas', 1],
-        ['image_repository', `${AZURE_OWNER.acrLoginServer}/${AZURE_OWNER.acrRepository}`],
-        ['image_tag', azureB.app.image.tag],
-        ['deploy_sha', azureB.app.image.tag],
+        ['image_login_server', azureB.revision.image.loginServer],
+        ['image_repository', `${azureB.revision.image.loginServer}/${azureB.revision.image.repository}`],
+        ['image_tag', azureB.revision.image.tag],
+        ['deploy_sha', azureB.revision.image.tag],
         ['digest', digestB],
         ['flags_all_literal_false', true],
         ['tenant', SUNSET_TENANT],
