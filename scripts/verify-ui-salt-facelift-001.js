@@ -217,12 +217,19 @@ assert.ok(adminUi.includes('function wireLunaStaffHeaderModeCard'), 'header mode
 assert.ok(apiSrc.includes('--chip-transfer-bg'), 'transfer chip token');
 assert.ok(/\.bc-room-hdr\{background:var\(--room-bar/.test(apiSrc), 'room bars use --room-bar not sage');
 assert.ok(!/\.bc-room-hdr\{background:var\(--sage\)/.test(apiSrc), 'room bars must not use --sage fill');
-assert.ok(/--room-bar:#3A3A3C/.test(apiSrc), 'Salt room-bar is cool charcoal');
-assert.ok(/--booking-confirmed-bg:#FFFFFF/.test(apiSrc), 'Salt confirmed pill is white not green');
-assert.ok(!/--booking-confirmed-bg:#E0E6D0/.test(apiSrc), 'no pale olive confirmed fill');
-assert.ok(!/--booking-confirmed-bg:#CEDFBF/.test(apiSrc), 'Sand confirmed not pale green');
+assert.ok(/--room-bar:#3A3A3C/.test(saltLightCss), 'Salt room-bar is cool charcoal');
+assert.ok(/--booking-confirmed-bg:#CEDFBF/.test(saltLightCss), 'Salt confirmed token is staff soft green');
+assert.ok(/--booking-pending-bg:#D5E5EF/.test(saltLightCss), 'Salt Luna/pending token is soft blue');
+assert.ok(/\.bc-block-confirmed\{background:#CEDFBF/.test(apiSrc), 'confirmed fill is staff soft green #CEDFBF');
+assert.ok(/\.bc-block-payment_pending\{background:#D5E5EF/.test(apiSrc), 'Luna payment_pending is soft blue #D5E5EF');
+assert.ok(/\.bc-block-manual\{background:#DCEAD2/.test(apiSrc), 'manual fill is staff soft green #DCEAD2');
+assert.ok(/\.bc-legend-sw-confirmed\{background:#CEDFBF/.test(apiSrc), 'confirmed legend soft green');
+assert.ok(/\.bc-legend-sw-manual\{background:#DCEAD2/.test(apiSrc), 'staff legend soft green');
+assert.ok(/\.bc-legend-sw-payment\{background:#D5E5EF/.test(apiSrc), 'Luna legend soft blue');
+assert.ok(/rgba\(134,\s*168,\s*124/.test(apiSrc), 'confirmed checkout marker green gradient');
+assert.ok(/rgba\(181,\s*211,\s*173/.test(apiSrc), 'manual checkout marker green gradient');
+assert.ok(!/--booking-confirmed-bg:#FFFFFF/.test(saltLightCss), 'Salt confirmed not white/grey');
 assert.ok(!/--booking-confirmed-bg:#FFFBF4/.test(saltLightCss), 'Salt confirmed not warm paper');
-assert.ok(/\.bc-block-confirmed\{[^}]*booking-confirmed-bg/.test(apiSrc), 'confirmed block uses booking-confirmed tokens');
 assert.ok(!/function sendWhatsApp|handleInbound/.test(i18nSrc), 'i18n bootstrap stayed CSS/layout');
 
 const styleStart = apiSrc.indexOf('/* ── Palette (soft boutique-hospitality)');
@@ -410,8 +417,10 @@ ${early}
 ${style}
 body{margin:0;background:var(--cream);color:var(--text)}
 #probe{background:var(--surface);color:var(--text);border:1px solid var(--border)}
-.bc-room-hdr{background:var(--room-bar,#4A4540);color:var(--room-bar-fg,#fff);padding:8px}
-.bc-block-confirmed{background:var(--booking-confirmed-bg);color:var(--booking-confirmed-fg);border:1px solid var(--booking-confirmed-border);border-left:3px solid var(--booking-confirmed-rail);padding:8px;display:inline-block}
+.bc-room-hdr{background:var(--room-bar,#3A3A3C);color:var(--room-bar-fg,#fff);padding:8px}
+.bc-block-confirmed{background:#CEDFBF;color:#45673A;border-left:3px solid #87A87C;padding:8px;display:inline-block}
+.bc-block-payment_pending{background:#D5E5EF;color:#3F6070;border-left:3px solid #7AAABB;padding:8px;display:inline-block}
+.bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD;padding:8px;display:inline-block}
 .pill-purple{background:var(--chip-transfer-bg);color:var(--chip-transfer-fg);border:1px solid var(--chip-transfer-border);padding:2px 6px}
 .bc-block-pay-balance{background:var(--chip-balance-bg);color:var(--chip-balance-fg);border:1px solid var(--chip-balance-border);padding:2px 6px}
 .bc-block-pay-link{background:var(--chip-link-bg);color:var(--chip-link-fg);border:1px solid var(--chip-link-border);padding:2px 6px}
@@ -446,6 +455,8 @@ ${boot}
 </section>
 <div class="bc-room-hdr" id="probe-room">Room 1</div>
 <div class="bc-block-confirmed" id="probe-booking">Ty <span class="pill-purple">Transfer</span><span class="bc-block-pay-balance">Balance due</span><span class="bc-block-pay-link">Link sent</span></div>
+<div class="bc-block-payment_pending" id="probe-luna">Luna guest</div>
+<div class="bc-block-manual" id="probe-manual">Staff manual</div>
 <div id="probe">probe</div>
 </body>
 </html>`;
@@ -509,6 +520,8 @@ ${boot}
     const cs = getComputedStyle(document.documentElement);
     const room = getComputedStyle(document.getElementById('probe-room'));
     const booking = getComputedStyle(document.getElementById('probe-booking'));
+    const luna = getComputedStyle(document.getElementById('probe-luna'));
+    const manual = getComputedStyle(document.getElementById('probe-manual'));
     return {
       cream: cs.getPropertyValue('--cream').trim().toUpperCase(),
       surface: cs.getPropertyValue('--surface').trim().toUpperCase(),
@@ -516,8 +529,11 @@ ${boot}
       sage: cs.getPropertyValue('--sage').trim().toUpperCase(),
       roomBar: cs.getPropertyValue('--room-bar').trim().toUpperCase(),
       confirmedBg: cs.getPropertyValue('--booking-confirmed-bg').trim().toUpperCase(),
+      pendingBg: cs.getPropertyValue('--booking-pending-bg').trim().toUpperCase(),
       roomBg: room.backgroundColor,
       bookingBg: booking.backgroundColor,
+      lunaBg: luna.backgroundColor,
+      manualBg: manual.backgroundColor,
     };
   });
   await page.click('[data-color-profile="sand"]');
@@ -525,6 +541,8 @@ ${boot}
     const cs = getComputedStyle(document.documentElement);
     const room = getComputedStyle(document.getElementById('probe-room'));
     const booking = getComputedStyle(document.getElementById('probe-booking'));
+    const luna = getComputedStyle(document.getElementById('probe-luna'));
+    const manual = getComputedStyle(document.getElementById('probe-manual'));
     return {
       cream: cs.getPropertyValue('--cream').trim().toUpperCase(),
       surface: cs.getPropertyValue('--surface').trim().toUpperCase(),
@@ -532,8 +550,11 @@ ${boot}
       sage: cs.getPropertyValue('--sage').trim().toUpperCase(),
       roomBar: cs.getPropertyValue('--room-bar').trim().toUpperCase(),
       confirmedBg: cs.getPropertyValue('--booking-confirmed-bg').trim().toUpperCase(),
+      pendingBg: cs.getPropertyValue('--booking-pending-bg').trim().toUpperCase(),
       roomBg: room.backgroundColor,
       bookingBg: booking.backgroundColor,
+      lunaBg: luna.backgroundColor,
+      manualBg: manual.backgroundColor,
     };
   });
   assert.notStrictEqual(saltProbe.cream, sandProbe.cream, 'Salt cream ≠ Sand cream');
@@ -547,16 +568,19 @@ ${boot}
   assert.strictEqual(saltProbe.roomBg, 'rgb(58, 58, 60)', 'Salt room hdr fill is cool charcoal #3A3A3C');
   assert.strictEqual(sandProbe.roomBg, 'rgb(78, 88, 83)', 'Sand room hdr fill is charcoal #4E5853');
   assert.ok(!/rgb\(122,\s*132,\s*88\)|rgb\(184,\s*203,\s*176\)|rgb\(74,\s*69,\s*64\)/i.test(saltProbe.roomBg), 'Salt room bars not sage/coffee');
-  assert.strictEqual(saltProbe.confirmedBg, '#FFFFFF', 'Salt confirmed pill is white');
-  assert.strictEqual(sandProbe.confirmedBg, '#F5F1EA', 'Sand confirmed pill is surface not green');
-  assert.strictEqual(saltProbe.bookingBg, 'rgb(255, 255, 255)', 'Salt confirmed pill fill is white');
-  assert.strictEqual(sandProbe.bookingBg, 'rgb(245, 241, 234)', 'Sand confirmed pill fill is surface');
-  assert.ok(!/E0E6D0|CEDFBF|DCEAD2/i.test(saltProbe.confirmedBg + sandProbe.confirmedBg), 'no pale olive booking fill');
-  assert.ok(!/rgb\(224,\s*230,\s*208\)|rgb\(206,\s*223,\s*191\)|rgb\(220,\s*234,\s*210\)/i.test(saltProbe.bookingBg + sandProbe.bookingBg), 'booking pill fills not pale olive');
-  assert.strictEqual(saltProbe.cream, '#F5F5F7');
+  assert.strictEqual(saltProbe.confirmedBg, '#CEDFBF', 'Salt confirmed token is staff soft green');
+  assert.strictEqual(saltProbe.pendingBg, '#D5E5EF', 'Salt Luna/pending token is soft blue');
+  assert.strictEqual(saltProbe.bookingBg, 'rgb(206, 223, 191)', 'Salt confirmed pill fill is #CEDFBF');
+  assert.strictEqual(sandProbe.bookingBg, 'rgb(206, 223, 191)', 'Sand confirmed pill fill is same staff green #CEDFBF');
+  assert.strictEqual(saltProbe.lunaBg, 'rgb(213, 229, 239)', 'Salt Luna pill is soft blue #D5E5EF');
+  assert.strictEqual(sandProbe.lunaBg, 'rgb(213, 229, 239)', 'Sand Luna pill is same soft blue #D5E5EF');
+  assert.strictEqual(saltProbe.manualBg, 'rgb(220, 234, 210)', 'Salt manual pill is staff green #DCEAD2');
+  assert.strictEqual(sandProbe.manualBg, 'rgb(220, 234, 210)', 'Sand manual pill is same staff green');
   assert.strictEqual(sandProbe.cream, '#EDE8E0');
-  assert.strictEqual(saltProbe.primary, '#1B4D3E');
+  assert.strictEqual(sandProbe.surface, '#F5F1EA');
   assert.strictEqual(sandProbe.primary, '#4E5853');
+  assert.strictEqual(saltProbe.cream, '#F5F5F7');
+  assert.strictEqual(saltProbe.primary, '#1B4D3E');
   assert.strictEqual(saltProbe.surface, '#FFFFFF');
 
   void hexOf;
