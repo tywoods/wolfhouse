@@ -5,10 +5,15 @@
  * MAIL-MVP-007 operator live proof.
  *
  * One controlled Create Draft on an existing eligible Sunset conversation.
- * Lunabox: az containerapp exec into Staff, then correlate Email Luna logs
- * by opaque request_id. Staff container: gated owner proof
+ * Lunabox: PTY-wrapped `az containerapp exec` into Staff (script -q -e -c),
+ * then correlate Email Luna logs by the pre-generated opaque attempt
+ * request_id. Staff container: gated owner proof
  * (MAIL_MVP_007_STAFF_OWNER_PROOF=1) that invokes the production
  * POST /staff/inbox/email/create-draft owner exactly once.
+ *
+ * If exec disconnects after connecting, do not issue a second Create Draft.
+ * Reconcile owner state + logs for the same attempt id. If completion cannot
+ * be proven, exit nonzero with indeterminate_no_retry and do not rerun blindly.
  *
  * Never prints guest identifiers, conversation UUID, notes, tokens, or draft body.
  * Never calls approve/send/provider endpoints.
@@ -17,8 +22,10 @@
  *   MAIL_MVP_007_LIVE_PROOF=1
  *   LUNA_DEPLOYMENT=sunset-staging
  *   EMAIL_LUNA_PROOF_CONVERSATION_ID=<uuid>   (operator-supplied; never printed)
+ *   MAIL_MVP_007_PROOF_ATTEMPT_ID=<uuid>      (generated before exec; opaque)
  *   AZ=/opt/data/home/.local/bin/az           (Lunabox outer driver)
  *   MAIL_MVP_007_STAFF_OWNER_PROOF=1          (Staff container only; disabled by default)
+ *   MAIL_MVP_007_RECONCILE_ONLY=1             (Staff container; no Create Draft)
  */
 
 const {
@@ -50,7 +57,10 @@ function fail(message) {
     conversation_id: conversationId,
   });
   if (!result || result.ok !== true) {
-    fail(`PROOF_FAIL reason=${result && result.reason ? result.reason : 'proof_failed'}`);
+    const reason = result && result.reason ? result.reason : 'proof_failed';
+    const prefix = result && result.attempt_id ? result.attempt_id.slice(0, 8)
+      : (result && result.public && result.public.attempt_id_prefix) || '';
+    fail(`PROOF_FAIL reason=${reason}${prefix ? ` attempt_id_prefix=${prefix}` : ''}`);
   }
   console.log(JSON.stringify(result.public));
 })().catch((error) => {

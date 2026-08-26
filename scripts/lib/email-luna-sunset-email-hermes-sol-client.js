@@ -34,6 +34,28 @@ const create = Object.create;
 const getDesc = Object.getOwnPropertyDescriptor;
 const hasOwn = Object.hasOwn;
 const NativePromise = Promise;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function uuid(value) {
+  return typeof value === 'string' && UUID.test(value) ? value.toLowerCase() : null;
+}
+
+function readEnvUuid(src, key) {
+  if (!src || typeof src !== 'object') return null;
+  const own = uuid(ownData(src, key));
+  if (own) return own;
+  try {
+    return uuid(src[key]);
+  } catch {
+    return null;
+  }
+}
+
+function proofAttemptRequestId(envelope, env) {
+  return uuid(ownData(envelope, 'request_id'))
+    || readEnvUuid(env, 'MAIL_MVP_007_PROOF_ATTEMPT_ID')
+    || readEnvUuid(process.env, 'MAIL_MVP_007_PROOF_ATTEMPT_ID');
+}
 
 function ownData(value, key) {
   try {
@@ -233,7 +255,7 @@ function createEmailLunaSunsetEmailHermesSolClient(configuration) {
       ? HERMES_SOL_TEMPLATE_REQUEST_SCHEMA
       : HERMES_SOL_REQUEST_SCHEMA;
     if (!authority || !email) return fail('authority_mismatch');
-    const requestId = crypto.randomUUID();
+    const requestId = proofAttemptRequestId(envelope, env) || crypto.randomUUID();
     if (seen.has(requestId)) return fail('replay');
     seen.add(requestId);
     if (seen.size > 4096) seen.clear();

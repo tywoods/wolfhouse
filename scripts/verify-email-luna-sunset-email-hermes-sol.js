@@ -846,19 +846,53 @@ function assertNoSecretsLogged(hits) {
     brandProductionCreateDraft,
     isProductionCreateDraft,
     buildStaffOwnerExecArgs,
+    buildStaffOwnerRemoteCommand,
+    constructStaffOwnerExecHarness,
+    isLegalPtyExecSpec,
+    wrapPtyAzExec,
+    spawnAz,
+    spawnPtyHarness,
     buildEmailLunaAttemptLogsArgs,
     parseEmailLunaAttemptLogs,
     runStaffOwnerProof,
+    runStaffOwnerReconcile,
     runDeployedCreateDraftProof,
     runMailMvp007CreateDraftProof,
+    PTY_BIN,
+    RG: PROOF_RG,
+    STAFF_APP,
+    EMAIL_LUNA_APP,
     EMAIL_LUNA_CREATE_DRAFT_PATH: PROOF_ROUTE,
   } = require('./lib/email-luna-sunset-email-hermes-sol-live-proof');
   const RID = '77777777-7777-4777-8777-777777777777';
+  const STAFF_REV = 'luna-sunset-staging-staff-api--0000001';
+  const STAFF_REPLICA = 'luna-sunset-staging-staff-api--0000001-6d8f9c7b5d-abcde';
+  const LUNA_REV = 'luna-sunset-staging-email-luna--0000001';
+  const LUNA_REPLICA = 'luna-sunset-staging-email-luna--0000001-6d8f9c7b5d-xyz12';
   const AUTH = Object.freeze({ alg: 'HMAC-SHA256', request_id: RID, hmac_verified: true });
   const MARK = Object.freeze({ provider: 'openai-codex', model: 'gpt-5.6-sol', runtime: 'sunset-email-luna' });
   const attemptLog = (id) => (
     `email-draft-server attempt request_id=${id} provider=openai-codex model=gpt-5.6-sol runtime=sunset-email-luna hmac=ok`
   );
+  const NOW_MS = Date.parse('2026-08-26T18:00:00.000Z');
+  const ndjsonLog = (id, extra) => JSON.stringify({
+    TimeStamp: (extra && extra.time) || '2026-08-26T17:59:30.0000000Z',
+    Log: extra && extra.log ? extra.log : attemptLog(id),
+    ContainerAppName: extra && extra.app ? extra.app : EMAIL_LUNA_APP,
+    RevisionName: extra && extra.revision ? extra.revision : LUNA_REV,
+    ReplicaName: extra && extra.replica ? extra.replica : LUNA_REPLICA,
+  });
+  const innerOkJson = (extra) => JSON.stringify({
+    ok: true, invoked: 1, draft_persisted: true, draft_changed: true,
+    draftChars: 40, hmac_verified: true, marker: MARK, request_id: RID,
+    deltas: { approvals: 0, journal: 0, sends: 0, bookings: 0 },
+    ...extra,
+  });
+  const execOpts = {
+    attemptId: RID,
+    replica: STAFF_REPLICA,
+    revision: STAFF_REV,
+  };
   function proofStore(start) {
     const counts = {
       approvals: 2, journal: 3, sends: 1, bookings: 4,
@@ -1090,13 +1124,16 @@ function assertNoSecretsLogged(hits) {
       EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
       EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
       EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+      MAIL_MVP_007_PROOF_ATTEMPT_ID: RID,
     },
     conversation_id: V,
+    attempt_id: RID,
     actor: actor(),
     withPgClient: innerOk.proofPg,
     wired: {
-      createDraft: brandProductionCreateDraft(async () => {
+      createDraft: brandProductionCreateDraft(async (payload) => {
         persistDraft(innerOk.counts);
+        assert.equal(payload.request_id, RID);
         return { status: 'draft_ready', draft_text: LIVE_EN_BODY, marker: MARK, authenticity: AUTH };
       }),
     },
@@ -1104,34 +1141,58 @@ function assertNoSecretsLogged(hits) {
   assert.equal(innerProof.ok, true);
   assert.equal(innerProof.hmac_verified, true);
 
-  const execArgs = buildStaffOwnerExecArgs(V);
-  assert.match(execArgs.join(' '), /containerapp exec/);
-  assert.match(execArgs.join(' '), /luna-sunset-staging-staff-api/);
-  assert.match(execArgs.join(' '), /MAIL_MVP_007_STAFF_OWNER_PROOF=1/);
-  assert.doesNotMatch(execArgs.join(' '), /approve-send/);
-  const logArgs = buildEmailLunaAttemptLogsArgs(RID);
-  assert.match(logArgs.join(' '), /logs show/);
-  assert.match(logArgs.join(' '), new RegExp(`request_id=${RID}`));
+  const execArgs = buildStaffOwnerExecArgs(V, execOpts);
+  assert.deepEqual(execArgs.slice(0, 8), [
+    'containerapp', 'exec', '-g', PROOF_RG, '-n', STAFF_APP, '--replica', STAFF_REPLICA,
+  ]);
+  assert.equal(execArgs[execArgs.indexOf('--revision') + 1], STAFF_REV);
+  const remoteCmd = execArgs[execArgs.indexOf('--command') + 1];
+  assert.match(remoteCmd, /^sh -c '/);
+  assert.match(remoteCmd, /prove-mail-mvp-007-create-draft\.js/);
+  assert.doesNotMatch(remoteCmd, /approve-send/);
+  assert.doesNotMatch(remoteCmd, new RegExp(V, 'i'));
+  assert.doesNotMatch(remoteCmd, /Thank them/);
+  const b64 = remoteCmd.match(/printf %s ([A-Za-z0-9+/]+=*) /)[1];
+  const decodedEnv = Buffer.from(b64, 'base64').toString('utf8');
+  assert.match(decodedEnv, /MAIL_MVP_007_STAFF_OWNER_PROOF=1/);
+  assert.match(decodedEnv, new RegExp(`EMAIL_LUNA_PROOF_CONVERSATION_ID=${V}`));
+  assert.match(decodedEnv, new RegExp(`MAIL_MVP_007_PROOF_ATTEMPT_ID=${RID}`));
+  assert.doesNotMatch(decodedEnv, /MAIL_MVP_007_RECONCILE_ONLY=1/);
+  const logArgs = buildEmailLunaAttemptLogsArgs(RID, { revision: LUNA_REV });
+  assert.deepEqual(logArgs.slice(0, 7), [
+    'containerapp', 'logs', 'show', '-g', PROOF_RG, '-n', EMAIL_LUNA_APP,
+  ]);
+  assert.equal(logArgs[logArgs.indexOf('--type') + 1], 'console');
+  assert.equal(logArgs[logArgs.indexOf('--tail') + 1], '200');
+  assert.equal(logArgs[logArgs.indexOf('--revision') + 1], LUNA_REV);
+  assert.equal(logArgs.includes('--query'), false);
+  assert.equal(logArgs.includes('--format'), false);
   assert.doesNotMatch(logArgs.join(' '), new RegExp(V, 'i'));
+  assert.doesNotMatch(logArgs.join(' '), new RegExp(RID, 'i'));
 
   const deployed = await runDeployedCreateDraftProof({
     env: { LUNA_DEPLOYMENT: 'sunset-staging', EMAIL_LUNA_PROOF_CONVERSATION_ID: V },
     conversation_id: V,
-    execStaff: async (args) => {
-      assert.match(args.join(' '), /create-draft\.js/);
-      return {
-        status: 0,
-        stdout: JSON.stringify({
-          ok: true, invoked: 1, draft_persisted: true, draft_changed: true,
-          draftChars: 40, hmac_verified: true, marker: MARK, request_id: RID,
-          deltas: { approvals: 0, journal: 0, sends: 0, bookings: 0 },
-        }),
-      };
+    attempt_id: RID,
+    replica: STAFF_REPLICA,
+    revision: STAFF_REV,
+    emailLunaRevision: LUNA_REV,
+    nowMs: NOW_MS,
+    execStaff: async (spec) => {
+      assert.equal(spec.bin, PTY_BIN);
+      assert.deepEqual(spec.args.slice(0, 3), ['-q', '-e', '-c']);
+      assert.equal(spec.args[4], '/dev/null');
+      assert.equal(spec.reconcileOnly, false);
+      assert.match(spec.args[3], /containerapp/);
+      assert.match(spec.azArgs[spec.azArgs.indexOf('--command') + 1], /^sh -c '/);
+      return { status: 0, stdout: innerOkJson() };
     },
-    showLogs: async () => ({
-      status: 0,
-      stdout: JSON.stringify([{ Log: attemptLog(RID) }]),
-    }),
+    showLogs: async (args) => {
+      assert.equal(args.includes('--query'), false);
+      assert.equal(args.includes('--format'), false);
+      assert.equal(args[args.indexOf('-n') + 1], EMAIL_LUNA_APP);
+      return { status: 0, stdout: `${ndjsonLog(RID)}\n` };
+    },
   });
   assert.equal(deployed.ok, true);
   assert.equal(deployed.logs_correlated, true);
@@ -1140,6 +1201,11 @@ function assertNoSecretsLogged(hits) {
   const fakeDeployed = await runDeployedCreateDraftProof({
     env: { LUNA_DEPLOYMENT: 'sunset-staging' },
     conversation_id: V,
+    attempt_id: RID,
+    replica: STAFF_REPLICA,
+    revision: STAFF_REV,
+    emailLunaRevision: LUNA_REV,
+    nowMs: NOW_MS,
     execStaff: async () => ({
       status: 0,
       stdout: JSON.stringify({
@@ -1147,10 +1213,173 @@ function assertNoSecretsLogged(hits) {
         deltas: { approvals: 0, journal: 0, sends: 0, bookings: 0 },
       }),
     }),
-    showLogs: async () => ({ status: 0, stdout: attemptLog(RID) }),
+    reconcileStaff: async () => ({
+      status: 0,
+      stdout: JSON.stringify({
+        ok: false, reason: 'reconcile_owner_state', reconcile: true,
+        attempt_id: RID, draftChars: 0, logs_correlated: false,
+      }),
+    }),
+    showLogs: async () => ({ status: 0, stdout: `${ndjsonLog(RID)}\n` }),
   });
   assert.equal(fakeDeployed.ok, false);
   assert.equal(fakeDeployed.reason, 'fake_staff_200');
+
+  assert.throws(() => constructStaffOwnerExecHarness({
+    ...execOpts, conversationId: V, pty: false,
+  }), /pty_required/);
+  assert.throws(() => constructStaffOwnerExecHarness({
+    ...execOpts, conversationId: V, stdio: 'pipe',
+  }), /pty_required/);
+  assert.throws(() => spawnAz('/opt/data/home/.local/bin/az', ['containerapp', 'exec', '-g', PROOF_RG, '-n', STAFF_APP]), /pty_required/);
+  const harness = constructStaffOwnerExecHarness({
+    conversationId: V,
+    attemptId: RID,
+    replica: STAFF_REPLICA,
+    revision: STAFF_REV,
+    azBin: '/opt/data/home/.local/bin/az',
+  });
+  assert.equal(isLegalPtyExecSpec(harness), true);
+  assert.equal(harness.bin, PTY_BIN);
+  assert.deepEqual(harness.args.slice(0, 3), ['-q', '-e', '-c']);
+  assert.equal(harness.args[4], '/dev/null');
+  assert.match(harness.args[3], /'\/opt\/data\/home\/\.local\/bin\/az'/);
+  assert.match(harness.azArgs[harness.azArgs.indexOf('--command') + 1], /^sh -c '/);
+  assert.equal(harness.azArgs[harness.azArgs.indexOf('-g') + 1], PROOF_RG);
+  assert.equal(harness.azArgs[harness.azArgs.indexOf('-n') + 1], STAFF_APP);
+  assert.throws(() => wrapPtyAzExec('/opt/data/home/.local/bin/az', [
+    'containerapp', 'exec', '-g', PROOF_RG, '-n', STAFF_APP, '--command', 'env FOO=1 node x.js',
+  ]), /pty_required/);
+  assert.throws(() => spawnPtyHarness({
+    bin: '/opt/data/home/.local/bin/az',
+    args: ['containerapp', 'exec', '-g', PROOF_RG, '-n', STAFF_APP],
+  }), /pty_required/);
+
+  let ownerInvocations = 0;
+  const disconnectCalls = [];
+  const disconnect = await runDeployedCreateDraftProof({
+    env: { LUNA_DEPLOYMENT: 'sunset-staging' },
+    conversation_id: V,
+    attempt_id: RID,
+    replica: STAFF_REPLICA,
+    revision: STAFF_REV,
+    emailLunaRevision: LUNA_REV,
+    nowMs: NOW_MS,
+    execStaff: async (spec) => {
+      disconnectCalls.push({ kind: 'mutate', reconcileOnly: spec.reconcileOnly, args: spec.azArgs.slice() });
+      ownerInvocations += spec.reconcileOnly === true ? 0 : 1;
+      return { status: 1, stdout: '', stderr: 'WebSocket disconnected ClusterExecFailure' };
+    },
+    reconcileStaff: async (spec) => {
+      disconnectCalls.push({ kind: 'reconcile', reconcileOnly: spec.reconcileOnly, args: spec.azArgs.slice() });
+      assert.equal(spec.reconcileOnly, true);
+      const recCmd = spec.azArgs[spec.azArgs.indexOf('--command') + 1];
+      const recB64 = recCmd.match(/printf %s ([A-Za-z0-9+/]+=*) /)[1];
+      const recEnv = Buffer.from(recB64, 'base64').toString('utf8');
+      assert.match(recEnv, /MAIL_MVP_007_RECONCILE_ONLY=1/);
+      assert.doesNotMatch(recEnv, /MAIL_MVP_007_STAFF_OWNER_PROOF=1/);
+      assert.equal(ownerInvocations, 1);
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          ok: false, reason: 'reconcile_owner_state', reconcile: true,
+          attempt_id: RID, draftChars: 40, logs_correlated: false,
+        }),
+      };
+    },
+    showLogs: async () => ({ status: 0, stdout: `${ndjsonLog(RID)}\n` }),
+  });
+  assert.equal(disconnect.ok, true);
+  assert.equal(disconnect.reconciled, true);
+  assert.equal(ownerInvocations, 1);
+  assert.equal(disconnectCalls.filter((c) => c.kind === 'mutate').length, 1);
+  assert.equal(disconnectCalls.filter((c) => c.kind === 'reconcile').length, 1);
+
+  const ownerThrow = await runDeployedCreateDraftProof({
+    env: { LUNA_DEPLOYMENT: 'sunset-staging' },
+    conversation_id: V,
+    attempt_id: RID,
+    replica: STAFF_REPLICA,
+    revision: STAFF_REV,
+    emailLunaRevision: LUNA_REV,
+    nowMs: NOW_MS,
+    execStaff: async () => ({ status: 1, stderr: 'ClusterExecFailure after connect' }),
+    reconcileStaff: async () => { throw new Error('owner_throw'); },
+    showLogs: async () => ({ status: 0, stdout: `${ndjsonLog(RID)}\n` }),
+  });
+  assert.equal(ownerThrow.ok, false);
+  assert.equal(ownerThrow.reason, 'indeterminate_no_retry');
+
+  const emptyLogs = parseEmailLunaAttemptLogs('', RID, [], { requireTimestamp: true, nowMs: NOW_MS, revision: LUNA_REV });
+  assert.equal(emptyLogs.ok, false);
+  assert.equal(emptyLogs.reason, 'empty_logs');
+  const staleLogs = parseEmailLunaAttemptLogs(`${ndjsonLog(RID, { time: '2026-08-26T16:00:00.000Z' })}\n`, RID, [], {
+    requireTimestamp: true, nowMs: NOW_MS, revision: LUNA_REV,
+  });
+  assert.equal(staleLogs.ok, false);
+  assert.equal(staleLogs.reason, 'stale_logs');
+  const malformedLogs = parseEmailLunaAttemptLogs('{"TimeStamp":"2026-08-26T17:59:30.000Z","Log":\n', RID, [], {
+    requireTimestamp: true, nowMs: NOW_MS, revision: LUNA_REV,
+  });
+  assert.equal(malformedLogs.ok, false);
+  assert.equal(malformedLogs.reason, 'malformed_logs');
+  const spoofedLogs = parseEmailLunaAttemptLogs(
+    `${ndjsonLog(RID, { log: `email-draft-server POST /v1/internal/email-draft-plan request_id=${RID}` })}\n`,
+    RID, [], { requireTimestamp: true, nowMs: NOW_MS, revision: LUNA_REV },
+  );
+  assert.equal(spoofedLogs.ok, false);
+  assert.equal(spoofedLogs.reason, 'logs_uncorrelated');
+  const wrongAppLogs = parseEmailLunaAttemptLogs(
+    `${ndjsonLog(RID, { app: 'wh-staging-staff-api' })}\n`,
+    RID, [], { requireTimestamp: true, nowMs: NOW_MS, revision: LUNA_REV },
+  );
+  assert.equal(wrongAppLogs.ok, false);
+  assert.equal(wrongAppLogs.reason, 'wrong_target');
+  const wrongRevLogs = parseEmailLunaAttemptLogs(
+    `${ndjsonLog(RID, { revision: 'luna-sunset-staging-email-luna--deadbeef' })}\n`,
+    RID, [], { requireTimestamp: true, nowMs: NOW_MS, revision: LUNA_REV },
+  );
+  assert.equal(wrongRevLogs.ok, false);
+  assert.equal(wrongRevLogs.reason, 'wrong_target');
+
+  assert.throws(() => constructStaffOwnerExecHarness({
+    conversationId: V, attemptId: RID, replica: STAFF_REPLICA, revision: STAFF_REV,
+    resourceGroup: 'wh-staging-rg',
+  }), /wrong_target/);
+  assert.throws(() => constructStaffOwnerExecHarness({
+    conversationId: V, attemptId: RID, replica: STAFF_REPLICA, revision: STAFF_REV,
+    app: 'wh-staging-staff-api',
+  }), /wrong_target/);
+  assert.throws(() => constructStaffOwnerExecHarness({
+    conversationId: V, attemptId: RID, replica: STAFF_REPLICA, revision: STAFF_REV,
+    deployment: 'production',
+  }), /wrong_target/);
+  assert.throws(() => constructStaffOwnerExecHarness({
+    conversationId: V, attemptId: RID,
+    replica: 'wh-staging-staff-api--0000001-aaaaa-bbbbb',
+    revision: STAFF_REV,
+  }), /wrong_target/);
+  assert.throws(() => buildEmailLunaAttemptLogsArgs(RID, {
+    app: 'luna-sunset-staging-staff-api', revision: LUNA_REV,
+  }), /wrong_target/);
+
+  const reconProof = proofStore();
+  let reconOwnerCalls = 0;
+  const recon = createMailMvp007LiveProof({
+    withPgClient: reconProof.proofPg,
+    createDraft: async () => {
+      reconOwnerCalls += 1;
+      persistDraft(reconProof.counts);
+      return { status: 'draft_ready', draft_text: LIVE_EN_BODY, marker: MARK, authenticity: AUTH };
+    },
+  });
+  persistDraft(reconProof.counts);
+  const reconResult = await recon.runOnce({
+    actor: actor(), conversation_id: V, request_id: RID, reconcileOnly: true,
+  });
+  assert.equal(reconOwnerCalls, 0);
+  assert.equal(reconResult.reconcile, true);
+  assert.equal(reconResult.reason, 'reconcile_owner_state');
 
   const wired = createProductionStaffCreateDraftOwner({
     withPgClient: async () => { throw new Error('no_db'); },
@@ -1263,6 +1492,22 @@ function assertNoSecretsLogged(hits) {
   const AZ = '/opt/data/home/.local/bin/az';
   assert.equal(fs.existsSync(AZ), true, 'installed Azure CLI missing at /opt/data/home/.local/bin/az');
   const azVer = spawnSync(AZ, ['version', '--query', '{cli:\'azure-cli\',ext:extensions.containerapp}', '-o', 'json'], { encoding: 'utf8' });
+  const azExecHelp = spawnSync(AZ, ['containerapp', 'exec', '--help'], { encoding: 'utf8' });
+  assert.equal(azExecHelp.status, 0, azExecHelp.stderr);
+  assert.match(azExecHelp.stdout, /--command/);
+  assert.match(azExecHelp.stdout, /--replica/);
+  assert.match(azExecHelp.stdout, /--revision/);
+  assert.match(azExecHelp.stdout, /interactive/i);
+  const azLogsHelp = spawnSync(AZ, ['containerapp', 'logs', 'show', '--help'], { encoding: 'utf8' });
+  assert.equal(azLogsHelp.status, 0, azLogsHelp.stderr);
+  assert.match(azLogsHelp.stdout, /--tail/);
+  assert.match(azLogsHelp.stdout, /--type/);
+  const scriptHelp = spawnSync('/usr/bin/script', ['--help'], { encoding: 'utf8' });
+  assert.equal(scriptHelp.status, 0, scriptHelp.stderr);
+  const scriptText = `${scriptHelp.stdout}${scriptHelp.stderr}`;
+  assert.match(scriptText, /-q, --quiet/);
+  assert.match(scriptText, /-e, --return/);
+  assert.match(scriptText, /-c, --command/);
   const azCreateHelp = spawnSync(AZ, ['containerapp', 'create', '--help'], { encoding: 'utf8' });
   assert.equal(azCreateHelp.status, 0, azCreateHelp.stderr);
   assert.match(azCreateHelp.stdout, /--yaml/);
@@ -1352,7 +1597,12 @@ function assertNoSecretsLogged(hits) {
   assert.match(runbook, /prove-mail-mvp-007-create-draft\.js/);
   assert.match(runbook, /containerapp exec/);
   assert.match(runbook, /luna-sunset-staging-staff-api/);
-  assert.match(runbook, /contains\(Log, 'request_id=\$\{REQUEST_ID\}'\)/);
+  assert.match(runbook, /script -q -e -c/);
+  assert.match(runbook, /sh -c/);
+  assert.match(runbook, /indeterminate_no_retry/);
+  assert.match(runbook, /Never rerun the mutation blindly|never rerun blindly/i);
+  assert.match(runbook, /Do \*\*not\*\* pass `--query` or `--format json`/);
+  assert.doesNotMatch(runbook, /contains\(Log, 'request_id=\$\{REQUEST_ID\}'\)/);
   assert.doesNotMatch(runbook, /MAIL_MVP_007_INPROCESS_PROOF/);
   assert.doesNotMatch(runbook, /__MAIL_MVP_007_/);
   assert.doesNotMatch(runbook, /EMAIL_LUNA_PROOF_CONVERSATION_ID=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);

@@ -334,6 +334,10 @@ Use one existing eligible Sunset email conversation. Do not print guest identifi
 
 There is no safe Staff-session login helper that can obtain a cookie without credentials. The proof therefore execs into the deployed Staff container (disabled unless `MAIL_MVP_007_LIVE_PROOF=1` is passed on that exec) and invokes the production `createStaffEmailLunaDraftOpen` / `regenerateEmailLunaDraftOnStaffClick` owner — the same owner `POST /staff/inbox/email/create-draft` uses. Notes are exactly: `Thank them for the msg and then ask them if they want to do a booking`. Invoke Create Draft **once**. Never call approve/send/provider endpoints.
 
+`az containerapp exec` on Azure CLI 2.88.0 is an interactive websocket/TTY. Node `spawnSync` pipes are invalid. The driver wraps exec with the host PTY helper `script -q -e -c … /dev/null` (quiet, child exit code, command, typescript discarded). The legal remote command is `az containerapp exec --command "sh -c '…'"` against `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` and an explicitly selected running replica/revision. Conversation UUID and the pre-generated attempt id are validated as UUIDs, then base64-encoded into a fixed env payload. Secrets, notes, and guest content are never interpolated into the shell.
+
+Generate the opaque proof attempt id **before** exec and pass it as `MAIL_MVP_007_PROOF_ATTEMPT_ID` (the Staff Hermes client uses it as `request_id` when present). If PTY/exec disconnects after connecting, **do not** issue another Create Draft. Enter reconciliation-only (`MAIL_MVP_007_RECONCILE_ONLY=1`): query Staff owner state and Email Luna logs for that same attempt id. Completed / failed / indeterminate are decided from that correlation. If completion cannot be proven, exit nonzero with `indeterminate_no_retry`. Manual reconciliation only — never rerun blindly.
+
 ```bash
 AZ=/opt/data/home/.local/bin/az
 # conversation uuid stays in the env var; do not echo it
@@ -347,17 +351,22 @@ node scripts/prove-mail-mvp-007-create-draft.js
 
 That command:
 
-1. `"$AZ" containerapp exec -g "$RG" -n "$STAFF_APP" --command "env MAIL_MVP_007_LIVE_PROOF=1 MAIL_MVP_007_STAFF_OWNER_PROOF=1 EMAIL_LUNA_PROOF_CONVERSATION_ID=$EMAIL_LUNA_PROOF_CONVERSATION_ID node scripts/prove-mail-mvp-007-create-draft.js"` — Staff-side, default-off owner proof (the extra env is only on this exec; it is not a Staff container setting). Do not echo `$EMAIL_LUNA_PROOF_CONVERSATION_ID`.
+1. `script -q -e -c "$AZ containerapp exec -g $RG -n $STAFF_APP --replica $REPLICA --revision $REVISION --command \"sh -c 'printf %s <base64-env> | base64 -d > /tmp/mail-mvp-007-proof.env && set -a && . /tmp/mail-mvp-007-proof.env && set +a && exec node scripts/prove-mail-mvp-007-create-draft.js'\"" /dev/null` — Staff-side, default-off owner proof (the extra env is only on this exec; it is not a Staff container setting). Do not echo `$EMAIL_LUNA_PROOF_CONVERSATION_ID`.
 2. Captures before/after aggregates from canonical tables. Persisted `conversations.staff_reply_draft` length must be `>0` and must change from baseline, or the standing-draft CAS `claim_id` / body hash must advance. Approval / outbound journal / provider-send / booking deltas must be `0`. Missing counts fail closed (never fake zeros).
-3. Requires Staff-verified response HMAC: `authenticity.request_id` + `hmac_verified=true` + `provider=openai-codex` + `model=gpt-5.6-sol` + `runtime=sunset-email-luna`. A fake Staff HTTP 200 with only `message_text` cannot satisfy proof.
-4. Correlates the same opaque `request_id` to Email Luna structured attempt logs:
+3. Requires Staff-verified response HMAC: `authenticity.request_id` + `hmac_verified=true` + `provider=openai-codex` + `model=gpt-5.6-sol` + `runtime=sunset-email-luna`. A fake Staff HTTP 200 with only `message_text` cannot satisfy proof. The HMAC `request_id` must equal the pre-exec attempt id.
+4. Correlates the same opaque high-entropy `request_id` to Email Luna console logs. Do **not** pass `--query` or `--format json` and then `JSON.parse` the whole stream — CLI 2.88 emits NDJSON/stream text. Capture stdout and parse each JSON line (or raw log line) locally. Require the service-side **post-completion** marker for that attempt id inside a bounded fresh window on the Email Luna app/revision:
 
 ```bash
-"$AZ" containerapp logs show -g "$RG" -n "$APP" --type console --tail 200 --format json --query "[?contains(Log, 'request_id=${REQUEST_ID}')]"
-# expect: email-draft-server attempt request_id=<opaque> provider=openai-codex model=gpt-5.6-sol runtime=sunset-email-luna hmac=ok
+"$AZ" containerapp logs show -g "$RG" -n "$EMAIL_LUNA_APP" --type console --tail 200 --revision "$EMAIL_LUNA_REVISION"
+# expect one fresh NDJSON/raw line:
+# email-draft-server attempt request_id=<opaque> provider=openai-codex model=gpt-5.6-sol runtime=sunset-email-luna hmac=ok
 ```
 
-`REQUEST_ID` is the opaque id from the proof JSON (`request_id` / `request_id_prefix`). Do not put guest data in the query.
+Reject empty logs, stale `request_id` lines, pre-completion/input-echo-only lines, wrong app/revision/deployment, and malformed NDJSON.
+
+`REQUEST_ID` is the opaque id from the proof JSON (`request_id` / `request_id_prefix`). Do not put guest data in the command.
+
+If exec fails after a possible mutation, the driver runs **reconciliation only** (no second Create Draft) and prints `PROOF_FAIL reason=indeterminate_no_retry attempt_id_prefix=…` when completion cannot be proven. Manual reconciliation: inspect Staff owner draft state and Email Luna logs for that same attempt id. Never rerun the mutation blindly.
 
 Successful stdout is aggregate booleans/count deltas plus opaque `request_id` only. Nonzero exit on any missing proof. The previous fake in-process globals harness is removed.
 
