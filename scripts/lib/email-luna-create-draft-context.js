@@ -100,7 +100,9 @@ function operatorDraftContextDigest(context) {
   return crypto.createHash('sha256').update(context, 'utf8').digest('hex');
 }
 
-const PRICE_OR_MONEY = /€|\$|£|\b(?:eur|usd|gbp)\b|\b\d+[.,]\d{2}\b|\bprices?\b|\bcosts?\b/i;
+// Reject symbols/codes, decimal amounts, price/cost claims, and common
+// EN/ES currency word forms. Do not treat plain quantities/dates as money.
+const PRICE_OR_MONEY = /€|\$|£|\b(?:eur|usd|gbp)\b|\b\d+[.,]\d{2}\b|\b(?:prices?|precios?|cost[eo]?s?|cuesta)\b|\b(?:euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?)\b|\d(?:euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?)\b/i;
 const URLISH = /https?:\/\/|\bwww\.|\b[a-z0-9-]+(?:\.[a-z0-9-]+)+\.[a-z]{2,}\b/i;
 const PAYMENT_CLAIM = /\bpay\s+now\b|\bpayment\s+(?:link|url)\b|\bstripe\b|\bdeposit\b/i;
 const HOLD_CLAIM = /\bholds?\b|\bholding\b/i;

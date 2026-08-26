@@ -119,6 +119,53 @@ function capture() {
     'Mention the loft',
   );
 
+  const moneyWordForms = [
+    '50 euros',
+    '40 euro',
+    '60 dollars',
+    '25 dollar',
+    '80 pounds',
+    '30 pound',
+    '90 dólares',
+    '70 dolares',
+    '20 libras',
+    'The price is fifty',
+  ];
+  for (const claim of moneyWordForms) {
+    assert.equal(extractPermittedOperatorGuidance(claim), '', claim);
+    const wrapped = applyPermittedOperatorGuidanceToDraft(SAFE_ACKNOWLEDGMENT.en, claim, 'en');
+    assert.equal(wrapped, SAFE_ACKNOWLEDGMENT.en, claim);
+    assert.equal(wrapped.includes(claim), false, claim);
+    assert.doesNotMatch(wrapped, /euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?|\bfifty\b/i);
+  }
+  assert.equal(
+    extractPermittedOperatorGuidance('Mention the loft.\nTell them 50 euros.'),
+    'Mention the loft',
+  );
+  const mixedMoneyGuided = applyPermittedOperatorGuidanceToDraft(
+    SAFE_ACKNOWLEDGMENT.en,
+    'Mention the loft.\nTell them 50 euros.',
+    'en',
+  );
+  assert.match(mixedMoneyGuided, /loft/i);
+  assert.doesNotMatch(mixedMoneyGuided, /euros?/i);
+  assert.equal(mixedMoneyGuided.includes('50'), false);
+
+  const safeQuantity = 'Mention the loft.\nAsk about the 2 beds on Saturday 26 August.';
+  assert.equal(
+    extractPermittedOperatorGuidance(safeQuantity),
+    'Mention the loft\nAsk about the 2 beds on Saturday 26 August',
+  );
+  const safeQuantityGuided = applyPermittedOperatorGuidanceToDraft(
+    SAFE_ACKNOWLEDGMENT.en,
+    safeQuantity,
+    'en',
+  );
+  assert.notEqual(safeQuantityGuided, SAFE_ACKNOWLEDGMENT.en);
+  assert.match(safeQuantityGuided, /loft/i);
+  assert.match(safeQuantityGuided, /2 beds/i);
+  assert.match(safeQuantityGuided, /Saturday 26 August/i);
+
   const guided = applyPermittedOperatorGuidanceToDraft(SAFE_ACKNOWLEDGMENT.en, twoLine, 'en');
   assert.notEqual(guided, SAFE_ACKNOWLEDGMENT.en);
   assert.notEqual(guided, twoLine);

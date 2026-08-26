@@ -288,6 +288,68 @@ function request(body) {
   assert.equal(twoLine.journals.length, 0);
   assert.equal(twoLine.providers.length, 0);
 
+  const moneyWordContexts = [
+    '50 euros',
+    '40 euro',
+    '60 dollars',
+    '25 dollar',
+    '80 pounds',
+    '30 pound',
+    '90 dólares',
+    'The price is fifty',
+  ];
+  for (const context of moneyWordContexts) {
+    const moneyOwner = makeOwner();
+    const moneyDraft = await moneyOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+      actor: actor(),
+      conversation_id: V,
+      operator_context: context,
+    });
+    assert.equal(moneyDraft.status, 'draft_ready', context);
+    assert.equal(moneyDraft.send_allowed, false, context);
+    assert.equal(moneyDraft.auto_send_allowed, false, context);
+    assert.equal(moneyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en, context);
+    assert.equal(moneyDraft.draft_text.includes(context), false, context);
+    assert.doesNotMatch(moneyDraft.draft_text, /euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?|\bfifty\b/i);
+    assert.equal(moneyOwner.approvals.length, 0, context);
+    assert.equal(moneyOwner.journals.length, 0, context);
+    assert.equal(moneyOwner.providers.length, 0, context);
+  }
+
+  const mixedMoney = makeOwner();
+  const mixedMoneyDraft = await mixedMoney.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: 'Mention the loft.\nTell them 50 euros.',
+  });
+  assert.equal(mixedMoneyDraft.status, 'draft_ready');
+  assert.notEqual(mixedMoneyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.match(mixedMoneyDraft.draft_text, /loft/i);
+  assert.doesNotMatch(mixedMoneyDraft.draft_text, /euros?/i);
+  assert.equal(mixedMoneyDraft.draft_text.includes('50'), false);
+  assert.equal(mixedMoney.approvals.length, 0);
+  assert.equal(mixedMoney.journals.length, 0);
+  assert.equal(mixedMoney.providers.length, 0);
+
+  const safeQuantity = makeOwner();
+  const safeQuantityDraft = await safeQuantity.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: 'Mention the loft.\nAsk about the 2 beds on Saturday 26 August.',
+  });
+  assert.equal(safeQuantityDraft.status, 'draft_ready');
+  assert.notEqual(safeQuantityDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.notEqual(
+    safeQuantityDraft.draft_text,
+    'Mention the loft.\nAsk about the 2 beds on Saturday 26 August.',
+  );
+  assert.match(safeQuantityDraft.draft_text, /loft/i);
+  assert.match(safeQuantityDraft.draft_text, /2 beds/i);
+  assert.match(safeQuantityDraft.draft_text, /Saturday 26 August/i);
+  assert.equal(safeQuantity.approvals.length, 0);
+  assert.equal(safeQuantity.journals.length, 0);
+  assert.equal(safeQuantity.providers.length, 0);
+
   const empty = makeOwner();
   const emptyDraft = await empty.owner.regenerateEmailLunaDraftOnStaffClick({
     actor: actor(),
