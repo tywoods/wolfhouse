@@ -115,6 +115,18 @@ function assertSourcePlacement(source, label) {
     fn.includes('st.locked || st.inFlight')
     && fn.includes('st.inFlight = true')
     && fn.includes('Creating draft'));
+  ok(label + ': UUID helper does not bind i18n name t',
+    /function emailCanonicalUuid\([^)]*\)\{[\s\S]*?var canon = raw\.trim\(\)\.toLowerCase\(\);/.test(source)
+    && !/function emailCanonicalUuid\([^)]*\)\{[\s\S]*?\bvar t\b/.test(source.slice(
+      source.indexOf('function emailCanonicalUuid'),
+      source.indexOf('function acceptEmailDraftSuccess'),
+    )));
+  ok(label + ': Create Draft completion is exception-safe and re-queries live panel',
+    fn.includes('function finishCreateDraft')
+    && fn.includes('inboxEmailLiveCreateDraftPanel')
+    && fn.includes("typeof r.text !== 'function'")
+    && !fn.includes('st.generationUncertain = true')
+    && fn.includes('setEmailReplyControlsDisabled(panel, false'));
   ok(label + ': success DTO has no approval_id',
     source.includes("EMAIL_CREATE_DRAFT_OK_KEYS = ['success','conversation_id','message_text']")
     && source.includes('function acceptEmailCreateDraftSuccess')
@@ -160,14 +172,90 @@ function focusedPanelHtml() {
 </div>
 <script>
 var selectedConvId = ${JSON.stringify(EMAIL_CONV)};
+function t(key){ return String(key == null ? '' : key); }
 function showDraftSendStatus(el, kind, message){
   if (!el) return;
+  if (typeof t !== 'function') throw new TypeError('t is not a function');
   el.className = 'draft-send-status is-visible ' + (kind || '');
   el.textContent = message || '';
 }
 ${slice}
 wireInboxEmailReply(${JSON.stringify(EMAIL_CONV)}, document.getElementById('panel'));
 </script></body></html>`;
+}
+
+function successBody(conversationId, text) {
+  return JSON.stringify({
+    success: true,
+    conversation_id: conversationId,
+    message_text: text || 'Standing draft regenerated from thread plus context.',
+  });
+}
+
+async function pageState(page) {
+  return page.evaluate(() => {
+    const btn = document.querySelector('#btn-email-create-draft');
+    const ta = document.querySelector('#draft-textarea');
+    const ctx = document.querySelector('#inbox-email-create-draft-context');
+    const approve = document.querySelector('#btn-email-approve-send');
+    const status = document.querySelector('#draft-send-status');
+    return {
+      createDisabled: !!(btn && btn.disabled),
+      taDisabled: !!(ta && ta.disabled),
+      ctxDisabled: !!(ctx && ctx.disabled),
+      approveDisabled: !!(approve && approve.disabled),
+      status: String((status && status.textContent) || ''),
+      draft: ta ? String(ta.value || '') : '',
+      creating: /Creating draft/.test(String((status && status.textContent) || '')),
+    };
+  });
+}
+
+async function installCreateDraftCrashHooks(page) {
+  await page.evaluate(() => {
+    window.__createDraftPageErrors = [];
+    window.__createDraftTWasNotFunction = false;
+    if (!window.__createDraftErrorHooked) {
+      window.__createDraftErrorHooked = true;
+      window.addEventListener('error', function (e) {
+        window.__createDraftPageErrors.push(String((e && e.error && e.error.message) || e.message || e));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e && e.reason;
+        window.__createDraftPageErrors.push(String((r && r.message) || r || e));
+      });
+    }
+    var orig = showDraftSendStatus;
+    showDraftSendStatus = function (el, kind, message) {
+      if (typeof t !== 'function') {
+        window.__createDraftTWasNotFunction = true;
+        throw new TypeError('t is not a function');
+      }
+      return orig(el, kind, message);
+    };
+  });
+}
+
+async function shadowI18nT(page) {
+  await page.evaluate(() => {
+    t = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  });
+}
+
+async function restoreI18nT(page) {
+  await page.evaluate(() => {
+    t = function (key) { return String(key == null ? '' : key); };
+  });
+}
+
+async function rebuildLivePanel(page) {
+  await page.evaluate((conv) => {
+    var panel = document.getElementById('panel');
+    if (!panel) return;
+    var html = panel.innerHTML;
+    panel.innerHTML = html;
+    wireInboxEmailReply(conv, panel);
+  }, EMAIL_CONV);
 }
 
 async function main() {
@@ -301,6 +389,154 @@ async function main() {
     const body = await page.locator('#draft-textarea').inputValue();
     ok('standing draft textarea replaced from create-draft response',
       body === 'Standing draft regenerated from thread plus context.');
+
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(String(e && e.message || e)));
+    await installCreateDraftCrashHooks(page);
+
+    async function setCreateDraftFulfill(fn) {
+      await page.unroute('**/staff/inbox/email/create-draft').catch(() => {});
+      await page.route('**/staff/inbox/email/create-draft', fn);
+    }
+    async function waitRecovered(expectStatus) {
+      await page.waitForFunction((re) => {
+        const btn = document.querySelector('#btn-email-create-draft');
+        const status = document.querySelector('#draft-send-status');
+        const creating = /Creating draft/.test(String((status && status.textContent) || ''));
+        return !!(btn && btn.disabled !== true && !creating && new RegExp(re, 'i').test(String((status && status.textContent) || '')));
+      }, expectStatus, { timeout: 5000 });
+    }
+    function recovered(state, statusRe) {
+      return !!(state
+        && state.createDisabled === false
+        && state.taDisabled === false
+        && state.ctxDisabled === false
+        && state.approveDisabled === false
+        && state.creating === false
+        && statusRe.test(state.status));
+    }
+    function noCrash(extra) {
+      const all = pageErrors.concat(extra || []);
+      return all.filter((m) => /t is not a function/i.test(String(m))).length === 0;
+    }
+
+    await restoreI18nT(page);
+    await setCreateDraftFulfill(async (route) => {
+      const req = JSON.parse(route.request().postData() || '{}');
+      createPosts.push({ body: { ...req } });
+      return route.fulfill({
+        status: 503, contentType: 'application/json',
+        body: JSON.stringify({ success: false, error: 'email_create_draft_unavailable' }),
+      });
+    });
+    await page.fill('#inbox-email-create-draft-context', 'Thank them and ask if they want to book.');
+    await page.locator('#btn-email-create-draft').dispatchEvent('click');
+    await waitRecovered('Could not create draft');
+    let state = await pageState(page);
+    ok('typed API non-2xx recovers without reload',
+      recovered(state, /Could not create draft/) && noCrash());
+
+    await setCreateDraftFulfill(async (route) => {
+      createPosts.push({ body: JSON.parse(route.request().postData() || '{}') });
+      return route.fulfill({ status: 200, contentType: 'text/plain', body: '{malformed-create-draft' });
+    });
+    await page.locator('#btn-email-create-draft').dispatchEvent('click');
+    await waitRecovered('outcome is unknown');
+    state = await pageState(page);
+    ok('malformed JSON/body recovers without reload',
+      recovered(state, /outcome is unknown/) && noCrash());
+
+    await page.evaluate(() => {
+      window.__createDraftOrigFetch = window.fetch;
+      window.fetch = function (u) {
+        if (String(u).indexOf('/staff/inbox/email/create-draft') >= 0) {
+          return Promise.reject(new Error('network down'));
+        }
+        return window.__createDraftOrigFetch.apply(this, arguments);
+      };
+    });
+    await page.locator('#btn-email-create-draft').dispatchEvent('click');
+    await waitRecovered('outcome is unknown');
+    state = await pageState(page);
+    ok('rejected fetch recovers without reload',
+      recovered(state, /outcome is unknown/) && noCrash());
+    await page.evaluate(() => {
+      if (window.__createDraftOrigFetch) window.fetch = window.__createDraftOrigFetch;
+    });
+
+    let releaseStale;
+    const heldStale = new Promise((resolve) => { releaseStale = resolve; });
+    await setCreateDraftFulfill(async (route) => {
+      const req = JSON.parse(route.request().postData() || '{}');
+      createPosts.push({ body: { ...req } });
+      await heldStale;
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: successBody(req.conversation_id, 'Draft after stale re-render.'),
+      });
+    });
+    await page.locator('#btn-email-create-draft').dispatchEvent('click');
+    await page.waitForFunction(() => document.querySelector('#btn-email-create-draft')?.disabled === true, null, { timeout: 5000 });
+    await rebuildLivePanel(page);
+    releaseStale();
+    await waitRecovered('Draft created');
+    state = await pageState(page);
+    ok('stale conversation re-render while in flight still recovers live controls',
+      recovered(state, /Draft created/)
+      && state.draft === 'Draft after stale re-render.'
+      && noCrash());
+
+    let releaseT;
+    const heldT = new Promise((resolve) => { releaseT = resolve; });
+    await setCreateDraftFulfill(async (route) => {
+      const req = JSON.parse(route.request().postData() || '{}');
+      createPosts.push({ body: { ...req } });
+      await heldT;
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: successBody(req.conversation_id, 'Draft after t-shadow.'),
+      });
+    });
+    await restoreI18nT(page);
+    await page.locator('#btn-email-create-draft').dispatchEvent('click');
+    await page.waitForFunction(() => /Creating draft/.test(document.querySelector('#draft-send-status')?.textContent || ''), null, { timeout: 5000 });
+    await shadowI18nT(page);
+    await rebuildLivePanel(page);
+    releaseT();
+    await page.waitForFunction(() => {
+      const btn = document.querySelector('#btn-email-create-draft');
+      const status = document.querySelector('#draft-send-status');
+      return !!(btn && btn.disabled !== true && !/Creating draft/.test(String((status && status.textContent) || '')));
+    }, null, { timeout: 5000 });
+    state = await pageState(page);
+    const hookErrors = await page.evaluate(() => ({
+      errors: window.__createDraftPageErrors.slice(),
+      tCrash: window.__createDraftTWasNotFunction === true,
+    }));
+    ok('Create Draft t-is-not-a-function crash is contained; controls recover without reload',
+      recovered(state, /Draft created|Create draft failed|outcome is unknown/)
+      && noCrash(hookErrors.errors)
+      && hookErrors.tCrash === true
+      && state.createDisabled === false);
+    await restoreI18nT(page);
+
+    await setCreateDraftFulfill(async (route) => {
+      const req = JSON.parse(route.request().postData() || '{}');
+      createPosts.push({ body: { ...req } });
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: successBody(req.conversation_id, 'Usable after crash paths.'),
+      });
+    });
+    await page.locator('#btn-email-create-draft').dispatchEvent('click');
+    await waitRecovered('Draft created');
+    state = await pageState(page);
+    ok('thread remains usable for a later Create Draft click',
+      recovered(state, /Draft created/)
+      && state.draft === 'Usable after crash paths.'
+      && noCrash());
+    ok('no uncaught pageerror across Create Draft recovery paths',
+      pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
   } finally {
     await browser.close().catch(() => {});
     try { await closeS(server); } catch (_) { /* */ }
