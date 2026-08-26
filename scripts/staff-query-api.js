@@ -16203,76 +16203,77 @@ function buildUiHtml(port, portalDeployClient) {
 ${getStaffPortalThemeEarlyScript()}
 <style>
 /* ── Palette (soft boutique-hospitality) ──────────────────────────────────
-   Light: Salt (default :root, warm paper) or Sand ([data-color-profile=sand], oatmeal).
+   Light: Salt (default :root, Apple-clean cool white/grey) or Sand
+   ([data-color-profile=sand], oatmeal — leave Sand tokens alone).
    Dark: Sand Dark charcoal only — no Salt Dark. [data-theme=dark] owns night tokens.
    Sand light must not apply in dark (:not([data-theme=dark])).
    Missing wh_staff_color_profile → salt. Moon toggle is Light/Dark.
    Do not set #banner { background } shorthand in dark — it flattens Sunset/Moonlight art.
-   Bed calendar: --room-bar is warm stone/charcoal (not --sage). Booking pills use
-   --booking-confirmed-* paper fills — not olive/sage green.
+   Bed calendar: --room-bar is cool charcoal (not olive). Booking pills use white/grey
+   fills — not olive/sage green. Salt is never warm paper / tan / coffee.
    ─────────────────────────────────────────────────────────────────────── */
 :root{
   --font-sans:'Instrument Sans',system-ui,sans-serif;
   --font-display:'Newsreader',serif;
-  --cream:#F3EEE6;        /* Salt Light — warm paper page */
-  --surface:#FFFBF4;
-  --surface-soft:#EBE4D8;
-  --sand:#E4D8C8;
-  --tan:#D2C2A8;
-  --sage:#7A8458;         /* accent only — NOT bed-calendar room bars */
-  --olive:#6A7348;
-  --dusty-blue:#8A8E86;   /* stone, not sky blue */
-  --ocean:#6E7A70;        /* muted olive-grey, not blue */
-  --teal:#E8DFD0;         /* warm parchment wash */
-  --text:#1C1914;
-  --text-2:#5A5348;
-  --text-3:#8A8276;
-  --border:#E2D6C6;
-  --border-soft:#EDE4D6;
+  --cream:#F5F5F7;        /* Salt Light — Apple-clean cool page */
+  --surface:#FFFFFF;
+  --surface-soft:#F2F2F7;
+  --sand:#E5E5EA;
+  --tan:#D1D1D6;
+  --sage:#1F6B4A;         /* dark green accent — NOT bed-calendar room bars */
+  --olive:#185A3E;
+  --dusty-blue:#8E8E93;   /* cool grey, not sky blue */
+  --ocean:#636366;        /* cool mid grey, not blue */
+  --teal:#E8F0EC;         /* cool green wash */
+  --text:#1D1D1F;
+  --text-2:#6E6E73;
+  --text-3:#8E8E93;
+  --border:#D2D2D7;
+  --border-soft:#E5E5EA;
   --radius:14px;
   --radius-sm:10px;
   --radius-pill:999px;
-  --shadow:0 1px 2px rgba(28,25,20,.05),0 4px 14px rgba(28,25,20,.06);
-  --shadow-soft:0 1px 2px rgba(28,25,20,.04),0 2px 8px rgba(28,25,20,.05);
-  --primary:#3D5C4A;
-  --primary-hover:#324A3C;
-  --focus:#3D5C4A;
-  --luna-teal:#3D5C4A;
-  --luna-teal-dark:#324A3C;
-  /* Semantic booking chips — warm Salt defaults; Sand overrides below */
+  --shadow:0 1px 2px rgba(29,29,31,.05),0 4px 14px rgba(29,29,31,.06);
+  --shadow-soft:0 1px 2px rgba(29,29,31,.04),0 2px 8px rgba(29,29,31,.05);
+  --primary:#1B4D3E;
+  --primary-hover:#163E32;
+  --focus:#1B4D3E;
+  --luna-teal:#1B4D3E;
+  --luna-teal-dark:#163E32;
+  /* Semantic booking chips — Transfer purple / Balance amber stay; cool the rest */
   --chip-transfer-bg:#E8DEEF;
   --chip-transfer-fg:#6B5080;
   --chip-transfer-border:#D4C4E0;
   --chip-balance-bg:#F5E0D0;
   --chip-balance-fg:#9B4E12;
   --chip-balance-border:#E8C4A8;
-  --chip-link-bg:#E8E4DC;
-  --chip-link-fg:#5A5348;
-  --chip-link-border:#D2C6B6;
-  --chip-deposit-bg:#E6EBD8;
-  --chip-deposit-fg:#3D5C4A;
-  --chip-deposit-border:#C5D0A8;
-  --chip-paid-bg:#DCE4C8;
-  --chip-paid-fg:#3D5C4A;
-  --chip-paid-border:#B5C898;
+  --chip-link-bg:#F2F2F7;
+  --chip-link-fg:#6E6E73;
+  --chip-link-border:#D2D2D7;
+  --chip-deposit-bg:#E8F0EC;
+  --chip-deposit-fg:#1B4D3E;
+  --chip-deposit-border:#C5D9CE;
+  --chip-paid-bg:#DDE8E2;
+  --chip-paid-fg:#1B4D3E;
+  --chip-paid-border:#B5CFC2;
   --chip-refund-bg:#F3DDE8;
   --chip-refund-fg:#7A3A52;
   --chip-refund-border:#D4A8BC;
-  /* Bed calendar: stone room bars + paper booking pills (not olive/sage fills) */
-  --room-bar:#4A4540;
-  --room-bar-fg:#FFFBF4;
-  --booking-confirmed-bg:#FFFBF4;
-  --booking-confirmed-fg:#1C1914;
-  --booking-confirmed-border:#E2D6C6;
-  --booking-confirmed-rail:#4A4540;
-  --booking-pending-bg:#E8E4DC;
-  --booking-pending-fg:#5A5348;
-  --inbox-active-bg:#EBE4D8;
-  --finance-pos:#3D5C4A;
+  /* Bed calendar: cool charcoal room bars + white booking pills */
+  --room-bar:#3A3A3C;
+  --room-bar-fg:#FFFFFF;
+  --booking-confirmed-bg:#FFFFFF;
+  --booking-confirmed-fg:#1D1D1F;
+  --booking-confirmed-border:#D2D2D7;
+  --booking-confirmed-rail:#1B4D3E;
+  --booking-pending-bg:#F2F2F7;
+  --booking-pending-fg:#6E6E73;
+  --inbox-active-bg:#F2F2F7;
+  --finance-pos:#1B4D3E;
   --finance-neg:#B4534A;
   --finance-amber:#A06A20;
-  --finance-bar-green:#3D5C4A;
-  --finance-bar-blue:#6E7A70;
+  --finance-bar-green:#1B4D3E;
+  --finance-bar-blue:#636366;
   --finance-bar-violet:#7A6A8A;
   --finance-bar-amber:#A67C2A;
   /* Uniform gap: bottom of top nav → first content block on every tab (both themes). */
