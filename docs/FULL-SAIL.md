@@ -12,7 +12,7 @@ Chief-facing index for Luna Nightwatch (Stage 1) and controlled-drafting (Stage 
 | App | `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` |
 | Status | Disabled-by-construction for controlled-drafting live proof |
 
-Treat these pins as current unless a later **read-only** measurement proves otherwise.
+These pins were inherited from the Chapter 4F deploy / Chapter 4G live-target wiring. Chapter 4H is source-only and does not re-measure them. Treat them as current unless a later **read-only** measurement proves otherwise.
 
 ## Stage 2 CONTROLLED DRAFTING chapters
 

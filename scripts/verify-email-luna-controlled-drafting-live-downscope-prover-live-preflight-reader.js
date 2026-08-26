@@ -12,6 +12,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const {
   createEmailLunaControlledDraftingLiveDownscopeProver,
+  inspectIndependentLivePreflight,
   readTrustedLiveDownscopeProverFailure,
   parseArgs,
   ERROR_CODE: PROVER_ERROR,
@@ -43,6 +44,10 @@ const {
 } = require('./lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader.test-support');
 const ownedCore = require('./lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader-owned');
 const {
+  withReadOnlyPreflightClient,
+  closedAcrDigestFromManifestResponse,
+} = ownedCore;
+const {
   createFakeEmailGrantEnvelopeProvider,
   fakeSealRefreshToken,
 } = require('./lib/email-grant-envelope-fake-provider');
@@ -55,6 +60,10 @@ const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ENDPOINT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const MAILBOX = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+const CLIENT2 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab';
+const LOCATION2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc';
+const ENDPOINT2 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccd';
+const MAILBOX2 = 'dddddddd-dddd-4ddd-8ddd-ddddddddddde';
 const PLANTED = 'planted-NEVER_LEAK-secret';
 const PRODUCER_FP = 'aa'.repeat(32);
 const WORKER_FP = 'bb'.repeat(32);
@@ -324,8 +333,13 @@ async function main() {
   assert.equal(readerOwner.LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER, false);
   assert.equal(typeof readerOwner.createOwnedSunsetStagingLivePreflightReader, 'undefined');
   assert.equal(typeof readerOwner.createSunsetStagingLivePreflightReaderForTests, 'undefined');
+  assert.equal(typeof readerOwner.withReadOnlyPreflightClient, 'undefined');
+  assert.equal(typeof readerOwner.closedAcrDigestFromManifestResponse, 'undefined');
   assert.equal(typeof ownedCore.createOwnedSunsetStagingLivePreflightReader, 'function');
   assert.equal(typeof createSunsetStagingLivePreflightReaderForTests, 'function');
+  assert.equal(typeof inspectIndependentLivePreflight, 'function');
+  assert.equal(typeof withReadOnlyPreflightClient, 'function');
+  assert.equal(typeof closedAcrDigestFromManifestResponse, 'function');
   assert.match(readerSrc, /does not export the closed adapter constructor/);
   assert.doesNotMatch(readerSrc, /createOwnedSunsetStagingLivePreflightReader,/);
   assert.doesNotMatch(staffSrc, /live-preflight-reader/);
@@ -343,9 +357,62 @@ async function main() {
   );
   await assert.rejects(
     () => readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg(),
-    (err) => assertReaderFailure(err, 'source_test_cannot_consume_live_azure_pg'),
+    (err) => assertReaderFailure(err, 'live_execute_not_authorized_in_this_chapter'),
   );
+  assert.match(ownedSrc, /source_test_cannot_consume_live_azure_pg/);
   console.log('  PASS  RED/GREEN: forged/caller snapshot cannot mint owned brand; production path refused in tests');
+
+  {
+    const ungated = spawnSync(process.execPath, ['-e', `
+      'use strict';
+      const http = require('node:http');
+      const https = require('node:https');
+      const path = require('node:path');
+      let network = 0;
+      function wrap(obj, name) {
+        const orig = obj[name];
+        if (typeof orig !== 'function') return;
+        obj[name] = function wrapped() {
+          network += 1;
+          const err = new Error('imds_must_not_run');
+          try {
+            const req = orig.apply(this, arguments);
+            try { req.destroy(err); } catch (_) { /* intercepted */ }
+            return req;
+          } catch (_) {
+            throw err;
+          }
+        };
+      }
+      wrap(http, 'request'); wrap(http, 'get');
+      wrap(https, 'request'); wrap(https, 'get');
+      const root = ${JSON.stringify(ROOT)};
+      const owned = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader-owned.js'));
+      const pub = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader.js'));
+      Promise.all([
+        owned.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg().then(() => 'resolved', (e) => e),
+        pub.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg().then(() => 'resolved', (e) => e),
+      ]).then(([a, b]) => {
+        const ok = a && b
+          && a !== 'resolved' && b !== 'resolved'
+          && a.code === owned.ERROR_CODE
+          && b.code === pub.ERROR_CODE
+          && a.message === owned.ERROR_MESSAGE
+          && a.detail === 'live_execute_not_authorized_in_this_chapter'
+          && b.detail === 'live_execute_not_authorized_in_this_chapter'
+          && network === 0
+          && owned.LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER === false
+          && !String(a && a.message || '').includes('postgres://')
+          && !String(a && a.stack || '').includes('169.254.169.254');
+        process.stdout.write(ok ? 'zero-imds-refused\\n' : ('ungated-fail network=' + network + ' a=' + (a && a.detail) + '\\n'));
+        process.exit(ok ? 0 : 2);
+      }).catch(() => process.exit(3));
+    `], { cwd: ROOT, encoding: 'utf8', env: childEnv(), timeout: 10000 });
+    if (ungated.stderr) process.stderr.write(ungated.stderr);
+    assert.equal(ungated.status, 0, 'direct production reader must refuse before IMDS');
+    assert.match(ungated.stdout, /zero-imds-refused/);
+  }
+  console.log('  PASS  direct node -e production reader refuses chapter-disabled with zero IMDS/ARM/ACR');
 
   const hits = hitsTemplate();
   const evidence = await readWith(hits);
@@ -380,7 +447,51 @@ async function main() {
   assert.match(ownedSrc, /await acr\.readManifestDigest/);
   assert.match(ownedSrc, /COUNT_SQL/);
   assert.match(ownedSrc, /literalFalseEnv/);
+  assert.ok(hits.queries.every((sql) => !/\bCOMMIT\b/i.test(sql) && !/\bSET\s+ROLE\b/i.test(sql)));
   console.log('  PASS  owned reader calls adapters and derives digest/flags/counts');
+
+  {
+    const liveTargetOwner = require('./lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
+    const brandedOk = inspectIndependentLivePreflight(liveTargetOwner, evidence);
+    assert.equal(brandedOk.ok, true);
+    assert.equal(inspectIndependentLivePreflight(readerOwner, evidence).ok, true);
+    const plain = {
+      ok: true, independent_read: true, live_authority: true, digest: DIGEST, replica: 1, ops_097: 0,
+    };
+    assert.equal(inspectIndependentLivePreflight(liveTargetOwner, plain).ok, false);
+    assert.equal(inspectIndependentLivePreflight(liveTargetOwner, snapshot).ok, false);
+    assert.equal(inspectIndependentLivePreflight(liveTargetOwner, Object.create(evidence)).ok, false);
+    assert.equal(inspectIndependentLivePreflight(liveTargetOwner, new Proxy(evidence, {
+      get(t0, k) { return t0[k]; },
+    })).ok, false);
+    const accessor = {};
+    Object.defineProperty(accessor, 'ok', { get() { return true; }, enumerable: true });
+    Object.defineProperty(accessor, 'independent_read', { get() { return true; }, enumerable: true });
+    assert.equal(inspectIndependentLivePreflight(liveTargetOwner, accessor).ok, false);
+    assert.equal(inspectIndependentLivePreflight({}, evidence).reason, 'independent_preflight_predicate_absent');
+    assert.equal(inspectIndependentLivePreflight({
+      isIndependentLivePreflight: undefined,
+    }, evidence).reason, 'independent_preflight_predicate_absent');
+    const throwing = inspectIndependentLivePreflight({
+      isIndependentLivePreflight() { throw new Error(`pred ${PLANTED}`); },
+    }, evidence);
+    assert.equal(throwing.ok, false);
+    assert.equal(throwing.reason, 'independent_preflight_predicate_unproven');
+    assert.equal(noLeak(throwing), true);
+    assert.equal(inspectIndependentLivePreflight({
+      isIndependentLivePreflight() { return 'true'; },
+    }, evidence).ok, false);
+    assert.equal(inspectIndependentLivePreflight({
+      isIndependentLivePreflight() { return 1; },
+    }, evidence).ok, false);
+    assert.equal(inspectIndependentLivePreflight(null, evidence).reason, 'independent_reader_absent');
+    const stubOwner = {
+      isIndependentLivePreflight() { return true; },
+      readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg: async () => plain,
+    };
+    assert.equal(inspectIndependentLivePreflight(liveTargetOwner, await stubOwner.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg()).ok, false);
+    console.log('  PASS  brand consumer requires liveOwner predicate exactly true; stub/plain/proxy/throw fail closed');
+  }
 
   await assert.rejects(
     () => readWith(hitsTemplate(), { digest: 'sha256:00d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a' }),
@@ -450,6 +561,14 @@ async function main() {
     const executeIdx = proverSrc.indexOf('LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true');
     const readerIdx = proverSrc.indexOf('readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg');
     assert.ok(executeIdx > 0 && readerIdx > executeIdx);
+    const readOwnedIdx = proverSrc.indexOf('independent = await readOwned()');
+    assert.ok(readOwnedIdx > 0, 'runProof must await owned reader');
+    const afterReadOwned = proverSrc.slice(readOwnedIdx, readOwnedIdx + 900);
+    assert.match(afterReadOwned, /inspectIndependentLivePreflight\(liveOwner, independent\)/);
+    assert.match(proverSrc, /ownData\(liveOwner, 'isIndependentLivePreflight'\)/);
+    const fieldIdx = afterReadOwned.search(/ownData\(independent,\s*'deploy_sha'\)/);
+    const brandIdx = afterReadOwned.indexOf('inspectIndependentLivePreflight');
+    assert.ok(brandIdx >= 0 && fieldIdx > brandIdx, 'brand must be consumed before field compare');
   }
   assert.throws(
     () => composeSunsetStagingLiveDownscopeProverDependencies({ env: {} }),
@@ -607,7 +726,58 @@ async function main() {
     }),
     (err) => assertReaderFailure(err, 'counts_nonzero') || assertReaderFailure(err, 'revision_drift'),
   );
-  console.log('  PASS  LOGIN alias/TLS/ACL/grant/tenant/count-drift fail closed');
+
+  function appEnvValue(name, value) {
+    const env = eightEnv().map((row) => (row.name === name ? { name, value } : row));
+    return appFacts({ env });
+  }
+  const fenceMutations = [
+    { name: 'EMAIL_LUNA_CONTROLLED_DRAFTING_CLIENT_ID', value: CLIENT2, label: 'clientId' },
+    { name: 'EMAIL_LUNA_CONTROLLED_DRAFTING_LOCATION_ID', value: LOCATION2, label: 'locationId' },
+    { name: 'EMAIL_LUNA_CONTROLLED_DRAFTING_ENDPOINT_ID', value: ENDPOINT2, label: 'endpointId' },
+    { name: 'EMAIL_LUNA_CONTROLLED_DRAFTING_MAILBOX_ID', value: MAILBOX2, label: 'mailboxId' },
+  ];
+  for (let i = 0; i < fenceMutations.length; i += 1) {
+    const mutation = fenceMutations[i];
+    await assert.rejects(
+      () => readWith(hitsTemplate(), {
+        readApp(n) {
+          return n >= 2 ? appEnvValue(mutation.name, mutation.value) : appFacts();
+        },
+      }),
+      (err) => assertReaderFailure(err, 'revision_drift') || assertReaderFailure(err, 'binding_unproven'),
+      `fence mutation ${mutation.label}`,
+    );
+  }
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      readApp(n) {
+        return n >= 2
+          ? appFacts({ traffic: [{ revisionName: REVISION, weight: 99 }] })
+          : appFacts();
+      },
+    }),
+    (err) => assertReaderFailure(err, 'traffic_ambiguous') || assertReaderFailure(err, 'revision_drift'),
+    'fence mutation trafficWeight',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      query(sql, _params, kind) {
+        if (/grant_status/.test(sql)) {
+          this._g = (this._g || 0) + 1;
+          return { rows: [grantRow(this._g > 1 ? { reconcile_state: '' } : {})] };
+        }
+        if (/ops_097/.test(sql)) return { rows: [countsRow()] };
+        if (/session_fingerprint/.test(sql)) return { rows: [identityRow(kind)] };
+        if (/binding_ok/.test(sql)) return { rows: [bindingRow()] };
+        if (/'producer'/.test(sql) || /'worker'/.test(sql)) return { rows: [attestRow(kind)] };
+        throw new Error(PLANTED);
+      },
+    }),
+    (err) => assertReaderFailure(err, 'reconciliation_needed') || assertReaderFailure(err, 'revision_drift'),
+    'fence mutation reconcile_state',
+  );
+  console.log('  PASS  LOGIN alias/TLS/ACL/grant/tenant/count-drift and fence identity mutations fail closed');
 
   let t = Date.parse('2026-08-26T00:00:00.000Z');
   await assert.rejects(
@@ -630,6 +800,19 @@ async function main() {
     }),
     (err) => assertReaderFailure(err, 'reader_invalid') || (err.code === ERROR_CODE && noLeak(err)),
   );
+  {
+    const plantedPkg = new Error(`boom ${PLANTED} postgres://x:y@h/db eyJhbG`);
+    plantedPkg.code = ERROR_CODE;
+    plantedPkg.detail = 'azure_unproven';
+    await assert.rejects(
+      () => readWith(hitsTemplate(), { readApp() { throw plantedPkg; } }),
+      (err) => err
+        && err.code === ERROR_CODE
+        && err.message === ERROR_MESSAGE
+        && err !== plantedPkg
+        && noLeak(err),
+    );
+  }
   const getterApp = appFacts();
   Object.defineProperty(getterApp, 'image', { get() { return IMAGE; }, enumerable: true });
   await assert.rejects(
@@ -649,13 +832,124 @@ async function main() {
   );
   console.log('  PASS  planted-secret/accessor/proxy provider failures stay sanitized');
 
+  assert.equal(closedAcrDigestFromManifestResponse({
+    status: 200,
+    body: '{}',
+    digestHeader: DIGEST,
+  }), DIGEST);
+  await assert.rejects(
+    () => Promise.resolve().then(() => closedAcrDigestFromManifestResponse({
+      status: 401,
+      body: PLANTED,
+      digestHeader: DIGEST,
+    })),
+    (err) => assertReaderFailure(err, 'acr_unproven'),
+  );
+  await assert.rejects(
+    () => Promise.resolve().then(() => closedAcrDigestFromManifestResponse({
+      status: 401,
+      body: '',
+      digestHeader: DIGEST,
+    })),
+    (err) => assertReaderFailure(err, 'acr_unproven'),
+  );
+  console.log('  PASS  ACR manifest digest requires HTTP 200; 401-with-header is unproven');
+
+  {
+    function makeRecordedHandle(opts = {}) {
+      const sql = [];
+      let released = 0;
+      const handle = {
+        async withTransactionClient() {
+          throw new Error(`rw_must_not_run ${PLANTED}`);
+        },
+        async withReadOnlyTransactionClient(work) {
+          sql.push('BEGIN READ ONLY');
+          if (opts.failBegin) throw new Error(`begin ${PLANTED}`);
+          const client = {
+            async query(text) {
+              sql.push(String(text));
+              if (/\bCOMMIT\b/i.test(String(text))) throw new Error('commit_must_not_run');
+              return { rows: [], rowCount: 0 };
+            },
+          };
+          let workError = null;
+          let workResult;
+          try {
+            if (opts.failWork) throw new Error(`work ${PLANTED} postgres://x:y@h/db`);
+            workResult = await work(client);
+          } catch (error) {
+            workError = error;
+          }
+          try {
+            sql.push('ROLLBACK');
+            if (opts.failRollback) throw new Error(`rollback ${PLANTED}`);
+          } catch (error) {
+            released += 1;
+            throw error;
+          }
+          released += 1;
+          if (workError) throw workError;
+          return workResult;
+        },
+      };
+      return { handle, sql, getReleased: () => released };
+    }
+
+    const success = makeRecordedHandle();
+    const result = await withReadOnlyPreflightClient(success.handle, async (client) => {
+      await client.query(COUNT_SQL);
+      return 'ok';
+    });
+    assert.equal(result, 'ok');
+    assert.deepEqual(success.sql, ['BEGIN READ ONLY', COUNT_SQL, 'ROLLBACK']);
+    assert.equal(success.getReleased(), 1);
+
+    const failed = makeRecordedHandle({ failWork: true });
+    await assert.rejects(
+      () => withReadOnlyPreflightClient(failed.handle, async () => 'nope'),
+      (err) => err && err.code === ERROR_CODE && err.detail === 'pg_unproven' && noLeak(err),
+    );
+    assert.deepEqual(failed.sql, ['BEGIN READ ONLY', 'ROLLBACK']);
+    assert.ok(!failed.sql.includes('COMMIT'));
+
+    const rollbackFail = makeRecordedHandle({ failRollback: true });
+    await assert.rejects(
+      () => withReadOnlyPreflightClient(rollbackFail.handle, async () => 'ok'),
+      (err) => err && err.code === ERROR_CODE && err.message === ERROR_MESSAGE && noLeak(err),
+    );
+
+    await assert.rejects(
+      () => withReadOnlyPreflightClient({
+        async withTransactionClient(work) { return work({ async query() { return { rows: [] }; } }); },
+      }, async () => 'nope'),
+      (err) => assertReaderFailure(err, 'login_unproven'),
+    );
+    console.log('  PASS  read-only loan SQL is BEGIN READ ONLY / work / ROLLBACK; no nested BEGIN or COMMIT');
+  }
+
   assert.doesNotMatch(ownedSrc, /graph\.microsoft\.com/);
   assert.doesNotMatch(ownedSrc, /login\.microsoftonline\.com/);
   assert.doesNotMatch(ownedSrc, /createReplyDraft|sendMail|getAccessToken/);
   assert.doesNotMatch(ownedSrc, /SET\s+ROLE/i);
   assert.doesNotMatch(ownedSrc, /SET\s+SESSION\s+AUTHORIZATION/i);
   assert.doesNotMatch(ownedSrc, /keyvault\/secrets/i);
-  assert.match(ownedSrc, /BEGIN READ ONLY/);
+  assert.match(ownedSrc, /withReadOnlyTransactionClient/);
+  assert.doesNotMatch(ownedSrc, /await queryFn\.call\(client, 'BEGIN READ ONLY'\)/);
+  assert.doesNotMatch(ownedSrc, /res\.status !== 401/);
+  assert.match(ownedSrc, /LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true/);
+  const pairSrc = fs.readFileSync(
+    require.resolve('./lib/email-luna-automation-shadow-worker-connection'),
+    'utf8',
+  );
+  assert.match(pairSrc, /async function withReadOnlyTransactionClient/);
+  assert.match(pairSrc, /BEGIN READ ONLY/);
+  const roStart = pairSrc.indexOf('async function withReadOnlyTransactionClient');
+  const roEnd = pairSrc.indexOf('async function close()', roStart);
+  assert.ok(roStart > 0 && roEnd > roStart);
+  assert.doesNotMatch(pairSrc.slice(roStart, roEnd), /COMMIT/);
+  assert.match(pairSrc.slice(roStart, roEnd), /BEGIN READ ONLY/);
+  assert.match(pairSrc.slice(roStart, roEnd), /ROLLBACK/);
   assert.match(IDENTITY_SQL, /session_user/);
   assert.match(GRANT_SQL, /tenant_email_delegated_grants/);
   assert.match(BINDING_SQL, /tenant_channel_endpoints/);
@@ -667,6 +961,8 @@ async function main() {
     path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader-owned.js'),
     path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader.test-support.js'),
     path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-canonical-owners.js'),
+    path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover.js'),
+    path.join(ROOT, 'scripts/lib/email-luna-automation-shadow-worker-connection.js'),
     path.join(ROOT, 'scripts/verify-email-luna-controlled-drafting-live-downscope-prover-live-preflight-reader.js'),
   ], { cwd: ROOT, encoding: 'utf8', env: childEnv() });
   if (nodeCheck.stdout) process.stdout.write(nodeCheck.stdout);

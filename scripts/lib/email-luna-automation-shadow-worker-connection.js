@@ -738,6 +738,40 @@ function instantiateDirectLoginConnection(connectionString, options) {
     }
   }
 
+  async function withReadOnlyTransactionClient(work) {
+    if (typeof work !== 'function' || runtimeIsProxy(work)) throw invalid();
+    if (closed) throw invalid();
+    let client;
+    try {
+      client = await pool.connect();
+    } catch (_) {
+      throw invalid();
+    }
+    try {
+      try {
+        await client.query('BEGIN READ ONLY');
+      } catch (_) {
+        throw invalid();
+      }
+      let workError = null;
+      let workResult;
+      try {
+        workResult = await work(client);
+      } catch (error) {
+        workError = error;
+      }
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {
+        throw invalid();
+      }
+      if (workError) throw workError;
+      return workResult;
+    } finally {
+      try { client.release(); } catch (_) { /* ignore */ }
+    }
+  }
+
   async function close() {
     if (closed) return;
     closed = true;
@@ -749,6 +783,7 @@ function instantiateDirectLoginConnection(connectionString, options) {
 
   const handle = freeze({
     withTransactionClient,
+    withReadOnlyTransactionClient,
     close,
     getReadinessFailure: () => (idleFailure ? idleReason : null),
     getTransport: () => transport,

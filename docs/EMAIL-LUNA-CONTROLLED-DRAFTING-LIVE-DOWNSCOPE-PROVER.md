@@ -99,7 +99,7 @@ Without `--execute-once` this is **preparation/attestation only**: zero token, J
 
 **Independent live preflight (Chapter 4H implements the owned reader; live execute remains unauthorized):**
 
-Chapter 4H owns `readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg`. `evaluateSunsetStagingLiveAppSnapshot` still validates untrusted caller snapshots against exact pins and **must not** mint `independent_read` or a live-proof brand. `runProof` / public compose still refuse with `live_execute_not_authorized_in_this_chapter` **before** the owned reader or KV/token/JWKS/PG run. 097/098 counts are never accepted from caller fields. See `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-PREFLIGHT-READER.md`.
+Chapter 4H owns `readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg`. `evaluateSunsetStagingLiveAppSnapshot` still validates untrusted caller snapshots against exact pins and **must not** mint `independent_read` or a live-proof brand. `runProof` / public compose still refuse with `live_execute_not_authorized_in_this_chapter` **before** the owned reader or KV/token/JWKS/PG run. After a future authorized `await readOwned()`, `runProof` calls `inspectIndependentLivePreflight(liveOwner, independent)` and requires the live-owner WeakSet predicate to return exactly `true` before reading fields or starting token work. 097/098 counts are never accepted from caller fields. See `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-PREFLIGHT-READER.md`.
 
 Owned reader steps (measured; fail closed if any miss):
 

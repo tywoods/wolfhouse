@@ -184,7 +184,10 @@ function failure(code) {
 }
 
 function refuseDetail(err, fallback) {
-  if (err && err.code === ERROR_CODE && typeof err.detail === 'string') throw err;
+  if (err && err.code === ERROR_CODE && err.message === ERROR_MESSAGE
+      && typeof err.detail === 'string' && DETAIL_RE.test(err.detail)) {
+    throw failure(err.detail);
+  }
   throw failure(fallback);
 }
 
@@ -384,7 +387,7 @@ function measureTraffic(traffic, expectedRevision) {
   if (revisionName !== expectedRevision || weight !== 100) {
     return { ok: false, reason: 'traffic_ambiguous' };
   }
-  return { ok: true, weight: 100 };
+  return { ok: true, weight };
 }
 
 function measureApp(app) {
@@ -494,13 +497,13 @@ function measureGrant(row) {
   const leased = ownData(row, 'has_active_lease');
   if (status === 'reauthorization_required' || status === 'revoked') throw failure('dead_grant');
   if (status === 'lease_held' || leased === true) throw failure('lease_held');
-  if (reconcile && reconcile !== 'clean') throw failure('reconciliation_needed');
+  if (reconcile !== 'clean') throw failure('reconciliation_needed');
   if (status !== 'active') throw failure('grant_uncertain');
   if (leased !== false) throw failure('lease_held');
   return objectFreeze({
     grant_generation: generation,
     grant_status: 'active',
-    reconcile_state: 'clean',
+    reconcile_state: reconcile,
     has_active_lease: false,
   });
 }
@@ -602,16 +605,30 @@ function sameFence(a, b) {
   return a.app.latest === b.app.latest
     && a.app.latestReady === b.app.latestReady
     && a.app.image.tag === b.app.image.tag
+    && a.app.image.loginServer === b.app.image.loginServer
+    && a.app.image.repository === b.app.image.repository
+    && a.app.trafficWeight === b.app.trafficWeight
+    && a.app.clientId === b.app.clientId
+    && a.app.locationId === b.app.locationId
+    && a.app.endpointId === b.app.endpointId
+    && a.app.mailboxId === b.app.mailboxId
     && a.revision.replicas === b.revision.replicas
     && a.revision.runtimeDigest === b.revision.runtimeDigest
+    && a.revision.image.tag === b.revision.image.tag
     && a.digest === b.digest
     && a.pg.counts.ops_097 === b.pg.counts.ops_097
     && a.pg.counts.transitions_097 === b.pg.counts.transitions_097
     && a.pg.counts.authorizations_098 === b.pg.counts.authorizations_098
     && a.pg.grant.grant_generation === b.pg.grant.grant_generation
     && a.pg.grant.grant_status === b.pg.grant.grant_status
+    && a.pg.grant.reconcile_state === b.pg.grant.reconcile_state
+    && a.pg.grant.has_active_lease === b.pg.grant.has_active_lease
     && a.pg.producer.fingerprint === b.pg.producer.fingerprint
-    && a.pg.worker.fingerprint === b.pg.worker.fingerprint;
+    && a.pg.worker.fingerprint === b.pg.worker.fingerprint
+    && a.pg.bound.binding_ok === b.pg.bound.binding_ok
+    && a.pg.bound.own_user === b.pg.bound.own_user
+    && a.pg.bound.mailbox_ready === b.pg.bound.mailbox_ready
+    && a.pg.bound.has_active_operation === b.pg.bound.has_active_operation;
 }
 
 function brandEvidence(pairs) {
@@ -674,7 +691,12 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
       const first = objectFreeze({ app: azureA.app, revision: azureA.revision, digest: digestA, pg: pgA });
       const second = objectFreeze({ app: azureB.app, revision: azureB.revision, digest: digestB, pg: pgB });
       if (!sameFence(first, second)) throw failure('revision_drift');
-      if (azureA.app.clientId !== azureB.app.clientId) throw failure('binding_unproven');
+      if (azureA.app.clientId !== azureB.app.clientId
+          || azureA.app.locationId !== azureB.app.locationId
+          || azureA.app.endpointId !== azureB.app.endpointId
+          || azureA.app.mailboxId !== azureB.app.mailboxId) {
+        throw failure('binding_unproven');
+      }
       const owners = proveCanonicalRuntimeOwnersMatchDeployedContract();
       if (!owners || owners.ok !== true) throw failure('canonical_owners');
       const t1 = nowMs();
@@ -695,7 +717,7 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
         ['latest_revision', azureB.app.latest],
         ['latest_ready_revision', azureB.app.latestReady],
         ['active_revision', EXPECTED_LIVE_TARGET.revision],
-        ['traffic_weight', 100],
+        ['traffic_weight', azureB.app.trafficWeight],
         ['running_status', 'Running'],
         ['provisioning_state', 'Succeeded'],
         ['health_state', 'Healthy'],
@@ -883,7 +905,18 @@ function closedRevisionFromArm(raw) {
   };
 }
 
+function closedAcrDigestFromManifestResponse(res) {
+  if (!res || typeof res !== 'object' || isProxySurface(res)) throw failure('acr_unproven');
+  if (ownData(res, 'status') !== 200) throw failure('acr_unproven');
+  const digestHeader = ownData(res, 'digestHeader');
+  if (typeof digestHeader === 'string' && DIGEST_RE.test(digestHeader)) return digestHeader;
+  throw failure('acr_unproven');
+}
+
 function createProductionAdapters() {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+    throw failure('live_execute_not_authorized_in_this_chapter');
+  }
   const armBase = `https://${AZURE_OWNER.armHost}/subscriptions/${AZURE_OWNER.subscriptionId}`
     + `/resourceGroups/${AZURE_OWNER.resourceGroup}/providers/Microsoft.App/containerApps/`
     + `${AZURE_OWNER.appName}`;
@@ -951,9 +984,7 @@ function createProductionAdapters() {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.docker.distribution.manifest.v2+json',
         }, ARM_TIMEOUT_MS);
-        if (!res || (res.status !== 200 && res.status !== 401)) throw failure('acr_unproven');
-        if (typeof res.digestHeader === 'string' && DIGEST_RE.test(res.digestHeader)) return res.digestHeader;
-        throw failure('acr_unproven');
+        return closedAcrDigestFromManifestResponse(res);
       },
     },
     pg: {
@@ -981,7 +1012,28 @@ function looksLikeAdminStaffApiDsn(connectionString) {
   return /(?:^|[/:])wolfhouse_admin(?:[:@]|$)/i.test(userinfo) === true;
 }
 
+async function withReadOnlyPreflightClient(handle, work) {
+  if (typeof work !== 'function' || isProxySurface(work)) throw failure('pg_unproven');
+  if (!handle || (typeof handle !== 'object' && typeof handle !== 'function') || isProxySurface(handle)) {
+    throw failure('login_unproven');
+  }
+  const withRo = ownData(handle, 'withReadOnlyTransactionClient');
+  if (typeof withRo !== 'function' || isProxySurface(withRo)) throw failure('login_unproven');
+  try {
+    return await withRo.call(handle, async (client) => {
+      const queryFn = resolveQuery(client);
+      if (typeof queryFn !== 'function' || isProxySurface(queryFn)) throw failure('pg_unproven');
+      return work(client);
+    });
+  } catch (err) {
+    refuseDetail(err, 'pg_unproven');
+  }
+}
+
 async function withProductionLoginClient(kind, work) {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+    throw failure('live_execute_not_authorized_in_this_chapter');
+  }
   if (typeof work !== 'function' || isProxySurface(work)) throw failure('pg_unproven');
   const env = process.env;
   const producer = envOwn(env, ENV_PRODUCER_DATABASE_URL);
@@ -998,26 +1050,14 @@ async function withProductionLoginClient(kind, work) {
   }));
   if (!isAuthenticEmailLunaControlledDraftingPrincipalConnectionPair(pair)) throw failure('login_unproven');
   const handle = ownData(pair, kind);
-  const withTxn = handle && ownData(handle, 'withTransactionClient');
-  if (typeof withTxn !== 'function') throw failure('login_unproven');
-  return withTxn(async (client) => {
-    const queryFn = resolveQuery(client);
-    if (typeof queryFn !== 'function') throw failure('pg_unproven');
-    try {
-      await queryFn.call(client, 'BEGIN READ ONLY');
-    } catch (_) {
-      throw failure('pg_unproven');
-    }
-    try {
-      return await work(client);
-    } finally {
-      try { await queryFn.call(client, 'ROLLBACK'); } catch (_) { /* sanitized */ }
-    }
-  });
+  return withReadOnlyPreflightClient(handle, work);
 }
 
 async function readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg() {
   if (arguments.length !== 0) throw failure('caller_input_refused');
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+    throw failure('live_execute_not_authorized_in_this_chapter');
+  }
   if (invokedFromSourceTestHarness()) throw failure('source_test_cannot_consume_live_azure_pg');
   const reader = createOwnedSunsetStagingLivePreflightReader(createProductionAdapters());
   return reader.read();
@@ -1046,4 +1086,6 @@ module.exports = objectFreeze({
   createOwnedSunsetStagingLivePreflightReader,
   readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg,
   isIndependentLivePreflight,
+  withReadOnlyPreflightClient,
+  closedAcrDigestFromManifestResponse,
 });
