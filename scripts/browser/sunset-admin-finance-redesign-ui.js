@@ -115,9 +115,10 @@ function financeRedesignTitle(view) {
   var end = view.range.end;
   try {
     if (g === 'day') {
-      var d = new Date(start + 'T12:00:00');
+      var dayParts = String(start).slice(0, 10).split('-').map(Number);
+      var d = new Date(Date.UTC(dayParts[0], dayParts[1] - 1, dayParts[2], 12, 0, 0));
       return d.toLocaleDateString(financeRedesignLocaleTag(), {
-        weekday: 'short', day: 'numeric', month: 'long', year: 'numeric',
+        weekday: 'short', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC',
       });
     }
     if (g === 'year') return String(start).slice(0, 4);

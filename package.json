@@ -729,6 +729,7 @@
     "verify:sunset-finance-data": "node scripts/verify-sunset-finance-data.js",
     "verify:sunset-finance-endpoint": "node scripts/verify-sunset-finance-endpoint.js",
     "verify:sunset-finance-ui": "node scripts/verify-sunset-finance-ui.js",
+    "verify:sunset-finance-bug-023-day-default": "node scripts/verify-sunset-finance-bug-023-day-default.js",
     "verify:sunset-finance-ui-playwright": "node scripts/verify-sunset-finance-ui-playwright.js",
     "verify:sunset-edit-drawer-parity": "node scripts/verify-sunset-edit-drawer-parity.js",
     "verify:sunset-create-drawer-layout-equipment-quote-hotfix": "node scripts/verify-sunset-create-drawer-layout-equipment-quote-hotfix.js",

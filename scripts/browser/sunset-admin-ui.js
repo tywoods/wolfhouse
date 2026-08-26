@@ -2447,9 +2447,10 @@ function financeDateIsValidIso(iso){
   return dt.getUTCFullYear() === parts[0] && (dt.getUTCMonth() + 1) === parts[1] && dt.getUTCDate() === parts[2];
 }
 
+/** Portal calendar today — same source as Horario "Hoy" (scheduleTodayIso / dsTodayIso). */
 function financeTodayIso(){
   try {
-    if (typeof schedulePortalMadridTodayIso === 'function') return schedulePortalMadridTodayIso();
+    if (typeof scheduleTodayIso === 'function') return scheduleTodayIso();
   } catch (_e) { /* ignore */ }
   var now = new Date();
   return new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 10);
