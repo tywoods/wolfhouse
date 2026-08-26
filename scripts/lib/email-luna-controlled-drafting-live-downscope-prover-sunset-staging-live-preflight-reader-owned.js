@@ -51,7 +51,6 @@ const {
 const {
   proveCanonicalRuntimeOwnersMatchDeployedContract,
 } = require('./email-luna-controlled-drafting-live-downscope-prover-canonical-owners');
-const chapter4IAuthority = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -690,10 +689,6 @@ function invokedFromSourceTestHarness() {
   }
 }
 
-function chapterAllowsProductionLiveAdapters() {
-  return LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER === true;
-}
-
 function requireHex64Fingerprint(value) {
   if (typeof value !== 'string' || !HEX64_RE.test(value)) throw failure('login_unproven');
   return value;
@@ -974,9 +969,8 @@ function closedAcrDigestFromManifestResponse(res) {
   throw failure('acr_unproven');
 }
 
-function createProductionAdapters(authorizedByChapter4ICapability) {
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true
-      && authorizedByChapter4ICapability !== true) {
+function createProductionAdapters() {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   const armBase = `https://${AZURE_OWNER.armHost}/subscriptions/${AZURE_OWNER.subscriptionId}`
@@ -1051,10 +1045,10 @@ function createProductionAdapters(authorizedByChapter4ICapability) {
     },
     pg: {
       async withProducerClient(work) {
-        return withProductionLoginClient('producer', work, authorizedByChapter4ICapability === true);
+        return withProductionLoginClient('producer', work);
       },
       async withWorkerClient(work) {
-        return withProductionLoginClient('worker', work, authorizedByChapter4ICapability === true);
+        return withProductionLoginClient('worker', work);
       },
     },
     clock: {
@@ -1092,9 +1086,8 @@ async function withReadOnlyPreflightClient(handle, work) {
   }
 }
 
-async function withProductionLoginClient(kind, work, authorizedByChapter4ICapability) {
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true
-      && authorizedByChapter4ICapability !== true) {
+async function withProductionLoginClient(kind, work) {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   if (typeof work !== 'function' || isProxySurface(work)) throw failure('pg_unproven');
@@ -1118,21 +1111,12 @@ async function withProductionLoginClient(kind, work, authorizedByChapter4ICapabi
 
 async function readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg() {
   if (arguments.length !== 0) throw failure('caller_input_refused');
-  if (chapterAllowsProductionLiveAdapters() !== true) {
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
     throw failure('live_execute_not_authorized_in_this_chapter');
   }
   if (invokedFromSourceTestHarness()) throw failure('source_test_cannot_consume_live_azure_pg');
-  const reader = createOwnedSunsetStagingLivePreflightReader(createProductionAdapters(false));
+  const reader = createOwnedSunsetStagingLivePreflightReader(createProductionAdapters());
   return reader.read();
-}
-
-function takeProductionReaderWithChapter4ICapability(capability) {
-  if (arguments.length !== 1) throw failure('caller_input_refused');
-  const consume = chapter4IAuthority.consumeProductionReadCapability;
-  if (typeof consume !== 'function') throw failure('live_execute_not_authorized_in_this_chapter');
-  if (consume(capability) !== true) throw failure('live_execute_not_authorized_in_this_chapter');
-  if (invokedFromSourceTestHarness()) throw failure('source_test_cannot_consume_live_azure_pg');
-  return createOwnedSunsetStagingLivePreflightReader(createProductionAdapters(true));
 }
 
 function isIndependentLivePreflight(value) {
@@ -1144,7 +1128,7 @@ function isIndependentLivePreflight(value) {
   }
 }
 
-const publicOwned = objectFreeze({
+module.exports = objectFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   EIGHT_FLAGS,
@@ -1160,27 +1144,4 @@ const publicOwned = objectFreeze({
   isIndependentLivePreflight,
   withReadOnlyPreflightClient,
   closedAcrDigestFromManifestResponse,
-});
-
-module.exports = new Proxy(publicOwned, {
-  get(target, prop) {
-    if (prop === 'takeProductionReaderWithChapter4ICapability') {
-      return takeProductionReaderWithChapter4ICapability;
-    }
-    return target[prop];
-  },
-  has(target, prop) {
-    if (prop === 'takeProductionReaderWithChapter4ICapability') return false;
-    return Object.prototype.hasOwnProperty.call(target, prop);
-  },
-  ownKeys() {
-    return Reflect.ownKeys(publicOwned);
-  },
-  getOwnPropertyDescriptor(target, prop) {
-    if (prop === 'takeProductionReaderWithChapter4ICapability') return undefined;
-    return Object.getOwnPropertyDescriptor(target, prop);
-  },
-  set() { return false; },
-  defineProperty() { return false; },
-  deleteProperty() { return false; },
 });

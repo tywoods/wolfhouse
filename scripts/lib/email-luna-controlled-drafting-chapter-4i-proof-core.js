@@ -1,21 +1,20 @@
 'use strict';
 
 /**
- * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4I — owned Sunset staging
- * one-shot live-execution implementation.
+ * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4I — pure proof-state core.
  *
- * Import-inert. Production adapters are not selected by env/opts. Tests
- * reach the closed constructor through the test-support sibling. Public
- * owner omits that constructor. Graph/send/098/097-create surfaces are
- * absent. Staff API does not import this module.
+ * Import-inert. Accepts already-created adapters/evidence readers only.
+ * Contains no production adapter constructors, no env-selected live
+ * composition, and no network modules. Cannot create live capabilities.
+ * Graph/send/098/097-create surfaces are absent. Staff API does not
+ * import this module.
  *
- * @module email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned
+ * @module email-luna-controlled-drafting-chapter-4i-proof-core
  */
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
 const {
   isProxySurface,
   ownData,
@@ -71,10 +70,7 @@ const {
 const {
   AZURE_OWNER,
 } = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader');
-const liveTargetOwner = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
-const chapter4IAuthority = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
 const chapter4IReceipt = require('./email-luna-controlled-drafting-chapter-4i-durable-receipt');
-const readerOwnedModule = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader-owned');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -92,19 +88,20 @@ const ERROR_MESSAGE = 'Email Luna controlled drafting Chapter 4I live execution 
 const PROOF_VERSION = 'chapter_4i_v1';
 const CONFIRMATION_PHRASE = 'I_UNDERSTAND_SUNSET_STAGING_CHAPTER_4I_ONE_SHOT_LIVE_PROOF';
 const COMMAND = 'execute-once';
+const PREFLIGHT_COMMAND = 'preflight';
 const DETAIL_RE = /^[a-z][a-z0-9_]{0,63}$/;
+const CLOSE_TIMEOUT_MS = 2000;
 const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
 const USED_OPERATOR_NONCES = new Set();
-const PENDING_CLAIMED_STORES = new WeakSet();
 const DOWNSCOPE_WORKER_ID = 'email-luna-controlled-drafting-chapter-4i-downscope';
 const CONTINUITY_WORKER_ID = 'email-luna-controlled-drafting-chapter-4i-continuity';
 const SCOPE_PROFILE_ID = CONTROLLED_DRAFTING_SCOPE_VERSION;
 
 const INVOCATION_KEYS = objectFreeze([
   'deployment', 'tenant', 'database', 'resourceGroup', 'appName',
-  'revision', 'deploySha', 'digest', 'sourceSha', 'confirm',
+  'revision', 'deploySha', 'digest', 'sourceSha', 'sourceTree', 'confirm',
   'operatorNonce', 'confirmIssuedAt',
 ]);
 const ADAPTER_KEYS = objectFreeze([
@@ -115,9 +112,25 @@ const ADAPTER_KEYS = objectFreeze([
 const SOURCE_TRACKED_FILES = objectFreeze([
   'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js',
   'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner.js',
-  'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned.js',
-  'scripts/lib/email-luna-controlled-drafting-chapter-4i-one-shot-authority.js',
+  'scripts/lib/email-luna-controlled-drafting-chapter-4i-proof-core.js',
   'scripts/lib/email-luna-controlled-drafting-chapter-4i-durable-receipt.js',
+]);
+const PRODUCTION_DRIVER_REL = 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js';
+const FORBIDDEN_GIT_ENV = objectFreeze([
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE',
+  'GIT_PREFIX', 'GIT_REPLACE_REF_BASE', 'GIT_CONFIG_PARAMETERS',
+  'GIT_CONFIG_COUNT', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM',
+]);
+const IDENTITY_FIELDS = objectFreeze([
+  'deploy_sha', 'revision', 'digest', 'replica', 'traffic_weight',
+  'image_login_server', 'image_repository', 'image_tag',
+  'ops_097', 'transitions_097', 'authorizations_098',
+  'grant_status', 'reconcile_state', 'has_active_lease',
+  'flags_all_literal_false', 'subscription_id', 'resource_group',
+  'app_name', 'tenant', 'database',
+  'client_id', 'location_id', 'endpoint_id', 'mailbox_id',
+  'producer_login_fingerprint', 'worker_login_fingerprint',
 ]);
 const RECEIPT_STORE_KEYS = objectFreeze(['path', 'claim', 'read', 'advance']);
 const COMMAND_RUNNER_KEYS = objectFreeze(['execFileSync']);
@@ -142,7 +155,7 @@ const PRODUCTION_MARKERS = objectFreeze([
 ]);
 const MACHINE_RECORD_KEYS = objectFreeze([
   'proof_version', 'ok', 'status', 'deployment', 'tenant', 'database',
-  'resource_group', 'app_name', 'source_sha', 'deploy_sha', 'revision', 'digest',
+  'resource_group', 'app_name', 'source_sha', 'source_tree', 'deploy_sha', 'revision', 'digest',
   'preflight_started_at', 'preflight_finished_at', 'fence_generation',
   'downscope_mail_send_absent', 'continuity_expected_scope_present',
   'refresh_call_count', 'graph_call_count', 'send_call_count',
@@ -286,33 +299,6 @@ function envAliasPresent(env) {
   return false;
 }
 
-function invokedFromSourceTestHarness() {
-  try {
-    const main = require.main && require.main.filename;
-    if (typeof main === 'string') {
-      const base = main.replace(/\\/g, '/').split('/').pop();
-      if (/^(verify|prove)-email-luna-controlled-drafting-/.test(base)) return true;
-    }
-    const cached = Object.keys(require.cache || {});
-    for (let i = 0; i < cached.length; i += 1) {
-      const base = cached[i].replace(/\\/g, '/').split('/').pop();
-      if (/^(verify|prove)-email-luna-controlled-drafting-/.test(base)) return true;
-    }
-    try {
-      const ppid = process.ppid;
-      if (typeof ppid === 'number' && ppid > 1) {
-        const cmd = fs.readFileSync(`/proc/${ppid}/cmdline`, 'utf8');
-        if (/verify-email-luna-controlled-drafting|prove-email-luna-controlled-drafting/.test(cmd)) {
-          return true;
-        }
-      }
-    } catch (_) { /* sanitized */ }
-    return false;
-  } catch (_) {
-    return true;
-  }
-}
-
 function valueContainsSecret(value, token) {
   if (typeof token !== 'string' || token.length < 1) return false;
   try {
@@ -364,6 +350,7 @@ function refusedRecord(detail, extra) {
     resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
     app_name: EXPECTED_LIVE_TARGET.appName,
     source_sha: extra && extra.source_sha ? extra.source_sha : null,
+    source_tree: extra && extra.source_tree ? extra.source_tree : null,
     deploy_sha: extra && extra.deploy_sha ? extra.deploy_sha : EXPECTED_LIVE_TARGET.deployedSha,
     revision: extra && extra.revision ? extra.revision : EXPECTED_LIVE_TARGET.revision,
     digest: extra && extra.digest ? extra.digest : EXPECTED_LIVE_TARGET.digest,
@@ -391,36 +378,17 @@ function refusedRecord(detail, extra) {
   });
 }
 
-function authenticLibCaller(allowedBasenames) {
-  const libDir = fs.realpathSync(__dirname);
-  const self = fs.realpathSync(__filename);
-  const previous = Error.prepareStackTrace;
-  let stack;
-  try {
-    Error.prepareStackTrace = (_, frames) => frames;
-    const err = new Error();
-    Error.captureStackTrace(err, authenticLibCaller);
-    stack = err.stack;
-  } catch (_) {
-    return false;
-  } finally {
-    Error.prepareStackTrace = previous;
+function forbiddenGitEnvPresent(env) {
+  if (!env || typeof env !== 'object' || isProxySurface(env)) return true;
+  for (let i = 0; i < FORBIDDEN_GIT_ENV.length; i += 1) {
+    const value = ownData(env, FORBIDDEN_GIT_ENV[i]);
+    if (value !== undefined && value !== null && value !== '') return true;
   }
-  if (!arrayIsArray(stack) || stack.length < 1) return false;
-  for (let i = 0; i < stack.length; i += 1) {
-    const frame = stack[i];
-    if (!frame || typeof frame.getFileName !== 'function') continue;
-    const file = frame.getFileName();
-    if (typeof file !== 'string' || file.length < 1) continue;
-    let real;
-    try {
-      real = fs.realpathSync(file);
-    } catch (_) {
-      continue;
-    }
-    if (real === self) continue;
-    if (path.dirname(real) !== libDir) return false;
-    return arrayIncludes(allowedBasenames, path.basename(real));
+  const keys = reflectOwnKeys(env);
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    if (typeof key !== 'string') continue;
+    if (/^GIT_CONFIG_(KEY|VALUE)_[0-9]+$/.test(key)) return true;
   }
   return false;
 }
@@ -439,58 +407,93 @@ function resolveRepositoryRoot() {
   return root;
 }
 
+function sanitizedGitEnv() {
+  const env = objectCreate(null);
+  const src = process.env;
+  const keys = Object.keys(src);
+  for (let i = 0; i < keys.length; i += 1) {
+    const key = keys[i];
+    if (key === 'GIT_CONFIG_NOSYSTEM') continue;
+    if (key.startsWith('GIT_')) continue;
+    env[key] = src[key];
+  }
+  env.GIT_CONFIG_NOSYSTEM = '1';
+  return env;
+}
+
 function runGit(runner, root, args) {
   if (!runner || typeof ownData(runner, 'execFileSync') !== 'function') {
     throw failure('source_sha_mismatch');
   }
+  const gitArgs = arrayIsArray(args) ? ['--no-replace-objects', '-c', 'core.useReplaceRefs=false'].concat(args) : args;
   let out;
   try {
-    out = ownData(runner, 'execFileSync').call(runner, 'git', args, objectFreeze({
+    out = ownData(runner, 'execFileSync').call(runner, 'git', gitArgs, objectFreeze({
       cwd: root,
       encoding: 'utf8',
       timeout: 5000,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: sanitizedGitEnv(),
     }));
-  } catch (_) {
+  } catch (err) {
+    if (err && err.detail === 'source_not_merged_ancestor') throw err;
     throw failure('source_sha_mismatch');
   }
   if (typeof out !== 'string') throw failure('source_sha_mismatch');
   return stringTrim(out);
 }
 
-function assertExecutingSource(expectedSha, runner) {
+function assertExecutingSource(expectedSha, expectedTree, runner, env) {
   if (!sha40(expectedSha)) throw failure('source_sha_invalid');
+  if (!sha40(expectedTree)) throw failure('source_tree_invalid');
+  if (forbiddenGitEnvPresent(env || process.env)) throw failure('git_env_refused');
   const root = resolveRepositoryRoot();
   const head = runGit(runner, root, ['rev-parse', 'HEAD']);
   if (head !== expectedSha) throw failure('source_sha_mismatch');
-  const status = runGit(runner, root, ['status', '--porcelain']);
+  const tree = runGit(runner, root, ['rev-parse', 'HEAD^{tree}']);
+  if (tree !== expectedTree) throw failure('source_tree_mismatch');
+  try {
+    ownData(runner, 'execFileSync').call(runner, 'git', [
+      '--no-replace-objects', '-c', 'core.useReplaceRefs=false',
+      'merge-base', '--is-ancestor', 'HEAD', 'origin/master',
+    ], objectFreeze({
+      cwd: root,
+      encoding: 'utf8',
+      timeout: 5000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: sanitizedGitEnv(),
+    }));
+  } catch (_) {
+    throw failure('source_not_merged_ancestor');
+  }
+  const status = runGit(runner, root, ['status', '--porcelain=v1', '--untracked-files=all']);
   if (status.length > 0) throw failure('source_tree_dirty');
   for (let i = 0; i < SOURCE_TRACKED_FILES.length; i += 1) {
     const rel = SOURCE_TRACKED_FILES[i];
     runGit(runner, root, ['ls-files', '--error-unmatch', rel]);
+    const joined = path.join(root, rel);
+    let lstat;
+    try {
+      lstat = fs.lstatSync(joined);
+    } catch (_) {
+      throw failure('source_symlink_escape');
+    }
+    if (lstat.isSymbolicLink()) throw failure('source_symlink_escape');
     let abs;
     try {
-      abs = fs.realpathSync(path.join(root, rel));
+      abs = fs.realpathSync(joined);
     } catch (_) {
       throw failure('source_symlink_escape');
     }
     const rootPrefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
-    if (abs !== path.join(root, rel) && abs.indexOf(rootPrefix) !== 0) {
+    if (abs !== joined && abs.indexOf(rootPrefix) !== 0) {
       throw failure('source_symlink_escape');
     }
     if (abs.indexOf(rootPrefix) !== 0 && abs !== root) {
       throw failure('source_symlink_escape');
     }
   }
-  return head;
-}
-
-function createProductionCommandRunner() {
-  return objectFreeze({
-    execFileSync(file, args, options) {
-      return execFileSync(file, args, options);
-    },
-  });
+  return objectFreeze({ head, tree });
 }
 
 function snapshotReceiptStore(raw) {
@@ -515,25 +518,38 @@ function snapshotCommandRunner(raw) {
   });
 }
 
-function closeHandle(handle) {
+async function closeHandle(handle) {
   if (!handle || (typeof handle !== 'object' && typeof handle !== 'function')) return;
   const methods = ['end', 'destroy', 'close'];
   for (let i = 0; i < methods.length; i += 1) {
-    const fn = ownData(handle, methods[i]);
-    if (typeof fn === 'function') {
-      const result = fn.call(handle);
-      if (result && typeof result.then === 'function') {
-        return Promise.resolve(result).catch(() => { /* sanitized */ });
-      }
-      return;
+    let fn = ownData(handle, methods[i]);
+    if (typeof fn !== 'function' && typeof handle[methods[i]] === 'function') {
+      fn = handle[methods[i]];
     }
-    if (typeof handle[methods[i]] === 'function') {
-      const result = handle[methods[i]]();
-      if (result && typeof result.then === 'function') {
-        return Promise.resolve(result).catch(() => { /* sanitized */ });
-      }
-      return;
+    if (typeof fn !== 'function') continue;
+    let result;
+    try {
+      result = fn.call(handle);
+    } catch (_) {
+      throw failure('cleanup_unproven');
     }
+    if (result && typeof result.then === 'function') {
+      let timeoutId;
+      try {
+        await Promise.race([
+          Promise.resolve(result),
+          new Promise((_, reject) => {
+            timeoutId = setTimeout(() => reject(failure('cleanup_unproven')), CLOSE_TIMEOUT_MS);
+          }),
+        ]);
+      } catch (err) {
+        if (err && err.code === ERROR_CODE) throw err;
+        throw failure('cleanup_unproven');
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+    }
+    return;
   }
 }
 
@@ -557,6 +573,7 @@ function parseArgs(argv) {
   flags.deploySha = null;
   flags.digest = null;
   flags.sourceSha = null;
+  flags.sourceTree = null;
   flags.confirm = null;
   flags.operatorNonce = null;
   flags.confirmIssuedAt = null;
@@ -602,6 +619,9 @@ function parseArgs(argv) {
     if (arg === COMMAND) {
       if (!markSeen('command')) continue;
       flags.command = COMMAND;
+    } else if (arg === PREFLIGHT_COMMAND) {
+      if (!markSeen('command')) continue;
+      flags.command = PREFLIGHT_COMMAND;
     } else if (arg === '--deployment') {
       i = takeValue('deployment', i);
     } else if (arg === '--tenant') {
@@ -620,6 +640,8 @@ function parseArgs(argv) {
       i = takeValue('digest', i);
     } else if (arg === '--source-sha') {
       i = takeValue('sourceSha', i);
+    } else if (arg === '--source-tree') {
+      i = takeValue('sourceTree', i);
     } else if (arg === '--confirm') {
       i = takeValue('confirm', i);
     } else if (arg === '--operator-nonce') {
@@ -631,7 +653,7 @@ function parseArgs(argv) {
       if (!flags.invalidReason) flags.invalidReason = 'unknown_or_hostile_arg';
     }
   }
-  if (flags.command !== COMMAND && flags.invalid !== true) {
+  if (flags.command !== COMMAND && flags.command !== PREFLIGHT_COMMAND && flags.invalid !== true) {
     flags.invalid = true;
     flags.invalidReason = 'unknown_or_hostile_arg';
   }
@@ -646,6 +668,7 @@ function parseArgs(argv) {
     deploySha: flags.deploySha,
     digest: flags.digest,
     sourceSha: flags.sourceSha,
+    sourceTree: flags.sourceTree,
     confirm: flags.confirm,
     operatorNonce: flags.operatorNonce,
     confirmIssuedAt: flags.confirmIssuedAt,
@@ -654,11 +677,7 @@ function parseArgs(argv) {
   });
 }
 
-function validateExactInvocation(parsed, nowMs) {
-  if (!parsed || parsed.invalid === true) {
-    return parsed && parsed.invalidReason ? parsed.invalidReason : 'unknown_or_hostile_arg';
-  }
-  if (parsed.command !== COMMAND) return 'unknown_or_hostile_arg';
+function validatePinnedTarget(parsed) {
   if (parsed.deployment !== SUNSET_DEPLOYMENT) return 'deployment_mismatch';
   if (parsed.tenant !== SUNSET_TENANT) return 'tenant_mismatch';
   if (parsed.database !== EXPECTED_DATABASE) return 'database_mismatch';
@@ -668,11 +687,30 @@ function validateExactInvocation(parsed, nowMs) {
   if (parsed.deploySha !== EXPECTED_LIVE_TARGET.deployedSha) return 'deploy_sha_mismatch';
   if (parsed.digest !== EXPECTED_LIVE_TARGET.digest) return 'digest_mismatch';
   if (!sha40(parsed.sourceSha)) return 'source_sha_invalid';
+  if (!sha40(parsed.sourceTree)) return 'source_tree_invalid';
+  return null;
+}
+
+function validateExactInvocation(parsed, nowMs) {
+  if (!parsed || parsed.invalid === true) {
+    return parsed && parsed.invalidReason ? parsed.invalidReason : 'unknown_or_hostile_arg';
+  }
+  if (parsed.command !== COMMAND) return 'unknown_or_hostile_arg';
+  const pins = validatePinnedTarget(parsed);
+  if (pins) return pins;
   if (parsed.confirm !== CONFIRMATION_PHRASE) return 'confirmation_required';
   if (!validOperatorNonce(parsed.operatorNonce)) return 'operator_nonce_invalid';
   if (!validConfirmIssuedAt(parsed.confirmIssuedAt, nowMs)) return 'confirm_window_invalid';
   if (USED_OPERATOR_NONCES.has(parsed.operatorNonce)) return 'operator_nonce_replay';
   return null;
+}
+
+function validatePreflightInvocation(parsed) {
+  if (!parsed || parsed.invalid === true) {
+    return parsed && parsed.invalidReason ? parsed.invalidReason : 'unknown_or_hostile_arg';
+  }
+  if (parsed.command !== PREFLIGHT_COMMAND) return 'unknown_or_hostile_arg';
+  return validatePinnedTarget(parsed);
 }
 
 function invocationFromParsed(parsed) {
@@ -691,54 +729,49 @@ function requirePinnedLiveOwner() {
   if (typeof readerOwner.isIndependentLivePreflight !== 'function') {
     throw failure('independent_preflight_predicate_absent');
   }
-  if (typeof readerOwner.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg !== 'function') {
-    throw failure('independent_reader_absent');
-  }
   return readerOwner;
 }
 
-function sameProofTarget(a, b, expectedGeneration) {
+function sameIdentityFields(a, b) {
   if (!a || !b) return false;
-  if (!sameGeneration(ownData(b, 'grant_generation'), expectedGeneration)) return false;
-  if (!sameGeneration(ownData(a, 'grant_generation'), ownData(a, 'grant_generation'))) return false;
-  return ownData(a, 'deploy_sha') === ownData(b, 'deploy_sha')
-    && ownData(a, 'revision') === ownData(b, 'revision')
-    && ownData(a, 'digest') === ownData(b, 'digest')
-    && ownData(a, 'replica') === ownData(b, 'replica')
-    && ownData(a, 'ops_097') === 0
-    && ownData(b, 'ops_097') === 0
-    && ownData(a, 'transitions_097') === 0
-    && ownData(b, 'transitions_097') === 0
-    && ownData(a, 'authorizations_098') === 0
-    && ownData(b, 'authorizations_098') === 0
-    && ownData(a, 'grant_status') === 'active'
-    && ownData(b, 'grant_status') === 'active'
-    && ownData(a, 'reconcile_state') === 'clean'
-    && ownData(b, 'reconcile_state') === 'clean'
-    && ownData(a, 'has_active_lease') === false
-    && ownData(b, 'has_active_lease') === false
-    && ownData(a, 'flags_all_literal_false') === true
-    && ownData(b, 'flags_all_literal_false') === true
-    && ownData(a, 'subscription_id') === AZURE_OWNER.subscriptionId
-    && ownData(b, 'subscription_id') === AZURE_OWNER.subscriptionId
-    && ownData(a, 'resource_group') === EXPECTED_LIVE_TARGET.resourceGroup
-    && ownData(b, 'resource_group') === EXPECTED_LIVE_TARGET.resourceGroup
-    && ownData(a, 'app_name') === EXPECTED_LIVE_TARGET.appName
-    && ownData(b, 'app_name') === EXPECTED_LIVE_TARGET.appName
-    && ownData(a, 'tenant') === SUNSET_TENANT
-    && ownData(b, 'tenant') === SUNSET_TENANT
-    && ownData(a, 'database') === EXPECTED_DATABASE
-    && ownData(b, 'database') === EXPECTED_DATABASE
-    && ownData(a, 'client_id') === ownData(b, 'client_id')
-    && ownData(a, 'location_id') === ownData(b, 'location_id')
-    && ownData(a, 'endpoint_id') === ownData(b, 'endpoint_id')
-    && ownData(a, 'mailbox_id') === ownData(b, 'mailbox_id')
-    && ownData(a, 'producer_login_fingerprint') === ownData(b, 'producer_login_fingerprint')
-    && ownData(a, 'worker_login_fingerprint') === ownData(b, 'worker_login_fingerprint')
-    && typeof ownData(a, 'producer_login_fingerprint') === 'string'
-    && typeof ownData(b, 'worker_login_fingerprint') === 'string'
-    && isCanonUuid(ownData(a, 'client_id'))
-    && isCanonUuid(ownData(b, 'mailbox_id'));
+  for (let i = 0; i < IDENTITY_FIELDS.length; i += 1) {
+    const key = IDENTITY_FIELDS[i];
+    if (ownData(a, key) !== ownData(b, key)) return false;
+  }
+  if (ownData(a, 'ops_097') !== 0 || ownData(b, 'ops_097') !== 0) return false;
+  if (ownData(a, 'transitions_097') !== 0 || ownData(b, 'transitions_097') !== 0) return false;
+  if (ownData(a, 'authorizations_098') !== 0 || ownData(b, 'authorizations_098') !== 0) return false;
+  if (ownData(a, 'grant_status') !== 'active' || ownData(b, 'grant_status') !== 'active') return false;
+  if (ownData(a, 'reconcile_state') !== 'clean' || ownData(b, 'reconcile_state') !== 'clean') return false;
+  if (ownData(a, 'has_active_lease') !== false || ownData(b, 'has_active_lease') !== false) return false;
+  if (ownData(a, 'flags_all_literal_false') !== true || ownData(b, 'flags_all_literal_false') !== true) {
+    return false;
+  }
+  if (ownData(a, 'subscription_id') !== AZURE_OWNER.subscriptionId) return false;
+  if (ownData(b, 'subscription_id') !== AZURE_OWNER.subscriptionId) return false;
+  if (ownData(a, 'resource_group') !== EXPECTED_LIVE_TARGET.resourceGroup) return false;
+  if (ownData(b, 'resource_group') !== EXPECTED_LIVE_TARGET.resourceGroup) return false;
+  if (ownData(a, 'app_name') !== EXPECTED_LIVE_TARGET.appName) return false;
+  if (ownData(b, 'app_name') !== EXPECTED_LIVE_TARGET.appName) return false;
+  if (ownData(a, 'tenant') !== SUNSET_TENANT || ownData(b, 'tenant') !== SUNSET_TENANT) return false;
+  if (ownData(a, 'database') !== EXPECTED_DATABASE || ownData(b, 'database') !== EXPECTED_DATABASE) {
+    return false;
+  }
+  if (!isCanonUuid(ownData(a, 'client_id')) || !isCanonUuid(ownData(b, 'mailbox_id'))) return false;
+  if (typeof ownData(a, 'producer_login_fingerprint') !== 'string') return false;
+  if (typeof ownData(b, 'worker_login_fingerprint') !== 'string') return false;
+  if (typeof ownData(a, 'traffic_weight') !== 'number') return false;
+  if (typeof ownData(a, 'image_login_server') !== 'string') return false;
+  if (typeof ownData(a, 'image_repository') !== 'string') return false;
+  if (typeof ownData(a, 'image_tag') !== 'string') return false;
+  return true;
+}
+
+function sameProofTarget(a, b, expectedGenerationA, expectedGenerationB) {
+  if (!a || !b) return false;
+  if (!sameGeneration(ownData(a, 'grant_generation'), expectedGenerationA)) return false;
+  if (!sameGeneration(ownData(b, 'grant_generation'), expectedGenerationB)) return false;
+  return sameIdentityFields(a, b);
 }
 
 function recheckBrandedEligibility(independent) {
@@ -756,6 +789,18 @@ function recheckBrandedEligibility(independent) {
   if (ownData(independent, 'revision') !== EXPECTED_LIVE_TARGET.revision) throw failure('revision_mismatch');
   if (ownData(independent, 'digest') !== EXPECTED_LIVE_TARGET.digest) throw failure('digest_mismatch');
   if (ownData(independent, 'replica') !== 1) throw failure('replica_not_one');
+  if (ownData(independent, 'traffic_weight') !== 100) throw failure('revision_drift');
+  if (typeof ownData(independent, 'image_login_server') !== 'string'
+      || ownData(independent, 'image_login_server').length < 1) {
+    throw failure('image_unproven');
+  }
+  if (typeof ownData(independent, 'image_repository') !== 'string'
+      || ownData(independent, 'image_repository').length < 1) {
+    throw failure('image_unproven');
+  }
+  if (ownData(independent, 'image_tag') !== EXPECTED_LIVE_TARGET.deployedSha) {
+    throw failure('deploy_sha_mismatch');
+  }
   if (ownData(independent, 'subscription_id') !== AZURE_OWNER.subscriptionId) throw failure('azure_owner_mismatch');
   if (ownData(independent, 'resource_group') !== EXPECTED_LIVE_TARGET.resourceGroup) {
     throw failure('azure_owner_mismatch');
@@ -938,6 +983,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
       app_name: EXPECTED_LIVE_TARGET.appName,
       source_sha: extra && extra.source_sha ? extra.source_sha : null,
+      source_tree: extra && extra.source_tree ? extra.source_tree : null,
       deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
       revision: EXPECTED_LIVE_TARGET.revision,
       digest: EXPECTED_LIVE_TARGET.digest,
@@ -966,9 +1012,9 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
     used = true;
     const gate = validateExactInvocation(parsed, ownData(clock, 'nowMs')());
     if (gate) throw failure(gate);
-    assertExecutingSource(parsed.sourceSha, commandRunner);
-    const alreadyClaimed = PENDING_CLAIMED_STORES.has(receiptStore) === true;
-    if (alreadyClaimed === true) PENDING_CLAIMED_STORES.delete(receiptStore);
+    assertExecutingSource(parsed.sourceSha, parsed.sourceTree, commandRunner);
+    const alreadyClaimed = typeof receiptStore.claimedInThisHandle === 'function'
+      && receiptStore.claimedInThisHandle() === true;
     if (alreadyClaimed !== true) {
       const existingReceipt = receiptStore.read();
       if (existingReceipt) throw failure('operator_receipt_replay');
@@ -976,6 +1022,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       receiptStore.claim(objectFreeze({
         chapter_id: chapter4IReceipt.CHAPTER_ID,
         source_sha: parsed.sourceSha,
+        source_tree: parsed.sourceTree,
         deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
         revision: EXPECTED_LIVE_TARGET.revision,
         digest: EXPECTED_LIVE_TARGET.digest,
@@ -1035,12 +1082,11 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
 
     function installCleanup() {
       cleanupInstalled = true;
-      return function runCleanup() {
+      return async function runCleanup() {
         dropTokens();
         for (let i = 0; i < acquiredHandles.length; i += 1) {
           try {
-            const result = closeHandle(acquiredHandles[i]);
-            void result;
+            await closeHandle(acquiredHandles[i]);
           } catch (_) {
             cleanupFailed = true;
           }
@@ -1066,7 +1112,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
 
       const toctouBeforeDownscope = await readBranded();
       recheckBrandedEligibility(toctouBeforeDownscope);
-      if (!sameProofTarget(independent, toctouBeforeDownscope, initialGeneration)) {
+      if (!sameProofTarget(independent, toctouBeforeDownscope, initialGeneration, initialGeneration)) {
         throw failure('revision_drift');
       }
 
@@ -1137,11 +1183,8 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
         }
         const toctouBeforeContinuity = await readBranded();
         recheckBrandedEligibility(toctouBeforeContinuity);
-        if (!sameProofTarget(independent, toctouBeforeContinuity, expectedContinuityGeneration)
-            && !sameProofTarget(toctouBeforeDownscope, toctouBeforeContinuity, expectedContinuityGeneration)) {
-          throw failure('revision_drift');
-        }
-        if (!sameGeneration(ownData(toctouBeforeContinuity, 'grant_generation'), expectedContinuityGeneration)) {
+        if (!sameProofTarget(independent, toctouBeforeContinuity, initialGeneration, expectedContinuityGeneration)
+            || !sameProofTarget(toctouBeforeDownscope, toctouBeforeContinuity, initialGeneration, expectedContinuityGeneration)) {
           throw failure('revision_drift');
         }
 
@@ -1173,7 +1216,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
 
       dropTokens();
       try {
-        runCleanup();
+        await runCleanup();
       } catch (_) {
         cleanupFailed = true;
       }
@@ -1185,6 +1228,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
         }
         return terminalRecord('outcome_unknown', false, {
           source_sha: parsed.sourceSha,
+          source_tree: parsed.sourceTree,
           preflight_started_at: startedAt,
           fence_generation: initialGeneration,
           downscope_mail_send_absent: downscopeMailSendAbsent,
@@ -1194,6 +1238,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       advanceReceipt(RECEIPT_STATES.terminal_success);
       return terminalRecord('offline_fake_pass', true, {
         source_sha: parsed.sourceSha,
+        source_tree: parsed.sourceTree,
         preflight_started_at: startedAt,
         preflight_finished_at: result.finishedAt,
         fence_generation: initialGeneration,
@@ -1202,7 +1247,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       });
     } catch (err) {
       try {
-        runCleanup();
+        await runCleanup();
       } catch (_) {
         cleanupFailed = true;
       }
@@ -1220,6 +1265,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       if (postToken || (err && err.code === ERROR_CODE && err.detail === 'outcome_unknown') || cleanupFailed === true) {
         return terminalRecord('outcome_unknown', false, {
           source_sha: parsed.sourceSha,
+          source_tree: parsed.sourceTree,
           preflight_started_at: startedAt,
           fence_generation: initialGeneration,
           downscope_mail_send_absent: downscopeMailSendAbsent,
@@ -1230,7 +1276,7 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
       throw failure('reader_invalid');
     } finally {
       try {
-        runCleanup();
+        await runCleanup();
       } catch (_) {
         cleanupFailed = true;
       }
@@ -1603,117 +1649,62 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
   });
 }
 
-function createProductionReceiptStore() {
-  const createStore = chapter4IReceipt.createChapter4IReceiptStore;
-  if (typeof createStore !== 'function') throw failure('operator_receipt_unproven');
-  return createStore();
-}
-
-async function executeOnceSunsetStagingLiveProof(input) {
-  if (invokedFromSourceTestHarness()) throw failure('source_test_cannot_consume_live_attempt');
-  const parsed = input && input.parsed ? input.parsed : parseArgs(input && input.argv);
-  const env = (input && input.env) || {};
-  if (parsed.invalid === true) throw failure(parsed.invalidReason || 'unknown_or_hostile_arg');
-  if (refusedProduction(env)) throw failure('production_or_wolfhouse_refused');
-  if (proxyPresent(env)) throw failure('proxy_refused');
-  if (envAliasPresent(env)) throw failure('env_alias_refused');
-  const gate = validateExactInvocation(parsed);
-  if (gate) throw failure(gate);
-  const commandRunner = createProductionCommandRunner();
-  assertExecutingSource(parsed.sourceSha, commandRunner);
-  const receiptStore = createProductionReceiptStore();
-  if (receiptStore.read()) throw failure('operator_receipt_replay');
-  const claimedAt = new Date().toISOString();
-  receiptStore.claim(objectFreeze({
-    chapter_id: chapter4IReceipt.CHAPTER_ID,
-    source_sha: parsed.sourceSha,
-    deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
-    revision: EXPECTED_LIVE_TARGET.revision,
-    digest: EXPECTED_LIVE_TARGET.digest,
+function runLocalPreflight(parsed, env, runner) {
+  if (refusedProduction(env || {})) return refusedRecord('production_or_wolfhouse_refused');
+  if (proxyPresent(env || {})) return refusedRecord('proxy_refused');
+  if (envAliasPresent(env || {})) return refusedRecord('env_alias_refused');
+  const gate = validatePreflightInvocation(parsed);
+  if (gate) {
+    return refusedRecord(gate, { source_sha: parsed.sourceSha, source_tree: parsed.sourceTree });
+  }
+  try {
+    assertExecutingSource(parsed.sourceSha, parsed.sourceTree, runner, env);
+  } catch (err) {
+    const detail = err && err.detail ? err.detail : 'source_sha_mismatch';
+    return refusedRecord(detail, {
+      source_sha: parsed.sourceSha,
+      source_tree: parsed.sourceTree,
+    });
+  }
+  try {
+    chapter4IReceipt.inspectReceiptPath(chapter4IReceipt.OPERATOR_RECEIPT_PATH);
+  } catch (err) {
+    const detail = err && err.detail ? err.detail : 'operator_receipt_unproven';
+    return refusedRecord(detail, {
+      source_sha: parsed.sourceSha,
+      source_tree: parsed.sourceTree,
+    });
+  }
+  return machineRecord({
+    proof_version: PROOF_VERSION,
+    ok: true,
+    status: 'preflight_ok',
     deployment: SUNSET_DEPLOYMENT,
     tenant: SUNSET_TENANT,
     database: EXPECTED_DATABASE,
     resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
     app_name: EXPECTED_LIVE_TARGET.appName,
-    operator_nonce: parsed.operatorNonce,
-    confirm_issued_at: parsed.confirmIssuedAt,
-    status: RECEIPT_STATES.claimed,
+    source_sha: parsed.sourceSha,
+    source_tree: parsed.sourceTree,
+    deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
+    revision: EXPECTED_LIVE_TARGET.revision,
+    digest: EXPECTED_LIVE_TARGET.digest,
+    preflight_started_at: null,
+    preflight_finished_at: null,
+    fence_generation: null,
+    downscope_mail_send_absent: null,
+    continuity_expected_scope_present: null,
     refresh_call_count: 0,
-    local_receipt_write_count: 1,
+    graph_call_count: 0,
+    send_call_count: 0,
+    local_receipt_write_count: 0,
     custody_write_count: 0,
     operational_write_count: 0,
-    claimed_at: claimedAt,
-    updated_at: claimedAt,
-  }));
-  PENDING_CLAIMED_STORES.add(receiptStore);
-
-  const mintRead = chapter4IAuthority.mintExactlyOneProductionReadCapability;
-  const mintCompose = chapter4IAuthority.mintExactlyOneComposeCapability;
-  if (typeof mintRead !== 'function' || typeof mintCompose !== 'function') {
-    throw failure('capability_refused');
-  }
-  const readCap = mintRead();
-  const takeReader = readerOwnedModule.takeProductionReaderWithChapter4ICapability;
-  if (typeof takeReader !== 'function') throw failure('live_execute_not_authorized_in_this_chapter');
-  const productionReader = takeReader(readCap);
-  if (!productionReader || typeof ownData(productionReader, 'read') !== 'function') {
-    throw failure('independent_reader_absent');
-  }
-
-  const liveOwner = requirePinnedLiveOwner();
-  const wrapperHandles = [];
-  let independent;
-  let deps;
-  try {
-    try {
-      independent = await ownData(productionReader, 'read').call(productionReader);
-    } catch (err) {
-      refuseDetail(err, 'live_preflight_unproven');
-    }
-    const branded = inspectIndependentLivePreflight(liveOwner, independent);
-    if (!branded || branded.ok !== true) {
-      throw failure((branded && branded.reason) || 'live_preflight_unproven');
-    }
-    recheckBrandedEligibility(independent);
-
-    const composeCap = mintCompose(independent);
-    const composeOnce = liveTargetOwner.composeSunsetStagingLiveDownscopeProverDependenciesOnceWithChapter4ICapability;
-    if (typeof composeOnce !== 'function') throw failure('live_execute_not_authorized_in_this_chapter');
-    try {
-      deps = composeOnce(composeCap, objectFreeze({ env }));
-    } catch (err) {
-      refuseDetail(err, 'compose');
-    }
-    wrapperHandles.push(ownData(deps, 'transport'));
-    wrapperHandles.push(ownData(deps, 'envelopeProvider'));
-  } catch (err) {
-    for (let i = 0; i < wrapperHandles.length; i += 1) {
-      try { closeHandle(wrapperHandles[i]); } catch (_) { /* sanitized */ }
-    }
-    throw err;
-  }
-
-  const owner = createOwnedSunsetStagingLiveExecutionOwner(objectFreeze({
-    readIndependentLivePreflight: () => ownData(productionReader, 'read').call(productionReader),
-    envelopeProvider: ownData(deps, 'envelopeProvider'),
-    createSecretProvider: ownData(deps, 'createSecretProvider'),
-    transport: ownData(deps, 'transport'),
-    createSignatureVerifier: ownData(deps, 'createSignatureVerifier'),
-    withPgClient: ownData(deps, 'withPgClient'),
-    binding: ownData(deps, 'binding'),
-    applicationClientId: ownData(deps, 'applicationClientId'),
-    clock: objectFreeze({ nowMs() { return Date.now(); } }),
-    receiptStore,
-    commandRunner,
-  }));
-  const record = await owner.executeOnce(invocationFromParsed(parsed));
-  if (record && record.ok === true) {
-    return machineRecord(Object.assign({}, record, { status: 'pass' }));
-  }
-  return record;
+    compatibility_rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
+  });
 }
 
-async function runCli(argv, env) {
+function refuseLocalCli(argv, env) {
   const parsed = parseArgs(argv);
   if (parsed.invalid === true) {
     return refusedRecord(parsed.invalidReason || 'unknown_or_hostile_arg');
@@ -1721,74 +1712,82 @@ async function runCli(argv, env) {
   if (refusedProduction(env || {})) return refusedRecord('production_or_wolfhouse_refused');
   if (proxyPresent(env || {})) return refusedRecord('proxy_refused');
   if (envAliasPresent(env || {})) return refusedRecord('env_alias_refused');
+  if (parsed.command === PREFLIGHT_COMMAND) {
+    const gate = validatePreflightInvocation(parsed);
+    if (gate) return refusedRecord(gate, { source_sha: parsed.sourceSha, source_tree: parsed.sourceTree });
+    return machineRecord({
+      proof_version: PROOF_VERSION,
+      ok: true,
+      status: 'preflight_ok',
+      deployment: SUNSET_DEPLOYMENT,
+      tenant: SUNSET_TENANT,
+      database: EXPECTED_DATABASE,
+      resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
+      app_name: EXPECTED_LIVE_TARGET.appName,
+      source_sha: parsed.sourceSha,
+      source_tree: parsed.sourceTree,
+      deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
+      revision: EXPECTED_LIVE_TARGET.revision,
+      digest: EXPECTED_LIVE_TARGET.digest,
+      preflight_started_at: null,
+      preflight_finished_at: null,
+      fence_generation: null,
+      downscope_mail_send_absent: null,
+      continuity_expected_scope_present: null,
+      refresh_call_count: 0,
+      graph_call_count: 0,
+      send_call_count: 0,
+      local_receipt_write_count: 0,
+      custody_write_count: 0,
+      operational_write_count: 0,
+      compatibility_rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
+    });
+  }
   const gate = validateExactInvocation(parsed);
-  if (gate) return refusedRecord(gate, { source_sha: parsed.sourceSha });
-  if (invokedFromSourceTestHarness()) {
-    return refusedRecord('source_test_cannot_consume_live_attempt', { source_sha: parsed.sourceSha });
-  }
-  try {
-    return await executeOnceSunsetStagingLiveProof({ parsed, env: env || {} });
-  } catch (err) {
-    if (err && err.code === ERROR_CODE && typeof err.detail === 'string') {
-      return refusedRecord(err.detail, {
-        source_sha: parsed.sourceSha,
-        status: err.detail === 'outcome_unknown' ? 'outcome_unknown' : 'fail_closed',
-        refresh_call_count: 0,
-      });
-    }
-    return refusedRecord('reader_invalid', { source_sha: parsed.sourceSha, status: 'fail_closed' });
-  }
+  if (gate) return refusedRecord(gate, { source_sha: parsed.sourceSha, source_tree: parsed.sourceTree });
+  return refusedRecord('cli_main_required', {
+    source_sha: parsed.sourceSha,
+    source_tree: parsed.sourceTree,
+  });
 }
 
-const publicOwned = objectFreeze({
+async function runCli(argv, env) {
+  return refuseLocalCli(argv, env);
+}
+
+module.exports = objectFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   PROOF_VERSION,
   CONFIRMATION_PHRASE,
   COMMAND,
+  PREFLIGHT_COMMAND,
   INVOCATION_KEYS,
   ADAPTER_KEYS,
   MACHINE_RECORD_KEYS,
   ENV_ALIAS_KEYS,
+  SOURCE_TRACKED_FILES,
+  PRODUCTION_DRIVER_REL,
   AZURE_OWNER,
   EXPECTED_LIVE_TARGET,
   SUNSET_DEPLOYMENT,
   SUNSET_TENANT,
   EXPECTED_DATABASE,
   LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
-  executeOnceSunsetStagingLiveProof,
+  createOwnedSunsetStagingLiveExecutionOwner,
   parseArgs,
   runCli,
+  refuseLocalCli,
+  runLocalPreflight,
   validateExactInvocation,
+  validatePreflightInvocation,
+  validatePinnedTarget,
   refusedRecord,
   machineRecord,
-  invokedFromSourceTestHarness,
-});
-
-module.exports = new Proxy(publicOwned, {
-  get(target, prop) {
-    if (prop === 'createOwnedSunsetStagingLiveExecutionOwner') {
-      if (authenticLibCaller([
-        'email-luna-controlled-drafting-sunset-staging-live-execution-owner.test-support.js',
-      ]) !== true) {
-        return undefined;
-      }
-      return createOwnedSunsetStagingLiveExecutionOwner;
-    }
-    return target[prop];
-  },
-  has(target, prop) {
-    if (prop === 'createOwnedSunsetStagingLiveExecutionOwner') return false;
-    return Object.prototype.hasOwnProperty.call(target, prop);
-  },
-  ownKeys() {
-    return Reflect.ownKeys(publicOwned);
-  },
-  getOwnPropertyDescriptor(target, prop) {
-    if (prop === 'createOwnedSunsetStagingLiveExecutionOwner') return undefined;
-    return Object.getOwnPropertyDescriptor(target, prop);
-  },
-  set() { return false; },
-  defineProperty() { return false; },
-  deleteProperty() { return false; },
+  assertExecutingSource,
+  forbiddenGitEnvPresent,
+  invocationFromParsed,
+  refusedProduction,
+  proxyPresent,
+  envAliasPresent,
 });

@@ -2,9 +2,21 @@
 
 /**
  * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4I — operator-owned
- * durable one-shot receipt/lease. File-backed. Not caller-chosen in
- * production. Not stored in the repo. Survives new Node processes and
- * worker threads. Does not use Postgres, OAuth grants, 097/098, or flags.
+ * durable one-shot receipt/lease. File-backed. Canonical production path
+ * is not caller-chosen and is not stored in the repo. Survives new Node
+ * processes and worker threads. Does not use Postgres, OAuth grants,
+ * 097/098, or flags.
+ *
+ * This is a data-only helper: importing it performs no claim, no mkdir,
+ * and no network. Creating a store at a path is local file I/O only and
+ * cannot initiate live adapters.
+ *
+ * Boundary: O_CREAT|O_EXCL plus fsync is an accidental/concurrent replay
+ * guard. It does not stop a malicious same-UID operator who deletes or
+ * replaces the receipt. Deletion/replacement is a prohibited manual
+ * override and requires fresh explicit user authorization. The actual
+ * no-retry authority is the operator's one-run authorization plus the
+ * terminal uncertainty policy.
  *
  * @module email-luna-controlled-drafting-chapter-4i-durable-receipt
  */
@@ -38,9 +50,16 @@ const RECEIPT_STATES = objectFreeze({
   terminal_refused: 'terminal_refused',
 });
 
+const TERMINAL_STATES = objectFreeze([
+  RECEIPT_STATES.terminal_success,
+  RECEIPT_STATES.terminal_unknown,
+  RECEIPT_STATES.terminal_refused,
+]);
+
 const RECEIPT_KEYS = objectFreeze([
   'chapter_id',
   'source_sha',
+  'source_tree',
   'deploy_sha',
   'revision',
   'digest',
@@ -60,49 +79,12 @@ const RECEIPT_KEYS = objectFreeze([
   'updated_at',
 ]);
 
-const OWNED_4I = 'email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned.js';
-const TEST_SUPPORT = 'email-luna-controlled-drafting-sunset-staging-live-execution-owner.test-support.js';
-
 function failure(code) {
   const error = new Error(ERROR_MESSAGE);
   error.code = ERROR_CODE;
   if (typeof code === 'string' && DETAIL_RE.test(code)) error.detail = code;
   objectFreeze(error);
   return error;
-}
-
-function authenticLibCaller(allowedBasenames) {
-  const libDir = fs.realpathSync(__dirname);
-  const self = fs.realpathSync(__filename);
-  const previous = Error.prepareStackTrace;
-  let stack;
-  try {
-    Error.prepareStackTrace = (_, frames) => frames;
-    const err = new Error();
-    Error.captureStackTrace(err, authenticLibCaller);
-    stack = err.stack;
-  } catch (_) {
-    return false;
-  } finally {
-    Error.prepareStackTrace = previous;
-  }
-  if (!arrayIsArray(stack) || stack.length < 1) return false;
-  for (let i = 0; i < stack.length; i += 1) {
-    const frame = stack[i];
-    if (!frame || typeof frame.getFileName !== 'function') continue;
-    const file = frame.getFileName();
-    if (typeof file !== 'string' || file.length < 1) continue;
-    let real;
-    try {
-      real = fs.realpathSync(file);
-    } catch (_) {
-      continue;
-    }
-    if (real === self) continue;
-    if (path.dirname(real) !== libDir) return false;
-    return allowedBasenames.indexOf(path.basename(real)) !== -1;
-  }
-  return false;
 }
 
 function allowlistedReceipt(fields) {
@@ -145,8 +127,95 @@ function fsyncDirectory(dirPath) {
   }
 }
 
+function lstatNoFollow(absPath) {
+  try {
+    return fs.lstatSync(absPath);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw failure('operator_receipt_unproven');
+  }
+}
+
+function inspectReceiptDirectory(dirPath) {
+  if (typeof dirPath !== 'string' || !path.isAbsolute(dirPath) || dirPath.includes('\0')) {
+    throw failure('operator_receipt_unproven');
+  }
+  const resolved = path.resolve(dirPath);
+  const st = lstatNoFollow(resolved);
+  if (!st) {
+    return objectFreeze({
+      path: resolved,
+      exists: false,
+      ready: false,
+      reason: 'receipt_dir_missing',
+    });
+  }
+  if (st.isSymbolicLink()) throw failure('operator_receipt_symlink');
+  if (!st.isDirectory()) throw failure('operator_receipt_unproven');
+  let real;
+  try {
+    real = fs.realpathSync(resolved);
+  } catch (_) {
+    throw failure('operator_receipt_unproven');
+  }
+  if (real !== resolved) throw failure('operator_receipt_symlink');
+  const mode = st.mode & 0o777;
+  if (mode !== DIR_MODE) throw failure('operator_receipt_dir_mode');
+  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) {
+    throw failure('operator_receipt_dir_owner');
+  }
+  return objectFreeze({
+    path: resolved,
+    exists: true,
+    ready: true,
+    reason: null,
+  });
+}
+
+function inspectReceiptPath(filePath) {
+  if (typeof filePath !== 'string' || !path.isAbsolute(filePath) || filePath.includes('\0')) {
+    throw failure('operator_receipt_unproven');
+  }
+  if (filePath.includes('..')) throw failure('operator_receipt_unproven');
+  const resolved = path.resolve(filePath);
+  const dir = path.dirname(resolved);
+  const dirInfo = inspectReceiptDirectory(dir);
+  const st = lstatNoFollow(resolved);
+  if (!st) {
+    return objectFreeze({
+      path: resolved,
+      dir: dirInfo,
+      exists: false,
+      status: null,
+      reason: dirInfo.ready === true ? 'receipt_absent' : dirInfo.reason,
+    });
+  }
+  if (st.isSymbolicLink()) throw failure('operator_receipt_symlink');
+  if (!st.isFile()) throw failure('operator_receipt_unproven');
+  const mode = st.mode & 0o777;
+  if (mode !== RECEIPT_MODE) throw failure('operator_receipt_mode');
+  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) {
+    throw failure('operator_receipt_owner');
+  }
+  const record = parseReceiptBuffer(fs.readFileSync(resolved));
+  const status = ownData(record, 'status');
+  const blocking = status !== null && status !== undefined;
+  return objectFreeze({
+    path: resolved,
+    dir: dirInfo,
+    exists: true,
+    status,
+    blocking: blocking === true,
+    reason: blocking === true ? 'operator_receipt_replay' : null,
+    record,
+  });
+}
+
 function writeReceiptAtomic(filePath, record) {
   const dir = path.dirname(filePath);
+  inspectReceiptDirectory(dir);
+  const existing = lstatNoFollow(filePath);
+  if (existing && existing.isSymbolicLink()) throw failure('operator_receipt_symlink');
   const tmp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
   const body = `${JSON.stringify(record)}\n`;
   const fd = fs.openSync(tmp, 'w', RECEIPT_MODE);
@@ -159,26 +228,39 @@ function writeReceiptAtomic(filePath, record) {
   try {
     fs.chmodSync(tmp, RECEIPT_MODE);
   } catch (_) { /* sanitized */ }
+  const tmpStat = lstatNoFollow(tmp);
+  if (!tmpStat || tmpStat.isSymbolicLink()) {
+    try { fs.unlinkSync(tmp); } catch (_) { /* sanitized */ }
+    throw failure('operator_receipt_symlink');
+  }
   fs.renameSync(tmp, filePath);
   fsyncDirectory(dir);
 }
 
 function claimReceiptAt(filePath, payload) {
+  inspectReceiptDirectory(path.dirname(filePath));
+  const existing = lstatNoFollow(filePath);
+  if (existing) {
+    if (existing.isSymbolicLink()) throw failure('operator_receipt_symlink');
+    throw failure('operator_receipt_replay');
+  }
   const record = allowlistedReceipt(payload);
   let fd;
   try {
     fd = fs.openSync(
       filePath,
-      fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY,
+      fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW,
       RECEIPT_MODE,
     );
   } catch (err) {
     if (err && err.code === 'EEXIST') throw failure('operator_receipt_replay');
+    if (err && (err.code === 'ELOOP' || err.code === 'EMLINK')) throw failure('operator_receipt_symlink');
     throw failure('operator_receipt_unproven');
   }
   try {
     fs.writeSync(fd, `${JSON.stringify(record)}\n`);
     fs.fsyncSync(fd);
+    try { fs.fchmodSync(fd, RECEIPT_MODE); } catch (_) { /* sanitized */ }
   } catch (err) {
     try { fs.closeSync(fd); } catch (_) { /* sanitized */ }
     throw failure('operator_receipt_unproven');
@@ -187,10 +269,15 @@ function claimReceiptAt(filePath, payload) {
     fs.closeSync(fd);
   } catch (_) { /* sanitized */ }
   fsyncDirectory(path.dirname(filePath));
+  const after = lstatNoFollow(filePath);
+  if (!after || after.isSymbolicLink() || !after.isFile()) throw failure('operator_receipt_symlink');
   return record;
 }
 
 function readReceiptAt(filePath) {
+  const st = lstatNoFollow(filePath);
+  if (!st) return null;
+  if (st.isSymbolicLink()) throw failure('operator_receipt_symlink');
   let buf;
   try {
     buf = fs.readFileSync(filePath);
@@ -216,14 +303,20 @@ function advanceReceiptAt(filePath, status, extra) {
   return next;
 }
 
-function createStoreAt(filePath) {
+function createChapter4IReceiptStoreAt(filePath) {
+  if (typeof filePath !== 'string' || !path.isAbsolute(filePath) || filePath.includes('\0')) {
+    throw failure('operator_receipt_unproven');
+  }
+  if (filePath.includes('..')) throw failure('operator_receipt_unproven');
   const resolved = path.resolve(filePath);
-  if (!path.isAbsolute(resolved)) throw failure('operator_receipt_unproven');
   let claimedInThisHandle = false;
   return objectFreeze({
     path: resolved,
     claimedInThisHandle() {
       return claimedInThisHandle === true;
+    },
+    inspect() {
+      return inspectReceiptPath(resolved);
     },
     claim(payload) {
       const record = claimReceiptAt(resolved, payload);
@@ -239,49 +332,11 @@ function createStoreAt(filePath) {
   });
 }
 
-function createChapter4IReceiptStore(input) {
-  if (input === undefined || input === null) {
-    return createStoreAt(OPERATOR_RECEIPT_PATH);
-  }
-  if (!input || typeof input !== 'object' || isProxySurface(input) || arrayIsArray(input)) {
-    throw failure('caller_input_refused');
-  }
-  const keys = Reflect.ownKeys(input);
-  if (keys.length !== 1 || keys[0] !== 'path') throw failure('caller_input_refused');
-  if (authenticLibCaller([OWNED_4I, TEST_SUPPORT]) !== true) {
-    throw failure('caller_input_refused');
-  }
-  const customPath = ownData(input, 'path');
-  if (typeof customPath !== 'string' || !path.isAbsolute(customPath)) {
-    throw failure('operator_receipt_unproven');
-  }
-  if (customPath.includes('\0') || customPath.includes('..')) {
-    throw failure('operator_receipt_unproven');
-  }
-  return createStoreAt(customPath);
+function createCanonicalOperatorReceiptStore() {
+  return createChapter4IReceiptStoreAt(OPERATOR_RECEIPT_PATH);
 }
 
-function prepareOperatorReceiptDirectory() {
-  try {
-    fs.mkdirSync(OPERATOR_RECEIPT_DIR, { recursive: true, mode: DIR_MODE });
-    fs.chmodSync(OPERATOR_RECEIPT_DIR, DIR_MODE);
-  } catch (_) {
-    throw failure('operator_receipt_unproven');
-  }
-}
-
-const PUBLIC_KEYS = objectFreeze([
-  'ERROR_CODE',
-  'ERROR_MESSAGE',
-  'CHAPTER_ID',
-  'OPERATOR_RECEIPT_DIR',
-  'OPERATOR_RECEIPT_FILENAME',
-  'OPERATOR_RECEIPT_PATH',
-  'RECEIPT_STATES',
-  'RECEIPT_KEYS',
-]);
-
-const publicSurface = objectFreeze({
+module.exports = objectFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   CHAPTER_ID,
@@ -289,37 +344,12 @@ const publicSurface = objectFreeze({
   OPERATOR_RECEIPT_FILENAME,
   OPERATOR_RECEIPT_PATH,
   RECEIPT_STATES,
+  TERMINAL_STATES,
   RECEIPT_KEYS,
-});
-
-module.exports = new Proxy(publicSurface, {
-  get(target, prop) {
-    if (prop === 'createChapter4IReceiptStore') {
-      if (authenticLibCaller([OWNED_4I, TEST_SUPPORT]) !== true) return undefined;
-      return createChapter4IReceiptStore;
-    }
-    if (prop === 'prepareOperatorReceiptDirectory') {
-      if (authenticLibCaller([OWNED_4I, TEST_SUPPORT]) !== true) return undefined;
-      return prepareOperatorReceiptDirectory;
-    }
-    return target[prop];
-  },
-  has(target, prop) {
-    if (prop === 'createChapter4IReceiptStore' || prop === 'prepareOperatorReceiptDirectory') {
-      return false;
-    }
-    return Object.prototype.hasOwnProperty.call(target, prop);
-  },
-  ownKeys() {
-    return PUBLIC_KEYS.slice();
-  },
-  getOwnPropertyDescriptor(target, prop) {
-    if (prop === 'createChapter4IReceiptStore' || prop === 'prepareOperatorReceiptDirectory') {
-      return undefined;
-    }
-    return Object.getOwnPropertyDescriptor(target, prop);
-  },
-  set() { return false; },
-  defineProperty() { return false; },
-  deleteProperty() { return false; },
+  RECEIPT_MODE,
+  DIR_MODE,
+  inspectReceiptDirectory,
+  inspectReceiptPath,
+  createChapter4IReceiptStoreAt,
+  createCanonicalOperatorReceiptStore,
 });

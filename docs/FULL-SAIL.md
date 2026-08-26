@@ -33,12 +33,13 @@ Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (
 
 ## Disabled / live-proof state
 
-- Frozen `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false` with load-time throws on the Chapter 4E/4G/4H owners. Do not flip that broadly imported constant. Chapter 4I does not OR an ambient mint into 4H adapters or 4G compose.
+- Frozen `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false` with load-time throws on the Chapter 4E/4G/4H owners. Do not flip that broadly imported constant. Chapter 4I does not OR an ambient mint into 4H adapters or 4G compose and does not open those gated constructors.
 - Public compose, live `runProof`, and CLI `--execute-once` refuse before KV / token / JWKS / live PG / this reader execute.
-- Chapter 4I adds a dedicated closed one-shot Sunset-only execution owner (durable receipt + git-bound `--source-sha` + unexported capabilities). Staff API startup and ordinary imports remain inert. Direct 4H production reads still fail before IMDS after any 4I import.
+- Chapter 4I is a pure offline proof-core plus an import-inert, export-empty CLI-only production driver. The driver is guarded only by `require.main === module`, exact local arguments, reviewed candidate SHA **and** tree, canonical receipt, and complete pre/post refresh fencing. Staff API startup and ordinary imports remain inert. Direct 4H production reads still fail before IMDS after any 4I import.
 - Eight controlled-drafting / send flags must stay literal `false` on the live app.
 - Caller snapshots cannot mint an independent live-proof brand.
-- Chapter 4H brands evidence only from the owned reader after measured Azure/PG facts. Chapter 4I must consume that unexported brand through `inspectIndependentLivePreflight` before Key Vault / token / JWKS / custody PG.
+- Chapter 4H brands evidence only from the owned reader after measured Azure/PG facts. Chapter 4I consumes that unexported brand through `inspectIndependentLivePreflight` on the proof-core path before Key Vault / token / JWKS / custody PG.
+- Eventual accepted merge of Chapter 4I **must** use a true merge commit preserving the reviewed candidate as a parent. Never squash/rebase merge.
 
 ## Threat boundaries
 
@@ -75,4 +76,4 @@ Do not run live Chapter 4I `execute-once` against Sunset from this builder.
 
 ## Next gate
 
-Independent exact-head security / OAuth / live-operations review of the Chapter 4I PR, then merge, then a **separately gated** bounded deployment/execution chapter. That later operation may run the reviewed Chapter 4I script **once** from an authenticated operator runner against the existing disabled Sunset artifact (operator CLI SHA may differ from deploy SHA; see `chapter_4g_operator_cli_may_differ_from_deployed_app_sha`). It must still fail closed on reader absence, brand forgery, flag/replica/count/grant/lease drift, and must not send, flip flags, broaden OAuth consent, or retry an `outcome_unknown` result. Post-proof audit is read-only.
+Independent exact-head security / OAuth / live-operations review of the Chapter 4I PR, then a **true merge commit** preserving the reviewed candidate SHA as a parent (never squash/rebase), then a **separately gated** bounded deployment/execution chapter. That later operation may run the reviewed Chapter 4I script **once** from a clean detached checkout at that candidate SHA against the existing disabled Sunset artifact (operator CLI SHA may differ from deploy SHA; see `chapter_4g_operator_cli_may_differ_from_deployed_app_sha`). It must still fail closed on reader absence, brand forgery, flag/replica/traffic/login-server/repository/count/grant/lease drift, and must not send, flip flags, broaden OAuth consent, or retry an `outcome_unknown` result. Post-proof audit is read-only.

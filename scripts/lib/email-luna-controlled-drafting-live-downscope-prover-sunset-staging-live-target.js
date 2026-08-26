@@ -68,7 +68,6 @@ const {
   readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg,
   isIndependentLivePreflight,
 } = require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader');
-const chapter4IAuthority = require('./email-luna-controlled-drafting-chapter-4i-one-shot-authority');
 
 const uncurryThis = (fn) => Function.prototype.call.bind(fn);
 const objectFreeze = Object.freeze;
@@ -139,11 +138,12 @@ function refuse() {
 }
 
 function refuseLiveExecuteIfDisabled() {
-  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER === true
-      && LIVE_EXECUTE_INTERNAL_AUTHORIZATION.authorized === true) {
-    return;
+  if (LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== true) {
+    throw failure('live_execute_not_authorized_in_this_chapter');
   }
-  throw failure('live_execute_not_authorized_in_this_chapter');
+  if (LIVE_EXECUTE_INTERNAL_AUTHORIZATION.authorized !== true) {
+    throw failure('live_execute_not_authorized_in_this_chapter');
+  }
 }
 
 function exactPlainData(object, keys) {
@@ -338,7 +338,8 @@ async function withSunsetStagingLiveTargetConnectedPgClient(input) {
   }
 }
 
-function composeSunsetStagingLiveDownscopeProverDependenciesBody(input) {
+function composeSunsetStagingLiveDownscopeProverDependencies(input) {
+  refuseLiveExecuteIfDisabled();
   try {
     if (!exactPlainData(input, LIVE_FACTORY_KEYS)) throw failure('factory_keys');
     const env = ownData(input, 'env');
@@ -482,30 +483,6 @@ function composeSunsetStagingLiveDownscopeProverDependenciesBody(input) {
   }
 }
 
-function composeSunsetStagingLiveDownscopeProverDependencies(input) {
-  refuseLiveExecuteIfDisabled();
-  return composeSunsetStagingLiveDownscopeProverDependenciesBody(input);
-}
-
-function composeSunsetStagingLiveDownscopeProverDependenciesOnceWithChapter4ICapability(capability, input) {
-  if (arguments.length !== 2) throw failure('caller_input_refused');
-  const consume = chapter4IAuthority.consumeComposeCapability;
-  if (typeof consume !== 'function') throw failure('live_execute_not_authorized_in_this_chapter');
-  const bound = consume(capability);
-  if (!bound || typeof bound !== 'object') throw failure('live_execute_not_authorized_in_this_chapter');
-  const deps = composeSunsetStagingLiveDownscopeProverDependenciesBody(input);
-  const composedBinding = ownData(deps, 'binding');
-  if (!composedBinding
-      || ownData(composedBinding, 'clientId') !== ownData(bound, 'client_id')
-      || ownData(composedBinding, 'locationId') !== ownData(bound, 'location_id')
-      || ownData(composedBinding, 'endpointId') !== ownData(bound, 'endpoint_id')
-      || ownData(composedBinding, 'mailboxId') !== ownData(bound, 'mailbox_id')) {
-    throw failure('binding');
-  }
-  if (ownData(deps, 'deployment') !== SUNSET_DEPLOYMENT) throw failure('deployment');
-  return deps;
-}
-
 function measureLiveOwners(deps) {
   try {
     if (!deps || typeof deps !== 'object') {
@@ -540,7 +517,7 @@ function measureLiveOwners(deps) {
   }
 }
 
-const publicTarget = {
+module.exports = objectFreeze({
   ERROR_CODE,
   ERROR_MESSAGE,
   SUNSET_DEPLOYMENT,
@@ -564,15 +541,4 @@ const publicTarget = {
   composeSunsetStagingLiveDownscopeProverDependencies,
   withSunsetStagingLiveTargetConnectedPgClient,
   measureLiveOwners,
-};
-Object.defineProperty(
-  publicTarget,
-  'composeSunsetStagingLiveDownscopeProverDependenciesOnceWithChapter4ICapability',
-  {
-    value: composeSunsetStagingLiveDownscopeProverDependenciesOnceWithChapter4ICapability,
-    enumerable: false,
-    writable: false,
-    configurable: false,
-  },
-);
-module.exports = objectFreeze(publicTarget);
+});

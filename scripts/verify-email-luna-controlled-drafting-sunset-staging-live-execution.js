@@ -16,7 +16,6 @@ const os = require('node:os');
 const vm = require('node:vm');
 const { Worker } = require('node:worker_threads');
 const {
-  executeOnceSunsetStagingLiveProof,
   parseArgs,
   runCli,
   validateExactInvocation,
@@ -25,6 +24,7 @@ const {
   PROOF_VERSION,
   CONFIRMATION_PHRASE,
   COMMAND,
+  PREFLIGHT_COMMAND,
   MACHINE_RECORD_KEYS,
   LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER,
   EXPECTED_LIVE_TARGET,
@@ -35,7 +35,7 @@ const publicOwner = require('./lib/email-luna-controlled-drafting-sunset-staging
 const {
   createSunsetStagingLiveExecutionOwnerForTests,
 } = require('./lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner.test-support');
-const ownedCore = require('./lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned');
+const proofCore = require('./lib/email-luna-controlled-drafting-chapter-4i-proof-core');
 const readerOwner = require('./lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader');
 const {
   createSunsetStagingLivePreflightReaderForTests,
@@ -50,7 +50,6 @@ const {
   LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER: TARGET_EXECUTE,
   composeSunsetStagingLiveDownscopeProverDependencies,
 } = require('./lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
-const chapter4IAuthority = require('./lib/email-luna-controlled-drafting-chapter-4i-one-shot-authority');
 const chapter4IReceipt = require('./lib/email-luna-controlled-drafting-chapter-4i-durable-receipt');
 const {
   createTempReceiptStore,
@@ -74,6 +73,7 @@ const DEPLOYED_SHA = EXPECTED_LIVE_TARGET.deployedSha;
 const REVISION = EXPECTED_LIVE_TARGET.revision;
 const DIGEST = EXPECTED_LIVE_TARGET.digest;
 const SOURCE_SHA = 'c'.repeat(40);
+const SOURCE_TREE = 'd'.repeat(40);
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ENDPOINT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -519,6 +519,7 @@ function completeArgs(patch = {}) {
     deploySha: DEPLOYED_SHA,
     digest: DIGEST,
     sourceSha: SOURCE_SHA,
+    sourceTree: SOURCE_TREE,
     confirm: CONFIRMATION_PHRASE,
     operatorNonce: nonce(),
     confirmIssuedAt: ISSUED,
@@ -540,6 +541,7 @@ function exactCliArgs(parsed) {
     '--deploy-sha', parsed.deploySha,
     '--digest', parsed.digest,
     '--source-sha', parsed.sourceSha,
+    '--source-tree', parsed.sourceTree,
     '--confirm', parsed.confirm,
     '--operator-nonce', parsed.operatorNonce,
     '--confirm-issued-at', parsed.confirmIssuedAt,
@@ -578,7 +580,7 @@ async function makeOwner(overrides = {}) {
   ], bodies);
   const readerHits = overrides.readerHits || hits;
   const receiptStore = overrides.receiptStore || createTempReceiptStore();
-  const commandRunner = overrides.commandRunner || createClosedCommandRunner(SOURCE_SHA);
+  const commandRunner = overrides.commandRunner || createClosedCommandRunner(SOURCE_SHA, SOURCE_TREE);
   const readIndependentLivePreflight = overrides.readIndependentLivePreflight
     || (async () => brandedPreflight(readerHits, Object.assign({}, overrides.readerPatch, {
       grant: Object.assign({
@@ -634,8 +636,12 @@ async function main() {
     require.resolve('./lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner'),
     'utf8',
   );
-  const ownedSrc = fs.readFileSync(
-    require.resolve('./lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned'),
+  const proofSrc = fs.readFileSync(
+    require.resolve('./lib/email-luna-controlled-drafting-chapter-4i-proof-core'),
+    'utf8',
+  );
+  const cliSrc = fs.readFileSync(
+    path.join(ROOT, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'),
     'utf8',
   );
   const testSupportSrc = fs.readFileSync(
@@ -652,6 +658,7 @@ async function main() {
     path.join(ROOT, 'docs/EMAIL-LUNA-CONTROLLED-DRAFTING-SUNSET-STAGING-LIVE-EXECUTION.md'),
     'utf8',
   );
+  const cliExports = require(path.join(ROOT, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'));
 
   assert.equal(LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER, false);
   assert.equal(PROVER_EXECUTE, false);
@@ -660,33 +667,46 @@ async function main() {
   assert.equal(publicOwner.LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER, false);
   assert.equal(typeof publicOwner.createOwnedSunsetStagingLiveExecutionOwner, 'undefined');
   assert.equal(typeof publicOwner.createSunsetStagingLiveExecutionOwnerForTests, 'undefined');
-  assert.equal(typeof ownedCore.createOwnedSunsetStagingLiveExecutionOwner, 'undefined');
-  assert.equal(typeof chapter4IAuthority.consumeChapter4ISunsetStagingOneShotAuthority, 'undefined');
-  assert.equal(typeof chapter4IAuthority.markChapter4IBrandedPreflight, 'undefined');
-  assert.equal(typeof chapter4IAuthority.isActiveChapter4ISunsetStagingOneShotAuthority, 'undefined');
-  assert.equal(typeof chapter4IAuthority.mintExactlyOneProductionReadCapability, 'undefined');
-  assert.equal(typeof chapter4IAuthority.createChapter4IReceiptStore, 'undefined');
+  assert.equal(typeof publicOwner.executeOnceSunsetStagingLiveProof, 'undefined');
+  assert.equal(typeof proofCore.createOwnedSunsetStagingLiveExecutionOwner, 'function');
+  assert.deepEqual(Object.keys(cliExports).sort(), []);
   assert.equal(typeof chapter4IReceipt.createChapter4IReceiptStore, 'undefined');
+  assert.equal(typeof chapter4IReceipt.createChapter4IReceiptStoreAt, 'function');
   assert.equal(PROOF_VERSION, 'chapter_4i_v1');
   assert.equal(CONFIRMATION_PHRASE, 'I_UNDERSTAND_SUNSET_STAGING_CHAPTER_4I_ONE_SHOT_LIVE_PROOF');
   assert.notEqual(CONFIRMATION_PHRASE, PROVER_CONFIRM);
   assert.doesNotMatch(staffSrc, /sunset-staging-live-execution/);
   assert.doesNotMatch(staffSrc, /chapter-4i-one-shot-authority/);
-  assert.doesNotMatch(ownerSrc, /createOwnedSunsetStagingLiveExecutionOwner,/);
-  assert.doesNotMatch(ownedSrc, /markDelegatedGrantReauthorizationRequired/);
-  assert.doesNotMatch(ownedSrc, /markDelegatedGrantReconciliation/);
+  assert.doesNotMatch(ownerSrc, /createOwnedSunsetStagingLiveExecutionOwner/);
+  assert.doesNotMatch(proofSrc, /markDelegatedGrantReauthorizationRequired/);
+  assert.doesNotMatch(proofSrc, /markDelegatedGrantReconciliation/);
   assert.match(testSupportSrc, /TEST-ONLY/);
-  assert.doesNotMatch(ownedSrc, /graph\.microsoft\.com/);
-  assert.doesNotMatch(ownedSrc, /function getAccessToken|getAccessToken\s*\(/);
-  assert.doesNotMatch(ownedSrc, /function sendMail|sendMail\s*\(/);
-  assert.match(ownedSrc, /'createReplyDraft'/);
-  assert.match(ownedSrc, /'sendMail'/);
-  assert.doesNotMatch(ownedSrc, /LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = true/);
-  assert.match(ownedSrc, /inspectIndependentLivePreflight\(liveOwner, independent\)/);
-  assert.match(ownedSrc, /readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg/);
+  assert.doesNotMatch(proofSrc, /graph\.microsoft\.com/);
+  assert.doesNotMatch(proofSrc, /function getAccessToken|getAccessToken\s*\(/);
+  assert.doesNotMatch(proofSrc, /function sendMail|sendMail\s*\(/);
+  assert.match(proofSrc, /'createReplyDraft'/);
+  assert.match(proofSrc, /'sendMail'/);
+  assert.doesNotMatch(proofSrc, /LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = true/);
+  assert.match(proofSrc, /inspectIndependentLivePreflight\(liveOwner, independent\)/);
+  assert.match(cliSrc, /require\.main === module/);
+  assert.match(cliSrc, /createLexicalSunsetStagingMeasurementAdapters/);
+  assert.match(cliSrc, /composeLexicalSunsetStagingExecutionDependencies/);
+  assert.doesNotMatch(cliSrc, /module\.exports\s*=/);
+  assert.doesNotMatch(cliSrc, /one-shot-authority/);
+  assert.doesNotMatch(cliSrc, /takeProductionReaderWithChapter4ICapability/);
+  assert.doesNotMatch(cliSrc, /composeSunsetStagingLiveDownscopeProverDependencies\(/);
+  assert.doesNotMatch(cliSrc, /Error\.captureStackTrace/);
+  assert.doesNotMatch(fs.readFileSync(
+    path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader-owned.js'),
+    'utf8',
+  ), /chapter-4i-one-shot-authority/);
+  assert.doesNotMatch(fs.readFileSync(
+    path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target.js'),
+    'utf8',
+  ), /chapter-4i-one-shot-authority/);
   assert.equal(PKG.scripts['verify:email-luna-controlled-drafting-sunset-staging-live-execution'],
     'node scripts/verify-email-luna-controlled-drafting-sunset-staging-live-execution.js');
-  console.log('  PASS  RED/GREEN: production owner exports executeOnce, not closed constructor; Staff API inert');
+  console.log('  PASS  RED/GREEN: CLI exports empty; public owner has no production constructor; Staff API inert');
 
   assert.match(fullSail, /Chapter 4I/);
   assert.match(fullSail, /#735/);
@@ -697,6 +717,12 @@ async function main() {
   assert.match(ch4iDoc, /execute-once/);
   assert.match(ch4iDoc, /I_UNDERSTAND_SUNSET_STAGING_CHAPTER_4I_ONE_SHOT_LIVE_PROOF/);
   assert.match(ch4iDoc, /chapter_4g_operator_cli_may_differ_from_deployed_app_sha/);
+  assert.match(ch4iDoc, /true merge commit/);
+  assert.match(ch4iDoc, /Never squash-merge/);
+  assert.match(ch4iDoc, /--source-tree/);
+  assert.match(ch4iDoc, /malicious same-UID operator/);
+  assert.match(fullSail, /true merge commit/);
+  assert.doesNotMatch(ch4iDoc, /live proof PASS/);
   console.log('  PASS  docs name Chapter 4H PR #735 and Chapter 4I states without live PASS');
 
   const parsed = parseArgs(['execute-once', '--target', 'sunset-staging']);
@@ -743,11 +769,14 @@ async function main() {
   }
   console.log('  PASS  CLI without exact one-shot authorization refuses nonzero before adapters');
 
-  await assert.rejects(
-    () => executeOnceSunsetStagingLiveProof({ parsed: completeArgs(), env: {} }),
-    (err) => assertOwnerFailure(err, 'source_test_cannot_consume_live_attempt'),
-  );
-  console.log('  PASS  production execute from verifier filename refuses before one-shot/adapters');
+  {
+    const imported = require(path.join(ROOT, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'));
+    assert.deepEqual(Object.keys(imported).sort(), []);
+    assert.equal(typeof imported.createOwnedSunsetStagingLiveExecutionOwner, 'undefined');
+    assert.equal(typeof imported.executeOnceSunsetStagingLiveProof, 'undefined');
+    assert.equal(typeof imported.createLexicalSunsetStagingMeasurementAdapters, 'undefined');
+  }
+  console.log('  PASS  requiring the CLI driver exposes no production factory');
 
   assert.throws(
     () => composeSunsetStagingLiveDownscopeProverDependencies({ env: {} }),
@@ -830,6 +859,7 @@ async function main() {
     assert.equal(record.revision, REVISION);
     assert.equal(record.digest, DIGEST);
     assert.equal(record.source_sha, SOURCE_SHA);
+    assert.equal(record.source_tree, SOURCE_TREE);
     assert.equal(record.downscope_mail_send_absent, true);
     assert.equal(record.continuity_expected_scope_present, true);
     assert.equal(record.refresh_call_count, 2);
@@ -984,9 +1014,10 @@ async function main() {
       wrap(https, 'request'); wrap(https, 'get');
       const root = ${JSON.stringify(ROOT)};
       const owner = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner.js'));
-      const authority = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-one-shot-authority.js'));
-      if (typeof authority.consumeChapter4ISunsetStagingOneShotAuthority !== 'undefined') process.exit(2);
-      if (typeof authority.isActiveChapter4ISunsetStagingOneShotAuthority !== 'undefined') process.exit(2);
+      const cli = require(path.join(root, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'));
+      const core = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-proof-core.js'));
+      if (Object.keys(cli).length !== 0) process.exit(2);
+      if (typeof core.createLexicalSunsetStagingMeasurementAdapters !== 'undefined') process.exit(2);
       if (owner.LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER !== false) process.exit(3);
       const parsed = owner.parseArgs([]);
       if (parsed.invalid !== true) process.exit(4);
@@ -1099,6 +1130,7 @@ async function main() {
     crashed.claim({
       chapter_id: chapter4IReceipt.CHAPTER_ID,
       source_sha: SOURCE_SHA,
+      source_tree: SOURCE_TREE,
       deploy_sha: DEPLOYED_SHA,
       revision: REVISION,
       digest: DIGEST,
@@ -1117,7 +1149,8 @@ async function main() {
       claimed_at: ISSUED,
       updated_at: ISSUED,
     });
-    const { owner: owner3 } = await makeOwner({ receiptStore: crashed });
+    const crashedNext = createReceiptStoreAt(crashed.path);
+    const { owner: owner3 } = await makeOwner({ receiptStore: crashedNext });
     await assert.rejects(
       () => owner3.executeOnce(completeArgs()),
       (err) => assertOwnerFailure(err, 'operator_receipt_replay') && owner3.counters.token === 0,
@@ -1154,7 +1187,8 @@ async function main() {
         const testSupport = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner.test-support.js'));
         const store = testSupport.createReceiptStoreAt(receiptPath);
         const SOURCE_SHA = 'c'.repeat(40);
-        const runner = testSupport.createClosedCommandRunner(SOURCE_SHA);
+        const SOURCE_TREE = 'd'.repeat(40);
+        const runner = testSupport.createClosedCommandRunner(SOURCE_SHA, SOURCE_TREE);
         const parsed = {
           command: ownerMod.COMMAND,
           deployment: 'sunset-staging',
@@ -1166,6 +1200,7 @@ async function main() {
           deploySha: ownerMod.EXPECTED_LIVE_TARGET.deployedSha,
           digest: ownerMod.EXPECTED_LIVE_TARGET.digest,
           sourceSha: SOURCE_SHA,
+          sourceTree: SOURCE_TREE,
           confirm: ownerMod.CONFIRMATION_PHRASE,
           operatorNonce: crypto.randomBytes(32).toString('hex'),
           confirmIssuedAt: '2026-08-26T12:00:00.000Z',
@@ -1251,12 +1286,12 @@ async function main() {
       wrap(https, 'request'); wrap(https, 'get');
       const root = ${JSON.stringify(ROOT)};
       const pub4i = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner.js'));
-      const owned4i = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned.js'));
-      const auth = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-one-shot-authority.js'));
+      const proof = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-proof-core.js'));
       const rec = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-durable-receipt.js'));
+      const cli = require(path.join(root, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'));
       const reader = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader.js'));
       const target = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target.js'));
-      void pub4i; void owned4i; void auth; void rec;
+      void pub4i; void proof; void rec; void cli;
       Promise.all([
         reader.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg().then(() => 'resolved', (e) => e),
         Promise.resolve().then(() => {
@@ -1264,16 +1299,13 @@ async function main() {
           catch (e) { return e; }
         }),
       ]).then(([a, b]) => {
-        const mint = typeof auth.consumeChapter4ISunsetStagingOneShotAuthority;
-        const mark = typeof auth.markChapter4IBrandedPreflight;
-        const ctor = typeof owned4i.createOwnedSunsetStagingLiveExecutionOwner;
         const ok = a && a.detail === 'live_execute_not_authorized_in_this_chapter'
           && b && b.detail === 'live_execute_not_authorized_in_this_chapter'
           && network === 0
-          && mint === 'undefined'
-          && mark === 'undefined'
-          && ctor === 'undefined';
-        process.stdout.write(ok ? '4h-still-disabled\\n' : ('fail net=' + network + ' a=' + (a && a.detail) + ' mint=' + mint + ' ctor=' + ctor + '\\n'));
+          && Object.keys(cli).length === 0
+          && typeof cli.createOwnedSunsetStagingLiveExecutionOwner === 'undefined'
+          && typeof proof.createLexicalSunsetStagingMeasurementAdapters === 'undefined';
+        process.stdout.write(ok ? '4h-still-disabled\\n' : ('fail net=' + network + ' a=' + (a && a.detail) + ' keys=' + Object.keys(cli).join(',') + '\\n'));
         process.exit(ok ? 0 : 2);
       });
     `], { cwd: ROOT, encoding: 'utf8', env: childEnv(), timeout: 10000 });
@@ -1290,44 +1322,56 @@ async function main() {
       const os = require('node:os');
       const path = require('node:path');
       const vm = require('node:vm');
-      const { Worker, isMainThread, workerData, parentPort } = require('node:worker_threads');
+      const { Worker } = require('node:worker_threads');
       const root = ${JSON.stringify(ROOT)};
-      const ownedPath = path.join(root, 'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned.js');
-      const authPath = path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-one-shot-authority.js');
-      const dup = path.join(os.tmpdir(), 'ch4i-dup-' + process.pid + '-authority.js');
-      fs.copyFileSync(authPath, dup);
-      let dupMint;
-      try { dupMint = require(dup).mintExactlyOneProductionReadCapability; } catch (_) { dupMint = undefined; }
+      const cliPath = path.join(root, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js');
+      const proofPath = path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-proof-core.js');
+      const dup = path.join(os.tmpdir(), 'ch4i-dup-' + process.pid + '-cli.js');
+      fs.copyFileSync(cliPath, dup);
+      const dupExports = require(dup);
       const workerSrc = \`
         const { parentPort, workerData } = require('node:worker_threads');
-        const auth = require(workerData.authPath);
+        const cli = require(workerData.cliPath);
         parentPort.postMessage({
-          mint: typeof auth.mintExactlyOneProductionReadCapability,
-          consume: typeof auth.consumeChapter4ISunsetStagingOneShotAuthority,
+          keys: Object.keys(cli),
+          factory: typeof cli.createLexicalSunsetStagingMeasurementAdapters,
         });
       \`;
       const workerFile = path.join(os.tmpdir(), 'ch4i-worker-' + process.pid + '.js');
       fs.writeFileSync(workerFile, workerSrc);
-      const worker = new Worker(workerFile, { workerData: { authPath } });
+      const worker = new Worker(workerFile, { workerData: { cliPath } });
       worker.on('message', (msg) => {
-        const owned = require(ownedPath);
-        const link = path.join(os.tmpdir(), 'ch4i-link-' + process.pid + '-owned.js');
-        try { fs.symlinkSync(ownedPath, link); } catch (_) {}
-        let linkCtor;
-        try { linkCtor = require(link).createOwnedSunsetStagingLiveExecutionOwner; } catch (_) { linkCtor = undefined; }
-        let vmCtor;
+        const cli = require(cliPath);
+        const link = path.join(os.tmpdir(), 'ch4i-link-' + process.pid + '-cli.js');
+        try { fs.symlinkSync(cliPath, link); } catch (_) {}
+        let linkKeys;
+        try { linkKeys = Object.keys(require(link)); } catch (_) { linkKeys = ['fail']; }
+        let vmFactory;
         try {
-          vmCtor = vm.runInNewContext(
-            'this.createOwnedSunsetStagingLiveExecutionOwner',
-            require(ownedPath),
+          vmFactory = vm.runInNewContext(
+            'this.createLexicalSunsetStagingMeasurementAdapters',
+            require(cliPath),
           );
-        } catch (_) { vmCtor = undefined; }
-        const ok = msg.mint === 'undefined'
-          && msg.consume === 'undefined'
-          && typeof owned.createOwnedSunsetStagingLiveExecutionOwner === 'undefined'
-          && typeof dupMint === 'undefined'
-          && typeof linkCtor === 'undefined';
-        process.stdout.write(ok ? 'hostile-closed\\n' : ('open mint=' + msg.mint + ' ctor=' + typeof owned.createOwnedSunsetStagingLiveExecutionOwner + ' dup=' + typeof dupMint + ' link=' + typeof linkCtor + '\\n'));
+        } catch (_) { vmFactory = undefined; }
+        let stackFactory;
+        try {
+          const previous = Error.prepareStackTrace;
+          Error.prepareStackTrace = (_, frames) => frames;
+          const err = new Error();
+          Error.captureStackTrace(err);
+          Error.prepareStackTrace = previous;
+          stackFactory = typeof require(cliPath).createLexicalSunsetStagingMeasurementAdapters;
+        } catch (_) { stackFactory = undefined; }
+        const proof = require(proofPath);
+        const ok = Array.isArray(msg.keys) && msg.keys.length === 0
+          && msg.factory === 'undefined'
+          && Object.keys(cli).length === 0
+          && Object.keys(dupExports).length === 0
+          && linkKeys.length === 0
+          && typeof vmFactory === 'undefined'
+          && stackFactory === 'undefined'
+          && typeof proof.createLexicalSunsetStagingMeasurementAdapters === 'undefined';
+        process.stdout.write(ok ? 'hostile-closed\\n' : ('open keys=' + Object.keys(cli).join(',') + ' vm=' + typeof vmFactory + '\\n'));
         process.exit(ok ? 0 : 2);
       });
       worker.on('error', () => process.exit(3));
@@ -1336,7 +1380,7 @@ async function main() {
     assert.equal(child.status, 0, child.stdout);
     assert.match(child.stdout, /hostile-closed/);
   }
-  console.log('  PASS  worker/duplicate-module/symlink/VM cannot mint or select owned constructor');
+  console.log('  PASS  worker/duplicate-module/symlink/VM/stack spoof cannot expose CLI live factory');
 
   {
     const { owner, receiptStore } = await makeOwner({
@@ -1353,6 +1397,123 @@ async function main() {
     assert.equal(rec.refresh_call_count, 1);
   }
   console.log('  PASS  receipt states around POST #1 remain terminal/non-replayable');
+
+  {
+    const squashRunner = createClosedCommandRunner(SOURCE_SHA, SOURCE_TREE, { ancestor: false });
+    assert.throws(
+      () => proofCore.assertExecutingSource(SOURCE_SHA, SOURCE_TREE, squashRunner, {}),
+      (err) => err && err.detail === 'source_not_merged_ancestor',
+    );
+    const dirtyRunner = createClosedCommandRunner(SOURCE_SHA, SOURCE_TREE, { status: ' M scripts/x.js' });
+    assert.throws(
+      () => proofCore.assertExecutingSource(SOURCE_SHA, SOURCE_TREE, dirtyRunner, {}),
+      (err) => err && err.detail === 'source_tree_dirty',
+    );
+    const treeRunner = createClosedCommandRunner(SOURCE_SHA, 'e'.repeat(40));
+    assert.throws(
+      () => proofCore.assertExecutingSource(SOURCE_SHA, SOURCE_TREE, treeRunner, {}),
+      (err) => err && err.detail === 'source_tree_mismatch',
+    );
+    assert.throws(
+      () => proofCore.assertExecutingSource(SOURCE_SHA, SOURCE_TREE, createClosedCommandRunner(SOURCE_SHA, SOURCE_TREE), {
+        GIT_DIR: '/tmp/hostile.git',
+      }),
+      (err) => err && err.detail === 'git_env_refused',
+    );
+    proofCore.assertExecutingSource(
+      SOURCE_SHA,
+      SOURCE_TREE,
+      createClosedCommandRunner(SOURCE_SHA, SOURCE_TREE),
+      {},
+    );
+  }
+  console.log('  PASS  squash/unpreserved ancestor, dirty tree, tree mismatch, Git env refuse; reviewed SHA+tree pass local validation');
+
+  {
+    const first = await brandedPreflight({
+      app: 0, list: 0, rev: 0, acr: 0, producer: 0, worker: 0, writes: 0, queries: [],
+    });
+    function drifted(patch) {
+      const copy = Object.assign({}, first, patch);
+      return copy;
+    }
+    for (const [label, patch] of [
+      ['traffic', { traffic_weight: 50 }],
+      ['login-server', { image_login_server: 'other.azurecr.io' }],
+      ['repository', { image_repository: 'other.azurecr.io/other' }],
+    ]) {
+      let n = 0;
+      const { owner } = await makeOwner({
+        readIndependentLivePreflight: async () => {
+          n += 1;
+          if (n <= 2) return first;
+          return drifted(patch);
+        },
+      });
+      const record = await owner.executeOnce(completeArgs());
+      assert.equal(record.ok, false, label);
+      assert.ok(owner.counters.token >= 1, label);
+      assert.equal(record.refresh_call_count, owner.counters.token, label);
+    }
+  }
+  console.log('  PASS  traffic_weight / login-server / repository drift blocks before next refresh');
+
+  {
+    let closed = 0;
+    const hanging = {
+      async close() {
+        closed += 1;
+        await new Promise((resolve) => { setTimeout(resolve, 5); });
+      },
+    };
+    const timedOut = {
+      async close() {
+        await new Promise(() => {});
+      },
+    };
+    const { owner: hangOwner, mock } = await makeOwner({
+      withPgClient: async (work) => {
+        mock.client.end = hanging.close.bind(hanging);
+        return work(mock.client);
+      },
+    });
+    const record = await hangOwner.executeOnce(completeArgs());
+    assert.equal(record.ok, true);
+    assert.ok(closed >= 1);
+    const { owner: timeoutOwner, mock: timeoutMock } = await makeOwner({
+      transport: sequenceTransport([
+        { throw: `timeout ${PLANTED}` },
+      ]),
+      withPgClient: async (work) => {
+        timeoutMock.client.end = timedOut.close.bind(timedOut);
+        return work(timeoutMock.client);
+      },
+    });
+    const unknown = await timeoutOwner.executeOnce(completeArgs());
+    assert.equal(unknown.status, 'outcome_unknown');
+    assert.equal(unknown.refresh_call_count, 1);
+  }
+  console.log('  PASS  async cleanup is awaited; cleanup timeout becomes terminal_unknown with preserved counts');
+
+  assert.match(
+    fs.readFileSync(path.join(ROOT, 'docs/EMAIL-LUNA-CONTROLLED-DRAFTING-SUNSET-STAGING-LIVE-EXECUTION.md'), 'utf8'),
+    /does \*\*not\*\* stop a malicious same-UID operator who deletes or replaces the receipt/,
+  );
+  console.log('  PASS  receipt deletion boundary is documented honestly, not claimed impossible');
+
+  {
+    const child = spawnSync(process.execPath, [
+      path.join(ROOT, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'),
+      PREFLIGHT_COMMAND,
+      '--deployment', 'sunset-staging',
+    ], { cwd: ROOT, encoding: 'utf8', env: childEnv(), timeout: 10000 });
+    assert.equal(child.status, 1);
+    const record = JSON.parse(child.stdout);
+    assert.equal(record.ok, false);
+    assert.equal(record.refresh_call_count, 0);
+    assertAllowlisted(record);
+  }
+  console.log('  PASS  preflight without exact pins refuses locally with zero refresh');
 
   console.log('Chapter 4I live execution verifier passed.');
 }

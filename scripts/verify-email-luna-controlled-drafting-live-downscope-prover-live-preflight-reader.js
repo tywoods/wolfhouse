@@ -474,9 +474,10 @@ async function main() {
       wrap(https, 'request'); wrap(https, 'get');
       const root = ${JSON.stringify(ROOT)};
       require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner.js'));
-      require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner-owned.js'));
-      require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-one-shot-authority.js'));
+      require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-proof-core.js'));
       require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-durable-receipt.js'));
+      const cliExports = require(path.join(root, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'));
+      if (Object.keys(cliExports).length !== 0) process.exit(3);
       const owned = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader-owned.js'));
       const pub = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader.js'));
       Promise.all([
