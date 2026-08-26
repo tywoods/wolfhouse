@@ -23,11 +23,16 @@ const ENV_AUTHOR_ENABLED = 'EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED';
 const ENV_BASE_URL = 'EMAIL_LUNA_HERMES_SOL_BASE_URL';
 const ENV_TOKEN = 'EMAIL_LUNA_HERMES_SOL_TOKEN';
 const ENV_TIMEOUT_MS = 'EMAIL_LUNA_HERMES_SOL_TIMEOUT_MS';
+const ENV_TLS_PIN = 'EMAIL_LUNA_HERMES_SOL_TLS_PIN';
+const ENV_TLS_SERVER_NAME = 'EMAIL_LUNA_HERMES_SOL_TLS_SERVER_NAME';
 const DEFAULT_TIMEOUT_MS = 15000;
 const MAX_URL_CHARS = 256;
 const MAX_TOKEN_CHARS = 256;
-const LOCAL_HTTP = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
+const MAX_PIN_CHARS = 64;
+const LOCAL_HTTP = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
+const LOCAL_HTTPS = /^https:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
 const HTTPS_HOST = /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i;
+const TLS_PIN = /^[0-9a-f]{64}$/i;
 
 function ownData(value, key) {
   try {
@@ -56,8 +61,30 @@ function normalizeBaseUrl(raw) {
   if (url.username || url.password || url.search || url.hash) return null;
   if (url.pathname && url.pathname !== '/') return null;
   const origin = `${url.protocol}//${url.host}`;
-  if (LOCAL_HTTP.test(origin) || HTTPS_HOST.test(origin)) return origin.replace(/\/+$/, '');
+  if (LOCAL_HTTP.test(origin) || LOCAL_HTTPS.test(origin) || HTTPS_HOST.test(origin)) {
+    return origin.replace(/\/+$/, '');
+  }
   return null;
+}
+
+function isLoopbackOrigin(origin) {
+  return typeof origin === 'string' && (LOCAL_HTTP.test(origin) || LOCAL_HTTPS.test(origin));
+}
+
+function normalizeTlsPin(raw) {
+  if (typeof raw !== 'string' || isProxy(raw)) return null;
+  const text = raw.trim().toLowerCase();
+  if (!TLS_PIN.test(text) || text.length > MAX_PIN_CHARS) return null;
+  return text;
+}
+
+function normalizeServerName(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  if (typeof raw !== 'string' || isProxy(raw)) return null;
+  const text = raw.trim().toLowerCase();
+  if (!text || text.length > 253) return null;
+  if (!/^[a-z0-9.-]+$/.test(text)) return null;
+  return text;
 }
 
 function snapshotSunsetEmailHermesSolEnv(env) {
@@ -67,12 +94,16 @@ function snapshotSunsetEmailHermesSolEnv(env) {
   const baseUrl = readString(src, ENV_BASE_URL);
   const token = readString(src, ENV_TOKEN);
   const timeoutRaw = readString(src, ENV_TIMEOUT_MS);
+  const tlsPin = readString(src, ENV_TLS_PIN);
+  const serverName = readString(src, ENV_TLS_SERVER_NAME);
   const deployment = readString(src, 'LUNA_DEPLOYMENT');
   if (deployment) out.LUNA_DEPLOYMENT = deployment;
   if (enabled) out[ENV_AUTHOR_ENABLED] = enabled;
   if (baseUrl) out[ENV_BASE_URL] = baseUrl;
   if (token) out[ENV_TOKEN] = token;
   if (timeoutRaw) out[ENV_TIMEOUT_MS] = timeoutRaw;
+  if (tlsPin) out[ENV_TLS_PIN] = tlsPin;
+  if (serverName) out[ENV_TLS_SERVER_NAME] = serverName;
   return freeze(out);
 }
 
@@ -84,6 +115,19 @@ function isSunsetEmailHermesSolAuthorEnabled(input) {
   if (ownData(env, ENV_AUTHOR_ENABLED) !== 'true') return false;
   const url = normalizeBaseUrl(ownData(env, ENV_BASE_URL));
   if (!url) return false;
+  const loopback = isLoopbackOrigin(url);
+  if (!loopback && !url.startsWith('https://')) return false;
+  const pinRaw = ownData(env, ENV_TLS_PIN);
+  const pin = normalizeTlsPin(pinRaw);
+  if (!loopback) {
+    if (!pin) return false;
+  } else if (pinRaw !== undefined && pinRaw !== null && pinRaw !== '' && !pin) {
+    return false;
+  }
+  const serverNameRaw = ownData(env, ENV_TLS_SERVER_NAME);
+  if (serverNameRaw !== undefined && serverNameRaw !== null && serverNameRaw !== '') {
+    if (!normalizeServerName(serverNameRaw)) return false;
+  }
   const token = ownData(env, ENV_TOKEN);
   if (typeof token !== 'string' || !token || token.length > MAX_TOKEN_CHARS) return false;
   if (token.trim() !== token || /\s/.test(token)) return false;
@@ -110,6 +154,9 @@ function resolveSunsetEmailHermesSolClientConfig(env) {
   out.baseUrl = normalizeBaseUrl(ownData(snap, ENV_BASE_URL));
   out.token = ownData(snap, ENV_TOKEN);
   out.timeoutMs = timeoutMs;
+  out.tlsPin = normalizeTlsPin(ownData(snap, ENV_TLS_PIN));
+  out.tlsServerName = normalizeServerName(ownData(snap, ENV_TLS_SERVER_NAME));
+  out.loopback = isLoopbackOrigin(out.baseUrl);
   out.provider = HERMES_SOL_PROVIDER;
   out.model = HERMES_SOL_MODEL;
   out.runtime = HERMES_SOL_RUNTIME;
@@ -133,9 +180,13 @@ module.exports = freeze({
   ENV_BASE_URL,
   ENV_TOKEN,
   ENV_TIMEOUT_MS,
+  ENV_TLS_PIN,
+  ENV_TLS_SERVER_NAME,
   DEFAULT_TIMEOUT_MS,
   snapshotSunsetEmailHermesSolEnv,
   isSunsetEmailHermesSolAuthorEnabled,
   resolveSunsetEmailHermesSolClientConfig,
   secretFreeHermesSolDiagnostics,
+  normalizeTlsPin,
+  isLoopbackOrigin,
 });

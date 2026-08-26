@@ -1,21 +1,48 @@
-"""Invoke openai-codex / gpt-5.6-sol through the local Hermes runtime.
+"""Invoke openai-codex / gpt-5.6-sol through the installed Hermes composition.
 
-Fails closed when Hermes internals or isolated auth.json are missing.
-Never uses api.openai.com Chat Completions (cannot host gpt-5.6-sol).
+Config.yaml is a gate (must already be Sol) — never provenance. The live
+terminal Responses model plus resolve_runtime_provider() for this attempt
+are the only accepted provider/model source.
 """
 
 from __future__ import annotations
 
-import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 from typing import Callable
 
-from wolfhouse.email_draft_contract import BAKED_SYSTEM, MODEL, PROVIDER, parse_acts_payload
+from wolfhouse.email_draft_contract import MODEL, PROVIDER, AttemptResult
+from wolfhouse.email_draft_hermes import ProvenanceError, invoke_installed_hermes
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+
+SOL_CONFIG = "\n".join(
+    [
+        "model:",
+        "  default: gpt-5.6-sol",
+        "  provider: openai-codex",
+        "agent:",
+        "  reasoning_effort: none",
+        "memory:",
+        "  memory_enabled: false",
+        "  user_profile_enabled: false",
+        "curator:",
+        "  enabled: false",
+        "",
+    ]
+)
+
+
+def ensure_isolated_sol_home(home: Path | None = None) -> None:
+    """Pin Sol config for ACA (no s6) and Lunabox. Never a provenance source."""
+    root = home or HERMES_HOME
+    auth = root / "auth.json"
+    if auth.is_symlink() or (root / ".auth-shared" / "auth.json").exists():
+        raise RuntimeError("isolated_auth_missing")
+    if not auth.is_file():
+        raise RuntimeError("isolated_auth_missing")
+    (root / "config.yaml").write_text(SOL_CONFIG, encoding="utf-8")
+    assert_sol_config(root)
 
 
 def read_config_model_provider(home: Path | None = None) -> tuple[str, str]:
@@ -44,59 +71,15 @@ def assert_sol_config(home: Path | None = None) -> None:
         raise RuntimeError("hermes_sol_config_mismatch")
 
 
-def _cli_invoke(system: str, user: str) -> str:
-    """Best-effort Hermes CLI JSON completion. Fail closed on any miss."""
-    prompt = f"{system}\n\n{user}\n"
-    candidates = (
-        ["hermes", "chat", "--no-stream", "--json"],
-        [sys.executable, "-m", "hermes", "chat", "--no-stream", "--json"],
-    )
-    last_error = "hermes_invoke_unavailable"
-    for cmd in candidates:
-        try:
-            completed = subprocess.run(
-                cmd,
-                input=prompt,
-                text=True,
-                capture_output=True,
-                timeout=20,
-                check=False,
-                env={**os.environ, "HERMES_HOME": str(HERMES_HOME)},
-            )
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
-            last_error = type(exc).__name__
-            continue
-        if completed.returncode != 0:
-            last_error = f"exit_{completed.returncode}"
-            continue
-        text = (completed.stdout or "").strip()
-        if not text:
-            last_error = "empty_stdout"
-            continue
-        if parse_acts_payload(text):
-            return text
-        try:
-            parsed = json.loads(text)
-        except json.JSONDecodeError:
-            last_error = "non_json"
-            continue
-        if isinstance(parsed, dict) and "acts" in parsed:
-            dumped = json.dumps({"acts": parsed["acts"]}, separators=(",", ":"))
-            if parse_acts_payload(dumped):
-                return dumped
-        content = parsed.get("content") if isinstance(parsed, dict) else None
-        if isinstance(content, str) and parse_acts_payload(content):
-            return content
-        last_error = "unparsed_cli"
-    raise RuntimeError(last_error)
-
-
-def default_invoke(system: str, user: str) -> str:
+def default_invoke(system: str, user: str) -> AttemptResult:
     assert_sol_config()
     auth = HERMES_HOME / "auth.json"
     if not auth.is_file() or auth.is_symlink():
         raise RuntimeError("isolated_auth_missing")
-    return _cli_invoke(system, user)
+    try:
+        return invoke_installed_hermes(system, user)
+    except ProvenanceError as exc:
+        raise RuntimeError(str(exc) or "provenance_unavailable") from exc
 
 
-InvokeFn = Callable[[str, str], str]
+InvokeFn = Callable[[str, str], AttemptResult | str]

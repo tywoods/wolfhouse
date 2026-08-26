@@ -9,6 +9,7 @@
 
 const http = require('node:http');
 const https = require('node:https');
+const tls = require('node:tls');
 const crypto = require('node:crypto');
 const util = require('node:util');
 const {
@@ -49,6 +50,30 @@ function fail(reason) {
   return freeze({ status: 'error', reason: reason || 'model_provider_error', planJson: null, marker: null });
 }
 
+function spkiSha256Hex(cert) {
+  try {
+    const x509 = new crypto.X509Certificate(cert);
+    const der = x509.publicKey.export({ type: 'spki', format: 'der' });
+    return crypto.createHash('sha256').update(der).digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+function pinnedIdentityCheck(expectedPin, loopback, serverName) {
+  return function checkServerIdentity(host, cert) {
+    const pin = spkiSha256Hex(cert);
+    if (expectedPin && pin !== expectedPin) {
+      const error = new Error('tls_pin_mismatch');
+      error.code = 'HERMES_SOL_TLS_PIN';
+      return error;
+    }
+    if (loopback) return undefined;
+    const identityHost = serverName || host;
+    return tls.checkServerIdentity(identityHost, cert);
+  };
+}
+
 function unavailable() {
   return freeze({ status: 'unavailable', reason: 'hermes_unavailable', planJson: null, marker: null });
 }
@@ -78,7 +103,18 @@ function defaultHttpRequest(input) {
       const auth = ownData(headersIn, 'authorization') || ownData(headersIn, 'Authorization');
       if (typeof auth === 'string') headers.authorization = auth;
     }
-    const req = lib.request({
+    const tlsPin = ownData(input, 'tlsPin') || ownData(input, 'tls_pin');
+    const tlsServerName = ownData(input, 'tlsServerName') || ownData(input, 'servername');
+    const loopback = url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '::1';
+    if (url.protocol === 'http:' && !loopback) {
+      reject(Object.assign(new Error('plaintext_http_forbidden'), { code: 'HERMES_SOL_PLAINTEXT' }));
+      return;
+    }
+    if (url.protocol === 'https:' && !loopback && (typeof tlsPin !== 'string' || !tlsPin)) {
+      reject(Object.assign(new Error('tls_pin_required'), { code: 'HERMES_SOL_TLS_PIN' }));
+      return;
+    }
+    const requestOptions = {
       protocol: url.protocol,
       hostname: url.hostname,
       port: url.port || (url.protocol === 'https:' ? 443 : 80),
@@ -86,7 +122,21 @@ function defaultHttpRequest(input) {
       method: 'POST',
       headers,
       timeout: Number.isSafeInteger(timeoutMs) ? timeoutMs : 15000,
-    }, (res) => {
+    };
+    if (url.protocol === 'https:') {
+      requestOptions.rejectUnauthorized = true;
+      requestOptions.servername = typeof tlsServerName === 'string' && tlsServerName
+        ? tlsServerName
+        : url.hostname;
+      requestOptions.checkServerIdentity = pinnedIdentityCheck(
+        typeof tlsPin === 'string' ? tlsPin.toLowerCase() : '',
+        loopback,
+        requestOptions.servername,
+      );
+      const ca = ownData(input, 'ca');
+      if (typeof ca === 'string' && ca) requestOptions.ca = ca;
+    }
+    const req = lib.request(requestOptions, (res) => {
       const chunks = [];
       let bytes = 0;
       res.on('data', (chunk) => {
@@ -113,6 +163,10 @@ function defaultHttpRequest(input) {
     });
     req.on('error', (error) => {
       if (error && error.code === 'EMAIL_LUNA_AUTHOR_TIMEOUT') {
+        reject(error);
+        return;
+      }
+      if (error && (error.code === 'HERMES_SOL_TLS_PIN' || error.code === 'HERMES_SOL_PLAINTEXT')) {
         reject(error);
         return;
       }
@@ -212,6 +266,8 @@ function createEmailLunaSunsetEmailHermesSolClient(configuration) {
         headers: { authorization: `Bearer ${resolved.token}`, 'content-type': 'application/json' },
         body,
         timeout_ms: timeoutMs,
+        tlsPin: resolved.tlsPin || '',
+        tlsServerName: resolved.tlsServerName || '',
       });
       if (!pending || typeof pending.then !== 'function') return unavailable();
       response = await pending;
@@ -220,6 +276,9 @@ function createEmailLunaSunsetEmailHermesSolClient(configuration) {
         const timeout = new Error('timeout');
         timeout.code = 'EMAIL_LUNA_AUTHOR_TIMEOUT';
         throw timeout;
+      }
+      if (error && (error.code === 'HERMES_SOL_TLS_PIN' || error.code === 'HERMES_SOL_PLAINTEXT')) {
+        return fail('provenance_mismatch');
       }
       if (error && error.code === 'HERMES_SOL_OVERSIZED') return fail('malformed');
       return unavailable();
@@ -269,4 +328,5 @@ function createEmailLunaSunsetEmailHermesSolClient(configuration) {
 module.exports = freeze({
   createEmailLunaSunsetEmailHermesSolClient,
   defaultHttpRequest,
+  spkiSha256Hex,
 });

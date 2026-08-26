@@ -16,7 +16,7 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 | **004** | auto proof | No | Later. Proof of automatic create-and-send. Auto-send stays off until an explicit later slice. |
 | **005** | generic IMAP inbound | No | Later. Generic IMAP inbound connector. Not this PR. |
 | **006** | generic SMTP send | No | Later. Generic SMTP send. Every future send remains journaled. Not this PR. |
-| **007** | Email Luna Hermes managed by Skipper | Yes (this PR) | Dedicated Skipper-managed `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`) draft-only runtime. Durable config pins `openai-codex` / `gpt-5.6-sol`. Staff Create Draft and generate-on-open use it on Sunset staging when dedicated gates are set. Not an env flip of `LUNA_AI_MODEL`. Auto remains OFF. |
+| **007** | Email Luna Hermes managed by Skipper | Yes (this PR) | Dedicated Skipper-managed `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`) draft-only runtime. Durable config pins `openai-codex` / `gpt-5.6-sol`. Staff Create Draft on Sunset staging calls a colocated internal TLS ACA; provenance is the live Hermes composition attempt, not config text. Not an env flip of `LUNA_AI_MODEL`. Auto remains OFF. |
 | **008** | booking-from-email | No — **LATER** | Product rule only. Do not implement booking in this document's current slice. |
 
 ## 003 Microsoft auto create-and-send
@@ -31,14 +31,17 @@ WhatsApp add-on: `.hermes/plans/2026-08-26-sunset-whatsapp-autonomy-wiring.md` i
 
 ## 007 Email Luna Hermes Sol (Skipper-managed)
 
-Sunset staging only. Dedicated internal draft service `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`) beside WhatsApp `hermes-sunset-luna`. Durable Hermes config pins `model.provider: openai-codex` and `model.default: gpt-5.6-sol`. Isolated `HERMES_HOME` at `/var/lib/hermes-sunset-email-luna`. No WhatsApp/Discord gateway, no Staff booking plugin, no outbound email authority.
+Sunset staging only. Dedicated internal draft service `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`). Durable Hermes config pins `model.provider: openai-codex` and `model.default: gpt-5.6-sol`. Isolated `HERMES_HOME` (Lunabox volume or Azure Files). No WhatsApp/Discord gateway, no Staff booking plugin, no outbound email authority.
 
-Staff API remains the sole renderer and the sole authority for prices, availability, bookings, holds, confirmations, and payment links. Hermes receives a closed drafting envelope and returns a closed enumerated plan plus server-owned provenance. Staff rejects any provider/model other than `openai-codex` / `gpt-5.6-sol`.
+Staff API remains the sole renderer and the sole authority for prices, availability, bookings, holds, confirmations, and payment links. Hermes is invoked in-process through the installed openai-codex composition. The draft service returns a closed enumerated plan plus exact-attempt provenance taken from `resolve_runtime_provider()` and the live Responses terminal `model`. Config strings, caller labels, and HTTP 200 are not proof. Staff rejects any provider/model other than `openai-codex` / `gpt-5.6-sol`.
+
+The Staff-reachable path is a separately created Container App `luna-sunset-staging-email-luna` in `luna-sunset-staging-env` with **internal TLS ingress** and a pinned SPKI. Lunabox `127.0.0.1:8093` is a local probe only. WhatsApp Caddy is unchanged.
 
 Activation is separate from WhatsApp and from auto-send:
 
 - `EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED=true`
-- `EMAIL_LUNA_HERMES_SOL_BASE_URL` (origin only)
+- `EMAIL_LUNA_HERMES_SOL_BASE_URL` (`https://` origin of the internal ACA, or loopback HTTP for tests)
+- `EMAIL_LUNA_HERMES_SOL_TLS_PIN` (required for non-loopback; SHA-256 of the server SPKI, hex)
 - `EMAIL_LUNA_HERMES_SOL_TOKEN` (matches the draft service `API_SERVER_KEY`)
 - existing Create Draft gates (`LUNA_DEPLOYMENT=sunset-staging`, `EMAIL_STAFF_LUNA_DRAFT_ENABLED=true`, `EMAIL_LUNA_DRAFT_RUNTIME_ENABLED=true`)
 - tenant/location `sunset` / `sunset-somo`

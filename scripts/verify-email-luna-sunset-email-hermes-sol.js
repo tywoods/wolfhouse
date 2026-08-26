@@ -35,6 +35,7 @@ const {
   ENV_AUTHOR_ENABLED,
   ENV_BASE_URL,
   ENV_TOKEN,
+  ENV_TLS_PIN,
   snapshotSunsetEmailHermesSolEnv,
   isSunsetEmailHermesSolAuthorEnabled,
   resolveSunsetEmailHermesSolClientConfig,
@@ -374,7 +375,23 @@ function assertNoSecretsLogged(hits) {
   getterEnv[ENV_AUTHOR_ENABLED] = 'true';
   getterEnv[ENV_BASE_URL] = 'http://127.0.0.1:9';
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({ env: getterEnv }), false);
-  console.log('  PASS  activation is exact, default-off, and getter-safe');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: 'http://lunabox.example.test:8093' }),
+  }), false);
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: 'https://luna-sunset-staging-email-luna.internal.example.azurecontainerapps.io' }),
+  }), false, 'remote HTTPS without TLS pin must be off');
+  const pin = 'a'.repeat(64);
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, {
+      [ENV_BASE_URL]: 'https://luna-sunset-staging-email-luna.internal.example.azurecontainerapps.io',
+      [ENV_TLS_PIN]: pin,
+    }),
+  }), true);
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: 'http://10.1.2.3:8093', [ENV_TLS_PIN]: pin }),
+  }), false, 'bearer over public plaintext HTTP is forbidden');
+  console.log('  PASS  activation is exact, default-off, getter-safe, and TLS-pinned for remote');
 
   const fake = await startFakeHermes();
   const env = hermesEnv(fake.port);
@@ -681,6 +698,11 @@ function assertNoSecretsLogged(hits) {
     encoding: 'utf8',
   });
   assert.equal(pyServer.status, 0, pyServer.stderr || pyServer.stdout);
+  const pyHermes = spawnSync('python3', ['-m', 'wolfhouse.test_email_draft_hermes'], {
+    cwd: path.join(ROOT, 'docker/hermes-staging'),
+    encoding: 'utf8',
+  });
+  assert.equal(pyHermes.status, 0, pyHermes.stderr || pyHermes.stdout);
   const pyInst = spawnSync('python3', ['docker/hermes-staging/verify_sunset_email_luna_instance.py'], {
     cwd: ROOT,
     encoding: 'utf8',
@@ -695,9 +717,25 @@ function assertNoSecretsLogged(hits) {
     'docker/hermes-staging/wolfhouse/email_draft_server.py',
     'docker/hermes-staging/wolfhouse/email_draft_contract.py',
     'docker/hermes-staging/wolfhouse/email_draft_invoke.py',
+    'docker/hermes-staging/wolfhouse/email_draft_hermes.py',
+    'docker/hermes-staging/wolfhouse/email_draft_replay.py',
     'docker/hermes-staging/verify_sunset_email_luna_instance.py',
   ], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(pyCompile.status, 0, pyCompile.stderr);
+
+  const runbook = readFile('docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md');
+  assert.match(runbook, /luna-sunset-staging-email-luna/);
+  assert.match(runbook, /EMAIL_LUNA_HERMES_SOL_TLS_PIN/);
+  assert.match(runbook, /ingress internal|external: false/);
+  assert.match(runbook, /HERMES_SKIP_ROLE_BOOTSTRAP=1/);
+  assert.doesNotMatch(runbook, /lunabox-reachability-as-operator-directs/);
+  assert.doesNotMatch(runbook, /hermes chat --no-stream --json/);
+  const aca = readFile('docker/hermes-staging/sunset-email-luna.aca.yaml.example');
+  assert.match(aca, /external: false/);
+  assert.match(aca, /allowInsecure: false/);
+  assert.doesNotMatch(aca, /command: gateway run/);
+  assert.doesNotMatch(aca, /WHATSAPP_CLOUD/);
+  console.log('  PASS  Staff path is internal TLS ACA; auth add is bootstrap-safe; no guessed CLI');
 
   console.log('PASS MAIL-MVP-007 Sunset email Hermes Sol author');
 })().catch((error) => {

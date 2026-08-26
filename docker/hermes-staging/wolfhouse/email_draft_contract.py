@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 PROVIDER = "openai-codex"
 MODEL = "gpt-5.6-sol"
 RUNTIME = "sunset-email-luna"
+LIVE_ATTEMPT_SOURCE = "hermes_runtime_terminal_response"
 TENANT = "sunset"
 LOCATION_KEY = "sunset-somo"
 REQUEST_SCHEMA = "sunset_email_luna_draft_plan_v1"
@@ -134,10 +136,60 @@ def parse_request(raw: bytes | str) -> tuple[dict[str, Any] | None, str]:
     return rec, "ok"
 
 
-def server_provenance(req: dict[str, Any]) -> dict[str, str]:
+@dataclass(frozen=True)
+class AttemptResult:
+    """Exact-attempt Hermes composition result.
+
+    ``provider`` / ``model`` / ``source`` must come from the live invocation
+    that produced ``content``. Config strings and caller labels are not a
+    valid source.
+    """
+
+    content: str
+    provider: str
+    model: str
+    source: str
+
+
+def parse_attempt(value: Any) -> AttemptResult | None:
+    if isinstance(value, AttemptResult):
+        attempt = value
+    elif isinstance(value, dict) and set(value.keys()) == {
+        "content",
+        "provider",
+        "model",
+        "source",
+    }:
+        content = value.get("content")
+        provider = value.get("provider")
+        model = value.get("model")
+        source = value.get("source")
+        if not all(isinstance(item, str) for item in (content, provider, model, source)):
+            return None
+        attempt = AttemptResult(
+            content=content,
+            provider=provider,
+            model=model,
+            source=source,
+        )
+    else:
+        return None
+    if attempt.source != LIVE_ATTEMPT_SOURCE:
+        return None
+    if attempt.provider != PROVIDER or attempt.model != MODEL:
+        return None
+    if not attempt.content:
+        return None
+    return attempt
+
+
+def bind_attempt_provenance(req: dict[str, Any], attempt: Any) -> dict[str, str] | None:
+    parsed = parse_attempt(attempt)
+    if parsed is None or not isinstance(req, dict):
+        return None
     return {
-        "provider": PROVIDER,
-        "model": MODEL,
+        "provider": parsed.provider,
+        "model": parsed.model,
         "runtime": RUNTIME,
         "tenant_id": TENANT,
         "location_key": LOCATION_KEY,

@@ -1,0 +1,86 @@
+# MAIL-MVP-007 — separately deployable Sunset email Sol runtime.
+# Colocated with Staff API in luna-sunset-staging-env. Internal TLS ingress.
+# Do not apply infra/azure Bicep. Fill placeholders; never commit secrets.
+# Keep image ENTRYPOINT (/init). Args replace CMD only so bootstrap still runs;
+# the Python server also pins Sol config if ACA skips s6.
+#
+#   az containerapp create -g luna-sunset-staging-rg -n luna-sunset-staging-email-luna --yaml sunset-email-luna.aca.yaml
+#
+# Then pin SPKI and set Staff EMAIL_LUNA_HERMES_SOL_BASE_URL / _TLS_PIN / _TOKEN.
+apiVersion: '2024-03-01'
+location: northeurope
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity: {}
+properties:
+  managedEnvironmentId: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/managedEnvironments/luna-sunset-staging-env
+  configuration:
+    secrets:
+      - name: api-server-key
+        value: <opaque-token-same-as-staff-EMAIL_LUNA_HERMES_SOL_TOKEN>
+    registries:
+      - server: whstagingacr.azurecr.io
+        identity: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity
+    ingress:
+      external: false
+      allowInsecure: false
+      targetPort: 8093
+      transport: http
+      traffic:
+        - latestRevision: true
+          weight: 100
+  template:
+    containers:
+      - name: hermes-sunset-email-luna
+        image: whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>
+        args:
+          - python
+          - /etc/hermes-staging/wolfhouse/email_draft_server.py
+        env:
+          - name: HERMES_HOME
+            value: /opt/data
+          - name: HERMES_ROLE
+            value: sunset-email-luna
+          - name: LUNA_TENANT_ID
+            value: sunset
+          - name: LUNA_CLIENT_SLUG
+            value: sunset
+          - name: LUNA_ALLOWED_LOCATION_IDS
+            value: sunset-somo
+          - name: EMAIL_LUNA_DRAFT_LISTEN_HOST
+            value: 0.0.0.0
+          - name: EMAIL_LUNA_DRAFT_LISTEN_PORT
+            value: '8093'
+          - name: PYTHONPATH
+            value: /etc/hermes-staging
+          - name: GENERIC_TIMEZONE
+            value: Europe/Madrid
+          - name: API_SERVER_KEY
+            secretRef: api-server-key
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /healthz
+              port: 8093
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          - type: Readiness
+            httpGet:
+              path: /healthz
+              port: 8093
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        volumeMounts:
+          - volumeName: hermes-home
+            mountPath: /opt/data
+    scale:
+      minReplicas: 1
+      maxReplicas: 1
+    volumes:
+      - name: hermes-home
+        storageType: AzureFile
+        storageName: hermes-sunset-email-luna

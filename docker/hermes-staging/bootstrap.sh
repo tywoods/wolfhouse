@@ -22,6 +22,15 @@ fi
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 mkdir -p "$HERMES_HOME/sessions" "$HERMES_HOME/plugins"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
+
+# One-shot credential provision (`hermes auth add`) must use the image
+# entrypoint (/init → this script → CMD) without inheriting a guest/email
+# role bootstrap that requires WhatsApp/Staff env. Isolated auth.json is
+# still operator-provisioned; this skip only avoids role writes/linking.
+if [ "${HERMES_SKIP_ROLE_BOOTSTRAP:-}" = "1" ]; then
+  echo "HERMES_SKIP_ROLE_BOOTSTRAP=1 — skipping role config/auth linking; CMD runs next"
+  exit 0
+fi
 STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
 SUNSET_LUNA_SOUL="/etc/hermes-sunset/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"

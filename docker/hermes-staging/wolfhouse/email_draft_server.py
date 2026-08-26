@@ -2,8 +2,9 @@
 """Internal draft-only HTTP service for sunset-email-luna (MAIL-MVP-007).
 
 Authenticated closed-plan endpoint. No WhatsApp/Discord gateway, no outbound
-email, no booking tools. Provenance is stamped from local config.yaml, never
-from caller text.
+email, no booking tools. Provenance is bound to the live Hermes composition
+attempt that produced the plan. Config strings and caller labels are not
+accepted as provider/model proof.
 """
 
 from __future__ import annotations
@@ -21,11 +22,14 @@ from wolfhouse.email_draft_contract import (
     RESULT_SCHEMA,
     TEMPLATE_REQUEST_SCHEMA,
     TEMPLATE_RESULT_SCHEMA,
+    AttemptResult,
+    bind_attempt_provenance,
     parse_acts_payload,
+    parse_attempt,
     parse_request,
-    server_provenance,
 )
-from wolfhouse.email_draft_invoke import default_invoke
+from wolfhouse.email_draft_invoke import default_invoke, ensure_isolated_sol_home
+from wolfhouse.email_draft_replay import ReplayCache
 
 MAX_SEEN = 2048
 
@@ -46,8 +50,8 @@ def handle_draft_request(
     raw_body: bytes,
     authorization: str,
     expected_token: str,
-    invoke: Callable[[str, str], str],
-    seen_ids: set[str],
+    invoke: Callable[[str, str], AttemptResult | str],
+    replay: ReplayCache,
 ) -> tuple[int, dict]:
     if not expected_token or not _constant_time_eq(
         authorization, f"Bearer {expected_token}"
@@ -60,13 +64,8 @@ def handle_draft_request(
             status = 403
         return status, {"error": reason}
     request_id = req["request_id"]
-    if request_id in seen_ids:
+    if not replay.claim(request_id):
         return 409, {"error": "replay"}
-    seen_ids.add(request_id)
-    if len(seen_ids) > MAX_SEEN:
-        seen_ids.clear()
-        seen_ids.add(request_id)
-
     user = "BEGIN CANONICAL JSON DATA\n" + json.dumps(
         {
             "language": req["language"],
@@ -76,13 +75,21 @@ def handle_draft_request(
         separators=(",", ":"),
     ) + "\nEND CANONICAL JSON DATA"
     try:
-        raw_plan = invoke(BAKED_SYSTEM, user)
+        replay.mark_invoke_started(request_id)
+        raw_attempt = invoke(BAKED_SYSTEM, user)
     except Exception:
+        replay.finish(request_id)
         return 502, {"error": "hermes_unavailable"}
-    provenance = server_provenance(req)
+    replay.finish(request_id)
+    attempt = parse_attempt(raw_attempt)
+    if attempt is None:
+        return 502, {"error": "provenance_unavailable"}
+    provenance = bind_attempt_provenance(req, attempt)
+    if provenance is None:
+        return 502, {"error": "provenance_unavailable"}
     if req["schema"] == TEMPLATE_REQUEST_SCHEMA:
         try:
-            plan = json.loads(raw_plan)
+            plan = json.loads(attempt.content)
         except json.JSONDecodeError:
             return 502, {"error": "model_malformed"}
         if not isinstance(plan, dict) or set(plan.keys()) != {
@@ -97,7 +104,7 @@ def handle_draft_request(
             "plan": plan,
             "provenance": provenance,
         }
-    acts = parse_acts_payload(raw_plan)
+    acts = parse_acts_payload(attempt.content)
     if not acts:
         return 502, {"error": "model_malformed"}
     return 200, {
@@ -109,8 +116,8 @@ def handle_draft_request(
 
 def make_handler(
     expected_token: str,
-    invoke: Callable[[str, str], str],
-    seen_ids: set[str],
+    invoke: Callable[[str, str], AttemptResult | str],
+    replay: ReplayCache,
 ):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -153,7 +160,7 @@ def make_handler(
                 authorization=auth,
                 expected_token=expected_token,
                 invoke=invoke,
-                seen_ids=seen_ids,
+                replay=replay,
             )
             self._send(status, payload)
 
@@ -165,9 +172,17 @@ def main() -> int:
     if not token:
         print("sunset-email-luna requires API_SERVER_KEY", file=sys.stderr)
         return 1
+    if os.environ.get("HERMES_ROLE", "sunset-email-luna") != "sunset-email-luna":
+        print("sunset-email-luna requires HERMES_ROLE=sunset-email-luna", file=sys.stderr)
+        return 1
+    try:
+        ensure_isolated_sol_home()
+    except Exception as exc:
+        print(f"sunset-email-luna runtime home refused: {exc}", file=sys.stderr)
+        return 1
     host = os.environ.get("EMAIL_LUNA_DRAFT_LISTEN_HOST", "127.0.0.1")
     port = int(os.environ.get("EMAIL_LUNA_DRAFT_LISTEN_PORT", "8093"))
-    handler = make_handler(token, default_invoke, set())
+    handler = make_handler(token, default_invoke, ReplayCache(MAX_SEEN))
     httpd = ThreadingHTTPServer((host, port), handler)
     print(f"sunset-email-luna draft server listening on {host}:{port}", flush=True)
     httpd.serve_forever()
