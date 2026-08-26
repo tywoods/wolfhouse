@@ -1676,7 +1676,9 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     var df = schedulePortalCanonicalDateIso(p.date_from);
     var dt = schedulePortalCanonicalDateIso(p.date_to != null ? p.date_to : p.date_from);
     var today = schedulePortalMadridTodayIso();
-    if (!df || !dt || df < today || dt < today || df > dt) return fail('calendar.state.invalidDateRange');
+    if (!df || !dt) return fail('calendar.state.invalidDateRange');
+    if (df < today || dt < today) return fail('schedule.create.dateRange.pastDate');
+    if (df > dt) return fail('calendar.state.invalidDateRange');
   }
 
   if (rentals.length) {
@@ -1753,6 +1755,7 @@ function schedulePortalIsCreateSoftBlockKey(errorKey) {
   return key === 'schedule.create.courseOrTurnOff'
     || key === 'schedule.create.courseRequired'
     || key === 'calendar.state.invalidDateRange'
+    || key === 'schedule.create.dateRange.pastDate'
     || key === 'schedule.create.privateLesson.sessionDatePast';
 }
 
@@ -1765,6 +1768,7 @@ function schedulePortalRenderCreateQuotePreview(result) {
     // Course gate + past/invalid service dates: hard Create block with a clear soft message.
     var gateKey = result.errorKey || '';
     var dateGate = gateKey === 'calendar.state.invalidDateRange'
+      || gateKey === 'schedule.create.dateRange.pastDate'
       || gateKey === 'schedule.create.privateLesson.sessionDatePast';
     var courseGate = gateKey === 'schedule.create.courseOrTurnOff'
       || gateKey === 'schedule.create.courseRequired'
