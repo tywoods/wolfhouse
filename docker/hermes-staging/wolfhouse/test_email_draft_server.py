@@ -318,7 +318,8 @@ class DraftServerTests(unittest.TestCase):
 
     def test_ensure_home_refuses_shared_auth_and_missing_file(self):
         with tempfile.TemporaryDirectory() as tmp:
-            home = Path(tmp)
+            home = Path(tmp) / "hermes-home"
+            home.mkdir()
             with self.assertRaises(RuntimeError):
                 ensure_isolated_sol_home(home)
             auth = home / "auth.json"
@@ -329,6 +330,13 @@ class DraftServerTests(unittest.TestCase):
             self.assertIn("provider: openai-codex", text)
             auth.unlink()
             auth.symlink_to("/tmp/not-shared")
+            with self.assertRaises(RuntimeError):
+                ensure_isolated_sol_home(home)
+            auth.unlink()
+            auth.write_text("{}", encoding="utf-8")
+            shared = home.parent / ".auth-shared" / "auth.json"
+            shared.parent.mkdir()
+            shared.write_text("{}", encoding="utf-8")
             with self.assertRaises(RuntimeError):
                 ensure_isolated_sol_home(home)
 

@@ -1473,6 +1473,11 @@ function assertNoSecretsLogged(hits) {
     encoding: 'utf8',
   });
   assert.equal(pyInst.status, 0, pyInst.stderr || pyInst.stdout);
+  const pyAuthPath = spawnSync('python3', ['-m', 'wolfhouse.test_sunset_email_auth_path'], {
+    cwd: path.join(ROOT, 'docker/hermes-staging'),
+    encoding: 'utf8',
+  });
+  assert.equal(pyAuthPath.status, 0, pyAuthPath.stderr || pyAuthPath.stdout);
 
   const bash = spawnSync('bash', ['-n', 'docker/hermes-staging/bootstrap.sh'], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(bash.status, 0, bash.stderr);
@@ -1485,6 +1490,7 @@ function assertNoSecretsLogged(hits) {
     'docker/hermes-staging/wolfhouse/email_draft_hermes.py',
     'docker/hermes-staging/wolfhouse/email_draft_replay.py',
     'docker/hermes-staging/verify_sunset_email_luna_instance.py',
+    'docker/hermes-staging/wolfhouse/test_sunset_email_auth_path.py',
     'scripts/fill-sunset-email-luna-aca-yaml.py',
   ], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(pyCompile.status, 0, pyCompile.stderr);
@@ -1629,6 +1635,17 @@ function assertNoSecretsLogged(hits) {
   assert.match(aca, /storageType: AzureFile/);
   assert.match(aca, /storageName: hermes-sunset-email-luna-home/);
   assert.match(aca, /volumeMounts:/);
+  assert.match(aca, /- name: HOME\n\s+value: \/opt\/data/);
+  assert.match(aca, /- name: HERMES_HOME\n\s+value: \/opt\/data\/\.hermes/);
+  assert.match(runbook, /\/var\/lib\/hermes-sunset-email-luna\/\.hermes\/auth\.json/);
+  assert.match(runbook, /--path \.hermes\/auth\.json/);
+  assert.match(runbook, /storage directory create/);
+  assert.match(runbook, /--name \.hermes/);
+  assert.match(runbook, /HERMES_HOME=\/opt\/data\/\.hermes/);
+  assert.doesNotMatch(runbook, /--path auth\.json/);
+  assert.doesNotMatch(runbook, /\/var\/lib\/hermes-sunset-email-luna\/auth\.json\n/);
+  assert.match(extractService(sunsetCompose, 'hermes-sunset-email-luna'), /HERMES_HOME: \/opt\/data\/\.hermes/);
+  assert.match(extractService(sunsetCompose, 'hermes-sunset-email-luna'), /HOME: \/opt\/data/);
   assert.doesNotMatch(aca, /managedEnvironmentId/);
   assert.doesNotMatch(aca, /HERMES_SUNSET_EMAIL_AUTH_JSON_B64/);
   assert.doesNotMatch(aca, /^\s+command:/m);

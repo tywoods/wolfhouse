@@ -34,6 +34,7 @@ services:
   # Internal Staff email draft-only runtime. No WhatsApp/Discord gateway.
   # Lunabox loopback is for Skipper-local probe only. Staff API in Azure reaches
   # the colocated ACA `luna-sunset-staging-email-luna` (internal TLS ingress).
+  # Mount stays /opt/data; canonical credential is /opt/data/.hermes/auth.json.
   # See docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md.
   # Start separately: docker compose --profile sunset-email-luna up -d --no-deps hermes-sunset-email-luna
   hermes-sunset-email-luna:
@@ -51,7 +52,8 @@ services:
       - /var/lib/hermes-sunset-email-luna:/opt/data
       - /opt/wolfhouse/WH/docker/hermes-sunset/SOUL.md:/etc/hermes-sunset/SOUL.md:ro
     environment:
-      HERMES_HOME: /opt/data
+      HOME: /opt/data
+      HERMES_HOME: /opt/data/.hermes
       HERMES_ROLE: sunset-email-luna
       LUNA_TENANT_ID: sunset
       LUNA_CLIENT_SLUG: sunset
