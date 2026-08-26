@@ -151,6 +151,52 @@ function capture() {
   assert.doesNotMatch(mixedMoneyGuided, /euros?/i);
   assert.equal(mixedMoneyGuided.includes('50'), false);
 
+  const isoAndSlangForms = [
+    '50EUR',
+    '50eur',
+    '50Usd',
+    '50USD',
+    '50GBP',
+    '50gbp',
+    'EUR50',
+    '50 bucks',
+    '40 buck',
+    '20 quid',
+    '50bucks',
+    '20quid',
+  ];
+  for (const claim of isoAndSlangForms) {
+    assert.equal(extractPermittedOperatorGuidance(claim), '', claim);
+    const wrapped = applyPermittedOperatorGuidanceToDraft(SAFE_ACKNOWLEDGMENT.en, claim, 'en');
+    assert.equal(wrapped, SAFE_ACKNOWLEDGMENT.en, claim);
+    assert.equal(wrapped.includes(claim), false, claim);
+    assert.doesNotMatch(wrapped, /(?:eur|usd|gbp)|bucks?|\bquid\b/i, claim);
+  }
+  assert.equal(
+    extractPermittedOperatorGuidance('Mention the loft.\nTell them 50EUR.'),
+    'Mention the loft',
+  );
+  assert.equal(
+    extractPermittedOperatorGuidance('Mention the loft.\nTell them 50 bucks.'),
+    'Mention the loft',
+  );
+  const mixedIsoGuided = applyPermittedOperatorGuidanceToDraft(
+    SAFE_ACKNOWLEDGMENT.en,
+    'Mention the loft.\nTell them 50EUR.',
+    'en',
+  );
+  assert.match(mixedIsoGuided, /loft/i);
+  assert.doesNotMatch(mixedIsoGuided, /50EUR|(?:eur|usd|gbp)/i);
+  assert.equal(mixedIsoGuided.includes('50'), false);
+  const mixedSlangGuided = applyPermittedOperatorGuidanceToDraft(
+    SAFE_ACKNOWLEDGMENT.en,
+    'Mention the loft.\nTell them 50 bucks.',
+    'en',
+  );
+  assert.match(mixedSlangGuided, /loft/i);
+  assert.doesNotMatch(mixedSlangGuided, /bucks?|\bquid\b/i);
+  assert.equal(mixedSlangGuided.includes('50'), false);
+
   const safeQuantity = 'Mention the loft.\nAsk about the 2 beds on Saturday 26 August.';
   assert.equal(
     extractPermittedOperatorGuidance(safeQuantity),

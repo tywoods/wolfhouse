@@ -331,6 +331,68 @@ function request(body) {
   assert.equal(mixedMoney.journals.length, 0);
   assert.equal(mixedMoney.providers.length, 0);
 
+  const isoAndSlangContexts = [
+    '50EUR',
+    '50eur',
+    '50Usd',
+    '50USD',
+    '50GBP',
+    '50gbp',
+    'EUR50',
+    '50 bucks',
+    '40 buck',
+    '20 quid',
+    '50bucks',
+    '20quid',
+  ];
+  for (const context of isoAndSlangContexts) {
+    const slangOwner = makeOwner();
+    const slangDraft = await slangOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+      actor: actor(),
+      conversation_id: V,
+      operator_context: context,
+    });
+    assert.equal(slangDraft.status, 'draft_ready', context);
+    assert.equal(slangDraft.send_allowed, false, context);
+    assert.equal(slangDraft.auto_send_allowed, false, context);
+    assert.equal(slangDraft.draft_text, SAFE_ACKNOWLEDGMENT.en, context);
+    assert.equal(slangDraft.draft_text.includes(context), false, context);
+    assert.doesNotMatch(slangDraft.draft_text, /(?:eur|usd|gbp)|bucks?|\bquid\b/i);
+    assert.equal(slangOwner.approvals.length, 0, context);
+    assert.equal(slangOwner.journals.length, 0, context);
+    assert.equal(slangOwner.providers.length, 0, context);
+  }
+
+  const mixedIso = makeOwner();
+  const mixedIsoDraft = await mixedIso.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: 'Mention the loft.\nTell them 50EUR.',
+  });
+  assert.equal(mixedIsoDraft.status, 'draft_ready');
+  assert.notEqual(mixedIsoDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.match(mixedIsoDraft.draft_text, /loft/i);
+  assert.doesNotMatch(mixedIsoDraft.draft_text, /50EUR|(?:eur|usd|gbp)/i);
+  assert.equal(mixedIsoDraft.draft_text.includes('50'), false);
+  assert.equal(mixedIso.approvals.length, 0);
+  assert.equal(mixedIso.journals.length, 0);
+  assert.equal(mixedIso.providers.length, 0);
+
+  const mixedSlang = makeOwner();
+  const mixedSlangDraft = await mixedSlang.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: 'Mention the loft.\nTell them 50 bucks.',
+  });
+  assert.equal(mixedSlangDraft.status, 'draft_ready');
+  assert.notEqual(mixedSlangDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.match(mixedSlangDraft.draft_text, /loft/i);
+  assert.doesNotMatch(mixedSlangDraft.draft_text, /bucks?|\bquid\b/i);
+  assert.equal(mixedSlangDraft.draft_text.includes('50'), false);
+  assert.equal(mixedSlang.approvals.length, 0);
+  assert.equal(mixedSlang.journals.length, 0);
+  assert.equal(mixedSlang.providers.length, 0);
+
   const safeQuantity = makeOwner();
   const safeQuantityDraft = await safeQuantity.owner.regenerateEmailLunaDraftOnStaffClick({
     actor: actor(),
