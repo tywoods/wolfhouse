@@ -16,8 +16,11 @@ const {
 } = require('./email-luna-draft-policy');
 const { createEmailLunaGroundedTools } = require('./email-luna-grounded-tools');
 const {
-  applyPermittedOperatorGuidanceToDraft,
+  extractPermittedOperatorGuidance,
 } = require('./email-luna-create-draft-context');
+const {
+  createEmailLunaCreateDraftNaturalAuthor,
+} = require('./email-luna-create-draft-natural-author');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -101,6 +104,21 @@ function authoredDraft(result) {
     language: result.language === 'es' ? 'es' : 'en',
     kind: 'authored',
     reason: null,
+    send_allowed: false,
+    auto_send_allowed: false,
+    draft_only: true,
+    requires_staff_review: true,
+  });
+}
+
+function failClosedDraft(language, reason) {
+  const lang = language === 'es' ? 'es' : 'en';
+  return freeze({
+    status: 'handoff_required',
+    body: '',
+    language: lang,
+    kind: 'handoff',
+    reason: reason || 'model_provider_error',
     send_allowed: false,
     auto_send_allowed: false,
     draft_only: true,
@@ -278,27 +296,7 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
     }
 
     try {
-      const srcEnv = input && input.env && typeof input.env === 'object' ? input.env : {};
-      const runtimeEnv = {
-        LUNA_DEPLOYMENT: ownData(srcEnv, 'LUNA_DEPLOYMENT'),
-        EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: ownData(srcEnv, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED'),
-      };
-      const runtimeConfig = {
-        env: runtimeEnv,
-        authority: {
-          client_id: authority.client_id,
-          location_id: authority.location_id,
-          location_key: authority.location_key,
-        },
-        tenant_location_gate: {
-          client_id: authority.client_id,
-          location_id: authority.location_id,
-          location_key: authority.location_key,
-          draft_enabled: true,
-        },
-      };
-      if (input && typeof input.callModel === 'function') runtimeConfig.callModel = input.callModel;
-      if (input && Number.isSafeInteger(input.timeoutMs)) runtimeConfig.timeoutMs = input.timeoutMs;
+      const runtimeConfig = runtimeConfigFor(input, authority);
       const runtime = createLunaRuntime(runtimeConfig);
       if (!runtime || typeof runtime.authorDraft !== 'function') {
         return safeDraft(classified.language, 'model_provider_error');
@@ -325,27 +323,97 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
     }
   }
 
-  function withOperatorGuidance(result, input) {
-    const guidance = input && typeof input.operator_context === 'string' ? input.operator_context : '';
-    if (!guidance || !result || result.status !== 'draft_ready' || typeof result.body !== 'string') {
-      return result;
+  function runtimeConfigFor(input, authority) {
+    const srcEnv = input && input.env && typeof input.env === 'object' ? input.env : {};
+    const runtimeEnv = {
+      LUNA_DEPLOYMENT: ownData(srcEnv, 'LUNA_DEPLOYMENT'),
+      EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: ownData(srcEnv, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED'),
+    };
+    const runtimeConfig = {
+      env: runtimeEnv,
+      authority: {
+        client_id: authority.client_id,
+        location_id: authority.location_id,
+        location_key: authority.location_key,
+      },
+      tenant_location_gate: {
+        client_id: authority.client_id,
+        location_id: authority.location_id,
+        location_key: authority.location_key,
+        draft_enabled: true,
+      },
+    };
+    if (input && typeof input.callModel === 'function') runtimeConfig.callModel = input.callModel;
+    if (input && Number.isSafeInteger(input.timeoutMs)) runtimeConfig.timeoutMs = input.timeoutMs;
+    return runtimeConfig;
+  }
+
+  async function composeStaffGuided(input, guidance) {
+    const authority = snapshotAuthority(input && input.authority);
+    const content = snapshotContent(input && input.untrusted_content);
+    if (!authority || !content) return failClosedDraft('en', 'authority_mismatch');
+    const language = detectEmailDraftLanguage(content.subject, content.body_text);
+    if (hasInjection(content)) return safeDraft(language, 'prompt_injection_detected');
+
+    let authorFn = null;
+    try {
+      if (createLunaRuntime) {
+        const runtime = createLunaRuntime(runtimeConfigFor(input, authority));
+        if (runtime && typeof runtime.authorNaturalGuestReply === 'function') {
+          authorFn = (request) => runtime.authorNaturalGuestReply(request);
+        }
+      }
+    } catch {
+      authorFn = null;
     }
-    const guided = applyPermittedOperatorGuidanceToDraft(result.body, guidance, result.language);
-    if (guided === result.body) return result;
-    const out = {};
-    for (const key of Object.keys(result)) out[key] = result[key];
-    out.body = guided;
-    if (out.kind === 'safe_acknowledgment') out.kind = 'safe_acknowledgment_with_staff_guidance';
-    out.send_allowed = false;
-    out.auto_send_allowed = false;
-    out.draft_only = true;
-    out.requires_staff_review = true;
-    return freeze(out);
+    if (!authorFn) {
+      const callModel = input && typeof input.callModel === 'function' ? input.callModel : null;
+      if (!callModel) return failClosedDraft(language, 'model_provider_error');
+      try {
+        const natural = createEmailLunaCreateDraftNaturalAuthor({
+          callModel,
+          timeoutMs: input && Number.isSafeInteger(input.timeoutMs) ? input.timeoutMs : undefined,
+        });
+        if (!natural || typeof natural.authorNaturalGuestReply !== 'function') {
+          return failClosedDraft(language, 'model_provider_error');
+        }
+        authorFn = (request) => natural.authorNaturalGuestReply(request);
+      } catch {
+        return failClosedDraft(language, 'model_provider_error');
+      }
+    }
+
+    try {
+      const authored = await authorFn({
+        authority,
+        untrusted_email: content,
+        untrusted_content: content,
+        private_staff_goals: guidance,
+        language,
+      });
+      if (authored && ownData(authored, 'status') === 'draft_ready'
+          && typeof ownData(authored, 'body') === 'string' && ownData(authored, 'body').trim()
+          && ownData(authored, 'draft_only') === true
+          && ownData(authored, 'requires_staff_review') === true
+          && ownData(authored, 'send_allowed') === false
+          && ownData(authored, 'auto_send_allowed') === false
+          && ownData(authored, 'client_id') === authority.client_id
+          && ownData(authored, 'location_id') === authority.location_id
+          && ownData(authored, 'conversation_id') === authority.conversation_id) {
+        return authoredDraft(authored);
+      }
+      return failClosedDraft(language, authored && authored.reason ? authored.reason : 'unsupported_claim');
+    } catch {
+      return failClosedDraft(language, 'model_provider_error');
+    }
   }
 
   async function compose(input) {
-    const result = await composeUnguided(input);
-    return withOperatorGuidance(result, input);
+    const guidance = extractPermittedOperatorGuidance(
+      input && typeof input.operator_context === 'string' ? input.operator_context : '',
+    );
+    if (guidance) return composeStaffGuided(input, guidance);
+    return composeUnguided(input);
   }
 
   return freeze({ compose, detectEmailDraftLanguage });
