@@ -16202,37 +16202,112 @@ function buildUiHtml(port, portalDeployClient) {
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 ${getStaffPortalThemeEarlyScript()}
 <style>
-/* ── Palette (soft boutique-hospitality) ────────────────────────────────── */
+/* ── Palette (soft boutique-hospitality) ──────────────────────────────────
+   UI-SALT-FACELIFT-001 — Salt + Sand only (no Foam/Sol/Kelp/Ember).
+   Salt Light (default :root):
+     --cream:#F4F0E8; --surface:#FFFCF6; --surface-soft:#F0EBE3; --sand:#E8E0D4;
+     --tan:#D2C6B6; --sage:#7F9A82; --olive:#6E8A72; --dusty-blue:#8AA4B0;
+     --ocean:#5E8494; --teal:#D7E8E4; --text:#1F2A26; --text-2:#5A6862;
+     --text-3:#8A9690; --border:#E4DCD0; --border-soft:#EDE6DC; --primary:#1A6A65;
+     --primary-hover:#155751; --focus:#1A6A65; --luna-teal:#1A6A65; --luna-teal-dark:#155751;
+   Salt Dark ([data-theme=dark], hospitality night — not VS Code charcoal):
+     --cream:#161C1A; --surface:#222926; --surface-soft:#2A322E; --sand:#323A36;
+     --tan:#3A4540; --sage:#8AAD90; --olive:#6E8A72; --dusty-blue:#7EA8B4;
+     --ocean:#4A7380; --teal:#243632; --text:#F2EDE6; --text-2:#A3AFA9;
+     --text-3:#7A8680; --border:#2E3632; --border-soft:#2A322E; --primary:#7EB8B2;
+     --primary-hover:#93C7C1; --focus:#7EB8B2; --luna-teal:#7EB8B2; --luna-teal-dark:#93C7C1;
+   Sand Light ([data-color-profile=sand]) = today's oatmeal :root.
+   Sand Dark ([data-color-profile=sand][data-theme=dark]) = today's charcoal tokens.
+   Missing wh_staff_color_profile → salt. Light/Dark pills sync with moon toggle.
+   ─────────────────────────────────────────────────────────────────────── */
 :root{
   --font-sans:'Instrument Sans',system-ui,sans-serif;
   --font-display:'Newsreader',serif;
-  --cream:#EDE8E0;        /* warm oatmeal page — reduced glare */
-  --surface:#F5F1EA;      /* soft card surface */
-  --surface-soft:#EDE8E0; /* inset / muted surface */
-  --sand:#E0D8CC;         /* light sand */
-  --tan:#D4C9BA;          /* soft tan */
-  --sage:#B8CBB0;         /* muted sage green */
-  --olive:#8FA58E;        /* muted olive/sage */
-  --dusty-blue:#B5C4CE;   /* dusty blue */
-  --ocean:#9DB4C4;        /* soft ocean blue */
-  --teal:#D0E0DA;         /* pale teal */
-  --text:#4E5853;         /* main text — softer contrast */
-  --text-2:#727C76;       /* secondary text */
-  --text-3:#959F99;       /* muted/tertiary text */
-  --border:#DDD5C9;       /* soft warm border */
-  --border-soft:#E8E2D8;  /* subtle divider */
+  --cream:#F4F0E8;        /* Salt Light — default hospitality canvas */
+  --surface:#FFFCF6;
+  --surface-soft:#F0EBE3;
+  --sand:#E8E0D4;
+  --tan:#D2C6B6;
+  --sage:#7F9A82;
+  --olive:#6E8A72;
+  --dusty-blue:#8AA4B0;
+  --ocean:#5E8494;
+  --teal:#D7E8E4;
+  --text:#1F2A26;
+  --text-2:#5A6862;
+  --text-3:#8A9690;
+  --border:#E4DCD0;
+  --border-soft:#EDE6DC;
   --radius:14px;
   --radius-sm:10px;
   --radius-pill:999px;
-  --shadow:0 1px 2px rgba(78,88,83,.04),0 4px 14px rgba(78,88,83,.05);
-  --shadow-soft:0 1px 2px rgba(78,88,83,.03),0 2px 8px rgba(78,88,83,.04);
-  --primary:#4E5853;      /* primary action — match sign-out / schedule green */
-  --primary-hover:#3F4843;
-  --focus:#9DB4C4;        /* focus ring (ocean) */
+  --shadow:0 1px 2px rgba(31,42,38,.04),0 4px 14px rgba(31,42,38,.05);
+  --shadow-soft:0 1px 2px rgba(31,42,38,.03),0 2px 8px rgba(31,42,38,.04);
+  --primary:#1A6A65;
+  --primary-hover:#155751;
+  --focus:#1A6A65;
+  --luna-teal:#1A6A65;
+  --luna-teal-dark:#155751;
   /* Uniform gap: bottom of top nav → first content block on every tab (both themes). */
   --tab-top-gap:24px;
 }
 [data-theme="dark"]{
+  --cream:#161C1A;
+  --surface:#222926;
+  --surface-soft:#2A322E;
+  --sand:#323A36;
+  --tan:#3A4540;
+  --sage:#8AAD90;
+  --olive:#6E8A72;
+  --dusty-blue:#7EA8B4;
+  --ocean:#4A7380;
+  --teal:#243632;
+  --luna-blue:#264f78;
+  --luna-blue-border:#3a6a9a;
+  --luna-blue-text:#c8dce8;
+  --staff-green-bg:#1e3a28;
+  --staff-green-border:#3a5a48;
+  --staff-green-text:#c8dcc8;
+  --text:#F2EDE6;
+  --text-1:#F2EDE6;
+  --text-2:#A3AFA9;
+  --text-3:#7A8680;
+  --border:#2E3632;
+  --border-soft:#2A322E;
+  --primary:#7EB8B2;
+  --primary-hover:#93C7C1;
+  --focus:#7EB8B2;
+  --luna-teal:#7EB8B2;
+  --luna-teal-dark:#93C7C1;
+  --shadow:0 1px 2px rgba(0,0,0,.28),0 6px 18px rgba(0,0,0,.36);
+  --shadow-soft:0 1px 2px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.28);
+  color-scheme:dark;
+}
+[data-color-profile="sand"]{
+  --cream:#EDE8E0;        /* Sand Light — today's oatmeal */
+  --surface:#F5F1EA;
+  --surface-soft:#EDE8E0;
+  --sand:#E0D8CC;
+  --tan:#D4C9BA;
+  --sage:#B8CBB0;
+  --olive:#8FA58E;
+  --dusty-blue:#B5C4CE;
+  --ocean:#9DB4C4;
+  --teal:#D0E0DA;
+  --text:#4E5853;
+  --text-2:#727C76;
+  --text-3:#959F99;
+  --border:#DDD5C9;
+  --border-soft:#E8E2D8;
+  --primary:#4E5853;
+  --primary-hover:#3F4843;
+  --focus:#9DB4C4;
+  --luna-teal:#1d8681;
+  --luna-teal-dark:#2c5f56;
+  --shadow:0 1px 2px rgba(78,88,83,.04),0 4px 14px rgba(78,88,83,.05);
+  --shadow-soft:0 1px 2px rgba(78,88,83,.03),0 2px 8px rgba(78,88,83,.04);
+}
+[data-color-profile="sand"][data-theme="dark"]{
   --cream:#181818;
   --surface:#252526;
   --surface-soft:#2d2d2d;
@@ -16258,10 +16333,19 @@ ${getStaffPortalThemeEarlyScript()}
   --primary:#4a7c59;
   --primary-hover:#5a9468;
   --focus:#6a9a72;
+  --luna-teal:#6a9a72;
+  --luna-teal-dark:#86b38c;
   --shadow:0 1px 2px rgba(0,0,0,.28),0 6px 18px rgba(0,0,0,.36);
   --shadow-soft:0 1px 2px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.28);
   color-scheme:dark;
 }
+[data-color-profile="sand"][data-theme="dark"] #banner{background:linear-gradient(120deg,#252526 0%,#1e1e1e 55%,#2a2a2a 100%);box-shadow:0 2px 16px rgba(0,0,0,.4)}
+html[data-color-profile="salt"][data-theme="dark"] #banner,
+html:not([data-color-profile="sand"])[data-theme="dark"] #banner{background:linear-gradient(120deg,var(--surface) 0%,var(--cream) 55%,var(--surface-soft) 100%);box-shadow:var(--shadow)}
+html[data-color-profile="salt"][data-theme="dark"] #tabs,
+html:not([data-color-profile="sand"])[data-theme="dark"] #tabs{background:var(--surface);border-bottom-color:var(--border)}
+html[data-color-profile="salt"][data-theme="dark"] #tabs .tabs-global-pause,
+html:not([data-color-profile="sand"])[data-theme="dark"] #tabs .tabs-global-pause{background:var(--surface);box-shadow:-16px 0 12px -8px var(--surface)}
 [data-theme="dark"] #banner{background:linear-gradient(120deg,#252526 0%,#1e1e1e 55%,#2a2a2a 100%);box-shadow:0 2px 16px rgba(0,0,0,.4)}
 [data-theme="dark"] ::selection{background:#2a4a38;color:#cccccc}
 [data-theme="dark"] .card{background:var(--surface);border-color:var(--border-soft)}
@@ -20740,6 +20824,23 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
 [data-theme="dark"] .luna-header-mode-btn:hover{background:rgba(255,255,255,.05)}
 [data-theme="dark"] .luna-header-mode-btn.is-active{background:#1e1e1e;color:#56c9c0;border-color:#3c3c3c}
 
+/* ── Style card: Salt/Sand palettes × Light/Dark (UI-SALT-FACELIFT-001) ── */
+.staff-style-row{display:inline-flex;flex-wrap:wrap;gap:6px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:4px;margin:0 0 8px}
+.staff-style-palette-embed{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:10px}
+.staff-style-swatch{
+  appearance:none;-webkit-appearance:none;border:1px solid var(--border);border-radius:10px;
+  padding:20px 8px 8px;font:inherit;font-size:11px;font-weight:600;line-height:1.25;
+  cursor:pointer;text-align:left;min-height:64px;
+}
+.staff-style-swatch[data-style-combo="salt-light"]{background:#FFFCF6;color:#1F2A26;border-color:#E4DCD0}
+.staff-style-swatch[data-style-combo="salt-dark"]{background:#222926;color:#F2EDE6;border-color:#2E3632}
+.staff-style-swatch[data-style-combo="sand-light"]{background:#F5F1EA;color:#4E5853;border-color:#DDD5C9}
+.staff-style-swatch[data-style-combo="sand-dark"]{background:#252526;color:#cccccc;border-color:#3c3c3c}
+.staff-style-swatch.is-active{box-shadow:0 0 0 2px var(--primary)}
+@media (max-width:719px){
+  .staff-style-palette-embed{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+
 @media (max-width:719px){
   .luna-header-ui{--luna-banner-h:74px}
   .luna-header-ui .btn-logout{padding:7px 14px;font-size:11.5px}
@@ -22720,6 +22821,29 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <!-- ── Command Center tab (Stage 8.6.2 / 25i) ─────────────────────────────── -->
 <div id="tab-ask-luna" class="tab-panel">
 <div id="al-wrap">
+
+  <!-- Style card — Salt/Sand palettes × Light/Dark. Light/Dark pills stay in
+       sync with the moon toggle. Sand stays first-class. Default is Salt. -->
+  <section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
+    <div class="luna-header-mode-head">
+      <span class="luna-header-mode-title" data-i18n="lunaStaff.style.title">Style</span>
+      <span class="luna-header-mode-sub" data-i18n="lunaStaff.style.sub">Palette and light or dark. Light and Dark stay in sync with the moon toggle.</span>
+    </div>
+    <div class="staff-style-row" role="group" aria-label="Palette">
+      <button type="button" class="luna-header-mode-btn" data-color-profile="salt" data-i18n="lunaStaff.style.palette.salt" aria-pressed="true">Salt</button>
+      <button type="button" class="luna-header-mode-btn" data-color-profile="sand" data-i18n="lunaStaff.style.palette.sand" aria-pressed="false">Sand</button>
+    </div>
+    <div class="staff-style-row" role="group" aria-label="Theme">
+      <button type="button" class="luna-header-mode-btn" data-style-theme="light" data-i18n="lunaStaff.style.theme.light" aria-pressed="true">Light</button>
+      <button type="button" class="luna-header-mode-btn" data-style-theme="dark" data-i18n="lunaStaff.style.theme.dark" aria-pressed="false">Dark</button>
+    </div>
+    <div class="staff-style-palette-embed" id="staff-style-palette-embed" role="group" aria-label="Palettes">
+      <button type="button" class="staff-style-swatch" data-style-combo="salt-light" data-i18n="lunaStaff.style.combo.saltLight">Salt Light</button>
+      <button type="button" class="staff-style-swatch" data-style-combo="salt-dark" data-i18n="lunaStaff.style.combo.saltDark">Salt Dark</button>
+      <button type="button" class="staff-style-swatch" data-style-combo="sand-light" data-i18n="lunaStaff.style.combo.sandLight">Sand Light</button>
+      <button type="button" class="staff-style-swatch" data-style-combo="sand-dark" data-i18n="lunaStaff.style.combo.sandDark">Sand Dark</button>
+    </div>
+  </section>
 
   <!-- Header style picker — portal-wide header look (saved per browser). Read
        row shows the current style; click Edit to reveal the choices. -->

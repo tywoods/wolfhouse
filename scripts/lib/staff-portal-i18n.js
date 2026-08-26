@@ -516,6 +516,16 @@ const STAFF_PORTAL_STRINGS = {
     'lunaStaff.headerStyle.mode.sunset': 'Sunset',
     'lunaStaff.headerStyle.mode.moonlight': 'Moonlight',
     'lunaStaff.headerStyle.mode.sunsetmoonlight': 'Sunset & Moonlight',
+    'lunaStaff.style.title': 'Style',
+    'lunaStaff.style.sub': 'Palette and light or dark. Light and Dark stay in sync with the moon toggle.',
+    'lunaStaff.style.palette.salt': 'Salt',
+    'lunaStaff.style.palette.sand': 'Sand',
+    'lunaStaff.style.theme.light': 'Light',
+    'lunaStaff.style.theme.dark': 'Dark',
+    'lunaStaff.style.combo.saltLight': 'Salt Light',
+    'lunaStaff.style.combo.saltDark': 'Salt Dark',
+    'lunaStaff.style.combo.sandLight': 'Sand Light',
+    'lunaStaff.style.combo.sandDark': 'Sand Dark',
     'drawer.tab.overview': 'Overview',
     'drawer.tab.services': 'Service',
     'drawer.tab.transfers': 'Transfer',
@@ -2054,6 +2064,16 @@ const STAFF_PORTAL_STRINGS = {
     'lunaStaff.headerStyle.mode.sunset': 'Sunset',
     'lunaStaff.headerStyle.mode.moonlight': 'Moonlight',
     'lunaStaff.headerStyle.mode.sunsetmoonlight': 'Sunset e Moonlight',
+    'lunaStaff.style.title': 'Stile',
+    'lunaStaff.style.sub': 'Tavolozza e chiaro o scuro. Chiaro e Scuro restano allineati al pulsante luna.',
+    'lunaStaff.style.palette.salt': 'Sale',
+    'lunaStaff.style.palette.sand': 'Sabbia',
+    'lunaStaff.style.theme.light': 'Chiaro',
+    'lunaStaff.style.theme.dark': 'Scuro',
+    'lunaStaff.style.combo.saltLight': 'Sale chiaro',
+    'lunaStaff.style.combo.saltDark': 'Sale scuro',
+    'lunaStaff.style.combo.sandLight': 'Sabbia chiara',
+    'lunaStaff.style.combo.sandDark': 'Sabbia scura',
     'drawer.tab.overview': 'Panoramica',
     'drawer.tab.services': 'Servizio',
     'drawer.tab.transfers': 'Transfer',
@@ -2716,7 +2736,7 @@ const STAFF_PORTAL_STRINGS = {
 };
 
 function getStaffPortalThemeEarlyScript() {
-  return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>`;
+  return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');var p=localStorage.getItem('wh_staff_color_profile');document.documentElement.setAttribute('data-color-profile',p==='sand'?'sand':'salt');}catch(e){}})();</script>`;
 }
 
 function getStaffPortalI18nBootstrapScript(enabledLocales) {
@@ -2735,6 +2755,7 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
   var STAFF_DEFAULT_LOCALE = ${JSON.stringify(defaultLocale)};
   var STAFF_LOCALE_KEY = 'wh_staff_portal_locale';
   var STAFF_THEME_KEY = 'wh_staff_portal_theme';
+  var STAFF_COLOR_PROFILE_KEY = 'wh_staff_color_profile';
   window.getStaffLocale = function(){
     try {
       var s = localStorage.getItem(STAFF_LOCALE_KEY);
@@ -2762,21 +2783,72 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
     }
     return text;
   };
+  window.getStaffColorProfile = function(){
+    try {
+      var p = localStorage.getItem(STAFF_COLOR_PROFILE_KEY);
+      if (p === 'dark') return 'salt';
+      if (p === 'sand' || p === 'salt') return p;
+    } catch(_){}
+    return 'salt';
+  };
+  window.applyStaffStylePills = function(){
+    var theme = window.getStaffTheme();
+    var profile = window.getStaffColorProfile();
+    var combo = (profile === 'sand' ? 'sand' : 'salt') + '-' + (theme === 'dark' ? 'dark' : 'light');
+    document.querySelectorAll('#staff-style-card [data-color-profile]').forEach(function(el){
+      var on = el.getAttribute('data-color-profile') === profile;
+      el.classList.toggle('is-active', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('#staff-style-card [data-style-theme]').forEach(function(el){
+      var on = el.getAttribute('data-style-theme') === theme;
+      el.classList.toggle('is-active', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('#staff-style-palette-embed [data-style-combo]').forEach(function(el){
+      var on = el.getAttribute('data-style-combo') === combo;
+      el.classList.toggle('is-active', on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  };
   window.applyStaffTheme = function(){
     var theme = window.getStaffTheme();
+    var profile = window.getStaffColorProfile();
     var html = document.documentElement;
-    if (html) html.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+    if (html) {
+      html.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+      html.setAttribute('data-color-profile', profile === 'sand' ? 'sand' : 'salt');
+    }
     var btn = document.getElementById('staff-theme-toggle');
-    if (!btn) return;
     var isDark = theme === 'dark';
-    btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
-    btn.setAttribute('aria-label', window.t(isDark ? 'app.theme.switchToLight' : 'app.theme.switchToDark'));
-    btn.setAttribute('title', btn.getAttribute('aria-label'));
-    btn.classList.toggle('is-dark', isDark);
+    if (btn) {
+      btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+      btn.setAttribute('aria-label', window.t(isDark ? 'app.theme.switchToLight' : 'app.theme.switchToDark'));
+      btn.setAttribute('title', btn.getAttribute('aria-label'));
+      btn.classList.toggle('is-dark', isDark);
+    }
+    window.applyStaffStylePills();
   };
   window.setStaffTheme = function(theme){
     if (theme !== 'light' && theme !== 'dark') return;
     try { localStorage.setItem(STAFF_THEME_KEY, theme); } catch(_){}
+    window.applyStaffTheme();
+  };
+  window.setStaffColorProfile = function(profile){
+    if (profile !== 'light' && profile !== 'salt' && profile !== 'sand') return;
+    if (profile === 'light') profile = 'salt';
+    try { localStorage.setItem(STAFF_COLOR_PROFILE_KEY, profile); } catch(_){}
+    window.applyStaffTheme();
+  };
+  window.setStaffStyleCombo = function(combo){
+    var parts = String(combo || '').split('-');
+    if (parts.length !== 2) return;
+    if (parts[0] === 'salt' || parts[0] === 'sand') {
+      try { localStorage.setItem(STAFF_COLOR_PROFILE_KEY, parts[0]); } catch(_){}
+    }
+    if (parts[1] === 'light' || parts[1] === 'dark') {
+      try { localStorage.setItem(STAFF_THEME_KEY, parts[1]); } catch(_){}
+    }
     window.applyStaffTheme();
   };
   window.toggleStaffTheme = function(){
@@ -2789,6 +2861,30 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
     btn.addEventListener('click', function(){
       window.toggleStaffTheme();
     });
+  };
+  window.bindStaffStyleCard = function(){
+    var card = document.getElementById('staff-style-card');
+    if (!card || card._staffStyleBound) return;
+    card._staffStyleBound = true;
+    card.addEventListener('click', function(e){
+      var t = e.target;
+      if (!t || !t.closest) return;
+      var comboBtn = t.closest('[data-style-combo]');
+      if (comboBtn && card.contains(comboBtn)) {
+        window.setStaffStyleCombo(comboBtn.getAttribute('data-style-combo'));
+        return;
+      }
+      var profileBtn = t.closest('[data-color-profile]');
+      if (profileBtn && card.contains(profileBtn)) {
+        window.setStaffColorProfile(profileBtn.getAttribute('data-color-profile'));
+        return;
+      }
+      var themeBtn = t.closest('[data-style-theme]');
+      if (themeBtn && card.contains(themeBtn)) {
+        window.setStaffTheme(themeBtn.getAttribute('data-style-theme'));
+      }
+    });
+    window.applyStaffStylePills();
   };
   window.applyStaffPortalI18n = function(root){
     var scope = root || document;
@@ -2847,6 +2943,7 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
     window.applyStaffPortalI18n(document);
     window.bindStaffLangSwitch();
     window.bindStaffThemeToggle();
+    window.bindStaffStyleCard();
   });
 })();
 </script>`;

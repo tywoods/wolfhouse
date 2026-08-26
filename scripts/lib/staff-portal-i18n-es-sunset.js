@@ -1145,5 +1145,15 @@ module.exports = {
   'lunaStaff.headerStyle.mode.sunset': 'Sunset',
   'lunaStaff.headerStyle.mode.moonlight': 'Moonlight',
   'lunaStaff.headerStyle.mode.sunsetmoonlight': 'Sunset y Moonlight',
+  'lunaStaff.style.title': 'Estilo',
+  'lunaStaff.style.sub': 'Paleta y claro u oscuro. Claro y Oscuro se mantienen al día con el botón de luna.',
+  'lunaStaff.style.palette.salt': 'Sal',
+  'lunaStaff.style.palette.sand': 'Arena',
+  'lunaStaff.style.theme.light': 'Claro',
+  'lunaStaff.style.theme.dark': 'Oscuro',
+  'lunaStaff.style.combo.saltLight': 'Sal clara',
+  'lunaStaff.style.combo.saltDark': 'Sal oscura',
+  'lunaStaff.style.combo.sandLight': 'Arena clara',
+  'lunaStaff.style.combo.sandDark': 'Arena oscura',
 
 };
