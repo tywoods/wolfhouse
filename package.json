@@ -699,6 +699,7 @@
     "verify:sunset-finance-ui-revisions": "node scripts/verify-sunset-finance-ui-revisions.js",
     "verify:sunset-finance-redesign-s1": "node scripts/verify-sunset-finance-redesign-s1.js",
     "verify:sunset-finance-next30-period": "node scripts/verify-sunset-finance-next30-period.js",
+    "verify:sunset-finance-payments-period": "node scripts/verify-sunset-finance-payments-period.js",
     "verify:sunset-finance-refund-net-s2": "node scripts/verify-sunset-finance-refund-net-s2.js",
     "verify:sunset-finance-summary": "node scripts/verify-sunset-finance-summary.js",
     "verify:sunset-finance-data": "node scripts/verify-sunset-finance-data.js",

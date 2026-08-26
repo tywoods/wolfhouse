@@ -42121,7 +42121,10 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   try {
     const view = {};
-    const gran = typeof query.granularity === 'string' ? query.granularity.trim().toLowerCase() : '';
+    const granRaw = query.granularity;
+    const gran = typeof granRaw === 'string'
+      ? granRaw.trim().toLowerCase()
+      : (Array.isArray(granRaw) && granRaw.length ? String(granRaw[0]).trim().toLowerCase() : '');
     if (gran === 'day' || gran === 'month' || gran === 'year' || gran === 'custom') view.granularity = gran;
     const anchor = typeof query.anchor === 'string' ? query.anchor.trim() : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(anchor)) view.anchor = anchor;
@@ -42132,7 +42135,7 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     const data = lodging
       ? await withPgClient((pg) => fetchLodgingFinanceData(pg, { clientSlug }))
       : await withPgClient((pg) => fetchSunsetFinanceData(pg, { clientSlug, locationId }));
-    const summary = computeSunsetFinanceSummary({ now: new Date(), timeZone: 'Europe/Madrid', view, ...data });
+    const summary = computeSunsetFinanceSummary({ ...data, now: new Date(), timeZone: 'Europe/Madrid', view });
     return sendJSON(res, 200, {
       success: true,
       client: clientSlug,
