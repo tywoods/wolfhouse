@@ -33,49 +33,49 @@ const en = STAFF_PORTAL_STRINGS.en;
 const es = STAFF_PORTAL_STRINGS.es;
 
 const SALT_LIGHT = {
-  cream: '#E6EDE9',
-  surface: '#FFFFFF',
-  'surface-soft': '#DDE6E1',
-  sand: '#D0DCD6',
-  tan: '#B8C9C2',
-  sage: '#1A6A65',
-  olive: '#1A6A65',
-  'dusty-blue': '#5E8494',
-  ocean: '#3D7A86',
-  teal: '#C5DED8',
-  text: '#14201C',
-  'text-2': '#3E4E48',
-  'text-3': '#6A7A74',
-  border: '#C5D4CE',
-  'border-soft': '#D8E4DF',
-  primary: '#0F5C57',
-  'primary-hover': '#0C4A46',
-  focus: '#0F5C57',
-  'luna-teal': '#0F5C57',
-  'luna-teal-dark': '#0C4A46',
+  cream: '#F3EEE6',
+  surface: '#FFFBF4',
+  'surface-soft': '#EBE4D8',
+  sand: '#E4D8C8',
+  tan: '#D2C2A8',
+  sage: '#7A8458',
+  olive: '#6A7348',
+  'dusty-blue': '#8A8E86',
+  ocean: '#6E7A70',
+  teal: '#E8DFD0',
+  text: '#1C1914',
+  'text-2': '#5A5348',
+  'text-3': '#8A8276',
+  border: '#E2D6C6',
+  'border-soft': '#EDE4D6',
+  primary: '#3D5C4A',
+  'primary-hover': '#324A3C',
+  focus: '#3D5C4A',
+  'luna-teal': '#3D5C4A',
+  'luna-teal-dark': '#324A3C',
 };
 
 const SALT_DARK = {
-  cream: '#161C1A',
-  surface: '#222926',
-  'surface-soft': '#2A322E',
-  sand: '#323A36',
-  tan: '#3A4540',
-  sage: '#8AAD90',
-  olive: '#6E8A72',
-  'dusty-blue': '#7EA8B4',
-  ocean: '#4A7380',
-  teal: '#243632',
-  text: '#F2EDE6',
-  'text-2': '#A3AFA9',
-  'text-3': '#7A8680',
-  border: '#2E3632',
-  'border-soft': '#2A322E',
-  primary: '#7EB8B2',
-  'primary-hover': '#93C7C1',
-  focus: '#7EB8B2',
-  'luna-teal': '#7EB8B2',
-  'luna-teal-dark': '#93C7C1',
+  cream: '#1A1612',
+  surface: '#26201A',
+  'surface-soft': '#322A22',
+  sand: '#3A3228',
+  tan: '#4A4034',
+  sage: '#8A9A70',
+  olive: '#7A8A60',
+  'dusty-blue': '#8A8680',
+  ocean: '#6E6858',
+  teal: '#3A3228',
+  text: '#F3E8D8',
+  'text-2': '#B8A898',
+  'text-3': '#8A7E70',
+  border: '#3A3228',
+  'border-soft': '#322A22',
+  primary: '#8A9A70',
+  'primary-hover': '#9AAA80',
+  focus: '#8A9A70',
+  'luna-teal': '#8A9A70',
+  'luna-teal-dark': '#9AAA80',
 };
 
 const SAND_LIGHT = {
@@ -166,9 +166,13 @@ const saltLightCss = extractBlock(
 );
 assertTokens('Salt Light :root', saltLightCss, SALT_LIGHT);
 assert.ok(!/--cream:#EDE8E0/.test(saltLightCss), 'Salt Light :root must not keep Sand oatmeal cream');
-assert.ok(/--cream:#E6EDE9/.test(saltLightCss), 'Salt Light sea-mist cream');
-assert.ok(/--surface:#FFFFFF/.test(saltLightCss), 'Salt Light near-white surface');
-assert.ok(/--primary:#0F5C57/.test(saltLightCss), 'Salt Light sea-green primary');
+assert.ok(/--cream:#F3EEE6/.test(saltLightCss), 'Salt Light warm paper cream');
+assert.ok(/--surface:#FFFBF4/.test(saltLightCss), 'Salt Light warm paper surface');
+assert.ok(/--primary:#3D5C4A/.test(saltLightCss), 'Salt Light warm olive primary');
+assert.ok(!/--cream:#E6EDE9/.test(apiSrc.slice(apiSrc.indexOf(':root{'), apiSrc.indexOf('[data-color-profile="sand"]'))), 'no cool sea-mist cream in Salt :root');
+assert.ok(!/--primary:#0F5C57/.test(apiSrc.slice(apiSrc.indexOf(':root{'), apiSrc.indexOf('[data-color-profile="sand"]'))), 'no cool sea-green primary in Salt');
+assert.ok(/--dusty-blue:#8A8E86/.test(saltLightCss), 'dusty-blue is stone not sky');
+assert.ok(/--ocean:#6E7A70/.test(saltLightCss), 'ocean is olive-grey not blue');
 
 const saltDarkCss = extractBlock(
   apiSrc,
@@ -178,6 +182,11 @@ const saltDarkCss = extractBlock(
 assertTokens('Salt Dark [data-theme=dark]', saltDarkCss, SALT_DARK);
 assert.ok(!/--cream:#181818/.test(saltDarkCss), 'default dark must not be VS Code charcoal cream');
 assert.ok(!/--surface:#252526/.test(saltDarkCss), 'default dark must not be VS Code charcoal surface');
+assert.ok(/--cream:#1A1612/.test(saltDarkCss), 'Salt Dark warm night cream');
+assert.ok(/--surface:#26201A/.test(saltDarkCss), 'Salt Dark warm night surface');
+assert.ok(/--text:#F3E8D8/.test(saltDarkCss), 'Salt Dark paper ink');
+assert.ok(/--primary:#8A9A70/.test(saltDarkCss), 'Salt Dark olive accent');
+assert.ok(!/--primary:#7EB8B2/.test(saltDarkCss), 'Salt Dark must not use cyan primary');
 
 const sandLightCss = extractBlock(
   apiSrc,
@@ -717,10 +726,14 @@ ${boot}
   assert.notStrictEqual(saltProbe.primary, sandProbe.primary, 'Salt primary ≠ Sand primary');
   assert.notStrictEqual(saltProbe.sage, sandProbe.sage, 'Salt sage (room bars) ≠ Sand sage');
   assert.notStrictEqual(saltProbe.roomBg, sandProbe.roomBg, 'room header color changes with palette');
-  assert.strictEqual(saltProbe.cream, '#E6EDE9');
+  assert.strictEqual(saltProbe.cream, '#F3EEE6');
   assert.strictEqual(sandProbe.cream, '#EDE8E0');
-  assert.strictEqual(saltProbe.primary, '#0F5C57');
+  assert.strictEqual(saltProbe.primary, '#3D5C4A');
   assert.strictEqual(sandProbe.primary, '#4E5853');
+  assert.notStrictEqual(saltProbe.sage, sandProbe.sage, 'warm Salt sage ≠ Sand sage');
+  // Warm paper, not cool blue/mint page.
+  assert.ok(!String(saltProbe.cream).includes('E6EDE9'));
+  assert.ok(!String(saltProbe.primary).includes('0F5C57'));
 
   await browser.close();
   await new Promise((resolve) => server.close(resolve));

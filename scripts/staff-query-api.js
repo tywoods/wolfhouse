@@ -16203,11 +16203,11 @@ function buildUiHtml(port, portalDeployClient) {
 ${getStaffPortalThemeEarlyScript()}
 <style>
 /* ── Palette (soft boutique-hospitality) ──────────────────────────────────
-   UI-SALT-FACELIFT-001 + visible Salt≠Sand pass.
-   Salt Light (default :root): cooler sea-mist — not oatmeal.
-     --cream:#E6EDE9; --surface:#FFFFFF; --surface-soft:#DDE6E1; --text:#14201C;
-     --text-2:#3E4E48; --primary:#0F5C57; --luna-teal:#0F5C57; --sage:#1A6A65;
-   Salt Dark ([data-theme=dark]): hospitality night (#161C1A family), not VS Code.
+   UI-SALT-FACELIFT-001 + visible Salt≠Sand pass (warm Salt, not sea-mist).
+   Salt Light (default :root): warm paper hospitality — clearly not Sand oatmeal,
+     and not cool/blue/mint. Ty-approved warm tokens.
+   Salt Dark ([data-theme=dark]): warm night (#1A1612 / #26201A / paper ink),
+     olive accent — not teal-black, not VS Code charcoal, no cyan.
    Sand Light ([data-color-profile=sand]) = oatmeal (--cream #EDE8E0, --primary #4E5853).
    Sand Dark = charcoal tokens. Missing wh_staff_color_profile → salt.
    Booking chips / room bars / finance accents use --chip-* / --sage / --finance-*.
@@ -16215,93 +16215,93 @@ ${getStaffPortalThemeEarlyScript()}
 :root{
   --font-sans:'Instrument Sans',system-ui,sans-serif;
   --font-display:'Newsreader',serif;
-  --cream:#E6EDE9;        /* Salt Light — sea-mist page */
-  --surface:#FFFFFF;
-  --surface-soft:#DDE6E1;
-  --sand:#D0DCD6;
-  --tan:#B8C9C2;
-  --sage:#1A6A65;         /* room bars + sea accent */
-  --olive:#1A6A65;
-  --dusty-blue:#5E8494;
-  --ocean:#3D7A86;
-  --teal:#C5DED8;
-  --text:#14201C;
-  --text-2:#3E4E48;
-  --text-3:#6A7A74;
-  --border:#C5D4CE;
-  --border-soft:#D8E4DF;
+  --cream:#F3EEE6;        /* Salt Light — warm paper page */
+  --surface:#FFFBF4;
+  --surface-soft:#EBE4D8;
+  --sand:#E4D8C8;
+  --tan:#D2C2A8;
+  --sage:#7A8458;         /* room bars — warm olive sage */
+  --olive:#6A7348;
+  --dusty-blue:#8A8E86;   /* stone, not sky blue */
+  --ocean:#6E7A70;        /* muted olive-grey, not blue */
+  --teal:#E8DFD0;         /* warm parchment wash */
+  --text:#1C1914;
+  --text-2:#5A5348;
+  --text-3:#8A8276;
+  --border:#E2D6C6;
+  --border-soft:#EDE4D6;
   --radius:14px;
   --radius-sm:10px;
   --radius-pill:999px;
-  --shadow:0 1px 2px rgba(20,32,28,.05),0 4px 14px rgba(20,32,28,.06);
-  --shadow-soft:0 1px 2px rgba(20,32,28,.04),0 2px 8px rgba(20,32,28,.05);
-  --primary:#0F5C57;
-  --primary-hover:#0C4A46;
-  --focus:#0F5C57;
-  --luna-teal:#0F5C57;
-  --luna-teal-dark:#0C4A46;
-  /* Semantic booking chips — cooler Salt defaults; Sand overrides below */
-  --chip-transfer-bg:#E2DEEF;
-  --chip-transfer-fg:#4A3F6E;
-  --chip-transfer-border:#C4BCD8;
-  --chip-balance-bg:#F0E4D8;
-  --chip-balance-fg:#8A4A18;
-  --chip-balance-border:#DCC4A8;
-  --chip-link-bg:#E0EAE8;
-  --chip-link-fg:#2A4846;
-  --chip-link-border:#B5CBC7;
-  --chip-deposit-bg:#E4F0E8;
-  --chip-deposit-fg:#1A5C3A;
-  --chip-deposit-border:#B5D8C4;
-  --chip-paid-bg:#D8E8DE;
-  --chip-paid-fg:#1A4A38;
-  --chip-paid-border:#A8D0BC;
-  --chip-refund-bg:#EDE0E8;
-  --chip-refund-fg:#6A3A52;
-  --chip-refund-border:#D0B0C0;
-  --booking-confirmed-bg:#D4E8E0;
-  --booking-confirmed-fg:#14201C;
-  --booking-pending-bg:#D5E5EF;
-  --booking-pending-fg:#2A4A58;
-  --inbox-active-bg:#C5D6CE;
-  --finance-pos:#0F5C57;
+  --shadow:0 1px 2px rgba(28,25,20,.05),0 4px 14px rgba(28,25,20,.06);
+  --shadow-soft:0 1px 2px rgba(28,25,20,.04),0 2px 8px rgba(28,25,20,.05);
+  --primary:#3D5C4A;
+  --primary-hover:#324A3C;
+  --focus:#3D5C4A;
+  --luna-teal:#3D5C4A;
+  --luna-teal-dark:#324A3C;
+  /* Semantic booking chips — warm Salt defaults; Sand overrides below */
+  --chip-transfer-bg:#E8DEEF;
+  --chip-transfer-fg:#6B5080;
+  --chip-transfer-border:#D4C4E0;
+  --chip-balance-bg:#F5E0D0;
+  --chip-balance-fg:#9B4E12;
+  --chip-balance-border:#E8C4A8;
+  --chip-link-bg:#E8E4DC;
+  --chip-link-fg:#5A5348;
+  --chip-link-border:#D2C6B6;
+  --chip-deposit-bg:#E6EBD8;
+  --chip-deposit-fg:#3D5C4A;
+  --chip-deposit-border:#C5D0A8;
+  --chip-paid-bg:#DCE4C8;
+  --chip-paid-fg:#3D5C4A;
+  --chip-paid-border:#B5C898;
+  --chip-refund-bg:#F3DDE8;
+  --chip-refund-fg:#7A3A52;
+  --chip-refund-border:#D4A8BC;
+  --booking-confirmed-bg:#E0E6D0;
+  --booking-confirmed-fg:#1C1914;
+  --booking-pending-bg:#E8E4DC;
+  --booking-pending-fg:#5A5348;
+  --inbox-active-bg:#DCE4C8;
+  --finance-pos:#3D5C4A;
   --finance-neg:#B4534A;
   --finance-amber:#A06A20;
-  --finance-bar-green:#0F5C57;
-  --finance-bar-blue:#3D7A86;
-  --finance-bar-violet:#6A5A9A;
+  --finance-bar-green:#3D5C4A;
+  --finance-bar-blue:#6E7A70;
+  --finance-bar-violet:#7A6A8A;
   --finance-bar-amber:#A67C2A;
   /* Uniform gap: bottom of top nav → first content block on every tab (both themes). */
   --tab-top-gap:24px;
 }
 [data-theme="dark"]{
-  --cream:#161C1A;
-  --surface:#222926;
-  --surface-soft:#2A322E;
-  --sand:#323A36;
-  --tan:#3A4540;
-  --sage:#8AAD90;
-  --olive:#6E8A72;
-  --dusty-blue:#7EA8B4;
-  --ocean:#4A7380;
-  --teal:#243632;
-  --luna-blue:#264f78;
-  --luna-blue-border:#3a6a9a;
-  --luna-blue-text:#c8dce8;
-  --staff-green-bg:#1e3a28;
-  --staff-green-border:#3a5a48;
-  --staff-green-text:#c8dcc8;
-  --text:#F2EDE6;
-  --text-1:#F2EDE6;
-  --text-2:#A3AFA9;
-  --text-3:#7A8680;
-  --border:#2E3632;
-  --border-soft:#2A322E;
-  --primary:#7EB8B2;
-  --primary-hover:#93C7C1;
-  --focus:#7EB8B2;
-  --luna-teal:#7EB8B2;
-  --luna-teal-dark:#93C7C1;
+  --cream:#1A1612;
+  --surface:#26201A;
+  --surface-soft:#322A22;
+  --sand:#3A3228;
+  --tan:#4A4034;
+  --sage:#8A9A70;
+  --olive:#7A8A60;
+  --dusty-blue:#8A8680;
+  --ocean:#6E6858;
+  --teal:#3A3228;
+  --luna-blue:#3A3228;
+  --luna-blue-border:#5A5040;
+  --luna-blue-text:#E8DCC8;
+  --staff-green-bg:#2A3220;
+  --staff-green-border:#4A5A38;
+  --staff-green-text:#D8E0C0;
+  --text:#F3E8D8;
+  --text-1:#F3E8D8;
+  --text-2:#B8A898;
+  --text-3:#8A7E70;
+  --border:#3A3228;
+  --border-soft:#322A22;
+  --primary:#8A9A70;
+  --primary-hover:#9AAA80;
+  --focus:#8A9A70;
+  --luna-teal:#8A9A70;
+  --luna-teal-dark:#9AAA80;
   --shadow:0 1px 2px rgba(0,0,0,.28),0 6px 18px rgba(0,0,0,.36);
   --shadow-soft:0 1px 2px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.28);
   --chip-transfer-bg:#2A2436;
@@ -16310,28 +16310,28 @@ ${getStaffPortalThemeEarlyScript()}
   --chip-balance-bg:#4A3020;
   --chip-balance-fg:#FFC896;
   --chip-balance-border:#8A6040;
-  --chip-link-bg:#1A2836;
-  --chip-link-fg:#B8D4E8;
-  --chip-link-border:#569CD6;
-  --chip-deposit-bg:#1E2A28;
-  --chip-deposit-fg:#9EE0A8;
-  --chip-deposit-border:#3A5A48;
-  --chip-paid-bg:#1E2A28;
-  --chip-paid-fg:#B8C8BC;
-  --chip-paid-border:#569CD6;
+  --chip-link-bg:#322A22;
+  --chip-link-fg:#D8CCB8;
+  --chip-link-border:#5A5040;
+  --chip-deposit-bg:#2A3220;
+  --chip-deposit-fg:#D0E0A8;
+  --chip-deposit-border:#4A5A38;
+  --chip-paid-bg:#2A3220;
+  --chip-paid-fg:#D8E0C0;
+  --chip-paid-border:#4A5A38;
   --chip-refund-bg:#3A2838;
   --chip-refund-fg:#F0B0C0;
   --chip-refund-border:#7A5068;
-  --booking-confirmed-bg:#2A3A32;
-  --booking-confirmed-fg:#B8D8C8;
-  --booking-pending-bg:#1A2836;
-  --booking-pending-fg:#B8D4E8;
-  --inbox-active-bg:#173322;
-  --finance-pos:#7EB8B2;
+  --booking-confirmed-bg:#2A3220;
+  --booking-confirmed-fg:#D8E0C0;
+  --booking-pending-bg:#322A22;
+  --booking-pending-fg:#D8CCB8;
+  --inbox-active-bg:#2A3220;
+  --finance-pos:#8A9A70;
   --finance-neg:#F0A090;
   --finance-amber:#F0C36A;
-  --finance-bar-green:#7EB8B2;
-  --finance-bar-blue:#7EA8B4;
+  --finance-bar-green:#8A9A70;
+  --finance-bar-blue:#6E6858;
   --finance-bar-violet:#A898D0;
   --finance-bar-amber:#C4922A;
   color-scheme:dark;
@@ -20942,8 +20942,8 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   padding:20px 8px 8px;font:inherit;font-size:11px;font-weight:600;line-height:1.25;
   cursor:pointer;text-align:left;min-height:64px;
 }
-.staff-style-swatch[data-style-combo="salt-light"]{background:#FFFFFF;color:#14201C;border-color:#C5D4CE}
-.staff-style-swatch[data-style-combo="salt-dark"]{background:#222926;color:#F2EDE6;border-color:#2E3632}
+.staff-style-swatch[data-style-combo="salt-light"]{background:#FFFBF4;color:#1C1914;border-color:#E2D6C6}
+.staff-style-swatch[data-style-combo="salt-dark"]{background:#26201A;color:#F3E8D8;border-color:#3A3228}
 .staff-style-swatch[data-style-combo="sand-light"]{background:#F5F1EA;color:#4E5853;border-color:#DDD5C9}
 .staff-style-swatch[data-style-combo="sand-dark"]{background:#252526;color:#cccccc;border-color:#3c3c3c}
 .staff-style-swatch.is-active{box-shadow:0 0 0 2px var(--primary)}
