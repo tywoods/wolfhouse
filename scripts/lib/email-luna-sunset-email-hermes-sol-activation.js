@@ -22,6 +22,7 @@ const hasOwn = Object.hasOwn;
 const ENV_AUTHOR_ENABLED = 'EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED';
 const ENV_BASE_URL = 'EMAIL_LUNA_HERMES_SOL_BASE_URL';
 const ENV_TOKEN = 'EMAIL_LUNA_HERMES_SOL_TOKEN';
+const ENV_HMAC_SECRET = 'EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET';
 const ENV_TIMEOUT_MS = 'EMAIL_LUNA_HERMES_SOL_TIMEOUT_MS';
 const ENV_TLS_PIN = 'EMAIL_LUNA_HERMES_SOL_TLS_PIN';
 const ENV_TLS_SERVER_NAME = 'EMAIL_LUNA_HERMES_SOL_TLS_SERVER_NAME';
@@ -93,6 +94,7 @@ function snapshotSunsetEmailHermesSolEnv(env) {
   const enabled = readString(src, ENV_AUTHOR_ENABLED);
   const baseUrl = readString(src, ENV_BASE_URL);
   const token = readString(src, ENV_TOKEN);
+  const hmacSecret = readString(src, ENV_HMAC_SECRET);
   const timeoutRaw = readString(src, ENV_TIMEOUT_MS);
   const tlsPin = readString(src, ENV_TLS_PIN);
   const serverName = readString(src, ENV_TLS_SERVER_NAME);
@@ -101,6 +103,7 @@ function snapshotSunsetEmailHermesSolEnv(env) {
   if (enabled) out[ENV_AUTHOR_ENABLED] = enabled;
   if (baseUrl) out[ENV_BASE_URL] = baseUrl;
   if (token) out[ENV_TOKEN] = token;
+  if (hmacSecret) out[ENV_HMAC_SECRET] = hmacSecret;
   if (timeoutRaw) out[ENV_TIMEOUT_MS] = timeoutRaw;
   if (tlsPin) out[ENV_TLS_PIN] = tlsPin;
   if (serverName) out[ENV_TLS_SERVER_NAME] = serverName;
@@ -129,6 +132,9 @@ function isSunsetEmailHermesSolAuthorEnabled(input) {
   const token = ownData(env, ENV_TOKEN);
   if (typeof token !== 'string' || !token || token.length > MAX_TOKEN_CHARS) return false;
   if (token.trim() !== token || /\s/.test(token)) return false;
+  const hmacSecret = ownData(env, ENV_HMAC_SECRET);
+  if (typeof hmacSecret !== 'string' || !hmacSecret || hmacSecret.length > MAX_TOKEN_CHARS) return false;
+  if (hmacSecret.trim() !== hmacSecret || /\s/.test(hmacSecret)) return false;
   const timeoutRaw = ownData(env, ENV_TIMEOUT_MS);
   if (timeoutRaw !== undefined && timeoutRaw !== null && timeoutRaw !== '') {
     const parsed = Number.parseInt(timeoutRaw, 10);
@@ -151,6 +157,7 @@ function resolveSunsetEmailHermesSolClientConfig(env) {
   const out = create(null);
   out.baseUrl = normalizeBaseUrl(ownData(snap, ENV_BASE_URL));
   out.token = ownData(snap, ENV_TOKEN);
+  out.hmacSecret = ownData(snap, ENV_HMAC_SECRET);
   out.timeoutMs = timeoutMs;
   out.tlsPin = normalizeTlsPin(ownData(snap, ENV_TLS_PIN));
   out.tlsServerName = normalizeServerName(ownData(snap, ENV_TLS_SERVER_NAME));
@@ -177,6 +184,7 @@ module.exports = freeze({
   ENV_AUTHOR_ENABLED,
   ENV_BASE_URL,
   ENV_TOKEN,
+  ENV_HMAC_SECRET,
   ENV_TIMEOUT_MS,
   ENV_TLS_PIN,
   ENV_TLS_SERVER_NAME,

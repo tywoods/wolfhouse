@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 import time
@@ -17,8 +18,10 @@ if str(STAGING) not in sys.path:
 
 from wolfhouse.email_draft_contract import LIVE_ATTEMPT_SOURCE, MODEL, PROVIDER  # noqa: E402
 from wolfhouse.email_draft_hermes import (  # noqa: E402
+    CONSUME_MAX_WORKERS,
     DeadlineStream,
     ProvenanceError,
+    bounded_executor_stats,
     capture_codex_transport,
     capture_terminal_model,
     captured_transport_is_codex,
@@ -38,25 +41,46 @@ class FakeRequest:
 
 
 class FakeHttpx:
-    def __init__(self, url: str):
+    def __init__(self, url: str, *, redirect_to=None, hang_s=0.0, status_code=200, final_url=None):
         self.url = url
+        self.redirect_to = redirect_to
+        self.hang_s = hang_s
+        self.status_code = status_code
+        self.final_url = final_url
         self.sends: list[str] = []
+        self.follow_flags: list[object] = []
+        self.verify = True
 
-    def send(self, request, **kwargs):  # noqa: ARG002
+    def send(self, request, **kwargs):
+        if self.hang_s:
+            time.sleep(self.hang_s)
         self.sends.append(str(getattr(request, "url", "")))
-        return SimpleNamespace(status_code=200)
+        self.follow_flags.append(kwargs.get("follow_redirects"))
+        if self.redirect_to:
+            if kwargs.get("follow_redirects", True):
+                final = FakeRequest(self.redirect_to)
+                return SimpleNamespace(status_code=200, request=final)
+            return SimpleNamespace(
+                status_code=302,
+                request=request,
+                headers={"location": self.redirect_to},
+            )
+        bound = FakeRequest(self.final_url or str(getattr(request, "url", "")))
+        return SimpleNamespace(status_code=self.status_code, request=bound)
 
 
 class FakeResponses:
-    def __init__(self, events, owner):
+    def __init__(self, events, owner, *, skip_send=False):
         self.events = events
         self.owner = owner
+        self.skip_send = skip_send
         self.create_kwargs = []
         self.closed = False
 
     def create(self, **kwargs):
         self.create_kwargs.append(kwargs)
-        self.owner._client.send(FakeRequest(self.owner.request_url))
+        if not self.skip_send:
+            self.owner._client.send(FakeRequest(self.owner.request_url))
         return self
 
     def __iter__(self):
@@ -67,11 +91,12 @@ class FakeResponses:
 
 
 class FakeClient:
-    def __init__(self, events, request_url=CODEX_URL):
+    def __init__(self, events, request_url=CODEX_URL, **http_kwargs):
         self.request_url = request_url
         self.base_url = request_url.rsplit("/", 1)[0]
-        self._client = FakeHttpx(request_url)
-        self.responses = FakeResponses(events, self)
+        skip_send = http_kwargs.pop("skip_send", False)
+        self._client = FakeHttpx(request_url, **http_kwargs)
+        self.responses = FakeResponses(events, self, skip_send=skip_send)
 
 
 def completed_event(model: str):
@@ -105,11 +130,21 @@ def consume_passthrough(event_stream, model=None, on_event=None):
     )
 
 
-def composition_for(client):
+def refreshed_credentials(**kwargs):  # noqa: ARG001
+    return {
+        "provider": "openai-codex",
+        "api_key": "test-codex-token",
+        "base_url": "https://chatgpt.com/backend-api/codex",
+    }
+
+
+def composition_for(client, consume=consume_passthrough, resolve_client=None, credentials=refreshed_credentials):
     return {
         "resolve_runtime_provider": lambda: {"provider": "openai-codex", "source": "auth.json"},
-        "resolve_provider_client": lambda provider, model, raw_codex=False: (client, model),
-        "consume_codex_event_stream": consume_passthrough,
+        "resolve_provider_client": resolve_client
+        or (lambda provider, model, raw_codex=False: (client, model)),
+        "resolve_codex_runtime_credentials": credentials,
+        "consume_codex_event_stream": consume,
     }
 
 
@@ -228,11 +263,104 @@ class HermesProvenanceTests(unittest.TestCase):
         self.assertIn("codex_stream_deadline", str(ctx.exception))
         self.assertTrue(hung.closed)
 
+    def test_refresh_failure_fails_closed(self):
+        client = FakeClient([completed_event("gpt-5.6-sol")])
+
+        def boom(**kwargs):  # noqa: ARG001
+            raise RuntimeError("expired")
+
+        composition = composition_for(client, credentials=boom)
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes("sys", "user", composition=composition)
+        self.assertIn("codex_refresh_failed", str(ctx.exception))
+
+    def test_refresh_empty_token_fails_closed(self):
+        client = FakeClient([completed_event("gpt-5.6-sol")])
+        composition = composition_for(
+            client,
+            credentials=lambda **kwargs: {"provider": "openai-codex", "api_key": ""},
+        )
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes("sys", "user", composition=composition)
+        self.assertIn("codex_refresh_failed", str(ctx.exception))
+
+    def test_any_redirect_fails_closed(self):
+        client = FakeClient(
+            [completed_event("gpt-5.6-sol")],
+            redirect_to="https://chatgpt.com/backend-api/codex/responses",
+        )
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes("sys", "user", composition=composition_for(client), timeout_s=2)
+        self.assertIn("codex_redirect_forbidden", str(ctx.exception))
+        self.assertEqual(client._client.follow_flags, [False])
+
+    def test_off_host_final_url_fails_closed(self):
+        client = FakeClient(
+            [completed_event("gpt-5.6-sol")],
+            final_url="https://evil.example/backend-api/codex/responses",
+        )
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes("sys", "user", composition=composition_for(client), timeout_s=2)
+        self.assertIn("not_codex_backend", str(ctx.exception))
+
+    def test_missing_response_before_first_byte_fails_closed(self):
+        client = FakeClient([completed_event("gpt-5.6-sol")], skip_send=True)
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes("sys", "user", composition=composition_for(client), timeout_s=2)
+        self.assertIn("codex_response_missing", str(ctx.exception))
+
+    def test_hang_before_first_byte_returns_boundedly(self):
+        client = FakeClient([completed_event("gpt-5.6-sol")], hang_s=1.2)
+        start = time.monotonic()
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes(
+                "sys",
+                "user",
+                composition=composition_for(client),
+                timeout_s=0.3,
+            )
+        elapsed = time.monotonic() - start
+        self.assertIn("codex_stream_deadline", str(ctx.exception))
+        self.assertLess(elapsed, 1.5)
+
+    def test_repeated_hangs_do_not_leak_unbounded_workers(self):
+        errors = []
+        for _ in range(CONSUME_MAX_WORKERS + 3):
+            client = FakeClient([completed_event("gpt-5.6-sol")], hang_s=1.2)
+            try:
+                invoke_installed_hermes(
+                    "sys",
+                    "user",
+                    composition=composition_for(client),
+                    timeout_s=0.2,
+                )
+            except ProvenanceError as exc:
+                errors.append(str(exc))
+        self.assertTrue(errors)
+        self.assertTrue(
+            any("codex_stream_deadline" in item or "codex_worker_exhausted" in item for item in errors)
+        )
+        stats = bounded_executor_stats()
+        self.assertLessEqual(stats["max_workers"], CONSUME_MAX_WORKERS)
+        self.assertLessEqual(stats["held_slots"], CONSUME_MAX_WORKERS)
+        deadline = time.monotonic() + 3
+        while bounded_executor_stats()["held_slots"] > 0 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertLessEqual(bounded_executor_stats()["held_slots"], CONSUME_MAX_WORKERS)
+
 
 class InstalledHermesMutationTests(unittest.TestCase):
     def setUp(self):
         if "/opt/hermes" not in sys.path:
             sys.path.insert(0, "/opt/hermes")
+        venv = Path("/opt/hermes/.venv/lib")
+        for site in venv.glob("python*/site-packages"):
+            site_s = str(site)
+            if site_s not in sys.path:
+                sys.path.insert(0, site_s)
+        deadline = time.monotonic() + 3
+        while bounded_executor_stats()["held_slots"] > 0 and time.monotonic() < deadline:
+            time.sleep(0.05)
 
     def _installed(self):
         from agent.codex_runtime import _consume_codex_event_stream
@@ -242,11 +370,7 @@ class InstalledHermesMutationTests(unittest.TestCase):
     def test_wrong_endpoint_provider_transport_fails_closed(self):
         consume = self._installed()
         client = FakeClient(codex_events("gpt-5.6-sol"), request_url=OPENAI_URL)
-        composition = {
-            "resolve_runtime_provider": lambda: {"provider": "openai-codex"},
-            "resolve_provider_client": lambda provider, model, raw_codex=False: (client, model),
-            "consume_codex_event_stream": consume,
-        }
+        composition = composition_for(client, consume=consume)
         with self.assertRaises(ProvenanceError) as ctx:
             invoke_installed_hermes("sys", "user", composition=composition)
         self.assertIn("not_codex_backend", str(ctx.exception))
@@ -254,11 +378,7 @@ class InstalledHermesMutationTests(unittest.TestCase):
     def test_wrong_terminal_model_fails_closed(self):
         consume = self._installed()
         client = FakeClient(codex_events("gpt-4o-mini"))
-        composition = {
-            "resolve_runtime_provider": lambda: {"provider": "openai-codex"},
-            "resolve_provider_client": lambda provider, model, raw_codex=False: (client, model),
-            "consume_codex_event_stream": consume,
-        }
+        composition = composition_for(client, consume=consume)
         with self.assertRaises(ProvenanceError) as ctx:
             invoke_installed_hermes("sys", "user", composition=composition)
         self.assertIn("live_model_mismatch", str(ctx.exception))
@@ -271,11 +391,7 @@ class InstalledHermesMutationTests(unittest.TestCase):
         def resolve_other(provider, model, raw_codex=False):
             return (other, model)
 
-        composition = {
-            "resolve_runtime_provider": lambda: {"provider": "openai-codex"},
-            "resolve_provider_client": resolve_other,
-            "consume_codex_event_stream": consume,
-        }
+        composition = composition_for(other, consume=consume, resolve_client=resolve_other)
         with self.assertRaises(ProvenanceError) as ctx:
             invoke_installed_hermes("sys", "user", composition=composition)
         self.assertIn("not_codex_backend", str(ctx.exception))
@@ -294,11 +410,7 @@ class InstalledHermesMutationTests(unittest.TestCase):
                 time.sleep(0.05)
                 return consume(event_stream, model=model, on_event=on_event)
 
-            composition = {
-                "resolve_runtime_provider": lambda: {"provider": "openai-codex"},
-                "resolve_provider_client": lambda provider, model, raw_codex=False: (client, model),
-                "consume_codex_event_stream": delayed_consume,
-            }
+            composition = composition_for(client, consume=delayed_consume)
             try:
                 results[name] = invoke_installed_hermes("sys", "user", composition=composition)
             except Exception as exc:
@@ -325,7 +437,7 @@ class InstalledHermesMutationTests(unittest.TestCase):
                 self.verify = True
 
             def send(self, request, **kwargs):  # noqa: ARG002
-                return SimpleNamespace(ok=True)
+                return SimpleNamespace(status_code=200, request=request)
 
         http = GuardedHttpx()
         original = http.send
@@ -337,6 +449,146 @@ class InstalledHermesMutationTests(unittest.TestCase):
         self.assertEqual(http.send.__func__, original.__func__)
         self.assertTrue(http.verify)
         self.assertNotIn("send", http.__dict__)
+
+    def test_installed_redirect_and_missing_response_fail_closed(self):
+        consume = self._installed()
+        redirected = FakeClient(
+            codex_events("gpt-5.6-sol"),
+            redirect_to="https://evil.example/steal",
+        )
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes(
+                "sys",
+                "user",
+                composition=composition_for(redirected, consume=consume),
+                timeout_s=2,
+            )
+        self.assertIn("codex_redirect_forbidden", str(ctx.exception))
+        missing = FakeClient(codex_events("gpt-5.6-sol"), skip_send=True)
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes(
+                "sys",
+                "user",
+                composition=composition_for(missing, consume=consume),
+                timeout_s=2,
+            )
+        self.assertIn("codex_response_missing", str(ctx.exception))
+        off_host = FakeClient(
+            codex_events("gpt-5.6-sol"),
+            final_url="https://api.openai.com/v1/responses",
+        )
+        with self.assertRaises(ProvenanceError) as ctx:
+            invoke_installed_hermes(
+                "sys",
+                "user",
+                composition=composition_for(off_host, consume=consume),
+                timeout_s=2,
+            )
+        self.assertIn("not_codex_backend", str(ctx.exception))
+
+    def test_expired_token_refresh_uses_installed_owner_semantics(self):
+        import base64
+        import json as json_mod
+        import tempfile
+        from pathlib import Path
+        from unittest import mock
+
+        if "/opt/hermes" not in sys.path:
+            sys.path.insert(0, "/opt/hermes")
+        from hermes_cli import auth as hermes_auth
+
+        def jwt_for(exp: int) -> str:
+            header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+            payload = base64.urlsafe_b64encode(
+                json_mod.dumps({"exp": exp, "sub": "codex-test"}).encode()
+            ).rstrip(b"=").decode()
+            return f"{header}.{payload}.sig"
+
+        expired = jwt_for(int(time.time()) - 120)
+        fresh = jwt_for(int(time.time()) + 3600)
+        saved = []
+
+        def fake_refresh(tokens, timeout_seconds):  # noqa: ARG001
+            updated = {
+                "access_token": fresh,
+                "refresh_token": "rotated-refresh",
+            }
+            hermes_auth._save_codex_tokens(updated)
+            saved.append(updated)
+            return updated
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            auth_path = home / "auth.json"
+            auth_path.write_text(
+                json_mod.dumps(
+                    {
+                        "version": 1,
+                        "providers": {
+                            "openai-codex": {
+                                "auth_mode": "chatgpt",
+                                "tokens": {
+                                    "access_token": expired,
+                                    "refresh_token": "single-use-refresh",
+                                },
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = FakeClient(codex_events("gpt-5.6-sol"))
+            consume = self._installed()
+            with mock.patch.dict(os.environ, {"HERMES_HOME": str(home)}, clear=False):
+                with mock.patch.object(hermes_auth, "_refresh_codex_auth_tokens", fake_refresh):
+                    composition = composition_for(
+                        client,
+                        consume=consume,
+                        credentials=hermes_auth.resolve_codex_runtime_credentials,
+                    )
+                    result = invoke_installed_hermes("sys", "user", composition=composition)
+            self.assertEqual(result.provider, PROVIDER)
+            self.assertEqual(result.model, MODEL)
+            self.assertEqual(len(saved), 1)
+            persisted = json_mod.loads(auth_path.read_text(encoding="utf-8"))
+            tokens = persisted["providers"]["openai-codex"]["tokens"]
+            self.assertEqual(tokens["access_token"], fresh)
+            self.assertEqual(tokens["refresh_token"], "rotated-refresh")
+
+        def boom_refresh(tokens, timeout_seconds):  # noqa: ARG001
+            raise hermes_auth.AuthError("invalid_grant", provider="openai-codex", code="invalid_grant")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            (home / "auth.json").write_text(
+                json_mod.dumps(
+                    {
+                        "version": 1,
+                        "providers": {
+                            "openai-codex": {
+                                "auth_mode": "chatgpt",
+                                "tokens": {
+                                    "access_token": expired,
+                                    "refresh_token": "spent",
+                                },
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            client = FakeClient(codex_events("gpt-5.6-sol"))
+            with mock.patch.dict(os.environ, {"HERMES_HOME": str(home)}, clear=False):
+                with mock.patch.object(hermes_auth, "_refresh_codex_auth_tokens", boom_refresh):
+                    with mock.patch.object(hermes_auth, "_recover_codex_tokens_from_cli", lambda *_a, **_k: None):
+                        composition = composition_for(
+                            client,
+                            consume=self._installed(),
+                            credentials=hermes_auth.resolve_codex_runtime_credentials,
+                        )
+                        with self.assertRaises(ProvenanceError) as ctx:
+                            invoke_installed_hermes("sys", "user", composition=composition)
+            self.assertIn("codex_refresh_failed", str(ctx.exception))
 
 
 class InstalledHermesCliSurfaceTests(unittest.TestCase):

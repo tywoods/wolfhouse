@@ -1,36 +1,41 @@
 # MAIL-MVP-007 — separately deployable Sunset email Sol runtime.
 # Colocated with Staff API in luna-sunset-staging-env. Internal TLS ingress.
 # Do not apply infra/azure Bicep. Fill only values Skipper can query
-# (subscription ID, identity/env resource IDs, image SHA). Never commit secrets.
+# (subscription ID, environment resource ID, identity resource ID, image SHA).
+# Never commit secrets. Never leave angle-bracket placeholders in the applied YAML.
 #
 # Keep image ENTRYPOINT (/init). Args replace CMD only so bootstrap still runs.
 # Production interpreter is exactly /opt/hermes/.venv/bin/python.
 #
-# Isolated openai-codex auth.json is a Key Vault secret (base64), written
-# atomically to /opt/data/auth.json by bootstrap (0600). No Azure Files,
-# no shared volume, no persistence back to WhatsApp.
+# Isolated openai-codex auth.json lives on a dedicated Azure Files share
+# mounted at /opt/data (entire isolated HERMES_HOME). No Key Vault auth-json
+# snapshot. No shared WhatsApp pool. API bearer + response HMAC remain
+# Key Vault / ACA secrets.
 #
-# Skipper: docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md emits a filled copy
-# then: az containerapp create -g luna-sunset-staging-rg -n luna-sunset-staging-email-luna --yaml <filled>
+# Skipper: docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md fills a temp copy
+# then: az containerapp create|update -g luna-sunset-staging-rg -n luna-sunset-staging-email-luna --yaml FILLED.yaml
+# Do not pass --environment with --yaml (ignored; environmentId comes from YAML).
 apiVersion: '2024-03-01'
 location: northeurope
+name: luna-sunset-staging-email-luna
+type: Microsoft.App/containerApps
 identity:
   type: UserAssigned
   userAssignedIdentities:
-    /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity: {}
+    <identity-id>: {}
 properties:
-  managedEnvironmentId: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/managedEnvironments/luna-sunset-staging-env
+  environmentId: <environment-id>
   configuration:
     secrets:
       - name: api-server-key
         keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/email-luna-hermes-sol-token
-        identity: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity
-      - name: hermes-sunset-email-auth-json-b64
-        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/hermes-sunset-email-luna-auth-json-b64
-        identity: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity
+        identity: <identity-id>
+      - name: resp-hmac-secret
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/email-luna-hermes-sol-hmac
+        identity: <identity-id>
     registries:
       - server: whstagingacr.azurecr.io
-        identity: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity
+        identity: <identity-id>
     ingress:
       external: false
       allowInsecure: false
@@ -46,6 +51,9 @@ properties:
         args:
           - /opt/hermes/.venv/bin/python
           - /etc/hermes-staging/wolfhouse/email_draft_server.py
+        volumeMounts:
+          - volumeName: hermes-home
+            mountPath: /opt/data
         env:
           - name: HERMES_HOME
             value: /opt/data
@@ -67,8 +75,8 @@ properties:
             value: Europe/Madrid
           - name: API_SERVER_KEY
             secretRef: api-server-key
-          - name: HERMES_SUNSET_EMAIL_AUTH_JSON_B64
-            secretRef: hermes-sunset-email-auth-json-b64
+          - name: EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET
+            secretRef: resp-hmac-secret
         probes:
           - type: Liveness
             httpGet:
@@ -85,6 +93,11 @@ properties:
         resources:
           cpu: 1.0
           memory: 2Gi
+    volumes:
+      - name: hermes-home
+        storageType: AzureFile
+        storageName: hermes-sunset-email-luna-home
+        mountOptions: uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600
     scale:
       minReplicas: 1
       maxReplicas: 1

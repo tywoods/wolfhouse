@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import re
 import uuid
@@ -18,6 +20,9 @@ REQUEST_SCHEMA = "sunset_email_luna_draft_plan_v1"
 RESULT_SCHEMA = "sunset_email_luna_draft_plan_result_v1"
 TEMPLATE_REQUEST_SCHEMA = "sunset_email_luna_template_plan_v1"
 TEMPLATE_RESULT_SCHEMA = "sunset_email_luna_template_plan_result_v1"
+HMAC_ALG = "HMAC-SHA256"
+HMAC_CANONICAL_VERSION = "v1"
+AUTHENTICITY_KEYS = ("alg", "request_id", "signature")
 DRAFT_PATH = "/v1/internal/email-draft-plan"
 PRIVATE_TRUST = (
     "untrusted_private_staff_instructions_never_guest_copy_never_quoted_guest_history"
@@ -216,6 +221,78 @@ def bind_attempt_provenance(req: dict[str, Any], attempt: Any) -> dict[str, str]
         "conversation_id": str(req["conversation_id"]).lower(),
         "inbound_message_id": str(req["inbound_message_id"]).lower(),
     }
+
+
+def canonical_plan_json(plan_obj: Any) -> str:
+    return json.dumps(plan_obj, separators=(",", ":"), sort_keys=True)
+
+
+def plan_sha256(plan_obj: Any) -> str:
+    return hashlib.sha256(canonical_plan_json(plan_obj).encode("utf-8")).hexdigest()
+
+
+def canonical_hmac_payload(
+    req: dict[str, Any],
+    provenance: dict[str, str],
+    plan_obj: Any,
+) -> bytes:
+    digest = plan_sha256(plan_obj)
+    lines = [
+        HMAC_CANONICAL_VERSION,
+        f"request_id={str(req['request_id']).lower()}",
+        f"client_id={str(req['client_id']).lower()}",
+        f"location_id={str(req['location_id']).lower()}",
+        f"conversation_id={str(req['conversation_id']).lower()}",
+        f"endpoint_id={str(req['endpoint_id']).lower()}",
+        f"inbound_message_id={str(req['inbound_message_id']).lower()}",
+        f"provider={provenance['provider']}",
+        f"model={provenance['model']}",
+        f"runtime={provenance['runtime']}",
+        f"plan_sha256={digest}",
+    ]
+    return "\n".join(lines).encode("utf-8")
+
+
+def sign_result_authenticity(
+    secret: str,
+    req: dict[str, Any],
+    provenance: dict[str, str],
+    plan_obj: Any,
+) -> dict[str, str] | None:
+    if not isinstance(secret, str) or not secret or secret.strip() != secret:
+        return None
+    if not isinstance(req, dict) or not isinstance(provenance, dict):
+        return None
+    payload = canonical_hmac_payload(req, provenance, plan_obj)
+    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return {
+        "alg": HMAC_ALG,
+        "request_id": str(req["request_id"]).lower(),
+        "signature": signature,
+    }
+
+
+def verify_result_authenticity(
+    secret: str,
+    req: dict[str, Any],
+    provenance: dict[str, str],
+    plan_obj: Any,
+    authenticity: Any,
+) -> bool:
+    expected = sign_result_authenticity(secret, req, provenance, plan_obj)
+    if expected is None or not isinstance(authenticity, dict):
+        return False
+    rec = _exact(authenticity, AUTHENTICITY_KEYS)
+    if rec is None:
+        return False
+    if rec.get("alg") != HMAC_ALG:
+        return False
+    if rec.get("request_id") != expected["request_id"]:
+        return False
+    got = rec.get("signature")
+    if not isinstance(got, str) or not got:
+        return False
+    return hmac.compare_digest(got, expected["signature"])
 
 
 def compile_acts(goals: str) -> list[dict[str, str]]:

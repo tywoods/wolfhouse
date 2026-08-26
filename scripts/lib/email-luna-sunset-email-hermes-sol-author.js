@@ -112,7 +112,11 @@ function createEmailLunaSunsetEmailHermesSolAuthors(configuration) {
       naturalConfig.timeoutMs = configuration.timeoutMs;
     }
     const natural = createEmailLunaCreateDraftNaturalAuthor(naturalConfig);
-    return natural.authorNaturalGuestReply(input);
+    const authored = await natural.authorNaturalGuestReply(input);
+    if (authored && typeof authored === 'object' && callModel.lastMarker) {
+      return freeze({ ...authored, marker: callModel.lastMarker });
+    }
+    return authored;
   }
 
   return freeze({

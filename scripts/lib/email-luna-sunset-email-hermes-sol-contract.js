@@ -8,6 +8,7 @@
  * validates/renders/persists. No send, approval, journal, or booking writes.
  */
 
+const crypto = require('node:crypto');
 const util = require('node:util');
 
 const isProxy = util.types.isProxy.bind(undefined);
@@ -36,8 +37,11 @@ const REQUEST_KEYS = freeze([
   'conversation_id', 'endpoint_id', 'inbound_message_id', 'language',
   'untrusted_email', 'private_staff_goals', 'request_id',
 ]);
-const RESULT_KEYS = freeze(['schema', 'acts', 'provenance']);
-const TEMPLATE_RESULT_KEYS = freeze(['schema', 'plan', 'provenance']);
+const RESULT_KEYS = freeze(['schema', 'acts', 'provenance', 'authenticity']);
+const TEMPLATE_RESULT_KEYS = freeze(['schema', 'plan', 'provenance', 'authenticity']);
+const AUTHENTICITY_KEYS = freeze(['alg', 'request_id', 'signature']);
+const HMAC_ALG = 'HMAC-SHA256';
+const HMAC_CANONICAL_VERSION = 'v1';
 const TEMPLATE_PLAN_KEYS = freeze(['template_id', 'tone', 'question_key', 'acknowledgment_key']);
 const PROVENANCE_KEYS = freeze([
   'provider', 'model', 'runtime', 'tenant_id', 'location_key',
@@ -179,6 +183,69 @@ function parseDraftPlanRequest(raw) {
   return freeze({ ok: true, value: freeze(out) });
 }
 
+function canonicalJson(value) {
+  if (value === null) return 'null';
+  const type = typeof value;
+  if (type === 'string' || type === 'number' || type === 'boolean') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (type === 'object') {
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  throw new Error('canonical_json');
+}
+
+function planSha256(planObj) {
+  return crypto.createHash('sha256').update(canonicalJson(planObj), 'utf8').digest('hex');
+}
+
+function canonicalHmacPayload(req, provenance, planObj) {
+  const digest = planSha256(planObj);
+  return [
+    HMAC_CANONICAL_VERSION,
+    `request_id=${req.request_id}`,
+    `client_id=${req.client_id}`,
+    `location_id=${req.location_id}`,
+    `conversation_id=${req.conversation_id}`,
+    `endpoint_id=${req.endpoint_id}`,
+    `inbound_message_id=${req.inbound_message_id}`,
+    `provider=${provenance.provider}`,
+    `model=${provenance.model}`,
+    `runtime=${provenance.runtime}`,
+    `plan_sha256=${digest}`,
+  ].join('\n');
+}
+
+function signResultAuthenticity(secret, req, provenance, planObj) {
+  if (typeof secret !== 'string' || !secret || secret.trim() !== secret) return null;
+  if (!req || !provenance) return null;
+  const payload = canonicalHmacPayload(req, provenance, planObj);
+  const signature = crypto.createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+  return freeze({
+    alg: HMAC_ALG,
+    request_id: req.request_id,
+    signature,
+  });
+}
+
+function verifyResultAuthenticity(secret, req, provenance, planObj, authenticity) {
+  const expected = signResultAuthenticity(secret, req, provenance, planObj);
+  const rec = exactRecord(authenticity, AUTHENTICITY_KEYS, Object.prototype)
+    || exactRecord(authenticity, AUTHENTICITY_KEYS, null);
+  if (!expected || !rec) return false;
+  if (rec.alg !== HMAC_ALG) return false;
+  if (rec.request_id !== expected.request_id) return false;
+  if (typeof rec.signature !== 'string' || !rec.signature) return false;
+  try {
+    const left = Buffer.from(rec.signature, 'utf8');
+    const right = Buffer.from(expected.signature, 'utf8');
+    if (left.length !== right.length) return false;
+    return crypto.timingSafeEqual(left, right);
+  } catch {
+    return false;
+  }
+}
+
 function parseProvenance(value, expectedIds) {
   const rec = exactRecord(value, PROVENANCE_KEYS, Object.prototype);
   if (!rec) return null;
@@ -205,7 +272,7 @@ function parseProvenance(value, expectedIds) {
   });
 }
 
-function parseDraftPlanResult(raw, expectedIds) {
+function parseDraftPlanResult(raw, expectedIds, hmacSecret) {
   if (typeof raw !== 'string' || isProxy(raw)) return freeze({ ok: false, reason: 'malformed' });
   if (Buffer.byteLength(raw, 'utf8') > MAX_RESULT_JSON_BYTES) {
     return freeze({ ok: false, reason: 'malformed' });
@@ -217,18 +284,43 @@ function parseDraftPlanResult(raw, expectedIds) {
   if (rec.schema !== HERMES_SOL_RESULT_SCHEMA) return freeze({ ok: false, reason: 'malformed' });
   const provenance = parseProvenance(rec.provenance, expectedIds);
   if (!provenance) return freeze({ ok: false, reason: 'provenance_mismatch' });
+  let actsJson;
+  let acts = rec.acts;
   if (typeof rec.acts === 'string') {
-    return freeze({ ok: true, value: freeze({ schema: rec.schema, actsJson: rec.acts, provenance }) });
+    actsJson = rec.acts;
+    try { acts = JSON.parse(rec.acts).acts; } catch { return freeze({ ok: false, reason: 'malformed' }); }
+  } else {
+    try { actsJson = JSON.stringify({ acts: rec.acts }); } catch { return freeze({ ok: false, reason: 'malformed' }); }
   }
-  try {
-    const actsJson = JSON.stringify({ acts: rec.acts });
-    return freeze({ ok: true, value: freeze({ schema: rec.schema, actsJson, provenance, acts: rec.acts }) });
-  } catch {
-    return freeze({ ok: false, reason: 'malformed' });
+  const requestId = expectedIds && uuid(expectedIds.request_id);
+  if (!requestId) return freeze({ ok: false, reason: 'hmac_mismatch' });
+  if (!verifyResultAuthenticity(hmacSecret, {
+    request_id: requestId,
+    client_id: expectedIds.client_id,
+    location_id: expectedIds.location_id,
+    conversation_id: expectedIds.conversation_id,
+    endpoint_id: expectedIds.endpoint_id,
+    inbound_message_id: expectedIds.inbound_message_id,
+  }, provenance, { acts }, rec.authenticity)) {
+    return freeze({ ok: false, reason: 'hmac_mismatch' });
   }
+  return freeze({
+    ok: true,
+    value: freeze({
+      schema: rec.schema,
+      actsJson,
+      provenance,
+      acts,
+      authenticity: freeze({
+        alg: HMAC_ALG,
+        request_id: rec.authenticity.request_id,
+        signature: rec.authenticity.signature,
+      }),
+    }),
+  });
 }
 
-function parseTemplatePlanResult(raw, expectedIds) {
+function parseTemplatePlanResult(raw, expectedIds, hmacSecret) {
   if (typeof raw !== 'string' || isProxy(raw)) return freeze({ ok: false, reason: 'malformed' });
   if (Buffer.byteLength(raw, 'utf8') > MAX_RESULT_JSON_BYTES) {
     return freeze({ ok: false, reason: 'malformed' });
@@ -242,6 +334,18 @@ function parseTemplatePlanResult(raw, expectedIds) {
   if (!provenance) return freeze({ ok: false, reason: 'provenance_mismatch' });
   const plan = exactRecord(rec.plan, TEMPLATE_PLAN_KEYS, Object.prototype);
   if (!plan) return freeze({ ok: false, reason: 'malformed' });
+  const requestId = expectedIds && uuid(expectedIds.request_id);
+  if (!requestId) return freeze({ ok: false, reason: 'hmac_mismatch' });
+  if (!verifyResultAuthenticity(hmacSecret, {
+    request_id: requestId,
+    client_id: expectedIds.client_id,
+    location_id: expectedIds.location_id,
+    conversation_id: expectedIds.conversation_id,
+    endpoint_id: expectedIds.endpoint_id,
+    inbound_message_id: expectedIds.inbound_message_id,
+  }, provenance, plan, rec.authenticity)) {
+    return freeze({ ok: false, reason: 'hmac_mismatch' });
+  }
   try {
     return freeze({
       ok: true,
@@ -250,6 +354,11 @@ function parseTemplatePlanResult(raw, expectedIds) {
         planJson: JSON.stringify(plan),
         provenance,
         plan: freeze(plan),
+        authenticity: freeze({
+          alg: HMAC_ALG,
+          request_id: rec.authenticity.request_id,
+          signature: rec.authenticity.signature,
+        }),
       }),
     });
   } catch {
@@ -324,6 +433,8 @@ module.exports = freeze({
   PRIVATE_STAFF_TRUST,
   MAX_REQUEST_JSON_BYTES,
   MAX_RESULT_JSON_BYTES,
+  HMAC_ALG,
+  AUTHENTICITY_KEYS,
   parseDraftPlanRequest,
   parseDraftPlanResult,
   parseTemplatePlanResult,
@@ -331,4 +442,8 @@ module.exports = freeze({
   buildServerProvenance,
   closedRuntimeMarker,
   bindRequestToAuthority,
+  signResultAuthenticity,
+  verifyResultAuthenticity,
+  canonicalJson,
+  planSha256,
 });

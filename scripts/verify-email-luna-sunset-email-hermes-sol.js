@@ -32,11 +32,14 @@ const {
   PRIVATE_STAFF_TRUST,
   parseDraftPlanRequest,
   parseDraftPlanResult,
+  signResultAuthenticity,
+  verifyResultAuthenticity,
 } = require('./lib/email-luna-sunset-email-hermes-sol-contract');
 const {
   ENV_AUTHOR_ENABLED,
   ENV_BASE_URL,
   ENV_TOKEN,
+  ENV_HMAC_SECRET,
   ENV_TLS_PIN,
   ACA_INTERNAL_HTTPS,
   snapshotSunsetEmailHermesSolEnv,
@@ -75,6 +78,7 @@ const M = '66666666-6666-4666-8666-666666666666';
 const MAILBOX = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const GRAPH_ID = 'opaque/id+with=padding';
 const TOKEN = 'test-hermes-sol-token';
+const HMAC_SECRET = 'test-hermes-sol-hmac';
 const LIVE_NOTES = 'Thank them for the msg and then ask them if they want to do a booking';
 const LIVE_SUBJECT = 'Re: Testing 8 26';
 const LIVE_BODY = 'Hi, just testing the front desk mailbox.';
@@ -119,6 +123,7 @@ function hermesEnv(port, patch = {}) {
     [ENV_AUTHOR_ENABLED]: 'true',
     [ENV_BASE_URL]: `http://127.0.0.1:${port}`,
     [ENV_TOKEN]: TOKEN,
+    [ENV_HMAC_SECRET]: HMAC_SECRET,
     ...patch,
   };
 }
@@ -199,21 +204,28 @@ function startFakeHermes(onRequest) {
           res.writeHead(409); res.end(JSON.stringify({ error: 'replay' })); return;
         }
         seen.add(parsed.value.request_id);
+        const provenance = provenanceFrom(parsed.value);
+        const plan = parsed.value.schema === HERMES_SOL_TEMPLATE_REQUEST_SCHEMA
+          ? {
+            template_id: 'catalog_reply',
+            tone: 'concise',
+            question_key: 'none',
+            acknowledgment_key: 'thanks',
+          }
+          : { acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }] };
+        const authenticity = signResultAuthenticity(HMAC_SECRET, parsed.value, provenance, plan);
         const body = parsed.value.schema === HERMES_SOL_TEMPLATE_REQUEST_SCHEMA
           ? JSON.stringify({
             schema: HERMES_SOL_TEMPLATE_RESULT_SCHEMA,
-            plan: {
-              template_id: 'catalog_reply',
-              tone: 'concise',
-              question_key: 'none',
-              acknowledgment_key: 'thanks',
-            },
-            provenance: provenanceFrom(parsed.value),
+            plan,
+            provenance,
+            authenticity,
           })
           : JSON.stringify({
             schema: HERMES_SOL_RESULT_SCHEMA,
-            acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
-            provenance: provenanceFrom(parsed.value),
+            acts: plan.acts,
+            provenance,
+            authenticity,
           });
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(body);
@@ -482,6 +494,9 @@ function assertNoSecretsLogged(hits) {
   assert.equal(owner.journals.length, 0);
   assert.equal(owner.providers.length, 0);
   assert.equal(owner.bookings.length, 0);
+  assert.equal(liveDraft.marker.provider, HERMES_SOL_PROVIDER);
+  assert.equal(liveDraft.marker.model, HERMES_SOL_MODEL);
+  assert.equal(liveDraft.marker.runtime, HERMES_SOL_RUNTIME);
   console.log('  PASS  producer persists Hermes draft with no send/approval/journal/booking');
 
   const opened = await owner.owner.ensureEmailLunaDraftOnOpen({
@@ -683,11 +698,19 @@ function assertNoSecretsLogged(hits) {
   assert.equal(first.status, 'ok');
   assert.equal(first.marker.provider, HERMES_SOL_PROVIDER);
   assert.equal(first.marker.model, HERMES_SOL_MODEL);
+  const signedReq = {
+    ...authority(),
+    request_id: '99999999-9999-4999-8999-999999999999',
+    endpoint_id: E,
+  };
+  const signedProv = provenanceFrom({ ...authority(), tenant_id: 'sunset' });
+  const signedActs = { acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }] };
   const parsedPlan = parseDraftPlanResult(JSON.stringify({
     schema: HERMES_SOL_RESULT_SCHEMA,
-    acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
-    provenance: provenanceFrom({ ...authority(), tenant_id: 'sunset' }),
-  }), authority());
+    acts: signedActs.acts,
+    provenance: signedProv,
+    authenticity: signResultAuthenticity(HMAC_SECRET, signedReq, signedProv, signedActs),
+  }), signedReq, HMAC_SECRET);
   assert.equal(parsedPlan.ok, true);
 
   const wolf = await client.requestNaturalPlan({
@@ -744,6 +767,118 @@ function assertNoSecretsLogged(hits) {
   assert.equal(b.provenance.conversation_id, '77777777-7777-4777-8777-777777777777');
   await stopFake(clientFake);
   console.log('  PASS  tenant/location/authority binding, injection, concurrent requests');
+
+  const unsigned = parseDraftPlanResult(JSON.stringify({
+    schema: HERMES_SOL_RESULT_SCHEMA,
+    acts: signedActs.acts,
+    provenance: signedProv,
+  }), signedReq, HMAC_SECRET);
+  assert.equal(unsigned.ok, false);
+  const forgedSig = parseDraftPlanResult(JSON.stringify({
+    schema: HERMES_SOL_RESULT_SCHEMA,
+    acts: signedActs.acts,
+    provenance: signedProv,
+    authenticity: {
+      alg: 'HMAC-SHA256',
+      request_id: signedReq.request_id,
+      signature: '0'.repeat(64),
+    },
+  }), signedReq, HMAC_SECRET);
+  assert.equal(forgedSig.ok, false);
+  assert.equal(forgedSig.reason, 'hmac_mismatch');
+  const replayed = parseDraftPlanResult(JSON.stringify({
+    schema: HERMES_SOL_RESULT_SCHEMA,
+    acts: signedActs.acts,
+    provenance: signedProv,
+    authenticity: signResultAuthenticity(HMAC_SECRET, signedReq, signedProv, signedActs),
+  }), { ...signedReq, request_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }, HMAC_SECRET);
+  assert.equal(replayed.ok, false);
+  const forgedProv = { ...signedProv, model: 'gpt-4o-mini' };
+  const forgedProvSigned = parseDraftPlanResult(JSON.stringify({
+    schema: HERMES_SOL_RESULT_SCHEMA,
+    acts: signedActs.acts,
+    provenance: forgedProv,
+    authenticity: signResultAuthenticity(HMAC_SECRET, signedReq, signedProv, signedActs),
+  }), signedReq, HMAC_SECRET);
+  assert.equal(forgedProvSigned.ok, false);
+  assert.equal(verifyResultAuthenticity(
+    HMAC_SECRET,
+    signedReq,
+    signedProv,
+    signedActs,
+    signResultAuthenticity(HMAC_SECRET, signedReq, signedProv, signedActs),
+  ), true);
+  const hostileFake = await startFakeHermes(async ({ res, raw }) => {
+    const parsed = parseDraftPlanRequest(raw);
+    const prov = provenanceFrom(parsed.value);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      schema: HERMES_SOL_RESULT_SCHEMA,
+      acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
+      provenance: prov,
+      authenticity: signResultAuthenticity('wrong-secret', parsed.value, prov, {
+        acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
+      }),
+    }));
+  });
+  const hostileClient = createEmailLunaSunsetEmailHermesSolClient({ env: hermesEnv(hostileFake.port) });
+  const hostile = await hostileClient.requestNaturalPlan({
+    authority: authority(),
+    untrusted_email: content(),
+    language: 'en',
+    goals: LIVE_NOTES,
+  });
+  assert.equal(hostile.status, 'error');
+  assert.equal(hostile.reason, 'provenance_mismatch');
+  await stopFake(hostileFake);
+  console.log('  PASS  response HMAC rejects forged JSON/provenance/signature/replay');
+
+  const { createMailMvp007LiveProof } = require('./lib/email-luna-sunset-email-hermes-sol-live-proof');
+  const counts = { approvals: 2, journal: 3, sends: 1, bookings: 4, draft: 10 };
+  const proofPg = async (fn) => fn({
+    async query(sql) {
+      if (/tenant_email_reply_approvals/.test(sql)) return { rows: [{ n: counts.approvals }] };
+      if (/send_invocation_count/.test(sql)) return { rows: [{ n: counts.sends }] };
+      if (/tenant_email_outbound_send_journal/.test(sql)) return { rows: [{ n: counts.journal }] };
+      if (/FROM bookings/.test(sql)) return { rows: [{ n: counts.bookings }] };
+      if (/staff_reply_draft/.test(sql)) return { rows: [{ n: counts.draft }] };
+      return { rows: [] };
+    },
+  });
+  const proof = createMailMvp007LiveProof({
+    withPgClient: proofPg,
+    expectedBody: LIVE_EN_BODY,
+    createDraft: async () => {
+      counts.draft = LIVE_EN_BODY.length;
+      return {
+        status: 'draft_ready',
+        draft_text: LIVE_EN_BODY,
+        marker: { provider: 'openai-codex', model: 'gpt-5.6-sol', runtime: 'sunset-email-luna' },
+      };
+    },
+  });
+  const proved = await proof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(proved.ok, true);
+  assert.equal(proved.invoked, 1);
+  assert.equal(proved.deltas.approvals, 0);
+  assert.equal(proved.deltas.journal, 0);
+  assert.equal(proved.deltas.sends, 0);
+  assert.equal(proved.deltas.bookings, 0);
+  const side = createMailMvp007LiveProof({
+    withPgClient: proofPg,
+    createDraft: async () => {
+      counts.approvals += 1;
+      return {
+        status: 'draft_ready',
+        draft_text: LIVE_EN_BODY,
+        marker: { provider: 'openai-codex', model: 'gpt-5.6-sol', runtime: 'sunset-email-luna' },
+      };
+    },
+  });
+  const leaked = await side.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(leaked.ok, false);
+  assert.equal(leaked.reason, 'side_effect');
+  console.log('  PASS  live proof helper is one Create Draft with zero send/approval/journal/booking deltas');
 
   const srcFiles = [
     'scripts/lib/email-luna-sunset-email-hermes-sol-client.js',
@@ -821,10 +956,79 @@ function assertNoSecretsLogged(hits) {
     'docker/hermes-staging/wolfhouse/email_draft_hermes.py',
     'docker/hermes-staging/wolfhouse/email_draft_replay.py',
     'docker/hermes-staging/verify_sunset_email_luna_instance.py',
+    'scripts/fill-sunset-email-luna-aca-yaml.py',
   ], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(pyCompile.status, 0, pyCompile.stderr);
 
+  const AZ = '/opt/data/home/.local/bin/az';
+  assert.equal(fs.existsSync(AZ), true, 'installed Azure CLI missing at /opt/data/home/.local/bin/az');
+  const azVer = spawnSync(AZ, ['version', '--query', '{cli:\'azure-cli\',ext:extensions.containerapp}', '-o', 'json'], { encoding: 'utf8' });
+  const azCreateHelp = spawnSync(AZ, ['containerapp', 'create', '--help'], { encoding: 'utf8' });
+  assert.equal(azCreateHelp.status, 0, azCreateHelp.stderr);
+  assert.match(azCreateHelp.stdout, /--yaml/);
+  assert.match(azCreateHelp.stdout, /ignored/i);
+  const azUpdateHelp = spawnSync(AZ, ['containerapp', 'update', '--help'], { encoding: 'utf8' });
+  assert.equal(azUpdateHelp.status, 0, azUpdateHelp.stderr);
+  assert.match(azUpdateHelp.stdout, /--yaml/);
+  const azStorageHelp = spawnSync(AZ, ['containerapp', 'env', 'storage', 'set', '--help'], { encoding: 'utf8' });
+  assert.equal(azStorageHelp.status, 0, azStorageHelp.stderr);
+  assert.match(azStorageHelp.stdout, /--storage-name/);
+  assert.match(azStorageHelp.stdout, /--azure-file-account-key|--storage-account-key/);
+  assert.match(azStorageHelp.stdout, /--azure-file-share-name|--file-share/);
+  const azSecretHelp = spawnSync(AZ, ['containerapp', 'secret', 'set', '--help'], { encoding: 'utf8' });
+  assert.equal(azSecretHelp.status, 0, azSecretHelp.stderr);
+  assert.match(azSecretHelp.stdout, /keyvaultref/);
+  const azAcrHelp = spawnSync(AZ, ['acr', 'build', '--help'], { encoding: 'utf8' });
+  assert.equal(azAcrHelp.status, 0, azAcrHelp.stderr);
+  assert.match(azAcrHelp.stdout, /--registry -r/);
+  assert.match(azAcrHelp.stdout, /--image -t|--image/);
+  assert.match(azAcrHelp.stdout, /--file -f/);
+  const azIdentityHelp = spawnSync(AZ, ['identity', 'show', '--help'], { encoding: 'utf8' });
+  assert.equal(azIdentityHelp.status, 0, azIdentityHelp.stderr);
+  console.log('  PASS  installed Azure CLI 2.88 command surface (create/update/env storage/secret/acr/identity)');
+  if (azVer.status === 0) {
+    assert.match(azVer.stdout + azCreateHelp.stdout, /2\.88|containerapp/);
+  }
+
+  const filledYaml = path.join(require('node:os').tmpdir(), `sunset-email-luna-${process.pid}.yaml`);
+  const fill = spawnSync('python3', [
+    'scripts/fill-sunset-email-luna-aca-yaml.py',
+    '--template', 'docker/hermes-staging/sunset-email-luna.aca.yaml.example',
+    '--output', filledYaml,
+    '--environment-id', '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/managedEnvironments/luna-sunset-staging-env',
+    '--identity-id', '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity',
+    '--full-master-sha', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+  ], { cwd: ROOT, encoding: 'utf8' });
+  assert.equal(fill.status, 0, fill.stderr || fill.stdout);
+  const filled = fs.readFileSync(filledYaml, 'utf8');
+  assert.doesNotMatch(filled, /<[^>]+>/);
+  assert.match(filled, /environmentId: \/subscriptions\//);
+  assert.doesNotMatch(filled, /managedEnvironmentId/);
+  fs.unlinkSync(filledYaml);
+  console.log('  PASS  YAML fill replaces every placeholder; current environmentId schema');
+
   const runbook = readFile('docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md');
+  const assertMaster = spawnSync('node', ['scripts/assert-deploy-from-master.js'], { cwd: ROOT, encoding: 'utf8' });
+  if (assertMaster.status === 0) {
+    console.log('  PASS  assert-deploy-from-master: tree is clean origin/master');
+  } else {
+    assert.match(String(assertMaster.stderr || assertMaster.stdout), /HEAD|origin\/master|DIRTY/);
+    assert.match(runbook, /assert-deploy-from-master\.js/);
+    assert.match(runbook, /feature-branch checkout[\s\S]*fails|Do not deploy this feature branch/);
+    console.log('  PASS  assert-deploy-from-master cloud-VM limitation handled honestly (not origin/master here)');
+  }
+
+  for (const rel of [
+    'scripts/fill-sunset-email-luna-aca-yaml.py',
+    'scripts/prove-mail-mvp-007-create-draft.js',
+    'scripts/lib/email-luna-sunset-email-hermes-sol-live-proof.js',
+  ]) {
+    if (rel.endsWith('.js')) {
+      const checked = spawnSync(process.execPath, ['--check', rel], { cwd: ROOT, encoding: 'utf8' });
+      assert.equal(checked.status, 0, checked.stderr || rel);
+    }
+  }
+
   assert.match(runbook, /luna-sunset-staging-email-luna/);
   assert.match(runbook, /EMAIL_LUNA_HERMES_SOL_TLS_PIN/);
   assert.match(runbook, /ingress internal|external: false/);
@@ -832,46 +1036,49 @@ function assertNoSecretsLogged(hits) {
   assert.match(runbook, /--entrypoint \/init/);
   assert.match(runbook, /az containerapp create/);
   assert.match(runbook, /--yaml/);
-  assert.match(runbook, /az account show --query id/);
-  assert.match(runbook, /az containerapp show/);
+  assert.match(runbook, /Do \*\*not\*\* pass `--environment`/);
+  assert.match(runbook, /account show --query id/);
+  assert.match(runbook, /containerapp show/);
   assert.match(runbook, /\/opt\/hermes\/\.venv\/bin\/python/);
+  assert.match(runbook, /\/opt\/data\/home\/\.local\/bin\/az/);
+  assert.match(runbook, /acr build -r/);
+  assert.match(runbook, /Dockerfile\.luna-sunset-staff-api/);
+  assert.match(runbook, /assert-deploy-from-master\.js/);
+  assert.match(runbook, /git reset --hard origin\/master/);
+  assert.match(runbook, /lunasunsetemailst/);
+  assert.match(runbook, /storage share create/);
+  assert.match(runbook, /containerapp env storage set/);
+  assert.match(runbook, /EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET/);
+  assert.match(runbook, /prove-mail-mvp-007-create-draft\.js/);
+  assert.match(runbook, /environmentId/);
   assert.doesNotMatch(runbook, /lunabox-reachability-as-operator-directs/);
   assert.doesNotMatch(runbook, /hermes chat --no-stream --json/);
   assert.doesNotMatch(runbook, /--command python/);
   assert.doesNotMatch(runbook, /--bind-env-vars/);
   assert.doesNotMatch(runbook, /--volume-mounts/);
   assert.doesNotMatch(runbook, /--health-probe-kind/);
-  assert.doesNotMatch(runbook, /az storage share create/);
-  assert.doesNotMatch(runbook, /containerapp env storage set/);
+  assert.doesNotMatch(runbook, /--environment "\$ENV" \\\s*\n\s*--yaml/);
   const aca = readFile('docker/hermes-staging/sunset-email-luna.aca.yaml.example');
   assert.match(aca, /external: false/);
   assert.match(aca, /allowInsecure: false/);
   assert.match(aca, /\/opt\/hermes\/\.venv\/bin\/python/);
-  assert.match(aca, /keyVaultUrl: https:\/\/luna-sunset-staging-kv\.vault\.azure\.net\/secrets\/hermes-sunset-email-luna-auth-json-b64/);
-  assert.match(aca, /secretRef: hermes-sunset-email-auth-json-b64/);
+  assert.match(aca, /environmentId: <environment-id>/);
   assert.match(aca, /secretRef: api-server-key/);
+  assert.match(aca, /secretRef: resp-hmac-secret/);
   assert.match(aca, /type: Liveness/);
   assert.match(aca, /type: Readiness/);
   assert.match(aca, /cpu: 1\.0/);
   assert.match(aca, /memory: 2Gi/);
   assert.match(aca, /whstagingacr\.azurecr\.io/);
+  assert.match(aca, /storageType: AzureFile/);
+  assert.match(aca, /storageName: hermes-sunset-email-luna-home/);
+  assert.match(aca, /volumeMounts:/);
+  assert.doesNotMatch(aca, /managedEnvironmentId/);
+  assert.doesNotMatch(aca, /HERMES_SUNSET_EMAIL_AUTH_JSON_B64/);
   assert.doesNotMatch(aca, /^\s+command:/m);
   assert.doesNotMatch(aca, /command: gateway run/);
   assert.doesNotMatch(aca, /WHATSAPP_CLOUD/);
-  assert.doesNotMatch(aca, /AzureFile/);
-  assert.doesNotMatch(aca, /volumeMounts:/);
-  assert.doesNotMatch(aca, /storageName:/);
-  const azCreateFlags = [
-    '--name', '-n', '--resource-group', '-g', '--environment', '--yaml',
-    '--image', '--args', '--command', '--cpu', '--memory', '--min-replicas',
-    '--max-replicas', '--ingress', '--target-port', '--transport',
-    '--user-assigned', '--registry-server', '--registry-identity',
-    '--secrets', '--env-vars', '--allow-insecure', '--container-name',
-    '--tags', '--secret-volume-mount', '--system-assigned',
-    '--workload-profile-name', '--termination-grace-period', '--query',
-  ];
   for (const flag of ['--bind-env-vars', '--volume-mounts', '--health-probe-kind', '--health-probe-path', '--health-probe-port', '--bind-mount']) {
-    assert.equal(azCreateFlags.includes(flag), false, flag);
     assert.doesNotMatch(runbook, new RegExp(flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
   assert.match(extractService(sunsetCompose, 'hermes-sunset-email-luna'), /\/opt\/hermes\/\.venv\/bin\/python/);

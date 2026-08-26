@@ -30,6 +30,7 @@ from wolfhouse.email_draft_contract import (
     parse_attempt,
     parse_request,
     parse_template_payload,
+    sign_result_authenticity,
 )
 from wolfhouse.email_draft_invoke import default_invoke, ensure_isolated_sol_home
 from wolfhouse.email_draft_replay import ReplayCache
@@ -55,11 +56,14 @@ def handle_draft_request(
     expected_token: str,
     invoke: Callable[[str, str], AttemptResult | str],
     replay: ReplayCache,
+    hmac_secret: str,
 ) -> tuple[int, dict]:
     if not expected_token or not _constant_time_eq(
         authorization, f"Bearer {expected_token}"
     ):
         return 401, {"error": "unauthorized"}
+    if not isinstance(hmac_secret, str) or not hmac_secret or hmac_secret.strip() != hmac_secret:
+        return 500, {"error": "hmac_unconfigured"}
     req, reason = parse_request(raw_body)
     if req is None:
         status = 413 if reason == "oversized" else 400
@@ -101,21 +105,33 @@ def handle_draft_request(
         if plan is None or set(plan.keys()) != set(TEMPLATE_PLAN_KEYS):
             replay.release(request_id)
             return 502, {"error": "model_malformed"}
+        authenticity = sign_result_authenticity(hmac_secret, req, provenance, plan)
+        if authenticity is None:
+            replay.release(request_id)
+            return 500, {"error": "hmac_unconfigured"}
         replay.finish(request_id)
         return 200, {
             "schema": TEMPLATE_RESULT_SCHEMA,
             "plan": plan,
             "provenance": provenance,
+            "authenticity": authenticity,
         }
     acts = parse_acts_payload(attempt.content)
     if not acts:
         replay.release(request_id)
         return 502, {"error": "model_malformed"}
+    authenticity = sign_result_authenticity(
+        hmac_secret, req, provenance, {"acts": acts}
+    )
+    if authenticity is None:
+        replay.release(request_id)
+        return 500, {"error": "hmac_unconfigured"}
     replay.finish(request_id)
     return 200, {
         "schema": RESULT_SCHEMA,
         "acts": acts,
         "provenance": provenance,
+        "authenticity": authenticity,
     }
 
 
@@ -123,6 +139,7 @@ def make_handler(
     expected_token: str,
     invoke: Callable[[str, str], AttemptResult | str],
     replay: ReplayCache,
+    hmac_secret: str,
 ):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -166,7 +183,17 @@ def make_handler(
                 expected_token=expected_token,
                 invoke=invoke,
                 replay=replay,
+                hmac_secret=hmac_secret,
             )
+            if status == 200 and isinstance(payload.get("provenance"), dict):
+                sys.stderr.write(
+                    "email-draft-server attempt "
+                    f"request_id={payload.get('authenticity', {}).get('request_id', '')} "
+                    f"provider={payload['provenance'].get('provider')} "
+                    f"model={payload['provenance'].get('model')} "
+                    f"runtime={payload['provenance'].get('runtime')} "
+                    "hmac=ok\n"
+                )
             self._send(status, payload)
 
     return Handler
@@ -176,6 +203,10 @@ def main() -> int:
     token = os.environ.get("API_SERVER_KEY", "").strip()
     if not token:
         print("sunset-email-luna requires API_SERVER_KEY", file=sys.stderr)
+        return 1
+    hmac_secret = os.environ.get("EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET", "")
+    if not hmac_secret or hmac_secret.strip() != hmac_secret:
+        print("sunset-email-luna requires EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET", file=sys.stderr)
         return 1
     if os.environ.get("HERMES_ROLE", "sunset-email-luna") != "sunset-email-luna":
         print("sunset-email-luna requires HERMES_ROLE=sunset-email-luna", file=sys.stderr)
@@ -187,7 +218,7 @@ def main() -> int:
         return 1
     host = os.environ.get("EMAIL_LUNA_DRAFT_LISTEN_HOST", "127.0.0.1")
     port = int(os.environ.get("EMAIL_LUNA_DRAFT_LISTEN_PORT", "8093"))
-    handler = make_handler(token, default_invoke, ReplayCache(MAX_SEEN))
+    handler = make_handler(token, default_invoke, ReplayCache(MAX_SEEN), hmac_secret)
     httpd = ThreadingHTTPServer((host, port), handler)
     print(f"sunset-email-luna draft server listening on {host}:{port}", flush=True)
     httpd.serve_forever()

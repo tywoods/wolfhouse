@@ -293,9 +293,11 @@ function createEmailLunaSunsetEmailHermesSolClient(configuration) {
     if (status === 401 || status === 403) return fail('authority_mismatch');
     if (status >= 500) return unavailable();
     if (status !== 200) return fail('malformed');
-    const parsed = parser(raw, authority);
+    const parsed = parser(raw, Object.assign(create(null), authority, { request_id: requestId }), resolved.hmacSecret);
     if (!parsed || parsed.ok !== true) {
-      return fail(parsed && parsed.reason === 'provenance_mismatch' ? 'provenance_mismatch' : 'malformed');
+      const reason = parsed && parsed.reason;
+      if (reason === 'provenance_mismatch' || reason === 'hmac_mismatch') return fail('provenance_mismatch');
+      return fail('malformed');
     }
     const marker = closedRuntimeMarker(parsed.value.provenance);
     if (!marker) return fail('provenance_mismatch');

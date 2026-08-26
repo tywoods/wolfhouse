@@ -19,6 +19,7 @@ if str(STAGING) not in sys.path:
 from wolfhouse.email_draft_contract import (  # noqa: E402
     BAKED_SYSTEM,
     BAKED_TEMPLATE_SYSTEM,
+    HMAC_ALG,
     LIVE_ATTEMPT_SOURCE,
     LOCATION_KEY,
     MODEL,
@@ -32,6 +33,7 @@ from wolfhouse.email_draft_contract import (  # noqa: E402
     AttemptResult,
     bind_attempt_provenance,
     parse_attempt,
+    verify_result_authenticity,
 )
 from wolfhouse.email_draft_invoke import ensure_isolated_sol_home  # noqa: E402
 from wolfhouse.email_draft_replay import ReplayCache  # noqa: E402
@@ -43,6 +45,7 @@ V = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 E = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 M = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 TOKEN = "test-hermes-sol-token"
+HMAC_SECRET = "test-hermes-sol-hmac"
 PLAN = json.dumps({"acts": [{"act": "thank_guest"}, {"act": "ask_booking_interest"}]})
 TEMPLATE_PLAN = json.dumps(
     {
@@ -97,13 +100,14 @@ def invoke_ok(_system: str, _user: str) -> AttemptResult:
     return live_attempt()
 
 
-def call(raw, invoke=invoke_ok, replay=None, token=TOKEN, auth=None):
+def call(raw, invoke=invoke_ok, replay=None, token=TOKEN, auth=None, hmac_secret=HMAC_SECRET):
     return handle_draft_request(
         raw_body=raw,
         authorization=f"Bearer {token}" if auth is None else auth,
         expected_token=token,
         invoke=invoke,
         replay=replay or ReplayCache(),
+        hmac_secret=hmac_secret,
     )
 
 
@@ -136,14 +140,27 @@ class DraftServerTests(unittest.TestCase):
         self.assertIn(req_id, replay)
 
     def test_stamps_live_attempt_provenance(self):
-        status, payload = call(envelope())
+        raw = envelope()
+        req = json.loads(raw)
+        status, payload = call(raw)
         self.assertEqual(status, 200)
         self.assertEqual(payload["schema"], RESULT_SCHEMA)
         self.assertEqual(payload["provenance"]["provider"], "openai-codex")
         self.assertEqual(payload["provenance"]["model"], "gpt-5.6-sol")
         self.assertEqual(payload["provenance"]["runtime"], "sunset-email-luna")
         self.assertEqual(payload["provenance"]["client_id"], C)
-        self.assertEqual(set(payload.keys()), {"schema", "acts", "provenance"})
+        self.assertEqual(set(payload.keys()), {"schema", "acts", "provenance", "authenticity"})
+        self.assertEqual(payload["authenticity"]["alg"], HMAC_ALG)
+        self.assertEqual(payload["authenticity"]["request_id"], req["request_id"])
+        self.assertTrue(
+            verify_result_authenticity(
+                HMAC_SECRET,
+                req,
+                payload["provenance"],
+                {"acts": payload["acts"]},
+                payload["authenticity"],
+            )
+        )
 
     def test_invoke_failure_does_not_claim_sol(self):
         def boom(_s, _u):
@@ -245,6 +262,59 @@ class DraftServerTests(unittest.TestCase):
         )
         self.assertNotIn("hermes chat --no-stream", invoke_src)
         self.assertNotIn("--json", invoke_src)
+
+    def test_hmac_unconfigured_fails_closed(self):
+        status, payload = call(envelope(), hmac_secret="")
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["error"], "hmac_unconfigured")
+        self.assertNotIn("provenance", payload)
+
+    def test_forged_signature_does_not_verify(self):
+        raw = envelope()
+        req = json.loads(raw)
+        _, payload = call(raw)
+        forged = dict(payload["authenticity"])
+        forged["signature"] = "0" * 64
+        self.assertFalse(
+            verify_result_authenticity(
+                HMAC_SECRET,
+                req,
+                payload["provenance"],
+                {"acts": payload["acts"]},
+                forged,
+            )
+        )
+
+    def test_replayed_signature_does_not_bind_other_request(self):
+        first_raw = envelope()
+        _, first = call(first_raw)
+        second_raw = envelope()
+        second_req = json.loads(second_raw)
+        self.assertFalse(
+            verify_result_authenticity(
+                HMAC_SECRET,
+                second_req,
+                first["provenance"],
+                {"acts": first["acts"]},
+                first["authenticity"],
+            )
+        )
+
+    def test_forged_provenance_invalidates_hmac(self):
+        raw = envelope()
+        req = json.loads(raw)
+        _, payload = call(raw)
+        forged_prov = dict(payload["provenance"])
+        forged_prov["model"] = "gpt-4o-mini"
+        self.assertFalse(
+            verify_result_authenticity(
+                HMAC_SECRET,
+                req,
+                forged_prov,
+                {"acts": payload["acts"]},
+                payload["authenticity"],
+            )
+        )
 
     def test_ensure_home_refuses_shared_auth_and_missing_file(self):
         with tempfile.TemporaryDirectory() as tmp:

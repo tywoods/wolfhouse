@@ -31,17 +31,18 @@ WhatsApp add-on: `.hermes/plans/2026-08-26-sunset-whatsapp-autonomy-wiring.md` i
 
 ## 007 Email Luna Hermes Sol (Skipper-managed)
 
-Sunset staging only. Dedicated internal draft service `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`). Durable Hermes config pins `model.provider: openai-codex` and `model.default: gpt-5.6-sol`. Isolated `HERMES_HOME` (Lunabox volume or Azure Files). No WhatsApp/Discord gateway, no Staff booking plugin, no outbound email authority.
+Sunset staging only. Dedicated internal draft service `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`). Durable Hermes config pins `model.provider: openai-codex` and `model.default: gpt-5.6-sol`. Isolated `HERMES_HOME` is a Lunabox volume or a dedicated Azure Files mount of `/opt/data` (account `lunasunsetemailst`, share `hermes-sunset-email-luna-home`). Codex refresh rotations persist on that share. No Key Vault auth.json snapshot. No WhatsApp/Discord gateway, no Staff booking plugin, no outbound email authority.
 
 Staff API remains the sole renderer and the sole authority for prices, availability, bookings, holds, confirmations, and payment links. Hermes is invoked in-process through the installed openai-codex composition. The draft service returns a closed enumerated plan plus exact-attempt provenance taken from the actual Codex Responses HTTP transport (chatgpt.com `/backend-api/codex`) and the live Responses terminal `model`. Config strings, env, constants, wrapper args, client labels, and HTTP 200 are not proof. Staff rejects any provider/model other than `openai-codex` / `gpt-5.6-sol`.
 
-The Staff-reachable path is a separately created Container App `luna-sunset-staging-email-luna` in `luna-sunset-staging-env` with **internal TLS ingress**. Isolated `auth.json` is a Key Vault secret materialized at bootstrap to `/opt/data/auth.json` (0600). Lunabox `127.0.0.1:8093` is a local probe only. WhatsApp Caddy is unchanged.
+The Staff-reachable path is a separately created Container App `luna-sunset-staging-email-luna` in `luna-sunset-staging-env` with **internal TLS ingress** (`environmentId` in YAML; `--yaml` without `--environment`). Isolated `auth.json` lives on the Azure Files `HERMES_HOME`. API bearer and response HMAC remain Key Vault / ACA secrets. Lunabox `127.0.0.1:8093` is a local probe only. WhatsApp Caddy is unchanged.
 
 Activation is separate from WhatsApp and from auto-send:
 
 - `EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED=true`
 - `EMAIL_LUNA_HERMES_SOL_BASE_URL` (`https://` origin of the internal ACA `luna-sunset-staging-email-luna.internal.<env-hash>.northeurope.azurecontainerapps.io`, or loopback HTTP for tests)
 - `EMAIL_LUNA_HERMES_SOL_TOKEN` (matches the draft service `API_SERVER_KEY`)
+- `EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET` (Staff verifies HMAC over request id + authority + provider + model + runtime + plan hash)
 - optional `EMAIL_LUNA_HERMES_SOL_TLS_PIN` (leaf SPKI; default identity is CA + hostname)
 - existing Create Draft gates (`LUNA_DEPLOYMENT=sunset-staging`, `EMAIL_STAFF_LUNA_DRAFT_ENABLED=true`, `EMAIL_LUNA_DRAFT_RUNTIME_ENABLED=true`)
 - tenant/location `sunset` / `sunset-somo`

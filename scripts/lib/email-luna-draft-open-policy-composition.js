@@ -101,7 +101,7 @@ function safeDraft(language, reason) {
 }
 
 function authoredDraft(result) {
-  return freeze({
+  const out = {
     status: 'draft_ready',
     body: result.body,
     language: result.language === 'es' ? 'es' : 'en',
@@ -111,7 +111,9 @@ function authoredDraft(result) {
     auto_send_allowed: false,
     draft_only: true,
     requires_staff_review: true,
-  });
+  };
+  if (result && result.marker) out.marker = result.marker;
+  return freeze(out);
 }
 
 function failClosedDraft(language, reason) {

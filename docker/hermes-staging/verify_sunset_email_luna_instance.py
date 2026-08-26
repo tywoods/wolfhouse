@@ -122,9 +122,10 @@ def main() -> int:
         "bootstrap_no_plugins": "install_luna_plugins" not in extract_role(bootstrap),
         "bootstrap_no_link_shared": "link_shared_auth" not in extract_role(bootstrap),
         "bootstrap_isolated_auth": "require_isolated_sunset_email_auth" in bootstrap
-        and "materialize_isolated_sunset_email_auth_from_secret" in bootstrap
-        and "HERMES_SUNSET_EMAIL_AUTH_JSON_B64" in bootstrap
-        and "chmod 0600" in bootstrap,
+        and "materialize_isolated_sunset_email_auth_from_secret" not in bootstrap
+        and "HERMES_SUNSET_EMAIL_AUTH_JSON_B64" not in bootstrap
+        and "chmod 0600" in bootstrap
+        and "EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET" in bootstrap,
         "bootstrap_skip_role_for_auth": "HERMES_SKIP_ROLE_BOOTSTRAP" in bootstrap,
         "wolfhouse_still_gpt55": "default: gpt-5.5" in bootstrap,
         "sunset_whatsapp_still_sol_sed": "default: gpt-5.6-sol" in bootstrap
@@ -141,14 +142,18 @@ def main() -> int:
         "aca_yaml_internal": "external: false" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
         and "allowInsecure: false" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
         and "/opt/hermes/.venv/bin/python" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
-        and "keyVaultUrl:" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
-        and "AzureFile" not in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
+        and "environmentId:" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
+        and "managedEnvironmentId:" not in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
+        and "storageType: AzureFile" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
+        and "storageName: hermes-sunset-email-luna-home" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
+        and "HERMES_SUNSET_EMAIL_AUTH_JSON_B64" not in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
         and "\n        command:" not in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8"),
         "runbook_https_staff_path": "EMAIL_LUNA_HERMES_SOL_TLS_PIN" in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
         and "lunabox-reachability-as-operator-directs" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
         and "--command python" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
         and "--bind-env-vars" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
-        and "--volume-mounts" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8"),
+        and "containerapp env storage set" in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
+        and "lunasunsetemailst" in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8"),
     }
     failed = [name for name, ok in checks.items() if not ok]
     if failed:
