@@ -122,4 +122,8 @@ const tools = api.slice(api.indexOf('id="banner-tools"'), api.indexOf('id="banne
 assert.ok(tools.indexOf('id="staff-theme-toggle"') < tools.indexOf('id="btn-logout"'));
 assert.ok(tools.indexOf('id="btn-logout"') < tools.indexOf('id="staff-lang-switch"'));
 
+assert.match(api, /function bcCellInCurrentSelection/);
+assert.match(api, /painted \|\| bcCellInCurrentSelection\(td\)/);
+assert.doesNotMatch(api, /Same bed clicked again — extend\/adjust the date range/);
+
 console.log('PASS staff-calendar-chrome: fonts + stacked banner + no owner-schedule legend');

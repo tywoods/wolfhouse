@@ -75,8 +75,23 @@ function loadConfig() {
   return JSON.parse(raw);
 }
 
+function catalogPackageCodes(config) {
+  const codes = [];
+  for (const p of (config && Array.isArray(config.packages) ? config.packages : [])) {
+    const c = String(p && p.code || '').trim().toLowerCase();
+    if (c && !c.startsWith('_')) codes.push(c);
+  }
+  return codes;
+}
+
+function isCatalogPackageCode(config, code) {
+  const c = String(code || '').trim().toLowerCase();
+  if (!c) return false;
+  return catalogPackageCodes(config).includes(c);
+}
+
 function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride) {
-  const KNOWN = ['malibu', 'uluwatu', 'waimea'];
+  const KNOWN = catalogPackageCodes(config);
   const pkg = String(packageCode || '').trim().toLowerCase();
   const isNoPkg = pkg === 'package_none' || pkg === 'no_package' || pkg === 'accommodation_only';
   const usesPackageDeposit = KNOWN.includes(pkg)
@@ -194,7 +209,7 @@ function calculateWolfhouseQuote(input, config) {
   }
 
   // ── 3b. Optional per-guest packages ───────────────────────────────────────
-  const KNOWN_PACKAGES = ['malibu', 'uluwatu', 'waimea'];
+  const KNOWN_PACKAGES = catalogPackageCodes(config);
   const normalizePkgCode = (value) => String(value || '').trim().toLowerCase();
   const isNoPackageCode = (code) => code === 'package_none' || code === 'no_package' || code === 'accommodation_only';
   let normalizedGuestPackages = [];
@@ -271,7 +286,7 @@ function calculateWolfhouseQuote(input, config) {
   let pkg = null;
   if (!isNoPackage && !isManualOverride && normalizedPackage) {
     pkg = config.packages.find((p) => p.code === normalizedPackage) || null;
-    if (KNOWN_PACKAGES.includes(normalizedPackage) && !pkg) {
+    if (normalizedPackage && !pkg && !isNoPackageCode(normalizedPackage)) {
       blockers.push(`package "${package_code}" not found in pricing config`);
     }
   }
@@ -780,4 +795,4 @@ function buildQuotePerPersonBreakdown(ctx) {
   return rows;
 }
 
-module.exports = { calculateWolfhouseQuote, loadConfig, computeGuestDepositTierCents };
+module.exports = { calculateWolfhouseQuote, loadConfig, computeGuestDepositTierCents, catalogPackageCodes, isCatalogPackageCode };

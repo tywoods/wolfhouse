@@ -90,12 +90,16 @@ function guestPackageStorageCode(raw) {
   return c;
 }
 
+const PACKAGE_CODE_RE = /^[a-z][a-z0-9_-]{0,62}$/;
+
 function isValidGuestPackageCode(code, fallbackPackageCode) {
   const c = String(code || '').trim().toLowerCase();
   if (!c) return false;
   if (NO_PACKAGE_CODES.has(c)) return true;
   if (KNOWN_PACKAGES.includes(c)) return true;
   if (fallbackPackageCode && c === String(fallbackPackageCode).trim().toLowerCase()) return true;
+  /* Admin Pricing can add packages (e.g. Rincon) that are not in the legacy three. */
+  if (c !== 'manual_override' && PACKAGE_CODE_RE.test(c)) return true;
   return false;
 }
 

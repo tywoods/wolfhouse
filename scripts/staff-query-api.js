@@ -187,7 +187,7 @@ const {
   createWolfhousePricingRoutes,
 } = require('./lib/wolfhouse-pricing-routes');
 const wolfhousePricingStore = require('./lib/wolfhouse-pricing-store');
-const { applyOverlayRentalPricesToConfig } = require('./lib/wolfhouse-pricing-resolve');
+const { applyOverlayRentalPricesToConfig, applyOverlayPackageItemsToConfig, listManualBookingPackages } = require('./lib/wolfhouse-pricing-resolve');
 const {
   getHouseNotes: getTenantHouseNotes,
   setHouseNotes: setTenantHouseNotes,
@@ -10052,10 +10052,38 @@ async function loadWolfhouseQuoteConfigWithOverlay() {
     return await withPgClient(async (pg) => {
       await wolfhousePricingStore.ensureWolfhousePricingTables(pg);
       const rules = await wolfhousePricingStore.loadRules(pg, 'wolfhouse-somo');
-      return applyOverlayRentalPricesToConfig(base, rules);
+      const items = await wolfhousePricingStore.loadItems(pg, 'wolfhouse-somo');
+      const next = applyOverlayRentalPricesToConfig(base, rules);
+      return applyOverlayPackageItemsToConfig(next, items);
     });
   } catch (_err) {
     return base;
+  }
+}
+
+async function handleStaffPackagesList(query, req, res, user) {
+  const clientSlug = String((query && query.client) || DEFAULT_CLIENT).trim() || 'wolfhouse-somo';
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  try {
+    const config = loadConfig();
+    let items = [];
+    let rules = [];
+    if (clientSlug === 'wolfhouse-somo') {
+      const overlay = await withPgClient(async (pg) => {
+        await wolfhousePricingStore.ensureWolfhousePricingTables(pg);
+        return {
+          items: await wolfhousePricingStore.loadItems(pg, 'wolfhouse-somo'),
+          rules: await wolfhousePricingStore.loadRules(pg, 'wolfhouse-somo'),
+        };
+      });
+      items = overlay.items || [];
+      rules = overlay.rules || [];
+    }
+    const packages = listManualBookingPackages({ config, dbItems: items, dbRules: rules });
+    return sendJSON(res, 200, { success: true, client_slug: clientSlug, packages });
+  } catch (_err) {
+    const packages = listManualBookingPackages({ config: loadConfig() });
+    return sendJSON(res, 200, { success: true, client_slug: clientSlug, packages, degraded: true });
   }
 }
 
@@ -32972,15 +33000,25 @@ function bcStayNightsFromCheckInOut(checkIn, checkOut){
 
 /* Stage 28i.1 — weekly surf packages require 7-night stays */
 function bcValidatePackageNightRule(checkIn, checkOut, packageCode){
-  var weekly = ['malibu','uluwatu','waimea'];
   var pkg = String(packageCode || '').trim().toLowerCase();
-  if (!checkIn || !checkOut || weekly.indexOf(pkg) < 0) return { ok: true };
+  if (!checkIn || !checkOut) return { ok: true };
+  if (!pkg || pkg === 'package_none' || pkg === 'no_package' || pkg === 'accommodation_only' || pkg === 'manual_override') {
+    return { ok: true };
+  }
+  var minDays = 7;
+  var opts = (typeof bcGuestPackageOptions === 'function') ? bcGuestPackageOptions() : [];
+  for (var i = 0; i < opts.length; i++){
+    if (opts[i] && String(opts[i].value || '').toLowerCase() === pkg && Number(opts[i].min_days) > 0) {
+      minDays = Number(opts[i].min_days);
+      break;
+    }
+  }
   var nights = bcStayNightsFromCheckInOut(checkIn, checkOut);
-  if (nights < 7) {
+  if (nights < minDays) {
     return {
       ok: false,
       nights: nights,
-      error: 'Packages require a 7-night stay. For shorter stays, use accommodation/services/add-ons instead.'
+      error: 'Packages require a ' + minDays + '-night stay. For shorter stays, use accommodation/services/add-ons instead.'
     };
   }
   return { ok: true, nights: nights };
@@ -33157,19 +33195,42 @@ function bcGuestCountForNameInputs(){
   return Math.max(1, Math.min(20, gc));
 }
 
-/* Hardcoded fallback per-guest package options (used when the client profile
-   does not supply manual_booking_packages). */
+/* Hardcoded fallback per-guest package options (used when Admin Pricing
+   and the client profile do not supply packages). */
 var BC_GUEST_PACKAGE_OPTIONS = [
   { value: 'malibu', label: 'Malibu' },
   { value: 'uluwatu', label: 'Uluwatu' },
   { value: 'waimea', label: 'Waimea' },
   { value: 'package_none', label: 'No package' },
 ];
+var bcAdminPackages = null;
+var bcAdminPackagesLoading = false;
 
-/* Per-client per-guest package options. Prefers the tenant profile's
-   manual_booking_packages (built server-side from the client's package
-   offerings), falling back to the hardcoded list above. */
+function bcLoadAdminPackages(){
+  if (bcAdminPackages || bcAdminPackagesLoading) return;
+  bcAdminPackagesLoading = true;
+  var slug = 'wolfhouse-somo';
+  try {
+    if (typeof getBcClient === 'function') slug = getBcClient() || slug;
+  } catch (_e) {}
+  fetch('/staff/packages?client=' + encodeURIComponent(slug), { credentials: 'include' })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (data && Array.isArray(data.packages) && data.packages.length) {
+        bcAdminPackages = data.packages;
+      }
+    })
+    .catch(function(){})
+    .then(function(){
+      bcAdminPackagesLoading = false;
+      if (bcAdminPackages && typeof bcRenderGuestNameInputs === 'function') bcRenderGuestNameInputs();
+    });
+}
+
+/* Per-client per-guest package options. Prefers live Admin Pricing catalog,
+   then the tenant profile's manual_booking_packages, then the hardcoded list. */
 function bcGuestPackageOptions(){
+  if (Array.isArray(bcAdminPackages) && bcAdminPackages.length) return bcAdminPackages;
   try {
     var profiles = (typeof staffPortalClientProfiles !== 'undefined') ? staffPortalClientProfiles : null;
     var slug = (typeof getBcClient === 'function') ? getBcClient()
@@ -33226,6 +33287,7 @@ function bcMajorityGuestPackage(){
 var bcPendingCreatePrefill = null;
 
 function bcRenderGuestNameInputs(){
+  if (typeof bcLoadAdminPackages === 'function') bcLoadAdminPackages();
   var wrap = el('bk-guest-names-wrap');
   if (!wrap) return;
   var count = bcGuestCountForNameInputs();
@@ -33468,6 +33530,29 @@ function bcFetchManualBookingAvailability(){
   });
 }
 
+function bcSelRange(){
+  if (!bcSel || !bcSel.anchor_date || !bcSel.cursor_date) return null;
+  var a = bcSel.anchor_date;
+  var b = bcSel.cursor_date;
+  return { start: a <= b ? a : b, end: a <= b ? b : a };
+}
+function bcBedIsSelected(room, bed){
+  for (var i = 0; i < (bcSelectedBeds || []).length; i++){
+    if (bcSelectedBeds[i].room_code === room && bcSelectedBeds[i].bed_code === bed) return true;
+  }
+  return false;
+}
+/* Model-based, not only .bc-sel — highlight can be missing after a rail pin
+   or grid paint, and the old "same bed → move cursor" path then no-ops. */
+function bcCellInCurrentSelection(td){
+  var date = td && td.dataset && td.dataset.date;
+  var room = td && td.dataset && td.dataset.room;
+  var bed  = td && td.dataset && td.dataset.bed;
+  if (!date || !room || !bed || !bcSel) return false;
+  if (!bcBedIsSelected(room, bed)) return false;
+  var r = bcSelRange();
+  return !!(r && date >= r.start && date <= r.end);
+}
 function bcHandleCellClick(td){
   var date = td && td.dataset && td.dataset.date;
   var room = td && td.dataset && td.dataset.room;
@@ -33476,57 +33561,57 @@ function bcHandleCellClick(td){
   /* Close booking detail panel if open (Stage 8.4.5) */
   var _detail = el('bc-detail');
   if (_detail && _detail.style.display !== 'none') _detail.style.display = 'none';
-  /* Toggle deselect — clicking a highlighted empty cell removes it (Stage 8.7.8) */
-  if (td.classList.contains('bc-sel')){
-    var selCells = document.querySelectorAll('.bc-day-cell.bc-sel');
-    if (selCells.length <= 1 || !bcSel){
+  var painted = td.classList && td.classList.contains('bc-sel');
+  if (painted || bcCellInCurrentSelection(td)){
+    var r = bcSelRange();
+    var otherBeds = (bcSelectedBeds || []).filter(function(e){
+      return !(e.room_code === room && e.bed_code === bed);
+    });
+    if (!bcSel || !r){
       bcClearSelection();
       return;
     }
-    var a = bcSel.anchor_date;
-    var b = bcSel.cursor_date;
-    var selStart = a <= b ? a : b;
-    var selEnd   = a <= b ? b : a;
-    if (date === selStart && date === selEnd){
-      bcClearSelection();
-      return;
-    }
-    if (date === selStart){
-      bcSel.anchor_date = bcAddDaysISO(selStart, 1);
-      if (bcSel.anchor_date > selEnd){ bcClearSelection(); return; }
-    } else if (date === selEnd){
-      bcSel.cursor_date = bcAddDaysISO(selEnd, -1);
-      if (bcSel.cursor_date < selStart){ bcClearSelection(); return; }
-    } else {
-      bcSel.cursor_date = bcAddDaysISO(date, -1);
-      if (bcSel.cursor_date < selStart){
-        bcSel.anchor_date = bcAddDaysISO(date, 1);
-        if (bcSel.anchor_date > selEnd){ bcClearSelection(); return; }
+    /* One night: second click drops this bed, or clears if it was the last. */
+    if (r.start === r.end){
+      if (otherBeds.length === 0){
+        bcClearSelection();
+        return;
       }
+      bcSelectedBeds = otherBeds;
+      bcApplySelectionHighlight();
+      return;
+    }
+    /* Extra bed in a multi-day paint: toggle that bed off, keep the dates. */
+    if (otherBeds.length){
+      bcSelectedBeds = otherBeds;
+      bcApplySelectionHighlight();
+      return;
+    }
+    if (date === r.start){
+      bcSel.anchor_date = bcAddDaysISO(r.start, 1);
+      bcSel.cursor_date = r.end;
+      if (bcSel.anchor_date > r.end){ bcClearSelection(); return; }
+    } else if (date === r.end){
+      bcSel.anchor_date = r.start;
+      bcSel.cursor_date = bcAddDaysISO(r.end, -1);
+      if (bcSel.cursor_date < r.start){ bcClearSelection(); return; }
+    } else {
+      bcSel.anchor_date = r.start;
+      bcSel.cursor_date = bcAddDaysISO(date, -1);
+      if (bcSel.cursor_date < r.start){ bcClearSelection(); return; }
     }
     bcApplySelectionHighlight();
     return;
   }
   /* Multi-bed selection (Stage 8.4.5) */
   if (!bcSel){
-    /* Start new selection */
     bcSel = { anchor_date: date, cursor_date: date };
     bcSelectedBeds = [{ room_code: room, bed_code: bed }];
+  } else if (bcBedIsSelected(room, bed)){
+    /* Same bed, date outside the current range — extend. */
+    bcSel.cursor_date = date;
   } else {
-    /* Check if this bed is already in the selection */
-    var _exists = false;
-    for (var _i = 0; _i < bcSelectedBeds.length; _i++){
-      if (bcSelectedBeds[_i].room_code === room && bcSelectedBeds[_i].bed_code === bed){
-        _exists = true; break;
-      }
-    }
-    if (_exists){
-      /* Same bed clicked again — extend/adjust the date range */
-      bcSel.cursor_date = date;
-    } else {
-      /* New bed — add to selection sharing the existing date range */
-      bcSelectedBeds.push({ room_code: room, bed_code: bed });
-    }
+    bcSelectedBeds.push({ room_code: room, bed_code: bed });
   }
   bcApplySelectionHighlight();
 }
@@ -50025,6 +50110,16 @@ async function router(req, res) {
   // ── Stage 8.4.4 — Quote preview (pure, no DB, no writes) ─────────────────
   // POST to carry JSON payload; never touches DB, Stripe, or any external service.
   // Does NOT require STAFF_ACTIONS_ENABLED or MANUAL_BOOKING_ENABLED.
+  if (pathname === '/staff/packages') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for packages' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleStaffPackagesList(parsed.query, req, res, auth.user);
+  }
+
   if (pathname === '/staff/quote-preview') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });

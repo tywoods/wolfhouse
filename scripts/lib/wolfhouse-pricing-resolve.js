@@ -694,6 +694,65 @@ function applyOverlayPricesToConfig(config, dbRules) {
   return next;
 }
 
+/** Staff-created packages (Admin Pricing items) join the quote catalog even
+ *  before every season has a price row. */
+function applyOverlayPackageItemsToConfig(config, dbItems) {
+  const next = config && typeof config === 'object' ? config : { packages: [] };
+  if (!Array.isArray(next.packages)) next.packages = [];
+  for (const it of (Array.isArray(dbItems) ? dbItems : [])) {
+    if (!it || it.active === false) continue;
+    if (String(it.item_type || '') !== 'package') continue;
+    const code = String(it.item_code || '').trim();
+    if (!code || code.startsWith('_')) continue;
+    let pkg = next.packages.find((p) => p && p.code === code);
+    if (!pkg) {
+      pkg = { code, name: it.label || humanizeCode(code), seasonal_prices: {} };
+      next.packages.push(pkg);
+    } else if (it.label && (!pkg.name || pkg.name === code)) {
+      pkg.name = it.label;
+    }
+  }
+  return next;
+}
+
+function listManualBookingPackages(input) {
+  const { config, dbItems, dbRules } = input || {};
+  const packages = [];
+  const seen = new Set();
+  const push = (value, label, extra) => {
+    const code = String(value || '').trim();
+    if (!code || code === 'package_none' || code === 'no_package' || seen.has(code)) return;
+    seen.add(code);
+    const row = { value: code, label: label || humanizeCode(code) };
+    if (extra && extra.min_days != null) row.min_days = extra.min_days;
+    packages.push(row);
+  };
+  for (const it of (Array.isArray(dbItems) ? dbItems : [])) {
+    if (!it || it.active === false || String(it.item_type || '') !== 'package') continue;
+    const meta = it.metadata || {};
+    push(it.item_code, it.label, {
+      min_days: Number(meta.min_days) > 0 ? Number(meta.min_days) : 7,
+    });
+  }
+  for (const r of (Array.isArray(dbRules) ? dbRules : [])) {
+    if (!r || r.active === false || String(r.item_type || '') !== 'package') continue;
+    push(r.item_code, r.label);
+  }
+  for (const p of (config && Array.isArray(config.packages) ? config.packages : [])) {
+    if (p && p.code) push(p.code, p.name || p.label);
+  }
+  if (!packages.length) {
+    return [
+      { value: 'malibu', label: 'Malibu' },
+      { value: 'uluwatu', label: 'Uluwatu' },
+      { value: 'waimea', label: 'Waimea' },
+      { value: 'package_none', label: 'No package' },
+    ];
+  }
+  packages.push({ value: 'package_none', label: 'No package' });
+  return packages;
+}
+
 const applyOverlayRentalPricesToConfig = applyOverlayPricesToConfig;
 
 module.exports = {
@@ -714,6 +773,8 @@ module.exports = {
   rentalTitleFromAddon,
   applyOverlayRentalPricesToConfig,
   applyOverlayPricesToConfig,
+  applyOverlayPackageItemsToConfig,
+  listManualBookingPackages,
   daysInMonth,
   monthDayOrdinal,
   seasonRangeCoversMonthDay,

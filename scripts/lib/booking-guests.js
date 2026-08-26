@@ -140,12 +140,19 @@ function normalizeBookingGuestsInput(body) {
   };
 }
 
+function isCatalogPackageCode(code, config) {
+  const c = String(code || '').trim().toLowerCase();
+  if (!c) return false;
+  const pkgs = config && Array.isArray(config.packages) ? config.packages : [];
+  return pkgs.some((p) => String(p && p.code || '').trim().toLowerCase() === c);
+}
+
 /**
  * Deposit tier for one guest (anchor: wolfhouse-quote-calculator deposit section).
  */
 function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride) {
   const pkg = trimStr(packageCode).toLowerCase();
-  const usesPackageDeposit = KNOWN_PACKAGES.includes(pkg)
+  const usesPackageDeposit = isCatalogPackageCode(pkg, config)
     && nights >= 7
     && !isManualOverride
     && pkg !== 'manual_override'
