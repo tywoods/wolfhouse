@@ -548,6 +548,56 @@ function exactCliArgs(parsed) {
   ];
 }
 
+function exactPreflightArgs(parsed) {
+  return [
+    'preflight',
+    '--deployment', parsed.deployment,
+    '--tenant', parsed.tenant,
+    '--database', parsed.database,
+    '--resource-group', parsed.resourceGroup,
+    '--app', parsed.appName,
+    '--revision', parsed.revision,
+    '--deploy-sha', parsed.deploySha,
+    '--digest', parsed.digest,
+    '--source-sha', parsed.sourceSha,
+    '--source-tree', parsed.sourceTree,
+  ];
+}
+
+function parseExactlyOneRecord(child) {
+  assert.equal(noLeak(child.stdout), true, child.stdout);
+  assert.equal(noLeak(child.stderr), true, child.stderr);
+  const lines = String(child.stdout || '').split('\n').filter((line) => line.length > 0);
+  assert.equal(lines.length, 1, child.stdout);
+  const record = JSON.parse(lines[0]);
+  assertAllowlisted(record);
+  assert.equal(record.ok, false);
+  return record;
+}
+
+function spawnEmitCliRecord(record, planted) {
+  const child = spawnSync(process.execPath, ['-e', `
+    'use strict';
+    const path = require('node:path');
+    const core = require(${JSON.stringify(path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-proof-core.js'))});
+    const planted = ${JSON.stringify(planted)};
+    try { throw new Error(planted + ' postgres://wolfhouse_admin:secret@x/db eyJabc'); } catch (_) { /* sanitized */ }
+    const record = ${JSON.stringify(record)};
+    core.emitCliMachineRecord(record, process.stdout);
+    process.exit(1);
+  `], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: childEnv({
+      PLANTED_SECRET: planted,
+      DATABASE_URL: 'postgres://wolfhouse_admin:secret@x/db',
+    }),
+    timeout: 10000,
+  });
+  assert.equal(child.status, 1);
+  return parseExactlyOneRecord(child);
+}
+
 async function makeOwner(overrides = {}) {
   const hits = overrides.hits || { app: 0, list: 0, rev: 0, acr: 0, producer: 0, worker: 0, writes: 0, queries: [] };
   const envelope = overrides.envelopeProvider || createFakeEmailGrantEnvelopeProvider();
@@ -691,6 +741,9 @@ async function main() {
   assert.match(cliSrc, /require\.main === module/);
   assert.match(cliSrc, /createLexicalSunsetStagingMeasurementAdapters/);
   assert.match(cliSrc, /composeLexicalSunsetStagingExecutionDependencies/);
+  assert.match(cliSrc, /emitCliMachineRecord/);
+  assert.match(cliSrc, /sanitizedUnexpectedCliRecord/);
+  assert.match(cliSrc, /recordFromThrownCliError/);
   assert.doesNotMatch(cliSrc, /module\.exports\s*=/);
   assert.doesNotMatch(cliSrc, /one-shot-authority/);
   assert.doesNotMatch(cliSrc, /takeProductionReaderWithChapter4ICapability/);
@@ -802,14 +855,15 @@ async function main() {
         flags_all_literal_false: true,
       }),
     });
-    await assert.rejects(
-      () => owner.executeOnce(completeArgs()),
-      (err) => assertOwnerFailure(err, 'live_preflight_unproven')
-        && owner.counters.kv === 0
-        && owner.counters.token === 0
-        && owner.counters.jwks === 0
-        && owner.counters.custodyPg === 0,
-    );
+    const record = await owner.executeOnce(completeArgs());
+    assert.equal(record.ok, false);
+    assert.equal(record.status, 'fail_closed');
+    assert.equal(record.refresh_call_count, 0);
+    assertAllowlisted(record);
+    assert.equal(owner.counters.kv, 0);
+    assert.equal(owner.counters.token, 0);
+    assert.equal(owner.counters.jwks, 0);
+    assert.equal(owner.counters.custodyPg, 0);
   }
   console.log('  PASS  perfect snapshot / fake brand cannot mint 4H evidence; zero sensitive calls');
 
@@ -828,10 +882,10 @@ async function main() {
     const { owner } = await makeOwner({
       readIndependentLivePreflight: async () => ({ ok: true, independent_read: true }),
     });
-    await assert.rejects(
-      () => owner.executeOnce(completeArgs()),
-      (err) => assertOwnerFailure(err, 'live_preflight_unproven') && owner.counters.token === 0,
-    );
+    const record = await owner.executeOnce(completeArgs());
+    assert.equal(record.ok, false);
+    assert.equal(record.status, 'fail_closed');
+    assert.equal(owner.counters.token, 0);
     const id = require.resolve('./lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader');
     const original = require.cache[id];
     require.cache[id] = {
@@ -840,10 +894,9 @@ async function main() {
     const { owner: owner2 } = await makeOwner({
       readIndependentLivePreflight: async () => ({ ok: true, independent_read: true }),
     });
-    await assert.rejects(
-      () => owner2.executeOnce(completeArgs()),
-      (err) => assertOwnerFailure(err, 'live_preflight_unproven'),
-    );
+    const record2 = await owner2.executeOnce(completeArgs());
+    assert.equal(record2.ok, false);
+    assert.equal(record2.status, 'fail_closed');
     require.cache[id] = original;
   }
   console.log('  PASS  stub predicates / module-cache attacks fail closed');
@@ -899,21 +952,20 @@ async function main() {
     const { owner } = await makeOwner({
       readerPatch: { counts: { ops_097: 1, transitions_097: 0, authorizations_098: 0 } },
     });
-    await assert.rejects(
-      () => owner.executeOnce(completeArgs()),
-      (err) => (assertOwnerFailure(err, 'counts_nonzero') || assertOwnerFailure(err, 'live_preflight_unproven'))
-        && owner.counters.token === 0 && owner.counters.kv === 0,
-    );
+    const countsRecord = await owner.executeOnce(completeArgs());
+    assert.equal(countsRecord.ok, false);
+    assert.equal(countsRecord.status, 'fail_closed');
+    assert.equal(owner.counters.token, 0);
+    assert.equal(owner.counters.kv, 0);
   }
   {
     const { owner } = await makeOwner({
       readerPatch: { grant: { grant_status: 'reauthorization_required', grant_generation: 4, reconcile_state: 'needs_operator', has_active_lease: false } },
     });
-    await assert.rejects(
-      () => owner.executeOnce(completeArgs()),
-      (err) => (assertOwnerFailure(err, 'grant_ineligible') || assertOwnerFailure(err, 'live_preflight_unproven'))
-        && owner.counters.token === 0,
-    );
+    const grantRecord = await owner.executeOnce(completeArgs());
+    assert.equal(grantRecord.ok, false);
+    assert.equal(grantRecord.status, 'fail_closed');
+    assert.equal(owner.counters.token, 0);
   }
   console.log('  PASS  count / grant ineligible fail closed before token');
 
@@ -940,10 +992,11 @@ async function main() {
         throw new Error(`kv boom ${PLANTED} postgres://wolfhouse_admin:secret@x/db eyJabc`);
       }),
     });
-    await assert.rejects(
-      () => owner.executeOnce(completeArgs()),
-      (err) => noLeak(err) && err.code === ERROR_CODE && owner.counters.token === 0,
-    );
+    const secretRecord = await owner.executeOnce(completeArgs());
+    assert.equal(secretRecord.ok, false);
+    assert.equal(secretRecord.status, 'fail_closed');
+    assert.equal(owner.counters.token, 0);
+    assert.equal(noLeak(secretRecord), true);
   }
   {
     const getter = {};
@@ -1097,11 +1150,10 @@ async function main() {
         app: 0, list: 0, rev: 0, acr: 0, producer: 0, worker: 0, writes: 0, queries: [],
       }, { grant: { grant_generation: undefined } }),
     });
-    await assert.rejects(
-      () => owner.executeOnce(completeArgs()),
-      (err) => (assertOwnerFailure(err, 'grant_unproven') || assertOwnerFailure(err, 'live_preflight_unproven'))
-        && owner.counters.token === 0,
-    );
+    const record = await owner.executeOnce(completeArgs());
+    assert.equal(record.ok, false);
+    assert.equal(record.status, 'fail_closed');
+    assert.equal(owner.counters.token, 0);
   }
   console.log('  PASS  vacuous/undefined generation refuses before refresh');
 
@@ -1229,8 +1281,16 @@ async function main() {
               commandRunner: runner,
             });
             try {
-              await owner.executeOnce(parsed);
-              process.stdout.write(JSON.stringify({ ok:true, claimed:true }));
+              const rec = await owner.executeOnce(parsed);
+              if (rec && rec.ok === true) {
+                process.stdout.write(JSON.stringify({ ok:true, claimed:true, token: owner.counters && owner.counters.token }));
+              } else {
+                process.stdout.write(JSON.stringify({
+                  ok: false,
+                  detail: rec && rec.status,
+                  token: owner.counters && owner.counters.token,
+                }));
+              }
             } catch (err) {
               process.stdout.write(JSON.stringify({
                 ok: false,
@@ -1253,7 +1313,7 @@ async function main() {
     const ra = JSON.parse(pair.a);
     const rb = JSON.parse(pair.b);
     const details = [ra.detail, rb.detail];
-    const wins = [ra, rb].filter((row) => row.ok === true || row.detail === 'live_preflight_unproven' || row.detail === 'reader_adapters' || row.detail === 'token').length;
+    const wins = [ra, rb].filter((row) => row.ok === true || row.detail === 'live_preflight_unproven' || row.detail === 'fail_closed' || row.detail === 'reader_adapters' || row.detail === 'token').length;
     const replays = [ra, rb].filter((row) => row.detail === 'operator_receipt_replay').length;
     assert.equal(replays, 1, `expected one replay got ${JSON.stringify({ ra, rb })}`);
     assert.equal(wins, 1, `expected one claimer got ${JSON.stringify({ ra, rb, details })}`);
@@ -1514,6 +1574,158 @@ async function main() {
     assertAllowlisted(record);
   }
   console.log('  PASS  preflight without exact pins refuses locally with zero refresh');
+
+  {
+    const imported = await runCli(exactPreflightArgs(completeArgs()), {});
+    assert.equal(imported.ok, false);
+    assert.notEqual(imported.status, 'preflight_ok');
+    assert.equal(imported.status, 'refused');
+    assertAllowlisted(imported);
+    assert.equal(imported.refresh_call_count, 0);
+    assert.equal(imported.graph_call_count, 0);
+    assert.equal(imported.send_call_count, 0);
+    const importedExec = await runCli(exactCliArgs(completeArgs()), {});
+    assert.equal(importedExec.ok, false);
+    assert.equal(importedExec.status, 'refused');
+    assertAllowlisted(importedExec);
+  }
+  console.log('  PASS  imported refuse-only runCli never claims preflight_ok or production composition');
+
+  {
+    let network = 0;
+    const origHttpRequest = require('node:http').request;
+    const origHttpsRequest = require('node:https').request;
+    const parsed = Object.assign(completeArgs(), { command: PREFLIGHT_COMMAND });
+    const record = proofCore.runLocalPreflight(
+      parsed,
+      {},
+      createClosedCommandRunner(SOURCE_SHA, SOURCE_TREE),
+    );
+    assert.equal(record.ok, true);
+    assert.equal(record.status, 'preflight_ok');
+    assert.equal(record.refresh_call_count, 0);
+    assert.equal(record.graph_call_count, 0);
+    assert.equal(record.send_call_count, 0);
+    assert.equal(record.local_receipt_write_count, 0);
+    assert.equal(record.custody_write_count, 0);
+    assertAllowlisted(record);
+    assert.equal(typeof require('node:http').request, 'function');
+    assert.equal(typeof require('node:https').request, 'function');
+    assert.equal(require('node:http').request, origHttpRequest);
+    assert.equal(require('node:https').request, origHttpsRequest);
+    void network;
+    const inspect = chapter4IReceipt.inspectReceiptPath(chapter4IReceipt.OPERATOR_RECEIPT_PATH);
+    assert.equal(inspect.exists === true && inspect.status === chapter4IReceipt.RECEIPT_STATES.claimed, false);
+  }
+  console.log('  PASS  exact CLI-main local preflight succeeds with zero adapter/network init and no receipt claim');
+
+  {
+    const child = spawnSync(process.execPath, [
+      path.join(ROOT, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'),
+      'execute-once',
+      '--deployment', PLANTED,
+    ], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: childEnv({
+        PLANTED_SECRET: PLANTED,
+        DATABASE_URL: 'postgres://wolfhouse_admin:secret@x/db',
+        LUNA_EMAIL_OAUTH_CLIENT_SECRET: PLANTED,
+      }),
+      timeout: 10000,
+    });
+    const beforeClaim = parseExactlyOneRecord(child);
+    assert.equal(child.status, 1);
+    assert.equal(beforeClaim.refresh_call_count, 0);
+    assert.equal(beforeClaim.local_receipt_write_count, 0);
+    assert.ok(beforeClaim.status === 'refused' || beforeClaim.status === 'fail_closed');
+  }
+  console.log('  PASS  production CLI before-claim refusal prints exactly one sanitized record and exits nonzero');
+
+  {
+    const { owner, receiptStore } = await makeOwner({
+      readerPatch: { grant: { grant_status: 'reauthorization_required', grant_generation: 4, reconcile_state: 'needs_operator', has_active_lease: false } },
+    });
+    const record = await owner.executeOnce(completeArgs());
+    assert.equal(record.ok, false);
+    assert.equal(record.status, 'fail_closed');
+    assert.equal(record.refresh_call_count, 0);
+    assert.equal(owner.counters.token, 0);
+    assertAllowlisted(record);
+    const receipt = receiptStore.read();
+    assert.equal(receipt.status, chapter4IReceipt.RECEIPT_STATES.terminal_refused);
+    const emitted = spawnEmitCliRecord(record, PLANTED);
+    assert.equal(emitted.status, 'fail_closed');
+    assert.equal(emitted.refresh_call_count, 0);
+  }
+  console.log('  PASS  after-claim expected refusal prints one fail_closed record, preserves terminal_refused, no secrets');
+
+  {
+    const { owner, receiptStore } = await makeOwner({
+      transport: sequenceTransport([
+        { throw: `timeout ${PLANTED}` },
+        { token: liveJwt({ scp: 'User.Read Mail.ReadWrite Mail.Send' }), scope: SEND_SCOPE, refreshToken: NEW_RT_2 },
+      ]),
+    });
+    const record = await owner.executeOnce(completeArgs());
+    assert.equal(record.ok, false);
+    assert.equal(record.status, 'outcome_unknown');
+    assert.equal(record.refresh_call_count, 1);
+    assert.equal(owner.counters.token, 1);
+    assert.equal(noLeak(record), true);
+    const receipt = receiptStore.read();
+    assert.equal(receipt.status, chapter4IReceipt.RECEIPT_STATES.terminal_unknown);
+    const emitted = spawnEmitCliRecord(record, PLANTED);
+    assert.equal(emitted.status, 'outcome_unknown');
+    assert.equal(emitted.refresh_call_count, 1);
+  }
+  console.log('  PASS  after request boundary 1 refusal prints one outcome_unknown record with count=1');
+
+  {
+    const { owner, receiptStore } = await makeOwner({
+      transport: sequenceTransport([
+        { token: liveJwt(), scope: DRAFT_SCOPE, refreshToken: NEW_RT },
+        { throw: `timeout ${PLANTED}` },
+      ]),
+    });
+    const record = await owner.executeOnce(completeArgs());
+    assert.equal(record.ok, false);
+    assert.equal(record.status, 'outcome_unknown');
+    assert.equal(record.refresh_call_count, 2);
+    assert.equal(owner.counters.token, 2);
+    assert.equal(record.graph_call_count, 0);
+    assert.equal(record.send_call_count, 0);
+    assert.equal(noLeak(record), true);
+    const receipt = receiptStore.read();
+    assert.equal(receipt.status, chapter4IReceipt.RECEIPT_STATES.terminal_unknown);
+    const emitted = spawnEmitCliRecord(record, PLANTED);
+    assert.equal(emitted.status, 'outcome_unknown');
+    assert.equal(emitted.refresh_call_count, 2);
+  }
+  console.log('  PASS  after request boundary 2 refusal prints one outcome_unknown record with count=2');
+
+  {
+    const child = spawnSync(process.execPath, ['-e', `
+      'use strict';
+      const core = require(${JSON.stringify(path.join(ROOT, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-proof-core.js'))});
+      const planted = ${JSON.stringify(PLANTED)};
+      try {
+        throw new Error(planted + ' postgres://wolfhouse_admin:secret@x/db eyJabc Mail.Send stack');
+      } catch (err) {
+        core.emitCliMachineRecord(core.sanitizedUnexpectedCliRecord(), process.stdout);
+        process.exit(1);
+      }
+    `], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: childEnv({ PLANTED_SECRET: PLANTED }),
+      timeout: 10000,
+    });
+    const unexpected = parseExactlyOneRecord(child);
+    assert.equal(unexpected.status, 'fail_closed');
+    assert.equal(unexpected.refresh_call_count, 0);
+  }
+  console.log('  PASS  unexpected internal error emits one generic sanitized record and exits nonzero');
 
   console.log('Chapter 4I live execution verifier passed.');
 }

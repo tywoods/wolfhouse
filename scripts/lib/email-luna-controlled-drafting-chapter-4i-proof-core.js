@@ -378,6 +378,30 @@ function refusedRecord(detail, extra) {
   });
 }
 
+function sanitizedUnexpectedCliRecord(extra) {
+  return refusedRecord('fail_closed', Object.assign({}, extra || {}, { status: 'fail_closed' }));
+}
+
+function emitCliMachineRecord(record, stream) {
+  const safe = (record && typeof record === 'object' && !arrayIsArray(record) && !isProxySurface(record))
+    ? machineRecord(record)
+    : sanitizedUnexpectedCliRecord();
+  if (stream && typeof stream.write === 'function') {
+    stream.write(`${JSON.stringify(safe)}\n`);
+  }
+  return safe;
+}
+
+function recordFromThrownCliError(err, extra) {
+  void err;
+  const refresh = extra && typeof extra.refresh_call_count === 'number' ? extra.refresh_call_count : 0;
+  const status = refresh >= 1 ? 'outcome_unknown' : 'fail_closed';
+  return refusedRecord('fail_closed', Object.assign({}, extra || {}, {
+    status,
+    refresh_call_count: refresh,
+  }));
+}
+
 function forbiddenGitEnvPresent(env) {
   if (!env || typeof env !== 'object' || isProxySurface(env)) return true;
   for (let i = 0; i < FORBIDDEN_GIT_ENV.length; i += 1) {
@@ -1054,18 +1078,8 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
     USED_OPERATOR_NONCES.add(parsed.operatorNonce);
 
     let independent;
-    try {
-      independent = await readBranded();
-    } catch (err) {
-      refuseDetail(err, 'live_preflight_unproven');
-    }
-    recheckBrandedEligibility(independent);
-    const initialGeneration = ownData(independent, 'grant_generation');
-    if (typeof initialGeneration !== 'number' || !Number.isInteger(initialGeneration) || initialGeneration < 0) {
-      throw failure('grant_unproven');
-    }
-    const startedAt = ownData(independent, 'started_at');
-
+    let initialGeneration;
+    let startedAt;
     let downscopeMailSendAbsent = null;
     let continuityExpectedScopePresent = null;
     let cleanupInstalled = false;
@@ -1108,6 +1122,13 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
     }
 
     try {
+      independent = await readBranded();
+      recheckBrandedEligibility(independent);
+      initialGeneration = ownData(independent, 'grant_generation');
+      if (typeof initialGeneration !== 'number' || !Number.isInteger(initialGeneration) || initialGeneration < 0) {
+        throw failure('grant_unproven');
+      }
+      startedAt = ownData(independent, 'started_at');
       if (cleanupInstalled !== true) throw failure('cleanup_unproven');
 
       const toctouBeforeDownscope = await readBranded();
@@ -1272,8 +1293,14 @@ function createOwnedSunsetStagingLiveExecutionOwner(input) {
           continuity_expected_scope_present: continuityExpectedScopePresent,
         });
       }
-      if (err && err.code === ERROR_CODE) throw err;
-      throw failure('reader_invalid');
+      return terminalRecord('fail_closed', false, {
+        source_sha: parsed.sourceSha,
+        source_tree: parsed.sourceTree,
+        preflight_started_at: startedAt,
+        fence_generation: initialGeneration,
+        downscope_mail_send_absent: downscopeMailSendAbsent,
+        continuity_expected_scope_present: continuityExpectedScopePresent,
+      });
     } finally {
       try {
         await runCleanup();
@@ -1715,32 +1742,9 @@ function refuseLocalCli(argv, env) {
   if (parsed.command === PREFLIGHT_COMMAND) {
     const gate = validatePreflightInvocation(parsed);
     if (gate) return refusedRecord(gate, { source_sha: parsed.sourceSha, source_tree: parsed.sourceTree });
-    return machineRecord({
-      proof_version: PROOF_VERSION,
-      ok: true,
-      status: 'preflight_ok',
-      deployment: SUNSET_DEPLOYMENT,
-      tenant: SUNSET_TENANT,
-      database: EXPECTED_DATABASE,
-      resource_group: EXPECTED_LIVE_TARGET.resourceGroup,
-      app_name: EXPECTED_LIVE_TARGET.appName,
+    return refusedRecord('cli_main_required', {
       source_sha: parsed.sourceSha,
       source_tree: parsed.sourceTree,
-      deploy_sha: EXPECTED_LIVE_TARGET.deployedSha,
-      revision: EXPECTED_LIVE_TARGET.revision,
-      digest: EXPECTED_LIVE_TARGET.digest,
-      preflight_started_at: null,
-      preflight_finished_at: null,
-      fence_generation: null,
-      downscope_mail_send_absent: null,
-      continuity_expected_scope_present: null,
-      refresh_call_count: 0,
-      graph_call_count: 0,
-      send_call_count: 0,
-      local_receipt_write_count: 0,
-      custody_write_count: 0,
-      operational_write_count: 0,
-      compatibility_rule_id: OPERATOR_PROVER_COMPATIBILITY_RULE.rule_id,
     });
   }
   const gate = validateExactInvocation(parsed);
@@ -1784,6 +1788,9 @@ module.exports = objectFreeze({
   validatePinnedTarget,
   refusedRecord,
   machineRecord,
+  sanitizedUnexpectedCliRecord,
+  emitCliMachineRecord,
+  recordFromThrownCliError,
   assertExecutingSource,
   forbiddenGitEnvPresent,
   invocationFromParsed,

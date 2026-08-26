@@ -152,7 +152,7 @@ One frozen null-prototype allowlisted JSON line: `proof_version`, `ok`, `status`
 
 The receipt contains only allowlisted hashes/IDs/status/counters. No secrets.
 
-`status=preflight_ok` is local source/receipt-path/pin validation only. It is **not** live PASS.
+`status=preflight_ok` is local source/receipt-path/pin validation only. It is **not** live PASS. Only the exact production CLI main path may return it, and only after `assertExecutingSource` and canonical receipt-path inspection. Imported refuse-only `runCli` returns `cli_main_required` for preflight and cannot claim that validation.
 
 ## Non-goals
 

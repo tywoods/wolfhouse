@@ -635,7 +635,28 @@ if (require.main === module) {
       receiptStore: store,
       commandRunner: runner,
     }));
-    const record = await owner.executeOnce(core.invocationFromParsed(parsed));
+    let record;
+    try {
+      record = await owner.executeOnce(core.invocationFromParsed(parsed));
+    } catch (err) {
+      const extra = objectCreate(null);
+      extra.source_sha = parsed.sourceSha;
+      extra.source_tree = parsed.sourceTree;
+      try {
+        const current = store.read();
+        extra.refresh_call_count = current && typeof current.refresh_call_count === 'number'
+          ? current.refresh_call_count
+          : 0;
+        extra.local_receipt_write_count = current && typeof current.local_receipt_write_count === 'number'
+          ? current.local_receipt_write_count
+          : 0;
+        extra.custody_write_count = current && typeof current.custody_write_count === 'number'
+          ? current.custody_write_count
+          : 0;
+      } catch (_) { /* sanitized */ }
+      void err;
+      return core.recordFromThrownCliError(null, extra);
+    }
     if (record && record.ok === true) {
       return core.machineRecord(Object.assign(objectCreate(null), record, { status: 'pass' }));
     }
@@ -643,9 +664,10 @@ if (require.main === module) {
   }
 
   runProductionMain(process.argv.slice(2), process.env).then((record) => {
-    process.stdout.write(`${JSON.stringify(record)}\n`);
-    if (!record || record.ok !== true) process.exitCode = 1;
+    const emitted = core.emitCliMachineRecord(record, process.stdout);
+    if (!emitted || emitted.ok !== true) process.exitCode = 1;
   }).catch(() => {
+    core.emitCliMachineRecord(core.sanitizedUnexpectedCliRecord(), process.stdout);
     process.exitCode = 1;
   });
   /* eslint-enable global-require */
