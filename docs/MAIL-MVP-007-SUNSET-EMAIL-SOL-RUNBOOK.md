@@ -4,7 +4,7 @@ Sunset staging only. Do not restart WhatsApp or Wolfhouse gateways. Do not enabl
 
 Staff Create Draft reaches Sol through a **colocated Azure Container App** in the Sunset Staff ACA environment. Lunabox loopback `127.0.0.1:8093` is a Skipper-local probe only — it is not the Staff path.
 
-YAML and this runbook are **one path**. Skipper queries Azure IDs, fills `docker/hermes-staging/sunset-email-luna.aca.yaml.example` into a temp file, then `az containerapp create|update --yaml` **without** `--environment` (`--yaml` ignores other create flags; `environmentId` must be in the YAML). Ingress is internal (`external: false`). Isolated Codex refresh state is a **dedicated Azure Files** mount of `/opt/data`. No Key Vault `auth.json` snapshot. No shared WhatsApp pool.
+YAML and this runbook are **one path**. Skipper queries Azure IDs, fills `docker/hermes-staging/sunset-email-luna.aca.yaml.example` into a temp file, then `az containerapp create|update --yaml` **without** `--environment` (`--yaml` ignores other create flags; `environmentId` must be in the YAML). Ingress is internal (`external: false`). Isolated Codex refresh state is a **dedicated Azure Files** mount of `/opt/data` with canonical Hermes home `/opt/data/.hermes`. The one durable credential is `/opt/data/.hermes/auth.json`. No Key Vault `auth.json` snapshot. No copies, hardlinks, or symlinks. No shared WhatsApp pool.
 
 Use this exact Azure CLI executable:
 
@@ -32,9 +32,9 @@ AZ=/opt/data/home/.local/bin/az
 
 ## Credential boundary (one operator step)
 
-The email runtime **must not** share a writable `auth.json` with WhatsApp Luna. Bootstrap fails closed if `auth.json` is missing, is a symlink, or `.auth-shared` is mounted.
+The email runtime **must not** share a writable `auth.json` with WhatsApp Luna. Bootstrap fails closed if `.hermes/auth.json` is missing, is a symlink, or `.auth-shared` is mounted. A root-level `/opt/data/auth.json` is not the credential — do not copy or symlink it.
 
-Provision an isolated openai-codex credential **once**. This is the only irreducible credential action. Use the image entrypoint with role bootstrap skipped so `hermes auth add` does not require WhatsApp/Staff env. ENTRYPOINT stays `/init` (s6 + venv + drop to uid 10000); `hermes auth add openai-codex` is CMD.
+Provision an isolated openai-codex credential **once**. This is the only irreducible credential action. Use the image entrypoint with role bootstrap skipped so `hermes auth add` does not require WhatsApp/Staff env. ENTRYPOINT stays `/init` (s6 + venv + drop to uid 10000); `hermes auth add openai-codex` is CMD. `HOME=/opt/data` is required: installed Hermes writes `$HOME/.hermes/auth.json` (and `/init` may scrub `HERMES_HOME`). Set `HERMES_HOME=/opt/data/.hermes` so un-scrubbed env agrees with that same file.
 
 ```bash
 sudo install -d -m 0700 /var/lib/hermes-sunset-email-luna
@@ -44,21 +44,21 @@ IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:$(git -C /opt/wolfhouse/WH rev-p
 docker run --rm -it \
   -e HERMES_SKIP_ROLE_BOOTSTRAP=1 \
   -e HOME=/opt/data \
-  -e HERMES_HOME=/opt/data \
+  -e HERMES_HOME=/opt/data/.hermes \
   -v /var/lib/hermes-sunset-email-luna:/opt/data \
   --entrypoint /init \
   "$IMAGE" hermes auth add openai-codex
 ```
 
-`--entrypoint /init` keeps s6 + bootstrap skip + the auth command. Do not pass `--entrypoint python`. Prove the command ran:
+`--entrypoint /init` keeps s6 + bootstrap skip + the auth command. Do not pass `--entrypoint python`. Prove the command wrote a regular (non-symlink) host file at `.hermes/auth.json`:
 
 ```bash
-sudo test -f /var/lib/hermes-sunset-email-luna/auth.json
-sudo test ! -L /var/lib/hermes-sunset-email-luna/auth.json
-sudo stat -c '%a %u:%g' /var/lib/hermes-sunset-email-luna/auth.json
+sudo test -f /var/lib/hermes-sunset-email-luna/.hermes/auth.json
+sudo test ! -L /var/lib/hermes-sunset-email-luna/.hermes/auth.json
+sudo stat -c '%a %u:%g %F' /var/lib/hermes-sunset-email-luna/.hermes/auth.json
 # hash/mtime only — never print the file
-sudo sha256sum /var/lib/hermes-sunset-email-luna/auth.json | awk '{print $1}'
-sudo stat -c '%Y' /var/lib/hermes-sunset-email-luna/auth.json
+sudo sha256sum /var/lib/hermes-sunset-email-luna/.hermes/auth.json | awk '{print $1}'
+sudo stat -c '%Y' /var/lib/hermes-sunset-email-luna/.hermes/auth.json
 ```
 
 Do not copy `/var/lib/hermes-shared/auth.json` while WhatsApp Luna is running. Do not invent or commit secret values.
@@ -162,11 +162,16 @@ STORAGE_KEY=$("$AZ" storage account keys list -g "$RG" -n "$STORAGE_ACCOUNT" --q
   --azure-file-account-name "$STORAGE_ACCOUNT" \
   --azure-file-share-name "$SHARE" \
   --azure-file-account-key "$STORAGE_KEY" >/dev/null
+"$AZ" storage directory create \
+  --account-name "$STORAGE_ACCOUNT" \
+  --share-name "$SHARE" \
+  --name .hermes \
+  --account-key "$STORAGE_KEY" >/dev/null
 "$AZ" storage file upload \
   --account-name "$STORAGE_ACCOUNT" \
   --share-name "$SHARE" \
-  --source /var/lib/hermes-sunset-email-luna/auth.json \
-  --path auth.json \
+  --source /var/lib/hermes-sunset-email-luna/.hermes/auth.json \
+  --path .hermes/auth.json \
   --account-key "$STORAGE_KEY" >/dev/null
 unset STORAGE_KEY
 set -o history
@@ -323,7 +328,7 @@ sudo docker exec hermes-sunset-email-luna sh -c 'sed -n "1,20p" "$HERMES_HOME/co
 #     default: gpt-5.6-sol
 #     provider: openai-codex
 
-sudo docker exec hermes-sunset-email-luna sh -c 'test -f "$HERMES_HOME/auth.json" && test ! -L "$HERMES_HOME/auth.json" && echo AUTH_ISOLATED_OK'
+sudo docker exec hermes-sunset-email-luna sh -c 'test "$HERMES_HOME" = /opt/data/.hermes && test -f "$HERMES_HOME/auth.json" && test ! -L "$HERMES_HOME/auth.json" && echo AUTH_ISOLATED_OK'
 ```
 
 Local HTTP probe is loopback-only. Transport 200 without live attempt provenance `openai-codex` / `gpt-5.6-sol` / `sunset-email-luna` **and** a Staff-verified response HMAC is **not** proof. Provider must be the actual Codex Responses transport (chatgpt.com `/backend-api/codex`) plus the terminal event model. Bearer authenticates the caller; HMAC authenticates the response.
@@ -377,7 +382,7 @@ set +o history
 STORAGE_KEY=$("$AZ" storage account keys list -g "$RG" -n "$STORAGE_ACCOUNT" --query "[0].value" -o tsv)
 "$AZ" storage file download \
   --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" \
-  --path auth.json --dest /tmp/email-luna-auth-before.json \
+  --path .hermes/auth.json --dest /tmp/email-luna-auth-before.json \
   --account-key "$STORAGE_KEY" >/dev/null
 BEFORE_HASH=$(sha256sum /tmp/email-luna-auth-before.json | awk '{print $1}')
 BEFORE_MTIME=$(stat -c '%Y' /tmp/email-luna-auth-before.json)
@@ -385,7 +390,7 @@ BEFORE_MTIME=$(stat -c '%Y' /tmp/email-luna-auth-before.json)
   $("$AZ" containerapp show -g "$RG" -n "$APP" --query properties.latestRevisionName -o tsv)
 "$AZ" storage file download \
   --account-name "$STORAGE_ACCOUNT" --share-name "$SHARE" \
-  --path auth.json --dest /tmp/email-luna-auth-after.json \
+  --path .hermes/auth.json --dest /tmp/email-luna-auth-after.json \
   --account-key "$STORAGE_KEY" >/dev/null
 AFTER_HASH=$(sha256sum /tmp/email-luna-auth-after.json | awk '{print $1}')
 AFTER_MTIME=$(stat -c '%Y' /tmp/email-luna-auth-after.json)

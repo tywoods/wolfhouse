@@ -7,10 +7,12 @@
 # Keep image ENTRYPOINT (/init). Args replace CMD only so bootstrap still runs.
 # Production interpreter is exactly /opt/hermes/.venv/bin/python.
 #
-# Isolated openai-codex auth.json lives on a dedicated Azure Files share
-# mounted at /opt/data (entire isolated HERMES_HOME). No Key Vault auth-json
-# snapshot. No shared WhatsApp pool. API bearer + response HMAC remain
-# Key Vault / ACA secrets.
+# Isolated openai-codex credential lives on a dedicated Azure Files share
+# mounted at /opt/data. Canonical Hermes home is /opt/data/.hermes
+# (HOME=/opt/data) so auth-add, /init env-scrub fallback, bootstrap, and
+# token refresh all use /opt/data/.hermes/auth.json — one durable file.
+# No Key Vault auth-json snapshot. No shared WhatsApp pool. No copies or
+# symlinks. API bearer + response HMAC remain Key Vault / ACA secrets.
 #
 # Skipper: docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md fills a temp copy
 # then: az containerapp create|update -g luna-sunset-staging-rg -n luna-sunset-staging-email-luna --yaml FILLED.yaml
@@ -55,8 +57,10 @@ properties:
           - volumeName: hermes-home
             mountPath: /opt/data
         env:
-          - name: HERMES_HOME
+          - name: HOME
             value: /opt/data
+          - name: HERMES_HOME
+            value: /opt/data/.hermes
           - name: HERMES_ROLE
             value: sunset-email-luna
           - name: LUNA_TENANT_ID

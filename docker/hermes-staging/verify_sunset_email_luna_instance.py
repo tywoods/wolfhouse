@@ -106,6 +106,9 @@ def main() -> int:
         "email_service_exists": "hermes-sunset-email-luna:" in sunset,
         "email_role": "HERMES_ROLE: sunset-email-luna" in email,
         "email_isolated_home": "/var/lib/hermes-sunset-email-luna:/opt/data" in email,
+        "email_canonical_hermes_home": "HERMES_HOME: /opt/data/.hermes" in email
+        and "HOME: /opt/data" in email
+        and "HERMES_HOME: /opt/data\n" not in email,
         "email_no_shared_auth": "/var/lib/hermes-shared" not in email,
         "email_localhost_port": '"127.0.0.1:8093:8093"' in email,
         "email_not_staff_path": "Staff API in Azure reaches" in sunset,
@@ -125,7 +128,9 @@ def main() -> int:
         and "materialize_isolated_sunset_email_auth_from_secret" not in bootstrap
         and "HERMES_SUNSET_EMAIL_AUTH_JSON_B64" not in bootstrap
         and "chmod 0600" in bootstrap
-        and "EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET" in bootstrap,
+        and "EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET" in bootstrap
+        and 'HERMES_HOME="${HOME}/.hermes"' in bootstrap
+        and ".hermes/auth.json" in bootstrap,
         "bootstrap_skip_role_for_auth": "HERMES_SKIP_ROLE_BOOTSTRAP" in bootstrap,
         "wolfhouse_still_gpt55": "default: gpt-5.5" in bootstrap,
         "sunset_whatsapp_still_sol_sed": "default: gpt-5.6-sol" in bootstrap
@@ -147,7 +152,9 @@ def main() -> int:
         and "storageType: AzureFile" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
         and "storageName: hermes-sunset-email-luna-home" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
         and "HERMES_SUNSET_EMAIL_AUTH_JSON_B64" not in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
-        and "\n        command:" not in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8"),
+        and "\n        command:" not in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
+        and "value: /opt/data/.hermes" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
+        and "- name: HOME" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8"),
         "runbook_https_staff_path": "EMAIL_LUNA_HERMES_SOL_TLS_PIN" in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
         and "lunabox-reachability-as-operator-directs" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
         and "--command python" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")

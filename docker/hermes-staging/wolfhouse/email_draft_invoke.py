@@ -15,7 +15,43 @@ from typing import Callable
 from wolfhouse.email_draft_contract import MODEL, PROVIDER, AttemptResult
 from wolfhouse.email_draft_hermes import ProvenanceError, invoke_installed_hermes
 
-HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+MOUNTED_HOME = Path("/opt/data")
+CANONICAL_HERMES_HOME = MOUNTED_HOME / ".hermes"
+
+
+def resolve_sunset_email_hermes_home() -> Path:
+    """Return the one durable Hermes home for sunset-email-luna.
+
+    Installed Hermes writes auth.json at get_hermes_home()/auth.json.
+    When HERMES_HOME is unset, that is Path.home()/.hermes. Docker image ENV
+    and stale YAML used HERMES_HOME=/opt/data (the Azure Files mount), which
+    disagrees with auth-add (HOME=/opt/data → /opt/data/.hermes/auth.json).
+    Remap the Docker default to /opt/data/.hermes. Unset HERMES_HOME follows
+    $HOME/.hermes (HOME=/opt/data in production). Tests may set HERMES_HOME
+    to a tmp path; leave those alone. Never copy or symlink a root-level decoy.
+    """
+    env = (os.environ.get("HERMES_HOME") or "").strip()
+    if env == str(MOUNTED_HOME):
+        return CANONICAL_HERMES_HOME
+    if env:
+        return Path(env)
+    home = (os.environ.get("HOME") or "").strip()
+    if not home or home == "/root":
+        return CANONICAL_HERMES_HOME
+    return Path(home) / ".hermes"
+
+
+def pin_sunset_email_hermes_home() -> Path:
+    """Export HOME=/opt/data and HERMES_HOME=/opt/data/.hermes for installed Hermes."""
+    root = resolve_sunset_email_hermes_home()
+    os.environ["HERMES_HOME"] = str(root)
+    home = (os.environ.get("HOME") or "").strip()
+    if not home or home == "/root":
+        os.environ["HOME"] = str(MOUNTED_HOME)
+    return root
+
+
+HERMES_HOME = resolve_sunset_email_hermes_home()
 
 SOL_CONFIG = "\n".join(
     [
@@ -36,9 +72,11 @@ SOL_CONFIG = "\n".join(
 
 def ensure_isolated_sol_home(home: Path | None = None) -> None:
     """Pin Sol config for ACA (no s6) and Lunabox. Never a provenance source."""
-    root = home or HERMES_HOME
+    root = home if home is not None else pin_sunset_email_hermes_home()
     auth = root / "auth.json"
     if auth.is_symlink() or (root / ".auth-shared" / "auth.json").exists():
+        raise RuntimeError("isolated_auth_missing")
+    if (root.parent / ".auth-shared" / "auth.json").exists():
         raise RuntimeError("isolated_auth_missing")
     if not auth.is_file():
         raise RuntimeError("isolated_auth_missing")
@@ -47,7 +85,7 @@ def ensure_isolated_sol_home(home: Path | None = None) -> None:
 
 
 def read_config_model_provider(home: Path | None = None) -> tuple[str, str]:
-    path = (home or HERMES_HOME) / "config.yaml"
+    path = (home or resolve_sunset_email_hermes_home()) / "config.yaml"
     text = path.read_text(encoding="utf-8")
     model = ""
     provider = ""
@@ -73,8 +111,9 @@ def assert_sol_config(home: Path | None = None) -> None:
 
 
 def default_invoke(system: str, user: str) -> AttemptResult:
-    assert_sol_config()
-    auth = HERMES_HOME / "auth.json"
+    root = pin_sunset_email_hermes_home()
+    assert_sol_config(root)
+    auth = root / "auth.json"
     if not auth.is_file() or auth.is_symlink():
         raise RuntimeError("isolated_auth_missing")
     try:

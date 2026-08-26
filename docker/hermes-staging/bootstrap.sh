@@ -19,9 +19,25 @@ if [ -d /run/s6/container_environment ]; then
   done
 fi
 
-HERMES_HOME="${HERMES_HOME:-/opt/data}"
-mkdir -p "$HERMES_HOME/sessions" "$HERMES_HOME/plugins"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
+# Email role: canonical Hermes home is $HOME/.hermes (HOME=/opt/data).
+# Installed Hermes auth-add with HOME=/opt/data writes
+# /opt/data/.hermes/auth.json; /init may scrub HERMES_HOME so get_hermes_home()
+# falls back to Path.home()/.hermes — the same file. Image ENV HERMES_HOME=/opt/data
+# is the Azure Files / Lunabox mount root, not the credential directory.
+# WhatsApp/Wolfhouse roles keep HERMES_HOME=/opt/data (shared auth.json symlink).
+if [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
+  export HOME="${HOME:-/opt/data}"
+  HERMES_HOME="${HOME}/.hermes"
+  export HERMES_HOME
+  if [ -d /run/s6/container_environment ]; then
+    printf '%s' "$HOME" > /run/s6/container_environment/HOME
+    printf '%s' "$HERMES_HOME" > /run/s6/container_environment/HERMES_HOME
+  fi
+else
+  HERMES_HOME="${HERMES_HOME:-/opt/data}"
+fi
+mkdir -p "$HERMES_HOME/sessions" "$HERMES_HOME/plugins"
 
 # One-shot credential provision (`hermes auth add`) must use the image
 # entrypoint (/init → this script → CMD) without inheriting a guest/email
@@ -251,22 +267,26 @@ write_sunset_email_luna_env() {
 }
 
 require_isolated_sunset_email_auth() {
-  # Durable isolated HERMES_HOME (Lunabox bind-mount or ACA Azure Files).
+  # Durable credential is $HERMES_HOME/auth.json with HERMES_HOME=$HOME/.hermes
+  # (HOME=/opt/data → /opt/data/.hermes/auth.json on the dedicated mount).
   # Never materialize auth.json from Key Vault. Never share WhatsApp pool.
-  if [ -L "$HERMES_HOME/auth.json" ]; then
+  # Never accept a root-level /opt/data/auth.json decoy, copy, hardlink, or symlink.
+  _email_auth="$HERMES_HOME/auth.json"
+  _email_mount="${HOME:-/opt/data}"
+  if [ -L "$_email_auth" ]; then
     echo "sunset-email-luna refuses shared auth.json symlink" >&2
     exit 1
   fi
-  if [ -e "$HERMES_HOME/.auth-shared/auth.json" ]; then
+  if [ -e "$_email_mount/.auth-shared/auth.json" ] || [ -e "$HERMES_HOME/.auth-shared/auth.json" ]; then
     echo "sunset-email-luna refuses .auth-shared mount" >&2
     exit 1
   fi
-  if [ ! -f "$HERMES_HOME/auth.json" ]; then
-    echo "sunset-email-luna requires isolated operator-provisioned auth.json (openai-codex). See docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md" >&2
+  if [ ! -f "$_email_auth" ]; then
+    echo "sunset-email-luna requires isolated operator-provisioned .hermes/auth.json (openai-codex). See docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md" >&2
     exit 1
   fi
-  chmod 0600 "$HERMES_HOME/auth.json" 2>/dev/null || true
-  chown 10000:10000 "$HERMES_HOME/auth.json" 2>/dev/null || true
+  chmod 0600 "$_email_auth" 2>/dev/null || true
+  chown 10000:10000 "$_email_auth" 2>/dev/null || true
   chmod 0700 "$HERMES_HOME" 2>/dev/null || true
   chown 10000:10000 "$HERMES_HOME" 2>/dev/null || true
 }
