@@ -75,22 +75,22 @@ const pageHtml = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><title>header-mode-save</title></head>
 <body class="luna-header-ui luna-hdr-sunsetmoonlight">
-<section class="luna-header-mode-card" id="luna-header-mode-card" aria-label="Header style">
+<section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
   <div class="luna-header-mode-head">
-    <span class="luna-header-mode-title">Header style</span>
-    <span class="luna-header-mode-sub">How the top banner looks across the staff portal.</span>
+    <span class="luna-header-mode-title">Style</span>
+    <span class="luna-header-mode-sub">Header look, palette, and light or dark.</span>
   </div>
-  <div class="luna-header-mode-read">
+  <div id="luna-header-mode-card" class="staff-style-header-block" aria-label="Header style">
     <span class="luna-header-mode-current" id="luna-header-mode-current">—</span>
-    <button type="button" class="luna-header-mode-edit" id="luna-header-mode-edit-btn">Edit</button>
-  </div>
-  <div class="luna-header-mode-seg" role="group" aria-label="Header style">
-    <button type="button" class="luna-header-mode-btn" data-header-mode="normal" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('normal',true)">Normal</button>
-    <button type="button" class="luna-header-mode-btn" data-header-mode="compact" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('compact',true)">Compact</button>
-    <button type="button" class="luna-header-mode-btn" data-header-mode="sunset" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('sunset',true)">Sunset</button>
-    <button type="button" class="luna-header-mode-btn" data-header-mode="moonlight" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('moonlight',true)">Moonlight</button>
-    <button type="button" class="luna-header-mode-btn" data-header-mode="sunsetmoonlight" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('sunsetmoonlight',true)">Sunset &amp; Moonlight</button>
-    <button type="button" class="luna-header-mode-btn luna-header-mode-done" id="luna-header-mode-done-btn">Done</button>
+    <div class="luna-header-mode-seg" role="group" aria-label="Header style">
+      <button type="button" class="luna-header-mode-btn" data-header-mode="normal" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('normal',true)">Normal</button>
+      <button type="button" class="luna-header-mode-btn" data-header-mode="compact" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('compact',true)">Compact</button>
+      <button type="button" class="luna-header-mode-btn" data-header-mode="sunset" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('sunset',true)">Sunset</button>
+      <button type="button" class="luna-header-mode-btn" data-header-mode="moonlight" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('moonlight',true)">Moonlight</button>
+      <button type="button" class="luna-header-mode-btn" data-header-mode="sunsetmoonlight" aria-pressed="false" onclick="window.__lunaHeaderMode&&window.__lunaHeaderMode.apply('sunsetmoonlight',true)">Sunset &amp; Moonlight</button>
+      <button type="button" class="luna-header-mode-pencil" id="luna-header-mode-edit-btn" aria-label="Edit" title="Edit">✎</button>
+      <button type="button" class="luna-header-mode-btn luna-header-mode-done" id="luna-header-mode-done-btn" hidden>Done</button>
+    </div>
   </div>
 </section>
 <script>
@@ -199,12 +199,16 @@ async function main() {
     window.__PACK = window.__ES;
     if (typeof lunaStaffHeaderModeRefreshI18n === 'function') lunaStaffHeaderModeRefreshI18n();
     return {
-      title: document.querySelector('.luna-header-mode-title').textContent,
+      title: document.querySelector('#staff-style-card .luna-header-mode-title').textContent,
+      pencil: document.getElementById('luna-header-mode-edit-btn').getAttribute('aria-label'),
       save: document.getElementById('luna-header-mode-save-btn').textContent,
       unsaved: document.getElementById('luna-header-mode-dirty').textContent,
+      pencilGlyph: document.getElementById('luna-header-mode-edit-btn').textContent.trim(),
     };
   });
-  assert.strictEqual(esChrome.title, es['lunaStaff.headerStyle.title']);
+  assert.strictEqual(esChrome.title, 'Style', 'Style card title stays Style when folded');
+  assert.strictEqual(esChrome.pencil, es['lunaStaff.headerStyle.edit']);
+  assert.strictEqual(esChrome.pencilGlyph, '✎');
   assert.strictEqual(esChrome.save, es['lunaStaff.headerStyle.save']);
   assert.strictEqual(esChrome.unsaved, es['lunaStaff.headerStyle.unsaved']);
 

@@ -1146,7 +1146,7 @@ module.exports = {
   'lunaStaff.headerStyle.mode.moonlight': 'Moonlight',
   'lunaStaff.headerStyle.mode.sunsetmoonlight': 'Sunset y Moonlight',
   'lunaStaff.style.title': 'Estilo',
-  'lunaStaff.style.sub': 'Paleta y claro u oscuro. Claro y Oscuro se mantienen al día con el botón de luna.',
+  'lunaStaff.style.sub': 'Aspecto de cabecera, paleta y claro u oscuro. Claro y Oscuro se mantienen al día con el botón de luna. Los cambios de cabecera se aplican al guardar.',
   'lunaStaff.style.palette.salt': 'Sal',
   'lunaStaff.style.palette.sand': 'Arena',
   'lunaStaff.style.theme.light': 'Claro',

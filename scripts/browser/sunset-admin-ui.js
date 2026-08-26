@@ -4507,6 +4507,15 @@ function lunaStaffHeaderModeRefreshI18n(){
   var card = document.getElementById('luna-header-mode-card');
   if (!card) return;
   if (typeof applyStaffPortalI18n === 'function') applyStaffPortalI18n(card);
+  var styleCard = document.getElementById('staff-style-card');
+  if (styleCard && typeof applyStaffPortalI18n === 'function') applyStaffPortalI18n(styleCard);
+  var editBtn = document.getElementById('luna-header-mode-edit-btn');
+  if (editBtn) {
+    var editLabel = lunaStaffHeaderModeT('lunaStaff.headerStyle.edit', 'Edit');
+    editBtn.setAttribute('aria-label', editLabel);
+    editBtn.setAttribute('title', editLabel);
+    editBtn.textContent = '✎';
+  }
   var saved = lunaStaffHeaderModeSaved();
   var cur = document.getElementById('luna-header-mode-current');
   if (cur) cur.textContent = lunaStaffHeaderModeLabel(saved);
@@ -4521,25 +4530,36 @@ function wireLunaStaffHeaderModeCard(){
   if (!card) return;
   lunaStaffHeaderModeEnsureStyles();
 
-  var title = card.querySelector('.luna-header-mode-title');
-  if (title) {
-    title.setAttribute('data-i18n', 'lunaStaff.headerStyle.title');
-    title.textContent = lunaStaffHeaderModeT('lunaStaff.headerStyle.title', 'Header style');
-  }
-  var sub = card.querySelector('.luna-header-mode-sub');
-  if (sub) {
-    sub.setAttribute('data-i18n', 'lunaStaff.headerStyle.sub');
-    sub.textContent = lunaStaffHeaderModeT(
-      'lunaStaff.headerStyle.sub',
-      'How the top banner looks across the staff portal. Changes apply when you save.'
-    );
+  // Folded into Admin > Style: do not overwrite the Style card title/sub.
+  // Only set Header style chrome when this block still has its own head.
+  var ownHead = card.querySelector(':scope > .luna-header-mode-head');
+  if (ownHead) {
+    var title = ownHead.querySelector('.luna-header-mode-title');
+    if (title) {
+      title.setAttribute('data-i18n', 'lunaStaff.headerStyle.title');
+      title.textContent = lunaStaffHeaderModeT('lunaStaff.headerStyle.title', 'Header style');
+    }
+    var sub = ownHead.querySelector('.luna-header-mode-sub');
+    if (sub) {
+      sub.setAttribute('data-i18n', 'lunaStaff.headerStyle.sub');
+      sub.textContent = lunaStaffHeaderModeT(
+        'lunaStaff.headerStyle.sub',
+        'How the top banner looks across the staff portal. Changes apply when you save.'
+      );
+    }
   }
   card.setAttribute('aria-label', lunaStaffHeaderModeT('lunaStaff.headerStyle.title', 'Header style'));
 
   var editBtn = document.getElementById('luna-header-mode-edit-btn');
   if (editBtn) {
-    editBtn.setAttribute('data-i18n', 'lunaStaff.headerStyle.edit');
-    editBtn.textContent = lunaStaffHeaderModeT('lunaStaff.headerStyle.edit', 'Edit');
+    var editLabel = lunaStaffHeaderModeT('lunaStaff.headerStyle.edit', 'Edit');
+    editBtn.setAttribute('aria-label', editLabel);
+    editBtn.setAttribute('title', editLabel);
+    // Pencil affordance (drawer-style ✎) — never an outlined "Edit" label.
+    if (!editBtn.classList.contains('luna-header-mode-pencil')) {
+      editBtn.classList.add('luna-header-mode-pencil');
+    }
+    editBtn.textContent = '✎';
   }
 
   var seg = card.querySelector('.luna-header-mode-seg');
@@ -4631,10 +4651,14 @@ function wireLunaStaffHeaderModeCard(){
         return;
       }
       var modeBtn = t.closest('[data-header-mode]');
-      if (modeBtn && card.contains(modeBtn) && card.classList.contains('is-editing')) {
+      if (modeBtn && card.contains(modeBtn)) {
         e.preventDefault();
         e.stopPropagation();
+        // Modes are always visible; clicking one enters edit + draft.
         // Draft only — do not apply or persist until Save.
+        if (!card.classList.contains('is-editing')) {
+          card.classList.add('is-editing');
+        }
         lunaStaffHeaderModeReflectDraft(modeBtn.getAttribute('data-header-mode'));
       }
     }, true);
