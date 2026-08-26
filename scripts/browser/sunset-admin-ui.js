@@ -884,9 +884,9 @@ function adminPackSecondaryScheduleRowHtml(prefix, t1){
   t1 = t1 || { start: '', end: '' };
   return '<div class="portal-admin-pack-schedule-row" data-admin-pack-schedule-second>' +
     '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-start2">' + escHtml(portalT('admin.packs.startTime2')) + '</label>' +
-    '<input type="text" id="' + prefix + '-schedule-start2" value="' + escHtml(t1.start || '') + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<input type="text" id="' + prefix + '-schedule-start2" data-admin-pack-validate="schedule" value="' + escHtml(t1.start || '') + '" placeholder="HH:MM" maxlength="5"></div>' +
     '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-end2">' + escHtml(portalT('admin.packs.endTime2')) + '</label>' +
-    '<input type="text" id="' + prefix + '-schedule-end2" value="' + escHtml(t1.end || '') + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<input type="text" id="' + prefix + '-schedule-end2" data-admin-pack-validate="schedule" value="' + escHtml(t1.end || '') + '" placeholder="HH:MM" maxlength="5"></div>' +
     '</div>';
 }
 function adminRenderPackScheduleFields(p, prefix){
@@ -901,11 +901,12 @@ function adminRenderPackScheduleFields(p, prefix){
   // Empty optional second window is omitted by default. Staff can reveal it via
   // "Add secondary time" (add-secondary-schedule). Configured second schedules
   // auto-render so edit/save preserves them without an extra click.
-  var html = '<div class="portal-admin-pack-schedule-row">' +
+  var html = '<div class="portal-admin-pack-schedule-block" data-admin-pack-schedule-block>' +
+    '<div class="portal-admin-pack-schedule-row">' +
     '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-start">' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
-    '<input type="text" id="' + prefix + '-schedule-start" value="' + escHtml(t0.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<input type="text" id="' + prefix + '-schedule-start" data-admin-pack-validate="schedule" value="' + escHtml(t0.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
     '<div class="portal-admin-edit-field"><label for="' + prefix + '-schedule-end">' + escHtml(portalT('admin.edit.endTime')) + '</label>' +
-    '<input type="text" id="' + prefix + '-schedule-end" value="' + escHtml(t0.end) + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<input type="text" id="' + prefix + '-schedule-end" data-admin-pack-validate="schedule" value="' + escHtml(t0.end) + '" placeholder="HH:MM" maxlength="5"></div>' +
     '</div>';
   if (t1.start || t1.end) {
     html += adminPackSecondaryScheduleRowHtml(prefix, t1);
@@ -913,6 +914,7 @@ function adminRenderPackScheduleFields(p, prefix){
     html += '<button type="button" class="btn btn-ghost portal-admin-pack-add-secondary" data-admin-action="add-secondary-schedule" data-schedule-prefix="' + escHtml(prefix) + '">+ ' +
       escHtml(portalT('admin.packs.addSecondaryTime')) + '</button>';
   }
+  html += '<p class="state-msg error portal-admin-pack-field-error" data-admin-pack-field-error="schedule" style="display:none;margin:4px 0 0;font-size:12px;padding:6px 8px"></p></div>';
   return html;
 }
 function adminRenderPackScheduleReadout(schedules){
@@ -1032,6 +1034,80 @@ function adminRenderPackTierReadout(tiers){
   html += '<div class="portal-admin-pack-prices-2col">' + colHtml(left) + colHtml(right) + '</div></div>';
   return html;
 }
+function adminPackFormIdFromPrefix(prefix){
+  prefix = String(prefix || '').trim();
+  if (prefix === 'admin-new-pack') return 'new';
+  if (prefix.indexOf('admin-pack-') === 0) return prefix.slice('admin-pack-'.length);
+  return '';
+}
+function adminValidatePackFormState(prefix){
+  var errors = {};
+  var groupEl = el(prefix + '-group-size');
+  var groupParsed = adminParseCapacity(groupEl && groupEl.value);
+  if (!groupParsed.ok) errors.groupSize = groupParsed.error;
+  var schedulesParsed = adminReadPackSchedules(prefix);
+  if (!schedulesParsed.ok) errors.schedule = schedulesParsed.error;
+  return { ok: !errors.groupSize && !errors.schedule, errors: errors };
+}
+function adminSyncPackFormValidation(packFormId){
+  var pid = packFormId === 'new' ? null : String(packFormId || '');
+  var root = adminPackFormRoot(pid || null);
+  if (!root) return { ok: true, errors: {} };
+  var prefix = pid ? ('admin-pack-' + pid) : 'admin-new-pack';
+  var state = adminValidatePackFormState(prefix);
+  var gsErr = root.querySelector('[data-admin-pack-field-error="group-size"]');
+  var gsInput = el(prefix + '-group-size');
+  if (gsErr) {
+    gsErr.textContent = state.errors.groupSize || '';
+    gsErr.style.display = state.errors.groupSize ? 'block' : 'none';
+  }
+  if (gsInput) {
+    if (state.errors.groupSize) gsInput.setAttribute('aria-invalid', 'true');
+    else gsInput.removeAttribute('aria-invalid');
+  }
+  var schErr = root.querySelector('[data-admin-pack-field-error="schedule"]');
+  var schedInputs = [
+    el(prefix + '-schedule-start'), el(prefix + '-schedule-end'),
+    el(prefix + '-schedule-start2'), el(prefix + '-schedule-end2'),
+  ];
+  if (schErr) {
+    schErr.textContent = state.errors.schedule || '';
+    schErr.style.display = state.errors.schedule ? 'block' : 'none';
+  }
+  schedInputs.forEach(function(inp){
+    if (!inp) return;
+    if (state.errors.schedule) inp.setAttribute('aria-invalid', 'true');
+    else inp.removeAttribute('aria-invalid');
+  });
+  var saveBtns = root.querySelectorAll('[data-admin-action="save-pack"], [data-admin-action="save-new-pack"]');
+  for (var i = 0; i < saveBtns.length; i++) saveBtns[i].disabled = !state.ok;
+  return state;
+}
+function adminSyncAllPackFormValidation(){
+  if (typeof document === 'undefined' || !document.querySelectorAll) return;
+  var forms = document.querySelectorAll('[data-admin-pack-form]');
+  for (var i = 0; i < forms.length; i++) {
+    var id = forms[i].getAttribute('data-admin-pack-form') || '';
+    if (id) adminSyncPackFormValidation(id);
+  }
+}
+function adminWirePackFormValidation(){
+  var root = el('tab-admin');
+  if (!root || root.dataset.adminPackValidateWired === '1') return;
+  root.dataset.adminPackValidateWired = '1';
+  function onPackFieldChange(ev){
+    var node = ev && ev.target;
+    if (!node || !node.getAttribute) return;
+    var isGroupSize = !!(node.id && node.id.indexOf('-group-size') >= 0);
+    if (!isGroupSize && !node.getAttribute('data-admin-pack-validate')) return;
+    var form = node.closest ? node.closest('[data-admin-pack-form]') : null;
+    if (!form) return;
+    var formId = form.getAttribute('data-admin-pack-form') || '';
+    if (formId) adminSyncPackFormValidation(formId);
+  }
+  root.addEventListener('input', onPackFieldChange);
+  root.addEventListener('change', onPackFieldChange);
+}
 function adminRenderPackEditForm(pid, pack){
   var p = pack || adminDefaultPackSeed();
   var prefix = pid ? ('admin-pack-' + pid) : 'admin-new-pack';
@@ -1041,7 +1117,8 @@ function adminRenderPackEditForm(pid, pack){
     '<input type="text" id="' + prefix + '-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
     adminRenderPillRow('age_band', adminPackAgeOptions(), p.age_band || '12_and_up', false) +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.groupSize')) + '</label>' +
-    '<input type="number" id="' + prefix + '-group-size" min="1" max="999" step="1" value="' + escHtml(String(p.group_size || 16)) + '"></div>' +
+    '<input type="number" id="' + prefix + '-group-size" data-admin-pack-validate="group-size" min="1" max="999" step="1" value="' + escHtml(String(p.group_size || 16)) + '">' +
+    '<p class="state-msg error portal-admin-pack-field-error" data-admin-pack-field-error="group-size" style="display:none;margin:4px 0 0;font-size:12px;padding:6px 8px"></p></div>' +
     adminRenderEquipmentEditor(p.equipment_options || [], prefix) +
     adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true) +
     adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false) +
@@ -1071,10 +1148,12 @@ function adminReadPackFormPayload(pid){
     return true;
   });
   var schedulesParsed = adminReadPackSchedules(prefix);
+  var groupSizeEl = el(prefix + '-group-size');
+  var groupSizeParsed = adminParseCapacity(groupSizeEl && groupSizeEl.value);
   return {
     label: labelEl ? String(labelEl.value || '').trim() : '',
     age_band: adminCollectSinglePill('age_band', '12_and_up', root),
-    group_size: (function(){ var g = el(prefix + '-group-size'); var n = parseInt(g && g.value, 10); return (isFinite(n) && n > 0) ? n : 16; })(),
+    group_size: groupSizeParsed.ok ? groupSizeParsed.value : 0,
     equipment_options: adminReadEquipmentOptions(root).value,
     _equipmentError: adminReadEquipmentOptions(root).ok ? '' : adminReadEquipmentOptions(root).error,
     beaches: adminCollectPillValues('beaches', root),
@@ -1082,6 +1161,7 @@ function adminReadPackFormPayload(pid){
     schedules: schedulesParsed.ok ? schedulesParsed.value : [],
     price_tiers: tiers,
     _scheduleError: schedulesParsed.ok ? '' : schedulesParsed.error,
+    _groupSizeError: groupSizeParsed.ok ? '' : groupSizeParsed.error,
   };
 }
 
@@ -2024,6 +2104,8 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   // Course equipment is owned per Group/Private card (equipment_options). The obsolete
   // location-wide Equipment + Price (All Day + Surfboard/Wetsuit) block is retired.
   box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes);
+  adminWirePackFormValidation();
+  adminSyncAllPackFormValidation();
 }
 
 function renderAdminSectionBusinessInfoFromConfig(cfg){
@@ -3525,6 +3607,7 @@ function wireAdminTab(){
       if (document.getElementById(schedulePrefix + '-schedule-start2')) return;
       btn.insertAdjacentHTML('beforebegin', adminPackSecondaryScheduleRowHtml(schedulePrefix, { start: '', end: '' }));
       if (btn.parentNode) btn.parentNode.removeChild(btn);
+      adminSyncPackFormValidation(adminPackFormIdFromPrefix(schedulePrefix));
       return;
     }
     if (action === 'remove-equipment-option'){
@@ -4433,9 +4516,18 @@ function wireAdminTab(){
     }
     if (action === 'save-pack' || action === 'save-new-pack'){
       var packId = action === 'save-pack' ? String(btn.getAttribute('data-pack-id') || '') : '';
+      var packFormId = packId || 'new';
+      var packPrefix = packId ? ('admin-pack-' + packId) : 'admin-new-pack';
+      var packValid = adminValidatePackFormState(packPrefix);
+      if (!packValid.ok) {
+        adminSyncPackFormValidation(packFormId);
+        return;
+      }
       var payload = adminReadPackFormPayload(packId || null);
       if (payload._scheduleError){ adminShowMessage('error', payload._scheduleError); return; }
       delete payload._scheduleError;
+      if (payload._groupSizeError){ adminShowMessage('error', payload._groupSizeError); return; }
+      delete payload._groupSizeError;
       if (payload._equipmentError){ adminShowMessage('error', payload._equipmentError); return; }
       delete payload._equipmentError;
       if (!payload.label){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
