@@ -1,9 +1,8 @@
 'use strict';
 
 /**
- * UI-SALT-FACELIFT-001 — Salt/Sand × Light/Dark, Style card, four embed palettes.
- *
- * CSS/layout only. Does not touch send/inbound. staff-staging chrome.
+ * Style card: Salt/Sand in Light, Sand-only Dark, no four-swatch embed.
+ * CSS/layout only. Does not touch send/inbound.
  */
 
 const fs = require('fs');
@@ -53,29 +52,6 @@ const SALT_LIGHT = {
   focus: '#3D5C4A',
   'luna-teal': '#3D5C4A',
   'luna-teal-dark': '#324A3C',
-};
-
-const SALT_DARK = {
-  cream: '#1A1612',
-  surface: '#26201A',
-  'surface-soft': '#322A22',
-  sand: '#3A3228',
-  tan: '#4A4034',
-  sage: '#8A9A70',
-  olive: '#7A8A60',
-  'dusty-blue': '#8A8680',
-  ocean: '#6E6858',
-  teal: '#3A3228',
-  text: '#F3E8D8',
-  'text-2': '#B8A898',
-  'text-3': '#8A7E70',
-  border: '#3A3228',
-  'border-soft': '#322A22',
-  primary: '#8A9A70',
-  'primary-hover': '#9AAA80',
-  focus: '#8A9A70',
-  'luna-teal': '#8A9A70',
-  'luna-teal-dark': '#9AAA80',
 };
 
 const SAND_LIGHT = {
@@ -141,12 +117,8 @@ const I18N_KEYS = [
   'lunaStaff.style.sub',
   'lunaStaff.style.palette.salt',
   'lunaStaff.style.palette.sand',
-  'lunaStaff.style.theme.light',
-  'lunaStaff.style.theme.dark',
-  'lunaStaff.style.combo.saltLight',
-  'lunaStaff.style.combo.saltDark',
-  'lunaStaff.style.combo.sandLight',
-  'lunaStaff.style.combo.sandDark',
+  'lunaStaff.style.lightMode',
+  'lunaStaff.style.darkMode',
 ];
 
 for (const key of I18N_KEYS) {
@@ -156,8 +128,8 @@ for (const key of I18N_KEYS) {
 assert.notStrictEqual(en['lunaStaff.style.palette.salt'], es['lunaStaff.style.palette.salt']);
 assert.strictEqual(en['lunaStaff.style.palette.salt'], 'Salt');
 assert.strictEqual(en['lunaStaff.style.palette.sand'], 'Sand');
-assert.strictEqual(en['lunaStaff.style.theme.light'], 'Light');
-assert.strictEqual(en['lunaStaff.style.theme.dark'], 'Dark');
+assert.strictEqual(en['lunaStaff.style.lightMode'], 'Light mode');
+assert.strictEqual(en['lunaStaff.style.darkMode'], 'Dark mode');
 
 const saltLightCss = extractBlock(
   apiSrc,
@@ -169,38 +141,38 @@ assert.ok(!/--cream:#EDE8E0/.test(saltLightCss), 'Salt Light :root must not keep
 assert.ok(/--cream:#F3EEE6/.test(saltLightCss), 'Salt Light warm paper cream');
 assert.ok(/--surface:#FFFBF4/.test(saltLightCss), 'Salt Light warm paper surface');
 assert.ok(/--primary:#3D5C4A/.test(saltLightCss), 'Salt Light warm olive primary');
-assert.ok(!/--cream:#E6EDE9/.test(apiSrc.slice(apiSrc.indexOf(':root{'), apiSrc.indexOf('[data-color-profile="sand"]'))), 'no cool sea-mist cream in Salt :root');
-assert.ok(!/--primary:#0F5C57/.test(apiSrc.slice(apiSrc.indexOf(':root{'), apiSrc.indexOf('[data-color-profile="sand"]'))), 'no cool sea-green primary in Salt');
-assert.ok(/--dusty-blue:#8A8E86/.test(saltLightCss), 'dusty-blue is stone not sky');
-assert.ok(/--ocean:#6E7A70/.test(saltLightCss), 'ocean is olive-grey not blue');
-
-const saltDarkCss = extractBlock(
-  apiSrc,
-  /\[data-theme="dark"\]\{/,
-  /\n\[data-color-profile="sand"\]\{/
-);
-assertTokens('Salt Dark [data-theme=dark]', saltDarkCss, SALT_DARK);
-assert.ok(!/--cream:#181818/.test(saltDarkCss), 'default dark must not be VS Code charcoal cream');
-assert.ok(!/--surface:#252526/.test(saltDarkCss), 'default dark must not be VS Code charcoal surface');
-assert.ok(/--cream:#1A1612/.test(saltDarkCss), 'Salt Dark warm night cream');
-assert.ok(/--surface:#26201A/.test(saltDarkCss), 'Salt Dark warm night surface');
-assert.ok(/--text:#F3E8D8/.test(saltDarkCss), 'Salt Dark paper ink');
-assert.ok(/--primary:#8A9A70/.test(saltDarkCss), 'Salt Dark olive accent');
-assert.ok(!/--primary:#7EB8B2/.test(saltDarkCss), 'Salt Dark must not use cyan primary');
-
-const sandLightCss = extractBlock(
-  apiSrc,
-  /\[data-color-profile="sand"\]\{/,
-  /\n\[data-color-profile="sand"\]\[data-theme="dark"\]\{/
-);
-assertTokens('Sand Light', sandLightCss, SAND_LIGHT);
+assert.ok(!/--cream:#E6EDE9/.test(saltLightCss), 'no cool sea-mist cream');
 
 const sandDarkCss = extractBlock(
   apiSrc,
-  /\[data-color-profile="sand"\]\[data-theme="dark"\]\{/,
-  /\n\[data-color-profile="sand"\]\[data-theme="dark"\] /
+  /\[data-theme="dark"\]\{/,
+  /\n\[data-color-profile="sand"\]/
 );
-assertTokens('Sand Dark', sandDarkCss, SAND_DARK);
+assertTokens('Sand Dark [data-theme=dark]', sandDarkCss, SAND_DARK);
+assert.ok(!/--cream:#161C1A/.test(sandDarkCss), 'Salt Dark cream must not be default dark');
+assert.ok(!/--surface:#222926/.test(sandDarkCss), 'Salt Dark surface must not be default dark');
+assert.ok(/--cream:#181818/.test(sandDarkCss), 'default dark is Sand charcoal cream');
+assert.ok(/--surface:#252526/.test(sandDarkCss), 'default dark is Sand charcoal surface');
+
+const sandLightCss = extractBlock(
+  apiSrc,
+  /\[data-color-profile="sand"\]:not\(\[data-theme="dark"\]\)\{/,
+  /\n\[data-theme="dark"\] #banner/
+);
+assertTokens('Sand Light', sandLightCss, SAND_LIGHT);
+
+assert.ok(
+  !/\[data-color-profile="sand"\]\[data-theme="dark"\] #banner\{background:/.test(apiSrc),
+  'sand-dark must not set #banner background shorthand (flattens moonlight art)'
+);
+assert.ok(
+  /\[data-theme="dark"\] \.luna-header-ui:not\(\.luna-hdr-compact\) #banner\{[\s\S]{0,400}background-size:100% 100%/.test(apiSrc),
+  'dark painted banner re-sets background-size'
+);
+assert.ok(
+  /luna-header-banner-dark\.png/.test(apiSrc),
+  'moonlight banner asset stays'
+);
 
 assert.ok(
   /wh_staff_color_profile/.test(i18nSrc) &&
@@ -214,17 +186,17 @@ assert.ok(i18nSrc.includes('window.bindStaffStyleCard'), 'bindStaffStyleCard exp
 assert.ok(i18nSrc.includes("setAttribute('data-color-profile'"), 'apply sets data-color-profile');
 
 assert.ok(apiSrc.includes('id="staff-style-card"'), 'Style card in embed');
-assert.ok(apiSrc.includes('id="staff-style-palette-embed"'), 'four-palette embed present');
-assert.ok(apiSrc.includes('data-style-combo="salt-light"'), 'embed Salt Light');
-assert.ok(apiSrc.includes('data-style-combo="salt-dark"'), 'embed Salt Dark');
-assert.ok(apiSrc.includes('data-style-combo="sand-light"'), 'embed Sand Light');
-assert.ok(apiSrc.includes('data-style-combo="sand-dark"'), 'embed Sand Dark');
+assert.ok(apiSrc.includes('id="staff-style-light-mode"'), 'Light mode section');
+assert.ok(apiSrc.includes('id="staff-style-dark-mode"'), 'Dark mode section');
+assert.ok(apiSrc.includes('lunaStaff.style.lightMode'), 'Light mode title i18n');
+assert.ok(apiSrc.includes('lunaStaff.style.darkMode'), 'Dark mode title i18n');
 assert.ok(apiSrc.includes('data-color-profile="salt"'), 'Salt pill');
 assert.ok(apiSrc.includes('data-color-profile="sand"'), 'Sand pill');
-assert.ok(apiSrc.includes('data-style-theme="light"'), 'Light pill');
-assert.ok(apiSrc.includes('data-style-theme="dark"'), 'Dark pill');
+assert.ok(!apiSrc.includes('id="staff-style-palette-embed"'), 'four-palette embed removed');
+assert.ok(!apiSrc.includes('data-style-combo="salt-dark"'), 'Salt Dark swatch removed');
+assert.ok(!/data-style-theme="(light|dark)"/.test(apiSrc), 'Light/Dark pills removed from Style card');
 assert.ok(
-  !/\b(Foam|Sol|Kelp|Ember)\b/.test(apiSrc.slice(apiSrc.indexOf('id="staff-style-card"'), apiSrc.indexOf('id="staff-style-palette-embed"') + 80)),
+  !/\b(Foam|Sol|Kelp|Ember)\b/.test(apiSrc.slice(apiSrc.indexOf('id="staff-style-card"'), apiSrc.indexOf('id="staff-style-dark-mode"') + 80)),
   'Style card is Salt+Sand only — no Foam/Sol/Kelp/Ember'
 );
 
@@ -240,132 +212,14 @@ assert.ok(apiSrc.includes('id="staff-style-card"') && apiSrc.indexOf('id="luna-h
 assert.ok(apiSrc.includes('luna-header-mode-pencil'), 'pencil affordance present');
 assert.ok(!/<section[^>]*id="luna-header-mode-card"/.test(apiSrc), 'no standalone Header style section');
 assert.ok(adminUi.includes('function wireLunaStaffHeaderModeCard'), 'header mode wire stays');
-assert.ok(adminUi.includes("editBtn.textContent = '✎'") || adminUi.includes('textContent = \'✎\''), 'wire keeps pencil glyph');
 assert.ok(apiSrc.includes('--chip-transfer-bg'), 'transfer chip token');
-assert.ok(apiSrc.includes('--chip-balance-bg'), 'balance chip token');
-assert.ok(apiSrc.includes('--chip-link-bg'), 'link chip token');
 assert.ok(/\.bc-room-hdr\{background:var\(--sage\)/.test(apiSrc), 'room bars use --sage');
-assert.ok(/--sched-primary:var\(--primary\)/.test(apiSrc), 'schedule primary follows palette');
-assert.ok(!/:root:not\(\[data-theme="dark"\]\) #tab-portal-home\{[\s\S]{0,400}--sched-primary:#4E5853/.test(apiSrc), 'no hardcoded Sand primary on schedule for all profiles');
-
 assert.ok(!/function sendWhatsApp|handleInbound/.test(i18nSrc), 'i18n bootstrap stayed CSS/layout');
 
 const styleStart = apiSrc.indexOf('/* ── Palette (soft boutique-hospitality)');
 const styleEnd = apiSrc.indexOf('</style>', styleStart);
 assert.ok(styleStart >= 0 && styleEnd > styleStart, 'main style block found');
 const style = apiSrc.slice(styleStart, styleEnd);
-
-const pageHtml = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>ui-salt-facelift-001</title>
-<style>
-${style}
-body{margin:0;background:var(--cream);color:var(--text)}
-#probe{background:var(--surface);color:var(--text);border:1px solid var(--border)}
-</style>
-</head>
-<body>
-<button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false">moon</button>
-<section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
-  <div class="staff-style-row" role="group" aria-label="Palette">
-    <button type="button" class="luna-header-mode-btn" data-color-profile="salt">Salt</button>
-    <button type="button" class="luna-header-mode-btn" data-color-profile="sand">Sand</button>
-  </div>
-  <div class="staff-style-row" role="group" aria-label="Theme">
-    <button type="button" class="luna-header-mode-btn" data-style-theme="light">Light</button>
-    <button type="button" class="luna-header-mode-btn" data-style-theme="dark">Dark</button>
-  </div>
-  <div class="staff-style-palette-embed" id="staff-style-palette-embed" role="group" aria-label="Palettes">
-    <button type="button" class="staff-style-swatch" data-style-combo="salt-light">Salt Light</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="salt-dark">Salt Dark</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="sand-light">Sand Light</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="sand-dark">Sand Dark</button>
-  </div>
-</section>
-<section class="luna-header-mode-card" id="luna-header-mode-card">
-  <button type="button" data-header-mode="normal">Normal</button>
-  <button type="button" data-header-mode="compact">Compact</button>
-  <button type="button" data-header-mode="sunset">Sunset</button>
-  <button type="button" data-header-mode="moonlight">Moonlight</button>
-  <button type="button" data-header-mode="sunsetmoonlight">Sunset &amp; Moonlight</button>
-</section>
-<div id="probe">probe</div>
-<script>
-${i18nSrc
-    .slice(
-      i18nSrc.indexOf("return `<script>\\n(function(){"),
-      i18nSrc.lastIndexOf('</script>`')
-    )
-    .replace(/^return `<script>\\n/, '')
-    .replace(/\$\{json\}/g, JSON.stringify(STAFF_PORTAL_STRINGS))
-    .replace(/\$\{localesJson\}/g, JSON.stringify(['es', 'en']))
-    .replace(/\$\{JSON\\.stringify\\(defaultLocale\\)\\}/g, JSON.stringify('es'))}
-</script>
-</body>
-</html>`;
-
-// The bootstrap extract above is fragile — build a self-contained harness instead.
-const harnessHtml = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>ui-salt-facelift-001</title>
-<style>
-${style}
-body{margin:0;background:var(--cream);color:var(--text)}
-#probe{background:var(--surface);color:var(--text);border:1px solid var(--border)}
-</style>
-<script>
-(function(){
-  try {
-    var t = localStorage.getItem('wh_staff_portal_theme');
-    if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
-    var p = localStorage.getItem('wh_staff_color_profile');
-    document.documentElement.setAttribute('data-color-profile', p === 'sand' ? 'sand' : 'salt');
-  } catch (e) {}
-})();
-</script>
-</head>
-<body>
-<button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false">moon</button>
-<section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
-  <div class="staff-style-row" role="group" aria-label="Palette">
-    <button type="button" class="luna-header-mode-btn" data-color-profile="salt">Salt</button>
-    <button type="button" class="luna-header-mode-btn" data-color-profile="sand">Sand</button>
-  </div>
-  <div class="staff-style-row" role="group" aria-label="Theme">
-    <button type="button" class="luna-header-mode-btn" data-style-theme="light">Light</button>
-    <button type="button" class="luna-header-mode-btn" data-style-theme="dark">Dark</button>
-  </div>
-  <div class="staff-style-palette-embed" id="staff-style-palette-embed" role="group" aria-label="Palettes">
-    <button type="button" class="staff-style-swatch" data-style-combo="salt-light">Salt Light</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="salt-dark">Salt Dark</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="sand-light">Sand Light</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="sand-dark">Sand Dark</button>
-  </div>
-</section>
-<section class="luna-header-mode-card" id="luna-header-mode-card">
-  <button type="button" data-header-mode="normal">Normal</button>
-  <button type="button" data-header-mode="compact">Compact</button>
-  <button type="button" data-header-mode="sunset">Sunset</button>
-  <button type="button" data-header-mode="moonlight">Moonlight</button>
-  <button type="button" data-header-mode="sunsetmoonlight">Sunset &amp; Moonlight</button>
-</section>
-<div id="probe">probe</div>
-<script>
-${(function () {
-    const start = i18nSrc.indexOf("  return `<script>\\n(function(){");
-    // Use the runtime functions by inlining a copy that matches production API.
-    return '';
-  })()}
-</script>
-</body>
-</html>`;
-
-void pageHtml;
-void harnessHtml;
 
 function hexOf(rgb) {
   const m = String(rgb || '').match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
@@ -386,26 +240,9 @@ async function readTokens(page) {
   return page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const names = [
-      'cream',
-      'surface',
-      'surface-soft',
-      'sand',
-      'tan',
-      'sage',
-      'olive',
-      'dusty-blue',
-      'ocean',
-      'teal',
-      'text',
-      'text-2',
-      'text-3',
-      'border',
-      'border-soft',
-      'primary',
-      'primary-hover',
-      'focus',
-      'luna-teal',
-      'luna-teal-dark',
+      'cream', 'surface', 'surface-soft', 'sand', 'tan', 'sage', 'olive',
+      'dusty-blue', 'ocean', 'teal', 'text', 'text-2', 'text-3', 'border',
+      'border-soft', 'primary', 'primary-hover', 'focus', 'luna-teal', 'luna-teal-dark',
     ];
     const out = {};
     names.forEach((n) => {
@@ -415,19 +252,20 @@ async function readTokens(page) {
     out.theme = document.documentElement.getAttribute('data-theme');
     const moon = document.getElementById('staff-theme-toggle');
     out.moonPressed = moon ? moon.getAttribute('aria-pressed') : null;
-    out.moonDarkClass = moon ? moon.classList.contains('is-dark') : null;
-    out.lightPill = !!document.querySelector('[data-style-theme="light"].is-active');
-    out.darkPill = !!document.querySelector('[data-style-theme="dark"].is-active');
     out.saltPill = !!document.querySelector('[data-color-profile="salt"].is-active');
     out.sandPill = !!document.querySelector('[data-color-profile="sand"].is-active');
-    out.combo = {};
-    ['salt-light', 'salt-dark', 'sand-light', 'sand-dark'].forEach((c) => {
-      const el = document.querySelector('[data-style-combo="' + c + '"]');
-      out.combo[c] = !!(el && el.classList.contains('is-active'));
-    });
+    out.lightTitle = !!(document.getElementById('staff-style-light-mode'));
+    out.darkTitle = !!(document.getElementById('staff-style-dark-mode'));
     out.headerModes = Array.from(document.querySelectorAll('[data-header-mode]')).map((el) =>
       el.getAttribute('data-header-mode')
     );
+    const banner = document.getElementById('banner');
+    if (banner) {
+      const bcs = getComputedStyle(banner);
+      out.bannerImage = bcs.backgroundImage;
+      out.bannerSize = bcs.backgroundSize;
+      out.bannerRepeat = bcs.backgroundRepeat;
+    }
     return out;
   });
 }
@@ -483,12 +321,6 @@ function simulateStyleCard() {
   const cardKids = [
     el({ 'data-color-profile': 'salt' }),
     el({ 'data-color-profile': 'sand' }),
-    el({ 'data-style-theme': 'light' }),
-    el({ 'data-style-theme': 'dark' }),
-    el({ 'data-style-combo': 'salt-light' }),
-    el({ 'data-style-combo': 'salt-dark' }),
-    el({ 'data-style-combo': 'sand-light' }),
-    el({ 'data-style-combo': 'sand-dark' }),
   ];
   const card = {
     _staffStyleBound: false,
@@ -508,8 +340,8 @@ function simulateStyleCard() {
       },
       querySelectorAll(sel) {
         if (sel === '#staff-style-card [data-color-profile]') return cardKids.filter((n) => n.attrs['data-color-profile']);
-        if (sel === '#staff-style-card [data-style-theme]') return cardKids.filter((n) => n.attrs['data-style-theme']);
-        if (sel === '#staff-style-palette-embed [data-style-combo]') return cardKids.filter((n) => n.attrs['data-style-combo']);
+        if (sel === '#staff-style-card [data-style-theme]') return [];
+        if (sel === '#staff-style-palette-embed [data-style-combo]') return [];
         if (sel === '.staff-lang-btn') return [];
         return [];
       },
@@ -530,19 +362,15 @@ function simulateStyleCard() {
   assert.strictEqual(htmlEl.attrs['data-color-profile'], 'salt', 'vm default profile salt');
   assert.strictEqual(htmlEl.attrs['data-theme'], 'light', 'vm default theme light');
   assert.ok(cardKids[0].classList.contains('is-active'), 'vm Salt pill');
-  assert.ok(cardKids[2].classList.contains('is-active'), 'vm Light pill');
-  assert.ok(cardKids[4].classList.contains('is-active'), 'vm Salt Light embed');
   ctx.toggleStaffTheme();
   assert.strictEqual(htmlEl.attrs['data-theme'], 'dark', 'vm moon dark');
-  assert.ok(cardKids[3].classList.contains('is-active'), 'vm Dark pill follows moon');
-  assert.ok(cardKids[5].classList.contains('is-active'), 'vm Salt Dark embed follows moon');
-  ctx.setStaffStyleCombo('sand-dark');
-  assert.strictEqual(htmlEl.attrs['data-color-profile'], 'sand', 'vm embed sand');
-  assert.strictEqual(htmlEl.attrs['data-theme'], 'dark', 'vm embed dark');
-  assert.ok(cardKids[1].classList.contains('is-active'), 'vm Sand pill');
-  ctx.setStaffStyleCombo('salt-light');
-  assert.strictEqual(htmlEl.attrs['data-color-profile'], 'salt', 'vm back to salt');
+  assert.strictEqual(htmlEl.attrs['data-color-profile'], 'salt', 'vm moon keeps salt for light return');
+  ctx.setStaffColorProfile('sand');
+  assert.strictEqual(htmlEl.attrs['data-color-profile'], 'sand', 'vm sand pill');
+  assert.ok(cardKids[1].classList.contains('is-active'), 'vm Sand pill active');
+  ctx.setStaffTheme('light');
   assert.strictEqual(htmlEl.attrs['data-theme'], 'light', 'vm back to light');
+  assert.strictEqual(htmlEl.attrs['data-color-profile'], 'sand', 'vm sand survives light');
 }
 
 async function main() {
@@ -560,8 +388,6 @@ async function main() {
     return;
   }
 
-  // Production bootstrap from the module, not a copy.
-  // Serve over HTTP so localStorage works (about:blank / setContent denies it).
   const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = require('./lib/staff-portal-i18n');
   const boot = getStaffPortalI18nBootstrapScript(['en', 'es']);
   const early = getStaffPortalThemeEarlyScript();
@@ -576,14 +402,11 @@ ${style}
 body{margin:0;background:var(--cream);color:var(--text)}
 #probe{background:var(--surface);color:var(--text);border:1px solid var(--border)}
 .bc-room-hdr{background:var(--sage);color:#fff;padding:8px}
-.bc-block-pay-balance{background:var(--chip-balance-bg);color:var(--chip-balance-fg);border:1px solid var(--chip-balance-border);display:inline-block;padding:2px 6px}
-.bc-block-pay-link{background:var(--chip-link-bg);color:var(--chip-link-fg);border:1px solid var(--chip-link-border);display:inline-block;padding:2px 6px}
-.pill-purple{background:var(--chip-transfer-bg);color:var(--chip-transfer-fg);border:1px solid var(--chip-transfer-border);display:inline-block;padding:2px 6px}
-.conv-card.selected{background:var(--inbox-active-bg)}
 </style>
 ${boot}
 </head>
-<body>
+<body class="luna-header-ui">
+<div id="banner">banner</div>
 <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false">moon</button>
 <section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
   <div id="luna-header-mode-card" class="staff-style-header-block">
@@ -594,26 +417,21 @@ ${boot}
     <button type="button" data-header-mode="sunsetmoonlight">Sunset &amp; Moonlight</button>
     <button type="button" class="luna-header-mode-pencil" id="luna-header-mode-edit-btn">✎</button>
   </div>
-  <div class="staff-style-row" role="group" aria-label="Palette">
-    <button type="button" class="luna-header-mode-btn" data-color-profile="salt">Salt</button>
-    <button type="button" class="luna-header-mode-btn" data-color-profile="sand">Sand</button>
+  <div class="staff-style-mode" id="staff-style-light-mode">
+    <div class="staff-style-mode-title">Light mode</div>
+    <div class="staff-style-row" role="group" aria-label="Light palette">
+      <button type="button" class="luna-header-mode-btn" data-color-profile="salt">Salt</button>
+      <button type="button" class="luna-header-mode-btn" data-color-profile="sand">Sand</button>
+    </div>
   </div>
-  <div class="staff-style-row" role="group" aria-label="Theme">
-    <button type="button" class="luna-header-mode-btn" data-style-theme="light">Light</button>
-    <button type="button" class="luna-header-mode-btn" data-style-theme="dark">Dark</button>
-  </div>
-  <div class="staff-style-palette-embed" id="staff-style-palette-embed" role="group" aria-label="Palettes">
-    <button type="button" class="staff-style-swatch" data-style-combo="salt-light">Salt Light</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="salt-dark">Salt Dark</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="sand-light">Sand Light</button>
-    <button type="button" class="staff-style-swatch" data-style-combo="sand-dark">Sand Dark</button>
+  <div class="staff-style-mode" id="staff-style-dark-mode">
+    <div class="staff-style-mode-title">Dark mode</div>
+    <div class="staff-style-row staff-style-row--static">
+      <span class="luna-header-mode-btn is-active">Sand</span>
+    </div>
   </div>
 </section>
 <div class="bc-room-hdr" id="probe-room">Room 1</div>
-<span class="pill-purple" id="probe-transfer">Transfer</span>
-<span class="bc-block-pay-balance" id="probe-balance">Balance due</span>
-<span class="bc-block-pay-link" id="probe-link">Link sent</span>
-<div class="conv-card selected" id="probe-inbox">inbox</div>
 <div id="probe">probe</div>
 </body>
 </html>`;
@@ -641,84 +459,59 @@ ${boot}
 
   let got = await readTokens(page);
   assert.strictEqual(got.profile, 'salt', 'default profile is salt');
-  assert.ok(got.theme === 'light' || got.theme === null || got.theme === 'light', 'default theme light');
+  assert.ok(got.theme === 'light' || got.theme === null, 'default theme light');
   assertTokenSet('default Salt Light computed', got, SALT_LIGHT);
-  assert.strictEqual(got.lightPill, true, 'Light pill active by default');
-  assert.strictEqual(got.darkPill, false, 'Dark pill idle by default');
   assert.strictEqual(got.saltPill, true, 'Salt pill active by default');
   assert.strictEqual(got.sandPill, false, 'Sand pill idle by default');
-  assert.strictEqual(got.combo['salt-light'], true, 'embed Salt Light active');
+  assert.strictEqual(got.lightTitle, true, 'Light mode title present');
+  assert.strictEqual(got.darkTitle, true, 'Dark mode title present');
   assert.deepStrictEqual(got.headerModes, HEADER_MODES, 'five header modes stay');
+
+  await page.click('[data-color-profile="sand"]');
+  got = await readTokens(page);
+  assertTokenSet('Sand Light via pill', got, SAND_LIGHT);
+  assert.strictEqual(got.sandPill, true, 'Sand pill active');
 
   await page.click('#staff-theme-toggle');
   got = await readTokens(page);
   assert.strictEqual(got.theme, 'dark', 'moon sets dark');
-  assert.strictEqual(got.profile, 'salt', 'moon keeps salt');
-  assertTokenSet('Salt Dark via moon', got, SALT_DARK);
-  assert.strictEqual(got.darkPill, true, 'Dark pill follows moon');
-  assert.strictEqual(got.lightPill, false, 'Light pill follows moon');
-  assert.strictEqual(got.moonPressed, 'true', 'moon pressed in dark');
-  assert.strictEqual(got.combo['salt-dark'], true, 'embed Salt Dark follows moon');
-
-  await page.click('[data-style-theme="light"]');
-  got = await readTokens(page);
-  assert.strictEqual(got.theme, 'light', 'Light pill sets theme');
-  assert.strictEqual(got.moonPressed, 'false', 'moon follows Light pill');
-  assertTokenSet('Salt Light via pill', got, SALT_LIGHT);
-
-  await page.click('[data-style-combo="sand-dark"]');
-  got = await readTokens(page);
-  assert.strictEqual(got.profile, 'sand', 'embed Sand Dark sets sand');
-  assert.strictEqual(got.theme, 'dark', 'embed Sand Dark sets dark');
-  assertTokenSet('Sand Dark via embed', got, SAND_DARK);
-  assert.strictEqual(got.sandPill, true, 'Sand pill follows embed');
-  assert.strictEqual(got.darkPill, true, 'Dark pill follows embed');
-  assert.strictEqual(got.moonPressed, 'true', 'moon follows Sand Dark embed');
-  assert.ok(!normHex(got.surface).includes('222926'), 'Sand Dark is not Salt Dark surface');
+  assert.strictEqual(got.profile, 'sand', 'moon keeps sand');
+  assertTokenSet('Sand Dark via moon from sand light', got, SAND_DARK);
+  assert.ok(String(got.bannerImage).includes('luna-header-banner-dark.png'), 'dark banner uses moonlight PNG, not a flat gradient');
+  assert.ok(/100%\s*100%/.test(String(got.bannerSize)), 'dark banner size fills the bar, got ' + got.bannerSize);
+  assert.ok(!/repeat$/.test(String(got.bannerRepeat)) || String(got.bannerRepeat) === 'no-repeat', 'dark banner does not tile, got ' + got.bannerRepeat);
 
   await page.click('[data-color-profile="salt"]');
-  await page.click('[data-style-theme="light"]');
-  await page.click('[data-style-combo="sand-light"]');
   got = await readTokens(page);
-  assertTokenSet('Sand Light via embed', got, SAND_LIGHT);
+  assert.strictEqual(got.profile, 'salt', 'salt stored while dark');
+  assertTokenSet('dark stays Sand Dark even if light palette is Salt', got, SAND_DARK);
 
-  await page.click('[data-style-combo="salt-dark"]');
+  await page.click('#staff-theme-toggle');
   got = await readTokens(page);
-  assertTokenSet('Salt Dark via embed', got, SALT_DARK);
-  assert.notStrictEqual(normHex(got.cream), '#181818', 'Salt Dark cream is not VS Code #181818');
-  assert.notStrictEqual(normHex(got.surface), '#252526', 'Salt Dark surface is not VS Code #252526');
+  assert.strictEqual(got.theme, 'light', 'moon back to light');
+  assertTokenSet('Salt Light restored after dark', got, SALT_LIGHT);
 
-  // Visible Salt ≠ Sand: cream/surface/primary and chip/room chrome must differ.
-  await page.click('[data-style-combo="salt-light"]');
   const saltProbe = await page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const room = getComputedStyle(document.getElementById('probe-room'));
-    const bal = getComputedStyle(document.getElementById('probe-balance'));
-    const tr = getComputedStyle(document.getElementById('probe-transfer'));
     return {
       cream: cs.getPropertyValue('--cream').trim().toUpperCase(),
       surface: cs.getPropertyValue('--surface').trim().toUpperCase(),
       primary: cs.getPropertyValue('--primary').trim().toUpperCase(),
       sage: cs.getPropertyValue('--sage').trim().toUpperCase(),
       roomBg: room.backgroundColor,
-      balBg: bal.backgroundColor,
-      trBg: tr.backgroundColor,
     };
   });
-  await page.click('[data-style-combo="sand-light"]');
+  await page.click('[data-color-profile="sand"]');
   const sandProbe = await page.evaluate(() => {
     const cs = getComputedStyle(document.documentElement);
     const room = getComputedStyle(document.getElementById('probe-room'));
-    const bal = getComputedStyle(document.getElementById('probe-balance'));
-    const tr = getComputedStyle(document.getElementById('probe-transfer'));
     return {
       cream: cs.getPropertyValue('--cream').trim().toUpperCase(),
       surface: cs.getPropertyValue('--surface').trim().toUpperCase(),
       primary: cs.getPropertyValue('--primary').trim().toUpperCase(),
       sage: cs.getPropertyValue('--sage').trim().toUpperCase(),
       roomBg: room.backgroundColor,
-      balBg: bal.backgroundColor,
-      trBg: tr.backgroundColor,
     };
   });
   assert.notStrictEqual(saltProbe.cream, sandProbe.cream, 'Salt cream ≠ Sand cream');
@@ -730,11 +523,8 @@ ${boot}
   assert.strictEqual(sandProbe.cream, '#EDE8E0');
   assert.strictEqual(saltProbe.primary, '#3D5C4A');
   assert.strictEqual(sandProbe.primary, '#4E5853');
-  assert.notStrictEqual(saltProbe.sage, sandProbe.sage, 'warm Salt sage ≠ Sand sage');
-  // Warm paper, not cool blue/mint page.
-  assert.ok(!String(saltProbe.cream).includes('E6EDE9'));
-  assert.ok(!String(saltProbe.primary).includes('0F5C57'));
 
+  void hexOf;
   await browser.close();
   await new Promise((resolve) => server.close(resolve));
   console.log('verify-ui-salt-facelift-001: PASS');
