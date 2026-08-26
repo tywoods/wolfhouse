@@ -217,7 +217,7 @@ assert.ok(adminUi.includes('function wireLunaStaffHeaderModeCard'), 'header mode
 assert.ok(apiSrc.includes('--chip-transfer-bg'), 'transfer chip token');
 assert.ok(/\.bc-room-hdr\{background:var\(--room-bar/.test(apiSrc), 'room bars use --room-bar not sage');
 assert.ok(!/\.bc-room-hdr\{background:var\(--sage\)/.test(apiSrc), 'room bars must not use --sage fill');
-assert.ok(/--room-bar:#3A3A3C/.test(saltLightCss), 'Salt room-bar is cool charcoal');
+assert.ok(/--room-bar:#1B4D3E/.test(saltLightCss), 'Salt room-bar matches selected month primary');
 assert.ok(/--booking-confirmed-bg:#CEDFBF/.test(saltLightCss), 'Salt confirmed token is staff soft green');
 assert.ok(/--booking-pending-bg:#D5E5EF/.test(saltLightCss), 'Salt Luna/pending token is soft blue');
 assert.ok(/\.bc-block-confirmed\{background:#CEDFBF/.test(apiSrc), 'confirmed fill is staff soft green #CEDFBF');
@@ -560,12 +560,12 @@ ${boot}
   assert.notStrictEqual(saltProbe.cream, sandProbe.cream, 'Salt cream ≠ Sand cream');
   assert.notStrictEqual(saltProbe.surface, sandProbe.surface, 'Salt surface ≠ Sand surface');
   assert.notStrictEqual(saltProbe.primary, sandProbe.primary, 'Salt primary ≠ Sand primary');
-  assert.strictEqual(saltProbe.roomBar, '#3A3A3C', 'Salt room-bar is cool charcoal');
+  assert.strictEqual(saltProbe.roomBar, '#1B4D3E', 'Salt room-bar matches selected month primary');
   assert.strictEqual(sandProbe.roomBar, '#4E5853', 'Sand room-bar is charcoal not sage');
   assert.notStrictEqual(saltProbe.roomBar, saltProbe.sage, 'room-bar split from sage');
   assert.notStrictEqual(sandProbe.roomBar, sandProbe.sage, 'Sand room-bar is not sage green');
   assert.notStrictEqual(saltProbe.roomBg, sandProbe.roomBg, 'room header color changes with palette');
-  assert.strictEqual(saltProbe.roomBg, 'rgb(58, 58, 60)', 'Salt room hdr fill is cool charcoal #3A3A3C');
+  assert.strictEqual(saltProbe.roomBg, 'rgb(27, 77, 62)', 'Salt room hdr fill is selected-month green #1B4D3E');
   assert.strictEqual(sandProbe.roomBg, 'rgb(78, 88, 83)', 'Sand room hdr fill is charcoal #4E5853');
   assert.ok(!/rgb\(122,\s*132,\s*88\)|rgb\(184,\s*203,\s*176\)|rgb\(74,\s*69,\s*64\)/i.test(saltProbe.roomBg), 'Salt room bars not sage/coffee');
   assert.strictEqual(saltProbe.confirmedBg, '#CEDFBF', 'Salt confirmed token is staff soft green');

@@ -16209,7 +16209,7 @@ ${getStaffPortalThemeEarlyScript()}
    Sand light must not apply in dark (:not([data-theme=dark])).
    Missing wh_staff_color_profile → salt. Moon toggle is Light/Dark.
    Do not set #banner { background } shorthand in dark — it flattens Sunset/Moonlight art.
-   Bed calendar: --room-bar is cool charcoal (not olive). Staff confirmed/manual
+   Bed calendar: --room-bar matches selected month chip (--primary #1B4D3E). Staff confirmed/manual
    pills are soft green (#CEDFBF / #DCEAD2); Luna payment_pending is soft blue
    (#D5E5EF) — same shared accents in Salt and Sand. Salt page chrome stays
    Apple-clean white/grey + dark green (never tan/coffee, never sea-mist).
@@ -16261,8 +16261,8 @@ ${getStaffPortalThemeEarlyScript()}
   --chip-refund-bg:#F3DDE8;
   --chip-refund-fg:#7A3A52;
   --chip-refund-border:#D4A8BC;
-  /* Bed calendar: cool charcoal room bars; booking pills share Sand accents */
-  --room-bar:#3A3A3C;
+  /* Bed calendar: same dark green as selected month chip (--primary) */
+  --room-bar:#1B4D3E;
   --room-bar-fg:#FFFFFF;
   --booking-confirmed-bg:#CEDFBF;
   --booking-confirmed-fg:#45673A;
