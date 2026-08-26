@@ -31,7 +31,7 @@ const MAX_TOKEN_CHARS = 256;
 const MAX_PIN_CHARS = 64;
 const LOCAL_HTTP = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
 const LOCAL_HTTPS = /^https:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
-const HTTPS_HOST = /^https:\/\/[a-z0-9.-]+(?::\d{1,5})?$/i;
+const ACA_INTERNAL_HTTPS = /^https:\/\/luna-sunset-staging-email-luna\.internal\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.northeurope\.azurecontainerapps\.io$/i;
 const TLS_PIN = /^[0-9a-f]{64}$/i;
 
 function ownData(value, key) {
@@ -61,7 +61,7 @@ function normalizeBaseUrl(raw) {
   if (url.username || url.password || url.search || url.hash) return null;
   if (url.pathname && url.pathname !== '/') return null;
   const origin = `${url.protocol}//${url.host}`;
-  if (LOCAL_HTTP.test(origin) || LOCAL_HTTPS.test(origin) || HTTPS_HOST.test(origin)) {
+  if (LOCAL_HTTP.test(origin) || LOCAL_HTTPS.test(origin) || ACA_INTERNAL_HTTPS.test(origin)) {
     return origin.replace(/\/+$/, '');
   }
   return null;
@@ -116,12 +116,10 @@ function isSunsetEmailHermesSolAuthorEnabled(input) {
   const url = normalizeBaseUrl(ownData(env, ENV_BASE_URL));
   if (!url) return false;
   const loopback = isLoopbackOrigin(url);
-  if (!loopback && !url.startsWith('https://')) return false;
+  if (!loopback && !ACA_INTERNAL_HTTPS.test(url)) return false;
   const pinRaw = ownData(env, ENV_TLS_PIN);
   const pin = normalizeTlsPin(pinRaw);
-  if (!loopback) {
-    if (!pin) return false;
-  } else if (pinRaw !== undefined && pinRaw !== null && pinRaw !== '' && !pin) {
+  if (pinRaw !== undefined && pinRaw !== null && pinRaw !== '' && !pin) {
     return false;
   }
   const serverNameRaw = ownData(env, ENV_TLS_SERVER_NAME);
@@ -189,4 +187,5 @@ module.exports = freeze({
   secretFreeHermesSolDiagnostics,
   normalizeTlsPin,
   isLoopbackOrigin,
+  ACA_INTERNAL_HTTPS,
 });

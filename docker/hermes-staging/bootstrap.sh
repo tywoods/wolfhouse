@@ -249,6 +249,36 @@ write_sunset_email_luna_env() {
   } > "$HERMES_HOME/.env"
 }
 
+materialize_isolated_sunset_email_auth_from_secret() {
+  # ACA: Key Vault-backed base64 auth.json → dedicated $HERMES_HOME/auth.json.
+  # Never logs the secret. Never writes back to WhatsApp/.auth-shared.
+  _b64="${HERMES_SUNSET_EMAIL_AUTH_JSON_B64:-}"
+  if [ -z "$_b64" ]; then
+    return 0
+  fi
+  if [ -e "$HERMES_HOME/.auth-shared/auth.json" ]; then
+    echo "sunset-email-luna refuses .auth-shared mount" >&2
+    exit 1
+  fi
+  umask 077
+  _tmp="$HERMES_HOME/.auth.json.tmp.$$"
+  if ! printf '%s' "$_b64" | base64 -d > "$_tmp"; then
+    rm -f "$_tmp"
+    echo "sunset-email-luna auth secret decode failed" >&2
+    exit 1
+  fi
+  if [ ! -s "$_tmp" ]; then
+    rm -f "$_tmp"
+    echo "sunset-email-luna auth secret empty" >&2
+    exit 1
+  fi
+  chmod 0600 "$_tmp"
+  chown 10000:10000 "$_tmp" 2>/dev/null || true
+  mv -f "$_tmp" "$HERMES_HOME/auth.json"
+  chmod 0600 "$HERMES_HOME/auth.json"
+  unset _b64 _tmp
+}
+
 require_isolated_sunset_email_auth() {
   if [ -L "$HERMES_HOME/auth.json" ]; then
     echo "sunset-email-luna refuses shared auth.json symlink" >&2
@@ -262,6 +292,7 @@ require_isolated_sunset_email_auth() {
     echo "sunset-email-luna requires isolated operator-provisioned auth.json (openai-codex). See docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md" >&2
     exit 1
   fi
+  chmod 0600 "$HERMES_HOME/auth.json" 2>/dev/null || true
 }
 
 install_luna_plugins() {
@@ -466,6 +497,7 @@ elif [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
   [ "${LUNA_TENANT_ID:-}" = "sunset" ] || { echo "sunset-email-luna requires LUNA_TENANT_ID=sunset" >&2; exit 1; }
   [ "${LUNA_ALLOWED_LOCATION_IDS:-}" = "sunset-somo" ] || { echo "sunset-email-luna requires LUNA_ALLOWED_LOCATION_IDS=sunset-somo" >&2; exit 1; }
   [ -n "${API_SERVER_KEY:-}" ] || { echo "sunset-email-luna requires API_SERVER_KEY" >&2; exit 1; }
+  materialize_isolated_sunset_email_auth_from_secret
   require_isolated_sunset_email_auth
   write_sunset_email_luna_config
   if [ -f "$SUNSET_LUNA_SOUL" ]; then

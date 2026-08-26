@@ -35,7 +35,16 @@ class ReplayCache:
             if request_id in self._inflight:
                 self._invoke_started.add(request_id)
 
+    def release(self, request_id: str) -> None:
+        """Drop a failed in-flight claim so the same request_id may retry."""
+        if not isinstance(request_id, str) or not request_id:
+            return
+        with self._lock:
+            self._inflight.discard(request_id)
+            self._invoke_started.discard(request_id)
+
     def finish(self, request_id: str) -> None:
+        """Mark a successful completion as seen. Failed calls must use release()."""
         with self._lock:
             self._inflight.discard(request_id)
             self._invoke_started.discard(request_id)

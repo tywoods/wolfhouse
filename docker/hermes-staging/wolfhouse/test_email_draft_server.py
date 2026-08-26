@@ -17,6 +17,8 @@ if str(STAGING) not in sys.path:
     sys.path.insert(0, str(STAGING))
 
 from wolfhouse.email_draft_contract import (  # noqa: E402
+    BAKED_SYSTEM,
+    BAKED_TEMPLATE_SYSTEM,
     LIVE_ATTEMPT_SOURCE,
     LOCATION_KEY,
     MODEL,
@@ -24,6 +26,8 @@ from wolfhouse.email_draft_contract import (  # noqa: E402
     PROVIDER,
     REQUEST_SCHEMA,
     RESULT_SCHEMA,
+    TEMPLATE_REQUEST_SCHEMA,
+    TEMPLATE_RESULT_SCHEMA,
     TENANT,
     AttemptResult,
     bind_attempt_provenance,
@@ -40,6 +44,14 @@ E = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 M = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 TOKEN = "test-hermes-sol-token"
 PLAN = json.dumps({"acts": [{"act": "thank_guest"}, {"act": "ask_booking_interest"}]})
+TEMPLATE_PLAN = json.dumps(
+    {
+        "template_id": "catalog_reply",
+        "tone": "concise",
+        "question_key": "none",
+        "acknowledgment_key": "thanks",
+    }
+)
 
 
 def envelope(**patch):
@@ -140,6 +152,25 @@ class DraftServerTests(unittest.TestCase):
         status, payload = call(envelope(), invoke=boom)
         self.assertEqual(status, 502)
         self.assertNotIn("provenance", payload)
+
+    def test_template_request_uses_template_system_not_acts_baked(self):
+        seen = []
+
+        def capture(system, _user):
+            seen.append(system)
+            return live_attempt(TEMPLATE_PLAN)
+
+        status, payload = call(
+            envelope(schema=TEMPLATE_REQUEST_SCHEMA),
+            invoke=capture,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["schema"], TEMPLATE_RESULT_SCHEMA)
+        self.assertEqual(payload["plan"]["template_id"], "catalog_reply")
+        self.assertEqual(seen, [BAKED_TEMPLATE_SYSTEM])
+        self.assertNotEqual(BAKED_TEMPLATE_SYSTEM, BAKED_SYSTEM)
+        self.assertNotIn("Allowed acts only", BAKED_TEMPLATE_SYSTEM)
+        self.assertIn("template_id", BAKED_TEMPLATE_SYSTEM)
 
     def test_string_completion_is_not_provenance(self):
         status, payload = call(envelope(), invoke=lambda _s, _u: PLAN)
@@ -282,6 +313,84 @@ class ReplayCacheTests(unittest.TestCase):
         status, payload = call(raw_last, replay=replay)
         self.assertEqual(status, 409)
         self.assertEqual(payload["error"], "replay")
+
+    def test_transport_failure_releases_claim_for_same_authority_retry(self):
+        replay = ReplayCache()
+        raw = envelope()
+        hits = []
+
+        def boom(_s, _u):
+            hits.append("fail")
+            raise RuntimeError("down")
+
+        first, payload = call(raw, invoke=boom, replay=replay)
+        self.assertEqual(first, 502)
+        self.assertEqual(payload["error"], "hermes_unavailable")
+        req_id = json.loads(raw)["request_id"]
+        self.assertNotIn(req_id, replay)
+
+        def ok(_s, _u):
+            hits.append("ok")
+            return live_attempt()
+
+        second, retry_payload = call(raw, invoke=ok, replay=replay)
+        self.assertEqual(second, 200)
+        self.assertEqual(retry_payload["schema"], RESULT_SCHEMA)
+        self.assertEqual(hits, ["fail", "ok"])
+        self.assertIn(req_id, replay)
+        third, replayed = call(raw, invoke=ok, replay=replay)
+        self.assertEqual(third, 409)
+        self.assertEqual(replayed["error"], "replay")
+
+    def test_model_malformed_releases_claim(self):
+        replay = ReplayCache()
+        raw = envelope()
+
+        def bad(_s, _u):
+            return live_attempt(content=json.dumps({"acts": [{"act": "not_allowed"}]}))
+
+        first, payload = call(raw, invoke=bad, replay=replay)
+        self.assertEqual(first, 502)
+        self.assertEqual(payload["error"], "model_malformed")
+        second, retry_payload = call(raw, invoke=invoke_ok, replay=replay)
+        self.assertEqual(second, 200)
+        self.assertEqual(retry_payload["schema"], RESULT_SCHEMA)
+
+    def test_concurrent_duplicates_still_one_invoke_while_in_flight(self):
+        replay = ReplayCache()
+        raw = envelope()
+        hits = []
+        lock = threading.Lock()
+        started = threading.Event()
+        hold = threading.Event()
+
+        def slow(_s, _u):
+            with lock:
+                hits.append(1)
+            started.set()
+            hold.wait(1)
+            raise RuntimeError("down")
+
+        results: list[tuple[int, dict]] = []
+
+        def worker():
+            results.append(call(raw, invoke=slow, replay=replay))
+
+        threads = [threading.Thread(target=worker) for _ in range(6)]
+        for thread in threads:
+            thread.start()
+        self.assertTrue(started.wait(1))
+        time.sleep(0.05)
+        hold.set()
+        for thread in threads:
+            thread.join(2)
+        self.assertEqual(sum(hits), 1)
+        statuses = sorted(status for status, _ in results)
+        self.assertEqual(statuses.count(502), 1)
+        self.assertEqual(statuses.count(409), 5)
+        retry, payload = call(raw, replay=replay)
+        self.assertEqual(retry, 200)
+        self.assertEqual(payload["schema"], RESULT_SCHEMA)
 
 
 if __name__ == "__main__":

@@ -42,7 +42,9 @@ services:
     image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
     container_name: hermes-sunset-email-luna
     restart: unless-stopped
-    command: python /etc/hermes-staging/wolfhouse/email_draft_server.py
+    command:
+      - /opt/hermes/.venv/bin/python
+      - /etc/hermes-staging/wolfhouse/email_draft_server.py
     ports:
       - "127.0.0.1:8093:8093"
     volumes:

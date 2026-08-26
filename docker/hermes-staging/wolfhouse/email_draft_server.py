@@ -17,9 +17,11 @@ from typing import Callable
 
 from wolfhouse.email_draft_contract import (
     BAKED_SYSTEM,
+    BAKED_TEMPLATE_SYSTEM,
     DRAFT_PATH,
     MAX_BODY,
     RESULT_SCHEMA,
+    TEMPLATE_PLAN_KEYS,
     TEMPLATE_REQUEST_SCHEMA,
     TEMPLATE_RESULT_SCHEMA,
     AttemptResult,
@@ -27,6 +29,7 @@ from wolfhouse.email_draft_contract import (
     parse_acts_payload,
     parse_attempt,
     parse_request,
+    parse_template_payload,
 )
 from wolfhouse.email_draft_invoke import default_invoke, ensure_isolated_sol_home
 from wolfhouse.email_draft_replay import ReplayCache
@@ -74,31 +77,31 @@ def handle_draft_request(
         },
         separators=(",", ":"),
     ) + "\nEND CANONICAL JSON DATA"
+    system = (
+        BAKED_TEMPLATE_SYSTEM
+        if req["schema"] == TEMPLATE_REQUEST_SCHEMA
+        else BAKED_SYSTEM
+    )
     try:
         replay.mark_invoke_started(request_id)
-        raw_attempt = invoke(BAKED_SYSTEM, user)
+        raw_attempt = invoke(system, user)
     except Exception:
-        replay.finish(request_id)
+        replay.release(request_id)
         return 502, {"error": "hermes_unavailable"}
-    replay.finish(request_id)
     attempt = parse_attempt(raw_attempt)
     if attempt is None:
+        replay.release(request_id)
         return 502, {"error": "provenance_unavailable"}
     provenance = bind_attempt_provenance(req, attempt)
     if provenance is None:
+        replay.release(request_id)
         return 502, {"error": "provenance_unavailable"}
     if req["schema"] == TEMPLATE_REQUEST_SCHEMA:
-        try:
-            plan = json.loads(attempt.content)
-        except json.JSONDecodeError:
+        plan = parse_template_payload(attempt.content)
+        if plan is None or set(plan.keys()) != set(TEMPLATE_PLAN_KEYS):
+            replay.release(request_id)
             return 502, {"error": "model_malformed"}
-        if not isinstance(plan, dict) or set(plan.keys()) != {
-            "template_id",
-            "tone",
-            "question_key",
-            "acknowledgment_key",
-        }:
-            return 502, {"error": "model_malformed"}
+        replay.finish(request_id)
         return 200, {
             "schema": TEMPLATE_RESULT_SCHEMA,
             "plan": plan,
@@ -106,7 +109,9 @@ def handle_draft_request(
         }
     acts = parse_acts_payload(attempt.content)
     if not acts:
+        replay.release(request_id)
         return 502, {"error": "model_malformed"}
+    replay.finish(request_id)
     return 200, {
         "schema": RESULT_SCHEMA,
         "acts": acts,

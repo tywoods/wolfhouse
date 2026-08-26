@@ -1,8 +1,9 @@
 """Invoke openai-codex / gpt-5.6-sol through the installed Hermes composition.
 
-Config.yaml is a gate (must already be Sol) — never provenance. The live
-terminal Responses model plus resolve_runtime_provider() for this attempt
-are the only accepted provider/model source.
+Config.yaml is a gate (must already be Sol) — never provenance. Provider is
+the actual Codex Responses transport attempt; model is the live terminal
+Responses event. Config, env, constants, wrapper args, and client labels
+are not accepted as provider/model proof.
 """
 
 from __future__ import annotations

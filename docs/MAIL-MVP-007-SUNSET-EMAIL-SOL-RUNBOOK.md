@@ -4,6 +4,8 @@ Sunset staging only. Do not restart WhatsApp or Wolfhouse gateways. Do not enabl
 
 Staff Create Draft reaches Sol through a **colocated Azure Container App** in the Sunset Staff ACA environment. Lunabox loopback `127.0.0.1:8093` is a Skipper-local probe only — it is not the Staff path.
 
+YAML and this runbook are **one path**: Skipper queries Azure IDs, fills `docker/hermes-staging/sunset-email-luna.aca.yaml.example`, then `az containerapp create --yaml`. Ingress is internal (`external: false`). Do not mix a second flag-only create. Do not use Azure Files.
+
 ## Owners
 
 | Piece | Path |
@@ -23,87 +25,118 @@ Staff Create Draft reaches Sol through a **colocated Azure Container App** in th
 
 The email runtime **must not** share a writable `auth.json` with WhatsApp Luna. Bootstrap fails closed if `auth.json` is missing, is a symlink, or `.auth-shared` is mounted.
 
-Provision an isolated openai-codex credential **once**. Use the image entrypoint with role bootstrap skipped so `hermes auth add` does not require WhatsApp/Staff env:
+Provision an isolated openai-codex credential **once**. This is the only irreducible credential action. Use the image entrypoint with role bootstrap skipped so `hermes auth add` does not require WhatsApp/Staff env. ENTRYPOINT stays `/init` (s6 + venv + drop to uid 10000); `hermes auth add openai-codex` is CMD.
 
 ```bash
 sudo install -d -m 0700 /var/lib/hermes-sunset-email-luna
 sudo chown 10000:10000 /var/lib/hermes-sunset-email-luna
 
-IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>
+IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:$(git -C /opt/wolfhouse/WH rev-parse origin/master)
 docker run --rm -it \
   -e HERMES_SKIP_ROLE_BOOTSTRAP=1 \
   -e HOME=/opt/data \
   -e HERMES_HOME=/opt/data \
   -v /var/lib/hermes-sunset-email-luna:/opt/data \
+  --entrypoint /init \
   "$IMAGE" hermes auth add openai-codex
 ```
 
-This keeps ENTRYPOINT `/init` (s6 + venv + drop to uid 10000) and runs `hermes auth add openai-codex` as CMD. It does **not** take the `sunset-email-luna` / `luna` role branches.
+`--entrypoint /init` keeps s6 + bootstrap skip + the auth command. Do not pass `--entrypoint python`. Prove the command ran:
+
+```bash
+sudo test -f /var/lib/hermes-sunset-email-luna/auth.json
+sudo test ! -L /var/lib/hermes-sunset-email-luna/auth.json
+sudo stat -c '%a %u:%g' /var/lib/hermes-sunset-email-luna/auth.json
+```
 
 Do not copy `/var/lib/hermes-shared/auth.json` while WhatsApp Luna is running. Do not invent or commit secret values.
 
-Create `/etc/hermes-sunset-email-luna.env` with `API_SERVER_KEY` (opaque token). Put the **same** token on Sunset Staff API as `EMAIL_LUNA_HERMES_SOL_TOKEN` and on the email ACA as `API_SERVER_KEY`. Never print it.
+## Skipper path after the one credential action
 
-## Staff-reachable path (canonical)
-
-Sunset Staff API runs in Azure Container Apps (`luna-sunset-staging-staff-api` in `luna-sunset-staging-env`, northeurope). It cannot use Lunabox `127.0.0.1:8093`. Do not expose the draft contract on public plaintext HTTP. Do not add a route to WhatsApp Caddy.
-
-Deploy a **separate** Container App in the same environment with **internal** HTTPS ingress. Staff reaches it on the `.internal.` FQDN. Azure terminates TLS. The app still speaks the closed `/v1/internal/email-draft-plan` schema, Sunset-bound, bearer-authenticated. No public arbitrary-prompt endpoint.
-
-Do **not** apply `infra/azure/sunset-staging/main.bicep` for this. Exact create (operator/Skipper with Azure access; do not run from this PR):
+All remaining steps are exact commands. Values come from `az` / `git` queries only.
 
 ```bash
-SHA=<full-master-sha>
-IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:$SHA
 RG=luna-sunset-staging-rg
 ENV=luna-sunset-staging-env
 APP=luna-sunset-staging-email-luna
 IDENTITY=luna-sunset-staging-identity
-SHARE=hermes-sunset-email-luna
-# Persist isolated HERMES_HOME (auth.json refresh) on Azure Files in the Sunset RG.
-# Create the share once. Upload the isolated auth.json from Lunabox; never the WhatsApp pool.
+KV=luna-sunset-staging-kv
+ACR=whstagingacr
+REPO=wh-hermes-staging
 
-az containerapp create \
-  --name "$APP" \
-  --resource-group "$RG" \
-  --environment "$ENV" \
-  --image "$IMAGE" \
-  --user-assigned "/subscriptions/<sub>/resourceGroups/$RG/providers/Microsoft.ManagedIdentity/userAssignedIdentities/$IDENTITY" \
-  --registry-server whstagingacr.azurecr.io \
-  --registry-identity "/subscriptions/<sub>/resourceGroups/$RG/providers/Microsoft.ManagedIdentity/userAssignedIdentities/$IDENTITY" \
-  --ingress internal \
-  --target-port 8093 \
-  --transport http \
-  --min-replicas 1 --max-replicas 1 \
-  --cpu 1 --memory 2Gi \
-  --command python \
-  --args /etc/hermes-staging/wolfhouse/email_draft_server.py \
-  --secrets api-server-key=<same opaque token as Staff EMAIL_LUNA_HERMES_SOL_TOKEN> \
-  --bind-env-vars \
-    HERMES_HOME=/opt/data \
-    HERMES_ROLE=sunset-email-luna \
-    LUNA_TENANT_ID=sunset \
-    LUNA_CLIENT_SLUG=sunset \
-    LUNA_ALLOWED_LOCATION_IDS=sunset-somo \
-    EMAIL_LUNA_DRAFT_LISTEN_HOST=0.0.0.0 \
-    EMAIL_LUNA_DRAFT_LISTEN_PORT=8093 \
-    API_SERVER_KEY=secretref:api-server-key \
-    GENERIC_TIMEZONE=Europe/Madrid \
-  --volume-mounts \
-    name=hermes-home,storageName=<sunset-email-luna-files>,mountPath=/opt/data \
-  --health-probe-kind http --health-probe-path /healthz --health-probe-port 8093
+SUB=$(az account show --query id -o tsv)
+IDENTITY_ID=$(az identity show -g "$RG" -n "$IDENTITY" --query id -o tsv)
+ENV_ID=$(az containerapp env show -g "$RG" -n "$ENV" --query id -o tsv)
+SHA=$(git -C /opt/wolfhouse/WH rev-parse origin/master)
+IMAGE="$ACR.azurecr.io/$REPO:$SHA"
 ```
 
-Read the internal FQDN (Staff-only; not public):
+Bearer token (generated, not committed). Same value becomes Staff `EMAIL_LUNA_HERMES_SOL_TOKEN` and ACA `API_SERVER_KEY`:
 
 ```bash
-az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv
+TOKEN=$(openssl rand -hex 32)
+az keyvault secret set --vault-name "$KV" --name email-luna-hermes-sol-token --file /dev/stdin --encoding utf-8 <<TOKEN_EOF >/dev/null
+$TOKEN
+TOKEN_EOF
+```
+
+Upload the isolated auth.json as base64. Do not print it. Do not use the WhatsApp pool file.
+
+```bash
+AUTH_FILE=$(mktemp)
+sudo python3 -c 'import base64,pathlib,sys; sys.stdout.buffer.write(base64.standard_b64encode(pathlib.Path("/var/lib/hermes-sunset-email-luna/auth.json").read_bytes()))' > "$AUTH_FILE"
+chmod 0600 "$AUTH_FILE"
+az keyvault secret set --vault-name "$KV" --name hermes-sunset-email-luna-auth-json-b64 --file "$AUTH_FILE" --encoding utf-8 >/dev/null
+shred -u "$AUTH_FILE" 2>/dev/null || rm -f "$AUTH_FILE"
+```
+
+Fill the YAML (subscription / identity / env / SHA only) and create. Args only — never set a container command (that replaces `/init`).
+
+```bash
+YAML=$(mktemp --suffix=.yaml)
+sed \
+  -e "s|<subscription-id>|$SUB|g" \
+  -e "s|<full-master-sha>|$SHA|g" \
+  /opt/wolfhouse/WH/docker/hermes-staging/sunset-email-luna.aca.yaml.example > "$YAML"
+grep -n 'command:' "$YAML" && { echo 'refuse: YAML must not set command (would skip /init)'; exit 1; }
+grep -F '/opt/hermes/.venv/bin/python' "$YAML"
+az containerapp create \
+  -g "$RG" \
+  -n "$APP" \
+  --environment "$ENV" \
+  --yaml "$YAML"
+rm -f "$YAML"
+```
+
+Authoritative CLI surface used by the create (from `az containerapp create --help`): `--name`/`-n`, `--resource-group`/`-g`, `--environment`, `--yaml`. Do not override container command (that replaces `/init`), and do not attach Azure Files volumes. `--yaml` ignores other create flags.
+
+Read the internal FQDN after create (Staff-only; not public):
+
+```bash
+FQDN=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
+echo "$FQDN"
 # expect: luna-sunset-staging-email-luna.internal.<env-hash>.northeurope.azurecontainerapps.io
 ```
 
-Pin server identity (SPKI SHA-256, hex). Capture once after the app is up; never log the token:
+Staff activation allowlists only that hostname pattern. No SPKI pin is required: ACA internal FQDN uses publicly trusted TLS. Staff validates CA + hostname, then the bearer token.
+
+Staff API env (Sunset staging only):
+
+```
+EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED=true
+EMAIL_LUNA_HERMES_SOL_BASE_URL=https://$FQDN
+EMAIL_LUNA_HERMES_SOL_TOKEN=<same value as email-luna-hermes-sol-token>
+```
+
+Do not set `EMAIL_LUNA_HERMES_SOL_TLS_PIN` unless a later policy demands leaf pinning. `http://` is rejected except loopback. Arbitrary HTTPS hosts, IPs, and non-internal ACA names are rejected. Bearer over public plaintext HTTP is forbidden.
+
+Keep `LUNA_AUTO_SEND_ENABLED` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED` unset/false. Do not set `LUNA_AI_MODEL`. Redeploy **Sunset Staff API only**.
+
+Optional pin (fail-closed if set and mismatched). Hostname/cert validation always runs first. After an ACA-managed cert rotation, a stale pin refuses the connection:
 
 ```bash
+# Only if EMAIL_LUNA_HERMES_SOL_TLS_PIN is set. Rotation: unset the pin (CA+hostname
+# remains) or replace it with the new SPKI and restart Staff API.
 FQDN=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
 echo | openssl s_client -connect "${FQDN}:443" -servername "$FQDN" 2>/dev/null \
   | openssl x509 -pubkey -noout \
@@ -111,27 +144,16 @@ echo | openssl s_client -connect "${FQDN}:443" -servername "$FQDN" 2>/dev/null \
   | openssl dgst -sha256 -hex
 ```
 
-Staff API env (Sunset staging only):
-
-```
-EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED=true
-EMAIL_LUNA_HERMES_SOL_BASE_URL=https://<internal-fqdn>
-EMAIL_LUNA_HERMES_SOL_TLS_PIN=<64-char lowercase hex SPKI SHA-256>
-EMAIL_LUNA_HERMES_SOL_TOKEN=<same as API_SERVER_KEY>
-```
-
-`http://` is rejected except loopback. Remote HTTPS without the pin is rejected. Bearer over public plaintext HTTP is forbidden.
-
-Keep `LUNA_AUTO_SEND_ENABLED` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED` unset/false. Do not set `LUNA_AI_MODEL`. Redeploy **Sunset Staff API only**.
+Create `/etc/hermes-sunset-email-luna.env` on Lunabox for the optional probe (`API_SERVER_KEY` = the same token). Never print it.
 
 ## Optional Lunabox probe (not Staff)
 
-Skipper-local only. Do **not** `up` `hermes-sunset-luna` or `hermes-luna`. Do not reload Caddy.
+Skipper-local only. Do **not** `up` `hermes-sunset-luna` or `hermes-luna`. Do not reload Caddy. Interpreter is `/opt/hermes/.venv/bin/python` after `/init`.
 
 ```bash
 cd /opt/wolfhouse/WH
 git rev-parse HEAD
-sudo HERMES_IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha> \
+sudo HERMES_IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:$(git rev-parse origin/master) \
   docker compose -f docker/hermes-sunset/docker-compose.vm.yml \
   --profile sunset-email-luna \
   up -d --no-deps hermes-sunset-email-luna
@@ -149,7 +171,7 @@ sudo docker exec hermes-sunset-email-luna sh -c 'sed -n "1,20p" "$HERMES_HOME/co
 sudo docker exec hermes-sunset-email-luna sh -c 'test -f "$HERMES_HOME/auth.json" && test ! -L "$HERMES_HOME/auth.json" && echo AUTH_ISOLATED_OK'
 ```
 
-Local HTTP probe is loopback-only. Transport 200 without live attempt provenance `openai-codex` / `gpt-5.6-sol` / `sunset-email-luna` is **not** proof.
+Local HTTP probe is loopback-only. Transport 200 without live attempt provenance `openai-codex` / `gpt-5.6-sol` / `sunset-email-luna` is **not** proof. Provider must be the actual Codex Responses transport (chatgpt.com `/backend-api/codex`) plus the terminal event model.
 
 ## Controlled Create Draft proof
 
@@ -161,13 +183,13 @@ After:
 
 - Standing draft is the natural thank-you + “Would you like to make a booking?”
 - Staff diagnostics show secret-free marker `openai-codex` / `gpt-5.6-sol` / `sunset-email-luna`
-- Exact-attempt provider/model came from the Hermes composition terminal response, not from config text
+- Exact-attempt provider/model came from the Hermes Codex transport + terminal response, not from config text
 - Approval count unchanged
 - Journal count unchanged
 - Provider send count unchanged
 - WhatsApp `hermes-sunset-luna` still running, not recreated
 
-Empty notes must still produce the safe thread-only draft.
+Empty notes must still produce the safe thread-only draft unless generate-on-open has a classified grounded intent; then Hermes template author + Staff renderer persist that result.
 
 ## Rollback
 

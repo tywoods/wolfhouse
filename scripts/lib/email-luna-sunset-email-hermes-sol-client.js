@@ -62,15 +62,19 @@ function spkiSha256Hex(cert) {
 
 function pinnedIdentityCheck(expectedPin, loopback, serverName) {
   return function checkServerIdentity(host, cert) {
-    const pin = spkiSha256Hex(cert);
-    if (expectedPin && pin !== expectedPin) {
-      const error = new Error('tls_pin_mismatch');
-      error.code = 'HERMES_SOL_TLS_PIN';
-      return error;
-    }
     if (loopback) return undefined;
     const identityHost = serverName || host;
-    return tls.checkServerIdentity(identityHost, cert);
+    const hostnameError = tls.checkServerIdentity(identityHost, cert);
+    if (hostnameError) return hostnameError;
+    if (expectedPin) {
+      const pin = spkiSha256Hex(cert);
+      if (pin !== expectedPin) {
+        const error = new Error('tls_pin_mismatch');
+        error.code = 'HERMES_SOL_TLS_PIN';
+        return error;
+      }
+    }
+    return undefined;
   };
 }
 
@@ -110,7 +114,7 @@ function defaultHttpRequest(input) {
       reject(Object.assign(new Error('plaintext_http_forbidden'), { code: 'HERMES_SOL_PLAINTEXT' }));
       return;
     }
-    if (url.protocol === 'https:' && !loopback && (typeof tlsPin !== 'string' || !tlsPin)) {
+    if (url.protocol === 'https:' && !loopback && tlsPin && typeof tlsPin !== 'string') {
       reject(Object.assign(new Error('tls_pin_required'), { code: 'HERMES_SOL_TLS_PIN' }));
       return;
     }
@@ -329,4 +333,5 @@ module.exports = freeze({
   createEmailLunaSunsetEmailHermesSolClient,
   defaultHttpRequest,
   spkiSha256Hex,
+  pinnedIdentityCheck,
 });

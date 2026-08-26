@@ -1,12 +1,17 @@
 # MAIL-MVP-007 — separately deployable Sunset email Sol runtime.
 # Colocated with Staff API in luna-sunset-staging-env. Internal TLS ingress.
-# Do not apply infra/azure Bicep. Fill placeholders; never commit secrets.
-# Keep image ENTRYPOINT (/init). Args replace CMD only so bootstrap still runs;
-# the Python server also pins Sol config if ACA skips s6.
+# Do not apply infra/azure Bicep. Fill only values Skipper can query
+# (subscription ID, identity/env resource IDs, image SHA). Never commit secrets.
 #
-#   az containerapp create -g luna-sunset-staging-rg -n luna-sunset-staging-email-luna --yaml sunset-email-luna.aca.yaml
+# Keep image ENTRYPOINT (/init). Args replace CMD only so bootstrap still runs.
+# Production interpreter is exactly /opt/hermes/.venv/bin/python.
 #
-# Then pin SPKI and set Staff EMAIL_LUNA_HERMES_SOL_BASE_URL / _TLS_PIN / _TOKEN.
+# Isolated openai-codex auth.json is a Key Vault secret (base64), written
+# atomically to /opt/data/auth.json by bootstrap (0600). No Azure Files,
+# no shared volume, no persistence back to WhatsApp.
+#
+# Skipper: docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md emits a filled copy
+# then: az containerapp create -g luna-sunset-staging-rg -n luna-sunset-staging-email-luna --yaml <filled>
 apiVersion: '2024-03-01'
 location: northeurope
 identity:
@@ -18,7 +23,11 @@ properties:
   configuration:
     secrets:
       - name: api-server-key
-        value: <opaque-token-same-as-staff-EMAIL_LUNA_HERMES_SOL_TOKEN>
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/email-luna-hermes-sol-token
+        identity: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity
+      - name: hermes-sunset-email-auth-json-b64
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/hermes-sunset-email-luna-auth-json-b64
+        identity: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity
     registries:
       - server: whstagingacr.azurecr.io
         identity: /subscriptions/<subscription-id>/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity
@@ -35,7 +44,7 @@ properties:
       - name: hermes-sunset-email-luna
         image: whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>
         args:
-          - python
+          - /opt/hermes/.venv/bin/python
           - /etc/hermes-staging/wolfhouse/email_draft_server.py
         env:
           - name: HERMES_HOME
@@ -58,6 +67,8 @@ properties:
             value: Europe/Madrid
           - name: API_SERVER_KEY
             secretRef: api-server-key
+          - name: HERMES_SUNSET_EMAIL_AUTH_JSON_B64
+            secretRef: hermes-sunset-email-auth-json-b64
         probes:
           - type: Liveness
             httpGet:
@@ -74,13 +85,6 @@ properties:
         resources:
           cpu: 1.0
           memory: 2Gi
-        volumeMounts:
-          - volumeName: hermes-home
-            mountPath: /opt/data
     scale:
       minReplicas: 1
       maxReplicas: 1
-    volumes:
-      - name: hermes-home
-        storageType: AzureFile
-        storageName: hermes-sunset-email-luna

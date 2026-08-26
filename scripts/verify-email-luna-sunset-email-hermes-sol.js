@@ -26,6 +26,8 @@ const {
   HERMES_SOL_LOCATION_KEY,
   HERMES_SOL_REQUEST_SCHEMA,
   HERMES_SOL_RESULT_SCHEMA,
+  HERMES_SOL_TEMPLATE_REQUEST_SCHEMA,
+  HERMES_SOL_TEMPLATE_RESULT_SCHEMA,
   HERMES_SOL_DRAFT_PATH,
   PRIVATE_STAFF_TRUST,
   parseDraftPlanRequest,
@@ -36,10 +38,15 @@ const {
   ENV_BASE_URL,
   ENV_TOKEN,
   ENV_TLS_PIN,
+  ACA_INTERNAL_HTTPS,
   snapshotSunsetEmailHermesSolEnv,
   isSunsetEmailHermesSolAuthorEnabled,
   resolveSunsetEmailHermesSolClientConfig,
 } = require('./lib/email-luna-sunset-email-hermes-sol-activation');
+const {
+  defaultHttpRequest,
+  pinnedIdentityCheck,
+} = require('./lib/email-luna-sunset-email-hermes-sol-client');
 const {
   createEmailLunaSunsetEmailHermesSolClient,
 } = require('./lib/email-luna-sunset-email-hermes-sol-client');
@@ -192,11 +199,22 @@ function startFakeHermes(onRequest) {
           res.writeHead(409); res.end(JSON.stringify({ error: 'replay' })); return;
         }
         seen.add(parsed.value.request_id);
-        const body = JSON.stringify({
-          schema: HERMES_SOL_RESULT_SCHEMA,
-          acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
-          provenance: provenanceFrom(parsed.value),
-        });
+        const body = parsed.value.schema === HERMES_SOL_TEMPLATE_REQUEST_SCHEMA
+          ? JSON.stringify({
+            schema: HERMES_SOL_TEMPLATE_RESULT_SCHEMA,
+            plan: {
+              template_id: 'catalog_reply',
+              tone: 'concise',
+              question_key: 'none',
+              acknowledgment_key: 'thanks',
+            },
+            provenance: provenanceFrom(parsed.value),
+          })
+          : JSON.stringify({
+            schema: HERMES_SOL_RESULT_SCHEMA,
+            acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
+            provenance: provenanceFrom(parsed.value),
+          });
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(body);
       } catch (error) {
@@ -281,6 +299,8 @@ function makeOwner(options = {}) {
     randomUUID: () => crypto.randomUUID(),
     claimTtlMs: ownerMod.EMAIL_DRAFT_OPEN_CLAIM_TTL_MS,
     timeoutMs: options.timeoutMs,
+    classifyIntent: options.classifyIntent,
+    queryOwners: options.queryOwners,
     createLunaRuntime: (config) => createEmailLunaSunsetStagingRuntimeComposition(config),
     fetchCurrentMessageContent: async () => Object.freeze({
       latest_text: options.contentText || LIVE_BODY,
@@ -378,20 +398,37 @@ function assertNoSecretsLogged(hits) {
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
     env: hermesEnv(9, { [ENV_BASE_URL]: 'http://lunabox.example.test:8093' }),
   }), false);
+  const acaOrigin = 'https://luna-sunset-staging-email-luna.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io';
+  assert.equal(ACA_INTERNAL_HTTPS.test(acaOrigin), true);
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
-    env: hermesEnv(9, { [ENV_BASE_URL]: 'https://luna-sunset-staging-email-luna.internal.example.azurecontainerapps.io' }),
-  }), false, 'remote HTTPS without TLS pin must be off');
+    env: hermesEnv(9, { [ENV_BASE_URL]: acaOrigin }),
+  }), true, 'ACA internal HTTPS with CA+hostname is on without SPKI pin');
   const pin = 'a'.repeat(64);
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
     env: hermesEnv(9, {
-      [ENV_BASE_URL]: 'https://luna-sunset-staging-email-luna.internal.example.azurecontainerapps.io',
+      [ENV_BASE_URL]: acaOrigin,
       [ENV_TLS_PIN]: pin,
     }),
   }), true);
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: 'https://evil.example.test', [ENV_TLS_PIN]: pin }),
+  }), false, 'arbitrary HTTPS host is forbidden');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: 'https://1.2.3.4', [ENV_TLS_PIN]: pin }),
+  }), false, 'HTTPS IP is forbidden');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: 'https://luna-sunset-staging-staff-api.internal.redbeach6a768db0.northeurope.azurecontainerapps.io', [ENV_TLS_PIN]: pin }),
+  }), false, 'other ACA apps are forbidden');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: 'https://luna-sunset-staging-email-luna.azurecontainerapps.io', [ENV_TLS_PIN]: pin }),
+  }), false, 'public ACA hostname without .internal. is forbidden');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
     env: hermesEnv(9, { [ENV_BASE_URL]: 'http://10.1.2.3:8093', [ENV_TLS_PIN]: pin }),
   }), false, 'bearer over public plaintext HTTP is forbidden');
-  console.log('  PASS  activation is exact, default-off, getter-safe, and TLS-pinned for remote');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: 'http://169.254.169.254/' }),
+  }), false, 'link-local SSRF is forbidden');
+  console.log('  PASS  activation is exact, default-off, getter-safe, and ACA-internal allowlisted');
 
   const fake = await startFakeHermes();
   const env = hermesEnv(fake.port);
@@ -457,7 +494,7 @@ function assertNoSecretsLogged(hits) {
 
   const openOwner = makeOwner({
     env,
-    rows: [authorityRow({ needs_human: true, staff_reply_draft: '' })],
+    rows: [authorityRow({ needs_human: true, staff_reply_draft: '', conversation_metadata: {} })],
   });
   const generated = await openOwner.owner.ensureEmailLunaDraftOnOpen({
     actor: actor(),
@@ -468,7 +505,71 @@ function assertNoSecretsLogged(hits) {
   assert.equal(openOwner.approvals.length, 0);
   assert.equal(openOwner.journals.length, 0);
   assert.equal(openOwner.providers.length, 0);
-  console.log('  PASS  generate-on-open empty notes stay safe thread-only');
+  console.log('  PASS  generate-on-open without classifier stays fail-safe');
+
+  const hermesHitsBeforeTemplate = fake.hits.length;
+  const catalogRow = Object.freeze(Object.assign(Object.create(null), {
+    fact: 'catalog',
+    status: 'found',
+    client_id: C,
+    location_id: L,
+    item: 'board_rental',
+    label: 'surfboard rental',
+    currency: 'EUR',
+    amount_cents: 3500,
+    active: true,
+  }));
+  const missingOwner = (fact) => async () => Object.freeze(Object.assign(Object.create(null), {
+    type: 'missing_fact',
+    fact,
+    status: 'missing_fact',
+    reason: 'not_found',
+    client_id: C,
+    location_id: L,
+  }));
+  const templateOwner = makeOwner({
+    env,
+    rows: [authorityRow({
+      needs_human: true,
+      staff_reply_draft: '',
+      subject: 'Boards for Saturday',
+      conversation_metadata: {},
+    })],
+    classifyIntent: () => ({
+      intent: 'catalog_question',
+      intent_support: 'supported',
+      language: 'en',
+      identity: 'matched',
+      requested_location_id: L,
+      explicit_human_request: false,
+      unsafe_transactional_request: false,
+      required_facts: ['catalog'],
+    }),
+    queryOwners: {
+      catalog: async () => catalogRow,
+      availability: missingOwner('availability'),
+      policy: missingOwner('policy'),
+      booking: missingOwner('booking'),
+      payment: missingOwner('payment'),
+    },
+  });
+  const templated = await templateOwner.owner.ensureEmailLunaDraftOnOpen({
+    actor: actor(),
+    conversation_id: V,
+  });
+  const templatedBody = 'Hi,\n\nOur surfboard rental is €35.00.\n\nLuna';
+  assert.equal(templated.status, 'draft_ready');
+  assert.equal(templated.draft_text, templatedBody);
+  assert.notEqual(templated.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(templateOwner.writes.length, 1);
+  assert.equal(templateOwner.writes[0].draft, templatedBody);
+  assert.equal(templateOwner.approvals.length, 0);
+  assert.equal(templateOwner.journals.length, 0);
+  assert.equal(templateOwner.providers.length, 0);
+  assert.equal(templateOwner.bookings.length, 0);
+  assert.equal(fake.hits.length, hermesHitsBeforeTemplate + 1);
+  assert.equal(fake.hits.at(-1).url, HERMES_SOL_DRAFT_PATH);
+  console.log('  PASS  generate-on-open empty standing draft round-trips Hermes template author');
 
   const routeSent = [];
   const routeOwner = makeOwner({ env });
@@ -728,14 +829,95 @@ function assertNoSecretsLogged(hits) {
   assert.match(runbook, /EMAIL_LUNA_HERMES_SOL_TLS_PIN/);
   assert.match(runbook, /ingress internal|external: false/);
   assert.match(runbook, /HERMES_SKIP_ROLE_BOOTSTRAP=1/);
+  assert.match(runbook, /--entrypoint \/init/);
+  assert.match(runbook, /az containerapp create/);
+  assert.match(runbook, /--yaml/);
+  assert.match(runbook, /az account show --query id/);
+  assert.match(runbook, /az containerapp show/);
+  assert.match(runbook, /\/opt\/hermes\/\.venv\/bin\/python/);
   assert.doesNotMatch(runbook, /lunabox-reachability-as-operator-directs/);
   assert.doesNotMatch(runbook, /hermes chat --no-stream --json/);
+  assert.doesNotMatch(runbook, /--command python/);
+  assert.doesNotMatch(runbook, /--bind-env-vars/);
+  assert.doesNotMatch(runbook, /--volume-mounts/);
+  assert.doesNotMatch(runbook, /--health-probe-kind/);
+  assert.doesNotMatch(runbook, /az storage share create/);
+  assert.doesNotMatch(runbook, /containerapp env storage set/);
   const aca = readFile('docker/hermes-staging/sunset-email-luna.aca.yaml.example');
   assert.match(aca, /external: false/);
   assert.match(aca, /allowInsecure: false/);
+  assert.match(aca, /\/opt\/hermes\/\.venv\/bin\/python/);
+  assert.match(aca, /keyVaultUrl: https:\/\/luna-sunset-staging-kv\.vault\.azure\.net\/secrets\/hermes-sunset-email-luna-auth-json-b64/);
+  assert.match(aca, /secretRef: hermes-sunset-email-auth-json-b64/);
+  assert.match(aca, /secretRef: api-server-key/);
+  assert.match(aca, /type: Liveness/);
+  assert.match(aca, /type: Readiness/);
+  assert.match(aca, /cpu: 1\.0/);
+  assert.match(aca, /memory: 2Gi/);
+  assert.match(aca, /whstagingacr\.azurecr\.io/);
+  assert.doesNotMatch(aca, /^\s+command:/m);
   assert.doesNotMatch(aca, /command: gateway run/);
   assert.doesNotMatch(aca, /WHATSAPP_CLOUD/);
+  assert.doesNotMatch(aca, /AzureFile/);
+  assert.doesNotMatch(aca, /volumeMounts:/);
+  assert.doesNotMatch(aca, /storageName:/);
+  const azCreateFlags = [
+    '--name', '-n', '--resource-group', '-g', '--environment', '--yaml',
+    '--image', '--args', '--command', '--cpu', '--memory', '--min-replicas',
+    '--max-replicas', '--ingress', '--target-port', '--transport',
+    '--user-assigned', '--registry-server', '--registry-identity',
+    '--secrets', '--env-vars', '--allow-insecure', '--container-name',
+    '--tags', '--secret-volume-mount', '--system-assigned',
+    '--workload-profile-name', '--termination-grace-period', '--query',
+  ];
+  for (const flag of ['--bind-env-vars', '--volume-mounts', '--health-probe-kind', '--health-probe-path', '--health-probe-port', '--bind-mount']) {
+    assert.equal(azCreateFlags.includes(flag), false, flag);
+    assert.doesNotMatch(runbook, new RegExp(flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.match(extractService(sunsetCompose, 'hermes-sunset-email-luna'), /\/opt\/hermes\/\.venv\/bin\/python/);
+  assert.match(extractService(sunsetCompose, 'hermes-sunset-email-luna'), /email_draft_server\.py/);
+  assert.doesNotMatch(extractService(sunsetCompose, 'hermes-sunset-email-luna'), /command: python /);
   console.log('  PASS  Staff path is internal TLS ACA; auth add is bootstrap-safe; no guessed CLI');
+
+  const hostnameOk = pinnedIdentityCheck('', false, 'luna-sunset-staging-email-luna.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io');
+  const tls = require('node:tls');
+  const originalCheck = tls.checkServerIdentity;
+  let hostnameChecked = false;
+  tls.checkServerIdentity = (host, cert) => {
+    hostnameChecked = true;
+    assert.equal(host, 'luna-sunset-staging-email-luna.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io');
+    return undefined;
+  };
+  const pinMismatch = pinnedIdentityCheck('b'.repeat(64), false, 'luna-sunset-staging-email-luna.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io');
+  const fakeCert = { raw: Buffer.alloc(0) };
+  const hostnameResult = hostnameOk('luna-sunset-staging-email-luna.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io', fakeCert);
+  assert.equal(hostnameChecked, true);
+  assert.equal(hostnameResult, undefined);
+  hostnameChecked = false;
+  const pinResult = pinMismatch('luna-sunset-staging-email-luna.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io', fakeCert);
+  assert.equal(hostnameChecked, true, 'hostname/cert validation must run before SPKI');
+  assert.equal(pinResult && pinResult.code, 'HERMES_SOL_TLS_PIN');
+  tls.checkServerIdentity = originalCheck;
+
+  await assert.rejects(
+    () => defaultHttpRequest({
+      method: 'POST',
+      url: 'http://169.254.169.254/latest/meta-data/',
+      body: '{}',
+      timeout_ms: 50,
+    }),
+    (error) => error && error.code === 'HERMES_SOL_PLAINTEXT',
+  );
+  await assert.rejects(
+    () => defaultHttpRequest({
+      method: 'POST',
+      url: 'http://10.1.2.3:8093/v1/internal/email-draft-plan',
+      body: '{}',
+      timeout_ms: 50,
+    }),
+    (error) => error && error.code === 'HERMES_SOL_PLAINTEXT',
+  );
+  console.log('  PASS  JS hostile/SSRF/TLS hostname-before-pin');
 
   console.log('PASS MAIL-MVP-007 Sunset email Hermes Sol author');
 })().catch((error) => {
