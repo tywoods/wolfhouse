@@ -608,6 +608,8 @@ async function main() {
     'node scripts/verify-email-luna-controlled-drafting-live-downscope-prover.js');
   assert.equal(PKG.scripts['verify:email-luna-controlled-drafting-live-downscope-prover-live-target'],
     'node scripts/verify-email-luna-controlled-drafting-live-downscope-prover-live-target.js');
+  assert.equal(PKG.scripts['verify:email-luna-controlled-drafting-live-downscope-prover-live-preflight-reader'],
+    'node scripts/verify-email-luna-controlled-drafting-live-downscope-prover-live-preflight-reader.js');
   assert.equal(typeof createEmailLunaControlledDraftingLiveDownscopeProver, 'function');
 
   const ownerMod = require('./lib/email-luna-controlled-drafting-live-downscope-prover');
@@ -1130,6 +1132,7 @@ async function main() {
   runChild('verify-migration-integrity.js');
   runChild('prove-email-luna-controlled-drafting-live-downscope-prover-offline-simulation.js');
   runChild('verify-email-luna-controlled-drafting-live-downscope-prover-live-target.js');
+  runChild('verify-email-luna-controlled-drafting-live-downscope-prover-live-preflight-reader.js');
   const diffCheck = spawnSync('git', ['diff', '--check'], {
     cwd: ROOT, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024,
   });

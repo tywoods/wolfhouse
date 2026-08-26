@@ -1,6 +1,6 @@
 # Email Luna controlled-drafting live downscope prover (Chapter 4E)
 
-**Slice:** FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E + 4G — source-only operator prover for a future live Microsoft downscope + shared Phase B grant continuity proof. Chapter 4G wires the exact deployed Sunset staging SHA. Live compose/runProof are **structurally disabled** (`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false`). Live proof is still **NOT EXECUTED**. There is no independent Azure ACA / PG reader in this chapter; caller snapshots cannot mint a live brand.
+**Slice:** FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E + 4G + 4H — source-only operator prover for a future live Microsoft downscope + shared Phase B grant continuity proof. Chapter 4G wires the exact deployed Sunset staging SHA. Chapter 4H adds the private owned Azure/ACR/PG preflight reader. Live compose/runProof remain **structurally disabled** (`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER = false`). Live proof is still **NOT EXECUTED**. Caller snapshots cannot mint a live brand.
 
 **Owner:** `scripts/lib/email-luna-controlled-drafting-live-downscope-prover.js`
 
@@ -97,11 +97,11 @@ Without `--execute-once` this is **preparation/attestation only**: zero token, J
 
 `--execute-once` plus the typed confirmation bound to target/revision/SHA/digest/nonce/time-window is required before any sensitive dependency is acquired. This chapter still **does not authorize** that sensitive phase (`live_execute_not_authorized_in_this_chapter`). A source verify/prove harness cannot consume the live attempt (`source_test_cannot_consume_live_attempt`). One process; nonce replay fails; no automatic retry after an ambiguous Microsoft response.
 
-**Independent live preflight (NOT implemented this chapter; server-owned when a future reader exists; do not trust caller-injected counts):**
+**Independent live preflight (Chapter 4H implements the owned reader; live execute remains unauthorized):**
 
-This chapter has **no** owned Azure ACA / live PG reader. `evaluateSunsetStagingLiveAppSnapshot` validates untrusted caller snapshots against exact pins and **must not** mint `independent_read` or a live-proof brand. `runProof` / public compose refuse with `live_execute_not_authorized_in_this_chapter` before acquiring KV/token/JWKS/PG. 097/098 counts are never accepted from caller fields.
+Chapter 4H owns `readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg`. `evaluateSunsetStagingLiveAppSnapshot` still validates untrusted caller snapshots against exact pins and **must not** mint `independent_read` or a live-proof brand. `runProof` / public compose still refuse with `live_execute_not_authorized_in_this_chapter` **before** the owned reader or KV/token/JWKS/PG run. After a future authorized `await readOwned()`, `runProof` calls `inspectIndependentLivePreflight(liveOwner, independent)` and requires the live-owner WeakSet predicate to return exactly `true` before reading fields or starting token work. 097/098 counts are never accepted from caller fields. See `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-PREFLIGHT-READER.md`.
 
-A later chapter must supply a **private/internal** reader that actually reads Azure ACA and PG. If that reader is absent, live proof fails closed. Future reader steps:
+Owned reader steps (measured; fail closed if any miss):
 
 1. Confirm target **Sunset staging only**. Refuse production / Wolfhouse / `--target live` / `--target azure`.
 2. Independently read the candidate app: exact revision, image SHA, digest, Running, latest-ready, 100% traffic, replica 1 / min=max=1.

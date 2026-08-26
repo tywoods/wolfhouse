@@ -372,6 +372,35 @@ function loadLiveTargetOwner() {
   return require('./email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
 }
 
+function inspectIndependentLivePreflight(liveOwner, independent) {
+  try {
+    if (!liveOwner || (typeof liveOwner !== 'object' && typeof liveOwner !== 'function') || isProxySurface(liveOwner)) {
+      return objectFreeze({ ok: false, reason: 'independent_reader_absent' });
+    }
+    let pred;
+    try {
+      pred = ownData(liveOwner, 'isIndependentLivePreflight');
+    } catch (_) {
+      return objectFreeze({ ok: false, reason: 'independent_preflight_predicate_unproven' });
+    }
+    if (typeof pred !== 'function' || isProxySurface(pred)) {
+      return objectFreeze({ ok: false, reason: 'independent_preflight_predicate_absent' });
+    }
+    let branded;
+    try {
+      branded = pred(independent);
+    } catch (_) {
+      return objectFreeze({ ok: false, reason: 'independent_preflight_predicate_unproven' });
+    }
+    if (branded !== true) {
+      return objectFreeze({ ok: false, reason: 'live_preflight_unproven' });
+    }
+    return objectFreeze({ ok: true });
+  } catch (_) {
+    return objectFreeze({ ok: false, reason: 'live_preflight_unproven' });
+  }
+}
+
 function invokedFromSourceTestHarness() {
   try {
     const main = require.main && require.main.filename;
@@ -1275,9 +1304,15 @@ function createEmailLunaControlledDraftingLiveDownscopeProver(deps) {
       if (typeof readOwned !== 'function') {
         throw failAt('counts', 'independent_reader_absent');
       }
-      const independent = readOwned();
-      if (!liveOwner.isIndependentLivePreflight(independent)) {
+      let independent;
+      try {
+        independent = await readOwned();
+      } catch (_) {
         throw failAt('counts', 'live_preflight_unproven');
+      }
+      const branded = inspectIndependentLivePreflight(liveOwner, independent);
+      if (!branded || branded.ok !== true) {
+        throw failAt('counts', (branded && branded.reason) || 'live_preflight_unproven');
       }
       if (ownData(independent, 'deploy_sha') !== parsed.deploySha
           || ownData(independent, 'revision') !== parsed.revision
@@ -1556,6 +1591,7 @@ module.exports = objectFreeze({
   liveModeAllowed,
   runCli,
   createEmailLunaControlledDraftingLiveDownscopeProver,
+  inspectIndependentLivePreflight,
   readTrustedLiveDownscopeProverFailure,
   attestEmailLunaControlledDraftingLiveDownscopeProver: attestSuccess,
 });

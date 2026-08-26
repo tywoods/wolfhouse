@@ -533,10 +533,12 @@ async function main() {
   console.log('  PASS  M2: public compose refuses chapter-disabled before env/getters; zero getter hits');
 
   const liveOwnerExports = require('./lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target');
-  assert.equal(typeof liveOwnerExports.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg, 'undefined');
+  assert.equal(typeof liveOwnerExports.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg, 'function');
+  assert.equal(typeof liveOwnerExports.createOwnedSunsetStagingLivePreflightReader, 'undefined');
+  assert.equal(typeof liveOwnerExports.createSunsetStagingLivePreflightReaderForTests, 'undefined');
   assert.equal(typeof liveOwnerExports.evaluateSunsetStagingLiveAppSnapshot, 'function');
   assert.equal(typeof liveOwnerExports.composeSunsetStagingLiveDownscopeProverDependencies, 'function');
-  console.log('  PASS  private independent reader is not exported; public compose remains gated');
+  console.log('  PASS  independent reader is owned/exported; closed constructor stays off production surface');
 
   {
     const connectErr = new Error('ECONNREFUSED');
