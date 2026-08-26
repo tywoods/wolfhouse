@@ -10,7 +10,7 @@
 
 **Verifier:** `npm run verify:email-luna-controlled-drafting-live-downscope-prover-live-preflight-reader`
 
-`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER` remains frozen `false` with load-time throws. Production `readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg` and production adapter construction require that constant to be exactly `true` **before** IMDS/ARM/ACR/PG session acquisition. In this chapter it is exactly `false`, so direct `node -e` / REPL / import calls fail locally before IMDS. Chapter 4G live compose / `runProof` / CLI `--execute-once` still refuse **before** this reader can execute. Source-harness refusal remains defense in depth. This chapter builds and tests the reader with local fake Azure/ACR/PG adapters only. The fake constructor is not gated.
+`LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER` remains frozen `false` with load-time throws. Production `readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg` and production adapter construction require that constant to be exactly `true` **before** IMDS/ARM/ACR/PG session acquisition. Chapter 4I does **not** OR an ambient mint/flag into this gate and does **not** open this gated constructor. Importing or using any public Chapter 4I export, or requiring the Chapter 4I CLI driver, leaves this reader chapter-disabled; direct `node -e` / REPL / import calls still fail locally before IMDS. Chapter 4G live compose / `runProof` / CLI `--execute-once` still refuse **before** this public reader can execute. A later Chapter 4I CLI-only driver may lexically construct measurement adapters only when executed as `require.main === module` after exact args, reviewed SHA/tree validation, and canonical receipt claim. Source-harness refusal remains defense in depth. This chapter builds and tests the reader with local fake Azure/ACR/PG adapters only. The fake constructor is not gated.
 
 ## Ownership
 
@@ -45,11 +45,11 @@ Canonical Sunset producer/worker direct LOGIN via the existing pair factory. Adm
 | Fact | Derivation |
 | --- | --- |
 | Database identity | `current_database() = sunset_staging` |
-| Tenant / location / binding | Azure env UUIDs + `tenant_channel_endpoints` / `tenant_locations` boolean SQL (no mailbox/address columns in evidence) |
-| Direct LOGIN + ACL | Identity SQL fingerprints; Chapter 3 mapped-principal attest for producer then worker |
+| Tenant / location / binding | Azure env UUIDs + `tenant_channel_endpoints` / `tenant_locations` boolean SQL. Authentic brands also carry the exact measured `client_id` / `location_id` / `endpoint_id` / `mailbox_id` UUIDs (not mailbox addresses) |
+| Direct LOGIN + ACL | Identity SQL fingerprints; Chapter 3 mapped-principal attest for producer then worker. Authentic brands carry `producer_login_fingerprint` / `worker_login_fingerprint` (64-hex) plus the existing login-ok booleans |
 | TLS | `current_setting('ssl')` is `on`/`true` |
 | 097 ops / 097 transitions / 098 auths | Owned `COUNT(*)` SQL inside the reader. Caller fields ignored |
-| Grant / lease / reconcile | `tenant_email_delegated_grants` status/generation/lease boolean |
+| Grant / lease / reconcile | `tenant_email_delegated_grants` status/generation/lease. Authentic brands export integer `grant_generation` from the bounded double read; it is never omitted/undefined |
 
 ## Authority / TOCTOU / failure
 
@@ -65,7 +65,7 @@ Canonical Sunset producer/worker direct LOGIN via the existing pair factory. Adm
 | Fence age > 30s | `freshness` |
 | Provider throw with planted secrets | Sanitized package error, no DSN/token/JWT |
 
-Bounded double-read: Azure revision+digest and DB counts/generation must match start and end. `sameFence` compares all authority-bearing identities and state, including complete revision image identity (`loginServer`, repository, tag), app image identity, traffic weight, client/location/endpoint/mailbox IDs, grant status/generation/reconcile/lease, binding flags, and LOGIN fingerprints. Production clock is `Date.now`; tests may inject a clock only through the closed constructor.
+Bounded double-read: Azure revision+digest and DB counts/generation must match start and end. `sameFence` compares all authority-bearing identities and state, including complete revision image identity (`loginServer`, repository, tag), app image identity, traffic weight, client/location/endpoint/mailbox IDs, grant status/generation/reconcile/lease, binding flags, and LOGIN fingerprints. Those same sanitized values are copied onto the branded evidence and are forbidden from caller-supplied objects (`isIndependentLivePreflight` remains the unexported WeakSet). Production clock is `Date.now`; tests may inject a clock only through the closed constructor.
 
 Evidence fields such as `oauth_called: false` / `kv_secret_called: false` / `token_called: false` / `jwks_called: false` / `graph_called: false` / `send_called: false` / `writes: false` are **declarations** of this chapter's closed surface, not measurements of a live attempt. Offline tests prove no live action from adapter-call counts and SQL transcripts.
 
@@ -78,4 +78,4 @@ Evidence fields such as `oauth_called: false` / `kv_secret_called: false` / `tok
 
 ## Next gate
 
-A later separately authorized execution chapter may call the branded reader from live `runProof` after flipping chapter authority. That chapter still must not send, must not flip flags, and must not trust caller snapshots.
+Chapter 4I owns a dedicated one-shot Sunset staging execution entrypoint. It must invoke this production reader first and consume the unexported brand through `inspectIndependentLivePreflight` before Key Vault / token / JWKS / custody PG. It must not flip `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER` on this owner. Staff API startup stays inert. That chapter still must not send, must not flip flags, and must not trust caller snapshots.

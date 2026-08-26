@@ -450,6 +450,54 @@ async function main() {
   }
   console.log('  PASS  direct node -e production reader refuses chapter-disabled with zero IMDS/ARM/ACR');
 
+  {
+    const after4i = spawnSync(process.execPath, ['-e', `
+      'use strict';
+      const http = require('node:http');
+      const https = require('node:https');
+      const path = require('node:path');
+      let network = 0;
+      function wrap(obj, name) {
+        const orig = obj[name];
+        if (typeof orig !== 'function') return;
+        obj[name] = function wrapped() {
+          network += 1;
+          const err = new Error('imds_must_not_run');
+          try {
+            const req = orig.apply(this, arguments);
+            try { req.destroy(err); } catch (_) {}
+            return req;
+          } catch (_) { throw err; }
+        };
+      }
+      wrap(http, 'request'); wrap(http, 'get');
+      wrap(https, 'request'); wrap(https, 'get');
+      const root = ${JSON.stringify(ROOT)};
+      require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-sunset-staging-live-execution-owner.js'));
+      require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-proof-core.js'));
+      require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-chapter-4i-durable-receipt.js'));
+      const cliExports = require(path.join(root, 'scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js'));
+      if (Object.keys(cliExports).length !== 0) process.exit(3);
+      const owned = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader-owned.js'));
+      const pub = require(path.join(root, 'scripts/lib/email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-preflight-reader.js'));
+      Promise.all([
+        owned.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg().then(() => 'resolved', (e) => e),
+        pub.readIndependentSunsetStagingLiveAppFromOwnedAzureAndPg().then(() => 'resolved', (e) => e),
+      ]).then(([a, b]) => {
+        const ok = a && b
+          && a.detail === 'live_execute_not_authorized_in_this_chapter'
+          && b.detail === 'live_execute_not_authorized_in_this_chapter'
+          && network === 0;
+        process.stdout.write(ok ? '4i-import-still-disabled\\n' : ('fail net=' + network + ' a=' + (a && a.detail) + '\\n'));
+        process.exit(ok ? 0 : 2);
+      });
+    `], { cwd: ROOT, encoding: 'utf8', env: childEnv(), timeout: 10000 });
+    if (after4i.stderr) process.stderr.write(after4i.stderr);
+    assert.equal(after4i.status, 0, '4H reader must stay chapter-disabled after 4I import');
+    assert.match(after4i.stdout, /4i-import-still-disabled/);
+  }
+  console.log('  PASS  4H production reader stays chapter-disabled after importing all public 4I exports');
+
   const hits = hitsTemplate();
   const evidence = await readWith(hits);
   assert.equal(isIndependentLivePreflight(evidence), true);
@@ -474,8 +522,30 @@ async function main() {
   assert.equal(evidence.send_called, false);
   assert.equal(evidence.writes, false);
   assert.equal(evidence.fence_stable, true);
+  assert.equal(evidence.grant_generation, 4);
+  assert.equal(evidence.producer_login_fingerprint, PRODUCER_FP);
+  assert.equal(evidence.worker_login_fingerprint, WORKER_FP);
+  assert.equal(evidence.client_id, CLIENT);
+  assert.equal(evidence.location_id, LOCATION);
+  assert.equal(evidence.endpoint_id, ENDPOINT);
+  assert.equal(evidence.mailbox_id, MAILBOX);
+  assert.equal(evidence.subscription_id, AZURE_OWNER.subscriptionId);
+  assert.equal(evidence.resource_group, AZURE_OWNER.resourceGroup);
+  assert.equal(evidence.app_name, AZURE_OWNER.appName);
   assert.equal(Object.prototype.hasOwnProperty.call(evidence, 'dsn'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(evidence, 'mailbox'), false);
   assert.equal(noLeak(evidence), true);
+  assert.equal(isIndependentLivePreflight({
+    ok: true,
+    independent_read: true,
+    grant_generation: 4,
+    producer_login_fingerprint: PRODUCER_FP,
+    worker_login_fingerprint: WORKER_FP,
+    client_id: CLIENT,
+    location_id: LOCATION,
+    endpoint_id: ENDPOINT,
+    mailbox_id: MAILBOX,
+  }), false);
   assert.ok(hits.app >= 2, 'double-read azure app');
   assert.ok(hits.acr >= 2, 'double-read acr digest');
   assert.ok(hits.countSql >= 2, 'double-read SQL counts');

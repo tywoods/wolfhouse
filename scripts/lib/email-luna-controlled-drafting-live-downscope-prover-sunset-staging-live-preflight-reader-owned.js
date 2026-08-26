@@ -120,6 +120,7 @@ const GRANT_KEYS = objectFreeze([
   'grant_generation', 'grant_status', 'reconcile_state', 'has_active_lease',
 ]);
 const BINDING_KEYS = objectFreeze(['binding_ok', 'own_user', 'mailbox_ready', 'has_active_operation']);
+const HEX64_RE = /^[0-9a-f]{64}$/;
 const AZURE_ADAPTER_KEYS = objectFreeze(['readApp', 'listRevisions', 'readRevision']);
 const ACR_ADAPTER_KEYS = objectFreeze(['readManifestDigest']);
 const PG_ADAPTER_KEYS = objectFreeze(['withProducerClient', 'withWorkerClient']);
@@ -673,12 +674,31 @@ function brandEvidence(pairs) {
 function invokedFromSourceTestHarness() {
   try {
     const main = require.main && require.main.filename;
-    if (typeof main !== 'string') return false;
-    const base = main.replace(/\\/g, '/').split('/').pop();
-    return /^(verify|prove)-email-luna-controlled-drafting-live-downscope-prover/.test(base);
+    if (typeof main === 'string') {
+      const base = main.replace(/\\/g, '/').split('/').pop();
+      if (/^(verify|prove)-email-luna-controlled-drafting-/.test(base)) return true;
+    }
+    const cached = Object.keys(require.cache || {});
+    for (let i = 0; i < cached.length; i += 1) {
+      const base = cached[i].replace(/\\/g, '/').split('/').pop();
+      if (/^(verify|prove)-email-luna-controlled-drafting-/.test(base)) return true;
+    }
+    return false;
   } catch (_) {
     return true;
   }
+}
+
+function requireHex64Fingerprint(value) {
+  if (typeof value !== 'string' || !HEX64_RE.test(value)) throw failure('login_unproven');
+  return value;
+}
+
+function requireBrandedGeneration(value) {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+    throw failure('grant_unproven');
+  }
+  return value;
 }
 
 function createOwnedSunsetStagingLivePreflightReader(input) {
@@ -767,12 +787,19 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
         ['binding_ok', true],
         ['own_user', true],
         ['mailbox_ready', true],
+        ['client_id', azureB.app.clientId],
+        ['location_id', azureB.app.locationId],
+        ['endpoint_id', azureB.app.endpointId],
+        ['mailbox_id', azureB.app.mailboxId],
+        ['grant_generation', requireBrandedGeneration(pgB.grant.grant_generation)],
         ['grant_status', pgB.grant.grant_status],
         ['reconcile_state', pgB.grant.reconcile_state],
         ['has_active_lease', false],
         ['has_active_operation', false],
         ['producer_login_ok', true],
         ['worker_login_ok', true],
+        ['producer_login_fingerprint', requireHex64Fingerprint(pgB.producer.fingerprint)],
+        ['worker_login_fingerprint', requireHex64Fingerprint(pgB.worker.fingerprint)],
         ['logins_distinct', true],
         ['tls_ok', true],
         ['acl_ok', true],
