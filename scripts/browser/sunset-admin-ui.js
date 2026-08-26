@@ -1823,9 +1823,10 @@ function renderAdminPackCards(packs, writes, defaultCap){
     html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-pack-title">' + escHtml(p.label || 'Pack') + '</div>' +
       '<div class="portal-admin-pack-sub">' + escHtml(adminLessonAgeLabel(p.age_band)) + '</div></div>';
     if (writes && !editing && !adminPackSectionEditing()){
+      var deleteCourseLabel = portalT('admin.packs.deleteCourse') || 'Delete course';
       html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-pack" data-pack-id="' +
-        escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '" title="' + escHtml(portalT('admin.action.edit')) + '">✎</button><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-pack" data-pack-id="' +
-        escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.remove')) + '" title="' + escHtml(portalT('admin.action.remove')) + '">×</button></div>';
+        escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '" title="' + escHtml(portalT('admin.action.edit')) + '">✎</button><button type="button" class="btn btn-ghost portal-admin-danger portal-admin-pack-delete" data-admin-action="delete-pack" data-pack-id="' +
+        escHtml(pid) + '" aria-label="' + escHtml(deleteCourseLabel) + '">' + escHtml(deleteCourseLabel) + '</button></div>';
     }
     html += '</div>';
     if (editing) html += adminRenderPackEditForm(pid, p);
