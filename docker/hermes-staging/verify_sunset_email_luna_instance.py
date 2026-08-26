@@ -14,6 +14,9 @@ STAGING_COMPOSE = STAGING / "docker-compose.vm.yml"
 BOOTSTRAP = STAGING / "bootstrap.sh"
 OVERLAY = STAGING / "99z-wh-vm-post-bootstrap.sh"
 SERVER = STAGING / "wolfhouse/email_draft_server.py"
+DOCKERFILE = STAGING / "Dockerfile"
+ACA_YAML = STAGING / "sunset-email-luna.aca.yaml.example"
+RUNBOOK = REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md"
 
 SUNSET_LUNA_PIN = """  hermes-sunset-luna:
     image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
@@ -95,6 +98,10 @@ def main() -> int:
     bootstrap = BOOTSTRAP.read_text(encoding="utf-8")
     overlay = OVERLAY.read_text(encoding="utf-8")
     server = SERVER.read_text(encoding="utf-8")
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    aca = ACA_YAML.read_text(encoding="utf-8")
+    runbook = RUNBOOK.read_text(encoding="utf-8")
+    email_role = extract_role(bootstrap)
 
     sunset_luna = extract_service(sunset, "hermes-sunset-luna")
     wolfhouse_luna = extract_service(staging, "hermes-luna")
@@ -122,8 +129,8 @@ def main() -> int:
         "bootstrap_email_role": '"$HERMES_ROLE" = "sunset-email-luna"' in bootstrap,
         "bootstrap_sol_config": "default: gpt-5.6-sol" in bootstrap
         and "write_sunset_email_luna_config" in bootstrap,
-        "bootstrap_no_plugins": "install_luna_plugins" not in extract_role(bootstrap),
-        "bootstrap_no_link_shared": "link_shared_auth" not in extract_role(bootstrap),
+        "bootstrap_no_plugins": "install_luna_plugins" not in email_role,
+        "bootstrap_no_link_shared": "link_shared_auth" not in email_role,
         "bootstrap_isolated_auth": "require_isolated_sunset_email_auth" in bootstrap
         and "materialize_isolated_sunset_email_auth_from_secret" not in bootstrap
         and "HERMES_SUNSET_EMAIL_AUTH_JSON_B64" not in bootstrap
@@ -155,12 +162,35 @@ def main() -> int:
         and "\n        command:" not in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
         and "value: /opt/data/.hermes" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8")
         and "- name: HOME" in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8"),
-        "runbook_https_staff_path": "EMAIL_LUNA_HERMES_SOL_TLS_PIN" in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
-        and "lunabox-reachability-as-operator-directs" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
-        and "--command python" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
-        and "--bind-env-vars" not in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
-        and "containerapp env storage set" in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8")
-        and "lunasunsetemailst" in (REPO / "docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md").read_text(encoding="utf-8"),
+        "runbook_https_staff_path": "EMAIL_LUNA_HERMES_SOL_TLS_PIN" in runbook
+        and "lunabox-reachability-as-operator-directs" not in runbook
+        and "--command python" not in runbook
+        and "--bind-env-vars" not in runbook
+        and "containerapp env storage set" in runbook
+        and "lunasunsetemailst" in runbook,
+        "startup_order_01_then_99": "01-hermes-setup" in bootstrap
+        and "COPY bootstrap.sh /etc/cont-init.d/99-wh-staging-bootstrap" in dockerfile
+        and "99-wh-staging-bootstrap" in bootstrap,
+        "email_soul_unlinks_setup_then_installs": "install_sunset_email_luna_soul" in email_role
+        and "rm -f" in bootstrap
+        and "write_sunset_email_luna_env" in email_role
+        and email_role.index("install_sunset_email_luna_soul")
+        < email_role.index("write_sunset_email_luna_env")
+        and bootstrap.count("install_sunset_email_luna_soul") == 2
+        and 'cp "$STAGING_LUNA_SOUL" "$HERMES_HOME/SOUL.md"' in bootstrap
+        and 'cp "$STAGING_ORCH_SOUL" "$HERMES_HOME/SOUL.md"' in bootstrap
+        and 'cp "$STAGING_DECKHAND_SOUL" "$HERMES_HOME/SOUL.md"' in bootstrap,
+        "email_env_hmac_from_s6_and_python_loads": "EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET" in bootstrap
+        and "missing required bearer/HMAC keys" in bootstrap
+        and "load_sunset_email_luna_env" in server
+        and "Never print values" in server,
+        "cifs_mount_options_stay_tight": "mountOptions: uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600"
+        in aca
+        and "noperm" not in aca
+        and "uid=0," not in aca
+        and "gid=0," not in aca
+        and "uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600" in runbook
+        and "Do not add `noperm`" in runbook,
     }
     failed = [name for name, ok in checks.items() if not ok]
     if failed:

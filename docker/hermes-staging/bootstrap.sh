@@ -11,6 +11,8 @@ set -eu
 
 # s6-overlay legacy cont-init scripts run without the container environment.
 # Import it so HERMES_ROLE and secret env vars are visible to this script.
+# Lexicographic order: upstream 01-hermes-setup seeds $HERMES_HOME (including a
+# default SOUL.md) before this 99-wh-staging-bootstrap role overlay.
 if [ -d /run/s6/container_environment ]; then
   for _envf in /run/s6/container_environment/*; do
     [ -f "$_envf" ] || continue
@@ -252,6 +254,8 @@ EOF
 }
 
 write_sunset_email_luna_env() {
+  # Bearer + HMAC come from imported s6 container_environment (ACA Key Vault
+  # secretRef). Never print values. Verify keys exist without dumping .env.
   {
     [ -n "${API_SERVER_KEY:-}" ] && printf 'API_SERVER_KEY=%s\n' "$API_SERVER_KEY"
     [ -n "${EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET:-}" ] && printf 'EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET=%s\n' "$EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET"
@@ -264,6 +268,70 @@ write_sunset_email_luna_env() {
     printf 'API_SERVER_ENABLED=false\n'
     printf 'GATEWAY_ALLOW_ALL_USERS=false\n'
   } > "$HERMES_HOME/.env"
+  if ! grep -q '^API_SERVER_KEY=.' "$HERMES_HOME/.env" \
+    || ! grep -q '^EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET=.' "$HERMES_HOME/.env"; then
+    echo "sunset-email-luna .env missing required bearer/HMAC keys" >&2
+    exit 1
+  fi
+}
+
+install_sunset_email_luna_soul() {
+  # 01-hermes-setup seeds a default $HERMES_HOME/SOUL.md before this script.
+  # On Azure Files CIFS that file can be DOS-readonly / chmod -w: `cp` overwrite
+  # fails even when the parent dir is writable, and live noperm/gid=0 did not
+  # fix it. Unlink needs directory write, not file write. Email role only.
+  _dest="$HERMES_HOME/SOUL.md"
+  _tmp="${_dest}.role.$$"
+  if [ -f "$SUNSET_LUNA_SOUL" ]; then
+    _src="$SUNSET_LUNA_SOUL"
+  elif [ -f "$STAGING_LUNA_SOUL" ]; then
+    _src="$STAGING_LUNA_SOUL"
+  else
+    echo "sunset-email-luna missing Sunset SOUL" >&2
+    exit 1
+  fi
+  cp "$_src" "$_tmp" || {
+    echo "sunset-email-luna failed to stage role SOUL" >&2
+    rm -f "$_tmp"
+    exit 1
+  }
+  if [ -f /etc/hermes-staging/wolfhouse/email_draft_soul_overlay.md ]; then
+    printf '\n' >> "$_tmp"
+    cat /etc/hermes-staging/wolfhouse/email_draft_soul_overlay.md >> "$_tmp" || {
+      echo "sunset-email-luna failed to overlay SOUL" >&2
+      rm -f "$_tmp"
+      exit 1
+    }
+  fi
+  chmod 0640 "$_tmp" 2>/dev/null || true
+  chown 10000:10000 "$_tmp" 2>/dev/null || true
+  rm -f "$_dest" || {
+    echo "sunset-email-luna cannot remove setup-owned SOUL.md" >&2
+    rm -f "$_tmp"
+    exit 1
+  }
+  if [ -e "$_dest" ]; then
+    echo "sunset-email-luna SOUL.md still present after remove" >&2
+    rm -f "$_tmp"
+    exit 1
+  fi
+  mv -f "$_tmp" "$_dest" || {
+    echo "sunset-email-luna failed to install role SOUL" >&2
+    rm -f "$_tmp"
+    exit 1
+  }
+  if [ ! -f "$_dest" ] || [ -L "$_dest" ] || [ ! -s "$_dest" ]; then
+    echo "sunset-email-luna SOUL replacement unverified" >&2
+    exit 1
+  fi
+  if [ -f /etc/hermes-staging/wolfhouse/email_draft_soul_overlay.md ]; then
+    if ! grep -q "Email draft channel (Staff Inbox only)" "$_dest"; then
+      echo "sunset-email-luna SOUL overlay unverified" >&2
+      exit 1
+    fi
+  fi
+  chmod 0640 "$_dest" 2>/dev/null || true
+  chown 10000:10000 "$_dest" 2>/dev/null || true
 }
 
 require_isolated_sunset_email_auth() {
@@ -496,18 +564,7 @@ elif [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
   [ -n "${EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET:-}" ] || { echo "sunset-email-luna requires EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET" >&2; exit 1; }
   require_isolated_sunset_email_auth
   write_sunset_email_luna_config
-  if [ -f "$SUNSET_LUNA_SOUL" ]; then
-    cp "$SUNSET_LUNA_SOUL" "$HERMES_HOME/SOUL.md"
-  elif [ -f "$STAGING_LUNA_SOUL" ]; then
-    cp "$STAGING_LUNA_SOUL" "$HERMES_HOME/SOUL.md"
-  else
-    echo "sunset-email-luna missing Sunset SOUL" >&2
-    exit 1
-  fi
-  if [ -f /etc/hermes-staging/wolfhouse/email_draft_soul_overlay.md ]; then
-    printf '\n' >> "$HERMES_HOME/SOUL.md"
-    cat /etc/hermes-staging/wolfhouse/email_draft_soul_overlay.md >> "$HERMES_HOME/SOUL.md"
-  fi
+  install_sunset_email_luna_soul
   ensure_sessions_dir
   write_sunset_email_luna_env
   # Draft-only: never WhatsApp/Discord patches, never Staff booking plugins,

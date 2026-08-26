@@ -13,6 +13,7 @@ import json
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Callable
 
 from wolfhouse.email_draft_contract import (
@@ -32,10 +33,59 @@ from wolfhouse.email_draft_contract import (
     parse_template_payload,
     sign_result_authenticity,
 )
-from wolfhouse.email_draft_invoke import default_invoke, ensure_isolated_sol_home
+from wolfhouse.email_draft_invoke import (
+    default_invoke,
+    ensure_isolated_sol_home,
+    resolve_sunset_email_hermes_home,
+)
 from wolfhouse.email_draft_replay import ReplayCache
 
 MAX_SEEN = 2048
+
+# Keys bootstrap write_sunset_email_luna_env persists. Unknown keys are ignored
+# so a corrupted Azure Files .env cannot inject PATH/LD_PRELOAD.
+_SUNSET_EMAIL_ENV_KEYS = frozenset(
+    {
+        "API_SERVER_KEY",
+        "EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET",
+        "LUNA_TENANT_ID",
+        "LUNA_CLIENT_SLUG",
+        "LUNA_ALLOWED_LOCATION_IDS",
+        "EMAIL_LUNA_DRAFT_LISTEN_HOST",
+        "EMAIL_LUNA_DRAFT_LISTEN_PORT",
+        "PYTHONPATH",
+        "API_SERVER_ENABLED",
+        "GATEWAY_ALLOW_ALL_USERS",
+        "HERMES_ROLE",
+    }
+)
+
+
+def load_sunset_email_luna_env(env_file: Path | None = None) -> None:
+    """Fill missing process env from HERMES_HOME/.env. Never print values.
+
+    s6 cont-init imports /run/s6/container_environment and bootstrap writes
+    bearer/HMAC there. The Python CMD may not inherit that envdir after /init.
+    Existing non-empty process env (ACA secretRef) wins over the file.
+    """
+    path = env_file if env_file is not None else resolve_sunset_email_hermes_home() / ".env"
+    if path.is_symlink() or not path.is_file():
+        return
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for line in raw.splitlines():
+        stripped = line.replace("\r", "")
+        if not stripped or stripped.lstrip().startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        key = key.strip()
+        if key not in _SUNSET_EMAIL_ENV_KEYS:
+            continue
+        if os.environ.get(key, "").strip():
+            continue
+        os.environ[key] = value
 
 
 def _constant_time_eq(left: str, right: str) -> bool:
@@ -200,6 +250,7 @@ def make_handler(
 
 
 def main() -> int:
+    load_sunset_email_luna_env()
     token = os.environ.get("API_SERVER_KEY", "").strip()
     if not token:
         print("sunset-email-luna requires API_SERVER_KEY", file=sys.stderr)

@@ -1431,6 +1431,12 @@ function assertNoSecretsLogged(hits) {
   assert.match(bootstrap, /sed -i 's\/\^  default: gpt-5\\\.5\$\/  default: gpt-5\.6-sol\/'/);
   assert.match(bootstrap, /write_sunset_email_luna_config/);
   assert.match(bootstrap, /sunset-email-luna/);
+  assert.match(bootstrap, /install_sunset_email_luna_soul/);
+  assert.match(bootstrap, /01-hermes-setup/);
+  assert.match(bootstrap, /99-wh-staging-bootstrap/);
+  assert.match(bootstrap, /missing required bearer\/HMAC keys/);
+  assert.match(readFile('docker/hermes-staging/wolfhouse/email_draft_server.py'), /load_sunset_email_luna_env/);
+  assert.match(readFile('docker/hermes-staging/Dockerfile'), /99-wh-staging-bootstrap/);
   const sunsetCompose = readFile('docker/hermes-sunset/docker-compose.vm.yml');
   assert.match(sunsetCompose, /HERMES_ROLE: sunset-luna/);
   assert.match(sunsetCompose, /command: gateway run/);
@@ -1478,6 +1484,11 @@ function assertNoSecretsLogged(hits) {
     encoding: 'utf8',
   });
   assert.equal(pyAuthPath.status, 0, pyAuthPath.stderr || pyAuthPath.stdout);
+  const pyAzureFiles = spawnSync('python3', ['-m', 'wolfhouse.test_sunset_email_azurefiles_bootstrap'], {
+    cwd: path.join(ROOT, 'docker/hermes-staging'),
+    encoding: 'utf8',
+  });
+  assert.equal(pyAzureFiles.status, 0, pyAzureFiles.stderr || pyAzureFiles.stdout);
 
   const bash = spawnSync('bash', ['-n', 'docker/hermes-staging/bootstrap.sh'], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(bash.status, 0, bash.stderr);
@@ -1491,6 +1502,7 @@ function assertNoSecretsLogged(hits) {
     'docker/hermes-staging/wolfhouse/email_draft_replay.py',
     'docker/hermes-staging/verify_sunset_email_luna_instance.py',
     'docker/hermes-staging/wolfhouse/test_sunset_email_auth_path.py',
+    'docker/hermes-staging/wolfhouse/test_sunset_email_azurefiles_bootstrap.py',
     'scripts/fill-sunset-email-luna-aca-yaml.py',
   ], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(pyCompile.status, 0, pyCompile.stderr);
@@ -1634,6 +1646,14 @@ function assertNoSecretsLogged(hits) {
   assert.match(aca, /whstagingacr\.azurecr\.io/);
   assert.match(aca, /storageType: AzureFile/);
   assert.match(aca, /storageName: hermes-sunset-email-luna-home/);
+  assert.match(aca, /uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600/);
+  assert.doesNotMatch(aca, /noperm/);
+  assert.doesNotMatch(aca, /uid=0,/);
+  assert.doesNotMatch(aca, /gid=0,/);
+  assert.match(runbook, /uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600/);
+  assert.match(runbook, /Do not add `noperm`/);
+  assert.match(runbook, /01-hermes-setup/);
+  assert.match(runbook, /99-wh-staging-bootstrap/);
   assert.match(aca, /volumeMounts:/);
   assert.match(aca, /- name: HOME\n\s+value: \/opt\/data/);
   assert.match(aca, /- name: HERMES_HOME\n\s+value: \/opt\/data\/\.hermes/);

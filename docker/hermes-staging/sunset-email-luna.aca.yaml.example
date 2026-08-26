@@ -101,6 +101,9 @@ properties:
       - name: hermes-home
         storageType: AzureFile
         storageName: hermes-sunset-email-luna-home
+        # Tight hermes uid mapping. Weakening CIFS modes did not make
+        # setup-owned SOUL.md overwritable; email-role bootstrap unlinks then
+        # installs. Do not change dir_mode/file_mode without a reviewed proof.
         mountOptions: uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600
     scale:
       minReplicas: 1
