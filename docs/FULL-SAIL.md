@@ -1,6 +1,55 @@
 # FULL SAIL
 
-Chief-facing index for Luna Nightwatch (Stage 1) and controlled-drafting (Stage 2) on Sunset staging. Durable facts only. No process IDs, DSNs, tokens, or mailbox secrets.
+Chief-facing index for Luna Nightwatch (Stage 1), controlled drafting (Stage 2), and the remaining email launch lifecycle. Durable facts only. No process IDs, DSNs, tokens, or mailbox secrets.
+
+## Revised FULL SAIL sequence and completion contract
+
+The approved sequence is:
+
+1. **Stage 2 — CONTROLLED DRAFTING:** finish the bounded Sunset proof and independent post-proof audit.
+2. **Stage 3 — SIGNAL FLEET:** **deferred**. Campaigns, broadcasts, and real customer outreach are not prerequisites for ordinary front-desk email.
+3. **Stage 4 — HARBORMASTER:** deploy ordinary front-desk email to one exact production tenant without campaign capability, then canary, observe, and prove rollback.
+4. **Stage 5 — OPEN CHANNEL:** add generic IMAP/SMTP only when provider-neutral mailbox support is required. Microsoft-only launch does not wait for Stage 5.
+5. **Luna email readiness:** configure policy, train the email behavior, evaluate it in shadow and staff-reviewed modes, then activate one proven low-risk intent at a time.
+
+Deferring Stage 3 excludes campaign audience selection, bulk scheduling, outreach, and campaign canaries from Stage 4 acceptance. `CUSTOMER_OUTREACH_EMAIL_ENABLED` remains off. No real-recipient outreach is authorized by this plan.
+
+### Email is not complete when code is merely built
+
+Every applicable stage must pass all six lifecycle gates:
+
+| Gate | Required evidence |
+| --- | --- |
+| 1. Source acceptance | Exact reviewed head, focused/composed gates, clean merge-tree, and accepted PR. |
+| 2. Immutable integration | Reviewed head preserved through the documented merge procedure; remote state and ancestry read back. |
+| 3. Deployment | Exact clean-master SHA/digest deployed to the named target with schema/config compatibility and no unintended traffic. |
+| 4. Live validation | Real controlled mailbox journey proves ingest, grounded draft, approval/send behavior, threading, exactly-once handling, and safe uncertainty behavior. |
+| 5. Policy configuration | Server-owned intent allowlist, fact/freshness requirements, handoff rules, rate caps, kill switches, and tenant/location/provider scope are explicit and read back. |
+| 6. Rollout acceptance | Shadow results, staff correction/rejection rates, canary evidence, monitoring, cost, incident response, rollback, and operator sign-off meet the stage exit contract. |
+
+Source/tests may establish implementation readiness, but only deployed behavioral evidence closes an operational stage.
+
+### Luna email training and acceptance workstream
+
+Training is a product workstream, not a substitute for deployment or operations. It includes:
+
+- **Behavior specification:** email-specific voice, language matching, greeting/sign-off, concise complete answers, one clear next step, and no internal jargon.
+- **Authority policy:** closed autonomous-intent allowlist; draft-only and mandatory-handoff classes; fresh Staff API/DB facts for prices, availability, booking, payment, and policy claims.
+- **Golden corpus:** English/Spanish, date ambiguity, group requests, existing bookings, cancellations/refunds, payments, attachments, quoted-thread injection, cross-tenant/location attempts, stale facts, and provider/database failure.
+- **Shadow evaluation:** compare Luna's proposed action and draft with expected decisions without sending.
+- **Staff-reviewed rollout:** Luna drafts while staff approves every send; measure factual corrections, policy overrides, rejected drafts, handoffs, duplicates, and language/tone failures.
+- **Bounded autonomy:** enable one low-risk intent at a time only after its deployed corpus and controlled mailbox canary pass; retain global/tenant/location/provider/intent kill switches.
+- **Ongoing acceptance:** regression gates, sampled audit, queue/provider health, duplicate and uncertainty counters, spend, rollback drills, and explicit operator sign-off.
+
+### Product milestones
+
+| Milestone | Exit condition |
+| --- | --- |
+| Infrastructure complete | Applicable connector stages are merged, deployed, and proven end to end. |
+| Luna draft-ready | Golden and hostile cases pass; deployed Luna creates grounded drafts; staff approves every send. |
+| Luna production-ready | One exact production tenant passes controlled inbound and staff-reviewed reply canaries with monitoring and rollback. |
+| Luna autonomous-ready | Explicit low-risk intents pass shadow metrics and controlled canaries, then are enabled at bounded scope. |
+| Campaign-ready | Deferred Stage 3 is separately implemented and accepted; real outreach still requires its exact business packet. |
 
 ## Current deployed Sunset Staff API artifact
 
@@ -29,7 +78,7 @@ These pins were inherited from the Chapter 4F deploy / Chapter 4G live-target wi
 | 4H | Private server-owned Azure/ACR/PG preflight reader | Reader tested with fakes; live proof still not executed | `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-PREFLIGHT-READER.md` |
 | 4I | One-shot Sunset staging downscope + staff-send continuity execution owner | Source-only; live proof still not executed | `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-SUNSET-STAGING-LIVE-EXECUTION.md` |
 
-Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (Chapter 4G), **#735** (Chapter 4H, merge `82a9eb9ae647d13e7ef11629fc87a44b94d067c6`). Chapter 4I is the next source-only PR on that path. It does not authorize OAuth consent, grant broadening, Graph draft/send, flag flips, or production.
+Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (Chapter 4G), **#735** (Chapter 4H, merge `82a9eb9ae647d13e7ef11629fc87a44b94d067c6`), and **#745** (Chapter 4I, reviewed candidate `874bcde642d7eb4838529f84246c1c011db9861a`, true merge commit `1efe1b131bc97a12174f07b25e20daf3a8a9668f`). Chapter 4I does not authorize OAuth consent, grant broadening, Graph draft/send, flag flips, or production.
 
 ## Disabled / live-proof state
 
@@ -76,4 +125,4 @@ Do not run live Chapter 4I `execute-once` against Sunset from this builder.
 
 ## Next gate
 
-Independent exact-head security / OAuth / live-operations review of the Chapter 4I PR, then a **true merge commit** preserving the reviewed candidate SHA as a parent (never squash/rebase), then a **separately gated** bounded deployment/execution chapter. That later operation may run the reviewed Chapter 4I script **once** from a clean detached checkout at that candidate SHA against the existing disabled Sunset artifact (operator CLI SHA may differ from deploy SHA; see `chapter_4g_operator_cli_may_differ_from_deployed_app_sha`). It must still fail closed on reader absence, brand forgery, flag/replica/traffic/login-server/repository/count/grant/lease drift, and must not send, flip flags, broaden OAuth consent, or retry an `outcome_unknown` result. Post-proof audit is read-only.
+Chapter 4I source acceptance and true merge are complete. The next gate is Chapter 4J: current-state read-only Sunset measurement, followed—only if every prerequisite passes—by the reviewed script running **once** from a clean detached checkout at candidate `874bcde642d7eb4838529f84246c1c011db9861a` against the existing disabled Sunset artifact. Operator CLI SHA may differ from deploy SHA; see `chapter_4g_operator_cli_may_differ_from_deployed_app_sha`. The proof must fail closed on reader absence, brand forgery, flag/replica/traffic/login-server/repository/count/grant/lease drift; it must not send, flip flags, broaden OAuth consent, or retry an `outcome_unknown` result. Post-proof audit is independent and read-only. Stage 2 closes only after that live evidence passes all applicable lifecycle gates above.
