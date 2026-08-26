@@ -160,6 +160,10 @@ function inboxColumnsWriteRecord(bucket, record) {
 /**
  * Preset, clamped by the bucket, with manual overrides on top — a manual choice wins
  * over the bucket until the viewport crosses a boundary and the overrides are dropped.
+ *
+ * At md (~900–1279), forcing column 4 open beside full rail + comfortable list crushes
+ * both list names and guest-card fields (~1024px Bug Finder). Unless the operator already
+ * overrode col1/col2, snap those to icons + compact so peek/wide still fits.
  */
 function inboxColumnsResolve(bucket, record) {
   var preset = INBOX_COLUMNS_PRESETS[record && record.preset] || INBOX_COLUMNS_PRESETS[INBOX_COLUMNS_DEFAULT_PRESET];
@@ -172,6 +176,10 @@ function inboxColumnsResolve(bucket, record) {
     if (overrides[col]) value = overrides[col];
     state[col] = value;
   });
+  if (bucket === 'md' && state.col4 && state.col4 !== 'hidden') {
+    if (!overrides.col1) state.col1 = 'icons';
+    if (!overrides.col2) state.col2 = 'compact';
+  }
   return state;
 }
 

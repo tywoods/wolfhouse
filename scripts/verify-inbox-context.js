@@ -373,6 +373,25 @@ ok('wraps wireInboxSidebarToggle rather than rewriting loadConvDetail',
     && fns.customerPaymentStatusLabel('pending_deposit') === 'Unpaid');
 }
 
+console.log('\n── ~1024px overflow / density ──');
+ok('guest card stacks profile fields under ~340px (container + md peek/drawer)',
+  contextSrc.includes('@container inbox-guest (max-width:340px)')
+  && contextSrc.includes('grid-template-columns:minmax(0,1fr)')
+  && contextSrc.includes('#inbox-shell[data-col4="peek"] .inbox-customer-card .customers-profile-field')
+  && contextSrc.includes('#inbox-shell.inbox-guest-drawer .inbox-customer-card .customers-profile-field')
+  && contextSrc.includes('@media(max-width:1279px)'));
+ok('md density shrinks shell gutters and lets col1/col2 give ground',
+  contextSrc.includes('--inbox-col-gap:8px')
+  && contextSrc.includes('minmax(0,var(--inbox-col1-w))')
+  && contextSrc.includes('minmax(0,var(--inbox-col2-w))')
+  && contextSrc.includes('grid-template-columns:minmax(0,1fr);gap:2px 0'));
+ok('narrow guest-card edit no longer forces a 60% width clip',
+  contextSrc.includes('.inbox-customer-card.is-editing{max-width:100%;width:100%')
+  && !contextSrc.includes('.inbox-customer-card.is-editing{max-width:60%;width:60%'));
+ok('profile field label column can shrink (minmax) instead of a rigid 7.6em',
+  contextSrc.includes('grid-template-columns:minmax(4.5em,7.6em) minmax(0,1fr)')
+  && contextSrc.includes('.inbox-customer-card .customers-profile-field-label{min-width:0'));
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

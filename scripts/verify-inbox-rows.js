@@ -351,6 +351,19 @@ ok('checkboxes are gated on the active view multiSelect flag',
 ok('shell and views modules still exist on disk for the concat order',
   fs.existsSync(SHELL_MODULE) && fs.existsSync(VIEWS_MODULE) && fs.existsSync(CONTEXT_MODULE));
 
+console.log('\n── ~1024px list density ──');
+ok('list names allow wrap (2-line clamp) instead of single-line Sim… ellipsis',
+  rowsSrc.includes('-webkit-line-clamp:2')
+  && rowsSrc.includes('white-space:normal')
+  && rowsSrc.includes('.inbox-row-body .conv-card-name{white-space:normal'));
+ok('list timestamps stay on one line',
+  rowsSrc.includes('.inbox-row-body .conv-card-time{flex:0 0 auto;white-space:nowrap')
+  && rowsSrc.includes('.inbox-row-body .conv-card-meta-row{flex-wrap:nowrap'));
+ok('md/compact gutters shrink on list rows',
+  rowsSrc.includes('#inbox-shell[data-col2="compact"] .conv-card.inbox-row')
+  && rowsSrc.includes('@media(max-width:1279px)')
+  && rowsSrc.includes('#inbox-shell .conv-card.inbox-row{gap:8px;padding:8px 10px}'));
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

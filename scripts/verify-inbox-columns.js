@@ -566,6 +566,15 @@ function checkModel(client, html) {
   ok('crossing under 1280px auto-collapses column 4', stateOf(harness).col4 === 'hidden');
   api.toggle('col4');
   ok('a manual override wins over the bucket clamp', stateOf(harness).col4 === 'peek');
+  ok('md + visible col4 snaps rail to icons and list to compact (avoids ~1024 crush)',
+    stateOf(harness).col1 === 'icons' && stateOf(harness).col2 === 'compact',
+    JSON.stringify(stateOf(harness)));
+  ok('resolve(md, col4 peek) densifies without measuring pixels',
+    sameState(api.resolve('md', { preset: 'all4', overrides: { col4: 'peek' } }),
+      { col1: 'icons', col2: 'compact', col4: 'peek' }));
+  ok('md densify yields to an explicit col1/col2 override',
+    sameState(api.resolve('md', { preset: 'all4', overrides: { col1: 'full', col2: 'comfortable', col4: 'peek' } }),
+      { col1: 'full', col2: 'comfortable', col4: 'peek' }));
 
   harness.setWidth(1000);
   api.syncViewport();
