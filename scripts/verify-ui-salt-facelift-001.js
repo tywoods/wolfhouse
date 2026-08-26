@@ -9,6 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
+const http = require('http');
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 
 function loadPlaywright() {
@@ -32,26 +33,26 @@ const en = STAFF_PORTAL_STRINGS.en;
 const es = STAFF_PORTAL_STRINGS.es;
 
 const SALT_LIGHT = {
-  cream: '#F4F0E8',
-  surface: '#FFFCF6',
-  'surface-soft': '#F0EBE3',
-  sand: '#E8E0D4',
-  tan: '#D2C6B6',
-  sage: '#7F9A82',
-  olive: '#6E8A72',
-  'dusty-blue': '#8AA4B0',
-  ocean: '#5E8494',
-  teal: '#D7E8E4',
-  text: '#1F2A26',
-  'text-2': '#5A6862',
-  'text-3': '#8A9690',
-  border: '#E4DCD0',
-  'border-soft': '#EDE6DC',
-  primary: '#1A6A65',
-  'primary-hover': '#155751',
-  focus: '#1A6A65',
-  'luna-teal': '#1A6A65',
-  'luna-teal-dark': '#155751',
+  cream: '#E6EDE9',
+  surface: '#FFFFFF',
+  'surface-soft': '#DDE6E1',
+  sand: '#D0DCD6',
+  tan: '#B8C9C2',
+  sage: '#1A6A65',
+  olive: '#1A6A65',
+  'dusty-blue': '#5E8494',
+  ocean: '#3D7A86',
+  teal: '#C5DED8',
+  text: '#14201C',
+  'text-2': '#3E4E48',
+  'text-3': '#6A7A74',
+  border: '#C5D4CE',
+  'border-soft': '#D8E4DF',
+  primary: '#0F5C57',
+  'primary-hover': '#0C4A46',
+  focus: '#0F5C57',
+  'luna-teal': '#0F5C57',
+  'luna-teal-dark': '#0C4A46',
 };
 
 const SALT_DARK = {
@@ -165,6 +166,9 @@ const saltLightCss = extractBlock(
 );
 assertTokens('Salt Light :root', saltLightCss, SALT_LIGHT);
 assert.ok(!/--cream:#EDE8E0/.test(saltLightCss), 'Salt Light :root must not keep Sand oatmeal cream');
+assert.ok(/--cream:#E6EDE9/.test(saltLightCss), 'Salt Light sea-mist cream');
+assert.ok(/--surface:#FFFFFF/.test(saltLightCss), 'Salt Light near-white surface');
+assert.ok(/--primary:#0F5C57/.test(saltLightCss), 'Salt Light sea-green primary');
 
 const saltDarkCss = extractBlock(
   apiSrc,
@@ -211,7 +215,7 @@ assert.ok(apiSrc.includes('data-color-profile="sand"'), 'Sand pill');
 assert.ok(apiSrc.includes('data-style-theme="light"'), 'Light pill');
 assert.ok(apiSrc.includes('data-style-theme="dark"'), 'Dark pill');
 assert.ok(
-  !/\b(Foam|Sol|Kelp|Ember)\b/.test(apiSrc.slice(apiSrc.indexOf('id="staff-style-card"'), apiSrc.indexOf('id="luna-header-mode-card"'))),
+  !/\b(Foam|Sol|Kelp|Ember)\b/.test(apiSrc.slice(apiSrc.indexOf('id="staff-style-card"'), apiSrc.indexOf('id="staff-style-palette-embed"') + 80)),
   'Style card is Salt+Sand only — no Foam/Sol/Kelp/Ember'
 );
 
@@ -222,8 +226,18 @@ for (const mode of HEADER_MODES) {
     'header still has mode ' + mode
   );
 }
-assert.ok(apiSrc.includes('id="luna-header-mode-card"'), 'Header style card stays');
+assert.ok(apiSrc.includes('id="luna-header-mode-card"'), 'header modes folded into Style');
+assert.ok(apiSrc.includes('id="staff-style-card"') && apiSrc.indexOf('id="luna-header-mode-card"') > apiSrc.indexOf('id="staff-style-card"'), 'header block nested in Style');
+assert.ok(apiSrc.includes('luna-header-mode-pencil'), 'pencil affordance present');
+assert.ok(!/<section[^>]*id="luna-header-mode-card"/.test(apiSrc), 'no standalone Header style section');
 assert.ok(adminUi.includes('function wireLunaStaffHeaderModeCard'), 'header mode wire stays');
+assert.ok(adminUi.includes("editBtn.textContent = '✎'") || adminUi.includes('textContent = \'✎\''), 'wire keeps pencil glyph');
+assert.ok(apiSrc.includes('--chip-transfer-bg'), 'transfer chip token');
+assert.ok(apiSrc.includes('--chip-balance-bg'), 'balance chip token');
+assert.ok(apiSrc.includes('--chip-link-bg'), 'link chip token');
+assert.ok(/\.bc-room-hdr\{background:var\(--sage\)/.test(apiSrc), 'room bars use --sage');
+assert.ok(/--sched-primary:var\(--primary\)/.test(apiSrc), 'schedule primary follows palette');
+assert.ok(!/:root:not\(\[data-theme="dark"\]\) #tab-portal-home\{[\s\S]{0,400}--sched-primary:#4E5853/.test(apiSrc), 'no hardcoded Sand primary on schedule for all profiles');
 
 assert.ok(!/function sendWhatsApp|handleInbound/.test(i18nSrc), 'i18n bootstrap stayed CSS/layout');
 
@@ -536,15 +550,9 @@ async function main() {
     console.log('verify-ui-salt-facelift-001: PASS');
     return;
   }
-  const context = await browser.newContext();
-  await context.addInitScript(() => {
-    try {
-      localStorage.removeItem('wh_staff_portal_theme');
-      localStorage.removeItem('wh_staff_color_profile');
-    } catch (e) {}
-  });
 
   // Production bootstrap from the module, not a copy.
+  // Serve over HTTP so localStorage works (about:blank / setContent denies it).
   const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = require('./lib/staff-portal-i18n');
   const boot = getStaffPortalI18nBootstrapScript(['en', 'es']);
   const early = getStaffPortalThemeEarlyScript();
@@ -558,12 +566,25 @@ ${early}
 ${style}
 body{margin:0;background:var(--cream);color:var(--text)}
 #probe{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.bc-room-hdr{background:var(--sage);color:#fff;padding:8px}
+.bc-block-pay-balance{background:var(--chip-balance-bg);color:var(--chip-balance-fg);border:1px solid var(--chip-balance-border);display:inline-block;padding:2px 6px}
+.bc-block-pay-link{background:var(--chip-link-bg);color:var(--chip-link-fg);border:1px solid var(--chip-link-border);display:inline-block;padding:2px 6px}
+.pill-purple{background:var(--chip-transfer-bg);color:var(--chip-transfer-fg);border:1px solid var(--chip-transfer-border);display:inline-block;padding:2px 6px}
+.conv-card.selected{background:var(--inbox-active-bg)}
 </style>
 ${boot}
 </head>
 <body>
 <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false">moon</button>
 <section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
+  <div id="luna-header-mode-card" class="staff-style-header-block">
+    <button type="button" data-header-mode="normal">Normal</button>
+    <button type="button" data-header-mode="compact">Compact</button>
+    <button type="button" data-header-mode="sunset">Sunset</button>
+    <button type="button" data-header-mode="moonlight">Moonlight</button>
+    <button type="button" data-header-mode="sunsetmoonlight">Sunset &amp; Moonlight</button>
+    <button type="button" class="luna-header-mode-pencil" id="luna-header-mode-edit-btn">✎</button>
+  </div>
   <div class="staff-style-row" role="group" aria-label="Palette">
     <button type="button" class="luna-header-mode-btn" data-color-profile="salt">Salt</button>
     <button type="button" class="luna-header-mode-btn" data-color-profile="sand">Sand</button>
@@ -579,19 +600,30 @@ ${boot}
     <button type="button" class="staff-style-swatch" data-style-combo="sand-dark">Sand Dark</button>
   </div>
 </section>
-<section class="luna-header-mode-card" id="luna-header-mode-card">
-  <button type="button" data-header-mode="normal">Normal</button>
-  <button type="button" data-header-mode="compact">Compact</button>
-  <button type="button" data-header-mode="sunset">Sunset</button>
-  <button type="button" data-header-mode="moonlight">Moonlight</button>
-  <button type="button" data-header-mode="sunsetmoonlight">Sunset &amp; Moonlight</button>
-</section>
+<div class="bc-room-hdr" id="probe-room">Room 1</div>
+<span class="pill-purple" id="probe-transfer">Transfer</span>
+<span class="bc-block-pay-balance" id="probe-balance">Balance due</span>
+<span class="bc-block-pay-link" id="probe-link">Link sent</span>
+<div class="conv-card selected" id="probe-inbox">inbox</div>
 <div id="probe">probe</div>
 </body>
 </html>`;
 
+  const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(liveHtml);
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address();
+  const context = await browser.newContext();
+  await context.addInitScript(() => {
+    try {
+      localStorage.removeItem('wh_staff_portal_theme');
+      localStorage.removeItem('wh_staff_color_profile');
+    } catch (e) {}
+  });
   const page = await context.newPage();
-  await page.setContent(liveHtml, { waitUntil: 'domcontentloaded' });
+  await page.goto('http://127.0.0.1:' + port + '/', { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => {
     if (typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(document);
     if (typeof window.bindStaffThemeToggle === 'function') window.bindStaffThemeToggle();
@@ -647,7 +679,51 @@ ${boot}
   assert.notStrictEqual(normHex(got.cream), '#181818', 'Salt Dark cream is not VS Code #181818');
   assert.notStrictEqual(normHex(got.surface), '#252526', 'Salt Dark surface is not VS Code #252526');
 
+  // Visible Salt ≠ Sand: cream/surface/primary and chip/room chrome must differ.
+  await page.click('[data-style-combo="salt-light"]');
+  const saltProbe = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const room = getComputedStyle(document.getElementById('probe-room'));
+    const bal = getComputedStyle(document.getElementById('probe-balance'));
+    const tr = getComputedStyle(document.getElementById('probe-transfer'));
+    return {
+      cream: cs.getPropertyValue('--cream').trim().toUpperCase(),
+      surface: cs.getPropertyValue('--surface').trim().toUpperCase(),
+      primary: cs.getPropertyValue('--primary').trim().toUpperCase(),
+      sage: cs.getPropertyValue('--sage').trim().toUpperCase(),
+      roomBg: room.backgroundColor,
+      balBg: bal.backgroundColor,
+      trBg: tr.backgroundColor,
+    };
+  });
+  await page.click('[data-style-combo="sand-light"]');
+  const sandProbe = await page.evaluate(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const room = getComputedStyle(document.getElementById('probe-room'));
+    const bal = getComputedStyle(document.getElementById('probe-balance'));
+    const tr = getComputedStyle(document.getElementById('probe-transfer'));
+    return {
+      cream: cs.getPropertyValue('--cream').trim().toUpperCase(),
+      surface: cs.getPropertyValue('--surface').trim().toUpperCase(),
+      primary: cs.getPropertyValue('--primary').trim().toUpperCase(),
+      sage: cs.getPropertyValue('--sage').trim().toUpperCase(),
+      roomBg: room.backgroundColor,
+      balBg: bal.backgroundColor,
+      trBg: tr.backgroundColor,
+    };
+  });
+  assert.notStrictEqual(saltProbe.cream, sandProbe.cream, 'Salt cream ≠ Sand cream');
+  assert.notStrictEqual(saltProbe.surface, sandProbe.surface, 'Salt surface ≠ Sand surface');
+  assert.notStrictEqual(saltProbe.primary, sandProbe.primary, 'Salt primary ≠ Sand primary');
+  assert.notStrictEqual(saltProbe.sage, sandProbe.sage, 'Salt sage (room bars) ≠ Sand sage');
+  assert.notStrictEqual(saltProbe.roomBg, sandProbe.roomBg, 'room header color changes with palette');
+  assert.strictEqual(saltProbe.cream, '#E6EDE9');
+  assert.strictEqual(sandProbe.cream, '#EDE8E0');
+  assert.strictEqual(saltProbe.primary, '#0F5C57');
+  assert.strictEqual(sandProbe.primary, '#4E5853');
+
   await browser.close();
+  await new Promise((resolve) => server.close(resolve));
   console.log('verify-ui-salt-facelift-001: PASS');
 }
 
