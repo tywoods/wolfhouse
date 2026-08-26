@@ -87,10 +87,25 @@ function assertSourcePlacement(source, label) {
   const contextAt = source.indexOf('id="inbox-email-create-draft-context"');
   const createAt = source.indexOf('id="btn-email-create-draft"');
   const approveAt = source.indexOf('id="btn-email-approve-send"');
+  const barAt = source.lastIndexOf('inbox-email-create-draft-bar', contextAt);
+  const areaAt = source.lastIndexOf('inbox-email-create-draft-context-area', contextAt);
+  const windowSrc = contextAt >= 0 ? source.slice(Math.max(0, contextAt - 700), createAt + 400) : '';
   const fn = createDraftFn(source);
+  const contextTag = source.slice(Math.max(0, contextAt - 180), contextAt + 160);
   ok(label + ': context left of Create Draft left of Approve & send',
     contextAt > 0 && createAt > contextAt && approveAt > createAt);
+  ok(label + ': two-row textarea, not a squeezed text input or chip',
+    /<textarea\b/.test(contextTag)
+    && /rows="2"/.test(contextTag)
+    && !/<input type="text" id="inbox-email-create-draft-context"/.test(source));
+  ok(label + ': context lives in its own wider area, not the button row',
+    barAt >= 0 && areaAt >= 0 && areaAt < contextAt && contextAt < createAt
+    && /inbox-email-create-draft-context-area[\s\S]*id="inbox-email-create-draft-context"[\s\S]*draft-actions/.test(windowSrc)
+    && !/draft-actions[\s\S]*id="inbox-email-create-draft-context"/.test(windowSrc));
   ok(label + ': Create Draft label present', source.includes('>Create Draft</button>'));
+  ok(label + ': no booking chip substitution for the context field',
+    !/ask them to create a new booking/i.test(windowSrc)
+    && !/#inbox-email-create-draft-context\{[^}]*display:none/.test(source));
   ok(label + ': posts create-draft, not approve/send/generate',
     fn.includes("fetch('/staff/inbox/email/create-draft'")
     && !fn.includes("fetch('/staff/inbox/email/approve-send'")
@@ -120,19 +135,26 @@ function focusedPanelHtml() {
   const slice = thread.slice(start, end);
   return `<!doctype html><html><head><meta charset="utf-8">
 <style>
-.draft-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}
-.inbox-email-create-draft-context{flex:1 1 140px;min-width:120px;max-width:240px;min-height:44px}
+.inbox-email-create-draft-bar{display:flex;align-items:flex-end;gap:12px;margin-top:10px;width:100%;box-sizing:border-box}
+.inbox-email-create-draft-context-area{flex:1 1 320px;min-width:240px;max-width:none}
+.inbox-email-create-draft-context{display:block;width:100%;min-height:calc(2em * 1.45 + 16px);line-height:1.45;box-sizing:border-box;padding:8px 10px;resize:vertical}
+.draft-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:0 0 auto;flex-wrap:nowrap;margin-top:0}
 .btn-email-create-draft,.btn-email-approve-send{min-height:44px;padding:10px 16px}
 #btn-email-save-draft{display:none!important}
 </style></head><body>
 <div class="draft-panel" id="panel">
 <textarea id="draft-textarea"></textarea>
 <div id="email-draft-byte-count"></div>
+<div class="inbox-email-create-draft-bar">
+<div class="inbox-email-create-draft-context-area">
+<label class="inbox-email-create-draft-context-label" for="inbox-email-create-draft-context">Context</label>
+<textarea id="inbox-email-create-draft-context" class="inbox-email-create-draft-context" rows="2" maxlength="500" placeholder="Context (optional)" aria-label="Draft context"></textarea>
+</div>
 <div class="draft-actions">
 <button type="button" class="btn-email-save-draft" id="btn-email-save-draft" hidden>Save draft</button>
-<input type="text" id="inbox-email-create-draft-context" class="inbox-email-create-draft-context" maxlength="500" placeholder="Context (optional)">
 <button type="button" class="btn-email-create-draft" id="btn-email-create-draft">Create Draft</button>
 <button type="button" class="btn-email-approve-send" id="btn-email-approve-send">Approve &amp; send</button>
+</div>
 </div>
 <div id="draft-send-status" class="draft-send-status" role="status" aria-live="polite"></div>
 </div>
@@ -160,6 +182,9 @@ async function main() {
     && htmlOn.includes('id="btn-email-create-draft"')
     && htmlOn.includes('Create Draft')
     && htmlOn.includes('/staff/inbox/email/create-draft'));
+  ok('cooked CSS does not squeeze context into a chip-width input',
+    !/\.inbox-email-create-draft-context\{[^}]*max-width:240px/.test(htmlOn)
+    && htmlOn.includes('inbox-email-create-draft-context-area'));
   ok('Create Draft is not display:none',
     !htmlOn.includes('#btn-email-create-draft{display:none!important}'));
 
@@ -216,22 +241,51 @@ async function main() {
       const contextEl = document.querySelector('#inbox-email-create-draft-context');
       const createEl = document.querySelector('#btn-email-create-draft');
       const approveEl = document.querySelector('#btn-email-approve-send');
-      if (!contextEl || !createEl || !approveEl) return null;
+      const area = document.querySelector('.inbox-email-create-draft-context-area');
+      const actions = document.querySelector('.draft-actions');
+      const bar = document.querySelector('.inbox-email-create-draft-bar');
+      if (!contextEl || !createEl || !approveEl || !area || !actions || !bar) return null;
       const cr = contextEl.getBoundingClientRect();
       const createR = createEl.getBoundingClientRect();
       const ar = approveEl.getBoundingClientRect();
+      const areaR = area.getBoundingClientRect();
+      const actionsR = actions.getBoundingClientRect();
+      const style = window.getComputedStyle(contextEl);
+      const lineHeight = parseFloat(style.lineHeight) || 18;
       return {
+        tag: contextEl.tagName,
+        rows: contextEl.rows,
+        type: contextEl.getAttribute('type'),
+        parentIsActions: contextEl.parentElement === actions,
+        areaContainsContext: area.contains(contextEl),
+        actionsContainContext: actions.contains(contextEl),
         contextVisible: !!(contextEl.offsetWidth || contextEl.getClientRects().length),
         createVisible: !!(createEl.offsetWidth || createEl.getClientRects().length),
         approveVisible: !!(approveEl.offsetWidth || approveEl.getClientRects().length),
         contextLeftOfCreate: cr.left < createR.left,
-        createNextToApprove: createR.left < ar.left,
+        createNextToApprove: createR.left < ar.left && Math.abs(createR.top - ar.top) < 24,
+        areaLeftOfActions: areaR.left < actionsR.left,
+        areaWidth: areaR.width,
+        contextWidth: cr.width,
+        contextHeight: cr.height,
+        minTwoRows: cr.height >= (lineHeight * 2) - 2,
+        bookingChipInBar: !!bar.querySelector(
+          'button:not(#btn-email-create-draft):not(#btn-email-approve-send):not(#btn-email-save-draft):not(#btn-email-generate-luna-draft)',
+        ),
       };
     });
+    ok('live failure: context is a usable two-row textarea, not a chip/button',
+      order && order.tag === 'TEXTAREA' && order.rows === 2 && order.type !== 'text'
+      && order.areaContainsContext && !order.parentIsActions && !order.actionsContainContext);
+    ok('context area is wider than the old 240px chip and left of the actions',
+      order && order.areaWidth > 240 && order.contextWidth > 240
+      && order.areaLeftOfActions && order.minTwoRows);
     ok('context field and Create Draft visible next to Approve & send',
       order && order.contextVisible && order.createVisible && order.approveVisible
       && order.contextLeftOfCreate && order.createNextToApprove);
-    await page.fill('#inbox-email-create-draft-context', 'Mention the loft.');
+    ok('no booking chip substitutes for the context field',
+      order && order.bookingChipInBar === false);
+    await page.fill('#inbox-email-create-draft-context', 'Mention the loft.\nAsk about the beds.');
     const pendingClick = page.locator('#btn-email-create-draft').dispatchEvent('click');
     await page.waitForFunction(() => document.querySelector('#btn-email-create-draft')?.disabled === true, null, { timeout: 5000 });
     await page.locator('#btn-email-create-draft').dispatchEvent('click');
@@ -241,9 +295,9 @@ async function main() {
     ok('duplicate in-flight click does not post twice', createPosts.length === 1);
     ok('Create Draft does not approve, save-approval, or generate-luna',
       approvePosts.length === 0 && draftPosts.length === 0 && generatePosts.length === 0);
-    ok('posted context is bound to the conversation',
+    ok('posted two-line context reaches the server',
       createPosts[0].body.conversation_id === EMAIL_CONV
-      && createPosts[0].body.context === 'Mention the loft.');
+      && createPosts[0].body.context === 'Mention the loft.\nAsk about the beds.');
     const body = await page.locator('#draft-textarea').inputValue();
     ok('standing draft textarea replaced from create-draft response',
       body === 'Standing draft regenerated from thread plus context.');
