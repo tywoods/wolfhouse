@@ -269,6 +269,18 @@ class DraftServerTests(unittest.TestCase):
         self.assertEqual(payload["error"], "hmac_unconfigured")
         self.assertNotIn("provenance", payload)
 
+    def test_hmac_trailing_newline_fails_closed(self):
+        status, payload = call(envelope(), hmac_secret=HMAC_SECRET + "\n")
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["error"], "hmac_unconfigured")
+        self.assertNotIn("provenance", payload)
+
+    def test_hmac_leading_whitespace_fails_closed(self):
+        status, payload = call(envelope(), hmac_secret=" " + HMAC_SECRET)
+        self.assertEqual(status, 500)
+        self.assertEqual(payload["error"], "hmac_unconfigured")
+        self.assertNotIn("provenance", payload)
+
     def test_forged_signature_does_not_verify(self):
         raw = envelope()
         req = json.loads(raw)

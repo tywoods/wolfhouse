@@ -440,6 +440,15 @@ function assertNoSecretsLogged(hits) {
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
     env: hermesEnv(9, { [ENV_BASE_URL]: 'http://169.254.169.254/' }),
   }), false, 'link-local SSRF is forbidden');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_HMAC_SECRET]: `${HMAC_SECRET}\n` }),
+  }), false, 'trailing newline HMAC must not enable');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_TOKEN]: `${TOKEN}\n` }),
+  }), false, 'trailing newline bearer must not enable');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_HMAC_SECRET]: ` ${HMAC_SECRET}` }),
+  }), false, 'leading whitespace HMAC must not enable');
   console.log('  PASS  activation is exact, default-off, getter-safe, and ACA-internal allowlisted');
 
   const fake = await startFakeHermes();
@@ -1489,6 +1498,11 @@ function assertNoSecretsLogged(hits) {
     encoding: 'utf8',
   });
   assert.equal(pyAzureFiles.status, 0, pyAzureFiles.stderr || pyAzureFiles.stdout);
+  const pySecretNewline = spawnSync('python3', ['-m', 'wolfhouse.test_sunset_email_secret_newline'], {
+    cwd: path.join(ROOT, 'docker/hermes-staging'),
+    encoding: 'utf8',
+  });
+  assert.equal(pySecretNewline.status, 0, pySecretNewline.stderr || pySecretNewline.stdout);
 
   const bash = spawnSync('bash', ['-n', 'docker/hermes-staging/bootstrap.sh'], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(bash.status, 0, bash.stderr);
@@ -1503,6 +1517,7 @@ function assertNoSecretsLogged(hits) {
     'docker/hermes-staging/verify_sunset_email_luna_instance.py',
     'docker/hermes-staging/wolfhouse/test_sunset_email_auth_path.py',
     'docker/hermes-staging/wolfhouse/test_sunset_email_azurefiles_bootstrap.py',
+    'docker/hermes-staging/wolfhouse/test_sunset_email_secret_newline.py',
     'scripts/fill-sunset-email-luna-aca-yaml.py',
   ], { cwd: ROOT, encoding: 'utf8' });
   assert.equal(pyCompile.status, 0, pyCompile.stderr);
@@ -1652,6 +1667,18 @@ function assertNoSecretsLogged(hits) {
   assert.doesNotMatch(aca, /gid=0,/);
   assert.match(runbook, /uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600/);
   assert.match(runbook, /Do not add `noperm`/);
+  assert.match(runbook, /secrets\.token_hex\(32\)/);
+  assert.match(runbook, /fh\.write\(secrets\.token_hex\(32\)\)/);
+  assert.match(runbook, /chmod 0600/);
+  assert.match(runbook, /shred -u/);
+  assert.match(runbook, /trap cleanup_kv_secret_files EXIT INT TERM/);
+  assert.match(runbook, /--file "\$TOKEN_FILE"/);
+  assert.match(runbook, /--file "\$HMAC_FILE"/);
+  assert.doesNotMatch(runbook, /--file \/dev\/stdin/);
+  assert.doesNotMatch(runbook, /TOKEN_EOF|HMAC_EOF/);
+  assert.doesNotMatch(runbook, /TOKEN=\$\(openssl rand -hex 32\)/);
+  assert.doesNotMatch(runbook, /Keep `\$TOKEN` in memory/);
+  assert.doesNotMatch(runbook, /\bunset TOKEN\b/);
   assert.match(runbook, /01-hermes-setup/);
   assert.match(runbook, /99-wh-staging-bootstrap/);
   assert.match(aca, /volumeMounts:/);
