@@ -15,6 +15,9 @@ const {
   issueAndDecideEmailLunaDraftPolicy,
 } = require('./email-luna-draft-policy');
 const { createEmailLunaGroundedTools } = require('./email-luna-grounded-tools');
+const {
+  applyPermittedOperatorGuidanceToDraft,
+} = require('./email-luna-create-draft-context');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -197,7 +200,7 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
     ? deps.createLunaRuntime
     : null;
 
-  async function compose(input) {
+  async function composeUnguided(input) {
     const authority = snapshotAuthority(input && input.authority);
     const content = snapshotContent(input && input.untrusted_content);
     if (!authority || !content) return safeDraft('en', 'authority_mismatch');
@@ -320,6 +323,29 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
     } catch {
       return safeDraft(classified.language, 'model_provider_error');
     }
+  }
+
+  function withOperatorGuidance(result, input) {
+    const guidance = input && typeof input.operator_context === 'string' ? input.operator_context : '';
+    if (!guidance || !result || result.status !== 'draft_ready' || typeof result.body !== 'string') {
+      return result;
+    }
+    const guided = applyPermittedOperatorGuidanceToDraft(result.body, guidance, result.language);
+    if (guided === result.body) return result;
+    const out = {};
+    for (const key of Object.keys(result)) out[key] = result[key];
+    out.body = guided;
+    if (out.kind === 'safe_acknowledgment') out.kind = 'safe_acknowledgment_with_staff_guidance';
+    out.send_allowed = false;
+    out.auto_send_allowed = false;
+    out.draft_only = true;
+    out.requires_staff_review = true;
+    return freeze(out);
+  }
+
+  async function compose(input) {
+    const result = await composeUnguided(input);
+    return withOperatorGuidance(result, input);
   }
 
   return freeze({ compose, detectEmailDraftLanguage });

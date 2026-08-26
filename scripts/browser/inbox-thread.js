@@ -2242,6 +2242,12 @@ function loadConvDetail(convId, targetEl){
             escHtml(draftText) + '</textarea>';
     if (useEmailReplyUi) {
       html += '<div id="email-draft-byte-count" class="email-draft-byte-count" aria-live="polite">0 / 8000 bytes</div>';
+      html += '<div class="inbox-email-create-draft-bar">';
+      html += '<div class="inbox-email-create-draft-context-area">';
+      html += '<label class="inbox-email-create-draft-context-label" for="inbox-email-create-draft-context">Context</label>';
+      html += '<textarea id="inbox-email-create-draft-context" class="inbox-email-create-draft-context" rows="2" maxlength="500" placeholder="Context (optional)" aria-label="Draft context"' +
+              (emailSt && emailSt.locked ? ' disabled' : '') + '></textarea>';
+      html += '</div>';
       html += '<div class="draft-actions">';
       if (staffEmailLunaDraftUiEnabled() && isAuthoritativeEmailConversation(c)) {
         html += '<button type="button" class="btn-email-save-draft" id="btn-email-generate-luna-draft" hidden' +
@@ -2249,14 +2255,13 @@ function loadConvDetail(convId, targetEl){
       }
       html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft" hidden' +
               (emailSt && emailSt.locked ? ' disabled' : '') + '>Save draft</button>';
-      html += '<input type="text" id="inbox-email-create-draft-context" class="inbox-email-create-draft-context" maxlength="500" placeholder="Context (optional)" aria-label="Draft context"' +
-              (emailSt && emailSt.locked ? ' disabled' : '') + '>';
       html += '<button type="button" class="btn-email-create-draft" id="btn-email-create-draft"' +
               (emailSt && emailSt.locked ? ' disabled' : '') + '>Create Draft</button>';
       if (staffEmailOutboundUiEnabled()) {
         html += '<button type="button" class="btn-email-approve-send" id="btn-email-approve-send"' +
                 (emailSt && emailSt.locked ? ' disabled' : '') + '>Approve &amp; send</button>';
       }
+      html += '</div>';
       html += '</div>';
       html += '<div id="draft-send-status" class="draft-send-status" role="status" aria-live="polite"></div>';
     } else if (isEmailConversation) {

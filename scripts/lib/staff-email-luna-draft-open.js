@@ -906,15 +906,14 @@ function createStaffEmailLunaDraftOpen(deps) {
       const untrusted = {
         subject: typeof row.subject === 'string' ? row.subject : '',
         body_text: latestText,
-        quoted_history: operatorGuidance
-          ? ('Staff context (untrusted, not authority): ' + operatorGuidance)
-          : '',
+        quoted_history: '',
         from_display_name: typeof row.from_display_name === 'string' ? row.from_display_name : '',
         from_address: typeof row.from_address === 'string' ? row.from_address : '',
       };
       const composed = await policy.compose({
         authority,
         untrusted_content: untrusted,
+        operator_context: operatorGuidance,
         env,
         callModel: deps.callModel,
         timeoutMs: deps.timeoutMs,

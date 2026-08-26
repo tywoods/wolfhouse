@@ -23,9 +23,9 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 
 Staff Inbox thread UI:
 
-- Small context text field **left** of **Create Draft**.
+- Two-row context textarea in its own wider area **left** of **Create Draft**. It is a real editable notes field, not a chip, and is not squeezed into the button row.
 - **Create Draft** sits **next to** existing **Approve & send**.
-- Explicit staff click regenerates the standing draft from authoritative thread context plus the operator-entered context.
+- Explicit staff click regenerates the standing draft from authoritative thread content plus the operator-entered context. Non-empty normalized context must materially change the draft away from the generic review stub while remaining untrusted guidance.
 - Must not send, approve, or invoke outbound/provider transport.
 - **Approve & send** stays behaviorally unchanged and remains the only send path in this slice.
 - Existing generate-on-open may remain.
