@@ -21,6 +21,9 @@ const {
 const {
   createEmailLunaCreateDraftNaturalAuthor,
 } = require('./email-luna-create-draft-natural-author');
+const {
+  snapshotSunsetEmailHermesSolEnv,
+} = require('./email-luna-sunset-email-hermes-sol-activation');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -98,7 +101,7 @@ function safeDraft(language, reason) {
 }
 
 function authoredDraft(result) {
-  return freeze({
+  const out = {
     status: 'draft_ready',
     body: result.body,
     language: result.language === 'es' ? 'es' : 'en',
@@ -108,7 +111,10 @@ function authoredDraft(result) {
     auto_send_allowed: false,
     draft_only: true,
     requires_staff_review: true,
-  });
+  };
+  if (result && result.marker) out.marker = result.marker;
+  if (result && result.authenticity) out.authenticity = result.authenticity;
+  return freeze(out);
 }
 
 function failClosedDraft(language, reason) {
@@ -345,6 +351,10 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
     };
     if (input && typeof input.callModel === 'function') runtimeConfig.callModel = input.callModel;
     if (input && Number.isSafeInteger(input.timeoutMs)) runtimeConfig.timeoutMs = input.timeoutMs;
+    const hermes = input && input.hermes && typeof input.hermes === 'object'
+      ? input.hermes
+      : snapshotSunsetEmailHermesSolEnv(srcEnv);
+    if (hermes) runtimeConfig.hermes = hermes;
     return runtimeConfig;
   }
 

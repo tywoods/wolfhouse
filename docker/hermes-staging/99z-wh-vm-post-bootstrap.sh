@@ -84,7 +84,11 @@ EOF
   fi
 fi
 
-if [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
+if [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
+  # Isolated openai-codex credentials. Never symlink or copy-back to the shared
+  # WhatsApp/Skipper auth pool — two containers must not mutate the same file.
+  :
+elif [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
   # Preserve a refreshed OAuth token (real local file from an atomic rename) back
   # to the shared pool before re-linking, so it isn't lost on restart.
   if [ -f "$HERMES_HOME/auth.json" ] && [ ! -L "$HERMES_HOME/auth.json" ] \

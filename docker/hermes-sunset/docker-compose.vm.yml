@@ -30,3 +30,34 @@ services:
       # Compose environment values override env_file values.
     env_file:
       - /etc/hermes-sunset-luna.env
+
+  # Internal Staff email draft-only runtime. No WhatsApp/Discord gateway.
+  # Lunabox loopback is for Skipper-local probe only. Staff API in Azure reaches
+  # the colocated ACA `luna-sunset-staging-email-luna` (internal TLS ingress).
+  # See docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md.
+  # Start separately: docker compose --profile sunset-email-luna up -d --no-deps hermes-sunset-email-luna
+  hermes-sunset-email-luna:
+    profiles:
+      - sunset-email-luna
+    image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
+    container_name: hermes-sunset-email-luna
+    restart: unless-stopped
+    command:
+      - /opt/hermes/.venv/bin/python
+      - /etc/hermes-staging/wolfhouse/email_draft_server.py
+    ports:
+      - "127.0.0.1:8093:8093"
+    volumes:
+      - /var/lib/hermes-sunset-email-luna:/opt/data
+      - /opt/wolfhouse/WH/docker/hermes-sunset/SOUL.md:/etc/hermes-sunset/SOUL.md:ro
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_ROLE: sunset-email-luna
+      LUNA_TENANT_ID: sunset
+      LUNA_CLIENT_SLUG: sunset
+      LUNA_ALLOWED_LOCATION_IDS: sunset-somo
+      EMAIL_LUNA_DRAFT_LISTEN_HOST: 0.0.0.0
+      EMAIL_LUNA_DRAFT_LISTEN_PORT: "8093"
+      GENERIC_TIMEZONE: Europe/Madrid
+    env_file:
+      - /etc/hermes-sunset-email-luna.env

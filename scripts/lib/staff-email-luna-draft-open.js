@@ -27,6 +27,9 @@ const {
   snapshotOperatorDraftContext,
   operatorDraftContextDigest,
 } = require('./email-luna-create-draft-context');
+const {
+  snapshotSunsetEmailHermesSolEnv,
+} = require('./email-luna-sunset-email-hermes-sol-activation');
 
 const EMAIL_DRAFT_OPEN_DECKHAND_FIELD = 'draft_text';
 const EMAIL_DRAFT_OPEN_STORAGE_FIELD = 'conversations.staff_reply_draft';
@@ -373,7 +376,7 @@ function pending(conversationId) {
   });
 }
 
-function ready(conversationId, text, subject) {
+function ready(conversationId, text, subject, marker, authenticity) {
   const out = {
     status: 'draft_ready',
     draft_text: text,
@@ -385,6 +388,16 @@ function ready(conversationId, text, subject) {
     deckhand_field: EMAIL_DRAFT_OPEN_DECKHAND_FIELD,
   };
   if (typeof subject === 'string' && subject) out.subject = subject;
+  if (marker && typeof marker === 'object') out.marker = marker;
+  if (authenticity && typeof authenticity === 'object'
+      && authenticity.hmac_verified === true
+      && typeof authenticity.request_id === 'string') {
+    out.authenticity = freeze({
+      alg: typeof authenticity.alg === 'string' ? authenticity.alg : 'HMAC-SHA256',
+      request_id: authenticity.request_id,
+      hmac_verified: true,
+    });
+  }
   return freeze(out);
 }
 
@@ -776,6 +789,7 @@ function createStaffEmailLunaDraftOpen(deps) {
           from_address: typeof row.from_address === 'string' ? row.from_address : '',
         },
         env,
+        hermes: snapshotSunsetEmailHermesSolEnv(deps.runtimeEnv || env || process.env),
         callModel: deps.callModel,
         timeoutMs: deps.timeoutMs,
       });
@@ -821,7 +835,13 @@ function createStaffEmailLunaDraftOpen(deps) {
         }
         return pending(conversationId);
       }
-      return ready(conversationId, persisted, replySubjectOf(row.subject));
+      return ready(
+        conversationId,
+        persisted,
+        replySubjectOf(row.subject),
+        composed && composed.marker,
+        composed && composed.authenticity,
+      );
     } catch {
       return pending(conversationId);
     }
@@ -915,6 +935,7 @@ function createStaffEmailLunaDraftOpen(deps) {
         untrusted_content: untrusted,
         operator_context: operatorGuidance,
         env,
+        hermes: snapshotSunsetEmailHermesSolEnv(deps.runtimeEnv || env || process.env),
         callModel: deps.callModel,
         timeoutMs: deps.timeoutMs,
       });
@@ -955,7 +976,13 @@ function createStaffEmailLunaDraftOpen(deps) {
         await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
         return pending(conversationId);
       }
-      return ready(conversationId, persisted, replySubjectOf(row.subject));
+      return ready(
+        conversationId,
+        persisted,
+        replySubjectOf(row.subject),
+        composed && composed.marker,
+        composed && composed.authenticity,
+      );
     } catch {
       return pending(conversationId);
     }

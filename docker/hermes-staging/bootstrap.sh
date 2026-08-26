@@ -2,6 +2,7 @@
 # Staging bootstrap: write Hermes config per role on every container startup.
 # HERMES_ROLE=luna         → guest WhatsApp Luna (default for ACA backward compat)
 # HERMES_ROLE=sunset-luna  → Sunset guest WhatsApp Luna (tenant-gated)
+# HERMES_ROLE=sunset-email-luna → Sunset Staff email draft-only runtime (no gateway)
 # HERMES_ROLE=orchestrator → operator Discord/SSH profile (VM Skipper)
 # HERMES_ROLE=seadog       → light Discord persona (legacy: same guest bootstrap path)
 # HERMES_ROLE=deckhand     → Discord engineering worker (xAI; never Luna guest path)
@@ -21,6 +22,15 @@ fi
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 mkdir -p "$HERMES_HOME/sessions" "$HERMES_HOME/plugins"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
+
+# One-shot credential provision (`hermes auth add`) must use the image
+# entrypoint (/init → this script → CMD) without inheriting a guest/email
+# role bootstrap that requires WhatsApp/Staff env. Isolated auth.json is
+# still operator-provisioned; this skip only avoids role writes/linking.
+if [ "${HERMES_SKIP_ROLE_BOOTSTRAP:-}" = "1" ]; then
+  echo "HERMES_SKIP_ROLE_BOOTSTRAP=1 — skipping role config/auth linking; CMD runs next"
+  exit 0
+fi
 STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
 SUNSET_LUNA_SOUL="/etc/hermes-sunset/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"
@@ -208,6 +218,57 @@ write_deckhand_env() {
     printf 'GATEWAY_ALLOW_ALL_USERS=true\n'
     printf 'API_SERVER_ENABLED=false\n'
   } > "$HERMES_HOME/.env"
+}
+
+write_sunset_email_luna_config() {
+  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: gpt-5.6-sol
+  provider: openai-codex
+agent:
+  reasoning_effort: none
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+curator:
+  enabled: false
+EOF
+}
+
+write_sunset_email_luna_env() {
+  {
+    [ -n "${API_SERVER_KEY:-}" ] && printf 'API_SERVER_KEY=%s\n' "$API_SERVER_KEY"
+    [ -n "${EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET:-}" ] && printf 'EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET=%s\n' "$EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET"
+    printf 'LUNA_TENANT_ID=sunset\n'
+    printf 'LUNA_CLIENT_SLUG=sunset\n'
+    printf 'LUNA_ALLOWED_LOCATION_IDS=%s\n' "${LUNA_ALLOWED_LOCATION_IDS:-sunset-somo}"
+    printf 'EMAIL_LUNA_DRAFT_LISTEN_HOST=%s\n' "${EMAIL_LUNA_DRAFT_LISTEN_HOST:-0.0.0.0}"
+    printf 'EMAIL_LUNA_DRAFT_LISTEN_PORT=%s\n' "${EMAIL_LUNA_DRAFT_LISTEN_PORT:-8093}"
+    printf 'PYTHONPATH=/etc/hermes-staging\n'
+    printf 'API_SERVER_ENABLED=false\n'
+    printf 'GATEWAY_ALLOW_ALL_USERS=false\n'
+  } > "$HERMES_HOME/.env"
+}
+
+require_isolated_sunset_email_auth() {
+  # Durable isolated HERMES_HOME (Lunabox bind-mount or ACA Azure Files).
+  # Never materialize auth.json from Key Vault. Never share WhatsApp pool.
+  if [ -L "$HERMES_HOME/auth.json" ]; then
+    echo "sunset-email-luna refuses shared auth.json symlink" >&2
+    exit 1
+  fi
+  if [ -e "$HERMES_HOME/.auth-shared/auth.json" ]; then
+    echo "sunset-email-luna refuses .auth-shared mount" >&2
+    exit 1
+  fi
+  if [ ! -f "$HERMES_HOME/auth.json" ]; then
+    echo "sunset-email-luna requires isolated operator-provisioned auth.json (openai-codex). See docs/MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md" >&2
+    exit 1
+  fi
+  chmod 0600 "$HERMES_HOME/auth.json" 2>/dev/null || true
+  chown 10000:10000 "$HERMES_HOME/auth.json" 2>/dev/null || true
+  chmod 0700 "$HERMES_HOME" 2>/dev/null || true
+  chown 10000:10000 "$HERMES_HOME" 2>/dev/null || true
 }
 
 install_luna_plugins() {
@@ -407,8 +468,32 @@ elif [ "$HERMES_ROLE" = "luna" ] \
     fi
   fi
   link_shared_auth
+elif [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
+  [ "${LUNA_CLIENT_SLUG:-}" = "sunset" ] || { echo "sunset-email-luna requires LUNA_CLIENT_SLUG=sunset" >&2; exit 1; }
+  [ "${LUNA_TENANT_ID:-}" = "sunset" ] || { echo "sunset-email-luna requires LUNA_TENANT_ID=sunset" >&2; exit 1; }
+  [ "${LUNA_ALLOWED_LOCATION_IDS:-}" = "sunset-somo" ] || { echo "sunset-email-luna requires LUNA_ALLOWED_LOCATION_IDS=sunset-somo" >&2; exit 1; }
+  [ -n "${API_SERVER_KEY:-}" ] || { echo "sunset-email-luna requires API_SERVER_KEY" >&2; exit 1; }
+  [ -n "${EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET:-}" ] || { echo "sunset-email-luna requires EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET" >&2; exit 1; }
+  require_isolated_sunset_email_auth
+  write_sunset_email_luna_config
+  if [ -f "$SUNSET_LUNA_SOUL" ]; then
+    cp "$SUNSET_LUNA_SOUL" "$HERMES_HOME/SOUL.md"
+  elif [ -f "$STAGING_LUNA_SOUL" ]; then
+    cp "$STAGING_LUNA_SOUL" "$HERMES_HOME/SOUL.md"
+  else
+    echo "sunset-email-luna missing Sunset SOUL" >&2
+    exit 1
+  fi
+  if [ -f /etc/hermes-staging/wolfhouse/email_draft_soul_overlay.md ]; then
+    printf '\n' >> "$HERMES_HOME/SOUL.md"
+    cat /etc/hermes-staging/wolfhouse/email_draft_soul_overlay.md >> "$HERMES_HOME/SOUL.md"
+  fi
+  ensure_sessions_dir
+  write_sunset_email_luna_env
+  # Draft-only: never WhatsApp/Discord patches, never Staff booking plugins,
+  # never shared auth.json mutation.
 else
-  echo "unsupported HERMES_ROLE: ${HERMES_ROLE} (expected orchestrator|deckhand|luna|sunset-luna|seadog)" >&2
+  echo "unsupported HERMES_ROLE: ${HERMES_ROLE} (expected orchestrator|deckhand|luna|sunset-luna|sunset-email-luna|seadog)" >&2
   exit 1
 fi
 
