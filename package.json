@@ -76,6 +76,7 @@
     "verify:sunset-course-drawer-compact": "node scripts/verify-sunset-course-drawer-compact-playwright.js",
     "verify:sunset-rental-dropdown-refresh": "node scripts/verify-sunset-rental-dropdown-refresh.js",
     "verify:sunset-rental-hard-delete": "node scripts/verify-sunset-rental-hard-delete.js",
+    "verify:sunset-precios-destructive-delete-021": "node scripts/verify-sunset-precios-destructive-delete-021.js",
     "verify:sunset-rental-edit-functionality": "node scripts/verify-sunset-rental-edit-functionality.js",
     "verify:sunset-four-bug-batch": "node scripts/verify-sunset-four-bug-batch.js && node scripts/verify-sunset-rental-error-lifecycle-browser.js",
     "verify:sunset-backend-blockers": "node scripts/verify-sunset-backend-blockers.js",

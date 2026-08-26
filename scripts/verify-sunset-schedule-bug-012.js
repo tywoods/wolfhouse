@@ -19,7 +19,8 @@ assert.ok(cockpitSrc.includes('function scheduleCockpitPrepTitle'));
 assert.ok(cockpitSrc.includes('weekday: \'short\', month: \'short\', day: \'numeric\''));
 assert.ok(!/if \(!isToday\) \{\s*dateLabel = dt\.toLocaleDateString/.test(cockpitSrc));
 assert.ok(financeUi.includes('cents === 0 && isPlaceholder'));
-assert.ok(adminUi.includes("data-admin-action=\"delete-pack\"") && adminUi.includes("portalT('admin.action.remove')"));
+assert.ok(adminUi.includes("data-admin-action=\"delete-pack\"") && adminUi.includes("portalT('admin.packs.deleteCourse')"));
+assert.ok(!/data-admin-action="delete-pack"[\s\S]{0,240}admin\.action\.remove/.test(adminUi));
 assert.ok(!cockpitSrc.includes('inbox-thread.js'));
 assert.ok(!financeUi.includes('staff-email-settings'));
 

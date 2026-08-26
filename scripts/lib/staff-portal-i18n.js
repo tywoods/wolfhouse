@@ -1695,6 +1695,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.packs.perStudent': '/ Student',
     'admin.packs.addPrice': 'Add price',
     'admin.packs.removePriceTier': 'Remove price tier',
+    'admin.packs.deleteCourse': 'Delete course',
     'admin.packs.defaultName': 'New group course',
     'admin.privateLessons.title': 'Private Courses',
     'admin.privateLessons.help': 'One private course product. No fixed schedule; date and time are set on each booking.',

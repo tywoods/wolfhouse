@@ -97,6 +97,7 @@ module.exports = {
   'admin.packs.priceTiers': 'Precio para',
   'admin.packs.addPrice': 'Añadir precio',
   'admin.packs.removePriceTier': 'Quitar tramo de precio',
+  'admin.packs.deleteCourse': 'Eliminar curso',
   'admin.packs.startTime2': 'Segunda hora de inicio (opcional)',
   'admin.packs.endTime2': 'Segunda hora de fin (opcional)',
   'admin.packs.addSecondaryTime': 'Añadir hora secundaria',
