@@ -1,26 +1,62 @@
 'use strict';
 
 /**
- * MAIL-MVP-007 — bounded Create Draft live-proof helper.
+ * MAIL-MVP-007 — one controlled Create Draft live proof.
  *
- * One Create Draft. Aggregate counts only. Never prints guest identifiers
- * or content. Never calls approve/send/provider/booking owners.
+ * Invokes the production Staff Create Draft owner (the same function
+ * POST /staff/inbox/email/create-draft calls). Aggregate counts only.
+ * Never prints guest identifiers, conversation UUID, notes, tokens, or
+ * draft body. Never calls approve/send/provider/booking owners.
  */
 
+const { spawnSync } = require('node:child_process');
+const https = require('node:https');
 const util = require('node:util');
+const {
+  EMAIL_LUNA_CREATE_DRAFT_PATH,
+} = require('./staff-email-luna-draft-route');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
 const LIVE_NOTES = 'Thank them for the msg and then ask them if they want to do a booking';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const AZ_DEFAULT = '/opt/data/home/.local/bin/az';
+const RG = 'luna-sunset-staging-rg';
+const STAFF_APP = 'luna-sunset-staging-staff-api';
+const EMAIL_LUNA_APP = 'luna-sunset-staging-email-luna';
+const PRODUCTION_CREATE_DRAFT_OWNERS = new WeakSet();
 
 const SQL_COUNT_APPROVALS = 'SELECT count(*)::int AS n FROM tenant_email_reply_approvals WHERE client_id=$1::uuid AND conversation_id=$2::uuid';
 const SQL_COUNT_JOURNAL = 'SELECT count(*)::int AS n FROM tenant_email_outbound_send_journal WHERE client_id=$1::uuid AND conversation_id=$2::uuid';
 const SQL_COUNT_BOOKINGS = 'SELECT count(*)::int AS n FROM bookings WHERE client_id=$1::uuid';
 const SQL_COUNT_SENDS = 'SELECT coalesce(sum(send_invocation_count),0)::int AS n FROM tenant_email_outbound_send_journal WHERE client_id=$1::uuid AND conversation_id=$2::uuid';
-const SQL_STANDING_DRAFT = 'SELECT length(coalesce(staff_reply_draft,\'\'))::int AS n FROM conversations WHERE client_id=$1::uuid AND id=$2::uuid';
+const SQL_STANDING_DRAFT = [
+  'SELECT length(coalesce(staff_reply_draft,\'\'))::int AS n,',
+  ' coalesce(metadata->\'luna_email_open_draft\'->>\'claim_id\',\'\') AS claim_id,',
+  ' coalesce(metadata->\'luna_email_open_draft\'->>\'generated_body_sha256\',\'\') AS body_sha,',
+  ' coalesce(metadata->\'luna_email_open_draft\'->>\'state\',\'\') AS state',
+  ' FROM conversations WHERE client_id=$1::uuid AND id=$2::uuid',
+].join('');
+const SQL_RESOLVE_PROOF_ACTOR = [
+  'SELECT cl.id::text AS client_id, su.id::text AS staff_user_id, su.role',
+  ' FROM conversations c',
+  ' INNER JOIN clients cl ON cl.id=c.client_id AND cl.slug=\'sunset\'',
+  ' INNER JOIN staff_users su ON su.client_id=cl.id AND su.status=\'active\'',
+  '  AND su.role IN (\'operator\',\'admin\',\'owner\')',
+  ' INNER JOIN tenant_email_inbound_inbox_projections p',
+  '  ON p.client_id=c.client_id AND p.conversation_id=c.id',
+  ' INNER JOIN tenant_email_inbound_events ev',
+  '  ON ev.client_id=p.client_id AND ev.id=p.inbound_event_id',
+  ' INNER JOIN tenant_locations loc',
+  '  ON loc.client_id=ev.client_id AND loc.id=ev.location_id',
+  '  AND loc.location_id=\'sunset-somo\'',
+  ' WHERE c.id=$1::uuid AND c.phone ~ \'^(emailv1|email):\' AND c.status=\'open\'',
+  ' ORDER BY CASE su.role WHEN \'operator\' THEN 0 WHEN \'admin\' THEN 1 ELSE 2 END, su.id',
+  ' LIMIT 1',
+].join('');
 
 function fail(reason) {
-  return freeze({ ok: false, reason: reason || 'proof_failed' });
+  return freeze({ ok: false, reason: reason || 'proof_failed', public: freeze({ ok: false, reason: reason || 'proof_failed' }) });
 }
 
 function asInt(row) {
@@ -31,62 +67,213 @@ function asInt(row) {
   return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
+function uuid(value) {
+  return typeof value === 'string' && UUID.test(value) ? value.toLowerCase() : null;
+}
+
+function ownData(value, key) {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && Object.hasOwn(descriptor, 'value') && descriptor.enumerable
+      && !descriptor.get && !descriptor.set
+      ? descriptor.value
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function snapshotConversationId(value) {
+  return uuid(value);
+}
+
+function redactSensitive(text, secrets) {
+  let out = String(text == null ? '' : text);
+  const extra = Array.isArray(secrets) ? secrets : [];
+  for (const secret of extra) {
+    if (typeof secret !== 'string' || secret.length < 4) continue;
+    out = out.split(secret).join('[redacted]');
+  }
+  out = out.split(LIVE_NOTES).join('[redacted-notes]');
+  out = out.replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[redacted-email]');
+  out = out.replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/g, 'Bearer [redacted]');
+  return out;
+}
+
+function snapshotMarker(marker) {
+  if (!marker || typeof marker !== 'object' || isProxy(marker)) return null;
+  const provider = ownData(marker, 'provider');
+  const model = ownData(marker, 'model');
+  const runtime = ownData(marker, 'runtime');
+  if (provider !== 'openai-codex' || model !== 'gpt-5.6-sol' || runtime !== 'sunset-email-luna') {
+    return null;
+  }
+  return freeze({
+    provider: 'openai-codex',
+    model: 'gpt-5.6-sol',
+    runtime: 'sunset-email-luna',
+  });
+}
+
+function snapshotAuthenticity(value) {
+  if (!value || typeof value !== 'object' || isProxy(value)) return null;
+  const requestId = uuid(ownData(value, 'request_id'));
+  const hmacVerified = ownData(value, 'hmac_verified');
+  const alg = ownData(value, 'alg');
+  if (!requestId || hmacVerified !== true) return null;
+  if (alg != null && alg !== 'HMAC-SHA256') return null;
+  return freeze({
+    alg: 'HMAC-SHA256',
+    request_id: requestId,
+    hmac_verified: true,
+  });
+}
+
+function readHermesSolAttemptDiagnostics(drafted) {
+  if (!drafted || typeof drafted !== 'object' || isProxy(drafted)) return null;
+  const marker = snapshotMarker(
+    ownData(drafted, 'marker')
+    || (drafted.diagnostics && drafted.diagnostics.email_luna_hermes_sol)
+    || null,
+  );
+  const authenticity = snapshotAuthenticity(ownData(drafted, 'authenticity'));
+  if (!marker || !authenticity) return null;
+  return freeze({
+    ok: true,
+    source: 'staff_hmac_verified_authenticity',
+    marker,
+    authenticity,
+    request_id: authenticity.request_id,
+  });
+}
+
 async function countRow(withPgClient, sql, params) {
   const result = await withPgClient((pg) => pg.query(sql, params));
-  const row = result && result.rows && result.rows[0];
-  return asInt(row);
+  if (!result || !Array.isArray(result.rows) || result.rows.length < 1) return null;
+  return asInt(result.rows[0]);
+}
+
+async function snapshotDraft(withPgClient, clientId, conversationId) {
+  const result = await withPgClient((pg) => pg.query(SQL_STANDING_DRAFT, [clientId, conversationId]));
+  if (!result || !Array.isArray(result.rows) || result.rows.length !== 1) return null;
+  const row = result.rows[0];
+  const draftChars = asInt(row);
+  if (!Number.isSafeInteger(draftChars)) return null;
+  return freeze({
+    draftChars,
+    claim_id: typeof row.claim_id === 'string' ? row.claim_id : '',
+    body_sha: typeof row.body_sha === 'string' ? row.body_sha : '',
+    state: typeof row.state === 'string' ? row.state : '',
+  });
 }
 
 async function snapshotCounts(withPgClient, clientId, conversationId) {
-  const [approvals, journal, sends, bookings, draftChars] = await Promise.all([
+  const [approvals, journal, sends, bookings, draft] = await Promise.all([
     countRow(withPgClient, SQL_COUNT_APPROVALS, [clientId, conversationId]),
     countRow(withPgClient, SQL_COUNT_JOURNAL, [clientId, conversationId]),
     countRow(withPgClient, SQL_COUNT_SENDS, [clientId, conversationId]),
     countRow(withPgClient, SQL_COUNT_BOOKINGS, [clientId]),
-    countRow(withPgClient, SQL_STANDING_DRAFT, [clientId, conversationId]),
+    snapshotDraft(withPgClient, clientId, conversationId),
   ]);
-  if ([approvals, journal, sends, bookings, draftChars].some((n) => !Number.isSafeInteger(n))) {
+  if (![approvals, journal, sends, bookings].every((n) => Number.isSafeInteger(n)) || !draft) {
     return null;
   }
-  return freeze({ approvals, journal, sends, bookings, draftChars });
+  return freeze({
+    approvals,
+    journal,
+    sends,
+    bookings,
+    draftChars: draft.draftChars,
+    claim_id: draft.claim_id,
+    body_sha: draft.body_sha,
+    state: draft.state,
+  });
+}
+
+function publicProofOutput(result) {
+  if (!result || result.ok !== true) {
+    return freeze({
+      ok: false,
+      reason: result && result.reason ? String(result.reason) : 'proof_failed',
+    });
+  }
+  const requestId = result.request_id;
+  return freeze({
+    ok: true,
+    invoked: result.invoked,
+    draft_persisted: true,
+    draft_changed: true,
+    draftChars: result.draftChars,
+    cas_advanced: result.cas_advanced === true,
+    deltas: freeze({
+      approvals: result.deltas.approvals,
+      journal: result.deltas.journal,
+      sends: result.deltas.sends,
+      bookings: result.deltas.bookings,
+    }),
+    hmac_verified: true,
+    logs_correlated: result.logs_correlated === true,
+    marker: result.marker,
+    request_id: requestId,
+    request_id_prefix: typeof requestId === 'string' ? requestId.slice(0, 8) : '',
+  });
+}
+
+function brandProductionCreateDraft(fn) {
+  if (typeof fn === 'function') PRODUCTION_CREATE_DRAFT_OWNERS.add(fn);
+  return fn;
+}
+
+function isProductionCreateDraft(fn) {
+  return typeof fn === 'function' && PRODUCTION_CREATE_DRAFT_OWNERS.has(fn);
 }
 
 function createMailMvp007LiveProof(options) {
   const withPgClient = options && options.withPgClient;
   const createDraft = options && options.createDraft;
-  const expectedBody = options && options.expectedBody;
+  const correlateAttempt = options && options.correlateAttempt;
+  const requireLogs = options && options.requireLogs === true;
   const notes = options && typeof options.notes === 'string' ? options.notes : LIVE_NOTES;
   if (typeof withPgClient !== 'function' || typeof createDraft !== 'function') {
     throw new Error('live_proof_misconfigured');
   }
+  if (requireLogs && typeof correlateAttempt !== 'function') {
+    throw new Error('live_proof_misconfigured');
+  }
 
   return freeze({
+    route: EMAIL_LUNA_CREATE_DRAFT_PATH,
     async runOnce(input) {
       const actor = input && input.actor;
-      const conversationId = input && input.conversation_id;
-      const clientId = actor && actor.client_id;
-      if (!actor || typeof conversationId !== 'string' || typeof clientId !== 'string') {
-        return fail('authority_mismatch');
-      }
+      const conversationId = snapshotConversationId(input && input.conversation_id);
+      const clientId = actor && uuid(actor.client_id);
+      if (!actor || !conversationId || !clientId) return fail('authority_mismatch');
+      if (notes !== LIVE_NOTES) return fail('notes_mismatch');
       const before = await snapshotCounts(withPgClient, clientId, conversationId);
       if (!before) return fail('counts_unavailable');
-      const drafted = await createDraft({
-        actor,
-        conversation_id: conversationId,
-        operator_context: notes,
-      });
+      let invoked = 0;
+      let drafted;
+      try {
+        drafted = await createDraft({
+          actor,
+          conversation_id: conversationId,
+          operator_context: notes,
+        });
+        invoked += 1;
+      } catch {
+        return fail('create_draft_failed');
+      }
+      if (invoked !== 1) return fail('create_draft_not_once');
       if (!drafted || drafted.status !== 'draft_ready') {
         return fail((drafted && drafted.reason) || 'create_draft_failed');
       }
-      const body = drafted.draft_text || drafted.body || drafted.message_text;
-      if (typeof expectedBody === 'string' && body !== expectedBody) {
-        return fail('draft_mismatch');
+      if (drafted.success === true && drafted.message_text && !drafted.authenticity) {
+        return fail('fake_staff_200');
       }
-      if (typeof body !== 'string' || !body.trim()) return fail('empty_draft');
-      const marker = drafted.marker || (drafted.diagnostics && drafted.diagnostics.email_luna_hermes_sol) || null;
-      if (!marker || marker.provider !== 'openai-codex' || marker.model !== 'gpt-5.6-sol' || marker.runtime !== 'sunset-email-luna') {
-        return fail('provenance_mismatch');
-      }
+      const diagnostics = readHermesSolAttemptDiagnostics(drafted);
+      if (!diagnostics) return fail('authenticity_mismatch');
+      const marker = diagnostics.marker;
+      const authenticity = diagnostics.authenticity;
       const after = await snapshotCounts(withPgClient, clientId, conversationId);
       if (!after) return fail('counts_unavailable');
       const deltas = freeze({
@@ -99,32 +286,366 @@ function createMailMvp007LiveProof(options) {
       if (deltas.approvals !== 0 || deltas.journal !== 0 || deltas.sends !== 0 || deltas.bookings !== 0) {
         return fail('side_effect');
       }
-      if (deltas.draftChars === 0 && before.draftChars === after.draftChars && body.length === 0) {
+      if (!Number.isSafeInteger(after.draftChars) || after.draftChars <= 0) {
         return fail('empty_draft');
       }
-      return freeze({
+      const casAdvanced = after.claim_id !== before.claim_id || after.body_sha !== before.body_sha;
+      const persistedChanged = deltas.draftChars !== 0 || casAdvanced;
+      if (!persistedChanged) return fail('draft_not_persisted');
+      let logsCorrelated = false;
+      if (typeof correlateAttempt === 'function') {
+        let correlated;
+        try {
+          correlated = await correlateAttempt({
+            request_id: authenticity.request_id,
+            marker,
+          });
+        } catch {
+          return fail('logs_uncorrelated');
+        }
+        if (!correlated || correlated.ok !== true) return fail('logs_uncorrelated');
+        if (correlated.request_id && correlated.request_id !== authenticity.request_id) {
+          return fail('request_id_mismatch');
+        }
+        logsCorrelated = true;
+      } else if (requireLogs) {
+        return fail('logs_uncorrelated');
+      }
+      const proved = freeze({
         ok: true,
         reason: null,
         invoked: 1,
-        marker: freeze({
-          provider: marker.provider,
-          model: marker.model,
-          runtime: marker.runtime,
+        marker,
+        authenticity,
+        request_id: authenticity.request_id,
+        hmac_verified: true,
+        logs_correlated: logsCorrelated,
+        cas_advanced: casAdvanced,
+        before: freeze({
+          approvals: before.approvals,
+          journal: before.journal,
+          sends: before.sends,
+          bookings: before.bookings,
+          draftChars: before.draftChars,
         }),
-        before,
-        after,
-        deltas,
+        after: freeze({
+          approvals: after.approvals,
+          journal: after.journal,
+          sends: after.sends,
+          bookings: after.bookings,
+          draftChars: after.draftChars,
+        }),
+        deltas: freeze({
+          approvals: deltas.approvals,
+          journal: deltas.journal,
+          sends: deltas.sends,
+          bookings: deltas.bookings,
+        }),
         draftChars: after.draftChars,
+      });
+      return freeze({
+        ...proved,
+        public: publicProofOutput(proved),
       });
     },
   });
 }
 
+function createProductionStaffCreateDraftOwner(deps) {
+  const withPgClient = deps && deps.withPgClient;
+  if (typeof withPgClient !== 'function') throw new Error('live_proof_misconfigured');
+  const { createStaffEmailLunaDraftOpen } = require('./staff-email-luna-draft-open');
+  const { createEmailLunaSunsetStagingRuntimeComposition } = require('./email-luna-sunset-staging-runtime-composition');
+  const { createEmailLunaDraftOpenContentFetcher } = require('./email-luna-draft-open-content-composition');
+  const owner = createStaffEmailLunaDraftOpen({
+    withPgClient,
+    runtimeEnv: (deps && deps.runtimeEnv) || process.env,
+    createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
+    createContentFetcher(pgClient) {
+      return createEmailLunaDraftOpenContentFetcher({
+        env: (deps && deps.runtimeEnv) || process.env,
+        pgClient,
+        https,
+        timers: { setTimeout, clearTimeout },
+      });
+    },
+  });
+  const createDraft = brandProductionCreateDraft((input) => (
+    owner.regenerateEmailLunaDraftOnStaffClick(input)
+  ));
+  return freeze({
+    owner,
+    createDraft,
+    route: EMAIL_LUNA_CREATE_DRAFT_PATH,
+  });
+}
+
+async function resolveProofActor(withPgClient, conversationId) {
+  const result = await withPgClient((pg) => pg.query(SQL_RESOLVE_PROOF_ACTOR, [conversationId]));
+  const row = result && result.rows && result.rows[0];
+  if (!row || typeof row !== 'object' || isProxy(row)) return null;
+  const staffUserId = uuid(row.staff_user_id);
+  const clientId = uuid(row.client_id);
+  const role = row.role;
+  if (!staffUserId || !clientId || !['operator', 'admin', 'owner'].includes(role)) return null;
+  const actor = Object.create(null);
+  actor.staff_user_id = staffUserId;
+  actor.client_id = clientId;
+  actor.role = role;
+  return freeze(actor);
+}
+
+function staffOwnerEnvReady(env) {
+  const src = env && typeof env === 'object' ? env : {};
+  return ownData(src, 'LUNA_DEPLOYMENT') === 'sunset-staging'
+    && ownData(src, 'EMAIL_STAFF_LUNA_DRAFT_ENABLED') === 'true'
+    && ownData(src, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED') === 'true'
+    && ownData(src, 'EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED') === 'true';
+}
+
+async function runStaffOwnerProof(input) {
+  const env = (input && input.env) || process.env;
+  const conversationId = snapshotConversationId(
+    input && input.conversation_id || ownData(env, 'EMAIL_LUNA_PROOF_CONVERSATION_ID'),
+  );
+  if (!conversationId) return fail('authority_mismatch');
+  if (!staffOwnerEnvReady(env)) return fail('staff_owner_disabled');
+  const injectedClient = input && typeof input.withPgClient === 'function';
+  const pg = injectedClient ? null : require('./pg-connect');
+  const withPgClient = injectedClient ? input.withPgClient : pg.withPgClient;
+  try {
+    const wired = input && input.wired
+      ? input.wired
+      : createProductionStaffCreateDraftOwner({ withPgClient, runtimeEnv: env });
+    if (!wired || typeof wired.createDraft !== 'function') return fail('live_proof_misconfigured');
+    const actor = input && input.actor
+      ? input.actor
+      : await resolveProofActor(withPgClient, conversationId);
+    if (!actor) return fail('authority_mismatch');
+    const proof = createMailMvp007LiveProof({
+      withPgClient,
+      createDraft: wired.createDraft,
+      notes: LIVE_NOTES,
+      requireLogs: false,
+    });
+    return await proof.runOnce({ actor, conversation_id: conversationId });
+  } finally {
+    if (pg && typeof pg.closePgPool === 'function') {
+      await pg.closePgPool();
+    }
+  }
+}
+
+function buildStaffOwnerExecArgs(conversationId) {
+  const id = snapshotConversationId(conversationId);
+  if (!id) return null;
+  return freeze([
+    'containerapp', 'exec',
+    '-g', RG,
+    '-n', STAFF_APP,
+    '--command',
+    `env MAIL_MVP_007_LIVE_PROOF=1 MAIL_MVP_007_STAFF_OWNER_PROOF=1 EMAIL_LUNA_PROOF_CONVERSATION_ID=${id} node scripts/prove-mail-mvp-007-create-draft.js`,
+  ]);
+}
+
+function buildEmailLunaAttemptLogsArgs(requestId) {
+  const id = snapshotConversationId(requestId);
+  if (!id) return null;
+  return freeze([
+    'containerapp', 'logs', 'show',
+    '-g', RG,
+    '-n', EMAIL_LUNA_APP,
+    '--type', 'console',
+    '--tail', '200',
+    '--format', 'json',
+    '--query', `[?contains(Log, 'request_id=${id}')]`,
+  ]);
+}
+
+function parseEmailLunaAttemptLogs(raw, requestId, secrets) {
+  const id = snapshotConversationId(requestId);
+  if (!id) return fail('logs_uncorrelated');
+  const needle = `request_id=${id}`;
+  const guestLike = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|staff_reply_draft|message_text/;
+  const okLine = (line) => (
+    typeof line === 'string'
+    && line.includes(needle)
+    && line.includes('provider=openai-codex')
+    && line.includes('model=gpt-5.6-sol')
+    && line.includes('runtime=sunset-email-luna')
+    && line.includes('hmac=ok')
+    && !guestLike.test(line)
+  );
+  let parsed = null;
+  try { parsed = JSON.parse(String(raw || '').trim() || 'null'); } catch { parsed = null; }
+  const lines = [];
+  if (Array.isArray(parsed)) {
+    for (const row of parsed) {
+      if (!row || typeof row !== 'object') continue;
+      const log = row.Log || row.log || row.Message || row.message;
+      if (typeof log === 'string') lines.push(log);
+    }
+  } else {
+    String(raw || '').split('\n').forEach((line) => lines.push(line));
+  }
+  const match = lines.find(okLine);
+  if (!match) return fail('logs_uncorrelated');
+  redactSensitive(match, secrets);
+  return freeze({
+    ok: true,
+    request_id: id,
+    source: 'email_luna_attempt_log',
+  });
+}
+
+function extractProofJson(raw, secrets) {
+  const text = String(raw || '');
+  const last = text.lastIndexOf('}');
+  if (last < 0) return null;
+  let start = -1;
+  while ((start = text.indexOf('{', start + 1)) >= 0 && start <= last) {
+    let value;
+    try { value = JSON.parse(text.slice(start, last + 1)); } catch { continue; }
+    if (!value || typeof value !== 'object' || isProxy(value) || Array.isArray(value)) continue;
+    if (value.ok !== true && value.ok !== false) continue;
+    redactSensitive(JSON.stringify(value), secrets);
+    return value;
+  }
+  return null;
+}
+
+function spawnAz(azBin, args, options) {
+  const bin = typeof azBin === 'string' && azBin ? azBin : AZ_DEFAULT;
+  return spawnSync(bin, args, {
+    encoding: 'utf8',
+    timeout: (options && options.timeoutMs) || 180000,
+    maxBuffer: 10 * 1024 * 1024,
+    env: (options && options.env) || process.env,
+  });
+}
+
+async function runDeployedCreateDraftProof(input) {
+  const env = (input && input.env) || process.env;
+  const conversationId = snapshotConversationId(
+    input && input.conversation_id || ownData(env, 'EMAIL_LUNA_PROOF_CONVERSATION_ID'),
+  );
+  if (!conversationId) return fail('authority_mismatch');
+  if (ownData(env, 'LUNA_DEPLOYMENT') !== 'sunset-staging') return fail('authority_mismatch');
+  const secrets = [conversationId, LIVE_NOTES];
+  const azBin = (input && input.azBin) || ownData(env, 'AZ') || AZ_DEFAULT;
+  const execFn = typeof (input && input.execStaff) === 'function'
+    ? input.execStaff
+    : (args) => spawnAz(azBin, args, { timeoutMs: 240000, env });
+  const logsFn = typeof (input && input.showLogs) === 'function'
+    ? input.showLogs
+    : (args) => spawnAz(azBin, args, { timeoutMs: 60000, env });
+  const execArgs = buildStaffOwnerExecArgs(conversationId);
+  if (!execArgs) return fail('authority_mismatch');
+  let execResult;
+  try {
+    execResult = await execFn(execArgs);
+  } catch {
+    return fail('staff_exec_failed');
+  }
+  const execStatus = execResult && Number.isSafeInteger(execResult.status) ? execResult.status : 1;
+  const execOut = `${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`;
+  const inner = extractProofJson(execOut, secrets);
+  if (execStatus !== 0 || !inner || inner.ok !== true) {
+    return fail((inner && inner.reason) || 'staff_exec_failed');
+  }
+  if (inner.success === true && inner.message_text && inner.hmac_verified !== true) {
+    return fail('fake_staff_200');
+  }
+  const requestId = uuid(inner.request_id);
+  if (!requestId || inner.hmac_verified !== true) return fail('authenticity_mismatch');
+  if (!inner.marker || inner.marker.provider !== 'openai-codex'
+      || inner.marker.model !== 'gpt-5.6-sol'
+      || inner.marker.runtime !== 'sunset-email-luna') {
+    return fail('provenance_mismatch');
+  }
+  const deltas = inner.deltas;
+  if (!deltas || deltas.approvals !== 0 || deltas.journal !== 0
+      || deltas.sends !== 0 || deltas.bookings !== 0) {
+    return fail('side_effect');
+  }
+  if (!Number.isSafeInteger(inner.draftChars) || inner.draftChars <= 0
+      || inner.draft_persisted !== true || inner.draft_changed !== true) {
+    return fail('draft_not_persisted');
+  }
+  const logArgs = buildEmailLunaAttemptLogsArgs(requestId);
+  if (!logArgs) return fail('logs_uncorrelated');
+  let logResult;
+  try {
+    logResult = await logsFn(logArgs);
+  } catch {
+    return fail('logs_uncorrelated');
+  }
+  const logOut = `${logResult && logResult.stdout || ''}${logResult && logResult.stderr || ''}`;
+  const correlated = parseEmailLunaAttemptLogs(logOut, requestId, secrets);
+  if (!correlated || correlated.ok !== true) return fail('logs_uncorrelated');
+  const proved = freeze({
+    ok: true,
+    reason: null,
+    invoked: 1,
+    marker: freeze({
+      provider: inner.marker.provider,
+      model: inner.marker.model,
+      runtime: inner.marker.runtime,
+    }),
+    request_id: requestId,
+    hmac_verified: true,
+    logs_correlated: true,
+    cas_advanced: inner.cas_advanced === true,
+    deltas: freeze({
+      approvals: 0,
+      journal: 0,
+      sends: 0,
+      bookings: 0,
+    }),
+    draftChars: inner.draftChars,
+  });
+  return freeze({
+    ...proved,
+    public: publicProofOutput(proved),
+  });
+}
+
+async function runMailMvp007CreateDraftProof(input) {
+  const env = (input && input.env) || process.env;
+  if (ownData(env, 'MAIL_MVP_007_LIVE_PROOF') !== '1') {
+    return fail('live_proof_disabled');
+  }
+  if (ownData(env, 'MAIL_MVP_007_STAFF_OWNER_PROOF') === '1') {
+    return runStaffOwnerProof(input);
+  }
+  return runDeployedCreateDraftProof(input);
+}
+
 module.exports = freeze({
   LIVE_NOTES,
+  EMAIL_LUNA_CREATE_DRAFT_PATH,
   SQL_COUNT_APPROVALS,
   SQL_COUNT_JOURNAL,
   SQL_COUNT_BOOKINGS,
   SQL_COUNT_SENDS,
+  SQL_STANDING_DRAFT,
+  SQL_RESOLVE_PROOF_ACTOR,
+  AZ_DEFAULT,
+  RG,
+  STAFF_APP,
+  EMAIL_LUNA_APP,
   createMailMvp007LiveProof,
+  createProductionStaffCreateDraftOwner,
+  readHermesSolAttemptDiagnostics,
+  publicProofOutput,
+  redactSensitive,
+  brandProductionCreateDraft,
+  isProductionCreateDraft,
+  buildStaffOwnerExecArgs,
+  buildEmailLunaAttemptLogsArgs,
+  parseEmailLunaAttemptLogs,
+  extractProofJson,
+  runStaffOwnerProof,
+  runDeployedCreateDraftProof,
+  runMailMvp007CreateDraftProof,
 });

@@ -64,6 +64,10 @@ function createHermesNaturalCallModel(client, authority) {
       throw error;
     }
     hermesNaturalCallModel.lastMarker = result.marker;
+    if (result.authenticity && result.authenticity.hmac_verified === true
+        && typeof result.authenticity.request_id === 'string') {
+      hermesNaturalCallModel.lastAuthenticity = result.authenticity;
+    }
     return result.planJson;
   };
 }
@@ -114,7 +118,9 @@ function createEmailLunaSunsetEmailHermesSolAuthors(configuration) {
     const natural = createEmailLunaCreateDraftNaturalAuthor(naturalConfig);
     const authored = await natural.authorNaturalGuestReply(input);
     if (authored && typeof authored === 'object' && callModel.lastMarker) {
-      return freeze({ ...authored, marker: callModel.lastMarker });
+      const extra = { marker: callModel.lastMarker };
+      if (callModel.lastAuthenticity) extra.authenticity = callModel.lastAuthenticity;
+      return freeze({ ...authored, ...extra });
     }
     return authored;
   }

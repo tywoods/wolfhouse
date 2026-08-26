@@ -113,6 +113,7 @@ function authoredDraft(result) {
     requires_staff_review: true,
   };
   if (result && result.marker) out.marker = result.marker;
+  if (result && result.authenticity) out.authenticity = result.authenticity;
   return freeze(out);
 }
 

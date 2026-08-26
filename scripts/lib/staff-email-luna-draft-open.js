@@ -376,7 +376,7 @@ function pending(conversationId) {
   });
 }
 
-function ready(conversationId, text, subject, marker) {
+function ready(conversationId, text, subject, marker, authenticity) {
   const out = {
     status: 'draft_ready',
     draft_text: text,
@@ -389,6 +389,15 @@ function ready(conversationId, text, subject, marker) {
   };
   if (typeof subject === 'string' && subject) out.subject = subject;
   if (marker && typeof marker === 'object') out.marker = marker;
+  if (authenticity && typeof authenticity === 'object'
+      && authenticity.hmac_verified === true
+      && typeof authenticity.request_id === 'string') {
+    out.authenticity = freeze({
+      alg: typeof authenticity.alg === 'string' ? authenticity.alg : 'HMAC-SHA256',
+      request_id: authenticity.request_id,
+      hmac_verified: true,
+    });
+  }
   return freeze(out);
 }
 
@@ -826,7 +835,13 @@ function createStaffEmailLunaDraftOpen(deps) {
         }
         return pending(conversationId);
       }
-      return ready(conversationId, persisted, replySubjectOf(row.subject), composed && composed.marker);
+      return ready(
+        conversationId,
+        persisted,
+        replySubjectOf(row.subject),
+        composed && composed.marker,
+        composed && composed.authenticity,
+      );
     } catch {
       return pending(conversationId);
     }
@@ -961,7 +976,13 @@ function createStaffEmailLunaDraftOpen(deps) {
         await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
         return pending(conversationId);
       }
-      return ready(conversationId, persisted, replySubjectOf(row.subject), composed && composed.marker);
+      return ready(
+        conversationId,
+        persisted,
+        replySubjectOf(row.subject),
+        composed && composed.marker,
+        composed && composed.authenticity,
+      );
     } catch {
       return pending(conversationId);
     }

@@ -497,6 +497,8 @@ function assertNoSecretsLogged(hits) {
   assert.equal(liveDraft.marker.provider, HERMES_SOL_PROVIDER);
   assert.equal(liveDraft.marker.model, HERMES_SOL_MODEL);
   assert.equal(liveDraft.marker.runtime, HERMES_SOL_RUNTIME);
+  assert.equal(liveDraft.authenticity.hmac_verified, true);
+  assert.match(liveDraft.authenticity.request_id, /^[0-9a-f-]{36}$/i);
   console.log('  PASS  producer persists Hermes draft with no send/approval/journal/booking');
 
   const opened = await owner.owner.ensureEmailLunaDraftOnOpen({
@@ -698,6 +700,9 @@ function assertNoSecretsLogged(hits) {
   assert.equal(first.status, 'ok');
   assert.equal(first.marker.provider, HERMES_SOL_PROVIDER);
   assert.equal(first.marker.model, HERMES_SOL_MODEL);
+  assert.equal(first.authenticity.hmac_verified, true);
+  assert.match(first.authenticity.request_id, /^[0-9a-f-]{36}$/i);
+  assert.equal(Object.hasOwn(first.authenticity, 'signature'), false);
   const signedReq = {
     ...authority(),
     request_id: '99999999-9999-4999-8999-999999999999',
@@ -833,52 +838,347 @@ function assertNoSecretsLogged(hits) {
   await stopFake(hostileFake);
   console.log('  PASS  response HMAC rejects forged JSON/provenance/signature/replay');
 
-  const { createMailMvp007LiveProof } = require('./lib/email-luna-sunset-email-hermes-sol-live-proof');
-  const counts = { approvals: 2, journal: 3, sends: 1, bookings: 4, draft: 10 };
-  const proofPg = async (fn) => fn({
+  const {
+    createMailMvp007LiveProof,
+    createProductionStaffCreateDraftOwner,
+    publicProofOutput,
+    redactSensitive,
+    brandProductionCreateDraft,
+    isProductionCreateDraft,
+    buildStaffOwnerExecArgs,
+    buildEmailLunaAttemptLogsArgs,
+    parseEmailLunaAttemptLogs,
+    runStaffOwnerProof,
+    runDeployedCreateDraftProof,
+    runMailMvp007CreateDraftProof,
+    EMAIL_LUNA_CREATE_DRAFT_PATH: PROOF_ROUTE,
+  } = require('./lib/email-luna-sunset-email-hermes-sol-live-proof');
+  const RID = '77777777-7777-4777-8777-777777777777';
+  const AUTH = Object.freeze({ alg: 'HMAC-SHA256', request_id: RID, hmac_verified: true });
+  const MARK = Object.freeze({ provider: 'openai-codex', model: 'gpt-5.6-sol', runtime: 'sunset-email-luna' });
+  const attemptLog = (id) => (
+    `email-draft-server attempt request_id=${id} provider=openai-codex model=gpt-5.6-sol runtime=sunset-email-luna hmac=ok`
+  );
+  function proofStore(start) {
+    const counts = {
+      approvals: 2, journal: 3, sends: 1, bookings: 4,
+      draftChars: 10, claim_id: 'old-claim', body_sha: 'aa', state: 'ready',
+      ...start,
+    };
+    const proofPg = async (fn) => fn({
+      async query(sql) {
+        if (/tenant_email_reply_approvals/.test(sql)) return { rows: [{ n: counts.approvals }] };
+        if (/send_invocation_count/.test(sql)) return { rows: [{ n: counts.sends }] };
+        if (/tenant_email_outbound_send_journal/.test(sql)) return { rows: [{ n: counts.journal }] };
+        if (/FROM bookings/.test(sql)) return { rows: [{ n: counts.bookings }] };
+        if (/staff_reply_draft/.test(sql)) {
+          return { rows: [{
+            n: counts.draftChars,
+            claim_id: counts.claim_id,
+            body_sha: counts.body_sha,
+            state: counts.state,
+          }] };
+        }
+        return { rows: [] };
+      },
+    });
+    return { counts, proofPg };
+  }
+  function persistDraft(counts) {
+    counts.draftChars = LIVE_EN_BODY.length;
+    counts.claim_id = 'new-claim';
+    counts.body_sha = 'bb';
+  }
+  const correlateOk = async ({ request_id }) => parseEmailLunaAttemptLogs(attemptLog(request_id), request_id, []);
+
+  const ownerFake = await startFakeHermes();
+  const liveOwner = makeOwner({ env: hermesEnv(ownerFake.port) });
+  const ownerPg = async (fn) => fn({
     async query(sql) {
-      if (/tenant_email_reply_approvals/.test(sql)) return { rows: [{ n: counts.approvals }] };
-      if (/send_invocation_count/.test(sql)) return { rows: [{ n: counts.sends }] };
-      if (/tenant_email_outbound_send_journal/.test(sql)) return { rows: [{ n: counts.journal }] };
-      if (/FROM bookings/.test(sql)) return { rows: [{ n: counts.bookings }] };
-      if (/staff_reply_draft/.test(sql)) return { rows: [{ n: counts.draft }] };
+      if (/tenant_email_reply_approvals/.test(sql)) return { rows: [{ n: liveOwner.approvals.length }] };
+      if (/send_invocation_count/.test(sql)) return { rows: [{ n: liveOwner.providers.length }] };
+      if (/tenant_email_outbound_send_journal/.test(sql)) return { rows: [{ n: liveOwner.journals.length }] };
+      if (/FROM bookings/.test(sql)) return { rows: [{ n: liveOwner.bookings.length }] };
+      if (/staff_reply_draft/.test(sql)) {
+        const draft = String(liveOwner.store.draft || '');
+        const meta = (liveOwner.store.meta && liveOwner.store.meta.luna_email_open_draft) || {};
+        return { rows: [{
+          n: draft.length,
+          claim_id: meta.claim_id || '',
+          body_sha: meta.generated_body_sha256 || '',
+          state: meta.state || '',
+        }] };
+      }
       return { rows: [] };
     },
   });
-  const proof = createMailMvp007LiveProof({
-    withPgClient: proofPg,
-    expectedBody: LIVE_EN_BODY,
+  let ownerCalls = 0;
+  const productionCreateDraft = brandProductionCreateDraft(async (input) => {
+    ownerCalls += 1;
+    return liveOwner.owner.regenerateEmailLunaDraftOnStaffClick(input);
+  });
+  const ownerProof = createMailMvp007LiveProof({
+    withPgClient: ownerPg,
+    createDraft: productionCreateDraft,
+    correlateAttempt: correlateOk,
+  });
+  const ownerProved = await ownerProof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(ownerProved.ok, true);
+  assert.equal(ownerCalls, 1);
+  assert.equal(isProductionCreateDraft(productionCreateDraft), true);
+  assert.equal(ownerProof.route, '/staff/inbox/email/create-draft');
+  assert.equal(liveOwner.writes.length, 1);
+  assert.equal(liveOwner.approvals.length, 0);
+  assert.equal(liveOwner.journals.length, 0);
+  assert.equal(liveOwner.providers.length, 0);
+  assert.equal(liveOwner.bookings.length, 0);
+  assert.equal(ownerProved.hmac_verified, true);
+  assert.equal(ownerProved.logs_correlated, true);
+  assert.equal(ownerProved.draftChars > 0, true);
+  assert.equal(ownerProved.public.ok, true);
+  assert.doesNotMatch(JSON.stringify(ownerProved.public), new RegExp(V, 'i'));
+  assert.doesNotMatch(JSON.stringify(ownerProved.public), new RegExp(LIVE_NOTES));
+  assert.doesNotMatch(JSON.stringify(ownerProved.public), new RegExp(LIVE_EN_BODY));
+  await stopFake(ownerFake);
+  console.log('  PASS  live proof driver calls production Create Draft owner once with HMAC request_id');
+
+  const bodyOnly = proofStore();
+  const bodyOnlyProof = createMailMvp007LiveProof({
+    withPgClient: bodyOnly.proofPg,
+    createDraft: async () => ({
+      status: 'draft_ready',
+      draft_text: LIVE_EN_BODY,
+      marker: MARK,
+      authenticity: AUTH,
+    }),
+    correlateAttempt: correlateOk,
+  });
+  const bodyOnlyResult = await bodyOnlyProof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(bodyOnlyResult.ok, false);
+  assert.equal(bodyOnlyResult.reason, 'draft_not_persisted');
+
+  const missingAuth = proofStore();
+  const missingAuthProof = createMailMvp007LiveProof({
+    withPgClient: missingAuth.proofPg,
     createDraft: async () => {
-      counts.draft = LIVE_EN_BODY.length;
+      persistDraft(missingAuth.counts);
+      return { status: 'draft_ready', draft_text: LIVE_EN_BODY, marker: MARK };
+    },
+  });
+  const missingAuthResult = await missingAuthProof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(missingAuthResult.ok, false);
+  assert.equal(missingAuthResult.reason, 'authenticity_mismatch');
+
+  const forgedHmac = proofStore();
+  const forgedProof = createMailMvp007LiveProof({
+    withPgClient: forgedHmac.proofPg,
+    createDraft: async () => {
+      persistDraft(forgedHmac.counts);
       return {
         status: 'draft_ready',
         draft_text: LIVE_EN_BODY,
-        marker: { provider: 'openai-codex', model: 'gpt-5.6-sol', runtime: 'sunset-email-luna' },
+        marker: MARK,
+        authenticity: { alg: 'HMAC-SHA256', request_id: RID, hmac_verified: false },
       };
     },
   });
-  const proved = await proof.runOnce({ actor: actor(), conversation_id: V });
-  assert.equal(proved.ok, true);
-  assert.equal(proved.invoked, 1);
-  assert.equal(proved.deltas.approvals, 0);
-  assert.equal(proved.deltas.journal, 0);
-  assert.equal(proved.deltas.sends, 0);
-  assert.equal(proved.deltas.bookings, 0);
-  const side = createMailMvp007LiveProof({
-    withPgClient: proofPg,
+  const forgedResult = await forgedProof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(forgedResult.ok, false);
+  assert.equal(forgedResult.reason, 'authenticity_mismatch');
+
+  const mismatched = proofStore();
+  const mismatchedProof = createMailMvp007LiveProof({
+    withPgClient: mismatched.proofPg,
     createDraft: async () => {
-      counts.approvals += 1;
+      persistDraft(mismatched.counts);
+      return { status: 'draft_ready', draft_text: LIVE_EN_BODY, marker: MARK, authenticity: AUTH };
+    },
+    correlateAttempt: async () => ({ ok: true, request_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
+  });
+  const mismatchedResult = await mismatchedProof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(mismatchedResult.ok, false);
+  assert.equal(mismatchedResult.reason, 'request_id_mismatch');
+
+  const badProv = proofStore();
+  const badProvProof = createMailMvp007LiveProof({
+    withPgClient: badProv.proofPg,
+    createDraft: async () => {
+      persistDraft(badProv.counts);
       return {
         status: 'draft_ready',
         draft_text: LIVE_EN_BODY,
-        marker: { provider: 'openai-codex', model: 'gpt-5.6-sol', runtime: 'sunset-email-luna' },
+        marker: { provider: 'openai', model: 'gpt-4o-mini', runtime: 'sunset-email-luna' },
+        authenticity: AUTH,
       };
     },
   });
-  const leaked = await side.runOnce({ actor: actor(), conversation_id: V });
+  const badProvResult = await badProvProof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(badProvResult.ok, false);
+  assert.equal(badProvResult.reason, 'authenticity_mismatch');
+
+  const side = proofStore();
+  const sideProof = createMailMvp007LiveProof({
+    withPgClient: side.proofPg,
+    createDraft: async () => {
+      persistDraft(side.counts);
+      side.counts.approvals += 1;
+      return { status: 'draft_ready', draft_text: LIVE_EN_BODY, marker: MARK, authenticity: AUTH };
+    },
+  });
+  const leaked = await sideProof.runOnce({ actor: actor(), conversation_id: V });
   assert.equal(leaked.ok, false);
   assert.equal(leaked.reason, 'side_effect');
-  console.log('  PASS  live proof helper is one Create Draft with zero send/approval/journal/booking deltas');
+
+  const fake200 = proofStore();
+  const fake200Proof = createMailMvp007LiveProof({
+    withPgClient: fake200.proofPg,
+    createDraft: async () => ({
+      status: 'draft_ready',
+      success: true,
+      conversation_id: V,
+      message_text: LIVE_EN_BODY,
+      draft_text: LIVE_EN_BODY,
+    }),
+  });
+  const fake200Result = await fake200Proof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(fake200Result.ok, false);
+  assert.equal(fake200Result.reason, 'fake_staff_200');
+
+  const missingCounts = proofStore();
+  const missingCountsPg = async (fn) => fn({
+    async query(sql) {
+      if (/FROM bookings/.test(sql)) return { rows: [] };
+      return missingCounts.proofPg((pg) => pg.query(sql));
+    },
+  });
+  const missingCountsProof = createMailMvp007LiveProof({
+    withPgClient: missingCountsPg,
+    createDraft: async () => ({ status: 'draft_ready', draft_text: LIVE_EN_BODY, marker: MARK, authenticity: AUTH }),
+  });
+  const missingCountsResult = await missingCountsProof.runOnce({ actor: actor(), conversation_id: V });
+  assert.equal(missingCountsResult.ok, false);
+  assert.equal(missingCountsResult.reason, 'counts_unavailable');
+
+  const redacted = redactSensitive(`${V} ${LIVE_NOTES} tyler@example.test Bearer tokendata`, [V]);
+  assert.doesNotMatch(redacted, new RegExp(V, 'i'));
+  assert.doesNotMatch(redacted, /Thank them/);
+  assert.doesNotMatch(redacted, /tyler@example/);
+  assert.doesNotMatch(redacted, /Bearer tokendata/);
+  const pub = publicProofOutput({
+    ok: true, invoked: 1, draftChars: 12, cas_advanced: true,
+    deltas: { approvals: 0, journal: 0, sends: 0, bookings: 0 },
+    marker: MARK, request_id: RID, logs_correlated: true,
+  });
+  assert.equal(pub.request_id, RID);
+  assert.doesNotMatch(JSON.stringify(pub), /draft_text|message_text|operator_context|conversation_id/);
+
+  const disabled = await runMailMvp007CreateDraftProof({ env: { LUNA_DEPLOYMENT: 'sunset-staging' } });
+  assert.equal(disabled.ok, false);
+  assert.equal(disabled.reason, 'live_proof_disabled');
+  const innerDisabled = await runStaffOwnerProof({
+    env: { LUNA_DEPLOYMENT: 'sunset-staging', EMAIL_LUNA_PROOF_CONVERSATION_ID: V },
+    conversation_id: V,
+    withPgClient: proofStore().proofPg,
+  });
+  assert.equal(innerDisabled.ok, false);
+  assert.equal(innerDisabled.reason, 'staff_owner_disabled');
+
+  const innerOk = proofStore({ approvals: 0, journal: 0, sends: 0, bookings: 0 });
+  const innerProof = await runStaffOwnerProof({
+    env: {
+      LUNA_DEPLOYMENT: 'sunset-staging',
+      EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+      EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+      EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+    },
+    conversation_id: V,
+    actor: actor(),
+    withPgClient: innerOk.proofPg,
+    wired: {
+      createDraft: brandProductionCreateDraft(async () => {
+        persistDraft(innerOk.counts);
+        return { status: 'draft_ready', draft_text: LIVE_EN_BODY, marker: MARK, authenticity: AUTH };
+      }),
+    },
+  });
+  assert.equal(innerProof.ok, true);
+  assert.equal(innerProof.hmac_verified, true);
+
+  const execArgs = buildStaffOwnerExecArgs(V);
+  assert.match(execArgs.join(' '), /containerapp exec/);
+  assert.match(execArgs.join(' '), /luna-sunset-staging-staff-api/);
+  assert.match(execArgs.join(' '), /MAIL_MVP_007_STAFF_OWNER_PROOF=1/);
+  assert.doesNotMatch(execArgs.join(' '), /approve-send/);
+  const logArgs = buildEmailLunaAttemptLogsArgs(RID);
+  assert.match(logArgs.join(' '), /logs show/);
+  assert.match(logArgs.join(' '), new RegExp(`request_id=${RID}`));
+  assert.doesNotMatch(logArgs.join(' '), new RegExp(V, 'i'));
+
+  const deployed = await runDeployedCreateDraftProof({
+    env: { LUNA_DEPLOYMENT: 'sunset-staging', EMAIL_LUNA_PROOF_CONVERSATION_ID: V },
+    conversation_id: V,
+    execStaff: async (args) => {
+      assert.match(args.join(' '), /create-draft\.js/);
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          ok: true, invoked: 1, draft_persisted: true, draft_changed: true,
+          draftChars: 40, hmac_verified: true, marker: MARK, request_id: RID,
+          deltas: { approvals: 0, journal: 0, sends: 0, bookings: 0 },
+        }),
+      };
+    },
+    showLogs: async () => ({
+      status: 0,
+      stdout: JSON.stringify([{ Log: attemptLog(RID) }]),
+    }),
+  });
+  assert.equal(deployed.ok, true);
+  assert.equal(deployed.logs_correlated, true);
+  assert.equal(deployed.public.request_id, RID);
+
+  const fakeDeployed = await runDeployedCreateDraftProof({
+    env: { LUNA_DEPLOYMENT: 'sunset-staging' },
+    conversation_id: V,
+    execStaff: async () => ({
+      status: 0,
+      stdout: JSON.stringify({
+        ok: true, success: true, message_text: LIVE_EN_BODY, draftChars: 40,
+        deltas: { approvals: 0, journal: 0, sends: 0, bookings: 0 },
+      }),
+    }),
+    showLogs: async () => ({ status: 0, stdout: attemptLog(RID) }),
+  });
+  assert.equal(fakeDeployed.ok, false);
+  assert.equal(fakeDeployed.reason, 'fake_staff_200');
+
+  const wired = createProductionStaffCreateDraftOwner({
+    withPgClient: async () => { throw new Error('no_db'); },
+  });
+  assert.equal(typeof wired.createDraft, 'function');
+  assert.equal(isProductionCreateDraft(wired.createDraft), true);
+  assert.equal(wired.route, PROOF_ROUTE);
+  assert.equal(PROOF_ROUTE, '/staff/inbox/email/create-draft');
+
+  const proofSrc = readFile('scripts/lib/email-luna-sunset-email-hermes-sol-live-proof.js');
+  const proveSrc = readFile('scripts/prove-mail-mvp-007-create-draft.js');
+  assert.match(proofSrc, /createStaffEmailLunaDraftOpen/);
+  assert.match(proofSrc, /regenerateEmailLunaDraftOnStaffClick/);
+  assert.match(proofSrc, /\/staff\/inbox\/email\/create-draft/);
+  assert.doesNotMatch(proofSrc, /__MAIL_MVP_007_/);
+  assert.doesNotMatch(proofSrc, /MAIL_MVP_007_INPROCESS_PROOF/);
+  assert.doesNotMatch(proveSrc, /__MAIL_MVP_007_/);
+  assert.doesNotMatch(proveSrc, /MAIL_MVP_007_INPROCESS_PROOF/);
+  assert.doesNotMatch(proveSrc, /STAFF_OPERATOR_COOKIE/);
+  assert.doesNotMatch(proofSrc, /handleApprove|approveAndSend|appendOutboundJournal\(|callProvider\(/);
+  assert.doesNotMatch(proveSrc, /handleApprove|approveAndSend|\/staff\/inbox\/email\/approve-send/);
+
+  const refused = spawnSync(process.execPath, ['scripts/prove-mail-mvp-007-create-draft.js'], {
+    cwd: ROOT, encoding: 'utf8', env: { ...process.env, MAIL_MVP_007_LIVE_PROOF: '1', LUNA_DEPLOYMENT: 'sunset-staging' },
+  });
+  assert.notEqual(refused.status, 0);
+  assert.doesNotMatch(`${refused.stdout}${refused.stderr}`, new RegExp(V, 'i'));
+  console.log('  PASS  live proof rejects body-only, forged HMAC, fake Staff 200, side effects, and redacts PII');
 
   const srcFiles = [
     'scripts/lib/email-luna-sunset-email-hermes-sol-client.js',
@@ -1050,6 +1350,12 @@ function assertNoSecretsLogged(hits) {
   assert.match(runbook, /containerapp env storage set/);
   assert.match(runbook, /EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET/);
   assert.match(runbook, /prove-mail-mvp-007-create-draft\.js/);
+  assert.match(runbook, /containerapp exec/);
+  assert.match(runbook, /luna-sunset-staging-staff-api/);
+  assert.match(runbook, /contains\(Log, 'request_id=\$\{REQUEST_ID\}'\)/);
+  assert.doesNotMatch(runbook, /MAIL_MVP_007_INPROCESS_PROOF/);
+  assert.doesNotMatch(runbook, /__MAIL_MVP_007_/);
+  assert.doesNotMatch(runbook, /EMAIL_LUNA_PROOF_CONVERSATION_ID=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
   assert.match(runbook, /environmentId/);
   assert.doesNotMatch(runbook, /lunabox-reachability-as-operator-directs/);
   assert.doesNotMatch(runbook, /hermes chat --no-stream --json/);

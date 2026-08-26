@@ -330,47 +330,36 @@ Local HTTP probe is loopback-only. Transport 200 without live attempt provenance
 
 ## Controlled Create Draft proof
 
-Use one existing eligible Sunset email conversation. Do not print guest identifiers or content.
+Use one existing eligible Sunset email conversation. Do not print guest identifiers, the conversation UUID, notes, tokens, or draft content. Operator supplies the conversation UUID via env; the script validates tenant `sunset` / location `sunset-somo` and redacts the value.
 
-Before (aggregate counts only):
+There is no safe Staff-session login helper that can obtain a cookie without credentials. The proof therefore execs into the deployed Staff container (disabled unless `MAIL_MVP_007_LIVE_PROOF=1` is passed on that exec) and invokes the production `createStaffEmailLunaDraftOpen` / `regenerateEmailLunaDraftOnStaffClick` owner — the same owner `POST /staff/inbox/email/create-draft` uses. Notes are exactly: `Thank them for the msg and then ask them if they want to do a booking`. Invoke Create Draft **once**. Never call approve/send/provider endpoints.
 
 ```bash
+AZ=/opt/data/home/.local/bin/az
 # conversation uuid stays in the env var; do not echo it
 : "${EMAIL_LUNA_PROOF_CONVERSATION_ID:?set the existing conversation uuid}"
-```
-
-The bounded helper is `scripts/lib/email-luna-sunset-email-hermes-sol-live-proof.js`. On the Staff host (existing operator actor, in-process owner — never a new public route):
-
-```bash
 MAIL_MVP_007_LIVE_PROOF=1 \
 LUNA_DEPLOYMENT=sunset-staging \
-EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED=true \
 EMAIL_LUNA_PROOF_CONVERSATION_ID="$EMAIL_LUNA_PROOF_CONVERSATION_ID" \
-MAIL_MVP_007_INPROCESS_PROOF=1 \
+AZ="$AZ" \
 node scripts/prove-mail-mvp-007-create-draft.js
 ```
 
-Wire `global.__MAIL_MVP_007_WITH_PG__`, `__MAIL_MVP_007_CREATE_DRAFT__` (existing `regenerateEmailLunaDraftOnStaffClick`), and `__MAIL_MVP_007_ACTOR__` (existing operator) in that process. Notes must be exactly: `Thank them for the msg and then ask them if they want to do a booking`. Invoke Create Draft **once**.
+That command:
 
-After, the helper records only:
-
-- `marker.provider=openai-codex`, `marker.model=gpt-5.6-sol`, `marker.runtime=sunset-email-luna`
-- `deltas.approvals=0` (Create Draft writes the standing `staff_reply_draft` row only; it must not insert `tenant_email_reply_approvals`)
-- `deltas.journal=0`
-- `deltas.sends=0`
-- `deltas.bookings=0`
-- `draftChars` changed (body hash/length only)
-
-Never call approve/send/provider endpoints.
-
-Dedicated ACA logs for the same `request_id` (secret-free):
+1. `"$AZ" containerapp exec -g "$RG" -n "$STAFF_APP" --command "env MAIL_MVP_007_LIVE_PROOF=1 MAIL_MVP_007_STAFF_OWNER_PROOF=1 EMAIL_LUNA_PROOF_CONVERSATION_ID=$EMAIL_LUNA_PROOF_CONVERSATION_ID node scripts/prove-mail-mvp-007-create-draft.js"` — Staff-side, default-off owner proof (the extra env is only on this exec; it is not a Staff container setting). Do not echo `$EMAIL_LUNA_PROOF_CONVERSATION_ID`.
+2. Captures before/after aggregates from canonical tables. Persisted `conversations.staff_reply_draft` length must be `>0` and must change from baseline, or the standing-draft CAS `claim_id` / body hash must advance. Approval / outbound journal / provider-send / booking deltas must be `0`. Missing counts fail closed (never fake zeros).
+3. Requires Staff-verified response HMAC: `authenticity.request_id` + `hmac_verified=true` + `provider=openai-codex` + `model=gpt-5.6-sol` + `runtime=sunset-email-luna`. A fake Staff HTTP 200 with only `message_text` cannot satisfy proof.
+4. Correlates the same opaque `request_id` to Email Luna structured attempt logs:
 
 ```bash
-"$AZ" containerapp logs show -g "$RG" -n "$APP" --type console --tail 200
-# expect: email-draft-server attempt request_id=<uuid> provider=openai-codex model=gpt-5.6-sol runtime=sunset-email-luna hmac=ok
+"$AZ" containerapp logs show -g "$RG" -n "$APP" --type console --tail 200 --format json --query "[?contains(Log, 'request_id=${REQUEST_ID}')]"
+# expect: email-draft-server attempt request_id=<opaque> provider=openai-codex model=gpt-5.6-sol runtime=sunset-email-luna hmac=ok
 ```
 
-Staff accepted the transport-bound marker because the response HMAC covers request id + authority + provider + model + runtime + plan hash. Bearer alone is not response proof. A fake 200 JSON without the service HMAC is rejected.
+`REQUEST_ID` is the opaque id from the proof JSON (`request_id` / `request_id_prefix`). Do not put guest data in the query.
+
+Successful stdout is aggregate booleans/count deltas plus opaque `request_id` only. Nonzero exit on any missing proof. The previous fake in-process globals harness is removed.
 
 ## Restart persistence proof (hash/mtime only)
 

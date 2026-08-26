@@ -301,12 +301,22 @@ function createEmailLunaSunsetEmailHermesSolClient(configuration) {
     }
     const marker = closedRuntimeMarker(parsed.value.provenance);
     if (!marker) return fail('provenance_mismatch');
+    const authenticity = parsed.value.authenticity;
+    const verifiedRequestId = authenticity && ownData(authenticity, 'request_id');
+    if (typeof verifiedRequestId !== 'string' || verifiedRequestId !== requestId) {
+      return fail('provenance_mismatch');
+    }
     return freeze({
       status: 'ok',
       reason: null,
       planJson: parsed.value.actsJson || parsed.value.planJson,
       marker,
       provenance: parsed.value.provenance,
+      authenticity: freeze({
+        alg: ownData(authenticity, 'alg') || 'HMAC-SHA256',
+        request_id: verifiedRequestId,
+        hmac_verified: true,
+      }),
     });
   }
 
