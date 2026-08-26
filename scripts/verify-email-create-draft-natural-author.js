@@ -2,14 +2,15 @@
 
 /**
  * MAIL-MVP-001-FIX-2 — Create Draft must author a natural guest-facing reply
- * from the authoritative thread plus private staff goals. The deterministic
- * "We also wanted to add:" wrapper is the live Sunset failure.
+ * from a closed enumerated plan. The model cannot return guest-facing prose
+ * because that field does not exist. The deterministic renderer owns EN/ES copy.
  */
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 const {
@@ -25,6 +26,12 @@ const {
 const {
   hasHardTruthClaim,
 } = require('./lib/email-luna-hard-truth-claims');
+const {
+  SAFE_CREATE_DRAFT_NATURAL_ACTS,
+  CREATE_DRAFT_NATURAL_RENDER_COPY,
+  parseCreateDraftNaturalPlan,
+  renderCreateDraftNaturalPlan,
+} = require('./lib/email-luna-create-draft-natural-author');
 
 const C = '11111111-1111-4111-8111-111111111111';
 const L = '22222222-2222-4222-8222-222222222222';
@@ -44,6 +51,25 @@ const WRAPPER = /we also wanted to add|tambi[eé]n quer[ií]amos a[nñ]adir/i;
 const STAFF_VOICE = /staff notes|staff instruction|operator context|thank them|ask them|tell them/i;
 const BOOKING_QUESTION = /would you like to (?:make a |do a )?booking|want to make a booking|\bhacer una reserva\b|\bquieres (?:hacer )?una reserva\b/i;
 const THANKS = /thanks for (?:your )?message|gracias por (?:tu |el )?mensaje/i;
+const REVIEWER_BYPASSES = Object.freeze([
+  'Te confirmamos la reserva.',
+  'Reserva confirmada.',
+  "I've reserved the room.",
+  'Your stay is confirmed.',
+  'It is 50 nightly.',
+  'Es 50 por la noche.',
+  'Here is the link to pay.',
+  'Paga ya.',
+  'evil.test/pay',
+  'Te guardamos la habitación.',
+  'Hay camas para el sábado.',
+]);
+const LIVE_EN_BODY = renderCreateDraftNaturalPlan({
+  acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
+}, 'en');
+const LIVE_ES_BODY = renderCreateDraftNaturalPlan({
+  acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
+}, 'es');
 
 function authority() {
   return {
@@ -88,6 +114,9 @@ function assertPrivateStaffGoalsPrompt(prompt, expectedGoals) {
   assert.match(prompt.system, /never guest copy|never quote|private staff/i);
   assert.doesNotMatch(prompt.system, WRAPPER);
   assert.match(prompt.system, /no prices|no availability|no payment|no booking/i);
+  assert.match(prompt.system, /closed enumerated|allowed acts/i);
+  assert.doesNotMatch(prompt.system, /\{\s*"body"\s*:\s*string\s*\}/);
+  assert.match(prompt.system, /thank_guest|ask_booking_interest/);
   const payload = parsePromptPayload(prompt);
   assert.equal(typeof payload.untrusted_email, 'object');
   assert.equal(Object.prototype.hasOwnProperty.call(payload.untrusted_email, 'quoted_history'), true);
@@ -102,36 +131,24 @@ function assertPrivateStaffGoalsPrompt(prompt, expectedGoals) {
   return payload;
 }
 
-function naturalEnglishBody(goals) {
+function planFromGoals(goals) {
   const g = String(goals || '').toLowerCase();
-  const lines = ['Hi,'];
-  if (/thank/.test(g)) lines.push('Thanks for your message.');
-  else lines.push('Thanks for getting in touch.');
-  if (/loft/.test(g)) lines.push('The loft is part of the house if that helps with planning.');
-  if (/beds/.test(g)) lines.push('Could you tell us a bit more about the beds you need?');
-  if (/book/.test(g)) lines.push('Would you like to make a booking?');
-  lines.push('Warm regards,', 'Luna');
-  return `${lines[0]}\n\n${lines.slice(1, -2).join('\n\n')}\n\n${lines.at(-2)}\n${lines.at(-1)}`;
-}
-
-function naturalSpanishBody(goals) {
-  const g = String(goals || '').toLowerCase();
-  const lines = ['Hola,'];
-  if (/thank|gracias/.test(g)) lines.push('Gracias por tu mensaje.');
-  else lines.push('Gracias por escribirnos.');
-  if (/loft/.test(g)) lines.push('El loft forma parte de la casa si te ayuda a planificar.');
-  if (/beds|camas/.test(g)) lines.push('¿Podrías contarnos un poco más sobre las camas que necesitáis?');
-  if (/book|reserva/.test(g)) lines.push('¿Quieres hacer una reserva?');
-  lines.push('Un saludo cálido,', 'Luna');
-  return `${lines[0]}\n\n${lines.slice(1, -2).join('\n\n')}\n\n${lines.at(-2)}\n${lines.at(-1)}`;
+  const acts = [];
+  if (/thank|gracias/.test(g)) acts.push({ act: 'thank_guest' });
+  else if (String(goals || '').trim()) acts.push({ act: 'acknowledge_message' });
+  if (/\bloft\b/.test(g)) acts.push({ act: 'ask_clarifying_question', topic: 'loft' });
+  if (/\bbeds?\b|\bcamas?\b/.test(g)) acts.push({ act: 'ask_clarifying_question', topic: 'beds' });
+  if (/\bbook|\breserva/.test(g)) acts.push({ act: 'ask_booking_interest' });
+  if (/\bavailable if\b|\bneed anything\b|\bhold while\b/.test(g)) {
+    acts.push({ act: 'offer_human_followup' });
+  }
+  return { acts };
 }
 
 function naturalMock(prompt) {
   const payload = parsePromptPayload(prompt);
   const goals = payload.private_staff_goals && payload.private_staff_goals.goals;
-  const language = payload.language === 'es' ? 'es' : 'en';
-  const body = language === 'es' ? naturalSpanishBody(goals) : naturalEnglishBody(goals);
-  return Promise.resolve(JSON.stringify({ body }));
+  return Promise.resolve(JSON.stringify(planFromGoals(goals)));
 }
 
 function policyFor(callModel) {
@@ -163,14 +180,6 @@ function assertGuestFacingNatural(body, { goals, language = 'en' }) {
   assert.match(body, /Luna\s*$/);
 }
 
-function wrapEn(claim) {
-  return `Hi,\n\nThanks for your message.\n\n${claim}\n\nWould you like to make a booking?\n\nWarm regards,\nLuna`;
-}
-
-function wrapEs(claim) {
-  return `Hola,\n\nGracias por tu mensaje.\n\n${claim}\n\n¿Quieres hacer una reserva?\n\nUn saludo cálido,\nLuna`;
-}
-
 function spanishContent() {
   return content({
     subject: 'Re: Prueba 8 26',
@@ -184,8 +193,8 @@ function assertFailClosed(result, label) {
   assert.equal(!result.body || !String(result.body).trim(), true, label);
 }
 
-async function composeModel({ body, raw, untrusted, context, timeoutMs, callModel } = {}) {
-  const fn = callModel || (async () => Promise.resolve(raw != null ? raw : JSON.stringify({ body })));
+async function composeModel({ acts, raw, untrusted, context, timeoutMs, callModel } = {}) {
+  const fn = callModel || (async () => Promise.resolve(raw != null ? raw : JSON.stringify({ acts })));
   return policyFor(fn).compose({
     authority: authority(),
     untrusted_content: untrusted || content(),
@@ -392,6 +401,76 @@ function makeOwner(options = {}) {
 (async () => {
   console.log('verify:email-create-draft-natural-author');
 
+  assert.deepEqual(SAFE_CREATE_DRAFT_NATURAL_ACTS.slice().sort(), [
+    'acknowledge_message',
+    'ask_booking_interest',
+    'ask_clarifying_question',
+    'offer_human_followup',
+    'thank_guest',
+  ]);
+  for (const forbidden of [
+    'confirm_booking', 'create_booking', 'quote_price', 'claim_availability',
+    'send_payment_link', 'hold_room', 'body', 'copy', 'sentence', 'prose',
+  ]) {
+    assert.equal(SAFE_CREATE_DRAFT_NATURAL_ACTS.includes(forbidden), false, forbidden);
+  }
+  const renderJoined = JSON.stringify(CREATE_DRAFT_NATURAL_RENDER_COPY);
+  assert.match(renderJoined, /Would you like to make a booking\?/);
+  assert.match(renderJoined, /¿Quieres hacer una reserva\?/);
+  assert.doesNotMatch(renderJoined, /€|https?:\/\/|stripe|confirmada|confirmed|disponib|pay now|paga ya|habitaci/i);
+  assert.equal(
+    parseCreateDraftNaturalPlan(JSON.stringify({ body: 'Your stay is confirmed.' })),
+    null,
+  );
+  assert.equal(
+    parseCreateDraftNaturalPlan(JSON.stringify({ copy: "I've reserved the room." })),
+    null,
+  );
+  assert.equal(
+    parseCreateDraftNaturalPlan(JSON.stringify({ acts: [{ act: 'thank_guest' }], body: 'Paga ya.' })),
+    null,
+  );
+  assert.equal(
+    parseCreateDraftNaturalPlan(JSON.stringify({ acts: [{ act: 'thank_guest', sentence: 'Reserva confirmada.' }] })),
+    null,
+  );
+  assert.equal(
+    parseCreateDraftNaturalPlan(JSON.stringify({ acts: [{ act: 'thank_guest', extra: true }] })),
+    null,
+  );
+  assert.equal(
+    parseCreateDraftNaturalPlan(JSON.stringify({ acts: [{ act: 'confirm_booking' }] })),
+    null,
+  );
+  assert.equal(
+    parseCreateDraftNaturalPlan(JSON.stringify({ acts: ['thank_guest'] })),
+    null,
+  );
+  assert.ok(parseCreateDraftNaturalPlan(JSON.stringify({
+    acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
+  })));
+  assert.equal(LIVE_EN_BODY, [
+    'Hi,',
+    '',
+    'Thanks for your message.',
+    '',
+    'Would you like to make a booking?',
+    '',
+    'Warm regards,',
+    'Luna',
+  ].join('\n'));
+  assert.equal(LIVE_ES_BODY, [
+    'Hola,',
+    '',
+    'Gracias por tu mensaje.',
+    '',
+    '¿Quieres hacer una reserva?',
+    '',
+    'Un saludo cálido,',
+    'Luna',
+  ].join('\n'));
+  console.log('  PASS  class-level schema has no prose field; extra keys and unknown acts fail');
+
   const documentedLiveFailure = liveFailureWrapperBody();
   assert.match(documentedLiveFailure, WRAPPER);
   assert.match(documentedLiveFailure, /Thank them for the msg/);
@@ -421,6 +500,7 @@ function makeOwner(options = {}) {
   assert.equal(composed.draft_only, true);
   assert.equal(composed.kind, 'authored');
   assert.notEqual(composed.body, documentedLiveFailure);
+  assert.equal(composed.body, LIVE_EN_BODY);
   assertGuestFacingNatural(composed.body, { goals: LIVE_NOTES });
   assert.match(composed.body, THANKS);
   assert.match(composed.body, BOOKING_QUESTION);
@@ -455,6 +535,7 @@ function makeOwner(options = {}) {
   });
   assert.equal(spanish.status, 'draft_ready');
   assert.equal(spanish.language, 'es');
+  assert.equal(spanish.body, LIVE_ES_BODY);
   assertGuestFacingNatural(spanish.body, { goals: LIVE_NOTES, language: 'es' });
   assert.match(spanish.body, /Gracias por tu mensaje/);
   assert.match(spanish.body, /¿Quieres hacer una reserva\?/);
@@ -491,6 +572,31 @@ function makeOwner(options = {}) {
   assert.doesNotMatch(hostile.body, /€50|available|evil\.test|create the booking/i);
   console.log('  PASS  staff notes cannot override no-price/no-availability/no-payment/no-booking-authority');
 
+  for (const claim of REVIEWER_BYPASSES) {
+    assert.equal(hasHardTruthClaim(claim), true, claim);
+    const asGoal = await policyFor(naturalMock).compose({
+      authority: authority(),
+      untrusted_content: content(),
+      operator_context: claim,
+      env: env(),
+      callModel: naturalMock,
+    });
+    assert.equal(asGoal.status, 'draft_ready', claim);
+    assert.doesNotMatch(String(asGoal.body || ''), new RegExp(claim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+    assert.doesNotMatch(String(asGoal.body || ''), /confirmada|I've reserved|stay is confirmed|50 nightly|por la noche|link to pay|paga ya|evil\.test|guardamos|hay camas/i);
+    for (const raw of [
+      JSON.stringify({ body: claim }),
+      JSON.stringify({ acts: [{ act: 'thank_guest' }], body: claim }),
+      JSON.stringify({ acts: [{ act: 'thank_guest', copy: claim }] }),
+      JSON.stringify({ acts: [{ act: 'thank_guest', sentence: claim }] }),
+    ]) {
+      const smuggled = await composeModel({ raw });
+      assertFailClosed(smuggled, `smuggle ${claim}`);
+      assert.doesNotMatch(String(smuggled.body || ''), new RegExp(claim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+    }
+  }
+  console.log('  PASS  reviewer EN/ES bypasses fail as staff goals and as model smuggling');
+
   const listedOutputBypasses = [
     ['en', 'Tu reserva está confirmada.'],
     ['en', 'Hay disponibilidad para el sábado.'],
@@ -500,13 +606,8 @@ function makeOwner(options = {}) {
     ['en', 'We can fit you in tomorrow.'],
     ['en', 'It is 50 a night.'],
   ];
-  for (const [language, claim] of listedOutputBypasses) {
-    assert.equal(hasHardTruthClaim(claim), true, claim);
-    const body = language === 'es' ? wrapEs(claim) : wrapEn(claim);
-    assert.equal(hasHardTruthClaim(body), true, body);
-    const result = await composeModel({ body });
-    assertFailClosed(result, claim);
-    assert.doesNotMatch(String(result.body || ''), new RegExp(claim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+  for (const [, claim] of listedOutputBypasses) {
+    assertFailClosed(await composeModel({ raw: JSON.stringify({ body: claim }) }), claim);
   }
   console.log('  PASS  listed EN/ES invented hard-truth model outputs fail closed');
 
@@ -519,8 +620,10 @@ function makeOwner(options = {}) {
     'Cincuenta por noche.',
   ];
   for (const claim of spanishHostileOutputs) {
-    const body = wrapEs(claim);
-    const result = await composeModel({ body, untrusted: spanishContent() });
+    const result = await composeModel({
+      raw: JSON.stringify({ body: claim }),
+      untrusted: spanishContent(),
+    });
     assertFailClosed(result, claim);
     assert.doesNotMatch(String(result.body || ''), /confirmada|disponibilidad|hemos reservado|enlace de pago|50 por noche|cincuenta/i);
   }
@@ -556,40 +659,73 @@ function makeOwner(options = {}) {
   console.log('  PASS  Spanish/EN hostile staff goals are dropped at input filtering');
 
   const bookingQuestionEn = await composeModel({
-    body: wrapEn('Could you tell us a bit more about the beds you need?'),
+    acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
   });
   assert.equal(bookingQuestionEn.status, 'draft_ready');
+  assert.equal(bookingQuestionEn.body, LIVE_EN_BODY);
   assertGuestFacingNatural(bookingQuestionEn.body, { goals: LIVE_NOTES });
   assert.match(bookingQuestionEn.body, BOOKING_QUESTION);
   const bookingQuestionEs = await composeModel({
-    body: wrapEs('¿Podrías contarnos un poco más sobre las camas que necesitáis?'),
+    acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
     untrusted: spanishContent(),
   });
   assert.equal(bookingQuestionEs.status, 'draft_ready');
+  assert.equal(bookingQuestionEs.body, LIVE_ES_BODY);
   assertGuestFacingNatural(bookingQuestionEs.body, { goals: LIVE_NOTES, language: 'es' });
   assert.match(bookingQuestionEs.body, /¿Quieres hacer una reserva\?/);
   console.log('  PASS  valid EN/ES booking questions remain allowed');
 
-  const benignHold = await composeModel({
-    body: wrapEn('Please hold while we check with the house.'),
+  const conversationalHold = await policyFor(naturalMock).compose({
+    authority: authority(),
+    untrusted_content: content(),
+    operator_context: 'Please hold while we check with the house.',
+    env: env(),
+    callModel: naturalMock,
   });
-  assert.equal(benignHold.status, 'draft_ready');
-  assert.match(benignHold.body, /Please hold while we check with the house/);
+  assert.equal(conversationalHold.status, 'draft_ready');
+  assert.notEqual(conversationalHold.body, SAFE_ACKNOWLEDGMENT.en);
+  assert.doesNotMatch(conversationalHold.body, /hold the room|holding the room|on hold/i);
   assert.equal(hasHardTruthClaim('Please hold while we check with the house'), false);
+  const conversationalAvail = await policyFor(naturalMock).compose({
+    authority: authority(),
+    untrusted_content: content(),
+    operator_context: "I'm available if you need anything.",
+    env: env(),
+    callModel: naturalMock,
+  });
+  assert.equal(conversationalAvail.status, 'draft_ready');
+  assert.notEqual(conversationalAvail.body, SAFE_ACKNOWLEDGMENT.en);
+  assert.doesNotMatch(conversationalAvail.body, /bed is available|hay camas|disponibilidad/i);
+  assert.equal(hasHardTruthClaim("I'm available if you need anything"), false);
   const inventoryHold = await composeModel({
-    body: wrapEn('We can hold the room for you.'),
+    raw: JSON.stringify({ acts: [{ act: 'hold_room' }] }),
   });
   assertFailClosed(inventoryHold, 'inventory hold');
-  console.log('  PASS  conversational hold allowed; inventory hold claims fail closed');
+  console.log('  PASS  conversational hold/availability allowed; inventory hold acts fail closed');
 
   const rateBodies = ['It is 50 a night.', 'It is fifty a night.', 'Es 50 por noche.', 'Cincuenta por noche.'];
   for (const claim of rateBodies) {
     assert.equal(hasHardTruthClaim(claim), true, claim);
-    assertFailClosed(await composeModel({ body: wrapEn(claim) }), claim);
+    assertFailClosed(await composeModel({ raw: JSON.stringify({ body: claim }) }), claim);
   }
   console.log('  PASS  integer and word rate paraphrases fail closed');
 
-  const validBody = wrapEn('Could you tell us a bit more about the beds you need?');
+  for (const benign of ['26.08', '12.00', 'check-in 12.00', 'date 26.08']) {
+    assert.equal(hasHardTruthClaim(benign), false, benign);
+  }
+  const dateGoal = await policyFor(naturalMock).compose({
+    authority: authority(),
+    untrusted_content: content(),
+    operator_context: 'Ask about check-in 12.00 on 26.08.',
+    env: env(),
+    callModel: naturalMock,
+  });
+  assert.equal(dateGoal.status, 'draft_ready');
+  assert.notEqual(dateGoal.body, SAFE_ACKNOWLEDGMENT.en);
+  assert.doesNotMatch(dateGoal.body, /€|eur|usd|gbp|price/i);
+  console.log('  PASS  benign date/time/quantity notes are not money');
+
+  const validActs = [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }];
   const timeout = await composeModel({
     timeoutMs: 25,
     callModel: () => new Promise(() => {}),
@@ -600,15 +736,19 @@ function makeOwner(options = {}) {
   assertFailClosed(malformed, 'malformed');
   assert.equal(malformed.reason, 'model_malformed');
   const extraKey = await composeModel({
-    raw: JSON.stringify({ body: validBody, extra: true }),
+    raw: JSON.stringify({ acts: validActs, extra: true }),
   });
   assertFailClosed(extraKey, 'extra-key');
   assert.equal(extraKey.reason, 'model_malformed');
   const extraSend = await composeModel({
-    raw: JSON.stringify({ body: validBody, send_allowed: true }),
+    raw: JSON.stringify({ acts: validActs, send_allowed: true }),
   });
   assertFailClosed(extraSend, 'extra send_allowed');
-  console.log('  PASS  timeout/malformed/extra-key model outputs fail closed');
+  const unknownAct = await composeModel({
+    raw: JSON.stringify({ acts: [{ act: 'thank_guest' }, { act: 'confirm_booking' }] }),
+  });
+  assertFailClosed(unknownAct, 'unknown act');
+  console.log('  PASS  timeout/malformed/extra-key/unknown-act model outputs fail closed');
 
   const pasteModel = await policyFor(async () => Promise.resolve(JSON.stringify({
     body: `Hi,\n\n${LIVE_NOTES}\n\nWarm regards,\nLuna`,
@@ -688,6 +828,7 @@ function makeOwner(options = {}) {
   assert.equal(liveDraft.send_allowed, false);
   assert.equal(liveDraft.auto_send_allowed, false);
   assert.notEqual(liveDraft.draft_text, documentedLiveFailure);
+  assert.equal(liveDraft.draft_text, LIVE_EN_BODY);
   assertGuestFacingNatural(liveDraft.draft_text, { goals: LIVE_NOTES });
   assert.match(liveDraft.draft_text, THANKS);
   assert.match(liveDraft.draft_text, BOOKING_QUESTION);
@@ -743,7 +884,7 @@ function makeOwner(options = {}) {
 
   const extraKeyOwner = makeOwner({
     callModel: async () => Promise.resolve(JSON.stringify({
-      body: wrapEn('Could you tell us a bit more about the beds you need?'),
+      acts: validActs,
       extra: true,
     })),
   });
@@ -785,9 +926,12 @@ function makeOwner(options = {}) {
   assert.match(naturalSrc, /untrusted_private_staff_instructions_never_guest_copy/);
   assert.doesNotMatch(naturalSrc, /We also wanted to add/);
   assert.match(naturalSrc, /require\('\.\/email-luna-hard-truth-claims'\)/);
+  assert.match(naturalSrc, /parseCreateDraftNaturalPlan|SAFE_CREATE_DRAFT_NATURAL_ACTS|renderCreateDraftNaturalPlan/);
+  assert.doesNotMatch(naturalSrc, /\{\s*"body"\s*:\s*string\s*\}/);
   assert.doesNotMatch(naturalSrc, /const PRICE_OR_MONEY|const HOLD_CLAIM|email-luna-draft-validator|validateEmailLunaDraft/);
   assert.match(claimsSrc, /hasHardTruthClaim/);
-  assert.match(claimsSrc, /please hold while we check/i);
+  assert.match(claimsSrc, /defense-in-depth|please hold while we check/i);
+  assert.match(claimsSrc, /I['’]m available if you need anything/i);
   assert.doesNotMatch(claimsSrc, /\\bholds\?\\b\|\\bholding\\b/);
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
@@ -796,6 +940,15 @@ function makeOwner(options = {}) {
     'node scripts/verify-email-create-draft-natural-author.js',
   );
   assert.match(pkg.scripts['verify:mail-mvp-001'], /verify-email-create-draft-natural-author/);
+  for (const rel of [
+    'scripts/lib/email-luna-create-draft-natural-author.js',
+    'scripts/lib/email-luna-hard-truth-claims.js',
+    'scripts/lib/email-luna-create-draft-context.js',
+    'scripts/verify-email-create-draft-natural-author.js',
+  ]) {
+    const checked = spawnSync(process.execPath, ['--check', rel], { cwd: ROOT, encoding: 'utf8' });
+    assert.equal(checked.status, 0, checked.stderr || rel);
+  }
   console.log('PASS MAIL-MVP-001-FIX-2 natural Create Draft author');
 })().catch((error) => {
   console.error(error);

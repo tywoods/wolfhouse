@@ -54,39 +54,13 @@ function naturalMock(prompt) {
   const payload = parsePromptPayload(prompt);
   const goals = String(payload.private_staff_goals && payload.private_staff_goals.goals || '');
   const lower = goals.toLowerCase();
-  const language = payload.language === 'es' ? 'es' : 'en';
-  if (language === 'es') {
-    const lines = ['Hola,'];
-    if (/thank|gracias/.test(lower)) lines.push('Gracias por tu mensaje.');
-    else lines.push('Gracias por escribirnos.');
-    if (/loft/.test(lower)) lines.push('El loft forma parte de la casa si te ayuda a planificar.');
-    if (/beds|camas/.test(lower)) {
-      if (/saturday|agosto|august/.test(lower)) {
-        lines.push('¿Podrías contarnos un poco más sobre esas dos camas para el sábado 26 de agosto?');
-      } else {
-        lines.push('¿Podrías contarnos un poco más sobre las camas que necesitáis?');
-      }
-    }
-    if (/book|reserva/.test(lower)) lines.push('¿Quieres hacer una reserva?');
-    return Promise.resolve(JSON.stringify({
-      body: `${lines[0]}\n\n${lines.slice(1).join('\n\n')}\n\nUn saludo cálido,\nLuna`,
-    }));
-  }
-  const lines = ['Hi,'];
-  if (/thank/.test(lower)) lines.push('Thanks for your message.');
-  else lines.push('Thanks for getting in touch.');
-  if (/loft/.test(lower)) lines.push('The loft is part of the house if that helps with planning.');
-  if (/beds/.test(lower)) {
-    if (/saturday 26 august|saturday, august 26/.test(lower)) {
-      lines.push('Could you tell us a bit more about those two beds for Saturday, August 26?');
-    } else {
-      lines.push('Could you tell us a bit more about the beds you need?');
-    }
-  }
-  if (/book/.test(lower)) lines.push('Would you like to make a booking?');
-  return Promise.resolve(JSON.stringify({
-    body: `${lines[0]}\n\n${lines.slice(1).join('\n\n')}\n\nWarm regards,\nLuna`,
-  }));
+  const acts = [];
+  if (/thank|gracias/.test(lower)) acts.push({ act: 'thank_guest' });
+  else if (goals.trim()) acts.push({ act: 'acknowledge_message' });
+  if (/\bloft\b/.test(lower)) acts.push({ act: 'ask_clarifying_question', topic: 'loft' });
+  if (/\bbeds?\b|\bcamas?\b/.test(lower)) acts.push({ act: 'ask_clarifying_question', topic: 'beds' });
+  if (/\bbook|\breserva/.test(lower)) acts.push({ act: 'ask_booking_interest' });
+  return Promise.resolve(JSON.stringify({ acts }));
 }
 
 function loadOwner() {
@@ -489,8 +463,7 @@ function request(body) {
   assert.doesNotMatch(safeQuantityDraft.draft_text, /Ask about the 2 beds/);
   assert.match(safeQuantityDraft.draft_text, /loft/i);
   assert.match(safeQuantityDraft.draft_text, /beds/i);
-  assert.match(safeQuantityDraft.draft_text, /Saturday/i);
-  assert.match(safeQuantityDraft.draft_text, /August/i);
+  assert.doesNotMatch(safeQuantityDraft.draft_text, /€|eur|usd|gbp|price/i);
   assert.equal(safeQuantity.approvals.length, 0);
   assert.equal(safeQuantity.journals.length, 0);
   assert.equal(safeQuantity.providers.length, 0);

@@ -225,6 +225,36 @@ function capture() {
   assert.equal(extractPermittedOperatorGuidance('We are holding the room'), '');
   assert.equal(hasHardTruthClaim('hold the bed'), true);
 
+  const reviewerBypasses = [
+    'Te confirmamos la reserva.',
+    'Reserva confirmada.',
+    "I've reserved the room.",
+    'Your stay is confirmed.',
+    'It is 50 nightly.',
+    'Es 50 por la noche.',
+    'Here is the link to pay.',
+    'Paga ya.',
+    'evil.test/pay',
+    'Te guardamos la habitación.',
+    'Hay camas para el sábado.',
+  ];
+  for (const claim of reviewerBypasses) {
+    assert.equal(hasHardTruthClaim(claim), true, claim);
+    assert.equal(extractPermittedOperatorGuidance(claim), '', claim);
+  }
+  for (const benign of ['26.08', '12.00', 'check-in 12.00', 'date 26.08']) {
+    assert.equal(hasHardTruthClaim(benign), false, benign);
+  }
+  assert.equal(hasHardTruthClaim("I'm available if you need anything"), false);
+  assert.equal(
+    extractPermittedOperatorGuidance("I'm available if you need anything"),
+    "I'm available if you need anything",
+  );
+  assert.equal(
+    extractPermittedOperatorGuidance('Ask about check-in 12.00 on 26.08.'),
+    'Ask about check-in 12.00 on 26.08',
+  );
+
   const safeQuantity = 'Mention the loft.\nAsk about the 2 beds on Saturday 26 August.';
   assert.equal(
     extractPermittedOperatorGuidance(safeQuantity),
