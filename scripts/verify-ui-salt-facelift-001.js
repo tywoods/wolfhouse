@@ -32,26 +32,26 @@ const en = STAFF_PORTAL_STRINGS.en;
 const es = STAFF_PORTAL_STRINGS.es;
 
 const SALT_LIGHT = {
-  cream: '#F3EEE6',
-  surface: '#FFFBF4',
-  'surface-soft': '#EBE4D8',
-  sand: '#E4D8C8',
-  tan: '#D2C2A8',
-  sage: '#7A8458',
-  olive: '#6A7348',
-  'dusty-blue': '#8A8E86',
-  ocean: '#6E7A70',
-  teal: '#E8DFD0',
-  text: '#1C1914',
-  'text-2': '#5A5348',
-  'text-3': '#8A8276',
-  border: '#E2D6C6',
-  'border-soft': '#EDE4D6',
-  primary: '#3D5C4A',
-  'primary-hover': '#324A3C',
-  focus: '#3D5C4A',
-  'luna-teal': '#3D5C4A',
-  'luna-teal-dark': '#324A3C',
+  cream: '#F5F5F7',
+  surface: '#FFFFFF',
+  'surface-soft': '#F2F2F7',
+  sand: '#E5E5EA',
+  tan: '#D1D1D6',
+  sage: '#1F6B4A',
+  olive: '#185A3E',
+  'dusty-blue': '#8E8E93',
+  ocean: '#636366',
+  teal: '#E8F0EC',
+  text: '#1D1D1F',
+  'text-2': '#6E6E73',
+  'text-3': '#8E8E93',
+  border: '#D2D2D7',
+  'border-soft': '#E5E5EA',
+  primary: '#1B4D3E',
+  'primary-hover': '#163E32',
+  focus: '#1B4D3E',
+  'luna-teal': '#1B4D3E',
+  'luna-teal-dark': '#163E32',
 };
 
 const SAND_LIGHT = {
@@ -138,10 +138,12 @@ const saltLightCss = extractBlock(
 );
 assertTokens('Salt Light :root', saltLightCss, SALT_LIGHT);
 assert.ok(!/--cream:#EDE8E0/.test(saltLightCss), 'Salt Light :root must not keep Sand oatmeal cream');
-assert.ok(/--cream:#F3EEE6/.test(saltLightCss), 'Salt Light warm paper cream');
-assert.ok(/--surface:#FFFBF4/.test(saltLightCss), 'Salt Light warm paper surface');
-assert.ok(/--primary:#3D5C4A/.test(saltLightCss), 'Salt Light warm olive primary');
+assert.ok(/--cream:#F5F5F7/.test(saltLightCss), 'Salt Light Apple-clean cream');
+assert.ok(/--surface:#FFFFFF/.test(saltLightCss), 'Salt Light white surface');
+assert.ok(/--primary:#1B4D3E/.test(saltLightCss), 'Salt Light dark green primary');
+assert.ok(!/--cream:#F3EEE6/.test(saltLightCss), 'no warm paper cream');
 assert.ok(!/--cream:#E6EDE9/.test(saltLightCss), 'no cool sea-mist cream');
+assert.ok(!/--surface:#FFFBF4/.test(saltLightCss), 'no warm paper surface');
 
 const sandDarkCss = extractBlock(
   apiSrc,
@@ -215,10 +217,11 @@ assert.ok(adminUi.includes('function wireLunaStaffHeaderModeCard'), 'header mode
 assert.ok(apiSrc.includes('--chip-transfer-bg'), 'transfer chip token');
 assert.ok(/\.bc-room-hdr\{background:var\(--room-bar/.test(apiSrc), 'room bars use --room-bar not sage');
 assert.ok(!/\.bc-room-hdr\{background:var\(--sage\)/.test(apiSrc), 'room bars must not use --sage fill');
-assert.ok(/--room-bar:#4A4540/.test(apiSrc), 'Salt room-bar is warm stone');
-assert.ok(/--booking-confirmed-bg:#FFFBF4/.test(apiSrc), 'Salt confirmed pill is paper not green');
+assert.ok(/--room-bar:#3A3A3C/.test(apiSrc), 'Salt room-bar is cool charcoal');
+assert.ok(/--booking-confirmed-bg:#FFFFFF/.test(apiSrc), 'Salt confirmed pill is white not green');
 assert.ok(!/--booking-confirmed-bg:#E0E6D0/.test(apiSrc), 'no pale olive confirmed fill');
 assert.ok(!/--booking-confirmed-bg:#CEDFBF/.test(apiSrc), 'Sand confirmed not pale green');
+assert.ok(!/--booking-confirmed-bg:#FFFBF4/.test(saltLightCss), 'Salt confirmed not warm paper');
 assert.ok(/\.bc-block-confirmed\{[^}]*booking-confirmed-bg/.test(apiSrc), 'confirmed block uses booking-confirmed tokens');
 assert.ok(!/function sendWhatsApp|handleInbound/.test(i18nSrc), 'i18n bootstrap stayed CSS/layout');
 
@@ -536,24 +539,25 @@ ${boot}
   assert.notStrictEqual(saltProbe.cream, sandProbe.cream, 'Salt cream ≠ Sand cream');
   assert.notStrictEqual(saltProbe.surface, sandProbe.surface, 'Salt surface ≠ Sand surface');
   assert.notStrictEqual(saltProbe.primary, sandProbe.primary, 'Salt primary ≠ Sand primary');
-  assert.strictEqual(saltProbe.roomBar, '#4A4540', 'Salt room-bar is warm stone');
+  assert.strictEqual(saltProbe.roomBar, '#3A3A3C', 'Salt room-bar is cool charcoal');
   assert.strictEqual(sandProbe.roomBar, '#4E5853', 'Sand room-bar is charcoal not sage');
   assert.notStrictEqual(saltProbe.roomBar, saltProbe.sage, 'room-bar split from sage');
   assert.notStrictEqual(sandProbe.roomBar, sandProbe.sage, 'Sand room-bar is not sage green');
   assert.notStrictEqual(saltProbe.roomBg, sandProbe.roomBg, 'room header color changes with palette');
-  assert.strictEqual(saltProbe.roomBg, 'rgb(74, 69, 64)', 'Salt room hdr fill is warm stone #4A4540');
+  assert.strictEqual(saltProbe.roomBg, 'rgb(58, 58, 60)', 'Salt room hdr fill is cool charcoal #3A3A3C');
   assert.strictEqual(sandProbe.roomBg, 'rgb(78, 88, 83)', 'Sand room hdr fill is charcoal #4E5853');
-  assert.ok(!/rgb\(122,\s*132,\s*88\)|rgb\(184,\s*203,\s*176\)/i.test(saltProbe.roomBg + sandProbe.roomBg), 'room bars not sage green');
-  assert.strictEqual(saltProbe.confirmedBg, '#FFFBF4', 'Salt confirmed pill is paper');
+  assert.ok(!/rgb\(122,\s*132,\s*88\)|rgb\(184,\s*203,\s*176\)|rgb\(74,\s*69,\s*64\)/i.test(saltProbe.roomBg), 'Salt room bars not sage/coffee');
+  assert.strictEqual(saltProbe.confirmedBg, '#FFFFFF', 'Salt confirmed pill is white');
   assert.strictEqual(sandProbe.confirmedBg, '#F5F1EA', 'Sand confirmed pill is surface not green');
-  assert.strictEqual(saltProbe.bookingBg, 'rgb(255, 251, 244)', 'Salt confirmed pill fill is paper');
+  assert.strictEqual(saltProbe.bookingBg, 'rgb(255, 255, 255)', 'Salt confirmed pill fill is white');
   assert.strictEqual(sandProbe.bookingBg, 'rgb(245, 241, 234)', 'Sand confirmed pill fill is surface');
   assert.ok(!/E0E6D0|CEDFBF|DCEAD2/i.test(saltProbe.confirmedBg + sandProbe.confirmedBg), 'no pale olive booking fill');
   assert.ok(!/rgb\(224,\s*230,\s*208\)|rgb\(206,\s*223,\s*191\)|rgb\(220,\s*234,\s*210\)/i.test(saltProbe.bookingBg + sandProbe.bookingBg), 'booking pill fills not pale olive');
-  assert.strictEqual(saltProbe.cream, '#F3EEE6');
+  assert.strictEqual(saltProbe.cream, '#F5F5F7');
   assert.strictEqual(sandProbe.cream, '#EDE8E0');
-  assert.strictEqual(saltProbe.primary, '#3D5C4A');
+  assert.strictEqual(saltProbe.primary, '#1B4D3E');
   assert.strictEqual(sandProbe.primary, '#4E5853');
+  assert.strictEqual(saltProbe.surface, '#FFFFFF');
 
   void hexOf;
   await browser.close();
