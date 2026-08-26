@@ -438,22 +438,27 @@ function priorPeriodRange(range, granularity) {
 }
 
 /**
- * Next-30 window inside the selected period (not a fixed wall-clock ops window).
- * - Past periods (entirely before today): empty — nothing upcoming in-selection.
- * - Periods that include today: today … min(today+29, period.end).
- * - Future periods: period.start … min(period.start+29, period.end).
+ * Forward pipeline window for the "Next 30 days" KPI.
+ * - Day drill-down: the selected day only (not a rolling forward window).
+ * - Default (period includes today or is wholly in the past): wall-clock today … today+29.
+ *   Not capped by period end — browsing Month/Year/Custom must not zero out cross-month pipeline.
+ * - Wholly future period: period.start … min(period.start+29, period.end) (PR #628).
  * @param {{start:string,end:string}} primaryRange
  * @param {string} today YYYY-MM-DD in location TZ
+ * @param {string} [granularity] day|month|year|custom
  * @returns {{start:string,end:string}|null}
  */
-function next30RangeForPeriod(primaryRange, today) {
+function next30RangeForPeriod(primaryRange, today, granularity) {
   if (!primaryRange || !primaryRange.start || !primaryRange.end || !today) return null;
-  if (today > primaryRange.end) return null;
-  const start = today < primaryRange.start ? primaryRange.start : today;
-  const capped = addDays(start, 29);
-  const end = capped < primaryRange.end ? capped : primaryRange.end;
-  if (start > end) return null;
-  return { start, end };
+  if (String(granularity || '').toLowerCase() === 'day') {
+    return { start: primaryRange.start, end: primaryRange.end };
+  }
+  if (today < primaryRange.start) {
+    const capped = addDays(primaryRange.start, 29);
+    const end = capped < primaryRange.end ? capped : primaryRange.end;
+    return { start: primaryRange.start, end };
+  }
+  return { start: today, end: addDays(today, 29) };
 }
 
 function sumCollectedGrossForRange(datedPayments, range) {
@@ -1028,7 +1033,7 @@ function computeSunsetFinanceSummary(args) {
   // Retired cancellation proxy — always 0 in Slice 2 redesign Net.
   const pending_refund_cents = 0;
 
-  const next30Range = next30RangeForPeriod(primaryRange, today);
+  const next30Range = next30RangeForPeriod(primaryRange, today, granularity);
   const lastServiceByBooking = new Map();
   for (const r of datedBsr) {
     const prev = lastServiceByBooking.get(r.booking_id);
@@ -1037,7 +1042,7 @@ function computeSunsetFinanceSummary(args) {
   const qualifyingPrimary = new Set();
   for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(r.booking_id);
 
-  // Next 30: period-relative upcoming window (see next30RangeForPeriod). Not wall-clock-only.
+  // Next 30: forward pipeline from today (see next30RangeForPeriod); future-only periods anchor at period start.
   let next_30_days_cents = 0;
   if (next30Range) {
     for (const r of datedBsr) {
@@ -1258,6 +1263,7 @@ function computeSunsetFinanceSummary(args) {
       bookings_count: primaryStats.bookings_count,
       avg_booking_cents,
       next_30_days_cents,
+      next_30_range: next30Range,
       delivered_unpaid_cents,
       delivered_unpaid_bookings,
       vs_prior_pct: deltaPct(primaryStats.booked_cents, priorStats.booked_cents),

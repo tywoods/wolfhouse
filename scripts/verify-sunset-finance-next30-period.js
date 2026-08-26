@@ -1,11 +1,12 @@
 'use strict';
 
 /**
- * Finanzas P1 — "Next 30 days" must honor the selected period.
+ * Finanzas Bug Finder #7 — "Próximos 30 días" forward pipeline.
  *
- * Wall-clock today…today+29 alone is wrong: future Day/Month selections beyond
- * that window always showed €0 while Booked moved. Next 30 is the upcoming
- * slice inside the selected period (see next30RangeForPeriod).
+ * Month/Year/Custom must not cap Next 30 at period end or return €0 on past
+ * periods while Booked / Entregado sin pagar move. Forward window is
+ * wall-clock today…today+29 except wholly-future periods (PR #628) and Day
+ * drill-down (selected day only).
  *
  * Stay off Pendiente/outstanding math (parallel fix) and Inbox/email.
  */
@@ -56,40 +57,56 @@ function pipe(view) {
 }
 
 console.log('\n[1] next30RangeForPeriod helper');
-eq('past month → null', next30RangeForPeriod({ start: '2026-07-01', end: '2026-07-31' }, TODAY), null);
 eq(
-  'current month from today',
-  JSON.stringify(next30RangeForPeriod({ start: '2026-08-01', end: '2026-08-31' }, TODAY)),
-  JSON.stringify({ start: '2026-08-15', end: '2026-08-31' }),
+  'past month → forward from today (not null)',
+  JSON.stringify(next30RangeForPeriod({ start: '2026-07-01', end: '2026-07-31' }, TODAY, 'month')),
+  JSON.stringify({ start: '2026-08-15', end: '2026-09-13' }),
+);
+eq(
+  'current month spans into next month',
+  JSON.stringify(next30RangeForPeriod({ start: '2026-08-01', end: '2026-08-31' }, TODAY, 'month')),
+  JSON.stringify({ start: '2026-08-15', end: '2026-09-13' }),
 );
 eq(
   'future month from period start',
-  JSON.stringify(next30RangeForPeriod({ start: '2026-10-01', end: '2026-10-31' }, TODAY)),
+  JSON.stringify(next30RangeForPeriod({ start: '2026-10-01', end: '2026-10-31' }, TODAY, 'month')),
   JSON.stringify({ start: '2026-10-01', end: '2026-10-30' }),
 );
 eq(
   'future day is itself',
-  JSON.stringify(next30RangeForPeriod({ start: '2026-10-01', end: '2026-10-01' }, TODAY)),
+  JSON.stringify(next30RangeForPeriod({ start: '2026-10-01', end: '2026-10-01' }, TODAY, 'day')),
   JSON.stringify({ start: '2026-10-01', end: '2026-10-01' }),
 );
 eq(
-  'year from today capped +29',
-  JSON.stringify(next30RangeForPeriod({ start: '2026-01-01', end: '2026-12-31' }, TODAY)),
+  'year from today +29 (not capped at Dec 31)',
+  JSON.stringify(next30RangeForPeriod({ start: '2026-01-01', end: '2026-12-31' }, TODAY, 'year')),
   JSON.stringify({ start: '2026-08-15', end: '2026-09-13' }),
 );
 
-console.log('\n[2] pipeline.next_30_days_cents follows selected period');
-eq('July past month Next 30 is 0', pipe({ granularity: 'month', anchor: '2026-07-15' }).next_30_days_cents, 0);
-eq('August Next 30 is Aug 20 only (not Aug 1 past)', pipe({ granularity: 'month', anchor: '2026-08-15' }).next_30_days_cents, 20000);
-eq('September Next 30 is Sep dues', pipe({ granularity: 'month', anchor: '2026-09-15' }).next_30_days_cents, 30000);
-eq('October Next 30 is Oct dues (not stuck at wall-clock window €0)', pipe({ granularity: 'month', anchor: '2026-10-15' }).next_30_days_cents, 40000);
+console.log('\n[2] pipeline.next_30_days_cents — forward pipeline, not period-stuck €0');
+eq(
+  'July past month Next 30 includes forward Aug/Sep pipeline',
+  pipe({ granularity: 'month', anchor: '2026-07-15' }).next_30_days_cents,
+  20000 + 30000,
+);
+eq(
+  'August month includes Aug20 + Sep (cross-month, not capped at Aug 31)',
+  pipe({ granularity: 'month', anchor: '2026-08-15' }).next_30_days_cents,
+  20000 + 30000,
+);
+eq('September future month Next 30 is Sep dues', pipe({ granularity: 'month', anchor: '2026-09-15' }).next_30_days_cents, 30000);
+eq(
+  'October future month Next 30 is Oct dues (not stuck at wall-clock window €0)',
+  pipe({ granularity: 'month', anchor: '2026-10-15' }).next_30_days_cents,
+  40000,
+);
 
 const dayOct = pipe({ granularity: 'day', anchor: '2026-10-01' });
 eq('October Day Booked', dayOct.booked_cents, 40000);
-eq('October Day Next 30 equals that day (honors selection)', dayOct.next_30_days_cents, 40000);
+eq('October Day Next 30 equals that day (day drill-down)', dayOct.next_30_days_cents, 40000);
 
 const dayAug = pipe({ granularity: 'day', anchor: '2026-08-20' });
-eq('August future Day Next 30', dayAug.next_30_days_cents, 20000);
+eq('August Day Next 30 is that day only', dayAug.next_30_days_cents, 20000);
 
 const year = pipe({ granularity: 'year', anchor: '2026-08-15' });
 eq('Year Next 30 is Aug15–Sep13 slice (Aug20+Sep), not whole year', year.next_30_days_cents, 20000 + 30000);
@@ -105,7 +122,47 @@ ok(
     pipe({ granularity: 'month', anchor: '2026-08-15' }).next_30_days_cents,
     pipe({ granularity: 'month', anchor: '2026-09-15' }).next_30_days_cents,
     pipe({ granularity: 'month', anchor: '2026-10-15' }).next_30_days_cents,
-  ]).size === 4,
+  ]).size >= 3,
+);
+
+console.log('\n[3] Bug Finder #7 repro — delivered unpaid in-period, Next 30 not stuck at €0');
+const lateMonth = computeSunsetFinanceSummary({
+  now: new Date('2026-08-26T10:00:00Z'),
+  timeZone: TZ,
+  view: { granularity: 'month', anchor: '2026-08-01' },
+  bookings,
+  bsr,
+  payments: [],
+}).redesign;
+ok(
+  'late-month view still picks up September within forward 30',
+  lateMonth.pipeline.next_30_days_cents >= 30000,
+  `got ${lateMonth.pipeline.next_30_days_cents}`,
+);
+ok(
+  'pipeline exposes next_30_range for UI/debug',
+  lateMonth.pipeline.next_30_range && lateMonth.pipeline.next_30_range.start === '2026-08-26',
+);
+
+const pastDelivered = computeSunsetFinanceSummary({
+  now: new Date('2026-08-26T10:00:00Z'),
+  timeZone: TZ,
+  view: { granularity: 'month', anchor: '2026-08-01' },
+  bookings: [
+    { booking_id: 'UNPAID', total_amount_cents: 647300 },
+    { booking_id: 'FWD', total_amount_cents: 120000 },
+  ],
+  bsr: [
+    { booking_id: 'UNPAID', service_date: '2026-08-10', amount_due_cents: 647300, metadata: {} },
+    { booking_id: 'FWD', service_date: '2026-09-08', amount_due_cents: 120000, metadata: {} },
+  ],
+  payments: [],
+}).redesign;
+ok(
+  'Entregado sin pagar can be >0 while forward pipeline also >0',
+  pastDelivered.pipeline.delivered_unpaid_cents > 0
+    && pastDelivered.pipeline.next_30_days_cents > 0,
+  `delivered=${pastDelivered.pipeline.delivered_unpaid_cents} next30=${pastDelivered.pipeline.next_30_days_cents}`,
 );
 
 console.log(`\n── verify:sunset-finance-next30-period: ${pass} passed, ${fail} failed ──`);
