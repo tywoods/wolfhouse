@@ -35,7 +35,7 @@ ok('A1 sorts packs by earliest start', /earliestStart|earliest course run time/i
 ok('A1 not name-only primary sort', /list\.sort\(function/.test(adminUi) && /schedules/.test(adminUi));
 
 // F1
-ok('F1 gran click snaps anchor to today', /schedulePortalMadridTodayIso|toISOString\(\)\.slice\(0, 10\)/.test(adminUi)
+ok('F1 gran click snaps anchor to today', /scheduleTodayIso|toISOString\(\)\.slice\(0, 10\)/.test(adminUi)
   && /data-finance-gran/.test(adminUi)
   && /financeViewState\.anchor/.test(adminUi));
 
