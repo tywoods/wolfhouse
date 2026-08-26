@@ -12,7 +12,7 @@
 
 **Stock-PG LOGIN:** `npm run prove:email-luna-controlled-drafting-live-downscope-prover-stock-pg`
 
-This chapter does **not** deploy, mint/refresh/introspect a live token, fetch Microsoft JWKS, call Graph/mailbox, mutate 098, flip flags, send, or change consent/grants. Chapter 4G fills `LIVE_DEPLOY_SHA_ALLOWLIST` with the immutable singleton `f6ee511273160cb46c72e345137800878d4c6512` (Sunset staging revision `luna-sunset-staging-staff-api--ch4f-f6ee5112`, digest `sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a`). Exact `--target sunset-staging` is the only live target name. `--target live`, `--target azure`, Wolfhouse, production, aliases, equals-form flags, duplicates, extra args, and proxies still fail closed. CLI default for sunset-staging is **preparation/attestation only**. `--execute-once` is an additional gate and is **not authorized to acquire Azure/KV/live PG/Microsoft in this PR**. **Live proof remains NOT EXECUTED.**
+This chapter does **not** deploy, mint/refresh/introspect a live token, fetch Microsoft JWKS, call Graph/mailbox, mutate 098, flip flags, send, or change consent/grants. Chapter 4G/4J fills `LIVE_DEPLOY_SHA_ALLOWLIST` with the immutable singleton `a4188eea71a92b7361818e024cde0f810d6ee018` (Sunset staging revision `luna-sunset-staging-staff-api--0000682`, digest `sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39`). Historical Chapter 4F pins are refused. Exact `--target sunset-staging` is the only live target name. `--target live`, `--target azure`, Wolfhouse, production, aliases, equals-form flags, duplicates, extra args, and proxies still fail closed. CLI default for sunset-staging is **preparation/attestation only**. `--execute-once` is an additional gate and is **not authorized to acquire Azure/KV/live PG/Microsoft in this PR**. **Live proof remains NOT EXECUTED.**
 
 ## Architecture
 
@@ -73,21 +73,21 @@ Chapter 4G wired the exact-deployed-SHA target. A **later separately authorized 
 | Fact | Value |
 | --- | --- |
 | RG / app | `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` |
-| Revision | `luna-sunset-staging-staff-api--ch4f-f6ee5112` |
-| Deployed source/image SHA | `f6ee511273160cb46c72e345137800878d4c6512` |
-| Digest | `sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a` |
+| Revision | `luna-sunset-staging-staff-api--0000682` |
+| Deployed source/image SHA | `a4188eea71a92b7361818e024cde0f810d6ee018` |
+| Digest | `sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39` |
 | Allowlist | singleton of that full SHA only |
 
-**Operator-prover compatibility rule** (`chapter_4g_operator_cli_may_differ_from_deployed_app_sha`): the live target is the **deployed Staff API image**, not the operator CLI tree HEAD. Current origin/master may differ from `f6ee5112…` (this assignment: Pricing Code-field hide only). Canonical 4C/4E runtime owners listed in `CANONICAL_RUNTIME_OWNER_DIGESTS` are a **source-tree self-hash attestation**, not an independent image measurement, and **cannot establish deployed image truth**. A future fixed reader must compare the actual immutable deployed image/revision/digest against this exact approved compatibility contract. The Chapter 4G CLI/prover wiring is allowed to differ. Do **not** blindly require `source_sha === deploy_sha` and do **not** trust caller text for that claim.
+**Operator-prover compatibility rule** (`chapter_4g_operator_cli_may_differ_from_deployed_app_sha`): the live target is the **deployed Staff API image**, not the operator CLI tree HEAD. Current origin/master may differ from `a4188eea…`. Canonical 4C/4E runtime owners listed in `CANONICAL_RUNTIME_OWNER_DIGESTS` are a **source-tree self-hash attestation**, not an independent image measurement, and **cannot establish deployed image truth**. Chapter 4H compares the actual immutable deployed image/revision/digest against this exact approved compatibility contract. The Chapter 4G CLI/prover wiring is allowed to differ. Do **not** blindly require `source_sha === deploy_sha` and do **not** trust caller text for that claim.
 
 **CLI (sole operator entry):**
 
 ```text
 node scripts/email-luna-controlled-drafting-live-downscope-prover.js prove \
   --target sunset-staging \
-  --deploy-sha f6ee511273160cb46c72e345137800878d4c6512 \
-  --revision luna-sunset-staging-staff-api--ch4f-f6ee5112 \
-  --digest sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a \
+  --deploy-sha a4188eea71a92b7361818e024cde0f810d6ee018 \
+  --revision luna-sunset-staging-staff-api--0000682 \
+  --digest sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39 \
   --confirm I_UNDERSTAND_SUNSET_STAGING_DOWNSCOPE_PROOF \
   --operator-nonce <64-lowercase-hex> \
   --confirm-issued-at <ISO-8601 now, 15-minute window>

@@ -46,6 +46,10 @@ const ownedCore = require('./lib/email-luna-controlled-drafting-live-downscope-p
 const {
   withReadOnlyPreflightClient,
   closedAcrDigestFromManifestResponse,
+  closedAppFromArm,
+  closedRevisionFromArm,
+  mapArmDisplayLocation,
+  ARM_RUNTIME_DIGEST_UNAVAILABLE,
 } = ownedCore;
 const {
   createFakeEmailGrantEnvelopeProvider,
@@ -56,6 +60,12 @@ const ROOT = path.join(__dirname, '..');
 const DEPLOYED_SHA = EXPECTED_LIVE_TARGET.deployedSha;
 const REVISION = EXPECTED_LIVE_TARGET.revision;
 const DIGEST = EXPECTED_LIVE_TARGET.digest;
+const MEASURED_REVISION = 'luna-sunset-staging-staff-api--0000682';
+const MEASURED_SHA = 'a4188eea71a92b7361818e024cde0f810d6ee018';
+const MEASURED_DIGEST = 'sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39';
+const HISTORICAL_CH4F_REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
+const HISTORICAL_CH4F_SHA = 'f6ee511273160cb46c72e345137800878d4c6512';
+const HISTORICAL_CH4F_DIGEST = 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ENDPOINT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -139,6 +149,55 @@ function revisionFacts(patch = {}) {
     image: IMAGE,
     imageDigest: DIGEST,
   }, patch);
+}
+
+function armAppRaw(patch = {}) {
+  const container = Object.assign({
+    name: AZURE_OWNER.appName,
+    image: IMAGE,
+    env: eightEnv(),
+  }, patch.container || {});
+  const properties = Object.assign({
+    latestRevisionName: REVISION,
+    latestReadyRevisionName: REVISION,
+    runningStatus: 'Running',
+    provisioningState: 'Succeeded',
+    template: {
+      scale: { minReplicas: 1, maxReplicas: 1 },
+      containers: [container],
+    },
+    configuration: {
+      ingress: {
+        traffic: [{ revisionName: REVISION, weight: 100 }],
+      },
+    },
+  }, patch.properties || {});
+  return Object.assign({
+    id: `/subscriptions/${AZURE_OWNER.subscriptionId}/resourceGroups/${AZURE_OWNER.resourceGroup}/providers/Microsoft.App/containerApps/${AZURE_OWNER.appName}`,
+    name: AZURE_OWNER.appName,
+    location: 'North Europe',
+    tags: { tenant: 'sunset' },
+    properties,
+  }, patch.root || {});
+}
+
+function armRevisionRaw(patch = {}) {
+  const properties = Object.assign({
+    runningState: 'RunningAtMaxScale',
+    healthState: 'Healthy',
+    provisioningState: 'Provisioned',
+    replicas: 1,
+    template: {
+      containers: [{
+        name: AZURE_OWNER.appName,
+        image: IMAGE,
+      }],
+    },
+  }, patch.properties || {});
+  return Object.assign({
+    name: REVISION,
+    properties,
+  }, patch.root || {});
 }
 
 function identityRow(kind) {
@@ -376,6 +435,19 @@ async function main() {
   assert.equal(typeof inspectIndependentLivePreflight, 'function');
   assert.equal(typeof withReadOnlyPreflightClient, 'function');
   assert.equal(typeof closedAcrDigestFromManifestResponse, 'function');
+  assert.equal(typeof readerOwner.closedAppFromArm, 'undefined');
+  assert.equal(typeof readerOwner.closedRevisionFromArm, 'undefined');
+  assert.equal(typeof readerOwner.mapArmDisplayLocation, 'undefined');
+  assert.equal(typeof closedAppFromArm, 'function');
+  assert.equal(typeof closedRevisionFromArm, 'function');
+  assert.equal(typeof mapArmDisplayLocation, 'function');
+  assert.equal(ARM_RUNTIME_DIGEST_UNAVAILABLE, 'arm_runtime_digest_unavailable');
+  assert.equal(REVISION, MEASURED_REVISION);
+  assert.equal(DEPLOYED_SHA, MEASURED_SHA);
+  assert.equal(DIGEST, MEASURED_DIGEST);
+  assert.notEqual(REVISION, HISTORICAL_CH4F_REVISION);
+  assert.notEqual(DEPLOYED_SHA, HISTORICAL_CH4F_SHA);
+  assert.notEqual(DIGEST, HISTORICAL_CH4F_DIGEST);
   assert.match(readerSrc, /does not export the closed adapter constructor/);
   assert.doesNotMatch(readerSrc, /createOwnedSunsetStagingLivePreflightReader,/);
   assert.doesNotMatch(staffSrc, /live-preflight-reader/);
@@ -504,6 +576,7 @@ async function main() {
   assert.equal(evidence.ok, true);
   assert.equal(evidence.independent_read, true);
   assert.equal(evidence.digest, DIGEST);
+  assert.equal(evidence.arm_runtime_digest_unavailable, false);
   assert.equal(evidence.deploy_sha, DEPLOYED_SHA);
   assert.equal(evidence.image_login_server, AZURE_OWNER.acrLoginServer);
   assert.equal(evidence.image_repository, `${AZURE_OWNER.acrLoginServer}/${AZURE_OWNER.acrRepository}`);
@@ -695,11 +768,17 @@ async function main() {
     imageUnprovenOrDrift,
     'first fence pinned / second foreign tag',
   );
-  await assert.rejects(
-    () => readWith(hitsTemplate(), { revision: { imageDigest: null } }),
-    digestClosed,
-    'runtime digest null',
-  );
+  {
+    const unavailable = await readWith(hitsTemplate(), { revision: { imageDigest: null } });
+    assert.equal(isIndependentLivePreflight(unavailable), true);
+    assert.equal(unavailable.digest, DIGEST);
+    assert.equal(unavailable.image_tag, DEPLOYED_SHA);
+    assert.equal(unavailable.image_login_server, AZURE_OWNER.acrLoginServer);
+    assert.equal(unavailable.image_repository, `${AZURE_OWNER.acrLoginServer}/${AZURE_OWNER.acrRepository}`);
+    assert.equal(unavailable.revision, REVISION);
+    assert.equal(unavailable.arm_runtime_digest_unavailable, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(unavailable, 'imageDigest'), false);
+  }
   {
     const missingDigest = revisionFacts();
     delete missingDigest.imageDigest;
@@ -709,7 +788,7 @@ async function main() {
         readRevision() { return Object.assign({}, missingDigest); },
       }),
       digestClosed,
-      'runtime digest missing',
+      'closed revision facts must still name imageDigest even when ARM omitted it',
     );
   }
   await assert.rejects(
@@ -727,6 +806,35 @@ async function main() {
     (err) => assertReaderFailure(err, 'digest_mismatch'),
     'runtime digest differs from ACR digest',
   );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { imageDigest: null }, digest: OTHER_DIGEST }),
+    (err) => assertReaderFailure(err, 'digest_mismatch'),
+    'ACR digest remains required when ARM runtime digest is unavailable',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      revision: { imageDigest: null },
+      readManifestDigest() { return null; },
+    }),
+    digestClosed,
+    'missing ACR digest is refused even when ARM runtime digest is unavailable',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { image: FOREIGN_REPO_IMAGE },
+      revision: { image: FOREIGN_REPO_IMAGE, imageDigest: null },
+    }),
+    imageUnprovenOrDrift,
+    'repository still pinned when ARM runtime digest is unavailable',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { image: DRIFT_TAG_IMAGE },
+      revision: { image: DRIFT_TAG_IMAGE, imageDigest: null },
+    }),
+    imageUnprovenOrDrift,
+    'tag still pinned when ARM runtime digest is unavailable',
+  );
   assert.match(ownedSrc, /function sameImageIdentity/);
   assert.match(ownedSrc, /a\.revision\.image\.loginServer === b\.revision\.image\.loginServer/);
   assert.match(ownedSrc, /a\.revision\.image\.repository === b\.revision\.image\.repository/);
@@ -742,7 +850,168 @@ async function main() {
   assert.doesNotMatch(ownedSrc, /constructor that is not on[\s\S]{0,80}this module's exports/);
   assert.match(ownedSrc, /readAcrFence\(acr, azureA\.revision\.image/);
   assert.match(ownedSrc, /readAcrFence\(acr, azureB\.revision\.image/);
-  console.log('  PASS  revision image identity is fully pinned; runtime digest required and equal to ACR');
+  assert.match(ownedSrc, /arm_runtime_digest_unavailable/);
+  assert.doesNotMatch(ownedSrc, /imageDigest:\s*digest/);
+  console.log('  PASS  revision image identity is fully pinned; ACR digest remains authority');
+
+  {
+    const maxScale = await readWith(hitsTemplate(), { revision: { runningState: 'RunningAtMaxScale' } });
+    assert.equal(isIndependentLivePreflight(maxScale), true);
+    assert.equal(maxScale.running_status, 'Running');
+    assert.equal(maxScale.health_state, 'Healthy');
+    assert.equal(maxScale.replica, 1);
+    assert.equal(maxScale.min_replicas, 1);
+    assert.equal(maxScale.max_replicas, 1);
+    assert.equal(maxScale.traffic_weight, 100);
+    assert.equal(maxScale.revision, MEASURED_REVISION);
+  }
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      revision: { runningState: 'RunningAtMaxScale', healthState: 'Unhealthy' },
+    }),
+    (err) => assertReaderFailure(err, 'azure_unproven'),
+    'RunningAtMaxScale + unhealthy',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { runningStatus: 'Progressing' },
+      revision: { runningState: 'RunningAtMaxScale' },
+    }),
+    (err) => assertReaderFailure(err, 'azure_unproven'),
+    'RunningAtMaxScale + app not Running',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      revision: { runningState: 'RunningAtMaxScale', replicas: 2 },
+    }),
+    (err) => assertReaderFailure(err, 'replica_not_one'),
+    'RunningAtMaxScale + replica drift',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { minReplicas: 1, maxReplicas: 2 },
+      revision: { runningState: 'RunningAtMaxScale' },
+    }),
+    (err) => assertReaderFailure(err, 'replica_not_one'),
+    'RunningAtMaxScale + max scale drift',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { minReplicas: 0, maxReplicas: 1 },
+      revision: { runningState: 'RunningAtMaxScale' },
+    }),
+    (err) => assertReaderFailure(err, 'replica_not_one'),
+    'RunningAtMaxScale + min scale drift',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: { traffic: [{ revisionName: REVISION, weight: 99 }] },
+      revision: { runningState: 'RunningAtMaxScale' },
+    }),
+    (err) => assertReaderFailure(err, 'traffic_ambiguous'),
+    'RunningAtMaxScale + traffic drift',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), { revision: { runningState: 'Degraded' } }),
+    (err) => assertReaderFailure(err, 'azure_unproven'),
+    'Degraded runningState',
+  );
+  await assert.rejects(
+    () => readWith(hitsTemplate(), {
+      app: {
+        latestRevisionName: HISTORICAL_CH4F_REVISION,
+        latestReadyRevisionName: HISTORICAL_CH4F_REVISION,
+        traffic: [{ revisionName: HISTORICAL_CH4F_REVISION, weight: 100 }],
+        image: `whstagingacr.azurecr.io/luna-sunset-staff-api:${HISTORICAL_CH4F_SHA}`,
+      },
+      revision: {
+        name: HISTORICAL_CH4F_REVISION,
+        image: `whstagingacr.azurecr.io/luna-sunset-staff-api:${HISTORICAL_CH4F_SHA}`,
+        imageDigest: HISTORICAL_CH4F_DIGEST,
+      },
+      digest: HISTORICAL_CH4F_DIGEST,
+    }),
+    (err) => assertReaderFailure(err, 'revision_mismatch')
+      || assertReaderFailure(err, 'image_unproven')
+      || assertReaderFailure(err, 'digest_mismatch'),
+    'historical ch4f pins are refused',
+  );
+  console.log('  PASS  RunningAtMaxScale only under healthy replica=1/min=max=1 fences; historical pins refused');
+
+  assert.equal(mapArmDisplayLocation('North Europe'), 'northeurope');
+  assert.equal(mapArmDisplayLocation('northeurope'), 'northeurope');
+  assert.equal(mapArmDisplayLocation('north europe'), null);
+  assert.equal(mapArmDisplayLocation('NORTH EUROPE'), null);
+  assert.equal(mapArmDisplayLocation(' North Europe'), null);
+  assert.equal(mapArmDisplayLocation('North  Europe'), null);
+  assert.equal(mapArmDisplayLocation('West Europe'), null);
+  assert.equal(mapArmDisplayLocation('westeurope'), null);
+  {
+    const mapped = closedAppFromArm(armAppRaw());
+    assert.ok(mapped);
+    assert.equal(mapped.location, 'northeurope');
+    assert.equal(mapped.runningStatus, 'Running');
+    assert.equal(mapped.latestRevisionName, MEASURED_REVISION);
+    assert.equal(mapped.image, IMAGE);
+  }
+  {
+    const alreadyCanon = closedAppFromArm(armAppRaw({ root: { location: 'northeurope' } }));
+    assert.ok(alreadyCanon);
+    assert.equal(alreadyCanon.location, 'northeurope');
+  }
+  assert.equal(closedAppFromArm(armAppRaw({ root: { location: 'West Europe' } })), null);
+  assert.equal(closedAppFromArm(armAppRaw({ root: { location: 'north europe' } })), null);
+  assert.equal(closedAppFromArm(armAppRaw({ root: { location: 'NORTH EUROPE' } })), null);
+  assert.equal(closedAppFromArm(armAppRaw({ root: { location: ' North Europe' } })), null);
+  {
+    const omitted = closedRevisionFromArm(armRevisionRaw());
+    assert.ok(omitted);
+    assert.equal(omitted.runningState, 'RunningAtMaxScale');
+    assert.equal(omitted.imageDigest, null);
+    assert.equal(omitted.image, IMAGE);
+    assert.equal(String(omitted.image).includes('@'), false);
+  }
+  {
+    const embedded = closedRevisionFromArm(armRevisionRaw({
+      properties: {
+        runningState: 'RunningAtMaxScale',
+        healthState: 'Healthy',
+        provisioningState: 'Provisioned',
+        replicas: 1,
+        template: {
+          containers: [{
+            name: AZURE_OWNER.appName,
+            image: `${IMAGE}@${DIGEST}`,
+          }],
+        },
+      },
+    }));
+    assert.ok(embedded);
+    assert.equal(embedded.imageDigest, DIGEST);
+  }
+  {
+    const present = closedRevisionFromArm(armRevisionRaw({
+      properties: {
+        runningState: 'RunningAtMaxScale',
+        healthState: 'Healthy',
+        provisioningState: 'Provisioned',
+        replicas: 1,
+        imageDigest: DIGEST,
+        template: {
+          containers: [{
+            name: AZURE_OWNER.appName,
+            image: IMAGE,
+          }],
+        },
+      },
+    }));
+    assert.ok(present);
+    assert.equal(present.imageDigest, DIGEST);
+  }
+  assert.match(ownedSrc, /'North Europe': 'northeurope'/);
+  assert.doesNotMatch(ownedSrc, /toLowerCase\(\).*northeurope/);
+  assert.doesNotMatch(ownedSrc, /replace\(\/\\s\+\/g/);
+  console.log('  PASS  ARM 2024-03-01 location/digest mapping is closed and authentic');
 
   {
     const proverHits = { login: 0, pg: 0, token: 0, jwks: 0 };

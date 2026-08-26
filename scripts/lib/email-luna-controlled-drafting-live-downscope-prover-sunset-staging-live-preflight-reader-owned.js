@@ -70,6 +70,10 @@ const IMDS_TIMEOUT_MS = 400;
 const ARM_TIMEOUT_MS = 400;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const DETAIL_RE = /^[a-z][a-z0-9_]{0,63}$/;
+const ARM_RUNTIME_DIGEST_UNAVAILABLE = 'arm_runtime_digest_unavailable';
+const ARM_DISPLAY_LOCATION_TO_CANONICAL = objectFreeze({
+  'North Europe': 'northeurope',
+});
 const FORBIDDEN_EVIDENCE = objectFreeze([
   'dsn', 'connectionString', 'password', 'secret', 'token', 'accessToken',
   'refreshToken', 'jwt', 'privateKey', 'mailbox', 'email', 'clientSecret',
@@ -301,6 +305,34 @@ function requireRuntimeDigest(value) {
   return value;
 }
 
+function mapArmDisplayLocation(location) {
+  if (typeof location !== 'string') return null;
+  if (objectHasOwn(ARM_DISPLAY_LOCATION_TO_CANONICAL, location)) {
+    return ARM_DISPLAY_LOCATION_TO_CANONICAL[location];
+  }
+  if (location === AZURE_OWNER.location) return AZURE_OWNER.location;
+  return null;
+}
+
+function interpretArmRuntimeDigest(imageDigest, image) {
+  if (typeof imageDigest === 'string' && DIGEST_RE.test(imageDigest)) {
+    if (image.runtimeDigest !== null && image.runtimeDigest !== imageDigest) {
+      throw failure('digest_mismatch');
+    }
+    return objectFreeze({ state: 'present', digest: imageDigest });
+  }
+  if (imageDigest === null && image && image.runtimeDigest === null) {
+    return objectFreeze({ state: ARM_RUNTIME_DIGEST_UNAVAILABLE, digest: null });
+  }
+  if (imageDigest === null
+      && image
+      && typeof image.runtimeDigest === 'string'
+      && DIGEST_RE.test(image.runtimeDigest)) {
+    return objectFreeze({ state: 'present', digest: image.runtimeDigest });
+  }
+  throw failure('digest_mismatch');
+}
+
 function literalFalseEnv(envList) {
   if (!arrayIsArray(envList) || isProxySurface(envList)) return { ok: false, reason: 'flags_unproven' };
   const seen = objectCreate(null);
@@ -466,7 +498,10 @@ function measureRevision(revision, expectedImage) {
     throw failure('azure_unproven');
   }
   if (ownData(revision, 'name') !== EXPECTED_LIVE_TARGET.revision) throw failure('revision_mismatch');
-  if (ownData(revision, 'runningState') !== 'Running') throw failure('azure_unproven');
+  const runningState = ownData(revision, 'runningState');
+  if (runningState !== 'Running' && runningState !== 'RunningAtMaxScale') {
+    throw failure('azure_unproven');
+  }
   if (ownData(revision, 'healthState') !== 'Healthy') throw failure('azure_unproven');
   if (ownData(revision, 'provisioningState') !== 'Provisioned') throw failure('azure_unproven');
   if (ownData(revision, 'replicas') !== 1) throw failure('replica_not_one');
@@ -475,13 +510,11 @@ function measureRevision(revision, expectedImage) {
   requirePinnedImageIdentity(image);
   requirePinnedImageIdentity(expectedImage);
   if (!sameImageIdentity(image, expectedImage)) throw failure('image_unproven');
-  const runtimeDigest = requireRuntimeDigest(ownData(revision, 'imageDigest'));
-  if (image.runtimeDigest !== null && image.runtimeDigest !== runtimeDigest) {
-    throw failure('digest_mismatch');
-  }
+  const interpreted = interpretArmRuntimeDigest(ownData(revision, 'imageDigest'), image);
   return objectFreeze({
     replicas: 1,
-    runtimeDigest,
+    runtimeDigest: interpreted.digest,
+    armRuntimeDigestState: interpreted.state,
     image,
   });
 }
@@ -559,6 +592,7 @@ async function readAzureFence(azure) {
   const direct = measureRevision(await azure.readRevision(EXPECTED_LIVE_TARGET.revision), app.image);
   if (listedRevision.replicas !== direct.replicas) throw failure('revision_drift');
   if (listedRevision.runtimeDigest !== direct.runtimeDigest) throw failure('revision_drift');
+  if (listedRevision.armRuntimeDigestState !== direct.armRuntimeDigestState) throw failure('revision_drift');
   if (!sameImageIdentity(listedRevision.image, direct.image)) throw failure('revision_drift');
   if (!sameImageIdentity(direct.image, app.image)) throw failure('image_unproven');
   requirePinnedImageIdentity(direct.image);
@@ -569,9 +603,8 @@ async function readAzureFence(azure) {
   });
 }
 
-async function readAcrFence(acr, image, runtimeDigest) {
+async function readAcrFence(acr, image, revisionDigest) {
   requirePinnedImageIdentity(image);
-  const requiredRuntime = requireRuntimeDigest(runtimeDigest);
   const digest = await acr.readManifestDigest(objectFreeze({
     loginServer: image.loginServer,
     repository: image.repository,
@@ -579,6 +612,12 @@ async function readAcrFence(acr, image, runtimeDigest) {
   }));
   if (typeof digest !== 'string' || !DIGEST_RE.test(digest)) throw failure('acr_unproven');
   if (digest !== EXPECTED_LIVE_TARGET.digest) throw failure('digest_mismatch');
+  if (!revisionDigest || typeof revisionDigest !== 'object') throw failure('digest_mismatch');
+  if (revisionDigest.armRuntimeDigestState === ARM_RUNTIME_DIGEST_UNAVAILABLE) {
+    if (revisionDigest.runtimeDigest !== null) throw failure('digest_mismatch');
+    return digest;
+  }
+  const requiredRuntime = requireRuntimeDigest(revisionDigest.runtimeDigest);
   if (requiredRuntime !== digest) throw failure('digest_mismatch');
   return digest;
 }
@@ -639,6 +678,7 @@ function sameFence(a, b) {
     && a.app.mailboxId === b.app.mailboxId
     && a.revision.replicas === b.revision.replicas
     && a.revision.runtimeDigest === b.revision.runtimeDigest
+    && a.revision.armRuntimeDigestState === b.revision.armRuntimeDigestState
     && a.revision.image.tag === b.revision.image.tag
     && a.revision.image.loginServer === b.revision.image.loginServer
     && a.revision.image.repository === b.revision.image.repository
@@ -720,7 +760,7 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
       started = new Date(t0).toISOString();
       const azureA = await readAzureFence(azure);
       if (!sameImageIdentity(azureA.app.image, azureA.revision.image)) throw failure('image_unproven');
-      const digestA = await readAcrFence(acr, azureA.revision.image, azureA.revision.runtimeDigest);
+      const digestA = await readAcrFence(acr, azureA.revision.image, azureA.revision);
       const pgA = await readPgFence(pg, {
         clientId: azureA.app.clientId,
         locationId: azureA.app.locationId,
@@ -729,7 +769,7 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
       });
       const azureB = await readAzureFence(azure);
       if (!sameImageIdentity(azureB.app.image, azureB.revision.image)) throw failure('image_unproven');
-      const digestB = await readAcrFence(acr, azureB.revision.image, azureB.revision.runtimeDigest);
+      const digestB = await readAcrFence(acr, azureB.revision.image, azureB.revision);
       const pgB = await readPgFence(pg, {
         clientId: azureB.app.clientId,
         locationId: azureB.app.locationId,
@@ -777,6 +817,8 @@ function createOwnedSunsetStagingLivePreflightReader(input) {
         ['image_tag', azureB.revision.image.tag],
         ['deploy_sha', azureB.revision.image.tag],
         ['digest', digestB],
+        ['arm_runtime_digest_unavailable',
+          azureB.revision.armRuntimeDigestState === ARM_RUNTIME_DIGEST_UNAVAILABLE],
         ['flags_all_literal_false', true],
         ['tenant', SUNSET_TENANT],
         ['location_key', SUNSET_LOCATION_KEY],
@@ -920,12 +962,13 @@ function closedAppFromArm(raw) {
   const ingress = ownData(config, 'ingress') || {};
   const env = closedEnvFromArm(container ? ownData(container, 'env') : null);
   const traffic = closedTrafficFromArm(ownData(ingress, 'traffic'));
-  if (!env || !traffic || !subMatch || !rgMatch) return null;
+  const location = mapArmDisplayLocation(ownData(raw, 'location'));
+  if (!env || !traffic || !subMatch || !rgMatch || !location) return null;
   return {
     subscriptionId: subMatch[1].toLowerCase(),
     resourceGroup: rgMatch[1],
     name: ownData(raw, 'name'),
-    location: ownData(raw, 'location'),
+    location,
     tenantTag: ownData(tags, 'tenant'),
     latestRevisionName: ownData(props, 'latestRevisionName'),
     latestReadyRevisionName: ownData(props, 'latestReadyRevisionName'),
@@ -1144,4 +1187,8 @@ module.exports = objectFreeze({
   isIndependentLivePreflight,
   withReadOnlyPreflightClient,
   closedAcrDigestFromManifestResponse,
+  closedAppFromArm,
+  closedRevisionFromArm,
+  mapArmDisplayLocation,
+  ARM_RUNTIME_DIGEST_UNAVAILABLE,
 });

@@ -31,7 +31,7 @@ After merge, the later operator runs from a **clean detached checkout/worktree a
 3. equal to `git rev-parse HEAD`
 4. equal in tree to the reviewer-approved `--source-tree` (`git rev-parse 'HEAD^{tree}'`)
 
-No post-merge code is executed. The old disabled deployed Staff API artifact remains independently pinned (`f6ee511273160cb46c72e345137800878d4c6512`). Operator CLI SHA may differ from the deployed app SHA (`chapter_4g_operator_cli_may_differ_from_deployed_app_sha`). If GitHub cannot preserve the reviewed parent, **do not merge and do not execute**.
+No post-merge code is executed. Live execution must occur from the new reviewed candidate SHA/tree after exact-head review and true merge — not from `874bcde642d7eb4838529f84246c1c011db9861a`. The currently serving disabled Staff API artifact is independently pinned (`a4188eea71a92b7361818e024cde0f810d6ee018`, revision `luna-sunset-staging-staff-api--0000682`). Operator CLI SHA may differ from the deployed app SHA (`chapter_4g_operator_cli_may_differ_from_deployed_app_sha`). If GitHub cannot preserve the reviewed parent, **do not merge and do not execute**.
 
 ## Durable operator-owned one-shot receipt
 
@@ -65,16 +65,16 @@ The CLI resolves the repository root from the realpath of this driver file, sani
 
 Git failure or mismatch refuses **before** receipt claim and before adapters. This chapter does **not** accept an unknown post-squash SHA.
 
-## Exact live target pins (inherited; not re-measured here)
+## Exact live target pins (Chapter 4J retarget of the currently serving disabled artifact)
 
 | Fact | Value |
 | --- | --- |
 | Subscription | `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9` |
-| Location | `northeurope` |
+| Location | `northeurope` (ARM display `North Europe` closed-mapped; unrelated locations fail closed) |
 | RG / app | `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` |
-| Revision | `luna-sunset-staging-staff-api--ch4f-f6ee5112` |
-| Deployed source/image SHA | `f6ee511273160cb46c72e345137800878d4c6512` |
-| Digest | `sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a` |
+| Revision | `luna-sunset-staging-staff-api--0000682` |
+| Deployed source/image SHA | `a4188eea71a92b7361818e024cde0f810d6ee018` |
+| Digest | `sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39` (ACR `Docker-Content-Digest` authority; ARM runtime digest may be typed `arm_runtime_digest_unavailable` when the revision omits `properties.imageDigest` and the image is tag-only) |
 | Database | `sunset_staging` |
 | Tenant slug | `sunset` |
 
@@ -89,9 +89,9 @@ node scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js pre
   --database sunset_staging \
   --resource-group luna-sunset-staging-rg \
   --app luna-sunset-staging-staff-api \
-  --revision luna-sunset-staging-staff-api--ch4f-f6ee5112 \
-  --deploy-sha f6ee511273160cb46c72e345137800878d4c6512 \
-  --digest sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a \
+  --revision luna-sunset-staging-staff-api--0000682 \
+  --deploy-sha a4188eea71a92b7361818e024cde0f810d6ee018 \
+  --digest sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39 \
   --source-sha <reviewed-candidate-40-hex-equal-to-HEAD> \
   --source-tree <reviewed-candidate-tree-40-hex>
 
@@ -101,9 +101,9 @@ node scripts/email-luna-controlled-drafting-sunset-staging-live-execution.js exe
   --database sunset_staging \
   --resource-group luna-sunset-staging-rg \
   --app luna-sunset-staging-staff-api \
-  --revision luna-sunset-staging-staff-api--ch4f-f6ee5112 \
-  --deploy-sha f6ee511273160cb46c72e345137800878d4c6512 \
-  --digest sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a \
+  --revision luna-sunset-staging-staff-api--0000682 \
+  --deploy-sha a4188eea71a92b7361818e024cde0f810d6ee018 \
+  --digest sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39 \
   --source-sha <reviewed-candidate-40-hex-equal-to-HEAD> \
   --source-tree <reviewed-candidate-tree-40-hex> \
   --confirm I_UNDERSTAND_SUNSET_STAGING_CHAPTER_4I_ONE_SHOT_LIVE_PROOF \

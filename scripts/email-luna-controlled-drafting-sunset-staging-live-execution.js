@@ -207,96 +207,6 @@ if (require.main === module) {
     });
   }
 
-  function closedEnvFromArm(raw) {
-    if (!arrayIsArray(raw)) return null;
-    const out = [];
-    for (let i = 0; i < raw.length; i += 1) {
-      const item = ownData(raw, i);
-      if (!item || typeof item !== 'object') return null;
-      const name = ownData(item, 'name');
-      const secretRef = ownData(item, 'secretRef');
-      const value = ownData(item, 'value');
-      if (typeof name !== 'string') return null;
-      if (secretRef !== undefined && secretRef !== null) {
-        out.push({ name, secretRef: typeof secretRef === 'string' ? secretRef : 'secret' });
-      } else {
-        out.push({ name, value: typeof value === 'string' ? value : '' });
-      }
-    }
-    return out;
-  }
-
-  function closedTrafficFromArm(raw) {
-    if (!arrayIsArray(raw)) return null;
-    const out = [];
-    for (let i = 0; i < raw.length; i += 1) {
-      const item = ownData(raw, i);
-      if (!item || typeof item !== 'object') return null;
-      out.push({
-        revisionName: ownData(item, 'revisionName'),
-        weight: ownData(item, 'weight'),
-      });
-    }
-    return out;
-  }
-
-  function closedAppFromArm(raw) {
-    if (!raw || typeof raw !== 'object' || isProxySurface(raw)) return null;
-    const id = ownData(raw, 'id');
-    if (typeof id !== 'string') return null;
-    const subMatch = id.match(/^\/subscriptions\/([0-9a-f-]{36})\//i);
-    const rgMatch = id.match(/\/resourceGroups\/([^/]+)\//i);
-    const tags = ownData(raw, 'tags') || {};
-    const props = ownData(raw, 'properties') || {};
-    const template = ownData(props, 'template') || {};
-    const scale = ownData(template, 'scale') || {};
-    const containers = ownData(template, 'containers');
-    const container = arrayIsArray(containers) ? ownData(containers, 0) : null;
-    const config = ownData(props, 'configuration') || {};
-    const ingress = ownData(config, 'ingress') || {};
-    const env = closedEnvFromArm(container ? ownData(container, 'env') : null);
-    const traffic = closedTrafficFromArm(ownData(ingress, 'traffic'));
-    if (!env || !traffic || !subMatch || !rgMatch) return null;
-    return {
-      subscriptionId: subMatch[1].toLowerCase(),
-      resourceGroup: rgMatch[1],
-      name: ownData(raw, 'name'),
-      location: ownData(raw, 'location'),
-      tenantTag: ownData(tags, 'tenant'),
-      latestRevisionName: ownData(props, 'latestRevisionName'),
-      latestReadyRevisionName: ownData(props, 'latestReadyRevisionName'),
-      runningStatus: ownData(props, 'runningStatus'),
-      provisioningState: ownData(props, 'provisioningState'),
-      minReplicas: ownData(scale, 'minReplicas'),
-      maxReplicas: ownData(scale, 'maxReplicas'),
-      traffic,
-      env,
-      image: container ? ownData(container, 'image') : null,
-    };
-  }
-
-  function closedRevisionFromArm(raw) {
-    if (!raw || typeof raw !== 'object' || isProxySurface(raw)) return null;
-    const props = ownData(raw, 'properties') || {};
-    const template = ownData(props, 'template') || {};
-    const containers = ownData(template, 'containers');
-    const container = arrayIsArray(containers) ? ownData(containers, 0) : null;
-    const image = container ? ownData(container, 'image') : null;
-    let imageDigest = ownData(props, 'imageDigest');
-    if (!imageDigest && typeof image === 'string' && image.includes('@')) {
-      imageDigest = image.slice(image.indexOf('@') + 1);
-    }
-    return {
-      name: ownData(raw, 'name'),
-      runningState: ownData(props, 'runningState'),
-      healthState: ownData(props, 'healthState'),
-      provisioningState: ownData(props, 'provisioningState'),
-      replicas: ownData(props, 'replicas'),
-      image,
-      imageDigest: imageDigest || null,
-    };
-  }
-
   function createLexicalCommandRunner() {
     return objectFreeze({
       execFileSync,
@@ -353,7 +263,7 @@ if (require.main === module) {
       azure: {
         async readApp() {
           const raw = await armGet('');
-          const closed = closedAppFromArm(raw);
+          const closed = readerOwned.closedAppFromArm(raw);
           if (!closed) throw failure('azure_unproven');
           return closed;
         },
@@ -363,7 +273,7 @@ if (require.main === module) {
           if (!arrayIsArray(value)) throw failure('azure_unproven');
           const out = [];
           for (let i = 0; i < value.length; i += 1) {
-            const closed = closedRevisionFromArm(ownData(value, i));
+            const closed = readerOwned.closedRevisionFromArm(ownData(value, i));
             if (!closed) throw failure('azure_unproven');
             out.push(closed);
           }
@@ -372,7 +282,7 @@ if (require.main === module) {
         async readRevision(name) {
           if (name !== EXPECTED_LIVE_TARGET.revision) throw failure('revision_mismatch');
           const raw = await armGet(`/revisions/${encodeURIComponent(name)}`);
-          const closed = closedRevisionFromArm(raw);
+          const closed = readerOwned.closedRevisionFromArm(raw);
           if (!closed) throw failure('azure_unproven');
           return closed;
         },
