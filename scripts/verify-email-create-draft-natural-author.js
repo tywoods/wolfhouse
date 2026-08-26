@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
+const { EventEmitter } = require('node:events');
 
 const ROOT = path.join(__dirname, '..');
 const {
@@ -31,7 +32,15 @@ const {
   CREATE_DRAFT_NATURAL_RENDER_COPY,
   parseCreateDraftNaturalPlan,
   renderCreateDraftNaturalPlan,
+  compileCreateDraftNaturalPlanJson,
 } = require('./lib/email-luna-create-draft-natural-author');
+const { callLunaAiJsonChat } = require('./lib/luna-ai-provider');
+const {
+  createStaffEmailLunaDraftRoute,
+  EMAIL_LUNA_CREATE_DRAFT_PATH,
+  EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR,
+  snapshotEmailLunaGenerateGateEnv,
+} = require('./lib/staff-email-luna-draft-route');
 
 const C = '11111111-1111-4111-8111-111111111111';
 const L = '22222222-2222-4222-8222-222222222222';
@@ -270,6 +279,36 @@ function loadOwner() {
   return require('./lib/staff-email-luna-draft-open');
 }
 
+function request(body) {
+  const req = new EventEmitter();
+  req.headers = { 'content-type': 'application/json', origin: 'https://staff.sunset.test' };
+  process.nextTick(() => { req.emit('data', Buffer.from(JSON.stringify(body))); req.emit('end'); });
+  return req;
+}
+
+async function withUnconfiguredAiProvider(work) {
+  const keys = [
+    'OPENAI_API_KEY', 'STAFF_ASK_LUNA_OPENAI_API_KEY',
+    'ANTHROPIC_API_KEY', 'STAFF_ASK_LUNA_ANTHROPIC_API_KEY',
+    'LUNA_AI_PROVIDER', 'STAFF_ASK_LUNA_AI_PROVIDER',
+    'LUNA_AI_MODEL', 'STAFF_ASK_LUNA_AI_MODEL',
+    'OPENAI_MODEL', 'ANTHROPIC_MODEL',
+  ];
+  const saved = {};
+  for (const key of keys) {
+    saved[key] = process.env[key];
+    delete process.env[key];
+  }
+  try {
+    return await work();
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  }
+}
+
 function makeOwner(options = {}) {
   const ownerMod = loadOwner();
   const writes = [];
@@ -289,7 +328,8 @@ function makeOwner(options = {}) {
     lockHeld: false,
     queryTexts: [],
   };
-  const callModel = options.noModel
+  const useCanonicalProvider = options.useCanonicalProvider === true;
+  const callModel = options.noModel || useCanonicalProvider
     ? undefined
     : (options.callModel || (async (prompt) => {
       modelPrompts.push(prompt);
@@ -304,10 +344,14 @@ function makeOwner(options = {}) {
     timeoutMs: options.timeoutMs,
     createLunaRuntime: options.noModel
       ? undefined
-      : (config) => createEmailLunaSunsetStagingRuntimeComposition({
-        ...config,
-        callModel: config.callModel || callModel,
-      }),
+      : (config) => createEmailLunaSunsetStagingRuntimeComposition(
+        useCanonicalProvider
+          ? config
+          : {
+            ...config,
+            callModel: config.callModel || callModel,
+          },
+      ),
     fetchCurrentMessageContent: async () => {
       if (options.contentEmpty) return Object.freeze({ latest_text: '' });
       return Object.freeze({ latest_text: options.contentText || LIVE_BODY });
@@ -469,6 +513,14 @@ function makeOwner(options = {}) {
     'Un saludo cálido,',
     'Luna',
   ].join('\n'));
+  assert.equal(
+    compileCreateDraftNaturalPlanJson(LIVE_NOTES),
+    JSON.stringify({ acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }] }),
+  );
+  assert.equal(
+    JSON.stringify(parseCreateDraftNaturalPlan(compileCreateDraftNaturalPlanJson(LIVE_NOTES))),
+    JSON.stringify({ acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }] }),
+  );
   console.log('  PASS  class-level schema has no prose field; extra keys and unknown acts fail');
 
   const documentedLiveFailure = liveFailureWrapperBody();
@@ -913,6 +965,127 @@ function makeOwner(options = {}) {
   assert.equal(emptyOwner.providers.length, 0);
   console.log('  PASS  producer empty context is safe thread-only with no paste path');
 
+  await withUnconfiguredAiProvider(async () => {
+    const disabled = await callLunaAiJsonChat({
+      system: 'IMMUTABLE SYSTEM POLICY — return JSON.',
+      user: 'BEGIN CANONICAL JSON DATA\n{"json":true}\nEND CANONICAL JSON DATA',
+      jsonObject: true,
+      maxTokens: 300,
+      temperature: 0,
+      call_label: 'email_luna_create_draft_natural_author',
+      env: {},
+    });
+    assert.equal(disabled, null);
+    assert.equal(parseCreateDraftNaturalPlan(disabled), null);
+
+    const canonical = makeOwner({ useCanonicalProvider: true });
+    const canonicalDraft = await canonical.owner.regenerateEmailLunaDraftOnStaffClick({
+      actor: actor(),
+      conversation_id: V,
+      operator_context: LIVE_NOTES,
+    });
+    assert.equal(canonicalDraft.status, 'draft_ready');
+    assert.equal(canonicalDraft.send_allowed, false);
+    assert.equal(canonicalDraft.auto_send_allowed, false);
+    assert.equal(canonicalDraft.draft_text, LIVE_EN_BODY);
+    assertGuestFacingNatural(canonicalDraft.draft_text, { goals: LIVE_NOTES });
+    assert.match(canonicalDraft.draft_text, THANKS);
+    assert.match(canonicalDraft.draft_text, BOOKING_QUESTION);
+    assert.doesNotMatch(canonicalDraft.draft_text, WRAPPER);
+    assert.equal(canonicalDraft.draft_text.includes(LIVE_NOTES), false);
+    assert.equal(canonical.writes.length, 1);
+    assert.equal(canonical.approvals.length, 0);
+    assert.equal(canonical.journals.length, 0);
+    assert.equal(canonical.providers.length, 0);
+    assert.equal(canonical.bookings.length, 0);
+    console.log('  PASS  canonical unconfigured provider still authors exact live notes');
+
+    const emptyCanonical = makeOwner({ useCanonicalProvider: true });
+    const emptyCanonicalDraft = await emptyCanonical.owner.regenerateEmailLunaDraftOnStaffClick({
+      actor: actor(),
+      conversation_id: V,
+      operator_context: '   ',
+    });
+    assert.equal(emptyCanonicalDraft.status, 'draft_ready');
+    assert.equal(emptyCanonicalDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+    assert.equal(emptyCanonical.writes.length, 1);
+    assert.equal(emptyCanonical.approvals.length, 0);
+    console.log('  PASS  canonical empty context stays safe thread-only');
+
+    const spanishCanonical = makeOwner({
+      useCanonicalProvider: true,
+      rows: [authorityRow({
+        subject: 'Re: Prueba 8 26',
+      })],
+      contentText: 'Hola, gracias, necesito un mensaje por favor.',
+    });
+    const spanishCanonicalDraft = await spanishCanonical.owner.regenerateEmailLunaDraftOnStaffClick({
+      actor: actor(),
+      conversation_id: V,
+      operator_context: LIVE_NOTES,
+    });
+    assert.equal(spanishCanonicalDraft.status, 'draft_ready');
+    assert.equal(spanishCanonicalDraft.draft_text, LIVE_ES_BODY);
+    assertGuestFacingNatural(spanishCanonicalDraft.draft_text, { goals: LIVE_NOTES, language: 'es' });
+    console.log('  PASS  canonical Spanish thread renders the closed EN/ES plan');
+
+    const routeSent = [];
+    const routeApprovals = [];
+    const routeJournals = [];
+    const routeProviders = [];
+    const routeOwner = makeOwner({ useCanonicalProvider: true });
+    const route = createStaffEmailLunaDraftRoute({
+      sendJSON(_res, status, body) { routeSent.push({ status, body }); return body; },
+      runtimeEnv: gateOn(),
+      withPgClient: async (fn) => fn({ query: async () => ({ rows: [] }) }),
+      createLunaRuntime() { throw new Error('route must use existing producer, not a second runtime'); },
+      saveDraftThroughStaffOwner() { throw new Error('must not create approval'); },
+      approveDraft: (...args) => routeApprovals.push(args),
+      appendOutboundJournal: (...args) => routeJournals.push(args),
+      callProvider: (...args) => routeProviders.push(args),
+      regenerateEmailLunaDraftOnStaffClick: (input) => (
+        routeOwner.owner.regenerateEmailLunaDraftOnStaffClick(input)
+      ),
+    });
+    await route.handleCreateDraft(
+      request({ conversation_id: V, context: LIVE_NOTES }),
+      {},
+      actor(),
+      snapshotEmailLunaGenerateGateEnv(gateOn()),
+    );
+    const routed = routeSent.at(-1);
+    assert.equal(routed.status, 200);
+    assert.equal(routed.body.success, true);
+    assert.equal(routed.body.conversation_id, V);
+    assert.equal(routed.body.message_text, LIVE_EN_BODY);
+    assert.equal(Object.prototype.hasOwnProperty.call(routed.body, 'approval_id'), false);
+    assert.equal(EMAIL_LUNA_CREATE_DRAFT_PATH, '/staff/inbox/email/create-draft');
+    assert.equal(EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR, 'email_create_draft_unavailable');
+    assert.equal(routeOwner.writes.length, 1);
+    assert.equal(routeOwner.store.draft, LIVE_EN_BODY);
+    assert.equal(routeApprovals.length, 0);
+    assert.equal(routeJournals.length, 0);
+    assert.equal(routeProviders.length, 0);
+    assert.equal(routeOwner.approvals.length, 0);
+    assert.equal(routeOwner.journals.length, 0);
+    assert.equal(routeOwner.providers.length, 0);
+    assert.equal(routeOwner.bookings.length, 0);
+    console.log('  PASS  staff route/runtime composition authors exact live notes with no side effects');
+
+    const malformedCanonical = makeOwner({
+      callModel: async () => Promise.resolve('not-json'),
+    });
+    const malformedCanonicalDraft = await malformedCanonical.owner.regenerateEmailLunaDraftOnStaffClick({
+      actor: actor(),
+      conversation_id: V,
+      operator_context: LIVE_NOTES,
+    });
+    assert.equal(malformedCanonicalDraft.status, 'pending');
+    assert.equal(malformedCanonical.writes.length, 0);
+    assert.equal(malformedCanonical.store.draft, 'Previous standing draft.');
+    console.log('  PASS  malformed model output still fail-closes without overwriting standing draft');
+  });
+
   const contextSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-luna-create-draft-context.js'), 'utf8');
   const policySrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-luna-draft-open-policy-composition.js'), 'utf8');
   const openSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-email-luna-draft-open.js'), 'utf8');
@@ -927,6 +1100,9 @@ function makeOwner(options = {}) {
   assert.doesNotMatch(naturalSrc, /We also wanted to add/);
   assert.match(naturalSrc, /require\('\.\/email-luna-hard-truth-claims'\)/);
   assert.match(naturalSrc, /parseCreateDraftNaturalPlan|SAFE_CREATE_DRAFT_NATURAL_ACTS|renderCreateDraftNaturalPlan/);
+  assert.match(naturalSrc, /compileCreateDraftNaturalPlanJson/);
+  assert.match(naturalSrc, /result == null/);
+  assert.match(naturalSrc, /callLunaAiJsonChat/);
   assert.doesNotMatch(naturalSrc, /\{\s*"body"\s*:\s*string\s*\}/);
   assert.doesNotMatch(naturalSrc, /const PRICE_OR_MONEY|const HOLD_CLAIM|email-luna-draft-validator|validateEmailLunaDraft/);
   assert.match(claimsSrc, /hasHardTruthClaim/);
@@ -949,7 +1125,7 @@ function makeOwner(options = {}) {
     const checked = spawnSync(process.execPath, ['--check', rel], { cwd: ROOT, encoding: 'utf8' });
     assert.equal(checked.status, 0, checked.stderr || rel);
   }
-  console.log('PASS MAIL-MVP-001-FIX-2 natural Create Draft author');
+  console.log('PASS MAIL-MVP-001-FIX-3 natural Create Draft author');
 })().catch((error) => {
   console.error(error);
   process.exit(1);

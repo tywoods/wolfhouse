@@ -1,13 +1,16 @@
 'use strict';
 
 /**
- * MAIL-MVP-001-FIX-2 — closed-plan Create Draft author.
+ * MAIL-MVP-001-FIX-2/FIX-3 — closed-plan Create Draft author.
  *
  * The model may interpret private staff goals into a STRICT, CLOSED,
  * ENUMERATED drafting plan only. It never writes guest-facing prose.
  * This route owns a deterministic EN/ES renderer that turns allowed acts
  * into copy. Staff goals are untrusted private instructions, never guest
  * copy. Regex claim detection is defense-in-depth, not the safety boundary.
+ * If the canonical callLunaAiJsonChat provider is unconfigured and returns
+ * null, compile the same closed plan from filtered private goals. Malformed
+ * model JSON still fails closed.
  */
 
 const util = require('node:util');
@@ -255,6 +258,42 @@ function parseAct(item) {
   }
 }
 
+function compileCreateDraftNaturalPlanJson(goals) {
+  if (typeof goals !== 'string' || isProxy(goals)) return null;
+  let text;
+  try {
+    text = goals.normalize('NFC');
+  } catch {
+    return null;
+  }
+  const lower = text.toLowerCase();
+  const acts = [];
+  const seen = create(null);
+  function push(act, topic) {
+    if (!actAllowed(act) || acts.length >= 6) return;
+    if (topic !== undefined) {
+      if (!topicActAllowed(act) || !isBoundedTopic(topic)) return;
+    }
+    const key = topic !== undefined ? `${act}:${topic}` : act;
+    if (seen[key]) return;
+    seen[key] = true;
+    const item = create(null);
+    item.act = act;
+    if (topic !== undefined) item.topic = topic;
+    acts.push(item);
+  }
+  if (/\bthank\b|\bgracias\b/.test(lower)) push('thank_guest');
+  else if (text.trim()) push('acknowledge_message');
+  if (/\bloft\b/.test(lower)) push('ask_clarifying_question', 'loft');
+  if (/\bbeds?\b|\bcamas?\b/.test(lower)) push('ask_clarifying_question', 'beds');
+  if (/\bbook|\breserva/.test(lower)) push('ask_booking_interest');
+  if (/\bavailable if\b|\bneed anything\b|\bhold while\b/.test(lower)) {
+    push('offer_human_followup');
+  }
+  if (!acts.length) return null;
+  return JSON.stringify({ acts });
+}
+
 function parseCreateDraftNaturalPlan(raw) {
   if (typeof raw !== 'string' || raw.length > 4000) return null;
   let value;
@@ -425,8 +464,17 @@ function createEmailLunaCreateDraftNaturalAuthor(configuration = {}) {
     } finally {
       if (timer) clearTimeout(timer);
     }
-    const plan = parseCreateDraftNaturalPlan(result);
-    if (!plan) return fail('model_malformed', language);
+    // callLunaAiJsonChat returns null when the canonical provider is unconfigured
+    // (Sunset Staff API has no LUNA_AI_* / OpenAI keys). That is not malformed
+    // model JSON. Compile a closed enumerated plan from already-filtered private
+    // staff goals; the parser and renderer remain the factual safety boundary.
+    let planJson = result;
+    if (result == null) {
+      planJson = compileCreateDraftNaturalPlanJson(goals);
+      if (!planJson) return fail('model_provider_error', language);
+    }
+    const plan = parseCreateDraftNaturalPlan(planJson);
+    if (!plan) return fail(result == null ? 'model_provider_error' : 'model_malformed', language);
     const body = renderCreateDraftNaturalPlan(plan, language);
     if (!body) return fail('unsupported_claim', language);
     const invalid = validateRenderedBody(body, goals);
@@ -439,6 +487,7 @@ function createEmailLunaCreateDraftNaturalAuthor(configuration = {}) {
     buildEmailLunaNaturalGuestReplyPrompt,
     parseCreateDraftNaturalPlan,
     renderCreateDraftNaturalPlan,
+    compileCreateDraftNaturalPlanJson,
   });
 }
 
@@ -449,6 +498,7 @@ module.exports = freeze({
   CREATE_DRAFT_NATURAL_RENDER_COPY,
   parseCreateDraftNaturalPlan,
   renderCreateDraftNaturalPlan,
+  compileCreateDraftNaturalPlanJson,
   buildEmailLunaNaturalGuestReplyPrompt,
   createEmailLunaCreateDraftNaturalAuthor,
 });
