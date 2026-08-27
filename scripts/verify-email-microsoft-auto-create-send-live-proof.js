@@ -102,9 +102,22 @@ const {
   runKillSwitchProbe,
   runInnerSnapshot,
   runInnerGraphVerify,
+  GRAPH_GRANT_STAGE_REASON,
+  classifyTrustedGraphGrantFailure,
   replicaLeftover,
   replicaSolProven,
 } = require('./lib/email-luna-microsoft-auto-create-send-live-proof');
+const {
+  createDelegatedGrantAccessSession,
+  STATUS_REAUTH,
+  STATUS_UNCERTAIN,
+  STATUS_UNAVAILABLE,
+  DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES,
+} = require('./lib/email-delegated-grant-access-session');
+const {
+  createFakeEmailGrantEnvelopeProvider,
+  fakeSealRefreshToken,
+} = require('./lib/email-grant-envelope-fake-provider');
 const {
   digestGeneratedEmailLunaDraftBody,
 } = require('./lib/staff-email-luna-draft-open');
@@ -134,6 +147,13 @@ const SOL = Object.freeze({
 const THREAD_DRAFT = 'Thanks for writing about the mailbox. Would you like to make a booking?';
 const HMAC_SECRET = 'mvp004-sol-hmac-test-secret';
 const REQUEST_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01';
+const GRAPH_APP_ID = '12345678-1234-4234-8234-123456789abc';
+const GRAPH_OLD_RT = 'rt-old-NEVER_LEAK';
+const GRAPH_NEW_RT = 'rt-new-NEVER_LEAK';
+const GRAPH_ACCESS = 'at-NEVER_LEAK-access';
+const GRAPH_SECRET = 'app-secret-NEVER_LEAK';
+const GRAPH_PLANTED = 'planted-NEVER_LEAK-secret';
+const PHASE_A_TOKEN_SCOPE = 'openid profile User.Read Mail.ReadWrite Mail.Send';
 
 function nonce() {
   return crypto.randomBytes(32).toString('hex');
@@ -258,6 +278,173 @@ function threadRow(patch) {
     guest_id: GUEST,
     ...patch,
   };
+}
+
+function frozenMethod(name, fn) { return Object.freeze({ [name]: fn }); }
+
+function graphGrantRows(row) {
+  return { rows: row == null ? [] : [row], rowCount: row == null ? 0 : 1 };
+}
+
+function graphGrantEmpty() { return { rows: [], rowCount: 0 }; }
+
+function createGraphGrantMockPg(handlers) {
+  return {
+    async query(text, params) {
+      const t = String(text);
+      for (const h of handlers) {
+        if (h.match(t, params)) return h.run(t, params);
+      }
+      throw new Error(`unmatched_sql:${t.slice(0, 80)}`);
+    },
+  };
+}
+
+function successGraphTokenTransport(bodyPatch = {}) {
+  return frozenMethod('postTokenForm', async () => Object.freeze({
+    statusCode: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      token_type: 'Bearer',
+      expires_in: 3600,
+      access_token: GRAPH_ACCESS,
+      refresh_token: GRAPH_NEW_RT,
+      scope: PHASE_A_TOKEN_SCOPE,
+      ...bodyPatch,
+    }),
+  }));
+}
+
+function mockGraphGrantLifecycle({
+  sealed, opId, failCommit, priorStatus, noGrant, failLease,
+}) {
+  let leaseTok = null;
+  const prior = priorStatus || {
+    client_id: C, endpoint_id: E,
+    grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+    grant_lease_token: null,
+    scope_version: 'phase_a_v2',
+  };
+  return createGraphGrantMockPg([
+    {
+      match: (t) => /FROM tenant_email_delegated_grants/i.test(t)
+        && !/FOR UPDATE/i.test(t) && !/UPDATE/i.test(t) && !/INSERT/i.test(t),
+      run: () => (noGrant ? graphGrantEmpty() : graphGrantRows(prior)),
+    },
+    {
+      match: (t) => /FOR UPDATE OF g/i.test(t) || (/SELECT g\.\*/i.test(t) && /FOR UPDATE/i.test(t)),
+      run: () => graphGrantRows({
+        client_id: C, endpoint_id: E,
+        grant_generation: 1, grant_status: 'active', reconcile_state: 'clean',
+        grant_lease_token: null, grant_lease_until: null,
+        last_operation_id: opId,
+        scope_version: 'phase_a_v2',
+        envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
+        kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
+        kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext, auth_tag: sealed.auth_tag,
+        wrapped_dek: sealed.wrapped_dek,
+        endpoint_binding_status: 'verified',
+      }),
+    },
+    {
+      match: (t) => /SET grant_status='lease_held'/i.test(t),
+      run: (_t, p) => {
+        if (failLease) return graphGrantEmpty();
+        leaseTok = p[3];
+        return graphGrantRows({
+          client_id: C, endpoint_id: E,
+          grant_generation: 1, grant_status: 'lease_held',
+          grant_lease_token: leaseTok,
+          grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+          last_operation_id: opId,
+          scope_version: 'phase_a_v2',
+        });
+      },
+    },
+    {
+      match: (t) => /grant_lease_token/i.test(t) && /FOR UPDATE/i.test(t)
+        && /envelope_version/i.test(t),
+      run: () => graphGrantRows({
+        client_id: C, endpoint_id: E,
+        grant_generation: 1, grant_status: 'lease_held',
+        grant_lease_token: leaseTok,
+        grant_lease_until: new Date(Date.now() + 60000).toISOString(),
+        last_operation_id: opId,
+        scope_version: 'phase_a_v2',
+        envelope_version: sealed.envelope_version, aead_alg: sealed.aead_alg,
+        kek_wrap_alg: sealed.kek_wrap_alg, kek_key_name: sealed.kek_key_name,
+        kek_key_version: sealed.kek_key_version, nonce: sealed.nonce,
+        ciphertext: sealed.ciphertext, auth_tag: sealed.auth_tag,
+        wrapped_dek: sealed.wrapped_dek,
+      }),
+    },
+    {
+      match: (t) => /SET grant_generation=/i.test(t) && /grant_status='active'/i.test(t),
+      run: (_t, p) => {
+        if (failCommit) return graphGrantEmpty();
+        return graphGrantRows({
+          client_id: C, endpoint_id: E,
+          grant_generation: Number(p[2]), grant_status: 'active',
+          reconcile_state: 'clean',
+          scope_version: 'phase_a_v2',
+        });
+      },
+    },
+    {
+      match: (t) => /SET reconcile_state=/i.test(t),
+      run: () => graphGrantRows({
+        client_id: C, endpoint_id: E,
+        grant_generation: 1, grant_status: 'lease_held',
+        reconcile_state: 'ms_response_uncertain',
+        scope_version: 'phase_a_v2',
+      }),
+    },
+    {
+      match: (t) => /SET grant_status='active'/i.test(t) && /grant_lease_owner=NULL/i.test(t),
+      run: () => graphGrantRows({
+        client_id: C, endpoint_id: E,
+        grant_generation: 1, grant_status: 'active',
+        reconcile_state: 'ms_response_uncertain',
+        scope_version: 'phase_a_v2',
+      }),
+    },
+    {
+      match: (t) => /reauthorization_required/i.test(t),
+      run: () => graphGrantRows({ grant_generation: 1, grant_status: 'reauthorization_required' }),
+    },
+    {
+      match: (t) => /UPDATE tenant_channel_endpoints/i.test(t),
+      run: () => graphGrantRows({ id: E }),
+    },
+    { match: () => true, run: () => graphGrantEmpty() },
+  ]);
+}
+
+async function createGraphGrantSessionLoan(overrides = {}) {
+  const fake = overrides.envelopeProvider || createFakeEmailGrantEnvelopeProvider();
+  const op = overrides.opId || crypto.randomUUID();
+  const sealed = overrides.sealed || await fakeSealRefreshToken(fake, {
+    refreshToken: GRAPH_OLD_RT, clientId: C, endpointId: E,
+    grantGeneration: 1, operationId: op,
+  });
+  return createDelegatedGrantAccessSession(Object.freeze({
+    deployment: SUNSET_DEPLOYMENT,
+    applicationClientId: GRAPH_APP_ID,
+    client: overrides.client || mockGraphGrantLifecycle({
+      sealed,
+      opId: op,
+      noGrant: overrides.noGrant === true,
+      failLease: overrides.failLease === true,
+      failCommit: overrides.failCommit === true,
+      priorStatus: overrides.priorStatus,
+    }),
+    envelopeProvider: overrides.failingProvider || fake,
+    secretProvider: overrides.secretProvider
+      || frozenMethod('getClientSecret', async () => GRAPH_SECRET),
+    transport: overrides.transport || successGraphTokenTransport(),
+    workerId: overrides.workerId || 'mail-mvp-004-graph-verify-test',
+  }));
 }
 
 const OTHER_GUEST = '88888888-8888-4888-8888-888888888888';
@@ -1453,7 +1640,37 @@ async function main() {
     assert.match(executeOnceSrc, /replicaEvidenceCapabilityAvailable/);
     assert.match(libSrc, /createDelegatedGrantAccessSession/);
     assert.match(libSrc, /runWithAccessTokenOnce/);
+    assert.match(libSrc, /bindTrustedDelegatedGrantAccessSessionInternalStageObserver/);
+    assert.match(libSrc, /readTrustedDelegatedGrantAccessSessionInternalStage/);
+    assert.match(libSrc, /graph_grant_status_unavailable/);
+    assert.match(libSrc, /graph_grant_lease_unavailable/);
+    assert.match(libSrc, /graph_grant_open_unavailable/);
+    assert.match(libSrc, /graph_client_secret_unavailable/);
+    assert.match(libSrc, /graph_token_unavailable/);
+    assert.match(libSrc, /graph_response_unavailable/);
+    assert.match(libSrc, /graph_grant_reauth_required/);
+    assert.match(libSrc, /graph_grant_reconcile_required/);
+    assert.match(libSrc, /graph_grant_release_unavailable/);
+    assert.match(libSrc, /classifyTrustedGraphGrantFailure/);
     assert.doesNotMatch(libSrc, /brandProductionGraphVerifier\(async \(\) => freeze\(\{\s*ok: false,\s*reason: 'graph_adapter_unwired'/);
+    assert.deepEqual([...DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES], [
+      'status', 'lease', 'open', 'secret', 'token', 'response',
+      'dead_grant', 'reseal', 'commit', 'release',
+    ]);
+    assert.equal(GRAPH_GRANT_STAGE_REASON.status, 'graph_grant_status_unavailable');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.lease, 'graph_grant_lease_unavailable');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.open, 'graph_grant_open_unavailable');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.secret, 'graph_client_secret_unavailable');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.token, 'graph_token_unavailable');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.response, 'graph_response_unavailable');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.dead_grant, 'graph_grant_reauth_required');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.reseal, 'graph_grant_reconcile_required');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.commit, 'graph_grant_reconcile_required');
+    assert.equal(GRAPH_GRANT_STAGE_REASON.release, 'graph_grant_release_unavailable');
+    for (const stage of DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES) {
+      assert.equal(typeof GRAPH_GRANT_STAGE_REASON[stage], 'string');
+      assert.match(GRAPH_GRANT_STAGE_REASON[stage], /^graph_/);
+    }
 
     assert.equal(replicaSolProven({
       evidence_mac: 'ab'.repeat(32),
@@ -1482,6 +1699,30 @@ async function main() {
     assert.equal(unwiredGraph.invoked, 0);
     assert.equal(unwiredLog.includes('flags:true'), false);
     assert.equal(unwiredLog.includes('invoke'), false);
+
+    const { harness: hGrantDiag, log: grantDiagLog } = makeHarness({
+      graph: {
+        ok: false,
+        reason: 'graph_grant_lease_unavailable',
+        stage: 'lease',
+        status: STATUS_UNAVAILABLE,
+        adapter_available: false,
+        readonly: false,
+        arrivals: 0,
+        duplicates: 0,
+        threaded: false,
+      },
+    });
+    const grantDiagRefuse = await execute(hGrantDiag);
+    assert.equal(grantDiagRefuse.reason, 'graph_grant_lease_unavailable');
+    assert.equal(grantDiagRefuse.status, 'refused');
+    assert.equal(grantDiagRefuse.invoked, 0);
+    assert.equal(grantDiagRefuse.public.stage, 'lease');
+    assert.equal(grantDiagRefuse.public.status, 'refused');
+    assert.equal(grantDiagLog.includes('flags:true'), false);
+    assert.equal(grantDiagLog.includes('mode:auto'), false);
+    assert.equal(grantDiagLog.includes('invoke'), false);
+    assert.doesNotMatch(JSON.stringify(grantDiagRefuse), /NEVER_LEAK|loan-token|grant_generation/);
 
     const { harness: hHmac, log: hmacLog } = makeHarness({
       evidence: {
@@ -1616,6 +1857,229 @@ async function main() {
     assert.equal(innerUnwired.ok, false);
     assert.equal(innerUnwired.reason, 'graph_adapter_unwired');
     assert.equal(innerUnwired.adapter_available, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(innerUnwired, 'stage'), false);
+
+    function assertGraphGrantDiag(result, stage, status) {
+      const reason = GRAPH_GRANT_STAGE_REASON[stage];
+      assert.equal(result.ok, false, stage);
+      assert.equal(result.reason, reason, stage);
+      assert.equal(result.stage, stage, stage);
+      assert.equal(result.adapter_available, false, stage);
+      assert.equal(result.readonly, false, stage);
+      if (status) assert.equal(result.status, status, stage);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'grant_generation'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'accessToken'), false);
+      assert.doesNotMatch(JSON.stringify(result), /NEVER_LEAK|loan-token|refresh_token|ya29\./);
+      assert.doesNotMatch(JSON.stringify(result.public || {}), /NEVER_LEAK|loan-token|refresh_token/);
+    }
+
+    const forgedGrant = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: {
+        async runWithAccessTokenOnce() {
+          return {
+            ok: false,
+            reason: 'graph_grant_status_unavailable',
+            stage: 'status',
+            status: STATUS_UNAVAILABLE,
+            grant_generation: 8877,
+            accessToken: 'loan-token',
+            refresh_token: GRAPH_OLD_RT,
+            body: GRAPH_PLANTED,
+          };
+        },
+      },
+    });
+    assert.equal(forgedGrant.reason, 'graph_adapter_unwired');
+    assert.equal(forgedGrant.adapter_available, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(forgedGrant, 'stage'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(forgedGrant, 'grant_generation'), false);
+    assert.doesNotMatch(JSON.stringify(forgedGrant), /loan-token|8877|NEVER_LEAK/);
+    const forgedClassified = classifyTrustedGraphGrantFailure({
+      target: {
+        ok: false,
+        reason: 'graph_grant_lease_unavailable',
+        stage: 'lease',
+        status: STATUS_UNAVAILABLE,
+      },
+    });
+    assert.equal(forgedClassified.reason, 'graph_adapter_unwired');
+    assert.equal(Object.prototype.hasOwnProperty.call(forgedClassified, 'stage'), false);
+    const observerOnly = classifyTrustedGraphGrantFailure({ observedStage: 'token' });
+    assert.equal(observerOnly.reason, 'graph_token_unavailable');
+    assert.equal(observerOnly.stage, 'token');
+    assert.equal(observerOnly.adapter_available, false);
+
+    const statusLoan = await createGraphGrantSessionLoan({ noGrant: true });
+    const statusDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: statusLoan,
+    });
+    assertGraphGrantDiag(statusDiag, 'status', STATUS_UNAVAILABLE);
+
+    const leaseLoan = await createGraphGrantSessionLoan({ failLease: true });
+    const leaseDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: leaseLoan,
+    });
+    assertGraphGrantDiag(leaseDiag, 'lease', STATUS_UNAVAILABLE);
+
+    const fakeOpen = createFakeEmailGrantEnvelopeProvider();
+    const openOp = crypto.randomUUID();
+    const openSealed = await fakeSealRefreshToken(fakeOpen, {
+      refreshToken: GRAPH_OLD_RT, clientId: C, endpointId: E,
+      grantGeneration: 1, operationId: openOp,
+    });
+    const openLoan = await createGraphGrantSessionLoan({
+      sealed: openSealed,
+      opId: openOp,
+      envelopeProvider: fakeOpen,
+      failingProvider: Object.freeze({
+        sealGrantPayload: (...a) => fakeOpen.sealGrantPayload(...a),
+        openGrantPayload: async () => { throw new Error(GRAPH_PLANTED); },
+        rewrapGrantDek: (...a) => fakeOpen.rewrapGrantDek(...a),
+      }),
+    });
+    const openDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: openLoan,
+    });
+    assertGraphGrantDiag(openDiag, 'open', STATUS_UNAVAILABLE);
+
+    const secretLoan = await createGraphGrantSessionLoan({
+      secretProvider: frozenMethod('getClientSecret', async () => {
+        throw new Error(GRAPH_PLANTED);
+      }),
+    });
+    const secretDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: secretLoan,
+    });
+    assertGraphGrantDiag(secretDiag, 'secret', STATUS_UNCERTAIN);
+
+    const tokenLoanFail = await createGraphGrantSessionLoan({
+      transport: frozenMethod('postTokenForm', async () => {
+        throw new Error(GRAPH_PLANTED);
+      }),
+    });
+    const tokenDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: tokenLoanFail,
+    });
+    assertGraphGrantDiag(tokenDiag, 'token', STATUS_UNCERTAIN);
+
+    const responseLoan = await createGraphGrantSessionLoan({
+      transport: frozenMethod('postTokenForm', async () => Object.freeze({
+        statusCode: 503,
+        contentType: 'text/plain',
+        body: GRAPH_PLANTED,
+      })),
+    });
+    const responseDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: responseLoan,
+    });
+    assertGraphGrantDiag(responseDiag, 'response', STATUS_UNCERTAIN);
+
+    const reauthLoan = await createGraphGrantSessionLoan({
+      priorStatus: {
+        client_id: C, endpoint_id: E,
+        grant_generation: 3, grant_status: 'reauthorization_required',
+        reconcile_state: 'needs_operator', grant_lease_token: null,
+      },
+    });
+    const reauthDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: reauthLoan,
+    });
+    assertGraphGrantDiag(reauthDiag, 'dead_grant', STATUS_REAUTH);
+
+    const fakeReseal = createFakeEmailGrantEnvelopeProvider();
+    const resealOp = crypto.randomUUID();
+    const resealSealed = await fakeSealRefreshToken(fakeReseal, {
+      refreshToken: GRAPH_OLD_RT, clientId: C, endpointId: E,
+      grantGeneration: 1, operationId: resealOp,
+    });
+    const resealLoan = await createGraphGrantSessionLoan({
+      sealed: resealSealed,
+      opId: resealOp,
+      envelopeProvider: fakeReseal,
+      failingProvider: Object.freeze({
+        sealGrantPayload: async () => { throw new Error(GRAPH_PLANTED); },
+        openGrantPayload: (...a) => fakeReseal.openGrantPayload(...a),
+        rewrapGrantDek: (...a) => fakeReseal.rewrapGrantDek(...a),
+      }),
+    });
+    const resealDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: resealLoan,
+    });
+    assertGraphGrantDiag(resealDiag, 'reseal', STATUS_UNCERTAIN);
+
+    const commitLoan = await createGraphGrantSessionLoan({ failCommit: true });
+    const commitDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: commitLoan,
+    });
+    assertGraphGrantDiag(commitDiag, 'commit', STATUS_UNCERTAIN);
+
+    const realRelease = await createGraphGrantSessionLoan();
+    const releaseLoan = {
+      async runWithAccessTokenOnce(binding, consumer) {
+        return realRelease.runWithAccessTokenOnce(binding, async () => {
+          throw new Error(GRAPH_PLANTED);
+        });
+      },
+    };
+    const releaseDiag = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: releaseLoan,
+    });
+    assertGraphGrantDiag(releaseDiag, 'release');
 
     const inboundOnly = await runInnerGraphVerify({
       env: {

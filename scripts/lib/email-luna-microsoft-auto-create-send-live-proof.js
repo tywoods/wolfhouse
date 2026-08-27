@@ -40,6 +40,12 @@ const {
 const { ENV_HMAC_SECRET } = require('./email-luna-sunset-email-hermes-sol-activation');
 const {
   createDelegatedGrantAccessSession,
+  bindTrustedDelegatedGrantAccessSessionInternalStageObserver,
+  readTrustedDelegatedGrantAccessSessionInternalStage,
+  DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES,
+  STATUS_REAUTH,
+  STATUS_UNCERTAIN,
+  STATUS_UNAVAILABLE,
 } = require('./email-delegated-grant-access-session');
 const {
   createSunsetMicrosoftOAuthClientSecretProvider,
@@ -110,6 +116,29 @@ const GRAPH_LIST_SELECT = freeze([
 ]);
 const GRAPH_LIST_FORBIDDEN_SELECT = freeze(['body', 'bodyPreview', 'uniqueBody']);
 const GRAPH_VERIFY_WORKER_ID = 'mail-mvp-004-graph-verify';
+const GRAPH_GRANT_STAGE_REASON = freeze({
+  status: 'graph_grant_status_unavailable',
+  lease: 'graph_grant_lease_unavailable',
+  open: 'graph_grant_open_unavailable',
+  secret: 'graph_client_secret_unavailable',
+  token: 'graph_token_unavailable',
+  response: 'graph_response_unavailable',
+  dead_grant: 'graph_grant_reauth_required',
+  reseal: 'graph_grant_reconcile_required',
+  commit: 'graph_grant_reconcile_required',
+  release: 'graph_grant_release_unavailable',
+});
+const GRAPH_GRANT_STATUS_SET = new Set([
+  STATUS_UNAVAILABLE,
+  STATUS_UNCERTAIN,
+  STATUS_REAUTH,
+]);
+if (
+  !Array.isArray(DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES)
+  || DELEGATED_GRANT_ACCESS_SESSION_INTERNAL_STAGES.some((stage) => !GRAPH_GRANT_STAGE_REASON[stage])
+) {
+  throw new Error('graph_grant_stage_reason_mismatch');
+}
 const INNER_MODE_KILL_SWITCH = 'MAIL_MVP_004_KILL_SWITCH_PROBE';
 const INNER_MODE_SNAPSHOT = 'MAIL_MVP_004_SNAPSHOT';
 const INNER_MODE_GRAPH_VERIFY = 'MAIL_MVP_004_GRAPH_VERIFY';
@@ -254,6 +283,8 @@ function refusedRecord(reason, extra) {
     live_proof_blocked: true,
   };
   if (extra && extra.public) Object.assign(out, extra.public);
+  const stage = closedGraphGrantStage(extra && extra.stage);
+  if (stage) out.stage = stage;
   return freeze({
     ok: false,
     reason: out.reason,
@@ -942,6 +973,51 @@ function headerCites(headerValue, cited) {
   return parts.includes(cited);
 }
 
+function closedGraphGrantStage(stage) {
+  try {
+    if (typeof stage !== 'string') return null;
+    if (!Object.prototype.hasOwnProperty.call(GRAPH_GRANT_STAGE_REASON, stage)) return null;
+    return stage;
+  } catch {
+    return null;
+  }
+}
+
+function closedGraphGrantStatus(status) {
+  try {
+    if (typeof status !== 'string' || !GRAPH_GRANT_STATUS_SET.has(status)) return null;
+    return status;
+  } catch {
+    return null;
+  }
+}
+
+function classifyTrustedGraphGrantFailure(input) {
+  const target = input && input.target;
+  const result = input && input.result;
+  const branded = readTrustedDelegatedGrantAccessSessionInternalStage(target)
+    || readTrustedDelegatedGrantAccessSessionInternalStage(result);
+  const stage = closedGraphGrantStage((branded && branded.stage) || (input && input.observedStage));
+  if (!stage) {
+    return freeze({
+      ok: false,
+      reason: 'graph_adapter_unwired',
+      adapter_available: false,
+      readonly: false,
+    });
+  }
+  const out = {
+    ok: false,
+    reason: GRAPH_GRANT_STAGE_REASON[stage],
+    adapter_available: false,
+    readonly: false,
+    stage,
+  };
+  const status = closedGraphGrantStatus(result && result.status);
+  if (status) out.status = status;
+  return freeze(out);
+}
+
 function sanitizeGraphPublic(result) {
   if (!result || typeof result !== 'object' || isProxy(result)) {
     return freeze({
@@ -958,7 +1034,7 @@ function sanitizeGraphPublic(result) {
   const arrivals = Number.isSafeInteger(result.arrivals) ? result.arrivals : 0;
   const duplicates = Number.isSafeInteger(result.duplicates) ? result.duplicates : 0;
   const ok = result.ok === true;
-  return freeze({
+  const pub = {
     ok,
     reason: ok === true ? null : (result.reason || 'graph_unproven'),
     adapter_available: result.adapter_available === true,
@@ -967,7 +1043,14 @@ function sanitizeGraphPublic(result) {
     duplicates,
     threaded: result.threaded === true,
     subject_ok: result.subject_ok === true,
-  });
+  };
+  if (ok !== true) {
+    const stage = closedGraphGrantStage(result.stage);
+    if (stage && GRAPH_GRANT_STAGE_REASON[stage] === pub.reason) pub.stage = stage;
+    const grantStatus = closedGraphGrantStatus(result.status);
+    if (grantStatus && pub.stage) pub.status = grantStatus;
+  }
+  return freeze(pub);
 }
 
 function graphInnerResult(result) {
@@ -2202,7 +2285,9 @@ function createMailMvp004LiveProof(deps) {
       })
       : null;
     if (!replicaGraphAdapterAvailable(graphProbe)) {
-      return refusedRecord((graphProbe && graphProbe.reason) || 'graph_adapter_unwired');
+      const reason = (graphProbe && graphProbe.reason) || 'graph_adapter_unwired';
+      const stage = closedGraphGrantStage(graphProbe && graphProbe.stage);
+      return refusedRecord(reason, stage ? { stage } : undefined);
     }
 
     const evidenceProbe = typeof deps.readDurableEvidence === 'function'
@@ -3613,6 +3698,11 @@ async function runInnerGraphVerify(input) {
           readonly: false,
         });
       }
+      let observedStage = null;
+      bindTrustedDelegatedGrantAccessSessionInternalStageObserver(session, (note) => {
+        const stage = closedGraphGrantStage(note && note.stage);
+        if (stage) observedStage = stage;
+      });
       const scopedPg = async (fn) => fn(client);
       let evidence = null;
       try {
@@ -3621,6 +3711,7 @@ async function runInnerGraphVerify(input) {
         evidence = null;
       }
       let sessionOut;
+      let sessionThrown = null;
       try {
         sessionOut = await session.runWithAccessTokenOnce(
           freeze({ clientId, endpointId }),
@@ -3639,25 +3730,30 @@ async function runInnerGraphVerify(input) {
             if (!request || request.method !== 'GET') {
               return freeze({ ok: false, reason: 'graph_send_forbidden', messages: [] });
             }
-            const raw = await httpsGraphGet(httpsImpl, token, request);
-            return parseGraphListMessages(raw);
+            try {
+              const raw = await httpsGraphGet(httpsImpl, token, request);
+              return parseGraphListMessages(raw);
+            } catch (err) {
+              const msg = err && typeof err.message === 'string' ? err.message : '';
+              if (msg === 'graph_send_forbidden') {
+                return freeze({ ok: false, reason: 'graph_send_forbidden', messages: [] });
+              }
+              if (msg === 'graph_adapter_unwired') {
+                return freeze({ ok: false, reason: 'graph_adapter_unwired', messages: [] });
+              }
+              return freeze({ ok: false, reason: 'graph_unproven', messages: [] });
+            }
           },
         );
-      } catch {
-        return graphInnerResult({
-          ok: false,
-          reason: 'graph_adapter_unwired',
-          adapter_available: false,
-          readonly: false,
-        });
+      } catch (err) {
+        sessionThrown = err;
       }
-      if (!sessionOut || sessionOut.ok !== true) {
-        return graphInnerResult({
-          ok: false,
-          reason: 'graph_adapter_unwired',
-          adapter_available: false,
-          readonly: false,
-        });
+      if (sessionThrown || !sessionOut || sessionOut.ok !== true) {
+        return graphInnerResult(classifyTrustedGraphGrantFailure({
+          target: sessionThrown || sessionOut,
+          result: sessionOut,
+          observedStage,
+        }));
       }
       const listed = sessionOut.value;
       if (listed && listed.reason === 'graph_body_leaked') {
@@ -4193,6 +4289,8 @@ module.exports = freeze({
   runKillSwitchProbe,
   runInnerSnapshot,
   runInnerGraphVerify,
+  GRAPH_GRANT_STAGE_REASON,
+  classifyTrustedGraphGrantFailure,
   createProductionStaffMailboxTokenLoan,
   sanitizeReplicaEvidenceSnapshot,
   replicaLeftover,
