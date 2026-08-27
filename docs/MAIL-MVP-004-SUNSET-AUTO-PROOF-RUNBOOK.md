@@ -26,7 +26,7 @@ Live proof is **blocked** until all of the following are true:
    - tag = 40-hex `origin/master` SHA
 4. Only `luna-sunset-staging-staff-api` in `luna-sunset-staging-rg` is updated to that image. No production, no `staff-staging`, no new mailbox, no gateway restart, no `/sethome`, Salt, Deckhand, or Full Sail 4J.
 5. The serving revision runs that image. The inner entrypoint that exists **inside the image** is `scripts/prove-mail-mvp-004-auto-create-send.js`. Do not `cat`, `printf`, or copy a newer script into `/tmp` on an old replica and call that proof.
-6. Independent preflight then shows current selected-operation approval/journal/provider counts at **zero/new**, flags currently false, and channel automation not already `auto`.
+6. Independent preflight then shows current selected-operation approval/journal/provider counts at **zero/new**, flags currently false, and channel automation not already `auto`. Booking side-effect snapshot counts only bookings linked to the exact conversation's guest in the same client (`conversations` client/id join `bookings` client/guest_id). Sunset has no `bookings.conversation_id`. Missing conversation/guest or an ambiguous relation fails closed without exposing rows.
 
 Until that image is serving, the harness must refuse `execute-once` with `exact_master_image_required` / `head_not_origin_master` / `proof_files_not_on_master`.
 
