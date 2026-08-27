@@ -1689,6 +1689,9 @@ async function main() {
     assert.equal(verifiedEvidence.sol_model, 'gpt-5.6-sol');
     assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence, 'message_text'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence, 'evidence_mac'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence, 'immutable_draft_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence.public || {}, 'immutable_draft_id'), false);
+    assert.doesNotMatch(JSON.stringify(verifiedEvidence.public || {}), /graph-sent-1/);
 
     const missingSecret = await runInnerSnapshot({
       env: {
@@ -2664,6 +2667,437 @@ exit 0
     assert.match(libSrc, /isLegalStaffOwnerRemoteCommand/);
     assert.match(libSrc, /const command = `\/usr\/bin\/env \$\{assignments\.join\(' '\)\} node \$\{PROOF_REMOTE_NODE\}`/);
     assert.doesNotMatch(libSrc, /return `sh -c '/);
+  }
+
+  console.log('[21] Inner CLI stdout is sanitized structured JSON, never generic sent');
+  {
+    const os = require('node:os');
+    assert.doesNotMatch(libSrc, /result\.public \|\| freeze\(\{ ok: true, status: 'sent' \}\)/);
+    assert.match(libSrc, /function killSwitchPublic/);
+    assert.match(libSrc, /function withInnerPublic/);
+    assert.match(libSrc, /Never impersonate a Microsoft send/);
+    assert.match(cliSrc, /console\.log\(JSON\.stringify\(publicProofOutput\(result\)\)\)/);
+    const evidencePublicSrc = libSrc.slice(
+      libSrc.indexOf('function evidencePublic'),
+      libSrc.indexOf('function isKillSwitchShape'),
+    );
+    assert.doesNotMatch(evidencePublicSrc, /immutable_draft_id/);
+    assert.doesNotMatch(evidencePublicSrc, /provider_message_id/);
+    assert.doesNotMatch(evidencePublicSrc, /internetMessageId/);
+    assert.match(libSrc, /function replicaEvidenceCapabilityAvailable/);
+    assert.doesNotMatch(
+      libSrc.slice(
+        libSrc.indexOf('function replicaEvidenceCapabilityAvailable'),
+        libSrc.indexOf('function replicaGraphAdapterAvailable'),
+      ),
+      /immutable_draft_id/,
+    );
+
+    const outerPub = publicProofOutput({
+      ok: true,
+      public: {
+        ok: true,
+        status: 'sent',
+        reason: null,
+        proof_version: 'mail_mvp_004_v1',
+        invoked: 1,
+        approvals: 1,
+        journals: 1,
+        provider_sends: 1,
+        sent: true,
+        restored: true,
+        kill_switch: true,
+        graph_threaded: true,
+        duplicate: false,
+        live_proof_blocked: false,
+      },
+    });
+    assert.equal(outerPub.ok, true);
+    assert.equal(outerPub.status, 'sent');
+    assert.equal(outerPub.invoked, 1);
+    assert.equal(outerPub.approvals, 1);
+    assert.equal(outerPub.journals, 1);
+    assert.equal(outerPub.provider_sends, 1);
+    assert.equal(outerPub.sent, true);
+    assert.equal(outerPub.kill_switch, true);
+    assert.equal(outerPub.graph_threaded, true);
+    assert.equal(outerPub.live_proof_blocked, false);
+
+    const generic = publicProofOutput({ ok: true, secret_body: THREAD_DRAFT });
+    assert.notEqual(generic.status, 'sent');
+    assert.equal(Object.prototype.hasOwnProperty.call(generic, 'secret_body'), false);
+
+    const killFallback = publicProofOutput({
+      ok: true,
+      status: 'blocked',
+      reason: 'emergency_flags_off',
+      author_called: false,
+      journal_called: false,
+      provider_called: false,
+      provider_sends: 0,
+    });
+    assert.equal(killFallback.ok, true);
+    assert.equal(killFallback.status, 'blocked');
+    assert.equal(killFallback.reason, 'emergency_flags_off');
+    assert.equal(killFallback.author_called, false);
+    assert.equal(killFallback.journal_called, false);
+    assert.equal(killFallback.provider_called, false);
+    assert.notEqual(killFallback.status, 'sent');
+
+    const graphFallback = publicProofOutput({
+      ok: true,
+      adapter_available: true,
+      readonly: true,
+      arrivals: 1,
+      duplicates: 0,
+      threaded: true,
+      subject_ok: true,
+    });
+    assert.equal(graphFallback.ok, true);
+    assert.equal(graphFallback.adapter_available, true);
+    assert.equal(graphFallback.readonly, true);
+    assert.equal(graphFallback.arrivals, 1);
+    assert.notEqual(graphFallback.status, 'sent');
+
+    const evidenceFallback = publicProofOutput({
+      ok: true,
+      hmac_available: true,
+      evidence_verified: false,
+      leftover: false,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      message_text: THREAD_DRAFT,
+      immutable_draft_id: 'graph-sent-1',
+      provider_message_id: 'graph-sent-1',
+    });
+    assert.equal(evidenceFallback.ok, true);
+    assert.equal(evidenceFallback.hmac_available, true);
+    assert.equal(evidenceFallback.evidence_verified, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceFallback, 'message_text'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceFallback, 'immutable_draft_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceFallback, 'provider_message_id'), false);
+    assert.doesNotMatch(JSON.stringify(evidenceFallback), /immutable_draft_id/);
+    assert.doesNotMatch(JSON.stringify(evidenceFallback), /graph-sent-1/);
+    assert.notEqual(evidenceFallback.status, 'sent');
+
+    function assertNoInnerLeak(raw) {
+      const text = typeof raw === 'string' ? raw : JSON.stringify(raw);
+      assert.doesNotMatch(text, /twoods@xantrion/i);
+      assert.doesNotMatch(text, new RegExp(V, 'i'));
+      assert.doesNotMatch(text, /Would you like to make a booking/);
+      assert.doesNotMatch(text, /loan-token/);
+      assert.doesNotMatch(text, /Bearer /);
+      assert.doesNotMatch(text, /"message_text"/);
+      assert.doesNotMatch(text, /"evidence_mac"/);
+      assert.doesNotMatch(text, /"secret_body"/);
+      assert.doesNotMatch(text, /"immutable_draft_id"/);
+      assert.doesNotMatch(text, /"provider_message_id"/);
+    }
+
+    function spawnProofCli(env, fixture) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mail-mvp-004-cli-'));
+      const preload = path.join(dir, 'preload.js');
+      const fixturePath = path.join(dir, 'fixture.json');
+      const consumedPath = path.join(dir, 'consumed.json');
+      fs.writeFileSync(fixturePath, JSON.stringify(fixture || {}));
+      fs.writeFileSync(preload, `'use strict';
+const fs = require('fs');
+const path = require('path');
+const Module = require('module');
+const fixture = JSON.parse(fs.readFileSync(${JSON.stringify(fixturePath)}, 'utf8'));
+const target = ${JSON.stringify(LIB_ABS)};
+const origLoad = Module._load;
+let dispatched = false;
+function currentCounts() {
+  if (dispatched === true) {
+    return { approvals: 1, journals: 1, provider_sends: 1, bookings: fixture.bookings == null ? 4 : fixture.bookings };
+  }
+  return {
+    approvals: fixture.approvals || 0,
+    journals: fixture.journals || 0,
+    provider_sends: fixture.provider_sends || 0,
+    bookings: fixture.bookings == null ? 4 : fixture.bookings,
+  };
+}
+function withPgClient(fn) {
+  return fn({
+    async query(sql) {
+      const n = String(sql).replace(/\\s+/g, ' ');
+      const counts = currentCounts();
+      if (/current_database/.test(n)) return { rows: [{ current_database: 'sunset_staging' }] };
+      if (/FROM clients cl INNER JOIN conversations c/.test(n)) {
+        return { rows: fixture.threadRows || [] };
+      }
+      if (/luna_email_open_draft/.test(n) && /message_text/.test(n)) {
+        if (fixture.ownerSent === true && dispatched !== true) return { rows: [] };
+        return { rows: fixture.evidenceRows || [] };
+      }
+      if (/inbox_channel_modes/.test(n) && /SELECT/.test(n)) {
+        return { rows: [{ inbox_channel_modes: { email: fixture.channelMode || 'off' } }] };
+      }
+      if (/tenant_email_outbound_send_journal/.test(n)) {
+        return { rows: [{ n: counts.journals, sends: counts.provider_sends }] };
+      }
+      if (/tenant_email_reply_approvals/.test(n) && /count/.test(n)) {
+        return { rows: [{ n: counts.approvals }] };
+      }
+      if (/JOIN bookings b/.test(n)) {
+        return { rows: [{ n: counts.bookings }] };
+      }
+      return { rows: [] };
+    },
+  });
+}
+Module._load = function(request, parent, isMain) {
+  const loaded = origLoad.apply(this, arguments);
+  let resolved = request;
+  try { resolved = Module._resolveFilename(request, parent, isMain); } catch {}
+  if (path.resolve(resolved) !== target) return loaded;
+  const origRunCli = loaded.runCli;
+  const inject = { withPgClient, consumedCapabilityPath: ${JSON.stringify(consumedPath)} };
+  if (fixture.killBlocked === true) {
+    inject.wired = {
+      handleProjectedInbound: async () => ({
+        status: 'blocked',
+        reason: 'emergency_flags_off',
+        draft_writes: 0,
+        approvals: 0,
+        journals: 0,
+        provider_sends: 0,
+        sent: false,
+        author_called: false,
+        journal_called: false,
+        provider_called: false,
+      }),
+    };
+  }
+  if (fixture.graphMessages) {
+    inject.tokenLoan = {
+      async runWithAccessTokenOnce(_binding, consumer) {
+        return { ok: true, grant_generation: 1, value: await consumer({ accessToken: 'loan-token' }) };
+      },
+    };
+    inject.https = {
+      request(opts, cb) {
+        const { PassThrough } = require('stream');
+        const res = new PassThrough();
+        const req = new PassThrough();
+        process.nextTick(() => {
+          cb(res);
+          res.end(JSON.stringify({ value: fixture.graphMessages }));
+        });
+        req.destroy = () => {};
+        return req;
+      },
+    };
+  }
+  if (fixture.ownerSent === true) {
+    inject.wired = {
+      handleProjectedInbound: loaded.brandProductionAutoOwner(async () => {
+        dispatched = true;
+        return {
+          status: 'sent',
+          sent: true,
+          approvals: 1,
+          journals: 1,
+          provider_sends: 1,
+        };
+      }),
+    };
+  }
+  return Object.assign({}, loaded, {
+    runCli(argv, options) {
+      return origRunCli(argv, Object.assign({}, options, inject));
+    },
+  });
+};
+`);
+      try {
+        return spawnSync(process.execPath, ['-r', preload, CLI_REL], {
+          cwd: ROOT,
+          encoding: 'utf8',
+          env: { ...process.env, NODE_OPTIONS: '', ...env },
+          timeout: 20000,
+        });
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+
+    const thread = threadRow({ inbound_internet_message_id: '<src@test>' });
+    const graphMessages = [{
+      id: 'graph-sent-1',
+      conversationId: 'graph-thread-1',
+      internetMessageId: '<out@test>',
+      subject: 'Re: Testing 8 26',
+      internetMessageHeaders: [
+        { name: 'In-Reply-To', value: '<src@test>' },
+        { name: 'References', value: '<src@test>' },
+      ],
+    }];
+    const evidenceRows = [{
+      approval_id: '55555555-5555-4555-8555-555555555555',
+      message_text: THREAD_DRAFT,
+      immutable_draft_id: 'graph-sent-1',
+      send_invocation_count: 1,
+      draft_meta: { selected_operation_evidence: mintEvidence(THREAD_DRAFT) },
+    }];
+
+    const killSpawn = spawnProofCli({
+      MAIL_MVP_004_KILL_SWITCH_PROBE: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      [ENV_LUNA_AUTO_SEND_ENABLED]: 'false',
+      [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: 'false',
+    }, { threadRows: [thread], killBlocked: true });
+    assert.equal(killSpawn.status, 0, `${killSpawn.stdout}${killSpawn.stderr}`);
+    const killOut = extractProofJson(`${killSpawn.stdout}${killSpawn.stderr}`);
+    assert.equal(killOut.ok, true);
+    assert.equal(killOut.status, 'blocked');
+    assert.equal(killOut.reason, 'emergency_flags_off');
+    assert.equal(killOut.author_called, false);
+    assert.equal(killOut.journal_called, false);
+    assert.equal(killOut.provider_called, false);
+    assert.notEqual(killOut.status, 'sent');
+    assert.equal(JSON.stringify(killOut), killSpawn.stdout.trim());
+    assertNoInnerLeak(killSpawn.stdout);
+    assertNoInnerLeak(killOut);
+
+    const preflightSpawn = spawnProofCli({
+      MAIL_MVP_004_SNAPSHOT: 'preflight',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { threadRows: [thread], bookings: 4, channelMode: 'off' });
+    assert.equal(preflightSpawn.status, 0, `${preflightSpawn.stdout}${preflightSpawn.stderr}`);
+    const preflightOut = extractProofJson(`${preflightSpawn.stdout}${preflightSpawn.stderr}`);
+    assert.equal(preflightOut.ok, true);
+    assert.equal(preflightOut.bookings, 4);
+    assert.equal(preflightOut.guest_linked, true);
+    assert.equal(preflightOut.approvals, 0);
+    assert.equal(preflightOut.journals, 0);
+    assert.equal(preflightOut.provider_sends, 0);
+    assert.notEqual(preflightOut.status, 'sent');
+    assert.equal(Object.prototype.hasOwnProperty.call(preflightOut, 'conversation_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(preflightOut, 'client_id'), false);
+    assertNoInnerLeak(preflightSpawn.stdout);
+
+    const countsSpawn = spawnProofCli({
+      MAIL_MVP_004_SNAPSHOT: 'counts',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { threadRows: [thread], approvals: 0, journals: 0, provider_sends: 0, bookings: 4 });
+    assert.equal(countsSpawn.status, 0, `${countsSpawn.stdout}${countsSpawn.stderr}`);
+    const countsOut = extractProofJson(`${countsSpawn.stdout}${countsSpawn.stderr}`);
+    assert.equal(countsOut.ok, true);
+    assert.equal(countsOut.approvals, 0);
+    assert.equal(countsOut.journals, 0);
+    assert.equal(countsOut.provider_sends, 0);
+    assert.equal(countsOut.bookings, 4);
+    assert.notEqual(countsOut.status, 'sent');
+    assertNoInnerLeak(countsSpawn.stdout);
+
+    const evidenceSpawn = spawnProofCli({
+      MAIL_MVP_004_SNAPSHOT: 'evidence',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      [ENV_HMAC_SECRET]: HMAC_SECRET,
+    }, { threadRows: [thread], evidenceRows });
+    assert.equal(evidenceSpawn.status, 0, `${evidenceSpawn.stdout}${evidenceSpawn.stderr}`);
+    const evidenceStdout = `${evidenceSpawn.stdout}${evidenceSpawn.stderr}`;
+    const evidenceOut = extractProofJson(evidenceStdout);
+    assert.equal(evidenceOut.ok, true);
+    assert.equal(evidenceOut.hmac_available, true);
+    assert.equal(evidenceOut.evidence_verified, true);
+    assert.equal(evidenceOut.leftover, false);
+    assert.equal(evidenceOut.sol_model, 'gpt-5.6-sol');
+    assert.equal(evidenceOut.sol_provider, 'openai-codex');
+    assert.equal(evidenceOut.sol_runtime, 'sunset-email-luna');
+    assert.equal(typeof evidenceOut.approvals, 'number');
+    assert.equal(typeof evidenceOut.journals, 'number');
+    assert.equal(typeof evidenceOut.provider_sends, 'number');
+    assert.notEqual(evidenceOut.status, 'sent');
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'message_text'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'evidence_mac'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'immutable_draft_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'provider_message_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'internetMessageId'), false);
+    assert.doesNotMatch(evidenceStdout, /immutable_draft_id/);
+    assert.doesNotMatch(evidenceStdout, /provider_message_id/);
+    assert.doesNotMatch(evidenceStdout, /internetMessageId/);
+    assert.doesNotMatch(evidenceStdout, /graph-sent-1/);
+    assert.doesNotMatch(JSON.stringify(evidenceOut), /immutable_draft_id/);
+    assert.doesNotMatch(JSON.stringify(evidenceOut), /graph-sent-1/);
+    assertNoInnerLeak(evidenceSpawn.stdout);
+
+    const graphSpawn = spawnProofCli({
+      MAIL_MVP_004_GRAPH_VERIFY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { threadRows: [thread], evidenceRows, graphMessages });
+    assert.equal(graphSpawn.status, 0, `${graphSpawn.stdout}${graphSpawn.stderr}`);
+    const graphOut = extractProofJson(`${graphSpawn.stdout}${graphSpawn.stderr}`);
+    assert.equal(graphOut.ok, true);
+    assert.equal(graphOut.adapter_available, true);
+    assert.equal(graphOut.readonly, true);
+    assert.equal(graphOut.arrivals, 1);
+    assert.equal(graphOut.duplicates, 0);
+    assert.equal(graphOut.threaded, true);
+    assert.notEqual(graphOut.status, 'sent');
+    assertNoInnerLeak(graphSpawn.stdout);
+
+    const cap = testCapability(Date.now());
+    const ownerEnv = {
+      MAIL_MVP_004_LIVE_PROOF: '1',
+      MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+      EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+      EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+      LUNA_AUTO_SEND_ENABLED: 'true',
+      LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+      MAIL_MVP_004_CAPABILITY: encodeCapability(cap),
+      MAIL_MVP_004_REVISION: REVISION,
+      MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+      MAIL_MVP_004_DIGEST: DIGEST,
+      [ENV_HMAC_SECRET]: HMAC_SECRET,
+    };
+    const ownerSpawn = spawnProofCli(ownerEnv, {
+      threadRows: [thread],
+      channelMode: 'auto',
+      ownerSent: true,
+      bookings: 4,
+      evidenceRows,
+    });
+    const ownerOut = extractProofJson(`${ownerSpawn.stdout}${ownerSpawn.stderr}`);
+    assert.equal(ownerSpawn.status, 0, `${ownerSpawn.stdout}${ownerSpawn.stderr}`);
+    assert.equal(ownerOut.ok, true);
+    assert.equal(ownerOut.status, 'sent');
+    assert.equal(ownerOut.invoked, 1);
+    assert.equal(ownerOut.approvals, 1);
+    assert.equal(ownerOut.journals, 1);
+    assert.equal(ownerOut.provider_sends, 1);
+    assert.match(ownerSpawn.stdout, new RegExp(MUTATION_ISSUED_MARKER));
+    assertNoInnerLeak(ownerOut);
+
+    const recCap = testCapability(Date.now());
+    const recSpawn = spawnProofCli({
+      MAIL_MVP_004_LIVE_PROOF: '1',
+      MAIL_MVP_004_RECONCILE_ONLY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+      EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+      EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+      LUNA_AUTO_SEND_ENABLED: 'true',
+      LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+      MAIL_MVP_004_CAPABILITY: encodeCapability(recCap),
+      MAIL_MVP_004_REVISION: REVISION,
+      MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+      MAIL_MVP_004_DIGEST: DIGEST,
+    }, { threadRows: [thread], channelMode: 'auto', approvals: 0, journals: 0, provider_sends: 0, bookings: 4 });
+    const recOut = extractProofJson(`${recSpawn.stdout}${recSpawn.stderr}`);
+    assert.notEqual(recSpawn.status, 0);
+    assert.equal(recOut.ok, false);
+    assert.equal(recOut.reason, 'reconcile_owner_state');
+    assert.equal(recOut.reconcile, true);
+    assert.equal(recOut.approvals, 0);
+    assert.notEqual(recOut.status, 'sent');
+    assertNoInnerLeak(recSpawn.stdout + recSpawn.stderr);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
