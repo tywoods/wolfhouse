@@ -106,6 +106,9 @@ const {
   issueSupervisorCapability,
   verifySupervisorCapability,
   encodeCapability,
+  CONFIRM_WINDOW_MS,
+  REVISION_WAIT_TIMEOUT_MS,
+  REVISION_WAIT_INTERVAL_MS,
   createEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,
   selectProofThread,
@@ -591,8 +594,9 @@ function makeHarness(options = {}) {
     bookings: 4,
     ...(options.op || {}),
   };
-  const invoke = options.invoke || brandProductionAutoOwner(async () => {
+  const invoke = options.invoke || brandProductionAutoOwner(async (input) => {
     log.push('invoke');
+    if (typeof options.onInvoke === 'function') options.onInvoke(input);
     op = { ...op, approvals: 1, journals: 1, provider_sends: 1 };
     return {
       status: 'sent',
@@ -605,6 +609,7 @@ function makeHarness(options = {}) {
   let evidence = options.evidence || durableOk();
   const harness = createMailMvp004LiveProof({
     nonceStore: options.nonceStore || new Set(),
+    now: options.now,
     requireProductionOwner: options.requireProductionOwner,
     async readServingIdentity() {
       log.push(`read:${current.flags[ENV_LUNA_AUTO_SEND_ENABLED]}`);
@@ -4684,6 +4689,296 @@ Module._load = function(request, parent, isMain) {
     assert.match(runbook, /successor/);
     assert.match(runbook, /printenv/);
     assert.doesNotMatch(libSrc, /return `sh -c '/);
+    assert.match(libSrc, /const REVISION_WAIT_TIMEOUT_MS = 15 \* 60 \* 1000/);
+    assert.match(libSrc, /const REVISION_WAIT_INTERVAL_MS = 2000/);
+    assert.match(libSrc, /const CONFIRM_WINDOW_MS = 15 \* 60 \* 1000/);
+    assert.doesNotMatch(libSrc, /const REVISION_WAIT_TIMEOUT_MS = 180000/);
+    assert.match(runbook, /15 minutes per successor/);
+    assert.match(runbook, /2s poll/);
+    assert.match(plan, /15 minutes per successor/);
+  }
+
+  console.log('[24] RED→GREEN: revision wait budget covers ACA successor; confirm window not widened');
+  {
+    assert.equal(REVISION_WAIT_TIMEOUT_MS, 15 * 60 * 1000);
+    assert.equal(REVISION_WAIT_INTERVAL_MS, 2000);
+    assert.equal(CONFIRM_WINDOW_MS, 15 * 60 * 1000);
+    assert.ok(REVISION_WAIT_TIMEOUT_MS > 3 * 60 * 1000);
+
+    const atEdge = authArgs({ confirmIssuedAt: new Date(NOW_MS - CONFIRM_WINDOW_MS).toISOString() });
+    assert.equal(validateExactInvocation(atEdge, NOW_MS, new Set()), null);
+    const pastEdge = authArgs({
+      confirmIssuedAt: new Date(NOW_MS - CONFIRM_WINDOW_MS - 1).toISOString(),
+    });
+    assert.equal(validateExactInvocation(pastEdge, NOW_MS, new Set()), 'confirm_window_invalid');
+
+    const ENABLED_REV = `${STAFF_APP}--0000706`;
+    const RESTORED_REV = `${STAFF_APP}--0000707`;
+    const original = serving();
+    const envCmd = buildReplicaEnvRemoteCommand();
+    const acrJson = {
+      digest: DIGEST,
+      tags: [IMAGE_SHA],
+      repository: ACR_REPOSITORY,
+    };
+    const driftedDigest = `sha256:${'e'.repeat(64)}`;
+    const driftedTag = 'c'.repeat(40);
+    function revisionState(revisionName, flagValue, image) {
+      const replicaName = `${revisionName}-abcde-fghij`;
+      const tag = image && image.tag ? image.tag : IMAGE_SHA;
+      const digest = image && image.digest ? image.digest : DIGEST;
+      return {
+        replicaName,
+        app: {
+          name: STAFF_APP,
+          properties: {
+            latestRevisionName: revisionName,
+            latestReadyRevisionName: revisionName,
+            runningStatus: 'Running',
+            configuration: {
+              ingress: { traffic: [{ revisionName, weight: 100 }] },
+            },
+            template: {
+              containers: [{
+                image: `${IMAGE_REPOSITORY}:${tag}`,
+                env: [
+                  { name: ENV_LUNA_AUTO_SEND_ENABLED, value: flagValue },
+                  { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: flagValue },
+                ],
+              }],
+            },
+          },
+        },
+        revision: {
+          name: revisionName,
+          properties: {
+            healthState: 'Healthy',
+            runningState: 'Running',
+            provisioningState: 'Provisioned',
+            replicas: 1,
+            imageDigest: digest,
+            template: {
+              containers: [{
+                name: STAFF_APP,
+                image: `${IMAGE_REPOSITORY}:${tag}`,
+                env: [
+                  { name: ENV_LUNA_AUTO_SEND_ENABLED, value: flagValue },
+                  { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: flagValue },
+                ],
+              }],
+            },
+          },
+        },
+        replicas: [{
+          name: replicaName,
+          properties: { runningState: 'Running', revisionName },
+        }],
+      };
+    }
+    function switchingState() {
+      const ready = revisionState(REVISION, 'false');
+      return {
+        replicaName: ready.replicaName,
+        app: {
+          ...ready.app,
+          properties: {
+            ...ready.app.properties,
+            latestRevisionName: ENABLED_REV,
+            latestReadyRevisionName: REVISION,
+            configuration: {
+              ingress: { traffic: [{ revisionName: REVISION, weight: 100 }] },
+            },
+          },
+        },
+        revision: ready.revision,
+        replicas: ready.replicas,
+      };
+    }
+
+    let phase = 'original';
+    const azRun = async (args) => {
+      if (args.includes('update') || args.includes('--set-env-vars')) {
+        return { status: 0, stdout: '' };
+      }
+      if (args[0] === 'acr') {
+        if (phase === 'drifted') {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              digest: driftedDigest,
+              tags: [driftedTag],
+              repository: ACR_REPOSITORY,
+            }),
+          };
+        }
+        return { status: 0, stdout: JSON.stringify(acrJson) };
+      }
+      const state = phase === 'enabled'
+        ? revisionState(ENABLED_REV, 'true')
+        : phase === 'restored'
+          ? revisionState(RESTORED_REV, 'false')
+          : phase === 'switching'
+            ? switchingState()
+            : phase === 'drifted'
+              ? revisionState(ENABLED_REV, 'true', { tag: driftedTag, digest: driftedDigest })
+              : revisionState(REVISION, 'false');
+      if (args[1] === 'exec') {
+        assert.equal(args[args.indexOf('--command') + 1], envCmd);
+        if (phase === 'enabled') {
+          return { status: 0, stdout: 'true\ntrue\n' };
+        }
+        if (phase === 'restored') {
+          return { status: 0, stdout: 'false\nfalse\n' };
+        }
+        if (phase === 'drifted') {
+          return { status: 0, stdout: 'true\ntrue\n' };
+        }
+        return { status: 0, stdout: 'false\nfalse\n' };
+      }
+      if (args[1] === 'revision' && args[2] === 'show') {
+        return { status: 0, stdout: JSON.stringify(state.revision) };
+      }
+      if (args[1] === 'replica') {
+        return { status: 0, stdout: JSON.stringify(state.replicas) };
+      }
+      if (args[1] === 'show') {
+        return { status: 0, stdout: JSON.stringify(state.app) };
+      }
+      return { status: 1, stdout: '' };
+    };
+
+    let nowMs = 0;
+    const lateSleeps = [];
+    phase = 'original';
+    const lateSuccessor = await waitServingHealthy(azRun, {
+      enabled: true,
+      authorized: original,
+      now: () => nowMs,
+      sleep: async (ms) => {
+        lateSleeps.push(ms);
+        nowMs += ms;
+        if (nowMs > 3 * 60 * 1000) phase = 'enabled';
+      },
+    });
+    assert.equal(lateSuccessor.revision, ENABLED_REV);
+    assert.ok(nowMs > 3 * 60 * 1000);
+    assert.ok(nowMs <= REVISION_WAIT_TIMEOUT_MS);
+    assert.ok(lateSleeps.length > 0);
+    assert.ok(lateSleeps.every((ms) => ms === REVISION_WAIT_INTERVAL_MS));
+    assert.equal(lateSuccessor.flagsSource, 'replica_process');
+    assert.equal(approvedReplicaFlagsExact(lateSuccessor, true), true);
+    assert.equal(servingSuccessorAcceptable(original, lateSuccessor), true);
+    assert.equal(servingHealthyReady100(lateSuccessor), true);
+
+    nowMs = 0;
+    phase = 'switching';
+    const timedOut = await waitServingHealthy(azRun, {
+      enabled: true,
+      authorized: original,
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms;
+      },
+    });
+    assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+    assert.equal(approvedReplicaFlagsExact(timedOut, true), false);
+    assert.notEqual(timedOut && timedOut.revision, ENABLED_REV);
+    const { harness: timeoutHarness, log: timeoutLog } = makeHarness({
+      waitServingHealthy(input, current) {
+        if (input && input.enabled === true) return timedOut;
+        return current;
+      },
+    });
+    const timedOutExecute = await execute(timeoutHarness);
+    assert.equal(timedOutExecute.ok, false);
+    assert.equal(timedOutExecute.reason, 'enabled_revision_unproven');
+    assert.equal(timedOutExecute.invoked, 0);
+    assert.equal(timeoutLog.includes('invoke'), false);
+    assert.equal(timeoutLog.includes('flags:true'), true);
+    assert.equal(timeoutLog.includes('flags:false'), true);
+
+    nowMs = 0;
+    phase = 'original';
+    const driftedWait = await waitServingHealthy(azRun, {
+      enabled: true,
+      authorized: original,
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms;
+        if (nowMs > 3 * 60 * 1000) phase = 'drifted';
+      },
+    });
+    assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+    assert.equal(approvedReplicaFlagsExact(driftedWait, true), false);
+    assert.equal(servingSuccessorAcceptable(original, driftedWait), false);
+
+    let fakeNow = NOW_MS;
+    let seenCap = null;
+    const { harness: waitAuthHarness } = makeHarness({
+      now: () => fakeNow,
+      waitServingHealthy(input, current) {
+        if (input && input.enabled === true) {
+          fakeNow += REVISION_WAIT_TIMEOUT_MS + 1;
+          return serving({
+            revision: ENABLED_REV,
+            replica: `${ENABLED_REV}-aaaaa-bbbbb`,
+            flags: flagsOn(),
+          });
+        }
+        return current;
+      },
+      onInvoke(input) {
+        seenCap = input && input.capability;
+        const check = verifySupervisorCapability(seenCap, fakeNow, {
+          revision: ENABLED_REV,
+          imageTag: IMAGE_SHA,
+          digest: DIGEST,
+        });
+        assert.equal(check.ok, true);
+      },
+    });
+    const afterWait = await execute(waitAuthHarness);
+    assert.equal(afterWait.ok, true);
+    assert.equal(afterWait.invoked, 1);
+    assert.ok(seenCap);
+    assert.equal(
+      seenCap.issued_at,
+      new Date(NOW_MS + REVISION_WAIT_TIMEOUT_MS + 1).toISOString(),
+    );
+    assert.notEqual(seenCap.issued_at, ISSUED);
+    const issuedAtStart = issueSupervisorCapability({
+      nonce: seenCap.nonce,
+      revision: ENABLED_REV,
+      replica: seenCap.replica,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    const expiredIfStart = verifySupervisorCapability(issuedAtStart, fakeNow, {
+      revision: ENABLED_REV,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    });
+    assert.equal(expiredIfStart.ok, false);
+    assert.equal(expiredIfStart.reason, 'capability_expired');
+
+    const executeOnceSrc = libSrc.slice(
+      libSrc.indexOf('async function executeOnce'),
+      libSrc.indexOf('async function runStaffOwnerProof'),
+    );
+    const authIdx = executeOnceSrc.indexOf('validateExactInvocation');
+    const waitIdx = executeOnceSrc.indexOf('waitServingHealthy({ enabled: true, authorized: serving })');
+    const capIdx = executeOnceSrc.indexOf('issueSupervisorCapability');
+    assert.ok(authIdx >= 0 && waitIdx > authIdx && capIdx > waitIdx);
+    assert.equal(executeOnceSrc.split('validateExactInvocation').length - 1, 1);
+    assert.match(executeOnceSrc, /issueSupervisorCapability\(\{[\s\S]*?\},\s*nowFn\(\)\)/);
+    assert.doesNotMatch(executeOnceSrc, /issueSupervisorCapability\(\{[\s\S]*?\},\s*nowMs\)/);
+    const waitSrc = libSrc.slice(
+      libSrc.indexOf('async function waitServingHealthy'),
+      libSrc.indexOf('function createProductionStaffPgAdapter'),
+    );
+    assert.match(waitSrc, /REVISION_WAIT_TIMEOUT_MS/);
+    assert.match(waitSrc, /REVISION_WAIT_INTERVAL_MS/);
+    assert.doesNotMatch(waitSrc, /180000/);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');

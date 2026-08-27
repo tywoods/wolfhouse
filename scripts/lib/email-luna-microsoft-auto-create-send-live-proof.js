@@ -93,7 +93,7 @@ const INNER_CONSUMED_CAPABILITY_PATH = '/tmp/mail-mvp-004-consumed-capabilities.
 const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
-const REVISION_WAIT_TIMEOUT_MS = 180000;
+const REVISION_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const REVISION_WAIT_INTERVAL_MS = 2000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA40 = /^[0-9a-f]{40}$/;
@@ -2374,6 +2374,7 @@ async function loadSelectedOperationEvidence(withPgClient, row, secret) {
 function createMailMvp004LiveProof(deps) {
   if (!deps || typeof deps !== 'object') throw new Error('live_proof_misconfigured');
   const nonceStore = wrapNonceStore(deps.nonceStore || USED_OPERATOR_NONCES);
+  const nowFn = typeof deps.now === 'function' ? deps.now : Date.now;
 
   async function restoreSafe(authorized) {
     const errors = [];
@@ -2438,7 +2439,7 @@ function createMailMvp004LiveProof(deps) {
       return refusedRecord('deployment_mismatch');
     }
     const parsed = (input && input.parsed) || parseArgs(input && input.argv);
-    const nowMs = Number.isSafeInteger(input && input.nowMs) ? input.nowMs : Date.now();
+    const nowMs = Number.isSafeInteger(input && input.nowMs) ? input.nowMs : nowFn();
     const authFail = validateExactInvocation(parsed, nowMs, nonceStore);
     if (authFail) return refusedRecord(authFail);
     if (nonceStore.add(parsed.operatorNonce, OPERATION_BINDING) === false) {
@@ -2583,7 +2584,7 @@ function createMailMvp004LiveProof(deps) {
           replica: enabled.replica,
           imageTag: servingTag,
           digest: enabled.digest || serving.digest,
-        }, nowMs);
+        }, nowFn());
         if (!capability) {
           failedReason = 'capability_invalid';
         } else if (capability.issued_at === parsed.confirmIssuedAt
@@ -4343,6 +4344,7 @@ function createProductionMailMvp004Supervisor(options) {
 
   const supervisor = createMailMvp004LiveProof({
     nonceStore,
+    now,
     requireProductionOwner: options && options.requireProductionOwner,
     readServingIdentity: readServing,
     async waitServingHealthy(input) {
@@ -4703,6 +4705,9 @@ module.exports = freeze({
   PTY_BIN,
   CAPABILITY_PURPOSE,
   OPERATION_BINDING,
+  CONFIRM_WINDOW_MS,
+  REVISION_WAIT_TIMEOUT_MS,
+  REVISION_WAIT_INTERVAL_MS,
   SQL_SELECT_PROOF_THREAD,
   SQL_COUNT_OPERATION_APPROVALS,
   SQL_COUNT_OPERATION_JOURNAL,
