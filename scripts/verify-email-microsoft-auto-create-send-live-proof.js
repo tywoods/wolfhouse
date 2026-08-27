@@ -1887,6 +1887,346 @@ async function main() {
     assert.doesNotMatch(acrBuildSrc, /'build'|'import'|'untag'|'delete'/);
   }
 
+  console.log('[18] Hostile: RunningAtMaxScale is healthy only with replica evidence');
+  {
+    const AZ_EXT_WARNING = [
+      'WARNING: The command requires the extension containerapp. It will be installed first.',
+    ].join('\n');
+    const REPLICA = `${REVISION}-abcde-fghij`;
+    const appJson = {
+      name: STAFF_APP,
+      properties: {
+        latestRevisionName: REVISION,
+        latestReadyRevisionName: REVISION,
+        runningStatus: 'Running',
+        configuration: {
+          ingress: { traffic: [{ revisionName: REVISION, weight: 100 }] },
+        },
+        template: {
+          containers: [{
+            image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
+            env: [
+              { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'false' },
+              { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'false' },
+            ],
+          }],
+        },
+      },
+    };
+    const liveRevisionJson = {
+      id: `/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/${RG}/providers/Microsoft.App/containerApps/${STAFF_APP}/revisions/${REVISION}`,
+      name: REVISION,
+      type: 'Microsoft.App/containerApps/revisions',
+      properties: {
+        active: true,
+        createdTime: '2026-08-27T12:00:00.000Z',
+        fqdn: `${REVISION}.${RG}.eastus.azurecontainerapps.io`,
+        healthState: 'Healthy',
+        provisioningState: 'Provisioned',
+        runningState: 'RunningAtMaxScale',
+        replicas: 1,
+        template: {
+          containers: [{
+            name: STAFF_APP,
+            image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
+            env: [
+              { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'false' },
+              { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'false' },
+            ],
+          }],
+          scale: { minReplicas: 1, maxReplicas: 1 },
+        },
+      },
+    };
+    const replicaJson = [{
+      name: REPLICA,
+      properties: { runningState: 'Running', revisionName: REVISION },
+    }];
+    const acrJson = {
+      digest: DIGEST,
+      tags: [IMAGE_SHA],
+      repository: ACR_REPOSITORY,
+    };
+
+    function revisionWith(patch) {
+      return {
+        ...liveRevisionJson,
+        properties: {
+          ...liveRevisionJson.properties,
+          ...patch,
+        },
+      };
+    }
+
+    const parsedLive = parseRevisionShow(liveRevisionJson);
+    assert.equal(parsedLive.runningState, 'RunningAtMaxScale');
+    assert.equal(parsedLive.healthState, 'Healthy');
+    assert.equal(parsedLive.provisioningState, 'Provisioned');
+    assert.equal(parsedLive.replicas, 1);
+    assert.equal(parsedLive.imageTag, IMAGE_SHA);
+    assert.equal(parsedLive.ready, true);
+    assert.equal(servingHealthyReady100({
+      ...parsedLive,
+      trafficWeight: 100,
+      replica: REPLICA,
+    }), true);
+
+    const appIdentity = parseServingIdentity(appJson);
+    assert.equal(appIdentity.trafficWeight, 100);
+    assert.equal(appIdentity.latestReadyRevisionName, REVISION);
+    const mergedLive = mergeRevisionIntoServing(
+      { ...appIdentity, digest: DIGEST },
+      { ...parsedLive, digest: DIGEST },
+    );
+    assert.equal(mergedLive.runningState, 'RunningAtMaxScale');
+    assert.equal(mergedLive.ready, true);
+    assert.equal(mergedLive.replicas, 1);
+    assert.equal(mergedLive.trafficWeight, 100);
+    assert.equal(servingHealthyReady100(mergedLive), true);
+
+    assert.equal(parseRevisionShow(revisionWith({ replicas: 0 })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ replicas: 0 })).replicas, 0);
+    assert.equal(mergeRevisionIntoServing(
+      { ...appIdentity, digest: DIGEST },
+      { ...parseRevisionShow(revisionWith({ replicas: 0 })), digest: DIGEST },
+    ), null);
+
+    const missingReplicas = revisionWith({});
+    delete missingReplicas.properties.replicas;
+    const parsedMissingReplicas = parseRevisionShow(missingReplicas);
+    assert.equal(parsedMissingReplicas.runningState, 'RunningAtMaxScale');
+    assert.equal(parsedMissingReplicas.replicas, null);
+    assert.equal(parsedMissingReplicas.ready, false);
+    assert.equal(mergeRevisionIntoServing(
+      { ...appIdentity, digest: DIGEST },
+      { ...parsedMissingReplicas, digest: DIGEST },
+    ), null);
+
+    assert.equal(parseRevisionShow(revisionWith({ replicas: '1' })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ replicas: '1' })).replicas, null);
+    assert.equal(parseRevisionShow(revisionWith({ replicas: true })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ replicas: 1.5 })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ replicas: -1 })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({
+      runningState: ' RunningAtMaxScale',
+    })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({
+      runningState: 'Running (at max)',
+    })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({
+      runningState: 'runningatmaxscale',
+    })).ready, false);
+
+    const unsafeStates = [
+      'Degraded', 'Failed', 'Stopped', 'Processing', 'Activating',
+      'Scaling', 'Unknown', 'Deactivating', 'ActivationFailed',
+    ];
+    for (const runningState of unsafeStates) {
+      const parsedUnsafe = parseRevisionShow(revisionWith({ runningState, replicas: 1 }));
+      assert.equal(parsedUnsafe.ready, false, runningState);
+      assert.equal(parsedUnsafe.runningState, runningState);
+      assert.equal(mergeRevisionIntoServing(
+        { ...appIdentity, digest: DIGEST },
+        { ...parsedUnsafe, digest: DIGEST, ready: true },
+      ), null, runningState);
+      assert.equal(servingHealthyReady100({
+        ...parsedUnsafe,
+        trafficWeight: 100,
+        ready: true,
+        replica: REPLICA,
+      }), false, runningState);
+    }
+    const emptyRunning = parseRevisionShow(revisionWith({ runningState: '', replicas: 1 }));
+    assert.equal(emptyRunning.ready, false);
+    assert.equal(emptyRunning.runningState, null);
+
+    assert.equal(parseRevisionShow(revisionWith({ healthState: 'Unhealthy' })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ healthState: 'None' })).ready, false);
+    const missingHealth = revisionWith({});
+    delete missingHealth.properties.healthState;
+    assert.equal(parseRevisionShow(missingHealth).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ healthState: true })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ provisioningState: 'Failed' })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ provisioningState: 'Provisioning' })).ready, false);
+    assert.equal(parseRevisionShow(revisionWith({ runningState: 'Stopped', replicas: 1 })).ready, false);
+
+    assert.equal(parseRunningReplica(JSON.stringify([{
+      name: REPLICA,
+      properties: { runningState: 'RunningAtMaxScale', revisionName: REVISION },
+    }]), REVISION), null);
+    assert.equal(parseRunningReplica('[]', REVISION), null);
+    assert.equal(parseRunningReplica('', REVISION), null);
+
+    async function identityAz(overrides) {
+      const calls = [];
+      const azRun = async (args) => {
+        calls.push(args.slice());
+        if (typeof overrides === 'function') return overrides(args, calls);
+        if (args[0] === 'acr') {
+          return { status: 0, stdout: overrides && overrides.acr != null ? overrides.acr : JSON.stringify(acrJson, null, 2) };
+        }
+        if (args[1] === 'revision' && args[2] === 'show') {
+          return {
+            status: 0,
+            stdout: overrides && overrides.revision != null
+              ? overrides.revision
+              : `${AZ_EXT_WARNING}\n${JSON.stringify(liveRevisionJson, null, 2)}\n`,
+          };
+        }
+        if (args[1] === 'replica') {
+          if (overrides && Object.prototype.hasOwnProperty.call(overrides, 'replicas')) {
+            return { status: 0, stdout: overrides.replicas };
+          }
+          return { status: 0, stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(replicaJson, null, 2)}\n` };
+        }
+        if (args[1] === 'show') {
+          return {
+            status: 0,
+            stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(appJson, null, 2)}\n`,
+          };
+        }
+        return { status: 1, stdout: '' };
+      };
+      const servingIdentity = await readProductionServingIdentity(azRun);
+      return { servingIdentity, calls };
+    }
+
+    const green = await identityAz();
+    assert.equal(green.servingIdentity.revision, REVISION);
+    assert.equal(green.servingIdentity.imageTag, IMAGE_SHA);
+    assert.equal(green.servingIdentity.digest, DIGEST);
+    assert.equal(green.servingIdentity.trafficWeight, 100);
+    assert.equal(green.servingIdentity.healthState, 'Healthy');
+    assert.equal(green.servingIdentity.runningState, 'RunningAtMaxScale');
+    assert.equal(green.servingIdentity.replicas, 1);
+    assert.equal(green.servingIdentity.ready, true);
+    assert.equal(green.servingIdentity.replica, REPLICA);
+    assert.equal(green.calls.some((args) => args[0] === 'acr' && args.includes('show-metadata')), true);
+    assert.equal(green.calls.some((args) => args[1] === 'replica' && args[2] === 'list'), true);
+    assert.equal(green.calls.some((args) => args.includes('update') || args.includes('--set-env-vars')), false);
+    const showIdx = green.calls.findIndex((args) => args[1] === 'show' && !args.includes('revision'));
+    const revIdx = green.calls.findIndex((args) => args[1] === 'revision' && args[2] === 'show');
+    const acrIdx = green.calls.findIndex((args) => args[0] === 'acr');
+    const replicaIdx = green.calls.findIndex((args) => args[1] === 'replica');
+    assert.ok(showIdx >= 0 && revIdx > showIdx && acrIdx > revIdx && replicaIdx > acrIdx);
+
+    const zeroRevision = await identityAz({
+      revision: JSON.stringify(revisionWith({ replicas: 0 })),
+    });
+    assert.equal(zeroRevision.servingIdentity, null);
+
+    const missingRevisionReplicas = await identityAz({
+      revision: JSON.stringify(missingReplicas),
+    });
+    assert.equal(missingRevisionReplicas.servingIdentity, null);
+
+    const emptyReplicaList = await identityAz({ replicas: '[]' });
+    assert.equal(emptyReplicaList.servingIdentity, null);
+    assert.equal(emptyReplicaList.calls.some((args) => args[1] === 'replica'), true);
+
+    const missingReplicaList = await identityAz({ replicas: '' });
+    assert.equal(missingReplicaList.servingIdentity, null);
+
+    const coercedReplicaCount = await identityAz({
+      revision: JSON.stringify(revisionWith({ replicas: '1' })),
+    });
+    assert.equal(coercedReplicaCount.servingIdentity, null);
+
+    for (const runningState of ['Degraded', 'Failed', 'Stopped', 'Processing', 'Activating', 'Unknown']) {
+      const refused = await identityAz({
+        revision: JSON.stringify(revisionWith({ runningState, replicas: 1 })),
+      });
+      assert.equal(refused.servingIdentity, null, runningState);
+    }
+
+    const mismatchImage = await identityAz({
+      revision: JSON.stringify(revisionWith({
+        template: {
+          containers: [{
+            name: STAFF_APP,
+            image: `${IMAGE_REPOSITORY}:${'c'.repeat(40)}`,
+          }],
+        },
+      })),
+    });
+    assert.equal(mismatchImage.servingIdentity, null);
+
+    const cliCalls = [];
+    const cli = await runCli([
+      COMMAND,
+      '--deployment', SUNSET_DEPLOYMENT,
+      '--tenant', SUNSET_TENANT,
+      '--database', EXPECTED_DATABASE,
+      '--resource-group', RG,
+      '--app', STAFF_APP,
+      '--revision', REVISION,
+      '--image-tag', IMAGE_SHA,
+      '--digest', DIGEST,
+      '--confirm', CONFIRMATION_PHRASE,
+      '--operator-nonce', nonce(),
+      '--confirm-issued-at', ISSUED,
+    ], {
+      env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
+      azRun: async (args) => {
+        cliCalls.push(args.slice());
+        if (args.includes('update') || args.includes('--set-env-vars')) {
+          throw new Error('flag_mutation_before_resolver');
+        }
+        if (args[0] === 'acr') return { status: 0, stdout: JSON.stringify(acrJson, null, 2) };
+        if (args[1] === 'revision' && args[2] === 'show') {
+          return { status: 0, stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(liveRevisionJson, null, 2)}\n` };
+        }
+        if (args[1] === 'replica') {
+          return { status: 0, stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(replicaJson, null, 2)}\n` };
+        }
+        if (args[1] === 'show') {
+          return { status: 0, stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(appJson, null, 2)}\n` };
+        }
+        return { status: 1, stdout: '' };
+      },
+      nonceStore: new Set(),
+      nowMs: NOW_MS,
+      execGit: (args) => {
+        if (args[0] === 'rev-parse' && args.includes('origin/master')) {
+          return { status: 0, stdout: `${'f'.repeat(40)}\n` };
+        }
+        if (args[0] === 'cat-file') return { status: 0, stdout: '' };
+        return { status: 0, stdout: `${IMAGE_SHA}\n` };
+      },
+    });
+    assert.equal(cli.invoked, 0);
+    assert.notEqual(cli.reason, 'wrong_target');
+    assert.equal(cli.reason, 'head_not_origin_master');
+    assert.equal(cliCalls.some((args) => args.includes('update') || args.includes('--set-env-vars')), false);
+
+    const healthySrc = libSrc.slice(
+      libSrc.indexOf('function acceptedHealthyServingRunningState'),
+      libSrc.indexOf('function servingHealthyReady100'),
+    );
+    assert.match(healthySrc, /RunningAtMaxScale/);
+    assert.match(healthySrc, /hasPinnedReplicaEvidence/);
+    const parseRevSrc = libSrc.slice(
+      libSrc.indexOf('function parseRevisionShow'),
+      libSrc.indexOf('function parseServingIdentity'),
+    );
+    assert.match(parseRevSrc, /typedReplicaCount/);
+    assert.match(parseRevSrc, /acceptedHealthyServingRunningState/);
+    const mergeSrc = libSrc.slice(
+      libSrc.indexOf('function mergeRevisionIntoServing'),
+      libSrc.indexOf('function buildSetEnvArgs'),
+    );
+    assert.match(mergeSrc, /acceptedHealthyServingRunningState/);
+    assert.doesNotMatch(mergeSrc, /runningState !== 'Running'/);
+    const readSrc = libSrc.slice(
+      libSrc.indexOf('async function readProductionServingIdentity'),
+      libSrc.indexOf('async function waitServingHealthy'),
+    );
+    assert.ok(readSrc.indexOf('mergeRevisionIntoServing') < readSrc.indexOf('buildReplicaListArgs'));
+    assert.ok(readSrc.indexOf('buildReplicaListArgs') < readSrc.indexOf('parseRunningReplica'));
+    assert.match(readSrc, /resolveBoundAcrDigest/);
+    assert.doesNotMatch(readSrc, /--set-env-vars/);
+  }
+
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
 }
 
