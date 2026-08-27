@@ -191,9 +191,13 @@ SELECT count(*)::int AS n,
 `.replace(/\s+/g, ' ').trim();
 
 const SQL_COUNT_BOOKINGS = `
-SELECT count(*)::int AS n
-  FROM bookings
- WHERE client_id=$1::uuid AND conversation_id=$2::uuid
+SELECT count(b.id)::int AS n
+  FROM conversations c
+  LEFT JOIN bookings b
+    ON b.client_id=c.client_id AND b.guest_id=c.guest_id
+ WHERE c.client_id=$1::uuid AND c.id=$2::uuid
+   AND c.guest_id IS NOT NULL
+ GROUP BY c.client_id, c.id, c.guest_id
 `.replace(/\s+/g, ' ').trim();
 
 const SQL_LOAD_OPERATION_EVIDENCE = `
@@ -1702,22 +1706,31 @@ function selectProofThread(rows) {
 }
 
 async function snapshotSelectedOperation(withPgClient, row) {
-  const clientId = uuid(row.client_id);
-  const conversationId = uuid(row.conversation_id);
-  const inboundId = uuid(row.inbound_message_id);
+  const clientId = uuid(row && row.client_id);
+  const conversationId = uuid(row && row.conversation_id);
+  const inboundId = uuid(row && row.inbound_message_id);
   if (!clientId || !conversationId || !inboundId) return null;
-  const [approvals, journal, bookings] = await Promise.all([
-    withPgClient((pg) => pg.query(SQL_COUNT_OPERATION_APPROVALS, [clientId, conversationId, inboundId])),
-    withPgClient((pg) => pg.query(SQL_COUNT_OPERATION_JOURNAL, [clientId, conversationId, inboundId])),
-    withPgClient((pg) => pg.query(SQL_COUNT_BOOKINGS, [clientId, conversationId])),
-  ]);
+  let approvals;
+  let journal;
+  let bookings;
+  try {
+    [approvals, journal, bookings] = await Promise.all([
+      withPgClient((pg) => pg.query(SQL_COUNT_OPERATION_APPROVALS, [clientId, conversationId, inboundId])),
+      withPgClient((pg) => pg.query(SQL_COUNT_OPERATION_JOURNAL, [clientId, conversationId, inboundId])),
+      withPgClient((pg) => pg.query(SQL_COUNT_BOOKINGS, [clientId, conversationId])),
+    ]);
+  } catch {
+    return null;
+  }
   const approvalCount = asInt(approvals && approvals.rows && approvals.rows[0]);
   const journalRow = journal && journal.rows && journal.rows[0];
   const journalCount = asInt(journalRow);
   const sendCount = journalRow && Number.isSafeInteger(journalRow.sends)
     ? journalRow.sends
     : (journalRow ? Number.parseInt(journalRow.sends, 10) : null);
-  const bookingCount = asInt(bookings && bookings.rows && bookings.rows[0]);
+  const bookingRows = bookings && Array.isArray(bookings.rows) ? bookings.rows : null;
+  if (!bookingRows || bookingRows.length !== 1) return null;
+  const bookingCount = asInt(bookingRows[0]);
   if (![approvalCount, journalCount, sendCount, bookingCount].every((n) => Number.isSafeInteger(n))) {
     return null;
   }
@@ -3103,6 +3116,7 @@ async function runInnerSnapshot(input) {
     const row = selected.row;
     if (kind === 'preflight') {
       const counts = await snapshotSelectedOperation(withPgClient, row);
+      if (!counts) return refusedRecord('counts_unavailable');
       const store = createEmailInboxChannelModeStore({ withPgClient });
       const mode = await store.getChannelMode(row.client_id, 'email');
       return freeze({

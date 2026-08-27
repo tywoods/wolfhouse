@@ -88,6 +88,8 @@ const {
   createEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,
   selectProofThread,
+  snapshotSelectedOperation,
+  SQL_COUNT_BOOKINGS,
   runStaffOwnerProof,
   runCli,
   runKillSwitchProbe,
@@ -249,6 +251,101 @@ function threadRow(patch) {
     guest_id: GUEST,
     ...patch,
   };
+}
+
+const OTHER_GUEST = '88888888-8888-4888-8888-888888888888';
+const OTHER_CLIENT = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const OTHER_CONVERSATION = 'abababab-abab-4aba-8aba-abababababab';
+const LEGACY_BOOKINGS_CONVERSATION_SQL = [
+  'SELECT count(*)::int AS n FROM bookings',
+  'WHERE client_id=$1::uuid AND conversation_id=$2::uuid',
+].join(' ');
+
+function pgUndefinedColumn(message) {
+  const err = new Error(message || 'column conversation_id does not exist');
+  err.code = '42703';
+  return err;
+}
+
+function sqlMentionsBookingsConversationId(sql) {
+  const n = String(sql).replace(/\s+/g, ' ');
+  if (/\bbookings\.conversation_id\b/.test(n)) return true;
+  if (/\bJOIN bookings b\b/.test(n) && /\bb\.conversation_id\b/.test(n)) return true;
+  if (/\bFROM bookings\b/.test(n) && /\bconversation_id\b/.test(n)) return true;
+  return false;
+}
+
+function isCanonicalGuestBookingCountSql(sql) {
+  const n = String(sql).replace(/\s+/g, ' ');
+  return /FROM conversations c/.test(n)
+    && /JOIN bookings b/.test(n)
+    && /b\.client_id=c\.client_id/.test(n)
+    && /b\.guest_id=c\.guest_id/.test(n)
+    && /c\.client_id=\$1::uuid/.test(n)
+    && /c\.id=\$2::uuid/.test(n)
+    && /c\.guest_id IS NOT NULL/.test(n)
+    && /GROUP BY c\.client_id, c\.id, c\.guest_id/.test(n)
+    && !sqlMentionsBookingsConversationId(n);
+}
+
+function sunsetBookingSchemaTables(patch) {
+  return {
+    conversations: [
+      { client_id: C, id: V, guest_id: GUEST },
+    ],
+    bookings: [
+      { client_id: C, id: 'b1', guest_id: GUEST },
+      { client_id: C, id: 'b2', guest_id: GUEST },
+      { client_id: C, id: 'b3', guest_id: GUEST },
+      { client_id: C, id: 'b4', guest_id: GUEST },
+      { client_id: C, id: 'other-guest', guest_id: OTHER_GUEST },
+      { client_id: OTHER_CLIENT, id: 'cross-client', guest_id: GUEST },
+    ],
+    ...(patch || {}),
+  };
+}
+
+function executeSunsetBookingCount(sql, params, tables) {
+  if (sqlMentionsBookingsConversationId(sql)) {
+    throw pgUndefinedColumn();
+  }
+  if (!isCanonicalGuestBookingCountSql(sql)) return { rows: [] };
+  const clientId = params && params[0];
+  const conversationId = params && params[1];
+  const convs = (tables.conversations || []).filter((row) => (
+    row.client_id === clientId && row.id === conversationId && row.guest_id
+  ));
+  const guests = new Set(convs.map((row) => row.guest_id));
+  if (convs.length !== 1 || guests.size !== 1) return { rows: [] };
+  const guestId = convs[0].guest_id;
+  const n = (tables.bookings || []).filter((row) => (
+    row.client_id === clientId && row.guest_id === guestId
+  )).length;
+  return { rows: [{ n }] };
+}
+
+function schemaShapedPg(tables, extra) {
+  return async (fn) => fn({
+    async query(sql, params) {
+      const n = String(sql).replace(/\s+/g, ' ');
+      if (/FROM clients cl INNER JOIN conversations c/.test(n)) {
+        return { rows: extra && extra.threadRows ? extra.threadRows : [threadRow()] };
+      }
+      if (/inbox_channel_modes/.test(n) && /SELECT/.test(n)) {
+        return { rows: [{ inbox_channel_modes: { email: extra && extra.emailMode ? extra.emailMode : 'off' } }] };
+      }
+      if (/tenant_email_outbound_send_journal/.test(n)) {
+        return { rows: [{ n: 0, sends: 0 }] };
+      }
+      if (/tenant_email_reply_approvals/.test(n) && /count/.test(n)) {
+        return { rows: [{ n: 0 }] };
+      }
+      if (/JOIN bookings b/.test(n) || /FROM bookings\b/.test(n)) {
+        return executeSunsetBookingCount(sql, params, tables);
+      }
+      return { rows: [] };
+    },
+  });
 }
 
 function preflightOk(patch) {
@@ -724,7 +821,8 @@ async function main() {
         if (/tenant_email_reply_approvals/.test(n) && /count/.test(n)) {
           return { rows: [{ n: counts.approvals }] };
         }
-        if (/FROM bookings/.test(n)) {
+        if (/JOIN bookings b/.test(n)) {
+          assert.equal(params[0], C);
           assert.equal(params[1], V);
           return { rows: [{ n: counts.bookings }] };
         }
@@ -1422,7 +1520,7 @@ async function main() {
           if (/tenant_email_reply_approvals/.test(n) && /count/.test(n)) {
             return { rows: [{ n: extraRows && extraRows.length ? 1 : 0 }] };
           }
-          if (/FROM bookings/.test(n)) {
+          if (/JOIN bookings b/.test(n)) {
             return { rows: [{ n: 4 }] };
           }
           return { rows: [] };
@@ -2225,6 +2323,150 @@ async function main() {
     assert.ok(readSrc.indexOf('buildReplicaListArgs') < readSrc.indexOf('parseRunningReplica'));
     assert.match(readSrc, /resolveBoundAcrDigest/);
     assert.doesNotMatch(readSrc, /--set-env-vars/);
+  }
+
+  console.log('[19] RED→GREEN: Sunset booking snapshot uses conversation guest, not missing column');
+  {
+    assert.equal(isCanonicalGuestBookingCountSql(SQL_COUNT_BOOKINGS), true);
+    assert.equal(sqlMentionsBookingsConversationId(SQL_COUNT_BOOKINGS), false);
+    assert.doesNotMatch(SQL_COUNT_BOOKINGS, /\bFROM bookings\b/);
+    assert.doesNotMatch(SQL_COUNT_BOOKINGS, /\bbookings\.conversation_id\b|\bb\.conversation_id\b/);
+    assert.match(SQL_COUNT_BOOKINGS, /FROM conversations c/);
+    assert.match(SQL_COUNT_BOOKINGS, /LEFT JOIN bookings b/);
+    assert.match(SQL_COUNT_BOOKINGS, /b\.client_id=c\.client_id AND b\.guest_id=c\.guest_id/);
+    assert.match(SQL_COUNT_BOOKINGS, /c\.guest_id IS NOT NULL/);
+    assert.match(runbook, /client\/guest_id/);
+    assert.match(runbook, /no `bookings\.conversation_id`/);
+
+    const tables = sunsetBookingSchemaTables();
+    const withPg = schemaShapedPg(tables);
+
+    let redCode = null;
+    try {
+      await withPg((pg) => pg.query(LEGACY_BOOKINGS_CONVERSATION_SQL, [C, V]));
+    } catch (error) {
+      redCode = error && error.code;
+    }
+    assert.equal(redCode, '42703');
+
+    const green = await snapshotSelectedOperation(withPg, threadRow());
+    assert.equal(green.bookings, 4);
+    assert.equal(green.approvals, 0);
+    assert.equal(green.journals, 0);
+    assert.equal(green.provider_sends, 0);
+    assert.equal(Object.prototype.hasOwnProperty.call(green, 'guest_id'), false);
+    assert.doesNotMatch(JSON.stringify(green), new RegExp(GUEST, 'i'));
+    assert.doesNotMatch(JSON.stringify(green), /b1|other-guest|cross-client/);
+
+    const unlinkedTables = sunsetBookingSchemaTables({
+      conversations: [{ client_id: C, id: V, guest_id: null }],
+    });
+    const unlinked = await snapshotSelectedOperation(schemaShapedPg(unlinkedTables), threadRow({ guest_id: null }));
+    assert.equal(unlinked, null);
+
+    const missingTables = sunsetBookingSchemaTables({ conversations: [] });
+    const missing = await snapshotSelectedOperation(schemaShapedPg(missingTables), threadRow());
+    assert.equal(missing, null);
+
+    const missingConvTables = sunsetBookingSchemaTables({
+      conversations: [{ client_id: C, id: OTHER_CONVERSATION, guest_id: GUEST }],
+    });
+    const wrongConversation = await snapshotSelectedOperation(
+      schemaShapedPg(missingConvTables),
+      threadRow(),
+    );
+    assert.equal(wrongConversation, null);
+
+    const crossClientRow = await snapshotSelectedOperation(withPg, threadRow({ client_id: OTHER_CLIENT }));
+    assert.equal(crossClientRow, null);
+
+    const ambiguousPg = async (fn) => fn({
+      async query(sql) {
+        const n = String(sql).replace(/\s+/g, ' ');
+        if (/tenant_email_outbound_send_journal/.test(n)) return { rows: [{ n: 0, sends: 0 }] };
+        if (/tenant_email_reply_approvals/.test(n) && /count/.test(n)) return { rows: [{ n: 0 }] };
+        if (/JOIN bookings b/.test(n) || /FROM bookings\b/.test(n)) {
+          return { rows: [{ n: 1 }, { n: 2 }] };
+        }
+        return { rows: [] };
+      },
+    });
+    const ambiguous = await snapshotSelectedOperation(ambiguousPg, threadRow());
+    assert.equal(ambiguous, null);
+
+    const thrownPg = async (fn) => fn({
+      async query(sql) {
+        const n = String(sql).replace(/\s+/g, ' ');
+        if (/JOIN bookings b/.test(n) || /FROM bookings\b/.test(n)) throw pgUndefinedColumn();
+        if (/tenant_email_outbound_send_journal/.test(n)) return { rows: [{ n: 0, sends: 0 }] };
+        if (/tenant_email_reply_approvals/.test(n) && /count/.test(n)) return { rows: [{ n: 0 }] };
+        return { rows: [] };
+      },
+    });
+    const caught = await snapshotSelectedOperation(thrownPg, threadRow());
+    assert.equal(caught, null);
+
+    const innerPreflight = await runInnerSnapshot({
+      env: {
+        MAIL_MVP_004_SNAPSHOT: 'preflight',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: schemaShapedPg(tables),
+    });
+    assert.equal(innerPreflight.ok, true);
+    assert.equal(innerPreflight.bookings, 4);
+    assert.equal(innerPreflight.guest_linked, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(innerPreflight, 'guest_id'), false);
+
+    const innerUnlinked = await runInnerSnapshot({
+      env: {
+        MAIL_MVP_004_SNAPSHOT: 'preflight',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: schemaShapedPg(unlinkedTables, {
+        threadRows: [threadRow({ guest_id: null })],
+      }),
+    });
+    assert.equal(innerUnlinked.ok, false);
+    assert.equal(innerUnlinked.reason, 'not_guest_linked');
+
+    const innerMissing = await runInnerSnapshot({
+      env: {
+        MAIL_MVP_004_SNAPSHOT: 'preflight',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: schemaShapedPg(unlinkedTables, {
+        threadRows: [threadRow()],
+      }),
+    });
+    assert.equal(innerMissing.ok, false);
+    assert.equal(innerMissing.reason, 'counts_unavailable');
+
+    const box = { getOp: null };
+    const { harness: deltaHarness, getOp, log: deltaLog } = makeHarness({
+      invoke: brandProductionAutoOwner(async () => {
+        const op = box.getOp();
+        op.approvals = 1;
+        op.journals = 1;
+        op.provider_sends = 1;
+        op.bookings += 1;
+        return {
+          status: 'sent',
+          sent: true,
+          approvals: 1,
+          journals: 1,
+          provider_sends: 1,
+        };
+      }),
+    });
+    box.getOp = getOp;
+    const delta = await execute(deltaHarness);
+    assert.equal(delta.ok, false);
+    assert.equal(delta.reason, 'booking_side_effect');
+    assert.equal(delta.invoked, 1);
+    assert.equal(delta.restored, true);
+    assert.equal(deltaLog.includes('flags:true'), true);
+    assert.equal(deltaLog.includes('flags:false'), true);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
