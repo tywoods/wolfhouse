@@ -29,6 +29,7 @@ const {
 } = require('./email-luna-create-draft-context');
 const {
   snapshotSunsetEmailHermesSolEnv,
+  ENV_HMAC_SECRET: EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET,
 } = require('./email-luna-sunset-email-hermes-sol-activation');
 const {
   isStaffLocalCompileTrust,
@@ -294,6 +295,173 @@ function uuid(value) {
 function digestGeneratedEmailLunaDraftBody(text) {
   if (typeof text !== 'string') return null;
   return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+const SELECTED_OPERATION_EVIDENCE_VERSION = 'mail_mvp_004_sol_evidence_v1';
+const SELECTED_OPERATION_EVIDENCE_MAC_RE = /^[0-9a-f]{64}$/;
+
+function snapshotSolRuntimeMarker(value) {
+  if (!value || typeof value !== 'object' || isProxy(value) || isArray(value)) return null;
+  const provider = ownData(value, 'provider') || value.provider;
+  const model = ownData(value, 'model') || value.model;
+  const runtime = ownData(value, 'runtime') || value.runtime;
+  if (provider !== 'openai-codex' || model !== 'gpt-5.6-sol' || runtime !== 'sunset-email-luna') {
+    return null;
+  }
+  return freeze({
+    provider: 'openai-codex',
+    model: 'gpt-5.6-sol',
+    runtime: 'sunset-email-luna',
+  });
+}
+
+function canonicalSelectedOperationEvidencePayload(fields) {
+  return [
+    SELECTED_OPERATION_EVIDENCE_VERSION,
+    `body_sha256=${fields.body_sha256}`,
+    `request_id=${fields.request_id}`,
+    `source_inbound_event_id=${fields.source_inbound_event_id}`,
+    `client_id=${fields.client_id}`,
+    `location_id=${fields.location_id}`,
+    `conversation_id=${fields.conversation_id}`,
+    `provider=${fields.provider}`,
+    `model=${fields.model}`,
+    `runtime=${fields.runtime}`,
+    `hmac_kind=${fields.hmac_kind}`,
+  ].join('\n');
+}
+
+function sanitizeSelectedOperationEvidence(raw) {
+  if (!raw || typeof raw !== 'object' || isProxy(raw) || isArray(raw)) return null;
+  const requestId = uuid(ownData(raw, 'request_id') || raw.request_id);
+  const evidenceMac = ownData(raw, 'evidence_mac') || raw.evidence_mac;
+  const bodySha = ownData(raw, 'body_sha256') || raw.body_sha256;
+  const inboundId = uuid(ownData(raw, 'source_inbound_event_id') || raw.source_inbound_event_id);
+  const clientId = uuid(ownData(raw, 'client_id') || raw.client_id);
+  const locationId = uuid(ownData(raw, 'location_id') || raw.location_id);
+  const conversationId = uuid(ownData(raw, 'conversation_id') || raw.conversation_id);
+  const hmacKind = ownData(raw, 'hmac_kind') || raw.hmac_kind;
+  const alg = ownData(raw, 'alg') || raw.alg;
+  const marker = snapshotSolRuntimeMarker(raw);
+  if (!requestId || !inboundId || !clientId || !locationId || !conversationId) return null;
+  if (typeof evidenceMac !== 'string' || !SELECTED_OPERATION_EVIDENCE_MAC_RE.test(evidenceMac)) return null;
+  if (typeof bodySha !== 'string' || !SELECTED_OPERATION_EVIDENCE_MAC_RE.test(bodySha)) return null;
+  if (hmacKind !== 'authenticity' && hmacKind !== 'plan_authenticity') return null;
+  if (alg != null && alg !== 'HMAC-SHA256') return null;
+  if (!marker) return null;
+  if (ownData(raw, 'hmac_verified') === true && !ownData(raw, 'evidence_mac')) return null;
+  return freeze({
+    v: 1,
+    alg: 'HMAC-SHA256',
+    request_id: requestId,
+    evidence_mac: evidenceMac,
+    provider: marker.provider,
+    model: marker.model,
+    runtime: marker.runtime,
+    body_sha256: bodySha,
+    source_inbound_event_id: inboundId,
+    client_id: clientId,
+    location_id: locationId,
+    conversation_id: conversationId,
+    hmac_kind: hmacKind,
+  });
+}
+
+function mintSelectedOperationSolEvidence(input) {
+  const authority = input && input.authority;
+  const composed = input && input.composed;
+  const bodySha256 = input && input.bodySha256;
+  const secret = input && input.hmacSecret;
+  if (typeof secret !== 'string' || !secret || secret.trim() !== secret) return null;
+  if (typeof bodySha256 !== 'string' || !SELECTED_OPERATION_EVIDENCE_MAC_RE.test(bodySha256)) return null;
+  const clientId = uuid(authority && (authority.client_id || authority.clientId));
+  const locationId = uuid(authority && (authority.location_id || authority.locationId));
+  const conversationId = uuid(authority && (authority.conversation_id || authority.conversationId));
+  const inboundId = uuid(authority && (
+    authority.inbound_message_id || authority.source_inbound_event_id || authority.inboundMessageId
+  ));
+  if (!clientId || !locationId || !conversationId || !inboundId) return null;
+  const marker = snapshotSolRuntimeMarker(composed && composed.marker);
+  if (!marker) return null;
+  const authenticity = composed && composed.authenticity;
+  const plan = composed && composed.plan_authenticity;
+  let hmacKind = null;
+  let requestId = null;
+  if (authenticity && typeof authenticity === 'object' && !isProxy(authenticity)
+      && authenticity.hmac_verified === true) {
+    requestId = uuid(authenticity.request_id);
+    hmacKind = 'authenticity';
+  } else if (plan && typeof plan === 'object' && !isProxy(plan)
+      && plan.hmac_verified === true) {
+    requestId = uuid(plan.request_id);
+    hmacKind = 'plan_authenticity';
+  }
+  if (!requestId || !hmacKind) return null;
+  const fields = {
+    body_sha256: bodySha256,
+    request_id: requestId,
+    source_inbound_event_id: inboundId,
+    client_id: clientId,
+    location_id: locationId,
+    conversation_id: conversationId,
+    provider: marker.provider,
+    model: marker.model,
+    runtime: marker.runtime,
+    hmac_kind: hmacKind,
+  };
+  const evidenceMac = crypto.createHmac('sha256', secret)
+    .update(canonicalSelectedOperationEvidencePayload(fields), 'utf8')
+    .digest('hex');
+  return sanitizeSelectedOperationEvidence({
+    ...fields,
+    alg: 'HMAC-SHA256',
+    evidence_mac: evidenceMac,
+  });
+}
+
+function verifySelectedOperationSolEvidence(envelope, expected, secret, messageText) {
+  if (envelope && typeof envelope === 'object' && !isProxy(envelope)
+      && envelope.hmac_verified === true
+      && (envelope.evidence_mac == null || envelope.evidence_mac === '')) {
+    return null;
+  }
+  const sanitized = sanitizeSelectedOperationEvidence(envelope);
+  if (!sanitized) return null;
+  if (typeof secret !== 'string' || !secret || secret.trim() !== secret) return null;
+  const bodySha = digestGeneratedEmailLunaDraftBody(messageText);
+  if (!bodySha || bodySha !== sanitized.body_sha256) return null;
+  if (expected) {
+    const inboundId = uuid(expected.source_inbound_event_id || expected.inbound_message_id);
+    const clientId = uuid(expected.client_id);
+    const locationId = uuid(expected.location_id);
+    const conversationId = uuid(expected.conversation_id);
+    if (inboundId && inboundId !== sanitized.source_inbound_event_id) return null;
+    if (clientId && clientId !== sanitized.client_id) return null;
+    if (locationId && locationId !== sanitized.location_id) return null;
+    if (conversationId && conversationId !== sanitized.conversation_id) return null;
+    if (expected.body_sha256 && expected.body_sha256 !== sanitized.body_sha256) return null;
+  }
+  const payload = canonicalSelectedOperationEvidencePayload(sanitized);
+  const expectedMac = crypto.createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+  try {
+    if (expectedMac.length !== sanitized.evidence_mac.length
+        || !crypto.timingSafeEqual(
+          Buffer.from(expectedMac, 'hex'),
+          Buffer.from(sanitized.evidence_mac, 'hex'),
+        )) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return freeze({
+    ...sanitized,
+    marker: freeze({
+      provider: sanitized.provider,
+      model: sanitized.model,
+      runtime: sanitized.runtime,
+    }),
+  });
 }
 
 function daysInClaimMonth(year, month) {
@@ -590,6 +758,14 @@ function persistPayload(eventId, claimId, kind, generatedBodySha256, extra) {
   if (extra && typeof extra.operator_context_sha256 === 'string' && extra.operator_context_sha256) {
     block.operator_context_sha256 = extra.operator_context_sha256;
   }
+  const evidence = sanitizeSelectedOperationEvidence(
+    extra && extra.selected_operation_evidence,
+  );
+  if (evidence
+      && evidence.body_sha256 === generatedBodySha256
+      && evidence.source_inbound_event_id === uuid(eventId)) {
+    block.selected_operation_evidence = evidence;
+  }
   return JSON.stringify({
     luna_email_open_draft: block,
   });
@@ -824,6 +1000,13 @@ function createStaffEmailLunaDraftOpen(deps) {
       }
 
       const generatedDigest = digestGeneratedEmailLunaDraftBody(body);
+      const hermesSnap = snapshotSunsetEmailHermesSolEnv(deps.runtimeEnv || env || process.env);
+      const selectedEvidence = mintSelectedOperationSolEvidence({
+        authority,
+        bodySha256: generatedDigest,
+        composed,
+        hmacSecret: hermesSnap && hermesSnap[EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET],
+      });
       const persisted = await lockThenWrite(
         actor, conversationId, authority.inbound_message_id, async (pg) => {
           const wrote = await pg.query(SQL_CAS_EMAIL_LUNA_OPEN_DRAFT, [
@@ -835,6 +1018,7 @@ function createStaffEmailLunaDraftOpen(deps) {
               claimId,
               composed.kind || 'safe_acknowledgment',
               generatedDigest,
+              { selected_operation_evidence: selectedEvidence },
             ),
             claimId,
             authority.inbound_message_id,
@@ -973,6 +1157,13 @@ function createStaffEmailLunaDraftOpen(deps) {
 
       const generatedDigest = digestGeneratedEmailLunaDraftBody(body);
       const contextDigest = operatorDraftContextDigest(operatorGuidance);
+      const hermesSnap = snapshotSunsetEmailHermesSolEnv(deps.runtimeEnv || env || process.env);
+      const selectedEvidence = mintSelectedOperationSolEvidence({
+        authority,
+        bodySha256: generatedDigest,
+        composed,
+        hmacSecret: hermesSnap && hermesSnap[EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET],
+      });
       const persisted = await lockThenWrite(
         actor, conversationId, authority.inbound_message_id, async (pg) => {
           const wrote = await pg.query(SQL_CAS_EMAIL_LUNA_CREATE_DRAFT, [
@@ -987,6 +1178,7 @@ function createStaffEmailLunaDraftOpen(deps) {
               {
                 explicit_staff_click: true,
                 operator_context_sha256: contextDigest,
+                selected_operation_evidence: selectedEvidence,
               },
             ),
             claimId,
@@ -1044,6 +1236,9 @@ module.exports = {
   sqlEmailLunaOpenDraftClaimExpired,
   parseEmailLunaOpenDraftClaimedAtMs,
   digestGeneratedEmailLunaDraftBody,
+  mintSelectedOperationSolEvidence,
+  verifySelectedOperationSolEvidence,
+  sanitizeSelectedOperationEvidence,
   applyEmailLunaOpenDraftToSection,
   applyEmailLunaOpenDraftToDetail,
   isEmailLunaOpenDraftEnabled: isEmailLunaGenerateDraftEnabled,

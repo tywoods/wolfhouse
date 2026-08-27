@@ -12,8 +12,8 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 | --- | --- | --- | --- |
 | **001** | Create Draft + context | Yes | Source slice: explicit staff click regenerates the standing draft from the authoritative thread plus private staff goals. The model may return only a closed enumerated drafting plan; a deterministic Luna renderer writes the guest-facing EN/ES copy. No paste wrapper, no send, no approval, no outbound journal. |
 | **002** | Ty live proof | No | Later. Controlled Sunset mailbox proof of 001 on staging. Not this PR. |
-| **003** | auto create-and-send | No | Microsoft-only automatic create-and-send. Default remains OFF. Both `LUNA_AUTO_SEND_ENABLED=true` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true` are required for provider auto-send. Reuses Create Draft author + staff Approve & send owners. Dormant. |
-| **004** | auto proof | No | Later. Proof of automatic create-and-send. Auto-send stays off until an explicit later slice. |
+| **003** | auto create-and-send | No | Microsoft-only automatic create-and-send. Default remains OFF. Both `LUNA_AUTO_SEND_ENABLED=true` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true` are required for provider auto-send. Reuses Create Draft author + staff Approve & send owners. Dormant. Do not rebuild in 004. |
+| **004** | auto proof | Yes (this PR) | Bounded fail-closed Sunset-staging operator proof of 003. Default refuse. Typed one-shot authorization bound to sunset-staging / exact Staff app / current serving revision+image / fresh nonce+window. One existing guest-linked thread (`Testing 8 26`, sender `twoods@xantrion.com`). Live proof stays blocked until an exact-master Staff image containing this harness is serving. This builder does not execute live/cloud/provider work. |
 | **005** | generic IMAP inbound | No | Later. Generic IMAP inbound connector. Not this PR. |
 | **006** | generic SMTP send | No | Later. Generic SMTP send. Every future send remains journaled. Not this PR. |
 | **007** | Email Luna Hermes managed by Skipper | Yes (this PR) | Dedicated Skipper-managed `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`) draft-only runtime. Durable config pins `openai-codex` / `gpt-5.6-sol`. Staff Create Draft on Sunset staging calls a colocated internal TLS ACA; provenance is the live Hermes composition attempt, not config text. Not an env flip of `LUNA_AI_MODEL`. Auto remains OFF. |
@@ -28,6 +28,16 @@ When Email channel mode is Auto, the conversation is Luna On, `needs_human` is f
 Luna Off, `needs_human`, global pause, and pause-lookup failure all block before draft/send. Author/tool/provider failure fail closed and do not mark sent. Generic IMAP/SMTP, Graph direct-send shortcuts, campaigns, WhatsApp, and booking create are excluded. `CUSTOMER_OUTREACH_EMAIL_ENABLED` is not a send gate.
 
 WhatsApp add-on: `.hermes/plans/2026-08-26-sunset-whatsapp-autonomy-wiring.md` is not present; no WhatsApp evaluator cleanup in this slice.
+
+## 004 auto proof (Sunset staging operator harness)
+
+Proof of 003 only. Reuses `scripts/lib/email-luna-microsoft-auto-create-send.js`. Default remains OFF.
+
+The harness refuses unless the operator types `I_UNDERSTAND_SUNSET_STAGING_MAIL_MVP_004_ONE_SHOT_AUTO_CREATE_AND_SEND` bound to `sunset-staging`, `luna-sunset-staging-staff-api`, the current 100% Healthy serving revision+image, a fresh 64-hex nonce, and a 15-minute window. Traffic is the actual ACA ingress weight (exactly one explicit 100% revision equal to latestReady/latest); replica process env is attested via `printenv`/`/proc/1/environ`, never template env. Supervisor-owned issued-at and a durable one-use nonce bind the operation across process restart. It independently preflights zero/new selected-operation state for the existing guest-linked Microsoft thread subject `Testing 8 26` and authoritative inbound sender `twoods@xantrion.com` (not UI display `twoods`). Luna On and `needs_human` false are required. After the unchanged 003 `{status:'sent'}` return, leftover/Sol checks recompute evidence HMAC **inside the Staff replica** against durable approval `message_text` hash + selected source operation + tenant/location/conversation/request/provider/model/runtime. Host env HMAC and `evidence_mac` presence without recomputation are not proof. Default Graph arrival is a replica GET-only list through the reviewed Staff custody/token-loan owner (`$select` without body/bodyPreview). Kill-switch is replica-only before ON and after OFF. Conversation metadata HMAC booleans are not proof. Duplicate journal/provider outcomes succeed only at exact 1/1/1; partial is fail-closed.
+
+A later authorized execution may temporarily set only `LUNA_AUTO_SEND_ENABLED=true`, `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true`, and email channel mode `auto`, prove the enabled serving revision, kill-switch the attested-false replica before ON and after OFF, invoke the canonical 003 owner once (inner dispatch marker only after handle starts), then **always** restore both flags `false` and automation `off` in supervisor `finally`. Copied scripts in an old image are not proof: live dispatch requires a Staff image built from exact `origin/master` after this merge. Owner / proof: `npm run verify:mail-mvp-004`. Runbook: `docs/MAIL-MVP-004-SUNSET-AUTO-PROOF-RUNBOOK.md`.
+
+This slice does not execute live send, deploy, or flag flips.
 
 ## 007 Email Luna Hermes Sol (Skipper-managed)
 
