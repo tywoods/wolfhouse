@@ -35,11 +35,22 @@ const {
 
 const ROOT = path.join(__dirname, '..');
 const uiSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-email-settings-ui.js'), 'utf8');
+const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
 const en = STAFF_PORTAL_STRINGS.en;
 const es = STAFF_PORTAL_STRINGS.es;
 
 assert.equal(GOOGLE_OAUTH_DISCONNECT_PATH, '/staff/admin/email-settings/oauth/google/disconnect');
 assert.equal(GOOGLE_DISCONNECT_PATH, GOOGLE_OAUTH_DISCONNECT_PATH);
+assert.match(
+  apiSrc,
+  /createStaffGoogleOAuthProductionIntegration,\s*GOOGLE_ENDPOINT_PATH,\s*GOOGLE_START_PATH,\s*GOOGLE_CALLBACK_PATH,\s*GOOGLE_DISCONNECT_PATH,/,
+  'live Staff router must import GOOGLE_DISCONNECT_PATH from staff-google-oauth-production-integration',
+);
+assert.match(
+  apiSrc,
+  /if \(\[GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH, GOOGLE_DISCONNECT_PATH\]\.includes\(pathname\)\) \{\s*const handled = await staffGoogleOAuth\.dispatch\(req,res,pathname\);/,
+  'live Staff router must dispatch GOOGLE_DISCONNECT_PATH through staffGoogleOAuth.dispatch',
+);
 assert.ok(uiSrc.includes('GOOGLE_DISCONNECT_UI_PATH'));
 assert.ok(uiSrc.includes('admin.email.removeMicrosoftButton'));
 assert.ok(uiSrc.includes('admin.email.removeGoogleButton'));
