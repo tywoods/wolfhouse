@@ -1018,6 +1018,23 @@ function classifyTrustedGraphGrantFailure(input) {
   return freeze(out);
 }
 
+function closedGraphPublicReason(reason) {
+  if (typeof reason !== 'string' || !reason) return null;
+  if (
+    reason === 'graph_adapter_unwired'
+    || reason === 'graph_unproven'
+    || reason === 'graph_send_forbidden'
+    || reason === 'graph_body_leaked'
+    || reason === 'graph_pii_leaked'
+  ) {
+    return reason;
+  }
+  for (const stage of Object.keys(GRAPH_GRANT_STAGE_REASON)) {
+    if (GRAPH_GRANT_STAGE_REASON[stage] === reason) return reason;
+  }
+  return null;
+}
+
 function sanitizeGraphPublic(result) {
   if (!result || typeof result !== 'object' || isProxy(result)) {
     return freeze({
@@ -1034,9 +1051,17 @@ function sanitizeGraphPublic(result) {
   const arrivals = Number.isSafeInteger(result.arrivals) ? result.arrivals : 0;
   const duplicates = Number.isSafeInteger(result.duplicates) ? result.duplicates : 0;
   const ok = result.ok === true;
+  const stage = closedGraphGrantStage(result.stage);
+  let reason = null;
+  if (ok !== true) {
+    const closed = closedGraphPublicReason(result.reason || 'graph_unproven');
+    if (closed) reason = closed;
+    else if (stage) reason = GRAPH_GRANT_STAGE_REASON[stage];
+    else reason = 'graph_adapter_unwired';
+  }
   const pub = {
     ok,
-    reason: ok === true ? null : (result.reason || 'graph_unproven'),
+    reason,
     adapter_available: result.adapter_available === true,
     readonly: result.readonly === true,
     arrivals,
@@ -1045,7 +1070,6 @@ function sanitizeGraphPublic(result) {
     subject_ok: result.subject_ok === true,
   };
   if (ok !== true) {
-    const stage = closedGraphGrantStage(result.stage);
     if (stage && GRAPH_GRANT_STAGE_REASON[stage] === pub.reason) pub.stage = stage;
     const grantStatus = closedGraphGrantStatus(result.status);
     if (grantStatus && pub.stage) pub.status = grantStatus;
@@ -2274,32 +2298,49 @@ function createMailMvp004LiveProof(deps) {
       return refusedRecord((beforeOnKill && beforeOnKill.reason) || 'kill_switch_unproven');
     }
 
-    const graphProbe = typeof deps.verifyGraphArrival === 'function'
-      ? await deps.verifyGraphArrival({
-        probe: true,
-        provider_source_message_id: pre.provider_source_message_id,
-        graph_conversation_id: pre.graph_conversation_id,
-        provider_mailbox_id: pre.provider_mailbox_id,
-        inbound_internet_message_id: pre.inbound_internet_message_id,
-        subject: PROOF_SUBJECT,
-      })
-      : null;
+    let graphProbe = null;
+    try {
+      graphProbe = typeof deps.verifyGraphArrival === 'function'
+        ? await deps.verifyGraphArrival({
+          probe: true,
+          provider_source_message_id: pre.provider_source_message_id,
+          graph_conversation_id: pre.graph_conversation_id,
+          provider_mailbox_id: pre.provider_mailbox_id,
+          inbound_internet_message_id: pre.inbound_internet_message_id,
+          subject: PROOF_SUBJECT,
+        })
+        : null;
+    } catch {
+      return refusedRecord('graph_adapter_unwired');
+    }
     if (!replicaGraphAdapterAvailable(graphProbe)) {
-      const reason = (graphProbe && graphProbe.reason) || 'graph_adapter_unwired';
-      const stage = closedGraphGrantStage(graphProbe && graphProbe.stage);
+      const sanitized = sanitizeGraphPublic(graphProbe);
+      const reason = sanitized.reason || 'graph_adapter_unwired';
+      const stage = closedGraphGrantStage(sanitized.stage);
       return refusedRecord(reason, stage ? { stage } : undefined);
     }
 
-    const evidenceProbe = typeof deps.readDurableEvidence === 'function'
-      ? await deps.readDurableEvidence()
-      : null;
+    let evidenceProbe = null;
+    try {
+      evidenceProbe = typeof deps.readDurableEvidence === 'function'
+        ? await deps.readDurableEvidence()
+        : null;
+    } catch {
+      return refusedRecord('snapshot_unproven');
+    }
     if (!replicaEvidenceCapabilityAvailable(evidenceProbe)) {
-      return refusedRecord((evidenceProbe && evidenceProbe.reason) || 'hmac_unwired');
+      const reason = (evidenceProbe && evidenceProbe.reason) || 'hmac_unwired';
+      return refusedRecord(reason === 'proof_error' ? 'snapshot_unproven' : reason);
     }
 
-    const modeSnapshot = typeof deps.getEmailChannelMode === 'function'
-      ? await deps.getEmailChannelMode()
-      : 'draft';
+    let modeSnapshot = 'draft';
+    try {
+      modeSnapshot = typeof deps.getEmailChannelMode === 'function'
+        ? await deps.getEmailChannelMode()
+        : 'draft';
+    } catch {
+      return refusedRecord('channel_mode_unproven');
+    }
     const requiredFinalMode = 'off';
     const authorizedRevision = serving.revision;
     let invoked = 0;
@@ -3661,12 +3702,29 @@ async function runInnerGraphVerify(input) {
       });
     }
   }
+  let observedStage = null;
+  let classified = null;
+  const remember = (result) => {
+    classified = graphInnerResult(result);
+    return classified;
+  };
+  const closePool = async () => {
+    const closer = (input && typeof input.closePgPool === 'function')
+      ? input.closePgPool
+      : (pg && typeof pg.closePgPool === 'function' ? () => pg.closePgPool() : null);
+    if (typeof closer !== 'function') return;
+    try {
+      await closer();
+    } catch {
+      // Pool teardown must never mask a classified Graph result.
+    }
+  };
   try {
-    return await withPgClient(async (client) => {
+    const inner = await withPgClient(async (client) => {
       const loaded = await client.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]);
       const selected = selectProofThread(loaded && loaded.rows);
       if (!selected.ok) {
-        return graphInnerResult({
+        return remember({
           ok: false,
           reason: selected.reason,
           adapter_available: false,
@@ -3677,7 +3735,7 @@ async function runInnerGraphVerify(input) {
       const clientId = uuid(row.client_id);
       const endpointId = uuid(row.endpoint_id);
       if (!clientId || !endpointId) {
-        return graphInnerResult({
+        return remember({
           ok: false,
           reason: 'graph_adapter_unwired',
           adapter_available: false,
@@ -3691,14 +3749,13 @@ async function runInnerGraphVerify(input) {
         timers: (input && input.timers) || { setTimeout, clearTimeout },
       });
       if (!session || typeof session.runWithAccessTokenOnce !== 'function') {
-        return graphInnerResult({
+        return remember({
           ok: false,
           reason: 'graph_adapter_unwired',
           adapter_available: false,
           readonly: false,
         });
       }
-      let observedStage = null;
       bindTrustedDelegatedGrantAccessSessionInternalStageObserver(session, (note) => {
         const stage = closedGraphGrantStage(note && note.stage);
         if (stage) observedStage = stage;
@@ -3749,7 +3806,7 @@ async function runInnerGraphVerify(input) {
         sessionThrown = err;
       }
       if (sessionThrown || !sessionOut || sessionOut.ok !== true) {
-        return graphInnerResult(classifyTrustedGraphGrantFailure({
+        return remember(classifyTrustedGraphGrantFailure({
           target: sessionThrown || sessionOut,
           result: sessionOut,
           observedStage,
@@ -3757,7 +3814,7 @@ async function runInnerGraphVerify(input) {
       }
       const listed = sessionOut.value;
       if (listed && listed.reason === 'graph_body_leaked') {
-        return graphInnerResult({
+        return remember({
           ok: false,
           reason: 'graph_body_leaked',
           adapter_available: true,
@@ -3765,7 +3822,7 @@ async function runInnerGraphVerify(input) {
         });
       }
       if (listed && listed.ok === false && listed.reason === 'graph_adapter_unwired') {
-        return graphInnerResult({
+        return remember({
           ok: false,
           reason: 'graph_adapter_unwired',
           adapter_available: false,
@@ -3773,14 +3830,14 @@ async function runInnerGraphVerify(input) {
         });
       }
       if (listed && listed.ok === false && listed.reason === 'graph_send_forbidden') {
-        return graphInnerResult({
+        return remember({
           ok: false,
           reason: 'graph_send_forbidden',
           adapter_available: false,
           readonly: false,
         });
       }
-      const classified = classifyGraphArrival(
+      const arrival = classifyGraphArrival(
         listed && listed.messages ? listed.messages : listed,
         {
           graph_conversation_id: row.graph_conversation_id,
@@ -3790,14 +3847,28 @@ async function runInnerGraphVerify(input) {
           provider_mailbox_id: row.provider_mailbox_id,
         },
       );
-      return graphInnerResult({
-        ...classified,
+      return remember({
+        ...arrival,
         adapter_available: true,
         readonly: true,
       });
     });
+    if (classified) return classified;
+    if (inner && typeof inner === 'object') return remember(inner);
+    return remember({
+      ok: false,
+      reason: 'graph_adapter_unwired',
+      adapter_available: false,
+      readonly: false,
+    });
+  } catch (err) {
+    if (classified) return classified;
+    return remember(classifyTrustedGraphGrantFailure({
+      target: err,
+      observedStage,
+    }));
   } finally {
-    if (pg && typeof pg.closePgPool === 'function') await pg.closePgPool();
+    await closePool();
   }
 }
 
@@ -4088,7 +4159,11 @@ async function runCli(argv, options) {
     return withInnerPublic(await runInnerSnapshot({ ...options, env }));
   }
   if (envOwn(env, INNER_MODE_GRAPH_VERIFY) === '1') {
-    return withInnerPublic(await runInnerGraphVerify({ ...options, env }));
+    try {
+      return withInnerPublic(await runInnerGraphVerify({ ...options, env }));
+    } catch (err) {
+      return graphInnerResult(classifyTrustedGraphGrantFailure({ target: err }));
+    }
   }
   if (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
       || envOwn(env, 'MAIL_MVP_004_RECONCILE_ONLY') === '1') {
@@ -4291,6 +4366,7 @@ module.exports = freeze({
   runInnerGraphVerify,
   GRAPH_GRANT_STAGE_REASON,
   classifyTrustedGraphGrantFailure,
+  sanitizeGraphPublic,
   createProductionStaffMailboxTokenLoan,
   sanitizeReplicaEvidenceSnapshot,
   replicaLeftover,

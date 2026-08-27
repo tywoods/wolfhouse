@@ -14,10 +14,22 @@
 const {
   runCli,
   publicProofOutput,
+  sanitizeGraphPublic,
 } = require('./lib/email-luna-microsoft-auto-create-send-live-proof');
 
+function graphVerifyMode(env) {
+  return !!(env && env.MAIL_MVP_004_GRAPH_VERIFY === '1');
+}
+
+function emitPublic(result) {
+  if (graphVerifyMode(process.env)) {
+    return sanitizeGraphPublic(result && result.public ? result.public : result);
+  }
+  return publicProofOutput(result);
+}
+
 function fail(result) {
-  const pub = publicProofOutput(result);
+  const pub = emitPublic(result);
   console.error(JSON.stringify(pub));
   process.exit(1);
 }
@@ -27,7 +39,7 @@ function fail(result) {
   if (!result || result.ok !== true) {
     fail(result);
   }
-  console.log(JSON.stringify(publicProofOutput(result)));
+  console.log(JSON.stringify(emitPublic(result)));
 })().catch(() => {
   fail({ ok: false, reason: 'proof_error' });
 });

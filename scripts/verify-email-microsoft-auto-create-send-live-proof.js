@@ -104,6 +104,7 @@ const {
   runInnerGraphVerify,
   GRAPH_GRANT_STAGE_REASON,
   classifyTrustedGraphGrantFailure,
+  sanitizeGraphPublic,
   replicaLeftover,
   replicaSolProven,
 } = require('./lib/email-luna-microsoft-auto-create-send-live-proof');
@@ -614,16 +615,27 @@ function makeHarness(options = {}) {
       log.push(`mode:${value}`);
       mode = value;
     },
-    async getEmailChannelMode() { return mode; },
+    async getEmailChannelMode() {
+      if (typeof options.getEmailChannelMode === 'function') {
+        return options.getEmailChannelMode();
+      }
+      return mode;
+    },
     async preflightSelectedOperation() {
       return options.preflight || preflightOk();
     },
     invokeAutoOwner: invoke,
     async snapshotOperation() { return { ...op }; },
     async readDurableEvidence() {
+      if (typeof options.readDurableEvidence === 'function') {
+        return options.readDurableEvidence();
+      }
       return evidence;
     },
     async verifyGraphArrival() {
+      if (typeof options.verifyGraphArrival === 'function') {
+        return options.verifyGraphArrival();
+      }
       return options.graph || {
         ok: true,
         threaded: true,
@@ -2174,6 +2186,155 @@ async function main() {
     const hostCli = fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8');
     assert.doesNotMatch(hostCli, /EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET/);
     assert.doesNotMatch(hostCli, /getAccessToken/);
+
+    const proofErrorGraph = sanitizeGraphPublic({ ok: false, reason: 'proof_error' });
+    assert.equal(proofErrorGraph.ok, false);
+    assert.equal(proofErrorGraph.reason, 'graph_adapter_unwired');
+    assert.equal(proofErrorGraph.adapter_available, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(proofErrorGraph, 'stage'), false);
+    const stagedProofError = sanitizeGraphPublic({
+      ok: false,
+      reason: 'proof_error',
+      stage: 'lease',
+      status: STATUS_UNAVAILABLE,
+    });
+    assert.equal(stagedProofError.reason, 'graph_grant_lease_unavailable');
+    assert.equal(stagedProofError.stage, 'lease');
+    assert.equal(stagedProofError.status, STATUS_UNAVAILABLE);
+    const closedLease = sanitizeGraphPublic({
+      ok: false,
+      reason: 'graph_grant_lease_unavailable',
+      stage: 'lease',
+      status: STATUS_UNAVAILABLE,
+    });
+    assert.equal(closedLease.reason, 'graph_grant_lease_unavailable');
+    assert.equal(closedLease.stage, 'lease');
+
+    async function throwingReleasePg(rows, extraRows) {
+      return async (fn) => {
+        const value = await innerPg(rows, extraRows)(fn);
+        throw new Error('pool_release_failed');
+      };
+    }
+    const teardownGraph = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: await throwingReleasePg([graphRow], [{
+        approval_id: '55555555-5555-4555-8555-555555555555',
+        message_text: THREAD_DRAFT,
+        immutable_draft_id: 'graph-sent-1',
+        send_invocation_count: 1,
+        draft_meta: { selected_operation_evidence: mintEvidence(THREAD_DRAFT) },
+      }]),
+      tokenLoan,
+      https: httpsOk,
+      closePgPool: async () => {
+        throw new Error('pool_close_failed');
+      },
+    });
+    assert.equal(teardownGraph.ok, true);
+    assert.equal(teardownGraph.adapter_available, true);
+    assert.equal(teardownGraph.readonly, true);
+    assert.equal(teardownGraph.arrivals, 1);
+    assert.equal(teardownGraph.threaded, true);
+    assert.doesNotMatch(JSON.stringify(teardownGraph), /proof_error|pool_release_failed|pool_close_failed/);
+
+    const leaseThenTeardownLoan = await createGraphGrantSessionLoan({ failLease: true });
+    const leaseThenTeardown = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: await throwingReleasePg([graphRow]),
+      tokenLoan: leaseThenTeardownLoan,
+      closePgPool: async () => {
+        throw new Error('pool_close_failed');
+      },
+    });
+    assertGraphGrantDiag(leaseThenTeardown, 'lease', STATUS_UNAVAILABLE);
+
+    const beforeClassUnwired = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: async () => {
+        throw new Error('connect_failed');
+      },
+    });
+    assert.equal(beforeClassUnwired.ok, false);
+    assert.equal(beforeClassUnwired.reason, 'graph_adapter_unwired');
+    assert.equal(Object.prototype.hasOwnProperty.call(beforeClassUnwired, 'stage'), false);
+
+    const queryThrowUnwired = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: async (fn) => fn({
+        async query() { throw new Error('query_failed'); },
+      }),
+    });
+    assert.equal(queryThrowUnwired.reason, 'graph_adapter_unwired');
+
+    const { harness: hGraphThrow, log: graphThrowLog } = makeHarness({
+      async verifyGraphArrival() { throw new Error('proof_error'); },
+    });
+    const graphThrowRefuse = await execute(hGraphThrow);
+    assert.equal(graphThrowRefuse.ok, false);
+    assert.equal(graphThrowRefuse.status, 'refused');
+    assert.equal(graphThrowRefuse.reason, 'graph_adapter_unwired');
+    assert.equal(graphThrowRefuse.invoked, 0);
+    assert.equal(graphThrowLog.includes('flags:true'), false);
+    assert.equal(graphThrowLog.includes('mode:auto'), false);
+    assert.equal(graphThrowLog.includes('invoke'), false);
+    assert.doesNotMatch(JSON.stringify(graphThrowRefuse), /proof_error/);
+
+    const { harness: hEvidenceThrow, log: evidenceThrowLog } = makeHarness({
+      async readDurableEvidence() { throw new Error('proof_error'); },
+    });
+    const evidenceThrowRefuse = await execute(hEvidenceThrow);
+    assert.equal(evidenceThrowRefuse.reason, 'snapshot_unproven');
+    assert.equal(evidenceThrowRefuse.invoked, 0);
+    assert.equal(evidenceThrowLog.includes('flags:true'), false);
+    assert.equal(evidenceThrowLog.includes('invoke'), false);
+
+    const { harness: hModeThrow, log: modeThrowLog } = makeHarness({
+      async getEmailChannelMode() { throw new Error('proof_error'); },
+    });
+    const modeThrowRefuse = await execute(hModeThrow);
+    assert.equal(modeThrowRefuse.reason, 'channel_mode_unproven');
+    assert.equal(modeThrowRefuse.invoked, 0);
+    assert.equal(modeThrowLog.includes('flags:true'), false);
+    assert.equal(modeThrowLog.includes('mode:auto'), false);
+    assert.equal(modeThrowLog.includes('invoke'), false);
+
+    const { harness: hGraphProofReason, log: graphProofLog } = makeHarness({
+      graph: { ok: false, reason: 'proof_error' },
+    });
+    const graphProofRefuse = await execute(hGraphProofReason);
+    assert.equal(graphProofRefuse.reason, 'graph_adapter_unwired');
+    assert.equal(graphProofRefuse.invoked, 0);
+    assert.equal(graphProofLog.includes('flags:true'), false);
+
+    const innerGraphSrc = libSrc.slice(
+      libSrc.indexOf('async function runInnerGraphVerify'),
+      libSrc.indexOf('function createProductionMailMvp004Supervisor'),
+    );
+    assert.match(innerGraphSrc, /if \(classified\) return classified/);
+    assert.match(innerGraphSrc, /observedStage/);
+    assert.match(innerGraphSrc, /closePool/);
+    assert.match(executeOnceSrc, /return refusedRecord\('graph_adapter_unwired'\)/);
+    assert.match(executeOnceSrc, /return refusedRecord\('snapshot_unproven'\)/);
+    assert.match(executeOnceSrc, /return refusedRecord\('channel_mode_unproven'\)/);
+    assert.ok(executeOnceSrc.indexOf("return refusedRecord('graph_adapter_unwired')")
+      < executeOnceSrc.indexOf('setEmergencyFlags(true)'));
+    assert.doesNotMatch(
+      executeOnceSrc.slice(executeOnceSrc.indexOf('} finally {')),
+      /return refusedRecord\('graph_adapter_unwired'\)/,
+    );
   }
 
   console.log('[17] Hostile: Azure CLI JSON extractor and ACR digest attestation');
@@ -3140,7 +3301,9 @@ exit 0
     assert.match(libSrc, /function killSwitchPublic/);
     assert.match(libSrc, /function withInnerPublic/);
     assert.match(libSrc, /Never impersonate a Microsoft send/);
-    assert.match(cliSrc, /console\.log\(JSON\.stringify\(publicProofOutput\(result\)\)\)/);
+    assert.match(cliSrc, /console\.log\(JSON\.stringify\(emitPublic\(result\)\)\)/);
+    assert.match(cliSrc, /sanitizeGraphPublic/);
+    assert.match(cliSrc, /MAIL_MVP_004_GRAPH_VERIFY === '1'/);
     const evidencePublicSrc = libSrc.slice(
       libSrc.indexOf('function evidencePublic'),
       libSrc.indexOf('function isKillSwitchShape'),
@@ -3284,8 +3447,8 @@ function currentCounts() {
     bookings: fixture.bookings == null ? 4 : fixture.bookings,
   };
 }
-function withPgClient(fn) {
-  return fn({
+async function withPgClient(fn) {
+  const value = await fn({
     async query(sql) {
       const n = String(sql).replace(/\\s+/g, ' ');
       const counts = currentCounts();
@@ -3312,6 +3475,11 @@ function withPgClient(fn) {
       return { rows: [] };
     },
   });
+  if (fixture.throwOnRelease === true) throw new Error('pool_release_failed');
+  return value;
+}
+async function closePgPool() {
+  if (fixture.throwOnClose === true) throw new Error('pool_close_failed');
 }
 Module._load = function(request, parent, isMain) {
   const loaded = origLoad.apply(this, arguments);
@@ -3319,7 +3487,7 @@ Module._load = function(request, parent, isMain) {
   try { resolved = Module._resolveFilename(request, parent, isMain); } catch {}
   if (path.resolve(resolved) !== target) return loaded;
   const origRunCli = loaded.runCli;
-  const inject = { withPgClient, consumedCapabilityPath: ${JSON.stringify(consumedPath)} };
+  const inject = { withPgClient, closePgPool, consumedCapabilityPath: ${JSON.stringify(consumedPath)} };
   if (fixture.killBlocked === true) {
     inject.wired = {
       handleProjectedInbound: async () => ({
@@ -3372,6 +3540,9 @@ Module._load = function(request, parent, isMain) {
   }
   return Object.assign({}, loaded, {
     runCli(argv, options) {
+      if (fixture.forceGraphProofError === true) {
+        return Promise.resolve({ ok: false, reason: 'proof_error' });
+      }
       return origRunCli(argv, Object.assign({}, options, inject));
     },
   });
@@ -3504,6 +3675,37 @@ Module._load = function(request, parent, isMain) {
     assert.equal(graphOut.threaded, true);
     assert.notEqual(graphOut.status, 'sent');
     assertNoInnerLeak(graphSpawn.stdout);
+
+    const graphTeardownSpawn = spawnProofCli({
+      MAIL_MVP_004_GRAPH_VERIFY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, {
+      threadRows: [thread],
+      evidenceRows,
+      graphMessages,
+      throwOnRelease: true,
+      throwOnClose: true,
+    });
+    assert.equal(graphTeardownSpawn.status, 0, `${graphTeardownSpawn.stdout}${graphTeardownSpawn.stderr}`);
+    const graphTeardownOut = extractProofJson(`${graphTeardownSpawn.stdout}${graphTeardownSpawn.stderr}`);
+    assert.equal(graphTeardownOut.ok, true);
+    assert.equal(graphTeardownOut.adapter_available, true);
+    assert.equal(graphTeardownOut.arrivals, 1);
+    assert.equal(graphTeardownOut.threaded, true);
+    assert.doesNotMatch(`${graphTeardownSpawn.stdout}${graphTeardownSpawn.stderr}`, /proof_error/);
+    assert.notEqual(graphTeardownOut.reason, 'proof_error');
+    assertNoInnerLeak(graphTeardownSpawn.stdout);
+
+    const graphProofErrorSpawn = spawnProofCli({
+      MAIL_MVP_004_GRAPH_VERIFY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { forceGraphProofError: true });
+    assert.notEqual(graphProofErrorSpawn.status, 0);
+    const graphProofErrorOut = extractProofJson(`${graphProofErrorSpawn.stdout}${graphProofErrorSpawn.stderr}`);
+    assert.equal(graphProofErrorOut.ok, false);
+    assert.equal(graphProofErrorOut.reason, 'graph_adapter_unwired');
+    assert.doesNotMatch(`${graphProofErrorSpawn.stdout}${graphProofErrorSpawn.stderr}`, /proof_error/);
+    assert.notEqual(graphProofErrorOut.status, 'sent');
 
     const cap = testCapability(Date.now());
     const ownerEnv = {
