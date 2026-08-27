@@ -78,7 +78,6 @@ const PROOF_SUBJECT = 'Testing 8 26';
 const PROOF_SENDER = 'twoods@xantrion.com';
 const AZ_DEFAULT = '/opt/data/home/.local/bin/az';
 const PTY_BIN = '/usr/bin/script';
-const PROOF_REMOTE_ENV_PATH = '/tmp/mail-mvp-004-proof.env';
 const PROOF_REMOTE_NODE = 'scripts/prove-mail-mvp-004-auto-create-send.js';
 const MUTATION_ISSUED_MARKER = 'MAIL_MVP_004_MUTATION_ISSUED';
 const CAPABILITY_PURPOSE = 'mail_mvp_004_staff_owner';
@@ -2371,6 +2370,80 @@ function shSingleQuote(value) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+const SAFE_ENV_ASSIGNMENT = /^[A-Z][A-Z0-9_]{1,127}=[A-Za-z0-9+_./:=-]{1,8192}$/;
+
+function proofEnvAssignments(attemptId, reconcileOnly, extra) {
+  const b64 = encodeProofEnvPayload(attemptId, reconcileOnly, extra);
+  if (!b64) return null;
+  let decoded;
+  try {
+    decoded = Buffer.from(b64, 'base64').toString('utf8');
+  } catch {
+    return null;
+  }
+  const lines = decoded.split('\n').map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 3 || lines.length > 16) return null;
+  const assignments = [];
+  for (const line of lines) {
+    if (!SAFE_ENV_ASSIGNMENT.test(line)) return null;
+    assignments.push(line);
+  }
+  return freeze(assignments);
+}
+
+function isLegalStaffOwnerRemoteCommand(command) {
+  if (typeof command !== 'string' || !command || command.length > 16384) return false;
+  if (command.includes("'") || command.includes('"') || command.includes('`') || command.includes('\0')) {
+    return false;
+  }
+  if (command.includes('$(') || command.includes('${') || command.includes('\n') || command.includes('\r')) {
+    return false;
+  }
+  if (/^sh\s+-c\b/.test(command) || command.includes('|') || command.includes('>') || command.includes('<')) {
+    return false;
+  }
+  const prefix = '/usr/bin/env ';
+  const suffix = ` node ${PROOF_REMOTE_NODE}`;
+  if (!command.startsWith(prefix) || !command.endsWith(suffix)) return false;
+  const middle = command.slice(prefix.length, command.length - suffix.length);
+  if (!middle) return false;
+  const assignments = middle.split(' ');
+  if (assignments.length < 3 || assignments.length > 16) return false;
+  for (const assignment of assignments) {
+    if (!SAFE_ENV_ASSIGNMENT.test(assignment)) return false;
+  }
+  return true;
+}
+
+function remoteExecTransportFailed(out) {
+  const text = String(out || '');
+  if (!text) return false;
+  return /ClusterExecFailure/i.test(text)
+    || /unterminated quoted string/i.test(text)
+    || /command terminated with non-zero exit code/i.test(text)
+    || /error executing command/i.test(text);
+}
+
+function classifyStaffOwnerExecResult(execResult) {
+  const stdout = execResult && typeof execResult.stdout === 'string' ? execResult.stdout : '';
+  const stderr = execResult && typeof execResult.stderr === 'string' ? execResult.stderr : '';
+  const out = `${stdout}${stderr}`;
+  const marked = out.includes(MUTATION_ISSUED_MARKER);
+  const inner = extractProofJson(out);
+  const ptyStatus = execResult && Number.isSafeInteger(execResult.status) ? execResult.status : 1;
+  const transportFailed = remoteExecTransportFailed(out);
+  const status = ptyStatus !== 0 || transportFailed === true ? (ptyStatus !== 0 ? ptyStatus : 1) : 0;
+  return freeze({
+    execResult,
+    marked,
+    inner,
+    out,
+    status,
+    ptyStatus,
+    transportFailed: transportFailed === true,
+  });
+}
+
 function encodeProofEnvPayload(attemptId, reconcileOnly, extra) {
   const attempt = uuid(attemptId) || (typeof attemptId === 'string' && OPERATOR_NONCE_RE.test(attemptId)
     ? attemptId
@@ -2403,9 +2476,16 @@ function encodeProofEnvPayload(attemptId, reconcileOnly, extra) {
 }
 
 function buildStaffOwnerRemoteCommand(attemptId, reconcileOnly, extra) {
-  const b64 = encodeProofEnvPayload(attemptId, reconcileOnly, extra);
-  if (!b64) return null;
-  return `sh -c 'printf %s ${b64} | base64 -d > ${PROOF_REMOTE_ENV_PATH} && set -a && . ${PROOF_REMOTE_ENV_PATH} && set +a && exec node ${PROOF_REMOTE_NODE}'`;
+  const assignments = proofEnvAssignments(attemptId, reconcileOnly, extra);
+  if (!assignments) return null;
+  // Azure CLI sends exec --command as one query string. The cluster either
+  // whitespace-splits it into argv or wraps it as sh -c '<command>'. Nested
+  // `sh -c 'printf %s …'` becomes argv sh -c 'printf  with $0=%s and dies:
+  // "%s: line 0: syntax error: unterminated quoted string". Payload tokens
+  // are controlled env assignments plus the fixed image node path, so pass
+  // the argv string ACA actually executes. No quotes, pipes, or files.
+  const command = `/usr/bin/env ${assignments.join(' ')} node ${PROOF_REMOTE_NODE}`;
+  return isLegalStaffOwnerRemoteCommand(command) ? command : null;
 }
 
 function buildStaffOwnerExecAzArgs(options) {
@@ -2430,7 +2510,7 @@ function buildStaffOwnerExecAzArgs(options) {
       snapshot: options && options.snapshot,
     },
   );
-  if (!command) return null;
+  if (!isLegalStaffOwnerRemoteCommand(command)) return null;
   return freeze([
     'containerapp', 'exec',
     '-g', RG,
@@ -2445,6 +2525,26 @@ function wrapPtyAzExec(azBin, azArgs) {
   if (!Array.isArray(azArgs) || azArgs[0] !== 'containerapp' || azArgs[1] !== 'exec') {
     throw new Error('pty_required');
   }
+  if (azArgs.includes('--format') || azArgs.includes('--query') || azArgs.includes('-o')) {
+    throw new Error('unsupported_exec_flag');
+  }
+  const replica = azArgs.includes('--replica') ? azArgs[azArgs.indexOf('--replica') + 1] : '';
+  const revision = azArgs.includes('--revision') ? azArgs[azArgs.indexOf('--revision') + 1] : '';
+  if (typeof replica !== 'string' || !SAFE_AZ_NAME.test(replica) || !replica.startsWith(STAFF_APP)) {
+    throw new Error('pty_required');
+  }
+  if (typeof revision !== 'string' || !SAFE_AZ_NAME.test(revision) || !revision.startsWith(STAFF_APP)) {
+    throw new Error('pty_required');
+  }
+  if (azArgs.includes('-g') === false || azArgs[azArgs.indexOf('-g') + 1] !== RG) {
+    throw new Error('pty_required');
+  }
+  if (azArgs.includes('-n') === false || azArgs[azArgs.indexOf('-n') + 1] !== STAFF_APP) {
+    throw new Error('pty_required');
+  }
+  const commandIndex = azArgs.indexOf('--command');
+  const command = commandIndex >= 0 ? azArgs[commandIndex + 1] : '';
+  if (typeof command !== 'string' || !command) throw new Error('pty_required');
   const bin = typeof azBin === 'string' && azBin ? azBin : AZ_DEFAULT;
   const commandString = [bin, ...azArgs].map(shSingleQuote).join(' ');
   return {
@@ -2452,6 +2552,8 @@ function wrapPtyAzExec(azBin, azArgs) {
     args: freeze(['-q', '-e', '-c', commandString, '/dev/null']),
     azArgs: freeze(azArgs.slice()),
     azBin: bin,
+    replica,
+    revision,
   };
 }
 
@@ -3410,11 +3512,7 @@ function createProductionMailMvp004Supervisor(options) {
       if (!error || error.message !== 'pty_required') throw error;
       execResult = await azRun(azArgs);
     }
-    const out = `${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`;
-    const marked = out.includes(MUTATION_ISSUED_MARKER);
-    const inner = extractProofJson(out);
-    const status = execResult && Number.isSafeInteger(execResult.status) ? execResult.status : 1;
-    return freeze({ execResult, marked, inner, out, status });
+    return classifyStaffOwnerExecResult(execResult);
   }
 
   const supervisor = createMailMvp004LiveProof({
@@ -3504,13 +3602,11 @@ function createProductionMailMvp004Supervisor(options) {
         if (!error || error.message !== 'pty_required') throw error;
         execResult = await azRun(azArgs);
       }
-      const out = `${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`;
-      const marked = out.includes(MUTATION_ISSUED_MARKER);
-      const inner = extractProofJson(out);
-      if (inner) {
-        return freeze({ ...inner, dispatch_marked: marked === true });
+      const classified = classifyStaffOwnerExecResult(execResult);
+      if (classified.inner) {
+        return freeze({ ...classified.inner, dispatch_marked: classified.marked === true });
       }
-      if (marked) {
+      if (classified.marked) {
         return freeze({
           status: 'failed',
           indeterminate: true,
@@ -3554,7 +3650,7 @@ function createProductionMailMvp004Supervisor(options) {
     },
     async verifyKillSwitch() {
       const executed = await execInner({ killSwitchProbe: true });
-      if (!executed || executed.status !== 0 || !executed.inner
+      if (!executed || executed.status !== 0 || executed.transportFailed === true || !executed.inner
           || executed.inner.ok !== true
           || executed.inner.status !== 'blocked'
           || executed.inner.reason !== 'emergency_flags_off') {
@@ -3598,10 +3694,11 @@ function createProductionMailMvp004Supervisor(options) {
       });
       if (!azArgs) return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
       const spec = wrapPtyAzExec(azBin, azArgs);
-      const execResult = spawnPtyHarness(spec, { env });
-      const inner = extractProofJson(`${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`);
-      if (!inner) return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
-      return freeze({ ...inner, retry: false });
+      const classified = classifyStaffOwnerExecResult(spawnPtyHarness(spec, { env }));
+      if (!classified.inner) {
+        return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
+      }
+      return freeze({ ...classified.inner, retry: false });
     },
   });
   PRODUCTION_SUPERVISORS.add(supervisor);
@@ -3825,7 +3922,11 @@ module.exports = freeze({
   buildStaffOwnerRemoteCommand,
   buildStaffOwnerExecAzArgs,
   encodeProofEnvPayload,
+  isLegalStaffOwnerRemoteCommand,
   wrapPtyAzExec,
+  spawnPtyHarness,
+  classifyStaffOwnerExecResult,
+  remoteExecTransportFailed,
   snapshotSolMarker,
   snapshotTrustedProvenance,
   mintSelectedOperationSolEvidence,

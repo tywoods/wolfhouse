@@ -66,6 +66,13 @@ const {
   buildStaffOwnerRemoteCommand,
   buildStaffOwnerExecAzArgs,
   encodeProofEnvPayload,
+  isLegalStaffOwnerRemoteCommand,
+  wrapPtyAzExec,
+  spawnPtyHarness,
+  classifyStaffOwnerExecResult,
+  remoteExecTransportFailed,
+  AZ_DEFAULT,
+  PTY_BIN,
   snapshotSolMarker,
   snapshotTrustedProvenance,
   mintSelectedOperationSolEvidence,
@@ -1158,7 +1165,11 @@ async function main() {
     });
     assert.equal(execArgs[1], 'exec');
     assert.equal(execArgs.includes('--revision'), true);
-    assert.match(execArgs[execArgs.indexOf('--command') + 1], new RegExp(PROOF_REMOTE_NODE.replace(/\./g, '\\.')));
+    const execCommand = execArgs[execArgs.indexOf('--command') + 1];
+    assert.match(execCommand, new RegExp(PROOF_REMOTE_NODE.replace(/\./g, '\\.')));
+    assert.equal(isLegalStaffOwnerRemoteCommand(execCommand), true);
+    assert.doesNotMatch(execCommand, /^sh -c /);
+    assert.doesNotMatch(execCommand, /'/);
   }
 
   console.log('[14] Hostile: production supervisor contract; default CLI still refuses');
@@ -1374,7 +1385,7 @@ async function main() {
       return { ok: false, reason: classified.reason };
     }
     assert.equal(markedInner.reason, 'author_failed');
-    assert.match(libSrc, /if \(inner\) \{\s*return freeze\(\{ \.\.\.inner, dispatch_marked: marked === true \}\);/s);
+    assert.match(libSrc, /if \(classified\.inner\) \{\s*return freeze\(\{ \.\.\.classified\.inner, dispatch_marked: classified\.marked === true \}\);/s);
 
     let author = 0;
     const probeOwner = createEmailLunaMicrosoftAutoCreateAndSend({
@@ -1428,6 +1439,8 @@ async function main() {
     assert.match(supervisorSrc, /execInner\(\{\s*snapshot:\s*'evidence'\s*\}\)/);
     assert.match(supervisorSrc, /execInner\(\{ killSwitchProbe: true \}\)/);
     assert.match(supervisorSrc, /executed\.status !== 0/);
+    assert.match(supervisorSrc, /executed\.transportFailed === true/);
+    assert.match(supervisorSrc, /classifyStaffOwnerExecResult/);
     assert.doesNotMatch(supervisorSrc, /getAccessToken/);
     assert.doesNotMatch(supervisorSrc, /createProductionReadonlyGraphListAdapter/);
     assert.doesNotMatch(supervisorSrc, /createCanonical003KillSwitch/);
@@ -2467,6 +2480,190 @@ async function main() {
     assert.equal(delta.restored, true);
     assert.equal(deltaLog.includes('flags:true'), true);
     assert.equal(deltaLog.includes('flags:false'), true);
+  }
+
+  console.log('[20] ACA exec command shape; nested quotes fail; PTY false-zero is unproven');
+  {
+    const os = require('node:os');
+    const replica = `${REVISION}-abcde-fghij`;
+    const attemptId = crypto.randomUUID();
+    const killCmd = buildStaffOwnerRemoteCommand(attemptId, false, {
+      killSwitchProbe: true,
+      revision: REVISION,
+    });
+    assert.equal(isLegalStaffOwnerRemoteCommand(killCmd), true);
+    assert.doesNotMatch(killCmd, /^sh\s+-c\b/);
+    assert.doesNotMatch(killCmd, /'/);
+    assert.doesNotMatch(killCmd, /"/);
+    assert.doesNotMatch(killCmd, /[|><`$]/);
+    assert.match(
+      killCmd,
+      new RegExp(
+        `^/usr/bin/env MAIL_MVP_004_LIVE_PROOF=1 .*MAIL_MVP_004_KILL_SWITCH_PROBE=1 .* node ${PROOF_REMOTE_NODE.replace(/\./g, '\\.')}$`,
+      ),
+    );
+    assert.match(killCmd, new RegExp(`MAIL_MVP_004_PROOF_ATTEMPT_ID=${attemptId}`));
+    assert.doesNotMatch(killCmd, /MAIL_MVP_004_STAFF_OWNER_PROOF=1/);
+    assert.doesNotMatch(killCmd, /LUNA_AUTO_SEND_ENABLED=true/);
+    const envPayload = encodeProofEnvPayload(attemptId, false, {
+      killSwitchProbe: true,
+      revision: REVISION,
+    });
+    assert.match(Buffer.from(envPayload, 'base64').toString('utf8'), /MAIL_MVP_004_KILL_SWITCH_PROBE=1/);
+
+    const syntax = spawnSync('/bin/sh', ['-n', '-c', killCmd], { encoding: 'utf8' });
+    assert.equal(syntax.status, 0, syntax.stderr);
+
+    const acaWrapped = spawnSync('/bin/sh', ['-n', '-c', `sh -c '${killCmd}'`], { encoding: 'utf8' });
+    assert.equal(acaWrapped.status, 0, acaWrapped.stderr);
+
+    const splitNew = killCmd.split(' ');
+    assert.equal(splitNew[0], '/usr/bin/env');
+    assert.equal(splitNew[splitNew.length - 2], 'node');
+    assert.equal(splitNew[splitNew.length - 1], PROOF_REMOTE_NODE);
+    assert.equal(splitNew.some((token) => token.startsWith("'") || token.includes("'")), false);
+
+    const analogOld = "sh -c 'printf %s hello'";
+    assert.equal(isLegalStaffOwnerRemoteCommand(analogOld), false);
+    const splitOld = analogOld.split(' ');
+    assert.deepEqual(splitOld.slice(0, 4), ['sh', '-c', "'printf", '%s']);
+    const splitOldRun = spawnSync(splitOld[0], splitOld.slice(1), { encoding: 'utf8' });
+    assert.notEqual(splitOldRun.status, 0);
+    assert.match(`${splitOldRun.stdout}${splitOldRun.stderr}`, /%s:.*[Uu]nterminated quoted string/);
+
+    const analogWrap = spawnSync('/bin/sh', ['-c', `sh -c '${analogOld}'`], { encoding: 'utf8' });
+    assert.notEqual(analogWrap.status, 0);
+
+    const analogNew = spawnSync('/bin/sh', ['-c', `sh -c '${'/usr/bin/env printf %s hello'}'`], { encoding: 'utf8' });
+    assert.equal(analogNew.status, 0);
+    assert.equal(analogNew.stdout, 'hello');
+
+    const azArgs = buildStaffOwnerExecAzArgs({
+      attemptId,
+      replica,
+      revision: REVISION,
+      killSwitchProbe: true,
+    });
+    assert.equal(azArgs[azArgs.indexOf('--replica') + 1], replica);
+    assert.equal(azArgs[azArgs.indexOf('--revision') + 1], REVISION);
+    assert.equal(azArgs[azArgs.indexOf('-g') + 1], RG);
+    assert.equal(azArgs[azArgs.indexOf('-n') + 1], STAFF_APP);
+    assert.equal(azArgs[azArgs.indexOf('--command') + 1], killCmd);
+    assert.equal(azArgs.includes('--format'), false);
+
+    const spec = wrapPtyAzExec(AZ_DEFAULT, azArgs);
+    assert.equal(spec.bin, PTY_BIN);
+    assert.deepEqual(spec.args.slice(0, 3), ['-q', '-e', '-c']);
+    assert.equal(spec.args[4], '/dev/null');
+    assert.equal(spec.replica, replica);
+    assert.equal(spec.revision, REVISION);
+    assert.match(spec.args[3], new RegExp(replica.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(spec.args[3], new RegExp(REVISION.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.doesNotMatch(spec.azArgs[spec.azArgs.indexOf('--command') + 1], /^sh -c /);
+    assert.throws(() => wrapPtyAzExec(AZ_DEFAULT, [
+      'containerapp', 'exec', '-g', RG, '-n', STAFF_APP, '--command', killCmd,
+    ]), /pty_required/);
+    assert.throws(() => wrapPtyAzExec(AZ_DEFAULT, [
+      'containerapp', 'exec', '-g', RG, '-n', STAFF_APP,
+      '--replica', replica, '--revision', REVISION,
+      '--command', killCmd, '-o', 'json',
+    ]), /unsupported_exec_flag/);
+
+    const spoofJson = JSON.stringify({
+      ok: true,
+      status: 'blocked',
+      reason: 'emergency_flags_off',
+      author_called: false,
+      journal_called: false,
+      provider_called: false,
+    });
+    const falseZero = classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: '%s: line 0: syntax error: unterminated quoted string\n',
+      stderr: `ClusterExecFailure: error executing command [sh -c \\u0027printf %s ${envPayload} ... ${PROOF_REMOTE_NODE}\\u0027]\n${spoofJson}\n`,
+    });
+    assert.equal(falseZero.ptyStatus, 0);
+    assert.equal(falseZero.transportFailed, true);
+    assert.equal(falseZero.status, 1);
+    assert.equal(remoteExecTransportFailed(falseZero.out), true);
+    assert.equal(falseZero.inner && falseZero.inner.ok, true);
+    assert.equal(
+      !falseZero || falseZero.status !== 0 || falseZero.transportFailed === true || !falseZero.inner
+        || falseZero.inner.ok !== true
+        || falseZero.inner.status !== 'blocked'
+        || falseZero.inner.reason !== 'emergency_flags_off'
+        ? 'kill_switch_unproven'
+        : 'ok',
+      'kill_switch_unproven',
+    );
+
+    const cleanKill = classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${spoofJson}\n`,
+      stderr: '',
+    });
+    assert.equal(cleanKill.status, 0);
+    assert.equal(cleanKill.transportFailed, false);
+    assert.equal(cleanKill.inner.reason, 'emergency_flags_off');
+
+    const classifiedJson = classifyStaffOwnerExecResult({
+      status: 1,
+      stdout: `${MUTATION_ISSUED_MARKER}\n${JSON.stringify({ ok: true, status: 'sent' })}\n`,
+      stderr: 'WebSocket disconnected ClusterExecFailure\n',
+    });
+    assert.equal(classifiedJson.transportFailed, true);
+    assert.equal(classifiedJson.status, 1);
+    assert.equal(classifiedJson.marked, true);
+    assert.equal(classifiedJson.inner && classifiedJson.inner.status, 'sent');
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mail-mvp-004-exec-'));
+    const fakeAz = path.join(dir, 'az');
+    fs.writeFileSync(fakeAz, `#!/bin/sh
+echo '%s: line 0: syntax error: unterminated quoted string'
+echo 'ClusterExecFailure: command terminated with non-zero exit code: error executing command [sh -c \\u0027printf %s x\\u0027]'
+echo '${spoofJson.replace(/'/g, '')}'
+exit 0
+`);
+    fs.chmodSync(fakeAz, 0o755);
+    const ptySpec = wrapPtyAzExec(fakeAz, azArgs);
+    const ptyResult = spawnPtyHarness(ptySpec, { timeoutMs: 15000, env: process.env });
+    assert.equal(ptySpec.bin, PTY_BIN);
+    assert.equal(ptyResult.status, 0);
+    const ptyClassified = classifyStaffOwnerExecResult(ptyResult);
+    assert.equal(ptyClassified.ptyStatus, 0);
+    assert.equal(ptyClassified.transportFailed, true);
+    assert.equal(ptyClassified.status, 1);
+    assert.match(ptyClassified.out, /unterminated quoted string/);
+    assert.match(ptyClassified.out, /ClusterExecFailure/);
+    const ptyKillReason = (
+      !ptyClassified || ptyClassified.status !== 0 || ptyClassified.transportFailed === true || !ptyClassified.inner
+        || ptyClassified.inner.ok !== true
+        || ptyClassified.inner.status !== 'blocked'
+        || ptyClassified.inner.reason !== 'emergency_flags_off'
+    ) ? 'kill_switch_unproven' : 'ok';
+    assert.equal(ptyKillReason, 'kill_switch_unproven');
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    const { harness: hFalseZero } = makeHarness({
+      async verifyKillSwitch() {
+        return {
+          ok: false,
+          reason: 'kill_switch_unproven',
+          author_called: false,
+          journal_called: false,
+          provider_called: false,
+        };
+      },
+    });
+    const publicRefuse = await execute(hFalseZero);
+    assert.equal(publicRefuse.reason, 'kill_switch_unproven');
+    assert.equal(publicRefuse.invoked, 0);
+    assert.equal(publicRefuse.restored, undefined);
+    assert.match(runbook, /quote-free/);
+    assert.match(runbook, /ClusterExecFailure/);
+    assert.match(libSrc, /isLegalStaffOwnerRemoteCommand/);
+    assert.match(libSrc, /const command = `\/usr\/bin\/env \$\{assignments\.join\(' '\)\} node \$\{PROOF_REMOTE_NODE\}`/);
+    assert.doesNotMatch(libSrc, /return `sh -c '/);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
