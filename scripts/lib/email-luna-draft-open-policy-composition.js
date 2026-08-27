@@ -39,7 +39,7 @@ const INTENT_REQUIRED_FACTS = freeze({
   payment_status_question: freeze(['payment']),
 });
 const INJECTION = /(?:\bsystem\s*:|\[\s*system\s*\]|\bdeveloper\s+(?:message|instruction)|ignore\s+(?:all\s+)?previous\s+instructions?|override\s+policy|switch\s+tenant|call\s+[a-z_$][\w$]*\s*\(|<\s*\/?\s*system\b|\b(?:location_id|required_facts|send_allowed|draft_ready|low_confidence)\s*=|"(?:authority|policy|low_confidence)"\s*:)/i;
-const ES_MARKERS = /\b(hola|gracias|buenos|buenas|reserva|precio|disponibilidad|necesito|por favor|alquiler|pago|tabla|ustedes|nosotros|días|noches|mensaje)\b/gi;
+const ES_MARKERS = /\b(hola|gracias|buenos|buenas|reserv(?:a|as|ar|amos)?|precios?|disponibilidad|necesit(?:o|amos|a)?|por favor|alquiler|pagos?|tablas?|ustedes|nosotros|d[ií]as?|noches?|mensajes?|quier(?:o|es|e|en|[ií]a)|camas?|clases?|informaci[oó]n)\b/gi;
 const EN_MARKERS = /\b(hello|hi|thanks|please|booking|price|available|need|message|boards?|lesson)\b/gi;
 
 const SAFE_ACKNOWLEDGMENT = freeze({
@@ -74,7 +74,10 @@ function detectEmailDraftLanguage(subject, body) {
   const text = `${typeof subject === 'string' ? subject : ''}\n${typeof body === 'string' ? body : ''}`;
   const es = (text.match(ES_MARKERS) || []).length;
   const en = (text.match(EN_MARKERS) || []).length;
-  return es > en ? 'es' : 'en';
+  if (es > en) return 'es';
+  if (en > es) return 'en';
+  if (/[áéíóúñü¿¡]/i.test(text)) return 'es';
+  return 'en';
 }
 
 function hasInjection(content) {
