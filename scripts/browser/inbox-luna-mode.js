@@ -11,6 +11,9 @@
  * (`POST /staff/bot/pause`). Needs human stays a raise/clear action on
  * `POST /staff/conversations/:id/needs-human`, not a competing send toggle.
  *
+ * Tenant-global green-box Draft|Auto (inbox-shell.js) does not override these
+ * conversation send gates.
+ *
  * Hidden native checkboxes keep the existing pause and needs-human wirings.
  *
  * Injected into /staff/ui ahead of inbox-thread. Fragment spliced into the
@@ -29,18 +32,18 @@ function inboxLunaModeFromPaused(channel, paused){
 
 function inboxLunaModeChannelDefault(channel){
   var email = channel === 'email';
-  var fallback = email ? 'draft' : 'auto';
+  var fallback = 'draft';
   if (typeof inboxShellLoadStoredModes !== 'function') return fallback;
   try {
     var stored = inboxShellLoadStoredModes() || {};
     if (email) {
       return typeof inboxShellNormalizeEmail === 'function'
         ? inboxShellNormalizeEmail(stored.email)
-        : (stored.email === 'off' ? 'off' : 'draft');
+        : (stored.email === 'auto' ? 'auto' : 'draft');
     }
     return typeof inboxShellNormalizeWhatsApp === 'function'
       ? inboxShellNormalizeWhatsApp(stored.whatsapp)
-      : (stored.whatsapp === 'draft' || stored.whatsapp === 'off' ? stored.whatsapp : 'auto');
+      : (stored.whatsapp === 'auto' ? 'auto' : 'draft');
   } catch (_e) {
     return fallback;
   }
