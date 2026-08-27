@@ -28782,12 +28782,12 @@ function scheduleFetchLessonTimesConfig(client, opts){
       return Promise.all([catalogP, offeringsP]).then(function(pair){
       var catalogData = pair[0];
       var offeringsData = pair[1];
-      var profile = getPortalProfile(client);
       if (data && data.success && data.lesson_times && data.lesson_times.length){
         scheduleLessonTimesCache = data.lesson_times.slice();
         scheduleLessonTimesFallback = data.source !== 'db';
       } else {
-        scheduleLessonTimesCache = (profile.lesson_slots_demo || []).slice();
+        // Fail closed: never invent slot times / seats from portal demo seed.
+        scheduleLessonTimesCache = [];
         scheduleLessonTimesFallback = true;
       }
       if (catalogData && catalogData.ok && Array.isArray(catalogData.courses)) {
@@ -28826,8 +28826,8 @@ function scheduleFetchLessonTimesConfig(client, opts){
       });
     })
     .catch(function(){
-      var profile = getPortalProfile(client);
-      scheduleLessonTimesCache = (profile.lesson_slots_demo || []).slice();
+      // Fail closed on config error: empty cache + unavailable (no portal demo seed invent).
+      scheduleLessonTimesCache = [];
       scheduleCoursesCache = [];
       scheduleLessonTimesFallback = true;
       scheduleLessonTimesLoaded = true;
@@ -30570,7 +30570,8 @@ function portalStartupAfterSession(){
   switchToTab(tab, null);
   if (tab === 'conversations') loadInbox();
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
-  if (profile.is_surf_vertical && tab !== 'portal-home') loadDaySchedule(dsTodayIso());
+  // Live schedule authority is GET /staff/schedule/day (sunset-schedule-runtime fetchDay).
+  // Do not call loadDaySchedule on startup — it invents seats from lesson_slots_demo.
   finishPortalProfileStartup();
 }
 
@@ -32362,7 +32363,8 @@ if (clientSelectEl){
     } else if (activeTab === 'ask-luna') {
       wireLunaStaffTabCards();
     }
-    if (getPortalProfile(getClient()).is_surf_vertical) loadDaySchedule(dsTodayIso());
+    // Live schedule authority is GET /staff/schedule/day. Do not call loadDaySchedule
+    // on client-select — Day Schedule is hard-hidden and invents demo seats.
     loadInbox(null, { silent: true, preserveDetail: false });
   });
 }
