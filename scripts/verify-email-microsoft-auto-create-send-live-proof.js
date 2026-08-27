@@ -42,13 +42,30 @@ const {
   isLeftoverGenericDraft,
   evaluateLiveProofReadiness,
   parseServingIdentity,
+  parseRevisionShow,
+  servingHealthyReady100,
   buildSetEnvArgs,
+  buildRevisionShowArgs,
   buildStaffOwnerRemoteCommand,
+  buildStaffOwnerExecAzArgs,
   encodeProofEnvPayload,
   snapshotSolMarker,
+  snapshotTrustedProvenance,
+  leftoverFromDurableEvidence,
+  isProduction003SentShape,
+  exactReconciledCounts,
+  duplicateUnreconciled,
   brandProductionAutoOwner,
   isProductionAutoOwner,
   createMailMvp004LiveProof,
+  createProductionMailMvp004Supervisor,
+  createProductionGraphArrivalVerifier,
+  createCanonical003KillSwitch,
+  classifyGraphArrival,
+  createDurableNonceStore,
+  issueSupervisorCapability,
+  verifySupervisorCapability,
+  encodeCapability,
   createEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,
   selectProofThread,
@@ -107,8 +124,39 @@ function serving(patch) {
     deploySha: IMAGE_SHA,
     digest: DIGEST,
     flags: flagsOff(),
+    healthState: 'Healthy',
+    runningState: 'Running',
+    trafficWeight: 100,
+    ready: true,
+    replica: `${REVISION}-abcde-fghij`,
     ...patch,
   };
+}
+
+function durableOk(patch) {
+  return {
+    message_text: THREAD_DRAFT,
+    draft_meta: {
+      marker: SOL,
+      authenticity: { hmac_verified: true, alg: 'HMAC-SHA256' },
+    },
+    provenance: snapshotTrustedProvenance({
+      marker: SOL,
+      authenticity: { hmac_verified: true, alg: 'HMAC-SHA256' },
+    }),
+    immutable_draft_id: 'graph-draft-004',
+    ...patch,
+  };
+}
+
+function testCapability(nowMs) {
+  return issueSupervisorCapability({
+    nonce: nonce(),
+    revision: REVISION,
+    replica: `${REVISION}-abcde-fghij`,
+    imageTag: IMAGE_SHA,
+    digest: DIGEST,
+  }, nowMs || NOW_MS);
 }
 
 function authArgs(patch) {
@@ -165,6 +213,8 @@ function preflightOk(patch) {
     sender_ok: true,
     subject_ok: true,
     sol_enabled: true,
+    provider_source_message_id: SRC,
+    graph_conversation_id: 'graph-thread-1',
     ...patch,
   };
 }
@@ -189,10 +239,9 @@ function makeHarness(options = {}) {
       approvals: 1,
       journals: 1,
       provider_sends: 1,
-      marker: SOL,
-      draft_text: THREAD_DRAFT,
     };
   });
+  let evidence = options.evidence || durableOk();
   const harness = createMailMvp004LiveProof({
     nonceStore: options.nonceStore || new Set(),
     requireProductionOwner: options.requireProductionOwner,
@@ -200,13 +249,19 @@ function makeHarness(options = {}) {
       log.push(`read:${current.flags[ENV_LUNA_AUTO_SEND_ENABLED]}`);
       return current;
     },
+    async waitServingHealthy({ enabled }) {
+      log.push(`wait:${enabled}`);
+      return current;
+    },
     async setEmergencyFlags(enabled) {
       log.push(`flags:${enabled}`);
-      current = {
+      current = serving({
         ...current,
-        revision: enabled ? `${STAFF_APP}--enabled` : `${STAFF_APP}--safe`,
+        revision: enabled ? `${STAFF_APP}--enabled-${IMAGE_SHA.slice(0, 8)}` : `${STAFF_APP}--safe-${IMAGE_SHA.slice(0, 8)}`,
+        replica: enabled ? `${STAFF_APP}--enabled-${IMAGE_SHA.slice(0, 8)}-aaaaa-bbbbb`
+          : `${STAFF_APP}--safe-${IMAGE_SHA.slice(0, 8)}-ccccc-ddddd`,
         flags: enabled ? flagsOn() : flagsOff(),
-      };
+      });
       if (options.flagThrow && enabled) throw new Error('flag_boom');
     },
     async putEmailChannelMode(value) {
@@ -219,20 +274,30 @@ function makeHarness(options = {}) {
     },
     invokeAutoOwner: invoke,
     async snapshotOperation() { return { ...op }; },
+    async readDurableEvidence() {
+      return evidence;
+    },
     async verifyGraphArrival() {
       return options.graph || { ok: true, threaded: true, arrivals: 1, duplicates: 0 };
     },
     async verifyKillSwitch() {
       log.push('kill');
-      return { status: 'blocked', reason: 'emergency_flags_off', provider_sends: 0 };
+      return {
+        ok: true,
+        status: 'blocked',
+        reason: 'emergency_flags_off',
+        author_called: false,
+        journal_called: false,
+        provider_called: false,
+        provider_sends: 0,
+      };
     },
     async reconcile() {
       log.push('reconcile');
       op = { ...op, approvals: 1, journals: 1, provider_sends: 1 };
       if (typeof options.reconcile === 'function') return options.reconcile();
-      return { status: 'sent', marker: SOL, draft_text: THREAD_DRAFT };
+      return { status: 'sent', durable_evidence: evidence };
     },
-    async readSolEvidence() { return SOL; },
   });
   return { harness, log, getServing: () => current, getMode: () => mode, getOp: () => op };
 }
@@ -244,6 +309,7 @@ async function execute(harness, patch) {
     nowMs: NOW_MS,
     originMasterSha: IMAGE_SHA,
     headSha: IMAGE_SHA,
+    artifactsOnMaster: true,
     treeHasProofFiles: true,
     requireLiveImage: true,
     ...patch,
@@ -361,9 +427,19 @@ async function main() {
       serving: serving(),
       originMasterSha: IMAGE_SHA,
       headSha: IMAGE_SHA,
+      artifactsOnMaster: true,
       treeHasProofFiles: true,
     });
     assert.equal(ready.can_proceed, true);
+    assert.equal(ready.copied_script_boolean_trusted, false);
+    const copiedFalseNotProof = evaluateLiveProofReadiness({
+      serving: serving(),
+      originMasterSha: IMAGE_SHA,
+      headSha: IMAGE_SHA,
+      copiedScript: false,
+    });
+    assert.equal(copiedFalseNotProof.can_proceed, false);
+    assert.ok(copiedFalseNotProof.blocked_reasons.includes('proof_files_not_on_master'));
     assert.equal(LIVE_IMAGE_REQUIREMENT.copied_script_is_not_proof, true);
     assert.equal(LIVE_IMAGE_REQUIREMENT.inner_entrypoint, PROOF_REMOTE_NODE);
     assert.equal(LIVE_IMAGE_REQUIREMENT.image_repository, IMAGE_REPOSITORY);
@@ -475,10 +551,17 @@ async function main() {
 
     const leftoverInvoke = brandProductionAutoOwner(async () => ({
       status: 'sent',
-      marker: SOL,
-      draft_text: 'Thanks for your message. A teammate can follow up if you need anything.',
+      sent: true,
+      approvals: 1,
+      journals: 1,
+      provider_sends: 1,
     }));
-    const leftover = await execute(makeHarness({ invoke: leftoverInvoke }).harness);
+    const leftover = await execute(makeHarness({
+      invoke: leftoverInvoke,
+      evidence: durableOk({
+        message_text: 'Thanks for your message. A teammate can follow up if you need anything.',
+      }),
+    }).harness);
     assert.equal(leftover.reason, 'leftover_generic_draft');
     assert.equal(leftover.restored, true);
 
@@ -529,6 +612,7 @@ async function main() {
 
   console.log('[8] Inner staff owner: existing 003 path, Sol, skip duplicate');
   {
+    const os = require('node:os');
     const rows = [threadRow()];
     const counts = { approvals: 0, journals: 0, sends: 0, bookings: 4 };
     const queries = [];
@@ -543,13 +627,33 @@ async function main() {
         if (/inbox_channel_modes/.test(n) && /SELECT/.test(n)) {
           return { rows: [{ inbox_channel_modes: { email: 'auto', whatsapp: 'auto' } }] };
         }
+        if (/luna_email_open_draft/.test(n) && /message_text/.test(n)) {
+          if (counts.approvals !== 1) return { rows: [] };
+          return {
+            rows: [{
+              approval_id: '55555555-5555-4555-8555-555555555555',
+              message_text: THREAD_DRAFT,
+              state: 'terminal',
+              body_digest: 'c'.repeat(64),
+              immutable_draft_id: 'graph-draft-004',
+              send_invocation_count: counts.sends,
+              draft_meta: {
+                marker: SOL,
+                authenticity: { hmac_verified: true, alg: 'HMAC-SHA256' },
+              },
+            }],
+          };
+        }
         if (/tenant_email_outbound_send_journal/.test(n)) {
           return { rows: [{ n: counts.journals, sends: counts.sends }] };
         }
         if (/tenant_email_reply_approvals/.test(n) && /count/.test(n)) {
           return { rows: [{ n: counts.approvals }] };
         }
-        if (/FROM bookings/.test(n)) return { rows: [{ n: counts.bookings }] };
+        if (/FROM bookings/.test(n)) {
+          assert.equal(params[1], V);
+          return { rows: [{ n: counts.bookings }] };
+        }
         return { rows: [] };
       },
     });
@@ -566,17 +670,43 @@ async function main() {
         approvals: 1,
         journals: 1,
         provider_sends: 1,
-        marker: SOL,
-        draft_text: THREAD_DRAFT,
       };
     });
     function isEmailEmergency(env) {
       return env[ENV_LUNA_AUTO_SEND_ENABLED] === 'true'
         && env[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] === 'true';
     }
-    const inner = await runStaffOwnerProof({
+    function innerCall(handleFn, extra) {
+      const cap = testCapability();
+      return {
+        env: {
+          MAIL_MVP_004_LIVE_PROOF: '1',
+          MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+          LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+          EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+          EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+          EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+          LUNA_AUTO_SEND_ENABLED: 'true',
+          LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+          MAIL_MVP_004_CAPABILITY: encodeCapability(cap),
+          MAIL_MVP_004_REVISION: REVISION,
+          MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+          MAIL_MVP_004_DIGEST: DIGEST,
+        },
+        withPgClient,
+        wired: { handleProjectedInbound: handleFn },
+        nowMs: NOW_MS,
+        consumedCapabilityPath: path.join(os.tmpdir(), `mvp004-cap-${cap.nonce}.json`),
+        ...(extra || {}),
+      };
+    }
+    const inner = await runStaffOwnerProof(innerCall(handle));
+    assert.equal(inner.ok, true);
+    assert.equal(inner.invoked, 1);
+    assert.equal(snapshotSolMarker(inner.provenance.marker).model, 'gpt-5.6-sol');
+
+    const standalone = await runStaffOwnerProof({
       env: {
-        MAIL_MVP_004_LIVE_PROOF: '1',
         MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
         LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
         EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
@@ -588,9 +718,7 @@ async function main() {
       withPgClient,
       wired: { handleProjectedInbound: handle },
     });
-    assert.equal(inner.ok, true);
-    assert.equal(inner.invoked, 1);
-    assert.equal(snapshotSolMarker(inner.marker).model, 'gpt-5.6-sol');
+    assert.equal(standalone.reason, 'capability_required');
 
     const disabled = await runStaffOwnerProof({
       env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
@@ -602,21 +730,9 @@ async function main() {
     counts.approvals = 1;
     counts.journals = 1;
     counts.sends = 1;
-    const skipped = await runStaffOwnerProof({
-      env: {
-        MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
-        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
-        EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
-        EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
-        EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
-        LUNA_AUTO_SEND_ENABLED: 'true',
-        LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
-      },
-      withPgClient,
-      wired: { handleProjectedInbound: brandProductionAutoOwner(async () => {
-        throw new Error('must_not_resend');
-      }) },
-    });
+    const skipped = await runStaffOwnerProof(innerCall(brandProductionAutoOwner(async () => {
+      throw new Error('must_not_resend');
+    })));
     assert.equal(skipped.reason, 'already_sent');
     assert.equal(skipped.invoked, 0);
   }
@@ -680,6 +796,259 @@ async function main() {
       '--image-tag', IMAGE_SHA,
       '--digest', DIGEST,
     ])), null);
+  }
+
+  console.log('[11] Hostile: production 003 success shape is not leftover after send');
+  {
+    const productionSent = {
+      status: 'sent',
+      reason: null,
+      draft_writes: 1,
+      approvals: 1,
+      journals: 1,
+      provider_sends: 1,
+      sent: true,
+    };
+    assert.equal(isProduction003SentShape(productionSent), true);
+    assert.equal(isLeftoverGenericDraft(productionSent.draft_text), true);
+    assert.equal(leftoverFromDurableEvidence({ message_text: THREAD_DRAFT }), false);
+    const prodOwner = createEmailLunaMicrosoftAutoCreateAndSend({
+      withPgClient: async () => ({ rows: [] }),
+      async regenerateEmailLunaDraftOnStaffClick() { return { status: 'draft_ready', draft_text: THREAD_DRAFT }; },
+      async saveDraftThroughStaffOwner() { return { status: 'saved', approval_id: '55555555-5555-4555-8555-555555555555' }; },
+      async approveAndDispatchEmailOutbound() {
+        return { code: 'email_send_committed', status: 200, journaled: true, provider_invoked: true };
+      },
+      async getEmailChannelMode() { return 'auto'; },
+      async readPause() { return { lookup_error: false, global_paused: false, conversation_paused: false }; },
+      async resolveAutoActor() {
+        return { staff_user_id: '11111111-1111-4111-8111-111111111111', client_id: C, role: 'owner' };
+      },
+    });
+    assert.equal(typeof prodOwner.handleProjectedInbound, 'function');
+    const { harness } = makeHarness();
+    const result = await execute(harness);
+    assert.equal(result.ok, true);
+    assert.equal(result.reason, null);
+    assert.equal(result.public.approvals, 1);
+  }
+
+  console.log('[12] Hostile: partial duplicate is fail-closed; never ok:true');
+  {
+    assert.equal(exactReconciledCounts({ approvals: 1, journals: 1, provider_sends: 1 }), true);
+    assert.equal(duplicateUnreconciled({ approvals: 1, journals: 1, provider_sends: 0 }), true);
+    assert.equal(duplicateUnreconciled({ approvals: 2, journals: 1, provider_sends: 1 }), true);
+    const partial = brandProductionAutoOwner(async () => ({
+      status: 'skipped',
+      reason: 'already_sent',
+    }));
+    const failed = await execute(makeHarness({
+      invoke: partial,
+      op: { approvals: 1, journals: 1, provider_sends: 0, bookings: 4 },
+    }).harness);
+    assert.equal(failed.ok, false);
+    assert.equal(failed.reason, 'duplicate_unreconciled');
+    assert.equal(failed.restored, true);
+  }
+
+  console.log('[13] Hostile: durable nonce, supervisor issued-at, Graph, kill-switch, bookings scope');
+  {
+    const noncePath = path.join(require('node:os').tmpdir(), `mvp004-nonce-${process.pid}.json`);
+    try { fs.unlinkSync(noncePath); } catch { /* first */ }
+    const store = createDurableNonceStore(noncePath);
+    const n = nonce();
+    assert.equal(store.add(n, 'Testing 8 26|twoods@xantrion.com'), true);
+    const restarted = createDurableNonceStore(noncePath);
+    assert.equal(restarted.has(n), true);
+    assert.equal(restarted.add(n, 'Testing 8 26|twoods@xantrion.com'), false);
+
+    const callerIssued = '2026-08-27T11:50:00.000Z';
+    const cap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    assert.notEqual(cap.issued_at, callerIssued);
+    assert.equal(cap.issued_at, ISSUED);
+    const verified = verifySupervisorCapability(encodeCapability(cap), NOW_MS, {
+      revision: REVISION,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    });
+    assert.equal(verified.ok, true);
+
+    const graph = createProductionGraphArrivalVerifier({
+      async listThreadMessages(input) {
+        assert.equal(input.forbid_body, true);
+        assert.equal(input.forbid_send, true);
+        assert.equal(input.graph_conversation_id, 'graph-thread-1');
+        return {
+          messages: [{
+            id: 'graph-sent-1',
+            conversationId: 'graph-thread-1',
+            subject: 'Re: Testing 8 26',
+            inReplyTo: SRC,
+          }],
+        };
+      },
+    });
+    const arrival = await graph.verifyGraphArrival({
+      graph_conversation_id: 'graph-thread-1',
+      provider_source_message_id: SRC,
+      immutable_draft_id: 'graph-draft-004',
+    });
+    assert.equal(arrival.ok, true);
+    assert.equal(arrival.arrivals, 1);
+    assert.equal(arrival.duplicates, 0);
+    const leaked = classifyGraphArrival([{
+      id: 'x',
+      conversationId: 'graph-thread-1',
+      subject: 'Re: Testing 8 26',
+      body: 'secret guest body',
+    }], { graph_conversation_id: 'graph-thread-1', provider_source_message_id: SRC });
+    assert.equal(leaked.reason, 'graph_body_leaked');
+
+    let author = 0;
+    let journal = 0;
+    let provider = 0;
+    const killOwner = createEmailLunaMicrosoftAutoCreateAndSend({
+      withPgClient: async () => ({ rows: [] }),
+      async regenerateEmailLunaDraftOnStaffClick() { author += 1; return { status: 'draft_ready', draft_text: 'nope' }; },
+      async saveDraftThroughStaffOwner() { journal += 1; return { status: 'saved', approval_id: 'x' }; },
+      async approveAndDispatchEmailOutbound() { provider += 1; return { code: 'email_send_committed', status: 200 }; },
+      async getEmailChannelMode() { return 'auto'; },
+      async readPause() { return { lookup_error: false, global_paused: false, conversation_paused: false }; },
+      async resolveAutoActor() { return { staff_user_id: '11111111-1111-4111-8111-111111111111', client_id: C, role: 'owner' }; },
+    });
+    const kill = createCanonical003KillSwitch({
+      handleProjectedInbound: (input) => killOwner.handleProjectedInbound(input),
+    });
+    const killed = await kill({
+      authority: { clientId: C, locationId: L, endpointId: E },
+      envelope: { provider: 'microsoft_graph', provider_mailbox_id: MAILBOX, provider_message_id: SRC },
+      projection: { status: 'already_projected', conversation_id: V },
+    });
+    assert.equal(killed.reason, 'emergency_flags_off');
+    assert.equal(killed.status, 'blocked');
+    assert.equal(author, 0);
+    assert.equal(journal, 0);
+    assert.equal(provider, 0);
+
+    const revArgs = buildRevisionShowArgs(REVISION);
+    assert.deepEqual(revArgs.slice(0, 3), ['containerapp', 'revision', 'show']);
+    assert.equal(revArgs.includes('--revision'), true);
+    const parsedRev = parseRevisionShow({
+      name: REVISION,
+      properties: {
+        healthState: 'Healthy',
+        runningState: 'Running',
+        provisioningState: 'Provisioned',
+        imageDigest: DIGEST,
+        template: {
+          containers: [{
+            image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
+            env: [
+              { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'true' },
+              { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'true' },
+            ],
+          }],
+        },
+      },
+    });
+    assert.equal(parsedRev.healthState, 'Healthy');
+    assert.equal(parsedRev.digest, DIGEST);
+    assert.equal(servingHealthyReady100({ ...parsedRev, trafficWeight: 100 }), true);
+
+    const execArgs = buildStaffOwnerExecAzArgs({
+      attemptId: cap.nonce,
+      replica: `${REVISION}-abcde-fghij`,
+      revision: `${STAFF_APP}--enabled-${IMAGE_SHA.slice(0, 8)}`,
+      capability: cap,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    });
+    assert.equal(execArgs[1], 'exec');
+    assert.equal(execArgs.includes('--revision'), true);
+    assert.match(execArgs[execArgs.indexOf('--command') + 1], new RegExp(PROOF_REMOTE_NODE.replace(/\./g, '\\.')));
+  }
+
+  console.log('[14] Hostile: production supervisor contract; default CLI still refuses');
+  {
+    const azLog = [];
+    let flags = flagsOff();
+    let revisionName = REVISION;
+    const supervisor = createProductionMailMvp004Supervisor({
+      env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
+      nonceStore: new Set(),
+      requireProductionOwner: true,
+      async azRun(args) {
+        azLog.push(args.slice());
+        if (args[1] === 'exec') throw new Error('pty_required');
+        return { status: 0, stdout: '{}' };
+      },
+      async readServingIdentity() {
+        return serving({ revision: revisionName, flags, replica: `${revisionName}-aaaaa-bbbbb` });
+      },
+      async waitServingHealthy({ enabled }) {
+        return serving({
+          revision: revisionName,
+          flags: enabled ? flagsOn() : flagsOff(),
+          replica: `${revisionName}-aaaaa-bbbbb`,
+        });
+      },
+      async setEmergencyFlags(enabled) {
+        flags = enabled ? flagsOn() : flagsOff();
+        revisionName = enabled
+          ? `${STAFF_APP}--enabled-${IMAGE_SHA.slice(0, 8)}`
+          : `${STAFF_APP}--safe-${IMAGE_SHA.slice(0, 8)}`;
+      },
+      async putEmailChannelMode() {},
+      async getEmailChannelMode() { return flags[ENV_LUNA_AUTO_SEND_ENABLED] === 'true' ? 'auto' : 'off'; },
+      async preflightSelectedOperation() { return preflightOk(); },
+      invokeAutoOwner: brandProductionAutoOwner(async (input) => {
+        assert.equal(input.capability.purpose, 'mail_mvp_004_staff_owner');
+        assert.notEqual(input.revision, REVISION);
+        return { status: 'sent', sent: true, approvals: 1, journals: 1, provider_sends: 1 };
+      }),
+      async snapshotOperation() {
+        return { approvals: 1, journals: 1, provider_sends: 1, bookings: 4 };
+      },
+      async readDurableEvidence() { return durableOk(); },
+      verifyGraphArrival: createProductionGraphArrivalVerifier({
+        async listThreadMessages() {
+          return { messages: [{
+            id: 'graph-sent-1',
+            conversationId: 'graph-thread-1',
+            subject: 'Re: Testing 8 26',
+            inReplyTo: SRC,
+          }] };
+        },
+      }).verifyGraphArrival,
+      async verifyKillSwitch() {
+        return {
+          ok: true, status: 'blocked', reason: 'emergency_flags_off',
+          author_called: false, journal_called: false, provider_called: false,
+        };
+      },
+    });
+    const sent = await supervisor.executeOnce({
+      parsed: authArgs(),
+      env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
+      nowMs: NOW_MS,
+      originMasterSha: IMAGE_SHA,
+      headSha: IMAGE_SHA,
+      artifactsOnMaster: true,
+      requireLiveImage: true,
+    });
+    assert.equal(sent.ok, true);
+    assert.notEqual(sent.enabled_revision, REVISION);
+    assert.match(sent.restored_revision, /safe/);
+
+    const defaultRefuse = await runCli([], { env: { MAIL_MVP_004_LIVE_PROOF: '1' } });
+    assert.equal(defaultRefuse.ok, false);
+    assert.equal(defaultRefuse.reason, 'default_refuse');
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');

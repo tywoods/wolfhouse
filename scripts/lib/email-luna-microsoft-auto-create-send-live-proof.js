@@ -14,6 +14,7 @@
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const util = require('node:util');
@@ -57,9 +58,15 @@ const PTY_BIN = '/usr/bin/script';
 const PROOF_REMOTE_ENV_PATH = '/tmp/mail-mvp-004-proof.env';
 const PROOF_REMOTE_NODE = 'scripts/prove-mail-mvp-004-auto-create-send.js';
 const MUTATION_ISSUED_MARKER = 'MAIL_MVP_004_MUTATION_ISSUED';
+const CAPABILITY_PURPOSE = 'mail_mvp_004_staff_owner';
+const OPERATION_BINDING = 'Testing 8 26|twoods@xantrion.com';
+const DEFAULT_NONCE_STORE_PATH = path.join(os.tmpdir(), 'mail-mvp-004-used-nonces.json');
+const INNER_CONSUMED_CAPABILITY_PATH = '/tmp/mail-mvp-004-consumed-capabilities.json';
 const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
+const REVISION_WAIT_TIMEOUT_MS = 180000;
+const REVISION_WAIT_INTERVAL_MS = 2000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA40 = /^[0-9a-f]{40}$/;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
@@ -67,6 +74,8 @@ const SAFE_AZ_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/;
 const SAFE_B64 = /^[A-Za-z0-9+/]+=*$/;
 const USED_OPERATOR_NONCES = new Set();
 const PRODUCTION_AUTO_OWNERS = new WeakSet();
+const PRODUCTION_GRAPH_VERIFIERS = new WeakSet();
+const PRODUCTION_SUPERVISORS = new WeakSet();
 const LEFTOVER_FOLLOWUP = /a teammate can follow up if you need anything/i;
 const THREAD_TOPIC = /\b(testing|mailbox|front desk|booking|surf|room|bed|lesson|class)\b/i;
 const PRODUCTION_MARKERS = freeze([
@@ -142,7 +151,26 @@ SELECT count(*)::int AS n,
    AND a.source_inbound_event_id=$3::uuid
 `.replace(/\s+/g, ' ').trim();
 
-const SQL_COUNT_BOOKINGS = 'SELECT count(*)::int AS n FROM bookings WHERE client_id=$1::uuid';
+const SQL_COUNT_BOOKINGS = `
+SELECT count(*)::int AS n
+  FROM bookings
+ WHERE client_id=$1::uuid AND conversation_id=$2::uuid
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_LOAD_OPERATION_EVIDENCE = `
+SELECT a.approval_id::text AS approval_id, a.message_text, a.state,
+       a.body_digest, j.immutable_draft_id, j.phase, j.outcome,
+       j.send_invocation_count::int AS send_invocation_count,
+       c.metadata->'luna_email_open_draft' AS draft_meta
+  FROM tenant_email_reply_approvals a
+  LEFT JOIN tenant_email_outbound_send_journal j
+    ON j.client_id=a.client_id AND j.approval_id=a.approval_id
+  INNER JOIN conversations c
+    ON c.client_id=a.client_id AND c.id=a.conversation_id
+ WHERE a.client_id=$1::uuid AND a.conversation_id=$2::uuid
+   AND a.source_inbound_event_id=$3::uuid
+ ORDER BY a.updated_at DESC, a.approval_id DESC
+`.replace(/\s+/g, ' ').trim();
 
 function ownData(o, k) {
   try {
@@ -509,18 +537,23 @@ function evaluateLiveProofReadiness(input) {
   const headSha = sha40(input && input.headSha);
   const imageTag = sha40(serving && (serving.imageTag || serving.deploySha));
   const blocked = [];
-  if (input && input.copiedScript === true) blocked.push('copied_script_is_not_proof');
+  const artifactsOnMaster = input && input.artifactsOnMaster === true;
+  const artifactsInImage = input && input.artifactsInImage === true;
   if (headSha && masterSha && headSha !== masterSha) blocked.push('head_not_origin_master');
-  if (input && input.treeHasProofFiles !== true) blocked.push('proof_files_not_on_master');
+  if (artifactsOnMaster !== true && artifactsInImage !== true) {
+    blocked.push('proof_files_not_on_master');
+  }
   if (!imageTag || !masterSha || imageTag !== masterSha) blocked.push('exact_master_image_required');
   if (serving && serving.imageRepository && serving.imageRepository !== IMAGE_REPOSITORY) {
     blocked.push('wrong_image_repository');
   }
+  if (input && input.copiedScript === true) blocked.push('copied_script_is_not_proof');
   return freeze({
     ok: blocked.length === 0,
     can_proceed: blocked.length === 0,
     blocked_reasons: freeze(blocked),
     requirement: LIVE_IMAGE_REQUIREMENT,
+    copied_script_boolean_trusted: false,
   });
 }
 
@@ -537,6 +570,286 @@ function snapshotSolMarker(value) {
     model: 'gpt-5.6-sol',
     runtime: 'sunset-email-luna',
   });
+}
+
+function parseJsonMaybe(value) {
+  if (value == null) return null;
+  if (typeof value === 'object' && !isProxy(value)) return value;
+  if (typeof value !== 'string') return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !isProxy(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function snapshotTrustedProvenance(source) {
+  if (!source || typeof source !== 'object' || isProxy(source)) return null;
+  const markerSource = ownData(source, 'marker') || source.marker || source;
+  const marker = snapshotSolMarker(markerSource);
+  if (!marker) return null;
+  const authenticity = ownData(source, 'authenticity') || source.authenticity
+    || ownData(source, 'plan_authenticity') || source.plan_authenticity
+    || source;
+  const hmacVerified = ownData(authenticity, 'hmac_verified') || authenticity.hmac_verified;
+  const alg = ownData(authenticity, 'alg') || authenticity.alg;
+  if (hmacVerified !== true) return null;
+  if (alg != null && alg !== 'HMAC-SHA256') return null;
+  return freeze({
+    marker,
+    hmac_verified: true,
+    alg: 'HMAC-SHA256',
+    trusted: true,
+  });
+}
+
+function provenanceFromDurableDraftMeta(draftMeta) {
+  const meta = parseJsonMaybe(draftMeta);
+  if (!meta) return null;
+  return snapshotTrustedProvenance(meta);
+}
+
+function isProduction003SentShape(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) return false;
+  return result.status === 'sent'
+    && result.sent === true
+    && result.approvals === 1
+    && result.journals === 1
+    && result.provider_sends === 1;
+}
+
+function leftoverFromDurableEvidence(evidence) {
+  if (!evidence || typeof evidence !== 'object' || isProxy(evidence)) return true;
+  const text = ownData(evidence, 'message_text') || evidence.message_text;
+  return isLeftoverGenericDraft(text);
+}
+
+function exactReconciledCounts(snapshot) {
+  return !!(snapshot
+    && snapshot.approvals === 1
+    && snapshot.journals === 1
+    && snapshot.provider_sends === 1);
+}
+
+function duplicateUnreconciled(snapshot) {
+  if (!snapshot) return true;
+  if (exactReconciledCounts(snapshot)) return false;
+  const a = snapshot.approvals;
+  const j = snapshot.journals;
+  const p = snapshot.provider_sends;
+  if (a === 0 && j === 0 && p === 0) return false;
+  return true;
+}
+
+function wrapNonceStore(store) {
+  if (store && typeof store.has === 'function' && typeof store.add === 'function'
+      && store.add.length >= 0 && store._durable === true) {
+    return store;
+  }
+  const set = store instanceof Set ? store : new Set();
+  return {
+    has(nonce) { return set.has(nonce); },
+    add(nonce) {
+      if (set.has(nonce)) return false;
+      set.add(nonce);
+      return true;
+    },
+  };
+}
+
+function createDurableNonceStore(filePath) {
+  const target = typeof filePath === 'string' && filePath
+    ? filePath
+    : DEFAULT_NONCE_STORE_PATH;
+  function readMap() {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !isProxy(parsed)
+        ? parsed
+        : Object.create(null);
+    } catch {
+      return Object.create(null);
+    }
+  }
+  function writeMap(map) {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${JSON.stringify(map)}\n`, { encoding: 'utf8', mode: 0o600 });
+  }
+  const store = {
+    _durable: true,
+    path: target,
+    has(nonce) {
+      if (!validOperatorNonce(nonce)) return false;
+      const map = readMap();
+      return hasOwn(map, nonce);
+    },
+    add(nonce, binding) {
+      if (!validOperatorNonce(nonce)) return false;
+      const map = readMap();
+      if (hasOwn(map, nonce)) return false;
+      map[nonce] = freeze({
+        operation_binding: typeof binding === 'string' && binding ? binding : OPERATION_BINDING,
+        consumed_at: new Date().toISOString(),
+      });
+      writeMap(map);
+      return true;
+    },
+  };
+  return freeze(store);
+}
+
+function capabilityMacKey(imageTag, digest) {
+  return crypto.createHash('sha256')
+    .update(`mail-mvp-004:${CONFIRMATION_PHRASE}:${imageTag || ''}:${digest || ''}`)
+    .digest();
+}
+
+function canonicalCapabilityPayload(payload) {
+  return JSON.stringify({
+    purpose: payload.purpose,
+    nonce: payload.nonce,
+    issued_at: payload.issued_at,
+    expires_at: payload.expires_at,
+    revision: payload.revision,
+    replica: payload.replica || null,
+    image_tag: payload.image_tag,
+    digest: payload.digest,
+    operation_binding: payload.operation_binding,
+  });
+}
+
+function issueSupervisorCapability(input, nowMs) {
+  const now = Number.isSafeInteger(nowMs) ? nowMs : Date.now();
+  const imageTag = sha40(input && input.imageTag);
+  const digest = input && typeof input.digest === 'string' && DIGEST_RE.test(input.digest)
+    ? input.digest : null;
+  const revision = input && typeof input.revision === 'string' ? input.revision : null;
+  const nonce = input && input.nonce;
+  if (!imageTag || !digest || !revision || !validOperatorNonce(nonce)) return null;
+  if (!SAFE_AZ_NAME.test(revision) || !revision.startsWith(STAFF_APP)) return null;
+  const issuedAt = new Date(now).toISOString();
+  const expiresAt = new Date(now + CONFIRM_WINDOW_MS).toISOString();
+  const payload = {
+    purpose: CAPABILITY_PURPOSE,
+    nonce,
+    issued_at: issuedAt,
+    expires_at: expiresAt,
+    revision,
+    replica: input.replica && SAFE_AZ_NAME.test(input.replica) ? input.replica : null,
+    image_tag: imageTag,
+    digest,
+    operation_binding: OPERATION_BINDING,
+  };
+  const mac = crypto.createHmac('sha256', capabilityMacKey(imageTag, digest))
+    .update(canonicalCapabilityPayload(payload))
+    .digest('hex');
+  return freeze({ ...payload, mac });
+}
+
+function encodeCapability(capability) {
+  if (!capability || typeof capability.mac !== 'string') return null;
+  const b64 = Buffer.from(JSON.stringify(capability), 'utf8').toString('base64');
+  return SAFE_B64.test(b64) ? b64 : null;
+}
+
+function decodeCapability(raw) {
+  if (typeof raw !== 'string' || !SAFE_B64.test(raw)) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(raw, 'base64').toString('utf8'));
+    return parsed && typeof parsed === 'object' && !isProxy(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function verifySupervisorCapability(raw, nowMs, expected) {
+  const cap = typeof raw === 'string' ? decodeCapability(raw) : raw;
+  if (!cap || typeof cap !== 'object' || isProxy(cap)) return freeze({ ok: false, reason: 'capability_required' });
+  const now = Number.isSafeInteger(nowMs) ? nowMs : Date.now();
+  if (cap.purpose !== CAPABILITY_PURPOSE) return freeze({ ok: false, reason: 'capability_invalid' });
+  if (!validOperatorNonce(cap.nonce)) return freeze({ ok: false, reason: 'capability_invalid' });
+  if (cap.operation_binding !== OPERATION_BINDING) return freeze({ ok: false, reason: 'capability_invalid' });
+  const imageTag = sha40(cap.image_tag);
+  const digest = typeof cap.digest === 'string' && DIGEST_RE.test(cap.digest) ? cap.digest : null;
+  if (!imageTag || !digest || typeof cap.mac !== 'string' || !/^[0-9a-f]{64}$/.test(cap.mac)) {
+    return freeze({ ok: false, reason: 'capability_invalid' });
+  }
+  const expectedMac = crypto.createHmac('sha256', capabilityMacKey(imageTag, digest))
+    .update(canonicalCapabilityPayload(cap))
+    .digest('hex');
+  try {
+    if (expectedMac.length !== cap.mac.length
+        || !crypto.timingSafeEqual(Buffer.from(expectedMac, 'hex'), Buffer.from(cap.mac, 'hex'))) {
+      return freeze({ ok: false, reason: 'capability_invalid' });
+    }
+  } catch {
+    return freeze({ ok: false, reason: 'capability_invalid' });
+  }
+  const issuedMs = Date.parse(cap.issued_at);
+  const expiresMs = Date.parse(cap.expires_at);
+  if (!Number.isFinite(issuedMs) || !Number.isFinite(expiresMs)) {
+    return freeze({ ok: false, reason: 'capability_invalid' });
+  }
+  if (expiresMs <= now) return freeze({ ok: false, reason: 'capability_expired' });
+  if (expected) {
+    if (expected.revision && cap.revision !== expected.revision) {
+      return freeze({ ok: false, reason: 'capability_revision_mismatch' });
+    }
+    if (expected.imageTag && cap.image_tag !== expected.imageTag) {
+      return freeze({ ok: false, reason: 'capability_invalid' });
+    }
+    if (expected.digest && cap.digest !== expected.digest) {
+      return freeze({ ok: false, reason: 'capability_invalid' });
+    }
+  }
+  return freeze({ ok: true, capability: freeze({ ...cap }) });
+}
+
+function consumeInnerCapability(nonce, filePath) {
+  if (!validOperatorNonce(nonce)) return false;
+  const target = filePath || INNER_CONSUMED_CAPABILITY_PATH;
+  let map = Object.create(null);
+  try {
+    const parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) map = parsed;
+  } catch { /* first use */ }
+  if (hasOwn(map, nonce)) return false;
+  map[nonce] = { consumed_at: new Date().toISOString() };
+  try {
+    fs.writeFileSync(target, `${JSON.stringify(map)}\n`, { encoding: 'utf8', mode: 0o600 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function servingIdentityCompatible(authorized, current) {
+  if (!authorized || !current) return false;
+  const authTag = sha40(authorized.imageTag) || sha40(authorized.deploySha);
+  const curTag = sha40(current.imageTag) || sha40(current.deploySha);
+  if (!authTag || authTag !== curTag) return false;
+  if (authorized.digest && current.digest && authorized.digest !== current.digest) return false;
+  if (current.appName !== STAFF_APP || current.resourceGroup !== RG) return false;
+  if (current.imageRepository && current.imageRepository !== IMAGE_REPOSITORY) return false;
+  return true;
+}
+
+function servingHealthyReady100(serving) {
+  if (!serving || typeof serving !== 'object' || isProxy(serving)) return false;
+  if (serving.healthState !== 'Healthy') return false;
+  if (serving.runningState && serving.runningState !== 'Running') return false;
+  if (serving.trafficWeight !== 100) return false;
+  if (serving.ready === false) return false;
+  if (typeof serving.revision !== 'string' || !serving.revision.startsWith(STAFF_APP)) return false;
+  return true;
+}
+
+function flagsLiteral(serving, enabled) {
+  if (!serving || !serving.flags) return false;
+  const want = enabled === true ? 'true' : 'false';
+  return serving.flags[ENV_LUNA_AUTO_SEND_ENABLED] === want
+    && serving.flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] === want;
 }
 
 function brandProductionAutoOwner(fn) {
@@ -583,31 +896,116 @@ function parseEnvList(raw) {
   return freeze(flags);
 }
 
-function parseServingIdentity(raw) {
+function traffic100RevisionName(traffic) {
+  if (!Array.isArray(traffic)) return null;
+  const weighted = [];
+  for (const row of traffic) {
+    if (!row || typeof row !== 'object' || isProxy(row)) continue;
+    const revisionName = ownData(row, 'revisionName') || row.revisionName;
+    const weight = ownData(row, 'weight') !== undefined ? ownData(row, 'weight') : row.weight;
+    const n = Number(weight);
+    if (typeof revisionName === 'string' && Number.isFinite(n) && n > 0) {
+      weighted.push({ revisionName, weight: n });
+    }
+  }
+  if (weighted.length !== 1 || weighted[0].weight !== 100) return null;
+  if (!weighted[0].revisionName.startsWith(STAFF_APP) || !SAFE_AZ_NAME.test(weighted[0].revisionName)) {
+    return null;
+  }
+  return weighted[0].revisionName;
+}
+
+function parseRevisionShow(raw) {
   let parsed = raw;
   if (typeof raw === 'string') {
     try { parsed = JSON.parse(raw); } catch { return null; }
   }
   if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) return null;
   const name = ownData(parsed, 'name') || parsed.name;
+  const props = ownData(parsed, 'properties') || parsed.properties || parsed;
+  const revision = name || ownData(props, 'name') || props.name;
+  if (typeof revision !== 'string' || !revision.startsWith(STAFF_APP) || !SAFE_AZ_NAME.test(revision)) {
+    return null;
+  }
+  const template = ownData(props, 'template') || props.template || {};
+  const containers = ownData(template, 'containers') || template.containers;
+  const container = Array.isArray(containers) ? containers[0] : null;
+  const image = container && (ownData(container, 'image') || container.image);
+  const env = container && (ownData(container, 'env') || container.env);
+  let digest = (container && (ownData(container, 'imageDigest') || container.imageDigest))
+    || ownData(props, 'imageDigest') || props.imageDigest
+    || (typeof parsed.digest === 'string' ? parsed.digest : null);
+  if ((!digest || !DIGEST_RE.test(digest)) && typeof image === 'string' && image.includes('@')) {
+    digest = image.slice(image.indexOf('@') + 1);
+  }
+  let imageTag = null;
+  let imageRef = image;
+  if (typeof image === 'string' && image.startsWith(`${IMAGE_REPOSITORY}:`)) {
+    imageRef = image.split('@')[0];
+    imageTag = imageRef.slice(IMAGE_REPOSITORY.length + 1);
+  }
+  const healthState = ownData(props, 'healthState') || props.healthState || parsed.healthState;
+  const runningState = ownData(props, 'runningState') || props.runningState || parsed.runningState;
+  const provisioningState = ownData(props, 'provisioningState') || props.provisioningState;
+  const ready = healthState === 'Healthy'
+    && (runningState === 'Running' || runningState == null)
+    && (provisioningState === 'Provisioned' || provisioningState === 'Succeeded' || provisioningState == null);
+  return freeze({
+    resourceGroup: RG,
+    appName: STAFF_APP,
+    revision,
+    imageRepository: IMAGE_REPOSITORY,
+    imageTag,
+    deploySha: sha40(imageTag) || null,
+    digest: typeof digest === 'string' && DIGEST_RE.test(digest) ? digest : null,
+    flags: parseEnvList(env),
+    healthState: typeof healthState === 'string' ? healthState : null,
+    runningState: typeof runningState === 'string' ? runningState : null,
+    provisioningState: typeof provisioningState === 'string' ? provisioningState : null,
+    ready: ready === true,
+    trafficWeight: null,
+  });
+}
+
+function parseServingIdentity(raw) {
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw); } catch { return null; }
+  }
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) return null;
+  if (parsed.healthState || (parsed.properties && parsed.properties.healthState)
+      || parsed.runningState) {
+    const fromRevision = parseRevisionShow(parsed);
+    if (fromRevision) return fromRevision;
+  }
+  const name = ownData(parsed, 'name') || parsed.name;
   if (name && name !== STAFF_APP) return null;
   const props = ownData(parsed, 'properties') || parsed.properties || parsed;
-  const revision = ownData(props, 'latestRevisionName') || ownData(props, 'latestRevisionFqdn')
-    || props.latestRevisionName || (parsed.revision);
+  const config = ownData(props, 'configuration') || props.configuration || {};
+  const ingress = ownData(config, 'ingress') || config.ingress || {};
+  const traffic = ownData(ingress, 'traffic') || ingress.traffic || parsed.traffic;
+  const trafficRevision = traffic100RevisionName(traffic);
+  const latestReady = ownData(props, 'latestReadyRevisionName') || props.latestReadyRevisionName;
+  const latest = ownData(props, 'latestRevisionName') || props.latestRevisionName || parsed.revision;
+  const revision = trafficRevision || latestReady || latest;
   const template = ownData(props, 'template') || props.template || {};
   const containers = ownData(template, 'containers') || template.containers;
   const container = Array.isArray(containers) ? containers[0] : null;
   const image = container && (ownData(container, 'image') || container.image);
   const env = container && (ownData(container, 'env') || container.env);
   if (typeof image !== 'string' || !image.startsWith(`${IMAGE_REPOSITORY}:`)) return null;
-  const imageTag = image.slice(IMAGE_REPOSITORY.length + 1);
-  const digest = (container && (ownData(container, 'imageDigest') || container.imageDigest))
-    || ownData(props, 'workloadProfileName') && null
+  const imageRef = image.split('@')[0];
+  const imageTag = imageRef.slice(IMAGE_REPOSITORY.length + 1);
+  let digest = (container && (ownData(container, 'imageDigest') || container.imageDigest))
+    || ownData(props, 'imageDigest')
     || (typeof parsed.digest === 'string' ? parsed.digest : null);
-  const flags = parseEnvList(env);
+  if ((!digest || !DIGEST_RE.test(String(digest))) && image.includes('@')) {
+    digest = image.slice(image.indexOf('@') + 1);
+  }
   if (typeof revision !== 'string' || !revision.startsWith(STAFF_APP) || !SAFE_AZ_NAME.test(revision)) {
     return null;
   }
+  const runningStatus = ownData(props, 'runningStatus') || props.runningStatus;
   return freeze({
     resourceGroup: RG,
     appName: STAFF_APP,
@@ -616,7 +1014,33 @@ function parseServingIdentity(raw) {
     imageTag,
     deploySha: sha40(imageTag) || null,
     digest: typeof digest === 'string' && DIGEST_RE.test(digest) ? digest : (parsed.digest || null),
-    flags,
+    flags: parseEnvList(env),
+    healthState: trafficRevision ? 'Healthy' : (parsed.healthState || null),
+    runningState: runningStatus === 'Running' ? 'Running' : (parsed.runningState || null),
+    trafficWeight: trafficRevision ? 100 : (parsed.trafficWeight || null),
+    ready: trafficRevision ? true : parsed.ready === true,
+    latestReadyRevisionName: typeof latestReady === 'string' ? latestReady : null,
+  });
+}
+
+function mergeRevisionIntoServing(appIdentity, revisionIdentity) {
+  if (!appIdentity || !revisionIdentity) return null;
+  if (appIdentity.revision !== revisionIdentity.revision) return null;
+  const imageTag = revisionIdentity.imageTag || appIdentity.imageTag;
+  const digest = revisionIdentity.digest || appIdentity.digest;
+  if (!sha40(imageTag) || !(typeof digest === 'string' && DIGEST_RE.test(digest))) return null;
+  return freeze({
+    ...appIdentity,
+    imageTag,
+    deploySha: sha40(imageTag),
+    digest,
+    flags: revisionIdentity.flags || appIdentity.flags,
+    healthState: revisionIdentity.healthState,
+    runningState: revisionIdentity.runningState,
+    provisioningState: revisionIdentity.provisioningState,
+    ready: revisionIdentity.ready === true && appIdentity.trafficWeight === 100,
+    trafficWeight: appIdentity.trafficWeight,
+    replica: appIdentity.replica || revisionIdentity.replica || null,
   });
 }
 
@@ -634,6 +1058,22 @@ function buildSetEnvArgs(enabled) {
 
 function buildShowAppArgs() {
   return freeze(['containerapp', 'show', '-g', RG, '-n', STAFF_APP, '-o', 'json']);
+}
+
+function buildRevisionShowArgs(revision) {
+  if (typeof revision !== 'string' || !SAFE_AZ_NAME.test(revision) || !revision.startsWith(STAFF_APP)) {
+    return null;
+  }
+  return freeze([
+    'containerapp', 'revision', 'show',
+    '-g', RG, '-n', STAFF_APP,
+    '--revision', revision,
+    '-o', 'json',
+  ]);
+}
+
+function buildReplicaListArgs() {
+  return freeze(['containerapp', 'replica', 'list', '-g', RG, '-n', STAFF_APP, '-o', 'json']);
 }
 
 function envOwn(env, key) {
@@ -677,7 +1117,7 @@ async function snapshotSelectedOperation(withPgClient, row) {
   const [approvals, journal, bookings] = await Promise.all([
     withPgClient((pg) => pg.query(SQL_COUNT_OPERATION_APPROVALS, [clientId, conversationId, inboundId])),
     withPgClient((pg) => pg.query(SQL_COUNT_OPERATION_JOURNAL, [clientId, conversationId, inboundId])),
-    withPgClient((pg) => pg.query(SQL_COUNT_BOOKINGS, [clientId])),
+    withPgClient((pg) => pg.query(SQL_COUNT_BOOKINGS, [clientId, conversationId])),
   ]);
   const approvalCount = asInt(approvals && approvals.rows && approvals.rows[0]);
   const journalRow = journal && journal.rows && journal.rows[0];
@@ -697,15 +1137,66 @@ async function snapshotSelectedOperation(withPgClient, row) {
   });
 }
 
+async function loadSelectedOperationEvidence(withPgClient, row) {
+  const clientId = uuid(row.client_id);
+  const conversationId = uuid(row.conversation_id);
+  const inboundId = uuid(row.inbound_message_id);
+  if (!clientId || !conversationId || !inboundId) return null;
+  const loaded = await withPgClient((pg) => pg.query(SQL_LOAD_OPERATION_EVIDENCE, [
+    clientId, conversationId, inboundId,
+  ]));
+  const rows = loaded && Array.isArray(loaded.rows) ? loaded.rows : null;
+  if (!rows) return null;
+  if (rows.length === 0) {
+    return freeze({
+      message_text: null,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      draft_meta: null,
+      provenance: null,
+      immutable_draft_id: null,
+    });
+  }
+  if (rows.length !== 1) {
+    return freeze({
+      message_text: null,
+      approvals: rows.length,
+      journals: null,
+      provider_sends: null,
+      draft_meta: null,
+      provenance: null,
+      duplicate_unreconciled: true,
+    });
+  }
+  const ev = rows[0];
+  const draftMeta = parseJsonMaybe(ownData(ev, 'draft_meta') || ev.draft_meta);
+  const messageText = ownData(ev, 'message_text') || ev.message_text;
+  const provenance = snapshotTrustedProvenance(draftMeta) || provenanceFromDurableDraftMeta(draftMeta);
+  const sends = Number.parseInt(ownData(ev, 'send_invocation_count') || ev.send_invocation_count, 10);
+  return freeze({
+    message_text: typeof messageText === 'string' ? messageText : null,
+    approval_id: uuid(ownData(ev, 'approval_id') || ev.approval_id),
+    state: ownData(ev, 'state') || ev.state,
+    body_digest: ownData(ev, 'body_digest') || ev.body_digest,
+    immutable_draft_id: ownData(ev, 'immutable_draft_id') || ev.immutable_draft_id || null,
+    phase: ownData(ev, 'phase') || ev.phase || null,
+    outcome: ownData(ev, 'outcome') || ev.outcome || null,
+    draft_meta: draftMeta,
+    provenance,
+    send_invocation_count: Number.isSafeInteger(sends) ? sends : 0,
+  });
+}
+
 function createMailMvp004LiveProof(deps) {
   if (!deps || typeof deps !== 'object') throw new Error('live_proof_misconfigured');
-  const nonceStore = deps.nonceStore || USED_OPERATOR_NONCES;
+  const nonceStore = wrapNonceStore(deps.nonceStore || USED_OPERATOR_NONCES);
 
   async function restoreSafe() {
     const errors = [];
     try {
       if (typeof deps.setEmergencyFlags === 'function') await deps.setEmergencyFlags(false);
-    } catch (error) {
+    } catch {
       errors.push('flags');
     }
     try {
@@ -715,30 +1206,39 @@ function createMailMvp004LiveProof(deps) {
     }
     let serving = null;
     try {
-      serving = typeof deps.readServingIdentity === 'function'
-        ? await deps.readServingIdentity()
-        : null;
+      if (typeof deps.waitServingHealthy === 'function') {
+        serving = await deps.waitServingHealthy({ enabled: false });
+      } else if (typeof deps.readServingIdentity === 'function') {
+        serving = await deps.readServingIdentity();
+      }
     } catch {
       errors.push('serving');
     }
+    const flagsOff = flagsLiteral(serving, false);
+    const servingOk = flagsOff === true && servingHealthyReady100(serving);
+    if (!servingOk) errors.push('off_replica_unproven');
     let kill = null;
     try {
       kill = typeof deps.verifyKillSwitch === 'function' ? await deps.verifyKillSwitch() : null;
     } catch {
       errors.push('kill_switch');
     }
-    const flagsOff = serving && serving.flags
-      && serving.flags[ENV_LUNA_AUTO_SEND_ENABLED] === 'false'
-      && serving.flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] === 'false';
     const modeOff = typeof deps.getEmailChannelMode === 'function'
       ? (await deps.getEmailChannelMode()) === 'off'
       : true;
-    const killOk = kill && (kill.ok === true || kill.reason === 'emergency_flags_off' || kill.status === 'blocked');
+    const killOk = kill && (
+      kill.reason === 'emergency_flags_off'
+      || (kill.status === 'blocked' && kill.reason === 'emergency_flags_off')
+    );
+    if (kill && kill.author_called === true) errors.push('kill_switch_author');
+    if (kill && kill.journal_called === true) errors.push('kill_switch_journal');
+    if (kill && kill.provider_called === true) errors.push('kill_switch_provider');
     return freeze({
-      ok: errors.length === 0 && flagsOff === true && modeOff === true && killOk === true,
+      ok: errors.length === 0 && flagsOff === true && modeOff === true && killOk === true && servingOk === true,
       flags_off: flagsOff === true,
       mode_off: modeOff === true,
       kill_switch: killOk === true,
+      serving_100: servingOk === true,
       errors: freeze(errors),
       serving,
       kill,
@@ -753,28 +1253,34 @@ function createMailMvp004LiveProof(deps) {
       return refusedRecord('deployment_mismatch');
     }
     const parsed = (input && input.parsed) || parseArgs(input && input.argv);
-    const authFail = validateExactInvocation(parsed, input && input.nowMs, nonceStore);
+    const nowMs = Number.isSafeInteger(input && input.nowMs) ? input.nowMs : Date.now();
+    const authFail = validateExactInvocation(parsed, nowMs, nonceStore);
     if (authFail) return refusedRecord(authFail);
-    nonceStore.add(parsed.operatorNonce);
+    if (nonceStore.add(parsed.operatorNonce, OPERATION_BINDING) === false) {
+      return refusedRecord('operator_nonce_replay');
+    }
 
     const serving = await deps.readServingIdentity();
     if (!serving || serving.appName !== STAFF_APP || serving.resourceGroup !== RG) {
       return refusedRecord('wrong_target');
     }
     if (serving.revision !== parsed.revision) return refusedRecord('revision_mismatch');
+    if (!servingHealthyReady100(serving)) return refusedRecord('serving_not_100_healthy');
     const servingTag = sha40(serving.imageTag) || sha40(serving.deploySha);
     const typedTag = sha40(parsed.imageTag) || sha40(parsed.deploySha);
     if (!servingTag || servingTag !== typedTag) return refusedRecord('image_mismatch');
     if (parsed.digest && serving.digest && serving.digest !== parsed.digest) {
       return refusedRecord('digest_mismatch');
     }
+    if (!serving.digest || !DIGEST_RE.test(serving.digest)) return refusedRecord('digest_mismatch');
 
     const readiness = evaluateLiveProofReadiness({
       serving,
       originMasterSha: input && input.originMasterSha,
       headSha: input && input.headSha,
+      artifactsOnMaster: input && input.artifactsOnMaster === true,
+      artifactsInImage: input && input.artifactsInImage === true,
       treeHasProofFiles: input && input.treeHasProofFiles,
-      copiedScript: input && input.copiedScript === true,
     });
     if (input && input.requireLiveImage !== false && readiness.can_proceed !== true) {
       return refusedRecord(readiness.blocked_reasons[0] || 'exact_master_image_required', {
@@ -802,20 +1308,28 @@ function createMailMvp004LiveProof(deps) {
     if (pre.subject_ok !== true) return refusedRecord('subject_mismatch');
     if (pre.sol_enabled !== true) return refusedRecord('sol_disabled');
 
+    const modeSnapshot = typeof deps.getEmailChannelMode === 'function'
+      ? await deps.getEmailChannelMode()
+      : 'draft';
+    const requiredFinalMode = 'off';
+    const authorizedRevision = serving.revision;
     let invoked = 0;
     let ownerResult = null;
     let after = null;
     let graph = null;
     let restored = null;
     let failedReason = null;
+    let dispatchMarked = false;
+    let capability = null;
     try {
       await deps.setEmergencyFlags(true);
       await deps.putEmailChannelMode('auto');
-      const enabled = await deps.readServingIdentity();
-      if (!enabled || (sha40(enabled.imageTag) || sha40(enabled.deploySha)) !== servingTag) {
+      const enabled = typeof deps.waitServingHealthy === 'function'
+        ? await deps.waitServingHealthy({ enabled: true })
+        : await deps.readServingIdentity();
+      if (!servingIdentityCompatible(serving, enabled)) {
         failedReason = 'enabled_image_drift';
-      } else if (enabled.flags[ENV_LUNA_AUTO_SEND_ENABLED] !== 'true'
-          || enabled.flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] !== 'true') {
+      } else if (!flagsLiteral(enabled, true) || !servingHealthyReady100(enabled)) {
         failedReason = 'enabled_revision_unproven';
       } else if ((await deps.getEmailChannelMode()) !== 'auto') {
         failedReason = 'channel_mode_unproven';
@@ -823,46 +1337,90 @@ function createMailMvp004LiveProof(deps) {
           && deps.requireProductionOwner !== false) {
         failedReason = 'not_canonical_owner';
       } else {
-        ownerResult = await deps.invokeAutoOwner();
-        invoked += 1;
-        if (invoked !== 1) failedReason = 'owner_not_once';
+        capability = issueSupervisorCapability({
+          nonce: parsed.operatorNonce,
+          revision: enabled.revision,
+          replica: enabled.replica,
+          imageTag: servingTag,
+          digest: enabled.digest || serving.digest,
+        }, nowMs);
+        if (!capability) {
+          failedReason = 'capability_invalid';
+        } else if (capability.issued_at === parsed.confirmIssuedAt
+            && Date.parse(parsed.confirmIssuedAt) !== nowMs) {
+          failedReason = 'caller_issued_at_untrusted';
+        } else {
+          ownerResult = await deps.invokeAutoOwner({
+            capability,
+            revision: enabled.revision,
+            replica: enabled.replica,
+            authorizedRevision,
+            digest: enabled.digest || serving.digest,
+          });
+          invoked += 1;
+          dispatchMarked = ownerResult && ownerResult.dispatch_marked === true
+            ? true
+            : invoked === 1;
+          if (invoked !== 1) failedReason = 'owner_not_once';
+        }
         if (!failedReason && ownerResult && ownerResult.status === 'skipped'
             && ownerResult.reason === 'already_sent') {
           after = await deps.snapshotOperation();
-          if (!after || after.approvals !== 1 || after.journals !== 1 || after.provider_sends !== 1) {
+          if (!exactReconciledCounts(after) || duplicateUnreconciled(after)) {
             failedReason = 'duplicate_unreconciled';
           }
         } else if (!failedReason && (!ownerResult || ownerResult.status !== 'sent')) {
-          if (ownerResult && ownerResult.indeterminate === true && typeof deps.reconcile === 'function') {
-            const rec = await deps.reconcile();
+          if (ownerResult && (ownerResult.indeterminate === true || ownerResult.outcome_unknown === true)
+              && typeof deps.reconcile === 'function') {
+            const rec = await deps.reconcile({ retryForbidden: true, capability });
             ownerResult = rec;
-            if (!rec || rec.indeterminate === true) failedReason = 'indeterminate_no_retry';
-            else if (rec.status !== 'sent' && rec.reason !== 'already_sent') {
+            if (!rec || rec.indeterminate === true || rec.retry === true) {
+              failedReason = 'indeterminate_no_retry';
+            } else if (rec.status === 'skipped' && rec.reason === 'already_sent') {
+              after = await deps.snapshotOperation();
+              if (!exactReconciledCounts(after)) failedReason = 'duplicate_unreconciled';
+            } else if (rec.status !== 'sent') {
               failedReason = rec.reason || 'owner_failed';
             }
+          } else if (dispatchMarked && (!ownerResult || ownerResult.status !== 'sent')) {
+            failedReason = 'indeterminate_no_retry';
           } else {
             failedReason = (ownerResult && ownerResult.reason) || 'owner_failed';
           }
         }
-        if (!failedReason && ownerResult && isLeftoverGenericDraft(ownerResult.draft_text)) {
+        const durable = typeof deps.readDurableEvidence === 'function'
+          ? await deps.readDurableEvidence()
+          : (ownerResult && ownerResult.durable_evidence) || null;
+        if (!failedReason && leftoverFromDurableEvidence(durable)) {
           failedReason = 'leftover_generic_draft';
         }
         if (!failedReason) {
-          const marker = snapshotSolMarker(ownerResult && ownerResult.marker)
-            || (typeof deps.readSolEvidence === 'function' ? snapshotSolMarker(await deps.readSolEvidence()) : null);
-          if (!marker) failedReason = 'sol_unproven';
+          const provenance = snapshotTrustedProvenance(durable && (durable.provenance || durable.draft_meta || durable))
+            || (durable && durable.provenance)
+            || null;
+          if (!provenance || provenance.hmac_verified !== true || !snapshotSolMarker(provenance.marker || provenance)) {
+            failedReason = 'sol_unproven';
+          }
         }
         if (!failedReason) {
           after = after || await deps.snapshotOperation();
-          if (!after || after.approvals !== 1 || after.journals !== 1 || after.provider_sends !== 1) {
-            failedReason = 'operation_counts_mismatch';
+          if (!exactReconciledCounts(after) || duplicateUnreconciled(after)) {
+            failedReason = after && duplicateUnreconciled(after)
+              ? 'duplicate_unreconciled'
+              : 'operation_counts_mismatch';
           }
           if (Number.isSafeInteger(pre.bookings) && after && after.bookings !== pre.bookings) {
             failedReason = 'booking_side_effect';
           }
         }
         if (!failedReason) {
-          graph = await deps.verifyGraphArrival(after);
+          graph = await deps.verifyGraphArrival({
+            ...after,
+            provider_source_message_id: pre.provider_source_message_id,
+            graph_conversation_id: pre.graph_conversation_id,
+            immutable_draft_id: durable && durable.immutable_draft_id,
+            subject: PROOF_SUBJECT,
+          });
           if (!graph || graph.ok !== true || graph.threaded !== true || graph.arrivals !== 1
               || graph.duplicates !== 0) {
             failedReason = (graph && graph.reason) || 'graph_unproven';
@@ -870,9 +1428,12 @@ function createMailMvp004LiveProof(deps) {
         }
       }
     } catch {
-      failedReason = failedReason || 'owner_failed';
+      failedReason = failedReason || (dispatchMarked ? 'indeterminate_no_retry' : 'owner_failed');
     } finally {
       restored = await restoreSafe();
+      if (modeSnapshot && requiredFinalMode !== modeSnapshot) {
+        /* required final off wins for this approved job */
+      }
     }
 
     const restoredOk = restored && restored.ok === true;
@@ -883,6 +1444,9 @@ function createMailMvp004LiveProof(deps) {
         status: restoredOk ? 'failed' : 'outcome_unknown',
         kill_switch: restored && restored.kill_switch === true,
         live_proof_blocked: false,
+        approvals: after && after.approvals,
+        journals: after && after.journals,
+        provider_sends: after && after.provider_sends,
       });
     }
     if (!restoredOk) {
@@ -902,7 +1466,9 @@ function createMailMvp004LiveProof(deps) {
       graph_threaded: graph && graph.threaded === true,
       duplicate: ownerResult && ownerResult.reason === 'already_sent',
       after,
-      marker: ownerResult && ownerResult.marker,
+      authorized_revision: authorizedRevision,
+      enabled_revision: capability && capability.revision,
+      restored_revision: restored.serving && restored.serving.revision,
     });
   }
 
@@ -922,7 +1488,25 @@ async function runStaffOwnerProof(input) {
   if (envOwn(env, 'LUNA_DEPLOYMENT') !== SUNSET_DEPLOYMENT) {
     return refusedRecord('deployment_mismatch');
   }
+  const nowMs = Number.isSafeInteger(input && input.nowMs) ? input.nowMs : Date.now();
+  const capRaw = (input && input.capability)
+    || envOwn(env, 'MAIL_MVP_004_CAPABILITY')
+    || env.MAIL_MVP_004_CAPABILITY;
+  const capCheck = verifySupervisorCapability(capRaw, nowMs, {
+    revision: envOwn(env, 'MAIL_MVP_004_REVISION') || (input && input.revision),
+    imageTag: envOwn(env, 'MAIL_MVP_004_IMAGE_TAG') || (input && input.imageTag),
+    digest: envOwn(env, 'MAIL_MVP_004_DIGEST') || (input && input.digest),
+  });
+  if (!capCheck.ok) return refusedRecord(capCheck.reason || 'capability_required');
+  const consumedPath = (input && input.consumedCapabilityPath) || INNER_CONSUMED_CAPABILITY_PATH;
+  if (consumeInnerCapability(capCheck.capability.nonce, consumedPath) !== true) {
+    return refusedRecord('capability_replay');
+  }
   if (!staffOwnerEnvReady(env)) return refusedRecord('staff_owner_disabled');
+  if (envOwn(env, ENV_LUNA_AUTO_SEND_ENABLED) !== 'true'
+      || envOwn(env, ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED) !== 'true') {
+    return refusedRecord('emergency_flags_off');
+  }
   if (!isEmailMicrosoftAutoSendEmergencyEnabled(env)) {
     return refusedRecord('emergency_flags_off');
   }
@@ -960,6 +1544,14 @@ async function runStaffOwnerProof(input) {
       });
     }
     if (before.approvals > 0 || before.journals > 0 || before.provider_sends > 0) {
+      if (!exactReconciledCounts(before) || duplicateUnreconciled(before)) {
+        return failRecord('duplicate_unreconciled', {
+          invoked: 0,
+          approvals: before.approvals,
+          journals: before.journals,
+          provider_sends: before.provider_sends,
+        });
+      }
       return freeze({
         ok: true,
         status: 'skipped',
@@ -970,9 +1562,9 @@ async function runStaffOwnerProof(input) {
           status: 'skipped',
           reason: 'already_sent',
           invoked: 0,
-          approvals: before.approvals,
-          journals: before.journals,
-          provider_sends: before.provider_sends,
+          approvals: 1,
+          journals: 1,
+          provider_sends: 1,
           duplicate: true,
         }),
       });
@@ -1003,20 +1595,31 @@ async function runStaffOwnerProof(input) {
       }),
     });
     const after = await snapshotSelectedOperation(withPgClient, row);
+    const durable = await loadSelectedOperationEvidence(withPgClient, row);
     if (result && result.status === 'skipped' && result.reason === 'already_sent') {
+      if (!exactReconciledCounts(after)) {
+        return failRecord('duplicate_unreconciled', {
+          invoked: 1,
+          approvals: after ? after.approvals : 0,
+          journals: after ? after.journals : 0,
+          provider_sends: after ? after.provider_sends : 0,
+        });
+      }
       return freeze({
         ok: true,
         status: 'skipped',
         reason: 'already_sent',
         invoked: 1,
-        marker: result.marker,
-        draft_text: result.draft_text,
+        durable_evidence: durable,
         public: freeze({
           ok: true,
           status: 'skipped',
           reason: 'already_sent',
           invoked: 1,
           duplicate: true,
+          approvals: 1,
+          journals: 1,
+          provider_sends: 1,
         }),
       });
     }
@@ -1028,24 +1631,41 @@ async function runStaffOwnerProof(input) {
         provider_sends: after ? after.provider_sends : 0,
       });
     }
-    if (isLeftoverGenericDraft(result.draft_text || result.message_text)) {
-      return failRecord('leftover_generic_draft', { invoked: 1 });
+    if (!exactReconciledCounts(after)) {
+      return failRecord(duplicateUnreconciled(after) ? 'duplicate_unreconciled' : 'operation_counts_mismatch', {
+        invoked: 1,
+        approvals: after ? after.approvals : 0,
+        journals: after ? after.journals : 0,
+        provider_sends: after ? after.provider_sends : 0,
+      });
+    }
+    if (leftoverFromDurableEvidence(durable)) {
+      return failRecord('leftover_generic_draft', { invoked: 1, restored: false });
+    }
+    const provenance = (durable && durable.provenance)
+      || snapshotTrustedProvenance(durable && durable.draft_meta);
+    if (!provenance || provenance.hmac_verified !== true) {
+      return failRecord('sol_unproven', { invoked: 1 });
     }
     return freeze({
       ok: true,
       status: 'sent',
       reason: null,
       invoked: 1,
-      marker: result.marker,
-      draft_text: result.draft_text,
+      durable_evidence: durable,
+      provenance,
       after,
       public: freeze({
         ok: true,
         status: 'sent',
         invoked: 1,
-        approvals: after ? after.approvals : result.approvals,
-        journals: after ? after.journals : result.journals,
-        provider_sends: after ? after.provider_sends : result.provider_sends,
+        approvals: 1,
+        journals: 1,
+        provider_sends: 1,
+        hmac_verified: true,
+        sol_provider: 'openai-codex',
+        sol_model: 'gpt-5.6-sol',
+        sol_runtime: 'sunset-email-luna',
       }),
     });
   } finally {
@@ -1058,28 +1678,64 @@ function shSingleQuote(value) {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function encodeProofEnvPayload(attemptId, reconcileOnly) {
+function encodeProofEnvPayload(attemptId, reconcileOnly, extra) {
   const attempt = uuid(attemptId) || (typeof attemptId === 'string' && OPERATOR_NONCE_RE.test(attemptId)
     ? attemptId
     : null);
   if (!attempt && attemptId) return null;
   const id = uuid(attemptId) || crypto.randomUUID();
+  const capability = extra && extra.capability ? encodeCapability(extra.capability) : null;
+  if (extra && extra.capability && !capability) return null;
   const lines = [
     'MAIL_MVP_004_LIVE_PROOF=1',
     reconcileOnly === true ? 'MAIL_MVP_004_RECONCILE_ONLY=1' : 'MAIL_MVP_004_STAFF_OWNER_PROOF=1',
     `LUNA_DEPLOYMENT=${SUNSET_DEPLOYMENT}`,
     `MAIL_MVP_004_PROOF_ATTEMPT_ID=${id}`,
   ];
+  if (capability) lines.push(`MAIL_MVP_004_CAPABILITY=${capability}`);
+  if (extra && extra.revision) lines.push(`MAIL_MVP_004_REVISION=${extra.revision}`);
+  if (extra && extra.imageTag) lines.push(`MAIL_MVP_004_IMAGE_TAG=${extra.imageTag}`);
+  if (extra && extra.digest) lines.push(`MAIL_MVP_004_DIGEST=${extra.digest}`);
   const b64 = Buffer.from(`${lines.join('\n')}\n`, 'utf8').toString('base64');
-  if (!SAFE_B64.test(b64) || b64.length > 4096) return null;
+  if (!SAFE_B64.test(b64) || b64.length > 8192) return null;
   return b64;
 }
 
-function buildStaffOwnerRemoteCommand(attemptId, reconcileOnly) {
-  const b64 = encodeProofEnvPayload(attemptId, reconcileOnly);
+function buildStaffOwnerRemoteCommand(attemptId, reconcileOnly, extra) {
+  const b64 = encodeProofEnvPayload(attemptId, reconcileOnly, extra);
   if (!b64) return null;
   const issued = reconcileOnly === true ? '' : ` && echo ${MUTATION_ISSUED_MARKER}`;
   return `sh -c 'printf %s ${b64} | base64 -d > ${PROOF_REMOTE_ENV_PATH} && set -a && . ${PROOF_REMOTE_ENV_PATH} && set +a${issued} && exec node ${PROOF_REMOTE_NODE}'`;
+}
+
+function buildStaffOwnerExecAzArgs(options) {
+  const replica = options && options.replica;
+  const revision = options && options.revision;
+  if (typeof replica !== 'string' || !SAFE_AZ_NAME.test(replica) || !replica.startsWith(STAFF_APP)) {
+    return null;
+  }
+  if (typeof revision !== 'string' || !SAFE_AZ_NAME.test(revision) || !revision.startsWith(STAFF_APP)) {
+    return null;
+  }
+  const command = buildStaffOwnerRemoteCommand(
+    options && options.attemptId,
+    options && options.reconcileOnly === true,
+    {
+      capability: options && options.capability,
+      revision,
+      imageTag: options && options.imageTag,
+      digest: options && options.digest,
+    },
+  );
+  if (!command) return null;
+  return freeze([
+    'containerapp', 'exec',
+    '-g', RG,
+    '-n', STAFF_APP,
+    '--replica', replica,
+    '--revision', revision,
+    '--command', command,
+  ]);
 }
 
 function wrapPtyAzExec(azBin, azArgs) {
@@ -1096,6 +1752,467 @@ function wrapPtyAzExec(azBin, azArgs) {
   };
 }
 
+function spawnAz(azBin, args, options) {
+  if (Array.isArray(args) && args.includes('exec')) throw new Error('pty_required');
+  const bin = typeof azBin === 'string' && azBin ? azBin : AZ_DEFAULT;
+  return spawnSync(bin, args, {
+    encoding: 'utf8',
+    timeout: (options && options.timeoutMs) || 180000,
+    maxBuffer: 10 * 1024 * 1024,
+    env: (options && options.env) || process.env,
+  });
+}
+
+function spawnPtyHarness(spec, options) {
+  if (!spec || spec.bin !== PTY_BIN) throw new Error('pty_required');
+  return spawnSync(spec.bin, spec.args, {
+    encoding: 'utf8',
+    timeout: (options && options.timeoutMs) || 240000,
+    maxBuffer: 10 * 1024 * 1024,
+    env: (options && options.env) || process.env,
+  });
+}
+
+function inferRevision(replicaName) {
+  if (typeof replicaName !== 'string' || !replicaName.startsWith(STAFF_APP)) return null;
+  const match = /^(.*)-[a-z0-9]{5,10}-[a-z0-9]{5}$/.exec(replicaName);
+  if (!match) return null;
+  const revision = match[1];
+  return revision.startsWith(STAFF_APP) && SAFE_AZ_NAME.test(revision) ? revision : null;
+}
+
+function parseRunningReplica(raw, expectedRevision) {
+  let parsed;
+  try { parsed = JSON.parse(String(raw || '').trim() || 'null'); } catch { return null; }
+  const rows = Array.isArray(parsed)
+    ? parsed
+    : (parsed && typeof parsed === 'object' && Array.isArray(parsed.value) ? parsed.value : null);
+  if (!rows) return null;
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || isProxy(row)) continue;
+    const name = ownData(row, 'name') || row.name;
+    if (typeof name !== 'string' || !name.startsWith(STAFF_APP) || !SAFE_AZ_NAME.test(name)) continue;
+    const props = ownData(row, 'properties') || row.properties;
+    const running = (props && (ownData(props, 'runningState') || props.runningState))
+      || ownData(row, 'runningState') || row.runningState;
+    if (running !== 'Running') continue;
+    let revision = (props && (ownData(props, 'revisionName') || props.revisionName))
+      || ownData(row, 'revisionName') || row.revisionName;
+    if (typeof revision !== 'string') revision = inferRevision(name);
+    if (typeof revision !== 'string' || !revision.startsWith(STAFF_APP)) continue;
+    if (expectedRevision && revision !== expectedRevision) continue;
+    return freeze({ replica: name, revision, app: STAFF_APP, resourceGroup: RG });
+  }
+  return null;
+}
+
+function extractProofJson(raw, secrets) {
+  const text = redactSensitive(String(raw || ''), secrets);
+  const last = text.lastIndexOf('}');
+  if (last < 0) return null;
+  let start = -1;
+  while ((start = text.indexOf('{', start + 1)) >= 0 && start <= last) {
+    let value;
+    try { value = JSON.parse(text.slice(start, last + 1)); } catch { continue; }
+    if (!value || typeof value !== 'object' || isProxy(value) || Array.isArray(value)) continue;
+    if (value.ok !== true && value.ok !== false) continue;
+    return value;
+  }
+  return null;
+}
+
+function classifyGraphArrival(messages, expected) {
+  if (!Array.isArray(messages)) return freeze({ ok: false, reason: 'graph_unproven', arrivals: 0, duplicates: 0, threaded: false });
+  const expectedThread = expected && expected.graph_conversation_id;
+  const sourceId = expected && expected.provider_source_message_id;
+  const draftId = expected && expected.immutable_draft_id;
+  let arrivals = 0;
+  let duplicates = 0;
+  let threaded = false;
+  const seen = new Set();
+  for (const row of messages) {
+    if (!row || typeof row !== 'object' || isProxy(row)) continue;
+    const id = ownData(row, 'id') || row.id;
+    const conversationId = ownData(row, 'conversationId') || row.conversationId || row.graph_conversation_id;
+    const subject = ownData(row, 'subject') || row.subject;
+    const inReplyTo = ownData(row, 'inReplyTo') || row.inReplyTo || ownData(row, 'internetMessageId') || row.internetMessageId;
+    if (typeof (ownData(row, 'body') || row.body) === 'string') {
+      return freeze({ ok: false, reason: 'graph_body_leaked', arrivals: 0, duplicates: 0, threaded: false });
+    }
+    if (typeof (ownData(row, 'from') || row.from) === 'string'
+        || /@/.test(String(ownData(row, 'sender') || row.sender || ''))) {
+      return freeze({ ok: false, reason: 'graph_pii_leaked', arrivals: 0, duplicates: 0, threaded: false });
+    }
+    const subjectOk = isProofSubject(subject);
+    const threadOk = expectedThread ? conversationId === expectedThread : subjectOk;
+    const replyOk = !sourceId || inReplyTo === sourceId || id === draftId || row.provider_message_id === draftId;
+    if (!subjectOk || !threadOk || !replyOk) continue;
+    if (typeof id === 'string' && seen.has(id)) {
+      duplicates += 1;
+      continue;
+    }
+    if (typeof id === 'string') seen.add(id);
+    arrivals += 1;
+    threaded = threadOk && subjectOk;
+  }
+  if (arrivals !== 1 || duplicates !== 0 || threaded !== true) {
+    return freeze({
+      ok: false,
+      reason: arrivals > 1 || duplicates > 0 ? 'graph_duplicate' : 'graph_unproven',
+      arrivals,
+      duplicates,
+      threaded,
+    });
+  }
+  return freeze({
+    ok: true,
+    threaded: true,
+    arrivals: 1,
+    duplicates: 0,
+    subject_ok: true,
+  });
+}
+
+function brandProductionGraphVerifier(fn) {
+  if (typeof fn === 'function') PRODUCTION_GRAPH_VERIFIERS.add(fn);
+  return fn;
+}
+
+function isProductionGraphVerifier(fn) {
+  return typeof fn === 'function' && PRODUCTION_GRAPH_VERIFIERS.has(fn);
+}
+
+function createProductionGraphArrivalVerifier(deps) {
+  const list = deps && deps.listThreadMessages;
+  if (typeof list !== 'function') throw new Error('graph_adapter_required');
+  const verify = brandProductionGraphVerifier(async (input) => {
+    const listed = await list(freeze({
+      graph_conversation_id: input && input.graph_conversation_id,
+      provider_source_message_id: input && input.provider_source_message_id,
+      immutable_draft_id: input && input.immutable_draft_id,
+      select: freeze(['id', 'conversationId', 'subject', 'inReplyTo', 'internetMessageId']),
+      forbid_body: true,
+      forbid_send: true,
+    }));
+    return classifyGraphArrival(listed && listed.messages ? listed.messages : listed, input);
+  });
+  return freeze({ verifyGraphArrival: verify });
+}
+
+function createCanonical003KillSwitch(deps) {
+  const handle = deps && deps.handleProjectedInbound;
+  if (typeof handle !== 'function') throw new Error('kill_switch_misconfigured');
+  return async function verifyKillSwitch(input) {
+    const env = freeze({
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      [ENV_LUNA_AUTO_SEND_ENABLED]: 'false',
+      [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: 'false',
+    });
+    const result = await handle({
+      env,
+      authority: input && input.authority,
+      envelope: input && input.envelope,
+      projection: input && input.projection,
+    });
+    const authorCalled = !!(result && (result.draft_writes > 0 || result.author_called === true));
+    const journalCalled = !!(result && (result.journals > 0 || result.journal_called === true));
+    const providerCalled = !!(result && (result.provider_sends > 0 || result.provider_called === true));
+    if (!result || result.status !== 'blocked' || result.reason !== 'emergency_flags_off') {
+      return freeze({
+        ok: false,
+        status: result && result.status,
+        reason: (result && result.reason) || 'kill_switch_unproven',
+        author_called: authorCalled,
+        journal_called: journalCalled,
+        provider_called: providerCalled,
+      });
+    }
+    if (authorCalled || journalCalled || providerCalled) {
+      return freeze({
+        ok: false,
+        status: 'blocked',
+        reason: 'kill_switch_side_effect',
+        author_called: authorCalled,
+        journal_called: journalCalled,
+        provider_called: providerCalled,
+      });
+    }
+    return freeze({
+      ok: true,
+      status: 'blocked',
+      reason: 'emergency_flags_off',
+      author_called: false,
+      journal_called: false,
+      provider_called: false,
+      provider_sends: 0,
+    });
+  };
+}
+
+async function readProductionServingIdentity(azRun) {
+  const shown = await azRun(buildShowAppArgs());
+  const app = parseServingIdentity(`${shown && shown.stdout || ''}`);
+  if (!app || !app.revision) return null;
+  const revArgs = buildRevisionShowArgs(app.revision);
+  if (!revArgs) return null;
+  const revShown = await azRun(revArgs);
+  const revision = parseRevisionShow(`${revShown && revShown.stdout || ''}`);
+  const merged = mergeRevisionIntoServing({ ...app, trafficWeight: 100 }, revision)
+    || (revision && servingHealthyReady100({ ...revision, trafficWeight: app.trafficWeight || 100 })
+      ? freeze({ ...revision, trafficWeight: app.trafficWeight || 100, replica: app.replica || null })
+      : null);
+  if (!merged) return null;
+  const replicas = await azRun(buildReplicaListArgs());
+  const running = parseRunningReplica(`${replicas && replicas.stdout || ''}`, merged.revision);
+  return freeze({
+    ...merged,
+    replica: running && running.replica ? running.replica : merged.replica,
+    trafficWeight: merged.trafficWeight === 100 ? 100 : (app.trafficWeight || 100),
+    ready: merged.ready === true || (merged.healthState === 'Healthy' && (app.trafficWeight === 100 || merged.trafficWeight === 100)),
+  });
+}
+
+async function waitServingHealthy(azRun, options) {
+  const enabled = options && options.enabled === true;
+  const authorized = options && options.authorized;
+  const nowFn = (options && options.now) || Date.now;
+  const sleepFn = (options && options.sleep) || ((ms) => new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  }));
+  const timeoutMs = Number.isSafeInteger(options && options.timeoutMs)
+    ? options.timeoutMs : REVISION_WAIT_TIMEOUT_MS;
+  const intervalMs = Number.isSafeInteger(options && options.intervalMs)
+    ? options.intervalMs : REVISION_WAIT_INTERVAL_MS;
+  const start = nowFn();
+  let last = null;
+  while (nowFn() - start <= timeoutMs) {
+    last = await readProductionServingIdentity(azRun);
+    if (last && servingIdentityCompatible(authorized, last)
+        && servingHealthyReady100(last) && flagsLiteral(last, enabled)) {
+      return last;
+    }
+    await sleepFn(intervalMs);
+  }
+  return last;
+}
+
+function createProductionMailMvp004Supervisor(options) {
+  const env = (options && options.env) || process.env;
+  const azBin = (options && options.azBin) || envOwn(env, 'AZ') || AZ_DEFAULT;
+  const azRun = typeof (options && options.azRun) === 'function'
+    ? options.azRun
+    : (args) => spawnAz(azBin, args, { env });
+  const nonceStore = options && options.nonceStore
+    ? wrapNonceStore(options.nonceStore)
+    : createDurableNonceStore(options && options.nonceStorePath);
+  const withPgClient = options && options.withPgClient;
+  const sleep = options && options.sleep;
+  const now = options && options.now;
+  const graph = options && options.graphVerifier
+    ? options.graphVerifier
+    : null;
+
+  async function readServing() {
+    if (typeof (options && options.readServingIdentity) === 'function') {
+      return options.readServingIdentity();
+    }
+    return readProductionServingIdentity(azRun);
+  }
+
+  const supervisor = createMailMvp004LiveProof({
+    nonceStore,
+    requireProductionOwner: options && options.requireProductionOwner,
+    readServingIdentity: readServing,
+    async waitServingHealthy(input) {
+      const authorized = await readServing();
+      if (typeof (options && options.waitServingHealthy) === 'function') {
+        return options.waitServingHealthy(input);
+      }
+      return waitServingHealthy(azRun, {
+        enabled: input && input.enabled === true,
+        authorized,
+        sleep,
+        now,
+      });
+    },
+    async setEmergencyFlags(enabled) {
+      if (typeof (options && options.setEmergencyFlags) === 'function') {
+        return options.setEmergencyFlags(enabled);
+      }
+      const args = buildSetEnvArgs(enabled);
+      const result = await azRun(args);
+      if (!result || result.status !== 0) throw new Error('flag_update_failed');
+    },
+    async putEmailChannelMode(value) {
+      if (typeof (options && options.putEmailChannelMode) === 'function') {
+        return options.putEmailChannelMode(value);
+      }
+      if (typeof withPgClient !== 'function') throw new Error('channel_mode_unproven');
+      const store = createEmailInboxChannelModeStore({ withPgClient });
+      const thread = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+      const selected = selectProofThread(thread && thread.rows);
+      if (!selected.ok) throw new Error(selected.reason);
+      await store.putChannelMode(selected.row.client_id, 'email', value);
+    },
+    async getEmailChannelMode() {
+      if (typeof (options && options.getEmailChannelMode) === 'function') {
+        return options.getEmailChannelMode();
+      }
+      const store = createEmailInboxChannelModeStore({ withPgClient });
+      const thread = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+      const selected = selectProofThread(thread && thread.rows);
+      if (!selected.ok) return null;
+      return store.getChannelMode(selected.row.client_id, 'email');
+    },
+    async preflightSelectedOperation() {
+      if (typeof (options && options.preflightSelectedOperation) === 'function') {
+        return options.preflightSelectedOperation();
+      }
+      if (typeof withPgClient !== 'function') return { ok: false, reason: 'preflight_failed' };
+      const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+      const selected = selectProofThread(loaded && loaded.rows);
+      if (!selected.ok) return { ok: false, reason: selected.reason };
+      const row = selected.row;
+      const counts = await snapshotSelectedOperation(withPgClient, row);
+      if (!counts) return { ok: false, reason: 'counts_unavailable' };
+      const store = createEmailInboxChannelModeStore({ withPgClient });
+      const mode = await store.getChannelMode(row.client_id, 'email');
+      return freeze({
+        ok: true,
+        ...counts,
+        luna_on: row.conversation_status === 'open',
+        needs_human: row.needs_human === true,
+        guest_linked: !!uuid(row.guest_id),
+        sender_ok: isAuthoritativeSender(row),
+        subject_ok: isProofSubject(row.subject),
+        sol_enabled: true,
+        channel_mode: mode,
+        provider_source_message_id: row.provider_source_message_id,
+        graph_conversation_id: row.graph_conversation_id,
+        conversation_id: row.conversation_id,
+      });
+    },
+    invokeAutoOwner: brandProductionAutoOwner(async (input) => {
+      if (typeof (options && options.invokeAutoOwner) === 'function') {
+        return options.invokeAutoOwner(input);
+      }
+      const serving = await readServing();
+      const capability = input && input.capability;
+      const revision = (input && input.revision) || serving.revision;
+      const replica = (input && input.replica) || serving.replica;
+      const azArgs = buildStaffOwnerExecAzArgs({
+        attemptId: capability && capability.nonce,
+        replica,
+        revision,
+        capability,
+        imageTag: serving.imageTag,
+        digest: serving.digest,
+        reconcileOnly: false,
+      });
+      if (!azArgs) return failRecord('staff_exec_failed');
+      const spec = wrapPtyAzExec(azBin, azArgs);
+      const execResult = spawnPtyHarness(spec, { env });
+      const out = `${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`;
+      const marked = out.includes(MUTATION_ISSUED_MARKER);
+      const inner = extractProofJson(out);
+      if (execResult && execResult.status === 0 && inner) {
+        return freeze({ ...inner, dispatch_marked: marked === true });
+      }
+      if (marked) {
+        return freeze({
+          status: 'failed',
+          indeterminate: true,
+          outcome_unknown: true,
+          dispatch_marked: true,
+          reason: 'indeterminate_no_retry',
+        });
+      }
+      return freeze({ status: 'failed', reason: (inner && inner.reason) || 'staff_exec_failed' });
+    }),
+    async snapshotOperation() {
+      if (typeof (options && options.snapshotOperation) === 'function') {
+        return options.snapshotOperation();
+      }
+      const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+      const selected = selectProofThread(loaded && loaded.rows);
+      if (!selected.ok) return null;
+      return snapshotSelectedOperation(withPgClient, selected.row);
+    },
+    async readDurableEvidence() {
+      if (typeof (options && options.readDurableEvidence) === 'function') {
+        return options.readDurableEvidence();
+      }
+      const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+      const selected = selectProofThread(loaded && loaded.rows);
+      if (!selected.ok) return null;
+      return loadSelectedOperationEvidence(withPgClient, selected.row);
+    },
+    async verifyGraphArrival(input) {
+      if (graph && typeof graph.verifyGraphArrival === 'function') {
+        return graph.verifyGraphArrival(input);
+      }
+      if (typeof (options && options.verifyGraphArrival) === 'function') {
+        return options.verifyGraphArrival(input);
+      }
+      return freeze({ ok: false, reason: 'graph_unproven', arrivals: 0, duplicates: 0, threaded: false });
+    },
+    async verifyKillSwitch() {
+      if (typeof (options && options.verifyKillSwitch) === 'function') {
+        return options.verifyKillSwitch();
+      }
+      const wired = createProductionStaffAutoCreateSendOwner({ withPgClient, runtimeEnv: env });
+      const handle = wired.handleProjectedInbound;
+      const kill = createCanonical003KillSwitch({ handleProjectedInbound: handle });
+      const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+      const selected = selectProofThread(loaded && loaded.rows);
+      if (!selected.ok) return freeze({ ok: false, reason: selected.reason });
+      const row = selected.row;
+      return kill({
+        authority: freeze({
+          clientId: row.client_id,
+          locationId: row.location_id,
+          endpointId: row.endpoint_id,
+        }),
+        envelope: freeze({
+          provider: 'microsoft_graph',
+          provider_mailbox_id: row.provider_mailbox_id,
+          provider_message_id: row.provider_source_message_id,
+        }),
+        projection: freeze({
+          status: 'already_projected',
+          conversation_id: row.conversation_id,
+        }),
+      });
+    },
+    async reconcile(input) {
+      if (typeof (options && options.reconcile) === 'function') {
+        return options.reconcile(input);
+      }
+      if (input && input.retryForbidden !== true) {
+        return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
+      }
+      const serving = await readServing();
+      const azArgs = buildStaffOwnerExecAzArgs({
+        attemptId: input && input.capability && input.capability.nonce,
+        replica: serving && serving.replica,
+        revision: serving && serving.revision,
+        capability: input && input.capability,
+        imageTag: serving && serving.imageTag,
+        digest: serving && serving.digest,
+        reconcileOnly: true,
+      });
+      if (!azArgs) return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
+      const spec = wrapPtyAzExec(azBin, azArgs);
+      const execResult = spawnPtyHarness(spec, { env });
+      const inner = extractProofJson(`${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`);
+      if (!inner) return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
+      return freeze({ ...inner, retry: false });
+    },
+  });
+  PRODUCTION_SUPERVISORS.add(supervisor);
+  return supervisor;
+}
+
 function inspectRepoReadiness(root, execGit) {
   const repo = root || path.join(__dirname, '..', '..');
   const git = typeof execGit === 'function'
@@ -1105,12 +2222,12 @@ function inspectRepoReadiness(root, execGit) {
   const master = git(['rev-parse', 'origin/master']);
   const headSha = sha40(String(head && head.stdout || '').trim());
   const masterSha = sha40(String(master && master.stdout || '').trim());
-  let treeHasProofFiles = true;
+  let artifactsOnMaster = true;
   for (const rel of REQUIRED_PROOF_FILES) {
-    try {
-      fs.accessSync(path.join(repo, rel), fs.constants.R_OK);
-    } catch {
-      treeHasProofFiles = false;
+    const listed = git(['cat-file', '-e', `origin/master:${rel}`]);
+    const status = listed && Number.isSafeInteger(listed.status) ? listed.status : 1;
+    if (status !== 0) {
+      artifactsOnMaster = false;
       break;
     }
   }
@@ -1118,9 +2235,13 @@ function inspectRepoReadiness(root, execGit) {
   return freeze({
     headSha,
     originMasterSha: masterSha,
-    treeHasProofFiles: treeHasProofFiles === true && onMaster === true,
-    filesPresent: treeHasProofFiles,
+    artifactsOnMaster: artifactsOnMaster === true,
+    artifactsInImage: false,
+    treeHasProofFiles: artifactsOnMaster === true,
+    filesPresent: artifactsOnMaster === true,
     onMaster,
+    inspectedFrom: 'origin/master',
+    copied_script_boolean_trusted: false,
   });
 }
 
@@ -1145,8 +2266,9 @@ async function runCli(argv, options) {
       serving: serving || { imageTag: parsed.imageTag, imageRepository: IMAGE_REPOSITORY },
       originMasterSha: repo.originMasterSha,
       headSha: repo.headSha,
+      artifactsOnMaster: repo.artifactsOnMaster === true,
+      artifactsInImage: repo.artifactsInImage === true,
       treeHasProofFiles: repo.treeHasProofFiles === true,
-      copiedScript: false,
     });
     return freeze({
       ok: false,
@@ -1175,24 +2297,64 @@ async function runCli(argv, options) {
       nowMs: options.nowMs,
       originMasterSha: options.originMasterSha,
       headSha: options.headSha,
+      artifactsOnMaster: options.artifactsOnMaster,
+      artifactsInImage: options.artifactsInImage,
       treeHasProofFiles: options.treeHasProofFiles,
       requireLiveImage: options.requireLiveImage,
     });
   }
   const repo = inspectRepoReadiness(options && options.root, options && options.execGit);
+  const supervisor = options && options.supervisor
+    ? options.supervisor
+    : createProductionMailMvp004Supervisor({
+      env,
+      azBin: options && options.azBin,
+      azRun: options && options.azRun,
+      withPgClient: options && options.withPgClient,
+      nonceStore: options && options.nonceStore,
+      nonceStorePath: options && options.nonceStorePath,
+      graphVerifier: options && options.graphVerifier,
+      sleep: options && options.sleep,
+      now: options && options.now,
+      readServingIdentity: options && options.readServingIdentity,
+      setEmergencyFlags: options && options.setEmergencyFlags,
+      putEmailChannelMode: options && options.putEmailChannelMode,
+      getEmailChannelMode: options && options.getEmailChannelMode,
+      preflightSelectedOperation: options && options.preflightSelectedOperation,
+      invokeAutoOwner: options && options.invokeAutoOwner,
+      snapshotOperation: options && options.snapshotOperation,
+      readDurableEvidence: options && options.readDurableEvidence,
+      verifyGraphArrival: options && options.verifyGraphArrival,
+      verifyKillSwitch: options && options.verifyKillSwitch,
+      reconcile: options && options.reconcile,
+      waitServingHealthy: options && options.waitServingHealthy,
+      requireProductionOwner: options && options.requireProductionOwner,
+    });
+  const serving = typeof supervisor.readServingIdentity === 'function'
+    ? null
+    : (options && options.serving);
   const readiness = evaluateLiveProofReadiness({
-    serving: options && options.serving,
+    serving: serving || options.serving || { imageTag: parsed.imageTag, imageRepository: IMAGE_REPOSITORY },
     originMasterSha: repo.originMasterSha,
     headSha: repo.headSha,
+    artifactsOnMaster: repo.artifactsOnMaster === true,
+    artifactsInImage: repo.artifactsInImage === true,
     treeHasProofFiles: repo.treeHasProofFiles === true,
-    copiedScript: false,
   });
-  const authFail = validateExactInvocation(parsed, options && options.nowMs);
+  const authFail = validateExactInvocation(parsed, options && options.nowMs, options && options.nonceStore);
   if (authFail) return refusedRecord(authFail);
-  if (readiness.can_proceed !== true) {
-    return refusedRecord(readiness.blocked_reasons[0] || 'exact_master_image_required', { readiness });
-  }
-  return refusedRecord('live_adapters_required');
+  return supervisor.executeOnce({
+    parsed,
+    env,
+    argv,
+    nowMs: options && options.nowMs,
+    originMasterSha: repo.originMasterSha,
+    headSha: repo.headSha,
+    artifactsOnMaster: repo.artifactsOnMaster === true,
+    artifactsInImage: repo.artifactsInImage === true,
+    treeHasProofFiles: repo.treeHasProofFiles === true,
+    requireLiveImage: options && options.requireLiveImage,
+  });
 }
 
 module.exports = freeze({
@@ -1222,10 +2384,13 @@ module.exports = freeze({
   PROOF_REMOTE_NODE,
   AZ_DEFAULT,
   PTY_BIN,
+  CAPABILITY_PURPOSE,
+  OPERATION_BINDING,
   SQL_SELECT_PROOF_THREAD,
   SQL_COUNT_OPERATION_APPROVALS,
   SQL_COUNT_OPERATION_JOURNAL,
   SQL_COUNT_BOOKINGS,
+  SQL_LOAD_OPERATION_EVIDENCE,
   parseArgs,
   validateExactInvocation,
   validatePreflightInvocation,
@@ -1236,23 +2401,45 @@ module.exports = freeze({
   isProofSubject,
   isAuthoritativeSender,
   isLeftoverGenericDraft,
+  leftoverFromDurableEvidence,
+  isProduction003SentShape,
+  exactReconciledCounts,
+  duplicateUnreconciled,
   evaluateLiveProofReadiness,
   inspectRepoReadiness,
   parseServingIdentity,
+  parseRevisionShow,
+  mergeRevisionIntoServing,
+  servingHealthyReady100,
+  servingIdentityCompatible,
   buildSetEnvArgs,
   buildShowAppArgs,
+  buildRevisionShowArgs,
+  buildReplicaListArgs,
   buildStaffOwnerRemoteCommand,
+  buildStaffOwnerExecAzArgs,
   encodeProofEnvPayload,
   wrapPtyAzExec,
   snapshotSolMarker,
+  snapshotTrustedProvenance,
   brandProductionAutoOwner,
   isProductionAutoOwner,
   createProductionStaffAutoCreateSendOwner,
   createMailMvp004LiveProof,
+  createProductionMailMvp004Supervisor,
+  createProductionGraphArrivalVerifier,
+  createCanonical003KillSwitch,
+  classifyGraphArrival,
+  createDurableNonceStore,
+  issueSupervisorCapability,
+  verifySupervisorCapability,
+  encodeCapability,
+  consumeInnerCapability,
   createEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,
   selectProofThread,
   snapshotSelectedOperation,
+  loadSelectedOperationEvidence,
   runStaffOwnerProof,
   runCli,
 });

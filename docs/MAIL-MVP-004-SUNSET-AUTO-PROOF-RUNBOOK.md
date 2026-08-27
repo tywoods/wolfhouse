@@ -45,7 +45,7 @@ Until that image is serving, the harness must refuse `execute-once` with `exact_
 
 Caller-set `MAIL_MVP_004_LIVE_PROOF=1` is **not** authorization.
 
-`execute-once` requires the exact typed phrase, the Sunset target pins, the **current serving** revision + image tag/digest, a fresh 64-hex nonce, and a 15-minute `--confirm-issued-at` window:
+`execute-once` requires the exact typed phrase, the Sunset target pins, the **current 100% Healthy** serving revision + image tag/digest from revision show, a fresh 64-hex nonce, and a 15-minute `--confirm-issued-at` freshness window. The supervisor stamps its own issued-at onto a one-use expiry-bound inner capability; the caller timestamp is not capability identity. After a real 003 `{status:'sent'}` the harness reads selected-operation durable approval `message_text` plus Create Draft author marker/HMAC provenance — missing synthetic return fields must not classify a successful send as leftover.
 
 ```text
 node scripts/prove-mail-mvp-004-auto-create-send.js preflight \
