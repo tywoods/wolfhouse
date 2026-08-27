@@ -107,8 +107,30 @@ const PRODUCTION_SUPERVISORS = new WeakSet();
 const PRODUCTION_PG_ADAPTERS = new WeakSet();
 const PRODUCTION_REPLICA_ENV_ATTESTORS = new WeakSet();
 const PRODUCTION_KILL_SWITCHES = new WeakSet();
+const PRODUCTION_STAFF_OWNER_EXEC_RESULTS = new WeakSet();
 /** Brand for inner GRAPH_VERIFY replica one-bit diag. Untrusted objects cannot mint these. */
 const GRAPH_INNER_REPLICA_DIAG = new WeakSet();
+const GRAPH_INNER_DTO_KEYS = freeze([
+  'ok',
+  'reason',
+  'adapter_available',
+  'readonly',
+  'arrivals',
+  'duplicates',
+  'threaded',
+  'subject_ok',
+  'token_present',
+  'https_present',
+  'request_built',
+  'stage',
+  'status',
+]);
+const GRAPH_INNER_DTO_KEY_SET = new Set(GRAPH_INNER_DTO_KEYS);
+const GRAPH_INNER_ADAPTER_REASONS = freeze([
+  'graph_unproven',
+  'graph_auth_unproven',
+  'graph_body_leaked',
+]);
 const GRAPH_LIST_SELECT = freeze([
   'id',
   'conversationId',
@@ -1128,6 +1150,116 @@ function graphInnerResult(result, replicaBits) {
   if (attached && attached.public) brandGraphInnerReplicaPublic(attached.public);
   brandGraphInnerReplicaPublic(attached);
   return attached;
+}
+
+function graphUnwiredPublic() {
+  return sanitizeGraphPublic({
+    ok: false,
+    reason: 'graph_adapter_unwired',
+    adapter_available: false,
+    readonly: false,
+  });
+}
+
+function ownExactBoolean(value, key) {
+  const owned = ownData(value, key);
+  if (owned === true) return true;
+  if (owned === false) return false;
+  return null;
+}
+
+function ownExactNonNegativeInt(value, key) {
+  const owned = ownData(value, key);
+  if (!Number.isSafeInteger(owned) || owned < 0) return null;
+  return owned;
+}
+
+function closedGraphInnerDto(value) {
+  if (!value || typeof value !== 'object' || isProxy(value) || Array.isArray(value)) return null;
+  let keys;
+  try {
+    keys = Reflect.ownKeys(value);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(keys) || keys.length < 8 || keys.length > GRAPH_INNER_DTO_KEYS.length) return null;
+  for (const key of keys) {
+    if (typeof key !== 'string' || !GRAPH_INNER_DTO_KEY_SET.has(key)) return null;
+  }
+  const ok = ownExactBoolean(value, 'ok');
+  if (ok === null) return null;
+  const adapterAvailable = ownExactBoolean(value, 'adapter_available');
+  const readonly = ownExactBoolean(value, 'readonly');
+  const threaded = ownExactBoolean(value, 'threaded');
+  const subjectOk = ownExactBoolean(value, 'subject_ok');
+  const arrivals = ownExactNonNegativeInt(value, 'arrivals');
+  const duplicates = ownExactNonNegativeInt(value, 'duplicates');
+  if (adapterAvailable === null || readonly === null || threaded === null || subjectOk === null) {
+    return null;
+  }
+  if (arrivals === null || duplicates === null) return null;
+
+  const hasReason = Object.prototype.hasOwnProperty.call(value, 'reason');
+  let reason = null;
+  if (ok === true) {
+    if (hasReason && ownData(value, 'reason') != null) return null;
+    if (adapterAvailable !== true || readonly !== true) return null;
+  } else {
+    if (!hasReason) return null;
+    reason = closedGraphPublicReason(ownData(value, 'reason'));
+    if (!reason) return null;
+  }
+  if (GRAPH_INNER_ADAPTER_REASONS.includes(reason)) {
+    if (adapterAvailable !== true || readonly !== true) return null;
+  }
+  if (reason === 'graph_adapter_unwired' && (adapterAvailable !== false || readonly !== false)) {
+    return null;
+  }
+
+  const hasToken = Object.prototype.hasOwnProperty.call(value, 'token_present');
+  const hasHttps = Object.prototype.hasOwnProperty.call(value, 'https_present');
+  const hasRequest = Object.prototype.hasOwnProperty.call(value, 'request_built');
+  if (hasToken !== hasHttps || hasHttps !== hasRequest) return null;
+  let replicaBits;
+  if (hasToken) {
+    const tokenPresent = ownExactBoolean(value, 'token_present');
+    const httpsPresent = ownExactBoolean(value, 'https_present');
+    const requestBuilt = ownExactBoolean(value, 'request_built');
+    if (tokenPresent === null || httpsPresent === null || requestBuilt === null) return null;
+    replicaBits = {
+      token_present: tokenPresent === true,
+      https_present: httpsPresent === true,
+      request_built: requestBuilt === true,
+    };
+  }
+
+  const hasStage = Object.prototype.hasOwnProperty.call(value, 'stage');
+  const hasStatus = Object.prototype.hasOwnProperty.call(value, 'status');
+  const stage = hasStage ? closedGraphGrantStage(ownData(value, 'stage')) : null;
+  if (hasStage && !stage) return null;
+  const grantStatus = hasStatus ? closedGraphGrantStatus(ownData(value, 'status')) : null;
+  if (hasStatus && !grantStatus) return null;
+  if (grantStatus && !stage) return null;
+
+  const fields = {
+    ok,
+    reason,
+    adapter_available: adapterAvailable === true,
+    readonly: readonly === true,
+    arrivals,
+    duplicates,
+    threaded: threaded === true,
+    subject_ok: subjectOk === true,
+  };
+  if (stage) fields.stage = stage;
+  if (grantStatus) fields.status = grantStatus;
+  return freeze({ fields: freeze(fields), replicaBits: replicaBits ? freeze(replicaBits) : undefined });
+}
+
+function graphInnerExecStdoutOk(pub) {
+  const closed = closedGraphInnerDto(pub);
+  if (!closed || !closed.fields) return false;
+  return closed.fields.reason !== 'graph_adapter_unwired';
 }
 
 function sanitizeReplicaEvidenceSnapshot(loaded, secret) {
@@ -2842,7 +2974,7 @@ function classifyStaffOwnerExecResult(execResult) {
   const ptyStatus = execResult && Number.isSafeInteger(execResult.status) ? execResult.status : 1;
   const transportFailed = remoteExecTransportFailed(out);
   const status = ptyStatus !== 0 || transportFailed === true ? (ptyStatus !== 0 ? ptyStatus : 1) : 0;
-  return freeze({
+  const classified = freeze({
     execResult,
     marked,
     inner,
@@ -2851,6 +2983,28 @@ function classifyStaffOwnerExecResult(execResult) {
     ptyStatus,
     transportFailed: transportFailed === true,
   });
+  PRODUCTION_STAFF_OWNER_EXEC_RESULTS.add(classified);
+  return classified;
+}
+
+function isProductionStaffOwnerExecResult(executed) {
+  return !!(executed && typeof executed === 'object' && !isProxy(executed)
+    && PRODUCTION_STAFF_OWNER_EXEC_RESULTS.has(executed));
+}
+
+function parseExactProductionGraphInnerExec(executed) {
+  if (!isProductionStaffOwnerExecResult(executed)) return graphUnwiredPublic();
+  if (executed.status !== 0 || executed.transportFailed === true) return graphUnwiredPublic();
+  if (typeof executed.out !== 'string') return graphUnwiredPublic();
+  const dto = extractExactlyOneProofJson(executed.out);
+  if (!dto) return graphUnwiredPublic();
+  const closed = closedGraphInnerDto(dto);
+  if (!closed || !closed.fields) return graphUnwiredPublic();
+  const attached = graphInnerResult(closed.fields, closed.replicaBits);
+  if (attached && attached.public && typeof attached.public === 'object' && !isProxy(attached.public)) {
+    return attached.public;
+  }
+  return graphUnwiredPublic();
 }
 
 function encodeProofEnvPayload(attemptId, reconcileOnly, extra) {
@@ -3033,6 +3187,37 @@ function extractProofJson(raw, secrets) {
     return value;
   }
   return null;
+}
+
+function extractExactlyOneProofJson(raw, secrets) {
+  const text = redactSensitive(String(raw || ''), secrets);
+  if (!text) return null;
+  const found = [];
+  let i = 0;
+  while (i < text.length) {
+    const start = text.indexOf('{', i);
+    if (start < 0) break;
+    let parsed = null;
+    let end = -1;
+    for (let j = start + 1; j < text.length; j += 1) {
+      if (text[j] !== '}') continue;
+      let value;
+      try { value = JSON.parse(text.slice(start, j + 1)); } catch { continue; }
+      if (!value || typeof value !== 'object' || isProxy(value) || Array.isArray(value)) continue;
+      if (value.ok !== true && value.ok !== false) continue;
+      parsed = value;
+      end = j;
+      break;
+    }
+    if (!parsed) {
+      i = start + 1;
+      continue;
+    }
+    found.push(parsed);
+    if (found.length > 1) return null;
+    i = end + 1;
+  }
+  return found.length === 1 ? found[0] : null;
 }
 
 function graphSelectIsForbidden(select) {
@@ -4088,6 +4273,11 @@ function createProductionMailMvp004Supervisor(options) {
     return classifyStaffOwnerExecResult(execResult);
   }
 
+  async function verifyGraphArrival() {
+    const executed = await execInner({ graphVerify: true });
+    return parseExactProductionGraphInnerExec(executed);
+  }
+
   const supervisor = createMailMvp004LiveProof({
     nonceStore,
     requireProductionOwner: options && options.requireProductionOwner,
@@ -4209,18 +4399,7 @@ function createProductionMailMvp004Supervisor(options) {
       }
       return executed.inner;
     },
-    async verifyGraphArrival() {
-      const executed = await execInner({ graphVerify: true });
-      if (!executed || !executed.inner || typeof executed.inner.ok !== 'boolean') {
-        return sanitizeGraphPublic({
-          ok: false,
-          reason: 'graph_adapter_unwired',
-          adapter_available: false,
-          readonly: false,
-        });
-      }
-      return sanitizeGraphPublic(executed.inner);
-    },
+    verifyGraphArrival,
     async verifyKillSwitch() {
       const executed = await execInner({ killSwitchProbe: true });
       if (!executed || executed.status !== 0 || executed.transportFailed === true || !executed.inner
@@ -4274,8 +4453,12 @@ function createProductionMailMvp004Supervisor(options) {
       return freeze({ ...classified.inner, retry: false });
     },
   });
-  PRODUCTION_SUPERVISORS.add(supervisor);
-  return supervisor;
+  const exposed = freeze({
+    ...supervisor,
+    verifyGraphArrival,
+  });
+  PRODUCTION_SUPERVISORS.add(exposed);
+  return exposed;
 }
 
 function inspectRepoReadiness(root, execGit) {
@@ -4509,6 +4692,10 @@ module.exports = freeze({
   wrapPtyAzExec,
   spawnPtyHarness,
   classifyStaffOwnerExecResult,
+  parseExactProductionGraphInnerExec,
+  extractExactlyOneProofJson,
+  closedGraphInnerDto,
+  graphInnerExecStdoutOk,
   remoteExecTransportFailed,
   snapshotSolMarker,
   snapshotTrustedProvenance,

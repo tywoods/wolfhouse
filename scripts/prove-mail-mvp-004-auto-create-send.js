@@ -15,6 +15,7 @@ const {
   runCli,
   publicProofOutput,
   sanitizeGraphPublic,
+  graphInnerExecStdoutOk,
 } = require('./lib/email-luna-microsoft-auto-create-send-live-proof');
 
 function graphVerifyMode(env) {
@@ -36,6 +37,15 @@ function fail(result) {
 
 (async () => {
   const result = await runCli(process.argv.slice(2), { env: process.env });
+  if (graphVerifyMode(process.env)) {
+    const pub = emitPublic(result);
+    if (graphInnerExecStdoutOk(pub) === true) {
+      console.log(JSON.stringify(pub));
+      process.exit(0);
+    }
+    fail(result);
+    return;
+  }
   if (!result || result.ok !== true) {
     fail(result);
   }
