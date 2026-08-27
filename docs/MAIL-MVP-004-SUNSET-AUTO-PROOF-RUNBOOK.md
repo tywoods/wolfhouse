@@ -88,10 +88,10 @@ After exact-master deploy and typed authorization, the supervisor may temporaril
 
 Then:
 
-1. Independently re-read serving identity from explicit 100% traffic + revision-show health. Kill-switch probe the attested-false replica first (`emergency_flags_off`, zero author/journal/provider). Prove the enabled revision still has the authorized image and both replica-process flags literal `true` before dispatch.
+1. Independently re-read serving identity from explicit 100% traffic + revision-show health. Kill-switch probe the attested-false replica first (`emergency_flags_off`, zero author/journal/provider). Flag updates create a new ACA revision; do not pin the original revision name. Accept only a successor (or same-image) revision with the authorized image tag+digest, 100% Healthy traffic, and both approved flags literal `true` from replica-process `printenv` (never template env, never nested `sh -c`). No other flag changes. Invoke the owner only after that proof.
 2. Invoke the canonical 003 production auto owner **exactly once** via image-owned `scripts/prove-mail-mvp-004-auto-create-send.js` (`MAIL_MVP_004_STAFF_OWNER_PROOF=1`). The dispatch marker is emitted from inner only after 003 handle starts. Empty Create Draft context. Staff API remains the only price/availability/booking authority.
 3. Reconcile durable approval/journal/provider state. Classified inner JSON is preserved even if exec status is nonzero. If exec disconnects after the issued marker with no classified JSON, **do not retry**; reconcile only.
-4. **Always** restore both flags to `false` and endpoint automation `off` in supervisor `finally`. Attest replica env false.
+4. **Always** restore both flags to `false` and endpoint automation `off` in supervisor `finally`. Restore must similarly accept only a same-image successor with 100% Healthy traffic, replica-process flags literal `false`, and final channel mode `off`.
 5. Verify safe serving revision, kill-switch refusal (`emergency_flags_off`) on the attested-false replica, exact selected-operation journal/provider counts (1/1), Graph arrival on the same thread (`$select` without body/bodyPreview), and no duplicate. `--database sunset_staging` is enforced against `current_database()`, not a string pin.
 
 Do not alter Microsoft/Graph custody, IMAP/SMTP, 005/006/008, booking, broadcast, or any other guest.

@@ -51,18 +51,26 @@ const {
   parseRevisionShow,
   parseRunningReplica,
   servingHealthyReady100,
+  servingIdentityCompatible,
+  servingSuccessorAcceptable,
   flagsLiteral,
+  approvedFlagsOnly,
+  approvedReplicaFlagsExact,
   traffic100RevisionName,
   mergeRevisionIntoServing,
   extractAzureJson,
   parseAcrManifestDigest,
   readProductionServingIdentity,
+  waitServingHealthy,
   parseReplicaProcessEnv,
   buildReadonlyGraphListRequest,
   GRAPH_LIST_SELECT,
   GRAPH_PREFER_IMMUTABLE_ID,
   GRAPH_GET_DEADLINE_MS,
   buildSetEnvArgs,
+  buildReplicaEnvExecAzArgs,
+  buildReplicaEnvRemoteCommand,
+  isLegalReplicaEnvRemoteCommand,
   buildRevisionShowArgs,
   buildAcrManifestDigestArgs,
   buildStaffOwnerRemoteCommand,
@@ -602,8 +610,21 @@ function makeHarness(options = {}) {
       log.push(`read:${current.flags[ENV_LUNA_AUTO_SEND_ENABLED]}`);
       return current;
     },
-    async waitServingHealthy({ enabled }) {
-      log.push(`wait:${enabled}`);
+    async waitServingHealthy(input) {
+      log.push(`wait:${input && input.enabled}`);
+      if (typeof options.waitServingHealthy === 'function') {
+        return options.waitServingHealthy(input, current);
+      }
+      const authorized = input && input.authorized;
+      if (options.pinAuthorizedRevision === true && authorized
+          && current.revision !== authorized.revision) {
+        return {
+          ...authorized,
+          flagsSource: 'template',
+          ready: true,
+          trafficWeight: 100,
+        };
+      }
       return current;
     },
     async setEmergencyFlags(enabled) {
@@ -4386,6 +4407,283 @@ Module._load = function(request, parent, isMain) {
     assert.equal(unwiredServing.reason, 'graph_adapter_unwired');
     assert.equal(unwiredServing.adapter_available, false);
     assert.equal(unwiredServing.readonly, false);
+  }
+
+  console.log('[23] RED→GREEN: successor revision after flag update is the enabled proof');
+  {
+    const ENABLED_REV = `${STAFF_APP}--0000704`;
+    const RESTORED_REV = `${STAFF_APP}--0000705`;
+    const ENABLED_REPLICA = `${ENABLED_REV}-aaaaa-bbbbb`;
+    const RESTORED_REPLICA = `${RESTORED_REV}-ccccc-ddddd`;
+    const original = serving();
+    const enabledIdent = serving({
+      revision: ENABLED_REV,
+      replica: ENABLED_REPLICA,
+      flags: flagsOn(),
+    });
+    const restoredIdent = serving({
+      revision: RESTORED_REV,
+      replica: RESTORED_REPLICA,
+      flags: flagsOff(),
+    });
+    const driftedIdent = serving({
+      revision: ENABLED_REV,
+      replica: ENABLED_REPLICA,
+      imageTag: 'c'.repeat(40),
+      deploySha: 'c'.repeat(40),
+      digest: `sha256:${'d'.repeat(64)}`,
+      flags: flagsOn(),
+    });
+
+    assert.equal(servingIdentityCompatible(original, enabledIdent), true);
+    assert.equal(servingSuccessorAcceptable(original, enabledIdent), true);
+    assert.equal(servingSuccessorAcceptable(original, restoredIdent), true);
+    assert.equal(servingIdentityCompatible(original, driftedIdent), false);
+    assert.equal(servingSuccessorAcceptable(original, driftedIdent), false);
+    assert.equal(servingSuccessorAcceptable(null, enabledIdent), false);
+    assert.equal(approvedFlagsOnly(flagsOn()), true);
+    assert.equal(approvedFlagsOnly({ ...flagsOn(), EXTRA: 'true' }), false);
+    assert.equal(approvedReplicaFlagsExact(enabledIdent, true), true);
+    assert.equal(approvedReplicaFlagsExact({ ...enabledIdent, flagsSource: 'template' }, true), false);
+    assert.equal(approvedReplicaFlagsExact(restoredIdent, false), true);
+
+    const { harness: hPin, log: pinLog } = makeHarness({ pinAuthorizedRevision: true });
+    const red = await execute(hPin);
+    assert.equal(red.ok, false);
+    assert.equal(red.reason, 'enabled_revision_unproven');
+    assert.equal(red.invoked, 0);
+    assert.equal(red.restored, false);
+    assert.equal(red.status, 'outcome_unknown');
+    assert.equal(pinLog.includes('flags:true'), true);
+    assert.equal(pinLog.includes('invoke'), false);
+    assert.equal(pinLog.includes('flags:false'), true);
+
+    const { harness: hGreen, log: greenLog, getServing, getMode } = makeHarness();
+    const green = await execute(hGreen);
+    assert.equal(green.ok, true);
+    assert.equal(green.invoked, 1);
+    assert.equal(green.restored, true);
+    assert.equal(getMode(), 'off');
+    assert.deepEqual(getServing().flags, flagsOff());
+    assert.equal(approvedReplicaFlagsExact(getServing(), false), true);
+    assert.notEqual(getServing().revision, REVISION);
+    assert.equal(greenLog.filter((x) => x === 'invoke').length, 1);
+
+    const drifted = await execute(makeHarness({
+      waitServingHealthy() {
+        return driftedIdent;
+      },
+    }).harness);
+    assert.equal(drifted.reason, 'enabled_image_drift');
+    assert.equal(drifted.invoked, 0);
+
+    const envCmd = buildReplicaEnvRemoteCommand();
+    assert.equal(isLegalReplicaEnvRemoteCommand(envCmd), true);
+    assert.equal(envCmd, `/usr/bin/printenv ${ENV_LUNA_AUTO_SEND_ENABLED} ${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED}`);
+    assert.doesNotMatch(envCmd, /sh\s+-c/);
+    assert.doesNotMatch(envCmd, /'/);
+    assert.doesNotMatch(envCmd, /[|><`$]/);
+    assert.equal(isLegalReplicaEnvRemoteCommand(`sh -c '${envCmd}'`), false);
+    const analogOld = `sh -c 'printenv ${ENV_LUNA_AUTO_SEND_ENABLED} ${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED} || (tr '\\0' '\\n' < /proc/1/environ)'`;
+    assert.equal(isLegalReplicaEnvRemoteCommand(analogOld), false);
+    const envArgs = buildReplicaEnvExecAzArgs(enabledIdent);
+    assert.equal(envArgs[envArgs.indexOf('--command') + 1], envCmd);
+    assert.equal(envArgs[envArgs.indexOf('--revision') + 1], ENABLED_REV);
+    assert.equal(envArgs[envArgs.indexOf('--replica') + 1], ENABLED_REPLICA);
+    const envSyntax = spawnSync('/bin/sh', ['-n', '-c', envCmd], { encoding: 'utf8' });
+    assert.equal(envSyntax.status, 0, envSyntax.stderr);
+    const envWrapped = spawnSync('/bin/sh', ['-n', '-c', `sh -c '${envCmd}'`], { encoding: 'utf8' });
+    assert.equal(envWrapped.status, 0, envWrapped.stderr);
+    const splitEnv = envCmd.split(' ');
+    assert.deepEqual(splitEnv, [
+      '/usr/bin/printenv',
+      ENV_LUNA_AUTO_SEND_ENABLED,
+      ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED,
+    ]);
+
+    const acrJson = {
+      digest: DIGEST,
+      tags: [IMAGE_SHA],
+      repository: ACR_REPOSITORY,
+    };
+    function revisionState(revisionName, flagValue) {
+      const replicaName = `${revisionName}-abcde-fghij`;
+      return {
+        replicaName,
+        app: {
+          name: STAFF_APP,
+          properties: {
+            latestRevisionName: revisionName,
+            latestReadyRevisionName: revisionName,
+            runningStatus: 'Running',
+            configuration: {
+              ingress: { traffic: [{ revisionName, weight: 100 }] },
+            },
+            template: {
+              containers: [{
+                image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
+                env: [
+                  { name: ENV_LUNA_AUTO_SEND_ENABLED, value: flagValue },
+                  { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: flagValue },
+                ],
+              }],
+            },
+          },
+        },
+        revision: {
+          name: revisionName,
+          properties: {
+            healthState: 'Healthy',
+            runningState: 'Running',
+            provisioningState: 'Provisioned',
+            replicas: 1,
+            imageDigest: DIGEST,
+            template: {
+              containers: [{
+                name: STAFF_APP,
+                image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
+                env: [
+                  { name: ENV_LUNA_AUTO_SEND_ENABLED, value: flagValue },
+                  { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: flagValue },
+                ],
+              }],
+            },
+          },
+        },
+        replicas: [{
+          name: replicaName,
+          properties: { runningState: 'Running', revisionName },
+        }],
+      };
+    }
+    function switchingState() {
+      const ready = revisionState(REVISION, 'false');
+      const next = revisionState(ENABLED_REV, 'true');
+      return {
+        replicaName: ready.replicaName,
+        app: {
+          ...ready.app,
+          properties: {
+            ...ready.app.properties,
+            latestRevisionName: ENABLED_REV,
+            latestReadyRevisionName: REVISION,
+            configuration: {
+              ingress: { traffic: [{ revisionName: REVISION, weight: 100 }] },
+            },
+          },
+        },
+        revision: ready.revision,
+        replicas: ready.replicas,
+        next,
+      };
+    }
+
+    let phase = 'original';
+    const azRun = async (args) => {
+      if (args.includes('update') || args.includes('--set-env-vars')) {
+        return { status: 0, stdout: '' };
+      }
+      if (args[0] === 'acr') {
+        return { status: 0, stdout: JSON.stringify(acrJson) };
+      }
+      const state = phase === 'enabled'
+        ? revisionState(ENABLED_REV, 'true')
+        : phase === 'restored'
+          ? revisionState(RESTORED_REV, 'false')
+          : phase === 'switching'
+            ? switchingState()
+            : revisionState(REVISION, 'false');
+      if (args[1] === 'exec') {
+        assert.equal(args[args.indexOf('--command') + 1], envCmd);
+        if (phase === 'enabled') {
+          assert.equal(args[args.indexOf('--revision') + 1], ENABLED_REV);
+          return { status: 0, stdout: 'true\ntrue\n' };
+        }
+        if (phase === 'restored') {
+          assert.equal(args[args.indexOf('--revision') + 1], RESTORED_REV);
+          return { status: 0, stdout: 'false\nfalse\n' };
+        }
+        return { status: 0, stdout: 'false\nfalse\n' };
+      }
+      if (args[1] === 'revision' && args[2] === 'show') {
+        return { status: 0, stdout: JSON.stringify(state.revision) };
+      }
+      if (args[1] === 'replica') {
+        return { status: 0, stdout: JSON.stringify(state.replicas) };
+      }
+      if (args[1] === 'show') {
+        return { status: 0, stdout: JSON.stringify(state.app) };
+      }
+      return { status: 1, stdout: '' };
+    };
+
+    const missingAuth = await waitServingHealthy(azRun, {
+      enabled: true,
+      authorized: null,
+      now: () => 0,
+      sleep: async () => {},
+      timeoutMs: 10,
+      intervalMs: 5,
+    });
+    assert.equal(missingAuth, null);
+
+    let nowMs = 0;
+    phase = 'original';
+    const successorWait = await waitServingHealthy(azRun, {
+      enabled: true,
+      authorized: original,
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms;
+        if (phase === 'original') phase = 'switching';
+        else if (phase === 'switching') phase = 'enabled';
+      },
+      timeoutMs: 20,
+      intervalMs: 5,
+    });
+    assert.equal(successorWait.revision, ENABLED_REV);
+    assert.equal(successorWait.flagsSource, 'replica_process');
+    assert.equal(approvedReplicaFlagsExact(successorWait, true), true);
+    assert.equal(servingSuccessorAcceptable(original, successorWait), true);
+
+    nowMs = 0;
+    phase = 'enabled';
+    const restoredWait = await waitServingHealthy(azRun, {
+      enabled: false,
+      authorized: original,
+      now: () => nowMs,
+      sleep: async (ms) => {
+        nowMs += ms;
+        phase = 'restored';
+      },
+      timeoutMs: 20,
+      intervalMs: 5,
+    });
+    assert.equal(restoredWait.revision, RESTORED_REV);
+    assert.equal(restoredWait.flagsSource, 'replica_process');
+    assert.equal(approvedReplicaFlagsExact(restoredWait, false), true);
+    assert.equal(servingSuccessorAcceptable(original, restoredWait), true);
+
+    const executeOnceSrc = libSrc.slice(
+      libSrc.indexOf('async function executeOnce'),
+      libSrc.indexOf('async function runStaffOwnerProof'),
+    );
+    assert.match(executeOnceSrc, /waitServingHealthy\(\{ enabled: true, authorized: serving \}\)/);
+    assert.match(executeOnceSrc, /restoreSafe\(serving\)/);
+    assert.match(executeOnceSrc, /enabled_revision_unproven/);
+    const supervisorSrc = libSrc.slice(
+      libSrc.indexOf('function createProductionMailMvp004Supervisor'),
+      libSrc.indexOf('function inspectRepoReadiness'),
+    );
+    assert.match(supervisorSrc, /const authorized = input && input.authorized/);
+    assert.doesNotMatch(supervisorSrc, /const authorized = await readServing\(\)/);
+    assert.match(libSrc, /servingSuccessorAcceptable/);
+    assert.match(libSrc, /isLegalReplicaEnvRemoteCommand/);
+    assert.match(libSrc, /const REPLICA_ENV_PRINTENV = `\/usr\/bin\/printenv/);
+    assert.doesNotMatch(libSrc, /\/proc\/1\/environ/);
+    assert.match(runbook, /successor/);
+    assert.match(runbook, /printenv/);
+    assert.doesNotMatch(libSrc, /return `sh -c '/);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
