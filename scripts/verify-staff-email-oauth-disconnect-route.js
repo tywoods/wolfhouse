@@ -33,6 +33,12 @@ function main() {
   const routes = fs.readFileSync(path.join(__dirname, 'lib/staff-email-oauth-routes.js'), 'utf8');
   assert.match(routes, /handleDisconnect/);
   assert.match(routes, /createSunsetStagingEmailDisconnectRuntime/);
+  assert.match(routes, /tryRemoveRegisteredNotConnectedEndpoint/);
+  assert.match(routes, /registered-not-connected/);
+  const removeSrc = fs.readFileSync(path.join(__dirname, 'lib/email-registered-endpoint-remove.js'), 'utf8');
+  assert.match(removeSrc, /DELETE FROM tenant_channel_endpoints/);
+  assert.match(removeSrc, /gmail_api/);
+  assert.match(removeSrc, /microsoft_graph/);
   console.log('verify:staff-email-oauth-disconnect-route: ok');
 }
 

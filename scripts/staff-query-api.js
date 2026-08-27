@@ -233,7 +233,7 @@ const { createSunsetGoogleEndpointPrepare } = require('./lib/email-sunset-google
 const { createSunsetStagingGoogleOAuthComposition } = require('./lib/email-google-oauth-sunset-staging-runtime-composition');
 const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
 const {
-  createStaffGoogleOAuthProductionIntegration, GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH,
+  createStaffGoogleOAuthProductionIntegration, GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH, GOOGLE_DISCONNECT_PATH,
 } = require('./lib/staff-google-oauth-production-integration');
 const {
   createStaffEmailOAuthRoutes,
@@ -50381,7 +50381,7 @@ async function router(req, res) {
   }
 
   // Google OAuth adapter owns its single frozen gate snapshot before every effect.
-  if ([GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH].includes(pathname)) {
+  if ([GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH, GOOGLE_DISCONNECT_PATH].includes(pathname)) {
     const handled = await staffGoogleOAuth.dispatch(req,res,pathname);
     if (handled !== false) return handled;
   }

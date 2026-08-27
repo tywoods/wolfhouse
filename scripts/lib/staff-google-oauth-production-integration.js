@@ -52,7 +52,9 @@ const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy ==
 const GOOGLE_ENDPOINT_PATH='/staff/admin/email-settings/oauth/google/endpoint';
 const GOOGLE_START_PATH='/staff/admin/email-settings/oauth/google/start';
 const GOOGLE_CALLBACK_PATH='/staff/email/google/callback';
+const GOOGLE_DISCONNECT_PATH='/staff/admin/email-settings/oauth/google/disconnect';
 const FLAGS=objectFreeze({endpoint:'LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED',start:'LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED',callback:'LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED'});
+const DISCONNECT_FLAG='LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED';
 const JSON_LIMIT=10240;
 function own(o,k){try{const d=objectGetOwnPropertyDescriptor(o,k);return d&&objectHasOwn(d,'value')&&!d.get&&!d.set?d.value:undefined;}catch{return undefined;}}
 function isProxySurface(value){
@@ -107,6 +109,11 @@ function readRequestHeaders(req){
 }
 function snapshotGate(env){return objectFreeze({LUNA_DEPLOYMENT:own(env,'LUNA_DEPLOYMENT'),LUNA_EMAIL_GOOGLE_OAUTH_ENDPOINT_ENABLED:own(env,FLAGS.endpoint),LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED:own(env,FLAGS.start),LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED:own(env,FLAGS.callback)});}
 function isGoogleRouteEnabled(env,kind){return own(env,'LUNA_DEPLOYMENT')==='sunset-staging'&&own(env,FLAGS[kind])==='true';}
+function isGoogleDisconnectRouteEnabled(env){
+  return own(env,'LUNA_DEPLOYMENT')==='sunset-staging'
+    && own(env,'SUNSET_EMAIL_SETTINGS_UI_ENABLED')==='true'
+    && own(env,DISCONNECT_FLAG)==='true';
+}
 function frozenDto(entries){const dto={};for(const [key,value] of entries)objectDefineProperty(dto,key,{value,enumerable:true,writable:false,configurable:false});return objectFreeze(dto);}
 
 function parseStrictGoogleJson(contentType,raw,keys){
@@ -127,6 +134,28 @@ function createStaffGoogleOAuthProductionIntegration(deps){
   function json(res,status,body){return deps.sendJSON(res,status,body);}
   async function dispatch(req,res,pathname){
     const gate=snapshotGate(env);const method=own(req,'method');
+    // Registered-not-connected Remove shares the Microsoft disconnect gate (not Google start).
+    if(pathname===GOOGLE_DISCONNECT_PATH){
+      if(!isGoogleDisconnectRouteEnabled(env))return json(res,404,{success:false,error:'not_found'});
+      if(method!=='POST')return false;
+      const auth=await deps.requireAdmin(req,res);if(!auth||!auth.ok)return;
+      const user=auth.user;if(!deps.assertStaffClientAccess(user,'sunset',res))return;
+      const decision=deps.authorizeAuthenticatedStaffRoute({clientSlug:'sunset',method:'POST',pathname,env});if(!decision.ok)return json(res,decision.status||403,decision.body||{success:false,error:'forbidden'});
+      if(rejectExactPrototypeOwnConstructor(req))return json(res,400,{success:false,error:'invalid_request'});
+      let raw;try{raw=await deps.readBody(req,JSON_LIMIT);}catch{return json(res,400,{success:false,error:'invalid_request'});}
+      const body=parseStrictGoogleJson(own(readRequestHeaders(req)||{},'content-type'),raw,['location_id','endpoint_id']);if(!body)return json(res,400,{success:false,error:'invalid_request'});
+      try{
+        const disconnectEnv=objectFreeze({
+          LUNA_DEPLOYMENT:own(env,'LUNA_DEPLOYMENT'),
+          SUNSET_EMAIL_SETTINGS_UI_ENABLED:own(env,'SUNSET_EMAIL_SETTINGS_UI_ENABLED'),
+          LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED:own(env,DISCONNECT_FLAG),
+        });
+        const routes=typeof deps.createGoogleRoutes==='function'
+          ? deps.createGoogleRoutes(gate)
+          : deps.googleRoutes;
+        return await routes.handleDisconnect(body,req,res,user,disconnectEnv);
+      }catch{return json(res,503,{success:false,error:'oauth_disconnect_unavailable'});}
+    }
     let kind=null;if(pathname===GOOGLE_ENDPOINT_PATH)kind='endpoint';else if(pathname===GOOGLE_START_PATH)kind='start';else if(pathname===GOOGLE_CALLBACK_PATH)kind='callback';else return false;
     if(!isGoogleRouteEnabled(gate,kind))return kind==='callback'?deps.sendHTML(res,404,'<!doctype html><title>Not found</title>'):json(res,404,{success:false,error:'not_found'});
     if((kind==='callback'&&method!=='GET')||(kind!=='callback'&&method!=='POST'))return false;
@@ -150,4 +179,4 @@ function createStaffGoogleOAuthProductionIntegration(deps){
   }
   return objectFreeze({dispatch});
 }
-module.exports=objectFreeze({GOOGLE_ENDPOINT_PATH,GOOGLE_START_PATH,GOOGLE_CALLBACK_PATH,FLAGS,JSON_LIMIT,snapshotGate,isGoogleRouteEnabled,parseStrictGoogleJson,createStaffGoogleOAuthProductionIntegration});
+module.exports=objectFreeze({GOOGLE_ENDPOINT_PATH,GOOGLE_START_PATH,GOOGLE_CALLBACK_PATH,GOOGLE_DISCONNECT_PATH,FLAGS,DISCONNECT_FLAG,JSON_LIMIT,snapshotGate,isGoogleRouteEnabled,isGoogleDisconnectRouteEnabled,parseStrictGoogleJson,createStaffGoogleOAuthProductionIntegration});
