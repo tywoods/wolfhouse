@@ -72,6 +72,10 @@ const {
   wrapPtyAzExec,
   spawnPtyHarness,
   classifyStaffOwnerExecResult,
+  parseExactProductionGraphInnerExec,
+  extractExactlyOneProofJson,
+  closedGraphInnerDto,
+  graphInnerExecStdoutOk,
   remoteExecTransportFailed,
   AZ_DEFAULT,
   PTY_BIN,
@@ -1639,6 +1643,8 @@ async function main() {
     );
     const runCliSrc = libSrc.slice(libSrc.indexOf('async function runCli'));
     assert.match(supervisorSrc, /execInner\(\{ graphVerify: true \}\)/);
+    assert.match(supervisorSrc, /parseExactProductionGraphInnerExec\(executed\)/);
+    assert.doesNotMatch(supervisorSrc, /sanitizeGraphPublic\(executed\.inner\)/);
     assert.match(supervisorSrc, /execInner\(\{\s*snapshot:\s*'evidence'\s*\}\)/);
     assert.match(supervisorSrc, /execInner\(\{ killSwitchProbe: true \}\)/);
     assert.match(supervisorSrc, /executed\.status !== 0/);
@@ -1899,6 +1905,8 @@ async function main() {
     assert.equal(Object.prototype.hasOwnProperty.call(clonedUnbranded, 'token_present'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(clonedUnbranded, 'https_present'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(clonedUnbranded, 'request_built'), false);
+    assert.equal(parseExactProductionGraphInnerExec(JSON.parse(JSON.stringify(innerGraph.public))).reason, 'graph_adapter_unwired');
+    assert.equal(parseExactProductionGraphInnerExec(JSON.parse(JSON.stringify(innerGraph.public))).adapter_available, false);
 
     const innerUnwired = await runInnerGraphVerify({
       env: {
@@ -3635,6 +3643,7 @@ exit 0
     assert.match(libSrc, /Never impersonate a Microsoft send/);
     assert.match(cliSrc, /console\.log\(JSON\.stringify\(emitPublic\(result\)\)\)/);
     assert.match(cliSrc, /sanitizeGraphPublic/);
+    assert.match(cliSrc, /graphInnerExecStdoutOk/);
     assert.match(cliSrc, /MAIL_MVP_004_GRAPH_VERIFY === '1'/);
     const evidencePublicSrc = libSrc.slice(
       libSrc.indexOf('function evidencePublic'),
@@ -4060,6 +4069,22 @@ Module._load = function(request, parent, isMain) {
     assertNoInnerLeak(graphSpawn.stdout);
     assert.doesNotMatch(`${graphSpawn.stdout}${graphSpawn.stderr}`, /loan-token|Bearer |access_token|grant_generation|token_length/);
 
+    const graphUnprovenSpawn = spawnProofCli({
+      MAIL_MVP_004_GRAPH_VERIFY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { threadRows: [thread], graphMessages: [] });
+    assert.equal(graphUnprovenSpawn.status, 0, `${graphUnprovenSpawn.stdout}${graphUnprovenSpawn.stderr}`);
+    const graphUnprovenOut = extractProofJson(`${graphUnprovenSpawn.stdout}${graphUnprovenSpawn.stderr}`);
+    assert.equal(graphUnprovenOut.ok, false);
+    assert.equal(graphUnprovenOut.reason, 'graph_unproven');
+    assert.equal(graphUnprovenOut.adapter_available, true);
+    assert.equal(graphUnprovenOut.readonly, true);
+    assert.equal(graphUnprovenOut.token_present, true);
+    assert.equal(graphUnprovenOut.https_present, true);
+    assert.equal(graphUnprovenOut.request_built, true);
+    assert.equal(graphInnerExecStdoutOk(graphUnprovenOut), true);
+    assertNoInnerLeak(graphUnprovenSpawn.stdout);
+
     const graphBlankSpawn = spawnProofCli({
       MAIL_MVP_004_GRAPH_VERIFY: '1',
       LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
@@ -4188,6 +4213,179 @@ Module._load = function(request, parent, isMain) {
     assert.equal(recOut.approvals, 0);
     assert.notEqual(recOut.status, 'sent');
     assertNoInnerLeak(recSpawn.stdout + recSpawn.stderr);
+  }
+
+  console.log('[22] Hostile: host Graph exact exec parser rebrands closed inner DTO only');
+  {
+    const exactInner = {
+      ok: false,
+      reason: 'graph_unproven',
+      adapter_available: true,
+      readonly: true,
+      arrivals: 0,
+      duplicates: 0,
+      threaded: false,
+      subject_ok: false,
+      token_present: true,
+      https_present: true,
+      request_built: true,
+    };
+    const exactStdout = `${JSON.stringify(exactInner)}\n`;
+    const classifiedExact = classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: exactStdout,
+      stderr: '',
+    });
+    const currentOuter = sanitizeGraphPublic(classifiedExact.inner);
+    assert.equal(currentOuter.reason, 'graph_unproven');
+    assert.equal(Object.prototype.hasOwnProperty.call(currentOuter, 'token_present'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(currentOuter, 'https_present'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(currentOuter, 'request_built'), false);
+
+    const injectedExecuted = {
+      status: 0,
+      transportFailed: false,
+      inner: JSON.parse(exactStdout),
+      out: exactStdout,
+    };
+    const redInjected = parseExactProductionGraphInnerExec(injectedExecuted);
+    assert.equal(redInjected.reason, 'graph_adapter_unwired');
+    assert.equal(redInjected.adapter_available, false);
+    assert.equal(redInjected.readonly, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(redInjected, 'token_present'), false);
+
+    const clonedClassified = JSON.parse(JSON.stringify(classifiedExact));
+    const redClone = parseExactProductionGraphInnerExec(clonedClassified);
+    assert.equal(redClone.reason, 'graph_adapter_unwired');
+    assert.equal(redClone.adapter_available, false);
+    assert.equal(redClone.readonly, false);
+
+    const green = parseExactProductionGraphInnerExec(classifiedExact);
+    assert.equal(green.ok, false);
+    assert.equal(green.reason, 'graph_unproven');
+    assert.equal(green.adapter_available, true);
+    assert.equal(green.readonly, true);
+    assert.equal(green.token_present, true);
+    assert.equal(green.https_present, true);
+    assert.equal(green.request_built, true);
+    assert.equal(closedGraphInnerDto(exactInner).fields.reason, 'graph_unproven');
+    assert.equal(extractExactlyOneProofJson(exactStdout).reason, 'graph_unproven');
+    assert.equal(graphInnerExecStdoutOk(exactInner), true);
+    assert.doesNotMatch(JSON.stringify(green), /loan-token|Bearer |access_token|grant_generation/);
+
+    const authInner = {
+      ...exactInner,
+      reason: 'graph_auth_unproven',
+    };
+    const authGreen = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify(authInner)}\n`,
+    }));
+    assert.equal(authGreen.reason, 'graph_auth_unproven');
+    assert.equal(authGreen.adapter_available, true);
+    assert.equal(authGreen.readonly, true);
+
+    const bodyInner = {
+      ...exactInner,
+      reason: 'graph_body_leaked',
+    };
+    const bodyGreen = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify(bodyInner)}\n`,
+    }));
+    assert.equal(bodyGreen.reason, 'graph_body_leaked');
+    assert.equal(bodyGreen.adapter_available, true);
+    assert.equal(bodyGreen.readonly, true);
+
+    const sendInner = {
+      ...exactInner,
+      reason: 'graph_send_forbidden',
+      adapter_available: false,
+      readonly: false,
+      token_present: true,
+      https_present: false,
+      request_built: false,
+    };
+    const sendGreen = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify(sendInner)}\n`,
+    }));
+    assert.equal(sendGreen.reason, 'graph_send_forbidden');
+    assert.equal(sendGreen.adapter_available, false);
+    assert.equal(sendGreen.readonly, false);
+
+    const malformed = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: '{"ok":false,"reason":"graph_unproven"',
+    }));
+    assert.equal(malformed.reason, 'graph_adapter_unwired');
+    assert.equal(malformed.adapter_available, false);
+
+    const multiple = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify(exactInner)}\n${JSON.stringify(exactInner)}\n`,
+    }));
+    assert.equal(multiple.reason, 'graph_adapter_unwired');
+    assert.equal(multiple.adapter_available, false);
+    assert.equal(extractExactlyOneProofJson(`${JSON.stringify(exactInner)}\n${JSON.stringify(exactInner)}\n`), null);
+
+    const nonzero = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 1,
+      stdout: exactStdout,
+    }));
+    assert.equal(nonzero.reason, 'graph_adapter_unwired');
+    assert.equal(nonzero.adapter_available, false);
+    assert.equal(nonzero.readonly, false);
+
+    const clusterFail = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: exactStdout,
+      stderr: 'ClusterExecFailure: command terminated with non-zero exit code: error executing command\n',
+    }));
+    assert.equal(clusterFail.reason, 'graph_adapter_unwired');
+    assert.equal(clusterFail.adapter_available, false);
+    assert.equal(clusterFail.readonly, false);
+
+    const unexpectedKey = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify({ ...exactInner, planted: true })}\n`,
+    }));
+    assert.equal(unexpectedKey.reason, 'graph_adapter_unwired');
+    assert.equal(closedGraphInnerDto({ ...exactInner, planted: true }), null);
+
+    const unexpectedType = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify({ ...exactInner, adapter_available: 1 })}\n`,
+    }));
+    assert.equal(unexpectedType.reason, 'graph_adapter_unwired');
+
+    const unexpectedReason = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify({ ...exactInner, reason: 'graph_ok' })}\n`,
+    }));
+    assert.equal(unexpectedReason.reason, 'graph_adapter_unwired');
+
+    const bitsWithoutAdapter = parseExactProductionGraphInnerExec(classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify({
+        ...exactInner,
+        adapter_available: false,
+        readonly: false,
+      })}\n`,
+    }));
+    assert.equal(bitsWithoutAdapter.reason, 'graph_adapter_unwired');
+    assert.equal(bitsWithoutAdapter.adapter_available, false);
+
+    const supervisor = createProductionMailMvp004Supervisor({
+      env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
+      azRun: async () => ({ status: 1, stdout: '' }),
+      withPgClient: async () => ({ rows: [] }),
+    });
+    assert.equal(typeof supervisor.verifyGraphArrival, 'function');
+    const unwiredServing = await supervisor.verifyGraphArrival();
+    assert.equal(unwiredServing.reason, 'graph_adapter_unwired');
+    assert.equal(unwiredServing.adapter_available, false);
+    assert.equal(unwiredServing.readonly, false);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
