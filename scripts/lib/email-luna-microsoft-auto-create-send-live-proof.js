@@ -38,6 +38,17 @@ const {
   sanitizeSelectedOperationEvidence,
 } = require('./staff-email-luna-draft-open');
 const { ENV_HMAC_SECRET } = require('./email-luna-sunset-email-hermes-sol-activation');
+const {
+  createDelegatedGrantAccessSession,
+} = require('./email-delegated-grant-access-session');
+const {
+  createSunsetMicrosoftOAuthClientSecretProvider,
+} = require('./sunset-microsoft-oauth-provider');
+const {
+  createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition,
+} = require('./email-grant-envelope-azure-kv-sunset-staging-runtime-composition');
+const { validateEmailGrantEnvelopeProvider } = require('./email-grant-envelope-provider-contract');
+const { createMicrosoftTokenHttpTransport } = require('./email-microsoft-token-http-transport');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -94,6 +105,7 @@ const GRAPH_LIST_SELECT = freeze([
   'internetMessageHeaders',
 ]);
 const GRAPH_LIST_FORBIDDEN_SELECT = freeze(['body', 'bodyPreview', 'uniqueBody']);
+const GRAPH_VERIFY_WORKER_ID = 'mail-mvp-004-graph-verify';
 const INNER_MODE_KILL_SWITCH = 'MAIL_MVP_004_KILL_SWITCH_PROBE';
 const INNER_MODE_SNAPSHOT = 'MAIL_MVP_004_SNAPSHOT';
 const INNER_MODE_GRAPH_VERIFY = 'MAIL_MVP_004_GRAPH_VERIFY';
@@ -138,6 +150,7 @@ SELECT cl.id::text AS client_id, cl.slug AS client_slug,
   ev.provider_message_id AS provider_source_message_id,
   ev.sender_address, ev.sender_display_name, ev.subject,
   ev.conversation_id AS graph_conversation_id,
+  ev.internet_message_id AS inbound_internet_message_id,
   c.needs_human AS needs_human, c.status AS conversation_status,
   c.guest_id::text AS guest_id
 FROM clients cl
@@ -655,6 +668,156 @@ function leftoverFromDurableEvidence(evidence) {
   if (!evidence || typeof evidence !== 'object' || isProxy(evidence)) return true;
   const text = ownData(evidence, 'message_text') || evidence.message_text;
   return isLeftoverGenericDraft(text);
+}
+
+function replicaLeftover(evidence) {
+  if (!evidence || typeof evidence !== 'object' || isProxy(evidence)) return true;
+  if (evidence.leftover === true) return true;
+  if (evidence.leftover === false) return false;
+  if (typeof (ownData(evidence, 'message_text') || evidence.message_text) === 'string') {
+    return leftoverFromDurableEvidence(evidence);
+  }
+  return true;
+}
+
+function replicaSolProven(evidence) {
+  if (!evidence || typeof evidence !== 'object' || isProxy(evidence)) return false;
+  if (evidence.evidence_verified !== true) return false;
+  return !!snapshotSolMarker(evidence.marker || evidence);
+}
+
+function replicaEvidenceCapabilityAvailable(evidence) {
+  if (!evidence || typeof evidence !== 'object' || isProxy(evidence)) return false;
+  return evidence.hmac_available === true;
+}
+
+function replicaGraphAdapterAvailable(probe) {
+  if (!probe || typeof probe !== 'object' || isProxy(probe)) return false;
+  return probe.adapter_available === true && probe.readonly === true;
+}
+
+function headerCites(headerValue, cited) {
+  if (typeof headerValue !== 'string' || typeof cited !== 'string' || !cited) return false;
+  if (headerValue === cited) return true;
+  const parts = headerValue.split(/\s+/).map((part) => part.trim()).filter(Boolean);
+  return parts.includes(cited);
+}
+
+function sanitizeGraphPublic(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) {
+    return freeze({
+      ok: false,
+      reason: 'graph_adapter_unwired',
+      adapter_available: false,
+      readonly: false,
+      arrivals: 0,
+      duplicates: 0,
+      threaded: false,
+      subject_ok: false,
+    });
+  }
+  const arrivals = Number.isSafeInteger(result.arrivals) ? result.arrivals : 0;
+  const duplicates = Number.isSafeInteger(result.duplicates) ? result.duplicates : 0;
+  const ok = result.ok === true;
+  return freeze({
+    ok,
+    reason: ok === true ? null : (result.reason || 'graph_unproven'),
+    adapter_available: result.adapter_available === true,
+    readonly: result.readonly === true,
+    arrivals,
+    duplicates,
+    threaded: result.threaded === true,
+    subject_ok: result.subject_ok === true,
+  });
+}
+
+function sanitizeReplicaEvidenceSnapshot(loaded, secret) {
+  if (typeof secret !== 'string' || !secret || secret.trim() !== secret) {
+    return freeze({
+      ok: false,
+      reason: 'hmac_unwired',
+      hmac_available: false,
+      evidence_verified: false,
+      leftover: false,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+    });
+  }
+  if (!loaded || typeof loaded !== 'object' || isProxy(loaded)) {
+    return freeze({
+      ok: false,
+      reason: 'snapshot_unproven',
+      hmac_available: true,
+      evidence_verified: false,
+      leftover: false,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+    });
+  }
+  const approvals = Number.isSafeInteger(loaded.approvals) ? loaded.approvals : (
+    loaded.message_text ? 1 : 0
+  );
+  const journals = Number.isSafeInteger(loaded.journals) ? loaded.journals : (
+    loaded.immutable_draft_id ? 1 : 0
+  );
+  const sends = Number.isSafeInteger(loaded.provider_sends)
+    ? loaded.provider_sends
+    : (Number.isSafeInteger(loaded.send_invocation_count) ? loaded.send_invocation_count : 0);
+  if (!loaded.message_text && (approvals === 0 || loaded.duplicate_unreconciled === true)) {
+    return freeze({
+      ok: true,
+      hmac_available: true,
+      evidence_verified: false,
+      leftover: false,
+      approvals,
+      journals: Number.isSafeInteger(journals) ? journals : 0,
+      provider_sends: sends,
+      duplicate_unreconciled: loaded.duplicate_unreconciled === true,
+    });
+  }
+  const expected = freeze({
+    client_id: loaded.client_id,
+    location_id: loaded.location_id,
+    conversation_id: loaded.conversation_id,
+    source_inbound_event_id: loaded.source_inbound_event_id,
+  });
+  const provenance = snapshotTrustedProvenance(
+    loaded.draft_meta || loaded.provenance,
+    expected,
+    secret,
+    loaded.message_text,
+  );
+  const leftover = leftoverFromDurableEvidence(loaded) === true;
+  if (!provenance || !snapshotSolMarker(provenance.marker || provenance)) {
+    return freeze({
+      ok: false,
+      reason: 'sol_unproven',
+      hmac_available: true,
+      evidence_verified: false,
+      leftover,
+      approvals,
+      journals: Number.isSafeInteger(journals) ? journals : 0,
+      provider_sends: sends,
+    });
+  }
+  const marker = snapshotSolMarker(provenance.marker || provenance);
+  return freeze({
+    ok: true,
+    hmac_available: true,
+    evidence_verified: true,
+    leftover,
+    hmac_kind: provenance.hmac_kind,
+    marker,
+    sol_provider: marker.provider,
+    sol_model: marker.model,
+    sol_runtime: marker.runtime,
+    approvals,
+    journals: Number.isSafeInteger(journals) ? journals : 0,
+    provider_sends: sends,
+    immutable_draft_id: loaded.immutable_draft_id || null,
+  });
 }
 
 function exactReconciledCounts(snapshot) {
@@ -1226,6 +1389,10 @@ async function loadSelectedOperationEvidence(withPgClient, row, secret) {
       draft_meta: null,
       provenance: null,
       immutable_draft_id: null,
+      client_id: clientId,
+      location_id: locationId,
+      conversation_id: conversationId,
+      source_inbound_event_id: inboundId,
     });
   }
   if (rows.length !== 1) {
@@ -1237,6 +1404,10 @@ async function loadSelectedOperationEvidence(withPgClient, row, secret) {
       draft_meta: null,
       provenance: null,
       duplicate_unreconciled: true,
+      client_id: clientId,
+      location_id: locationId,
+      conversation_id: conversationId,
+      source_inbound_event_id: inboundId,
     });
   }
   const ev = rows[0];
@@ -1271,6 +1442,13 @@ async function loadSelectedOperationEvidence(withPgClient, row, secret) {
     draft_meta: draftMeta,
     provenance,
     send_invocation_count: Number.isSafeInteger(sends) ? sends : 0,
+    approvals: 1,
+    journals: ownData(ev, 'immutable_draft_id') || ev.immutable_draft_id ? 1 : 0,
+    provider_sends: Number.isSafeInteger(sends) ? sends : 0,
+    client_id: clientId,
+    location_id: locationId,
+    conversation_id: conversationId,
+    source_inbound_event_id: inboundId,
   });
 }
 
@@ -1406,6 +1584,27 @@ function createMailMvp004LiveProof(deps) {
       return refusedRecord((beforeOnKill && beforeOnKill.reason) || 'kill_switch_unproven');
     }
 
+    const graphProbe = typeof deps.verifyGraphArrival === 'function'
+      ? await deps.verifyGraphArrival({
+        probe: true,
+        provider_source_message_id: pre.provider_source_message_id,
+        graph_conversation_id: pre.graph_conversation_id,
+        provider_mailbox_id: pre.provider_mailbox_id,
+        inbound_internet_message_id: pre.inbound_internet_message_id,
+        subject: PROOF_SUBJECT,
+      })
+      : null;
+    if (!replicaGraphAdapterAvailable(graphProbe)) {
+      return refusedRecord((graphProbe && graphProbe.reason) || 'graph_adapter_unwired');
+    }
+
+    const evidenceProbe = typeof deps.readDurableEvidence === 'function'
+      ? await deps.readDurableEvidence()
+      : null;
+    if (!replicaEvidenceCapabilityAvailable(evidenceProbe)) {
+      return refusedRecord((evidenceProbe && evidenceProbe.reason) || 'hmac_unwired');
+    }
+
     const modeSnapshot = typeof deps.getEmailChannelMode === 'function'
       ? await deps.getEmailChannelMode()
       : 'draft';
@@ -1487,29 +1686,11 @@ function createMailMvp004LiveProof(deps) {
         const durable = typeof deps.readDurableEvidence === 'function'
           ? await deps.readDurableEvidence()
           : (ownerResult && ownerResult.durable_evidence) || null;
-        if (!failedReason && leftoverFromDurableEvidence(durable)) {
+        if (!failedReason && replicaLeftover(durable)) {
           failedReason = 'leftover_generic_draft';
         }
-        if (!failedReason) {
-          const hmacSecret = envOwn((input && input.env) || {}, ENV_HMAC_SECRET);
-          const provenance = snapshotTrustedProvenance(
-            durable && (durable.draft_meta || durable.provenance || durable),
-            {
-              client_id: pre.client_id,
-              location_id: pre.location_id,
-              conversation_id: pre.conversation_id,
-              source_inbound_event_id: pre.inbound_message_id,
-            },
-            hmacSecret,
-            durable && durable.message_text,
-          ) || (durable && durable.provenance && durable.provenance.evidence_mac
-            && snapshotSolMarker(durable.provenance.marker || durable.provenance)
-            ? durable.provenance
-            : null);
-          if (!provenance || !provenance.evidence_mac
-              || !snapshotSolMarker(provenance.marker || provenance)) {
-            failedReason = 'sol_unproven';
-          }
+        if (!failedReason && !replicaSolProven(durable)) {
+          failedReason = 'sol_unproven';
         }
         if (!failedReason) {
           after = after || await deps.snapshotOperation();
@@ -2027,14 +2208,14 @@ function parseGraphListMessages(raw) {
     }
     const headers = ownData(row, 'internetMessageHeaders') || row.internetMessageHeaders;
     let inReplyTo = null;
+    let references = null;
     if (Array.isArray(headers)) {
       for (const header of headers) {
         if (!header || typeof header !== 'object') continue;
-        const name = ownData(header, 'name') || header.name;
-        if (String(name || '').toLowerCase() === 'in-reply-to') {
-          inReplyTo = ownData(header, 'value') || header.value;
-          break;
-        }
+        const name = String(ownData(header, 'name') || header.name || '').toLowerCase();
+        const value = ownData(header, 'value') || header.value;
+        if (name === 'in-reply-to' && typeof value === 'string') inReplyTo = value;
+        if (name === 'references' && typeof value === 'string') references = value;
       }
     }
     messages.push(freeze({
@@ -2043,6 +2224,7 @@ function parseGraphListMessages(raw) {
       internetMessageId: ownData(row, 'internetMessageId') || row.internetMessageId,
       subject: ownData(row, 'subject') || row.subject,
       inReplyTo: typeof inReplyTo === 'string' ? inReplyTo : null,
+      references: typeof references === 'string' ? references : null,
     }));
   }
   return freeze({ ok: true, messages: freeze(messages) });
@@ -2054,7 +2236,7 @@ function httpsGraphGet(httpsImpl, token, request) {
       reject(new Error('graph_adapter_unwired'));
       return;
     }
-    if (request.method !== 'GET') {
+    if (request.method !== 'GET' || /\/send(Mail)?\b/i.test(String(request.path || ''))) {
       reject(new Error('graph_send_forbidden'));
       return;
     }
@@ -2091,6 +2273,7 @@ function classifyGraphArrival(messages, expected) {
   if (!Array.isArray(messages)) return freeze({ ok: false, reason: 'graph_unproven', arrivals: 0, duplicates: 0, threaded: false });
   const expectedThread = expected && expected.graph_conversation_id;
   const sourceId = expected && expected.provider_source_message_id;
+  const inboundInternet = expected && expected.inbound_internet_message_id;
   const draftId = expected && expected.immutable_draft_id;
   let arrivals = 0;
   let duplicates = 0;
@@ -2101,7 +2284,8 @@ function classifyGraphArrival(messages, expected) {
     const id = ownData(row, 'id') || row.id;
     const conversationId = ownData(row, 'conversationId') || row.conversationId || row.graph_conversation_id;
     const subject = ownData(row, 'subject') || row.subject;
-    const inReplyTo = ownData(row, 'inReplyTo') || row.inReplyTo || ownData(row, 'internetMessageId') || row.internetMessageId;
+    const inReplyTo = ownData(row, 'inReplyTo') || row.inReplyTo;
+    const references = ownData(row, 'references') || row.references;
     if (typeof (ownData(row, 'body') || row.body) === 'string') {
       return freeze({ ok: false, reason: 'graph_body_leaked', arrivals: 0, duplicates: 0, threaded: false });
     }
@@ -2109,9 +2293,15 @@ function classifyGraphArrival(messages, expected) {
         || /@/.test(String(ownData(row, 'sender') || row.sender || ''))) {
       return freeze({ ok: false, reason: 'graph_pii_leaked', arrivals: 0, duplicates: 0, threaded: false });
     }
+    if (sourceId && id === sourceId) continue;
     const subjectOk = isProofSubject(subject);
     const threadOk = expectedThread ? conversationId === expectedThread : subjectOk;
-    const replyOk = !sourceId || inReplyTo === sourceId || id === draftId || row.provider_message_id === draftId;
+    const replyOk = headerCites(inReplyTo, sourceId)
+      || headerCites(inReplyTo, inboundInternet)
+      || headerCites(references, sourceId)
+      || headerCites(references, inboundInternet)
+      || (draftId && (id === draftId || row.provider_message_id === draftId))
+      || (!sourceId && !inboundInternet && !draftId);
     if (!subjectOk || !threadOk || !replyOk) continue;
     if (typeof id === 'string' && seen.has(id)) {
       duplicates += 1;
@@ -2186,13 +2376,15 @@ function createProductionReadonlyGraphListAdapter(deps) {
   const httpsImpl = (deps && deps.https) || require('node:https');
   const getAccessToken = deps && deps.getAccessToken;
   if (typeof getAccessToken !== 'function') {
-    const verify = brandProductionGraphVerifier(async () => freeze({
+    const verify = async () => sanitizeGraphPublic({
       ok: false,
       reason: 'graph_adapter_unwired',
+      adapter_available: false,
+      readonly: false,
       arrivals: 0,
       duplicates: 0,
       threaded: false,
-    }));
+    });
     return freeze({ verifyGraphArrival: verify, unwired: true });
   }
   return createProductionGraphArrivalVerifier({
@@ -2570,7 +2762,8 @@ async function runInnerSnapshot(input) {
       return snapshotSelectedOperation(withPgClient, row);
     }
     if (kind === 'evidence') {
-      return loadSelectedOperationEvidence(withPgClient, row, envOwn(env, ENV_HMAC_SECRET));
+      const loaded = await loadSelectedOperationEvidence(withPgClient, row, envOwn(env, ENV_HMAC_SECRET));
+      return sanitizeReplicaEvidenceSnapshot(loaded, envOwn(env, ENV_HMAC_SECRET));
     }
     if (kind === 'mode') {
       const store = createEmailInboxChannelModeStore({ withPgClient });
@@ -2578,6 +2771,207 @@ async function runInnerSnapshot(input) {
       return freeze({ ok: true, channel_mode: mode });
     }
     return refusedRecord('snapshot_unproven');
+  } finally {
+    if (pg && typeof pg.closePgPool === 'function') await pg.closePgPool();
+  }
+}
+
+function createProductionStaffMailboxTokenLoan(deps) {
+  try {
+    const env = deps && deps.env;
+    const client = deps && deps.client;
+    if (envOwn(env, 'LUNA_DEPLOYMENT') !== SUNSET_DEPLOYMENT) return null;
+    const appId = envOwn(env, 'LUNA_EMAIL_OAUTH_CLIENT_ID');
+    if (typeof appId !== 'string' || !UUID.test(appId)) return null;
+    if (!client || typeof client.query !== 'function') return null;
+    if (typeof client.connect === 'function'
+        && (typeof client.totalCount === 'number' || typeof client.idleCount === 'number')) {
+      return null;
+    }
+    const composition = createEmailGrantEnvelopeAzureKvSunsetStagingRuntimeComposition(env);
+    if (!composition || composition.ok !== true || !composition.provider) return null;
+    const prov = validateEmailGrantEnvelopeProvider(composition.provider);
+    if (!prov.ok) return null;
+    const httpsImpl = (deps && deps.https) || require('node:https');
+    const timers = (deps && deps.timers) || { setTimeout, clearTimeout };
+    const tokenTransport = createMicrosoftTokenHttpTransport(freeze({
+      httpsImpl,
+      timers,
+    }));
+    return createDelegatedGrantAccessSession(freeze({
+      deployment: SUNSET_DEPLOYMENT,
+      applicationClientId: appId.toLowerCase(),
+      client,
+      envelopeProvider: prov.value,
+      secretProvider: createSunsetMicrosoftOAuthClientSecretProvider(freeze({
+        deployment: SUNSET_DEPLOYMENT,
+        env,
+      })),
+      transport: tokenTransport,
+      workerId: GRAPH_VERIFY_WORKER_ID,
+    }));
+  } catch {
+    return null;
+  }
+}
+
+async function runInnerGraphVerify(input) {
+  const env = (input && input.env) || process.env;
+  if (envOwn(env, INNER_MODE_GRAPH_VERIFY) !== '1') {
+    return sanitizeGraphPublic({
+      ok: false,
+      reason: 'graph_adapter_unwired',
+      adapter_available: false,
+      readonly: false,
+    });
+  }
+  const injectedLoan = input && input.tokenLoan
+    && typeof input.tokenLoan.runWithAccessTokenOnce === 'function'
+    ? input.tokenLoan
+    : null;
+  const httpsImpl = (input && input.https) || require('node:https');
+  const injected = input && typeof input.withPgClient === 'function';
+  let pg = null;
+  let withPgClient;
+  if (injected) {
+    withPgClient = input.withPgClient;
+  } else {
+    try {
+      pg = createProductionStaffPgAdapter();
+      withPgClient = pg.withPgClient;
+    } catch {
+      return sanitizeGraphPublic({
+        ok: false,
+        reason: 'graph_adapter_unwired',
+        adapter_available: false,
+        readonly: false,
+      });
+    }
+  }
+  try {
+    return await withPgClient(async (client) => {
+      const loaded = await client.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]);
+      const selected = selectProofThread(loaded && loaded.rows);
+      if (!selected.ok) {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: selected.reason,
+          adapter_available: false,
+          readonly: false,
+        });
+      }
+      const row = selected.row;
+      const clientId = uuid(row.client_id);
+      const endpointId = uuid(row.endpoint_id);
+      if (!clientId || !endpointId) {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: 'graph_adapter_unwired',
+          adapter_available: false,
+          readonly: false,
+        });
+      }
+      const session = injectedLoan || createProductionStaffMailboxTokenLoan({
+        env,
+        client,
+        https: httpsImpl,
+        timers: (input && input.timers) || { setTimeout, clearTimeout },
+      });
+      if (!session || typeof session.runWithAccessTokenOnce !== 'function') {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: 'graph_adapter_unwired',
+          adapter_available: false,
+          readonly: false,
+        });
+      }
+      const scopedPg = async (fn) => fn(client);
+      let evidence = null;
+      try {
+        evidence = await loadSelectedOperationEvidence(scopedPg, row, null);
+      } catch {
+        evidence = null;
+      }
+      let sessionOut;
+      try {
+        sessionOut = await session.runWithAccessTokenOnce(
+          freeze({ clientId, endpointId }),
+          async (loan) => {
+            const token = loan && typeof loan.accessToken === 'string' ? loan.accessToken : '';
+            if (!token) {
+              return freeze({ ok: false, reason: 'graph_adapter_unwired', messages: [] });
+            }
+            const request = buildReadonlyGraphListRequest({
+              provider_mailbox_id: row.provider_mailbox_id,
+              graph_conversation_id: row.graph_conversation_id,
+              forbid_send: true,
+              forbid_body: true,
+              select: GRAPH_LIST_SELECT.slice(),
+            });
+            if (!request || request.method !== 'GET') {
+              return freeze({ ok: false, reason: 'graph_send_forbidden', messages: [] });
+            }
+            const raw = await httpsGraphGet(httpsImpl, token, request);
+            return parseGraphListMessages(raw);
+          },
+        );
+      } catch {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: 'graph_adapter_unwired',
+          adapter_available: false,
+          readonly: false,
+        });
+      }
+      if (!sessionOut || sessionOut.ok !== true) {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: 'graph_adapter_unwired',
+          adapter_available: false,
+          readonly: false,
+        });
+      }
+      const listed = sessionOut.value;
+      if (listed && listed.reason === 'graph_body_leaked') {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: 'graph_body_leaked',
+          adapter_available: true,
+          readonly: true,
+        });
+      }
+      if (listed && listed.ok === false && listed.reason === 'graph_adapter_unwired') {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: 'graph_adapter_unwired',
+          adapter_available: false,
+          readonly: false,
+        });
+      }
+      if (listed && listed.ok === false && listed.reason === 'graph_send_forbidden') {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: 'graph_send_forbidden',
+          adapter_available: false,
+          readonly: false,
+        });
+      }
+      const classified = classifyGraphArrival(
+        listed && listed.messages ? listed.messages : listed,
+        {
+          graph_conversation_id: row.graph_conversation_id,
+          provider_source_message_id: row.provider_source_message_id,
+          inbound_internet_message_id: row.inbound_internet_message_id,
+          immutable_draft_id: evidence && evidence.immutable_draft_id,
+          provider_mailbox_id: row.provider_mailbox_id,
+        },
+      );
+      return sanitizeGraphPublic({
+        ...classified,
+        adapter_available: true,
+        readonly: true,
+      });
+    });
   } finally {
     if (pg && typeof pg.closePgPool === 'function') await pg.closePgPool();
   }
@@ -2608,14 +3002,6 @@ function createProductionMailMvp004Supervisor(options) {
   const withPgClient = pgAdapter.withPgClient;
   const sleep = options && options.sleep;
   const now = options && options.now;
-  const graph = (options && options.graphVerifier
-      && isProductionGraphVerifier(options.graphVerifier.verifyGraphArrival
-        || options.graphVerifier))
-    ? options.graphVerifier
-    : createProductionReadonlyGraphListAdapter({
-      https: (options && options.https) || require('node:https'),
-      getAccessToken: options && options.getAccessToken,
-    });
 
   async function readServing() {
     return readProductionServingIdentity(azRun);
@@ -2647,7 +3033,8 @@ function createProductionMailMvp004Supervisor(options) {
     const out = `${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`;
     const marked = out.includes(MUTATION_ISSUED_MARKER);
     const inner = extractProofJson(out);
-    return freeze({ execResult, marked, inner, out });
+    const status = execResult && Number.isSafeInteger(execResult.status) ? execResult.status : 1;
+    return freeze({ execResult, marked, inner, out, status });
   }
 
   const supervisor = createMailMvp004LiveProof({
@@ -2761,67 +3148,56 @@ function createProductionMailMvp004Supervisor(options) {
       return snapshotSelectedOperation(withPgClient, selected.row);
     },
     async readDurableEvidence() {
-      const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
-      const selected = selectProofThread(loaded && loaded.rows);
-      if (!selected.ok) return null;
-      return loadSelectedOperationEvidence(
-        withPgClient,
-        selected.row,
-        envOwn(env, ENV_HMAC_SECRET),
-      );
-    },
-    async verifyGraphArrival(input) {
-      if (graph && typeof graph.verifyGraphArrival === 'function') {
-        return graph.verifyGraphArrival({
-          ...input,
-          forbid_send: true,
-          forbid_body: true,
-          select: GRAPH_LIST_SELECT,
+      const executed = await execInner({ snapshot: 'evidence' });
+      if (!executed || !executed.inner || typeof executed.inner !== 'object') {
+        return freeze({
+          ok: false,
+          reason: 'snapshot_unproven',
+          hmac_available: false,
+          evidence_verified: false,
+          leftover: false,
         });
       }
-      return freeze({ ok: false, reason: 'graph_adapter_unwired', arrivals: 0, duplicates: 0, threaded: false });
+      return executed.inner;
+    },
+    async verifyGraphArrival() {
+      const executed = await execInner({ graphVerify: true });
+      if (!executed || !executed.inner || typeof executed.inner.ok !== 'boolean') {
+        return sanitizeGraphPublic({
+          ok: false,
+          reason: 'graph_adapter_unwired',
+          adapter_available: false,
+          readonly: false,
+        });
+      }
+      return sanitizeGraphPublic(executed.inner);
     },
     async verifyKillSwitch() {
       const executed = await execInner({ killSwitchProbe: true });
-      if (executed && executed.inner) return executed.inner;
-      const attested = await attestReplicaProcessEnv(azRun, await readServing(), azBin, env);
-      if (!attested || !flagsLiteral(attested, false)) {
-        return freeze({ ok: false, reason: 'kill_switch_unproven' });
+      if (!executed || executed.status !== 0 || !executed.inner
+          || executed.inner.ok !== true
+          || executed.inner.status !== 'blocked'
+          || executed.inner.reason !== 'emergency_flags_off') {
+        return freeze({
+          ok: false,
+          reason: 'kill_switch_unproven',
+          author_called: false,
+          journal_called: false,
+          provider_called: false,
+        });
       }
-      const replicaEnv = freeze({
-        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
-        [ENV_LUNA_AUTO_SEND_ENABLED]: attested.flags[ENV_LUNA_AUTO_SEND_ENABLED],
-        [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: attested.flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
-      });
-      const wired = createProductionStaffAutoCreateSendOwner({
-        withPgClient,
-        runtimeEnv: replicaEnv,
-      });
-      const kill = createCanonical003KillSwitch({
-        handleProjectedInbound: wired.handleProjectedInbound,
-        runtimeEnv: replicaEnv,
-      });
-      const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
-      const selected = selectProofThread(loaded && loaded.rows);
-      if (!selected.ok) return freeze({ ok: false, reason: selected.reason });
-      const row = selected.row;
-      return kill({
-        env: replicaEnv,
-        authority: freeze({
-          clientId: row.client_id,
-          locationId: row.location_id,
-          endpointId: row.endpoint_id,
-        }),
-        envelope: freeze({
-          provider: 'microsoft_graph',
-          provider_mailbox_id: row.provider_mailbox_id,
-          provider_message_id: row.provider_source_message_id,
-        }),
-        projection: freeze({
-          status: 'already_projected',
-          conversation_id: row.conversation_id,
-        }),
-      });
+      if (executed.inner.author_called === true
+          || executed.inner.journal_called === true
+          || executed.inner.provider_called === true) {
+        return freeze({
+          ok: false,
+          reason: 'kill_switch_side_effect',
+          author_called: executed.inner.author_called === true,
+          journal_called: executed.inner.journal_called === true,
+          provider_called: executed.inner.provider_called === true,
+        });
+      }
+      return executed.inner;
     },
     async reconcile(input) {
       if (typeof (options && options.reconcile) === 'function') {
@@ -2893,16 +3269,7 @@ async function runCli(argv, options) {
     return runInnerSnapshot({ ...options, env });
   }
   if (envOwn(env, INNER_MODE_GRAPH_VERIFY) === '1') {
-    const graph = createProductionReadonlyGraphListAdapter({
-      https: (options && options.https) || require('node:https'),
-      getAccessToken: options && options.getAccessToken,
-    });
-    return graph.verifyGraphArrival({
-      ...(options && options.graphInput),
-      forbid_send: true,
-      forbid_body: true,
-      select: GRAPH_LIST_SELECT,
-    });
+    return runInnerGraphVerify({ ...options, env });
   }
   if (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
       || envOwn(env, 'MAIL_MVP_004_RECONCILE_ONLY') === '1') {
@@ -2971,8 +3338,6 @@ async function runCli(argv, options) {
       nonceStorePath: options && options.nonceStorePath,
       sleep: options && options.sleep,
       now: options && options.now,
-      https: options && options.https,
-      getAccessToken: options && options.getAccessToken,
       pgConnect: options && options.pgConnect,
     });
   const serving = typeof supervisor.readServingIdentity === 'function'
@@ -3093,6 +3458,11 @@ module.exports = freeze({
   createDurableNonceStore,
   runKillSwitchProbe,
   runInnerSnapshot,
+  runInnerGraphVerify,
+  createProductionStaffMailboxTokenLoan,
+  sanitizeReplicaEvidenceSnapshot,
+  replicaLeftover,
+  replicaSolProven,
   issueSupervisorCapability,
   verifySupervisorCapability,
   encodeCapability,

@@ -84,6 +84,10 @@ const {
   runStaffOwnerProof,
   runCli,
   runKillSwitchProbe,
+  runInnerSnapshot,
+  runInnerGraphVerify,
+  replicaLeftover,
+  replicaSolProven,
 } = require('./lib/email-luna-microsoft-auto-create-send-live-proof');
 const {
   digestGeneratedEmailLunaDraftBody,
@@ -174,11 +178,17 @@ function mintEvidence(messageText) {
 function durableOk(patch) {
   const messageText = (patch && patch.message_text) || THREAD_DRAFT;
   const evidence = mintEvidence(messageText);
+  const leftover = leftoverFromDurableEvidence({ message_text: messageText }) === true;
   return {
     message_text: messageText,
     draft_meta: { selected_operation_evidence: evidence },
     provenance: { ...evidence, marker: SOL },
+    marker: SOL,
     immutable_draft_id: 'graph-draft-004',
+    hmac_available: true,
+    evidence_verified: leftover ? false : true,
+    leftover,
+    hmac_kind: 'authenticity',
     ...patch,
   };
 }
@@ -316,7 +326,15 @@ function makeHarness(options = {}) {
       return evidence;
     },
     async verifyGraphArrival() {
-      return options.graph || { ok: true, threaded: true, arrivals: 1, duplicates: 0 };
+      return options.graph || {
+        ok: true,
+        threaded: true,
+        arrivals: 1,
+        duplicates: 0,
+        adapter_available: true,
+        readonly: true,
+        subject_ok: true,
+      };
     },
     async verifyKillSwitch() {
       log.push('kill');
@@ -346,7 +364,7 @@ function makeHarness(options = {}) {
 async function execute(harness, patch) {
   return harness.executeOnce({
     parsed: authArgs(),
-    env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, [ENV_HMAC_SECRET]: HMAC_SECRET },
+    env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
     nowMs: NOW_MS,
     originMasterSha: IMAGE_SHA,
     headSha: IMAGE_SHA,
@@ -1288,6 +1306,289 @@ async function main() {
     const beforeOn = await execute(hKill);
     assert.equal(beforeOn.reason, 'kill_switch_unproven');
     assert.equal(beforeOn.invoked, 0);
+  }
+
+  console.log('[16] Hostile: replica Graph/HMAC/kill-switch; unwired fails before dispatch');
+  {
+    const executeOnceSrc = libSrc.slice(
+      libSrc.indexOf('async function executeOnce'),
+      libSrc.indexOf('async function runStaffOwnerProof'),
+    );
+    const supervisorSrc = libSrc.slice(
+      libSrc.indexOf('function createProductionMailMvp004Supervisor'),
+      libSrc.indexOf('function inspectRepoReadiness'),
+    );
+    const runCliSrc = libSrc.slice(libSrc.indexOf('async function runCli'));
+    assert.match(supervisorSrc, /execInner\(\{ graphVerify: true \}\)/);
+    assert.match(supervisorSrc, /execInner\(\{\s*snapshot:\s*'evidence'\s*\}\)/);
+    assert.match(supervisorSrc, /execInner\(\{ killSwitchProbe: true \}\)/);
+    assert.match(supervisorSrc, /executed\.status !== 0/);
+    assert.doesNotMatch(supervisorSrc, /getAccessToken/);
+    assert.doesNotMatch(supervisorSrc, /createProductionReadonlyGraphListAdapter/);
+    assert.doesNotMatch(supervisorSrc, /createCanonical003KillSwitch/);
+    assert.doesNotMatch(supervisorSrc, /ENV_HMAC_SECRET|EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET/);
+    assert.doesNotMatch(runCliSrc, /getAccessToken/);
+    assert.match(runCliSrc, /runInnerGraphVerify/);
+    assert.doesNotMatch(executeOnceSrc, /ENV_HMAC_SECRET|EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET/);
+    assert.doesNotMatch(executeOnceSrc, /evidence_mac[\s\S]{0,120}snapshotSolMarker/);
+    assert.match(executeOnceSrc, /replicaGraphAdapterAvailable/);
+    assert.match(executeOnceSrc, /replicaEvidenceCapabilityAvailable/);
+    assert.match(libSrc, /createDelegatedGrantAccessSession/);
+    assert.match(libSrc, /runWithAccessTokenOnce/);
+    assert.doesNotMatch(libSrc, /brandProductionGraphVerifier\(async \(\) => freeze\(\{\s*ok: false,\s*reason: 'graph_adapter_unwired'/);
+
+    assert.equal(replicaSolProven({
+      evidence_mac: 'ab'.repeat(32),
+      marker: SOL,
+    }), false);
+    assert.equal(replicaSolProven({
+      evidence_verified: true,
+      marker: SOL,
+    }), true);
+    assert.equal(replicaLeftover({ leftover: false }), false);
+    assert.equal(replicaLeftover({ leftover: true, evidence_verified: true, marker: SOL }), true);
+
+    const { harness: hUnwired, log: unwiredLog } = makeHarness({
+      graph: {
+        ok: false,
+        reason: 'graph_adapter_unwired',
+        adapter_available: false,
+        readonly: false,
+        arrivals: 0,
+        duplicates: 0,
+        threaded: false,
+      },
+    });
+    const unwiredGraph = await execute(hUnwired);
+    assert.equal(unwiredGraph.reason, 'graph_adapter_unwired');
+    assert.equal(unwiredGraph.invoked, 0);
+    assert.equal(unwiredLog.includes('flags:true'), false);
+    assert.equal(unwiredLog.includes('invoke'), false);
+
+    const { harness: hHmac, log: hmacLog } = makeHarness({
+      evidence: {
+        hmac_available: false,
+        evidence_verified: false,
+        leftover: false,
+        reason: 'hmac_unwired',
+      },
+    });
+    const unwiredHmac = await execute(hHmac);
+    assert.equal(unwiredHmac.reason, 'hmac_unwired');
+    assert.equal(unwiredHmac.invoked, 0);
+    assert.equal(hmacLog.includes('flags:true'), false);
+
+    const { harness: hZero, log: zeroLog } = makeHarness({
+      graph: {
+        ok: false,
+        reason: 'graph_unproven',
+        adapter_available: true,
+        readonly: true,
+        arrivals: 0,
+        duplicates: 0,
+        threaded: false,
+      },
+    });
+    const zeroArrival = await execute(hZero);
+    assert.equal(zeroLog.includes('flags:true'), true);
+    assert.equal(zeroArrival.invoked, 1);
+    assert.equal(zeroArrival.reason, 'graph_unproven');
+    assert.equal(zeroArrival.restored, true);
+
+    function innerPg(rows, extraRows) {
+      return async (fn) => fn({
+        async query(sql, params) {
+          const n = String(sql).replace(/\s+/g, ' ');
+          if (/FROM clients cl INNER JOIN conversations c/.test(n)) {
+            assert.equal(params[0], PROOF_SENDER);
+            return { rows };
+          }
+          if (/luna_email_open_draft/.test(n) && /message_text/.test(n)) {
+            return { rows: extraRows || [] };
+          }
+          if (/inbox_channel_modes/.test(n) && /SELECT/.test(n)) {
+            return { rows: [{ inbox_channel_modes: { email: 'off' } }] };
+          }
+          if (/tenant_email_outbound_send_journal/.test(n)) {
+            return { rows: [{ n: extraRows && extraRows.length ? 1 : 0, sends: extraRows && extraRows.length ? 1 : 0 }] };
+          }
+          if (/tenant_email_reply_approvals/.test(n) && /count/.test(n)) {
+            return { rows: [{ n: extraRows && extraRows.length ? 1 : 0 }] };
+          }
+          if (/FROM bookings/.test(n)) {
+            return { rows: [{ n: 4 }] };
+          }
+          return { rows: [] };
+        },
+      });
+    }
+
+    const graphRow = threadRow({ inbound_internet_message_id: '<src@test>' });
+    const graphMessages = [{
+      id: 'graph-sent-1',
+      conversationId: 'graph-thread-1',
+      internetMessageId: '<out@test>',
+      subject: 'Re: Testing 8 26',
+      internetMessageHeaders: [
+        { name: 'In-Reply-To', value: '<src@test>' },
+        { name: 'References', value: '<src@test>' },
+      ],
+    }];
+    const seenGraph = [];
+    const httpsOk = {
+      request(opts, cb) {
+        seenGraph.push(opts);
+        assert.equal(opts.method, 'GET');
+        assert.equal(opts.host, 'graph.microsoft.com');
+        assert.equal(String(opts.path).includes('body'), false);
+        assert.doesNotMatch(String(opts.path), /sendMail|\/send\b/i);
+        assert.match(opts.headers.Authorization, /^Bearer loan-token$/);
+        const { PassThrough } = require('node:stream');
+        const res = new PassThrough();
+        const req = new PassThrough();
+        process.nextTick(() => {
+          cb(res);
+          res.end(JSON.stringify({ value: graphMessages }));
+        });
+        req.destroy = () => {};
+        return req;
+      },
+    };
+    const tokenLoan = {
+      async runWithAccessTokenOnce(binding, consumer) {
+        assert.equal(binding.clientId, C);
+        assert.equal(binding.endpointId, E);
+        assert.equal(Object.keys(binding).join(','), 'clientId,endpointId');
+        const listed = await consumer({ accessToken: 'loan-token' });
+        return { ok: true, grant_generation: 1, value: listed };
+      },
+    };
+    const innerGraph = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow], [{
+        approval_id: '55555555-5555-4555-8555-555555555555',
+        message_text: THREAD_DRAFT,
+        immutable_draft_id: 'graph-sent-1',
+        send_invocation_count: 1,
+        draft_meta: { selected_operation_evidence: mintEvidence(THREAD_DRAFT) },
+      }]),
+      tokenLoan,
+      https: httpsOk,
+    });
+    assert.equal(innerGraph.ok, true);
+    assert.equal(innerGraph.adapter_available, true);
+    assert.equal(innerGraph.readonly, true);
+    assert.equal(innerGraph.arrivals, 1);
+    assert.equal(innerGraph.duplicates, 0);
+    assert.equal(innerGraph.threaded, true);
+    assert.equal(Object.prototype.hasOwnProperty.call(innerGraph, 'id'), false);
+    assert.doesNotMatch(JSON.stringify(innerGraph), /loan-token|twoods@|graph-sent-1|Would you like/);
+    assert.equal(seenGraph.length, 1);
+
+    const innerUnwired = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+    });
+    assert.equal(innerUnwired.ok, false);
+    assert.equal(innerUnwired.reason, 'graph_adapter_unwired');
+    assert.equal(innerUnwired.adapter_available, false);
+
+    const inboundOnly = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: {
+        async runWithAccessTokenOnce(_binding, consumer) {
+          const listed = await consumer({ accessToken: 'loan-token' });
+          return { ok: true, grant_generation: 1, value: listed };
+        },
+      },
+      https: {
+        request(opts, cb) {
+          const { PassThrough } = require('node:stream');
+          const res = new PassThrough();
+          const req = new PassThrough();
+          process.nextTick(() => {
+            cb(res);
+            res.end(JSON.stringify({
+              value: [{
+                id: SRC,
+                conversationId: 'graph-thread-1',
+                internetMessageId: '<src@test>',
+                subject: 'Testing 8 26',
+              }],
+            }));
+          });
+          req.destroy = () => {};
+          return req;
+        },
+      },
+    });
+    assert.equal(inboundOnly.adapter_available, true);
+    assert.equal(inboundOnly.readonly, true);
+    assert.equal(inboundOnly.arrivals, 0);
+    assert.equal(inboundOnly.ok, false);
+
+    const emptyEvidence = await runInnerSnapshot({
+      env: {
+        MAIL_MVP_004_SNAPSHOT: 'evidence',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        [ENV_HMAC_SECRET]: HMAC_SECRET,
+      },
+      withPgClient: innerPg([graphRow]),
+    });
+    assert.equal(emptyEvidence.ok, true);
+    assert.equal(emptyEvidence.hmac_available, true);
+    assert.equal(emptyEvidence.evidence_verified, false);
+    assert.equal(Object.prototype.hasOwnProperty.call(emptyEvidence, 'message_text'), false);
+
+    const verifiedEvidence = await runInnerSnapshot({
+      env: {
+        MAIL_MVP_004_SNAPSHOT: 'evidence',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        [ENV_HMAC_SECRET]: HMAC_SECRET,
+      },
+      withPgClient: innerPg([graphRow], [{
+        approval_id: '55555555-5555-4555-8555-555555555555',
+        message_text: THREAD_DRAFT,
+        immutable_draft_id: 'graph-sent-1',
+        send_invocation_count: 1,
+        draft_meta: { selected_operation_evidence: mintEvidence(THREAD_DRAFT) },
+      }]),
+    });
+    assert.equal(verifiedEvidence.ok, true);
+    assert.equal(verifiedEvidence.hmac_available, true);
+    assert.equal(verifiedEvidence.evidence_verified, true);
+    assert.equal(verifiedEvidence.leftover, false);
+    assert.equal(verifiedEvidence.sol_model, 'gpt-5.6-sol');
+    assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence, 'message_text'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence, 'evidence_mac'), false);
+
+    const missingSecret = await runInnerSnapshot({
+      env: {
+        MAIL_MVP_004_SNAPSHOT: 'evidence',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow], [{
+        approval_id: '55555555-5555-4555-8555-555555555555',
+        message_text: THREAD_DRAFT,
+        draft_meta: { selected_operation_evidence: mintEvidence(THREAD_DRAFT) },
+      }]),
+    });
+    assert.equal(missingSecret.reason, 'hmac_unwired');
+    assert.equal(missingSecret.hmac_available, false);
+
+    const hostCli = fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8');
+    assert.doesNotMatch(hostCli, /EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET/);
+    assert.doesNotMatch(hostCli, /getAccessToken/);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');

@@ -78,6 +78,8 @@ Equals-form flags, `--target`, `--conversation-id`, production, Wolfhouse, proxi
 
 ## Bounded execution plan (later operator; not this builder)
 
+Default Graph arrival proof, Sol HMAC recomputation, and kill-switch probes run **inside the Staff replica** via image-owned `execInner`. The host authorized CLI must not supply mailbox tokens, `getAccessToken`, or the Staff HMAC secret. Unavailable replica Graph/custody or evidence-snapshot capability fails closed **before** flags are enabled. Replica exec JSON that is missing, malformed, or nonzero fails closed; host-env 003/HMAC/Graph fallbacks are not proof.
+
 After exact-master deploy and typed authorization, the supervisor may temporarily set **only**:
 
 - `LUNA_AUTO_SEND_ENABLED=true`
