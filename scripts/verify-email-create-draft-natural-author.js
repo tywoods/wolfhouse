@@ -33,6 +33,7 @@ const {
   parseCreateDraftNaturalPlan,
   renderCreateDraftNaturalPlan,
   compileCreateDraftNaturalPlanJson,
+  extractCreateDraftThreadTopic,
 } = require('./lib/email-luna-create-draft-natural-author');
 const { callLunaAiJsonChat } = require('./lib/luna-ai-provider');
 const {
@@ -52,6 +53,7 @@ const MAILBOX = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const GRAPH_ID = 'opaque/id+with=padding';
 
 const LIVE_NOTES = 'Thank them for the msg and then ask them if they want to do a booking';
+const THANK_FOLLOWUP_NOTES = 'Thank them. A teammate can follow up if they need anything.';
 const LIVE_SUBJECT = 'Re: Testing 8 26';
 const LIVE_BODY = 'Hi, just testing the front desk mailbox.';
 const PARAPHRASE_NOTES = 'Mention the loft.\nAsk about the beds.';
@@ -627,6 +629,56 @@ function makeOwner(options = {}) {
   assert.equal(emptyPrompts.length > 0, true);
   assertGuestFacingNatural(empty.body, { goals: '', language: 'en' });
   console.log('  PASS  empty context authors a warm low-claim thread draft, not the canned ack');
+
+  assert.equal(
+    compileCreateDraftNaturalPlanJson(THANK_FOLLOWUP_NOTES),
+    JSON.stringify({ acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }] }),
+  );
+  const thankFollowup = await policyFor(naturalMock).compose({
+    authority: authority(),
+    untrusted_content: content(),
+    operator_context: THANK_FOLLOWUP_NOTES,
+    env: env(),
+    callModel: naturalMock,
+  });
+  assert.equal(thankFollowup.status, 'draft_ready');
+  assert.equal(thankFollowup.body, FORBIDDEN_EMPTY_WRAPPER_EN);
+  assert.equal(thankFollowup.body.includes(THANK_FOLLOWUP_NOTES), false);
+  assert.doesNotMatch(thankFollowup.body, /\bthank them\b/i);
+  assert.equal(thankFollowup.send_allowed, false);
+  assert.equal(thankFollowup.auto_send_allowed, false);
+  console.log('  PASS  non-empty thank+followup notes remain draft_ready and do not paste notes');
+
+  assert.equal(extractCreateDraftThreadTopic(content()), 'front desk');
+  const johnTopic = extractCreateDraftThreadTopic(content({
+    body_text: 'Hi, I am John Smith writing about the mailbox.',
+    from_display_name: 'John Smith',
+    from_address: 'john.smith@example.test',
+  }));
+  assert.equal(johnTopic.includes('john'), false);
+  assert.equal(johnTopic.includes('smith'), false);
+  const emailTopic = extractCreateDraftThreadTopic(content({
+    body_text: 'Please reply to twoods@xantrion.com about the mailbox.',
+    from_address: 'twoods@xantrion.com',
+  }));
+  assert.doesNotMatch(emailTopic, /twoods|xantrion/);
+  const dateTopic = extractCreateDraftThreadTopic(content({
+    subject: LIVE_SUBJECT,
+    body_text: '08/26/2026',
+  }));
+  assert.doesNotMatch(dateTopic, /8|26|2026/);
+  assert.match(dateTopic, /testing/i);
+  assert.equal(extractCreateDraftThreadTopic(content({
+    subject: '8 26',
+    body_text: '08/26/2026 555-0100',
+  })), '');
+  const spanishTopic = extractCreateDraftThreadTopic(content({
+    subject: 'Re: Prueba 8 26',
+    body_text: 'Hola, soy María García, necesito un mensaje por favor.',
+    from_display_name: 'María García',
+  }));
+  assert.doesNotMatch(spanishTopic, /maría|maria|garcía|garcia/i);
+  console.log('  PASS  bounded topics skip names, email fragments, numeric/date tokens, Spanish names');
 
   const hostile = await policyFor(naturalMock).compose({
     authority: authority(),

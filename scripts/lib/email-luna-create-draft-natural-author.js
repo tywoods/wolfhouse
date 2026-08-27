@@ -49,7 +49,26 @@ const THREAD_TOPIC_STOP = freeze([
   'have', 'has', 'does', 'did', 'not', 'but', 'if', 'so', 'to', 'of', 'on',
   'at', 'in', 'it', 'be', 'as', 'or', 'is', 'are', 'was', 'were', 'been',
   'being', 'do', 'had', 'them', 'they', 'she', 'his', 'her', 'its',
+  'mr', 'mrs', 'ms', 'miss', 'sir', 'madam', 'sr', 'sra', 'srta',
+  'señor', 'senor', 'señora', 'senora', 'señorita', 'senorita',
+  'don', 'doña', 'dona', 'morning', 'afternoon', 'evening',
+  'regards', 'greetings', 'dias', 'días', 'tardes', 'noches',
+  'soy', 'estoy', 'tengo', 'llamó', 'llamo',
 ]);
+const THREAD_TOPIC_DATE_WORDS = freeze([
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+  'january', 'february', 'march', 'april', 'may', 'june', 'july',
+  'august', 'september', 'october', 'november', 'december',
+  'lunes', 'martes', 'miércoles', 'miercoles', 'jueves', 'viernes', 'sábado', 'sabado', 'domingo',
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+  'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+]);
+const THREAD_TOPIC_NAME_PAIR_SKIP = freeze([
+  're', 'fw', 'fwd', 'hi', 'hello', 'hey', 'hola', 'dear', 'buenos', 'buenas',
+]);
+const EMAIL_IN_TEXT = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+const PHONE_IN_TEXT = /(?:\+?\d[\d\s().-]{6,}\d)/g;
+const UUID_IN_TEXT = /[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi;
 const SAFE_CREATE_DRAFT_NATURAL_ACTS = freeze([
   'thank_guest',
   'acknowledge_message',
@@ -116,17 +135,32 @@ function normalizeComparable(text) {
     .trim();
 }
 
+function rendererCatalogNormalized() {
+  const copy = CREATE_DRAFT_NATURAL_RENDER_COPY;
+  return normalizeComparable([
+    copy.hello.en, copy.hello.es,
+    copy.thank_guest.en, copy.thank_guest.es,
+    copy.acknowledge_message.en, copy.acknowledge_message.es,
+    copy.ask_booking_interest.en, copy.ask_booking_interest.es,
+    copy.offer_human_followup.en, copy.offer_human_followup.es,
+    copy.signoff.en, copy.signoff.es,
+    String(copy.signature || ''),
+  ].join('\n'));
+}
+
 function isNearVerbatim(draft, goals) {
   const d = normalizeComparable(draft);
   const g = normalizeComparable(goals);
   if (!g || g.length < 12) return false;
-  if (d.includes(g)) return true;
+  const catalog = rendererCatalogNormalized();
+  if (d.includes(g)) return !catalog.includes(g);
   const words = g.split(' ').filter(Boolean);
   if (words.length < 6) return false;
   const window = Math.min(words.length, 12);
   for (let n = window; n >= 6; n -= 1) {
     for (let i = 0; i + n <= words.length; i += 1) {
-      if (d.includes(words.slice(i, i + n).join(' '))) return true;
+      const slice = words.slice(i, i + n).join(' ');
+      if (d.includes(slice) && !catalog.includes(slice)) return true;
     }
   }
   return false;
@@ -228,12 +262,110 @@ function isThreadTopicStop(word) {
   return false;
 }
 
+function isThreadDateWord(word) {
+  if (typeof word !== 'string' || !word) return false;
+  for (let i = 0; i < THREAD_TOPIC_DATE_WORDS.length; i += 1) {
+    if (THREAD_TOPIC_DATE_WORDS[i] === word) return true;
+  }
+  return false;
+}
+
+function isNamePairSkipWord(word) {
+  if (typeof word !== 'string' || !word) return true;
+  for (let i = 0; i < THREAD_TOPIC_NAME_PAIR_SKIP.length; i += 1) {
+    if (THREAD_TOPIC_NAME_PAIR_SKIP[i] === word) return true;
+  }
+  return false;
+}
+
 function isThreadContentToken(word) {
   if (typeof word !== 'string') return false;
   if (word.length < 3 || word.length > 32) return false;
-  if (/^[0-9]+$/.test(word)) return false;
+  if (/\d/.test(word)) return false;
+  if (/^[0-9a-f]{8,}$/i.test(word)) return false;
   if (isThreadTopicStop(word)) return false;
+  if (isThreadDateWord(word)) return false;
   return true;
+}
+
+function isNameShapedWord(word) {
+  if (typeof word !== 'string' || word.length < 2) return false;
+  let text;
+  try {
+    text = word.normalize('NFC');
+  } catch {
+    return false;
+  }
+  return /^[A-ZÁÉÍÓÚÑÜ][a-záéíóúñü]+$/.test(text) || /^[A-ZÁÉÍÓÚÑÜ]{2,}$/.test(text);
+}
+
+function addSplitTokens(into, text) {
+  if (typeof text !== 'string' || !text) return;
+  let nfc;
+  try {
+    nfc = text.normalize('NFC').toLowerCase();
+  } catch {
+    return;
+  }
+  const tokens = nfc.split(/[^a-z0-9áéíóúñü]+/i).filter(Boolean);
+  for (let i = 0; i < tokens.length; i += 1) into.add(tokens[i]);
+}
+
+function collectUnsafeTopicTokens(content) {
+  const excluded = new Set();
+  const subject = content && typeof content === 'object' && !isProxy(content)
+    ? clip(ownData(content, 'subject'), 998)
+    : '';
+  const body = content && typeof content === 'object' && !isProxy(content)
+    ? clip(ownData(content, 'body_text'), 64000)
+    : '';
+  const fromName = content && typeof content === 'object' && !isProxy(content)
+    ? clip(ownData(content, 'from_display_name'), 998)
+    : '';
+  const fromAddress = content && typeof content === 'object' && !isProxy(content)
+    ? clip(ownData(content, 'from_address'), 320)
+    : '';
+  addSplitTokens(excluded, fromName);
+  addSplitTokens(excluded, fromAddress);
+  const blob = `${fromName}\n${fromAddress}\n${subject}\n${body}`;
+  const emails = blob.match(EMAIL_IN_TEXT) || [];
+  for (let i = 0; i < emails.length; i += 1) addSplitTokens(excluded, emails[i]);
+  const phones = blob.match(PHONE_IN_TEXT) || [];
+  for (let i = 0; i < phones.length; i += 1) addSplitTokens(excluded, phones[i]);
+  const ids = blob.match(UUID_IN_TEXT) || [];
+  for (let i = 0; i < ids.length; i += 1) addSplitTokens(excluded, ids[i]);
+  let original;
+  try {
+    original = `${subject}\n${body}`.normalize('NFC');
+  } catch {
+    return excluded;
+  }
+  const rawTokens = original.split(/[^a-z0-9áéíóúñü]+/i).filter(Boolean);
+  for (let i = 0; i + 1 < rawTokens.length; i += 1) {
+    if (!isNameShapedWord(rawTokens[i]) || !isNameShapedWord(rawTokens[i + 1])) continue;
+    const first = rawTokens[i].normalize('NFC').toLowerCase();
+    const second = rawTokens[i + 1].normalize('NFC').toLowerCase();
+    if (isNamePairSkipWord(first) || isNamePairSkipWord(second)) continue;
+    excluded.add(first);
+    excluded.add(second);
+  }
+  return excluded;
+}
+
+function topicUsesUnsafeToken(topic, excluded) {
+  if (typeof topic !== 'string') return true;
+  let text;
+  try {
+    text = topic.normalize('NFC').toLowerCase();
+  } catch {
+    return true;
+  }
+  const tokens = text.split(/[^a-z0-9áéíóúñü]+/i).filter(Boolean);
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (!isThreadContentToken(tokens[i])) return true;
+    if (excluded && excluded.has(tokens[i])) return true;
+  }
+  return tokens.length < 1;
 }
 
 function extractCreateDraftThreadTopic(content) {
@@ -243,6 +375,7 @@ function extractCreateDraftThreadTopic(content) {
   const body = content && typeof content === 'object' && !isProxy(content)
     ? clip(ownData(content, 'body_text'), 64000)
     : '';
+  const excluded = collectUnsafeTopicTokens(content);
   let text;
   try {
     text = `${subject}\n${body}`.normalize('NFC').toLowerCase();
@@ -252,11 +385,13 @@ function extractCreateDraftThreadTopic(content) {
   const tokens = text.split(/[^a-z0-9áéíóúñü]+/i).filter(Boolean);
   for (let i = 0; i + 1 < tokens.length; i += 1) {
     if (!isThreadContentToken(tokens[i]) || !isThreadContentToken(tokens[i + 1])) continue;
+    if (excluded.has(tokens[i]) || excluded.has(tokens[i + 1])) continue;
     const pair = `${tokens[i]} ${tokens[i + 1]}`;
     if (isBoundedTopic(pair)) return pair;
   }
   for (let i = 0; i < tokens.length; i += 1) {
-    if (isThreadContentToken(tokens[i]) && isBoundedTopic(tokens[i])) return tokens[i];
+    if (!isThreadContentToken(tokens[i]) || excluded.has(tokens[i])) continue;
+    if (isBoundedTopic(tokens[i])) return tokens[i];
   }
   return '';
 }
@@ -286,13 +421,60 @@ function isBoundedTopic(value) {
   if (text !== value || text.trim() !== text) return false;
   if (text.length < 1 || text.length > 32) return false;
   if (!TOPIC_CHARS.test(text)) return false;
+  if (/@/.test(text) || /\d/.test(text)) return false;
   const words = text.split(/[\s-]+/).filter(Boolean);
   if (words.length < 1 || words.length > 4) return false;
+  for (let i = 0; i < words.length; i += 1) {
+    if (!isThreadContentToken(words[i].toLowerCase())) return false;
+  }
   if (INJECTION_ECHO.test(text) || WRAPPER.test(text) || GENERIC_REVIEW.test(text) || STAFF_VOICE.test(text)) {
     return false;
   }
   if (hasHardTruthClaim(text)) return false;
   return true;
+}
+
+function isEmptyPrivateStaffGoals(goals) {
+  return typeof goals !== 'string' || !goals.trim();
+}
+
+function sanitizePlanTopics(plan, content) {
+  if (!plan || typeof plan !== 'object' || isProxy(plan) || Array.isArray(plan)) return null;
+  const acts = plan.acts;
+  if (!Array.isArray(acts) || acts.length < 1 || acts.length > 6) return null;
+  const excluded = collectUnsafeTopicTokens(content);
+  const next = [];
+  for (let i = 0; i < acts.length; i += 1) {
+    const item = acts[i];
+    if (!item || typeof item !== 'object') return null;
+    if (!item.topic) {
+      next.push(item);
+      continue;
+    }
+    if (!topicUsesUnsafeToken(item.topic, excluded) && isBoundedTopic(item.topic)) {
+      next.push(item);
+      continue;
+    }
+    if (item.act === 'ask_clarifying_question') {
+      const safe = extractCreateDraftThreadTopic(content);
+      if (safe) {
+        const replaced = create(null);
+        replaced.act = 'ask_clarifying_question';
+        replaced.topic = safe;
+        next.push(freeze(replaced));
+      } else {
+        const replaced = create(null);
+        replaced.act = 'acknowledge_message';
+        next.push(freeze(replaced));
+      }
+      continue;
+    }
+    const stripped = create(null);
+    stripped.act = item.act;
+    next.push(freeze(stripped));
+  }
+  if (!next.length) return null;
+  return freeze({ acts: freeze(next.slice()) });
 }
 
 function parseAct(item) {
@@ -565,17 +747,20 @@ function createEmailLunaCreateDraftNaturalAuthor(configuration = {}) {
     }
     let plan = parseCreateDraftNaturalPlan(planJson);
     if (!plan) return fail(result == null ? 'model_provider_error' : 'model_malformed', language);
+    plan = sanitizePlanTopics(plan, content) || plan;
     let body = renderCreateDraftNaturalPlan(plan, language);
     if (!body) return fail('unsupported_claim', language);
     let compileReplacement = false;
-    if (isForbiddenGenericEmptyWrapper(body)) {
+    const emptyPrivateGoals = isEmptyPrivateStaffGoals(goals);
+    if (emptyPrivateGoals && isForbiddenGenericEmptyWrapper(body)) {
       const compiledJson = compileCreateDraftNaturalPlanJson(goals, content);
       const compiledPlan = compiledJson ? parseCreateDraftNaturalPlan(compiledJson) : null;
-      const compiledBody = compiledPlan ? renderCreateDraftNaturalPlan(compiledPlan, language) : null;
+      const sanitizedCompiled = compiledPlan ? sanitizePlanTopics(compiledPlan, content) : null;
+      const compiledBody = sanitizedCompiled ? renderCreateDraftNaturalPlan(sanitizedCompiled, language) : null;
       if (!compiledBody || isForbiddenGenericEmptyWrapper(compiledBody)) {
         return fail('unsupported_claim', language);
       }
-      plan = compiledPlan;
+      plan = sanitizedCompiled;
       body = compiledBody;
       compileReplacement = true;
     }

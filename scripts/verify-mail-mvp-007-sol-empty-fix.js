@@ -48,7 +48,12 @@ const {
   renderCreateDraftNaturalPlan,
   compileCreateDraftNaturalPlanJson,
   parseCreateDraftNaturalPlan,
+  extractCreateDraftThreadTopic,
+  createEmailLunaCreateDraftNaturalAuthor,
 } = require('./lib/email-luna-create-draft-natural-author');
+const {
+  extractPermittedOperatorGuidance,
+} = require('./lib/email-luna-create-draft-context');
 const {
   createStaffEmailLunaDraftRoute,
   EMAIL_LUNA_CREATE_DRAFT_PATH,
@@ -66,6 +71,7 @@ const GRAPH_ID = 'opaque/id+with=padding';
 const TOKEN = 'test-hermes-sol-token';
 const HMAC_SECRET = 'test-hermes-sol-hmac';
 const LIVE_NOTES = 'Thank them for the msg and then ask them if they want to do a booking';
+const THANK_FOLLOWUP_NOTES = 'Thank them. A teammate can follow up if they need anything.';
 const LIVE_SUBJECT = 'Re: Testing 8 26';
 const LIVE_BODY = 'Hi, just testing the front desk mailbox.';
 const ES_SUBJECT = 'Re: Prueba 8 26';
@@ -89,6 +95,13 @@ const LIVE_EN_NOTES_BODY = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
 }, 'en');
 const GENERIC_LEFTOVER_PLAN = { acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }] };
+const LOW_CLAIM_FALLBACK_EN = renderCreateDraftNaturalPlan({
+  acts: [{ act: 'thank_guest' }, { act: 'acknowledge_message' }],
+}, 'en');
+const LOW_CLAIM_FALLBACK_ES = renderCreateDraftNaturalPlan({
+  acts: [{ act: 'thank_guest' }, { act: 'acknowledge_message' }],
+}, 'es');
+const THANK_FOLLOWUP_EN_BODY = renderCreateDraftNaturalPlan(GENERIC_LEFTOVER_PLAN, 'en');
 
 assert.equal(
   LIVE_LEFTOVER_EN,
@@ -272,6 +285,7 @@ function loadOwner() {
 function makeOwner(options = {}) {
   const ownerMod = loadOwner();
   const writes = [];
+  const claims = [];
   const approvals = [];
   const journals = [];
   const providers = [];
@@ -315,6 +329,7 @@ function makeOwner(options = {}) {
           }
           if (text === ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT
               || text === ownerMod.SQL_CLAIM_EMAIL_LUNA_CREATE_DRAFT) {
+            claims.push({ sql: text, params });
             store.meta = { ...store.meta, ...(typeof params[2] === 'string' ? JSON.parse(params[2]) : params[2] || {}) };
             return { rows: [{ conversation_id: V }] };
           }
@@ -323,13 +338,13 @@ function makeOwner(options = {}) {
             const expectedOld = params[6] == null ? '' : String(params[6]);
             const current = store.draft == null ? '' : String(store.draft);
             if (expectedOld !== current) {
-              casRejected.push({ expectedOld, current, next: params[2] });
+              casRejected.push({ expectedOld, current, next: params[2], sql: text });
               return { rows: [] };
             }
             const nextDraft = params[2];
             store.draft = nextDraft;
             store.meta = { ...store.meta, ...(typeof params[3] === 'string' ? JSON.parse(params[3]) : params[3] || {}) };
-            writes.push({ draft: nextDraft, params });
+            writes.push({ sql: text, draft: nextDraft, params });
             return { rows: [{ staff_reply_draft: nextDraft }] };
           }
           if (text === ownerMod.SQL_RELEASE_EMAIL_LUNA_OPEN_CLAIM) {
@@ -349,7 +364,7 @@ function makeOwner(options = {}) {
     callProvider: (...args) => providers.push(args),
     createBooking: (...args) => bookings.push(args),
   });
-  return { owner, writes, approvals, journals, providers, bookings, store, casRejected };
+  return { owner, ownerMod, writes, claims, approvals, journals, providers, bookings, store, casRejected };
 }
 
 function request(body) {
@@ -396,6 +411,55 @@ function assertNoSideEffects(owner, label) {
   assert.equal(owner.bookings.length, 0, `${label}: no booking`);
 }
 
+function assertCreateDraftSql(owner, label) {
+  const claimSql = owner.claims.map((row) => row.sql);
+  const writeSql = owner.writes.map((row) => row.sql);
+  assert.ok(
+    claimSql.includes(owner.ownerMod.SQL_CLAIM_EMAIL_LUNA_CREATE_DRAFT),
+    `${label}: executes SQL_CLAIM_EMAIL_LUNA_CREATE_DRAFT`,
+  );
+  assert.ok(
+    writeSql.includes(owner.ownerMod.SQL_CAS_EMAIL_LUNA_CREATE_DRAFT),
+    `${label}: executes SQL_CAS_EMAIL_LUNA_CREATE_DRAFT`,
+  );
+  assert.equal(
+    claimSql.includes(owner.ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT),
+    false,
+    `${label}: must not execute OPEN claim SQL`,
+  );
+  assert.equal(
+    writeSql.includes(owner.ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT),
+    false,
+    `${label}: must not execute OPEN CAS SQL`,
+  );
+  assert.equal(
+    owner.store.queryTexts.includes(owner.ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT),
+    false,
+    `${label}: query log has no OPEN claim SQL`,
+  );
+  assert.equal(
+    owner.store.queryTexts.includes(owner.ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT),
+    false,
+    `${label}: query log has no OPEN CAS SQL`,
+  );
+}
+
+function assertNoPiiOrNumericEcho(body, label) {
+  const text = String(body || '').normalize('NFC').toLowerCase();
+  for (const token of [
+    'john', 'smith', 'twoods', 'xantrion', 'maría', 'maria', 'garcía', 'garcia',
+  ]) {
+    assert.equal(text.includes(token), false, `${label}: must not echo ${token}`);
+  }
+  assert.doesNotMatch(String(body || ''), /@/, `${label}: no address echo`);
+  assert.doesNotMatch(String(body || ''), /\b(?:8|26|555|0100|2026)\b/, `${label}: no raw numeric/date echo`);
+}
+
+function assertNoSend(result, label) {
+  assert.equal(result.send_allowed, false, `${label}: send_allowed`);
+  assert.equal(result.auto_send_allowed, false, `${label}: auto_send_allowed`);
+}
+
 function assertFailClosed(result, owner, label) {
   assert.notEqual(result.status, 'draft_ready', label);
   assert.ok(result.status === 'handoff_required' || result.status === 'pending', label);
@@ -419,6 +483,11 @@ function assertFailClosed(result, owner, label) {
   const policySrc = readFile('scripts/lib/email-luna-draft-open-policy-composition.js');
 
   assert.match(naturalSrc, /When private staff goals are empty/);
+  assert.match(
+    naturalSrc,
+    /emptyPrivateGoals && isForbiddenGenericEmptyWrapper/,
+    'generic-wrapper ban/refinement is gated to empty or whitespace-only private staff goals',
+  );
   assert.doesNotMatch(
     naturalSrc,
     /else push\('offer_human_followup'\);\s*\}\s*if \(!acts\.length\) return null/,
@@ -440,7 +509,78 @@ function assertFailClosed(result, owner, label) {
   const compiledBody = renderCreateDraftNaturalPlan(compiled, 'en');
   assertThreadSpecific(compiledBody, content(), 'compile empty notes from live thread');
   assert.notEqual(compiledBody, LIVE_LEFTOVER_EN);
+  assert.notEqual(compiledBody, LOW_CLAIM_FALLBACK_EN);
+  assertNoPiiOrNumericEcho(compiledBody, 'compile empty live thread');
+  assert.equal(
+    compileCreateDraftNaturalPlanJson(THANK_FOLLOWUP_NOTES, content()),
+    JSON.stringify(GENERIC_LEFTOVER_PLAN),
+    'non-empty thank+followup notes still compile to thank_guest + offer_human_followup',
+  );
+  assert.equal(THANK_FOLLOWUP_EN_BODY, LIVE_LEFTOVER_EN);
   console.log('  PASS  empty-goals compile is thread-specific, not the leftover wrapper');
+
+  const johnThread = content({
+    subject: LIVE_SUBJECT,
+    body_text: 'Hi, I am John Smith writing about the mailbox.',
+    from_display_name: 'John Smith',
+    from_address: 'john.smith@example.test',
+  });
+  const emailThread = content({
+    subject: LIVE_SUBJECT,
+    body_text: 'Please reply to twoods@xantrion.com about the mailbox.',
+    from_display_name: 'Tyler Woods',
+    from_address: 'twoods@xantrion.com',
+  });
+  const dateBodyThread = content({
+    subject: LIVE_SUBJECT,
+    body_text: '08/26/2026',
+    from_display_name: 'John Smith',
+    from_address: 'twoods@xantrion.com',
+  });
+  const numericOnlyThread = content({
+    subject: '8 26',
+    body_text: '08/26/2026 555-0100',
+    from_display_name: 'John Smith',
+    from_address: 'twoods@xantrion.com',
+  });
+  const spanishNameThread = content({
+    subject: ES_SUBJECT,
+    body_text: 'Hola, soy María García, necesito un mensaje por favor.',
+    from_display_name: 'María García',
+    from_address: 'maria.garcia@example.test',
+  });
+
+  assert.equal(extractCreateDraftThreadTopic(johnThread).includes('john'), false);
+  assert.equal(extractCreateDraftThreadTopic(johnThread).includes('smith'), false);
+  assert.match(extractCreateDraftThreadTopic(johnThread), /mailbox|testing|writing/i);
+  assert.doesNotMatch(extractCreateDraftThreadTopic(emailThread), /twoods|xantrion|com/i);
+  assert.match(extractCreateDraftThreadTopic(emailThread), /mailbox|testing|reply/i);
+  assert.equal(extractCreateDraftThreadTopic(content()), 'front desk');
+  assert.doesNotMatch(extractCreateDraftThreadTopic(dateBodyThread), /8|26|2026|john|smith|twoods/);
+  assert.match(extractCreateDraftThreadTopic(dateBodyThread), /testing/i);
+  assert.equal(extractCreateDraftThreadTopic(numericOnlyThread), '');
+  assert.doesNotMatch(extractCreateDraftThreadTopic(spanishNameThread), /maría|maria|garcía|garcia/i);
+  assert.match(extractCreateDraftThreadTopic(spanishNameThread), /prueba|mensaje/i);
+
+  const numericCompile = renderCreateDraftNaturalPlan(
+    parseCreateDraftNaturalPlan(compileCreateDraftNaturalPlanJson('', numericOnlyThread)),
+    'en',
+  );
+  assert.equal(numericCompile, LOW_CLAIM_FALLBACK_EN);
+  assert.notEqual(numericCompile, LIVE_LEFTOVER_EN);
+  assert.notEqual(numericCompile, SAFE_ACKNOWLEDGMENT.en);
+  assertNoPiiOrNumericEcho(numericCompile, 'numeric/date-only compile fallback');
+
+  const spanishNameCompile = renderCreateDraftNaturalPlan(
+    parseCreateDraftNaturalPlan(compileCreateDraftNaturalPlanJson('', spanishNameThread)),
+    'es',
+  );
+  assert.notEqual(spanishNameCompile, LIVE_LEFTOVER_ES);
+  assert.notEqual(spanishNameCompile, LOW_CLAIM_FALLBACK_ES);
+  assertNoPiiOrNumericEcho(spanishNameCompile, 'Spanish name compile');
+  assert.match(spanishNameCompile, /prueba|mensaje/i);
+  assert.equal(spanishNameCompile.slice(0, 5), 'Hola,');
+  console.log('  PASS  topic extraction skips names, email fragments, numbers, and Spanish names');
 
   const owner = makeOwner({ env });
   assert.equal(owner.store.draft, LIVE_LEFTOVER_EN);
@@ -471,6 +611,10 @@ function assertFailClosed(result, owner, label) {
   assert.equal(owner.store.draft, produced.draft_text);
   assert.notEqual(owner.store.draft, LIVE_LEFTOVER_EN);
   assert.equal(owner.casRejected.length, 0, 'CAS expected-old-text must match leftover then replace');
+  assertNoSend(produced, 'producer leftover empty notes');
+  assertCreateDraftSql(owner, 'producer leftover empty notes');
+  assertNoPiiOrNumericEcho(produced.draft_text, 'producer leftover empty notes');
+  assert.doesNotMatch(produced.draft_text, /\b(?:8|26)\b/, 'Re: Testing 8 26 must not echo raw dates');
   assertNoSideEffects(owner, 'producer leftover empty notes');
   console.log('  PASS  leftover standing draft is replaced by thread-specific Sol draft');
 
@@ -601,6 +745,223 @@ function assertFailClosed(result, owner, label) {
   console.log('  PASS  non-empty notes still author from goals and replace leftover');
   assert.equal(fake.hits.length, notesHitsBefore, 'notes-path fake is separate');
 
+  const author = createEmailLunaCreateDraftNaturalAuthor({
+    callModel: async () => JSON.stringify(GENERIC_LEFTOVER_PLAN),
+  });
+  const authoredThank = await author.authorNaturalGuestReply({
+    authority: authority(),
+    untrusted_email: content(),
+    private_staff_goals: THANK_FOLLOWUP_NOTES,
+  });
+  assert.equal(authoredThank.status, 'draft_ready');
+  assert.equal(authoredThank.body, THANK_FOLLOWUP_EN_BODY);
+  assert.equal(authoredThank.body.includes(THANK_FOLLOWUP_NOTES), false);
+  assert.doesNotMatch(authoredThank.body, /\bthank them\b/i);
+  assertNoSend(authoredThank, 'author thank+followup notes');
+  const authoredEmpty = await author.authorNaturalGuestReply({
+    authority: authority(),
+    untrusted_email: content(),
+    private_staff_goals: '',
+  });
+  assert.equal(authoredEmpty.status, 'draft_ready');
+  assertThreadSpecific(authoredEmpty.body, content(), 'author empty notes still refines wrapper');
+  const authoredWs = await author.authorNaturalGuestReply({
+    authority: authority(),
+    untrusted_email: content(),
+    private_staff_goals: ' \n\t  ',
+  });
+  assert.equal(authoredWs.status, 'draft_ready');
+  assertThreadSpecific(authoredWs.body, content(), 'author whitespace notes still refines wrapper');
+  console.log('  PASS  non-empty thank+followup notes stay draft_ready; empty/whitespace still refine');
+
+  const thankHitsBefore = fake.hits.length;
+  const thankOwner = makeOwner({ env });
+  const thankProduced = await thankOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: THANK_FOLLOWUP_NOTES,
+  });
+  assert.equal(thankProduced.status, 'draft_ready');
+  assert.equal(thankProduced.draft_text, THANK_FOLLOWUP_EN_BODY);
+  assert.equal(thankProduced.draft_text.includes(THANK_FOLLOWUP_NOTES), false);
+  assert.doesNotMatch(thankProduced.draft_text, /\bthank them\b/i);
+  assertNoSend(thankProduced, 'producer thank+followup notes');
+  assert.equal(fake.hits.length, thankHitsBefore + 1, 'thank+followup notes must invoke authenticated Hermes once');
+  assert.equal(fake.hits.at(-1).url, HERMES_SOL_DRAFT_PATH);
+  assert.equal(fake.hits.at(-1).auth, 'bearer');
+  assert.equal(
+    fake.parsedHits.at(-1).private_staff_goals.goals,
+    extractPermittedOperatorGuidance(THANK_FOLLOWUP_NOTES),
+  );
+  assert.ok(extractPermittedOperatorGuidance(THANK_FOLLOWUP_NOTES).trim());
+  assert.equal(thankOwner.writes.length, 1);
+  assert.equal(thankOwner.store.draft, THANK_FOLLOWUP_EN_BODY);
+  assert.equal(thankOwner.casRejected.length, 0);
+  assertCreateDraftSql(thankOwner, 'producer thank+followup notes');
+  assert.equal(thankProduced.marker.provider, HERMES_SOL_PROVIDER);
+  assert.equal(thankProduced.marker.model, HERMES_SOL_MODEL);
+  assert.equal(thankProduced.marker.runtime, HERMES_SOL_RUNTIME);
+  assert.equal(thankProduced.authenticity.hmac_verified, true);
+  assertNoSideEffects(thankOwner, 'producer thank+followup notes');
+  console.log('  PASS  producer non-empty thank+followup notes remain draft_ready via CAS, no paste');
+
+  const thankRouteSent = [];
+  const thankRouteOwner = makeOwner({ env });
+  const thankRoute = createStaffEmailLunaDraftRoute({
+    sendJSON(_res, status, body) { thankRouteSent.push({ status, body }); return body; },
+    runtimeEnv: env,
+    withPgClient: async (fn) => fn({ query: async () => ({ rows: [] }) }),
+    createLunaRuntime() { throw new Error('route must use existing producer'); },
+    saveDraftThroughStaffOwner() { throw new Error('must not create approval'); },
+    approveDraft: (...args) => thankRouteOwner.approvals.push(args),
+    appendOutboundJournal: (...args) => thankRouteOwner.journals.push(args),
+    callProvider: (...args) => thankRouteOwner.providers.push(args),
+    regenerateEmailLunaDraftOnStaffClick: (input) => (
+      thankRouteOwner.owner.regenerateEmailLunaDraftOnStaffClick(input)
+    ),
+  });
+  const thankRouteHitsBefore = fake.hits.length;
+  await thankRoute.handleCreateDraft(
+    request({ conversation_id: V, context: THANK_FOLLOWUP_NOTES }),
+    {},
+    actor(),
+    snapshotEmailLunaGenerateGateEnv(env),
+  );
+  const thankRouted = thankRouteSent.at(-1);
+  assert.equal(thankRouted.status, 200);
+  assert.equal(thankRouted.body.success, true);
+  assert.equal(thankRouted.body.message_text, THANK_FOLLOWUP_EN_BODY);
+  assert.equal(thankRouted.body.message_text.includes(THANK_FOLLOWUP_NOTES), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(thankRouted.body, 'approval_id'), false);
+  assert.equal(EMAIL_LUNA_CREATE_DRAFT_PATH, '/staff/inbox/email/create-draft');
+  assert.equal(fake.hits.length, thankRouteHitsBefore + 1, 'Create Draft route thank+followup invokes Hermes once');
+  assert.equal(fake.hits.at(-1).auth, 'bearer');
+  assert.equal(thankRouteOwner.writes.length, 1);
+  assertCreateDraftSql(thankRouteOwner, 'Create Draft route thank+followup notes');
+  assertNoSideEffects(thankRouteOwner, 'Create Draft route thank+followup notes');
+  console.log('  PASS  Staff handleCreateDraft thank+followup notes remain draft_ready, no approval_id');
+
+  async function produceEmptyTopicCase(label, rowPatch, bodyText, thread, expectTopic) {
+    const caseOwner = makeOwner({
+      env,
+      contentText: bodyText,
+      rows: [leftoverRow(rowPatch)],
+    });
+    const hitsBefore = fake.hits.length;
+    const produced = await caseOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+      actor: actor(),
+      conversation_id: V,
+      operator_context: '',
+    });
+    assert.equal(produced.status, 'draft_ready', label);
+    assertNoSend(produced, label);
+    assertByteDifferent(produced.draft_text, LIVE_LEFTOVER_EN, label);
+    assert.notEqual(produced.draft_text, LIVE_LEFTOVER_ES, label);
+    assertNoPiiOrNumericEcho(produced.draft_text, label);
+    if (expectTopic) {
+      assertThreadSpecific(produced.draft_text, thread, label);
+    } else {
+      assert.equal(produced.draft_text, LOW_CLAIM_FALLBACK_EN, `${label}: no-safe-topic fallback`);
+      assert.notEqual(produced.draft_text, SAFE_ACKNOWLEDGMENT.en, label);
+    }
+    assert.equal(fake.hits.length, hitsBefore + 1, `${label}: Hermes once`);
+    assertCreateDraftSql(caseOwner, label);
+    assertNoSideEffects(caseOwner, label);
+    return produced;
+  }
+
+  await produceEmptyTopicCase(
+    'John Smith guest name',
+    {
+      subject: LIVE_SUBJECT,
+      from_display_name: 'John Smith',
+      from_address: 'john.smith@example.test',
+    },
+    'Hi, I am John Smith writing about the mailbox.',
+    johnThread,
+    true,
+  );
+  await produceEmptyTopicCase(
+    'twoods@xantrion.com address fragments',
+    {
+      subject: LIVE_SUBJECT,
+      from_display_name: 'Tyler Woods',
+      from_address: 'twoods@xantrion.com',
+    },
+    'Please reply to twoods@xantrion.com about the mailbox.',
+    emailThread,
+    true,
+  );
+  const testingSubjectProduced = await produceEmptyTopicCase(
+    'Re: Testing 8 26',
+    {
+      subject: LIVE_SUBJECT,
+      from_display_name: 'John Smith',
+      from_address: 'twoods@xantrion.com',
+    },
+    LIVE_BODY,
+    content(),
+    true,
+  );
+  assert.match(testingSubjectProduced.draft_text, /front desk|testing|mailbox/i);
+  await produceEmptyTopicCase(
+    'numeric/date-only body with testing subject',
+    {
+      subject: LIVE_SUBJECT,
+      from_display_name: 'John Smith',
+      from_address: 'twoods@xantrion.com',
+    },
+    '08/26/2026',
+    dateBodyThread,
+    true,
+  );
+  await produceEmptyTopicCase(
+    'numeric/date-only subject and body',
+    {
+      subject: '8 26',
+      from_display_name: 'John Smith',
+      from_address: 'twoods@xantrion.com',
+    },
+    '08/26/2026 555-0100',
+    numericOnlyThread,
+    false,
+  );
+
+  const spanishNameOwner = makeOwner({
+    env,
+    contentText: spanishNameThread.body_text,
+    rows: [leftoverRow({
+      subject: ES_SUBJECT,
+      from_display_name: 'María García',
+      from_address: 'maria.garcia@example.test',
+      staff_reply_draft: LIVE_LEFTOVER_ES,
+      conversation_metadata: {
+        luna_email_open_draft: {
+          state: 'ready',
+          origin: 'luna',
+          source_inbound_event_id: M,
+          generated_body_sha256: crypto.createHash('sha256').update(LIVE_LEFTOVER_ES, 'utf8').digest('hex'),
+        },
+      },
+    })],
+  });
+  const spanishNameHitsBefore = fake.hits.length;
+  const spanishNameProduced = await spanishNameOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: '',
+  });
+  assert.equal(spanishNameProduced.status, 'draft_ready');
+  assertNoSend(spanishNameProduced, 'Spanish names');
+  assert.equal(spanishNameProduced.draft_text.slice(0, 5), 'Hola,');
+  assertByteDifferent(spanishNameProduced.draft_text, LIVE_LEFTOVER_ES, 'Spanish names leftover');
+  assertThreadSpecific(spanishNameProduced.draft_text, spanishNameThread, 'Spanish names');
+  assertNoPiiOrNumericEcho(spanishNameProduced.draft_text, 'Spanish names');
+  assert.equal(fake.hits.length, spanishNameHitsBefore + 1);
+  assertCreateDraftSql(spanishNameOwner, 'Spanish names');
+  assertNoSideEffects(spanishNameOwner, 'Spanish names');
+  console.log('  PASS  empty Create Draft does not echo names, addresses, or numeric tokens');
+
   const routeSent = [];
   const routeOwner = makeOwner({ env });
   const route = createStaffEmailLunaDraftRoute({
@@ -625,6 +986,7 @@ function assertFailClosed(result, owner, label) {
   assertThreadSpecific(routed.body.message_text, content(), 'Create Draft route leftover');
   assert.equal(Object.prototype.hasOwnProperty.call(routed.body, 'approval_id'), false);
   assert.equal(EMAIL_LUNA_CREATE_DRAFT_PATH, '/staff/inbox/email/create-draft');
+  assertCreateDraftSql(routeOwner, 'Create Draft route leftover');
   assertNoSideEffects(routeOwner, 'Create Draft route leftover');
   console.log('  PASS  Staff Create Draft route empty notes replaces leftover, no approval_id');
 
