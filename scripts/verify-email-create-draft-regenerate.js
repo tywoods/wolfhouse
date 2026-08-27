@@ -20,6 +20,7 @@ const {
 } = require('./lib/email-luna-draft-open-policy-composition');
 const {
   compileCreateDraftNaturalPlanJson,
+  parseCreateDraftNaturalPlan,
   renderCreateDraftNaturalPlan,
 } = require('./lib/email-luna-create-draft-natural-author');
 const {
@@ -46,9 +47,16 @@ const TWO_LINE_CONTEXT = 'Mention the loft.\nAsk about the beds.';
 const EXISTING = 'Previous standing draft that staff already saw.';
 const WRAPPER = /we also wanted to add|tambi[eé]n quer[ií]amos a[nñ]adir/i;
 const GENERIC_REVIEW = /we['’]ll review it and get back to you shortly|lo revisaremos y te responderemos en breve/i;
-const EMPTY_NOTES_EN_BODY = renderCreateDraftNaturalPlan({
+const FORBIDDEN_EMPTY_WRAPPER_EN = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
 }, 'en');
+const EMPTY_NOTES_EN_BODY = renderCreateDraftNaturalPlan(
+  parseCreateDraftNaturalPlan(compileCreateDraftNaturalPlanJson('', {
+    subject: 'Boards for Saturday',
+    body_text: BODY,
+  })),
+  'en',
+);
 
 function parsePromptPayload(prompt) {
   const user = prompt && typeof prompt.user === 'string' ? prompt.user : '';
@@ -482,6 +490,7 @@ function request(body) {
   assert.equal(emptyDraft.status, 'draft_ready');
   assert.equal(emptyDraft.draft_text, EMPTY_NOTES_EN_BODY);
   assert.notEqual(emptyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.notEqual(emptyDraft.draft_text, FORBIDDEN_EMPTY_WRAPPER_EN);
   assert.equal(empty.approvals.length, 0);
   assert.equal(empty.journals.length, 0);
   assert.equal(empty.providers.length, 0);

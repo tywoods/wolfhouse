@@ -46,6 +46,7 @@ const {
 const {
   renderCreateDraftNaturalPlan,
   compileCreateDraftNaturalPlanJson,
+  parseCreateDraftNaturalPlan,
 } = require('./lib/email-luna-create-draft-natural-author');
 const {
   createStaffEmailLunaDraftRoute,
@@ -76,12 +77,20 @@ const LIVE_EN_BODY = renderCreateDraftNaturalPlan({
 const LIVE_ES_BODY = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
 }, 'es');
-const EMPTY_FALLBACK_EN = renderCreateDraftNaturalPlan({
+const FORBIDDEN_EMPTY_WRAPPER_EN = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
 }, 'en');
-const EMPTY_FALLBACK_ES = renderCreateDraftNaturalPlan({
+const FORBIDDEN_EMPTY_WRAPPER_ES = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
 }, 'es');
+function expectedEmptyCompileBody(contentObj, language) {
+  return renderCreateDraftNaturalPlan(
+    parseCreateDraftNaturalPlan(compileCreateDraftNaturalPlanJson('', contentObj)),
+    language || 'en',
+  );
+}
+const EMPTY_FALLBACK_EN = expectedEmptyCompileBody(content(), 'en');
+const EMPTY_FALLBACK_ES = expectedEmptyCompileBody(content({ subject: ES_SUBJECT, body_text: ES_BODY }), 'es');
 
 function authority() {
   return {
@@ -347,6 +356,8 @@ function assertNotCanned(body, label) {
   assert.ok(body.trim(), label);
   assert.notEqual(body, SAFE_ACKNOWLEDGMENT.en, `${label}: must not be canned EN ack`);
   assert.notEqual(body, SAFE_ACKNOWLEDGMENT.es, `${label}: must not be canned ES ack`);
+  assert.notEqual(body, FORBIDDEN_EMPTY_WRAPPER_EN, `${label}: must not be leftover teammate wrapper EN`);
+  assert.notEqual(body, FORBIDDEN_EMPTY_WRAPPER_ES, `${label}: must not be leftover teammate wrapper ES`);
   assert.doesNotMatch(body, GENERIC_REVIEW, `${label}: must not use review stub`);
   assert.doesNotMatch(body, WRAPPER, `${label}: must not restore We also wanted to add`);
 }
@@ -716,9 +727,12 @@ function assertEmptyNotesHermesRequest(parsed, expectedContent) {
   console.log('  PASS  unavailable notes path still uses FIX-3 compile');
 
   const emptyCompile = compileCreateDraftNaturalPlanJson('', content());
-  assert.equal(emptyCompile, JSON.stringify({
+  assert.notEqual(emptyCompile, JSON.stringify({
     acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
   }));
+  assert.equal(EMPTY_FALLBACK_EN, expectedEmptyCompileBody(content(), 'en'));
+  assert.notEqual(EMPTY_FALLBACK_EN, FORBIDDEN_EMPTY_WRAPPER_EN);
+  assert.match(EMPTY_FALLBACK_EN, /front desk|testing|mailbox/i);
   assert.equal(
     compileCreateDraftNaturalPlanJson(LIVE_NOTES),
     JSON.stringify({ acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }] }),

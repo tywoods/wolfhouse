@@ -449,6 +449,8 @@
     "verify:mail-mvp-003": "node scripts/verify-email-microsoft-auto-create-send.js",
     "verify:mail-mvp-007": "node scripts/verify-email-luna-sunset-email-hermes-sol.js",
     "verify:mail-mvp-007-sol-empty": "node scripts/verify-mail-mvp-007-sol-empty.js",
+    "verify:mail-mvp-007-sol-empty-fix": "node scripts/verify-mail-mvp-007-sol-empty-fix.js",
+    "verify:bf-016-inbox-es": "node scripts/verify-bf-016-inbox-es.js",
     "verify:email-luna-sunset-email-hermes-sol": "node scripts/verify-email-luna-sunset-email-hermes-sol.js",
     "verify:email-inbound-match-ingest": "node scripts/verify-email-inbound-match-ingest.js",
     "prove:email-inbound-event-store-pglite": "node scripts/prove-email-inbound-event-store-pglite.js",
