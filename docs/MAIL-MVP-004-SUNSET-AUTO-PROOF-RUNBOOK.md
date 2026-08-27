@@ -78,7 +78,7 @@ Equals-form flags, `--target`, `--conversation-id`, production, Wolfhouse, proxi
 
 ## Bounded execution plan (later operator; not this builder)
 
-Default Graph arrival proof, Sol HMAC recomputation, and kill-switch probes run **inside the Staff replica** via image-owned `execInner`. The host authorized CLI must not supply mailbox tokens, `getAccessToken`, or the Staff HMAC secret. Unavailable replica Graph/custody or evidence-snapshot capability fails closed **before** flags are enabled. Replica exec JSON that is missing, malformed, or nonzero fails closed; host-env 003/HMAC/Graph fallbacks are not proof.
+Default Graph arrival proof, Sol HMAC recomputation, and kill-switch probes run **inside the Staff replica** via image-owned `execInner`. The host authorized CLI must not supply mailbox tokens, `getAccessToken`, or the Staff HMAC secret. Unavailable replica Graph/custody or evidence-snapshot capability fails closed **before** flags are enabled. Replica exec JSON that is missing, malformed, or nonzero fails closed; host-env 003/HMAC/Graph fallbacks are not proof. ACA `exec --command` is one string: Azure logs it as a JSON array, and the cluster whitespace-splits or wraps `sh -c '<command>'`. Nested `sh -c 'printf %s …'` becomes argv `sh -c 'printf` with `$0=%s` and dies (`%s: line 0: syntax error: unterminated quoted string`). The legal command is quote-free `/usr/bin/env KEY=value … node scripts/prove-mail-mvp-004-auto-create-send.js` with controlled assignments. Host `/usr/bin/script` status 0 is not success when output contains `ClusterExecFailure` or a remote nonzero.
 
 After exact-master deploy and typed authorization, the supervisor may temporarily set **only**:
 
