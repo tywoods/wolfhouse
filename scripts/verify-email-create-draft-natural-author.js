@@ -678,7 +678,35 @@ function makeOwner(options = {}) {
     from_display_name: 'María García',
   }));
   assert.doesNotMatch(spanishTopic, /maría|maria|garcía|garcia/i);
-  console.log('  PASS  bounded topics skip names, email fragments, numeric/date tokens, Spanish names');
+  assert.match(spanishTopic, /prueba/i);
+  const mariaTopic = extractCreateDraftThreadTopic(content({
+    body_text: 'My name is maria',
+  }));
+  assert.doesNotMatch(mariaTopic, /maria/i);
+  assert.match(mariaTopic, /testing|front desk|mailbox/i);
+  const mariaSurfTopic = extractCreateDraftThreadTopic(content({
+    body_text: 'Please tell maria about surfing',
+  }));
+  assert.doesNotMatch(mariaSurfTopic, /maria/i);
+  assert.match(mariaSurfTopic, /surf|testing|front desk|mailbox/i);
+  const surfOnlyTopic = extractCreateDraftThreadTopic(content({
+    subject: 'Hello',
+    body_text: 'Please tell maria about surfing',
+  }));
+  assert.equal(surfOnlyTopic, 'surfing');
+  assert.doesNotMatch(surfOnlyTopic, /maria/i);
+  const carlosTopic = extractCreateDraftThreadTopic(content({
+    subject: 'Re: Prueba 8 26',
+    body_text: 'Soy carlos',
+  }));
+  assert.doesNotMatch(carlosTopic, /carlos/i);
+  const luciaTopic = extractCreateDraftThreadTopic(content({
+    subject: 'Re: Prueba 8 26',
+    body_text: 'pregunta para lucia sobre tablas',
+  }));
+  assert.doesNotMatch(luciaTopic, /lucia|lucía/i);
+  assert.match(luciaTopic, /tabla|prueba/i);
+  console.log('  PASS  bounded topics are allowlisted; unpaired/lowercase names never become topics');
 
   const hostile = await policyFor(naturalMock).compose({
     authority: authority(),

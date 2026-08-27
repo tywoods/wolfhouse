@@ -448,6 +448,7 @@ function assertNoPiiOrNumericEcho(body, label) {
   const text = String(body || '').normalize('NFC').toLowerCase();
   for (const token of [
     'john', 'smith', 'twoods', 'xantrion', 'maría', 'maria', 'garcía', 'garcia',
+    'carlos', 'lucia', 'lucía',
   ]) {
     assert.equal(text.includes(token), false, `${label}: must not echo ${token}`);
   }
@@ -473,16 +474,50 @@ function assertFailClosed(result, owner, label) {
   }
 }
 
+function assertNoSolProvenance(result, label) {
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'marker'), false, `${label}: no marker`);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'authenticity'), false, `${label}: no authenticity`);
+  assert.equal(result.marker, undefined, `${label}: marker undefined`);
+  assert.equal(result.authenticity, undefined, `${label}: authenticity undefined`);
+}
+
+function signedPlanResponder(plan) {
+  return async ({ req, res, parsed, seen }) => {
+    if (req.headers.authorization !== `Bearer ${TOKEN}`) {
+      res.writeHead(401); res.end(JSON.stringify({ error: 'unauthorized' })); return;
+    }
+    if (!parsed.ok) {
+      res.writeHead(400); res.end(JSON.stringify({ error: parsed.reason })); return;
+    }
+    if (seen.has(parsed.value.request_id)) {
+      res.writeHead(409); res.end(JSON.stringify({ error: 'replay' })); return;
+    }
+    seen.add(parsed.value.request_id);
+    const provenance = provenanceFrom(parsed.value);
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      schema: HERMES_SOL_RESULT_SCHEMA,
+      acts: plan.acts,
+      provenance,
+      authenticity: signResultAuthenticity(HMAC_SECRET, parsed.value, provenance, plan),
+    }));
+  };
+}
+
 (async () => {
   console.log('verify:mail-mvp-007-sol-empty-fix');
 
   const naturalSrc = readFile('scripts/lib/email-luna-create-draft-natural-author.js');
+  const solAuthorSrc = readFile('scripts/lib/email-luna-sunset-email-hermes-sol-author.js');
   const openSrc = readFile('scripts/lib/staff-email-luna-draft-open.js');
   const routeSrc = readFile('scripts/lib/staff-email-luna-draft-route.js');
   const autoSrc = readFile('scripts/lib/email-luna-microsoft-auto-create-send.js');
   const policySrc = readFile('scripts/lib/email-luna-draft-open-policy-composition.js');
 
   assert.match(naturalSrc, /When private staff goals are empty/);
+  assert.match(naturalSrc, /SAFE_CREATE_DRAFT_TOPIC_LABELS/);
+  assert.doesNotMatch(naturalSrc, /isNameShapedWord|THREAD_TOPIC_NAME_PAIR_SKIP/);
+  assert.match(solAuthorSrc, /local_replacement === true/);
   assert.match(
     naturalSrc,
     /emptyPrivateGoals && isForbiddenGenericEmptyWrapper/,
@@ -549,6 +584,30 @@ function assertFailClosed(result, owner, label) {
     from_display_name: 'María García',
     from_address: 'maria.garcia@example.test',
   });
+  const mariaNameThread = content({
+    subject: LIVE_SUBJECT,
+    body_text: 'My name is maria',
+    from_display_name: 'Guest',
+    from_address: 'guest@example.test',
+  });
+  const mariaSurfThread = content({
+    subject: LIVE_SUBJECT,
+    body_text: 'Please tell maria about surfing',
+    from_display_name: 'Guest',
+    from_address: 'guest@example.test',
+  });
+  const carlosThread = content({
+    subject: ES_SUBJECT,
+    body_text: 'Soy carlos',
+    from_display_name: 'Guest',
+    from_address: 'guest@example.test',
+  });
+  const luciaBoardsThread = content({
+    subject: ES_SUBJECT,
+    body_text: 'pregunta para lucia sobre tablas',
+    from_display_name: 'Guest',
+    from_address: 'guest@example.test',
+  });
 
   assert.equal(extractCreateDraftThreadTopic(johnThread).includes('john'), false);
   assert.equal(extractCreateDraftThreadTopic(johnThread).includes('smith'), false);
@@ -560,7 +619,23 @@ function assertFailClosed(result, owner, label) {
   assert.match(extractCreateDraftThreadTopic(dateBodyThread), /testing/i);
   assert.equal(extractCreateDraftThreadTopic(numericOnlyThread), '');
   assert.doesNotMatch(extractCreateDraftThreadTopic(spanishNameThread), /maría|maria|garcía|garcia/i);
-  assert.match(extractCreateDraftThreadTopic(spanishNameThread), /prueba|mensaje/i);
+  assert.match(extractCreateDraftThreadTopic(spanishNameThread), /prueba/i);
+  assert.doesNotMatch(extractCreateDraftThreadTopic(mariaNameThread), /maria/i);
+  assert.match(extractCreateDraftThreadTopic(mariaNameThread), /testing|front desk|mailbox/i);
+  assert.doesNotMatch(extractCreateDraftThreadTopic(mariaSurfThread), /maria/i);
+  assert.match(extractCreateDraftThreadTopic(mariaSurfThread), /surf|testing|front desk|mailbox/i);
+  const surfOnlyThread = content({
+    subject: 'Hello',
+    body_text: 'Please tell maria about surfing',
+    from_display_name: 'Guest',
+    from_address: 'guest@example.test',
+  });
+  assert.equal(extractCreateDraftThreadTopic(surfOnlyThread), 'surfing');
+  assert.doesNotMatch(extractCreateDraftThreadTopic(surfOnlyThread), /maria/i);
+  assert.doesNotMatch(extractCreateDraftThreadTopic(carlosThread), /carlos/i);
+  assert.match(extractCreateDraftThreadTopic(carlosThread), /prueba/i);
+  assert.doesNotMatch(extractCreateDraftThreadTopic(luciaBoardsThread), /lucia|lucía/i);
+  assert.match(extractCreateDraftThreadTopic(luciaBoardsThread), /tabla|prueba/i);
 
   const numericCompile = renderCreateDraftNaturalPlan(
     parseCreateDraftNaturalPlan(compileCreateDraftNaturalPlanJson('', numericOnlyThread)),
@@ -580,7 +655,7 @@ function assertFailClosed(result, owner, label) {
   assertNoPiiOrNumericEcho(spanishNameCompile, 'Spanish name compile');
   assert.match(spanishNameCompile, /prueba|mensaje/i);
   assert.equal(spanishNameCompile.slice(0, 5), 'Hola,');
-  console.log('  PASS  topic extraction skips names, email fragments, numbers, and Spanish names');
+  console.log('  PASS  topic extraction is allowlisted; unpaired/lowercase names never become topics');
 
   const owner = makeOwner({ env });
   assert.equal(owner.store.draft, LIVE_LEFTOVER_EN);
@@ -593,11 +668,7 @@ function assertFailClosed(result, owner, label) {
   assertThreadSpecific(produced.draft_text, content(), 'producer empty notes from leftover');
   assert.equal(produced.send_allowed, false);
   assert.equal(produced.auto_send_allowed, false);
-  if (produced.marker) {
-    assert.equal(produced.marker.provider, HERMES_SOL_PROVIDER);
-    assert.equal(produced.marker.model, HERMES_SOL_MODEL);
-    assert.equal(produced.marker.runtime, HERMES_SOL_RUNTIME);
-  }
+  assertNoSolProvenance(produced, 'generic leftover wrapper replacement');
   assert.equal(fake.hits.length, 1, 'explicit empty Create Draft must invoke Email Luna');
   assert.equal(fake.hits[0].url, HERMES_SOL_DRAFT_PATH);
   assert.equal(fake.hits[0].auth, 'bearer');
@@ -618,29 +689,9 @@ function assertFailClosed(result, owner, label) {
   assertNoSideEffects(owner, 'producer leftover empty notes');
   console.log('  PASS  leftover standing draft is replaced by thread-specific Sol draft');
 
-  const specificFake = await startFakeHermes(async ({ req, res, parsed, seen }) => {
-    if (req.headers.authorization !== `Bearer ${TOKEN}`) {
-      res.writeHead(401); res.end(JSON.stringify({ error: 'unauthorized' })); return;
-    }
-    if (!parsed.ok) {
-      res.writeHead(400); res.end(JSON.stringify({ error: parsed.reason })); return;
-    }
-    if (seen.has(parsed.value.request_id)) {
-      res.writeHead(409); res.end(JSON.stringify({ error: 'replay' })); return;
-    }
-    seen.add(parsed.value.request_id);
-    const provenance = provenanceFrom(parsed.value);
-    const plan = {
-      acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'testing' }],
-    };
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({
-      schema: HERMES_SOL_RESULT_SCHEMA,
-      acts: plan.acts,
-      provenance,
-      authenticity: signResultAuthenticity(HMAC_SECRET, parsed.value, provenance, plan),
-    }));
-  });
+  const specificFake = await startFakeHermes(signedPlanResponder({
+    acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'testing' }],
+  }));
   const specificEnv = hermesEnv(specificFake.port);
   const specificOwner = makeOwner({ env: specificEnv });
   const specificProduced = await specificOwner.owner.regenerateEmailLunaDraftOnStaffClick({
@@ -659,6 +710,67 @@ function assertFailClosed(result, owner, label) {
   assertNoSideEffects(specificOwner, 'thread-specific Sol leftover replace');
   await stopFake(specificFake);
   console.log('  PASS  thread-specific Sol plan keeps gpt-5.6-sol HMAC provenance');
+
+  const unsafeNameFake = await startFakeHermes(signedPlanResponder({
+    acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'john smith' }],
+  }));
+  const unsafeNameOwner = makeOwner({ env: hermesEnv(unsafeNameFake.port) });
+  const unsafeNameProduced = await unsafeNameOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: '',
+  });
+  assert.equal(unsafeNameProduced.status, 'draft_ready');
+  assertThreadSpecific(unsafeNameProduced.draft_text, content(), 'unsafe john smith Sol plan');
+  assert.match(unsafeNameProduced.draft_text, /front desk|testing|mailbox/i);
+  assertNoPiiOrNumericEcho(unsafeNameProduced.draft_text, 'unsafe john smith Sol plan');
+  assertNoSolProvenance(unsafeNameProduced, 'unsafe john smith Sol plan');
+  assert.equal(unsafeNameFake.hits.length, 1);
+  assertNoSideEffects(unsafeNameOwner, 'unsafe john smith Sol plan');
+  await stopFake(unsafeNameFake);
+  console.log('  PASS  unsafe Sol john smith topic becomes local safe output without HMAC');
+
+  const malformedTopicFake = await startFakeHermes(signedPlanResponder({
+    acts: [{
+      act: 'ask_clarifying_question',
+      topic: 'testing',
+      extra: 'bypass',
+    }],
+  }));
+  const malformedTopicOwner = makeOwner({ env: hermesEnv(malformedTopicFake.port) });
+  const malformedTopicOut = await malformedTopicOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: '',
+  });
+  assertFailClosed(malformedTopicOut, malformedTopicOwner, 'malformed extra-key topic');
+  assertNoSolProvenance(malformedTopicOut, 'malformed extra-key topic');
+  await stopFake(malformedTopicFake);
+
+  const nonAllowlistedFake = await startFakeHermes(signedPlanResponder({
+    acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'maria' }],
+  }));
+  const nonAllowlistedOwner = makeOwner({
+    env: hermesEnv(nonAllowlistedFake.port),
+    contentText: 'Please tell maria about surfing',
+    rows: [leftoverRow({
+      subject: LIVE_SUBJECT,
+      body_text: '',
+      from_display_name: 'Guest',
+      from_address: 'guest@example.test',
+    })],
+  });
+  const nonAllowlistedProduced = await nonAllowlistedOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: '',
+  });
+  assert.equal(nonAllowlistedProduced.status, 'draft_ready');
+  assert.doesNotMatch(nonAllowlistedProduced.draft_text, /maria/i);
+  assert.match(nonAllowlistedProduced.draft_text, /surf|testing|front desk|mailbox/i);
+  assertNoSolProvenance(nonAllowlistedProduced, 'non-allowlisted maria topic');
+  await stopFake(nonAllowlistedFake);
+  console.log('  PASS  malformed/non-allowlisted Sol topics cannot bypass allowlist or keep HMAC');
 
   const wsHitsBefore = fake.hits.length;
   const wsOwner = makeOwner({ env });
@@ -927,6 +1039,154 @@ function assertFailClosed(result, owner, label) {
     false,
   );
 
+  const mariaNameProduced = await produceEmptyTopicCase(
+    'My name is maria',
+    {
+      subject: LIVE_SUBJECT,
+      from_display_name: 'Guest',
+      from_address: 'guest@example.test',
+    },
+    'My name is maria',
+    mariaNameThread,
+    true,
+  );
+  assert.match(mariaNameProduced.draft_text, /front desk|testing|mailbox/i);
+  const mariaSurfProduced = await produceEmptyTopicCase(
+    'Please tell maria about surfing',
+    {
+      subject: LIVE_SUBJECT,
+      from_display_name: 'Guest',
+      from_address: 'guest@example.test',
+    },
+    'Please tell maria about surfing',
+    mariaSurfThread,
+    true,
+  );
+  assert.match(mariaSurfProduced.draft_text, /surf|testing|front desk|mailbox/i);
+  const surfOnlyProduced = await produceEmptyTopicCase(
+    'Please tell maria about surfing without testing subject',
+    {
+      subject: 'Hello',
+      from_display_name: 'Guest',
+      from_address: 'guest@example.test',
+    },
+    'Please tell maria about surfing',
+    surfOnlyThread,
+    true,
+  );
+  assert.match(surfOnlyProduced.draft_text, /surf/i);
+  const carlosProducedOwner = makeOwner({
+    env,
+    contentText: carlosThread.body_text,
+    rows: [leftoverRow({
+      subject: ES_SUBJECT,
+      from_display_name: 'Guest',
+      from_address: 'guest@example.test',
+      staff_reply_draft: LIVE_LEFTOVER_ES,
+      conversation_metadata: {
+        luna_email_open_draft: {
+          state: 'ready',
+          origin: 'luna',
+          source_inbound_event_id: M,
+          generated_body_sha256: crypto.createHash('sha256').update(LIVE_LEFTOVER_ES, 'utf8').digest('hex'),
+        },
+      },
+    })],
+  });
+  const carlosHitsBefore = fake.hits.length;
+  const carlosProduced = await carlosProducedOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: '',
+  });
+  assert.equal(carlosProduced.status, 'draft_ready');
+  assertByteDifferent(carlosProduced.draft_text, LIVE_LEFTOVER_ES, 'Soy carlos leftover');
+  assertByteDifferent(carlosProduced.draft_text, LIVE_LEFTOVER_EN, 'Soy carlos leftover EN');
+  assert.doesNotMatch(carlosProduced.draft_text, /carlos/i);
+  assert.match(carlosProduced.draft_text, /prueba/i);
+  assertNoPiiOrNumericEcho(carlosProduced.draft_text, 'Soy carlos');
+  assert.equal(fake.hits.length, carlosHitsBefore + 1);
+  assertCreateDraftSql(carlosProducedOwner, 'Soy carlos');
+  assertNoSideEffects(carlosProducedOwner, 'Soy carlos');
+  const luciaOwner = makeOwner({
+    env,
+    contentText: luciaBoardsThread.body_text,
+    rows: [leftoverRow({
+      subject: ES_SUBJECT,
+      from_display_name: 'Guest',
+      from_address: 'guest@example.test',
+      staff_reply_draft: LIVE_LEFTOVER_ES,
+      conversation_metadata: {
+        luna_email_open_draft: {
+          state: 'ready',
+          origin: 'luna',
+          source_inbound_event_id: M,
+          generated_body_sha256: crypto.createHash('sha256').update(LIVE_LEFTOVER_ES, 'utf8').digest('hex'),
+        },
+      },
+    })],
+  });
+  const luciaHitsBefore = fake.hits.length;
+  const luciaProduced = await luciaOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: '',
+  });
+  assert.equal(luciaProduced.status, 'draft_ready');
+  assert.equal(luciaProduced.draft_text.slice(0, 5), 'Hola,');
+  assert.doesNotMatch(luciaProduced.draft_text, /lucia|lucía/i);
+  assert.match(luciaProduced.draft_text, /tabla|prueba|surf/i);
+  assertNoPiiOrNumericEcho(luciaProduced.draft_text, 'pregunta para lucia sobre tablas');
+  assert.equal(fake.hits.length, luciaHitsBefore + 1);
+  assertCreateDraftSql(luciaOwner, 'pregunta para lucia sobre tablas');
+  assertNoSideEffects(luciaOwner, 'pregunta para lucia sobre tablas');
+  console.log('  PASS  unpaired/lowercase names never become guest copy');
+
+  const authorUnsafe = createEmailLunaCreateDraftNaturalAuthor({
+    callModel: async () => JSON.stringify({
+      acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'maria' }],
+    }),
+  });
+  const authoredMaria = await authorUnsafe.authorNaturalGuestReply({
+    authority: authority(),
+    untrusted_email: mariaNameThread,
+    private_staff_goals: '',
+  });
+  assert.equal(authoredMaria.status, 'draft_ready');
+  assert.equal(authoredMaria.local_replacement, true);
+  assert.doesNotMatch(authoredMaria.body, /maria/i);
+  assert.match(authoredMaria.body, /front desk|testing|mailbox/i);
+  const authoredSurf = await authorUnsafe.authorNaturalGuestReply({
+    authority: authority(),
+    untrusted_email: mariaSurfThread,
+    private_staff_goals: '',
+  });
+  assert.equal(authoredSurf.status, 'draft_ready');
+  assert.equal(authoredSurf.local_replacement, true);
+  assert.doesNotMatch(authoredSurf.body, /maria/i);
+  assert.match(authoredSurf.body, /surf|testing|front desk|mailbox/i);
+  const authoredSurfOnly = await authorUnsafe.authorNaturalGuestReply({
+    authority: authority(),
+    untrusted_email: surfOnlyThread,
+    private_staff_goals: '',
+  });
+  assert.equal(authoredSurfOnly.status, 'draft_ready');
+  assert.doesNotMatch(authoredSurfOnly.body, /maria/i);
+  assert.match(authoredSurfOnly.body, /surf/i);
+  const authorAllowlisted = createEmailLunaCreateDraftNaturalAuthor({
+    callModel: async () => JSON.stringify({
+      acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'testing' }],
+    }),
+  });
+  const authoredTesting = await authorAllowlisted.authorNaturalGuestReply({
+    authority: authority(),
+    untrusted_email: content(),
+    private_staff_goals: '',
+  });
+  assert.equal(authoredTesting.status, 'draft_ready');
+  assert.equal(authoredTesting.local_replacement, undefined);
+  assert.match(authoredTesting.body, /testing/i);
+
   const spanishNameOwner = makeOwner({
     env,
     contentText: spanishNameThread.body_text,
@@ -1090,6 +1350,7 @@ function assertFailClosed(result, owner, label) {
 
   const docs = readFile('docs/MAIL-MVP.md');
   assert.match(docs, /thread-specific/);
+  assert.match(docs, /allowlist/);
   assert.doesNotMatch(docs, /Empty notes stay the safe thread-only draft/);
 
   console.log('PASS MAIL-MVP-007-SOL-EMPTY-FIX leftover empty Create Draft invokes Sol and replaces wrapper');
