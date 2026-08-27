@@ -333,24 +333,250 @@ function redactSensitive(text, secrets) {
   return out;
 }
 
+const PUBLIC_REDACT_KEYS = freeze([
+  'conversation_id',
+  'draft_text',
+  'message_text',
+  'sender_address',
+  'client_id',
+  'location_id',
+  'inbound_message_id',
+  'provider_mailbox_id',
+  'provider_source_message_id',
+  'graph_conversation_id',
+  'guest_id',
+  'evidence_mac',
+  'accessToken',
+  'access_token',
+  'body',
+  'bodyPreview',
+  'uniqueBody',
+  'durable_evidence',
+  'provenance',
+  'after',
+  'envelope',
+  'projection',
+  'authority',
+  'token',
+  'secret',
+  'hmac_secret',
+]);
+
+function stripPublicPii(pub) {
+  if (!pub || typeof pub !== 'object' || isProxy(pub) || Array.isArray(pub)) return pub;
+  const copy = { ...pub };
+  for (const key of PUBLIC_REDACT_KEYS) delete copy[key];
+  delete copy.conversation_id;
+  delete copy.draft_text;
+  delete copy.message_text;
+  delete copy.sender_address;
+  return freeze(copy);
+}
+
+function attachPublic(result, pub) {
+  if (!result || typeof result !== 'object' || isProxy(result)) return result;
+  if (!pub || typeof pub !== 'object' || isProxy(pub) || Array.isArray(pub)) return result;
+  return freeze({ ...result, public: stripPublicPii(pub) });
+}
+
+function killSwitchPublic(result) {
+  const ok = !!(result && result.ok === true);
+  const out = {
+    ok,
+    reason: result && result.reason
+      ? String(result.reason)
+      : (ok ? 'emergency_flags_off' : 'kill_switch_unproven'),
+    author_called: !!(result && result.author_called === true),
+    journal_called: !!(result && result.journal_called === true),
+    provider_called: !!(result && result.provider_called === true),
+    provider_sends: result && Number.isSafeInteger(result.provider_sends) ? result.provider_sends : 0,
+  };
+  if (result && typeof result.status === 'string' && result.status) out.status = result.status;
+  return freeze(out);
+}
+
+function snapshotCountsPublic(counts) {
+  if (!counts || typeof counts !== 'object' || isProxy(counts)) {
+    return freeze({ ok: false, reason: 'counts_unavailable' });
+  }
+  return freeze({
+    ok: true,
+    approvals: Number.isSafeInteger(counts.approvals) ? counts.approvals : 0,
+    journals: Number.isSafeInteger(counts.journals) ? counts.journals : 0,
+    provider_sends: Number.isSafeInteger(counts.provider_sends) ? counts.provider_sends : 0,
+    bookings: Number.isSafeInteger(counts.bookings) ? counts.bookings : 0,
+  });
+}
+
+function snapshotPreflightPublic(result) {
+  return freeze({
+    ok: result && result.ok === true,
+    reason: result && result.ok === true ? null : (result && result.reason ? String(result.reason) : 'snapshot_unproven'),
+    approvals: Number.isSafeInteger(result && result.approvals) ? result.approvals : 0,
+    journals: Number.isSafeInteger(result && result.journals) ? result.journals : 0,
+    provider_sends: Number.isSafeInteger(result && result.provider_sends) ? result.provider_sends : 0,
+    bookings: Number.isSafeInteger(result && result.bookings) ? result.bookings : 0,
+    luna_on: result && result.luna_on === true,
+    needs_human: result && result.needs_human === true,
+    guest_linked: result && result.guest_linked === true,
+    sender_ok: result && result.sender_ok === true,
+    subject_ok: result && result.subject_ok === true,
+    sol_enabled: result && result.sol_enabled === true,
+    channel_mode: result && typeof result.channel_mode === 'string' ? result.channel_mode : null,
+  });
+}
+
+function snapshotModePublic(result) {
+  return freeze({
+    ok: result && result.ok === true,
+    channel_mode: result && typeof result.channel_mode === 'string' ? result.channel_mode : null,
+  });
+}
+
+function evidencePublic(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) {
+    return freeze({
+      ok: false,
+      reason: 'snapshot_unproven',
+      hmac_available: false,
+      evidence_verified: false,
+      leftover: false,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+    });
+  }
+  const marker = result.marker && typeof result.marker === 'object' && !isProxy(result.marker)
+    ? freeze({
+      provider: result.marker.provider,
+      model: result.marker.model,
+      runtime: result.marker.runtime,
+    })
+    : undefined;
+  const out = {
+    ok: result.ok === true,
+    hmac_available: result.hmac_available === true,
+    evidence_verified: result.evidence_verified === true,
+    leftover: result.leftover === true,
+    approvals: Number.isSafeInteger(result.approvals) ? result.approvals : 0,
+    journals: Number.isSafeInteger(result.journals) ? result.journals : 0,
+    provider_sends: Number.isSafeInteger(result.provider_sends) ? result.provider_sends : 0,
+  };
+  if (result.ok !== true && result.reason) out.reason = String(result.reason);
+  if (result.hmac_kind) out.hmac_kind = result.hmac_kind;
+  if (marker) out.marker = marker;
+  if (result.sol_provider) out.sol_provider = result.sol_provider;
+  if (result.sol_model) out.sol_model = result.sol_model;
+  if (result.sol_runtime) out.sol_runtime = result.sol_runtime;
+  if (result.duplicate_unreconciled === true) out.duplicate_unreconciled = true;
+  if (result.immutable_draft_id) out.immutable_draft_id = result.immutable_draft_id;
+  return freeze(out);
+}
+
+function isKillSwitchShape(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) return false;
+  if (result.status === 'blocked') return true;
+  if (result.reason === 'emergency_flags_off'
+      || result.reason === 'kill_switch_unproven'
+      || result.reason === 'kill_switch_side_effect') {
+    return true;
+  }
+  return typeof result.author_called === 'boolean'
+    || typeof result.journal_called === 'boolean'
+    || typeof result.provider_called === 'boolean';
+}
+
+function isGraphShape(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) return false;
+  if (typeof result.adapter_available === 'boolean' || typeof result.readonly === 'boolean') return true;
+  if (typeof result.reason === 'string' && /^graph_/.test(result.reason)) return true;
+  return Number.isSafeInteger(result.arrivals) && typeof result.threaded === 'boolean';
+}
+
+function isEvidenceShape(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) return false;
+  if (typeof result.hmac_available === 'boolean' || typeof result.evidence_verified === 'boolean') return true;
+  return result.reason === 'hmac_unwired' || result.reason === 'sol_unproven';
+}
+
+function isPreflightShape(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) return false;
+  return typeof result.luna_on === 'boolean'
+    || typeof result.guest_linked === 'boolean'
+    || typeof result.sender_ok === 'boolean'
+    || typeof result.subject_ok === 'boolean'
+    || typeof result.sol_enabled === 'boolean';
+}
+
+function isCountsShape(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) return false;
+  return Number.isSafeInteger(result.approvals)
+    && Number.isSafeInteger(result.journals)
+    && Number.isSafeInteger(result.provider_sends)
+    && Number.isSafeInteger(result.bookings);
+}
+
+function innerPublicFromResult(result) {
+  if (!result || typeof result !== 'object' || isProxy(result) || Array.isArray(result)) return null;
+  if (isKillSwitchShape(result)) return killSwitchPublic(result);
+  if (isGraphShape(result)) return sanitizeGraphPublic(result);
+  if (isEvidenceShape(result)) return evidencePublic(result);
+  if (isPreflightShape(result)) return snapshotPreflightPublic(result);
+  if (result.channel_mode && !Number.isSafeInteger(result.approvals)) return snapshotModePublic(result);
+  if (isCountsShape(result)) return snapshotCountsPublic(result);
+  if (result.reason === 'reconcile_owner_state') {
+    return freeze({
+      ok: false,
+      reason: 'reconcile_owner_state',
+      reconcile: true,
+      approvals: Number.isSafeInteger(result.approvals) ? result.approvals : 0,
+      journals: Number.isSafeInteger(result.journals) ? result.journals : 0,
+      provider_sends: Number.isSafeInteger(result.provider_sends) ? result.provider_sends : 0,
+    });
+  }
+  if (result.status === 'skipped' && result.reason === 'already_sent') {
+    return freeze({
+      ok: true,
+      status: 'skipped',
+      reason: 'already_sent',
+      invoked: Number.isSafeInteger(result.invoked) ? result.invoked : 0,
+      duplicate: true,
+      approvals: Number.isSafeInteger(result.approvals) ? result.approvals : 1,
+      journals: Number.isSafeInteger(result.journals) ? result.journals : 1,
+      provider_sends: Number.isSafeInteger(result.provider_sends) ? result.provider_sends : 1,
+    });
+  }
+  return null;
+}
+
+function withInnerPublic(result) {
+  if (result && result.public && typeof result.public === 'object' && !isProxy(result.public)) {
+    return result;
+  }
+  const pub = innerPublicFromResult(result);
+  if (!pub) return result;
+  return attachPublic(result, pub);
+}
+
 function publicProofOutput(result) {
+  if (result && result.public && typeof result.public === 'object' && !isProxy(result.public)) {
+    return stripPublicPii(result.public);
+  }
+  const inner = innerPublicFromResult(result);
+  if (inner) return inner;
   if (!result || result.ok !== true) {
-    const pub = result && result.public ? result.public : null;
-    if (pub && typeof pub === 'object') {
-      const copy = { ...pub };
-      delete copy.conversation_id;
-      delete copy.draft_text;
-      delete copy.message_text;
-      delete copy.sender_address;
-      return freeze(copy);
-    }
     return freeze({
       ok: false,
       reason: result && result.reason ? String(result.reason) : 'proof_failed',
       live_proof_blocked: true,
     });
   }
-  return result.public || freeze({ ok: true, status: 'sent' });
+  // Never impersonate a Microsoft send. Outer execute always sets `.public`.
+  return freeze({
+    ok: true,
+    status: result.status === 'sent' ? 'ok' : (typeof result.status === 'string' && result.status ? result.status : 'ok'),
+    reason: result.reason == null ? null : String(result.reason),
+  });
 }
 
 function normalizeProofSubject(value) {
@@ -737,6 +963,11 @@ function sanitizeGraphPublic(result) {
     threaded: result.threaded === true,
     subject_ok: result.subject_ok === true,
   });
+}
+
+function graphInnerResult(result) {
+  const pub = sanitizeGraphPublic(result);
+  return attachPublic(pub, pub);
 }
 
 function sanitizeReplicaEvidenceSnapshot(loaded, secret) {
@@ -3167,12 +3398,17 @@ async function runKillSwitchProbe(input) {
     const selected = selectProofThread(loaded && loaded.rows);
     if (!selected.ok) return refusedRecord(selected.reason);
     const row = selected.row;
-    const wired = createProductionStaffAutoCreateSendOwner({ withPgClient, runtimeEnv: env });
+    const wired = input && input.wired
+      ? input.wired
+      : createProductionStaffAutoCreateSendOwner({ withPgClient, runtimeEnv: env });
+    const handle = wired && (wired.handleProjectedInbound
+      || (wired.owner && wired.owner.handleProjectedInbound));
+    if (typeof handle !== 'function') return refusedRecord('kill_switch_unproven');
     const kill = createCanonical003KillSwitch({
-      handleProjectedInbound: wired.handleProjectedInbound,
+      handleProjectedInbound: handle,
       runtimeEnv: env,
     });
-    return kill({
+    const probed = await kill({
       env,
       authority: freeze({
         clientId: row.client_id,
@@ -3189,6 +3425,7 @@ async function runKillSwitchProbe(input) {
         conversation_id: row.conversation_id,
       }),
     });
+    return attachPublic(probed, killSwitchPublic(probed));
   } finally {
     if (pg && typeof pg.closePgPool === 'function') await pg.closePgPool();
   }
@@ -3221,7 +3458,7 @@ async function runInnerSnapshot(input) {
       if (!counts) return refusedRecord('counts_unavailable');
       const store = createEmailInboxChannelModeStore({ withPgClient });
       const mode = await store.getChannelMode(row.client_id, 'email');
-      return freeze({
+      const out = freeze({
         ok: true,
         ...counts,
         luna_on: row.conversation_status === 'open',
@@ -3239,18 +3476,23 @@ async function runInnerSnapshot(input) {
         inbound_message_id: row.inbound_message_id,
         provider_mailbox_id: row.provider_mailbox_id,
       });
+      return attachPublic(out, snapshotPreflightPublic(out));
     }
     if (kind === 'counts') {
-      return snapshotSelectedOperation(withPgClient, row);
+      const counts = await snapshotSelectedOperation(withPgClient, row);
+      if (!counts) return refusedRecord('counts_unavailable');
+      return attachPublic(freeze({ ok: true, ...counts }), snapshotCountsPublic(counts));
     }
     if (kind === 'evidence') {
       const loaded = await loadSelectedOperationEvidence(withPgClient, row, envOwn(env, ENV_HMAC_SECRET));
-      return sanitizeReplicaEvidenceSnapshot(loaded, envOwn(env, ENV_HMAC_SECRET));
+      const sanitized = sanitizeReplicaEvidenceSnapshot(loaded, envOwn(env, ENV_HMAC_SECRET));
+      return attachPublic(sanitized, evidencePublic(sanitized));
     }
     if (kind === 'mode') {
       const store = createEmailInboxChannelModeStore({ withPgClient });
       const mode = await store.getChannelMode(row.client_id, 'email');
-      return freeze({ ok: true, channel_mode: mode });
+      const out = freeze({ ok: true, channel_mode: mode });
+      return attachPublic(out, snapshotModePublic(out));
     }
     return refusedRecord('snapshot_unproven');
   } finally {
@@ -3300,7 +3542,7 @@ function createProductionStaffMailboxTokenLoan(deps) {
 async function runInnerGraphVerify(input) {
   const env = (input && input.env) || process.env;
   if (envOwn(env, INNER_MODE_GRAPH_VERIFY) !== '1') {
-    return sanitizeGraphPublic({
+    return graphInnerResult({
       ok: false,
       reason: 'graph_adapter_unwired',
       adapter_available: false,
@@ -3322,7 +3564,7 @@ async function runInnerGraphVerify(input) {
       pg = createProductionStaffPgAdapter();
       withPgClient = pg.withPgClient;
     } catch {
-      return sanitizeGraphPublic({
+      return graphInnerResult({
         ok: false,
         reason: 'graph_adapter_unwired',
         adapter_available: false,
@@ -3335,7 +3577,7 @@ async function runInnerGraphVerify(input) {
       const loaded = await client.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]);
       const selected = selectProofThread(loaded && loaded.rows);
       if (!selected.ok) {
-        return sanitizeGraphPublic({
+        return graphInnerResult({
           ok: false,
           reason: selected.reason,
           adapter_available: false,
@@ -3346,7 +3588,7 @@ async function runInnerGraphVerify(input) {
       const clientId = uuid(row.client_id);
       const endpointId = uuid(row.endpoint_id);
       if (!clientId || !endpointId) {
-        return sanitizeGraphPublic({
+        return graphInnerResult({
           ok: false,
           reason: 'graph_adapter_unwired',
           adapter_available: false,
@@ -3360,7 +3602,7 @@ async function runInnerGraphVerify(input) {
         timers: (input && input.timers) || { setTimeout, clearTimeout },
       });
       if (!session || typeof session.runWithAccessTokenOnce !== 'function') {
-        return sanitizeGraphPublic({
+        return graphInnerResult({
           ok: false,
           reason: 'graph_adapter_unwired',
           adapter_available: false,
@@ -3398,7 +3640,7 @@ async function runInnerGraphVerify(input) {
           },
         );
       } catch {
-        return sanitizeGraphPublic({
+        return graphInnerResult({
           ok: false,
           reason: 'graph_adapter_unwired',
           adapter_available: false,
@@ -3406,7 +3648,7 @@ async function runInnerGraphVerify(input) {
         });
       }
       if (!sessionOut || sessionOut.ok !== true) {
-        return sanitizeGraphPublic({
+        return graphInnerResult({
           ok: false,
           reason: 'graph_adapter_unwired',
           adapter_available: false,
@@ -3415,7 +3657,7 @@ async function runInnerGraphVerify(input) {
       }
       const listed = sessionOut.value;
       if (listed && listed.reason === 'graph_body_leaked') {
-        return sanitizeGraphPublic({
+        return graphInnerResult({
           ok: false,
           reason: 'graph_body_leaked',
           adapter_available: true,
@@ -3423,7 +3665,7 @@ async function runInnerGraphVerify(input) {
         });
       }
       if (listed && listed.ok === false && listed.reason === 'graph_adapter_unwired') {
-        return sanitizeGraphPublic({
+        return graphInnerResult({
           ok: false,
           reason: 'graph_adapter_unwired',
           adapter_available: false,
@@ -3431,7 +3673,7 @@ async function runInnerGraphVerify(input) {
         });
       }
       if (listed && listed.ok === false && listed.reason === 'graph_send_forbidden') {
-        return sanitizeGraphPublic({
+        return graphInnerResult({
           ok: false,
           reason: 'graph_send_forbidden',
           adapter_available: false,
@@ -3448,7 +3690,7 @@ async function runInnerGraphVerify(input) {
           provider_mailbox_id: row.provider_mailbox_id,
         },
       );
-      return sanitizeGraphPublic({
+      return graphInnerResult({
         ...classified,
         adapter_available: true,
         readonly: true,
@@ -3740,20 +3982,20 @@ function inspectRepoReadiness(root, execGit) {
 async function runCli(argv, options) {
   const env = (options && options.env) || process.env;
   if (envOwn(env, INNER_MODE_KILL_SWITCH) === '1') {
-    return runKillSwitchProbe({ ...options, env });
+    return withInnerPublic(await runKillSwitchProbe({ ...options, env }));
   }
   if (envOwn(env, INNER_MODE_SNAPSHOT)) {
-    return runInnerSnapshot({ ...options, env });
+    return withInnerPublic(await runInnerSnapshot({ ...options, env }));
   }
   if (envOwn(env, INNER_MODE_GRAPH_VERIFY) === '1') {
-    return runInnerGraphVerify({ ...options, env });
+    return withInnerPublic(await runInnerGraphVerify({ ...options, env }));
   }
   if (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
       || envOwn(env, 'MAIL_MVP_004_RECONCILE_ONLY') === '1') {
     if (envOwn(env, 'MAIL_MVP_004_RECONCILE_ONLY') === '1') {
-      return runStaffOwnerProof({ ...options, env, reconcileOnly: true });
+      return withInnerPublic(await runStaffOwnerProof({ ...options, env, reconcileOnly: true }));
     }
-    return runStaffOwnerProof({ ...options, env });
+    return withInnerPublic(await runStaffOwnerProof({ ...options, env }));
   }
   if (refusedProduction(env)) return refusedRecord('production_refused');
   const parsed = parseArgs(argv);
