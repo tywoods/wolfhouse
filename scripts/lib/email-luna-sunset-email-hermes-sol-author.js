@@ -17,6 +17,12 @@ const { createEmailLunaDraftAuthor } = require('./email-luna-draft-author');
 const {
   createEmailLunaSunsetEmailHermesSolClient,
 } = require('./email-luna-sunset-email-hermes-sol-client');
+const {
+  parseHermesSolActsPayload,
+} = require('./email-luna-sunset-email-hermes-sol-contract');
+
+const LOCAL_COMPILE_TRUST = new WeakSet();
+const LOCAL_COMPILE_SOURCE = 'staff_local_bounded_topic_compile';
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -64,12 +70,60 @@ function createHermesNaturalCallModel(client, authority) {
       throw error;
     }
     hermesNaturalCallModel.lastMarker = result.marker;
+    hermesNaturalCallModel.lastPlanJson = result.planJson;
     if (result.authenticity && result.authenticity.hmac_verified === true
         && typeof result.authenticity.request_id === 'string') {
       hermesNaturalCallModel.lastAuthenticity = result.authenticity;
     }
     return result.planJson;
   };
+}
+
+function isLocalReplacement(authored) {
+  return !!(authored && typeof authored === 'object'
+    && (authored.compile_replacement === true || authored.local_replacement === true));
+}
+
+function mintStaffLocalCompileTrust(planAuthenticity) {
+  const requestId = planAuthenticity && typeof planAuthenticity.request_id === 'string'
+    ? planAuthenticity.request_id
+    : '';
+  if (!requestId) return null;
+  const token = freeze({
+    source: LOCAL_COMPILE_SOURCE,
+    request_id: requestId,
+    plan_hmac_verified: true,
+    exact_body_hmac_verified: false,
+  });
+  LOCAL_COMPILE_TRUST.add(token);
+  return token;
+}
+
+function isStaffLocalCompileTrust(value) {
+  return !!(value && typeof value === 'object' && LOCAL_COMPILE_TRUST.has(value));
+}
+
+function attachTransformedPlanProvenance(authored, marker, planAuthenticity) {
+  if (!authored || typeof authored !== 'object' || !marker || !planAuthenticity) return authored;
+  if (planAuthenticity.hmac_verified !== true || typeof planAuthenticity.request_id !== 'string') {
+    return authored;
+  }
+  const localCompile = mintStaffLocalCompileTrust(planAuthenticity);
+  if (!localCompile) return authored;
+  const next = {
+    ...authored,
+    marker,
+    plan_authenticity: freeze({
+      alg: typeof planAuthenticity.alg === 'string' ? planAuthenticity.alg : 'HMAC-SHA256',
+      request_id: planAuthenticity.request_id,
+      hmac_verified: true,
+      exact_body_hmac_verified: false,
+      source: LOCAL_COMPILE_SOURCE,
+    }),
+    local_compile: localCompile,
+  };
+  delete next.authenticity;
+  return freeze(next);
 }
 
 function createHermesTemplateCallModel(client) {
@@ -116,14 +170,48 @@ function createEmailLunaSunsetEmailHermesSolAuthors(configuration) {
       naturalConfig.timeoutMs = configuration.timeoutMs;
     }
     const natural = createEmailLunaCreateDraftNaturalAuthor(naturalConfig);
-    const authored = await natural.authorNaturalGuestReply(input);
-    if (authored && typeof authored === 'object'
-        && (authored.compile_replacement === true || authored.local_replacement === true)) {
+    let authored = await natural.authorNaturalGuestReply(input);
+    const planAuthenticity = callModel.lastAuthenticity;
+    const marker = callModel.lastMarker;
+    if ((!authored || authored.status !== 'draft_ready')
+        && planAuthenticity
+        && typeof callModel.lastPlanJson === 'string'
+        && parseHermesSolActsPayload(callModel.lastPlanJson).ok === true) {
+      const compileCallModel = async (prompt) => {
+        const payload = parseCanonicalUser(prompt);
+        if (!payload || typeof payload !== 'object' || isProxy(payload)) {
+          throw new Error('malformed');
+        }
+        const goalsBox = payload.private_staff_goals;
+        const goals = goalsBox && typeof goalsBox.goals === 'string' ? goalsBox.goals : '';
+        const compiled = compileCreateDraftNaturalPlanJson(goals, payload.untrusted_email);
+        if (typeof compiled !== 'string' || !compiled) throw new Error('malformed');
+        return compiled;
+      };
+      const compiler = createEmailLunaCreateDraftNaturalAuthor({
+        callModel: compileCallModel,
+        timeoutMs: naturalConfig.timeoutMs,
+      });
+      const recovered = await compiler.authorNaturalGuestReply(input);
+      if (recovered && recovered.status === 'draft_ready' && typeof recovered.body === 'string'
+          && recovered.body.trim()) {
+        authored = freeze({
+          ...recovered,
+          local_replacement: true,
+          compile_replacement: true,
+        });
+      }
+    }
+    if (authored && authored.status === 'draft_ready' && isLocalReplacement(authored)
+        && marker && planAuthenticity) {
+      return attachTransformedPlanProvenance(authored, marker, planAuthenticity);
+    }
+    if (authored && typeof authored === 'object' && isLocalReplacement(authored)) {
       return authored;
     }
-    if (authored && typeof authored === 'object' && callModel.lastMarker) {
-      const extra = { marker: callModel.lastMarker };
-      if (callModel.lastAuthenticity) extra.authenticity = callModel.lastAuthenticity;
+    if (authored && typeof authored === 'object' && marker) {
+      const extra = { marker };
+      if (planAuthenticity) extra.authenticity = planAuthenticity;
       return freeze({ ...authored, ...extra });
     }
     return authored;
@@ -139,4 +227,5 @@ function createEmailLunaSunsetEmailHermesSolAuthors(configuration) {
 module.exports = freeze({
   createEmailLunaSunsetEmailHermesSolAuthors,
   parseCanonicalUser,
+  isStaffLocalCompileTrust,
 });

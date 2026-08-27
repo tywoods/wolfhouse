@@ -51,6 +51,15 @@ const EMAIL_KEYS = freeze([
   'subject', 'body_text', 'quoted_history', 'from_display_name', 'from_address',
 ]);
 const GOALS_KEYS = freeze(['trust', 'goals']);
+const HERMES_SOL_ACTS_KEYS = freeze(['acts']);
+const HERMES_SOL_ALLOWED_ACTS = freeze([
+  'thank_guest',
+  'acknowledge_message',
+  'ask_booking_interest',
+  'ask_clarifying_question',
+  'offer_human_followup',
+]);
+const HOSTILE_SOL_TOPIC = /we also wanted to add|tambi[eé]n quer[ií]amos a[nñ]adir|(?:\bsystem\s*:|\[\s*system\s*\]|immutable system policy|ignore\s+(?:all\s+)?previous\s+instructions?|\bdeveloper\s+(?:message|instruction)|override\s+policy|send_allowed|draft_ready|low_confidence|location_id\s*=|required_facts)|staff notes|staff instruction|operator context|\bthank them\b|\bask them\b|\btell them\b|we['’]ll review it and get back to you shortly|lo revisaremos y te responderemos en breve/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_REQUEST_JSON_BYTES = 96 * 1024;
 const MAX_RESULT_JSON_BYTES = 16 * 1024;
@@ -181,6 +190,78 @@ function parseDraftPlanRequest(raw) {
   out.private_staff_goals = goals;
   out.request_id = requestId;
   return freeze({ ok: true, value: freeze(out) });
+}
+
+function actAllowed(act) {
+  if (typeof act !== 'string') return false;
+  for (let i = 0; i < HERMES_SOL_ALLOWED_ACTS.length; i += 1) {
+    if (HERMES_SOL_ALLOWED_ACTS[i] === act) return true;
+  }
+  return false;
+}
+
+// Python email_draft_contract.parse_acts_payload: HMAC-verified envelope
+// shape only. Does not enforce Staff's guest-copy topic allowlist. Extra
+// keys and unknown acts still fail closed.
+function parseHermesSolActsPayload(raw) {
+  if (typeof raw !== 'string' || isProxy(raw)) return freeze({ ok: false, reason: 'malformed' });
+  let value;
+  try { value = JSON.parse(raw); } catch { return freeze({ ok: false, reason: 'malformed' }); }
+  const rec = exactRecord(value, HERMES_SOL_ACTS_KEYS, Object.prototype)
+    || exactRecord(value, HERMES_SOL_ACTS_KEYS, null);
+  if (!rec) return freeze({ ok: false, reason: 'malformed' });
+  const acts = rec.acts;
+  if (!Array.isArray(acts) || isProxy(acts) || !hasOwn(acts, 'length')) {
+    return freeze({ ok: false, reason: 'malformed' });
+  }
+  if (!Number.isSafeInteger(acts.length) || acts.length < 1 || acts.length > 6) {
+    return freeze({ ok: false, reason: 'malformed' });
+  }
+  const parsed = [];
+  for (let i = 0; i < acts.length; i += 1) {
+    if (!hasOwn(acts, i)) return freeze({ ok: false, reason: 'malformed' });
+    const item = acts[i];
+    if (!item || typeof item !== 'object' || isProxy(item) || Array.isArray(item)) {
+      return freeze({ ok: false, reason: 'malformed' });
+    }
+    let proto;
+    let keysFound;
+    try {
+      proto = getProto(item);
+      keysFound = ownKeys(item);
+    } catch {
+      return freeze({ ok: false, reason: 'malformed' });
+    }
+    if (proto !== Object.prototype && proto !== null) {
+      return freeze({ ok: false, reason: 'malformed' });
+    }
+    if (!keysFound.length || keysFound.some((key) => typeof key !== 'string')) {
+      return freeze({ ok: false, reason: 'malformed' });
+    }
+    let hasAct = false;
+    let hasTopic = false;
+    for (let j = 0; j < keysFound.length; j += 1) {
+      const key = keysFound[j];
+      if (key === 'act') hasAct = true;
+      else if (key === 'topic') hasTopic = true;
+      else return freeze({ ok: false, reason: 'malformed' });
+    }
+    if (!hasAct) return freeze({ ok: false, reason: 'malformed' });
+    const act = ownData(item, 'act');
+    if (!actAllowed(act)) return freeze({ ok: false, reason: 'malformed' });
+    const row = create(null);
+    row.act = act;
+    if (hasTopic) {
+      const topic = ownData(item, 'topic');
+      if (typeof topic !== 'string' || isProxy(topic) || !topic || topic.length > 32) {
+        return freeze({ ok: false, reason: 'malformed' });
+      }
+      if (HOSTILE_SOL_TOPIC.test(topic)) return freeze({ ok: false, reason: 'malformed' });
+      row.topic = topic;
+    }
+    parsed.push(freeze(row));
+  }
+  return freeze({ ok: true, value: freeze({ acts: freeze(parsed.slice()) }) });
 }
 
 function canonicalJson(value) {
@@ -436,6 +517,7 @@ module.exports = freeze({
   HMAC_ALG,
   AUTHENTICITY_KEYS,
   parseDraftPlanRequest,
+  parseHermesSolActsPayload,
   parseDraftPlanResult,
   parseTemplatePlanResult,
   parseProvenance,

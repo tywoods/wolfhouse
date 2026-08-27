@@ -30,6 +30,9 @@ const {
 const {
   snapshotSunsetEmailHermesSolEnv,
 } = require('./email-luna-sunset-email-hermes-sol-activation');
+const {
+  isStaffLocalCompileTrust,
+} = require('./email-luna-sunset-email-hermes-sol-author');
 
 const EMAIL_DRAFT_OPEN_DECKHAND_FIELD = 'draft_text';
 const EMAIL_DRAFT_OPEN_STORAGE_FIELD = 'conversations.staff_reply_draft';
@@ -376,7 +379,23 @@ function pending(conversationId) {
   });
 }
 
-function ready(conversationId, text, subject, marker, authenticity) {
+function snapshotPlanAuthenticity(planAuthenticity, localCompile) {
+  if (!isStaffLocalCompileTrust(localCompile)) return null;
+  if (!planAuthenticity || typeof planAuthenticity !== 'object') return null;
+  if (planAuthenticity.hmac_verified !== true) return null;
+  if (planAuthenticity.exact_body_hmac_verified !== false) return null;
+  if (typeof planAuthenticity.request_id !== 'string' || !planAuthenticity.request_id) return null;
+  if (localCompile.request_id !== planAuthenticity.request_id) return null;
+  return freeze({
+    alg: typeof planAuthenticity.alg === 'string' ? planAuthenticity.alg : 'HMAC-SHA256',
+    request_id: planAuthenticity.request_id,
+    hmac_verified: true,
+    exact_body_hmac_verified: false,
+    source: 'staff_local_bounded_topic_compile',
+  });
+}
+
+function ready(conversationId, text, subject, marker, authenticity, planAuthenticity, localCompile) {
   const out = {
     status: 'draft_ready',
     draft_text: text,
@@ -388,15 +407,20 @@ function ready(conversationId, text, subject, marker, authenticity) {
     deckhand_field: EMAIL_DRAFT_OPEN_DECKHAND_FIELD,
   };
   if (typeof subject === 'string' && subject) out.subject = subject;
-  if (marker && typeof marker === 'object') out.marker = marker;
-  if (authenticity && typeof authenticity === 'object'
+  const exactBody = !!(authenticity && typeof authenticity === 'object'
       && authenticity.hmac_verified === true
-      && typeof authenticity.request_id === 'string') {
+      && authenticity.exact_body_hmac_verified !== false
+      && typeof authenticity.request_id === 'string');
+  const planOnly = snapshotPlanAuthenticity(planAuthenticity, localCompile);
+  if (marker && typeof marker === 'object' && (exactBody || planOnly)) out.marker = marker;
+  if (exactBody) {
     out.authenticity = freeze({
       alg: typeof authenticity.alg === 'string' ? authenticity.alg : 'HMAC-SHA256',
       request_id: authenticity.request_id,
       hmac_verified: true,
     });
+  } else if (planOnly) {
+    out.plan_authenticity = planOnly;
   }
   return freeze(out);
 }
@@ -841,6 +865,8 @@ function createStaffEmailLunaDraftOpen(deps) {
         replySubjectOf(row.subject),
         composed && composed.marker,
         composed && composed.authenticity,
+        composed && composed.plan_authenticity,
+        composed && composed.local_compile,
       );
     } catch {
       return pending(conversationId);
@@ -982,6 +1008,8 @@ function createStaffEmailLunaDraftOpen(deps) {
         replySubjectOf(row.subject),
         composed && composed.marker,
         composed && composed.authenticity,
+        composed && composed.plan_authenticity,
+        composed && composed.local_compile,
       );
     } catch {
       return pending(conversationId);

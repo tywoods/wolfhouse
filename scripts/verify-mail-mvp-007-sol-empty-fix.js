@@ -29,8 +29,12 @@ const {
   HERMES_SOL_DRAFT_PATH,
   PRIVATE_STAFF_TRUST,
   parseDraftPlanRequest,
+  parseHermesSolActsPayload,
   signResultAuthenticity,
 } = require('./lib/email-luna-sunset-email-hermes-sol-contract');
+const {
+  isStaffLocalCompileTrust,
+} = require('./lib/email-luna-sunset-email-hermes-sol-author');
 const {
   ENV_AUTHOR_ENABLED,
   ENV_BASE_URL,
@@ -477,8 +481,32 @@ function assertFailClosed(result, owner, label) {
 function assertNoSolProvenance(result, label) {
   assert.equal(Object.prototype.hasOwnProperty.call(result, 'marker'), false, `${label}: no marker`);
   assert.equal(Object.prototype.hasOwnProperty.call(result, 'authenticity'), false, `${label}: no authenticity`);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'plan_authenticity'), false, `${label}: no plan_authenticity`);
   assert.equal(result.marker, undefined, `${label}: marker undefined`);
   assert.equal(result.authenticity, undefined, `${label}: authenticity undefined`);
+  assert.equal(result.plan_authenticity, undefined, `${label}: plan_authenticity undefined`);
+}
+
+function assertNoExactBodyHmac(result, label) {
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'authenticity'), false, `${label}: no exact-body authenticity`);
+  assert.equal(result.authenticity, undefined, `${label}: authenticity undefined`);
+  if (result.authenticity) {
+    assert.notEqual(result.authenticity.hmac_verified, true, `${label}: must not claim exact-body HMAC`);
+  }
+}
+
+function assertTransformedPlanProvenance(result, label) {
+  assert.equal(result.status, 'draft_ready', label);
+  assertNoExactBodyHmac(result, label);
+  assert.equal(result.marker.provider, HERMES_SOL_PROVIDER, `${label}: plan marker provider`);
+  assert.equal(result.marker.model, HERMES_SOL_MODEL, `${label}: plan marker model`);
+  assert.equal(result.marker.runtime, HERMES_SOL_RUNTIME, `${label}: plan marker runtime`);
+  assert.equal(result.plan_authenticity.hmac_verified, true, `${label}: plan HMAC verified`);
+  assert.equal(result.plan_authenticity.exact_body_hmac_verified, false, `${label}: transformed body is not exact-body HMAC`);
+  assert.equal(result.plan_authenticity.source, 'staff_local_bounded_topic_compile', `${label}: local compiler source`);
+  assert.match(result.plan_authenticity.request_id, /^[0-9a-f-]{36}$/i, `${label}: plan request_id`);
+  assert.equal(result.send_allowed, false, `${label}: send_allowed`);
+  assert.equal(result.auto_send_allowed, false, `${label}: auto_send_allowed`);
 }
 
 function signedPlanResponder(plan) {
@@ -518,6 +546,26 @@ function signedPlanResponder(plan) {
   assert.match(naturalSrc, /SAFE_CREATE_DRAFT_TOPIC_LABELS/);
   assert.doesNotMatch(naturalSrc, /isNameShapedWord|THREAD_TOPIC_NAME_PAIR_SKIP/);
   assert.match(solAuthorSrc, /local_replacement === true/);
+  assert.match(solAuthorSrc, /parseHermesSolActsPayload/);
+  assert.match(solAuthorSrc, /exact_body_hmac_verified: false/);
+  assert.match(solAuthorSrc, /staff_local_bounded_topic_compile/);
+  assert.match(openSrc, /plan_authenticity/);
+  assert.match(openSrc, /isStaffLocalCompileTrust/);
+  assert.equal(isStaffLocalCompileTrust({
+    source: 'staff_local_bounded_topic_compile',
+    request_id: V,
+    plan_hmac_verified: true,
+    exact_body_hmac_verified: false,
+  }), false, 'forged local-compile object is not same-process trust');
+  assert.equal(parseHermesSolActsPayload(JSON.stringify({
+    acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'Testing 8 26' }],
+  })).ok, true, 'Python-shaped signed topic envelope is parseable for local compile');
+  assert.equal(parseHermesSolActsPayload(JSON.stringify({
+    acts: [{ act: 'ask_clarifying_question', topic: 'testing', extra: 'bypass' }],
+  })).ok, false, 'extra keys stay fail-closed');
+  assert.equal(parseHermesSolActsPayload(JSON.stringify({
+    acts: [{ act: 'thank_guest', topic: 'We also wanted to add' }],
+  })).ok, false, 'wrapper-phrase topics stay fail-closed');
   assert.match(
     naturalSrc,
     /emptyPrivateGoals && isForbiddenGenericEmptyWrapper/,
@@ -668,7 +716,7 @@ function signedPlanResponder(plan) {
   assertThreadSpecific(produced.draft_text, content(), 'producer empty notes from leftover');
   assert.equal(produced.send_allowed, false);
   assert.equal(produced.auto_send_allowed, false);
-  assertNoSolProvenance(produced, 'generic leftover wrapper replacement');
+  assertTransformedPlanProvenance(produced, 'generic leftover wrapper replacement');
   assert.equal(fake.hits.length, 1, 'explicit empty Create Draft must invoke Email Luna');
   assert.equal(fake.hits[0].url, HERMES_SOL_DRAFT_PATH);
   assert.equal(fake.hits[0].auth, 'bearer');
@@ -688,6 +736,83 @@ function signedPlanResponder(plan) {
   assert.doesNotMatch(produced.draft_text, /\b(?:8|26)\b/, 'Re: Testing 8 26 must not echo raw dates');
   assertNoSideEffects(owner, 'producer leftover empty notes');
   console.log('  PASS  leftover standing draft is replaced by thread-specific Sol draft');
+
+  const liveSubjectTopicFake = await startFakeHermes(signedPlanResponder({
+    acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'Testing 8 26' }],
+  }));
+  const liveSubjectTopicOwner = makeOwner({ env: hermesEnv(liveSubjectTopicFake.port) });
+  const liveSubjectTopicProduced = await liveSubjectTopicOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: '',
+  });
+  assert.equal(liveSubjectTopicProduced.status, 'draft_ready');
+  assertThreadSpecific(liveSubjectTopicProduced.draft_text, content(), 'signed Testing 8 26 topic');
+  assert.match(liveSubjectTopicProduced.draft_text, /testing|front desk|mailbox/i);
+  assert.doesNotMatch(liveSubjectTopicProduced.draft_text, /\b(?:8|26)\b/);
+  assertNoPiiOrNumericEcho(liveSubjectTopicProduced.draft_text, 'signed Testing 8 26 topic');
+  assertTransformedPlanProvenance(liveSubjectTopicProduced, 'signed Testing 8 26 topic');
+  assert.equal(liveSubjectTopicFake.hits.length, 1);
+  assert.equal(liveSubjectTopicOwner.writes.length, 1);
+  assert.equal(liveSubjectTopicOwner.store.draft, liveSubjectTopicProduced.draft_text);
+  assert.equal(liveSubjectTopicOwner.casRejected.length, 0);
+  assertCreateDraftSql(liveSubjectTopicOwner, 'signed Testing 8 26 topic');
+  assertNoSideEffects(liveSubjectTopicOwner, 'signed Testing 8 26 topic');
+  const liveSubjectRouteSent = [];
+  const liveSubjectRouteOwner = makeOwner({ env: hermesEnv(liveSubjectTopicFake.port) });
+  const liveSubjectRoute = createStaffEmailLunaDraftRoute({
+    sendJSON(_res, status, body) { liveSubjectRouteSent.push({ status, body }); return body; },
+    runtimeEnv: hermesEnv(liveSubjectTopicFake.port),
+    withPgClient: async (fn) => fn({ query: async () => ({ rows: [] }) }),
+    createLunaRuntime() { throw new Error('route must use existing producer'); },
+    saveDraftThroughStaffOwner() { throw new Error('must not create approval'); },
+    approveDraft: (...args) => liveSubjectRouteOwner.approvals.push(args),
+    appendOutboundJournal: (...args) => liveSubjectRouteOwner.journals.push(args),
+    callProvider: (...args) => liveSubjectRouteOwner.providers.push(args),
+    regenerateEmailLunaDraftOnStaffClick: (input) => (
+      liveSubjectRouteOwner.owner.regenerateEmailLunaDraftOnStaffClick(input)
+    ),
+  });
+  await liveSubjectRoute.handleCreateDraft(
+    request({ conversation_id: V, context: '' }),
+    {},
+    actor(),
+    snapshotEmailLunaGenerateGateEnv(hermesEnv(liveSubjectTopicFake.port)),
+  );
+  const liveSubjectRouted = liveSubjectRouteSent.at(-1);
+  assert.equal(liveSubjectRouted.status, 200);
+  assert.equal(liveSubjectRouted.body.success, true);
+  assertThreadSpecific(liveSubjectRouted.body.message_text, content(), 'Create Draft route signed Testing 8 26 topic');
+  assert.equal(Object.prototype.hasOwnProperty.call(liveSubjectRouted.body, 'approval_id'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(liveSubjectRouted.body, 'authenticity'), false);
+  assertNoSideEffects(liveSubjectRouteOwner, 'Create Draft route signed Testing 8 26 topic');
+  await stopFake(liveSubjectTopicFake);
+  console.log('  PASS  signed generic Testing 8 26 Sol topic compiles locally; Staff accepts without exact-body HMAC');
+
+  const unsignedBodyFake = await startFakeHermes(async ({ req, res, parsed }) => {
+    if (req.headers.authorization !== `Bearer ${TOKEN}`) {
+      res.writeHead(401); res.end(JSON.stringify({ error: 'unauthorized' })); return;
+    }
+    if (!parsed.ok) {
+      res.writeHead(400); res.end(JSON.stringify({ error: parsed.reason })); return;
+    }
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      schema: HERMES_SOL_RESULT_SCHEMA,
+      acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'testing' }],
+      provenance: provenanceFrom(parsed.value),
+    }));
+  });
+  const unsignedBodyOwner = makeOwner({ env: hermesEnv(unsignedBodyFake.port) });
+  const unsignedBodyOut = await unsignedBodyOwner.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: V,
+    operator_context: '',
+  });
+  assertFailClosed(unsignedBodyOut, unsignedBodyOwner, 'unsigned network body');
+  assertNoSolProvenance(unsignedBodyOut, 'unsigned network body');
+  await stopFake(unsignedBodyFake);
+  console.log('  PASS  unsigned network body stays fail-closed');
 
   const specificFake = await startFakeHermes(signedPlanResponder({
     acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'testing' }],
@@ -724,7 +849,7 @@ function signedPlanResponder(plan) {
   assertThreadSpecific(unsafeNameProduced.draft_text, content(), 'unsafe john smith Sol plan');
   assert.match(unsafeNameProduced.draft_text, /front desk|testing|mailbox/i);
   assertNoPiiOrNumericEcho(unsafeNameProduced.draft_text, 'unsafe john smith Sol plan');
-  assertNoSolProvenance(unsafeNameProduced, 'unsafe john smith Sol plan');
+  assertTransformedPlanProvenance(unsafeNameProduced, 'unsafe john smith Sol plan');
   assert.equal(unsafeNameFake.hits.length, 1);
   assertNoSideEffects(unsafeNameOwner, 'unsafe john smith Sol plan');
   await stopFake(unsafeNameFake);
@@ -768,7 +893,7 @@ function signedPlanResponder(plan) {
   assert.equal(nonAllowlistedProduced.status, 'draft_ready');
   assert.doesNotMatch(nonAllowlistedProduced.draft_text, /maria/i);
   assert.match(nonAllowlistedProduced.draft_text, /surf|testing|front desk|mailbox/i);
-  assertNoSolProvenance(nonAllowlistedProduced, 'non-allowlisted maria topic');
+  assertTransformedPlanProvenance(nonAllowlistedProduced, 'non-allowlisted maria topic');
   await stopFake(nonAllowlistedFake);
   console.log('  PASS  malformed/non-allowlisted Sol topics cannot bypass allowlist or keep HMAC');
 
