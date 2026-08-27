@@ -60,6 +60,8 @@ const {
   parseReplicaProcessEnv,
   buildReadonlyGraphListRequest,
   GRAPH_LIST_SELECT,
+  GRAPH_PREFER_IMMUTABLE_ID,
+  GRAPH_GET_DEADLINE_MS,
   buildSetEnvArgs,
   buildRevisionShowArgs,
   buildAcrManifestDigestArgs,
@@ -1501,6 +1503,8 @@ async function main() {
     assert.equal(goodSelect.path.includes('body'), false);
     assert.match(goodSelect.path, /conversationId/);
     assert.match(goodSelect.path, /internetMessageId/);
+    assert.match(goodSelect.path, new RegExp(`/v1\\.0/users/${MAILBOX}/messages`));
+    assert.doesNotMatch(goodSelect.path, /bodyPreview/);
 
     let pgMismatch = null;
     try {
@@ -1812,11 +1816,15 @@ async function main() {
         assert.equal(opts.method, 'GET');
         assert.equal(opts.host, 'graph.microsoft.com');
         assert.equal(String(opts.path).includes('body'), false);
-        assert.doesNotMatch(String(opts.path), /sendMail|\/send\b/i);
+        assert.doesNotMatch(String(opts.path), /sendMail|\/send\b|bodyPreview/i);
         assert.match(opts.headers.Authorization, /^Bearer loan-token$/);
+        assert.equal(opts.headers.Prefer, GRAPH_PREFER_IMMUTABLE_ID);
+        assert.equal(opts.headers.Prefer, 'IdType="ImmutableId"');
+        assert.match(String(opts.path), new RegExp(`/v1\\.0/users/${MAILBOX}/messages`));
         const { PassThrough } = require('node:stream');
         const res = new PassThrough();
         const req = new PassThrough();
+        res.statusCode = 200;
         process.nextTick(() => {
           cb(res);
           res.end(JSON.stringify({ value: graphMessages }));
@@ -2107,9 +2115,11 @@ async function main() {
       },
       https: {
         request(opts, cb) {
+          assert.equal(opts.headers.Prefer, GRAPH_PREFER_IMMUTABLE_ID);
           const { PassThrough } = require('node:stream');
           const res = new PassThrough();
           const req = new PassThrough();
+          res.statusCode = 200;
           process.nextTick(() => {
             cb(res);
             res.end(JSON.stringify({
@@ -2130,6 +2140,162 @@ async function main() {
     assert.equal(inboundOnly.readonly, true);
     assert.equal(inboundOnly.arrivals, 0);
     assert.equal(inboundOnly.ok, false);
+    assert.equal(inboundOnly.reason, 'graph_unproven');
+    assert.notEqual(inboundOnly.reason, 'graph_adapter_unwired');
+
+    function assertClosedGraphPublic(result, reason) {
+      assert.equal(result.ok, false, reason);
+      assert.equal(result.reason, reason);
+      assert.notEqual(result.reason, 'graph_adapter_unwired');
+      assert.equal(result.adapter_available, true);
+      assert.equal(result.readonly, true);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'id'), false);
+      assert.doesNotMatch(JSON.stringify(result), /loan-token|planted|InvalidAuthenticationToken|ECONNRESET|twoods@|Would you like|Bearer /);
+    }
+
+    function mockGraphHttps({ statusCode = 200, body, hang, networkError } = {}) {
+      return {
+        request(opts, cb) {
+          assert.equal(opts.method, 'GET');
+          assert.equal(opts.host, 'graph.microsoft.com');
+          assert.equal(opts.headers.Prefer, GRAPH_PREFER_IMMUTABLE_ID);
+          assert.equal(opts.headers.Prefer, 'IdType="ImmutableId"');
+          assert.match(opts.headers.Authorization, /^Bearer loan-token$/);
+          assert.match(String(opts.path), new RegExp(`/v1\\.0/users/${MAILBOX}/messages`));
+          assert.doesNotMatch(String(opts.path), /bodyPreview|sendMail|\/send\b/i);
+          assert.equal(Object.prototype.hasOwnProperty.call(opts, 'body'), false);
+          const { PassThrough } = require('node:stream');
+          const res = new PassThrough();
+          const req = new PassThrough();
+          req.destroy = () => {};
+          if (hang === true) return req;
+          process.nextTick(() => {
+            if (networkError === true) {
+              req.emit('error', new Error('ECONNRESET planted-provider-error'));
+              return;
+            }
+            res.statusCode = statusCode;
+            cb(res);
+            res.end(typeof body === 'string' ? body : JSON.stringify(body));
+          });
+          return req;
+        },
+      };
+    }
+
+    async function runGraphCase(httpsImpl, extra) {
+      return runInnerGraphVerify({
+        env: {
+          MAIL_MVP_004_GRAPH_VERIFY: '1',
+          LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        },
+        withPgClient: innerPg([graphRow], [{
+          approval_id: '55555555-5555-4555-8555-555555555555',
+          message_text: THREAD_DRAFT,
+          immutable_draft_id: 'graph-sent-1',
+          send_invocation_count: 1,
+          draft_meta: { selected_operation_evidence: mintEvidence(THREAD_DRAFT) },
+        }]),
+        tokenLoan,
+        https: httpsImpl,
+        timers: extra && extra.timers,
+      });
+    }
+
+    const plantedAuth = JSON.stringify({
+      error: { code: 'InvalidAuthenticationToken', message: 'planted-provider-error' },
+    });
+    const auth401 = await runGraphCase(mockGraphHttps({ statusCode: 401, body: plantedAuth }));
+    assertClosedGraphPublic(auth401, 'graph_auth_unproven');
+    const auth403 = await runGraphCase(mockGraphHttps({ statusCode: 403, body: plantedAuth }));
+    assertClosedGraphPublic(auth403, 'graph_auth_unproven');
+    const http500 = await runGraphCase(mockGraphHttps({
+      statusCode: 500,
+      body: JSON.stringify({ error: { code: 'ServiceUnavailable', message: 'planted-provider-error' } }),
+    }));
+    assertClosedGraphPublic(http500, 'graph_unproven');
+    const malformed = await runGraphCase(mockGraphHttps({ statusCode: 200, body: '{not-json planted-provider-error' }));
+    assertClosedGraphPublic(malformed, 'graph_unproven');
+    const missingValue = await runGraphCase(mockGraphHttps({
+      statusCode: 200,
+      body: { error: { code: 'Unknown', message: 'planted-provider-error' } },
+    }));
+    assertClosedGraphPublic(missingValue, 'graph_unproven');
+    let timeoutMs = null;
+    const timeoutGraph = await runGraphCase(mockGraphHttps({ hang: true }), {
+      timers: {
+        setTimeout(fn, ms) {
+          timeoutMs = ms;
+          fn();
+          return 1;
+        },
+        clearTimeout() {},
+      },
+    });
+    assert.equal(timeoutMs, GRAPH_GET_DEADLINE_MS);
+    assertClosedGraphPublic(timeoutGraph, 'graph_unproven');
+    const networkGraph = await runGraphCase(mockGraphHttps({ networkError: true }));
+    assertClosedGraphPublic(networkGraph, 'graph_unproven');
+    const emptyList = await runGraphCase(mockGraphHttps({ statusCode: 200, body: { value: [] } }));
+    assertClosedGraphPublic(emptyList, 'graph_unproven');
+    assert.equal(emptyList.arrivals, 0);
+
+    const matchingList = await runGraphCase(mockGraphHttps({
+      statusCode: 200,
+      body: { value: graphMessages },
+    }));
+    assert.equal(matchingList.ok, true);
+    assert.equal(matchingList.adapter_available, true);
+    assert.equal(matchingList.readonly, true);
+    assert.equal(matchingList.arrivals, 1);
+    assert.equal(matchingList.duplicates, 0);
+    assert.equal(matchingList.threaded, true);
+    assert.equal(matchingList.reason, null);
+    assert.doesNotMatch(JSON.stringify(matchingList), /loan-token|graph-sent-1|Would you like/);
+
+    const blankToken = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: {
+        async runWithAccessTokenOnce(_binding, consumer) {
+          const listed = await consumer({ accessToken: '' });
+          return { ok: true, grant_generation: 1, value: listed };
+        },
+      },
+      https: httpsOk,
+    });
+    assert.equal(blankToken.reason, 'graph_adapter_unwired');
+    assert.equal(blankToken.adapter_available, false);
+
+    const noHttps = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan,
+      https: {},
+    });
+    assert.equal(noHttps.reason, 'graph_adapter_unwired');
+    assert.equal(noHttps.adapter_available, false);
+
+    const authSanitized = sanitizeGraphPublic({
+      ok: false,
+      reason: 'graph_auth_unproven',
+      adapter_available: true,
+      readonly: true,
+      arrivals: 0,
+      duplicates: 0,
+      threaded: false,
+    });
+    assert.equal(authSanitized.reason, 'graph_auth_unproven');
+    assert.equal(authSanitized.adapter_available, true);
+    assert.equal(authSanitized.readonly, true);
+    assert.equal(GRAPH_PREFER_IMMUTABLE_ID, 'IdType="ImmutableId"');
+    assert.equal(GRAPH_GET_DEADLINE_MS, 10000);
 
     const emptyEvidence = await runInnerSnapshot({
       env: {
@@ -2190,6 +2356,14 @@ async function main() {
     const proofErrorGraph = sanitizeGraphPublic({ ok: false, reason: 'proof_error' });
     assert.equal(proofErrorGraph.ok, false);
     assert.equal(proofErrorGraph.reason, 'graph_adapter_unwired');
+    const authKeep = sanitizeGraphPublic({
+      ok: false,
+      reason: 'graph_auth_unproven',
+      adapter_available: true,
+      readonly: true,
+    });
+    assert.equal(authKeep.reason, 'graph_auth_unproven');
+    assert.equal(authKeep.adapter_available, true);
     assert.equal(proofErrorGraph.adapter_available, false);
     assert.equal(Object.prototype.hasOwnProperty.call(proofErrorGraph, 'stage'), false);
     const stagedProofError = sanitizeGraphPublic({
@@ -2326,6 +2500,15 @@ async function main() {
     assert.match(innerGraphSrc, /if \(classified\) return classified/);
     assert.match(innerGraphSrc, /observedStage/);
     assert.match(innerGraphSrc, /closePool/);
+    assert.match(innerGraphSrc, /graph_auth_unproven/);
+    assert.match(innerGraphSrc, /listed\.ok !== true/);
+    assert.match(libSrc, /GRAPH_PREFER_IMMUTABLE_ID = 'IdType="ImmutableId"'/);
+    assert.match(libSrc, /reason === 'graph_auth_unproven'/);
+    assert.match(libSrc, /classifyClosedGraphHttpStatus/);
+    assert.doesNotMatch(
+      libSrc.slice(libSrc.indexOf('function parseGraphListMessages'), libSrc.indexOf('function classifyClosedGraphHttpStatus')),
+      /return null/,
+    );
     assert.match(executeOnceSrc, /return refusedRecord\('graph_adapter_unwired'\)/);
     assert.match(executeOnceSrc, /return refusedRecord\('snapshot_unproven'\)/);
     assert.match(executeOnceSrc, /return refusedRecord\('channel_mode_unproven'\)/);
@@ -3515,6 +3698,7 @@ Module._load = function(request, parent, isMain) {
         const { PassThrough } = require('stream');
         const res = new PassThrough();
         const req = new PassThrough();
+        res.statusCode = 200;
         process.nextTick(() => {
           cb(res);
           res.end(JSON.stringify({ value: fixture.graphMessages }));

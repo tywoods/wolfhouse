@@ -115,6 +115,10 @@ const GRAPH_LIST_SELECT = freeze([
   'internetMessageHeaders',
 ]);
 const GRAPH_LIST_FORBIDDEN_SELECT = freeze(['body', 'bodyPreview', 'uniqueBody']);
+/** Exact Prefer value from canonical Graph ImmutableId transports. Caller cannot override. */
+const GRAPH_PREFER_IMMUTABLE_ID = 'IdType="ImmutableId"';
+const GRAPH_GET_DEADLINE_MS = 10_000;
+const GRAPH_GET_MAX_BYTES = 65536;
 const GRAPH_VERIFY_WORKER_ID = 'mail-mvp-004-graph-verify';
 const GRAPH_GRANT_STAGE_REASON = freeze({
   status: 'graph_grant_status_unavailable',
@@ -1023,6 +1027,7 @@ function closedGraphPublicReason(reason) {
   if (
     reason === 'graph_adapter_unwired'
     || reason === 'graph_unproven'
+    || reason === 'graph_auth_unproven'
     || reason === 'graph_send_forbidden'
     || reason === 'graph_body_leaked'
     || reason === 'graph_pii_leaked'
@@ -3014,7 +3019,7 @@ function buildReadonlyGraphListRequest(input) {
     if (!allowed.has(field)) return null;
   }
   const filter = `conversationId eq '${String(conversationId).replace(/'/g, "''")}'`;
-  const path = `/v1.0/users/${mailbox}/messages?$filter=${encodeURIComponent(filter)}&$select=${encodeURIComponent(select.join(','))}&$top=25`;
+  const path = `/v1.0/users/${encodeURIComponent(mailbox)}/messages?$filter=${encodeURIComponent(filter)}&$select=${encodeURIComponent(select.join(','))}&$top=25`;
   return freeze({
     method: 'GET',
     host: 'graph.microsoft.com',
@@ -3027,14 +3032,20 @@ function buildReadonlyGraphListRequest(input) {
   });
 }
 
+function closedGraphListFailure(reason) {
+  return freeze({ ok: false, reason, messages: [] });
+}
+
 function parseGraphListMessages(raw) {
   let parsed = raw;
   if (typeof raw === 'string') {
-    try { parsed = JSON.parse(raw); } catch { return null; }
+    try { parsed = JSON.parse(raw); } catch { return closedGraphListFailure('graph_unproven'); }
   }
-  if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) return null;
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) {
+    return closedGraphListFailure('graph_unproven');
+  }
   const value = ownData(parsed, 'value') || parsed.value;
-  if (!Array.isArray(value)) return null;
+  if (!Array.isArray(value)) return closedGraphListFailure('graph_unproven');
   const messages = [];
   for (const row of value) {
     if (!row || typeof row !== 'object' || isProxy(row)) continue;
@@ -3049,9 +3060,9 @@ function parseGraphListMessages(raw) {
       for (const header of headers) {
         if (!header || typeof header !== 'object') continue;
         const name = String(ownData(header, 'name') || header.name || '').toLowerCase();
-        const value = ownData(header, 'value') || header.value;
-        if (name === 'in-reply-to' && typeof value === 'string') inReplyTo = value;
-        if (name === 'references' && typeof value === 'string') references = value;
+        const headerValue = ownData(header, 'value') || header.value;
+        if (name === 'in-reply-to' && typeof headerValue === 'string') inReplyTo = headerValue;
+        if (name === 'references' && typeof headerValue === 'string') references = headerValue;
       }
     }
     messages.push(freeze({
@@ -3066,42 +3077,95 @@ function parseGraphListMessages(raw) {
   return freeze({ ok: true, messages: freeze(messages) });
 }
 
-function httpsGraphGet(httpsImpl, token, request) {
+function classifyClosedGraphHttpStatus(status) {
+  if (status === 401 || status === 403) return 'graph_auth_unproven';
+  return 'graph_unproven';
+}
+
+function httpsGraphGet(httpsImpl, token, request, timers) {
   return new Promise((resolve, reject) => {
     if (!httpsImpl || typeof httpsImpl.request !== 'function') {
       reject(new Error('graph_adapter_unwired'));
       return;
     }
-    if (request.method !== 'GET' || /\/send(Mail)?\b/i.test(String(request.path || ''))) {
+    if (!request || request.method !== 'GET' || /\/send(Mail)?\b/i.test(String(request.path || ''))) {
       reject(new Error('graph_send_forbidden'));
       return;
     }
-    const req = httpsImpl.request({
-      method: 'GET',
-      host: request.host,
-      path: request.path,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-      },
-    }, (res) => {
-      const chunks = [];
-      let size = 0;
-      res.on('data', (chunk) => {
-        size += chunk.length;
-        if (size > 65536) {
-          req.destroy();
-          reject(new Error('graph_unproven'));
-          return;
-        }
-        chunks.push(chunk);
+    const setTimer = timers && typeof timers.setTimeout === 'function'
+      ? timers.setTimeout.bind(timers)
+      : setTimeout;
+    const clearTimer = timers && typeof timers.clearTimeout === 'function'
+      ? timers.clearTimeout.bind(timers)
+      : clearTimeout;
+    let settled = false;
+    let timerHandle = null;
+    let req = null;
+    const finish = (err, body) => {
+      if (settled) return;
+      settled = true;
+      try { if (timerHandle != null) clearTimer(timerHandle); } catch { /* */ }
+      if (err) reject(err);
+      else resolve(body);
+    };
+    const fail = (reason) => {
+      try { if (req && typeof req.destroy === 'function') req.destroy(); } catch { /* */ }
+      finish(new Error(reason));
+    };
+    try {
+      req = httpsImpl.request({
+        method: 'GET',
+        host: request.host,
+        path: request.path,
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+          Prefer: GRAPH_PREFER_IMMUTABLE_ID,
+        },
+      }, (res) => {
+        const status = res && typeof res.statusCode === 'number' ? res.statusCode : 0;
+        const chunks = [];
+        let size = 0;
+        const onChunk = (chunk) => {
+          if (settled) return;
+          size += chunk.length;
+          if (size > GRAPH_GET_MAX_BYTES) {
+            fail('graph_unproven');
+            return;
+          }
+          if (status === 200) chunks.push(chunk);
+        };
+        res.on('data', onChunk);
+        res.on('error', () => fail('graph_unproven'));
+        res.on('end', () => {
+          if (settled) return;
+          if (status !== 200) {
+            fail(classifyClosedGraphHttpStatus(status));
+            return;
+          }
+          finish(null, Buffer.concat(chunks).toString('utf8'));
+        });
       });
-      res.on('end', () => {
-        resolve(Buffer.concat(chunks).toString('utf8'));
-      });
-    });
-    req.on('error', () => reject(new Error('graph_unproven')));
-    req.end();
+    } catch {
+      fail('graph_unproven');
+      return;
+    }
+    if (!req || typeof req.on !== 'function') {
+      fail('graph_adapter_unwired');
+      return;
+    }
+    req.on('error', () => fail('graph_unproven'));
+    try {
+      timerHandle = setTimer(() => fail('graph_unproven'), GRAPH_GET_DEADLINE_MS);
+    } catch {
+      fail('graph_unproven');
+      return;
+    }
+    try {
+      req.end();
+    } catch {
+      fail('graph_unproven');
+    }
   });
 }
 
@@ -3200,6 +3264,12 @@ function createProductionGraphArrivalVerifier(deps) {
     if (listed && listed.reason === 'graph_body_leaked') {
       return freeze({ ok: false, reason: 'graph_body_leaked', arrivals: 0, duplicates: 0, threaded: false });
     }
+    if (listed && listed.reason === 'graph_auth_unproven') {
+      return freeze({ ok: false, reason: 'graph_auth_unproven', arrivals: 0, duplicates: 0, threaded: false });
+    }
+    if (!listed || listed.ok === false) {
+      return freeze({ ok: false, reason: 'graph_unproven', arrivals: 0, duplicates: 0, threaded: false });
+    }
     return classifyGraphArrival(listed && listed.messages ? listed.messages : listed, input);
   });
   return freeze({ verifyGraphArrival: verify });
@@ -3242,8 +3312,23 @@ function createProductionReadonlyGraphListAdapter(deps) {
       if (typeof token !== 'string' || !token) {
         return freeze({ ok: false, reason: 'graph_adapter_unwired', messages: [] });
       }
-      const raw = await httpsGraphGet(httpsImpl, token, request);
-      return parseGraphListMessages(raw);
+      try {
+        const raw = await httpsGraphGet(httpsImpl, token, request, deps && deps.timers);
+        const parsed = parseGraphListMessages(raw);
+        if (!parsed || parsed.ok !== true) {
+          if (parsed && parsed.reason === 'graph_body_leaked') {
+            return freeze({ ok: false, reason: 'graph_body_leaked' });
+          }
+          return closedGraphListFailure('graph_unproven');
+        }
+        return parsed;
+      } catch (err) {
+        const msg = err && typeof err.message === 'string' ? err.message : '';
+        if (msg === 'graph_send_forbidden') return closedGraphListFailure('graph_send_forbidden');
+        if (msg === 'graph_adapter_unwired') return closedGraphListFailure('graph_adapter_unwired');
+        if (msg === 'graph_auth_unproven') return closedGraphListFailure('graph_auth_unproven');
+        return closedGraphListFailure('graph_unproven');
+      }
     },
   });
 }
@@ -3767,6 +3852,7 @@ async function runInnerGraphVerify(input) {
       } catch {
         evidence = null;
       }
+      const graphTimers = (input && input.timers) || { setTimeout, clearTimeout };
       let sessionOut;
       let sessionThrown = null;
       try {
@@ -3775,7 +3861,7 @@ async function runInnerGraphVerify(input) {
           async (loan) => {
             const token = loan && typeof loan.accessToken === 'string' ? loan.accessToken : '';
             if (!token) {
-              return freeze({ ok: false, reason: 'graph_adapter_unwired', messages: [] });
+              return closedGraphListFailure('graph_adapter_unwired');
             }
             const request = buildReadonlyGraphListRequest({
               provider_mailbox_id: row.provider_mailbox_id,
@@ -3785,20 +3871,24 @@ async function runInnerGraphVerify(input) {
               select: GRAPH_LIST_SELECT.slice(),
             });
             if (!request || request.method !== 'GET') {
-              return freeze({ ok: false, reason: 'graph_send_forbidden', messages: [] });
+              return closedGraphListFailure('graph_send_forbidden');
             }
             try {
-              const raw = await httpsGraphGet(httpsImpl, token, request);
-              return parseGraphListMessages(raw);
+              const raw = await httpsGraphGet(httpsImpl, token, request, graphTimers);
+              const parsed = parseGraphListMessages(raw);
+              if (!parsed || parsed.ok !== true) {
+                if (parsed && parsed.reason === 'graph_body_leaked') {
+                  return freeze({ ok: false, reason: 'graph_body_leaked' });
+                }
+                return closedGraphListFailure('graph_unproven');
+              }
+              return parsed;
             } catch (err) {
               const msg = err && typeof err.message === 'string' ? err.message : '';
-              if (msg === 'graph_send_forbidden') {
-                return freeze({ ok: false, reason: 'graph_send_forbidden', messages: [] });
-              }
-              if (msg === 'graph_adapter_unwired') {
-                return freeze({ ok: false, reason: 'graph_adapter_unwired', messages: [] });
-              }
-              return freeze({ ok: false, reason: 'graph_unproven', messages: [] });
+              if (msg === 'graph_send_forbidden') return closedGraphListFailure('graph_send_forbidden');
+              if (msg === 'graph_adapter_unwired') return closedGraphListFailure('graph_adapter_unwired');
+              if (msg === 'graph_auth_unproven') return closedGraphListFailure('graph_auth_unproven');
+              return closedGraphListFailure('graph_unproven');
             }
           },
         );
@@ -3837,16 +3927,35 @@ async function runInnerGraphVerify(input) {
           readonly: false,
         });
       }
-      const arrival = classifyGraphArrival(
-        listed && listed.messages ? listed.messages : listed,
-        {
-          graph_conversation_id: row.graph_conversation_id,
-          provider_source_message_id: row.provider_source_message_id,
-          inbound_internet_message_id: row.inbound_internet_message_id,
-          immutable_draft_id: evidence && evidence.immutable_draft_id,
-          provider_mailbox_id: row.provider_mailbox_id,
-        },
-      );
+      if (listed && listed.ok === false && listed.reason === 'graph_auth_unproven') {
+        return remember({
+          ok: false,
+          reason: 'graph_auth_unproven',
+          adapter_available: true,
+          readonly: true,
+          arrivals: 0,
+          duplicates: 0,
+          threaded: false,
+        });
+      }
+      if (!listed || listed.ok !== true || !Array.isArray(listed.messages)) {
+        return remember({
+          ok: false,
+          reason: 'graph_unproven',
+          adapter_available: true,
+          readonly: true,
+          arrivals: 0,
+          duplicates: 0,
+          threaded: false,
+        });
+      }
+      const arrival = classifyGraphArrival(listed.messages, {
+        graph_conversation_id: row.graph_conversation_id,
+        provider_source_message_id: row.provider_source_message_id,
+        inbound_internet_message_id: row.inbound_internet_message_id,
+        immutable_draft_id: evidence && evidence.immutable_draft_id,
+        provider_mailbox_id: row.provider_mailbox_id,
+      });
       return remember({
         ...arrival,
         adapter_available: true,
@@ -4336,6 +4445,8 @@ module.exports = freeze({
   buildReplicaEnvExecAzArgs,
   buildReadonlyGraphListRequest,
   GRAPH_LIST_SELECT,
+  GRAPH_PREFER_IMMUTABLE_ID,
+  GRAPH_GET_DEADLINE_MS,
   buildStaffOwnerRemoteCommand,
   buildStaffOwnerExecAzArgs,
   encodeProofEnvPayload,
