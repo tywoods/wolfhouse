@@ -107,6 +107,8 @@ const PRODUCTION_SUPERVISORS = new WeakSet();
 const PRODUCTION_PG_ADAPTERS = new WeakSet();
 const PRODUCTION_REPLICA_ENV_ATTESTORS = new WeakSet();
 const PRODUCTION_KILL_SWITCHES = new WeakSet();
+/** Brand for inner GRAPH_VERIFY replica one-bit diag. Untrusted objects cannot mint these. */
+const GRAPH_INNER_REPLICA_DIAG = new WeakSet();
 const GRAPH_LIST_SELECT = freeze([
   'id',
   'conversationId',
@@ -410,7 +412,9 @@ function stripPublicPii(pub) {
   delete copy.draft_text;
   delete copy.message_text;
   delete copy.sender_address;
-  return freeze(copy);
+  const frozen = freeze(copy);
+  if (GRAPH_INNER_REPLICA_DIAG.has(pub)) GRAPH_INNER_REPLICA_DIAG.add(frozen);
+  return frozen;
 }
 
 function attachPublic(result, pub) {
@@ -1040,6 +1044,38 @@ function closedGraphPublicReason(reason) {
   return null;
 }
 
+function closedGraphReplicaBits(bits) {
+  return freeze({
+    token_present: !!(bits && bits.token_present === true),
+    https_present: !!(bits && bits.https_present === true),
+    request_built: !!(bits && bits.request_built === true),
+  });
+}
+
+function brandGraphInnerReplicaPublic(pub) {
+  if (!pub || typeof pub !== 'object' || isProxy(pub)) return pub;
+  GRAPH_INNER_REPLICA_DIAG.add(pub);
+  return pub;
+}
+
+function readBrandedGraphInnerReplicaBits(result) {
+  if (!result || typeof result !== 'object' || isProxy(result)) return null;
+  if (!GRAPH_INNER_REPLICA_DIAG.has(result)) return null;
+  return closedGraphReplicaBits(result);
+}
+
+function attachBrandedGraphReplicaBits(pub, bits) {
+  if (!pub || typeof pub !== 'object' || isProxy(pub)) return pub;
+  if (!bits) return pub;
+  const branded = freeze({
+    ...pub,
+    token_present: bits.token_present === true,
+    https_present: bits.https_present === true,
+    request_built: bits.request_built === true,
+  });
+  return brandGraphInnerReplicaPublic(branded);
+}
+
 function sanitizeGraphPublic(result) {
   if (!result || typeof result !== 'object' || isProxy(result)) {
     return freeze({
@@ -1079,12 +1115,19 @@ function sanitizeGraphPublic(result) {
     const grantStatus = closedGraphGrantStatus(result.status);
     if (grantStatus && pub.stage) pub.status = grantStatus;
   }
+  const replicaBits = readBrandedGraphInnerReplicaBits(result);
+  if (replicaBits) return attachBrandedGraphReplicaBits(freeze(pub), replicaBits);
   return freeze(pub);
 }
 
-function graphInnerResult(result) {
+function graphInnerResult(result, replicaBits) {
   const pub = sanitizeGraphPublic(result);
-  return attachPublic(pub, pub);
+  if (!replicaBits) return attachPublic(pub, pub);
+  const branded = attachBrandedGraphReplicaBits(pub, closedGraphReplicaBits(replicaBits));
+  const attached = attachPublic(branded, branded);
+  if (attached && attached.public) brandGraphInnerReplicaPublic(attached.public);
+  brandGraphInnerReplicaPublic(attached);
+  return attached;
 }
 
 function sanitizeReplicaEvidenceSnapshot(loaded, secret) {
@@ -3764,6 +3807,11 @@ async function runInnerGraphVerify(input) {
       readonly: false,
     });
   }
+  const replicaBits = {
+    token_present: false,
+    https_present: false,
+    request_built: false,
+  };
   const injectedLoan = input && input.tokenLoan
     && typeof input.tokenLoan.runWithAccessTokenOnce === 'function'
     ? input.tokenLoan
@@ -3784,13 +3832,13 @@ async function runInnerGraphVerify(input) {
         reason: 'graph_adapter_unwired',
         adapter_available: false,
         readonly: false,
-      });
+      }, replicaBits);
     }
   }
   let observedStage = null;
   let classified = null;
   const remember = (result) => {
-    classified = graphInnerResult(result);
+    classified = graphInnerResult(result, replicaBits);
     return classified;
   };
   const closePool = async () => {
@@ -3860,6 +3908,7 @@ async function runInnerGraphVerify(input) {
           freeze({ clientId, endpointId }),
           async (loan) => {
             const token = loan && typeof loan.accessToken === 'string' ? loan.accessToken : '';
+            replicaBits.token_present = token !== '';
             if (!token) {
               return closedGraphListFailure('graph_adapter_unwired');
             }
@@ -3870,9 +3919,11 @@ async function runInnerGraphVerify(input) {
               forbid_body: true,
               select: GRAPH_LIST_SELECT.slice(),
             });
+            replicaBits.request_built = !!(request && request.method === 'GET');
             if (!request || request.method !== 'GET') {
               return closedGraphListFailure('graph_send_forbidden');
             }
+            replicaBits.https_present = !!(httpsImpl && typeof httpsImpl.request === 'function');
             try {
               const raw = await httpsGraphGet(httpsImpl, token, request, graphTimers);
               const parsed = parseGraphListMessages(raw);
@@ -4271,7 +4322,11 @@ async function runCli(argv, options) {
     try {
       return withInnerPublic(await runInnerGraphVerify({ ...options, env }));
     } catch (err) {
-      return graphInnerResult(classifyTrustedGraphGrantFailure({ target: err }));
+      return graphInnerResult(classifyTrustedGraphGrantFailure({ target: err }), {
+        token_present: false,
+        https_present: false,
+        request_built: false,
+      });
     }
   }
   if (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
