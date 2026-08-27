@@ -19,6 +19,10 @@ const {
   SAFE_ACKNOWLEDGMENT,
 } = require('./lib/email-luna-draft-open-policy-composition');
 const {
+  compileCreateDraftNaturalPlanJson,
+  renderCreateDraftNaturalPlan,
+} = require('./lib/email-luna-create-draft-natural-author');
+const {
   createStaffEmailLunaDraftRoute,
   EMAIL_LUNA_CREATE_DRAFT_PATH,
   EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV,
@@ -42,6 +46,9 @@ const TWO_LINE_CONTEXT = 'Mention the loft.\nAsk about the beds.';
 const EXISTING = 'Previous standing draft that staff already saw.';
 const WRAPPER = /we also wanted to add|tambi[eé]n quer[ií]amos a[nñ]adir/i;
 const GENERIC_REVIEW = /we['’]ll review it and get back to you shortly|lo revisaremos y te responderemos en breve/i;
+const EMPTY_NOTES_EN_BODY = renderCreateDraftNaturalPlan({
+  acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
+}, 'en');
 
 function parsePromptPayload(prompt) {
   const user = prompt && typeof prompt.user === 'string' ? prompt.user : '';
@@ -53,14 +60,10 @@ function parsePromptPayload(prompt) {
 function naturalMock(prompt) {
   const payload = parsePromptPayload(prompt);
   const goals = String(payload.private_staff_goals && payload.private_staff_goals.goals || '');
-  const lower = goals.toLowerCase();
-  const acts = [];
-  if (/thank|gracias/.test(lower)) acts.push({ act: 'thank_guest' });
-  else if (goals.trim()) acts.push({ act: 'acknowledge_message' });
-  if (/\bloft\b/.test(lower)) acts.push({ act: 'ask_clarifying_question', topic: 'loft' });
-  if (/\bbeds?\b|\bcamas?\b/.test(lower)) acts.push({ act: 'ask_clarifying_question', topic: 'beds' });
-  if (/\bbook|\breserva/.test(lower)) acts.push({ act: 'ask_booking_interest' });
-  return Promise.resolve(JSON.stringify({ acts }));
+  const compiled = compileCreateDraftNaturalPlanJson(goals, payload.untrusted_email);
+  return Promise.resolve(compiled || JSON.stringify({
+    acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
+  }));
 }
 
 function loadOwner() {
@@ -362,7 +365,8 @@ function request(body) {
     assert.equal(moneyDraft.status, 'draft_ready', context);
     assert.equal(moneyDraft.send_allowed, false, context);
     assert.equal(moneyDraft.auto_send_allowed, false, context);
-    assert.equal(moneyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en, context);
+    assert.notEqual(moneyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en, context);
+    assert.equal(moneyDraft.draft_text, EMPTY_NOTES_EN_BODY, context);
     assert.equal(moneyDraft.draft_text.includes(context), false, context);
     assert.doesNotMatch(moneyDraft.draft_text, /euros?|dollars?|pounds?|d[oó]lar(?:es)?|libras?|\bfifty\b/i);
     assert.equal(moneyOwner.approvals.length, 0, context);
@@ -409,7 +413,8 @@ function request(body) {
     assert.equal(slangDraft.status, 'draft_ready', context);
     assert.equal(slangDraft.send_allowed, false, context);
     assert.equal(slangDraft.auto_send_allowed, false, context);
-    assert.equal(slangDraft.draft_text, SAFE_ACKNOWLEDGMENT.en, context);
+    assert.notEqual(slangDraft.draft_text, SAFE_ACKNOWLEDGMENT.en, context);
+    assert.equal(slangDraft.draft_text, EMPTY_NOTES_EN_BODY, context);
     assert.equal(slangDraft.draft_text.includes(context), false, context);
     assert.doesNotMatch(slangDraft.draft_text, /(?:eur|usd|gbp)|bucks?|\bquid\b/i);
     assert.equal(slangOwner.approvals.length, 0, context);
@@ -475,7 +480,8 @@ function request(body) {
     operator_context: '   ',
   });
   assert.equal(emptyDraft.status, 'draft_ready');
-  assert.equal(emptyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(emptyDraft.draft_text, EMPTY_NOTES_EN_BODY);
+  assert.notEqual(emptyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
   assert.equal(empty.approvals.length, 0);
   assert.equal(empty.journals.length, 0);
   assert.equal(empty.providers.length, 0);
@@ -489,7 +495,8 @@ function request(body) {
   assert.equal(regenerated.send_allowed, false);
   assert.equal(regenerated.auto_send_allowed, false);
   assert.notEqual(regenerated.draft_text, EXISTING);
-  assert.equal(regenerated.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(regenerated.draft_text, EMPTY_NOTES_EN_BODY);
+  assert.notEqual(regenerated.draft_text, SAFE_ACKNOWLEDGMENT.en);
   assert.equal(regenerated.draft_text.includes('€999'), false);
   assert.equal(regenerated.draft_text.includes('evil.test'), false);
   assert.equal(regenerated.draft_text.includes('https://'), false);
@@ -501,7 +508,7 @@ function request(body) {
   assert.equal(h.providers.length, 0);
   const persistMeta = JSON.parse(h.writes[0].params[3]);
   assert.equal(persistMeta.luna_email_open_draft.explicit_staff_click, 'true');
-  assert.equal(h.store.draft, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(h.store.draft, EMPTY_NOTES_EN_BODY);
 
   const committed = makeOwner({
     approvalRows: [{

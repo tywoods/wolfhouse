@@ -422,10 +422,15 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
   }
 
   async function compose(input) {
+    // Create Draft always passes operator_context as a string, including empty
+    // or whitespace notes. That path must still invoke Email Luna Hermes Sol
+    // against the authoritative thread. Generate-on-open omits the field and
+    // keeps the unguided/template/safe-acknowledgment owner.
+    const operatorContextPresent = input && typeof input.operator_context === 'string';
     const guidance = extractPermittedOperatorGuidance(
-      input && typeof input.operator_context === 'string' ? input.operator_context : '',
+      operatorContextPresent ? input.operator_context : '',
     );
-    if (guidance) return composeStaffGuided(input, guidance);
+    if (operatorContextPresent) return composeStaffGuided(input, guidance);
     return composeUnguided(input);
   }
 

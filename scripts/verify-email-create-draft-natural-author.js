@@ -79,6 +79,12 @@ const LIVE_EN_BODY = renderCreateDraftNaturalPlan({
 const LIVE_ES_BODY = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
 }, 'es');
+const EMPTY_NOTES_EN_BODY = renderCreateDraftNaturalPlan({
+  acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
+}, 'en');
+const EMPTY_NOTES_ES_BODY = renderCreateDraftNaturalPlan({
+  acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
+}, 'es');
 
 function authority() {
   return {
@@ -140,24 +146,15 @@ function assertPrivateStaffGoalsPrompt(prompt, expectedGoals) {
   return payload;
 }
 
-function planFromGoals(goals) {
-  const g = String(goals || '').toLowerCase();
-  const acts = [];
-  if (/thank|gracias/.test(g)) acts.push({ act: 'thank_guest' });
-  else if (String(goals || '').trim()) acts.push({ act: 'acknowledge_message' });
-  if (/\bloft\b/.test(g)) acts.push({ act: 'ask_clarifying_question', topic: 'loft' });
-  if (/\bbeds?\b|\bcamas?\b/.test(g)) acts.push({ act: 'ask_clarifying_question', topic: 'beds' });
-  if (/\bbook|\breserva/.test(g)) acts.push({ act: 'ask_booking_interest' });
-  if (/\bavailable if\b|\bneed anything\b|\bhold while\b/.test(g)) {
-    acts.push({ act: 'offer_human_followup' });
-  }
-  return { acts };
+function planFromGoals(goals, email) {
+  const compiled = compileCreateDraftNaturalPlanJson(String(goals || ''), email);
+  return compiled ? JSON.parse(compiled) : { acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }] };
 }
 
 function naturalMock(prompt) {
   const payload = parsePromptPayload(prompt);
   const goals = payload.private_staff_goals && payload.private_staff_goals.goals;
-  return Promise.resolve(JSON.stringify(planFromGoals(goals)));
+  return Promise.resolve(JSON.stringify(planFromGoals(goals, payload.untrusted_email)));
 }
 
 function policyFor(callModel) {
@@ -174,13 +171,15 @@ function assertGuestFacingNatural(body, { goals, language = 'en' }) {
   assert.ok(body.trim());
   assert.notEqual(body, SAFE_ACKNOWLEDGMENT.en);
   assert.notEqual(body, SAFE_ACKNOWLEDGMENT.es);
-  assert.notEqual(body.trim(), goals);
   assert.doesNotMatch(body, WRAPPER);
   assert.doesNotMatch(body, GENERIC_REVIEW);
   assert.doesNotMatch(body, STAFF_VOICE);
-  assert.equal(body.includes(goals), false);
-  const norm = (s) => s.toLowerCase().replace(/[^a-z0-9áéíóúñü\s]/gi, ' ').replace(/\s+/g, ' ').trim();
-  assert.equal(norm(body).includes(norm(goals)), false, 'must not paste near-verbatim staff notes');
+  if (goals) {
+    assert.notEqual(body.trim(), goals);
+    assert.equal(body.includes(goals), false);
+    const norm = (s) => s.toLowerCase().replace(/[^a-z0-9áéíóúñü\s]/gi, ' ').replace(/\s+/g, ' ').trim();
+    assert.equal(norm(body).includes(norm(goals)), false, 'must not paste near-verbatim staff notes');
+  }
   if (language === 'es') {
     assert.match(body, /hola|gracias|reserva|mensaje/i);
   } else {
@@ -608,9 +607,11 @@ function makeOwner(options = {}) {
     },
   });
   assert.equal(empty.status, 'draft_ready');
-  assert.equal(empty.body, SAFE_ACKNOWLEDGMENT.en);
-  assert.equal(emptyPrompts.length, 0);
-  console.log('  PASS  empty context keeps a safe thread-only Luna draft and skips the author paste path');
+  assert.equal(empty.body, EMPTY_NOTES_EN_BODY);
+  assert.notEqual(empty.body, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(emptyPrompts.length > 0, true);
+  assertGuestFacingNatural(empty.body, { goals: '', language: 'en' });
+  console.log('  PASS  empty context authors a warm low-claim thread draft, not the canned ack');
 
   const hostile = await policyFor(naturalMock).compose({
     authority: authority(),
@@ -620,7 +621,8 @@ function makeOwner(options = {}) {
     callModel: naturalMock,
   });
   assert.equal(hostile.status, 'draft_ready');
-  assert.equal(hostile.body, SAFE_ACKNOWLEDGMENT.en);
+  assert.notEqual(hostile.body, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(hostile.body, EMPTY_NOTES_EN_BODY);
   assert.doesNotMatch(hostile.body, /€50|available|evil\.test|create the booking/i);
   console.log('  PASS  staff notes cannot override no-price/no-availability/no-payment/no-booking-authority');
 
@@ -696,7 +698,8 @@ function makeOwner(options = {}) {
       callModel: naturalMock,
     });
     assert.equal(result.status, 'draft_ready', goal);
-    assert.equal(result.body, SAFE_ACKNOWLEDGMENT.en, goal);
+    assert.notEqual(result.body, SAFE_ACKNOWLEDGMENT.en, goal);
+    assert.equal(result.body, EMPTY_NOTES_EN_BODY, goal);
     assert.doesNotMatch(result.body, /disponibilidad|reserva está|50 a night|hemos reservado|enlace de pago/i);
   }
   const spanishHostileGoal = await policyFor(naturalMock).compose({
@@ -707,7 +710,9 @@ function makeOwner(options = {}) {
     callModel: naturalMock,
   });
   assert.equal(spanishHostileGoal.status, 'draft_ready');
-  assert.equal(spanishHostileGoal.body, SAFE_ACKNOWLEDGMENT.es);
+  assert.equal(spanishHostileGoal.language, 'es');
+  assert.equal(spanishHostileGoal.body, EMPTY_NOTES_ES_BODY);
+  assert.notEqual(spanishHostileGoal.body, SAFE_ACKNOWLEDGMENT.es);
   console.log('  PASS  Spanish/EN hostile staff goals are dropped at input filtering');
 
   const bookingQuestionEn = await composeModel({
@@ -958,12 +963,13 @@ function makeOwner(options = {}) {
     operator_context: '   ',
   });
   assert.equal(emptyDraft.status, 'draft_ready');
-  assert.equal(emptyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
-  assert.equal(emptyOwner.modelPrompts.length, 0);
+  assert.equal(emptyDraft.draft_text, EMPTY_NOTES_EN_BODY);
+  assert.notEqual(emptyDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(emptyOwner.modelPrompts.length > 0, true);
   assert.equal(emptyOwner.approvals.length, 0);
   assert.equal(emptyOwner.journals.length, 0);
   assert.equal(emptyOwner.providers.length, 0);
-  console.log('  PASS  producer empty context is safe thread-only with no paste path');
+  console.log('  PASS  producer empty context authors a warm low-claim thread draft');
 
   await withUnconfiguredAiProvider(async () => {
     const disabled = await callLunaAiJsonChat({
@@ -1007,10 +1013,11 @@ function makeOwner(options = {}) {
       operator_context: '   ',
     });
     assert.equal(emptyCanonicalDraft.status, 'draft_ready');
-    assert.equal(emptyCanonicalDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
+    assert.equal(emptyCanonicalDraft.draft_text, EMPTY_NOTES_EN_BODY);
+    assert.notEqual(emptyCanonicalDraft.draft_text, SAFE_ACKNOWLEDGMENT.en);
     assert.equal(emptyCanonical.writes.length, 1);
     assert.equal(emptyCanonical.approvals.length, 0);
-    console.log('  PASS  canonical empty context stays safe thread-only');
+    console.log('  PASS  canonical empty context compiles a warm low-claim thread draft');
 
     const spanishCanonical = makeOwner({
       useCanonicalProvider: true,

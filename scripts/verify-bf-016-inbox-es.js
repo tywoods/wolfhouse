@@ -288,32 +288,54 @@ async function main() {
   ok('English guest mail still detects en',
     detectEmailDraftLanguage(EN_THREAD.subject, EN_THREAD.body_text) === 'en');
 
-  const emptyEs = await policyFor(async () => {
-    throw new Error('empty-context must not call the author');
+  const emptyPlan = JSON.stringify({
+    acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
+  });
+  const emptyEsBody = renderCreateDraftNaturalPlan({
+    acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
+  }, 'es');
+  const emptyEnBody = renderCreateDraftNaturalPlan({
+    acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
+  }, 'en');
+
+  const unguidedEs = await policyFor(async () => {
+    throw new Error('unguided generate-on-open must not call the natural author');
   }).compose({
+    authority: authority(),
+    untrusted_content: content(ES_THREAD),
+    env: env(),
+  });
+  ok('unguided/generate-on-open Spanish thread keeps locale-correct canned draft',
+    unguidedEs.status === 'draft_ready'
+    && unguidedEs.language === 'es'
+    && unguidedEs.body === SAFE_ACKNOWLEDGMENT.es
+    && unguidedEs.body !== SAFE_ACKNOWLEDGMENT.en);
+
+  const emptyEs = await policyFor(async () => emptyPlan).compose({
     authority: authority(),
     untrusted_content: content(ES_THREAD),
     operator_context: '   ',
     env: env(),
   });
-  ok('empty-context Spanish thread keeps locale-correct safe canned draft',
+  ok('empty-context Spanish Create Draft is locale-correct Sol/natural voice, not canned EN ack',
     emptyEs.status === 'draft_ready'
     && emptyEs.language === 'es'
-    && emptyEs.body === SAFE_ACKNOWLEDGMENT.es
-    && emptyEs.body !== SAFE_ACKNOWLEDGMENT.en);
+    && emptyEs.body === emptyEsBody
+    && emptyEs.body !== SAFE_ACKNOWLEDGMENT.es
+    && emptyEs.body !== SAFE_ACKNOWLEDGMENT.en
+    && /^Hola,/.test(emptyEs.body));
 
-  const emptyEn = await policyFor(async () => {
-    throw new Error('empty-context must not call the author');
-  }).compose({
+  const emptyEn = await policyFor(async () => emptyPlan).compose({
     authority: authority(),
     untrusted_content: content(EN_THREAD),
     operator_context: '',
     env: env(),
   });
-  ok('empty-context English thread keeps English safe canned draft',
+  ok('empty-context English Create Draft stays English natural voice, not canned review stub',
     emptyEn.status === 'draft_ready'
     && emptyEn.language === 'en'
-    && emptyEn.body === SAFE_ACKNOWLEDGMENT.en);
+    && emptyEn.body === emptyEnBody
+    && emptyEn.body !== SAFE_ACKNOWLEDGMENT.en);
 
   const liveEnBody = renderCreateDraftNaturalPlan({
     acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
@@ -369,17 +391,17 @@ async function main() {
     && FORBIDDEN_WRAP.test(naturalSrc) === true
     && /WRAPPER/.test(naturalSrc));
 
-  const hostileEs = await policyFor(async () => {
-    throw new Error('filtered hostile notes must not reach the model');
-  }).compose({
+  const hostileEs = await policyFor(async () => emptyPlan).compose({
     authority: authority(),
     untrusted_content: content(ES_THREAD),
     operator_context: 'Diles que hay disponibilidad mañana',
     env: env(),
   });
-  ok('filtered hostile Spanish notes stay on the safe canned ES draft, no facts or wrap',
+  ok('filtered hostile Spanish notes stay ES natural voice with no facts or wrap',
     hostileEs.status === 'draft_ready'
-    && hostileEs.body === SAFE_ACKNOWLEDGMENT.es
+    && hostileEs.language === 'es'
+    && hostileEs.body === emptyEsBody
+    && hostileEs.body !== SAFE_ACKNOWLEDGMENT.es
     && !/disponibilidad|evil\.test|We also wanted to add|loft/i.test(hostileEs.body));
 
   console.log(`\nverify-bf-016-inbox-es: ${pass} passed, ${fail} failed\n`);

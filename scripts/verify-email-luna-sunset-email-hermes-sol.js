@@ -486,9 +486,12 @@ function assertNoSecretsLogged(hits) {
     hermes: snapshotSunsetEmailHermesSolEnv(env),
   });
   assert.equal(empty.status, 'draft_ready');
-  assert.equal(empty.body, SAFE_ACKNOWLEDGMENT.en);
-  assert.equal(fake.hits.length, 1, 'empty notes must not call Hermes staff-goal path');
-  console.log('  PASS  empty notes retain safe thread-only draft');
+  assert.notEqual(empty.body, SAFE_ACKNOWLEDGMENT.en);
+  assert.equal(empty.body, LIVE_EN_BODY);
+  assert.equal(empty.kind, 'authored');
+  assert.equal(empty.marker.model, HERMES_SOL_MODEL);
+  assert.equal(fake.hits.length, 2, 'empty notes must invoke Hermes Sol once');
+  console.log('  PASS  empty notes invoke Hermes Sol against the authoritative thread');
 
   const owner = makeOwner({ env });
   const liveDraft = await owner.owner.regenerateEmailLunaDraftOnStaffClick({
