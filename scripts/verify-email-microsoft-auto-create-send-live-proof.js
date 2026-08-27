@@ -22,6 +22,8 @@ const {
   EXPECTED_DATABASE,
   RG,
   STAFF_APP,
+  ACR_REGISTRY,
+  ACR_REPOSITORY,
   IMAGE_REPOSITORY,
   PROOF_SUBJECT,
   PROOF_SENDER,
@@ -47,15 +49,20 @@ const {
   evaluateLiveProofReadiness,
   parseServingIdentity,
   parseRevisionShow,
+  parseRunningReplica,
   servingHealthyReady100,
   flagsLiteral,
   traffic100RevisionName,
+  mergeRevisionIntoServing,
+  extractAzureJson,
+  parseAcrManifestDigest,
   readProductionServingIdentity,
   parseReplicaProcessEnv,
   buildReadonlyGraphListRequest,
   GRAPH_LIST_SELECT,
   buildSetEnvArgs,
   buildRevisionShowArgs,
+  buildAcrManifestDigestArgs,
   buildStaffOwnerRemoteCommand,
   buildStaffOwnerExecAzArgs,
   encodeProofEnvPayload,
@@ -1589,6 +1596,295 @@ async function main() {
     const hostCli = fs.readFileSync(path.join(ROOT, CLI_REL), 'utf8');
     assert.doesNotMatch(hostCli, /EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET/);
     assert.doesNotMatch(hostCli, /getAccessToken/);
+  }
+
+  console.log('[17] Hostile: Azure CLI JSON extractor and ACR digest attestation');
+  {
+    const AZ_EXT_WARNING = [
+      'WARNING: The command requires the extension containerapp. It will be installed first.',
+      'WARNING: The behavior of this command has been altered by the following extension: containerapp',
+    ].join('\n');
+    const OTHER_DIGEST = `sha256:${'c'.repeat(64)}`;
+    const REPLICA = `${REVISION}-abcde-fghij`;
+    const appJson = {
+      name: STAFF_APP,
+      properties: {
+        latestRevisionName: REVISION,
+        latestReadyRevisionName: REVISION,
+        runningStatus: 'Running',
+        configuration: {
+          ingress: { traffic: [{ revisionName: REVISION, weight: 100 }] },
+        },
+        template: {
+          containers: [{
+            image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
+            env: [
+              { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'false' },
+              { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'false' },
+            ],
+          }],
+        },
+      },
+    };
+    const revisionJson = {
+      name: REVISION,
+      properties: {
+        healthState: 'Healthy',
+        runningState: 'Running',
+        provisioningState: 'Provisioned',
+        template: {
+          containers: [{
+            image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
+            env: [
+              { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'false' },
+              { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'false' },
+            ],
+          }],
+        },
+      },
+    };
+    const replicaJson = [{
+      name: REPLICA,
+      properties: { runningState: 'Running', revisionName: REVISION },
+    }];
+    const acrJson = {
+      digest: DIGEST,
+      tags: [IMAGE_SHA],
+      repository: ACR_REPOSITORY,
+    };
+
+    const warningPrefixed = `${AZ_EXT_WARNING}\n${JSON.stringify(appJson, null, 2)}\n`;
+    const parsedPrefixed = parseServingIdentity(warningPrefixed);
+    assert.equal(parsedPrefixed.revision, REVISION);
+    assert.equal(parsedPrefixed.imageTag, IMAGE_SHA);
+    assert.equal(parsedPrefixed.trafficWeight, 100);
+    assert.equal(parsedPrefixed.digest, null);
+
+    const warningSuffixed = `${JSON.stringify(revisionJson, null, 2)}\nWARNING: Preview version of extension is enabled.\n`;
+    const parsedSuffixed = parseRevisionShow(warningSuffixed);
+    assert.equal(parsedSuffixed.revision, REVISION);
+    assert.equal(parsedSuffixed.healthState, 'Healthy');
+    assert.equal(parsedSuffixed.digest, null);
+
+    const replicaPrefixed = `${AZ_EXT_WARNING}\n${JSON.stringify(replicaJson, null, 2)}\n`;
+    const parsedReplica = parseRunningReplica(replicaPrefixed, REVISION);
+    assert.equal(parsedReplica.replica, REPLICA);
+    assert.equal(parsedReplica.revision, REVISION);
+
+    const warningBraces = `WARNING: encountered {not json} in extension output\n${JSON.stringify(appJson, null, 2)}\n`;
+    assert.equal(parseServingIdentity(warningBraces).revision, REVISION);
+    assert.equal(extractAzureJson(`WARNING: {sneaky}\n${JSON.stringify({ ok: true })}\n`).ok, true);
+
+    assert.equal(extractAzureJson('WARNING: only noise\n'), null);
+    assert.equal(extractAzureJson(`${AZ_EXT_WARNING}\n{"name":`), null);
+    assert.equal(extractAzureJson(`${JSON.stringify(appJson)}${JSON.stringify(appJson)}`), null);
+    assert.equal(extractAzureJson(`${JSON.stringify(appJson)}\n${JSON.stringify(appJson)}`), null);
+    assert.equal(extractAzureJson('not json at all'), null);
+    assert.equal(extractAzureJson('{"name": unquoted}'), null);
+    assert.equal(extractAzureJson('[1,2'), null);
+    assert.equal(parseServingIdentity(`${AZ_EXT_WARNING}\n{"name":"${STAFF_APP}"}`), null);
+    assert.equal(parseRevisionShow('WARNING: x\n{"name":'), null);
+    const proxyJson = new Proxy(appJson, { get() { return STAFF_APP; } });
+    assert.equal(extractAzureJson(proxyJson), null);
+    assert.equal(parseServingIdentity(proxyJson), null);
+
+    const acrArgs = buildAcrManifestDigestArgs(IMAGE_SHA);
+    assert.deepEqual(acrArgs, [
+      'acr', 'manifest', 'show-metadata',
+      '--name', `${ACR_REPOSITORY}:${IMAGE_SHA}`,
+      '--registry', ACR_REGISTRY,
+      '-o', 'json',
+    ]);
+    assert.equal(buildAcrManifestDigestArgs('latest'), null);
+    assert.equal(buildAcrManifestDigestArgs('not-a-sha'), null);
+    assert.equal(acrArgs.includes('build'), false);
+    assert.equal(acrArgs.includes('import'), false);
+    assert.equal(acrArgs.includes('untag'), false);
+    assert.equal(acrArgs.includes('delete'), false);
+    assert.equal(IMAGE_REPOSITORY, `${ACR_REGISTRY}.azurecr.io/${ACR_REPOSITORY}`);
+
+    assert.equal(parseAcrManifestDigest(JSON.stringify(acrJson), IMAGE_SHA).digest, DIGEST);
+    assert.equal(parseAcrManifestDigest(JSON.stringify({ tags: [IMAGE_SHA] }), IMAGE_SHA), null);
+    assert.equal(parseAcrManifestDigest(JSON.stringify({
+      digest: OTHER_DIGEST,
+      tags: [IMAGE_SHA],
+    }), IMAGE_SHA).digest, OTHER_DIGEST);
+    assert.equal(parseAcrManifestDigest(JSON.stringify({
+      digest: DIGEST,
+      tags: ['ffffffffffffffffffffaaaaaaaaaaaaaaaaaaaa'],
+    }), IMAGE_SHA), null);
+    assert.equal(parseAcrManifestDigest(JSON.stringify({
+      digest: DIGEST,
+      manifestDigest: OTHER_DIGEST,
+      tags: [IMAGE_SHA],
+    }), IMAGE_SHA), null);
+    assert.equal(parseAcrManifestDigest(JSON.stringify([
+      { digest: DIGEST, tags: [IMAGE_SHA] },
+      { digest: OTHER_DIGEST, tags: [IMAGE_SHA] },
+    ]), IMAGE_SHA), null);
+    assert.equal(parseAcrManifestDigest('WARNING: x\n{"digest":', IMAGE_SHA), null);
+
+    const appIdentity = parseServingIdentity(appJson);
+    const revisionIdentity = parseRevisionShow(revisionJson);
+    assert.equal(revisionIdentity.digest, null);
+    assert.equal(mergeRevisionIntoServing(appIdentity, revisionIdentity), null);
+
+    async function identityAz(overrides) {
+      const calls = [];
+      const azRun = async (args) => {
+        calls.push(args.slice());
+        if (typeof overrides === 'function') return overrides(args, calls);
+        if (args[0] === 'acr') {
+          return { status: 0, stdout: overrides && overrides.acr != null ? overrides.acr : JSON.stringify(acrJson, null, 2) };
+        }
+        if (args[1] === 'revision' && args[2] === 'show') {
+          return {
+            status: 0,
+            stdout: overrides && overrides.revision != null
+              ? overrides.revision
+              : `${AZ_EXT_WARNING}\n${JSON.stringify(revisionJson, null, 2)}\n`,
+          };
+        }
+        if (args[1] === 'replica') {
+          return { status: 0, stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(replicaJson, null, 2)}\n` };
+        }
+        if (args[1] === 'show') {
+          return {
+            status: 0,
+            stdout: overrides && overrides.app != null
+              ? overrides.app
+              : `${AZ_EXT_WARNING}\n${JSON.stringify(appJson, null, 2)}\n`,
+          };
+        }
+        return { status: 1, stdout: '' };
+      };
+      const servingIdentity = await readProductionServingIdentity(azRun);
+      return { servingIdentity, calls };
+    }
+
+    const green = await identityAz();
+    assert.equal(green.servingIdentity.revision, REVISION);
+    assert.equal(green.servingIdentity.imageTag, IMAGE_SHA);
+    assert.equal(green.servingIdentity.digest, DIGEST);
+    assert.equal(green.servingIdentity.trafficWeight, 100);
+    assert.equal(green.servingIdentity.healthState, 'Healthy');
+    assert.equal(green.servingIdentity.ready, true);
+    assert.equal(green.servingIdentity.replica, REPLICA);
+    assert.equal(green.calls.some((args) => args[0] === 'acr' && args.includes(ACR_REGISTRY)
+      && args.includes(`${ACR_REPOSITORY}:${IMAGE_SHA}`)
+      && args.includes('show-metadata')), true);
+    assert.equal(green.calls.some((args) => args.includes('update') || args.includes('--set-env-vars')), false);
+
+    const mismatch = await identityAz({
+      revision: JSON.stringify({
+        ...revisionJson,
+        properties: { ...revisionJson.properties, imageDigest: DIGEST },
+      }),
+      acr: JSON.stringify({ digest: OTHER_DIGEST, tags: [IMAGE_SHA] }),
+    });
+    assert.equal(mismatch.servingIdentity, null);
+
+    const missing = await identityAz({
+      acr: JSON.stringify({ tags: [IMAGE_SHA], repository: ACR_REPOSITORY }),
+    });
+    assert.equal(missing.servingIdentity, null);
+
+    const multiple = await identityAz({
+      acr: JSON.stringify([
+        { digest: DIGEST, tags: [IMAGE_SHA] },
+        { digest: OTHER_DIGEST, tags: [IMAGE_SHA] },
+      ]),
+    });
+    assert.equal(multiple.servingIdentity, null);
+
+    const cliCalls = [];
+    const cli = await runCli([
+      COMMAND,
+      '--deployment', SUNSET_DEPLOYMENT,
+      '--tenant', SUNSET_TENANT,
+      '--database', EXPECTED_DATABASE,
+      '--resource-group', RG,
+      '--app', STAFF_APP,
+      '--revision', REVISION,
+      '--image-tag', IMAGE_SHA,
+      '--digest', DIGEST,
+      '--confirm', CONFIRMATION_PHRASE,
+      '--operator-nonce', nonce(),
+      '--confirm-issued-at', ISSUED,
+    ], {
+      env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
+      azRun: async (args) => {
+        cliCalls.push(args.slice());
+        if (args.includes('update') || args.includes('--set-env-vars')) {
+          throw new Error('flag_mutation_before_resolver');
+        }
+        if (args[0] === 'acr') return { status: 0, stdout: JSON.stringify(acrJson, null, 2) };
+        if (args[1] === 'revision' && args[2] === 'show') {
+          return { status: 0, stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(revisionJson, null, 2)}\n` };
+        }
+        if (args[1] === 'replica') {
+          return { status: 0, stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(replicaJson, null, 2)}\n` };
+        }
+        if (args[1] === 'show') {
+          return { status: 0, stdout: `${AZ_EXT_WARNING}\n${JSON.stringify(appJson, null, 2)}\n` };
+        }
+        return { status: 1, stdout: '' };
+      },
+      nonceStore: new Set(),
+      nowMs: NOW_MS,
+      execGit: (args) => {
+        if (args[0] === 'rev-parse' && args.includes('origin/master')) {
+          return { status: 0, stdout: `${'f'.repeat(40)}\n` };
+        }
+        if (args[0] === 'cat-file') return { status: 0, stdout: '' };
+        return { status: 0, stdout: `${IMAGE_SHA}\n` };
+      },
+    });
+    assert.equal(cli.invoked, 0);
+    assert.equal(cli.reason, 'head_not_origin_master');
+    const acrIdx = cliCalls.findIndex((args) => args[0] === 'acr');
+    const updateIdx = cliCalls.findIndex((args) => args.includes('update') || args.includes('--set-env-vars'));
+    assert.ok(acrIdx >= 0);
+    assert.equal(updateIdx, -1);
+    assert.equal(cliCalls.some((args) => args[0] === 'acr' && args.includes('show-metadata')), true);
+
+    const extractSrc = libSrc.slice(
+      libSrc.indexOf('function extractAzureJson'),
+      libSrc.indexOf('function parseRevisionShow'),
+    );
+    assert.match(extractSrc, /scanJsonValue/);
+    assert.doesNotMatch(extractSrc, /lastIndexOf\(['"]\}['"]\)/);
+    assert.doesNotMatch(extractSrc, /match\(/);
+    assert.doesNotMatch(extractSrc, /replace\(/);
+    const readSrc = libSrc.slice(
+      libSrc.indexOf('async function readProductionServingIdentity'),
+      libSrc.indexOf('async function waitServingHealthy'),
+    );
+    assert.match(readSrc, /resolveBoundAcrDigest/);
+    assert.doesNotMatch(readSrc, /buildSetEnvArgs/);
+    assert.doesNotMatch(readSrc, /--set-env-vars/);
+    const executeOnceSrc = libSrc.slice(
+      libSrc.indexOf('async function executeOnce'),
+      libSrc.indexOf('async function runStaffOwnerProof'),
+    );
+    assert.ok(executeOnceSrc.indexOf('readServingIdentity') < executeOnceSrc.indexOf('setEmergencyFlags(true)'));
+    const supervisorSrc = libSrc.slice(
+      libSrc.indexOf('function createProductionMailMvp004Supervisor'),
+      libSrc.indexOf('function inspectRepoReadiness'),
+    );
+    assert.match(supervisorSrc, /readProductionServingIdentity/);
+    const runCliSrc = libSrc.slice(libSrc.indexOf('async function runCli'));
+    assert.match(runCliSrc, /createProductionMailMvp004Supervisor/);
+    const acrBuildSrc = libSrc.slice(
+      libSrc.indexOf('function buildAcrManifestDigestArgs'),
+      libSrc.indexOf('function parseAcrManifestDigestRow'),
+    );
+    assert.match(libSrc, /const ACR_REGISTRY = 'whstagingacr'/);
+    assert.match(libSrc, /const ACR_REPOSITORY = 'luna-sunset-staff-api'/);
+    assert.match(acrBuildSrc, /show-metadata/);
+    assert.match(acrBuildSrc, /ACR_REGISTRY/);
+    assert.match(acrBuildSrc, /ACR_REPOSITORY/);
+    assert.doesNotMatch(acrBuildSrc, /'build'|'import'|'untag'|'delete'/);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');

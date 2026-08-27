@@ -68,7 +68,12 @@ const EXPECTED_DATABASE = 'sunset_staging';
 const RG = 'luna-sunset-staging-rg';
 const STAFF_APP = 'luna-sunset-staging-staff-api';
 const EMAIL_LUNA_APP = 'luna-sunset-staging-email-luna';
-const IMAGE_REPOSITORY = 'whstagingacr.azurecr.io/luna-sunset-staff-api';
+const ACR_REGISTRY = 'whstagingacr';
+const ACR_REPOSITORY = 'luna-sunset-staff-api';
+const IMAGE_REPOSITORY = `${ACR_REGISTRY}.azurecr.io/${ACR_REPOSITORY}`;
+const AZURE_JSON_MAX_BYTES = 10 * 1024 * 1024;
+const AZURE_JSON_NOISE_MAX_BYTES = 8192;
+const AZURE_JSON_NOISE_MAX_LINES = 32;
 const PROOF_SUBJECT = 'Testing 8 26';
 const PROOF_SENDER = 'twoods@xantrion.com';
 const AZ_DEFAULT = '/opt/data/home/.local/bin/az';
@@ -1132,12 +1137,201 @@ function traffic100RevisionName(traffic) {
   return hundred[0];
 }
 
-function parseRevisionShow(raw) {
-  let parsed = raw;
-  if (typeof raw === 'string') {
-    try { parsed = JSON.parse(raw); } catch { return null; }
+function typedDigest(value) {
+  return typeof value === 'string' && DIGEST_RE.test(value) ? value : null;
+}
+
+function isAzureCliNoiseLine(line) {
+  if (typeof line !== 'string') return false;
+  let start = 0;
+  let end = line.length;
+  while (start < end && (line[start] === ' ' || line[start] === '\t')) start += 1;
+  while (end > start && (line[end - 1] === ' ' || line[end - 1] === '\t')) end -= 1;
+  if (start === end) return true;
+  if (line.startsWith('WARNING:', start)) return true;
+  if (line.startsWith('INFO:', start)) return true;
+  const first = line[start];
+  if (first === '-' || first === '\\' || first === '|' || first === '/') {
+    let i = start + 1;
+    while (i < end && (line[i] === ' ' || line[i] === '\t')) i += 1;
+    const rest = line.slice(i, end);
+    if (rest === 'Running' || rest.startsWith('Running ')
+        || rest === 'Loading' || rest.startsWith('Loading ')
+        || rest === 'Connecting' || rest.startsWith('Connecting ')
+        || rest === 'Waiting' || rest.startsWith('Waiting ')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isBoundedAzureCliNoise(text) {
+  if (typeof text !== 'string') return false;
+  if (text.length > AZURE_JSON_NOISE_MAX_BYTES) return false;
+  let lines = 0;
+  let i = 0;
+  while (i <= text.length) {
+    let j = i;
+    while (j < text.length && text[j] !== '\n' && text[j] !== '\r') j += 1;
+    if (!isAzureCliNoiseLine(text.slice(i, j))) return false;
+    lines += 1;
+    if (lines > AZURE_JSON_NOISE_MAX_LINES) return false;
+    if (j >= text.length) break;
+    if (text[j] === '\r' && text[j + 1] === '\n') i = j + 2;
+    else i = j + 1;
+  }
+  return true;
+}
+
+function skipJsonWhitespace(text, i) {
+  while (i < text.length) {
+    const c = text[i];
+    if (c !== ' ' && c !== '\t' && c !== '\n' && c !== '\r') break;
+    i += 1;
+  }
+  return i;
+}
+
+function scanJsonString(text, i) {
+  if (text[i] !== '"') return -1;
+  i += 1;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '"') return i + 1;
+    if (c === '\\') {
+      if (i + 1 >= text.length) return -1;
+      i += 2;
+      continue;
+    }
+    if (c === '\n' || c === '\r') return -1;
+    i += 1;
+  }
+  return -1;
+}
+
+function scanJsonNumber(text, i) {
+  const start = i;
+  if (text[i] === '-') i += 1;
+  if (i >= text.length) return -1;
+  if (text[i] === '0') {
+    i += 1;
+  } else if (text[i] >= '1' && text[i] <= '9') {
+    while (i < text.length && text[i] >= '0' && text[i] <= '9') i += 1;
+  } else {
+    return -1;
+  }
+  if (text[i] === '.') {
+    i += 1;
+    if (!(text[i] >= '0' && text[i] <= '9')) return -1;
+    while (i < text.length && text[i] >= '0' && text[i] <= '9') i += 1;
+  }
+  if (text[i] === 'e' || text[i] === 'E') {
+    i += 1;
+    if (text[i] === '+' || text[i] === '-') i += 1;
+    if (!(text[i] >= '0' && text[i] <= '9')) return -1;
+    while (i < text.length && text[i] >= '0' && text[i] <= '9') i += 1;
+  }
+  return i > start ? i : -1;
+}
+
+function scanJsonContainer(text, i, open, close) {
+  if (text[i] !== open) return -1;
+  i += 1;
+  let first = true;
+  while (i < text.length) {
+    i = skipJsonWhitespace(text, i);
+    if (i >= text.length) return -1;
+    if (text[i] === close) return i + 1;
+    if (!first) {
+      if (text[i] !== ',') return -1;
+      i += 1;
+      i = skipJsonWhitespace(text, i);
+      if (i >= text.length || text[i] === close) return -1;
+    }
+    first = false;
+    if (open === '{') {
+      if (text[i] !== '"') return -1;
+      i = scanJsonString(text, i);
+      if (i < 0) return -1;
+      i = skipJsonWhitespace(text, i);
+      if (text[i] !== ':') return -1;
+      i += 1;
+    }
+    i = scanJsonValue(text, i);
+    if (i < 0) return -1;
+  }
+  return -1;
+}
+
+function scanJsonValue(text, i) {
+  i = skipJsonWhitespace(text, i);
+  if (i >= text.length) return -1;
+  const c = text[i];
+  if (c === '"') return scanJsonString(text, i);
+  if (c === '{') return scanJsonContainer(text, i, '{', '}');
+  if (c === '[') return scanJsonContainer(text, i, '[', ']');
+  if (c === 't') return text.startsWith('true', i) ? i + 4 : -1;
+  if (c === 'f') return text.startsWith('false', i) ? i + 5 : -1;
+  if (c === 'n') return text.startsWith('null', i) ? i + 4 : -1;
+  if (c === '-' || (c >= '0' && c <= '9')) return scanJsonNumber(text, i);
+  return -1;
+}
+
+function jsonStartOffsetOnLine(line) {
+  let i = 0;
+  while (i < line.length && (line[i] === ' ' || line[i] === '\t')) i += 1;
+  if (line[i] === '{' || line[i] === '[') return i;
+  return -1;
+}
+
+function extractAzureJson(raw) {
+  if (raw && typeof raw === 'object') {
+    if (isProxy(raw)) return null;
+    return raw;
+  }
+  if (typeof raw !== 'string') return null;
+  if (!raw || raw.length > AZURE_JSON_MAX_BYTES) return null;
+  let offset = 0;
+  let noiseBytes = 0;
+  let noiseLines = 0;
+  let start = -1;
+  while (offset < raw.length) {
+    let j = offset;
+    while (j < raw.length && raw[j] !== '\n' && raw[j] !== '\r') j += 1;
+    const line = raw.slice(offset, j);
+    const localStart = jsonStartOffsetOnLine(line);
+    if (localStart >= 0 && !isAzureCliNoiseLine(line)) {
+      start = offset + localStart;
+      break;
+    }
+    if (!isAzureCliNoiseLine(line)) return null;
+    noiseLines += 1;
+    noiseBytes += line.length;
+    if (noiseLines > AZURE_JSON_NOISE_MAX_LINES || noiseBytes > AZURE_JSON_NOISE_MAX_BYTES) {
+      return null;
+    }
+    if (j >= raw.length) break;
+    if (raw[j] === '\r' && raw[j + 1] === '\n') offset = j + 2;
+    else offset = j + 1;
+  }
+  if (start < 0) return null;
+  if (!isBoundedAzureCliNoise(raw.slice(0, start))) return null;
+  const end = scanJsonValue(raw, start);
+  if (end < 0) return null;
+  if (!isBoundedAzureCliNoise(raw.slice(end))) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.slice(start, end));
+  } catch {
+    return null;
   }
   if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) return null;
+  return parsed;
+}
+
+function parseRevisionShow(raw) {
+  const parsed = extractAzureJson(raw);
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed) || Array.isArray(parsed)) return null;
   const name = ownData(parsed, 'name') || parsed.name;
   const props = ownData(parsed, 'properties') || parsed.properties || parsed;
   const revision = name || ownData(props, 'name') || props.name;
@@ -1186,11 +1380,8 @@ function parseRevisionShow(raw) {
 }
 
 function parseServingIdentity(raw) {
-  let parsed = raw;
-  if (typeof raw === 'string') {
-    try { parsed = JSON.parse(raw); } catch { return null; }
-  }
-  if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) return null;
+  const parsed = extractAzureJson(raw);
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed) || Array.isArray(parsed)) return null;
   if (parsed.healthState || (parsed.properties && parsed.properties.healthState)
       || parsed.runningState) {
     const fromRevision = parseRevisionShow(parsed);
@@ -1306,6 +1497,137 @@ function buildRevisionShowArgs(revision) {
 
 function buildReplicaListArgs() {
   return freeze(['containerapp', 'replica', 'list', '-g', RG, '-n', STAFF_APP, '-o', 'json']);
+}
+
+function buildAcrManifestDigestArgs(imageTag) {
+  const tag = sha40(imageTag);
+  if (!tag) return null;
+  return freeze([
+    'acr', 'manifest', 'show-metadata',
+    '--name', `${ACR_REPOSITORY}:${tag}`,
+    '--registry', ACR_REGISTRY,
+    '-o', 'json',
+  ]);
+}
+
+function parseAcrManifestDigestRow(row, tag) {
+  if (!row || typeof row !== 'object' || isProxy(row) || Array.isArray(row)) return null;
+  if (ownData(row, 'config') != null || ownData(row, 'layers') != null
+      || row.config != null || row.layers != null) {
+    return freeze({ ok: false, reason: 'config_layer_refused' });
+  }
+  const digest = typedDigest(ownData(row, 'digest'));
+  if (!digest) return freeze({ ok: false, reason: 'missing' });
+  const digestValues = [];
+  for (const key of Object.keys(row)) {
+    const desc = getDescriptor(row, key);
+    if (!desc || !hasOwn(desc, 'value') || desc.get || desc.set || desc.enumerable !== true) {
+      continue;
+    }
+    if (typeof desc.value === 'string' && DIGEST_RE.test(desc.value)
+        && (key === 'digest' || key.toLowerCase().includes('digest'))) {
+      digestValues.push(desc.value);
+    }
+  }
+  const unique = [];
+  for (const value of digestValues) {
+    if (!unique.includes(value)) unique.push(value);
+  }
+  if (unique.length !== 1 || unique[0] !== digest) {
+    return freeze({ ok: false, reason: 'multiple' });
+  }
+  const name = ownData(row, 'name');
+  const repository = ownData(row, 'repository');
+  const tags = ownData(row, 'tags');
+  let bound = false;
+  if (repository != null) {
+    if (typeof repository !== 'string' || repository !== ACR_REPOSITORY) {
+      return freeze({ ok: false, reason: 'mismatch' });
+    }
+    bound = true;
+  }
+  if (name != null) {
+    if (typeof name !== 'string'
+        || (name !== ACR_REPOSITORY && name !== `${ACR_REPOSITORY}:${tag}` && name !== tag)) {
+      return freeze({ ok: false, reason: 'mismatch' });
+    }
+    bound = true;
+  }
+  if (tags != null) {
+    if (!Array.isArray(tags)) return freeze({ ok: false, reason: 'malformed' });
+    let hits = 0;
+    for (const value of tags) {
+      if (value === tag) hits += 1;
+    }
+    if (hits !== 1) return freeze({ ok: false, reason: hits === 0 ? 'mismatch' : 'multiple' });
+    bound = true;
+  }
+  if (bound !== true) return freeze({ ok: false, reason: 'mismatch' });
+  return freeze({
+    ok: true,
+    digest,
+    tag,
+    registry: ACR_REGISTRY,
+    repository: ACR_REPOSITORY,
+  });
+}
+
+function parseAcrManifestDigest(raw, expectedTag) {
+  const tag = sha40(expectedTag);
+  if (!tag) return null;
+  const parsed = extractAzureJson(raw);
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) return null;
+  const rows = Array.isArray(parsed) ? parsed : [parsed];
+  if (rows.length < 1) return null;
+  const matches = [];
+  for (const row of rows) {
+    const parsedRow = parseAcrManifestDigestRow(row, tag);
+    if (!parsedRow) return null;
+    if (parsedRow.ok !== true) {
+      if (parsedRow.reason === 'mismatch' && Array.isArray(parsed) && rows.length > 1) {
+        continue;
+      }
+      return null;
+    }
+    matches.push(parsedRow);
+  }
+  if (matches.length !== 1) return null;
+  const uniqueDigests = [];
+  for (const row of matches) {
+    if (!uniqueDigests.includes(row.digest)) uniqueDigests.push(row.digest);
+  }
+  if (uniqueDigests.length !== 1) return null;
+  return matches[0];
+}
+
+async function resolveBoundAcrDigest(azRun, app, revision) {
+  const imageTag = sha40((revision && revision.imageTag) || (app && app.imageTag));
+  if (!imageTag) return null;
+  if (app && app.imageTag && sha40(app.imageTag) !== imageTag) return null;
+  if (revision && revision.imageTag && sha40(revision.imageTag) !== imageTag) return null;
+  const repo = (revision && revision.imageRepository) || (app && app.imageRepository);
+  if (repo !== IMAGE_REPOSITORY) return null;
+  const claimed = [];
+  const appDigest = typedDigest(app && app.digest);
+  const revisionDigest = typedDigest(revision && revision.digest);
+  if (appDigest) claimed.push(appDigest);
+  if (revisionDigest && revisionDigest !== appDigest) claimed.push(revisionDigest);
+  if (claimed.length > 1) return null;
+  const acrArgs = buildAcrManifestDigestArgs(imageTag);
+  if (!acrArgs || typeof azRun !== 'function') return null;
+  let acrShown;
+  try {
+    acrShown = await azRun(acrArgs);
+  } catch {
+    return null;
+  }
+  const acr = parseAcrManifestDigest(`${acrShown && acrShown.stdout || ''}`, imageTag);
+  if (!acr || acr.ok !== true || !typedDigest(acr.digest)) return null;
+  if (acr.tag !== imageTag || acr.repository !== ACR_REPOSITORY || acr.registry !== ACR_REGISTRY) {
+    return null;
+  }
+  if (claimed.length === 1 && claimed[0] !== acr.digest) return null;
+  return acr.digest;
 }
 
 function envOwn(env, key) {
@@ -2112,11 +2434,11 @@ function inferRevision(replicaName) {
 }
 
 function parseRunningReplica(raw, expectedRevision) {
-  let parsed;
-  try { parsed = JSON.parse(String(raw || '').trim() || 'null'); } catch { return null; }
+  const parsed = extractAzureJson(raw);
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) return null;
   const rows = Array.isArray(parsed)
     ? parsed
-    : (parsed && typeof parsed === 'object' && Array.isArray(parsed.value) ? parsed.value : null);
+    : (Array.isArray(ownData(parsed, 'value') || parsed.value) ? (ownData(parsed, 'value') || parsed.value) : null);
   if (!rows) return null;
   for (const row of rows) {
     if (!row || typeof row !== 'object' || isProxy(row)) continue;
@@ -2579,7 +2901,13 @@ async function readProductionServingIdentity(azRun) {
   if (!revArgs) return null;
   const revShown = await azRun(revArgs);
   const revision = parseRevisionShow(`${revShown && revShown.stdout || ''}`);
-  const merged = mergeRevisionIntoServing(app, revision);
+  if (!revision) return null;
+  const digest = await resolveBoundAcrDigest(azRun, app, revision);
+  if (!digest) return null;
+  const merged = mergeRevisionIntoServing(
+    freeze({ ...app, digest }),
+    freeze({ ...revision, digest }),
+  );
   if (!merged || merged.trafficWeight !== 100 || !servingHealthyReady100(merged)) return null;
   const replicas = await azRun(buildReplicaListArgs());
   const running = parseRunningReplica(`${replicas && replicas.stdout || ''}`, merged.revision);
@@ -3381,6 +3709,8 @@ module.exports = freeze({
   RG,
   STAFF_APP,
   EMAIL_LUNA_APP,
+  ACR_REGISTRY,
+  ACR_REPOSITORY,
   IMAGE_REPOSITORY,
   PROOF_SUBJECT,
   PROOF_SENDER,
@@ -3419,6 +3749,7 @@ module.exports = freeze({
   inspectRepoReadiness,
   parseServingIdentity,
   parseRevisionShow,
+  parseRunningReplica,
   parseReplicaProcessEnv,
   parseExplicitTrafficWeight,
   traffic100RevisionName,
@@ -3426,12 +3757,16 @@ module.exports = freeze({
   servingHealthyReady100,
   servingIdentityCompatible,
   flagsLiteral,
+  extractAzureJson,
+  parseAcrManifestDigest,
+  resolveBoundAcrDigest,
   readProductionServingIdentity,
   attestReplicaProcessEnv,
   buildSetEnvArgs,
   buildShowAppArgs,
   buildRevisionShowArgs,
   buildReplicaListArgs,
+  buildAcrManifestDigestArgs,
   buildReplicaEnvExecAzArgs,
   buildReadonlyGraphListRequest,
   GRAPH_LIST_SELECT,
