@@ -7,12 +7,12 @@
  * Offline gate for Inbox mockup slice A: two independent channel-default
  * pills in Inbox chrome (no thread required).
  *
- *   WhatsApp  Auto | Draft | Off
- *   Email     Auto | Draft | Off  (default stored value remains Draft)
+ *   WhatsApp  Draft | Auto  (default Draft)
+ *   Email     Draft | Auto  (default Draft)
  *
- * Persist: prefer PUT /staff/inbox/luna-mode; if that route is not mounted,
- * WhatsApp Off uses today's /staff/bot/global-pause + /staff/bot/global-resume.
- * WhatsApp Draft does not call Graph / Cloud send.
+ * Persist: PATCH /staff/auth/prefs { inbox_channel_modes } on the authenticated
+ * tenant. Global Pause blocks Auto without rewriting the stored mode.
+ * Draft does not call Graph / Cloud send.
  *
  * Run: node scripts/verify-inbox-shell-channel-defaults.js
  */
@@ -110,23 +110,28 @@ function main() {
   const i18nEsSrc = read(I18N_ES);
   const fns = loadShellFns();
 
-  console.log('[1] Channel options (WhatsApp and Email Auto|Draft|Off; email default Draft)');
-  assert('whatsapp options are Auto|Draft|Off',
-    JSON.stringify(fns.inboxShellChannelOptions('whatsapp')) === JSON.stringify(['auto', 'draft', 'off']));
-  assert('email options are Auto|Draft|Off',
-    JSON.stringify(fns.inboxShellChannelOptions('email')) === JSON.stringify(['auto', 'draft', 'off']));
+  console.log('[1] Channel options (WhatsApp and Email Draft|Auto; both default Draft)');
+  assert('whatsapp options are Draft|Auto',
+    JSON.stringify(fns.inboxShellChannelOptions('whatsapp')) === JSON.stringify(['draft', 'auto']));
+  assert('email options are Draft|Auto',
+    JSON.stringify(fns.inboxShellChannelOptions('email')) === JSON.stringify(['draft', 'auto']));
   assert('email options include auto',
     fns.inboxShellChannelOptions('email').indexOf('auto') >= 0);
   assert('unknown channel does not invent extra modes',
-    JSON.stringify(fns.inboxShellChannelOptions('sms')) === JSON.stringify(['auto', 'draft', 'off']));
-  assert('email Off/Draft/Auto normalize; unknown falls back to Draft',
-    fns.inboxShellNormalizeEmail('off') === 'off'
+    JSON.stringify(fns.inboxShellChannelOptions('sms')) === JSON.stringify(['draft', 'auto']));
+  assert('email Off maps to Draft; Auto stays Auto; unknown falls back to Draft',
+    fns.inboxShellNormalizeEmail('off') === 'draft'
     && fns.inboxShellNormalizeEmail('draft') === 'draft'
     && fns.inboxShellNormalizeEmail('auto') === 'auto'
     && fns.inboxShellNormalizeEmail('nope') === 'draft');
+  assert('whatsapp default and unknown values are Draft; Auto is explicit',
+    fns.inboxShellNormalizeWhatsApp('auto') === 'auto'
+    && fns.inboxShellNormalizeWhatsApp('draft') === 'draft'
+    && fns.inboxShellNormalizeWhatsApp('off') === 'draft'
+    && fns.inboxShellNormalizeWhatsApp('nope') === 'draft');
 
   console.log('\n[2] Both selectors render without a thread selected');
-  const html = fns.inboxShellChannelDefaultsHtml({ whatsapp: 'auto', email: 'draft' });
+  const html = fns.inboxShellChannelDefaultsHtml({ whatsapp: 'draft', email: 'draft' });
   assert('mount function does not read selectedConvId', !/selectedConvId/.test(shellSrc));
   assert('mount targets inbox-toolbar-top, not conv-detail',
     /el\('inbox-toolbar-top'\)/.test(shellSrc)
@@ -136,16 +141,16 @@ function main() {
     && /id="inbox-shell-email-mode"/.test(html)
     && /data-inbox-shell-channel="whatsapp"/.test(html)
     && /data-inbox-shell-channel="email"/.test(html));
-  assert('whatsapp has Auto, Draft, Off options',
+  assert('whatsapp has Auto and Draft options, not Off',
     /<option value="auto"/.test(html)
     && /<option value="draft"/.test(html)
-    && /<option value="off"/.test(html));
+    && !/<option value="off"/.test(html));
   {
     const emailBlock = html.slice(html.indexOf('data-inbox-shell-channel="email"'));
-    assert('email has Auto, Draft and Off',
+    assert('email has Auto and Draft, not Off',
       /<option value="auto"/.test(emailBlock)
       && /<option value="draft"/.test(emailBlock)
-      && /<option value="off"/.test(emailBlock));
+      && !/<option value="off"/.test(emailBlock));
   }
   const emailOnly = fns.inboxShellChannelSelectHtml('email', 'draft');
   assert('email-only fragment includes Auto and defaults to Draft',
@@ -177,24 +182,16 @@ function main() {
     && /inbox\.shell\.email\.draftHelp/.test(i18nSrc)
     && /inbox\.shell\.email\.offHelp/.test(i18nSrc));
 
-  console.log('\n[4] Persist path: luna-mode if routed, else pause/resume; Draft does not send');
+  console.log('\n[4] Persist path: authenticated prefs; Draft does not send');
   const persistFn = sliceFn(shellSrc, 'persistInboxShellChannelMode');
-  const putFn = sliceFn(shellSrc, 'inboxShellPutLunaMode');
-  const fallbackFn = sliceFn(shellSrc, 'inboxShellFallbackWhatsAppPause');
-  const fallbackPersist = sliceFn(shellSrc, 'inboxShellPersistFallback');
-  assert('prefers PUT /staff/inbox/luna-mode with scope channel',
-    /INBOX_SHELL_LUNA_MODE_PATH = '\/staff\/inbox\/luna-mode'/.test(shellSrc)
-    && /fetch\(INBOX_SHELL_LUNA_MODE_PATH/.test(putFn)
-    && /method:\s*'PUT'/.test(putFn)
-    && /scope:\s*'channel'/.test(putFn));
-  assert('Off fallback POSTs /staff/bot/global-pause',
-    /\/staff\/bot\/global-pause/.test(fallbackFn)
-    && /\/staff\/bot\/global-resume/.test(fallbackFn));
-  assert('email Off does not hit WhatsApp pause',
-    /if \(channel === 'email'\) return Promise\.resolve\(true\)/.test(fallbackPersist));
-  assert('WhatsApp Off maps to paused in fallback',
-    /stored\.whatsapp === 'off'/.test(fallbackPersist)
-    || /wantPaused = stored\.whatsapp === 'off'/.test(shellSrc));
+  assert('persists tenant channel mode via PATCH /staff/auth/prefs',
+    /\/staff\/auth\/prefs/.test(persistFn)
+    && /method:\s*'PATCH'/.test(persistFn)
+    && /inbox_channel_modes/.test(persistFn));
+  assert('channel persist does not PUT luna-mode or POST pause/resume',
+    !/\/staff\/inbox\/luna-mode/.test(persistFn)
+    && !/\/staff\/bot\/global-pause/.test(persistFn)
+    && !/\/staff\/bot\/pause/.test(persistFn));
   assert('shell never calls Graph sendMail or Cloud send',
     !/graph\.microsoft\.com/.test(shellSrc)
     && !/sendMail/.test(shellSrc)

@@ -45553,6 +45553,62 @@ function inboxGuestPanelFromMetadata(meta) {
   return raw === 'pinned' ? 'pinned' : 'hidden';
 }
 
+function inboxChannelModeFromValue(value) {
+  return value === 'auto' ? 'auto' : 'draft';
+}
+
+function inboxChannelModesFromUnknown(raw) {
+  let src = raw;
+  if (typeof src === 'string') {
+    try { src = JSON.parse(src); } catch (_e) { src = null; }
+  }
+  const obj = src && typeof src === 'object' && !Array.isArray(src) ? src : {};
+  return {
+    whatsapp: inboxChannelModeFromValue(obj.whatsapp),
+    email: inboxChannelModeFromValue(obj.email),
+  };
+}
+
+async function loadClientInboxChannelModes(clientId) {
+  if (!clientId) return inboxChannelModesFromUnknown(null);
+  try {
+    const row = await withPgClient(async (pgClient) => {
+      const result = await pgClient.query(
+        `SELECT metadata->'inbox_ui_channel_modes' AS inbox_ui_channel_modes
+           FROM clients
+          WHERE id = $1::uuid
+          LIMIT 1`,
+        [clientId]
+      );
+      return result.rows[0] || null;
+    });
+    return inboxChannelModesFromUnknown(row && row.inbox_ui_channel_modes);
+  } catch (_err) {
+    return inboxChannelModesFromUnknown(null);
+  }
+}
+
+async function saveClientInboxChannelModes(clientId, modes) {
+  const next = inboxChannelModesFromUnknown(modes);
+  const row = await withPgClient(async (pgClient) => {
+    const result = await pgClient.query(
+      `UPDATE clients
+          SET metadata = jsonb_set(
+            COALESCE(metadata, '{}'::jsonb),
+            '{inbox_ui_channel_modes}',
+            $2::jsonb,
+            true
+          )
+        WHERE id = $1::uuid
+        RETURNING metadata->'inbox_ui_channel_modes' AS inbox_ui_channel_modes`,
+      [clientId, JSON.stringify(next)]
+    );
+    return result.rows[0] || null;
+  });
+  if (!row) return null;
+  return inboxChannelModesFromUnknown(row.inbox_ui_channel_modes);
+}
+
 async function handleAuthPrefs(req, res) {
   const auth = await requireAuth(req, res, 'viewer');
   if (!auth.ok) return;
@@ -45562,35 +45618,76 @@ async function handleAuthPrefs(req, res) {
   } catch (_e) {
     return sendJSON(res, 400, { success: false, error: 'invalid_json' });
   }
-  const panel = body && body.inbox_guest_panel;
-  if (panel !== 'pinned' && panel !== 'hidden') {
-    return sendJSON(res, 400, {
-      success: false,
-      error: 'inbox_guest_panel must be pinned or hidden',
-    });
+  const hasPanelKey = !!(body && Object.prototype.hasOwnProperty.call(body, 'inbox_guest_panel'));
+  const hasModesKey = !!(body && Object.prototype.hasOwnProperty.call(body, 'inbox_channel_modes'));
+  if (!hasPanelKey && !hasModesKey) {
+    return sendJSON(res, 400, { success: false, error: 'prefs_patch_empty' });
   }
+
+  let panel = null;
+  if (hasPanelKey) {
+    panel = body.inbox_guest_panel;
+    if (panel !== 'pinned' && panel !== 'hidden') {
+      return sendJSON(res, 400, {
+        success: false,
+        error: 'inbox_guest_panel must be pinned or hidden',
+      });
+    }
+  }
+
+  let modes = null;
+  if (hasModesKey) {
+    const rawModes = body.inbox_channel_modes;
+    if (!rawModes || typeof rawModes !== 'object' || Array.isArray(rawModes)) {
+      return sendJSON(res, 400, {
+        success: false,
+        error: 'inbox_channel_modes must be an object',
+      });
+    }
+    modes = inboxChannelModesFromUnknown(rawModes);
+  }
+
   if (!STAFF_AUTH_REQUIRED || !auth.user || !auth.user.staff_user_id) {
-    return sendJSON(res, 200, { success: true, inbox_guest_panel: panel, persisted: false });
+    const out = { success: true, persisted: false };
+    if (hasPanelKey) out.inbox_guest_panel = panel;
+    else out.inbox_guest_panel = 'hidden';
+    out.inbox_channel_modes = modes || inboxChannelModesFromUnknown(null);
+    return sendJSON(res, 200, out);
   }
+
   try {
-    const row = await withPgClient(async (pgClient) => {
-      const result = await pgClient.query(
-        `UPDATE staff_users
-            SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
-          WHERE id = $1::uuid
-            AND client_id = $2::uuid
-            AND status = 'active'
-          RETURNING metadata`,
-        [auth.user.staff_user_id, auth.user.client_id, JSON.stringify({ inbox_guest_panel: panel })]
-      );
-      return result.rows[0] || null;
-    });
-    if (!row) {
-      return sendJSON(res, 404, { success: false, error: 'staff_user_not_found' });
+    let savedPanel = hasPanelKey ? null : inboxGuestPanelFromMetadata(auth.user.metadata);
+    let savedModes = null;
+    if (hasPanelKey) {
+      const row = await withPgClient(async (pgClient) => {
+        const result = await pgClient.query(
+          `UPDATE staff_users
+              SET metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb
+            WHERE id = $1::uuid
+              AND client_id = $2::uuid
+              AND status = 'active'
+            RETURNING metadata`,
+          [auth.user.staff_user_id, auth.user.client_id, JSON.stringify({ inbox_guest_panel: panel })]
+        );
+        return result.rows[0] || null;
+      });
+      if (!row) {
+        return sendJSON(res, 404, { success: false, error: 'staff_user_not_found' });
+      }
+      savedPanel = inboxGuestPanelFromMetadata(row.metadata);
+    }
+    if (hasModesKey) {
+      savedModes = await saveClientInboxChannelModes(auth.user.client_id, modes);
+      if (!savedModes) {
+        return sendJSON(res, 404, { success: false, error: 'client_not_found' });
+      }
+    } else {
+      savedModes = await loadClientInboxChannelModes(auth.user.client_id);
     }
     return sendJSON(res, 200, {
       success: true,
-      inbox_guest_panel: inboxGuestPanelFromMetadata(row.metadata),
+      inbox_guest_panel: savedPanel,
+      inbox_channel_modes: savedModes,
       persisted: true,
     });
   } catch (_err) {
@@ -45613,6 +45710,7 @@ async function handleAuthSession(req, res) {
       client_profiles: buildClientProfilesMap(null),
       can_use_owner_insights: true,
       inbox_guest_panel: 'hidden',
+      inbox_channel_modes: inboxChannelModesFromUnknown(null),
     });
   }
 
@@ -45642,6 +45740,7 @@ async function handleAuthSession(req, res) {
     });
   }
   const sessionClients = getSessionScopedClients(user);
+  const inbox_channel_modes = await loadClientInboxChannelModes(user.client_id);
   return sendJSON(res, 200, {
     success: true,
     auth_required: true,
@@ -45654,6 +45753,7 @@ async function handleAuthSession(req, res) {
     client_profiles: buildSessionClientProfilesMap(user),
     can_use_owner_insights: canUseOwnerInsights(user),
     inbox_guest_panel: inboxGuestPanelFromMetadata(user.metadata),
+    inbox_channel_modes,
   });
 }
 

@@ -4,10 +4,11 @@
  * Two independent channel-default pills, always visible in Inbox chrome
  * (no thread required):
  *
- *   WhatsApp  Auto | Draft | Off
- *   Email     Auto | Draft | Off  (Auto create-and-send stays dormant until
- *     LUNA_AUTO_SEND_ENABLED and LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED are both
- *     the literal string true; default stored value remains Draft)
+ *   WhatsApp  Draft | Auto  (default Draft)
+ *   Email     Draft | Auto  (default Draft)
+ *
+ * Tenant-global green-box mode + Global Pause. Conversation Luna On and
+ * Needs Human remain the send gates; this control does not override them.
  *
  * Replaces the tenant/company select (`#c-client`, "Sunset Surf School") that
  * sat in `.inbox-toolbar-top` under the header. School flip stays
@@ -16,12 +17,10 @@
  * a New button are not invented here.
  *
  * Persist (no new state machine):
- *   Prefer PUT /staff/inbox/luna-mode `{ scope: 'channel', channel, value }`.
- *   If that route is not mounted: Off vs unpaused uses today's
- *   `/staff/bot/global-pause` + `/staff/bot/global-resume` for WhatsApp.
- *   WhatsApp Draft stays unpaused so the existing draft/approvals path
- *   (`luna_outbound_approvals` / POST /staff/inbox/whatsapp/draft) can write
- *   a row instead of sending. This module never calls Graph or Cloud send.
+ *   PATCH /staff/auth/prefs `{ inbox_channel_modes }` on the authenticated
+ *   tenant (clients.metadata.inbox_ui_channel_modes). Global Pause blocks
+ *   Auto without rewriting the stored mode. This module never calls Graph
+ *   or Cloud send.
  *
  * Thread-header Auto|Draft|Off (#524, inbox-luna-mode.js) is left in place.
  *
@@ -47,17 +46,35 @@ function inboxShellT(key, fallback){
 }
 
 function inboxShellChannelOptions(_channel){
-  return ['auto', 'draft', 'off'];
+  return ['draft', 'auto'];
 }
 
 function inboxShellNormalizeWhatsApp(value){
-  if (value === 'draft' || value === 'off' || value === 'auto') return value;
-  return 'auto';
+  return value === 'auto' ? 'auto' : 'draft';
 }
 
 function inboxShellNormalizeEmail(value){
-  if (value === 'off' || value === 'draft' || value === 'auto') return value;
-  return 'draft';
+  return value === 'auto' ? 'auto' : 'draft';
+}
+
+function inboxShellEffectiveMode(channel, mode, paused){
+  var value = channel === 'email'
+    ? inboxShellNormalizeEmail(mode)
+    : inboxShellNormalizeWhatsApp(mode);
+  if (paused === true && value === 'auto') return 'draft';
+  return value;
+}
+
+function inboxShellIsGloballyPaused(){
+  var card = inboxShellById('inbox-shell-channel-defaults');
+  if (card && card.classList && card.classList.contains('is-paused')) return true;
+  var pause = inboxShellById('cc-luna-global-pause');
+  var sw = pause && pause.querySelector && pause.querySelector('input[type="checkbox"]');
+  return !!(sw && sw.checked);
+}
+
+function inboxShellPauseBlocksAuto(){
+  return inboxShellIsGloballyPaused();
 }
 
 function inboxShellStorageClientKey(){
@@ -68,7 +85,7 @@ function inboxShellStorageClientKey(){
 }
 
 function inboxShellLoadStoredModes(){
-  var empty = { whatsapp: 'auto', email: 'draft' };
+  var empty = { whatsapp: 'draft', email: 'draft' };
   try {
     var raw = localStorage.getItem(INBOX_SHELL_STORAGE_KEY);
     if (!raw) return empty;
@@ -164,6 +181,7 @@ function inboxShellSyncPauseChrome(paused){
     btns[i].classList.toggle('isAuto', isOnBtn && on);
     btns[i].setAttribute('aria-pressed', selected ? 'true' : 'false');
   }
+  inboxShellSyncAutonomyButtons();
 }
 
 function inboxShellAdoptLayoutControls(){
@@ -232,11 +250,11 @@ function inboxShellAutonomyRowHtml(channel, selected){
   html += '<button type="button" class="channelModeBtn' + (visual === 'draft' ? ' isSelected' : '') + '"';
   html += ' data-inbox-autonomy="draft" data-inbox-autonomy-channel="' + channel + '"';
   html += ' aria-pressed="' + (visual === 'draft' ? 'true' : 'false') + '"';
-  html += ' title="Luna prepares replies for staff approval">' + escHtml(inboxShellT('inbox.detail.lunaMode.draft', 'Draft')) + '</button>';
+  html += ' title="Luna prepares replies for staff approval. Conversation Luna On and Needs Human still gate sending.">' + escHtml(inboxShellT('inbox.detail.lunaMode.draft', 'Draft')) + '</button>';
   html += '<button type="button" class="channelModeBtn' + (visual === 'auto' ? ' isSelected isAuto' : '') + '"';
   html += ' data-inbox-autonomy="auto" data-inbox-autonomy-channel="' + channel + '"';
   html += ' aria-pressed="' + (visual === 'auto' ? 'true' : 'false') + '"';
-  html += ' title="Luna can reply automatically">Auto</button>';
+  html += ' title="Channel default Auto. Conversation Luna On and Needs Human still gate sending.">Auto</button>';
   html += '</div></div>';
   return html;
 }
@@ -308,6 +326,7 @@ function inboxShellCssText(){
     '.inbox-shell-channel-native{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;',
     'display:none!important;white-space:nowrap;border:0}',
     '.inbox-shell-channel-defaults.is-busy .channelModeBtn{opacity:.7;cursor:not-allowed}',
+    '.channelAutonomy.is-paused [data-inbox-autonomy="auto"]{opacity:.45;cursor:not-allowed}',
     '.inbox-toolbar-channels{align-items:center}',
     '.inbox-toolbar-channels .inbox-refresh-btn{margin-left:0;margin-top:0}',
     '.inbox-chat-chrome-slot{justify-content:flex-end}',
@@ -713,8 +732,8 @@ function inboxShellSetBusy(busy){
   var wrap = typeof el === 'function' ? el('inbox-shell-channel-defaults') : null;
   if (!wrap) return;
   wrap.classList.toggle('is-busy', !!busy);
-  wrap.querySelectorAll('.inbox-shell-channel-select').forEach(function(sel){
-    sel.disabled = !!busy;
+  wrap.querySelectorAll('.inbox-shell-channel-select, [data-inbox-autonomy]').forEach(function(node){
+    node.disabled = !!busy;
   });
 }
 
@@ -738,9 +757,11 @@ function inboxShellApplyUiModes(modes){
 function inboxShellSyncAutonomyButtons(){
   var wrap = typeof el === 'function' ? el('inbox-shell-channel-defaults') : null;
   if (!wrap) return;
+  var paused = inboxShellPauseBlocksAuto();
   ['whatsapp', 'email'].forEach(function(channel){
     var sel = typeof el === 'function' ? el('inbox-shell-' + channel + '-mode') : null;
-    var visual = (sel && sel.value === 'auto') ? 'auto' : 'draft';
+    var stored = (sel && sel.value === 'auto') ? 'auto' : 'draft';
+    var visual = inboxShellEffectiveMode(channel, stored, paused);
     var row = wrap.querySelector('[data-inbox-autonomy-row="' + channel + '"]');
     if (!row) return;
     var btns = row.querySelectorAll('[data-inbox-autonomy]');
@@ -750,6 +771,10 @@ function inboxShellSyncAutonomyButtons(){
       btns[i].classList.toggle('isSelected', on);
       btns[i].classList.toggle('isAuto', on && mode === 'auto');
       btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+      if (mode === 'auto') {
+        btns[i].disabled = paused;
+        btns[i].setAttribute('aria-disabled', paused ? 'true' : 'false');
+      }
     }
   });
 }
@@ -823,21 +848,32 @@ function persistInboxShellChannelMode(channel, value){
     if (gen !== inboxShellPersistGen) return;
     inboxShellSetBusy(false);
     if (!ok) inboxShellApplyUiModes(inboxShellLoadStoredModes());
+    else inboxShellApplyUiModes(stored);
   }
 
-  if (inboxShellLunaModeRouted === false) {
-    return inboxShellPersistFallback(channel, stored).then(function(ok){ done(ok); return ok; });
-  }
-
-  return inboxShellPutLunaMode(channel, stored[channel === 'email' ? 'email' : 'whatsapp'])
-    .then(function(res){
-      if (gen !== inboxShellPersistGen) return false;
-      if (res && res.routed) {
-        done(!!(res.ok || (res.data && res.data.success)));
-        return !!(res.ok || (res.data && res.data.success));
+  return fetch('/staff/auth/prefs', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ inbox_channel_modes: stored }),
+  }).then(function(r){
+    return r.text().then(function(raw){
+      var data = null;
+      try { data = raw ? JSON.parse(raw) : null; } catch (_e) { data = null; }
+      var ok = !!(r.ok && data && data.success !== false);
+      if (ok && data && data.inbox_channel_modes) {
+        stored = {
+          whatsapp: inboxShellNormalizeWhatsApp(data.inbox_channel_modes.whatsapp),
+          email: inboxShellNormalizeEmail(data.inbox_channel_modes.email),
+        };
+        inboxShellStoreModes(stored);
       }
-      return inboxShellPersistFallback(channel, stored).then(function(ok){ done(ok); return ok; });
+      done(ok);
+      return ok;
     });
+  }).catch(function(){
+    done(false);
+    return false;
+  });
 }
 
 function inboxShellPersistFallback(channel, stored){
@@ -858,15 +894,34 @@ function inboxShellSyncFromPauseState(){
   return inboxShellLoadGlobalPause().then(function(res){
     var data = (res && res.data) || {};
     var paused = data.paused === true || data.bot_paused === true;
-    var stored = inboxShellLoadStoredModes();
-    if (paused) stored.whatsapp = 'off';
-    else if (stored.whatsapp === 'off') stored.whatsapp = 'auto';
-    inboxShellStoreModes(stored);
-    inboxShellApplyUiModes(stored);
-    return stored;
+    inboxShellSyncPauseChrome(paused);
+    inboxShellApplyUiModes(inboxShellLoadStoredModes());
+    return inboxShellLoadStoredModes();
   }).catch(function(){
     inboxShellApplyUiModes(inboxShellLoadStoredModes());
   });
+}
+
+function inboxShellHydrateFromSession(){
+  return fetch('/staff/auth/session', { headers: { Accept: 'application/json' } })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success === false || !data.inbox_channel_modes) {
+        inboxShellApplyUiModes(inboxShellLoadStoredModes());
+        return inboxShellLoadStoredModes();
+      }
+      var modes = {
+        whatsapp: inboxShellNormalizeWhatsApp(data.inbox_channel_modes.whatsapp),
+        email: inboxShellNormalizeEmail(data.inbox_channel_modes.email),
+      };
+      inboxShellStoreModes(modes);
+      inboxShellApplyUiModes(modes);
+      return modes;
+    })
+    .catch(function(){
+      inboxShellApplyUiModes(inboxShellLoadStoredModes());
+      return inboxShellLoadStoredModes();
+    });
 }
 
 function wireInboxShellChannelDefaults(){
@@ -891,6 +946,7 @@ function wireInboxShellChannelDefaults(){
     var channel = btn.getAttribute('data-inbox-autonomy-channel');
     var mode = btn.getAttribute('data-inbox-autonomy');
     if (!channel || !mode) return;
+    if (mode === 'auto' && inboxShellPauseBlocksAuto()) return;
     var sel = typeof el === 'function' ? el('inbox-shell-' + channel + '-mode') : null;
     if (!sel) return;
     var next = channel === 'email' ? inboxShellNormalizeEmail(mode) : inboxShellNormalizeWhatsApp(mode);
@@ -1046,6 +1102,7 @@ function mountInboxShellChrome(){
   inboxShellAdoptGlobalPause();
   inboxShellAdoptSearch();
   inboxShellAdoptLayoutControls();
+  inboxShellHydrateFromSession();
   inboxShellSyncFromPauseState();
   inboxShellFinishGuestHide();
 }
