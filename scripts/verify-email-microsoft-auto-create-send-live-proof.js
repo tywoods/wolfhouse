@@ -1689,6 +1689,9 @@ async function main() {
     assert.equal(verifiedEvidence.sol_model, 'gpt-5.6-sol');
     assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence, 'message_text'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence, 'evidence_mac'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence, 'immutable_draft_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(verifiedEvidence.public || {}, 'immutable_draft_id'), false);
+    assert.doesNotMatch(JSON.stringify(verifiedEvidence.public || {}), /graph-sent-1/);
 
     const missingSecret = await runInnerSnapshot({
       env: {
@@ -2674,6 +2677,21 @@ exit 0
     assert.match(libSrc, /function withInnerPublic/);
     assert.match(libSrc, /Never impersonate a Microsoft send/);
     assert.match(cliSrc, /console\.log\(JSON\.stringify\(publicProofOutput\(result\)\)\)/);
+    const evidencePublicSrc = libSrc.slice(
+      libSrc.indexOf('function evidencePublic'),
+      libSrc.indexOf('function isKillSwitchShape'),
+    );
+    assert.doesNotMatch(evidencePublicSrc, /immutable_draft_id/);
+    assert.doesNotMatch(evidencePublicSrc, /provider_message_id/);
+    assert.doesNotMatch(evidencePublicSrc, /internetMessageId/);
+    assert.match(libSrc, /function replicaEvidenceCapabilityAvailable/);
+    assert.doesNotMatch(
+      libSrc.slice(
+        libSrc.indexOf('function replicaEvidenceCapabilityAvailable'),
+        libSrc.indexOf('function replicaGraphAdapterAvailable'),
+      ),
+      /immutable_draft_id/,
+    );
 
     const outerPub = publicProofOutput({
       ok: true,
@@ -2750,11 +2768,17 @@ exit 0
       journals: 0,
       provider_sends: 0,
       message_text: THREAD_DRAFT,
+      immutable_draft_id: 'graph-sent-1',
+      provider_message_id: 'graph-sent-1',
     });
     assert.equal(evidenceFallback.ok, true);
     assert.equal(evidenceFallback.hmac_available, true);
     assert.equal(evidenceFallback.evidence_verified, false);
     assert.equal(Object.prototype.hasOwnProperty.call(evidenceFallback, 'message_text'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceFallback, 'immutable_draft_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceFallback, 'provider_message_id'), false);
+    assert.doesNotMatch(JSON.stringify(evidenceFallback), /immutable_draft_id/);
+    assert.doesNotMatch(JSON.stringify(evidenceFallback), /graph-sent-1/);
     assert.notEqual(evidenceFallback.status, 'sent');
 
     function assertNoInnerLeak(raw) {
@@ -2767,6 +2791,8 @@ exit 0
       assert.doesNotMatch(text, /"message_text"/);
       assert.doesNotMatch(text, /"evidence_mac"/);
       assert.doesNotMatch(text, /"secret_body"/);
+      assert.doesNotMatch(text, /"immutable_draft_id"/);
+      assert.doesNotMatch(text, /"provider_message_id"/);
     }
 
     function spawnProofCli(env, fixture) {
@@ -2974,14 +3000,30 @@ Module._load = function(request, parent, isMain) {
       [ENV_HMAC_SECRET]: HMAC_SECRET,
     }, { threadRows: [thread], evidenceRows });
     assert.equal(evidenceSpawn.status, 0, `${evidenceSpawn.stdout}${evidenceSpawn.stderr}`);
-    const evidenceOut = extractProofJson(`${evidenceSpawn.stdout}${evidenceSpawn.stderr}`);
+    const evidenceStdout = `${evidenceSpawn.stdout}${evidenceSpawn.stderr}`;
+    const evidenceOut = extractProofJson(evidenceStdout);
     assert.equal(evidenceOut.ok, true);
     assert.equal(evidenceOut.hmac_available, true);
     assert.equal(evidenceOut.evidence_verified, true);
     assert.equal(evidenceOut.leftover, false);
+    assert.equal(evidenceOut.sol_model, 'gpt-5.6-sol');
+    assert.equal(evidenceOut.sol_provider, 'openai-codex');
+    assert.equal(evidenceOut.sol_runtime, 'sunset-email-luna');
+    assert.equal(typeof evidenceOut.approvals, 'number');
+    assert.equal(typeof evidenceOut.journals, 'number');
+    assert.equal(typeof evidenceOut.provider_sends, 'number');
     assert.notEqual(evidenceOut.status, 'sent');
     assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'message_text'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'evidence_mac'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'immutable_draft_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'provider_message_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(evidenceOut, 'internetMessageId'), false);
+    assert.doesNotMatch(evidenceStdout, /immutable_draft_id/);
+    assert.doesNotMatch(evidenceStdout, /provider_message_id/);
+    assert.doesNotMatch(evidenceStdout, /internetMessageId/);
+    assert.doesNotMatch(evidenceStdout, /graph-sent-1/);
+    assert.doesNotMatch(JSON.stringify(evidenceOut), /immutable_draft_id/);
+    assert.doesNotMatch(JSON.stringify(evidenceOut), /graph-sent-1/);
     assertNoInnerLeak(evidenceSpawn.stdout);
 
     const graphSpawn = spawnProofCli({

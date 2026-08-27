@@ -360,6 +360,11 @@ const PUBLIC_REDACT_KEYS = freeze([
   'token',
   'secret',
   'hmac_secret',
+  'immutable_draft_id',
+  'provider_message_id',
+  'internetMessageId',
+  'internet_message_id',
+  'graph_message_id',
 ]);
 
 function stripPublicPii(pub) {
@@ -469,7 +474,7 @@ function evidencePublic(result) {
   if (result.sol_model) out.sol_model = result.sol_model;
   if (result.sol_runtime) out.sol_runtime = result.sol_runtime;
   if (result.duplicate_unreconciled === true) out.duplicate_unreconciled = true;
-  if (result.immutable_draft_id) out.immutable_draft_id = result.immutable_draft_id;
+  // Supervisor evidence parser needs capability/HMAC/Sol fields only — never Graph message ids.
   return freeze(out);
 }
 
@@ -1055,7 +1060,6 @@ function sanitizeReplicaEvidenceSnapshot(loaded, secret) {
     approvals,
     journals: Number.isSafeInteger(journals) ? journals : 0,
     provider_sends: sends,
-    immutable_draft_id: loaded.immutable_draft_id || null,
   });
 }
 
