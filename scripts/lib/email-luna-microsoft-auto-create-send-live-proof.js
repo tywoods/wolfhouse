@@ -31,6 +31,13 @@ const {
   EMAIL_INBOX_CHANNEL_MODE_DEFAULT,
 } = require('./email-inbox-channel-mode');
 const { normalizeInboundEmailAddress } = require('./email-inbound-conversation-identity');
+const {
+  digestGeneratedEmailLunaDraftBody,
+  mintSelectedOperationSolEvidence,
+  verifySelectedOperationSolEvidence,
+  sanitizeSelectedOperationEvidence,
+} = require('./staff-email-luna-draft-open');
+const { ENV_HMAC_SECRET } = require('./email-luna-sunset-email-hermes-sol-activation');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -76,6 +83,20 @@ const USED_OPERATOR_NONCES = new Set();
 const PRODUCTION_AUTO_OWNERS = new WeakSet();
 const PRODUCTION_GRAPH_VERIFIERS = new WeakSet();
 const PRODUCTION_SUPERVISORS = new WeakSet();
+const PRODUCTION_PG_ADAPTERS = new WeakSet();
+const PRODUCTION_REPLICA_ENV_ATTESTORS = new WeakSet();
+const PRODUCTION_KILL_SWITCHES = new WeakSet();
+const GRAPH_LIST_SELECT = freeze([
+  'id',
+  'conversationId',
+  'internetMessageId',
+  'subject',
+  'internetMessageHeaders',
+]);
+const GRAPH_LIST_FORBIDDEN_SELECT = freeze(['body', 'bodyPreview', 'uniqueBody']);
+const INNER_MODE_KILL_SWITCH = 'MAIL_MVP_004_KILL_SWITCH_PROBE';
+const INNER_MODE_SNAPSHOT = 'MAIL_MVP_004_SNAPSHOT';
+const INNER_MODE_GRAPH_VERIFY = 'MAIL_MVP_004_GRAPH_VERIFY';
 const LEFTOVER_FOLLOWUP = /a teammate can follow up if you need anything/i;
 const THREAD_TOPIC = /\b(testing|mailbox|front desk|booking|surf|room|bed|lesson|class)\b/i;
 const PRODUCTION_MARKERS = freeze([
@@ -584,30 +605,41 @@ function parseJsonMaybe(value) {
   }
 }
 
-function snapshotTrustedProvenance(source) {
+function snapshotTrustedProvenance(source, expected, secret, messageText) {
   if (!source || typeof source !== 'object' || isProxy(source)) return null;
-  const markerSource = ownData(source, 'marker') || source.marker || source;
-  const marker = snapshotSolMarker(markerSource);
-  if (!marker) return null;
-  const authenticity = ownData(source, 'authenticity') || source.authenticity
-    || ownData(source, 'plan_authenticity') || source.plan_authenticity
-    || source;
-  const hmacVerified = ownData(authenticity, 'hmac_verified') || authenticity.hmac_verified;
-  const alg = ownData(authenticity, 'alg') || authenticity.alg;
-  if (hmacVerified !== true) return null;
-  if (alg != null && alg !== 'HMAC-SHA256') return null;
+  if (source.hmac_verified === true && !source.evidence_mac
+      && !(source.selected_operation_evidence && source.selected_operation_evidence.evidence_mac)) {
+    return null;
+  }
+  const envelope = sanitizeSelectedOperationEvidence(
+    ownData(source, 'selected_operation_evidence') || source.selected_operation_evidence || source,
+  );
+  if (!envelope) return null;
+  const verified = verifySelectedOperationSolEvidence(
+    envelope,
+    expected,
+    secret,
+    messageText,
+  );
+  if (!verified) return null;
   return freeze({
-    marker,
-    hmac_verified: true,
+    marker: verified.marker,
+    request_id: verified.request_id,
+    hmac_kind: verified.hmac_kind,
+    evidence_mac: verified.evidence_mac,
+    body_sha256: verified.body_sha256,
     alg: 'HMAC-SHA256',
     trusted: true,
   });
 }
 
-function provenanceFromDurableDraftMeta(draftMeta) {
+function provenanceFromDurableDraftMeta(draftMeta, expected, secret, messageText) {
   const meta = parseJsonMaybe(draftMeta);
   if (!meta) return null;
-  return snapshotTrustedProvenance(meta);
+  const block = ownData(meta, 'luna_email_open_draft') || meta.luna_email_open_draft || meta;
+  const envelope = (block && (ownData(block, 'selected_operation_evidence')
+    || block.selected_operation_evidence)) || block;
+  return snapshotTrustedProvenance(envelope, expected, secret, messageText);
 }
 
 function isProduction003SentShape(result) {
@@ -838,15 +870,20 @@ function servingIdentityCompatible(authorized, current) {
 function servingHealthyReady100(serving) {
   if (!serving || typeof serving !== 'object' || isProxy(serving)) return false;
   if (serving.healthState !== 'Healthy') return false;
-  if (serving.runningState && serving.runningState !== 'Running') return false;
+  if (serving.runningState !== 'Running') return false;
+  if (serving.provisioningState && serving.provisioningState !== 'Provisioned'
+      && serving.provisioningState !== 'Succeeded') {
+    return false;
+  }
   if (serving.trafficWeight !== 100) return false;
-  if (serving.ready === false) return false;
+  if (serving.ready !== true) return false;
   if (typeof serving.revision !== 'string' || !serving.revision.startsWith(STAFF_APP)) return false;
   return true;
 }
 
 function flagsLiteral(serving, enabled) {
   if (!serving || !serving.flags) return false;
+  if (serving.flagsSource !== 'replica_process') return false;
   const want = enabled === true ? 'true' : 'false';
   return serving.flags[ENV_LUNA_AUTO_SEND_ENABLED] === want
     && serving.flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] === want;
@@ -896,23 +933,40 @@ function parseEnvList(raw) {
   return freeze(flags);
 }
 
+function parseExplicitTrafficWeight(row) {
+  if (!row || typeof row !== 'object' || isProxy(row)) return { ok: false, reason: 'traffic_unproven' };
+  const hasOwnWeight = getDescriptor(row, 'weight')
+    && hasOwn(getDescriptor(row, 'weight'), 'value');
+  const weight = hasOwnWeight ? ownData(row, 'weight') : undefined;
+  if (weight === undefined) {
+    return { ok: false, reason: 'traffic_weight_missing' };
+  }
+  const n = typeof weight === 'number' ? weight : (typeof weight === 'string' && /^(0|[1-9][0-9]{0,2})$/.test(weight)
+    ? Number.parseInt(weight, 10)
+    : NaN);
+  if (!Number.isInteger(n) || n < 0 || n > 100) {
+    return { ok: false, reason: 'traffic_weight_ambiguous' };
+  }
+  const revisionName = ownData(row, 'revisionName') || row.revisionName;
+  if (typeof revisionName !== 'string' || !revisionName.startsWith(STAFF_APP) || !SAFE_AZ_NAME.test(revisionName)) {
+    if (n === 0) return { ok: true, revisionName: null, weight: 0 };
+    return { ok: false, reason: 'traffic_revision_invalid' };
+  }
+  return { ok: true, revisionName, weight: n };
+}
+
 function traffic100RevisionName(traffic) {
-  if (!Array.isArray(traffic)) return null;
-  const weighted = [];
+  if (!Array.isArray(traffic) || traffic.length < 1) return null;
+  const hundred = [];
+  let positive = 0;
   for (const row of traffic) {
-    if (!row || typeof row !== 'object' || isProxy(row)) continue;
-    const revisionName = ownData(row, 'revisionName') || row.revisionName;
-    const weight = ownData(row, 'weight') !== undefined ? ownData(row, 'weight') : row.weight;
-    const n = Number(weight);
-    if (typeof revisionName === 'string' && Number.isFinite(n) && n > 0) {
-      weighted.push({ revisionName, weight: n });
-    }
+    const parsed = parseExplicitTrafficWeight(row);
+    if (!parsed.ok) return null;
+    if (parsed.weight > 0) positive += 1;
+    if (parsed.weight === 100) hundred.push(parsed.revisionName);
   }
-  if (weighted.length !== 1 || weighted[0].weight !== 100) return null;
-  if (!weighted[0].revisionName.startsWith(STAFF_APP) || !SAFE_AZ_NAME.test(weighted[0].revisionName)) {
-    return null;
-  }
-  return weighted[0].revisionName;
+  if (hundred.length !== 1 || positive !== 1 || !hundred[0]) return null;
+  return hundred[0];
 }
 
 function parseRevisionShow(raw) {
@@ -948,8 +1002,8 @@ function parseRevisionShow(raw) {
   const runningState = ownData(props, 'runningState') || props.runningState || parsed.runningState;
   const provisioningState = ownData(props, 'provisioningState') || props.provisioningState;
   const ready = healthState === 'Healthy'
-    && (runningState === 'Running' || runningState == null)
-    && (provisioningState === 'Provisioned' || provisioningState === 'Succeeded' || provisioningState == null);
+    && runningState === 'Running'
+    && (provisioningState === 'Provisioned' || provisioningState === 'Succeeded');
   return freeze({
     resourceGroup: RG,
     appName: STAFF_APP,
@@ -959,6 +1013,7 @@ function parseRevisionShow(raw) {
     deploySha: sha40(imageTag) || null,
     digest: typeof digest === 'string' && DIGEST_RE.test(digest) ? digest : null,
     flags: parseEnvList(env),
+    flagsSource: 'template',
     healthState: typeof healthState === 'string' ? healthState : null,
     runningState: typeof runningState === 'string' ? runningState : null,
     provisioningState: typeof provisioningState === 'string' ? provisioningState : null,
@@ -986,8 +1041,11 @@ function parseServingIdentity(raw) {
   const traffic = ownData(ingress, 'traffic') || ingress.traffic || parsed.traffic;
   const trafficRevision = traffic100RevisionName(traffic);
   const latestReady = ownData(props, 'latestReadyRevisionName') || props.latestReadyRevisionName;
-  const latest = ownData(props, 'latestRevisionName') || props.latestRevisionName || parsed.revision;
-  const revision = trafficRevision || latestReady || latest;
+  const latest = ownData(props, 'latestRevisionName') || props.latestRevisionName;
+  if (!trafficRevision) return null;
+  if (typeof latestReady !== 'string' || latestReady !== trafficRevision) return null;
+  if (typeof latest !== 'string' || latest !== trafficRevision) return null;
+  const revision = trafficRevision;
   const template = ownData(props, 'template') || props.template || {};
   const containers = ownData(template, 'containers') || template.containers;
   const container = Array.isArray(containers) ? containers[0] : null;
@@ -1015,31 +1073,42 @@ function parseServingIdentity(raw) {
     deploySha: sha40(imageTag) || null,
     digest: typeof digest === 'string' && DIGEST_RE.test(digest) ? digest : (parsed.digest || null),
     flags: parseEnvList(env),
-    healthState: trafficRevision ? 'Healthy' : (parsed.healthState || null),
-    runningState: runningStatus === 'Running' ? 'Running' : (parsed.runningState || null),
-    trafficWeight: trafficRevision ? 100 : (parsed.trafficWeight || null),
-    ready: trafficRevision ? true : parsed.ready === true,
-    latestReadyRevisionName: typeof latestReady === 'string' ? latestReady : null,
+    flagsSource: 'template',
+    healthState: null,
+    runningState: runningStatus === 'Running' ? 'Running' : null,
+    trafficWeight: 100,
+    ready: false,
+    latestReadyRevisionName: latestReady,
+    latestRevisionName: latest,
   });
 }
 
 function mergeRevisionIntoServing(appIdentity, revisionIdentity) {
   if (!appIdentity || !revisionIdentity) return null;
   if (appIdentity.revision !== revisionIdentity.revision) return null;
+  if (appIdentity.trafficWeight !== 100) return null;
   const imageTag = revisionIdentity.imageTag || appIdentity.imageTag;
   const digest = revisionIdentity.digest || appIdentity.digest;
   if (!sha40(imageTag) || !(typeof digest === 'string' && DIGEST_RE.test(digest))) return null;
+  if (revisionIdentity.healthState !== 'Healthy') return null;
+  if (revisionIdentity.runningState !== 'Running') return null;
+  if (revisionIdentity.provisioningState !== 'Provisioned'
+      && revisionIdentity.provisioningState !== 'Succeeded') {
+    return null;
+  }
+  if (revisionIdentity.ready !== true) return null;
   return freeze({
     ...appIdentity,
     imageTag,
     deploySha: sha40(imageTag),
     digest,
     flags: revisionIdentity.flags || appIdentity.flags,
+    flagsSource: 'template',
     healthState: revisionIdentity.healthState,
     runningState: revisionIdentity.runningState,
     provisioningState: revisionIdentity.provisioningState,
-    ready: revisionIdentity.ready === true && appIdentity.trafficWeight === 100,
-    trafficWeight: appIdentity.trafficWeight,
+    ready: true,
+    trafficWeight: 100,
     replica: appIdentity.replica || revisionIdentity.replica || null,
   });
 }
@@ -1137,10 +1206,11 @@ async function snapshotSelectedOperation(withPgClient, row) {
   });
 }
 
-async function loadSelectedOperationEvidence(withPgClient, row) {
+async function loadSelectedOperationEvidence(withPgClient, row, secret) {
   const clientId = uuid(row.client_id);
   const conversationId = uuid(row.conversation_id);
   const inboundId = uuid(row.inbound_message_id);
+  const locationId = uuid(row.location_id);
   if (!clientId || !conversationId || !inboundId) return null;
   const loaded = await withPgClient((pg) => pg.query(SQL_LOAD_OPERATION_EVIDENCE, [
     clientId, conversationId, inboundId,
@@ -1172,7 +1242,23 @@ async function loadSelectedOperationEvidence(withPgClient, row) {
   const ev = rows[0];
   const draftMeta = parseJsonMaybe(ownData(ev, 'draft_meta') || ev.draft_meta);
   const messageText = ownData(ev, 'message_text') || ev.message_text;
-  const provenance = snapshotTrustedProvenance(draftMeta) || provenanceFromDurableDraftMeta(draftMeta);
+  const expected = freeze({
+    client_id: clientId,
+    location_id: locationId,
+    conversation_id: conversationId,
+    source_inbound_event_id: inboundId,
+  });
+  const envelope = draftMeta && (
+    ownData(draftMeta, 'selected_operation_evidence')
+    || draftMeta.selected_operation_evidence
+    || (parseJsonMaybe(draftMeta.luna_email_open_draft) && parseJsonMaybe(draftMeta.luna_email_open_draft).selected_operation_evidence)
+  );
+  const provenance = snapshotTrustedProvenance(
+    envelope || draftMeta,
+    expected,
+    secret,
+    typeof messageText === 'string' ? messageText : '',
+  ) || provenanceFromDurableDraftMeta(draftMeta, expected, secret, messageText);
   const sends = Number.parseInt(ownData(ev, 'send_invocation_count') || ev.send_invocation_count, 10);
   return freeze({
     message_text: typeof messageText === 'string' ? messageText : null,
@@ -1308,6 +1394,18 @@ function createMailMvp004LiveProof(deps) {
     if (pre.subject_ok !== true) return refusedRecord('subject_mismatch');
     if (pre.sol_enabled !== true) return refusedRecord('sol_disabled');
 
+    const beforeOnKill = typeof deps.verifyKillSwitch === 'function'
+      ? await deps.verifyKillSwitch()
+      : null;
+    if (!beforeOnKill || beforeOnKill.ok !== true
+        || beforeOnKill.status !== 'blocked'
+        || beforeOnKill.reason !== 'emergency_flags_off'
+        || beforeOnKill.author_called === true
+        || beforeOnKill.journal_called === true
+        || beforeOnKill.provider_called === true) {
+      return refusedRecord((beforeOnKill && beforeOnKill.reason) || 'kill_switch_unproven');
+    }
+
     const modeSnapshot = typeof deps.getEmailChannelMode === 'function'
       ? await deps.getEmailChannelMode()
       : 'draft';
@@ -1358,9 +1456,7 @@ function createMailMvp004LiveProof(deps) {
             digest: enabled.digest || serving.digest,
           });
           invoked += 1;
-          dispatchMarked = ownerResult && ownerResult.dispatch_marked === true
-            ? true
-            : invoked === 1;
+          dispatchMarked = ownerResult && ownerResult.dispatch_marked === true;
           if (invoked !== 1) failedReason = 'owner_not_once';
         }
         if (!failedReason && ownerResult && ownerResult.status === 'skipped'
@@ -1395,10 +1491,23 @@ function createMailMvp004LiveProof(deps) {
           failedReason = 'leftover_generic_draft';
         }
         if (!failedReason) {
-          const provenance = snapshotTrustedProvenance(durable && (durable.provenance || durable.draft_meta || durable))
-            || (durable && durable.provenance)
-            || null;
-          if (!provenance || provenance.hmac_verified !== true || !snapshotSolMarker(provenance.marker || provenance)) {
+          const hmacSecret = envOwn((input && input.env) || {}, ENV_HMAC_SECRET);
+          const provenance = snapshotTrustedProvenance(
+            durable && (durable.draft_meta || durable.provenance || durable),
+            {
+              client_id: pre.client_id,
+              location_id: pre.location_id,
+              conversation_id: pre.conversation_id,
+              source_inbound_event_id: pre.inbound_message_id,
+            },
+            hmacSecret,
+            durable && durable.message_text,
+          ) || (durable && durable.provenance && durable.provenance.evidence_mac
+            && snapshotSolMarker(durable.provenance.marker || durable.provenance)
+            ? durable.provenance
+            : null);
+          if (!provenance || !provenance.evidence_mac
+              || !snapshotSolMarker(provenance.marker || provenance)) {
             failedReason = 'sol_unproven';
           }
         }
@@ -1511,8 +1620,18 @@ async function runStaffOwnerProof(input) {
     return refusedRecord('emergency_flags_off');
   }
   const injected = input && typeof input.withPgClient === 'function';
-  const pg = injected ? null : require('./pg-connect');
-  const withPgClient = injected ? input.withPgClient : pg.withPgClient;
+  let pg = null;
+  let withPgClient;
+  if (injected) {
+    withPgClient = input.withPgClient;
+  } else {
+    try {
+      pg = createProductionStaffPgAdapter();
+      withPgClient = pg.withPgClient;
+    } catch {
+      return failRecord('pg_adapter_unwired');
+    }
+  }
   try {
     const loaded = await withPgClient((client) => client.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
     const selected = selectProofThread(loaded && loaded.rows);
@@ -1577,7 +1696,7 @@ async function runStaffOwnerProof(input) {
     if (input && input.requireProductionOwner !== false && !isProductionAutoOwner(handle)) {
       return failRecord('not_canonical_owner');
     }
-    const result = await handle({
+    const started = handle({
       env,
       authority: freeze({
         clientId: row.client_id,
@@ -1594,8 +1713,18 @@ async function runStaffOwnerProof(input) {
         conversation_id: row.conversation_id,
       }),
     });
+    if (input && input.emitDispatchMarker !== false
+        && (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
+          || envOwn(env, 'MAIL_MVP_004_LIVE_PROOF') === '1')) {
+      process.stdout.write(`${MUTATION_ISSUED_MARKER}\n`);
+    }
+    const result = await started;
     const after = await snapshotSelectedOperation(withPgClient, row);
-    const durable = await loadSelectedOperationEvidence(withPgClient, row);
+    const durable = await loadSelectedOperationEvidence(
+      withPgClient,
+      row,
+      envOwn(env, ENV_HMAC_SECRET),
+    );
     if (result && result.status === 'skipped' && result.reason === 'already_sent') {
       if (!exactReconciledCounts(after)) {
         return failRecord('duplicate_unreconciled', {
@@ -1643,8 +1772,18 @@ async function runStaffOwnerProof(input) {
       return failRecord('leftover_generic_draft', { invoked: 1, restored: false });
     }
     const provenance = (durable && durable.provenance)
-      || snapshotTrustedProvenance(durable && durable.draft_meta);
-    if (!provenance || provenance.hmac_verified !== true) {
+      || snapshotTrustedProvenance(
+        durable && durable.draft_meta,
+        {
+          client_id: row.client_id,
+          location_id: row.location_id,
+          conversation_id: row.conversation_id,
+          source_inbound_event_id: row.inbound_message_id,
+        },
+        envOwn(env, ENV_HMAC_SECRET),
+        durable && durable.message_text,
+      );
+    if (!provenance || !provenance.evidence_mac || !snapshotSolMarker(provenance.marker || provenance)) {
       return failRecord('sol_unproven', { invoked: 1 });
     }
     return freeze({
@@ -1662,7 +1801,7 @@ async function runStaffOwnerProof(input) {
         approvals: 1,
         journals: 1,
         provider_sends: 1,
-        hmac_verified: true,
+        hmac_kind: provenance.hmac_kind,
         sol_provider: 'openai-codex',
         sol_model: 'gpt-5.6-sol',
         sol_runtime: 'sunset-email-luna',
@@ -1688,10 +1827,18 @@ function encodeProofEnvPayload(attemptId, reconcileOnly, extra) {
   if (extra && extra.capability && !capability) return null;
   const lines = [
     'MAIL_MVP_004_LIVE_PROOF=1',
-    reconcileOnly === true ? 'MAIL_MVP_004_RECONCILE_ONLY=1' : 'MAIL_MVP_004_STAFF_OWNER_PROOF=1',
     `LUNA_DEPLOYMENT=${SUNSET_DEPLOYMENT}`,
     `MAIL_MVP_004_PROOF_ATTEMPT_ID=${id}`,
   ];
+  if (extra && extra.killSwitchProbe === true) {
+    lines.push(`${INNER_MODE_KILL_SWITCH}=1`);
+  } else if (extra && extra.graphVerify === true) {
+    lines.push(`${INNER_MODE_GRAPH_VERIFY}=1`);
+  } else if (extra && typeof extra.snapshot === 'string' && extra.snapshot) {
+    lines.push(`${INNER_MODE_SNAPSHOT}=${extra.snapshot}`);
+  } else {
+    lines.push(reconcileOnly === true ? 'MAIL_MVP_004_RECONCILE_ONLY=1' : 'MAIL_MVP_004_STAFF_OWNER_PROOF=1');
+  }
   if (capability) lines.push(`MAIL_MVP_004_CAPABILITY=${capability}`);
   if (extra && extra.revision) lines.push(`MAIL_MVP_004_REVISION=${extra.revision}`);
   if (extra && extra.imageTag) lines.push(`MAIL_MVP_004_IMAGE_TAG=${extra.imageTag}`);
@@ -1704,8 +1851,7 @@ function encodeProofEnvPayload(attemptId, reconcileOnly, extra) {
 function buildStaffOwnerRemoteCommand(attemptId, reconcileOnly, extra) {
   const b64 = encodeProofEnvPayload(attemptId, reconcileOnly, extra);
   if (!b64) return null;
-  const issued = reconcileOnly === true ? '' : ` && echo ${MUTATION_ISSUED_MARKER}`;
-  return `sh -c 'printf %s ${b64} | base64 -d > ${PROOF_REMOTE_ENV_PATH} && set -a && . ${PROOF_REMOTE_ENV_PATH} && set +a${issued} && exec node ${PROOF_REMOTE_NODE}'`;
+  return `sh -c 'printf %s ${b64} | base64 -d > ${PROOF_REMOTE_ENV_PATH} && set -a && . ${PROOF_REMOTE_ENV_PATH} && set +a && exec node ${PROOF_REMOTE_NODE}'`;
 }
 
 function buildStaffOwnerExecAzArgs(options) {
@@ -1725,6 +1871,9 @@ function buildStaffOwnerExecAzArgs(options) {
       revision,
       imageTag: options && options.imageTag,
       digest: options && options.digest,
+      killSwitchProbe: options && options.killSwitchProbe === true,
+      graphVerify: options && options.graphVerify === true,
+      snapshot: options && options.snapshot,
     },
   );
   if (!command) return null;
@@ -1821,6 +1970,123 @@ function extractProofJson(raw, secrets) {
   return null;
 }
 
+function graphSelectIsForbidden(select) {
+  const fields = Array.isArray(select)
+    ? select
+    : (typeof select === 'string' ? select.split(',') : []);
+  for (const field of fields) {
+    const name = String(field || '').trim();
+    if (GRAPH_LIST_FORBIDDEN_SELECT.includes(name) || /^body(Preview)?$/i.test(name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function buildReadonlyGraphListRequest(input) {
+  if (!input || input.forbid_send !== true) return null;
+  const mailbox = uuid(input.provider_mailbox_id || input.mailbox_id);
+  const conversationId = input.graph_conversation_id;
+  if (!mailbox || typeof conversationId !== 'string' || !conversationId || conversationId.length > 512) {
+    return null;
+  }
+  const select = Array.isArray(input.select) ? input.select.slice() : GRAPH_LIST_SELECT.slice();
+  if (graphSelectIsForbidden(select)) return null;
+  const allowed = new Set(GRAPH_LIST_SELECT);
+  for (const field of select) {
+    if (!allowed.has(field)) return null;
+  }
+  const filter = `conversationId eq '${String(conversationId).replace(/'/g, "''")}'`;
+  const path = `/v1.0/users/${mailbox}/messages?$filter=${encodeURIComponent(filter)}&$select=${encodeURIComponent(select.join(','))}&$top=25`;
+  return freeze({
+    method: 'GET',
+    host: 'graph.microsoft.com',
+    path,
+    select: freeze(select.slice()),
+    forbid_send: true,
+    forbid_body: true,
+    provider_mailbox_id: mailbox,
+    graph_conversation_id: conversationId,
+  });
+}
+
+function parseGraphListMessages(raw) {
+  let parsed = raw;
+  if (typeof raw === 'string') {
+    try { parsed = JSON.parse(raw); } catch { return null; }
+  }
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed)) return null;
+  const value = ownData(parsed, 'value') || parsed.value;
+  if (!Array.isArray(value)) return null;
+  const messages = [];
+  for (const row of value) {
+    if (!row || typeof row !== 'object' || isProxy(row)) continue;
+    if (ownData(row, 'body') !== undefined || ownData(row, 'bodyPreview') !== undefined
+        || row.body != null || row.bodyPreview != null) {
+      return freeze({ ok: false, reason: 'graph_body_leaked' });
+    }
+    const headers = ownData(row, 'internetMessageHeaders') || row.internetMessageHeaders;
+    let inReplyTo = null;
+    if (Array.isArray(headers)) {
+      for (const header of headers) {
+        if (!header || typeof header !== 'object') continue;
+        const name = ownData(header, 'name') || header.name;
+        if (String(name || '').toLowerCase() === 'in-reply-to') {
+          inReplyTo = ownData(header, 'value') || header.value;
+          break;
+        }
+      }
+    }
+    messages.push(freeze({
+      id: ownData(row, 'id') || row.id,
+      conversationId: ownData(row, 'conversationId') || row.conversationId,
+      internetMessageId: ownData(row, 'internetMessageId') || row.internetMessageId,
+      subject: ownData(row, 'subject') || row.subject,
+      inReplyTo: typeof inReplyTo === 'string' ? inReplyTo : null,
+    }));
+  }
+  return freeze({ ok: true, messages: freeze(messages) });
+}
+
+function httpsGraphGet(httpsImpl, token, request) {
+  return new Promise((resolve, reject) => {
+    if (!httpsImpl || typeof httpsImpl.request !== 'function') {
+      reject(new Error('graph_adapter_unwired'));
+      return;
+    }
+    if (request.method !== 'GET') {
+      reject(new Error('graph_send_forbidden'));
+      return;
+    }
+    const req = httpsImpl.request({
+      method: 'GET',
+      host: request.host,
+      path: request.path,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      },
+    }, (res) => {
+      const chunks = [];
+      let size = 0;
+      res.on('data', (chunk) => {
+        size += chunk.length;
+        if (size > 65536) {
+          req.destroy();
+          reject(new Error('graph_unproven'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      res.on('end', () => {
+        resolve(Buffer.concat(chunks).toString('utf8'));
+      });
+    });
+    req.on('error', () => reject(new Error('graph_unproven')));
+    req.end();
+  });
+}
+
 function classifyGraphArrival(messages, expected) {
   if (!Array.isArray(messages)) return freeze({ ok: false, reason: 'graph_unproven', arrivals: 0, duplicates: 0, threaded: false });
   const expectedThread = expected && expected.graph_conversation_id;
@@ -1884,35 +2150,99 @@ function isProductionGraphVerifier(fn) {
 
 function createProductionGraphArrivalVerifier(deps) {
   const list = deps && deps.listThreadMessages;
-  if (typeof list !== 'function') throw new Error('graph_adapter_required');
+  if (typeof list !== 'function') throw new Error('graph_adapter_unwired');
   const verify = brandProductionGraphVerifier(async (input) => {
+    const request = buildReadonlyGraphListRequest({
+      ...input,
+      select: GRAPH_LIST_SELECT,
+      forbid_body: true,
+      forbid_send: true,
+    });
+    if (!request) {
+      return freeze({ ok: false, reason: 'graph_unproven', arrivals: 0, duplicates: 0, threaded: false });
+    }
     const listed = await list(freeze({
+      ...request,
       graph_conversation_id: input && input.graph_conversation_id,
       provider_source_message_id: input && input.provider_source_message_id,
+      provider_mailbox_id: input && input.provider_mailbox_id,
       immutable_draft_id: input && input.immutable_draft_id,
-      select: freeze(['id', 'conversationId', 'subject', 'inReplyTo', 'internetMessageId']),
+      select: GRAPH_LIST_SELECT,
       forbid_body: true,
       forbid_send: true,
     }));
+    if (listed && listed.reason === 'graph_body_leaked') {
+      return freeze({ ok: false, reason: 'graph_body_leaked', arrivals: 0, duplicates: 0, threaded: false });
+    }
     return classifyGraphArrival(listed && listed.messages ? listed.messages : listed, input);
   });
   return freeze({ verifyGraphArrival: verify });
 }
 
+function createProductionReadonlyGraphListAdapter(deps) {
+  if (deps && deps.listThreadMessages && deps.allowInjectedList === true) {
+    throw new Error('graph_adapter_unwired');
+  }
+  const httpsImpl = (deps && deps.https) || require('node:https');
+  const getAccessToken = deps && deps.getAccessToken;
+  if (typeof getAccessToken !== 'function') {
+    const verify = brandProductionGraphVerifier(async () => freeze({
+      ok: false,
+      reason: 'graph_adapter_unwired',
+      arrivals: 0,
+      duplicates: 0,
+      threaded: false,
+    }));
+    return freeze({ verifyGraphArrival: verify, unwired: true });
+  }
+  return createProductionGraphArrivalVerifier({
+    async listThreadMessages(input) {
+      if (input && (input.method === 'POST' || input.forbid_send !== true)) {
+        return freeze({ ok: false, reason: 'graph_send_forbidden', messages: [] });
+      }
+      if (graphSelectIsForbidden(input && input.select)) {
+        return freeze({ ok: false, reason: 'graph_body_leaked', messages: [] });
+      }
+      const request = buildReadonlyGraphListRequest({
+        ...input,
+        forbid_send: true,
+        forbid_body: true,
+        select: GRAPH_LIST_SELECT,
+      });
+      if (!request) return freeze({ ok: false, reason: 'graph_unproven', messages: [] });
+      const token = await getAccessToken(input);
+      if (typeof token !== 'string' || !token) {
+        return freeze({ ok: false, reason: 'graph_adapter_unwired', messages: [] });
+      }
+      const raw = await httpsGraphGet(httpsImpl, token, request);
+      return parseGraphListMessages(raw);
+    },
+  });
+}
+
 function createCanonical003KillSwitch(deps) {
   const handle = deps && deps.handleProjectedInbound;
   if (typeof handle !== 'function') throw new Error('kill_switch_misconfigured');
-  return async function verifyKillSwitch(input) {
-    const env = freeze({
-      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
-      [ENV_LUNA_AUTO_SEND_ENABLED]: 'false',
-      [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: 'false',
-    });
+  if (deps && deps.syntheticEnv === true) throw new Error('kill_switch_synthetic_env');
+  async function verifyKillSwitch(input) {
+    const env = (input && input.env) || (deps && deps.runtimeEnv) || process.env;
+    if (envOwn(env, ENV_LUNA_AUTO_SEND_ENABLED) !== 'false'
+        || envOwn(env, ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED) !== 'false') {
+      return freeze({
+        ok: false,
+        reason: 'kill_switch_unproven',
+        author_called: false,
+        journal_called: false,
+        provider_called: false,
+      });
+    }
     const result = await handle({
       env,
       authority: input && input.authority,
       envelope: input && input.envelope,
       projection: input && input.projection,
+      probe: true,
+      consume: false,
     });
     const authorCalled = !!(result && (result.draft_writes > 0 || result.author_called === true));
     const journalCalled = !!(result && (result.journals > 0 || result.journal_called === true));
@@ -1946,29 +2276,128 @@ function createCanonical003KillSwitch(deps) {
       provider_called: false,
       provider_sends: 0,
     });
-  };
+  }
+  PRODUCTION_KILL_SWITCHES.add(verifyKillSwitch);
+  return verifyKillSwitch;
+}
+
+function isProductionKillSwitch(fn) {
+  return typeof fn === 'function' && PRODUCTION_KILL_SWITCHES.has(fn);
+}
+
+function buildReplicaEnvAttestCommand() {
+  return freeze([
+    'sh', '-c',
+    `printenv ${ENV_LUNA_AUTO_SEND_ENABLED} ${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED} 2>/dev/null || tr '\\0' '\\n' < /proc/1/environ | grep -E '^(${ENV_LUNA_AUTO_SEND_ENABLED}|${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED})='`,
+  ]);
+}
+
+function buildReplicaEnvExecAzArgs(serving) {
+  if (!serving || typeof serving.replica !== 'string' || !SAFE_AZ_NAME.test(serving.replica)) {
+    return null;
+  }
+  if (typeof serving.revision !== 'string' || !SAFE_AZ_NAME.test(serving.revision)
+      || !serving.revision.startsWith(STAFF_APP)) {
+    return null;
+  }
+  const inner = `printenv ${ENV_LUNA_AUTO_SEND_ENABLED} ${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED} || (tr '\\0' '\\n' < /proc/1/environ | grep -E '^(${ENV_LUNA_AUTO_SEND_ENABLED}|${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED})=')`;
+  return freeze([
+    'containerapp', 'exec',
+    '-g', RG,
+    '-n', STAFF_APP,
+    '--replica', serving.replica,
+    '--revision', serving.revision,
+    '--command', `sh -c ${shSingleQuote(inner)}`,
+  ]);
+}
+
+function parseReplicaProcessEnv(raw) {
+  const text = String(raw || '');
+  const flags = Object.create(null);
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (const line of lines) {
+    const eq = line.indexOf('=');
+    if (eq > 0) {
+      const name = line.slice(0, eq);
+      const value = line.slice(eq + 1);
+      if ((name === ENV_LUNA_AUTO_SEND_ENABLED
+          || name === ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED)
+          && (value === 'true' || value === 'false')) {
+        flags[name] = value;
+      }
+    }
+  }
+  if (flags[ENV_LUNA_AUTO_SEND_ENABLED] && flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]) {
+    return freeze({
+      [ENV_LUNA_AUTO_SEND_ENABLED]: flags[ENV_LUNA_AUTO_SEND_ENABLED],
+      [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
+      flagsSource: 'replica_process',
+    });
+  }
+  const values = lines.filter((line) => line === 'true' || line === 'false');
+  if (values.length === 2) {
+    return freeze({
+      [ENV_LUNA_AUTO_SEND_ENABLED]: values[0],
+      [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: values[1],
+      flagsSource: 'replica_process',
+    });
+  }
+  return null;
+}
+
+async function attestReplicaProcessEnv(azRun, serving, azBin, env) {
+  if (!serving || !servingHealthyReady100(serving)) return null;
+  const args = buildReplicaEnvExecAzArgs(serving);
+  if (!args || typeof azRun !== 'function') return null;
+  let raw = null;
+  try {
+    raw = await azRun(args);
+  } catch (error) {
+    if (!error || error.message !== 'pty_required') return null;
+    try {
+      const spec = wrapPtyAzExec(azBin || AZ_DEFAULT, args);
+      raw = spawnPtyHarness(spec, { env: env || process.env });
+    } catch {
+      return null;
+    }
+  }
+  const text = `${raw && raw.stdout || ''}\n${raw && raw.stderr || ''}`;
+  const parsed = parseReplicaProcessEnv(text);
+  if (!parsed) return null;
+  return freeze({
+    ...serving,
+    flags: freeze({
+      [ENV_LUNA_AUTO_SEND_ENABLED]: parsed[ENV_LUNA_AUTO_SEND_ENABLED],
+      [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: parsed[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
+    }),
+    flagsSource: 'replica_process',
+  });
+}
+
+function brandReplicaEnvAttestor(fn) {
+  if (typeof fn === 'function') PRODUCTION_REPLICA_ENV_ATTESTORS.add(fn);
+  return fn;
 }
 
 async function readProductionServingIdentity(azRun) {
   const shown = await azRun(buildShowAppArgs());
   const app = parseServingIdentity(`${shown && shown.stdout || ''}`);
-  if (!app || !app.revision) return null;
+  if (!app || !app.revision || app.trafficWeight !== 100) return null;
   const revArgs = buildRevisionShowArgs(app.revision);
   if (!revArgs) return null;
   const revShown = await azRun(revArgs);
   const revision = parseRevisionShow(`${revShown && revShown.stdout || ''}`);
-  const merged = mergeRevisionIntoServing({ ...app, trafficWeight: 100 }, revision)
-    || (revision && servingHealthyReady100({ ...revision, trafficWeight: app.trafficWeight || 100 })
-      ? freeze({ ...revision, trafficWeight: app.trafficWeight || 100, replica: app.replica || null })
-      : null);
-  if (!merged) return null;
+  const merged = mergeRevisionIntoServing(app, revision);
+  if (!merged || merged.trafficWeight !== 100 || !servingHealthyReady100(merged)) return null;
   const replicas = await azRun(buildReplicaListArgs());
   const running = parseRunningReplica(`${replicas && replicas.stdout || ''}`, merged.revision);
+  if (!running || !running.replica) return null;
   return freeze({
     ...merged,
-    replica: running && running.replica ? running.replica : merged.replica,
-    trafficWeight: merged.trafficWeight === 100 ? 100 : (app.trafficWeight || 100),
-    ready: merged.ready === true || (merged.healthState === 'Healthy' && (app.trafficWeight === 100 || merged.trafficWeight === 100)),
+    replica: running.replica,
+    trafficWeight: 100,
+    ready: true,
+    flagsSource: 'template',
   });
 }
 
@@ -1987,13 +2416,171 @@ async function waitServingHealthy(azRun, options) {
   let last = null;
   while (nowFn() - start <= timeoutMs) {
     last = await readProductionServingIdentity(azRun);
-    if (last && servingIdentityCompatible(authorized, last)
-        && servingHealthyReady100(last) && flagsLiteral(last, enabled)) {
-      return last;
+    if (last && servingIdentityCompatible(authorized, last) && servingHealthyReady100(last)) {
+      const attested = await attestReplicaProcessEnv(
+        azRun,
+        last,
+        options && options.azBin,
+        options && options.env,
+      );
+      if (attested && flagsLiteral(attested, enabled)) return attested;
     }
     await sleepFn(intervalMs);
   }
   return last;
+}
+
+function createProductionStaffPgAdapter(options) {
+  let pg = options && options.pgConnect;
+  if (!pg) {
+    try {
+      pg = require('./pg-connect');
+    } catch {
+      pg = null;
+    }
+  }
+  if (!pg || typeof pg.withPgClient !== 'function') {
+    const err = new Error('pg_adapter_unwired');
+    err.reason = 'pg_adapter_unwired';
+    throw err;
+  }
+  async function withPgClient(fn) {
+    return pg.withPgClient(async (client) => {
+      const identity = await client.query('SELECT current_database() AS current_database');
+      const row = identity && identity.rows && identity.rows[0];
+      const db = row && (ownData(row, 'current_database') || row.current_database);
+      if (db !== EXPECTED_DATABASE) {
+        const err = new Error('database_mismatch');
+        err.reason = 'database_mismatch';
+        throw err;
+      }
+      return fn(client);
+    });
+  }
+  PRODUCTION_PG_ADAPTERS.add(withPgClient);
+  return freeze({
+    withPgClient,
+    closePgPool: typeof pg.closePgPool === 'function' ? () => pg.closePgPool() : async () => {},
+  });
+}
+
+function isProductionPgAdapter(fn) {
+  return typeof fn === 'function' && PRODUCTION_PG_ADAPTERS.has(fn);
+}
+
+async function runKillSwitchProbe(input) {
+  const env = (input && input.env) || process.env;
+  if (envOwn(env, INNER_MODE_KILL_SWITCH) !== '1') {
+    return refusedRecord('kill_switch_unproven');
+  }
+  if (envOwn(env, 'LUNA_DEPLOYMENT') !== SUNSET_DEPLOYMENT) {
+    return refusedRecord('deployment_mismatch');
+  }
+  const injected = input && typeof input.withPgClient === 'function';
+  let pg = null;
+  let withPgClient;
+  if (injected) {
+    withPgClient = input.withPgClient;
+  } else {
+    try {
+      pg = createProductionStaffPgAdapter();
+      withPgClient = pg.withPgClient;
+    } catch {
+      return refusedRecord('pg_adapter_unwired');
+    }
+  }
+  try {
+    const loaded = await withPgClient((client) => client.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+    const selected = selectProofThread(loaded && loaded.rows);
+    if (!selected.ok) return refusedRecord(selected.reason);
+    const row = selected.row;
+    const wired = createProductionStaffAutoCreateSendOwner({ withPgClient, runtimeEnv: env });
+    const kill = createCanonical003KillSwitch({
+      handleProjectedInbound: wired.handleProjectedInbound,
+      runtimeEnv: env,
+    });
+    return kill({
+      env,
+      authority: freeze({
+        clientId: row.client_id,
+        locationId: row.location_id,
+        endpointId: row.endpoint_id,
+      }),
+      envelope: freeze({
+        provider: 'microsoft_graph',
+        provider_mailbox_id: row.provider_mailbox_id,
+        provider_message_id: row.provider_source_message_id,
+      }),
+      projection: freeze({
+        status: 'already_projected',
+        conversation_id: row.conversation_id,
+      }),
+    });
+  } finally {
+    if (pg && typeof pg.closePgPool === 'function') await pg.closePgPool();
+  }
+}
+
+async function runInnerSnapshot(input) {
+  const env = (input && input.env) || process.env;
+  const kind = envOwn(env, INNER_MODE_SNAPSHOT) || (input && input.snapshot);
+  if (typeof kind !== 'string' || !kind) return refusedRecord('snapshot_unproven');
+  const injected = input && typeof input.withPgClient === 'function';
+  let pg = null;
+  let withPgClient;
+  if (injected) {
+    withPgClient = input.withPgClient;
+  } else {
+    try {
+      pg = createProductionStaffPgAdapter();
+      withPgClient = pg.withPgClient;
+    } catch {
+      return refusedRecord('pg_adapter_unwired');
+    }
+  }
+  try {
+    const loaded = await withPgClient((client) => client.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+    const selected = selectProofThread(loaded && loaded.rows);
+    if (!selected.ok) return refusedRecord(selected.reason);
+    const row = selected.row;
+    if (kind === 'preflight') {
+      const counts = await snapshotSelectedOperation(withPgClient, row);
+      const store = createEmailInboxChannelModeStore({ withPgClient });
+      const mode = await store.getChannelMode(row.client_id, 'email');
+      return freeze({
+        ok: true,
+        ...counts,
+        luna_on: row.conversation_status === 'open',
+        needs_human: row.needs_human === true,
+        guest_linked: !!uuid(row.guest_id),
+        sender_ok: isAuthoritativeSender(row),
+        subject_ok: isProofSubject(row.subject),
+        sol_enabled: true,
+        channel_mode: mode,
+        provider_source_message_id: row.provider_source_message_id,
+        graph_conversation_id: row.graph_conversation_id,
+        conversation_id: row.conversation_id,
+        client_id: row.client_id,
+        location_id: row.location_id,
+        inbound_message_id: row.inbound_message_id,
+        provider_mailbox_id: row.provider_mailbox_id,
+      });
+    }
+    if (kind === 'counts') {
+      return snapshotSelectedOperation(withPgClient, row);
+    }
+    if (kind === 'evidence') {
+      return loadSelectedOperationEvidence(withPgClient, row, envOwn(env, ENV_HMAC_SECRET));
+    }
+    if (kind === 'mode') {
+      const store = createEmailInboxChannelModeStore({ withPgClient });
+      const mode = await store.getChannelMode(row.client_id, 'email');
+      return freeze({ ok: true, channel_mode: mode });
+    }
+    return refusedRecord('snapshot_unproven');
+  } finally {
+    if (pg && typeof pg.closePgPool === 'function') await pg.closePgPool();
+  }
 }
 
 function createProductionMailMvp004Supervisor(options) {
@@ -2005,18 +2592,62 @@ function createProductionMailMvp004Supervisor(options) {
   const nonceStore = options && options.nonceStore
     ? wrapNonceStore(options.nonceStore)
     : createDurableNonceStore(options && options.nonceStorePath);
-  const withPgClient = options && options.withPgClient;
+  let pgAdapter;
+  try {
+    pgAdapter = isProductionPgAdapter(options && options.withPgClient)
+      ? { withPgClient: options.withPgClient }
+      : createProductionStaffPgAdapter({ pgConnect: options && options.pgConnect });
+  } catch {
+    async function unwiredPg() {
+      const err = new Error('pg_adapter_unwired');
+      err.reason = 'pg_adapter_unwired';
+      throw err;
+    }
+    pgAdapter = { withPgClient: unwiredPg };
+  }
+  const withPgClient = pgAdapter.withPgClient;
   const sleep = options && options.sleep;
   const now = options && options.now;
-  const graph = options && options.graphVerifier
+  const graph = (options && options.graphVerifier
+      && isProductionGraphVerifier(options.graphVerifier.verifyGraphArrival
+        || options.graphVerifier))
     ? options.graphVerifier
-    : null;
+    : createProductionReadonlyGraphListAdapter({
+      https: (options && options.https) || require('node:https'),
+      getAccessToken: options && options.getAccessToken,
+    });
 
   async function readServing() {
-    if (typeof (options && options.readServingIdentity) === 'function') {
-      return options.readServingIdentity();
-    }
     return readProductionServingIdentity(azRun);
+  }
+
+  async function execInner(extra) {
+    const serving = await readServing();
+    const azArgs = buildStaffOwnerExecAzArgs({
+      attemptId: extra && extra.attemptId,
+      replica: serving && serving.replica,
+      revision: serving && serving.revision,
+      capability: extra && extra.capability,
+      imageTag: serving && serving.imageTag,
+      digest: serving && serving.digest,
+      reconcileOnly: extra && extra.reconcileOnly === true,
+      killSwitchProbe: extra && extra.killSwitchProbe === true,
+      graphVerify: extra && extra.graphVerify === true,
+      snapshot: extra && extra.snapshot,
+    });
+    if (!azArgs) return null;
+    let execResult;
+    try {
+      const spec = wrapPtyAzExec(azBin, azArgs);
+      execResult = spawnPtyHarness(spec, { env });
+    } catch (error) {
+      if (!error || error.message !== 'pty_required') throw error;
+      execResult = await azRun(azArgs);
+    }
+    const out = `${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`;
+    const marked = out.includes(MUTATION_ISSUED_MARKER);
+    const inner = extractProofJson(out);
+    return freeze({ execResult, marked, inner, out });
   }
 
   const supervisor = createMailMvp004LiveProof({
@@ -2025,28 +2656,21 @@ function createProductionMailMvp004Supervisor(options) {
     readServingIdentity: readServing,
     async waitServingHealthy(input) {
       const authorized = await readServing();
-      if (typeof (options && options.waitServingHealthy) === 'function') {
-        return options.waitServingHealthy(input);
-      }
       return waitServingHealthy(azRun, {
         enabled: input && input.enabled === true,
         authorized,
         sleep,
         now,
+        azBin,
+        env,
       });
     },
     async setEmergencyFlags(enabled) {
-      if (typeof (options && options.setEmergencyFlags) === 'function') {
-        return options.setEmergencyFlags(enabled);
-      }
       const args = buildSetEnvArgs(enabled);
       const result = await azRun(args);
       if (!result || result.status !== 0) throw new Error('flag_update_failed');
     },
     async putEmailChannelMode(value) {
-      if (typeof (options && options.putEmailChannelMode) === 'function') {
-        return options.putEmailChannelMode(value);
-      }
       if (typeof withPgClient !== 'function') throw new Error('channel_mode_unproven');
       const store = createEmailInboxChannelModeStore({ withPgClient });
       const thread = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
@@ -2055,9 +2679,6 @@ function createProductionMailMvp004Supervisor(options) {
       await store.putChannelMode(selected.row.client_id, 'email', value);
     },
     async getEmailChannelMode() {
-      if (typeof (options && options.getEmailChannelMode) === 'function') {
-        return options.getEmailChannelMode();
-      }
       const store = createEmailInboxChannelModeStore({ withPgClient });
       const thread = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
       const selected = selectProofThread(thread && thread.rows);
@@ -2065,10 +2686,7 @@ function createProductionMailMvp004Supervisor(options) {
       return store.getChannelMode(selected.row.client_id, 'email');
     },
     async preflightSelectedOperation() {
-      if (typeof (options && options.preflightSelectedOperation) === 'function') {
-        return options.preflightSelectedOperation();
-      }
-      if (typeof withPgClient !== 'function') return { ok: false, reason: 'preflight_failed' };
+      if (typeof withPgClient !== 'function') return { ok: false, reason: 'pg_adapter_unwired' };
       const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
       const selected = selectProofThread(loaded && loaded.rows);
       if (!selected.ok) return { ok: false, reason: selected.reason };
@@ -2090,12 +2708,13 @@ function createProductionMailMvp004Supervisor(options) {
         provider_source_message_id: row.provider_source_message_id,
         graph_conversation_id: row.graph_conversation_id,
         conversation_id: row.conversation_id,
+        client_id: row.client_id,
+        location_id: row.location_id,
+        inbound_message_id: row.inbound_message_id,
+        provider_mailbox_id: row.provider_mailbox_id,
       });
     },
     invokeAutoOwner: brandProductionAutoOwner(async (input) => {
-      if (typeof (options && options.invokeAutoOwner) === 'function') {
-        return options.invokeAutoOwner(input);
-      }
       const serving = await readServing();
       const capability = input && input.capability;
       const revision = (input && input.revision) || serving.revision;
@@ -2111,11 +2730,17 @@ function createProductionMailMvp004Supervisor(options) {
       });
       if (!azArgs) return failRecord('staff_exec_failed');
       const spec = wrapPtyAzExec(azBin, azArgs);
-      const execResult = spawnPtyHarness(spec, { env });
+      let execResult;
+      try {
+        execResult = spawnPtyHarness(spec, { env });
+      } catch (error) {
+        if (!error || error.message !== 'pty_required') throw error;
+        execResult = await azRun(azArgs);
+      }
       const out = `${execResult && execResult.stdout || ''}${execResult && execResult.stderr || ''}`;
       const marked = out.includes(MUTATION_ISSUED_MARKER);
       const inner = extractProofJson(out);
-      if (execResult && execResult.status === 0 && inner) {
+      if (inner) {
         return freeze({ ...inner, dispatch_marked: marked === true });
       }
       if (marked) {
@@ -2127,47 +2752,61 @@ function createProductionMailMvp004Supervisor(options) {
           reason: 'indeterminate_no_retry',
         });
       }
-      return freeze({ status: 'failed', reason: (inner && inner.reason) || 'staff_exec_failed' });
+      return freeze({ status: 'failed', reason: 'staff_exec_failed' });
     }),
     async snapshotOperation() {
-      if (typeof (options && options.snapshotOperation) === 'function') {
-        return options.snapshotOperation();
-      }
       const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
       const selected = selectProofThread(loaded && loaded.rows);
       if (!selected.ok) return null;
       return snapshotSelectedOperation(withPgClient, selected.row);
     },
     async readDurableEvidence() {
-      if (typeof (options && options.readDurableEvidence) === 'function') {
-        return options.readDurableEvidence();
-      }
       const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
       const selected = selectProofThread(loaded && loaded.rows);
       if (!selected.ok) return null;
-      return loadSelectedOperationEvidence(withPgClient, selected.row);
+      return loadSelectedOperationEvidence(
+        withPgClient,
+        selected.row,
+        envOwn(env, ENV_HMAC_SECRET),
+      );
     },
     async verifyGraphArrival(input) {
       if (graph && typeof graph.verifyGraphArrival === 'function') {
-        return graph.verifyGraphArrival(input);
+        return graph.verifyGraphArrival({
+          ...input,
+          forbid_send: true,
+          forbid_body: true,
+          select: GRAPH_LIST_SELECT,
+        });
       }
-      if (typeof (options && options.verifyGraphArrival) === 'function') {
-        return options.verifyGraphArrival(input);
-      }
-      return freeze({ ok: false, reason: 'graph_unproven', arrivals: 0, duplicates: 0, threaded: false });
+      return freeze({ ok: false, reason: 'graph_adapter_unwired', arrivals: 0, duplicates: 0, threaded: false });
     },
     async verifyKillSwitch() {
-      if (typeof (options && options.verifyKillSwitch) === 'function') {
-        return options.verifyKillSwitch();
+      const executed = await execInner({ killSwitchProbe: true });
+      if (executed && executed.inner) return executed.inner;
+      const attested = await attestReplicaProcessEnv(azRun, await readServing(), azBin, env);
+      if (!attested || !flagsLiteral(attested, false)) {
+        return freeze({ ok: false, reason: 'kill_switch_unproven' });
       }
-      const wired = createProductionStaffAutoCreateSendOwner({ withPgClient, runtimeEnv: env });
-      const handle = wired.handleProjectedInbound;
-      const kill = createCanonical003KillSwitch({ handleProjectedInbound: handle });
+      const replicaEnv = freeze({
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        [ENV_LUNA_AUTO_SEND_ENABLED]: attested.flags[ENV_LUNA_AUTO_SEND_ENABLED],
+        [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: attested.flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
+      });
+      const wired = createProductionStaffAutoCreateSendOwner({
+        withPgClient,
+        runtimeEnv: replicaEnv,
+      });
+      const kill = createCanonical003KillSwitch({
+        handleProjectedInbound: wired.handleProjectedInbound,
+        runtimeEnv: replicaEnv,
+      });
       const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
       const selected = selectProofThread(loaded && loaded.rows);
       if (!selected.ok) return freeze({ ok: false, reason: selected.reason });
       const row = selected.row;
       return kill({
+        env: replicaEnv,
         authority: freeze({
           clientId: row.client_id,
           locationId: row.location_id,
@@ -2247,6 +2886,24 @@ function inspectRepoReadiness(root, execGit) {
 
 async function runCli(argv, options) {
   const env = (options && options.env) || process.env;
+  if (envOwn(env, INNER_MODE_KILL_SWITCH) === '1') {
+    return runKillSwitchProbe({ ...options, env });
+  }
+  if (envOwn(env, INNER_MODE_SNAPSHOT)) {
+    return runInnerSnapshot({ ...options, env });
+  }
+  if (envOwn(env, INNER_MODE_GRAPH_VERIFY) === '1') {
+    const graph = createProductionReadonlyGraphListAdapter({
+      https: (options && options.https) || require('node:https'),
+      getAccessToken: options && options.getAccessToken,
+    });
+    return graph.verifyGraphArrival({
+      ...(options && options.graphInput),
+      forbid_send: true,
+      forbid_body: true,
+      select: GRAPH_LIST_SELECT,
+    });
+  }
   if (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
       || envOwn(env, 'MAIL_MVP_004_RECONCILE_ONLY') === '1') {
     if (envOwn(env, 'MAIL_MVP_004_RECONCILE_ONLY') === '1') {
@@ -2310,25 +2967,13 @@ async function runCli(argv, options) {
       env,
       azBin: options && options.azBin,
       azRun: options && options.azRun,
-      withPgClient: options && options.withPgClient,
       nonceStore: options && options.nonceStore,
       nonceStorePath: options && options.nonceStorePath,
-      graphVerifier: options && options.graphVerifier,
       sleep: options && options.sleep,
       now: options && options.now,
-      readServingIdentity: options && options.readServingIdentity,
-      setEmergencyFlags: options && options.setEmergencyFlags,
-      putEmailChannelMode: options && options.putEmailChannelMode,
-      getEmailChannelMode: options && options.getEmailChannelMode,
-      preflightSelectedOperation: options && options.preflightSelectedOperation,
-      invokeAutoOwner: options && options.invokeAutoOwner,
-      snapshotOperation: options && options.snapshotOperation,
-      readDurableEvidence: options && options.readDurableEvidence,
-      verifyGraphArrival: options && options.verifyGraphArrival,
-      verifyKillSwitch: options && options.verifyKillSwitch,
-      reconcile: options && options.reconcile,
-      waitServingHealthy: options && options.waitServingHealthy,
-      requireProductionOwner: options && options.requireProductionOwner,
+      https: options && options.https,
+      getAccessToken: options && options.getAccessToken,
+      pgConnect: options && options.pgConnect,
     });
   const serving = typeof supervisor.readServingIdentity === 'function'
     ? null
@@ -2409,28 +3054,45 @@ module.exports = freeze({
   inspectRepoReadiness,
   parseServingIdentity,
   parseRevisionShow,
+  parseReplicaProcessEnv,
+  parseExplicitTrafficWeight,
+  traffic100RevisionName,
   mergeRevisionIntoServing,
   servingHealthyReady100,
   servingIdentityCompatible,
+  flagsLiteral,
+  readProductionServingIdentity,
+  attestReplicaProcessEnv,
   buildSetEnvArgs,
   buildShowAppArgs,
   buildRevisionShowArgs,
   buildReplicaListArgs,
+  buildReplicaEnvExecAzArgs,
+  buildReadonlyGraphListRequest,
+  GRAPH_LIST_SELECT,
   buildStaffOwnerRemoteCommand,
   buildStaffOwnerExecAzArgs,
   encodeProofEnvPayload,
   wrapPtyAzExec,
   snapshotSolMarker,
   snapshotTrustedProvenance,
+  mintSelectedOperationSolEvidence,
+  verifySelectedOperationSolEvidence,
   brandProductionAutoOwner,
   isProductionAutoOwner,
   createProductionStaffAutoCreateSendOwner,
   createMailMvp004LiveProof,
   createProductionMailMvp004Supervisor,
   createProductionGraphArrivalVerifier,
+  createProductionReadonlyGraphListAdapter,
+  createProductionStaffPgAdapter,
+  isProductionPgAdapter,
   createCanonical003KillSwitch,
   classifyGraphArrival,
+  extractProofJson,
   createDurableNonceStore,
+  runKillSwitchProbe,
+  runInnerSnapshot,
   issueSupervisorCapability,
   verifySupervisorCapability,
   encodeCapability,

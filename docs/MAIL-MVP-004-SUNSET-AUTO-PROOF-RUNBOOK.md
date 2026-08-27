@@ -45,7 +45,7 @@ Until that image is serving, the harness must refuse `execute-once` with `exact_
 
 Caller-set `MAIL_MVP_004_LIVE_PROOF=1` is **not** authorization.
 
-`execute-once` requires the exact typed phrase, the Sunset target pins, the **current 100% Healthy** serving revision + image tag/digest from revision show, a fresh 64-hex nonce, and a 15-minute `--confirm-issued-at` freshness window. The supervisor stamps its own issued-at onto a one-use expiry-bound inner capability; the caller timestamp is not capability identity. After a real 003 `{status:'sent'}` the harness reads selected-operation durable approval `message_text` plus Create Draft author marker/HMAC provenance — missing synthetic return fields must not classify a successful send as leftover.
+`execute-once` requires the exact typed phrase, the Sunset target pins, the **current 100% Healthy** serving revision + image tag/digest from revision show, a fresh 64-hex nonce, and a 15-minute `--confirm-issued-at` freshness window. Traffic is parsed from actual ACA ingress: exactly one explicit weight-100 revision equal to `latestReady`/`latest`, then revision-show Healthy/Running/Provisioned. Replica process env is attested with `printenv` or `/proc/1/environ` (never template env). The supervisor stamps its own issued-at onto a one-use expiry-bound inner capability; the caller timestamp is not capability identity. After a real 003 `{status:'sent'}` the harness reads selected-operation durable approval `message_text` plus Create Draft author evidence HMAC-bound to draft body hash + request/source operation + tenant/location/conversation — conversation metadata booleans are not proof. Missing synthetic return fields must not classify a successful send as leftover.
 
 ```text
 node scripts/prove-mail-mvp-004-auto-create-send.js preflight \
@@ -86,11 +86,11 @@ After exact-master deploy and typed authorization, the supervisor may temporaril
 
 Then:
 
-1. Independently re-read serving identity. Prove the enabled revision still has the authorized image and both flags literal `true` before dispatch.
-2. Invoke the canonical 003 production auto owner **exactly once** via image-owned `scripts/prove-mail-mvp-004-auto-create-send.js` (`MAIL_MVP_004_STAFF_OWNER_PROOF=1`). Empty Create Draft context. Staff API remains the only price/availability/booking authority.
-3. Reconcile durable approval/journal/provider state. If exec disconnects or the outcome is unknown, **do not retry**; reconcile only.
-4. **Always** restore both flags to `false` and endpoint automation `off` in supervisor `finally`.
-5. Verify safe serving revision, kill-switch refusal (`emergency_flags_off`), exact selected-operation journal/provider counts (1/1), Graph arrival on the same thread, and no duplicate.
+1. Independently re-read serving identity from explicit 100% traffic + revision-show health. Kill-switch probe the attested-false replica first (`emergency_flags_off`, zero author/journal/provider). Prove the enabled revision still has the authorized image and both replica-process flags literal `true` before dispatch.
+2. Invoke the canonical 003 production auto owner **exactly once** via image-owned `scripts/prove-mail-mvp-004-auto-create-send.js` (`MAIL_MVP_004_STAFF_OWNER_PROOF=1`). The dispatch marker is emitted from inner only after 003 handle starts. Empty Create Draft context. Staff API remains the only price/availability/booking authority.
+3. Reconcile durable approval/journal/provider state. Classified inner JSON is preserved even if exec status is nonzero. If exec disconnects after the issued marker with no classified JSON, **do not retry**; reconcile only.
+4. **Always** restore both flags to `false` and endpoint automation `off` in supervisor `finally`. Attest replica env false.
+5. Verify safe serving revision, kill-switch refusal (`emergency_flags_off`) on the attested-false replica, exact selected-operation journal/provider counts (1/1), Graph arrival on the same thread (`$select` without body/bodyPreview), and no duplicate. `--database sunset_staging` is enforced against `current_database()`, not a string pin.
 
 Do not alter Microsoft/Graph custody, IMAP/SMTP, 005/006/008, booking, broadcast, or any other guest.
 

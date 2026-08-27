@@ -40,10 +40,20 @@ const {
   isProofSubject,
   isAuthoritativeSender,
   isLeftoverGenericDraft,
+  leftoverFromDurableEvidence,
+  isProduction003SentShape,
+  exactReconciledCounts,
+  duplicateUnreconciled,
   evaluateLiveProofReadiness,
   parseServingIdentity,
   parseRevisionShow,
   servingHealthyReady100,
+  flagsLiteral,
+  traffic100RevisionName,
+  readProductionServingIdentity,
+  parseReplicaProcessEnv,
+  buildReadonlyGraphListRequest,
+  GRAPH_LIST_SELECT,
   buildSetEnvArgs,
   buildRevisionShowArgs,
   buildStaffOwnerRemoteCommand,
@@ -51,17 +61,19 @@ const {
   encodeProofEnvPayload,
   snapshotSolMarker,
   snapshotTrustedProvenance,
-  leftoverFromDurableEvidence,
-  isProduction003SentShape,
-  exactReconciledCounts,
-  duplicateUnreconciled,
+  mintSelectedOperationSolEvidence,
+  verifySelectedOperationSolEvidence,
   brandProductionAutoOwner,
   isProductionAutoOwner,
   createMailMvp004LiveProof,
   createProductionMailMvp004Supervisor,
   createProductionGraphArrivalVerifier,
+  createProductionReadonlyGraphListAdapter,
+  createProductionStaffPgAdapter,
+  isProductionPgAdapter,
   createCanonical003KillSwitch,
   classifyGraphArrival,
+  extractProofJson,
   createDurableNonceStore,
   issueSupervisorCapability,
   verifySupervisorCapability,
@@ -71,7 +83,12 @@ const {
   selectProofThread,
   runStaffOwnerProof,
   runCli,
+  runKillSwitchProbe,
 } = require('./lib/email-luna-microsoft-auto-create-send-live-proof');
+const {
+  digestGeneratedEmailLunaDraftBody,
+} = require('./lib/staff-email-luna-draft-open');
+const { ENV_HMAC_SECRET } = require('./lib/email-luna-sunset-email-hermes-sol-activation');
 
 const AUTO_ABS = path.join(ROOT, 'scripts/lib/email-luna-microsoft-auto-create-send.js');
 const LIB_ABS = path.join(ROOT, 'scripts/lib/email-luna-microsoft-auto-create-send-live-proof.js');
@@ -95,6 +112,8 @@ const SOL = Object.freeze({
   runtime: 'sunset-email-luna',
 });
 const THREAD_DRAFT = 'Thanks for writing about the mailbox. Would you like to make a booking?';
+const HMAC_SECRET = 'mvp004-sol-hmac-test-secret';
+const REQUEST_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01';
 
 function nonce() {
   return crypto.randomBytes(32).toString('hex');
@@ -128,22 +147,37 @@ function serving(patch) {
     runningState: 'Running',
     trafficWeight: 100,
     ready: true,
+    provisioningState: 'Provisioned',
+    flagsSource: 'replica_process',
     replica: `${REVISION}-abcde-fghij`,
     ...patch,
   };
 }
 
-function durableOk(patch) {
-  return {
-    message_text: THREAD_DRAFT,
-    draft_meta: {
-      marker: SOL,
-      authenticity: { hmac_verified: true, alg: 'HMAC-SHA256' },
+function mintEvidence(messageText) {
+  return mintSelectedOperationSolEvidence({
+    authority: {
+      client_id: C,
+      location_id: L,
+      conversation_id: V,
+      inbound_message_id: M,
     },
-    provenance: snapshotTrustedProvenance({
+    bodySha256: digestGeneratedEmailLunaDraftBody(messageText || THREAD_DRAFT),
+    composed: {
       marker: SOL,
-      authenticity: { hmac_verified: true, alg: 'HMAC-SHA256' },
-    }),
+      authenticity: { hmac_verified: true, request_id: REQUEST_ID, alg: 'HMAC-SHA256' },
+    },
+    hmacSecret: HMAC_SECRET,
+  });
+}
+
+function durableOk(patch) {
+  const messageText = (patch && patch.message_text) || THREAD_DRAFT;
+  const evidence = mintEvidence(messageText);
+  return {
+    message_text: messageText,
+    draft_meta: { selected_operation_evidence: evidence },
+    provenance: { ...evidence, marker: SOL },
     immutable_draft_id: 'graph-draft-004',
     ...patch,
   };
@@ -215,6 +249,10 @@ function preflightOk(patch) {
     sol_enabled: true,
     provider_source_message_id: SRC,
     graph_conversation_id: 'graph-thread-1',
+    client_id: C,
+    location_id: L,
+    inbound_message_id: M,
+    provider_mailbox_id: MAILBOX,
     ...patch,
   };
 }
@@ -282,6 +320,9 @@ function makeHarness(options = {}) {
     },
     async verifyKillSwitch() {
       log.push('kill');
+      if (typeof options.verifyKillSwitch === 'function') {
+        return options.verifyKillSwitch();
+      }
       return {
         ok: true,
         status: 'blocked',
@@ -305,7 +346,7 @@ function makeHarness(options = {}) {
 async function execute(harness, patch) {
   return harness.executeOnce({
     parsed: authArgs(),
-    env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
+    env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT, [ENV_HMAC_SECRET]: HMAC_SECRET },
     nowMs: NOW_MS,
     originMasterSha: IMAGE_SHA,
     headSha: IMAGE_SHA,
@@ -584,7 +625,8 @@ async function main() {
     assert.ok(disable.includes(`${ENV_LUNA_AUTO_SEND_ENABLED}=false`));
     const cmd = buildStaffOwnerRemoteCommand(crypto.randomUUID(), false);
     assert.match(cmd, new RegExp(PROOF_REMOTE_NODE.replace(/\./g, '\\.')));
-    assert.match(cmd, new RegExp(MUTATION_ISSUED_MARKER));
+    assert.doesNotMatch(cmd, new RegExp(`echo ${MUTATION_ISSUED_MARKER}`));
+    assert.match(libSrc, /process\.stdout\.write\(`\$\{MUTATION_ISSUED_MARKER\}\\n`\)/);
     assert.doesNotMatch(cmd, /printf %s .*email-luna-microsoft-auto-create-send-live-proof/);
     const b64 = encodeProofEnvPayload(crypto.randomUUID(), false);
     const decoded = Buffer.from(b64, 'base64').toString('utf8');
@@ -595,6 +637,12 @@ async function main() {
       name: STAFF_APP,
       properties: {
         latestRevisionName: REVISION,
+        latestReadyRevisionName: REVISION,
+        configuration: {
+          ingress: {
+            traffic: [{ revisionName: REVISION, weight: 100 }],
+          },
+        },
         template: {
           containers: [{
             image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
@@ -607,7 +655,9 @@ async function main() {
       },
     });
     assert.equal(parsedShow.imageTag, IMAGE_SHA);
-    assert.equal(parsedShow.flags[ENV_LUNA_AUTO_SEND_ENABLED], 'false');
+    assert.equal(parsedShow.trafficWeight, 100);
+    assert.equal(parsedShow.flagsSource, 'template');
+    assert.equal(flagsLiteral(parsedShow, false), false);
   }
 
   console.log('[8] Inner staff owner: existing 003 path, Sol, skip duplicate');
@@ -638,8 +688,7 @@ async function main() {
               immutable_draft_id: 'graph-draft-004',
               send_invocation_count: counts.sends,
               draft_meta: {
-                marker: SOL,
-                authenticity: { hmac_verified: true, alg: 'HMAC-SHA256' },
+                selected_operation_evidence: mintEvidence(THREAD_DRAFT),
               },
             }],
           };
@@ -692,6 +741,7 @@ async function main() {
           MAIL_MVP_004_REVISION: REVISION,
           MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
           MAIL_MVP_004_DIGEST: DIGEST,
+          [ENV_HMAC_SECRET]: HMAC_SECRET,
         },
         withPgClient,
         wired: { handleProjectedInbound: handleFn },
@@ -884,6 +934,8 @@ async function main() {
         assert.equal(input.forbid_body, true);
         assert.equal(input.forbid_send, true);
         assert.equal(input.graph_conversation_id, 'graph-thread-1');
+        assert.equal(input.provider_mailbox_id, MAILBOX);
+        assert.equal(graphSelectOk(input.select), true);
         return {
           messages: [{
             id: 'graph-sent-1',
@@ -894,9 +946,14 @@ async function main() {
         };
       },
     });
+    function graphSelectOk(select) {
+      const fields = Array.isArray(select) ? select : [];
+      return !fields.includes('body') && !fields.includes('bodyPreview');
+    }
     const arrival = await graph.verifyGraphArrival({
       graph_conversation_id: 'graph-thread-1',
       provider_source_message_id: SRC,
+      provider_mailbox_id: MAILBOX,
       immutable_draft_id: 'graph-draft-004',
     });
     assert.equal(arrival.ok, true);
@@ -926,6 +983,11 @@ async function main() {
       handleProjectedInbound: (input) => killOwner.handleProjectedInbound(input),
     });
     const killed = await kill({
+      env: {
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        [ENV_LUNA_AUTO_SEND_ENABLED]: 'false',
+        [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: 'false',
+      },
       authority: { clientId: C, locationId: L, endpointId: E },
       envelope: { provider: 'microsoft_graph', provider_mailbox_id: MAILBOX, provider_message_id: SRC },
       projection: { status: 'already_projected', conversation_id: V },
@@ -959,7 +1021,9 @@ async function main() {
     });
     assert.equal(parsedRev.healthState, 'Healthy');
     assert.equal(parsedRev.digest, DIGEST);
-    assert.equal(servingHealthyReady100({ ...parsedRev, trafficWeight: 100 }), true);
+    assert.equal(parsedRev.flagsSource, 'template');
+    assert.equal(servingHealthyReady100({ ...parsedRev, trafficWeight: 100, ready: true }), true);
+    assert.equal(flagsLiteral(parsedRev, true), false);
 
     const execArgs = buildStaffOwnerExecAzArgs({
       attemptId: cap.nonce,
@@ -976,79 +1040,254 @@ async function main() {
 
   console.log('[14] Hostile: production supervisor contract; default CLI still refuses');
   {
-    const azLog = [];
-    let flags = flagsOff();
-    let revisionName = REVISION;
+    const fakeGraph = {
+      async verifyGraphArrival() {
+        return { ok: true, threaded: true, arrivals: 1, duplicates: 0 };
+      },
+    };
+    const fakePg = async () => ({ rows: [] });
     const supervisor = createProductionMailMvp004Supervisor({
       env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
-      nonceStore: new Set(),
-      requireProductionOwner: true,
-      async azRun(args) {
-        azLog.push(args.slice());
-        if (args[1] === 'exec') throw new Error('pty_required');
-        return { status: 0, stdout: '{}' };
-      },
-      async readServingIdentity() {
-        return serving({ revision: revisionName, flags, replica: `${revisionName}-aaaaa-bbbbb` });
-      },
-      async waitServingHealthy({ enabled }) {
-        return serving({
-          revision: revisionName,
-          flags: enabled ? flagsOn() : flagsOff(),
-          replica: `${revisionName}-aaaaa-bbbbb`,
-        });
-      },
-      async setEmergencyFlags(enabled) {
-        flags = enabled ? flagsOn() : flagsOff();
-        revisionName = enabled
-          ? `${STAFF_APP}--enabled-${IMAGE_SHA.slice(0, 8)}`
-          : `${STAFF_APP}--safe-${IMAGE_SHA.slice(0, 8)}`;
-      },
-      async putEmailChannelMode() {},
-      async getEmailChannelMode() { return flags[ENV_LUNA_AUTO_SEND_ENABLED] === 'true' ? 'auto' : 'off'; },
-      async preflightSelectedOperation() { return preflightOk(); },
-      invokeAutoOwner: brandProductionAutoOwner(async (input) => {
-        assert.equal(input.capability.purpose, 'mail_mvp_004_staff_owner');
-        assert.notEqual(input.revision, REVISION);
-        return { status: 'sent', sent: true, approvals: 1, journals: 1, provider_sends: 1 };
-      }),
-      async snapshotOperation() {
-        return { approvals: 1, journals: 1, provider_sends: 1, bookings: 4 };
-      },
-      async readDurableEvidence() { return durableOk(); },
-      verifyGraphArrival: createProductionGraphArrivalVerifier({
-        async listThreadMessages() {
-          return { messages: [{
-            id: 'graph-sent-1',
-            conversationId: 'graph-thread-1',
-            subject: 'Re: Testing 8 26',
-            inReplyTo: SRC,
-          }] };
-        },
-      }).verifyGraphArrival,
+      graphVerifier: fakeGraph,
+      withPgClient: fakePg,
       async verifyKillSwitch() {
-        return {
-          ok: true, status: 'blocked', reason: 'emergency_flags_off',
-          author_called: false, journal_called: false, provider_called: false,
-        };
+        return { ok: true, status: 'blocked', reason: 'emergency_flags_off' };
       },
     });
-    const sent = await supervisor.executeOnce({
-      parsed: authArgs(),
-      env: { LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT },
-      nowMs: NOW_MS,
-      originMasterSha: IMAGE_SHA,
-      headSha: IMAGE_SHA,
-      artifactsOnMaster: true,
-      requireLiveImage: true,
+    assert.equal(isProductionPgAdapter(fakePg), false);
+    assert.equal(typeof supervisor.executeOnce, 'function');
+    const graphArrival = await createProductionReadonlyGraphListAdapter({}).verifyGraphArrival({
+      graph_conversation_id: 'graph-thread-1',
+      provider_mailbox_id: MAILBOX,
+      forbid_send: true,
     });
-    assert.equal(sent.ok, true);
-    assert.notEqual(sent.enabled_revision, REVISION);
-    assert.match(sent.restored_revision, /safe/);
+    assert.equal(graphArrival.ok, false);
+    assert.ok(['graph_adapter_unwired', 'graph_unproven'].includes(graphArrival.reason));
+
+    let threw = false;
+    try {
+      createProductionReadonlyGraphListAdapter({
+        listThreadMessages: fakeGraph.verifyGraphArrival,
+        allowInjectedList: true,
+      });
+    } catch (error) {
+      threw = error.message === 'graph_adapter_unwired';
+    }
+    assert.equal(threw, true);
 
     const defaultRefuse = await runCli([], { env: { MAIL_MVP_004_LIVE_PROOF: '1' } });
     assert.equal(defaultRefuse.ok, false);
     assert.equal(defaultRefuse.reason, 'default_refuse');
+  }
+
+  console.log('[15] Hostile: traffic, Sol HMAC, Graph/PG wiring, replica env, marker, kill-switch');
+  {
+    const fifty = traffic100RevisionName([
+      { revisionName: REVISION, weight: 50 },
+      { revisionName: `${STAFF_APP}--other`, weight: 50 },
+    ]);
+    assert.equal(fifty, null);
+    const missingWeight = parseServingIdentity({
+      name: STAFF_APP,
+      properties: {
+        latestRevisionName: REVISION,
+        latestReadyRevisionName: REVISION,
+        configuration: { ingress: { traffic: [{ revisionName: REVISION, latest: true }] } },
+        template: { containers: [{ image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}` }] },
+      },
+    });
+    assert.equal(missingWeight, null);
+    const coerced = await readProductionServingIdentity(async (args) => {
+      if (args[1] === 'show' && !args.includes('revision')) {
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            name: STAFF_APP,
+            properties: {
+              latestRevisionName: REVISION,
+              latestReadyRevisionName: REVISION,
+              configuration: {
+                ingress: { traffic: [{ revisionName: REVISION, weight: 50 }] },
+              },
+              template: { containers: [{ image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}@${DIGEST}` }] },
+            },
+          }),
+        };
+      }
+      return { status: 0, stdout: '{}' };
+    });
+    assert.equal(coerced, null);
+
+    const forged = snapshotTrustedProvenance({
+      marker: SOL,
+      authenticity: { hmac_verified: true, alg: 'HMAC-SHA256' },
+    }, {
+      client_id: C, location_id: L, conversation_id: V, source_inbound_event_id: M,
+    }, HMAC_SECRET, THREAD_DRAFT);
+    assert.equal(forged, null);
+    const missingMac = verifySelectedOperationSolEvidence({
+      hmac_verified: true,
+      request_id: REQUEST_ID,
+      provider: 'openai-codex',
+      model: 'gpt-5.6-sol',
+      runtime: 'sunset-email-luna',
+    }, {
+      client_id: C, location_id: L, conversation_id: V, source_inbound_event_id: M,
+    }, HMAC_SECRET, THREAD_DRAFT);
+    assert.equal(missingMac, null);
+    const validEvidence = mintEvidence(THREAD_DRAFT);
+    const verified = verifySelectedOperationSolEvidence(
+      validEvidence,
+      { client_id: C, location_id: L, conversation_id: V, source_inbound_event_id: M },
+      HMAC_SECRET,
+      THREAD_DRAFT,
+    );
+    assert.equal(verified.request_id, REQUEST_ID);
+    const swappedBody = verifySelectedOperationSolEvidence(
+      validEvidence,
+      { client_id: C, location_id: L, conversation_id: V, source_inbound_event_id: M },
+      HMAC_SECRET,
+      'different draft body about the mailbox booking',
+    );
+    assert.equal(swappedBody, null);
+
+    const bodySelect = buildReadonlyGraphListRequest({
+      provider_mailbox_id: MAILBOX,
+      graph_conversation_id: 'graph-thread-1',
+      forbid_send: true,
+      select: ['id', 'body', 'conversationId'],
+    });
+    assert.equal(bodySelect, null);
+    const goodSelect = buildReadonlyGraphListRequest({
+      provider_mailbox_id: MAILBOX,
+      graph_conversation_id: 'graph-thread-1',
+      forbid_send: true,
+      select: GRAPH_LIST_SELECT.slice(),
+    });
+    assert.equal(goodSelect.method, 'GET');
+    assert.equal(goodSelect.path.includes('body'), false);
+    assert.match(goodSelect.path, /conversationId/);
+    assert.match(goodSelect.path, /internetMessageId/);
+
+    let pgMismatch = null;
+    try {
+      const adapter = createProductionStaffPgAdapter({
+        pgConnect: {
+          async withPgClient(fn) {
+            return fn({
+              async query() { return { rows: [{ current_database: 'wolfhouse_staging' }] }; },
+            });
+          },
+        },
+      });
+      await adapter.withPgClient(async () => 'nope');
+    } catch (error) {
+      pgMismatch = error.reason || error.message;
+    }
+    assert.equal(pgMismatch, 'database_mismatch');
+    const sunsetPg = createProductionStaffPgAdapter({
+      pgConnect: {
+        async withPgClient(fn) {
+          return fn({
+            async query(sql) {
+              if (/current_database/.test(String(sql))) {
+                return { rows: [{ current_database: EXPECTED_DATABASE }] };
+              }
+              return { rows: [] };
+            },
+          });
+        },
+      },
+    });
+    assert.equal(isProductionPgAdapter(sunsetPg.withPgClient), true);
+    const identified = await sunsetPg.withPgClient(async () => 'ok');
+    assert.equal(identified, 'ok');
+
+    const templateServing = parseRevisionShow({
+      name: REVISION,
+      properties: {
+        healthState: 'Healthy',
+        runningState: 'Running',
+        provisioningState: 'Provisioned',
+        template: {
+          containers: [{
+            image: `${IMAGE_REPOSITORY}:${IMAGE_SHA}`,
+            env: [
+              { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'true' },
+              { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'true' },
+            ],
+          }],
+        },
+      },
+    });
+    assert.equal(flagsLiteral({ ...templateServing, trafficWeight: 100 }, true), false);
+    const replicaEnv = parseReplicaProcessEnv(
+      `${ENV_LUNA_AUTO_SEND_ENABLED}=true\n${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED}=true\n`,
+    );
+    assert.equal(replicaEnv.flagsSource, 'replica_process');
+    assert.equal(flagsLiteral({
+      ...templateServing,
+      trafficWeight: 100,
+      ready: true,
+      flags: replicaEnv,
+      flagsSource: 'replica_process',
+    }, true), true);
+
+    let syntheticKillThrew = false;
+    try {
+      createCanonical003KillSwitch({
+        handleProjectedInbound: async () => ({ status: 'blocked', reason: 'emergency_flags_off' }),
+        syntheticEnv: true,
+      });
+    } catch (error) {
+      syntheticKillThrew = error.message === 'kill_switch_synthetic_env';
+    }
+    assert.equal(syntheticKillThrew, true);
+
+    const classified = extractProofJson(`noise\n${MUTATION_ISSUED_MARKER}\n{"ok":false,"reason":"author_failed"}`);
+    assert.equal(classified.reason, 'author_failed');
+    const markedInner = freezeInnerClassified();
+    function freezeInnerClassified() {
+      return { ok: false, reason: classified.reason };
+    }
+    assert.equal(markedInner.reason, 'author_failed');
+    assert.match(libSrc, /if \(inner\) \{\s*return freeze\(\{ \.\.\.inner, dispatch_marked: marked === true \}\);/s);
+
+    let author = 0;
+    const probeOwner = createEmailLunaMicrosoftAutoCreateAndSend({
+      withPgClient: async () => ({ rows: [] }),
+      async regenerateEmailLunaDraftOnStaffClick() { author += 1; return { status: 'draft_ready', draft_text: 'nope' }; },
+      async saveDraftThroughStaffOwner() { return { status: 'saved', approval_id: 'x' }; },
+      async approveAndDispatchEmailOutbound() { return { code: 'email_send_committed', status: 200 }; },
+      async getEmailChannelMode() { return 'auto'; },
+      async readPause() { return { lookup_error: false, global_paused: false, conversation_paused: false }; },
+      async resolveAutoActor() { return { staff_user_id: '11111111-1111-4111-8111-111111111111', client_id: C, role: 'owner' }; },
+    });
+    const replicaKill = createCanonical003KillSwitch({
+      handleProjectedInbound: (input) => probeOwner.handleProjectedInbound(input),
+    });
+    const probed = await replicaKill({
+      env: {
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        [ENV_LUNA_AUTO_SEND_ENABLED]: 'false',
+        [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: 'false',
+      },
+      authority: { clientId: C, locationId: L, endpointId: E },
+      envelope: { provider: 'microsoft_graph', provider_mailbox_id: MAILBOX, provider_message_id: SRC },
+      projection: { status: 'already_projected', conversation_id: V },
+    });
+    assert.equal(probed.status, 'blocked');
+    assert.equal(probed.reason, 'emergency_flags_off');
+    assert.equal(author, 0);
+
+    const { harness: hKill } = makeHarness({
+      async verifyKillSwitch() {
+        return { ok: false, reason: 'kill_switch_unproven' };
+      },
+    });
+    const beforeOn = await execute(hKill);
+    assert.equal(beforeOn.reason, 'kill_switch_unproven');
+    assert.equal(beforeOn.invoked, 0);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
