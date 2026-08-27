@@ -380,9 +380,55 @@ console.log('\n── handler smoke (deps + response shape) ──');
   ok('UI customers tab markers', /tab-customers|customersClientQuery|\/staff\/customers/.test(uiSrc));
   ok('UI outreach send path', uiSrc.includes('/staff/customers/outreach/send') || uiSrc.includes('CUSTOMERS_OUTREACH'));
   ok('UI template generate path', uiSrc.includes('/staff/customers/message-templates/generate') || uiSrc.includes('message-templates/generate'));
+  ok('UI guest card splits WhatsApp + Email message sections',
+    uiSrc.includes('customers.detail.messagesWhatsApp')
+    && uiSrc.includes('customers.detail.messagesEmail')
+    && uiSrc.includes('customers.detail.noWhatsAppMessages')
+    && uiSrc.includes('customers.detail.noEmailMessages')
+    && uiSrc.includes('email_messages'));
   for (const p of CUSTOMERS_BROWSER_MODULES) {
     ok(`UI module injected ${path.basename(p)}`, apiSrc.includes(`/* INJECT:${path.basename(p, '.js')} */`));
   }
+
+  console.log('\n── customer messages channel split ──');
+  {
+    const {
+      getCustomerMessagesQuery,
+      customerMessageChannel,
+      splitCustomerMessagesByChannel,
+    } = require('./lib/staff-customer-queries');
+    const sql = getCustomerMessagesQuery();
+    ok('messages SQL selects channel', /AS channel/.test(sql));
+    ok('messages SQL binds linked conversations via customer_id',
+      /conv\.customer_id = cust\.customer_id/.test(sql)
+      && /WITH cust AS/.test(sql));
+    ok('messages SQL projects email subject/body without inventing',
+      /email_subject/.test(sql) && /body_text/.test(sql)
+      && !/lorem ipsum/i.test(sql));
+    ok('customerMessageChannel prefers conversation channel',
+      customerMessageChannel({ channel: 'email', source: 'whatsapp_inbound' }) === 'email'
+      && customerMessageChannel({ channel: 'whatsapp', source: 'email_inbound' }) === 'whatsapp');
+    ok('customerMessageChannel falls back to durable email source',
+      customerMessageChannel({ source: 'email_inbound' }) === 'email'
+      && customerMessageChannel({ source: 'staff_reply' }) === 'whatsapp'
+      && customerMessageChannel({ source: 'staff_inbox_reply' }) === 'whatsapp');
+    const split = splitCustomerMessagesByChannel([
+      { channel: 'whatsapp', message_text: 'wa1' },
+      { channel: 'email', message_text: 'em1', body_text: 'body1' },
+      { channel: 'whatsapp', message_text: 'wa2' },
+      { source: 'email_inbound', message_text: 'subj' },
+    ]);
+    ok('splitCustomerMessagesByChannel keeps channels disjoint',
+      split.messages.length === 2
+      && split.email_messages.length === 2
+      && split.messages.every((m) => customerMessageChannel(m) === 'whatsapp')
+      && split.email_messages.every((m) => customerMessageChannel(m) === 'email'));
+  }
+
+  const routesSrc = fs.readFileSync(MODULE_PATH, 'utf8');
+  ok('context route returns email_messages sibling',
+    routesSrc.includes('email_messages: data.email_messages')
+    && routesSrc.includes('splitCustomerMessagesByChannel'));
 
   console.log('\n── syntax ──');
   for (const rel of [

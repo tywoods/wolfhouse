@@ -310,7 +310,7 @@ function customerWaiverFormUrl(publicId) {
 }
 
 // Shared collapsed <details> section used across the customer detail card so
-// Waivers / Previous services / Recent messages / Open handoffs all look + behave
+// Waivers / Previous services / Recent WhatsApp + Email / Open handoffs all look + behave
 // identically. Collapsed by default.
 function renderCollapsibleCustomerSection(opts) {
   opts = opts || {};
@@ -566,15 +566,58 @@ function renderCustomerDetail(data) {
   }
   html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.services'), count: (data.service_records || []).length, body: svcBody });
 
-  var msgBody = '';
-  if (data.messages && data.messages.length) {
-    data.messages.forEach(function(m) {
-      msgBody += '<div class="customers-msg"><div class="customers-msg-dir">' + escHtml(m.direction || '') + ' · ' + escHtml(formatCustomerWhen(m.created_at)) + '</div><div>' + escHtml(m.message_text || '') + '</div></div>';
+  function customerMsgIsEmail(m) {
+    var ch = String((m && m.channel) || '').toLowerCase();
+    if (ch === 'email') return true;
+    if (ch === 'whatsapp') return false;
+    var src = String((m && m.source) || '').toLowerCase();
+    // staff_inbox_reply is WhatsApp staff-send — not email.
+    return src === 'email_inbound'
+      || src === 'staff_email_reply'
+      || src === 'email_outbound'
+      || String((m && m.route) || '').toLowerCase() === 'email';
+  }
+  function customerMsgDisplayText(m) {
+    var body = String((m && m.body_text) || '').trim();
+    if (body) return body;
+    var subj = String((m && m.email_subject) || '').trim();
+    if (subj) return subj;
+    return String((m && m.message_text) || '');
+  }
+
+  var waMsgs = [];
+  var emailMsgs = [];
+  if (Array.isArray(data.email_messages) && data.email_messages.length) {
+    emailMsgs = data.email_messages.slice();
+    (data.messages || []).forEach(function(m) {
+      if (!customerMsgIsEmail(m)) waMsgs.push(m);
     });
   } else {
-    msgBody = '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noMessages')) + '</div>';
+    (data.messages || []).forEach(function(m) {
+      if (customerMsgIsEmail(m)) emailMsgs.push(m);
+      else waMsgs.push(m);
+    });
   }
-  html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.messages'), count: (data.messages || []).length, body: msgBody });
+
+  var waBody = '';
+  if (waMsgs.length) {
+    waMsgs.forEach(function(m) {
+      waBody += '<div class="customers-msg"><div class="customers-msg-dir">' + escHtml(m.direction || '') + ' · ' + escHtml(formatCustomerWhen(m.created_at)) + '</div><div>' + escHtml(customerMsgDisplayText(m)) + '</div></div>';
+    });
+  } else {
+    waBody = '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noWhatsAppMessages')) + '</div>';
+  }
+  html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.messagesWhatsApp'), count: waMsgs.length, body: waBody });
+
+  var emailBody = '';
+  if (emailMsgs.length) {
+    emailMsgs.forEach(function(m) {
+      emailBody += '<div class="customers-msg"><div class="customers-msg-dir">' + escHtml(m.direction || '') + ' · ' + escHtml(formatCustomerWhen(m.created_at)) + '</div><div>' + escHtml(customerMsgDisplayText(m)) + '</div></div>';
+    });
+  } else {
+    emailBody = '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noEmailMessages')) + '</div>';
+  }
+  html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.messagesEmail'), count: emailMsgs.length, body: emailBody });
 
   html += renderCustomerWaiverFormsSection(data);
 

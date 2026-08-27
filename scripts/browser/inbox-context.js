@@ -1242,23 +1242,90 @@ function inboxCustomerFullHtml(data, opts) {
   }
   html += collapse(inboxContextT('customers.detail.services', 'Previous lessons and rentals'), services.length, svcBody);
 
-  var messages = (data && data.messages) || [];
-  var msgBody = '';
-  if (messages.length) {
-    for (var mi = 0; mi < messages.length; mi++) {
-      var m = messages[mi];
-      msgBody += '<div class="customers-msg"><div class="customers-msg-dir">' +
-        inboxContextEsc(m.direction || '') + '</div><div>' + inboxContextEsc(m.message_text || '') + '</div></div>';
-    }
-  } else {
-    msgBody = '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noMessages', 'No messages')) + '</div>';
-  }
-  html += collapse(inboxContextT('customers.detail.messages', 'Recent messages'), messages.length, msgBody);
+  html += inboxCustomerRecentMessagesSectionsHtml(data, collapse);
 
   if (typeof renderCustomerWaiverFormsSection === 'function') {
     html += renderCustomerWaiverFormsSection(data);
   }
   html += '</div>';
+  return html;
+}
+
+/** Prefer Staff API email body/subject facts; never invent copy. */
+function inboxCustomerMessageDisplayText(m) {
+  m = m || {};
+  var body = String(m.body_text || '').trim();
+  if (body) return body;
+  var subj = String(m.email_subject || '').trim();
+  if (subj) return subj;
+  return String(m.message_text || '');
+}
+
+function inboxCustomerMessageIsEmail(m) {
+  if (!m) return false;
+  if (String(m.channel || '').toLowerCase() === 'email') return true;
+  if (String(m.channel || '').toLowerCase() === 'whatsapp') return false;
+  var src = String(m.source || '').toLowerCase();
+  // staff_inbox_reply is WhatsApp staff-send — not email.
+  if (src === 'email_inbound' || src === 'staff_email_reply' || src === 'email_outbound') return true;
+  if (String(m.route || '').toLowerCase() === 'email') return true;
+  return false;
+}
+
+function inboxCustomerSplitMessages(data) {
+  var emailDirect = (data && data.email_messages) || [];
+  var all = (data && data.messages) || [];
+  var wa = [];
+  var em = [];
+  var i;
+  for (i = 0; i < all.length; i++) {
+    if (inboxCustomerMessageIsEmail(all[i])) em.push(all[i]);
+    else wa.push(all[i]);
+  }
+  if (emailDirect.length) em = emailDirect;
+  return { whatsapp: wa, email: em };
+}
+
+function inboxCustomerRecentMessagesSectionsHtml(data, collapseFn) {
+  var split = inboxCustomerSplitMessages(data);
+  var wa = split.whatsapp;
+  var em = split.email;
+  var waBody = '';
+  var emBody = '';
+  var mi;
+  if (wa.length) {
+    for (mi = 0; mi < wa.length; mi++) {
+      var wm = wa[mi];
+      waBody += '<div class="customers-msg"><div class="customers-msg-dir">' +
+        inboxContextEsc(wm.direction || '') + '</div><div>' +
+        inboxContextEsc(inboxCustomerMessageDisplayText(wm)) + '</div></div>';
+    }
+  } else {
+    waBody = '<div class="customers-section-empty">' +
+      inboxContextEsc(inboxContextT('customers.detail.noWhatsAppMessages', 'No WhatsApp messages')) + '</div>';
+  }
+  if (em.length) {
+    for (mi = 0; mi < em.length; mi++) {
+      var emsg = em[mi];
+      emBody += '<div class="customers-msg"><div class="customers-msg-dir">' +
+        inboxContextEsc(emsg.direction || '') + '</div><div>' +
+        inboxContextEsc(inboxCustomerMessageDisplayText(emsg)) + '</div></div>';
+    }
+  } else {
+    emBody = '<div class="customers-section-empty">' +
+      inboxContextEsc(inboxContextT('customers.detail.noEmailMessages', 'No emails')) + '</div>';
+  }
+  var html = '';
+  html += collapseFn(
+    inboxContextT('customers.detail.messagesWhatsApp', 'Recent WhatsApp messages'),
+    wa.length,
+    waBody
+  );
+  html += collapseFn(
+    inboxContextT('customers.detail.messagesEmail', 'Recent Email'),
+    em.length,
+    emBody
+  );
   return html;
 }
 

@@ -1269,22 +1269,106 @@ LIMIT 10
 `;
 }
 
+/**
+ * Recent messages for the customer card — WhatsApp + email.
+ * Bound by phone match OR conversations.customer_id (never invent email joins).
+ * Channel is conversation truth; email subject/body are message projections only.
+ */
 function getCustomerMessagesQuery() {
   return `
+WITH cust AS (
+  SELECT cu.id AS customer_id
+  FROM customers cu
+  INNER JOIN clients c ON c.id = cu.client_id
+  WHERE c.slug = $1
+    AND ${sqlCustomerPhoneMatch('cu.phone', '$2')}
+  ORDER BY cu.updated_at DESC NULLS LAST, ${sqlCustomerCanonicalPhoneRank('cu.phone')}
+  LIMIT 1
+)
 SELECT
   m.id::text AS message_id,
   m.direction::text AS direction,
   m.message_text,
   m.source,
-  m.created_at
+  m.route,
+  m.created_at,
+  COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
+  CASE
+    WHEN m.source = 'email_inbound' OR m.route = 'email' OR m.metadata->>'channel' = 'email'
+      THEN COALESCE(
+        NULLIF(m.metadata->>'email_subject', ''),
+        CASE WHEN m.source = 'email_inbound' THEN m.message_text ELSE NULL END
+      )
+    ELSE NULL
+  END AS email_subject,
+  CASE
+    WHEN m.source = 'email_inbound'
+      THEN COALESCE(NULLIF(m.metadata->>'body_text', ''), NULLIF(m.metadata->>'body', ''), '')
+    WHEN m.route = 'email' OR m.metadata->>'channel' = 'email'
+      OR m.source IN ('staff_email_reply', 'staff_inbox_reply', 'email_outbound')
+      THEN m.message_text
+    ELSE NULL
+  END AS body_text
 FROM messages m
 INNER JOIN conversations conv ON conv.id = m.conversation_id
 INNER JOIN clients c ON c.id = conv.client_id
+LEFT JOIN cust ON TRUE
 WHERE c.slug = $1
-  AND ${sqlCustomerPhoneMatch('conv.phone', '$2')}
+  AND (
+    ${sqlCustomerPhoneMatch('conv.phone', '$2')}
+    OR (cust.customer_id IS NOT NULL AND conv.customer_id = cust.customer_id)
+  )
 ORDER BY m.created_at DESC
-LIMIT 15
+LIMIT 40
 `;
+}
+
+/**
+ * Classify a customer-card message row as whatsapp or email.
+ * Prefers conversation channel; falls back to durable message source/route only.
+ * Never invents a channel.
+ * @param {object} row
+ * @returns {'whatsapp'|'email'}
+ */
+function customerMessageChannel(row) {
+  if (!row || typeof row !== 'object') return 'whatsapp';
+  const channel = String(row.channel || '').trim().toLowerCase();
+  if (channel === 'email') return 'email';
+  if (channel === 'whatsapp') return 'whatsapp';
+  const source = String(row.source || '').trim().toLowerCase();
+  // staff_inbox_reply is the WhatsApp staff-send source — never treat as email.
+  if (
+    source === 'email_inbound'
+    || source === 'staff_email_reply'
+    || source === 'email_outbound'
+  ) {
+    return 'email';
+  }
+  const route = String(row.route || '').trim().toLowerCase();
+  if (route === 'email') return 'email';
+  return 'whatsapp';
+}
+
+/**
+ * Split customer messages into channel buckets (max 15 each, newest first).
+ * @param {object[]} rows
+ * @returns {{ messages: object[], email_messages: object[] }}
+ */
+function splitCustomerMessagesByChannel(rows) {
+  const messages = [];
+  const email_messages = [];
+  const list = Array.isArray(rows) ? rows : [];
+  for (let i = 0; i < list.length; i++) {
+    const row = list[i];
+    if (!row) continue;
+    if (customerMessageChannel(row) === 'email') {
+      if (email_messages.length < 15) email_messages.push(row);
+    } else if (messages.length < 15) {
+      messages.push(row);
+    }
+    if (messages.length >= 15 && email_messages.length >= 15) break;
+  }
+  return { messages, email_messages };
 }
 
 function parseServiceRecordMetadata(row) {
@@ -1728,6 +1812,8 @@ module.exports = {
   getCustomerServiceRecordsQuery,
   getCustomerHandoffsQuery,
   getCustomerMessagesQuery,
+  customerMessageChannel,
+  splitCustomerMessagesByChannel,
   buildLastSetupSummary,
   parseCustomerProfileUpdateBody,
   updateCustomerProfile,
