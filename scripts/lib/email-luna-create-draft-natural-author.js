@@ -40,6 +40,16 @@ const INJECTION_ECHO = /(?:\bsystem\s*:|\[\s*system\s*\]|immutable system policy
 const ES_MARKERS = /\b(hola|gracias|buenos|buenas|reserv(?:a|as|ar|amos)?|precios?|disponibilidad|necesit(?:o|amos|a)?|por favor|alquiler|pagos?|tablas?|ustedes|nosotros|d[ií]as?|noches?|mensajes?|quier(?:o|es|e|en|[ií]a)|camas?|clases?|informaci[oó]n)\b/gi;
 const EN_MARKERS = /\b(hello|hi|thanks|please|booking|price|available|need|message|boards?|lesson|would)\b/gi;
 const TOPIC_CHARS = /^[a-z0-9áéíóúñü][a-z0-9áéíóúñü -]{0,31}$/i;
+const THREAD_TOPIC_STOP = freeze([
+  'hi', 'hello', 'hey', 'hola', 'buenos', 'buenas', 'thanks', 'thank', 'gracias',
+  'just', 'the', 'and', 'for', 'your', 'you', 'we', 'our', 'this', 'that',
+  'from', 'with', 'please', 'por', 'favor', 'una', 'unos', 'unas', 'los',
+  'las', 'del', 'que', 'para', 'sobre', 'about', 'need', 'necesito', 'dear',
+  'team', 're', 'fw', 'fwd', 'hiya', 'can', 'could', 'would', 'should', 'will',
+  'have', 'has', 'does', 'did', 'not', 'but', 'if', 'so', 'to', 'of', 'on',
+  'at', 'in', 'it', 'be', 'as', 'or', 'is', 'are', 'was', 'were', 'been',
+  'being', 'do', 'had', 'them', 'they', 'she', 'his', 'her', 'its',
+]);
 const SAFE_CREATE_DRAFT_NATURAL_ACTS = freeze([
   'thank_guest',
   'acknowledge_message',
@@ -70,7 +80,8 @@ const LUNA_DRAFTING_GOALS = freeze([
   'ask_clarifying_question requires a tightly bounded non-authoritative topic label; acknowledge_message may include one.',
   'Never choose acts for prices, availability, payment, holds, URLs, or booking confirmation or creation.',
   'If staff goals request unsupported factual acts, omit those acts.',
-  'When private staff goals are empty, plan a warm low-claim thank-you and question from the untrusted guest email only.',
+  'When private staff goals are empty, plan a warm low-claim thank-you and a bounded topic question from the untrusted guest email only.',
+  'Empty goals must not choose thank_guest plus offer_human_followup as the whole plan.',
   'The server renderer owns EN/ES guest copy and thread language.',
   'Plan only; do not send.',
 ]);
@@ -179,7 +190,7 @@ function fail(reason, language) {
   });
 }
 
-function ready(body, language, authority) {
+function ready(body, language, authority, extra) {
   const out = create(null);
   out.status = 'draft_ready';
   out.body = body;
@@ -191,6 +202,7 @@ function ready(body, language, authority) {
   out.requires_staff_review = true;
   out.send_allowed = false;
   out.auto_send_allowed = false;
+  if (extra && extra.compile_replacement === true) out.compile_replacement = true;
   return freeze(out);
 }
 
@@ -206,6 +218,61 @@ function topicActAllowed(act) {
     if (TOPIC_ACTS[i] === act) return true;
   }
   return false;
+}
+
+function isThreadTopicStop(word) {
+  if (typeof word !== 'string' || !word) return true;
+  for (let i = 0; i < THREAD_TOPIC_STOP.length; i += 1) {
+    if (THREAD_TOPIC_STOP[i] === word) return true;
+  }
+  return false;
+}
+
+function isThreadContentToken(word) {
+  if (typeof word !== 'string') return false;
+  if (word.length < 3 || word.length > 32) return false;
+  if (/^[0-9]+$/.test(word)) return false;
+  if (isThreadTopicStop(word)) return false;
+  return true;
+}
+
+function extractCreateDraftThreadTopic(content) {
+  const subject = content && typeof content === 'object' && !isProxy(content)
+    ? clip(ownData(content, 'subject'), 998)
+    : '';
+  const body = content && typeof content === 'object' && !isProxy(content)
+    ? clip(ownData(content, 'body_text'), 64000)
+    : '';
+  let text;
+  try {
+    text = `${subject}\n${body}`.normalize('NFC').toLowerCase();
+  } catch {
+    return '';
+  }
+  const tokens = text.split(/[^a-z0-9áéíóúñü]+/i).filter(Boolean);
+  for (let i = 0; i + 1 < tokens.length; i += 1) {
+    if (!isThreadContentToken(tokens[i]) || !isThreadContentToken(tokens[i + 1])) continue;
+    const pair = `${tokens[i]} ${tokens[i + 1]}`;
+    if (isBoundedTopic(pair)) return pair;
+  }
+  for (let i = 0; i < tokens.length; i += 1) {
+    if (isThreadContentToken(tokens[i]) && isBoundedTopic(tokens[i])) return tokens[i];
+  }
+  return '';
+}
+
+function genericEmptyWrapperBody(language) {
+  return renderCreateDraftNaturalPlan({
+    acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
+  }, language === 'es' ? 'es' : 'en');
+}
+
+function isForbiddenGenericEmptyWrapper(body) {
+  if (typeof body !== 'string' || !body.trim()) return false;
+  const text = body.trim();
+  const en = genericEmptyWrapperBody('en');
+  const es = genericEmptyWrapperBody('es');
+  return text === en || text === es;
 }
 
 function isBoundedTopic(value) {
@@ -303,8 +370,13 @@ function compileCreateDraftNaturalPlanJson(goals, content) {
       : '';
     const thread = `${subject}\n${body}`.toLowerCase();
     push('thank_guest');
-    if (/\bbook|\breserva/.test(thread)) push('ask_booking_interest');
-    else push('offer_human_followup');
+    if (/\bbook|\breserva/.test(thread)) {
+      push('ask_booking_interest');
+    } else {
+      const topic = extractCreateDraftThreadTopic(content);
+      if (topic) push('ask_clarifying_question', topic);
+      else push('acknowledge_message');
+    }
   }
   if (!acts.length) return null;
   return JSON.stringify({ acts });
@@ -408,7 +480,8 @@ function buildEmailLunaNaturalGuestReplyPrompt(input) {
     'ask_clarifying_question requires a tightly bounded non-authoritative topic label (short words only).',
     'Hard constraints: no prices, no availability claims, no payment URLs, no holds, no booking creation or confirmation.',
     'If staff goals request unsupported factual acts, omit those acts. Do not invent facts. Do not send.',
-    'When private staff goals are empty, choose a warm low-claim plan from the untrusted guest email only.',
+    'When private staff goals are empty, choose a warm low-claim plan from the untrusted guest email only, including a bounded topic from that email.',
+    'Do not return only thank_guest plus offer_human_followup when staff goals are empty.',
     'The server renderer owns natural EN/ES guest copy and thread language.',
     `Return only this exact JSON schema with no extra keys: ${PLAN_SCHEMA}.`,
   ].join('\n');
@@ -490,13 +563,25 @@ function createEmailLunaCreateDraftNaturalAuthor(configuration = {}) {
       planJson = compileCreateDraftNaturalPlanJson(goals, content);
       if (!planJson) return fail('model_provider_error', language);
     }
-    const plan = parseCreateDraftNaturalPlan(planJson);
+    let plan = parseCreateDraftNaturalPlan(planJson);
     if (!plan) return fail(result == null ? 'model_provider_error' : 'model_malformed', language);
-    const body = renderCreateDraftNaturalPlan(plan, language);
+    let body = renderCreateDraftNaturalPlan(plan, language);
     if (!body) return fail('unsupported_claim', language);
+    let compileReplacement = false;
+    if (isForbiddenGenericEmptyWrapper(body)) {
+      const compiledJson = compileCreateDraftNaturalPlanJson(goals, content);
+      const compiledPlan = compiledJson ? parseCreateDraftNaturalPlan(compiledJson) : null;
+      const compiledBody = compiledPlan ? renderCreateDraftNaturalPlan(compiledPlan, language) : null;
+      if (!compiledBody || isForbiddenGenericEmptyWrapper(compiledBody)) {
+        return fail('unsupported_claim', language);
+      }
+      plan = compiledPlan;
+      body = compiledBody;
+      compileReplacement = true;
+    }
     const invalid = validateRenderedBody(body, goals);
     if (invalid) return fail(invalid, language);
-    return ready(body, language, authority);
+    return ready(body, language, authority, compileReplacement ? { compile_replacement: true } : undefined);
   }
 
   return freeze({
@@ -516,6 +601,8 @@ module.exports = freeze({
   parseCreateDraftNaturalPlan,
   renderCreateDraftNaturalPlan,
   compileCreateDraftNaturalPlanJson,
+  extractCreateDraftThreadTopic,
+  isForbiddenGenericEmptyWrapper,
   buildEmailLunaNaturalGuestReplyPrompt,
   createEmailLunaCreateDraftNaturalAuthor,
 });

@@ -79,12 +79,26 @@ const LIVE_EN_BODY = renderCreateDraftNaturalPlan({
 const LIVE_ES_BODY = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
 }, 'es');
-const EMPTY_NOTES_EN_BODY = renderCreateDraftNaturalPlan({
+const FORBIDDEN_EMPTY_WRAPPER_EN = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
 }, 'en');
-const EMPTY_NOTES_ES_BODY = renderCreateDraftNaturalPlan({
+const FORBIDDEN_EMPTY_WRAPPER_ES = renderCreateDraftNaturalPlan({
   acts: [{ act: 'thank_guest' }, { act: 'offer_human_followup' }],
 }, 'es');
+const EMPTY_NOTES_EN_BODY = renderCreateDraftNaturalPlan(
+  parseCreateDraftNaturalPlan(compileCreateDraftNaturalPlanJson('', {
+    subject: LIVE_SUBJECT,
+    body_text: LIVE_BODY,
+  })),
+  'en',
+);
+const EMPTY_NOTES_ES_BODY = renderCreateDraftNaturalPlan(
+  parseCreateDraftNaturalPlan(compileCreateDraftNaturalPlanJson('', {
+    subject: 'Re: Prueba 8 26',
+    body_text: 'Hola, gracias, necesito un mensaje por favor.',
+  })),
+  'es',
+);
 
 function authority() {
   return {
@@ -609,6 +623,7 @@ function makeOwner(options = {}) {
   assert.equal(empty.status, 'draft_ready');
   assert.equal(empty.body, EMPTY_NOTES_EN_BODY);
   assert.notEqual(empty.body, SAFE_ACKNOWLEDGMENT.en);
+  assert.notEqual(empty.body, FORBIDDEN_EMPTY_WRAPPER_EN);
   assert.equal(emptyPrompts.length > 0, true);
   assertGuestFacingNatural(empty.body, { goals: '', language: 'en' });
   console.log('  PASS  empty context authors a warm low-claim thread draft, not the canned ack');
@@ -712,6 +727,7 @@ function makeOwner(options = {}) {
   assert.equal(spanishHostileGoal.status, 'draft_ready');
   assert.equal(spanishHostileGoal.language, 'es');
   assert.equal(spanishHostileGoal.body, EMPTY_NOTES_ES_BODY);
+  assert.notEqual(spanishHostileGoal.body, FORBIDDEN_EMPTY_WRAPPER_ES);
   assert.notEqual(spanishHostileGoal.body, SAFE_ACKNOWLEDGMENT.es);
   console.log('  PASS  Spanish/EN hostile staff goals are dropped at input filtering');
 

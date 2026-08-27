@@ -117,6 +117,9 @@ function createEmailLunaSunsetEmailHermesSolAuthors(configuration) {
     }
     const natural = createEmailLunaCreateDraftNaturalAuthor(naturalConfig);
     const authored = await natural.authorNaturalGuestReply(input);
+    if (authored && typeof authored === 'object' && authored.compile_replacement === true) {
+      return authored;
+    }
     if (authored && typeof authored === 'object' && callModel.lastMarker) {
       const extra = { marker: callModel.lastMarker };
       if (callModel.lastAuthenticity) extra.authenticity = callModel.lastAuthenticity;

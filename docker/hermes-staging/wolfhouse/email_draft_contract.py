@@ -74,7 +74,8 @@ BAKED_SYSTEM = "\n".join(
         "Allowed acts only: thank_guest, acknowledge_message, ask_booking_interest, ask_clarifying_question, offer_human_followup.",
         "Hard constraints: no prices, no availability claims, no payment URLs, no holds, no booking creation or confirmation.",
         "If staff goals request unsupported factual acts, omit those acts. Do not invent facts. Do not send.",
-        "When private staff goals are empty, choose a warm low-claim plan from the untrusted guest email only.",
+        "When private staff goals are empty, choose a warm low-claim plan from the untrusted guest email only, including a bounded topic from that email.",
+        "Do not return only thank_guest plus offer_human_followup when staff goals are empty.",
         'Return only {"acts":[...]} with no extra keys.',
     ]
 )

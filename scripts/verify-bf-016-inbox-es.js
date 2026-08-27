@@ -320,10 +320,11 @@ async function main() {
   ok('empty-context Spanish Create Draft is locale-correct Sol/natural voice, not canned EN ack',
     emptyEs.status === 'draft_ready'
     && emptyEs.language === 'es'
-    && emptyEs.body === emptyEsBody
+    && emptyEs.body !== emptyEsBody
     && emptyEs.body !== SAFE_ACKNOWLEDGMENT.es
     && emptyEs.body !== SAFE_ACKNOWLEDGMENT.en
-    && /^Hola,/.test(emptyEs.body));
+    && /^Hola,/.test(emptyEs.body)
+    && /reserva|tablas|sábado|mensaje/i.test(emptyEs.body));
 
   const emptyEn = await policyFor(async () => emptyPlan).compose({
     authority: authority(),
@@ -334,8 +335,9 @@ async function main() {
   ok('empty-context English Create Draft stays English natural voice, not canned review stub',
     emptyEn.status === 'draft_ready'
     && emptyEn.language === 'en'
-    && emptyEn.body === emptyEnBody
-    && emptyEn.body !== SAFE_ACKNOWLEDGMENT.en);
+    && emptyEn.body !== emptyEnBody
+    && emptyEn.body !== SAFE_ACKNOWLEDGMENT.en
+    && /front desk|testing|mailbox/i.test(emptyEn.body));
 
   const liveEnBody = renderCreateDraftNaturalPlan({
     acts: [{ act: 'thank_guest' }, { act: 'ask_booking_interest' }],
@@ -400,8 +402,10 @@ async function main() {
   ok('filtered hostile Spanish notes stay ES natural voice with no facts or wrap',
     hostileEs.status === 'draft_ready'
     && hostileEs.language === 'es'
-    && hostileEs.body === emptyEsBody
+    && hostileEs.body !== emptyEsBody
     && hostileEs.body !== SAFE_ACKNOWLEDGMENT.es
+    && /^Hola,/.test(hostileEs.body)
+    && /reserva|tablas|sábado/i.test(hostileEs.body)
     && !/disponibilidad|evil\.test|We also wanted to add|loft/i.test(hostileEs.body));
 
   console.log(`\nverify-bf-016-inbox-es: ${pass} passed, ${fail} failed\n`);
