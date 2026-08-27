@@ -1560,6 +1560,31 @@ function servingIdentityCompatible(authorized, current) {
   return true;
 }
 
+function approvedFlagsOnly(flags) {
+  if (!flags || typeof flags !== 'object' || isProxy(flags)) return false;
+  const keys = Object.keys(flags);
+  if (keys.length !== ALLOWED_FLAG_KEYS.length) return false;
+  for (const key of ALLOWED_FLAG_KEYS) {
+    if (!keys.includes(key)) return false;
+    if (flags[key] !== 'true' && flags[key] !== 'false') return false;
+  }
+  return true;
+}
+
+function approvedReplicaFlagsExact(serving, enabled) {
+  return flagsLiteral(serving, enabled) === true && approvedFlagsOnly(serving && serving.flags);
+}
+
+function servingSuccessorAcceptable(authorized, current) {
+  if (!servingIdentityCompatible(authorized, current)) return false;
+  if (!servingHealthyReady100(current)) return false;
+  if (typeof current.revision !== 'string' || !current.revision.startsWith(STAFF_APP)) return false;
+  if (!SAFE_AZ_NAME.test(current.revision)) return false;
+  if (authorized.revision && !authorized.revision.startsWith(STAFF_APP)) return false;
+  if (authorized.revision && !SAFE_AZ_NAME.test(authorized.revision)) return false;
+  return true;
+}
+
 function typedReplicaCount(value) {
   return Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
@@ -2350,7 +2375,7 @@ function createMailMvp004LiveProof(deps) {
   if (!deps || typeof deps !== 'object') throw new Error('live_proof_misconfigured');
   const nonceStore = wrapNonceStore(deps.nonceStore || USED_OPERATOR_NONCES);
 
-  async function restoreSafe() {
+  async function restoreSafe(authorized) {
     const errors = [];
     try {
       if (typeof deps.setEmergencyFlags === 'function') await deps.setEmergencyFlags(false);
@@ -2365,15 +2390,17 @@ function createMailMvp004LiveProof(deps) {
     let serving = null;
     try {
       if (typeof deps.waitServingHealthy === 'function') {
-        serving = await deps.waitServingHealthy({ enabled: false });
+        serving = await deps.waitServingHealthy({ enabled: false, authorized });
       } else if (typeof deps.readServingIdentity === 'function') {
         serving = await deps.readServingIdentity();
       }
     } catch {
       errors.push('serving');
     }
-    const flagsOff = flagsLiteral(serving, false);
-    const servingOk = flagsOff === true && servingHealthyReady100(serving);
+    const flagsOff = approvedReplicaFlagsExact(serving, false);
+    const servingOk = flagsOff === true
+      && servingHealthyReady100(serving)
+      && (!authorized || servingSuccessorAcceptable(authorized, serving));
     if (!servingOk) errors.push('off_replica_unproven');
     let kill = null;
     try {
@@ -2535,11 +2562,14 @@ function createMailMvp004LiveProof(deps) {
       await deps.setEmergencyFlags(true);
       await deps.putEmailChannelMode('auto');
       const enabled = typeof deps.waitServingHealthy === 'function'
-        ? await deps.waitServingHealthy({ enabled: true })
+        ? await deps.waitServingHealthy({ enabled: true, authorized: serving })
         : await deps.readServingIdentity();
-      if (!servingIdentityCompatible(serving, enabled)) {
+      if (!enabled) {
+        failedReason = 'enabled_revision_unproven';
+      } else if (!servingIdentityCompatible(serving, enabled)) {
         failedReason = 'enabled_image_drift';
-      } else if (!flagsLiteral(enabled, true) || !servingHealthyReady100(enabled)) {
+      } else if (!approvedReplicaFlagsExact(enabled, true) || !servingHealthyReady100(enabled)
+          || !servingSuccessorAcceptable(serving, enabled)) {
         failedReason = 'enabled_revision_unproven';
       } else if ((await deps.getEmailChannelMode()) !== 'auto') {
         failedReason = 'channel_mode_unproven';
@@ -2633,7 +2663,7 @@ function createMailMvp004LiveProof(deps) {
     } catch {
       failedReason = failedReason || (dispatchMarked ? 'indeterminate_no_retry' : 'owner_failed');
     } finally {
-      restored = await restoreSafe();
+      restored = await restoreSafe(serving);
       if (modeSnapshot && requiredFinalMode !== modeSnapshot) {
         /* required final off wins for this approved job */
       }
@@ -3626,11 +3656,31 @@ function isProductionKillSwitch(fn) {
   return typeof fn === 'function' && PRODUCTION_KILL_SWITCHES.has(fn);
 }
 
+const REPLICA_ENV_PRINTENV = `/usr/bin/printenv ${ENV_LUNA_AUTO_SEND_ENABLED} ${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED}`;
+const REPLICA_ENV_ATTEST_TIMEOUT_MS = 20000;
+
+function isLegalReplicaEnvRemoteCommand(command) {
+  if (typeof command !== 'string' || !command || command.length > 512) return false;
+  if (command.includes("'") || command.includes('"') || command.includes('`') || command.includes('\0')) {
+    return false;
+  }
+  if (command.includes('$(') || command.includes('${') || command.includes('\n') || command.includes('\r')) {
+    return false;
+  }
+  if (/^sh\s+-c\b/.test(command) || command.includes('|') || command.includes('>') || command.includes('<')) {
+    return false;
+  }
+  return command === REPLICA_ENV_PRINTENV;
+}
+
+function buildReplicaEnvRemoteCommand() {
+  return isLegalReplicaEnvRemoteCommand(REPLICA_ENV_PRINTENV) ? REPLICA_ENV_PRINTENV : null;
+}
+
 function buildReplicaEnvAttestCommand() {
-  return freeze([
-    'sh', '-c',
-    `printenv ${ENV_LUNA_AUTO_SEND_ENABLED} ${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED} 2>/dev/null || tr '\\0' '\\n' < /proc/1/environ | grep -E '^(${ENV_LUNA_AUTO_SEND_ENABLED}|${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED})='`,
-  ]);
+  const command = buildReplicaEnvRemoteCommand();
+  if (!command) return null;
+  return freeze(['/usr/bin/printenv', ENV_LUNA_AUTO_SEND_ENABLED, ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]);
 }
 
 function buildReplicaEnvExecAzArgs(serving) {
@@ -3641,14 +3691,15 @@ function buildReplicaEnvExecAzArgs(serving) {
       || !serving.revision.startsWith(STAFF_APP)) {
     return null;
   }
-  const inner = `printenv ${ENV_LUNA_AUTO_SEND_ENABLED} ${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED} || (tr '\\0' '\\n' < /proc/1/environ | grep -E '^(${ENV_LUNA_AUTO_SEND_ENABLED}|${ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED})=')`;
+  const command = buildReplicaEnvRemoteCommand();
+  if (!isLegalReplicaEnvRemoteCommand(command)) return null;
   return freeze([
     'containerapp', 'exec',
     '-g', RG,
     '-n', STAFF_APP,
     '--replica', serving.replica,
     '--revision', serving.revision,
-    '--command', `sh -c ${shSingleQuote(inner)}`,
+    '--command', command,
   ]);
 }
 
@@ -3686,31 +3737,37 @@ function parseReplicaProcessEnv(raw) {
   return null;
 }
 
-async function attestReplicaProcessEnv(azRun, serving, azBin, env) {
+async function attestReplicaProcessEnv(azRun, serving, azBin, env, timeoutMs) {
   if (!serving || !servingHealthyReady100(serving)) return null;
   const args = buildReplicaEnvExecAzArgs(serving);
   if (!args || typeof azRun !== 'function') return null;
   let raw = null;
+  const execTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs > 0
+    ? timeoutMs
+    : REPLICA_ENV_ATTEST_TIMEOUT_MS;
   try {
     raw = await azRun(args);
   } catch (error) {
     if (!error || error.message !== 'pty_required') return null;
     try {
       const spec = wrapPtyAzExec(azBin || AZ_DEFAULT, args);
-      raw = spawnPtyHarness(spec, { env: env || process.env });
+      raw = spawnPtyHarness(spec, { env: env || process.env, timeoutMs: execTimeout });
     } catch {
       return null;
     }
   }
   const text = `${raw && raw.stdout || ''}\n${raw && raw.stderr || ''}`;
+  if (remoteExecTransportFailed(text)) return null;
   const parsed = parseReplicaProcessEnv(text);
   if (!parsed) return null;
+  const flags = freeze({
+    [ENV_LUNA_AUTO_SEND_ENABLED]: parsed[ENV_LUNA_AUTO_SEND_ENABLED],
+    [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: parsed[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
+  });
+  if (!approvedFlagsOnly(flags)) return null;
   return freeze({
     ...serving,
-    flags: freeze({
-      [ENV_LUNA_AUTO_SEND_ENABLED]: parsed[ENV_LUNA_AUTO_SEND_ENABLED],
-      [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: parsed[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
-    }),
+    flags,
     flagsSource: 'replica_process',
   });
 }
@@ -3751,6 +3808,7 @@ async function readProductionServingIdentity(azRun) {
 async function waitServingHealthy(azRun, options) {
   const enabled = options && options.enabled === true;
   const authorized = options && options.authorized;
+  if (!authorized) return null;
   const nowFn = (options && options.now) || Date.now;
   const sleepFn = (options && options.sleep) || ((ms) => new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -3763,14 +3821,19 @@ async function waitServingHealthy(azRun, options) {
   let last = null;
   while (nowFn() - start <= timeoutMs) {
     last = await readProductionServingIdentity(azRun);
-    if (last && servingIdentityCompatible(authorized, last) && servingHealthyReady100(last)) {
+    if (last && servingSuccessorAcceptable(authorized, last)) {
       const attested = await attestReplicaProcessEnv(
         azRun,
         last,
         options && options.azBin,
         options && options.env,
+        options && options.attestTimeoutMs,
       );
-      if (attested && flagsLiteral(attested, enabled)) return attested;
+      if (attested
+          && servingSuccessorAcceptable(authorized, attested)
+          && approvedReplicaFlagsExact(attested, enabled)) {
+        return attested;
+      }
     }
     await sleepFn(intervalMs);
   }
@@ -4283,7 +4346,8 @@ function createProductionMailMvp004Supervisor(options) {
     requireProductionOwner: options && options.requireProductionOwner,
     readServingIdentity: readServing,
     async waitServingHealthy(input) {
-      const authorized = await readServing();
+      const authorized = input && input.authorized;
+      if (!authorized) return null;
       return waitServingHealthy(azRun, {
         enabled: input && input.enabled === true,
         authorized,
@@ -4669,11 +4733,15 @@ module.exports = freeze({
   mergeRevisionIntoServing,
   servingHealthyReady100,
   servingIdentityCompatible,
+  servingSuccessorAcceptable,
   flagsLiteral,
+  approvedFlagsOnly,
+  approvedReplicaFlagsExact,
   extractAzureJson,
   parseAcrManifestDigest,
   resolveBoundAcrDigest,
   readProductionServingIdentity,
+  waitServingHealthy,
   attestReplicaProcessEnv,
   buildSetEnvArgs,
   buildShowAppArgs,
@@ -4681,6 +4749,8 @@ module.exports = freeze({
   buildReplicaListArgs,
   buildAcrManifestDigestArgs,
   buildReplicaEnvExecAzArgs,
+  buildReplicaEnvRemoteCommand,
+  isLegalReplicaEnvRemoteCommand,
   buildReadonlyGraphListRequest,
   GRAPH_LIST_SELECT,
   GRAPH_PREFER_IMMUTABLE_ID,
