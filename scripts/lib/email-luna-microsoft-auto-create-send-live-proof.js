@@ -1035,10 +1035,35 @@ function servingIdentityCompatible(authorized, current) {
   return true;
 }
 
+function typedReplicaCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function hasPinnedReplicaEvidence(identity) {
+  if (!identity || typeof identity !== 'object' || isProxy(identity)) return false;
+  const count = typedReplicaCount(identity.replicas);
+  if (count !== null && count >= 1) return true;
+  const replica = identity.replica;
+  return typeof replica === 'string'
+    && replica.startsWith(STAFF_APP)
+    && SAFE_AZ_NAME.test(replica);
+}
+
+function acceptedHealthyServingRunningState(identity) {
+  if (!identity || typeof identity !== 'object' || isProxy(identity)) return false;
+  if (identity.runningState === 'Running') {
+    return typedReplicaCount(identity.replicas) !== 0;
+  }
+  if (identity.runningState === 'RunningAtMaxScale') {
+    return hasPinnedReplicaEvidence(identity);
+  }
+  return false;
+}
+
 function servingHealthyReady100(serving) {
   if (!serving || typeof serving !== 'object' || isProxy(serving)) return false;
   if (serving.healthState !== 'Healthy') return false;
-  if (serving.runningState !== 'Running') return false;
+  if (!acceptedHealthyServingRunningState(serving)) return false;
   if (serving.provisioningState && serving.provisioningState !== 'Provisioned'
       && serving.provisioningState !== 'Succeeded') {
     return false;
@@ -1358,9 +1383,15 @@ function parseRevisionShow(raw) {
   const healthState = ownData(props, 'healthState') || props.healthState || parsed.healthState;
   const runningState = ownData(props, 'runningState') || props.runningState || parsed.runningState;
   const provisioningState = ownData(props, 'provisioningState') || props.provisioningState;
-  const ready = healthState === 'Healthy'
-    && runningState === 'Running'
-    && (provisioningState === 'Provisioned' || provisioningState === 'Succeeded');
+  const replicaRaw = ownData(props, 'replicas');
+  const replicas = typedReplicaCount(replicaRaw !== undefined ? replicaRaw : ownData(parsed, 'replicas'));
+  const healthOk = healthState === 'Healthy';
+  const provisionedOk = provisioningState === 'Provisioned' || provisioningState === 'Succeeded';
+  const exactImage = Boolean(sha40(imageTag));
+  const ready = healthOk === true
+    && provisionedOk === true
+    && acceptedHealthyServingRunningState({ runningState, replicas }) === true
+    && (runningState === 'Running' || exactImage === true);
   return freeze({
     resourceGroup: RG,
     appName: STAFF_APP,
@@ -1374,6 +1405,7 @@ function parseRevisionShow(raw) {
     healthState: typeof healthState === 'string' ? healthState : null,
     runningState: typeof runningState === 'string' ? runningState : null,
     provisioningState: typeof provisioningState === 'string' ? provisioningState : null,
+    replicas,
     ready: ready === true,
     trafficWeight: null,
   });
@@ -1444,13 +1476,18 @@ function mergeRevisionIntoServing(appIdentity, revisionIdentity) {
   const imageTag = revisionIdentity.imageTag || appIdentity.imageTag;
   const digest = revisionIdentity.digest || appIdentity.digest;
   if (!sha40(imageTag) || !(typeof digest === 'string' && DIGEST_RE.test(digest))) return null;
+  if (appIdentity.imageTag && revisionIdentity.imageTag
+      && sha40(appIdentity.imageTag) !== sha40(revisionIdentity.imageTag)) {
+    return null;
+  }
   if (revisionIdentity.healthState !== 'Healthy') return null;
-  if (revisionIdentity.runningState !== 'Running') return null;
+  if (!acceptedHealthyServingRunningState(revisionIdentity)) return null;
   if (revisionIdentity.provisioningState !== 'Provisioned'
       && revisionIdentity.provisioningState !== 'Succeeded') {
     return null;
   }
   if (revisionIdentity.ready !== true) return null;
+  const replicas = typedReplicaCount(revisionIdentity.replicas);
   return freeze({
     ...appIdentity,
     imageTag,
@@ -1461,6 +1498,7 @@ function mergeRevisionIntoServing(appIdentity, revisionIdentity) {
     healthState: revisionIdentity.healthState,
     runningState: revisionIdentity.runningState,
     provisioningState: revisionIdentity.provisioningState,
+    replicas,
     ready: true,
     trafficWeight: 100,
     replica: appIdentity.replica || revisionIdentity.replica || null,
