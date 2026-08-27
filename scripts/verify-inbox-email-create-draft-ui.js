@@ -102,7 +102,9 @@ function assertSourcePlacement(source, label) {
     barAt >= 0 && areaAt >= 0 && areaAt < contextAt && contextAt < createAt
     && /inbox-email-create-draft-context-area[\s\S]*id="inbox-email-create-draft-context"[\s\S]*draft-actions/.test(windowSrc)
     && !/draft-actions[\s\S]*id="inbox-email-create-draft-context"/.test(windowSrc));
-  ok(label + ': Create Draft label present', source.includes('>Create Draft</button>'));
+  ok(label + ': Create Draft label present',
+    /inboxT\('inbox\.detail\.email\.createDraft',\s*'Create Draft'\)/.test(source)
+    || source.includes('>Create Draft</button>'));
   ok(label + ': no booking chip substitution for the context field',
     !/ask them to create a new booking/i.test(windowSrc)
     && !/#inbox-email-create-draft-context\{[^}]*display:none/.test(source));

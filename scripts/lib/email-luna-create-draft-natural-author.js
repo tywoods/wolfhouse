@@ -37,7 +37,7 @@ const GENERIC_REVIEW = /we['’]ll review it and get back to you shortly|lo revi
 const WRAPPER = /we also wanted to add|tambi[eé]n quer[ií]amos a[nñ]adir/i;
 const STAFF_VOICE = /staff notes|staff instruction|operator context|\bthank them\b|\bask them\b|\btell them\b/i;
 const INJECTION_ECHO = /(?:\bsystem\s*:|\[\s*system\s*\]|immutable system policy|ignore\s+(?:all\s+)?previous\s+instructions?|\bdeveloper\s+(?:message|instruction)|override\s+policy|send_allowed|draft_ready|low_confidence|location_id\s*=|required_facts)/i;
-const ES_MARKERS = /\b(hola|gracias|buenos|buenas|reserva|precio|disponibilidad|necesito|por favor|alquiler|pago|tabla|ustedes|nosotros|días|noches|mensaje|quieres|camas)\b/gi;
+const ES_MARKERS = /\b(hola|gracias|buenos|buenas|reserv(?:a|as|ar|amos)?|precios?|disponibilidad|necesit(?:o|amos|a)?|por favor|alquiler|pagos?|tablas?|ustedes|nosotros|d[ií]as?|noches?|mensajes?|quier(?:o|es|e|en|[ií]a)|camas?|clases?|informaci[oó]n)\b/gi;
 const EN_MARKERS = /\b(hello|hi|thanks|please|booking|price|available|need|message|boards?|lesson|would)\b/gi;
 const TOPIC_CHARS = /^[a-z0-9áéíóúñü][a-z0-9áéíóúñü -]{0,31}$/i;
 const SAFE_CREATE_DRAFT_NATURAL_ACTS = freeze([
@@ -124,7 +124,10 @@ function detectLanguage(subject, body) {
   const text = `${typeof subject === 'string' ? subject : ''}\n${typeof body === 'string' ? body : ''}`;
   const es = (text.match(ES_MARKERS) || []).length;
   const en = (text.match(EN_MARKERS) || []).length;
-  return es > en ? 'es' : 'en';
+  if (es > en) return 'es';
+  if (en > es) return 'en';
+  if (/[áéíóúñü¿¡]/i.test(text)) return 'es';
+  return 'en';
 }
 
 function snapshotAuthority(authority) {

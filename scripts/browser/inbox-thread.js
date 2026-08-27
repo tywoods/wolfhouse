@@ -787,17 +787,70 @@ function convDetailHasLayout(targetEl){
   return !!(targetEl && targetEl.querySelector('.detail-layout'));
 }
 
+function inboxT(key, fallback){
+  var text = '';
+  try { if (typeof t === 'function') text = t(key); } catch (_t) { text = ''; }
+  if (text && text !== key) return text;
+  try {
+    if (typeof portalT === 'function') {
+      var p = portalT(key);
+      if (p && p !== key) return p;
+    }
+  } catch (_p) {}
+  return fallback || key;
+}
+
 function buildConvDetailSkeleton(){
   return '<div class="detail-header">' +
     '<div><div class="detail-name conv-skeleton-line">&nbsp;</div>' +
     '<div class="detail-meta conv-skeleton-line short">&nbsp;</div></div>' +
-    '<span id="conv-detail-load-status" class="conv-detail-load-status">Loading…</span></div>' +
+    '<span id="conv-detail-load-status" class="conv-detail-load-status">' +
+    escHtml(inboxT('common.loading', 'Loading…')) + '</span></div>' +
     '<div class="detail-layout detail-layout-skeleton">' +
     '<div class="detail-main">' +
     '<div class="thread-section"><div class="thread"><div class="thread-messages thread-skeleton"></div></div></div>' +
     '<div class="draft-panel"><div class="draft-label">' +
-    '<span style="font-size:11px;color:var(--text-3)">Reply:</span></div></div></div>' +
+    '<span style="font-size:11px;color:var(--text-3)">' +
+    escHtml(inboxT('inbox.detail.reply.label', 'Reply:')) + '</span></div></div></div>' +
     '<div class="detail-sidebar"><div class="sidebar-card sidebar-card-skeleton"></div></div></div>';
+}
+
+function inboxEmailComposerChromeHtml(emailSt, replySubject, conv, middleHtml){
+  emailSt = emailSt || {};
+  var disabled = emailSt.locked ? ' disabled' : '';
+  var html = '';
+  html += '<label class="inbox-email-subject-label" for="inbox-email-reply-subject">' +
+    escHtml(inboxT('inbox.detail.email.subject', 'Subject')) + '</label>';
+  html += '<input type="text" id="inbox-email-reply-subject" class="inbox-email-reply-subject" maxlength="200" value="' +
+    escHtml(replySubject || '') + '"' + disabled + '>';
+  if (middleHtml) html += middleHtml;
+  html += '<div id="email-draft-byte-count" class="email-draft-byte-count" aria-live="polite">0 / 8000 bytes</div>';
+  html += '<div class="inbox-email-create-draft-bar">';
+  html += '<div class="inbox-email-create-draft-context-area">';
+  html += '<label class="inbox-email-create-draft-context-label" for="inbox-email-create-draft-context">' +
+    escHtml(inboxT('inbox.detail.email.context', 'Context')) + '</label>';
+  html += '<textarea id="inbox-email-create-draft-context" class="inbox-email-create-draft-context" rows="2" maxlength="500" placeholder="' +
+    escHtml(inboxT('inbox.detail.email.contextPlaceholder', 'Context (optional)')) +
+    '" aria-label="' + escHtml(inboxT('inbox.detail.email.contextAria', 'Draft context')) + '"' +
+    disabled + '></textarea>';
+  html += '</div>';
+  html += '<div class="draft-actions">';
+  if (typeof staffEmailLunaDraftUiEnabled === 'function' && staffEmailLunaDraftUiEnabled() &&
+      typeof isAuthoritativeEmailConversation === 'function' && isAuthoritativeEmailConversation(conv)) {
+    html += '<button type="button" class="btn-email-save-draft" id="btn-email-generate-luna-draft" hidden' +
+            disabled + '>' + escHtml(inboxT('inbox.detail.email.generateLuna', 'Generate Luna draft')) + '</button>';
+  }
+  html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft" hidden' +
+            disabled + '>' + escHtml(inboxT('inbox.detail.email.saveDraft', 'Save draft')) + '</button>';
+  html += '<button type="button" class="btn-email-create-draft" id="btn-email-create-draft"' +
+          disabled + '>' + escHtml(inboxT('inbox.detail.email.createDraft', 'Create Draft')) + '</button>';
+  if (typeof staffEmailOutboundUiEnabled !== 'function' || staffEmailOutboundUiEnabled()) {
+    html += '<button type="button" class="btn-email-approve-send" id="btn-email-approve-send"' +
+            disabled + '>' + escHtml(inboxT('inbox.detail.email.approveSend', 'Approve & send')) + '</button>';
+  }
+  html += '</div>';
+  html += '</div>';
+  return html;
 }
 
 /* A selection generation invalidates every pending detail completion for the prior row. */
@@ -2282,49 +2335,25 @@ function loadConvDetail(convId, targetEl){
     if (missingEmail) {
       html += '<div class="inbox-composer-no-email" role="status">Update email address in guest profile to email.</div>';
     } else {
-    if (useEmailReplyUi) {
-      var replySubject = (emailSt && emailSt.savedSubject)
-        ? emailSt.savedSubject
-        : inboxEmailOpenDraftSubject(draft, c, msgs);
-      html += '<label class="inbox-email-subject-label" for="inbox-email-reply-subject">Subject</label>';
-      html += '<input type="text" id="inbox-email-reply-subject" class="inbox-email-reply-subject" maxlength="200" value="' +
-        escHtml(replySubject) + '"' + (emailSt && emailSt.locked ? ' disabled' : '') + '>';
-    }
-    html += '<textarea id="draft-textarea" placeholder="' + escHtml(t('inbox.detail.reply.editPlaceholder')) + '"' +
-            ((isEmailConversation && !useEmailReplyUi) || (useEmailReplyUi && emailSt && emailSt.locked) ? ' disabled' : '') + '>' +
-            escHtml(draftText) + '</textarea>';
-    if (useEmailReplyUi) {
-      html += '<div id="email-draft-byte-count" class="email-draft-byte-count" aria-live="polite">0 / 8000 bytes</div>';
-      html += '<div class="inbox-email-create-draft-bar">';
-      html += '<div class="inbox-email-create-draft-context-area">';
-      html += '<label class="inbox-email-create-draft-context-label" for="inbox-email-create-draft-context">Context</label>';
-      html += '<textarea id="inbox-email-create-draft-context" class="inbox-email-create-draft-context" rows="2" maxlength="500" placeholder="Context (optional)" aria-label="Draft context"' +
-              (emailSt && emailSt.locked ? ' disabled' : '') + '></textarea>';
-      html += '</div>';
-      html += '<div class="draft-actions">';
-      if (staffEmailLunaDraftUiEnabled() && isAuthoritativeEmailConversation(c)) {
-        html += '<button type="button" class="btn-email-save-draft" id="btn-email-generate-luna-draft" hidden' +
-                (emailSt && emailSt.locked ? ' disabled' : '') + '>Generate Luna draft</button>';
+      var draftTextareaHtml = '<textarea id="draft-textarea" placeholder="' + escHtml(t('inbox.detail.reply.editPlaceholder')) + '"' +
+              ((isEmailConversation && !useEmailReplyUi) || (useEmailReplyUi && emailSt && emailSt.locked) ? ' disabled' : '') + '>' +
+              escHtml(draftText) + '</textarea>';
+      if (useEmailReplyUi) {
+        var replySubject = (emailSt && emailSt.savedSubject)
+          ? emailSt.savedSubject
+          : inboxEmailOpenDraftSubject(draft, c, msgs);
+        html += inboxEmailComposerChromeHtml(emailSt, replySubject, c, draftTextareaHtml);
+        html += '<div id="draft-send-status" class="draft-send-status" role="status" aria-live="polite"></div>';
+      } else if (isEmailConversation) {
+        html += draftTextareaHtml;
+        html += '<div id="email-drafting-disabled" class="draft-warning" role="status">Email drafting is currently disabled. This conversation is read-only.</div>';
+      } else {
+        html += draftTextareaHtml;
+        html += '<div class="draft-actions">';
+        html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
+        html += '</div>';
+        html += '<div id="draft-send-status" class="draft-send-status"></div>';
       }
-      html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft" hidden' +
-              (emailSt && emailSt.locked ? ' disabled' : '') + '>Save draft</button>';
-      html += '<button type="button" class="btn-email-create-draft" id="btn-email-create-draft"' +
-              (emailSt && emailSt.locked ? ' disabled' : '') + '>Create Draft</button>';
-      if (staffEmailOutboundUiEnabled()) {
-        html += '<button type="button" class="btn-email-approve-send" id="btn-email-approve-send"' +
-                (emailSt && emailSt.locked ? ' disabled' : '') + '>Approve &amp; send</button>';
-      }
-      html += '</div>';
-      html += '</div>';
-      html += '<div id="draft-send-status" class="draft-send-status" role="status" aria-live="polite"></div>';
-    } else if (isEmailConversation) {
-      html += '<div id="email-drafting-disabled" class="draft-warning" role="status">Email drafting is currently disabled. This conversation is read-only.</div>';
-    } else {
-      html += '<div class="draft-actions">';
-      html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
-      html += '</div>';
-      html += '<div id="draft-send-status" class="draft-send-status"></div>';
-    }
     }
     html += '</div>'; /* /draft-panel */
 
