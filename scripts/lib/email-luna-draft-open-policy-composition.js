@@ -117,6 +117,8 @@ function authoredDraft(result) {
   };
   if (result && result.marker) out.marker = result.marker;
   if (result && result.authenticity) out.authenticity = result.authenticity;
+  if (result && result.plan_authenticity) out.plan_authenticity = result.plan_authenticity;
+  if (result && result.local_compile) out.local_compile = result.local_compile;
   return freeze(out);
 }
 
