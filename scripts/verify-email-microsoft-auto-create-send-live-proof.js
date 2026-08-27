@@ -1857,6 +1857,24 @@ async function main() {
       tokenLoan,
       https: httpsOk,
     });
+    function assertGraphReplicaDiag(result, expected) {
+      assert.equal(result.token_present, expected.token_present === true);
+      assert.equal(result.https_present, expected.https_present === true);
+      assert.equal(result.request_built, expected.request_built === true);
+      if (result.public && typeof result.public === 'object') {
+        assert.equal(result.public.token_present, expected.token_present === true);
+        assert.equal(result.public.https_present, expected.https_present === true);
+        assert.equal(result.public.request_built, expected.request_built === true);
+      }
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'accessToken'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'grant_generation'), false);
+      assert.equal(Object.prototype.hasOwnProperty.call(result, 'token_length'), false);
+      assert.doesNotMatch(
+        JSON.stringify(result),
+        /loan-token|Bearer |access_token|refresh_token|NEVER_LEAK|ya29\.|InvalidAuthenticationToken/,
+      );
+    }
+
     assert.equal(innerGraph.ok, true);
     assert.equal(innerGraph.adapter_available, true);
     assert.equal(innerGraph.readonly, true);
@@ -1866,6 +1884,21 @@ async function main() {
     assert.equal(Object.prototype.hasOwnProperty.call(innerGraph, 'id'), false);
     assert.doesNotMatch(JSON.stringify(innerGraph), /loan-token|twoods@|graph-sent-1|Would you like/);
     assert.equal(seenGraph.length, 1);
+    assertGraphReplicaDiag(innerGraph, {
+      token_present: true,
+      https_present: true,
+      request_built: true,
+    });
+    const resanitizedGraph = sanitizeGraphPublic(innerGraph.public);
+    assertGraphReplicaDiag(resanitizedGraph, {
+      token_present: true,
+      https_present: true,
+      request_built: true,
+    });
+    const clonedUnbranded = sanitizeGraphPublic(JSON.parse(JSON.stringify(innerGraph.public)));
+    assert.equal(Object.prototype.hasOwnProperty.call(clonedUnbranded, 'token_present'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(clonedUnbranded, 'https_present'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(clonedUnbranded, 'request_built'), false);
 
     const innerUnwired = await runInnerGraphVerify({
       env: {
@@ -1878,6 +1911,11 @@ async function main() {
     assert.equal(innerUnwired.reason, 'graph_adapter_unwired');
     assert.equal(innerUnwired.adapter_available, false);
     assert.equal(Object.prototype.hasOwnProperty.call(innerUnwired, 'stage'), false);
+    assertGraphReplicaDiag(innerUnwired, {
+      token_present: false,
+      https_present: false,
+      request_built: false,
+    });
 
     function assertGraphGrantDiag(result, stage, status) {
       const reason = GRAPH_GRANT_STAGE_REASON[stage];
@@ -1891,6 +1929,11 @@ async function main() {
       assert.equal(Object.prototype.hasOwnProperty.call(result, 'accessToken'), false);
       assert.doesNotMatch(JSON.stringify(result), /NEVER_LEAK|loan-token|refresh_token|ya29\./);
       assert.doesNotMatch(JSON.stringify(result.public || {}), /NEVER_LEAK|loan-token|refresh_token/);
+      assertGraphReplicaDiag(result, {
+        token_present: false,
+        https_present: false,
+        request_built: false,
+      });
     }
 
     const forgedGrant = await runInnerGraphVerify({
@@ -1919,6 +1962,50 @@ async function main() {
     assert.equal(Object.prototype.hasOwnProperty.call(forgedGrant, 'stage'), false);
     assert.equal(Object.prototype.hasOwnProperty.call(forgedGrant, 'grant_generation'), false);
     assert.doesNotMatch(JSON.stringify(forgedGrant), /loan-token|8877|NEVER_LEAK/);
+    assertGraphReplicaDiag(forgedGrant, {
+      token_present: false,
+      https_present: false,
+      request_built: false,
+    });
+    const forgedBitsInjected = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([graphRow]),
+      tokenLoan: {
+        async runWithAccessTokenOnce() {
+          return {
+            ok: false,
+            reason: 'graph_adapter_unwired',
+            token_present: true,
+            https_present: true,
+            request_built: true,
+            accessToken: 'loan-token',
+            grant_generation: 99,
+          };
+        },
+      },
+    });
+    assert.equal(forgedBitsInjected.reason, 'graph_adapter_unwired');
+    assertGraphReplicaDiag(forgedBitsInjected, {
+      token_present: false,
+      https_present: false,
+      request_built: false,
+    });
+    const forgedSanitizedBits = sanitizeGraphPublic({
+      ok: false,
+      reason: 'graph_adapter_unwired',
+      token_present: true,
+      https_present: true,
+      request_built: true,
+      accessToken: 'loan-token',
+      grant_generation: 99,
+    });
+    assert.equal(forgedSanitizedBits.reason, 'graph_adapter_unwired');
+    assert.equal(Object.prototype.hasOwnProperty.call(forgedSanitizedBits, 'token_present'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(forgedSanitizedBits, 'https_present'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(forgedSanitizedBits, 'request_built'), false);
     const forgedClassified = classifyTrustedGraphGrantFailure({
       target: {
         ok: false,
@@ -2252,6 +2339,21 @@ async function main() {
     assert.equal(matchingList.threaded, true);
     assert.equal(matchingList.reason, null);
     assert.doesNotMatch(JSON.stringify(matchingList), /loan-token|graph-sent-1|Would you like/);
+    assertGraphReplicaDiag(matchingList, {
+      token_present: true,
+      https_present: true,
+      request_built: true,
+    });
+    assertGraphReplicaDiag(auth401, {
+      token_present: true,
+      https_present: true,
+      request_built: true,
+    });
+    assertGraphReplicaDiag(http500, {
+      token_present: true,
+      https_present: true,
+      request_built: true,
+    });
 
     const blankToken = await runInnerGraphVerify({
       env: {
@@ -2269,6 +2371,11 @@ async function main() {
     });
     assert.equal(blankToken.reason, 'graph_adapter_unwired');
     assert.equal(blankToken.adapter_available, false);
+    assertGraphReplicaDiag(blankToken, {
+      token_present: false,
+      https_present: false,
+      request_built: false,
+    });
 
     const noHttps = await runInnerGraphVerify({
       env: {
@@ -2281,6 +2388,30 @@ async function main() {
     });
     assert.equal(noHttps.reason, 'graph_adapter_unwired');
     assert.equal(noHttps.adapter_available, false);
+    assertGraphReplicaDiag(noHttps, {
+      token_present: true,
+      https_present: false,
+      request_built: true,
+    });
+
+    const requestUnbuilt = await runInnerGraphVerify({
+      env: {
+        MAIL_MVP_004_GRAPH_VERIFY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: innerPg([threadRow({
+        inbound_internet_message_id: '<src@test>',
+        graph_conversation_id: '',
+      })]),
+      tokenLoan,
+      https: httpsOk,
+    });
+    assert.equal(requestUnbuilt.reason, 'graph_send_forbidden');
+    assertGraphReplicaDiag(requestUnbuilt, {
+      token_present: true,
+      https_present: false,
+      request_built: false,
+    });
 
     const authSanitized = sanitizeGraphPublic({
       ok: false,
@@ -2502,6 +2633,24 @@ async function main() {
     assert.match(innerGraphSrc, /closePool/);
     assert.match(innerGraphSrc, /graph_auth_unproven/);
     assert.match(innerGraphSrc, /listed\.ok !== true/);
+    assert.match(innerGraphSrc, /replicaBits\.token_present = token !== ''/);
+    assert.match(innerGraphSrc, /replicaBits\.request_built = !!\(request && request\.method === 'GET'\)/);
+    assert.match(innerGraphSrc, /replicaBits\.https_present = !!\(httpsImpl && typeof httpsImpl\.request === 'function'\)/);
+    assert.match(libSrc, /const GRAPH_INNER_REPLICA_DIAG = new WeakSet/);
+    assert.match(libSrc, /function readBrandedGraphInnerReplicaBits/);
+    assert.doesNotMatch(innerGraphSrc, /token\.length|accessToken\.length|loan-token/);
+    assert.ok(
+      innerGraphSrc.indexOf("replicaBits.token_present = token !== ''")
+        < innerGraphSrc.indexOf('buildReadonlyGraphListRequest'),
+    );
+    assert.ok(
+      innerGraphSrc.indexOf('replicaBits.request_built')
+        < innerGraphSrc.indexOf('httpsGraphGet(httpsImpl, token, request'),
+    );
+    assert.ok(
+      innerGraphSrc.indexOf('replicaBits.https_present')
+        < innerGraphSrc.indexOf('httpsGraphGet(httpsImpl, token, request'),
+    );
     assert.match(libSrc, /GRAPH_PREFER_IMMUTABLE_ID = 'IdType="ImmutableId"'/);
     assert.match(libSrc, /reason === 'graph_auth_unproven'/);
     assert.match(libSrc, /classifyClosedGraphHttpStatus/);
@@ -3708,6 +3857,37 @@ Module._load = function(request, parent, isMain) {
       },
     };
   }
+  if (fixture.graphBlankToken === true) {
+    inject.tokenLoan = {
+      async runWithAccessTokenOnce(_binding, consumer) {
+        return { ok: true, grant_generation: 1, value: await consumer({ accessToken: '' }) };
+      },
+    };
+    inject.https = { request() { throw new Error('graph_should_not_get'); } };
+  }
+  if (fixture.graphNoHttps === true) {
+    inject.tokenLoan = {
+      async runWithAccessTokenOnce(_binding, consumer) {
+        return { ok: true, grant_generation: 1, value: await consumer({ accessToken: 'loan-token' }) };
+      },
+    };
+    inject.https = {};
+  }
+  if (fixture.graphForgedBits === true) {
+    inject.tokenLoan = {
+      async runWithAccessTokenOnce() {
+        return {
+          ok: false,
+          reason: 'graph_adapter_unwired',
+          token_present: true,
+          https_present: true,
+          request_built: true,
+          accessToken: 'loan-token',
+          grant_generation: 99,
+        };
+      },
+    };
+  }
   if (fixture.ownerSent === true) {
     inject.wired = {
       handleProjectedInbound: loaded.brandProductionAutoOwner(async () => {
@@ -3845,6 +4025,22 @@ Module._load = function(request, parent, isMain) {
     assert.doesNotMatch(JSON.stringify(evidenceOut), /graph-sent-1/);
     assertNoInnerLeak(evidenceSpawn.stdout);
 
+    const graphRedSpawn = spawnProofCli({
+      MAIL_MVP_004_GRAPH_VERIFY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { threadRows: [thread] });
+    assert.notEqual(graphRedSpawn.status, 0);
+    const graphRedOut = extractProofJson(`${graphRedSpawn.stdout}${graphRedSpawn.stderr}`);
+    assert.equal(graphRedOut.ok, false);
+    assert.equal(graphRedOut.reason, 'graph_adapter_unwired');
+    assert.equal(graphRedOut.token_present, false);
+    assert.equal(graphRedOut.https_present, false);
+    assert.equal(graphRedOut.request_built, false);
+    assert.equal(graphRedOut.adapter_available, false);
+    assert.notEqual(graphRedOut.status, 'sent');
+    assertNoInnerLeak(graphRedSpawn.stdout + graphRedSpawn.stderr);
+    assert.doesNotMatch(`${graphRedSpawn.stdout}${graphRedSpawn.stderr}`, /loan-token|Bearer |access_token|grant_generation/);
+
     const graphSpawn = spawnProofCli({
       MAIL_MVP_004_GRAPH_VERIFY: '1',
       LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
@@ -3857,8 +4053,49 @@ Module._load = function(request, parent, isMain) {
     assert.equal(graphOut.arrivals, 1);
     assert.equal(graphOut.duplicates, 0);
     assert.equal(graphOut.threaded, true);
+    assert.equal(graphOut.token_present, true);
+    assert.equal(graphOut.https_present, true);
+    assert.equal(graphOut.request_built, true);
     assert.notEqual(graphOut.status, 'sent');
     assertNoInnerLeak(graphSpawn.stdout);
+    assert.doesNotMatch(`${graphSpawn.stdout}${graphSpawn.stderr}`, /loan-token|Bearer |access_token|grant_generation|token_length/);
+
+    const graphBlankSpawn = spawnProofCli({
+      MAIL_MVP_004_GRAPH_VERIFY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { threadRows: [thread], graphBlankToken: true });
+    assert.notEqual(graphBlankSpawn.status, 0);
+    const graphBlankOut = extractProofJson(`${graphBlankSpawn.stdout}${graphBlankSpawn.stderr}`);
+    assert.equal(graphBlankOut.reason, 'graph_adapter_unwired');
+    assert.equal(graphBlankOut.token_present, false);
+    assert.equal(graphBlankOut.https_present, false);
+    assert.equal(graphBlankOut.request_built, false);
+    assertNoInnerLeak(graphBlankSpawn.stdout + graphBlankSpawn.stderr);
+
+    const graphNoHttpsSpawn = spawnProofCli({
+      MAIL_MVP_004_GRAPH_VERIFY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { threadRows: [thread], graphNoHttps: true });
+    assert.notEqual(graphNoHttpsSpawn.status, 0);
+    const graphNoHttpsOut = extractProofJson(`${graphNoHttpsSpawn.stdout}${graphNoHttpsSpawn.stderr}`);
+    assert.equal(graphNoHttpsOut.reason, 'graph_adapter_unwired');
+    assert.equal(graphNoHttpsOut.token_present, true);
+    assert.equal(graphNoHttpsOut.https_present, false);
+    assert.equal(graphNoHttpsOut.request_built, true);
+    assertNoInnerLeak(graphNoHttpsSpawn.stdout + graphNoHttpsSpawn.stderr);
+    assert.doesNotMatch(`${graphNoHttpsSpawn.stdout}${graphNoHttpsSpawn.stderr}`, /loan-token|Bearer /);
+
+    const graphForgedSpawn = spawnProofCli({
+      MAIL_MVP_004_GRAPH_VERIFY: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+    }, { threadRows: [thread], graphForgedBits: true });
+    assert.notEqual(graphForgedSpawn.status, 0);
+    const graphForgedOut = extractProofJson(`${graphForgedSpawn.stdout}${graphForgedSpawn.stderr}`);
+    assert.equal(graphForgedOut.reason, 'graph_adapter_unwired');
+    assert.equal(graphForgedOut.token_present, false);
+    assert.equal(graphForgedOut.https_present, false);
+    assert.equal(graphForgedOut.request_built, false);
+    assert.doesNotMatch(`${graphForgedSpawn.stdout}${graphForgedSpawn.stderr}`, /loan-token|grant_generation|"99"/);
 
     const graphTeardownSpawn = spawnProofCli({
       MAIL_MVP_004_GRAPH_VERIFY: '1',
@@ -3890,6 +4127,9 @@ Module._load = function(request, parent, isMain) {
     assert.equal(graphProofErrorOut.reason, 'graph_adapter_unwired');
     assert.doesNotMatch(`${graphProofErrorSpawn.stdout}${graphProofErrorSpawn.stderr}`, /proof_error/);
     assert.notEqual(graphProofErrorOut.status, 'sent');
+    assert.equal(Object.prototype.hasOwnProperty.call(graphProofErrorOut, 'token_present'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(graphProofErrorOut, 'https_present'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(graphProofErrorOut, 'request_built'), false);
 
     const cap = testCapability(Date.now());
     const ownerEnv = {
