@@ -706,6 +706,7 @@ function scheduleRenderDayCockpit(mount, data) {
       scheduleCockpitCapacityLabel(s.booked || 0, s.capacity) +
       (now != null && now >= s.e ? ' ✓' : '');
     b.title = scheduleCockpitDisplayName(s.name) + ' ' + s.start + '–' + s.end;
+    b.setAttribute('data-ps-session-id', String(s.id || ''));
     b.addEventListener('click', function () {
       if (s.booked) { if (on.session) on.session(s.id); }
       else if (on.create) on.create(s.id);
@@ -864,7 +865,7 @@ function scheduleCockpitRangeFromNavMode(mode) {
  * Map one day-ops / scheduleBuildDaySessions session → cockpit session contract.
  *
  * Source fields (browser session VM):
- *   id        ← slot_key || course_id || label
+ *   id        ← scheduleDaySessionFocusId (slot_key / course_id) — never first booking in slot
  *   name      ← label
  *   start/end ← HH:MM from start/end minutes (or existing HH:MM strings)
  *   booked    ← surfers (ops bucket.booked / group qty aggregate)
@@ -899,9 +900,11 @@ function scheduleMapDaySessionToCockpit(session) {
     ? scheduleCockpitNormalizePrepItems(session.prepItems)
     : scheduleCockpitNormalizePrepItems(scheduleBuildSessionPrepItems(session.groups));
   return {
-    id: session.id != null ? session.id
-      : (session.slot_key != null && session.slot_key !== '' ? session.slot_key
-        : (session.course_id != null ? session.course_id : String(session.label || ''))),
+    id: (typeof scheduleDaySessionFocusId === 'function'
+      ? scheduleDaySessionFocusId(session)
+      : (session.id != null ? session.id
+        : (session.slot_key != null && session.slot_key !== '' ? session.slot_key
+          : (session.course_id != null ? session.course_id : String(session.label || ''))))),
     name: session.name || session.label || 'Session',
     start: start || '00:00',
     end: end || start || '00:00',
@@ -942,7 +945,7 @@ function scheduleMapDaySessionToCockpit(session) {
  *   on.range(kind)      → nav.setView(kind==='today'?'day':kind)
  *   on.refresh          → #ps-refresh-schedule → runtime.nav.requestPageLoad
  *   on.create(id|null)  → openScheduleCreateModal / data-ps-add-slot
- *   on.session(id)      → open session/booking drawer for that slot
+ *   on.session(id)      → scheduleCockpitFocusSession(id) by data-ps-session-id (not time-slot peer)
  */
 function scheduleBuildDayCockpitData(src) {
   src = src || {};
@@ -1130,35 +1133,61 @@ function scheduleDayCockpitDefaultHandlers() {
   };
 }
 
-/** Scroll to a day-ops session group, or open create when the slot is empty. */
+/** Scroll to / open a day-ops session by its focus id — never by time-slot or fuzzy id. */
 function scheduleCockpitFocusSession(sessionId) {
   var id = sessionId == null ? '' : String(sessionId);
   if (!id) return;
   var board = typeof el === 'function' ? el('ps-ops-board') : (typeof document !== 'undefined' ? document.getElementById('ps-ops-board') : null);
-  if (board) {
+  if (!board) return;
+
+  function attrEscape(v) {
+    return String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  }
+
+  var section = null;
+  try {
+    // Exact session binding (private slot_keys contain ':' and must not use panel-id substring match).
+    section = board.querySelector('[data-ps-session-id="' + attrEscape(id) + '"]');
+  } catch (_e) { section = null; }
+
+  if (!section) {
+    // Empty configured course slots may only expose add-course / add-slot hooks.
     var addBtn = null;
     try {
-      addBtn = board.querySelector('[data-ps-add-course="' + id.replace(/"/g, '') + '"]') ||
-        board.querySelector('[data-ps-add-slot="' + id.replace(/"/g, '') + '"]');
-    } catch (_e) { addBtn = null; }
+      addBtn = board.querySelector('[data-ps-add-course="' + attrEscape(id) + '"]') ||
+        board.querySelector('[data-ps-add-slot="' + attrEscape(id) + '"]');
+    } catch (_e2) { addBtn = null; }
     if (addBtn && typeof addBtn.click === 'function') {
       addBtn.click();
       return;
     }
-    var nodes = board.querySelectorAll('[id*="ps-ops-guests-"]');
-    for (var i = 0; i < nodes.length; i++) {
-      var nid = String(nodes[i].id || '');
-      if (nid.indexOf(id) !== -1) {
-        var section = nodes[i].closest ? nodes[i].closest('section') : nodes[i];
-        if (section && section.scrollIntoView) {
-          try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_e2) { section.scrollIntoView(true); }
-          return;
-        }
-      }
-    }
     if (board.scrollIntoView) {
       try { board.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_e3) { /* ignore */ }
     }
+    return;
+  }
+
+  // Prefer this session's own first booking — never the first booking in an overlapping time slot.
+  var bookingNode = null;
+  try {
+    bookingNode = section.querySelector('[data-ps-booking-id]');
+  } catch (_e4) { bookingNode = null; }
+  if (bookingNode && typeof bookingNode.click === 'function') {
+    bookingNode.click();
+    return;
+  }
+
+  var emptyAdd = null;
+  try {
+    emptyAdd = section.querySelector('[data-ps-add-course], [data-ps-add-slot]');
+  } catch (_e5) { emptyAdd = null; }
+  if (emptyAdd && typeof emptyAdd.click === 'function') {
+    emptyAdd.click();
+    return;
+  }
+
+  if (section.scrollIntoView) {
+    try { section.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (_e6) { section.scrollIntoView(true); }
   }
 }
 

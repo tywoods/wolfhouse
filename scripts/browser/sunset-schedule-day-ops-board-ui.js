@@ -847,12 +847,28 @@ function scheduleRenderOccupancyHtml(session){
     '</div>';
 }
 
+/**
+ * Stable focus id for a day-ops / cockpit session.
+ * Prefer explicit id, then slot_key (private lessons include service_record_id),
+ * then course_id. Never derive from the first booking in a shared time window.
+ */
+function scheduleDaySessionFocusId(session){
+  session = session || {};
+  if (session.id != null && String(session.id) !== '') return String(session.id);
+  if (session.slot_key != null && String(session.slot_key) !== '') return String(session.slot_key);
+  if (session.course_id != null && String(session.course_id) !== '') return String(session.course_id);
+  var kind = session.kind || 'session';
+  var start = session.start != null ? String(session.start) : String(session.timeLabel || '');
+  var label = session.label || session.sectionLabel || '';
+  return kind + ':' + start + ':' + label;
+}
+
 /** Deterministic unique guest-panel id for a day-ops lesson/course group. */
 function scheduleOpsGuestPanelId(session){
   session = session || {};
   var parts = [
     session.kind || 'session',
-    session.course_id || session.slot_key || '',
+    scheduleDaySessionFocusId(session),
     session.start != null ? String(session.start) : String(session.timeLabel || ''),
     session.label || '',
   ];
@@ -1006,10 +1022,11 @@ function scheduleRenderTimelineSession(session, done, guestsCollapse){
   var hdrLabel = session.kind === 'private_lesson' ? (session.sectionLabel || session.label) : session.label;
   var hdrTime = session.kind === 'private_lesson' ? session.timeLabel : session.timeLabel;
   var panelId = scheduleOpsGuestPanelId(session);
+  var focusId = scheduleDaySessionFocusId(session);
   // Guests collapse only per scheduleTimelineGuestsShouldCollapse (no all-day course
   // gear + >=1h past end). Cards mode / non-course / within grace => expanded.
   var guestExpanded = !guestsCollapse;
-  var html = '<section class="' + groupCls + '">' +
+  var html = '<section class="' + groupCls + '" data-ps-session-id="' + escHtml(focusId) + '">' +
     scheduleRenderOpsGroupHeader(hdrLabel, hdrTime, stats, session.boardsNeeded || 0, session.wetsuitsNeeded || 0,
       {
         isCourse: session.kind === 'course',
@@ -1031,16 +1048,17 @@ function scheduleRenderTimelineSession(session, done, guestsCollapse){
 function scheduleRenderTimelineEmptySlot(session){
   var seatsBit = session.capacity ? (' · ' + String(session.capacity) + ' ' + portalT('schedule.glance.seats')) : '';
   var timeBit = session.timeLabel ? (' · ' + session.timeLabel) : '';
+  var focusId = scheduleDaySessionFocusId(session);
   var addCourse = session.kind === 'course' && session.course_id
     ? (' data-ps-add-course="' + escHtml(String(session.course_id)) + '"')
     : '';
-  return '<section class="portal-schedule-ops-lesson-group portal-schedule-empty-slot-group portal-schedule-ops-course-group">' +
+  return '<section class="portal-schedule-ops-lesson-group portal-schedule-empty-slot-group portal-schedule-ops-course-group" data-ps-session-id="' + escHtml(focusId) + '">' +
     '<div class="portal-schedule-empty-slot-row">' +
     '<div class="portal-schedule-empty-slot-main">' +
     '<span class="portal-schedule-empty-slot-label">' + escHtml(session.label || '') + '</span>' +
     '<span class="portal-schedule-empty-slot-sub">' + escHtml(portalT('schedule.emptySlot') + timeBit + seatsBit) + '</span>' +
     '</div>' +
-    '<button type="button" class="portal-schedule-empty-add"' + addCourse + ' data-ps-add-slot="' + escHtml(session.slot_key || '') + '">+ ' + escHtml(portalT('schedule.createBooking')) + '</button>' +
+    '<button type="button" class="portal-schedule-empty-add"' + addCourse + ' data-ps-add-slot="' + escHtml(session.slot_key || focusId) + '">+ ' + escHtml(portalT('schedule.createBooking')) + '</button>' +
     '</div></section>';
 }
 
