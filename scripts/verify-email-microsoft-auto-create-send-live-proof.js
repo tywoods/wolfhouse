@@ -54,6 +54,9 @@ const {
   servingIdentityCompatible,
   servingSuccessorAcceptable,
   flagsLiteral,
+  acceptedFlagSource,
+  parseRevisionTemplateEnv,
+  proveAcaImmutableRevisionEnv,
   approvedFlagsOnly,
   approvedReplicaFlagsExact,
   traffic100RevisionName,
@@ -113,6 +116,9 @@ const {
   CONFIRM_WINDOW_MS,
   REVISION_WAIT_TIMEOUT_MS,
   REVISION_WAIT_INTERVAL_MS,
+  FLAGS_SOURCE_TEMPLATE,
+  FLAGS_SOURCE_REPLICA_PROCESS,
+  FLAGS_SOURCE_ACA_IMMUTABLE_REVISION,
   REPLICA_ATTEST_COOLDOWN_MS,
   REPLICA_ATTEST_RETRY_AFTER_MAX_S,
   REPLICA_ATTEST_RETRY_AFTER_SLACK_MS,
@@ -216,6 +222,7 @@ function serving(patch) {
     provisioningState: 'Provisioned',
     flagsSource: 'replica_process',
     replica: `${REVISION}-abcde-fghij`,
+    unrelatedEnvFingerprint: '[]',
     ...patch,
   };
 }
@@ -1606,6 +1613,17 @@ async function main() {
       ready: true,
       flags: replicaEnv,
       flagsSource: 'replica_process',
+    }, true), true);
+    assert.equal(acceptedFlagSource(FLAGS_SOURCE_ACA_IMMUTABLE_REVISION), true);
+    assert.equal(acceptedFlagSource(FLAGS_SOURCE_TEMPLATE), false);
+    assert.equal(flagsLiteral({
+      ...templateServing,
+      trafficWeight: 100,
+      ready: true,
+      flags: flagsOn(),
+      flagsSource: FLAGS_SOURCE_ACA_IMMUTABLE_REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      unrelatedEnvFingerprint: '[]',
     }, true), true);
 
     let syntheticKillThrew = false;
@@ -4458,6 +4476,10 @@ Module._load = function(request, parent, isMain) {
     assert.equal(approvedFlagsOnly({ ...flagsOn(), EXTRA: 'true' }), false);
     assert.equal(approvedReplicaFlagsExact(enabledIdent, true), true);
     assert.equal(approvedReplicaFlagsExact({ ...enabledIdent, flagsSource: 'template' }, true), false);
+    assert.equal(approvedReplicaFlagsExact({
+      ...enabledIdent,
+      flagsSource: FLAGS_SOURCE_ACA_IMMUTABLE_REVISION,
+    }, true), true);
     assert.equal(approvedReplicaFlagsExact(restoredIdent, false), true);
 
     const { harness: hPin, log: pinLog } = makeHarness({ pinAuthorizedRevision: true });
@@ -4648,14 +4670,15 @@ Module._load = function(request, parent, isMain) {
       now: () => nowMs,
       sleep: async (ms) => {
         nowMs += ms;
-        if (nowMs >= REPLICA_ATTEST_COOLDOWN_MS) phase = 'enabled';
-        else if (phase === 'original') phase = 'switching';
+        if (phase === 'original') phase = 'switching';
+        else phase = 'enabled';
       },
     });
     assert.equal(successorWait.revision, ENABLED_REV);
-    assert.equal(successorWait.flagsSource, 'replica_process');
+    assert.ok(acceptedFlagSource(successorWait.flagsSource));
     assert.equal(approvedReplicaFlagsExact(successorWait, true), true);
     assert.equal(servingSuccessorAcceptable(original, successorWait), true);
+    assert.ok(nowMs < REVISION_WAIT_TIMEOUT_MS);
 
     nowMs = 0;
     phase = 'enabled';
@@ -4665,11 +4688,11 @@ Module._load = function(request, parent, isMain) {
       now: () => nowMs,
       sleep: async (ms) => {
         nowMs += ms;
-        if (nowMs >= REPLICA_ATTEST_COOLDOWN_MS) phase = 'restored';
+        if (phase === 'enabled') phase = 'restored';
       },
     });
     assert.equal(restoredWait.revision, RESTORED_REV);
-    assert.equal(restoredWait.flagsSource, 'replica_process');
+    assert.ok(acceptedFlagSource(restoredWait.flagsSource));
     assert.equal(approvedReplicaFlagsExact(restoredWait, false), true);
     assert.equal(servingSuccessorAcceptable(original, restoredWait), true);
 
@@ -4692,24 +4715,31 @@ Module._load = function(request, parent, isMain) {
     assert.doesNotMatch(libSrc, /\/proc\/1\/environ/);
     assert.match(runbook, /successor/);
     assert.match(runbook, /printenv/);
+    assert.match(runbook, /immutable/);
+    assert.match(libSrc, /FLAGS_SOURCE_ACA_IMMUTABLE_REVISION/);
+    assert.match(libSrc, /proveAcaImmutableRevisionEnv/);
     assert.doesNotMatch(libSrc, /return `sh -c '/);
-    assert.match(libSrc, /const REVISION_WAIT_TIMEOUT_MS = 20 \* 60 \* 1000/);
+    assert.match(libSrc, /const REVISION_WAIT_TIMEOUT_MS = 10 \* 60 \* 1000/);
     assert.match(libSrc, /const REVISION_WAIT_INTERVAL_MS = 2000/);
     assert.match(libSrc, /const CONFIRM_WINDOW_MS = 15 \* 60 \* 1000/);
     assert.doesNotMatch(libSrc, /const REVISION_WAIT_TIMEOUT_MS = 180000/);
+    assert.doesNotMatch(libSrc, /const REVISION_WAIT_TIMEOUT_MS = 20 \* 60 \* 1000/);
     assert.doesNotMatch(libSrc, /const REVISION_WAIT_TIMEOUT_MS = 15 \* 60 \* 1000/);
-    assert.match(runbook, /20 minutes per successor/);
-    assert.match(runbook, /2s poll/);
-    assert.match(plan, /20 minutes per successor/);
+    assert.match(runbook, /10 minutes per successor/);
+    assert.match(runbook, /2s identity poll/);
+    assert.match(plan, /10 minutes per successor/);
+    assert.match(plan, /immutable/);
   }
 
   console.log('[24] RED→GREEN: revision wait budget covers ACA successor; confirm window not widened');
   {
-    assert.equal(REVISION_WAIT_TIMEOUT_MS, 20 * 60 * 1000);
+    assert.equal(REVISION_WAIT_TIMEOUT_MS, 10 * 60 * 1000);
     assert.equal(REVISION_WAIT_INTERVAL_MS, 2000);
     assert.equal(CONFIRM_WINDOW_MS, 15 * 60 * 1000);
     assert.ok(REVISION_WAIT_TIMEOUT_MS > 3 * 60 * 1000);
-    assert.ok(REVISION_WAIT_TIMEOUT_MS > 15 * 60 * 1000);
+    assert.ok(REVISION_WAIT_TIMEOUT_MS > 6 * 60 * 1000);
+    assert.ok(REVISION_WAIT_TIMEOUT_MS < 15 * 60 * 1000);
+    assert.ok(REVISION_WAIT_TIMEOUT_MS < 20 * 60 * 1000);
 
     const atEdge = authArgs({ confirmIssuedAt: new Date(NOW_MS - CONFIRM_WINDOW_MS).toISOString() });
     assert.equal(validateExactInvocation(atEdge, NOW_MS, new Set()), null);
@@ -4871,7 +4901,7 @@ Module._load = function(request, parent, isMain) {
     assert.ok(nowMs <= REVISION_WAIT_TIMEOUT_MS);
     assert.ok(lateSleeps.length > 0);
     assert.ok(lateSleeps.every((ms) => ms === REVISION_WAIT_INTERVAL_MS));
-    assert.equal(lateSuccessor.flagsSource, 'replica_process');
+    assert.ok(acceptedFlagSource(lateSuccessor.flagsSource));
     assert.equal(approvedReplicaFlagsExact(lateSuccessor, true), true);
     assert.equal(servingSuccessorAcceptable(original, lateSuccessor), true);
     assert.equal(servingHealthyReady100(lateSuccessor), true);
@@ -4964,8 +4994,9 @@ Module._load = function(request, parent, isMain) {
       imageTag: IMAGE_SHA,
       digest: DIGEST,
     });
-    assert.equal(expiredIfStart.ok, false);
-    assert.equal(expiredIfStart.reason, 'capability_expired');
+    assert.ok(REVISION_WAIT_TIMEOUT_MS < CONFIRM_WINDOW_MS);
+    assert.equal(expiredIfStart.ok, true);
+    assert.notEqual(seenCap.issued_at, issuedAtStart.issued_at);
 
     const executeOnceSrc = libSrc.slice(
       libSrc.indexOf('async function executeOnce'),
@@ -4987,24 +5018,15 @@ Module._load = function(request, parent, isMain) {
     assert.doesNotMatch(waitSrc, /180000/);
   }
 
-  console.log('[25] RED→GREEN: replica attestation backoff is fail-closed; identity may poll');
+  console.log('[25] RED→GREEN: trusted 429 uses ACA-native immutable revision proof; printenv at most once');
   {
     assert.equal(REPLICA_ATTEST_COOLDOWN_MS, 10 * 60 * 1000);
     assert.equal(REPLICA_ATTEST_RETRY_AFTER_MAX_S, 600);
     assert.equal(REPLICA_ATTEST_RETRY_AFTER_SLACK_MS, 30 * 1000);
     assert.equal(REPLICA_ATTEST_RETRY_AFTER_WAIT_MS, 630 * 1000);
-    assert.equal(
-      REPLICA_ATTEST_RETRY_AFTER_WAIT_MS,
-      REPLICA_ATTEST_COOLDOWN_MS + REPLICA_ATTEST_RETRY_AFTER_SLACK_MS,
-    );
     const observedSuccessorMs = 6 * 60 * 1000;
-    assert.ok(observedSuccessorMs + REPLICA_ATTEST_COOLDOWN_MS > 15 * 60 * 1000);
-    assert.ok(
-      observedSuccessorMs + REPLICA_ATTEST_RETRY_AFTER_WAIT_MS + REVISION_WAIT_INTERVAL_MS
-        <= REVISION_WAIT_TIMEOUT_MS,
-    );
-    assert.ok(REPLICA_ATTEST_RETRY_AFTER_WAIT_MS * 2 > REVISION_WAIT_TIMEOUT_MS);
-    assert.ok(REPLICA_ATTEST_COOLDOWN_MS + REVISION_WAIT_INTERVAL_MS <= REVISION_WAIT_TIMEOUT_MS);
+    assert.ok(observedSuccessorMs < REVISION_WAIT_TIMEOUT_MS);
+    assert.ok(observedSuccessorMs + REPLICA_ATTEST_RETRY_AFTER_WAIT_MS > REVISION_WAIT_TIMEOUT_MS);
     assert.equal(
       parseTrustedReplicaAttestRetryAfterMs('WebSocket HTTP 429 Retry-After 600'),
       600000,
@@ -5033,11 +5055,6 @@ Module._load = function(request, parent, isMain) {
       replicaAttestBackoffMs('WebSocket HTTP 429 Retry-After 600'),
       600000,
     );
-    assert.equal(
-      replicaAttestBackoffMs('HTTP 429 Retry-After: 1'),
-      REPLICA_ATTEST_RETRY_AFTER_WAIT_MS,
-    );
-    assert.equal(replicaAttestBackoffMs('null-exec'), REPLICA_ATTEST_COOLDOWN_MS);
 
     const ENABLED_REV = `${STAFF_APP}--0000801`;
     const RESTORED_REV = `${STAFF_APP}--0000802`;
@@ -5149,7 +5166,7 @@ Module._load = function(request, parent, isMain) {
       });
       assert.equal(immediate.revision, ENABLED_REV);
       assert.equal(immediate.replica, `${ENABLED_REV}-abcde-fghij`);
-      assert.equal(immediate.flagsSource, 'replica_process');
+      assert.equal(immediate.flagsSource, FLAGS_SOURCE_REPLICA_PROCESS);
       assert.equal(approvedReplicaFlagsExact(immediate, true), true);
       assert.equal(servingSuccessorAcceptable(original, immediate), true);
       assert.equal(servingHealthyReady100(immediate), true);
@@ -5163,13 +5180,13 @@ Module._load = function(request, parent, isMain) {
 
     {
       let nowMs = 0;
-      let phase = 'original';
-      const execTimes = [];
-      const { azRun, execs, identityPolls } = makeWaitAz(() => phase, () => {
-        execTimes.push(nowMs);
-        return { status: 0, stdout: '', stderr: '' };
-      });
-      const cooled = await waitServingHealthy(azRun, {
+      let phase = 'enabled';
+      const { azRun, execs } = makeWaitAz(() => phase, () => ({
+        status: 429,
+        stdout: '',
+        stderr: 'WebSocket HTTP 429 Retry-After 600\n',
+      }));
+      const native429 = await waitServingHealthy(azRun, {
         enabled: true,
         authorized: original,
         now: () => nowMs,
@@ -5177,94 +5194,56 @@ Module._load = function(request, parent, isMain) {
           nowMs += ms;
         },
       });
-      assert.ok(identityPolls.length > execs.length);
-      assert.equal(execs.length, 3);
-      assert.deepEqual(execTimes, [
-        0,
-        REPLICA_ATTEST_COOLDOWN_MS,
-        REPLICA_ATTEST_COOLDOWN_MS * 2,
-      ]);
-      assert.equal(execs[0].revision, REVISION);
-      assert.equal(execs[1].revision, REVISION);
-      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
-      assert.equal(approvedReplicaFlagsExact(cooled, true), false);
-    }
-
-    {
-      let nowMs = 0;
-      let phase = 'original';
-      const execTimes = [];
-      const { azRun, execs, identityPolls } = makeWaitAz(() => phase, ({ phase: current }) => {
-        execTimes.push(nowMs);
-        if (current === 'enabled') return { status: 0, stdout: 'true\ntrue\n' };
-        return {
-          status: 429,
-          stdout: '',
-          stderr: 'WebSocket HTTP 429 Retry-After 600\n',
-        };
-      });
-      const after429 = await waitServingHealthy(azRun, {
-        enabled: true,
-        authorized: original,
-        now: () => nowMs,
-        sleep: async (ms) => {
-          nowMs += ms;
-          if (nowMs >= REPLICA_ATTEST_COOLDOWN_MS) phase = 'enabled';
-        },
-      });
-      assert.ok(identityPolls.length > 2);
-      assert.equal(execs.length, 2);
-      assert.deepEqual(execTimes, [0, REPLICA_ATTEST_RETRY_AFTER_WAIT_MS]);
-      assert.notEqual(execTimes[1], REPLICA_ATTEST_COOLDOWN_MS);
-      assert.ok(execTimes[1] > 600000);
-      assert.equal(execs[0].revision, REVISION);
-      assert.equal(execs[1].revision, ENABLED_REV);
-      assert.equal(after429.revision, ENABLED_REV);
-      assert.equal(after429.flagsSource, 'replica_process');
-      assert.equal(approvedReplicaFlagsExact(after429, true), true);
-      assert.equal(nowMs, REPLICA_ATTEST_RETRY_AFTER_WAIT_MS);
+      assert.equal(execs.length, 1);
+      assert.equal(nowMs, 0);
+      assert.equal(native429.revision, ENABLED_REV);
+      assert.equal(native429.replica, `${ENABLED_REV}-abcde-fghij`);
+      assert.equal(native429.flagsSource, FLAGS_SOURCE_ACA_IMMUTABLE_REVISION);
+      assert.equal(approvedReplicaFlagsExact(native429, true), true);
+      assert.equal(native429.imageTag, IMAGE_SHA);
+      assert.equal(native429.digest, DIGEST);
+      assert.notEqual(native429.flagsSource, FLAGS_SOURCE_REPLICA_PROCESS);
     }
 
     {
       let nowMs = 0;
       let phase = 'original';
       const { azRun, execs } = makeWaitAz(() => phase, ({ phase: current }) => {
-        if (current === 'enabled') return { status: 0, stdout: 'true\ntrue\n' };
+        if (current === 'enabled') {
+          return {
+            status: 429,
+            stdout: 'true\ntrue\n',
+            stderr: 'WebSocket HTTP 429 Retry-After 600\n',
+          };
+        }
         return { status: 0, stdout: 'false\nfalse\n' };
       });
-      const switched = await waitServingHealthy(azRun, {
+      const afterSuccessor = await waitServingHealthy(azRun, {
         enabled: true,
         authorized: original,
         now: () => nowMs,
         sleep: async (ms) => {
           nowMs += ms;
-          if (nowMs >= REPLICA_ATTEST_COOLDOWN_MS) phase = 'enabled';
+          if (nowMs >= observedSuccessorMs) phase = 'enabled';
         },
       });
-      assert.equal(execs.length, 2);
-      assert.equal(execs[0].revision, REVISION);
-      assert.equal(execs[0].replica, `${REVISION}-abcde-fghij`);
-      assert.equal(execs[1].revision, ENABLED_REV);
-      assert.equal(execs[1].replica, `${ENABLED_REV}-abcde-fghij`);
-      assert.equal(switched.revision, ENABLED_REV);
-      assert.equal(switched.replica, `${ENABLED_REV}-abcde-fghij`);
-      assert.equal(switched.flagsSource, 'replica_process');
-      assert.equal(approvedReplicaFlagsExact(switched, true), true);
-      assert.notEqual(switched.revision, REVISION);
-      assert.notEqual(replicaAttestScopeKey(switched, true), replicaAttestScopeKey(original, true));
-      assert.equal(replicaAttestMatchesCurrent(switched, original, true), false);
-      assert.equal(replicaAttestMatchesCurrent(switched, switched, true), true);
+      assert.equal(execs.length, 1);
+      assert.equal(execs[0].revision, ENABLED_REV);
+      assert.equal(afterSuccessor.revision, ENABLED_REV);
+      assert.equal(afterSuccessor.flagsSource, FLAGS_SOURCE_ACA_IMMUTABLE_REVISION);
+      assert.equal(approvedReplicaFlagsExact(afterSuccessor, true), true);
+      assert.equal(nowMs, observedSuccessorMs);
+      assert.ok(nowMs < REVISION_WAIT_TIMEOUT_MS);
     }
 
     {
       let nowMs = 0;
-      let phase = 'original';
+      let phase = 'enabled';
       const { azRun, execs } = makeWaitAz(() => phase, () => ({
-        status: 429,
-        stdout: 'true\ntrue\n',
-        stderr: 'WebSocket HTTP 429 Retry-After 600\n',
+        status: 0,
+        stdout: 'false\nfalse\n',
       }));
-      const spoofed = await waitServingHealthy(azRun, {
+      const contradicted = await waitServingHealthy(azRun, {
         enabled: true,
         authorized: original,
         now: () => nowMs,
@@ -5272,69 +5251,20 @@ Module._load = function(request, parent, isMain) {
           nowMs += ms;
         },
       });
-      assert.equal(execs.length, 2);
+      assert.equal(execs.length, 1);
       assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
-      assert.equal(approvedReplicaFlagsExact(spoofed, true), false);
-      assert.notEqual(spoofed && spoofed.flagsSource, 'replica_process');
-    }
-
-    {
-      let nowMs = 0;
-      let phase = 'original';
-      const { azRun } = makeWaitAz(() => phase, () => ({
-        status: 429,
-        stderr: 'WebSocket HTTP 429 Retry-After 600\n',
-      }));
-      const timedOut = await waitServingHealthy(azRun, {
-        enabled: true,
-        authorized: original,
-        now: () => nowMs,
-        sleep: async (ms) => {
-          nowMs += ms;
-        },
-      });
-      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
-      assert.equal(approvedReplicaFlagsExact(timedOut, true), false);
-      const { harness: timeoutHarness, log: timeoutLog } = makeHarness({
-        waitServingHealthy(input, current) {
-          if (input && input.enabled === true) return timedOut;
-          return serving({
-            revision: RESTORED_REV,
-            replica: `${RESTORED_REV}-ccccc-ddddd`,
-            flags: flagsOff(),
-          });
-        },
-      });
-      const timedOutExecute = await execute(timeoutHarness);
-      assert.equal(timedOutExecute.ok, false);
-      assert.equal(timedOutExecute.reason, 'enabled_revision_unproven');
-      assert.equal(timedOutExecute.invoked, 0);
-      assert.equal(timeoutLog.includes('invoke'), false);
-      assert.equal(timeoutLog.includes('flags:true'), true);
-      assert.equal(timeoutLog.includes('flags:false'), true);
-      assert.equal(timedOutExecute.restored, true);
+      assert.equal(approvedReplicaFlagsExact(contradicted, true), false);
+      assert.notEqual(contradicted && contradicted.flagsSource, FLAGS_SOURCE_ACA_IMMUTABLE_REVISION);
     }
 
     {
       let nowMs = 0;
       let phase = 'restored';
       const { azRun, execs } = makeWaitAz(() => phase, () => ({
-        status: 0,
-        stdout: 'false\nfalse\n',
+        status: 429,
+        stderr: 'WebSocket HTTP 429 Retry-After 600\n',
       }));
-      const wantTrue = await waitServingHealthy(azRun, {
-        enabled: true,
-        authorized: original,
-        now: () => nowMs,
-        sleep: async (ms) => {
-          nowMs += ms;
-        },
-      });
-      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
-      assert.equal(execs.length, 3);
-      assert.equal(approvedReplicaFlagsExact(wantTrue, true), false);
-      nowMs = 0;
-      const wantFalse = await waitServingHealthy(azRun, {
+      const restoredNative = await waitServingHealthy(azRun, {
         enabled: false,
         authorized: original,
         now: () => nowMs,
@@ -5342,44 +5272,39 @@ Module._load = function(request, parent, isMain) {
           nowMs += ms;
         },
       });
-      assert.equal(execs.length, 4);
+      assert.equal(execs.length, 1);
       assert.equal(nowMs, 0);
-      assert.equal(wantFalse.revision, RESTORED_REV);
-      assert.equal(approvedReplicaFlagsExact(wantFalse, false), true);
-      assert.equal(replicaAttestMatchesCurrent(wantFalse, wantFalse, true), false);
-      assert.equal(replicaAttestMatchesCurrent(wantFalse, wantFalse, false), true);
-      assert.notEqual(replicaAttestScopeKey(wantFalse, true), replicaAttestScopeKey(wantFalse, false));
+      assert.equal(restoredNative.revision, RESTORED_REV);
+      assert.equal(restoredNative.flagsSource, FLAGS_SOURCE_ACA_IMMUTABLE_REVISION);
+      assert.equal(approvedReplicaFlagsExact(restoredNative, false), true);
     }
 
     const waitSrc = libSrc.slice(
       libSrc.indexOf('async function waitServingHealthy'),
       libSrc.indexOf('function createProductionStaffPgAdapter'),
     );
-    assert.match(waitSrc, /REPLICA_ATTEST_COOLDOWN_MS/);
-    assert.match(waitSrc, /nextAttestAt/);
-    assert.match(waitSrc, /replicaAttestScopeKey/);
-    assert.match(waitSrc, /replicaAttestMatchesCurrent/);
+    assert.match(waitSrc, /proveAcaImmutableRevisionEnv/);
+    assert.match(libSrc, /FLAGS_SOURCE_ACA_IMMUTABLE_REVISION/);
     assert.match(waitSrc, /attestReplicaProcessEnvResult/);
+    assert.doesNotMatch(waitSrc, /nextAttestAt/);
     assert.doesNotMatch(waitSrc, /180000/);
-    assert.match(libSrc, /const REPLICA_ATTEST_COOLDOWN_MS = 10 \* 60 \* 1000/);
-    assert.match(libSrc, /const REPLICA_ATTEST_RETRY_AFTER_SLACK_MS = 30 \* 1000/);
-    assert.match(libSrc, /function parseTrustedReplicaAttestRetryAfterMs/);
-    assert.match(runbook, /at most once per 10 minutes/);
-    assert.match(runbook, /Retry-After=600/);
-    assert.match(runbook, /630s/);
-    assert.match(plan, /at most once per 10 minutes/);
-    assert.match(plan, /Retry-After=600/);
-    assert.match(plan, /630s/);
+    assert.match(libSrc, /function parseRevisionTemplateEnv/);
+    assert.match(runbook, /immutable/);
+    assert.match(runbook, /secretRef/);
+    assert.match(runbook, /10 minutes per successor/);
+    assert.doesNotMatch(runbook, /20 minutes per successor/);
+    assert.match(plan, /immutable/);
+    assert.match(plan, /10 minutes per successor/);
+    assert.doesNotMatch(plan, /20 minutes per successor/);
   }
 
-  console.log('[26] RED→GREEN: Graph t0 + 6m successor + 429 slack fits 20m; exact 600 does not retry');
+  console.log('[26] RED→GREEN: Graph t0 stays separate exec; 6m successor + 429 uses native inside 10m');
   {
     const ENABLED_REV = `${STAFF_APP}--0000901`;
     const RESTORED_REV = `${STAFF_APP}--0000902`;
     const original = serving();
     const envCmd = buildReplicaEnvRemoteCommand();
     const observedSuccessorMs = 6 * 60 * 1000;
-    const exactRetryAfterMs = 600 * 1000;
     const acrJson = {
       digest: DIGEST,
       tags: [IMAGE_SHA],
@@ -5435,7 +5360,7 @@ Module._load = function(request, parent, isMain) {
         }],
       };
     }
-    function switchingState(nextName, nextFlags) {
+    function switchingState(nextName) {
       const ready = revisionState(REVISION, 'false');
       return {
         replicaName: ready.replicaName,
@@ -5452,7 +5377,6 @@ Module._load = function(request, parent, isMain) {
         },
         revision: ready.revision,
         replicas: ready.replicas,
-        nextFlags,
       };
     }
 
@@ -5466,17 +5390,14 @@ Module._load = function(request, parent, isMain) {
           : phase === 'restored'
             ? revisionState(RESTORED_REV, 'false')
             : phase === 'switching-restore'
-              ? switchingState(RESTORED_REV, 'false')
-              : switchingState(ENABLED_REV, 'true');
+              ? switchingState(RESTORED_REV)
+              : switchingState(ENABLED_REV);
         if (args[1] === 'show') identityPolls.push(state.replicaName);
         if (args[1] === 'exec') {
           const revision = args[args.indexOf('--revision') + 1];
           const replica = args[args.indexOf('--replica') + 1];
           const command = args[args.indexOf('--command') + 1];
           const kind = command === envCmd ? 'process-env' : 'graph';
-          if (kind === 'process-env') {
-            assert.equal(command, envCmd);
-          }
           execs.push({ revision, replica, phase, kind });
           return execImpl({ revision, replica, phase, kind, args });
         }
@@ -5509,7 +5430,7 @@ Module._load = function(request, parent, isMain) {
       let nowMs = 0;
       let phase = 'switching';
       const processEnvTimes = [];
-      const { azRun, execs, identityPolls } = makeClockAz(() => phase, ({ kind, phase: current }) => {
+      const { azRun, execs, identityPolls } = makeClockAz(() => phase, ({ kind }) => {
         if (kind === 'graph') {
           assert.equal(nowMs, 0);
           return {
@@ -5526,14 +5447,6 @@ Module._load = function(request, parent, isMain) {
           };
         }
         processEnvTimes.push(nowMs);
-        if (current === 'enabled' && processEnvTimes.length === 1) {
-          return {
-            status: 429,
-            stdout: '',
-            stderr: 'WebSocket HTTP 429 Retry-After 600\n',
-          };
-        }
-        if (current === 'enabled') return { status: 0, stdout: 'true\ntrue\n' };
         return {
           status: 429,
           stdout: '',
@@ -5558,18 +5471,13 @@ Module._load = function(request, parent, isMain) {
       });
       assert.equal(execs[0].kind, 'graph');
       const processEnvExecs = execs.filter((row) => row.kind === 'process-env');
-      assert.equal(processEnvExecs.length, 2);
-      assert.deepEqual(processEnvTimes, [
-        observedSuccessorMs,
-        observedSuccessorMs + REPLICA_ATTEST_RETRY_AFTER_WAIT_MS,
-      ]);
-      assert.ok(!processEnvTimes.includes(observedSuccessorMs + exactRetryAfterMs));
-      assert.ok(processEnvTimes[1] - processEnvTimes[0] > exactRetryAfterMs);
-      assert.ok(processEnvTimes[1] < REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(processEnvExecs.length, 1);
+      assert.deepEqual(processEnvTimes, [observedSuccessorMs]);
       assert.ok(nowMs < REVISION_WAIT_TIMEOUT_MS);
-      assert.ok(nowMs > 15 * 60 * 1000);
+      assert.ok(nowMs < 15 * 60 * 1000);
+      assert.equal(nowMs, observedSuccessorMs);
       assert.equal(enabledWait.revision, ENABLED_REV);
-      assert.equal(enabledWait.flagsSource, 'replica_process');
+      assert.equal(enabledWait.flagsSource, FLAGS_SOURCE_ACA_IMMUTABLE_REVISION);
       assert.equal(approvedReplicaFlagsExact(enabledWait, true), true);
       assert.ok(identityPolls.length > processEnvExecs.length);
       assert.equal(execs.filter((row) => row.kind === 'graph').length, 1);
@@ -5577,19 +5485,9 @@ Module._load = function(request, parent, isMain) {
       nowMs = 0;
       phase = 'switching-restore';
       const restoreTimes = [];
-      const restoreAz = makeClockAz(() => phase, ({ kind, phase: current }) => {
+      const restoreAz = makeClockAz(() => phase, ({ kind }) => {
         if (kind === 'graph') return { status: 0, stdout: '{}\n' };
         restoreTimes.push(nowMs);
-        if (current === 'restored') {
-          if (restoreTimes.length === 1) {
-            return {
-              status: 429,
-              stdout: '',
-              stderr: 'WebSocket HTTP 429 Retry-After 600\n',
-            };
-          }
-          return { status: 0, stdout: 'false\nfalse\n' };
-        }
         return {
           status: 429,
           stdout: '',
@@ -5605,107 +5503,17 @@ Module._load = function(request, parent, isMain) {
           if (phase === 'switching-restore' && nowMs >= observedSuccessorMs) phase = 'restored';
         },
       });
-      assert.deepEqual(restoreTimes, [
-        observedSuccessorMs,
-        observedSuccessorMs + REPLICA_ATTEST_RETRY_AFTER_WAIT_MS,
-      ]);
-      assert.ok(!restoreTimes.includes(observedSuccessorMs + exactRetryAfterMs));
+      assert.deepEqual(restoreTimes, [observedSuccessorMs]);
       assert.ok(nowMs < REVISION_WAIT_TIMEOUT_MS);
       assert.equal(restoredWait.revision, RESTORED_REV);
+      assert.equal(restoredWait.flagsSource, FLAGS_SOURCE_ACA_IMMUTABLE_REVISION);
       assert.equal(approvedReplicaFlagsExact(restoredWait, false), true);
-    }
-
-    {
-      let nowMs = 0;
-      let phase = 'switching';
-      const processEnvTimes = [];
-      const { azRun, execs } = makeClockAz(() => phase, ({ kind, phase: current }) => {
-        if (kind === 'graph') return { status: 0, stdout: '{}\n' };
-        processEnvTimes.push(nowMs);
-        if (current === 'enabled') {
-          return {
-            status: 429,
-            stdout: '',
-            stderr: 'WebSocket HTTP 429 Retry-After 600\n',
-          };
-        }
-        return {
-          status: 429,
-          stdout: '',
-          stderr: 'WebSocket HTTP 429 Retry-After 600\n',
-        };
-      });
-      await azRun(graphArgs);
-      const tooShort = await waitServingHealthy(azRun, {
-        enabled: true,
-        authorized: original,
-        timeoutMs: 15 * 60 * 1000,
-        now: () => nowMs,
-        sleep: async (ms) => {
-          nowMs += ms;
-          if (phase === 'switching' && nowMs >= observedSuccessorMs) phase = 'enabled';
-        },
-      });
-      assert.ok(nowMs > 15 * 60 * 1000);
-      assert.equal(processEnvTimes[0], observedSuccessorMs);
-      assert.equal(processEnvTimes.length, 1);
-      assert.equal(approvedReplicaFlagsExact(tooShort, true), false);
-      assert.notEqual(tooShort && tooShort.flagsSource, 'replica_process');
-      const { harness: timeoutHarness, log: timeoutLog } = makeHarness({
-        waitServingHealthy(input, current) {
-          if (input && input.enabled === true) return tooShort;
-          return serving({
-            revision: RESTORED_REV,
-            replica: `${RESTORED_REV}-ccccc-ddddd`,
-            flags: flagsOff(),
-          });
-        },
-      });
-      const timedOutExecute = await execute(timeoutHarness);
-      assert.equal(timedOutExecute.ok, false);
-      assert.equal(timedOutExecute.reason, 'enabled_revision_unproven');
-      assert.equal(timedOutExecute.invoked, 0);
-      assert.equal(timeoutLog.includes('invoke'), false);
-      assert.equal(timeoutLog.includes('flags:true'), true);
-      assert.equal(timeoutLog.includes('flags:false'), true);
-      assert.equal(timedOutExecute.restored, true);
-      assert.equal(execs.filter((row) => row.kind === 'graph').length, 1);
-    }
-
-    {
-      let nowMs = 0;
-      let phase = 'switching';
-      const processEnvTimes = [];
-      const { azRun } = makeClockAz(() => phase, ({ kind, phase: current }) => {
-        if (kind === 'graph') return { status: 0, stdout: '{}\n' };
-        processEnvTimes.push(nowMs);
-        return {
-          status: 429,
-          stdout: '',
-          stderr: 'WebSocket HTTP 429 Retry-After 600\n',
-        };
-      });
-      await azRun(graphArgs);
-      const closed = await waitServingHealthy(azRun, {
-        enabled: true,
-        authorized: original,
-        now: () => nowMs,
-        sleep: async (ms) => {
-          nowMs += ms;
-          if (phase === 'switching' && nowMs >= observedSuccessorMs) phase = 'enabled';
-        },
-      });
-      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
-      assert.equal(processEnvTimes[0], observedSuccessorMs);
-      assert.ok(processEnvTimes.every((t, i) => i === 0 || t - processEnvTimes[i - 1] >= REPLICA_ATTEST_RETRY_AFTER_WAIT_MS));
-      assert.ok(!processEnvTimes.includes(observedSuccessorMs + exactRetryAfterMs));
-      assert.equal(approvedReplicaFlagsExact(closed, true), false);
     }
 
     {
       let fakeNow = NOW_MS;
       let seenCap = null;
-      const attestDelay = observedSuccessorMs + REPLICA_ATTEST_RETRY_AFTER_WAIT_MS;
+      const attestDelay = observedSuccessorMs;
       const { harness: waitAuthHarness } = makeHarness({
         now: () => fakeNow,
         waitServingHealthy(input, current) {
@@ -5715,6 +5523,7 @@ Module._load = function(request, parent, isMain) {
               revision: ENABLED_REV,
               replica: `${ENABLED_REV}-aaaaa-bbbbb`,
               flags: flagsOn(),
+              flagsSource: FLAGS_SOURCE_ACA_IMMUTABLE_REVISION,
             });
           }
           fakeNow += attestDelay;
@@ -5722,6 +5531,7 @@ Module._load = function(request, parent, isMain) {
             revision: RESTORED_REV,
             replica: `${RESTORED_REV}-ccccc-ddddd`,
             flags: flagsOff(),
+            flagsSource: FLAGS_SOURCE_ACA_IMMUTABLE_REVISION,
           });
         },
         onInvoke(input) {
@@ -5752,8 +5562,9 @@ Module._load = function(request, parent, isMain) {
         imageTag: IMAGE_SHA,
         digest: DIGEST,
       });
-      assert.equal(expiredIfStart.ok, false);
-      assert.equal(expiredIfStart.reason, 'capability_expired');
+      assert.ok(attestDelay < CONFIRM_WINDOW_MS);
+      assert.equal(expiredIfStart.ok, true);
+      assert.notEqual(seenCap.issued_at, issuedAtStart.issued_at);
       const executeOnceSrc = libSrc.slice(
         libSrc.indexOf('async function executeOnce'),
         libSrc.indexOf('async function runStaffOwnerProof'),
@@ -5763,7 +5574,351 @@ Module._load = function(request, parent, isMain) {
       const waitIdx = executeOnceSrc.indexOf('waitServingHealthy({ enabled: true, authorized: serving })');
       const capIdx = executeOnceSrc.indexOf('issueSupervisorCapability');
       assert.ok(authIdx >= 0 && waitIdx > authIdx && capIdx > waitIdx);
+      assert.match(libSrc, /verifyGraphArrival/);
+      const graphBeforeFlags = executeOnceSrc.indexOf('verifyGraphArrival');
+      const flagsIdx = executeOnceSrc.indexOf('setEmergencyFlags(true)');
+      assert.ok(graphBeforeFlags >= 0 && flagsIdx > graphBeforeFlags);
     }
+  }
+
+  console.log('[27] Hostile: stale ready, template-only replica, secretRef, duplicates, unrelated drift, image drift, traffic switching');
+  {
+    const ENABLED_REV = `${STAFF_APP}--0001001`;
+    const original = serving();
+    const acrJson = {
+      digest: DIGEST,
+      tags: [IMAGE_SHA],
+      repository: ACR_REPOSITORY,
+    };
+    function baseEnv(flagValue, extra) {
+      const env = [
+        { name: ENV_LUNA_AUTO_SEND_ENABLED, value: flagValue },
+        { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: flagValue },
+      ];
+      if (Array.isArray(extra)) env.push(...extra);
+      return env;
+    }
+    function revisionState(revisionName, flagValue, patch = {}) {
+      const replicaName = patch.replicaName || `${revisionName}-abcde-fghij`;
+      const env = patch.env || baseEnv(flagValue, patch.extraEnv);
+      const traffic = patch.traffic || [{ revisionName, weight: 100 }];
+      const latest = patch.latestRevisionName || revisionName;
+      const latestReady = patch.latestReadyRevisionName || revisionName;
+      const tag = patch.imageTag || IMAGE_SHA;
+      const digest = patch.digest || DIGEST;
+      return {
+        replicaName,
+        app: {
+          name: STAFF_APP,
+          properties: {
+            latestRevisionName: latest,
+            latestReadyRevisionName: latestReady,
+            runningStatus: 'Running',
+            configuration: {
+              ingress: { traffic },
+            },
+            template: {
+              containers: [{
+                image: `${IMAGE_REPOSITORY}:${tag}`,
+                env,
+              }],
+            },
+          },
+        },
+        revision: {
+          name: revisionName,
+          properties: {
+            healthState: patch.healthState || 'Healthy',
+            runningState: patch.runningState || 'Running',
+            provisioningState: 'Provisioned',
+            replicas: patch.revisionReplicas === undefined ? 1 : patch.revisionReplicas,
+            imageDigest: digest,
+            template: {
+              containers: [{
+                name: STAFF_APP,
+                image: `${IMAGE_REPOSITORY}:${tag}`,
+                env,
+              }],
+            },
+          },
+        },
+        replicas: patch.replicas !== undefined ? patch.replicas : [{
+          name: replicaName,
+          properties: { runningState: 'Running', revisionName },
+        }],
+      };
+    }
+    function makeHostileAz(getState, execImpl) {
+      const execs = [];
+      const azRun = async (args) => {
+        const state = getState();
+        if (args[1] === 'exec') {
+          execs.push({
+            revision: args[args.indexOf('--revision') + 1],
+            replica: args[args.indexOf('--replica') + 1],
+          });
+          if (typeof execImpl === 'function') return execImpl();
+          return {
+            status: 429,
+            stderr: 'WebSocket HTTP 429 Retry-After 600\n',
+          };
+        }
+        if (args[0] === 'acr') {
+          return {
+            status: 0,
+            stdout: JSON.stringify({
+              digest: state.revision.properties.imageDigest,
+              tags: [(state.app.properties.template.containers[0].image.split(':')[1] || '').split('@')[0]],
+              repository: ACR_REPOSITORY,
+            }),
+          };
+        }
+        if (args[1] === 'revision' && args[2] === 'show') {
+          return { status: 0, stdout: JSON.stringify(state.revision) };
+        }
+        if (args[1] === 'replica') {
+          return { status: 0, stdout: JSON.stringify(state.replicas) };
+        }
+        if (args[1] === 'show') {
+          return { status: 0, stdout: JSON.stringify(state.app) };
+        }
+        return { status: 1, stdout: '' };
+      };
+      return { azRun, execs };
+    }
+
+    const secretParsed = parseRevisionTemplateEnv([
+      { name: ENV_LUNA_AUTO_SEND_ENABLED, secretRef: 'auto-send' },
+      { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'true' },
+    ]);
+    assert.equal(secretParsed.ok, false);
+    assert.equal(secretParsed.reason, 'env_secret_ref');
+    const dupParsed = parseRevisionTemplateEnv([
+      { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'true' },
+      { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'true' },
+      { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'true' },
+    ]);
+    assert.equal(dupParsed.ok, false);
+    assert.equal(dupParsed.reason, 'env_duplicate');
+    const missingParsed = parseRevisionTemplateEnv([
+      { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'true' },
+    ]);
+    assert.equal(missingParsed.ok, false);
+    assert.equal(missingParsed.reason, 'env_missing');
+    const driftParsed = parseRevisionTemplateEnv(baseEnv('true', [
+      { name: 'NODE_ENV', value: 'production' },
+    ]));
+    assert.equal(driftParsed.ok, true);
+    assert.notEqual(driftParsed.fingerprint, '[]');
+
+    {
+      let nowMs = 0;
+      const { azRun, execs } = makeHostileAz(() => revisionState(REVISION, 'false', {
+        latestRevisionName: ENABLED_REV,
+        latestReadyRevisionName: REVISION,
+      }));
+      const staleReady = await waitServingHealthy(azRun, {
+        enabled: true,
+        authorized: original,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      });
+      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(execs.length, 0);
+      assert.equal(approvedReplicaFlagsExact(staleReady, true), false);
+    }
+
+    {
+      let nowMs = 0;
+      const { azRun, execs } = makeHostileAz(() => revisionState(ENABLED_REV, 'true', {
+        replicas: [],
+        revisionReplicas: 1,
+      }));
+      const templateOnly = await waitServingHealthy(azRun, {
+        enabled: true,
+        authorized: original,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      });
+      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(execs.length, 0);
+      assert.equal(approvedReplicaFlagsExact(templateOnly, true), false);
+    }
+
+    {
+      let nowMs = 0;
+      const { azRun, execs } = makeHostileAz(() => revisionState(ENABLED_REV, 'true', {
+        replicas: [{
+          name: `${REVISION}-zzzzz-yyyyy`,
+          properties: { runningState: 'Running', revisionName: REVISION },
+        }],
+      }));
+      const wrongReplica = await waitServingHealthy(azRun, {
+        enabled: true,
+        authorized: original,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      });
+      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(execs.length, 0);
+      assert.equal(approvedReplicaFlagsExact(wrongReplica, true), false);
+    }
+
+    {
+      let nowMs = 0;
+      const { azRun, execs } = makeHostileAz(() => revisionState(ENABLED_REV, 'true', {
+        env: [
+          { name: ENV_LUNA_AUTO_SEND_ENABLED, secretRef: 'luna-auto-send' },
+          { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'true' },
+        ],
+      }));
+      const secretRef = await waitServingHealthy(azRun, {
+        enabled: true,
+        authorized: original,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      });
+      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(execs.length, 0);
+      assert.equal(approvedReplicaFlagsExact(secretRef, true), false);
+    }
+
+    {
+      let nowMs = 0;
+      const { azRun, execs } = makeHostileAz(() => revisionState(ENABLED_REV, 'true', {
+        env: [
+          { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'true' },
+          { name: ENV_LUNA_AUTO_SEND_ENABLED, value: 'true' },
+          { name: ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED, value: 'true' },
+        ],
+      }));
+      const duplicates = await waitServingHealthy(azRun, {
+        enabled: true,
+        authorized: original,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      });
+      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(execs.length, 0);
+      assert.equal(approvedReplicaFlagsExact(duplicates, true), false);
+    }
+
+    {
+      let nowMs = 0;
+      const { azRun, execs } = makeHostileAz(() => revisionState(ENABLED_REV, 'true', {
+        extraEnv: [{ name: 'CUSTOMER_OUTREACH_EMAIL_ENABLED', value: 'true' }],
+      }));
+      const unrelated = await waitServingHealthy(azRun, {
+        enabled: true,
+        authorized: original,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      });
+      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(execs.length, 0);
+      assert.equal(approvedReplicaFlagsExact(unrelated, true), false);
+    }
+
+    {
+      let nowMs = 0;
+      const driftedTag = 'c'.repeat(40);
+      const driftedDigest = `sha256:${'e'.repeat(64)}`;
+      const { azRun, execs } = makeHostileAz(() => revisionState(ENABLED_REV, 'true', {
+        imageTag: driftedTag,
+        digest: driftedDigest,
+      }));
+      const imageDrift = await waitServingHealthy(azRun, {
+        enabled: true,
+        authorized: original,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      });
+      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(execs.length, 0);
+      assert.equal(servingSuccessorAcceptable(original, imageDrift), false);
+      assert.equal(approvedReplicaFlagsExact(imageDrift, true), false);
+    }
+
+    {
+      let nowMs = 0;
+      const { azRun, execs } = makeHostileAz(() => revisionState(ENABLED_REV, 'true', {
+        traffic: [
+          { revisionName: REVISION, weight: 50 },
+          { revisionName: ENABLED_REV, weight: 50 },
+        ],
+        latestRevisionName: ENABLED_REV,
+        latestReadyRevisionName: ENABLED_REV,
+      }));
+      const switched = await waitServingHealthy(azRun, {
+        enabled: true,
+        authorized: original,
+        now: () => nowMs,
+        sleep: async (ms) => {
+          nowMs += ms;
+        },
+      });
+      assert.ok(nowMs > REVISION_WAIT_TIMEOUT_MS);
+      assert.equal(execs.length, 0);
+      assert.equal(approvedReplicaFlagsExact(switched, true), false);
+    }
+
+    const healthyEnabled = serving({
+      revision: ENABLED_REV,
+      replica: `${ENABLED_REV}-abcde-fghij`,
+      flags: flagsOn(),
+      flagsSource: FLAGS_SOURCE_TEMPLATE,
+      unrelatedEnvFingerprint: '[]',
+      latestRevisionName: ENABLED_REV,
+      latestReadyRevisionName: ENABLED_REV,
+    });
+    const provenNative = proveAcaImmutableRevisionEnv(healthyEnabled, original, true);
+    assert.equal(provenNative && provenNative.flagsSource, FLAGS_SOURCE_ACA_IMMUTABLE_REVISION);
+    assert.equal(approvedReplicaFlagsExact(provenNative, true), true);
+    assert.equal(proveAcaImmutableRevisionEnv({
+      ...healthyEnabled,
+      unrelatedEnvFingerprint: JSON.stringify([{ name: 'NODE_ENV', value: 'production' }]),
+    }, original, true), null);
+    assert.equal(proveAcaImmutableRevisionEnv({
+      ...healthyEnabled,
+      replica: null,
+    }, original, true), null);
+    assert.equal(proveAcaImmutableRevisionEnv({
+      ...healthyEnabled,
+      digest: `sha256:${'f'.repeat(64)}`,
+    }, original, true), null);
+
+    const { harness: hostileHarness, log: hostileLog } = makeHarness({
+      waitServingHealthy(input, current) {
+        if (input && input.enabled === true) return healthyEnabled;
+        return serving({
+          revision: `${STAFF_APP}--0001002`,
+          replica: `${STAFF_APP}--0001002-ccccc-ddddd`,
+          flags: flagsOff(),
+        });
+      },
+    });
+    const hostileExecute = await execute(hostileHarness);
+    assert.equal(hostileExecute.ok, false);
+    assert.equal(hostileExecute.reason, 'enabled_revision_unproven');
+    assert.equal(hostileExecute.invoked, 0);
+    assert.equal(hostileLog.includes('invoke'), false);
+    assert.equal(hostileLog.includes('flags:true'), true);
+    assert.equal(hostileLog.includes('flags:false'), true);
+    assert.equal(hostileExecute.restored, true);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');

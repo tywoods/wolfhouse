@@ -93,17 +93,20 @@ const INNER_CONSUMED_CAPABILITY_PATH = '/tmp/mail-mvp-004-consumed-capabilities.
 const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
-// 20m per successor: observed ACA flag successor ~6m + trusted 429 wait 630s
-// is ~16.5m, which exceeds a 15m stage (live enabled_revision_unproven) and
-// fits with identity-poll slack. Operator confirm window stays 15m and is
-// evaluated once at execute-once start; capability is issued after attest.
-const REVISION_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
+// Successor readiness only. Observed ACA flag successor ~6m; ACA WebSocket exec
+// is globally 429/unstable after Graph preflight, so flag proof does not wait
+// 630s/20m for printenv. Operator confirm window stays 15m and is evaluated
+// once at execute-once start; capability is issued after attest.
+const REVISION_WAIT_TIMEOUT_MS = 10 * 60 * 1000;
 const REVISION_WAIT_INTERVAL_MS = 2000;
-// Floor: never retry ACA exec printenv faster than once per 10 minutes.
+const FLAGS_SOURCE_TEMPLATE = 'template';
+const FLAGS_SOURCE_REPLICA_PROCESS = 'replica_process';
+const FLAGS_SOURCE_ACA_IMMUTABLE_REVISION = 'aca_immutable_revision';
+// Floor used only to recognize trusted 429 Retry-After=600. Flag proof does not
+// wait this cooldown: one optional printenv, then ACA-native revision proof.
 const REPLICA_ATTEST_COOLDOWN_MS = 10 * 60 * 1000;
 // Cap on trusted Retry-After seconds (Azure WebSocket HTTP 429 Retry-After=600).
 const REPLICA_ATTEST_RETRY_AFTER_MAX_S = 600;
-// Safety slack past the exact Retry-After boundary. Retry-After=600 waits 630s.
 const REPLICA_ATTEST_RETRY_AFTER_SLACK_MS = 30 * 1000;
 const REPLICA_ATTEST_RETRY_AFTER_WAIT_MS = REPLICA_ATTEST_COOLDOWN_MS
   + REPLICA_ATTEST_RETRY_AFTER_SLACK_MS;
@@ -1636,12 +1639,123 @@ function servingHealthyReady100(serving) {
   return true;
 }
 
+function acceptedFlagSource(source) {
+  return source === FLAGS_SOURCE_REPLICA_PROCESS
+    || source === FLAGS_SOURCE_ACA_IMMUTABLE_REVISION;
+}
+
 function flagsLiteral(serving, enabled) {
   if (!serving || !serving.flags) return false;
-  if (serving.flagsSource !== 'replica_process') return false;
+  if (!acceptedFlagSource(serving.flagsSource)) return false;
   const want = enabled === true ? 'true' : 'false';
   return serving.flags[ENV_LUNA_AUTO_SEND_ENABLED] === want
     && serving.flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] === want;
+}
+
+function parseRevisionTemplateEnv(env) {
+  if (!Array.isArray(env)) {
+    return freeze({ ok: false, reason: 'env_unproven', flags: null, fingerprint: null });
+  }
+  const flags = Object.create(null);
+  const others = [];
+  const seen = new Set();
+  for (const row of env) {
+    if (!row || typeof row !== 'object' || isProxy(row)) {
+      return freeze({ ok: false, reason: 'env_malformed', flags: null, fingerprint: null });
+    }
+    const name = ownData(row, 'name') || row.name;
+    if (typeof name !== 'string' || !name) {
+      return freeze({ ok: false, reason: 'env_malformed', flags: null, fingerprint: null });
+    }
+    if (seen.has(name)) {
+      return freeze({ ok: false, reason: 'env_duplicate', flags: null, fingerprint: null });
+    }
+    seen.add(name);
+    const secretRef = ownData(row, 'secretRef') !== undefined ? ownData(row, 'secretRef') : row.secretRef;
+    const value = ownData(row, 'value') !== undefined ? ownData(row, 'value') : row.value;
+    const allowlisted = name === ENV_LUNA_AUTO_SEND_ENABLED
+      || name === ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED;
+    if (secretRef != null) {
+      if (allowlisted) {
+        return freeze({ ok: false, reason: 'env_secret_ref', flags: null, fingerprint: null });
+      }
+      if (typeof secretRef !== 'string' || !secretRef || value != null) {
+        return freeze({ ok: false, reason: 'env_malformed', flags: null, fingerprint: null });
+      }
+      others.push(freeze({ name, secretRef }));
+      continue;
+    }
+    if (typeof value !== 'string') {
+      return freeze({ ok: false, reason: 'env_malformed', flags: null, fingerprint: null });
+    }
+    if (allowlisted) {
+      if (value !== 'true' && value !== 'false') {
+        return freeze({ ok: false, reason: 'env_non_literal', flags: null, fingerprint: null });
+      }
+      flags[name] = value;
+      continue;
+    }
+    others.push(freeze({ name, value }));
+  }
+  if (flags[ENV_LUNA_AUTO_SEND_ENABLED] !== 'true' && flags[ENV_LUNA_AUTO_SEND_ENABLED] !== 'false') {
+    return freeze({ ok: false, reason: 'env_missing', flags: null, fingerprint: null });
+  }
+  if (flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] !== 'true'
+      && flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] !== 'false') {
+    return freeze({ ok: false, reason: 'env_missing', flags: null, fingerprint: null });
+  }
+  others.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return freeze({
+    ok: true,
+    reason: null,
+    flags: freeze({
+      [ENV_LUNA_AUTO_SEND_ENABLED]: flags[ENV_LUNA_AUTO_SEND_ENABLED],
+      [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
+    }),
+    fingerprint: JSON.stringify(others),
+  });
+}
+
+function proveAcaImmutableRevisionEnv(identity, authorized, enabled) {
+  if (!identity || !authorized || typeof identity !== 'object' || isProxy(identity)) return null;
+  if (!servingSuccessorAcceptable(authorized, identity)) return null;
+  if (!servingHealthyReady100(identity)) return null;
+  const authTag = sha40(authorized.imageTag) || sha40(authorized.deploySha);
+  const curTag = sha40(identity.imageTag) || sha40(identity.deploySha);
+  if (!authTag || authTag !== curTag) return null;
+  if (typeof authorized.digest !== 'string' || !DIGEST_RE.test(authorized.digest)) return null;
+  if (typeof identity.digest !== 'string' || identity.digest !== authorized.digest) return null;
+  if (typeof identity.revision !== 'string' || !identity.revision.startsWith(STAFF_APP)) return null;
+  if (!SAFE_AZ_NAME.test(identity.revision)) return null;
+  if (typeof identity.replica !== 'string' || !identity.replica.startsWith(STAFF_APP)) return null;
+  if (!SAFE_AZ_NAME.test(identity.replica)) return null;
+  if (identity.latestRevisionName && identity.latestRevisionName !== identity.revision) return null;
+  if (identity.latestReadyRevisionName && identity.latestReadyRevisionName !== identity.revision) return null;
+  const fingerprint = identity.unrelatedEnvFingerprint;
+  if (typeof fingerprint !== 'string') return null;
+  const authorizedFp = authorized.unrelatedEnvFingerprint;
+  if (typeof authorizedFp === 'string') {
+    if (authorizedFp !== fingerprint) return null;
+  } else if (fingerprint !== '[]') {
+    return null;
+  }
+  const flags = identity.flags;
+  if (!approvedFlagsOnly(flags)) return null;
+  const want = enabled === true ? 'true' : 'false';
+  if (flags[ENV_LUNA_AUTO_SEND_ENABLED] !== want
+      || flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED] !== want) {
+    return null;
+  }
+  return freeze({
+    ...identity,
+    flags,
+    flagsSource: FLAGS_SOURCE_ACA_IMMUTABLE_REVISION,
+    replica: identity.replica,
+    revision: identity.revision,
+    imageTag: identity.imageTag || authorized.imageTag,
+    digest: identity.digest,
+    unrelatedEnvFingerprint: fingerprint,
+  });
 }
 
 function brandProductionAutoOwner(fn) {
@@ -1930,6 +2044,7 @@ function parseRevisionShow(raw) {
   const container = Array.isArray(containers) ? containers[0] : null;
   const image = container && (ownData(container, 'image') || container.image);
   const env = container && (ownData(container, 'env') || container.env);
+  const envProof = parseRevisionTemplateEnv(env);
   let digest = (container && (ownData(container, 'imageDigest') || container.imageDigest))
     || ownData(props, 'imageDigest') || props.imageDigest
     || (typeof parsed.digest === 'string' ? parsed.digest : null);
@@ -1962,8 +2077,10 @@ function parseRevisionShow(raw) {
     imageTag,
     deploySha: sha40(imageTag) || null,
     digest: typeof digest === 'string' && DIGEST_RE.test(digest) ? digest : null,
-    flags: parseEnvList(env),
-    flagsSource: 'template',
+    flags: envProof.ok === true ? envProof.flags : parseEnvList(env),
+    flagsSource: FLAGS_SOURCE_TEMPLATE,
+    unrelatedEnvFingerprint: envProof.ok === true ? envProof.fingerprint : null,
+    revisionEnvReason: envProof.reason,
     healthState: typeof healthState === 'string' ? healthState : null,
     runningState: typeof runningState === 'string' ? runningState : null,
     provisioningState: typeof provisioningState === 'string' ? provisioningState : null,
@@ -2021,7 +2138,7 @@ function parseServingIdentity(raw) {
     deploySha: sha40(imageTag) || null,
     digest: typeof digest === 'string' && DIGEST_RE.test(digest) ? digest : (parsed.digest || null),
     flags: parseEnvList(env),
-    flagsSource: 'template',
+    flagsSource: FLAGS_SOURCE_TEMPLATE,
     healthState: null,
     runningState: runningStatus === 'Running' ? 'Running' : null,
     trafficWeight: 100,
@@ -2056,7 +2173,11 @@ function mergeRevisionIntoServing(appIdentity, revisionIdentity) {
     deploySha: sha40(imageTag),
     digest,
     flags: revisionIdentity.flags || appIdentity.flags,
-    flagsSource: 'template',
+    flagsSource: FLAGS_SOURCE_TEMPLATE,
+    unrelatedEnvFingerprint: typeof revisionIdentity.unrelatedEnvFingerprint === 'string'
+      ? revisionIdentity.unrelatedEnvFingerprint
+      : null,
+    revisionEnvReason: revisionIdentity.revisionEnvReason || null,
     healthState: revisionIdentity.healthState,
     runningState: revisionIdentity.runningState,
     provisioningState: revisionIdentity.provisioningState,
@@ -3729,7 +3850,7 @@ function replicaAttestScopeKey(serving, enabled) {
 function replicaAttestMatchesCurrent(attested, identity, enabled) {
   if (!attested || !identity) return false;
   if (attested.revision !== identity.revision || attested.replica !== identity.replica) return false;
-  if (attested.flagsSource !== 'replica_process') return false;
+  if (attested.flagsSource !== FLAGS_SOURCE_REPLICA_PROCESS) return false;
   return approvedReplicaFlagsExact(attested, enabled) === true;
 }
 
@@ -3778,7 +3899,7 @@ function parseReplicaProcessEnv(raw) {
     return freeze({
       [ENV_LUNA_AUTO_SEND_ENABLED]: flags[ENV_LUNA_AUTO_SEND_ENABLED],
       [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: flags[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
-      flagsSource: 'replica_process',
+      flagsSource: FLAGS_SOURCE_REPLICA_PROCESS,
     });
   }
   const values = lines.filter((line) => line === 'true' || line === 'false');
@@ -3786,7 +3907,7 @@ function parseReplicaProcessEnv(raw) {
     return freeze({
       [ENV_LUNA_AUTO_SEND_ENABLED]: values[0],
       [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: values[1],
-      flagsSource: 'replica_process',
+      flagsSource: FLAGS_SOURCE_REPLICA_PROCESS,
     });
   }
   return null;
@@ -3848,7 +3969,7 @@ async function attestReplicaProcessEnvResult(azRun, serving, azBin, env, timeout
     serving: freeze({
       ...serving,
       flags,
-      flagsSource: 'replica_process',
+      flagsSource: FLAGS_SOURCE_REPLICA_PROCESS,
     }),
     retryAfterMs: 0,
     attempted: true,
@@ -3889,8 +4010,17 @@ async function readProductionServingIdentity(azRun) {
     replica: running.replica,
     trafficWeight: 100,
     ready: true,
-    flagsSource: 'template',
+    flagsSource: FLAGS_SOURCE_TEMPLATE,
   });
+}
+
+function replicaProcessEnvContradictsDesired(probed, identity, enabled) {
+  const attested = probed && probed.serving;
+  if (!attested || attested.flagsSource !== FLAGS_SOURCE_REPLICA_PROCESS) return false;
+  if (!identity || attested.revision !== identity.revision || attested.replica !== identity.replica) {
+    return false;
+  }
+  return replicaAttestMatchesCurrent(attested, identity, enabled) !== true;
 }
 
 async function waitServingHealthy(azRun, options) {
@@ -3907,31 +4037,37 @@ async function waitServingHealthy(azRun, options) {
     ? options.intervalMs : REVISION_WAIT_INTERVAL_MS;
   const start = nowFn();
   let last = null;
-  let nextAttestAt = start;
+  const execTried = new Set();
+  const processContradicted = new Set();
   while (nowFn() - start <= timeoutMs) {
     last = await readProductionServingIdentity(azRun);
-    const now = nowFn();
     if (last && servingSuccessorAcceptable(authorized, last)) {
-      if (now >= nextAttestAt) {
-        const probed = await attestReplicaProcessEnvResult(
-          azRun,
-          last,
-          options && options.azBin,
-          options && options.env,
-          options && options.attestTimeoutMs,
-        );
-        const attested = probed && probed.serving;
-        if (attested
-            && replicaAttestScopeKey(attested, enabled) === replicaAttestScopeKey(last, enabled)
-            && replicaAttestMatchesCurrent(attested, last, enabled)
-            && servingSuccessorAcceptable(authorized, attested)) {
-          return attested;
-        }
-        if (probed && probed.attempted === true) {
-          const backoff = Number.isSafeInteger(probed.retryAfterMs) && probed.retryAfterMs > 0
-            ? probed.retryAfterMs
-            : REPLICA_ATTEST_COOLDOWN_MS;
-          nextAttestAt = now + backoff;
+      const native = proveAcaImmutableRevisionEnv(last, authorized, enabled);
+      const scope = replicaAttestScopeKey(last, enabled);
+      if (native && !(scope && processContradicted.has(scope))) {
+        if (scope && !execTried.has(scope)) {
+          execTried.add(scope);
+          const probed = await attestReplicaProcessEnvResult(
+            azRun,
+            last,
+            options && options.azBin,
+            options && options.env,
+            options && options.attestTimeoutMs,
+          );
+          const attested = probed && probed.serving;
+          if (attested
+              && replicaAttestScopeKey(attested, enabled) === scope
+              && replicaAttestMatchesCurrent(attested, last, enabled)
+              && servingSuccessorAcceptable(authorized, attested)) {
+            return attested;
+          }
+          if (replicaProcessEnvContradictsDesired(probed, last, enabled)) {
+            processContradicted.add(scope);
+          } else {
+            return native;
+          }
+        } else {
+          return native;
         }
       }
     }
@@ -4807,6 +4943,9 @@ module.exports = freeze({
   CONFIRM_WINDOW_MS,
   REVISION_WAIT_TIMEOUT_MS,
   REVISION_WAIT_INTERVAL_MS,
+  FLAGS_SOURCE_TEMPLATE,
+  FLAGS_SOURCE_REPLICA_PROCESS,
+  FLAGS_SOURCE_ACA_IMMUTABLE_REVISION,
   REPLICA_ATTEST_COOLDOWN_MS,
   REPLICA_ATTEST_RETRY_AFTER_MAX_S,
   REPLICA_ATTEST_RETRY_AFTER_SLACK_MS,
@@ -4843,6 +4982,9 @@ module.exports = freeze({
   servingIdentityCompatible,
   servingSuccessorAcceptable,
   flagsLiteral,
+  acceptedFlagSource,
+  parseRevisionTemplateEnv,
+  proveAcaImmutableRevisionEnv,
   approvedFlagsOnly,
   approvedReplicaFlagsExact,
   extractAzureJson,
