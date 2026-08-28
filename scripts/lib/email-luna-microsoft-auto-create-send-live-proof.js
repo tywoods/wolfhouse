@@ -93,10 +93,20 @@ const INNER_CONSUMED_CAPABILITY_PATH = '/tmp/mail-mvp-004-consumed-capabilities.
 const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
-const REVISION_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
+// 20m per successor: observed ACA flag successor ~6m + trusted 429 wait 630s
+// is ~16.5m, which exceeds a 15m stage (live enabled_revision_unproven) and
+// fits with identity-poll slack. Operator confirm window stays 15m and is
+// evaluated once at execute-once start; capability is issued after attest.
+const REVISION_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
 const REVISION_WAIT_INTERVAL_MS = 2000;
+// Floor: never retry ACA exec printenv faster than once per 10 minutes.
 const REPLICA_ATTEST_COOLDOWN_MS = 10 * 60 * 1000;
+// Cap on trusted Retry-After seconds (Azure WebSocket HTTP 429 Retry-After=600).
 const REPLICA_ATTEST_RETRY_AFTER_MAX_S = 600;
+// Safety slack past the exact Retry-After boundary. Retry-After=600 waits 630s.
+const REPLICA_ATTEST_RETRY_AFTER_SLACK_MS = 30 * 1000;
+const REPLICA_ATTEST_RETRY_AFTER_WAIT_MS = REPLICA_ATTEST_COOLDOWN_MS
+  + REPLICA_ATTEST_RETRY_AFTER_SLACK_MS;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA40 = /^[0-9a-f]{40}$/;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
@@ -3739,10 +3749,13 @@ function parseTrustedReplicaAttestRetryAfterMs(raw) {
 
 function replicaAttestBackoffMs(raw) {
   const parsed = parseTrustedReplicaAttestRetryAfterMs(raw);
-  if (!Number.isSafeInteger(parsed) || parsed < REPLICA_ATTEST_COOLDOWN_MS) {
+  if (!Number.isSafeInteger(parsed)) {
     return REPLICA_ATTEST_COOLDOWN_MS;
   }
-  return Math.min(parsed, REPLICA_ATTEST_COOLDOWN_MS);
+  const floored = parsed < REPLICA_ATTEST_COOLDOWN_MS
+    ? REPLICA_ATTEST_COOLDOWN_MS
+    : Math.min(parsed, REPLICA_ATTEST_COOLDOWN_MS);
+  return Math.min(floored + REPLICA_ATTEST_RETRY_AFTER_SLACK_MS, REPLICA_ATTEST_RETRY_AFTER_WAIT_MS);
 }
 
 function parseReplicaProcessEnv(raw) {
@@ -4796,6 +4809,8 @@ module.exports = freeze({
   REVISION_WAIT_INTERVAL_MS,
   REPLICA_ATTEST_COOLDOWN_MS,
   REPLICA_ATTEST_RETRY_AFTER_MAX_S,
+  REPLICA_ATTEST_RETRY_AFTER_SLACK_MS,
+  REPLICA_ATTEST_RETRY_AFTER_WAIT_MS,
   SQL_SELECT_PROOF_THREAD,
   SQL_COUNT_OPERATION_APPROVALS,
   SQL_COUNT_OPERATION_JOURNAL,
