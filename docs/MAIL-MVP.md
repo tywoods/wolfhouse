@@ -13,10 +13,10 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 | **001** | Create Draft + context | Yes | Source slice: explicit staff click regenerates the standing draft from the authoritative thread plus private staff goals. The model may return only a closed enumerated drafting plan; a deterministic Luna renderer writes the guest-facing EN/ES copy. No paste wrapper, no send, no approval, no outbound journal. |
 | **002** | Ty live proof | No | Later. Controlled Sunset mailbox proof of 001 on staging. Not this PR. |
 | **003** | auto create-and-send | No | Microsoft-only automatic create-and-send. Default remains OFF. Both `LUNA_AUTO_SEND_ENABLED=true` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true` are required for provider auto-send. Reuses Create Draft author + staff Approve & send owners. Dormant. Do not rebuild in 004. |
-| **004** | auto proof | Yes (this PR) | Bounded fail-closed Sunset-staging operator proof of 003. Default refuse. Typed one-shot authorization bound to sunset-staging / exact Staff app / current serving revision+image / fresh nonce+window. One existing guest-linked thread (`Testing 8 26`, sender `twoods@xantrion.com`). Live proof stays blocked until an exact-master Staff image containing this harness is serving. This builder does not execute live/cloud/provider work. |
-| **005** | generic IMAP inbound | No | Later. Generic IMAP inbound connector. Not this PR. |
+| **004** | auto proof | No | Landed. Bounded fail-closed Sunset-staging operator proof of 003. Default refuse. Do not rebuild. |
+| **005** | generic IMAP inbound | Yes | Generic IMAP inbound connector. A verified sunset IMAP mailbox is polled, persisted, and projected into the same Staff Inbox conversations/messages journal as Graph (thread list + open thread, guest-linkable). Graph inbound on support@lunafrontdesk.com stays as-is. No SMTP send. Auto stays off. |
 | **006** | generic SMTP send | No | Later. Generic SMTP send. Every future send remains journaled. Not this PR. |
-| **007** | Email Luna Hermes managed by Skipper | Yes (this PR) | Dedicated Skipper-managed `hermes-sunset-email-luna` (`HERMES_ROLE=sunset-email-luna`) draft-only runtime. Durable config pins `openai-codex` / `gpt-5.6-sol`. Staff Create Draft on Sunset staging calls a colocated internal TLS ACA; provenance is the live Hermes composition attempt, not config text. Not an env flip of `LUNA_AI_MODEL`. Auto remains OFF. |
+| **007** | Email Luna Hermes managed by Skipper | No | Landed. Dedicated Skipper-managed `hermes-sunset-email-luna` draft-only runtime. Auto remains OFF. |
 | **008** | booking-from-email | No — **LATER** | Product rule only. Do not implement booking in this document's current slice. |
 
 ## 003 Microsoft auto create-and-send
@@ -89,12 +89,20 @@ When email booking is built later:
 - Staff API is the only authority.
 - Never invent prices.
 
+## 005 generic IMAP inbound
+
+Sunset staging only. A connected generic `imap_smtp` mailbox is polled over implicit TLS/993, mapped to the canonical inbound envelope, persisted in `tenant_email_inbound_events`, and projected through the existing MATCH / event-store / inbox-bridge path into Staff Inbox `conversations` / `messages`.
+
+Done when inbound from that mailbox appears in the same Inbox projection as Microsoft Graph: thread list + open thread, guest-linkable (exact same-tenant `guests.email` bind, or unmatched with `conversations.email` set and `guest_id` null). Graph inbound on `support@lunafrontdesk.com` stays as-is. Do not rebuild Graph.
+
+Connect / poll / fetch / attach are in scope. SMTP send is MAIL-MVP-006 and is not this slice. Auto stays off. Owner / proof: `npm run verify:mail-mvp-005`.
+
 ## Hard boundaries (all slices unless a later reviewed job says otherwise)
 
 - No production.
 - No deploy from a MAIL-MVP-001 worker.
 - No gateway/Hermes restart, `/sethome`, Salt, Deckhand, or Full Sail 4J.
-- No auto-send enable, IMAP/SMTP changes, provider sends, or live email actions.
+- No auto-send enable, SMTP send (006), provider sends, or live email actions. IMAP inbound attach in 005 is the exception.
 - No booking creation.
 - Do not modify environment flags or live systems.
 - Staff API only for future prices/availability/bookings; none in slice 001.
