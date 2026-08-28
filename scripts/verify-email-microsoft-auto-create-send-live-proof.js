@@ -88,6 +88,9 @@ const {
   wrapPtyAzExec,
   spawnPtyHarness,
   classifyStaffOwnerExecResult,
+  replicaInnerExecRetryable,
+  replicaInnerExecTrusted429,
+  runReplicaInnerExecWith429Retry,
   parseExactProductionGraphInnerExec,
   extractExactlyOneProofJson,
   closedGraphInnerDto,
@@ -6349,6 +6352,83 @@ Module._load = function(request, parent, isMain) {
     });
     assert.equal(put.ok, true);
     assert.equal(put.public.channel_mode, 'auto');
+  }
+
+  console.log('[30] Capability-free inner exec retries trusted 429 once; owner does not');
+  {
+    assert.equal(replicaInnerExecRetryable({ channelModePut: 'auto' }), true);
+    assert.equal(replicaInnerExecRetryable({ channelModePut: 'off' }), true);
+    assert.equal(replicaInnerExecRetryable({ snapshot: 'mode' }), true);
+    assert.equal(replicaInnerExecRetryable({ snapshot: 'preflight' }), true);
+    assert.equal(replicaInnerExecRetryable({ killSwitchProbe: true }), true);
+    assert.equal(replicaInnerExecRetryable({ graphVerify: true }), true);
+    assert.equal(replicaInnerExecRetryable({ reconcileOnly: true }), true);
+    assert.equal(replicaInnerExecRetryable({
+      channelModePut: 'auto',
+      capability: { nonce: 'x' },
+    }), false);
+    assert.equal(replicaInnerExecRetryable({}), false);
+    assert.equal(replicaInnerExecRetryable(null), false);
+
+    const bounced = classifyStaffOwnerExecResult({
+      status: 1,
+      stdout: '',
+      stderr: "Handshake status 429 Too Many Requests retry-after: 600",
+    });
+    assert.equal(replicaInnerExecTrusted429(bounced), true);
+    const marked429 = classifyStaffOwnerExecResult({
+      status: 1,
+      stdout: `${MUTATION_ISSUED_MARKER}\n`,
+      stderr: 'Handshake status 429 Too Many Requests retry-after: 600',
+    });
+    assert.equal(replicaInnerExecTrusted429(marked429), false);
+    const withInner = classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify({ ok: true, channel_mode: 'off' })}\n`,
+      stderr: '',
+    });
+    assert.equal(replicaInnerExecTrusted429(withInner), false);
+
+    let calls = 0;
+    const ok = classifyStaffOwnerExecResult({
+      status: 0,
+      stdout: `${JSON.stringify({ ok: true, channel_mode: 'auto' })}\n`,
+    });
+    const retried = await runReplicaInnerExecWith429Retry(async () => {
+      calls += 1;
+      return calls === 1 ? bounced : ok;
+    }, { channelModePut: 'auto' });
+    assert.equal(calls, 2);
+    assert.equal(retried.inner.ok, true);
+    assert.equal(retried.inner.channel_mode, 'auto');
+
+    let ownerCalls = 0;
+    await runReplicaInnerExecWith429Retry(async () => {
+      ownerCalls += 1;
+      return bounced;
+    }, { capability: { nonce: 'no-retry' } });
+    assert.equal(ownerCalls, 1);
+
+    let twice = 0;
+    const still429 = await runReplicaInnerExecWith429Retry(async () => {
+      twice += 1;
+      return bounced;
+    }, { snapshot: 'mode' });
+    assert.equal(twice, 2);
+    assert.equal(replicaInnerExecTrusted429(still429), true);
+
+    const invokeSrc = libSrc.slice(
+      libSrc.indexOf('invokeAutoOwner: brandProductionAutoOwner'),
+      libSrc.indexOf('async snapshotOperation'),
+    );
+    assert.doesNotMatch(invokeSrc, /runReplicaInnerExecWith429Retry/);
+    assert.match(
+      libSrc.slice(
+        libSrc.indexOf('async function execInner'),
+        libSrc.indexOf('async function verifyGraphArrival'),
+      ),
+      /runReplicaInnerExecWith429Retry/,
+    );
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
