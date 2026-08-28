@@ -120,14 +120,22 @@ const {
   consumeInnerCapability,
   dispatchProcessAlive,
   ignoreRemoteExecHangup,
-  spawnDetachedStaffOwnerWorker,
+  writeOwnerOneshotRequest,
+  readOwnerOneshotRequest,
+  claimOwnerOneshotRequest,
+  startMailMvp004StaffOwnerOneshotListener,
+  stopMailMvp004StaffOwnerOneshotListener,
   readDispatchReceipt,
   writeDispatchReceipt,
   replaceProvenNoSendDispatchMarker,
   classifyReconcileSnapshot,
   INNER_DISPATCH_RECEIPT_PATH,
+  INNER_OWNER_REQUEST_PATH,
+  INNER_OWNER_CLAIMED_PATH,
   STAFF_OWNER_EXEC_TIMEOUT_MS,
   STAFF_OWNER_COMPLETION_WAIT_MS,
+  STAFF_OWNER_HANDOFF_WAIT_MS,
+  RECONCILE_POLL_INTERVAL_MS,
   SNAPSHOT_EXEC_TIMEOUT_MS,
   CONFIRM_WINDOW_MS,
   REVISION_WAIT_TIMEOUT_MS,
@@ -6005,21 +6013,39 @@ Module._load = function(request, parent, isMain) {
     assert.ok(ownerSrc.indexOf('consumeInnerCapability')
       < ownerSrc.indexOf('ignoreRemoteExecHangup'));
     assert.ok(ownerSrc.indexOf('ignoreRemoteExecHangup')
-      < ownerSrc.indexOf('spawnDetachedStaffOwnerWorker'));
-    assert.ok(ownerSrc.indexOf('spawnDetachedStaffOwnerWorker')
+      < ownerSrc.indexOf('writeOwnerOneshotRequest'));
+    assert.ok(ownerSrc.indexOf('writeOwnerOneshotRequest')
       < ownerSrc.indexOf('MUTATION_ISSUED_MARKER'));
     assert.match(libSrc, /process\.on\('SIGHUP', ignore\)/);
-    assert.match(libSrc, /detached: true/);
     assert.match(libSrc, /MAIL_MVP_004_STAFF_OWNER_WORKER/);
+    assert.match(libSrc, /startMailMvp004StaffOwnerOneshotListener/);
+    assert.doesNotMatch(ownerSrc, /spawnDetachedStaffOwnerWorker/);
+    assert.doesNotMatch(ownerSrc, /detached: true/);
     assert.doesNotMatch(
       libSrc.slice(libSrc.indexOf('invokeAutoOwner: brandProductionAutoOwner'), libSrc.indexOf('async snapshotOperation')),
-      /spawnDetachedStaffOwnerWorker/,
+      /writeOwnerOneshotRequest/,
     );
     assert.match(libSrc, /STAFF_OWNER_EXEC_TIMEOUT_MS = 12 \* 60 \* 1000/);
     assert.equal(STAFF_OWNER_EXEC_TIMEOUT_MS, 12 * 60 * 1000);
     assert.ok(STAFF_OWNER_EXEC_TIMEOUT_MS > SNAPSHOT_EXEC_TIMEOUT_MS);
-    assert.ok(STAFF_OWNER_COMPLETION_WAIT_MS >= 10 * 60 * 1000);
+    assert.ok(STAFF_OWNER_COMPLETION_WAIT_MS >= 12 * 60 * 1000);
+    assert.equal(STAFF_OWNER_COMPLETION_WAIT_MS, STAFF_OWNER_EXEC_TIMEOUT_MS);
+    assert.equal(STAFF_OWNER_HANDOFF_WAIT_MS, 15 * 1000);
+    assert.equal(RECONCILE_POLL_INTERVAL_MS, 15 * 1000);
+    assert.ok(RECONCILE_POLL_INTERVAL_MS >= 15 * 1000);
     assert.equal(INNER_DISPATCH_RECEIPT_PATH, '/tmp/mail-mvp-004-dispatch-receipt.json');
+    assert.equal(INNER_OWNER_REQUEST_PATH, '/tmp/mail-mvp-004-owner-request.json');
+    assert.equal(INNER_OWNER_CLAIMED_PATH, '/tmp/mail-mvp-004-owner-request.claimed.json');
+    const staffApiSrc = fs.readFileSync(path.join(ROOT, 'scripts/staff-query-api.js'), 'utf8');
+    assert.match(staffApiSrc, /startMailMvp004StaffOwnerOneshotListener/);
+    assert.match(staffApiSrc, /withPgClient: _withPgClientImpl/);
+    assert.ok(staffApiSrc.indexOf("LUNA_DEPLOYMENT") < staffApiSrc.indexOf('startMailMvp004StaffOwnerOneshotListener')
+      || staffApiSrc.includes("process.env.LUNA_DEPLOYMENT"));
+    assert.match(staffApiSrc, /sunset-staging/);
+    assert.match(runbook, /long-lived Staff API process/);
+    assert.match(runbook, /one-shot request/);
+    assert.match(plan, /one-shot request/);
+    assert.doesNotMatch(runbook, /detaches the 003 handle into a new session/);
 
     const reconCmd = buildStaffOwnerRemoteCommand(crypto.randomUUID(), false, { snapshot: 'reconcile' });
     assert.match(reconCmd, /MAIL_MVP_004_SNAPSHOT=reconcile/);
@@ -6322,15 +6348,17 @@ Module._load = function(request, parent, isMain) {
     assert.equal(recon.public.provider_sends, 0);
 
     let parentHandleCalls = 0;
-    let spawnedWorker = 0;
-    const detachCap = issueSupervisorCapability({
+    const oneshotCap = issueSupervisorCapability({
       nonce: nonce(),
       revision: REVISION,
       replica: `${REVISION}-abcde-fghij`,
       imageTag: IMAGE_SHA,
       digest: DIGEST,
     }, NOW_MS);
-    const detached = await runStaffOwnerProof({
+    const requestPath = path.join(dir, 'owner-request.json');
+    const claimedPath = path.join(dir, 'owner-request.claimed.json');
+    const oneshotReceipt = path.join(dir, 'oneshot-receipt.json');
+    const missingListener = await runStaffOwnerProof({
       env: {
         MAIL_MVP_004_LIVE_PROOF: '1',
         MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
@@ -6340,34 +6368,193 @@ Module._load = function(request, parent, isMain) {
         EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
         LUNA_AUTO_SEND_ENABLED: 'true',
         LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
-        MAIL_MVP_004_CAPABILITY: encodeCapability(detachCap),
+        MAIL_MVP_004_CAPABILITY: encodeCapability(oneshotCap),
         MAIL_MVP_004_REVISION: REVISION,
         MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
         MAIL_MVP_004_DIGEST: DIGEST,
       },
       withPgClient: withZero,
       nowMs: NOW_MS,
-      consumedCapabilityPath: path.join(dir, 'detach-consumed.json'),
-      dispatchReceiptPath: path.join(dir, 'detach-receipt.json'),
+      useOneshot: true,
+      oneshotRequestPath: requestPath,
+      oneshotClaimedPath: claimedPath,
+      consumedCapabilityPath: path.join(dir, 'oneshot-consumed.json'),
+      dispatchReceiptPath: oneshotReceipt,
+      workerBindTimeoutMs: 0,
+      sleep: async () => {},
       wired: {
         handleProjectedInbound: brandProductionAutoOwner(async () => {
           parentHandleCalls += 1;
           return { status: 'sent' };
         }),
       },
-      spawnDetachedOwner(workerEnv) {
-        spawnedWorker += 1;
-        assert.equal(workerEnv.MAIL_MVP_004_STAFF_OWNER_WORKER, '1');
-        assert.equal(workerEnv.MAIL_MVP_004_CAPABILITY_CONSUMED, '1');
-        return { pid: 999999 };
-      },
-      sleep: async () => {},
     });
-    assert.equal(spawnedWorker, 1);
     assert.equal(parentHandleCalls, 0);
-    assert.equal(detached.reason, 'proven_no_send');
-    assert.equal(detached.invoked, 1);
-    assert.equal(detached.dispatch_reset_allowed, true);
+    assert.equal(missingListener.reason, 'dispatch_receipt_unproven');
+    assert.equal(missingListener.invoked, 1);
+    assert.equal(readOwnerOneshotRequest(requestPath), null);
+    assert.equal(writeOwnerOneshotRequest({
+      operation_binding: 'wrong',
+      capability: encodeCapability(oneshotCap),
+      nonce: oneshotCap.nonce,
+      revision: REVISION,
+      image_tag: IMAGE_SHA,
+      digest: DIGEST,
+    }, path.join(dir, 'bad-binding.json')), null);
+
+    let staffHandleCalls = 0;
+    const liveCap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    const liveRequest = path.join(dir, 'live-request.json');
+    const liveClaimed = path.join(dir, 'live-request.claimed.json');
+    const liveReceipt = path.join(dir, 'live-receipt.json');
+    const liveConsumed = path.join(dir, 'live-consumed.json');
+    const liveEnv = {
+      MAIL_MVP_004_LIVE_PROOF: '1',
+      MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+      LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+      EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+      EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+      LUNA_AUTO_SEND_ENABLED: 'true',
+      LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+      MAIL_MVP_004_REVISION: REVISION,
+      MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+      MAIL_MVP_004_DIGEST: DIGEST,
+    };
+    const listener = startMailMvp004StaffOwnerOneshotListener({
+      env: liveEnv,
+      requestPath: liveRequest,
+      claimedPath: liveClaimed,
+      dispatchReceiptPath: liveReceipt,
+      consumedCapabilityPath: liveConsumed,
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      wired: {
+        handleProjectedInbound: brandProductionAutoOwner(async () => {
+          staffHandleCalls += 1;
+          return { status: 'sent' };
+        }),
+      },
+    });
+    assert.equal(listener.ok, true);
+    const handed = await runStaffOwnerProof({
+      env: {
+        ...liveEnv,
+        MAIL_MVP_004_CAPABILITY: encodeCapability(liveCap),
+      },
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      useOneshot: true,
+      oneshotRequestPath: liveRequest,
+      oneshotClaimedPath: liveClaimed,
+      consumedCapabilityPath: liveConsumed,
+      dispatchReceiptPath: liveReceipt,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 20))),
+      wired: {
+        handleProjectedInbound: brandProductionAutoOwner(async () => {
+          parentHandleCalls += 1;
+          return { status: 'sent' };
+        }),
+      },
+    });
+    assert.equal(parentHandleCalls, 0);
+    assert.equal(handed.invoked, 1);
+    assert.ok(
+      handed.reason === 'indeterminate_no_retry'
+      || handed.status === 'sent'
+      || handed.reason === 'operation_counts_mismatch',
+    );
+    const deadline = Date.now() + 2000;
+    let liveDone = readDispatchReceipt(liveReceipt);
+    while (Date.now() < deadline && (!liveDone || liveDone.status === 'issued')) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      liveDone = readDispatchReceipt(liveReceipt);
+    }
+    assert.equal(staffHandleCalls, 1);
+    assert.equal(liveDone.status, 'completed');
+    assert.equal(liveDone.pid, null);
+    assert.equal(liveDone.process_alive, false);
+    stopMailMvp004StaffOwnerOneshotListener(listener);
+
+    let releaseInflight;
+    const inflightGate = new Promise((resolve) => { releaseInflight = resolve; });
+    let inflightCalls = 0;
+    const inflightCap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    const inflightRequest = path.join(dir, 'inflight-request.json');
+    const inflightClaimed = path.join(dir, 'inflight-request.claimed.json');
+    const inflightReceipt = path.join(dir, 'inflight-receipt.json');
+    const inflightConsumed = path.join(dir, 'inflight-consumed.json');
+    const inflightListener = startMailMvp004StaffOwnerOneshotListener({
+      env: liveEnv,
+      requestPath: inflightRequest,
+      claimedPath: inflightClaimed,
+      dispatchReceiptPath: inflightReceipt,
+      consumedCapabilityPath: inflightConsumed,
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      wired: {
+        handleProjectedInbound: brandProductionAutoOwner(async () => {
+          inflightCalls += 1;
+          await inflightGate;
+          return { status: 'sent' };
+        }),
+      },
+    });
+    assert.equal(inflightListener.ok, true);
+    const inflightHanded = await runStaffOwnerProof({
+      env: {
+        ...liveEnv,
+        MAIL_MVP_004_CAPABILITY: encodeCapability(inflightCap),
+      },
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      useOneshot: true,
+      oneshotRequestPath: inflightRequest,
+      oneshotClaimedPath: inflightClaimed,
+      consumedCapabilityPath: inflightConsumed,
+      dispatchReceiptPath: inflightReceipt,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 20))),
+      wired: {
+        handleProjectedInbound: brandProductionAutoOwner(async () => {
+          parentHandleCalls += 1;
+          return { status: 'sent' };
+        }),
+      },
+    });
+    assert.equal(parentHandleCalls, 0);
+    assert.equal(inflightHanded.reason, 'indeterminate_no_retry');
+    assert.equal(inflightHanded.process_alive, true);
+    assert.equal(inflightHanded.dispatch_marked, true);
+    assert.equal(readDispatchReceipt(inflightReceipt).status, 'issued');
+    assert.equal(inflightCalls, 1);
+    releaseInflight();
+    const inflightDeadline = Date.now() + 2000;
+    let inflightDone = readDispatchReceipt(inflightReceipt);
+    while (Date.now() < inflightDeadline && inflightDone && inflightDone.status === 'issued') {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inflightDone = readDispatchReceipt(inflightReceipt);
+    }
+    assert.equal(inflightDone.status, 'completed');
+    assert.equal(inflightDone.pid, null);
+    stopMailMvp004StaffOwnerOneshotListener(inflightListener);
+    const refusedListener = startMailMvp004StaffOwnerOneshotListener({
+      env: { LUNA_DEPLOYMENT: 'production' },
+    });
+    assert.equal(refusedListener.ok, false);
+    assert.equal(refusedListener.reason, 'deployment_mismatch');
+    assert.equal(claimOwnerOneshotRequest(path.join(dir, 'missing-req.json'), claimedPath), null);
 
     let orphanHandleCalls = 0;
     const orphanCap = issueSupervisorCapability({
