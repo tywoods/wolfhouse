@@ -6409,12 +6409,25 @@ Module._load = function(request, parent, isMain) {
     }, { capability: { nonce: 'no-retry' } });
     assert.equal(ownerCalls, 1);
 
+    let waited = 0;
+    const slept = [];
+    const afterWait = await runReplicaInnerExecWith429Retry(async () => {
+      waited += 1;
+      return waited < 3 ? bounced : ok;
+    }, { channelModePut: 'auto' }, async (ms) => {
+      slept.push(ms);
+    });
+    assert.equal(waited, 3);
+    assert.deepEqual(slept, [REPLICA_ATTEST_COOLDOWN_MS]);
+    assert.notEqual(slept[0], REPLICA_ATTEST_RETRY_AFTER_WAIT_MS);
+    assert.equal(afterWait.inner.channel_mode, 'auto');
+
     let twice = 0;
     const still429 = await runReplicaInnerExecWith429Retry(async () => {
       twice += 1;
       return bounced;
-    }, { snapshot: 'mode' });
-    assert.equal(twice, 2);
+    }, { snapshot: 'mode' }, async () => {});
+    assert.equal(twice, 3);
     assert.equal(replicaInnerExecTrusted429(still429), true);
 
     const invokeSrc = libSrc.slice(
@@ -6422,13 +6435,12 @@ Module._load = function(request, parent, isMain) {
       libSrc.indexOf('async snapshotOperation'),
     );
     assert.doesNotMatch(invokeSrc, /runReplicaInnerExecWith429Retry/);
-    assert.match(
-      libSrc.slice(
-        libSrc.indexOf('async function execInner'),
-        libSrc.indexOf('async function verifyGraphArrival'),
-      ),
-      /runReplicaInnerExecWith429Retry/,
+    const execSrc = libSrc.slice(
+      libSrc.indexOf('async function execInner'),
+      libSrc.indexOf('async function verifyGraphArrival'),
     );
+    assert.match(execSrc, /runReplicaInnerExecWith429Retry\(runOnce, extra, sleep\)/);
+    assert.doesNotMatch(execSrc, /REPLICA_ATTEST_RETRY_AFTER_WAIT_MS/);
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
