@@ -295,7 +295,7 @@ function buildPaymentLinkCommand(opts = {}) {
       authoritativeBalanceDueCents: opts.authoritativeBalanceDueCents != null
         ? Number(opts.authoritativeBalanceDueCents)
         : null,
-      paymentChoice: String(opts.paymentChoice || transportBody.payment_choice || '').trim() || null,
+      paymentChoice: String(opts.paymentChoice || '').trim() || null,
     },
   };
 }

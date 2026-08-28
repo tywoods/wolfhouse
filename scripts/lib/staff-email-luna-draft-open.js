@@ -1160,6 +1160,9 @@ function createStaffEmailLunaDraftOpen(deps) {
               body,
               authenticity: 'staff_api',
             };
+          } else if (paid && paid.block_natural_fallback === true) {
+            await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
+            return pending(conversationId);
           }
         } catch {
           composed = null;

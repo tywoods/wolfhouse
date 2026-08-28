@@ -996,14 +996,6 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_schedule_managed_bookings' } };
   }
 
-  const callerChoice = String(opts.paymentChoice || opts.payment_choice || '').trim();
-  const metaChoice = String((parseMeta(booking.metadata).mail_mvp_008 || {}).payment_choice
-    || parseMeta(booking.metadata).payment_choice || '').trim();
-  const paymentChoice = callerChoice || metaChoice || 'full';
-  if (paymentChoice !== 'full' && paymentChoice !== 'deposit') {
-    return { ok: false, status: 400, body: { success: false, error: 'invalid_payment_choice' } };
-  }
-  const paymentKind = paymentChoice === 'deposit' ? 'deposit_only' : 'full_amount';
   const currency = 'EUR';
   for (const key of ['amount_due_cents', 'amount_paid_cents', 'total_cents', 'deposit_required_cents']) {
     if (opts[key] !== undefined && opts[key] !== null && opts[key] !== '') {
@@ -1027,6 +1019,14 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       await pg.query('ROLLBACK');
       return { ok: false, status: 409, body: { success: false, error: 'hold_expired' } };
     }
+    const lockedMeta = parseMeta(locked.metadata);
+    const mvp008 = lockedMeta.mail_mvp_008 && typeof lockedMeta.mail_mvp_008 === 'object'
+      ? lockedMeta.mail_mvp_008 : null;
+    const storedChoice = mvp008 && String(mvp008.payment_choice || '').trim();
+    const paymentChoice = (mvp008 && lockedStatus === 'hold' && storedChoice === 'deposit')
+      ? 'deposit'
+      : 'full';
+    let paymentKind = 'full_amount';
 
     const priced = await priceSunsetBookingServices(pg, clientSlug, booking.booking_id);
     if (!priced.ok) {
@@ -1051,7 +1051,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     }
     let amountDueCents;
     try {
-      if (paymentChoice === 'deposit') {
+      if (paymentChoice === 'deposit' && Number(authoritativeBalanceDueCents) === Number(priced.total_cents)) {
         const deposit = Number(locked.deposit_required_cents);
         if (!Number.isSafeInteger(deposit) || deposit <= 0) {
           await pg.query('ROLLBACK');
@@ -1062,6 +1062,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
           return { ok: false, status: 422, body: { success: false, error: 'deposit_exceeds_total' } };
         }
         amountDueCents = deposit;
+        paymentKind = 'deposit_only';
       } else {
         amountDueCents = resolveAuthoritativeOutstandingCents(
           priced.total_cents,
@@ -1076,7 +1077,6 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       await pg.query('ROLLBACK');
       return { ok: false, status: 422, body: { success: false, error: 'no_payment_due', message: 'No outstanding balance due.', amount_due_cents: 0 } };
     }
-    const lockedMeta = parseMeta(locked.metadata);
     const stripeIdempotencyKey = buildStripeCheckoutIdempotencyKey({
       clientSlug,
       bookingId: booking.booking_id,

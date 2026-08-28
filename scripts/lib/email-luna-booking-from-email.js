@@ -145,8 +145,35 @@ function extractPaymentChoice(text) {
   return fail('payment_choice_missing');
 }
 
+function addDaysIso(iso, days) {
+  const d = new Date(`${iso}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function inclusiveIsoSpan(from, to, cap) {
+  if (!from || !to || to < from) return null;
+  const out = [];
+  let cur = from;
+  while (cur <= to && out.length < cap) {
+    out.push(cur);
+    const next = addDaysIso(cur, 1);
+    if (!next || next === cur) break;
+    cur = next;
+  }
+  if (out[out.length - 1] !== to) return null;
+  return out;
+}
+
 function extractIsoDates(text) {
   const raw = asText(text);
+  const range = /\b(20\d{2}-\d{2}-\d{2})\s*(?:to|until|through|thru|-|–|—|al|hasta)\s*(20\d{2}-\d{2}-\d{2})\b/i.exec(raw);
+  if (range) {
+    const span = inclusiveIsoSpan(range[1], range[2], 14);
+    if (!span) return freeze([]);
+    return freeze(span.slice());
+  }
   const found = [];
   const seen = Object.create(null);
   ISO_DATE_RE.lastIndex = 0;
@@ -160,7 +187,29 @@ function extractIsoDates(text) {
     match = ISO_DATE_RE.exec(raw);
   }
   found.sort();
+  if (found.length > 2) return freeze([]);
   return freeze(found.slice());
+}
+
+function extractGuestQuantity(text) {
+  const raw = asText(text).toLowerCase();
+  const hits = [];
+  const re = /\b(\d{1,2})\s*(?:people|persons|personas|guests|guest|surfers|surfer|pax|adults|adultos)\b/g;
+  let m = re.exec(raw);
+  while (m) {
+    hits.push(Number(m[1]));
+    m = re.exec(raw);
+  }
+  const unique = [...new Set(hits.filter((n) => Number.isInteger(n) && n >= 1 && n <= 24))];
+  if (unique.length > 1) return fail('quantity_ambiguous');
+  if (unique.length === 1) return freeze({ ok: true, quantity: unique[0] });
+  return freeze({ ok: true, quantity: 1 });
+}
+
+function staffRequestedPayToBook(operatorContext) {
+  const raw = asText(operatorContext).toLowerCase();
+  if (!raw.trim()) return false;
+  return /\b(?:deposit|dep[oó]sito|full payment|pay in full|pago completo|payment link|enlace de pago|hold (?:the |their |these )?dates|reten|book them|send (?:them )?(?:the )?(?:deposit |full )?link|m[áa]ndales?(?: el)? (?:link|enlace))\b/.test(raw);
 }
 
 function extractEmailPayToBookIntent(input) {
@@ -181,6 +230,8 @@ function extractEmailPayToBookIntent(input) {
   if (!fromName) return fail('guest_name_missing');
   if (!EMAIL_RE.test(fromAddress)) return fail('guest_email_missing');
 
+  if (!staffRequestedPayToBook(operator)) return fail('staff_pay_to_book_not_requested');
+
   const choice = extractPaymentChoice(combined);
   if (!choice.ok) return choice;
 
@@ -191,6 +242,9 @@ function extractEmailPayToBookIntent(input) {
   const dateTo = dates[dates.length - 1];
   if (dateTo < dateFrom) return fail('dates_invalid');
 
+  const qty = extractGuestQuantity(combined);
+  if (!qty.ok) return qty;
+
   return freeze({
     ok: true,
     payment_choice: choice.payment_choice,
@@ -199,6 +253,7 @@ function extractEmailPayToBookIntent(input) {
     date_from: dateFrom,
     date_to: dateTo,
     service_dates: dates,
+    quantity: qty.quantity,
     text: combined,
   });
 }
@@ -278,12 +333,12 @@ function buildEmailPayToBookIdempotencyKey(bound, intent, offeringId) {
     client_id: bound.client_id,
     location_id: bound.location_id,
     conversation_id: bound.conversation_id,
-    inbound_event_id: bound.inbound_event_id,
     endpoint_id: bound.endpoint_id,
     mailbox_id: bound.mailbox_id,
     payment_choice: intent.payment_choice,
     date_from: intent.date_from,
     date_to: intent.date_to,
+    quantity: intent.quantity,
     offering_id: asText(offeringId).trim(),
   });
   return crypto.createHash('sha256').update(payload).digest('hex');
@@ -355,18 +410,21 @@ function hasInventedMoney(body, allowedUrl) {
 }
 
 function quoteTransportFromIntent(intent, offering) {
-  const offeringId = asText(offering && offering.offering_id).trim();
+  const expanded = offering && offering.components
+    ? offering
+    : expandCatalogOfferingForWrite(offering, intent);
+  if (!expanded || expanded.ok === false) return null;
   const transport = {
     guest_name: intent.guest_name,
     date_from: intent.date_from,
     date_to: intent.date_to,
     service_dates: intent.service_dates.slice(),
+    quantity: intent.quantity,
   };
-  if (offeringId) transport.offering_id = offeringId;
-  if (offering && offering.components && typeof offering.components === 'object') {
-    transport.components = offering.components;
-  }
-  if (Array.isArray(offering && offering.rentals)) transport.rentals = offering.rentals;
+  if (expanded.offering_id) transport.offering_id = expanded.offering_id;
+  if (expanded.course_id) transport.course_id = expanded.course_id;
+  if (expanded.components) transport.components = expanded.components;
+  if (Array.isArray(expanded.rentals)) transport.rentals = expanded.rentals;
   return transport;
 }
 
@@ -389,9 +447,72 @@ function offeringMentionedInText(offering, text) {
   if (!hay) return false;
   const id = asText(offering && offering.offering_id).trim().toLowerCase();
   const label = asText(offering && offering.label).trim().toLowerCase();
-  if (id && hay.includes(id)) return true;
-  if (label && label.length >= 4 && hay.includes(label)) return true;
+  if (id && UUID_RE.test(id) && hay.includes(id)) return true;
+  if (label && label.length >= 8) {
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`(?:^|[^a-z0-9])${escaped}(?:[^a-z0-9]|$)`).test(hay)) return true;
+  }
   return false;
+}
+
+function expandCatalogOfferingForWrite(offering, intent) {
+  if (!offering || offering.ok === false) return fail('offering_unresolved');
+  const offeringId = asText(offering.offering_id).trim();
+  const type = asText(offering.offering_type).trim();
+  const quantity = intent.quantity;
+  if (!offeringId || !Number.isInteger(quantity) || quantity < 1) return fail('offering_unresolved');
+  if (type === 'course') {
+    const courseId = asText(offering.course_id).trim();
+    const tierKey = asText(offering.tier_key || (offering.tier && offering.tier.key)).trim();
+    if (!courseId || !tierKey) return fail('offering_unresolved');
+    return freeze({
+      ok: true,
+      offering_id: offeringId,
+      offering_type: 'course',
+      course_id: courseId,
+      quantity,
+      components: freeze({
+        course: freeze({
+          course_id: courseId,
+          tier_key: tierKey,
+          quantity,
+        }),
+      }),
+    });
+  }
+  if (type === 'rental') {
+    const offeringKey = asText(offering.offering_key || offering.item_code || offeringId).trim();
+    const durationKey = asText(offering.duration_key || offering.billing_unit || offering.price && offering.price.unit).trim();
+    if (!offeringKey || !durationKey) return fail('offering_unresolved');
+    return freeze({
+      ok: true,
+      offering_id: offeringId,
+      offering_type: 'rental',
+      quantity,
+      rentals: freeze([freeze({
+        offering_key: offeringKey,
+        duration_key: durationKey,
+        quantity,
+      })]),
+    });
+  }
+  if (type === 'private_lesson') {
+    const sessions = intent.service_dates.map((date) => freeze({ date }));
+    return freeze({
+      ok: true,
+      offering_id: offeringId,
+      offering_type: 'private_lesson',
+      quantity,
+      components: freeze({
+        private_lesson: freeze({
+          quantity,
+          surfer_count: quantity,
+          sessions,
+        }),
+      }),
+    });
+  }
+  return fail('offering_unresolved');
 }
 
 async function resolveOfferingFromCatalog(pg, bound, intent) {
@@ -414,10 +535,16 @@ async function resolveOfferingFromCatalog(pg, bound, intent) {
     row && row.bookable === true && offeringMentionedInText(row, intent.text)
   ));
   if (matches.length !== 1) return fail('offering_unresolved');
+  const row = matches[0];
   return freeze({
     ok: true,
-    offering_id: asText(matches[0].offering_id).trim(),
-    label: asText(matches[0].label).trim() || null,
+    offering_id: asText(row.offering_id).trim(),
+    offering_type: asText(row.offering_type).trim() || null,
+    course_id: asText(row.course_id).trim() || null,
+    tier_key: asText(row.tier_key || (row.tier && row.tier.key)).trim() || null,
+    offering_key: asText(row.offering_key || row.item_code).trim() || null,
+    duration_key: asText(row.duration_key || row.billing_unit).trim() || null,
+    label: asText(row.label).trim() || null,
   });
 }
 
@@ -452,10 +579,12 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
   const createLinkFn = typeof deps.createPaymentLink === 'function'
     ? deps.createPaymentLink : createPaymentLink;
 
+  const transport = quoteTransportFromIntent(intent, offering);
+  if (!transport) return fail('offering_unresolved');
   const quoteCmd = buildSunsetQuoteCommand({
     channel: QUOTE_CHANNELS.LUNA_EMAIL || 'luna_email',
     trustedLocationId: bound.location_id,
-    transportBody: quoteTransportFromIntent(intent, offering),
+    transportBody: transport,
     now: input.now instanceof Date ? input.now : new Date(),
   });
   if (!quoteCmd.ok) return fail(quoteCmd.body && quoteCmd.body.reason_code || 'quote_command_failed');
@@ -478,7 +607,7 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
     actorHints: { source: MAIL_MVP_008_ACTOR_SOURCE },
     now: input.now instanceof Date ? input.now : new Date(),
     transportBody: {
-      ...quoteTransportFromIntent(intent, offering),
+      ...transport,
       guest_name: intent.guest_name,
       guest_email: intent.guest_email,
       payment_status: 'unpaid',
@@ -501,7 +630,12 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
     quote_total_cents: quoteBody.total_cents,
   });
 
-  const held = await createHoldFn(pg, createCmd.command, deps.createHoldOpts || {});
+  let held = await createHoldFn(pg, createCmd.command, deps.createHoldOpts || {});
+  if ((!held || held.ok !== true)
+      && held && held.body && held.body.reason_code === 'idempotency_key_expired') {
+    createCmd.command.transportBody.idempotency_key = `${idempotencyKey}:post_expiry`;
+    held = await createHoldFn(pg, createCmd.command, deps.createHoldOpts || {});
+  }
   if (!held || held.ok !== true) {
     const code = held && held.body && (held.body.reason_code || held.body.error || held.body.reason);
     if (/availab|course_full|stock|mismatch|price/i.test(String(code || ''))) {
@@ -558,12 +692,20 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
     : stripeExecOptsFromEnv(input.env);
   const linked = await createLinkFn(pg, linkBuilt.command, execOpts);
   if (!linked || linked.ok !== true) {
-    return fail((linked && linked.body && (linked.body.reason_code || linked.body.error)) || 'payment_link_failed');
+    return fail((linked && linked.body && (linked.body.reason_code || linked.body.error)) || 'payment_link_failed', {
+      block_natural_fallback: true,
+      booking_id: bookingId,
+    });
   }
   const paymentUrl = asText(
     (linked.body && (linked.body.checkout_url || linked.body.payment_link_url)) || '',
   ).trim();
-  if (!isExactStaffPaymentUrl(paymentUrl)) return fail('payment_url_unusable');
+  if (!isExactStaffPaymentUrl(paymentUrl)) {
+    return fail('payment_url_unusable', {
+      block_natural_fallback: true,
+      booking_id: bookingId,
+    });
+  }
 
   const rendered = renderEmailPayToBookDraft({
     language: detectDraftLanguage(input.untrusted && input.untrusted.subject, input.untrusted && input.untrusted.body_text),
@@ -607,6 +749,9 @@ module.exports = freeze({
   PAYMENT_CHOICES,
   extractPaymentChoice,
   extractIsoDates,
+  extractGuestQuantity,
+  staffRequestedPayToBook,
+  expandCatalogOfferingForWrite,
   extractEmailPayToBookIntent,
   resolveAuthoritativePayToBookAmount,
   bindEmailPayToBookIdentities,

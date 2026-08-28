@@ -4142,6 +4142,17 @@ function evaluateIdempotentReplay(existingRows, input, locationId, opts) {
       body: { success: false, error: 'idempotency_key_intent_conflict', reason_code: 'idempotency_key_intent_conflict' },
     };
   }
+  const replayStatus = String(first.booking_status || '').toLowerCase();
+  if (replayStatus === 'expired' || replayStatus === 'cancelled' || replayStatus === 'canceled') {
+    return {
+      ok: false, status: 409,
+      body: {
+        success: false,
+        error: 'idempotency_key_expired',
+        reason_code: 'idempotency_key_expired',
+      },
+    };
+  }
   return {
     ok: true, replay: true, status: 200,
     body: {
@@ -5145,6 +5156,20 @@ async function createSunsetScheduleBooking(pg, opts) {
     authoritativeQuote = priced.authoritativeQuote || authoritativeQuote;
     if (priced.rentalPricingDescriptor) {
       rentalPricingDescriptor = priced.rentalPricingDescriptor;
+    }
+
+    if (payToBookHold && String(opts.paymentChoice || '') === 'deposit') {
+      const dep = Number(authoritativeQuote && authoritativeQuote.deposit_required_cents);
+      if (!Number.isSafeInteger(dep) || dep <= 0) {
+        throwSunsetPriceFail(422, 'deposit_not_configured', { reason_code: 'deposit_not_configured' });
+      }
+      if (depositRequiredCents != null && Number(depositRequiredCents) !== dep) {
+        throwSunsetPriceFail(422, 'deposit_mismatch', { reason_code: 'deposit_mismatch' });
+      }
+      await pg.query(
+        `UPDATE bookings SET deposit_required_cents = $2 WHERE id = $1::uuid AND client_id = $3::uuid`,
+        [bookingId, dep, clientId],
+      );
     }
 
     await pg.query('COMMIT');

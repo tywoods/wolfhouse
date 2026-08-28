@@ -128,21 +128,28 @@ async function main() {
 
   const intent = owner.extractEmailPayToBookIntent({
     untrusted: untrusted(),
-    operator_context: 'They chose deposit.',
+    operator_context: 'Send them the deposit link for Weekend Course.',
   });
   assert.equal(intent.ok, true);
   assert.equal(intent.payment_choice, 'deposit');
   assert.equal(intent.date_from, '2026-09-12');
   assert.equal(intent.date_to, '2026-09-19');
+  assert.equal(intent.service_dates.length, 8);
   assert.equal(intent.guest_email, 'ada@example.com');
-  ok('extractor binds guest identity, dates, and deposit choice');
+  ok('extractor binds guest identity, inclusive dates, and deposit choice');
 
   const missingChoice = owner.extractEmailPayToBookIntent({
     untrusted: untrusted({ body_text: 'Book me 2026-09-12 please' }),
-    operator_context: '',
+    operator_context: 'Hold the dates and send a payment link.',
   });
   assert.equal(missingChoice.ok, false);
-  ok('missing payment choice fail-closes');
+  const noStaff = owner.extractEmailPayToBookIntent({
+    untrusted: untrusted(),
+    operator_context: 'Thank them and ask if they want a booking.',
+  });
+  assert.equal(noStaff.ok, false);
+  assert.equal(noStaff.reason, 'staff_pay_to_book_not_requested');
+  ok('missing payment choice and missing staff pay-to-book request fail-close');
 
   const bound = owner.bindEmailPayToBookIdentities({ authority: authority() });
   assert.equal(bound.ok, true);
@@ -210,7 +217,14 @@ async function main() {
   let linkCalls = 0;
   const fakeOwners = {
     async resolveOffering() {
-      return { ok: true, offering_id: OFFERING };
+      return {
+        ok: true,
+        offering_id: OFFERING,
+        offering_type: 'course',
+        course_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        tier_key: '1_week',
+        label: 'Weekend Course',
+      };
     },
     async quote() {
       quoteCalls += 1;
@@ -253,7 +267,7 @@ async function main() {
   const placed = await owner.placeEmailPayToBookHoldAndPaymentLink({}, {
     authority: authority(),
     untrusted: untrusted(),
-    operator_context: 'deposit is fine',
+    operator_context: 'Send them the deposit link for Weekend Course.',
   }, fakeOwners);
   assert.equal(placed.ok, true);
   assert.equal(placed.payment_url, URL);
@@ -299,7 +313,7 @@ async function main() {
   const mismatch = await owner.placeEmailPayToBookHoldAndPaymentLink({}, {
     authority: authority(),
     untrusted: untrusted(),
-    operator_context: 'deposit is fine',
+    operator_context: 'Send them the deposit link for Weekend Course.',
   }, {
     ...fakeOwners,
     async createHold() {
@@ -309,6 +323,16 @@ async function main() {
   assert.equal(mismatch.ok, false);
   assert.equal(mismatch.reason, 'availability_or_price_mismatch');
   ok('availability/price mismatch rejects without inventing a link');
+
+  const expanded = owner.expandCatalogOfferingForWrite({
+    offering_id: OFFERING,
+    offering_type: 'course',
+    course_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    tier_key: '1_week',
+  }, { quantity: 1, service_dates: ['2026-09-12'] });
+  assert.equal(expanded.ok, true);
+  assert.equal(expanded.components.course.course_id, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd');
+  ok('catalog offering expands into Sunset course create transport');
 
   const ownerSrc = read(OWNER_REL);
   assert.match(ownerSrc, /NOW\(\) \+ INTERVAL '24 hours'/);
@@ -320,6 +344,7 @@ async function main() {
   const openSrc = read(OPEN_REL);
   assert.match(openSrc, /tryEmailPayToBookForCreateDraft/);
   assert.match(openSrc, /deps\.runtimeEnv \|\| process\.env/);
+  assert.match(openSrc, /block_natural_fallback/);
   assert.doesNotMatch(openSrc, /createHold|createBooking|createPaymentLink|handleApproveSend|appendOutboundJournal/);
   ok('Create Draft open owner calls 008 hook without becoming a money/send authority');
 
