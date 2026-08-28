@@ -2362,8 +2362,11 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
             sr.metadata->>'components' AS metadata_components,
             sr.metadata->>'location_id' AS location_id,
             sr.metadata->>'idempotency_intent_fp' AS idempotency_intent_fp,
-            sr.metadata->>'idempotency_key' AS idempotency_key
+            sr.metadata->>'idempotency_key' AS idempotency_key,
+            b.hold_expires_at,
+            b.status::text AS booking_status
        FROM booking_service_records sr
+       INNER JOIN bookings b ON b.id = sr.booking_id
       WHERE sr.client_slug = $1
         AND sr.metadata->>'idempotency_key' = $2
       ORDER BY sr.service_date, sr.id
@@ -3022,7 +3025,10 @@ async function resolveAuthoritativeScheduleQuoteInTxn(pg, opts) {
   // — do not demand source===db (unit tests + offline config mode).
   const requireDb = isSunsetAdminDbReadEnabled() === true;
   const channel = opts.quoteChannel === 'luna_whatsapp'
-    ? QUOTE_CHANNELS.LUNA_WHATSAPP : QUOTE_CHANNELS.MANUAL_STAFF;
+    ? QUOTE_CHANNELS.LUNA_WHATSAPP
+    : (opts.quoteChannel === 'luna_email'
+      ? QUOTE_CHANNELS.LUNA_EMAIL
+      : QUOTE_CHANNELS.MANUAL_STAFF);
   // Lane-aware re-quote when create carries quote_provenance: recorded quote_lane
   // selects exact_offering vs components. Single owner for create-time revalidation
   // (do not also re-check outside the write txn).
@@ -4141,6 +4147,8 @@ function evaluateIdempotentReplay(existingRows, input, locationId, opts) {
     body: {
       success: true, idempotent: true,
       booking_code: first.booking_code, booking_id: first.booking_id,
+      hold_expires_at: first.hold_expires_at || null,
+      status: first.booking_status || null,
       records: existingRows.map(scheduleRowFromDb), booking: scheduleRowFromDb(first),
     },
   };
@@ -4645,8 +4653,19 @@ async function createSunsetScheduleBooking(pg, opts) {
   }
 
   const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
-  const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
-  const bookingStatus = bookingStatusFromPayment(input.payment_status);
+  const payToBookHold = opts.payToBookHold === true;
+  const bookingPayment = payToBookHold
+    ? 'waiting_payment'
+    : UI_TO_BOOKING_PAYMENT[input.payment_status];
+  const bookingStatus = payToBookHold ? 'hold' : bookingStatusFromPayment(input.payment_status);
+  const depositRequiredCents = payToBookHold
+    && Number.isSafeInteger(Number(opts.depositRequiredCents))
+    && Number(opts.depositRequiredCents) > 0
+    ? Number(opts.depositRequiredCents)
+    : null;
+  const mailMvp008Meta = opts.mailMvp008 && typeof opts.mailMvp008 === 'object'
+    ? opts.mailMvp008
+    : null;
   const bookingCode = generateSunsetManualBookingCode(locationId);
   const bundleId = crypto.randomBytes(8).toString('hex');
   // board_and_suit is exact-offering future-write (generic descriptor) — never
@@ -4829,12 +4848,14 @@ async function createSunsetScheduleBooking(pg, opts) {
     const bookingIns = await pg.query(
       `INSERT INTO bookings (
          client_id, booking_code, guest_name, phone, status, payment_status,
-         check_in, check_out, guest_count, metadata
+         check_in, check_out, guest_count, hold_expires_at, deposit_required_cents, metadata
        ) VALUES (
          $1::uuid, $2, $3, $4, $5::booking_status, $6::payment_status,
-         $7::date, ($7::date + INTERVAL '1 day')::date, $8, $9::jsonb
+         $7::date, ($7::date + INTERVAL '1 day')::date, $8,
+         ${payToBookHold ? "NOW() + INTERVAL '24 hours'" : 'NULL'},
+         $10, $9::jsonb
        )
-       RETURNING id::text AS id, booking_code`,
+       RETURNING id::text AS id, booking_code, hold_expires_at, status::text AS status`,
       [
         clientId,
         bookingCode,
@@ -4864,7 +4885,10 @@ async function createSunsetScheduleBooking(pg, opts) {
             : null,
           idempotency_key: input.idempotency_key || null,
           idempotency_intent_fp: idempotencyIntentFp || null,
+          mail_mvp_008: mailMvp008Meta,
+          payment_choice: opts.paymentChoice || (mailMvp008Meta && mailMvp008Meta.payment_choice) || null,
         }),
+        depositRequiredCents,
       ],
     );
     const bookingId = bookingIns.rows[0].id;
@@ -5124,6 +5148,9 @@ async function createSunsetScheduleBooking(pg, opts) {
     }
 
     await pg.query('COMMIT');
+    const holdExpiresAt = bookingIns.rows[0] && bookingIns.rows[0].hold_expires_at
+      ? bookingIns.rows[0].hold_expires_at
+      : null;
     return {
       ok: true,
       status: 201,
@@ -5134,6 +5161,10 @@ async function createSunsetScheduleBooking(pg, opts) {
         total_cents: priced.total_cents,
         currency: 'EUR',
         sunset_price_source: priced.sunset_price_source || 'db',
+        ...(payToBookHold ? {
+          hold_expires_at: holdExpiresAt,
+          status: 'hold',
+        } : {}),
         records: createdRows.map(scheduleRowFromDb),
         booking: scheduleRowFromDb(createdRows[0]),
         ...(assignedCourse ? {

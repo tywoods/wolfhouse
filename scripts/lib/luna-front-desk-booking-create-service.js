@@ -29,12 +29,16 @@ const {
 const BOOKING_CREATE_CHANNELS = Object.freeze({
   MANUAL_STAFF: 'manual_staff',
   LUNA_WHATSAPP: 'luna_whatsapp',
+  LUNA_EMAIL: 'luna_email',
 });
 
 function resolveActorForChannel(channel, actorHints) {
   const hints = actorHints && typeof actorHints === 'object' ? actorHints : {};
   if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) {
     return { source: 'agent_luna_whatsapp_bot' };
+  }
+  if (channel === BOOKING_CREATE_CHANNELS.LUNA_EMAIL) {
+    return { source: 'agent_luna_email' };
   }
   if (channel === BOOKING_CREATE_CHANNELS.MANUAL_STAFF) {
     return {
@@ -181,6 +185,10 @@ async function executeSunsetBookingCreate(pg, command) {
     now: command.now,
     quoteProvenance: provenance && typeof provenance === 'object' ? provenance : null,
     quoteChannel: command.channel,
+    payToBookHold: command.payToBookHold === true,
+    depositRequiredCents: command.depositRequiredCents,
+    paymentChoice: command.paymentChoice,
+    mailMvp008: command.mailMvp008,
   });
 
   if (!result.ok) {

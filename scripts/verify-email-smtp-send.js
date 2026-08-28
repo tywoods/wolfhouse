@@ -280,9 +280,10 @@ async function main() {
   ok('099 widens approval + journal provider CHECKs with refuse-down');
 
   assert.match(mvpDoc, /## 006 generic SMTP send/);
-  assert.doesNotMatch(mvpDoc, /\|\s*\*\*008\*\*.*Yes/);
+  assert.match(mvpDoc, /\|\s*\*\*006\*\*.*No/);
+  assert.match(mvpDoc, /\|\s*\*\*008\*\*.*Yes/);
   assert.equal(pkg.scripts['verify:mail-mvp-006'], 'node scripts/verify-email-smtp-send.js');
-  ok('MAIL-MVP-006 is documented; 008 stays later; npm script present');
+  ok('MAIL-MVP-006 is documented as landed; 008 is this job; npm script present');
 
   {
     const world = createFakeWorld();

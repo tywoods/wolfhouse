@@ -29,6 +29,7 @@ const {
 const CATALOG_CHANNELS = Object.freeze({
   MANUAL_STAFF: 'manual_staff',
   LUNA_WHATSAPP: 'luna_whatsapp',
+  LUNA_EMAIL: 'luna_email',
   SCHEDULE: 'schedule',
   ADMIN_CONSUMER: 'admin_consumer',
 });
@@ -586,7 +587,9 @@ function executeSunsetCatalogSync(command, opts = {}) {
 function catalogCommandFromQuoteCommand(quoteCommand) {
   const channel = quoteCommand.channel === 'manual_staff'
     ? CATALOG_CHANNELS.MANUAL_STAFF
-    : CATALOG_CHANNELS.LUNA_WHATSAPP;
+    : (quoteCommand.channel === 'luna_email'
+      ? CATALOG_CHANNELS.LUNA_EMAIL
+      : CATALOG_CHANNELS.LUNA_WHATSAPP);
   return {
     channel,
     clientSlug: quoteCommand.clientSlug,

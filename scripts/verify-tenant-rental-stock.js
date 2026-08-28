@@ -358,7 +358,7 @@ async function run() {
   ok('isActive: booking cancelled false', isActiveReservation({ status: 'confirmed', booking_status: 'cancelled' }) === false);
   ok('isActive: booking canceled false', isActiveReservation({ status: 'confirmed', booking_status: 'canceled' }) === false);
   ok('isActive: booking expired false', isActiveReservation({ status: 'confirmed', booking_status: 'expired' }) === false);
-  ok('isActive: booking hold false', isActiveReservation({ status: 'confirmed', booking_status: 'hold' }) === false);
+  ok('isActive: unpaid hold occupies stock', isActiveReservation({ status: 'confirmed', booking_status: 'hold' }) === true);
   ok('isActive: schedule_archived true false', isActiveReservation({ status: 'confirmed', schedule_archived: true }) === false);
   ok('isActive: sr_schedule_archived true false', isActiveReservation({ status: 'confirmed', sr_schedule_archived: 'true' }) === false);
   ok('isActive: confirmed true', isActiveReservation({ status: 'confirmed', booking_status: 'confirmed' }) === true);
@@ -384,7 +384,7 @@ async function run() {
       },
       {
         booking_id: 'c4', offering_key: 'board_rental', service_date: '2026-08-01',
-        quantity: 2, status: 'confirmed', booking_status: 'hold',
+        quantity: 2, status: 'confirmed', booking_status: 'cancelled',
       },
       {
         booking_id: 'c5', offering_key: 'board_rental', service_date: '2026-08-01',
@@ -392,9 +392,26 @@ async function run() {
       },
     ],
   });
-  ok('cancelled + archived + hold + expired ignored → full stock available',
+  ok('cancelled + archived + expired ignored → full stock available',
     freed.ok === true && freed.remaining === 2 && freed.reserved === 0,
     JSON.stringify(freed));
+
+  const holdOccupies = computeRentalStockAvailability({
+    offering_key: 'board_rental',
+    stock_quantity: 2,
+    quantity: 2,
+    date_from: '2026-08-01',
+    date_to: '2026-08-01',
+    reservations: [
+      {
+        booking_id: 'h1', offering_key: 'board_rental', service_date: '2026-08-01',
+        quantity: 2, status: 'confirmed', booking_status: 'hold',
+      },
+    ],
+  });
+  ok('unpaid hold occupies rental stock until expiry',
+    holdOccupies.ok === false && holdOccupies.reserved === 2,
+    JSON.stringify(holdOccupies));
 
   console.log('\n── H. edit excludes booking being replaced ──');
   const edit = computeRentalStockAvailability({
@@ -829,8 +846,9 @@ async function run() {
     resQ.sql);
   ok('reservation SQL excludes cancelled service status',
     /sr\.status <> 'cancelled'/i.test(resQ.sql), resQ.sql);
-  ok('reservation SQL excludes cancelled/canceled/expired/hold booking status',
-    /NOT IN \('cancelled', 'canceled', 'expired', 'hold'\)/i.test(resQ.sql),
+  ok('reservation SQL excludes cancelled/canceled/expired; unpaid holds occupy stock',
+    /NOT IN \('cancelled', 'canceled', 'expired'\)/i.test(resQ.sql)
+      && !/NOT IN \('cancelled', 'canceled', 'expired', 'hold'\)/i.test(resQ.sql),
     resQ.sql);
   ok('reservation SQL excludes booking schedule_archived',
     /b\.metadata->>'schedule_archived'/.test(resQ.sql)

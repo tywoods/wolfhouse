@@ -343,6 +343,7 @@ const {
 } = require('./lib/staff-email-luna-draft-open');
 const { createEmailLunaSunsetStagingRuntimeComposition } = require('./lib/email-luna-sunset-staging-runtime-composition');
 const { createEmailLunaDraftOpenContentFetcher } = require('./lib/email-luna-draft-open-content-composition');
+const { tryEmailPayToBookForCreateDraft } = require('./lib/email-luna-booking-from-email');
 const {
   createSunsetStagingEmailOutboundDispatch,
 } = require('./lib/email-outbound-sunset-staging-runtime-composition');
@@ -2948,6 +2949,26 @@ const emailLunaDraftOpen = createStaffEmailLunaDraftOpen({
   withPgClient,
   runtimeEnv: process.env,
   createLunaRuntime: createEmailLunaSunsetStagingRuntimeComposition,
+  tryEmailPayToBookForCreateDraft(input) {
+    return tryEmailPayToBookForCreateDraft({
+      ...input,
+      env: process.env,
+      owners: {
+        stripeExecOpts() {
+          return {
+            staffActionsEnabled: staffActionsGate('sunset'),
+            stripeLinksEnabled: stripeLinksGate('sunset'),
+            secretKey: STRIPE_SECRET_KEY,
+            successUrl: stripeCheckoutSessionSuccessUrl(),
+            cancelUrl: stripeCheckoutSessionCancelUrl(),
+            publicPaymentBaseUrl: process.env.SUNSET_PUBLIC_PAYMENT_BASE_URL || '',
+            expectedMode: 'test',
+            env: process.env,
+          };
+        },
+      },
+    });
+  },
   createContentFetcher(pgClient) {
     return createEmailLunaDraftOpenContentFetcher({
       env: process.env,

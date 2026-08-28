@@ -1140,16 +1140,44 @@ function createStaffEmailLunaDraftOpen(deps) {
         from_display_name: typeof row.from_display_name === 'string' ? row.from_display_name : '',
         from_address: typeof row.from_address === 'string' ? row.from_address : '',
       };
-      const composed = await policy.compose({
-        authority,
-        untrusted_content: untrusted,
-        operator_context: operatorGuidance,
-        env,
-        hermes: snapshotSunsetEmailHermesSolEnv(deps.runtimeEnv || env || process.env),
-        callModel: deps.callModel,
-        timeoutMs: deps.timeoutMs,
-      });
-      const body = composed && typeof composed.body === 'string' ? composed.body.trim() : '';
+      let composed = null;
+      let body = '';
+      const tryPay = deps.tryEmailPayToBookForCreateDraft;
+      if (typeof tryPay === 'function') {
+        try {
+          const paid = await tryPay({
+            authority: row,
+            untrusted,
+            operator_context: operatorGuidance,
+            actor,
+            env: deps.runtimeEnv || process.env,
+            withPgClient: deps.withPgClient,
+          });
+          if (paid && paid.ok === true && typeof paid.draft_body === 'string' && paid.draft_body.trim()) {
+            body = paid.draft_body.trim();
+            composed = {
+              kind: 'mail_mvp_008_pay_to_book',
+              body,
+              authenticity: 'staff_api',
+            };
+          }
+        } catch {
+          composed = null;
+          body = '';
+        }
+      }
+      if (!body) {
+        composed = await policy.compose({
+          authority,
+          untrusted_content: untrusted,
+          operator_context: operatorGuidance,
+          env,
+          hermes: snapshotSunsetEmailHermesSolEnv(deps.runtimeEnv || env || process.env),
+          callModel: deps.callModel,
+          timeoutMs: deps.timeoutMs,
+        });
+        body = composed && typeof composed.body === 'string' ? composed.body.trim() : '';
+      }
       if (!body || Buffer.byteLength(body, 'utf8') > 8000) {
         await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
         return pending(conversationId);

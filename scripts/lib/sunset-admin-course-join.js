@@ -60,7 +60,7 @@ SELECT COALESCE(SUM(CASE
    AND sr.service_type = 'surf_lesson'
    AND sr.booking_id IS NOT NULL
    AND sr.status <> 'cancelled'
-   AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired', 'hold')
+   AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired')
    AND COALESCE(sr.metadata->>'course_id', '') = $3
    AND ${sqlLocationMatch('sr', 'b', 4)}
    AND ($5::uuid IS NULL OR sr.booking_id <> $5::uuid)
@@ -93,7 +93,7 @@ SELECT COALESCE(SUM(CASE
    AND sr.service_type = 'surf_lesson'
    AND sr.booking_id IS NOT NULL
    AND sr.status <> 'cancelled'
-   AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired', 'hold')
+   AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired')
    AND COALESCE(sr.metadata->>'component', sr.metadata->>'staff_ui_service_type', '') IN ('lesson', 'group_lesson')
    AND COALESCE(sr.metadata->>'slot_time', sr.service_time_local::text, '') LIKE $3
    AND ${sqlLocationMatch('sr', 'b', 4)}

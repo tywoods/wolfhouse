@@ -58,6 +58,7 @@ const {
 const QUOTE_CHANNELS = Object.freeze({
   MANUAL_STAFF: 'manual_staff',
   LUNA_WHATSAPP: 'luna_whatsapp',
+  LUNA_EMAIL: 'luna_email',
 });
 
 const QUOTE_PROVENANCE_VERSION = 2;
@@ -1670,7 +1671,8 @@ function resolveQuoteComponentsAndRentalsInput(command) {
   const hasRentals = quoteHasRentalsArray(body);
   // Channel is server-owned — Luna bot quote may derive surfer_count from consistent
   // equipment qty (Hermes plugin sends components only). Staff/manual never derives.
-  const lunaTrusted = command.channel === QUOTE_CHANNELS.LUNA_WHATSAPP;
+  const lunaTrusted = command.channel === QUOTE_CHANNELS.LUNA_WHATSAPP
+    || command.channel === QUOTE_CHANNELS.LUNA_EMAIL;
   const forceOpts = lunaTrusted
     ? { lunaTrusted: true, actor: { source: 'agent_luna_whatsapp_bot' } }
     : { lunaTrusted: false };
@@ -2553,7 +2555,9 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     // always recheck stock inside the write transaction. Luna must also call
     // /staff/bot/sunset/rental-stock for explicit availability facts.
     const isLunaChannel = command.channel === QUOTE_CHANNELS.LUNA_WHATSAPP
-      || command.channel === 'luna_whatsapp';
+      || command.channel === QUOTE_CHANNELS.LUNA_EMAIL
+      || command.channel === 'luna_whatsapp'
+      || command.channel === 'luna_email';
     if (isLunaChannel) {
       if (!pg) {
         return {

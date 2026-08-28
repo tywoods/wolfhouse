@@ -33,7 +33,7 @@ const ERROR_STOCK_UNAVAILABLE = 'rental_stock_unavailable';
 const ERROR_INVALID_STOCK = 'invalid_stock_quantity';
 const ERROR_INVALID_REQUEST = 'invalid_stock_request';
 
-const INACTIVE_BOOKING_STATUSES = new Set(['cancelled', 'canceled', 'expired', 'hold']);
+const INACTIVE_BOOKING_STATUSES = new Set(['cancelled', 'canceled', 'expired']);
 
 function isValidStockQuantity(value) {
   return Number.isInteger(value) && value >= STOCK_MIN && value <= STOCK_MAX;
@@ -740,7 +740,7 @@ SELECT sr.booking_id,
    AND sr.metadata->>'offering_key' = $2
    AND sr.booking_id IS NOT NULL
    AND sr.status <> 'cancelled'
-   AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired', 'hold')
+   AND LOWER(b.status::text) NOT IN ('cancelled', 'canceled', 'expired')
    AND COALESCE(b.metadata->>'schedule_archived', '') <> 'true'
    AND COALESCE(sr.metadata->>'schedule_archived', '') <> 'true'
    AND ${overlap}
