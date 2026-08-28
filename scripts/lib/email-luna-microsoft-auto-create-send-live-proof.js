@@ -3429,12 +3429,19 @@ function replicaInnerExecTrusted429(executed) {
   return parseTrustedReplicaAttestRetryAfterMs(text) !== null;
 }
 
-async function runReplicaInnerExecWith429Retry(runOnce, extra) {
+async function runReplicaInnerExecWith429Retry(runOnce, extra, sleepFn) {
   if (typeof runOnce !== 'function') return null;
   const first = await runOnce();
   if (!replicaInnerExecRetryable(extra) || !replicaInnerExecTrusted429(first)) {
     return first;
   }
+  const second = await runOnce();
+  if (!replicaInnerExecTrusted429(second)) return second;
+  const waitMs = parseTrustedReplicaAttestRetryAfterMs(second.out);
+  if (!Number.isSafeInteger(waitMs) || waitMs < 1) return second;
+  const capped = Math.min(waitMs, REPLICA_ATTEST_COOLDOWN_MS);
+  if (typeof sleepFn === 'function') await sleepFn(capped);
+  else await new Promise((resolve) => setTimeout(resolve, capped));
   return runOnce();
 }
 
@@ -4952,7 +4959,7 @@ function createProductionMailMvp004Supervisor(options) {
       }
       return classifyStaffOwnerExecResult(execResult);
     }
-    return runReplicaInnerExecWith429Retry(runOnce, extra);
+    return runReplicaInnerExecWith429Retry(runOnce, extra, sleep);
   }
 
   async function verifyGraphArrival() {
