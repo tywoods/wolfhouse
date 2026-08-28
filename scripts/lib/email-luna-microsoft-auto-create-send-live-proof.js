@@ -189,6 +189,7 @@ if (
 const INNER_MODE_KILL_SWITCH = 'MAIL_MVP_004_KILL_SWITCH_PROBE';
 const INNER_MODE_SNAPSHOT = 'MAIL_MVP_004_SNAPSHOT';
 const INNER_MODE_GRAPH_VERIFY = 'MAIL_MVP_004_GRAPH_VERIFY';
+const INNER_MODE_CHANNEL_PUT = 'MAIL_MVP_004_CHANNEL_MODE_PUT';
 const LEFTOVER_FOLLOWUP = /a teammate can follow up if you need anything/i;
 const THREAD_TOPIC = /\b(testing|mailbox|front desk|booking|surf|room|bed|lesson|class)\b/i;
 const PRODUCTION_MARKERS = freeze([
@@ -3468,6 +3469,8 @@ function encodeProofEnvPayload(attemptId, reconcileOnly, extra) {
     lines.push(`${INNER_MODE_KILL_SWITCH}=1`);
   } else if (extra && extra.graphVerify === true) {
     lines.push(`${INNER_MODE_GRAPH_VERIFY}=1`);
+  } else if (extra && (extra.channelModePut === 'auto' || extra.channelModePut === 'off')) {
+    lines.push(`${INNER_MODE_CHANNEL_PUT}=${extra.channelModePut}`);
   } else if (extra && typeof extra.snapshot === 'string' && extra.snapshot) {
     lines.push(`${INNER_MODE_SNAPSHOT}=${extra.snapshot}`);
   } else {
@@ -3515,6 +3518,7 @@ function buildStaffOwnerExecAzArgs(options) {
       killSwitchProbe: options && options.killSwitchProbe === true,
       graphVerify: options && options.graphVerify === true,
       snapshot: options && options.snapshot,
+      channelModePut: options && options.channelModePut,
     },
   );
   if (!isLegalStaffOwnerRemoteCommand(command)) return null;
@@ -4549,6 +4553,38 @@ async function runInnerSnapshot(input) {
   }
 }
 
+async function runInnerChannelModePut(input) {
+  const env = (input && input.env) || process.env;
+  const value = envOwn(env, INNER_MODE_CHANNEL_PUT) || (input && input.channelModePut);
+  if (value !== 'auto' && value !== 'off') return refusedRecord('channel_mode_unproven');
+  const injected = input && typeof input.withPgClient === 'function';
+  let pg = null;
+  let withPgClient;
+  if (injected) {
+    withPgClient = input.withPgClient;
+  } else {
+    try {
+      pg = createProductionStaffPgAdapter();
+      withPgClient = pg.withPgClient;
+    } catch {
+      return refusedRecord('pg_adapter_unwired');
+    }
+  }
+  try {
+    const loaded = await withPgClient((client) => client.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
+    const selected = selectProofThread(loaded && loaded.rows);
+    if (!selected.ok) return refusedRecord(selected.reason);
+    const store = createEmailInboxChannelModeStore({ withPgClient });
+    await store.putChannelMode(selected.row.client_id, 'email', value);
+    const mode = await store.getChannelMode(selected.row.client_id, 'email');
+    if (mode !== value) return refusedRecord('channel_mode_unproven');
+    const out = freeze({ ok: true, channel_mode: mode });
+    return attachPublic(out, snapshotModePublic(out));
+  } finally {
+    if (pg && typeof pg.closePgPool === 'function') await pg.closePgPool();
+  }
+}
+
 function createProductionStaffMailboxTokenLoan(deps) {
   try {
     const env = deps && deps.env;
@@ -4855,7 +4891,7 @@ function createProductionMailMvp004Supervisor(options) {
 
   function innerExecTimeoutMs(extra) {
     if (extra && (extra.snapshot || extra.killSwitchProbe === true || extra.graphVerify === true
-        || extra.reconcileOnly === true)) {
+        || extra.reconcileOnly === true || extra.channelModePut === 'auto' || extra.channelModePut === 'off')) {
       return SNAPSHOT_EXEC_TIMEOUT_MS;
     }
     return STAFF_OWNER_EXEC_TIMEOUT_MS;
@@ -4874,6 +4910,7 @@ function createProductionMailMvp004Supervisor(options) {
       killSwitchProbe: extra && extra.killSwitchProbe === true,
       graphVerify: extra && extra.graphVerify === true,
       snapshot: extra && extra.snapshot,
+      channelModePut: extra && extra.channelModePut,
     });
     if (!azArgs) return null;
     let execResult;
@@ -4915,50 +4952,32 @@ function createProductionMailMvp004Supervisor(options) {
       if (!result || result.status !== 0) throw new Error('flag_update_failed');
     },
     async putEmailChannelMode(value) {
-      if (typeof withPgClient !== 'function') throw new Error('channel_mode_unproven');
-      const store = createEmailInboxChannelModeStore({ withPgClient });
-      const thread = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
-      const selected = selectProofThread(thread && thread.rows);
-      if (!selected.ok) throw new Error(selected.reason);
-      await store.putChannelMode(selected.row.client_id, 'email', value);
-      const stored = await store.getChannelMode(selected.row.client_id, 'email');
-      if (stored !== value) throw new Error('channel_mode_unproven');
+      if (value !== 'auto' && value !== 'off') throw new Error('channel_mode_unproven');
+      const executed = await execInner({ channelModePut: value });
+      if (!executed || executed.status !== 0 || executed.transportFailed === true
+          || !executed.inner || executed.inner.ok !== true
+          || executed.inner.channel_mode !== value) {
+        throw new Error('channel_mode_unproven');
+      }
     },
     async getEmailChannelMode() {
-      const store = createEmailInboxChannelModeStore({ withPgClient });
-      const thread = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
-      const selected = selectProofThread(thread && thread.rows);
-      if (!selected.ok) return null;
-      return store.getChannelMode(selected.row.client_id, 'email');
+      const executed = await execInner({ snapshot: 'mode' });
+      if (!executed || executed.status !== 0 || executed.transportFailed === true
+          || !executed.inner || executed.inner.ok !== true) {
+        return null;
+      }
+      return executed.inner.channel_mode;
     },
     async preflightSelectedOperation() {
-      if (typeof withPgClient !== 'function') return { ok: false, reason: 'pg_adapter_unwired' };
-      const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
-      const selected = selectProofThread(loaded && loaded.rows);
-      if (!selected.ok) return { ok: false, reason: selected.reason };
-      const row = selected.row;
-      const counts = await snapshotSelectedOperation(withPgClient, row);
-      if (!counts) return { ok: false, reason: 'counts_unavailable' };
-      const store = createEmailInboxChannelModeStore({ withPgClient });
-      const mode = await store.getChannelMode(row.client_id, 'email');
-      return freeze({
-        ok: true,
-        ...counts,
-        luna_on: row.conversation_status === 'open',
-        needs_human: row.needs_human === true,
-        guest_linked: !!uuid(row.guest_id),
-        sender_ok: isAuthoritativeSender(row),
-        subject_ok: isProofSubject(row.subject),
-        sol_enabled: true,
-        channel_mode: mode,
-        provider_source_message_id: row.provider_source_message_id,
-        graph_conversation_id: row.graph_conversation_id,
-        conversation_id: row.conversation_id,
-        client_id: row.client_id,
-        location_id: row.location_id,
-        inbound_message_id: row.inbound_message_id,
-        provider_mailbox_id: row.provider_mailbox_id,
-      });
+      const executed = await execInner({ snapshot: 'preflight' });
+      if (!executed || executed.status !== 0 || executed.transportFailed === true
+          || !executed.inner || executed.inner.ok !== true) {
+        return {
+          ok: false,
+          reason: (executed && executed.inner && executed.inner.reason) || 'preflight_failed',
+        };
+      }
+      return executed.inner;
     },
     invokeAutoOwner: brandProductionAutoOwner(async (input) => {
       const serving = await readServing();
@@ -4999,10 +5018,22 @@ function createProductionMailMvp004Supervisor(options) {
       return freeze({ status: 'failed', reason: 'staff_exec_failed' });
     }),
     async snapshotOperation() {
-      const loaded = await withPgClient((pg) => pg.query(SQL_SELECT_PROOF_THREAD, [PROOF_SENDER]));
-      const selected = selectProofThread(loaded && loaded.rows);
-      if (!selected.ok) return null;
-      return snapshotSelectedOperation(withPgClient, selected.row);
+      const executed = await execInner({ snapshot: 'counts' });
+      if (!executed || executed.status !== 0 || executed.transportFailed === true
+          || !executed.inner || executed.inner.ok !== true) {
+        return null;
+      }
+      const inner = executed.inner;
+      if (![inner.approvals, inner.journals, inner.provider_sends, inner.bookings]
+          .every((n) => Number.isSafeInteger(n))) {
+        return null;
+      }
+      return freeze({
+        approvals: inner.approvals,
+        journals: inner.journals,
+        provider_sends: inner.provider_sends,
+        bookings: inner.bookings,
+      });
     },
     async readDurableEvidence() {
       const executed = await execInner({ snapshot: 'evidence' });
@@ -5127,6 +5158,9 @@ async function runCli(argv, options) {
         request_built: false,
       });
     }
+  }
+  if (envOwn(env, INNER_MODE_CHANNEL_PUT) === 'auto' || envOwn(env, INNER_MODE_CHANNEL_PUT) === 'off') {
+    return withInnerPublic(await runInnerChannelModePut({ ...options, env }));
   }
   if (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
       || envOwn(env, 'MAIL_MVP_004_RECONCILE_ONLY') === '1') {
@@ -5359,6 +5393,7 @@ module.exports = freeze({
   createDurableNonceStore,
   runKillSwitchProbe,
   runInnerSnapshot,
+  runInnerChannelModePut,
   runInnerGraphVerify,
   GRAPH_GRANT_STAGE_REASON,
   classifyTrustedGraphGrantFailure,
