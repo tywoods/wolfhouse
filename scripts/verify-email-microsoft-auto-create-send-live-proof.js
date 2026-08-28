@@ -2766,6 +2766,8 @@ async function main() {
     assert.match(executeOnceSrc, /return refusedRecord\('snapshot_unproven'\)/);
     assert.match(executeOnceSrc, /return refusedRecord\('channel_mode_unproven'\)/);
     assert.match(executeOnceSrc, /try \{\s*await deps\.putEmailChannelMode\('auto'\);\s*\} catch \{\s*failedReason = 'channel_mode_unproven';\s*\}/);
+    assert.ok(executeOnceSrc.indexOf('waitServingHealthy({ enabled: true, authorized: serving })')
+      < executeOnceSrc.indexOf("await deps.putEmailChannelMode('auto')"));
     assert.ok(executeOnceSrc.indexOf("failedReason = 'channel_mode_unproven'")
       < executeOnceSrc.indexOf('invokeAutoOwner'));
     const storeSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-inbox-channel-mode.js'), 'utf8');
@@ -5067,8 +5069,9 @@ Module._load = function(request, parent, isMain) {
     );
     const authIdx = executeOnceSrc.indexOf('validateExactInvocation');
     const waitIdx = executeOnceSrc.indexOf('waitServingHealthy({ enabled: true, authorized: serving })');
+    const putIdx = executeOnceSrc.indexOf("await deps.putEmailChannelMode('auto')");
     const capIdx = executeOnceSrc.indexOf('issueSupervisorCapability');
-    assert.ok(authIdx >= 0 && waitIdx > authIdx && capIdx > waitIdx);
+    assert.ok(authIdx >= 0 && waitIdx > authIdx && putIdx > waitIdx && capIdx > putIdx);
     assert.equal(executeOnceSrc.split('validateExactInvocation').length - 1, 1);
     assert.match(executeOnceSrc, /issueSupervisorCapability\(\{[\s\S]*?\},\s*nowFn\(\)\)/);
     assert.doesNotMatch(executeOnceSrc, /issueSupervisorCapability\(\{[\s\S]*?\},\s*nowMs\)/);
@@ -5635,8 +5638,9 @@ Module._load = function(request, parent, isMain) {
       assert.equal(executeOnceSrc.split('validateExactInvocation').length - 1, 1);
       const authIdx = executeOnceSrc.indexOf('validateExactInvocation');
       const waitIdx = executeOnceSrc.indexOf('waitServingHealthy({ enabled: true, authorized: serving })');
+      const putIdx = executeOnceSrc.indexOf("await deps.putEmailChannelMode('auto')");
       const capIdx = executeOnceSrc.indexOf('issueSupervisorCapability');
-      assert.ok(authIdx >= 0 && waitIdx > authIdx && capIdx > waitIdx);
+      assert.ok(authIdx >= 0 && waitIdx > authIdx && putIdx > waitIdx && capIdx > putIdx);
       assert.match(libSrc, /verifyGraphArrival/);
       const graphBeforeFlags = executeOnceSrc.indexOf('verifyGraphArrival');
       const flagsIdx = executeOnceSrc.indexOf('setEmergencyFlags(true)');
