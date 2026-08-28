@@ -413,6 +413,17 @@ async function main() {
     && /SET settings = jsonb_set/.test(channelModeSrc)
     && !/metadata->'inbox_channel_modes'/.test(channelModeSrc)
     && /createEmailInboxChannelModeStore/.test(autoSrc));
+  ok('auto context binds the same sendable Microsoft mailbox as staff SQL_RESOLVE',
+    autoSrc.includes("ep.binding_status='verified'")
+    && autoSrc.includes("ep.auth_mode='delegated_authorization_code'")
+    && autoSrc.includes("ep.connector_mode='microsoft_delegated_oauth'")
+    && autoSrc.includes("ep.mailbox_access_kind='own_user'")
+    && autoSrc.includes('ev.provider_mailbox_id=ep.provider_resource_id')
+    && autoSrc.includes('ev.provider_message_id=p.provider_message_id')
+    && autoSrc.includes("ep.location_id=loc.location_id")
+    && autoSrc.includes("ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'")
+    && autoSrc.includes('btrim(ep.public_address)')
+    && !/FOR UPDATE/.test(autoSrc));
 
   console.log('\n[2] Owner matrix — blocked paths have zero provider sends');
   {
@@ -462,6 +473,11 @@ async function main() {
     ok('endpoint mismatch blocks',
       endpointMismatch.result.reason === 'authority_mismatch' && endpointMismatch.providerCalls.length === 0);
 
+    const mailboxType = await runOwner({ row: contextRow({ provider_mailbox_id: { id: MAILBOX } }) });
+    ok('non-string mailbox id blocks before save',
+      mailboxType.result.reason === 'authority_mismatch'
+      && mailboxType.approvals.length === 0 && mailboxType.providerCalls.length === 0);
+
     const imap = await runOwner({}, {}, {}, { envelope: { provider: 'imap_smtp' } });
     ok('non-Microsoft provider excluded',
       imap.result.reason === 'provider_not_microsoft' && imap.providerCalls.length === 0);
@@ -474,7 +490,8 @@ async function main() {
     const saveFail = await runOwner({ saveFail: true });
     ok('save/approval failure: no provider send, not marked sent',
       saveFail.result.status === 'failed' && saveFail.result.sent === false
-      && saveFail.providerCalls.length === 0);
+      && saveFail.providerCalls.length === 0
+      && saveFail.result.reason === 'approval_not_saved');
 
     const providerFail = await runOwner({ providerFail: true });
     ok('provider failure: not marked sent',
@@ -494,6 +511,13 @@ async function main() {
     ok('exactly one Create Draft author call with empty context',
       hit.drafts.length === 1 && hit.drafts[0].operator_context === '');
     ok('exactly one approval', hit.approvals.length === 1 && hit.result.approvals === 1);
+    ok('expected_authority matches sendable staff-resolve shape',
+      hit.approvals[0].expected_authority
+      && hit.approvals[0].expected_authority.provider === 'microsoft_graph'
+      && hit.approvals[0].expected_authority.provider_mailbox_id === MAILBOX
+      && hit.approvals[0].expected_authority.provider_source_message_id === SRC
+      && hit.approvals[0].expected_authority.source_inbound_event_id === M
+      && hit.approvals[0].expected_authority.location_key === 'sunset-somo');
     ok('exactly one provider transport', hit.providerCalls.length === 1 && hit.result.provider_sends === 1);
     ok('exactly one journal', hit.journals.length === 1 && hit.result.journals === 1);
     ok('Create Draft still draft_only contract on author result path',

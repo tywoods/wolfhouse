@@ -57,9 +57,21 @@ INNER JOIN tenant_email_inbound_inbox_projections p
   ON p.client_id=c.client_id AND p.conversation_id=c.id
 INNER JOIN tenant_email_inbound_events ev
   ON ev.client_id=p.client_id AND ev.id=p.inbound_event_id
+  AND ev.location_id=p.location_id AND ev.endpoint_id=p.endpoint_id
+  AND ev.provider=p.provider AND ev.provider_mailbox_id=p.provider_mailbox_id
+  AND ev.provider_message_id=p.provider_message_id
 INNER JOIN tenant_locations loc ON loc.client_id=ev.client_id AND loc.id=ev.location_id
 INNER JOIN tenant_channel_endpoints ep ON ep.client_id=ev.client_id AND ep.id=ev.endpoint_id
+  AND ep.location_id=loc.location_id
   AND ep.channel='email' AND ep.provider='microsoft_graph'
+  AND ep.auth_mode='delegated_authorization_code'
+  AND ep.connector_mode='microsoft_delegated_oauth'
+  AND ep.mailbox_access_kind='own_user'
+  AND ep.binding_status='verified'
+  AND ep.public_address IS NOT NULL AND btrim(ep.public_address) <> ''
+  AND ep.provider_resource_id IS NOT NULL AND btrim(ep.provider_resource_id) <> ''
+  AND ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+  AND ev.provider_mailbox_id=ep.provider_resource_id
 WHERE cl.id=$1::uuid AND cl.slug='sunset' AND loc.location_id='sunset-somo'
   AND ev.provider='microsoft_graph'
 ORDER BY ev.received_at DESC, ev.id DESC
@@ -281,6 +293,10 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
     if (row.needs_human === true) return blocked('needs_human');
 
     const inboundEventId = uuid(row.inbound_message_id);
+    const mailboxId = typeof row.provider_mailbox_id === 'string' ? row.provider_mailbox_id : null;
+    const sourceMessageId = typeof row.provider_source_message_id === 'string'
+      ? row.provider_source_message_id : null;
+    if (!mailboxId || !sourceMessageId) return blocked('authority_mismatch');
     const expectedAuthority = freeze({
       client_id: clientId,
       location_id: locationId,
@@ -289,8 +305,8 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       conversation_id: conversationId,
       source_inbound_event_id: inboundEventId,
       provider: 'microsoft_graph',
-      provider_mailbox_id: row.provider_mailbox_id,
-      provider_source_message_id: row.provider_source_message_id,
+      provider_mailbox_id: mailboxId,
+      provider_source_message_id: sourceMessageId,
     });
 
     const existing = ctx.approval;
