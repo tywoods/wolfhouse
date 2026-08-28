@@ -3410,6 +3410,34 @@ function remoteExecTransportFailed(out) {
     || /error executing command/i.test(text);
 }
 
+function replicaInnerExecRetryable(extra) {
+  if (!extra || typeof extra !== 'object' || isProxy(extra)) return false;
+  if (extra.capability) return false;
+  if (extra.reconcileOnly === true) return true;
+  if (extra.killSwitchProbe === true) return true;
+  if (extra.graphVerify === true) return true;
+  if (typeof extra.snapshot === 'string' && extra.snapshot) return true;
+  if (extra.channelModePut === 'auto' || extra.channelModePut === 'off') return true;
+  return false;
+}
+
+function replicaInnerExecTrusted429(executed) {
+  if (!executed || typeof executed !== 'object' || isProxy(executed)) return false;
+  if (executed.marked === true) return false;
+  if (executed.inner && typeof executed.inner === 'object') return false;
+  const text = typeof executed.out === 'string' ? executed.out : '';
+  return parseTrustedReplicaAttestRetryAfterMs(text) !== null;
+}
+
+async function runReplicaInnerExecWith429Retry(runOnce, extra) {
+  if (typeof runOnce !== 'function') return null;
+  const first = await runOnce();
+  if (!replicaInnerExecRetryable(extra) || !replicaInnerExecTrusted429(first)) {
+    return first;
+  }
+  return runOnce();
+}
+
 function classifyStaffOwnerExecResult(execResult) {
   const stdout = execResult && typeof execResult.stdout === 'string' ? execResult.stdout : '';
   const stderr = execResult && typeof execResult.stderr === 'string' ? execResult.stderr : '';
@@ -4913,15 +4941,18 @@ function createProductionMailMvp004Supervisor(options) {
       channelModePut: extra && extra.channelModePut,
     });
     if (!azArgs) return null;
-    let execResult;
-    try {
-      const spec = wrapPtyAzExec(azBin, azArgs);
-      execResult = spawnPtyHarness(spec, { env, timeoutMs: innerExecTimeoutMs(extra) });
-    } catch (error) {
-      if (!error || error.message !== 'pty_required') throw error;
-      execResult = await azRun(azArgs);
+    async function runOnce() {
+      let execResult;
+      try {
+        const spec = wrapPtyAzExec(azBin, azArgs);
+        execResult = spawnPtyHarness(spec, { env, timeoutMs: innerExecTimeoutMs(extra) });
+      } catch (error) {
+        if (!error || error.message !== 'pty_required') throw error;
+        execResult = await azRun(azArgs);
+      }
+      return classifyStaffOwnerExecResult(execResult);
     }
-    return classifyStaffOwnerExecResult(execResult);
+    return runReplicaInnerExecWith429Retry(runOnce, extra);
   }
 
   async function verifyGraphArrival() {
@@ -5369,6 +5400,9 @@ module.exports = freeze({
   wrapPtyAzExec,
   spawnPtyHarness,
   classifyStaffOwnerExecResult,
+  replicaInnerExecRetryable,
+  replicaInnerExecTrusted429,
+  runReplicaInnerExecWith429Retry,
   parseExactProductionGraphInnerExec,
   extractExactlyOneProofJson,
   closedGraphInnerDto,
