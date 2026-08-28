@@ -913,7 +913,12 @@ async function findIdempotentPaymentRow(pg, bookingId, idempotencyKey) {
 
 async function lockBookingForPaymentLink(pg, clientSlug, bookingId) {
   const res = await pg.query(
-    `SELECT b.id::text AS booking_id, b.metadata
+    `SELECT b.id::text AS booking_id,
+            b.metadata,
+            b.status::text AS booking_status,
+            b.hold_expires_at,
+            (b.hold_expires_at IS NOT NULL AND b.hold_expires_at < NOW()) AS hold_expired_by_db,
+            b.deposit_required_cents
        FROM bookings b
        INNER JOIN clients c ON c.id = b.client_id
       WHERE c.slug = $1
@@ -991,8 +996,12 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_schedule_managed_bookings' } };
   }
 
-  const paymentKind = 'full_amount';
   const currency = 'EUR';
+  for (const key of ['amount_due_cents', 'amount_paid_cents', 'total_cents', 'deposit_required_cents']) {
+    if (opts[key] !== undefined && opts[key] !== null && opts[key] !== '') {
+      return { ok: false, status: 400, body: { success: false, error: 'client_money_rejected', field: key } };
+    }
+  }
 
   await pg.query('BEGIN');
   try {
@@ -1001,6 +1010,23 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       await pg.query('ROLLBACK');
       return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
     }
+    const lockedStatus = String(locked.booking_status || '').toLowerCase();
+    if (lockedStatus === 'cancelled' || lockedStatus === 'canceled' || lockedStatus === 'expired') {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 409, body: { success: false, error: 'booking_not_active' } };
+    }
+    if (lockedStatus === 'hold' && (locked.hold_expired_by_db === true || locked.hold_expired_by_db === 't')) {
+      await pg.query('ROLLBACK');
+      return { ok: false, status: 409, body: { success: false, error: 'hold_expired' } };
+    }
+    const lockedMeta = parseMeta(locked.metadata);
+    const mvp008 = lockedMeta.mail_mvp_008 && typeof lockedMeta.mail_mvp_008 === 'object'
+      ? lockedMeta.mail_mvp_008 : null;
+    const storedChoice = mvp008 && String(mvp008.payment_choice || '').trim();
+    const paymentChoice = (mvp008 && lockedStatus === 'hold' && storedChoice === 'deposit')
+      ? 'deposit'
+      : 'full';
+    let paymentKind = 'full_amount';
 
     const priced = await priceSunsetBookingServices(pg, clientSlug, booking.booking_id);
     if (!priced.ok) {
@@ -1025,10 +1051,24 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     }
     let amountDueCents;
     try {
-      amountDueCents = resolveAuthoritativeOutstandingCents(
-        priced.total_cents,
-        authoritativeBalanceDueCents,
-      );
+      if (paymentChoice === 'deposit' && Number(authoritativeBalanceDueCents) === Number(priced.total_cents)) {
+        const deposit = Number(locked.deposit_required_cents);
+        if (!Number.isSafeInteger(deposit) || deposit <= 0) {
+          await pg.query('ROLLBACK');
+          return { ok: false, status: 422, body: { success: false, error: 'deposit_not_configured' } };
+        }
+        if (deposit > Number(priced.total_cents)) {
+          await pg.query('ROLLBACK');
+          return { ok: false, status: 422, body: { success: false, error: 'deposit_exceeds_total' } };
+        }
+        amountDueCents = deposit;
+        paymentKind = 'deposit_only';
+      } else {
+        amountDueCents = resolveAuthoritativeOutstandingCents(
+          priced.total_cents,
+          authoritativeBalanceDueCents,
+        );
+      }
     } catch (err) {
       await pg.query('ROLLBACK');
       return { ok: false, status: 409, body: { success: false, error: 'authoritative_balance_unavailable' } };
@@ -1037,7 +1077,6 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       await pg.query('ROLLBACK');
       return { ok: false, status: 422, body: { success: false, error: 'no_payment_due', message: 'No outstanding balance due.', amount_due_cents: 0 } };
     }
-    const lockedMeta = parseMeta(locked.metadata);
     const stripeIdempotencyKey = buildStripeCheckoutIdempotencyKey({
       clientSlug,
       bookingId: booking.booking_id,

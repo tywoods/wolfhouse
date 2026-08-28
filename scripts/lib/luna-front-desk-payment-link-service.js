@@ -24,6 +24,7 @@ const PAYMENT_LINK_CHANNELS = Object.freeze({
   LUNA_WHATSAPP: 'luna_whatsapp',
   STAFF_SCHEDULE: 'staff_schedule',
   LUNA_SUNSET: 'luna_sunset',
+  LUNA_EMAIL: 'luna_email',
 });
 
 const PAYMENT_LINK_OPERATIONS = Object.freeze({
@@ -294,6 +295,7 @@ function buildPaymentLinkCommand(opts = {}) {
       authoritativeBalanceDueCents: opts.authoritativeBalanceDueCents != null
         ? Number(opts.authoritativeBalanceDueCents)
         : null,
+      paymentChoice: String(opts.paymentChoice || '').trim() || null,
     },
   };
 }
@@ -575,6 +577,7 @@ async function createPaymentLink(pg, command, execOpts = {}) {
       publicPaymentBaseUrl: execOpts.publicPaymentBaseUrl,
       env: execOpts.env,
       authoritativeBalanceDueCents: command.authoritativeBalanceDueCents,
+      paymentChoice: command.paymentChoice,
     });
   }
 

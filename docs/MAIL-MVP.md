@@ -2,7 +2,7 @@
 
 Living plan for ordinary front-desk email. Durable product facts only. No process IDs, DSNs, tokens, mailbox secrets, or live send evidence.
 
-Sunset staging is the only later deploy target. This document does not authorize production, gateway/Hermes restart, `/sethome`, Salt, Deckhand, Full Sail 4J, auto-send enablement, IMAP/SMTP changes, provider sends, live email actions, or booking creation.
+Sunset staging is the only later deploy target. This document does not authorize production, gateway/Hermes restart, `/sethome`, Salt, Deckhand, Full Sail 4J, auto-send enablement, IMAP/SMTP changes, provider sends, or live email actions. Slice 008 may create an unpaid 24-hour hold and a Staff API payment link during Create Draft; confirmation still waits for verified payment.
 
 Staff API remains the only authority for prices, availability, payment URLs, and bookings. Never invent those facts. Every future send remains journaled.
 
@@ -15,9 +15,9 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 | **003** | auto create-and-send | No | Microsoft-only automatic create-and-send. Default remains OFF. Both `LUNA_AUTO_SEND_ENABLED=true` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true` are required for provider auto-send. Reuses Create Draft author + staff Approve & send owners. Dormant. Do not rebuild in 004. |
 | **004** | auto proof | No | Landed. Bounded fail-closed Sunset-staging operator proof of 003. Default refuse. Do not rebuild. |
 | **005** | generic IMAP inbound | No | Landed. Generic IMAP inbound connector. A verified sunset IMAP mailbox is polled, persisted, and projected into the same Staff Inbox conversations/messages journal as Graph (thread list + open thread, guest-linkable). Graph inbound on support@lunafrontdesk.com stays as-is. Auto stays off. |
-| **006** | generic SMTP send | Yes | Generic SMTP send. Create Draft + Approve & send over SMTP for a generic mailbox, same staff Inbox loop as Microsoft. Every would-be send writes approval + outbound journal. Transport fail-closes without host secret. Auto stays off. No live send in this pack. |
+| **006** | generic SMTP send | No | Landed. Generic SMTP send. Create Draft + Approve & send over SMTP for a generic mailbox, same staff Inbox loop as Microsoft. Every would-be send writes approval + outbound journal. Auto stays off. |
 | **007** | Email Luna Hermes managed by Skipper | No | Landed. Dedicated Skipper-managed `hermes-sunset-email-luna` draft-only runtime. Auto remains OFF. |
-| **008** | booking-from-email | No — **LATER** | Product rule only. Do not implement booking in this document's current slice. |
+| **008** | booking-from-email | Yes | Email hold + pay-to-book. Create Draft may include a Staff-API-created payment URL and the truthful 24-hour hold expiry. Booking commits only after a verified Stripe webhook. Unpaid holds expire and release inventory. Auto remains OFF. |
 
 ## 003 Microsoft auto create-and-send
 
@@ -77,17 +77,20 @@ Staff Inbox thread UI:
 
 Operator context is bounded plain guidance. Server-side validation length-limits and normalizes it. Context is never authority for prices, availability, payment URLs, or bookings. The closed plan schema is the hard-truth boundary: the model cannot return guest-facing claim prose because that field does not exist. Regex claim detection remains defense-in-depth on private staff goals, bounded topic labels, and renderer output. Asking whether the guest wants to make a booking remains allowed. Conversation/event/endpoint authority binding and stale-selection protections stay in force. Regeneration uses the existing draft producer and replaces/updates the standing draft in the established durable/UI flow without creating an approval or outbound journal.
 
-## 008 booking-from-email — product rule only (LATER)
+## 008 booking-from-email
 
-Do **not** implement booking from this plan or from slice 001.
+Sunset staging only. Staff Inbox **Create Draft** on an email thread that already names dates plus deposit/full may place a Staff API hold and include the exact Staff-API-created payment URL plus the truthful hold expiry.
 
-When email booking is built later:
+- Hold requested dates for **exactly 24 hours** from authoritative Postgres `NOW()`.
+- Deposit vs full is an enum only; amounts come from the Staff API quote (`deposit_required_cents` / `total_cents`). The model cannot supply amounts, URLs, or availability.
+- Availability and price are revalidated in the existing Sunset create transaction. Mismatch fail-closes with no invented link.
+- Identities stay bound: tenant, location, mailbox, conversation, inbound event, quote, hold, checkout session.
+- Idempotent retries reuse the same hold and checkout; they do not mint duplicates.
+- Booking commits only after the existing Stripe webhook / hold-promote owner verifies the provider event. Late payment after expiry does not revive the booking.
+- Unpaid expiry uses the existing hold-expiry worker (lease/race-safe vs payment commit) and releases inventory exactly once. Active unpaid holds occupy Sunset course/rental capacity.
+- Create Draft still does not send, approve, or change Graph / IMAP / SMTP. Auto remains OFF.
 
-- Hold the guest-requested dates for **24 hours** so they can pay.
-- The booking is placed when payment of the Staff API payment link succeeds (deposit or full).
-- An unpaid hold expires.
-- Staff API is the only authority.
-- Never invent prices.
+Owner / proof: `npm run verify:mail-mvp-008`.
 
 ## 005 generic IMAP inbound
 
@@ -109,8 +112,8 @@ Every would-be send writes `tenant_email_reply_approvals` and `tenant_email_outb
 - No deploy from a MAIL-MVP-001 worker.
 - No gateway/Hermes restart, `/sethome`, Salt, Deckhand, or Full Sail 4J.
 - No auto-send enable, live provider sends, or live email actions. IMAP inbound attach in 005 and journaled SMTP send in 006 (fail-closed, no live send in the pack) are the exceptions.
-- No booking creation.
+- No booking confirmation until verified payment. 008 may create an unpaid 24-hour hold plus a Staff API payment link during Create Draft.
 - Do not modify environment flags or live systems.
-- Staff API only for future prices/availability/bookings; none in slice 001.
+- Staff API only for prices/availability/bookings/payment URLs.
 - Luna:On and `needs_human` are later-auto inputs only.
 - Every future send remains journaled; do not alter Approve & send journaling.
