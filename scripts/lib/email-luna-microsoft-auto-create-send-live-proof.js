@@ -1708,8 +1708,30 @@ function replaceProvenNoSendDispatchMarker(input) {
   return freeze({ ok: true, replaced: true, process_alive: false, receipt: written });
 }
 
-function classifyReconcileSnapshot(inner) {
-  if (!inner || typeof inner !== 'object' || isProxy(inner)) {
+function classifyReconcileSnapshot(inner, extra) {
+  const marked = extra && extra.marked === true;
+  if (!inner || typeof inner !== 'object' || isProxy(inner) || inner.ok !== true) {
+    return freeze({
+      status: 'failed',
+      indeterminate: true,
+      reason: 'indeterminate_no_retry',
+      process_alive: !!(inner && inner.process_alive === true),
+      retry: false,
+    });
+  }
+  if (inner.process_alive === true) {
+    return freeze({
+      status: 'failed',
+      indeterminate: true,
+      reason: 'indeterminate_no_retry',
+      process_alive: true,
+      retry: false,
+    });
+  }
+  const approvals = inner.approvals;
+  const journals = inner.journals;
+  const sends = inner.provider_sends;
+  if (!Number.isSafeInteger(approvals) || !Number.isSafeInteger(journals) || !Number.isSafeInteger(sends)) {
     return freeze({
       status: 'failed',
       indeterminate: true,
@@ -1727,19 +1749,19 @@ function classifyReconcileSnapshot(inner) {
       provider_sends: 1,
     });
   }
-  if (inner.process_alive === true) {
-    return freeze({
-      status: 'failed',
-      indeterminate: true,
-      reason: 'indeterminate_no_retry',
-      process_alive: true,
-      retry: false,
-    });
-  }
-  const approvals = Number.isSafeInteger(inner.approvals) ? inner.approvals : 0;
-  const journals = Number.isSafeInteger(inner.journals) ? inner.journals : 0;
-  const sends = Number.isSafeInteger(inner.provider_sends) ? inner.provider_sends : 0;
   if (approvals === 0 && journals === 0 && sends === 0) {
+    const dispatchStatus = typeof inner.dispatch_status === 'string' ? inner.dispatch_status : null;
+    if (marked === true && !dispatchStatus) {
+      return freeze({
+        status: 'failed',
+        indeterminate: true,
+        reason: 'indeterminate_no_retry',
+        retry: false,
+        approvals: 0,
+        journals: 0,
+        provider_sends: 0,
+      });
+    }
     return freeze({
       status: 'proven_no_send',
       reason: 'proven_no_send',
@@ -3198,12 +3220,13 @@ async function runStaffOwnerProof(input) {
       return refusedRecord('capability_replay');
     }
     ignoreRemoteExecHangup();
-    writeDispatchReceipt({
+    const issued = writeDispatchReceipt({
       status: 'issued',
       nonce: capCheck.capability.nonce,
       pid: process.pid,
       reason: null,
     }, receiptPath);
+    if (!issued) return failRecord('dispatch_receipt_unproven');
     const started = handle({
       env,
       authority: freeze({
@@ -4494,21 +4517,29 @@ async function runInnerSnapshot(input) {
       return attachPublic(out, snapshotModePublic(out));
     }
     if (kind === 'dispatch' || kind === 'reconcile') {
-      const counts = await snapshotSelectedOperation(withPgClient, row);
-      if (!counts) return refusedRecord('counts_unavailable');
       const receiptPath = (input && input.dispatchReceiptPath) || INNER_DISPATCH_RECEIPT_PATH;
       const receipt = readDispatchReceipt(receiptPath);
-      const classified = classifyReconcileSnapshot({
-        ...counts,
-        process_alive: receipt ? receipt.process_alive === true : false,
-      });
+      const alive = receipt ? receipt.process_alive === true : false;
+      const counts = await snapshotSelectedOperation(withPgClient, row);
+      if (!counts) {
+        return refusedRecord('counts_unavailable', {
+          public: freeze({
+            ok: false,
+            reason: 'counts_unavailable',
+            process_alive: alive,
+            dispatch_status: receipt ? receipt.status : null,
+            approvals: 0,
+            journals: 0,
+            provider_sends: 0,
+          }),
+        });
+      }
       const out = freeze({
         ok: true,
         snapshot: 'reconcile',
         ...counts,
-        process_alive: receipt ? receipt.process_alive === true : false,
+        process_alive: alive,
         dispatch_status: receipt ? receipt.status : null,
-        dispatch_reset_allowed: classified.dispatch_reset_allowed === true,
       });
       return attachPublic(out, snapshotReconcilePublic(out));
     }
@@ -5029,7 +5060,7 @@ function createProductionMailMvp004Supervisor(options) {
       for (;;) {
         const executed = await execInner({ snapshot: 'reconcile' });
         const inner = executed && executed.inner;
-        last = classifyReconcileSnapshot(inner);
+        last = classifyReconcileSnapshot(inner, { marked: true });
         if (last.process_alive === true && Date.now() < deadline) {
           await wait(REVISION_WAIT_INTERVAL_MS);
           continue;

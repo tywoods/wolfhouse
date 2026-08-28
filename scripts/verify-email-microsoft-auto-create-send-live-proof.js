@@ -36,6 +36,7 @@ const {
   parseArgs,
   validateExactInvocation,
   validatePreflightInvocation,
+  refusedRecord,
   redactSensitive,
   publicProofOutput,
   normalizeProofSubject,
@@ -6051,17 +6052,57 @@ Module._load = function(request, parent, isMain) {
     assert.equal(readDispatchReceipt(receiptPath).status, 'replaced');
 
     const zero = classifyReconcileSnapshot({
-      approvals: 0, journals: 0, provider_sends: 0, bookings: 0, process_alive: false,
-    });
+      ok: true,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      bookings: 0,
+      process_alive: false,
+      dispatch_status: 'issued',
+    }, { marked: true });
     assert.equal(zero.status, 'proven_no_send');
     assert.equal(zero.dispatch_reset_allowed, true);
+    const refusedSnap = classifyReconcileSnapshot(
+      publicProofOutput(refusedRecord('counts_unavailable')),
+      { marked: true },
+    );
+    assert.equal(refusedSnap.reason, 'indeterminate_no_retry');
+    assert.notEqual(refusedSnap.dispatch_reset_allowed, true);
+    const missingFields = classifyReconcileSnapshot({
+      ok: true,
+      process_alive: false,
+      dispatch_status: 'issued',
+    }, { marked: true });
+    assert.equal(missingFields.reason, 'indeterminate_no_retry');
+    const markedNoReceipt = classifyReconcileSnapshot({
+      ok: true,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      bookings: 0,
+      process_alive: false,
+    }, { marked: true });
+    assert.equal(markedNoReceipt.reason, 'indeterminate_no_retry');
+    assert.notEqual(markedNoReceipt.dispatch_reset_allowed, true);
     const alive = classifyReconcileSnapshot({
-      approvals: 0, journals: 0, provider_sends: 0, bookings: 0, process_alive: true,
-    });
+      ok: true,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      bookings: 0,
+      process_alive: true,
+      dispatch_status: 'issued',
+    }, { marked: true });
     assert.equal(alive.reason, 'indeterminate_no_retry');
     const sentSnap = classifyReconcileSnapshot({
-      approvals: 1, journals: 1, provider_sends: 1, bookings: 4, process_alive: false,
-    });
+      ok: true,
+      approvals: 1,
+      journals: 1,
+      provider_sends: 1,
+      bookings: 4,
+      process_alive: false,
+      dispatch_status: 'completed',
+    }, { marked: true });
     assert.equal(sentSnap.reason, 'already_sent');
 
     let ownerCalls = 0;
@@ -6187,6 +6228,50 @@ Module._load = function(request, parent, isMain) {
         return { rows: [] };
       },
     });
+    const blocker = path.join(dir, 'not-a-dir');
+    fs.writeFileSync(blocker, 'x');
+    const badReceipt = path.join(blocker, 'receipt.json');
+    assert.equal(writeDispatchReceipt({
+      status: 'issued',
+      nonce: nonce(),
+      pid: process.pid,
+    }, badReceipt), null);
+    let writeFailHandle = 0;
+    const writeFailCap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    const writeFail = await runStaffOwnerProof({
+      env: {
+        MAIL_MVP_004_LIVE_PROOF: '1',
+        MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+        EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+        EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+        LUNA_AUTO_SEND_ENABLED: 'true',
+        LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+        MAIL_MVP_004_CAPABILITY: encodeCapability(writeFailCap),
+        MAIL_MVP_004_REVISION: REVISION,
+        MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+        MAIL_MVP_004_DIGEST: DIGEST,
+      },
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      consumedCapabilityPath: path.join(dir, 'write-fail-consumed.json'),
+      dispatchReceiptPath: badReceipt,
+      wired: {
+        handleProjectedInbound: brandProductionAutoOwner(async () => {
+          writeFailHandle += 1;
+          return { status: 'sent' };
+        }),
+      },
+    });
+    assert.equal(writeFail.reason, 'dispatch_receipt_unproven');
+    assert.equal(writeFailHandle, 0);
     const recon = await runStaffOwnerProof({
       env: {
         MAIL_MVP_004_LIVE_PROOF: '1',
