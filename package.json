@@ -448,6 +448,7 @@
     "verify:mail-mvp-001": "node scripts/verify-email-create-draft-context.js && node scripts/verify-email-create-draft-regenerate.js && node scripts/verify-email-create-draft-natural-author.js && node scripts/verify-inbox-email-create-draft-ui.js",
     "verify:mail-mvp-003": "node scripts/verify-email-microsoft-auto-create-send.js",
     "verify:mail-mvp-004": "node scripts/verify-email-microsoft-auto-create-send-live-proof.js",
+    "verify:email-inbox-channel-mode": "node scripts/verify-email-inbox-channel-mode.js",
     "verify:mail-mvp-007": "node scripts/verify-email-luna-sunset-email-hermes-sol.js",
     "verify:mail-mvp-007-sol-empty": "node scripts/verify-mail-mvp-007-sol-empty.js",
     "verify:mail-mvp-007-sol-empty-fix": "node scripts/verify-mail-mvp-007-sol-empty-fix.js",

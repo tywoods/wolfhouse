@@ -407,6 +407,12 @@ async function main() {
   ok('exports exact flag names',
     ENV_LUNA_AUTO_SEND_ENABLED === 'LUNA_AUTO_SEND_ENABLED'
     && ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED === 'LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED');
+  const channelModeSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-inbox-channel-mode.js'), 'utf8');
+  ok('003 channel-mode store uses clients.settings not metadata',
+    /settings->'inbox_channel_modes'/.test(channelModeSrc)
+    && /SET settings = jsonb_set/.test(channelModeSrc)
+    && !/metadata->'inbox_channel_modes'/.test(channelModeSrc)
+    && /createEmailInboxChannelModeStore/.test(autoSrc));
 
   console.log('\n[2] Owner matrix — blocked paths have zero provider sends');
   {
