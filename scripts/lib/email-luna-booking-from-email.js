@@ -13,7 +13,7 @@ const crypto = require('node:crypto');
 const util = require('node:util');
 
 const { decideStripeHoldPromote } = require('./stripe-hold-promote-policy');
-const { isHoldDueForExpiry } = require('./booking-hold-expiry');
+const { isHoldDueForExpiry, expireOneBookingHoldTx } = require('./booking-hold-expiry');
 const {
   buildSunsetQuoteCommand,
   executeSunsetQuote,
@@ -481,8 +481,8 @@ function expandCatalogOfferingForWrite(offering, intent) {
     });
   }
   if (type === 'rental') {
-    const offeringKey = asText(offering.offering_key || offering.item_code || offeringId).trim();
-    const durationKey = asText(offering.duration_key || offering.billing_unit || offering.price && offering.price.unit).trim();
+    const offeringKey = asText(offering.offering_key || offering.item_code || offering.offering_item_code).trim();
+    const durationKey = asText(offering.duration_key).trim();
     if (!offeringKey || !durationKey) return fail('offering_unresolved');
     return freeze({
       ok: true,
@@ -553,6 +553,29 @@ async function defaultResolveOffering(pg, bound, intent, owners) {
     return owners.resolveOffering(pg, bound, intent);
   }
   return resolveOfferingFromCatalog(pg, bound, intent);
+}
+
+async function compensateUnlinkedHold(pg, bound, bookingId) {
+  if (!pg || !bound || !bookingId) return;
+  try {
+    await pg.query(
+      `UPDATE bookings
+          SET hold_expires_at = NOW()
+        WHERE id = $1::uuid
+          AND client_id = $2::uuid
+          AND status = 'hold'::booking_status`,
+      [bookingId, bound.client_id],
+    );
+    await expireOneBookingHoldTx(pg, {
+      bookingId,
+      clientId: bound.client_id,
+      clientSlug: bound.client_slug,
+      apply: true,
+      now: new Date(),
+    });
+  } catch {
+    // Fail closed at the caller; occupancy may remain until the worker.
+  }
 }
 
 async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
@@ -692,6 +715,7 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
     : stripeExecOptsFromEnv(input.env);
   const linked = await createLinkFn(pg, linkBuilt.command, execOpts);
   if (!linked || linked.ok !== true) {
+    await compensateUnlinkedHold(pg, bound, bookingId);
     return fail((linked && linked.body && (linked.body.reason_code || linked.body.error)) || 'payment_link_failed', {
       block_natural_fallback: true,
       booking_id: bookingId,
@@ -701,6 +725,7 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
     (linked.body && (linked.body.checkout_url || linked.body.payment_link_url)) || '',
   ).trim();
   if (!isExactStaffPaymentUrl(paymentUrl)) {
+    await compensateUnlinkedHold(pg, bound, bookingId);
     return fail('payment_url_unusable', {
       block_natural_fallback: true,
       booking_id: bookingId,
