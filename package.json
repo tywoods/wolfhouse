@@ -359,6 +359,7 @@
     "verify:email-smtp-identity-register-002": "node scripts/verify-email-smtp-identity-register-002.js",
     "verify:email-imap-001": "node scripts/verify-email-imap-001.js",
     "verify:mail-mvp-005": "node scripts/verify-email-imap-inbox-projection.js",
+    "verify:mail-mvp-006": "node scripts/verify-email-smtp-send.js",
     "verify:sunset-email-smtp-ui-002": "node scripts/verify-sunset-email-smtp-ui-002.js",
     "verify:sunset-email-smtp-ui-003": "node scripts/verify-sunset-email-smtp-ui-003.js",
     "verify:email-last-sync-001": "node scripts/verify-email-last-sync-001.js",

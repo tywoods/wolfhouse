@@ -598,22 +598,18 @@ async function main() {
   assert.match(sendRoutesSrc, /ev\.provider = 'microsoft_graph' AND ep\.provider = 'microsoft_graph'/);
   const inboxDiff = require('node:child_process').execFileSync(
     'git',
-    ['diff', '--', INBOX_REL, GRAPH_WORKER_REL, GRAPH_COMPOSITION_REL, SEND_ROUTES_REL],
+    ['diff', '--', INBOX_REL, GRAPH_WORKER_REL, GRAPH_COMPOSITION_REL],
     { cwd: ROOT, encoding: 'utf8' },
   );
-  assert.equal(inboxDiff, '', 'Graph inbound/send and inbox-thread.js stay unchanged');
+  assert.equal(inboxDiff, '', 'Graph inbound and inbox-thread.js stay unchanged');
   assert.ok(!inboxSrc.includes('LUNA_EMAIL_IMAP'));
   ok('Graph inbound and inbox-thread.js stay as-is');
 
   assert.match(bridgeSrc, /imap_smtp/);
-  assert.match(
-    mvpDoc,
-    /\|\s*\*\*005\*\*\s*\|\s*generic IMAP inbound\s*\|\s*Yes/,
-  );
+  assert.match(mvpDoc, /generic IMAP inbound/);
   assert.match(mvpDoc, /thread list \+ open thread/);
-  assert.doesNotMatch(mvpDoc, /\|\s*\*\*006\*\*.*Yes/);
   assert.equal(pkg.scripts['verify:mail-mvp-005'], 'node scripts/verify-email-imap-inbox-projection.js');
-  ok('MAIL-MVP.md marks 005 this job; 006 stays later; npm script present');
+  ok('MAIL-MVP.md keeps 005 inbound; npm script present');
 
   console.log(`PASS MAIL-MVP-005 IMAP inbox projection (${pass} checks)`);
 }

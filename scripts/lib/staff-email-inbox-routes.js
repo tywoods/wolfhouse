@@ -234,6 +234,20 @@ function sealApprovedDispatchRequest(row, auth, actor, lockedOperationId, subjec
     return Object.freeze(sealed);
   } catch { return null; }
 }
+function sealApprovedSmtpDispatchRequest(row, auth, actor, lockedOperationId, subject) {
+  try {
+    if (!auth || auth.provider !== 'imap_smtp') return null;
+    const sealed = sealApprovedDispatchRequest(row, auth, actor, lockedOperationId, subject);
+    if (!sealed) return null;
+    if (typeof auth.public_address !== 'string' || typeof auth.recipient_email !== 'string') return null;
+    return Object.freeze({
+      ...sealed,
+      provider: 'imap_smtp',
+      from_address: auth.public_address,
+      recipient_email: auth.recipient_email,
+    });
+  } catch { return null; }
+}
 function mapDispatchToRoute(result, conversationId, approvalId) {
   const base = { conversation_id: conversationId, approval_id: approvalId, approval_state: 'approved' };
   try {
@@ -486,6 +500,34 @@ WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('operator','admi
   AND ep.provider_resource_id ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
   AND ev.provider_mailbox_id = ep.provider_resource_id
 ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
+const SQL_RESOLVE_SMTP = `
+SELECT c.id::text AS conversation_id, cl.id::text AS client_id, loc.id::text AS location_id,
+  loc.location_id AS location_key, ep.id::text AS endpoint_id, ev.id::text AS source_inbound_event_id,
+  ev.provider AS provider, ev.provider_mailbox_id AS provider_mailbox_id,
+  ev.provider_message_id AS provider_source_message_id, ep.outbound_enabled AS endpoint_outbound_enabled,
+  ep.public_address AS public_address, su.id::text AS actor_staff_user_id,
+  c.email AS recipient_email
+FROM clients cl
+INNER JOIN staff_users su ON su.client_id = cl.id AND su.id = $2::uuid
+INNER JOIN conversations c ON c.client_id = cl.id AND c.id = $3::uuid
+INNER JOIN tenant_email_inbound_inbox_projections p ON p.client_id = cl.id AND p.conversation_id = c.id
+INNER JOIN tenant_email_inbound_events ev ON ev.client_id = p.client_id AND ev.id = p.inbound_event_id
+  AND ev.location_id = p.location_id AND ev.endpoint_id = p.endpoint_id
+  AND ev.provider = p.provider AND ev.provider_mailbox_id = p.provider_mailbox_id
+  AND ev.provider_message_id = p.provider_message_id
+INNER JOIN tenant_locations loc ON loc.client_id = ev.client_id AND loc.id = ev.location_id
+INNER JOIN tenant_channel_endpoints ep ON ep.client_id = ev.client_id AND ep.id = ev.endpoint_id
+  AND ep.location_id = loc.location_id
+WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('operator','admin','owner')
+  AND c.phone ~ '^(emailv1|email):' AND ev.provider = 'imap_smtp' AND ep.provider = 'imap_smtp'
+  AND ep.channel = 'email' AND ep.auth_mode IS NULL AND ep.connector_mode IS NULL
+  AND ep.mailbox_kind IS NULL AND ep.mailbox_access_kind IS NULL AND ep.binding_status IS NULL
+  AND ep.public_address IS NOT NULL AND btrim(ep.public_address) <> ''
+  AND (ep.provider_resource_id IS NULL OR ep.provider_resource_id <> 'disconnected')
+  AND ep.smtp_health_verified_at IS NOT NULL
+  AND ev.provider_mailbox_id = ep.public_address
+  AND c.email IS NOT NULL AND btrim(c.email) <> ''
+ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
 const SQL_VISIBLE_EMAIL = `
 SELECT c.id::text AS conversation_id
 FROM conversations c
@@ -499,6 +541,15 @@ INSERT INTO tenant_email_reply_approvals (
   draft_actor_staff_user_id, approved_actor_staff_user_id, message_text, body_digest, subject, state, drafted_at, approved_at
 ) VALUES (
   $1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::uuid,$7::uuid,$8::uuid,'microsoft_graph',$9,$10,$11::uuid,NULL,$12,$13,$14,'draft',NOW(),NULL
+) RETURNING approval_id::text AS approval_id, message_text, conversation_id::text AS conversation_id, subject
+`.replace(/\s+/g, ' ').trim();
+const SQL_INSERT_DRAFT_SMTP = `
+INSERT INTO tenant_email_reply_approvals (
+  approval_id, operation_id, client_id, location_id, location_key, endpoint_id, conversation_id,
+  source_inbound_event_id, provider, provider_mailbox_id, provider_source_message_id,
+  draft_actor_staff_user_id, approved_actor_staff_user_id, message_text, body_digest, subject, state, drafted_at, approved_at
+) VALUES (
+  $1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::uuid,$7::uuid,$8::uuid,'imap_smtp',$9,$10,$11::uuid,NULL,$12,$13,$14,'draft',NOW(),NULL
 ) RETURNING approval_id::text AS approval_id, message_text, conversation_id::text AS conversation_id, subject
 `.replace(/\s+/g, ' ').trim();
 const SQL_CAS_DRAFT = `
@@ -617,6 +668,7 @@ function createStaffEmailInboxRoutes(deps) {
   const readBody = typeof deps.readBody === 'function' ? deps.readBody : null;
   const outboundDispatch = typeof deps.outboundDispatch === 'function' ? deps.outboundDispatch : null;
   const createOutboundDispatch = typeof deps.createOutboundDispatch === 'function' ? deps.createOutboundDispatch : null;
+  const createSmtpOutboundDispatch = typeof deps.createSmtpOutboundDispatch === 'function' ? deps.createSmtpOutboundDispatch : null;
   if (typeof sendJSON !== 'function' || typeof withPgClient !== 'function') throw new Error('deps required');
   async function readBoundedJsonBody(req) {
     try {
@@ -645,20 +697,32 @@ function createStaffEmailInboxRoutes(deps) {
       return { ok: false, status: 400, body: INVALID_REQUEST };
     }
   }
-  async function resolveAuthority(pg, actor, conversationId) {
-    const res = await pg.query(SQL_RESOLVE, [actor.client_id, actor.staff_user_id, conversationId]);
-    if (!res || !Array.isArray(res.rows) || res.rows.length !== 1 || !res.rows[0]) return null;
-    const row = res.rows[0];
-    return Object.freeze({
+  function freezeAuthorityRow(row) {
+    const provider = String(row.provider);
+    const auth = {
       client_id: String(row.client_id).toLowerCase(), location_id: String(row.location_id).toLowerCase(),
       location_key: String(row.location_key), endpoint_id: String(row.endpoint_id).toLowerCase(),
       conversation_id: String(row.conversation_id).toLowerCase(),
       source_inbound_event_id: String(row.source_inbound_event_id).toLowerCase(),
-      provider: String(row.provider),
+      provider,
       provider_mailbox_id: String(row.provider_mailbox_id),
       provider_source_message_id: String(row.provider_source_message_id),
       endpoint_outbound_enabled: row.endpoint_outbound_enabled === true,
-    });
+    };
+    if (provider === 'imap_smtp') {
+      auth.public_address = String(row.public_address);
+      auth.recipient_email = String(row.recipient_email);
+    }
+    return Object.freeze(auth);
+  }
+  async function resolveAuthority(pg, actor, conversationId) {
+    const res = await pg.query(SQL_RESOLVE, [actor.client_id, actor.staff_user_id, conversationId]);
+    if (res && Array.isArray(res.rows) && res.rows.length === 1 && res.rows[0]) {
+      return freezeAuthorityRow(res.rows[0]);
+    }
+    const smtp = await pg.query(SQL_RESOLVE_SMTP, [actor.client_id, actor.staff_user_id, conversationId]);
+    if (!smtp || !Array.isArray(smtp.rows) || smtp.rows.length !== 1 || !smtp.rows[0]) return null;
+    return freezeAuthorityRow(smtp.rows[0]);
   }
   async function resolveSendableAuthority(pg, actor, conversationId) {
     const auth = await resolveAuthority(pg, actor, conversationId);
@@ -732,7 +796,8 @@ function createStaffEmailInboxRoutes(deps) {
       throw tagSaveDraftThrow(error, 'persist_subject');
     }
     const approvalId = mintUuid(); const operationId = mintUuid();
-    const ins = await pg.query(SQL_INSERT_DRAFT, [approvalId, operationId, auth.client_id, auth.location_id,
+    const insertSql = auth.provider === 'imap_smtp' ? SQL_INSERT_DRAFT_SMTP : SQL_INSERT_DRAFT;
+    const ins = await pg.query(insertSql, [approvalId, operationId, auth.client_id, auth.location_id,
       auth.location_key, auth.endpoint_id, auth.conversation_id, auth.source_inbound_event_id,
       auth.provider_mailbox_id, auth.provider_source_message_id, a.staff_user_id, body.message_text, digest, subject]);
     if (!ins || !ins.rows || ins.rows.length !== 1) {
@@ -940,6 +1005,42 @@ function createStaffEmailInboxRoutes(deps) {
         row.state = 'approved';
       }
       if (began) await pg.query('COMMIT');
+      const compositionEnv = deps.runtimeEnv || process.env;
+      if (auth.provider === 'imap_smtp') {
+        const sealedSmtp = sealApprovedSmtpDispatchRequest(row, auth, actor, lockedOperationId, sendSubject);
+        if (!sealedSmtp) {
+          return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+            code: 'email_send_unavailable', approval_id: approvalId, approved: true };
+        }
+        let smtpDispatchResult = null;
+        if (typeof createSmtpOutboundDispatch === 'function') {
+          try {
+            const surface = createSmtpOutboundDispatch(pg, compositionEnv);
+            if (!surface || typeof surface.dispatchApprovedOutbound !== 'function') {
+              return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+                code: 'email_send_unavailable', approval_id: approvalId, approved: true };
+            }
+            smtpDispatchResult = await surface.dispatchApprovedOutbound(sealedSmtp);
+          } catch {
+            return { status: 503, body: Object.freeze({ success: false, error: 'email_send_unavailable', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+              code: 'email_send_unavailable', approval_id: approvalId, approved: true };
+          }
+        } else if (typeof outboundDispatch === 'function') {
+          smtpDispatchResult = await outboundDispatch(sealedSmtp);
+        } else {
+          return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
+            code: 'email_send_disabled_unreachable', approval_id: approvalId, approved: true };
+        }
+        const smtpMapped = mapDispatchToRoute(smtpDispatchResult, input.conversation_id, approvalId);
+        return {
+          ...smtpMapped,
+          approval_id: approvalId,
+          send_subject: sendSubject,
+          message_text: row.message_text,
+          journaled: true,
+          provider_invoked: smtpMapped.code === 'email_send_committed',
+        };
+      }
       // Post-COMMIT only. Global send + composition flags independently required.
       // Hard-false owner constants remain; no token/Graph when either flag is off.
       const sendEnabled = isEmailOutboundSendEnabled(env);
@@ -955,7 +1056,6 @@ function createStaffEmailInboxRoutes(deps) {
       }
       let dispatchResult = null;
       // Full runtime env for owner pins (gateEnv is flag snapshot only).
-      const compositionEnv = deps.runtimeEnv || process.env;
       if (typeof createOutboundDispatch === 'function') {
         // Lazy construction on pinned post-COMMIT client; never release here.
         try {
@@ -1287,7 +1387,7 @@ module.exports = {
   ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
   BODY_KEYS, BODY_KEYS_UI, RECOVERY_BODY_KEYS, SUCCESS_DTO_KEYS, RECOVERY_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,
-  SQL_RESOLVE, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
+  SQL_RESOLVE, SQL_RESOLVE_SMTP, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
   createStaffEmailInboxRoutes,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   isEmailOutboundRuntimeCompositionEnabled,
