@@ -422,6 +422,39 @@ function inboxRowsPassThroughUnread(mapped, row) {
   return mapped;
 }
 
+/* INBOX-FILTER-RESELECT-001: filter/search must not silently open the first
+ * remaining thread. Initial Inbox load (no selection) may still pick the top
+ * row; a later filter, search, or rail view must keep the open guest or drop
+ * to a neutral pane — never loadConvDetail(convs[0]). */
+function inboxRowsPreserveSelectionOpts(opts) {
+  opts = opts || {};
+  var keepId = opts.selectedId;
+  if (keepId == null && typeof selectedConvId !== 'undefined') keepId = selectedConvId;
+  if (!keepId) return opts;
+  return Object.assign({}, opts, { preserveDetail: true, selectedId: keepId });
+}
+
+function inboxRowsWrapFilterReselect() {
+  if (typeof loadInbox === 'function' && !loadInbox._inboxFilterReselectWrapped) {
+    var _inboxRowsLegacyLoadInbox = loadInbox;
+    loadInbox = function(selectConvIdAfterLoad, opts) {
+      opts = opts || {};
+      if (!selectConvIdAfterLoad && typeof selectedConvId !== 'undefined' && selectedConvId) {
+        opts = Object.assign({}, opts, { silent: true, preserveDetail: true });
+      }
+      return _inboxRowsLegacyLoadInbox(selectConvIdAfterLoad, opts);
+    };
+    loadInbox._inboxFilterReselectWrapped = true;
+  }
+  if (typeof applyInboxFilter === 'function' && !applyInboxFilter._inboxFilterReselectWrapped) {
+    var _inboxRowsLegacyApplyFilter = applyInboxFilter;
+    applyInboxFilter = function(opts) {
+      return _inboxRowsLegacyApplyFilter(inboxRowsPreserveSelectionOpts(opts));
+    };
+    applyInboxFilter._inboxFilterReselectWrapped = true;
+  }
+}
+
 function inboxRowsWrapRenderers() {
   if (typeof renderInboxConvCardHtml === 'function' && !renderInboxConvCardHtml._inboxRowsWrapped) {
     var _inboxRowsLegacyRenderConvCardHtml = renderInboxConvCardHtml;
@@ -433,7 +466,7 @@ function inboxRowsWrapRenderers() {
   if (typeof renderInbox === 'function' && !renderInbox._inboxRowsWrapped) {
     var _inboxRowsLegacyRenderInbox = renderInbox;
     renderInbox = function(convs, opts) {
-      var result = _inboxRowsLegacyRenderInbox(convs, opts);
+      var result = _inboxRowsLegacyRenderInbox(convs, inboxRowsPreserveSelectionOpts(opts));
       inboxRowsAfterRender();
       return result;
     };
@@ -484,6 +517,7 @@ function inboxRowsInstall() {
   inboxRowsEnsureStyles();
   inboxRowsWrapRenderers();
   inboxRowsWrapViews();
+  inboxRowsWrapFilterReselect();
   inboxRowsHideLegacyFilterChips();
   inboxRowsAfterRender();
   inboxRowsRuntime.wired = true;
@@ -500,6 +534,8 @@ if (typeof window !== 'undefined') {
     needsHumanLabel: inboxRowsNeedsHumanLabel,
     hideLegacyFilterChips: inboxRowsHideLegacyFilterChips,
     openBroadcast: inboxRowsOpenBroadcast,
+    preserveSelectionOpts: inboxRowsPreserveSelectionOpts,
+    wrapFilterReselect: inboxRowsWrapFilterReselect,
     install: inboxRowsInstall,
     CSS: INBOX_ROWS_CSS,
     runtime: inboxRowsRuntime,

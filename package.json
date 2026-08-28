@@ -862,6 +862,7 @@
     "verify:inbox-context": "node scripts/verify-inbox-context.js",
     "verify:inbox-link-guest": "node scripts/verify-inbox-link-guest.js",
     "verify:inbox-rows": "node scripts/verify-inbox-rows.js",
+    "verify:inbox-filter-reselect": "node scripts/verify-inbox-filter-reselect.js",
     "verify:inbox-thread-mockup": "node scripts/verify-inbox-thread-mockup.js",
     "verify:inbox-view-routes": "node scripts/verify-inbox-view-routes.js",
     "verify:inbox-columns": "node scripts/verify-inbox-columns.js",
