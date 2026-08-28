@@ -16,7 +16,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const util = require('node:util');
 const {
   ENV_LUNA_AUTO_SEND_ENABLED,
@@ -1612,6 +1612,36 @@ function ignoreRemoteExecHangup() {
   try { process.on('SIGHUP', ignore); } catch { /* unavailable */ }
   try { process.on('SIGPIPE', ignore); } catch { /* unavailable */ }
   return true;
+}
+
+function isStaffOwnerWorker(env) {
+  return envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_WORKER') === '1';
+}
+
+function spawnDetachedStaffOwnerWorker(env) {
+  if (!env || typeof env !== 'object' || isProxy(env)) return null;
+  const script = path.join(__dirname, '..', 'prove-mail-mvp-004-auto-create-send.js');
+  const childEnv = Object.create(null);
+  for (const key of Object.keys(env)) {
+    const value = envOwn(env, key);
+    if (typeof value === 'string') childEnv[key] = value;
+  }
+  childEnv.MAIL_MVP_004_STAFF_OWNER_WORKER = '1';
+  childEnv.MAIL_MVP_004_STAFF_OWNER_PROOF = '1';
+  childEnv.MAIL_MVP_004_CAPABILITY_CONSUMED = '1';
+  try {
+    const child = spawn(process.execPath, [script], {
+      detached: true,
+      stdio: 'ignore',
+      env: childEnv,
+      cwd: process.cwd(),
+    });
+    if (!child || !Number.isSafeInteger(child.pid) || child.pid <= 1) return null;
+    child.unref();
+    return freeze({ pid: child.pid });
+  } catch {
+    return null;
+  }
 }
 
 function readDispatchReceipt(filePath) {
@@ -3219,10 +3249,128 @@ async function runStaffOwnerProof(input) {
         }),
       });
     }
-    if (consumeInnerCapability(capCheck.capability.nonce, consumedPath) !== true) {
-      return refusedRecord('capability_replay');
+    const workerMode = isStaffOwnerWorker(env);
+    const capabilityConsumed = envOwn(env, 'MAIL_MVP_004_CAPABILITY_CONSUMED') === '1';
+    if (!workerMode || capabilityConsumed !== true) {
+      if (consumeInnerCapability(capCheck.capability.nonce, consumedPath) !== true) {
+        return refusedRecord('capability_replay');
+      }
     }
     ignoreRemoteExecHangup();
+    const spawnFnProvided = typeof (input && input.spawnDetachedOwner) === 'function';
+    if (!workerMode && (injected !== true || spawnFnProvided)) {
+      const spawnFn = spawnFnProvided
+        ? input.spawnDetachedOwner
+        : spawnDetachedStaffOwnerWorker;
+      const workerEnv = Object.create(null);
+      for (const key of Object.keys(env)) {
+        const value = envOwn(env, key);
+        if (typeof value === 'string') workerEnv[key] = value;
+      }
+      workerEnv.MAIL_MVP_004_STAFF_OWNER_WORKER = '1';
+      workerEnv.MAIL_MVP_004_STAFF_OWNER_PROOF = '1';
+      workerEnv.MAIL_MVP_004_CAPABILITY_CONSUMED = '1';
+      const worker = spawnFn(workerEnv);
+      if (!worker || !Number.isSafeInteger(worker.pid) || worker.pid <= 1) {
+        return failRecord('staff_exec_failed');
+      }
+      const issuedWorker = writeDispatchReceipt({
+        status: 'issued',
+        nonce: capCheck.capability.nonce,
+        pid: worker.pid,
+        reason: null,
+      }, receiptPath);
+      if (!issuedWorker) return failRecord('dispatch_receipt_unproven');
+      if (input && input.emitDispatchMarker !== false
+          && (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
+            || envOwn(env, 'MAIL_MVP_004_LIVE_PROOF') === '1')) {
+        process.stdout.write(`${MUTATION_ISSUED_MARKER}\n`);
+      }
+      const wait = typeof (input && input.sleep) === 'function'
+        ? input.sleep
+        : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const deadline = Date.now() + STAFF_OWNER_COMPLETION_WAIT_MS;
+      let receipt = readDispatchReceipt(receiptPath);
+      while (
+        receipt
+        && receipt.status === 'issued'
+        && receipt.process_alive === true
+        && Date.now() < deadline
+      ) {
+        await wait(REVISION_WAIT_INTERVAL_MS);
+        receipt = readDispatchReceipt(receiptPath);
+      }
+      const waited = await snapshotSelectedOperation(withPgClient, row);
+      const waitedDurable = await loadSelectedOperationEvidence(
+        withPgClient,
+        row,
+        envOwn(env, ENV_HMAC_SECRET),
+      );
+      if (receipt && receipt.status === 'completed' && exactReconciledCounts(waited)) {
+        return freeze({
+          ok: true,
+          status: 'sent',
+          invoked: 1,
+          durable_evidence: waitedDurable,
+          public: freeze({
+            ok: true,
+            status: 'sent',
+            invoked: 1,
+            approvals: 1,
+            journals: 1,
+            provider_sends: 1,
+          }),
+        });
+      }
+      if (receipt && receipt.process_alive === true) {
+        return freeze({
+          status: 'failed',
+          indeterminate: true,
+          outcome_unknown: true,
+          reason: 'indeterminate_no_retry',
+          invoked: 1,
+          process_alive: true,
+          public: freeze({
+            ok: false,
+            status: 'outcome_unknown',
+            reason: 'indeterminate_no_retry',
+            invoked: 1,
+            sent: false,
+          }),
+        });
+      }
+      if (waited && waited.approvals === 0 && waited.journals === 0 && waited.provider_sends === 0) {
+        return freeze({
+          status: 'failed',
+          indeterminate: true,
+          outcome_unknown: true,
+          reason: 'proven_no_send',
+          invoked: 1,
+          process_alive: false,
+          dispatch_reset_allowed: true,
+          approvals: 0,
+          journals: 0,
+          provider_sends: 0,
+          public: freeze({
+            ok: false,
+            reason: 'proven_no_send',
+            status: 'proven_no_send',
+            invoked: 1,
+            approvals: 0,
+            journals: 0,
+            provider_sends: 0,
+            sent: false,
+            dispatch_reset_allowed: true,
+          }),
+        });
+      }
+      return failRecord((receipt && receipt.reason) || 'owner_failed', {
+        invoked: 1,
+        approvals: waited ? waited.approvals : 0,
+        journals: waited ? waited.journals : 0,
+        provider_sends: waited ? waited.provider_sends : 0,
+      });
+    }
     const issued = writeDispatchReceipt({
       status: 'issued',
       nonce: capCheck.capability.nonce,
@@ -5451,6 +5599,8 @@ module.exports = freeze({
   consumeInnerCapability,
   dispatchProcessAlive,
   ignoreRemoteExecHangup,
+  isStaffOwnerWorker,
+  spawnDetachedStaffOwnerWorker,
   readDispatchReceipt,
   writeDispatchReceipt,
   replaceProvenNoSendDispatchMarker,
