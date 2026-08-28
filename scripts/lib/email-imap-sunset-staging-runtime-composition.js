@@ -2,8 +2,9 @@
 
 /**
  * Sunset-staging IMAP inbound runtime composition. Import is inert.
- * runtime_activation is never true in this slice — Skipper owns live flags
- * and proof after merge. Worker/outbound/auto-send cannot activate here.
+ * runtime_activation is true only when sunset-staging poll/inbound/worker
+ * flags are exact 'true'. Auto stays refused. Graph staff outbound
+ * composition may coexist; IMAP still never sends.
  *
  * @module email-imap-sunset-staging-runtime-composition
  */
@@ -54,22 +55,22 @@ function resolveEmailImapSunsetStagingRuntimeReadiness(env) {
     if (!env || typeof env !== 'object' || Array.isArray(env) || isProxySurface(env)) {
       return Object.freeze({ ok: false, runtime_activation: false });
     }
-    if (ownData(env, 'EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED') === 'true') {
-      return Object.freeze({ ok: false, runtime_activation: false });
-    }
     if (ownData(env, 'LUNA_AUTO_SEND_ENABLED') === 'true') {
       return Object.freeze({ ok: false, runtime_activation: false });
     }
+    if (ownData(env, 'LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED') === 'true') {
+      return Object.freeze({ ok: false, runtime_activation: false });
+    }
     const structurallyReady = contract.isSunsetEmailImapPollEnabled(env)
+      && contract.isSunsetEmailImapInboundEnabled(env)
       && ownData(env, contract.IMAP_RUNTIME_COMPOSITION_ENABLED_ENV) === 'true'
+      && ownData(env, contract.IMAP_WORKER_ENABLED_ENV) === 'true'
       && ownData(env, 'LUNA_DEPLOYMENT') === SUNSET_DEPLOYMENT
       && ownData(env, 'DEFAULT_CLIENT_SLUG') === SUNSET_TENANT;
     if (!structurallyReady) {
       return Object.freeze({ ok: false, runtime_activation: false });
     }
-    // Activation remains Skipper-owned. Flags may be structurally valid without
-    // arming a scheduler from this repository snapshot.
-    return Object.freeze({ ok: true, runtime_activation: false });
+    return Object.freeze({ ok: true, runtime_activation: true });
   } catch (_) {
     return Object.freeze({ ok: false, runtime_activation: false });
   }
@@ -86,14 +87,11 @@ function createEmailImapSunsetStagingRuntimeComposition(deps) {
       const poller = createSunsetImapInboundPoll(Object.freeze({
         client: Object.freeze({ query: client.query.bind(client) }),
         env: deps.env,
-        secretProvider: createSunsetImapKvSecretProvider(),
-        imapTransport: createSunsetImapImapsTransport(),
+        secretProvider: deps.secretProvider || createSunsetImapKvSecretProvider(),
+        imapTransport: deps.imapTransport || createSunsetImapImapsTransport(),
         withTransactionClient: async (work) => work(client),
       }));
-      return poller.pollVerifiedImapInbox(Object.freeze({
-        clientId: deps.clientId,
-        locationId: deps.locationId,
-      }));
+      return poller.pollEligibleSunsetImapInbox();
     }),
   });
   return Object.freeze({

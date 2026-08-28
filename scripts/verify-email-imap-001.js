@@ -1506,16 +1506,21 @@ async function main() {
     assert.equal(readinessOff.runtime_activation, false);
     const readinessOn = composition.resolveEmailImapSunsetStagingRuntimeReadiness(configuredEnv());
     assert.equal(readinessOn.ok, true);
-    assert.notEqual(readinessOn.runtime_activation, true);
+    assert.equal(readinessOn.runtime_activation, true);
     const outboundOn = composition.resolveEmailImapSunsetStagingRuntimeReadiness(configuredEnv({
       EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED: 'true',
     }));
-    assert.equal(outboundOn.runtime_activation, false);
+    assert.equal(outboundOn.ok, true);
+    assert.equal(outboundOn.runtime_activation, true);
     const autoSend = composition.resolveEmailImapSunsetStagingRuntimeReadiness(configuredEnv({
       LUNA_AUTO_SEND_ENABLED: 'true',
     }));
     assert.equal(autoSend.runtime_activation, false);
-    ok('IMAP runtime composition is import-inert and refuses outbound/auto-send');
+    const autoOutbound = composition.resolveEmailImapSunsetStagingRuntimeReadiness(configuredEnv({
+      LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+    }));
+    assert.equal(autoOutbound.runtime_activation, false);
+    ok('IMAP runtime composition activates on poll flags and refuses outbound/auto-send');
   }
 
   const tlsPair = (function makeTlsPair() {

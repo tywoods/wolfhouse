@@ -54,6 +54,18 @@ const SQL_ENABLE_INBOUND = `UPDATE tenant_channel_endpoints
 const SQL_ENDPOINT_FOR_ENABLE = `SELECT id::text, imap_health_verified_at, inbound_enabled, outbound_enabled,
  active, default_automation_mode FROM tenant_channel_endpoints
  WHERE client_id=$1::uuid AND location_id=$2 AND provider='imap_smtp' LIMIT 2`.replace(/\s+/g, ' ').trim();
+const SQL_DISCOVER = `SELECT e.id::text AS id, e.client_id::text AS client_id, e.public_address,
+ e.inbound_enabled, e.outbound_enabled, e.active, e.default_automation_mode,
+ e.imap_health_verified_at, tl.id::text AS location_uuid, e.location_id AS location_key
+ FROM tenant_channel_endpoints e
+ JOIN clients c ON c.id=e.client_id
+ JOIN tenant_locations tl ON tl.client_id=e.client_id AND tl.location_id=e.location_id
+ WHERE e.provider='imap_smtp'
+   AND c.slug='sunset'
+   AND e.imap_health_verified_at IS NOT NULL
+   AND e.outbound_enabled=FALSE
+   AND e.active=FALSE AND e.default_automation_mode='off'
+ LIMIT 2`.replace(/\s+/g, ' ').trim();
 
 const SQL_CLAIM = `INSERT INTO tenant_email_imap_fetch_cursors
  (client_id, location_id, endpoint_id, mailbox, uidvalidity, last_uid, lease_owner, lease_token, lease_until, updated_at)
@@ -166,8 +178,7 @@ function createSunsetImapInboundPoll(opts) {
     return bridge.projectInboundEvent(input);
   }
 
-  return Object.freeze({
-    async enableInboundAfterVerifiedImapHealth(input) {
+  async function enableInboundAfterVerifiedImapHealth(input) {
       if (!contract.isSunsetEmailImapInboundEnabled(env)) throw failure('failed_secret_names', []);
       if (!input || !client || typeof client.query !== 'function') throw failure('failed_secret_names', []);
       const found = await client.query(SQL_ENDPOINT_FOR_ENABLE, [input.clientId, input.locationId]);
@@ -181,9 +192,9 @@ function createSunsetImapInboundPoll(opts) {
         throw failure('failed_secret_names', []);
       }
       return Object.freeze({ inbound_enabled: true, endpointId: String(row.id) });
-    },
+  }
 
-    async pollVerifiedImapInbox(input) {
+  async function pollVerifiedImapInbox(input) {
       if (!contract.isSunsetEmailImapPollEnabled(env)) throw failure('failed_secret_names', []);
       if (!input || !client || typeof client.query !== 'function' || !provider
           || typeof provider.resolveSecret !== 'function' || !transport
@@ -283,7 +294,7 @@ function createSunsetImapInboundPoll(opts) {
           if (!persisted || persisted.ok !== true) throw failure('failed_secret_names', []);
           const project = projectEvent || defaultProject;
           for (let i = 0; i < envelopes.length; i += 1) {
-            await project(Object.freeze({
+            const projected = await project(Object.freeze({
               clientId: authority.clientId,
               locationId: authority.locationId,
               endpointId: authority.endpointId,
@@ -291,6 +302,10 @@ function createSunsetImapInboundPoll(opts) {
               providerMailboxId: envelopes[i].provider_mailbox_id,
               providerMessageId: envelopes[i].provider_message_id,
             }));
+            if (!projected
+                || (projected.status !== 'projected' && projected.status !== 'already_projected')) {
+              throw failure('failed_secret_names', []);
+            }
           }
         }
 
@@ -324,7 +339,34 @@ function createSunsetImapInboundPoll(opts) {
           } catch (_) { /* best-effort conditional release */ }
         }
       }
-    },
+    }
+
+  async function pollEligibleSunsetImapInbox() {
+    if (!contract.isSunsetEmailImapPollEnabled(env)) throw failure('failed_secret_names', []);
+    if (!client || typeof client.query !== 'function') throw failure('failed_secret_names', []);
+    const found = await client.query(SQL_DISCOVER, []);
+    if (!found || !Array.isArray(found.rows) || found.rows.length !== 1) {
+      return Object.freeze({ ok: false, status: 'ineligible', fetched: 0 });
+    }
+    const row = found.rows[0];
+    if (row.imap_health_verified_at == null) {
+      return Object.freeze({ ok: false, status: 'ineligible', fetched: 0 });
+    }
+    const clientId = String(row.client_id);
+    const locationId = String(row.location_key);
+    if (row.inbound_enabled !== true) {
+      if (!contract.isSunsetEmailImapInboundEnabled(env)) {
+        return Object.freeze({ ok: false, status: 'ineligible', fetched: 0 });
+      }
+      await enableInboundAfterVerifiedImapHealth(Object.freeze({ clientId, locationId }));
+    }
+    return pollVerifiedImapInbox(Object.freeze({ clientId, locationId }));
+  }
+
+  return Object.freeze({
+    enableInboundAfterVerifiedImapHealth,
+    pollVerifiedImapInbox,
+    pollEligibleSunsetImapInbox,
   });
 }
 
@@ -334,6 +376,7 @@ module.exports = Object.freeze({
   IMAP_LEASE_OWNER_DEFAULT,
   SQL_ELIGIBLE,
   SQL_ENABLE_INBOUND,
+  SQL_DISCOVER,
   SQL_CLAIM,
   SQL_COMMIT_MONOTONIC,
   SQL_COMMIT_RESET,
