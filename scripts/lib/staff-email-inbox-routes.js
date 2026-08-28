@@ -72,6 +72,16 @@ const RECOVERY_SUCCESS_DTO_KEYS = Object.freeze(['success', 'conversation_id', '
 const BODY_MAX_BYTES = 10_240; // production shared readBody cap
 const MESSAGE_MAX_BYTES = 8_000; // UTF-8 bytes; DTO always fits in BODY_MAX_BYTES
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const PG_ERRCODE_RE = /^[0-9A-Z]{5}$/;
+const CLOSED_SAVE_STAGES = Object.freeze([
+  'snapshot_body',
+  'digest',
+  'persist_begin',
+  'persist_subject',
+  'persist_insert',
+  'persist_commit',
+  'persist_client',
+]);
 const DANGEROUS = new Set(['__proto__', 'prototype', 'constructor']);
 const NOT_FOUND = Object.freeze({ success: false, error: 'not_found' });
 const DRAFTS_UNAVAILABLE = Object.freeze({ success: false, error: 'email_drafts_unavailable' });
@@ -248,6 +258,35 @@ function parseUuid(raw) {
 }
 function bodyDigestOf(text) {
   try { if (typeof text !== 'string' || !crypto.createHash) return null; return crypto.createHash('sha256').update(text, 'utf8').digest('hex'); } catch { return null; }
+}
+function closedSaveStage(value) {
+  if (typeof value !== 'string') return null;
+  for (const stage of CLOSED_SAVE_STAGES) {
+    if (stage === value) return stage;
+  }
+  return null;
+}
+function closedPgErrcode(value) {
+  try {
+    if (typeof value === 'string') return PG_ERRCODE_RE.test(value) ? value : null;
+    if (!value || typeof value !== 'object') return null;
+    const direct = value.pg_code || value.code || value.sqlState;
+    if (typeof direct === 'string' && PG_ERRCODE_RE.test(direct)) return direct;
+    return null;
+  } catch {
+    return null;
+  }
+}
+function tagSaveDraftThrow(error, stage) {
+  const tagged = error && typeof error === 'object' ? error : new Error('approval_not_saved');
+  try {
+    if (closedSaveStage(tagged.save_stage) == null) tagged.save_stage = closedSaveStage(stage);
+    if (tagged.pg_code == null) {
+      const pg = closedPgErrcode(tagged);
+      if (pg) tagged.pg_code = pg;
+    }
+  } catch { /* keep original throw */ }
+  return tagged;
 }
 function mintUuid() { return String(crypto.randomUUID()).toLowerCase(); }
 function exactPlainKeys(o, keys) {
@@ -686,7 +725,12 @@ function createStaffEmailInboxRoutes(deps) {
     if (expectedAuthority && !authorityMatchesExpected(auth, expectedAuthority)) {
       return { status: 409, body: Object.freeze({ success: false, error: 'stale_authority' }), code: 'stale_authority' };
     }
-    const subject = await resolvePersistedDraftSubject(pg, auth.client_id, auth.conversation_id, body);
+    let subject;
+    try {
+      subject = await resolvePersistedDraftSubject(pg, auth.client_id, auth.conversation_id, body);
+    } catch (error) {
+      throw tagSaveDraftThrow(error, 'persist_subject');
+    }
     const approvalId = mintUuid(); const operationId = mintUuid();
     const ins = await pg.query(SQL_INSERT_DRAFT, [approvalId, operationId, auth.client_id, auth.location_id,
       auth.location_key, auth.endpoint_id, auth.conversation_id, auth.source_inbound_event_id,
@@ -795,28 +839,38 @@ function createStaffEmailInboxRoutes(deps) {
         ? input.email_subject : input.subject;
     }
     const body = snapshotEmailReplyBody(raw);
-    if (!a || !body || body.approval_id !== null) throw new Error('invalid draft owner input');
+    if (!a || !body || body.approval_id !== null) {
+      throw tagSaveDraftThrow(new Error('invalid draft owner input'), 'snapshot_body');
+    }
     const digest = bodyDigestOf(body.message_text);
-    return withPgClient(async (pg) => {
-      await pg.query('BEGIN');
-      try {
-        const result = await persistNewDraftThroughStaffOwner(pg, a, body, digest, input.expected_authority || null);
-        if (result.status !== 200) {
-          await pg.query('ROLLBACK');
-          return Object.freeze({
-            status: 'not_saved',
-            conversation_id: body.conversation_id,
-            approval_id: null,
-            code: typeof result.code === 'string' ? result.code : 'draft_failed',
-          });
+    if (!digest) throw tagSaveDraftThrow(new Error('draft digest unavailable'), 'digest');
+    try {
+      return await withPgClient(async (pg) => {
+        let stage = 'persist_begin';
+        try {
+          await pg.query('BEGIN');
+          stage = 'persist_insert';
+          const result = await persistNewDraftThroughStaffOwner(pg, a, body, digest, input.expected_authority || null);
+          if (result.status !== 200) {
+            await pg.query('ROLLBACK');
+            return Object.freeze({
+              status: 'not_saved',
+              conversation_id: body.conversation_id,
+              approval_id: null,
+              code: typeof result.code === 'string' ? result.code : 'draft_failed',
+            });
+          }
+          stage = 'persist_commit';
+          await pg.query('COMMIT');
+          return Object.freeze({ status: 'saved', conversation_id: body.conversation_id, approval_id: result.approval_id });
+        } catch (error) {
+          try { await pg.query('ROLLBACK'); } catch { /* preserve original error */ }
+          throw tagSaveDraftThrow(error, stage);
         }
-        await pg.query('COMMIT');
-        return Object.freeze({ status: 'saved', conversation_id: body.conversation_id, approval_id: result.approval_id });
-      } catch (error) {
-        try { await pg.query('ROLLBACK'); } catch { /* preserve original error */ }
-        throw error;
-      }
-    });
+      });
+    } catch (error) {
+      throw tagSaveDraftThrow(error, (error && error.save_stage) || 'persist_client');
+    }
   }
   async function executeApproveAndDispatch(pg, actor, input, digest, env) {
     let began = false;

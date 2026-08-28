@@ -216,6 +216,48 @@ async function main() {
     && snapshotEmailReplyBody(dto({ message_text: multi })) !== null
     && snapshotEmailReplyBody(dto({ message_text: multi + 'y' })) === null
     && (() => { const o = dto(); Object.defineProperty(o, 'message_text', { get() { return BODY; }, enumerable: true }); return snapshotEmailReplyBody(o) === null; })());
+  const diagRoutes = createStaffEmailInboxRoutes({
+    sendJSON() {},
+    withPgClient: async () => { throw new Error('no db'); },
+    runtimeEnv: enabledEnv(),
+  });
+  let snapErr = null;
+  try {
+    await diagRoutes.saveDraftThroughStaffOwner({
+      actor: { staff_user_id: A, client_id: C, role: 'operator' },
+      conversation_id: V,
+      message_text: BODY,
+    });
+  } catch (err) { snapErr = err; }
+  ok('saveDraft omitted approval_id tags snapshot_body',
+    snapErr && snapErr.save_stage === 'snapshot_body' && snapErr.pg_code == null);
+  const insertRoutes = createStaffEmailInboxRoutes({
+    sendJSON() {},
+    withPgClient: async (fn) => fn({
+      async query(sql) {
+        const n = String(sql).replace(/\s+/g, ' ').trim();
+        if (n === 'BEGIN' || n === 'ROLLBACK') return { rows: [] };
+        const err = new Error('insert boom');
+        err.code = '23503';
+        err.detail = 'Key (client_id)=(11111111-1111-4111-8111-111111111111) is not present';
+        throw err;
+      },
+    }),
+    runtimeEnv: enabledEnv(),
+  });
+  let insertErr = null;
+  try {
+    await insertRoutes.saveDraftThroughStaffOwner({
+      actor: { staff_user_id: A, client_id: C, role: 'operator' },
+      conversation_id: V,
+      message_text: BODY,
+      approval_id: null,
+    });
+  } catch (err) { insertErr = err; }
+  ok('saveDraft pg throw tags persist_insert SQLSTATE without detail',
+    insertErr && insertErr.save_stage === 'persist_insert'
+    && insertErr.pg_code === '23503'
+    && JSON.stringify({ save_stage: insertErr.save_stage, pg_code: insertErr.pg_code }).includes('11111111') === false);
   ok('origin exact; hostile path rejected',
     exactOriginSerialization(ORIGIN) === ORIGIN
     && exactOriginSerialization(`${ORIGIN}/evil/path`) === null
