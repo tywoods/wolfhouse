@@ -95,6 +95,8 @@ const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
 const REVISION_WAIT_TIMEOUT_MS = 15 * 60 * 1000;
 const REVISION_WAIT_INTERVAL_MS = 2000;
+const REPLICA_ATTEST_COOLDOWN_MS = 10 * 60 * 1000;
+const REPLICA_ATTEST_RETRY_AFTER_MAX_S = 600;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA40 = /^[0-9a-f]{40}$/;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
@@ -3704,6 +3706,45 @@ function buildReplicaEnvExecAzArgs(serving) {
   ]);
 }
 
+function replicaAttestScopeKey(serving, enabled) {
+  if (!serving || typeof serving !== 'object' || isProxy(serving)) return null;
+  const revision = serving.revision;
+  const replica = serving.replica;
+  if (typeof revision !== 'string' || typeof replica !== 'string') return null;
+  if (!revision.startsWith(STAFF_APP) || !replica.startsWith(STAFF_APP)) return null;
+  if (!SAFE_AZ_NAME.test(revision) || !SAFE_AZ_NAME.test(replica)) return null;
+  return `${revision}\0${replica}\0${enabled === true ? '1' : '0'}`;
+}
+
+function replicaAttestMatchesCurrent(attested, identity, enabled) {
+  if (!attested || !identity) return false;
+  if (attested.revision !== identity.revision || attested.replica !== identity.replica) return false;
+  if (attested.flagsSource !== 'replica_process') return false;
+  return approvedReplicaFlagsExact(attested, enabled) === true;
+}
+
+function parseTrustedReplicaAttestRetryAfterMs(raw) {
+  const text = String(raw || '');
+  if (!text) return null;
+  const has429 = /HTTP(?:\/\d(?:\.\d)?)?\s*429\b/i.test(text)
+    || /\b429\s+Too Many Requests\b/i.test(text)
+    || /\bstatus(?:\s+code)?\s*[:=]?\s*429\b/i.test(text);
+  if (!has429) return null;
+  const match = text.match(/\bretry-after\b\s*[:=]?\s*"?(\d{1,4})"?/i);
+  if (!match) return REPLICA_ATTEST_COOLDOWN_MS;
+  const seconds = Number(match[1]);
+  if (!Number.isSafeInteger(seconds) || seconds < 1) return REPLICA_ATTEST_COOLDOWN_MS;
+  return Math.min(seconds, REPLICA_ATTEST_RETRY_AFTER_MAX_S) * 1000;
+}
+
+function replicaAttestBackoffMs(raw) {
+  const parsed = parseTrustedReplicaAttestRetryAfterMs(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < REPLICA_ATTEST_COOLDOWN_MS) {
+    return REPLICA_ATTEST_COOLDOWN_MS;
+  }
+  return Math.min(parsed, REPLICA_ATTEST_COOLDOWN_MS);
+}
+
 function parseReplicaProcessEnv(raw) {
   const text = String(raw || '');
   const flags = Object.create(null);
@@ -3738,10 +3779,14 @@ function parseReplicaProcessEnv(raw) {
   return null;
 }
 
-async function attestReplicaProcessEnv(azRun, serving, azBin, env, timeoutMs) {
-  if (!serving || !servingHealthyReady100(serving)) return null;
+async function attestReplicaProcessEnvResult(azRun, serving, azBin, env, timeoutMs) {
+  if (!serving || !servingHealthyReady100(serving)) {
+    return freeze({ serving: null, retryAfterMs: null, attempted: false });
+  }
   const args = buildReplicaEnvExecAzArgs(serving);
-  if (!args || typeof azRun !== 'function') return null;
+  if (!args || typeof azRun !== 'function') {
+    return freeze({ serving: null, retryAfterMs: null, attempted: false });
+  }
   let raw = null;
   const execTimeout = Number.isSafeInteger(timeoutMs) && timeoutMs > 0
     ? timeoutMs
@@ -3749,28 +3794,57 @@ async function attestReplicaProcessEnv(azRun, serving, azBin, env, timeoutMs) {
   try {
     raw = await azRun(args);
   } catch (error) {
-    if (!error || error.message !== 'pty_required') return null;
+    if (!error || error.message !== 'pty_required') {
+      const thrownText = error && typeof error.message === 'string' ? error.message : '';
+      return freeze({
+        serving: null,
+        retryAfterMs: replicaAttestBackoffMs(thrownText),
+        attempted: true,
+      });
+    }
     try {
       const spec = wrapPtyAzExec(azBin || AZ_DEFAULT, args);
       raw = spawnPtyHarness(spec, { env: env || process.env, timeoutMs: execTimeout });
-    } catch {
-      return null;
+    } catch (ptyError) {
+      const thrownText = ptyError && typeof ptyError.message === 'string' ? ptyError.message : '';
+      return freeze({
+        serving: null,
+        retryAfterMs: replicaAttestBackoffMs(thrownText),
+        attempted: true,
+      });
     }
   }
-  const text = `${raw && raw.stdout || ''}\n${raw && raw.stderr || ''}`;
-  if (remoteExecTransportFailed(text)) return null;
+  const statusHint = raw && raw.status === 429 ? 'HTTP 429' : '';
+  const text = `${raw && raw.stdout || ''}\n${raw && raw.stderr || ''}\n${statusHint}`;
+  const retryAfterMs = replicaAttestBackoffMs(text);
+  if (parseTrustedReplicaAttestRetryAfterMs(text) !== null || remoteExecTransportFailed(text)) {
+    return freeze({ serving: null, retryAfterMs, attempted: true });
+  }
   const parsed = parseReplicaProcessEnv(text);
-  if (!parsed) return null;
+  if (!parsed) {
+    return freeze({ serving: null, retryAfterMs: REPLICA_ATTEST_COOLDOWN_MS, attempted: true });
+  }
   const flags = freeze({
     [ENV_LUNA_AUTO_SEND_ENABLED]: parsed[ENV_LUNA_AUTO_SEND_ENABLED],
     [ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED]: parsed[ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED],
   });
-  if (!approvedFlagsOnly(flags)) return null;
+  if (!approvedFlagsOnly(flags)) {
+    return freeze({ serving: null, retryAfterMs: REPLICA_ATTEST_COOLDOWN_MS, attempted: true });
+  }
   return freeze({
-    ...serving,
-    flags,
-    flagsSource: 'replica_process',
+    serving: freeze({
+      ...serving,
+      flags,
+      flagsSource: 'replica_process',
+    }),
+    retryAfterMs: 0,
+    attempted: true,
   });
+}
+
+async function attestReplicaProcessEnv(azRun, serving, azBin, env, timeoutMs) {
+  const probed = await attestReplicaProcessEnvResult(azRun, serving, azBin, env, timeoutMs);
+  return probed && probed.serving ? probed.serving : null;
 }
 
 function brandReplicaEnvAttestor(fn) {
@@ -3820,20 +3894,32 @@ async function waitServingHealthy(azRun, options) {
     ? options.intervalMs : REVISION_WAIT_INTERVAL_MS;
   const start = nowFn();
   let last = null;
+  let nextAttestAt = start;
   while (nowFn() - start <= timeoutMs) {
     last = await readProductionServingIdentity(azRun);
+    const now = nowFn();
     if (last && servingSuccessorAcceptable(authorized, last)) {
-      const attested = await attestReplicaProcessEnv(
-        azRun,
-        last,
-        options && options.azBin,
-        options && options.env,
-        options && options.attestTimeoutMs,
-      );
-      if (attested
-          && servingSuccessorAcceptable(authorized, attested)
-          && approvedReplicaFlagsExact(attested, enabled)) {
-        return attested;
+      if (now >= nextAttestAt) {
+        const probed = await attestReplicaProcessEnvResult(
+          azRun,
+          last,
+          options && options.azBin,
+          options && options.env,
+          options && options.attestTimeoutMs,
+        );
+        const attested = probed && probed.serving;
+        if (attested
+            && replicaAttestScopeKey(attested, enabled) === replicaAttestScopeKey(last, enabled)
+            && replicaAttestMatchesCurrent(attested, last, enabled)
+            && servingSuccessorAcceptable(authorized, attested)) {
+          return attested;
+        }
+        if (probed && probed.attempted === true) {
+          const backoff = Number.isSafeInteger(probed.retryAfterMs) && probed.retryAfterMs > 0
+            ? probed.retryAfterMs
+            : REPLICA_ATTEST_COOLDOWN_MS;
+          nextAttestAt = now + backoff;
+        }
       }
     }
     await sleepFn(intervalMs);
@@ -4708,6 +4794,8 @@ module.exports = freeze({
   CONFIRM_WINDOW_MS,
   REVISION_WAIT_TIMEOUT_MS,
   REVISION_WAIT_INTERVAL_MS,
+  REPLICA_ATTEST_COOLDOWN_MS,
+  REPLICA_ATTEST_RETRY_AFTER_MAX_S,
   SQL_SELECT_PROOF_THREAD,
   SQL_COUNT_OPERATION_APPROVALS,
   SQL_COUNT_OPERATION_JOURNAL,
@@ -4748,6 +4836,10 @@ module.exports = freeze({
   readProductionServingIdentity,
   waitServingHealthy,
   attestReplicaProcessEnv,
+  parseTrustedReplicaAttestRetryAfterMs,
+  replicaAttestBackoffMs,
+  replicaAttestScopeKey,
+  replicaAttestMatchesCurrent,
   buildSetEnvArgs,
   buildShowAppArgs,
   buildRevisionShowArgs,
