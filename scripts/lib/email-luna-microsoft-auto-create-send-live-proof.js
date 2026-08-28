@@ -2694,11 +2694,17 @@ function createMailMvp004LiveProof(deps) {
     let capability = null;
     try {
       await deps.setEmergencyFlags(true);
-      await deps.putEmailChannelMode('auto');
+      try {
+        await deps.putEmailChannelMode('auto');
+      } catch {
+        failedReason = 'channel_mode_unproven';
+      }
       const enabled = typeof deps.waitServingHealthy === 'function'
         ? await deps.waitServingHealthy({ enabled: true, authorized: serving })
         : await deps.readServingIdentity();
-      if (!enabled) {
+      if (failedReason) {
+        /* write miss already fail-closed; do not invoke */
+      } else if (!enabled) {
         failedReason = 'enabled_revision_unproven';
       } else if (!servingIdentityCompatible(serving, enabled)) {
         failedReason = 'enabled_image_drift';
@@ -4606,6 +4612,8 @@ function createProductionMailMvp004Supervisor(options) {
       const selected = selectProofThread(thread && thread.rows);
       if (!selected.ok) throw new Error(selected.reason);
       await store.putChannelMode(selected.row.client_id, 'email', value);
+      const stored = await store.getChannelMode(selected.row.client_id, 'email');
+      if (stored !== value) throw new Error('channel_mode_unproven');
     },
     async getEmailChannelMode() {
       const store = createEmailInboxChannelModeStore({ withPgClient });

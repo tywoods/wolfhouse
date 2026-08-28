@@ -660,6 +660,11 @@ function makeHarness(options = {}) {
     },
     async putEmailChannelMode(value) {
       log.push(`mode:${value}`);
+      if (options.modeThrow && value === 'auto') throw new Error('channel_mode_unproven');
+      if (typeof options.putEmailChannelMode === 'function') {
+        await options.putEmailChannelMode(value);
+        return;
+      }
       mode = value;
     },
     async getEmailChannelMode() {
@@ -2676,6 +2681,24 @@ async function main() {
     assert.equal(modeThrowLog.includes('mode:auto'), false);
     assert.equal(modeThrowLog.includes('invoke'), false);
 
+    const { harness: hPutThrow, log: putThrowLog } = makeHarness({ modeThrow: true });
+    const putThrowRefuse = await execute(hPutThrow);
+    assert.equal(putThrowRefuse.reason, 'channel_mode_unproven');
+    assert.equal(putThrowRefuse.invoked, 0);
+    assert.equal(putThrowLog.includes('flags:true'), true);
+    assert.equal(putThrowLog.includes('mode:auto'), true);
+    assert.equal(putThrowLog.includes('invoke'), false);
+
+    const { harness: hModeStuck, log: modeStuckLog } = makeHarness({
+      async getEmailChannelMode() { return 'draft'; },
+    });
+    const modeStuckRefuse = await execute(hModeStuck);
+    assert.equal(modeStuckRefuse.reason, 'channel_mode_unproven');
+    assert.equal(modeStuckRefuse.invoked, 0);
+    assert.equal(modeStuckLog.includes('flags:true'), true);
+    assert.equal(modeStuckLog.includes('mode:auto'), true);
+    assert.equal(modeStuckLog.includes('invoke'), false);
+
     const { harness: hGraphProofReason, log: graphProofLog } = makeHarness({
       graph: { ok: false, reason: 'proof_error' },
     });
@@ -2721,6 +2744,19 @@ async function main() {
     assert.match(executeOnceSrc, /return refusedRecord\('graph_adapter_unwired'\)/);
     assert.match(executeOnceSrc, /return refusedRecord\('snapshot_unproven'\)/);
     assert.match(executeOnceSrc, /return refusedRecord\('channel_mode_unproven'\)/);
+    assert.match(executeOnceSrc, /try \{\s*await deps\.putEmailChannelMode\('auto'\);\s*\} catch \{\s*failedReason = 'channel_mode_unproven';\s*\}/);
+    assert.ok(executeOnceSrc.indexOf("failedReason = 'channel_mode_unproven'")
+      < executeOnceSrc.indexOf('invokeAutoOwner'));
+    const storeSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/email-inbox-channel-mode.js'), 'utf8');
+    assert.match(storeSrc, /settings->'inbox_channel_modes'/);
+    assert.match(storeSrc, /SET settings = jsonb_set/);
+    assert.match(storeSrc, /COALESCE\(settings, '\{\}'::jsonb\)/);
+    assert.match(storeSrc, /WHERE id=\$1::uuid/);
+    assert.doesNotMatch(storeSrc, /metadata->'inbox_channel_modes'/);
+    assert.doesNotMatch(storeSrc, /SET metadata = jsonb_set/);
+    assert.doesNotMatch(storeSrc, /information_schema|pg_catalog|to_regclass/);
+    assert.match(storeSrc, /if \(!row\) throw unproven\(\)/);
+    assert.match(supervisorSrc, /if \(stored !== value\) throw new Error\('channel_mode_unproven'\)/);
     assert.ok(executeOnceSrc.indexOf("return refusedRecord('graph_adapter_unwired')")
       < executeOnceSrc.indexOf('setEmergencyFlags(true)'));
     assert.doesNotMatch(
