@@ -216,21 +216,36 @@ async function main() {
     && snapshotEmailReplyBody(dto({ message_text: multi })) !== null
     && snapshotEmailReplyBody(dto({ message_text: multi + 'y' })) === null
     && (() => { const o = dto(); Object.defineProperty(o, 'message_text', { get() { return BODY; }, enumerable: true }); return snapshotEmailReplyBody(o) === null; })());
-  const diagRoutes = createStaffEmailInboxRoutes({
+  const omitPg = createFakePg();
+  const omitRoutes = createStaffEmailInboxRoutes({
     sendJSON() {},
-    withPgClient: async () => { throw new Error('no db'); },
+    withPgClient: omitPg.withPgClient,
     runtimeEnv: enabledEnv(),
   });
-  let snapErr = null;
+  const omittedSaved = await omitRoutes.saveDraftThroughStaffOwner({
+    actor: { staff_user_id: A, client_id: C, role: 'operator' },
+    conversation_id: V,
+    message_text: BODY,
+  });
+  ok('saveDraft omitted approval_id persists new draft',
+    omittedSaved && omittedSaved.status === 'saved' && UUID_RE.test(omittedSaved.approval_id));
+  let uuidHits = 0;
+  const uuidRoutes = createStaffEmailInboxRoutes({
+    sendJSON() {},
+    withPgClient: async () => { uuidHits += 1; throw new Error('no db'); },
+    runtimeEnv: enabledEnv(),
+  });
+  let uuidErr = null;
   try {
-    await diagRoutes.saveDraftThroughStaffOwner({
+    await uuidRoutes.saveDraftThroughStaffOwner({
       actor: { staff_user_id: A, client_id: C, role: 'operator' },
       conversation_id: V,
       message_text: BODY,
+      approval_id: crypto.randomUUID(),
     });
-  } catch (err) { snapErr = err; }
-  ok('saveDraft omitted approval_id tags snapshot_body',
-    snapErr && snapErr.save_stage === 'snapshot_body' && snapErr.pg_code == null);
+  } catch (err) { uuidErr = err; }
+  ok('saveDraft UUID approval_id still tags snapshot_body with zero PG',
+    uuidErr && uuidErr.save_stage === 'snapshot_body' && uuidErr.pg_code == null && uuidHits === 0);
   const insertRoutes = createStaffEmailInboxRoutes({
     sendJSON() {},
     withPgClient: async (fn) => fn({

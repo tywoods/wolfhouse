@@ -830,7 +830,7 @@ function createStaffEmailInboxRoutes(deps) {
     const raw = input && {
       conversation_id: input.conversation_id,
       message_text: input.message_text,
-      approval_id: input.approval_id,
+      approval_id: input.approval_id == null ? null : input.approval_id,
     };
     if (raw && input && (Object.prototype.hasOwnProperty.call(input, 'subject')
         || Object.prototype.hasOwnProperty.call(input, 'email_subject'))) {

@@ -583,6 +583,8 @@ async function main() {
     ok('exactly one Create Draft author call with empty context',
       hit.drafts.length === 1 && hit.drafts[0].operator_context === '');
     ok('exactly one approval', hit.approvals.length === 1 && hit.result.approvals === 1);
+    ok('auto save binds new-draft approval_id null',
+      hit.approvals[0].approval_id === null);
     ok('expected_authority matches sendable staff-resolve shape',
       hit.approvals[0].expected_authority
       && hit.approvals[0].expected_authority.provider === 'microsoft_graph'
