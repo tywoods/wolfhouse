@@ -465,6 +465,7 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
         actor,
         conversation_id: conversationId,
         message_text: draft.draft_text,
+        approval_id: null,
         expected_authority: expectedAuthority,
       };
       const subjectCheck = typeof draft.subject === 'string'
