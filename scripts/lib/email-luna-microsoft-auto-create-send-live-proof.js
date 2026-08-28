@@ -90,9 +90,13 @@ const CAPABILITY_PURPOSE = 'mail_mvp_004_staff_owner';
 const OPERATION_BINDING = 'Testing 8 26|twoods@xantrion.com';
 const DEFAULT_NONCE_STORE_PATH = path.join(os.tmpdir(), 'mail-mvp-004-used-nonces.json');
 const INNER_CONSUMED_CAPABILITY_PATH = '/tmp/mail-mvp-004-consumed-capabilities.json';
+const INNER_DISPATCH_RECEIPT_PATH = '/tmp/mail-mvp-004-dispatch-receipt.json';
 const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
+const STAFF_OWNER_EXEC_TIMEOUT_MS = 12 * 60 * 1000;
+const STAFF_OWNER_COMPLETION_WAIT_MS = 10 * 60 * 1000;
+const SNAPSHOT_EXEC_TIMEOUT_MS = 180 * 1000;
 // Successor readiness only. Observed ACA flag successor ~6m; ACA WebSocket exec
 // is globally 429/unstable after Graph preflight, so flag proof does not wait
 // 630s/20m for printenv. Operator confirm window stays 15m and is evaluated
@@ -354,6 +358,8 @@ function failRecord(reason, extra) {
     restored,
     live_proof_blocked: extra && extra.live_proof_blocked === true,
   };
+  if (extra && extra.dispatch_reset_allowed === true) out.dispatch_reset_allowed = true;
+  if (extra && extra.process_alive === true) out.process_alive = true;
   return freeze({
     ok: false,
     reason: out.reason,
@@ -599,10 +605,36 @@ function isCountsShape(result) {
 
 function innerPublicFromResult(result) {
   if (!result || typeof result !== 'object' || isProxy(result) || Array.isArray(result)) return null;
+  if (result.reason === 'proven_no_send' || result.status === 'proven_no_send') {
+    return freeze({
+      ok: false,
+      reason: 'proven_no_send',
+      status: 'proven_no_send',
+      dispatch_reset_allowed: result.dispatch_reset_allowed === true,
+      process_alive: result.process_alive === true,
+      invoked: Number.isSafeInteger(result.invoked) ? result.invoked : 0,
+      approvals: Number.isSafeInteger(result.approvals) ? result.approvals : 0,
+      journals: Number.isSafeInteger(result.journals) ? result.journals : 0,
+      provider_sends: Number.isSafeInteger(result.provider_sends) ? result.provider_sends : 0,
+      sent: false,
+    });
+  }
+  if (result.reason === 'dispatch_in_flight' || result.status === 'dispatch_in_flight') {
+    return freeze({
+      ok: false,
+      reason: 'dispatch_in_flight',
+      process_alive: true,
+      invoked: 0,
+      sent: false,
+    });
+  }
   if (isKillSwitchShape(result)) return killSwitchPublic(result);
   if (isGraphShape(result)) return sanitizeGraphPublic(result);
   if (isEvidenceShape(result)) return evidencePublic(result);
   if (isPreflightShape(result)) return snapshotPreflightPublic(result);
+  if (typeof result.dispatch_status === 'string' || result.snapshot === 'reconcile') {
+    return snapshotReconcilePublic(result);
+  }
   if (result.channel_mode && !Number.isSafeInteger(result.approvals)) return snapshotModePublic(result);
   if (isCountsShape(result)) return snapshotCountsPublic(result);
   if (result.reason === 'reconcile_owner_state') {
@@ -1562,6 +1594,185 @@ function consumeInnerCapability(nonce, filePath) {
   } catch {
     return false;
   }
+}
+
+function dispatchProcessAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function ignoreRemoteExecHangup() {
+  const ignore = () => {};
+  try { process.on('SIGHUP', ignore); } catch { /* unavailable */ }
+  try { process.on('SIGPIPE', ignore); } catch { /* unavailable */ }
+  return true;
+}
+
+function readDispatchReceipt(filePath) {
+  const target = typeof filePath === 'string' && filePath ? filePath : INNER_DISPATCH_RECEIPT_PATH;
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed) || Array.isArray(parsed)) return null;
+  if (ownData(parsed, 'operation_binding') !== OPERATION_BINDING) return null;
+  const status = ownData(parsed, 'status');
+  if (status !== 'issued' && status !== 'completed' && status !== 'failed' && status !== 'replaced') {
+    return null;
+  }
+  const nonce = ownData(parsed, 'nonce');
+  if (nonce != null && !validOperatorNonce(nonce)) return null;
+  const pid = ownData(parsed, 'pid');
+  return freeze({
+    status,
+    nonce: nonce || null,
+    previous_nonce: validOperatorNonce(ownData(parsed, 'previous_nonce'))
+      ? ownData(parsed, 'previous_nonce') : null,
+    pid: Number.isSafeInteger(pid) ? pid : null,
+    owner_status: ownData(parsed, 'owner_status') || null,
+    reason: ownData(parsed, 'reason') || null,
+    operation_binding: OPERATION_BINDING,
+    issued_at: ownData(parsed, 'issued_at') || null,
+    completed_at: ownData(parsed, 'completed_at') || null,
+    process_alive: dispatchProcessAlive(Number.isSafeInteger(pid) ? pid : 0),
+  });
+}
+
+function writeDispatchReceipt(record, filePath) {
+  if (!record || typeof record !== 'object' || isProxy(record)) return null;
+  const status = record.status;
+  if (status !== 'issued' && status !== 'completed' && status !== 'failed' && status !== 'replaced') {
+    return null;
+  }
+  const nonce = record.nonce == null ? null : record.nonce;
+  if (nonce != null && !validOperatorNonce(nonce)) return null;
+  const payload = freeze({
+    operation_binding: OPERATION_BINDING,
+    status,
+    nonce,
+    previous_nonce: validOperatorNonce(record.previous_nonce) ? record.previous_nonce : null,
+    pid: Number.isSafeInteger(record.pid) ? record.pid : null,
+    owner_status: record.owner_status || null,
+    reason: record.reason || null,
+    issued_at: record.issued_at || new Date().toISOString(),
+    completed_at: record.completed_at || (status === 'issued' || status === 'replaced' ? null : new Date().toISOString()),
+  });
+  const target = typeof filePath === 'string' && filePath ? filePath : INNER_DISPATCH_RECEIPT_PATH;
+  const tmp = `${target}.${process.pid}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(tmp, `${JSON.stringify(payload)}\n`, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmp, target);
+    return payload;
+  } catch {
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    return null;
+  }
+}
+
+function replaceProvenNoSendDispatchMarker(input) {
+  const filePath = input && input.filePath;
+  const counts = input && input.counts;
+  if (counts && typeof counts === 'object' && !isProxy(counts)) {
+    const approvals = Number.isSafeInteger(counts.approvals) ? counts.approvals : 0;
+    const journals = Number.isSafeInteger(counts.journals) ? counts.journals : 0;
+    const sends = Number.isSafeInteger(counts.provider_sends) ? counts.provider_sends : 0;
+    if (approvals > 0 || journals > 0 || sends > 0) {
+      return freeze({ ok: false, reason: 'operation_not_new' });
+    }
+  }
+  const receipt = readDispatchReceipt(filePath);
+  if (!receipt) return freeze({ ok: true, replaced: false, process_alive: false });
+  if (receipt.process_alive === true) {
+    return freeze({ ok: false, reason: 'dispatch_in_flight', process_alive: true });
+  }
+  if (receipt.status === 'completed' && receipt.owner_status === 'sent') {
+    return freeze({ ok: false, reason: 'already_sent' });
+  }
+  const written = writeDispatchReceipt({
+    status: 'replaced',
+    nonce: null,
+    previous_nonce: receipt.nonce,
+    pid: null,
+    reason: 'proven_no_send',
+    issued_at: receipt.issued_at,
+  }, filePath);
+  if (!written) return freeze({ ok: false, reason: 'dispatch_receipt_unproven' });
+  return freeze({ ok: true, replaced: true, process_alive: false, receipt: written });
+}
+
+function classifyReconcileSnapshot(inner) {
+  if (!inner || typeof inner !== 'object' || isProxy(inner)) {
+    return freeze({
+      status: 'failed',
+      indeterminate: true,
+      reason: 'indeterminate_no_retry',
+      retry: false,
+    });
+  }
+  if (exactReconciledCounts(inner)) {
+    return freeze({
+      status: 'skipped',
+      reason: 'already_sent',
+      retry: false,
+      approvals: 1,
+      journals: 1,
+      provider_sends: 1,
+    });
+  }
+  if (inner.process_alive === true) {
+    return freeze({
+      status: 'failed',
+      indeterminate: true,
+      reason: 'indeterminate_no_retry',
+      process_alive: true,
+      retry: false,
+    });
+  }
+  const approvals = Number.isSafeInteger(inner.approvals) ? inner.approvals : 0;
+  const journals = Number.isSafeInteger(inner.journals) ? inner.journals : 0;
+  const sends = Number.isSafeInteger(inner.provider_sends) ? inner.provider_sends : 0;
+  if (approvals === 0 && journals === 0 && sends === 0) {
+    return freeze({
+      status: 'proven_no_send',
+      reason: 'proven_no_send',
+      dispatch_reset_allowed: true,
+      process_alive: false,
+      retry: false,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+    });
+  }
+  return freeze({
+    status: 'failed',
+    reason: duplicateUnreconciled(inner) ? 'duplicate_unreconciled' : 'operation_counts_mismatch',
+    retry: false,
+    approvals,
+    journals,
+    provider_sends: sends,
+  });
+}
+
+function snapshotReconcilePublic(result) {
+  return freeze({
+    ok: result && result.ok === true,
+    reason: result && result.ok === true ? null : (result && result.reason ? String(result.reason) : 'snapshot_unproven'),
+    approvals: Number.isSafeInteger(result && result.approvals) ? result.approvals : 0,
+    journals: Number.isSafeInteger(result && result.journals) ? result.journals : 0,
+    provider_sends: Number.isSafeInteger(result && result.provider_sends) ? result.provider_sends : 0,
+    bookings: Number.isSafeInteger(result && result.bookings) ? result.bookings : 0,
+    process_alive: result && result.process_alive === true,
+    dispatch_status: result && typeof result.dispatch_status === 'string' ? result.dispatch_status : null,
+    dispatch_reset_allowed: result && result.dispatch_reset_allowed === true,
+  });
 }
 
 function servingIdentityCompatible(authorized, current) {
@@ -2757,6 +2968,13 @@ function createMailMvp004LiveProof(deps) {
             } else if (rec.status === 'skipped' && rec.reason === 'already_sent') {
               after = await deps.snapshotOperation();
               if (!exactReconciledCounts(after)) failedReason = 'duplicate_unreconciled';
+            } else if (rec.status === 'proven_no_send' || rec.reason === 'proven_no_send') {
+              failedReason = 'proven_no_send';
+              after = after || {
+                approvals: Number.isSafeInteger(rec.approvals) ? rec.approvals : 0,
+                journals: Number.isSafeInteger(rec.journals) ? rec.journals : 0,
+                provider_sends: Number.isSafeInteger(rec.provider_sends) ? rec.provider_sends : 0,
+              };
             } else if (rec.status !== 'sent') {
               failedReason = rec.reason || 'owner_failed';
             }
@@ -2817,6 +3035,8 @@ function createMailMvp004LiveProof(deps) {
         status: restoredOk ? 'failed' : 'outcome_unknown',
         kill_switch: restored && restored.kill_switch === true,
         live_proof_blocked: false,
+        dispatch_reset_allowed: failedReason === 'proven_no_send',
+        process_alive: ownerResult && ownerResult.process_alive === true,
         approvals: after && after.approvals,
         journals: after && after.journals,
         provider_sends: after && after.provider_sends,
@@ -2872,9 +3092,8 @@ async function runStaffOwnerProof(input) {
   });
   if (!capCheck.ok) return refusedRecord(capCheck.reason || 'capability_required');
   const consumedPath = (input && input.consumedCapabilityPath) || INNER_CONSUMED_CAPABILITY_PATH;
-  if (consumeInnerCapability(capCheck.capability.nonce, consumedPath) !== true) {
-    return refusedRecord('capability_replay');
-  }
+  const receiptPath = (input && input.dispatchReceiptPath) || INNER_DISPATCH_RECEIPT_PATH;
+  const reconcileOnly = input && input.reconcileOnly === true;
   if (!staffOwnerEnvReady(env)) return refusedRecord('staff_owner_disabled');
   if (envOwn(env, ENV_LUNA_AUTO_SEND_ENABLED) !== 'true'
       || envOwn(env, ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED) !== 'true') {
@@ -2910,12 +3129,15 @@ async function runStaffOwnerProof(input) {
     if (mode !== 'auto') return refusedRecord('email_channel_not_auto');
     const before = await snapshotSelectedOperation(withPgClient, row);
     if (!before) return failRecord('counts_unavailable');
-    if (input && input.reconcileOnly === true) {
+    if (reconcileOnly === true) {
+      const receipt = readDispatchReceipt(receiptPath);
       return freeze({
         ok: false,
         reason: 'reconcile_owner_state',
         reconcile: true,
         invoked: 0,
+        process_alive: receipt ? receipt.process_alive === true : false,
+        dispatch_status: receipt ? receipt.status : null,
         public: freeze({
           ok: false,
           reason: 'reconcile_owner_state',
@@ -2923,6 +3145,8 @@ async function runStaffOwnerProof(input) {
           approvals: before.approvals,
           journals: before.journals,
           provider_sends: before.provider_sends,
+          process_alive: receipt ? receipt.process_alive === true : false,
+          dispatch_status: receipt ? receipt.status : null,
         }),
       });
     }
@@ -2960,6 +3184,26 @@ async function runStaffOwnerProof(input) {
     if (input && input.requireProductionOwner !== false && !isProductionAutoOwner(handle)) {
       return failRecord('not_canonical_owner');
     }
+    const replaced = replaceProvenNoSendDispatchMarker({ filePath: receiptPath, counts: before });
+    if (!replaced.ok) {
+      return refusedRecord(replaced.reason || 'dispatch_receipt_unproven', {
+        public: freeze({
+          ok: false,
+          reason: replaced.reason || 'dispatch_receipt_unproven',
+          process_alive: replaced.process_alive === true,
+        }),
+      });
+    }
+    if (consumeInnerCapability(capCheck.capability.nonce, consumedPath) !== true) {
+      return refusedRecord('capability_replay');
+    }
+    ignoreRemoteExecHangup();
+    writeDispatchReceipt({
+      status: 'issued',
+      nonce: capCheck.capability.nonce,
+      pid: process.pid,
+      reason: null,
+    }, receiptPath);
     const started = handle({
       env,
       authority: freeze({
@@ -2983,6 +3227,13 @@ async function runStaffOwnerProof(input) {
       process.stdout.write(`${MUTATION_ISSUED_MARKER}\n`);
     }
     const result = await started;
+    writeDispatchReceipt({
+      status: result && result.status === 'sent' ? 'completed' : 'failed',
+      nonce: capCheck.capability.nonce,
+      pid: process.pid,
+      owner_status: result && result.status ? result.status : 'failed',
+      reason: result && result.reason ? result.reason : (result && result.status === 'sent' ? null : 'owner_failed'),
+    }, receiptPath);
     const after = await snapshotSelectedOperation(withPgClient, row);
     const durable = await loadSelectedOperationEvidence(
       withPgClient,
@@ -4242,6 +4493,25 @@ async function runInnerSnapshot(input) {
       const out = freeze({ ok: true, channel_mode: mode });
       return attachPublic(out, snapshotModePublic(out));
     }
+    if (kind === 'dispatch' || kind === 'reconcile') {
+      const counts = await snapshotSelectedOperation(withPgClient, row);
+      if (!counts) return refusedRecord('counts_unavailable');
+      const receiptPath = (input && input.dispatchReceiptPath) || INNER_DISPATCH_RECEIPT_PATH;
+      const receipt = readDispatchReceipt(receiptPath);
+      const classified = classifyReconcileSnapshot({
+        ...counts,
+        process_alive: receipt ? receipt.process_alive === true : false,
+      });
+      const out = freeze({
+        ok: true,
+        snapshot: 'reconcile',
+        ...counts,
+        process_alive: receipt ? receipt.process_alive === true : false,
+        dispatch_status: receipt ? receipt.status : null,
+        dispatch_reset_allowed: classified.dispatch_reset_allowed === true,
+      });
+      return attachPublic(out, snapshotReconcilePublic(out));
+    }
     return refusedRecord('snapshot_unproven');
   } finally {
     if (pg && typeof pg.closePgPool === 'function') await pg.closePgPool();
@@ -4552,6 +4822,14 @@ function createProductionMailMvp004Supervisor(options) {
     return readProductionServingIdentity(azRun);
   }
 
+  function innerExecTimeoutMs(extra) {
+    if (extra && (extra.snapshot || extra.killSwitchProbe === true || extra.graphVerify === true
+        || extra.reconcileOnly === true)) {
+      return SNAPSHOT_EXEC_TIMEOUT_MS;
+    }
+    return STAFF_OWNER_EXEC_TIMEOUT_MS;
+  }
+
   async function execInner(extra) {
     const serving = await readServing();
     const azArgs = buildStaffOwnerExecAzArgs({
@@ -4570,7 +4848,7 @@ function createProductionMailMvp004Supervisor(options) {
     let execResult;
     try {
       const spec = wrapPtyAzExec(azBin, azArgs);
-      execResult = spawnPtyHarness(spec, { env });
+      execResult = spawnPtyHarness(spec, { env, timeoutMs: innerExecTimeoutMs(extra) });
     } catch (error) {
       if (!error || error.message !== 'pty_required') throw error;
       execResult = await azRun(azArgs);
@@ -4669,7 +4947,7 @@ function createProductionMailMvp004Supervisor(options) {
       const spec = wrapPtyAzExec(azBin, azArgs);
       let execResult;
       try {
-        execResult = spawnPtyHarness(spec, { env });
+        execResult = spawnPtyHarness(spec, { env, timeoutMs: STAFF_OWNER_EXEC_TIMEOUT_MS });
       } catch (error) {
         if (!error || error.message !== 'pty_required') throw error;
         execResult = await azRun(azArgs);
@@ -4743,23 +5021,21 @@ function createProductionMailMvp004Supervisor(options) {
       if (input && input.retryForbidden !== true) {
         return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
       }
-      const serving = await readServing();
-      const azArgs = buildStaffOwnerExecAzArgs({
-        attemptId: input && input.capability && input.capability.nonce,
-        replica: serving && serving.replica,
-        revision: serving && serving.revision,
-        capability: input && input.capability,
-        imageTag: serving && serving.imageTag,
-        digest: serving && serving.digest,
-        reconcileOnly: true,
-      });
-      if (!azArgs) return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
-      const spec = wrapPtyAzExec(azBin, azArgs);
-      const classified = classifyStaffOwnerExecResult(spawnPtyHarness(spec, { env }));
-      if (!classified.inner) {
-        return freeze({ status: 'failed', indeterminate: true, reason: 'indeterminate_no_retry' });
+      const wait = typeof sleep === 'function'
+        ? sleep
+        : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const deadline = Date.now() + STAFF_OWNER_COMPLETION_WAIT_MS;
+      let last = null;
+      for (;;) {
+        const executed = await execInner({ snapshot: 'reconcile' });
+        const inner = executed && executed.inner;
+        last = classifyReconcileSnapshot(inner);
+        if (last.process_alive === true && Date.now() < deadline) {
+          await wait(REVISION_WAIT_INTERVAL_MS);
+          continue;
+        }
+        return freeze({ ...last, retry: false });
       }
-      return freeze({ ...classified.inner, retry: false });
     },
   });
   const exposed = freeze({
@@ -4948,6 +5224,10 @@ module.exports = freeze({
   PTY_BIN,
   CAPABILITY_PURPOSE,
   OPERATION_BINDING,
+  INNER_DISPATCH_RECEIPT_PATH,
+  STAFF_OWNER_EXEC_TIMEOUT_MS,
+  STAFF_OWNER_COMPLETION_WAIT_MS,
+  SNAPSHOT_EXEC_TIMEOUT_MS,
   CONFIRM_WINDOW_MS,
   REVISION_WAIT_TIMEOUT_MS,
   REVISION_WAIT_INTERVAL_MS,
@@ -5060,6 +5340,12 @@ module.exports = freeze({
   verifySupervisorCapability,
   encodeCapability,
   consumeInnerCapability,
+  dispatchProcessAlive,
+  ignoreRemoteExecHangup,
+  readDispatchReceipt,
+  writeDispatchReceipt,
+  replaceProvenNoSendDispatchMarker,
+  classifyReconcileSnapshot,
   createEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,
   selectProofThread,

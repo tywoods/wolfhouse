@@ -113,6 +113,17 @@ const {
   issueSupervisorCapability,
   verifySupervisorCapability,
   encodeCapability,
+  consumeInnerCapability,
+  dispatchProcessAlive,
+  ignoreRemoteExecHangup,
+  readDispatchReceipt,
+  writeDispatchReceipt,
+  replaceProvenNoSendDispatchMarker,
+  classifyReconcileSnapshot,
+  INNER_DISPATCH_RECEIPT_PATH,
+  STAFF_OWNER_EXEC_TIMEOUT_MS,
+  STAFF_OWNER_COMPLETION_WAIT_MS,
+  SNAPSHOT_EXEC_TIMEOUT_MS,
   CONFIRM_WINDOW_MS,
   REVISION_WAIT_TIMEOUT_MS,
   REVISION_WAIT_INTERVAL_MS,
@@ -1128,6 +1139,7 @@ async function main() {
         wired: { handleProjectedInbound: handleFn },
         nowMs: NOW_MS,
         consumedCapabilityPath: path.join(os.tmpdir(), `mvp004-cap-${cap.nonce}.json`),
+        dispatchReceiptPath: path.join(os.tmpdir(), `mvp004-receipt-${cap.nonce}.json`),
         ...(extra || {}),
       };
     }
@@ -1703,6 +1715,7 @@ async function main() {
     assert.match(supervisorSrc, /parseExactProductionGraphInnerExec\(executed\)/);
     assert.doesNotMatch(supervisorSrc, /sanitizeGraphPublic\(executed\.inner\)/);
     assert.match(supervisorSrc, /execInner\(\{\s*snapshot:\s*'evidence'\s*\}\)/);
+    assert.match(supervisorSrc, /execInner\(\{\s*snapshot:\s*'reconcile'\s*\}\)/);
     assert.match(supervisorSrc, /execInner\(\{ killSwitchProbe: true \}\)/);
     assert.match(supervisorSrc, /executed\.status !== 0/);
     assert.match(supervisorSrc, /executed\.transportFailed === true/);
@@ -3916,7 +3929,12 @@ Module._load = function(request, parent, isMain) {
   try { resolved = Module._resolveFilename(request, parent, isMain); } catch {}
   if (path.resolve(resolved) !== target) return loaded;
   const origRunCli = loaded.runCli;
-  const inject = { withPgClient, closePgPool, consumedCapabilityPath: ${JSON.stringify(consumedPath)} };
+  const inject = {
+    withPgClient,
+    closePgPool,
+    consumedCapabilityPath: ${JSON.stringify(consumedPath)},
+    dispatchReceiptPath: ${JSON.stringify(path.join(dir, 'dispatch-receipt.json'))},
+  };
   if (fixture.killBlocked === true) {
     inject.wired = {
       handleProjectedInbound: async () => ({
@@ -5955,6 +5973,252 @@ Module._load = function(request, parent, isMain) {
     assert.equal(hostileLog.includes('flags:true'), true);
     assert.equal(hostileLog.includes('flags:false'), true);
     assert.equal(hostileExecute.restored, true);
+  }
+
+  console.log('[28] Proven-no-send dispatch marker reset; ACA exec determinate');
+  {
+    const os = require('node:os');
+    const ownerSrc = libSrc.slice(
+      libSrc.indexOf('async function runStaffOwnerProof'),
+      libSrc.indexOf('function shSingleQuote'),
+    );
+    assert.ok(ownerSrc.indexOf("return refusedRecord('email_channel_not_auto')")
+      < ownerSrc.indexOf('consumeInnerCapability'));
+    assert.ok(ownerSrc.indexOf('if (reconcileOnly === true)')
+      < ownerSrc.indexOf('consumeInnerCapability'));
+    assert.ok(ownerSrc.indexOf('replaceProvenNoSendDispatchMarker')
+      < ownerSrc.indexOf('consumeInnerCapability'));
+    assert.ok(ownerSrc.indexOf('consumeInnerCapability')
+      < ownerSrc.indexOf('ignoreRemoteExecHangup'));
+    assert.ok(ownerSrc.indexOf('ignoreRemoteExecHangup')
+      < ownerSrc.indexOf('MUTATION_ISSUED_MARKER'));
+    assert.match(libSrc, /process\.on\('SIGHUP', ignore\)/);
+    assert.match(libSrc, /STAFF_OWNER_EXEC_TIMEOUT_MS = 12 \* 60 \* 1000/);
+    assert.equal(STAFF_OWNER_EXEC_TIMEOUT_MS, 12 * 60 * 1000);
+    assert.ok(STAFF_OWNER_EXEC_TIMEOUT_MS > SNAPSHOT_EXEC_TIMEOUT_MS);
+    assert.ok(STAFF_OWNER_COMPLETION_WAIT_MS >= 10 * 60 * 1000);
+    assert.equal(INNER_DISPATCH_RECEIPT_PATH, '/tmp/mail-mvp-004-dispatch-receipt.json');
+
+    const reconCmd = buildStaffOwnerRemoteCommand(crypto.randomUUID(), false, { snapshot: 'reconcile' });
+    assert.match(reconCmd, /MAIL_MVP_004_SNAPSHOT=reconcile/);
+    assert.doesNotMatch(reconCmd, /MAIL_MVP_004_STAFF_OWNER_PROOF=1/);
+    assert.doesNotMatch(reconCmd, /MAIL_MVP_004_CAPABILITY=/);
+    assert.equal(isLegalStaffOwnerRemoteCommand(reconCmd), true);
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mvp004-reset-'));
+    const receiptPath = path.join(dir, 'receipt.json');
+    const consumedPath = path.join(dir, 'consumed.json');
+    assert.equal(readDispatchReceipt(receiptPath), null);
+    assert.equal(dispatchProcessAlive(process.pid), true);
+    assert.equal(dispatchProcessAlive(-1), false);
+    const issued = writeDispatchReceipt({
+      status: 'issued',
+      nonce: nonce(),
+      pid: 999999001,
+      reason: null,
+    }, receiptPath);
+    assert.equal(issued.status, 'issued');
+    assert.equal(readDispatchReceipt(receiptPath).process_alive, false);
+    const blockedCounts = replaceProvenNoSendDispatchMarker({
+      filePath: receiptPath,
+      counts: { approvals: 1, journals: 1, provider_sends: 1 },
+    });
+    assert.equal(blockedCounts.ok, false);
+    assert.equal(blockedCounts.reason, 'operation_not_new');
+    const livePid = writeDispatchReceipt({
+      status: 'issued',
+      nonce: nonce(),
+      pid: process.pid,
+    }, receiptPath);
+    assert.equal(livePid.status, 'issued');
+    const inFlight = replaceProvenNoSendDispatchMarker({
+      filePath: receiptPath,
+      counts: { approvals: 0, journals: 0, provider_sends: 0 },
+    });
+    assert.equal(inFlight.ok, false);
+    assert.equal(inFlight.reason, 'dispatch_in_flight');
+    writeDispatchReceipt({
+      status: 'issued',
+      nonce: nonce(),
+      pid: 999999002,
+    }, receiptPath);
+    const replaced = replaceProvenNoSendDispatchMarker({
+      filePath: receiptPath,
+      counts: { approvals: 0, journals: 0, provider_sends: 0 },
+    });
+    assert.equal(replaced.ok, true);
+    assert.equal(replaced.replaced, true);
+    assert.equal(readDispatchReceipt(receiptPath).status, 'replaced');
+
+    const zero = classifyReconcileSnapshot({
+      approvals: 0, journals: 0, provider_sends: 0, bookings: 0, process_alive: false,
+    });
+    assert.equal(zero.status, 'proven_no_send');
+    assert.equal(zero.dispatch_reset_allowed, true);
+    const alive = classifyReconcileSnapshot({
+      approvals: 0, journals: 0, provider_sends: 0, bookings: 0, process_alive: true,
+    });
+    assert.equal(alive.reason, 'indeterminate_no_retry');
+    const sentSnap = classifyReconcileSnapshot({
+      approvals: 1, journals: 1, provider_sends: 1, bookings: 4, process_alive: false,
+    });
+    assert.equal(sentSnap.reason, 'already_sent');
+
+    let ownerCalls = 0;
+    const markedUnknown = brandProductionAutoOwner(async () => {
+      ownerCalls += 1;
+      return {
+        status: 'failed',
+        indeterminate: true,
+        outcome_unknown: true,
+        dispatch_marked: true,
+        reason: 'indeterminate_no_retry',
+      };
+    });
+    const proven = await execute(makeHarness({
+      invoke: markedUnknown,
+      reconcile: async () => ({
+        status: 'proven_no_send',
+        reason: 'proven_no_send',
+        dispatch_reset_allowed: true,
+        process_alive: false,
+        retry: false,
+        approvals: 0,
+        journals: 0,
+        provider_sends: 0,
+      }),
+    }).harness);
+    assert.equal(ownerCalls, 1);
+    assert.equal(proven.ok, false);
+    assert.equal(proven.reason, 'proven_no_send');
+    assert.equal(proven.invoked, 1);
+    assert.equal(proven.restored, true);
+    assert.equal(proven.public.dispatch_reset_allowed, true);
+    assert.equal(proven.public.approvals, 0);
+    assert.equal(proven.public.journals, 0);
+    assert.equal(proven.public.provider_sends, 0);
+    assert.equal(proven.public.sent, false);
+
+    ownerCalls = 0;
+    const stillUnknown = await execute(makeHarness({
+      invoke: markedUnknown,
+      reconcile: async () => ({
+        status: 'failed',
+        indeterminate: true,
+        reason: 'indeterminate_no_retry',
+        process_alive: true,
+        retry: false,
+      }),
+    }).harness);
+    assert.equal(ownerCalls, 1);
+    assert.equal(stillUnknown.reason, 'indeterminate_no_retry');
+    assert.notEqual(stillUnknown.public.dispatch_reset_allowed, true);
+
+    const replayStore = createDurableNonceStore(path.join(dir, 'nonces.json'));
+    const firstNonce = nonce();
+    assert.equal(replayStore.add(firstNonce, 'Testing 8 26|twoods@xantrion.com'), true);
+    assert.equal(replayStore.add(firstNonce, 'Testing 8 26|twoods@xantrion.com'), false);
+    const replayParsed = authArgs({ operatorNonce: firstNonce });
+    assert.equal(validateExactInvocation(replayParsed, NOW_MS, replayStore), 'operator_nonce_replay');
+    const replacementNonce = nonce();
+    assert.equal(validateExactInvocation(authArgs({ operatorNonce: replacementNonce }), NOW_MS, replayStore), null);
+
+    const humanRows = [threadRow({ needs_human: true })];
+    const withHuman = async (fn) => fn({
+      async query(sql) {
+        const n = String(sql).replace(/\s+/g, ' ');
+        if (/FROM clients cl INNER JOIN conversations c/.test(n)) return { rows: humanRows };
+        if (/inbox_channel_modes/.test(n)) return { rows: [{ inbox_channel_modes: { email: 'auto' } }] };
+        if (/tenant_email_outbound_send_journal/.test(n)) return { rows: [{ n: 0, sends: 0 }] };
+        if (/tenant_email_reply_approvals/.test(n)) return { rows: [{ n: 0 }] };
+        if (/JOIN bookings b/.test(n)) return { rows: [{ n: 4 }] };
+        if (/current_database/.test(n)) return { rows: [{ current_database: 'sunset_staging' }] };
+        return { rows: [] };
+      },
+    });
+    const humanCap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    const humanProof = await runStaffOwnerProof({
+      env: {
+        MAIL_MVP_004_LIVE_PROOF: '1',
+        MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+        EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+        EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+        LUNA_AUTO_SEND_ENABLED: 'true',
+        LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+        MAIL_MVP_004_CAPABILITY: encodeCapability(humanCap),
+        MAIL_MVP_004_REVISION: REVISION,
+        MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+        MAIL_MVP_004_DIGEST: DIGEST,
+      },
+      withPgClient: withHuman,
+      nowMs: NOW_MS,
+      consumedCapabilityPath: consumedPath,
+      dispatchReceiptPath: path.join(dir, 'human-receipt.json'),
+      wired: { handleProjectedInbound: brandProductionAutoOwner(async () => ({ status: 'sent' })) },
+    });
+    assert.equal(humanProof.reason, 'needs_human');
+    assert.equal(fs.existsSync(consumedPath), false);
+
+    const reconCap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    consumeInnerCapability(reconCap.nonce, consumedPath);
+    const withZero = async (fn) => fn({
+      async query(sql) {
+        const n = String(sql).replace(/\s+/g, ' ');
+        if (/FROM clients cl INNER JOIN conversations c/.test(n)) return { rows: [threadRow()] };
+        if (/inbox_channel_modes/.test(n)) return { rows: [{ inbox_channel_modes: { email: 'auto' } }] };
+        if (/tenant_email_outbound_send_journal/.test(n)) return { rows: [{ n: 0, sends: 0 }] };
+        if (/tenant_email_reply_approvals/.test(n)) return { rows: [{ n: 0 }] };
+        if (/JOIN bookings b/.test(n)) return { rows: [{ n: 4 }] };
+        if (/current_database/.test(n)) return { rows: [{ current_database: 'sunset_staging' }] };
+        return { rows: [] };
+      },
+    });
+    const recon = await runStaffOwnerProof({
+      env: {
+        MAIL_MVP_004_LIVE_PROOF: '1',
+        MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+        MAIL_MVP_004_RECONCILE_ONLY: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+        EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+        EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+        LUNA_AUTO_SEND_ENABLED: 'true',
+        LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+        MAIL_MVP_004_CAPABILITY: encodeCapability(reconCap),
+        MAIL_MVP_004_REVISION: REVISION,
+        MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+        MAIL_MVP_004_DIGEST: DIGEST,
+      },
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      reconcileOnly: true,
+      consumedCapabilityPath: consumedPath,
+      dispatchReceiptPath: receiptPath,
+    });
+    assert.notEqual(recon.reason, 'capability_replay');
+    assert.equal(recon.reason, 'reconcile_owner_state');
+    assert.equal(recon.public.approvals, 0);
+    assert.equal(recon.public.journals, 0);
+    assert.equal(recon.public.provider_sends, 0);
+
+    ignoreRemoteExecHangup();
+    process.emit('SIGHUP');
+    process.emit('SIGPIPE');
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
