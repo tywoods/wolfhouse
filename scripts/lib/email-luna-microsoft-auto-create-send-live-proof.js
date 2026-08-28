@@ -123,6 +123,15 @@ const SHA40 = /^[0-9a-f]{40}$/;
 const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
 const SAFE_AZ_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$/;
 const SAFE_B64 = /^[A-Za-z0-9+/]+=*$/;
+const CLOSED_WORKER_REASON_RE = /^[a-z][a-z0-9_]{0,80}$/;
+const CLOSED_OWNER_STATUSES = freeze([
+  'sent',
+  'failed',
+  'skipped',
+  'refused',
+  'outcome_unknown',
+  'blocked',
+]);
 const USED_OPERATOR_NONCES = new Set();
 const PRODUCTION_AUTO_OWNERS = new WeakSet();
 const PRODUCTION_GRAPH_VERIFIERS = new WeakSet();
@@ -366,6 +375,12 @@ function failRecord(reason, extra) {
   };
   if (extra && extra.dispatch_reset_allowed === true) out.dispatch_reset_allowed = true;
   if (extra && extra.process_alive === true) out.process_alive = true;
+  if (extra && hasOwn(extra, 'dispatch_reason')) {
+    out.dispatch_reason = closedWorkerReason(extra.dispatch_reason);
+  }
+  if (extra && hasOwn(extra, 'owner_status')) {
+    out.owner_status = closedOwnerStatus(extra.owner_status);
+  }
   return freeze({
     ok: false,
     reason: out.reason,
@@ -618,6 +633,8 @@ function innerPublicFromResult(result) {
       status: 'proven_no_send',
       dispatch_reset_allowed: result.dispatch_reset_allowed === true,
       process_alive: result.process_alive === true,
+      dispatch_reason: closedWorkerReason(result.dispatch_reason),
+      owner_status: closedOwnerStatus(result.owner_status),
       invoked: Number.isSafeInteger(result.invoked) ? result.invoked : 0,
       approvals: Number.isSafeInteger(result.approvals) ? result.approvals : 0,
       journals: Number.isSafeInteger(result.journals) ? result.journals : 0,
@@ -1054,6 +1071,19 @@ function headerCites(headerValue, cited) {
   if (headerValue === cited) return true;
   const parts = headerValue.split(/\s+/).map((part) => part.trim()).filter(Boolean);
   return parts.includes(cited);
+}
+
+function closedWorkerReason(value) {
+  if (typeof value !== 'string' || !CLOSED_WORKER_REASON_RE.test(value)) return null;
+  return value;
+}
+
+function closedOwnerStatus(value) {
+  if (typeof value !== 'string') return null;
+  for (const status of CLOSED_OWNER_STATUSES) {
+    if (status === value) return status;
+  }
+  return null;
 }
 
 function closedGraphGrantStage(stage) {
@@ -1847,8 +1877,8 @@ function readDispatchReceipt(filePath) {
     previous_nonce: validOperatorNonce(ownData(parsed, 'previous_nonce'))
       ? ownData(parsed, 'previous_nonce') : null,
     pid: Number.isSafeInteger(pid) ? pid : null,
-    owner_status: ownData(parsed, 'owner_status') || null,
-    reason: ownData(parsed, 'reason') || null,
+    owner_status: closedOwnerStatus(ownData(parsed, 'owner_status')),
+    reason: closedWorkerReason(ownData(parsed, 'reason')),
     operation_binding: OPERATION_BINDING,
     issued_at: ownData(parsed, 'issued_at') || null,
     completed_at: ownData(parsed, 'completed_at') || null,
@@ -1870,8 +1900,8 @@ function writeDispatchReceipt(record, filePath) {
     nonce,
     previous_nonce: validOperatorNonce(record.previous_nonce) ? record.previous_nonce : null,
     pid: Number.isSafeInteger(record.pid) ? record.pid : null,
-    owner_status: record.owner_status || null,
-    reason: record.reason || null,
+    owner_status: closedOwnerStatus(record.owner_status),
+    reason: closedWorkerReason(record.reason),
     issued_at: record.issued_at || new Date().toISOString(),
     completed_at: record.completed_at || (status === 'issued' || status === 'replaced' ? null : new Date().toISOString()),
   });
@@ -1976,6 +2006,8 @@ function classifyReconcileSnapshot(inner, extra) {
     return freeze({
       status: 'proven_no_send',
       reason: 'proven_no_send',
+      dispatch_reason: closedWorkerReason(inner.dispatch_reason),
+      owner_status: closedOwnerStatus(inner.owner_status),
       dispatch_reset_allowed: true,
       process_alive: false,
       retry: false,
@@ -2004,6 +2036,8 @@ function snapshotReconcilePublic(result) {
     bookings: Number.isSafeInteger(result && result.bookings) ? result.bookings : 0,
     process_alive: result && result.process_alive === true,
     dispatch_status: result && typeof result.dispatch_status === 'string' ? result.dispatch_status : null,
+    dispatch_reason: closedWorkerReason(result && result.dispatch_reason),
+    owner_status: closedOwnerStatus(result && result.owner_status),
     dispatch_reset_allowed: result && result.dispatch_reset_allowed === true,
   });
 }
@@ -3209,6 +3243,11 @@ function createMailMvp004LiveProof(deps) {
                 journals: Number.isSafeInteger(rec.journals) ? rec.journals : 0,
                 provider_sends: Number.isSafeInteger(rec.provider_sends) ? rec.provider_sends : 0,
               };
+              ownerResult = freeze({
+                ...rec,
+                dispatch_reason: closedWorkerReason(rec.dispatch_reason),
+                owner_status: closedOwnerStatus(rec.owner_status),
+              });
             } else if (rec.status !== 'sent') {
               failedReason = rec.reason || 'owner_failed';
             }
@@ -3272,6 +3311,8 @@ function createMailMvp004LiveProof(deps) {
         live_proof_blocked: false,
         dispatch_reset_allowed: failedReason === 'proven_no_send',
         process_alive: ownerResult && ownerResult.process_alive === true,
+        dispatch_reason: ownerResult && ownerResult.dispatch_reason,
+        owner_status: ownerResult && ownerResult.owner_status,
         approvals: after && after.approvals,
         journals: after && after.journals,
         provider_sends: after && after.provider_sends,
@@ -4946,6 +4987,8 @@ async function runInnerSnapshot(input) {
         ...counts,
         process_alive: alive,
         dispatch_status: receipt ? receipt.status : null,
+        dispatch_reason: closedWorkerReason(receipt && receipt.reason),
+        owner_status: closedOwnerStatus(receipt && receipt.owner_status),
       });
       return attachPublic(out, snapshotReconcilePublic(out));
     }
@@ -5842,6 +5885,8 @@ module.exports = freeze({
   readDispatchReceipt,
   writeDispatchReceipt,
   replaceProvenNoSendDispatchMarker,
+  closedWorkerReason,
+  closedOwnerStatus,
   classifyReconcileSnapshot,
   createEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,

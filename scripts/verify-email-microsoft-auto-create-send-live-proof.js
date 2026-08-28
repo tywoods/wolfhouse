@@ -129,6 +129,8 @@ const {
   writeDispatchReceipt,
   replaceProvenNoSendDispatchMarker,
   classifyReconcileSnapshot,
+  closedWorkerReason,
+  closedOwnerStatus,
   INNER_DISPATCH_RECEIPT_PATH,
   INNER_OWNER_REQUEST_PATH,
   INNER_OWNER_CLAIMED_PATH,
@@ -1210,6 +1212,9 @@ async function main() {
     assert.match(runbook, /assert-deploy-from-master/);
     assert.match(runbook, /twoods@xantrion\.com/);
     assert.match(runbook, /Testing 8 26/);
+    assert.match(runbook, /dispatch_reason/);
+    assert.match(runbook, /enumerated snake_case tokens only/);
+    assert.doesNotMatch(libSrc, /mail_mvp_004_staff_oneshot/);
     assert.match(cliSrc, /MAIL_MVP_004_STAFF_OWNER_PROOF/);
     assert.doesNotMatch(libSrc, /imap_smtp/);
     assert.doesNotMatch(runbook, /Full Sail 4J execute/);
@@ -6109,6 +6114,55 @@ Module._load = function(request, parent, isMain) {
     }, { marked: true });
     assert.equal(zero.status, 'proven_no_send');
     assert.equal(zero.dispatch_reset_allowed, true);
+    assert.equal(zero.dispatch_reason, null);
+    assert.equal(zero.owner_status, null);
+    assert.equal(zero.retry, false);
+    assert.equal(closedWorkerReason('email_channel_not_auto'), 'email_channel_not_auto');
+    assert.equal(closedWorkerReason('Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'), null);
+    assert.equal(closedWorkerReason('sol unproven'), null);
+    assert.equal(closedOwnerStatus('failed'), 'failed');
+    assert.equal(closedOwnerStatus('sent extra'), null);
+    const workerFailed = classifyReconcileSnapshot({
+      ok: true,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      bookings: 0,
+      process_alive: false,
+      dispatch_status: 'failed',
+      dispatch_reason: 'email_channel_not_auto',
+      owner_status: 'failed',
+    }, { marked: true });
+    assert.equal(workerFailed.status, 'proven_no_send');
+    assert.equal(workerFailed.reason, 'proven_no_send');
+    assert.equal(workerFailed.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(workerFailed.owner_status, 'failed');
+    assert.equal(workerFailed.dispatch_reset_allowed, true);
+    assert.equal(workerFailed.retry, false);
+    const leakedReason = classifyReconcileSnapshot({
+      ok: true,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      bookings: 0,
+      process_alive: false,
+      dispatch_status: 'failed',
+      dispatch_reason: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
+      owner_status: 'sent extra',
+    }, { marked: true });
+    assert.equal(leakedReason.status, 'proven_no_send');
+    assert.equal(leakedReason.dispatch_reason, null);
+    assert.equal(leakedReason.owner_status, null);
+    const unsafeReceipt = writeDispatchReceipt({
+      status: 'failed',
+      nonce: nonce(),
+      pid: null,
+      owner_status: 'failed\nsecret=1',
+      reason: 'Authorization: Bearer abc.def.ghi',
+    }, path.join(dir, 'unsafe-receipt.json'));
+    assert.equal(unsafeReceipt.reason, null);
+    assert.equal(unsafeReceipt.owner_status, null);
+    assert.equal(readDispatchReceipt(path.join(dir, 'unsafe-receipt.json')).reason, null);
     const refusedSnap = classifyReconcileSnapshot(
       publicProofOutput(refusedRecord('counts_unavailable')),
       { marked: true },
@@ -6168,6 +6222,8 @@ Module._load = function(request, parent, isMain) {
       reconcile: async () => ({
         status: 'proven_no_send',
         reason: 'proven_no_send',
+        dispatch_reason: 'email_channel_not_auto',
+        owner_status: 'failed',
         dispatch_reset_allowed: true,
         process_alive: false,
         retry: false,
@@ -6179,13 +6235,17 @@ Module._load = function(request, parent, isMain) {
     assert.equal(ownerCalls, 1);
     assert.equal(proven.ok, false);
     assert.equal(proven.reason, 'proven_no_send');
+    assert.equal(proven.dispatch_reason, 'email_channel_not_auto');
     assert.equal(proven.invoked, 1);
     assert.equal(proven.restored, true);
     assert.equal(proven.public.dispatch_reset_allowed, true);
+    assert.equal(proven.public.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(proven.public.owner_status, 'failed');
     assert.equal(proven.public.approvals, 0);
     assert.equal(proven.public.journals, 0);
     assert.equal(proven.public.provider_sends, 0);
     assert.equal(proven.public.sent, false);
+    assert.equal(proven.retry, undefined);
 
     ownerCalls = 0;
     const stillUnknown = await execute(makeHarness({
@@ -6275,6 +6335,52 @@ Module._load = function(request, parent, isMain) {
         return { rows: [] };
       },
     });
+    const snapReceipt = path.join(dir, 'reconcile-reason-receipt.json');
+    const writtenReason = writeDispatchReceipt({
+      status: 'failed',
+      nonce: nonce(),
+      pid: null,
+      owner_status: 'failed',
+      reason: 'email_channel_not_auto',
+    }, snapReceipt);
+    assert.equal(writtenReason.reason, 'email_channel_not_auto');
+    const reconSnap = await runInnerSnapshot({
+      env: {
+        MAIL_MVP_004_SNAPSHOT: 'reconcile',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      withPgClient: withZero,
+      dispatchReceiptPath: snapReceipt,
+    });
+    assert.equal(reconSnap.ok, true);
+    assert.equal(reconSnap.dispatch_status, 'failed');
+    assert.equal(reconSnap.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(reconSnap.owner_status, 'failed');
+    assert.equal(reconSnap.public.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(reconSnap.public.owner_status, 'failed');
+    assert.equal(reconSnap.approvals, 0);
+    assert.equal(reconSnap.journals, 0);
+    assert.equal(reconSnap.provider_sends, 0);
+    const classifiedSnap = classifyReconcileSnapshot(reconSnap.public, { marked: true });
+    assert.equal(classifiedSnap.status, 'proven_no_send');
+    assert.equal(classifiedSnap.reason, 'proven_no_send');
+    assert.equal(classifiedSnap.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(classifiedSnap.retry, false);
+    const pubNoSend = publicProofOutput({
+      ok: false,
+      reason: 'proven_no_send',
+      status: 'proven_no_send',
+      dispatch_reset_allowed: true,
+      dispatch_reason: 'email_channel_not_auto',
+      owner_status: 'failed',
+      invoked: 1,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+    });
+    assert.equal(pubNoSend.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(pubNoSend.owner_status, 'failed');
+    assert.equal(pubNoSend.sent, false);
     const blocker = path.join(dir, 'not-a-dir');
     fs.writeFileSync(blocker, 'x');
     const badReceipt = path.join(blocker, 'receipt.json');
