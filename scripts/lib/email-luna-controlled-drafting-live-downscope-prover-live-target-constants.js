@@ -1,13 +1,14 @@
 'use strict';
 
 /**
- * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4G — singleton live-target
+ * FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4G/4J — singleton live-target
  * pins shared by the operator prover and the Sunset live-target wiring.
  *
  * Import-inert. No Azure/KV/PG/Microsoft. Not an independent image
  * measurement: these are repository-owned exact pins plus source-tree
- * compatibility metadata. A future owned reader must compare the actual
- * immutable deployed image/revision/digest against this contract.
+ * compatibility metadata. Chapter 4J retargets them to the currently
+ * serving disabled Sunset artifact. The owned reader must compare the
+ * actual immutable deployed image/revision/digest against this contract.
  *
  * @module email-luna-controlled-drafting-live-downscope-prover-live-target-constants
  */
@@ -24,9 +25,9 @@ const EXPECTED_DATABASE = 'sunset_staging';
 const EXPECTED_LIVE_TARGET = objectFreeze({
   resourceGroup: 'luna-sunset-staging-rg',
   appName: 'luna-sunset-staging-staff-api',
-  revision: 'luna-sunset-staging-staff-api--ch4f-f6ee5112',
-  deployedSha: 'f6ee511273160cb46c72e345137800878d4c6512',
-  digest: 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a',
+  revision: 'luna-sunset-staging-staff-api--0000682',
+  deployedSha: 'a4188eea71a92b7361818e024cde0f810d6ee018',
+  digest: 'sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39',
   tenant: SUNSET_TENANT,
   locationKey: SUNSET_LOCATION_KEY,
   database: EXPECTED_DATABASE,

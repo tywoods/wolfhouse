@@ -593,7 +593,8 @@ async function main() {
 
   assert.equal(EMAIL_LUNA_CONTROLLED_DRAFTING_LIVE_DOWNSCOPE_PROVER_RUNTIME_WIRED, false);
   assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 1);
-  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST[0], 'f6ee511273160cb46c72e345137800878d4c6512');
+  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST[0], 'a4188eea71a92b7361818e024cde0f810d6ee018');
+  assert.notEqual(LIVE_DEPLOY_SHA_ALLOWLIST[0], 'f6ee511273160cb46c72e345137800878d4c6512');
   assert.equal(SCOPE_PROFILE_ID, 'controlled_drafting_v1');
   assert.equal(REQUESTED_SCOPE, LOAN_SCOPE);
   assert.equal(REQUESTED_SCOPE.includes('Mail.Send'), false);
@@ -634,7 +635,8 @@ async function main() {
   assert.match(PROVER_SRC, /createDelegatedGrantAccessSession/);
   assert.match(PROVER_SRC, /createControlledDraftingAccessTokenClaimsInspector/);
   assert.match(PROVER_SRC, /createStaffSendPhaseBAccessTokenClaimsInspector/);
-  assert.match(PROVER_SRC, /LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze\(\['f6ee511273160cb46c72e345137800878d4c6512'\]\)/);
+  assert.match(PROVER_SRC, /LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze\(\['a4188eea71a92b7361818e024cde0f810d6ee018'\]\)/);
+  assert.doesNotMatch(PROVER_SRC, /LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze\(\['f6ee511273160cb46c72e345137800878d4c6512'\]\)/);
   assert.match(PROVER_SRC, /I_UNDERSTAND_SUNSET_STAGING_DOWNSCOPE_PROOF/);
   assert.match(DOC_SRC, /Threat model/i);
   assert.match(DOC_SRC, /runbook/i);
@@ -655,7 +657,8 @@ async function main() {
   console.log('  PASS  static surface; no Graph/send/098/token export; singleton live allowlist');
 
   assert.equal(liveModeAllowed('a'.repeat(40)), false);
-  assert.equal(liveModeAllowed('f6ee511273160cb46c72e345137800878d4c6512'), true);
+  assert.equal(liveModeAllowed('a4188eea71a92b7361818e024cde0f810d6ee018'), true);
+  assert.equal(liveModeAllowed('f6ee511273160cb46c72e345137800878d4c6512'), false);
   assert.equal(refusedProduction({ DEFAULT_CLIENT_SLUG: 'wolfhouse' }), true);
   assert.equal(parseArgs(['prove', '--target', 'live']).target, 'live');
   const liveCli = runCli(['prove', '--target', 'live', '--deploy-sha', 'a'.repeat(40)], disabledEnv());

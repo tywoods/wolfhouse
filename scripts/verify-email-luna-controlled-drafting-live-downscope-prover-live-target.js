@@ -58,9 +58,15 @@ const {
 } = require('./lib/email-luna-controlled-drafting-principal-connection');
 
 const ROOT = path.join(__dirname, '..');
-const DEPLOYED_SHA = 'f6ee511273160cb46c72e345137800878d4c6512';
-const REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
-const DIGEST = 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
+const DEPLOYED_SHA = EXPECTED_LIVE_TARGET.deployedSha;
+const REVISION = EXPECTED_LIVE_TARGET.revision;
+const DIGEST = EXPECTED_LIVE_TARGET.digest;
+const MEASURED_REVISION = 'luna-sunset-staging-staff-api--0000682';
+const MEASURED_SHA = 'a4188eea71a92b7361818e024cde0f810d6ee018';
+const MEASURED_DIGEST = 'sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39';
+const HISTORICAL_CH4F_REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
+const HISTORICAL_CH4F_SHA = 'f6ee511273160cb46c72e345137800878d4c6512';
+const HISTORICAL_CH4F_DIGEST = 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
 const CLIENT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const LOCATION = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const ENDPOINT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -308,6 +314,12 @@ async function main() {
   assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 1);
   assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST[0], DEPLOYED_SHA);
   assert.equal(Object.isFrozen(LIVE_DEPLOY_SHA_ALLOWLIST), true);
+  assert.equal(EXPECTED_LIVE_TARGET.deployedSha, MEASURED_SHA);
+  assert.equal(EXPECTED_LIVE_TARGET.revision, MEASURED_REVISION);
+  assert.equal(EXPECTED_LIVE_TARGET.digest, MEASURED_DIGEST);
+  assert.notEqual(EXPECTED_LIVE_TARGET.deployedSha, HISTORICAL_CH4F_SHA);
+  assert.notEqual(EXPECTED_LIVE_TARGET.revision, HISTORICAL_CH4F_REVISION);
+  assert.notEqual(EXPECTED_LIVE_TARGET.digest, HISTORICAL_CH4F_DIGEST);
   assert.equal(EXPECTED_LIVE_TARGET.deployedSha, DEPLOYED_SHA);
   assert.equal(EXPECTED_LIVE_TARGET.revision, REVISION);
   assert.equal(EXPECTED_LIVE_TARGET.digest, DIGEST);
@@ -322,6 +334,8 @@ async function main() {
   assert.equal(OPERATOR_PROVER_COMPATIBILITY_RULE.independentImageMeasurement, false);
   assert.equal(OPERATOR_PROVER_COMPATIBILITY_RULE.cannotEstablishDeployedImageTruth, true);
   assert.equal(liveModeAllowed(DEPLOYED_SHA), true);
+  assert.equal(liveModeAllowed(MEASURED_SHA), true);
+  assert.equal(liveModeAllowed(HISTORICAL_CH4F_SHA), false);
   assert.equal(liveModeAllowed(DEPLOYED_SHA.slice(0, 12)), false);
   console.log('  PASS  immutable singleton deployed-SHA allowlist from one constants owner');
 
@@ -379,6 +393,9 @@ async function main() {
     completeSnapshot({ imageSha: '0'.repeat(40) }),
     completeSnapshot({ digest: 'sha256:00d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a' }),
     completeSnapshot({ revision: 'luna-sunset-staging-staff-api--0000679' }),
+    completeSnapshot({ revision: HISTORICAL_CH4F_REVISION }),
+    completeSnapshot({ imageSha: HISTORICAL_CH4F_SHA }),
+    completeSnapshot({ digest: HISTORICAL_CH4F_DIGEST }),
     completeSnapshot({ runningStatus: 'Failed' }),
     completeSnapshot({ latestReadyRevisionName: 'other' }),
     completeSnapshot({ trafficWeight: 99 }),
@@ -690,7 +707,8 @@ async function main() {
   assert.match(liveSrc, /createMicrosoftTokenHttpTransport/);
   assert.match(liveSrc, /createMicrosoftOidcJwksSignatureVerifier/);
   assert.match(liveSrc, /createEmailLunaControlledDraftingPrincipalConnectionPair/);
-  assert.match(proverSrc, /LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze\(\['f6ee511273160cb46c72e345137800878d4c6512'\]\)/);
+  assert.match(proverSrc, /LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze\(\['a4188eea71a92b7361818e024cde0f810d6ee018'\]\)/);
+  assert.doesNotMatch(proverSrc, /ch4f-f6ee5112/);
   assert.match(proverSrc, /LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER/);
   assert.match(proverSrc, /sha === LIVE_DEPLOY_SHA_ALLOWLIST\[0\]/);
   assert.equal(runCli(['simulate', '--target', 'fake'], disabledEnv()).ok, true);

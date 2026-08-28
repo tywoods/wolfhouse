@@ -61,13 +61,13 @@ The critical remaining generic-connector delta is: per-endpoint identity and sec
 
 | Fact | Value |
 | --- | --- |
-| Source / image SHA | `f6ee511273160cb46c72e345137800878d4c6512` |
-| Revision | `luna-sunset-staging-staff-api--ch4f-f6ee5112` |
-| Digest | `sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a` |
+| Source / image SHA | `a4188eea71a92b7361818e024cde0f810d6ee018` |
+| Revision | `luna-sunset-staging-staff-api--0000682` |
+| Digest | `sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39` |
 | App | `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` |
 | Status | Disabled-by-construction for controlled-drafting live proof |
 
-These pins were inherited from the Chapter 4F deploy / Chapter 4G live-target wiring. Chapter 4H and Chapter 4I are source-only and do not re-measure them. Treat them as current unless a later **read-only** measurement proves otherwise. Do not claim live PASS.
+These pins are the currently serving disabled Sunset artifact, retargeted in Chapter 4J from a read-only ARM/ACR remeasurement. Historical Chapter 4F pins (`luna-sunset-staging-staff-api--ch4f-f6ee5112` / `f6ee511273160cb46c72e345137800878d4c6512` / `sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a`) are refused. Do not claim live PASS.
 
 ## Stage 2 CONTROLLED DRAFTING chapters
 
@@ -83,6 +83,7 @@ These pins were inherited from the Chapter 4F deploy / Chapter 4G live-target wi
 | 4G | Exact-SHA live-target wiring for the 4E prover | `LIVE_EXECUTE_AUTHORIZED_IN_THIS_CHAPTER=false` | `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-DOWNSCOPE-PROVER.md` |
 | 4H | Private server-owned Azure/ACR/PG preflight reader | Reader tested with fakes; live proof still not executed | `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-LIVE-PREFLIGHT-READER.md` |
 | 4I | One-shot Sunset staging downscope + staff-send continuity execution owner | Source-only; live proof still not executed | `docs/EMAIL-LUNA-CONTROLLED-DRAFTING-SUNSET-STAGING-LIVE-EXECUTION.md` |
+| 4J | Pre-execution unblock: retarget serving pins + authentic ARM 2024-03-01 mapping | Source-only; live proof still not executed | this index + 4E/4H/4I runbooks |
 
 Merged PRs of record for the live-target path: **#719** (Chapter 4E), **#720** (Chapter 4G), **#735** (Chapter 4H, merge `82a9eb9ae647d13e7ef11629fc87a44b94d067c6`), and **#745** (Chapter 4I, reviewed candidate `874bcde642d7eb4838529f84246c1c011db9861a`, true merge commit `1efe1b131bc97a12174f07b25e20daf3a8a9668f`). Chapter 4I does not authorize OAuth consent, grant broadening, Graph draft/send, flag flips, or production.
 
@@ -131,4 +132,4 @@ Do not run live Chapter 4I `execute-once` against Sunset from this builder.
 
 ## Next gate
 
-Chapter 4I source acceptance and true merge are complete. The next gate is Chapter 4J: current-state read-only Sunset measurement, followed—only if every prerequisite passes—by the reviewed script running **once** from a clean detached checkout at candidate `874bcde642d7eb4838529f84246c1c011db9861a` against the existing disabled Sunset artifact. Operator CLI SHA may differ from deploy SHA; see `chapter_4g_operator_cli_may_differ_from_deployed_app_sha`. The proof must fail closed on reader absence, brand forgery, flag/replica/traffic/login-server/repository/count/grant/lease drift; it must not send, flip flags, broaden OAuth consent, or retry an `outcome_unknown` result. Post-proof audit is independent and read-only. Stage 2 closes only after that live evidence passes all applicable lifecycle gates above.
+Chapter 4J retargets the singleton pins to the currently serving disabled Sunset artifact and corrects ARM API `2024-03-01` mapping without weakening authority. Live execution must occur from the new reviewed candidate SHA/tree after exact-head review and true merge — not from `874bcde642d7eb4838529f84246c1c011db9861a`. Operator CLI SHA may differ from deploy SHA; see `chapter_4g_operator_cli_may_differ_from_deployed_app_sha`. The proof must fail closed on reader absence, brand forgery, flag/replica/traffic/login-server/repository/count/grant/lease drift; it must not send, flip flags, broaden OAuth consent, or retry an `outcome_unknown` result. Post-proof audit is independent and read-only. Stage 2 closes only after that live evidence passes all applicable lifecycle gates above. This builder does not execute the one-shot proof.

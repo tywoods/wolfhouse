@@ -16,7 +16,8 @@ async function main() {
   console.log('FULL SAIL Stage 2 CONTROLLED DRAFTING Chapter 4E offline simulation');
   console.log('This is not a live Microsoft/JWKS/LOGIN/custody proof.');
   assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST.length, 1);
-  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST[0], 'f6ee511273160cb46c72e345137800878d4c6512');
+  assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST[0], 'a4188eea71a92b7361818e024cde0f810d6ee018');
+  assert.notEqual(LIVE_DEPLOY_SHA_ALLOWLIST[0], 'f6ee511273160cb46c72e345137800878d4c6512');
   const env = { LUNA_DEPLOYMENT: 'sunset-staging', DEFAULT_CLIENT_SLUG: 'sunset' };
   const equalsForm = runCli(['simulate', '--target=fake'], env);
   assert.equal(equalsForm.ok, false);

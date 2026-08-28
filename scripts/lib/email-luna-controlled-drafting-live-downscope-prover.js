@@ -90,9 +90,9 @@ const ERROR_MESSAGE = 'Email Luna controlled drafting live downscope prover fail
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const SUNSET_TENANT = 'sunset';
 const SUNSET_LOCATION_KEY = 'sunset-somo';
-const LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze(['f6ee511273160cb46c72e345137800878d4c6512']);
-const APPROVED_LIVE_REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
-const APPROVED_LIVE_DIGEST = 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
+const LIVE_DEPLOY_SHA_ALLOWLIST = objectFreeze(['a4188eea71a92b7361818e024cde0f810d6ee018']);
+const APPROVED_LIVE_REVISION = 'luna-sunset-staging-staff-api--0000682';
+const APPROVED_LIVE_DIGEST = 'sha256:820f302e8f59cfe8636eb0267c6f15bc0750f300b76735f511f3dde9c031dc39';
 if (LIVE_DEPLOY_SHA_ALLOWLIST[0] !== EXPECTED_LIVE_TARGET.deployedSha) {
   throw new Error('controlled_drafting_live_target_sha_mismatch');
 }

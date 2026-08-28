@@ -21,13 +21,19 @@ const {
   SUNSET_DEPLOYMENT,
 } = require('./lib/email-luna-controlled-drafting-live-downscope-prover');
 const {
+  EXPECTED_LIVE_TARGET,
+} = require('./lib/email-luna-controlled-drafting-live-downscope-prover-live-target-constants');
+const {
   createFakeEmailGrantEnvelopeProvider,
   fakeSealRefreshToken,
 } = require('./lib/email-grant-envelope-fake-provider');
 
-const DEPLOYED_SHA = 'f6ee511273160cb46c72e345137800878d4c6512';
-const REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
-const DIGEST = 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
+const DEPLOYED_SHA = EXPECTED_LIVE_TARGET.deployedSha;
+const REVISION = EXPECTED_LIVE_TARGET.revision;
+const DIGEST = EXPECTED_LIVE_TARGET.digest;
+const HISTORICAL_CH4F_SHA = 'f6ee511273160cb46c72e345137800878d4c6512';
+const HISTORICAL_CH4F_REVISION = 'luna-sunset-staging-staff-api--ch4f-f6ee5112';
+const HISTORICAL_CH4F_DIGEST = 'sha256:20d419d708a8e88115ccea3fb81bbd2a7d2ec67e0942c0be5be376d08d1a234a';
 const LIVE_TARGET_SUFFIX = 'email-luna-controlled-drafting-live-downscope-prover-sunset-staging-live-target.js';
 
 function liveTargetLoaded() {
@@ -78,6 +84,10 @@ async function main() {
   assert.equal(LIVE_DEPLOY_SHA_ALLOWLIST[0], DEPLOYED_SHA);
   assert.equal(Object.isFrozen(LIVE_DEPLOY_SHA_ALLOWLIST), true);
   assert.equal(liveModeAllowed(DEPLOYED_SHA), true);
+  assert.equal(liveModeAllowed(HISTORICAL_CH4F_SHA), false);
+  assert.notEqual(DEPLOYED_SHA, HISTORICAL_CH4F_SHA);
+  assert.notEqual(REVISION, HISTORICAL_CH4F_REVISION);
+  assert.notEqual(DIGEST, HISTORICAL_CH4F_DIGEST);
   assert.equal(liveModeAllowed(DEPLOYED_SHA.slice(0, 8)), false);
   assert.equal(liveModeAllowed(DEPLOYED_SHA.toUpperCase()), false);
   assert.equal(liveModeAllowed(`${DEPLOYED_SHA}a`.slice(1)), false);
@@ -120,6 +130,17 @@ async function main() {
   ], env);
   assert.equal(prefix.ok, false);
   assert.equal(prefix.reason, 'deploy_sha_not_allowlisted');
+  assert.equal(liveTargetLoaded(), false);
+
+  const historicalSha = runCli([
+    'prove', '--target', 'sunset-staging', '--deploy-sha', HISTORICAL_CH4F_SHA,
+    '--revision', HISTORICAL_CH4F_REVISION, '--digest', HISTORICAL_CH4F_DIGEST,
+    '--confirm', CONFIRMATION_PHRASE,
+    '--operator-nonce', 'ab'.repeat(32),
+    '--confirm-issued-at', new Date().toISOString(),
+  ], env);
+  assert.equal(historicalSha.ok, false);
+  assert.equal(historicalSha.reason, 'deploy_sha_not_allowlisted');
   assert.equal(liveTargetLoaded(), false);
 
   const extraByte = runCli([
