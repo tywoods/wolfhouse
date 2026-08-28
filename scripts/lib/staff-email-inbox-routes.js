@@ -801,7 +801,15 @@ function createStaffEmailInboxRoutes(deps) {
       await pg.query('BEGIN');
       try {
         const result = await persistNewDraftThroughStaffOwner(pg, a, body, digest, input.expected_authority || null);
-        if (result.status !== 200) { await pg.query('ROLLBACK'); return Object.freeze({ status: 'not_saved', conversation_id: body.conversation_id, approval_id: null }); }
+        if (result.status !== 200) {
+          await pg.query('ROLLBACK');
+          return Object.freeze({
+            status: 'not_saved',
+            conversation_id: body.conversation_id,
+            approval_id: null,
+            code: typeof result.code === 'string' ? result.code : 'draft_failed',
+          });
+        }
         await pg.query('COMMIT');
         return Object.freeze({ status: 'saved', conversation_id: body.conversation_id, approval_id: result.approval_id });
       } catch (error) {

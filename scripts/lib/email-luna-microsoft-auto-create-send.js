@@ -16,6 +16,7 @@
 
 const util = require('node:util');
 const { getPauseState } = require('./staff-bot-pause-sql');
+const { validateOutboundReplySubject } = require('./email-outbound-reply-subject');
 const {
   createEmailInboxChannelModeStore,
   EMAIL_INBOX_CHANNEL_MODE_DEFAULT,
@@ -116,6 +117,23 @@ function isLiteralTrue(env, key) {
 function isEmailMicrosoftAutoSendEmergencyEnabled(env) {
   return isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED)
     && isLiteralTrue(env, ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED);
+}
+
+const CLOSED_SAVE_FAIL_REASONS = freeze([
+  'stale_authority',
+  'email_mailbox_not_sendable',
+  'conversation_not_found',
+  'draft_insert_failed',
+  'subject_invalid',
+  'approval_not_saved',
+]);
+
+function closedSaveFailReason(value) {
+  if (typeof value !== 'string') return 'approval_not_saved';
+  for (const reason of CLOSED_SAVE_FAIL_REASONS) {
+    if (reason === value) return reason;
+  }
+  return 'approval_not_saved';
 }
 
 function blocked(reason, extra) {
@@ -402,18 +420,22 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
 
     let saved;
     try {
-      saved = await saveDraft({
+      const saveInput = {
         actor,
         conversation_id: conversationId,
         message_text: draft.draft_text,
-        subject: draft.subject,
         expected_authority: expectedAuthority,
-      });
-    } catch {
-      return failed('approval_not_saved', { draft_writes: 1 });
+      };
+      const subjectCheck = typeof draft.subject === 'string'
+        ? validateOutboundReplySubject(draft.subject) : null;
+      if (subjectCheck && subjectCheck.ok === true) saveInput.subject = subjectCheck.value;
+      saved = await saveDraft(saveInput);
+    } catch (err) {
+      const thrown = err && err.code === 'subject_invalid' ? 'subject_invalid' : 'approval_not_saved';
+      return failed(closedSaveFailReason(thrown), { draft_writes: 1 });
     }
     if (!saved || saved.status !== 'saved' || !saved.approval_id) {
-      return failed('approval_not_saved', { draft_writes: 1 });
+      return failed(closedSaveFailReason(saved && saved.code), { draft_writes: 1 });
     }
 
     let dispatched;
