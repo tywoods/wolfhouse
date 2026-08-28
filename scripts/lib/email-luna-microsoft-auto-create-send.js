@@ -127,6 +127,16 @@ const CLOSED_SAVE_FAIL_REASONS = freeze([
   'subject_invalid',
   'approval_not_saved',
 ]);
+const CLOSED_SAVE_STAGES = freeze([
+  'snapshot_body',
+  'digest',
+  'persist_begin',
+  'persist_subject',
+  'persist_insert',
+  'persist_commit',
+  'persist_client',
+]);
+const PG_ERRCODE_RE = /^[0-9A-Z]{5}$/;
 
 function closedSaveFailReason(value) {
   if (typeof value !== 'string') return 'approval_not_saved';
@@ -134,6 +144,37 @@ function closedSaveFailReason(value) {
     if (reason === value) return reason;
   }
   return 'approval_not_saved';
+}
+
+function closedSaveStage(value) {
+  if (typeof value !== 'string') return null;
+  for (const stage of CLOSED_SAVE_STAGES) {
+    if (stage === value) return stage;
+  }
+  return null;
+}
+
+function closedPgErrcode(value) {
+  try {
+    if (typeof value === 'string') return PG_ERRCODE_RE.test(value) ? value : null;
+    if (!value || typeof value !== 'object' || isProxy(value)) return null;
+    const direct = ownData(value, 'pg_code') || ownData(value, 'code') || ownData(value, 'sqlState');
+    if (typeof direct === 'string' && PG_ERRCODE_RE.test(direct)) return direct;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveThrowDiagnostics(err, saved) {
+  const extra = { draft_writes: 1 };
+  const stage = closedSaveStage(
+    (err && err.save_stage) || (saved && saved.save_stage),
+  );
+  const pg = closedPgErrcode(err) || closedPgErrcode(saved && saved.pg_code);
+  if (stage) extra.save_stage = stage;
+  if (pg) extra.pg_code = pg;
+  return extra;
 }
 
 function blocked(reason, extra) {
@@ -432,10 +473,10 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       saved = await saveDraft(saveInput);
     } catch (err) {
       const thrown = err && err.code === 'subject_invalid' ? 'subject_invalid' : 'approval_not_saved';
-      return failed(closedSaveFailReason(thrown), { draft_writes: 1 });
+      return failed(closedSaveFailReason(thrown), saveThrowDiagnostics(err, null));
     }
     if (!saved || saved.status !== 'saved' || !saved.approval_id) {
-      return failed(closedSaveFailReason(saved && saved.code), { draft_writes: 1 });
+      return failed(closedSaveFailReason(saved && saved.code), saveThrowDiagnostics(null, saved));
     }
 
     let dispatched;

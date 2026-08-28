@@ -132,6 +132,16 @@ const CLOSED_OWNER_STATUSES = freeze([
   'outcome_unknown',
   'blocked',
 ]);
+const CLOSED_SAVE_STAGES = freeze([
+  'snapshot_body',
+  'digest',
+  'persist_begin',
+  'persist_subject',
+  'persist_insert',
+  'persist_commit',
+  'persist_client',
+]);
+const PG_ERRCODE_RE = /^[0-9A-Z]{5}$/;
 const USED_OPERATOR_NONCES = new Set();
 const PRODUCTION_AUTO_OWNERS = new WeakSet();
 const PRODUCTION_GRAPH_VERIFIERS = new WeakSet();
@@ -380,6 +390,12 @@ function failRecord(reason, extra) {
   }
   if (extra && hasOwn(extra, 'owner_status')) {
     out.owner_status = closedOwnerStatus(extra.owner_status);
+  }
+  if (extra && hasOwn(extra, 'save_stage')) {
+    out.save_stage = closedSaveStage(extra.save_stage);
+  }
+  if (extra && hasOwn(extra, 'pg_code')) {
+    out.pg_code = closedPgErrcode(extra.pg_code);
   }
   return freeze({
     ok: false,
@@ -635,6 +651,8 @@ function innerPublicFromResult(result) {
       process_alive: result.process_alive === true,
       dispatch_reason: closedWorkerReason(result.dispatch_reason),
       owner_status: closedOwnerStatus(result.owner_status),
+      save_stage: closedSaveStage(result.save_stage),
+      pg_code: closedPgErrcode(result.pg_code),
       invoked: Number.isSafeInteger(result.invoked) ? result.invoked : 0,
       approvals: Number.isSafeInteger(result.approvals) ? result.approvals : 0,
       journals: Number.isSafeInteger(result.journals) ? result.journals : 0,
@@ -1084,6 +1102,19 @@ function closedOwnerStatus(value) {
     if (status === value) return status;
   }
   return null;
+}
+
+function closedSaveStage(value) {
+  if (typeof value !== 'string') return null;
+  for (const stage of CLOSED_SAVE_STAGES) {
+    if (stage === value) return stage;
+  }
+  return null;
+}
+
+function closedPgErrcode(value) {
+  if (typeof value !== 'string' || !PG_ERRCODE_RE.test(value)) return null;
+  return value;
 }
 
 function closedGraphGrantStage(stage) {
@@ -1815,15 +1846,23 @@ function startMailMvp004StaffOwnerOneshotListener(input) {
           pid: null,
           owner_status: result && result.status ? result.status : 'failed',
           reason: (result && result.reason) || (result && result.status === 'sent' ? null : 'owner_failed'),
+          save_stage: result && result.save_stage,
+          pg_code: result && result.pg_code,
         }, receiptPath);
       }
     } catch {
-      writeDispatchReceipt({
-        status: 'failed',
-        nonce: claimed.nonce,
-        pid: null,
-        reason: 'owner_failed',
-      }, receiptPath);
+      const existing = readDispatchReceipt(receiptPath);
+      if (!(existing && (existing.status === 'failed' || existing.status === 'completed'))) {
+        writeDispatchReceipt({
+          status: 'failed',
+          nonce: claimed.nonce,
+          pid: null,
+          reason: (existing && existing.reason) || 'owner_failed',
+          save_stage: existing && existing.save_stage,
+          pg_code: existing && existing.pg_code,
+          owner_status: existing && existing.owner_status,
+        }, receiptPath);
+      }
     } finally {
       inFlight = false;
     }
@@ -1879,6 +1918,8 @@ function readDispatchReceipt(filePath) {
     pid: Number.isSafeInteger(pid) ? pid : null,
     owner_status: closedOwnerStatus(ownData(parsed, 'owner_status')),
     reason: closedWorkerReason(ownData(parsed, 'reason')),
+    save_stage: closedSaveStage(ownData(parsed, 'save_stage')),
+    pg_code: closedPgErrcode(ownData(parsed, 'pg_code')),
     operation_binding: OPERATION_BINDING,
     issued_at: ownData(parsed, 'issued_at') || null,
     completed_at: ownData(parsed, 'completed_at') || null,
@@ -1902,6 +1943,8 @@ function writeDispatchReceipt(record, filePath) {
     pid: Number.isSafeInteger(record.pid) ? record.pid : null,
     owner_status: closedOwnerStatus(record.owner_status),
     reason: closedWorkerReason(record.reason),
+    save_stage: closedSaveStage(record.save_stage),
+    pg_code: closedPgErrcode(record.pg_code),
     issued_at: record.issued_at || new Date().toISOString(),
     completed_at: record.completed_at || (status === 'issued' || status === 'replaced' ? null : new Date().toISOString()),
   });
@@ -2008,6 +2051,8 @@ function classifyReconcileSnapshot(inner, extra) {
       reason: 'proven_no_send',
       dispatch_reason: closedWorkerReason(inner.dispatch_reason),
       owner_status: closedOwnerStatus(inner.owner_status),
+      save_stage: closedSaveStage(inner.save_stage),
+      pg_code: closedPgErrcode(inner.pg_code),
       dispatch_reset_allowed: true,
       process_alive: false,
       retry: false,
@@ -2038,6 +2083,8 @@ function snapshotReconcilePublic(result) {
     dispatch_status: result && typeof result.dispatch_status === 'string' ? result.dispatch_status : null,
     dispatch_reason: closedWorkerReason(result && result.dispatch_reason),
     owner_status: closedOwnerStatus(result && result.owner_status),
+    save_stage: closedSaveStage(result && result.save_stage),
+    pg_code: closedPgErrcode(result && result.pg_code),
     dispatch_reset_allowed: result && result.dispatch_reset_allowed === true,
   });
 }
@@ -3247,6 +3294,8 @@ function createMailMvp004LiveProof(deps) {
                 ...rec,
                 dispatch_reason: closedWorkerReason(rec.dispatch_reason),
                 owner_status: closedOwnerStatus(rec.owner_status),
+                save_stage: closedSaveStage(rec.save_stage),
+                pg_code: closedPgErrcode(rec.pg_code),
               });
             } else if (rec.status !== 'sent') {
               failedReason = rec.reason || 'owner_failed';
@@ -3313,6 +3362,8 @@ function createMailMvp004LiveProof(deps) {
         process_alive: ownerResult && ownerResult.process_alive === true,
         dispatch_reason: ownerResult && ownerResult.dispatch_reason,
         owner_status: ownerResult && ownerResult.owner_status,
+        save_stage: ownerResult && ownerResult.save_stage,
+        pg_code: ownerResult && ownerResult.pg_code,
         approvals: after && after.approvals,
         journals: after && after.journals,
         provider_sends: after && after.provider_sends,
@@ -3665,6 +3716,8 @@ async function runStaffOwnerProof(input) {
       pid: null,
       owner_status: result && result.status ? result.status : 'failed',
       reason: result && result.reason ? result.reason : (result && result.status === 'sent' ? null : 'owner_failed'),
+      save_stage: result && result.save_stage,
+      pg_code: result && result.pg_code,
     }, receiptPath);
     const after = await snapshotSelectedOperation(withPgClient, row);
     const durable = await loadSelectedOperationEvidence(
@@ -3705,6 +3758,8 @@ async function runStaffOwnerProof(input) {
         approvals: after ? after.approvals : 0,
         journals: after ? after.journals : 0,
         provider_sends: after ? after.provider_sends : 0,
+        save_stage: result && result.save_stage,
+        pg_code: result && result.pg_code,
       });
     }
     if (!exactReconciledCounts(after)) {
@@ -4989,6 +5044,8 @@ async function runInnerSnapshot(input) {
         dispatch_status: receipt ? receipt.status : null,
         dispatch_reason: closedWorkerReason(receipt && receipt.reason),
         owner_status: closedOwnerStatus(receipt && receipt.owner_status),
+        save_stage: closedSaveStage(receipt && receipt.save_stage),
+        pg_code: closedPgErrcode(receipt && receipt.pg_code),
       });
       return attachPublic(out, snapshotReconcilePublic(out));
     }
@@ -5887,6 +5944,8 @@ module.exports = freeze({
   replaceProvenNoSendDispatchMarker,
   closedWorkerReason,
   closedOwnerStatus,
+  closedSaveStage,
+  closedPgErrcode,
   classifyReconcileSnapshot,
   createEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,

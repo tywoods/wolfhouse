@@ -165,6 +165,19 @@ function makeOwner(options = {}) {
     },
     saveDraftThroughStaffOwner: async (input) => {
       approvals.push(input);
+      if (options.saveThrow) {
+        const err = new Error(options.saveThrow.message || 'save_boom');
+        if (Object.prototype.hasOwnProperty.call(options.saveThrow, 'code')) {
+          err.code = options.saveThrow.code;
+        }
+        if (Object.prototype.hasOwnProperty.call(options.saveThrow, 'save_stage')) {
+          err.save_stage = options.saveThrow.save_stage;
+        }
+        if (Object.prototype.hasOwnProperty.call(options.saveThrow, 'pg_code')) {
+          err.pg_code = options.saveThrow.pg_code;
+        }
+        throw err;
+      }
       if (options.saveFail) {
         return {
           status: 'not_saved',
@@ -504,6 +517,48 @@ async function main() {
     const staleSave = await runOwner({ saveFail: true, saveCode: 'stale_authority' });
     ok('save persist code is fail-closed projected',
       staleSave.result.reason === 'stale_authority' && staleSave.providerCalls.length === 0);
+
+    const saveThrow = await runOwner({
+      saveThrow: { code: '23503', save_stage: 'persist_insert' },
+    });
+    ok('save throw projects closed pg errcode and stage',
+      saveThrow.result.reason === 'approval_not_saved'
+      && saveThrow.result.save_stage === 'persist_insert'
+      && saveThrow.result.pg_code === '23503'
+      && saveThrow.providerCalls.length === 0);
+
+    const snapThrow = await runOwner({ saveThrow: { save_stage: 'snapshot_body' } });
+    ok('save snapshot throw projects stage without pg code',
+      snapThrow.result.reason === 'approval_not_saved'
+      && snapThrow.result.save_stage === 'snapshot_body'
+      && Object.prototype.hasOwnProperty.call(snapThrow.result, 'pg_code') === false
+      && snapThrow.providerCalls.length === 0);
+
+    const subjectThrow = await runOwner({
+      saveThrow: { code: 'subject_invalid', save_stage: 'persist_subject' },
+    });
+    ok('subject_invalid throw keeps persist_subject without pg_code',
+      subjectThrow.result.reason === 'subject_invalid'
+      && subjectThrow.result.save_stage === 'persist_subject'
+      && Object.prototype.hasOwnProperty.call(subjectThrow.result, 'pg_code') === false
+      && subjectThrow.providerCalls.length === 0);
+
+    const leakThrow = await runOwner({
+      saveThrow: {
+        message: 'INSERT INTO tenant_email_reply_approvals VALUES (secret)',
+        code: 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9',
+        save_stage: 'SELECT * FROM staff_users',
+      },
+    });
+    const leakJson = JSON.stringify(leakThrow.result);
+    ok('save throw diagnostics drop secrets and raw SQL',
+      leakThrow.result.reason === 'approval_not_saved'
+      && leakThrow.result.save_stage == null
+      && leakThrow.result.pg_code == null
+      && leakJson.includes('Bearer') === false
+      && leakJson.includes('INSERT') === false
+      && leakJson.includes('staff_users') === false
+      && leakThrow.providerCalls.length === 0);
 
     const badSubject = await runOwner({ draftSubject: ' Re: padded ' });
     ok('invalid Sol subject is omitted, last-persisted owner still used',

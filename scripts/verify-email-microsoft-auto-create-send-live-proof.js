@@ -131,6 +131,8 @@ const {
   classifyReconcileSnapshot,
   closedWorkerReason,
   closedOwnerStatus,
+  closedSaveStage,
+  closedPgErrcode,
   INNER_DISPATCH_RECEIPT_PATH,
   INNER_OWNER_REQUEST_PATH,
   INNER_OWNER_CLAIMED_PATH,
@@ -6024,6 +6026,7 @@ Module._load = function(request, parent, isMain) {
     assert.match(libSrc, /process\.on\('SIGHUP', ignore\)/);
     assert.match(libSrc, /MAIL_MVP_004_STAFF_OWNER_WORKER/);
     assert.match(libSrc, /startMailMvp004StaffOwnerOneshotListener/);
+    assert.match(libSrc, /existing.status === 'failed' \|\| existing.status === 'completed'/);
     assert.doesNotMatch(ownerSrc, /spawnDetachedStaffOwnerWorker/);
     assert.doesNotMatch(ownerSrc, /detached: true/);
     assert.doesNotMatch(
@@ -6137,8 +6140,46 @@ Module._load = function(request, parent, isMain) {
     assert.equal(workerFailed.reason, 'proven_no_send');
     assert.equal(workerFailed.dispatch_reason, 'email_channel_not_auto');
     assert.equal(workerFailed.owner_status, 'failed');
+    assert.equal(workerFailed.save_stage, null);
+    assert.equal(workerFailed.pg_code, null);
     assert.equal(workerFailed.dispatch_reset_allowed, true);
     assert.equal(workerFailed.retry, false);
+    assert.equal(closedSaveStage('persist_insert'), 'persist_insert');
+    assert.equal(closedSaveStage('SELECT * FROM staff_users'), null);
+    assert.equal(closedPgErrcode('23503'), '23503');
+    assert.equal(closedPgErrcode('Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9'), null);
+    const saveThrowSnap = classifyReconcileSnapshot({
+      ok: true,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      bookings: 0,
+      process_alive: false,
+      dispatch_status: 'failed',
+      dispatch_reason: 'approval_not_saved',
+      owner_status: 'failed',
+      save_stage: 'persist_insert',
+      pg_code: '23503',
+    }, { marked: true });
+    assert.equal(saveThrowSnap.status, 'proven_no_send');
+    assert.equal(saveThrowSnap.dispatch_reason, 'approval_not_saved');
+    assert.equal(saveThrowSnap.save_stage, 'persist_insert');
+    assert.equal(saveThrowSnap.pg_code, '23503');
+    const leakedSaveDiag = classifyReconcileSnapshot({
+      ok: true,
+      approvals: 0,
+      journals: 0,
+      provider_sends: 0,
+      bookings: 0,
+      process_alive: false,
+      dispatch_status: 'failed',
+      dispatch_reason: 'approval_not_saved',
+      owner_status: 'failed',
+      save_stage: 'INSERT INTO tenant_email_reply_approvals',
+      pg_code: 'detail=twoods@xantrion.com',
+    }, { marked: true });
+    assert.equal(leakedSaveDiag.save_stage, null);
+    assert.equal(leakedSaveDiag.pg_code, null);
     const leakedReason = classifyReconcileSnapshot({
       ok: true,
       approvals: 0,
@@ -6159,10 +6200,27 @@ Module._load = function(request, parent, isMain) {
       pid: null,
       owner_status: 'failed\nsecret=1',
       reason: 'Authorization: Bearer abc.def.ghi',
+      save_stage: 'INSERT INTO secret',
+      pg_code: 'SELECT password FROM staff_users',
     }, path.join(dir, 'unsafe-receipt.json'));
     assert.equal(unsafeReceipt.reason, null);
     assert.equal(unsafeReceipt.owner_status, null);
+    assert.equal(unsafeReceipt.save_stage, null);
+    assert.equal(unsafeReceipt.pg_code, null);
     assert.equal(readDispatchReceipt(path.join(dir, 'unsafe-receipt.json')).reason, null);
+    const saveDiagReceipt = writeDispatchReceipt({
+      status: 'failed',
+      nonce: nonce(),
+      pid: null,
+      owner_status: 'failed',
+      reason: 'approval_not_saved',
+      save_stage: 'snapshot_body',
+      pg_code: '23503',
+    }, path.join(dir, 'save-diag-receipt.json'));
+    assert.equal(saveDiagReceipt.save_stage, 'snapshot_body');
+    assert.equal(saveDiagReceipt.pg_code, '23503');
+    assert.equal(readDispatchReceipt(path.join(dir, 'save-diag-receipt.json')).save_stage, 'snapshot_body');
+    assert.equal(readDispatchReceipt(path.join(dir, 'save-diag-receipt.json')).pg_code, '23503');
     const refusedSnap = classifyReconcileSnapshot(
       publicProofOutput(refusedRecord('counts_unavailable')),
       { marked: true },
@@ -6222,8 +6280,10 @@ Module._load = function(request, parent, isMain) {
       reconcile: async () => ({
         status: 'proven_no_send',
         reason: 'proven_no_send',
-        dispatch_reason: 'email_channel_not_auto',
+        dispatch_reason: 'approval_not_saved',
         owner_status: 'failed',
+        save_stage: 'snapshot_body',
+        pg_code: '23503',
         dispatch_reset_allowed: true,
         process_alive: false,
         retry: false,
@@ -6235,12 +6295,16 @@ Module._load = function(request, parent, isMain) {
     assert.equal(ownerCalls, 1);
     assert.equal(proven.ok, false);
     assert.equal(proven.reason, 'proven_no_send');
-    assert.equal(proven.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(proven.dispatch_reason, 'approval_not_saved');
+    assert.equal(proven.save_stage, 'snapshot_body');
+    assert.equal(proven.pg_code, '23503');
     assert.equal(proven.invoked, 1);
     assert.equal(proven.restored, true);
     assert.equal(proven.public.dispatch_reset_allowed, true);
-    assert.equal(proven.public.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(proven.public.dispatch_reason, 'approval_not_saved');
     assert.equal(proven.public.owner_status, 'failed');
+    assert.equal(proven.public.save_stage, 'snapshot_body');
+    assert.equal(proven.public.pg_code, '23503');
     assert.equal(proven.public.approvals, 0);
     assert.equal(proven.public.journals, 0);
     assert.equal(proven.public.provider_sends, 0);
@@ -6341,9 +6405,13 @@ Module._load = function(request, parent, isMain) {
       nonce: nonce(),
       pid: null,
       owner_status: 'failed',
-      reason: 'email_channel_not_auto',
+      reason: 'approval_not_saved',
+      save_stage: 'snapshot_body',
+      pg_code: '23503',
     }, snapReceipt);
-    assert.equal(writtenReason.reason, 'email_channel_not_auto');
+    assert.equal(writtenReason.reason, 'approval_not_saved');
+    assert.equal(writtenReason.save_stage, 'snapshot_body');
+    assert.equal(writtenReason.pg_code, '23503');
     const reconSnap = await runInnerSnapshot({
       env: {
         MAIL_MVP_004_SNAPSHOT: 'reconcile',
@@ -6354,32 +6422,42 @@ Module._load = function(request, parent, isMain) {
     });
     assert.equal(reconSnap.ok, true);
     assert.equal(reconSnap.dispatch_status, 'failed');
-    assert.equal(reconSnap.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(reconSnap.dispatch_reason, 'approval_not_saved');
     assert.equal(reconSnap.owner_status, 'failed');
-    assert.equal(reconSnap.public.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(reconSnap.save_stage, 'snapshot_body');
+    assert.equal(reconSnap.pg_code, '23503');
+    assert.equal(reconSnap.public.dispatch_reason, 'approval_not_saved');
     assert.equal(reconSnap.public.owner_status, 'failed');
+    assert.equal(reconSnap.public.save_stage, 'snapshot_body');
+    assert.equal(reconSnap.public.pg_code, '23503');
     assert.equal(reconSnap.approvals, 0);
     assert.equal(reconSnap.journals, 0);
     assert.equal(reconSnap.provider_sends, 0);
     const classifiedSnap = classifyReconcileSnapshot(reconSnap.public, { marked: true });
     assert.equal(classifiedSnap.status, 'proven_no_send');
     assert.equal(classifiedSnap.reason, 'proven_no_send');
-    assert.equal(classifiedSnap.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(classifiedSnap.dispatch_reason, 'approval_not_saved');
+    assert.equal(classifiedSnap.save_stage, 'snapshot_body');
+    assert.equal(classifiedSnap.pg_code, '23503');
     assert.equal(classifiedSnap.retry, false);
     const pubNoSend = publicProofOutput({
       ok: false,
       reason: 'proven_no_send',
       status: 'proven_no_send',
       dispatch_reset_allowed: true,
-      dispatch_reason: 'email_channel_not_auto',
+      dispatch_reason: 'approval_not_saved',
       owner_status: 'failed',
+      save_stage: 'snapshot_body',
+      pg_code: '23503',
       invoked: 1,
       approvals: 0,
       journals: 0,
       provider_sends: 0,
     });
-    assert.equal(pubNoSend.dispatch_reason, 'email_channel_not_auto');
+    assert.equal(pubNoSend.dispatch_reason, 'approval_not_saved');
     assert.equal(pubNoSend.owner_status, 'failed');
+    assert.equal(pubNoSend.save_stage, 'snapshot_body');
+    assert.equal(pubNoSend.pg_code, '23503');
     assert.equal(pubNoSend.sent, false);
     const blocker = path.join(dir, 'not-a-dir');
     fs.writeFileSync(blocker, 'x');
