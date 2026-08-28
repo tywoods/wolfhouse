@@ -6369,6 +6369,47 @@ Module._load = function(request, parent, isMain) {
     assert.equal(detached.invoked, 1);
     assert.equal(detached.dispatch_reset_allowed, true);
 
+    let orphanHandleCalls = 0;
+    const orphanCap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    const orphan = await runStaffOwnerProof({
+      env: {
+        MAIL_MVP_004_LIVE_PROOF: '1',
+        MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+        MAIL_MVP_004_STAFF_OWNER_WORKER: '1',
+        MAIL_MVP_004_CAPABILITY_CONSUMED: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+        EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+        EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+        LUNA_AUTO_SEND_ENABLED: 'true',
+        LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+        MAIL_MVP_004_CAPABILITY: encodeCapability(orphanCap),
+        MAIL_MVP_004_REVISION: REVISION,
+        MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+        MAIL_MVP_004_DIGEST: DIGEST,
+      },
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      consumedCapabilityPath: path.join(dir, 'orphan-consumed.json'),
+      dispatchReceiptPath: path.join(dir, 'orphan-receipt.json'),
+      workerBindTimeoutMs: 0,
+      sleep: async () => {},
+      wired: {
+        handleProjectedInbound: brandProductionAutoOwner(async () => {
+          orphanHandleCalls += 1;
+          return { status: 'sent' };
+        }),
+      },
+    });
+    assert.equal(orphanHandleCalls, 0);
+    assert.equal(orphan.reason, 'dispatch_receipt_unproven');
+
     ignoreRemoteExecHangup();
     process.emit('SIGHUP');
     process.emit('SIGPIPE');

@@ -3239,17 +3239,19 @@ async function runStaffOwnerProof(input) {
     if (input && input.requireProductionOwner !== false && !isProductionAutoOwner(handle)) {
       return failRecord('not_canonical_owner');
     }
-    const replaced = replaceProvenNoSendDispatchMarker({ filePath: receiptPath, counts: before });
-    if (!replaced.ok) {
-      return refusedRecord(replaced.reason || 'dispatch_receipt_unproven', {
-        public: freeze({
-          ok: false,
-          reason: replaced.reason || 'dispatch_receipt_unproven',
-          process_alive: replaced.process_alive === true,
-        }),
-      });
-    }
     const workerMode = isStaffOwnerWorker(env);
+    if (!workerMode) {
+      const replaced = replaceProvenNoSendDispatchMarker({ filePath: receiptPath, counts: before });
+      if (!replaced.ok) {
+        return refusedRecord(replaced.reason || 'dispatch_receipt_unproven', {
+          public: freeze({
+            ok: false,
+            reason: replaced.reason || 'dispatch_receipt_unproven',
+            process_alive: replaced.process_alive === true,
+          }),
+        });
+      }
+    }
     const capabilityConsumed = envOwn(env, 'MAIL_MVP_004_CAPABILITY_CONSUMED') === '1';
     if (!workerMode || capabilityConsumed !== true) {
       if (consumeInnerCapability(capCheck.capability.nonce, consumedPath) !== true) {
@@ -3371,13 +3373,34 @@ async function runStaffOwnerProof(input) {
         provider_sends: waited ? waited.provider_sends : 0,
       });
     }
-    const issued = writeDispatchReceipt({
-      status: 'issued',
-      nonce: capCheck.capability.nonce,
-      pid: process.pid,
-      reason: null,
-    }, receiptPath);
-    if (!issued) return failRecord('dispatch_receipt_unproven');
+    if (workerMode) {
+      const waitBind = typeof (input && input.sleep) === 'function'
+        ? input.sleep
+        : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const bindMs = Number.isSafeInteger(input && input.workerBindTimeoutMs)
+        ? input.workerBindTimeoutMs
+        : 15 * 1000;
+      const bindDeadline = Date.now() + (bindMs > 0 ? bindMs : 0);
+      let bound = readDispatchReceipt(receiptPath);
+      while (
+        !(bound && bound.status === 'issued' && bound.pid === process.pid)
+        && Date.now() < bindDeadline
+      ) {
+        await waitBind(50);
+        bound = readDispatchReceipt(receiptPath);
+      }
+      if (!(bound && bound.status === 'issued' && bound.pid === process.pid)) {
+        return failRecord('dispatch_receipt_unproven');
+      }
+    } else {
+      const issued = writeDispatchReceipt({
+        status: 'issued',
+        nonce: capCheck.capability.nonce,
+        pid: process.pid,
+        reason: null,
+      }, receiptPath);
+      if (!issued) return failRecord('dispatch_receipt_unproven');
+    }
     const started = handle({
       env,
       authority: freeze({
