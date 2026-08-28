@@ -3,7 +3,8 @@
 /**
  * Sunset-staging IMAP inbound runtime composition. Import is inert.
  * runtime_activation is true only when sunset-staging poll/inbound/worker
- * flags are exact 'true'. Outbound composition and Auto stay refused.
+ * flags are exact 'true'. Auto stays refused. Graph staff outbound
+ * composition may coexist; IMAP still never sends.
  *
  * @module email-imap-sunset-staging-runtime-composition
  */
@@ -54,10 +55,10 @@ function resolveEmailImapSunsetStagingRuntimeReadiness(env) {
     if (!env || typeof env !== 'object' || Array.isArray(env) || isProxySurface(env)) {
       return Object.freeze({ ok: false, runtime_activation: false });
     }
-    if (ownData(env, 'EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED') === 'true') {
+    if (ownData(env, 'LUNA_AUTO_SEND_ENABLED') === 'true') {
       return Object.freeze({ ok: false, runtime_activation: false });
     }
-    if (ownData(env, 'LUNA_AUTO_SEND_ENABLED') === 'true') {
+    if (ownData(env, 'LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED') === 'true') {
       return Object.freeze({ ok: false, runtime_activation: false });
     }
     const structurallyReady = contract.isSunsetEmailImapPollEnabled(env)

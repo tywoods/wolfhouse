@@ -502,11 +502,16 @@ async function main() {
   const outboundOn = composition.resolveEmailImapSunsetStagingRuntimeReadiness(configuredEnv({
     EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED: 'true',
   }));
-  assert.equal(outboundOn.runtime_activation, false);
+  assert.equal(outboundOn.ok, true);
+  assert.equal(outboundOn.runtime_activation, true);
   const autoOn = composition.resolveEmailImapSunsetStagingRuntimeReadiness(configuredEnv({
     LUNA_AUTO_SEND_ENABLED: 'true',
   }));
   assert.equal(autoOn.runtime_activation, false);
+  const autoOutbound = composition.resolveEmailImapSunsetStagingRuntimeReadiness(configuredEnv({
+    LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+  }));
+  assert.equal(autoOutbound.runtime_activation, false);
   ok('IMAP runtime activates on sunset-staging poll flags and refuses outbound/Auto');
 
   assert.equal(typeof pollOwner.pollEligibleSunsetImapInbox === 'function'
