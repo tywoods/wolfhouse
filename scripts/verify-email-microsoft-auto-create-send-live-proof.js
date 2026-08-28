@@ -144,6 +144,7 @@ const {
   runCli,
   runKillSwitchProbe,
   runInnerSnapshot,
+  runInnerChannelModePut,
   runInnerGraphVerify,
   GRAPH_GRANT_STAGE_REASON,
   classifyTrustedGraphGrantFailure,
@@ -1717,7 +1718,10 @@ async function main() {
     assert.doesNotMatch(supervisorSrc, /sanitizeGraphPublic\(executed\.inner\)/);
     assert.match(supervisorSrc, /execInner\(\{\s*snapshot:\s*'evidence'\s*\}\)/);
     assert.match(supervisorSrc, /execInner\(\{\s*snapshot:\s*'reconcile'\s*\}\)/);
+    assert.match(supervisorSrc, /execInner\(\{\s*snapshot:\s*'preflight'\s*\}\)/);
+    assert.match(supervisorSrc, /execInner\(\{\s*channelModePut: value \}\)/);
     assert.match(supervisorSrc, /execInner\(\{ killSwitchProbe: true \}\)/);
+    assert.doesNotMatch(supervisorSrc, /async putEmailChannelMode\(value\) \{\s*if \(typeof withPgClient/);
     assert.match(supervisorSrc, /executed\.status !== 0/);
     assert.match(supervisorSrc, /executed\.transportFailed === true/);
     assert.match(supervisorSrc, /classifyStaffOwnerExecResult/);
@@ -2770,7 +2774,8 @@ async function main() {
     assert.doesNotMatch(storeSrc, /SET metadata = jsonb_set/);
     assert.doesNotMatch(storeSrc, /information_schema|pg_catalog|to_regclass/);
     assert.match(storeSrc, /if \(!row\) throw unproven\(\)/);
-    assert.match(supervisorSrc, /if \(stored !== value\) throw new Error\('channel_mode_unproven'\)/);
+    assert.match(supervisorSrc, /execInner\(\{\s*channelModePut: value \}\)/);
+    assert.match(supervisorSrc, /executed\.inner\.channel_mode !== value/);
     assert.ok(executeOnceSrc.indexOf("return refusedRecord('graph_adapter_unwired')")
       < executeOnceSrc.indexOf('setEmergencyFlags(true)'));
     assert.doesNotMatch(
@@ -6304,6 +6309,46 @@ Module._load = function(request, parent, isMain) {
     process.emit('SIGHUP');
     process.emit('SIGPIPE');
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  console.log('[29] Host supervisor uses replica exec, not host PG');
+  {
+    const putCmd = buildStaffOwnerRemoteCommand(crypto.randomUUID(), false, { channelModePut: 'auto' });
+    assert.match(putCmd, /MAIL_MVP_004_CHANNEL_MODE_PUT=auto/);
+    assert.doesNotMatch(putCmd, /MAIL_MVP_004_STAFF_OWNER_PROOF=1/);
+    assert.equal(isLegalStaffOwnerRemoteCommand(putCmd), true);
+    const offCmd = buildStaffOwnerRemoteCommand(crypto.randomUUID(), false, { channelModePut: 'off' });
+    assert.match(offCmd, /MAIL_MVP_004_CHANNEL_MODE_PUT=off/);
+    const bad = encodeProofEnvPayload(crypto.randomUUID(), false, { channelModePut: 'draft' });
+    const decoded = Buffer.from(bad, 'base64').toString('utf8');
+    assert.match(decoded, /MAIL_MVP_004_STAFF_OWNER_PROOF=1/);
+    assert.doesNotMatch(decoded, /MAIL_MVP_004_CHANNEL_MODE_PUT=draft/);
+
+    let stored = 'off';
+    const put = await runInnerChannelModePut({
+      env: {
+        MAIL_MVP_004_CHANNEL_MODE_PUT: 'auto',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+      },
+      async withPgClient(fn) {
+        return fn({
+          async query(sql) {
+            const n = String(sql).replace(/\s+/g, ' ');
+            if (/FROM clients cl INNER JOIN conversations c/.test(n)) return { rows: [threadRow()] };
+            if (/inbox_channel_modes/.test(n) && /SELECT/.test(n)) {
+              return { rows: [{ inbox_channel_modes: { email: stored } }] };
+            }
+            if (/jsonb_set/.test(n) || /inbox_channel_modes/.test(n)) {
+              stored = 'auto';
+              return { rows: [{ inbox_channel_modes: { email: stored } }] };
+            }
+            return { rows: [] };
+          },
+        });
+      },
+    });
+    assert.equal(put.ok, true);
+    assert.equal(put.public.channel_mode, 'auto');
   }
 
   console.log('\nPASS MAIL-MVP-004 Sunset auto create-and-send operator proof');
