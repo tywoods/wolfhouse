@@ -418,6 +418,9 @@
     "verify:staff-email-oauth-refresh-health-routes": "node scripts/verify-staff-email-oauth-refresh-health-routes.js",
     "verify:email-microsoft-graph-delegated-messages-transport": "node scripts/verify-email-microsoft-graph-delegated-messages-transport.js",
     "verify:email-inbound-envelope-contract": "node scripts/verify-email-inbound-envelope-contract.js",
+    "verify:email-imap-smtp-scaffold": "node scripts/verify-email-imap-smtp-scaffold.js",
+    "verify:email-imap-smtp-mailbox-adapter": "node scripts/verify-email-imap-smtp-mailbox-adapter.js",
+    "verify:email-imap-003": "node scripts/verify-email-imap-003.js",
     "verify:email-inbound-batch-processor": "node scripts/verify-email-inbound-batch-processor.js",
     "verify:email-microsoft-graph-normalized-page": "node scripts/verify-email-microsoft-graph-normalized-page.js",
     "verify:email-microsoft-graph-immutableid-page-transport": "node scripts/verify-email-microsoft-graph-immutableid-page-transport.js",
@@ -588,8 +591,11 @@
     "prove:canonical-migrations-fresh-db": "node scripts/prove-canonical-migrations-fresh-db.js",
     "prove:foundation-docker-fresh-db-replacement": "node scripts/prove-foundation-docker-fresh-db-replacement.js",
     "verify:foundation-docker-fresh-db-replacement-evidence": "node scripts/verify-foundation-docker-fresh-db-replacement-evidence.js",
+
     "verify:foundation-slice1j-docker-gate-complete": "node scripts/verify-foundation-slice1j-docker-gate-complete.js",
+
     "generate:sunset-expected-schema-contract": "node scripts/generate-sunset-expected-schema-contract.js",
+
     "observe:sunset-schema-drift": "node scripts/observe-sunset-schema-drift.js",
     "verify:sunset-schema-observer": "node scripts/verify-sunset-schema-observer.js",
     "verify:sunset-schema-slice13a": "node scripts/verify-sunset-schema-slice13a.js",
@@ -1081,8 +1087,11 @@
     "verify:radar-slice16ab-g02-readyz503-evidence": "node scripts/verify-radar-slice16ab-g02-readyz503-evidence.js",
     "verify:radar-slice16ac-organic-restart-alert-evidence": "node scripts/verify-radar-slice16ac-organic-restart-alert-evidence.js",
     "verify:radar-slice16ad-g02-sampled-restart-continuity-evidence": "node scripts/verify-radar-slice16ad-g02-sampled-restart-continuity-evidence.js",
+
     "verify:radar-slice16af-g06-capacity-alert-live-evidence": "node scripts/verify-radar-slice16af-g06-capacity-alert-live-evidence.js",
+
     "verify:radar-slice16ag-g06-bounded-load-harness": "node scripts/verify-radar-slice16ag-g06-bounded-load-harness.js",
+
     "verify:radar-slice16ah-g06-live-load-correction": "node scripts/verify-radar-slice16ah-g06-live-load-correction.js",
     "verify:radar-slice16ai-g06-live-load-evidence": "node scripts/verify-radar-slice16ai-g06-live-load-evidence.js",
     "verify:radar-slice16aj-g06-slo-error-budget": "node scripts/verify-radar-slice16aj-g06-slo-error-budget.js",
