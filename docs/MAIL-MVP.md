@@ -14,8 +14,8 @@ Staff API remains the only authority for prices, availability, payment URLs, and
 | **002** | Ty live proof | No | Later. Controlled Sunset mailbox proof of 001 on staging. Not this PR. |
 | **003** | auto create-and-send | No | Microsoft-only automatic create-and-send. Default remains OFF. Both `LUNA_AUTO_SEND_ENABLED=true` and `LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED=true` are required for provider auto-send. Reuses Create Draft author + staff Approve & send owners. Dormant. Do not rebuild in 004. |
 | **004** | auto proof | No | Landed. Bounded fail-closed Sunset-staging operator proof of 003. Default refuse. Do not rebuild. |
-| **005** | generic IMAP inbound | Yes | Generic IMAP inbound connector. A verified sunset IMAP mailbox is polled, persisted, and projected into the same Staff Inbox conversations/messages journal as Graph (thread list + open thread, guest-linkable). Graph inbound on support@lunafrontdesk.com stays as-is. No SMTP send. Auto stays off. |
-| **006** | generic SMTP send | No | Later. Generic SMTP send. Every future send remains journaled. Not this PR. |
+| **005** | generic IMAP inbound | No | Landed. Generic IMAP inbound connector. A verified sunset IMAP mailbox is polled, persisted, and projected into the same Staff Inbox conversations/messages journal as Graph (thread list + open thread, guest-linkable). Graph inbound on support@lunafrontdesk.com stays as-is. Auto stays off. |
+| **006** | generic SMTP send | Yes | Generic SMTP send. Create Draft + Approve & send over SMTP for a generic mailbox, same staff Inbox loop as Microsoft. Every would-be send writes approval + outbound journal. Transport fail-closes without host secret. Auto stays off. No live send in this pack. |
 | **007** | Email Luna Hermes managed by Skipper | No | Landed. Dedicated Skipper-managed `hermes-sunset-email-luna` draft-only runtime. Auto remains OFF. |
 | **008** | booking-from-email | No — **LATER** | Product rule only. Do not implement booking in this document's current slice. |
 
@@ -95,14 +95,20 @@ Sunset staging only. A connected generic `imap_smtp` mailbox is polled over impl
 
 Done when inbound from that mailbox appears in the same Inbox projection as Microsoft Graph: thread list + open thread, guest-linkable (exact same-tenant `guests.email` bind, or unmatched with `conversations.email` set and `guest_id` null). Graph inbound on `support@lunafrontdesk.com` stays as-is. Do not rebuild Graph.
 
-Connect / poll / fetch / attach are in scope. SMTP send is MAIL-MVP-006 and is not this slice. Auto stays off. Owner / proof: `npm run verify:mail-mvp-005`.
+Connect / poll / fetch / attach are in scope. SMTP send is MAIL-MVP-006. Auto stays off. Owner / proof: `npm run verify:mail-mvp-005`.
+
+## 006 generic SMTP send
+
+Sunset staging only. Staff Inbox Create Draft + Approve & send for a verified generic `imap_smtp` mailbox uses SMTP (STARTTLS MAIL FROM / RCPT TO / DATA), not Graph. Graph send on `support@lunafrontdesk.com` stays as-is.
+
+Every would-be send writes `tenant_email_reply_approvals` and `tenant_email_outbound_send_journal` with `provider = imap_smtp`. Missing SMTP host secret or transport fail-closes after those rows. Auto stays off (`LUNA_AUTO_SEND_ENABLED` / channel mode / `LUNA_EMAIL_SMTP_AUTO_SEND_ENABLED` default false). No live send in this pack. Owner / proof: `npm run verify:mail-mvp-006`.
 
 ## Hard boundaries (all slices unless a later reviewed job says otherwise)
 
 - No production.
 - No deploy from a MAIL-MVP-001 worker.
 - No gateway/Hermes restart, `/sethome`, Salt, Deckhand, or Full Sail 4J.
-- No auto-send enable, SMTP send (006), provider sends, or live email actions. IMAP inbound attach in 005 is the exception.
+- No auto-send enable, live provider sends, or live email actions. IMAP inbound attach in 005 and journaled SMTP send in 006 (fail-closed, no live send in the pack) are the exceptions.
 - No booking creation.
 - Do not modify environment flags or live systems.
 - Staff API only for future prices/availability/bookings; none in slice 001.

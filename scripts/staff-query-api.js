@@ -346,6 +346,9 @@ const { createEmailLunaDraftOpenContentFetcher } = require('./lib/email-luna-dra
 const {
   createSunsetStagingEmailOutboundDispatch,
 } = require('./lib/email-outbound-sunset-staging-runtime-composition');
+const {
+  createSunsetStagingEmailSmtpOutboundDispatch,
+} = require('./lib/email-smtp-sunset-staging-outbound-composition');
 const https = require('https');
 
 const {
@@ -2928,6 +2931,14 @@ const emailInboxRoutes = createStaffEmailInboxRoutes({
       withTransactionClient,
       https,
       timers: { setTimeout, clearTimeout },
+    }));
+  },
+  createSmtpOutboundDispatch(pgClient, env) {
+    async function withTransactionClient(work) { return work(pgClient); }
+    return createSunsetStagingEmailSmtpOutboundDispatch(Object.freeze({
+      env: env || process.env,
+      pgClient,
+      withTransactionClient,
     }));
   },
 });

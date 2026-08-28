@@ -1463,6 +1463,26 @@
       "rationale": "Refuses rollback while staging test authorization rows exist; otherwise drops 098 functions/table. ACCESS EXCLUSIVE before emptiness check. Second empty execution is safe. Does not drop 063/092/097 objects.",
       "pairsWith": "098_tenant_email_luna_controlled_drafting_staging_test_authorization.sql",
       "sha256": "fcc0cced7b8a390684b05b274d57fe8887164fe42f2b1c4e86597e858abb0914"
+    },
+    {
+      "id": "099_tenant_email_imap_smtp_outbound_provider",
+      "filename": "099_tenant_email_imap_smtp_outbound_provider.sql",
+      "order": 95,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "MAIL-MVP-006: widen tenant_email_reply_approvals and tenant_email_outbound_send_journal provider CHECKs to allow imap_smtp alongside microsoft_graph. Auto remains off. No live send.",
+      "downFilename": "099_tenant_email_imap_smtp_outbound_provider_down.sql",
+      "sha256": "10169cb4b295e4004a0bc1e14fd6ecfb9d926b103dc123b2f8737288f9cc220e"
+    },
+    {
+      "id": "099_tenant_email_imap_smtp_outbound_provider_down",
+      "filename": "099_tenant_email_imap_smtp_outbound_provider_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Refuses rollback while imap_smtp approval or journal rows exist; otherwise restores microsoft_graph-only provider CHECKs.",
+      "pairsWith": "099_tenant_email_imap_smtp_outbound_provider.sql",
+      "sha256": "b7b633351195d89e0fda13224bda85a89026f203ee211c55dd626d98fa083626"
     }
   ]
 }
