@@ -120,6 +120,7 @@ const {
   consumeInnerCapability,
   dispatchProcessAlive,
   ignoreRemoteExecHangup,
+  spawnDetachedStaffOwnerWorker,
   readDispatchReceipt,
   writeDispatchReceipt,
   replaceProvenNoSendDispatchMarker,
@@ -6004,8 +6005,16 @@ Module._load = function(request, parent, isMain) {
     assert.ok(ownerSrc.indexOf('consumeInnerCapability')
       < ownerSrc.indexOf('ignoreRemoteExecHangup'));
     assert.ok(ownerSrc.indexOf('ignoreRemoteExecHangup')
+      < ownerSrc.indexOf('spawnDetachedStaffOwnerWorker'));
+    assert.ok(ownerSrc.indexOf('spawnDetachedStaffOwnerWorker')
       < ownerSrc.indexOf('MUTATION_ISSUED_MARKER'));
     assert.match(libSrc, /process\.on\('SIGHUP', ignore\)/);
+    assert.match(libSrc, /detached: true/);
+    assert.match(libSrc, /MAIL_MVP_004_STAFF_OWNER_WORKER/);
+    assert.doesNotMatch(
+      libSrc.slice(libSrc.indexOf('invokeAutoOwner: brandProductionAutoOwner'), libSrc.indexOf('async snapshotOperation')),
+      /spawnDetachedStaffOwnerWorker/,
+    );
     assert.match(libSrc, /STAFF_OWNER_EXEC_TIMEOUT_MS = 12 \* 60 \* 1000/);
     assert.equal(STAFF_OWNER_EXEC_TIMEOUT_MS, 12 * 60 * 1000);
     assert.ok(STAFF_OWNER_EXEC_TIMEOUT_MS > SNAPSHOT_EXEC_TIMEOUT_MS);
@@ -6311,6 +6320,95 @@ Module._load = function(request, parent, isMain) {
     assert.equal(recon.public.approvals, 0);
     assert.equal(recon.public.journals, 0);
     assert.equal(recon.public.provider_sends, 0);
+
+    let parentHandleCalls = 0;
+    let spawnedWorker = 0;
+    const detachCap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    const detached = await runStaffOwnerProof({
+      env: {
+        MAIL_MVP_004_LIVE_PROOF: '1',
+        MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+        EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+        EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+        LUNA_AUTO_SEND_ENABLED: 'true',
+        LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+        MAIL_MVP_004_CAPABILITY: encodeCapability(detachCap),
+        MAIL_MVP_004_REVISION: REVISION,
+        MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+        MAIL_MVP_004_DIGEST: DIGEST,
+      },
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      consumedCapabilityPath: path.join(dir, 'detach-consumed.json'),
+      dispatchReceiptPath: path.join(dir, 'detach-receipt.json'),
+      wired: {
+        handleProjectedInbound: brandProductionAutoOwner(async () => {
+          parentHandleCalls += 1;
+          return { status: 'sent' };
+        }),
+      },
+      spawnDetachedOwner(workerEnv) {
+        spawnedWorker += 1;
+        assert.equal(workerEnv.MAIL_MVP_004_STAFF_OWNER_WORKER, '1');
+        assert.equal(workerEnv.MAIL_MVP_004_CAPABILITY_CONSUMED, '1');
+        return { pid: 999999 };
+      },
+      sleep: async () => {},
+    });
+    assert.equal(spawnedWorker, 1);
+    assert.equal(parentHandleCalls, 0);
+    assert.equal(detached.reason, 'proven_no_send');
+    assert.equal(detached.invoked, 1);
+    assert.equal(detached.dispatch_reset_allowed, true);
+
+    let orphanHandleCalls = 0;
+    const orphanCap = issueSupervisorCapability({
+      nonce: nonce(),
+      revision: REVISION,
+      replica: `${REVISION}-abcde-fghij`,
+      imageTag: IMAGE_SHA,
+      digest: DIGEST,
+    }, NOW_MS);
+    const orphan = await runStaffOwnerProof({
+      env: {
+        MAIL_MVP_004_LIVE_PROOF: '1',
+        MAIL_MVP_004_STAFF_OWNER_PROOF: '1',
+        MAIL_MVP_004_STAFF_OWNER_WORKER: '1',
+        MAIL_MVP_004_CAPABILITY_CONSUMED: '1',
+        LUNA_DEPLOYMENT: SUNSET_DEPLOYMENT,
+        EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+        EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+        EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED: 'true',
+        LUNA_AUTO_SEND_ENABLED: 'true',
+        LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED: 'true',
+        MAIL_MVP_004_CAPABILITY: encodeCapability(orphanCap),
+        MAIL_MVP_004_REVISION: REVISION,
+        MAIL_MVP_004_IMAGE_TAG: IMAGE_SHA,
+        MAIL_MVP_004_DIGEST: DIGEST,
+      },
+      withPgClient: withZero,
+      nowMs: NOW_MS,
+      consumedCapabilityPath: path.join(dir, 'orphan-consumed.json'),
+      dispatchReceiptPath: path.join(dir, 'orphan-receipt.json'),
+      workerBindTimeoutMs: 0,
+      sleep: async () => {},
+      wired: {
+        handleProjectedInbound: brandProductionAutoOwner(async () => {
+          orphanHandleCalls += 1;
+          return { status: 'sent' };
+        }),
+      },
+    });
+    assert.equal(orphanHandleCalls, 0);
+    assert.equal(orphan.reason, 'dispatch_receipt_unproven');
 
     ignoreRemoteExecHangup();
     process.emit('SIGHUP');
