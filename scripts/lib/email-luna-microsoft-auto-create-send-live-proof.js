@@ -2928,29 +2928,30 @@ function createMailMvp004LiveProof(deps) {
     let capability = null;
     try {
       await deps.setEmergencyFlags(true);
-      try {
-        await deps.putEmailChannelMode('auto');
-      } catch {
-        failedReason = 'channel_mode_unproven';
-      }
       const enabled = typeof deps.waitServingHealthy === 'function'
         ? await deps.waitServingHealthy({ enabled: true, authorized: serving })
         : await deps.readServingIdentity();
-      if (failedReason) {
-        /* write miss already fail-closed; do not invoke */
-      } else if (!enabled) {
+      if (!enabled) {
         failedReason = 'enabled_revision_unproven';
       } else if (!servingIdentityCompatible(serving, enabled)) {
         failedReason = 'enabled_image_drift';
       } else if (!approvedReplicaFlagsExact(enabled, true) || !servingHealthyReady100(enabled)
           || !servingSuccessorAcceptable(serving, enabled)) {
         failedReason = 'enabled_revision_unproven';
-      } else if ((await deps.getEmailChannelMode()) !== 'auto') {
-        failedReason = 'channel_mode_unproven';
-      } else if (!isProductionAutoOwner(deps.invokeAutoOwner)
-          && deps.requireProductionOwner !== false) {
-        failedReason = 'not_canonical_owner';
       } else {
+        try {
+          await deps.putEmailChannelMode('auto');
+        } catch {
+          failedReason = 'channel_mode_unproven';
+        }
+        if (failedReason) {
+          /* write miss already fail-closed; do not invoke */
+        } else if ((await deps.getEmailChannelMode()) !== 'auto') {
+          failedReason = 'channel_mode_unproven';
+        } else if (!isProductionAutoOwner(deps.invokeAutoOwner)
+            && deps.requireProductionOwner !== false) {
+          failedReason = 'not_canonical_owner';
+        } else {
         capability = issueSupervisorCapability({
           nonce: parsed.operatorNonce,
           revision: enabled.revision,
@@ -3039,6 +3040,7 @@ function createMailMvp004LiveProof(deps) {
               || graph.duplicates !== 0) {
             failedReason = (graph && graph.reason) || 'graph_unproven';
           }
+        }
         }
       }
     } catch {
