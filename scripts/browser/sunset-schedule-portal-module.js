@@ -1187,18 +1187,19 @@ function schedulePortalResetCreateFormRuntime() {
 function schedulePortalFetchCatalog(opts) {
   opts = opts || {};
   var url = '/staff/schedule/bookings/catalog?' + schedulePortalClientQuery();
-  var body = {
-    location_id: getSunsetLocation(),
-    require_db: true,
-  };
-  if (opts.service_dates && opts.service_dates.length) {
-    body.service_dates = opts.service_dates;
-  }
-  if (opts.method === 'GET' && !(opts.service_dates && opts.service_dates.length)) {
+  var hasDates = !!(opts.service_dates && opts.service_dates.length);
+  // Empty-dates catalog is read-only discovery — always GET (domain contract).
+  // POST only when service_dates are needed for eligibility projection (Create/Edit).
+  if (!hasDates) {
     return schedulePortalFetchJson(url).then(function(res) {
       return res.data || { ok: false, success: false };
     });
   }
+  var body = {
+    location_id: getSunsetLocation(),
+    require_db: true,
+    service_dates: opts.service_dates,
+  };
   return schedulePortalFetchJson(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

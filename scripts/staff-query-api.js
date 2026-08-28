@@ -24496,6 +24496,7 @@ function setSunsetLocation(locationId){
   var next = (locationId === 'sunset-sardinero') ? 'sunset-sardinero' : 'sunset-somo';
   try { localStorage.setItem(STAFF_PORTAL_SUNSET_LOCATION_KEY, next); } catch (_) { /* ignore */ }
   scheduleLessonTimesLoaded = false;
+  scheduleLessonTimesInflight = null;
   scheduleLessonTimesCache = [];
   scheduleCoursesCache = [];
   refreshSunsetSchoolContextLabels();
@@ -24825,6 +24826,8 @@ var schedulePrivateEquipmentOptionsCache = [];
 var schedulePrivateLessonDurationCache = 120;
 var scheduleLessonTimesFallback = false;
 var scheduleLessonTimesLoaded = false;
+/** In-flight scheduleFetchLessonTimesConfig promise — coalesce parallel callers (startup race). */
+var scheduleLessonTimesInflight = null;
 
 function scheduleIsoDate(d){
   var m = String(d.getMonth() + 1).padStart(2, '0');
@@ -28793,6 +28796,7 @@ function scheduleRowsForSameBookings(allRows, seedRows){
 
 function scheduleInvalidateAdminCatalogCache(){
   scheduleLessonTimesLoaded = false;
+  scheduleLessonTimesInflight = null;
   scheduleLessonTimesCache = [];
   scheduleCoursesCache = [];
 }
@@ -28800,15 +28804,18 @@ function scheduleInvalidateAdminCatalogCache(){
 function scheduleFetchLessonTimesConfig(client, opts){
   var force = opts && opts.force === true;
   if (!force && scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
+  if (!force && scheduleLessonTimesInflight) return scheduleLessonTimesInflight;
   var cfgUrl = '/staff/admin/config' + adminClientQuery();
   var offeringsUrl = '/staff/admin/config/rental-offerings' + adminClientQuery();
+  // Empty-dates catalog warmup is GET-only (Staff API already supports GET).
+  // Dated Create/Edit eligibility still POSTs via schedulePortalPopulateCreateCourseFields.
   var catalogP = (client === 'sunset' && typeof schedulePortalFetchCatalog === 'function')
-    ? schedulePortalFetchCatalog({ method: 'POST', service_dates: [] })
+    ? schedulePortalFetchCatalog({ method: 'GET', service_dates: [] })
     : Promise.resolve(null);
   var offeringsP = fetch(offeringsUrl)
     .then(function(r){ return r.ok ? r.json() : null; })
     .catch(function(){ return null; });
-  return fetch(cfgUrl)
+  var fetchP = fetch(cfgUrl)
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(data){
       return Promise.all([catalogP, offeringsP]).then(function(pair){
@@ -28864,7 +28871,16 @@ function scheduleFetchLessonTimesConfig(client, opts){
       scheduleLessonTimesFallback = true;
       scheduleLessonTimesLoaded = true;
       return scheduleLessonTimesCache;
+    })
+    .then(function(result){
+      if (scheduleLessonTimesInflight === fetchP) scheduleLessonTimesInflight = null;
+      return result;
+    }, function(err){
+      if (scheduleLessonTimesInflight === fetchP) scheduleLessonTimesInflight = null;
+      throw err;
     });
+  scheduleLessonTimesInflight = fetchP;
+  return fetchP;
 }
 
 function scheduleUniqueConfiguredSlots(lessonTimes){
@@ -30599,9 +30615,14 @@ function portalStartupAfterSession(){
   var tab = profile.default_tab || 'bed-calendar';
   if (isTabHiddenForClient(tab, getClient())) tab = profile.is_surf_vertical ? 'portal-home' : 'bed-calendar';
   if (isPortalMobile() && !isTabHiddenForClient('conversations', getClient())) tab = 'conversations';
+  // Inbox deep-link (?conversation=): land on Inbox — do not boot Horario catalog first.
+  try {
+    var deepConv = (new URLSearchParams(window.location.search || '').get('conversation') || '').trim();
+    if (deepConv && !isTabHiddenForClient('conversations', getClient())) tab = 'conversations';
+  } catch (_deepTab) { /* non-fatal */ }
   switchToTab(tab, null);
   if (tab === 'conversations') loadInbox();
-  if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
+  // switchToTab('portal-home') already wires + loadPortalHome — do not call again (was double catalog).
   if (profile.is_surf_vertical && tab !== 'portal-home') loadDaySchedule(dsTodayIso());
   finishPortalProfileStartup();
 }
