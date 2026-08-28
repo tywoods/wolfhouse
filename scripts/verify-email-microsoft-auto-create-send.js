@@ -159,12 +159,20 @@ function makeOwner(options = {}) {
         conversation_id: V,
         send_allowed: false,
         auto_send_allowed: false,
-        subject: 'Re: Boards',
+        subject: Object.prototype.hasOwnProperty.call(options, 'draftSubject')
+          ? options.draftSubject : 'Re: Boards',
       };
     },
     saveDraftThroughStaffOwner: async (input) => {
       approvals.push(input);
-      if (options.saveFail) return { status: 'not_saved', conversation_id: V, approval_id: null };
+      if (options.saveFail) {
+        return {
+          status: 'not_saved',
+          conversation_id: V,
+          approval_id: null,
+          code: options.saveCode || undefined,
+        };
+      }
       const id = '99999999-9999-4999-8999-999999999999';
       store.approval = {
         approval_id: id,
@@ -492,6 +500,15 @@ async function main() {
       saveFail.result.status === 'failed' && saveFail.result.sent === false
       && saveFail.providerCalls.length === 0
       && saveFail.result.reason === 'approval_not_saved');
+
+    const staleSave = await runOwner({ saveFail: true, saveCode: 'stale_authority' });
+    ok('save persist code is fail-closed projected',
+      staleSave.result.reason === 'stale_authority' && staleSave.providerCalls.length === 0);
+
+    const badSubject = await runOwner({ draftSubject: ' Re: padded ' });
+    ok('invalid Sol subject is omitted, last-persisted owner still used',
+      badSubject.result.status === 'sent'
+      && Object.prototype.hasOwnProperty.call(badSubject.approvals[0], 'subject') === false);
 
     const providerFail = await runOwner({ providerFail: true });
     ok('provider failure: not marked sent',
