@@ -51486,6 +51486,7 @@ let EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME = null;
 let EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = null;
 let EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = null;
 let EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION = null;
+let MAIL_MVP_004_ONESHOT_LISTENER = null;
 
 function drainStaffApiEmailRuntimes() {
   const drains = [];
@@ -51513,6 +51514,18 @@ function drainStaffApiEmailRuntimes() {
     runtime: draftingRuntime,
     connection: draftingConnection,
   }));
+  if (MAIL_MVP_004_ONESHOT_LISTENER) {
+    const oneshot = MAIL_MVP_004_ONESHOT_LISTENER;
+    MAIL_MVP_004_ONESHOT_LISTENER = null;
+    drains.push(Promise.resolve((() => {
+      try {
+        const { stopMailMvp004StaffOwnerOneshotListener } = require('./lib/email-luna-microsoft-auto-create-send-live-proof');
+        stopMailMvp004StaffOwnerOneshotListener(oneshot);
+      } catch {
+        /* ignore */
+      }
+    })()));
+  }
   return Promise.allSettled(drains);
 }
 
@@ -51614,6 +51627,19 @@ async function startStaffQueryApiCli() {
     await drainStaffApiEmailRuntimes();
     process.exitCode = 1;
     return;
+  }
+  if (String(process.env.LUNA_DEPLOYMENT || '') === 'sunset-staging'
+      && String(process.env.NODE_ENV || '').toLowerCase() !== 'test') {
+    try {
+      const { startMailMvp004StaffOwnerOneshotListener } = require('./lib/email-luna-microsoft-auto-create-send-live-proof');
+      const started = startMailMvp004StaffOwnerOneshotListener({
+        env: process.env,
+        withPgClient: _withPgClientImpl,
+      });
+      MAIL_MVP_004_ONESHOT_LISTENER = started && started.ok === true ? started : null;
+    } catch {
+      MAIL_MVP_004_ONESHOT_LISTENER = null;
+    }
   }
   server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);

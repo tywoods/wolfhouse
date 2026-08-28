@@ -16,7 +16,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn, spawnSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 const util = require('node:util');
 const {
   ENV_LUNA_AUTO_SEND_ENABLED,
@@ -91,11 +91,15 @@ const OPERATION_BINDING = 'Testing 8 26|twoods@xantrion.com';
 const DEFAULT_NONCE_STORE_PATH = path.join(os.tmpdir(), 'mail-mvp-004-used-nonces.json');
 const INNER_CONSUMED_CAPABILITY_PATH = '/tmp/mail-mvp-004-consumed-capabilities.json';
 const INNER_DISPATCH_RECEIPT_PATH = '/tmp/mail-mvp-004-dispatch-receipt.json';
+const INNER_OWNER_REQUEST_PATH = '/tmp/mail-mvp-004-owner-request.json';
+const INNER_OWNER_CLAIMED_PATH = '/tmp/mail-mvp-004-owner-request.claimed.json';
 const OPERATOR_NONCE_RE = /^[0-9a-f]{64}$/;
 const CONFIRM_WINDOW_MS = 15 * 60 * 1000;
 const CONFIRM_FUTURE_SKEW_MS = 60 * 1000;
 const STAFF_OWNER_EXEC_TIMEOUT_MS = 12 * 60 * 1000;
-const STAFF_OWNER_COMPLETION_WAIT_MS = 10 * 60 * 1000;
+const STAFF_OWNER_COMPLETION_WAIT_MS = 12 * 60 * 1000;
+const STAFF_OWNER_HANDOFF_WAIT_MS = 15 * 1000;
+const RECONCILE_POLL_INTERVAL_MS = 15 * 1000;
 const SNAPSHOT_EXEC_TIMEOUT_MS = 180 * 1000;
 // Successor readiness only. Observed ACA flag successor ~6m; ACA WebSocket exec
 // is globally 429/unstable after Graph preflight, so flag proof does not wait
@@ -203,6 +207,7 @@ const REQUIRED_PROOF_FILES = freeze([
   'scripts/lib/email-luna-microsoft-auto-create-send-live-proof.js',
   'scripts/lib/email-luna-microsoft-auto-create-send.js',
   'scripts/verify-email-microsoft-auto-create-send-live-proof.js',
+  'scripts/staff-query-api.js',
   'docs/MAIL-MVP-004-SUNSET-AUTO-PROOF-RUNBOOK.md',
 ]);
 const LIVE_IMAGE_REQUIREMENT = freeze({
@@ -1618,30 +1623,205 @@ function isStaffOwnerWorker(env) {
   return envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_WORKER') === '1';
 }
 
-function spawnDetachedStaffOwnerWorker(env) {
-  if (!env || typeof env !== 'object' || isProxy(env)) return null;
-  const script = path.join(__dirname, '..', 'prove-mail-mvp-004-auto-create-send.js');
-  const childEnv = Object.create(null);
-  for (const key of Object.keys(env)) {
-    const value = envOwn(env, key);
-    if (typeof value === 'string') childEnv[key] = value;
+function ownerOneshotPath(filePath, fallback) {
+  return typeof filePath === 'string' && filePath ? filePath : fallback;
+}
+
+function writeOwnerOneshotRequest(record, filePath) {
+  if (!record || typeof record !== 'object' || isProxy(record)) return null;
+  if (ownData(record, 'operation_binding') !== OPERATION_BINDING
+      && record.operation_binding !== OPERATION_BINDING) {
+    return null;
   }
-  childEnv.MAIL_MVP_004_STAFF_OWNER_WORKER = '1';
-  childEnv.MAIL_MVP_004_STAFF_OWNER_PROOF = '1';
-  childEnv.MAIL_MVP_004_CAPABILITY_CONSUMED = '1';
+  const nonce = record.nonce;
+  if (!validOperatorNonce(nonce)) return null;
+  const capability = typeof record.capability === 'string' ? record.capability : null;
+  if (!capability || !SAFE_B64.test(capability) || capability.length > 8192) return null;
+  const revision = typeof record.revision === 'string' ? record.revision : null;
+  const imageTag = typeof record.image_tag === 'string' ? record.image_tag : null;
+  const digest = typeof record.digest === 'string' ? record.digest : null;
+  if (!revision || !SAFE_AZ_NAME.test(revision) || !revision.startsWith(STAFF_APP)) return null;
+  if (!imageTag || !SHA40.test(imageTag)) return null;
+  if (!digest || !DIGEST_RE.test(digest)) return null;
+  const payload = freeze({
+    operation_binding: OPERATION_BINDING,
+    capability,
+    nonce,
+    revision,
+    image_tag: imageTag,
+    digest,
+    written_at: typeof record.written_at === 'string' ? record.written_at : new Date().toISOString(),
+  });
+  const target = ownerOneshotPath(filePath, INNER_OWNER_REQUEST_PATH);
+  const tmp = `${target}.${process.pid}.tmp`;
   try {
-    const child = spawn(process.execPath, [script], {
-      detached: true,
-      stdio: 'ignore',
-      env: childEnv,
-      cwd: process.cwd(),
-    });
-    if (!child || !Number.isSafeInteger(child.pid) || child.pid <= 1) return null;
-    child.unref();
-    return freeze({ pid: child.pid });
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(tmp, `${JSON.stringify(payload)}\n`, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(tmp, target);
+    return payload;
+  } catch {
+    try { fs.unlinkSync(tmp); } catch { /* ignore */ }
+    return null;
+  }
+}
+
+function readOwnerOneshotRequest(filePath) {
+  const target = ownerOneshotPath(filePath, INNER_OWNER_REQUEST_PATH);
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(target, 'utf8'));
   } catch {
     return null;
   }
+  if (!parsed || typeof parsed !== 'object' || isProxy(parsed) || Array.isArray(parsed)) return null;
+  if (ownData(parsed, 'operation_binding') !== OPERATION_BINDING) return null;
+  const nonce = ownData(parsed, 'nonce');
+  const capability = ownData(parsed, 'capability');
+  const revision = ownData(parsed, 'revision');
+  const imageTag = ownData(parsed, 'image_tag');
+  const digest = ownData(parsed, 'digest');
+  if (!validOperatorNonce(nonce)) return null;
+  if (typeof capability !== 'string' || !SAFE_B64.test(capability) || capability.length > 8192) {
+    return null;
+  }
+  if (typeof revision !== 'string' || !SAFE_AZ_NAME.test(revision) || !revision.startsWith(STAFF_APP)) {
+    return null;
+  }
+  if (typeof imageTag !== 'string' || !SHA40.test(imageTag)) return null;
+  if (typeof digest !== 'string' || !DIGEST_RE.test(digest)) return null;
+  return freeze({
+    operation_binding: OPERATION_BINDING,
+    capability,
+    nonce,
+    revision,
+    image_tag: imageTag,
+    digest,
+    written_at: ownData(parsed, 'written_at') || null,
+  });
+}
+
+function claimOwnerOneshotRequest(requestPath, claimedPath) {
+  const source = ownerOneshotPath(requestPath, INNER_OWNER_REQUEST_PATH);
+  const dest = ownerOneshotPath(claimedPath, INNER_OWNER_CLAIMED_PATH);
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.renameSync(source, dest);
+  } catch {
+    return null;
+  }
+  const claimed = readOwnerOneshotRequest(dest);
+  if (!claimed) {
+    try { fs.unlinkSync(dest); } catch { /* ignore */ }
+    return null;
+  }
+  return claimed;
+}
+
+function stopMailMvp004StaffOwnerOneshotListener(handle) {
+  if (!handle || typeof handle !== 'object' || isProxy(handle)) return false;
+  if (typeof handle.stop === 'function') {
+    try { handle.stop(); } catch { /* ignore */ }
+    return true;
+  }
+  return false;
+}
+
+function startMailMvp004StaffOwnerOneshotListener(input) {
+  const env = (input && input.env) || process.env;
+  if (envOwn(env, 'LUNA_DEPLOYMENT') !== SUNSET_DEPLOYMENT) {
+    return freeze({ ok: false, reason: 'deployment_mismatch' });
+  }
+  const requestPath = ownerOneshotPath(input && input.requestPath, INNER_OWNER_REQUEST_PATH);
+  const claimedPath = ownerOneshotPath(input && input.claimedPath, INNER_OWNER_CLAIMED_PATH);
+  const receiptPath = ownerOneshotPath(input && input.dispatchReceiptPath, INNER_DISPATCH_RECEIPT_PATH);
+  const consumedPath = (input && input.consumedCapabilityPath) || INNER_CONSUMED_CAPABILITY_PATH;
+  let inFlight = false;
+  let stopped = false;
+  async function tick() {
+    if (stopped || inFlight) return;
+    if (envOwn(env, ENV_LUNA_AUTO_SEND_ENABLED) !== 'true'
+        || envOwn(env, ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED) !== 'true') {
+      return;
+    }
+    const claimed = claimOwnerOneshotRequest(requestPath, claimedPath);
+    if (!claimed) return;
+    inFlight = true;
+    try {
+      const issued = writeDispatchReceipt({
+        status: 'issued',
+        nonce: claimed.nonce,
+        pid: process.pid,
+        reason: null,
+      }, receiptPath);
+      if (!issued) return;
+      const workerEnv = Object.create(null);
+      for (const key of Object.keys(env)) {
+        const value = envOwn(env, key);
+        if (typeof value === 'string') workerEnv[key] = value;
+      }
+      workerEnv.MAIL_MVP_004_STAFF_OWNER_WORKER = '1';
+      workerEnv.MAIL_MVP_004_STAFF_OWNER_PROOF = '1';
+      workerEnv.MAIL_MVP_004_LIVE_PROOF = '1';
+      workerEnv.MAIL_MVP_004_CAPABILITY = claimed.capability;
+      workerEnv.MAIL_MVP_004_REVISION = claimed.revision;
+      workerEnv.MAIL_MVP_004_IMAGE_TAG = claimed.image_tag;
+      workerEnv.MAIL_MVP_004_DIGEST = claimed.digest;
+      workerEnv.LUNA_DEPLOYMENT = SUNSET_DEPLOYMENT;
+      const result = await runStaffOwnerProof({
+        env: workerEnv,
+        emitDispatchMarker: false,
+        dispatchReceiptPath: receiptPath,
+        consumedCapabilityPath: consumedPath,
+        withPgClient: input && input.withPgClient,
+        wired: input && input.wired,
+        nowMs: input && input.nowMs,
+        requireProductionOwner: input && input.requireProductionOwner,
+      });
+      const current = readDispatchReceipt(receiptPath);
+      if (current && current.status === 'issued') {
+        writeDispatchReceipt({
+          status: result && result.status === 'sent' ? 'completed' : 'failed',
+          nonce: claimed.nonce,
+          pid: null,
+          owner_status: result && result.status ? result.status : 'failed',
+          reason: (result && result.reason) || (result && result.status === 'sent' ? null : 'owner_failed'),
+        }, receiptPath);
+      }
+    } catch {
+      writeDispatchReceipt({
+        status: 'failed',
+        nonce: claimed.nonce,
+        pid: null,
+        reason: 'owner_failed',
+      }, receiptPath);
+    } finally {
+      inFlight = false;
+    }
+  }
+  let timer = null;
+  try {
+    fs.watchFile(requestPath, { interval: 250, persistent: false }, () => {
+      void tick();
+    });
+  } catch {
+    /* interval is the fail-closed detector; watch is optional */
+  }
+  try {
+    timer = setInterval(() => { void tick(); }, 250);
+  } catch {
+    return freeze({ ok: false, reason: 'oneshot_listener_unproven' });
+  }
+  if (timer && typeof timer.unref === 'function') timer.unref();
+  void tick();
+  return freeze({
+    ok: true,
+    requestPath,
+    stop() {
+      stopped = true;
+      try { if (timer) clearInterval(timer); } catch { /* ignore */ }
+      try { fs.unwatchFile(requestPath); } catch { /* ignore */ }
+    },
+  });
 }
 
 function readDispatchReceipt(filePath) {
@@ -3240,6 +3420,10 @@ async function runStaffOwnerProof(input) {
       return failRecord('not_canonical_owner');
     }
     const workerMode = isStaffOwnerWorker(env);
+    const oneshotRequested = injected !== true
+      || input.useOneshot === true
+      || typeof (input && input.writeOwnerOneshot) === 'function'
+      || typeof (input && input.oneshotRequestPath) === 'string';
     if (!workerMode) {
       const replaced = replaceProvenNoSendDispatchMarker({ filePath: receiptPath, counts: before });
       if (!replaced.ok) {
@@ -3253,124 +3437,134 @@ async function runStaffOwnerProof(input) {
       }
     }
     const capabilityConsumed = envOwn(env, 'MAIL_MVP_004_CAPABILITY_CONSUMED') === '1';
-    if (!workerMode || capabilityConsumed !== true) {
+    const skipConsume = (workerMode && capabilityConsumed === true)
+      || (!workerMode && oneshotRequested === true);
+    if (!skipConsume) {
       if (consumeInnerCapability(capCheck.capability.nonce, consumedPath) !== true) {
         return refusedRecord('capability_replay');
       }
     }
-    ignoreRemoteExecHangup();
-    const spawnFnProvided = typeof (input && input.spawnDetachedOwner) === 'function';
-    if (!workerMode && (injected !== true || spawnFnProvided)) {
-      const spawnFn = spawnFnProvided
-        ? input.spawnDetachedOwner
-        : spawnDetachedStaffOwnerWorker;
-      const workerEnv = Object.create(null);
-      for (const key of Object.keys(env)) {
-        const value = envOwn(env, key);
-        if (typeof value === 'string') workerEnv[key] = value;
-      }
-      workerEnv.MAIL_MVP_004_STAFF_OWNER_WORKER = '1';
-      workerEnv.MAIL_MVP_004_STAFF_OWNER_PROOF = '1';
-      workerEnv.MAIL_MVP_004_CAPABILITY_CONSUMED = '1';
-      const worker = spawnFn(workerEnv);
-      if (!worker || !Number.isSafeInteger(worker.pid) || worker.pid <= 1) {
-        return failRecord('staff_exec_failed');
-      }
-      const issuedWorker = writeDispatchReceipt({
-        status: 'issued',
+    if (!workerMode) ignoreRemoteExecHangup();
+    if (!workerMode && oneshotRequested) {
+      const requestPath = ownerOneshotPath(input && input.oneshotRequestPath, INNER_OWNER_REQUEST_PATH);
+      const claimedPath = ownerOneshotPath(input && input.oneshotClaimedPath, INNER_OWNER_CLAIMED_PATH);
+      const encodedCap = encodeCapability(capCheck.capability);
+      if (!encodedCap) return failRecord('capability_invalid');
+      const payload = freeze({
+        operation_binding: OPERATION_BINDING,
+        capability: encodedCap,
         nonce: capCheck.capability.nonce,
-        pid: worker.pid,
-        reason: null,
-      }, receiptPath);
-      if (!issuedWorker) return failRecord('dispatch_receipt_unproven');
+        revision: capCheck.capability.revision,
+        image_tag: capCheck.capability.image_tag,
+        digest: capCheck.capability.digest,
+        written_at: new Date().toISOString(),
+      });
+      const written = typeof (input && input.writeOwnerOneshot) === 'function'
+        ? input.writeOwnerOneshot(payload)
+        : writeOwnerOneshotRequest(payload, requestPath);
+      if (!written) return failRecord('dispatch_receipt_unproven');
+      const wait = typeof (input && input.sleep) === 'function'
+        ? input.sleep
+        : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+      const bindMs = Number.isSafeInteger(input && input.workerBindTimeoutMs)
+        ? input.workerBindTimeoutMs
+        : STAFF_OWNER_HANDOFF_WAIT_MS;
+      const bindDeadline = Date.now() + (bindMs > 0 ? bindMs : 0);
+      let receipt = readDispatchReceipt(receiptPath);
+      while (Date.now() < bindDeadline) {
+        if (receipt && receipt.nonce === capCheck.capability.nonce) {
+          if (receipt.status === 'issued' && receipt.process_alive === true) break;
+          if (receipt.status === 'completed' || receipt.status === 'failed') break;
+        }
+        await wait(50);
+        receipt = readDispatchReceipt(receiptPath);
+      }
+      receipt = readDispatchReceipt(receiptPath);
+      const claimed = !!(receipt && receipt.nonce === capCheck.capability.nonce
+        && (receipt.status === 'issued' || receipt.status === 'completed' || receipt.status === 'failed'));
+      if (!claimed) {
+        const leftover = readOwnerOneshotRequest(claimedPath);
+        if (leftover && leftover.nonce === capCheck.capability.nonce) {
+          if (input && input.emitDispatchMarker !== false
+              && (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
+                || envOwn(env, 'MAIL_MVP_004_LIVE_PROOF') === '1')) {
+            process.stdout.write(`${MUTATION_ISSUED_MARKER}\n`);
+          }
+          return freeze({
+            status: 'failed',
+            indeterminate: true,
+            outcome_unknown: true,
+            reason: 'indeterminate_no_retry',
+            invoked: 1,
+            process_alive: true,
+            dispatch_marked: true,
+            public: freeze({
+              ok: false,
+              status: 'outcome_unknown',
+              reason: 'indeterminate_no_retry',
+              invoked: 1,
+              sent: false,
+              process_alive: true,
+            }),
+          });
+        }
+        try { fs.unlinkSync(requestPath); } catch { /* ignore */ }
+        return failRecord('dispatch_receipt_unproven', {
+          invoked: 1,
+          process_alive: false,
+        });
+      }
       if (input && input.emitDispatchMarker !== false
           && (envOwn(env, 'MAIL_MVP_004_STAFF_OWNER_PROOF') === '1'
             || envOwn(env, 'MAIL_MVP_004_LIVE_PROOF') === '1')) {
         process.stdout.write(`${MUTATION_ISSUED_MARKER}\n`);
       }
-      const wait = typeof (input && input.sleep) === 'function'
-        ? input.sleep
-        : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      const deadline = Date.now() + STAFF_OWNER_COMPLETION_WAIT_MS;
-      let receipt = readDispatchReceipt(receiptPath);
-      while (
-        receipt
-        && receipt.status === 'issued'
-        && receipt.process_alive === true
-        && Date.now() < deadline
-      ) {
-        await wait(REVISION_WAIT_INTERVAL_MS);
-        receipt = readDispatchReceipt(receiptPath);
-      }
-      const waited = await snapshotSelectedOperation(withPgClient, row);
-      const waitedDurable = await loadSelectedOperationEvidence(
-        withPgClient,
-        row,
-        envOwn(env, ENV_HMAC_SECRET),
-      );
-      if (receipt && receipt.status === 'completed' && exactReconciledCounts(waited)) {
-        return freeze({
-          ok: true,
-          status: 'sent',
-          invoked: 1,
-          durable_evidence: waitedDurable,
-          public: freeze({
+      if (receipt.status === 'completed' && receipt.owner_status === 'sent') {
+        const afterFast = await snapshotSelectedOperation(withPgClient, row);
+        const durableFast = await loadSelectedOperationEvidence(
+          withPgClient,
+          row,
+          envOwn(env, ENV_HMAC_SECRET),
+        );
+        if (exactReconciledCounts(afterFast)) {
+          return freeze({
             ok: true,
             status: 'sent',
             invoked: 1,
-            approvals: 1,
-            journals: 1,
-            provider_sends: 1,
-          }),
-        });
+            durable_evidence: durableFast,
+            public: freeze({
+              ok: true,
+              status: 'sent',
+              invoked: 1,
+              approvals: 1,
+              journals: 1,
+              provider_sends: 1,
+            }),
+          });
+        }
       }
-      if (receipt && receipt.process_alive === true) {
-        return freeze({
-          status: 'failed',
-          indeterminate: true,
-          outcome_unknown: true,
-          reason: 'indeterminate_no_retry',
-          invoked: 1,
-          process_alive: true,
-          public: freeze({
-            ok: false,
-            status: 'outcome_unknown',
-            reason: 'indeterminate_no_retry',
-            invoked: 1,
-            sent: false,
-          }),
-        });
-      }
-      if (waited && waited.approvals === 0 && waited.journals === 0 && waited.provider_sends === 0) {
-        return freeze({
-          status: 'failed',
-          indeterminate: true,
-          outcome_unknown: true,
-          reason: 'proven_no_send',
+      if (receipt.status === 'failed') {
+        return failRecord(receipt.reason || 'owner_failed', {
           invoked: 1,
           process_alive: false,
-          dispatch_reset_allowed: true,
-          approvals: 0,
-          journals: 0,
-          provider_sends: 0,
-          public: freeze({
-            ok: false,
-            reason: 'proven_no_send',
-            status: 'proven_no_send',
-            invoked: 1,
-            approvals: 0,
-            journals: 0,
-            provider_sends: 0,
-            sent: false,
-            dispatch_reset_allowed: true,
-          }),
         });
       }
-      return failRecord((receipt && receipt.reason) || 'owner_failed', {
+      return freeze({
+        status: 'failed',
+        indeterminate: true,
+        outcome_unknown: true,
+        reason: 'indeterminate_no_retry',
         invoked: 1,
-        approvals: waited ? waited.approvals : 0,
-        journals: waited ? waited.journals : 0,
-        provider_sends: waited ? waited.provider_sends : 0,
+        process_alive: receipt.process_alive === true,
+        dispatch_marked: true,
+        public: freeze({
+          ok: false,
+          status: 'outcome_unknown',
+          reason: 'indeterminate_no_retry',
+          invoked: 1,
+          sent: false,
+          process_alive: receipt.process_alive === true,
+        }),
       });
     }
     if (workerMode) {
@@ -3427,7 +3621,7 @@ async function runStaffOwnerProof(input) {
     writeDispatchReceipt({
       status: result && result.status === 'sent' ? 'completed' : 'failed',
       nonce: capCheck.capability.nonce,
-      pid: process.pid,
+      pid: null,
       owner_status: result && result.status ? result.status : 'failed',
       reason: result && result.reason ? result.reason : (result && result.status === 'sent' ? null : 'owner_failed'),
     }, receiptPath);
@@ -5299,13 +5493,26 @@ function createProductionMailMvp004Supervisor(options) {
         : (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       const deadline = Date.now() + STAFF_OWNER_COMPLETION_WAIT_MS;
       let last = null;
+      let lastAlive = false;
       for (;;) {
         const executed = await execInner({ snapshot: 'reconcile' });
         const inner = executed && executed.inner;
         last = classifyReconcileSnapshot(inner, { marked: true });
-        if (last.process_alive === true && Date.now() < deadline) {
-          await wait(REVISION_WAIT_INTERVAL_MS);
+        if (inner && inner.ok === true && inner.process_alive === true) lastAlive = true;
+        if (inner && inner.ok === true && inner.process_alive === false) lastAlive = false;
+        const snapshotFailed = !inner || inner.ok !== true;
+        if ((last.process_alive === true || (lastAlive && snapshotFailed)) && Date.now() < deadline) {
+          await wait(RECONCILE_POLL_INTERVAL_MS);
           continue;
+        }
+        if (lastAlive && snapshotFailed) {
+          return freeze({
+            status: 'failed',
+            indeterminate: true,
+            reason: 'indeterminate_no_retry',
+            process_alive: true,
+            retry: false,
+          });
         }
         return freeze({ ...last, retry: false });
       }
@@ -5501,8 +5708,12 @@ module.exports = freeze({
   CAPABILITY_PURPOSE,
   OPERATION_BINDING,
   INNER_DISPATCH_RECEIPT_PATH,
+  INNER_OWNER_REQUEST_PATH,
+  INNER_OWNER_CLAIMED_PATH,
   STAFF_OWNER_EXEC_TIMEOUT_MS,
   STAFF_OWNER_COMPLETION_WAIT_MS,
+  STAFF_OWNER_HANDOFF_WAIT_MS,
+  RECONCILE_POLL_INTERVAL_MS,
   SNAPSHOT_EXEC_TIMEOUT_MS,
   CONFIRM_WINDOW_MS,
   REVISION_WAIT_TIMEOUT_MS,
@@ -5623,7 +5834,11 @@ module.exports = freeze({
   dispatchProcessAlive,
   ignoreRemoteExecHangup,
   isStaffOwnerWorker,
-  spawnDetachedStaffOwnerWorker,
+  writeOwnerOneshotRequest,
+  readOwnerOneshotRequest,
+  claimOwnerOneshotRequest,
+  startMailMvp004StaffOwnerOneshotListener,
+  stopMailMvp004StaffOwnerOneshotListener,
   readDispatchReceipt,
   writeDispatchReceipt,
   replaceProvenNoSendDispatchMarker,
