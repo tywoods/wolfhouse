@@ -388,6 +388,25 @@ function yearRange(dateStr) {
   return { start: `${y}-01-01`, end: `${y}-12-31` };
 }
 
+/** True when start/end span one full calendar year (Jan 1 → Dec 31). */
+function isFullCalendarYearRange(start, end) {
+  if (!start || !end || start > end) return false;
+  const y = String(start).slice(0, 4);
+  if (!/^\d{4}$/.test(y)) return false;
+  return start === `${y}-01-01` && end === `${y}-12-31`;
+}
+
+/**
+ * When granularity is missing on the wire, infer it from inclusive bounds.
+ * Custom/Día Neto must not fall back to wall-clock month while Booked honors bounds.
+ */
+function inferFinanceGranularityFromBounds(start, end) {
+  if (!start || !end || start > end) return null;
+  if (isFullCalendarYearRange(start, end)) return 'year';
+  if (start === end) return 'day';
+  return 'custom';
+}
+
 function shiftRangeYears(range, years) {
   const shift = (iso) => {
     const [y, m, d] = String(iso || '').split('-').map(Number);
@@ -829,16 +848,31 @@ function resolvePrimaryRange(args) {
   let granularity = String(view.granularity || 'month').toLowerCase();
   if (!['day', 'month', 'year', 'custom'].includes(granularity)) granularity = 'month';
 
-  if (granularity === 'custom' && view.start && view.end && view.start <= view.end) {
-    return { granularity, range: { start: view.start, end: view.end }, today };
+  const start = (view.start && /^\d{4}-\d{2}-\d{2}$/.test(view.start)) ? view.start : '';
+  const end = (view.end && /^\d{4}-\d{2}-\d{2}$/.test(view.end)) ? view.end : '';
+
+  // Client may send bounds when granularity is dropped on the wire — never collapse to anchor month.
+  if (start && end && isFullCalendarYearRange(start, end)) {
+    granularity = 'year';
+  } else if (start && end && start <= end) {
+    const inferred = inferFinanceGranularityFromBounds(start, end);
+    if (inferred === 'day' || inferred === 'custom') granularity = inferred;
+  }
+
+  if (granularity === 'custom' && start && end && start <= end) {
+    return { granularity, range: { start, end }, today };
   }
 
   const anchor = (view.anchor && /^\d{4}-\d{2}-\d{2}$/.test(view.anchor)) ? view.anchor : today;
   if (granularity === 'day') {
-    return { granularity: 'day', range: { start: anchor, end: anchor }, today };
+    const dayIso = (start && end && start === end) ? start : anchor;
+    return { granularity: 'day', range: { start: dayIso, end: dayIso }, today };
   }
   if (granularity === 'year') {
-    return { granularity: 'year', range: yearRange(anchor), today };
+    const range = (start && end && isFullCalendarYearRange(start, end))
+      ? { start, end }
+      : yearRange(anchor);
+    return { granularity: 'year', range, today };
   }
   return { granularity: 'month', range: monthRange(anchor), today };
 }
@@ -1506,6 +1540,8 @@ module.exports = {
   resolvePrimaryRange,
   next30RangeForPeriod,
   yearRange,
+  isFullCalendarYearRange,
+  inferFinanceGranularityFromBounds,
   productBucket,
   buildRevenueByProductRows,
   buildRevenueByProductFiveRows: buildRevenueByProductRows, // alias

@@ -2303,6 +2303,13 @@ function financeViewQuery(){
   if (g === 'custom'){
     if (financeViewState.start) q += '&start=' + encodeURIComponent(financeViewState.start);
     if (financeViewState.end) q += '&end=' + encodeURIComponent(financeViewState.end);
+  } else if (g === 'day') {
+    var dayAnchor = financeViewState.anchor && /^\d{4}-\d{2}-\d{2}$/.test(financeViewState.anchor)
+      ? financeViewState.anchor
+      : financeTodayIso();
+    q += '&anchor=' + encodeURIComponent(dayAnchor);
+    q += '&start=' + encodeURIComponent(dayAnchor);
+    q += '&end=' + encodeURIComponent(dayAnchor);
   } else if (financeViewState.anchor){
     q += '&anchor=' + encodeURIComponent(financeViewState.anchor);
   }
@@ -2987,7 +2994,7 @@ function loadAdminFinanceSummary(opts){
   });
   function clearFinanceTimeout(){ if (timeoutId != null){ clearTimeout(timeoutId); timeoutId = null; } }
   try {
-    var request = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    var request = fetch(url, { credentials: 'same-origin', cache: 'no-store', headers: { Accept: 'application/json' } })
       .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); });
     Promise.race([request, timeout])
       .then(function(data){
