@@ -679,13 +679,16 @@ ok('saved-view paths do not collide with the thread composite',
       view: 'whatsapp', clientSlug: CLIENT, query: {}, page: { limit: 3, cursor: null },
     });
     const terms = orderByTerms(whatsapp.sql);
-    ok('conversation views sort newest-first (updated_at DESC, id ASC)',
+    ok('conversation views sort newest-first (latest message DESC, id ASC)',
       terms.length === 2
-      && terms[0].expr === 'conv.updated_at' && terms[0].desc
+      && terms[0].expr === 'COALESCE(lm.last_message_at, conv.updated_at)' && terms[0].desc
       && terms[1].expr === 'conv.id' && !terms[1].desc);
     ok('conversation sort does not pin needs_human above newer threads',
       !/needs_human/i.test(terms.map((t) => t.expr).join(' '))
       && CURSOR_FIELDS_BY_SOURCE[INBOX_VIEW_SOURCES.CONVERSATIONS].join(',') === 'last_activity,conversation_id');
+    ok('conversation last_activity is latest message time, not bare updated_at',
+      /COALESCE\(lm\.last_message_at, conv\.updated_at\)\s+AS last_activity/i.test(whatsapp.sql)
+      && /FROM messages m/i.test(whatsapp.sql));
   }
   for (const testCase of PAGING_CASES) {
     const label = testCase.view;
