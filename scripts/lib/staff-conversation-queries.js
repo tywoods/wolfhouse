@@ -143,11 +143,32 @@ const CONVERSATION_INBOX_PRIORITY_RANK_SQL = `CASE h.priority
     WHEN 'normal' THEN 2 ELSE 4
   END`;
 
+/**
+ * Inbox list "last activity" = latest message time, not conversations.updated_at.
+ * Metadata / needs_human / link-guest bumps update updated_at without a new
+ * message (Bug Finder: list "Aug 5" while newest in-thread was Jul 14). Fall
+ * back to updated_at only when the thread has no messages yet.
+ */
+const CONVERSATION_INBOX_LAST_ACTIVITY_SQL =
+  'COALESCE(lm.last_message_at, conv.updated_at)';
+
 /** Row fields carrying the inbox sort key, in ORDER BY order (newest first). */
 const CONVERSATION_INBOX_CURSOR_FIELDS = Object.freeze([
   'last_activity',
   'conversation_id',
 ]);
+
+/** Latest message clock for the inbox list (same index as thread ORDER BY). */
+function inboxLastMessageJoinSql() {
+  return `
+LEFT JOIN LATERAL (
+  SELECT m.created_at AS last_message_at
+  FROM messages m
+  WHERE m.conversation_id = conv.id
+  ORDER BY m.created_at DESC
+  LIMIT 1
+) lm ON TRUE`;
+}
 
 /**
  * Tenant, status, location and channel scope of the inbox. The row query and the
@@ -167,17 +188,18 @@ function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped) {
 }
 
 /**
- * Rows strictly after the cursor under the inbox ORDER BY (updated_at DESC,
- * id ASC). conv.id breaks ties so a page boundary cannot repeat or skip a
- * thread when a new message lands.
+ * Rows strictly after the cursor under the inbox ORDER BY (latest message
+ * DESC, id ASC). conv.id breaks ties so a page boundary cannot repeat or skip
+ * a thread when a new message lands.
  */
 function conversationInboxCursorClause(paramIndex) {
   const activity = `$${paramIndex}::timestamptz`;
   const id = `$${paramIndex + 1}::uuid`;
+  const lastActivity = CONVERSATION_INBOX_LAST_ACTIVITY_SQL;
   return `
   AND (
-    conv.updated_at < ${activity}
-    OR (conv.updated_at = ${activity} AND conv.id > ${id})
+    ${lastActivity} < ${activity}
+    OR (${lastActivity} = ${activity} AND conv.id > ${id})
   )`;
 }
 
@@ -190,7 +212,7 @@ function conversationInboxCursorClause(paramIndex) {
  * @param {boolean} [opts.includeEmailSubject=true] - correlated subquery over
  *   tenant_email_inbound_* tables. False when those relations are missing.
  * @param {{ limitParamIndex: number, cursorParamIndex?: number|null }} [opts.keyset]
- *   keyset page: bound LIMIT, tie-broken ORDER BY (updated_at DESC, id ASC)
+ *   keyset page: bound LIMIT, tie-broken ORDER BY (latest message DESC, id ASC)
  * @returns {string} $1 = client slug; when locationScoped, $2 = location_id;
  *   when channelScoped, the next index is the channel value
  */
@@ -201,15 +223,17 @@ function getConversationInboxQuery(opts = {}) {
   const keyset = opts.keyset && typeof opts.keyset === 'object' ? opts.keyset : null;
   const cursorParamIndex = keyset && keyset.cursorParamIndex ? keyset.cursorParamIndex : null;
   const cursorClause = cursorParamIndex ? conversationInboxCursorClause(cursorParamIndex) : '';
-  // Newest activity wins. needs_human stays a row flag + Needs-you filter only —
-  // it must not pin older handoffs above fresher mail.
+  const lastActivity = CONVERSATION_INBOX_LAST_ACTIVITY_SQL;
+  // Newest *message* wins. needs_human stays a row flag + Needs-you filter only —
+  // it must not pin older handoffs above fresher mail. Do not sort on
+  // conversations.updated_at: non-message writes bump that clock.
   const pageSql = keyset
     ? `ORDER BY
-  conv.updated_at DESC,
+  ${lastActivity} DESC,
   conv.id ASC
 LIMIT $${keyset.limitParamIndex}`
     : `ORDER BY
-  conv.updated_at DESC,
+  ${lastActivity} DESC,
   conv.id ASC
 LIMIT 200`;
   return `
@@ -224,7 +248,7 @@ SELECT
   conv.conversation_stage,
   conv.last_message_preview,
   conv.pending_action,
-  conv.updated_at            AS last_activity,
+  ${lastActivity}            AS last_activity,
   CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
   conv.metadata->>'guest_tester_class' AS guest_tester_class,
 ${inboxChannelFieldsSql(opts)}
@@ -235,6 +259,7 @@ ${inboxChannelFieldsSql(opts)}
   COALESCE(pause.paused, FALSE) AS luna_paused
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
+${inboxLastMessageJoinSql()}
 LEFT JOIN LATERAL (
   SELECT reason_code, priority, status
   FROM staff_handoffs
@@ -786,6 +811,7 @@ module.exports = {
   conversationInboxWhereSql,
   conversationInboxCursorClause,
   CONVERSATION_INBOX_CURSOR_FIELDS,
+  CONVERSATION_INBOX_LAST_ACTIVITY_SQL,
   CONVERSATION_INBOX_PRIORITY_RANK_SQL,
   getConversationInboxQuery,
   getConversationInboxCountsQuery,

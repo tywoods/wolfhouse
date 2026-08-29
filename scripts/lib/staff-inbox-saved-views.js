@@ -54,7 +54,7 @@ const INBOX_VIEW_GROUP_IDS = Object.freeze(INBOX_VIEW_GROUPS.map((g) => g.id));
 
 /** Sort ids describe the ORDER BY already baked into each delegated builder. */
 const INBOX_VIEW_SORTS = Object.freeze({
-  /** conversations: updated_at DESC, id ASC (newest first; needs_human is filter-only) */
+  /** conversations: latest message DESC, id ASC (newest first; needs_human is filter-only) */
   RECENT: 'recent',
   /** customers: booked DESC, last_contact_at DESC NULLS LAST, phone ASC */
   BOOKED_THEN_RECENT: 'booked_then_recent',

@@ -325,10 +325,13 @@ assert('inbox All without email tables omits inbound subject SQL',
   assert('unrelated column errors are not subject-schema errors',
     isEmailInboundSubjectSchemaError(other) === false);
 }
-assert('inbox list sorts newest-first (updated_at DESC); needs_human is not a pin',
-  /ORDER BY\s+conv\.updated_at DESC\s*,\s*conv\.id ASC/i.test(convAll.sql.replace(/\s+/g, ' '))
+assert('inbox list sorts newest-first by latest message; needs_human is not a pin',
+  /ORDER BY\s+COALESCE\(lm\.last_message_at, conv\.updated_at\) DESC\s*,\s*conv\.id ASC/i.test(convAll.sql.replace(/\s+/g, ' '))
+  && /COALESCE\(lm\.last_message_at, conv\.updated_at\)\s+AS last_activity/i.test(convAll.sql)
+  && /FROM messages m/i.test(convAll.sql)
   && !/ORDER BY[\s\S]*needs_human\s+DESC/i.test(convAll.sql)
-  && !/handoff_priority_rank/i.test(convAll.sql));
+  && !/handoff_priority_rank/i.test(convAll.sql)
+  && !/ORDER BY\s+conv\.updated_at DESC/i.test(convAll.sql.replace(/\s+/g, ' ')));
 assert('conversation cursor is recency + id only',
   CONVERSATION_INBOX_CURSOR_FIELDS.join(',') === 'last_activity,conversation_id');
 const convAllSunset = buildInboxViewQuery({ view: 'all', clientSlug: SUNSET, query: { location: 'sunset-sardinero' } });
