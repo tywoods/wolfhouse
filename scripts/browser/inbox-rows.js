@@ -556,6 +556,30 @@ function inboxRowsWireCheckboxes() {
   }
 }
 
+/** One list empty state + select-a-thread detail prompt (Bug Finder #18). */
+function inboxRowsFixEmptyChrome(convs, opts) {
+  if (convs && convs.length > 0) return;
+  opts = opts || {};
+  var preserveDetail = !!(opts.preserveDetail && (opts.selectedId ||
+    (typeof selectedConvId !== 'undefined' && selectedConvId)));
+  var stateEl = inboxRowsEl('inbox-state');
+  if (stateEl) {
+    stateEl.style.display = 'none';
+    stateEl.classList.remove('error');
+  }
+  var list = inboxRowsEl('conv-list');
+  if (list && typeof inboxEmptyListMessage === 'function') {
+    var emptyMsg = inboxEmptyListMessage();
+    list.innerHTML = '<div class="conv-list-empty">' + inboxRowsEsc(emptyMsg) + '</div>';
+  }
+  if (!preserveDetail) {
+    var detail = inboxRowsEl('detail-content');
+    if (detail && typeof inboxEmptyDetailHtml === 'function') {
+      detail.innerHTML = inboxEmptyDetailHtml();
+    }
+  }
+}
+
 function inboxRowsAfterRender() {
   inboxRowsEnsureStyles();
   inboxRowsHideLegacyFilterChips();
@@ -633,7 +657,9 @@ function inboxRowsWrapRenderers() {
   if (typeof renderInbox === 'function' && !renderInbox._inboxRowsWrapped) {
     var _inboxRowsLegacyRenderInbox = renderInbox;
     renderInbox = function(convs, opts) {
-      var result = _inboxRowsLegacyRenderInbox(convs, inboxRowsPreserveSelectionOpts(opts));
+      opts = inboxRowsPreserveSelectionOpts(opts);
+      var result = _inboxRowsLegacyRenderInbox(convs, opts);
+      inboxRowsFixEmptyChrome(convs, opts);
       inboxRowsAfterRender();
       return result;
     };
@@ -717,6 +743,7 @@ if (typeof window !== 'undefined') {
     formatTime: inboxRowsFormatTime,
     needsHumanLabel: inboxRowsNeedsHumanLabel,
     hideLegacyFilterChips: inboxRowsHideLegacyFilterChips,
+    fixEmptyChrome: inboxRowsFixEmptyChrome,
     openBroadcast: inboxRowsOpenBroadcast,
     preserveSelectionOpts: inboxRowsPreserveSelectionOpts,
     wrapFilterReselect: inboxRowsWrapFilterReselect,
