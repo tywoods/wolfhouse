@@ -314,6 +314,9 @@ if (phoneFn && enableFn) {
   const ctx = {
     el: (id) => nodes[id] || null,
     schedulePortalSubmitInFlight: false,
+    schedulePortalQuotePriceBlocked: false,
+    schedulePortalQuoteChecking: false,
+    schedulePortalQuoteTimer: null,
   };
   vm.createContext(ctx);
   // The two named slices are the owners under test; the enable path also reads

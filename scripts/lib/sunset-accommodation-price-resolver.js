@@ -299,10 +299,13 @@ function enumerateUncoveredNightsFromGaps(gaps) {
   return out.sort(compareIso);
 }
 
-/** True when nightIso is not covered by any active seasonal range. */
+/** True when nightIso has no active seasonal range with a positive nightly price. */
 function isAccommodationNightUncovered(ranges, nightIso) {
   if (!isIsoDate(nightIso)) return true;
-  return !findCoveringRange(ranges, nightIso);
+  const range = findCoveringRange(ranges, nightIso);
+  if (!range) return true;
+  const cents = Number(range.amount_cents);
+  return !Number.isSafeInteger(cents) || cents <= 0;
 }
 
 function formatUncoveredSpan(uncoveredNights) {

@@ -735,6 +735,8 @@ function sandboxFromHtml(html, opts) {
     'schedulePortalQuoteTimer = null',
     'schedulePortalQuoteDebounceMs = 400',
     'schedulePortalSubmitInFlight = false',
+    'schedulePortalQuoteChecking = false',
+    'schedulePortalQuotePriceBlocked = false',
     'schedulePortalOpenGen = 1',
     'schedulePortalPendingCourseId = null',
     'schedulePortalPendingCourseGen = 0',

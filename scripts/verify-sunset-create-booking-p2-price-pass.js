@@ -95,12 +95,23 @@ ok('Admin gaps match Apr/May/Sep/Oct boundary nights',
 ok('30 Apr uncovered', resolver.isAccommodationNightUncovered(ranges, '2026-04-30') === true);
 ok('29 Apr covered', resolver.isAccommodationNightUncovered(ranges, '2026-04-29') === false);
 ok('1 May covered', resolver.isAccommodationNightUncovered(ranges, '2026-05-01') === false);
+ok('0-cent covering range is uncovered',
+  resolver.isAccommodationNightUncovered(
+    [{ title: 'Zero', check_in: '2026-03-01', check_out: '2026-04-01', amount_cents: 0 }],
+    '2026-03-15',
+  ) === true);
 
 ok('Create calendar marks is-uncovered',
   /is-uncovered/.test(extractNamedFn(apiSrc, 'scheduleRenderCreateAccomDateRangeCalendar') || ''));
 ok('Create Apply blocks uncovered occupied nights',
   /scheduleAccommodationUncoveredNightsInStay/.test(extractNamedFn(apiSrc, 'scheduleApplyCreateAccomDateRangeDraft') || '')
   && /scheduleSyncCreateAccomUncoveredWarning/.test(extractNamedFn(apiSrc, 'scheduleApplyCreateAccomDateRangeDraft') || ''));
+ok('Create date-range UI sync keeps Apply blocked on uncovered nights',
+  /scheduleAccommodationUncoveredNightsInStay/.test(extractNamedFn(apiSrc, 'scheduleSyncCreateAccomDateRangeUi') || '')
+  && /uncoveredBlocked/.test(extractNamedFn(apiSrc, 'scheduleSyncCreateAccomDateRangeUi') || ''));
+ok('Uncovered warning uses uncovered-warn class (not past-date danger)',
+  /id="ps-create-accommodation-uncovered-warn"[^>]*portal-schedule-create-date-range-uncovered-warn/.test(apiSrc)
+  && !/id="ps-create-accommodation-uncovered-warn"[^>]*portal-schedule-create-date-range-past-warn/.test(apiSrc));
 ok('Create Save blocks uncovered stays',
   /scheduleAccommodationUncoveredNightsInStay/.test(extractNamedFn(apiSrc, 'scheduleSaveCreateAccommodation') || ''));
 ok('Create caches Admin ranges from config',
@@ -168,6 +179,39 @@ ok('i18n uncovered + Admin coverageGap EN/ES',
     && api.gaps(ranges)[0].gap_start === '2026-04-30');
 }());
 
+(function sandboxApplyStaysDisabledAfterUiSync() {
+  const body = [
+    extractNamedFn(apiSrc, 'scheduleAddIsoDays'),
+    extractNamedFn(apiSrc, 'scheduleAccommodationRangeCoversNight'),
+    extractNamedFn(apiSrc, 'scheduleAccommodationNightUncovered'),
+    extractNamedFn(apiSrc, 'scheduleAccommodationUncoveredNightsInStay'),
+    extractNamedFn(apiSrc, 'scheduleSyncCreateAccomDateRangeUi'),
+  ].filter(Boolean).map((s) => String(s).replace(/\\\\/g, '\\')).join('\n');
+  const nodes = {
+    'ps-create-accommodation-check-in': { value: '2026-04-29' },
+    'ps-create-accommodation-check-out': { value: '2026-05-01' },
+    'ps-create-accommodation-date-range-display': { textContent: '' },
+    'ps-create-accommodation-date-range-apply': { disabled: false },
+  };
+  // eslint-disable-next-line no-new-func
+  const run = new Function(
+    'el',
+    `var scheduleAccommodationRangesCache = ${JSON.stringify(ranges)};
+    var scheduleCreateAccomDateRangeDraft = { start: '2026-04-29', end: '2026-05-01' };
+    var scheduleCreateDateRangeIsValidIso = function(iso){
+      return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10));
+    };
+    function scheduleCreateAccommodationDisplayText(from, to){ return from + ' – ' + to; }
+    function scheduleCreateDateRangeDraftReady(draft){ return !!(draft && draft.start); }
+    function scheduleCreateDateRangeSyncPastWarning(){}
+    ${body}
+    scheduleSyncCreateAccomDateRangeUi();
+    return el('ps-create-accommodation-date-range-apply').disabled;`,
+  );
+  ok('UI sync leaves Apply disabled for Apr29→May1 uncovered stay',
+    run((id) => nodes[id]) === true);
+}());
+
 // ── 2) Private Lesson catalog price in Create panel ────────────────────────
 console.log('\n[2] Private Lesson € / duration in Create panel');
 ok('Create HTML has private catalog meta host',
@@ -176,6 +220,10 @@ ok('Create HTML has private catalog meta host',
 ok('Caches private amount_cents from Admin config',
   /scheduleSetPrivateLessonCatalogCache/.test(apiSrc)
   && /schedulePrivateLessonAmountCentsCache/.test(apiSrc));
+ok('Missing private catalog clears painted meta',
+  /scheduleRenderPrivateLessonCatalogMeta/.test(
+    extractNamedFn(apiSrc, 'scheduleSetPrivateLessonCatalogCache') || '',
+  ));
 ok('Renders catalog meta from Admin cents+duration',
   /scheduleRenderPrivateLessonCatalogMeta/.test(apiSrc)
   && /catalogPrice/.test(extractNamedFn(apiSrc, 'scheduleRenderPrivateLessonCatalogMeta') || ''));

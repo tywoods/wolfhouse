@@ -329,6 +329,8 @@ function sandboxFromHtml(html, opts) {
     'schedulePortalQuoteTimer = null',
     'schedulePortalQuoteDebounceMs = 400',
     'schedulePortalSubmitInFlight = false',
+    'schedulePortalQuoteChecking = false',
+    'schedulePortalQuotePriceBlocked = false',
   ];
   const prelude = preludeVars.map((v) => `var ${v};`).join('\n');
 

@@ -22076,7 +22076,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <button type="button" class="btn btn-ghost" id="ps-create-accommodation-remove" data-testid="ps-create-accommodation-remove" data-i18n="schedule.create.accommodation.remove">Remove</button>
             </div>
             <p id="ps-create-accommodation-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>
-            <p id="ps-create-accommodation-uncovered-warn" class="portal-schedule-create-date-range-past-warn" role="alert" hidden style="display:none" data-testid="ps-create-accommodation-uncovered-warn"></p>
+            <p id="ps-create-accommodation-uncovered-warn" class="portal-schedule-create-date-range-uncovered-warn" role="alert" hidden style="display:none" data-testid="ps-create-accommodation-uncovered-warn"></p>
             <p class="portal-admin-muted" data-i18n="schedule.create.accommodation.serverPriced">Seasonal nightly rate from Admin only — no room type, bed assignment, or occupancy capacity.</p>
           </div>
         </div>
@@ -26395,6 +26395,7 @@ function scheduleSetAccommodationRangesCache(ranges){
 function scheduleSetPrivateLessonCatalogCache(pl){
   if (!pl || typeof pl !== 'object') {
     schedulePrivateLessonAmountCentsCache = null;
+    scheduleRenderPrivateLessonCatalogMeta();
     return;
   }
   if (pl.default_duration_minutes != null) {
@@ -26477,7 +26478,17 @@ function scheduleSyncCreateAccomDateRangeUi(){
   var apply = el('ps-create-accommodation-date-range-apply');
   if (apply) {
     var draft = scheduleCreateAccomDateRangeDraft || {};
-    apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
+    var draftReady = scheduleCreateDateRangeDraftReady(draft);
+    var uncoveredBlocked = false;
+    // Calendar render already gates Apply; keep the same rule here so a later
+    // UI sync cannot re-enable Apply over uncovered occupied nights.
+    if (draftReady && draft.start
+      && typeof scheduleAccommodationUncoveredNightsInStay === 'function') {
+      var endIso = draft.end || draft.start;
+      if (!endIso || endIso <= draft.start) endIso = scheduleAddIsoDays(draft.start, 1);
+      uncoveredBlocked = scheduleAccommodationUncoveredNightsInStay(draft.start, endIso).length > 0;
+    }
+    apply.disabled = !draftReady || uncoveredBlocked;
   }
   scheduleCreateDateRangeSyncPastWarning('ps-create-accommodation-date-range-past-warn', scheduleCreateAccomDateRangeDraft || {});
 }
