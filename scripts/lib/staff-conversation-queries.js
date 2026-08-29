@@ -37,6 +37,9 @@ const {
   sqlConversationLocationExpr,
   sqlConversationLocationMatch,
 } = require('./sunset-school-locations');
+const {
+  sqlExcludeSystemSenderConversations,
+} = require('./staff-inbox-system-sender');
 
 /** Channel of a conversation row; WhatsApp is the pre-email default. */
 function sqlConversationChannelExpr(convAlias) {
@@ -156,8 +159,11 @@ function inboxNeedsHumanWhereClause(scoped) {
 }
 
 function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped) {
+  // System/noreply mailers (GoDaddy, Apollo, mailer-daemon, no-reply@…) must not
+  // inflate guest conversation lists or rail/badge counts. Same fragment on list
+  // and counts so the numbers stay honest with the rows staff see.
   return `WHERE c.slug = $1
-  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}${inboxNeedsHumanWhereClause(needsHumanScoped)}`;
+  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}${inboxNeedsHumanWhereClause(needsHumanScoped)}${sqlExcludeSystemSenderConversations('conv')}`;
 }
 
 /**
