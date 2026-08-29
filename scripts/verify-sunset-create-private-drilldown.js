@@ -899,12 +899,16 @@ function sandboxFromHtml(html, opts) {
     'schedulePortalQuoteTimer = null',
     'schedulePortalQuoteDebounceMs = 400',
     'schedulePortalSubmitInFlight = false',
+    'schedulePortalQuoteChecking = false',
+    'schedulePortalQuotePriceBlocked = false',
     'schedulePortalOpenGen = 1',
     'schedulePortalPendingCourseId = null',
     'schedulePortalPendingCourseGen = 0',
     'schedulePortalMainActivityView = "root"',
     'scheduleCoursesCache = []',
     'schedulePrivateLessonDurationCache = 120',
+    'schedulePrivateLessonAmountCentsCache = null',
+    'scheduleAccommodationRangesCache = []',
   ];
   const prelude = preludeVars.map((v) => `var ${v};`).join('\n');
 

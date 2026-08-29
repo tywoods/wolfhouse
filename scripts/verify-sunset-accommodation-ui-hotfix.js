@@ -200,6 +200,9 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
   makeEl('ps-create-accommodation-date-range-grid');
   makeEl('ps-create-accommodation-date-range-month-label');
   makeEl('ps-create-accommodation-date-range');
+  makeEl('ps-create-accommodation-uncovered-warn', {
+    hidden: true, style: { display: 'none' }, textContent: '',
+  });
 
   let submitCalls = 0;
   const state = {
@@ -215,6 +218,8 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
     scheduleCreateAccomDateRangeFocusIso: null,
     scheduleCreateAccomDateRangeRestoreFocus: false,
     scheduleAccommodationEnabledCache: true,
+    // Empty catalog = uncovered gate no-ops (matches production until Admin ranges load).
+    scheduleAccommodationRangesCache: [],
   };
 
   function el(id) { return nodes[id] || null; }
@@ -248,7 +253,8 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
     .replace(/\bscheduleCreateAccomDateRangeViewYm\b/g, 'state.scheduleCreateAccomDateRangeViewYm')
     .replace(/\bscheduleCreateAccomDateRangeFocusIso\b/g, 'state.scheduleCreateAccomDateRangeFocusIso')
     .replace(/\bscheduleCreateAccomDateRangeRestoreFocus\b/g, 'state.scheduleCreateAccomDateRangeRestoreFocus')
-    .replace(/\bscheduleAccommodationEnabledCache\b/g, 'state.scheduleAccommodationEnabledCache');
+    .replace(/\bscheduleAccommodationEnabledCache\b/g, 'state.scheduleAccommodationEnabledCache')
+    .replace(/\bscheduleAccommodationRangesCache\b/g, 'state.scheduleAccommodationRangesCache');
 
   const body = [
     extractNamedFn(apiSrc, 'scheduleAddIsoDays'),
@@ -261,6 +267,11 @@ console.log('\n[2b] Behavioral Save sandbox (Create)');
     extractNamedFn(apiSrc, 'scheduleCreateAccomDateRangeIsOpen'),
     extractNamedFn(apiSrc, 'scheduleCreateAccomDateRangeSeedDraft'),
     extractNamedFn(apiSrc, 'scheduleCreateAccomDateRangeClosePopover'),
+    extractNamedFn(apiSrc, 'scheduleAccommodationRangeCoversNight'),
+    extractNamedFn(apiSrc, 'scheduleAccommodationNightUncovered'),
+    extractNamedFn(apiSrc, 'scheduleAccommodationUncoveredNightsInStay'),
+    extractNamedFn(apiSrc, 'scheduleAccommodationUncoveredWarningMessage'),
+    extractNamedFn(apiSrc, 'scheduleSyncCreateAccomUncoveredWarning'),
     extractNamedFn(apiSrc, 'scheduleRenderCreateAccommodation'),
     extractNamedFn(apiSrc, 'scheduleSyncCreateAccommodationFromDom'),
     extractNamedFn(apiSrc, 'scheduleSaveCreateAccommodation'),
