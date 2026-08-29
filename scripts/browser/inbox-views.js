@@ -19,85 +19,58 @@ function inboxViewsConvIdIsUuid(id) {
 }
 
 function inboxViewsFindCachedPersonRow(convId) {
-  var needle = String(convId || '');
+  var needle = String(convId || '').trim();
+  if (!needle) return null;
   var list = inboxConversationsCache || [];
   for (var i = 0; i < list.length; i++) {
     var row = list[i];
     if (!row) continue;
-    if (needle && row.conversation_id && String(row.conversation_id) === needle) return row;
-    if (needle && row._inbox_view_key && String(row._inbox_view_key) === needle) return row;
-  }
-  if (!needle) {
-    var listEl = typeof el === 'function' ? el('conv-list') : null;
-    var card = listEl && listEl.querySelector ? listEl.querySelector('.conv-card.selected') : null;
-    var key = card && card.getAttribute ? card.getAttribute('data-inbox-row-key') : '';
-    if (key) {
-      for (var j = 0; j < list.length; j++) {
-        if (list[j] && list[j]._inbox_view_key === key) return list[j];
-      }
-    }
+    if (row.conversation_id && String(row.conversation_id) === needle) return row;
+    if (row._inbox_view_key && String(row._inbox_view_key) === needle) return row;
   }
   return null;
 }
 
-function inboxViewsCreateCustomerConversation(phone) {
-  var norm = String(phone || '').replace(/\D/g, '');
-  return fetch('/staff/customers/' + encodeURIComponent(phone) + '/create-conversation?client=' + encodeURIComponent(getClient()), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
-    body: JSON.stringify({
-      idempotency_key: 'inbox-person-row-' + norm,
-      reason: 'Opened from Inbox people view',
-    }),
-  })
-    .then(function(r) { return r.json().then(function(body) { return { ok: r.ok, body: body }; }); })
-    .then(function(res) {
-      if (!res.ok || !res.body || !res.body.success || !res.body.conversation_id) {
-        throw new Error((res.body && res.body.error) || 'create failed');
-      }
-      return res.body.conversation_id;
-    });
+/**
+ * INBOX-EMPTY-CONTACT-729 leftover of PR #729.
+ * People rows with no conversation (or no contact) must show empty-thread
+ * copy. Do not POST /staff/customers/:phone/create-conversation from Inbox.
+ */
+function inboxViewsEmptyThreadCopy() {
+  var msg = (typeof t === 'function')
+    ? t('inbox.detail.thread.empty')
+    : 'No message history yet — messages appear here once the guest chats.';
+  var body = (typeof escHtml === 'function') ? escHtml(msg) : String(msg);
+  return '<div class="thread-empty">' + body + '</div>';
 }
 
-function inboxViewsSyncPersonRowConversation(row, convId) {
-  if (!row || !convId) return;
-  row.conversation_id = convId;
-  var list = inboxConversationsCache || [];
-  for (var i = 0; i < list.length; i++) {
-    if (!list[i]) continue;
-    if (list[i] === row) continue;
-    if (row.phone && list[i].phone === row.phone) list[i].conversation_id = convId;
-    if (row._inbox_view_key && list[i]._inbox_view_key === row._inbox_view_key) {
-      list[i].conversation_id = convId;
-    }
+function inboxViewsPaintEmptyPersonDetail(row, targetEl) {
+  targetEl = targetEl || (typeof el === 'function' ? el('detail-content') : null);
+  if (!targetEl) return;
+  if (targetEl.classList && targetEl.classList.remove) {
+    targetEl.classList.remove('is-loading-detail');
   }
-  var listEl = typeof el === 'function' ? el('conv-list') : null;
-  if (!listEl || !listEl.querySelector) return;
-  var key = row._inbox_view_key || '';
-  var card = key ? listEl.querySelector('.conv-card[data-inbox-row-key="' + key + '"]') : null;
-  if (!card && key) card = listEl.querySelector('.conv-card[data-id="' + key + '"]');
-  if (card) card.setAttribute('data-id', convId);
+  if (!row) {
+    targetEl.innerHTML = (typeof inboxEmptyDetailHtml === 'function')
+      ? inboxEmptyDetailHtml()
+      : inboxViewsEmptyThreadCopy();
+    return;
+  }
+  var name = row.guest_name || row.display_name || row.phone || '';
+  var safeName = (typeof escHtml === 'function') ? escHtml(name) : String(name);
+  var html = '<div class="detail-layout"><div class="detail-main">';
+  html += '<div class="detail-header"><div class="detail-header-main"><div class="detail-header-id">';
+  html += '<div class="detail-name">' + safeName + '</div>';
+  html += '</div></div></div>';
+  html += '<div class="thread-section"><div class="thread"><div class="thread-messages">';
+  html += inboxViewsEmptyThreadCopy();
+  html += '</div></div></div></div></div>';
+  targetEl.innerHTML = html;
 }
 
 function inboxViewsOpenPersonWithoutConversation(row, targetEl) {
-  var phone = row && row.phone;
-  if (!phone) {
-    _inboxViewsLegacyLoadConvDetail('', targetEl);
-    return;
-  }
-  inboxViewsCreateCustomerConversation(phone)
-    .then(function(convId) {
-      inboxViewsSyncPersonRowConversation(row, convId);
-      selectedConvId = convId;
-      _inboxViewsLegacyLoadConvDetail(convId, targetEl);
-    })
-    .catch(function(err) {
-      targetEl = targetEl || (typeof el === 'function' ? el('detail-content') : null);
-      if (!targetEl) return;
-      targetEl.classList.remove('is-loading-detail');
-      targetEl.innerHTML = '<div class="state-msg error">Error: ' + escHtml(err.message || 'load failed') + '</div>';
-    });
+  if (row && row._inbox_view_key) selectedConvId = row._inbox_view_key;
+  inboxViewsPaintEmptyPersonDetail(row, targetEl);
 }
 
 function inboxViewsResolveLoadConvDetail(convId, targetEl) {
@@ -105,8 +78,13 @@ function inboxViewsResolveLoadConvDetail(convId, targetEl) {
     _inboxViewsLegacyLoadConvDetail(convId, targetEl);
     return;
   }
-  var row = inboxViewsFindCachedPersonRow(convId);
-  if (row && row._inbox_view_source === INBOX_VIEW_SOURCE_CUSTOMERS && row.phone
+  var id = String(convId || '').trim();
+  if (!id) {
+    inboxViewsPaintEmptyPersonDetail(null, targetEl);
+    return;
+  }
+  var row = inboxViewsFindCachedPersonRow(id);
+  if (row && row._inbox_view_source === INBOX_VIEW_SOURCE_CUSTOMERS
       && !inboxViewsConvIdIsUuid(row.conversation_id)) {
     inboxViewsOpenPersonWithoutConversation(row, targetEl);
     return;
