@@ -637,7 +637,7 @@ module.exports = {
   'inbox.empty.list.surf': 'Aún no hay emails ni chats de huéspedes.',
   'inbox.empty.listEmail': 'Ninguna conversación de email coincide con este filtro.',
   'inbox.empty.listNeedsHuman': 'Ninguna conversación requiere revisión del staff.',
-  'inbox.empty.listNeedsHuman.surf': 'Ninguna conversación requiere atención del staff.',
+  'inbox.empty.listNeedsHuman.surf': 'Nada requiere atención.',
   'inbox.empty.listWhatsapp': 'Ninguna conversación de WhatsApp coincide con este filtro.',
   'inbox.empty.main.surf': 'Aún no hay conversaciones.',
   'inbox.empty.sub.surf': 'Los emails y mensajes de WhatsApp de huéspedes de Sunset aparecerán aquí cuando lleguen.',

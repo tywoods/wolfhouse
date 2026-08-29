@@ -24470,18 +24470,27 @@ function renderInboxSchoolContext(channelConfig){
   wrap.style.display = 'block';
 }
 
+function inboxEmptyViewKind(){
+  var viewId = (typeof inboxSavedViewId === 'string' ? inboxSavedViewId : '') || 'all';
+  if (inboxFilter === 'needs-human' || viewId === 'needs_human') return 'needs-human';
+  if (inboxFilter === 'email' || viewId === 'email') return 'email';
+  if (inboxFilter === 'whatsapp' || viewId === 'whatsapp') return 'whatsapp';
+  return 'all';
+}
+
 function inboxEmptyListMessage(){
+  var kind = inboxEmptyViewKind();
   var profile = getPortalProfile(getClient());
   if (profile.is_surf_vertical && getClient() === 'sunset'){
     var school = getSunsetLocationLabel();
-    if (inboxFilter === 'needs-human') return portalT('inbox.empty.listNeedsHuman.surf');
-    if (inboxFilter === 'email') return portalT('inbox.empty.listEmail');
-    if (inboxFilter === 'whatsapp') return portalT('inbox.empty.listWhatsapp');
+    if (kind === 'needs-human') return portalT('inbox.empty.listNeedsHuman.surf');
+    if (kind === 'email') return portalT('inbox.empty.listEmail');
+    if (kind === 'whatsapp') return portalT('inbox.empty.listWhatsapp');
     return portalT('inbox.empty.list.school.surf').replace('{school}', school);
   }
-  if (inboxFilter === 'needs-human') return portalT('inbox.empty.listNeedsHuman');
-  if (inboxFilter === 'email') return portalT('inbox.empty.listEmail');
-  if (inboxFilter === 'whatsapp') return portalT('inbox.empty.listWhatsapp');
+  if (kind === 'needs-human') return portalT('inbox.empty.listNeedsHuman');
+  if (kind === 'email') return portalT('inbox.empty.listEmail');
+  if (kind === 'whatsapp') return portalT('inbox.empty.listWhatsapp');
   return portalT('inbox.empty.list');
 }
 
@@ -24617,19 +24626,9 @@ function portalT(key){
 }
 
 function inboxEmptyDetailHtml(){
-  var subKey = 'inbox.empty.sub';
-  if (getPortalProfile(getClient()).is_surf_vertical && getClient() === 'sunset') {
-    subKey = 'inbox.empty.sub.school.surf';
-  } else if (getPortalProfile(getClient()).is_surf_vertical) {
-    subKey = 'inbox.empty.sub.surf';
-  }
-  var sub = portalT(subKey);
-  if (subKey === 'inbox.empty.sub.school.surf') {
-    sub = sub.replace('{school}', getSunsetLocationLabel());
-  }
   return '<div class="inbox-empty-right">' +
-    '<p class="main-msg">' + escHtml(portalT('inbox.empty.main')) + '</p>' +
-    '<p class="sub-msg">' + escHtml(sub) + '</p>' +
+    '<p class="main-msg">' + escHtml(t('inbox.empty.main')) + '</p>' +
+    '<p class="sub-msg">' + escHtml(t('inbox.empty.sub')) + '</p>' +
     '</div>';
 }
 

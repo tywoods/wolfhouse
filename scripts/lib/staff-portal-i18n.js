@@ -285,7 +285,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.school.active': 'Config for',
     'admin.school.switchHint': ' (use header school switcher)',
     'inbox.empty.listNeedsHuman': 'No conversations need staff review right now.',
-    'inbox.empty.listNeedsHuman.surf': 'No conversations need staff attention right now.',
+    'inbox.empty.listNeedsHuman.surf': 'Nothing needs attention.',
     'inbox.refreshTitle': 'Refresh conversation list',
     'inbox.search.contacts': 'Search contacts',
     'inbox.mobile.back': '← Conversations',
