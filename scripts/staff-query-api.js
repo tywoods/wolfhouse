@@ -42531,8 +42531,15 @@ async function handleAdminFinanceSummaryGet(query, req, res, user) {
     if (gran === 'day' || gran === 'month' || gran === 'year' || gran === 'custom') view.granularity = gran;
     const anchor = typeof query.anchor === 'string' ? query.anchor.trim() : '';
     if (/^\d{4}-\d{2}-\d{2}$/.test(anchor)) view.anchor = anchor;
-    const start = typeof query.start === 'string' ? query.start.trim() : '';
-    const end = typeof query.end === 'string' ? query.end.trim() : '';
+    // url.parse may yield string[] when a gateway duplicates start/end — same as granularity.
+    const startRaw = query.start;
+    const endRaw = query.end;
+    const start = typeof startRaw === 'string'
+      ? startRaw.trim()
+      : (Array.isArray(startRaw) && startRaw.length ? String(startRaw[0]).trim() : '');
+    const end = typeof endRaw === 'string'
+      ? endRaw.trim()
+      : (Array.isArray(endRaw) && endRaw.length ? String(endRaw[0]).trim() : '');
     if (/^\d{4}-\d{2}-\d{2}$/.test(start)) view.start = start;
     if (/^\d{4}-\d{2}-\d{2}$/.test(end)) view.end = end;
     const data = lodging
