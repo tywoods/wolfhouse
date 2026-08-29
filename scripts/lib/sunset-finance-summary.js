@@ -388,6 +388,21 @@ function yearRange(dateStr) {
   return { start: `${y}-01-01`, end: `${y}-12-31` };
 }
 
+/** True when start/end span one full calendar year (Jan 1 → Dec 31). */
+function isFullCalendarYearRange(start, end) {
+  if (!start || !end || start > end) return false;
+  const y = String(start).slice(0, 4);
+  if (!/^\d{4}$/.test(y)) return false;
+  return start === `${y}-01-01` && end === `${y}-12-31`;
+}
+
+/** Inclusive day count for a resolved period (occupancy denominators scale by this). */
+function periodDayCount(range) {
+  if (!range || !range.start || !range.end) return 1;
+  const days = eachDate(range).length;
+  return days > 0 ? days : 1;
+}
+
 function shiftRangeYears(range, years) {
   const shift = (iso) => {
     const [y, m, d] = String(iso || '').split('-').map(Number);
@@ -829,8 +844,16 @@ function resolvePrimaryRange(args) {
   let granularity = String(view.granularity || 'month').toLowerCase();
   if (!['day', 'month', 'year', 'custom'].includes(granularity)) granularity = 'month';
 
-  if (granularity === 'custom' && view.start && view.end && view.start <= view.end) {
-    return { granularity, range: { start: view.start, end: view.end }, today };
+  const start = (view.start && /^\d{4}-\d{2}-\d{2}$/.test(view.start)) ? view.start : '';
+  const end = (view.end && /^\d{4}-\d{2}-\d{2}$/.test(view.end)) ? view.end : '';
+
+  // Client may send full-year bounds when granularity is dropped on the wire — never collapse to anchor month.
+  if (start && end && isFullCalendarYearRange(start, end)) {
+    granularity = 'year';
+  }
+
+  if (granularity === 'custom' && start && end && start <= end) {
+    return { granularity, range: { start, end }, today };
   }
 
   const anchor = (view.anchor && /^\d{4}-\d{2}-\d{2}$/.test(view.anchor)) ? view.anchor : today;
@@ -838,7 +861,10 @@ function resolvePrimaryRange(args) {
     return { granularity: 'day', range: { start: anchor, end: anchor }, today };
   }
   if (granularity === 'year') {
-    return { granularity: 'year', range: yearRange(anchor), today };
+    const range = (start && end && isFullCalendarYearRange(start, end))
+      ? { start, end }
+      : yearRange(anchor);
+    return { granularity: 'year', range, today };
   }
   return { granularity: 'month', range: monthRange(anchor), today };
 }
@@ -1506,6 +1532,8 @@ module.exports = {
   resolvePrimaryRange,
   next30RangeForPeriod,
   yearRange,
+  isFullCalendarYearRange,
+  periodDayCount,
   productBucket,
   buildRevenueByProductRows,
   buildRevenueByProductFiveRows: buildRevenueByProductRows, // alias
