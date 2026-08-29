@@ -1,232 +1,250 @@
-# Sunset Surf School — guest journey (DRAFT)
+# Sunset Surf School — guest journey v2
 
-**Status:** Planning draft (docs-only). No runtime behavior. Example replies below are **illustrative drafts** to show shape/tone — they are NOT approved copy, and every price / time / link shown is a **placeholder for a config/tool-sourced value**, never a literal Luna may invent. Authored by Deckhand for Skipper/Captain review.
+**Status:** Current product contract for Sunset staging. This document describes the intended guest journey across WhatsApp, email, Luna, the Staff portal, Staff API, Postgres, and Stripe. It does not enable outbound automation or production behavior.
 
-**Aligns with:** `docs/LUNA-GUEST-BEHAVIOR-SPEC.md` (rules), `docs/LUNA-GUEST-JOURNEY.md` (Wolfhouse spine), `LUNA-SUNSET-OVERVIEW.md` + `MULTI-TENANT-PLAN.md` (this folder).
+**Tenant:** `sunset` (`sunset-somo`) · **Environment:** Sunset staging · **Channels:** WhatsApp and email.
 
-**Tenant:** `sunset`. **Channels:** WhatsApp (short, one question per reply) and email (more structured). **Spine:** `question → quote/availability → payment link → booking/order confirmed`.
+**Canonical spine:**
 
-> **Placeholder convention.** `{like_this}` = a value that MUST come from config / Staff API / payment tool at runtime. Luna fills it from the tool result, never from memory or from the seed numbers in `LUNA-SUNSET-OVERVIEW.md`.
+```text
+question → identify guest need → grounded availability/quote → guest accepts
+→ Staff API creates payment link → Stripe payment truth → booking/order confirmed
+```
+
+Every actionable fact—offering, price, stock, capacity, availability, payment URL, balance, or booking state—comes from tenant-scoped Admin configuration, Staff API, Postgres, or Stripe. Luna never supplies those facts from model memory.
 
 ---
 
-## 0. Channel tone contract
+## 1. One guest, two channels
 
-| | WhatsApp | Email |
-|--|----------|-------|
-| Length | Short, ~1 short paragraph | Can be multi-section |
-| Questions per reply | **One** clear next step | May ask 1–2 grouped, clearly listed |
-| Structure | Line breaks, light emoji | Greeting + body sections + sign-off; small tables OK |
-| Truth rule | identical | identical |
+WhatsApp and email are two entrances to the same Sunset front desk, not separate products.
 
-Everything below the truth line (prices, availability, links, confirmations) is identical across channels; only wrapping differs.
+1. An inbound message is normalized and associated with the Sunset tenant.
+2. The system resolves the guest/contact without crossing tenant boundaries.
+3. The conversation appears in the Staff Inbox with channel, guest, booking, lesson, waiver, and payment context where available.
+4. Luna may prepare the next safe response from the same grounded business state.
+5. Staff can review, edit, approve, or take over according to channel controls.
+6. The reply and subsequent guest message remain visible in the guest's conversation history.
 
----
+A guest may use more than one channel. Contact linking must be evidence-based; uncertain identities remain separate rather than being silently merged.
 
-## 1. Rental inquiry flow (unlimited inventory — no availability check for MVP)
+### Channel presentation
 
-**Required fields:** `item` (board / wetsuit / board+suit / SUP) · `window` (1h / half-day / 1 / 2 / 5 / 7 days) · `quantity` · `start`. Then quote from config → payment link → order confirmed on payment truth.
-
-```
-guest asks about rental
-  → identify item + time window + quantity   (one question at a time on WhatsApp)
-  → quote {price} from config (no availability call — unlimited MVP)
-  → guest accepts → payment link from payment tool
-  → payment truth → order confirmed
-```
-
-### 1.1 WhatsApp — example (illustrative drafts only)
-
-> **Guest:** Hey do you rent surfboards?
-> **Sunset Luna:** Heyy! ☀️ Yes — we rent boards, wetsuits, board+suit combos and SUPs 🏄 What would you like, and for how long — a couple of hours, half day, or full day(s)?
-
-> **Guest:** A board for 2 days
-> **Sunset Luna:** Nice 🤙 A board for 2 days is {board_2day_price}. Want me to set that up for you?
-
-> **Guest:** yes
-> **Sunset Luna:** Perfect — here's your secure payment link: {payment_link}. As soon as it goes through I'll confirm your rental ☀️
-
-> **Guest:** *(pays — webhook truth)*
-> **Sunset Luna:** All set! ✅ Your board rental for {dates} is confirmed. Pop by {pickup_location_from_config} to grab it — see you in the water 🌊
-
-### 1.2 Email — example (illustrative)
-
-> **Subject:** Your Sunset board rental
-> Hi {name},
-> Thanks for reaching out! Here's your rental:
-> • Board × {qty} — {window} — **{price}**
-> To confirm, just complete payment here: {payment_link}.
-> Once payment is through we'll send your confirmation with pickup details.
-> See you in the water,
-> Sunset Surf School
+| Contract | WhatsApp | Email |
+|---|---|---|
+| Truth source | Identical grounded state | Identical grounded state |
+| Shape | Short, conversational | Structured; paragraphs/lists allowed |
+| Questions | One clear next step per reply | One or two grouped asks when useful |
+| Confirmation | Only after durable truth | Only after durable truth |
 
 ---
 
-## 2. Lesson booking flow (capacity-limited — availability check required)
+## 2. Control and intervention model
 
-**Required fields:** `lesson_type` (adult/adolescent group · kids Surfpark · private/coaching · large group) · `date` · `time slot` · `participant_count` · (`ages` if kids). Capacity check → quote → payment link → confirmed.
+Channel automation is tenant-global; conversation handling is local.
 
-```
-guest asks about a lesson
-  → explain lesson types briefly (before asking them to pick)   [rule 5.1 analogue]
-  → collect type + date + time + #surfers (+ ages for kids)
-  → Staff-API capacity check for that slot
-       available → quote {price} → payment link → confirmed
-       unknown/manual → collect request → hand to staff to schedule
-  → kids / large group / out-of-range age → handoff path (§5)
-```
+### Tenant-global controls
 
-### 2.1 WhatsApp — example (illustrative)
+- **Channel mode:** Draft / Auto for each supported channel.
+- **Global Pause:** stops automated handling across the tenant.
+- **Auto-send:** a distinct activation boundary. Building email or drafting email does not imply automatic sending.
 
-> **Guest:** I want a surf lesson next Saturday
-> **Sunset Luna:** Love it 🌊 We run group lessons (over 12s), kids' Surfpark lessons (~6–11), and private/coaching sessions. Which sounds right for you?
+### Conversation-scoped controls
 
-> **Guest:** group lesson, 2 of us
-> **Sunset Luna:** Great — group lessons usually run {slot_times_from_config}. Which time works for Saturday, and are both surfers over 12?
+- **Luna On/Off:** whether Luna handles that conversation.
+- **Needs Human / Requiere personal:** explicit staff ownership for that conversation.
 
-> **Guest:** the morning one, yes both adults
-> **Sunset Luna:** Let me check that slot for 2… ✨ *(Staff-API capacity check)*
-> Yes! Saturday {slot} has space. It's {price_per_surfer} per surfer, so {total} for 2 — board, wetsuit and all gear included. Want me to hold it with a payment link?
-
-> **Guest:** yes please
-> **Sunset Luna:** Here's your secure link: {payment_link}. Once it's paid I'll confirm 🤙 (Heads up: please arrive ~20 min before the class.)
-
-> **Guest:** *(pays)*
-> **Sunset Luna:** Confirmed ✅ See you Saturday — remember, arrive 20 min before {slot} at {meeting_point_from_config}. ☀️
-
-### 2.2 Capacity unknown / manual scheduling (illustrative)
-
-> **Sunset Luna:** Got it — 2 surfers for a group lesson Saturday. I've passed this to our team to lock in the exact time; they'll confirm your slot and the {price} shortly 🙌
-
-### 2.3 Email — example (illustrative)
-
-> **Subject:** Your Sunset surf lesson — Saturday
-> Hi {name},
-> Here are the lesson options for your group:
-> • **Group lesson (12+)** — {slot_times} — {price_per_surfer}/surfer, gear included
-> • **Private / coaching** — {price} — flexible timing
-> Could you confirm: how many surfers, which time, and that everyone is over 12?
-> Once confirmed I'll check the slot and send a payment link.
-> Sunset Surf School
+For WhatsApp, automatic reply is allowed only when global mode is Auto, Global Pause is off, Luna is on for the conversation, and Needs Human is off. Email follows its own separately activated outbound policy. On Sunset staging, automatic outbound behavior remains off unless a separately approved activation changes it.
 
 ---
 
-## 3. Accommodation package request flow (partner-hotel confirmation)
+## 3. Rental journey
 
-Accommodation is **not** Sunset-owned inventory. Unless the Staff API confirms availability, this is a **request that needs partner/hotel confirmation** — Luna never promises a room or final price on its own.
+Sunset rentals mirror the live Admin catalog. Luna must not rely on a hardcoded list of bundles, prices, or durations.
 
-```
-guest asks about surf + stay package
-  → explain it's surf + a nearby partner hotel
-  → collect dates + #people + lessons/rentals wanted
-  → Staff API:
-       confirms availability + price → quote → payment link → confirmed
-       cannot confirm → "request sent to team/partner to confirm" (no promise)
-```
-
-### 3.1 WhatsApp — example (illustrative)
-
-> **Guest:** Do you do surf + hotel packages?
-> **Sunset Luna:** We do! 🌅 It's surf lessons/rentals paired with a stay at a hotel nearby. What dates are you thinking, how many people, and how much surfing — lessons, rentals, or both?
-
-> **Guest:** 3 nights in July, 2 of us, lessons each day
-> **Sunset Luna:** Perfect, thanks 🙌 Let me check the hotel availability and put together the surf side for those dates — I'll come back to you with options shortly.
-
-> *(If Staff API confirms:)*
-> **Sunset Luna:** Good news ✨ For {dates}, 2 people with daily lessons, it's {package_total}. Want me to send a payment link to lock it in?
-
-> *(If it can't be auto-confirmed:)*
-> **Sunset Luna:** I've sent your dates to our team to confirm with the hotel — they'll get back to you with availability and the price soon 🌊 *(no room/price promised yet)*
-
-### 3.2 Email — example (illustrative)
-
-> **Subject:** Sunset surf + stay — {dates}
-> Hi {name},
-> Thanks for your interest in a surf + accommodation package!
-> Here's what I have so far: {nights} nights, {people} people, daily lessons.
-> The hotel side needs a quick confirmation from our partner — I've requested availability for your dates and will follow up with the full price. Nothing is reserved until that's confirmed and paid.
-> Sunset Surf School
-
----
-
-## 4. Payment / confirmation flow (shared across all services)
-
-Same truth spine as Wolfhouse (`docs/LUNA-GUEST-JOURNEY.md` §3, payment-truth phases):
-
-```
-quote (config/Staff-API sourced)
-  → guest accepts
-  → payment link created by Staff-API / payment tool (tenant=sunset, Sunset Stripe)
-  → guest pays
-  → Stripe webhook truth (NOT the LLM)
-  → booking/order marked paid → confirmation message sent
+```text
+guest asks for rental
+→ resolve live enabled offering
+→ collect start + duration/tier + quantity
+→ check configured stock/eligibility where required
+→ Staff API returns exact quote
+→ guest accepts
+→ payment link from Staff API
+→ Stripe truth
+→ rental confirmed with grounded pickup details
 ```
 
 Rules:
-- **No price** stated without a verified config/tool quote.
-- **No payment URL** Luna didn't receive from the payment tool — relayed verbatim.
-- **No "confirmed / paid / reserved"** before webhook truth.
-- Payment-link URL, amount, confirmation text are **composer-owned** and not reworded by the voice layer (rule 6.3).
+
+- Only enabled offerings may be presented or quoted.
+- Quantity follows the configured/product limit; UI support for 1–99 is not permission to exceed stock or server rules.
+- Daily requests use the exact configured tier when available; otherwise use the longest valid shorter tier according to the canonical quote owner.
+- Hourly requests require an exact configured hourly tier.
+- Luna never reconstructs a price from an old public-site table or prose prompt.
+- A changed date, duration, offering, or quantity invalidates the old quote and requires a new one.
+- Pickup location/instructions are stated only from current tenant configuration.
 
 ---
 
-## 5. Handoff cases
+## 4. Lesson journey
 
-Inherits the engine handoff policy (opt-in, explicit reasons only — rule 8.x, `surf-school.sample.json` / `surf-shop-rental.sample.json` `always_handoff`). Sunset-specific triggers:
+Lessons are capacity- and schedule-sensitive.
 
-| Trigger | Why | Luna does |
-|---------|-----|-----------|
-| Refund / cancellation / date-change request | Always staff | Hand off with a safe reply; never promise a refund |
-| Complaint / angry guest | Always staff | Empathize briefly, hand off |
-| Discount / custom / bulk deal | Not bot-priced | Hand off |
-| **Large group beyond configured limit** | Capacity/pricing not auto-handled | Hand off |
-| **Kids lesson — guardian consent / minor's personal data** | Privacy + safeguarding gate | Hand off |
-| **Age outside range** (e.g. under-min for kids, under-12 for adult group) | Eligibility | Explain options or hand off; don't guess eligibility |
-| Guest claims paid but no payment record | Payment mismatch | Hand off |
-| Partner-hotel exceptions (special requests, changes) | Not Sunset-owned | Hand off / route to partner workflow |
-| Low route confidence / parse or API error | Safety | Safe fallback / hand off (never invent) |
+```text
+guest asks about lessons
+→ explain the live lesson types before asking the guest to choose
+→ collect/infer date + participants + relevant age/eligibility facts
+→ resolve configured course/slot
+→ Staff API checks season coverage and capacity
+→ quote exact lesson and configured add-ons/equipment
+→ guest accepts
+→ payment link
+→ Stripe truth
+→ lesson confirmed with grounded arrival/meeting details
+```
 
-Low confidence **alone** never triggers handoff (rule 8.1). Example safe reply:
+Rules:
 
-> **Sunset Luna:** Let me connect you with our team — they'll sort this out for you shortly 🙌
-
----
-
-## 6. Cross-cutting behavior notes
-
-- **Explain before asking to pick** (rentals tiers, lesson types) — don't ask "group or private?" before the guest knows the difference (rule 5.1 analogue).
-- **One question per WhatsApp reply**; email may group a short list.
-- **Preserve context** across turns and side questions (dates, item, count) — don't re-ask known fields (rule 4.2/4.3).
-- **A correction invalidates a stale quote** — re-quote, don't silently keep the old total (rule 4.4).
-- **No internal language** to guests (no "tenant", "Staff API", "dry run", etc. — §2).
-- **Materials-included** ("board, wax, leash, wetsuit") stated only if config says so.
-- **Arrive ~20 min before class** stated from config for lessons.
-- **No Wolfhouse references** ever — Sunset Luna doesn't know about Somo packages / Cami.
+- Course names, times, ages, capacities, beaches, included equipment, and add-ons come from live Sunset configuration.
+- Private and group lessons follow their distinct quote paths.
+- If a date is outside configured season coverage, Luna does not invent a price or silently use another season.
+- If capacity or scheduling cannot be confirmed, Luna collects the request and routes it to staff without promising a place.
+- Minors, guardian consent, custom groups, and eligibility exceptions follow explicit handoff policy.
+- Arrival time and meeting point are stated only when configured.
 
 ---
 
-## 7. Suggested fixtures (for a later implementation slice — not built here)
+## 5. Accommodation journey
 
-To prove these flows the Wolfhouse way (a fixture per behavior, `npm run verify:luna-all`):
+Accommodation uses the inventory and package truth configured for Sunset. It is not automatically treated as unlimited inventory, nor automatically promised as a partner booking.
 
-1. `sunset-rental-quote-to-payment` — item + window → config quote → link → paid → confirmed.
-2. `sunset-lesson-capacity-available` — type+date+slot+count → capacity check → quote → confirmed.
-3. `sunset-lesson-capacity-manual` — capacity unknown → collect → staff-schedule (no fake confirm).
-4. `sunset-accommodation-needs-confirmation` — package request → "team/partner to confirm", no promise.
-5. `sunset-kids-lesson-guardian-handoff` — minor consent → handoff.
-6. `sunset-no-invented-price` — unknown item/price → asks/handoff, never invents.
-7. `sunset-no-fake-confirmation` — never "paid/confirmed" before webhook truth.
-8. `sunset-tenant-isolation` — Sunset reply never contains Wolfhouse facts (and vice-versa).
-9. `sunset-email-structured-vs-whatsapp-short` — same truth, channel-appropriate shape.
+```text
+guest asks for surf + stay
+→ collect dates + party size + surf needs
+→ resolve configured accommodation/package
+→ Staff API checks authoritative inventory/coverage
+→ confirmed inventory: exact quote → payment → confirmation
+→ partner/manual inventory: request sent for confirmation; no promise or final quote
+```
+
+Rules:
+
+- A room/package is quoted only when the source of truth covers the full requested stay.
+- Uncovered nights, inventory gaps, or partner-controlled availability become an explicit manual-confirmation path.
+- Luna never presents a partial-coverage quote as a complete stay.
+- Special requests and changes remain staff-owned unless a canonical tool explicitly supports them.
 
 ---
 
-## 8. Open questions for Skipper / Captain
+## 6. Shared payment and confirmation journey
 
-1. **Sunset Luna persona/voice** — own named voice or neutral Sunset-branded Luna? (drives the messaging playbook copy).
-2. **Lesson slot times** — public site shows `11:00–13:00` and `16:00–18:00`; confirm these are the live Sunset slots before Luna states them.
-3. **Lesson capacity source** — Staff-API capacity per slot, or fully manual collect-then-schedule for MVP?
-4. **Accommodation** — any Staff-API hotel integration, or every package a staff/partner confirmation for MVP?
-5. **Email** — in scope for MVP or fast-follow?
-6. **Kids age policy** — exact min-age rules per group size before Luna states eligibility.
-7. **Pickup/meeting points** — config values for rental pickup and lesson meeting point.
+```text
+verified quote
+→ guest accepts
+→ tenant-scoped payment link created
+→ guest pays
+→ Stripe webhook / canonical payment ledger records truth
+→ booking balance and Finance agree
+→ confirmation may be sent
+```
+
+Non-negotiable rules:
+
+- No constructed or guessed payment URL.
+- No `paid`, `held`, `reserved`, or `confirmed` language before durable payment/booking truth.
+- A guest claiming payment without a matching record is a payment mismatch and requires staff.
+- Staff-created Paid bookings must create canonical payment/collection truth; a visual status chip alone is insufficient.
+- Refunds, cancellations, and paid booking changes are staff-owned and must use the canonical ledger paths.
+
+---
+
+## 7. Email journey
+
+Email is part of Sunset's shared Inbox journey.
+
+```text
+inbound email
+→ normalize sender and suppress system/noreply noise
+→ bind to Sunset guest/conversation when evidence permits
+→ show in Inbox
+→ Luna prepares a grounded draft when enabled
+→ staff reviews/edits/approves
+→ approved outbound owner sends
+→ sent message and later replies remain in conversation history
+```
+
+Email-specific rules:
+
+- System senders such as noreply/mailer-daemon shapes do not become guest conversations.
+- Drafting, approval, sending, and automatic sending are separate authorities.
+- Operator notes are instructions, not guest-facing copy.
+- Email may use sections or a compact quote summary, but prices, links, and confirmations retain the same deterministic truth ownership as WhatsApp.
+- Generic IMAP/SMTP and provider-specific integrations must preserve the same tenant, identity, custody, and send gates.
+- Campaigns/broadcasts and automatic outbound email are outside this journey unless separately approved and activated.
+
+---
+
+## 8. Staff handoff cases
+
+Luna hands off for an explicit reason, not merely because model confidence is low.
+
+| Trigger | Required behavior |
+|---|---|
+| Refund, cancellation, or paid booking change | Acknowledge safely; route to staff; promise no outcome |
+| Complaint or angry guest | Brief empathy and staff ownership |
+| Discount, custom deal, or unsupported group | Route for staff pricing |
+| Capacity/inventory cannot be confirmed | Collect request; no availability promise |
+| Minor/guardian or eligibility exception | Use safeguarding handoff |
+| Guest claims paid but no canonical payment exists | Treat as payment mismatch |
+| Partner accommodation exception | Route to staff/partner confirmation |
+| Tool/API/parse failure | Safe fallback; invent nothing |
+| Needs Human set or Luna switched off | Do not continue autonomous handling |
+
+---
+
+## 9. Cross-cutting behavior
+
+- Explain live options before asking the guest to choose.
+- Preserve known dates, party size, preferences, and prior answers across turns.
+- Infer ordinary date expressions when safely resolvable; ask only for the missing ambiguity.
+- Keep WhatsApp low-friction and ask one clear next question.
+- Never expose internal language such as tenant, Staff API, composer, staging, dry run, or tool failure.
+- Never leak Wolfhouse facts, inventory, prices, links, or voice into Sunset.
+- Disabled offerings disappear from both staff-assisted and Luna-assisted sales paths.
+- Staff portal labels and Luna-facing names should resolve from the same canonical item/course configuration.
+
+---
+
+## 10. Acceptance journeys
+
+The maintained regression suite should cover at least:
+
+1. Enabled rental → exact tier/quantity quote → payment → confirmation.
+2. Disabled rental is neither offered nor quoted.
+3. Rental duration/quantity correction invalidates and replaces the quote.
+4. Group lesson with season coverage and capacity → exact quote → confirmation.
+5. Private lesson uses its dedicated quote path.
+6. Uncovered season date and full-capacity slot fail closed without invented alternatives.
+7. Configured accommodation inventory quotes only fully covered nights.
+8. Partner/manual accommodation requests do not claim availability.
+9. Staff-created Paid booking produces matching invoice, balance, and Finance truth.
+10. Inbound email → guest conversation → reviewed draft → approved send record.
+11. System/noreply email is excluded from guest views.
+12. Global Pause, channel mode, Luna Off, and Needs Human each block autonomous handling correctly.
+13. No price, payment link, availability, or confirmation can be produced without its authoritative result.
+14. Sunset and Wolfhouse facts remain isolated.
+
+---
+
+## 11. Activation boundaries
+
+This journey document does not authorize:
+
+- production deployment;
+- automatic WhatsApp or email sending;
+- customer outreach or campaigns;
+- OAuth/grant mutations;
+- payment, booking, refund, or inventory writes outside an approved test;
+- real-customer contact.
+
+Those remain separate reviewed and explicitly approved operations.
