@@ -218,13 +218,20 @@ function scheduleCockpitT(key, fallback, vars) {
   return raw;
 }
 
-function scheduleCockpitPrepTitle(isToday) {
+function scheduleCockpitShortDateLabel(dateIso) {
+  var iso = String(dateIso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '';
+  var dt = new Date(iso + 'T00:00:00');
+  if (Number.isNaN(dt.getTime())) return '';
+  return dt.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function scheduleCockpitPrepTitle(isToday, dateIso) {
   if (isToday) return scheduleCockpitT('schedule.cockpit.prepTitle', "TODAY'S PREP");
-  var other = scheduleCockpitT('schedule.cockpit.prepTitleOther', '');
+  var dateLabel = scheduleCockpitShortDateLabel(dateIso);
+  var other = scheduleCockpitT('schedule.cockpit.prepTitleOther', 'PREP FOR {date}', { date: dateLabel });
   if (other && other !== 'schedule.cockpit.prepTitleOther') return other;
-  var es = false;
-  try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_e) { es = false; }
-  return es ? 'PREPARACIÓN' : 'PREP';
+  return dateLabel ? ('PREP · ' + dateLabel) : 'PREP';
 }
 
 /** Horario-only display fix: course name must be Medio Día. */
@@ -728,7 +735,7 @@ function scheduleRenderDayCockpit(mount, data) {
   /* prep rail — exact offering labels/qty (course add-ons first, then top others) */
   var p = data.prep || {};
   var prep = el('div', 'ck-prep');
-  prep.appendChild(el('h3', null, scheduleCockpitPrepTitle(isToday)));
+  prep.appendChild(el('h3', null, scheduleCockpitPrepTitle(isToday, data.date)));
   var prepItems = Array.isArray(p.items) ? p.items : [];
   if (prepItems.length) {
     prepItems.forEach(function (item) {

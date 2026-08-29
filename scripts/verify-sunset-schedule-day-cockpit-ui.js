@@ -666,6 +666,7 @@ console.log('\n[7] LANG-003 — ES Horario chrome + Medio Día');
     'schedule.cockpit.range.daily',
     'schedule.cockpit.range.monthly',
     'schedule.cockpit.prepTitle',
+    'schedule.cockpit.prepTitleOther',
     'schedule.cockpit.unpaidPending',
     'schedule.cockpit.needReply',
     'schedule.cockpit.hero.onNow',
