@@ -331,6 +331,122 @@ ok('label uses existing Needs human raise key (not invented ES strings)',
     && !esWrapped.includes('Requiere respuesta del staff'));
 }
 
+console.log('\n-- channel icon unread / read / needs_human --');
+{
+  const compact = rowsSrc.replace(/\s+/g, '');
+  ok('unread WhatsApp icon is green when not needs_human',
+    compact.includes('.conv-card.inbox-row-unread:not(.inbox-row-needs-human).inbox-channel-badge-whatsapp{color:#25D366}'));
+  ok('unread Email icon is Luna blue when not needs_human',
+    compact.includes('.conv-card.inbox-row-unread:not(.inbox-row-needs-human).inbox-channel-badge-email{color:#3B7FB0}'));
+  ok('needs_human orange still beats unread channel color',
+    /inbox-row-needs-human[^}]*inbox-channel-badge\{color:#E8893A\}/.test(compact)
+    && compact.includes('inbox-row-unread:not(.inbox-row-needs-human)'));
+  ok('rows wrap paints prior card read + needs_human in place (stay off inbox-thread.js)',
+    rowsSrc.includes('function inboxRowsPaintCardRead(')
+    && rowsSrc.includes('function inboxRowsPaintCardNeedsHuman(')
+    && rowsSrc.includes('function inboxRowsWrapIconState(')
+    && rowsSrc.includes('inboxRowsPaintCardRead(prev)')
+    && rowsSrc.includes('inboxRowsWrapIconState()')
+    && !threadSrc.includes('inboxRowsPaintCardRead')
+    && !threadSrc.includes('#25D366')
+    && !threadSrc.includes('#3B7FB0'));
+}
+
+{
+  const unreadWa = sandbox.renderInboxConvCardHtml({
+    conversation_id: 'wa-unread',
+    guest_name: 'Kai',
+    channel: 'whatsapp',
+    unread: true,
+  });
+  ok('unread WhatsApp row keeps badge class for green icon CSS',
+    unreadWa.includes('inbox-row-unread')
+    && unreadWa.includes('inbox-channel-badge-whatsapp')
+    && !unreadWa.includes('inbox-row-needs-human'));
+  const unreadEm = sandbox.renderInboxConvCardHtml({
+    conversation_id: 'em-unread',
+    guest_name: 'Lia',
+    channel: 'email',
+    unread: true,
+  });
+  ok('unread Email row keeps badge class for blue icon CSS',
+    unreadEm.includes('inbox-row-unread')
+    && unreadEm.includes('inbox-channel-badge-email')
+    && !unreadEm.includes('inbox-row-needs-human'));
+  const unreadNh = sandbox.renderInboxConvCardHtml({
+    conversation_id: 'nh-unread',
+    guest_name: 'Tyler Woods',
+    channel: 'email',
+    unread: true,
+    needs_human: true,
+  });
+  ok('unread + needs_human still marks orange class (CSS :not keeps orange)',
+    unreadNh.includes('inbox-row-unread')
+    && unreadNh.includes('inbox-row-needs-human')
+    && unreadNh.includes('inbox-channel-badge-email'));
+}
+
+{
+  const cardClasses = new Set(['conv-card', 'inbox-row', 'inbox-row-unread']);
+  let dotRemoved = false;
+  const prior = {
+    classList: {
+      add(c) { cardClasses.add(c); },
+      remove(c) { cardClasses.delete(c); },
+      contains(c) { return cardClasses.has(c); },
+    },
+    getAttribute(name) { return name === 'data-id' ? 'prior' : ''; },
+    querySelector(sel) {
+      if (String(sel).indexOf('inbox-row-unread-dot') >= 0 && !dotRemoved) {
+        return { parentNode: { removeChild() { dotRemoved = true; } } };
+      }
+      return null;
+    },
+  };
+  const listEl = {
+    querySelectorAll() { return [prior]; },
+  };
+  sandbox.document = {
+    getElementById(id) { return id === 'conv-list' ? listEl : null; },
+  };
+  sandbox.inboxConversationsCache = [
+    { conversation_id: 'prior', unread: true, unread_count: 2 },
+    { conversation_id: 'next', unread: true },
+  ];
+  fns.paintCardRead('prior');
+  ok('clicking another customer greys the prior row icon without replacing the list',
+    !cardClasses.has('inbox-row-unread')
+    && dotRemoved === true
+    && sandbox.inboxConversationsCache[0].unread === false
+    && sandbox.inboxConversationsCache[0].unread_count === 0
+    && sandbox.inboxConversationsCache[1].unread === true);
+  fns.paintCardNeedsHuman('prior', true);
+  ok('needs_human paints the live card orange class without a full reload',
+    cardClasses.has('inbox-row-needs-human'));
+  fns.paintCardNeedsHuman('prior', false);
+  ok('clearing needs_human drops the orange class in place',
+    !cardClasses.has('inbox-row-needs-human'));
+
+  const opened = [];
+  sandbox.selectedConvId = 'prior';
+  sandbox.loadConvDetail = function(id) {
+    opened.push(id);
+    sandbox.selectedConvId = id;
+    return 'ok';
+  };
+  sandbox.updateInboxConvCardNeedsHuman = function(id, flag) { return { id: id, flag: flag }; };
+  fns.wrapIconState();
+  const out = sandbox.loadConvDetail('next');
+  ok('loadConvDetail wrap greys the prior row then opens the next thread',
+    out === 'ok'
+    && opened.join(',') === 'next'
+    && sandbox.loadConvDetail._inboxRowsIconStateWrapped === true
+    && !cardClasses.has('inbox-row-unread'));
+  sandbox.updateInboxConvCardNeedsHuman('next', true);
+  ok('updateInboxConvCardNeedsHuman wrap is installed from rows (thread file untouched)',
+    sandbox.updateInboxConvCardNeedsHuman._inboxRowsIconStateWrapped === true);
+}
+
 ok('conversation views do not invent a silent no-op search',
   rowsSrc.includes("source === 'customers'")
   && rowsSrc.includes('inboxRowsSearchSupported()')

@@ -55,6 +55,10 @@ var INBOX_ROWS_CSS = [
   /* Needs-human attention: same orange as .inbox-needs-human-raise.is-on */
   '.conv-card.inbox-row-needs-human .inbox-channel-badge{color:#E8893A}',
   '.conv-card.inbox-row-needs-human .inbox-channel-badge svg{stroke:currentColor}',
+  /* INBOX-CHANNEL-ICON-STATE-001: unread WA green / email Luna blue; read stays grey. */
+  '.conv-card.inbox-row-unread:not(.inbox-row-needs-human) .inbox-channel-badge-whatsapp{color:#25D366}',
+  '.conv-card.inbox-row-unread:not(.inbox-row-needs-human) .inbox-channel-badge-email{color:#3B7FB0}',
+  '.conv-card.inbox-row-unread:not(.inbox-row-needs-human) .inbox-channel-badge svg{stroke:currentColor}',
   /* Compact / md density: shrink gutters so names+timestamps fit without clip */
   '#inbox-shell[data-col2="compact"] .conv-card.inbox-row{gap:6px;padding:8px 8px}',
   '#inbox-shell[data-col2="compact"] .inbox-row-avatar{width:28px;height:28px;font-size:10px}',
@@ -328,6 +332,58 @@ function inboxRowsPaintCardTime(convId, label) {
     var timeEl = cards[i].querySelector('.conv-card-time');
     if (timeEl) timeEl.textContent = label;
   }
+}
+
+function inboxRowsFindCard(convId) {
+  if (typeof document === 'undefined' || !convId) return null;
+  var list = inboxRowsEl('conv-list');
+  if (!list || !list.querySelectorAll) return null;
+  var want = String(convId);
+  var cards = list.querySelectorAll('.conv-card[data-id]');
+  for (var i = 0; i < cards.length; i++) {
+    if (String(cards[i].getAttribute('data-id')) === want) return cards[i];
+  }
+  return null;
+}
+
+/** Opening a thread marks it read — patch cache so a later list rebuild does not restore unread color. */
+function inboxRowsMarkCacheRead(convId) {
+  var id = convId ? String(convId) : '';
+  if (!id) return;
+  try {
+    var cache = (typeof inboxConversationsCache !== 'undefined') ? inboxConversationsCache : null;
+    if (!Array.isArray(cache)) return;
+    var now = new Date().toISOString();
+    for (var i = 0; i < cache.length; i++) {
+      if (!cache[i]) continue;
+      if (String(cache[i].conversation_id || cache[i].id || '') !== id) continue;
+      cache[i].unread = false;
+      cache[i].is_unread = false;
+      cache[i].unread_count = 0;
+      cache[i].last_read_at = now;
+    }
+  } catch (_e) {}
+}
+
+/**
+ * INBOX-CHANNEL-ICON-STATE-001 — turn the prior row's channel icon grey
+ * without replacing the whole list (no full page refresh).
+ */
+function inboxRowsPaintCardRead(convId) {
+  inboxRowsMarkCacheRead(convId);
+  var card = inboxRowsFindCard(convId);
+  if (!card || !card.classList) return;
+  card.classList.remove('inbox-row-unread');
+  var dot = card.querySelector ? card.querySelector('.inbox-row-unread-dot') : null;
+  if (dot && dot.parentNode) dot.parentNode.removeChild(dot);
+}
+
+/** needs_human flips the pebble orange in place (same class the wrap already paints). */
+function inboxRowsPaintCardNeedsHuman(convId, needsHuman) {
+  var card = inboxRowsFindCard(convId);
+  if (!card || !card.classList) return;
+  if (needsHuman) card.classList.add('inbox-row-needs-human');
+  else card.classList.remove('inbox-row-needs-human');
 }
 
 function inboxRowsRememberThreadMessages(convId, msgs) {
@@ -716,12 +772,37 @@ function inboxRowsWrapViews() {
   }
 }
 
+function inboxRowsWrapIconState() {
+  if (typeof loadConvDetail === 'function' && !loadConvDetail._inboxRowsIconStateWrapped) {
+    var _inboxRowsLegacyLoadConvDetail = loadConvDetail;
+    loadConvDetail = function(convId, targetEl) {
+      var prev = (typeof selectedConvId !== 'undefined') ? selectedConvId : '';
+      var result = _inboxRowsLegacyLoadConvDetail(convId, targetEl);
+      if (prev && String(prev) !== String(convId || '')) {
+        inboxRowsPaintCardRead(prev);
+      }
+      return result;
+    };
+    loadConvDetail._inboxRowsIconStateWrapped = true;
+  }
+  if (typeof updateInboxConvCardNeedsHuman === 'function' && !updateInboxConvCardNeedsHuman._inboxRowsIconStateWrapped) {
+    var _inboxRowsLegacyNeedsHumanCard = updateInboxConvCardNeedsHuman;
+    updateInboxConvCardNeedsHuman = function(convId, needsHuman) {
+      var result = _inboxRowsLegacyNeedsHumanCard(convId, needsHuman);
+      inboxRowsPaintCardNeedsHuman(convId, needsHuman === true);
+      return result;
+    };
+    updateInboxConvCardNeedsHuman._inboxRowsIconStateWrapped = true;
+  }
+}
+
 function inboxRowsInstall() {
   if (inboxRowsRuntime.wired) return true;
   inboxRowsEnsureStyles();
   inboxRowsWrapRenderers();
   inboxRowsWrapViews();
   inboxRowsWrapFilterReselect();
+  inboxRowsWrapIconState();
   inboxRowsHideLegacyFilterChips();
   inboxRowsAfterRender();
   inboxRowsRuntime.wired = true;
@@ -747,6 +828,11 @@ if (typeof window !== 'undefined') {
     openBroadcast: inboxRowsOpenBroadcast,
     preserveSelectionOpts: inboxRowsPreserveSelectionOpts,
     wrapFilterReselect: inboxRowsWrapFilterReselect,
+    wrapIconState: inboxRowsWrapIconState,
+    paintCardRead: inboxRowsPaintCardRead,
+    paintCardNeedsHuman: inboxRowsPaintCardNeedsHuman,
+    markCacheRead: inboxRowsMarkCacheRead,
+    findCard: inboxRowsFindCard,
     install: inboxRowsInstall,
     CSS: INBOX_ROWS_CSS,
     runtime: inboxRowsRuntime,
