@@ -453,6 +453,65 @@ function inboxContextBookingsFromComposite(composite) {
   return [];
 }
 
+/** Stable key for de-duping Staff API booking rows (customer context vs thread composite). */
+function inboxCustomerBookingKey(b) {
+  if (!b) return '';
+  var id = String(b.booking_id || '').trim();
+  if (id) return 'id:' + id;
+  var code = String(b.booking_code || '').trim();
+  if (code) return 'code:' + code;
+  return '';
+}
+
+/**
+ * Union booking rows from customer context and thread composite without inventing rows.
+ * Thread composite includes current_hold_booking_id links that phone-only context can miss.
+ */
+function inboxCustomerMergeBookings(primary, secondary) {
+  var out = [];
+  var seen = {};
+  function pushAll(list) {
+    if (!list || !list.length) return;
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i];
+      if (!row) continue;
+      var key = inboxCustomerBookingKey(row);
+      if (key && seen[key]) continue;
+      if (key) seen[key] = true;
+      out.push(row);
+    }
+  }
+  pushAll(primary);
+  pushAll(secondary);
+  return out;
+}
+
+/**
+ * Bookings for the guest / person card: existing Staff API rows only.
+ * Prefer customer-context bookings; fill gaps from thread composite (already fetched).
+ */
+function inboxCustomerResolveBookings(data, composite) {
+  var fromCustomer = inboxContextActiveBookings((data && data.bookings) || []);
+  var fromComposite = inboxContextBookingsFromComposite(composite);
+  if (!fromComposite.length) return fromCustomer;
+  if (!fromCustomer.length) return fromComposite;
+  return inboxCustomerMergeBookings(fromCustomer, fromComposite);
+}
+
+/**
+ * Count for BOOKINGS / LESSONS chips.
+ * Never prefer a CRM-cache 0 over a real Staff API list; never invent when both empty.
+ */
+function inboxCustomerStatCount(listLen, cacheCount) {
+  var fromList = Number(listLen) || 0;
+  if (fromList > 0) return fromList;
+  if (cacheCount != null && cacheCount !== '') {
+    var fromCache = Number(cacheCount) || 0;
+    if (fromCache > 0) return fromCache;
+  }
+  return fromList;
+}
+
 function inboxContextNotesFromConv(conv) {
   var notes = [];
   if (!conv) return notes;
@@ -869,13 +928,17 @@ function inboxClientInfoHtml(data, opts) {
   var contact = [];
   if (phone) contact.push(phone);
   if (email) contact.push(email);
-  var bookingsN = cacheRow && cacheRow.booking_count != null
-    ? Number(cacheRow.booking_count) || 0
-    : ((data.bookings || []).length);
-  var lessonsN = cacheRow && cacheRow.service_count != null
-    ? Number(cacheRow.service_count) || 0
-    : ((data.service_records || []).length);
+  var bookings = inboxCustomerResolveBookings(data, opts.composite);
+  var bookingsN = inboxCustomerStatCount(bookings.length, cacheRow && cacheRow.booking_count);
+  var lessonsN = inboxCustomerStatCount(
+    ((data.service_records || []).length),
+    cacheRow && cacheRow.service_count
+  );
   var language = id.language || (cacheRow && cacheRow.language) || '—';
+  var dataForFacts = data;
+  if (bookings.length && (!(data && data.bookings) || !data.bookings.length)) {
+    dataForFacts = Object.assign({}, data, { bookings: bookings });
+  }
   var html = '<div class="inbox-client-info" id="inbox-client-info" data-phone="' + inboxContextEsc(phone) + '">';
   html += '<div class="inbox-client-info-head">';
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
@@ -883,13 +946,13 @@ function inboxClientInfoHtml(data, opts) {
   html += '<div class="inbox-client-info-name">' + inboxContextEsc(name) + '</div>';
   if (contact.length) html += '<div class="inbox-client-info-contact">' + inboxContextEsc(contact.join(' · ')) + '</div>';
   html += '</div></div>';
-  html += inboxClientInfoChipsHtml(data, cacheRow);
+  html += inboxClientInfoChipsHtml(dataForFacts, cacheRow);
   html += '<div class="inbox-client-info-kv">';
-  html += inboxContextKv(inboxContextT('customers.card.checkedIn', 'Checked in'), inboxClientInfoCheckedIn(data, cacheRow));
+  html += inboxContextKv(inboxContextT('customers.card.checkedIn', 'Checked in'), inboxClientInfoCheckedIn(dataForFacts, cacheRow));
   html += inboxContextKv(inboxContextT('customers.card.bookings', 'Bookings'), String(bookingsN));
   html += inboxContextKv(inboxContextT('customers.card.classes', 'Lessons'), String(lessonsN));
-  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(data, opts.composite));
-  html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(data));
+  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(dataForFacts, opts.composite));
+  html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(dataForFacts));
   html += inboxContextKv('Language', language);
   html += '</div>';
   html += '<button type="button" class="inbox-client-info-open" id="inbox-client-info-open">' +
@@ -958,6 +1021,10 @@ function inboxCustomerCondensedHtml(data, opts) {
       school = getSunsetLocationLabel() || '';
     }
   } catch (_e) { school = ''; }
+  var bookings = inboxCustomerResolveBookings(data, opts.composite);
+  var dataForBookings = (bookings.length && (!(data && data.bookings) || data.bookings.length !== bookings.length))
+    ? Object.assign({}, data, { bookings: bookings })
+    : data;
   var html = '<div class="inbox-customer-card" id="inbox-customer-card">';
   html += '<div class="inbox-customer-head">';
   html += '<div class="inbox-client-info-avatar" aria-hidden="true">' + inboxContextEsc(inboxClientInfoInitials(name)) + '</div>';
@@ -977,20 +1044,19 @@ function inboxCustomerCondensedHtml(data, opts) {
   html += inboxCustomerNotesFieldHtml(notes);
   html += '</div>';
   html += '<div class="inbox-client-info-kv inbox-customer-stats">';
-  html += inboxContextKv(inboxContextT('customers.card.checkedIn', 'Checked in'), inboxClientInfoCheckedIn(data, cacheRow));
-  var bookingsN = cacheRow && cacheRow.booking_count != null
-    ? Number(cacheRow.booking_count) || 0
-    : ((data && data.bookings) || []).length;
-  var lessonsN = cacheRow && cacheRow.service_count != null
-    ? Number(cacheRow.service_count) || 0
-    : ((data && data.service_records) || []).length;
+  html += inboxContextKv(inboxContextT('customers.card.checkedIn', 'Checked in'), inboxClientInfoCheckedIn(dataForBookings, cacheRow));
+  var bookingsN = inboxCustomerStatCount(bookings.length, cacheRow && cacheRow.booking_count);
+  var lessonsN = inboxCustomerStatCount(
+    ((data && data.service_records) || []).length,
+    cacheRow && cacheRow.service_count
+  );
   html += inboxContextKv(inboxContextT('customers.card.bookings', 'Bookings'), String(bookingsN));
   html += inboxContextKv(inboxContextT('customers.card.classes', 'Lessons'), String(lessonsN));
-  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(data, opts.composite));
-  html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(data));
+  html += inboxContextKv(inboxContextT('customers.card.balanceDue', 'Unpaid balance'), inboxClientInfoUnpaid(dataForBookings, opts.composite));
+  html += inboxContextKv(inboxContextT('customers.card.waiverStatus', 'Waiver status'), inboxClientInfoWaiver(dataForBookings));
   html += '</div>';
-  html += inboxCustomerGuestTagsHtml(data);
-  html += inboxCustomerBookingsListHtml(data);
+  html += inboxCustomerGuestTagsHtml(dataForBookings);
+  html += inboxCustomerBookingsListHtml(dataForBookings);
   html += '<div class="inbox-guest-actions">';
   html += '<button type="button" class="btn inbox-guest-create-booking" id="inbox-create-booking-for-guest">' +
     inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) + '</button>';
@@ -1236,6 +1302,10 @@ function inboxCustomerFullHtml(data, opts) {
       school = getSunsetLocationLabel() || '';
     }
   } catch (_e) { school = ''; }
+  var bookings = inboxCustomerResolveBookings(data, opts.composite);
+  var dataForBookings = (bookings.length && (!(data && data.bookings) || data.bookings.length !== bookings.length))
+    ? Object.assign({}, data, { bookings: bookings })
+    : data;
   var html = '<div class="inbox-customer-card is-full" id="inbox-customer-card">';
   html += '<div class="customers-profile-summary">';
   html += '<div class="customers-profile-summary-hdr">';
@@ -1256,8 +1326,8 @@ function inboxCustomerFullHtml(data, opts) {
   html += inboxCustomerNotesFieldHtml(notes);
   html += '</div></div>';
 
-  html += inboxCustomerGuestTagsHtml(data);
-  html += inboxCustomerGuestBookingsHtml(data);
+  html += inboxCustomerGuestTagsHtml(dataForBookings);
+  html += inboxCustomerGuestBookingsHtml(dataForBookings);
 
   function collapse(title, count, body) {
     if (typeof renderCollapsibleCustomerSection === 'function') {
@@ -1358,6 +1428,10 @@ function inboxCustomerPaint(sidebar, conv, composite, customer) {
     return;
   }
   var data = inboxCustomerMerge(inboxCustomerFromConv(conv), customer || inboxContextLastCustomer);
+  var resolvedBookings = inboxCustomerResolveBookings(data, composite);
+  if (resolvedBookings.length) {
+    data = Object.assign({}, data, { bookings: resolvedBookings });
+  }
   inboxContextLastCustomer = data;
   inboxContextLastConv = conv;
   var full = inboxContextIsGuestMode() || inboxCustomerEditing;
@@ -2257,6 +2331,8 @@ if (typeof window !== 'undefined') {
     customerPaymentStatusLabel: inboxCustomerPaymentStatusLabel,
     customerFromConv: inboxCustomerFromConv,
     customerResolvePhone: inboxCustomerResolvePhone,
+    customerResolveBookings: inboxCustomerResolveBookings,
+    customerStatCount: inboxCustomerStatCount,
     guestLinkPostCustomer: inboxGuestLinkPostCustomer,
     isGuestMode: inboxContextIsGuestMode,
     modelFromComposite: inboxContextModelFromComposite,
