@@ -369,8 +369,11 @@ function renderAdminBookingsShell(opts) {
       '<div id="admin-bookings-table-wrap" class="portal-admin-bookings-table-wrap"></div>' +
       '<div id="admin-bookings-msg" class="state-msg" style="display:none" role="status"></div>' +
     '</div>';
-  wireAdminBookingsPanel();
+  // Shell markup resets hidden date inputs to "". Restore state into the new
+  // nodes BEFORE wiring so the date-range display and any early reads honor
+  // the active range (search ∩ dates). Lodging may hide Type after restore.
   adminBookingsRestoreFiltersToDom();
+  wireAdminBookingsPanel();
   if (adminBookingsIsLodging()) {
     var typeSel = el('admin-bookings-type');
     var typeWrap = typeSel && typeSel.closest ? typeSel.closest('.portal-admin-bookings-field') : null;
@@ -410,6 +413,8 @@ function adminBookingsRestoreFiltersToDom() {
  * Contract: text search must intersect the active date range. Empty hidden
  * date inputs (e.g. after a shell remount) must NOT clear an already-applied
  * range — only an explicit Clear (data-range-cleared) may widen to all dates.
+ * When keeping state dates, self-heal the wiped inputs so display/open/search
+ * all agree on the same range (no client-only vs query split).
  */
 function adminBookingsReadFiltersFromDom() {
   var q = el('admin-bookings-q');
@@ -427,21 +432,31 @@ function adminBookingsReadFiltersFromDom() {
     f.date_from = fromVal;
   } else if (clearedFrom) {
     f.date_from = '';
+  } else if (f.date_from && df) {
+    // Keep active range + heal remounted empty input (search ∩ dates).
+    df.value = f.date_from;
+    df.removeAttribute('data-range-cleared');
   }
-  // else: keep f.date_from (search ∩ active range)
   if (toVal) {
     f.date_to = toVal;
   } else if (clearedTo) {
     f.date_to = '';
-  } else if (!f.date_to && fromVal) {
-    f.date_to = fromVal;
+  } else if (f.date_to && dt) {
+    dt.value = f.date_to;
+    dt.removeAttribute('data-range-cleared');
+  } else if (!f.date_to && (fromVal || f.date_from)) {
+    f.date_to = fromVal || f.date_from;
+    if (dt && f.date_to) {
+      dt.value = f.date_to;
+      dt.removeAttribute('data-range-cleared');
+    }
   }
-  // else: keep f.date_to
   f.status = st ? String(st.value || '') : '';
   f.type = ty ? String(ty.value || '') : '';
   // Archived checkbox removed — hidden filter uses show_hidden only.
   f.include_archived = false;
   f.offset = 0;
+  if (typeof adminBookingsSyncDateRangeDisplay === 'function') adminBookingsSyncDateRangeDisplay();
 }
 
 function adminBookingsRefreshOnLocaleChange() {
@@ -1525,8 +1540,23 @@ function adminBookingsDateRangeDisplayText(from, to) {
 
 function adminBookingsSyncDateRangeDisplay() {
   var display = el('admin-bookings-date-range-display');
-  var from = el('admin-bookings-date-from') ? el('admin-bookings-date-from').value : '';
-  var to = el('admin-bookings-date-to') ? el('admin-bookings-date-to').value : from;
+  var df = el('admin-bookings-date-from');
+  var dt = el('admin-bookings-date-to');
+  var from = df ? String(df.value || '').trim() : '';
+  var to = dt ? String(dt.value || '').trim() : '';
+  var clearedFrom = !!(df && df.getAttribute && df.getAttribute('data-range-cleared') === '1');
+  var clearedTo = !!(dt && dt.getAttribute && dt.getAttribute('data-range-cleared') === '1');
+  // Prefer DOM; if remount wiped inputs without Clear, keep state so the
+  // chip matches the query search will send (search ∩ active range).
+  if (!from && !clearedFrom && adminBookingsState.filters && adminBookingsState.filters.date_from) {
+    from = String(adminBookingsState.filters.date_from || '').trim();
+    if (df && from) df.value = from;
+  }
+  if (!to && !clearedTo && adminBookingsState.filters && adminBookingsState.filters.date_to) {
+    to = String(adminBookingsState.filters.date_to || '').trim();
+    if (dt && to) dt.value = to;
+  }
+  if (!to) to = from;
   if (display) display.textContent = adminBookingsDateRangeDisplayText(from, to || from);
 }
 
@@ -1616,8 +1646,18 @@ function adminBookingsRenderDateRangeCalendar() {
 }
 
 function adminBookingsDateRangeOpen() {
-  var from = el('admin-bookings-date-from') ? String(el('admin-bookings-date-from').value || '') : '';
-  var to = el('admin-bookings-date-to') ? String(el('admin-bookings-date-to').value || '') : '';
+  var df = el('admin-bookings-date-from');
+  var dt = el('admin-bookings-date-to');
+  var from = df ? String(df.value || '') : '';
+  var to = dt ? String(dt.value || '') : '';
+  var clearedFrom = !!(df && df.getAttribute && df.getAttribute('data-range-cleared') === '1');
+  var clearedTo = !!(dt && dt.getAttribute && dt.getAttribute('data-range-cleared') === '1');
+  if (!adminBookingsIsoValid(from) && !clearedFrom && adminBookingsState.filters) {
+    from = String(adminBookingsState.filters.date_from || '');
+  }
+  if (!adminBookingsIsoValid(to) && !clearedTo && adminBookingsState.filters) {
+    to = String(adminBookingsState.filters.date_to || '');
+  }
   adminBookingsDateRangeDraft = {
     start: adminBookingsIsoValid(from) ? from : null,
     end: adminBookingsIsoValid(to) ? to : (adminBookingsIsoValid(from) ? from : null),
