@@ -429,6 +429,8 @@ function adminReloadConfig(){
   // Admin pack/price CRUD must invalidate Schedule create-menu cache immediately —
   // same SPA session previously kept stale surf_packs until school switch/restart.
   if (typeof scheduleInvalidateAdminCatalogCache === 'function') scheduleInvalidateAdminCatalogCache();
+  // loadAdminTab paints the finance shell then refetches when Finanzas is active,
+  // so a Precios save cannot leave Admin Finanzas stranded on "unavailable".
   loadAdminTab();
 }function adminIsLessonPrice(p){
   return String((p && p.category) || '').toLowerCase() === 'lesson';
@@ -3419,6 +3421,10 @@ function adminSelectSubTab(key, opts){
   if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
   if (next === 'luna-staff' && typeof wireLunaStaffHeaderModeCard === 'function') wireLunaStaffHeaderModeCard();
   if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
+  // Match Wolfhouse Admin: selecting Finanzas must refetch — otherwise a Pricing
+  // save (adminReloadConfig → renderAdminFinanceShell) leaves the unavailable
+  // placeholder until something else triggers loadAdminFinanceSummary.
+  if (next === 'finance' && typeof loadAdminFinanceSummary === 'function') loadAdminFinanceSummary();
 }
 
 /** Top-level Bookings tab loader (shell + list). IDs kept for least-invasive move.
@@ -3521,6 +3527,11 @@ function loadAdminTab(opts){
   if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance' && adminActiveSubTab !== 'luna-staff' && adminActiveSubTab !== 'email') adminActiveSubTab = 'finance';
   adminSelectSubTab(adminActiveSubTab);
   renderAdminFinanceShell();
+  // Shell paints a fetch-free placeholder; refetch when Finanzas is the active
+  // sub-tab so config reload cannot strand Admin on "summary unavailable".
+  if (adminActiveSubTab === 'finance' && typeof loadAdminFinanceForCurrentScope === 'function') {
+    loadAdminFinanceForCurrentScope();
+  }
   var profile = getPortalProfile(getClient());
   // Canonical load generation: supersede prior keep-edit/load/mutation and own busy so a
   // stale handler cannot leave Admin permanently blocked when it cannot release.
