@@ -3,6 +3,7 @@
 /**
  * Reservas expand: clean booking detail — no line-item injection into the
  * 7-col grid, no raw ISO timestamps, no payment-junk labels.
+ * Partidas dates use staff-portal locale (see verify-sunset-reservas-partidas-locale-dates).
  * Stay off inbox-thread, email inbound/Graph, Admin Email backend, production.
  */
 
@@ -26,7 +27,7 @@ assert.ok(
   'clean-label helpers required'
 );
 assert.ok(
-  /html \+= '<\/div>';\s*\n\s*if \(expanded\) \{\s*\n\s*html \+= renderAdminBookingsExpansion\(row\);/.test(bookingsUi),
+  /html \+= '<\/div>';\s*\n\s*if \(expanded\) \{\s*\n\s*html \+= renderAdminBookingsExpansion\(row(?:, rowKey)?\);/.test(bookingsUi),
   'expansion must render after the 7-col tr closes (sibling under row-block)'
 );
 assert.ok(
@@ -39,11 +40,17 @@ assert.ok(!apiSrc.includes('.portal-admin-bookings-expand{grid-column:1/-1'),
 assert.ok(!bookingsUi.includes('inbox-thread.js'));
 assert.ok(!bookingsUi.includes('staff-email-luna-draft'));
 
+const expectedEn = new Date(Date.UTC(2026, 7, 11, 12, 0, 0)).toLocaleDateString('en-GB', {
+  month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+});
+
 function loadHelpers() {
-  const start = bookingsUi.indexOf('/** Date-only YYYY-MM-DD from service_date');
+  const start = bookingsUi.indexOf('function adminBookingsLocaleTag');
   const end = bookingsUi.indexOf('/** Booking created_at');
   assert.ok(start >= 0 && end > start, 'helper slice bounds');
-  const box = {};
+  const box = {
+    getStaffLocale() { return 'en'; },
+  };
   vm.createContext(box);
   vm.runInContext(
     bookingsUi.slice(start, end)
@@ -57,9 +64,10 @@ function loadHelpers() {
 
 const h = loadHelpers();
 
-assert.strictEqual(h.adminBookingsFormatItemDate('2026-08-11T00:00:00.000Z'), '2026-08-11');
-assert.strictEqual(h.adminBookingsFormatItemDate('2026-08-11'), '2026-08-11');
+assert.strictEqual(h.adminBookingsFormatItemDate('2026-08-11T00:00:00.000Z'), expectedEn);
+assert.strictEqual(h.adminBookingsFormatItemDate('2026-08-11'), expectedEn);
 assert.strictEqual(h.adminBookingsFormatItemDate(''), '');
+assert.ok(!/^\d{4}-\d{2}-\d{2}$/.test(h.adminBookingsFormatItemDate('2026-08-11')), 'not raw ISO');
 
 assert.strictEqual(
   h.adminBookingsCleanItemLabel('Accommodation · 2026-08-11T00:00:00.000Z → 2026-08-14T00:00:00.000Z'),
@@ -102,6 +110,7 @@ const adminBookingsFormatEur = (cents) => {
 const adminBookingsFormatMadridCreated = (iso) => String(iso).slice(0, 16).replace('T', ' ');
 const adminBookingsCanWriteRefund = () => false;
 const box = {
+  getStaffLocale() { return 'en'; },
   escHtml,
   portalT,
   adminBookingsFormatEur,
@@ -110,6 +119,7 @@ const box = {
   adminBookingsFormatItemDate: h.adminBookingsFormatItemDate,
   adminBookingsCleanItemLabel: h.adminBookingsCleanItemLabel,
   adminBookingsIsJunkExpandItem: h.adminBookingsIsJunkExpandItem,
+  adminBookingsRowKey(row) { return String((row && row.booking_id) || 'row'); },
 };
 vm.createContext(box);
 const expStart = bookingsUi.indexOf('function renderAdminBookingsExpansion');
@@ -123,6 +133,7 @@ vm.runInContext(
     + 'var adminBookingsFormatEur = this.adminBookingsFormatEur;'
     + 'var adminBookingsFormatMadridCreated = this.adminBookingsFormatMadridCreated;'
     + 'var adminBookingsCanWriteRefund = this.adminBookingsCanWriteRefund;'
+    + 'var adminBookingsRowKey = this.adminBookingsRowKey;'
     + bookingsUi.slice(expStart, expEnd)
     + '\nthis.render = renderAdminBookingsExpansion;',
   box
@@ -163,10 +174,11 @@ const html = box.render({
 });
 
 assert.ok(html.indexOf('data-bookings-expand=') >= 0, 'expand region present');
-assert.ok(html.indexOf('Board and suit rental · 2026-08-11') >= 0, 'humanized rental + date-only');
-assert.ok(html.indexOf('Accommodation · 2026-08-11') >= 0, 'accommodation without ISO range dump');
-assert.ok(html.indexOf('Adult group course · 2026-08-11') >= 0, 'lesson line kept');
+assert.ok(html.indexOf('Board and suit rental · ' + expectedEn) >= 0, 'humanized rental + locale date');
+assert.ok(html.indexOf('Accommodation · ' + expectedEn) >= 0, 'accommodation without ISO range dump');
+assert.ok(html.indexOf('Adult group course · ' + expectedEn) >= 0, 'lesson line kept');
 assert.ok(!/T\d{2}:\d{2}/.test(html), 'no raw ISO timestamps in expand HTML: ' + html.slice(0, 400));
+assert.ok(html.indexOf('2026-08-11') < 0, 'no raw YYYY-MM-DD in expand');
 assert.ok(html.indexOf('stripe_pi') < 0, 'payment JSON junk excluded');
 assert.ok(html.indexOf('payment_fee') < 0, 'payment_fee service type excluded');
 assert.ok(html.indexOf('board_and_suit_rental') < 0, 'raw snake_case key not shown');
