@@ -67,6 +67,8 @@ var INBOX_ROWS_CSS = [
   '#inbox-shell .inbox-row-avatar{width:28px;height:28px}',
   '#inbox-shell .inbox-left .inbox-conv-search-wrap{padding:8px 8px 6px}',
   '}',
+  /* INBOX-GUESTVIEW-CUSTOMERS-ONLY-001: Guest list is a client directory. */
+  'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-card-preview{display:none!important}',
 ].join('');
 
 var inboxRowsRuntime = { wired: false };
@@ -429,6 +431,7 @@ function inboxRowsWrapConvCardHtml(html, row) {
   row = inboxRowsWithNewestMessageTime(row);
   html = inboxRowsRewriteNeedsHumanChip(String(html || ''), row);
   html = inboxRowsRewriteTime(html, row);
+  html = inboxRowsStripGuestPreviewHtml(html);
   var openMatch = html.match(/^(\s*<div\b[^>]*class="[^"]*conv-card[^"]*"[^>]*>)/);
   if (!openMatch) return html;
   var open = openMatch[1];
@@ -681,6 +684,123 @@ function inboxRowsPreserveSelectionOpts(opts) {
   return Object.assign({}, opts, { preserveDetail: true, selectedId: keepId });
 }
 
+/**
+ * INBOX-GUESTVIEW-CUSTOMERS-ONLY-001 — Guest preset list = dedicated clients
+ * A–Z by name, no last-message preview. Hide thread-only rows (emailv1:/email:
+ * transport keys, or no customer identity). Full + All / WhatsApp / Email stay
+ * last-messaged conversation lists.
+ */
+function inboxRowsGuestViewActive() {
+  if (inboxRowsRuntime.guestView === true) return true;
+  if (inboxRowsRuntime.guestView === false) return false;
+  try {
+    if (typeof inboxColumnsRuntime !== 'undefined'
+        && inboxColumnsRuntime
+        && inboxColumnsRuntime.record
+        && inboxColumnsRuntime.record.preset === 'guest') {
+      return true;
+    }
+  } catch (_e) {}
+  if (typeof document === 'undefined' || !document.querySelector) return false;
+  var btn = document.querySelector('[data-inbox-preset="guest"][aria-pressed="true"]');
+  return !!(btn);
+}
+
+function inboxRowsTransportKey(value) {
+  var raw = String(value == null ? '' : value).trim();
+  if (!raw) return '';
+  if (/^emailv1:/i.test(raw) || /^email:/i.test(raw)) return raw;
+  return '';
+}
+
+function inboxRowsIsDedicatedClient(row) {
+  if (!row || typeof row !== 'object') return false;
+  var source = String(row._inbox_view_source || row.source || '');
+  if (source === 'customers') return true;
+  var key = String(row._inbox_view_key || row.key || '');
+  if (/^customers:/i.test(key)) return true;
+  if (row.customer_id || row.customer_phone || row.guest_id
+      || row.bound_guest_id || row.matched_guest_id) {
+    return true;
+  }
+  var phone = String(row.phone || '').trim();
+  if (inboxRowsTransportKey(phone)) return false;
+  if (/^emailcust1:/i.test(phone)) return true;
+  var digits = phone.replace(/\D/g, '');
+  if (digits.length >= 8) return true;
+  var email = String(row.guest_email || row.email || '').trim();
+  if (inboxRowsTransportKey(email)) return false;
+  if (/^emailcust1:/i.test(email)) return true;
+  var convId = String(row.conversation_id || '').trim();
+  if (inboxRowsTransportKey(convId)) return false;
+  return false;
+}
+
+function inboxRowsGuestSortName(row) {
+  var name = '';
+  if (typeof inboxPersonDisplayName === 'function') {
+    try { name = inboxPersonDisplayName(row); } catch (_e) { name = ''; }
+  }
+  if (!name) name = (row && (row.guest_name || row.display_name)) || '';
+  return String(name || '').trim();
+}
+
+function inboxRowsGuestViewList(convs) {
+  var src = Array.isArray(convs) ? convs : [];
+  var list = [];
+  for (var i = 0; i < src.length; i++) {
+    if (!inboxRowsIsDedicatedClient(src[i])) continue;
+    var next = Object.assign({}, src[i]);
+    next.last_message_preview = '';
+    list.push(next);
+  }
+  list.sort(function(a, b) {
+    var an = inboxRowsGuestSortName(a);
+    var bn = inboxRowsGuestSortName(b);
+    if (!an && bn) return 1;
+    if (an && !bn) return -1;
+    return an.toLocaleLowerCase().localeCompare(bn.toLocaleLowerCase());
+  });
+  return list;
+}
+
+function inboxRowsStripGuestPreviewHtml(html) {
+  html = String(html || '');
+  if (!inboxRowsGuestViewActive()) return html;
+  return html.replace(/<div class="conv-card-preview">[\s\S]*?<\/div>/g, '');
+}
+
+function inboxRowsRerenderGuestViewList() {
+  if (typeof applyInboxFilter === 'function') {
+    applyInboxFilter(inboxRowsPreserveSelectionOpts({ silent: true }));
+    return;
+  }
+  if (typeof renderInbox !== 'function') return;
+  var list = [];
+  try {
+    list = (typeof inboxConversationsCache !== 'undefined' && inboxConversationsCache) || [];
+  } catch (_e) { list = []; }
+  if (typeof filterInboxConversations === 'function') list = filterInboxConversations(list);
+  renderInbox(list, inboxRowsPreserveSelectionOpts({}));
+}
+
+function inboxRowsWrapGuestViewPreset() {
+  if (typeof inboxColumnsSetPreset === 'function' && !inboxColumnsSetPreset._inboxGuestViewWrapped) {
+    var _inboxRowsLegacySetPreset = inboxColumnsSetPreset;
+    inboxColumnsSetPreset = function(name) {
+      var result = _inboxRowsLegacySetPreset(name);
+      inboxRowsRerenderGuestViewList();
+      return result;
+    };
+    inboxColumnsSetPreset._inboxGuestViewWrapped = true;
+    try {
+      if (typeof window !== 'undefined' && window.__inboxColumns) {
+        window.__inboxColumns.setPreset = inboxColumnsSetPreset;
+      }
+    } catch (_e2) {}
+  }
+}
+
 function inboxRowsWrapFilterReselect() {
   if (typeof loadInbox === 'function' && !loadInbox._inboxFilterReselectWrapped) {
     var _inboxRowsLegacyLoadInbox = loadInbox;
@@ -714,6 +834,7 @@ function inboxRowsWrapRenderers() {
     var _inboxRowsLegacyRenderInbox = renderInbox;
     renderInbox = function(convs, opts) {
       opts = inboxRowsPreserveSelectionOpts(opts);
+      if (inboxRowsGuestViewActive()) convs = inboxRowsGuestViewList(convs);
       var result = _inboxRowsLegacyRenderInbox(convs, opts);
       inboxRowsFixEmptyChrome(convs, opts);
       inboxRowsAfterRender();
@@ -803,6 +924,7 @@ function inboxRowsInstall() {
   inboxRowsWrapViews();
   inboxRowsWrapFilterReselect();
   inboxRowsWrapIconState();
+  inboxRowsWrapGuestViewPreset();
   inboxRowsHideLegacyFilterChips();
   inboxRowsAfterRender();
   inboxRowsRuntime.wired = true;
@@ -829,6 +951,12 @@ if (typeof window !== 'undefined') {
     preserveSelectionOpts: inboxRowsPreserveSelectionOpts,
     wrapFilterReselect: inboxRowsWrapFilterReselect,
     wrapIconState: inboxRowsWrapIconState,
+    wrapGuestViewPreset: inboxRowsWrapGuestViewPreset,
+    guestViewActive: inboxRowsGuestViewActive,
+    isDedicatedClient: inboxRowsIsDedicatedClient,
+    guestViewList: inboxRowsGuestViewList,
+    guestSortName: inboxRowsGuestSortName,
+    stripGuestPreviewHtml: inboxRowsStripGuestPreviewHtml,
     paintCardRead: inboxRowsPaintCardRead,
     paintCardNeedsHuman: inboxRowsPaintCardNeedsHuman,
     markCacheRead: inboxRowsMarkCacheRead,
