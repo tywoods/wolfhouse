@@ -2478,6 +2478,10 @@ function financeViewQuery(){
     if (financeViewState.start) q += '&start=' + encodeURIComponent(financeViewState.start);
     if (financeViewState.end) q += '&end=' + encodeURIComponent(financeViewState.end);
   } else if (g === 'year') {
+    // Year KPIs must always carry explicit Jan–Dec bounds (not just granularity +
+    // mid-year anchor). If granularity is dropped on the wire, the Staff API still
+    // infers year from these bounds — otherwise totals collapse to the anchor month
+    // while monthly_gross_trend keeps painting all 12 months.
     var seed = financeViewSeedAnchor();
     var bounds = financeYearBoundsFromAnchor(seed);
     if (financeViewState.anchor) q += '&anchor=' + encodeURIComponent(financeViewState.anchor);
@@ -2504,6 +2508,32 @@ function financeYearBoundsFromAnchor(anchor){
   var y = Number(iso.slice(0, 4));
   if (!Number.isFinite(y)) return null;
   return { start: y + '-01-01', end: y + '-12-31' };
+}
+
+function financeIsFullCalendarYearBounds(start, end){
+  start = String(start || '').slice(0, 10);
+  end = String(end || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return false;
+  var y = start.slice(0, 4);
+  return start === (y + '-01-01') && end === (y + '-12-31');
+}
+
+/** Apply Year gran + explicit Jan–Dec window before the Staff API refetch. */
+function financeApplyYearWindow(anchorIso){
+  var seed = (anchorIso && /^\d{4}-\d{2}-\d{2}$/.test(anchorIso)) ? anchorIso : financeViewSeedAnchor();
+  var bounds = financeYearBoundsFromAnchor(seed);
+  financeViewState.granularity = 'year';
+  financeViewState.anchor = seed;
+  if (bounds) {
+    financeViewState.start = bounds.start;
+    financeViewState.end = bounds.end;
+  } else {
+    financeViewState.start = null;
+    financeViewState.end = null;
+  }
+  financeCustomDraft = { start: null, end: null };
+  try { window.__financeTrendMode = 'year'; } catch (_yt) { /* ignore */ }
+  return bounds;
 }
 
 function financeAddDaysIso(iso, days){
@@ -3084,12 +3114,8 @@ function financeRedesignNavClick(ev){
     // P2: 12-month chart must carry Year-window KPIs (Staff API dues for that year).
     // Re-rendering a Month summary under a year chart left totals stuck on August.
     if (mode === 'year') {
-      financeViewState.granularity = 'year';
-      financeViewState.start = null;
-      financeViewState.end = null;
-      financeCustomDraft = { start: null, end: null };
+      financeApplyYearWindow(financeViewSeedAnchor());
       financeCustomClosePopover({ restoreFocus: false, discard: false });
-      financeViewState.anchor = financeViewSeedAnchor();
       loadAdminFinanceSummary();
       return;
     }
@@ -3105,6 +3131,16 @@ function financeRedesignNavClick(ev){
       financeCustomTogglePopover();
       return;
     }
+    if (gran === 'year') {
+      financeApplyYearWindow(financeViewSeedAnchor());
+      try {
+        if (el('pfb-custom-start')) el('pfb-custom-start').value = '';
+        if (el('pfb-custom-end')) el('pfb-custom-end').value = '';
+      } catch (_h) { /* ignore */ }
+      financeCustomClosePopover({ restoreFocus: false, discard: false });
+      loadAdminFinanceSummary();
+      return;
+    }
     financeViewState.granularity = gran;
     financeViewState.start = null;
     financeViewState.end = null;
@@ -3112,13 +3148,11 @@ function financeRedesignNavClick(ev){
     try {
       if (el('pfb-custom-start')) el('pfb-custom-start').value = '';
       if (el('pfb-custom-end')) el('pfb-custom-end').value = '';
-    } catch (_h) { /* ignore */ }
+    } catch (_h2) { /* ignore */ }
     financeCustomClosePopover({ restoreFocus: false, discard: false });
     if (gran === 'day') financeViewState.anchor = financeTodayIso();
     else financeViewState.anchor = financeViewSeedAnchor();
-    if (gran === 'year') {
-      try { window.__financeTrendMode = 'year'; } catch (_yt) { /* ignore */ }
-    } else if (gran === 'day' || gran === 'month') {
+    if (gran === 'day' || gran === 'month') {
       try { window.__financeTrendMode = 'days'; } catch (_dt) { /* ignore */ }
     }
     loadAdminFinanceSummary();
@@ -3141,7 +3175,12 @@ function financeRedesignNavClick(ev){
       return;
     }
     var anchor = financeViewState.anchor || financeTodayIso();
-    financeViewState.anchor = financeShiftAnchor(anchor, g, dir);
+    var shifted = financeShiftAnchor(anchor, g, dir);
+    if (g === 'year') {
+      financeApplyYearWindow(shifted);
+    } else {
+      financeViewState.anchor = shifted;
+    }
     loadAdminFinanceSummary();
     return;
   }
@@ -3185,7 +3224,7 @@ function loadAdminFinanceSummary(opts){
   var originLocation = originClient === 'sunset' ? getSunsetLocation() : '';
   body.innerHTML = '<div class="portal-admin-finance-loading" role="status">' +
     escHtml(portalT('admin.finance.loading')) + '</div>';
-  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery();
+  var url = '/staff/admin/finance/summary' + adminClientQuery() + financeViewQuery() + '&_ts=' + Date.now();
   var timeoutId = null;
   var timeout = new Promise(function(_, reject){
     timeoutId = setTimeout(function(){ reject(new Error('timeout')); }, 8000);
@@ -3205,7 +3244,9 @@ function loadAdminFinanceSummary(opts){
         if (data.summary.redesign && data.summary.redesign.view && data.summary.redesign.view.range){
           financeViewState.granularity = data.summary.redesign.view.granularity || financeViewState.granularity || 'month';
           financeViewState.anchor = data.summary.redesign.view.range.start;
-          if (financeViewState.granularity === 'custom') {
+          if (financeViewState.granularity === 'custom' || financeViewState.granularity === 'year') {
+            // Keep Year Jan–Dec (and Custom) bounds in state so the next query still
+            // sends start/end even if granularity is lost on the wire.
             financeViewState.start = data.summary.redesign.view.range.start || null;
             financeViewState.end = data.summary.redesign.view.range.end || null;
           } else {

@@ -4,6 +4,11 @@
  * Bug Finder #5 — Finanzas Year gran must aggregate the full calendar year, not the anchor month.
  * P1: Mes agosto vs Año 2026 showed identical KPIs while the 12-month chart showed other months.
  *
+ * Miss repro (pre-fix):
+ *   view={anchor:'2026-08-15'}           → August window KPIs
+ *   monthly_gross_trend still paints Jan–Dec for chartYear 2026
+ *   → UI looks like "year" while Neto/Reservado/Pendiente stay month-scale
+ *
  * Stay off inbox-thread, email-settings, PR #723 occupancy formula, production.
  */
 
@@ -43,6 +48,29 @@ const payments = [
 
 const augustDues = 124000;
 const yearDues = 11000 + 50000 + 124000 + 189000;
+
+// ── Miss repro: anchor-only (no gran / no Jan–Dec) collapses to August ────────
+const collapsed = computeSunsetFinanceSummary({
+  now, timeZone: TZ,
+  view: { anchor: '2026-08-15' },
+  bookings, bsr, payments,
+});
+assert.strictEqual(collapsed.redesign.view.granularity, 'month', 'miss: anchor-only → month gran');
+assert.deepStrictEqual(
+  collapsed.redesign.view.range,
+  { start: '2026-08-01', end: '2026-08-31' },
+  'miss: anchor-only → August window',
+);
+assert.strictEqual(collapsed.redesign.pipeline.booked_cents, augustDues, 'miss: KPIs stay August-scale');
+assert.strictEqual(
+  (collapsed.redesign.monthly_gross_trend || []).length,
+  12,
+  'miss: chart still paints 12 months while KPIs are August',
+);
+assert.ok(
+  (collapsed.redesign.monthly_gross_trend || []).some((r) => r.month === 9 && r.booked_cents === 189000),
+  'miss: September bar visible on month-period summary chart',
+);
 
 const month = computeSunsetFinanceSummary({
   now, timeZone: TZ,
@@ -90,14 +118,34 @@ assert.strictEqual(
 assert.ok(isFullCalendarYearRange('2026-01-01', '2026-12-31'));
 assert.ok(!isFullCalendarYearRange('2026-08-01', '2026-08-31'));
 
-// UI must send explicit year bounds and wire nav on the active finance host (Sunset + Wolfhouse).
+// UI must apply Year window (set Jan–Dec on state) before refetch — not clear bounds.
+assert.ok(
+  /function financeIsFullCalendarYearBounds/.test(adminUi),
+  'portal mirrors full-calendar-year bounds check',
+);
+assert.ok(
+  /function financeApplyYearWindow/.test(adminUi),
+  'portal has financeApplyYearWindow helper',
+);
+assert.ok(
+  /financeApplyYearWindow\(financeViewSeedAnchor\(\)\)/.test(adminUi),
+  'Year tab / 12-month trend apply year window before load',
+);
 assert.ok(
   /g === 'year'[\s\S]*financeYearBoundsFromAnchor/.test(adminUi),
   'year query carries explicit Jan–Dec bounds',
 );
 assert.ok(
+  /financeViewState\.granularity === 'custom' \|\| financeViewState\.granularity === 'year'/.test(adminUi),
+  'year load persists Jan–Dec start/end in view state',
+);
+assert.ok(
   /financeNavGlobalWired/.test(adminUi) && /financeRedesignNavClick/.test(adminUi),
   'finance nav uses document-level delegation',
+);
+assert.ok(
+  /Array\.isArray\(startRaw\)/.test(api) && /Array\.isArray\(endRaw\)/.test(api),
+  'handler coerces array-shaped start/end like granularity',
 );
 assert.ok(
   /computeSunsetFinanceSummary\(\{ \.\.\.data, now: new Date\(\), timeZone: 'Europe\/Madrid', view \}\)/.test(api),
@@ -106,3 +154,4 @@ assert.ok(
 assert.ok(!adminUi.includes('inbox-thread.js'));
 
 console.log('PASS Bug Finder #5 Finanzas Year gran uses full-year window (not anchor month)');
+console.log('REPRO: anchor-only → August KPIs + 12-mo chart; Year gran → Jan–Dec KPI totals');

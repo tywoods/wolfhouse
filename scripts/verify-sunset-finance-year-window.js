@@ -111,11 +111,12 @@ assert.ok(/>2026</.test(htmlYear), 'range label is calendar year');
 
 // Wire: 12-month trend adopts year period + refetch (not Month KPIs under a year chart).
 assert.ok(
-  /mode === 'year'[\s\S]*financeViewState\.granularity = 'year'[\s\S]*loadAdminFinanceSummary\(\)/.test(adminUi),
+  /mode === 'year'[\s\S]*financeApplyYearWindow\([\s\S]*loadAdminFinanceSummary\(\)/.test(adminUi),
   '12-month trend click sets year granularity and reloads summary',
 );
 assert.ok(
-  /gran === 'year'[\s\S]*__financeTrendMode = 'year'/.test(adminUi),
+  /gran === 'year'[\s\S]*financeApplyYearWindow\([\s\S]*loadAdminFinanceSummary\(\)/.test(adminUi)
+  || /if \(gran === 'year'\)[\s\S]*financeApplyYearWindow/.test(adminUi),
   'Year gran tab still forces year chart mode',
 );
 assert.ok(!adminUi.includes('inbox-thread.js'), 'stay off inbox-thread');
