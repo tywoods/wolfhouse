@@ -107,6 +107,8 @@ function makeSandbox() {
     Intl,
     schedulePortalQuoteState: null,
     schedulePortalQuotePriceBlocked: false,
+    schedulePortalQuoteChecking: false,
+    schedulePortalQuoteTimer: null,
     schedulePortalSubmitInFlight: false,
     schedulePortalQuoteGen: 0,
     el: (id) => nodes[id] || null,

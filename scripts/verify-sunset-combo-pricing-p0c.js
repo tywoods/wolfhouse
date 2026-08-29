@@ -737,6 +737,7 @@ function loadPortalQuoteSandbox() {
     schedulePortalQuoteDebounceMs: 400,
     schedulePortalSubmitInFlight: false,
     schedulePortalQuotePriceBlocked: false,
+    schedulePortalQuoteChecking: false,
     schedulePortalCreateAmbiguous: false,
     portalT: (k) => strings[k] || k,
     escHtml: (s) => String(s)
