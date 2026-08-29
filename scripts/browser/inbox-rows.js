@@ -69,9 +69,13 @@ var INBOX_ROWS_CSS = [
   '}',
   /* INBOX-GUESTVIEW-CUSTOMERS-ONLY-001: Guest list is a client directory. */
   'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-card-preview{display:none!important}',
+  /* Sunset surf cards omit .conv-card-preview; hide recency time/subject instead. */
+  'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-card-time{display:none!important}',
+  'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-card-subject{display:none!important}',
 ].join('');
 
-var inboxRowsRuntime = { wired: false };
+var inboxRowsRuntime = { wired: false, guestView: undefined };
+var inboxRowsGuestPriorViewId = '';
 var inboxRowsViewsCache = [];
 var inboxRowsActiveView = {
   id: '',
@@ -689,6 +693,11 @@ function inboxRowsPreserveSelectionOpts(opts) {
  * A–Z by name, no last-message preview. Hide thread-only rows (emailv1:/email:
  * transport keys, or no customer identity). Full + All / WhatsApp / Email stay
  * last-messaged conversation lists.
+ *
+ * Leftover of #804: live QA still saw all_people / BOOKED_THEN_RECENT order
+ * (ordering inversions; first client at position 4). Latch guestView on preset
+ * change, pin the customers directory when entering Guest, and sort by the
+ * visible name fields rather than collapsing to inboxPersonDisplayName('Guest').
  */
 function inboxRowsGuestViewActive() {
   if (inboxRowsRuntime.guestView === true) return true;
@@ -704,6 +713,30 @@ function inboxRowsGuestViewActive() {
   if (typeof document === 'undefined' || !document.querySelector) return false;
   var btn = document.querySelector('[data-inbox-preset="guest"][aria-pressed="true"]');
   return !!(btn);
+}
+
+function inboxRowsSyncGuestViewFromColumns() {
+  try {
+    if (typeof inboxColumnsRuntime !== 'undefined'
+        && inboxColumnsRuntime
+        && inboxColumnsRuntime.record
+        && inboxColumnsRuntime.record.preset) {
+      inboxRowsRuntime.guestView = inboxColumnsRuntime.record.preset === 'guest';
+      return inboxRowsRuntime.guestView === true;
+    }
+  } catch (_e) {}
+  if (typeof document !== 'undefined' && document.querySelector) {
+    if (document.querySelector('[data-inbox-preset="guest"][aria-pressed="true"]')) {
+      inboxRowsRuntime.guestView = true;
+      return true;
+    }
+    if (document.querySelector('[data-inbox-preset]')) {
+      inboxRowsRuntime.guestView = false;
+      return false;
+    }
+  }
+  /* No columns/DOM signal yet — leave an explicit latch alone. */
+  return inboxRowsRuntime.guestView === true;
 }
 
 function inboxRowsTransportKey(value) {
@@ -738,11 +771,14 @@ function inboxRowsIsDedicatedClient(row) {
 
 function inboxRowsGuestSortName(row) {
   var name = '';
-  if (typeof inboxPersonDisplayName === 'function') {
-    try { name = inboxPersonDisplayName(row); } catch (_e) { name = ''; }
+  if (row) {
+    name = String(row.guest_name || row.display_name || '').trim();
   }
-  if (!name) name = (row && (row.guest_name || row.display_name)) || '';
-  return String(name || '').trim();
+  if (!name && typeof inboxPersonDisplayName === 'function') {
+    try { name = String(inboxPersonDisplayName(row) || '').trim(); } catch (_e2) { name = ''; }
+  }
+  if (name && /^guest$/i.test(name)) name = '';
+  return name;
 }
 
 function inboxRowsGuestViewList(convs) {
@@ -752,6 +788,8 @@ function inboxRowsGuestViewList(convs) {
     if (!inboxRowsIsDedicatedClient(src[i])) continue;
     var next = Object.assign({}, src[i]);
     next.last_message_preview = '';
+    next.last_activity_label = '';
+    next.last_activity = null;
     list.push(next);
   }
   list.sort(function(a, b) {
@@ -759,7 +797,11 @@ function inboxRowsGuestViewList(convs) {
     var bn = inboxRowsGuestSortName(b);
     if (!an && bn) return 1;
     if (an && !bn) return -1;
-    return an.toLocaleLowerCase().localeCompare(bn.toLocaleLowerCase());
+    var cmp = an.toLocaleLowerCase().localeCompare(bn.toLocaleLowerCase());
+    if (cmp) return cmp;
+    var ak = String((a && (a._inbox_view_key || a.conversation_id || a.phone)) || '');
+    var bk = String((b && (b._inbox_view_key || b.conversation_id || b.phone)) || '');
+    return ak.localeCompare(bk);
   });
   return list;
 }
@@ -767,7 +809,10 @@ function inboxRowsGuestViewList(convs) {
 function inboxRowsStripGuestPreviewHtml(html) {
   html = String(html || '');
   if (!inboxRowsGuestViewActive()) return html;
-  return html.replace(/<div class="conv-card-preview">[\s\S]*?<\/div>/g, '');
+  html = html.replace(/<div class="conv-card-preview">[\s\S]*?<\/div>/g, '');
+  html = html.replace(/<div class="conv-card-time">[\s\S]*?<\/div>/g, '');
+  html = html.replace(/<div class="conv-card-subject">[\s\S]*?<\/div>/g, '');
+  return html;
 }
 
 function inboxRowsRerenderGuestViewList() {
@@ -784,12 +829,74 @@ function inboxRowsRerenderGuestViewList() {
   renderInbox(list, inboxRowsPreserveSelectionOpts({}));
 }
 
+function inboxRowsGuestOnCustomersSource() {
+  if (inboxRowsActiveView && inboxRowsActiveView.source === 'customers') return true;
+  try {
+    if (typeof inboxSavedViewId === 'string' && inboxSavedViewId === 'all_people') return true;
+  } catch (_e) {}
+  return false;
+}
+
+function inboxRowsEnterGuestDirectory() {
+  if (inboxRowsGuestOnCustomersSource()) {
+    inboxRowsRerenderGuestViewList();
+    return;
+  }
+  if (typeof selectInboxSavedView === 'function') {
+    try {
+      inboxRowsGuestPriorViewId = (typeof inboxSavedViewId === 'string' && inboxSavedViewId)
+        ? inboxSavedViewId
+        : 'all';
+    } catch (_e2) {
+      inboxRowsGuestPriorViewId = 'all';
+    }
+    selectInboxSavedView('all_people');
+    return;
+  }
+  inboxRowsRerenderGuestViewList();
+}
+
+function inboxRowsLeaveGuestDirectory() {
+  var restore = inboxRowsGuestPriorViewId;
+  inboxRowsGuestPriorViewId = '';
+  if (restore && typeof selectInboxSavedView === 'function') {
+    var current = '';
+    try { current = typeof inboxSavedViewId === 'string' ? inboxSavedViewId : ''; } catch (_e) {}
+    if (!current || current === 'all_people') {
+      selectInboxSavedView(restore);
+      return;
+    }
+  }
+  inboxRowsRerenderGuestViewList();
+}
+
+function inboxRowsOnGuestPresetChange(name) {
+  var wasGuest = inboxRowsGuestViewActive();
+  var nowGuest = name === 'guest';
+  inboxRowsRuntime.guestView = nowGuest;
+  if (nowGuest && !wasGuest) {
+    inboxRowsEnterGuestDirectory();
+    return;
+  }
+  if (!nowGuest && wasGuest) {
+    inboxRowsLeaveGuestDirectory();
+    return;
+  }
+  inboxRowsRerenderGuestViewList();
+}
+
 function inboxRowsWrapGuestViewPreset() {
   if (typeof inboxColumnsSetPreset === 'function' && !inboxColumnsSetPreset._inboxGuestViewWrapped) {
     var _inboxRowsLegacySetPreset = inboxColumnsSetPreset;
     inboxColumnsSetPreset = function(name) {
+      /* Capture before legacy write — record.preset flips inside setPreset. */
+      var wasGuest = inboxRowsGuestViewActive();
       var result = _inboxRowsLegacySetPreset(name);
-      inboxRowsRerenderGuestViewList();
+      var nowGuest = name === 'guest';
+      inboxRowsRuntime.guestView = nowGuest;
+      if (nowGuest && !wasGuest) inboxRowsEnterGuestDirectory();
+      else if (!nowGuest && wasGuest) inboxRowsLeaveGuestDirectory();
+      else inboxRowsRerenderGuestViewList();
       return result;
     };
     inboxColumnsSetPreset._inboxGuestViewWrapped = true;
@@ -799,6 +906,21 @@ function inboxRowsWrapGuestViewPreset() {
       }
     } catch (_e2) {}
   }
+  if (typeof initInboxColumns === 'function' && !initInboxColumns._inboxGuestViewWrapped) {
+    var _inboxRowsLegacyInitColumns = initInboxColumns;
+    initInboxColumns = function() {
+      var result = _inboxRowsLegacyInitColumns.apply(this, arguments);
+      inboxRowsSyncGuestViewFromColumns();
+      return result;
+    };
+    initInboxColumns._inboxGuestViewWrapped = true;
+    try {
+      if (typeof window !== 'undefined' && window.__inboxColumns) {
+        window.__inboxColumns.init = initInboxColumns;
+      }
+    } catch (_e3) {}
+  }
+  inboxRowsSyncGuestViewFromColumns();
 }
 
 function inboxRowsWrapFilterReselect() {
@@ -957,6 +1079,10 @@ if (typeof window !== 'undefined') {
     guestViewList: inboxRowsGuestViewList,
     guestSortName: inboxRowsGuestSortName,
     stripGuestPreviewHtml: inboxRowsStripGuestPreviewHtml,
+    syncGuestViewFromColumns: inboxRowsSyncGuestViewFromColumns,
+    onGuestPresetChange: inboxRowsOnGuestPresetChange,
+    enterGuestDirectory: inboxRowsEnterGuestDirectory,
+    leaveGuestDirectory: inboxRowsLeaveGuestDirectory,
     paintCardRead: inboxRowsPaintCardRead,
     paintCardNeedsHuman: inboxRowsPaintCardNeedsHuman,
     markCacheRead: inboxRowsMarkCacheRead,
