@@ -64,6 +64,7 @@ const steps = [
   ['verify:inbox-context', 'verify-inbox-context.js'],
   ['verify:inbox-theme', 'verify-inbox-theme.js'],
   ['verify:inbox-rows', 'verify-inbox-rows.js'],
+  ['verify:inbox-list-timestamp', 'verify-inbox-list-timestamp.js'],
   ['verify:inbox-filter-reselect', 'verify-inbox-filter-reselect.js'],
   ['verify:inbox-thread-mockup', 'verify-inbox-thread-mockup.js'],
   ['verify:luna-pause-handoff-controls', 'verify-luna-pause-handoff-controls.js'],

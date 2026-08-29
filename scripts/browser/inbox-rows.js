@@ -208,8 +208,157 @@ function inboxRowsRememberViews(data) {
   inboxRowsSyncActiveView();
 }
 
+/**
+ * INBOX-LIST-TIMESTAMP-001 — list row time = newest thread message, not
+ * conversations.updated_at / last_activity (stale cache). Same source as
+ * renderInboxThreadMessagesHtml (fmtTs(m.created_at)).
+ */
+var inboxRowsNewestMessageAtByConv = {};
+
+function inboxRowsConsiderTimestamp(best, ts) {
+  if (ts == null || ts === '') return best;
+  var ms = Date.parse(ts);
+  if (isNaN(ms)) return best;
+  if (!best || ms > best.ms) {
+    return {
+      ms: ms,
+      iso: typeof ts === 'string' ? ts : new Date(ms).toISOString(),
+    };
+  }
+  return best;
+}
+
+function inboxRowsNewestMessageAt(row, messages) {
+  var best = null;
+  if (row) {
+    best = inboxRowsConsiderTimestamp(best, row.last_message_at);
+    best = inboxRowsConsiderTimestamp(best, row.last_message_created_at);
+  }
+  var msgs = messages;
+  if (!msgs && row) msgs = row.messages || row.thread_messages;
+  if (Array.isArray(msgs)) {
+    for (var i = 0; i < msgs.length; i++) {
+      if (msgs[i]) best = inboxRowsConsiderTimestamp(best, msgs[i].created_at);
+    }
+  }
+  var convId = row && (row.conversation_id || row.id);
+  if (convId && inboxRowsNewestMessageAtByConv[convId]) {
+    best = inboxRowsConsiderTimestamp(best, inboxRowsNewestMessageAtByConv[convId]);
+  }
+  return best ? best.iso : '';
+}
+
+function inboxRowsFormatTime(ts) {
+  if (typeof fmtTs === 'function') return fmtTs(ts);
+  if (!ts) return '';
+  try {
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    var now = new Date();
+    var diffMs = now - d;
+    if (diffMs < 60000) return 'just now';
+    if (diffMs < 3600000) return Math.floor(diffMs / 60000) + 'm ago';
+    if (diffMs < 86400000) return Math.floor(diffMs / 3600000) + 'h ago';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  } catch (_e) {
+    return String(ts);
+  }
+}
+
+function inboxRowsTimeLabel(row, messages) {
+  var at = inboxRowsNewestMessageAt(row, messages);
+  if (at) return inboxRowsFormatTime(at);
+  return (row && row.last_activity_label) || '';
+}
+
+function inboxRowsWithNewestMessageTime(row) {
+  if (!row || typeof row !== 'object') return row;
+  var at = inboxRowsNewestMessageAt(row);
+  if (!at) return row;
+  var label = inboxRowsFormatTime(at);
+  if (row.last_message_at === at && row.last_activity_label === label) return row;
+  var next = Object.assign({}, row);
+  next.last_message_at = at;
+  next.last_activity_label = label;
+  return next;
+}
+
+function inboxRowsRewriteTime(html, row) {
+  html = String(html || '');
+  var label = inboxRowsTimeLabel(row);
+  if (!label) return html;
+  var escaped = inboxRowsEsc(label);
+  if (/<div class="conv-card-time">/.test(html)) {
+    return html.replace(
+      /(<div class="conv-card-time">)([\s\S]*?)(<\/div>)/,
+      '$1' + escaped + '$3'
+    );
+  }
+  if (/<div class="conv-card-meta-row">/.test(html)) {
+    return html.replace(
+      /(<div class="conv-card-meta-row">)/,
+      '$1<div class="conv-card-time">' + escaped + '</div>'
+    );
+  }
+  return html;
+}
+
+function inboxRowsPaintCardTime(convId, label) {
+  if (typeof document === 'undefined' || !convId || !label) return;
+  var list = inboxRowsEl('conv-list');
+  if (!list || !list.querySelectorAll) return;
+  var want = String(convId);
+  var cards = list.querySelectorAll('.conv-card[data-id]');
+  for (var i = 0; i < cards.length; i++) {
+    if (String(cards[i].getAttribute('data-id')) !== want) continue;
+    var timeEl = cards[i].querySelector('.conv-card-time');
+    if (timeEl) timeEl.textContent = label;
+  }
+}
+
+function inboxRowsRememberThreadMessages(convId, msgs) {
+  var id = convId ? String(convId) : '';
+  if (!id && Array.isArray(msgs)) {
+    for (var i = 0; i < msgs.length; i++) {
+      if (msgs[i] && msgs[i].conversation_id) {
+        id = String(msgs[i].conversation_id);
+        break;
+      }
+    }
+  }
+  var at = inboxRowsNewestMessageAt({ conversation_id: id, messages: msgs }, msgs);
+  if (!id || !at) return at || '';
+  inboxRowsNewestMessageAtByConv[id] = at;
+  var label = inboxRowsFormatTime(at);
+  try {
+    var cache = (typeof inboxConversationsCache !== 'undefined') ? inboxConversationsCache : null;
+    if (Array.isArray(cache)) {
+      for (var j = 0; j < cache.length; j++) {
+        if (cache[j] && String(cache[j].conversation_id) === id) {
+          cache[j].last_message_at = at;
+          cache[j].last_activity_label = label;
+        }
+      }
+    }
+  } catch (_e) {}
+  inboxRowsPaintCardTime(id, label);
+  return at;
+}
+
+function inboxRowsPassThroughLastMessage(mapped, row) {
+  if (!mapped || !row) return mapped;
+  if (row.last_message_at != null) mapped.last_message_at = row.last_message_at;
+  if (mapped.last_message_at == null && row.last_message_created_at != null) {
+    mapped.last_message_at = row.last_message_created_at;
+  }
+  if (Array.isArray(row.messages)) mapped.messages = row.messages;
+  return mapped;
+}
+
 function inboxRowsWrapConvCardHtml(html, row) {
+  row = inboxRowsWithNewestMessageTime(row);
   html = inboxRowsRewriteNeedsHumanChip(String(html || ''), row);
+  html = inboxRowsRewriteTime(html, row);
   var openMatch = html.match(/^(\s*<div\b[^>]*class="[^"]*conv-card[^"]*"[^>]*>)/);
   if (!openMatch) return html;
   var open = openMatch[1];
@@ -475,9 +624,20 @@ function inboxRowsWrapRenderers() {
   if (typeof mapInboxPersonRowToConv === 'function' && !mapInboxPersonRowToConv._inboxRowsWrapped) {
     var _inboxRowsLegacyMapPerson = mapInboxPersonRowToConv;
     mapInboxPersonRowToConv = function(row) {
-      return inboxRowsPassThroughUnread(_inboxRowsLegacyMapPerson(row), row);
+      var mapped = inboxRowsPassThroughUnread(_inboxRowsLegacyMapPerson(row), row);
+      mapped = inboxRowsPassThroughLastMessage(mapped, row);
+      return inboxRowsWithNewestMessageTime(mapped);
     };
     mapInboxPersonRowToConv._inboxRowsWrapped = true;
+  }
+  if (typeof renderInboxThreadMessagesHtml === 'function' && !renderInboxThreadMessagesHtml._inboxRowsTimeWrapped) {
+    var _inboxRowsLegacyThreadHtml = renderInboxThreadMessagesHtml;
+    renderInboxThreadMessagesHtml = function(msgs) {
+      var convId = (typeof selectedConvId !== 'undefined' && selectedConvId) ? selectedConvId : '';
+      inboxRowsRememberThreadMessages(convId, msgs);
+      return _inboxRowsLegacyThreadHtml(msgs);
+    };
+    renderInboxThreadMessagesHtml._inboxRowsTimeWrapped = true;
   }
 }
 
@@ -531,6 +691,12 @@ if (typeof window !== 'undefined') {
     rowKey: inboxRowKey,
     wrapConvCardHtml: inboxRowsWrapConvCardHtml,
     rewriteNeedsHumanChip: inboxRowsRewriteNeedsHumanChip,
+    rewriteTime: inboxRowsRewriteTime,
+    timeLabel: inboxRowsTimeLabel,
+    newestMessageAt: inboxRowsNewestMessageAt,
+    rememberThreadMessages: inboxRowsRememberThreadMessages,
+    withNewestMessageTime: inboxRowsWithNewestMessageTime,
+    formatTime: inboxRowsFormatTime,
     needsHumanLabel: inboxRowsNeedsHumanLabel,
     hideLegacyFilterChips: inboxRowsHideLegacyFilterChips,
     openBroadcast: inboxRowsOpenBroadcast,
