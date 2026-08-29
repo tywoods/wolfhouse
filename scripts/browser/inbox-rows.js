@@ -27,6 +27,12 @@ var INBOX_ROWS_CSS = [
   'background:var(--surface-soft);color:var(--text-2);margin-top:2px}',
   '.inbox-row-body{flex:1 1 auto;min-width:0;overflow:hidden}',
   '.inbox-row-body .conv-card-name,.inbox-row-body .conv-card-header-row{min-width:0;max-width:100%}',
+  /* Prefer readable names over single-glyph ellipsis ("Sim…") in a crushed col2 */
+  '.inbox-row-body .conv-card-name{white-space:normal;overflow:hidden;display:-webkit-box;',
+  '-webkit-box-orient:vertical;-webkit-line-clamp:2;text-overflow:ellipsis;word-break:break-word;line-height:1.25}',
+  '.inbox-row-body .conv-card-time{flex:0 0 auto;white-space:nowrap;max-width:100%}',
+  '.inbox-row-body .conv-card-meta-row{flex-wrap:nowrap;gap:6px;min-width:0;align-items:center}',
+  '.inbox-row-body .conv-card-pebbles{flex:0 0 auto;min-width:0}',
   '#conv-list{overflow-x:hidden}',
   '.inbox-row-unread-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;',
   'background:currentColor;opacity:.7;margin-top:10px}',
@@ -49,6 +55,14 @@ var INBOX_ROWS_CSS = [
   /* Needs-human attention: same orange as .inbox-needs-human-raise.is-on */
   '.conv-card.inbox-row-needs-human .inbox-channel-badge{color:#E8893A}',
   '.conv-card.inbox-row-needs-human .inbox-channel-badge svg{stroke:currentColor}',
+  /* Compact / md density: shrink gutters so names+timestamps fit without clip */
+  '#inbox-shell[data-col2="compact"] .conv-card.inbox-row{gap:6px;padding:8px 8px}',
+  '#inbox-shell[data-col2="compact"] .inbox-row-avatar{width:28px;height:28px;font-size:10px}',
+  '@media(max-width:1279px){',
+  '#inbox-shell .conv-card.inbox-row{gap:8px;padding:8px 10px}',
+  '#inbox-shell .inbox-row-avatar{width:28px;height:28px}',
+  '#inbox-shell .inbox-left .inbox-conv-search-wrap{padding:8px 8px 6px}',
+  '}',
 ].join('');
 
 var inboxRowsRuntime = { wired: false };
