@@ -276,6 +276,35 @@ function findAccommodationCoverageGaps(ranges) {
   return gaps;
 }
 
+/**
+ * Expand half-open coverage gaps into occupied uncovered nights.
+ * gap [2026-04-30, 2026-05-01) → ['2026-04-30'].
+ */
+function enumerateUncoveredNightsFromGaps(gaps) {
+  const out = [];
+  const seen = Object.create(null);
+  for (const gap of gaps || []) {
+    if (!gap || !isIsoDate(gap.gap_start) || !isIsoDate(gap.gap_end)) continue;
+    if (compareIso(gap.gap_end, gap.gap_start) <= 0) continue;
+    let cur = gap.gap_start;
+    while (compareIso(cur, gap.gap_end) < 0) {
+      if (!seen[cur]) {
+        seen[cur] = true;
+        out.push(cur);
+      }
+      cur = addDaysIso(cur, 1);
+      if (!isIsoDate(cur)) break;
+    }
+  }
+  return out.sort(compareIso);
+}
+
+/** True when nightIso is not covered by any active seasonal range. */
+function isAccommodationNightUncovered(ranges, nightIso) {
+  if (!isIsoDate(nightIso)) return true;
+  return !findCoveringRange(ranges, nightIso);
+}
+
 function formatUncoveredSpan(uncoveredNights) {
   const nights = (uncoveredNights || []).map((d) => String(d).slice(0, 10)).filter(isIsoDate);
   if (!nights.length) return '';
@@ -838,6 +867,8 @@ module.exports = {
   rangeCoversNight,
   findCoveringRange,
   findAccommodationCoverageGaps,
+  enumerateUncoveredNightsFromGaps,
+  isAccommodationNightUncovered,
   formatUncoveredSpan,
   uncoveredErrorMessage,
   priceAccommodationStay,

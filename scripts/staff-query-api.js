@@ -18135,7 +18135,10 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-create-date-range-day{min-height:40px;min-width:0;width:100%;border:none;border-radius:8px;background:transparent;color:var(--text);font:inherit;font-size:13px;cursor:pointer;padding:6px 0;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
 .portal-schedule-create-date-range-day.is-outside{opacity:.35}
 .portal-schedule-create-date-range-day.is-past,.portal-schedule-create-date-range-day:disabled{opacity:.35;cursor:not-allowed}
+.portal-schedule-create-date-range-day.is-uncovered{color:#8a6100;box-shadow:inset 0 0 0 1px rgba(200,138,0,.45)}
+.portal-schedule-create-date-range-day.is-uncovered.is-selected,.portal-schedule-create-date-range-day.is-uncovered.is-selected-start,.portal-schedule-create-date-range-day.is-uncovered.is-selected-end{color:#fff;box-shadow:none}
 .portal-schedule-create-date-range-past-warn{margin:0 0 8px;font-size:13px;color:var(--danger,#b33)}
+.portal-schedule-create-date-range-uncovered-warn{margin:0 0 8px;font-size:13px;color:#8a6100}
 .portal-schedule-create-date-range-day.is-in-range{background:rgba(78,88,83,.14)}
 .portal-schedule-create-date-range-day.is-selected-start,.portal-schedule-create-date-range-day.is-selected-end,.portal-schedule-create-date-range-day.is-selected{background:var(--sched-primary,#4E5853);color:#fff;font-weight:700}
 .portal-schedule-create-date-range-day:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:1px}
@@ -21982,6 +21985,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
             <div id="ps-create-private-when" class="portal-schedule-create-private-when">
               <div class="portal-schedule-create-field" style="margin-bottom:0">
                 <span id="ps-create-private-sessions-help" class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set start and end time for each date in the range.</span>
+                <p id="ps-create-private-catalog-meta" class="portal-schedule-drawer-hint" data-testid="ps-create-private-catalog-meta" style="display:none;margin:4px 0 8px" hidden aria-hidden="true"></p>
                 <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
                 <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" style="display:none" hidden aria-hidden="true" tabindex="-1" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
               </div>
@@ -22072,7 +22076,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
               <button type="button" class="btn btn-ghost" id="ps-create-accommodation-remove" data-testid="ps-create-accommodation-remove" data-i18n="schedule.create.accommodation.remove">Remove</button>
             </div>
             <p id="ps-create-accommodation-error" class="portal-schedule-create-custom-line-error" style="display:none" role="alert"></p>
-            <p class="portal-admin-muted" data-i18n="schedule.create.accommodation.serverPriced">Price is calculated from Admin seasonal rates.</p>
+            <p id="ps-create-accommodation-uncovered-warn" class="portal-schedule-create-date-range-past-warn" role="alert" hidden style="display:none" data-testid="ps-create-accommodation-uncovered-warn"></p>
+            <p class="portal-admin-muted" data-i18n="schedule.create.accommodation.serverPriced">Seasonal nightly rate from Admin only — no room type, bed assignment, or occupancy capacity.</p>
           </div>
         </div>
       </section>
@@ -24832,6 +24837,8 @@ var scheduleLessonTimesCache = [];
 var scheduleCoursesCache = [];
 var schedulePrivateEquipmentOptionsCache = [];
 var schedulePrivateLessonDurationCache = 120;
+/** Admin private lesson unit price (cents) for Create panel catalog readout. */
+var schedulePrivateLessonAmountCentsCache = null;
 var scheduleLessonTimesFallback = false;
 var scheduleLessonTimesLoaded = false;
 /** In-flight scheduleFetchLessonTimesConfig promise — coalesce parallel callers (startup race). */
@@ -26227,6 +26234,8 @@ function scheduleReadCreateCustomLineItems(){
 var scheduleCreateAccommodationStays = []; // locked: { client_stay_id, check_in, check_out, quote? }
 var scheduleCreateAccommodation = null; // draft stay while editor open: { enabled, check_in, check_out, client_stay_id? }
 var scheduleAccommodationEnabledCache = false;
+/** Active Admin seasonal ranges for Create date coverage (Staff API catalog). */
+var scheduleAccommodationRangesCache = [];
 var scheduleCreateAccommodationEditorOpen = false;
 var scheduleCreateAccommodationEditingId = null; // client_stay_id being edited, or null for new draft
 var scheduleCreateAccomDateRangeDraft = { start: null, end: null };
@@ -26239,6 +26248,190 @@ var scheduleCreateAccommodationStaySeq = 0;
 function scheduleNewCreateAccommodationStayId(){
   scheduleCreateAccommodationStaySeq += 1;
   return 'as_' + String(Date.now()) + '_' + String(scheduleCreateAccommodationStaySeq);
+}
+
+/**
+ * Half-open season coverage gaps — same algorithm as Admin Precios Alojamiento warning.
+ * @returns {Array<{gap_start:string,gap_end:string}>}
+ */
+function scheduleFindAccommodationCoverageGaps(ranges){
+  var validIso = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  var rows = (Array.isArray(ranges) ? ranges : []).filter(function(r){
+    return r
+      && validIso(String(r.check_in || '').slice(0, 10))
+      && validIso(String(r.check_out || '').slice(0, 10))
+      && String(r.check_out).slice(0, 10) > String(r.check_in).slice(0, 10);
+  }).slice().sort(function(a, b){
+    var byIn = String(a.check_in).slice(0, 10).localeCompare(String(b.check_in).slice(0, 10));
+    if (byIn) return byIn;
+    return String(a.check_out).slice(0, 10).localeCompare(String(b.check_out).slice(0, 10));
+  });
+  var gaps = [];
+  for (var i = 1; i < rows.length; i += 1) {
+    var prev = rows[i - 1];
+    var cur = rows[i];
+    if (String(prev.check_out).slice(0, 10) < String(cur.check_in).slice(0, 10)) {
+      gaps.push({
+        gap_start: String(prev.check_out).slice(0, 10),
+        gap_end: String(cur.check_in).slice(0, 10),
+      });
+    }
+  }
+  return gaps;
+}
+
+function scheduleAccommodationRangeCoversNight(range, nightIso){
+  var validIso = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  if (!range || !validIso(nightIso)) return false;
+  var cin = String(range.check_in || '').slice(0, 10);
+  var cout = String(range.check_out || '').slice(0, 10);
+  if (!validIso(cin) || !validIso(cout)) return false;
+  var cents = Number(range.amount_cents);
+  return nightIso >= cin && nightIso < cout
+    && Number.isFinite(cents) && cents > 0;
+}
+
+/** True when night has no Admin seasonal price (gap or outside all ranges). */
+function scheduleAccommodationNightUncovered(nightIso){
+  var validIso = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  var night = String(nightIso || '').slice(0, 10);
+  if (!validIso(night)) return true;
+  var ranges = scheduleAccommodationRangesCache || [];
+  // No catalog yet — do not block selection until Admin ranges load.
+  if (!ranges.length) return false;
+  for (var i = 0; i < ranges.length; i += 1) {
+    if (scheduleAccommodationRangeCoversNight(ranges[i], night)) return false;
+  }
+  return true;
+}
+
+/** Occupied nights [checkIn, checkOut) that lack seasonal price. */
+function scheduleAccommodationUncoveredNightsInStay(checkIn, checkOut){
+  var validIso = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  var a = String(checkIn || '').slice(0, 10);
+  var b = String(checkOut || '').slice(0, 10);
+  if (!validIso(a) || !validIso(b) || b <= a) return [];
+  var out = [];
+  var cur = a;
+  var guard = 0;
+  while (cur < b && guard < 400) {
+    if (scheduleAccommodationNightUncovered(cur)) out.push(cur);
+    cur = scheduleAddIsoDays(cur, 1);
+    guard += 1;
+  }
+  return out;
+}
+
+/** Admin-parity coverage warning text for uncovered nights (Create gate / save). */
+function scheduleAccommodationUncoveredWarningMessage(uncoveredNights){
+  var validIso = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  var nights = (uncoveredNights || []).map(function(d){ return String(d).slice(0, 10); })
+    .filter(function(d){ return validIso(d); })
+    .sort();
+  if (!nights.length) return '';
+  // Inline span labels (avoid nested named helpers — portal-fn-slice treats them as roots).
+  var formatNight = typeof scheduleCreateDateRangeFormatShort === 'function'
+    ? scheduleCreateDateRangeFormatShort
+    : function(iso){ return String(iso || '').slice(0, 10); };
+  var labels = [];
+  var start = nights[0];
+  var prev = nights[0];
+  for (var i = 1; i < nights.length; i += 1) {
+    var n = nights[i];
+    if (scheduleAddIsoDays(prev, 1) === n) { prev = n; continue; }
+    labels.push(start === prev ? formatNight(start) : (formatNight(start) + ' – ' + formatNight(prev)));
+    start = n;
+    prev = n;
+  }
+  labels.push(start === prev ? formatNight(start) : (formatNight(start) + ' – ' + formatNight(prev)));
+  var template = portalT('schedule.create.accommodation.uncoveredNights')
+    || portalT('admin.accommodation.coverageGap')
+    || 'Some dates have no seasonal price: {gaps}. Stays including these nights cannot be quoted.';
+  return String(template).replace('{gaps}', labels.join('; '));
+}
+
+function scheduleSyncCreateAccomUncoveredWarning(draft){
+  var warn = el('ps-create-accommodation-uncovered-warn');
+  if (!warn) return false;
+  var validIso = typeof scheduleCreateDateRangeIsValidIso === 'function'
+    ? scheduleCreateDateRangeIsValidIso
+    : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  var start = draft && draft.start ? String(draft.start).slice(0, 10) : '';
+  var end = draft && draft.end ? String(draft.end).slice(0, 10) : start;
+  if (!validIso(start)) {
+    warn.hidden = true;
+    if (warn.style) warn.style.display = 'none';
+    warn.textContent = '';
+    return false;
+  }
+  if (!validIso(end) || end <= start) end = scheduleAddIsoDays(start, 1);
+  var uncovered = scheduleAccommodationUncoveredNightsInStay(start, end);
+  if (!uncovered.length) {
+    warn.hidden = true;
+    if (warn.style) warn.style.display = 'none';
+    warn.textContent = '';
+    return false;
+  }
+  warn.textContent = scheduleAccommodationUncoveredWarningMessage(uncovered);
+  warn.hidden = false;
+  if (warn.style) warn.style.display = '';
+  return true;
+}
+
+function scheduleSetAccommodationRangesCache(ranges){
+  scheduleAccommodationRangesCache = Array.isArray(ranges) ? ranges.slice() : [];
+}
+
+function scheduleSetPrivateLessonCatalogCache(pl){
+  if (!pl || typeof pl !== 'object') {
+    schedulePrivateLessonAmountCentsCache = null;
+    return;
+  }
+  if (pl.default_duration_minutes != null) {
+    schedulePrivateLessonDurationCache = Number(pl.default_duration_minutes) || 120;
+  }
+  if (pl.amount_cents != null && Number.isFinite(Number(pl.amount_cents))) {
+    schedulePrivateLessonAmountCentsCache = Math.round(Number(pl.amount_cents));
+  } else {
+    schedulePrivateLessonAmountCentsCache = null;
+  }
+  scheduleRenderPrivateLessonCatalogMeta();
+}
+
+/** Paint Admin private lesson € / duration into Create private panel (catalog only). */
+function scheduleRenderPrivateLessonCatalogMeta(){
+  var meta = el('ps-create-private-catalog-meta');
+  if (!meta) return;
+  var cents = schedulePrivateLessonAmountCentsCache;
+  var dur = schedulePrivateLessonDurationCache;
+  if (cents == null || !Number.isFinite(Number(cents)) || Number(cents) < 0) {
+    meta.textContent = '';
+    meta.style.display = 'none';
+    meta.setAttribute('hidden', '');
+    meta.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  var fmt = typeof scheduleFormatCentsMoney === 'function'
+    ? scheduleFormatCentsMoney(cents)
+    : ('€' + (Number(cents) / 100).toFixed(2));
+  var template = portalT('schedule.create.privateLesson.catalogPrice')
+    || '{price} / session · {duration} min';
+  meta.textContent = String(template)
+    .replace('{price}', fmt)
+    .replace('{duration}', String(Number.isFinite(Number(dur)) ? Math.round(Number(dur)) : 120));
+  meta.style.display = '';
+  meta.removeAttribute('hidden');
+  meta.setAttribute('aria-hidden', 'false');
 }
 
 function scheduleSetAccommodationProductEnabled(enabled){
@@ -26446,14 +26639,23 @@ function scheduleRenderCreateAccomDateRangeCalendar(){
     var cls = 'portal-schedule-create-date-range-day';
     var selected = false;
     var isPast = !!(minIso && scheduleCreateDateRangeIsValidIso(c.iso) && c.iso < minIso);
+    // Mark uncovered nights (Admin gap set) but do not disable — checkout day may
+    // land on an uncovered calendar date while occupied nights stay covered.
+    var isUncovered = !isPast && typeof scheduleAccommodationNightUncovered === 'function'
+      && scheduleAccommodationNightUncovered(c.iso);
     if (c.outside) cls += ' is-outside';
     if (isPast) cls += ' is-past';
+    if (isUncovered) cls += ' is-uncovered';
     if (dStart && c.iso === dStart) { cls += ' is-selected-start is-selected'; selected = true; }
     if (dEnd && c.iso === dEnd) { cls += ' is-selected-end is-selected'; selected = true; }
     if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi) cls += ' is-in-range';
     var tab = (focusIso && c.iso === focusIso) ? '0' : '-1';
+    var ariaExtra = isUncovered
+      ? (' ' + (portalT('schedule.create.accommodation.uncoveredWarn')
+        || 'No seasonal price on these nights'))
+      : '';
     html += '<button type="button" class="' + cls + '" tabindex="' + tab
-      + '" data-date="' + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso)
+      + '" data-date="' + escHtml(c.iso) + '" aria-label="' + escHtml(c.iso + ariaExtra)
       + '" aria-pressed="' + (selected ? 'true' : 'false') + '"'
       + (isPast ? ' disabled aria-disabled="true"' : '')
       + '>'
@@ -26462,8 +26664,21 @@ function scheduleRenderCreateAccomDateRangeCalendar(){
   grid.innerHTML = html;
   grid._dateRangeCells = cells;
   var apply = el('ps-create-accommodation-date-range-apply');
-  if (apply) apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
+  if (apply) {
+    var draftReady = scheduleCreateDateRangeDraftReady(draft);
+    var uncoveredBlocked = false;
+    if (draftReady && draft.start
+      && typeof scheduleAccommodationUncoveredNightsInStay === 'function') {
+      var endIso = draft.end || draft.start;
+      if (!endIso || endIso <= draft.start) endIso = scheduleAddIsoDays(draft.start, 1);
+      uncoveredBlocked = scheduleAccommodationUncoveredNightsInStay(draft.start, endIso).length > 0;
+    }
+    apply.disabled = !draftReady || uncoveredBlocked;
+  }
   scheduleCreateDateRangeSyncPastWarning('ps-create-accommodation-date-range-past-warn', draft);
+  if (typeof scheduleSyncCreateAccomUncoveredWarning === 'function') {
+    scheduleSyncCreateAccomUncoveredWarning(draft);
+  }
 }
 
 /** Write calendar draft into hidden half-open check-in/out (same-day → +1 night). */
@@ -26482,12 +26697,24 @@ function scheduleApplyCreateAccomDateRangeDraft(){
   if (!valid(end)) return false;
   // Half-open stay: exclusive checkout must be after check-in.
   if (end <= start) end = scheduleAddIsoDays(start, 1);
+  if (typeof scheduleAccommodationUncoveredNightsInStay === 'function') {
+    var uncovered = scheduleAccommodationUncoveredNightsInStay(start, end);
+    if (uncovered.length) {
+      if (typeof scheduleSyncCreateAccomUncoveredWarning === 'function') {
+        scheduleSyncCreateAccomUncoveredWarning({ start: start, end: end });
+      }
+      return false;
+    }
+  }
   var cin = el('ps-create-accommodation-check-in');
   var cout = el('ps-create-accommodation-check-out');
   if (cin) cin.value = start;
   if (cout) cout.value = end;
   scheduleSyncCreateAccomDateRangeUi();
   scheduleCreateDateRangeSyncPastWarning('ps-create-accommodation-date-range-past-warn', { start: start, end: end });
+  if (typeof scheduleSyncCreateAccomUncoveredWarning === 'function') {
+    scheduleSyncCreateAccomUncoveredWarning({ start: start, end: end });
+  }
   scheduleCreateAccomDateRangeClosePopover({ restoreFocus: true, applied: true, discard: false });
   return true;
 }
@@ -26864,6 +27091,23 @@ function scheduleSaveCreateAccommodation(){
   }
   // Half-open: exclusive checkout after check-in (same-day → one night).
   if (checkOut <= checkIn) checkOut = scheduleAddIsoDays(checkIn, 1);
+  if (typeof scheduleAccommodationUncoveredNightsInStay === 'function') {
+    var uncoveredStay = scheduleAccommodationUncoveredNightsInStay(checkIn, checkOut);
+    if (uncoveredStay.length) {
+      var errUn = el('ps-create-accommodation-error');
+      if (errUn) {
+        errUn.style.display = '';
+        errUn.textContent = typeof scheduleAccommodationUncoveredWarningMessage === 'function'
+          ? scheduleAccommodationUncoveredWarningMessage(uncoveredStay)
+          : (portalT('schedule.create.accommodation.uncoveredNights')
+            || 'Some dates have no seasonal price.');
+      }
+      if (typeof scheduleSyncCreateAccomUncoveredWarning === 'function') {
+        scheduleSyncCreateAccomUncoveredWarning({ start: checkIn, end: checkOut });
+      }
+      return false;
+    }
+  }
   var stayId = scheduleCreateAccommodationEditingId
     || scheduleCreateAccommodation.client_stay_id
     || scheduleNewCreateAccommodationStayId();
@@ -28921,6 +29165,13 @@ function scheduleFetchLessonTimesConfig(client, opts){
       if (typeof scheduleSetAccommodationProductEnabled === 'function') {
         scheduleSetAccommodationProductEnabled(!!(data && data.accommodation && data.accommodation.enabled));
       }
+      if (typeof scheduleSetAccommodationRangesCache === 'function') {
+        scheduleSetAccommodationRangesCache(
+          data && data.accommodation && Array.isArray(data.accommodation.ranges)
+            ? data.accommodation.ranges
+            : [],
+        );
+      }
       // Enabled rental identities for Create/Edit projection (exact tenant/location).
       if (offeringsData && offeringsData.success && Array.isArray(offeringsData.offerings)) {
         scheduleRentalOfferingsCache = offeringsData.offerings.slice();
@@ -28930,7 +29181,9 @@ function scheduleFetchLessonTimesConfig(client, opts){
         scheduleRentalOfferingsCache = [];
       }
       scheduleRenderCreateRentals();
-      if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
+      if (typeof scheduleSetPrivateLessonCatalogCache === 'function') {
+        scheduleSetPrivateLessonCatalogCache(data && data.private_lesson);
+      } else if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
         schedulePrivateLessonDurationCache = Number(data.private_lesson.default_duration_minutes) || 120;
       }
       var privateOffering = catalogData && Array.isArray(catalogData.offerings)

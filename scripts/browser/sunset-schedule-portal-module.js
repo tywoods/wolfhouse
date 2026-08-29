@@ -26,6 +26,8 @@ var schedulePortalSubmitIdemKey = null;
 var schedulePortalSubmitIdemIntent = null;
 /** True after a quote failure that must clear total + keep Create disabled (e.g. unpriced). */
 var schedulePortalQuotePriceBlocked = false;
+/** True while a quote request is in flight or debounce pending — Create stays disabled. */
+var schedulePortalQuoteChecking = false;
 var schedulePortalPendingCourseSelectionRequired = false;
 
 /**
@@ -47,6 +49,16 @@ function schedulePortalQuoteFailureMessage(result) {
     return portalT('schedule.create.priceNotConfigured')
       || portalT('schedule.create.unpriced')
       || 'Price not configured';
+  }
+  if (rc === 'accommodation_uncovered_nights') {
+    if (typeof scheduleAccommodationUncoveredWarningMessage === 'function'
+      && Array.isArray(body.uncovered_nights) && body.uncovered_nights.length) {
+      return scheduleAccommodationUncoveredWarningMessage(body.uncovered_nights);
+    }
+    if (body.error) return String(body.error);
+    return portalT('schedule.create.accommodation.uncoveredNights')
+      || portalT('admin.accommodation.coverageGap')
+      || 'Some dates have no seasonal price. Stays including these nights cannot be quoted.';
   }
   if (rc === 'course_full' || rc === 'course_capacity_not_configured') {
     var seats = body.seats_remaining != null ? Number(body.seats_remaining) : (body.capacity != null ? Number(body.capacity) : 24);
@@ -109,6 +121,7 @@ function schedulePortalInvalidatePreviewWork() {
 function schedulePortalResetQuoteRuntimeState(opts) {
   opts = opts || {};
   schedulePortalQuoteState = null;
+  schedulePortalQuoteChecking = false;
   if (opts.keepBlocked === true) schedulePortalQuotePriceBlocked = true;
   else schedulePortalQuotePriceBlocked = false;
 }
@@ -778,6 +791,9 @@ function schedulePortalEnterPrivateSessionsDrilldown() {
   if (cf) {
     cf.style.display = 'none'; cf.hidden = true;
     try { cf.setAttribute('aria-hidden', 'true'); } catch (_a) { /* ignore */ }
+  }
+  if (typeof scheduleRenderPrivateLessonCatalogMeta === 'function') {
+    scheduleRenderPrivateLessonCatalogMeta();
   }
   schedulePortalRenderMainActivityPath();
   if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
@@ -1724,6 +1740,29 @@ function schedulePortalValidateCreatePayload(payload, opts) {
     }
   }
 
+  // Accommodation: block quote/create when stay nights lack Admin seasonal price.
+  var accom = p.accommodation;
+  if (accom && accom.enabled !== false
+    && typeof scheduleAccommodationUncoveredNightsInStay === 'function') {
+    var stays = Array.isArray(accom.stays) && accom.stays.length
+      ? accom.stays
+      : ((accom.check_in && accom.check_out)
+        ? [{ check_in: accom.check_in, check_out: accom.check_out }]
+        : []);
+    for (var ai = 0; ai < stays.length; ai += 1) {
+      var st = stays[ai] || {};
+      var uncovered = scheduleAccommodationUncoveredNightsInStay(st.check_in, st.check_out);
+      if (uncovered.length) {
+        return fail('schedule.create.accommodation.uncoveredNights', {
+          uncovered_nights: uncovered,
+          uncoveredMessage: typeof scheduleAccommodationUncoveredWarningMessage === 'function'
+            ? scheduleAccommodationUncoveredWarningMessage(uncovered)
+            : null,
+        });
+      }
+    }
+  }
+
   var outOk = { ok: true };
   if (courseSelectionRequired) outOk.courseSelectionRequired = true;
   return outOk;
@@ -1736,6 +1775,7 @@ function schedulePortalInvalidateCreateQuoteIntent(result) {
   }
   schedulePortalInvalidatePreviewWork();
   schedulePortalQuoteState = null;
+  schedulePortalQuoteChecking = false;
   if (result) schedulePortalRenderCreateQuotePreview(result);
   else { var b = el('ps-create-quote-preview'); if (b) { b.innerHTML = ''; b.style.display = 'none'; } }
   return schedulePortalQuoteGen;
@@ -1743,10 +1783,12 @@ function schedulePortalInvalidateCreateQuoteIntent(result) {
 
 function schedulePortalShowQuoteChecking() {
   var box = el('ps-create-quote-preview'); if (!box) return;
+  schedulePortalQuoteChecking = true;
   try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
   box.innerHTML = '<p class="portal-schedule-drawer-hint portal-schedule-quote-checking" style="margin:0">'
     + escHtml(portalT('schedule.create.checkingPrice') || 'Checking price\u2026') + '</p>';
   box.style.display = 'block';
+  if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
 }
 
 /** Soft-gate keys that must clear € total and keep Create disabled. */
@@ -1756,12 +1798,15 @@ function schedulePortalIsCreateSoftBlockKey(errorKey) {
     || key === 'schedule.create.courseRequired'
     || key === 'calendar.state.invalidDateRange'
     || key === 'schedule.create.dateRange.pastDate'
-    || key === 'schedule.create.privateLesson.sessionDatePast';
+    || key === 'schedule.create.privateLesson.sessionDatePast'
+    || key === 'schedule.create.accommodation.uncoveredNights';
 }
 
 function schedulePortalRenderCreateQuotePreview(result) {
   var box = el('ps-create-quote-preview'); if (!box) return;
   if (result && (result.superseded || result.aborted)) return;
+  // Settled paint (idle / soft / fail / ok) clears in-flight checking so Create can enable.
+  if (!(result && result.checking)) schedulePortalQuoteChecking = false;
   try { box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite'); } catch (_e) { /* ignore */ }
   if (result && (result.idle || result.softInvalid)) {
     schedulePortalQuoteState = null;
@@ -1770,19 +1815,25 @@ function schedulePortalRenderCreateQuotePreview(result) {
     var dateGate = gateKey === 'calendar.state.invalidDateRange'
       || gateKey === 'schedule.create.dateRange.pastDate'
       || gateKey === 'schedule.create.privateLesson.sessionDatePast';
+    var accomGate = gateKey === 'schedule.create.accommodation.uncoveredNights';
     var courseGate = gateKey === 'schedule.create.courseOrTurnOff'
       || gateKey === 'schedule.create.courseRequired'
       || !!result.courseSelectionRequired;
-    if (!result.idle && (dateGate || courseGate || schedulePortalIsCreateSoftBlockKey(gateKey))) {
+    if (!result.idle && (dateGate || courseGate || accomGate || schedulePortalIsCreateSoftBlockKey(gateKey))) {
       schedulePortalQuotePriceBlocked = true;
-      var gateMsg = dateGate
-        ? (portalT(gateKey) || portalT('calendar.state.invalidDateRange') || 'Enter valid dates as DD/MM/YYYY.')
-        : (portalT(gateKey)
-          || portalT('schedule.create.courseOrTurnOff')
-          || portalT('schedule.create.courseRequired')
-          || 'Select a course or turn off Group Course');
-      var statusAttr = dateGate ? 'invalid-date' : 'course-required';
-      var cls = dateGate
+      var gateMsg = accomGate
+        ? (result.uncoveredMessage
+          || portalT('schedule.create.accommodation.uncoveredNights')
+          || portalT('admin.accommodation.coverageGap')
+          || 'Some dates have no seasonal price. Stays including these nights cannot be quoted.')
+        : (dateGate
+          ? (portalT(gateKey) || portalT('calendar.state.invalidDateRange') || 'Enter valid dates as DD/MM/YYYY.')
+          : (portalT(gateKey)
+            || portalT('schedule.create.courseOrTurnOff')
+            || portalT('schedule.create.courseRequired')
+            || 'Select a course or turn off Group Course'));
+      var statusAttr = accomGate ? 'uncovered-accommodation' : (dateGate ? 'invalid-date' : 'course-required');
+      var cls = (dateGate || accomGate)
         ? 'portal-schedule-drawer-hint portal-schedule-quote-invalid-date'
         : 'portal-schedule-drawer-hint portal-schedule-quote-course-gate';
       box.innerHTML = '<p class="' + cls + '" style="margin:0;color:var(--danger,#b33)" data-quote-status="'
@@ -1850,6 +1901,34 @@ function schedulePortalRenderCreateQuotePreview(result) {
   }
   htmlQ += '<p class="portal-schedule-drawer-hint" style="margin:0" data-quote-status="ok">'
     + escHtml((portalT('schedule.create.quoteTotal') || 'Quoted total') + ': \u20ac' + (raw / 100).toFixed(2)) + '</p>';
+  // Private lesson: surface Admin unit price/duration beside total (catalog, not invented).
+  try {
+    var plLines = Array.isArray(result.body && result.body.line_items)
+      ? result.body.line_items.filter(function(li){
+        return li && (li.component === 'private_lesson'
+          || li.offering_type === 'private_lesson'
+          || String(li.staff_ui_service_type || '').toLowerCase() === 'private_lesson');
+      })
+      : [];
+    if (plLines.length) {
+      var unit = plLines[0].unit_amount_cents != null
+        ? Number(plLines[0].unit_amount_cents)
+        : (schedulePrivateLessonAmountCentsCache != null
+          ? Number(schedulePrivateLessonAmountCentsCache) : NaN);
+      var durShow = schedulePrivateLessonDurationCache;
+      if (Number.isFinite(unit) && unit >= 0) {
+        var unitFmt = typeof scheduleFormatCentsMoney === 'function'
+          ? scheduleFormatCentsMoney(unit)
+          : ('\u20ac' + (unit / 100).toFixed(2));
+        var plMeta = String(portalT('schedule.create.privateLesson.catalogPrice')
+          || '{price} / session · {duration} min')
+          .replace('{price}', unitFmt)
+          .replace('{duration}', String(Number.isFinite(Number(durShow)) ? Math.round(Number(durShow)) : 120));
+        htmlQ = '<p class="portal-schedule-drawer-hint" style="margin:0 0 4px" data-quote-status="private-catalog">'
+          + escHtml(plMeta) + '</p>' + htmlQ;
+      }
+    }
+  } catch (_plm) { /* ignore */ }
   box.innerHTML = htmlQ;
   box.style.display = 'block';
   if (typeof schedulePortalSyncCreateSubmitEnabled === 'function') schedulePortalSyncCreateSubmitEnabled();
@@ -1993,6 +2072,21 @@ function schedulePortalRenderCreateIntentSummary(payload) {
     var sessN = Array.isArray(pl.sessions) ? pl.sessions.length : (pl.quantity || 0);
     if (sessN) primary.push((portalT('schedule.create.summary.sessions') || 'Sessions') + ': ' + String(sessN));
     if (pl.surfer_count) primary.push((portalT('schedule.create.summary.surfers') || 'Surfers') + ': ' + String(pl.surfer_count));
+    // Admin catalog unit price + duration (same source as private panel meta).
+    var plCents = typeof schedulePrivateLessonAmountCentsCache !== 'undefined'
+      ? schedulePrivateLessonAmountCentsCache : null;
+    var plDur = typeof schedulePrivateLessonDurationCache !== 'undefined'
+      ? schedulePrivateLessonDurationCache : null;
+    if (plCents != null && Number.isFinite(Number(plCents)) && Number(plCents) >= 0) {
+      var plFmt = typeof scheduleFormatCentsMoney === 'function'
+        ? scheduleFormatCentsMoney(plCents)
+        : ('\u20ac' + (Number(plCents) / 100).toFixed(2));
+      var plCatalog = String(portalT('schedule.create.privateLesson.catalogPrice')
+        || '{price} / session · {duration} min')
+        .replace('{price}', plFmt)
+        .replace('{duration}', String(Number.isFinite(Number(plDur)) ? Math.round(Number(plDur)) : 120));
+      secondary.push(plCatalog);
+    }
     var dates = (pl.sessions || []).map(function(s) { return s && s.date ? String(s.date).slice(0, 10) : ''; }).filter(Boolean).sort();
     if (dates.length && typeof schedulePortalFormatCompactDateRange === 'function') {
       var plCompact = schedulePortalFormatCompactDateRange(
@@ -2117,7 +2211,10 @@ function schedulePortalSyncCreateSubmitEnabled() {
       dateBlocked = true;
     }
   }
-  var blocked = !!schedulePortalQuotePriceBlocked || overCap || dateBlocked;
+  // Keep Create disabled until quote is idle (no debounce / in-flight Checking price…).
+  var quoteBusy = !!schedulePortalQuoteChecking
+    || (schedulePortalQuoteTimer != null);
+  var blocked = !!schedulePortalQuotePriceBlocked || overCap || dateBlocked || quoteBusy;
   btn.disabled = !guestOk || !courseOk || blocked;
   if (blocked) {
     if (typeof btn.setAttribute === 'function') btn.setAttribute('data-other-blocked', '1');
@@ -2196,6 +2293,8 @@ function schedulePortalRunPreviewQuote() {
         softInvalid: true,
         errorKey: softGate && softGate.errorKey,
         courseSelectionRequired: !!(softGate && softGate.courseSelectionRequired),
+        uncoveredMessage: softGate && softGate.uncoveredMessage,
+        uncovered_nights: softGate && softGate.uncovered_nights,
       });
     }
     return Promise.resolve({ ok: false, softInvalid: true, errorKey: softGate && softGate.errorKey });
@@ -2262,6 +2361,8 @@ function schedulePortalRefreshCreateQuote() {
           softInvalid: true,
           errorKey: softGate && softGate.errorKey,
           courseSelectionRequired: !!(softGate && softGate.courseSelectionRequired),
+          uncoveredMessage: softGate && softGate.uncoveredMessage,
+          uncovered_nights: softGate && softGate.uncovered_nights,
         };
     // D4: course gate must paint a message — do not blank via Invalidate alone.
     if (inv.softInvalid && typeof schedulePortalRenderCreateQuotePreview === 'function') {
@@ -2286,6 +2387,7 @@ function schedulePortalRefreshCreateQuote() {
   // Invalidate prior total immediately so a 1-day €40 cannot linger beside a
   // multi-day summary while the debounced requote is in flight.
   schedulePortalQuoteState = null;
+  schedulePortalQuoteChecking = true;
   schedulePortalShowQuoteChecking();
   var wait = Number(schedulePortalQuoteDebounceMs);
   if (!(wait >= 300 && wait <= 500)) wait = 400;
@@ -2671,13 +2773,20 @@ function submitScheduleManualBooking() {
   catch (_g) { gate = { ok: false, errorKey: 'schedule.create.componentsRequired' }; }
   if (!gate || gate.ok !== true) {
     if (msg) {
-      msg.textContent = portalT((gate && gate.errorKey) || 'schedule.create.componentsRequired');
+      var gateText = portalT((gate && gate.errorKey) || 'schedule.create.componentsRequired');
+      if (gate && gate.errorKey === 'schedule.create.accommodation.uncoveredNights'
+        && gate.uncoveredMessage) {
+        gateText = gate.uncoveredMessage;
+      }
+      msg.textContent = gateText;
       msg.style.display = 'block';
     }
     return;
   }
 
+  // Claim submit lock before any quote paint/sync so Create cannot re-disable mid-click.
   schedulePortalSubmitInFlight = true;
+  schedulePortalQuoteChecking = false;
   if (submitBtn) submitBtn.disabled = true;
 
   if (schedulePortalQuoteTimer != null) {

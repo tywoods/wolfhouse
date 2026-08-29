@@ -2347,6 +2347,10 @@ function renderAdminSectionAccommodationFromConfig(cfg){
     html += '</div></div>';
   } else {
     html += renderAdminAccommodationCoverageWarning(ac.ranges);
+    html += '<p class="portal-admin-muted" data-testid="admin-accommodation-no-room-inventory" data-i18n="admin.accommodation.noRoomInventory">'
+      + escHtml(portalT('admin.accommodation.noRoomInventory')
+        || 'Seasonal nightly rate only — no room inventory or occupancy enforcement.')
+      + '</p>';
     html += renderAdminAccommodationRangeRows(ac.ranges, false);
   }
   html += '</div>';
