@@ -100,12 +100,42 @@ function adminBookingsFormatEur(cents) {
   return '€' + (n / 100).toFixed(2);
 }
 
-/** Date-only YYYY-MM-DD from service_date — never raw ISO timestamps. */
+/**
+ * Stable per-render row key for expand state. The list index is always included,
+ * so duplicate IDs/codes and namespace-like values still expand independently.
+ */
+function adminBookingsRowKey(row, index) {
+  var rowIndex = String(index != null ? index : 0);
+  var id = String((row && row.booking_id) || '').trim();
+  if (id) return 'row:' + rowIndex + ':id:' + id;
+  var code = String((row && row.booking_code) || '').trim();
+  if (code) return 'row:' + rowIndex + ':code:' + code;
+  return 'row:' + rowIndex + ':anonymous';
+}
+
+/** Locale display date for Partidas — shared portal formatters; never raw ISO. */
 function adminBookingsFormatItemDate(raw) {
   var s = String(raw == null ? '' : raw).trim();
   if (!s) return '';
   var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
-  return m ? m[1] : '';
+  var iso = m ? m[1] : '';
+  if (!iso) return '';
+  if (typeof scheduleFormatDrawerDateDisplay === 'function') {
+    var viaDrawer = scheduleFormatDrawerDateDisplay(iso);
+    if (viaDrawer && viaDrawer !== '—') return viaDrawer;
+  }
+  try {
+    var d = null;
+    if (typeof scheduleParseIso === 'function') d = scheduleParseIso(iso);
+    else {
+      var p = iso.split('-').map(Number);
+      d = new Date(p[0], p[1] - 1, p[2]);
+    }
+    if (d && !isNaN(d.getTime())) {
+      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+  } catch (_e) { /* ignore */ }
+  return iso;
 }
 
 /**
@@ -436,13 +466,28 @@ function adminBookingsGuestPeekT(key, fallback) {
   return label;
 }
 
-function adminBookingsFindRowById(bookingId) {
-  var id = String(bookingId || '');
+function adminBookingsFindRowById(rowKey) {
+  var needle = String(rowKey || '');
   var rows = (adminBookingsState.data && adminBookingsState.data.rows) || [];
   for (var i = 0; i < rows.length; i += 1) {
-    if (String(rows[i].booking_id || '') === id) return rows[i];
+    var row = rows[i];
+    if (adminBookingsRowKey(row, i) === needle) return row;
+  }
+  // Backward-compatible domain-ID lookup for callers that do not have a row key.
+  for (var j = 0; j < rows.length; j += 1) {
+    if (String(rows[j].booking_id || '') === needle) return rows[j];
   }
   return null;
+}
+
+function adminBookingsRowKeyForBookingId(bookingId) {
+  var id = String(bookingId || '').trim();
+  if (!id) return '';
+  var rows = (adminBookingsState.data && adminBookingsState.data.rows) || [];
+  for (var i = 0; i < rows.length; i += 1) {
+    if (String(rows[i].booking_id || '') === id) return adminBookingsRowKey(rows[i], i);
+  }
+  return id;
 }
 
 function adminBookingsCloseGuestPeek() {
@@ -602,6 +647,140 @@ function adminBookingsRenderGuestPeek() {
   }
 }
 
+function adminBookingsToggleExpandedRow(rowKey) {
+  var key = String(rowKey || '');
+  if (!key) return;
+  adminBookingsCloseGuestPeek();
+  adminBookingsState.expandedId = adminBookingsState.expandedId === key ? null : key;
+  renderAdminBookingsTable();
+}
+
+function adminBookingsOnTableClick(ev) {
+  var guestBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-guest-phone]') : null;
+  if (guestBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    var guestRow = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
+    var guestId = guestRow ? guestRow.getAttribute('data-bookings-row-id') : '';
+    var phone = guestBtn.getAttribute('data-bookings-guest-phone') || '';
+    adminBookingsOpenGuestPeek(phone, guestId);
+    return;
+  }
+  var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
+  if (refundBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    openAdminBookingsRefundForm(
+      refundBtn.getAttribute('data-bookings-record-refund'),
+      refundBtn.getAttribute('data-bookings-refund-row-key')
+    );
+    return;
+  }
+  var hideBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-hide]') : null;
+  if (hideBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    adminBookingsCloseGuestPeek();
+    adminBookingsHideBooking(hideBtn.getAttribute('data-bookings-hide'));
+    return;
+  }
+  var unhideBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-unhide]') : null;
+  if (unhideBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    adminBookingsCloseGuestPeek();
+    adminBookingsUnhideBooking(unhideBtn.getAttribute('data-bookings-unhide'));
+    return;
+  }
+  var restoreBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-restore]') : null;
+  if (restoreBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    adminBookingsCloseGuestPeek();
+    adminBookingsRestoreBooking(restoreBtn.getAttribute('data-bookings-restore'));
+    return;
+  }
+  var codeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-open-schedule]') : null;
+  if (codeBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    adminBookingsCloseGuestPeek();
+    adminBookingsOpenInSchedule(codeBtn.getAttribute('data-bookings-open-schedule'), {
+      booking_code: codeBtn.getAttribute('data-booking-code'),
+      service_date_start: codeBtn.getAttribute('data-service-date-start'),
+    });
+    return;
+  }
+  // Clicks inside the expand panel (detail / refund UI) must not toggle the row.
+  var expandHit = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-expand]') : null;
+  if (expandHit) return;
+  // Nested interactive controls must not toggle expansion.
+  var interactive = ev.target && ev.target.closest
+    ? ev.target.closest('button, a, input, select, textarea, label')
+    : null;
+  var rowBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-row-id]') : null;
+  if (interactive && rowBtn && interactive !== rowBtn && rowBtn.contains(interactive)) {
+    return;
+  }
+  if (rowBtn) adminBookingsToggleExpandedRow(rowBtn.getAttribute('data-bookings-row-id'));
+}
+
+function adminBookingsOnTableKeydown(ev) {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  var target = ev.target;
+  if (!target) return;
+  var guestBtn = target.closest ? target.closest('[data-bookings-guest-phone]') : null;
+  if (guestBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    var guestRowKey = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
+    var guestIdKey = guestRowKey ? guestRowKey.getAttribute('data-bookings-row-id') : '';
+    var phoneKey = guestBtn.getAttribute('data-bookings-guest-phone') || '';
+    adminBookingsOpenGuestPeek(phoneKey, guestIdKey);
+    return;
+  }
+  var codeKeyBtn = target.closest ? target.closest('[data-bookings-open-schedule]') : null;
+  if (codeKeyBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    adminBookingsOpenInSchedule(codeKeyBtn.getAttribute('data-bookings-open-schedule'), {
+      booking_code: codeKeyBtn.getAttribute('data-booking-code'),
+      service_date_start: codeKeyBtn.getAttribute('data-service-date-start'),
+    });
+    return;
+  }
+  var refundBtn = target.closest ? target.closest('[data-bookings-record-refund]') : null;
+  if (refundBtn) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    openAdminBookingsRefundForm(
+      refundBtn.getAttribute('data-bookings-record-refund'),
+      refundBtn.getAttribute('data-bookings-refund-row-key')
+    );
+    return;
+  }
+  var nestedInteractive = target.closest
+    ? target.closest('button, a, input, select, textarea, label, form')
+    : null;
+  var rowBtn = target.closest ? target.closest('[data-bookings-row-id]') : null;
+  if (!rowBtn) return;
+  if (nestedInteractive && nestedInteractive !== rowBtn && rowBtn.contains(nestedInteractive)) {
+    return;
+  }
+  if (target !== rowBtn && nestedInteractive) return;
+  ev.preventDefault();
+  adminBookingsToggleExpandedRow(rowBtn.getAttribute('data-bookings-row-id'));
+}
+
+/** Re-bind row expand clicks when the table wrap is replaced without a full shell remount. */
+function adminBookingsEnsureTableDelegates() {
+  var wrap = el('admin-bookings-table-wrap');
+  if (!wrap || wrap.dataset.bookingsTableWired === '1') return;
+  wrap.dataset.bookingsTableWired = '1';
+  wrap.addEventListener('click', adminBookingsOnTableClick);
+  wrap.addEventListener('keydown', adminBookingsOnTableKeydown);
+}
+
 function wireAdminBookingsPanel() {
   var root = el('admin-bookings-body');
   if (!root || root.dataset.bookingsWired === '1') return;
@@ -642,127 +821,7 @@ function wireAdminBookingsPanel() {
   }
 
   var wrap = el('admin-bookings-table-wrap');
-  if (wrap) {
-    wrap.addEventListener('click', function (ev) {
-      var guestBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-guest-phone]') : null;
-      if (guestBtn) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        var guestRow = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
-        var guestId = guestRow ? guestRow.getAttribute('data-bookings-row-id') : '';
-        var phone = guestBtn.getAttribute('data-bookings-guest-phone') || '';
-        adminBookingsOpenGuestPeek(phone, guestId);
-        return;
-      }
-            var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
-            if (refundBtn) {
-              ev.preventDefault();
-              ev.stopPropagation();
-              var bookingId = refundBtn.getAttribute('data-bookings-record-refund');
-              openAdminBookingsRefundForm(bookingId);
-              return;
-            }
-            var hideBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-hide]') : null;
-            if (hideBtn) {
-              ev.preventDefault();
-              ev.stopPropagation();
-              adminBookingsCloseGuestPeek();
-              adminBookingsHideBooking(hideBtn.getAttribute('data-bookings-hide'));
-              return;
-            }
-            var unhideBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-unhide]') : null;
-            if (unhideBtn) {
-              ev.preventDefault();
-              ev.stopPropagation();
-              adminBookingsCloseGuestPeek();
-              adminBookingsUnhideBooking(unhideBtn.getAttribute('data-bookings-unhide'));
-              return;
-            }
-            var restoreBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-restore]') : null;
-            if (restoreBtn) {
-              ev.preventDefault();
-              ev.stopPropagation();
-              adminBookingsCloseGuestPeek();
-              adminBookingsRestoreBooking(restoreBtn.getAttribute('data-bookings-restore'));
-              return;
-            }
-            var codeBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-open-schedule]') : null;
-            if (codeBtn) {
-              ev.preventDefault();
-              ev.stopPropagation();
-              adminBookingsCloseGuestPeek();
-              adminBookingsOpenInSchedule(codeBtn.getAttribute('data-bookings-open-schedule'), {
-                booking_code: codeBtn.getAttribute('data-booking-code'),
-                service_date_start: codeBtn.getAttribute('data-service-date-start'),
-              });
-              return;
-            }
-            // Clicks inside the expand panel (detail / refund UI) must not toggle the row.
-            var expandHit = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-expand]') : null;
-            if (expandHit) return;
-            // Nested interactive controls must not toggle expansion.
-      var interactive = ev.target && ev.target.closest
-        ? ev.target.closest('button, a, input, select, textarea, label')
-        : null;
-      var rowBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-row-id]') : null;
-      if (interactive && rowBtn && interactive !== rowBtn && rowBtn.contains(interactive)) {
-        return;
-      }
-      if (rowBtn) {
-        var id = rowBtn.getAttribute('data-bookings-row-id');
-        adminBookingsCloseGuestPeek();
-        adminBookingsState.expandedId = adminBookingsState.expandedId === id ? null : id;
-        renderAdminBookingsTable();
-      }
-    });
-    wrap.addEventListener('keydown', function (ev) {
-      if (ev.key !== 'Enter' && ev.key !== ' ') return;
-      var target = ev.target;
-      if (!target) return;
-      // Guest / refund / form controls: activate their own action; never expand the row.
-      var guestBtn = target.closest ? target.closest('[data-bookings-guest-phone]') : null;
-      if (guestBtn) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        var guestRowKey = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
-        var guestIdKey = guestRowKey ? guestRowKey.getAttribute('data-bookings-row-id') : '';
-        var phoneKey = guestBtn.getAttribute('data-bookings-guest-phone') || '';
-        adminBookingsOpenGuestPeek(phoneKey, guestIdKey);
-        return;
-      }
-      var codeKeyBtn = target.closest ? target.closest('[data-bookings-open-schedule]') : null;
-      if (codeKeyBtn) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        adminBookingsOpenInSchedule(codeKeyBtn.getAttribute('data-bookings-open-schedule'), {
-          booking_code: codeKeyBtn.getAttribute('data-booking-code'),
-          service_date_start: codeKeyBtn.getAttribute('data-service-date-start'),
-        });
-        return;
-      }
-      var refundBtn = target.closest ? target.closest('[data-bookings-record-refund]') : null;
-      if (refundBtn) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        openAdminBookingsRefundForm(refundBtn.getAttribute('data-bookings-record-refund'));
-        return;
-      }
-      var nestedInteractive = target.closest
-        ? target.closest('button, a, input, select, textarea, label, form')
-        : null;
-      var rowBtn = target.closest ? target.closest('[data-bookings-row-id]') : null;
-      if (!rowBtn) return;
-      if (nestedInteractive && nestedInteractive !== rowBtn && rowBtn.contains(nestedInteractive)) {
-        return;
-      }
-      // Only expand when the row itself (or non-interactive descendant) has focus.
-      if (target !== rowBtn && nestedInteractive) return;
-      ev.preventDefault();
-      var id = rowBtn.getAttribute('data-bookings-row-id');
-      adminBookingsState.expandedId = adminBookingsState.expandedId === id ? null : id;
-      renderAdminBookingsTable();
-    });
-  }
+  if (wrap) adminBookingsEnsureTableDelegates();
 }
 
 function setAdminBookingsMsg(text, isError) {
@@ -884,9 +943,10 @@ function renderAdminBookingsTable() {
       adminBookingsTh('admin.bookings.col.status', 'status', 'status') +
     '</div></div><div class="portal-admin-bookings-tbody" role="rowgroup">';
 
-  rows.forEach(function (row) {
-    var id = String(row.booking_id || '');
-    var expanded = adminBookingsState.expandedId === id;
+  rows.forEach(function (row, rowIndex) {
+    var rowKey = adminBookingsRowKey(row, rowIndex);
+    var id = String(row.booking_id || '').trim();
+    var expanded = adminBookingsState.expandedId === rowKey;
     // Bookings panel: never grey cancelled (schedule greys separately).
     var archived = false;
     var code = String(row.booking_code || '');
@@ -896,12 +956,13 @@ function renderAdminBookingsTable() {
     // closest() / n1 row clicks hit the compact row, not the expanded block.
     html += '<div class="portal-admin-bookings-row-block' + (expanded ? ' is-expanded' : '') + '">';
     html += '<div class="portal-admin-bookings-tr' + (archived ? ' is-archived' : '') +
-      (expanded ? ' is-expanded' : '') + '" role="row" data-bookings-row-id="' + escHtml(id) +
+      (expanded ? ' is-expanded' : '') + '" role="row" data-bookings-row-id="' + escHtml(rowKey) +
       '" tabindex="0" aria-expanded="' + (expanded ? 'true' : 'false') + '">';
     var openScheduleLabel = adminBookingsOpenScheduleLabel(code);
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-code" role="cell">' +
       '<button type="button" class="portal-admin-bookings-code portal-admin-bookings-code-link" ' +
       'data-bookings-open-schedule="' + escHtml(id) + '" ' +
+      (id ? '' : 'disabled aria-disabled="true" ') +
       'data-booking-code="' + escHtml(code) + '" ' +
       'data-service-date-start="' + escHtml(String(row.service_date_start || '').slice(0, 10)) + '" ' +
       'title="' + escHtml(openScheduleLabel) + '" ' +
@@ -923,7 +984,7 @@ function renderAdminBookingsTable() {
       '<div class="portal-admin-bookings-chip-row">' + adminBookingsStatusChipsHtml(row) + '</div></div>';
     html += '</div>';
     if (expanded) {
-      html += renderAdminBookingsExpansion(row);
+      html += renderAdminBookingsExpansion(row, rowKey);
     }
     html += '</div>';
   });
@@ -946,6 +1007,8 @@ function renderAdminBookingsTable() {
   }
 
   wrap.innerHTML = html;
+
+  adminBookingsEnsureTableDelegates();
 
   var prev = el('admin-bookings-prev');
   var next = el('admin-bookings-next');
@@ -1175,7 +1238,8 @@ function adminBookingsTh(key, sortKey, align) {
     escHtml(arrow) + '</span></button></div>';
 }
 
-function renderAdminBookingsExpansion(row) {
+function renderAdminBookingsExpansion(row, rowKey) {
+  rowKey = String(rowKey || adminBookingsRowKey(row, 0));
   var story = row.payment_story || {};
   var items = Array.isArray(row.items) ? row.items : [];
   var cleanItems = [];
@@ -1235,7 +1299,8 @@ function renderAdminBookingsExpansion(row) {
   if (showRefundSection) {
     if (canRefund) {
       refundAction = '<button type="button" class="btn btn-primary btn-compact" data-bookings-record-refund="' +
-        escHtml(String(row.booking_id || '')) + '">' + escHtml(portalT('admin.bookings.recordRefund')) + '</button>';
+        escHtml(String(row.booking_id || '')) + '" data-bookings-refund-row-key="' + escHtml(rowKey) + '">' +
+        escHtml(portalT('admin.bookings.recordRefund')) + '</button>';
     } else if (adminBookingsCanWriteRefund() && isCancelled) {
       refundAction = ''; // unpaid or fully refunded — no Record Refund
     } else if (adminBookingsCanWriteRefund()) {
@@ -1266,13 +1331,13 @@ function renderAdminBookingsExpansion(row) {
   if (showRefundSection) {
     refundSectionHtml =
       '<h4>' + escHtml(portalT('admin.bookings.refunds')) + '</h4><ul class="portal-admin-bookings-list">' + refundsHtml + '</ul>' +
-      '<div class="portal-admin-bookings-refund-action" id="admin-bookings-refund-action-' + escHtml(String(row.booking_id || '')) + '">' +
+      '<div class="portal-admin-bookings-refund-action" id="admin-bookings-refund-action-' + escHtml(rowKey) + '">' +
         refundAction +
       '</div>';
   }
 
   return '<div class="portal-admin-bookings-expand" role="region" data-bookings-expand="' +
-    escHtml(String(row.booking_id || '')) + '">' +
+    escHtml(rowKey) + '">' +
     '<div class="portal-admin-bookings-expand-grid">' +
       '<section data-bookings-section="guest"><h4>' + escHtml(portalT('admin.bookings.guestMeta')) + '</h4>' +
         '<ul class="portal-admin-bookings-kv">' +
@@ -1301,9 +1366,10 @@ function renderAdminBookingsExpansion(row) {
     '</div></div>';
 }
 
-function openAdminBookingsRefundForm(bookingId) {
+function openAdminBookingsRefundForm(bookingId, rowKey) {
   adminBookingsCloseGuestPeek();
-  var host = el('admin-bookings-refund-action-' + bookingId);
+  rowKey = String(rowKey || adminBookingsRowKeyForBookingId(bookingId));
+  var host = el('admin-bookings-refund-action-' + rowKey);
   if (!host) return;
   if (!adminBookingsCanWriteRefund()) {
     setAdminBookingsMsg(portalT('admin.bookings.recordRefundViewer'), true);
@@ -1341,7 +1407,7 @@ function openAdminBookingsRefundForm(bookingId) {
       if (adminBookingsState.refundInFlight) return;
       adminBookingsState.refundIdempotencyKey = null;
       adminBookingsState.refundBookingId = null;
-      adminBookingsState.expandedId = bookingId;
+      adminBookingsState.expandedId = rowKey;
       renderAdminBookingsTable();
     });
   }
