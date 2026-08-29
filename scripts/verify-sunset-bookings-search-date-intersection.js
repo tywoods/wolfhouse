@@ -4,6 +4,7 @@
  * Reservas leftover: text search must intersect the active date-range filter.
  * QA symptom: with a date range applied, typing search made the count rise
  * (e.g. 17 → 21) because empty remounted date inputs cleared the range.
+ * Hardening: restore-before-wire, self-heal wiped inputs, display/open follow state.
  *
  * Owners: scripts/browser/sunset-admin-bookings-ui.js,
  *         scripts/lib/sunset-bookings-admin.js (filterBookingRows).
@@ -83,9 +84,26 @@ assert.ok(bookingsUiSrc.includes('function adminBookingsReadFiltersFromDom'),
 assert.ok(bookingsUiSrc.includes('data-range-cleared'),
   'explicit Clear is distinct from empty remounted inputs');
 assert.ok(
-  /adminBookingsRestoreFiltersToDom\(\);\s*\n\s*if \(opts && opts\.skipLoad/.test(bookingsUiSrc)
-  || bookingsUiSrc.includes('// Shell markup resets hidden date inputs'),
-  'shell remount always restores filters to DOM before load/skipLoad'
+  bookingsUiSrc.includes('// Shell markup resets hidden date inputs'),
+  'shell remount documents that markup wipes hidden date inputs'
+);
+assert.ok(
+  bookingsUiSrc.includes('adminBookingsRestoreFiltersToDom();'),
+  'shell remount restores filters to DOM'
+);
+// Restore must run before wire + load/skipLoad (lodging may sit between restore and skipLoad).
+const restoreAt = bookingsUiSrc.indexOf('adminBookingsRestoreFiltersToDom();');
+const wireAt = bookingsUiSrc.indexOf('wireAdminBookingsPanel();', restoreAt);
+const skipLoadAt = bookingsUiSrc.indexOf('opts.skipLoad', restoreAt);
+const loadAt = bookingsUiSrc.indexOf('loadAdminBookings();', restoreAt);
+assert.ok(restoreAt >= 0 && wireAt > restoreAt, 'restore runs before wire after remount');
+assert.ok(
+  skipLoadAt > restoreAt && loadAt > restoreAt,
+  'restore runs before skipLoad/load paths'
+);
+assert.ok(
+  /df\.value = f\.date_from|Keep active range \+ heal/.test(bookingsUiSrc),
+  'readFilters self-heals wiped date inputs from state'
 );
 assert.ok(bookingsUiSrc.includes('adminBookingsReadFiltersFromDom()'),
   'live filters / export call the named reader');
@@ -229,6 +247,21 @@ assert.ok(
 );
 assert.strictEqual(sandbox.adminBookingsState.filters.date_from, '2026-08-01');
 assert.strictEqual(sandbox.adminBookingsState.filters.date_to, '2026-08-31');
+assert.strictEqual(
+  nodes.get('admin-bookings-date-from').value,
+  '2026-08-01',
+  'search read self-heals wiped date_from into DOM'
+);
+assert.strictEqual(
+  nodes.get('admin-bookings-date-to').value,
+  '2026-08-31',
+  'search read self-heals wiped date_to into DOM'
+);
+assert.ok(
+  /2026-08/.test(String(nodes.get('admin-bookings-date-range-display').textContent || '')),
+  'date-range chip stays in sync with healed filters: ' +
+    nodes.get('admin-bookings-date-range-display').textContent
+);
 
 // Explicit Clear must widen (drop dates).
 nodes.get('admin-bookings-date-from').value = '';
@@ -241,5 +274,7 @@ const qCleared = sandbox.adminBookingsBuildQuery();
 assert.ok(qCleared.includes('q=gary'), qCleared);
 assert.ok(!qCleared.includes('date_from='), 'Clear drops date_from: ' + qCleared);
 assert.ok(!qCleared.includes('date_to='), 'Clear drops date_to: ' + qCleared);
+assert.strictEqual(nodes.get('admin-bookings-date-from').value, '', 'Clear leaves date_from empty');
+assert.strictEqual(nodes.get('admin-bookings-date-to').value, '', 'Clear leaves date_to empty');
 
 console.log('PASS Reservas search ∩ date-range (filter + remount/search UI)');
