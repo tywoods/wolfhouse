@@ -157,6 +157,8 @@ function runStaticSourceChecks() {
     || src.includes("q += '&location=' + encodeURIComponent(getSunsetLocation())"));
   assert('scheduleLessonTimesLoaded cache gate present',
     src.includes('scheduleLessonTimesLoaded'));
+  assert('schedule lesson-times catalog warmup is GET',
+    /schedulePortalFetchCatalog\(\{\s*method:\s*'GET',\s*service_dates:\s*\[\]\s*\}\)/.test(src));
   assert('scheduleInvalidateAdminCatalogCache present',
     src.includes('function scheduleInvalidateAdminCatalogCache('));
   assert('adminReloadConfig busts schedule course cache',
@@ -164,6 +166,9 @@ function runStaticSourceChecks() {
       || /function adminReloadConfig\([\s\S]{0,400}scheduleInvalidateAdminCatalogCache/.test(adminUiSrc));
   assert('create modal force-refetches admin courses',
     /scheduleFetchLessonTimesConfig\(getClient\(\),\s*\{\s*force:\s*true\s*\}/.test(src));
+  assert('startup does not double-load portal home',
+    /function portalStartupAfterSession\([\s\S]*?switchToTab\(tab,\s*null\);[\s\S]*?finishPortalProfileStartup/.test(src)
+    && !/function portalStartupAfterSession\([\s\S]*?loadPortalHome\(\);[\s\S]*?finishPortalProfileStartup/.test(src));
 }
 
 function runReadModelChecks() {

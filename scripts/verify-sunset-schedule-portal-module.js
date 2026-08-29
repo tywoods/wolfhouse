@@ -79,6 +79,16 @@ assert('create quote preview element', apiSrc.includes('id="ps-create-quote-prev
 
 console.log('\n[2] Canonical API endpoints in portal module');
 assert('catalog fetch', modSrc.includes('/staff/schedule/bookings/catalog'));
+assert(
+  'empty-dates catalog is GET-only',
+  /var hasDates = !!\(opts\.service_dates && opts\.service_dates\.length\)/.test(modSrc)
+    && /if \(!hasDates\)[\s\S]{0,120}schedulePortalFetchJson\(url\)/.test(modSrc)
+    && !/schedulePortalFetchCatalog\(\{\s*method:\s*'POST',\s*service_dates:\s*\[\]\s*\}\)/.test(apiSrc),
+);
+assert(
+  'lesson-times warmup uses GET catalog',
+  /schedulePortalFetchCatalog\(\{\s*method:\s*'GET',\s*service_dates:\s*\[\]\s*\}\)/.test(apiSrc),
+);
 assert('quote fetch', modSrc.includes('/staff/schedule/bookings/quote'));
 assert('create fetch', modSrc.includes('/staff/schedule/bookings?'));
 assert('detail fetch', modSrc.includes('/staff/schedule/bookings/detail'));

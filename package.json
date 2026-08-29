@@ -767,6 +767,7 @@
     "verify:issue274-payment-link-replacement": "node scripts/verify-issue274-payment-link-replacement.js",
     "verify:sunset-payment-link-concurrency": "node scripts/verify-sunset-payment-link-concurrency.js",
     "verify:sunset-schedule-portal-module": "node scripts/verify-sunset-schedule-portal-module.js",
+    "verify:inbox-catalog-get-only": "node scripts/verify-inbox-catalog-get-only.js",
     "verify:sunset-course-included-equipment": "node scripts/verify-sunset-course-included-equipment.js",
     "verify:sunset-course-included-equipment-production": "node scripts/verify-sunset-course-included-equipment-production.js",
     "verify:sunset-course-equipment-booking-production": "node scripts/verify-sunset-course-equipment-booking-production.js",
