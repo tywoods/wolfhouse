@@ -391,6 +391,10 @@ function inboxRowsWrapConvCardHtml(html, row) {
   if (key && newOpen.indexOf('data-inbox-row-key=') < 0) {
     newOpen = newOpen.replace(/<div\b/, '<div data-inbox-row-key="' + inboxRowsEsc(key) + '"');
   }
+  // People rows without a conversation_id still need a stable card id for selection.
+  if (key && !(row && row.conversation_id)) {
+    newOpen = newOpen.replace(/data-id=""/, 'data-id="' + inboxRowsEsc(key) + '"');
+  }
   var prefix = '';
   if (multi) {
     prefix += '<label class="inbox-row-select" hidden>' +

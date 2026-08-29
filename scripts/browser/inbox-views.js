@@ -11,6 +11,108 @@ var INBOX_DEFAULT_SAVED_VIEW = 'all';
 var inboxSavedViewId = INBOX_DEFAULT_SAVED_VIEW;
 var inboxViewsListGen = 0;
 var inboxViewsRailGen = 0;
+var INBOX_VIEW_SOURCE_CUSTOMERS = 'customers';
+var INBOX_CONV_ID_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function inboxViewsConvIdIsUuid(id) {
+  return INBOX_CONV_ID_UUID_RE.test(String(id || '').trim());
+}
+
+function inboxViewsFindCachedPersonRow(convId) {
+  var needle = String(convId || '');
+  var list = inboxConversationsCache || [];
+  for (var i = 0; i < list.length; i++) {
+    var row = list[i];
+    if (!row) continue;
+    if (needle && row.conversation_id && String(row.conversation_id) === needle) return row;
+    if (needle && row._inbox_view_key && String(row._inbox_view_key) === needle) return row;
+  }
+  if (!needle) {
+    var listEl = typeof el === 'function' ? el('conv-list') : null;
+    var card = listEl && listEl.querySelector ? listEl.querySelector('.conv-card.selected') : null;
+    var key = card && card.getAttribute ? card.getAttribute('data-inbox-row-key') : '';
+    if (key) {
+      for (var j = 0; j < list.length; j++) {
+        if (list[j] && list[j]._inbox_view_key === key) return list[j];
+      }
+    }
+  }
+  return null;
+}
+
+function inboxViewsCreateCustomerConversation(phone) {
+  var norm = String(phone || '').replace(/\D/g, '');
+  return fetch('/staff/customers/' + encodeURIComponent(phone) + '/create-conversation?client=' + encodeURIComponent(getClient()), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      idempotency_key: 'inbox-person-row-' + norm,
+      reason: 'Opened from Inbox people view',
+    }),
+  })
+    .then(function(r) { return r.json().then(function(body) { return { ok: r.ok, body: body }; }); })
+    .then(function(res) {
+      if (!res.ok || !res.body || !res.body.success || !res.body.conversation_id) {
+        throw new Error((res.body && res.body.error) || 'create failed');
+      }
+      return res.body.conversation_id;
+    });
+}
+
+function inboxViewsSyncPersonRowConversation(row, convId) {
+  if (!row || !convId) return;
+  row.conversation_id = convId;
+  var list = inboxConversationsCache || [];
+  for (var i = 0; i < list.length; i++) {
+    if (!list[i]) continue;
+    if (list[i] === row) continue;
+    if (row.phone && list[i].phone === row.phone) list[i].conversation_id = convId;
+    if (row._inbox_view_key && list[i]._inbox_view_key === row._inbox_view_key) {
+      list[i].conversation_id = convId;
+    }
+  }
+  var listEl = typeof el === 'function' ? el('conv-list') : null;
+  if (!listEl || !listEl.querySelector) return;
+  var key = row._inbox_view_key || '';
+  var card = key ? listEl.querySelector('.conv-card[data-inbox-row-key="' + key + '"]') : null;
+  if (!card && key) card = listEl.querySelector('.conv-card[data-id="' + key + '"]');
+  if (card) card.setAttribute('data-id', convId);
+}
+
+function inboxViewsOpenPersonWithoutConversation(row, targetEl) {
+  var phone = row && row.phone;
+  if (!phone) {
+    _inboxViewsLegacyLoadConvDetail('', targetEl);
+    return;
+  }
+  inboxViewsCreateCustomerConversation(phone)
+    .then(function(convId) {
+      inboxViewsSyncPersonRowConversation(row, convId);
+      selectedConvId = convId;
+      _inboxViewsLegacyLoadConvDetail(convId, targetEl);
+    })
+    .catch(function(err) {
+      targetEl = targetEl || (typeof el === 'function' ? el('detail-content') : null);
+      if (!targetEl) return;
+      targetEl.classList.remove('is-loading-detail');
+      targetEl.innerHTML = '<div class="state-msg error">Error: ' + escHtml(err.message || 'load failed') + '</div>';
+    });
+}
+
+function inboxViewsResolveLoadConvDetail(convId, targetEl) {
+  if (inboxViewsConvIdIsUuid(convId)) {
+    _inboxViewsLegacyLoadConvDetail(convId, targetEl);
+    return;
+  }
+  var row = inboxViewsFindCachedPersonRow(convId);
+  if (row && row._inbox_view_source === INBOX_VIEW_SOURCE_CUSTOMERS && row.phone
+      && !inboxViewsConvIdIsUuid(row.conversation_id)) {
+    inboxViewsOpenPersonWithoutConversation(row, targetEl);
+    return;
+  }
+  _inboxViewsLegacyLoadConvDetail(convId, targetEl);
+}
 
 function inboxSavedViewsUrl(){
   return '/staff/inbox/views' + inboxClientQuery();
@@ -337,6 +439,12 @@ var _inboxViewsLegacyPollList = pollInboxConversationListLive;
 pollInboxConversationListLive = function(){
   if (!el('inbox-views-rail')) return _inboxViewsLegacyPollList();
   return pollInboxSavedViewListLive();
+};
+
+var _inboxViewsLegacyLoadConvDetail = loadConvDetail;
+loadConvDetail = function(convId, targetEl) {
+  if (!el('inbox-views-rail')) return _inboxViewsLegacyLoadConvDetail(convId, targetEl);
+  return inboxViewsResolveLoadConvDetail(convId, targetEl);
 };
 
 wireInboxViewsRail();
