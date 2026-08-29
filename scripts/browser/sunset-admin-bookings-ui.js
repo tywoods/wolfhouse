@@ -113,26 +113,40 @@ function adminBookingsRowKey(row, index) {
   return 'row:' + rowIndex + ':anonymous';
 }
 
-/** Locale display date for Partidas — shared portal formatters; never raw ISO. */
+/**
+ * Staff-portal locale tag for Partidas dates (and other Reservas display).
+ * Uses getStaffLocale / portalLang — never the browser host locale alone.
+ */
+function adminBookingsLocaleTag() {
+  var loc = 'en';
+  try {
+    if (typeof getStaffLocale === 'function') loc = String(getStaffLocale() || 'en');
+    else if (typeof portalLang === 'string' && portalLang) loc = String(portalLang);
+  } catch (_e) { loc = 'en'; }
+  loc = String(loc || 'en').toLowerCase();
+  if (loc.indexOf('es') === 0) return 'es-ES';
+  if (loc.indexOf('it') === 0) return 'it-IT';
+  return 'en-GB';
+}
+
+/**
+ * Locale display date for Partidas — staff UI locale (ES on sunset when portal is ES).
+ * Never raw ISO; never browser-host locale via toLocaleDateString(undefined).
+ */
 function adminBookingsFormatItemDate(raw) {
   var s = String(raw == null ? '' : raw).trim();
   if (!s) return '';
   var m = s.match(/^(\d{4}-\d{2}-\d{2})/);
   var iso = m ? m[1] : '';
   if (!iso) return '';
-  if (typeof scheduleFormatDrawerDateDisplay === 'function') {
-    var viaDrawer = scheduleFormatDrawerDateDisplay(iso);
-    if (viaDrawer && viaDrawer !== '—') return viaDrawer;
-  }
   try {
-    var d = null;
-    if (typeof scheduleParseIso === 'function') d = scheduleParseIso(iso);
-    else {
-      var p = iso.split('-').map(Number);
-      d = new Date(p[0], p[1] - 1, p[2]);
-    }
+    var p = iso.split('-').map(Number);
+    // UTC noon avoids TZ day-shift when formatting calendar service dates.
+    var d = new Date(Date.UTC(p[0], p[1] - 1, p[2], 12, 0, 0));
     if (d && !isNaN(d.getTime())) {
-      return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+      return d.toLocaleDateString(adminBookingsLocaleTag(), {
+        month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+      });
     }
   } catch (_e) { /* ignore */ }
   return iso;
