@@ -1009,13 +1009,8 @@ function renderAdminEmailSettingsState(state, data, provider){
   wireDisconnectHandlers(body);
 }
 function adminEmailPageWrap(innerHtml){
-  return '<div class="portal-admin-email-page">' +
-    '<header class="portal-admin-email-hero">' +
-      '<h2>' + escHtml(portalT('admin.email.title')) + '</h2>' +
-      '<p>' + escHtml(emailUiT('admin.email.lead', 'Connect the mailbox Luna uses for guest email.', 'Conecta el buzón que Luna usa para el email de los huéspedes.')) + '</p>' +
-    '</header>' +
-    innerHtml +
-    '</div>';
+  // No page title — Admin subtab "Email" is enough (Pricing has no extra heading).
+  return '<div class="portal-admin-email-page">' + innerHtml + '</div>';
 }
 function adminEmailGmailComingCardHtml(){
   return adminEmailComingCardHtml('gmail_api', 'Gmail', 'Gmail',

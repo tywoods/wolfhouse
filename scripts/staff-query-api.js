@@ -17130,8 +17130,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #wh-admin-pricing-body .portal-admin-icon-btn.portal-admin-row-edit{width:28px;height:28px;min-height:28px;padding:0;display:grid;place-items:center;border-radius:999px;font-size:14px;line-height:1}
 #wh-admin-pricing-body .portal-admin-soft-delete,
 #wh-admin-pricing-body .portal-admin-danger.portal-admin-soft-delete{color:#9a4a4a;background:rgba(184,92,92,.10);border-color:rgba(184,92,92,.28);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;min-height:32px}
-#wh-admin-pricing-body .portal-admin-sections{gap:18px}
-#wh-admin-pricing-body .portal-admin-section{padding:14px 16px}
+#wh-admin-pricing-body .portal-admin-sections{gap:14px}
+#wh-admin-pricing-body .portal-admin-section{padding:16px 18px}
 #wh-admin-pricing-body .portal-admin-section-hdr{margin-bottom:8px}
 #wh-admin-pricing-body .portal-admin-subsection{margin-top:14px}
 #wh-admin-pricing-body .portal-admin-subsection:first-child{margin-top:0}
@@ -17599,12 +17599,10 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-settings .portal-admin-email-reauth-safety,
 .portal-admin-email-settings .portal-admin-email-disconnect-safety,
 .portal-admin-email-settings .portal-admin-email-connect-safety{margin:8px 0 12px;color:var(--text-2);font-size:13px;line-height:1.45}
-.portal-admin-email-page{max-width:1100px}
-.portal-admin-email-hero h2{margin:0 0 6px;font-size:22px;font-weight:650;letter-spacing:-.02em}
-.portal-admin-email-hero p{margin:0 0 18px;color:var(--text-2);font-size:14px;line-height:1.5}
+.portal-admin-email-page{max-width:100%}
 .portal-admin-email-cards{display:grid;grid-template-columns:1fr;gap:14px}
 @media(min-width:900px){.portal-admin-email-cards{grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}}
-.portal-admin-email-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 16px;box-shadow:var(--shadow-soft);min-width:0;display:flex;flex-direction:column;gap:10px}
+.portal-admin-email-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft);min-width:0;display:flex;flex-direction:column;gap:10px}
 .portal-admin-email-card-kicker{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:650}
 .portal-admin-email-card-title{margin:0;font-size:18px;font-weight:650;letter-spacing:-.02em}
 .portal-admin-email-card-copy,.portal-admin-email-card-meta{margin:0;color:var(--text-2);font-size:13px;line-height:1.45}
@@ -17622,6 +17620,22 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-fact-label{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:650;color:var(--text-3);margin-bottom:2px}
 .portal-admin-email-loading{margin:0;color:var(--text-2);font-size:14px}
 .portal-admin-email-card.is-disabled .portal-admin-email-action-btn:disabled{opacity:.55}
+/* Admin card rhythm — Pricing 16px 18px / 14px gap is the source of truth.
+   Effective Pricing hosts (Sunset panel + Wolfhouse body) must match the generic section,
+   not a tighter #wh-admin-pricing-body override. Luna Staff is #tab-ask-luna hosted
+   inside Admin; drop the second #al-wrap pad so cards match Pricing. */
+#admin-panel-pricing .portal-admin-sections{gap:14px}
+#admin-panel-pricing .portal-admin-section{padding:16px 18px}
+#tab-admin #al-wrap{
+  display:flex;flex-direction:column;gap:14px;
+  width:auto!important;max-width:none!important;padding:0!important;margin:0!important;min-height:0!important;height:auto!important
+}
+#tab-admin #tab-ask-luna{padding:0;margin:0}
+#tab-admin #tab-ask-luna .card,
+#tab-admin .staff-style-card.luna-header-mode-card{
+  padding:16px 18px;margin:0;box-shadow:var(--shadow-soft);border-radius:var(--radius);max-width:100%;width:100%;box-sizing:border-box
+}
+#tab-admin #tab-ask-luna .cc-section{margin-bottom:0}
 .portal-admin-finance-shell{background:transparent;border:0;border-radius:var(--radius);padding:0;box-shadow:none}
 .portal-admin-finance-shell p{margin:0;font-size:14px;line-height:1.5;color:var(--text-2)}
 .portal-admin-finance{display:flex;flex-direction:column;gap:14px;max-width:100%}
@@ -17646,7 +17660,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-finance-retry:hover{border-color:var(--sea,#4A7C94)}
 
 /* Finance Option B redesign */
-.portal-admin-finance--b{gap:16px}
+.portal-admin-finance--b{gap:14px}
 .pfb-nav{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 16px}
 .pfb-kick{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2);margin-bottom:4px}
 .pfb-range{display:flex;align-items:center;gap:8px}
@@ -17666,9 +17680,9 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .pfb-custom-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-2)}
 .pfb-custom-field input{min-height:44px;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--surface-soft);color:var(--text)}
 .pfb-custom-apply{min-height:44px}
-.pfb-hero{display:grid;grid-template-columns:1fr;gap:12px}
+.pfb-hero{display:grid;grid-template-columns:1fr;gap:14px}
 @media(min-width:900px){.pfb-hero{grid-template-columns:repeat(3,minmax(0,1fr))}}
-.pfb-card{display:flex;flex-direction:column;justify-content:space-between;gap:12px;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 14px;min-width:0}
+.pfb-card{display:flex;flex-direction:column;justify-content:space-between;gap:12px;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft);min-width:0}
 .pfb-card--hero{min-height:180px}
 .pfb-lbl{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--text-2)}
 .pfb-big{font-family:var(--font-display,var(--font-sans));font-size:34px;font-weight:600;line-height:1.1;color:var(--text);font-variant-numeric:tabular-nums}
@@ -17697,7 +17711,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .pfb-pill--red{color:var(--finance-neg);background:color-mix(in srgb,var(--finance-neg) 13%,transparent)}
 [data-theme="dark"] .pfb-pill--green{color:#9ee0a8;background:rgba(90,190,120,.16)}
 [data-theme="dark"] .pfb-pill--red{color:#f0a090;background:rgba(224,96,95,.16)}
-.pfb-two{display:grid;grid-template-columns:1fr;gap:12px}
+.pfb-two{display:grid;grid-template-columns:1fr;gap:14px}
 @media(min-width:900px){.pfb-two{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .pfb-sec{font-size:15px;font-weight:700;color:var(--text)}
 .pfb-sub{font-size:12px;color:var(--text-2);margin:2px 0 12px}
