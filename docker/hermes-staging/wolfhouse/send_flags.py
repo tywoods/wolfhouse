@@ -178,8 +178,21 @@ def guard_error_block(exc: Any = None, chat_id: Any = None) -> Dict[str, Any]:
     }
 
 
+def _operator_env_hint() -> tuple[str, str]:
+    """Return (env_file, container) for the Luna role currently running.
+
+    Sunset staging uses ``/etc/hermes-sunset-luna.env`` + ``hermes-sunset-luna``.
+    Wolfhouse staging uses ``/etc/hermes-luna.env`` + ``hermes-luna``. Pointing
+    Sunset operators at the Wolfhouse path is how silence stays undiagnosed.
+    """
+    role = (os.getenv("HERMES_ROLE") or "").strip().lower()
+    if role == "sunset-luna" or role.endswith("sunset-luna"):
+        return "/etc/hermes-sunset-luna.env", "hermes-sunset-luna"
+    return "/etc/hermes-luna.env", "hermes-luna"
+
+
 def describe_flag_block(block: Optional[Dict[str, Any]]) -> str:
-    """One line an operator reading ``docker logs hermes-luna`` can act on."""
+    """One line an operator reading ``docker logs`` for the Luna container can act on."""
     if not block:
         return ""
     reason = block.get("blocked_reason")
@@ -190,9 +203,10 @@ def describe_flag_block(block: Optional[Dict[str, Any]]) -> str:
         )
     flag = block.get("flag")
     allow = block.get("allow_value")
+    env_file, container = _operator_env_hint()
     return (
         f"[wolfhouse] send blocked ({reason}) — {flag} is {block.get('flag_note')}; "
-        f"set {flag}={allow} in /etc/hermes-luna.env and restart hermes-luna to allow sends "
+        f"set {flag}={allow} in {env_file} and restart {container} to allow sends "
         f"(guest {block.get('guest')}, "
         f"WHATSAPP_DRY_RUN={block.get('flags', {}).get('whatsapp_dry_run')}, "
         f"LUNA_AUTO_SEND_ENABLED={block.get('flags', {}).get('luna_auto_send_enabled')})"

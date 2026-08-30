@@ -51,19 +51,72 @@ on. Hermes only ever sends Luna's own replies, so the guard applies to all of th
 Consequence worth stating plainly: with `WHATSAPP_DRY_RUN` on, **staff can still reply** from
 the portal. Only Luna goes quiet.
 
+## Sunset staging on Lunabox (silence on +34 663 43 94 19)
+
+Live ingress is already correct and is **not** the silence cause:
+
+| Fact | Live (2026-08-30) |
+|------|-------------------|
+| Caddy `/whatsapp/*` | `localhost:8092` → `hermes-sunset-luna` |
+| Caddy `/wolfhouse/*` | `localhost:8090` → `hermes-luna` (no Meta webhook) |
+| `SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID` | set (Meta id ends `…3109`) |
+| `WHATSAPP_CLOUD_PHONE_NUMBER_ID` | set (ends `…3109`) |
+| `SUNSET_SOMO_WHATSAPP_NUMBER` | **unset** — not required for Hermes tenant routing or outbound send |
+| `WHATSAPP_DRY_RUN` | **unset** → dry run **ON** |
+| `LUNA_AUTO_SEND_ENABLED` | **unset** → auto-send **OFF** |
+
+Hermes fail-closes guest WhatsApp sends when either kill switch is unset. With both
+unset, the deciding reason is `luna_auto_send_not_enabled` (auto-send is checked
+before dry run). Opening auto-send alone still leaves dry run blocking until
+`WHATSAPP_DRY_RUN=false`.
+
+The Inbox bottom-left **Draft | Auto** control (`clients.metadata.inbox_ui_channel_modes`)
+does **not** flip these env flags and Hermes does **not** read that preference today
+(`scripts/verify-autonomy-ui-001.js`). Do not invent a second UI toggle. For guest
+replies after SAME-DESK-005 testing, Skipper must open the kill switches on the
+Sunset container env file, then use Inbox Auto / Luna On / Global Pause Off /
+not `needs_human` as the day-to-day staff controls that `pause_gate` already honours.
+
+### Skipper — open Sunset staging sends (no production)
+
+Edit `/etc/hermes-sunset-luna.env` on Lunabox (never commit values; never paste tokens):
+
+```bash
+# /etc/hermes-sunset-luna.env  — Sunset Somo WhatsApp only
+WHATSAPP_DRY_RUN=false
+LUNA_AUTO_SEND_ENABLED=true
+# Optional hygiene (Staff API channel label / inbox config — not Hermes send):
+# SUNSET_SOMO_WHATSAPP_NUMBER=+34663439419
+```
+
+Then recreate only Sunset Luna (do **not** touch Wolfhouse Luna or production):
+
+```bash
+cd /opt/wolfhouse/WH/docker/hermes-sunset
+sudo docker compose -f docker-compose.vm.yml up -d --no-deps --force-recreate hermes-sunset-luna
+```
+
+Confirm with logs (no secret values): a blocked send before the change names
+`LUNA_AUTO_SEND_ENABLED` / `WHATSAPP_DRY_RUN`; after the change a test inbound should
+reach Meta when pause / Luna On / needs_human are clear and Inbox Auto is selected.
+
+Full operator checklist: `docs/sunset/SUNSET-STAGING-WHATSAPP-SILENCE.md`.
+
 ## Nothing is protected until the image is rebuilt
 
 These flags live in the Hermes image. Merging this changes nothing on staging until the
 operator rebuilds and redeploys the Hermes image, per `CLAUDE.md`. After that deploy,
-`hermes-luna` will be silent until both flags are set in `/etc/hermes-luna.env`:
+Wolfhouse `hermes-luna` will be silent until both flags are set in `/etc/hermes-luna.env`:
 
 ```bash
-# /etc/hermes-luna.env  — on Lunabox
+# /etc/hermes-luna.env  — on Lunabox (Wolfhouse)
 WHATSAPP_DRY_RUN=false
 LUNA_AUTO_SEND_ENABLED=true
 ```
 
 then `docker compose -f docker/hermes-staging/docker-compose.vm.yml up -d hermes-luna`.
+
+Sunset uses the same flag semantics in `/etc/hermes-sunset-luna.env` (section above).
 
 That silence is the intended failure mode, not an accident: Luna going quiet is recoverable,
 an unintended send to a real guest is not. Every blocked send says exactly which flag stopped
@@ -74,6 +127,8 @@ it and what value would allow it:
 set LUNA_AUTO_SEND_ENABLED=true in /etc/hermes-luna.env and restart hermes-luna to allow
 sends (guest …0404, WHATSAPP_DRY_RUN=True, LUNA_AUTO_SEND_ENABLED=False)
 ```
+
+(On Sunset Luna the same line names `/etc/hermes-sunset-luna.env` and `hermes-sunset-luna`.)
 
 with a matching structured `logger.warning` (`{"event": "guest_send_blocked_by_flag", …}`) in
 the same shape `pause_gate.py` uses for a pause.
