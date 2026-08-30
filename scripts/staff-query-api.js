@@ -21577,6 +21577,20 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
   .inbox-two-col.inbox-shell-cols[data-col4="wide"] .inbox-empty-right{
     display:none!important;
   }
+  /* Guest button must show the card even if a viewport clamp left data-col4=hidden. */
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols{
+    grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) 0px minmax(0,1fr);
+  }
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols .detail-main,
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols .inbox-empty-right{
+    display:none!important;
+  }
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols .detail-sidebar,
+  body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar{
+    display:flex!important;grid-column:4;grid-row:1;position:static!important;
+    opacity:1!important;visibility:visible!important;transform:none!important;
+    width:auto;inset:auto;z-index:auto;box-shadow:none;
+  }
   /*
    * Peek-on-demand. A collapsed column leaves the grid and waits above column 3; edge
    * hover, focusing its toggle or Escape-able data-peek slides it in and out. The tracks

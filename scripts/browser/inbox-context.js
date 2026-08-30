@@ -967,7 +967,10 @@ function inboxClientInfoHtml(data, opts) {
 
 function inboxContextIsGuestMode() {
   var shell = typeof document !== 'undefined' ? document.getElementById('inbox-shell') : null;
-  return !!(shell && shell.getAttribute('data-col4') === 'wide');
+  if (shell && shell.getAttribute('data-col4') === 'wide') return true;
+  if (typeof document === 'undefined') return false;
+  var btn = document.querySelector('[data-inbox-preset="guest"][aria-pressed="true"]');
+  return !!(btn);
 }
 
 function inboxCustomerFromConv(conv) {

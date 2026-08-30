@@ -172,7 +172,9 @@ function inboxColumnsResolve(bucket, record) {
   var state = {};
   INBOX_COLUMNS_COLS.forEach(function (col) {
     var value = preset[col];
-    if (clamp[col]) value = clamp[col];
+    // Guest *is* the customer card. Do not auto-collapse col4 or the Guest
+    // preset paints an empty cream pane (md 900–1279 used to clamp hidden).
+    if (clamp[col] && !(record && record.preset === 'guest' && col === 'col4')) value = clamp[col];
     if (overrides[col]) value = overrides[col];
     state[col] = value;
   });

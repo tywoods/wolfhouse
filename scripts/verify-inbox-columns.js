@@ -564,6 +564,16 @@ function checkModel(client, html) {
   harness.setWidth(1100);
   api.syncViewport();
   ok('crossing under 1280px auto-collapses column 4', stateOf(harness).col4 === 'hidden');
+  api.setPreset('guest');
+  ok('Guest preset keeps the guest card at md (does not inherit the Full clamp)',
+    stateOf(harness).col4 === 'wide', JSON.stringify(stateOf(harness)));
+  ok('Guest at md densifies rail+list so the card still fits',
+    stateOf(harness).col1 === 'icons' && stateOf(harness).col2 === 'compact',
+    JSON.stringify(stateOf(harness)));
+  ok('resolve(md, guest) is wide, not hidden',
+    sameState(api.resolve('md', { preset: 'guest', overrides: {}, restore: {} }),
+      { col1: 'icons', col2: 'compact', col4: 'wide' }));
+  api.setPreset('all4');
   api.toggle('col4');
   ok('a manual override wins over the bucket clamp', stateOf(harness).col4 === 'peek');
   ok('md + visible col4 snaps rail to icons and list to compact (avoids ~1024 crush)',
