@@ -45,10 +45,16 @@ Offline verifier coverage: `scripts/verify-sunset-portal-v1.js` section 31 (rout
 
 - [ ] **Sunset staging app only:** `luna-sunset-staging-staff-api`
 - [ ] **Resource group only:** `luna-sunset-staging-rg`
-- [ ] **Do not borrow Wolfhouse WABA / phone IDs** — Sunset must use its own staging WABA assets
+- [ ] **Do not borrow Wolfhouse WABA / production phone IDs** — production assets stay off-limits.
+      **Staging exception (Ty, 2026-08):** Sunset Somo Lunabox testing may map the shared staging
+      Meta number **+34 663 43 94 19** / `phone_number_id` ending `…3109` as `SUNSET_SOMO_*` only
+      (no third tenant). Silence with …3109 already set is kill-switch env, not routing —
+      see `docs/sunset/SUNSET-STAGING-WHATSAPP-SILENCE.md`.
 - [ ] **Do not use production WhatsApp numbers** — staging/test identifiers only
 - [ ] **Do not alter live Meta webhook routing** unless separately approved (this handoff sets Container App env only)
 - [ ] **Outbound WhatsApp/email remains disabled / not introduced** — inbound routing + dry-run QA only
+      (Hermes guest auto-reply on Lunabox is a separate Skipper env step: open
+      `WHATSAPP_DRY_RUN` / `LUNA_AUTO_SEND_ENABLED` on `/etc/hermes-sunset-luna.env`)
 - [ ] **No Wolfhouse / prod deploys** — Wolfhouse Container Apps and production tenants are out of scope
 - [ ] **No SOUL edits** in this handoff
 - [ ] **No migrations** in this handoff

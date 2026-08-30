@@ -1,4 +1,8 @@
 services:
+  # Guest WhatsApp for Sunset Somo. Kill switches live in /etc/hermes-sunset-luna.env,
+  # deliberately not here: Luna will not send unless WHATSAPP_DRY_RUN=false AND
+  # LUNA_AUTO_SEND_ENABLED=true, both as those literal strings. Unset = silent.
+  # Live Caddy /whatsapp/* → :8092. See docs/LUNA-SEND-KILL-SWITCH.md (Sunset).
   hermes-sunset-luna:
     image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
     container_name: hermes-sunset-luna

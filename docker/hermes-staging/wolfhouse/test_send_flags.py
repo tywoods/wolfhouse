@@ -142,6 +142,19 @@ def main() -> int:
     check("log payload names the deciding flag", payload.get("flag") == "LUNA_AUTO_SEND_ENABLED", str(payload))
     check("operator line names the flag and the fix", "LUNA_AUTO_SEND_ENABLED=true" in line, line)
     check("operator line says where to set it", "/etc/hermes-luna.env" in line, line)
+    check("operator line names hermes-luna by default", "restart hermes-luna" in line, line)
+    with mock.patch.dict(os.environ, {"HERMES_ROLE": "sunset-luna"}, clear=False):
+        sunset_line = mod.describe_flag_block(empty)
+    check(
+        "Sunset operator line points at hermes-sunset-luna.env",
+        "/etc/hermes-sunset-luna.env" in sunset_line,
+        sunset_line,
+    )
+    check(
+        "Sunset operator line names hermes-sunset-luna restart",
+        "restart hermes-sunset-luna" in sunset_line,
+        sunset_line,
+    )
     check("no log record for an allowed send", mod.log_flag_block(None) == "")
 
     raw = mod.flag_block_raw_response(empty)
