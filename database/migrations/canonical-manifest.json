@@ -1490,9 +1490,9 @@
       "order": 96,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "SAME-DESK-004: dedicated auto-send claim table keyed by (client_id, conversation_id, source_inbound_event_id) with approval linkage. Does not unique tenant_email_reply_approvals on inbound identity, so generic Microsoft/SMTP staff drafts remain unlimited. Concurrent auto-send workers INSERT-claim; losers skip without a provider send.",
+      "rationale": "SAME-DESK-004: dedicated auto-send claim table keyed by (client_id, conversation_id, source_inbound_event_id) with bounded lease_token/epoch CAS, auto_provenance, and approval linkage. Pre-dispatch failure is retry-safe (release/expire/reclaim); dispatching is outcome-unknown no-retry. Does not unique tenant_email_reply_approvals on inbound identity, so generic Microsoft/SMTP staff drafts remain unlimited.",
       "downFilename": "100_tenant_email_same_desk_auto_send_claims_down.sql",
-      "sha256": "8e1e8c58b7dd2c555f8acec31ba3ee5204bf301a15db8a8c8ae739614d0de906"
+      "sha256": "ef9396da0802f17d1c22e728c145c44b3a1e068f08fe159338db5bf48b075bba"
     },
     {
       "id": "100_tenant_email_same_desk_auto_send_claims_down",
@@ -1500,9 +1500,9 @@
       "order": null,
       "classification": "rollback_down",
       "inForwardChain": false,
-      "rationale": "Fail-closed while claim rows exist; empty table drops the dedicated SAME-DESK-004 claim owner. Does not rewrite tenant_email_reply_approvals.",
+      "rationale": "Fail-closed while claim rows exist. Absent-table and empty complete-up downs are safe: trigger drops are guarded by to_regclass. Does not rewrite tenant_email_reply_approvals.",
       "pairsWith": "100_tenant_email_same_desk_auto_send_claims.sql",
-      "sha256": "defd5af2317efd7e589e255a415717c98cd79851a3f0c71faa1b151496954624"
+      "sha256": "991e9c2105c73bdeee24ed96a16401ddd01caec1afad9e0e9ec439784267f7d0"
     }
   ]
 }

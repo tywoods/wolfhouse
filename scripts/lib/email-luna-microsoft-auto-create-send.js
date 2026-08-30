@@ -291,16 +291,22 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
   const readPause = typeof deps.readPause === 'function' ? deps.readPause : null;
   const resolveAutoActor = typeof deps.resolveAutoActor === 'function' ? deps.resolveAutoActor : null;
   const journalExists = typeof deps.journalExists === 'function' ? deps.journalExists : null;
-  const claimOwner = (typeof deps.claimSameDeskAutoSend === 'function'
-    && typeof deps.linkSameDeskAutoSendApproval === 'function')
-    ? null
-    : createSameDeskAutoSendClaimOwner({ withPgClient });
+  const claimOwner = createSameDeskAutoSendClaimOwner({
+    withPgClient,
+    now: typeof deps.now === 'function' ? deps.now : undefined,
+  });
   const claimSameDesk = typeof deps.claimSameDeskAutoSend === 'function'
     ? deps.claimSameDeskAutoSend
     : (input) => claimOwner.claim(input);
   const linkSameDesk = typeof deps.linkSameDeskAutoSendApproval === 'function'
     ? deps.linkSameDeskAutoSendApproval
     : (input) => claimOwner.linkApproval(input);
+  const releaseSameDesk = typeof deps.releaseSameDeskAutoSendClaim === 'function'
+    ? deps.releaseSameDeskAutoSendClaim
+    : (input) => claimOwner.release(input);
+  const beginSameDesk = typeof deps.beginSameDeskAutoSendDispatch === 'function'
+    ? deps.beginSameDeskAutoSendDispatch
+    : (input) => claimOwner.beginDispatch(input);
   if (!withPgClient || !regenerate || !saveDraft || !approveAndDispatch) {
     throw new Error('auto_create_send_deps');
   }
@@ -359,7 +365,9 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       if (!row) return null;
       const inboundId = uuid(row.inbound_message_id);
       let approval = null;
-      if (inboundId) {
+      // SAME-DESK auto must never load a generic/manual draft by conversation/inbound
+      // as the send payload. MAIL-MVP-003 emergency may still reuse an existing row.
+      if (!sameDesk && inboundId) {
         const ap = await pg.query(SQL_LOAD_EXISTING_APPROVAL, [clientId, conversationId, inboundId]);
         approval = ap && Array.isArray(ap.rows) && ap.rows.length === 1 ? ap.rows[0] : null;
       }
@@ -395,45 +403,57 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       provider_source_message_id: sourceMessageId,
     });
 
-    let sameDeskClaimId = null;
-    if (sameDesk) {
-      const claimed = await claimSameDesk({
-        client_id: clientId,
-        conversation_id: conversationId,
-        source_inbound_event_id: inboundEventId,
-        claimant_staff_user_id: actor.staff_user_id,
-      });
-      if (!claimed || claimed.status !== 'won') {
-        return freeze({
-          status: 'skipped',
-          reason: 'already_claimed',
-          draft_writes: 0,
-          approvals: 0,
-          journals: 0,
-          provider_sends: 0,
-          sent: false,
-          approval_id: claimed && claimed.approval_id,
-        });
-      }
-      sameDeskClaimId = claimed.claim_id;
-    }
-
-    async function linkWonClaim(approvalId, operationId) {
-      if (!sameDesk || !sameDeskClaimId || !approvalId) return;
+    let sameDeskClaim = null;
+    async function releaseWonClaim() {
+      if (!sameDesk || !sameDeskClaim || !sameDeskClaim.lease_token) return;
       try {
-        await linkSameDesk({
-          claim_id: sameDeskClaimId,
+        await releaseSameDesk({
+          claim_id: sameDeskClaim.claim_id,
+          client_id: clientId,
+          conversation_id: conversationId,
+          lease_token: sameDeskClaim.lease_token,
+          lease_epoch: sameDeskClaim.lease_epoch,
+        });
+      } catch {
+        /* best-effort pre-dispatch release */
+      }
+    }
+    async function linkWonClaim(approvalId, operationId) {
+      if (!sameDesk || !sameDeskClaim || !approvalId) return freeze({ status: 'not_linked' });
+      try {
+        return await linkSameDesk({
+          claim_id: sameDeskClaim.claim_id,
           client_id: clientId,
           conversation_id: conversationId,
           approval_id: approvalId,
           operation_id: operationId,
+          lease_token: sameDeskClaim.lease_token,
+          lease_epoch: sameDeskClaim.lease_epoch,
+          auto_provenance: 'same_desk_004_auto',
         });
       } catch {
-        /* claim remains unique; linking is reconciliation only */
+        return freeze({ status: 'not_linked' });
       }
     }
+    async function rereadLiveGates() {
+      const liveMode = await channelMode(clientId);
+      if (liveMode !== 'auto') return 'email_channel_not_auto';
+      const livePause = readPause
+        ? await readPause(conversationId)
+        : await withPgClient(async (pg) => defaultReadPause(pg, conversationId));
+      if (!livePause || livePause.lookup_error === true) return 'pause_fail_closed';
+      if (livePause.global_paused === true) return 'global_paused';
+      if (livePause.conversation_paused === true) return 'luna_off';
+      const liveCtx = await withPgClient(async (pg) => {
+        const loaded = await pg.query(SQL_LOAD_AUTO_CONTEXT, [clientId, conversationId]);
+        return loaded && Array.isArray(loaded.rows) && loaded.rows[0] ? loaded.rows[0] : null;
+      });
+      if (!liveCtx) return 'authority_mismatch';
+      if (liveCtx.needs_human === true) return 'needs_human';
+      return null;
+    }
 
-    const existing = ctx.approval;
+    const existing = sameDesk ? null : ctx.approval;
     if (existing && (existing.state === 'approved' || existing.state === 'terminal')) {
       const hasJournal = journalExists
         ? await journalExists(existing)
@@ -527,6 +547,28 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       return failed(draft && draft.status === 'conflict' ? 'conflict' : 'author_failed');
     }
 
+    if (sameDesk) {
+      const claimed = await claimSameDesk({
+        client_id: clientId,
+        conversation_id: conversationId,
+        source_inbound_event_id: inboundEventId,
+        claimant_staff_user_id: actor.staff_user_id,
+      });
+      if (!claimed || claimed.status !== 'won') {
+        return freeze({
+          status: 'skipped',
+          reason: claimed && claimed.reason === 'outcome_unknown' ? 'already_claimed' : 'already_claimed',
+          draft_writes: 0,
+          approvals: 0,
+          journals: 0,
+          provider_sends: 0,
+          sent: false,
+          approval_id: claimed && claimed.approval_id,
+        });
+      }
+      sameDeskClaim = claimed;
+    }
+
     let saved;
     try {
       const saveInput = {
@@ -541,13 +583,51 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       if (subjectCheck && subjectCheck.ok === true) saveInput.subject = subjectCheck.value;
       saved = await saveDraft(saveInput);
     } catch (err) {
+      await releaseWonClaim();
       const thrown = err && err.code === 'subject_invalid' ? 'subject_invalid' : 'approval_not_saved';
       return failed(closedSaveFailReason(thrown), saveThrowDiagnostics(err, null));
     }
     if (!saved || saved.status !== 'saved' || !saved.approval_id) {
+      await releaseWonClaim();
       return failed(closedSaveFailReason(saved && saved.code), saveThrowDiagnostics(null, saved));
     }
-    await linkWonClaim(saved.approval_id, saved.operation_id);
+    const linked = await linkWonClaim(saved.approval_id, saved.operation_id);
+    if (sameDesk && (!linked || linked.status !== 'linked')) {
+      await releaseWonClaim();
+      return failed('claim_not_linkable', {
+        draft_writes: 1,
+        approvals: 1,
+        approval_id: saved.approval_id,
+      });
+    }
+
+    if (sameDesk) {
+      const closedGate = await rereadLiveGates();
+      if (closedGate) {
+        await releaseWonClaim();
+        return blocked(closedGate, {
+          draft_writes: 1,
+          approvals: 1,
+          approval_id: saved.approval_id,
+        });
+      }
+      const begun = await beginSameDesk({
+        claim_id: sameDeskClaim.claim_id,
+        client_id: clientId,
+        conversation_id: conversationId,
+        lease_token: sameDeskClaim.lease_token,
+        lease_epoch: sameDeskClaim.lease_epoch,
+        approval_id: saved.approval_id,
+      });
+      if (!begun || begun.status !== 'dispatching') {
+        return failed('stale_lease', {
+          draft_writes: 1,
+          approvals: 1,
+          provider_sends: 0,
+          approval_id: saved.approval_id,
+        });
+      }
+    }
 
     let dispatched;
     try {

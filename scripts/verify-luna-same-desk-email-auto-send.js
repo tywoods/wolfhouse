@@ -56,6 +56,10 @@ const MAILBOX = '22222222-2222-4222-8222-2222222222ab';
 const SRC = 'graph-src-same-desk-004';
 const BODY = 'Thanks for your message. Would you like to make a booking?';
 const APPROVAL_ID = '99999999-9999-4999-8999-999999999999';
+const GENERIC_APPROVAL_ID = '77777777-7777-4777-8777-777777777777';
+const CLAIM_ID = '11111111-1111-4111-8111-111111111111';
+const LEASE_TOKEN = '22222222-2222-4222-8222-222222222222';
+const AUTO_PROVENANCE = 'same_desk_004_auto';
 
 let pass = 0;
 let fail = 0;
@@ -125,6 +129,19 @@ function contextRow(patch) {
   };
 }
 
+function genericDraftRow(patch) {
+  return {
+    approval_id: GENERIC_APPROVAL_ID,
+    operation_id: '66666666-6666-4666-8666-666666666666',
+    message_text: 'Staff-authored manual Microsoft draft',
+    state: 'draft',
+    subject: 'Re: Boards',
+    source_inbound_event_id: M,
+    auto_provenance: null,
+    ...patch,
+  };
+}
+
 function makeOwner(options = {}) {
   const providerCalls = [];
   const approvals = [];
@@ -136,7 +153,14 @@ function makeOwner(options = {}) {
     pause: options.pause || { lookup_error: false, global_paused: false, conversation_paused: false },
     row: options.row || contextRow(),
     approval: options.approval || null,
+    genericApproval: options.genericApproval || null,
     journaledOps: new Set(options.journaledOps || []),
+    claimCalls: [],
+    releaseCalls: [],
+    linkCalls: [],
+    beginCalls: [],
+    lease_token: LEASE_TOKEN,
+    claim_id: CLAIM_ID,
   };
   const owner = createEmailLunaMicrosoftAutoCreateAndSend({
     withPgClient: async (fn) => fn({
@@ -145,16 +169,21 @@ function makeOwner(options = {}) {
         if (/FROM staff_users su/.test(n)) {
           return { rows: [{ staff_user_id: A, client_id: C, role: 'operator' }] };
         }
+        if (/FROM conversations /.test(n) && /needs_human/.test(n) && !/tenant_email_inbound/.test(n)) {
+          return { rows: [{ needs_human: store.row.needs_human, conversation_status: store.row.conversation_status }] };
+        }
         if (/FROM clients cl INNER JOIN conversations c/.test(n)
             || /cl.slug='sunset' AND loc.location_id='sunset-somo'/.test(n)) {
           return { rows: [store.row] };
         }
         if (/FROM tenant_email_reply_approvals/.test(n)) {
-          return { rows: store.approval ? [store.approval] : [] };
+          const row = store.approval || store.genericApproval;
+          return { rows: row ? [row] : [] };
         }
         return { rows: [] };
       },
     }),
+    now: options.now,
     getEmailChannelMode: async () => store.mode,
     readPause: async () => store.pause,
     resolveAutoActor: async () => actor(),
@@ -163,6 +192,8 @@ function makeOwner(options = {}) {
     regenerateEmailLunaDraftOnStaffClick: async (input) => {
       drafts.push(input);
       assert.equal(input.operator_context, '');
+      if (typeof options.afterGenerate === 'function') options.afterGenerate(store);
+      if (options.authorFail) throw new Error('author_failed');
       return {
         status: 'draft_ready',
         draft_text: BODY,
@@ -173,17 +204,41 @@ function makeOwner(options = {}) {
         subject: 'Re: Boards',
       };
     },
-    claimSameDeskAutoSend: async () => {
+    claimSameDeskAutoSend: async (input) => {
+      store.claimCalls.push(input);
       if (options.claimLost) {
         return { status: 'lost', reason: 'already_claimed', approval_id: options.claimApprovalId || null };
       }
-      return { status: 'won', claim_id: '11111111-1111-4111-8111-111111111111', state: 'claimed' };
+      return {
+        status: 'won',
+        claim_id: store.claim_id,
+        lease_token: store.lease_token,
+        lease_epoch: 1,
+        state: 'leased',
+        auto_provenance: AUTO_PROVENANCE,
+      };
     },
     linkSameDeskAutoSendApproval: async (input) => {
+      store.linkCalls.push(input);
       store.claim = { ...input, state: 'linked' };
-      return { status: 'linked' };
+      return { status: 'linked', auto_provenance: AUTO_PROVENANCE };
+    },
+    releaseSameDeskAutoSendClaim: async (input) => {
+      store.releaseCalls.push(input);
+      return { status: 'released' };
+    },
+    beginSameDeskAutoSendDispatch: async (input) => {
+      store.beginCalls.push(input);
+      if (options.beginDispatchLost) {
+        return { status: 'not_begun', reason: 'stale_lease' };
+      }
+      return { status: 'dispatching', approval_id: input && input.approval_id };
     },
     saveDraftThroughStaffOwner: async (input) => {
+      if (options.saveFail) {
+        if (typeof options.afterSave === 'function') options.afterSave(store);
+        return { status: 'failed', code: 'approval_not_saved' };
+      }
       approvals.push(input);
       store.approval = {
         approval_id: APPROVAL_ID,
@@ -192,7 +247,9 @@ function makeOwner(options = {}) {
         state: 'draft',
         subject: input.subject,
         source_inbound_event_id: M,
+        auto_provenance: AUTO_PROVENANCE,
       };
+      if (typeof options.afterSave === 'function') options.afterSave(store);
       return { status: 'saved', conversation_id: V, approval_id: APPROVAL_ID };
     },
     approveAndDispatchEmailOutbound: async (input) => {
@@ -272,7 +329,11 @@ function runStockPgProof(label) {
     label,
     result.status === 0 && skipped !== true
       && /exactly one claim winner/i.test(out)
-      && /loser provider-inert/i.test(out),
+      && /loser provider-inert/i.test(out)
+      && /lease expiry\/reclaim/i.test(out)
+      && /outcome-unknown remains non-retryable/i.test(out)
+      && /absent-table 100 down is safe/i.test(out)
+      && /nonempty 100 down refuses/i.test(out),
     `status=${result.status} skipped=${skipped} tail=${out.slice(-800)}`,
   );
   return result.status === 0 && skipped !== true;
@@ -753,6 +814,8 @@ async function main() {
   {
     const first = await runSameDesk({});
     const dup = await runSameDesk({
+      claimLost: true,
+      claimApprovalId: first.result.approval_id || APPROVAL_ID,
       approval: {
         approval_id: first.result.approval_id || APPROVAL_ID,
         operation_id: '88888888-8888-4888-8888-888888888888',
@@ -764,10 +827,9 @@ async function main() {
       journaledOps: [first.result.approval_id || APPROVAL_ID],
     });
     check(
-      'replay of the same inbound: skipped already_sent, no second approval/journal',
+      'replay of the same inbound: skipped already_claimed, no second approval/journal/provider',
       dup.result.status === 'skipped'
-        && dup.result.reason === 'already_sent'
-        && dup.drafts.length === 0
+        && dup.result.reason === 'already_claimed'
         && dup.approvals.length === 0
         && providerSends(dup) === 0,
       JSON.stringify({
@@ -964,8 +1026,7 @@ async function main() {
         lost.result.status === 'skipped'
           && lost.result.reason === 'already_claimed'
           && providerSends(lost) === 0
-          && lost.approvals.length === 0
-          && lost.drafts.length === 0,
+          && lost.approvals.length === 0,
         JSON.stringify({
           status: lost.result.status,
           reason: lost.result.reason,
@@ -1046,15 +1107,23 @@ async function main() {
           }),
         );
 
-        const insClaim = `
-          INSERT INTO ${CLAIM_TABLE} (
-            claim_id, client_id, conversation_id, source_inbound_event_id, claimant_staff_user_id, state
-          ) VALUES ($1,$2,$3,$4,$5,'claimed')
-          ON CONFLICT (client_id, conversation_id, source_inbound_event_id) DO NOTHING
-          RETURNING claim_id::text AS claim_id
-        `;
-        const c1 = await db.query(insClaim, [crypto.randomUUID(), C, V, M, A]);
-        const c2 = await db.query(insClaim, [crypto.randomUUID(), C, V, M, A]);
+        const {
+          SQL_INSERT_CLAIM,
+          createSameDeskAutoSendClaimOwner,
+        } = require('./lib/email-luna-same-desk-auto-send-claim');
+        const t0 = new Date('2026-08-30T12:00:00.000Z');
+        const expires = new Date(t0.getTime() + 30_000);
+        const c1 = await db.query(SQL_INSERT_CLAIM, [
+          crypto.randomUUID(), C, V, M, A, crypto.randomUUID(), expires.toISOString(), t0.toISOString(),
+        ]);
+        const c2 = await db.query(SQL_INSERT_CLAIM, [
+          crypto.randomUUID(), C, V, M, A, crypto.randomUUID(), expires.toISOString(), t0.toISOString(),
+        ]);
+        check(
+          'PGlite claim owner SQL is the leased INSERT with token/epoch (not claimed-only)',
+          typeof createSameDeskAutoSendClaimOwner === 'function'
+            && /lease_token/.test(SQL_INSERT_CLAIM),
+        );
         const claimCount = await db.query(
           `SELECT count(*)::int AS n FROM ${CLAIM_TABLE} WHERE client_id=$1 AND conversation_id=$2 AND source_inbound_event_id=$3`,
           [C, V, M],
@@ -1109,6 +1178,284 @@ async function main() {
     const first = runStockPgProof('stock-PG two-connection contention run 1');
     const second = runStockPgProof('stock-PG two-connection contention run 2');
     check('stock-PG contention proof ran successfully twice', first === true && second === true);
+  }
+
+  console.log('\n[9] HIGH 1 — claim lease lifecycle: retry-safe pre-dispatch vs outcome-unknown');
+  {
+    const authorFail = await runSameDesk({ authorFail: true });
+    check(
+      'author failure does not durable-claim (generation has no side effect, or claim is released)',
+      authorFail.result.status === 'failed'
+        && authorFail.result.reason === 'author_failed'
+        && providerSends(authorFail) === 0
+        && authorFail.store.claimCalls.length === 0
+        && authorFail.store.releaseCalls.length === 0,
+      JSON.stringify({
+        status: authorFail.result.status,
+        reason: authorFail.result.reason,
+        claims: authorFail.store.claimCalls.length,
+        releases: authorFail.store.releaseCalls.length,
+        sends: providerSends(authorFail),
+      }),
+    );
+
+    const saveFail = await runSameDesk({ saveFail: true });
+    check(
+      'save failure releases the leased claim so a later attempt can retry',
+      saveFail.result.status === 'failed'
+        && providerSends(saveFail) === 0
+        && saveFail.store.claimCalls.length === 1
+        && saveFail.store.releaseCalls.length === 1
+        && saveFail.store.releaseCalls[0]
+        && saveFail.store.releaseCalls[0].lease_token === LEASE_TOKEN
+        && saveFail.store.beginCalls.length === 0,
+      JSON.stringify({
+        status: saveFail.result.status,
+        reason: saveFail.result.reason,
+        claims: saveFail.store.claimCalls.length,
+        releases: saveFail.store.releaseCalls.length,
+        begins: saveFail.store.beginCalls.length,
+      }),
+    );
+
+    const stale = await runSameDesk({ beginDispatchLost: true });
+    check(
+      'stale owner cannot send after lease loss (token/CAS, not only natural key)',
+      stale.result.sent !== true
+        && providerSends(stale) === 0
+        && stale.store.beginCalls.length === 1
+        && stale.store.beginCalls[0].lease_token === LEASE_TOKEN
+        && stale.store.linkCalls[0]
+        && stale.store.linkCalls[0].lease_token === LEASE_TOKEN,
+      JSON.stringify({
+        status: stale.result.status,
+        reason: stale.result.reason,
+        sends: providerSends(stale),
+        begins: stale.store.beginCalls.length,
+        links: stale.store.linkCalls,
+      }),
+    );
+
+    const happy = await runSameDesk({});
+    check(
+      'winning auto path begins dispatch (provider authority) before invoking provider',
+      happy.result.status === 'sent'
+        && happy.store.beginCalls.length === 1
+        && happy.store.releaseCalls.length === 0
+        && providerSends(happy) === 1
+        && happy.store.linkCalls[0]
+        && happy.store.linkCalls[0].auto_provenance === AUTO_PROVENANCE,
+      JSON.stringify({
+        status: happy.result.status,
+        begins: happy.store.beginCalls.length,
+        releases: happy.store.releaseCalls.length,
+        link: happy.store.linkCalls[0],
+      }),
+    );
+
+    const claimSrc = fs.readFileSync(CLAIM_OWNER_ABS, 'utf8');
+    const migUp = fs.readFileSync(MIG_100_UP, 'utf8');
+    check(
+      'durable claim owner has lease token/epoch, expiry/reclaim, release, and dispatching CAS',
+      /lease_token/.test(claimSrc)
+        && /lease_epoch/.test(claimSrc)
+        && /lease_expires_at/.test(claimSrc)
+        && /beginDispatch/.test(claimSrc)
+        && /\brelease\b/.test(claimSrc)
+        && /dispatching/.test(migUp)
+        && /leased/.test(migUp)
+        && /released/.test(migUp)
+        && !/CHECK \(state IN \('claimed', 'linked'\)\)/.test(migUp),
+    );
+    check(
+      'claim owner accepts a deterministic clock (no ambient Date.now in SQL/tests)',
+      /deps\.now/.test(claimSrc)
+        && !/Date\.now\(/.test(claimSrc)
+        && /NOW\(\)/.test(claimSrc) === false,
+    );
+  }
+
+  console.log('\n[10] HIGH 2 — manual/generic Microsoft draft must never become auto payload');
+  {
+    const manualDraft = await runSameDesk({
+      approval: genericDraftRow({ state: 'draft' }),
+    });
+    check(
+      'generic/manual draft selected only by conversation/inbound is not auto-dispatched',
+      providerSends(manualDraft) === 1
+        && manualDraft.providerCalls[0]
+        && manualDraft.providerCalls[0].approval_id === APPROVAL_ID
+        && manualDraft.providerCalls[0].approval_id !== GENERIC_APPROVAL_ID
+        && manualDraft.approvals.length === 1
+        && manualDraft.store.linkCalls[0]
+        && manualDraft.store.linkCalls[0].approval_id === APPROVAL_ID
+        && manualDraft.store.linkCalls[0].lease_token === LEASE_TOKEN
+        && manualDraft.store.linkCalls[0].auto_provenance === AUTO_PROVENANCE,
+      JSON.stringify({
+        status: manualDraft.result.status,
+        providerApproval: manualDraft.providerCalls[0] && manualDraft.providerCalls[0].approval_id,
+        links: manualDraft.store.linkCalls,
+        approvals: manualDraft.approvals.length,
+      }),
+    );
+
+    const manualApproved = await runSameDesk({
+      approval: genericDraftRow({ state: 'approved' }),
+      journaledOps: [GENERIC_APPROVAL_ID],
+    });
+    check(
+      'existing generic approved row stays staff-owned and provider-inert to 004',
+      providerSends(manualApproved) === 1
+        && manualApproved.providerCalls.every((c) => c.approval_id !== GENERIC_APPROVAL_ID && !c.recover)
+        && manualApproved.approvals.length === 1
+        && manualApproved.approvals[0].approval_id !== GENERIC_APPROVAL_ID,
+      JSON.stringify({
+        status: manualApproved.result.status,
+        provider: manualApproved.providerCalls.map((c) => ({ id: c.approval_id, recover: c.recover })),
+      }),
+    );
+
+    const manualTerminal = await runSameDesk({
+      approval: genericDraftRow({ state: 'terminal' }),
+      journaledOps: [GENERIC_APPROVAL_ID],
+    });
+    check(
+      'existing generic terminal row stays staff-owned and provider-inert to 004',
+      providerSends(manualTerminal) === 1
+        && manualTerminal.providerCalls.every((c) => c.approval_id !== GENERIC_APPROVAL_ID && !c.recover)
+        && manualTerminal.approvals.length === 1,
+      JSON.stringify({
+        status: manualTerminal.result.status,
+        provider: manualTerminal.providerCalls.map((c) => ({ id: c.approval_id, recover: c.recover })),
+      }),
+    );
+
+    check(
+      'sameDesk auto does not SELECT generic drafts by conversation/inbound as the send payload',
+      /if\s*\(\s*!sameDesk[\s\S]{0,180}inboundId[\s\S]{0,220}SQL_LOAD_EXISTING_APPROVAL/.test(autoSrc)
+        || /if\s*\(\s*!sameDesk\s*&&\s*inboundId[\s\S]{0,220}SQL_LOAD_EXISTING_APPROVAL/.test(autoSrc),
+      'SQL_LOAD_EXISTING_APPROVAL must be gated behind !sameDesk',
+    );
+    check(
+      'existing-approval lookup is gated off the SAME-DESK auto path',
+      /if\s*\(\s*!sameDesk[\s\S]{0,400}SQL_LOAD_EXISTING_APPROVAL/.test(autoSrc)
+        && /if \(existing && \(existing.state === 'approved' \|\| existing.state === 'terminal'\)\)/.test(autoSrc)
+        && /if \(sameDesk\) \{\s*existing = null;/.test(autoSrc) === false,
+    );
+  }
+
+  console.log('\n[11] MEDIUM — re-read channel mode / pause / needs_human after save, before provider');
+  {
+    const modeFlip = await runSameDesk({
+      afterSave(store) { store.mode = 'draft'; },
+    });
+    check(
+      'channel mode closing during generation blocks provider; draft kept for Approve & send; claim released',
+      modeFlip.result.sent !== true
+        && providerSends(modeFlip) === 0
+        && modeFlip.approvals.length === 1
+        && modeFlip.store.releaseCalls.length === 1
+        && modeFlip.store.beginCalls.length === 0
+        && modeFlip.store.row.needs_human === false,
+      JSON.stringify({
+        status: modeFlip.result.status,
+        reason: modeFlip.result.reason,
+        sends: providerSends(modeFlip),
+        drafts: modeFlip.approvals.length,
+        releases: modeFlip.store.releaseCalls.length,
+        needs_human: modeFlip.store.row.needs_human,
+      }),
+    );
+
+    const pauseFlip = await runSameDesk({
+      afterSave(store) { store.pause = { lookup_error: false, global_paused: true, conversation_paused: false }; },
+    });
+    check(
+      'Global Pause closing during generation blocks provider; draft kept; claim released; needs_human untouched',
+      pauseFlip.result.sent !== true
+        && providerSends(pauseFlip) === 0
+        && pauseFlip.approvals.length === 1
+        && pauseFlip.store.releaseCalls.length === 1
+        && pauseFlip.store.row.needs_human === false,
+      JSON.stringify({
+        status: pauseFlip.result.status,
+        reason: pauseFlip.result.reason,
+        sends: providerSends(pauseFlip),
+        needs_human: pauseFlip.store.row.needs_human,
+      }),
+    );
+
+    const lunaOffFlip = await runSameDesk({
+      afterSave(store) { store.pause = { lookup_error: false, global_paused: false, conversation_paused: true }; },
+    });
+    check(
+      'Luna Off closing during generation blocks provider; draft kept; claim released',
+      lunaOffFlip.result.sent !== true
+        && providerSends(lunaOffFlip) === 0
+        && lunaOffFlip.approvals.length === 1
+        && lunaOffFlip.store.releaseCalls.length === 1,
+      JSON.stringify({
+        status: lunaOffFlip.result.status,
+        reason: lunaOffFlip.result.reason,
+        sends: providerSends(lunaOffFlip),
+      }),
+    );
+
+    const needsHumanFlip = await runSameDesk({
+      afterSave(store) { store.row = { ...store.row, needs_human: true }; },
+    });
+    check(
+      'authoritative needs_human becoming true during generation blocks provider and is not mutated',
+      needsHumanFlip.result.sent !== true
+        && providerSends(needsHumanFlip) === 0
+        && needsHumanFlip.approvals.length === 1
+        && needsHumanFlip.store.releaseCalls.length === 1
+        && needsHumanFlip.store.row.needs_human === true,
+      JSON.stringify({
+        status: needsHumanFlip.result.status,
+        reason: needsHumanFlip.result.reason,
+        sends: providerSends(needsHumanFlip),
+        needs_human: needsHumanFlip.store.row.needs_human,
+      }),
+    );
+  }
+
+  console.log('\n[12] MEDIUM — down migration absent-table safety');
+  {
+    const downSrc = fs.readFileSync(MIG_100_DOWN, 'utf8');
+    check(
+      '100 down guards trigger drop by table existence (dynamic/EXECUTE or existence block)',
+      /to_regclass\('public\.tenant_email_same_desk_auto_send_claims'\)/.test(downSrc)
+        && /EXECUTE 'DROP TRIGGER IF EXISTS tenant_email_same_desk_auto_send_claims_protect/.test(downSrc)
+        && /EXECUTE 'DROP TRIGGER IF EXISTS tenant_email_same_desk_auto_send_claims_updated_at/.test(downSrc),
+    );
+    check(
+      '100 down still refuses nonempty evidence loss',
+      /100_down_refused/.test(downSrc),
+    );
+
+    const PGliteDown = tryLoadPglite();
+    if (!PGliteDown) {
+      check('PGlite available for absent-table 100 down', false, 'PGlite unavailable');
+    } else {
+      const db = new PGliteDown();
+      try {
+        await db.exec(`
+          CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$
+          BEGIN NEW.updated_at=NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql;
+        `);
+        await db.exec(fs.readFileSync(MIG_100_DOWN, 'utf8'));
+        const gone = await db.query(
+          `SELECT 1 AS ok FROM information_schema.tables WHERE table_name = $1`,
+          [CLAIM_TABLE],
+        );
+        check('PGlite: absent-table 100 down is safe (no throw, table remains absent)', gone.rows.length === 0);
+      } catch (err) {
+        check('PGlite: absent-table 100 down is safe (no throw, table remains absent)', false, String(err && err.message || err));
+      } finally {
+        try { await db.close(); } catch { /* */ }
+      }
+    }
   }
 
   console.log('\n[8] Inbound composition wiring + isolation');

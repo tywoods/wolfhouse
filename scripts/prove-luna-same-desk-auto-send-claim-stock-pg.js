@@ -1,12 +1,18 @@
 'use strict';
 
 /**
- * SAME-DESK-004 stock PostgreSQL two-connection claim contention proof.
+ * SAME-DESK-004 stock PostgreSQL two-connection claim lifecycle proof.
  *
  * Disposable embedded PostgreSQL cluster (not PGlite). Two independent
  * node-postgres Clients/transactions, lock timeouts, exactly one claim
  * winner, one approval/journal/provider owner, loser provider-inert.
- * Skip/unavailable is a hard failure — never counted as PASS.
+ *
+ * Also proves: crash/lease expiry/reclaim, stale-owner CAS rejection,
+ * outcome-unknown non-retryable dispatching, and 100 down complete-up /
+ * absent-table / nonempty-refusal. Skip/unavailable is a hard failure.
+ *
+ * Deterministic clock: ISO timestamps passed as SQL parameters. No
+ * Date.now() lease comparisons.
  */
 
 const assert = require('node:assert/strict');
@@ -14,8 +20,11 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
+  createSameDeskAutoSendClaimOwner,
   SQL_INSERT_CLAIM,
   SQL_LINK_APPROVAL,
+  SQL_RELEASE_CLAIM,
+  SQL_BEGIN_DISPATCH,
 } = require('./lib/email-luna-same-desk-auto-send-claim');
 
 const ROOT = path.join(__dirname, '..');
@@ -32,9 +41,14 @@ const V = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const A = '55555555-5555-4555-8555-555555555555';
 const M = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const M2 = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+const M3 = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const M4 = 'bbbbbbbb-cccc-4ddd-8eee-ffffffffffff';
 const MAILBOX = '22222222-2222-4222-8222-2222222222ab';
 const SRC = 'graph-src-same-desk-004';
 const BODY = 'Thanks for your message. Would you like to make a booking?';
+const T0 = new Date('2026-08-30T12:00:00.000Z');
+const T_EXPIRE = new Date('2026-08-30T12:00:31.000Z');
+const LEASE_MS = 30_000;
 
 function resolvePg() {
   try {
@@ -112,6 +126,22 @@ INSERT INTO tenant_email_reply_approvals (
 RETURNING approval_id::text AS approval_id
 `.replace(/\s+/g, ' ').trim();
 
+function claimParams(inboundId, now) {
+  const expires = new Date(now.getTime() + LEASE_MS);
+  return [
+    crypto.randomUUID(), C, V, inboundId, A,
+    crypto.randomUUID(), expires.toISOString(), now.toISOString(),
+  ];
+}
+
+function ownerFor(client, clock) {
+  return createSameDeskAutoSendClaimOwner({
+    withPgClient: async (fn) => fn(client),
+    now: () => clock.now,
+    leaseMs: LEASE_MS,
+  });
+}
+
 async function seed(client) {
   await client.query('INSERT INTO clients (id, slug) VALUES ($1,$2)', [C, 'sunset']);
   await client.query(
@@ -126,6 +156,18 @@ async function seed(client) {
   );
   await client.query('INSERT INTO tenant_email_inbound_events (id, client_id) VALUES ($1,$2)', [M, C]);
   await client.query('INSERT INTO tenant_email_inbound_events (id, client_id) VALUES ($1,$2)', [M2, C]);
+  await client.query('INSERT INTO tenant_email_inbound_events (id, client_id) VALUES ($1,$2)', [M3, C]);
+  await client.query('INSERT INTO tenant_email_inbound_events (id, client_id) VALUES ($1,$2)', [M4, C]);
+}
+
+async function insertDraft(client, inboundId) {
+  const digest = crypto.createHash('sha256').update(BODY, 'utf8').digest('hex');
+  const approvalId = crypto.randomUUID();
+  const approval = await client.query(INSERT_APPROVAL, [
+    approvalId, crypto.randomUUID(), C, L, 'sunset-somo', E, V, inboundId, MAILBOX, SRC, A, BODY, digest,
+  ]);
+  assert.equal(approval.rows.length, 1);
+  return approvalId;
 }
 
 async function proveHeldTransactionContention(a, b, aPid, bPid) {
@@ -136,15 +178,17 @@ async function proveHeldTransactionContention(a, b, aPid, bPid) {
   await a.query('BEGIN');
   await b.query('BEGIN');
   const winnerInsert = await withJsTimeout(
-    a.query(SQL_INSERT_CLAIM, [crypto.randomUUID(), C, V, M, A]),
+    a.query(SQL_INSERT_CLAIM, claimParams(M, T0)),
     5000,
     'winner claim insert',
   );
   assert.equal(winnerInsert.rows.length, 1, 'winner must RETURNING the claim');
+  assert.equal(winnerInsert.rows[0].state, 'leased');
+  assert.ok(winnerInsert.rows[0].lease_token);
 
   let bSettled = false;
   const loserInsert = withJsTimeout(
-    b.query(SQL_INSERT_CLAIM, [crypto.randomUUID(), C, V, M, A]).then((res) => {
+    b.query(SQL_INSERT_CLAIM, claimParams(M, T0)).then((res) => {
       bSettled = true;
       return res;
     }),
@@ -174,7 +218,7 @@ async function proveHeldTransactionContention(a, b, aPid, bPid) {
 
   await a.query('COMMIT');
   const loser = await loserInsert;
-  assert.equal(loser.rows.length, 0, 'loser ON CONFLICT DO NOTHING returns no row');
+  assert.equal(loser.rows.length, 0, 'loser ON CONFLICT WHERE not reclaimable returns no row');
   await b.query('COMMIT');
 
   const n = await a.query(
@@ -185,24 +229,40 @@ async function proveHeldTransactionContention(a, b, aPid, bPid) {
   console.log('ok - two independent stock-PG transactions: exactly one claim winner; loser waited then lost');
 }
 
-async function autoWorker(client, inboundId, providerCalls) {
+async function autoWorker(client, inboundId, providerCalls, clock) {
   await client.query("SET lock_timeout = '3s'");
   await client.query("SET statement_timeout = '8s'");
+  const owner = ownerFor(client, clock);
   await client.query('BEGIN');
   try {
-    const claimId = crypto.randomUUID();
-    const claimed = await client.query(SQL_INSERT_CLAIM, [claimId, C, V, inboundId, A]);
-    if (!claimed.rows.length) {
+    const claimed = await owner.claim({
+      client_id: C,
+      conversation_id: V,
+      source_inbound_event_id: inboundId,
+      claimant_staff_user_id: A,
+    });
+    if (!claimed || claimed.status !== 'won') {
       await client.query('ROLLBACK');
       return { role: 'loser', provider: 0, approvals: 0, journals: 0 };
     }
-    const digest = crypto.createHash('sha256').update(BODY, 'utf8').digest('hex');
-    const approvalId = crypto.randomUUID();
-    const approval = await client.query(INSERT_APPROVAL, [
-      approvalId, crypto.randomUUID(), C, L, 'sunset-somo', E, V, inboundId, MAILBOX, SRC, A, BODY, digest,
-    ]);
-    assert.equal(approval.rows.length, 1);
-    await client.query(SQL_LINK_APPROVAL, [claimId, C, V, approvalId, null]);
+    const approvalId = await insertDraft(client, inboundId);
+    const linked = await owner.linkApproval({
+      claim_id: claimed.claim_id,
+      client_id: C,
+      conversation_id: V,
+      approval_id: approvalId,
+      lease_token: claimed.lease_token,
+      lease_epoch: claimed.lease_epoch,
+    });
+    assert.equal(linked.status, 'linked');
+    const begun = await owner.beginDispatch({
+      claim_id: claimed.claim_id,
+      client_id: C,
+      conversation_id: V,
+      lease_token: claimed.lease_token,
+      lease_epoch: claimed.lease_epoch,
+    });
+    assert.equal(begun.status, 'dispatching');
     await client.query(
       'INSERT INTO same_desk_004_proof_journal (approval_id, client_id, conversation_id, provider_invoked) VALUES ($1,$2,$3,TRUE)',
       [approvalId, C, V],
@@ -217,12 +277,13 @@ async function autoWorker(client, inboundId, providerCalls) {
 }
 
 async function proveParallelWorkers(a, b) {
+  const clock = { now: T0 };
   const providerA = [];
   const providerB = [];
   const [ra, rb] = await withJsTimeout(
     Promise.all([
-      autoWorker(a, M2, providerA),
-      autoWorker(b, M2, providerB),
+      autoWorker(a, M2, providerA, clock),
+      autoWorker(b, M2, providerB, clock),
     ]),
     12000,
     'parallel auto workers',
@@ -240,7 +301,7 @@ async function proveParallelWorkers(a, b) {
   assert.equal(losers[0].provider, 0, 'loser provider-inert');
 
   const claims = await a.query(
-    'SELECT count(*)::int AS n FROM tenant_email_same_desk_auto_send_claims WHERE source_inbound_event_id=$1',
+    'SELECT count(*)::int AS n, min(state) AS state FROM tenant_email_same_desk_auto_send_claims WHERE source_inbound_event_id=$1',
     [M2],
   );
   const approvals = await a.query(
@@ -251,9 +312,146 @@ async function proveParallelWorkers(a, b) {
     'SELECT count(*)::int AS n FROM same_desk_004_proof_journal',
   );
   assert.equal(claims.rows[0].n, 1);
+  assert.equal(claims.rows[0].state, 'dispatching');
   assert.equal(approvals.rows[0].n, 1);
   assert.equal(journals.rows[0].n, 1);
   console.log('ok - exactly one claim winner; one approval/journal/provider ownership; loser provider-inert');
+}
+
+async function proveLeaseExpiryReclaimAndStaleOwner(a, b) {
+  const clockA = { now: T0 };
+  const clockB = { now: T0 };
+  const ownerA = ownerFor(a, clockA);
+  const ownerB = ownerFor(b, clockB);
+
+  const won = await ownerA.claim({
+    client_id: C,
+    conversation_id: V,
+    source_inbound_event_id: M3,
+    claimant_staff_user_id: A,
+  });
+  assert.equal(won.status, 'won');
+  const staleToken = won.lease_token;
+  const staleEpoch = won.lease_epoch;
+
+  const lostAtT0 = await ownerB.claim({
+    client_id: C,
+    conversation_id: V,
+    source_inbound_event_id: M3,
+    claimant_staff_user_id: A,
+  });
+  assert.equal(lostAtT0.status, 'lost');
+
+  clockB.now = T_EXPIRE;
+  const reclaimed = await ownerB.claim({
+    client_id: C,
+    conversation_id: V,
+    source_inbound_event_id: M3,
+    claimant_staff_user_id: A,
+  });
+  assert.equal(reclaimed.status, 'won', 'expired leased claim must be reclaimable');
+  assert.notEqual(reclaimed.lease_token, staleToken);
+  assert.equal(reclaimed.lease_epoch, staleEpoch + 1);
+
+  const approvalId = await insertDraft(a, M3);
+  const staleLink = await ownerA.linkApproval({
+    claim_id: won.claim_id,
+    client_id: C,
+    conversation_id: V,
+    approval_id: approvalId,
+    lease_token: staleToken,
+    lease_epoch: staleEpoch,
+  });
+  assert.equal(staleLink.status, 'not_linked', 'stale owner cannot link after lease loss');
+
+  const staleRelease = await ownerA.release({
+    claim_id: won.claim_id,
+    client_id: C,
+    conversation_id: V,
+    lease_token: staleToken,
+    lease_epoch: staleEpoch,
+  });
+  assert.equal(staleRelease.status, 'not_released', 'stale owner cannot release after lease loss');
+
+  const staleDispatch = await ownerA.beginDispatch({
+    claim_id: won.claim_id,
+    client_id: C,
+    conversation_id: V,
+    lease_token: staleToken,
+    lease_epoch: staleEpoch,
+  });
+  assert.equal(staleDispatch.status, 'not_begun', 'stale owner cannot send after lease loss');
+
+  const liveLink = await ownerB.linkApproval({
+    claim_id: reclaimed.claim_id,
+    client_id: C,
+    conversation_id: V,
+    approval_id: approvalId,
+    lease_token: reclaimed.lease_token,
+    lease_epoch: reclaimed.lease_epoch,
+  });
+  assert.equal(liveLink.status, 'linked');
+  console.log('ok - crash/lease expiry/reclaim; stale owner cannot link/release/send');
+}
+
+async function proveOutcomeUnknownNonRetryable(a, b) {
+  const clockA = { now: T0 };
+  const clockB = { now: T0 };
+  const ownerA = ownerFor(a, clockA);
+  const ownerB = ownerFor(b, clockB);
+
+  const won = await ownerA.claim({
+    client_id: C,
+    conversation_id: V,
+    source_inbound_event_id: M4,
+    claimant_staff_user_id: A,
+  });
+  assert.equal(won.status, 'won');
+  const approvalId = await insertDraft(a, M4);
+  const linked = await ownerA.linkApproval({
+    claim_id: won.claim_id,
+    client_id: C,
+    conversation_id: V,
+    approval_id: approvalId,
+    lease_token: won.lease_token,
+    lease_epoch: won.lease_epoch,
+  });
+  assert.equal(linked.status, 'linked');
+  const begun = await ownerA.beginDispatch({
+    claim_id: won.claim_id,
+    client_id: C,
+    conversation_id: V,
+    lease_token: won.lease_token,
+    lease_epoch: won.lease_epoch,
+  });
+  assert.equal(begun.status, 'dispatching');
+
+  clockB.now = T_EXPIRE;
+  const reclaim = await ownerB.claim({
+    client_id: C,
+    conversation_id: V,
+    source_inbound_event_id: M4,
+    claimant_staff_user_id: A,
+  });
+  assert.equal(reclaim.status, 'lost');
+  assert.equal(reclaim.reason, 'outcome_unknown');
+  assert.equal(reclaim.state, 'dispatching');
+
+  const released = await ownerA.release({
+    claim_id: won.claim_id,
+    client_id: C,
+    conversation_id: V,
+    lease_token: won.lease_token,
+    lease_epoch: won.lease_epoch,
+  });
+  assert.equal(released.status, 'not_released', 'dispatching must never release');
+
+  const row = await a.query(
+    'SELECT state FROM tenant_email_same_desk_auto_send_claims WHERE source_inbound_event_id=$1',
+    [M4],
+  );
+  assert.equal(row.rows[0].state, 'dispatching');
+  console.log('ok - outcome-unknown remains non-retryable (no reclaim, no release, no retry)');
 }
 
 async function proveGenericDraftsRemainAllowed(client) {
@@ -283,6 +481,48 @@ async function proveGenericDraftsRemainAllowed(client) {
   console.log('ok - two generic Microsoft staff drafts and two SMTP drafts remain allowed for the same inbound');
 }
 
+async function proveDownMigrations(a, Client, port, password) {
+  try {
+    await a.query(fs.readFileSync(MIG_100_DOWN, 'utf8'));
+    assert.fail('nonempty 100 down should refuse');
+  } catch (error) {
+    assert.match(String(error.message), /100_down_refused/);
+    try { await a.query('ROLLBACK'); } catch { /* idle */ }
+  }
+  console.log('ok - nonempty 100 down refuses evidence loss');
+
+  const empty = new Client({
+    host: '127.0.0.1', port, user: 'postgres', password, database: 'same_desk_004_empty',
+  });
+  const absent = new Client({
+    host: '127.0.0.1', port, user: 'postgres', password, database: 'same_desk_004_absent',
+  });
+  try {
+    await empty.connect();
+    await empty.query(STUB_SCHEMA);
+    await empty.query(fs.readFileSync(MIG_070, 'utf8'));
+    await empty.query(fs.readFileSync(MIG_100_UP, 'utf8'));
+    await empty.query(fs.readFileSync(MIG_100_DOWN, 'utf8'));
+    const gone = await empty.query(
+      "SELECT 1 AS ok FROM information_schema.tables WHERE table_name = 'tenant_email_same_desk_auto_send_claims'",
+    );
+    assert.equal(gone.rows.length, 0);
+    console.log('ok - complete-up empty 100 down drops dedicated claim table');
+
+    await absent.connect();
+    await absent.query(STUB_SCHEMA);
+    await absent.query(fs.readFileSync(MIG_100_DOWN, 'utf8'));
+    const stillGone = await absent.query(
+      "SELECT 1 AS ok FROM information_schema.tables WHERE table_name = 'tenant_email_same_desk_auto_send_claims'",
+    );
+    assert.equal(stillGone.rows.length, 0);
+    console.log('ok - absent-table 100 down is safe');
+  } finally {
+    try { await empty.end(); } catch { /* */ }
+    try { await absent.end(); } catch { /* */ }
+  }
+}
+
 async function main() {
   const { Client } = resolvePg();
   let EmbeddedPostgres;
@@ -296,6 +536,11 @@ async function main() {
 
   assert.equal(fs.existsSync(MIG_100_UP), true);
   assert.equal(fs.existsSync(MIG_100_DOWN), true);
+  assert.equal(typeof createSameDeskAutoSendClaimOwner, 'function');
+  assert.match(SQL_INSERT_CLAIM, /lease_token/);
+  assert.match(SQL_LINK_APPROVAL, /lease_token/);
+  assert.match(SQL_RELEASE_CLAIM, /lease_token/);
+  assert.match(SQL_BEGIN_DISPATCH, /dispatching/);
 
   const dataDir = fs.mkdtempSync(path.join('/opt/data/local-postgres', 'same-desk-004-claim-'));
   const port = 57621 + (process.pid % 73);
@@ -328,6 +573,8 @@ async function main() {
     started = true;
     await admin.connect();
     await admin.query('CREATE DATABASE same_desk_004_claim');
+    await admin.query('CREATE DATABASE same_desk_004_empty');
+    await admin.query('CREATE DATABASE same_desk_004_absent');
     await a.connect();
     await b.connect();
     const aPid = (await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
@@ -344,21 +591,10 @@ async function main() {
     await proveGenericDraftsRemainAllowed(a);
     await proveHeldTransactionContention(a, b, aPid, bPid);
     await proveParallelWorkers(a, b);
+    await proveLeaseExpiryReclaimAndStaleOwner(a, b);
+    await proveOutcomeUnknownNonRetryable(a, b);
+    await proveDownMigrations(a, Client, port, password);
 
-    try {
-      await a.query(fs.readFileSync(MIG_100_DOWN, 'utf8'));
-      assert.fail('nonempty 100 down should refuse');
-    } catch (error) {
-      assert.match(String(error.message), /100_down_refused/);
-      try { await a.query('ROLLBACK'); } catch { /* idle */ }
-    }
-    await a.query('DELETE FROM tenant_email_same_desk_auto_send_claims');
-    await a.query(fs.readFileSync(MIG_100_DOWN, 'utf8'));
-    const gone = await a.query(
-      "SELECT 1 AS ok FROM information_schema.tables WHERE table_name = 'tenant_email_same_desk_auto_send_claims'",
-    );
-    assert.equal(gone.rows.length, 0);
-    console.log('ok - empty 100 down drops dedicated claim table');
     console.log('ALL OK — SAME-DESK-004 stock-PG two-connection claim contention');
   } finally {
     try { await a.end(); } catch { /* */ }

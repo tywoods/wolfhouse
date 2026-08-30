@@ -1,10 +1,12 @@
 -- 100_tenant_email_same_desk_auto_send_claims.sql
--- SAME-DESK-004: dedicated durable auto-send claim owner.
+-- SAME-DESK-004: dedicated durable auto-send claim owner with bounded lease.
 --
 -- Independent of tenant_email_reply_approvals so generic Microsoft and SMTP
 -- staff drafts remain unlimited for the same inbound event. Auto-send workers
--- INSERT-claim this table; losers ON CONFLICT DO NOTHING skip without a
--- provider send. Explicit approval linkage is for winner/loser reconciliation.
+-- INSERT-claim this table; losers skip without a provider send. Ownership is
+-- a lease_token + lease_epoch CAS: pre-dispatch failure is retry-safe
+-- (release/expire/reclaim); once state=dispatching, never release or retry.
+-- Explicit auto_provenance + approval linkage is the only auto payload.
 --
 -- Does not rewrite 070 operation uniqueness, approve-send CAS, or generic
 -- staff/SMTP draft insert semantics.
@@ -37,15 +39,23 @@ CREATE TABLE tenant_email_same_desk_auto_send_claims (
   conversation_id UUID NOT NULL,
   source_inbound_event_id UUID NOT NULL,
   claimant_staff_user_id UUID NOT NULL,
+  lease_token UUID NOT NULL,
+  lease_epoch BIGINT NOT NULL,
+  lease_expires_at TIMESTAMPTZ NOT NULL,
+  auto_provenance TEXT NOT NULL,
   approval_id UUID NULL,
   operation_id UUID NULL,
   state TEXT NOT NULL,
-  claimed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  claimed_at TIMESTAMPTZ NOT NULL,
   linked_at TIMESTAMPTZ NULL,
+  dispatching_at TIMESTAMPTZ NULL,
+  released_at TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT tenant_email_same_desk_auto_send_claims_identity_uq
     UNIQUE (client_id, conversation_id, source_inbound_event_id),
+  CONSTRAINT tenant_email_same_desk_auto_send_claims_lease_token_uq
+    UNIQUE (lease_token),
   CONSTRAINT tenant_email_same_desk_auto_send_claims_conversation_fk
     FOREIGN KEY (client_id, conversation_id) REFERENCES conversations (client_id, id)
     ON DELETE RESTRICT ON UPDATE CASCADE,
@@ -59,10 +69,19 @@ CREATE TABLE tenant_email_same_desk_auto_send_claims (
     FOREIGN KEY (approval_id) REFERENCES tenant_email_reply_approvals (approval_id)
     ON DELETE RESTRICT ON UPDATE CASCADE,
   CONSTRAINT tenant_email_same_desk_auto_send_claims_state_values
-    CHECK (state IN ('claimed', 'linked')),
+    CHECK (state IN ('leased', 'linked', 'dispatching', 'released')),
+  CONSTRAINT tenant_email_same_desk_auto_send_claims_epoch_positive
+    CHECK (lease_epoch >= 1),
+  CONSTRAINT tenant_email_same_desk_auto_send_claims_provenance
+    CHECK (auto_provenance = 'same_desk_004_auto'),
   CONSTRAINT tenant_email_same_desk_auto_send_claims_link_coupling CHECK (
-    (state = 'claimed' AND approval_id IS NULL AND linked_at IS NULL)
-    OR (state = 'linked' AND approval_id IS NOT NULL AND linked_at IS NOT NULL)
+    (state = 'leased' AND approval_id IS NULL AND linked_at IS NULL
+      AND dispatching_at IS NULL AND released_at IS NULL)
+    OR (state = 'linked' AND approval_id IS NOT NULL AND linked_at IS NOT NULL
+      AND dispatching_at IS NULL AND released_at IS NULL)
+    OR (state = 'dispatching' AND approval_id IS NOT NULL AND linked_at IS NOT NULL
+      AND dispatching_at IS NOT NULL AND released_at IS NULL)
+    OR (state = 'released' AND dispatching_at IS NULL AND released_at IS NOT NULL)
   )
 );
 
@@ -71,7 +90,7 @@ CREATE UNIQUE INDEX tenant_email_same_desk_auto_send_claims_approval_uq
   WHERE approval_id IS NOT NULL;
 
 COMMENT ON TABLE tenant_email_same_desk_auto_send_claims IS
-  'SAME-DESK-004: exactly-once auto-send claim per (client_id, conversation_id, source_inbound_event_id). Does not constrain generic staff or SMTP tenant_email_reply_approvals rows.';
+  'SAME-DESK-004: exactly-once auto-send lease per (client_id, conversation_id, source_inbound_event_id). lease_token/epoch CAS. Pre-dispatch is retry-safe; dispatching is outcome-unknown no-retry. Does not constrain generic staff or SMTP tenant_email_reply_approvals rows.';
 
 CREATE OR REPLACE FUNCTION tenant_email_same_desk_auto_send_claims_protect() RETURNS TRIGGER AS $$
 BEGIN
@@ -79,22 +98,47 @@ BEGIN
      OR NEW.client_id IS DISTINCT FROM OLD.client_id
      OR NEW.conversation_id IS DISTINCT FROM OLD.conversation_id
      OR NEW.source_inbound_event_id IS DISTINCT FROM OLD.source_inbound_event_id
-     OR NEW.claimant_staff_user_id IS DISTINCT FROM OLD.claimant_staff_user_id
-     OR NEW.claimed_at IS DISTINCT FROM OLD.claimed_at
-     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR NEW.auto_provenance IS DISTINCT FROM OLD.auto_provenance THEN
     RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: immutable field mutation refused' USING ERRCODE = '23514';
   END IF;
-  IF OLD.state = 'linked' AND (
-       NEW.approval_id IS DISTINCT FROM OLD.approval_id
-    OR NEW.linked_at IS DISTINCT FROM OLD.linked_at
-    OR NEW.state IS DISTINCT FROM OLD.state
-  ) THEN
-    RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: linked approval sealed' USING ERRCODE = '23514';
+  IF OLD.state = 'dispatching' THEN
+    RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: dispatching sealed' USING ERRCODE = '23514';
   END IF;
-  IF OLD.state = 'claimed' AND NEW.state IS DISTINCT FROM OLD.state AND NEW.state IS DISTINCT FROM 'linked' THEN
-    RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: illegal state transition' USING ERRCODE = '23514';
+  IF NEW.lease_epoch < OLD.lease_epoch THEN
+    RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: lease_epoch must not decrease' USING ERRCODE = '23514';
   END IF;
-  RETURN NEW;
+  IF NEW.lease_epoch IS DISTINCT FROM OLD.lease_epoch THEN
+    IF NEW.lease_epoch IS DISTINCT FROM OLD.lease_epoch + 1 THEN
+      RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: lease_epoch must increment by 1' USING ERRCODE = '23514';
+    END IF;
+    IF NEW.lease_token IS NOT DISTINCT FROM OLD.lease_token THEN
+      RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: reclaim requires new lease_token' USING ERRCODE = '23514';
+    END IF;
+    IF NEW.state IS DISTINCT FROM 'leased' THEN
+      RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: reclaim must enter leased' USING ERRCODE = '23514';
+    END IF;
+    IF OLD.state NOT IN ('leased', 'linked', 'released') THEN
+      RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: illegal reclaim source' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.lease_token IS DISTINCT FROM OLD.lease_token THEN
+    RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: lease_token mutation requires epoch increment' USING ERRCODE = '23514';
+  END IF;
+  IF OLD.state = 'leased' AND NEW.state = 'linked' THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.state IN ('leased', 'linked') AND NEW.state = 'released' THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.state = 'linked' AND NEW.state = 'dispatching' THEN
+    RETURN NEW;
+  END IF;
+  IF OLD.state IS NOT DISTINCT FROM NEW.state THEN
+    RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: same-state field mutation refused' USING ERRCODE = '23514';
+  END IF;
+  RAISE EXCEPTION 'tenant_email_same_desk_auto_send_claims: illegal state transition' USING ERRCODE = '23514';
 END;
 $$ LANGUAGE plpgsql;
 
