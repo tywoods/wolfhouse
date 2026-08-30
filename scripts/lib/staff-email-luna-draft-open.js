@@ -1222,6 +1222,12 @@ function createStaffEmailLunaDraftOpen(deps) {
             actor,
             env: deps.runtimeEnv || process.env,
             withPgClient: deps.withPgClient,
+            trustedClientSlug: typeof row.client_slug === 'string' ? row.client_slug : '',
+            trustedLocationId: typeof row.location_key === 'string' ? row.location_key : '',
+            trustedMailboxId: typeof row.provider_mailbox_id === 'string' && row.provider_mailbox_id
+              ? row.provider_mailbox_id
+              : (typeof row.endpoint_provider_mailbox_id === 'string' ? row.endpoint_provider_mailbox_id : ''),
+            trustedConversationId: conversationId,
           });
           if (paid && paid.ok === true && typeof paid.draft_body === 'string' && paid.draft_body.trim()) {
             body = paid.draft_body.trim();

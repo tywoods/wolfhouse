@@ -37,6 +37,11 @@ const {
   buildSunsetCatalogCommand,
   executeSunsetCatalog,
 } = require('./luna-front-desk-catalog-service');
+const {
+  formatMoneyFromCents,
+  guestSafeOfferingLabel,
+  presentPayToBookEmailDraft,
+} = require('./luna-channel-presentation');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -65,27 +70,6 @@ const STRIPE_CHECKOUT_RE = /^https:\/\/checkout\.stripe\.com\/(?:c\/pay\/|pay\/)
 
 const DEPOSIT_RE = /\bdeposits?\b|\bdep[oó]sitos?\b/;
 const FULL_RE = /\bfull(?:\s+payment|\s+amount)\b|\bpay(?:ing|ment)?\s+in\s+full\b|\bpago\s+completo\b|\bimporte\s+completo\b/;
-
-const RENDER_COPY = freeze({
-  en: freeze({
-    hello: 'Hi,',
-    thanks: 'Thanks for your message.',
-    pay: 'To complete this booking, please use this payment link from our desk:',
-    hold: 'Your dates are held until',
-    late: 'Payment after that time will not automatically complete the booking.',
-    signoff: 'Warm regards,',
-    signature: 'Luna',
-  }),
-  es: freeze({
-    hello: 'Hola,',
-    thanks: 'Gracias por tu mensaje.',
-    pay: 'Para completar esta reserva, usa este enlace de pago de recepción:',
-    hold: 'Tus fechas quedan retenidas hasta',
-    late: 'Un pago después de esa hora no completará la reserva automáticamente.',
-    signoff: 'Un saludo cálido,',
-    signature: 'Luna',
-  }),
-});
 
 function fail(reason, extra) {
   return freeze({
@@ -315,6 +299,10 @@ function bindEmailPayToBookIdentities(input) {
   if (input.trustedConversationId && uuid(input.trustedConversationId) !== conversationId) {
     return fail('conversation_mismatch');
   }
+  if (input.actor && input.actor.client_id) {
+    const actorClient = uuid(input.actor.client_id);
+    if (actorClient && actorClient !== clientId) return fail('tenant_mismatch');
+  }
   return freeze({
     ok: true,
     client_id: clientId,
@@ -366,43 +354,101 @@ function detectDraftLanguage(subject, body) {
   return 'en';
 }
 
+function canonicalLineSummary(quoteBody) {
+  const lines = quoteBody && Array.isArray(quoteBody.line_items) ? quoteBody.line_items : [];
+  const labels = [];
+  for (const line of lines) {
+    const label = guestSafeOfferingLabel(line && line.label);
+    if (label && labels.indexOf(label) === -1) labels.push(label);
+  }
+  return labels.length === 1 ? labels[0] : '';
+}
+
+function payToBookDraftFacts(input, offering, quoteBody, intent, priced, paymentUrl, holdExpiresAt) {
+  const quoteLabel = guestSafeOfferingLabel(quoteBody && quoteBody.label);
+  const offeringLabel = guestSafeOfferingLabel(offering && offering.label);
+  const total = Number(quoteBody && quoteBody.total_cents);
+  return {
+    language: detectDraftLanguage(
+      input && input.untrusted && input.untrusted.subject,
+      input && input.untrusted && input.untrusted.body_text,
+    ),
+    payment_url: paymentUrl,
+    hold_expires_at: holdExpiresAt,
+    offering_label: quoteLabel || offeringLabel || undefined,
+    line_summary: canonicalLineSummary(quoteBody) || undefined,
+    quote_total_cents: Number.isSafeInteger(total) && total > 0 ? total : undefined,
+    amount_due_cents: priced && Number.isSafeInteger(priced.amount_due_cents)
+      ? priced.amount_due_cents : undefined,
+    payment_choice: priced && priced.payment_choice,
+    date_from: intent && intent.date_from,
+    date_to: intent && intent.date_to,
+    quantity: intent && intent.quantity,
+  };
+}
+
+function canonicalPayToBookAmounts(opts, language) {
+  const tokens = [];
+  const total = formatMoneyFromCents(opts && opts.quote_total_cents, language);
+  const due = formatMoneyFromCents(opts && opts.amount_due_cents, language);
+  if (total) tokens.push(total);
+  if (due && due !== total) tokens.push(due);
+  else if (due) tokens.push(due);
+  return freeze(tokens);
+}
+
 function renderEmailPayToBookDraft(opts) {
   const language = opts && opts.language === 'es' ? 'es' : 'en';
   const url = asText(opts && opts.payment_url).trim();
   const expiry = holdExpiryIsoFromDb(opts && opts.hold_expires_at);
   if (!isExactStaffPaymentUrl(url)) return fail('payment_url_unusable');
   if (!expiry) return fail('hold_expires_at_unusable');
-  const copy = RENDER_COPY[language];
-  const body = [
-    copy.hello,
-    '',
-    copy.thanks,
-    copy.pay,
-    url,
-    '',
-    `${copy.hold} ${expiry}.`,
-    copy.late,
-    '',
-    copy.signoff,
-    copy.signature,
-  ].join('\n');
-  if (hasInventedMoney(body, url)) return fail('invented_amount_in_draft');
+  const presented = presentPayToBookEmailDraft({
+    language,
+    payment_url: url,
+    hold_expires_at: expiry,
+    offering_label: guestSafeOfferingLabel(opts && opts.offering_label) || undefined,
+    line_summary: guestSafeOfferingLabel(opts && opts.line_summary) || undefined,
+    quote_total_cents: Number.isSafeInteger(opts && opts.quote_total_cents)
+      ? opts.quote_total_cents : undefined,
+    amount_due_cents: Number.isSafeInteger(opts && opts.amount_due_cents)
+      ? opts.amount_due_cents : undefined,
+    payment_choice: PAYMENT_CHOICES.includes(asText(opts && opts.payment_choice).trim())
+      ? asText(opts.payment_choice).trim() : undefined,
+    date_from: asText(opts && opts.date_from).trim() || undefined,
+    date_to: asText(opts && opts.date_to).trim() || undefined,
+    quantity: Number.isSafeInteger(opts && opts.quantity) ? opts.quantity : undefined,
+  });
+  const body = presented && presented.body ? presented.body : '';
+  if (!body || presented.send_allowed === true || presented.auto_send_allowed === true) {
+    return fail('pay_to_book_draft_unusable');
+  }
+  const allowedAmounts = canonicalPayToBookAmounts(opts, language);
+  if (hasInventedMoney(body, url, allowedAmounts)) return fail('invented_amount_in_draft');
   return freeze({
     ok: true,
     language,
     body,
     payment_url: url,
     hold_expires_at: expiry,
+    fact_block: presented.fact_block || '',
+    draft_only: true,
+    requires_staff_review: true,
+    send_allowed: false,
+    auto_send_allowed: false,
   });
 }
 
-function hasInventedMoney(body, allowedUrl) {
-  const withoutUrl = asText(body).split(allowedUrl).join('');
-  const withoutExpiry = withoutUrl.replace(
+function hasInventedMoney(body, allowedUrl, allowedAmounts) {
+  let without = asText(body).split(allowedUrl).join('');
+  without = without.replace(
     /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g,
     '',
   );
-  if (/€|\$|£|\b(?:eur|usd|gbp)\b|\d+[.,]\d{2}\s*(?:€|\$|£|\b(?:eur|usd|gbp)\b)/i.test(withoutExpiry)) {
+  for (const token of Array.isArray(allowedAmounts) ? allowedAmounts : []) {
+    if (token) without = without.split(token).join('');
+  }
+  if (/€|\$|£|\b(?:eur|usd|gbp)\b|\d+[.,]\d{2}\s*(?:€|\$|£|\b(?:eur|usd|gbp)\b)/i.test(without)) {
     return true;
   }
   const urls = asText(body).match(/https?:\/\/[^\s]+/g) || [];
@@ -676,11 +722,9 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
   if (!bookingId || !holdExpiresAt) return fail('hold_identity_missing');
 
   if (holdBody.idempotent === true && holdBody.payment_url && isExactStaffPaymentUrl(holdBody.payment_url)) {
-    const reused = renderEmailPayToBookDraft({
-      language: detectDraftLanguage(input.untrusted && input.untrusted.subject, input.untrusted && input.untrusted.body_text),
-      payment_url: holdBody.payment_url,
-      hold_expires_at: holdExpiresAt,
-    });
+    const reused = renderEmailPayToBookDraft(payToBookDraftFacts(
+      input, offering, quoteBody, intent, priced, holdBody.payment_url, holdExpiresAt,
+    ));
     if (!reused.ok) return reused;
     return freeze({
       ok: true,
@@ -732,11 +776,9 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
     });
   }
 
-  const rendered = renderEmailPayToBookDraft({
-    language: detectDraftLanguage(input.untrusted && input.untrusted.subject, input.untrusted && input.untrusted.body_text),
-    payment_url: paymentUrl,
-    hold_expires_at: holdExpiresAt,
-  });
+  const rendered = renderEmailPayToBookDraft(payToBookDraftFacts(
+    input, offering, quoteBody, intent, priced, paymentUrl, holdExpiresAt,
+  ));
   if (!rendered.ok) return rendered;
 
   return freeze({
