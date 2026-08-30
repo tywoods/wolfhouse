@@ -44,6 +44,19 @@ def _clean(value):
     return str(value).strip()
 
 
+def _is_documented_active(value):
+    """Fail-closed active flag for serialized Staff API values.
+
+    Documented active: True, "true", 1, "1". false/"false"/0/"0" and every
+    other value are inactive. Does not reinterpret PostgreSQL booleans.
+    """
+    if value is True or value == 1:
+        return True
+    if isinstance(value, str) and value.strip().lower() in {"true", "1"}:
+        return True
+    return False
+
+
 def _normalize_phone(value):
     raw = _clean(value)
     if not raw:
@@ -1468,7 +1481,7 @@ def _project_sunset_rental_catalog_items(raw_offerings):
         oid = str(o.get("offering_id") or o.get("item_code") or o.get("offering_item_code") or "")
         if otype == "addon" or "full_day_equipment" in oid.lower():
             continue
-        if o.get("active") is False:
+        if not _is_documented_active(o.get("active")):
             continue
         if otype and otype != "rental":
             continue
@@ -1804,7 +1817,7 @@ def get_sunset_lesson_catalog(params, **kwargs):
         oid = str(o.get("offering_id") or "")
         if otype in ("group_lesson", "kids_lesson"):
             continue
-        if o.get("active") is False:
+        if not _is_documented_active(o.get("active")):
             continue
         if "lesson_slot_" in oid or "lesson_slot_" in str(o.get("price_id") or "") or "lesson_slot_" in str(o.get("item_code") or ""):
             continue

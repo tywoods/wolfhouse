@@ -44,6 +44,7 @@ const {
   isIdentityLikeRentalLabel,
   resolveRentalOfferingFriendlyLabel,
   activeRentalOfferingKeySet,
+  isDocumentedActiveFlag,
 } = require('./rental-offering-label');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
@@ -226,7 +227,10 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
   }
 
   const prices = adminCfg.prices || [];
-  const rentalOfferings = opts.rentalOfferings || adminCfg.rental_offerings || [];
+  const rentalOfferingsRaw = (opts && Object.prototype.hasOwnProperty.call(opts, 'rentalOfferings'))
+    ? opts.rentalOfferings
+    : (adminCfg && adminCfg.rental_offerings);
+  const rentalOfferings = Array.isArray(rentalOfferingsRaw) ? rentalOfferingsRaw : [];
   // P0e: exact offering_key → Admin tenant_rental_offerings.label (active catalog).
   // Prefer exact location over client-wide; reject foreign tenant/location.
   const rentalCatalogLabelByKey = buildRentalCatalogLabelMap(rentalOfferings, {
@@ -235,8 +239,8 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
     includeInactive: false,
   });
   // Live Admin catalog is the offer allowlist. Null = price-only bootstrap
-  // (no identity rows yet). Empty Set = catalog present, nothing live here.
-  const liveRentalKeys = activeRentalOfferingKeySet(rentalOfferings, {
+  // (no identity rows yet). Empty array / empty Set = catalog present, nothing live.
+  const liveRentalKeys = activeRentalOfferingKeySet(rentalOfferingsRaw, {
     clientSlug: SUNSET_CLIENT_SLUG,
     locationId,
   });
@@ -480,19 +484,25 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
   const packs = await loadSurfPacksFromDb(pg, clientSlug, locationId);
   // Active scoped rentals: exact location + client-wide (null location). Reject
   // foreign tenant/location. Prefer exact location inside catalog label map.
-  const rentalOfferings = (await listRentalOfferings(pg, {
-    clientSlug,
-    locationId,
-    includeInactive: false,
-  })).filter((row) => {
-    if (!row || row.active === false) return false;
-    if (String(row.client_slug || '').trim() !== clientSlug) return false;
-    const loc = row.location_id != null && String(row.location_id).trim()
-      ? String(row.location_id).trim()
-      : '';
-    if (loc && loc !== locationId) return false;
-    return true;
-  });
+  // Query failure fail-closes to an empty identity list (never price-only fallback).
+  let rentalOfferings = [];
+  try {
+    rentalOfferings = (await listRentalOfferings(pg, {
+      clientSlug,
+      locationId,
+      includeInactive: false,
+    })).filter((row) => {
+      if (!row || !isDocumentedActiveFlag(row.active)) return false;
+      if (String(row.client_slug || '').trim() !== clientSlug) return false;
+      const loc = row.location_id != null && String(row.location_id).trim()
+        ? String(row.location_id).trim()
+        : '';
+      if (loc && loc !== locationId) return false;
+      return true;
+    });
+  } catch (_) {
+    rentalOfferings = [];
+  }
   const privateLessonResult = await loadPrivateLessonFromDb(pg, clientSlug, locationId);
   const privateLesson = privateLessonResult && privateLessonResult.api
     ? privateLessonResult.api

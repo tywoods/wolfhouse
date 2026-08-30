@@ -15,17 +15,20 @@
 const {
   CATALOG_CHANNELS,
   buildSunsetCatalogCommand,
+  executeSunsetCatalog,
   executeSunsetCatalogSync,
 } = require('./lib/luna-front-desk-catalog-service');
 const {
   QUOTE_CHANNELS,
   buildSunsetQuoteCommand,
+  executeSunsetQuote,
   executeSunsetQuoteSync,
 } = require('./lib/luna-front-desk-quote-service');
 const {
   listConfiguredRentalOfferings,
 } = require('./lib/sunset-rental-price-lookup');
 const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
+const { activeRentalOfferingKeySet } = require('./lib/rental-offering-label');
 
 let pass = 0;
 let fail = 0;
@@ -225,7 +228,125 @@ function hasOffering(cat, pred) {
   return (cat.body && cat.body.offerings || []).some(pred);
 }
 
-function run() {
+function hasRentalIdentity(cat, key, item) {
+  return hasOffering(cat, (o) => (
+    o.offering_id === item
+    || o.offering_key === key
+    || String(o.item_code || '') === item
+    || String(o.item_code || '').startsWith(`${key}__`)
+    || String(o.offering_item_code || '') === item
+  ));
+}
+
+function publicSitePrices() {
+  return [
+    {
+      id: 'price-kayak',
+      category: 'rental',
+      offering_key: LIVE_RENTAL_ITEM,
+      item_code: LIVE_RENTAL_ITEM,
+      amount_cents: LIVE_RENTAL_CENTS,
+      unit: 'day',
+      active: true,
+      currency: 'EUR',
+      label: LIVE_RENTAL_LABEL,
+      location_id: LOC,
+    },
+    {
+      id: 'price-disabled-board',
+      category: 'rental',
+      offering_key: DISABLED_RENTAL_ITEM,
+      item_code: DISABLED_RENTAL_ITEM,
+      amount_cents: DISABLED_RENTAL_CENTS,
+      unit: 'day',
+      active: true,
+      currency: 'EUR',
+      label: 'Old Board',
+      location_id: LOC,
+    },
+    {
+      id: 'price-public-bundle',
+      category: 'rental',
+      offering_key: PUBLIC_BUNDLE_ITEM,
+      item_code: PUBLIC_BUNDLE_ITEM,
+      amount_cents: PUBLIC_BUNDLE_CENTS,
+      unit: 'half_day',
+      active: true,
+      currency: 'EUR',
+      label: PUBLIC_BUNDLE_LABEL,
+      seed_source: 'public_site',
+      pricing_status: 'unverified_seed',
+      location_id: LOC,
+    },
+  ];
+}
+
+function cfgWithOfferingsAndPrices(rentalOfferings, prices) {
+  const cfg = adminCatalogCfg();
+  if (rentalOfferings === undefined) {
+    delete cfg.rental_offerings;
+  } else {
+    cfg.rental_offerings = rentalOfferings;
+  }
+  cfg.prices = prices || publicSitePrices();
+  cfg.surf_packs = [];
+  return cfg;
+}
+
+function makeRentalCatalogPg(opts = {}) {
+  return {
+    query: async (sql) => {
+      const s = String(sql);
+      if (/tenant_rental_offerings/i.test(s) && /SELECT/i.test(s)) {
+        if (opts.failRentalQuery) {
+          throw new Error('rental catalog query failed');
+        }
+        return { rows: Array.isArray(opts.rentalRows) ? opts.rentalRows : [] };
+      }
+      if (/^BEGIN/i.test(s) || /^COMMIT/i.test(s) || /^ROLLBACK/i.test(s)) return { rows: [] };
+      if (/CREATE TABLE/i.test(s) || /CREATE INDEX/i.test(s)) return { rows: [] };
+      if (/information_schema\.(tables|columns)/i.test(s)) return { rows: [{ '?column?': 1 }] };
+      if (/to_regclass/i.test(s)) return { rows: [{ reg: 'tenant_rental_offerings' }] };
+      if (/SELECT id FROM clients WHERE slug/i.test(s)) return { rows: [{ id: 'client-sunset' }] };
+      if (/FROM tenant_surf_pack_rules/i.test(s)) return { rows: [] };
+      if (/FROM tenant_private_lesson_rules/i.test(s)) return { rows: [] };
+      if (/FROM tenant_price_rules/i.test(s)) return { rows: [] };
+      return { rows: [] };
+    },
+  };
+}
+
+function assertZeroGuestRentals(cat, label) {
+  const rentals = offeringsOf(cat, 'rental');
+  assert(`${label}: catalog ok shell or fail-closed`, cat && (cat.ok === true || cat.ok === false));
+  assert(
+    `${label}: zero guest rentals`,
+    rentals.length === 0,
+    JSON.stringify(rentals),
+  );
+  assert(
+    `${label}: public-site bundle absent`,
+    !hasRentalIdentity(cat, PUBLIC_BUNDLE_KEY, PUBLIC_BUNDLE_ITEM)
+      && !hasOffering(cat, (o) => /board\s*\+\s*suit/i.test(String(o.label || ''))),
+    JSON.stringify(rentals),
+  );
+  assert(
+    `${label}: stale kayak/board price rows absent`,
+    !hasRentalIdentity(cat, LIVE_RENTAL_KEY, LIVE_RENTAL_ITEM)
+      && !hasRentalIdentity(cat, DISABLED_RENTAL_KEY, DISABLED_RENTAL_ITEM),
+    JSON.stringify(rentals),
+  );
+}
+
+function assertQuoteRefused(quote, label) {
+  assert(
+    `${label}: quote fails closed`,
+    quote && quote.ok === false,
+    JSON.stringify(quote && quote.body),
+  );
+}
+
+async function run() {
   console.log('\nverify:luna-same-desk-admin-catalog\n');
   const cfg = adminCatalogCfg();
   const cat = executeSunsetCatalogSync(catalogCmd({}).command, { adminCfg: cfg });
@@ -271,15 +392,25 @@ function run() {
     quotedCents === LIVE_RENTAL_CENTS,
     JSON.stringify({ quotedCents, body: kayakQuote.body }),
   );
-  const quotedLabel = kayakQuote.body && (
-    kayakQuote.body.label
-    || (kayakQuote.body.offering && kayakQuote.body.offering.label)
-    || (Array.isArray(kayakQuote.body.line_items) && kayakQuote.body.line_items[0] && kayakQuote.body.line_items[0].label)
-  );
+  const quotedLine = kayakQuote.body && Array.isArray(kayakQuote.body.line_items)
+    ? kayakQuote.body.line_items[0]
+    : null;
   assert(
-    'quoted name is Admin Kayak Pro, not Board + Suit',
-    quotedLabel === LIVE_RENTAL_LABEL || (kayak && kayak.label === LIVE_RENTAL_LABEL && kayakQuote.ok),
-    JSON.stringify({ quotedLabel, kayakLabel: kayak && kayak.label }),
+    'quoted payload uses Admin Kayak Pro label, not Board + Suit',
+    !!(kayakQuote.body
+      && kayakQuote.body.label === LIVE_RENTAL_LABEL
+      && quotedLine
+      && quotedLine.label === LIVE_RENTAL_LABEL
+      && kayakQuote.body.offering_id === LIVE_RENTAL_ITEM
+      && quotedCents === LIVE_RENTAL_CENTS
+      && kayakQuote.body.label !== PUBLIC_BUNDLE_LABEL
+      && quotedLine.label !== PUBLIC_BUNDLE_LABEL),
+    JSON.stringify({
+      label: kayakQuote.body && kayakQuote.body.label,
+      offering_id: kayakQuote.body && kayakQuote.body.offering_id,
+      line: quotedLine && { label: quotedLine.label, offering_id: quotedLine.offering_id },
+      quotedCents,
+    }),
   );
 
   console.log('\n[B] Disabled rental never offered or quoted');
@@ -402,8 +533,194 @@ function run() {
     JSON.stringify(sardiCat.body && sardiCat.body.offerings),
   );
 
+  console.log('\n[F] Empty Admin rental_offerings is an allowlist, not price-only bootstrap');
+  const emptySet = activeRentalOfferingKeySet([], { clientSlug: 'sunset', locationId: LOC });
+  assert(
+    'activeRentalOfferingKeySet([]) is empty Set, not null',
+    emptySet instanceof Set && emptySet.size === 0,
+    JSON.stringify({ emptySet }),
+  );
+  assert(
+    'activeRentalOfferingKeySet(null) stays bootstrap (null)',
+    activeRentalOfferingKeySet(null) == null,
+  );
+  assert(
+    'activeRentalOfferingKeySet(undefined) stays bootstrap (null)',
+    activeRentalOfferingKeySet(undefined) == null,
+  );
+
+  const emptyCfg = cfgWithOfferingsAndPrices([]);
+  const emptyCat = executeSunsetCatalogSync(catalogCmd({}).command, { adminCfg: emptyCfg });
+  assertZeroGuestRentals(emptyCat, 'rental_offerings: []');
+  const emptyListed = listConfiguredRentalOfferings(emptyCfg);
+  assert(
+    'empty identity catalog does not list public-site price-row rentals',
+    Array.isArray(emptyListed) && emptyListed.length === 0,
+    JSON.stringify(emptyListed),
+  );
+  assertQuoteRefused(
+    executeSunsetQuoteSync(quoteCmd({ offering_id: PUBLIC_BUNDLE_ITEM }).command, { adminCfg: emptyCfg }),
+    'empty catalog public-site bundle',
+  );
+  assertQuoteRefused(
+    executeSunsetQuoteSync(quoteCmd({ offering_id: LIVE_RENTAL_ITEM }).command, { adminCfg: emptyCfg }),
+    'empty catalog stale kayak',
+  );
+  assertQuoteRefused(
+    executeSunsetQuoteSync(quoteCmd({ offering_id: DISABLED_RENTAL_ITEM }).command, { adminCfg: emptyCfg }),
+    'empty catalog stale board',
+  );
+
+  console.log('\n[G] All Admin rentals disabled → zero rentals despite stale price rows');
+  const allDisabledCfg = cfgWithOfferingsAndPrices([
+    {
+      offering_key: LIVE_RENTAL_KEY,
+      label: LIVE_RENTAL_LABEL,
+      active: false,
+      client_slug: 'sunset',
+      location_id: LOC,
+    },
+    {
+      offering_key: DISABLED_RENTAL_KEY,
+      label: 'Old Board',
+      active: false,
+      client_slug: 'sunset',
+      location_id: LOC,
+    },
+    {
+      offering_key: PUBLIC_BUNDLE_KEY,
+      label: PUBLIC_BUNDLE_LABEL,
+      active: false,
+      client_slug: 'sunset',
+      location_id: LOC,
+    },
+  ]);
+  const allDisabledCat = executeSunsetCatalogSync(catalogCmd({}).command, { adminCfg: allDisabledCfg });
+  assertZeroGuestRentals(allDisabledCat, 'all rentals disabled');
+  assertQuoteRefused(
+    executeSunsetQuoteSync(quoteCmd({ offering_id: PUBLIC_BUNDLE_ITEM }).command, { adminCfg: allDisabledCfg }),
+    'all-disabled public-site bundle',
+  );
+  assertQuoteRefused(
+    executeSunsetQuoteSync(quoteCmd({ offering_id: LIVE_RENTAL_ITEM }).command, { adminCfg: allDisabledCfg }),
+    'all-disabled kayak',
+  );
+
+  console.log('\n[H] Serialized inactive flags are fail-closed');
+  const inactiveValues = [false, 'false', 0, '0'];
+  inactiveValues.forEach((raw) => {
+    const tagged = `active=${JSON.stringify(raw)}`;
+    const set = activeRentalOfferingKeySet([{
+      offering_key: LIVE_RENTAL_KEY,
+      label: LIVE_RENTAL_LABEL,
+      active: raw,
+      client_slug: 'sunset',
+      location_id: LOC,
+    }], { clientSlug: 'sunset', locationId: LOC });
+    assert(
+      `${tagged} key set is empty`,
+      set instanceof Set && set.size === 0 && !set.has(LIVE_RENTAL_KEY),
+      JSON.stringify({ size: set && set.size, has: set && set.has(LIVE_RENTAL_KEY) }),
+    );
+    const cfg = cfgWithOfferingsAndPrices([{
+      offering_key: LIVE_RENTAL_KEY,
+      label: LIVE_RENTAL_LABEL,
+      active: raw,
+      client_slug: 'sunset',
+      location_id: LOC,
+    }]);
+    const cat = executeSunsetCatalogSync(catalogCmd({}).command, { adminCfg: cfg });
+    assert(
+      `${tagged} kayak not offered`,
+      !hasRentalIdentity(cat, LIVE_RENTAL_KEY, LIVE_RENTAL_ITEM),
+      JSON.stringify(offeringsOf(cat, 'rental')),
+    );
+    assert(
+      `${tagged} public-site bundle not offered`,
+      !hasRentalIdentity(cat, PUBLIC_BUNDLE_KEY, PUBLIC_BUNDLE_ITEM),
+      JSON.stringify(offeringsOf(cat, 'rental')),
+    );
+    assertQuoteRefused(
+      executeSunsetQuoteSync(quoteCmd({ offering_id: LIVE_RENTAL_ITEM }).command, { adminCfg: cfg }),
+      tagged,
+    );
+    assertQuoteRefused(
+      executeSunsetQuoteSync(quoteCmd({ offering_id: PUBLIC_BUNDLE_ITEM }).command, { adminCfg: cfg }),
+      `${tagged} public-site`,
+    );
+  });
+  const liveSet = activeRentalOfferingKeySet([{
+    offering_key: LIVE_RENTAL_KEY,
+    label: LIVE_RENTAL_LABEL,
+    active: true,
+    client_slug: 'sunset',
+    location_id: LOC,
+  }], { clientSlug: 'sunset', locationId: LOC });
+  assert('boolean true remains active', liveSet instanceof Set && liveSet.has(LIVE_RENTAL_KEY));
+
+  console.log('\n[I] Async Admin query with zero active rows fail-closes over stale prices');
+  const asyncEmptyCfg = cfgWithOfferingsAndPrices(undefined);
+  const asyncEmptyCat = await executeSunsetCatalog(
+    makeRentalCatalogPg({ rentalRows: [] }),
+    catalogCmd({}).command,
+    { adminCfg: asyncEmptyCfg },
+  );
+  assertZeroGuestRentals(asyncEmptyCat, 'async zero active rows');
+  const asyncEmptyQuote = await executeSunsetQuote(
+    makeRentalCatalogPg({ rentalRows: [] }),
+    quoteCmd({ offering_id: PUBLIC_BUNDLE_ITEM }).command,
+    { adminCfg: asyncEmptyCfg },
+  );
+  assertQuoteRefused(asyncEmptyQuote, 'async zero-active public-site bundle');
+  const asyncEmptyKayakQuote = await executeSunsetQuote(
+    makeRentalCatalogPg({ rentalRows: [] }),
+    quoteCmd({ offering_id: LIVE_RENTAL_ITEM }).command,
+    { adminCfg: asyncEmptyCfg },
+  );
+  assertQuoteRefused(asyncEmptyKayakQuote, 'async zero-active stale kayak');
+
+  console.log('\n[J] Async rental catalog query failure fail-closes (no price-only fallback)');
+  const asyncFailCfg = cfgWithOfferingsAndPrices(undefined);
+  let asyncFailCat = null;
+  let asyncFailThrew = null;
+  try {
+    asyncFailCat = await executeSunsetCatalog(
+      makeRentalCatalogPg({ failRentalQuery: true }),
+      catalogCmd({}).command,
+      { adminCfg: asyncFailCfg },
+    );
+  } catch (err) {
+    asyncFailThrew = err;
+  }
+  assert(
+    'async rental query failure does not throw uncaught',
+    !asyncFailThrew,
+    asyncFailThrew && asyncFailThrew.message,
+  );
+  assertZeroGuestRentals(asyncFailCat || { ok: false, body: { offerings: [] } }, 'async query failure');
+  let asyncFailQuote = null;
+  let asyncFailQuoteThrew = null;
+  try {
+    asyncFailQuote = await executeSunsetQuote(
+      makeRentalCatalogPg({ failRentalQuery: true }),
+      quoteCmd({ offering_id: PUBLIC_BUNDLE_ITEM }).command,
+      { adminCfg: asyncFailCfg },
+    );
+  } catch (err) {
+    asyncFailQuoteThrew = err;
+  }
+  assert(
+    'async rental query failure quote does not throw uncaught',
+    !asyncFailQuoteThrew,
+    asyncFailQuoteThrew && asyncFailQuoteThrew.message,
+  );
+  assertQuoteRefused(asyncFailQuote || { ok: false, body: { reason: 'uncaught' } }, 'async query failure public-site');
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);
 }
 
-run();
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

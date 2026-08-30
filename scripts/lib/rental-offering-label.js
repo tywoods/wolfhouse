@@ -30,6 +30,28 @@ function humanizeRentalOfferingKey(offeringKey) {
 }
 
 /**
+ * Fail-closed active flag for rental identity rows at the JS/JSON boundary.
+ *
+ * Documented active values: boolean true, "true", 1, "1" (whitespace-tolerant).
+ * Explicitly inactive: false, "false", 0, "0".
+ * Every other value (missing, "yes", null) is inactive.
+ *
+ * Native PostgreSQL booleans remain true/false and are not rewritten here —
+ * SQL `active = true` filters stay the database contract.
+ *
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isDocumentedActiveFlag(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    return s === 'true' || s === '1';
+  }
+  return false;
+}
+
+/**
  * True when a candidate label is just an identity key/code (not human-friendly).
  * Reject so callers fall through to catalog or humanized title-case.
  */
@@ -74,7 +96,7 @@ function buildRentalCatalogLabelMap(offerings, opts) {
   for (let i = 0; i < list.length; i += 1) {
     const off = list[i];
     if (!off) continue;
-    if (!includeInactive && off.active === false) continue;
+    if (!includeInactive && !isDocumentedActiveFlag(off.active)) continue;
     const key = String(off.offering_key || '').trim();
     if (!key) continue;
     const offClient = String(off.client_slug || off.tenant || '').trim();
@@ -128,15 +150,15 @@ function lookupCatalogLabel(catalogLabelMap, offeringKey) {
  * @returns {Set<string>|null}
  */
 function activeRentalOfferingKeySet(offerings, opts) {
-  const list = Array.isArray(offerings) ? offerings : [];
-  if (!list.length) return null;
+  if (!Array.isArray(offerings)) return null;
+  const list = offerings;
   const o = opts || {};
   const wantClient = o.clientSlug != null ? String(o.clientSlug).trim() : '';
   const wantLoc = o.locationId != null ? String(o.locationId).trim() : '';
   const keys = new Set();
   for (let i = 0; i < list.length; i += 1) {
     const off = list[i];
-    if (!off || off.active === false) continue;
+    if (!off || !isDocumentedActiveFlag(off.active)) continue;
     const key = String(off.offering_key || '').trim();
     if (!key) continue;
     const offClient = String(off.client_slug || off.tenant || '').trim();
@@ -260,6 +282,7 @@ function enrichServiceRecordsWithCatalogLabels(rows, catalogLabelMap) {
 module.exports = {
   humanizeRentalOfferingKey,
   isIdentityLikeRentalLabel,
+  isDocumentedActiveFlag,
   buildRentalCatalogLabelMap,
   lookupCatalogLabel,
   activeRentalOfferingKeySet,

@@ -15,7 +15,7 @@ const {
 } = require('./sunset-school-locations');
 const { isSunsetAdminDbReadEnabled } = require('./tenant-business-config');
 const locationStore = require('./sunset-admin-location-store');
-const { activeRentalOfferingKeySet } = require('./rental-offering-label');
+const { activeRentalOfferingKeySet, isDocumentedActiveFlag } = require('./rental-offering-label');
 
 const EXPECTED_TENANT = 'sunset';
 
@@ -131,11 +131,12 @@ function listConfiguredRentalOfferings(adminCfg, opts) {
   const prices = adminCfg && Array.isArray(adminCfg.prices) ? adminCfg.prices : [];
   const offeringsList = adminCfg && Array.isArray(adminCfg.rental_offerings)
     ? adminCfg.rental_offerings
-    : [];
+    : null;
   const liveKeys = activeRentalOfferingKeySet(offeringsList, {
     clientSlug: (opts && opts.clientSlug) || EXPECTED_TENANT,
     locationId: opts && opts.locationId,
   });
+  const identityRows = Array.isArray(offeringsList) ? offeringsList : [];
 
   function acceptKey(rawKey) {
     const key = String(rawKey || '').trim();
@@ -146,8 +147,8 @@ function listConfiguredRentalOfferings(adminCfg, opts) {
   }
 
   if (liveKeys) {
-    for (const o of offeringsList) {
-      if (!o || o.active === false) continue;
+    for (const o of identityRows) {
+      if (!o || !isDocumentedActiveFlag(o.active)) continue;
       const key = String(o.offering_key || o.key || '').trim();
       if (!acceptKey(key) || !liveKeys.has(key)) continue;
       byKey.set(key, {
@@ -197,8 +198,8 @@ function listConfiguredRentalOfferings(adminCfg, opts) {
     }
   }
   if (!liveKeys) {
-    for (const o of offeringsList) {
-      if (!o || o.active === false) continue;
+    for (const o of identityRows) {
+      if (!o || !isDocumentedActiveFlag(o.active)) continue;
       const key = String(o.offering_key || o.key || '').trim();
       if (!key || /full_day_equipment/i.test(key)) continue;
       if (!byKey.has(key)) {
@@ -226,7 +227,12 @@ function isConfiguredRentalItem(adminCfg, itemCode) {
   const knownAlias = Object.values(ITEM_ALIASES).includes(code);
   const offerings = listConfiguredRentalOfferings(adminCfg);
   if (offerings.some((o) => o.offering_key === code)) return true;
-  // Alias-only fallback only when config has no rental rows at all (bootstrap).
+  // Alias-only fallback only when no identity catalog was supplied (bootstrap).
+  // Empty live allowlist means Admin returned zero rentals — do not invent aliases.
+  const liveKeys = activeRentalOfferingKeySet(
+    adminCfg && Array.isArray(adminCfg.rental_offerings) ? adminCfg.rental_offerings : null,
+  );
+  if (liveKeys) return false;
   if (!offerings.length && knownAlias) return true;
   return false;
 }
@@ -239,7 +245,19 @@ function matchRentalFromMessage(messageText, adminCfg, opts) {
   const options = opts || {};
   const t = normalizeMatchText(messageText);
   const offerings = listConfiguredRentalOfferings(adminCfg);
+  const liveKeys = activeRentalOfferingKeySet(
+    adminCfg && Array.isArray(adminCfg.rental_offerings) ? adminCfg.rental_offerings : null,
+  );
   if (!offerings.length) {
+    if (liveKeys) {
+      return {
+        ok: false,
+        item: null,
+        duration: null,
+        source: 'catalog',
+        offerings,
+      };
+    }
     // Bootstrap offline: allow classic alias match only when no catalog rows.
     const aliased = resolveItemCode(t);
     // try alias keywords
