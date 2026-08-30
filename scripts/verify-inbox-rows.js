@@ -480,6 +480,53 @@ ok('md/compact gutters shrink on list rows',
   && rowsSrc.includes('@media(max-width:1279px)')
   && rowsSrc.includes('#inbox-shell .conv-card.inbox-row{gap:8px;padding:8px 10px}'));
 
+console.log('\n── Guest keep-card (INBOX-GUEST-KEEP-CARD-001) ──');
+ok('rows wrap beginConvDetailLoad so Guest keeps the existing card',
+  rowsSrc.includes('function inboxRowsWrapGuestKeepCard(')
+  && rowsSrc.includes('function inboxRowsShouldKeepGuestCard(')
+  && rowsSrc.includes('inboxRowsWrapGuestKeepCard()')
+  && !threadSrc.includes('inboxRowsWrapGuestKeepCard'));
+ok('Guest loading CSS keeps the card click-disabled, not a new skeleton',
+  rowsSrc.includes('#detail-content.is-loading-detail .inbox-customer-card{pointer-events:none}'));
+{
+  const SKELETON = '<div class="sidebar-card-skeleton">Loading…</div>';
+  const CARD = '<article class="inbox-customer-card is-full">Rami</article>';
+  function makeEl(html) {
+    let inner = html;
+    const classes = new Set();
+    return {
+      classList: {
+        add(c) { classes.add(c); },
+        contains(c) { return classes.has(c); },
+      },
+      querySelector(sel) {
+        return String(sel).indexOf('inbox-customer-card') >= 0 && inner.indexOf('inbox-customer-card') >= 0
+          ? { className: 'inbox-customer-card' }
+          : null;
+      },
+      get innerHTML() { return inner; },
+      set innerHTML(v) { inner = String(v); },
+    };
+  }
+  sandbox.inboxRowsRuntime.guestView = true;
+  sandbox.beginConvDetailLoad = function(targetEl) {
+    targetEl.innerHTML = SKELETON;
+    targetEl.classList.add('is-loading-detail');
+  };
+  fns.wrapGuestKeepCard();
+  const kept = makeEl(CARD);
+  sandbox.beginConvDetailLoad(kept);
+  ok('Guest switch does not replace the right card with Loading…',
+    kept.innerHTML === CARD
+    && kept.classList.contains('is-loading-detail')
+    && sandbox.beginConvDetailLoad._inboxRowsGuestKeepCardWrapped === true);
+  sandbox.inboxRowsRuntime.guestView = false;
+  const full = makeEl(CARD);
+  sandbox.beginConvDetailLoad(full);
+  ok('non-Guest still uses the skeleton',
+    full.innerHTML === SKELETON);
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

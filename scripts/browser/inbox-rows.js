@@ -72,6 +72,9 @@ var INBOX_ROWS_CSS = [
   /* Sunset surf cards omit .conv-card-preview; hide recency time/subject instead. */
   'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-card-time{display:none!important}',
   'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-card-subject{display:none!important}',
+  /* INBOX-GUEST-KEEP-CARD-001: keep the Guest card while the next client loads. */
+  'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #detail-content.is-loading-detail .detail-sidebar,',
+  'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #detail-content.is-loading-detail .inbox-customer-card{pointer-events:none}',
 ].join('');
 
 var inboxRowsRuntime = { wired: false, guestView: undefined };
@@ -1015,6 +1018,35 @@ function inboxRowsWrapViews() {
   }
 }
 
+/* INBOX-GUEST-KEEP-CARD-001 — Guest view: switching clients must not replace
+ * the right-hand card with the empty skeleton (grey panel + stray "Loading…").
+ * Keep the existing .inbox-customer-card until loadConvDetail paints the next
+ * guest. Full / Chat still use the thread skeleton. Stay off inbox-thread.js. */
+function inboxRowsShouldKeepGuestCard(targetEl) {
+  var guest = false;
+  if (typeof inboxRowsGuestViewActive === 'function' && inboxRowsGuestViewActive()) guest = true;
+  else if (typeof inboxContextIsGuestMode === 'function' && inboxContextIsGuestMode()) guest = true;
+  if (!guest) return false;
+  if (!targetEl || !targetEl.querySelector) return false;
+  return !!targetEl.querySelector('.inbox-customer-card');
+}
+
+function inboxRowsWrapGuestKeepCard() {
+  if (typeof beginConvDetailLoad !== 'function' || beginConvDetailLoad._inboxRowsGuestKeepCardWrapped) return;
+  var _inboxRowsLegacyBeginConvDetailLoad = beginConvDetailLoad;
+  beginConvDetailLoad = function(targetEl) {
+    if (inboxRowsShouldKeepGuestCard(targetEl)) {
+      if (typeof inboxParkRefreshBtn === 'function') inboxParkRefreshBtn();
+      if (targetEl && targetEl.classList && targetEl.classList.add) {
+        targetEl.classList.add('is-loading-detail');
+      }
+      return;
+    }
+    return _inboxRowsLegacyBeginConvDetailLoad.apply(this, arguments);
+  };
+  beginConvDetailLoad._inboxRowsGuestKeepCardWrapped = true;
+}
+
 function inboxRowsWrapIconState() {
   if (typeof loadConvDetail === 'function' && !loadConvDetail._inboxRowsIconStateWrapped) {
     var _inboxRowsLegacyLoadConvDetail = loadConvDetail;
@@ -1046,6 +1078,7 @@ function inboxRowsInstall() {
   inboxRowsWrapViews();
   inboxRowsWrapFilterReselect();
   inboxRowsWrapIconState();
+  inboxRowsWrapGuestKeepCard();
   inboxRowsWrapGuestViewPreset();
   inboxRowsHideLegacyFilterChips();
   inboxRowsAfterRender();
@@ -1073,6 +1106,8 @@ if (typeof window !== 'undefined') {
     preserveSelectionOpts: inboxRowsPreserveSelectionOpts,
     wrapFilterReselect: inboxRowsWrapFilterReselect,
     wrapIconState: inboxRowsWrapIconState,
+    wrapGuestKeepCard: inboxRowsWrapGuestKeepCard,
+    shouldKeepGuestCard: inboxRowsShouldKeepGuestCard,
     wrapGuestViewPreset: inboxRowsWrapGuestViewPreset,
     guestViewActive: inboxRowsGuestViewActive,
     isDedicatedClient: inboxRowsIsDedicatedClient,
