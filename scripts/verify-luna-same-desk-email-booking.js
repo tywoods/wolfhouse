@@ -20,6 +20,11 @@ const {
   decideStripeHoldPromote,
 } = require('./lib/email-luna-booking-from-email');
 const {
+  QUOTE_CHANNELS,
+  buildSunsetQuoteCommand,
+  executeSunsetQuoteSync,
+} = require('./lib/luna-front-desk-quote-service');
+const {
   PRESENTATION_CHANNELS,
   presentGroundedReply,
   emailDraftingAllowed,
@@ -220,6 +225,15 @@ function plan(templateId, tone, questionKey, ack) {
     tone: tone || 'warm',
     question_key: questionKey || 'none',
     acknowledgment_key: ack || 'thanks',
+  });
+}
+
+function naturalPlan() {
+  return JSON.stringify({
+    acts: [
+      { act: 'thank_guest' },
+      { act: 'ask_booking_interest' },
+    ],
   });
 }
 
@@ -483,6 +497,106 @@ async function run() {
     placed.draft_body,
   );
 
+  console.log('\n[B2] Real executeSunsetQuote owner supplies canonical deposit (not injected 5000)');
+  const PACK_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  const TIER = '1_week';
+  const ITEM = `surf_pack_${PACK_ID}__${TIER}`;
+  const SATURDAY = '2026-07-18';
+  const CANONICAL_DEPOSIT_CENTS = 5000;
+  function weekendAdminCfgWithDeposit(depositCents) {
+    return {
+      ok: true,
+      source: 'db',
+      currency: 'EUR',
+      payment: {
+        deposit_rule: {
+          type: 'flat',
+          scope: 'per_booking',
+          amount_cents: depositCents,
+          default_eur: depositCents / 100,
+          pricing_status: 'confirmed',
+        },
+      },
+      surf_packs: [{
+        pack_id: PACK_ID,
+        label: 'Weekend Course',
+        active: true,
+        age_band: '12_and_up',
+        group_size: 2,
+        beaches: ['somo'],
+        weekly: 'sat_sun',
+        schedules: ['0930_1130'],
+        price_tiers: [{ key: TIER, label: '1 week', hours: 10, amount_cents: 19900 }],
+      }],
+      prices: [{
+        id: 'price-1',
+        category: 'package',
+        offering_key: ITEM,
+        item_code: ITEM,
+        amount_cents: 19900,
+        unit: 'day',
+        active: true,
+        currency: 'EUR',
+      }],
+    };
+  }
+  const realQuoteCmd = buildSunsetQuoteCommand({
+    channel: QUOTE_CHANNELS.LUNA_EMAIL,
+    trustedLocationId: 'sunset-somo',
+    now: new Date('2026-07-14T12:00:00Z'),
+    transportBody: {
+      offering_id: ITEM,
+      course_id: PACK_ID,
+      tier_key: TIER,
+      service_dates: [SATURDAY],
+      quantity: 1,
+    },
+  });
+  const realQuoted = executeSunsetQuoteSync(realQuoteCmd.command, {
+    adminCfg: weekendAdminCfgWithDeposit(CANONICAL_DEPOSIT_CENTS),
+  });
+  check(
+    'real executeSunsetQuote emits deposit_required_cents from persisted deposit config',
+    !!(realQuoted && realQuoted.ok === true
+      && realQuoted.body
+      && realQuoted.body.total_cents === 19900
+      && realQuoted.body.deposit_required_cents === CANONICAL_DEPOSIT_CENTS),
+    JSON.stringify(realQuoted && realQuoted.body),
+  );
+  const fromRealQuote = await placeEmailPayToBookHoldAndPaymentLink(null, payInput({
+    untrusted: untrusted({
+      subject: `Booking ${SATURDAY}`,
+      body_text: `Hi, I would like to book the Weekend Course on ${SATURDAY} and pay the deposit.`,
+    }),
+  }), fakeOwners({
+    quote: undefined,
+    quoteOpts: { adminCfg: weekendAdminCfgWithDeposit(CANONICAL_DEPOSIT_CENTS) },
+    async resolveOffering() {
+      return {
+        ok: true,
+        offering_id: ITEM,
+        offering_type: 'course',
+        course_id: PACK_ID,
+        tier_key: TIER,
+        label: 'Weekend Course',
+      };
+    },
+  }));
+  check(
+    'email hold+link uses real quote owner deposit, not an injected quote body',
+    fromRealQuote && fromRealQuote.ok === true
+      && fromRealQuote.amount_due_cents === CANONICAL_DEPOSIT_CENTS
+      && typeof fromRealQuote.draft_body === 'string'
+      && fromRealQuote.draft_body.includes('€50.00')
+      && fromRealQuote.draft_body.includes('€199.00'),
+    JSON.stringify({
+      ok: fromRealQuote && fromRealQuote.ok,
+      reason: fromRealQuote && fromRealQuote.reason,
+      amount_due_cents: fromRealQuote && fromRealQuote.amount_due_cents,
+      body: fromRealQuote && fromRealQuote.draft_body,
+    }),
+  );
+
   console.log('\n[C] Fail-closed authority, offering, quote, money, identity, link');
   const malformed = await placeEmailPayToBookHoldAndPaymentLink({}, payInput({
     authority: authority({ client_id: '', conversation_id: 'not-a-uuid' }),
@@ -568,6 +682,13 @@ async function run() {
           hold_expires_at: EXPIRY,
           payment_url: URL,
           idempotent: true,
+          total_cents: 19900,
+          amount_due_cents: 5000,
+          deposit_required_cents: 5000,
+          offering_label: 'Weekend Course',
+          date_from: '2026-09-12',
+          date_to: '2026-09-19',
+          quantity: 1,
           status: 'hold',
           payment_status: 'unpaid',
         },
@@ -581,6 +702,52 @@ async function run() {
   check('idempotent retry does not create a duplicate hold or checkout',
     again.ok === true && again.idempotent === true && holdCalls === 1 && linkCalls === 0
       && again.draft_body.includes('€199.00'), JSON.stringify({ holdCalls, linkCalls, ok: again.ok }));
+
+  const drifted = await placeEmailPayToBookHoldAndPaymentLink({}, payInput(), fakeOwners({
+    async quote() {
+      return {
+        ok: true,
+        body: {
+          total_cents: 25000,
+          deposit_required_cents: 8000,
+          currency: 'EUR',
+          label: 'Weekend Course',
+        },
+      };
+    },
+    async createHold() {
+      return {
+        ok: true,
+        body: {
+          booking_id: BOOKING_ID,
+          booking_code: 'SUNSET-008',
+          hold_expires_at: EXPIRY,
+          payment_url: URL,
+          idempotent: true,
+          total_cents: 19900,
+          amount_due_cents: 5000,
+          deposit_required_cents: 5000,
+          offering_label: 'Weekend Course',
+          date_from: '2026-09-12',
+          date_to: '2026-09-19',
+          quantity: 1,
+          status: 'hold',
+          payment_status: 'unpaid',
+        },
+      };
+    },
+    async createPaymentLink() {
+      throw new Error('idempotent retry must not create a second checkout');
+    },
+  }));
+  check(
+    'changed fresh quote cannot render beside an older checkout URL',
+    drifted && drifted.ok === false
+      && (drifted.reason === 'availability_or_price_mismatch' || drifted.reason === 'deposit_mismatch')
+      && !drifted.draft_body
+      && !drifted.payment_url,
+    JSON.stringify(drifted),
+  );
 
   const holdCmd = [];
   await placeEmailPayToBookHoldAndPaymentLink({}, payInput(), fakeOwners({
@@ -698,6 +865,76 @@ async function run() {
     'outer Create Draft fail-closes on link failure without a natural fallback draft',
     blockedOut.status === 'pending' && linkBlocked.store.writes.length === 0,
     JSON.stringify({ status: blockedOut.status, writes: linkBlocked.store.writes }),
+  );
+
+  const depositNotConfigured = makeDraftOpenHarness({
+    contentText: 'Hi, we are a group of friends looking at next weekend.',
+    callModel: () => Promise.resolve(naturalPlan()),
+    tryEmailPayToBookForCreateDraft: async () => ({
+      ok: false,
+      reason: 'deposit_not_configured',
+    }),
+  });
+  const depositNotConfiguredOut = await depositNotConfigured.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+    operator_context: 'Book them.',
+  });
+  check(
+    'explicit pay-to-book failure does not persist a natural fallback draft',
+    depositNotConfiguredOut.status === 'pending'
+      && depositNotConfigured.store.writes.length === 0
+      && !(depositNotConfiguredOut.draft_text && depositNotConfiguredOut.draft_text.trim()),
+    JSON.stringify({
+      status: depositNotConfiguredOut.status,
+      writes: depositNotConfigured.store.writes.length,
+      draft: depositNotConfiguredOut.draft_text,
+    }),
+  );
+
+  const thrownPay = makeDraftOpenHarness({
+    contentText: 'Hi, we are a group of friends looking at next weekend.',
+    callModel: () => Promise.resolve(naturalPlan()),
+    tryEmailPayToBookForCreateDraft: async () => {
+      throw new Error('quote owner exploded');
+    },
+  });
+  const thrownPayOut = await thrownPay.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+    operator_context: 'Book them.',
+  });
+  check(
+    'thrown pay-to-book error does not persist a natural fallback draft',
+    thrownPayOut.status === 'pending' && thrownPay.store.writes.length === 0,
+    JSON.stringify({ status: thrownPayOut.status, writes: thrownPay.store.writes.length }),
+  );
+
+  const natural = makeDraftOpenHarness({
+    contentText: 'Hi, we are a group of friends looking at next weekend.',
+    callModel: () => Promise.resolve(naturalPlan()),
+    tryEmailPayToBookForCreateDraft: async () => ({
+      ok: false,
+      reason: 'staff_pay_to_book_not_requested',
+    }),
+  });
+  const naturalOut = await natural.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+    operator_context: 'Say thanks and ask if they would like to make a booking.',
+  });
+  check(
+    'ordinary non-booking Create Draft still persists a natural draft',
+    naturalOut.status === 'draft_ready'
+      && natural.store.writes.length === 1
+      && typeof naturalOut.draft_text === 'string'
+      && naturalOut.draft_text.trim().length > 0
+      && !naturalOut.draft_text.includes('checkout.stripe.com'),
+    JSON.stringify({
+      status: naturalOut.status,
+      writes: natural.store.writes.length,
+      draft: naturalOut.draft_text,
+    }),
   );
 
   console.log('\n[E] Executable 24h expiry and payment-promotion races');

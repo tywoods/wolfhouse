@@ -41,6 +41,7 @@ const {
   createEmailLunaBoundedCatalogClassifier,
 } = require('./email-luna-front-desk-query-owners');
 const { emailDraftingAllowed } = require('./luna-channel-presentation');
+const { staffRequestedPayToBook } = require('./email-luna-booking-from-email');
 const { GLOBAL_LUNA_PAUSE_CONVERSATION_ID } = require('./staff-bot-pause-sql');
 
 const EMAIL_DRAFT_OPEN_DECKHAND_FIELD = 'draft_text';
@@ -1213,6 +1214,7 @@ function createStaffEmailLunaDraftOpen(deps) {
       let composed = null;
       let body = '';
       const tryPay = deps.tryEmailPayToBookForCreateDraft;
+      const payToBookRequested = staffRequestedPayToBook(operatorGuidance);
       if (typeof tryPay === 'function') {
         try {
           const paid = await tryPay({
@@ -1229,21 +1231,32 @@ function createStaffEmailLunaDraftOpen(deps) {
               : (typeof row.endpoint_provider_mailbox_id === 'string' ? row.endpoint_provider_mailbox_id : ''),
             trustedConversationId: conversationId,
           });
-          if (paid && paid.ok === true && typeof paid.draft_body === 'string' && paid.draft_body.trim()) {
+          const payToBookUsable = !!(paid && paid.ok === true
+            && typeof paid.draft_body === 'string' && paid.draft_body.trim()
+            && typeof paid.payment_url === 'string' && paid.payment_url.trim()
+            && paid.hold_expires_at);
+          if (payToBookUsable) {
             body = paid.draft_body.trim();
             composed = {
               kind: 'mail_mvp_008_pay_to_book',
               body,
               authenticity: 'staff_api',
             };
-          } else if (paid && paid.block_natural_fallback === true) {
+          } else if (payToBookRequested || (paid && paid.block_natural_fallback === true)) {
             await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
             return pending(conversationId);
           }
         } catch {
+          if (payToBookRequested) {
+            await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
+            return pending(conversationId);
+          }
           composed = null;
           body = '';
         }
+      } else if (payToBookRequested) {
+        await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
+        return pending(conversationId);
       }
       if (!body) {
         composed = await policyFor(authority).compose({

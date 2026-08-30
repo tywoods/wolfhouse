@@ -343,6 +343,7 @@ function resolveFromConfigFile(clientSlug) {
     surf_packs: [],
     private_lesson: defaultPrivateLessonFromConfig(baseline),
     business_info: buildBusinessInfo(slug, baseline),
+    payment: baseline.payment && typeof baseline.payment === 'object' ? baseline.payment : null,
     change_history: [],
   };
 }
