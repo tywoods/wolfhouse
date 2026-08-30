@@ -4,11 +4,11 @@
 /**
  * verify-inbox-guest-keep-card
  *
- * INBOX-GUEST-KEEP-CARD-001
+ * INBOX-GUEST-KEEP-CARD-002
  *
- * Guest view: switching from one client to the next must keep the existing
- * right-hand guest card. Do not replace #detail-content with the empty
- * skeleton (grey .sidebar-card-skeleton + stray "Loading…").
+ * Guest view must never paint the thread skeleton (grey panel + stray
+ * "Loading…"), including the first click and slow fetches. Keep whatever
+ * is already in the right pane until loadConvDetail paints.
  *
  * Owner: scripts/browser/inbox-rows.js wrap of beginConvDetailLoad.
  * Stay OFF inbox-thread.js, inbox-context.js, staff-query-api.js, package.json.
@@ -115,9 +115,12 @@ ok('stay off staff-query-api.js owner markup',
   && !apiSrc.includes('inboxRowsShouldKeepGuestCard'));
 ok('do not rewrite package.json',
   !JSON.stringify(pkg).includes('verify-inbox-guest-keep-card'));
-ok('Guest loading CSS disables the kept card, not a new skeleton',
+ok('Guest loading CSS disables the kept card and hides the skeleton',
   rowsSrc.includes('#detail-content.is-loading-detail .inbox-customer-card{pointer-events:none}')
-  && rowsSrc.includes('[data-inbox-preset="guest"][aria-pressed="true"]) #detail-content.is-loading-detail .detail-sidebar'));
+  && rowsSrc.includes('[data-inbox-preset="guest"][aria-pressed="true"]) #detail-content.is-loading-detail .detail-sidebar')
+  && rowsSrc.includes('INBOX-GUEST-KEEP-CARD-002')
+  && rowsSrc.includes('.sidebar-card-skeleton,')
+  && rowsSrc.includes('.detail-header:has(#conv-detail-load-status)'));
 
 console.log('\n-- keep vs skeleton --');
 {
@@ -145,12 +148,15 @@ console.log('\n-- keep vs skeleton --');
     && parked === 1
     && sandbox.beginConvDetailLoad._inboxRowsGuestKeepCardWrapped === true);
 
-  const first = makeTarget('<div class="state-msg">Select a conversation</div>');
+  const firstHtml = '<div class="state-msg">Select a conversation</div>';
+  const first = makeTarget(firstHtml);
   parked = 0;
   sandbox.beginConvDetailLoad(first);
-  ok('Guest with no card still uses the original skeleton (first open)',
-    first.innerHTML === SKELETON
-    && first.classList.contains('is-loading-detail'));
+  ok('Guest with no card still does not paint the skeleton (first click / slow fetch)',
+    first.innerHTML === firstHtml
+    && first.innerHTML.indexOf('sidebar-card-skeleton') < 0
+    && first.classList.contains('is-loading-detail')
+    && parked === 1);
 
   sandbox.inboxRowsRuntime.guestView = false;
   sandbox.inboxContextIsGuestMode = function() { return false; };
@@ -159,13 +165,13 @@ console.log('\n-- keep vs skeleton --');
   ok('Full / Chat with a card still uses the skeleton',
     full.innerHTML === SKELETON);
 
-  ok('helper is true only for Guest + existing customer card',
+  ok('helper is false when Guest latch is off',
     sandbox.__inboxRows.shouldKeepGuestCard(makeTarget(CARD)) === false);
   sandbox.inboxRowsRuntime.guestView = true;
+  ok('helper is true when Guest latch is on even with no card',
+    sandbox.__inboxRows.shouldKeepGuestCard(makeTarget('<div></div>')) === true);
   ok('helper is true when Guest latch is on and the card is present',
     sandbox.__inboxRows.shouldKeepGuestCard(makeTarget(CARD)) === true);
-  ok('helper is false when Guest latch is on but the pane has no card',
-    sandbox.__inboxRows.shouldKeepGuestCard(makeTarget('<div></div>')) === false);
 }
 
 console.log('\n' + '─'.repeat(48));

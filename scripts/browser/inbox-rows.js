@@ -72,9 +72,12 @@ var INBOX_ROWS_CSS = [
   /* Sunset surf cards omit .conv-card-preview; hide recency time/subject instead. */
   'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-card-time{display:none!important}',
   'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-card-subject{display:none!important}',
-  /* INBOX-GUEST-KEEP-CARD-001: keep the Guest card while the next client loads. */
+  /* INBOX-GUEST-KEEP-CARD-002: never flash the empty skeleton in Guest. */
   'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #detail-content.is-loading-detail .detail-sidebar,',
   'body:has([data-inbox-preset="guest"][aria-pressed="true"]) #detail-content.is-loading-detail .inbox-customer-card{pointer-events:none}',
+  'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .detail-header:has(#conv-detail-load-status),',
+  'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .sidebar-card-skeleton,',
+  'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-detail-load-status{display:none!important}',
 ].join('');
 
 var inboxRowsRuntime = { wired: false, guestView: undefined };
@@ -1018,17 +1021,26 @@ function inboxRowsWrapViews() {
   }
 }
 
-/* INBOX-GUEST-KEEP-CARD-001 — Guest view: switching clients must not replace
- * the right-hand card with the empty skeleton (grey panel + stray "Loading…").
- * Keep the existing .inbox-customer-card until loadConvDetail paints the next
- * guest. Full / Chat still use the thread skeleton. Stay off inbox-thread.js. */
+/* INBOX-GUEST-KEEP-CARD-002 — Guest view must never paint the thread skeleton
+ * (grey panel + stray "Loading…"). Keep whatever is already in the right
+ * pane — existing guest card, or empty — until loadConvDetail paints. Do not
+ * require .inbox-customer-card; first click and slow fetches still showed
+ * the skeleton under 001. Full / Chat still use the thread skeleton.
+ * Stay off inbox-thread.js. */
+function inboxRowsIsGuestPresetOn() {
+  if (typeof inboxRowsGuestViewActive === 'function' && inboxRowsGuestViewActive()) return true;
+  if (typeof inboxContextIsGuestMode === 'function' && inboxContextIsGuestMode()) return true;
+  try {
+    if (typeof document === 'undefined' || !document.querySelector) return false;
+    if (document.querySelector('[data-inbox-preset="guest"][aria-pressed="true"]')) return true;
+    var shell = document.getElementById('inbox-shell');
+    if (shell && shell.getAttribute('data-col4') === 'wide') return true;
+  } catch (_e) {}
+  return false;
+}
+
 function inboxRowsShouldKeepGuestCard(targetEl) {
-  var guest = false;
-  if (typeof inboxRowsGuestViewActive === 'function' && inboxRowsGuestViewActive()) guest = true;
-  else if (typeof inboxContextIsGuestMode === 'function' && inboxContextIsGuestMode()) guest = true;
-  if (!guest) return false;
-  if (!targetEl || !targetEl.querySelector) return false;
-  return !!targetEl.querySelector('.inbox-customer-card');
+  return inboxRowsIsGuestPresetOn();
 }
 
 function inboxRowsWrapGuestKeepCard() {
@@ -1051,6 +1063,7 @@ function inboxRowsWrapIconState() {
   if (typeof loadConvDetail === 'function' && !loadConvDetail._inboxRowsIconStateWrapped) {
     var _inboxRowsLegacyLoadConvDetail = loadConvDetail;
     loadConvDetail = function(convId, targetEl) {
+      inboxRowsWrapGuestKeepCard();
       var prev = (typeof selectedConvId !== 'undefined') ? selectedConvId : '';
       var result = _inboxRowsLegacyLoadConvDetail(convId, targetEl);
       if (prev && String(prev) !== String(convId || '')) {
@@ -1082,6 +1095,7 @@ function inboxRowsInstall() {
   inboxRowsWrapGuestViewPreset();
   inboxRowsHideLegacyFilterChips();
   inboxRowsAfterRender();
+  inboxRowsWrapGuestKeepCard();
   inboxRowsRuntime.wired = true;
   return true;
 }
@@ -1108,6 +1122,7 @@ if (typeof window !== 'undefined') {
     wrapIconState: inboxRowsWrapIconState,
     wrapGuestKeepCard: inboxRowsWrapGuestKeepCard,
     shouldKeepGuestCard: inboxRowsShouldKeepGuestCard,
+    isGuestPresetOn: inboxRowsIsGuestPresetOn,
     wrapGuestViewPreset: inboxRowsWrapGuestViewPreset,
     guestViewActive: inboxRowsGuestViewActive,
     isDedicatedClient: inboxRowsIsDedicatedClient,

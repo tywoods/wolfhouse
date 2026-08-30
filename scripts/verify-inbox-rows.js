@@ -480,17 +480,22 @@ ok('md/compact gutters shrink on list rows',
   && rowsSrc.includes('@media(max-width:1279px)')
   && rowsSrc.includes('#inbox-shell .conv-card.inbox-row{gap:8px;padding:8px 10px}'));
 
-console.log('\n── Guest keep-card (INBOX-GUEST-KEEP-CARD-001) ──');
-ok('rows wrap beginConvDetailLoad so Guest keeps the existing card',
+console.log('\n── Guest keep-card (INBOX-GUEST-KEEP-CARD-002) ──');
+ok('rows wrap beginConvDetailLoad so Guest never paints the skeleton',
   rowsSrc.includes('function inboxRowsWrapGuestKeepCard(')
   && rowsSrc.includes('function inboxRowsShouldKeepGuestCard(')
+  && rowsSrc.includes('function inboxRowsIsGuestPresetOn(')
+  && rowsSrc.includes('INBOX-GUEST-KEEP-CARD-002')
   && rowsSrc.includes('inboxRowsWrapGuestKeepCard()')
   && !threadSrc.includes('inboxRowsWrapGuestKeepCard'));
-ok('Guest loading CSS keeps the card click-disabled, not a new skeleton',
-  rowsSrc.includes('#detail-content.is-loading-detail .inbox-customer-card{pointer-events:none}'));
+ok('Guest loading CSS keeps the card click-disabled and hides skeleton chrome',
+  rowsSrc.includes('#detail-content.is-loading-detail .inbox-customer-card{pointer-events:none}')
+  && rowsSrc.includes('.sidebar-card-skeleton,')
+  && rowsSrc.includes('.detail-header:has(#conv-detail-load-status)'));
 {
   const SKELETON = '<div class="sidebar-card-skeleton">Loading…</div>';
   const CARD = '<article class="inbox-customer-card is-full">Rami</article>';
+  const EMPTY = '<div class="state-msg">Select a conversation</div>';
   function makeEl(html) {
     let inner = html;
     const classes = new Set();
@@ -520,6 +525,11 @@ ok('Guest loading CSS keeps the card click-disabled, not a new skeleton',
     kept.innerHTML === CARD
     && kept.classList.contains('is-loading-detail')
     && sandbox.beginConvDetailLoad._inboxRowsGuestKeepCardWrapped === true);
+  const first = makeEl(EMPTY);
+  sandbox.beginConvDetailLoad(first);
+  ok('Guest first click does not paint the skeleton either',
+    first.innerHTML === EMPTY
+    && first.classList.contains('is-loading-detail'));
   sandbox.inboxRowsRuntime.guestView = false;
   const full = makeEl(CARD);
   sandbox.beginConvDetailLoad(full);
