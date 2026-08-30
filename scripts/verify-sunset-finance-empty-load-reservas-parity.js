@@ -40,10 +40,12 @@ const wolfUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/wolfhouse-admin-
 // ——— Source: Sunset mirrors Wolfhouse finance-on-select ———
 ok('Wolfhouse selects finance → loadAdminFinanceSummary',
   /next === 'finance' && typeof loadAdminFinanceSummary === 'function'\) loadAdminFinanceSummary\(\)/.test(wolfUi));
-ok('Sunset adminSelectSubTab finance → loadAdminFinanceSummary',
-  /function adminSelectSubTab\([\s\S]*?next === 'finance' && typeof loadAdminFinanceSummary === 'function'\) loadAdminFinanceSummary\(\)/.test(adminUi));
-ok('loadAdminTab refetches finance after shell when Finanzas active',
-  /renderAdminFinanceShell\(\);[\s\S]*?adminActiveSubTab === 'finance'[\s\S]*?loadAdminFinanceForCurrentScope\(\)/.test(adminUi));
+ok('Sunset adminSelectSubTab finance → loadAdminFinanceSummary (unless skipFinanceLoad)',
+  /function adminSelectSubTab\([\s\S]*?next === 'finance' && !\(opts && opts.skipFinanceLoad\) && typeof loadAdminFinanceSummary === 'function'\) loadAdminFinanceSummary\(\)/.test(adminUi));
+ok('loadAdminTab skipFinanceLoad then one scoped finance fetch (no shell-first flash)',
+  /adminSelectSubTab\(adminActiveSubTab, \{ skipFinanceLoad: true \}\)/.test(adminUi)
+  && /adminActiveSubTab === 'finance'[\s\S]*?loadAdminFinanceForCurrentScope\(\)/.test(adminUi)
+  && !/adminSelectSubTab\(adminActiveSubTab\);\s*renderAdminFinanceShell\(\);/.test(adminUi));
 ok('adminReloadConfig still calls loadAdminTab (shell path)',
   /function adminReloadConfig\(\)\{[\s\S]*?loadAdminTab\(\);/.test(adminUi));
 
@@ -97,25 +99,27 @@ eq('select Finanzas from Precios triggers finance load', calls.join(','), 'loadA
 
 const loadTabFn = adminUi.match(/function loadAdminTab\([\s\S]*?\n(?=function |$)/);
 ok('extracted loadAdminTab', !!loadTabFn && /loadAdminFinanceForCurrentScope/.test(loadTabFn[0]));
-// Exercise shell→refetch path with a slimmed stub of loadAdminTab's finance block.
+// Exercise finance-open path: skip stacked select-load, one scoped fetch, no unavailable shell first.
 vm.runInContext(`
 function loadAdminTabFinanceRefetchStub(){
   adminActiveSubTab = 'finance';
-  adminSelectSubTab(adminActiveSubTab);
-  renderAdminFinanceShell();
+  adminSelectSubTab(adminActiveSubTab, { skipFinanceLoad: true });
   if (adminActiveSubTab === 'finance' && typeof loadAdminFinanceForCurrentScope === 'function') {
     loadAdminFinanceForCurrentScope();
+  } else if (typeof renderAdminFinanceShell === 'function') {
+    renderAdminFinanceShell();
   }
 }
 `, ctx);
 calls.length = 0;
 ctx.loadAdminTabFinanceRefetchStub();
-ok('Admin reload on Finanzas: shell then refetch',
-  calls.indexOf('renderAdminFinanceShell') >= 0
-  && calls.indexOf('loadAdminFinanceForCurrentScope') >= 0,
+ok('Admin reload on Finanzas: one scoped refetch, no unavailable shell first',
+  calls.indexOf('loadAdminFinanceForCurrentScope') >= 0
+  && calls.indexOf('renderAdminFinanceShell') < 0
+  && calls.filter(function (c) { return c === 'loadAdminFinanceSummary'; }).length === 0,
   calls.join(','));
-ok('Admin reload on Finanzas: select also requested summary',
-  calls.indexOf('loadAdminFinanceSummary') >= 0, calls.join(','));
+ok('Admin reload on Finanzas: skipFinanceLoad prevented stacked summary fetch',
+  calls.indexOf('loadAdminFinanceSummary') < 0, calls.join(','));
 
 // ——— Money parity: Bug Finder report fixture (do not invent — use reported figures) ———
 // Reservas: 7 unpaid staff bookings, Collected €0, Outstanding €440.00 (= 44000¢).

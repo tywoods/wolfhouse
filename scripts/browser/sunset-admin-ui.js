@@ -3428,7 +3428,9 @@ function adminSelectSubTab(key, opts){
   // Match Wolfhouse Admin: selecting Finanzas must refetch — otherwise a Pricing
   // save (adminReloadConfig → renderAdminFinanceShell) leaves the unavailable
   // placeholder until something else triggers loadAdminFinanceSummary.
-  if (next === 'finance' && typeof loadAdminFinanceSummary === 'function') loadAdminFinanceSummary();
+  // skipFinanceLoad: loadAdminTab already does one scoped fetch; do not stack a
+  // second loading paint (Admin open was flashing Finanzas twice).
+  if (next === 'finance' && !(opts && opts.skipFinanceLoad) && typeof loadAdminFinanceSummary === 'function') loadAdminFinanceSummary();
 }
 
 /** Top-level Bookings tab loader (shell + list). IDs kept for least-invasive move.
@@ -3529,12 +3531,14 @@ function loadAdminTab(opts){
     adminClearPricingDraftState();
   }
   if (adminActiveSubTab !== 'pricing' && adminActiveSubTab !== 'finance' && adminActiveSubTab !== 'luna-staff' && adminActiveSubTab !== 'email') adminActiveSubTab = 'finance';
-  adminSelectSubTab(adminActiveSubTab);
-  renderAdminFinanceShell();
-  // Shell paints a fetch-free placeholder; refetch when Finanzas is the active
-  // sub-tab so config reload cannot strand Admin on "summary unavailable".
+  adminSelectSubTab(adminActiveSubTab, { skipFinanceLoad: true });
+  // One finance fetch when Finanzas is showing. Do not paint the unavailable
+  // shell first — that plus select-load plus openAdminTabForCurrentClient's
+  // extra fetch made the loading row flash twice.
   if (adminActiveSubTab === 'finance' && typeof loadAdminFinanceForCurrentScope === 'function') {
     loadAdminFinanceForCurrentScope();
+  } else if (typeof renderAdminFinanceShell === 'function') {
+    renderAdminFinanceShell();
   }
   var profile = getPortalProfile(getClient());
   // Canonical load generation: supersede prior keep-edit/load/mutation and own busy so a
@@ -3577,7 +3581,7 @@ function loadAdminTab(opts){
         if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
         // Canonical config load — server truth, no draft replay.
         renderAdminFromConfig(data);
-        adminSelectSubTab(adminActiveSubTab || 'finance');
+        adminSelectSubTab(adminActiveSubTab || 'finance', { skipFinanceLoad: true });
         if (state) state.style.display = 'none';
         adminReleaseBusy(loadSeq);
           });
@@ -3589,7 +3593,7 @@ function loadAdminTab(opts){
         adminEditTarget = null;
         adminClearPricingDraftState();
         renderAdminFallback(profile);
-        adminSelectSubTab(adminActiveSubTab || 'finance');
+        adminSelectSubTab(adminActiveSubTab || 'finance', { skipFinanceLoad: true });
         if (state){
           state.textContent = portalT('admin.error') + ' ' + e.message;
           state.className = 'state-msg error';
@@ -3604,7 +3608,7 @@ function loadAdminTab(opts){
     adminEditTarget = null;
     adminClearPricingDraftState();
     renderAdminFallback(profile);
-    adminSelectSubTab(adminActiveSubTab || 'finance');
+    adminSelectSubTab(adminActiveSubTab || 'finance', { skipFinanceLoad: true });
     if (state){
       state.textContent = portalT('admin.error') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr));
       state.className = 'state-msg error';

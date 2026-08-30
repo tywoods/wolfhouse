@@ -16761,7 +16761,7 @@ body.nav-menu-open .nav-menu-toggle-bars:after{top:0;transform:rotate(-45deg)}
 #tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden;width:100%;max-width:1240px;align-self:stretch}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
-body > .tab-panel.active{flex:1;min-height:0;overflow:auto}
+body > .tab-panel.active{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable}
 /* Slice 2B — neutral shell until client portal profile is applied */
 body.portal-profile-pending #tabs,
 body.portal-profile-pending .tab-panel{display:none!important}
@@ -23604,7 +23604,6 @@ function openAdminTabForCurrentClient(opts){
     return;
   }
   loadAdminTab(opts || {});
-  loadAdminFinanceForCurrentScope();
 }
 
 function switchToTab(tab, subtab){
@@ -24540,7 +24539,7 @@ function setSunsetLocation(locationId){
   if (getPortalProfile(getClient()).is_surf_vertical) {
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
     if (el('tab-customers') && el('tab-customers').classList.contains('active')) loadCustomersTab();
-    if (el('tab-admin') && el('tab-admin').classList.contains('active')) { loadAdminTab(); loadAdminFinanceForCurrentScope(); }
+    if (el('tab-admin') && el('tab-admin').classList.contains('active')) { loadAdminTab(); }
     if (el('tab-bookings') && el('tab-bookings').classList.contains('active')) {
       if (typeof loadBookingsTopTab === 'function') loadBookingsTopTab();
       else if (typeof loadAdminBookings === 'function') loadAdminBookings();

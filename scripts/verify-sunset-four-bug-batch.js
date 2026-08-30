@@ -1459,7 +1459,6 @@ function bug4RentalWriteErrorOwnership() {
     portalRedirectNestedAdminTab() { return false; },
     openAdminTabForCurrentClient(opts) {
       sb.loadAdminTab(opts);
-      sb.loadAdminFinanceForCurrentScope();
     },
     loadAdminFinanceForCurrentScope() {},
     loadMessageEvents() {},
