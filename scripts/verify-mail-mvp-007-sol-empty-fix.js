@@ -276,6 +276,8 @@ function leftoverRow(patch = {}) {
         generated_body_sha256: crypto.createHash('sha256').update(LIVE_LEFTOVER_EN, 'utf8').digest('hex'),
       },
     },
+    luna_on: true,
+    global_pause: false,
     luna_draft_enabled: true,
     ...patch,
   };

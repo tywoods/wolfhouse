@@ -155,7 +155,6 @@ function presentGroundedReply(input) {
  * requires Needs Human (matching the existing open-claim SQL). Never send.
  */
 function emailDraftingAllowed(state) {
-  const src = state && typeof state === 'object' ? state : {};
   const denied = (reason) => Object.freeze({
     allowed: false,
     reason,
@@ -172,8 +171,12 @@ function emailDraftingAllowed(state) {
     send_allowed: false,
     auto_send_allowed: false,
   });
-  if (src.global_pause === true) return denied('global_pause');
-  if (src.luna_on === false) return denied('luna_off');
+  if (!state || typeof state !== 'object') return denied('malformed_state');
+  const src = state;
+  // Missing/malformed controls fail closed. Staff Create Draft may bypass
+  // Needs Human only; Luna On and Global Pause still gate that path.
+  if (src.global_pause !== false) return denied('global_pause');
+  if (src.luna_on !== true) return denied('luna_off');
   if (src.staff_initiated === true) return allowed('staff_initiated');
   if (src.needs_human !== true) return denied('needs_human');
   return allowed('draft_ready');

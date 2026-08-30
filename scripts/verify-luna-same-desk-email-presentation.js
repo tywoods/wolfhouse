@@ -8,7 +8,6 @@
  * presentation interpolates whatever the catalog/quote owners return.
  */
 
-const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -21,9 +20,6 @@ const {
   groupedEmailAsk,
 } = require('./lib/luna-channel-presentation');
 const {
-  createEmailLunaFrontDeskQueryOwners,
-} = require('./lib/email-luna-front-desk-query-owners');
-const {
   CATALOG_CHANNELS,
   buildSunsetCatalogCommand,
   executeSunsetCatalogSync,
@@ -34,10 +30,21 @@ const {
   executeSunsetQuoteSync,
 } = require('./lib/luna-front-desk-quote-service');
 const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
+const {
+  createEmailLunaFrontDeskQueryOwners,
+  createEmailLunaBoundedCatalogClassifier,
+} = require('./lib/email-luna-front-desk-query-owners');
 const { createEmailLunaDraftAuthor } = require('./lib/email-luna-draft-author');
 const { createEmailLunaDraftEnvelope } = require('./lib/email-luna-draft-handoff-contract');
 const { issueAndDecideEmailLunaDraftPolicy } = require('./lib/email-luna-draft-policy');
 const { createEmailLunaGroundedTools } = require('./lib/email-luna-grounded-tools');
+const {
+  createEmailLunaDraftOpenPolicyComposition,
+  SAFE_ACKNOWLEDGMENT,
+} = require('./lib/email-luna-draft-open-policy-composition');
+const ownerMod = require('./lib/staff-email-luna-draft-open');
+const { createStaffEmailLunaDraftOpen } = ownerMod;
+const { runSunsetGuestSchoolTurnDryRun } = require('./lib/luna-guest-sunset-school-turn');
 
 let pass = 0;
 let fail = 0;
@@ -84,6 +91,183 @@ const IDS = Object.freeze({
   endpoint_id: '44444444-4444-4444-8444-444444444444',
   inbound_message_id: '55555555-5555-4555-8555-555555555555',
 });
+const STAFF_ID = '66666666-6666-4666-8666-666666666666';
+const MAILBOX = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const GRAPH_ID = 'opaque/id+with=padding';
+const OTHER_LOCATION = '22222222-2222-4222-8222-222222222223';
+
+function liveExecutors(cfg) {
+  return {
+    executeCatalog: (command) => executeSunsetCatalogSync(command, { adminCfg: cfg }),
+    executeQuote: (command) => executeSunsetQuoteSync(command, { adminCfg: cfg }),
+  };
+}
+
+function liveQueryOwners(cfg, patch = {}) {
+  return createEmailLunaFrontDeskQueryOwners({
+    locationKey: LOC,
+    expectedClientId: IDS.client_id,
+    expectedLocationId: IDS.location_id,
+    ...liveExecutors(cfg),
+    now: FIXED_NOW,
+    defaultServiceDates: [SATURDAY],
+    ...patch,
+  });
+}
+
+function gateOn() {
+  return {
+    LUNA_DEPLOYMENT: 'sunset-staging',
+    EMAIL_STAFF_LUNA_DRAFT_ENABLED: 'true',
+    EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+    STAFF_PORTAL_ORIGIN: 'https://staff.sunset.test',
+  };
+}
+
+function actor() {
+  return Object.freeze(Object.assign(Object.create(null), {
+    staff_user_id: STAFF_ID,
+    client_id: IDS.client_id,
+    role: 'operator',
+  }));
+}
+
+function openContextRow(patch = {}) {
+  return {
+    client_id: IDS.client_id,
+    client_slug: 'sunset',
+    location_id: IDS.location_id,
+    location_key: 'sunset-somo',
+    endpoint_id: IDS.endpoint_id,
+    conversation_id: IDS.conversation_id,
+    inbound_message_id: IDS.inbound_message_id,
+    channel: 'email',
+    provider: 'microsoft_graph',
+    provider_mailbox_id: MAILBOX,
+    provider_source_message_id: GRAPH_ID,
+    endpoint_provider_mailbox_id: MAILBOX,
+    event_location_id: IDS.location_id,
+    subject: 'Question about prices',
+    body_text: '',
+    quoted_history: '',
+    from_display_name: 'Guest',
+    from_address: 'guest@example.test',
+    conversation_deleted_at: null,
+    conversation_status: 'open',
+    needs_human: true,
+    latest_message_id: IDS.inbound_message_id,
+    staff_reply_draft: null,
+    conversation_metadata: {},
+    luna_draft_enabled: true,
+    luna_on: true,
+    global_pause: false,
+    ...patch,
+  };
+}
+
+function makeDraftOpenHarness(options = {}) {
+  const row = options.row || openContextRow();
+  const store = {
+    draft: row.staff_reply_draft != null ? String(row.staff_reply_draft) : '',
+    meta: row.conversation_metadata ? { ...row.conversation_metadata } : {},
+    needsHuman: row.needs_human,
+    queryTexts: [],
+    writes: [],
+    claims: 0,
+  };
+  const cfg = options.adminCfg || adminCatalogCfg();
+  const owner = createStaffEmailLunaDraftOpen({
+    runtimeEnv: gateOn(),
+    now: () => Date.now(),
+    randomUUID: () => 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    callModel: options.callModel || (() => Promise.resolve(plan('catalog_reply', 'warm', 'ask_dates_and_guest_count', 'thanks'))),
+    createLunaRuntime: options.createLunaRuntime || (() => createEmailLunaDraftAuthor({
+      callModel: options.callModel || (() => Promise.resolve(plan('catalog_reply', 'warm', 'ask_dates_and_guest_count', 'thanks'))),
+    })),
+    executeCatalog: options.executeCatalog || liveExecutors(cfg).executeCatalog,
+    executeQuote: options.executeQuote || liveExecutors(cfg).executeQuote,
+    catalogNow: FIXED_NOW,
+    defaultServiceDates: [SATURDAY],
+    fetchCurrentMessageContent: async () => Object.freeze({
+      latest_text: options.contentText || 'Hi, how much is the kayak?',
+    }),
+    withPgClient: async (fn) => {
+      const pg = {
+        async query(sql, params) {
+          const text = String(sql).replace(/\s+/g, ' ').trim();
+          store.queryTexts.push(text);
+          if (text === ownerMod.SQL_EMAIL_LUNA_OPEN_TX_BEGIN || /^BEGIN\b/i.test(text)) {
+            return { rows: [] };
+          }
+          if (text === ownerMod.SQL_EMAIL_LUNA_OPEN_TX_COMMIT || /^COMMIT\b/i.test(text)) {
+            return { rows: [] };
+          }
+          if (text === ownerMod.SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK || /^ROLLBACK\b/i.test(text)) {
+            return { rows: [] };
+          }
+          if (text === ownerMod.SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT) {
+            const live = { ...row };
+            live.staff_reply_draft = store.draft || null;
+            live.conversation_metadata = { ...(live.conversation_metadata || {}), ...store.meta };
+            live.needs_human = store.needsHuman;
+            return { rows: [live] };
+          }
+          if (text === ownerMod.SQL_LOAD_EXISTING_EMAIL_REPLY_APPROVAL) {
+            return { rows: [] };
+          }
+          if (text === ownerMod.SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION) {
+            if (store.needsHuman !== true) return { rows: [] };
+            return {
+              rows: [{
+                conversation_id: IDS.conversation_id,
+                inbound_event_id: IDS.inbound_message_id,
+                provider: 'microsoft_graph',
+                event_location_id: IDS.location_id,
+                location_key: 'sunset-somo',
+                provider_mailbox_id: MAILBOX,
+                endpoint_provider_mailbox_id: MAILBOX,
+              }],
+            };
+          }
+          if (text === ownerMod.SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT) {
+            return {
+              rows: [{
+                conversation_id: IDS.conversation_id,
+                inbound_event_id: IDS.inbound_message_id,
+                provider: 'microsoft_graph',
+                event_location_id: IDS.location_id,
+                location_key: 'sunset-somo',
+                provider_mailbox_id: MAILBOX,
+                endpoint_provider_mailbox_id: MAILBOX,
+              }],
+            };
+          }
+          if (text === ownerMod.SQL_CLAIM_EMAIL_LUNA_OPEN_DRAFT
+              || text === ownerMod.SQL_CLAIM_EMAIL_LUNA_CREATE_DRAFT) {
+            store.claims += 1;
+            const nextMeta = typeof params[2] === 'string' ? JSON.parse(params[2]) : params[2];
+            store.meta = { ...store.meta, ...(nextMeta || {}) };
+            return { rows: [{ conversation_id: IDS.conversation_id }] };
+          }
+          if (text === ownerMod.SQL_CAS_EMAIL_LUNA_OPEN_DRAFT
+              || text === ownerMod.SQL_CAS_EMAIL_LUNA_CREATE_DRAFT) {
+            store.draft = params[2];
+            const nextMeta = typeof params[3] === 'string' ? JSON.parse(params[3]) : params[3];
+            store.meta = { ...store.meta, ...(nextMeta || {}) };
+            store.writes.push(params[2]);
+            return { rows: [{ staff_reply_draft: params[2] }] };
+          }
+          if (text === ownerMod.SQL_RELEASE_EMAIL_LUNA_OPEN_CLAIM) {
+            return { rows: [{ conversation_id: IDS.conversation_id }] };
+          }
+          return { rows: [] };
+        },
+      };
+      return fn(pg);
+    },
+  });
+  return { owner, store };
+}
 
 function adminCatalogCfg() {
   return {
@@ -444,13 +628,7 @@ async function run() {
       && (waQuoted.body.total_cents || waQuoted.body.unit_amount_cents) === quotedCents),
   );
 
-  const owners = createEmailLunaFrontDeskQueryOwners({
-    locationKey: LOC,
-    executeCatalog: (command) => executeSunsetCatalogSync(command, { adminCfg: cfg }),
-    executeQuote: (command) => executeSunsetQuoteSync(command, { adminCfg: cfg }),
-    now: FIXED_NOW,
-    defaultServiceDates: [SATURDAY],
-  });
+  const owners = liveQueryOwners(cfg);
   const tools = createEmailLunaGroundedTools({
     authority: { client_id: IDS.client_id, location_id: IDS.location_id },
     queryOwners: owners,
@@ -475,6 +653,54 @@ async function run() {
     'public-site bundle is missing_fact',
     publicGrounded && (publicGrounded.status === 'missing_fact' || publicGrounded.type === 'missing_fact'),
     JSON.stringify(publicGrounded),
+  );
+  const emptyLookup = await tools.query('catalog', {});
+  const blankLookup = await tools.query('catalog', { lookup: '' });
+  const unresolved = await tools.query('catalog', { lookup: 'how much is a lesson?' });
+  check(
+    'empty/unresolved offering lookup is missing_fact, never the first offering',
+    emptyLookup && emptyLookup.status === 'missing_fact'
+      && blankLookup && blankLookup.status === 'missing_fact'
+      && unresolved && unresolved.status === 'missing_fact'
+      && !(emptyLookup && emptyLookup.amount_cents)
+      && !(unresolved && unresolved.label === LIVE_RENTAL_LABEL),
+    JSON.stringify({ emptyLookup, blankLookup, unresolved }),
+  );
+  const quoteFailOwners = liveQueryOwners(cfg, {
+    executeQuote: async () => ({ ok: false, body: { success: false, reason: 'stock_unverified' } }),
+  });
+  const quoteFailTools = createEmailLunaGroundedTools({
+    authority: { client_id: IDS.client_id, location_id: IDS.location_id },
+    queryOwners: quoteFailOwners,
+  });
+  const quoteFailed = await quoteFailTools.query('catalog', { lookup: LIVE_RENTAL_ITEM });
+  check(
+    'Staff quote/stock failure is missing_fact, not catalog list-price',
+    quoteFailed && quoteFailed.status === 'missing_fact'
+      && quoteFailed.amount_cents !== LIVE_RENTAL_CENTS,
+    JSON.stringify(quoteFailed),
+  );
+  let factoryThrew = false;
+  try {
+    createEmailLunaFrontDeskQueryOwners({
+      locationKey: LOC,
+      expectedClientId: IDS.client_id,
+      expectedLocationId: IDS.location_id,
+      executeCatalog: liveExecutors(cfg).executeCatalog,
+    });
+  } catch (err) {
+    factoryThrew = err && err.message === 'email_luna_front_desk_query_owners_invalid';
+  }
+  check('priced query owners require the quote executor', factoryThrew);
+  const mismatchTools = createEmailLunaGroundedTools({
+    authority: { client_id: IDS.client_id, location_id: OTHER_LOCATION },
+    queryOwners: owners,
+  });
+  const mismatched = await mismatchTools.query('catalog', { lookup: LIVE_RENTAL_ITEM });
+  check(
+    'authority/location mismatch is handoff, not a stamped foreign catalog',
+    mismatched && (mismatched.status === 'handoff_required' || mismatched.type === 'handoff_required'),
+    JSON.stringify(mismatched),
   );
 
   const fromOwner = presentGroundedReply({
@@ -530,8 +756,38 @@ async function run() {
       amount_cents: 2000,
     }))).body.includes('evil.test'),
   );
+  const liveNameOnKnownItem = await createEmailLunaDraftAuthor({
+    callModel: () => Promise.resolve(plan('catalog_reply', 'concise')),
+  }).authorDraft(issueCatalog('en', {
+    item: 'board_rental',
+    label: LIVE_RENTAL_LABEL,
+    amount_cents: LIVE_RENTAL_CENTS,
+  }));
+  check(
+    'live Admin label outranks ITEM_NAMES for board_rental / Kayak Pro',
+    !!(liveNameOnKnownItem.body
+      && liveNameOnKnownItem.body.includes(LIVE_RENTAL_LABEL)
+      && liveNameOnKnownItem.body.includes('€45.00')
+      && !/surfboard rental/i.test(liveNameOnKnownItem.body)),
+    liveNameOnKnownItem.body,
+  );
 
   console.log('\n[D] WhatsApp composer voice remains unchanged');
+  const waTurn = await runSunsetGuestSchoolTurnDryRun({
+    message_text: 'how much is a board rental for 1 day?',
+    client_slug: 'sunset',
+    conversation_metadata: { location_id: 'sunset-somo' },
+  }, {}, { gate_status: 'allowed_dry_run' });
+  const waReply = String(waTurn && waTurn.proposed_luna_reply || '');
+  check(
+    'WhatsApp production school-turn owner stays short/conversational',
+    !!waReply
+      && !/^Quote$/m.test(waReply)
+      && !/Warm regards/i.test(waReply)
+      && !waReply.startsWith('Hi,')
+      && !waReply.includes('\n\nQuote\n'),
+    waReply,
+  );
   const composerSrc = readOwner('lib/luna-guest-reply-composer.js');
   check(
     'WhatsApp composer still uses conversational comes-to copy, not an email Quote header',
@@ -592,11 +848,28 @@ async function run() {
     'open/autonomous draft allowed only when Luna On + Needs Human + pause off',
     openOk.allowed === true && openOk.send_allowed === false && openOk.auto_send_allowed === false,
   );
+  check(
+    'missing/malformed drafting state fails closed',
+    emailDraftingAllowed({}).allowed === false
+      && emailDraftingAllowed(null).allowed === false
+      && emailDraftingAllowed({ luna_on: true, needs_human: true }).allowed === false
+      && emailDraftingAllowed({ global_pause: false, needs_human: true }).allowed === false,
+  );
 
   const openSrc = readOwner('lib/staff-email-luna-draft-open.js');
   check(
     'open-draft claim still requires needs_human',
     /needs_human IS TRUE/.test(openSrc) && /AND c\.needs_human IS TRUE/.test(openSrc),
+  );
+  check(
+    'production draft-open binds Front Desk owners, classifier, and emailDraftingAllowed',
+    openSrc.includes('createEmailLunaFrontDeskQueryOwners')
+      && openSrc.includes('createEmailLunaBoundedCatalogClassifier')
+      && openSrc.includes('emailDraftingAllowed')
+      && openSrc.includes('executeSunsetCatalog')
+      && openSrc.includes('executeSunsetQuote')
+      && openSrc.includes('bot_pause_states')
+      && openSrc.includes('inbox_channel_modes'),
   );
   check(
     'open-draft owner has no approve/send/provider dispatch',
@@ -616,6 +889,180 @@ async function run() {
     !/handleApproveSend|createReply|sendMail|createPaymentLink|stripe/i.test(presentationSrc)
       && presentationSrc.includes('send_allowed: false')
       && presentationSrc.includes('auto_send_allowed: false'),
+  );
+
+  console.log('\n[F] Outer policy composition uses live Admin identity + Staff quote');
+  const composed = await createEmailLunaDraftOpenPolicyComposition({
+    classifyIntent: createEmailLunaBoundedCatalogClassifier(),
+    queryOwners: liveQueryOwners(cfg),
+    createLunaRuntime: () => createEmailLunaDraftAuthor({
+      callModel: () => Promise.resolve(plan('catalog_reply', 'warm', 'ask_dates_and_guest_count', 'thanks')),
+    }),
+  }).compose({
+    authority: { ...IDS },
+    untrusted_content: {
+      subject: 'Question about prices',
+      body_text: 'Hi, how much is the kayak?',
+      quoted_history: '',
+      from_display_name: 'Guest',
+      from_address: 'guest@example.test',
+    },
+  });
+  check('policy composition is draft-ready / draft-only', draftOnly(composed) && composed.status === 'draft_ready');
+  check(
+    'policy composition quotes live Admin Kayak Pro, not a generic safe ack',
+    !!(composed.body
+      && composed.body.includes(LIVE_RENTAL_LABEL)
+      && composed.body.includes('€45.00')
+      && composed.body !== SAFE_ACKNOWLEDGMENT.en
+      && !/surfboard rental/i.test(composed.body)
+      && composed.send_allowed === false
+      && composed.auto_send_allowed === false),
+    composed.body,
+  );
+  const unresolvedCompose = await createEmailLunaDraftOpenPolicyComposition({
+    classifyIntent: createEmailLunaBoundedCatalogClassifier(),
+    queryOwners: liveQueryOwners(cfg),
+    createLunaRuntime: () => createEmailLunaDraftAuthor({
+      callModel: () => Promise.resolve(plan('catalog_reply', 'concise')),
+    }),
+  }).compose({
+    authority: { ...IDS },
+    untrusted_content: {
+      subject: 'Hello',
+      body_text: 'Hi, how much is a lesson?',
+      quoted_history: '',
+      from_display_name: 'Guest',
+      from_address: 'guest@example.test',
+    },
+  });
+  check(
+    'unresolved offering identity stays a safe handoff, not the first catalog row',
+    unresolvedCompose.body === SAFE_ACKNOWLEDGMENT.en
+      || unresolvedCompose.status === 'handoff_required'
+      || unresolvedCompose.kind === 'safe_acknowledgment',
+    JSON.stringify({ kind: unresolvedCompose.kind, reason: unresolvedCompose.reason, body: unresolvedCompose.body }),
+  );
+
+  console.log('\n[G] Production draft-open owner, no helper-injected facts');
+  const liveOpen = makeDraftOpenHarness({ adminCfg: cfg });
+  const opened = await liveOpen.owner.ensureEmailLunaDraftOnOpen({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+  });
+  check(
+    'createStaffEmailLunaDraftOpen persists live Admin Kayak Pro / Staff quote',
+    opened.status === 'draft_ready'
+      && typeof opened.draft_text === 'string'
+      && opened.draft_text.includes(LIVE_RENTAL_LABEL)
+      && opened.draft_text.includes('€45.00')
+      && opened.draft_text !== SAFE_ACKNOWLEDGMENT.en
+      && opened.send_allowed === false
+      && opened.auto_send_allowed === false
+      && liveOpen.store.writes.length === 1,
+    JSON.stringify({ status: opened.status, body: opened.draft_text, writes: liveOpen.store.writes.length }),
+  );
+  check(
+    'draft-open does not call injected queryOwners — production bind used live executors',
+    !readOwner('lib/staff-email-luna-draft-open.js').includes('issueCatalog(')
+      && liveOpen.store.claims >= 1,
+  );
+
+  console.log('\n[H] Real drafting gates on the open/create-draft owner');
+  const paused = makeDraftOpenHarness({ row: openContextRow({ global_pause: true }), adminCfg: cfg });
+  const pausedOut = await paused.owner.ensureEmailLunaDraftOnOpen({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+  });
+  check(
+    'Global Pause blocks generate-on-open before a new Luna body is written',
+    pausedOut.status === 'pending' && paused.store.writes.length === 0 && paused.store.claims === 0,
+    JSON.stringify(pausedOut),
+  );
+  const lunaOff = makeDraftOpenHarness({ row: openContextRow({ luna_on: false }), adminCfg: cfg });
+  const lunaOffOut = await lunaOff.owner.ensureEmailLunaDraftOnOpen({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+  });
+  check(
+    'Luna Off blocks generate-on-open',
+    lunaOffOut.status === 'pending' && lunaOff.store.writes.length === 0 && lunaOff.store.claims === 0,
+    JSON.stringify(lunaOffOut),
+  );
+  const noHuman = makeDraftOpenHarness({ row: openContextRow({ needs_human: false }), adminCfg: cfg });
+  noHuman.store.needsHuman = false;
+  const noHumanOut = await noHuman.owner.ensureEmailLunaDraftOnOpen({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+  });
+  check(
+    'autonomous open still requires Needs Human',
+    noHumanOut.status === 'pending' && noHuman.store.writes.length === 0,
+    JSON.stringify(noHumanOut),
+  );
+  const malformed = makeDraftOpenHarness({
+    row: openContextRow({ luna_on: undefined, global_pause: undefined }),
+    adminCfg: cfg,
+  });
+  const malformedOut = await malformed.owner.ensureEmailLunaDraftOnOpen({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+  });
+  check(
+    'missing luna_on/global_pause on the loaded row fails closed',
+    malformedOut.status === 'pending' && malformed.store.claims === 0,
+    JSON.stringify(malformedOut),
+  );
+  const staffPaused = makeDraftOpenHarness({
+    row: openContextRow({ needs_human: false, global_pause: true }),
+    adminCfg: cfg,
+  });
+  staffPaused.store.needsHuman = false;
+  const staffPausedOut = await staffPaused.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+    operator_context: 'Thank them',
+  });
+  check(
+    'Staff Create Draft still requires pause off',
+    staffPausedOut.status === 'pending' && staffPaused.store.claims === 0,
+    JSON.stringify(staffPausedOut),
+  );
+  const staffOff = makeDraftOpenHarness({
+    row: openContextRow({ needs_human: false, luna_on: false }),
+    adminCfg: cfg,
+  });
+  staffOff.store.needsHuman = false;
+  const staffOffOut = await staffOff.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+    operator_context: 'Thank them',
+  });
+  check(
+    'Staff Create Draft still requires Luna On',
+    staffOffOut.status === 'pending' && staffOff.store.claims === 0,
+    JSON.stringify(staffOffOut),
+  );
+  const staffOkOpen = makeDraftOpenHarness({
+    row: openContextRow({ needs_human: false }),
+    adminCfg: cfg,
+  });
+  staffOkOpen.store.needsHuman = false;
+  const staffOkOut = await staffOkOpen.owner.regenerateEmailLunaDraftOnStaffClick({
+    actor: actor(),
+    conversation_id: IDS.conversation_id,
+    operator_context: 'Thank them',
+  });
+  check(
+    'Staff Create Draft may bypass Needs Human when Luna is on and pause is off',
+    staffOkOpen.store.claims >= 1,
+    JSON.stringify({ status: staffOkOut.status, claims: staffOkOpen.store.claims }),
+  );
+
+  const apiSrc = readOwner('staff-query-api.js');
+  check(
+    'Staff API production still does not forge a classifier/queryOwners literal',
+    !/classifyIntent:\s*\(/.test(apiSrc) && !/queryOwners:\s*\{/.test(apiSrc),
   );
 
   console.log(`\n── verify:luna-same-desk-email-presentation ${fail === 0 ? 'PASSED' : 'FAILED'} (${pass} pass, ${fail} fail) ──`);

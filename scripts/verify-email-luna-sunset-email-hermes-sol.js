@@ -282,6 +282,8 @@ function authorityRow(patch = {}) {
         generated_body_sha256: crypto.createHash('sha256').update('Previous standing draft.', 'utf8').digest('hex'),
       },
     },
+    luna_on: true,
+    global_pause: false,
     luna_draft_enabled: true,
     ...patch,
   };
@@ -586,7 +588,7 @@ function assertNoSecretsLogged(hits) {
     actor: actor(),
     conversation_id: V,
   });
-  const templatedBody = 'Hi,\n\nOur surfboard rental is €35.00.\n\nLuna';
+  const templatedBody = 'Hi,\n\nQuote\nsurfboard rental\n€35.00\n\nLuna';
   assert.equal(templated.status, 'draft_ready');
   assert.equal(templated.draft_text, templatedBody);
   assert.notEqual(templated.draft_text, SAFE_ACKNOWLEDGMENT.en);

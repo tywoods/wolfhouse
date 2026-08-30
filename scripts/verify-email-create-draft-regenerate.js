@@ -127,6 +127,8 @@ function authorityRow(patch = {}) {
         generated_body_sha256: crypto.createHash('sha256').update(EXISTING, 'utf8').digest('hex'),
       },
     },
+    luna_on: true,
+    global_pause: false,
     luna_draft_enabled: true,
     ...patch,
   };
