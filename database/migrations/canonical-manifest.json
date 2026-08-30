@@ -1485,24 +1485,24 @@
       "sha256": "b7b633351195d89e0fda13224bda85a89026f203ee211c55dd626d98fa083626"
     },
     {
-      "id": "100_tenant_email_reply_approvals_inbound_claim",
-      "filename": "100_tenant_email_reply_approvals_inbound_claim.sql",
+      "id": "100_tenant_email_same_desk_auto_send_claims",
+      "filename": "100_tenant_email_same_desk_auto_send_claims.sql",
       "order": 96,
       "classification": "canonical_forward",
       "inForwardChain": true,
-      "rationale": "SAME-DESK-004: unique inbound claim on tenant_email_reply_approvals (client_id, conversation_id, source_inbound_event_id). Concurrent auto-send workers INSERT-claim; losers skip without a second provider send. Does not rewrite 070 operation uniqueness or approve-send CAS.",
-      "downFilename": "100_tenant_email_reply_approvals_inbound_claim_down.sql",
-      "sha256": "4ce3ee99d9dfc4ca0c39b60fccddf08e51448f474239f6d2359916343a7a5cf4"
+      "rationale": "SAME-DESK-004: dedicated auto-send claim table keyed by (client_id, conversation_id, source_inbound_event_id) with approval linkage. Does not unique tenant_email_reply_approvals on inbound identity, so generic Microsoft/SMTP staff drafts remain unlimited. Concurrent auto-send workers INSERT-claim; losers skip without a provider send.",
+      "downFilename": "100_tenant_email_same_desk_auto_send_claims_down.sql",
+      "sha256": "8e1e8c58b7dd2c555f8acec31ba3ee5204bf301a15db8a8c8ae739614d0de906"
     },
     {
-      "id": "100_tenant_email_reply_approvals_inbound_claim_down",
-      "filename": "100_tenant_email_reply_approvals_inbound_claim_down.sql",
+      "id": "100_tenant_email_same_desk_auto_send_claims_down",
+      "filename": "100_tenant_email_same_desk_auto_send_claims_down.sql",
       "order": null,
       "classification": "rollback_down",
       "inForwardChain": false,
-      "rationale": "Drops the inbound-event unique claim index only. Does not delete approval rows.",
-      "pairsWith": "100_tenant_email_reply_approvals_inbound_claim.sql",
-      "sha256": "29c8d13ab9170f01684dc719baa1698863d1acf33141a550259f65f53ea4827f"
+      "rationale": "Fail-closed while claim rows exist; empty table drops the dedicated SAME-DESK-004 claim owner. Does not rewrite tenant_email_reply_approvals.",
+      "pairsWith": "100_tenant_email_same_desk_auto_send_claims.sql",
+      "sha256": "defd5af2317efd7e589e255a415717c98cd79851a3f0c71faa1b151496954624"
     }
   ]
 }

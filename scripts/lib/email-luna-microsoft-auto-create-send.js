@@ -26,6 +26,7 @@ const {
   createEmailInboxChannelModeStore,
   EMAIL_INBOX_CHANNEL_MODE_DEFAULT,
 } = require('./email-inbox-channel-mode');
+const { createSameDeskAutoSendClaimOwner } = require('./email-luna-same-desk-auto-send-claim');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -290,6 +291,16 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
   const readPause = typeof deps.readPause === 'function' ? deps.readPause : null;
   const resolveAutoActor = typeof deps.resolveAutoActor === 'function' ? deps.resolveAutoActor : null;
   const journalExists = typeof deps.journalExists === 'function' ? deps.journalExists : null;
+  const claimOwner = (typeof deps.claimSameDeskAutoSend === 'function'
+    && typeof deps.linkSameDeskAutoSendApproval === 'function')
+    ? null
+    : createSameDeskAutoSendClaimOwner({ withPgClient });
+  const claimSameDesk = typeof deps.claimSameDeskAutoSend === 'function'
+    ? deps.claimSameDeskAutoSend
+    : (input) => claimOwner.claim(input);
+  const linkSameDesk = typeof deps.linkSameDeskAutoSendApproval === 'function'
+    ? deps.linkSameDeskAutoSendApproval
+    : (input) => claimOwner.linkApproval(input);
   if (!withPgClient || !regenerate || !saveDraft || !approveAndDispatch) {
     throw new Error('auto_create_send_deps');
   }
@@ -371,7 +382,7 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
     const mailboxId = typeof row.provider_mailbox_id === 'string' ? row.provider_mailbox_id : null;
     const sourceMessageId = typeof row.provider_source_message_id === 'string'
       ? row.provider_source_message_id : null;
-    if (!mailboxId || !sourceMessageId) return blocked('authority_mismatch');
+    if (!mailboxId || !sourceMessageId || !inboundEventId) return blocked('authority_mismatch');
     const expectedAuthority = freeze({
       client_id: clientId,
       location_id: locationId,
@@ -384,12 +395,51 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       provider_source_message_id: sourceMessageId,
     });
 
+    let sameDeskClaimId = null;
+    if (sameDesk) {
+      const claimed = await claimSameDesk({
+        client_id: clientId,
+        conversation_id: conversationId,
+        source_inbound_event_id: inboundEventId,
+        claimant_staff_user_id: actor.staff_user_id,
+      });
+      if (!claimed || claimed.status !== 'won') {
+        return freeze({
+          status: 'skipped',
+          reason: 'already_claimed',
+          draft_writes: 0,
+          approvals: 0,
+          journals: 0,
+          provider_sends: 0,
+          sent: false,
+          approval_id: claimed && claimed.approval_id,
+        });
+      }
+      sameDeskClaimId = claimed.claim_id;
+    }
+
+    async function linkWonClaim(approvalId, operationId) {
+      if (!sameDesk || !sameDeskClaimId || !approvalId) return;
+      try {
+        await linkSameDesk({
+          claim_id: sameDeskClaimId,
+          client_id: clientId,
+          conversation_id: conversationId,
+          approval_id: approvalId,
+          operation_id: operationId,
+        });
+      } catch {
+        /* claim remains unique; linking is reconciliation only */
+      }
+    }
+
     const existing = ctx.approval;
     if (existing && (existing.state === 'approved' || existing.state === 'terminal')) {
       const hasJournal = journalExists
         ? await journalExists(existing)
         : true;
       if (hasJournal) {
+        await linkWonClaim(existing.approval_id, existing.operation_id);
         if (recoverSend && existing.state === 'approved') {
           const recovered = await recoverSend({
             actor,
@@ -417,6 +467,7 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       const committed = dispatched && dispatched.code === 'email_send_committed'
         && dispatched.status === 200;
       if (committed) {
+        await linkWonClaim(existing.approval_id, existing.operation_id);
         return succeeded({
           approval_id: existing.approval_id,
           draft_writes: 0,
@@ -444,6 +495,7 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       const committed = dispatched && dispatched.code === 'email_send_committed'
         && dispatched.status === 200;
       if (committed) {
+        await linkWonClaim(existing.approval_id, existing.operation_id);
         return succeeded({
           approval_id: existing.approval_id,
           draft_writes: 0,
@@ -493,38 +545,9 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       return failed(closedSaveFailReason(thrown), saveThrowDiagnostics(err, null));
     }
     if (!saved || saved.status !== 'saved' || !saved.approval_id) {
-      if (saved && saved.code === 'draft_identity_claimed') {
-        const reloaded = await withPgClient(async (pg) => {
-          const ap = await pg.query(SQL_LOAD_EXISTING_APPROVAL, [clientId, conversationId, inboundEventId]);
-          return ap && Array.isArray(ap.rows) && ap.rows.length === 1 ? ap.rows[0] : null;
-        });
-        if (reloaded && (reloaded.state === 'approved' || reloaded.state === 'terminal')) {
-          const hasJournal = journalExists ? await journalExists(reloaded) : true;
-          if (hasJournal) {
-            return skippedDuplicate({ approval_id: reloaded.approval_id, peer_claimed: true });
-          }
-          return failed('provider_failure', {
-            approval_id: reloaded.approval_id,
-            code: 'email_send_outcome_unknown',
-            draft_writes: 0,
-            approvals: 0,
-            journals: 0,
-            provider_sends: 0,
-          });
-        }
-        return freeze({
-          status: 'skipped',
-          reason: 'already_claimed',
-          draft_writes: 0,
-          approvals: 0,
-          journals: 0,
-          provider_sends: 0,
-          sent: false,
-          approval_id: reloaded && reloaded.approval_id,
-        });
-      }
       return failed(closedSaveFailReason(saved && saved.code), saveThrowDiagnostics(null, saved));
     }
+    await linkWonClaim(saved.approval_id, saved.operation_id);
 
     let dispatched;
     try {

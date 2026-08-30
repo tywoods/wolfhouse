@@ -29,10 +29,13 @@ const WA_ELIG_ABS = path.join(ROOT, 'scripts/lib/luna-guest-reply-send-eligibili
 const INBOX_ROUTES_ABS = path.join(ROOT, 'scripts/lib/staff-email-inbox-routes.js');
 const OPEN_ABS = path.join(ROOT, 'scripts/lib/staff-email-luna-draft-open.js');
 const BOOKING_ABS = path.join(ROOT, 'scripts/lib/email-luna-booking-from-email.js');
-const MIG_100_UP = path.join(ROOT, 'database/migrations/100_tenant_email_reply_approvals_inbound_claim.sql');
-const MIG_100_DOWN = path.join(ROOT, 'database/migrations/100_tenant_email_reply_approvals_inbound_claim_down.sql');
-const STOCK_PG_ENV = 'SAME_DESK_004_PG_POOL_URL';
-const INBOUND_CLAIM_INDEX = 'tenant_email_reply_approvals_inbound_claim_uq';
+const MIG_100_UP = path.join(ROOT, 'database/migrations/100_tenant_email_same_desk_auto_send_claims.sql');
+const MIG_100_DOWN = path.join(ROOT, 'database/migrations/100_tenant_email_same_desk_auto_send_claims_down.sql');
+const STOCK_PG_PROVE = path.join(ROOT, 'scripts/prove-luna-same-desk-auto-send-claim-stock-pg.js');
+const CLAIM_TABLE = 'tenant_email_same_desk_auto_send_claims';
+const CLAIM_IDENTITY_UQ = 'tenant_email_same_desk_auto_send_claims_identity_uq';
+const CLAIM_OWNER_ABS = path.join(ROOT, 'scripts/lib/email-luna-same-desk-auto-send-claim.js');
+const { spawnSync } = require('node:child_process');
 
 const {
   createEmailLunaMicrosoftAutoCreateAndSend,
@@ -170,6 +173,16 @@ function makeOwner(options = {}) {
         subject: 'Re: Boards',
       };
     },
+    claimSameDeskAutoSend: async () => {
+      if (options.claimLost) {
+        return { status: 'lost', reason: 'already_claimed', approval_id: options.claimApprovalId || null };
+      }
+      return { status: 'won', claim_id: '11111111-1111-4111-8111-111111111111', state: 'claimed' };
+    },
+    linkSameDeskAutoSendApproval: async (input) => {
+      store.claim = { ...input, state: 'linked' };
+      return { status: 'linked' };
+    },
     saveDraftThroughStaffOwner: async (input) => {
       approvals.push(input);
       store.approval = {
@@ -236,132 +249,33 @@ function applyProducerNeedsHuman(existing, projectInput, provider) {
   return excluded ? true : existing;
 }
 
-function claimKey(clientId, conversationId, inboundEventId) {
-  return `${String(clientId).toLowerCase()}|${String(conversationId).toLowerCase()}|${String(inboundEventId).toLowerCase()}`;
+function sqlConst(src, name) {
+  const m = String(src).match(new RegExp(`const ${name} = \`([\\s\\S]*?)\``));
+  return m ? m[1] : '';
 }
 
-function createSharedDurableClaimAdapter() {
-  const claims = new Map();
-  const journaled = new Set();
-  return {
-    claims,
-    journaled,
-    insertApproval(row) {
-      const key = claimKey(row.client_id, row.conversation_id, row.source_inbound_event_id);
-      if (claims.has(key)) {
-        const err = new Error('duplicate inbound claim');
-        err.code = '23505';
-        throw err;
-      }
-      const stored = {
-        approval_id: row.approval_id || crypto.randomUUID(),
-        operation_id: row.operation_id || crypto.randomUUID(),
-        client_id: String(row.client_id).toLowerCase(),
-        conversation_id: String(row.conversation_id).toLowerCase(),
-        source_inbound_event_id: String(row.source_inbound_event_id).toLowerCase(),
-        message_text: row.message_text,
-        subject: row.subject,
-        state: 'draft',
-      };
-      claims.set(key, stored);
-      return stored;
-    },
-    getByInbound(clientId, conversationId, inboundEventId) {
-      return claims.get(claimKey(clientId, conversationId, inboundEventId)) || null;
-    },
-    markApproved(approvalId) {
-      for (const row of claims.values()) {
-        if (row.approval_id === approvalId) row.state = 'approved';
-      }
-    },
-    markJournaled(approvalId) {
-      journaled.add(String(approvalId));
-    },
-    isJournaled(approval) {
-      return journaled.has(String(approval.approval_id))
-        || journaled.has(String(approval.operation_id));
-    },
-  };
-}
-
-function makeIndependentWorker(adapter) {
-  const providerCalls = [];
-  const approvals = [];
-  const drafts = [];
-  const journals = [];
-  const store = {
-    mode: 'auto',
-    pause: { lookup_error: false, global_paused: false, conversation_paused: false },
-    row: contextRow(),
-  };
-  const owner = createEmailLunaMicrosoftAutoCreateAndSend({
-    withPgClient: async (fn) => fn({
-      async query(sql) {
-        const n = String(sql).replace(/\s+/g, ' ').trim();
-        if (/FROM staff_users su/.test(n)) {
-          return { rows: [{ staff_user_id: A, client_id: C, role: 'operator' }] };
-        }
-        if (/FROM clients cl INNER JOIN conversations c/.test(n)
-            || /cl.slug='sunset' AND loc.location_id='sunset-somo'/.test(n)) {
-          return { rows: [store.row] };
-        }
-        if (/FROM tenant_email_reply_approvals/.test(n)) {
-          const existing = adapter.getByInbound(C, V, M);
-          return { rows: existing ? [existing] : [] };
-        }
-        return { rows: [] };
-      },
-    }),
-    getEmailChannelMode: async () => store.mode,
-    readPause: async () => store.pause,
-    resolveAutoActor: async () => actor(),
-    journalExists: async (approval) => adapter.isJournaled(approval),
-    regenerateEmailLunaDraftOnStaffClick: async (input) => {
-      drafts.push(input);
-      await Promise.resolve();
-      assert.equal(input.operator_context, '');
-      return {
-        status: 'draft_ready',
-        draft_text: BODY,
-        conversation_id: V,
-        send_allowed: false,
-        auto_send_allowed: false,
-        draft_only: true,
-        subject: 'Re: Boards',
-      };
-    },
-    saveDraftThroughStaffOwner: async (input) => {
-      try {
-        const stored = adapter.insertApproval({
-          client_id: C,
-          conversation_id: V,
-          source_inbound_event_id: M,
-          message_text: input.message_text,
-          subject: input.subject,
-        });
-        approvals.push(input);
-        return { status: 'saved', conversation_id: V, approval_id: stored.approval_id };
-      } catch (err) {
-        if (err && err.code === '23505') {
-          return { status: 'not_saved', conversation_id: V, approval_id: null, code: 'draft_identity_claimed' };
-        }
-        throw err;
-      }
-    },
-    approveAndDispatchEmailOutbound: async (input) => {
-      providerCalls.push(input);
-      adapter.markApproved(input.approval_id);
-      adapter.markJournaled(input.approval_id);
-      journals.push(input.approval_id);
-      store.row = { ...store.row, needs_human: false, conversation_status: 'open' };
-      return { status: 200, code: 'email_send_committed', ok: true, journaled: true, provider_invoked: true };
-    },
-    recoverApprovedOutbound: async (input) => {
-      providerCalls.push({ recover: true, ...input });
-      return { status: 200, code: 'email_send_committed' };
-    },
+function runStockPgProof(label) {
+  if (!fs.existsSync(STOCK_PG_PROVE)) {
+    check(label, false, `missing ${path.relative(ROOT, STOCK_PG_PROVE)}`);
+    return false;
+  }
+  const result = spawnSync(process.execPath, [STOCK_PG_PROVE], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: 180000,
+    env: { ...process.env, NO_COLOR: '1' },
   });
-  return { owner, providerCalls, approvals, drafts, journals, store, adapter };
+  const out = `${result.stdout || ''}${result.stderr || ''}`;
+  const skipped = /PASS-by-skip|skipped when .* unset|not counted as PASS|UNAVAILABLE/i.test(out)
+    && result.status === 0;
+  check(
+    label,
+    result.status === 0 && skipped !== true
+      && /exactly one claim winner/i.test(out)
+      && /loser provider-inert/i.test(out),
+    `status=${result.status} skipped=${skipped} tail=${out.slice(-800)}`,
+  );
+  return result.status === 0 && skipped !== true;
 }
 
 function installAzureLoadIntercept() {
@@ -390,6 +304,7 @@ function tryLoadPglite() {
     '/opt/data/wolfhouse-agent/node_modules',
     '/opt/data/worktrees/bookings-finance-label-audit/node_modules',
     '/opt/data/worktrees/full-sail-stage1-ch3a/node_modules',
+    '/opt/data/calendar-inventory-bridge-bf/node_modules',
   ].filter(Boolean)) {
     try {
       const mod = require(path.join(String(base).split(path.delimiter)[0], '@electric-sql/pglite'));
@@ -865,9 +780,10 @@ async function main() {
       }),
     );
     check(
-      'verifier concurrent proof uses a shared durable adapter, not a process lock',
-      /createSharedDurableClaimAdapter/.test(fs.readFileSync(path.join(__dirname, 'verify-luna-same-desk-email-auto-send.js'), 'utf8'))
-        && /makeIndependentWorker/.test(fs.readFileSync(path.join(__dirname, 'verify-luna-same-desk-email-auto-send.js'), 'utf8')),
+      'authenticity of concurrency is the stock-PG prove, not an in-process adapter',
+      fs.existsSync(STOCK_PG_PROVE)
+        && /embedded-postgres/.test(fs.readFileSync(STOCK_PG_PROVE, 'utf8'))
+        && /lock_timeout/.test(fs.readFileSync(STOCK_PG_PROVE, 'utf8')),
     );
   }
 
@@ -1000,73 +916,69 @@ async function main() {
     );
   }
 
-  console.log('\n[7] HIGH 2 — durable exactly-once claim, two independent workers');
+  console.log('\n[7] HIGH 1 — generic staff/SMTP drafts restored; dedicated auto-send claim');
   {
-    const adapter = createSharedDurableClaimAdapter();
-    const workerA = makeIndependentWorker(adapter);
-    const workerB = makeIndependentWorker(adapter);
-    const input = {
-      env: sameDeskEnv(),
-      authority: authority(),
-      envelope: envelope(),
-      projection: projection(),
-    };
-    const [ra, rb] = await Promise.all([
-      sameDeskHandle(workerA.owner, input),
-      sameDeskHandle(workerB.owner, { ...input, projection: projection({ status: 'already_projected' }) }),
-    ]);
-    const sends = [...workerA.providerCalls, ...workerB.providerCalls].filter((c) => !c.recover);
-    const approvalIds = new Set(sends.map((c) => c.approval_id));
-    const journalIds = new Set([...workerA.journals, ...workerB.journals]);
-    const durableIds = new Set([...adapter.claims.values()].map((row) => row.approval_id));
+    const msInsert = sqlConst(inboxSrc, 'SQL_INSERT_DRAFT');
+    const smtpInsert = sqlConst(inboxSrc, 'SQL_INSERT_DRAFT_SMTP');
+    const persistFn = inboxSrc.match(/async function persistNewDraftThroughStaffOwner[\s\S]*?async function persistUpdatedDraftThroughStaffOwner/)?.[0] || '';
     check(
-      'two independent workers: exactly one provider send',
-      sends.length === 1,
-      JSON.stringify({ sends: sends.length, a: ra.status, b: rb.status }),
+      'generic Microsoft staff draft insert has no inbound ON CONFLICT',
+      /INSERT INTO tenant_email_reply_approvals/.test(msInsert)
+        && !/ON CONFLICT/.test(msInsert)
+        && /RETURNING approval_id/.test(msInsert),
     );
     check(
-      'two independent workers: exactly one durable approval/journal identity',
-      durableIds.size === 1
-        && approvalIds.size === 1
-        && journalIds.size === 1
-        && [...durableIds][0] === [...approvalIds][0]
-        && [...journalIds][0] === [...approvalIds][0],
-      JSON.stringify({
-        durable: [...durableIds],
-        approvals: [...approvalIds],
-        journals: [...journalIds],
-      }),
+      'SMTP staff draft insert is unchanged (no inbound ON CONFLICT)',
+      /INSERT INTO tenant_email_reply_approvals/.test(smtpInsert)
+        && /'imap_smtp'/.test(smtpInsert)
+        && !/ON CONFLICT/.test(smtpInsert)
+        && /RETURNING approval_id/.test(smtpInsert),
     );
     check(
-      'loser skips/reconciles without a second provider invocation',
-      (ra.status === 'sent' && rb.status === 'skipped')
-        || (rb.status === 'sent' && ra.status === 'skipped'),
-      JSON.stringify({ a: { status: ra.status, reason: ra.reason }, b: { status: rb.status, reason: rb.reason } }),
-    );
-  }
-
-  console.log('\n[7b] HIGH 2 — PGlite/stock unique inbound-claim index');
-  {
-    check('canonical 100 forward migration is present', fs.existsSync(MIG_100_UP));
-    check('canonical 100 rollback is present', fs.existsSync(MIG_100_DOWN));
-    const inboxSrc = fs.readFileSync(INBOX_ROUTES_ABS, 'utf8');
-    check(
-      'staff draft insert claims ON CONFLICT inbound identity (no unlocked second insert)',
-      /ON CONFLICT \(client_id, conversation_id, source_inbound_event_id\)/.test(inboxSrc)
-        && /DO NOTHING/.test(inboxSrc)
-        && /draft_identity_claimed/.test(inboxSrc),
+      'generic staff draft owner does not return draft_identity_claimed',
+      /draft_insert_failed/.test(persistFn)
+        && !/draft_identity_claimed/.test(persistFn)
+        && !/23505/.test(persistFn),
     );
     check(
-      'auto-send treats inbound claim loss as skip, not a second send',
-      /draft_identity_claimed/.test(autoSrc)
-        && /already_claimed/.test(autoSrc),
+      'dedicated SAME-DESK-004 claim owner/table exists and is auto-only',
+      fs.existsSync(MIG_100_UP)
+        && fs.existsSync(MIG_100_DOWN)
+        && fs.existsSync(CLAIM_OWNER_ABS)
+        && fs.readFileSync(MIG_100_UP, 'utf8').includes(`CREATE TABLE ${CLAIM_TABLE}`)
+        && fs.readFileSync(MIG_100_UP, 'utf8').includes(CLAIM_IDENTITY_UQ)
+        && !/CREATE UNIQUE INDEX[\s\S]{0,160}?ON tenant_email_reply_approvals/.test(fs.readFileSync(MIG_100_UP, 'utf8'))
+        && /tenant_email_same_desk_auto_send_claims/.test(fs.readFileSync(CLAIM_OWNER_ABS, 'utf8')),
     );
+    check(
+      'auto-send skips on dedicated claim loss, not generic draft_identity_claimed',
+      /already_claimed/.test(autoSrc)
+        && /claimSameDesk/.test(autoSrc)
+        && !/draft_identity_claimed/.test(autoSrc)
+        && !/draft_identity_claimed/.test(inboxSrc),
+    );
+    {
+      const lost = await runSameDesk({ claimLost: true });
+      check(
+        'SAME-DESK auto skips when the dedicated claim is already owned (provider-inert)',
+        lost.result.status === 'skipped'
+          && lost.result.reason === 'already_claimed'
+          && providerSends(lost) === 0
+          && lost.approvals.length === 0
+          && lost.drafts.length === 0,
+        JSON.stringify({
+          status: lost.result.status,
+          reason: lost.result.reason,
+          sends: providerSends(lost),
+        }),
+      );
+    }
 
     const PGlite = tryLoadPglite();
     if (!PGlite) {
-      check('PGlite available for inbound-claim unique proof', false, 'PGlite unavailable');
+      check('PGlite available for dedicated-claim migration proof', false, 'PGlite unavailable');
     } else if (!fs.existsSync(MIG_100_UP) || !fs.existsSync(MIG_100_DOWN)) {
-      check('PGlite inbound-claim unique proof', false, 'migration 100 missing');
+      check('PGlite dedicated-claim migration proof', false, 'migration 100 missing');
     } else {
       const db = new PGlite();
       try {
@@ -1082,11 +994,19 @@ async function main() {
         `);
         await db.exec(fs.readFileSync(path.join(ROOT, 'database/migrations/070_tenant_email_reply_approvals.sql'), 'utf8'));
         await db.exec(fs.readFileSync(MIG_100_UP, 'utf8'));
-        const idx = await db.query(
-          `SELECT 1 AS ok FROM pg_indexes WHERE indexname = $1`,
-          [INBOUND_CLAIM_INDEX],
+        const table = await db.query(
+          `SELECT 1 AS ok FROM information_schema.tables WHERE table_name = $1`,
+          [CLAIM_TABLE],
         );
-        check('PGlite index-verifier: inbound claim unique exists after 100', idx.rows.length === 1);
+        const approvalsUq = await db.query(
+          `SELECT indexname FROM pg_indexes WHERE tablename = 'tenant_email_reply_approvals' AND indexdef ILIKE '%source_inbound_event_id%' AND indexdef ILIKE '%UNIQUE%'`,
+        );
+        check('PGlite: dedicated claim table exists after 100', table.rows.length === 1);
+        check(
+          'PGlite: tenant_email_reply_approvals is not globally unique on inbound identity',
+          approvalsUq.rows.length === 0,
+          JSON.stringify(approvalsUq.rows),
+        );
 
         await db.query('INSERT INTO clients (id, slug) VALUES ($1,$2)', [C, 'sunset']);
         await db.query('INSERT INTO staff_users (id, client_id, email, role, status) VALUES ($1,$2,$3,$4,$5)', [A, C, 'op@t', 'operator', 'active']);
@@ -1094,118 +1014,101 @@ async function main() {
         await db.query('INSERT INTO tenant_locations (id, client_id, location_id) VALUES ($1,$2,$3)', [L, C, 'sunset-somo']);
         await db.query('INSERT INTO tenant_channel_endpoints (id, client_id, location_id) VALUES ($1,$2,$3)', [E, C, 'sunset-somo']);
         await db.query('INSERT INTO tenant_email_inbound_events (id, client_id) VALUES ($1,$2)', [M, C]);
-        const ins = `
+
+        const digest = crypto.createHash('sha256').update(BODY, 'utf8').digest('hex');
+        const insApproval = `
           INSERT INTO tenant_email_reply_approvals (
             approval_id, operation_id, client_id, location_id, location_key, endpoint_id, conversation_id,
             source_inbound_event_id, provider, provider_mailbox_id, provider_source_message_id,
             draft_actor_staff_user_id, message_text, body_digest, state
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'microsoft_graph',$9,$10,$11,$12,$13,'draft')
-          ON CONFLICT (client_id, conversation_id, source_inbound_event_id) DO NOTHING
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'draft')
           RETURNING approval_id::text AS approval_id
         `;
-        const digest = crypto.createHash('sha256').update(BODY, 'utf8').digest('hex');
-        const firstId = crypto.randomUUID();
-        const r1 = await db.query(ins, [firstId, crypto.randomUUID(), C, L, 'sunset-somo', E, V, M, MAILBOX, SRC, A, BODY, digest]);
-        const r2 = await db.query(ins, [crypto.randomUUID(), crypto.randomUUID(), C, L, 'sunset-somo', E, V, M, MAILBOX, SRC, A, BODY, digest]);
-        const count = await db.query(
+        const r1 = await db.query(insApproval, [crypto.randomUUID(), crypto.randomUUID(), C, L, 'sunset-somo', E, V, M, 'microsoft_graph', MAILBOX, SRC, A, BODY, digest]);
+        const r2 = await db.query(insApproval, [crypto.randomUUID(), crypto.randomUUID(), C, L, 'sunset-somo', E, V, M, 'microsoft_graph', MAILBOX, SRC, A, BODY, digest]);
+        await db.exec(`
+          ALTER TABLE tenant_email_reply_approvals DROP CONSTRAINT tenant_email_reply_approvals_provider_values;
+          ALTER TABLE tenant_email_reply_approvals ADD CONSTRAINT tenant_email_reply_approvals_provider_values
+            CHECK (provider IN ('microsoft_graph', 'imap_smtp'));
+        `);
+        const s1 = await db.query(insApproval, [crypto.randomUUID(), crypto.randomUUID(), C, L, 'sunset-somo', E, V, M, 'imap_smtp', MAILBOX, SRC, A, BODY, digest]);
+        const s2 = await db.query(insApproval, [crypto.randomUUID(), crypto.randomUUID(), C, L, 'sunset-somo', E, V, M, 'imap_smtp', MAILBOX, SRC, A, BODY, digest]);
+        const approvalCount = await db.query(
           'SELECT count(*)::int AS n FROM tenant_email_reply_approvals WHERE client_id=$1 AND conversation_id=$2 AND source_inbound_event_id=$3',
           [C, V, M],
         );
         check(
-          'PGlite: exactly one approval identity for the inbound claim',
-          r1.rows.length === 1 && r2.rows.length === 0 && count.rows[0].n === 1
-            && String(r1.rows[0].approval_id).toLowerCase() === firstId,
-          JSON.stringify({ r1: r1.rows.length, r2: r2.rows.length, n: count.rows[0].n }),
+          'PGlite: two generic Microsoft staff drafts plus two SMTP drafts remain allowed for the same inbound',
+          r1.rows.length === 1 && r2.rows.length === 1 && s1.rows.length === 1 && s2.rows.length === 1
+            && approvalCount.rows[0].n === 4,
+          JSON.stringify({
+            r1: r1.rows.length, r2: r2.rows.length, s1: s1.rows.length, s2: s2.rows.length, n: approvalCount.rows[0].n,
+          }),
         );
 
-        await db.exec(fs.readFileSync(MIG_100_DOWN, 'utf8'));
-        const idxDown = await db.query(
-          `SELECT 1 AS ok FROM pg_indexes WHERE indexname = $1`,
-          [INBOUND_CLAIM_INDEX],
+        const insClaim = `
+          INSERT INTO ${CLAIM_TABLE} (
+            claim_id, client_id, conversation_id, source_inbound_event_id, claimant_staff_user_id, state
+          ) VALUES ($1,$2,$3,$4,$5,'claimed')
+          ON CONFLICT (client_id, conversation_id, source_inbound_event_id) DO NOTHING
+          RETURNING claim_id::text AS claim_id
+        `;
+        const c1 = await db.query(insClaim, [crypto.randomUUID(), C, V, M, A]);
+        const c2 = await db.query(insClaim, [crypto.randomUUID(), C, V, M, A]);
+        const claimCount = await db.query(
+          `SELECT count(*)::int AS n FROM ${CLAIM_TABLE} WHERE client_id=$1 AND conversation_id=$2 AND source_inbound_event_id=$3`,
+          [C, V, M],
         );
-        check('PGlite index-verifier: 100 down drops inbound claim unique', idxDown.rows.length === 0);
+        check(
+          'PGlite: SAME-DESK auto claim allows exactly one durable winner for the inbound',
+          c1.rows.length === 1 && c2.rows.length === 0 && claimCount.rows[0].n === 1,
+          JSON.stringify({ c1: c1.rows.length, c2: c2.rows.length, n: claimCount.rows[0].n }),
+        );
+
+        try {
+          await db.exec(fs.readFileSync(MIG_100_DOWN, 'utf8'));
+          check('PGlite: nonempty 100 down refuses evidence loss', false, 'down succeeded with rows');
+        } catch (downErr) {
+          check(
+            'PGlite: nonempty 100 down refuses evidence loss',
+            /100_down_refused/.test(String(downErr && downErr.message || downErr)),
+            String(downErr && downErr.message || downErr),
+          );
+          try { await db.exec('ROLLBACK'); } catch { /* */ }
+        }
+        await db.query(`DELETE FROM ${CLAIM_TABLE}`);
+        await db.exec(fs.readFileSync(MIG_100_DOWN, 'utf8'));
+        const gone = await db.query(
+          `SELECT 1 AS ok FROM information_schema.tables WHERE table_name = $1`,
+          [CLAIM_TABLE],
+        );
+        check('PGlite: empty 100 down drops dedicated claim table', gone.rows.length === 0);
       } catch (err) {
-        check('PGlite inbound-claim unique proof', false, String(err && err.message || err));
+        check('PGlite dedicated-claim migration proof', false, String(err && err.message || err));
       } finally {
         try { await db.close(); } catch { /* */ }
       }
     }
+  }
 
-    const stockUrl = process.env[STOCK_PG_ENV];
-    if (stockUrl) {
-      let pg;
-      try {
-        pg = require('pg');
-      } catch (err) {
-        check('stock PG module for two-connection inbound claim', false, String(err && err.message || err));
-        pg = null;
-      }
-      if (pg) {
-        const { Client } = pg;
-        const a = new Client({ connectionString: stockUrl });
-        const b = new Client({ connectionString: stockUrl });
-        try {
-          await a.connect();
-          await b.connect();
-          const schema = `same_desk_004_${crypto.randomUUID().replace(/-/g, '')}`;
-          await a.query(`CREATE SCHEMA ${schema}`);
-          await a.query(`SET search_path TO ${schema}, public`);
-          await b.query(`SET search_path TO ${schema}, public`);
-          for (const sql of [
-            `CREATE OR REPLACE FUNCTION set_updated_at() RETURNS TRIGGER AS $$ BEGIN NEW.updated_at=NOW(); RETURN NEW; END; $$ LANGUAGE plpgsql`,
-            `CREATE TABLE clients (id UUID PRIMARY KEY, slug TEXT)`,
-            `CREATE TABLE staff_users (id UUID PRIMARY KEY, client_id UUID NOT NULL REFERENCES clients(id), email TEXT, role TEXT, status TEXT, UNIQUE (client_id, id))`,
-            `CREATE TABLE conversations (id UUID PRIMARY KEY, client_id UUID NOT NULL, phone TEXT, UNIQUE (client_id, id))`,
-            `CREATE TABLE tenant_locations (id UUID PRIMARY KEY, client_id UUID NOT NULL, location_id TEXT NOT NULL, UNIQUE (client_id, id, location_id))`,
-            `CREATE TABLE tenant_channel_endpoints (id UUID PRIMARY KEY, client_id UUID NOT NULL, location_id TEXT NOT NULL, UNIQUE (client_id, id, location_id))`,
-            `CREATE TABLE tenant_email_inbound_events (id UUID PRIMARY KEY, client_id UUID NOT NULL, UNIQUE (client_id, id))`,
-          ]) await a.query(sql);
-          await a.query(fs.readFileSync(path.join(ROOT, 'database/migrations/070_tenant_email_reply_approvals.sql'), 'utf8'));
-          await a.query(fs.readFileSync(MIG_100_UP, 'utf8'));
-          await a.query('INSERT INTO clients (id, slug) VALUES ($1,$2)', [C, 'sunset']);
-          await a.query('INSERT INTO staff_users (id, client_id, email, role, status) VALUES ($1,$2,$3,$4,$5)', [A, C, 'op@t', 'operator', 'active']);
-          await a.query('INSERT INTO conversations (id, client_id, phone) VALUES ($1,$2,$3)', [V, C, 'emailv1:x']);
-          await a.query('INSERT INTO tenant_locations (id, client_id, location_id) VALUES ($1,$2,$3)', [L, C, 'sunset-somo']);
-          await a.query('INSERT INTO tenant_channel_endpoints (id, client_id, location_id) VALUES ($1,$2,$3)', [E, C, 'sunset-somo']);
-          await a.query('INSERT INTO tenant_email_inbound_events (id, client_id) VALUES ($1,$2)', [M, C]);
-          const digest = crypto.createHash('sha256').update(BODY, 'utf8').digest('hex');
-          const ins = `
-            INSERT INTO tenant_email_reply_approvals (
-              approval_id, operation_id, client_id, location_id, location_key, endpoint_id, conversation_id,
-              source_inbound_event_id, provider, provider_mailbox_id, provider_source_message_id,
-              draft_actor_staff_user_id, message_text, body_digest, state
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'microsoft_graph',$9,$10,$11,$12,$13,'draft')
-            ON CONFLICT (client_id, conversation_id, source_inbound_event_id) DO NOTHING
-            RETURNING approval_id::text AS approval_id
-          `;
-          const [sa, sb] = await Promise.all([
-            a.query(ins, [crypto.randomUUID(), crypto.randomUUID(), C, L, 'sunset-somo', E, V, M, MAILBOX, SRC, A, BODY, digest]),
-            b.query(ins, [crypto.randomUUID(), crypto.randomUUID(), C, L, 'sunset-somo', E, V, M, MAILBOX, SRC, A, BODY, digest]),
-          ]);
-          const n = await a.query(
-            'SELECT count(*)::int AS n FROM tenant_email_reply_approvals WHERE client_id=$1 AND conversation_id=$2 AND source_inbound_event_id=$3',
-            [C, V, M],
-          );
-          const returned = (sa.rows.length + sb.rows.length);
-          check(
-            'stock PG two-connection inbound claim: exactly one row and one RETURNING winner',
-            n.rows[0].n === 1 && returned === 1,
-            JSON.stringify({ n: n.rows[0].n, returned, a: sa.rows.length, b: sb.rows.length }),
-          );
-          await a.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
-        } catch (err) {
-          check('stock PG two-connection inbound claim', false, String(err && err.message || err));
-        } finally {
-          try { await a.end(); } catch { /* */ }
-          try { await b.end(); } catch { /* */ }
-        }
-      }
-    } else {
-      check(
-        `stock PG two-connection proof skipped when ${STOCK_PG_ENV} unset (PGlite remains the required gate)`,
-        true,
-      );
-    }
+  console.log('\n[7b] HIGH 2 — authentic stock-PG two-connection claim contention (run twice)');
+  {
+    check(
+      'stock-PG prove script is present (skip cannot count as PASS)',
+      fs.existsSync(STOCK_PG_PROVE),
+    );
+    const src = fs.existsSync(STOCK_PG_PROVE) ? fs.readFileSync(STOCK_PG_PROVE, 'utf8') : '';
+    check(
+      'stock-PG prove uses two independent connections/transactions and lock timeouts',
+      /new Client\(/.test(src)
+        && /lock_timeout/.test(src)
+        && /pg_backend_pid|pg_stat_activity/.test(src)
+        && /embedded-postgres/.test(src)
+        && !/require\(['"]@electric-sql\/pglite['"]\)/.test(src),
+    );
+    const first = runStockPgProof('stock-PG two-connection contention run 1');
+    const second = runStockPgProof('stock-PG two-connection contention run 2');
+    check('stock-PG contention proof ran successfully twice', first === true && second === true);
   }
 
   console.log('\n[8] Inbound composition wiring + isolation');
@@ -1218,11 +1121,16 @@ async function main() {
     /handleSameDeskProjectedInbound/.test(autoSrc)
       && !/WhatsAppCloudAdapter|_patched_whatsapp_cloud_send/.test(autoSrc),
   );
+  const pkgScripts = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).scripts;
   check(
     'package.json exposes verify:luna-same-desk-email-auto-send',
-    JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
-      .scripts['verify:luna-same-desk-email-auto-send']
+    pkgScripts['verify:luna-same-desk-email-auto-send']
       === 'node scripts/verify-luna-same-desk-email-auto-send.js',
+  );
+  check(
+    'package.json exposes prove:luna-same-desk-auto-send-claim-stock-pg',
+    pkgScripts['prove:luna-same-desk-auto-send-claim-stock-pg']
+      === 'node scripts/prove-luna-same-desk-auto-send-claim-stock-pg.js',
   );
   const probeOwner = createEmailLunaMicrosoftAutoCreateAndSend({
     withPgClient: async (fn) => fn({ query: async () => ({ rows: [] }) }),

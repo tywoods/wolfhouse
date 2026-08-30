@@ -126,7 +126,7 @@ const PUBLIC_EXECUTE_FORWARD_ID = '096_tenant_email_luna_automation_public_execu
 const CONTROLLED_DRAFT_FORWARD_ID = '097_tenant_email_luna_controlled_draft_operations';
 const CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID = '098_tenant_email_luna_controlled_drafting_staging_test_authorization';
 const SMTP_OUTBOUND_PROVIDER_FORWARD_ID = '099_tenant_email_imap_smtp_outbound_provider';
-const INBOUND_CLAIM_FORWARD_ID = '100_tenant_email_reply_approvals_inbound_claim';
+const INBOUND_CLAIM_FORWARD_ID = '100_tenant_email_same_desk_auto_send_claims';
 const MASTER_CALENDAR_BRIDGE_DIGESTS = Object.freeze({
   '089_external_calendar_inventory': 'b07a7f87ca1b9e2c3da2da60ef161ccdc049a42726cf12fe4872b742740b9b6f',
   '090_external_calendar_inventory_tenant_integrity': '2e9b9d5219f79d89cc8eadbdb2679c0e2a47c7e7948ecdd0e4449c0eeac33893',
