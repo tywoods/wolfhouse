@@ -1500,9 +1500,9 @@
       "order": null,
       "classification": "rollback_down",
       "inForwardChain": false,
-      "rationale": "Fail-closed while claim rows exist. Absent-table and empty complete-up downs are safe: trigger drops are guarded by to_regclass. Does not rewrite tenant_email_reply_approvals.",
+      "rationale": "Fail-closed while claim rows exist. If the table exists, ACCESS EXCLUSIVE is acquired before the emptiness check and trigger/table drop so a concurrent insert cannot commit between check and DROP. Absent-table and empty complete-up downs are safe: trigger drops are guarded by to_regclass. Does not rewrite tenant_email_reply_approvals.",
       "pairsWith": "100_tenant_email_same_desk_auto_send_claims.sql",
-      "sha256": "991e9c2105c73bdeee24ed96a16401ddd01caec1afad9e0e9ec439784267f7d0"
+      "sha256": "bade76f6567466224eeb444c118058727dc425d50a3638991482c035254490d8"
     }
   ]
 }

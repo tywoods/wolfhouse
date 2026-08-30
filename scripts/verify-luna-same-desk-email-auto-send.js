@@ -333,7 +333,9 @@ function runStockPgProof(label) {
       && /lease expiry\/reclaim/i.test(out)
       && /outcome-unknown remains non-retryable/i.test(out)
       && /absent-table 100 down is safe/i.test(out)
-      && /nonempty 100 down refuses/i.test(out),
+      && /nonempty 100 down refuses/i.test(out)
+      && /concurrent insert vs 100 down/i.test(out)
+      && /insert blocked until ACCESS EXCLUSIVE/i.test(out),
     `status=${result.status} skipped=${skipped} tail=${out.slice(-800)}`,
   );
   return result.status === 0 && skipped !== true;
@@ -1173,6 +1175,7 @@ async function main() {
         && /lock_timeout/.test(src)
         && /pg_backend_pid|pg_stat_activity/.test(src)
         && /embedded-postgres/.test(src)
+        && /ACCESS EXCLUSIVE/.test(src)
         && !/require\(['"]@electric-sql\/pglite['"]\)/.test(src),
     );
     const first = runStockPgProof('stock-PG two-connection contention run 1');
@@ -1433,6 +1436,21 @@ async function main() {
       '100 down still refuses nonempty evidence loss',
       /100_down_refused/.test(downSrc),
     );
+    {
+      const lockNeedle = 'LOCK TABLE public.tenant_email_same_desk_auto_send_claims IN ACCESS EXCLUSIVE MODE';
+      const lockIdx = downSrc.indexOf(lockNeedle);
+      const existsIdx = downSrc.search(/IF EXISTS \(SELECT 1 FROM public\.tenant_email_same_desk_auto_send_claims\)/);
+      const dropTableIdx = downSrc.indexOf('DROP TABLE IF EXISTS public.tenant_email_same_desk_auto_send_claims');
+      const beginIdx = downSrc.search(/(?:^|\n)BEGIN;/);
+      check(
+        '100 down acquires ACCESS EXCLUSIVE before emptiness check and drop, in one transaction',
+        beginIdx >= 0
+          && lockIdx > beginIdx
+          && existsIdx > lockIdx
+          && dropTableIdx > existsIdx
+          && /to_regclass\('public\.tenant_email_same_desk_auto_send_claims'\)/.test(downSrc),
+      );
+    }
 
     const PGliteDown = tryLoadPglite();
     if (!PGliteDown) {

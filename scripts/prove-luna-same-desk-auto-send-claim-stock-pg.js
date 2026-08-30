@@ -9,7 +9,8 @@
  *
  * Also proves: crash/lease expiry/reclaim, stale-owner CAS rejection,
  * outcome-unknown non-retryable dispatching, and 100 down complete-up /
- * absent-table / nonempty-refusal. Skip/unavailable is a hard failure.
+ * absent-table / nonempty-refusal / concurrent-insert ACCESS EXCLUSIVE.
+ * Skip/unavailable is a hard failure.
  *
  * Deterministic clock: ISO timestamps passed as SQL parameters. No
  * Date.now() lease comparisons.
@@ -74,6 +75,31 @@ function withJsTimeout(promise, ms, label) {
     }, ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function isBlockOrTimeout(error) {
+  const code = error && error.code;
+  return code === '55P03' || code === '57014'
+    || /lock timeout|statement timeout|canceling statement/i.test(String(error && error.message || ''));
+}
+
+function assert100DownLockContract(sql) {
+  const beginIdx = sql.search(/(?:^|\n)BEGIN;/);
+  assert.ok(beginIdx >= 0, '100 DOWN must open a transaction');
+  const lockNeedle = 'LOCK TABLE public.tenant_email_same_desk_auto_send_claims IN ACCESS EXCLUSIVE MODE';
+  const lockIdx = sql.indexOf(lockNeedle);
+  assert.ok(lockIdx > beginIdx, '100 DOWN must ACCESS EXCLUSIVE lock the claim table inside the transaction');
+  const existsIdx = sql.search(/IF EXISTS \(SELECT 1 FROM public\.tenant_email_same_desk_auto_send_claims\)/);
+  assert.ok(existsIdx > lockIdx, 'emptiness check must run after ACCESS EXCLUSIVE');
+  const dropTriggerIdx = sql.indexOf('DROP TRIGGER IF EXISTS tenant_email_same_desk_auto_send_claims_protect');
+  const dropTableIdx = sql.indexOf('DROP TABLE IF EXISTS public.tenant_email_same_desk_auto_send_claims');
+  assert.ok(dropTriggerIdx > lockIdx, 'trigger drop must follow ACCESS EXCLUSIVE');
+  assert.ok(dropTableIdx > existsIdx, 'table drop must follow emptiness check');
+  assert.ok(
+    sql.includes("to_regclass('public.tenant_email_same_desk_auto_send_claims')"),
+    'absent-table safety must guard the lock/check/trigger-drop block',
+  );
+  assert.match(sql, /100_down_refused/);
 }
 
 const STUB_SCHEMA = `
@@ -481,6 +507,140 @@ async function proveGenericDraftsRemainAllowed(client) {
   console.log('ok - two generic Microsoft staff drafts and two SMTP drafts remain allowed for the same inbound');
 }
 
+async function proveDownVsConcurrentInsert(Client, port, password) {
+  const downSql = fs.readFileSync(MIG_100_DOWN, 'utf8');
+  const insertConn = new Client({
+    host: '127.0.0.1', port, user: 'postgres', password, database: 'same_desk_004_race',
+  });
+  const downConn = new Client({
+    host: '127.0.0.1', port, user: 'postgres', password, database: 'same_desk_004_race',
+  });
+  try {
+    await insertConn.connect();
+    await downConn.connect();
+    const insertPid = (await insertConn.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    const downPid = (await downConn.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+    assert.notEqual(insertPid, downPid, 'insert and down must be distinct backends');
+
+    await insertConn.query(STUB_SCHEMA);
+    await insertConn.query(fs.readFileSync(MIG_070, 'utf8'));
+    await insertConn.query(fs.readFileSync(MIG_100_UP, 'utf8'));
+    await seed(insertConn);
+
+    await insertConn.query("SET lock_timeout = '8s'");
+    await insertConn.query("SET statement_timeout = '15s'");
+    await downConn.query("SET lock_timeout = '8s'");
+    await downConn.query("SET statement_timeout = '15s'");
+
+    // Ordering 1: uncommitted insert holds RowExclusiveLock. Down must wait,
+    // then after insert commits, refuse rather than DROP the new evidence.
+    await insertConn.query('BEGIN');
+    const inserted = await insertConn.query(SQL_INSERT_CLAIM, claimParams(M, T0));
+    assert.equal(inserted.rows.length, 1, 'race insert must RETURNING the leased claim');
+
+    let downSettled = false;
+    const downPromise = withJsTimeout(
+      downConn.query(downSql).then((res) => {
+        downSettled = true;
+        return { ok: true, res };
+      }).catch((err) => {
+        downSettled = true;
+        return { ok: false, err };
+      }),
+      12000,
+      '100 down vs held insert',
+    );
+
+    let sawLockWait = false;
+    for (let i = 0; i < 80; i += 1) {
+      if (downSettled) break;
+      const waits = await insertConn.query(
+        'SELECT wait_event_type, wait_event, state FROM pg_stat_activity WHERE pid = $1',
+        [downPid],
+      );
+      const row = waits.rows[0];
+      if (row && String(row.wait_event_type || '') === 'Lock') {
+        sawLockWait = true;
+        break;
+      }
+      await sleep(25);
+    }
+    assert.equal(downSettled, false, '100 down must still be pending while insert holds RowExclusiveLock');
+    assert.ok(sawLockWait, '100 down must wait on ACCESS EXCLUSIVE while the insert is uncommitted');
+
+    await insertConn.query('COMMIT');
+    const downOutcome = await downPromise;
+    try { await downConn.query('ROLLBACK'); } catch { /* aborted txn */ }
+
+    assert.equal(
+      downOutcome.ok,
+      false,
+      '100 down must not silently drop after a concurrent insert commits',
+    );
+    assert.match(
+      String(downOutcome.err && downOutcome.err.message || ''),
+      /100_down_refused/,
+      'after lock acquisition, down must see the committed row and refuse',
+    );
+
+    const still = await insertConn.query(
+      'SELECT count(*)::int AS n FROM tenant_email_same_desk_auto_send_claims',
+    );
+    assert.equal(still.rows[0].n, 1, 'committed claim evidence must not be silently deleted');
+    const table = await insertConn.query(
+      "SELECT 1 AS ok FROM information_schema.tables WHERE table_name = 'tenant_email_same_desk_auto_send_claims'",
+    );
+    assert.equal(table.rows.length, 1, 'claim table must remain after refused down');
+    console.log('ok - concurrent insert vs 100 down: ACCESS EXCLUSIVE wait, then refuse; evidence preserved');
+
+    // Ordering 2: down holds ACCESS EXCLUSIVE first; insert is blocked until
+    // a safe drop (or rollback) — no commit between emptiness check and DROP.
+    await insertConn.query('DELETE FROM tenant_email_same_desk_auto_send_claims');
+    await downConn.query('BEGIN');
+    await downConn.query('LOCK TABLE public.tenant_email_same_desk_auto_send_claims IN ACCESS EXCLUSIVE MODE');
+    const empty = await downConn.query(
+      'SELECT count(*)::int AS n FROM tenant_email_same_desk_auto_send_claims',
+    );
+    assert.equal(empty.rows[0].n, 0, 'emptiness check must run after ACCESS EXCLUSIVE');
+
+    await insertConn.query("SET lock_timeout = '800ms'");
+    await insertConn.query("SET statement_timeout = '2500ms'");
+    let insertErr = null;
+    try {
+      await withJsTimeout(
+        insertConn.query(SQL_INSERT_CLAIM, claimParams(M, T0)),
+        6000,
+        'insert vs ACCESS EXCLUSIVE',
+      );
+    } catch (err) {
+      insertErr = err;
+    }
+    assert.ok(insertErr, 'insert must not commit while ACCESS EXCLUSIVE is held');
+    assert.ok(
+      isBlockOrTimeout(insertErr),
+      `insert must block/timeout under ACCESS EXCLUSIVE, got ${insertErr && insertErr.code} ${insertErr && insertErr.message}`,
+    );
+    const stillEmpty = await downConn.query(
+      'SELECT count(*)::int AS n FROM tenant_email_same_desk_auto_send_claims',
+    );
+    assert.equal(stillEmpty.rows[0].n, 0, 'insert cannot commit between emptiness check and DROP');
+    await downConn.query('ROLLBACK');
+
+    await insertConn.query("SET lock_timeout = '8s'");
+    await insertConn.query("SET statement_timeout = '15s'");
+    const afterRelease = await insertConn.query(SQL_INSERT_CLAIM, claimParams(M, T0));
+    assert.equal(afterRelease.rows.length, 1, 'insert succeeds after ACCESS EXCLUSIVE is released');
+    console.log('ok - insert blocked until ACCESS EXCLUSIVE released; no evidence-loss window');
+
+    assert100DownLockContract(downSql);
+  } finally {
+    try { await insertConn.query('ROLLBACK'); } catch { /* */ }
+    try { await downConn.query('ROLLBACK'); } catch { /* */ }
+    try { await insertConn.end(); } catch { /* */ }
+    try { await downConn.end(); } catch { /* */ }
+  }
+}
+
 async function proveDownMigrations(a, Client, port, password) {
   try {
     await a.query(fs.readFileSync(MIG_100_DOWN, 'utf8'));
@@ -575,6 +735,7 @@ async function main() {
     await admin.query('CREATE DATABASE same_desk_004_claim');
     await admin.query('CREATE DATABASE same_desk_004_empty');
     await admin.query('CREATE DATABASE same_desk_004_absent');
+    await admin.query('CREATE DATABASE same_desk_004_race');
     await a.connect();
     await b.connect();
     const aPid = (await a.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
@@ -593,6 +754,7 @@ async function main() {
     await proveParallelWorkers(a, b);
     await proveLeaseExpiryReclaimAndStaleOwner(a, b);
     await proveOutcomeUnknownNonRetryable(a, b);
+    await proveDownVsConcurrentInsert(Client, port, password);
     await proveDownMigrations(a, Client, port, password);
 
     console.log('ALL OK — SAME-DESK-004 stock-PG two-connection claim contention');
