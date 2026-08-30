@@ -30,6 +30,28 @@ function humanizeRentalOfferingKey(offeringKey) {
 }
 
 /**
+ * Fail-closed active flag for rental identity rows at the JS/JSON boundary.
+ *
+ * Documented active values: boolean true, "true", 1, "1" (whitespace-tolerant).
+ * Explicitly inactive: false, "false", 0, "0".
+ * Every other value (missing, "yes", null) is inactive.
+ *
+ * Native PostgreSQL booleans remain true/false and are not rewritten here —
+ * SQL `active = true` filters stay the database contract.
+ *
+ * @param {*} value
+ * @returns {boolean}
+ */
+function isDocumentedActiveFlag(value) {
+  if (value === true || value === 1) return true;
+  if (typeof value === 'string') {
+    const s = value.trim().toLowerCase();
+    return s === 'true' || s === '1';
+  }
+  return false;
+}
+
+/**
  * True when a candidate label is just an identity key/code (not human-friendly).
  * Reject so callers fall through to catalog or humanized title-case.
  */
@@ -74,7 +96,7 @@ function buildRentalCatalogLabelMap(offerings, opts) {
   for (let i = 0; i < list.length; i += 1) {
     const off = list[i];
     if (!off) continue;
-    if (!includeInactive && off.active === false) continue;
+    if (!includeInactive && !isDocumentedActiveFlag(off.active)) continue;
     const key = String(off.offering_key || '').trim();
     if (!key) continue;
     const offClient = String(off.client_slug || off.tenant || '').trim();
@@ -110,6 +132,44 @@ function lookupCatalogLabel(catalogLabelMap, offeringKey) {
   }
   const v = catalogLabelMap[key];
   return v != null ? String(v).trim() : '';
+}
+
+/**
+ * Active Admin rental identity keys for a tenant/location.
+ *
+ * Returns null when no identity catalog was supplied (price-only bootstrap).
+ * Returns a Set (possibly empty) when Admin rental_offerings exist: disabled,
+ * foreign-tenant, and other-location rows are excluded. Empty Set means
+ * "catalog present, nothing live here" — callers must not fall back to
+ * leftover public-site price rows.
+ *
+ * @param {Array<object>|null|undefined} offerings
+ * @param {object} [opts]
+ * @param {string} [opts.clientSlug]
+ * @param {string} [opts.locationId]
+ * @returns {Set<string>|null}
+ */
+function activeRentalOfferingKeySet(offerings, opts) {
+  if (!Array.isArray(offerings)) return null;
+  const list = offerings;
+  const o = opts || {};
+  const wantClient = o.clientSlug != null ? String(o.clientSlug).trim() : '';
+  const wantLoc = o.locationId != null ? String(o.locationId).trim() : '';
+  const keys = new Set();
+  for (let i = 0; i < list.length; i += 1) {
+    const off = list[i];
+    if (!off || !isDocumentedActiveFlag(off.active)) continue;
+    const key = String(off.offering_key || '').trim();
+    if (!key) continue;
+    const offClient = String(off.client_slug || off.tenant || '').trim();
+    if (wantClient && offClient && offClient !== wantClient) continue;
+    const offLoc = off.location_id != null && String(off.location_id).trim()
+      ? String(off.location_id).trim()
+      : '';
+    if (wantLoc && offLoc && offLoc !== wantLoc) continue;
+    keys.add(key);
+  }
+  return keys;
 }
 
 /**
@@ -222,8 +282,10 @@ function enrichServiceRecordsWithCatalogLabels(rows, catalogLabelMap) {
 module.exports = {
   humanizeRentalOfferingKey,
   isIdentityLikeRentalLabel,
+  isDocumentedActiveFlag,
   buildRentalCatalogLabelMap,
   lookupCatalogLabel,
+  activeRentalOfferingKeySet,
   resolveRentalOfferingFriendlyLabel,
   enrichServiceRecordsWithCatalogLabels,
 };

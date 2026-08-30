@@ -186,9 +186,12 @@ function annotateCatalogOfferings(rawOfferings, { requestedDates, includeExclude
   }
 
   // Booking surfaces: return priced offerings (including schedule-ineligible for Luna explain).
+  // Never surface disabled Admin identities to guests.
   const priced = annotated.filter((o) => (
-    o.unit_amount_cents != null && o.unit_amount_cents > 0
+    o.active !== false
+    && o.unit_amount_cents != null && o.unit_amount_cents > 0
   )).filter((o) => {
+    if (o.exclusion_reason === CATALOG_EXCLUSION_REASONS.INACTIVE) return false;
     if (o.offering_type === 'course' && !o.price_identity) return false;
     if (o.offering_type === 'course' && o.unit_amount_cents == null) return false;
     return true;
@@ -251,7 +254,9 @@ function buildSunsetCatalogCommand(opts) {
 
 /**
  * Load tenant/location rental identity rows for catalog label projection.
- * Never throws — empty list on failure so price-only fallback remains.
+ * Query failure fail-closes to an empty array (authoritative allowlist of
+ * nothing) — never collapse to null/missing, which would re-enable price-only
+ * leftover public-site rows.
  */
 async function loadRentalOfferingsForCatalog(pg, locationId) {
   if (!pg) return [];
@@ -269,13 +274,16 @@ async function loadRentalOfferingsForCatalog(pg, locationId) {
 }
 
 function adminCfgWithRentalOfferings(adminCfg, rentalOfferings) {
-  const existing = adminCfg && Array.isArray(adminCfg.rental_offerings)
-    ? adminCfg.rental_offerings
-    : [];
-  const next = (rentalOfferings && rentalOfferings.length) ? rentalOfferings : existing;
-  if (!adminCfg) return { ok: true, rental_offerings: next };
-  if (next === existing) return adminCfg;
-  return { ...adminCfg, rental_offerings: next };
+  // Missing/undefined is bootstrap (leave adminCfg as-is). An array — including
+  // empty — is the live Admin allowlist and must not fall back to stale prices.
+  if (!Array.isArray(rentalOfferings)) return adminCfg;
+  if (!adminCfg) return { ok: true, rental_offerings: rentalOfferings };
+  return { ...adminCfg, rental_offerings: rentalOfferings };
+}
+
+function projectionOptsWithRentalOfferings(baseOpts, rentalOfferings) {
+  if (!Array.isArray(rentalOfferings)) return baseOpts;
+  return { ...baseOpts, rentalOfferings };
 }
 
 async function loadCatalogProjection(pg, command, adminCfg) {
@@ -290,10 +298,11 @@ async function loadCatalogProjection(pg, command, adminCfg) {
 
   // P0e: ensure rental identity labels are available to the bookable projection
   // (tenant-business-config prices alone do not carry Admin catalog names).
+  // Missing array = price-only bootstrap. Empty array / DB read = live allowlist.
   let rentalOfferings = Array.isArray(adminCfg && adminCfg.rental_offerings)
     ? adminCfg.rental_offerings
-    : [];
-  if (pg && !rentalOfferings.length) {
+    : null;
+  if (pg && (rentalOfferings == null || rentalOfferings.length === 0)) {
     rentalOfferings = await loadRentalOfferingsForCatalog(pg, command.locationId);
   }
   const cfgForProject = adminCfgWithRentalOfferings(adminCfg, rentalOfferings);
@@ -308,13 +317,10 @@ async function loadCatalogProjection(pg, command, adminCfg) {
     });
     if (!dbLoaded.ok) return dbLoaded;
 
-    const projected = projectSunsetBookableOfferingsFromConfig(cfgForProject, {
+    const projected = projectSunsetBookableOfferingsFromConfig(cfgForProject, projectionOptsWithRentalOfferings({
       ...projectionOpts,
       requireDb: true,
-      rentalOfferings: rentalOfferings.length
-        ? rentalOfferings
-        : (cfgForProject.rental_offerings || []),
-    });
+    }, rentalOfferings));
     if (!projected.ok && projected.reason === CATALOG_EXCLUSION_REASONS.ADMIN_DB_UNAVAILABLE) {
       return dbLoaded;
     }
@@ -346,12 +352,10 @@ async function loadCatalogProjection(pg, command, adminCfg) {
       requestedDates: command.requestedDates,
       asOfDate: command.asOfDate,
     });
-    const projected = projectSunsetBookableOfferingsFromConfig(cfgForProject, {
-      ...projectionOpts,
-      rentalOfferings: rentalOfferings.length
-        ? rentalOfferings
-        : (cfgForProject.rental_offerings || []),
-    });
+    const projected = projectSunsetBookableOfferingsFromConfig(
+      cfgForProject,
+      projectionOptsWithRentalOfferings(projectionOpts, rentalOfferings),
+    );
     if (!projected.ok) return projected;
     const byId = new Map((projected.offerings || []).map((o) => [o.offering_id, o]));
     for (const o of (dbCourses.offerings || [])) {
@@ -369,10 +373,10 @@ async function loadCatalogProjection(pg, command, adminCfg) {
     };
   }
 
-  return projectSunsetBookableOfferingsFromConfig(cfgForProject, {
-    ...projectionOpts,
-    rentalOfferings: cfgForProject.rental_offerings || [],
-  });
+  return projectSunsetBookableOfferingsFromConfig(
+    cfgForProject,
+    projectionOptsWithRentalOfferings(projectionOpts, rentalOfferings),
+  );
 }
 
 async function enrichJoinableCourses(pg, command, courses) {
@@ -572,8 +576,10 @@ function executeSunsetCatalogSync(command, opts = {}) {
     asOfDate: command.asOfDate,
     bookableOnly: false,
     coursesOnly: command.coursesOnly,
-    rentalOfferings: Array.isArray(adminCfg.rental_offerings) ? adminCfg.rental_offerings : [],
   };
+  if (Array.isArray(adminCfg.rental_offerings)) {
+    projectionOpts.rentalOfferings = adminCfg.rental_offerings;
+  }
   const projection = projectSunsetBookableOfferingsFromConfig(adminCfg, projectionOpts);
   if (!projection.ok) return mapCatalogFailure(projection, command);
 

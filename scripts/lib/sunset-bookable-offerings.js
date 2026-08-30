@@ -43,6 +43,8 @@ const {
   lookupCatalogLabel,
   isIdentityLikeRentalLabel,
   resolveRentalOfferingFriendlyLabel,
+  activeRentalOfferingKeySet,
+  isDocumentedActiveFlag,
 } = require('./rental-offering-label');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
@@ -225,13 +227,22 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
   }
 
   const prices = adminCfg.prices || [];
-  const rentalOfferings = opts.rentalOfferings || adminCfg.rental_offerings || [];
+  const rentalOfferingsRaw = (opts && Object.prototype.hasOwnProperty.call(opts, 'rentalOfferings'))
+    ? opts.rentalOfferings
+    : (adminCfg && adminCfg.rental_offerings);
+  const rentalOfferings = Array.isArray(rentalOfferingsRaw) ? rentalOfferingsRaw : [];
   // P0e: exact offering_key → Admin tenant_rental_offerings.label (active catalog).
   // Prefer exact location over client-wide; reject foreign tenant/location.
   const rentalCatalogLabelByKey = buildRentalCatalogLabelMap(rentalOfferings, {
     clientSlug: SUNSET_CLIENT_SLUG,
     locationId,
     includeInactive: false,
+  });
+  // Live Admin catalog is the offer allowlist. Null = price-only bootstrap
+  // (no identity rows yet). Empty array / empty Set = catalog present, nothing live.
+  const liveRentalKeys = activeRentalOfferingKeySet(rentalOfferingsRaw, {
+    clientSlug: SUNSET_CLIENT_SLUG,
+    locationId,
   });
   const asOf = opts.asOf || opts.asOfDate || null;
   const requestedDates = opts.requestedDates || (
@@ -310,6 +321,10 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
     if (price.effective_to && isoDate(price.effective_to) < asOfDate) continue;
 
     if (category === 'rental' || /rental|full_day_equipment/i.test(key)) {
+      const priceLoc = price.location_id != null && String(price.location_id).trim()
+        ? String(price.location_id).trim()
+        : '';
+      if (priceLoc && priceLoc !== locationId) continue;
       let identity = null;
       let baseKey = null;
       if (/full_day_equipment/i.test(key)) {
@@ -324,6 +339,11 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
         identity = rentalIdentity(baseKey, duration, locationId);
       }
       if (!identity) continue;
+      // SAME-DESK-001: when Admin rental identities exist, never offer leftover
+      // disabled keys, foreign-tenant rows, or public-site bundles not in catalog.
+      if (liveRentalKeys && baseKey !== 'full_day_equipment' && !liveRentalKeys.has(baseKey)) {
+        continue;
+      }
       // P0e: tenant_rental_offerings.label wins over price.label/display_name/key
       // for both catalog `label` and `guest_description`. Exact baseKey only.
       const catalogLabel = baseKey
@@ -464,19 +484,25 @@ async function loadSunsetBookableOfferings(pg, opts = {}) {
   const packs = await loadSurfPacksFromDb(pg, clientSlug, locationId);
   // Active scoped rentals: exact location + client-wide (null location). Reject
   // foreign tenant/location. Prefer exact location inside catalog label map.
-  const rentalOfferings = (await listRentalOfferings(pg, {
-    clientSlug,
-    locationId,
-    includeInactive: false,
-  })).filter((row) => {
-    if (!row || row.active === false) return false;
-    if (String(row.client_slug || '').trim() !== clientSlug) return false;
-    const loc = row.location_id != null && String(row.location_id).trim()
-      ? String(row.location_id).trim()
-      : '';
-    if (loc && loc !== locationId) return false;
-    return true;
-  });
+  // Query failure fail-closes to an empty identity list (never price-only fallback).
+  let rentalOfferings = [];
+  try {
+    rentalOfferings = (await listRentalOfferings(pg, {
+      clientSlug,
+      locationId,
+      includeInactive: false,
+    })).filter((row) => {
+      if (!row || !isDocumentedActiveFlag(row.active)) return false;
+      if (String(row.client_slug || '').trim() !== clientSlug) return false;
+      const loc = row.location_id != null && String(row.location_id).trim()
+        ? String(row.location_id).trim()
+        : '';
+      if (loc && loc !== locationId) return false;
+      return true;
+    });
+  } catch (_) {
+    rentalOfferings = [];
+  }
   const privateLessonResult = await loadPrivateLessonFromDb(pg, clientSlug, locationId);
   const privateLesson = privateLessonResult && privateLessonResult.api
     ? privateLessonResult.api
