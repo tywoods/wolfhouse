@@ -43,6 +43,7 @@ const {
   lookupCatalogLabel,
   isIdentityLikeRentalLabel,
   resolveRentalOfferingFriendlyLabel,
+  activeRentalOfferingKeySet,
 } = require('./rental-offering-label');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
@@ -233,6 +234,12 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
     locationId,
     includeInactive: false,
   });
+  // Live Admin catalog is the offer allowlist. Null = price-only bootstrap
+  // (no identity rows yet). Empty Set = catalog present, nothing live here.
+  const liveRentalKeys = activeRentalOfferingKeySet(rentalOfferings, {
+    clientSlug: SUNSET_CLIENT_SLUG,
+    locationId,
+  });
   const asOf = opts.asOf || opts.asOfDate || null;
   const requestedDates = opts.requestedDates || (
     opts.date ? [String(opts.date).slice(0, 10)] : null
@@ -310,6 +317,10 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
     if (price.effective_to && isoDate(price.effective_to) < asOfDate) continue;
 
     if (category === 'rental' || /rental|full_day_equipment/i.test(key)) {
+      const priceLoc = price.location_id != null && String(price.location_id).trim()
+        ? String(price.location_id).trim()
+        : '';
+      if (priceLoc && priceLoc !== locationId) continue;
       let identity = null;
       let baseKey = null;
       if (/full_day_equipment/i.test(key)) {
@@ -324,6 +335,11 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
         identity = rentalIdentity(baseKey, duration, locationId);
       }
       if (!identity) continue;
+      // SAME-DESK-001: when Admin rental identities exist, never offer leftover
+      // disabled keys, foreign-tenant rows, or public-site bundles not in catalog.
+      if (liveRentalKeys && baseKey !== 'full_day_equipment' && !liveRentalKeys.has(baseKey)) {
+        continue;
+      }
       // P0e: tenant_rental_offerings.label wins over price.label/display_name/key
       // for both catalog `label` and `guest_description`. Exact baseKey only.
       const catalogLabel = baseKey

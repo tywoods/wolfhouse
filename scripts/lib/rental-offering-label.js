@@ -113,6 +113,44 @@ function lookupCatalogLabel(catalogLabelMap, offeringKey) {
 }
 
 /**
+ * Active Admin rental identity keys for a tenant/location.
+ *
+ * Returns null when no identity catalog was supplied (price-only bootstrap).
+ * Returns a Set (possibly empty) when Admin rental_offerings exist: disabled,
+ * foreign-tenant, and other-location rows are excluded. Empty Set means
+ * "catalog present, nothing live here" — callers must not fall back to
+ * leftover public-site price rows.
+ *
+ * @param {Array<object>|null|undefined} offerings
+ * @param {object} [opts]
+ * @param {string} [opts.clientSlug]
+ * @param {string} [opts.locationId]
+ * @returns {Set<string>|null}
+ */
+function activeRentalOfferingKeySet(offerings, opts) {
+  const list = Array.isArray(offerings) ? offerings : [];
+  if (!list.length) return null;
+  const o = opts || {};
+  const wantClient = o.clientSlug != null ? String(o.clientSlug).trim() : '';
+  const wantLoc = o.locationId != null ? String(o.locationId).trim() : '';
+  const keys = new Set();
+  for (let i = 0; i < list.length; i += 1) {
+    const off = list[i];
+    if (!off || off.active === false) continue;
+    const key = String(off.offering_key || '').trim();
+    if (!key) continue;
+    const offClient = String(off.client_slug || off.tenant || '').trim();
+    if (wantClient && offClient && offClient !== wantClient) continue;
+    const offLoc = off.location_id != null && String(off.location_id).trim()
+      ? String(off.location_id).trim()
+      : '';
+    if (wantLoc && offLoc && offLoc !== wantLoc) continue;
+    keys.add(key);
+  }
+  return keys;
+}
+
+/**
  * Resolve a friendly rental label from metadata fields and/or offering key.
  *
  * Precedence (P0e):
@@ -224,6 +262,7 @@ module.exports = {
   isIdentityLikeRentalLabel,
   buildRentalCatalogLabelMap,
   lookupCatalogLabel,
+  activeRentalOfferingKeySet,
   resolveRentalOfferingFriendlyLabel,
   enrichServiceRecordsWithCatalogLabels,
 };

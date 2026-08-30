@@ -136,6 +136,73 @@ out3 = json.loads(mod.get_sunset_rental_catalog({}))
 keys3 = {i.get("item") for i in (out3.get("items") or [])}
 check("[a3] removed wetsuit not offered", "wetsuit_rental" not in keys3, out3.get("items"))
 
+# [a4] SAME-DESK-001: disabled rental never offered even if Staff API leaked it
+fake4 = FakeBot({
+    "/sunset/catalog": {
+        "ok": True,
+        "location_id": "sunset-somo",
+        "offerings": [
+            {
+                "offering_id": "kayak_rental__1_day",
+                "offering_type": "rental",
+                "item_code": "kayak_rental__1_day",
+                "tier_key": "1_day",
+                "label": "Kayak Pro",
+                "active": True,
+                "unit_amount_cents": 4500,
+            },
+            {
+                "offering_id": "board_rental__1_day",
+                "offering_type": "rental",
+                "item_code": "board_rental__1_day",
+                "tier_key": "1_day",
+                "label": "Old Board",
+                "active": False,
+                "unit_amount_cents": 1500,
+            },
+        ],
+    }
+})
+mod._post_bot = fake4  # type: ignore[attr-defined]
+out4 = json.loads(mod.get_sunset_rental_catalog({}))
+keys4 = {i.get("item") for i in (out4.get("items") or [])}
+check("[a4] live kayak offered", "kayak_rental" in keys4, out4.get("items"))
+check("[a4] disabled board_rental excluded", "board_rental" not in keys4, out4.get("items"))
+
+# [a5] SAME-DESK-001: disabled course never offered from lesson catalog
+fake5 = FakeBot({
+    "/sunset/catalog": {
+        "ok": True,
+        "location_id": "sunset-somo",
+        "offerings": [
+            {
+                "offering_id": "surf_pack_live__1_week",
+                "offering_type": "course",
+                "course_id": "live-course",
+                "label": "Weekend Intensive",
+                "active": True,
+                "unit_amount_cents": 19900,
+            },
+            {
+                "offering_id": "surf_pack_dead__1_week",
+                "offering_type": "course",
+                "course_id": "dead-course",
+                "label": "Old Kids Camp",
+                "active": False,
+                "unit_amount_cents": 13000,
+            },
+        ],
+    }
+})
+mod._post_bot = fake5  # type: ignore[attr-defined]
+out5 = json.loads(mod.get_sunset_lesson_catalog({}))
+off5 = out5.get("offerings") or []
+check("[a5] live course offered", any(o.get("course_id") == "live-course" for o in off5), off5)
+check("[a5] disabled course excluded", not any(
+    o.get("course_id") == "dead-course" or "old kids" in str(o.get("label") or "").lower()
+    for o in off5
+), off5)
+
 # [b] no hardcoded item/duration menus in registered sunset tool descriptions/schemas
 prev = os.environ.get("LUNA_CLIENT_SLUG")
 os.environ["LUNA_CLIENT_SLUG"] = "sunset"

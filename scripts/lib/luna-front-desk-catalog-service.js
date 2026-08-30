@@ -186,9 +186,12 @@ function annotateCatalogOfferings(rawOfferings, { requestedDates, includeExclude
   }
 
   // Booking surfaces: return priced offerings (including schedule-ineligible for Luna explain).
+  // Never surface disabled Admin identities to guests.
   const priced = annotated.filter((o) => (
-    o.unit_amount_cents != null && o.unit_amount_cents > 0
+    o.active !== false
+    && o.unit_amount_cents != null && o.unit_amount_cents > 0
   )).filter((o) => {
+    if (o.exclusion_reason === CATALOG_EXCLUSION_REASONS.INACTIVE) return false;
     if (o.offering_type === 'course' && !o.price_identity) return false;
     if (o.offering_type === 'course' && o.unit_amount_cents == null) return false;
     return true;

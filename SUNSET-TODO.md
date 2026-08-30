@@ -12,6 +12,16 @@ This is the current working backlog for the Sunset staff portal and Sunset Luna.
 
 ## Now — close the guest journey
 
+### Same Desk — recommended next slices
+
+Guest WhatsApp and email share one grounded Sunset desk. **001 is this job.** Do not implement 002–005 here. Auto-send stays off; no outreach; staging only.
+
+- **001** Luna uses live Admin catalog; never offer/quote disabled rentals/courses; same names/prices staff see; no hardcoded public-site bundles
+- **002** email replies: same grounded brain as WhatsApp, email-shaped (structured quote, one/two asks), still Approve & send
+- **003** email booking adapted from WhatsApp: Staff API hold 24h, booking placed when guest pays, unpaid hold expires; email carries quote block + payment link, not chat ping-pong
+- **004** email auto like WhatsApp when Luna On / not needs_human / pause off — staging proof only; do not activate
+- **005** journey regression pack
+
 ### N1 — `[LUNA][BUG][SAFETY]` Live Admin catalog parity
 
 Prove that Luna reads the same enabled offerings, course names, rental tiers, stock/capacity, equipment, add-ons, and accommodation packages that staff see.

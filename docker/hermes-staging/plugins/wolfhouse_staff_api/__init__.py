@@ -1468,6 +1468,8 @@ def _project_sunset_rental_catalog_items(raw_offerings):
         oid = str(o.get("offering_id") or o.get("item_code") or o.get("offering_item_code") or "")
         if otype == "addon" or "full_day_equipment" in oid.lower():
             continue
+        if o.get("active") is False:
+            continue
         if otype and otype != "rental":
             continue
         # When type missing, only accept clear rental identities.
@@ -1801,6 +1803,8 @@ def get_sunset_lesson_catalog(params, **kwargs):
         otype = str(o.get("offering_type") or "").lower()
         oid = str(o.get("offering_id") or "")
         if otype in ("group_lesson", "kids_lesson"):
+            continue
+        if o.get("active") is False:
             continue
         if "lesson_slot_" in oid or "lesson_slot_" in str(o.get("price_id") or "") or "lesson_slot_" in str(o.get("item_code") or ""):
             continue
