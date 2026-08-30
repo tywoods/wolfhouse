@@ -447,17 +447,21 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
         const acknowledged = await durableConsumer(envelopes);
         const {
           isEmailMicrosoftAutoSendEmergencyEnabled,
+          isSameDeskEmailAutoSendEnabled,
           shouldSuppressInboundNeedsHuman,
           afterMicrosoftInboundProjected,
+          afterSameDeskEmailAutoSend,
         } = require('./email-luna-microsoft-auto-create-send');
         const autoFlagsOn = isEmailMicrosoftAutoSendEmergencyEnabled(ready.env);
+        const sameDeskOn = isSameDeskEmailAutoSendEnabled(ready.env);
         let suppressNeedsHuman = false;
-        if (autoFlagsOn) {
+        if (autoFlagsOn || sameDeskOn) {
           try {
             suppressNeedsHuman = await shouldSuppressInboundNeedsHuman({
               env: ready.env,
               clientId: ids.clientId,
               withTransactionClient,
+              sameDesk: sameDeskOn,
             });
           } catch {
             suppressNeedsHuman = false;
@@ -482,6 +486,21 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
           if (autoFlagsOn) {
             try {
               await afterMicrosoftInboundProjected({
+                env: ready.env,
+                pgClient,
+                withTransactionClient,
+                https: natives.https,
+                timers: natives.timers,
+                authority: ids,
+                envelope,
+                projection: projected,
+              });
+            } catch {
+              // Auto failure must not unwind inbound durability.
+            }
+          } else if (sameDeskOn) {
+            try {
+              await afterSameDeskEmailAutoSend({
                 env: ready.env,
                 pgClient,
                 withTransactionClient,

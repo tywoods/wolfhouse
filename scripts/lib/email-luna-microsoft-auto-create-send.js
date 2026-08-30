@@ -8,6 +8,11 @@
  *   LUNA_AUTO_SEND_ENABLED
  *   LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED
  *
+ * SAME-DESK-004 — WhatsApp-like Staff-API auto-send on the same inbound
+ * seam, without the dormant email emergency flag. Auto-send only when
+ * conversation Luna is On, needs_human is false, and Global Pause is off.
+ * needs_human keeps Approve & send. Luna Off / Global Pause stay draft-only.
+ *
  * Does not read CUSTOMER_OUTREACH_EMAIL_ENABLED.
  * Pause remains `bot_pause_states` via getPauseState (fail closed).
  * Draft author is the proven Create Draft producer (empty operator context).
@@ -117,6 +122,12 @@ function isLiteralTrue(env, key) {
 function isEmailMicrosoftAutoSendEmergencyEnabled(env) {
   return isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED)
     && isLiteralTrue(env, ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED);
+}
+
+/** WhatsApp-like kill switch only. Does not enable the dormant MAIL-MVP-003 pair. */
+function isSameDeskEmailAutoSendEnabled(env) {
+  return isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED)
+    && !isEmailMicrosoftAutoSendEmergencyEnabled(env);
 }
 
 const CLOSED_SAVE_FAIL_REASONS = freeze([
@@ -289,12 +300,17 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
     return store.getChannelMode(clientId, 'email');
   }
 
-  async function handleProjectedInbound(input) {
+  async function runProjectedInbound(input, policy) {
     const env = input && input.env;
     const authority = input && input.authority;
     const envelope = input && input.envelope;
     const projection = input && input.projection;
-    if (!isEmailMicrosoftAutoSendEmergencyEnabled(env)) {
+    const sameDesk = policy && policy.sameDesk === true;
+    if (sameDesk) {
+      if (!isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED)) {
+        return blocked('luna_auto_send_not_enabled');
+      }
+    } else if (!isEmailMicrosoftAutoSendEmergencyEnabled(env)) {
       return blocked('emergency_flags_off');
     }
     if (!projection || (projection.status !== 'projected' && projection.status !== 'already_projected')) {
@@ -511,12 +527,22 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
     });
   }
 
-  return freeze({ handleProjectedInbound });
+  async function handleProjectedInbound(input) {
+    return runProjectedInbound(input, { sameDesk: false });
+  }
+
+  async function handleSameDeskProjectedInbound(input) {
+    return runProjectedInbound(input, { sameDesk: true });
+  }
+
+  return freeze({ handleProjectedInbound, handleSameDeskProjectedInbound });
 }
 
 async function shouldSuppressInboundNeedsHuman(input) {
   const env = input && input.env;
-  if (!isEmailMicrosoftAutoSendEmergencyEnabled(env)) return false;
+  const emergency = isEmailMicrosoftAutoSendEmergencyEnabled(env);
+  const sameDesk = input && input.sameDesk === true && isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED);
+  if (!emergency && !sameDesk) return false;
   const clientId = uuid(input && input.clientId);
   if (!clientId) return false;
   try {
@@ -589,15 +615,29 @@ function createProductionEmailLunaMicrosoftAutoCreateAndSend(input) {
   });
 }
 
+function resolveAutoOwner(input) {
+  if (input && input.owner) return input.owner;
+  if (input && typeof input.regenerateEmailLunaDraftOnStaffClick === 'function') {
+    return createEmailLunaMicrosoftAutoCreateAndSend(input);
+  }
+  return createProductionEmailLunaMicrosoftAutoCreateAndSend(input);
+}
+
 async function afterMicrosoftInboundProjected(input) {
   if (!isEmailMicrosoftAutoSendEmergencyEnabled(input && input.env)) {
     return blocked('emergency_flags_off');
   }
-  const owner = input.owner
-    || (typeof input.regenerateEmailLunaDraftOnStaffClick === 'function'
-      ? createEmailLunaMicrosoftAutoCreateAndSend(input)
-      : createProductionEmailLunaMicrosoftAutoCreateAndSend(input));
-  return owner.handleProjectedInbound(input);
+  return resolveAutoOwner(input).handleProjectedInbound(input);
+}
+
+async function afterSameDeskEmailAutoSend(input) {
+  if (isEmailMicrosoftAutoSendEmergencyEnabled(input && input.env)) {
+    return afterMicrosoftInboundProjected(input);
+  }
+  if (!isLiteralTrue(input && input.env, ENV_LUNA_AUTO_SEND_ENABLED)) {
+    return blocked('luna_auto_send_not_enabled');
+  }
+  return resolveAutoOwner(input).handleSameDeskProjectedInbound(input);
 }
 
 module.exports = {
@@ -605,9 +645,11 @@ module.exports = {
   ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED,
   ENV_OUTREACH,
   isEmailMicrosoftAutoSendEmergencyEnabled,
+  isSameDeskEmailAutoSendEnabled,
   createEmailLunaMicrosoftAutoCreateAndSend,
   createProductionEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,
+  afterSameDeskEmailAutoSend,
   shouldSuppressInboundNeedsHuman,
   SQL_RESOLVE_AUTO_ACTOR,
   SQL_LOAD_AUTO_CONTEXT,
