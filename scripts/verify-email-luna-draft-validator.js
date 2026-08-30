@@ -43,7 +43,7 @@ const FACTS = Object.freeze({
   payment: { label: 'Availability guaranteed', currency: 'EUR', payment_status: 'partially_paid', amount_paid_cents: 2000, balance_due_cents: 3000 },
 });
 const MATRIX = Object.freeze([
-  ['catalog_question', 'catalog', 'catalog_reply', Object.freeze(['none', 'ask_dates'])],
+  ['catalog_question', 'catalog', 'catalog_reply', Object.freeze(['none', 'ask_dates', 'ask_dates_and_guest_count'])],
   ['availability_question', 'availability', 'availability_reply', Object.freeze(['none', 'ask_guest_count'])],
   ['policy_question', 'policy', 'policy_reply', Object.freeze(['none'])],
   ['booking_status_question', 'booking', 'booking_status_reply', Object.freeze(['none'])],
@@ -315,7 +315,8 @@ function rewriteAuthor(source) {
   const rewritten = source
     .replace("require('./email-luna-draft-handoff-contract')", `require(${JSON.stringify(HANDOFF_PATH)})`)
     .replace("require('./email-luna-draft-policy')", `require(${JSON.stringify(POLICY_PATH)})`)
-    .replace("require('./luna-ai-provider')", `require(${JSON.stringify(PROVIDER_PATH)})`);
+    .replace("require('./luna-ai-provider')", `require(${JSON.stringify(PROVIDER_PATH)})`)
+    .replace("require('./luna-channel-presentation')", `require(${JSON.stringify(require.resolve('./lib/luna-channel-presentation'))})`);
   assert.notEqual(rewritten, source, 'author mutant must pin production owners');
   return rewritten;
 }
@@ -486,8 +487,8 @@ function unpinValidatorIntrinsics(validatorSource) {
       }
     }
   }
-  assert.equal(rendered, 56, 'EN/ES × warm/concise × acknowledgment × allowed question matrix');
-  console.log('  PASS  56-case authentic EN/ES drafts validate against exact bound-plan recompute');
+  assert.equal(rendered, 64, 'EN/ES × warm/concise × acknowledgment × allowed question matrix');
+  console.log('  PASS  64-case authentic EN/ES drafts validate against exact bound-plan recompute');
 
   const bound = recomputeEmailLunaDraftCanonicalFromAuthentic({ ...catalogEn, draft: catalogDraft });
   assert.equal(bound.body, catalogDraft.body);

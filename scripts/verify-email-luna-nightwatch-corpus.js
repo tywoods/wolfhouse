@@ -412,7 +412,8 @@ function rewriteAuthor(source) {
   return source
     .replace("require('./email-luna-draft-handoff-contract')", `require(${JSON.stringify(HANDOFF_PATH)})`)
     .replace("require('./email-luna-draft-policy')", `require(${JSON.stringify(POLICY_PATH)})`)
-    .replace("require('./luna-ai-provider')", `require(${JSON.stringify(PROVIDER_PATH)})`);
+    .replace("require('./luna-ai-provider')", `require(${JSON.stringify(PROVIDER_PATH)})`)
+    .replace("require('./luna-channel-presentation')", `require(${JSON.stringify(require.resolve('./lib/luna-channel-presentation'))})`);
 }
 function rewritePolicy(source) {
   return source.replace("require('./email-luna-draft-handoff-contract')", `require(${JSON.stringify(HANDOFF_PATH)})`);
@@ -499,7 +500,7 @@ async function expectMutantDiverges(label, run) {
   const INJECTION_BLOCK = '  if (hasInjection(trusted.untrustedContent)) return finish(handoff(\'prompt_injection_detected\', trusted.binding));';
   const ATTACH_BLOCK = '  if (trusted.attachment_interpretation_required === true) {';
   const SCHEMA_BLOCK = '    if (snapshot.status !== \'draft_ready\' || snapshot.draft_only !== true\n        || snapshot.requires_staff_review !== true || snapshot.send_allowed !== false\n        || snapshot.auto_send_allowed !== false) throw invalid();';
-  const SUBJECT_BLOCK = 'if(!name||!price)return null;subject=language===\'es\'?\'Opciones y precios\':\'Options and pricing\';';
+  const SUBJECT_BLOCK = 'if(!price)return null;subject=language===\'es\'?\'Opciones y precios\':\'Options and pricing\';';
   const JOURNAL_REPLAY_BLOCK = 'const cur = row.value; if (cur.phase === \'send_dispatched\' || cur.phase === \'reconciled_sent\' || cur.send_invocation_count === 1) return ok(toPublic(cur, true, null));';
   const AUTHOR_PROVENANCE_BLOCK = `  if(!weakSetHas(AUTHENTIC_AUTHOR_DRAFTS,draft))throw invalid();
   const meta=weakMapGet(AUTHENTIC_AUTHOR_DRAFT_META,draft);
@@ -591,7 +592,7 @@ async function expectMutantDiverges(label, run) {
     const authorMutantSrc = rewriteAuthor(replaceUnique(
       authorSrc,
       SUBJECT_BLOCK,
-      'if(!name||!price)return null;subject=trusted.untrusted_content.subject;',
+      'if(!price)return null;subject=trusted.untrusted_content.subject;',
       'untrusted-subject',
     ));
     const mutant = loadMutant('unicode-subject', {

@@ -14,7 +14,7 @@ This is the current working backlog for the Sunset staff portal and Sunset Luna.
 
 ### Same Desk — recommended next slices
 
-Guest WhatsApp and email share one grounded Sunset desk. **001 is this job.** Do not implement 002–005 here. Auto-send stays off; no outreach; staging only.
+Guest WhatsApp and email share one grounded Sunset desk. **002 is this job.** Do not implement 003–005 here. Auto-send stays off; no outreach; staging only.
 
 - **001** Luna uses live Admin catalog; never offer/quote disabled rentals/courses; same names/prices staff see; no hardcoded public-site bundles
 - **002** email replies: same grounded brain as WhatsApp, email-shaped (structured quote, one/two asks), still Approve & send

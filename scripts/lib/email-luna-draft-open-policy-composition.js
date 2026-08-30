@@ -184,6 +184,7 @@ function snapshotClassifier(raw, authority, language) {
     requiredFacts = required.slice();
   }
   if (!requiredFacts) return null;
+  const lookup = ownData(raw, 'lookup');
   return {
     client_id: authority.client_id,
     location_id: authority.location_id,
@@ -198,6 +199,7 @@ function snapshotClassifier(raw, authority, language) {
     attachment_interpretation_required: ownData(raw, 'attachment_interpretation_required') === true,
     unsafe_transactional_request: ownData(raw, 'unsafe_transactional_request') === true,
     required_facts: requiredFacts,
+    lookup: typeof lookup === 'string' && lookup.trim() ? lookup.trim() : '',
   };
 }
 
@@ -214,10 +216,11 @@ function pinQueryOwners(queryOwners) {
   return pinned;
 }
 
-async function collectGroundedResults(tools, requiredFacts) {
+async function collectGroundedResults(tools, requiredFacts, lookup) {
   const grounded = {};
+  const args = typeof lookup === 'string' && lookup.trim() ? { lookup: lookup.trim() } : {};
   for (const fact of requiredFacts) {
-    grounded[fact] = await tools.query(fact, {});
+    grounded[fact] = await tools.query(fact, args);
   }
   return grounded;
 }
@@ -270,7 +273,7 @@ function createEmailLunaDraftOpenPolicyComposition(deps) {
         authority: { client_id: authority.client_id, location_id: authority.location_id },
         queryOwners,
       });
-      groundedResults = await collectGroundedResults(tools, classified.required_facts);
+      groundedResults = await collectGroundedResults(tools, classified.required_facts, classified.lookup);
     } catch {
       return safeDraft(classified.language, 'grounded_fact_unavailable');
     }

@@ -113,6 +113,8 @@ function authorityRow(patch = {}) {
     latest_message_id: M,
     staff_reply_draft: null,
     conversation_metadata: {},
+    luna_on: true,
+    global_pause: false,
     luna_draft_enabled: true,
     ...patch,
   };

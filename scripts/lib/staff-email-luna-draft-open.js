@@ -34,6 +34,14 @@ const {
 const {
   isStaffLocalCompileTrust,
 } = require('./email-luna-sunset-email-hermes-sol-author');
+const { executeSunsetCatalog } = require('./luna-front-desk-catalog-service');
+const { executeSunsetQuote } = require('./luna-front-desk-quote-service');
+const {
+  createEmailLunaFrontDeskQueryOwners,
+  createEmailLunaBoundedCatalogClassifier,
+} = require('./email-luna-front-desk-query-owners');
+const { emailDraftingAllowed } = require('./luna-channel-presentation');
+const { GLOBAL_LUNA_PAUSE_CONVERSATION_ID } = require('./staff-bot-pause-sql');
 
 const EMAIL_DRAFT_OPEN_DECKHAND_FIELD = 'draft_text';
 const EMAIL_DRAFT_OPEN_STORAGE_FIELD = 'conversations.staff_reply_draft';
@@ -66,7 +74,14 @@ SELECT cl.id::text AS client_id, cl.slug AS client_slug,
   c.staff_reply_draft AS staff_reply_draft,
   c.metadata AS conversation_metadata,
   p.inbound_event_id::text AS latest_message_id,
-  TRUE AS luna_draft_enabled
+  TRUE AS luna_draft_enabled,
+  CASE WHEN lower(btrim(COALESCE(cl.settings->'inbox_channel_modes'->>'email','draft'))) = 'off' THEN FALSE ELSE TRUE END AS luna_on,
+  EXISTS (
+    SELECT 1 FROM bot_pause_states bps
+     WHERE bps.client_slug = cl.slug
+       AND bps.conversation_id = '${GLOBAL_LUNA_PAUSE_CONVERSATION_ID}'
+       AND bps.paused IS TRUE
+  ) AS global_pause
 FROM clients cl
 INNER JOIN staff_users su ON su.client_id=cl.id AND su.id=$2::uuid AND su.status='active'
 INNER JOIN conversations c ON c.client_id=cl.id AND c.id=$3::uuid
@@ -620,6 +635,18 @@ function canGenerate(actor, env) {
     && isEmailLunaGenerateDraftEnabled(env));
 }
 
+function draftingStateFromLoadedRow(row, staffInitiated) {
+  if (!row || typeof row !== 'object') {
+    return { luna_on: false, global_pause: true, needs_human: false, staff_initiated: staffInitiated === true };
+  }
+  return {
+    luna_on: row.luna_on === true,
+    global_pause: row.global_pause === false ? false : true,
+    needs_human: row.needs_human === true,
+    staff_initiated: staffInitiated === true,
+  };
+}
+
 function lunaMeta(raw) {
   if (!raw || typeof raw !== 'object' || isArray(raw) || isProxy(raw)) return null;
   const block = ownData(raw, 'luna_email_open_draft') || raw.luna_email_open_draft;
@@ -637,6 +664,7 @@ function safeContext(row, expectedActor, conversationId) {
       'endpoint_provider_mailbox_id', 'event_location_id', 'subject', 'body_text', 'quoted_history',
       'from_display_name', 'from_address', 'conversation_deleted_at', 'conversation_status',
       'needs_human', 'staff_reply_draft', 'conversation_metadata', 'latest_message_id', 'luna_draft_enabled',
+      'luna_on', 'global_pause',
     ]) r[key] = ownData(row, key);
     const authority = {
       client_id: uuid(r.client_id),
@@ -789,11 +817,49 @@ function createStaffEmailLunaDraftOpen(deps) {
   const ttlMs = Number.isSafeInteger(deps.claimTtlMs) && deps.claimTtlMs > 0
     ? deps.claimTtlMs
     : EMAIL_DRAFT_OPEN_CLAIM_TTL_MS;
-  const policy = createEmailLunaDraftOpenPolicyComposition({
-    classifyIntent: deps.classifyIntent,
-    queryOwners: deps.queryOwners,
-    createLunaRuntime: deps.createLunaRuntime,
-  });
+  function boundCatalogExecutor() {
+    if (typeof deps.executeCatalog === 'function') return deps.executeCatalog;
+    return async (command, execOpts) => {
+      const opts = Object.assign({}, deps.catalogExecOpts || {}, execOpts || {});
+      return deps.withPgClient((pg) => executeSunsetCatalog(pg, command, opts));
+    };
+  }
+
+  function boundQuoteExecutor() {
+    if (typeof deps.executeQuote === 'function') return deps.executeQuote;
+    return async (command, execOpts) => {
+      const opts = Object.assign({}, deps.quoteExecOpts || {}, execOpts || {});
+      return deps.withPgClient((pg) => executeSunsetQuote(pg, command, opts));
+    };
+  }
+
+  function policyFor(authority) {
+    let queryOwners = deps.queryOwners || null;
+    if (!queryOwners && authority && authority.location_key && authority.client_id && authority.location_id) {
+      try {
+        queryOwners = createEmailLunaFrontDeskQueryOwners({
+          locationKey: authority.location_key,
+          expectedClientId: authority.client_id,
+          expectedLocationId: authority.location_id,
+          executeCatalog: boundCatalogExecutor(),
+          executeQuote: boundQuoteExecutor(),
+          catalogExecOpts: deps.catalogExecOpts,
+          quoteExecOpts: deps.quoteExecOpts,
+          now: deps.catalogNow instanceof Date ? deps.catalogNow : undefined,
+          defaultServiceDates: Array.isArray(deps.defaultServiceDates) ? deps.defaultServiceDates : undefined,
+        });
+      } catch {
+        queryOwners = null;
+      }
+    }
+    return createEmailLunaDraftOpenPolicyComposition({
+      classifyIntent: typeof deps.classifyIntent === 'function'
+        ? deps.classifyIntent
+        : createEmailLunaBoundedCatalogClassifier(),
+      queryOwners,
+      createLunaRuntime: deps.createLunaRuntime,
+    });
+  }
 
   function markDiscard(client) {
     if (typeof deps.markPgClientDiscardRequired === 'function') {
@@ -927,6 +993,8 @@ function createStaffEmailLunaDraftOpen(deps) {
 
       if (row.needs_human !== true) return pending(conversationId);
       if (!canGenerate(actor, env)) return pending(conversationId);
+      const openGate = emailDraftingAllowed(draftingStateFromLoadedRow(row, false));
+      if (!openGate.allowed) return pending(conversationId);
 
       const claimId = uuidFn();
       const claimedAtMs = nowFn();
@@ -979,7 +1047,7 @@ function createStaffEmailLunaDraftOpen(deps) {
         return pending(conversationId);
       }
 
-      const composed = await policy.compose({
+      const composed = await policyFor(authority).compose({
         authority,
         untrusted_content: {
           subject: typeof row.subject === 'string' ? row.subject : '',
@@ -1085,6 +1153,8 @@ function createStaffEmailLunaDraftOpen(deps) {
         return conflict(conversationId, 'approval_committed');
       }
       if (!canGenerate(actor, env)) return pending(conversationId);
+      const staffGate = emailDraftingAllowed(draftingStateFromLoadedRow(row, true));
+      if (!staffGate.allowed) return pending(conversationId);
 
       const claimId = uuidFn();
       const claimedAtMs = nowFn();
@@ -1170,7 +1240,7 @@ function createStaffEmailLunaDraftOpen(deps) {
         }
       }
       if (!body) {
-        composed = await policy.compose({
+        composed = await policyFor(authority).compose({
           authority,
           untrusted_content: untrusted,
           operator_context: operatorGuidance,
