@@ -758,6 +758,7 @@
     "verify:sunset-admin-pricing-8-to-14-hotfix": "node scripts/verify-sunset-admin-pricing-8-to-14-hotfix.js",
     "verify:luna-front-desk-catalog-service": "node scripts/verify-luna-front-desk-catalog-service.js",
     "verify:luna-same-desk-admin-catalog": "node scripts/verify-luna-same-desk-admin-catalog.js",
+    "verify:luna-same-desk-email-presentation": "node scripts/verify-luna-same-desk-email-presentation.js",
     "verify:luna-front-desk-vertical-adapter": "node scripts/verify-luna-front-desk-vertical-adapter.js",
     "verify:vertical-tenant-isolation-second-school": "node scripts/verify-vertical-tenant-isolation-second-school.js",
     "verify:tenant-rental-offerings-crud": "node scripts/verify-tenant-rental-offerings-crud.js",

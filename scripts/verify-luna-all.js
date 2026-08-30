@@ -73,6 +73,8 @@ const steps = [
   ['verify:luna-needs-human-no-pause', 'verify-luna-needs-human-no-pause.js'],
   ['verify:luna-explicit-human-handoff', 'verify-luna-explicit-human-handoff.js'],
   ['verify:luna-catalog-services', 'verify-luna-catalog-services.js'],
+  ['verify:luna-same-desk-admin-catalog', 'verify-luna-same-desk-admin-catalog.js'],
+  ['verify:luna-same-desk-email-presentation', 'verify-luna-same-desk-email-presentation.js'],
   ['verify:luna-tenant-defaults', 'verify-luna-tenant-defaults.js'],
   ['verify:luna-golden', 'verify-luna-golden.js'],
   ['verify:luna-coach', 'verify-luna-coach.js'],

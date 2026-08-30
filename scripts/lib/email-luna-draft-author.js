@@ -3,6 +3,12 @@ const utilTypes = require('node:util').types;
 const { callLunaAiJsonChat } = require('./luna-ai-provider');
 const { createEmailLunaDraftHandoff } = require('./email-luna-draft-handoff-contract');
 const { assertEmailLunaDraftPolicyIssuance } = require('./email-luna-draft-policy');
+const {
+  presentGroundedReply,
+  guestSafeOfferingLabel,
+  groupedEmailAsk,
+  PRESENTATION_CHANNELS,
+} = require('./luna-channel-presentation');
 const uncurry = (fn) => Function.prototype.call.bind(fn);
 const isProxy = utilTypes.isProxy.bind(undefined);
 const isPromise = utilTypes.isPromise.bind(undefined);
@@ -24,7 +30,7 @@ const PLAN_KEYS=freeze(['template_id','tone','question_key','acknowledgment_key'
 const TONES=freeze(['warm','concise']);
 const ACKS=freeze(['thanks','noted']);
 const TEMPLATE_FOR_INTENT=freeze({catalog_question:'catalog_reply',availability_question:'availability_reply',policy_question:'policy_reply',booking_status_question:'booking_status_reply',payment_status_question:'payment_status_reply'});
-const QUESTIONS=freeze({catalog_reply:freeze(['none','ask_dates']),availability_reply:freeze(['none','ask_guest_count']),policy_reply:freeze(['none']),booking_status_reply:freeze(['none']),payment_status_reply:freeze(['none'])});
+const QUESTIONS=freeze({catalog_reply:freeze(['none','ask_dates','ask_dates_and_guest_count']),availability_reply:freeze(['none','ask_guest_count']),policy_reply:freeze(['none']),booking_status_reply:freeze(['none']),payment_status_reply:freeze(['none'])});
 const ITEM_NAMES=freeze({board_rental:freeze({en:'surfboard rental',es:'alquiler de tabla'}),group_lesson:freeze({en:'group lesson',es:'clase de grupo'})});
 const POLICY_COPY=freeze({cancellation_48h:freeze({en:'Cancellations need at least 48 hours’ notice.',es:'Las cancelaciones necesitan al menos 48 horas de antelación.'})});
 const BOOKING_COPY=freeze({confirmed:freeze({en:'Your booking is confirmed.',es:'Tu reserva está confirmada.'}),pending:freeze({en:'Your booking is still pending.',es:'Tu reserva sigue pendiente.'}),cancelled:freeze({en:'Your booking is cancelled.',es:'Tu reserva está cancelada.'})});
@@ -54,14 +60,14 @@ function money(cents,language){if(!isSafeInteger(cents)||cents<0)return null;con
 function exactDate(value){return typeof value==='string'&&test(/^\d{4}-\d{2}-\d{2}$/,value)?value:null;}
 function exactTime(value){return typeof value==='string'&&test(/^(?:[01]\d|2[0-3]):[0-5]\d$/,value)?value:null;}
 function render(trusted,plan){const language=trusted.language,intent=plan.template_id,facts=trusted.grounded_facts;let subject,line;
-  if(intent==='catalog_reply'){const f=facts.catalog,name=f&&ITEM_NAMES[f.item],price=f&&f.currency==='EUR'&&f.active===true?money(f.amount_cents,language):null;if(!name||!price)return null;subject=language==='es'?'Opciones y precios':'Options and pricing';line=language==='es'?`El ${name.es} cuesta ${price}.`:`Our ${name.en} is ${price}.`;}
-  else if(intent==='availability_reply'){const f=facts.availability,name=f&&ITEM_NAMES[f.item],date=f&&exactDate(f.date),time=f&&exactTime(f.slot_time);if(!name||!date||!time||typeof f.available!=='boolean'||!isSafeInteger(f.capacity)||f.capacity<0)return null;subject=language==='es'?'Disponibilidad':'Availability';if(f.available)line=language==='es'?`Hay disponibilidad para ${name.es} el ${date} a las ${time}, con ${f.capacity} plazas.`:`The ${name.en} is available on ${date} at ${time}, with ${f.capacity} spots.`;else line=language==='es'?`No hay disponibilidad para ${name.es} el ${date} a las ${time}.`:`The ${name.en} is not available on ${date} at ${time}.`;}
+  if(intent==='catalog_reply'){const f=facts.catalog,price=f&&f.currency==='EUR'&&f.active===true?money(f.amount_cents,language):null,known=f&&ITEM_NAMES[f.item],live=guestSafeOfferingLabel(f&&f.label);if(!price)return null;subject=language==='es'?'Opciones y precios':'Options and pricing';if(known){line=language==='es'?`El ${known.es} cuesta ${price}.`:`Our ${known.en} is ${price}.`;}else if(live){const presented=presentGroundedReply({channel:PRESENTATION_CHANNELS.EMAIL,language,facts:{offering_label:live,amount_cents:f.amount_cents,currency:f.currency,quote_total_cents:f.amount_cents},asks:[]});line=presented&&presented.fact_block;if(!line)return null;}else return null;}
+  else if(intent==='availability_reply'){const f=facts.availability,known=f&&ITEM_NAMES[f.item],live=guestSafeOfferingLabel(f&&f.label),name=known?(language==='es'?known.es:known.en):live,date=f&&exactDate(f.date),time=f&&exactTime(f.slot_time);if(!name||!date||!time||typeof f.available!=='boolean'||!isSafeInteger(f.capacity)||f.capacity<0)return null;subject=language==='es'?'Disponibilidad':'Availability';if(f.available)line=language==='es'?`Hay disponibilidad para ${name} el ${date} a las ${time}, con ${f.capacity} plazas.`:`The ${name} is available on ${date} at ${time}, with ${f.capacity} spots.`;else line=language==='es'?`No hay disponibilidad para ${name} el ${date} a las ${time}.`:`The ${name} is not available on ${date} at ${time}.`;}
   else if(intent==='policy_reply'){const f=facts.policy,copy=f&&POLICY_COPY[f.policy_key];if(!copy)return null;subject=language==='es'?'Política de cancelación':'Cancellation policy';line=copy[language];}
   else if(intent==='booking_status_reply'){const f=facts.booking,copy=f&&BOOKING_COPY[f.booking_status];if(!copy||typeof f.booking_code!=='string'||!test(/^[A-Z0-9-]{1,32}$/,f.booking_code))return null;subject=language==='es'?'Estado de tu reserva':'Your booking status';line=`${copy[language]} ${language==='es'?'Código de reserva':'Booking code'}: ${f.booking_code}.`;}
   else if(intent==='payment_status_reply'){const f=facts.payment,copy=f&&PAYMENT_COPY[f.payment_status],paid=f&&f.currency==='EUR'?money(f.amount_paid_cents,language):null,due=f&&f.currency==='EUR'?money(f.balance_due_cents,language):null;if(!copy||!paid||!due)return null;subject=language==='es'?'Estado del pago':'Payment status';line=`${copy[language]} ${language==='es'?`Importe abonado: ${paid}. Saldo pendiente: ${due}.`:`Amount paid: ${paid}. Balance due: ${due}.`}`;}
   else return null;
   const hello=language==='es'?'Hola,':'Hi,';const ack=language==='es'?(plan.acknowledgment_key==='thanks'?'Gracias por escribirnos.':'He tomado nota de tu mensaje.'):(plan.acknowledgment_key==='thanks'?'Thanks for getting in touch.':'I’ve noted your message.');
-  let question='';if(plan.question_key==='ask_dates')question=language==='es'?'¿Qué fechas tenéis en mente?':'What dates do you have in mind?';if(plan.question_key==='ask_guest_count')question=language==='es'?'¿Cuántas personas seríais?':'How many guests would there be?';
+  let question='';if(plan.question_key==='ask_dates')question=language==='es'?'¿Qué fechas tenéis en mente?':'What dates do you have in mind?';if(plan.question_key==='ask_guest_count')question=language==='es'?'¿Cuántas personas seríais?':'How many guests would there be?';if(plan.question_key==='ask_dates_and_guest_count')question=groupedEmailAsk(['dates','guest_count'],language)||'';
   const signoff=language==='es'?'Un saludo cálido,':'Warm regards,';
   const next=question?`${question}\n\n`:'';
   const body=plan.tone==='concise'?`${hello}\n\n${line}\n\n${next}Luna`:`${hello}\n\n${ack}\n\n${line}\n\n${next}${signoff}\nLuna`;

@@ -20,7 +20,7 @@ const FACTS = Object.freeze({
   payment:{label:'Availability guaranteed',currency:'EUR',payment_status:'partially_paid',amount_paid_cents:2000,balance_due_cents:3000},
 });
 const MATRIX_CASES = Object.freeze([
-  ['catalog_question','catalog','catalog_reply',Object.freeze(['none','ask_dates'])],
+  ['catalog_question','catalog','catalog_reply',Object.freeze(['none','ask_dates','ask_dates_and_guest_count'])],
   ['availability_question','availability','availability_reply',Object.freeze(['none','ask_guest_count'])],
   ['policy_question','policy','policy_reply',Object.freeze(['none'])],
   ['booking_status_question','booking','booking_status_reply',Object.freeze(['none'])],
@@ -57,6 +57,7 @@ function expectedQuestion(language,question_key){
   if(question_key==='none')return null;
   if(question_key==='ask_dates')return language==='es'?'¿Qué fechas tenéis en mente?':'What dates do you have in mind?';
   if(question_key==='ask_guest_count')return language==='es'?'¿Cuántas personas seríais?':'How many guests would there be?';
+  if(question_key==='ask_dates_and_guest_count')return language==='es'?'¿Qué fechas tenéis en mente y cuántas personas seríais?':'What dates do you have in mind, and how many guests would there be?';
   throw new Error(`unexpected question_key ${question_key}`);
 }
 function expectedFactLine(language,fact){
@@ -124,7 +125,7 @@ async function eachMatrixCombo(visit){
     await visit({language,intent,fact,template,tone,acknowledgment_key:acknowledgment,question_key:question});
     rendered+=1;
   }
-  assert.equal(rendered,56,'EN/ES × warm/concise × acknowledgment × allowed question matrix');
+  assert.equal(rendered,64,'EN/ES × warm/concise × acknowledgment × allowed question matrix');
   return rendered;
 }
 function findUniqueIndex(haystack,regex,label){
@@ -189,7 +190,8 @@ function loadMutant(mutatedSrc){
   const rewritten=mutatedSrc
     .replace("require('./email-luna-draft-handoff-contract')",`require(${JSON.stringify(require.resolve('./lib/email-luna-draft-handoff-contract'))})`)
     .replace("require('./email-luna-draft-policy')",`require(${JSON.stringify(require.resolve('./lib/email-luna-draft-policy'))})`)
-    .replace("require('./luna-ai-provider')",`require(${JSON.stringify(require.resolve('./lib/luna-ai-provider'))})`);
+    .replace("require('./luna-ai-provider')",`require(${JSON.stringify(require.resolve('./lib/luna-ai-provider'))})`)
+    .replace("require('./luna-channel-presentation')",`require(${JSON.stringify(require.resolve('./lib/luna-channel-presentation'))})`);
   assert.notEqual(rewritten,mutatedSrc,'mutant must pin production owners');
   const mutantRoot=fs.mkdtempSync(path.join(os.tmpdir(),'email-luna-author-mash-'));
   const mutantPath=path.join(mutantRoot,'email-luna-draft-author.js');
@@ -317,8 +319,8 @@ function loadMutant(mutatedSrc){
     });
     assert.deepEqual(survived.sort(),expectedSurvivors.sort(),'only concise/none combinations are isomorphic under paragraph mash');
     assert.deepEqual(killed.sort(),expectedKills.sort(),'full behavioral matrix kills the structural paragraph mash');
-    assert.equal(killed.length,36);
+    assert.equal(killed.length,44);
     assert.equal(survived.length,20);
   } finally { fs.rmSync(mutantRoot,{recursive:true,force:true}); }
-  console.log('ALL OK — deterministic Luna renderer, 56-case paragraph matrix, exact issuance triplet, and exact native Promise');
+  console.log('ALL OK — deterministic Luna renderer, 64-case paragraph matrix, exact issuance triplet, and exact native Promise');
 })().catch((error)=>{console.error(error);process.exitCode=1;});
