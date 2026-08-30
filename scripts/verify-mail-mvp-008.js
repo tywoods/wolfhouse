@@ -296,6 +296,9 @@ async function main() {
           hold_expires_at: '2026-08-29T12:00:00.000Z',
           payment_url: URL,
           idempotent: true,
+          total_cents: 19900,
+          amount_due_cents: 5000,
+          deposit_required_cents: 5000,
         },
       };
     },

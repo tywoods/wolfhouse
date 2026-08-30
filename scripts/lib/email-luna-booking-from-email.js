@@ -37,6 +37,11 @@ const {
   buildSunsetCatalogCommand,
   executeSunsetCatalog,
 } = require('./luna-front-desk-catalog-service');
+const {
+  formatMoneyFromCents,
+  guestSafeOfferingLabel,
+  presentPayToBookEmailDraft,
+} = require('./luna-channel-presentation');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -65,27 +70,6 @@ const STRIPE_CHECKOUT_RE = /^https:\/\/checkout\.stripe\.com\/(?:c\/pay\/|pay\/)
 
 const DEPOSIT_RE = /\bdeposits?\b|\bdep[oó]sitos?\b/;
 const FULL_RE = /\bfull(?:\s+payment|\s+amount)\b|\bpay(?:ing|ment)?\s+in\s+full\b|\bpago\s+completo\b|\bimporte\s+completo\b/;
-
-const RENDER_COPY = freeze({
-  en: freeze({
-    hello: 'Hi,',
-    thanks: 'Thanks for your message.',
-    pay: 'To complete this booking, please use this payment link from our desk:',
-    hold: 'Your dates are held until',
-    late: 'Payment after that time will not automatically complete the booking.',
-    signoff: 'Warm regards,',
-    signature: 'Luna',
-  }),
-  es: freeze({
-    hello: 'Hola,',
-    thanks: 'Gracias por tu mensaje.',
-    pay: 'Para completar esta reserva, usa este enlace de pago de recepción:',
-    hold: 'Tus fechas quedan retenidas hasta',
-    late: 'Un pago después de esa hora no completará la reserva automáticamente.',
-    signoff: 'Un saludo cálido,',
-    signature: 'Luna',
-  }),
-});
 
 function fail(reason, extra) {
   return freeze({
@@ -315,6 +299,10 @@ function bindEmailPayToBookIdentities(input) {
   if (input.trustedConversationId && uuid(input.trustedConversationId) !== conversationId) {
     return fail('conversation_mismatch');
   }
+  if (input.actor && input.actor.client_id) {
+    const actorClient = uuid(input.actor.client_id);
+    if (actorClient && actorClient !== clientId) return fail('tenant_mismatch');
+  }
   return freeze({
     ok: true,
     client_id: clientId,
@@ -366,43 +354,217 @@ function detectDraftLanguage(subject, body) {
   return 'en';
 }
 
+function canonicalLineSummary(quoteBody) {
+  const lines = quoteBody && Array.isArray(quoteBody.line_items) ? quoteBody.line_items : [];
+  const labels = [];
+  for (const line of lines) {
+    const label = guestSafeOfferingLabel(line && line.label);
+    if (label && labels.indexOf(label) === -1) labels.push(label);
+  }
+  return labels.length === 1 ? labels[0] : '';
+}
+
+function asPositiveSafeCents(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+function isoDateOrEmpty(value) {
+  const text = asText(value).trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : '';
+}
+
+function snapshotFromHoldAndLink(holdBody, linkBody) {
+  const hold = holdBody && typeof holdBody === 'object' && !isProxy(holdBody) ? holdBody : {};
+  const booking = hold.booking && typeof hold.booking === 'object' && !isProxy(hold.booking)
+    ? hold.booking : {};
+  const link = linkBody && typeof linkBody === 'object' && !isProxy(linkBody) ? linkBody : {};
+  const quantityRaw = hold.quantity != null ? hold.quantity
+    : (hold.guest_count != null ? hold.guest_count : booking.guest_count);
+  const quantity = Number.isInteger(Number(quantityRaw)) && Number(quantityRaw) >= 1
+    ? Number(quantityRaw) : null;
+  return freeze({
+    total_cents: asPositiveSafeCents(
+      hold.total_cents ?? hold.total_amount_cents
+      ?? booking.total_cents ?? booking.total_amount_cents
+      ?? link.total_cents ?? link.total_amount_cents,
+    ),
+    amount_due_cents: asPositiveSafeCents(
+      link.amount_due_cents ?? hold.amount_due_cents
+      ?? hold.deposit_required_cents ?? booking.deposit_required_cents
+      ?? link.deposit_required_cents,
+    ),
+    offering_label: asText(hold.offering_label || booking.offering_label || link.offering_label).trim(),
+    date_from: isoDateOrEmpty(hold.date_from || hold.check_in || booking.check_in || link.check_in),
+    date_to: isoDateOrEmpty(hold.date_to || hold.check_out || booking.check_out || link.check_out),
+    quantity,
+  });
+}
+
+async function loadPayToBookLedgerSnapshot(pg, bound, bookingId, paymentUrl, owners) {
+  if (owners && typeof owners.loadPayToBookLedgerSnapshot === 'function') {
+    return owners.loadPayToBookLedgerSnapshot(pg, bound, bookingId, paymentUrl);
+  }
+  if (!pg || typeof pg.query !== 'function' || !bookingId || !isExactStaffPaymentUrl(paymentUrl)) {
+    return fail('ledger_snapshot_unavailable');
+  }
+  let res;
+  try {
+    res = await pg.query(
+      `SELECT b.total_amount_cents, b.deposit_required_cents, b.hold_expires_at,
+              b.guest_count, b.check_in::text AS check_in, b.check_out::text AS check_out,
+              b.metadata,
+              p.amount_due_cents, p.checkout_url
+         FROM bookings b
+         INNER JOIN clients c ON c.id = b.client_id
+         LEFT JOIN payments p
+           ON p.booking_id = b.id
+          AND p.checkout_url = $3
+        WHERE b.id = $1::uuid AND c.id = $2::uuid
+        LIMIT 1`,
+      [bookingId, bound.client_id, paymentUrl],
+    );
+  } catch {
+    return fail('ledger_snapshot_unavailable');
+  }
+  const row = res && Array.isArray(res.rows) ? res.rows[0] : null;
+  if (!row) return fail('ledger_snapshot_unavailable');
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  const quantity = Number.isInteger(Number(row.guest_count)) && Number(row.guest_count) >= 1
+    ? Number(row.guest_count) : null;
+  return freeze({
+    ok: true,
+    total_cents: asPositiveSafeCents(row.total_amount_cents),
+    amount_due_cents: asPositiveSafeCents(row.amount_due_cents != null
+      ? row.amount_due_cents : row.deposit_required_cents),
+    offering_label: asText(meta.offering_label).trim(),
+    date_from: isoDateOrEmpty(row.check_in),
+    date_to: isoDateOrEmpty(row.check_out),
+    quantity,
+    hold_expires_at: holdExpiryIsoFromDb(row.hold_expires_at),
+    payment_url: asText(row.checkout_url).trim() || paymentUrl,
+  });
+}
+
+async function bindPayToBookDraftToLedger(opts) {
+  const {
+    pg, bound, offering, intent, quoteBody, priced,
+    holdBody, linkBody, paymentUrl, holdExpiresAt, owners,
+  } = opts || {};
+  const reused = (holdBody && holdBody.idempotent === true)
+    || (linkBody && linkBody.idempotent === true);
+  let snap = snapshotFromHoldAndLink(holdBody, linkBody);
+  if (reused && (snap.total_cents == null || snap.amount_due_cents == null)) {
+    const bookingId = (holdBody && (holdBody.booking_id
+      || (holdBody.booking && holdBody.booking.booking_id))) || null;
+    const loaded = await loadPayToBookLedgerSnapshot(pg, bound, bookingId, paymentUrl, owners);
+    if (!loaded.ok) return fail(reused ? 'availability_or_price_mismatch' : loaded.reason);
+    snap = freeze({
+      total_cents: loaded.total_cents != null ? loaded.total_cents : snap.total_cents,
+      amount_due_cents: loaded.amount_due_cents != null ? loaded.amount_due_cents : snap.amount_due_cents,
+      offering_label: loaded.offering_label || snap.offering_label,
+      date_from: loaded.date_from || snap.date_from,
+      date_to: loaded.date_to || snap.date_to,
+      quantity: loaded.quantity != null ? loaded.quantity : snap.quantity,
+    });
+  }
+  const quoteTotal = asPositiveSafeCents(quoteBody && quoteBody.total_cents);
+  const quoteDue = asPositiveSafeCents(priced && priced.amount_due_cents);
+  if (snap.total_cents != null && quoteTotal != null && snap.total_cents !== quoteTotal) {
+    return fail('availability_or_price_mismatch');
+  }
+  if (snap.amount_due_cents != null && quoteDue != null && snap.amount_due_cents !== quoteDue) {
+    return fail('deposit_mismatch');
+  }
+  const total = snap.total_cents != null ? snap.total_cents : (reused ? null : quoteTotal);
+  const due = snap.amount_due_cents != null ? snap.amount_due_cents : (reused ? null : quoteDue);
+  if (reused && (total == null || due == null)) return fail('availability_or_price_mismatch');
+  if (total == null) return fail('quote_total_invalid');
+
+  const quoteLabel = guestSafeOfferingLabel(quoteBody && quoteBody.label);
+  const offeringLabel = guestSafeOfferingLabel(offering && offering.label);
+  const storedLabel = guestSafeOfferingLabel(snap.offering_label);
+  return freeze({
+    ok: true,
+    language: detectDraftLanguage(
+      opts.input && opts.input.untrusted && opts.input.untrusted.subject,
+      opts.input && opts.input.untrusted && opts.input.untrusted.body_text,
+    ),
+    payment_url: paymentUrl,
+    hold_expires_at: holdExpiresAt,
+    offering_label: storedLabel || quoteLabel || offeringLabel || undefined,
+    line_summary: canonicalLineSummary(quoteBody) || undefined,
+    quote_total_cents: total,
+    amount_due_cents: due,
+    payment_choice: priced && priced.payment_choice,
+    date_from: snap.date_from || (intent && intent.date_from) || undefined,
+    date_to: snap.date_to || (intent && intent.date_to) || undefined,
+    quantity: snap.quantity != null ? snap.quantity : (intent && intent.quantity),
+  });
+}
+
+function canonicalPayToBookAmounts(opts, language) {
+  const tokens = [];
+  const total = formatMoneyFromCents(opts && opts.quote_total_cents, language);
+  const due = formatMoneyFromCents(opts && opts.amount_due_cents, language);
+  if (total) tokens.push(total);
+  if (due && due !== total) tokens.push(due);
+  else if (due) tokens.push(due);
+  return freeze(tokens);
+}
+
 function renderEmailPayToBookDraft(opts) {
   const language = opts && opts.language === 'es' ? 'es' : 'en';
   const url = asText(opts && opts.payment_url).trim();
   const expiry = holdExpiryIsoFromDb(opts && opts.hold_expires_at);
   if (!isExactStaffPaymentUrl(url)) return fail('payment_url_unusable');
   if (!expiry) return fail('hold_expires_at_unusable');
-  const copy = RENDER_COPY[language];
-  const body = [
-    copy.hello,
-    '',
-    copy.thanks,
-    copy.pay,
-    url,
-    '',
-    `${copy.hold} ${expiry}.`,
-    copy.late,
-    '',
-    copy.signoff,
-    copy.signature,
-  ].join('\n');
-  if (hasInventedMoney(body, url)) return fail('invented_amount_in_draft');
+  const presented = presentPayToBookEmailDraft({
+    language,
+    payment_url: url,
+    hold_expires_at: expiry,
+    offering_label: guestSafeOfferingLabel(opts && opts.offering_label) || undefined,
+    line_summary: guestSafeOfferingLabel(opts && opts.line_summary) || undefined,
+    quote_total_cents: Number.isSafeInteger(opts && opts.quote_total_cents)
+      ? opts.quote_total_cents : undefined,
+    amount_due_cents: Number.isSafeInteger(opts && opts.amount_due_cents)
+      ? opts.amount_due_cents : undefined,
+    payment_choice: PAYMENT_CHOICES.includes(asText(opts && opts.payment_choice).trim())
+      ? asText(opts.payment_choice).trim() : undefined,
+    date_from: asText(opts && opts.date_from).trim() || undefined,
+    date_to: asText(opts && opts.date_to).trim() || undefined,
+    quantity: Number.isSafeInteger(opts && opts.quantity) ? opts.quantity : undefined,
+  });
+  const body = presented && presented.body ? presented.body : '';
+  if (!body || presented.send_allowed === true || presented.auto_send_allowed === true) {
+    return fail('pay_to_book_draft_unusable');
+  }
+  const allowedAmounts = canonicalPayToBookAmounts(opts, language);
+  if (hasInventedMoney(body, url, allowedAmounts)) return fail('invented_amount_in_draft');
   return freeze({
     ok: true,
     language,
     body,
     payment_url: url,
     hold_expires_at: expiry,
+    fact_block: presented.fact_block || '',
+    draft_only: true,
+    requires_staff_review: true,
+    send_allowed: false,
+    auto_send_allowed: false,
   });
 }
 
-function hasInventedMoney(body, allowedUrl) {
-  const withoutUrl = asText(body).split(allowedUrl).join('');
-  const withoutExpiry = withoutUrl.replace(
+function hasInventedMoney(body, allowedUrl, allowedAmounts) {
+  let without = asText(body).split(allowedUrl).join('');
+  without = without.replace(
     /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/g,
     '',
   );
-  if (/€|\$|£|\b(?:eur|usd|gbp)\b|\d+[.,]\d{2}\s*(?:€|\$|£|\b(?:eur|usd|gbp)\b)/i.test(withoutExpiry)) {
+  for (const token of Array.isArray(allowedAmounts) ? allowedAmounts : []) {
+    if (token) without = without.split(token).join('');
+  }
+  if (/€|\$|£|\b(?:eur|usd|gbp)\b|\d+[.,]\d{2}\s*(?:€|\$|£|\b(?:eur|usd|gbp)\b)/i.test(without)) {
     return true;
   }
   const urls = asText(body).match(/https?:\/\/[^\s]+/g) || [];
@@ -676,11 +838,12 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
   if (!bookingId || !holdExpiresAt) return fail('hold_identity_missing');
 
   if (holdBody.idempotent === true && holdBody.payment_url && isExactStaffPaymentUrl(holdBody.payment_url)) {
-    const reused = renderEmailPayToBookDraft({
-      language: detectDraftLanguage(input.untrusted && input.untrusted.subject, input.untrusted && input.untrusted.body_text),
-      payment_url: holdBody.payment_url,
-      hold_expires_at: holdExpiresAt,
+    const boundFacts = await bindPayToBookDraftToLedger({
+      pg, bound, offering, intent, quoteBody, priced,
+      holdBody, paymentUrl: holdBody.payment_url, holdExpiresAt, owners: deps, input,
     });
+    if (!boundFacts.ok) return boundFacts;
+    const reused = renderEmailPayToBookDraft(boundFacts);
     if (!reused.ok) return reused;
     return freeze({
       ok: true,
@@ -690,7 +853,7 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
       payment_url: reused.payment_url,
       hold_expires_at: reused.hold_expires_at,
       payment_choice: priced.payment_choice,
-      amount_due_cents: priced.amount_due_cents,
+      amount_due_cents: boundFacts.amount_due_cents,
       draft_body: reused.body,
     });
   }
@@ -732,11 +895,12 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
     });
   }
 
-  const rendered = renderEmailPayToBookDraft({
-    language: detectDraftLanguage(input.untrusted && input.untrusted.subject, input.untrusted && input.untrusted.body_text),
-    payment_url: paymentUrl,
-    hold_expires_at: holdExpiresAt,
+  const boundFacts = await bindPayToBookDraftToLedger({
+    pg, bound, offering, intent, quoteBody, priced,
+    holdBody, linkBody: linked.body, paymentUrl, holdExpiresAt, owners: deps, input,
   });
+  if (!boundFacts.ok) return boundFacts;
+  const rendered = renderEmailPayToBookDraft(boundFacts);
   if (!rendered.ok) return rendered;
 
   return freeze({
@@ -748,21 +912,39 @@ async function placeEmailPayToBookHoldAndPaymentLink(pg, input, owners) {
     payment_url: rendered.payment_url,
     hold_expires_at: rendered.hold_expires_at,
     payment_choice: priced.payment_choice,
-    amount_due_cents: priced.amount_due_cents,
+    amount_due_cents: boundFacts.amount_due_cents,
     draft_body: rendered.body,
   });
 }
 
+function decoratePayToBookCreateDraftResult(result, requested) {
+  const staffRequested = requested === true;
+  if (!result || typeof result !== 'object' || isProxy(result)) {
+    return fail('email_pay_to_book_failed', staffRequested
+      ? { block_natural_fallback: true, staff_requested_pay_to_book: true }
+      : { staff_requested_pay_to_book: false });
+  }
+  return freeze({
+    ...result,
+    staff_requested_pay_to_book: staffRequested,
+    ...(staffRequested && result.ok !== true ? { block_natural_fallback: true } : {}),
+  });
+}
+
 async function tryEmailPayToBookForCreateDraft(input) {
+  const requested = staffRequestedPayToBook(input && input.operator_context);
   const withPgClient = input && input.withPgClient;
   const owners = (input && input.owners) || undefined;
-  if (typeof withPgClient !== 'function') return fail('pg_unavailable');
+  if (typeof withPgClient !== 'function') {
+    return decoratePayToBookCreateDraftResult(fail('pg_unavailable'), requested);
+  }
   try {
-    return await withPgClient(async (pg) => (
+    const result = await withPgClient(async (pg) => (
       placeEmailPayToBookHoldAndPaymentLink(pg, input, owners)
     ));
+    return decoratePayToBookCreateDraftResult(result, requested);
   } catch {
-    return fail('email_pay_to_book_failed');
+    return decoratePayToBookCreateDraftResult(fail('email_pay_to_book_failed'), requested);
   }
 }
 

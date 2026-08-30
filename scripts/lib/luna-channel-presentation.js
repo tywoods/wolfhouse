@@ -73,6 +73,107 @@ function compactEmailQuoteBlock(facts, language) {
   return lines.join('\n');
 }
 
+function isoDateOnly(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : '';
+}
+
+function compactEmailPayToBookQuoteBlock(facts, language) {
+  const src = facts && typeof facts === 'object' ? facts : {};
+  const lang = language === 'es' ? 'es' : 'en';
+  const heading = lang === 'es' ? 'Presupuesto' : 'Quote';
+  const lines = [heading];
+  const label = guestSafeOfferingLabel(src.offering_label);
+  if (label) lines.push(label);
+  const lineSummary = guestSafeOfferingLabel(src.line_summary);
+  if (lineSummary && lineSummary !== label) lines.push(lineSummary);
+  const total = formatMoneyFromCents(src.quote_total_cents, lang);
+  if (total) lines.push(lang === 'es' ? `Total: ${total}` : `Total: ${total}`);
+  const due = formatMoneyFromCents(src.amount_due_cents, lang);
+  if (due) {
+    const choice = src.payment_choice === 'full'
+      ? (lang === 'es' ? 'completo' : 'full')
+      : (lang === 'es' ? 'depósito' : 'deposit');
+    lines.push(lang === 'es' ? `A pagar ahora (${choice}): ${due}` : `Due now (${choice}): ${due}`);
+  }
+  const from = isoDateOnly(src.date_from);
+  const to = isoDateOnly(src.date_to);
+  if (from && to && to !== from) lines.push(`${from} to ${to}`);
+  else if (from) lines.push(from);
+  else if (isoDateOnly(src.date)) lines.push(src.date);
+  if (Number.isSafeInteger(src.quantity) && src.quantity > 0) {
+    lines.push(lang === 'es' ? `Cantidad: ${src.quantity}` : `Qty: ${src.quantity}`);
+  }
+  return lines.length > 1 ? lines.join('\n') : null;
+}
+
+const PAY_TO_BOOK_COPY = Object.freeze({
+  en: Object.freeze({
+    hello: 'Hi,',
+    thanks: 'Thanks for your message.',
+    pay: 'To complete this booking, please use this payment link from our desk:',
+    hold: 'Your dates are held until',
+    late: 'Payment after that time will not automatically complete the booking.',
+    signoff: 'Warm regards,',
+    signature: 'Luna',
+  }),
+  es: Object.freeze({
+    hello: 'Hola,',
+    thanks: 'Gracias por tu mensaje.',
+    pay: 'Para completar esta reserva, usa este enlace de pago de recepción:',
+    hold: 'Tus fechas quedan retenidas hasta',
+    late: 'Un pago después de esa hora no completará la reserva automáticamente.',
+    signoff: 'Un saludo cálido,',
+    signature: 'Luna',
+  }),
+});
+
+function presentPayToBookEmailDraft(input) {
+  const src = input && typeof input === 'object' ? input : {};
+  const language = src.language === 'es' ? 'es' : 'en';
+  const paymentUrl = typeof src.payment_url === 'string' ? src.payment_url.trim() : '';
+  const holdExpiresAt = typeof src.hold_expires_at === 'string' ? src.hold_expires_at.trim() : '';
+  if (!paymentUrl || !holdExpiresAt) {
+    return Object.freeze({
+      status: 'not_ready',
+      channel: PRESENTATION_CHANNELS.EMAIL,
+      language,
+      body: '',
+      fact_block: '',
+      draft_only: true,
+      requires_staff_review: true,
+      send_allowed: false,
+      auto_send_allowed: false,
+    });
+  }
+  const quoteBlock = compactEmailPayToBookQuoteBlock(src, language);
+  const copy = PAY_TO_BOOK_COPY[language];
+  const parts = [copy.hello, '', copy.thanks];
+  if (quoteBlock) {
+    parts.push('');
+    parts.push(quoteBlock);
+  }
+  parts.push('');
+  parts.push(copy.pay);
+  parts.push(paymentUrl);
+  parts.push('');
+  parts.push(`${copy.hold} ${holdExpiresAt}.`);
+  parts.push(copy.late);
+  parts.push('');
+  parts.push(copy.signoff);
+  parts.push(copy.signature);
+  return Object.freeze({
+    status: 'draft_ready',
+    channel: PRESENTATION_CHANNELS.EMAIL,
+    language,
+    body: parts.join('\n'),
+    fact_block: quoteBlock || '',
+    draft_only: true,
+    requires_staff_review: true,
+    send_allowed: false,
+    auto_send_allowed: false,
+  });
+}
+
 function whatsappQuoteLine(facts, language) {
   const label = guestSafeOfferingLabel(facts && facts.offering_label);
   const money = formatMoneyFromCents(factCents(facts), language);
@@ -188,7 +289,9 @@ module.exports = {
   guestSafeOfferingLabel,
   formatMoneyFromCents,
   compactEmailQuoteBlock,
+  compactEmailPayToBookQuoteBlock,
   groupedEmailAsk,
   presentGroundedReply,
+  presentPayToBookEmailDraft,
   emailDraftingAllowed,
 };

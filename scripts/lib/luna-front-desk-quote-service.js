@@ -3061,6 +3061,84 @@ function quoteByComponentsSync(command, catalog, requireDb) {
   return { ok: true, status: 200, body: quoteBody };
 }
 
+function asPositiveSafeCents(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+function confirmedSunsetDepositRule(adminCfg) {
+  const rule = adminCfg && adminCfg.payment && adminCfg.payment.deposit_rule;
+  if (!rule || typeof rule !== 'object') return null;
+  const status = String(rule.pricing_status || '').trim().toLowerCase();
+  if (status && status !== 'confirmed' && status !== 'confirmed_2026') return null;
+  if (String(rule.type || '').trim().toLowerCase() === 'owner_required') return null;
+  const fromCents = asPositiveSafeCents(rule.amount_cents);
+  if (fromCents != null) {
+    return { cents: fromCents, scope: String(rule.scope || 'per_booking').trim().toLowerCase() };
+  }
+  if (rule.default_eur != null && Number.isFinite(Number(rule.default_eur))) {
+    const fromEur = asPositiveSafeCents(Math.round(Number(rule.default_eur) * 100));
+    if (fromEur != null) {
+      return { cents: fromEur, scope: String(rule.scope || 'per_booking').trim().toLowerCase() };
+    }
+  }
+  return null;
+}
+
+function persistedSunsetDepositPriceRow(adminCfg) {
+  const rows = Array.isArray(adminCfg && adminCfg.prices) ? adminCfg.prices : [];
+  const deposits = rows.filter((row) => {
+    if (!row || row.active === false) return false;
+    const kind = String(row.category || row.item_type || '').trim().toLowerCase();
+    return kind === 'deposit';
+  });
+  if (deposits.length !== 1) return null;
+  const cents = asPositiveSafeCents(deposits[0].amount_cents);
+  if (cents == null) return null;
+  const unit = String(deposits[0].unit || '').trim().toLowerCase();
+  const scope = (unit === 'person' || unit === 'per_person' || unit === 'per_seat' || unit === 'seat')
+    ? 'per_person'
+    : 'per_booking';
+  return { cents, scope };
+}
+
+/**
+ * Canonical Sunset deposit due from persisted Admin payment/deposit config.
+ * Shared by quote (and therefore create/link, which re-quote / read the booking
+ * row). Never invents a percentage or a second policy.
+ */
+function resolveCanonicalSunsetDepositRequiredCents(adminCfg, quoteBody) {
+  const total = asPositiveSafeCents(quoteBody && quoteBody.total_cents);
+  if (total == null) return null;
+  const qty = Number.isInteger(Number(quoteBody && quoteBody.quantity))
+    && Number(quoteBody.quantity) >= 1
+    ? Number(quoteBody.quantity)
+    : 1;
+  const owned = confirmedSunsetDepositRule(adminCfg) || persistedSunsetDepositPriceRow(adminCfg);
+  if (!owned) return null;
+  let cents = owned.cents;
+  if (owned.scope === 'per_person' || owned.scope === 'per_seat') {
+    cents = asPositiveSafeCents(owned.cents * qty);
+  }
+  if (cents == null || cents > total) return null;
+  return cents;
+}
+
+function attachCanonicalSunsetDeposit(result, adminCfg) {
+  if (!result || result.ok !== true || !result.body || typeof result.body !== 'object') return result;
+  const existing = asPositiveSafeCents(result.body.deposit_required_cents);
+  if (existing != null) return result;
+  const deposit = resolveCanonicalSunsetDepositRequiredCents(adminCfg, result.body);
+  if (deposit == null) return result;
+  return {
+    ...result,
+    body: {
+      ...result.body,
+      deposit_required_cents: deposit,
+    },
+  };
+}
+
 function executeSunsetQuoteSync(command, opts = {}) {
   if (!command || command.clientSlug !== SUNSET_CLIENT_SLUG) {
     return {
@@ -3096,10 +3174,16 @@ function executeSunsetQuoteSync(command, opts = {}) {
   filtered.source = requireDb ? 'admin_db' : (filtered.source || adminCfg.source);
   const body = command.transportBody;
   if (body.offering_id) {
-    return quoteByOfferingIdSync(command, filtered, requireDb);
+    return attachCanonicalSunsetDeposit(
+      quoteByOfferingIdSync(command, filtered, requireDb),
+      adminCfg,
+    );
   }
   if (quoteShouldUseComponentsPath(body)) {
-    return quoteByComponentsSync(command, filtered, requireDb);
+    return attachCanonicalSunsetDeposit(
+      quoteByComponentsSync(command, filtered, requireDb),
+      adminCfg,
+    );
   }
   return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
 }
@@ -3146,10 +3230,16 @@ async function executeSunsetQuote(pg, command, opts = {}) {
 
   const body = command.transportBody;
   if (body.offering_id) {
-    return quoteByOfferingId(pg, command, catalog, requireDb);
+    return attachCanonicalSunsetDeposit(
+      await quoteByOfferingId(pg, command, catalog, requireDb),
+      adminCfg,
+    );
   }
   if (quoteShouldUseComponentsPath(body)) {
-    return quoteByComponents(pg, command, catalog, requireDb);
+    return attachCanonicalSunsetDeposit(
+      await quoteByComponents(pg, command, catalog, requireDb),
+      adminCfg,
+    );
   }
   return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
 }
@@ -3272,4 +3362,5 @@ module.exports = {
   appendCustomLineItemsToQuote,
   appendAccommodationToQuote,
   resolveCourseOfferingIdentity,
+  resolveCanonicalSunsetDepositRequiredCents,
 };
