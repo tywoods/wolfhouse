@@ -207,10 +207,14 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-inline-title,.inbox-guest-notes-title{max-width:none}',
   '.inbox-guest-inline-edit{grid-column:1}',
   '}',
-  /* md viewport: shrink shell gutters so list + peek card keep usable tracks */
-  '@media(max-width:1279px){',
+  /* md viewport only (901–1279): shrink gutters so list + peek keep usable tracks.
+   * Do NOT re-apply the 4-col grid under 900px — that pinned a 240px rail on phones
+   * and hid the conversation list (overflow:hidden). */
+  '@media(max-width:1279px) and (min-width:901px){',
   '.inbox-two-col.inbox-shell-cols{gap:8px;--inbox-col-gap:8px;',
   'grid-template-columns:minmax(0,var(--inbox-col1-w)) minmax(0,var(--inbox-col2-w)) minmax(0,1fr) minmax(0,var(--inbox-col4-w))}',
+  '}',
+  '@media(max-width:1279px){',
   '#tab-conversations.active #wrap.inbox-shell-wrap{padding-left:12px!important;padding-right:12px!important}',
   '#inbox-shell[data-col4="peek"] .inbox-customer-card .customers-profile-field,',
   '#inbox-shell[data-col4="peek"] .inbox-customer-card.is-full .customers-profile-field,',

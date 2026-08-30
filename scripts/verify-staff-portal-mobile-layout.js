@@ -24,6 +24,13 @@ check('M4', src.includes('staff-portal-mobile:calendar-card'), 'calendar card mo
 check('M5', src.includes('BC_ZOOM_MOBILE_DEFAULT') && /BC_ZOOM_MOBILE_DEFAULT\s*=\s*70/.test(src), 'calendar mobile zoom default 70%');
 check('M6', src.includes('BC_ZOOM_MOBILE_MIN') && /BC_ZOOM_MOBILE_MIN\s*=\s*50/.test(src), 'calendar mobile zoom min 50%');
 check('M7', src.includes('staff-portal-mobile:inbox') && src.includes('inbox-mobile-back'), 'inbox mobile list/detail/back markers');
+check('M7b', /@media\(max-width:1279px\) and \(min-width:901px\)/.test(src)
+  && src.includes('grid-template-columns:minmax(0,var(--inbox-col1-w))'),
+  'md 4-col density grid does not apply on phone');
+check('M7c', /staff-portal-mobile:inbox-chrome[\s\S]{0,2800}grid-template-columns:1fr!important/.test(src)
+  && src.includes('.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto minmax(0,1fr)}')
+  && src.includes('.inbox-two-col.inbox-shell-cols:not(.show-thread) #conv-detail{display:none}'),
+  'phone inbox is one column; original 768 master/detail pair intact');
 check('M8', src.includes('conv-card-mobile-dense'), 'inbox compact mobile card marker');
 check('M9', src.includes('staff-portal-mobile:staff-numbers') && src.includes('swn-mobile-card'), 'staff number mobile card marker');
 check('M10', src.includes('viewport-fit=cover'), 'viewport-fit=cover on main portal');

@@ -21497,6 +21497,22 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
   .inbox-customer-card.is-editing input,
   .inbox-customer-card.is-editing select,
   .inbox-customer-card.is-editing textarea{min-height:44px;font-size:16px}
+  /* Phone is list-or-thread, never the desktop 4-col grid. !important beats
+   * injected md density CSS that used to restore 4 columns below 1279px. */
+  .inbox-two-col.inbox-shell-cols:not(.show-thread){
+    grid-template-columns:1fr!important;
+    grid-template-rows:auto minmax(0,1fr);
+    width:100%;max-width:100%;overflow:auto;
+  }
+  .inbox-two-col.inbox-shell-cols.show-thread{
+    grid-template-columns:1fr!important;
+    grid-template-rows:minmax(0,1fr);
+    width:100%;max-width:100%;
+  }
+  .inbox-two-col.inbox-shell-cols > .inbox-col1,
+  .inbox-two-col.inbox-shell-cols > .inbox-left{
+    width:100%;max-width:100%;align-self:stretch;min-width:0;min-height:0;
+  }
 }
 /* ── Top-bar layout controls: preset segmented control + per-column toggles ── */
 .inbox-layout-controls{display:flex;align-items:center;gap:8px;margin-left:8px;flex:0 0 auto}
