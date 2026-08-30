@@ -90,10 +90,13 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
    projectEvent:async event=>{
     const {
       isEmailMicrosoftAutoSendEmergencyEnabled,
+      isSameDeskEmailAutoSendEnabled,
       shouldSuppressInboundNeedsHuman,
       afterMicrosoftInboundProjected,
+      afterSameDeskEmailAutoSend,
     } = require('./email-luna-microsoft-auto-create-send');
     const autoFlagsOn = isEmailMicrosoftAutoSendEmergencyEnabled(deps.env);
+    const sameDeskOn = isSameDeskEmailAutoSendEnabled(deps.env);
     const projectInput = {
       clientId: event.clientId,
       locationId: event.locationId,
@@ -116,6 +119,27 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
     if (autoFlagsOn) {
       try {
         await afterMicrosoftInboundProjected({
+          env: deps.env,
+          pgClient: currentClient,
+          withTransactionClient: async work => work(currentClient),
+          https: observedHttps,
+          timers: deps.timers,
+          authority: Object.freeze({
+            clientId: event.clientId,
+            locationId: event.locationId,
+            endpointId: event.endpointId,
+          }),
+          envelope: Object.freeze({
+            provider: event.provider,
+            provider_mailbox_id: event.providerMailboxId,
+            provider_message_id: event.providerMessageId,
+          }),
+          projection: projected,
+        });
+      } catch (_err) { /* never fail inbound durability */ }
+    } else if (sameDeskOn) {
+      try {
+        await afterSameDeskEmailAutoSend({
           env: deps.env,
           pgClient: currentClient,
           withTransactionClient: async work => work(currentClient),

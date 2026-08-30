@@ -760,6 +760,8 @@
     "verify:luna-same-desk-admin-catalog": "node scripts/verify-luna-same-desk-admin-catalog.js",
     "verify:luna-same-desk-email-presentation": "node scripts/verify-luna-same-desk-email-presentation.js",
     "verify:luna-same-desk-email-booking": "node scripts/verify-luna-same-desk-email-booking.js",
+    "verify:luna-same-desk-email-auto-send": "node scripts/verify-luna-same-desk-email-auto-send.js",
+    "prove:luna-same-desk-auto-send-claim-stock-pg": "node scripts/prove-luna-same-desk-auto-send-claim-stock-pg.js",
     "verify:luna-front-desk-vertical-adapter": "node scripts/verify-luna-front-desk-vertical-adapter.js",
     "verify:vertical-tenant-isolation-second-school": "node scripts/verify-vertical-tenant-isolation-second-school.js",
     "verify:tenant-rental-offerings-crud": "node scripts/verify-tenant-rental-offerings-crud.js",

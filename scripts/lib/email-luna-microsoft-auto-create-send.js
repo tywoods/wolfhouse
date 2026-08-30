@@ -8,6 +8,11 @@
  *   LUNA_AUTO_SEND_ENABLED
  *   LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED
  *
+ * SAME-DESK-004 — WhatsApp-like Staff-API auto-send on the same inbound
+ * seam, without the dormant email emergency flag. Auto-send only when
+ * conversation Luna is On, needs_human is false, and Global Pause is off.
+ * needs_human keeps Approve & send. Luna Off / Global Pause stay draft-only.
+ *
  * Does not read CUSTOMER_OUTREACH_EMAIL_ENABLED.
  * Pause remains `bot_pause_states` via getPauseState (fail closed).
  * Draft author is the proven Create Draft producer (empty operator context).
@@ -21,6 +26,7 @@ const {
   createEmailInboxChannelModeStore,
   EMAIL_INBOX_CHANNEL_MODE_DEFAULT,
 } = require('./email-inbox-channel-mode');
+const { createSameDeskAutoSendClaimOwner } = require('./email-luna-same-desk-auto-send-claim');
 
 const isProxy = util.types.isProxy.bind(undefined);
 const freeze = Object.freeze;
@@ -117,6 +123,12 @@ function isLiteralTrue(env, key) {
 function isEmailMicrosoftAutoSendEmergencyEnabled(env) {
   return isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED)
     && isLiteralTrue(env, ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED);
+}
+
+/** WhatsApp-like kill switch only. Does not enable the dormant MAIL-MVP-003 pair. */
+function isSameDeskEmailAutoSendEnabled(env) {
+  return isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED)
+    && !isEmailMicrosoftAutoSendEmergencyEnabled(env);
 }
 
 const CLOSED_SAVE_FAIL_REASONS = freeze([
@@ -279,6 +291,22 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
   const readPause = typeof deps.readPause === 'function' ? deps.readPause : null;
   const resolveAutoActor = typeof deps.resolveAutoActor === 'function' ? deps.resolveAutoActor : null;
   const journalExists = typeof deps.journalExists === 'function' ? deps.journalExists : null;
+  const claimOwner = createSameDeskAutoSendClaimOwner({
+    withPgClient,
+    now: typeof deps.now === 'function' ? deps.now : undefined,
+  });
+  const claimSameDesk = typeof deps.claimSameDeskAutoSend === 'function'
+    ? deps.claimSameDeskAutoSend
+    : (input) => claimOwner.claim(input);
+  const linkSameDesk = typeof deps.linkSameDeskAutoSendApproval === 'function'
+    ? deps.linkSameDeskAutoSendApproval
+    : (input) => claimOwner.linkApproval(input);
+  const releaseSameDesk = typeof deps.releaseSameDeskAutoSendClaim === 'function'
+    ? deps.releaseSameDeskAutoSendClaim
+    : (input) => claimOwner.release(input);
+  const beginSameDesk = typeof deps.beginSameDeskAutoSendDispatch === 'function'
+    ? deps.beginSameDeskAutoSendDispatch
+    : (input) => claimOwner.beginDispatch(input);
   if (!withPgClient || !regenerate || !saveDraft || !approveAndDispatch) {
     throw new Error('auto_create_send_deps');
   }
@@ -289,12 +317,17 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
     return store.getChannelMode(clientId, 'email');
   }
 
-  async function handleProjectedInbound(input) {
+  async function runProjectedInbound(input, policy) {
     const env = input && input.env;
     const authority = input && input.authority;
     const envelope = input && input.envelope;
     const projection = input && input.projection;
-    if (!isEmailMicrosoftAutoSendEmergencyEnabled(env)) {
+    const sameDesk = policy && policy.sameDesk === true;
+    if (sameDesk) {
+      if (!isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED)) {
+        return blocked('luna_auto_send_not_enabled');
+      }
+    } else if (!isEmailMicrosoftAutoSendEmergencyEnabled(env)) {
       return blocked('emergency_flags_off');
     }
     if (!projection || (projection.status !== 'projected' && projection.status !== 'already_projected')) {
@@ -332,7 +365,9 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       if (!row) return null;
       const inboundId = uuid(row.inbound_message_id);
       let approval = null;
-      if (inboundId) {
+      // SAME-DESK auto must never load a generic/manual draft by conversation/inbound
+      // as the send payload. MAIL-MVP-003 emergency may still reuse an existing row.
+      if (!sameDesk && inboundId) {
         const ap = await pg.query(SQL_LOAD_EXISTING_APPROVAL, [clientId, conversationId, inboundId]);
         approval = ap && Array.isArray(ap.rows) && ap.rows.length === 1 ? ap.rows[0] : null;
       }
@@ -355,7 +390,7 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
     const mailboxId = typeof row.provider_mailbox_id === 'string' ? row.provider_mailbox_id : null;
     const sourceMessageId = typeof row.provider_source_message_id === 'string'
       ? row.provider_source_message_id : null;
-    if (!mailboxId || !sourceMessageId) return blocked('authority_mismatch');
+    if (!mailboxId || !sourceMessageId || !inboundEventId) return blocked('authority_mismatch');
     const expectedAuthority = freeze({
       client_id: clientId,
       location_id: locationId,
@@ -368,12 +403,63 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       provider_source_message_id: sourceMessageId,
     });
 
-    const existing = ctx.approval;
+    let sameDeskClaim = null;
+    async function releaseWonClaim() {
+      if (!sameDesk || !sameDeskClaim || !sameDeskClaim.lease_token) return;
+      try {
+        await releaseSameDesk({
+          claim_id: sameDeskClaim.claim_id,
+          client_id: clientId,
+          conversation_id: conversationId,
+          lease_token: sameDeskClaim.lease_token,
+          lease_epoch: sameDeskClaim.lease_epoch,
+        });
+      } catch {
+        /* best-effort pre-dispatch release */
+      }
+    }
+    async function linkWonClaim(approvalId, operationId) {
+      if (!sameDesk || !sameDeskClaim || !approvalId) return freeze({ status: 'not_linked' });
+      try {
+        return await linkSameDesk({
+          claim_id: sameDeskClaim.claim_id,
+          client_id: clientId,
+          conversation_id: conversationId,
+          approval_id: approvalId,
+          operation_id: operationId,
+          lease_token: sameDeskClaim.lease_token,
+          lease_epoch: sameDeskClaim.lease_epoch,
+          auto_provenance: 'same_desk_004_auto',
+        });
+      } catch {
+        return freeze({ status: 'not_linked' });
+      }
+    }
+    async function rereadLiveGates() {
+      const liveMode = await channelMode(clientId);
+      if (liveMode !== 'auto') return 'email_channel_not_auto';
+      const livePause = readPause
+        ? await readPause(conversationId)
+        : await withPgClient(async (pg) => defaultReadPause(pg, conversationId));
+      if (!livePause || livePause.lookup_error === true) return 'pause_fail_closed';
+      if (livePause.global_paused === true) return 'global_paused';
+      if (livePause.conversation_paused === true) return 'luna_off';
+      const liveCtx = await withPgClient(async (pg) => {
+        const loaded = await pg.query(SQL_LOAD_AUTO_CONTEXT, [clientId, conversationId]);
+        return loaded && Array.isArray(loaded.rows) && loaded.rows[0] ? loaded.rows[0] : null;
+      });
+      if (!liveCtx) return 'authority_mismatch';
+      if (liveCtx.needs_human === true) return 'needs_human';
+      return null;
+    }
+
+    const existing = sameDesk ? null : ctx.approval;
     if (existing && (existing.state === 'approved' || existing.state === 'terminal')) {
       const hasJournal = journalExists
         ? await journalExists(existing)
         : true;
       if (hasJournal) {
+        await linkWonClaim(existing.approval_id, existing.operation_id);
         if (recoverSend && existing.state === 'approved') {
           const recovered = await recoverSend({
             actor,
@@ -401,6 +487,7 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       const committed = dispatched && dispatched.code === 'email_send_committed'
         && dispatched.status === 200;
       if (committed) {
+        await linkWonClaim(existing.approval_id, existing.operation_id);
         return succeeded({
           approval_id: existing.approval_id,
           draft_writes: 0,
@@ -428,6 +515,7 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       const committed = dispatched && dispatched.code === 'email_send_committed'
         && dispatched.status === 200;
       if (committed) {
+        await linkWonClaim(existing.approval_id, existing.operation_id);
         return succeeded({
           approval_id: existing.approval_id,
           draft_writes: 0,
@@ -459,6 +547,28 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       return failed(draft && draft.status === 'conflict' ? 'conflict' : 'author_failed');
     }
 
+    if (sameDesk) {
+      const claimed = await claimSameDesk({
+        client_id: clientId,
+        conversation_id: conversationId,
+        source_inbound_event_id: inboundEventId,
+        claimant_staff_user_id: actor.staff_user_id,
+      });
+      if (!claimed || claimed.status !== 'won') {
+        return freeze({
+          status: 'skipped',
+          reason: claimed && claimed.reason === 'outcome_unknown' ? 'already_claimed' : 'already_claimed',
+          draft_writes: 0,
+          approvals: 0,
+          journals: 0,
+          provider_sends: 0,
+          sent: false,
+          approval_id: claimed && claimed.approval_id,
+        });
+      }
+      sameDeskClaim = claimed;
+    }
+
     let saved;
     try {
       const saveInput = {
@@ -473,11 +583,50 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       if (subjectCheck && subjectCheck.ok === true) saveInput.subject = subjectCheck.value;
       saved = await saveDraft(saveInput);
     } catch (err) {
+      await releaseWonClaim();
       const thrown = err && err.code === 'subject_invalid' ? 'subject_invalid' : 'approval_not_saved';
       return failed(closedSaveFailReason(thrown), saveThrowDiagnostics(err, null));
     }
     if (!saved || saved.status !== 'saved' || !saved.approval_id) {
+      await releaseWonClaim();
       return failed(closedSaveFailReason(saved && saved.code), saveThrowDiagnostics(null, saved));
+    }
+    const linked = await linkWonClaim(saved.approval_id, saved.operation_id);
+    if (sameDesk && (!linked || linked.status !== 'linked')) {
+      await releaseWonClaim();
+      return failed('claim_not_linkable', {
+        draft_writes: 1,
+        approvals: 1,
+        approval_id: saved.approval_id,
+      });
+    }
+
+    if (sameDesk) {
+      const closedGate = await rereadLiveGates();
+      if (closedGate) {
+        await releaseWonClaim();
+        return blocked(closedGate, {
+          draft_writes: 1,
+          approvals: 1,
+          approval_id: saved.approval_id,
+        });
+      }
+      const begun = await beginSameDesk({
+        claim_id: sameDeskClaim.claim_id,
+        client_id: clientId,
+        conversation_id: conversationId,
+        lease_token: sameDeskClaim.lease_token,
+        lease_epoch: sameDeskClaim.lease_epoch,
+        approval_id: saved.approval_id,
+      });
+      if (!begun || begun.status !== 'dispatching') {
+        return failed('stale_lease', {
+          draft_writes: 1,
+          approvals: 1,
+          provider_sends: 0,
+          approval_id: saved.approval_id,
+        });
+      }
     }
 
     let dispatched;
@@ -511,7 +660,15 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
     });
   }
 
-  return freeze({ handleProjectedInbound });
+  async function handleProjectedInbound(input) {
+    return runProjectedInbound(input, { sameDesk: false });
+  }
+
+  async function handleSameDeskProjectedInbound(input) {
+    return runProjectedInbound(input, { sameDesk: true });
+  }
+
+  return freeze({ handleProjectedInbound, handleSameDeskProjectedInbound });
 }
 
 async function shouldSuppressInboundNeedsHuman(input) {
@@ -589,15 +746,29 @@ function createProductionEmailLunaMicrosoftAutoCreateAndSend(input) {
   });
 }
 
+function resolveAutoOwner(input) {
+  if (input && input.owner) return input.owner;
+  if (input && typeof input.regenerateEmailLunaDraftOnStaffClick === 'function') {
+    return createEmailLunaMicrosoftAutoCreateAndSend(input);
+  }
+  return createProductionEmailLunaMicrosoftAutoCreateAndSend(input);
+}
+
 async function afterMicrosoftInboundProjected(input) {
   if (!isEmailMicrosoftAutoSendEmergencyEnabled(input && input.env)) {
     return blocked('emergency_flags_off');
   }
-  const owner = input.owner
-    || (typeof input.regenerateEmailLunaDraftOnStaffClick === 'function'
-      ? createEmailLunaMicrosoftAutoCreateAndSend(input)
-      : createProductionEmailLunaMicrosoftAutoCreateAndSend(input));
-  return owner.handleProjectedInbound(input);
+  return resolveAutoOwner(input).handleProjectedInbound(input);
+}
+
+async function afterSameDeskEmailAutoSend(input) {
+  if (isEmailMicrosoftAutoSendEmergencyEnabled(input && input.env)) {
+    return afterMicrosoftInboundProjected(input);
+  }
+  if (!isLiteralTrue(input && input.env, ENV_LUNA_AUTO_SEND_ENABLED)) {
+    return blocked('luna_auto_send_not_enabled');
+  }
+  return resolveAutoOwner(input).handleSameDeskProjectedInbound(input);
 }
 
 module.exports = {
@@ -605,9 +776,11 @@ module.exports = {
   ENV_LUNA_EMAIL_OUTBOUND_AUTO_SEND_ENABLED,
   ENV_OUTREACH,
   isEmailMicrosoftAutoSendEmergencyEnabled,
+  isSameDeskEmailAutoSendEnabled,
   createEmailLunaMicrosoftAutoCreateAndSend,
   createProductionEmailLunaMicrosoftAutoCreateAndSend,
   afterMicrosoftInboundProjected,
+  afterSameDeskEmailAutoSend,
   shouldSuppressInboundNeedsHuman,
   SQL_RESOLVE_AUTO_ACTOR,
   SQL_LOAD_AUTO_CONTEXT,
