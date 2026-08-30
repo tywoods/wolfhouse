@@ -455,13 +455,12 @@ function createSunsetStagingMicrosoftDelegatedInboundEventStoreRuntime(deps) {
         const autoFlagsOn = isEmailMicrosoftAutoSendEmergencyEnabled(ready.env);
         const sameDeskOn = isSameDeskEmailAutoSendEnabled(ready.env);
         let suppressNeedsHuman = false;
-        if (autoFlagsOn || sameDeskOn) {
+        if (autoFlagsOn) {
           try {
             suppressNeedsHuman = await shouldSuppressInboundNeedsHuman({
               env: ready.env,
               clientId: ids.clientId,
               withTransactionClient,
-              sameDesk: sameDeskOn,
             });
           } catch {
             suppressNeedsHuman = false;

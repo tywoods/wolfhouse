@@ -493,6 +493,36 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
       return failed(closedSaveFailReason(thrown), saveThrowDiagnostics(err, null));
     }
     if (!saved || saved.status !== 'saved' || !saved.approval_id) {
+      if (saved && saved.code === 'draft_identity_claimed') {
+        const reloaded = await withPgClient(async (pg) => {
+          const ap = await pg.query(SQL_LOAD_EXISTING_APPROVAL, [clientId, conversationId, inboundEventId]);
+          return ap && Array.isArray(ap.rows) && ap.rows.length === 1 ? ap.rows[0] : null;
+        });
+        if (reloaded && (reloaded.state === 'approved' || reloaded.state === 'terminal')) {
+          const hasJournal = journalExists ? await journalExists(reloaded) : true;
+          if (hasJournal) {
+            return skippedDuplicate({ approval_id: reloaded.approval_id, peer_claimed: true });
+          }
+          return failed('provider_failure', {
+            approval_id: reloaded.approval_id,
+            code: 'email_send_outcome_unknown',
+            draft_writes: 0,
+            approvals: 0,
+            journals: 0,
+            provider_sends: 0,
+          });
+        }
+        return freeze({
+          status: 'skipped',
+          reason: 'already_claimed',
+          draft_writes: 0,
+          approvals: 0,
+          journals: 0,
+          provider_sends: 0,
+          sent: false,
+          approval_id: reloaded && reloaded.approval_id,
+        });
+      }
       return failed(closedSaveFailReason(saved && saved.code), saveThrowDiagnostics(null, saved));
     }
 
@@ -540,9 +570,7 @@ function createEmailLunaMicrosoftAutoCreateAndSend(deps) {
 
 async function shouldSuppressInboundNeedsHuman(input) {
   const env = input && input.env;
-  const emergency = isEmailMicrosoftAutoSendEmergencyEnabled(env);
-  const sameDesk = input && input.sameDesk === true && isLiteralTrue(env, ENV_LUNA_AUTO_SEND_ENABLED);
-  if (!emergency && !sameDesk) return false;
+  if (!isEmailMicrosoftAutoSendEmergencyEnabled(env)) return false;
   const clientId = uuid(input && input.clientId);
   if (!clientId) return false;
   try {

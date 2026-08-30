@@ -541,7 +541,8 @@ INSERT INTO tenant_email_reply_approvals (
   draft_actor_staff_user_id, approved_actor_staff_user_id, message_text, body_digest, subject, state, drafted_at, approved_at
 ) VALUES (
   $1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::uuid,$7::uuid,$8::uuid,'microsoft_graph',$9,$10,$11::uuid,NULL,$12,$13,$14,'draft',NOW(),NULL
-) RETURNING approval_id::text AS approval_id, message_text, conversation_id::text AS conversation_id, subject
+) ON CONFLICT (client_id, conversation_id, source_inbound_event_id) DO NOTHING
+RETURNING approval_id::text AS approval_id, message_text, conversation_id::text AS conversation_id, subject
 `.replace(/\s+/g, ' ').trim();
 const SQL_INSERT_DRAFT_SMTP = `
 INSERT INTO tenant_email_reply_approvals (
@@ -550,7 +551,8 @@ INSERT INTO tenant_email_reply_approvals (
   draft_actor_staff_user_id, approved_actor_staff_user_id, message_text, body_digest, subject, state, drafted_at, approved_at
 ) VALUES (
   $1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,$6::uuid,$7::uuid,$8::uuid,'imap_smtp',$9,$10,$11::uuid,NULL,$12,$13,$14,'draft',NOW(),NULL
-) RETURNING approval_id::text AS approval_id, message_text, conversation_id::text AS conversation_id, subject
+) ON CONFLICT (client_id, conversation_id, source_inbound_event_id) DO NOTHING
+RETURNING approval_id::text AS approval_id, message_text, conversation_id::text AS conversation_id, subject
 `.replace(/\s+/g, ' ').trim();
 const SQL_CAS_DRAFT = `
 UPDATE tenant_email_reply_approvals
@@ -797,11 +799,19 @@ function createStaffEmailInboxRoutes(deps) {
     }
     const approvalId = mintUuid(); const operationId = mintUuid();
     const insertSql = auth.provider === 'imap_smtp' ? SQL_INSERT_DRAFT_SMTP : SQL_INSERT_DRAFT;
-    const ins = await pg.query(insertSql, [approvalId, operationId, auth.client_id, auth.location_id,
-      auth.location_key, auth.endpoint_id, auth.conversation_id, auth.source_inbound_event_id,
-      auth.provider_mailbox_id, auth.provider_source_message_id, a.staff_user_id, body.message_text, digest, subject]);
+    let ins;
+    try {
+      ins = await pg.query(insertSql, [approvalId, operationId, auth.client_id, auth.location_id,
+        auth.location_key, auth.endpoint_id, auth.conversation_id, auth.source_inbound_event_id,
+        auth.provider_mailbox_id, auth.provider_source_message_id, a.staff_user_id, body.message_text, digest, subject]);
+    } catch (error) {
+      if (error && String(error.code) === '23505') {
+        return { status: 409, body: APPROVAL_CONFLICT, code: 'draft_identity_claimed' };
+      }
+      throw tagSaveDraftThrow(error, 'persist_insert');
+    }
     if (!ins || !ins.rows || ins.rows.length !== 1) {
-      return { status: 500, body: Object.freeze({ success: false, error: 'draft_failed' }), code: 'draft_insert_failed' };
+      return { status: 409, body: APPROVAL_CONFLICT, code: 'draft_identity_claimed' };
     }
     const row = ins.rows[0];
     return { status: 200, body: successDto(row.conversation_id, row.message_text, row.approval_id), code: 'draft_created', approval_id: row.approval_id };

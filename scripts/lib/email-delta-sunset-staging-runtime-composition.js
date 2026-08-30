@@ -105,13 +105,12 @@ function createEmailDeltaSunsetStagingRuntimeComposition(deps){
       providerMailboxId: event.providerMailboxId,
       providerMessageId: event.providerMessageId,
     };
-    if (autoFlagsOn || sameDeskOn) {
+    if (autoFlagsOn) {
       try {
         if (await shouldSuppressInboundNeedsHuman({
           env: deps.env,
           clientId: event.clientId,
           withTransactionClient: async work => work(currentClient),
-          sameDesk: sameDeskOn,
         })) projectInput.setNeedsHuman = false;
       } catch (_err) { /* keep generate-on-open latch */ }
     }
