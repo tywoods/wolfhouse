@@ -21202,12 +21202,12 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
   align-items:stretch;
 }
 /* Full view has a deliberate readable-chat ceiling: 240 + 252 + 800 + 300 + 3×14 = 1634px.
-   Guest hidden (3-col) keeps that same outer width so chat does not jump. */
+   Guest hidden (3-col) keeps that same outer width. Do not reserve an empty 300px track. */
 .inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="peek"]{
   max-width:1634px;margin-left:auto;margin-right:auto;
 }
 .inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="hidden"]{
-  max-width:1634px;margin-left:auto;margin-right:auto;--inbox-col4-w:300px;
+  max-width:1634px;margin-left:auto;margin-right:auto;
 }
 .inbox-views-rail{
   min-width:0;min-height:0;height:auto;align-self:stretch;
@@ -21687,8 +21687,6 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
   body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-col1{grid-column:3}
   body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
   body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:0}
-  body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .detail-main,
-  body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] .inbox-empty-right{margin-right:0}
   body:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-toolbar-top{
     grid-template-columns:minmax(0,252px) minmax(0,1fr) var(--inbox-col1-w,240px) auto;
   }

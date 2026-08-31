@@ -398,11 +398,9 @@ function checkRenderedCss(client, html) {
   ok('Full 3-col (guest hidden) keeps the same 1634px workspace as 4-col',
     !!fullHiddenShell && declaration(fullHiddenShell, 'max-width') === SPEC_FULL_WORKSPACE_MAX,
     fullHiddenShell ? declaration(fullHiddenShell, 'max-width') : 'missing');
-  ok('Full 3-col keeps the 300px guest track so chat does not absorb it',
-    !!fullHiddenShell && declaration(fullHiddenShell, '--inbox-col4-w') === SPEC_WIDTHS.col4.peek,
+  ok('Full 3-col does not reserve an empty 300px guest track',
+    !!fullHiddenShell && (declaration(fullHiddenShell, '--inbox-col4-w') || '0px') !== SPEC_WIDTHS.col4.peek,
     fullHiddenShell ? declaration(fullHiddenShell, '--inbox-col4-w') : 'missing');
-  ok('Full 3-col does not pull chat into the guest gap',
-    /body:has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) #inbox-shell\.inbox-two-col\.inbox-shell-cols\[data-col4="hidden"\] \.detail-main[\s\S]{0,180}margin-right:0/.test(html));
 
   Object.keys(SPEC_WIDTHS).forEach((col) => {
     Object.keys(SPEC_WIDTHS[col]).forEach((state) => {
