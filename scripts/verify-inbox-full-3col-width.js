@@ -56,8 +56,8 @@ ok('Full all4 overrides peek+hidden to fill the 1800 wrap',
 ok('no 1674 Full wrap cap (that left 3-col short of 4-col)',
   !apiSrc.includes('max-width:1674px!important'));
 
-ok('3-col Full hidden shells pads 22px so chat meets the Guest tab',
-  /body:has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) #inbox-shell\.inbox-two-col\.inbox-shell-cols\[data-col4="hidden"\]\{\s*box-sizing:border-box;padding-right:22px;\s*\}/.test(apiSrc));
+ok('3-col Full hidden does not pad 22px (chat goes to the tab’s right edge)',
+  !/padding-right:22px/.test(apiSrc));
 
 ok('unscoped col4 hidden still documents 0px (Chat/Guest model unchanged)',
   apiSrc.includes('.inbox-two-col.inbox-shell-cols[data-col4="hidden"]{--inbox-col4-w:0px}'));
@@ -73,10 +73,11 @@ ok('spec says Full uses the 1800px wrap for guest-open and guest-hidden',
   /uses the 1800px wrap/.test(specSrc)
   && /total width does not jump/.test(specSrc));
 
-ok('playwright gate measures wrap left and right in both states',
+ok('playwright gate measures wrap bounds and chat right = tab right',
   pwSrc.includes('outer Full wrap left edge is equal in 3-col and 4-col')
   && pwSrc.includes('outer Full wrap right edge is equal in 3-col and 4-col')
-  && pwSrc.includes('#wrap.inbox-shell-wrap'));
+  && pwSrc.includes('#wrap.inbox-shell-wrap')
+  && pwSrc.includes('3-col chat right edge equals Guest tab right edge'));
 
 ok('stay off inbox-thread.js',
   !threadSrc.includes('1634px') && !threadSrc.includes('--inbox-col4-w:300px'));

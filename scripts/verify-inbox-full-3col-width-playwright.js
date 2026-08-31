@@ -9,7 +9,7 @@
  * Fails unless:
  *   - Full 3-col and 4-col #wrap.inbox-shell-wrap left AND right edges match
  *   - Full 3-col and 4-col outer #inbox-shell widths are equal
- *   - 3-col .detail-main right edge equals #inbox-guest-restore left edge
+ *   - 3-col .detail-main right edge equals #inbox-guest-restore right edge
  *
  * Stay OFF inbox-thread.js, package.json.
  *
@@ -149,8 +149,8 @@ async function main() {
       four.shell && three.shell && near(four.shell.width, three.shell.width, TOL),
       JSON.stringify({ four: four.shell && four.shell.width, three: three.shell && three.shell.width }));
 
-    ok('3-col chat right edge equals Guest tab left edge',
-      three.chat && three.tab && near(three.chat.right, three.tab.left, TOL),
+    ok('3-col chat right edge equals Guest tab right edge',
+      three.chat && three.tab && near(three.chat.right, three.tab.right, TOL),
       JSON.stringify({
         chatRight: three.chat && three.chat.right,
         tabLeft: three.tab && three.tab.left,
