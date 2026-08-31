@@ -162,8 +162,8 @@ function sourceContracts() {
       && /portal-admin-equip-row\.is-equip-disabled \.portal-admin-equip-chip/.test(apiSrc),
   );
   ok(
-    '32px pricing pencils; 44px rental footer (compact editor inputs are separate)',
-    /\.portal-admin-equip-edit-btn[^{]*\{[^}]*min-height:32px/.test(apiSrc)
+    '40×28 pricing pencils; 44px rental footer (compact editor inputs are separate)',
+    /\.portal-admin-equip-edit-btn[^{]*\{[^}]*min-height:28px/.test(apiSrc)
       && /portal-admin-equip-delete\{[^}]*min-height:44px/.test(apiSrc)
       && /portal-admin-equip-footer \.btn-primary[^}]*min-height:44px/.test(apiSrc)
       && /var\(--focus/.test(apiSrc),

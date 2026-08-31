@@ -3,7 +3,9 @@
 /**
  * Admin → Pricing: one ✎ size; Delete course only while editing.
  *
- *  - Group / private / rental / accommodation closed pencils share portal-admin-pricing-edit-btn at 32px rounded-rect
+ *  - Group / private / rental / accommodation closed pencils share
+ *    portal-admin-pricing-edit-btn as a 40×28, 4px-radius rectangle
+ *    scoped to #admin-panel-pricing
  *  - Closed group course cards do not paint Delete course
  *  - Delete course lives in the pack editor footer (existing courses only)
  *
@@ -50,15 +52,16 @@ assert.ok(
 );
 
 assert.ok(
-  /button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,80}button\.btn\.portal-admin-equip-edit-btn\{[^}]*min-height:32px/.test(apiSrc)
-    && /button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,240}width:32px/.test(apiSrc)
-    && /button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,240}height:32px/.test(apiSrc),
-  'shared pencil CSS is 32px',
+  /#admin-panel-pricing button\.btn\.portal-admin-pricing-edit-btn[\s\S]{0,120}#admin-panel-pricing button\.btn\.portal-admin-equip-edit-btn\{[^}]*min-height:28px/.test(apiSrc)
+    && /#admin-panel-pricing button\.btn\.portal-admin-pricing-edit-btn[\s\S]{0,280}width:40px/.test(apiSrc)
+    && /#admin-panel-pricing button\.btn\.portal-admin-pricing-edit-btn[\s\S]{0,280}height:28px/.test(apiSrc),
+  'shared pencil CSS is 40×28',
 );
 assert.ok(
-  /button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,240}border-radius:8px/.test(apiSrc)
-    && !/button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,240}border-radius:999px/.test(apiSrc),
-  'shared pencil is a rounded rectangle, not a circle',
+  /#admin-panel-pricing button\.btn\.portal-admin-pricing-edit-btn[\s\S]{0,280}border-radius:4px/.test(apiSrc)
+    && !/#admin-panel-pricing button\.btn\.portal-admin-pricing-edit-btn[\s\S]{0,280}border-radius:999px/.test(apiSrc)
+    && !/#admin-panel-pricing button\.btn\.portal-admin-pricing-edit-btn[\s\S]{0,280}border-radius:8px/.test(apiSrc),
+  'shared pencil is a 4px rounded rectangle, not a circle',
 );
 assert.ok(
   !/\.portal-admin-pack-card \.portal-admin-card-actions \.portal-admin-icon-btn\{[^}]*min-height:16px/.test(apiSrc),

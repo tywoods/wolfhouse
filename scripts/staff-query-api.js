@@ -17244,10 +17244,11 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-equip-chip.is-inactive{color:var(--text-2);border-style:dashed}
 .portal-admin-equip-chips-empty{font-size:12px}
 .portal-admin-equip-actions{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;margin-left:auto}
-/* Pricing closed-card ✎: one 32px rounded rectangle for group / private / rental / accommodation.
-   Middle of the old 16px course chip and 44px rental control. Beats later .btn padding. */
-button.btn.portal-admin-icon-btn.portal-admin-pricing-edit-btn,
-button.btn.portal-admin-equip-edit-btn{width:32px;min-width:32px;max-width:32px;height:32px;min-height:32px;max-height:32px;padding:0;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;color:var(--text);font-weight:700;font-size:14px;line-height:1}
+/* Pricing closed-card ✎: one rounded rectangle (not a circle) for group /
+   private / rental / accommodation. 40×28 + 4px radius reads as a rectangle
+   at this size; 32px+8px still looked round. Beats .btn and icon-btn 999px. */
+#admin-panel-pricing button.btn.portal-admin-pricing-edit-btn,
+#admin-panel-pricing button.btn.portal-admin-equip-edit-btn{width:40px;min-width:40px;max-width:40px;height:28px;min-height:28px;max-height:28px;padding:0;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;color:var(--text);font-weight:700;font-size:14px;line-height:1}
 /* Duration ×: larger glyph (~18px), compact physical button (~30px). Owner override vs 44px hit-target. */
 button.btn.portal-admin-equip-remove-duration,
 button.portal-admin-equip-remove-duration,
