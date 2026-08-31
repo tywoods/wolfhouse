@@ -266,12 +266,53 @@ function main() {
     /inbox_channel_modes/.test(prefsFn)
     && /hasOwnProperty\.call\(body, 'inbox_guest_panel'\)/.test(prefsFn)
     && /hasOwnProperty\.call\(body, 'inbox_channel_modes'\)/.test(prefsFn));
-  assert('prefs write is tenant-global on clients.metadata inbox_ui_channel_modes',
+  assert('prefs write is tenant-global on clients.settings inbox_channel_modes',
     /saveClientInboxChannelModes\(/.test(prefsFn)
-    && /inbox_ui_channel_modes/.test(saveModesFn)
+    && /settings->'inbox_channel_modes'/.test(saveModesFn)
     && /UPDATE clients/.test(saveModesFn)
     && /jsonb_set\(/.test(saveModesFn)
-    && !/'\{inbox_channel_modes\}'/.test(saveModesFn));
+    && /'\{inbox_channel_modes\}'/.test(saveModesFn)
+    && !/metadata->'inbox_ui_channel_modes'/.test(saveModesFn)
+    && !/metadata->'inbox_ui_channel_modes'/.test(apiSrc));
+  assert('prefs load uses clients.settings inbox_channel_modes (not missing metadata)',
+    /function loadClientInboxChannelModes\(/.test(apiSrc)
+    && /function loadClientInboxChannelModesStore\(/.test(apiSrc)
+    && /settings->'inbox_channel_modes'/.test(extractNamed(apiSrc, 'loadClientInboxChannelModesStore'))
+    && !/metadata->'inbox_ui_channel_modes'/.test(extractNamed(apiSrc, 'loadClientInboxChannelModesStore'))
+    && !/metadata->'inbox_ui_channel_modes'/.test(extractNamed(apiSrc, 'loadClientInboxChannelModes')));
+  assert('prefs save preserves durable off when chrome sends draft',
+    /function mergeInboxUiChannelMode\(/.test(apiSrc)
+    && /cur === 'off'/.test(apiSrc));
+  {
+    const mergeFn = extractNamed(apiSrc, 'mergeInboxUiChannelMode');
+    const storeFn = extractNamed(apiSrc, 'inboxChannelModesStoreFromUnknown');
+    const helpersSrc = [
+      extractNamed(apiSrc, 'inboxChannelModeFromValue'),
+      extractNamed(apiSrc, 'inboxChannelModesFromUnknown'),
+      extractNamed(apiSrc, 'inboxChannelModeStoreFromValue'),
+      storeFn,
+      mergeFn,
+    ].filter(Boolean).join('\n');
+    const sandbox = {};
+    vm.createContext(sandbox);
+    vm.runInContext(
+      `${helpersSrc}\n` +
+      'this.mergeInboxUiChannelMode = mergeInboxUiChannelMode;\n' +
+      'this.inboxChannelModesFromUnknown = inboxChannelModesFromUnknown;\n' +
+      'this.inboxChannelModesStoreFromUnknown = inboxChannelModesStoreFromUnknown;\n',
+      sandbox,
+    );
+    assert('merge keeps email off when UI projects draft',
+      sandbox.mergeInboxUiChannelMode('off', 'draft') === 'off'
+      && sandbox.mergeInboxUiChannelMode('auto', 'draft') === 'draft'
+      && sandbox.mergeInboxUiChannelMode('draft', 'auto') === 'auto'
+      && sandbox.mergeInboxUiChannelMode('off', 'auto') === 'auto');
+    assert('store projection keeps off; UI projection maps off→draft',
+      JSON.stringify(sandbox.inboxChannelModesStoreFromUnknown({ whatsapp: 'auto', email: 'off' }))
+        === JSON.stringify({ whatsapp: 'auto', email: 'off' })
+      && JSON.stringify(sandbox.inboxChannelModesFromUnknown({ whatsapp: 'auto', email: 'off' }))
+        === JSON.stringify({ whatsapp: 'auto', email: 'draft' }));
+  }
   assert('authenticated session projects inbox_channel_modes',
     /inbox_channel_modes/.test(sessionFn)
     && /loadClientInboxChannelModes\(/.test(sessionFn));
@@ -287,6 +328,11 @@ function main() {
   assert('chrome hydrates modes from GET /staff/auth/session',
     /\/staff\/auth\/session/.test(mountFn) || /\/staff\/auth\/session/.test(shellSrc)
     && /inbox_channel_modes/.test(shellSrc));
+  assert('chrome prefers durable GET /staff/inbox/luna-mode when hydrating',
+    /function inboxShellHydrateFromSession\(/.test(shellSrc)
+    && /INBOX_SHELL_LUNA_MODE_PATH/.test(shellSrc)
+    && /loadLunaModes\(/.test(shellSrc)
+    && /if \(lunaModes\) return applyModes\(lunaModes\)/.test(shellSrc));
 
   console.log('\n[5] Conversation Luna On / needs_human remain the send gates');
   assert('thread-header WhatsApp stays Auto|Off (conversation Luna)',
@@ -367,8 +413,14 @@ function main() {
     && !/\/staff\/inbox\/send-reply/.test(shellSrc)
     && !/\/staff\/inbox\/whatsapp\/approve-send/.test(shellSrc)
     && !/\/staff\/inbox\/email\/approve-send/.test(shellSrc));
-  assert('prefs helpers do not write the MAIL-MVP channel-mode send store key',
-    !/jsonb_set\(\s*[\s\S]*'\{inbox_channel_modes\}'/.test(prefsFn));
+  assert('prefs helpers share durable settings.inbox_channel_modes with luna-mode store',
+    /'\{inbox_channel_modes\}'/.test(saveModesFn)
+    && /settings->'inbox_channel_modes'/.test(saveModesFn)
+    && !/metadata->'inbox_ui_channel_modes'/.test(saveModesFn));
+  assert('cooked portal still hydrates autonomy from session projection',
+    portalSrc.includes('/staff/auth/session')
+    && portalSrc.includes('inbox_channel_modes')
+    && portalSrc.includes('data-inbox-autonomy="auto"'));
 
   console.log(`\nverify-autonomy-ui-001: ${pass} passed, ${fail} failed\n`);
   process.exit(fail ? 1 : 0);

@@ -46040,12 +46040,42 @@ function inboxChannelModesFromUnknown(raw) {
   };
 }
 
-async function loadClientInboxChannelModes(clientId) {
-  if (!clientId) return inboxChannelModesFromUnknown(null);
+/** Durable store values for the canonical clients.settings.inbox_channel_modes key. */
+function inboxChannelModeStoreFromValue(value) {
+  if (value === 'auto' || value === 'draft' || value === 'off') return value;
+  return null;
+}
+
+function inboxChannelModesStoreFromUnknown(raw) {
+  let src = raw;
+  if (typeof src === 'string') {
+    try { src = JSON.parse(src); } catch (_e) { src = null; }
+  }
+  const obj = src && typeof src === 'object' && !Array.isArray(src) ? src : {};
+  return {
+    whatsapp: inboxChannelModeStoreFromValue(obj.whatsapp) || 'draft',
+    email: inboxChannelModeStoreFromValue(obj.email) || 'draft',
+  };
+}
+
+/**
+ * Merge a Draft|Auto chrome value onto the durable store without collapsing
+ * an existing `off` into `draft` (the green-box cannot express Off).
+ */
+function mergeInboxUiChannelMode(currentStoreValue, uiValue) {
+  const ui = inboxChannelModeFromValue(uiValue);
+  if (ui === 'auto') return 'auto';
+  const cur = inboxChannelModeStoreFromValue(currentStoreValue);
+  if (cur === 'off') return 'off';
+  return 'draft';
+}
+
+async function loadClientInboxChannelModesStore(clientId) {
+  if (!clientId) return inboxChannelModesStoreFromUnknown(null);
   try {
     const row = await withPgClient(async (pgClient) => {
       const result = await pgClient.query(
-        `SELECT metadata->'inbox_ui_channel_modes' AS inbox_ui_channel_modes
+        `SELECT settings->'inbox_channel_modes' AS inbox_channel_modes
            FROM clients
           WHERE id = $1::uuid
           LIMIT 1`,
@@ -46053,31 +46083,43 @@ async function loadClientInboxChannelModes(clientId) {
       );
       return result.rows[0] || null;
     });
-    return inboxChannelModesFromUnknown(row && row.inbox_ui_channel_modes);
+    return inboxChannelModesStoreFromUnknown(row && row.inbox_channel_modes);
   } catch (_err) {
-    return inboxChannelModesFromUnknown(null);
+    return inboxChannelModesStoreFromUnknown(null);
   }
 }
 
+async function loadClientInboxChannelModes(clientId) {
+  // Project durable settings.inbox_channel_modes onto Draft|Auto chrome values.
+  // clients has no metadata column — the old metadata.inbox_ui_channel_modes
+  // path always failed closed to Draft/Draft and broke session↔canonical sync.
+  return inboxChannelModesFromUnknown(await loadClientInboxChannelModesStore(clientId));
+}
+
 async function saveClientInboxChannelModes(clientId, modes) {
-  const next = inboxChannelModesFromUnknown(modes);
+  const ui = inboxChannelModesFromUnknown(modes);
+  const current = await loadClientInboxChannelModesStore(clientId);
+  const next = {
+    whatsapp: mergeInboxUiChannelMode(current.whatsapp, ui.whatsapp),
+    email: mergeInboxUiChannelMode(current.email, ui.email),
+  };
   const row = await withPgClient(async (pgClient) => {
     const result = await pgClient.query(
       `UPDATE clients
-          SET metadata = jsonb_set(
-            COALESCE(metadata, '{}'::jsonb),
-            '{inbox_ui_channel_modes}',
+          SET settings = jsonb_set(
+            COALESCE(settings, '{}'::jsonb),
+            '{inbox_channel_modes}',
             $2::jsonb,
             true
           )
         WHERE id = $1::uuid
-        RETURNING metadata->'inbox_ui_channel_modes' AS inbox_ui_channel_modes`,
+        RETURNING settings->'inbox_channel_modes' AS inbox_channel_modes`,
       [clientId, JSON.stringify(next)]
     );
     return result.rows[0] || null;
   });
   if (!row) return null;
-  return inboxChannelModesFromUnknown(row.inbox_ui_channel_modes);
+  return inboxChannelModesFromUnknown(row.inbox_channel_modes);
 }
 
 async function handleAuthPrefs(req, res) {
