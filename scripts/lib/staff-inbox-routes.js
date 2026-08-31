@@ -45,6 +45,9 @@ const {
 const {
   persistStaffInboxSentThreadMessage,
 } = require('./luna-staff-inbox-thread-message');
+const {
+  expirePendingWhatsAppDraftForConversation,
+} = require('./luna-hermes-whatsapp-thread-mirror');
 
 const INBOX_PATH = '/staff/inbox';
 const INBOX_MESSAGE_EVENTS_PATH = '/staff/inbox/message-events';
@@ -356,7 +359,29 @@ function createInboxRoutes(deps) {
         const sendBody = buildStaffInboxGuestReplyBody(sendInput);
         const out = await evaluateGuestReplySendRouteWithPause(sendBody, { pg, env: process.env });
         const thread = await persistStaffInboxSentThreadMessage(pg, sendInput, out.result);
-        return { sendBody, out, thread };
+        // Staff Send reply owns delivery — expire any Hermes-staged pending draft
+        // so Approve cannot double-send the same text.
+        let draftExpired = 0;
+        if (out && out.result && (
+          out.result.send_performed === true
+          || out.result.idempotent_replay === true
+          || (out.result.success === true && out.result.whatsapp_message_id)
+        )) {
+          const clientRow = await pg.query(
+            'SELECT id::text AS client_id FROM clients WHERE slug = $1 LIMIT 1',
+            [input.client_slug],
+          );
+          const clientId = clientRow.rows[0] && clientRow.rows[0].client_id;
+          if (clientId) {
+            const expired = await expirePendingWhatsAppDraftForConversation(
+              pg,
+              clientId,
+              input.conversation_id,
+            );
+            draftExpired = expired && expired.expired ? expired.expired : 0;
+          }
+        }
+        return { sendBody, out, thread, draftExpired };
       });
 
       if (evaluated.error) {

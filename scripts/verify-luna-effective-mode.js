@@ -184,6 +184,10 @@ function makePg(state) {
       }
 
       if (/SELECT conv\.phone/.test(s)) return { rows: [{ phone: '+34600000404' }] };
+      if (/inbox_channel_modes/.test(s) && /FROM clients/.test(s)) {
+        const mode = state.whatsapp_channel_mode || 'auto';
+        return { rows: [{ mode }] };
+      }
       return { rows: [] };
     },
   };
@@ -300,17 +304,21 @@ function loadShippedGuestAutomationGate() {
 
 /** Mirror of `buildGuestAutomationGateResponse`'s decision fields, from the same file. */
 function gateResponseFor(gate) {
+  const agentBlocked = !!gate.bot_paused;
+  const sendBlocked = !!(gate.bot_paused || gate.live_send_blocked);
   return {
     success:                       true,
-    bot_paused:                    gate.bot_paused,
-    live_send_blocked:             gate.live_send_blocked,
-    can_continue_guest_automation: !gate.bot_paused,
+    bot_paused:                    agentBlocked,
+    live_send_blocked:             sendBlocked,
+    can_continue_guest_automation: !agentBlocked,
     source:                        gate.source,
-    paused:                        !!gate.bot_paused,
+    paused:                        agentBlocked,
     global_paused:                 !!gate.global_paused,
     conversation_paused:           !!gate.conversation_paused,
     needs_human:                   !!gate.needs_human,
     effective_scope:               gate.effective_scope || null,
+    whatsapp_channel_mode:         gate.whatsapp_channel_mode || null,
+    stage_outbound_as_draft:       gate.stage_outbound_as_draft === true,
   };
 }
 
@@ -790,6 +798,36 @@ async function main() {
   check('gate reports needs_human: false whenever a pause row exists, flagged or not',
     hermesCells.filter((c) => c.needs_human && (c.global_paused || c.conversation_paused))
       .every((c) => c.response.needs_human === false));
+
+  {
+    const draftGate = await gate(
+      makePg({ client_slug: 'sunset', whatsapp_channel_mode: 'draft' }),
+      { client_slug: 'sunset', guest_phone: '+34600000404' },
+    );
+    const draftResponse = gateResponseFor(draftGate);
+    check('WhatsApp Draft channel mode blocks Meta send but keeps agent drafting',
+      draftResponse.bot_paused === false
+      && draftResponse.live_send_blocked === true
+      && draftResponse.can_continue_guest_automation === true
+      && draftResponse.stage_outbound_as_draft === true
+      && draftResponse.source === 'inbox_channel_mode_draft'
+      && draftResponse.whatsapp_channel_mode === 'draft');
+    const offGate = await gate(
+      makePg({ client_slug: 'sunset', whatsapp_channel_mode: 'off' }),
+      { client_slug: 'sunset', guest_phone: '+34600000404' },
+    );
+    check('WhatsApp Off channel mode blocks Hermes auto-send',
+      gateResponseFor(offGate).source === 'inbox_channel_mode_off'
+      && gateResponseFor(offGate).bot_paused === true
+      && gateResponseFor(offGate).can_continue_guest_automation === false);
+    const autoGate = await gate(
+      makePg({ client_slug: 'sunset', whatsapp_channel_mode: 'auto' }),
+      { client_slug: 'sunset', guest_phone: '+34600000404' },
+    );
+    check('WhatsApp Auto channel mode leaves gate open when pause/needs_human clear',
+      gateResponseFor(autoGate).can_continue_guest_automation === true
+      && gateResponseFor(autoGate).source === 'default_active');
+  }
 
   {
     const readerDrift = hermesCells.filter((c) => {

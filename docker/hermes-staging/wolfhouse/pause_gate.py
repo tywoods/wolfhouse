@@ -122,40 +122,51 @@ def invalidate_pause_cache(guest_phone: Optional[str] = None, *, client_slug: Op
         _CACHE.pop(key, None)
 
 
-def guest_automation_paused(
+def _agent_paused_from_gate(data: Dict[str, Any]) -> bool:
+    """True when the agent must not run.
+
+    Draft mode sets live_send_blocked without pausing the agent — Luna still
+    drafts; Meta send is suppressed separately via whatsapp_send_blocked.
+    """
+    return bool(
+        data.get("bot_paused")
+        or data.get("can_continue_guest_automation") is False
+        or data.get("needs_human") is True
+        or data.get("paused") is True
+    )
+
+
+def _send_blocked_from_gate(data: Dict[str, Any]) -> bool:
+    """True when Meta/Cloud outbound must not leave Hermes."""
+    if _agent_paused_from_gate(data):
+        return True
+    if data.get("live_send_blocked"):
+        return True
+    mode = str(data.get("whatsapp_channel_mode") or "").strip().lower()
+    return mode in ("draft", "off")
+
+
+def _lookup_guest_automation_gate(
     guest_phone: str,
     *,
     client_slug: Optional[str] = None,
     conversation_id: Optional[str] = None,
-    force_refresh: bool = False,
-) -> bool:
-    """Return True when global/conversation/phone pause or needs_human blocks automation."""
-    if not _is_luna_runtime():
-        return False
+) -> Tuple[str, Optional[Dict[str, Any]], bool]:
+    """Return (cache_key, gate_data_or_None, fail_closed_paused)."""
     phone = _normalize_phone(guest_phone)
-    if not phone and not conversation_id:
-        return False
     slug = (client_slug or _client_slug()).strip()
-    if not slug:
-        # Missing runtime tenant must never silently become Wolfhouse — fail closed.
-        logger.warning("%s", {"event": "pause_gate_missing_client_slug", "paused": True})
-        return True
     cache_key = f"{slug}|{phone or conversation_id or 'unknown'}"
-    if not force_refresh:
-        cached = _cache_get(cache_key)
-        if cached is not None:
-            return cached
+    if not slug:
+        logger.warning("%s", {"event": "pause_gate_missing_client_slug", "paused": True})
+        return cache_key, None, True
 
     token = _bot_token()
     if not token:
-        # Cannot prove active without bot auth — fail closed (no send).
-        paused = True
-        _cache_set(cache_key, paused)
         logger.warning(
             "%s",
-            {"event": "pause_gate_missing_token", "client_slug": slug, "paused": paused},
+            {"event": "pause_gate_missing_token", "client_slug": slug, "paused": True},
         )
-        return paused
+        return cache_key, None, True
 
     url = f"{_base_url()}/staff/bot/check-guest-automation-gate"
     body_obj: Dict[str, Any] = {
@@ -176,39 +187,63 @@ def guest_automation_paused(
             "X-Luna-Bot-Token": token,
         },
     )
-    paused = False
     try:
         with urllib.request.urlopen(req, timeout=2.0) as res:
             raw = res.read().decode("utf-8")
             data = json.loads(raw)
         if not isinstance(data, dict) or data.get("lookup_error") or data.get("success") is False:
-            # Never accidentally resume: prefer last-known paused, else fail closed (no send).
-            paused = True if _cache_last_known_paused(cache_key) else True
             logger.warning(
                 "%s",
-                {"event": "pause_gate_lookup_error_response", "client_slug": slug, "paused": paused},
+                {"event": "pause_gate_lookup_error_response", "client_slug": slug, "paused": True},
             )
-        else:
-            paused = bool(
-                data.get("bot_paused")
-                or data.get("live_send_blocked")
-                or data.get("can_continue_guest_automation") is False
-                or data.get("needs_human") is True
-                or data.get("paused") is True
-            )
+            return cache_key, None, True
+        return cache_key, data, False
     except Exception as exc:
-        # Timeout / 401 / network: never resume a paused guest; fail closed when uncertain.
-        paused = True
         logger.warning(
             "%s",
             {
                 "event": "pause_gate_lookup_failed",
                 "client_slug": slug,
                 "error_type": type(exc).__name__,
-                "paused": paused,
+                "paused": True,
                 "had_prior_paused": _cache_last_known_paused(cache_key),
             },
         )
+        return cache_key, None, True
+
+
+def guest_automation_paused(
+    guest_phone: str,
+    *,
+    client_slug: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    force_refresh: bool = False,
+) -> bool:
+    """Return True when pause/needs_human/Off blocks the agent (not Draft alone)."""
+    if not _is_luna_runtime():
+        return False
+    phone = _normalize_phone(guest_phone)
+    if not phone and not conversation_id:
+        return False
+    slug = (client_slug or _client_slug()).strip()
+    if not slug:
+        logger.warning("%s", {"event": "pause_gate_missing_client_slug", "paused": True})
+        return True
+    cache_key = f"{slug}|{phone or conversation_id or 'unknown'}"
+    if not force_refresh:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+    _key, data, fail_closed = _lookup_guest_automation_gate(
+        phone,
+        client_slug=slug,
+        conversation_id=conversation_id,
+    )
+    if fail_closed or data is None:
+        paused = True
+    else:
+        paused = _agent_paused_from_gate(data)
 
     _cache_set(cache_key, paused)
     return paused
@@ -222,7 +257,7 @@ def paused_for_webhook_body(body: bytes) -> bool:
 
 
 def whatsapp_send_blocked(chat_id: Any) -> bool:
-    """Re-check immediately before outbound send (stale generation suppression)."""
+    """Re-check immediately before outbound send (Draft/Off/pause suppression)."""
     phone = _phone_from_chat_id(chat_id)
     try:
         from wolfhouse.explicit_human_handoff import is_local_automation_blocked
@@ -231,7 +266,14 @@ def whatsapp_send_blocked(chat_id: Any) -> bool:
             return True
     except Exception:
         pass
-    return guest_automation_paused(phone, force_refresh=True)
+    if not phone:
+        return False
+    if not _is_luna_runtime():
+        return False
+    _key, data, fail_closed = _lookup_guest_automation_gate(phone)
+    if fail_closed or data is None:
+        return True
+    return _send_blocked_from_gate(data)
 
 
 def guest_paused_for_event(event: Any) -> bool:

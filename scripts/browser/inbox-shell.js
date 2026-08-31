@@ -289,38 +289,38 @@ function inboxShellCssText(){
     'position:absolute!important;opacity:0!important;pointer-events:none!important;',
     '}',
     /* Keep the tab-row global pause visible so Inbox nav matches Schedule/Admin. */
-    '.inbox-shell-channel-defaults{display:block;width:218px;padding:9px;',
-    'border:1px solid rgba(47,65,57,.10);border-radius:12px;background:rgba(250,248,242,.88);',
-    'box-shadow:0 4px 14px rgba(37,47,42,.06);backdrop-filter:blur(8px);flex:0 0 auto}',
-    '.channelAutonomyLabel{margin:0 0 7px 3px;font-size:10px;font-weight:700;letter-spacing:.11em;color:#9aa59d}',
-    '.channelModeRow{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px}',
-    '.channelModeRow + .channelModeRow{margin-top:5px}',
-    '.channelAutonomy #cc-luna-global-pause{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:5px;min-height:34px;width:100%}',
+    '.inbox-shell-channel-defaults{display:block;width:100%;box-sizing:border-box;padding:10px 8px;',
+    'border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);',
+    'box-shadow:none;flex:0 0 auto}',
+    '.channelAutonomyLabel{margin:0;padding:0 8px 4px;font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase}',
+    '.channelModeRow{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:6px 8px;min-height:0;box-sizing:border-box;border-radius:8px}',
+    '.channelModeRow + .channelModeRow{margin-top:0}',
+    '.channelAutonomy #cc-luna-global-pause{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:0;padding:6px 8px;min-height:0;width:100%;box-sizing:border-box}',
     '.channelAutonomy #cc-luna-global-pause .tabs-global-pause-toggle{display:contents!important;width:auto;padding:0;margin:0}',
     '.channelAutonomy #cc-luna-global-pause .tabs-global-pause-label,',
     '.channelAutonomy #cc-luna-global-pause .channelModeIdentity{flex:0 1 auto;min-width:82px;gap:7px}',
-    '.inbox-global-pause-owl{width:18px;height:18px;overflow:visible;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
+    '.inbox-global-pause-owl{width:18px;height:18px;overflow:visible;display:grid;place-items:center;color:var(--text-3);flex:0 0 auto}',
     '.inbox-global-pause-owl svg{width:20px;height:20px;margin:-1px;display:block}',
     '.channelAutonomy.is-paused{background:rgba(199,74,74,.10);border-color:rgba(199,74,74,.22)}',
     '[data-theme="dark"] .channelAutonomy{background:var(--surface);border-color:var(--border);box-shadow:none}',
     '[data-theme="dark"] .channelAutonomy.is-paused{background:rgba(180,70,65,.24);border-color:rgba(199,74,74,.35)}',
-    '.channelModeIdentity{display:flex;align-items:center;gap:7px;min-width:82px;font-size:12px;font-weight:600;color:#31443a}',
+    '.channelModeIdentity{display:flex;align-items:center;gap:7px;min-width:82px;font-size:12.5px;font-weight:600;color:var(--text)}',
     '[data-theme="dark"] .channelModeIdentity{color:#fff}',
     '[data-theme="dark"] .inbox-global-pause .tabs-global-pause-label{color:#fff}',
     '[data-theme="dark"] .channelModeBtn{color:#fff}',
     '[data-theme="dark"] .channelModeSegmented{background:rgba(20,20,20,.45);border-color:rgba(255,255,255,.14)}',
     '[data-theme="dark"] .channelModeBtn.isSelected{background:#3a4a40;color:#fff}',
     '[data-theme="dark"] .channelModeBtn.isSelected.isAuto{background:#31483d;color:#fff}',
-    '.channelModeIcon{width:18px;height:18px;display:grid;place-items:center;color:#75847c;flex:0 0 auto}',
+    '.channelModeIcon{width:16px;height:16px;display:grid;place-items:center;color:var(--text-3);flex:0 0 auto}',
     '.channelModeIcon svg{width:16px;height:16px;display:block}',
     '.channelModeIcon.inbox-global-pause-owl{width:18px;height:18px;overflow:visible}',
     '.channelModeIcon.inbox-global-pause-owl svg{width:20px;height:20px;margin:-1px}',
-    '.channelModeSegmented{display:inline-flex;padding:2px;border:1px solid rgba(47,65,57,.10);border-radius:9px;background:rgba(235,232,223,.72)}',
-    '.channelModeBtn{min-width:47px;height:26px;padding:0 9px;border:0;border-radius:7px;background:transparent;',
-    'color:#7c877f;font-size:11px;font-weight:650;cursor:pointer;',
+    '.channelModeSegmented{display:inline-flex;padding:2px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft)}',
+    '.channelModeBtn{min-width:47px;height:26px;padding:0 9px;border:0;border-radius:6px;background:transparent;',
+    'color:var(--text-2);font-size:11px;font-weight:600;cursor:pointer;',
     'transition:background 140ms ease,color 140ms ease,box-shadow 140ms ease}',
-    '.channelModeBtn:hover{color:#31443a}',
-    '.channelModeBtn.isSelected{background:#f9f7f1;color:#31443a;box-shadow:0 1px 3px rgba(30,42,36,.10)}',
+    '.channelModeBtn:hover{color:var(--text)}',
+    '.channelModeBtn.isSelected{background:var(--teal);color:var(--primary);box-shadow:none}',
     '.channelModeBtn.isSelected.isAuto{background:#31483d;color:#fff}',
     '.channelModeBtn:focus-visible{outline:2px solid rgba(49,72,61,.35);outline-offset:2px}',
     '.inbox-shell-channel-native{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;',
@@ -912,25 +912,44 @@ function inboxShellSyncFromPauseState(){
 }
 
 function inboxShellHydrateFromSession(){
-  return fetch('/staff/auth/session', { headers: { Accept: 'application/json' } })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if (!data || data.success === false || !data.inbox_channel_modes) {
-        inboxShellApplyUiModes(inboxShellLoadStoredModes());
-        return inboxShellLoadStoredModes();
-      }
-      var modes = {
-        whatsapp: inboxShellNormalizeWhatsApp(data.inbox_channel_modes.whatsapp),
-        email: inboxShellNormalizeEmail(data.inbox_channel_modes.email),
-      };
-      inboxShellStoreModes(modes);
-      inboxShellApplyUiModes(modes);
-      return modes;
-    })
-    .catch(function(){
-      inboxShellApplyUiModes(inboxShellLoadStoredModes());
-      return inboxShellLoadStoredModes();
-    });
+  function applyModes(raw){
+    var modes = {
+      whatsapp: inboxShellNormalizeWhatsApp(raw && raw.whatsapp),
+      email: inboxShellNormalizeEmail(raw && raw.email),
+    };
+    inboxShellStoreModes(modes);
+    inboxShellApplyUiModes(modes);
+    return modes;
+  }
+  function loadLunaModes(){
+    return fetch(INBOX_SHELL_LUNA_MODE_PATH + inboxShellClientQuery(), {
+      headers: { Accept: 'application/json' },
+    }).then(function(r){
+      if (!r.ok) return null;
+      return r.json().then(function(data){
+        if (!data || data.success === false || !data.modes) return null;
+        return data.modes;
+      }).catch(function(){ return null; });
+    }).catch(function(){ return null; });
+  }
+  return Promise.all([
+    fetch('/staff/auth/session', { headers: { Accept: 'application/json' } })
+      .then(function(r){ return r.json(); })
+      .catch(function(){ return null; }),
+    loadLunaModes(),
+  ]).then(function(parts){
+    var data = parts[0];
+    var lunaModes = parts[1];
+    // Prefer the durable channel-mode store (same as GET /staff/inbox/luna-mode)
+    // so a stale/failed session prefs projection cannot leave WhatsApp stuck on Draft.
+    if (lunaModes) return applyModes(lunaModes);
+    if (!data || data.success === false || !data.inbox_channel_modes) {
+      return applyModes(inboxShellLoadStoredModes());
+    }
+    return applyModes(data.inbox_channel_modes);
+  }).catch(function(){
+    return applyModes(inboxShellLoadStoredModes());
+  });
 }
 
 function wireInboxShellChannelDefaults(){
