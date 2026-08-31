@@ -115,6 +115,67 @@ function inboxShellStoreModes(modes){
   return next;
 }
 
+var INBOX_SHELL_LOCK_KEY = 'wh_staff_inbox_autonomy_lock_v1';
+
+function inboxShellLockClosedSvg(){
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>';
+}
+
+function inboxShellLockOpenSvg(){
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>';
+}
+
+function inboxShellAutonomyIsLocked(){
+  var card = inboxShellById('inbox-shell-channel-defaults');
+  if (card && card.classList && card.classList.contains('is-locked')) return true;
+  try {
+    var raw = localStorage.getItem(INBOX_SHELL_LOCK_KEY);
+    if (!raw) return false;
+    var parsed = JSON.parse(raw);
+    var bag = (parsed && parsed[inboxShellStorageClientKey()]) || parsed;
+    return bag === 'locked';
+  } catch (_e) {
+    return false;
+  }
+}
+
+function inboxShellStoreAutonomyLock(locked){
+  var next = locked ? 'locked' : 'unlocked';
+  try {
+    var raw = localStorage.getItem(INBOX_SHELL_LOCK_KEY);
+    var parsed = raw ? JSON.parse(raw) : {};
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
+    parsed[inboxShellStorageClientKey()] = next;
+    localStorage.setItem(INBOX_SHELL_LOCK_KEY, JSON.stringify(parsed));
+  } catch (_e) { /* ignore quota / private mode */ }
+  return locked === true;
+}
+
+function inboxShellSyncAutonomyLock(locked){
+  var card = inboxShellById('inbox-shell-channel-defaults');
+  if (!card) return;
+  var on = typeof locked === 'boolean' ? locked : inboxShellAutonomyStoredLocked();
+  card.classList.toggle('is-locked', on);
+  var btn = inboxShellById('inbox-autonomy-lock');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.setAttribute('aria-label', on ? 'Unlock Luna Autonomy' : 'Lock Luna Autonomy');
+  btn.title = on ? 'Unlock' : 'Lock';
+  btn.innerHTML = on ? inboxShellLockClosedSvg() : inboxShellLockOpenSvg();
+}
+
+function inboxShellAutonomyStoredLocked(){
+  try {
+    var raw = localStorage.getItem(INBOX_SHELL_LOCK_KEY);
+    if (!raw) return false;
+    var parsed = JSON.parse(raw);
+    var bag = (parsed && parsed[inboxShellStorageClientKey()]) || parsed;
+    return bag === 'locked';
+  } catch (_e) {
+    return false;
+  }
+}
+
 function inboxShellOwlIconSvg(){
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
     '<path d="M8.15 6.55 9.55 3.7 11.15 6.35"/>' +
@@ -134,36 +195,44 @@ function inboxShellAdoptGlobalPause(){
   var card = inboxShellById('inbox-shell-channel-defaults');
   var pause = inboxShellById('cc-luna-global-pause');
   if (!card || !pause) return;
-  if (pause.parentNode !== card) card.appendChild(pause);
+  var wa = card.querySelector('[data-inbox-autonomy-row="whatsapp"]');
+  if (wa) card.insertBefore(pause, wa);
+  else if (pause.parentNode !== card) card.appendChild(pause);
   pause.classList.add('channelModeRow');
   var label = pause.querySelector('.tabs-global-pause-label');
   if (label) label.classList.add('channelModeIdentity');
   if (label && !label.querySelector('.inbox-global-pause-owl')) {
     label.innerHTML = '<span class="channelModeIcon inbox-global-pause-owl" aria-hidden="true">' +
-      inboxShellOwlIconSvg() + '</span><span>' + escHtml(inboxShellT('inbox.channelControl.globalPause', 'Global Pause')) + '</span>';
+      inboxShellOwlIconSvg() + '</span><span>' + escHtml(inboxShellT('inbox.channelControl.luna', 'Luna')) + '</span>';
+  } else if (label && label.querySelector('.inbox-global-pause-owl')) {
+    var titleSpan = label.querySelector('.inbox-global-pause-owl + span') || label.querySelector('span:last-child');
+    if (titleSpan) titleSpan.textContent = inboxShellT('inbox.channelControl.luna', 'Luna');
   }
   if (!pause.querySelector('[data-inbox-pause]')) {
     var segs = document.createElement('div');
     segs.className = 'channelModeSegmented';
     segs.setAttribute('role', 'group');
-    segs.setAttribute('aria-label', inboxShellT('inbox.channelControl.globalPause', 'Global Pause'));
+    segs.setAttribute('aria-label', inboxShellT('inbox.channelControl.luna', 'Luna'));
     segs.innerHTML =
-      '<button type="button" class="channelModeBtn" data-inbox-pause="off" aria-pressed="true">Off</button>' +
-      '<button type="button" class="channelModeBtn" data-inbox-pause="on" aria-pressed="false">' + escHtml(inboxShellT('inbox.channelControl.on', 'On')) + '</button>';
+      '<button type="button" class="channelModeBtn" data-inbox-pause="off" aria-pressed="false">Off</button>' +
+      '<button type="button" class="channelModeBtn" data-inbox-pause="on" aria-pressed="true">' + escHtml(inboxShellT('inbox.channelControl.on', 'On')) + '</button>';
     pause.appendChild(segs);
     segs.addEventListener('click', function(ev){
       var btn = ev.target && ev.target.closest && ev.target.closest('[data-inbox-pause]');
       if (!btn) return;
+      if (inboxShellAutonomyIsLocked()) return;
       var sw = pause.querySelector('input[type="checkbox"]');
       if (!sw || sw.disabled) return;
-      var wantOn = btn.getAttribute('data-inbox-pause') === 'on';
-      if (!!sw.checked === wantOn) return;
-      sw.checked = wantOn;
+      var wantLunaOn = btn.getAttribute('data-inbox-pause') === 'on';
+      var wantPaused = !wantLunaOn;
+      if (!!sw.checked === wantPaused) return;
+      sw.checked = wantPaused;
       sw.dispatchEvent(new Event('change', { bubbles: true }));
-      inboxShellSyncPauseChrome(wantOn);
+      inboxShellSyncPauseChrome(wantPaused);
     });
   }
   inboxShellSyncPauseChrome();
+  inboxShellSyncAutonomyLock();
 }
 
 function inboxShellSyncPauseChrome(paused){
@@ -176,9 +245,9 @@ function inboxShellSyncPauseChrome(paused){
   var btns = pause.querySelectorAll('[data-inbox-pause]');
   for (var i = 0; i < btns.length; i++) {
     var isOnBtn = btns[i].getAttribute('data-inbox-pause') === 'on';
-    var selected = isOnBtn ? on : !on;
+    var selected = isOnBtn ? !on : on;
     btns[i].classList.toggle('isSelected', selected);
-    btns[i].classList.toggle('isAuto', isOnBtn && on);
+    btns[i].classList.toggle('isAuto', isOnBtn && !on);
     btns[i].setAttribute('aria-pressed', selected ? 'true' : 'false');
   }
   inboxShellSyncAutonomyButtons();
@@ -264,7 +333,10 @@ function inboxShellChannelDefaultsHtml(modes){
   var wa = inboxShellNormalizeWhatsApp(modes.whatsapp);
   var em = inboxShellNormalizeEmail(modes.email);
   var html = '<div class="inbox-shell-channel-defaults channelAutonomy" id="inbox-shell-channel-defaults">';
-  html += '<div class="channelAutonomyLabel">' + escHtml(inboxShellT('inbox.channelControl.title', 'CHANNEL AUTONOMY')) + '</div>';
+  html += '<div class="channelAutonomyHead">';
+  html += '<div class="channelAutonomyLabel">' + escHtml(inboxShellT('inbox.channelControl.title', 'LUNA AUTONOMY')) + '</div>';
+  html += '<button type="button" class="channelAutonomyLock" id="inbox-autonomy-lock" aria-pressed="false" aria-label="Lock Luna Autonomy" title="Lock">' + inboxShellLockOpenSvg() + '</button>';
+  html += '</div>';
   html += inboxShellAutonomyRowHtml('whatsapp', wa);
   html += inboxShellAutonomyRowHtml('email', em);
   html += inboxShellChannelSelectHtml('whatsapp', wa);
@@ -293,6 +365,14 @@ function inboxShellCssText(){
     'border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);',
     'box-shadow:none;flex:0 0 auto}',
     '.channelAutonomyLabel{margin:0;padding:0 8px 4px;font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase}',
+    '.channelAutonomyHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px 4px}',
+    '.channelAutonomyHead .channelAutonomyLabel{padding:0;flex:1;min-width:0}',
+    '.channelAutonomyLock{flex:0 0 auto;width:22px;height:22px;padding:0;margin:0;border:0;background:transparent;',
+    'color:#8a9690;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:4px}',
+    '.channelAutonomyLock svg{width:14px;height:14px;display:block}',
+    '.channelAutonomyLock:hover{color:#5c6661}',
+    '.channelAutonomy.is-locked .channelModeSegmented{pointer-events:none;opacity:.5}',
+    '.channelAutonomy.is-locked .channelModeBtn{cursor:not-allowed}',
     '.channelModeRow{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:6px 8px;min-height:0;box-sizing:border-box;border-radius:8px}',
     '.channelModeRow + .channelModeRow{margin-top:0}',
     '.channelAutonomy #cc-luna-global-pause{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:0;padding:6px 8px;min-height:0;width:100%;box-sizing:border-box}',
@@ -969,6 +1049,14 @@ function wireInboxShellChannelDefaults(){
     }
   });
   wrap.addEventListener('click', function(ev){
+    var lockBtn = ev.target && ev.target.closest && ev.target.closest('#inbox-autonomy-lock');
+    if (lockBtn) {
+      if (ev.preventDefault) ev.preventDefault();
+      inboxShellStoreAutonomyLock(!inboxShellAutonomyIsLocked());
+      inboxShellSyncAutonomyLock();
+      return;
+    }
+    if (inboxShellAutonomyIsLocked()) return;
     var btn = ev.target && ev.target.closest && ev.target.closest('[data-inbox-autonomy]');
     if (!btn || btn.disabled) return;
     var channel = btn.getAttribute('data-inbox-autonomy-channel');

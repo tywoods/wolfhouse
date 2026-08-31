@@ -16,7 +16,7 @@ const expected = {
   'inbox.layout.preset.all4': ['Full', 'Completa'],
   'admin.bookings.openInSchedule': ['Open in Schedule', 'Abrir en Agenda'],
   'inbox.detail.needsHuman.raise': ['Needs human', 'Requiere personal'],
-  'inbox.channelControl.title': ['CHANNEL AUTONOMY', 'CONTROL DE CANALES'],
+  'inbox.channelControl.title': ['LUNA AUTONOMY', 'AUTONOMÍA LUNA'],
   'inbox.detail.lunaMode.draft': ['Draft', 'Borrador'],
   'inbox.channelControl.globalPause': ['Global Pause', 'Pausa global'],
   'customers.filter.warmLeadsTitle': ['Contacted but never booked', 'Contactado pero nunca reservó'],
@@ -119,11 +119,11 @@ function renderChannel(t) {
   return context.inboxShellChannelDefaultsHtml({ whatsapp: 'auto', email: 'draft' });
 }
 const channelEnHtml = renderChannel((key) => STAFF_PORTAL_STRINGS.en[key] || key);
-for (const copy of ['CHANNEL AUTONOMY', 'Draft', 'Auto']) assert(channelEnHtml.includes(copy), `English channel render: ${copy}`);
+for (const copy of ['LUNA AUTONOMY', 'Draft', 'Auto']) assert(channelEnHtml.includes(copy), `English channel render: ${copy}`);
 const channelEsHtml = renderChannel((key) => STAFF_PORTAL_STRINGS.es[key] || key);
-for (const copy of ['CONTROL DE CANALES', 'Borrador', 'Auto']) assert(channelEsHtml.includes(copy), `Spanish channel render: ${copy}`);
+for (const copy of ['AUTONOMÍA LUNA', 'Borrador', 'Auto']) assert(channelEsHtml.includes(copy), `Spanish channel render: ${copy}`);
 const channelFallbackHtml = renderChannel((key) => key);
-assert(channelFallbackHtml.includes('CHANNEL AUTONOMY'), 'missing channel title key uses the English call-site fallback');
+assert(channelFallbackHtml.includes('LUNA AUTONOMY'), 'missing channel title key uses the English call-site fallback');
 
 const apiSrc = fs.readFileSync(require.resolve('./staff-query-api'), 'utf8');
 assert(apiSrc.includes('if (typeof refreshInboxViewsRail === \'function\') refreshInboxViewsRail();'),

@@ -638,7 +638,7 @@ const STAFF_PORTAL_STRINGS = {
     'inbox.detail.notes.title': 'Notes',
     'inbox.list.pill.needsHuman': 'Needs Human',
     'inbox.list.pill.handoff': 'Human handoff',
-    'inbox.channelControl.title': 'CHANNEL AUTONOMY',
+    'inbox.channelControl.title': 'LUNA AUTONOMY',
     'inbox.channelControl.globalPause': 'Global Pause',
     'inbox.channelControl.on': 'On',
     'common.loading': 'Loading…',

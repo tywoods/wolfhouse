@@ -1097,7 +1097,7 @@ module.exports = {
   'inbox.rail.view.email': 'Email',
   'inbox.rail.empty': 'No hay vistas',
   'inbox.rail.loadError': 'No se pudieron cargar las vistas',
-  'inbox.channelControl.title': 'CONTROL DE CANALES',
+  'inbox.channelControl.title': 'AUTONOMÍA LUNA',
   'inbox.channelControl.globalPause': 'Pausa global',
   'inbox.channelControl.on': 'On',
   'schedule.drawer.hideBooking': 'Ocultar reserva',
