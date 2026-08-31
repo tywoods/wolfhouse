@@ -395,12 +395,9 @@ function checkRenderedCss(client, html) {
     fullChatWidth === Number.parseInt(SPEC_FULL_CHAT_MAX, 10), fullChatWidth);
   const fullHiddenShell = ruleBody(html,
     '.inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="hidden"]{');
-  ok('Full 3-col (guest hidden) keeps the same 1634px workspace as 4-col',
-    !!fullHiddenShell && declaration(fullHiddenShell, 'max-width') === SPEC_FULL_WORKSPACE_MAX,
-    fullHiddenShell ? declaration(fullHiddenShell, 'max-width') : 'missing');
-  ok('Full 3-col does not reserve an empty 300px guest track',
-    !!fullHiddenShell && (declaration(fullHiddenShell, '--inbox-col4-w') || '0px') !== SPEC_WIDTHS.col4.peek,
-    fullHiddenShell ? declaration(fullHiddenShell, '--inbox-col4-w') : 'missing');
+  ok('Full 3-col has no 1634px cap so chat fills to the Guest tab',
+    !fullHiddenShell,
+    fullHiddenShell ? declaration(fullHiddenShell, 'max-width') : '');
 
   Object.keys(SPEC_WIDTHS).forEach((col) => {
     Object.keys(SPEC_WIDTHS[col]).forEach((state) => {
