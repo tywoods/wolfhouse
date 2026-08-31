@@ -395,11 +395,14 @@ function checkRenderedCss(client, html) {
     fullChatWidth === Number.parseInt(SPEC_FULL_CHAT_MAX, 10), fullChatWidth);
   const fullHiddenShell = ruleBody(html,
     '.inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="hidden"]{');
-  ok('Full 3-col has no 1634px shell cap so chat fills to the Guest tab',
-    !fullHiddenShell,
+  ok('Full 3-col hidden is not capped at 1634px',
+    !fullHiddenShell || declaration(fullHiddenShell, 'max-width') !== SPEC_FULL_WORKSPACE_MAX,
     fullHiddenShell ? declaration(fullHiddenShell, 'max-width') : '');
-  ok('Full wrap is 1674px (1634 content + pad) in 3-col and 4-col',
-    /body:has\(#tab-conversations.active\):has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) #wrap.inbox-shell-wrap\{[^}]*max-width:1674px!important/.test(html));
+  ok('Full 3-col and 4-col both fill the 1800 wrap (no 1674 cap)',
+    !/max-width:1674px!important/.test(html)
+    && /body:has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) .inbox-two-col.inbox-shell-cols\[data-col1="full"\]\[data-col2="comfortable"\]\[data-col4="peek"\]/.test(html)
+    && /body:has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) .inbox-two-col.inbox-shell-cols\[data-col1="full"\]\[data-col2="comfortable"\]\[data-col4="hidden"\]/.test(html)
+    && /max-width:none;width:100%/.test(html));
 
   Object.keys(SPEC_WIDTHS).forEach((col) => {
     Object.keys(SPEC_WIDTHS[col]).forEach((state) => {

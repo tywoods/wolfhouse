@@ -7,6 +7,7 @@
  * Rendered layout gate at 1920×1080. Sea Dog r4: static CSS is not enough.
  *
  * Fails unless:
+ *   - Full 3-col and 4-col #wrap.inbox-shell-wrap left AND right edges match
  *   - Full 3-col and 4-col outer #inbox-shell widths are equal
  *   - 3-col .detail-main right edge equals #inbox-guest-restore left edge
  *
@@ -71,6 +72,8 @@ const MEASURE = () => {
     } : null,
     wrap: wrap ? {
       width: Math.round(wrap.getBoundingClientRect().width * 100) / 100,
+      left: Math.round(wrap.getBoundingClientRect().left * 100) / 100,
+      right: Math.round(wrap.getBoundingClientRect().right * 100) / 100,
     } : null,
     chat: rect('.detail-main'),
     tab: rect('#inbox-guest-restore'),
@@ -128,6 +131,19 @@ async function main() {
     ok('Guest restore tab is visible in 3-col',
       three.tab && three.tab.visible, three.tab);
     ok('3-col chat is visible', three.chat && three.chat.visible, three.chat);
+
+    console.log('  wrap 4-col', four.wrap);
+    console.log('  wrap 3-col', three.wrap);
+
+    ok('outer Full wrap left edge is equal in 3-col and 4-col',
+      four.wrap && three.wrap && near(four.wrap.left, three.wrap.left, TOL),
+      JSON.stringify({ fourLeft: four.wrap && four.wrap.left, threeLeft: three.wrap && three.wrap.left }));
+    ok('outer Full wrap right edge is equal in 3-col and 4-col',
+      four.wrap && three.wrap && near(four.wrap.right, three.wrap.right, TOL),
+      JSON.stringify({ fourRight: four.wrap && four.wrap.right, threeRight: three.wrap && three.wrap.right }));
+    ok('outer Full wrap width is equal in 3-col and 4-col',
+      four.wrap && three.wrap && near(four.wrap.width, three.wrap.width, TOL),
+      JSON.stringify({ four: four.wrap && four.wrap.width, three: three.wrap && three.wrap.width }));
 
     ok('outer shell width is equal in 3-col and 4-col',
       four.shell && three.shell && near(four.shell.width, three.shell.width, TOL),

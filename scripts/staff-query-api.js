@@ -21128,9 +21128,6 @@ body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed=
 body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
-body:has(#tab-conversations.active):has([data-inbox-preset="all4"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
-  max-width:1674px!important;
-}
 body:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
 }
@@ -21207,6 +21204,10 @@ body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell[data-col4
 /* Full view has a deliberate readable-chat ceiling: 240 + 252 + 800 + 300 + 3×14 = 1634px. */
 .inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="peek"]{
   max-width:1634px;margin-left:auto;margin-right:auto;
+}
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="peek"],
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="hidden"]{
+  max-width:none;width:100%;margin-left:0;margin-right:0;
 }
 .inbox-views-rail{
   min-width:0;min-height:0;height:auto;align-self:stretch;

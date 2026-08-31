@@ -149,8 +149,8 @@ remainder, so any combination of collapses yields a sane layout with no width ar
 - **2** — `comfortable` (252px), `compact` (196px), or `hidden`.
 - **3** — flexible, 480px minimum. In the default full view it tops out at 800px: the
   complete 1-full / 2-comfortable / 4-peek workspace is capped at 1634px and centered.
-  Full wrap is 1674px (1634 content + 20px pad) for **both** guest-open and guest-hidden,
-  so total width does not jump. Hidden guest track stays 0px; chat fills to the Guest tab.
+  Full (guest-open and guest-hidden) uses the 1800px wrap so total width does not jump.
+  Hidden guest track stays 0px; chat fills to the Guest tab.
 - **4** — `wide` (460px), `peek` (300px), or `hidden`.
 
 Three presets on a top-bar segmented control. `Ctrl+1..4` is unusable because Chrome binds it to

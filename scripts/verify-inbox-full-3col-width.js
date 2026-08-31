@@ -4,10 +4,9 @@
 /**
  * verify-inbox-full-3col-width
  *
- * Full 3-col and 4-col must share the same outer wrap (1674px = 1634
- * content + 20px pad) so total width does not jump when the guest card
- * opens or closes. Chat still fills to the Guest tab (no empty 300px
- * track, no 1634 cap on the hidden SHELL).
+ * Full 3-col and 4-col share the 1800px wrap so total width does not jump.
+ * Chat fills to the Guest tab (no empty 300px track). The grepped peek
+ * 1634 selector stays; Full all4 overrides it to width 100%.
  *
  * Stay OFF inbox-thread.js, package.json.
  *
@@ -23,11 +22,13 @@ const API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const COLUMNS = path.join(ROOT, 'scripts', 'verify-inbox-columns.js');
 const SPEC = path.join(ROOT, 'docs', 'INBOX-PORTAL-REDESIGN.md');
 const THREAD = path.join(ROOT, 'scripts', 'browser', 'inbox-thread.js');
+const PW = path.join(ROOT, 'scripts', 'verify-inbox-full-3col-width-playwright.js');
 
 const apiSrc = fs.readFileSync(API, 'utf8');
 const columnsSrc = fs.readFileSync(COLUMNS, 'utf8');
 const specSrc = fs.readFileSync(SPEC, 'utf8');
 const threadSrc = fs.readFileSync(THREAD, 'utf8');
+const pwSrc = fs.readFileSync(PW, 'utf8');
 
 let pass = 0;
 let fail = 0;
@@ -45,15 +46,15 @@ function ok(name, cond, detail) {
 
 console.log('\nverify-inbox-full-3col-width — Full 3-col and 4-col same wrap\n');
 
-ok('4-col Full peek cap is still 1634px (do not rewrite that selector)',
+ok('4-col Full peek cap selector is still 1634px (do not rewrite that selector)',
   apiSrc.includes('.inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="peek"]{')
   && /\[data-col4="peek"\]\{\s*max-width:1634px;margin-left:auto;margin-right:auto;\s*\}/.test(apiSrc));
 
-ok('3-col Full hidden SHELL is not capped at 1634px (chat fills to the tab)',
-  !apiSrc.includes('.inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="hidden"]{'));
+ok('Full all4 overrides peek+hidden to fill the 1800 wrap',
+  /body:has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) .inbox-two-col.inbox-shell-cols\[data-col1="full"\]\[data-col2="comfortable"\]\[data-col4="peek"\],\s*body:has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) .inbox-two-col.inbox-shell-cols\[data-col1="full"\]\[data-col2="comfortable"\]\[data-col4="hidden"\]\{\s*max-width:none;width:100%;margin-left:0;margin-right:0;\s*\}/.test(apiSrc));
 
-ok('Full wrap is 1674px for all4 (3-col and 4-col share total width)',
-  /body:has\(#tab-conversations.active\):has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) #wrap.inbox-shell-wrap\{\s*max-width:1674px!important;\s*\}/.test(apiSrc));
+ok('no 1674 Full wrap cap (that left 3-col short of 4-col)',
+  !apiSrc.includes('max-width:1674px!important'));
 
 ok('3-col Full hidden shells pads 22px so chat meets the Guest tab',
   /body:has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) #inbox-shell\.inbox-two-col\.inbox-shell-cols\[data-col4="hidden"\]\{\s*box-sizing:border-box;padding-right:22px;\s*\}/.test(apiSrc));
@@ -64,13 +65,18 @@ ok('unscoped col4 hidden still documents 0px (Chat/Guest model unchanged)',
 ok('Full hidden does not reserve a 300px guest track',
   !/\[data-col1="full"\]\[data-col2="comfortable"\]\[data-col4="hidden"\]\{[^}]*--inbox-col4-w:300px/.test(apiSrc));
 
-ok('columns gate asserts shared wrap + no hidden shell cap',
-  columnsSrc.includes('Full wrap is 1674px (1634 content + pad) in 3-col and 4-col')
-  && columnsSrc.includes('Full 3-col has no 1634px shell cap so chat fills to the Guest tab'));
+ok('columns gate asserts 1800 wrap fill + no 1674 cap',
+  columnsSrc.includes('Full 3-col and 4-col both fill the 1800 wrap (no 1674 cap)')
+  && columnsSrc.includes('Full 3-col hidden is not capped at 1634px'));
 
-ok('spec says Full wrap is the same for guest-open and guest-hidden',
-  /Full wrap is 1674px/.test(specSrc)
+ok('spec says Full uses the 1800px wrap for guest-open and guest-hidden',
+  /uses the 1800px wrap/.test(specSrc)
   && /total width does not jump/.test(specSrc));
+
+ok('playwright gate measures wrap left and right in both states',
+  pwSrc.includes('outer Full wrap left edge is equal in 3-col and 4-col')
+  && pwSrc.includes('outer Full wrap right edge is equal in 3-col and 4-col')
+  && pwSrc.includes('#wrap.inbox-shell-wrap'));
 
 ok('stay off inbox-thread.js',
   !threadSrc.includes('1634px') && !threadSrc.includes('--inbox-col4-w:300px'));
