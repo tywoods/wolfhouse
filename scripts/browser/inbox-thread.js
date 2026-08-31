@@ -1570,7 +1570,7 @@ function emailUiFailureCopy(op, status, data){
   if (c === 503 && err === 'email_send_outcome_unknown') {
     return 'Send outcome is unknown. Reload this conversation — do not retry.';
   }
-  if (c === 503 && err === 'email_create_draft_unavailable') return 'Could not create draft. Reload and try again.';
+  if (c === 503 && err === 'email_create_draft_unavailable') return 'Could not create a Luna draft for this email.';
   if (c === 503) return 'Temporarily unavailable';
   if (op === 'create') return 'Create draft failed';
   return op === 'approve' ? 'Approve failed' : 'Save failed';

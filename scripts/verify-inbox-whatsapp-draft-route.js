@@ -613,7 +613,10 @@ console.log('\n── inbox WhatsApp draft UI ──');
     'this.whatsappDraftGetUrl = whatsappDraftGetUrl;\n' +
     'this.whatsappDraftFailureCopy = whatsappDraftFailureCopy;\n' +
     'this.renderInboxWhatsAppDraftCard = renderInboxWhatsAppDraftCard;\n' +
-    'this.hydrateWhatsAppReplyComposer = hydrateWhatsAppReplyComposer;',
+    'this.hydrateWhatsAppReplyComposer = hydrateWhatsAppReplyComposer;\n' +
+    'this.wireInboxWhatsAppDraft = wireInboxWhatsAppDraft;\n' +
+    'this.whatsappDraftState = whatsappDraftState;\n' +
+    'this.inboxWhatsAppDraftGuestPhone = inboxWhatsAppDraftGuestPhone;',
     sandbox,
   );
   const mount = sandbox.inboxWhatsAppDraftMountHtml();
@@ -639,8 +642,9 @@ console.log('\n── inbox WhatsApp draft UI ──');
   ok('never paints the second Luna draft box',
     /mount\.hidden = true/.test(uiSrc)
     && /function renderInboxWhatsAppDraftCard[\s\S]*mount\.innerHTML = ''/.test(uiSrc)
-    && /performWhatsAppDraftSaveThenApprove/.test(uiSrc)
-    && /closest\('#btn-send-reply'\)/.test(uiSrc));
+    && /performInboxSend\(convId, inboxWhatsAppDraftGuestPhone/.test(uiSrc)
+    && /closest\('#btn-send-reply'\)/.test(uiSrc)
+    && !/performWhatsAppDraftSaveThenApprove\(convId, targetEl\);/.test(uiSrc));
   ok('GET URL carries conversation_id',
     sandbox.whatsappDraftGetUrl(V) === `/staff/inbox/whatsapp/draft?client=wolfhouse-somo&conversation_id=${V}`);
   ok('kill-switch copy stays off staff chrome',
@@ -656,6 +660,50 @@ console.log('\n── inbox WhatsApp draft UI ──');
       querySelector: (sel) => (sel === '#draft-textarea' ? ta : null),
     }, DRAFT);
     ok('hydrate overwrites leftover reply text with Luna draft', ta.value === DRAFT);
+  }
+  {
+    ok('reads guest phone from thread meta',
+      sandbox.inboxWhatsAppDraftGuestPhone({
+        querySelector: (sel) => (sel === '.detail-meta' ? { textContent: '+491726422307 · WhatsApp' } : null),
+      }) === '+491726422307');
+    const sendCalls = [];
+    sandbox.performInboxSend = function (id, phone) { sendCalls.push({ id, phone }); };
+    sandbox.selectedConvId = V;
+    sandbox.fetch = function () {
+      return Promise.resolve({ status: 200, text: function () { return Promise.resolve('{"success":false}'); } });
+    };
+    const listeners = [];
+    const mountNode = {
+      dataset: {},
+      hidden: true,
+      innerHTML: '',
+      addEventListener: function () {},
+      contains: function () { return false; },
+    };
+    const targetEl = {
+      dataset: {},
+      contains: function () { return true; },
+      querySelector: function (sel) {
+        if (sel === '#inbox-whatsapp-draft') return mountNode;
+        if (sel === '.detail-meta') return { textContent: '+491726422307 · WhatsApp' };
+        return null;
+      },
+      addEventListener: function (type, fn, opts) { listeners.push({ type, fn, capture: !!(opts && opts === true || opts && opts.capture) }); },
+    };
+    sandbox.whatsappDraftState(V).draftText = 'Third test reply';
+    sandbox.whatsappDraftState(V).sent = false;
+    sandbox.wireInboxWhatsAppDraft(V, targetEl);
+    const sendListener = listeners.find((l) => l.capture);
+    const ev = {
+      preventDefault: function () {},
+      stopImmediatePropagation: function () {},
+      stopPropagation: function () {},
+      target: { closest: function (sel) { return sel === '#btn-send-reply' ? { id: 'btn-send-reply' } : null; } },
+    };
+    if (sendListener) sendListener.fn(ev);
+    ok('Send reply with pending draft calls staff send-reply',
+      sendCalls.length === 1 && sendCalls[0].id === V && sendCalls[0].phone === '+491726422307',
+      `calls=${sendCalls.length}`);
   }
   {
     const executeSrc = fs.readFileSync(

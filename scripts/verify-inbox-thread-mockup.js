@@ -198,8 +198,9 @@ console.log('\n── ghost draft in the timeline ──');
     !/Approve|Edit|Discard|inbox-whatsapp-draft-tools/.test(mountNode.innerHTML)
     && /mount\.hidden = true/.test(draftSrc)
     && !/mount\.hidden = false/.test(draftSrc)
-    && /performWhatsAppDraftSaveThenApprove/.test(draftSrc)
-    && /closest\('#btn-send-reply'\)/.test(draftSrc));
+    && /performInboxSend/.test(draftSrc)
+    && /closest\('#btn-send-reply'\)/.test(draftSrc)
+    && /\/staff\/inbox\/send-reply/.test(threadSrc));
   ok('composer (Write a reply) is the staff draft surface',
     /class="draft-panel"/.test(threadSrc)
     && /id="draft-textarea"/.test(threadSrc)

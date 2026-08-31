@@ -142,6 +142,13 @@ function whatsappDraftComposerStatusEl(targetEl){
   return targetEl ? targetEl.querySelector('#draft-send-status') : null;
 }
 
+function inboxWhatsAppDraftGuestPhone(targetEl){
+  var meta = targetEl && targetEl.querySelector('.detail-meta');
+  var text = meta ? String(meta.textContent || '') : '';
+  var m = text.match(/(\+[0-9]{6,15})/);
+  return m ? m[1] : '';
+}
+
 function whatsappDraftShowStatus(targetEl, kind, message){
   if (!message) {
     showDraftSendStatus(whatsappDraftComposerStatusEl(targetEl), '', '');
@@ -454,10 +461,13 @@ function wireInboxWhatsAppDraft(convId, targetEl){
       if (!btn || !targetEl.contains(btn)) return;
       var st = whatsappDraftState(convId);
       if (!st.draftText || st.sent) return;
+      // Staff Send reply must use the staff send helper. approve-send is
+      // blocked by dry-run / auto-send kill switches (empty status = nothing happens).
+      if (typeof performInboxSend !== 'function') return;
       if (ev.preventDefault) ev.preventDefault();
       if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
       if (ev.stopPropagation) ev.stopPropagation();
-      performWhatsAppDraftSaveThenApprove(convId, targetEl);
+      performInboxSend(convId, inboxWhatsAppDraftGuestPhone(targetEl), targetEl);
     }, true);
   }
   loadInboxWhatsAppDraft(convId, targetEl);
