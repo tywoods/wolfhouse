@@ -902,6 +902,7 @@ const {
   parseHermesWhatsAppThreadMirrorBody,
   assertHermesMirrorTenantScope,
   mirrorHermesWhatsAppThreadMessage,
+  expirePendingWhatsAppDraftForConversation,
 } = require('./lib/luna-hermes-whatsapp-thread-mirror');
 const {
   isStagingResetEnvironment,
@@ -11452,6 +11453,59 @@ async function checkGuestAutomationPauseState(pg, input) {
     };
   }
 
+  // Tenant-global WhatsApp channel autonomy (clients.settings.inbox_channel_modes).
+  // Product contract: auto-reply only when mode is Auto. Draft/Off block Hermes
+  // outbound via the same gate pause_gate already consumes. Missing key defaults
+  // to auto (matches the durable channel-mode store default).
+  let whatsappChannelMode = 'auto';
+  try {
+    const modeRes = await pg.query(
+      `SELECT lower(btrim(COALESCE(settings->'inbox_channel_modes'->>'whatsapp', 'auto'))) AS mode
+         FROM clients
+        WHERE slug = $1
+        LIMIT 1`,
+      [clientSlug],
+    );
+    const raw = modeRes.rows[0] && modeRes.rows[0].mode;
+    if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
+  } catch (_err) {
+    whatsappChannelMode = 'auto';
+  }
+
+  // Off: stop agent + Meta send. Draft: Luna still drafts; Meta send blocked and
+  // the outbound mirror stages a pending approval instead of a sent bubble.
+  if (whatsappChannelMode === 'off') {
+    return {
+      bot_paused:             true,
+      live_send_blocked:      true,
+      source:                 'inbox_channel_mode_off',
+      pause_state:            null,
+      table_missing:          !!result.table_missing,
+      global_paused:          false,
+      conversation_paused:    false,
+      needs_human:            needsHuman,
+      conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
+      effective_scope:        'channel_mode',
+      whatsapp_channel_mode:  'off',
+    };
+  }
+  if (whatsappChannelMode === 'draft') {
+    return {
+      bot_paused:             false,
+      live_send_blocked:      true,
+      source:                 'inbox_channel_mode_draft',
+      pause_state:            null,
+      table_missing:          !!result.table_missing,
+      global_paused:          false,
+      conversation_paused:    false,
+      needs_human:            needsHuman,
+      conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
+      effective_scope:        'channel_mode',
+      whatsapp_channel_mode:  'draft',
+      stage_outbound_as_draft: true,
+    };
+  }
+
   return {
     bot_paused:             false,
     live_send_blocked:      false,
@@ -11463,6 +11517,7 @@ async function checkGuestAutomationPauseState(pg, input) {
     needs_human:            needsHuman,
     conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
     effective_scope:        null,
+    whatsapp_channel_mode:  'auto',
   };
 }
 
@@ -11475,13 +11530,17 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
     ? String(body.source).trim().slice(0, 100) || null
     : null;
 
+  // Agent pause ≠ Meta send block. Draft mode keeps the agent running
+  // (can_continue true) while live_send_blocked stays true.
+  const agentBlocked = !!gate.bot_paused;
+  const sendBlocked = !!(gate.bot_paused || gate.live_send_blocked);
   const base = Object.assign({
     success:                       true,
-    bot_paused:                    gate.bot_paused,
-    live_send_blocked:             gate.live_send_blocked,
-    can_continue_guest_automation: !gate.bot_paused,
+    bot_paused:                    agentBlocked,
+    live_send_blocked:             sendBlocked,
+    can_continue_guest_automation: !agentBlocked,
     source:                        gate.source,
-    paused:                        !!gate.bot_paused,
+    paused:                        agentBlocked,
     global_paused:                 !!gate.global_paused,
     conversation_paused:           !!gate.conversation_paused,
     needs_human:                   !!gate.needs_human,
@@ -11493,6 +11552,8 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
 
   if (gate.pause_state) base.pause_state = gate.pause_state;
   if (gate.table_missing) base.table_missing = true;
+  if (gate.whatsapp_channel_mode) base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
+  if (gate.stage_outbound_as_draft) base.stage_outbound_as_draft = true;
   if (hasDraft) {
     base.draft_reply = draftReply;
     base.draft_reply_preserved = true;
@@ -11544,8 +11605,10 @@ async function handleBotCheckGuestAutomationGate(req, res, user, authMode) {
       guest_phone: guestPhone,
       success: true,
       bot_paused: gate.bot_paused,
-      can_continue_guest_automation: !gate.bot_paused,
+      live_send_blocked: gate.live_send_blocked,
+      can_continue_guest_automation: !(gate.bot_paused || gate.live_send_blocked),
       source: gate.source,
+      whatsapp_channel_mode: gate.whatsapp_channel_mode || null,
       auth_mode: authMode || null,
       no_write_performed: true,
       sends_whatsapp: false,
@@ -11574,6 +11637,7 @@ async function handleBotCheckGuestAutomationGate(req, res, user, authMode) {
       live_send_blocked: false,
       source: 'default_active',
       pause_state: null,
+      whatsapp_channel_mode: 'auto',
     }, body, {
       client_slug: clientSlug,
       conversation_id: conversationId,
@@ -11617,13 +11681,14 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
     }));
 
     const pauseState = gate.pause_state || null;
+    const blocked = !!(gate.bot_paused || gate.live_send_blocked);
     appendAuditLog(Object.assign({
       ts: new Date().toISOString(),
       intent: 'api:bot.effective-pause-state',
       category: 'bot_pause_api',
       client_slug: clientSlug,
       success: true,
-      paused: !!gate.bot_paused,
+      paused: blocked,
       auth_mode: authMode || null,
       no_write_performed: true,
       elapsed_ms: Date.now() - started,
@@ -11631,17 +11696,20 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
 
     return sendJSON(res, 200, {
       success: true,
-      paused: !!gate.bot_paused,
+      paused: blocked,
       global_paused: !!gate.global_paused,
       conversation_paused: !!gate.conversation_paused,
       needs_human: !!gate.needs_human,
       effective_scope: gate.effective_scope || null,
-      reason: (pauseState && pauseState.pause_reason) || (gate.needs_human ? 'needs_human' : null),
+      reason: (pauseState && pauseState.pause_reason)
+        || (gate.source && String(gate.source).startsWith('inbox_channel_mode_') ? gate.source : null)
+        || (gate.needs_human ? 'needs_human' : null),
       updated_at: (pauseState && (pauseState.updated_at || pauseState.paused_at)) || null,
       source: gate.source,
       bot_paused: !!gate.bot_paused,
       live_send_blocked: !!gate.live_send_blocked,
-      can_continue_guest_automation: !gate.bot_paused,
+      can_continue_guest_automation: !blocked,
+      whatsapp_channel_mode: gate.whatsapp_channel_mode || null,
       pause_state: pauseState,
       no_write_performed: true,
     });
@@ -12887,13 +12955,19 @@ async function handleBotHermesWhatsAppThreadMirror(req, res, user, authMode) {
       location_id: parsed.input.location_id || null,
       conversation_id: out.conversation_id || null,
       direction: out.direction || parsed.input.direction,
+      whatsapp_channel_mode: out.whatsapp_channel_mode || null,
       thread_message: {
         message_id: thread.message_id || null,
         persisted: thread.persisted === true,
         duplicate: thread.duplicate === true,
+        draft_staged: thread.draft_staged === true,
+        suppressed: thread.suppressed === true,
         whatsapp_message_id: thread.whatsapp_message_id || null,
         source: thread.source || null,
+        approval_id: thread.approval_id || null,
+        reason: thread.reason || null,
       },
+      draft: out.draft || null,
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -46040,12 +46114,42 @@ function inboxChannelModesFromUnknown(raw) {
   };
 }
 
-async function loadClientInboxChannelModes(clientId) {
-  if (!clientId) return inboxChannelModesFromUnknown(null);
+/** Durable store values for the canonical clients.settings.inbox_channel_modes key. */
+function inboxChannelModeStoreFromValue(value) {
+  if (value === 'auto' || value === 'draft' || value === 'off') return value;
+  return null;
+}
+
+function inboxChannelModesStoreFromUnknown(raw) {
+  let src = raw;
+  if (typeof src === 'string') {
+    try { src = JSON.parse(src); } catch (_e) { src = null; }
+  }
+  const obj = src && typeof src === 'object' && !Array.isArray(src) ? src : {};
+  return {
+    whatsapp: inboxChannelModeStoreFromValue(obj.whatsapp) || 'draft',
+    email: inboxChannelModeStoreFromValue(obj.email) || 'draft',
+  };
+}
+
+/**
+ * Merge a Draft|Auto chrome value onto the durable store without collapsing
+ * an existing `off` into `draft` (the green-box cannot express Off).
+ */
+function mergeInboxUiChannelMode(currentStoreValue, uiValue) {
+  const ui = inboxChannelModeFromValue(uiValue);
+  if (ui === 'auto') return 'auto';
+  const cur = inboxChannelModeStoreFromValue(currentStoreValue);
+  if (cur === 'off') return 'off';
+  return 'draft';
+}
+
+async function loadClientInboxChannelModesStore(clientId) {
+  if (!clientId) return inboxChannelModesStoreFromUnknown(null);
   try {
     const row = await withPgClient(async (pgClient) => {
       const result = await pgClient.query(
-        `SELECT metadata->'inbox_ui_channel_modes' AS inbox_ui_channel_modes
+        `SELECT settings->'inbox_channel_modes' AS inbox_channel_modes
            FROM clients
           WHERE id = $1::uuid
           LIMIT 1`,
@@ -46053,31 +46157,43 @@ async function loadClientInboxChannelModes(clientId) {
       );
       return result.rows[0] || null;
     });
-    return inboxChannelModesFromUnknown(row && row.inbox_ui_channel_modes);
+    return inboxChannelModesStoreFromUnknown(row && row.inbox_channel_modes);
   } catch (_err) {
-    return inboxChannelModesFromUnknown(null);
+    return inboxChannelModesStoreFromUnknown(null);
   }
 }
 
+async function loadClientInboxChannelModes(clientId) {
+  // Project durable settings.inbox_channel_modes onto Draft|Auto chrome values.
+  // clients has no metadata column — the old metadata.inbox_ui_channel_modes
+  // path always failed closed to Draft/Draft and broke session↔canonical sync.
+  return inboxChannelModesFromUnknown(await loadClientInboxChannelModesStore(clientId));
+}
+
 async function saveClientInboxChannelModes(clientId, modes) {
-  const next = inboxChannelModesFromUnknown(modes);
+  const ui = inboxChannelModesFromUnknown(modes);
+  const current = await loadClientInboxChannelModesStore(clientId);
+  const next = {
+    whatsapp: mergeInboxUiChannelMode(current.whatsapp, ui.whatsapp),
+    email: mergeInboxUiChannelMode(current.email, ui.email),
+  };
   const row = await withPgClient(async (pgClient) => {
     const result = await pgClient.query(
       `UPDATE clients
-          SET metadata = jsonb_set(
-            COALESCE(metadata, '{}'::jsonb),
-            '{inbox_ui_channel_modes}',
+          SET settings = jsonb_set(
+            COALESCE(settings, '{}'::jsonb),
+            '{inbox_channel_modes}',
             $2::jsonb,
             true
           )
         WHERE id = $1::uuid
-        RETURNING metadata->'inbox_ui_channel_modes' AS inbox_ui_channel_modes`,
+        RETURNING settings->'inbox_channel_modes' AS inbox_channel_modes`,
       [clientId, JSON.stringify(next)]
     );
     return result.rows[0] || null;
   });
   if (!row) return null;
-  return inboxChannelModesFromUnknown(row.inbox_ui_channel_modes);
+  return inboxChannelModesFromUnknown(row.inbox_channel_modes);
 }
 
 async function handleAuthPrefs(req, res) {

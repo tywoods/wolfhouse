@@ -3,8 +3,13 @@
 /**
  * Mirror Hermes Agent Luna WhatsApp turns into Staff Portal inbox (messages table).
  * Called by POST /staff/bot/whatsapp-thread-mirror (bot token auth).
+ *
+ * When WhatsApp channel autonomy is Draft, outbound mirrors stage a pending
+ * luna_outbound_approvals row instead of an Inbox "sent" bubble — staff must
+ * Approve / Send reply before Meta delivery.
  */
 
+const crypto = require('crypto');
 const { resolvePortalDeployClient } = require('./staff-portal-clients');
 const {
   persistHermesLunaInboundThreadMessage,
@@ -28,6 +33,42 @@ const {
   normalizeCustomerPhone,
   upsertCustomerFromInboundTouch,
 } = require('./staff-customer-queries');
+const { emitInboxConversationUpdated } = require('./staff-inbox-live-events');
+
+const SQL_CLIENT_WHATSAPP_MODE = `
+SELECT c.id::text AS client_id,
+  lower(btrim(COALESCE(c.settings->'inbox_channel_modes'->>'whatsapp', 'auto'))) AS whatsapp_mode
+FROM clients c
+WHERE c.slug = $1
+LIMIT 1
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_UPSERT_HERMES_DRAFT = `
+INSERT INTO luna_outbound_approvals (
+  id, client_id, conversation_id, channel, draft_text, edited_text, status,
+  tool_trace, created_by_run_id, created_by_staff_user_id
+) VALUES (
+  $1::uuid, $2::uuid, $3::uuid, 'whatsapp', $4, NULL, 'pending',
+  $5::jsonb, $6, NULL
+)
+ON CONFLICT (client_id, conversation_id, channel) WHERE status = 'pending'
+DO UPDATE SET
+  draft_text = EXCLUDED.draft_text,
+  tool_trace = EXCLUDED.tool_trace,
+  created_by_run_id = EXCLUDED.created_by_run_id
+RETURNING id::text AS approval_id, conversation_id::text AS conversation_id,
+  channel, draft_text, status, created_by_run_id
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_EXPIRE_PENDING_WHATSAPP_DRAFT = `
+UPDATE luna_outbound_approvals
+SET status = 'expired'
+WHERE client_id = $1::uuid
+  AND conversation_id = $2::uuid
+  AND channel = 'whatsapp'
+  AND status = 'pending'
+RETURNING id::text AS approval_id
+`.replace(/\s+/g, ' ').trim();
 
 function trimStr(v) {
   if (v == null) return '';
@@ -56,6 +97,85 @@ function normalizeWhatsAppMessageText(text) {
     if (!l || l === u) return u;
     return `${l}: ${u}`;
   });
+}
+
+function mintUuid() {
+  return String(crypto.randomUUID()).toLowerCase();
+}
+
+async function loadClientWhatsAppChannelMode(pg, clientSlug) {
+  const slug = trimStr(clientSlug);
+  if (!slug) return { client_id: null, whatsapp_mode: 'auto' };
+  try {
+    const res = await pg.query(SQL_CLIENT_WHATSAPP_MODE, [slug]);
+    const row = res.rows[0];
+    if (!row) return { client_id: null, whatsapp_mode: 'auto' };
+    const mode = trimStr(row.whatsapp_mode).toLowerCase();
+    return {
+      client_id: row.client_id || null,
+      whatsapp_mode: (mode === 'auto' || mode === 'draft' || mode === 'off') ? mode : 'auto',
+    };
+  } catch (_err) {
+    return { client_id: null, whatsapp_mode: 'auto' };
+  }
+}
+
+/**
+ * Stage a Hermes outbound reply as a pending WhatsApp draft (no sent bubble).
+ */
+async function stageHermesWhatsAppOutboundDraft(pg, input) {
+  const i = input || {};
+  const clientId = trimStr(i.client_id);
+  const conversationId = trimStr(i.conversation_id);
+  const draftText = normalizeWhatsAppMessageText(i.message_text);
+  if (!clientId || !conversationId || !draftText) {
+    return { ok: false, staged: false, reason: 'missing_draft_fields' };
+  }
+  const runId = trimStr(i.idempotency_key || i.created_by_run_id).slice(0, 128) || null;
+  const toolTrace = {
+    source: 'hermes_luna_whatsapp_draft',
+    staged_at: new Date().toISOString(),
+  };
+  try {
+    const upsert = await pg.query(SQL_UPSERT_HERMES_DRAFT, [
+      mintUuid(),
+      clientId,
+      conversationId,
+      draftText.slice(0, 64000),
+      JSON.stringify(toolTrace),
+      runId,
+    ]);
+    const row = upsert.rows[0];
+    if (!row) return { ok: false, staged: false, reason: 'draft_upsert_failed' };
+    emitInboxConversationUpdated(trimStr(i.client_slug), conversationId);
+    return {
+      ok: true,
+      staged: true,
+      approval_id: row.approval_id,
+      draft_text: row.draft_text,
+      status: row.status,
+      created_by_run_id: row.created_by_run_id || null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      staged: false,
+      reason: 'draft_upsert_error',
+      detail: err && err.message ? String(err.message) : 'unknown',
+    };
+  }
+}
+
+async function expirePendingWhatsAppDraftForConversation(pg, clientId, conversationId) {
+  const cid = trimStr(clientId);
+  const conv = trimStr(conversationId);
+  if (!cid || !conv) return { expired: 0 };
+  try {
+    const res = await pg.query(SQL_EXPIRE_PENDING_WHATSAPP_DRAFT, [cid, conv]);
+    return { expired: (res.rows || []).length };
+  } catch (_err) {
+    return { expired: 0 };
+  }
 }
 
 function parseHermesWhatsAppThreadMirrorBody(body) {
@@ -236,6 +356,7 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
     guest_phone: phone,
     guest_name: trimStr(contactName) || null,
     location_id: extractLocationFromMetadata(metadata),
+    client_id: clientId,
   };
 }
 
@@ -291,6 +412,63 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
     };
   }
 
+  const modeInfo = await loadClientWhatsAppChannelMode(pg, i.client_slug);
+  const whatsappMode = modeInfo.whatsapp_mode || 'auto';
+  const clientId = modeInfo.client_id || ensured.client_id;
+
+  // Off: suppress both sent-bubble and draft staging.
+  if (whatsappMode === 'off') {
+    return {
+      ok: true,
+      conversation_id: conversationId,
+      direction: 'outbound',
+      whatsapp_channel_mode: 'off',
+      thread: {
+        persisted: false,
+        duplicate: false,
+        suppressed: true,
+        reason: 'inbox_channel_mode_off',
+        source: 'hermes_luna_whatsapp_reply',
+      },
+      draft: null,
+      staff_notification: null,
+    };
+  }
+
+  // Draft: stage pending approval for portal review; do not insert a sent bubble.
+  if (whatsappMode === 'draft') {
+    const staged = await stageHermesWhatsAppOutboundDraft(pg, {
+      client_id: clientId,
+      client_slug: i.client_slug,
+      conversation_id: conversationId,
+      message_text: i.message_text,
+      idempotency_key: i.idempotency_key,
+    });
+    return {
+      ok: staged.ok === true,
+      conversation_id: conversationId,
+      direction: 'outbound',
+      whatsapp_channel_mode: 'draft',
+      thread: {
+        persisted: false,
+        duplicate: false,
+        draft_staged: staged.staged === true,
+        reason: staged.staged ? 'inbox_channel_mode_draft' : (staged.reason || 'draft_stage_failed'),
+        source: 'hermes_luna_whatsapp_draft',
+        approval_id: staged.approval_id || null,
+      },
+      draft: staged.staged
+        ? {
+          approval_id: staged.approval_id,
+          draft_text: staged.draft_text,
+          status: staged.status || 'pending',
+          draft_available: true,
+        }
+        : null,
+      staff_notification: null,
+    };
+  }
+
   const thread = await persistHermesLunaOutboundThreadMessage(pg, base, {
     idempotency_key: i.idempotency_key,
   });
@@ -328,6 +506,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
     ok: true,
     conversation_id: conversationId,
     direction: 'outbound',
+    whatsapp_channel_mode: 'auto',
     thread,
     staff_notification,
   };
@@ -338,4 +517,10 @@ module.exports = {
   assertHermesMirrorTenantScope,
   ensureConversationForGuestPhone,
   mirrorHermesWhatsAppThreadMessage,
+  loadClientWhatsAppChannelMode,
+  stageHermesWhatsAppOutboundDraft,
+  expirePendingWhatsAppDraftForConversation,
+  SQL_CLIENT_WHATSAPP_MODE,
+  SQL_UPSERT_HERMES_DRAFT,
+  SQL_EXPIRE_PENDING_WHATSAPP_DRAFT,
 };

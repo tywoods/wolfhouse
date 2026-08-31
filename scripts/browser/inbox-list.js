@@ -287,8 +287,12 @@ function pollInboxSelectedThreadLive(){
       if (selectedConvId !== convId) return;
       var msgs = data.messages || [];
       var sig = threadMessagesFingerprint(msgs);
+      var detailEl = (typeof el === 'function' ? el('detail-content') : null) || document.getElementById('detail-content');
       if (sig === inboxThreadMessageSig) {
         setInboxLiveStatus('live', 'Live');
+        if (typeof loadInboxWhatsAppDraft === 'function' && detailEl) {
+          loadInboxWhatsAppDraft(convId, detailEl);
+        }
         return;
       }
       inboxThreadMessageSig = sig;
@@ -306,6 +310,9 @@ function pollInboxSelectedThreadLive(){
         else wrap.scrollTop = prevScrollTop;
       }
       setInboxLiveStatus('live', 'Live');
+      if (typeof loadInboxWhatsAppDraft === 'function' && detailEl) {
+        loadInboxWhatsAppDraft(convId, detailEl);
+      }
     })
     .catch(function(){
       setInboxLiveStatus('error', 'Update failed');

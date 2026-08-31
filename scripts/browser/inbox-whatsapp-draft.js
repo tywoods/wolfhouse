@@ -188,6 +188,17 @@ function applyWhatsAppDraftFromGet(st, data){
   return true;
 }
 
+/** Put pending Luna draft into the Write a reply… box for Send reply. */
+function hydrateWhatsAppReplyComposer(targetEl, draftText){
+  if (!targetEl || !draftText) return;
+  var ta = targetEl.querySelector('#draft-textarea');
+  if (!ta || ta.disabled) return;
+  var live = String(ta.value == null ? '' : ta.value);
+  // Do not clobber staff edits that diverge from the staged draft.
+  if (live && live !== draftText) return;
+  ta.value = draftText;
+}
+
 function loadInboxWhatsAppDraft(convId, targetEl){
   var st = whatsappDraftState(convId);
   var snapConv = String(convId);
@@ -207,6 +218,20 @@ function loadInboxWhatsAppDraft(convId, targetEl){
         st.sent = false;
       }
       renderInboxWhatsAppDraftCard(targetEl, st);
+      if (st.draftText) hydrateWhatsAppReplyComposer(targetEl, st.draftText);
+      else {
+        var statusEl = targetEl.querySelector('#draft-send-status');
+        if (statusEl && /Luna draft ready/.test(String(statusEl.textContent || ''))) {
+          showDraftSendStatus(statusEl, '', '');
+        }
+      }
+      if (st.draftText) {
+        showDraftSendStatus(
+          targetEl.querySelector('#draft-send-status'),
+          '',
+          'Luna draft ready — review, then Send reply (or Approve on the draft card).',
+        );
+      }
     })
     .catch(function(){
       if (mySeq !== st.seq) return;

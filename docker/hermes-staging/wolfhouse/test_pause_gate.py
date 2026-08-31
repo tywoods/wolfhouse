@@ -154,6 +154,49 @@ def main() -> int:
             "wolfhouse-somo|+491701234567" in mod._CACHE,
         )
 
+    class _DraftResp(_Resp):
+        def read(self):
+            return json.dumps({
+                "success": True,
+                "bot_paused": False,
+                "live_send_blocked": True,
+                "can_continue_guest_automation": True,
+                "paused": False,
+                "whatsapp_channel_mode": "draft",
+                "stage_outbound_as_draft": True,
+            }).encode("utf-8")
+
+    mod._CACHE.clear()
+    with mock.patch.dict(
+        os.environ,
+        {
+            "HERMES_ROLE": "sunset-luna",
+            "LUNA_CLIENT_SLUG": "sunset",
+            "LUNA_BOT_INTERNAL_TOKEN": "tok",
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://staff.example",
+        },
+        clear=False,
+    ):
+        with mock.patch("urllib.request.urlopen", return_value=_DraftResp()):
+            agent_paused = mod.guest_automation_paused("+34600111222", force_refresh=True)
+            send_blocked = mod.whatsapp_send_blocked("+34600111222")
+        check("draft mode keeps agent running", agent_paused is False)
+        check("draft mode blocks Meta send", send_blocked is True)
+        check("_agent_paused_from_gate ignores live_send_blocked alone",
+              mod._agent_paused_from_gate({
+                  "bot_paused": False,
+                  "live_send_blocked": True,
+                  "can_continue_guest_automation": True,
+                  "paused": False,
+              }) is False)
+        check("_send_blocked_from_gate honors live_send_blocked",
+              mod._send_blocked_from_gate({
+                  "bot_paused": False,
+                  "live_send_blocked": True,
+                  "can_continue_guest_automation": True,
+                  "paused": False,
+              }) is True)
+
     # Webhook body phone parse
     body = json.dumps({
         "entry": [{

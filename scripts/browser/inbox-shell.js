@@ -18,9 +18,9 @@
  *
  * Persist (no new state machine):
  *   PATCH /staff/auth/prefs `{ inbox_channel_modes }` on the authenticated
- *   tenant (clients.metadata.inbox_ui_channel_modes). Global Pause blocks
- *   Auto without rewriting the stored mode. This module never calls Graph
- *   or Cloud send.
+ *   tenant (clients.settings.inbox_channel_modes — same durable key as
+ *   GET/PUT /staff/inbox/luna-mode). Global Pause blocks Auto without
+ *   rewriting the stored mode. This module never calls Graph or Cloud send.
  *
  * Thread-header Auto|Draft|Off (#524, inbox-luna-mode.js) is left in place.
  *
@@ -912,25 +912,44 @@ function inboxShellSyncFromPauseState(){
 }
 
 function inboxShellHydrateFromSession(){
-  return fetch('/staff/auth/session', { headers: { Accept: 'application/json' } })
-    .then(function(r){ return r.json(); })
-    .then(function(data){
-      if (!data || data.success === false || !data.inbox_channel_modes) {
-        inboxShellApplyUiModes(inboxShellLoadStoredModes());
-        return inboxShellLoadStoredModes();
-      }
-      var modes = {
-        whatsapp: inboxShellNormalizeWhatsApp(data.inbox_channel_modes.whatsapp),
-        email: inboxShellNormalizeEmail(data.inbox_channel_modes.email),
-      };
-      inboxShellStoreModes(modes);
-      inboxShellApplyUiModes(modes);
-      return modes;
-    })
-    .catch(function(){
-      inboxShellApplyUiModes(inboxShellLoadStoredModes());
-      return inboxShellLoadStoredModes();
-    });
+  function applyModes(raw){
+    var modes = {
+      whatsapp: inboxShellNormalizeWhatsApp(raw && raw.whatsapp),
+      email: inboxShellNormalizeEmail(raw && raw.email),
+    };
+    inboxShellStoreModes(modes);
+    inboxShellApplyUiModes(modes);
+    return modes;
+  }
+  function loadLunaModes(){
+    return fetch(INBOX_SHELL_LUNA_MODE_PATH + inboxShellClientQuery(), {
+      headers: { Accept: 'application/json' },
+    }).then(function(r){
+      if (!r.ok) return null;
+      return r.json().then(function(data){
+        if (!data || data.success === false || !data.modes) return null;
+        return data.modes;
+      }).catch(function(){ return null; });
+    }).catch(function(){ return null; });
+  }
+  return Promise.all([
+    fetch('/staff/auth/session', { headers: { Accept: 'application/json' } })
+      .then(function(r){ return r.json(); })
+      .catch(function(){ return null; }),
+    loadLunaModes(),
+  ]).then(function(parts){
+    var data = parts[0];
+    var lunaModes = parts[1];
+    // Prefer the durable channel-mode store (same as GET /staff/inbox/luna-mode)
+    // so a stale/failed session prefs projection cannot leave WhatsApp stuck on Draft.
+    if (lunaModes) return applyModes(lunaModes);
+    if (!data || data.success === false || !data.inbox_channel_modes) {
+      return applyModes(inboxShellLoadStoredModes());
+    }
+    return applyModes(data.inbox_channel_modes);
+  }).catch(function(){
+    return applyModes(inboxShellLoadStoredModes());
+  });
 }
 
 function wireInboxShellChannelDefaults(){
