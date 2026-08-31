@@ -16255,8 +16255,9 @@ function buildUiHtml(port, portalDeployClient) {
   // Set STAFF_PORTAL_BOOK_UI=false to drop the scoping class and instantly restore
   // the previous look (all ".book-ui ..." CSS rules go inert). Default: on.
   const bookUiClass = String(process.env.STAFF_PORTAL_BOOK_UI || 'true').trim().toLowerCase() === 'false' ? '' : ' book-ui';
+  const portalClientAttr = portalDefaultClient === 'sunset' ? ' data-portal-client="sunset"' : '';
   const html = `<!DOCTYPE html>
-<html lang="en">
+<html lang="en"${portalClientAttr}>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -21644,6 +21645,18 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
   }
   body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore:hover{
     background:var(--surface-soft);
+  }
+  html[data-portal-client="sunset"] body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore{
+    border-color:var(--sage,#8AAA90);background:var(--teal);color:var(--primary);font-weight:700;
+  }
+  html[data-portal-client="sunset"] body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore:hover{
+    background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC);
+  }
+  html[data-portal-client="sunset"][data-theme="dark"] body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore{
+    background:#31483d;color:#fff;border-color:rgba(122,170,130,.45);
+  }
+  html[data-portal-client="sunset"][data-theme="dark"] body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore:hover{
+    background:#3a4a40;color:#fff;
   }
   body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-peek-edge-col4{
     pointer-events:none;width:22px;

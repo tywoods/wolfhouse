@@ -656,6 +656,12 @@ function inboxMockupThemeCssText(){
     'font:inherit;font-size:11px;font-weight:600;letter-spacing:.04em;',
     'writing-mode:vertical-rl;cursor:pointer;',
     '}',
+    'html[data-portal-client="sunset"] body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore{',
+    'border-color:var(--sage,#8AAA90);background:var(--teal);color:var(--primary);font-weight:700;',
+    '}',
+    'html[data-portal-client="sunset"] body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore:hover{background:var(--inbox-forest,#2F4A3E);color:var(--cream,#F2F1EC)}',
+    'html[data-portal-client="sunset"][data-theme="dark"] body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore{background:#31483d;color:#fff;border-color:rgba(122,170,130,.45)}',
+    'html[data-portal-client="sunset"][data-theme="dark"] body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore:hover{background:#3a4a40;color:#fff}',
     '#inbox-shell[data-peek="col4"] > .inbox-guest-restore{display:none!important}',
     '#inbox-shell.inbox-guest-drawer > .inbox-guest-restore{display:none!important}',
     '#inbox-shell.inbox-guest-drawer[data-col4="hidden"] .detail-sidebar{',
@@ -1046,7 +1052,13 @@ function wireInboxShellGuestHide(){
     if (target.closest('#inbox-guest-restore')) {
       if (ev.preventDefault) ev.preventDefault();
       if (ev.stopPropagation) ev.stopPropagation();
-      inboxShellGuestDrawerOpen();
+      // Skip the overlay/pin step: the tab opens the 4-column Full grid.
+      if (!api || typeof api.setColumn !== 'function') return;
+      api.setColumn('col4', 'peek');
+      if (typeof api.clearPeek === 'function') api.clearPeek();
+      inboxShellGuestDrawerClose();
+      inboxShellRememberGuestPanel('pinned');
+      inboxShellSyncHideButton();
       return;
     }
     if (target.closest('#inbox-customer-hide')) {
