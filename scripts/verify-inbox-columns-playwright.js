@@ -676,7 +676,18 @@ async function main() {
   return fail ? 1 : 0;
 }
 
-main().then((code) => process.exit(code)).catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+module.exports = {
+  buildPortalHtml,
+  startFixtureServer,
+  loadPlaywright,
+  openInbox,
+  CONV_ID,
+  SETTLE_MS,
+};
+
+if (require.main === module) {
+  main().then((code) => process.exit(code)).catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}

@@ -21128,6 +21128,9 @@ body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed=
 body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
+body:has(#tab-conversations.active):has([data-inbox-preset="all4"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+  max-width:1674px!important;
+}
 body:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
 }
@@ -21631,6 +21634,9 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
 }
 .inbox-guest-restore{display:none}
 @media(min-width:901px){
+  body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"]{
+    box-sizing:border-box;padding-right:22px;
+  }
   body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell.inbox-two-col.inbox-shell-cols[data-col4="hidden"] > .inbox-guest-restore{
     display:flex;align-items:center;justify-content:center;
     position:absolute;top:50%;right:0;z-index:25;

@@ -395,9 +395,11 @@ function checkRenderedCss(client, html) {
     fullChatWidth === Number.parseInt(SPEC_FULL_CHAT_MAX, 10), fullChatWidth);
   const fullHiddenShell = ruleBody(html,
     '.inbox-two-col.inbox-shell-cols[data-col1="full"][data-col2="comfortable"][data-col4="hidden"]{');
-  ok('Full 3-col has no 1634px cap so chat fills to the Guest tab',
+  ok('Full 3-col has no 1634px shell cap so chat fills to the Guest tab',
     !fullHiddenShell,
     fullHiddenShell ? declaration(fullHiddenShell, 'max-width') : '');
+  ok('Full wrap is 1674px (1634 content + pad) in 3-col and 4-col',
+    /body:has\(#tab-conversations.active\):has\(\[data-inbox-preset="all4"\]\[aria-pressed="true"\]\) #wrap.inbox-shell-wrap\{[^}]*max-width:1674px!important/.test(html));
 
   Object.keys(SPEC_WIDTHS).forEach((col) => {
     Object.keys(SPEC_WIDTHS[col]).forEach((state) => {
