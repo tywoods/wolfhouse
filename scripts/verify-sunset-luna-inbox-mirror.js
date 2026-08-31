@@ -145,16 +145,61 @@ console.log('\n[4] Persistence: wamid dedupe, 4 rapid, 1 outbound, no combined i
 assert('inbound source hermes_luna_whatsapp_inbound', HERMES_LUNA_INBOUND_SOURCE === 'hermes_luna_whatsapp_inbound');
 assert('outbound source hermes_luna_whatsapp_reply', HERMES_LUNA_OUTBOUND_SOURCE === 'hermes_luna_whatsapp_reply');
 
-function makeFakePg() {
+function makeFakePg(opts) {
+  const options = opts || {};
   const clients = { sunset: 'client-sunset', 'wolfhouse-somo': 'client-wh' };
+  const clientModes = Object.assign({ sunset: 'auto', 'wolfhouse-somo': 'auto' }, options.clientModes || {});
   const conversations = new Map();
   const messages = [];
+  const drafts = new Map();
   let msgSeq = 0;
   return {
     messages,
     conversations,
+    drafts,
+    clientModes,
     async query(sql, params) {
       const s = String(sql);
+      if (/settings->'inbox_channel_modes'->>'whatsapp'/.test(s) || /AS whatsapp_mode/.test(s)) {
+        const slug = params[0];
+        if (!clients[slug]) return { rows: [] };
+        return {
+          rows: [{
+            client_id: clients[slug],
+            whatsapp_mode: clientModes[slug] || 'auto',
+          }],
+        };
+      }
+      if (/INSERT INTO luna_outbound_approvals/.test(s)) {
+        const approvalId = params[0];
+        const clientId = params[1];
+        const convId = params[2];
+        const key = `${clientId}:${convId}:whatsapp`;
+        const existing = drafts.get(key);
+        const row = {
+          approval_id: existing && existing.status === 'pending' ? existing.approval_id : approvalId,
+          conversation_id: convId,
+          channel: 'whatsapp',
+          draft_text: String(params[3]),
+          status: 'pending',
+          created_by_run_id: params[5] || null,
+        };
+        drafts.set(key, row);
+        return { rows: [{ ...row }] };
+      }
+      if (/UPDATE luna_outbound_approvals[\s\S]*status = 'expired'/.test(s)
+          || (/status = 'expired'/.test(s) && /luna_outbound_approvals/.test(s))) {
+        const clientId = params[0];
+        const convId = params[1];
+        const key = `${clientId}:${convId}:whatsapp`;
+        const row = drafts.get(key);
+        if (row && row.status === 'pending') {
+          row.status = 'expired';
+          drafts.set(key, row);
+          return { rows: [{ approval_id: row.approval_id }] };
+        }
+        return { rows: [] };
+      }
         if (/SELECT id FROM clients WHERE slug|SELECT 1 FROM clients WHERE slug/.test(s)) {
           const slug = params[0];
           if (!clients[slug]) return { rows: [] };
@@ -337,6 +382,38 @@ function makeFakePg() {
     pg.messages.filter((m) => m.direction === 'inbound').length === 4
       && !pg.messages.some((m) => (m.message_text || '').includes('\n')),
   );
+
+  // Draft mode: stage pending approval, no sent bubble.
+  const pgDraft = makeFakePg({ clientModes: { sunset: 'draft' } });
+  const draftOut = await mirrorHermesWhatsAppThreadMessage(pgDraft, {
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    guest_phone: '+34600999111',
+    direction: 'outbound',
+    message_text: 'Draft-mode reply for portal review.',
+    idempotency_key: 'out-draft-1',
+    contact_name: 'Draft Guest',
+  }, { env: { STAFF_WHATSAPP_NOTIFICATIONS_ENABLED: 'false' } });
+  assert('draft mode returns ok', draftOut.ok === true);
+  assert('draft mode does not persist sent bubble', draftOut.thread && draftOut.thread.persisted !== true);
+  assert('draft mode stages pending approval', draftOut.thread && draftOut.thread.draft_staged === true);
+  assert('draft payload available', draftOut.draft && draftOut.draft.draft_available === true
+    && /portal review/.test(draftOut.draft.draft_text || ''));
+  assert('no outbound message rows in draft mode', pgDraft.messages.filter((m) => m.direction === 'outbound').length === 0);
+  assert('one pending draft row', pgDraft.drafts.size === 1);
+
+  const pgOff = makeFakePg({ clientModes: { sunset: 'off' } });
+  const offOut = await mirrorHermesWhatsAppThreadMessage(pgOff, {
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    guest_phone: '+34600999222',
+    direction: 'outbound',
+    message_text: 'Should be suppressed.',
+    idempotency_key: 'out-off-1',
+  }, { env: { STAFF_WHATSAPP_NOTIFICATIONS_ENABLED: 'false' } });
+  assert('off mode suppresses outbound', offOut.thread && offOut.thread.suppressed === true);
+  assert('off mode stages no draft', !offOut.draft && pgOff.drafts.size === 0);
+  assert('off mode inserts no message', pgOff.messages.filter((m) => m.direction === 'outbound').length === 0);
 
   const convMeta = [...pg.conversations.values()][0];
   assert('one Sunset conversation', pg.conversations.size === 1);

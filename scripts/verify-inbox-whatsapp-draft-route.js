@@ -629,6 +629,10 @@ console.log('\n── inbox WhatsApp draft UI ──');
     /id="whatsapp-draft-textarea"/.test(editing)
     && !/id="draft-textarea"/.test(editing)
     && /id="btn-whatsapp-draft-save"/.test(editing));
+  ok('hydrates Write a reply composer from pending Luna draft',
+    /function hydrateWhatsAppReplyComposer/.test(uiSrc)
+    && /#draft-textarea/.test(uiSrc)
+    && /Luna draft ready/.test(uiSrc));
   ok('GET URL carries conversation_id',
     sandbox.whatsappDraftGetUrl(V) === `/staff/inbox/whatsapp/draft?client=wolfhouse-somo&conversation_id=${V}`);
   ok('kill-switch copy names the error codes',

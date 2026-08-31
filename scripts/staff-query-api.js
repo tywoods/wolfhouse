@@ -902,6 +902,7 @@ const {
   parseHermesWhatsAppThreadMirrorBody,
   assertHermesMirrorTenantScope,
   mirrorHermesWhatsAppThreadMessage,
+  expirePendingWhatsAppDraftForConversation,
 } = require('./lib/luna-hermes-whatsapp-thread-mirror');
 const {
   isStagingResetEnvironment,
@@ -11471,13 +11472,13 @@ async function checkGuestAutomationPauseState(pg, input) {
     whatsappChannelMode = 'auto';
   }
 
-  if (whatsappChannelMode !== 'auto') {
+  // Off: stop agent + Meta send. Draft: Luna still drafts; Meta send blocked and
+  // the outbound mirror stages a pending approval instead of a sent bubble.
+  if (whatsappChannelMode === 'off') {
     return {
       bot_paused:             true,
       live_send_blocked:      true,
-      source:                 whatsappChannelMode === 'off'
-        ? 'inbox_channel_mode_off'
-        : 'inbox_channel_mode_draft',
+      source:                 'inbox_channel_mode_off',
       pause_state:            null,
       table_missing:          !!result.table_missing,
       global_paused:          false,
@@ -11485,7 +11486,23 @@ async function checkGuestAutomationPauseState(pg, input) {
       needs_human:            needsHuman,
       conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
       effective_scope:        'channel_mode',
-      whatsapp_channel_mode:  whatsappChannelMode,
+      whatsapp_channel_mode:  'off',
+    };
+  }
+  if (whatsappChannelMode === 'draft') {
+    return {
+      bot_paused:             false,
+      live_send_blocked:      true,
+      source:                 'inbox_channel_mode_draft',
+      pause_state:            null,
+      table_missing:          !!result.table_missing,
+      global_paused:          false,
+      conversation_paused:    false,
+      needs_human:            needsHuman,
+      conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
+      effective_scope:        'channel_mode',
+      whatsapp_channel_mode:  'draft',
+      stage_outbound_as_draft: true,
     };
   }
 
@@ -11513,14 +11530,17 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
     ? String(body.source).trim().slice(0, 100) || null
     : null;
 
-  const blocked = !!(gate.bot_paused || gate.live_send_blocked);
+  // Agent pause ≠ Meta send block. Draft mode keeps the agent running
+  // (can_continue true) while live_send_blocked stays true.
+  const agentBlocked = !!gate.bot_paused;
+  const sendBlocked = !!(gate.bot_paused || gate.live_send_blocked);
   const base = Object.assign({
     success:                       true,
-    bot_paused:                    !!gate.bot_paused,
-    live_send_blocked:             !!gate.live_send_blocked,
-    can_continue_guest_automation: !blocked,
+    bot_paused:                    agentBlocked,
+    live_send_blocked:             sendBlocked,
+    can_continue_guest_automation: !agentBlocked,
     source:                        gate.source,
-    paused:                        blocked,
+    paused:                        agentBlocked,
     global_paused:                 !!gate.global_paused,
     conversation_paused:           !!gate.conversation_paused,
     needs_human:                   !!gate.needs_human,
@@ -11533,6 +11553,7 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
   if (gate.pause_state) base.pause_state = gate.pause_state;
   if (gate.table_missing) base.table_missing = true;
   if (gate.whatsapp_channel_mode) base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
+  if (gate.stage_outbound_as_draft) base.stage_outbound_as_draft = true;
   if (hasDraft) {
     base.draft_reply = draftReply;
     base.draft_reply_preserved = true;
@@ -12934,13 +12955,19 @@ async function handleBotHermesWhatsAppThreadMirror(req, res, user, authMode) {
       location_id: parsed.input.location_id || null,
       conversation_id: out.conversation_id || null,
       direction: out.direction || parsed.input.direction,
+      whatsapp_channel_mode: out.whatsapp_channel_mode || null,
       thread_message: {
         message_id: thread.message_id || null,
         persisted: thread.persisted === true,
         duplicate: thread.duplicate === true,
+        draft_staged: thread.draft_staged === true,
+        suppressed: thread.suppressed === true,
         whatsapp_message_id: thread.whatsapp_message_id || null,
         source: thread.source || null,
+        approval_id: thread.approval_id || null,
+        reason: thread.reason || null,
       },
+      draft: out.draft || null,
       elapsed_ms: elapsed,
     });
   } catch (err) {
