@@ -1114,6 +1114,10 @@ function adminRenderPackEditForm(pid, pack){
   var p = pack || adminDefaultPackSeed();
   var prefix = pid ? ('admin-pack-' + pid) : 'admin-new-pack';
   var formAttr = pid ? (' data-admin-pack-form="' + escHtml(pid) + '"') : ' id="admin-new-pack-form" data-admin-pack-form="new"';
+  var deleteCourseLabel = portalT('admin.packs.deleteCourse') || 'Delete course';
+  var deleteCourseBtn = pid
+    ? '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-pack-delete" data-admin-action="delete-pack" data-pack-id="' + escHtml(pid) + '" aria-label="' + escHtml(deleteCourseLabel) + '">' + escHtml(deleteCourseLabel) + '</button>'
+    : '';
   var inner = '<div class="portal-admin-pack-form"' + formAttr + '>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
     '<input type="text" id="' + prefix + '-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
@@ -1126,10 +1130,12 @@ function adminRenderPackEditForm(pid, pack){
     adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false) +
     adminRenderPackScheduleFields(p, prefix) +
     adminRenderPackTierFields(p.price_tiers || [], prefix) +
-    '<div class="portal-admin-price-card-edit-actions">' +
-    '<button type="button" class="btn btn-primary" data-admin-action="' + (pid ? 'save-pack' : 'save-new-pack') + '" data-pack-id="' + escHtml(pid || '') + '">' + escHtml(portalT('admin.action.save')) + '</button>' +
+    '<div class="portal-admin-edit-actions portal-admin-pack-edit-footer">' +
+    deleteCourseBtn +
+    '<div class="portal-admin-pack-edit-footer-right">' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
-    '</div></div>';
+    '<button type="button" class="btn btn-primary" data-admin-action="' + (pid ? 'save-pack' : 'save-new-pack') + '" data-pack-id="' + escHtml(pid || '') + '">' + escHtml(portalT('admin.action.save')) + '</button>' +
+    '</div></div></div>';
   if (pid) return inner;
   return '<div class="portal-admin-pack-card">' + inner + '</div>';
 }
@@ -1629,7 +1635,7 @@ function renderAdminSectionPricesFromConfig(cfg){
       // Browse: pencil only — no overflow / compact Delete.
       if (writes && !adminPriceGroupBusy(key)){
         html += '<div class="portal-admin-equip-actions portal-admin-card-actions">';
-        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-equip-edit-btn" data-admin-action="edit-equipment" data-equip-key="' +
+        html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-equip-edit-btn portal-admin-pricing-edit-btn" data-admin-action="edit-equipment" data-equip-key="' +
           escHtml(key) + '" aria-label="' + escHtml(editLabel) + '" title="' + escHtml(editLabel) + '">✎</button>';
         html += '</div>';
       }
@@ -1905,10 +1911,8 @@ function renderAdminPackCards(packs, writes, defaultCap){
     html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-pack-title">' + escHtml(p.label || 'Pack') + '</div>' +
       '<div class="portal-admin-pack-sub">' + escHtml(adminLessonAgeLabel(p.age_band)) + '</div></div>';
     if (writes && !editing && !adminPackSectionEditing()){
-      var deleteCourseLabel = portalT('admin.packs.deleteCourse') || 'Delete course';
-      html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-pack" data-pack-id="' +
-        escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '" title="' + escHtml(portalT('admin.action.edit')) + '">✎</button><button type="button" class="btn btn-ghost portal-admin-danger portal-admin-pack-delete" data-admin-action="delete-pack" data-pack-id="' +
-        escHtml(pid) + '" aria-label="' + escHtml(deleteCourseLabel) + '">' + escHtml(deleteCourseLabel) + '</button></div>';
+      html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-pack" data-pack-id="' +
+        escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '" title="' + escHtml(portalT('admin.action.edit')) + '">✎</button></div>';
     }
     html += '</div>';
     if (editing) html += adminRenderPackEditForm(pid, p);
@@ -2070,7 +2074,7 @@ function renderAdminPrivateLessonReadout(pl, opts){
       '<div class="portal-admin-private-col-v">' + adminRenderPrivateEquipmentInline(p.equipment_options || []) + '</div></div>';
   if (showEdit) {
     html += '<div class="portal-admin-private-col portal-admin-private-col-edit">' +
-      '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-private-lesson" aria-label="' +
+      '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-private-lesson" aria-label="' +
       escHtml(portalT('admin.action.edit')) + '">✎</button></div>';
   }
   html += '</div>';

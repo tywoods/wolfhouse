@@ -16990,7 +16990,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-card-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .portal-admin-card-actions{display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-shrink:0}
 .portal-admin-icon-btn{min-width:0;padding:2px 7px;border-radius:999px;font-size:11px;line-height:1.5}.portal-admin-icon-btn.portal-admin-danger{padding:0 4px;font-size:10px;line-height:1.15;min-height:16px;border-radius:4px}
-.portal-admin-pack-card .portal-admin-card-actions .portal-admin-icon-btn{font-size:10px;padding:0 4px;line-height:1.15;min-height:16px;border-radius:4px}
+.portal-admin-pack-card .portal-admin-card-actions{gap:6px}
 .portal-admin-lesson-facts{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;color:var(--text-2)}
 .portal-admin-lesson-fact{border:1px solid var(--border-soft);border-radius:8px;padding:5px 6px;background:var(--surface)}
 .portal-admin-lesson-fact strong{display:block;color:var(--text);font-size:12px;margin-top:1px}
@@ -17244,8 +17244,10 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-equip-chip.is-inactive{color:var(--text-2);border-style:dashed}
 .portal-admin-equip-chips-empty{font-size:12px}
 .portal-admin-equip-actions{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;margin-left:auto}
-/* 44px touch targets: edit pencil keeps full circular control */
-.portal-admin-equip-edit-btn{width:44px;min-width:44px;height:44px;min-height:44px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;color:var(--text);font-weight:700;font-size:16px;line-height:1}
+/* Pricing closed-card ✎: one 32px circle for group / private / rental.
+   Middle of the old 16px course chip and 44px rental control. Beats later .btn padding. */
+button.btn.portal-admin-icon-btn.portal-admin-pricing-edit-btn,
+button.btn.portal-admin-equip-edit-btn{width:32px;min-width:32px;max-width:32px;height:32px;min-height:32px;max-height:32px;padding:0;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;color:var(--text);font-weight:700;font-size:14px;line-height:1}
 /* Duration ×: larger glyph (~18px), compact physical button (~30px). Owner override vs 44px hit-target. */
 button.btn.portal-admin-equip-remove-duration,
 button.portal-admin-equip-remove-duration,
@@ -17314,6 +17316,9 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-equip-footer-right{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
 .portal-admin-equip-delete{min-height:44px}
 .portal-admin-equip-footer .btn-primary,.portal-admin-equip-footer .btn-ghost{min-height:44px}
+.portal-admin-pack-edit-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;min-width:0}
+.portal-admin-pack-edit-footer-right{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
+.portal-admin-pack-delete{min-height:36px;padding:6px 12px;font-size:12px;font-weight:600}
 .portal-admin-equip-error{flex:1 1 100%;order:-1}
 @media(max-width:1100px){
   .portal-admin-equip-row .portal-admin-equip-price-grid{grid-template-columns:repeat(2,minmax(0,1fr))}

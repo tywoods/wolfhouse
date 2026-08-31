@@ -77,6 +77,7 @@
     "verify:sunset-rental-dropdown-refresh": "node scripts/verify-sunset-rental-dropdown-refresh.js",
     "verify:sunset-rental-hard-delete": "node scripts/verify-sunset-rental-hard-delete.js",
     "verify:sunset-precios-destructive-delete-021": "node scripts/verify-sunset-precios-destructive-delete-021.js",
+    "verify:sunset-pricing-edit-buttons": "node scripts/verify-sunset-pricing-edit-buttons.js",
     "verify:sunset-rental-edit-functionality": "node scripts/verify-sunset-rental-edit-functionality.js",
     "verify:sunset-four-bug-batch": "node scripts/verify-sunset-four-bug-batch.js && node scripts/verify-sunset-rental-error-lifecycle-browser.js",
     "verify:sunset-backend-blockers": "node scripts/verify-sunset-backend-blockers.js",

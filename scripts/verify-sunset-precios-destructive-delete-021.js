@@ -4,7 +4,8 @@
  * Bug Finder #21 (26 Aug inventory, P2) — Precios destructive delete safety.
  *
  * Admin → Precios:
- *  - Group course cards: explicit "Delete course" / "Eliminar curso" (not × / Quitar)
+ *  - Closed group course cards: pencil only (no Delete course)
+ *  - Course editor footer: explicit "Delete course" / "Eliminar curso" (not × / Quitar)
  *  - Rental editor footer: explicit "Delete equipment" / "Eliminar equipo"
  *  - Both require window.confirm before any DELETE API call
  *
@@ -36,12 +37,20 @@ function sliceAction(src, action) {
 
 const deletePackBlock = sliceAction(adminUi, 'delete-pack');
 const deleteRentalBlock = sliceAction(adminUi, 'delete-rental-offering');
-const packCardRender = (adminUi.match(/function renderAdminPackCards\([\s\S]*?\n\}/) || [])[0] || '';
+const packCardRender = (adminUi.match(/function renderAdminPackCards\([\s\S]*?function adminRenderPrivateEquipmentInline/) || [])[0] || '';
+const packEditForm = (adminUi.match(/function adminRenderPackEditForm\([\s\S]*?function adminReadPackFormPayload/) || [])[0] || '';
 
-// Course card: labeled delete control (not icon-only × with generic Remove)
-assert.ok(packCardRender.includes("portalT('admin.packs.deleteCourse')"), 'pack card uses deleteCourse label');
-assert.ok(!/data-admin-action="delete-pack"[\s\S]{0,240}admin\.action\.remove/.test(packCardRender), 'pack card must not use generic Remove');
-assert.ok(!/data-admin-action="delete-pack"[\s\S]{0,120}">×<\/button>/.test(packCardRender), 'pack card must not use × icon delete');
+// Closed course card: pencil only — Delete course lives in the editor
+assert.ok(packCardRender.includes('data-admin-action="edit-pack"'), 'closed pack card still has edit');
+assert.ok(!packCardRender.includes('data-admin-action="delete-pack"'), 'closed pack card must not show delete-pack');
+assert.ok(!packCardRender.includes("portalT('admin.packs.deleteCourse')"), 'closed pack card must not paint Delete course');
+
+// Course editor: labeled delete control (not icon-only × with generic Remove)
+assert.ok(packEditForm.includes("portalT('admin.packs.deleteCourse')"), 'pack editor uses deleteCourse label');
+assert.ok(packEditForm.includes('data-admin-action="delete-pack"'), 'pack editor has delete-pack');
+assert.ok(/var deleteCourseBtn = pid/.test(packEditForm), 'Delete course only when editing an existing course');
+assert.ok(!/data-admin-action="delete-pack"[\s\S]{0,240}admin\.action\.remove/.test(packEditForm), 'pack editor must not use generic Remove');
+assert.ok(!/data-admin-action="delete-pack"[\s\S]{0,120}">×<\/button>/.test(packEditForm), 'pack editor must not use × icon delete');
 
 // Rental editor: explicit equipment delete label in edit footer
 assert.ok(adminUi.includes("portalT('admin.prices.deleteEquipment')"), 'rental editor uses deleteEquipment label');
