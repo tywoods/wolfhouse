@@ -79,11 +79,22 @@ check('B6', 'SQL module references bot_pause_states', /bot_pause_states/.test(SQ
 
 console.log('\nC. Response contract');
 check('C1', 'response includes can_continue_guest_automation', handlerText.includes('can_continue_guest_automation'));
-check('C2', 'can_continue false when paused', handlerText.includes('!gate.bot_paused'));
+check('C2', 'can_continue false when paused or live_send_blocked',
+  /can_continue_guest_automation:\s*!blocked/.test(buildText)
+  || /can_continue_guest_automation:\s*!\(gate\.bot_paused \|\| gate\.live_send_blocked\)/.test(buildText)
+  || handlerText.includes('!(gate.bot_paused || gate.live_send_blocked)'));
 check('C3', 'response includes bot_paused', handlerText.includes('bot_paused'));
 check('C4', 'response includes live_send_blocked', handlerText.includes('live_send_blocked'));
 check('C5', 'draft_reply_preserved when draft provided', gateText.includes('draft_reply_preserved'));
 check('C6', 'draft_reply echoed without send', gateText.includes('draft_reply'));
+check('C7', 'helper blocks WhatsApp when channel mode is not auto',
+  /inbox_channel_modes/.test(helperText)
+  && /whatsapp_channel_mode/.test(helperText)
+  && /inbox_channel_mode_draft/.test(helperText)
+  && /inbox_channel_mode_off/.test(helperText)
+  && /whatsappChannelMode !== 'auto'/.test(helperText));
+check('C8', 'channel-mode lookup defaults missing key to auto',
+  /COALESCE\(settings->'inbox_channel_modes'->>'whatsapp', 'auto'\)/.test(helperText));
 
 console.log('\nD. Auth + gate independence');
 check('D1', 'route uses requireBotAuth (bot dry-run pattern)', routeBlock.includes('requireBotAuth'));

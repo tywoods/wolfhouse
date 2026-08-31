@@ -11452,6 +11452,43 @@ async function checkGuestAutomationPauseState(pg, input) {
     };
   }
 
+  // Tenant-global WhatsApp channel autonomy (clients.settings.inbox_channel_modes).
+  // Product contract: auto-reply only when mode is Auto. Draft/Off block Hermes
+  // outbound via the same gate pause_gate already consumes. Missing key defaults
+  // to auto (matches the durable channel-mode store default).
+  let whatsappChannelMode = 'auto';
+  try {
+    const modeRes = await pg.query(
+      `SELECT lower(btrim(COALESCE(settings->'inbox_channel_modes'->>'whatsapp', 'auto'))) AS mode
+         FROM clients
+        WHERE slug = $1
+        LIMIT 1`,
+      [clientSlug],
+    );
+    const raw = modeRes.rows[0] && modeRes.rows[0].mode;
+    if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
+  } catch (_err) {
+    whatsappChannelMode = 'auto';
+  }
+
+  if (whatsappChannelMode !== 'auto') {
+    return {
+      bot_paused:             true,
+      live_send_blocked:      true,
+      source:                 whatsappChannelMode === 'off'
+        ? 'inbox_channel_mode_off'
+        : 'inbox_channel_mode_draft',
+      pause_state:            null,
+      table_missing:          !!result.table_missing,
+      global_paused:          false,
+      conversation_paused:    false,
+      needs_human:            needsHuman,
+      conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
+      effective_scope:        'channel_mode',
+      whatsapp_channel_mode:  whatsappChannelMode,
+    };
+  }
+
   return {
     bot_paused:             false,
     live_send_blocked:      false,
@@ -11463,6 +11500,7 @@ async function checkGuestAutomationPauseState(pg, input) {
     needs_human:            needsHuman,
     conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
     effective_scope:        null,
+    whatsapp_channel_mode:  'auto',
   };
 }
 
@@ -11475,13 +11513,14 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
     ? String(body.source).trim().slice(0, 100) || null
     : null;
 
+  const blocked = !!(gate.bot_paused || gate.live_send_blocked);
   const base = Object.assign({
     success:                       true,
-    bot_paused:                    gate.bot_paused,
-    live_send_blocked:             gate.live_send_blocked,
-    can_continue_guest_automation: !gate.bot_paused,
+    bot_paused:                    !!gate.bot_paused,
+    live_send_blocked:             !!gate.live_send_blocked,
+    can_continue_guest_automation: !blocked,
     source:                        gate.source,
-    paused:                        !!gate.bot_paused,
+    paused:                        blocked,
     global_paused:                 !!gate.global_paused,
     conversation_paused:           !!gate.conversation_paused,
     needs_human:                   !!gate.needs_human,
@@ -11493,6 +11532,7 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
 
   if (gate.pause_state) base.pause_state = gate.pause_state;
   if (gate.table_missing) base.table_missing = true;
+  if (gate.whatsapp_channel_mode) base.whatsapp_channel_mode = gate.whatsapp_channel_mode;
   if (hasDraft) {
     base.draft_reply = draftReply;
     base.draft_reply_preserved = true;
@@ -11544,8 +11584,10 @@ async function handleBotCheckGuestAutomationGate(req, res, user, authMode) {
       guest_phone: guestPhone,
       success: true,
       bot_paused: gate.bot_paused,
-      can_continue_guest_automation: !gate.bot_paused,
+      live_send_blocked: gate.live_send_blocked,
+      can_continue_guest_automation: !(gate.bot_paused || gate.live_send_blocked),
       source: gate.source,
+      whatsapp_channel_mode: gate.whatsapp_channel_mode || null,
       auth_mode: authMode || null,
       no_write_performed: true,
       sends_whatsapp: false,
@@ -11574,6 +11616,7 @@ async function handleBotCheckGuestAutomationGate(req, res, user, authMode) {
       live_send_blocked: false,
       source: 'default_active',
       pause_state: null,
+      whatsapp_channel_mode: 'auto',
     }, body, {
       client_slug: clientSlug,
       conversation_id: conversationId,
@@ -11617,13 +11660,14 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
     }));
 
     const pauseState = gate.pause_state || null;
+    const blocked = !!(gate.bot_paused || gate.live_send_blocked);
     appendAuditLog(Object.assign({
       ts: new Date().toISOString(),
       intent: 'api:bot.effective-pause-state',
       category: 'bot_pause_api',
       client_slug: clientSlug,
       success: true,
-      paused: !!gate.bot_paused,
+      paused: blocked,
       auth_mode: authMode || null,
       no_write_performed: true,
       elapsed_ms: Date.now() - started,
@@ -11631,17 +11675,20 @@ async function handleBotEffectivePauseState(req, res, user, authMode) {
 
     return sendJSON(res, 200, {
       success: true,
-      paused: !!gate.bot_paused,
+      paused: blocked,
       global_paused: !!gate.global_paused,
       conversation_paused: !!gate.conversation_paused,
       needs_human: !!gate.needs_human,
       effective_scope: gate.effective_scope || null,
-      reason: (pauseState && pauseState.pause_reason) || (gate.needs_human ? 'needs_human' : null),
+      reason: (pauseState && pauseState.pause_reason)
+        || (gate.source && String(gate.source).startsWith('inbox_channel_mode_') ? gate.source : null)
+        || (gate.needs_human ? 'needs_human' : null),
       updated_at: (pauseState && (pauseState.updated_at || pauseState.paused_at)) || null,
       source: gate.source,
       bot_paused: !!gate.bot_paused,
       live_send_blocked: !!gate.live_send_blocked,
-      can_continue_guest_automation: !gate.bot_paused,
+      can_continue_guest_automation: !blocked,
+      whatsapp_channel_mode: gate.whatsapp_channel_mode || null,
       pause_state: pauseState,
       no_write_performed: true,
     });
