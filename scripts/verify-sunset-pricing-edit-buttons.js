@@ -3,7 +3,7 @@
 /**
  * Admin → Pricing: one ✎ size; Delete course only while editing.
  *
- *  - Group / private / rental closed pencils share portal-admin-pricing-edit-btn at 32px
+ *  - Group / private / rental / accommodation closed pencils share portal-admin-pricing-edit-btn at 32px rounded-rect
  *  - Closed group course cards do not paint Delete course
  *  - Delete course lives in the pack editor footer (existing courses only)
  *
@@ -44,12 +44,21 @@ assert.ok(
   /portal-admin-equip-edit-btn portal-admin-pricing-edit-btn/.test(adminUi),
   'rental pencil uses shared pricing-edit class',
 );
+assert.ok(
+  /portal-admin-pricing-edit-btn[\s\S]{0,180}edit-accommodation|edit-accommodation[\s\S]{0,220}portal-admin-pricing-edit-btn/.test(adminUi),
+  'accommodation pencil uses shared pricing-edit class',
+);
 
 assert.ok(
   /button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,80}button\.btn\.portal-admin-equip-edit-btn\{[^}]*min-height:32px/.test(apiSrc)
     && /button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,240}width:32px/.test(apiSrc)
     && /button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,240}height:32px/.test(apiSrc),
   'shared pencil CSS is 32px',
+);
+assert.ok(
+  /button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,240}border-radius:8px/.test(apiSrc)
+    && !/button\.btn\.portal-admin-icon-btn\.portal-admin-pricing-edit-btn[\s\S]{0,240}border-radius:999px/.test(apiSrc),
+  'shared pencil is a rounded rectangle, not a circle',
 );
 assert.ok(
   !/\.portal-admin-pack-card \.portal-admin-card-actions \.portal-admin-icon-btn\{[^}]*min-height:16px/.test(apiSrc),

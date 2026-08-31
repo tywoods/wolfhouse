@@ -2330,7 +2330,7 @@ function renderAdminSectionAccommodationFromConfig(cfg){
     : (portalT('admin.accommodation.enabledNo') || 'Disabled')) + '</span>';
   html += '</div>';
   if (writes && !editing){
-    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-accommodation" aria-label="' +
+    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-accommodation" aria-label="' +
       escHtml(portalT('admin.action.edit') || 'Edit') + '">✎</button></div>';
   }
   html += '</div>';
