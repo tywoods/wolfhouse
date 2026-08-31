@@ -402,6 +402,30 @@ function assertLineShape(line, expected) {
   assert.strictEqual(equipmentLines(groupOffering.body)[0].total_cents, 4000);
   assert.strictEqual(groupOffering.body.total_cents, GROUP_UNIT * 2 + 4000);
 
+  const includedCfg = adminCfg('sunset-somo', {
+    groupOptions: [{
+      offering_key: 'softboard',
+      during_course_policy: 'included',
+      during_course_price_cents: 0,
+      all_day_price_cents: 1000,
+    }],
+  });
+  const includedOffering = quote({
+    offering_id: GROUP_ITEM,
+    course_id: GROUP_ID,
+    quantity: 1,
+    service_dates: ['2026-09-01', '2026-09-02'],
+  }, 'sunset-somo', QUOTE_CHANNELS.LUNA_WHATSAPP, includedCfg);
+  assert.equal(includedOffering.ok, true, JSON.stringify(includedOffering.body));
+  assert.deepStrictEqual(
+    includedOffering.body.equipment_options,
+    includedCfg.surf_packs[0].equipment_options,
+    'exact-offering quote must return Admin equipment options so Luna can describe inclusions',
+  );
+  assert.deepStrictEqual(includedOffering.body.course_equipment, [
+    { offering_key: 'softboard', mode: 'during_course', quantity: 1 },
+  ]);
+
   const privateOffering = quote({
     offering_id: 'private_lesson__session',
     quantity: 2,

@@ -1342,6 +1342,12 @@ function appendOfferingCourseEquipment(command, offering, result, catalog, servi
       courseForEquipment = { ...offering, equipment_options: plCfg.equipment_options };
     }
   }
+  // Return the same Admin-owned options used by quote expansion. Hermes derives
+  // guest-safe included/optional equipment truth from this field; omitting it
+  // made valid €0 included lines look like "no equipment listed" to Luna.
+  result.body.equipment_options = Array.isArray(courseForEquipment.equipment_options)
+    ? courseForEquipment.equipment_options.map((row) => ({ ...row }))
+    : [];
   // Always run through CE builder: omitted selection expands included policy gear.
   const equipmentOut = buildCourseEquipmentQuoteLines({
     selection: command.transportBody.course_equipment,
