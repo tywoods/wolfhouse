@@ -140,7 +140,23 @@ async function executeOpenDemoWhatsAppInbound(pg, body, env, options = {}) {
   const inboundWamid = inboundBody.inbound_message_id || rawBody.wamid || rawBody.inbound_message_id;
   const willAttemptLiveReply = wantsSendLiveReplyConfirmed(rawBody)
     || evaluateOpenDemoWhatsAppLiveReplyGate(rawBody, env).ok;
-  if (willAttemptLiveReply && inboundWamid) {
+  let skipTypingForDraft = false;
+  if (pg && inboundBody && inboundBody.client_slug) {
+    try {
+      const modeRes = await pg.query(
+        `SELECT lower(btrim(COALESCE(settings->'inbox_channel_modes'->>'whatsapp', 'auto'))) AS mode
+           FROM clients
+          WHERE slug = $1
+          LIMIT 1`,
+        [String(inboundBody.client_slug)],
+      );
+      const mode = modeRes.rows[0] && modeRes.rows[0].mode;
+      if (mode === 'draft' || mode === 'off') skipTypingForDraft = true;
+    } catch (_modeErr) {
+      skipTypingForDraft = false;
+    }
+  }
+  if (willAttemptLiveReply && inboundWamid && !skipTypingForDraft) {
     typingIndicator = await sendLunaWhatsAppTypingIndicator({
       message_id: inboundWamid,
       phone_number_id: inboundBody.phone_number_id || rawBody.phone_number_id,

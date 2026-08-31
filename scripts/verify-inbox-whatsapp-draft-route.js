@@ -542,7 +542,7 @@ console.log('\n── inbox WhatsApp draft UI ──');
     && /method:\s*'POST'/.test(uiSrc.slice(uiSrc.indexOf("fetch('/staff/inbox/whatsapp/approve-send'"))));
   ok('surfaces whatsapp_dry_run without treating it as sent',
     uiSrc.includes("errorCode === 'whatsapp_dry_run'")
-    && uiSrc.includes('draft was not sent')
+    && !uiSrc.includes('WhatsApp dry run is on')
     && !/st\.sent = true[\s\S]{0,200}whatsapp_dry_run/.test(uiSrc));
   ok('surfaces luna_auto_send_disabled',
     uiSrc.includes("errorCode === 'luna_auto_send_disabled'"));
@@ -611,7 +611,9 @@ console.log('\n── inbox WhatsApp draft UI ──');
     `${uiSrc}\nthis.inboxWhatsAppDraftMountHtml = inboxWhatsAppDraftMountHtml;\n` +
     'this.inboxWhatsAppDraftCardHtml = inboxWhatsAppDraftCardHtml;\n' +
     'this.whatsappDraftGetUrl = whatsappDraftGetUrl;\n' +
-    'this.whatsappDraftFailureCopy = whatsappDraftFailureCopy;',
+    'this.whatsappDraftFailureCopy = whatsappDraftFailureCopy;\n' +
+    'this.renderInboxWhatsAppDraftCard = renderInboxWhatsAppDraftCard;\n' +
+    'this.hydrateWhatsAppReplyComposer = hydrateWhatsAppReplyComposer;',
     sandbox,
   );
   const mount = sandbox.inboxWhatsAppDraftMountHtml();
@@ -632,16 +634,131 @@ console.log('\n── inbox WhatsApp draft UI ──');
   ok('hydrates Write a reply composer from pending Luna draft',
     /function hydrateWhatsAppReplyComposer/.test(uiSrc)
     && /#draft-textarea/.test(uiSrc)
-    && /Luna draft ready/.test(uiSrc));
+    && /ta\.value = draftText/.test(uiSrc)
+    && !/Luna draft ready/.test(uiSrc));
+  ok('never paints the second Luna draft box',
+    /mount\.hidden = true/.test(uiSrc)
+    && /function renderInboxWhatsAppDraftCard[\s\S]*mount\.innerHTML = ''/.test(uiSrc)
+    && /performWhatsAppDraftSaveThenApprove/.test(uiSrc)
+    && /closest\('#btn-send-reply'\)/.test(uiSrc));
   ok('GET URL carries conversation_id',
     sandbox.whatsappDraftGetUrl(V) === `/staff/inbox/whatsapp/draft?client=wolfhouse-somo&conversation_id=${V}`);
-  ok('kill-switch copy names the error codes',
-    sandbox.whatsappDraftFailureCopy('approve', 503, 'whatsapp_dry_run').indexOf('whatsapp_dry_run') >= 0
-    && sandbox.whatsappDraftFailureCopy('approve', 503, 'luna_auto_send_disabled').indexOf('luna_auto_send_disabled') >= 0
-    && sandbox.whatsappDraftFailureCopy('approve', 409, 'approval_conflict').indexOf('409') >= 0);
+  ok('kill-switch copy stays off staff chrome',
+    sandbox.whatsappDraftFailureCopy('approve', 503, 'whatsapp_dry_run') === ''
+    && sandbox.whatsappDraftFailureCopy('approve', 503, 'luna_auto_send_disabled') === ''
+    && sandbox.whatsappDraftFailureCopy('approve', 409, 'approval_conflict').indexOf('Conflict') >= 0);
+  {
+    const mountNode = { hidden: false, innerHTML: 'card' };
+    sandbox.renderInboxWhatsAppDraftCard({ querySelector: () => mountNode }, { draftText: DRAFT });
+    ok('live render never paints the Luna draft card', mountNode.hidden === true && mountNode.innerHTML === '');
+    const ta = { disabled: false, value: 'Portal leftover' };
+    sandbox.hydrateWhatsAppReplyComposer({
+      querySelector: (sel) => (sel === '#draft-textarea' ? ta : null),
+    }, DRAFT);
+    ok('hydrate overwrites leftover reply text with Luna draft', ta.value === DRAFT);
+  }
+  {
+    const executeSrc = fs.readFileSync(
+      path.join(ROOT, 'scripts', 'lib', 'open-demo-whatsapp-inbound-execute.js'),
+      'utf8',
+    );
+    ok('draft/off skip WhatsApp typing dots',
+      /skipTypingForDraft/.test(executeSrc)
+      && /mode === 'draft' \|\| mode === 'off'/.test(executeSrc)
+      && /!skipTypingForDraft/.test(executeSrc));
+  }
+}
+
+function fakeInboxChannelPg(mode) {
+  return {
+    query: async (sql) => {
+      if (/inbox_channel_modes/.test(String(sql))) return { rows: [{ mode }] };
+      return { rows: [] };
+    },
+  };
+}
+
+function loadInboundExecuteWithTypingStub() {
+  const Module = require('module');
+  const origLoad = Module._load;
+  Module._load = function loadPgStub(request, parent, isMain) {
+    if (request === 'pg') {
+      return { Client: class Client {}, Pool: class Pool {} };
+    }
+    if (request === 'dotenv') {
+      return { config() { return {}; } };
+    }
+    return origLoad.call(this, request, parent, isMain);
+  };
+  const providerPath = require.resolve('./lib/luna-whatsapp-provider');
+  const reviewPath = require.resolve('./lib/luna-guest-inbound-review-dry-run');
+  const executePath = require.resolve('./lib/open-demo-whatsapp-inbound-execute');
+  const prevReview = require.cache[reviewPath];
+  require.cache[reviewPath] = {
+    id: reviewPath,
+    filename: reviewPath,
+    loaded: true,
+    exports: {
+      runGuestInboundReviewDryRun: async function stubReview() {
+        return { ok: false, status: 200, dry_run: true, sends_whatsapp: false };
+      },
+    },
+    children: [],
+    paths: [],
+  };
+  const provider = require(providerPath);
+  const origTyping = provider.sendLunaWhatsAppTypingIndicator;
+  const calls = [];
+  provider.sendLunaWhatsAppTypingIndicator = async function stubTyping(...args) {
+    calls.push(args);
+    return { success: true, typing_indicator_sent: true };
+  };
+  delete require.cache[executePath];
+  const { executeOpenDemoWhatsAppInbound } = require(executePath);
+  return {
+    executeOpenDemoWhatsAppInbound,
+    calls,
+    restore() {
+      Module._load = origLoad;
+      provider.sendLunaWhatsAppTypingIndicator = origTyping;
+      if (prevReview) require.cache[reviewPath] = prevReview;
+      else delete require.cache[reviewPath];
+      delete require.cache[executePath];
+    },
+  };
 }
 
 (async () => {
+  console.log('\n── typing dots execute (draft/off/auto) ──');
+  {
+    const harness = loadInboundExecuteWithTypingStub();
+    const body = {
+      client_slug: 'sunset',
+      channel: 'whatsapp',
+      guest_phone: '+34600111222',
+      message_text: 'hello',
+      inbound_message_id: 'wamid.TEST123',
+      send_live_reply_confirmed: true,
+    };
+    try {
+      harness.calls.length = 0;
+      await harness.executeOpenDemoWhatsAppInbound(fakeInboxChannelPg('draft'), body, {});
+      ok('draft mode typing helper called 0', harness.calls.length === 0, `got ${harness.calls.length}`);
+
+      harness.calls.length = 0;
+      await harness.executeOpenDemoWhatsAppInbound(fakeInboxChannelPg('off'), body, {});
+      ok('off mode typing helper called 0', harness.calls.length === 0, `got ${harness.calls.length}`);
+
+      harness.calls.length = 0;
+      await harness.executeOpenDemoWhatsAppInbound(fakeInboxChannelPg('auto'), body, {});
+      ok('auto mode typing helper called 1', harness.calls.length === 1, `got ${harness.calls.length}`);
+    } catch (err) {
+      ok('draft/off/auto typing execute ran', false, err && err.stack ? err.stack : String(err));
+    } finally {
+      harness.restore();
+    }
+  }
+
   console.log('\n── auth fail-closed ──');
   {
     const deps = makeDeps();

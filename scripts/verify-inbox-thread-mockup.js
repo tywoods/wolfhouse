@@ -6,9 +6,9 @@
  *
  * Offline gate for the Sunset Inbox thread column (mockup):
  *   - date separators in the timeline
- *   - Luna draft as an outbound ghost bubble inside #inbox-thread-wrap
- *     (sibling of #thread-container so live poll cannot wipe it)
- *   - Approve / Edit / Discard on the card; no fake time or ticks
+ *   - Luna draft mount stays in #inbox-thread-wrap (sibling of #thread-container)
+ *     so live poll cannot wipe it, but render never paints a second draft card
+ *   - Reply box is the only staff surface; Send reply approves the pending draft
  *   - thread header Luna label inherits the chrome channel default
  *   - Pause Luna Globally hidden while Inbox is the active tab (DOM stays)
  *   - guest-card Create booking is a forest pill; stay facts unchanged
@@ -85,7 +85,8 @@ function loadDraftFns() {
   vm.runInContext(
     `${draftSrc}\n` +
     'this.inboxWhatsAppDraftMountHtml = inboxWhatsAppDraftMountHtml;\n' +
-    'this.inboxWhatsAppDraftCardHtml = inboxWhatsAppDraftCardHtml;\n',
+    'this.inboxWhatsAppDraftCardHtml = inboxWhatsAppDraftCardHtml;\n' +
+    'this.renderInboxWhatsAppDraftCard = renderInboxWhatsAppDraftCard;\n',
     sandbox,
   );
   return sandbox;
@@ -179,43 +180,38 @@ console.log('\n── ghost draft in the timeline ──');
     /if \(!isEmailConversation\) html \+= inboxWhatsAppDraftMountHtml\(\)/.test(threadSrc));
   ok('draft mount sits inside #inbox-thread-wrap after #thread-container',
     wrapIdx >= 0 && containerIdx > wrapIdx && mountIdx > containerIdx && (panelIdx < 0 || mountIdx < panelIdx));
-  ok('composer (Write a reply) stays in .draft-panel',
-    /class="draft-panel"/.test(threadSrc)
-    && /id="draft-textarea"/.test(threadSrc)
-    && /id="btn-send-reply"/.test(threadSrc)
-    && i18nSrc.includes("'inbox.detail.reply.editPlaceholder': 'Write a reply…'"));
   const fns = loadDraftFns();
   const mount = fns.inboxWhatsAppDraftMountHtml();
-  const card = fns.inboxWhatsAppDraftCardHtml({
+  ok('mount is retained in the thread (hidden empty node)',
+    /id="inbox-whatsapp-draft"/.test(mount)
+    && /inbox-whatsapp-draft-in-timeline/.test(mount)
+    && /\bhidden\b/.test(mount));
+  const mountNode = { hidden: false, innerHTML: '<div class="inbox-whatsapp-draft-card">Approve</div>' };
+  fns.renderInboxWhatsAppDraftCard({ querySelector: () => mountNode }, {
     draftText: 'Yes — 10am has two spots.',
     editing: false,
     toolTrace: ['availability'],
   });
-  ok('mount is a timeline ghost (hidden until a draft loads)',
-    /id="inbox-whatsapp-draft"/.test(mount)
-    && /inbox-whatsapp-draft-in-timeline/.test(mount)
-    && /\bhidden\b/.test(mount));
-  ok('card keeps Approve / Edit and adds Discard',
-    card.includes('Approve') && card.includes('Edit') && card.includes('Discard')
-    && /id="btn-whatsapp-draft-approve"/.test(card)
-    && /id="btn-whatsapp-draft-edit"/.test(card)
-    && /id="btn-whatsapp-draft-discard"/.test(card));
-  ok('card has no timestamp or delivery ticks',
-    !/\d{1,2}:\d{2}/.test(card)
-    && !/msg-meta/.test(card)
-    && !/msg-ticks/.test(card)
-    && !/✓✓|✔✔/.test(card));
-  ok('optional tool trace renders when present',
-    /inbox-whatsapp-draft-tools/.test(card) && card.includes('availability'));
-  ok('Discard is local hide — no discard/reject API in this slice',
+  ok('live render keeps the mount hidden and empty',
+    mountNode.hidden === true && mountNode.innerHTML === '');
+  ok('no second draft surface or card controls after render',
+    !/Approve|Edit|Discard|inbox-whatsapp-draft-tools/.test(mountNode.innerHTML)
+    && /mount\.hidden = true/.test(draftSrc)
+    && !/mount\.hidden = false/.test(draftSrc)
+    && /performWhatsAppDraftSaveThenApprove/.test(draftSrc)
+    && /closest\('#btn-send-reply'\)/.test(draftSrc));
+  ok('composer (Write a reply) is the staff draft surface',
+    /class="draft-panel"/.test(threadSrc)
+    && /id="draft-textarea"/.test(threadSrc)
+    && /id="btn-send-reply"/.test(threadSrc)
+    && /ta\.value = draftText/.test(draftSrc)
+    && i18nSrc.includes("'inbox.detail.reply.editPlaceholder': 'Write a reply…'"));
+  ok('no discard/reject API in this slice',
     /function performWhatsAppDraftDiscard\(/.test(draftSrc)
     && !/\/staff\/inbox\/whatsapp\/discard/.test(draftSrc)
     && !/\/staff\/inbox\/approvals\/.*reject/.test(draftSrc));
-  ok('theme aligns the ghost to the outbound side and hides ticks',
-    /#inbox-shell \.inbox-whatsapp-draft-in-timeline\{display:flex;justify-content:flex-end/.test(shellSrc)
-    && /#inbox-shell \.inbox-whatsapp-draft-in-timeline\[hidden\]\{display:none!important\}/.test(shellSrc)
-    && /border:1px dashed var\(--inbox-forest\)/.test(shellSrc)
-    && /#inbox-shell \.inbox-whatsapp-draft-card \.msg-meta/.test(shellSrc));
+  ok('theme keeps a hidden mount (no painted card)',
+    /#inbox-shell \.inbox-whatsapp-draft-in-timeline\[hidden\]\{display:none!important\}/.test(shellSrc));
 }
 
 console.log('\n── inherited Luna + hide Pause Globally ──');

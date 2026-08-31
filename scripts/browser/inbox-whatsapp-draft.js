@@ -124,21 +124,30 @@ function whatsappDraftErrorCode(data){
 }
 
 function whatsappDraftFailureCopy(op, status, errorCode){
-  if (errorCode === 'whatsapp_dry_run') {
-    return 'WhatsApp dry run is on (whatsapp_dry_run) — draft was not sent.';
-  }
-  if (errorCode === 'luna_auto_send_disabled') {
-    return 'Luna auto-send is off (luna_auto_send_disabled) — draft was not sent.';
+  if (errorCode === 'whatsapp_dry_run' || errorCode === 'luna_auto_send_disabled') {
+    return '';
   }
   if (status === 409 || errorCode === 'approval_conflict') {
-    return 'Conflict (409) — reload and try again';
+    return 'Conflict — reload and try again';
   }
-  if (status === 404 || errorCode === 'not_found') return 'No pending draft to approve.';
+  if (status === 404 || errorCode === 'not_found') return 'No pending draft to send.';
   if (status === 401 || status === 403) return 'Unauthorized';
   if (status === 400) return 'Request rejected';
-  if (status === 502 || errorCode === 'send_failed') return 'Send failed — draft was not sent twice.';
+  if (status === 502 || errorCode === 'send_failed') return 'Send failed.';
   if (status === 503) return 'Temporarily unavailable';
-  return op === 'approve' ? 'Approve failed' : (op === 'save' ? 'Save failed' : 'Could not load draft');
+  return op === 'approve' ? 'Send failed' : (op === 'save' ? 'Save failed' : 'Could not load draft');
+}
+
+function whatsappDraftComposerStatusEl(targetEl){
+  return targetEl ? targetEl.querySelector('#draft-send-status') : null;
+}
+
+function whatsappDraftShowStatus(targetEl, kind, message){
+  if (!message) {
+    showDraftSendStatus(whatsappDraftComposerStatusEl(targetEl), '', '');
+    return;
+  }
+  showDraftSendStatus(whatsappDraftComposerStatusEl(targetEl), kind || '', message);
 }
 
 function whatsappDraftMount(targetEl){
@@ -153,13 +162,9 @@ function whatsappDraftStatusEl(targetEl){
 function renderInboxWhatsAppDraftCard(targetEl, st){
   var mount = whatsappDraftMount(targetEl);
   if (!mount) return;
-  if (!st || st.sent || !st.draftText) {
-    mount.hidden = true;
-    mount.innerHTML = '';
-    return;
-  }
-  mount.hidden = false;
-  mount.innerHTML = inboxWhatsAppDraftCardHtml(st);
+  // Earthling: one composer. Keep the mount node for gates; never paint the second box.
+  mount.hidden = true;
+  mount.innerHTML = '';
 }
 
 function applyWhatsAppDraftFromGet(st, data){
@@ -193,9 +198,6 @@ function hydrateWhatsAppReplyComposer(targetEl, draftText){
   if (!targetEl || !draftText) return;
   var ta = targetEl.querySelector('#draft-textarea');
   if (!ta || ta.disabled) return;
-  var live = String(ta.value == null ? '' : ta.value);
-  // Do not clobber staff edits that diverge from the staged draft.
-  if (live && live !== draftText) return;
   ta.value = draftText;
 }
 
@@ -219,19 +221,8 @@ function loadInboxWhatsAppDraft(convId, targetEl){
       }
       renderInboxWhatsAppDraftCard(targetEl, st);
       if (st.draftText) hydrateWhatsAppReplyComposer(targetEl, st.draftText);
-      else {
-        var statusEl = targetEl.querySelector('#draft-send-status');
-        if (statusEl && /Luna draft ready/.test(String(statusEl.textContent || ''))) {
-          showDraftSendStatus(statusEl, '', '');
-        }
-      }
-      if (st.draftText) {
-        showDraftSendStatus(
-          targetEl.querySelector('#draft-send-status'),
-          '',
-          'Luna draft ready — review, then Send reply (or Approve on the draft card).',
-        );
-      }
+      var statusEl = targetEl.querySelector('#draft-send-status');
+      if (statusEl) showDraftSendStatus(statusEl, '', '');
     })
     .catch(function(){
       if (mySeq !== st.seq) return;
@@ -362,12 +353,9 @@ function performWhatsAppDraftApprove(convId, targetEl){
         return;
       }
       renderInboxWhatsAppDraftCard(targetEl, st);
-      var kind = (out.status === 503 || code === 'whatsapp_dry_run' || code === 'luna_auto_send_disabled')
-        ? 'blocked'
-        : 'error';
-      showDraftSendStatus(
-        whatsappDraftStatusEl(targetEl),
-        kind,
+      whatsappDraftShowStatus(
+        targetEl,
+        (out.status === 503 || code === 'whatsapp_dry_run' || code === 'luna_auto_send_disabled') ? '' : 'error',
         whatsappDraftFailureCopy('approve', out.status, code),
       );
     })
@@ -391,6 +379,60 @@ function performWhatsAppDraftDiscard(convId, targetEl){
   renderInboxWhatsAppDraftCard(targetEl, st);
 }
 
+function performWhatsAppDraftSaveThenApprove(convId, targetEl){
+  var st = whatsappDraftState(convId);
+  if (st.inFlight || st.sent) return;
+  var ta = targetEl && targetEl.querySelector('#draft-textarea');
+  var messageText = ta ? String(ta.value == null ? '' : ta.value) : '';
+  if (!messageText.length) return;
+  if (whatsappDraftUtf8ByteLength(messageText) > WHATSAPP_DRAFT_MAX_UTF8_BYTES) {
+    whatsappDraftShowStatus(targetEl, 'error', 'Message exceeds 8,000 UTF-8 bytes.');
+    return;
+  }
+  if (messageText === st.draftText && st.approvalId) {
+    performWhatsAppDraftApprove(convId, targetEl);
+    return;
+  }
+  var snapConv = String(convId);
+  var mySeq = ++st.seq;
+  st.draftText = messageText;
+  st.inFlight = true;
+  fetch('/staff/inbox/whatsapp/draft', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      conversation_id: convId,
+      draft_text: messageText,
+      client_slug: getClient(),
+    }),
+  })
+    .then(whatsappDraftParseFetchJson)
+    .then(function(out){
+      if (mySeq !== st.seq) return;
+      st.inFlight = false;
+      if (selectedConvId !== snapConv) return;
+      var accepted = out.parseOk && out.status === 200 && out.data && out.data.success === true
+        && whatsappDraftCanonicalUuid(out.data.approval_id);
+      if (accepted) {
+        st.approvalId = whatsappDraftCanonicalUuid(out.data.approval_id);
+        st.draftText = messageText;
+        performWhatsAppDraftApprove(convId, targetEl);
+        return;
+      }
+      whatsappDraftShowStatus(
+        targetEl,
+        'error',
+        whatsappDraftFailureCopy('save', out.status, whatsappDraftErrorCode(out.data)),
+      );
+    })
+    .catch(function(){
+      if (mySeq !== st.seq) return;
+      st.inFlight = false;
+      if (selectedConvId !== snapConv) return;
+      whatsappDraftShowStatus(targetEl, 'error', whatsappDraftFailureCopy('save', 0, ''));
+    });
+}
+
 function wireInboxWhatsAppDraft(convId, targetEl){
   var mount = whatsappDraftMount(targetEl);
   if (!mount) return;
@@ -404,6 +446,19 @@ function wireInboxWhatsAppDraft(convId, targetEl){
       else if (btn.id === 'btn-whatsapp-draft-approve') performWhatsAppDraftApprove(convId, targetEl);
       else if (btn.id === 'btn-whatsapp-draft-discard') performWhatsAppDraftDiscard(convId, targetEl);
     });
+  }
+  if (targetEl && targetEl.dataset.wiredWhatsappDraftSend !== '1') {
+    targetEl.dataset.wiredWhatsappDraftSend = '1';
+    targetEl.addEventListener('click', function(ev){
+      var btn = ev.target && ev.target.closest ? ev.target.closest('#btn-send-reply') : null;
+      if (!btn || !targetEl.contains(btn)) return;
+      var st = whatsappDraftState(convId);
+      if (!st.draftText || st.sent) return;
+      if (ev.preventDefault) ev.preventDefault();
+      if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+      if (ev.stopPropagation) ev.stopPropagation();
+      performWhatsAppDraftSaveThenApprove(convId, targetEl);
+    }, true);
   }
   loadInboxWhatsAppDraft(convId, targetEl);
 }
