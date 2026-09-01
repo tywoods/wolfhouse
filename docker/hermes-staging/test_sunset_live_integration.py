@@ -122,13 +122,16 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
             self.assertIn("Start from what the guest actually said", soul)
             self.assertIn("Warmth must survive without emojis", soul)
 
-        # Sunset SOUL: emoji + opener variation contract (anti-robot / anti-canned voice).
-        # This is intentionally checked via narrow semantic substrings (not a brittle literal like "0–2 emojis").
-        self.assertIn("Never repeat the same emoji in two consecutive replies", sunset)
-        self.assertIn("Use 😊 at most once in any three consecutive replies", sunset)
-        self.assertIn("At least one of every three ordinary replies should use no emoji", sunset)
-        self.assertIn("A practical question deserves a plain, warm answer", sunset)
+        # Sunset SOUL: bubbly surf-house voice + varied creative emoji without sacrificing truth.
+        self.assertIn("bubbly surf-house host", sunset)
+        self.assertIn("loves surfing and helping people", sunset)
+        self.assertIn("creative, context-aware emoji", sunset)
+        self.assertIn("Never turn the reply into an emoji wall", sunset)
         self.assertIn("Openers — earn them.", sunset)
+        self.assertIn("a human from the Sunset team is coming into the chat", sunset)
+        self.assertIn("take_request", sunset)
+        self.assertIn("nothing is booked yet", sunset)
+        self.assertNotIn("authoritative total", sunset.lower())
         self.assertIn("Do not habitually begin with", sunset)
         self.assertIn("Never reuse the same opener two replies running", sunset)
 
@@ -139,6 +142,15 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
         for canned in ("Ciaooo!", "Yesss,", "Amazinggg"):
             self.assertNotIn(canned, sunset)
             self.assertNotIn(canned, wolfhouse)
+
+    def test_sunset_take_request_human_copy_keeps_post_send_safe_harbor(self):
+        mirror = load(ROOT / "wolfhouse_whatsapp_mirror.py", "sunset_voice_mirror")
+        copy = (
+            "I've got your request in the queue. A human from the Sunset team is coming "
+            "into the chat to confirm the exact time/seats — nothing is booked yet 🌊🤙"
+        )
+        self.assertTrue(mirror.is_sunset_take_request_queue_reply(copy))
+        self.assertIsNone(mirror.detects_handoff_promise(copy))
 
     def test_sunset_soul_group_lesson_component_rules(self):
         sunset = (ROOT.parent / "hermes-sunset/SOUL.md").read_text()
