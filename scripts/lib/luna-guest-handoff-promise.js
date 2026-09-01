@@ -144,15 +144,63 @@ const HANDOFF_PROMISE_PATTERNS = Object.freeze([
 const COMPILED = HANDOFF_PROMISE_PATTERNS.map((p) => ({ id: p.id, re: new RegExp(p.source, 'i') }));
 
 /**
+ * Sunset group-lesson take_request queue copy is not a needs_human handoff.
+ * SOUL: "A group-lesson request you took with take_request is not a handoff."
+ * Duplicated in docker/hermes-staging/wolfhouse_whatsapp_mirror.py.
+ */
+const SUNSET_TAKE_REQUEST_QUEUE_MARKERS = Object.freeze([
+  { id: 'confirm_exact_lesson_time', source: 'confirm\\s+the\\s+exact\\s+(?:lesson\\s+)?time' },
+  {
+    id: 'nothing_booked_yet',
+    source: '(?:nothing\\s+is\\s+booked|not\\s+booked\\s+yet|isn[\'\u2019]t\\s+booked|is\\s+not\\s+booked|nothing\\s+booked)',
+  },
+  {
+    id: 'taken_your_lesson_request',
+    source: '(?:taken|received)\\s+your\\s+request(?:\\s+for[^.!?]{0,60}(?:lesson|surf|group|surfers?))?',
+  },
+  {
+    id: 'passed_request_not_booked',
+    source: 'passed\\s+your\\s+request[^.!?]{0,80}(?:nothing\\s+is\\s+booked|not\\s+booked|confirm\\s+the\\s+exact\\s+time)',
+  },
+  {
+    id: 'needs_team_confirm_time',
+    source: '(?:needs|need)\\s+the\\s+team\\s+to\\s+confirm\\s+the\\s+exact\\s+time',
+  },
+  { id: 'rather_than_booked_instantly', source: 'rather\\s+than\\s+being\\s+booked\\s+instantly' },
+]);
+
+const TAKE_REQUEST_COMPILED = SUNSET_TAKE_REQUEST_QUEUE_MARKERS.map((p) => ({
+  id: p.id,
+  re: new RegExp(p.source, 'i'),
+}));
+
+/** @returns {boolean} */
+function isSunsetTakeRequestQueueReply(text) {
+  const raw = text == null ? '' : String(text);
+  if (!raw.trim()) return false;
+  return TAKE_REQUEST_COMPILED.some(({ re }) => re.test(raw));
+}
+
+/**
  * @param {string} text outbound guest-facing reply
- * @returns {{ handoff_promised: boolean, pattern_id: string|null, matched_text: string|null }}
+ * @returns {{ handoff_promised: boolean, pattern_id: string|null, matched_text: string|null, suppressed_by?: string|null }}
  */
 function detectHandoffPromise(text) {
   const raw = text == null ? '' : String(text);
   if (!raw.trim()) return { handoff_promised: false, pattern_id: null, matched_text: null };
   for (const { id, re } of COMPILED) {
     const m = re.exec(raw);
-    if (m) return { handoff_promised: true, pattern_id: id, matched_text: m[0] };
+    if (m) {
+      if (isSunsetTakeRequestQueueReply(raw)) {
+        return {
+          handoff_promised: false,
+          pattern_id: null,
+          matched_text: null,
+          suppressed_by: 'sunset_take_request_queue',
+        };
+      }
+      return { handoff_promised: true, pattern_id: id, matched_text: m[0] };
+    }
   }
   return { handoff_promised: false, pattern_id: null, matched_text: null };
 }
@@ -164,6 +212,8 @@ function isHandoffPromiseReply(text) {
 
 module.exports = {
   HANDOFF_PROMISE_PATTERNS,
+  SUNSET_TAKE_REQUEST_QUEUE_MARKERS,
   detectHandoffPromise,
   isHandoffPromiseReply,
+  isSunsetTakeRequestQueueReply,
 };

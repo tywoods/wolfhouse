@@ -47,6 +47,7 @@ LEAK_PATTERNS: Tuple[re.Pattern, ...] = tuple(
         r"\bplugin\b",
         r"\bstaff[-_\s]?query\b",
         r"verifica\s+manuale",                # "manual verification" (off-season leak)
+        r"\bauthoritative\s+total\b",           # internal quote/booking field label
         r"\bAPI\b",
         r"\bendpoint\b",
     )
