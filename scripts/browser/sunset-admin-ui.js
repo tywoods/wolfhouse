@@ -2459,7 +2459,7 @@ function renderAdminLoadingShell(profile){
  * clients keep the honest "not available" message.
  */
 function renderAdminFinanceShell(){
-  var body = el('admin-finance-body');
+  var body = (typeof financeSummaryHost === 'function') ? financeSummaryHost() : el('admin-finance-body');
   if (!body) return;
   // Static, fetch-free placeholder painted during admin config load. The live
   // summary is loaded separately (loadAdminFinanceSummary) from the admin
@@ -3289,6 +3289,15 @@ function loadAdminFinanceForCurrentScope(){
   if (getClient() === 'sunset' || getClient() === 'wolfhouse-somo') loadAdminFinanceSummary();
 }
 
+/** Finance tab must never stay on an empty #admin-finance-body after Admin open/reload. */
+function financeEnsureLoadedIfEmpty(){
+  var body = (typeof financeSummaryHost === 'function') ? financeSummaryHost() : el('admin-finance-body');
+  if (!body) return;
+  if (String(body.textContent || '').trim()) return;
+  if (typeof loadAdminFinanceForCurrentScope === 'function') loadAdminFinanceForCurrentScope();
+  else if (typeof renderAdminFinanceShell === 'function') renderAdminFinanceShell();
+}
+
 function wireFinanceRetry(){
   var btn = el('admin-finance-retry');
   if (btn && btn.dataset.financeWired !== '1'){
@@ -3435,6 +3444,7 @@ function adminSelectSubTab(key, opts){
   // skipFinanceLoad: loadAdminTab already does one scoped fetch; do not stack a
   // second loading paint (Admin open was flashing Finanzas twice).
   if (next === 'finance' && !(opts && opts.skipFinanceLoad) && typeof loadAdminFinanceSummary === 'function') loadAdminFinanceSummary();
+  else if (next === 'finance' && typeof financeEnsureLoadedIfEmpty === 'function') financeEnsureLoadedIfEmpty();
 }
 
 /** Top-level Bookings tab loader (shell + list). IDs kept for least-invasive move.
@@ -3586,6 +3596,7 @@ function loadAdminTab(opts){
         // Canonical config load — server truth, no draft replay.
         renderAdminFromConfig(data);
         adminSelectSubTab(adminActiveSubTab || 'finance', { skipFinanceLoad: true });
+        if (adminActiveSubTab === 'finance') financeEnsureLoadedIfEmpty();
         if (state) state.style.display = 'none';
         adminReleaseBusy(loadSeq);
           });

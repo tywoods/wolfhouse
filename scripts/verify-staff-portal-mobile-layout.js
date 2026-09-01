@@ -63,5 +63,14 @@ check('C5', src.includes('cust-outreach-template-select') && src.includes('loadC
 check('C6', src.includes('cust-outreach-mode-notes') && src.includes('cust-outreach-generate'), 'outreach Luna notes generate markers');
 check('C7', src.includes('cust-outreach-confirm-modal') && src.includes('updateCustomersOutreachSendButton'), 'outreach send confirmation modal markers');
 
+// Mobile punch-list (390px pass) — CSS/JS markers
+check('P1', src.includes('staff-portal-mobile:punch-list'), 'punch-list mobile marker');
+check('P2', src.includes('portal-admin-bookings-td-code::before') && src.includes('grid-template-areas'), 'bookings stacked card layout at 520px');
+check('P3', src.includes('financeEnsureLoadedIfEmpty'), 'finance empty-body recovery hook');
+check('P4', src.includes('#tab-admin .portal-admin-subtabs') && src.includes('scroll-margin-top'), 'admin subtabs clear sticky hero');
+check('P5', src.includes('.portal-schedule-ops-col-hdr span:nth-child(5){grid-column:4'), 'session card GUEST/STATUS header alignment');
+check('P6', src.includes('inbox-filter-scroll') || src.includes('inbox-filters::-webkit-scrollbar'), 'inbox filter chip scroll row');
+check('P7', src.includes('.ck-ribbon{overflow-x:auto') || src.includes('.ck-block{min-width:76px'), 'schedule ribbon mobile chip legibility');
+
 console.log(`\nverify-staff-portal-mobile-layout: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

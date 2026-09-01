@@ -801,6 +801,24 @@ function adminBookingsOnTableKeydown(ev) {
   adminBookingsToggleExpandedRow(rowBtn.getAttribute('data-bookings-row-id'));
 }
 
+/** Toggle horizontal scroll affordance on the table wrap (desktop/tablet only). */
+function adminBookingsSyncTableScrollCue(wrap) {
+  if (!wrap) wrap = el('admin-bookings-table-wrap');
+  if (!wrap) return;
+  function sync() {
+    var table = wrap.querySelector('.portal-admin-bookings-table');
+    var scrollable = !!(table && wrap.scrollWidth > wrap.clientWidth + 1);
+    wrap.classList.toggle('is-scrollable', scrollable);
+  }
+  sync();
+  if (wrap.__bookingsScrollCueWired !== '1') {
+    wrap.__bookingsScrollCueWired = '1';
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      window.addEventListener('resize', sync);
+    }
+  }
+}
+
 /** Re-bind row expand clicks when the table wrap is replaced without a full shell remount. */
 function adminBookingsEnsureTableDelegates() {
   var wrap = el('admin-bookings-table-wrap');
@@ -1036,6 +1054,8 @@ function renderAdminBookingsTable() {
   }
 
   wrap.innerHTML = html;
+
+  adminBookingsSyncTableScrollCue(wrap);
 
   adminBookingsEnsureTableDelegates();
 

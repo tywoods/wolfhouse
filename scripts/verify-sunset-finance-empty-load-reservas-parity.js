@@ -46,6 +46,10 @@ ok('loadAdminTab skipFinanceLoad then one scoped finance fetch (no shell-first f
   /adminSelectSubTab\(adminActiveSubTab, \{ skipFinanceLoad: true \}\)/.test(adminUi)
   && /adminActiveSubTab === 'finance'[\s\S]*?loadAdminFinanceForCurrentScope\(\)/.test(adminUi)
   && !/adminSelectSubTab\(adminActiveSubTab\);\s*renderAdminFinanceShell\(\);/.test(adminUi));
+ok('loadAdminTab refetches finance when body stayed empty after config load',
+  /adminActiveSubTab === 'finance'\) financeEnsureLoadedIfEmpty\(\)/.test(adminUi));
+ok('renderAdminFinanceShell uses financeSummaryHost (Sunset vs Wolfhouse body)',
+  /function renderAdminFinanceShell\([\s\S]*?financeSummaryHost\(\)/.test(adminUi));
 ok('adminReloadConfig still calls loadAdminTab (shell path)',
   /function adminReloadConfig\(\)\{[\s\S]*?loadAdminTab\(\);/.test(adminUi));
 
