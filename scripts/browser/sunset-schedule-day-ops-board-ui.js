@@ -822,9 +822,49 @@ function scheduleDayOpsRowStatusHtml(group){
 }
 
 /**
+ * Guest qty for one session group — same rules as scheduleRenderOpsBookingRow.
+ */
+function scheduleSessionGroupGuestQty(group){
+  group = group || {};
+  if (group._isCancelled || group.schedule_ghost) return 0;
+  var genericRental = group._genericRentalDescriptor
+    || (typeof scheduleGenericRentalDescriptor === 'function' ? scheduleGenericRentalDescriptor(group) : null);
+  var qty = genericRental ? genericRental.quantity : scheduleGroupHasPrivateLesson(group)
+    ? (group.quantity || scheduleGroupComponentQty(group, 'private_lesson') || 1)
+    : scheduleGroupHasLesson(group)
+    ? (group.quantity || scheduleGroupComponentQty(group, 'lesson') || 1)
+    : scheduleGroupHasCourse(group)
+    ? (group.quantity || scheduleGroupComponentQty(group, 'course') || 1)
+    : (scheduleGroupBoardsNeeded(group) || scheduleGroupWetsuitsNeeded(group) || 1);
+  qty = Math.max(0, Number(qty) || 0);
+  return qty;
+}
+
+/**
+ * Luna vs Staff guest counts for a day session ring.
+ * Order on the ring: Luna clockwise from 12 o'clock, then Staff, then empty track.
+ * Counts come from session.groups via scheduleRowSourceKind (staff | luna/demo/other).
+ */
+function scheduleSessionSourceGuestCounts(session){
+  session = session || {};
+  var luna = 0;
+  var staff = 0;
+  (session.groups || []).forEach(function(g){
+    if (!g || g._isCancelled || g.schedule_ghost) return;
+    var qty = scheduleSessionGroupGuestQty(g);
+    if (!qty) return;
+    var src = scheduleRowSourceKind(g);
+    if (src === 'staff') staff += qty;
+    else luna += qty;
+  });
+  return { luna: luna, staff: staff };
+}
+
+/**
  * Circular/ring occupancy indicator for a course/session group header.
  * Text is always truthful (booked[/capacity]); visual fill is clamped 0–100%.
  * Missing/zero capacity is a neutral unknown state — never invents a denom.
+ * Filled arc splits Luna (blue) then Staff (green) vs course capacity; track stays empty.
  */
 function scheduleRenderOccupancyHtml(session){
   session = session || {};
@@ -833,10 +873,19 @@ function scheduleRenderOccupancyHtml(session){
   var capNum = capRaw == null || capRaw === '' ? NaN : Number(capRaw);
   var hasCap = isFinite(capNum) && capNum > 0;
   var pct = 0;
+  var lunaDeg = 0;
+  var filledDeg = 0;
   if (hasCap) {
     pct = Math.round((booked / capNum) * 100);
     if (!isFinite(pct) || pct < 0) pct = 0;
     if (pct > 100) pct = 100;
+    var srcCounts = scheduleSessionSourceGuestCounts(session);
+    lunaDeg = Math.round((srcCounts.luna / capNum) * 360);
+    filledDeg = Math.round((booked / capNum) * 360);
+    if (!isFinite(lunaDeg) || lunaDeg < 0) lunaDeg = 0;
+    if (!isFinite(filledDeg) || filledDeg < 0) filledDeg = 0;
+    if (filledDeg > 360) filledDeg = 360;
+    if (lunaDeg > filledDeg) lunaDeg = filledDeg;
   }
   var numHtml = escHtml(String(booked))
     + (hasCap ? '<small>/' + escHtml(String(capNum)) + '</small>' : '');
@@ -859,9 +908,11 @@ function scheduleRenderOccupancyHtml(session){
     + (hasCap ? '' : ' is-unknown')
     + (hasCap && pct >= 100 ? ' is-full' : '')
     + (hasCap && booked > capNum ? ' is-over' : '');
-  // Static ring via conic-gradient; --ps-occ-pct drives fill (0–100). No animation.
+  var ringStyle = hasCap
+    ? ('--ps-occ-pct:' + pct + ';--ps-occ-luna-deg:' + lunaDeg + 'deg;--ps-occ-filled-deg:' + filledDeg + 'deg')
+    : ('--ps-occ-pct:0;--ps-occ-luna-deg:0deg;--ps-occ-filled-deg:0deg');
   return '<div class="' + cls + '" role="img" aria-label="' + escHtml(aria) + '" data-ps-occ-pct="' + pct + '">' +
-    '<span class="portal-schedule-occ-ring" style="--ps-occ-pct:' + pct + '" aria-hidden="true"></span>' +
+    '<span class="portal-schedule-occ-ring" style="' + ringStyle + '" aria-hidden="true"></span>' +
     '<span class="portal-schedule-occ-num">' + numHtml + '</span>' +
     '</div>';
 }

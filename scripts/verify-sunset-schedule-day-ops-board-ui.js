@@ -1595,6 +1595,33 @@ if (modExists) {
   assert('occupancy partial ~50%',
     /--ps-occ-pct:\s*50\b|data-ps-occ-pct="50"|ps-occ-pct["':=\s]+50\b/.test(occPartial));
 
+  ctx.scheduleRowSourceKind = (g) => (String(g._scheduleId || '').startsWith('l') ? 'luna' : 'staff');
+  const occSplit = occHtml({
+    surfers: 11,
+    capacity: 24,
+    groups: [
+      { quantity: 7, _scheduleId: 'l1', guest_name: 'Kyle', components: { course: { quantity: 7 } } },
+      { quantity: 3, _scheduleId: 's1', guest_name: 'Raul', components: { course: { quantity: 3 } } },
+      { quantity: 1, _scheduleId: 's2', guest_name: 'Tito', components: { course: { quantity: 1 } } },
+    ],
+  });
+  assert('occupancy split sets luna arc deg (7/24)',
+    /--ps-occ-luna-deg:\s*105deg\b/.test(occSplit));
+  assert('occupancy split sets filled arc deg (11/24)',
+    /--ps-occ-filled-deg:\s*165deg\b/.test(occSplit));
+  assert('occupancy split text 11/24',
+    /11\s*\/\s*24|11<small>\/24<\/small>/.test(occSplit));
+
+  const occStaffOnly = occHtml({
+    surfers: 1,
+    capacity: 24,
+    groups: [{ quantity: 1, _scheduleId: 's-only', guest_name: 'James', components: { course: { quantity: 1 } } }],
+  });
+  assert('staff-only ring luna deg 0',
+    /--ps-occ-luna-deg:\s*0deg\b/.test(occStaffOnly));
+  assert('staff-only ring filled deg (1/24)',
+    /--ps-occ-filled-deg:\s*15deg\b/.test(occStaffOnly));
+
   const occFull = occHtml({ surfers: 8, capacity: 8, groups: [] });
   assert('occupancy full text 8/8',
     /8\s*\/\s*8|8<small>\/8<\/small>/.test(occFull));
@@ -1741,6 +1768,8 @@ console.log('\n[6] Generated /staff/ui occupancy CSS/markup');
     assert('generated /staff/ui is HTML', typeof html === 'string' && html.includes('<!DOCTYPE'));
     assert('generated /staff/ui includes circular occ ring CSS/class',
       html.includes('portal-schedule-occ-ring'));
+    assert('generated /staff/ui dual-color occ ring CSS',
+      html.includes('--ps-occ-luna-fill') && html.includes('--ps-occ-luna-deg'));
     assert('generated /staff/ui removes horizontal course occ-track',
       !html.includes('portal-schedule-occ-track'));
     assert('generated /staff/ui keeps unrelated week slot tracks',

@@ -18611,9 +18611,8 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-hdr-badge.is-course{background:#EFE3CE;color:#8A6B3D}
 .portal-schedule-hdr-badge.is-done{background:var(--surface-soft);color:var(--text-3)}
 .portal-schedule-occ{position:relative;width:48px;height:48px;flex-shrink:0;display:grid;place-items:center}
-.portal-schedule-occ-ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--ps-occ-fill,#2F6B4F) calc(var(--ps-occ-pct,0)*1%),var(--ps-occ-track,var(--surface-soft)) 0);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px))}
+.portal-schedule-occ-ring{position:absolute;inset:0;border-radius:50%;background:conic-gradient(var(--ps-occ-luna-fill,#4A7BA6) 0 var(--ps-occ-luna-deg,0deg),var(--ps-occ-staff-fill,#2F6B4F) var(--ps-occ-luna-deg,0deg) var(--ps-occ-filled-deg,0deg),var(--ps-occ-track,var(--surface-soft)) var(--ps-occ-filled-deg,0deg) 360deg);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px));mask:radial-gradient(farthest-side,transparent calc(100% - 5px),#000 calc(100% - 4px))}
 .portal-schedule-occ.is-unknown .portal-schedule-occ-ring{background:conic-gradient(var(--ps-occ-track,var(--surface-soft)) 0 100%)}
-.portal-schedule-occ.is-full .portal-schedule-occ-ring,.portal-schedule-occ.is-over .portal-schedule-occ-ring{--ps-occ-fill:#2F6B4F}
 .portal-schedule-occ-num{position:relative;z-index:1;font-size:11px;font-weight:700;color:var(--text);line-height:1.1;font-variant-numeric:tabular-nums;text-align:center}
 .portal-schedule-occ-num small{font-size:9px;font-weight:700;color:var(--text-3)}
 .portal-schedule-ops-guest-toggle{display:inline-flex;align-items:center;gap:6px;margin-top:6px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--surface);color:var(--text-2);font:inherit;font-size:11px;font-weight:700;cursor:pointer;line-height:1.2}
@@ -18688,7 +18687,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-glance-cell-unpaid .portal-schedule-glance-num:not(.is-zero){color:var(--sched-unpaid)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-glance-bar{background:var(--sched-surface-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-glance-bar i{background:var(--sched-primary)}
-:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-occ{--ps-occ-fill:var(--sched-primary,#2F6B4F);--ps-occ-track:var(--sched-surface-soft)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-occ{--ps-occ-luna-fill:#4A7BA6;--ps-occ-staff-fill:var(--sched-primary,#2F6B4F);--ps-occ-track:var(--sched-surface-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-occ-num{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-guest-toggle{background:var(--sunset-card);border-color:var(--sunset-border);color:var(--sched-text-2)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-timeline::before{background:var(--sched-border-soft)}
@@ -18715,7 +18714,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 [data-theme="dark"] #tab-portal-home .portal-schedule-tl-dot{background:var(--surface);border-color:var(--text-3)}
 [data-theme="dark"] #tab-portal-home .portal-schedule-tl-now span{background:#d47a5c}
 [data-theme="dark"] #tab-portal-home .portal-schedule-tl-now::after{background:#d47a5c}
-[data-theme="dark"] #tab-portal-home .portal-schedule-occ{--ps-occ-fill:#6fa783;--ps-occ-track:rgba(255,255,255,.08)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-occ{--ps-occ-luna-fill:#6f93b8;--ps-occ-staff-fill:#6fa783;--ps-occ-track:rgba(255,255,255,.08)}
 [data-theme="dark"] #tab-portal-home .portal-schedule-ops-guest-toggle{background:var(--surface);border-color:var(--border);color:var(--text-2)}
 [data-theme="dark"] #tab-portal-home .portal-schedule-ops-guest-toggle:focus-visible{outline-color:#6fa783}
 [data-theme="dark"] #tab-portal-home .portal-schedule-src-chip.is-staff{background:rgba(111,167,131,.16);color:#9ecfb0}
