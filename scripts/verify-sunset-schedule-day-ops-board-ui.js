@@ -1776,8 +1776,13 @@ console.log('\n[6] Generated /staff/ui occupancy CSS/markup');
       html.includes('portal-schedule-occ-ring'));
     assert('generated /staff/ui dual-color occ ring CSS',
       html.includes('--ps-occ-luna-fill') && html.includes('--ps-occ-staff-start-deg'));
-    assert('generated /staff/ui occ ring ~2x stroke (10px mask)',
-      /portal-schedule-occ-ring\{[^}]*100%\s*-\s*10px/.test(html));
+    assert('generated /staff/ui occ ring scaled diameter (76px)',
+      /\.portal-schedule-occ\{[^}]*width:76px/.test(html));
+    assert('generated /staff/ui occ ring proportional stroke (16px)',
+      /portal-schedule-occ-ring\{[^}]*--ps-occ-stroke,16px|--ps-occ-stroke:16px/.test(html));
+    assert('generated /staff/ui occ center type scaled (17px / 14px)',
+      /\.portal-schedule-occ-num\{[^}]*font-size:17px/.test(html)
+        && /\.portal-schedule-occ-num small\{[^}]*font-size:14px/.test(html));
     assert('generated /staff/ui removes horizontal course occ-track',
       !html.includes('portal-schedule-occ-track'));
     assert('generated /staff/ui keeps unrelated week slot tracks',
