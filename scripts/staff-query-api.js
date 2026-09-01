@@ -44848,17 +44848,26 @@ async function handleBotSunsetLessonAvailability(req, res) {
   }
 
   const seatsAvailable = dailyCap - seatsBooked;
-  const hasSeats = seatsAvailable > 0;
+  const requestedQtyRaw = body.quantity != null ? Number(body.quantity) : null;
+  const requestedQuantity = Number.isFinite(requestedQtyRaw) && requestedQtyRaw > 0
+    ? Math.floor(requestedQtyRaw)
+    : null;
+  const hasSeats = requestedQuantity != null
+    ? seatsAvailable >= requestedQuantity
+    : seatsAvailable > 0;
   return sendJSON(res, 200, {
     ok: true, success: true, client_slug: clientSlug, location_id: loc.location_id, date: dateIso,
     capacity_known: true,
     daily_capacity: dailyCap,
     seats_booked: seatsBooked,
     seats_available: Math.max(0, seatsAvailable),
+    requested_quantity: requestedQuantity,
     has_seats: hasSeats,
     // Over-capacity / full → don't invent a seat; take the request.
     take_request: !hasSeats,
-    reason: hasSeats ? null : 'no_seats_available',
+    reason: hasSeats
+      ? null
+      : (requestedQuantity != null && seatsAvailable > 0 ? 'insufficient_seats' : 'no_seats_available'),
     elapsed_ms: Date.now() - started,
   });
 }

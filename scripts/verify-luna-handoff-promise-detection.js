@@ -118,8 +118,13 @@ section('[2] Owner detector (scripts/lib/luna-guest-handoff-promise.js)');
     detectHandoffPromise('').handoff_promised === false
     && detectHandoffPromise(null).handoff_promised === false
     && detectHandoffPromise('   ').handoff_promised === false);
-  check('a detected promise reports which pattern matched',
-    detectHandoffPromise(LIVE_FAILURE_TEXT).pattern_id === 'human_subject_will_act');
+  check('Hernan take_request copy is suppressed (passed request, nothing booked)',
+    detectHandoffPromise(
+      "I've passed your request to the team — nothing is booked yet.",
+    ).handoff_promised === false
+    && detectHandoffPromise(
+      "I've passed your request to the team — nothing is booked yet.",
+    ).suppressed_by === 'sunset_take_request_queue');
 }
 
 section('[3] Hermes Python mirror carries the same patterns');
@@ -159,21 +164,36 @@ const pySource = read(PY_MIRROR_PATH);
   }
 
   if (compiled && compiled.length) {
-    const detectWithPy = (text) => compiled.find((p) => p.re.test(String(text || '')));
-    const missed = positives.filter((e) => !detectWithPy(e.text)).map((e) => e.text);
-    const overFired = negatives.filter((e) => detectWithPy(e.text)).map((e) => e.text);
-    check('corpus positives match the python pattern sources', missed.length === 0,
-      missed.map((t) => `\n          not detected: "${short(t)}"`).join(''));
-    check('corpus negatives do not match the python pattern sources', overFired.length === 0,
+    const detectWithPyPatterns = (text) => compiled.find((p) => p.re.test(String(text || '')));
+    const missedRaw = positives.filter((e) => !detectWithPyPatterns(e.text)).map((e) => e.text);
+    check('corpus positives match the python pattern sources (raw)', missedRaw.length === 0,
+      missedRaw.map((t) => `\n          not detected: "${short(t)}"`).join(''));
+  }
+
+  check('python mirror applies sunset take_request safe harbor',
+    /def is_sunset_take_request_queue_reply\(/.test(pySource)
+    && /is_sunset_take_request_queue_reply\(raw\)/.test(pySource));
+  check('a detected promise reports which pattern matched (JS owner)',
+    detectHandoffPromise(LIVE_FAILURE_TEXT).pattern_id === 'human_subject_will_act');
+
+  const { isSunsetTakeRequestQueueReply } = require('./lib/luna-guest-handoff-promise');
+  const detectWithSafeHarbor = (text) => {
+    const raw = String(text || '');
+    if (isSunsetTakeRequestQueueReply(raw)) return null;
+    return compiled.find((p) => p.re.test(raw));
+  };
+  if (compiled && compiled.length) {
+    const overFired = negatives.filter((e) => detectWithSafeHarbor(e.text)).map((e) => e.text);
+    check('corpus negatives survive python patterns + take_request safe harbor', overFired.length === 0,
       overFired.map((t) => `\n          over-fired: "${short(t)}"`).join(''));
   }
 }
 
 section('[4] A detected promise reaches conversations.needs_human');
 {
-  check('python mirror routes outbound text through detects_handoff_promise',
+  check('python mirror routes outbound text through detects_handoff_promise only after wamid',
     /def detects_handoff_promise\(/.test(pySource)
-    && /direction == "outbound" and detects_handoff_promise\(msg\)/.test(pySource));
+    && /direction == "outbound" and wa_id and detects_handoff_promise\(msg\)/.test(pySource));
   check('python mirror sets needs_human + handoff_reason on the payload',
     /payload\["needs_human"\] = True/.test(pySource)
     && /payload\["handoff_reason"\] = HANDOFF_PROMISE_REASON/.test(pySource));

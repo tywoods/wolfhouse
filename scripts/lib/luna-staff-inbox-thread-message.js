@@ -378,6 +378,10 @@ async function persistHermesLunaOutboundThreadMessage(pg, input, options) {
   const waId = trimStr(payload.whatsapp_message_id) || null;
   const idemKey = trimStr(opts.idempotency_key || payload.idempotency_key) || null;
 
+  if (!waId) {
+    return { ok: true, persisted: false, reason: 'missing_whatsapp_message_id' };
+  }
+
   if (!clientSlug || !conversationId || !messageText) {
     return { ok: false, persisted: false, reason: 'missing_fields' };
   }

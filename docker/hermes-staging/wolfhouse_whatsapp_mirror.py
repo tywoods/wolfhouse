@@ -56,6 +56,32 @@ _HANDOFF_PROMISE_RES = tuple(
     (pattern_id, re.compile(source, re.IGNORECASE))
     for pattern_id, source in _HANDOFF_PROMISE_PATTERN_SOURCES
 )
+
+# Sunset take_request lesson queue — not a needs_human handoff (see luna-guest-handoff-promise.js).
+_SUNSET_TAKE_REQUEST_QUEUE_SOURCES = (
+    ("confirm_exact_lesson_time", r"confirm\s+the\s+exact\s+(?:lesson\s+)?time"),
+    (
+        "nothing_booked_yet",
+        r"(?:nothing\s+is\s+booked|not\s+booked\s+yet|isn['\u2019]t\s+booked|is\s+not\s+booked|nothing\s+booked)",
+    ),
+    (
+        "taken_your_lesson_request",
+        r"(?:taken|received)\s+your\s+request(?:\s+for[^.!?]{0,60}(?:lesson|surf|group|surfers?))?",
+    ),
+    (
+        "passed_request_not_booked",
+        r"passed\s+your\s+request[^.!?]{0,80}(?:nothing\s+is\s+booked|not\s+booked|confirm\s+the\s+exact\s+time)",
+    ),
+    (
+        "needs_team_confirm_time",
+        r"(?:needs|need)\s+the\s+team\s+to\s+confirm\s+the\s+exact\s+time",
+    ),
+    ("rather_than_booked_instantly", r"rather\s+than\s+being\s+booked\s+instantly"),
+)
+_SUNSET_TAKE_REQUEST_QUEUE_RES = tuple(
+    re.compile(source, re.IGNORECASE) for _, source in _SUNSET_TAKE_REQUEST_QUEUE_SOURCES
+)
+
 HANDOFF_PROMISE_REASON = "luna_team_review_reply"
 _INTERNAL_STATUS_RE = re.compile(
     r"(^|\b)(self.?improvement|skill\s+['\"]?[-\w]+\s+(?:created|saved|updated)|auxiliary\s+|compression\s+|preflight|rate\s+limited)(\b|:)",
@@ -87,6 +113,14 @@ def normalize_whatsapp_message_text(text: str) -> str:
     return _MD_LINK_RE.sub(_repl, str(text))
 
 
+def is_sunset_take_request_queue_reply(text) -> bool:
+    """True when copy is the sanctioned lesson take_request queue, not a handoff."""
+    raw = str(text or "")
+    if not raw.strip():
+        return False
+    return any(compiled.search(raw) for compiled in _SUNSET_TAKE_REQUEST_QUEUE_RES)
+
+
 def detects_handoff_promise(text) -> Optional[str]:
     """Pattern id when outbound copy promises a human takeover, else None."""
     raw = str(text or "")
@@ -94,6 +128,8 @@ def detects_handoff_promise(text) -> Optional[str]:
         return None
     for pattern_id, compiled in _HANDOFF_PROMISE_RES:
         if compiled.search(raw):
+            if is_sunset_take_request_queue_reply(raw):
+                return None
             return pattern_id
     return None
 
@@ -255,7 +291,7 @@ def build_mirror_payload(
     if location_id:
         payload["location_id"] = location_id
 
-    if direction == "outbound" and detects_handoff_promise(msg):
+    if direction == "outbound" and wa_id and detects_handoff_promise(msg):
         payload["needs_human"] = True
         payload["handoff_reason"] = HANDOFF_PROMISE_REASON
     if wa_id:
@@ -453,6 +489,61 @@ def enqueue_mirror_payload(payload: dict) -> bool:
     if not payload:
         return False
     return get_mirror_queue().enqueue(payload)
+
+
+def mirror_whatsapp_outbound_after_send(
+    chat_id: Any,
+    content: Any,
+    message_id: Any,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Mirror a Luna guest reply only after Meta accepted the send (wamid present).
+
+    Pre-send mirroring created Inbox bubbles that looked delivered while kill switches,
+    pause, or needs_human blocked the Graph send. Call this from the WhatsApp send patch
+    after a real message_id is returned — never from the turn handler.
+    """
+    try:
+        mid = str(message_id or "").strip()
+        if not mid:
+            return
+        phone = _normalize_phone(chat_id)
+        msg = normalize_whatsapp_message_text(str(content or "")).strip()
+        if not phone or not msg:
+            return
+        meta = metadata if isinstance(metadata, dict) else {}
+        source = type("_WhMirrorSource", (), {"user_id": phone, "chat_id": phone})()
+        event = type(
+            "_WhMirrorEvent",
+            (),
+            {
+                "metadata": meta,
+                "message_id": mid,
+                "timestamp": None,
+                "message_type": "text",
+            },
+        )()
+        if meta.get("phone_number_id"):
+            setattr(event, "phone_number_id", meta.get("phone_number_id"))
+        payload = build_mirror_payload(source, event, "outbound", msg, mid, None)
+        if not payload:
+            return
+        enqueue_mirror_payload(payload)
+    except Exception:
+        logger.exception(
+            "%s",
+            {
+                "event": "whatsapp_thread_mirror_post_send_enqueue_error",
+                "wamid_hash": _wamid_hash(message_id),
+            },
+        )
+
+
+def _normalize_phone(raw: Any) -> str:
+    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    if not digits:
+        return ""
+    return f"+{digits}"
 
 
 def mirror_whatsapp_thread(source, event, direction, text, wa_id=None, contact_name=None) -> None:

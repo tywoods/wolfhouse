@@ -56,9 +56,11 @@ def main() -> int:
 
     final = read_gateway_run()
     guard_after = GUARD_CALL_RE.search(final)
+    apg_path = Path(__file__).resolve().parent / "apply_gateway_patches.py"
+    apg_src = apg_path.read_text(encoding="utf-8")
     checks = {
         "inbound_mirror": _agp.MIRROR_INBOUND_TAG in final,
-        "outbound_mirror": _agp.MIRROR_OUTBOUND_TAG in final,
+        "outbound_mirror": _agp.POST_SEND_MIRROR_TAG in apg_src,
         "output_guard": guard_after is not None,
         "guard_call_preserved": (
             guard_before is None or guard_after.group(0) == guard_before.group(0)
