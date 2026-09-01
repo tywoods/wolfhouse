@@ -171,9 +171,9 @@ const pySource = read(PY_MIRROR_PATH);
 
 section('[4] A detected promise reaches conversations.needs_human');
 {
-  check('python mirror routes outbound text through detects_handoff_promise',
+  check('python mirror routes outbound text through detects_handoff_promise only after wamid',
     /def detects_handoff_promise\(/.test(pySource)
-    && /direction == "outbound" and detects_handoff_promise\(msg\)/.test(pySource));
+    && /direction == "outbound" and wa_id and detects_handoff_promise\(msg\)/.test(pySource));
   check('python mirror sets needs_human + handoff_reason on the payload',
     /payload\["needs_human"\] = True/.test(pySource)
     && /payload\["handoff_reason"\] = HANDOFF_PROMISE_REASON/.test(pySource));
