@@ -255,7 +255,7 @@ def build_mirror_payload(
     if location_id:
         payload["location_id"] = location_id
 
-    if direction == "outbound" and detects_handoff_promise(msg):
+    if direction == "outbound" and wa_id and detects_handoff_promise(msg):
         payload["needs_human"] = True
         payload["handoff_reason"] = HANDOFF_PROMISE_REASON
     if wa_id:
@@ -453,6 +453,61 @@ def enqueue_mirror_payload(payload: dict) -> bool:
     if not payload:
         return False
     return get_mirror_queue().enqueue(payload)
+
+
+def mirror_whatsapp_outbound_after_send(
+    chat_id: Any,
+    content: Any,
+    message_id: Any,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Mirror a Luna guest reply only after Meta accepted the send (wamid present).
+
+    Pre-send mirroring created Inbox bubbles that looked delivered while kill switches,
+    pause, or needs_human blocked the Graph send. Call this from the WhatsApp send patch
+    after a real message_id is returned — never from the turn handler.
+    """
+    try:
+        mid = str(message_id or "").strip()
+        if not mid:
+            return
+        phone = _normalize_phone(chat_id)
+        msg = normalize_whatsapp_message_text(str(content or "")).strip()
+        if not phone or not msg:
+            return
+        meta = metadata if isinstance(metadata, dict) else {}
+        source = type("_WhMirrorSource", (), {"user_id": phone, "chat_id": phone})()
+        event = type(
+            "_WhMirrorEvent",
+            (),
+            {
+                "metadata": meta,
+                "message_id": mid,
+                "timestamp": None,
+                "message_type": "text",
+            },
+        )()
+        if meta.get("phone_number_id"):
+            setattr(event, "phone_number_id", meta.get("phone_number_id"))
+        payload = build_mirror_payload(source, event, "outbound", msg, mid, None)
+        if not payload:
+            return
+        enqueue_mirror_payload(payload)
+    except Exception:
+        logger.exception(
+            "%s",
+            {
+                "event": "whatsapp_thread_mirror_post_send_enqueue_error",
+                "wamid_hash": _wamid_hash(message_id),
+            },
+        )
+
+
+def _normalize_phone(raw: Any) -> str:
+    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    if not digits:
+        return ""
+    return f"+{digits}"
 
 
 def mirror_whatsapp_thread(source, event, direction, text, wa_id=None, contact_name=None) -> None:

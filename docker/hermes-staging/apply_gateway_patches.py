@@ -38,19 +38,7 @@ INBOUND_MIRROR = '''
                 pass
 '''
 
-OUTBOUND_MIRROR = '''
-            try:
-                import importlib.util as _wwm_iu
-                _wwm_spec = _wwm_iu.spec_from_file_location(
-                    "wolfhouse_whatsapp_mirror",
-                    "/etc/hermes-staging/wolfhouse_whatsapp_mirror.py",
-                )
-                _wwm = _wwm_iu.module_from_spec(_wwm_spec)
-                _wwm_spec.loader.exec_module(_wwm)
-                _wwm.mirror_whatsapp_thread(source, event, "outbound", response, None)
-            except Exception:
-                pass
-'''
+# Outbound Inbox mirror runs only after Meta accepts the send (see POST_SEND_MIRROR_PATCH).
 
 SANITIZE = "response = _sanitize_gateway_final_response(source.platform, response)"
 # Output-guard (step 3): scrub guest-facing leaks + emit price/language telemetry
@@ -86,7 +74,7 @@ MIRROR_INBOUND_TAG = (
     '                        event,\n'
     '                        "inbound",'
 )
-MIRROR_OUTBOUND_TAG = '_wwm.mirror_whatsapp_thread(source, event, "outbound"'
+POST_SEND_MIRROR_TAG = "mirror_whatsapp_outbound_after_send("
 MIRROR_COALESCE_SKIP_TAG = 'is_coalesced_agent_inbound'
 
 RUNNER_GLOBAL_VAR = "_wolfhouse_gateway_runner = None"
@@ -719,7 +707,7 @@ def apply_patches(run_path: Path) -> dict:
     if prepare_marker in s and prepare_replacement not in s:
         s = s.replace(prepare_marker, prepare_replacement, 1)
 
-    if MIRROR_INBOUND_TAG not in s or MIRROR_OUTBOUND_TAG not in s:
+    if MIRROR_INBOUND_TAG not in s:
         turn_match = TURN_ANCHOR_RE.search(s)
         if turn_match:
             existing_guard = turn_match.group("guard")
@@ -735,12 +723,11 @@ def apply_patches(run_path: Path) -> dict:
                 + WHATSAPP_TEXT_NORMALIZE
                 + "\n            "
                 + SANITIZE
-                + OUTBOUND_MIRROR
             )
             # Splice by index (not re.sub) so backslashes in the captured guard
             # block can never be misread as regex group references.
             s = s[: turn_match.start()] + replacement + s[turn_match.end():]
-        elif MIRROR_INBOUND_TAG not in s and MIRROR_OUTBOUND_TAG not in s:
+        elif MIRROR_INBOUND_TAG not in s:
             raise RuntimeError("gateway.run turn-handler anchor not found for inbox mirror")
 
     # Idempotent fallback: if the mirror block was already applied on a prior pass
@@ -782,7 +769,7 @@ def apply_patches(run_path: Path) -> dict:
         "ok": True,
         "path": str(run_path),
         "inbound_mirror": MIRROR_INBOUND_TAG in final,
-        "outbound_mirror": MIRROR_OUTBOUND_TAG in final,
+        "outbound_mirror": POST_SEND_MIRROR_TAG in Path(__file__).read_text(encoding="utf-8"),
         "fresh_start_runner_hook": RUNNER_GLOBAL_VAR in final and RUNNER_START_PATCH in final,
         "luna_soul_reload": LUNA_SOUL_RELOAD_TAG in final,
         "luna_soul_reload_note": soul_note,
@@ -924,7 +911,26 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
     _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
     if not _wh_allow_quote:
         reply_to = None
-    return await _orig_whatsapp_cloud_send(self, chat_id, content, reply_to=reply_to, metadata=metadata)
+    _wh_send_result = await _orig_whatsapp_cloud_send(self, chat_id, content, reply_to=reply_to, metadata=metadata)
+    try:
+        _wh_mid = getattr(_wh_send_result, "message_id", None) if _wh_send_result is not None else None
+        _wh_raw = getattr(_wh_send_result, "raw_response", None) if _wh_send_result is not None else None
+        _wh_suppressed = isinstance(_wh_raw, dict) and any(
+            str(k).startswith("suppressed_") for k in _wh_raw
+        )
+        if _wh_mid and not _wh_suppressed:
+            import importlib.util as _wwm_iu
+            _wwm_spec = _wwm_iu.spec_from_file_location(
+                "wolfhouse_whatsapp_mirror",
+                "/etc/hermes-staging/wolfhouse_whatsapp_mirror.py",
+            )
+            _wwm = _wwm_iu.module_from_spec(_wwm_spec)
+            _wwm_spec.loader.exec_module(_wwm)
+            _wh_meta = metadata if isinstance(metadata, dict) else {}
+            _wwm.mirror_whatsapp_outbound_after_send(chat_id, content, _wh_mid, _wh_meta)
+    except Exception:
+        pass
+    return _wh_send_result
 
 
 def install_runtime_whatsapp_patches() -> dict:

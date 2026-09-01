@@ -1623,11 +1623,20 @@ def get_sunset_lesson_availability(params, **kwargs):
     body = {"date": date}
     if payload.get("location_id"):
         body["location_id"] = payload["location_id"]
+    qty_raw = payload.get("quantity")
+    if qty_raw is not None and not isinstance(qty_raw, bool):
+        try:
+            qty = int(qty_raw)
+            if qty > 0:
+                body["quantity"] = qty
+        except (TypeError, ValueError):
+            pass
     data = _post_bot("/sunset/lesson-availability", body)
     ok = bool(data.get("ok"))
     # take_request=true means capacity is unknown or full — Luna must take the
     # request and let staff confirm the exact slot; never invent a seat.
     take_request = bool(data.get("take_request")) or not ok
+    reason = data.get("reason")
     return _json_result({
         "success": ok,
         "tool": "get_sunset_lesson_availability",
@@ -1636,8 +1645,11 @@ def get_sunset_lesson_availability(params, **kwargs):
         "capacity_known": bool(data.get("capacity_known")),
         "has_seats": bool(data.get("has_seats")),
         "seats_available": data.get("seats_available"),
+        "seats_booked": data.get("seats_booked"),
+        "daily_capacity": data.get("daily_capacity"),
+        "requested_quantity": data.get("requested_quantity"),
         "take_request": take_request,
-        "reason": data.get("reason"),
+        "reason": reason,
         "staff_review_needed": False,
         "do_not_escalate": True,
         "guest_safe_next_action": (
@@ -2994,7 +3006,7 @@ def _sunset_tools():
             [],
         ),
         ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
-        ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). If take_request is true (capacity unknown or full), take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, **loc}, ["date"]),
+        ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). Pass quantity (surfer count) when known — take_request is true when remaining seats are less than the party size, not only when the day is full. If take_request is true, take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, "quantity": {"type": "integer", "description": "Number of surfers in the party when known."}, **loc}, ["date"]),
         ("get_sunset_joinable_courses", "List Admin-configured courses a guest can currently join BEFORE offering or booking a course. Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity.", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
         ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options, prices, or inclusions. Offer only returned offerings; preserve offering_id and course_id exactly. Read free_included_equipment_labels / guest_equipment from each offering — only claim free gear when may_claim_free_equipment is true (never invent wax/board lists). For rentals use get_sunset_rental_catalog instead.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
         ("get_sunset_offering_quote", "Get the authoritative quote for one exact catalog offering. Three independent price authorities (never invent or cross-substitute): (1) course/lesson package amount from this quote, (2) course-equipment during_course amounts from returned equipment_options/quote lines (policy included may be €0 and quote-owned — omit course_equipment to auto-expand included only), (3) course-equipment all_day amounts from mode all_day (independent of during_course and of standalone rentals from get_sunset_rental_price). The same physical gear may appear as a standalone rental and as course equipment — distinct commercial lines. Optional gear is never auto-included — pass intent course_equipment:{mode,quantity} only when the guest selects it. Always copy opaque quote_provenance into create unchanged (exact wire + fingerprint). Do not send wire arrays as course_equipment input.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates."}, "course_equipment": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False, "description": "Guest gear intent only ({mode,quantity}). Do not send wire arrays; Staff API expands offering keys from Admin equipment_options."}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),

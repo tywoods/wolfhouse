@@ -370,9 +370,9 @@ function makeFakePg(opts) {
     guest_phone: phone,
     direction: 'outbound',
     message_text: '¡Hola! Mensaje de prueba recibido.',
-    idempotency_key: 'out-inbox-test-1',
+    whatsapp_message_id: 'wamid.OUT1',
   });
-  assert('Luna reply produces one outbound row', outbound.ok && outbound.thread && outbound.thread.persisted === true);
+  assert('Luna reply with wamid produces one outbound row', outbound.ok && outbound.thread && outbound.thread.persisted === true);
   assert(
     'exactly one outbound hermes reply source',
     pg.messages.filter((m) => m.source === HERMES_LUNA_OUTBOUND_SOURCE).length === 1,
