@@ -110,11 +110,17 @@ const docs = fs.readFileSync(
 );
 const caddyPath = path.join(ROOT, 'docker/hermes-staging/lunabox-caddyfile.reference');
 const caddy = fs.existsSync(caddyPath) ? fs.readFileSync(caddyPath, 'utf8') : '';
+const aca = fs.readFileSync(
+  path.join(ROOT, 'docker/hermes-staging/sunset-luna-http.aca.yaml.example'),
+  'utf8',
+);
 
 assert('server has healthz', /\/healthz/.test(server));
 assert('server has private inbound', /\/v1\/inbound|INBOUND_PATH/.test(server));
 assert('no graph.facebook.com in server', !/graph\.facebook\.com/.test(server));
 assert('outbound is Staff guest-reply-draft', /guest-reply-draft/.test(outbound));
+assert('ACA targets Sunset Staff staging exactly', /WOLFHOUSE_STAFF_API_BASE_URL[\s\S]*value: https:\/\/sunset-staging\.lunafrontdesk\.com/.test(aca));
+assert('outbound fails closed against cross-tenant Staff host', /sunset_staff_base_url_required/.test(outbound) && !/or "https:\/\/staff-staging\.lunafrontdesk\.com"/.test(outbound));
 assert('outbound forbids Meta Graph client', /never Meta Graph|No.*Graph/i.test(outbound));
 assert('compose keeps hermes-sunset-luna gateway run', /hermes-sunset-luna:[\s\S]*command:\s*gateway run/.test(compose));
 assert('compose adds profile-gated http service', /hermes-sunset-luna-http:[\s\S]*luna_http_server\.py/.test(compose));

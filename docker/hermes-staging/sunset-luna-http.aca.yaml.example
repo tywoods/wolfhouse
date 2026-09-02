@@ -80,7 +80,7 @@ properties:
           - name: GENERIC_TIMEZONE
             value: Europe/Madrid
           - name: WOLFHOUSE_STAFF_API_BASE_URL
-            value: https://staff-staging.lunafrontdesk.com
+            value: https://sunset-staging.lunafrontdesk.com
           - name: API_SERVER_KEY
             secretRef: api-server-key
           - name: LUNA_BOT_INTERNAL_TOKEN

@@ -17,11 +17,14 @@ StaffPostFn = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 
 def _staff_base_url() -> str:
-    return (
+    value = (
         os.environ.get("WOLFHOUSE_STAFF_API_BASE_URL")
         or os.environ.get("STAFF_API_BASE_URL")
-        or "https://staff-staging.lunafrontdesk.com"
-    ).rstrip("/")
+        or ""
+    ).strip().rstrip("/")
+    if value != "https://sunset-staging.lunafrontdesk.com":
+        raise RuntimeError("sunset_staff_base_url_required")
+    return value
 
 
 def _bot_token() -> str:
