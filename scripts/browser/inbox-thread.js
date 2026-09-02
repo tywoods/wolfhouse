@@ -206,8 +206,7 @@ function inboxConversationBoundGuestId(conv, customer){
 
 function inboxNormalizeHonestPhone(raw){
   raw = String(raw == null ? '' : raw).trim();
-  if (!raw || inboxIsOpaqueEmailIdentity(raw)) return '';
-  if (inboxIsEmailcustIdentity(raw)) return raw;
+  if (!raw || inboxIsOpaqueEmailIdentity(raw) || inboxIsEmailcustIdentity(raw)) return '';
   if (typeof normalizeCustomerPhoneClient === 'function') {
     var normalized = normalizeCustomerPhoneClient(raw);
     if (normalized && normalized.length >= 11) return normalized;
@@ -369,7 +368,7 @@ function inboxFindGuestConversation(conv, channel){
 function inboxMessageChannelOf(m){
   if (!m) return 'whatsapp';
   if (m.channel === 'email' || m.message_channel === 'email') return 'email';
-  if (m.source === 'staff_email_reply' || m.message_type === 'email' || m.email_subject) return 'email';
+  if (m.source === 'email_inbound' || m.source === 'staff_email_reply' || m.message_type === 'email' || m.email_subject) return 'email';
   return 'whatsapp';
 }
 

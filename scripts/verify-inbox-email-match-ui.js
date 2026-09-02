@@ -52,6 +52,9 @@ function loadChrome() {
     inboxCustomerUnmatchedHtml,
     inboxCustomerFromConv,
     inboxCustomerPaint,
+    inboxMessageChannelOf,
+    inboxFilterMessagesByChannel,
+    inboxNormalizeHonestPhone,
   };`, sandbox);
   return sandbox.__inbox;
 }
@@ -80,6 +83,18 @@ assert.ok(!chrome.inboxCustomerHasBoundGuest({ phone: OPAQUE, guest_email: 'ada@
 assert.ok(chrome.inboxCustomerHasBoundGuest({ phone: '+34600111222' }));
 assert.ok(chrome.inboxCustomerHasBoundGuest({ phone: OPAQUE, guest_id: 'guest-1' }), 'Skipper guest_id binds');
 assert.strictEqual(chrome.inboxBoundCustomerPhone({ phone: OPAQUE }, leftover), '');
+assert.strictEqual(chrome.inboxNormalizeHonestPhone('emailcust1:d1a28775'), '', 'internal email customer id is not a phone');
+assert.strictEqual(chrome.inboxNormalizeHonestPhone('guest-uuid-1234'), '', 'arbitrary internal id is not a phone');
+assert.strictEqual(chrome.inboxNormalizeHonestPhone('tyler@example.test'), '', 'email address is not a phone');
+assert.strictEqual(chrome.inboxNormalizeHonestPhone('+34612345678'), '+34612345678', 'real E.164 phone remains visible');
+
+const inboundEmail = { source: 'email_inbound', message_text: 'Existing list preview text' };
+assert.strictEqual(chrome.inboxMessageChannelOf(inboundEmail), 'email', 'email inbound journal rows belong to email history');
+assert.deepStrictEqual(
+  Array.from(chrome.inboxFilterMessagesByChannel([inboundEmail], 'email')),
+  [inboundEmail],
+  'a valid inbound email represented in list preview remains renderable in thread history'
+);
 
 const unmatched = chrome.inboxCustomerUnmatchedHtml({
   phone: OPAQUE,
