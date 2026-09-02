@@ -83,6 +83,13 @@ ok('sunset follow-up confirm suppressed', detectHandoffPromise(
   'someone from the Sunset team will follow up in the chat to confirm your slot',
 ).handoff_promised !== true);
 
+console.log('\n[E] Sunset SOUL — clarify first, unclear ≠ needs_human');
+const soulSrc = read(path.join(ROOT, 'docker/hermes-sunset/SOUL.md'));
+ok('SOUL forbids handoff on vague/unclear intake', /Unclear request — clarify first \(hard\)/.test(soulSrc));
+ok('SOUL lists ambiguous fields to clarify', /lesson vs rental/.test(soulSrc) && /party size/.test(soulSrc));
+ok('SOUL says unclear ≠ staff review', /Unclear ≠ staff review/.test(soulSrc));
+ok('SOUL removed handoff-on-unclear shortcut', !/let me get the team to confirm that for you/i.test(soulSrc));
+
 console.log('\n[D] In-memory mirror contract');
 const {
   persistHermesLunaOutboundThreadMessage,

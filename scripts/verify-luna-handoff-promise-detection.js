@@ -254,10 +254,14 @@ section('[6] SOUL makes flag_needs_human mandatory with the copy');
     check(`${label} SOUL still tells Luna not to use the phrasing when she is not handing off`,
       /do not use that phrasing/i.test(soul));
   }
-  check('Wolfhouse SOUL keeps the non-handoff exceptions intact',
+  check('Sunset SOUL keeps the non-handoff exceptions intact',
     /never\**\s+a reason to hand off/i.test(soulWh)
     && /Never call flag_needs_human for private\/couple room requests/i.test(soulWh)
     && /Do \*\*not\*\* call \*\*flag_needs_human\*\*/i.test(soulWh));
+  check('Sunset SOUL clarifies ambiguous intake instead of handoff',
+    /Unclear request — clarify first \(hard\)/i.test(soulSu)
+    && /Unclear ≠ staff review/i.test(soulSu)
+    && /Do \*\*not\*\* call \*\*flag_needs_human\*\*/i.test(soulSu));
 }
 
 section('[7] Python engine cross-check (optional)');

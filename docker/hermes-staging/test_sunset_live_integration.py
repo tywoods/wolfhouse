@@ -163,6 +163,12 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
         real = "A teammate will take over and sort those for you."
         self.assertEqual(mirror.detects_handoff_promise(real), "human_subject_will_act")
 
+    def test_sunset_soul_clarify_before_handoff(self):
+        sunset = (ROOT.parent / "hermes-sunset/SOUL.md").read_text()
+        self.assertIn("Unclear request — clarify first (hard)", sunset)
+        self.assertIn("Unclear ≠ staff review", sunset)
+        self.assertNotIn("let me get the team to confirm that for you", sunset.lower())
+
     def test_sunset_soul_group_lesson_component_rules(self):
         sunset = (ROOT.parent / "hermes-sunset/SOUL.md").read_text()
         self.assertIn("components.lesson", sunset)
