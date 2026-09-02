@@ -156,7 +156,110 @@ assert.strictEqual(drawers.length, 1, 'hint path still opens drawer');
 assert.strictEqual(drawers[0].service_date, SERVICE, 'hint service_date reaches drawer');
 assert.deepStrictEqual(tabCalls, [], 'hint path still never switches tab');
 
-// Close simulation: hide drawer without touching tabs/filters (matches closeScheduleDetailDrawer).
+// Close: X / Escape / backdrop must hide the overlay and restore the identical
+// filtered Reservas list — never switchToTab('portal-home') / Horario.
+const drawerSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-schedule-drawer-controller.js'), 'utf8');
+assert.ok(drawerSrc.includes('function closeScheduleDetailDrawer'), 'close owner present');
+assert.ok(/closeBtn\.onclick\s*=\s*closeScheduleDetailDrawer/.test(drawerSrc), 'X wires closeScheduleDetailDrawer');
+assert.ok(/function scheduleDrawerOnBackdropClick[\s\S]{0,250}closeScheduleDetailDrawer\(\)/.test(drawerSrc),
+  'backdrop click closes drawer');
+assert.ok(/function scheduleDrawerOnKeydown[\s\S]{0,500}Escape[\s\S]{0,400}closeScheduleDetailDrawer\(\)/.test(drawerSrc),
+  'Escape closes drawer');
+
+const closeStart = drawerSrc.indexOf('function closeScheduleDetailDrawer');
+const closeEnd = drawerSrc.indexOf('\nif (typeof window !== \'undefined\') {', closeStart);
+assert.ok(closeStart > 0 && closeEnd > closeStart, 'close function bounds');
+const closeFnSrc = drawerSrc.slice(closeStart, closeEnd);
+assert.ok(!/\bswitchToTab\b/.test(closeFnSrc), 'closeScheduleDetailDrawer never switchToTab');
+assert.ok(!/portal-home/.test(closeFnSrc), 'closeScheduleDetailDrawer never Horario');
+
+const closeDom = {
+  'ps-detail-drawer': {
+    id: 'ps-detail-drawer',
+    style: { display: 'block' },
+    setAttribute() {},
+    hidden: false,
+  },
+  'ps-drawer-backdrop': {
+    id: 'ps-drawer-backdrop',
+    style: { display: 'block' },
+    setAttribute() {},
+    removeAttribute() {},
+  },
+  'ps-drawer-close': { id: 'ps-drawer-close', onclick: null },
+  'ps-drawer-refresh': null,
+  'ps-drawer-copy-code': null,
+  'ps-create-modal': null,
+};
+const closeTabCalls = [];
+const closeCtx = {
+  console,
+  el(id) { return closeDom[id] || null; },
+  switchToTab(tab) { closeTabCalls.push(String(tab || '')); },
+  scheduleDrawerState: {
+    row: { booking_id: BOOKING_ID },
+    ctx: {},
+    editing: false,
+    activeBookingKey: 'k',
+    dismissWired: false,
+  },
+  scheduleDrawerBumpOpenGeneration() {},
+  scheduleDrawerUnlockPage() {},
+  scheduleDrawerMarkDetailOpen() {},
+  scheduleOverlayIsOpen() { return false; },
+  scheduleDrawerDetailIsOpen() { return closeDom['ps-detail-drawer'].style.display !== 'none'; },
+  adminBookingsState: ctx.adminBookingsState,
+  document: { addEventListener() {} },
+  window: {},
+};
+closeCtx.window = closeCtx;
+
+const headerStart = drawerSrc.indexOf('function scheduleWireDrawerHeaderActions');
+const headerEnd = drawerSrc.indexOf('\nfunction scheduleWireDrawerConversation', headerStart);
+const backdropStart = drawerSrc.indexOf('function scheduleDrawerOnBackdropClick');
+const keyEnd = drawerSrc.indexOf('\nfunction scheduleDrawerWireDismiss', backdropStart);
+assert.ok(headerStart > 0 && headerEnd > headerStart && backdropStart > 0 && keyEnd > backdropStart,
+  'dismiss helper bounds');
+const dismissSrc = drawerSrc.slice(backdropStart, keyEnd) + '\n'
+  + drawerSrc.slice(headerStart, headerEnd) + '\n'
+  + closeFnSrc
+  + '\nthis.closeScheduleDetailDrawer = closeScheduleDetailDrawer;'
+  + '\nthis.scheduleDrawerOnBackdropClick = scheduleDrawerOnBackdropClick;'
+  + '\nthis.scheduleDrawerOnKeydown = scheduleDrawerOnKeydown;'
+  + '\nthis.scheduleWireDrawerHeaderActions = scheduleWireDrawerHeaderActions;';
+vm.createContext(closeCtx);
+vm.runInContext(dismissSrc, closeCtx);
+
+function assertClosed(label) {
+  assert.strictEqual(closeDom['ps-detail-drawer'].style.display, 'none', label + ': drawer hidden');
+  assert.strictEqual(closeDom['ps-drawer-backdrop'].style.display, 'none', label + ': backdrop hidden');
+  assert.deepStrictEqual(closeTabCalls, [], label + ': no switchToTab');
+  assert.strictEqual(JSON.stringify(closeCtx.adminBookingsState.filters), filtersBefore,
+    label + ': filters intact');
+  assert.strictEqual(tabs.bookings, true, label + ': still on Bookings');
+  assert.strictEqual(tabs['portal-home'], false, label + ': Horario still inactive');
+}
+
+function reopenShell() {
+  closeDom['ps-detail-drawer'].style.display = 'block';
+  closeDom['ps-detail-drawer'].hidden = false;
+  closeDom['ps-drawer-backdrop'].style.display = 'block';
+  closeCtx.scheduleDrawerState.row = { booking_id: BOOKING_ID };
+}
+
+closeCtx.scheduleWireDrawerHeaderActions();
+assert.ok(typeof closeDom['ps-drawer-close'].onclick === 'function', 'X onclick wired');
+closeDom['ps-drawer-close'].onclick();
+assertClosed('X');
+
+reopenShell();
+closeCtx.scheduleDrawerOnKeydown({ key: 'Escape', preventDefault() {} });
+assertClosed('Escape');
+
+reopenShell();
+closeCtx.scheduleDrawerOnBackdropClick({ target: closeDom['ps-drawer-backdrop'] });
+assertClosed('backdrop');
+
 drawers.length = 0;
 assert.strictEqual(tabs.bookings, true, 'after close, still on Bookings');
 assert.strictEqual(JSON.stringify(ctx.adminBookingsState.filters), filtersBefore,

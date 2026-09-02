@@ -1191,6 +1191,10 @@ async function testGeneratedUi() {
       JSON.stringify(navCalls));
     ok('Bookings panel still active after code click',
       await page.locator('#tab-bookings.tab-panel.active').count() === 1);
+    ok('Bookings list still mounted under drawer after code click',
+      await page.locator('#tab-bookings .portal-admin-bookings-code').count() >= 1);
+    ok('Horario panel not activated by code click',
+      await page.locator('#tab-portal-home.tab-panel.active').count() === 0);
 
     // Mutation/negative seam: disable drawer owner — must not fall back to Horario.
     await page.evaluate(() => {
