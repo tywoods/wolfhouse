@@ -360,7 +360,12 @@ def build_mirror_payload(
     return payload
 
 
-def _post_mirror_sync(payload: dict) -> None:
+def _post_mirror_sync(payload: dict) -> Optional[Dict[str, Any]]:
+    """POST the existing Staff API thread-mirror endpoint. Returns parsed JSON or None.
+
+    Missing bot token skips (returns None) — callers that need a durable Inbox
+    draft must treat that as unconfirmed, not success. HTTP errors still raise.
+    """
     base = (os.getenv("WOLFHOUSE_STAFF_API_BASE_URL") or "https://staff-staging.lunafrontdesk.com").rstrip("/")
     token = os.getenv("LUNA_BOT_INTERNAL_TOKEN") or ""
     if not token:
@@ -374,7 +379,7 @@ def _post_mirror_sync(payload: dict) -> None:
                 "wamid_hash": _wamid_hash(payload.get("whatsapp_message_id")),
             },
         )
-        return
+        return None
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         f"{base}/staff/bot/whatsapp-thread-mirror",
@@ -386,7 +391,21 @@ def _post_mirror_sync(payload: dict) -> None:
         },
     )
     with urllib.request.urlopen(req, timeout=8) as res:
-        res.read()
+        raw = res.read() or b""
+    if not raw.strip():
+        return {}
+    parsed = json.loads(raw.decode("utf-8"))
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def staff_api_thread_draft_staged(posted: Any) -> bool:
+    """True only when Staff API reports a durable Inbox draft, not HTTP/enqueue ack."""
+    if not isinstance(posted, dict):
+        return False
+    thread = posted.get("thread_message")
+    if not isinstance(thread, dict):
+        thread = posted.get("thread") if isinstance(posted.get("thread"), dict) else {}
+    return thread.get("draft_staged") is True
 
 
 class MirrorQueue:
@@ -540,17 +559,20 @@ def mirror_whatsapp_outbound_as_draft(
     chat_id: Any,
     content: Any,
     metadata: Optional[Dict[str, Any]] = None,
-) -> bool:
-    """Persist a Luna reply as an Inbox draft. Never a Meta/Cloud provider send.
+) -> Dict[str, Any]:
+    """Persist a Luna reply as an Inbox draft via Staff API. Never a Meta send.
 
-    Draft-mode outbound has no wamid. Staff API stages ``luna_outbound_approvals``
-    when WhatsApp channel mode is Draft; posting here is a persistence side effect.
+    Draft-mode outbound has no wamid. The existing ``POST /staff/bot/whatsapp-thread-mirror``
+    path stages ``luna_outbound_approvals`` when WhatsApp channel mode is Draft.
+
+    ``staged`` is True only when Staff API reports durable ``draft_staged``.
+    Enqueue acceptance is not durable persistence and must not be reported as success.
     """
     try:
         phone = _normalize_phone(chat_id)
         msg = normalize_whatsapp_message_text(str(content or "")).strip()
         if not phone or not msg:
-            return False
+            return {"staged": False, "reason": "invalid_draft_payload"}
         meta = metadata if isinstance(metadata, dict) else {}
         source = type("_WhDraftSource", (), {"user_id": phone, "chat_id": phone})()
         event = type(
@@ -567,22 +589,35 @@ def mirror_whatsapp_outbound_as_draft(
             setattr(event, "phone_number_id", meta.get("phone_number_id"))
         payload = build_mirror_payload(source, event, "outbound", msg, None, None)
         if not payload:
-            return False
+            return {"staged": False, "reason": "invalid_draft_payload"}
         payload.pop("whatsapp_message_id", None)
         if not payload.get("idempotency_key"):
             payload["idempotency_key"] = hashlib.sha256(
                 f"{phone}:{msg}:draft".encode("utf-8")
             ).hexdigest()[:32]
-        return bool(enqueue_mirror_payload(payload))
+        posted = _post_mirror_sync(payload)
+        if not isinstance(posted, dict):
+            return {"staged": False, "reason": "draft_mirror_unconfirmed"}
+        thread = posted.get("thread_message") if isinstance(posted.get("thread_message"), dict) else {}
+        if staff_api_thread_draft_staged(posted):
+            return {
+                "staged": True,
+                "approval_id": thread.get("approval_id"),
+                "reason": thread.get("reason") or "inbox_channel_mode_draft",
+            }
+        return {
+            "staged": False,
+            "reason": thread.get("reason") or posted.get("error") or "draft_not_staged",
+        }
     except Exception:
         logger.exception(
             "%s",
             {
-                "event": "whatsapp_thread_mirror_draft_enqueue_error",
+                "event": "whatsapp_thread_mirror_draft_persist_error",
                 "phone_hash": _phone_hash(chat_id),
             },
         )
-        return False
+        return {"staged": False, "reason": "draft_stage_exception"}
 
 
 def mirror_whatsapp_outbound_after_send(

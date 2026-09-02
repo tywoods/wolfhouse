@@ -48,6 +48,9 @@ reports/luna-nightly/
 # debrief draft fixtures (review before adding to the suite)
 reports/luna-debrief/
 
+# Local agent job prompts — never commit
+.grok-*.md
+
 # OpenClaw agent-workspace artifacts that leak into the WH repo root
 # (the real Luna SOUL lives at docker/hermes-staging/SOUL.md — these root copies are strays)
 /SOUL.md

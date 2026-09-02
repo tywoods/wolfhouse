@@ -57,6 +57,26 @@ assert('Draft outbound does not insert a sent bubble', /do not insert a sent bub
 const patches = fs.readFileSync(path.join(STAGING, 'apply_gateway_patches.py'), 'utf8');
 assert('Hermes send path stages draft before provider', patches.indexOf('mirror_whatsapp_outbound_as_draft') < patches.indexOf('_orig_whatsapp_cloud_send'));
 assert('Hermes Draft send returns suppressed_draft_mode (no wamid)', /suppressed_draft_mode/.test(patches));
+const draftBlockStart = patches.indexOf('if _wh_disp.get("stage_as_draft")');
+const draftBlockEnd = patches.indexOf('if _wh_disp.get("send_blocked")', draftBlockStart);
+const draftBlock = draftBlockStart >= 0 && draftBlockEnd > draftBlockStart
+  ? patches.slice(draftBlockStart, draftBlockEnd)
+  : '';
+assert(
+  'Draft staging failure is fail-closed (no swallow-then-success)',
+  /_wh_draft_result/.test(draftBlock)
+    && /_wh_draft_staged/.test(draftBlock)
+    && /"draft_staged": False/.test(draftBlock)
+    && /blocked_reason/.test(draftBlock)
+    && /if _wh_draft_staged:/.test(draftBlock)
+    && /draft_stage_exception/.test(draftBlock)
+    && !/mirror_whatsapp_outbound_as_draft\([\s\S]{0,180}?except Exception:\s*pass\s*try:[\s\S]{0,220}?draft_staged": True/.test(draftBlock),
+);
+assert(
+  'Draft helper requires Staff API draft_staged, not enqueue',
+  /staff_api_thread_draft_staged/.test(fs.readFileSync(path.join(STAGING, 'wolfhouse_whatsapp_mirror.py'), 'utf8'))
+    && /_post_mirror_sync\(payload\)/.test(fs.readFileSync(path.join(STAGING, 'wolfhouse_whatsapp_mirror.py'), 'utf8')),
+);
 
 console.log('\n[2] 15-person remaining-seat capacity');
 try {
