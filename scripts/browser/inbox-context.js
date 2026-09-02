@@ -1931,12 +1931,11 @@ function inboxCustomerResolvePhone(conv, customer) {
     linked = '';
   }
   if (linked && typeof inboxIsEmailcustIdentity === 'function' && inboxIsEmailcustIdentity(linked)) {
-    return linked;
+    linked = '';
   }
   if (linked && typeof normalizeCustomerPhoneClient === 'function') {
     var normalizedLinked = normalizeCustomerPhoneClient(linked);
     if (normalizedLinked) return normalizedLinked;
-    if (typeof inboxIsEmailcustIdentity === 'function' && inboxIsEmailcustIdentity(linked)) return linked;
   } else if (linked) {
     return linked;
   }
@@ -1949,6 +1948,7 @@ function inboxCustomerResolvePhone(conv, customer) {
     phone = normalizeCustomerPhoneClient(phone);
   }
   if (typeof inboxIsOpaqueEmailIdentity === 'function' && inboxIsOpaqueEmailIdentity(phone)) phone = '';
+  if (typeof inboxIsEmailcustIdentity === 'function' && inboxIsEmailcustIdentity(phone)) phone = '';
   return phone || '';
 }
 
