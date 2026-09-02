@@ -49,7 +49,7 @@ console.log('[1] Python unit tests (healthz + first-answer joinable leftover)');
 try {
   const py = spawnSync(
     'python3',
-    ['-m', 'unittest', 'wolfhouse.test_luna_http_server', '-v'],
+    ['-m', 'unittest', 'wolfhouse.test_luna_http_server', 'wolfhouse.test_luna_http_phase1', '-v'],
     {
       cwd: path.join(ROOT, 'docker/hermes-staging'),
       encoding: 'utf8',
@@ -114,9 +114,17 @@ const aca = fs.readFileSync(
   path.join(ROOT, 'docker/hermes-staging/sunset-luna-http.aca.yaml.example'),
   'utf8',
 );
+const phase1Migration = fs.readFileSync(
+  path.join(ROOT, 'database/migrations/101_luna_guest_runtime_phase1.sql'),
+  'utf8',
+);
 
 assert('server has healthz', /\/healthz/.test(server));
 assert('server has private inbound', /\/v1\/inbound|INBOUND_PATH/.test(server));
+assert('Phase 1 uses Postgres durability', /PostgresLunaStore/.test(server));
+assert('Phase 1 schema pins sending off', /send_enabled[\s\S]*CHECK \(send_enabled = FALSE\)/.test(phase1Migration));
+assert('Phase 1 has durable idempotency', /UNIQUE \(tenant_id, request_id\)/.test(phase1Migration) && /UNIQUE \(tenant_id, idempotency_key\)/.test(phase1Migration));
+assert('ACA injects Postgres URL from Sunset Key Vault', /LUNA_HTTP_DATABASE_URL[\s\S]*secretRef: luna-http-database-url/.test(aca));
 assert('no graph.facebook.com in server', !/graph\.facebook\.com/.test(server));
 assert('outbound is Staff guest-reply-draft', /guest-reply-draft/.test(outbound));
 assert('ACA targets Sunset Staff staging exactly', /WOLFHOUSE_STAFF_API_BASE_URL[\s\S]*value: https:\/\/sunset-staging\.lunafrontdesk\.com/.test(aca));
@@ -134,6 +142,7 @@ assert(
   'does not call n8n',
   !/n8n\.(io|cloud)|\/webhook\/n8n|calls_n8n\s*:\s*true|invokeN8n|n8n_webhook/i.test(server + outbound),
 );
+assert('server has no outbound sender call', !/maybe_outbound|guest-reply-draft|guest-reply-send/.test(server));
 
 console.log('\n[4] ACA fill script refuse-on-placeholder');
 try {

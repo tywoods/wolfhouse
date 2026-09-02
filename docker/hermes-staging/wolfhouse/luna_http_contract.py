@@ -44,7 +44,7 @@ OPTIONAL_KEYS = frozenset(
     }
 )
 ALLOWED_CHANNELS = frozenset({"http_probe", "whatsapp", "email", "staff_draft"})
-ALLOWED_OUTBOUND = frozenset({"none", "staff_draft"})
+ALLOWED_OUTBOUND = frozenset({"none"})
 
 
 def _clean(value: Any) -> str:

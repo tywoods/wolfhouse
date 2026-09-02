@@ -11470,19 +11470,37 @@ async function checkGuestAutomationPauseState(pg, input) {
   // Product contract: auto-reply only when mode is Auto. Draft/Off block Hermes
   // outbound via the same gate pause_gate already consumes. Missing key defaults
   // to auto (matches the durable channel-mode store default).
+  const channelModeLookupFailure = () => ({
+    bot_paused:             true,
+    live_send_blocked:      true,
+    source:                 'channel_mode_lookup_error',
+    lookup_error:           true,
+    lookup_error_component: 'whatsapp_channel_mode',
+    pause_state:            null,
+    table_missing:          !!result.table_missing,
+    global_paused:          false,
+    conversation_paused:    false,
+    needs_human:            needsHuman,
+    conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
+    effective_scope:        'channel_mode',
+    whatsapp_channel_mode:  null,
+  });
   let whatsappChannelMode = 'auto';
   try {
     const modeRes = await pg.query(
-      `SELECT lower(btrim(COALESCE(settings->'inbox_channel_modes'->>'whatsapp', 'auto'))) AS mode
+      `SELECT lower(btrim(settings->'inbox_channel_modes'->>'whatsapp')) AS mode
          FROM clients
         WHERE slug = $1
         LIMIT 1`,
       [clientSlug],
     );
-    const raw = modeRes.rows[0] && modeRes.rows[0].mode;
-    if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
+    if (!modeRes.rows[0]) return channelModeLookupFailure();
+    const raw = modeRes.rows[0].mode;
+    if (raw == null) whatsappChannelMode = 'auto';
+    else if (raw === 'auto' || raw === 'draft' || raw === 'off') whatsappChannelMode = raw;
+    else return channelModeLookupFailure();
   } catch (_err) {
-    whatsappChannelMode = 'auto';
+    return channelModeLookupFailure();
   }
 
   // Off: stop agent + Meta send. Draft: Luna still drafts; Meta send blocked and

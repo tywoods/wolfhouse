@@ -35,6 +35,9 @@ properties:
       - name: luna-bot-token
         keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/luna-bot-internal-token
         identity: <identity-id>
+      - name: luna-http-database-url
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/sunset-database-url
+        identity: <identity-id>
     registries:
       - server: whstagingacr.azurecr.io
         identity: <identity-id>
@@ -85,6 +88,8 @@ properties:
             secretRef: api-server-key
           - name: LUNA_BOT_INTERNAL_TOKEN
             secretRef: luna-bot-token
+          - name: LUNA_HTTP_DATABASE_URL
+            secretRef: luna-http-database-url
         probes:
           - type: Liveness
             httpGet:

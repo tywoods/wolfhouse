@@ -26,8 +26,9 @@ from wolfhouse.luna_http_contract import (
     RUNTIME,
     parse_inbound,
 )
+from wolfhouse.luna_http_gate import lookup_gate, normalize_gate_snapshot
 from wolfhouse.luna_http_invoke import ensure_luna_http_sol_home, resolve_luna_http_hermes_home
-from wolfhouse.luna_http_outbound import maybe_outbound
+from wolfhouse.luna_http_store import PostgresLunaStore
 from wolfhouse.luna_http_turn import AvailabilityFn, build_inbound_result, run_first_answer_lookup
 
 MAX_SEEN = 2048
@@ -43,6 +44,7 @@ _SUNSET_HTTP_ENV_KEYS = frozenset(
         "STAFF_API_BASE_URL",
         "LUNA_HTTP_LISTEN_HOST",
         "LUNA_HTTP_LISTEN_PORT",
+        "LUNA_HTTP_DATABASE_URL",
         "PYTHONPATH",
         "API_SERVER_ENABLED",
         "GATEWAY_ALLOW_ALL_USERS",
@@ -93,6 +95,8 @@ def handle_inbound_request(
     replay: ReplayCache,
     availability: AvailabilityFn | None = None,
     outbound_fn: Callable[..., dict[str, Any]] | None = None,
+    store: Any | None = None,
+    gate_lookup: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> tuple[int, dict]:
     if not expected_token or not _constant_time_eq(
         authorization, f"Bearer {expected_token}"
@@ -105,27 +109,77 @@ def handle_inbound_request(
             status = 403
         return status, {"error": reason}
     request_id = req["request_id"]
-    if not replay.claim(request_id):
+    if store is None and not replay.claim(request_id):
         return 409, {"error": "replay"}
+    context = None
     try:
+        # Production always supplies PostgresLunaStore. The optional seam keeps old
+        # first-slice unit tests isolated; Phase 1 tests exercise durable ordering.
+        context = store.persist_and_enqueue(req) if store is not None else None
+        if context and context.get("duplicate"):
+            if store is None:
+                replay.finish(request_id)
+            return 200, {
+                "schema": "luna_guest_runtime_result_v1",
+                "runtime": RUNTIME,
+                "request_id": request_id,
+                "accepted": True,
+                "duplicate": True,
+                "inbound_event_id": context["inbound_event_id"],
+                "conversation_id": context["conversation_id"],
+            }
         replay.mark_invoke_started(request_id)
-        lookup = run_first_answer_lookup(req, availability=availability)
-        outbound_impl = outbound_fn or maybe_outbound
-        outbound = outbound_impl(
-            req,
-            reply_hint=(lookup.get("result") or {}).get("guest_safe_next_action")
-            if isinstance(lookup.get("result"), dict)
-            else None,
-        )
+        gate = normalize_gate_snapshot((gate_lookup or lookup_gate)(req))
+        if gate["live_send_blocked"] and gate["bot_paused"]:
+            lookup = {"ok": False, "result": None, "notes": ["automation_gate_paused"]}
+        else:
+            lookup = run_first_answer_lookup(req, availability=availability)
+        # Phase 1 has no sender; only a durable intended-reply record is created.
+        outbound = {"mode": "none", "sent": False, "via": None}
         payload = build_inbound_result(req, lookup, outbound=outbound)
+        payload["accepted"] = True
+        payload["duplicate"] = False
+        payload["gate_snapshot"] = gate
+        if context:
+            payload["inbound_event_id"] = context["inbound_event_id"]
+            payload["conversation_id"] = context["conversation_id"]
+            payload["outbox"] = store.complete_turn(context, payload, gate)
+    except ValueError as exc:
+        if str(exc) == "idempotency_conflict":
+            return 409, {"error": "idempotency_conflict"}
+        if context is not None:
+            return 200, {
+                "schema": "luna_guest_runtime_result_v1",
+                "runtime": RUNTIME,
+                "request_id": request_id,
+                "accepted": True,
+                "duplicate": False,
+                "processing_status": "queued",
+                "inbound_event_id": context["inbound_event_id"],
+                "conversation_id": context["conversation_id"],
+                "processing_error": type(exc).__name__,
+            }
+        return 400, {"error": "invalid_request"}
     except Exception as exc:  # noqa: BLE001
-        replay.release(request_id)
-        return 502, {"error": "turn_failed", "detail": type(exc).__name__}
-    if not payload.get("first_answer", {}).get("ok", True):
-        # Still return 200 with graded first_answer so callers can assert —
-        # the runtime did the joinable path; notes explain any residual risk.
-        pass
-    replay.finish(request_id)
+        if context is not None:
+            # Admission is already durable. A downstream failure must not invite
+            # the source to create a second event; the queued row remains retryable.
+            return 200, {
+                "schema": "luna_guest_runtime_result_v1",
+                "runtime": RUNTIME,
+                "request_id": request_id,
+                "accepted": True,
+                "duplicate": False,
+                "processing_status": "queued",
+                "inbound_event_id": context["inbound_event_id"],
+                "conversation_id": context["conversation_id"],
+                "processing_error": type(exc).__name__,
+            }
+        if store is None:
+            replay.release(request_id)
+        return 503, {"error": "durability_or_turn_failed", "detail": type(exc).__name__}
+    if store is None:
+        replay.finish(request_id)
     return 200, payload
 
 
@@ -134,6 +188,8 @@ def make_handler(
     replay: ReplayCache,
     availability: AvailabilityFn | None = None,
     outbound_fn: Callable[..., dict[str, Any]] | None = None,
+    store: Any | None = None,
+    gate_lookup: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -186,6 +242,8 @@ def make_handler(
                 replay=replay,
                 availability=availability,
                 outbound_fn=outbound_fn,
+                store=store,
+                gate_lookup=gate_lookup,
             )
             if status == 200:
                 fa = payload.get("first_answer", {})
@@ -221,7 +279,7 @@ def main() -> int:
         return 1
     host = os.environ.get("LUNA_HTTP_LISTEN_HOST", "127.0.0.1")
     port = int(os.environ.get("LUNA_HTTP_LISTEN_PORT", "8094"))
-    handler = make_handler(token, ReplayCache(MAX_SEEN))
+    handler = make_handler(token, ReplayCache(MAX_SEEN), store=PostgresLunaStore())
     httpd = ThreadingHTTPServer((host, port), handler)
     print(f"sunset-luna-http listening on {host}:{port}", flush=True)
     httpd.serve_forever()
