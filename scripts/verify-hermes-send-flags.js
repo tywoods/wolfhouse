@@ -77,11 +77,11 @@ const DECISION_RECORD = Object.freeze({
   },
   needs_human_blocks_on_hermes_not_js: {
     status: 'ruled',
-    ruling: 'hermes-quiet',
+    ruling: 'wolfhouse-quiet-sunset-review',
   },
   sunset_needs_human_carveout_defeated: {
     status: 'ruled',
-    ruling: 'keep-hermes-fail-closed',
+    ruling: 'honour-staff-api-carveout',
   },
   email_pause_advisory: {
     status: 'ruled',
@@ -967,16 +967,16 @@ async function main() {
         flags: { luna_auto_send_enabled: true, whatsapp_dry_run: false },
       });
 
-      // Ruling (a): Hermes quiet is correct. Staging source of truth.
-      check('(a) Hermes goes quiet on a needs_human thread with no pause row (ruling: hermes-quiet)',
+      // Ruling (a): Wolfhouse still quiets on needs_human (Staff API bot_paused).
+      // Sunset Needs human is review state, not an inbound mute (LIVE-TEST-001).
+      check('(a) Wolfhouse goes quiet on a needs_human thread with no pause row',
         pauseRows.get('wolfhouse_needs_human').paused === true);
-      check('(a) the JS legacy path still replies — unchanged this PR; needs_human advisory there',
+      check('(a) the JS legacy path still replies — needs_human advisory there',
         jsSide(true).mode === 'auto' && jsSide(true).advisory_reasons.includes('needs_human'),
         JSON.stringify(jsSide(true)));
-      // Ruling (b): keep Hermes fail-closed; do not open the Python carve-out.
-      check('(b) Sunset carve-out response still fails closed in pause_gate (ruling: keep-hermes-fail-closed)',
-        pauseRows.get('sunset_carveout').paused === true,
-        'opening the carve-out in Python would break this pin — that is not the ruling');
+      check('(b) Sunset needs_human carve-out is honoured (review, not mute)',
+        pauseRows.get('sunset_carveout').paused === false,
+        'Sunset needs_human must not pause the Hermes agent');
       check('a thread with nothing flagged is not blocked (the gate is not a brick)',
         pauseRows.get('clear').paused === false);
     }

@@ -24,7 +24,7 @@ the shipped code, and pins each ruling so it cannot drift quietly.
 | Gate | Legacy JS route | Hermes (staging) |
 |------|-----------------|------------------|
 | `bot_pause_states` global / conversation row | blocks (`gate_bot_paused`) | blocks (via the Staff API gate) |
-| `conversations.needs_human` | never read — sends | blocks — divergence (a) |
+| `conversations.needs_human` | never read — sends | Wolfhouse: blocks via Staff `bot_paused`. Sunset: review flag only — Luna still answers (SUNSET-LUNA-LIVE-TEST-001). |
 | `LUNA_AUTO_SEND_ENABLED` | blocks unless `send_kind: 'staff_reply'` | blocks (this change) |
 | `WHATSAPP_DRY_RUN` | blocks at the provider | blocks (this change) |
 | Staff API unreachable / unusable | pause read failure does not block | blocks (fail closed) |
@@ -142,47 +142,34 @@ The gate pins each ruling so the decided behaviour cannot drift without updating
 | id | question | status | ruling |
 |----|----------|--------|--------|
 | `kill_switch_flags_unread_by_hermes` | Should the Hermes send path honour both kill-switch flags, fail-closed? | `resolved-in-this-pr` | `honour-both-flags-fail-closed` |
-| `needs_human_blocks_on_hermes_not_js` | A thread flagged for a human with no pause row — does Luna keep talking (JS) or go quiet (Hermes)? | `ruled` | `hermes-quiet` |
-| `sunset_needs_human_carveout_defeated` | Sunset exempts needs_human from pausing, and Python overrides it — is the carve-out the intent, or dead code? | `ruled` | `keep-hermes-fail-closed` |
+| `needs_human_blocks_on_hermes_not_js` | A thread flagged for a human with no pause row — does Luna keep talking (JS) or go quiet (Hermes)? | `ruled` | `wolfhouse-quiet-sunset-review` |
+| `sunset_needs_human_carveout_defeated` | Sunset exempts needs_human from pausing — should Python honour that carve-out? | `ruled` | `honour-staff-api-carveout` |
 | `email_pause_advisory` | Off is off on WhatsApp but not on the staff email Luna draft — should Off mean off on both channels? | `ruled` | `fail-closed` |
 
-### (a) `needs_human` blocks on Hermes but not in JS — **ruled: Hermes quiet**
+### (a) `needs_human` on Hermes vs JS — **ruled: Wolfhouse quiet, Sunset review**
 
 `scripts/lib/luna-guest-reply-send-route.js` never reads `conversations.needs_human`, so with
-`bot_pause_states` clear it sends. The Staff API gate reports `needs_human` as an effective
-pause (`source: 'conversations_needs_human'`) and `pause_gate.py` honours it, so Hermes stays
-silent on the same thread.
+`bot_pause_states` clear it sends. For **Wolfhouse**, the Staff API gate reports `needs_human`
+as an effective pause (`source: 'conversations_needs_human'`, `bot_paused: true`) and Hermes
+honours `bot_paused`, so Wolfhouse Luna stays silent on that thread.
 
-**Ruling:** Hermes is right. A flagged thread with no pause row → Luna goes quiet. Hermes is
-the staging source of truth. The JS legacy path is **not** changed in this PR; aligning it is
-separate work. The gate pins Hermes quiet on a `conversations_needs_human` response.
+For **Sunset**, Needs human is conversation-scoped **review state**, not an inbound mute
+(SUNSET-LUNA-LIVE-TEST-001). Staff API already returns `bot_paused: false` while still
+reporting `needs_human: true`. Hermes must follow that: persist the flag, produce the
+guest-visible reassurance on the handoff turn, and keep answering later inbound questions.
 
-### (b) The Sunset `needs_human` carve-out is defeated in Python — **ruled: keep Hermes fail-closed**
+**Ruling:** Wolfhouse quiet via Staff `bot_paused`. Sunset review-not-mute. Do not add a
+second toggle. Tenant-global Auto/Draft/Off remains the only channel autonomy control.
+
+### (b) The Sunset `needs_human` carve-out — **ruled: honour Staff API carve-out**
 
 `checkGuestAutomationPauseState` in `scripts/staff-query-api.js` deliberately exempts Sunset —
 it returns `bot_paused: false` and `can_continue_guest_automation: true` while still reporting
-the raw `needs_human` field. `pause_gate.py` then does:
+the raw `needs_human` field. `pause_gate.py` must **not** OR `needs_human` back into agent
+pause or Meta-send suppression. Draft mode still stages an Inbox draft and never sends.
 
-```python
-paused = bool(
-    data.get("bot_paused")
-    or data.get("live_send_blocked")
-    or data.get("can_continue_guest_automation") is False
-    or data.get("needs_human") is True       # ← overrides the carve-out
-    or data.get("paused") is True
-)
-```
-
-so Sunset Luna goes quiet anyway and the carve-out has no effect on staging.
-
-**Ruling:** Keep Hermes fail-closed. Do **not** open the carve-out in Python — under (a) the
-carve-out is contradictory (a flagged thread must go quiet). The gate pins that
-`pause_gate.py` still returns paused for the Sunset carve-out response shape.
-
-If the Staff API carve-out is wrong (dead code that misleads), that fix belongs in
-operator-owned `scripts/staff-query-api.js`: stop special-casing `sunset` in the
-`needs_human` branch of `checkGuestAutomationPauseState` so it reports `bot_paused: true`
-like every other tenant. **Described here; not edited in this PR.**
+**Ruling:** Honour the Staff API Sunset carve-out. `pause_gate.py` treats `needs_human` as
+advisory review state. Wolfhouse still pauses because the gate returns `bot_paused: true`.
 
 ### (c) Pause / kill switches on the email arm — **ruled: fail-closed**
 

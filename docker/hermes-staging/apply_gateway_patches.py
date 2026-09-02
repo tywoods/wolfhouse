@@ -867,9 +867,69 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
         except Exception:
             return None
     # Staff Portal pause gate — block outbound guest replies when Luna is paused.
+    # Draft is persistence, not a Meta send.
     try:
-        from wolfhouse.pause_gate import whatsapp_send_blocked
-        if whatsapp_send_blocked(chat_id):
+        from wolfhouse.pause_gate import whatsapp_outbound_disposition
+        _wh_disp = whatsapp_outbound_disposition(chat_id, force_refresh=True) or {}
+        if _wh_disp.get("stage_as_draft"):
+            try:
+                import sys as _sys
+                print("[wolfhouse] draft mode — staging Inbox draft, suppressing WhatsApp send", file=_sys.stderr)
+            except Exception:
+                pass
+            _wh_draft_staged = False
+            _wh_draft_reason = "draft_stage_failed"
+            try:
+                import importlib.util as _wwm_draft_iu
+                _wwm_draft_spec = _wwm_draft_iu.spec_from_file_location(
+                    "wolfhouse_whatsapp_mirror",
+                    "/etc/hermes-staging/wolfhouse_whatsapp_mirror.py",
+                )
+                _wwm_draft = _wwm_draft_iu.module_from_spec(_wwm_draft_spec)
+                _wwm_draft_spec.loader.exec_module(_wwm_draft)
+                _wh_draft_result = _wwm_draft.mirror_whatsapp_outbound_as_draft(
+                    chat_id,
+                    content,
+                    metadata if isinstance(metadata, dict) else {},
+                )
+                if isinstance(_wh_draft_result, dict) and _wh_draft_result.get("staged") is True:
+                    _wh_draft_staged = True
+                elif isinstance(_wh_draft_result, dict) and _wh_draft_result.get("reason"):
+                    _wh_draft_reason = str(_wh_draft_result.get("reason"))
+                else:
+                    _wh_draft_reason = "draft_not_staged"
+            except Exception as _wh_draft_exc:
+                _wh_draft_staged = False
+                _wh_draft_reason = "draft_stage_exception"
+                try:
+                    import sys as _sys
+                    print(
+                        "[wolfhouse] draft stage failed "
+                        f"({type(_wh_draft_exc).__name__}); blocking Meta send",
+                        file=_sys.stderr,
+                    )
+                except Exception:
+                    pass
+            try:
+                from gateway.platforms.base import SendResult
+                if _wh_draft_staged:
+                    return SendResult(
+                        success=True,
+                        message_id=None,
+                        raw_response={"suppressed_draft_mode": True, "draft_staged": True},
+                    )
+                return SendResult(
+                    success=False,
+                    message_id=None,
+                    raw_response={
+                        "suppressed_draft_mode": True,
+                        "draft_staged": False,
+                        "blocked_reason": _wh_draft_reason,
+                    },
+                )
+            except Exception:
+                return None
+        if _wh_disp.get("send_blocked"):
             try:
                 import sys as _sys
                 print("[wolfhouse] guest automation paused — suppressing WhatsApp send", file=_sys.stderr)
@@ -881,7 +941,21 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             except Exception:
                 return None
     except Exception:
-        pass
+        try:
+            from wolfhouse.pause_gate import whatsapp_send_blocked
+            if whatsapp_send_blocked(chat_id):
+                try:
+                    import sys as _sys
+                    print("[wolfhouse] guest automation paused — suppressing WhatsApp send", file=_sys.stderr)
+                except Exception:
+                    pass
+                try:
+                    from gateway.platforms.base import SendResult
+                    return SendResult(success=True, message_id=None, raw_response={"suppressed_guest_automation_paused": True})
+                except Exception:
+                    return None
+        except Exception:
+            pass
     # Guest output-guard (step 3): a backend/tool leak ("il sistema…", "the quote
     # tool…") must never reach a guest. Replace the whole reply with a warm,
     # localized fallback. Defensive: if the guard module can't import in the gateway

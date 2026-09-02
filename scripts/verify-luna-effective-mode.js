@@ -840,12 +840,10 @@ async function main() {
     const failClosed = readLunaEffectiveModePauseInputsFromGateResponse({ lookup_error: true });
     check('gate-response reader fails closed on an unusable response', failClosed.global_paused === true);
 
-    // What adopting the resolver on the Hermes side would mean, written down rather
-    // than discovered later: piping the gate response through the reader keeps
-    // Hermes's current verdict everywhere the gate has an opinion, and hands the
-    // Sunset needs_human thread back to Luna — which is the carve-out the Staff API
-    // asks for and the Python OR currently overrides. That is a behaviour change and
-    // needs a decision, so it stays a finding, not a patch.
+    // Piping the gate response through the reader keeps Hermes's verdict
+    // everywhere the gate has an opinion, and hands the Sunset needs_human
+    // thread back to Luna — review state, not an inbound mute. Python now
+    // follows the same Staff API carve-out (no raw needs_human OR).
     const openFlags = { luna_auto_send_enabled: true, whatsapp_dry_run: false };
     const clearEligibility = { requires_staff: false, send_allowed_later: true, auto_send_ready: true };
     const viaGate = (cell) => resolveLunaEffectiveMode({
@@ -1049,8 +1047,9 @@ print(json.dumps(out))
   }
 
   const pySrc = read(PAUSE_GATE_PY_PATH);
-  check('python gate ORs the raw needs_human field of the response',
-    /data\.get\("needs_human"\) is True/.test(pySrc));
+  check('python gate does not OR raw needs_human into agent pause',
+    !/data\.get\("needs_human"\) is True/.test(pySrc)
+    && /outbound_disposition_from_gate/.test(pySrc));
 
   const pyPaused = new Map(parsed.map((r) => [r.index, r.paused]));
   const disagreements = [];
@@ -1073,13 +1072,9 @@ print(json.dumps(out))
     cases.filter((c) => !hermesCells[c.index].needs_human)
       .every((c) => pyPaused.get(c.index) === (hermesCells[c.index].response.bot_paused === true)),
     disagreements.filter((d) => !d.cell.needs_human).map((d) => d.label).join(' | '));
-  check('the Sunset needs_human carve-out is defeated in Python, and that is the only disagreement',
-    disagreements.length === 1
-    && disagreements[0].cell.client_slug === 'sunset'
-    && disagreements[0].cell.needs_human === true
-    && disagreements[0].cell.global_paused === false
-    && disagreements[0].cell.conversation_paused === false,
-    disagreements.map((d) => d.label).join(' | ') || 'no disagreement found — has the OR been removed?');
+  check('python and Staff gate agree on the Sunset needs_human carve-out (review, not mute)',
+    disagreements.length === 0,
+    disagreements.map((d) => d.label).join(' | '));
 }
 
 main().catch((err) => {
