@@ -554,11 +554,155 @@ function inboxParkRefreshBtn(){
   if (btn.parentNode !== park) park.insertBefore(btn, park.firstChild);
 }
 
-function inboxAdoptRefreshToHeader(){
-  var btn = inboxRefreshBtn();
+function inboxClearThreadButtonHtml(){
+  var label = (typeof t === 'function' && t('inbox.detail.clearThread.button')) || 'Clear';
+  var help = (typeof t === 'function' && t('inbox.detail.clearThread.help')) ||
+    'Reset Luna memory for this conversation only. Messages and bookings stay.';
+  return '<button type="button" class="pill inbox-clear-thread-btn" id="btn-inbox-clear-thread" title="' +
+    escHtml(help) + '">' + escHtml(label) + '</button>';
+}
+
+function inboxClearThreadDialogHtml(){
+  var title = (typeof t === 'function' && t('inbox.detail.clearThread.title')) || 'Clear Luna session?';
+  var body = (typeof t === 'function' && t('inbox.detail.clearThread.body')) ||
+    'This resets Luna memory for this conversation only. Portal messages, bookings, and payments stay. The next inbound message starts fresh.';
+  var cancel = (typeof t === 'function' && t('common.cancel')) || 'Cancel';
+  var confirm = (typeof t === 'function' && t('inbox.detail.clearThread.confirm')) || 'Clear';
+  var html = '<div id="inbox-clear-thread-dialog" class="inbox-clear-thread-dialog" hidden role="dialog" aria-modal="true" aria-labelledby="inbox-clear-thread-dialog-title" aria-hidden="true">';
+  html += '<div class="inbox-clear-thread-dialog-backdrop" id="inbox-clear-thread-dialog-cancel-backdrop"></div>';
+  html += '<div class="inbox-clear-thread-dialog-card">';
+  html += '<h3 id="inbox-clear-thread-dialog-title">' + escHtml(title) + '</h3>';
+  html += '<p>' + escHtml(body) + '</p>';
+  html += '<div class="inbox-clear-thread-dialog-actions">';
+  html += '<button type="button" class="inbox-clear-thread-dialog-cancel" id="inbox-clear-thread-dialog-cancel">' + escHtml(cancel) + '</button>';
+  html += '<button type="button" class="inbox-clear-thread-dialog-confirm" id="inbox-clear-thread-dialog-confirm">' + escHtml(confirm) + '</button>';
+  html += '</div></div></div>';
+  return html;
+}
+
+function inboxClearThreadOpToken(convId, clientSlug){
+  return String(convId || '') + '::' + String(clientSlug || '');
+}
+
+function inboxClearThreadCurrentToken(){
+  var id = '';
+  try {
+    if (typeof selectedConvId !== 'undefined' && selectedConvId) id = String(selectedConvId);
+  } catch (_e) { id = ''; }
+  var slug = '';
+  try {
+    if (typeof getClient === 'function') slug = String(getClient() || '');
+  } catch (_e2) { slug = ''; }
+  return inboxClearThreadOpToken(id, slug);
+}
+
+var inboxClearThreadDialogState = {
+  open: false,
+  invokeBtn: null,
+  keyHandler: null,
+};
+
+function inboxTeardownClearThreadDialog(){
+  var handler = inboxClearThreadDialogState.keyHandler;
+  inboxClearThreadDialogState.keyHandler = null;
+  inboxClearThreadDialogState.open = false;
+  inboxClearThreadDialogState.invokeBtn = null;
+  if (handler && typeof document !== 'undefined' && document.removeEventListener){
+    document.removeEventListener('keydown', handler, true);
+  }
+  var dialog = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog') : null;
+  if (dialog){
+    dialog.hidden = true;
+    if (dialog.setAttribute) dialog.setAttribute('aria-hidden', 'true');
+  }
+}
+
+function inboxClearThreadFocusables(dialog){
+  var out = [];
+  function walk(n){
+    if (!n) return;
+    var tag = String(n.tagName || '').toUpperCase();
+    if (tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'){
+      var tab = n.getAttribute ? n.getAttribute('tabindex') : null;
+      if (!n.disabled && !n.hidden && tab !== '-1'
+        && !(n.getAttribute && n.getAttribute('aria-hidden') === 'true')){
+        out.push(n);
+      }
+    }
+    var kids = n.children || [];
+    var i;
+    for (i = 0; i < kids.length; i++) walk(kids[i]);
+  }
+  walk(dialog);
+  return out;
+}
+
+function inboxClearThreadTrapKeydown(ev){
+  var dialog = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog') : null;
+  if (!dialog || dialog.hidden) return;
+  var key = ev && (ev.key || ev.keyCode);
+  if (key === 'Escape' || key === 'Esc' || key === 27){
+    if (ev.preventDefault) ev.preventDefault();
+    if (ev.stopPropagation) ev.stopPropagation();
+    inboxSetClearThreadDialogOpen(false);
+    return;
+  }
+  if (key !== 'Tab' && key !== 9) return;
+  var list = inboxClearThreadFocusables(dialog);
+  if (!list.length) return;
+  var first = list[0];
+  var last = list[list.length - 1];
+  var active = typeof document !== 'undefined' ? document.activeElement : null;
+  if (ev.shiftKey){
+    if (active === first || !dialog.contains(active)){
+      if (ev.preventDefault) ev.preventDefault();
+      if (last && last.focus) last.focus();
+    }
+  } else if (active === last || !dialog.contains(active)){
+    if (ev.preventDefault) ev.preventDefault();
+    if (first && first.focus) first.focus();
+  }
+}
+
+function inboxSetClearThreadDialogOpen(open, invokeBtn){
+  var dialog = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog') : null;
+  if (open){
+    if (!dialog) return;
+    dialog.hidden = false;
+    dialog.setAttribute('aria-hidden', 'false');
+    inboxClearThreadDialogState.open = true;
+    inboxClearThreadDialogState.invokeBtn = invokeBtn
+      || (typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null);
+    if (!inboxClearThreadDialogState.keyHandler && typeof document !== 'undefined' && document.addEventListener){
+      inboxClearThreadDialogState.keyHandler = inboxClearThreadTrapKeydown;
+      document.addEventListener('keydown', inboxClearThreadDialogState.keyHandler, true);
+    }
+    var initial = (typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-cancel') : null)
+      || inboxClearThreadFocusables(dialog)[0];
+    if (initial && initial.focus) initial.focus();
+    return;
+  }
+  var restore = inboxClearThreadDialogState.invokeBtn;
+  inboxTeardownClearThreadDialog();
+  if (dialog && restore && restore.focus && !restore.hidden && !restore.disabled){
+    restore.focus();
+  }
+}
+
+function inboxCookSelectedConversationHeaderActions(){
   var row = typeof document !== 'undefined' ? document.getElementById('inbox-header-luna-row') : null;
-  if (!btn || !row) return;
-  if (btn.parentNode !== row || row.lastChild !== btn) row.appendChild(btn);
+  if (!row) return row;
+  var chrome = typeof document !== 'undefined' ? document.getElementById('inbox-chat-chrome-slot') : null;
+  var clearBtn = typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null;
+  var refresh = inboxRefreshBtn();
+  if (chrome) row.appendChild(chrome);
+  if (clearBtn) row.appendChild(clearBtn);
+  if (refresh) row.appendChild(refresh);
+  return row;
+}
+
+function inboxAdoptRefreshToHeader(){
+  inboxCookSelectedConversationHeaderActions();
 }
 
 function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
@@ -907,6 +1051,7 @@ function inboxSelectionIsCurrent(convId, generation){
   return selectedConvId === convId && inboxSelectionGeneration === generation;
 }
 function clearInboxSelection(targetEl){
+  inboxTeardownClearThreadDialog();
   selectedConvId = null;
   inboxSelectionGeneration += 1;
   targetEl = targetEl || el('detail-content');
@@ -919,6 +1064,7 @@ function clearInboxSelection(targetEl){
 }
 function beginConvDetailLoad(targetEl){
   /* Do not leave the old guest actionable while a new selection loads. */
+  inboxTeardownClearThreadDialog();
   inboxParkRefreshBtn();
   targetEl.innerHTML = buildConvDetailSkeleton();
   targetEl.classList.add('is-loading-detail');
@@ -1211,6 +1357,7 @@ function renderInbox(convs, opts){
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
     if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
+    inboxTeardownClearThreadDialog();
     selectedConvId = null;
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
     hideInboxMobileThread();
@@ -1365,6 +1512,7 @@ function loadInbox(selectConvIdAfterLoad, opts){
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
     if (el('conv-list')) el('conv-list').innerHTML = '';
+    inboxTeardownClearThreadDialog();
     selectedConvId = null;
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
     hideInboxMobileThread();
@@ -2194,6 +2342,7 @@ function loadSurfInboxDemoDetail(convId, targetEl){
   html += '<div class="draft-panel"><div class="draft-label"><span style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('inbox.detail.reply.label')) + '</span></div>';
   html += '<textarea disabled placeholder="' + escHtml(portalT('inbox.preview.detailNote')) + '"></textarea></div>';
   html += '</div></div>';
+  inboxTeardownClearThreadDialog();
   targetEl.innerHTML = html;
   return true;
 }
@@ -2338,7 +2487,7 @@ function loadConvDetail(convId, targetEl){
     html +=     '<div class="detail-header-right">';
     html +=       '<div class="inbox-header-stack">';
     html +=         '<div class="inbox-header-stack-channel">' + inboxComposerChannelSwitchHtml(composerChannel) + '</div>';
-    html +=         '<div class="inbox-header-stack-luna" id="inbox-header-luna-row"></div>';
+    html +=         '<div class="inbox-header-stack-luna" id="inbox-header-luna-row">' + inboxClearThreadButtonHtml() + '</div>';
     html +=       '</div>';
     html +=       '<button type="button" class="sidebar-expand-btn" id="inbox-sidebar-expand" aria-controls="inbox-detail-sidebar" title="' + escHtml(t('inbox.detail.sidebar.show') || portalT('inbox.detail.sidebar.show') || 'Show bookings') + '" aria-label="' + escHtml(t('inbox.detail.sidebar.show') || 'Show bookings') + '">&#8592;</button>';
     html +=     '</div>';
@@ -2406,6 +2555,7 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /draft-panel */
 
     /* Dev/testing tools — discreet footer, out of the header */
+    html += inboxClearThreadDialogHtml();
     html += '<details class="detail-conv-toolbar inbox-dev-overflow">';
     html += '<summary class="inbox-dev-overflow-summary" title="Testing tools">⋯</summary>';
     html += '<button type="button" class="pill pill-agent-session-reset" id="btn-agent-session-reset" title="Delete Hermes state.db session + messages for this guest. Portal thread and bookings unchanged. Use after SOUL edits.">Reset Luna session</button>';
@@ -2420,6 +2570,7 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /detail-layout */
 
     inboxParkRefreshBtn();
+    inboxTeardownClearThreadDialog();
     targetEl.innerHTML = html;
     inboxChatHideGuest();
     inboxPaintChatChromeSlot(c, lunaGuestPaused);
@@ -2460,6 +2611,7 @@ function loadConvDetail(convId, targetEl){
     wireInboxNeedsHumanRaise(targetEl);
     wireLunaPauseSwitch(convId, targetEl);
     wireInboxLunaModeControl(targetEl);
+    wireInboxClearThread(convId, targetEl);
     wireFreshStart(convId, targetEl);
     wireAgentSessionReset(convId, targetEl);
 
@@ -2509,7 +2661,58 @@ function loadConvDetail(convId, targetEl){
     }
     targetEl.classList.remove('is-loading-detail');
     inboxParkRefreshBtn();
+    inboxTeardownClearThreadDialog();
     targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
+  });
+}
+
+function wireInboxClearThread(convId, targetEl){
+  var btn = (targetEl && targetEl.querySelector && targetEl.querySelector('#btn-inbox-clear-thread'))
+    || (typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null);
+  if (!btn || btn.dataset.wiredInboxClear === '1') return;
+  btn.dataset.wiredInboxClear = '1';
+  var wiredConvId = String(convId || '');
+  var wiredClientSlug = (typeof getClient === 'function') ? String(getClient() || '') : '';
+  var wiredToken = inboxClearThreadOpToken(wiredConvId, wiredClientSlug);
+  var cancel = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-cancel') : null;
+  var confirm = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-confirm') : null;
+  var backdrop = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-cancel-backdrop') : null;
+  function closeDialog(){ inboxSetClearThreadDialogOpen(false); }
+  btn.addEventListener('click', function(){
+    inboxSetClearThreadDialogOpen(true, btn);
+  });
+  if (cancel) cancel.addEventListener('click', closeDialog);
+  if (backdrop) backdrop.addEventListener('click', closeDialog);
+  if (!confirm) return;
+  confirm.addEventListener('click', function(){
+    var requestToken = wiredToken;
+    confirm.disabled = true;
+    btn.disabled = true;
+    fetch('/staff/conversations/' + encodeURIComponent(wiredConvId) + '/clear-thread-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_slug: wiredClientSlug }),
+    })
+      .then(function(r){
+        if (r.status === 401) throw new Error('Authentication required');
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        if (inboxClearThreadCurrentToken() !== requestToken) return;
+        var d = out.data || {};
+        if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
+        closeDialog();
+        alert('Luna session cleared for this conversation. The next inbound message starts fresh.');
+      })
+      .catch(function(err){
+        if (inboxClearThreadCurrentToken() !== requestToken) return;
+        alert(err.message || 'Could not clear Luna session');
+      })
+      .finally(function(){
+        if (inboxClearThreadCurrentToken() !== requestToken) return;
+        confirm.disabled = false;
+        btn.disabled = false;
+      });
   });
 }
 
@@ -2584,6 +2787,7 @@ function wireDeleteConversation(convId){
       var d = out.data || {};
       if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
       if (selectedConvId === convId){
+        inboxTeardownClearThreadDialog();
         selectedConvId = null;
         el('detail-content').innerHTML = inboxEmptyDetailHtml();
         hideInboxMobileThread();

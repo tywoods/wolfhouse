@@ -39,6 +39,10 @@ check('C1', /reset-agent-session/.test(staffApi), 'portal reset-agent-session ro
 check('C2', /btn-agent-session-reset/.test(staffApi), 'Reset Luna session button');
 check('C3', /handleConversationResetAgentSession/.test(staffApi), 'agent-only reset handler');
 check('C4', /hard_delete:\s*true/.test(staffApi), 'full wipe uses hard_delete');
+check('C5', /clear-thread-session/.test(staffApi), 'Inbox Clear uses distinct clear-thread-session route');
+check('C6', /handleConversationClearThreadSession/.test(staffApi), 'Inbox Clear has its own handler');
+check('C7', /guest-session-key-reset/.test(resetLib), 'Clear Hermes client uses distinct session-key route');
+check('C8', /guest-fresh-start/.test(resetLib), 'overflow/full-wipe Hermes client keeps guest-fresh-start');
 
 check('D1', /hard_delete/.test(resetLib), 'Staff API client sends hard_delete');
 check('D2', /lunabox\.lunafrontdesk\.com/.test(resetLib), 'default Hermes base is Lunabox');

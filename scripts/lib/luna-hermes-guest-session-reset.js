@@ -12,14 +12,23 @@ function normalizeGuestPhone(raw) {
   return `+${digits}`;
 }
 
-function hermesFreshStartUrl() {
-  const explicit = String(process.env.WOLFHOUSE_HERMES_GUEST_FRESH_START_URL || '').trim();
-  if (explicit) return explicit.replace(/\/$/, '');
-  const base = String(
+function hermesBaseUrl() {
+  return String(
     process.env.WOLFHOUSE_HERMES_BASE_URL
     || 'https://lunabox.lunafrontdesk.com',
   ).trim().replace(/\/$/, '');
-  return `${base}/wolfhouse/guest-fresh-start`;
+}
+
+function hermesFreshStartUrl() {
+  const explicit = String(process.env.WOLFHOUSE_HERMES_GUEST_FRESH_START_URL || '').trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+  return `${hermesBaseUrl()}/wolfhouse/guest-fresh-start`;
+}
+
+function hermesSessionKeyResetUrl() {
+  const explicit = String(process.env.WOLFHOUSE_HERMES_GUEST_SESSION_KEY_RESET_URL || '').trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+  return `${hermesBaseUrl()}/wolfhouse/guest-session-key-reset`;
 }
 
 /**
@@ -86,8 +95,78 @@ async function resetHermesGuestSession(guestPhone, opts = {}) {
   }
 }
 
+/**
+ * Inbox Clear — reset only the live Hermes session_key for this guest.
+ * Distinct Hermes route (never guest-fresh-start / hard_delete). That path
+ * wipes shared USER.md/MEMORY.md and every state.db session for the phone.
+ */
+async function resetHermesConversationSession(guestPhone, opts = {}) {
+  const phone = normalizeGuestPhone(guestPhone);
+  if (!phone) {
+    return { attempted: false, ok: false, reason: 'invalid_phone' };
+  }
+
+  const token = String(process.env.LUNA_BOT_INTERNAL_TOKEN || '').trim();
+  if (!token) {
+    return { attempted: false, ok: false, reason: 'missing_bot_token' };
+  }
+
+  const url = hermesSessionKeyResetUrl();
+  const body = JSON.stringify({
+    guest_phone: phone,
+    conversation_id: opts.conversation_id || null,
+  });
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Luna-Bot-Token': token,
+  };
+
+  try {
+    const res = await fetch(url, { method: 'POST', headers, body });
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = {};
+    }
+    if (!res.ok) {
+      return {
+        attempted: true,
+        ok: false,
+        reason: data.reason || data.error || `http_${res.status}`,
+        status: res.status,
+        session_key: data.session_key || null,
+        reset: data.reset || false,
+        scope: data.scope || 'session_key',
+      };
+    }
+    return {
+      attempted: true,
+      ok: Boolean(data.ok),
+      reset: Boolean(data.reset),
+      hard_delete: false,
+      scope: data.scope || 'session_key',
+      reason: data.reason || null,
+      session_key: data.session_key || null,
+      old_session_id: data.old_session_id || null,
+      deleted_session_ids: data.deleted_session_ids || [],
+      deleted_count: data.deleted_count != null ? data.deleted_count : null,
+      status: res.status,
+    };
+  } catch (err) {
+    return {
+      attempted: true,
+      ok: false,
+      reason: err && err.message ? err.message : 'request_failed',
+      scope: 'session_key',
+    };
+  }
+}
+
 module.exports = {
   normalizeGuestPhone,
   hermesFreshStartUrl,
+  hermesSessionKeyResetUrl,
   resetHermesGuestSession,
+  resetHermesConversationSession,
 };

@@ -210,6 +210,7 @@ const ROUTE_STATIC_SEGMENT_ALLOWLIST = Object.freeze([
   'remove-service',
   'rental-price',
   'reset-agent-session',
+  'clear-thread-session',
   'reset-luna-context',
   'reset-luna-phone',
   'resolve',
