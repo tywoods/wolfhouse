@@ -2702,7 +2702,11 @@ function wireInboxClearThread(convId, targetEl){
         var d = out.data || {};
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
         closeDialog();
-        alert('Luna session cleared for this conversation. The next inbound message starts fresh.');
+        var thread = typeof document !== 'undefined' ? document.getElementById('thread-container') : null;
+        if (thread) {
+          thread.innerHTML = '<div class="state-msg">Conversation cleared. The next inbound message starts fresh.</div>';
+        }
+        alert('Conversation cleared from this chat window. Luna’s next inbound message starts fresh.');
       })
       .catch(function(err){
         if (inboxClearThreadCurrentToken() !== requestToken) return;
