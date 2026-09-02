@@ -32,6 +32,7 @@ _PATH_TOOL_NAMES = {
     "sunset/rental-price": "get_sunset_rental_price",
     "sunset/full-day-addon": "get_sunset_full_day_equipment_addon",
     "sunset/private-lesson": "get_sunset_private_lesson",
+    "sunset/bookings-by-phone": "list_sunset_bookings",
 }
 
 

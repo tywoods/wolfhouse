@@ -143,6 +143,24 @@ check("turn adapter does NOT scrub fabricated price (advisory only)", fab_out ==
 # never raises on garbage input
 check("turn adapter survives garbage", og.guard_turn_response(None, object(), object()) is None)
 
+print("booking denial contradiction (Hernan Kyle/George):")
+_deny = "Nothing is booked yet — a human from the Sunset team is coming into the chat."
+_create_tc = [{"name": "create_sunset_booking", "result_summary": '{"success": true, "booking_code": "SUNSET-KYLE"}'}]
+check("create success + deny is a contradiction",
+      og.find_booking_denial_contradiction(_deny, _create_tc) == "deny_after_create")
+safe_denial, find_denial = og.guard_reply(_deny, guest_lang="en", tool_calls=_create_tc)
+check("guard replaces deny with ask fallback", safe_denial == og.BOOKING_ASK_FALLBACK["en"])
+check("guard emits booking_denial_contradiction block",
+      any(f["kind"] == "booking_denial_contradiction" and f["severity"] == "block" for f in find_denial))
+_take = [{"name": "get_sunset_lesson_availability", "result_summary": '{"success": true, "take_request": true}'}]
+check("take_request without create is not a contradiction",
+      og.find_booking_denial_contradiction(_deny, _take) is None)
+_list_rows = [{"name": "list_sunset_bookings", "result_summary": '{"success": true, "count": 2, "booking_code": "SUNSET-KYLE"}'}]
+check("list rows + deny is a contradiction",
+      og.find_booking_denial_contradiction(_deny, _list_rows) == "deny_after_list_rows")
+check("ask fallback is leak-clean", not og.find_leaks(og.BOOKING_ASK_FALLBACK["en"]))
+check("ask fallback is not itself a denial", og.find_booking_denial_contradiction(og.BOOKING_ASK_FALLBACK["en"], _create_tc) is None)
+
 # --- orchestrator / operator: never guest handoff copy ------------------------
 print("orchestrator mode (no guest leak scrub):")
 _prev_role = os.environ.get("HERMES_ROLE")

@@ -63,6 +63,14 @@ SAFE_FALLBACK: Dict[str, str] = {
     "es": "Déjame confirmarlo con mi equipo y te respondo enseguida! 😊",
 }
 
+# Ask — never deny — when tool truth already shows a booking (Hernan contradiction).
+BOOKING_ASK_FALLBACK: Dict[str, str] = {
+    "en": "I want to double-check what's already booked for this number — one moment.",
+    "it": "Controllo cosa risulta già prenotato su questo numero — un attimo.",
+    "es": "Déjame comprobar qué reservas hay ya a tu nombre — un momento.",
+    "de": "Ich prüfe kurz, was auf dieser Nummer schon gebucht ist — einen Moment.",
+}
+
 # --- provider / API error scrub (graceful degradation) ------------------------
 # When every model provider fails (outage, quota, expired token), the gateway can
 # surface a raw API error as the "reply" — a guest must NEVER see that. Detect the
@@ -157,6 +165,86 @@ def find_leaks(text: str) -> List[str]:
 
 
 _PRICE_RE = re.compile(r"(?:€|eur\b|euro\b)\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*(?:€|eur\b|euro\b)", re.IGNORECASE)
+
+_NOTHING_BOOKED_RE = re.compile(
+    r"nothing is booked|nothing'?s booked|no booking yet|"
+    r"nada est[aá] reservad|no hay reserva|no tienes reserva|"
+    r"todav[ií]a no (?:hay|tiene) reserva",
+    re.IGNORECASE,
+)
+
+
+def _tool_result_blob(tc: Dict[str, Any]) -> str:
+    import json
+
+    parts = [str(tc.get("name") or tc.get("tool") or "")]
+    for key in ("result_summary", "result", "output", "args"):
+        val = tc.get(key)
+        if val is None:
+            continue
+        if isinstance(val, str):
+            parts.append(val)
+            continue
+        try:
+            parts.append(json.dumps(val, default=str, ensure_ascii=False))
+        except Exception:
+            parts.append(str(val))
+    return " ".join(parts)
+
+
+def _parse_tool_success(blob: str) -> bool:
+    low = blob.lower()
+    if '"success": false' in low or "'success': false" in low or "success=false" in low:
+        return False
+    return '"success": true' in low or "'success': true" in low or "success=true" in low or "success=true" in low.replace(" ", "")
+
+
+def find_booking_denial_contradiction(
+    text: str,
+    tool_calls: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[str]:
+    """Block 'nothing is booked' when create/list truth already shows bookings.
+
+    take_request copy is allowed when there is no successful create and no
+    list rows. Unclear list (success false) also blocks a denial — ask instead.
+    """
+    if not _NOTHING_BOOKED_RE.search(str(text or "")):
+        return None
+    has_create = False
+    has_list_rows = False
+    list_unclear = False
+    for tc in tool_calls or []:
+        name = str((tc or {}).get("name") or (tc or {}).get("tool") or "")
+        blob = _tool_result_blob(tc if isinstance(tc, dict) else {})
+        low = blob.lower()
+        if name == "create_sunset_booking" and _parse_tool_success(blob):
+            has_create = True
+        if name == "list_sunset_bookings":
+            if _parse_tool_success(blob):
+                if re.search(r'"count"\s*:\s*[1-9]', blob) or re.search(
+                    r"count=([1-9]\d*)", low
+                ):
+                    has_list_rows = True
+                if re.search(r'"booking_code"\s*:', blob):
+                    has_list_rows = True
+            else:
+                if "success" in low:
+                    list_unclear = True
+                elif "error" in low or "failed" in low:
+                    list_unclear = True
+    if has_create:
+        return "deny_after_create"
+    if has_list_rows:
+        return "deny_after_list_rows"
+    if list_unclear:
+        return "deny_while_list_unclear"
+    return None
+
+
+def booking_ask_fallback_for(text: str, guest_lang: Optional[str] = None) -> str:
+    lang = (guest_lang or guess_language(text))[:2]
+    return BOOKING_ASK_FALLBACK.get(lang, BOOKING_ASK_FALLBACK["en"])
+
 
 
 def _digits(s: str) -> str:
@@ -306,6 +394,11 @@ def guard_reply(
     if leaks:
         findings.append({"kind": "leak", "severity": "block", "detail": leaks})
         text = safe_fallback_for(reply_text, guest_lang)
+
+    denial = find_booking_denial_contradiction(reply_text, tool_calls)
+    if denial:
+        findings.append({"kind": "booking_denial_contradiction", "severity": "block", "detail": denial})
+        text = booking_ask_fallback_for(reply_text, guest_lang)
 
     prices = find_unsourced_prices(reply_text, tool_calls)
     if prices:

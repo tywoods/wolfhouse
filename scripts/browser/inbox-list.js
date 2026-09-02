@@ -199,19 +199,50 @@ function inboxThreadMessageSubjectText(m){
   if (m.subject != null && String(m.subject).length) return String(m.subject);
   return '';
 }
+/**
+ * Safely render WhatsApp/markdown **bold** and https links in Inbox bubbles.
+ * Escape first — never interpret raw HTML. javascript: URLs stay plain text.
+ */
+function formatInboxMarkdownHtml(text){
+  var raw = String(text == null ? '' : text);
+  if (!raw) return '';
+  var re = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<]+[^\s<.,;:!?)\]])|((?:[\w-]+\.)*lunafrontdesk\.com\/pay\/[^\s<.,;:!?)]+)|\*\*([^*]+)\*\*/gi;
+  var parts = [];
+  var last = 0;
+  var m;
+  function pushMsgLink(href, label){
+    parts.push('<a class="msg-link" href="' + escHtml(href) + '" target="_blank" rel="noopener noreferrer">' +
+      escHtml(label) + '</a>');
+  }
+  while ((m = re.exec(raw)) !== null) {
+    if (m.index > last) parts.push(escHtml(raw.slice(last, m.index)));
+    if (m[1] && m[2]) {
+      pushMsgLink(m[2], m[1]);
+    } else if (m[3]) {
+      pushMsgLink(m[3], m[3]);
+    } else if (m[4]) {
+      pushMsgLink('https://' + m[4], m[4]);
+    } else if (m[5]) {
+      parts.push('<strong>' + escHtml(m[5]) + '</strong>');
+    }
+    last = re.lastIndex;
+  }
+  if (last < raw.length) parts.push(escHtml(raw.slice(last)));
+  return parts.join('');
+}
 function formatInboxThreadBubbleHtml(m){
   var subject = inboxThreadMessageSubjectText(m);
   var body = inboxThreadMessageBodyText(m);
   // Distinct subject + body: retain subject chrome and render truthful body.
   if (subject && body && subject !== body) {
-    return '<div class="msg-email-subject">' + escHtml(subject) + '</div>' + formatThreadMessageHtml(body);
+    return '<div class="msg-email-subject">' + escHtml(subject) + '</div>' + formatInboxMarkdownHtml(body);
   }
   // Subject-only inbound (bridge stores subject in message_text; body empty):
   // show subject once — never a blank body content area.
   if (subject && (!body || subject === body)) {
     return '<div class="msg-email-subject">' + escHtml(subject) + '</div>';
   }
-  return formatThreadMessageHtml(body || '');
+  return formatInboxMarkdownHtml(body || '');
 }
 function inboxThreadDayKey(ts){
   if (!ts) return '';

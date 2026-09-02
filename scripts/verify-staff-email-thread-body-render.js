@@ -68,13 +68,11 @@ function loadProductionBubbleRenderer() {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
     },
-    formatThreadMessageHtml(text) {
-      return stubs.escHtml(String(text == null ? '' : text));
-    },
   };
   const code = [
     extractPortalFn(source, 'inboxThreadMessageBodyText'),
     extractPortalFn(source, 'inboxThreadMessageSubjectText'),
+    extractPortalFn(source, 'formatInboxMarkdownHtml'),
     extractPortalFn(source, 'formatInboxThreadBubbleHtml'),
   ].join('\n');
   const sandbox = { ...stubs, Object, String };

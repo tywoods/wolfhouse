@@ -292,9 +292,9 @@ check("[c1] SOUL names rental catalog tool", "get_sunset_rental_catalog" in soul
 check("[c2] SOUL does not name unregistered group_lesson_quote", "get_sunset_group_lesson_quote" not in soul)
 
 # Bold tool mentions like **get_sunset_...**
-soul_tools = set(re.findall(r"\*\*(get_sunset_[a-z0-9_]+|flag_needs_human|create_sunset_[a-z0-9_]+)\*\*", soul))
+soul_tools = set(re.findall(r"\*\*(get_sunset_[a-z0-9_]+|flag_needs_human|create_sunset_[a-z0-9_]+|list_sunset_bookings)\*\*", soul))
 # also bare backticks
-soul_tools |= set(re.findall(r"`(get_sunset_[a-z0-9_]+|flag_needs_human|create_sunset_[a-z0-9_]+)`", soul))
+soul_tools |= set(re.findall(r"`(get_sunset_[a-z0-9_]+|flag_needs_human|create_sunset_[a-z0-9_]+|list_sunset_bookings)`", soul))
 unknown = sorted(t for t in soul_tools if t not in registered_names)
 check("[c3] SOUL tools ⊆ registered sunset tools", not unknown, {"unknown": unknown, "registered": sorted(registered_names), "soul": sorted(soul_tools)})
 

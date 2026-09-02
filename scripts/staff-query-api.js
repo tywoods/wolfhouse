@@ -642,6 +642,10 @@ const {
   resolveSunsetBotBodyLocation,
 } = require('./lib/sunset-catalog-tool-executor');
 const {
+  loadSunsetBookingsByPhone,
+  resolveSunsetListScope,
+} = require('./lib/sunset-bot-bookings-by-phone');
+const {
   tryHandleSunsetWaiverPublicRoute,
 } = require('./lib/sunset-waiver-routes');
 const {
@@ -45270,6 +45274,69 @@ async function handleBotSunsetPaymentStatus(req, res) {
   }
 }
 
+async function handleBotSunsetBookingsByPhone(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const phone = String(body.phone || body.guest_phone || '').trim();
+  if (!phone) {
+    return sendJSON(res, 400, {
+      ok: false, success: false, reason: 'phone_required',
+      tool: 'list_sunset_bookings', no_whatsapp: true, no_payment_write: true, no_n8n: true,
+    });
+  }
+  const scope = resolveSunsetListScope({
+    clientSlug: SUNSET_CLIENT_SLUG,
+    locationId: body.location_id || body.location,
+  });
+  if (!scope.ok) {
+    return sendJSON(res, 400, {
+      ok: false, success: false, reason: scope.error,
+      location_id: scope.location_id || null,
+      client_slug: SUNSET_CLIENT_SLUG,
+      no_whatsapp: true, no_payment_write: true, no_n8n: true,
+    });
+  }
+  try {
+    const listed = await withPgClient((pg) => loadSunsetBookingsByPhone(pg, {
+      phone,
+      locationId: scope.locationId,
+      clientSlug: SUNSET_CLIENT_SLUG,
+    }));
+    if (!listed.ok) {
+      const status = listed.error === 'phone_required' ? 400 : 500;
+      return sendJSON(res, status, {
+        ok: false, success: false, reason: listed.error,
+        tool: 'list_sunset_bookings',
+        client_slug: SUNSET_CLIENT_SLUG,
+        location_id: scope.locationId,
+        count: 0,
+        bookings: [],
+        no_whatsapp: true, no_payment_write: true, no_n8n: true,
+        elapsed_ms: Date.now() - started,
+      });
+    }
+    return sendJSON(res, 200, {
+      ok: true,
+      success: true,
+      tool: 'list_sunset_bookings',
+      client_slug: SUNSET_CLIENT_SLUG,
+      location_id: listed.location_id,
+      count: listed.count,
+      bookings: listed.bookings,
+      no_whatsapp: true,
+      no_payment_write: true,
+      no_n8n: true,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false, error: 'booking lookup failed', detail: err.message,
+      tool: 'list_sunset_bookings', no_whatsapp: true, no_payment_write: true, no_n8n: true,
+    });
+  }
+}
+
 async function handleBotSunsetWaiverLink(req, res) {
   const started = Date.now();
   let body = {};
@@ -50356,6 +50423,16 @@ async function router(req, res) {
     if (!auth.ok) return;
     return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
       handleBotSunsetPaymentStatus(req, res));
+  }
+  if (pathname === '/staff/bot/sunset/bookings-by-phone') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/bookings-by-phone' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetBookingsByPhone(req, res));
   }
   if (pathname === '/staff/bot/sunset/waiver-link') {
     if (method !== 'POST') {
