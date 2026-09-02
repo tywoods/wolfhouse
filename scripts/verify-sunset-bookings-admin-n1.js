@@ -1145,68 +1145,96 @@ async function testGeneratedUi() {
       guestHtml.includes('&lt;') && !/<img\b/i.test(guestHtml) && !/<script\b/i.test(guestHtml),
       guestHtml.slice(0, 160));
 
-    // Code → Schedule day nav + drawer via REAL generated production openBookingInSchedule.
-    // Intercept only legitimate boundaries (tab / day nav / drawer) — never replace the owner.
-    const hasProductionOpen = await page.evaluate(() => typeof window.openBookingInSchedule === 'function');
-    ok('generated production openBookingInSchedule is present on portal', hasProductionOpen);
+    // Code → shared detail drawer over Reservas (never Horario tab / day nav).
+    // Intercept drawer + tab + day boundaries — production must open drawer only.
+    const hasProductionDrawer = await page.evaluate(() => typeof window.openScheduleDetailDrawer === 'function');
+    ok('generated production openScheduleDetailDrawer is present on portal', hasProductionDrawer);
     await page.evaluate(() => {
       window.__bookingsScheduleNav = [];
-      window.__productionOpenBookingInSchedule = window.openBookingInSchedule;
-      // Legitimate boundary stubs only — production owner must call these.
-      window.scheduleOpenDayDetail = function (iso) {
-        window.__bookingsScheduleNav.push({ kind: 'day', iso: String(iso || '') });
-        return Promise.resolve({ ok: true, iso: String(iso || '') });
-      };
+      window.__productionOpenScheduleDetailDrawer = window.openScheduleDetailDrawer;
       window.openScheduleDetailDrawer = function (row) {
         window.__bookingsScheduleNav.push({
           kind: 'drawer',
           booking_id: row && row.booking_id,
           booking_code: row && row.booking_code,
           service_date: row && row.service_date,
+          from_customer: !!(row && row._drawerFromCustomer),
         });
+      };
+      window.scheduleOpenDayDetail = function (iso) {
+        window.__bookingsScheduleNav.push({ kind: 'day', iso: String(iso || '') });
+        return Promise.resolve({ ok: true, iso: String(iso || '') });
       };
       window.switchToTab = function (tab) {
         window.__bookingsScheduleNav.push({ kind: 'tab', tab: String(tab || '') });
       };
+      if (typeof window.openBookingInSchedule === 'function') {
+        window.__productionOpenBookingInSchedule = window.openBookingInSchedule;
+        window.openBookingInSchedule = function () {
+          window.__bookingsScheduleNav.push({ kind: 'tab', tab: 'portal-home', via: 'openBookingInSchedule' });
+        };
+      }
     });
     await page.locator('button.portal-admin-bookings-code-link').first().click();
     await page.waitForTimeout(200);
     const navCalls = await page.evaluate(() => window.__bookingsScheduleNav || []);
-    ok('code click switches to portal-home (Schedule) via production openBookingInSchedule',
-      navCalls.some((c) => c.kind === 'tab' && c.tab === 'portal-home'), JSON.stringify(navCalls));
-    ok('code click navigates to booking start day 2026-07-10',
-      navCalls.some((c) => c.kind === 'day' && c.iso === '2026-07-10'), JSON.stringify(navCalls));
-    ok('code click opens exact booking in detail drawer',
+    ok('code click keeps Bookings tab (no portal-home / Horario switch)',
+      !navCalls.some((c) => c.kind === 'tab'), JSON.stringify(navCalls));
+    ok('code click does not navigate Horario day',
+      !navCalls.some((c) => c.kind === 'day'), JSON.stringify(navCalls));
+    ok('code click opens exact booking in detail drawer over Reservas',
       navCalls.some((c) => c.kind === 'drawer'
         && c.booking_id === 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         && c.booking_code === fullCode
-        && c.service_date === '2026-07-10'),
+        && c.service_date === '2026-07-10'
+        && c.from_customer === true),
       JSON.stringify(navCalls));
+    ok('Bookings panel still active after code click',
+      await page.locator('#tab-bookings.tab-panel.active').count() === 1);
+    ok('Bookings list still mounted under drawer after code click',
+      await page.locator('#tab-bookings .portal-admin-bookings-code').count() >= 1);
+    ok('Horario panel not activated by code click',
+      await page.locator('#tab-portal-home.tab-panel.active').count() === 0);
 
-    // Mutation/negative seam: disable production openBookingInSchedule without stubbing a
-    // working reimplementation back in. Gate must fail (no tab/day/drawer).
+    // Mutation/negative seam: disable drawer owner — must not fall back to Horario.
     await page.evaluate(() => {
       window.__bookingsScheduleNav = [];
-      // Disabled owner (noop) — adminBookingsOpenInSchedule prefers window.openBookingInSchedule
-      // and will not fall through to its local fallback while a function is present.
-      window.openBookingInSchedule = function disabledProductionOpenBookingInSchedule() {
-        /* intentionally empty — production owner disabled/renamed */
+      window.openScheduleDetailDrawer = function disabledProductionOpenScheduleDetailDrawer() {
+        /* intentionally empty — drawer owner disabled */
       };
     });
     await page.locator('button.portal-admin-bookings-code-link').first().click();
     await page.waitForTimeout(200);
     const navAfterDisable = await page.evaluate(() => window.__bookingsScheduleNav || []);
-    ok('negative seam: disabled production openBookingInSchedule yields no tab/day/drawer',
+    ok('negative seam: disabled openScheduleDetailDrawer yields no tab/day/drawer',
       navAfterDisable.length === 0
       && !navAfterDisable.some((c) => c.kind === 'tab')
       && !navAfterDisable.some((c) => c.kind === 'day')
       && !navAfterDisable.some((c) => c.kind === 'drawer'),
       JSON.stringify(navAfterDisable));
-    // Restore production owner for remaining journey assertions (not a test reimplementation).
+    // Restore production owners for remaining journey assertions.
     await page.evaluate(() => {
+      if (typeof window.__productionOpenScheduleDetailDrawer === 'function') {
+        window.openScheduleDetailDrawer = window.__productionOpenScheduleDetailDrawer;
+      }
       if (typeof window.__productionOpenBookingInSchedule === 'function') {
         window.openBookingInSchedule = window.__productionOpenBookingInSchedule;
       }
+      // Body-port during the stubbed open must not leave a trapping overlay.
+      var backdrop = document.getElementById('ps-drawer-backdrop');
+      var drawer = document.getElementById('ps-detail-drawer');
+      if (backdrop) {
+        backdrop.style.display = 'none';
+        try { backdrop.style.pointerEvents = 'none'; } catch (_bpe) { /* ignore */ }
+        try { backdrop.setAttribute('aria-hidden', 'true'); } catch (_ba) { /* ignore */ }
+      }
+      if (drawer) {
+        drawer.style.display = 'none';
+        try { drawer.style.pointerEvents = 'none'; } catch (_dpe) { /* ignore */ }
+        try { drawer.hidden = true; } catch (_dh) { /* ignore */ }
+        try { drawer.setAttribute('aria-hidden', 'true'); } catch (_da) { /* ignore */ }
+      }
+      try { document.body.removeAttribute('data-schedule-drawer-open'); } catch (_bo) { /* ignore */ }
     });
 
     // Summary strip
@@ -1275,31 +1303,45 @@ async function testGeneratedUi() {
 
     await page.click('#admin-bookings-date-range-trigger');
     await page.waitForSelector('#admin-bookings-date-range-popover:not([hidden])', { timeout: 3000 });
-    // Navigate to July 2026 if needed, then pick start+end days (live commit on complete)
-    await page.evaluate(() => {
+    // Bookings reuses scheduleCreateDateRangeSelectDay, which ignores days before today.
+    // Pick a complete range on/after today so live-apply can fire (July 2026 is past).
+    const rangeIso = await page.evaluate(() => {
+      const today = (typeof scheduleTodayIso === 'function' && scheduleTodayIso())
+        || (function () {
+          const t = new Date();
+          return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-'
+            + String(t.getDate()).padStart(2, '0');
+        })();
+      const y = Number(String(today).slice(0, 4));
+      const m = Number(String(today).slice(5, 7));
+      const last = new Date(y, m, 0).getDate();
+      const start = String(today).slice(0, 10);
+      let end = y + '-' + String(m).padStart(2, '0') + '-' + String(last).padStart(2, '0');
+      if (end < start) end = start;
+      return { ym: start.slice(0, 7), start, end };
+    });
+    await page.evaluate((ym) => {
       if (typeof window.adminBookingsDateRangeViewYm !== 'undefined') {
-        window.adminBookingsDateRangeViewYm = '2026-07';
+        window.adminBookingsDateRangeViewYm = ym;
       }
       if (typeof window.adminBookingsRenderDateRangeCalendar === 'function') {
         window.adminBookingsRenderDateRangeCalendar();
       }
-    });
+    }, rangeIso.ym);
     // Prefer production select path: two day clicks complete the range and live-apply
-    const day1 = page.locator('[data-bookings-day="2026-07-01"]');
-    const day31 = page.locator('[data-bookings-day="2026-07-31"]');
-    if (await day1.count() === 0) {
-      // Fallback: set view and re-render via month nav loop
-      for (let i = 0; i < 24 && await page.locator('[data-bookings-day="2026-07-01"]').count() === 0; i++) {
-        await page.click('#admin-bookings-date-range-prev');
+    const dayStart = page.locator('[data-bookings-day="' + rangeIso.start + '"]');
+    if (await dayStart.count() === 0) {
+      for (let i = 0; i < 24 && await page.locator('[data-bookings-day="' + rangeIso.start + '"]').count() === 0; i++) {
+        await page.click('#admin-bookings-date-range-next');
         await page.waitForTimeout(50);
       }
     }
-    await page.locator('[data-bookings-day="2026-07-01"]').click();
-    await page.locator('[data-bookings-day="2026-07-31"]').click();
+    await page.locator('[data-bookings-day="' + rangeIso.start + '"]').click();
+    await page.locator('[data-bookings-day="' + rangeIso.end + '"]').click();
     await page.waitForTimeout(400);
     ok('live date-range complete selection query',
-      lastListQuery && lastListQuery.get('date_from') === '2026-07-01'
-      && lastListQuery.get('date_to') === '2026-07-31',
+      lastListQuery && lastListQuery.get('date_from') === rangeIso.start
+      && lastListQuery.get('date_to') === rangeIso.end,
       lastListQuery ? lastListQuery.toString() : 'no query');
     ok('popover closed after live commit',
       await page.locator('#admin-bookings-date-range-popover').evaluate((n) => n.hidden || n.style.display === 'none'));
@@ -1368,7 +1410,7 @@ async function testGeneratedUi() {
       && !chips.some((c) => /^Deleted$|^Eliminado$|^Eliminato$/i.test(String(c).trim())),
       chipBlob);
     // Hidden cancelled expand: Unhide only — Restore must not appear (endpoint rejects archived/hidden).
-    await page.evaluate(() => {
+    const hiddenExpandDebug = await page.evaluate(() => {
       window.staffPortalSession = {
         auth_required: true,
         role: 'operator',
@@ -1376,12 +1418,32 @@ async function testGeneratedUi() {
         clients: ['sunset'],
         can_use_owner_insights: false,
       };
+      const info = {
+        hasState: !!window.adminBookingsState,
+        hasRender: typeof window.renderAdminBookingsTable,
+        hasKeyFn: typeof window.adminBookingsRowKeyForBookingId,
+        rows: ((window.adminBookingsState && window.adminBookingsState.data && window.adminBookingsState.data.rows) || [])
+          .map((r) => String(r.booking_id || '')),
+      };
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'operator';
-        window.adminBookingsState.expandedId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+        window.adminBookingsState.expandedId = (function (id) {
+          var rows = (window.adminBookingsState.data && window.adminBookingsState.data.rows) || [];
+          for (var i = 0; i < rows.length; i += 1) {
+            if (String(rows[i].booking_id || '') === id) return 'row:' + i + ':id:' + id;
+          }
+          return id;
+        })('dddddddd-dddd-dddd-dddd-dddddddddddd');
+        info.expandedId = window.adminBookingsState.expandedId;
       }
       if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
+      info.expandCount = document.querySelectorAll('[data-bookings-expand]').length;
+      info.rowCount = document.querySelectorAll('[data-bookings-row-id]').length;
+      return info;
     });
+    ok('hidden cancelled row expanded for Unhide/Restore checks',
+      hiddenExpandDebug && hiddenExpandDebug.expandCount >= 1,
+      JSON.stringify(hiddenExpandDebug));
     await page.waitForSelector('[data-bookings-expand]', { timeout: 5000 });
     {
       const restoreCnt = await page.locator('[data-bookings-restore]').count();
@@ -1481,7 +1543,13 @@ async function testGeneratedUi() {
       };
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'viewer';
-        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+        window.adminBookingsState.expandedId = (function (id) {
+          var rows = (window.adminBookingsState.data && window.adminBookingsState.data.rows) || [];
+          for (var i = 0; i < rows.length; i += 1) {
+            if (String(rows[i].booking_id || '') === id) return 'row:' + i + ':id:' + id;
+          }
+          return id;
+        })('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
       }
       // Production owner re-render (not a local role reimplementation)
       if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
@@ -1510,7 +1578,13 @@ async function testGeneratedUi() {
         };
         if (window.adminBookingsState) {
           window.adminBookingsState.role = r;
-          window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+          window.adminBookingsState.expandedId = (function (id) {
+          var rows = (window.adminBookingsState.data && window.adminBookingsState.data.rows) || [];
+          for (var i = 0; i < rows.length; i += 1) {
+            if (String(rows[i].booking_id || '') === id) return 'row:' + i + ':id:' + id;
+          }
+          return id;
+        })('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
         }
         if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
       }, role);
@@ -1541,7 +1615,13 @@ async function testGeneratedUi() {
       };
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'operator';
-        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+        window.adminBookingsState.expandedId = (function (id) {
+          var rows = (window.adminBookingsState.data && window.adminBookingsState.data.rows) || [];
+          for (var i = 0; i < rows.length; i += 1) {
+            if (String(rows[i].booking_id || '') === id) return 'row:' + i + ':id:' + id;
+          }
+          return id;
+        })('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
         window.adminBookingsState.refundInFlight = false;
         window.adminBookingsState.refundIdempotencyKey = null;
         window.adminBookingsState.refundBookingId = null;
@@ -1620,7 +1700,13 @@ async function testGeneratedUi() {
     await page.evaluate(() => {
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'operator';
-        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+        window.adminBookingsState.expandedId = (function (id) {
+          var rows = (window.adminBookingsState.data && window.adminBookingsState.data.rows) || [];
+          for (var i = 0; i < rows.length; i += 1) {
+            if (String(rows[i].booking_id || '') === id) return 'row:' + i + ':id:' + id;
+          }
+          return id;
+        })('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
         window.adminBookingsState.refundInFlight = false;
         window.adminBookingsState.refundIdempotencyKey = null;
         window.adminBookingsState.refundBookingId = null;
@@ -1668,7 +1754,13 @@ async function testGeneratedUi() {
     // New open → new key (rotated)
     await page.evaluate(() => {
       if (window.adminBookingsState) {
-        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+        window.adminBookingsState.expandedId = (function (id) {
+          var rows = (window.adminBookingsState.data && window.adminBookingsState.data.rows) || [];
+          for (var i = 0; i < rows.length; i += 1) {
+            if (String(rows[i].booking_id || '') === id) return 'row:' + i + ':id:' + id;
+          }
+          return id;
+        })('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
         window.adminBookingsState.refundInFlight = false;
         window.adminBookingsState.refundIdempotencyKey = null;
         window.adminBookingsState.refundBookingId = null;
@@ -1758,7 +1850,13 @@ async function testGeneratedUi() {
       };
       if (window.adminBookingsState) {
         window.adminBookingsState.role = 'operator';
-        window.adminBookingsState.expandedId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+        window.adminBookingsState.expandedId = (function (id) {
+          var rows = (window.adminBookingsState.data && window.adminBookingsState.data.rows) || [];
+          for (var i = 0; i < rows.length; i += 1) {
+            if (String(rows[i].booking_id || '') === id) return 'row:' + i + ':id:' + id;
+          }
+          return id;
+        })('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
       }
       if (typeof window.renderAdminBookingsTable === 'function') window.renderAdminBookingsTable();
     });
@@ -1782,13 +1880,22 @@ async function testGeneratedUi() {
         while (n && n !== document.body) {
           const style = window.getComputedStyle(n);
           const ox = style.overflowX;
+          const oy = style.overflowY;
+          const r = n.getBoundingClientRect();
+          const er = el.getBoundingClientRect();
+          // Element is inside the scroll owner's layout box (may need scroll)
           if ((ox === 'auto' || ox === 'scroll') && n.scrollWidth > n.clientWidth + 1) {
-            const r = n.getBoundingClientRect();
-            const er = el.getBoundingClientRect();
-            // Element is inside the scroll owner's layout box (may need horizontal scroll)
             if (er.top < r.bottom && er.bottom > r.top) return true;
           }
+          if ((oy === 'auto' || oy === 'scroll' || oy === 'overlay') && n.scrollHeight > n.clientHeight + 1) {
+            if (er.left < r.right && er.right > r.left) return true;
+          }
           n = n.parentElement;
+        }
+        const pageH = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
+        if (pageH > window.innerHeight + 1) {
+          const er = el.getBoundingClientRect();
+          if (er.left >= -1 && er.right <= window.innerWidth + 1) return true;
         }
         return false;
       }

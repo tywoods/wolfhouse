@@ -37,8 +37,12 @@ assert.ok(!/if \(offset < 0\) offset = 0;/.test(runtimeSrc), 'openDayDetail does
 assert.ok(runtimeSrc.includes('function primeOpenDay'), 'primeOpenDay seeds service day without loading');
 assert.ok(navSrc.includes('window.scheduleOpenDayDetail = scheduleOpenDayDetail'));
 assert.ok(navSrc.includes('window.schedulePrimeOpenDay = schedulePrimeOpenDay'));
-assert.ok(bookingsSrc.includes('schedulePrimeOpenDay(start)') || bookingsSrc.includes('primeFn(start)'),
-  'Reservas primes service day before portal-home load');
+assert.ok(!/\bschedulePrimeOpenDay\b/.test(bookingsSrc) && !/\bprimeFn\s*\(/.test(bookingsSrc),
+  'Reservas must not prime Horario — booking drawer opens over Bookings');
+assert.ok(!/\bswitchToTab\s*\(\s*['"]portal-home['"]/.test(bookingsSrc),
+  'Reservas booking open must not switch to Horario');
+assert.ok(bookingsSrc.includes('openScheduleDetailDrawer'),
+  'Reservas opens shared detail drawer in place');
 
 const labelStart = bookingsSrc.indexOf('function adminBookingsOpenScheduleLabel');
 const labelEnd = bookingsSrc.indexOf('var ADMIN_BOOKINGS_SORT_FIRST_DIR');

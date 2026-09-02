@@ -1,12 +1,14 @@
 /**
  * Sunset Admin Bookings tab (N1) — list, filters, expansion, manual refund UI.
  * Injected with sunset-admin-ui.js. Uses portal globals: el, portalT, escHtml,
- * getClient, getSunsetLocation, fetch, switchToTab.
+ * getClient, getSunsetLocation, fetch, openScheduleDetailDrawer.
  * Money display only — all arithmetic is server-authoritative.
  * Guest name opens an in-place peek on Reservas — never switchToTab/Customers/Inbox.
+ * Booking code opens the shared schedule detail drawer over Reservas — never
+ * jumps to Horario / day nav (close must keep filters intact).
  */
 /* global el, portalT, escHtml, getClient, getSunsetLocation,
-   openBookingInSchedule, switchToTab, scheduleOpenDayDetail, schedulePrimeOpenDay, openScheduleDetailDrawer,
+   openScheduleDetailDrawer, scheduleDrawerEnsureDocumentLayer,
    adminBookingsState, fetch, getStaffLocale, portalLang */
 
 var adminBookingsState = {
@@ -1114,12 +1116,15 @@ function adminBookingsServiceDayIso(value) {
 }
 
 /**
- * Open booking on Schedule at its service start day via the single canonical
- * owners: openBookingInSchedule → scheduleOpenDayDetail + openScheduleDetailDrawer.
+ * Open the shared booking detail drawer over Reservas (Bookings stays active).
  *
- * Before the owner switches to portal-home (which always loadPortalHome's the
- * current forwardOffset — usually today), prime day-mode nav to the booking's
- * service day so Horario lands on that date, not today.
+ * Do not deep-link into Horario (tab switch + day nav) — that silently replaces
+ * the filtered Bookings list, so Escape / ✕ / backdrop leave staff on Schedule
+ * instead of Reservas.
+ *
+ * Same drawer owner as Horario/Customers: openScheduleDetailDrawer with
+ * _drawerFromCustomer (canonical detail fetch). Body-port the shell first so
+ * the overlay is not trapped inside #tab-portal-home while Bookings is shown.
  */
 function adminBookingsOpenInSchedule(bookingId, hint) {
   var id = String(bookingId || '').trim();
@@ -1139,73 +1144,39 @@ function adminBookingsOpenInSchedule(bookingId, hint) {
     || adminBookingsServiceDayIso(row.check_in)
     || '';
   var code = row.booking_code || hint.booking_code || null;
-  var openFn = (typeof window !== 'undefined' && typeof window.openBookingInSchedule === 'function')
-    ? window.openBookingInSchedule
-    : (typeof openBookingInSchedule === 'function' ? openBookingInSchedule : null);
-  if (openFn) {
-    // Wrap switchToTab for this call only: portal-home always loadPortalHome()'s
-    // current offset. Prime the service day first so that load is the booking day.
-    var tabFn = (typeof window !== 'undefined' && typeof window.switchToTab === 'function')
-      ? window.switchToTab
-      : null;
-    var wrapped = false;
-    if (start && tabFn) {
-      window.switchToTab = function (tab, subtab) {
-        if (String(tab || '') === 'portal-home') {
-          var primeFn = (typeof window !== 'undefined' && typeof window.schedulePrimeOpenDay === 'function')
-            ? window.schedulePrimeOpenDay
-            : (typeof schedulePrimeOpenDay === 'function' ? schedulePrimeOpenDay : null);
-          if (primeFn) primeFn(start);
-        }
-        return tabFn(tab, subtab);
-      };
-      wrapped = true;
+
+  // Port drawer shell onto document.body before open (parity with Customers).
+  var ensureLayer = (typeof window !== 'undefined' && typeof window.scheduleDrawerEnsureDocumentLayer === 'function')
+    ? window.scheduleDrawerEnsureDocumentLayer
+    : (typeof scheduleDrawerEnsureDocumentLayer === 'function' ? scheduleDrawerEnsureDocumentLayer : null);
+  if (ensureLayer) {
+    ensureLayer();
+  } else if (typeof document !== 'undefined' && document.body) {
+    var drawerEl = (typeof el === 'function') ? el('ps-detail-drawer') : document.getElementById('ps-detail-drawer');
+    var backdropEl = (typeof el === 'function') ? el('ps-drawer-backdrop') : document.getElementById('ps-drawer-backdrop');
+    if (backdropEl && backdropEl.parentNode !== document.body) {
+      try { document.body.appendChild(backdropEl); } catch (_ba) { /* ignore */ }
     }
-    try {
-      openFn({
-        booking_id: row.booking_id || id,
-        booking_code: code,
-        guest_name: row.guest_name,
-        phone: row.phone || null,
-        guest_phone: row.phone || null,
-        service_date_start: start || null,
-        service_date: start || null,
-        check_in: row.check_in || null,
-      });
-    } finally {
-      if (wrapped) window.switchToTab = tabFn;
-    }
-    return;
-  }
-  // Fallback if openBookingInSchedule is not on the page (tests / partial loads).
-  if (start) {
-    var primeFnFb = (typeof window !== 'undefined' && typeof window.schedulePrimeOpenDay === 'function')
-      ? window.schedulePrimeOpenDay
-      : (typeof schedulePrimeOpenDay === 'function' ? schedulePrimeOpenDay : null);
-    if (primeFnFb) primeFnFb(start);
-  }
-  if (typeof switchToTab === 'function') switchToTab('portal-home', null);
-  function openDrawer() {
-    if (typeof openScheduleDetailDrawer === 'function') {
-      openScheduleDetailDrawer({
-        booking_id: row.booking_id || id,
-        booking_code: code,
-        guest_name: row.guest_name || '',
-        phone: row.phone || null,
-        guest_phone: row.phone || null,
-        service_date: start || null,
-        _drawerFromCustomer: true,
-      });
+    if (drawerEl && drawerEl.parentNode !== document.body) {
+      try { document.body.appendChild(drawerEl); } catch (_da) { /* ignore */ }
     }
   }
-  if (start && typeof scheduleOpenDayDetail === 'function') {
-    var p = scheduleOpenDayDetail(start);
-    if (p && typeof p.then === 'function') {
-      p.then(openDrawer).catch(openDrawer);
-      return;
-    }
-  }
-  openDrawer();
+
+  var drawerFn = (typeof window !== 'undefined' && typeof window.openScheduleDetailDrawer === 'function')
+    ? window.openScheduleDetailDrawer
+    : (typeof openScheduleDetailDrawer === 'function' ? openScheduleDetailDrawer : null);
+  if (!drawerFn) return;
+  drawerFn({
+    booking_id: row.booking_id || id,
+    booking_code: code,
+    guest_name: row.guest_name || '',
+    phone: row.phone || null,
+    guest_phone: row.phone || null,
+    service_date: start || null,
+    service_date_start: start || null,
+    check_in: row.check_in || null,
+    _drawerFromCustomer: true,
+  });
 }
 
 function adminBookingsTypeChipsHtml(row) {
