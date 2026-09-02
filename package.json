@@ -883,6 +883,7 @@
     "verify:inbox-list-timestamp": "node scripts/verify-inbox-list-timestamp.js",
     "verify:inbox-filter-reselect": "node scripts/verify-inbox-filter-reselect.js",
     "verify:inbox-thread-mockup": "node scripts/verify-inbox-thread-mockup.js",
+    "verify:inbox-clear-thread-001": "node scripts/verify-inbox-clear-thread-001.js",
     "verify:inbox-thread-markdown": "node scripts/verify-inbox-thread-markdown.js",
     "verify:sunset-booking-truth": "node scripts/verify-sunset-booking-truth.js",
     "verify:inbox-view-routes": "node scripts/verify-inbox-view-routes.js",

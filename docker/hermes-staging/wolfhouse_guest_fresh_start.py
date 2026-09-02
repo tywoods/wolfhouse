@@ -225,6 +225,58 @@ def rotate_guest_session(guest_phone: str) -> Dict[str, Any]:
     }
 
 
+def reset_session_key_only(guest_phone: str, *, runner=None, source=None) -> Dict[str, Any]:
+    """Reset the live WhatsApp session_key for this phone only.
+
+    Does not list every state.db row for the user_id (a second same-phone
+    source/session stays), and does not delete shared USER.md / MEMORY.md.
+    """
+    digits = _digits_phone(guest_phone)
+    if not digits:
+        return {"ok": False, "reason": "invalid_phone"}
+
+    runner = runner if runner is not None else _runner()
+    if runner is None:
+        return {"ok": False, "reason": "gateway_not_ready"}
+
+    source = source if source is not None else _session_source(digits)
+    session_key = runner._session_key_for_source(source)  # noqa: SLF001
+    store = runner.session_store
+    db = getattr(store, "_db", None)
+    sessions_dir = getattr(store, "sessions_dir", None)
+
+    store._ensure_loaded()  # noqa: SLF001
+    old_entry = store._entries.get(session_key)  # noqa: SLF001
+    old_session_id: Optional[str] = old_entry.session_id if old_entry else None
+
+    deleted_ids: List[str] = []
+    if old_session_id and db is not None:
+        try:
+            if db.delete_session(old_session_id, sessions_dir):
+                deleted_ids.append(old_session_id)
+        except Exception:
+            pass
+
+    if session_key in store._entries:  # noqa: SLF001
+        with store._lock:  # noqa: SLF001
+            store._entries.pop(session_key, None)  # noqa: SLF001
+            store._save()  # noqa: SLF001
+
+    _purge_runner_state(runner, session_key)
+
+    return {
+        "ok": True,
+        "reset": True,
+        "hard_delete": False,
+        "scope": "session_key",
+        "session_key": session_key,
+        "old_session_id": old_session_id,
+        "deleted_session_ids": deleted_ids,
+        "deleted_count": len(deleted_ids),
+        "memories_cleared": None,
+    }
+
+
 def reset_guest_session(guest_phone: str, *, hard_delete: bool = True) -> Dict[str, Any]:
     if hard_delete:
         return delete_guest_agent_sessions(guest_phone)
@@ -242,10 +294,14 @@ def register_fresh_start_route(app) -> None:
         except Exception:
             return _json_response(400, {"ok": False, "error": "invalid_json"})
         guest_phone = body.get("guest_phone") or body.get("phone") or ""
-        hard_delete = body.get("hard_delete")
-        if hard_delete is None:
-            hard_delete = body.get("mode", "delete") != "rotate"
-        result = reset_guest_session(str(guest_phone), hard_delete=bool(hard_delete))
+        scope = str(body.get("scope") or "").strip().lower()
+        if scope in ("session_key", "conversation"):
+            result = reset_session_key_only(str(guest_phone))
+        else:
+            hard_delete = body.get("hard_delete")
+            if hard_delete is None:
+                hard_delete = body.get("mode", "delete") != "rotate"
+            result = reset_guest_session(str(guest_phone), hard_delete=bool(hard_delete))
         status = 200 if result.get("ok") else 503
         return _json_response(status, result)
 

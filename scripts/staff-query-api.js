@@ -505,7 +505,8 @@ const {
   resetLunaConversationContext,
   deleteConversationHard,
 } = require('./lib/staff-conversation-writes');
-const { resetHermesGuestSession } = require('./lib/luna-hermes-guest-session-reset');
+const { resetHermesGuestSession, resetHermesConversationSession } = require('./lib/luna-hermes-guest-session-reset');
+const { performInboxClearThreadReset } = require('./lib/staff-inbox-clear-thread');
 const {
   getAccessibleClients,
   getSessionScopedClients,
@@ -19146,8 +19147,29 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .inbox-needs-human-slot{flex:0 0 auto}
 .inbox-header-stack{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .inbox-header-stack-channel,.inbox-header-stack-luna{display:flex;align-items:center;justify-content:flex-end;gap:8px}
-.inbox-header-stack-luna #btn-refresh{order:2}
 .inbox-header-stack-luna .inbox-chat-chrome-slot{order:1}
+.inbox-header-stack-luna #btn-inbox-clear-thread{order:2}
+.inbox-header-stack-luna #btn-refresh{order:3}
+.inbox-clear-thread-btn,#btn-inbox-clear-thread{
+  display:inline-flex;align-items:center;justify-content:center;
+  margin:0;padding:4px 10px;font-size:11px;font-weight:700;letter-spacing:.01em;
+  line-height:1.2;cursor:pointer;white-space:nowrap;
+  border-radius:var(--radius-pill,999px);
+  background:#F8E8E8;color:#9C3D3D;border:1px solid #E8B4B4;
+}
+.inbox-clear-thread-btn:hover,#btn-inbox-clear-thread:hover{background:#F3DADA}
+.inbox-clear-thread-dialog[hidden]{display:none!important}
+.inbox-clear-thread-dialog{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center}
+.inbox-clear-thread-dialog-backdrop{position:absolute;inset:0;background:rgba(40,32,28,.28)}
+.inbox-clear-thread-dialog-card{position:relative;max-width:360px;margin:16px;padding:16px 18px;border-radius:16px;background:var(--surface);border:1px solid var(--border-soft);box-shadow:0 8px 28px rgba(0,0,0,.12)}
+.inbox-clear-thread-dialog-card h3{margin:0 0 8px;font-size:15px;color:var(--text)}
+.inbox-clear-thread-dialog-card p{margin:0 0 14px;font-size:13px;line-height:1.45;color:var(--text-2)}
+.inbox-clear-thread-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
+.inbox-clear-thread-dialog-cancel,.inbox-clear-thread-dialog-confirm{
+  border-radius:var(--radius-pill,999px);padding:6px 12px;font:inherit;font-size:12px;font-weight:700;cursor:pointer
+}
+.inbox-clear-thread-dialog-cancel{border:1px solid var(--border);background:var(--surface);color:var(--text-2)}
+.inbox-clear-thread-dialog-confirm{border:1px solid #E8B4B4;background:#F8E8E8;color:#9C3D3D}
 .detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-header-main .detail-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .detail-header-switches{display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
@@ -45964,38 +45986,53 @@ async function handleConversationResetAgentSession(convId, req, res, user) {
   };
 
   try {
-    const phoneRow = await withPgClient((pg) => pg.query(
-      `SELECT c.phone
-         FROM conversations c
-         JOIN clients cl ON cl.id = c.client_id
-        WHERE c.id = $1::uuid AND cl.slug = $2
-        LIMIT 1`,
-      [convId, clientSlug],
-    ));
-    if (!phoneRow.rows.length) {
-      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: Date.now() - started });
+    const result = await withPgClient((pg) => performInboxClearThreadReset({
+      pg,
+      clientSlug,
+      convId,
+      resolvedBy: (user && (user.staff_user_id || user.email)) || 'staff_portal',
+      resetHermesConversationSession,
+    }));
+    const elapsed = Date.now() - started;
+    if (!result.found) {
+      appendAuditLog({ ...auditBase, success: false, error: result.reason || 'not_found', elapsed_ms: elapsed });
       return send404(res);
     }
-
-    const guestPhone = phoneRow.rows[0].phone || null;
-    let hermesSessionReset = { attempted: false, ok: false, reason: 'no_guest_phone' };
-    if (guestPhone) {
-      hermesSessionReset = await resetHermesGuestSession(guestPhone, { hard_delete: true });
+    if (result.ok !== true) {
+      const status = result.reason === 'shared_session_binding' ? 409
+        : result.reason === 'not_whatsapp_session' ? 400
+        : 200;
+      appendAuditLog({
+        ...auditBase,
+        success: false,
+        error: result.reason || 'reset_failed',
+        elapsed_ms: elapsed,
+      });
+      return sendJSON(res, status, {
+        success: false,
+        error: result.reason || 'reset_failed',
+        conversation_id: result.conversation_id || convId,
+        guest_phone: result.guest_phone || null,
+        hermes_session_reset: result.hermes_session_reset || { attempted: false },
+        needs_human_cleared: false,
+        elapsed_ms: elapsed,
+      });
     }
 
-    const elapsed = Date.now() - started;
     appendAuditLog({
       ...auditBase,
       success: true,
-      guest_phone: guestPhone,
-      hermes_session_reset: hermesSessionReset,
+      guest_phone: result.guest_phone || null,
+      hermes_session_reset: result.hermes_session_reset,
+      needs_human_cleared: result.needs_human_cleared === true,
       elapsed_ms: elapsed,
     });
     return sendJSON(res, 200, {
       success: true,
-      conversation_id: convId,
-      guest_phone: guestPhone,
-      hermes_session_reset: hermesSessionReset,
+      conversation_id: result.conversation_id || convId,
+      guest_phone: result.guest_phone || null,
+      hermes_session_reset: result.hermes_session_reset,
+      needs_human_cleared: result.needs_human_cleared === true,
       elapsed_ms: elapsed,
     });
   } catch (err) {
