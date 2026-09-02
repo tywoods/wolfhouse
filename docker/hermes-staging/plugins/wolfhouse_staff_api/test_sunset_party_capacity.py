@@ -196,6 +196,8 @@ def main() -> int:
     check("unscoped check requires course selection", unspecified.get("requires_course_selection") is True, str(unspecified))
     check("unscoped check returns authoritative course choices", [c.get("seats_remaining") for c in unspecified.get("courses", [])] == [22, 15], str(unspecified))
     check("unscoped check cannot claim the date is full", unspecified.get("reason") != "no_seats_available" and unspecified.get("has_seats") is not False, str(unspecified))
+    check("unscoped check marks has_fitting_course for qty 12", unspecified.get("has_fitting_course") is True, str(unspecified))
+    check("unscoped check sets do_not_claim_date_full", unspecified.get("do_not_claim_date_full") is True, str(unspecified))
 
     print("\n[C] Party size 15 alone is never a handoff reason")
     soul = (PLUGIN_DIR.parents[2] / "hermes-sunset" / "SOUL.md").read_text(encoding="utf-8")
@@ -203,7 +205,7 @@ def main() -> int:
     check("Sunset SOUL uses remaining seats for oversize parties", "remaining seat" in soul.lower() or "seats left" in soul.lower() or "seats_available" in soul)
     plugin_src = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
     avail_desc_idx = plugin_src.find('("get_sunset_lesson_availability"')
-    avail_desc = plugin_src[avail_desc_idx:avail_desc_idx + 900] if avail_desc_idx != -1 else ""
+    avail_desc = plugin_src[avail_desc_idx:avail_desc_idx + 1600] if avail_desc_idx != -1 else ""
     check(
         "tool description: if it fits, book; if not, remaining seats + other slot",
         "remaining" in avail_desc.lower() and "flag_needs_human" in avail_desc and "party size" in avail_desc.lower(),

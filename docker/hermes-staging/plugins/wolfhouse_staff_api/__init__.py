@@ -1726,6 +1726,49 @@ def get_sunset_lesson_availability(params, **kwargs):
         course_data = _post_bot("/sunset/joinable-courses", course_body)
         courses = course_data.get("courses") if isinstance(course_data.get("courses"), list) else []
         ok = bool(course_data.get("ok")) or bool(course_data.get("success"))
+        # First-answer fail-closed: grade Staff seats_remaining vs quantity.
+        # Never invent full/zero from a daily cap when Horario still has room.
+        requested_qty = body.get("quantity")
+        fitting_ids = []
+        open_remaining = []
+        for course in courses:
+            if not isinstance(course, dict):
+                continue
+            rem_raw = course.get("seats_remaining")
+            try:
+                rem = int(rem_raw) if rem_raw is not None and not isinstance(rem_raw, bool) else None
+            except (TypeError, ValueError):
+                rem = None
+            if rem is None or rem < 0:
+                continue
+            open_remaining.append(rem)
+            cid = _clean(course.get("course_id") or course.get("pack_id"))
+            if requested_qty is not None and rem >= int(requested_qty):
+                if cid:
+                    fitting_ids.append(cid)
+            elif requested_qty is None and rem > 0 and cid:
+                fitting_ids.append(cid)
+        has_fitting_course = bool(fitting_ids)
+        any_open_seats = any(r > 0 for r in open_remaining)
+        # Explicit first-pass signal: when Staff courses fit, never has_seats=false
+        # / no_seats_available (that was the daily-cap false-full path).
+        first_pass = {
+            "has_fitting_course": has_fitting_course,
+            "fitting_course_ids": fitting_ids,
+            "largest_seats_remaining": max(open_remaining) if open_remaining else 0,
+            "do_not_claim_date_full": bool(ok and courses and (has_fitting_course or any_open_seats)),
+        }
+        guest_action = (
+            "Offer the returned course times and their Staff-confirmed remaining seats, "
+            "then ask which time works. Do not say the whole date is full."
+            if ok and courses
+            else "I couldn't verify the class choices just now — what time would you prefer?"
+        )
+        if ok and courses and has_fitting_course:
+            guest_action = (
+                "At least one Admin course still has enough Staff-confirmed seats for this party. "
+                "Offer those times and remaining seats, ask which time works, and never say the date is full."
+            )
         return _json_result({
             "success": ok,
             "tool": "get_sunset_lesson_availability",
@@ -1733,17 +1776,18 @@ def get_sunset_lesson_availability(params, **kwargs):
             "location_id": course_data.get("location_id") or payload.get("location_id"),
             "scope": "course_choices",
             "requires_course_selection": True,
-            "requested_quantity": body.get("quantity"),
+            "requested_quantity": requested_qty,
             "courses": courses,
+            "has_fitting_course": first_pass["has_fitting_course"],
+            "fitting_course_ids": first_pass["fitting_course_ids"],
+            "largest_seats_remaining": first_pass["largest_seats_remaining"],
+            "do_not_claim_date_full": first_pass["do_not_claim_date_full"],
+            # When Staff Horario has a fitting course, first answer must not read as full.
+            "has_seats": True if has_fitting_course else None,
             "reason": "course_selection_required" if ok else "joinable_courses_unavailable",
             "staff_review_needed": False,
             "do_not_escalate": True,
-            "guest_safe_next_action": (
-                "Offer the returned course times and their Staff-confirmed remaining seats, "
-                "then ask which time works. Do not say the whole date is full."
-                if ok and courses
-                else "I couldn't verify the class choices just now — what time would you prefer?"
-            ),
+            "guest_safe_next_action": guest_action,
         })
     data = _post_bot("/sunset/lesson-availability", body)
     ok = bool(data.get("ok"))
@@ -3167,7 +3211,7 @@ def _sunset_tools():
             [],
         ),
         ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
-        ("get_sunset_lesson_availability", "Check group lesson capacity before confirming ANY lesson seat (lessons are capacity-limited). Always pass quantity (surfer count) when known. When the guest names a class time, pass slot_time so remaining seats match that Horario/joinable course slot. When no time/course is selected, this tool returns scope=course_choices with authoritative courses and remaining seats: offer those choices and ask which time works; never interpret that date through whole-day capacity and never say the date is full. Optional course_id from get_sunset_joinable_courses. If has_seats is true, continue the normal booking flow — party size 15 (or any large party) alone is never a reason to call flag_needs_human. If remaining seats are fewer than the party (reason insufficient_seats / no_seats_available), tell the guest the tool's seats_available figure and offer another date or time; do not invent a seat and do not hand off. take_request is only for unknown capacity, not for a known remaining-seat shortfall. If date or quantity is missing, ask one clarifying question instead of flagging needs_human.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, "quantity": {"type": "integer", "description": "Number of surfers in the party when known."}, "slot_time": {"type": "string", "description": "Selected class start time HH:MM (e.g. 10:00). Omit only when the guest has not selected a time; the tool will return authoritative course choices instead of whole-day capacity."}, "time": {"type": "string", "description": "Alias for slot_time."}, "course_id": {"type": "string", "description": "Optional exact course_id from get_sunset_joinable_courses."}, **loc}, ["date"]),
+        ("get_sunset_lesson_availability", "Check group lesson capacity before confirming ANY lesson seat (lessons are capacity-limited). Always pass quantity (surfer count) when known. Grade the FIRST result: never invent full/zero leftover from a daily cap or prompt guess. When the guest names a class time, pass slot_time so remaining seats match that Horario/joinable course slot. When no time/course is selected, this tool returns scope=course_choices with authoritative courses, seats_remaining, and has_fitting_course/do_not_claim_date_full: offer those choices and ask which time works; if has_fitting_course is true never say the date is full; never interpret whole-day capacity as proof every class is full. Optional course_id from get_sunset_joinable_courses. If has_seats is true, continue the normal booking flow — party size 15 (or any large party) alone is never a reason to call flag_needs_human. If remaining seats are fewer than the party (reason insufficient_seats / no_seats_available), tell the guest the tool's seats_available figure and offer another date or time; do not invent a seat and do not hand off. take_request is only for unknown capacity, not for a known remaining-seat shortfall. If date or quantity is missing, ask one clarifying question instead of flagging needs_human.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, "quantity": {"type": "integer", "description": "Number of surfers in the party when known."}, "slot_time": {"type": "string", "description": "Selected class start time HH:MM (e.g. 10:00). Omit only when the guest has not selected a time; the tool will return authoritative course choices instead of whole-day capacity."}, "time": {"type": "string", "description": "Alias for slot_time."}, "course_id": {"type": "string", "description": "Optional exact course_id from get_sunset_joinable_courses."}, **loc}, ["date"]),
         ("get_sunset_joinable_courses", "List Admin-configured courses a guest can currently join BEFORE offering or booking a course. Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity.", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
         ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options, prices, or inclusions. Offer only returned offerings; preserve offering_id and course_id exactly. Read free_included_equipment_labels / guest_equipment from each offering — only claim free gear when may_claim_free_equipment is true (never invent wax/board lists). For rentals use get_sunset_rental_catalog instead.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
         ("get_sunset_offering_quote", "Get the authoritative quote for one exact catalog offering. Three independent price authorities (never invent or cross-substitute): (1) course/lesson package amount from this quote, (2) course-equipment during_course amounts from returned equipment_options/quote lines (policy included may be €0 and quote-owned — omit course_equipment to auto-expand included only), (3) course-equipment all_day amounts from mode all_day (independent of during_course and of standalone rentals from get_sunset_rental_price). The same physical gear may appear as a standalone rental and as course equipment — distinct commercial lines. Optional gear is never auto-included — pass intent course_equipment:{mode,quantity} only when the guest selects it. Always copy opaque quote_provenance into create unchanged (exact wire + fingerprint). Do not send wire arrays as course_equipment input.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates."}, "course_equipment": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False, "description": "Guest gear intent only ({mode,quantity}). Do not send wire arrays; Staff API expands offering keys from Admin equipment_options."}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),

@@ -1,0 +1,119 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * verify-sunset-luna-first-answer-eval
+ *
+ * Ty 2026-09-02 first-answer eval pack (Sunset staging only).
+ * Grades Luna's FIRST Staff lookup/result for open seats, kids/group party,
+ * gear inclusions, and location — never recovery after guest pushback.
+ *
+ * Offline only. No live WhatsApp. No invented prices.
+ *
+ * Run: node scripts/verify-sunset-luna-first-answer-eval.js
+ */
+
+const fs = require('fs');
+const path = require('path');
+const { execFileSync } = require('child_process');
+
+const ROOT = path.join(__dirname, '..');
+
+let pass = 0;
+let fail = 0;
+
+function assert(label, condition, detail) {
+  if (condition) {
+    console.log(`  PASS  ${label}`);
+    pass += 1;
+    return;
+  }
+  console.error(`  FAIL  ${label}${detail ? ` — ${detail}` : ''}`);
+  fail += 1;
+}
+
+function run(cmd, args) {
+  const out = execFileSync(cmd, args, { cwd: ROOT, encoding: 'utf8', timeout: 90000 });
+  process.stdout.write(out.split('\n').map((l) => (l ? `       ${l}` : l)).join('\n'));
+  if (!out.endsWith('\n')) process.stdout.write('\n');
+  return out;
+}
+
+console.log('\nverify-sunset-luna-first-answer-eval\n');
+
+console.log('[1] Python first-answer eval pack');
+try {
+  const out = run('python3', [
+    'docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_first_answer_eval.py',
+  ]);
+  assert(
+    'first-answer python green',
+    /\b0 failed\b/.test(out) && !/\bFAIL\s{2}/.test(out),
+  );
+  assert(
+    'kids-vs-adult skip noted when Staff board has no field',
+    /SKIP[\s\S]*kids-vs-adult|structured Staff audience field present/.test(out),
+  );
+} catch (err) {
+  assert('first-answer python green', false, String((err && err.stdout) || err.message).slice(0, 800));
+}
+
+console.log('\n[2] Course-slot leftover gate (Thu 10:00 / 3 of 25 / qty 14)');
+try {
+  const out = run('node', ['scripts/verify-sunset-lesson-availability-course-slot.js']);
+  assert('course-slot leftover green', /passed, 0 failed/.test(out) || /\b0 failed\b/.test(out));
+} catch (err) {
+  assert('course-slot leftover green', false, String((err && err.stdout) || err.message).slice(0, 500));
+}
+
+console.log('\n[3] Party-capacity / unscoped first-pass (#844 ownership preserved)');
+try {
+  const out = run('python3', [
+    'docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_party_capacity.py',
+  ]);
+  assert('party capacity green', /\b0 failed\b/.test(out) && !/\bFAIL\s{2}/.test(out));
+  assert('unscoped first-pass still present', /Unspecified time|course_choices|joinable-course/.test(out));
+} catch (err) {
+  assert('party capacity green', false, String((err && err.stdout) || err.message).slice(0, 500));
+}
+
+console.log('\n[4] Static wiring — first answer cannot skip to daily invent');
+const pluginSrc = fs.readFileSync(
+  path.join(ROOT, 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'),
+  'utf8',
+);
+const availFnStart = pluginSrc.indexOf('def get_sunset_lesson_availability');
+const availFnEnd = pluginSrc.indexOf('\ndef get_sunset_joinable_courses', availFnStart);
+const availFn = availFnStart >= 0 && availFnEnd > availFnStart
+  ? pluginSrc.slice(availFnStart, availFnEnd)
+  : '';
+assert('availability fn extracted', availFn.length > 200);
+assert(
+  'unscoped path short-circuits to joinable-courses',
+  /if not slot and not course_id:/.test(availFn)
+    && /\/sunset\/joinable-courses/.test(availFn)
+    && availFn.indexOf('/sunset/joinable-courses') < availFn.indexOf('/sunset/lesson-availability'),
+);
+assert('has_fitting_course annotated on first pass', /has_fitting_course/.test(availFn));
+assert('do_not_claim_date_full annotated on first pass', /do_not_claim_date_full/.test(availFn));
+assert(
+  'tool description grades FIRST result / forbids daily invent',
+  /Grade the FIRST result/.test(pluginSrc) && /has_fitting_course/.test(pluginSrc),
+);
+
+const soul = fs.readFileSync(path.join(ROOT, 'docker/hermes-sunset/SOUL.md'), 'utf8');
+assert('SOUL grades FIRST answer from tool result', /FIRST answer/.test(soul));
+assert('SOUL forbids inventing kids\/gear\/school leftover', /Kids \/ age \/ school facts/.test(soul));
+assert('SOUL keeps has_fitting_course / do_not_claim_date_full guidance', /has_fitting_course|do_not_claim_date_full/.test(soul));
+
+const libSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-lesson-availability.js'), 'utf8');
+assert('Staff timed leftover uses course remaining not daily_cap', /never daily_cap/.test(libSrc) || /seats_available is course remaining/.test(libSrc));
+
+assert(
+  'eval pack stays off inbox-thread.js',
+  !fs.existsSync(path.join(ROOT, 'scripts/browser/inbox-thread.js'))
+    || !/inbox-thread/.test(fs.readFileSync(path.join(ROOT, 'docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_first_answer_eval.py'), 'utf8')),
+);
+
+console.log(`\nverify-sunset-luna-first-answer-eval: ${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);
