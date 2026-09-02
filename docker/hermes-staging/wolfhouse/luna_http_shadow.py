@@ -34,7 +34,7 @@ def plan_read_only(req: dict[str, Any]) -> dict[str, Any]:
 
 def default_staff_lookup(intent: str, params: dict[str, Any]) -> dict[str, Any]:
     """Invoke only read-only Staff plugin capabilities; no booking tools."""
-    import wolfhouse_staff_api as staff
+    from plugins import wolfhouse_staff_api as staff
     fn = staff.get_sunset_lesson_catalog if intent == "catalog" else staff.get_sunset_lesson_availability
     raw = fn(params)
     payload = json.loads(raw) if isinstance(raw, str) else raw
