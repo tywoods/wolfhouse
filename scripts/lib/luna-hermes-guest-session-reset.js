@@ -12,14 +12,23 @@ function normalizeGuestPhone(raw) {
   return `+${digits}`;
 }
 
-function hermesFreshStartUrl() {
-  const explicit = String(process.env.WOLFHOUSE_HERMES_GUEST_FRESH_START_URL || '').trim();
-  if (explicit) return explicit.replace(/\/$/, '');
-  const base = String(
+function hermesBaseUrl() {
+  return String(
     process.env.WOLFHOUSE_HERMES_BASE_URL
     || 'https://lunabox.lunafrontdesk.com',
   ).trim().replace(/\/$/, '');
-  return `${base}/wolfhouse/guest-fresh-start`;
+}
+
+function hermesFreshStartUrl() {
+  const explicit = String(process.env.WOLFHOUSE_HERMES_GUEST_FRESH_START_URL || '').trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+  return `${hermesBaseUrl()}/wolfhouse/guest-fresh-start`;
+}
+
+function hermesSessionKeyResetUrl() {
+  const explicit = String(process.env.WOLFHOUSE_HERMES_GUEST_SESSION_KEY_RESET_URL || '').trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+  return `${hermesBaseUrl()}/wolfhouse/guest-session-key-reset`;
 }
 
 /**
@@ -88,8 +97,8 @@ async function resetHermesGuestSession(guestPhone, opts = {}) {
 
 /**
  * Inbox Clear — reset only the live Hermes session_key for this guest.
- * Does not send hard_delete (that path wipes shared USER.md/MEMORY.md and
- * every state.db session for the phone).
+ * Distinct Hermes route (never guest-fresh-start / hard_delete). That path
+ * wipes shared USER.md/MEMORY.md and every state.db session for the phone.
  */
 async function resetHermesConversationSession(guestPhone, opts = {}) {
   const phone = normalizeGuestPhone(guestPhone);
@@ -102,11 +111,10 @@ async function resetHermesConversationSession(guestPhone, opts = {}) {
     return { attempted: false, ok: false, reason: 'missing_bot_token' };
   }
 
-  const url = hermesFreshStartUrl();
+  const url = hermesSessionKeyResetUrl();
   const body = JSON.stringify({
     guest_phone: phone,
     conversation_id: opts.conversation_id || null,
-    scope: 'session_key',
   });
   const headers = {
     'Content-Type': 'application/json',
@@ -158,6 +166,7 @@ async function resetHermesConversationSession(guestPhone, opts = {}) {
 module.exports = {
   normalizeGuestPhone,
   hermesFreshStartUrl,
+  hermesSessionKeyResetUrl,
   resetHermesGuestSession,
   resetHermesConversationSession,
 };

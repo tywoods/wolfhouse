@@ -506,7 +506,10 @@ const {
   deleteConversationHard,
 } = require('./lib/staff-conversation-writes');
 const { resetHermesGuestSession, resetHermesConversationSession } = require('./lib/luna-hermes-guest-session-reset');
-const { performInboxClearThreadReset } = require('./lib/staff-inbox-clear-thread');
+const {
+  performInboxClearThreadReset,
+  mapInboxClearThreadHttpStatus,
+} = require('./lib/staff-inbox-clear-thread');
 const {
   getAccessibleClients,
   getSessionScopedClients,
@@ -1279,6 +1282,7 @@ const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs
 const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
 const CONV_RESET_LUNA_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-luna-context$`, 'i');
 const CONV_RESET_AGENT_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-agent-session$`, 'i');
+const CONV_CLEAR_THREAD_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-thread-session$`, 'i');
 
 // Stage 7.7k3 — UUID validator for booking_bed_id query param
 const UUID_VALIDATE_RE = new RegExp('^' + UUID_RE + '$', 'i');
@@ -45986,6 +45990,79 @@ async function handleConversationResetAgentSession(convId, req, res, user) {
   };
 
   try {
+    const phoneRow = await withPgClient((pg) => pg.query(
+      `SELECT c.phone
+         FROM conversations c
+         JOIN clients cl ON cl.id = c.client_id
+        WHERE c.id = $1::uuid AND cl.slug = $2
+        LIMIT 1`,
+      [convId, clientSlug],
+    ));
+    if (!phoneRow.rows.length) {
+      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: Date.now() - started });
+      return send404(res);
+    }
+
+    const guestPhone = phoneRow.rows[0].phone || null;
+    let hermesSessionReset = { attempted: false, ok: false, reason: 'no_guest_phone' };
+    if (guestPhone) {
+      hermesSessionReset = await resetHermesGuestSession(guestPhone, { hard_delete: true });
+    }
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      guest_phone: guestPhone,
+      hermes_session_reset: hermesSessionReset,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      conversation_id: convId,
+      guest_phone: guestPhone,
+      hermes_session_reset: hermesSessionReset,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'reset failed' });
+  }
+}
+
+async function handleConversationClearThreadSession(convId, req, res, user) {
+  const started = Date.now();
+  const hostHeader = String(req.headers.host || '');
+
+  if (!isStagingResetEnvironment(process.env, hostHeader)) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'staging_only',
+      detail: 'Inbox Clear is allowed only on staging/test environments.',
+    });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'action:api:conversation.clear_thread_session',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  try {
     const result = await withPgClient((pg) => performInboxClearThreadReset({
       pg,
       clientSlug,
@@ -45994,19 +46071,18 @@ async function handleConversationResetAgentSession(convId, req, res, user) {
       resetHermesConversationSession,
     }));
     const elapsed = Date.now() - started;
+    const status = mapInboxClearThreadHttpStatus(result);
     if (!result.found) {
       appendAuditLog({ ...auditBase, success: false, error: result.reason || 'not_found', elapsed_ms: elapsed });
       return send404(res);
     }
     if (result.ok !== true) {
-      const status = result.reason === 'shared_session_binding' ? 409
-        : result.reason === 'not_whatsapp_session' ? 400
-        : 200;
       appendAuditLog({
         ...auditBase,
         success: false,
         error: result.reason || 'reset_failed',
         elapsed_ms: elapsed,
+        http_status: status,
       });
       return sendJSON(res, status, {
         success: false,
@@ -46015,6 +46091,10 @@ async function handleConversationResetAgentSession(convId, req, res, user) {
         guest_phone: result.guest_phone || null,
         hermes_session_reset: result.hermes_session_reset || { attempted: false },
         needs_human_cleared: false,
+        needs_human: Object.prototype.hasOwnProperty.call(result, 'needs_human')
+          ? result.needs_human
+          : undefined,
+        partial: result.partial === true,
         elapsed_ms: elapsed,
       });
     }
@@ -46033,11 +46113,12 @@ async function handleConversationResetAgentSession(convId, req, res, user) {
       guest_phone: result.guest_phone || null,
       hermes_session_reset: result.hermes_session_reset,
       needs_human_cleared: result.needs_human_cleared === true,
+      needs_human: result.needs_human === true,
       elapsed_ms: elapsed,
     });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'reset failed' });
+    return sendJSON(res, 500, { success: false, error: 'clear failed' });
   }
 }
 
@@ -49918,6 +49999,17 @@ async function router(req, res) {
     return handleConversationResetAgentSession(convResetAgentMatch[1], req, res, auth.user);
   }
 
+  const convClearThreadMatch = CONV_CLEAR_THREAD_RE.exec(pathname);
+  if (convClearThreadMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/clear-thread-session' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleConversationClearThreadSession(convClearThreadMatch[1], req, res, auth.user);
+  }
+
   const convResetLunaMatch = CONV_RESET_LUNA_RE.exec(pathname);
   if (convResetLunaMatch) {
     if (method !== 'POST') {
@@ -52430,6 +52522,7 @@ async function startStaffQueryApiCli() {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/send-reply       <- 23d Inbox reply send`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/needs-human <- needs_human toggle`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-agent-session <- Hermes session wipe (operator+, staging)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-thread-session <- Inbox Clear session_key (operator+, staging)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-luna-context <- Fresh Start (operator+, staging)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-messages <- clear thread legacy (operator+)`);
   console.log(`    DELETE http://127.0.0.1:${PORT}/staff/conversations/:id?client=... <- hard delete (admin+)`);

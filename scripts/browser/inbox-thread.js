@@ -580,11 +580,103 @@ function inboxClearThreadDialogHtml(){
   return html;
 }
 
-function inboxSetClearThreadDialogOpen(open){
+function inboxClearThreadOpToken(convId, clientSlug){
+  return String(convId || '') + '::' + String(clientSlug || '');
+}
+
+function inboxClearThreadCurrentToken(){
+  var id = '';
+  try {
+    if (typeof selectedConvId !== 'undefined' && selectedConvId) id = String(selectedConvId);
+  } catch (_e) { id = ''; }
+  var slug = '';
+  try {
+    if (typeof getClient === 'function') slug = String(getClient() || '');
+  } catch (_e2) { slug = ''; }
+  return inboxClearThreadOpToken(id, slug);
+}
+
+var inboxClearThreadDialogState = {
+  open: false,
+  invokeBtn: null,
+  keyHandler: null,
+};
+
+function inboxClearThreadFocusables(dialog){
+  var out = [];
+  function walk(n){
+    if (!n) return;
+    var tag = String(n.tagName || '').toUpperCase();
+    if (tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'){
+      var tab = n.getAttribute ? n.getAttribute('tabindex') : null;
+      if (!n.disabled && !n.hidden && tab !== '-1'
+        && !(n.getAttribute && n.getAttribute('aria-hidden') === 'true')){
+        out.push(n);
+      }
+    }
+    var kids = n.children || [];
+    var i;
+    for (i = 0; i < kids.length; i++) walk(kids[i]);
+  }
+  walk(dialog);
+  return out;
+}
+
+function inboxClearThreadTrapKeydown(ev){
+  var dialog = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog') : null;
+  if (!dialog || dialog.hidden) return;
+  var key = ev && (ev.key || ev.keyCode);
+  if (key === 'Escape' || key === 'Esc' || key === 27){
+    if (ev.preventDefault) ev.preventDefault();
+    if (ev.stopPropagation) ev.stopPropagation();
+    inboxSetClearThreadDialogOpen(false);
+    return;
+  }
+  if (key !== 'Tab' && key !== 9) return;
+  var list = inboxClearThreadFocusables(dialog);
+  if (!list.length) return;
+  var first = list[0];
+  var last = list[list.length - 1];
+  var active = typeof document !== 'undefined' ? document.activeElement : null;
+  if (ev.shiftKey){
+    if (active === first || !dialog.contains(active)){
+      if (ev.preventDefault) ev.preventDefault();
+      if (last && last.focus) last.focus();
+    }
+  } else if (active === last || !dialog.contains(active)){
+    if (ev.preventDefault) ev.preventDefault();
+    if (first && first.focus) first.focus();
+  }
+}
+
+function inboxSetClearThreadDialogOpen(open, invokeBtn){
   var dialog = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog') : null;
   if (!dialog) return;
   dialog.hidden = !open;
   dialog.setAttribute('aria-hidden', open ? 'false' : 'true');
+  if (open){
+    inboxClearThreadDialogState.open = true;
+    inboxClearThreadDialogState.invokeBtn = invokeBtn
+      || (typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null);
+    if (!inboxClearThreadDialogState.keyHandler && typeof document !== 'undefined' && document.addEventListener){
+      inboxClearThreadDialogState.keyHandler = inboxClearThreadTrapKeydown;
+      document.addEventListener('keydown', inboxClearThreadDialogState.keyHandler, true);
+    }
+    var initial = (typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-cancel') : null)
+      || inboxClearThreadFocusables(dialog)[0];
+    if (initial && initial.focus) initial.focus();
+  } else {
+    inboxClearThreadDialogState.open = false;
+    if (inboxClearThreadDialogState.keyHandler && typeof document !== 'undefined' && document.removeEventListener){
+      document.removeEventListener('keydown', inboxClearThreadDialogState.keyHandler, true);
+      inboxClearThreadDialogState.keyHandler = null;
+    }
+    var restore = inboxClearThreadDialogState.invokeBtn;
+    inboxClearThreadDialogState.invokeBtn = null;
+    if (restore && restore.focus && !restore.hidden && !restore.disabled){
+      restore.focus();
+    }
+  }
 }
 
 function inboxCookSelectedConversationHeaderActions(){
@@ -2562,36 +2654,48 @@ function wireInboxClearThread(convId, targetEl){
     || (typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null);
   if (!btn || btn.dataset.wiredInboxClear === '1') return;
   btn.dataset.wiredInboxClear = '1';
+  var wiredConvId = String(convId || '');
+  var wiredClientSlug = (typeof getClient === 'function') ? String(getClient() || '') : '';
+  var wiredToken = inboxClearThreadOpToken(wiredConvId, wiredClientSlug);
   var cancel = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-cancel') : null;
   var confirm = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-confirm') : null;
   var backdrop = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-cancel-backdrop') : null;
   function closeDialog(){ inboxSetClearThreadDialogOpen(false); }
-  btn.addEventListener('click', function(){ inboxSetClearThreadDialogOpen(true); });
+  btn.addEventListener('click', function(){
+    inboxSetClearThreadDialogOpen(true, btn);
+  });
   if (cancel) cancel.addEventListener('click', closeDialog);
   if (backdrop) backdrop.addEventListener('click', closeDialog);
   if (!confirm) return;
   confirm.addEventListener('click', function(){
+    var requestToken = wiredToken;
     confirm.disabled = true;
     btn.disabled = true;
-    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-agent-session', {
+    fetch('/staff/conversations/' + encodeURIComponent(wiredConvId) + '/clear-thread-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_slug: getClient() }),
+      body: JSON.stringify({ client_slug: wiredClientSlug }),
     })
       .then(function(r){
         if (r.status === 401) throw new Error('Authentication required');
         return r.json().then(function(data){ return { status: r.status, data: data }; });
       })
       .then(function(out){
+        if (inboxClearThreadCurrentToken() !== requestToken) return;
         var d = out.data || {};
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
         closeDialog();
         alert('Luna session cleared for this conversation. The next inbound message starts fresh.');
       })
       .catch(function(err){
+        if (inboxClearThreadCurrentToken() !== requestToken) return;
         alert(err.message || 'Could not clear Luna session');
       })
-      .finally(function(){ confirm.disabled = false; btn.disabled = false; });
+      .finally(function(){
+        if (inboxClearThreadCurrentToken() !== requestToken) return;
+        confirm.disabled = false;
+        btn.disabled = false;
+      });
   });
 }
 

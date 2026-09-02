@@ -42,12 +42,19 @@ class _Lock:
 
 
 class FakeDb:
-    def __init__(self):
+    def __init__(self, delete_result=True, delete_error=None, on_delete=None):
         self.deleted = []
+        self.delete_result = delete_result
+        self.delete_error = delete_error
+        self.on_delete = on_delete
 
     def delete_session(self, session_id, _sessions_dir):
+        if self.on_delete is not None:
+            self.on_delete(session_id)
+        if self.delete_error is not None:
+            raise self.delete_error
         self.deleted.append(session_id)
-        return True
+        return self.delete_result
 
 
 class FakeStore:
@@ -59,6 +66,9 @@ class FakeStore:
         self.saved = 0
 
     def _ensure_loaded(self):
+        return None
+
+    def _ensure_loaded_locked(self):
         return None
 
     def _save(self):
@@ -131,11 +141,79 @@ def main() -> int:
     ok("live session_key routing entry was dropped", key_a not in runner.session_store._entries)
     ok("shared memories were not cleared", result.get("memories_cleared") in (None, False))
     ok("phone-wide listing was not used", True)  # boom_list would have raised
+    ok("generation was invalidated", ("whatsapp_cloud:dm:34600000001", "session_key_reset") in runner.purged
+       or any(p[0] == key_a for p in runner.purged), str(runner.purged))
 
     runner2 = FakeRunner({key_b: _entry("sess-b")})
     result2 = mod.reset_session_key_only("+34600000001", runner=runner2, source=source)
     ok("missing session still ok (next inbound starts fresh)", result2.get("ok") is True and result2.get("deleted_count") == 0, str(result2))
     ok("other phone session untouched when target had no row", key_b in runner2.session_store._entries)
+
+    runner_false = FakeRunner({
+        key_a: _entry("sess-a"),
+        key_a_other_source: _entry("sess-a2"),
+        key_b: _entry("sess-b"),
+    })
+    runner_false.session_store._db.delete_result = False
+    queued_before = dict(runner_false._queued_events)
+    result_false = mod.reset_session_key_only("+34600000001", runner=runner_false, source=source)
+    ok("delete returning false fails closed",
+       result_false.get("ok") is False and result_false.get("reason") == "db_delete_failed", str(result_false))
+    ok("delete false keeps routing entry", key_a in runner_false.session_store._entries
+       and runner_false.session_store._entries[key_a].session_id == "sess-a")
+    ok("delete false does not evict/purge runner cache",
+       key_a not in runner_false.evicted
+       and key_a in runner_false._queued_events
+       and runner_false._queued_events[key_a] == queued_before[key_a],
+       str(runner_false.evicted))
+    ok("delete false leaves sibling sessions",
+       key_a_other_source in runner_false.session_store._entries
+       and key_b in runner_false.session_store._entries)
+
+    runner_raise = FakeRunner({key_a: _entry("sess-a"), key_b: _entry("sess-b")})
+    runner_raise.session_store._db.delete_error = RuntimeError("disk full")
+    result_raise = mod.reset_session_key_only("+34600000001", runner=runner_raise, source=source)
+    ok("delete raising fails closed",
+       result_raise.get("ok") is False and result_raise.get("reason") == "db_delete_failed", str(result_raise))
+    ok("delete raise keeps routing/session state",
+       key_a in runner_raise.session_store._entries
+       and runner_raise.session_store._entries[key_a].session_id == "sess-a"
+       and key_a not in runner_raise.evicted
+       and key_b in runner_raise.session_store._entries)
+
+    runner_race = FakeRunner({
+        key_a: _entry("sess-a"),
+        key_a_other_source: _entry("sess-a2"),
+        key_b: _entry("sess-b"),
+    })
+
+    def _replace_during_delete(_sid):
+        runner_race.session_store._entries[key_a] = _entry("sess-replacement")
+
+    runner_race.session_store._db.on_delete = _replace_during_delete
+    result_race = mod.reset_session_key_only("+34600000001", runner=runner_race, source=source)
+    ok("replacement race still reports ok for captured id", result_race.get("ok") is True, str(result_race))
+    ok("never pops a replacement session",
+       key_a in runner_race.session_store._entries
+       and runner_race.session_store._entries[key_a].session_id == "sess-replacement",
+       str(list(runner_race.session_store._entries)))
+    ok("replacement race deleted only the captured session_id",
+       runner_race.session_store._db.deleted == ["sess-a"], str(runner_race.session_store._db.deleted))
+    ok("replacement race does not purge the live replacement",
+       key_a not in runner_race.evicted, str(runner_race.evicted))
+    ok("replacement race leaves other sessions",
+       key_a_other_source in runner_race.session_store._entries
+       and key_b in runner_race.session_store._entries)
+
+    src = (ROOT / "wolfhouse_guest_fresh_start.py").read_text(encoding="utf8")
+    fresh_start = src[src.index("async def _handle_guest_fresh_start"): src.index("async def _handle_guest_session_key_reset")]
+    ok("fresh-start handler ignores scope and stays hard-delete/rotate",
+       "reset_session_key_only" not in fresh_start
+       and "scope" not in fresh_start
+       and "reset_guest_session" in fresh_start)
+    ok("session-key reset is a distinct route",
+       'SESSION_KEY_RESET_PATH = "/wolfhouse/guest-session-key-reset"' in src
+       and "app.router.add_post(SESSION_KEY_RESET_PATH" in src)
 
     mod._list_whatsapp_session_ids = orig_list
     print(f"\n{PASS} passed, {FAIL} failed")

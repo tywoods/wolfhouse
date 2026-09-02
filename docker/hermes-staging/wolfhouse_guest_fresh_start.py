@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 FRESH_START_PATH = "/wolfhouse/guest-fresh-start"
+SESSION_KEY_RESET_PATH = "/wolfhouse/guest-session-key-reset"
 
 _WHATSAPP_SOURCES = ("whatsapp_cloud", "whatsapp")
 _MEMORY_FILES = ("USER.md", "USER.md.lock", "MEMORY.md", "MEMORY.md.lock")
@@ -225,11 +226,59 @@ def rotate_guest_session(guest_phone: str) -> Dict[str, Any]:
     }
 
 
+def _ensure_store_loaded_locked(store) -> None:
+    """Load session routing while already holding store._lock (non-reentrant)."""
+    locked = getattr(store, "_ensure_loaded_locked", None)
+    if callable(locked):
+        locked()
+        return
+    ensure = getattr(store, "_ensure_loaded", None)
+    if callable(ensure):
+        ensure()
+
+
+def _session_entry_id(entry: Any) -> Optional[str]:
+    if entry is None:
+        return None
+    sid = getattr(entry, "session_id", None)
+    return str(sid) if sid else None
+
+
+def _fail_scoped_reset(
+    *,
+    reason: str,
+    session_key: str,
+    captured_session_id: Optional[str],
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "ok": False,
+        "reset": False,
+        "hard_delete": False,
+        "scope": "session_key",
+        "reason": reason,
+        "session_key": session_key,
+        "old_session_id": captured_session_id,
+        "deleted_session_ids": [],
+        "deleted_count": 0,
+        "routing_preserved": True,
+        "memories_cleared": None,
+    }
+    if error:
+        payload["error"] = error
+    return payload
+
+
 def reset_session_key_only(guest_phone: str, *, runner=None, source=None) -> Dict[str, Any]:
     """Reset the live WhatsApp session_key for this phone only.
 
     Does not list every state.db row for the user_id (a second same-phone
     source/session stays), and does not delete shared USER.md / MEMORY.md.
+
+    Synchronization: invalidate generation, take store._lock, capture the
+    session_id, fail closed if that DB delete raises or returns false, then
+    compare the captured id before pop so a replacement session is never
+    removed. Missing target (no captured id) is idempotent success.
     """
     digits = _digits_phone(guest_phone)
     if not digits:
@@ -244,37 +293,108 @@ def reset_session_key_only(guest_phone: str, *, runner=None, source=None) -> Dic
     store = runner.session_store
     db = getattr(store, "_db", None)
     sessions_dir = getattr(store, "sessions_dir", None)
+    lock = getattr(store, "_lock", None)
 
-    store._ensure_loaded()  # noqa: SLF001
-    old_entry = store._entries.get(session_key)  # noqa: SLF001
-    old_session_id: Optional[str] = old_entry.session_id if old_entry else None
+    invalidate = getattr(runner, "_invalidate_session_run_generation", None)
+    if callable(invalidate):
+        invalidate(session_key, reason="session_key_reset")
 
-    deleted_ids: List[str] = []
-    if old_session_id and db is not None:
-        try:
-            if db.delete_session(old_session_id, sessions_dir):
-                deleted_ids.append(old_session_id)
-        except Exception:
-            pass
+    def _under_lock() -> Dict[str, Any]:
+        _ensure_store_loaded_locked(store)
+        old_entry = store._entries.get(session_key)  # noqa: SLF001
+        captured_session_id = _session_entry_id(old_entry)
 
-    if session_key in store._entries:  # noqa: SLF001
-        with store._lock:  # noqa: SLF001
+        deleted_ids: List[str] = []
+        if captured_session_id:
+            if db is None:
+                return _fail_scoped_reset(
+                    reason="session_db_unavailable",
+                    session_key=session_key,
+                    captured_session_id=captured_session_id,
+                )
+            try:
+                deleted = bool(db.delete_session(captured_session_id, sessions_dir))
+            except Exception as exc:
+                return _fail_scoped_reset(
+                    reason="db_delete_failed",
+                    session_key=session_key,
+                    captured_session_id=captured_session_id,
+                    error=str(exc),
+                )
+            if not deleted:
+                return _fail_scoped_reset(
+                    reason="db_delete_failed",
+                    session_key=session_key,
+                    captured_session_id=captured_session_id,
+                )
+            deleted_ids.append(captured_session_id)
+
+        current = store._entries.get(session_key)  # noqa: SLF001
+        current_id = _session_entry_id(current)
+        if current is not None and current_id != captured_session_id:
+            return {
+                "ok": True,
+                "reset": True,
+                "hard_delete": False,
+                "scope": "session_key",
+                "session_key": session_key,
+                "old_session_id": captured_session_id,
+                "deleted_session_ids": deleted_ids,
+                "deleted_count": len(deleted_ids),
+                "replacement_preserved": True,
+                "should_purge": False,
+                "memories_cleared": None,
+            }
+
+        if current is not None:
             store._entries.pop(session_key, None)  # noqa: SLF001
             store._save()  # noqa: SLF001
 
-    _purge_runner_state(runner, session_key)
+        return {
+            "ok": True,
+            "reset": True,
+            "hard_delete": False,
+            "scope": "session_key",
+            "session_key": session_key,
+            "old_session_id": captured_session_id,
+            "deleted_session_ids": deleted_ids,
+            "deleted_count": len(deleted_ids),
+            "replacement_preserved": False,
+            "should_purge": True,
+            "memories_cleared": None,
+        }
 
-    return {
-        "ok": True,
-        "reset": True,
-        "hard_delete": False,
-        "scope": "session_key",
-        "session_key": session_key,
-        "old_session_id": old_session_id,
-        "deleted_session_ids": deleted_ids,
-        "deleted_count": len(deleted_ids),
-        "memories_cleared": None,
-    }
+    if lock is not None:
+        with lock:
+            locked_result = _under_lock()
+    else:
+        locked_result = _under_lock()
+
+    if locked_result.get("ok") is not True:
+        return locked_result
+
+    if locked_result.get("should_purge"):
+        captured_session_id = locked_result.get("old_session_id")
+
+        def _purge_if_safe() -> bool:
+            _ensure_store_loaded_locked(store)
+            current = store._entries.get(session_key)  # noqa: SLF001
+            current_id = _session_entry_id(current)
+            if current is not None and current_id != captured_session_id:
+                return False
+            _purge_runner_state(runner, session_key)
+            return True
+
+        if lock is not None:
+            with lock:
+                did_purge = _purge_if_safe()
+        else:
+            did_purge = _purge_if_safe()
+        if not did_purge:
+            locked_result["replacement_preserved"] = True
+
+    locked_result.pop("should_purge", None)
+    return locked_result
 
 
 def reset_guest_session(guest_phone: str, *, hard_delete: bool = True) -> Dict[str, Any]:
@@ -284,7 +404,12 @@ def reset_guest_session(guest_phone: str, *, hard_delete: bool = True) -> Dict[s
 
 
 def register_fresh_start_route(app) -> None:
-    """Register POST /wolfhouse/guest-fresh-start on the WhatsApp webhook aiohttp app."""
+    """Register Fresh Start (hard-delete/rotate) and Inbox Clear (session_key) routes.
+
+    Overflow Reset Luna session keeps POST /wolfhouse/guest-fresh-start exactly as
+    before (hard_delete default). Inbox Clear is a distinct route so a scope field
+    can never divert the hard-delete path.
+    """
 
     async def _handle_guest_fresh_start(request):
         if not _auth_ok(request):
@@ -294,18 +419,27 @@ def register_fresh_start_route(app) -> None:
         except Exception:
             return _json_response(400, {"ok": False, "error": "invalid_json"})
         guest_phone = body.get("guest_phone") or body.get("phone") or ""
-        scope = str(body.get("scope") or "").strip().lower()
-        if scope in ("session_key", "conversation"):
-            result = reset_session_key_only(str(guest_phone))
-        else:
-            hard_delete = body.get("hard_delete")
-            if hard_delete is None:
-                hard_delete = body.get("mode", "delete") != "rotate"
-            result = reset_guest_session(str(guest_phone), hard_delete=bool(hard_delete))
+        hard_delete = body.get("hard_delete")
+        if hard_delete is None:
+            hard_delete = body.get("mode", "delete") != "rotate"
+        result = reset_guest_session(str(guest_phone), hard_delete=bool(hard_delete))
+        status = 200 if result.get("ok") else 503
+        return _json_response(status, result)
+
+    async def _handle_guest_session_key_reset(request):
+        if not _auth_ok(request):
+            return _json_response(401, {"ok": False, "error": "unauthorized"})
+        try:
+            body = await request.json()
+        except Exception:
+            return _json_response(400, {"ok": False, "error": "invalid_json"})
+        guest_phone = body.get("guest_phone") or body.get("phone") or ""
+        result = reset_session_key_only(str(guest_phone))
         status = 200 if result.get("ok") else 503
         return _json_response(status, result)
 
     app.router.add_post(FRESH_START_PATH, _handle_guest_fresh_start)
+    app.router.add_post(SESSION_KEY_RESET_PATH, _handle_guest_session_key_reset)
 
 
 def _json_response(status: int, payload: Dict[str, Any]):

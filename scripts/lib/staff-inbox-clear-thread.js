@@ -48,6 +48,21 @@ UPDATE conversations conv
    AND conv.id = $2::uuid
  RETURNING conv.id::text AS conversation_id, conv.needs_human`;
 
+const SQL_REREAD_NEEDS_HUMAN = `
+SELECT conv.id::text AS conversation_id,
+       conv.needs_human
+  FROM conversations conv
+  INNER JOIN clients c ON c.id = conv.client_id
+ WHERE c.slug = $1
+   AND conv.id = $2::uuid
+ LIMIT 1`;
+
+const HERMES_UNAVAILABLE_REASONS = {
+  gateway_not_ready: true,
+  missing_bot_token: true,
+  request_failed: true,
+};
+
 function digitsOf(phone) {
   return String(phone || '').replace(/\D/g, '');
 }
@@ -116,10 +131,93 @@ async function lookupInboxClearThreadBinding(pg, clientSlug, convId) {
 }
 
 async function clearInboxClearThreadNeedsHuman(pg, clientSlug, convId) {
-  const upd = await pg.query(SQL_CLEAR_NEEDS_HUMAN, [clientSlug, convId]);
-  const row = upd.rows[0];
-  if (!row) return { ok: false, reason: 'not_updated' };
-  return { ok: true, conversation_id: row.conversation_id, needs_human: row.needs_human === true };
+  let upd;
+  try {
+    upd = await pg.query(SQL_CLEAR_NEEDS_HUMAN, [clientSlug, convId]);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'update_failed',
+      error: err && err.message ? err.message : String(err),
+    };
+  }
+  if (!upd || !upd.rows || !upd.rows.length) {
+    return { ok: false, reason: 'not_updated' };
+  }
+  let sel;
+  try {
+    sel = await pg.query(SQL_REREAD_NEEDS_HUMAN, [clientSlug, convId]);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: 'reread_failed',
+      error: err && err.message ? err.message : String(err),
+    };
+  }
+  const read = sel && sel.rows && sel.rows[0];
+  if (!read) {
+    return { ok: false, reason: 'reread_missing' };
+  }
+  const needsHuman = read.needs_human === true;
+  if (needsHuman) {
+    return {
+      ok: false,
+      reason: 'still_needs_human',
+      conversation_id: read.conversation_id,
+      needs_human: true,
+    };
+  }
+  return {
+    ok: true,
+    conversation_id: read.conversation_id,
+    needs_human: false,
+  };
+}
+
+function isHermesUnavailableReason(reason) {
+  const r = String(reason || '');
+  if (HERMES_UNAVAILABLE_REASONS[r]) return true;
+  if (/ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EAI_AGAIN|fetch failed|network|request_failed/i.test(r)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Map Inbox Clear owner outcomes to HTTP status.
+ * 409 shared-phone ambiguity, 400 unsupported channel, 502/503 Hermes
+ * dependency, 500 post-reset DB-state failure.
+ */
+function mapInboxClearThreadHttpStatus(result) {
+  if (!result) return 500;
+  if (result.found === false) return 404;
+  if (result.ok === true) return 200;
+  const reason = String(result.reason || '');
+  if (reason === 'shared_session_binding') return 409;
+  if (reason === 'not_whatsapp_session') return 400;
+  if (reason === 'missing_args' || reason === 'invalid_phone') return 400;
+  if (
+    reason === 'needs_human_clear_failed'
+    || reason === 'not_updated'
+    || reason === 'update_failed'
+    || reason === 'reread_failed'
+    || reason === 'reread_missing'
+    || reason === 'still_needs_human'
+    || result.partial === true
+  ) {
+    return 500;
+  }
+  const hermes = result.hermes_session_reset || {};
+  const hermesReason = hermes.reason || reason;
+  const hermesStatus = Number(hermes.status);
+  if (isHermesUnavailableReason(hermesReason) || hermesStatus === 503) return 503;
+  if (reason === 'missing_hermes_reset' || reason === 'hermes_reset_failed') return 502;
+  if (hermes.attempted && hermes.ok !== true) {
+    if (hermesStatus === 503) return 503;
+    return 502;
+  }
+  if (isHermesUnavailableReason(reason)) return 503;
+  return 502;
 }
 
 async function performInboxClearThreadReset(opts) {
@@ -138,7 +236,6 @@ async function performInboxClearThreadReset(opts) {
   }
   const hermes = await input.resetHermesConversationSession(binding.guest_phone, {
     conversation_id: input.convId,
-    scope: 'session_key',
   });
   if (!hermes || hermes.ok !== true) {
     return Object.assign({}, binding, {
@@ -148,16 +245,39 @@ async function performInboxClearThreadReset(opts) {
       needs_human_cleared: false,
     });
   }
-  let needsHumanCleared = false;
-  if (binding.needs_human === true) {
-    const cleared = await clearInboxClearThreadNeedsHuman(input.pg, input.clientSlug, input.convId);
-    needsHumanCleared = !!(cleared && cleared.ok);
+
+  let cleared;
+  try {
+    cleared = await clearInboxClearThreadNeedsHuman(input.pg, input.clientSlug, input.convId);
+  } catch (err) {
+    return Object.assign({}, binding, {
+      ok: false,
+      partial: true,
+      reason: 'needs_human_clear_failed',
+      hermes_session_reset: hermes,
+      needs_human_cleared: false,
+      clear_detail: err && err.message ? err.message : String(err),
+    });
+  }
+  if (!cleared || cleared.ok !== true) {
+    const failed = Object.assign({}, binding, {
+      ok: false,
+      partial: true,
+      reason: 'needs_human_clear_failed',
+      hermes_session_reset: hermes,
+      needs_human_cleared: false,
+      clear_detail: (cleared && cleared.reason) || 'not_updated',
+    });
+    if (cleared && typeof cleared.needs_human === 'boolean') {
+      failed.needs_human = cleared.needs_human;
+    }
+    return failed;
   }
   return Object.assign({}, binding, {
     ok: true,
     hermes_session_reset: hermes,
-    needs_human_cleared: needsHumanCleared,
-    needs_human: false,
+    needs_human_cleared: true,
+    needs_human: cleared.needs_human === true,
   });
 }
 
@@ -165,8 +285,10 @@ module.exports = {
   SQL_LOOKUP_CONVERSATION,
   SQL_SIBLING_SAME_PHONE,
   SQL_CLEAR_NEEDS_HUMAN,
+  SQL_REREAD_NEEDS_HUMAN,
   isWhatsAppSessionPhone,
   lookupInboxClearThreadBinding,
   clearInboxClearThreadNeedsHuman,
+  mapInboxClearThreadHttpStatus,
   performInboxClearThreadReset,
 };
