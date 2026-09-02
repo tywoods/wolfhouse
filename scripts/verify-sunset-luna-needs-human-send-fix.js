@@ -64,6 +64,8 @@ const mirrorSrc = read(MIRROR_PY);
 ok('mirror_whatsapp_outbound_after_send exported', /def mirror_whatsapp_outbound_after_send/.test(mirrorSrc));
 ok('handoff promise only when wamid present', /direction == "outbound" and wa_id and detects_handoff_promise/.test(mirrorSrc));
 ok('take_request safe harbor in mirror', /def is_sunset_take_request_queue_reply/.test(mirrorSrc));
+ok('human reassurance safe harbor in mirror', /def is_sunset_human_reassurance_reply/.test(mirrorSrc));
+ok('combined sunset suppression in mirror', /def _sunset_handoff_promise_suppressed/.test(mirrorSrc));
 
 console.log('\n[C] take_request queue — not a needs_human handoff');
 const { detectHandoffPromise } = require('./lib/luna-guest-handoff-promise');
@@ -74,6 +76,12 @@ const hernan15 =
 ok('passed-request take_request copy suppressed', detectHandoffPromise(hernanTakeRequest).handoff_promised !== true);
 ok('insufficient-seats confirm-time copy suppressed', detectHandoffPromise(hernan15).handoff_promised !== true);
 ok('real handoff still detected', detectHandoffPromise('A teammate will take over and sort those for you.').handoff_promised === true);
+ok('sunset human reassurance paraphrase suppressed', detectHandoffPromise(
+  "I've looped in a human from the Sunset team to confirm your lesson time.",
+).handoff_promised !== true);
+ok('sunset follow-up confirm suppressed', detectHandoffPromise(
+  'someone from the Sunset team will follow up in the chat to confirm your slot',
+).handoff_promised !== true);
 
 console.log('\n[D] In-memory mirror contract');
 const {

@@ -77,9 +77,42 @@ _SUNSET_TAKE_REQUEST_QUEUE_SOURCES = (
         r"(?:needs|need)\s+the\s+team\s+to\s+confirm\s+the\s+exact\s+time",
     ),
     ("rather_than_booked_instantly", r"rather\s+than\s+being\s+booked\s+instantly"),
+    ("confirm_time_broad", r"confirm\s+(?:the\s+)?(?:exact\s+)?(?:lesson\s+)?time(?:\s*/\s*seats)?"),
+    ("request_in_queue", r"(?:got|have)\s+your\s+request\s+in\s+the\s+queue"),
 )
 _SUNSET_TAKE_REQUEST_QUEUE_RES = tuple(
     re.compile(source, re.IGNORECASE) for _, source in _SUNSET_TAKE_REQUEST_QUEUE_SOURCES
+)
+
+# Sunset SUNSET-LUNA-VOICE-001 reassurance — see luna-guest-handoff-promise.js.
+_SUNSET_HUMAN_REASSURANCE_SOURCES = (
+    (
+        "human_from_sunset_team_coming_chat",
+        r"(?:a\s+)?human\s+from\s+(?:the\s+)?Sunset\s+team\s+is\s+coming\s+into\s+the\s+chat",
+    ),
+    (
+        "human_from_sunset_coming_chat",
+        r"(?:a\s+)?human\s+from\s+Sunset\s+is\s+coming\s+into\s+the\s+chat",
+    ),
+    (
+        "humano_sunset_entra_chat",
+        r"humano\s+(?:del\s+equipo(?:\s+de)?\s+Sunset|de\s+Sunset)[^.!?]{0,60}(?:chat|chat)",
+    ),
+    (
+        "sunset_team_confirm_time_seats",
+        r"(?:from\s+)?(?:the\s+)?Sunset\s+team[^.!?]{0,100}confirm[^.!?]{0,40}(?:exact\s+)?(?:time|seats|slot|lesson)",
+    ),
+    (
+        "sunset_follow_up_confirm",
+        r"(?:someone|a\s+human|a\s+teammate)[^.!?]{0,40}(?:from\s+)?(?:the\s+)?Sunset\s+team[^.!?]{0,80}(?:follow\s+up|get\s+back|be\s+in\s+touch)[^.!?]{0,60}confirm",
+    ),
+    (
+        "sunset_looped_in_human_confirm",
+        r"(?:loop(?:ed|ing)?\s+in)[^.!?]{0,20}(?:a\s+)?human[^.!?]{0,40}Sunset[^.!?]{0,80}confirm",
+    ),
+)
+_SUNSET_HUMAN_REASSURANCE_RES = tuple(
+    re.compile(source, re.IGNORECASE) for _, source in _SUNSET_HUMAN_REASSURANCE_SOURCES
 )
 
 HANDOFF_PROMISE_REASON = "luna_team_review_reply"
@@ -121,6 +154,18 @@ def is_sunset_take_request_queue_reply(text) -> bool:
     return any(compiled.search(raw) for compiled in _SUNSET_TAKE_REQUEST_QUEUE_RES)
 
 
+def is_sunset_human_reassurance_reply(text) -> bool:
+    """True for SUNSET-LUNA-VOICE-001 human-coming reassurance, not a mirror handoff."""
+    raw = str(text or "")
+    if not raw.strip():
+        return False
+    return any(compiled.search(raw) for compiled in _SUNSET_HUMAN_REASSURANCE_RES)
+
+
+def _sunset_handoff_promise_suppressed(text) -> bool:
+    return is_sunset_take_request_queue_reply(text) or is_sunset_human_reassurance_reply(text)
+
+
 def detects_handoff_promise(text) -> Optional[str]:
     """Pattern id when outbound copy promises a human takeover, else None."""
     raw = str(text or "")
@@ -128,7 +173,7 @@ def detects_handoff_promise(text) -> Optional[str]:
         return None
     for pattern_id, compiled in _HANDOFF_PROMISE_RES:
         if compiled.search(raw):
-            if is_sunset_take_request_queue_reply(raw):
+            if _sunset_handoff_promise_suppressed(raw):
                 return None
             return pattern_id
     return None

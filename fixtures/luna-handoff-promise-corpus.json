@@ -245,6 +245,22 @@
       "source": "live Hernan +5491122676249 (15 @ 10:00 take_request — mirror safe harbor)"
     },
     {
+      "text": "I've got your request in the queue. A human from the Sunset team is coming into the chat to confirm the exact time/seats — nothing is booked yet 🌊🤙",
+      "source": "docker/hermes-sunset/SOUL.md SUNSET-LUNA-VOICE-001 take_request reassurance (PR #828)"
+    },
+    {
+      "text": "I've looped in a human from the Sunset team to confirm your lesson time.",
+      "source": "Sunset take_request paraphrase — must not set needs_human via mirror"
+    },
+    {
+      "text": "Someone from the Sunset team will follow up in the chat to confirm your slot — nothing is booked yet.",
+      "source": "Sunset take_request paraphrase — human_subject_will_act would fire without reassurance safe harbor"
+    },
+    {
+      "text": "I couldn't finish that booking just yet, so a human from the Sunset team is coming into the chat to help you from here 🛟🌊",
+      "source": "docker/hermes-sunset/SOUL.md tool-trouble reassurance after flag_needs_human — mirror must not double-flag from copy alone"
+    },
+    {
       "text": "Let me take your request — the team will confirm the exact lesson time once we have capacity 🌊",
       "source": "docker/hermes-sunset/SOUL.md sanctioned take_request copy (not flag_needs_human)"
     },

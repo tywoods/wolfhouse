@@ -150,7 +150,18 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
             "into the chat to confirm the exact time/seats — nothing is booked yet 🌊🤙"
         )
         self.assertTrue(mirror.is_sunset_take_request_queue_reply(copy))
+        self.assertTrue(mirror.is_sunset_human_reassurance_reply(copy))
         self.assertIsNone(mirror.detects_handoff_promise(copy))
+
+    def test_sunset_human_reassurance_paraphrase_not_mirror_handoff(self):
+        mirror = load(ROOT / "wolfhouse_whatsapp_mirror.py", "sunset_voice_mirror2")
+        copy = (
+            "I've looped in a human from the Sunset team to confirm your lesson time."
+        )
+        self.assertTrue(mirror.is_sunset_human_reassurance_reply(copy))
+        self.assertIsNone(mirror.detects_handoff_promise(copy))
+        real = "A teammate will take over and sort those for you."
+        self.assertEqual(mirror.detects_handoff_promise(real), "human_subject_will_act")
 
     def test_sunset_soul_group_lesson_component_rules(self):
         sunset = (ROOT.parent / "hermes-sunset/SOUL.md").read_text()

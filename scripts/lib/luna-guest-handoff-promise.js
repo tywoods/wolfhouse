@@ -167,9 +167,55 @@ const SUNSET_TAKE_REQUEST_QUEUE_MARKERS = Object.freeze([
     source: '(?:needs|need)\\s+the\\s+team\\s+to\\s+confirm\\s+the\\s+exact\\s+time',
   },
   { id: 'rather_than_booked_instantly', source: 'rather\\s+than\\s+being\\s+booked\\s+instantly' },
+  {
+    id: 'confirm_time_broad',
+    source: 'confirm\\s+(?:the\\s+)?(?:exact\\s+)?(?:lesson\\s+)?time(?:\\s*/\\s*seats)?',
+  },
+  {
+    id: 'request_in_queue',
+    source: '(?:got|have)\\s+your\\s+request\\s+in\\s+the\\s+queue',
+  },
+]);
+
+/**
+ * Sunset SUNSET-LUNA-VOICE-001 reassurance — guest copy that a human from Sunset is
+ * joining the chat. Used for take_request and post-flag_needs_human acks; must not
+ * flip needs_human via the mirror safety net when flag_needs_human was not called.
+ * Duplicated in docker/hermes-staging/wolfhouse_whatsapp_mirror.py.
+ */
+const SUNSET_HUMAN_REASSURANCE_MARKERS = Object.freeze([
+  {
+    id: 'human_from_sunset_team_coming_chat',
+    source: '(?:a\\s+)?human\\s+from\\s+(?:the\\s+)?Sunset\\s+team\\s+is\\s+coming\\s+into\\s+the\\s+chat',
+  },
+  {
+    id: 'human_from_sunset_coming_chat',
+    source: '(?:a\\s+)?human\\s+from\\s+Sunset\\s+is\\s+coming\\s+into\\s+the\\s+chat',
+  },
+  {
+    id: 'humano_sunset_entra_chat',
+    source: 'humano\\s+(?:del\\s+equipo(?:\\s+de)?\\s+Sunset|de\\s+Sunset)[^.!?]{0,60}(?:chat|chat)',
+  },
+  {
+    id: 'sunset_team_confirm_time_seats',
+    source: '(?:from\\s+)?(?:the\\s+)?Sunset\\s+team[^.!?]{0,100}confirm[^.!?]{0,40}(?:exact\\s+)?(?:time|seats|slot|lesson)',
+  },
+  {
+    id: 'sunset_follow_up_confirm',
+    source: '(?:someone|a\\s+human|a\\s+teammate)[^.!?]{0,40}(?:from\\s+)?(?:the\\s+)?Sunset\\s+team[^.!?]{0,80}(?:follow\\s+up|get\\s+back|be\\s+in\\s+touch)[^.!?]{0,60}confirm',
+  },
+  {
+    id: 'sunset_looped_in_human_confirm',
+    source: '(?:loop(?:ed|ing)?\\s+in)[^.!?]{0,20}(?:a\\s+)?human[^.!?]{0,40}Sunset[^.!?]{0,80}confirm',
+  },
 ]);
 
 const TAKE_REQUEST_COMPILED = SUNSET_TAKE_REQUEST_QUEUE_MARKERS.map((p) => ({
+  id: p.id,
+  re: new RegExp(p.source, 'i'),
+}));
+
+const HUMAN_REASSURANCE_COMPILED = SUNSET_HUMAN_REASSURANCE_MARKERS.map((p) => ({
   id: p.id,
   re: new RegExp(p.source, 'i'),
 }));
@@ -179,6 +225,24 @@ function isSunsetTakeRequestQueueReply(text) {
   const raw = text == null ? '' : String(text);
   if (!raw.trim()) return false;
   return TAKE_REQUEST_COMPILED.some(({ re }) => re.test(raw));
+}
+
+/** @returns {boolean} */
+function isSunsetHumanReassuranceReply(text) {
+  const raw = text == null ? '' : String(text);
+  if (!raw.trim()) return false;
+  return HUMAN_REASSURANCE_COMPILED.some(({ re }) => re.test(raw));
+}
+
+/**
+ * @returns {'sunset_take_request_queue'|'sunset_human_reassurance'|null}
+ */
+function getSunsetHandoffPromiseSuppression(text) {
+  const raw = text == null ? '' : String(text);
+  if (!raw.trim()) return null;
+  if (TAKE_REQUEST_COMPILED.some(({ re }) => re.test(raw))) return 'sunset_take_request_queue';
+  if (HUMAN_REASSURANCE_COMPILED.some(({ re }) => re.test(raw))) return 'sunset_human_reassurance';
+  return null;
 }
 
 /**
@@ -191,12 +255,13 @@ function detectHandoffPromise(text) {
   for (const { id, re } of COMPILED) {
     const m = re.exec(raw);
     if (m) {
-      if (isSunsetTakeRequestQueueReply(raw)) {
+      const suppressedBy = getSunsetHandoffPromiseSuppression(raw);
+      if (suppressedBy) {
         return {
           handoff_promised: false,
           pattern_id: null,
           matched_text: null,
-          suppressed_by: 'sunset_take_request_queue',
+          suppressed_by: suppressedBy,
         };
       }
       return { handoff_promised: true, pattern_id: id, matched_text: m[0] };
@@ -213,7 +278,10 @@ function isHandoffPromiseReply(text) {
 module.exports = {
   HANDOFF_PROMISE_PATTERNS,
   SUNSET_TAKE_REQUEST_QUEUE_MARKERS,
+  SUNSET_HUMAN_REASSURANCE_MARKERS,
   detectHandoffPromise,
   isHandoffPromiseReply,
   isSunsetTakeRequestQueueReply,
+  isSunsetHumanReassuranceReply,
+  getSunsetHandoffPromiseSuppression,
 };
