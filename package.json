@@ -327,6 +327,7 @@
     "verify:luna-explicit-human-handoff": "node scripts/verify-luna-explicit-human-handoff.js",
     "verify:sunset-luna-live-test-001": "node scripts/verify-sunset-luna-live-test-001.js",
     "verify:sunset-lesson-availability-course-slot": "node scripts/verify-sunset-lesson-availability-course-slot.js",
+    "verify:sunset-luna-first-answer-eval": "node scripts/verify-sunset-luna-first-answer-eval.js",
     "verify:luna-catalog-services": "node scripts/verify-luna-catalog-services.js",
     "verify:luna-tenant-defaults": "node scripts/verify-luna-tenant-defaults.js",
     "check:soul-clean": "node scripts/check-soul-clean.js",
