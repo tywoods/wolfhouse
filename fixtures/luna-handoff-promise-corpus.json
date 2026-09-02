@@ -80,7 +80,7 @@
     },
     {
       "text": "Let me get the team to confirm that for you 😊",
-      "source": "docker/hermes-sunset/SOUL.md (hand off warmly)"
+      "source": "Handoff phrasing when staff review is genuinely required — not for unclear intake"
     },
     {
       "text": "Date changes are handled by our team — they'll sort it out and get back to you shortly 😊",
@@ -243,6 +243,34 @@
     {
       "text": "For a group of 15 at 10:00 tomorrow this needs the team to confirm the exact time rather than being booked instantly — I've passed your request along and nothing is booked yet.",
       "source": "live Hernan +5491122676249 (15 @ 10:00 take_request — mirror safe harbor)"
+    },
+    {
+      "text": "I've got your request in the queue. A human from the Sunset team is coming into the chat to confirm the exact time/seats — nothing is booked yet 🌊🤙",
+      "source": "docker/hermes-sunset/SOUL.md SUNSET-LUNA-VOICE-001 take_request reassurance (PR #828)"
+    },
+    {
+      "text": "I've looped in a human from the Sunset team to confirm your lesson time.",
+      "source": "Sunset take_request paraphrase — must not set needs_human via mirror"
+    },
+    {
+      "text": "Someone from the Sunset team will follow up in the chat to confirm your slot — nothing is booked yet.",
+      "source": "Sunset take_request paraphrase — human_subject_will_act would fire without reassurance safe harbor"
+    },
+    {
+      "text": "I couldn't finish that booking just yet, so a human from the Sunset team is coming into the chat to help you from here 🛟🌊",
+      "source": "docker/hermes-sunset/SOUL.md tool-trouble reassurance after flag_needs_human — mirror must not double-flag from copy alone"
+    },
+    {
+      "text": "Love it 🌊 Are you thinking Somo or El Sardinero for your lesson?",
+      "source": "docker/hermes-sunset/SOUL.md unclear school — clarify, not needs_human"
+    },
+    {
+      "text": "Happy to help! How many of you will be surfing, and which date works?",
+      "source": "docker/hermes-sunset/SOUL.md unclear party size/dates — clarify, not needs_human"
+    },
+    {
+      "text": "Got you — surf lesson or gear rental? Either way I'm here 🤙",
+      "source": "docker/hermes-sunset/SOUL.md lesson vs rental ambiguity — clarify, not needs_human"
     },
     {
       "text": "Let me take your request — the team will confirm the exact lesson time once we have capacity 🌊",

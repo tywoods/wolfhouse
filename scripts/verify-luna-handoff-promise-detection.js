@@ -125,6 +125,16 @@ section('[2] Owner detector (scripts/lib/luna-guest-handoff-promise.js)');
     && detectHandoffPromise(
       "I've passed your request to the team — nothing is booked yet.",
     ).suppressed_by === 'sunset_take_request_queue');
+  check('Sunset human-coming reassurance suppresses handoff detector paraphrases',
+    detectHandoffPromise(
+      "I've looped in a human from the Sunset team to confirm your lesson time.",
+    ).handoff_promised === false
+    && detectHandoffPromise(
+      "I've looped in a human from the Sunset team to confirm your lesson time.",
+    ).suppressed_by === 'sunset_human_reassurance'
+    && detectHandoffPromise(
+      'someone from the Sunset team will follow up in the chat to confirm your slot',
+    ).handoff_promised === false);
 }
 
 section('[3] Hermes Python mirror carries the same patterns');
@@ -170,21 +180,22 @@ const pySource = read(PY_MIRROR_PATH);
       missedRaw.map((t) => `\n          not detected: "${short(t)}"`).join(''));
   }
 
-  check('python mirror applies sunset take_request safe harbor',
+  check('python mirror applies sunset take_request + human reassurance safe harbor',
     /def is_sunset_take_request_queue_reply\(/.test(pySource)
-    && /is_sunset_take_request_queue_reply\(raw\)/.test(pySource));
+    && /def is_sunset_human_reassurance_reply\(/.test(pySource)
+    && /_sunset_handoff_promise_suppressed\(raw\)/.test(pySource));
   check('a detected promise reports which pattern matched (JS owner)',
     detectHandoffPromise(LIVE_FAILURE_TEXT).pattern_id === 'human_subject_will_act');
 
-  const { isSunsetTakeRequestQueueReply } = require('./lib/luna-guest-handoff-promise');
+  const { getSunsetHandoffPromiseSuppression } = require('./lib/luna-guest-handoff-promise');
   const detectWithSafeHarbor = (text) => {
     const raw = String(text || '');
-    if (isSunsetTakeRequestQueueReply(raw)) return null;
+    if (getSunsetHandoffPromiseSuppression(raw)) return null;
     return compiled.find((p) => p.re.test(raw));
   };
   if (compiled && compiled.length) {
     const overFired = negatives.filter((e) => detectWithSafeHarbor(e.text)).map((e) => e.text);
-    check('corpus negatives survive python patterns + take_request safe harbor', overFired.length === 0,
+    check('corpus negatives survive python patterns + sunset safe harbors', overFired.length === 0,
       overFired.map((t) => `\n          over-fired: "${short(t)}"`).join(''));
   }
 }
@@ -243,10 +254,14 @@ section('[6] SOUL makes flag_needs_human mandatory with the copy');
     check(`${label} SOUL still tells Luna not to use the phrasing when she is not handing off`,
       /do not use that phrasing/i.test(soul));
   }
-  check('Wolfhouse SOUL keeps the non-handoff exceptions intact',
+  check('Sunset SOUL keeps the non-handoff exceptions intact',
     /never\**\s+a reason to hand off/i.test(soulWh)
     && /Never call flag_needs_human for private\/couple room requests/i.test(soulWh)
     && /Do \*\*not\*\* call \*\*flag_needs_human\*\*/i.test(soulWh));
+  check('Sunset SOUL clarifies ambiguous intake instead of handoff',
+    /Unclear request — clarify first \(hard\)/i.test(soulSu)
+    && /Unclear ≠ staff review/i.test(soulSu)
+    && /Do \*\*not\*\* call \*\*flag_needs_human\*\*/i.test(soulSu));
 }
 
 section('[7] Python engine cross-check (optional)');
