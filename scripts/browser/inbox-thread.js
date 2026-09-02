@@ -602,6 +602,21 @@ var inboxClearThreadDialogState = {
   keyHandler: null,
 };
 
+function inboxTeardownClearThreadDialog(){
+  var handler = inboxClearThreadDialogState.keyHandler;
+  inboxClearThreadDialogState.keyHandler = null;
+  inboxClearThreadDialogState.open = false;
+  inboxClearThreadDialogState.invokeBtn = null;
+  if (handler && typeof document !== 'undefined' && document.removeEventListener){
+    document.removeEventListener('keydown', handler, true);
+  }
+  var dialog = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog') : null;
+  if (dialog){
+    dialog.hidden = true;
+    if (dialog.setAttribute) dialog.setAttribute('aria-hidden', 'true');
+  }
+}
+
 function inboxClearThreadFocusables(dialog){
   var out = [];
   function walk(n){
@@ -651,10 +666,10 @@ function inboxClearThreadTrapKeydown(ev){
 
 function inboxSetClearThreadDialogOpen(open, invokeBtn){
   var dialog = typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog') : null;
-  if (!dialog) return;
-  dialog.hidden = !open;
-  dialog.setAttribute('aria-hidden', open ? 'false' : 'true');
   if (open){
+    if (!dialog) return;
+    dialog.hidden = false;
+    dialog.setAttribute('aria-hidden', 'false');
     inboxClearThreadDialogState.open = true;
     inboxClearThreadDialogState.invokeBtn = invokeBtn
       || (typeof document !== 'undefined' ? document.getElementById('btn-inbox-clear-thread') : null);
@@ -665,17 +680,12 @@ function inboxSetClearThreadDialogOpen(open, invokeBtn){
     var initial = (typeof document !== 'undefined' ? document.getElementById('inbox-clear-thread-dialog-cancel') : null)
       || inboxClearThreadFocusables(dialog)[0];
     if (initial && initial.focus) initial.focus();
-  } else {
-    inboxClearThreadDialogState.open = false;
-    if (inboxClearThreadDialogState.keyHandler && typeof document !== 'undefined' && document.removeEventListener){
-      document.removeEventListener('keydown', inboxClearThreadDialogState.keyHandler, true);
-      inboxClearThreadDialogState.keyHandler = null;
-    }
-    var restore = inboxClearThreadDialogState.invokeBtn;
-    inboxClearThreadDialogState.invokeBtn = null;
-    if (restore && restore.focus && !restore.hidden && !restore.disabled){
-      restore.focus();
-    }
+    return;
+  }
+  var restore = inboxClearThreadDialogState.invokeBtn;
+  inboxTeardownClearThreadDialog();
+  if (dialog && restore && restore.focus && !restore.hidden && !restore.disabled){
+    restore.focus();
   }
 }
 
@@ -1041,6 +1051,7 @@ function inboxSelectionIsCurrent(convId, generation){
   return selectedConvId === convId && inboxSelectionGeneration === generation;
 }
 function clearInboxSelection(targetEl){
+  inboxTeardownClearThreadDialog();
   selectedConvId = null;
   inboxSelectionGeneration += 1;
   targetEl = targetEl || el('detail-content');
@@ -1053,6 +1064,7 @@ function clearInboxSelection(targetEl){
 }
 function beginConvDetailLoad(targetEl){
   /* Do not leave the old guest actionable while a new selection loads. */
+  inboxTeardownClearThreadDialog();
   inboxParkRefreshBtn();
   targetEl.innerHTML = buildConvDetailSkeleton();
   targetEl.classList.add('is-loading-detail');
@@ -1345,6 +1357,7 @@ function renderInbox(convs, opts){
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
     if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
+    inboxTeardownClearThreadDialog();
     selectedConvId = null;
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
     hideInboxMobileThread();
@@ -1499,6 +1512,7 @@ function loadInbox(selectConvIdAfterLoad, opts){
     el('inbox-state').classList.remove('error');
     el('inbox-state').style.display = 'block';
     if (el('conv-list')) el('conv-list').innerHTML = '';
+    inboxTeardownClearThreadDialog();
     selectedConvId = null;
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
     hideInboxMobileThread();
@@ -2328,6 +2342,7 @@ function loadSurfInboxDemoDetail(convId, targetEl){
   html += '<div class="draft-panel"><div class="draft-label"><span style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('inbox.detail.reply.label')) + '</span></div>';
   html += '<textarea disabled placeholder="' + escHtml(portalT('inbox.preview.detailNote')) + '"></textarea></div>';
   html += '</div></div>';
+  inboxTeardownClearThreadDialog();
   targetEl.innerHTML = html;
   return true;
 }
@@ -2555,6 +2570,7 @@ function loadConvDetail(convId, targetEl){
     html += '</div>'; /* /detail-layout */
 
     inboxParkRefreshBtn();
+    inboxTeardownClearThreadDialog();
     targetEl.innerHTML = html;
     inboxChatHideGuest();
     inboxPaintChatChromeSlot(c, lunaGuestPaused);
@@ -2645,6 +2661,7 @@ function loadConvDetail(convId, targetEl){
     }
     targetEl.classList.remove('is-loading-detail');
     inboxParkRefreshBtn();
+    inboxTeardownClearThreadDialog();
     targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
   });
 }
@@ -2770,6 +2787,7 @@ function wireDeleteConversation(convId){
       var d = out.data || {};
       if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
       if (selectedConvId === convId){
+        inboxTeardownClearThreadDialog();
         selectedConvId = null;
         el('detail-content').innerHTML = inboxEmptyDetailHtml();
         hideInboxMobileThread();

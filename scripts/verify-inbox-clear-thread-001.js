@@ -13,11 +13,14 @@
  *     conversation to /staff/conversations/:id/clear-thread-session with client_slug
  *   - Overflow Reset Luna session keeps /reset-agent-session hard-delete
  *   - Modal a11y (focus, Escape, Tab trap, restore Clear focus)
+ *   - Clear-dialog teardown before selected detail DOM replace/clear (no leaked
+ *     capture listener; no focus on detached UI when switching/clearing)
  *   - UI operation token bound to conversationId+clientSlug (stale selection ignored)
  *   - Backend owner is conversation + client scoped; sibling same-phone bindings
  *     fail closed; needs_human clears only after Hermes session-key reset success
  *   - Hermes session-key path does not delete shared agent memories and does not
- *     delete a second same-phone session
+ *     delete a second same-phone session; ordinary lock-taking _ensure_loaded
+ *     is never called while holding store._lock (production-shape, no deadlock)
  *   - Dev overflow Reset Luna session / Full Wipe stay; no second Luna toggle;
  *     no guest send
  *
@@ -177,6 +180,19 @@ function miniNode(tag, attrs) {
       return children.length ? children[children.length - 1] : null;
     },
   };
+  node.classList = {
+    add(c) {
+      const cur = String(node.className || '').split(/\s+/).filter(Boolean);
+      if (cur.indexOf(c) < 0) cur.push(c);
+      node.className = cur.join(' ');
+    },
+    remove(c) {
+      node.className = String(node.className || '').split(/\s+/).filter((x) => x && x !== c).join(' ');
+    },
+    contains(c) {
+      return String(node.className || '').split(/\s+/).indexOf(c) >= 0;
+    },
+  };
   return node;
 }
 
@@ -247,6 +263,9 @@ function loadThreadFns() {
     document: doc,
     window: { confirm() { throw new Error('window.confirm must not be used for Inbox Clear'); } },
     alert(msg) { alerts.push(String(msg == null ? '' : msg)); },
+    el(id) { return doc.getElementById(id); },
+    inboxEmptyDetailHtml() { return '<div class="inbox-empty-right"></div>'; },
+    hideInboxMobileThread() {},
     console,
   };
   sandbox.window.fetch = sandbox.fetch;
@@ -264,7 +283,11 @@ function loadThreadFns() {
       'this.inboxClearThreadOpToken = inboxClearThreadOpToken;\n' +
       'this.inboxClearThreadCurrentToken = inboxClearThreadCurrentToken;\n' +
       'this.inboxClearThreadTrapKeydown = inboxClearThreadTrapKeydown;\n' +
-      'this.inboxClearThreadFocusables = inboxClearThreadFocusables;\n',
+      'this.inboxClearThreadFocusables = inboxClearThreadFocusables;\n' +
+      'this.inboxTeardownClearThreadDialog = inboxTeardownClearThreadDialog;\n' +
+      'this.inboxClearThreadDialogState = inboxClearThreadDialogState;\n' +
+      'this.beginConvDetailLoad = beginConvDetailLoad;\n' +
+      'this.clearInboxSelection = clearInboxSelection;\n',
       sandbox,
     );
   } catch (err) {
@@ -274,6 +297,7 @@ function loadThreadFns() {
   sandbox.__alerts = alerts;
   sandbox.__byId = byId;
   sandbox.__doc = doc;
+  sandbox.__docListeners = docListeners;
   return sandbox;
 }
 
@@ -933,7 +957,118 @@ async function main() {
     ok('stale completion does not re-enable the new selection via finally skip', false, 'wire helper missing');
   }
 
-  console.log('\n[9] Stay off: no send, no second Luna toggle, gates registered');
+  console.log('\n[9] Clear-dialog teardown before selected detail DOM is replaced/cleared');
+  const teardownFn = sliceFn(threadSrc, 'inboxTeardownClearThreadDialog');
+  const beginFn = sliceFn(threadSrc, 'beginConvDetailLoad');
+  const clearSelFn = sliceFn(threadSrc, 'clearInboxSelection');
+  ok('dedicated teardown helper exists', /function inboxTeardownClearThreadDialog\(/.test(teardownFn));
+  ok('teardown always removes the capture key listener and never focuses',
+    /removeEventListener\(\s*['"]keydown['"]/.test(teardownFn)
+    && /keyHandler/.test(teardownFn)
+    && /invokeBtn\s*=\s*null/.test(teardownFn)
+    && /open\s*=\s*false/.test(teardownFn)
+    && !/\.focus\s*\(/.test(teardownFn));
+  ok('switching conversation tears down Clear dialog before replacing detail DOM',
+    /inboxTeardownClearThreadDialog\s*\(/.test(beginFn)
+    && beginFn.indexOf('inboxTeardownClearThreadDialog') < beginFn.indexOf('innerHTML'));
+  ok('clearing conversation tears down Clear dialog before clearing detail DOM',
+    /inboxTeardownClearThreadDialog\s*\(/.test(clearSelFn)
+    && clearSelFn.indexOf('inboxTeardownClearThreadDialog') < clearSelFn.indexOf('innerHTML'));
+
+  function mountClearDialog(ctx) {
+    const root = miniNode('div', { id: 'detail-content' });
+    const btn = miniNode('button', { id: 'btn-inbox-clear-thread', textContent: 'Clear' });
+    const dialog = miniNode('div', { id: 'inbox-clear-thread-dialog', hidden: true });
+    const cancel = miniNode('button', { id: 'inbox-clear-thread-dialog-cancel', textContent: 'Cancel' });
+    const confirm = miniNode('button', { id: 'inbox-clear-thread-dialog-confirm', textContent: 'Clear' });
+    const backdrop = miniNode('div', { id: 'inbox-clear-thread-dialog-cancel-backdrop' });
+    root.appendChild(btn);
+    root.appendChild(dialog);
+    dialog.appendChild(backdrop);
+    dialog.appendChild(cancel);
+    dialog.appendChild(confirm);
+    ctx.__byId['btn-inbox-clear-thread'] = btn;
+    ctx.__byId['inbox-clear-thread-dialog'] = dialog;
+    ctx.__byId['inbox-clear-thread-dialog-cancel'] = cancel;
+    ctx.__byId['inbox-clear-thread-dialog-confirm'] = confirm;
+    ctx.__byId['inbox-clear-thread-dialog-cancel-backdrop'] = backdrop;
+    ctx.__byId['detail-content'] = root;
+    root.querySelector = (sel) => {
+      if (sel === '#btn-inbox-clear-thread') return btn;
+      if (sel === '#inbox-clear-thread-dialog') return dialog;
+      return null;
+    };
+    ctx.document.getElementById = (id) => ctx.__byId[id] || null;
+    return { root, btn, dialog, cancel, confirm };
+  }
+
+  if (typeof ui.wireInboxClearThread === 'function'
+    && typeof ui.beginConvDetailLoad === 'function'
+    && typeof ui.clearInboxSelection === 'function') {
+    const sw = loadThreadFns();
+    const mounted = mountClearDialog(sw);
+    sw.wireInboxClearThread(CONV_A, mounted.root);
+    mounted.btn.click();
+    ok('modal is open with a capture key listener before switch',
+      mounted.dialog.hidden === false
+      && sw.inboxClearThreadDialogState.open === true
+      && (sw.__docListeners.keydown || []).length === 1);
+    const focusedOnSwitch = [];
+    focusSink = (n) => { focusedOnSwitch.push(n && n.id); sw.document.activeElement = n; };
+    sw.beginConvDetailLoad(mounted.root);
+    ok('switching conversation while modal open removes capture key listener',
+      (sw.__docListeners.keydown || []).length === 0,
+      JSON.stringify((sw.__docListeners.keydown || []).length));
+    ok('switching conversation while modal open clears open/invokeBtn without focusing detached Clear',
+      sw.inboxClearThreadDialogState.open === false
+      && sw.inboxClearThreadDialogState.invokeBtn === null
+      && sw.inboxClearThreadDialogState.keyHandler === null
+      && focusedOnSwitch.indexOf('btn-inbox-clear-thread') < 0,
+      JSON.stringify({
+        open: sw.inboxClearThreadDialogState.open,
+        invokeBtn: sw.inboxClearThreadDialogState.invokeBtn,
+        focused: focusedOnSwitch,
+      }));
+    sw.document.__fireKey({
+      key: 'Escape', preventDefault() {}, stopPropagation() {},
+    });
+    ok('keydown after switch teardown is a no-op (listener gone)',
+      (sw.__docListeners.keydown || []).length === 0);
+
+    const cl = loadThreadFns();
+    const cleared = mountClearDialog(cl);
+    cl.wireInboxClearThread(CONV_A, cleared.root);
+    cleared.btn.click();
+    ok('modal is open with a capture key listener before clear',
+      cleared.dialog.hidden === false
+      && cl.inboxClearThreadDialogState.open === true
+      && (cl.__docListeners.keydown || []).length === 1);
+    const focusedOnClear = [];
+    focusSink = (n) => { focusedOnClear.push(n && n.id); cl.document.activeElement = n; };
+    cl.clearInboxSelection(cleared.root);
+    ok('clearing conversation while modal open removes capture key listener',
+      (cl.__docListeners.keydown || []).length === 0);
+    ok('clearing conversation while modal open clears open/invokeBtn without focusing detached Clear',
+      cl.inboxClearThreadDialogState.open === false
+      && cl.inboxClearThreadDialogState.invokeBtn === null
+      && cl.inboxClearThreadDialogState.keyHandler === null
+      && focusedOnClear.indexOf('btn-inbox-clear-thread') < 0,
+      JSON.stringify({
+        open: cl.inboxClearThreadDialogState.open,
+        invokeBtn: cl.inboxClearThreadDialogState.invokeBtn,
+        focused: focusedOnClear,
+      }));
+  } else {
+    ok('modal is open with a capture key listener before switch', false, 'helpers missing');
+    ok('switching conversation while modal open removes capture key listener', false, 'helpers missing');
+    ok('switching conversation while modal open clears open/invokeBtn without focusing detached Clear', false, 'helpers missing');
+    ok('keydown after switch teardown is a no-op (listener gone)', false, 'helpers missing');
+    ok('modal is open with a capture key listener before clear', false, 'helpers missing');
+    ok('clearing conversation while modal open removes capture key listener', false, 'helpers missing');
+    ok('clearing conversation while modal open clears open/invokeBtn without focusing detached Clear', false, 'helpers missing');
+  }
+
+  console.log('\n[10] Stay off: no send, no second Luna toggle, gates registered');
   ok('no guest WhatsApp/email send from Clear modules',
     !/sendMail/.test(threadSrc) && !/_patched_whatsapp_cloud_send/.test(threadSrc)
     && !/graph\.microsoft/.test(read(OWNER))

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -70,6 +71,53 @@ class FakeStore:
 
     def _ensure_loaded_locked(self):
         return None
+
+    def _save(self):
+        self.saved += 1
+
+
+class NonReentrantLock:
+    """threading.Lock-shaped: same-thread re-entry is a deadlock, not a reentrant nest."""
+
+    def __init__(self):
+        self._held = False
+        self._owner = None
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+        return False
+
+    def acquire(self, blocking=True, timeout=-1):
+        ident = threading.get_ident()
+        if self._held:
+            raise RuntimeError("deadlock: non-reentrant store._lock re-acquired")
+        self._held = True
+        self._owner = ident
+        return True
+
+    def release(self):
+        self._held = False
+        self._owner = None
+
+
+class ProductionShapeStore:
+    """Production-shape: only ordinary lock-taking _ensure_loaded, no lock-free helper."""
+
+    def __init__(self, entries):
+        self._entries = dict(entries)
+        self._lock = NonReentrantLock()
+        self._db = FakeDb()
+        self.sessions_dir = None
+        self.saved = 0
+        self.ensure_calls = 0
+
+    def _ensure_loaded(self):
+        with self._lock:
+            self.ensure_calls += 1
 
     def _save(self):
         self.saved += 1
@@ -214,6 +262,78 @@ def main() -> int:
     ok("session-key reset is a distinct route",
        'SESSION_KEY_RESET_PATH = "/wolfhouse/guest-session-key-reset"' in src
        and "app.router.add_post(SESSION_KEY_RESET_PATH" in src)
+
+    locked_helper = src[src.index("def _ensure_store_loaded_locked"): src.index("def _store_can_load")]
+    ok("locked load helper never falls back to ordinary _ensure_loaded",
+       "_ensure_loaded_locked" in locked_helper
+       and "_ensure_loaded(" not in locked_helper.replace("_ensure_loaded_locked(", "LOCKED("),
+       locked_helper[:400])
+
+    prod_entries = {
+        key_a: _entry("sess-a"),
+        key_a_other_source: _entry("sess-a2"),
+        key_b: _entry("sess-b"),
+    }
+    runner_prod = FakeRunner(prod_entries)
+    runner_prod.session_store = ProductionShapeStore(prod_entries)
+    assert not hasattr(runner_prod.session_store, "_ensure_loaded_locked")
+    result_prod = mod.reset_session_key_only("+34600000001", runner=runner_prod, source=source)
+    ok("production-shape store (ordinary lock-taking _ensure_loaded only) does not deadlock",
+       result_prod.get("ok") is True and result_prod.get("scope") == "session_key",
+       str(result_prod))
+    ok("production-shape reset still compare-and-removes the captured session_key",
+       key_a not in runner_prod.session_store._entries
+       and runner_prod.session_store._db.deleted == ["sess-a"]
+       and key_a_other_source in runner_prod.session_store._entries
+       and key_b in runner_prod.session_store._entries,
+       str(list(runner_prod.session_store._entries)))
+    ok("production-shape called ordinary _ensure_loaded before taking store._lock",
+       runner_prod.session_store.ensure_calls >= 1,
+       str(runner_prod.session_store.ensure_calls))
+
+    runner_prod_false = FakeRunner({key_a: _entry("sess-a"), key_b: _entry("sess-b")})
+    store_false = ProductionShapeStore({key_a: _entry("sess-a"), key_b: _entry("sess-b")})
+    store_false._db.delete_result = False
+    runner_prod_false.session_store = store_false
+    result_prod_false = mod.reset_session_key_only("+34600000001", runner=runner_prod_false, source=source)
+    ok("production-shape delete false still fails closed without deadlock",
+       result_prod_false.get("ok") is False and result_prod_false.get("reason") == "db_delete_failed"
+       and key_a in store_false._entries
+       and store_false._entries[key_a].session_id == "sess-a"
+       and key_a not in runner_prod_false.evicted,
+       str(result_prod_false))
+
+    runner_prod_race = FakeRunner(prod_entries)
+    store_race = ProductionShapeStore(prod_entries)
+    def _prod_replace(_sid):
+        store_race._entries[key_a] = _entry("sess-replacement")
+    store_race._db.on_delete = _prod_replace
+    runner_prod_race.session_store = store_race
+    result_prod_race = mod.reset_session_key_only("+34600000001", runner=runner_prod_race, source=source)
+    ok("production-shape replacement race still compare-and-skips pop",
+       result_prod_race.get("ok") is True
+       and key_a in store_race._entries
+       and store_race._entries[key_a].session_id == "sess-replacement"
+       and key_a not in runner_prod_race.evicted
+       and store_race._db.deleted == ["sess-a"],
+       str(result_prod_race))
+
+    runner_bare = FakeRunner({key_a: _entry("sess-a")})
+    class BareStore:
+        def __init__(self):
+            self._entries = {key_a: _entry("sess-a")}
+            self._lock = NonReentrantLock()
+            self._db = FakeDb()
+            self.sessions_dir = None
+        def _save(self):
+            return None
+    runner_bare.session_store = BareStore()
+    result_bare = mod.reset_session_key_only("+34600000001", runner=runner_bare, source=source)
+    ok("no load helper fails closed instead of calling ordinary _ensure_loaded under lock",
+       result_bare.get("ok") is False and result_bare.get("reason") == "session_store_not_loaded"
+       and key_a in runner_bare.session_store._entries
+       and key_a not in runner_bare.evicted,
+       str(result_bare))
 
     mod._list_whatsapp_session_ids = orig_list
     print(f"\n{PASS} passed, {FAIL} failed")

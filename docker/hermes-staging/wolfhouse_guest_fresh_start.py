@@ -226,15 +226,36 @@ def rotate_guest_session(guest_phone: str) -> Dict[str, Any]:
     }
 
 
-def _ensure_store_loaded_locked(store) -> None:
-    """Load session routing while already holding store._lock (non-reentrant)."""
+def _ordinary_ensure_loaded(store) -> bool:
+    """Load session routing without holding store._lock.
+
+    Production SessionStore._ensure_loaded takes the same non-reentrant lock,
+    so this must never run while that lock is already held.
+    """
+    ensure = getattr(store, "_ensure_loaded", None)
+    if not callable(ensure):
+        return False
+    ensure()
+    return True
+
+
+def _ensure_store_loaded_locked(store) -> bool:
+    """Load session routing while already holding store._lock.
+
+    Only a verified lock-free helper may run here. Ordinary _ensure_loaded
+    takes the same non-reentrant lock and must never be called under it.
+    """
     locked = getattr(store, "_ensure_loaded_locked", None)
     if callable(locked):
         locked()
-        return
-    ensure = getattr(store, "_ensure_loaded", None)
-    if callable(ensure):
-        ensure()
+        return True
+    return False
+
+
+def _store_can_load(store) -> bool:
+    return callable(getattr(store, "_ensure_loaded", None)) or callable(
+        getattr(store, "_ensure_loaded_locked", None)
+    )
 
 
 def _session_entry_id(entry: Any) -> Optional[str]:
@@ -275,10 +296,13 @@ def reset_session_key_only(guest_phone: str, *, runner=None, source=None) -> Dic
     Does not list every state.db row for the user_id (a second same-phone
     source/session stays), and does not delete shared USER.md / MEMORY.md.
 
-    Synchronization: invalidate generation, take store._lock, capture the
-    session_id, fail closed if that DB delete raises or returns false, then
-    compare the captured id before pop so a replacement session is never
-    removed. Missing target (no captured id) is idempotent success.
+    Synchronization: invalidate generation, load routing without holding
+    store._lock (ordinary _ensure_loaded takes that non-reentrant lock),
+    then take store._lock, capture the session_id, fail closed if that DB
+    delete raises or returns false, then compare the captured id before pop
+    so a replacement session is never removed. Missing target (no captured
+    id) is idempotent success. Under lock, only a verified lock-free helper
+    may load; otherwise fail closed rather than re-enter _ensure_loaded.
     """
     digits = _digits_phone(guest_phone)
     if not digits:
@@ -298,6 +322,16 @@ def reset_session_key_only(guest_phone: str, *, runner=None, source=None) -> Dic
     invalidate = getattr(runner, "_invalidate_session_run_generation", None)
     if callable(invalidate):
         invalidate(session_key, reason="session_key_reset")
+
+    if not _store_can_load(store):
+        return _fail_scoped_reset(
+            reason="session_store_not_loaded",
+            session_key=session_key,
+            captured_session_id=None,
+        )
+
+    # Ordinary _ensure_loaded takes store._lock — call it only while unlocked.
+    _ordinary_ensure_loaded(store)
 
     def _under_lock() -> Dict[str, Any]:
         _ensure_store_loaded_locked(store)
@@ -385,6 +419,7 @@ def reset_session_key_only(guest_phone: str, *, runner=None, source=None) -> Dic
             _purge_runner_state(runner, session_key)
             return True
 
+        _ordinary_ensure_loaded(store)
         if lock is not None:
             with lock:
                 did_purge = _purge_if_safe()
