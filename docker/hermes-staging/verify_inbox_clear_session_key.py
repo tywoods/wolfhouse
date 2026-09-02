@@ -255,6 +255,7 @@ def main() -> int:
 
     src = (ROOT / "wolfhouse_guest_fresh_start.py").read_text(encoding="utf8")
     fresh_start = src[src.index("async def _handle_guest_fresh_start"): src.index("async def _handle_guest_session_key_reset")]
+    session_key_handler = src[src.index("async def _handle_guest_session_key_reset"): src.index("app.router.add_post(FRESH_START_PATH")]
     ok("fresh-start handler ignores scope and stays hard-delete/rotate",
        "reset_session_key_only" not in fresh_start
        and "scope" not in fresh_start
@@ -262,6 +263,40 @@ def main() -> int:
     ok("session-key reset is a distinct route",
        'SESSION_KEY_RESET_PATH = "/wolfhouse/guest-session-key-reset"' in src
        and "app.router.add_post(SESSION_KEY_RESET_PATH" in src)
+    ok("Sunset session-key alias is /whatsapp/guest-session-key-reset, not webhook",
+       'SUNSET_SESSION_KEY_RESET_PATH = "/whatsapp/guest-session-key-reset"' in src
+       and "app.router.add_post(SUNSET_SESSION_KEY_RESET_PATH" in src
+       and "/whatsapp/webhook" not in src
+       and "hard_delete" not in session_key_handler
+       and "reset_session_key_only" in session_key_handler
+       and "reset_guest_session" not in session_key_handler)
+
+    class FakeRouter:
+        def __init__(self):
+            self.posts = []
+
+        def add_post(self, path, handler):
+            self.posts.append((path, handler))
+
+    class FakeApp:
+        def __init__(self):
+            self.router = FakeRouter()
+
+    fake_app = FakeApp()
+    mod.register_fresh_start_route(fake_app)
+    posted = {path: handler for path, handler in fake_app.router.posts}
+    ok("registers Wolfhouse fresh-start, Wolfhouse session-key, and Sunset alias",
+       list(posted) == [
+           "/wolfhouse/guest-fresh-start",
+           "/wolfhouse/guest-session-key-reset",
+           "/whatsapp/guest-session-key-reset",
+       ],
+       str(list(posted)))
+    ok("Sunset alias shares the authenticated session-key handler (not webhook, not fresh-start)",
+       posted.get("/whatsapp/guest-session-key-reset") is posted.get("/wolfhouse/guest-session-key-reset")
+       and posted.get("/whatsapp/guest-session-key-reset") is not posted.get("/wolfhouse/guest-fresh-start")
+       and posted.get("/whatsapp/guest-session-key-reset").__name__ == "_handle_guest_session_key_reset",
+       str({path: getattr(fn, "__name__", None) for path, fn in posted.items()}))
 
     locked_helper = src[src.index("def _ensure_store_loaded_locked"): src.index("def _store_can_load")]
     ok("locked load helper never falls back to ordinary _ensure_loaded",

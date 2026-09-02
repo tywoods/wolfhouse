@@ -12,23 +12,50 @@ function normalizeGuestPhone(raw) {
   return `+${digits}`;
 }
 
-function hermesBaseUrl() {
+function envStr(env, key) {
+  return String((env && env[key]) || '').trim();
+}
+
+/**
+ * Staff-process tenant. Prefer trusted ingress slug; DEFAULT_CLIENT_SLUG is
+ * the same fallback Staff API uses. Never inferred from the guest request.
+ */
+function staffTenantSlug(env = process.env) {
+  const ingress = envStr(env, 'STAFF_API_INGRESS_TENANT_SLUG');
+  if (ingress) return ingress;
+  return envStr(env, 'DEFAULT_CLIENT_SLUG');
+}
+
+function hermesBaseUrl(env = process.env) {
   return String(
-    process.env.WOLFHOUSE_HERMES_BASE_URL
+    envStr(env, 'WOLFHOUSE_HERMES_BASE_URL')
     || 'https://lunabox.lunafrontdesk.com',
   ).trim().replace(/\/$/, '');
 }
 
-function hermesFreshStartUrl() {
-  const explicit = String(process.env.WOLFHOUSE_HERMES_GUEST_FRESH_START_URL || '').trim();
+function hermesFreshStartUrl(env = process.env) {
+  const explicit = envStr(env, 'WOLFHOUSE_HERMES_GUEST_FRESH_START_URL');
   if (explicit) return explicit.replace(/\/$/, '');
-  return `${hermesBaseUrl()}/wolfhouse/guest-fresh-start`;
+  return `${hermesBaseUrl(env)}/wolfhouse/guest-fresh-start`;
 }
 
-function hermesSessionKeyResetUrl() {
-  const explicit = String(process.env.WOLFHOUSE_HERMES_GUEST_SESSION_KEY_RESET_URL || '').trim();
+/**
+ * Inbox Clear session-key route.
+ *
+ * Wolfhouse defaults to Lunabox `/wolfhouse/guest-session-key-reset`
+ * (Caddy `/wolfhouse/*` → hermes-luna:8090).
+ * Sunset Staff has no WOLFHOUSE_HERMES_* URL env; that Wolfhouse default is
+ * the wrong tenant and live Confirm returns http_404. Sunset default/explicit
+ * tenant routing uses `/whatsapp/guest-session-key-reset` so Caddy
+ * `/whatsapp/*` reaches hermes-sunset-luna:8092. Explicit URL still wins.
+ */
+function hermesSessionKeyResetUrl(env = process.env) {
+  const explicit = envStr(env, 'WOLFHOUSE_HERMES_GUEST_SESSION_KEY_RESET_URL');
   if (explicit) return explicit.replace(/\/$/, '');
-  return `${hermesBaseUrl()}/wolfhouse/guest-session-key-reset`;
+  if (staffTenantSlug(env) === 'sunset') {
+    return `${hermesBaseUrl(env)}/whatsapp/guest-session-key-reset`;
+  }
+  return `${hermesBaseUrl(env)}/wolfhouse/guest-session-key-reset`;
 }
 
 /**
@@ -106,12 +133,23 @@ async function resetHermesConversationSession(guestPhone, opts = {}) {
     return { attempted: false, ok: false, reason: 'invalid_phone' };
   }
 
-  const token = String(process.env.LUNA_BOT_INTERNAL_TOKEN || '').trim();
+  const env = opts.env || process.env;
+  const url = hermesSessionKeyResetUrl(env);
+  if (!url) {
+    return {
+      attempted: false,
+      ok: false,
+      hard_delete: false,
+      scope: 'session_key',
+      reason: 'missing_session_key_url',
+    };
+  }
+
+  const token = String(env.LUNA_BOT_INTERNAL_TOKEN || '').trim();
   if (!token) {
     return { attempted: false, ok: false, reason: 'missing_bot_token' };
   }
 
-  const url = hermesSessionKeyResetUrl();
   const body = JSON.stringify({
     guest_phone: phone,
     conversation_id: opts.conversation_id || null,
@@ -165,6 +203,7 @@ async function resetHermesConversationSession(guestPhone, opts = {}) {
 
 module.exports = {
   normalizeGuestPhone,
+  staffTenantSlug,
   hermesFreshStartUrl,
   hermesSessionKeyResetUrl,
   resetHermesGuestSession,

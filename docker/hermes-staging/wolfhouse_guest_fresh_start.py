@@ -9,6 +9,9 @@ from typing import Any, Dict, List, Optional
 
 FRESH_START_PATH = "/wolfhouse/guest-fresh-start"
 SESSION_KEY_RESET_PATH = "/wolfhouse/guest-session-key-reset"
+# Distinct from the Meta Cloud webhook route. Live Caddy `/whatsapp/*`
+# reaches hermes-sunset-luna:8092; `/wolfhouse/*` reaches Wolfhouse :8090.
+SUNSET_SESSION_KEY_RESET_PATH = "/whatsapp/guest-session-key-reset"
 
 _WHATSAPP_SOURCES = ("whatsapp_cloud", "whatsapp")
 _MEMORY_FILES = ("USER.md", "USER.md.lock", "MEMORY.md", "MEMORY.md.lock")
@@ -444,6 +447,10 @@ def register_fresh_start_route(app) -> None:
     Overflow Reset Luna session keeps POST /wolfhouse/guest-fresh-start exactly as
     before (hard_delete default). Inbox Clear is a distinct route so a scope field
     can never divert the hard-delete path.
+
+    Sunset Staff Clear uses the same authenticated session-key handler on
+    /whatsapp/guest-session-key-reset so live Caddy /whatsapp/* can reach
+    hermes-sunset-luna. That alias is not the webhook and never hard-deletes.
     """
 
     async def _handle_guest_fresh_start(request):
@@ -475,6 +482,7 @@ def register_fresh_start_route(app) -> None:
 
     app.router.add_post(FRESH_START_PATH, _handle_guest_fresh_start)
     app.router.add_post(SESSION_KEY_RESET_PATH, _handle_guest_session_key_reset)
+    app.router.add_post(SUNSET_SESSION_KEY_RESET_PATH, _handle_guest_session_key_reset)
 
 
 def _json_response(status: int, payload: Dict[str, Any]):
