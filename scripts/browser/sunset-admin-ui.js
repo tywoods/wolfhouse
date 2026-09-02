@@ -1082,7 +1082,7 @@ function adminSyncPackFormValidation(packFormId){
     else inp.removeAttribute('aria-invalid');
   });
   var saveBtns = root.querySelectorAll('[data-admin-action="save-pack"], [data-admin-action="save-new-pack"]');
-  for (var i = 0; i < saveBtns.length; i++) saveBtns[i].disabled = !state.ok;
+  for (var i = 0; i < saveBtns.length; i++) saveBtns[i].disabled = false;
   return state;
 }
 function adminSyncAllPackFormValidation(){
@@ -4596,6 +4596,7 @@ function wireAdminTab(){
       var packValid = adminValidatePackFormState(packPrefix);
       if (!packValid.ok) {
         adminSyncPackFormValidation(packFormId);
+        adminShowMessage('error', packValid.errors.groupSize || packValid.errors.schedule);
         return;
       }
       var payload = adminReadPackFormPayload(packId || null);

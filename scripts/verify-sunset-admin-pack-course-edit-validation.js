@@ -3,7 +3,7 @@
 /**
  * Bug Finder #8 — Group course (Precios) edit inline validation.
  *
- * Invalid group size (<1) or start>=end must show inline errors and disable Guardar.
+ * Invalid group size (<1) or start>=end must show inline errors while Guardar remains actionable.
  *
  * Run: node scripts/verify-sunset-admin-pack-course-edit-validation.js
  */
@@ -202,7 +202,7 @@ function runStaticChecks() {
 }
 
 function runValidationProofs() {
-  console.log('\n[2] VM proofs — invalid values block Guardar with inline errors\n');
+  console.log('\n[2] VM proofs — invalid values keep Guardar actionable with inline errors\n');
   const pack = {
     label: 'Curso Matutino',
     group_size: 8,
@@ -231,7 +231,7 @@ function runValidationProofs() {
   form._byId['admin-pack-matutino-group-size'].value = '-5';
   state = sandbox.adminSyncPackFormValidation('matutino');
   assert('negative group size invalid', state.ok === false && !!state.errors.groupSize);
-  assert('negative group size disables Guardar', form._saveBtn.disabled === true);
+  assert('negative group size keeps Guardar actionable for feedback', form._saveBtn.disabled === false);
   assert('negative group size shows inline error',
     form._fieldErrors['group-size'].style.display === 'block'
       && form._fieldErrors['group-size'].textContent.length > 0);
@@ -242,7 +242,7 @@ function runValidationProofs() {
   form._byId['admin-pack-matutino-schedule-end'].value = '12:00';
   state = sandbox.adminSyncPackFormValidation('matutino');
   assert('start>=end schedule invalid', state.ok === false && !!state.errors.schedule);
-  assert('start>=end disables Guardar', form._saveBtn.disabled === true);
+  assert('start>=end keeps Guardar actionable for feedback', form._saveBtn.disabled === false);
   assert('start>=end shows inline schedule error',
     form._fieldErrors.schedule.style.display === 'block'
       && String(form._fieldErrors.schedule.textContent || '').length > 0);
