@@ -19,7 +19,7 @@ const esSrc = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n-es-
 const OTHER_DAY = '2026-08-12';
 
 assert.ok(cockpitSrc.includes('function scheduleCockpitShortDateLabel'));
-assert.ok(cockpitSrc.includes('scheduleCockpitPrepTitle(isToday, dateIso)'));
+assert.ok(/scheduleCockpitPrepTitle\(isToday,\s*dateIso/.test(cockpitSrc));
 assert.ok(dayOpsSrc.includes('function scheduleHorarioShortDateLabel'));
 assert.ok(dayOpsSrc.includes('function scheduleOpsRentalPickupsTitle'));
 assert.ok(dayOpsSrc.includes('scheduleRenderRentalPickupsSection(gearGroups, isToday, dateIso)'));
