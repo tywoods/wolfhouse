@@ -1,7 +1,7 @@
 # Luna Guest Runtime — program contract
 
-**Status:** Phase 0 contract (planning only). Sunset-staging / Luna Front Desk.  
-**Scope:** Client infrastructure program — not a leftover bugfix, not a SOUL rewrite.  
+**Status:** Phase 0 contract (planning only). Sunset-staging / Luna Front Desk.
+**Scope:** Client infrastructure program — not a leftover bugfix, not a SOUL rewrite.
 **Out of scope this phase:** product code, Caddy, Meta webhooks, Hermes live path, n8n, `inbox-thread.js`, deploy, production.
 
 Related slice doc (do not duplicate): [`docs/SUNSET-LUNA-HTTP-RUNTIME.md`](./SUNSET-LUNA-HTTP-RUNTIME.md).
