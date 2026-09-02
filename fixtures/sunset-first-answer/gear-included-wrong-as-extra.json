@@ -1,0 +1,37 @@
+{
+  "id": "gear-included-wrong-as-extra",
+  "kind": "gear_included",
+  "lang": "en",
+  "expect_pass": false,
+  "expect_fail_notes_any": [
+    "quoted_included_gear_as_extra"
+  ],
+  "guest": {
+    "message": "Do we need boards for the beginner course?"
+  },
+  "staff": {
+    "offering_id": "course_beginner_3d",
+    "may_claim_free_equipment": true,
+    "free_included_equipment_labels": ["Board + wetsuit"],
+    "guest_equipment": {
+      "free_during_course": [
+        {
+          "offering_key": "board_and_suit_rental",
+          "label": "Board + wetsuit",
+          "during_course_policy": "included",
+          "during_course_price_cents": 0
+        }
+      ],
+      "paid_or_upgrade_options": [
+        {
+          "offering_key": "board_and_suit_rental",
+          "label": "Board + wetsuit",
+          "during_course_policy": "included",
+          "all_day_price_cents": 1500,
+          "all_day_amount_eur": 15.0
+        }
+      ]
+    }
+  },
+  "first_reply": "Yes — board + wetsuit are an extra €15 each for the beginner course class time."
+}

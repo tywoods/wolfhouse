@@ -1,0 +1,29 @@
+{
+  "id": "timed-leftover-wrong-daily",
+  "kind": "timed_leftover",
+  "lang": "en",
+  "expect_pass": false,
+  "expect_fail_notes_any": [
+    "used_daily_leftover_instead_of_course_remaining",
+    "missing_course_open_spots"
+  ],
+  "guest": {
+    "message": "Thursday 10:00 for 14",
+    "date": "2026-09-03",
+    "quantity": 14,
+    "slot_time": "10:00"
+  },
+  "staff": {
+    "scope": "course_slot",
+    "course_id": "curso-matutino",
+    "slot_time": "10:00",
+    "course_capacity": 25,
+    "seats_booked": 3,
+    "seats_available": 22,
+    "requested_quantity": 14,
+    "has_seats": true,
+    "daily_capacity": null,
+    "poison_daily_remaining": 1
+  },
+  "first_reply": "Thursday at 10:00 only has 1 spot left for the day, so 14 will not fit — that class is basically full."
+}

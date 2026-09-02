@@ -198,6 +198,19 @@ def main() -> int:
     check("unscoped check cannot claim the date is full", unspecified.get("reason") != "no_seats_available" and unspecified.get("has_seats") is not False, str(unspecified))
     check("unscoped check marks has_fitting_course for qty 12", unspecified.get("has_fitting_course") is True, str(unspecified))
     check("unscoped check sets do_not_claim_date_full", unspecified.get("do_not_claim_date_full") is True, str(unspecified))
+    action_unscoped = str(unspecified.get("guest_safe_next_action") or "").lower()
+    check(
+        "unscoped guest action asks which time / forbids date-full (EN)",
+        ("which time" in action_unscoped or "what time" in action_unscoped)
+        and ("do not say the whole date is full" in action_unscoped or "never say the date is full" in action_unscoped),
+        action_unscoped,
+    )
+    # First-answer pack also keeps ES guest replies; shortfall copy stays bilingual-tolerant.
+    check(
+        "shortfall bilingual tokens remain recognized (EN another / ES otra)",
+        any(w in action.lower() for w in ("another", "other", "different", "otra", "otro")),
+        action,
+    )
 
     print("\n[C] Party size 15 alone is never a handoff reason")
     soul = (PLUGIN_DIR.parents[2] / "hermes-sunset" / "SOUL.md").read_text(encoding="utf-8")

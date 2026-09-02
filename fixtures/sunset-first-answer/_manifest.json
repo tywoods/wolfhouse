@@ -1,0 +1,19 @@
+{
+  "_schema": "sunset-first-answer-pack-v1",
+  "tenant_id": "sunset",
+  "location_id": "sunset-somo",
+  "purpose": "Grade Luna FIRST replies against Staff API / Horario leftover — not recovery after pushback. Failures become pack cases, not SOUL paragraphs.",
+  "related_prs": [843, 844, 845],
+  "cases": [
+    "unscoped-party-en-ask-time.json",
+    "unscoped-party-es-ask-time.json",
+    "unscoped-party-wrong-date-full.json",
+    "timed-leftover-en-open-spots.json",
+    "timed-leftover-es-open-spots.json",
+    "timed-leftover-wrong-daily.json",
+    "gear-included-en-not-extra.json",
+    "gear-included-es-not-extra.json",
+    "gear-included-wrong-as-extra.json",
+    "fail-closed-wrong-first-reply.json"
+  ]
+}
