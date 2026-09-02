@@ -386,6 +386,49 @@ function inboxNoEmailThreadHtml(){
   return '<div class="inbox-composer-no-email" role="status">Update email address in guest profile to email.</div>';
 }
 
+/** Scroll container for the message list (#thread-container). Not #inbox-thread-wrap (overflow:hidden). */
+function inboxThreadScrollEl(root){
+  var scope = root || (typeof el === 'function' ? el('detail-content') : null);
+  if (scope && scope.querySelector) {
+    var scoped = scope.querySelector('#thread-container');
+    if (scoped) return scoped;
+  }
+  return typeof el === 'function' ? el('thread-container') : null;
+}
+
+function inboxIsThreadNearBottom(scrollEl){
+  if (!scrollEl) return true;
+  var remaining = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+  return remaining < 80;
+}
+
+/** WhatsApp-style: open on the latest messages (bottom of the thread pane). */
+function inboxStickThreadToLatest(root){
+  var scrollEl = inboxThreadScrollEl(root);
+  if (!scrollEl) return;
+  function doScroll(){
+    scrollEl.scrollTop = scrollEl.scrollHeight;
+  }
+  doScroll();
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(function(){
+      doScroll();
+      requestAnimationFrame(doScroll);
+    });
+  }
+}
+
+/** Mobile uses flex height, not the desktop resize handle's fixed px height. */
+function inboxReleaseMobileThreadHeight(){
+  if (typeof isPortalMobile !== 'function' || !isPortalMobile()) return;
+  var wrap = typeof el === 'function' ? el('inbox-thread-wrap') : null;
+  if (!wrap) return;
+  wrap.style.height = '';
+  wrap.style.minHeight = '';
+  wrap.style.maxHeight = '';
+  wrap.style.flex = '';
+}
+
 function inboxFillComposerThread(conv, nativeMsgs){
   var channel = inboxComposerChannelFor(conv);
   var container = typeof el === 'function' ? el('thread-container') : null;
@@ -395,14 +438,17 @@ function inboxFillComposerThread(conv, nativeMsgs){
     var filtered = inboxFilterMessagesByChannel(nativeMsgs, channel);
     if (channel === 'email' && !filtered.length) {
       container.innerHTML = inboxNoEmailThreadHtml();
+      inboxStickThreadToLatest();
       return;
     }
     container.innerHTML = filtered.length ? renderInboxThreadMessagesHtml(filtered) : '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
+    inboxStickThreadToLatest();
     return;
   }
   var sibling = inboxFindGuestConversation(conv, channel);
   if (!sibling || !sibling.conversation_id) {
     container.innerHTML = channel === 'email' ? inboxNoEmailThreadHtml() : '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
+    inboxStickThreadToLatest();
     return;
   }
   fetch('/staff/conversations/' + encodeURIComponent(sibling.conversation_id) + '/messages' + inboxClientQuery())
@@ -412,12 +458,15 @@ function inboxFillComposerThread(conv, nativeMsgs){
       var msgs = inboxFilterMessagesByChannel((data && data.messages) || [], channel);
       if (channel === 'email' && !msgs.length) {
         container.innerHTML = inboxNoEmailThreadHtml();
+        inboxStickThreadToLatest();
         return;
       }
       container.innerHTML = msgs.length ? renderInboxThreadMessagesHtml(msgs) : '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
+      inboxStickThreadToLatest();
     })
     .catch(function(){
       if (container && channel === 'email') container.innerHTML = inboxNoEmailThreadHtml();
+      inboxStickThreadToLatest();
     });
 }
 
@@ -2444,7 +2493,9 @@ function loadConvDetail(convId, targetEl){
     });
 
     inboxInitThreadResize();
-    inboxScrollThreadToBottom(targetEl);
+    inboxReleaseMobileThreadHeight();
+    if (typeof inboxScrollThreadToBottom === 'function') inboxScrollThreadToBottom(targetEl);
+    inboxStickThreadToLatest(targetEl);
   })
   .catch(function(err){
     if (!inboxSelectionIsCurrent(convId, selectionGeneration)) return;

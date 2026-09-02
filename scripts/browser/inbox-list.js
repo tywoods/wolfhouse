@@ -274,7 +274,8 @@ function pollInboxSelectedThreadLive(){
   var container = el('thread-container');
   if (!container) return;
   inboxThreadPollInFlight = true;
-  var wrap = el('inbox-thread-wrap') || container;
+  var wrap = (typeof inboxThreadScrollEl === 'function' ? inboxThreadScrollEl() : null)
+    || el('thread-container') || container;
   var stickToBottom = isThreadNearBottom(wrap);
   var prevScrollTop = wrap ? wrap.scrollTop : 0;
   fetch('/staff/conversations/' + encodeURIComponent(convId) + '/messages' + inboxClientQuery())

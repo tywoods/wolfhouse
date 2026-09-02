@@ -71,6 +71,9 @@ check('P4', src.includes('#tab-admin .portal-admin-subtabs') && src.includes('sc
 check('P5', src.includes('.portal-schedule-ops-col-hdr span:nth-child(5){grid-column:4'), 'session card GUEST/STATUS header alignment');
 check('P6', src.includes('inbox-filter-scroll') || src.includes('inbox-filters::-webkit-scrollbar'), 'inbox filter chip scroll row');
 check('P7', src.includes('.ck-ribbon{overflow-x:auto') || src.includes('.ck-block{min-width:76px'), 'schedule ribbon mobile chip legibility');
+check('P8', src.includes('staff-portal-mobile:inbox-thread-scroll')
+  && /\.inbox-two-col\.show-thread \.thread-messages[\s\S]{0,220}overflow-y:auto!important/.test(src),
+  'inbox thread pane scrolls on phone (.thread-messages overflow-y:auto)');
 
 console.log(`\nverify-staff-portal-mobile-layout: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
