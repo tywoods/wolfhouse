@@ -67,3 +67,37 @@ services:
       GENERIC_TIMEZONE: Europe/Madrid
     env_file:
       - /etc/hermes-sunset-email-luna.env
+
+  # Additive shared Luna HTTP runtime (Sol + Sunset SOUL + wolfhouse_staff_api).
+  # No WhatsApp gateway. Live guests stay on hermes-sunset-luna (`gateway run`).
+  # Lunabox loopback is for Skipper-local probe only. Staff API reaches the
+  # colocated ACA `luna-sunset-staging-luna-http` (internal TLS ingress).
+  # See docs/SUNSET-LUNA-HTTP-RUNTIME.md.
+  # Start separately: docker compose --profile sunset-luna-http up -d --no-deps hermes-sunset-luna-http
+  hermes-sunset-luna-http:
+    profiles:
+      - sunset-luna-http
+    image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
+    container_name: hermes-sunset-luna-http
+    restart: unless-stopped
+    command:
+      - /opt/hermes/.venv/bin/python
+      - /etc/hermes-staging/wolfhouse/luna_http_server.py
+    ports:
+      - "127.0.0.1:8094:8094"
+    volumes:
+      - /var/lib/hermes-sunset-luna-http:/opt/data
+      - /opt/wolfhouse/WH/docker/hermes-sunset/SOUL.md:/etc/hermes-sunset/SOUL.md:ro
+    environment:
+      HOME: /opt/data
+      HERMES_HOME: /opt/data/.hermes
+      HERMES_ROLE: sunset-luna-http
+      LUNA_TENANT_ID: sunset
+      LUNA_CLIENT_SLUG: sunset
+      LUNA_ALLOWED_LOCATION_IDS: sunset-somo
+      SUNSET_INGRESS_LOCATION_ID: sunset-somo
+      LUNA_HTTP_LISTEN_HOST: 0.0.0.0
+      LUNA_HTTP_LISTEN_PORT: "8094"
+      GENERIC_TIMEZONE: Europe/Madrid
+    env_file:
+      - /etc/hermes-sunset-luna-http.env

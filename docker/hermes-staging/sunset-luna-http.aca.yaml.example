@@ -1,0 +1,111 @@
+# Sunset-staging shared Luna HTTP runtime (first slice).
+# Colocated with Staff API + email-luna in luna-sunset-staging-env. Internal TLS.
+# Do not apply infra/azure Bicep. Fill only values Skipper can query
+# (subscription ID, environment resource ID, identity resource ID, image SHA).
+# Never commit secrets. Never leave angle-bracket placeholders in the applied YAML.
+#
+# Keep image ENTRYPOINT (/init). Args replace CMD only so bootstrap still runs.
+# Production interpreter is exactly /opt/hermes/.venv/bin/python.
+#
+# Isolated openai-codex credential lives on a dedicated Azure Files share
+# mounted at /opt/data. Canonical Hermes home is /opt/data/.hermes
+# (HOME=/opt/data). No shared WhatsApp pool. No Meta Graph webhook.
+#
+# Live guest WhatsApp remains hermes-sunset-luna on Lunabox Caddy /whatsapp/*.
+# Meta cutover is NOT this YAML — see docs/SUNSET-LUNA-HTTP-RUNTIME.md § Later.
+#
+# Skipper: docs/SUNSET-LUNA-HTTP-RUNTIME.md fills a temp copy then:
+#   az containerapp create|update -g luna-sunset-staging-rg -n luna-sunset-staging-luna-http --yaml FILLED.yaml
+# Do not pass --environment with --yaml (ignored; environmentId comes from YAML).
+apiVersion: '2024-03-01'
+location: northeurope
+name: luna-sunset-staging-luna-http
+type: Microsoft.App/containerApps
+identity:
+  type: UserAssigned
+  userAssignedIdentities:
+    <identity-id>: {}
+properties:
+  environmentId: <environment-id>
+  configuration:
+    secrets:
+      - name: api-server-key
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/luna-http-api-server-key
+        identity: <identity-id>
+      - name: luna-bot-token
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/luna-bot-internal-token
+        identity: <identity-id>
+    registries:
+      - server: whstagingacr.azurecr.io
+        identity: <identity-id>
+    ingress:
+      external: false
+      allowInsecure: false
+      targetPort: 8094
+      transport: http
+      traffic:
+        - latestRevision: true
+          weight: 100
+  template:
+    containers:
+      - name: hermes-sunset-luna-http
+        image: whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>
+        args:
+          - /opt/hermes/.venv/bin/python
+          - /etc/hermes-staging/wolfhouse/luna_http_server.py
+        volumeMounts:
+          - volumeName: hermes-home
+            mountPath: /opt/data
+        env:
+          - name: HOME
+            value: /opt/data
+          - name: HERMES_HOME
+            value: /opt/data/.hermes
+          - name: HERMES_ROLE
+            value: sunset-luna-http
+          - name: LUNA_TENANT_ID
+            value: sunset
+          - name: LUNA_CLIENT_SLUG
+            value: sunset
+          - name: LUNA_ALLOWED_LOCATION_IDS
+            value: sunset-somo
+          - name: SUNSET_INGRESS_LOCATION_ID
+            value: sunset-somo
+          - name: LUNA_HTTP_LISTEN_HOST
+            value: 0.0.0.0
+          - name: LUNA_HTTP_LISTEN_PORT
+            value: '8094'
+          - name: PYTHONPATH
+            value: /etc/hermes-staging
+          - name: GENERIC_TIMEZONE
+            value: Europe/Madrid
+          - name: WOLFHOUSE_STAFF_API_BASE_URL
+            value: https://staff-staging.lunafrontdesk.com
+          - name: API_SERVER_KEY
+            secretRef: api-server-key
+          - name: LUNA_BOT_INTERNAL_TOKEN
+            secretRef: luna-bot-token
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /healthz
+              port: 8094
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          - type: Readiness
+            httpGet:
+              path: /healthz
+              port: 8094
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+    volumes:
+      - name: hermes-home
+        storageType: AzureFile
+        storageName: hermes-sunset-luna-http-home
+        mountOptions: uid=10000,gid=10000,nobrl,mfsymlinks,dir_mode=0700,file_mode=0600
+    scale:
+      minReplicas: 1
+      maxReplicas: 1

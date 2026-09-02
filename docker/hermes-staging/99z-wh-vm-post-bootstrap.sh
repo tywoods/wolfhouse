@@ -84,7 +84,7 @@ EOF
   fi
 fi
 
-if [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
+if [ "$HERMES_ROLE" = "sunset-email-luna" ] || [ "$HERMES_ROLE" = "sunset-luna-http" ]; then
   # Isolated openai-codex credentials. Never symlink or copy-back to the shared
   # WhatsApp/Skipper auth pool — two containers must not mutate the same file.
   :
