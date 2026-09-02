@@ -45,11 +45,13 @@ const apiSrc = read(STAFF_API);
 ok('handler accepts body.quantity', /requestedQtyRaw\s*=\s*body\.quantity/.test(apiSrc));
 ok('insufficient_seats reason when some seats remain', /insufficient_seats/.test(apiSrc));
 ok('requested_quantity in response', /requested_quantity:\s*requestedQuantity/.test(apiSrc));
+ok('timed path uses resolveCourseScopedLessonAvailability', /resolveCourseScopedLessonAvailability/.test(apiSrc));
 
 const pluginSrc = read(PLUGIN);
 ok('plugin forwards quantity to Staff API', /body\["quantity"\]\s*=\s*qty/.test(pluginSrc));
 ok('plugin surfaces requested_quantity', /"requested_quantity":\s*data\.get\("requested_quantity"\)/.test(pluginSrc));
 ok('tool schema documents quantity', /"quantity":\s*\{"type":\s*"integer"/.test(pluginSrc));
+ok('plugin forwards slot_time for timed leftover', /body\["slot_time"\]\s*=\s*slot/.test(pluginSrc));
 
 console.log('\n[B] Persist vs send — wamid required; post-send mirror only');
 const threadSrc = read(THREAD_MSG);

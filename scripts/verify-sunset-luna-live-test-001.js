@@ -85,6 +85,18 @@ try {
 } catch (err) {
   assert('party capacity python green', false, String((err && err.stdout) || err.message).slice(0, 500));
 }
+try {
+  const out = execFileSync('node', [path.join(ROOT, 'scripts/verify-sunset-lesson-availability-course-slot.js')], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: 30000,
+  });
+  process.stdout.write(out.split('\n').map((l) => (l ? `       ${l}` : l)).join('\n'));
+  if (!out.endsWith('\n')) process.stdout.write('\n');
+  assert('course-slot leftover gate green', /\b0 failed\b/.test(out) || /passed, 0 failed/.test(out));
+} catch (err) {
+  assert('course-slot leftover gate green', false, String((err && err.stdout) || err.message).slice(0, 500));
+}
 
 console.log('\n[3] Unclear / large party no auto-escalation');
 try {
