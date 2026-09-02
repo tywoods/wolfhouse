@@ -291,6 +291,7 @@ async function listJoinableSunsetOfferings(pg, opts) {
 
 module.exports = {
   SUNSET_CLIENT_SLUG,
+  parsePackScheduleKey,
   weekdaysFromPackWeekly,
   weekdayOfIsoDate,
   datesBelongToPackSchedule,

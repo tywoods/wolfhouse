@@ -641,6 +641,10 @@ const {
   getSunsetScheduleCancelledGearOnDateQuery,
 } = require('./lib/sunset-schedule-queries');
 const {
+  extractLessonAvailabilitySlotFromBody,
+  resolveCourseScopedLessonAvailability,
+} = require('./lib/sunset-lesson-availability');
+const {
   executeSunsetCatalogTool,
   executeSunsetCatalogToolAsync,
   resolveSunsetBotBodyLocation,
@@ -44817,10 +44821,11 @@ async function handleBotSunsetPrivateLesson(req, res) {
   return sendJSON(res, 200, { ...result, success: !!result.ok, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
 }
 
-// Read lesson capacity for a date+location by counting confirmed lesson service
-// records against the configured per-day capacity. READ-ONLY. When capacity is
-// unknown (not configured) or already met/over, return take_request=true so Luna
-// collects the request and lets staff schedule — never invents a seat.
+// Read lesson capacity for a date+location. READ-ONLY. When the guest names a
+// class time (or course_id), leftover matches Horario/joinable-courses for that
+// course/slot — never daily_cap minus all-day surf_lessons. Date-only requests
+// still use the configured daily cap. When capacity is unknown, take_request=true
+// so Luna collects the request — never invents a seat.
 async function handleBotSunsetLessonAvailability(req, res) {
   const started = Date.now();
   let body = {};
@@ -44832,6 +44837,32 @@ async function handleBotSunsetLessonAvailability(req, res) {
     return sendJSON(res, 400, { ok: false, success: false, reason: 'invalid_date', detail: 'date must be YYYY-MM-DD' });
   }
   const clientSlug = SUNSET_CLIENT_SLUG;   // forced — never from body
+  const slotTime = extractLessonAvailabilitySlotFromBody(body);
+  const courseId = body.course_id != null && String(body.course_id).trim()
+    ? String(body.course_id).trim()
+    : null;
+
+  // Timed / course-scoped path — same remaining as joinable-courses / Horario.
+  if (slotTime || courseId) {
+    try {
+      const courseResult = await withPgClient(async (pg) => resolveCourseScopedLessonAvailability(pg, {
+        clientSlug,
+        locationId: loc.location_id,
+        dateIso,
+        quantity: body.quantity,
+        slotTime,
+        courseId,
+      }));
+      return sendJSON(res, 200, { ...courseResult, elapsed_ms: Date.now() - started });
+    } catch (err) {
+      return sendJSON(res, 200, {
+        ok: true, success: true, client_slug: clientSlug, location_id: loc.location_id, date: dateIso,
+        capacity_known: false, take_request: true, reason: 'capacity_unavailable',
+        scope: 'course_slot', slot_time: slotTime, course_id: courseId,
+        elapsed_ms: Date.now() - started,
+      });
+    }
+  }
 
   // Resolve configured daily capacity from tenant business config (DB or baseline).
   let dailyCap = null;
@@ -44863,7 +44894,7 @@ async function handleBotSunsetLessonAvailability(req, res) {
     // DB error is not fatal for a read — fail-closed to take_request.
     return sendJSON(res, 200, {
       ok: true, success: true, client_slug: clientSlug, location_id: loc.location_id, date: dateIso,
-      capacity_known: false, take_request: true, reason: 'capacity_unavailable',
+      capacity_known: false, take_request: true, reason: 'capacity_unavailable', scope: 'daily',
       elapsed_ms: Date.now() - started,
     });
   }
@@ -44873,6 +44904,7 @@ async function handleBotSunsetLessonAvailability(req, res) {
     return sendJSON(res, 200, {
       ok: true, success: true, client_slug: clientSlug, location_id: loc.location_id, date: dateIso,
       capacity_known: false, seats_booked: seatsBooked, take_request: true, reason: 'capacity_not_configured',
+      scope: 'daily',
       elapsed_ms: Date.now() - started,
     });
   }
@@ -44888,6 +44920,7 @@ async function handleBotSunsetLessonAvailability(req, res) {
   return sendJSON(res, 200, {
     ok: true, success: true, client_slug: clientSlug, location_id: loc.location_id, date: dateIso,
     capacity_known: true,
+    scope: 'daily',
     daily_capacity: dailyCap,
     seats_booked: seatsBooked,
     seats_available: Math.max(0, seatsAvailable),

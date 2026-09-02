@@ -112,6 +112,41 @@ def main() -> int:
     check("shortfall copy does not invent a hardcoded cap", "12" not in action and "daily_capacity" not in action.lower(), action)
     check("shortfall copy does not promise a human/team takeover", "human" not in action.lower() and "team will" not in action.lower() and "needs_human" not in action.lower(), action)
 
+    print("\n[B2] Timed class — forwards slot_time so Staff uses Horario leftover")
+    fake_slot = with_fake({
+        "/sunset/lesson-availability": {
+            "ok": True,
+            "success": True,
+            "date": "2026-09-03",
+            "location_id": "sunset-somo",
+            "capacity_known": True,
+            "scope": "course_slot",
+            "course_capacity": 25,
+            "daily_capacity": None,
+            "seats_booked": 3,
+            "seats_available": 22,
+            "requested_quantity": 14,
+            "has_seats": True,
+            "take_request": False,
+            "reason": None,
+            "slot_time": "10:00",
+            "course_id": "curso-matutino",
+        },
+    })
+    timed = json.loads(mod.get_sunset_lesson_availability({
+        "date": "2026-09-03",
+        "quantity": 14,
+        "slot_time": "10:00",
+    }))
+    check(
+        "forwards slot_time 10:00 to Staff API",
+        fake_slot.calls and fake_slot.calls[0][1].get("slot_time") == "10:00",
+        str(fake_slot.calls),
+    )
+    check("timed path has_seats true with Horario remaining 22", timed.get("has_seats") is True and timed.get("seats_available") == 22, str(timed))
+    check("timed path surfaces course_capacity not daily invent", timed.get("course_capacity") == 25 and timed.get("daily_capacity") is None, str(timed))
+    check("timed path surfaces slot_time", timed.get("slot_time") == "10:00", str(timed))
+
     print("\n[C] Party size 15 alone is never a handoff reason")
     soul = (PLUGIN_DIR.parents[2] / "hermes-sunset" / "SOUL.md").read_text(encoding="utf-8")
     check("Sunset SOUL does not hand off for group size alone", "group beyond what you can handle" not in soul)
