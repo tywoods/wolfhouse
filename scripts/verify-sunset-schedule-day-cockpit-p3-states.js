@@ -324,7 +324,9 @@ const week = paint({
   now: 757, // must be ignored for week
   sessions: producerSessions,
 });
+assert('week mapper keeps freeze identity', cockpit.scheduleCockpitRangeFromNavMode('week') === 'week');
 assert('week range freezes clock', cockpit.scheduleCockpitNowMinutes({ range: 'week', date: TODAY_ISO, now: 757 }) == null);
+assert('week paint keeps range week', week.data && week.data.range === 'week');
 assert('week no needle', week.needle === 0);
 assert('week no countdown', !/ends in/.test(week.text) && !/starts in/.test(week.text));
 assert('week not ON NOW live hero', !/ON NOW/.test(week.text));

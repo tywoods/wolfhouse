@@ -999,15 +999,16 @@ function scheduleCockpitMinToHhmm(min) {
 }
 
 /**
- * Map nav mode → cockpit range pill key.
+ * Map nav mode → cockpit range key.
  * SunsetScheduleRuntime.nav modes: 'day' | 'week' | 'next30'
- * UI only exposes Daily (today) + Monthly (next30). Legacy week collapses to Daily.
+ * UI only exposes Daily (today) + Monthly (next30). Render remaps week → Daily
+ * for pills; keep week identity so explicit range:'week' still freezes the clock.
  */
 function scheduleCockpitRangeFromNavMode(mode) {
   var m = String(mode || 'day').toLowerCase();
   if (m === 'next30' || m === 'month' || m === 'monthly') return 'next30';
-  // week retired from UI — treat as day/Daily for pills (clock freeze still honors explicit range:'week')
-  if (m === 'week') return 'today';
+  // Week view is retired from chrome, but freeze/hero still honor explicit week.
+  if (m === 'week') return 'week';
   return 'today';
 }
 
