@@ -840,9 +840,6 @@ function scheduleSessionGroupGuestQty(group){
   return qty;
 }
 
-/** Hard gap between Luna and Staff arc segments (deg); 0 when either side is empty. */
-var SCHEDULE_OCC_RING_SOURCE_GAP_DEG = 6;
-
 /**
  * Order on the ring: Luna clockwise from 12 o'clock, then Staff, then empty track.
  * Counts come from session.groups via scheduleRowSourceKind (staff | luna/demo/other).
@@ -877,9 +874,6 @@ function scheduleRenderOccupancyHtml(session){
   var pct = 0;
   var lunaDeg = 0;
   var filledDeg = 0;
-  var gapDeg = 0;
-  var staffStartDeg = 0;
-  var filledEndDeg = 0;
   if (hasCap) {
     pct = Math.round((booked / capNum) * 100);
     if (!isFinite(pct) || pct < 0) pct = 0;
@@ -891,9 +885,6 @@ function scheduleRenderOccupancyHtml(session){
     if (!isFinite(filledDeg) || filledDeg < 0) filledDeg = 0;
     if (filledDeg > 360) filledDeg = 360;
     if (lunaDeg > filledDeg) lunaDeg = filledDeg;
-    gapDeg = (srcCounts.luna > 0 && srcCounts.staff > 0) ? SCHEDULE_OCC_RING_SOURCE_GAP_DEG : 0;
-    staffStartDeg = lunaDeg + gapDeg;
-    filledEndDeg = filledDeg + gapDeg;
   }
   var numHtml = escHtml(String(booked))
     + (hasCap ? '<small>/' + escHtml(String(capNum)) + '</small>' : '');
@@ -917,14 +908,8 @@ function scheduleRenderOccupancyHtml(session){
     + (hasCap && pct >= 100 ? ' is-full' : '')
     + (hasCap && booked > capNum ? ' is-over' : '');
   var ringStyle = hasCap
-    ? ('--ps-occ-pct:' + pct
-      + ';--ps-occ-luna-deg:' + lunaDeg + 'deg'
-      + ';--ps-occ-gap-deg:' + gapDeg + 'deg'
-      + ';--ps-occ-staff-start-deg:' + staffStartDeg + 'deg'
-      + ';--ps-occ-filled-end-deg:' + filledEndDeg + 'deg'
-      + ';--ps-occ-filled-deg:' + filledDeg + 'deg')
-    : ('--ps-occ-pct:0;--ps-occ-luna-deg:0deg;--ps-occ-gap-deg:0deg'
-      + ';--ps-occ-staff-start-deg:0deg;--ps-occ-filled-end-deg:0deg;--ps-occ-filled-deg:0deg');
+    ? ('--ps-occ-pct:' + pct + ';--ps-occ-luna-deg:' + lunaDeg + 'deg;--ps-occ-filled-deg:' + filledDeg + 'deg')
+    : ('--ps-occ-pct:0;--ps-occ-luna-deg:0deg;--ps-occ-filled-deg:0deg');
   return '<div class="' + cls + '" role="img" aria-label="' + escHtml(aria) + '" data-ps-occ-pct="' + pct + '">' +
     '<span class="portal-schedule-occ-ring" style="' + ringStyle + '" aria-hidden="true"></span>' +
     '<span class="portal-schedule-occ-num">' + numHtml + '</span>' +

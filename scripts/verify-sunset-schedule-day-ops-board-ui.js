@@ -1607,12 +1607,10 @@ if (modExists) {
   });
   assert('occupancy split sets luna arc deg (7/24)',
     /--ps-occ-luna-deg:\s*105deg\b/.test(occSplit));
-  assert('occupancy split sets 6deg source gap',
-    /--ps-occ-gap-deg:\s*6deg\b/.test(occSplit));
-  assert('occupancy split staff starts after gap (111deg)',
-    /--ps-occ-staff-start-deg:\s*111deg\b/.test(occSplit));
-  assert('occupancy split filled end includes gap (171deg)',
-    /--ps-occ-filled-end-deg:\s*171deg\b/.test(occSplit));
+  assert('occupancy split no source gap vars',
+    !/--ps-occ-gap-deg:/.test(occSplit) && !/--ps-occ-staff-start-deg:/.test(occSplit));
+  assert('occupancy split filled arc end (11/24 = 165deg)',
+    /--ps-occ-filled-deg:\s*165deg\b/.test(occSplit));
   assert('occupancy split text 11/24',
     /11\s*\/\s*24|11<small>\/24<\/small>/.test(occSplit));
 
@@ -1623,10 +1621,10 @@ if (modExists) {
   });
   assert('staff-only ring luna deg 0',
     /--ps-occ-luna-deg:\s*0deg\b/.test(occStaffOnly));
-  assert('staff-only ring no source gap',
-    /--ps-occ-gap-deg:\s*0deg\b/.test(occStaffOnly));
+  assert('staff-only ring no source gap vars',
+    !/--ps-occ-gap-deg:/.test(occStaffOnly));
   assert('staff-only ring filled end (1/24)',
-    /--ps-occ-filled-end-deg:\s*15deg\b/.test(occStaffOnly));
+    /--ps-occ-filled-deg:\s*15deg\b/.test(occStaffOnly));
 
   const occFull = occHtml({ surfers: 8, capacity: 8, groups: [] });
   assert('occupancy full text 8/8',
@@ -1775,14 +1773,16 @@ console.log('\n[6] Generated /staff/ui occupancy CSS/markup');
     assert('generated /staff/ui includes circular occ ring CSS/class',
       html.includes('portal-schedule-occ-ring'));
     assert('generated /staff/ui dual-color occ ring CSS',
-      html.includes('--ps-occ-luna-fill') && html.includes('--ps-occ-staff-start-deg'));
+      html.includes('--ps-occ-luna-fill') && html.includes('--ps-occ-staff-fill'));
+    assert('generated /staff/ui occ ring no luna/staff separator gap in gradient',
+      !/portal-schedule-occ-ring\{[^}]*--ps-occ-staff-start-deg/.test(html));
     assert('generated /staff/ui occ ring scaled diameter (76px)',
       /\.portal-schedule-occ\{[^}]*width:76px/.test(html));
-    assert('generated /staff/ui occ ring proportional stroke (16px)',
-      /portal-schedule-occ-ring\{[^}]*--ps-occ-stroke,16px|--ps-occ-stroke:16px/.test(html));
-    assert('generated /staff/ui occ center type scaled (17px / 14px)',
-      /\.portal-schedule-occ-num\{[^}]*font-size:17px/.test(html)
-        && /\.portal-schedule-occ-num small\{[^}]*font-size:14px/.test(html));
+    assert('generated /staff/ui occ ring stroke (14px)',
+      /portal-schedule-occ-ring\{[^}]*--ps-occ-stroke,14px|--ps-occ-stroke:14px/.test(html));
+    assert('generated /staff/ui occ center type (14px / 11px)',
+      /\.portal-schedule-occ-num\{[^}]*font-size:14px/.test(html)
+        && /\.portal-schedule-occ-num small\{[^}]*font-size:11px/.test(html));
     assert('generated /staff/ui removes horizontal course occ-track',
       !html.includes('portal-schedule-occ-track'));
     assert('generated /staff/ui keeps unrelated week slot tracks',
