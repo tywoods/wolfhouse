@@ -28,6 +28,7 @@ from wolfhouse.luna_http_contract import (
 )
 from wolfhouse.luna_http_gate import lookup_gate, normalize_gate_snapshot
 from wolfhouse.luna_http_invoke import ensure_luna_http_sol_home, resolve_luna_http_hermes_home
+from wolfhouse.luna_http_shadow import run_shadow_turn
 from wolfhouse.luna_http_store import PostgresLunaStore
 from wolfhouse.luna_http_turn import AvailabilityFn, build_inbound_result, run_first_answer_lookup
 
@@ -97,6 +98,7 @@ def handle_inbound_request(
     outbound_fn: Callable[..., dict[str, Any]] | None = None,
     store: Any | None = None,
     gate_lookup: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    intelligence_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> tuple[int, dict]:
     if not expected_token or not _constant_time_eq(
         authorization, f"Bearer {expected_token}"
@@ -132,7 +134,16 @@ def handle_inbound_request(
         gate = normalize_gate_snapshot((gate_lookup or lookup_gate)(req))
         if gate["live_send_blocked"] and gate["bot_paused"]:
             lookup = {"ok": False, "result": None, "notes": ["automation_gate_paused"]}
+            shadow = None
+        elif intelligence_runner is not None:
+            # Production shadow path: planner -> policy -> Staff facts -> voice.
+            # It has no sender or booking-write capability; complete_turn below
+            # persists the intended reply to the Postgres outbox with send off.
+            shadow = intelligence_runner(req)
+            lookup = {"ok": shadow["first_answer"]["ok"], "result": shadow["frozen_facts"],
+                      "notes": shadow["first_answer"]["notes"]}
         else:
+            shadow = None
             lookup = run_first_answer_lookup(req, availability=availability)
         # Phase 1 has no sender; only a durable intended-reply record is created.
         outbound = {"mode": "none", "sent": False, "via": None}
@@ -140,6 +151,9 @@ def handle_inbound_request(
         payload["accepted"] = True
         payload["duplicate"] = False
         payload["gate_snapshot"] = gate
+        if shadow is not None:
+            payload["shadow"] = shadow
+            payload["intended_reply"] = shadow.get("intended_reply")
         if context:
             payload["inbound_event_id"] = context["inbound_event_id"]
             payload["conversation_id"] = context["conversation_id"]
@@ -190,6 +204,7 @@ def make_handler(
     outbound_fn: Callable[..., dict[str, Any]] | None = None,
     store: Any | None = None,
     gate_lookup: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    intelligence_runner: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -244,6 +259,7 @@ def make_handler(
                 outbound_fn=outbound_fn,
                 store=store,
                 gate_lookup=gate_lookup,
+                intelligence_runner=intelligence_runner,
             )
             if status == 200:
                 fa = payload.get("first_answer", {})
@@ -279,7 +295,12 @@ def main() -> int:
         return 1
     host = os.environ.get("LUNA_HTTP_LISTEN_HOST", "127.0.0.1")
     port = int(os.environ.get("LUNA_HTTP_LISTEN_PORT", "8094"))
-    handler = make_handler(token, ReplayCache(MAX_SEEN), store=PostgresLunaStore())
+    handler = make_handler(
+        token,
+        ReplayCache(MAX_SEEN),
+        store=PostgresLunaStore(),
+        intelligence_runner=run_shadow_turn,
+    )
     httpd = ThreadingHTTPServer((host, port), handler)
     print(f"sunset-luna-http listening on {host}:{port}", flush=True)
     httpd.serve_forever()

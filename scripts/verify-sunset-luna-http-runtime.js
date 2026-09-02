@@ -49,7 +49,7 @@ console.log('[1] Python unit tests (healthz + first-answer joinable leftover)');
 try {
   const py = spawnSync(
     'python3',
-    ['-m', 'unittest', 'wolfhouse.test_luna_http_server', 'wolfhouse.test_luna_http_phase1', '-v'],
+    ['-m', 'unittest', 'wolfhouse.test_luna_http_server', 'wolfhouse.test_luna_http_phase1', 'wolfhouse.test_luna_http_shadow', '-v'],
     {
       cwd: path.join(ROOT, 'docker/hermes-staging'),
       encoding: 'utf8',
