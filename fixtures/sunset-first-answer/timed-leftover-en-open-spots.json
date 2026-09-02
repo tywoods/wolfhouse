@@ -1,0 +1,25 @@
+{
+  "id": "timed-leftover-en-open-spots",
+  "kind": "timed_leftover",
+  "lang": "en",
+  "expect_pass": true,
+  "guest": {
+    "message": "Thursday 10:00 for 14 people",
+    "date": "2026-09-03",
+    "quantity": 14,
+    "slot_time": "10:00"
+  },
+  "staff": {
+    "scope": "course_slot",
+    "course_id": "curso-matutino",
+    "slot_time": "10:00",
+    "course_capacity": 25,
+    "seats_booked": 3,
+    "seats_available": 22,
+    "requested_quantity": 14,
+    "has_seats": true,
+    "daily_capacity": null,
+    "poison_daily_remaining": 1
+  },
+  "first_reply": "Yes — Thursday at 10:00 still has 22 open spots in that class (3 of 25 booked), so 14 works. Want me to hold them?"
+}

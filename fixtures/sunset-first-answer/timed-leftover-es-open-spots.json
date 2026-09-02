@@ -1,0 +1,25 @@
+{
+  "id": "timed-leftover-es-open-spots",
+  "kind": "timed_leftover",
+  "lang": "es",
+  "expect_pass": true,
+  "guest": {
+    "message": "El jueves a las 10:00 para 14 personas",
+    "date": "2026-09-03",
+    "quantity": 14,
+    "slot_time": "10:00"
+  },
+  "staff": {
+    "scope": "course_slot",
+    "course_id": "curso-matutino",
+    "slot_time": "10:00",
+    "course_capacity": 25,
+    "seats_booked": 3,
+    "seats_available": 22,
+    "requested_quantity": 14,
+    "has_seats": true,
+    "daily_capacity": null,
+    "poison_daily_remaining": 1
+  },
+  "first_reply": "Sí — el jueves a las 10:00 quedan 22 plazas libres en esa clase (3 de 25 ocupadas), así que 14 encajan. ¿Las reservo?"
+}

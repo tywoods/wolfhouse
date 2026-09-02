@@ -1,0 +1,48 @@
+{
+  "id": "unscoped-party-en-ask-time",
+  "kind": "unscoped_party",
+  "lang": "en",
+  "expect_pass": true,
+  "guest": {
+    "message": "Hi — Thursday for 12 kids please",
+    "date": "2026-09-03",
+    "quantity": 12
+  },
+  "staff": {
+    "scope": "course_choices",
+    "requested_quantity": 12,
+    "has_fitting_course": true,
+    "do_not_claim_date_full": true,
+    "has_seats": true,
+    "largest_seats_remaining": 22,
+    "fitting_course_ids": ["curso-matutino", "curso-tarde"],
+    "daily_capacity": null,
+    "courses": [
+      {
+        "course_id": "curso-matutino",
+        "label": "Curso Matutino",
+        "capacity": 25,
+        "seats_booked": 3,
+        "seats_remaining": 22,
+        "schedules": [{"start_time": "10:00", "end_time": "12:00"}]
+      },
+      {
+        "course_id": "curso-tarde",
+        "label": "Curso Tarde",
+        "capacity": 24,
+        "seats_booked": 9,
+        "seats_remaining": 15,
+        "schedules": [{"start_time": "16:00", "end_time": "18:00"}]
+      }
+    ],
+    "poison_daily": {
+      "scope": "daily",
+      "daily_capacity": 24,
+      "seats_booked": 23,
+      "seats_available": 1,
+      "has_seats": false,
+      "reason": "no_seats_available"
+    }
+  },
+  "first_reply": "For Thursday we still have Matutino at 10:00 with 22 open spots and Tarde at 16:00 with 15 open. Which time works for your group of 12?"
+}

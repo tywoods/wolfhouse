@@ -102,6 +102,7 @@ const result = buildCourseSlotAvailabilityResult({
 assert('scope course_slot', result.scope === 'course_slot');
 assert('has_seats true for qty 14', result.has_seats === true, JSON.stringify(result));
 assert('seats_available is Horario remaining 22', result.seats_available === 22, JSON.stringify(result));
+assert('open spots = course remaining (capacity − booked)', result.seats_available === (25 - 3), JSON.stringify(result));
 assert('seats_booked is course 3 not daily 23', result.seats_booked === 3, JSON.stringify(result));
 assert('course_capacity 25', result.course_capacity === 25, JSON.stringify(result));
 assert('daily_capacity null on timed path', result.daily_capacity == null, JSON.stringify(result));
@@ -110,6 +111,10 @@ assert('take_request false when fits', result.take_request === false, JSON.strin
 assert('old daily leftover was 1', OLD_DAILY_REMAINING === 1);
 assert('timed leftover ≠ daily leftover', result.seats_available !== OLD_DAILY_REMAINING);
 assert('qty 14 would fail daily but passes course', 14 > OLD_DAILY_REMAINING && result.has_seats === true);
+assert(
+  'first-answer pack must not treat daily leftover 1 as Thu 10:00 open spots',
+  result.seats_available === 22 && OLD_DAILY_REMAINING === 1,
+);
 
 console.log('\n[C] Shortfall still quotes Staff remaining (no invent / no handoff invent)');
 const shortCourse = {

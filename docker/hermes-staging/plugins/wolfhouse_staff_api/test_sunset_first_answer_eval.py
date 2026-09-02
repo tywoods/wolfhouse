@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""First-answer eval pack — grade Luna's FIRST Staff lookup, not recovery.
+"""First-answer eval pack — grade Luna's FIRST Staff lookup + first reply.
 
-Ty 2026-09-02 program slice:
+Ty 2026-09-02 program slice (+ grow):
   Facts live on Horario / joinable-courses / catalog. Voice is greeting/vibe/handoff.
   Offline only — no live WhatsApp, no invented prices.
+  Score the FIRST reply against Staff / Horario — never recovery after pushback.
+  Failures become pack cases (fixtures/), not SOUL.md paragraphs.
 
 Cases:
   A) Thursday 10:00 Somo qty 14 when class is 3/25 → has seats, remaining 22,
@@ -14,6 +16,9 @@ Cases:
   D) Location fail-closed (Somo vs Sardi) on first availability call.
   E) Kids-vs-adult: only assert when Staff catalog surfaces a structured field;
      otherwise skip and note (baseline age_rules are unverified seed, not board).
+  F) Fixture reply pack (EN/ES): unscoped party asks which time; timed leftover
+     quotes course open spots (22, not daily 1); included gear not priced as
+     class extra; deliberately wrong first replies fail closed.
 
 Run:
   python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_first_answer_eval.py
@@ -23,10 +28,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 PLUGIN_DIR = Path(__file__).resolve().parent
+REPO_ROOT = PLUGIN_DIR.parents[3]
+FIXTURE_DIR = REPO_ROOT / "fixtures" / "sunset-first-answer"
 sys.path.insert(0, str(PLUGIN_DIR.parent))
 os.environ.setdefault("LUNA_CLIENT_SLUG", "sunset")
 os.environ.setdefault("SUNSET_INGRESS_LOCATION_ID", "sunset-somo")
@@ -110,6 +118,171 @@ DAILY_FALSE_FULL = {
     "reason": "no_seats_available",
     "requested_quantity": 14,
 }
+
+
+FULL_DAY_CLAIM_RE = re.compile(
+    r"\b("
+    r"day is full|date is full|thursday is full|that day is (completely )?full|"
+    r"d[ií]a (est[aá] )?lleno|el jueves est[aá] lleno|sin plazas|no hay plazas|"
+    r"completely full|basically full"
+    r")\b",
+    re.I,
+)
+ASK_WHICH_TIME_RE = re.compile(
+    r"("
+    r"which time|what time|which class|which slot|"
+    r"qu[eé] hora|qu[eé] horario|qu[eé] clase|os viene mejor|te viene mejor"
+    r")",
+    re.I,
+)
+INCLUDED_GEAR_RE = re.compile(
+    r"("
+    r"included|inclu[ií]d[oa]s?|van incluidos|"
+    r"sin cargo extra|without (an )?extra|no extra|"
+    r"no (extra )?rental charge|sin (cargo|coste) extra"
+    r")",
+    re.I,
+)
+EXTRA_PRICE_RE = re.compile(
+    r"("
+    r"extra\s*€\s*\d+|€\s*\d+\s*(extra|each|more|cada)|"
+    r"\+\s*€\s*\d+|an extra\s*€|cargo extra de\s*€|cuesta\s*€\s*\d+|"
+    r"\d+\s*€\s*(extra|cada|m[aá]s)|"
+    r"are an extra|son un extra|es un extra"
+    r")",
+    re.I,
+)
+NEGATED_EXTRA_RE = re.compile(
+    r"("
+    r"no extra|without (an )?extra|sin cargo extra|sin (cargo|coste) extra|"
+    r"no (extra )?rental charge|not an extra"
+    r")",
+    re.I,
+)
+HANDOFF_INVENT_RE = re.compile(
+    r"("
+    r"team (will )?take over|flag_needs_human|needs human|"
+    r"have the team|el equipo se encarga"
+    r")",
+    re.I,
+)
+
+
+def _int_or_none(value):
+    try:
+        if value is None or isinstance(value, bool):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def score_first_reply(case: dict) -> dict:
+    """Score a FIRST guest reply against Staff / Horario truth. Fail closed."""
+    reply = str(case.get("first_reply") or "")
+    staff = case.get("staff") if isinstance(case.get("staff"), dict) else {}
+    kind = str(case.get("kind") or "")
+    fail_notes: list[str] = []
+
+    poison = staff.get("poison_daily") if isinstance(staff.get("poison_daily"), dict) else {}
+    poison_remaining = _int_or_none(
+        staff.get("poison_daily_remaining")
+        if staff.get("poison_daily_remaining") is not None
+        else poison.get("seats_available")
+    )
+    course_open = _int_or_none(
+        staff.get("seats_available")
+        if staff.get("seats_available") is not None
+        else staff.get("largest_seats_remaining")
+    )
+    course_opens = []
+    for course in staff.get("courses") or []:
+        if isinstance(course, dict):
+            rem = _int_or_none(course.get("seats_remaining"))
+            if rem is not None:
+                course_opens.append(rem)
+
+    if kind in ("unscoped_party", "fail_closed_wrong_reply"):
+        if staff.get("has_fitting_course") is True and FULL_DAY_CLAIM_RE.search(reply):
+            fail_notes.append("claimed_date_full_against_fitting_course")
+        if (
+            poison_remaining is not None
+            and course_open is not None
+            and poison_remaining != course_open
+            and re.search(rf"\b{poison_remaining}\b", reply)
+            and not re.search(rf"\b{course_open}\b", reply)
+        ):
+            fail_notes.append("used_daily_leftover_instead_of_course_remaining")
+        if staff.get("has_fitting_course") is True and not ASK_WHICH_TIME_RE.search(reply):
+            # Wrong full-day claims already fail; otherwise require ask-which-time.
+            if "claimed_date_full_against_fitting_course" not in fail_notes:
+                fail_notes.append("missing_ask_which_time")
+        if HANDOFF_INVENT_RE.search(reply) and staff.get("has_fitting_course") is True:
+            fail_notes.append("handoff_invent_on_fitting_course")
+        # Open spots must come from Staff course remaining when cited.
+        if course_opens and any(str(n) in reply for n in course_opens):
+            pass
+        elif course_open is not None and re.search(rf"\b{course_open}\b", reply):
+            pass
+        elif staff.get("has_fitting_course") is True and not fail_notes:
+            fail_notes.append("missing_course_open_spots")
+
+    elif kind == "timed_leftover":
+        if course_open is None:
+            fail_notes.append("staff_missing_course_open_spots")
+        else:
+            if not re.search(rf"\b{course_open}\b", reply):
+                fail_notes.append("missing_course_open_spots")
+            if (
+                poison_remaining is not None
+                and poison_remaining != course_open
+                and re.search(rf"\b{poison_remaining}\b", reply)
+                and not re.search(rf"\b{course_open}\b", reply)
+            ):
+                fail_notes.append("used_daily_leftover_instead_of_course_remaining")
+            if staff.get("has_seats") is True and FULL_DAY_CLAIM_RE.search(reply):
+                fail_notes.append("claimed_full_despite_course_seats")
+
+    elif kind == "gear_included":
+        labels = [str(x).lower() for x in (staff.get("free_included_equipment_labels") or [])]
+        may_claim = staff.get("may_claim_free_equipment") is True
+        mentions_gear = any(
+            token in reply.lower()
+            for token in ("board", "wetsuit", "tabla", "neopreno", "suit")
+        )
+        quotes_extra_price = bool(EXTRA_PRICE_RE.search(reply)) and not NEGATED_EXTRA_RE.search(reply)
+        # All-day upgrade mention is OK; class-time extra price on included gear is not.
+        if may_claim and mentions_gear and quotes_extra_price:
+            fail_notes.append("quoted_included_gear_as_extra")
+        if may_claim and mentions_gear and not INCLUDED_GEAR_RE.search(reply) and not fail_notes:
+            fail_notes.append("missing_included_claim_for_staff_free_gear")
+        if labels and may_claim and not mentions_gear and not fail_notes:
+            fail_notes.append("missing_staff_included_gear_labels")
+
+    else:
+        fail_notes.append(f"unknown_kind:{kind}")
+
+    return {
+        "ok": len(fail_notes) == 0,
+        "notes": fail_notes,
+        "kind": kind,
+        "lang": case.get("lang"),
+        "id": case.get("id"),
+    }
+
+
+def load_reply_fixtures() -> list[dict]:
+    manifest_path = FIXTURE_DIR / "_manifest.json"
+    if not manifest_path.is_file():
+        return []
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    cases = []
+    for name in manifest.get("cases") or []:
+        path = FIXTURE_DIR / str(name)
+        case = json.loads(path.read_text(encoding="utf-8"))
+        case["_path"] = str(path.relative_to(REPO_ROOT))
+        cases.append(case)
+    return cases
 
 
 def main() -> int:
@@ -245,6 +418,24 @@ def main() -> int:
         empty_gear and empty_gear.get("free_included_equipment_labels") == [],
         str(empty_gear),
     )
+    gear_truth = (with_gear or {}).get("guest_equipment") or {}
+    free_rows = gear_truth.get("free_during_course") or []
+    check(
+        "C6 included policy stays on free_during_course (not invent)",
+        free_rows
+        and all(r.get("during_course_policy") == "included" for r in free_rows)
+        and all((r.get("during_course_price_cents") or 0) == 0 for r in free_rows),
+        str(gear_truth),
+    )
+    # All-day upgrade may appear as paid_or_upgrade — that must not become a
+    # during-class extra quote in first answer (fixture pack F asserts reply text).
+    paid_rows = gear_truth.get("paid_or_upgrade_options") or []
+    check(
+        "C7 all-day upgrade path may exist without stripping included claim",
+        with_gear.get("may_claim_free_equipment") is True
+        and any((r.get("all_day_price_cents") or 0) > 0 for r in paid_rows),
+        str(gear_truth),
+    )
 
     print("\n[D] FIRST location lookup — fail closed Somo vs Sardi")
     # Restore real _post_bot for tenant denial (no FakeBot).
@@ -364,6 +555,117 @@ def main() -> int:
     else:
         check("E1 structured Staff audience field present for first answer", bool(found_structured), str(found_structured))
 
+    print("\n[F] FIRST reply fixtures — score against Staff / Horario (EN/ES + fail-closed)")
+    fixtures = load_reply_fixtures()
+    check("F0 fixture pack loaded", len(fixtures) >= 10, f"count={len(fixtures)}")
+    langs = {str(c.get("lang") or "") for c in fixtures}
+    check("F0b pack keeps EN and ES cases", "en" in langs and "es" in langs, str(sorted(langs)))
+    kinds = {str(c.get("kind") or "") for c in fixtures}
+    check(
+        "F0c required kinds present",
+        {"unscoped_party", "timed_leftover", "gear_included", "fail_closed_wrong_reply"} <= kinds,
+        str(sorted(kinds)),
+    )
+
+    wrong_fail_closed_seen = False
+    for case in fixtures:
+        scored = score_first_reply(case)
+        expect_pass = case.get("expect_pass") is True
+        case_id = case.get("id")
+        if expect_pass:
+            check(
+                f"F pass {case_id}",
+                scored.get("ok") is True,
+                str(scored),
+            )
+        else:
+            check(
+                f"F fail-closed {case_id}",
+                scored.get("ok") is False,
+                str(scored),
+            )
+            wanted = set(case.get("expect_fail_notes_any") or [])
+            got = set(scored.get("notes") or [])
+            check(
+                f"F fail notes {case_id}",
+                bool(wanted & got) if wanted else bool(got),
+                f"wanted_any={sorted(wanted)} got={sorted(got)}",
+            )
+            if case.get("kind") == "fail_closed_wrong_reply":
+                wrong_fail_closed_seen = True
+                check(
+                    "F pack fails closed on deliberately wrong first reply",
+                    scored.get("ok") is False and bool(got),
+                    str(scored),
+                )
+    check("F fail_closed_wrong_reply case exercised", wrong_fail_closed_seen)
+
+    # Cross-check: unscoped Staff tool path still matches fixture Staff shape (#844).
+    fake_f = with_fake({
+        "/sunset/joinable-courses": {
+            "ok": True,
+            "success": True,
+            "date": "2026-09-03",
+            "location_id": "sunset-somo",
+            "courses": [MATUTINO_JOINABLE, TARDE_JOINABLE],
+        },
+        "/sunset/lesson-availability": DAILY_FALSE_FULL,
+    })
+    unscoped_tool = json.loads(mod.get_sunset_lesson_availability({
+        "date": "2026-09-03",
+        "quantity": 12,
+        "location_id": "sunset-somo",
+    }))
+    check(
+        "F tool unscoped still joinable-courses first",
+        bool(fake_f.calls) and "/sunset/joinable-courses" in fake_f.calls[0][0],
+        str(fake_f.calls),
+    )
+    check(
+        "F tool unscoped never daily-full invent",
+        unscoped_tool.get("do_not_claim_date_full") is True
+        and unscoped_tool.get("has_fitting_course") is True
+        and unscoped_tool.get("largest_seats_remaining") == 22,
+        str(unscoped_tool),
+    )
+
+    # Timed tool path leftover is course 22, not daily 1 (#843).
+    fake_timed_f = with_fake({
+        "/sunset/lesson-availability": {
+            "ok": True,
+            "success": True,
+            "date": "2026-09-03",
+            "location_id": "sunset-somo",
+            "capacity_known": True,
+            "scope": "course_slot",
+            "course_capacity": 25,
+            "daily_capacity": None,
+            "seats_booked": 3,
+            "seats_available": 22,
+            "requested_quantity": 14,
+            "has_seats": True,
+            "take_request": False,
+            "reason": None,
+            "slot_time": "10:00",
+            "course_id": "curso-matutino",
+        },
+    })
+    timed_tool = json.loads(mod.get_sunset_lesson_availability({
+        "date": "2026-09-03",
+        "quantity": 14,
+        "slot_time": "10:00",
+        "location_id": "sunset-somo",
+    }))
+    check(
+        "F tool timed leftover is Horario 22 open spots",
+        timed_tool.get("seats_available") == 22
+        and timed_tool.get("seats_booked") == 3
+        and timed_tool.get("daily_capacity") is None
+        and fake_timed_f.calls
+        and fake_timed_f.calls[0][1].get("slot_time") == "10:00",
+        str(timed_tool),
+    )
+
     # Wiring: unscoped path must keep short-circuiting daily leftover.
     plugin_src = (PLUGIN_DIR / "__init__.py").read_text(encoding="utf-8")
     check("W1 plugin sets has_fitting_course on course_choices", "has_fitting_course" in plugin_src)
@@ -372,6 +674,10 @@ def main() -> int:
     soul = (PLUGIN_DIR.parents[2] / "hermes-sunset" / "SOUL.md").read_text(encoding="utf-8")
     check("W4 SOUL grades FIRST availability answer", "FIRST answer" in soul or "first answer" in soul.lower())
     check("W5 SOUL forbids inventing kids/gear/school leftover", "never invent" in soul.lower() and "kids" in soul.lower())
+    check(
+        "W6 pack stays off luna_http_server.py edits (fixtures/tests only)",
+        "luna_http_server" not in (FIXTURE_DIR / "_manifest.json").read_text(encoding="utf-8"),
+    )
 
     print(f"\ntest_sunset_first_answer_eval: {passed} passed, {failed} failed, {skipped} skipped")
     for n in notes:
