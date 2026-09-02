@@ -316,14 +316,17 @@ assert('non-today no needle', nonToday.needle === 0);
 assert('non-today no ends in / starts in countdown', !/ends in/.test(nonToday.text) && !/starts in/.test(nonToday.text));
 assert('non-today hero relative + summary', !/First up:/.test(nonToday.text) && !/NOTHING IN THE WATER/.test(nonToday.text) && !/starts in/.test(nonToday.text) && (/session/i.test(nonToday.text) || /Curso Mañana/.test(nonToday.text) || /YESTERDAY|DAYS AGO|LAST WEEK|TOMORROW|IN \d+ DAYS/i.test(nonToday.text)));
 
-// Week / Next-30 — README: no needle, no countdown, hero shows first session
+// Week / Next-30 — README: no needle, no countdown.
+// Monthly First up must be the next upcoming session (wall clock), not a completed one.
 const week = paint({
   date: TODAY_ISO,
   range: 'week',
   now: 757, // must be ignored for week
   sessions: producerSessions,
 });
+assert('week mapper keeps freeze identity', cockpit.scheduleCockpitRangeFromNavMode('week') === 'week');
 assert('week range freezes clock', cockpit.scheduleCockpitNowMinutes({ range: 'week', date: TODAY_ISO, now: 757 }) == null);
+assert('week paint keeps range week', week.data && week.data.range === 'week');
 assert('week no needle', week.needle === 0);
 assert('week no countdown', !/ends in/.test(week.text) && !/starts in/.test(week.text));
 assert('week not ON NOW live hero', !/ON NOW/.test(week.text));
@@ -333,12 +336,21 @@ assert('week pill pressed', week.mount.querySelectorAll('[aria-pressed="true"]')
 const next30 = paint({
   date: TODAY_ISO,
   range: 'next30',
-  now: 757,
+  now: 757, // 12:37 — Mañana DONE; Medio live → First up Medio (not Mañana)
   sessions: producerSessions,
 });
 assert('next30 no needle', next30.needle === 0);
 assert('next30 no countdown', !/ends in/.test(next30.text) && !/starts in/.test(next30.text));
-assert('next30 hero first session', /First up:/.test(next30.text));
+assert('next30 hero First up', /First up:/.test(next30.text));
+{
+  const h2 = next30.mount.querySelector('h2');
+  const title = h2 ? String(h2.textContent || '') : '';
+  assert('next30 First up skips completed Mañana',
+    /Medio|Tarde/.test(title) && !/Ma[nñ]ana/.test(title),
+    title);
+}
+assert('next30 month prep title', /THIS MONTH'S PREP|PREP ·/.test(next30.text));
+assert('next30 not TODAY\'S PREP', !/TODAY'S PREP/.test(next30.text));
 
 // Seadog BLOCK cases — freeze gates beat now / forceNow overrides
 assert('week+forceNow still null', cockpit.scheduleCockpitNowMinutes({

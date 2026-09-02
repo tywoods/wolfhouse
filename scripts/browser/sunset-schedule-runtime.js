@@ -794,8 +794,9 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
   }
 
   function setView(mode) {
+    // Preserve forwardOffset so Daily → Next → Monthly keeps the selected day
+    // (month-aligned via rangeStartFromOffset). Re-anchoring to 0 snapped to today.
     navState.mode = normalizeNavigationMode(mode);
-    navState.forwardOffset = 0;
     return requestPageLoad();
   }
 

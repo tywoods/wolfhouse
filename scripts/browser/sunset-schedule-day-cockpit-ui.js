@@ -242,7 +242,22 @@ function scheduleCockpitShortDateLabel(dateIso) {
   return dt.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
-function scheduleCockpitPrepTitle(isToday, dateIso) {
+function scheduleCockpitPrepTitle(isToday, dateIso, rangeKey) {
+  // Monthly must never keep day-scoped "TODAY'S PREP" leftover from Daily.
+  if (rangeKey === 'next30') {
+    var monthIso = String(dateIso || '').slice(0, 10);
+    var monthDt = /^\d{4}-\d{2}-\d{2}$/.test(monthIso)
+      ? new Date(monthIso + 'T00:00:00')
+      : new Date();
+    var monthLabel = monthDt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    var monthTitle = scheduleCockpitT(
+      'schedule.cockpit.prepTitleMonth',
+      "THIS MONTH'S PREP",
+      { month: monthLabel }
+    );
+    if (monthTitle && monthTitle !== 'schedule.cockpit.prepTitleMonth') return monthTitle;
+    return monthLabel ? ('PREP · ' + monthLabel) : "THIS MONTH'S PREP";
+  }
   if (isToday) return scheduleCockpitT('schedule.cockpit.prepTitle', "TODAY'S PREP");
   var dateLabel = scheduleCockpitShortDateLabel(dateIso);
   var other = scheduleCockpitT('schedule.cockpit.prepTitleOther', 'PREP FOR {date}', { date: dateLabel });
@@ -400,12 +415,54 @@ function scheduleCockpitAssignLanes(list) {
 function scheduleCockpitClassify(data, now) {
   var list = (data.sessions || []).filter(function (s) { return !s.cancelled; })
     .map(function (s) {
-      return Object.assign({}, s, { s: scheduleCockpitToMin(s.start), e: scheduleCockpitToMin(s.end) });
+      return Object.assign({}, s, {
+        s: scheduleCockpitToMin(s.start),
+        e: scheduleCockpitToMin(s.end),
+        date: String(s.date || s.service_date || data.date || '').slice(0, 10),
+      });
     })
-    .sort(function (a, b) { return a.s - b.s; });
+    .sort(function (a, b) {
+      var byDate = String(a.date || '').localeCompare(String(b.date || ''));
+      if (byDate) return byDate;
+      return a.s - b.s;
+    });
   var live = now == null ? null : list.find(function (x) { return now >= x.s && now < x.e; }) || null;
   var next = now == null ? list[0] || null : list.find(function (x) { return x.s > now; }) || null;
   return { list: list, live: live, next: next };
+}
+
+/**
+ * Month-scoped live/next using wall clock + per-session dates.
+ * Needle stays frozen in Monthly; hero still picks the true upcoming session
+ * (not the first session of the day, which may already be DONE).
+ */
+function scheduleCockpitClassifyMonth(data, todayIso, nowMin) {
+  var list = scheduleCockpitClassify(data, null).list;
+  var today = String(todayIso || '').slice(0, 10);
+  var now = nowMin == null || !isFinite(Number(nowMin)) ? null : Number(nowMin);
+  var live = null;
+  var next = null;
+  if (today && now != null) {
+    live = list.find(function (x) {
+      return x.date === today && now >= x.s && now < x.e;
+    }) || null;
+    next = list.find(function (x) {
+      if (!x.date) return false;
+      if (x.date > today) return true;
+      return x.date === today && x.s > now;
+    }) || null;
+  } else {
+    next = list[0] || null;
+  }
+  return { list: list, live: live, next: next };
+}
+
+/** Local YYYY-MM-DD for wall-clock hero math (Monthly). */
+function scheduleCockpitLocalIsoDate(d) {
+  var dt = d instanceof Date ? d : new Date();
+  return dt.getFullYear() + '-' +
+    scheduleCockpitPad(dt.getMonth() + 1) + '-' +
+    scheduleCockpitPad(dt.getDate());
 }
 
 function scheduleCockpitNowMinutes(data) {
@@ -465,11 +522,35 @@ function scheduleRenderDayCockpit(mount, data) {
   data = data || {};
   var el = function (tag, cls, text) { return scheduleCockpitEl(doc, tag, cls, text); };
 
+  var liveNavModeEarly = null;
+  try {
+    if (typeof scheduleCurrentViewMode === 'function') liveNavModeEarly = scheduleCurrentViewMode();
+  } catch (_navEarly) { liveNavModeEarly = null; }
+  var rangeKeyEarly = scheduleCockpitRangeFromNavMode(
+    liveNavModeEarly || data.navMode || data.mode || data.range
+  );
   var now = scheduleCockpitNowMinutes(data);
-  var classified = scheduleCockpitClassify(data, now);
+  var classified;
+  if (rangeKeyEarly === 'next30') {
+    // Needle stays frozen (now null below); hero uses wall clock so First up
+    // skips sessions that are already DONE.
+    var wall = new Date();
+    var wallMin = typeof data.now === 'number'
+      ? data.now
+      : (wall.getHours() * 60 + wall.getMinutes());
+    classified = scheduleCockpitClassifyMonth(
+      data,
+      scheduleCockpitLocalIsoDate(wall),
+      wallMin
+    );
+  } else {
+    classified = scheduleCockpitClassify(data, now);
+  }
   var list = classified.list;
-  var live = classified.live;
-  var next = classified.next;
+  var live = rangeKeyEarly === 'next30' ? null : classified.live;
+  var next = rangeKeyEarly === 'next30'
+    ? (classified.live || classified.next)
+    : classified.next;
   var on = data.on || {};
   var firstStart = list.length ? Math.min.apply(null, list.map(function (x) { return x.s; })) : 480;
   var lastEnd = list.length ? Math.max.apply(null, list.map(function (x) { return x.e; })) : 1200;
@@ -640,7 +721,53 @@ function scheduleRenderDayCockpit(mount, data) {
     hero.appendChild(seats);
   } else {
     hero.classList.add('ck-now--idle');
-    if (!isToday) {
+    if (rangeKey === 'next30') {
+      // Monthly: First up = next upcoming (wall-clock), never a completed session.
+      // No ON NOW / countdown (needle stays frozen). Counts stay month-scoped via list.
+      var loadingMonth = !!(data.loading) && !list.length;
+      var monthDone = !loadingMonth && list.length > 0 && !next;
+      var monthEyebrow = loadingMonth
+        ? scheduleCockpitT('daySchedule.loading', 'Loading…')
+        : (monthDone
+          ? scheduleCockpitT('schedule.cockpit.hero.monthComplete', 'MONTH COMPLETE')
+          : scheduleCockpitT('schedule.cockpit.hero.nothingInWater', 'NOTHING IN THE WATER'));
+      var monthTitle = loadingMonth
+        ? scheduleCockpitT('daySchedule.loading', 'Loading…')
+        : (monthDone
+          ? scheduleCockpitT('schedule.cockpit.hero.sessionsRun', '{sessions} run · {guests}', {
+            sessions: list.length + ' ' + sessWord,
+            guests: guests + ' ' + guestWord,
+          })
+          : (next
+            ? scheduleCockpitT('schedule.cockpit.hero.firstUp', 'First up: {name}', { name: scheduleCockpitDisplayName(next.name) })
+            : scheduleCockpitT('schedule.cockpit.hero.noSessions', 'No sessions scheduled')));
+      var monthSub = '';
+      if (!loadingMonth) {
+        if (monthDone) {
+          monthSub = scheduleCockpitT('schedule.cockpit.hero.closedOut', 'Gear back in, day closed out.');
+        } else if (next) {
+          monthSub = next.start + ' \u2013 ' + next.end;
+          if (next.date) {
+            var todayIsoHero = scheduleCockpitLocalIsoDate(new Date());
+            if (next.date !== todayIsoHero) {
+              monthSub = scheduleCockpitShortDateLabel(next.date) + ' \u00b7 ' + monthSub;
+            }
+          }
+        } else {
+          monthSub = scheduleCockpitT('schedule.cockpit.hero.addSession', 'Add a session to get going.');
+        }
+      }
+      eyebrow.appendChild(el('span', null, monthEyebrow));
+      heroL.appendChild(eyebrow);
+      heroL.appendChild(el('h2', null, monthTitle));
+      heroL.appendChild(el('div', 'ck-now__sub', monthSub));
+      if (!monthDone && !loadingMonth && next) {
+        var chipsMonth = el('div', 'ck-chips');
+        scheduleCockpitAppendExactPrepChips(chipsMonth, next.prepItems, 'prep');
+        heroL.appendChild(chipsMonth);
+      }
+      hero.appendChild(heroL);
+    } else if (!isToday) {
       // Non-today: relative label + light day summary (no live "First up" / countdown / prep chips).
       var relLabel = scheduleCockpitRelativeDayLabelText(data.date, new Date());
       eyebrow.appendChild(el('span', null, String(relLabel || '').toUpperCase()));
@@ -751,7 +878,7 @@ function scheduleRenderDayCockpit(mount, data) {
   /* prep rail — exact offering labels/qty (course add-ons first, then top others) */
   var p = data.prep || {};
   var prep = el('div', 'ck-prep');
-  prep.appendChild(el('h3', null, scheduleCockpitPrepTitle(isToday, data.date)));
+  prep.appendChild(el('h3', null, scheduleCockpitPrepTitle(isToday, data.date, rangeKey)));
   var prepItems = Array.isArray(p.items) ? p.items : [];
   if (prepItems.length) {
     prepItems.forEach(function (item) {
@@ -872,15 +999,16 @@ function scheduleCockpitMinToHhmm(min) {
 }
 
 /**
- * Map nav mode → cockpit range pill key.
+ * Map nav mode → cockpit range key.
  * SunsetScheduleRuntime.nav modes: 'day' | 'week' | 'next30'
- * UI only exposes Daily (today) + Monthly (next30). Legacy week collapses to Daily.
+ * UI only exposes Daily (today) + Monthly (next30). Render remaps week → Daily
+ * for pills; keep week identity so explicit range:'week' still freezes the clock.
  */
 function scheduleCockpitRangeFromNavMode(mode) {
   var m = String(mode || 'day').toLowerCase();
   if (m === 'next30' || m === 'month' || m === 'monthly') return 'next30';
-  // week retired from UI — treat as day/Daily for pills (clock freeze still honors explicit range:'week')
-  if (m === 'week') return 'today';
+  // Week view is retired from chrome, but freeze/hero still honor explicit week.
+  if (m === 'week') return 'week';
   return 'today';
 }
 
@@ -936,6 +1064,7 @@ function scheduleMapDaySessionToCockpit(session) {
     boards: Number(session.boards != null ? session.boards : (session.boardsNeeded || 0)) || 0,
     wetsuits: Number(session.wetsuits != null ? session.wetsuits : (session.wetsuitsNeeded || 0)) || 0,
     prepItems: prepItems,
+    date: String(session.date || session.service_date || '').slice(0, 10),
     cancelled: !!(session.cancelled || session._isCancelled || session.schedule_ghost),
   };
 }
@@ -1366,9 +1495,18 @@ function scheduleCockpitNormalizePrepItems(list) {
  * @returns {Array<{offering_key:string,label:string,quantity:number,kind:'course_addon'|'rental'}>}
  */
 function scheduleBuildDayPrepItems(rows, dateIso) {
-  var iso = String(dateIso || '').slice(0, 10);
+  var token = String(dateIso || '').trim();
+  var dayExact = /^\d{4}-\d{2}-\d{2}$/.test(token) ? token.slice(0, 10) : '';
+  var monthPrefix = !dayExact && /^\d{4}-\d{2}$/.test(token.slice(0, 7)) ? token.slice(0, 7) : '';
+  if (!dayExact && !monthPrefix && /^\d{4}-\d{2}/.test(token)) {
+    // Accept YYYY-MM from a longer token when caller passes month scope explicitly as YYYY-MM.
+    monthPrefix = token.slice(0, 7);
+  }
   var dayRows = scheduleCockpitFilterActiveRows(rows || []).filter(function (r) {
-    return String(r.service_date || r.date || '').slice(0, 10) === iso;
+    var d = String(r.service_date || r.date || '').slice(0, 10);
+    if (dayExact) return d === dayExact;
+    if (monthPrefix) return d.slice(0, 7) === monthPrefix;
+    return false;
   });
 
   var ceByKey = Object.create(null);
@@ -1471,6 +1609,7 @@ function scheduleCollectDayCockpitSource() {
   var activeIso = typeof scheduleActiveDayIso === 'function' ? scheduleActiveDayIso() : '';
   var navMode = typeof scheduleCurrentViewMode === 'function' ? scheduleCurrentViewMode() : 'day';
   var rangeStartIso = activeIso;
+  var focusDayIso = activeIso;
   try {
     if (typeof scheduleGetNavigationSnapshot === 'function') {
       var snap = scheduleGetNavigationSnapshot();
@@ -1480,6 +1619,9 @@ function scheduleCollectDayCockpitSource() {
           activeIso = rangeStartIso;
         }
       }
+      // Day mode keeps the selected day; Monthly month-aligns rangeStart but may
+      // still carry a day offset — prefer explicit focus when present.
+      if (snap && snap.focusDateIso) focusDayIso = snap.focusDateIso;
     }
   } catch (_snap) { /* keep activeIso */ }
   var venue = 'Sunset';
@@ -1495,16 +1637,53 @@ function scheduleCollectDayCockpitSource() {
   // Active-only for prep/unpaid — same filter as scheduleBuildDaySessions.
   // Helpers themselves only date-filter; they do not drop cancelled/ghosts.
   var activeRows = scheduleCockpitFilterActiveRows(rows);
+  var isMonthly = scheduleCockpitRangeFromNavMode(navMode) === 'next30';
+  var monthPrefix = String(rangeStartIso || activeIso || '').slice(0, 7);
 
-  var dayRows = activeRows.filter(function (r) {
-    return String(r.service_date || r.date || '').slice(0, 10) === activeIso;
-  });
+  var scopeRows;
+  if (isMonthly && /^\d{4}-\d{2}$/.test(monthPrefix)) {
+    scopeRows = activeRows.filter(function (r) {
+      return String(r.service_date || r.date || '').slice(0, 7) === monthPrefix;
+    });
+  } else {
+    scopeRows = activeRows.filter(function (r) {
+      return String(r.service_date || r.date || '').slice(0, 10) === activeIso;
+    });
+  }
 
   var sessions = [];
   if (typeof scheduleBuildDaySessions === 'function') {
     try {
-      // buildDaySessions re-filters; passing active day rows is fine (behavior-identical).
-      sessions = scheduleBuildDaySessions(dayRows, activeIso, typeof scheduleLessonTimesCache !== 'undefined' ? scheduleLessonTimesCache : null) || [];
+      if (isMonthly) {
+        var byDate = Object.create(null);
+        scopeRows.forEach(function (r) {
+          var d = String(r.service_date || r.date || '').slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(d)) byDate[d] = true;
+        });
+        Object.keys(byDate).sort().forEach(function (iso) {
+          var dayRows = scopeRows.filter(function (r) {
+            return String(r.service_date || r.date || '').slice(0, 10) === iso;
+          });
+          var daySessions = scheduleBuildDaySessions(
+            dayRows,
+            iso,
+            typeof scheduleLessonTimesCache !== 'undefined' ? scheduleLessonTimesCache : null
+          ) || [];
+          daySessions.forEach(function (s) {
+            if (!s) return;
+            s.date = iso;
+            s.service_date = iso;
+            sessions.push(s);
+          });
+        });
+      } else {
+        // buildDaySessions re-filters; passing active day rows is fine (behavior-identical).
+        sessions = scheduleBuildDaySessions(
+          scopeRows,
+          activeIso,
+          typeof scheduleLessonTimesCache !== 'undefined' ? scheduleLessonTimesCache : null
+        ) || [];
+      }
     } catch (_e3) { sessions = []; }
   }
 
@@ -1512,14 +1691,37 @@ function scheduleCollectDayCockpitSource() {
   // uses exact offering items (course add-ons + top other rentals).
   var equip = { boards: { total: 0, lesson: 0, rental: 0 }, wetsuits: { total: 0, lesson: 0, rental: 0 } };
   if (typeof scheduleDayEquipmentTotals === 'function') {
-    try { equip = scheduleDayEquipmentTotals(activeRows, activeIso) || equip; } catch (_e4) { /* keep empty */ }
+    try {
+      if (isMonthly && scopeRows.length) {
+        // Day helper filters by exact ISO — rewrite month rows onto rangeStart so totals include the month.
+        var equipAnchor = activeIso || (monthPrefix + '-01');
+        var equipRows = scopeRows.map(function (r) {
+          return Object.assign({}, r, { service_date: equipAnchor, date: equipAnchor });
+        });
+        equip = scheduleDayEquipmentTotals(equipRows, equipAnchor) || equip;
+      } else {
+        equip = scheduleDayEquipmentTotals(activeRows, activeIso) || equip;
+      }
+    } catch (_e4) { /* keep empty */ }
   }
 
-  var prepItems = scheduleBuildDayPrepItems(activeRows, activeIso);
+  var prepItems = isMonthly && monthPrefix
+    ? scheduleBuildDayPrepItems(activeRows, monthPrefix)
+    : scheduleBuildDayPrepItems(activeRows, activeIso);
 
   var unpaidCount = 0;
   if (typeof scheduleUnpaidPendingCount === 'function') {
-    try { unpaidCount = scheduleUnpaidPendingCount(activeRows, activeIso) || 0; } catch (_e5) { unpaidCount = 0; }
+    try {
+      if (isMonthly && scopeRows.length) {
+        var unpaidAnchor = activeIso || (monthPrefix + '-01');
+        var unpaidRows = scopeRows.map(function (r) {
+          return Object.assign({}, r, { service_date: unpaidAnchor, date: unpaidAnchor });
+        });
+        unpaidCount = scheduleUnpaidPendingCount(unpaidRows, unpaidAnchor) || 0;
+      } else {
+        unpaidCount = scheduleUnpaidPendingCount(activeRows, activeIso) || 0;
+      }
+    } catch (_e5) { unpaidCount = 0; }
   }
 
   var needReplyCount = 0;
@@ -1534,6 +1736,7 @@ function scheduleCollectDayCockpitSource() {
     venue: venue,
     date: activeIso,
     rangeStartIso: rangeStartIso,
+    focusDayIso: focusDayIso,
     navMode: navMode,
     range: scheduleCockpitRangeFromNavMode(navMode),
     layout: typeof scheduleGetDayOpsLayoutMode === 'function' ? scheduleGetDayOpsLayoutMode() : 'timeline',
@@ -1609,7 +1812,10 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleCockpitRelativeDayLabelText: scheduleCockpitRelativeDayLabelText,
     scheduleCockpitPct: scheduleCockpitPct,
     scheduleCockpitClassify: scheduleCockpitClassify,
+    scheduleCockpitClassifyMonth: scheduleCockpitClassifyMonth,
+    scheduleCockpitLocalIsoDate: scheduleCockpitLocalIsoDate,
     scheduleCockpitNowMinutes: scheduleCockpitNowMinutes,
+    scheduleCockpitPrepTitle: scheduleCockpitPrepTitle,
     scheduleDayCockpitShouldTick: scheduleDayCockpitShouldTick,
     scheduleCockpitHasCapacity: scheduleCockpitHasCapacity,
     scheduleRenderDayCockpit: scheduleRenderDayCockpit,
