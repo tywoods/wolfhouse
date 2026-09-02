@@ -3,6 +3,7 @@
 # HERMES_ROLE=luna         → guest WhatsApp Luna (default for ACA backward compat)
 # HERMES_ROLE=sunset-luna  → Sunset guest WhatsApp Luna (tenant-gated)
 # HERMES_ROLE=sunset-email-luna → Sunset Staff email draft-only runtime (no gateway)
+# HERMES_ROLE=sunset-luna-http → Sunset shared Luna HTTP runtime (no gateway; additive)
 # HERMES_ROLE=orchestrator → operator Discord/SSH profile (VM Skipper)
 # HERMES_ROLE=seadog       → light Discord persona (legacy: same guest bootstrap path)
 # HERMES_ROLE=deckhand     → Discord engineering worker (xAI; never Luna guest path)
@@ -22,13 +23,13 @@ if [ -d /run/s6/container_environment ]; then
 fi
 
 HERMES_ROLE="${HERMES_ROLE:-luna}"
-# Email role: canonical Hermes home is $HOME/.hermes (HOME=/opt/data).
+# Email + shared HTTP roles: canonical Hermes home is $HOME/.hermes (HOME=/opt/data).
 # Installed Hermes auth-add with HOME=/opt/data writes
 # /opt/data/.hermes/auth.json; /init may scrub HERMES_HOME so get_hermes_home()
 # falls back to Path.home()/.hermes — the same file. Image ENV HERMES_HOME=/opt/data
 # is the Azure Files / Lunabox mount root, not the credential directory.
 # WhatsApp/Wolfhouse roles keep HERMES_HOME=/opt/data (shared auth.json symlink).
-if [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
+if [ "$HERMES_ROLE" = "sunset-email-luna" ] || [ "$HERMES_ROLE" = "sunset-luna-http" ]; then
   export HOME="${HOME:-/opt/data}"
   HERMES_HOME="${HOME}/.hermes"
   export HERMES_HOME
@@ -359,6 +360,121 @@ require_isolated_sunset_email_auth() {
   chown 10000:10000 "$HERMES_HOME" 2>/dev/null || true
 }
 
+require_isolated_sunset_luna_http_auth() {
+  # Same isolated Sol credential pattern as email-luna. Dedicated mount only —
+  # never WhatsApp shared auth pool. See docs/SUNSET-LUNA-HTTP-RUNTIME.md.
+  _http_auth="$HERMES_HOME/auth.json"
+  _http_mount="${HOME:-/opt/data}"
+  if [ -L "$_http_auth" ]; then
+    echo "sunset-luna-http refuses shared auth.json symlink" >&2
+    exit 1
+  fi
+  if [ -e "$_http_mount/.auth-shared/auth.json" ] || [ -e "$HERMES_HOME/.auth-shared/auth.json" ]; then
+    echo "sunset-luna-http refuses .auth-shared mount" >&2
+    exit 1
+  fi
+  if [ ! -f "$_http_auth" ]; then
+    echo "sunset-luna-http requires isolated operator-provisioned .hermes/auth.json (openai-codex). See docs/SUNSET-LUNA-HTTP-RUNTIME.md" >&2
+    exit 1
+  fi
+  chmod 0600 "$_http_auth" 2>/dev/null || true
+  chown 10000:10000 "$_http_auth" 2>/dev/null || true
+  chmod 0700 "$HERMES_HOME" 2>/dev/null || true
+  chown 10000:10000 "$HERMES_HOME" 2>/dev/null || true
+}
+
+write_sunset_luna_http_config() {
+  # Sol + Staff tools. No WhatsApp/Discord gateway platforms.
+  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: gpt-5.6-sol
+  provider: openai-codex
+agent:
+  reasoning_effort: none
+toolsets:
+  - wolfhouse_staff_api
+plugins:
+  enabled:
+    - wolfhouse-staff-api
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
+curator:
+  enabled: false
+EOF
+}
+
+write_sunset_luna_http_env() {
+  {
+    [ -n "${API_SERVER_KEY:-}" ] && printf 'API_SERVER_KEY=%s\n' "$API_SERVER_KEY"
+    [ -n "${LUNA_BOT_INTERNAL_TOKEN:-}" ] && printf 'LUNA_BOT_INTERNAL_TOKEN=%s\n' "$LUNA_BOT_INTERNAL_TOKEN"
+    [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ] && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
+    printf 'LUNA_TENANT_ID=sunset\n'
+    printf 'LUNA_CLIENT_SLUG=sunset\n'
+    printf 'LUNA_ALLOWED_LOCATION_IDS=%s\n' "${LUNA_ALLOWED_LOCATION_IDS:-sunset-somo}"
+    printf 'LUNA_HTTP_LISTEN_HOST=%s\n' "${LUNA_HTTP_LISTEN_HOST:-0.0.0.0}"
+    printf 'LUNA_HTTP_LISTEN_PORT=%s\n' "${LUNA_HTTP_LISTEN_PORT:-8094}"
+    printf 'PYTHONPATH=/etc/hermes-staging\n'
+    printf 'API_SERVER_ENABLED=false\n'
+    printf 'GATEWAY_ALLOW_ALL_USERS=false\n'
+  } > "$HERMES_HOME/.env"
+  if ! grep -q '^API_SERVER_KEY=.' "$HERMES_HOME/.env"; then
+    echo "sunset-luna-http .env missing required API_SERVER_KEY" >&2
+    exit 1
+  fi
+  if ! grep -q '^LUNA_BOT_INTERNAL_TOKEN=.' "$HERMES_HOME/.env"; then
+    echo "sunset-luna-http .env missing required LUNA_BOT_INTERNAL_TOKEN" >&2
+    exit 1
+  fi
+  if ! grep -q '^WOLFHOUSE_STAFF_API_BASE_URL=.' "$HERMES_HOME/.env"; then
+    echo "sunset-luna-http .env missing required WOLFHOUSE_STAFF_API_BASE_URL" >&2
+    exit 1
+  fi
+}
+
+install_sunset_luna_http_soul() {
+  # Same unlink-then-install pattern as email-luna (Azure Files CIFS).
+  # Guest SOUL only — no email draft overlay.
+  _dest="$HERMES_HOME/SOUL.md"
+  _tmp="${_dest}.role.$$"
+  if [ -f "$SUNSET_LUNA_SOUL" ]; then
+    _src="$SUNSET_LUNA_SOUL"
+  elif [ -f "$STAGING_LUNA_SOUL" ]; then
+    _src="$STAGING_LUNA_SOUL"
+  else
+    echo "sunset-luna-http missing Sunset SOUL" >&2
+    exit 1
+  fi
+  cp "$_src" "$_tmp" || {
+    echo "sunset-luna-http failed to stage role SOUL" >&2
+    rm -f "$_tmp"
+    exit 1
+  }
+  chmod 0640 "$_tmp" 2>/dev/null || true
+  chown 10000:10000 "$_tmp" 2>/dev/null || true
+  rm -f "$_dest" || {
+    echo "sunset-luna-http cannot remove setup-owned SOUL.md" >&2
+    rm -f "$_tmp"
+    exit 1
+  }
+  if [ -e "$_dest" ]; then
+    echo "sunset-luna-http SOUL.md still present after remove" >&2
+    rm -f "$_tmp"
+    exit 1
+  fi
+  mv -f "$_tmp" "$_dest" || {
+    echo "sunset-luna-http failed to install role SOUL" >&2
+    rm -f "$_tmp"
+    exit 1
+  }
+  if [ ! -f "$_dest" ] || [ -L "$_dest" ] || [ ! -s "$_dest" ]; then
+    echo "sunset-luna-http SOUL replacement unverified" >&2
+    exit 1
+  fi
+  chmod 0640 "$_dest" 2>/dev/null || true
+  chown 10000:10000 "$_dest" 2>/dev/null || true
+}
+
 install_luna_plugins() {
   # Copy guest plugins only — never water_cooler_a2a (Seadog/Deckhand gated).
   if [ -d "$STAGING_PLUGINS" ]; then
@@ -569,8 +685,24 @@ elif [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
   write_sunset_email_luna_env
   # Draft-only: never WhatsApp/Discord patches, never Staff booking plugins,
   # never shared auth.json mutation.
+elif [ "$HERMES_ROLE" = "sunset-luna-http" ]; then
+  [ "${LUNA_CLIENT_SLUG:-}" = "sunset" ] || { echo "sunset-luna-http requires LUNA_CLIENT_SLUG=sunset" >&2; exit 1; }
+  [ "${LUNA_TENANT_ID:-}" = "sunset" ] || { echo "sunset-luna-http requires LUNA_TENANT_ID=sunset" >&2; exit 1; }
+  [ "${LUNA_ALLOWED_LOCATION_IDS:-}" = "sunset-somo" ] || { echo "sunset-luna-http requires LUNA_ALLOWED_LOCATION_IDS=sunset-somo" >&2; exit 1; }
+  [ -n "${API_SERVER_KEY:-}" ] || { echo "sunset-luna-http requires API_SERVER_KEY" >&2; exit 1; }
+  [ -n "${LUNA_BOT_INTERNAL_TOKEN:-}" ] || { echo "sunset-luna-http requires LUNA_BOT_INTERNAL_TOKEN" >&2; exit 1; }
+  [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ] || { echo "sunset-luna-http requires WOLFHOUSE_STAFF_API_BASE_URL" >&2; exit 1; }
+  require_isolated_sunset_luna_http_auth
+  write_sunset_luna_http_config
+  install_sunset_luna_http_soul
+  install_luna_plugins
+  ensure_sessions_dir
+  write_sunset_luna_http_env
+  # Shared HTTP runtime: Staff tools + Sol + Sunset SOUL. No gateway patches,
+  # no Meta WhatsApp tokens, no shared auth.json mutation. Live WhatsApp stays
+  # on hermes-sunset-luna (`gateway run`).
 else
-  echo "unsupported HERMES_ROLE: ${HERMES_ROLE} (expected orchestrator|deckhand|luna|sunset-luna|sunset-email-luna|seadog)" >&2
+  echo "unsupported HERMES_ROLE: ${HERMES_ROLE} (expected orchestrator|deckhand|luna|sunset-luna|sunset-email-luna|sunset-luna-http|seadog)" >&2
   exit 1
 fi
 
