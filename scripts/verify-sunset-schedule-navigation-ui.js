@@ -181,12 +181,13 @@ if (modExists) {
 
   let genBefore = ctx.scheduleNavigationLoadGen();
   ctx.setScheduleView('week');
-  assert('week toggle one load', ctx.scheduleNavigationLoadGen() === genBefore + 1
+  assert('week toggle preserves offset', ctx.scheduleNavigationLoadGen() === genBefore + 1
     && snap().mode === 'week' && snap().forwardOffset === 0);
   assert('week toggle re-anchors', ctx.scheduleCurrentViewMode() === 'week');
 
   ctx.setScheduleView('next30');
-  assert('next30 toggle re-anchors', snap().forwardOffset === 0 && snap().mode === 'next30');
+  assert('next30 toggle keeps mode', snap().mode === 'next30');
+  assert('next30 toggle preserves offset (no snap to today)', snap().forwardOffset === 0);
 
   ctx.setScheduleView('bogus');
   assert('unknown mode fail closed day', ctx.scheduleCurrentViewMode() === 'day');
@@ -194,6 +195,12 @@ if (modExists) {
   ctx.setScheduleView('day');
   ctx.scheduleNavigateNext();
   assert('day next +1 offset', snap().forwardOffset === 1);
+  // Daily → Next → Monthly must keep the selected day (not re-anchor to today).
+  ctx.setScheduleView('next30');
+  assert('daily→next→monthly keeps offset', snap().forwardOffset === 1 && snap().mode === 'next30');
+  assert('monthly month-aligns selected day', String(snap().rangeStartIso || '').slice(0, 7) === '2026-07');
+  ctx.setScheduleView('day');
+  assert('monthly→daily keeps offset', snap().forwardOffset === 1 && snap().mode === 'day');
   ctx.scheduleNavigatePrev();
   assert('day prev back to 0', snap().forwardOffset === 0);
 
@@ -246,6 +253,7 @@ if (modExists) {
   assert('view button wired', ctx.scheduleCurrentViewMode() === 'week');
 
   ctx.setScheduleView('day');
+  ctx.scheduleNavigateToday();
   for (let i = 0; i < 5; i += 1) ctx.scheduleNavigateNext();
   assert('rapid next final offset', snap().forwardOffset === 5);
   const finalGen = ctx.scheduleNavigationLoadGen();
