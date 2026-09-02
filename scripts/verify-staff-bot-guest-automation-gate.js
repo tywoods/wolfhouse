@@ -93,13 +93,20 @@ check('C7', 'helper blocks WhatsApp send when channel mode is not auto',
   && /inbox_channel_mode_draft/.test(helperText)
   && /inbox_channel_mode_off/.test(helperText)
   && /stage_outbound_as_draft/.test(helperText));
-check('C8', 'channel-mode lookup defaults missing key to auto',
-  /COALESCE\(settings->'inbox_channel_modes'->>'whatsapp', 'auto'\)/.test(helperText));
+check('C8', 'existing tenant with missing channel-mode key defaults to auto',
+  /if \(raw == null\) whatsappChannelMode = 'auto'/.test(helperText));
 check('C9', 'Draft keeps agent drafting (bot_paused false) while live_send_blocked',
   /whatsappChannelMode === 'draft'[\s\S]{0,400}bot_paused:\s*false/.test(helperText)
   && /whatsappChannelMode === 'draft'[\s\S]{0,400}live_send_blocked:\s*true/.test(helperText));
 check('C10', 'Off keeps bot_paused true',
   /whatsappChannelMode === 'off'[\s\S]{0,400}bot_paused:\s*true/.test(helperText));
+check('C11', 'channel-mode query errors fail closed rather than defaulting Auto',
+  /channel_mode_lookup_error/.test(helperText)
+  && !/catch\s*\([^)]*\)\s*\{\s*whatsappChannelMode\s*=\s*'auto'/.test(helperText));
+check('C12', 'missing tenant row fails closed',
+  /!modeRes\.rows\[0\][\s\S]{0,100}channelModeLookupFailure/.test(helperText));
+check('C13', 'invalid non-null channel mode fails closed',
+  /else if \(raw === 'auto'[\s\S]{0,200}else return channelModeLookupFailure/.test(helperText));
 
 console.log('\nD. Auth + gate independence');
 check('D1', 'route uses requireBotAuth (bot dry-run pattern)', routeBlock.includes('requireBotAuth'));

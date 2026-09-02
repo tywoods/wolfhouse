@@ -53,6 +53,7 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/verify_plain_reply_patches.py \
  && python /etc/hermes-staging/verify_gateway_patch_idempotency.py \
  && python /etc/hermes-staging/verify_discord_session_continuity.py \
+ && python -c "import asyncpg" \
  && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py \
  && cd /etc/hermes-staging \
  && python -m unittest wolfhouse.test_crowsnest_ai_usage_reporter test_crowsnest_ai_usage_patch wolfhouse.test_discord_bot_wake wolfhouse.test_discord_bot_wake_patch -v \

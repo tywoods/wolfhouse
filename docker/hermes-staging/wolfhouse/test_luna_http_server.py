@@ -28,6 +28,7 @@ from wolfhouse.luna_http_contract import (  # noqa: E402
     RUNTIME,
     TENANT,
 )
+from wolfhouse.luna_http_gate import normalize_gate_snapshot  # noqa: E402
 from wolfhouse.luna_http_server import handle_inbound_request, make_handler  # noqa: E402
 from wolfhouse.luna_http_turn import build_inbound_result, run_first_answer_lookup  # noqa: E402
 
@@ -128,6 +129,13 @@ def call(raw, availability=fake_unscoped_availability, replay=None, auth=None, t
             "mode": req.get("outbound_mode") or "none",
             "sent": False,
             "via": None,
+        },
+        gate_lookup=lambda _req: {
+            "success": True,
+            "bot_paused": False,
+            "live_send_blocked": False,
+            "needs_human": False,
+            "whatsapp_channel_mode": "auto",
         },
     )
 
@@ -237,7 +245,18 @@ class LunaHttpFirstAnswerTests(unittest.TestCase):
 
 class LunaHttpHealthzTests(unittest.TestCase):
     def test_healthz_ok(self):
-        handler = make_handler(TOKEN, ReplayCache(), availability=fake_unscoped_availability)
+        handler = make_handler(
+            TOKEN,
+            ReplayCache(),
+            availability=fake_unscoped_availability,
+            gate_lookup=lambda _req: {
+                "success": True,
+                "bot_paused": False,
+                "live_send_blocked": False,
+                "needs_human": False,
+                "whatsapp_channel_mode": "auto",
+            },
+        )
         from http.server import ThreadingHTTPServer
 
         httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
