@@ -241,8 +241,14 @@ console.log('\n── linkConversationCustomer ──');
     ok('card has create-from-email', unmatched.includes('id="inbox-guest-link-create"'));
     ok('card searches Staff customers', contextSrc.includes("/staff/customers'") || contextSrc.includes('/staff/customers'));
     ok('card posts create/link to /staff/customers', contextSrc.includes("'/staff/customers'") || contextSrc.includes('/staff/customers'));
-    ok('resolvePhone prefers customer_phone emailcust1',
-      chrome.inboxCustomerResolvePhone({ phone: opaque, customer_phone: 'emailcust1:deadbeef' }) === 'emailcust1:deadbeef');
+    ok('resolvePhone hides internal customer_phone emailcust1',
+      chrome.inboxCustomerResolvePhone({ phone: opaque, customer_phone: 'emailcust1:deadbeef' }) === '');
+    ok('customer card never maps internal emailcust1 id into Phone',
+      chrome.inboxCustomerFromConv({
+        phone: opaque,
+        customer_phone: 'emailcust1:d1a28775',
+        guest_email: 'tyler@sunset.test',
+      }).phone === '');
     ok('bound customer_id keeps guest after refresh fields',
       chrome.inboxCustomerHasBoundGuest({ customer_id: CUST, phone: opaque }, null) === true);
 
