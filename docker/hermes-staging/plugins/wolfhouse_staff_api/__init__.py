@@ -2887,6 +2887,43 @@ def get_sunset_payment_status(params, **kwargs):
     })
 
 
+def list_sunset_bookings(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone") or _session_guest_phone())
+    if not phone:
+        return _json_result({
+            "success": False,
+            "tool": "list_sunset_bookings",
+            "error": "phone_required",
+            "count": 0,
+            "bookings": [],
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+            "no_whatsapp": True,
+            "guest_safe_next_action": "Which name or date should I check on the booking?",
+        })
+    body = {"phone": phone}
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    data = _post_bot("/sunset/bookings-by-phone", body)
+    ok = bool(data.get("success"))
+    bookings = data.get("bookings") if isinstance(data.get("bookings"), list) else []
+    count = data.get("count") if data.get("count") is not None else len(bookings)
+    return _json_result({
+        "success": ok,
+        "tool": "list_sunset_bookings",
+        "count": count if ok else 0,
+        "bookings": bookings if ok else [],
+        "reason": data.get("reason") or data.get("error") if not ok else None,
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+        "no_whatsapp": True,
+        "no_payment_write": True,
+        "guest_safe_next_action": None if ok else "I want to double-check what's already booked for this number — one moment.",
+    })
+
+
 def get_sunset_waiver_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -3010,6 +3047,7 @@ def _sunset_tools():
         ("get_sunset_joinable_courses", "List Admin-configured courses a guest can currently join BEFORE offering or booking a course. Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity.", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
         ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options, prices, or inclusions. Offer only returned offerings; preserve offering_id and course_id exactly. Read free_included_equipment_labels / guest_equipment from each offering — only claim free gear when may_claim_free_equipment is true (never invent wax/board lists). For rentals use get_sunset_rental_catalog instead.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
         ("get_sunset_offering_quote", "Get the authoritative quote for one exact catalog offering. Three independent price authorities (never invent or cross-substitute): (1) course/lesson package amount from this quote, (2) course-equipment during_course amounts from returned equipment_options/quote lines (policy included may be €0 and quote-owned — omit course_equipment to auto-expand included only), (3) course-equipment all_day amounts from mode all_day (independent of during_course and of standalone rentals from get_sunset_rental_price). The same physical gear may appear as a standalone rental and as course equipment — distinct commercial lines. Optional gear is never auto-included — pass intent course_equipment:{mode,quantity} only when the guest selects it. Always copy opaque quote_provenance into create unchanged (exact wire + fingerprint). Do not send wire arrays as course_equipment input.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates."}, "course_equipment": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False, "description": "Guest gear intent only ({mode,quantity}). Do not send wire arrays; Staff API expands offering keys from Admin equipment_options."}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
+        ("list_sunset_bookings", "List this guest's Sunset lesson/rental bookings for their WhatsApp number through Staff API. This is the authoritative booking truth — never invent or deny bookings from chat memory. Call before answering whether something is booked, and after a successful create_sunset_booking if the guest asks what is booked. If it returns rows, those bookings exist (including unpaid/pending). If success is false, ask rather than contradict. Uses the WhatsApp sender number automatically.", list_sunset_bookings, {"phone": {"type": "string"}, **loc}, []),
     ]
 
 

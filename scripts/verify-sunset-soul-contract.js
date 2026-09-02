@@ -96,6 +96,13 @@ assert('name-for-booking wording guidance', /name for the booking|nombre para la
 assert('quote-only must not create booking', /never create a booking from a quote request alone/i.test(soul));
 assert('multilingual phrasing guidance', /guest'?s \*\*current language\*\*|current language/i.test(soul));
 
+console.log('\n[Booking truth — Staff API, fail closed]');
+assert('list_sunset_bookings is a documented tool', /list_sunset_bookings/.test(soul));
+assert('never deny after successful create', /never say nothing is booked|never deny that booking/i.test(soul));
+assert('ask rather than contradict when list is unclear', /ask rather than contradict/i.test(soul));
+assert('take_request nothing-booked copy is scoped to no successful create',
+  /take_request/.test(soul) && /already created|create_sunset_booking succeeds/i.test(soul));
+
 console.log('\n[No accidental Wolfhouse / guest-facing Cami leakage]');
 assert('Cami only appears in a never-mention boundary (not guest-facing identity)',
   !/cami/i.test(soul) || /never mention[^.\n]*cami/i.test(soul));
