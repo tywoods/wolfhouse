@@ -325,6 +325,7 @@
     "verify:luna-handoff-lifecycle": "node scripts/verify-luna-handoff-lifecycle.js",
     "verify:luna-needs-human-no-pause": "node scripts/verify-luna-needs-human-no-pause.js",
     "verify:luna-explicit-human-handoff": "node scripts/verify-luna-explicit-human-handoff.js",
+    "verify:sunset-luna-live-test-001": "node scripts/verify-sunset-luna-live-test-001.js",
     "verify:luna-catalog-services": "node scripts/verify-luna-catalog-services.js",
     "verify:luna-tenant-defaults": "node scripts/verify-luna-tenant-defaults.js",
     "check:soul-clean": "node scripts/check-soul-clean.js",

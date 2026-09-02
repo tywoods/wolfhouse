@@ -536,6 +536,55 @@ def enqueue_mirror_payload(payload: dict) -> bool:
     return get_mirror_queue().enqueue(payload)
 
 
+def mirror_whatsapp_outbound_as_draft(
+    chat_id: Any,
+    content: Any,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """Persist a Luna reply as an Inbox draft. Never a Meta/Cloud provider send.
+
+    Draft-mode outbound has no wamid. Staff API stages ``luna_outbound_approvals``
+    when WhatsApp channel mode is Draft; posting here is a persistence side effect.
+    """
+    try:
+        phone = _normalize_phone(chat_id)
+        msg = normalize_whatsapp_message_text(str(content or "")).strip()
+        if not phone or not msg:
+            return False
+        meta = metadata if isinstance(metadata, dict) else {}
+        source = type("_WhDraftSource", (), {"user_id": phone, "chat_id": phone})()
+        event = type(
+            "_WhDraftEvent",
+            (),
+            {
+                "metadata": meta,
+                "message_id": None,
+                "timestamp": None,
+                "message_type": "text",
+            },
+        )()
+        if meta.get("phone_number_id"):
+            setattr(event, "phone_number_id", meta.get("phone_number_id"))
+        payload = build_mirror_payload(source, event, "outbound", msg, None, None)
+        if not payload:
+            return False
+        payload.pop("whatsapp_message_id", None)
+        if not payload.get("idempotency_key"):
+            payload["idempotency_key"] = hashlib.sha256(
+                f"{phone}:{msg}:draft".encode("utf-8")
+            ).hexdigest()[:32]
+        return bool(enqueue_mirror_payload(payload))
+    except Exception:
+        logger.exception(
+            "%s",
+            {
+                "event": "whatsapp_thread_mirror_draft_enqueue_error",
+                "phone_hash": _phone_hash(chat_id),
+            },
+        )
+        return False
+
+
 def mirror_whatsapp_outbound_after_send(
     chat_id: Any,
     content: Any,
@@ -546,7 +595,8 @@ def mirror_whatsapp_outbound_after_send(
 
     Pre-send mirroring created Inbox bubbles that looked delivered while kill switches,
     pause, or needs_human blocked the Graph send. Call this from the WhatsApp send patch
-    after a real message_id is returned — never from the turn handler.
+    after a real message_id is returned — never from the turn handler. Draft mode uses
+    ``mirror_whatsapp_outbound_as_draft`` instead (persistence, not a send).
     """
     try:
         mid = str(message_id or "").strip()

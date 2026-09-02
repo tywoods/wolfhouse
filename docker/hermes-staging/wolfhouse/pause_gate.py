@@ -3,7 +3,9 @@
 Source of truth: Staff API ``bot_pause_states`` (global + per-guest/conversation),
 via ``POST /staff/bot/check-guest-automation-gate`` (bot token auth).
 
-Also honors ``needs_human`` via the Staff gate response when present.
+``needs_human`` is conversation-scoped review state. Staff API already encodes
+Sunset so it does not set ``bot_paused``; this module must not re-introduce it
+as an inbound mute. Wolfhouse still pauses because the gate returns ``bot_paused``.
 """
 
 from __future__ import annotations
@@ -122,28 +124,65 @@ def invalidate_pause_cache(guest_phone: Optional[str] = None, *, client_slug: Op
         _CACHE.pop(key, None)
 
 
+def outbound_disposition_from_gate(data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Decide agent / Meta send / Inbox-draft from a Staff automation-gate payload.
+
+    Tenant-global WhatsApp Auto/Draft/Off stays the only channel toggle:
+      - Auto: agent runs, Meta may send (other kill switches still apply).
+      - Draft: agent runs, Meta never sends, reply is persisted as an Inbox draft.
+      - Off: agent does not run, nothing is sent or drafted.
+
+    ``needs_human`` is conversation-scoped review state. Staff API already encodes
+    Sunset so it does not set ``bot_paused``; this disposition must not re-introduce
+    it as a mute. Wolfhouse still pauses because the gate returns ``bot_paused``.
+    """
+    payload = data if isinstance(data, dict) else {}
+    mode = str(payload.get("whatsapp_channel_mode") or "").strip().lower()
+    stage_flag = payload.get("stage_outbound_as_draft") is True or mode == "draft"
+    agent_paused = bool(
+        payload.get("bot_paused")
+        or payload.get("can_continue_guest_automation") is False
+        or payload.get("paused") is True
+    )
+    if mode == "off":
+        return {
+            "agent_paused": True,
+            "send_blocked": True,
+            "stage_as_draft": False,
+            "reason": "inbox_channel_mode_off",
+            "whatsapp_channel_mode": "off",
+        }
+    if stage_flag and not agent_paused:
+        return {
+            "agent_paused": False,
+            "send_blocked": True,
+            "stage_as_draft": True,
+            "reason": "inbox_channel_mode_draft",
+            "whatsapp_channel_mode": "draft",
+        }
+    send_blocked = bool(agent_paused or payload.get("live_send_blocked"))
+    reason = "paused" if agent_paused else ("live_send_blocked" if send_blocked else "send")
+    return {
+        "agent_paused": agent_paused,
+        "send_blocked": send_blocked,
+        "stage_as_draft": False,
+        "reason": reason,
+        "whatsapp_channel_mode": mode or None,
+    }
+
+
 def _agent_paused_from_gate(data: Dict[str, Any]) -> bool:
     """True when the agent must not run.
 
     Draft mode sets live_send_blocked without pausing the agent — Luna still
     drafts; Meta send is suppressed separately via whatsapp_send_blocked.
     """
-    return bool(
-        data.get("bot_paused")
-        or data.get("can_continue_guest_automation") is False
-        or data.get("needs_human") is True
-        or data.get("paused") is True
-    )
+    return bool(outbound_disposition_from_gate(data).get("agent_paused"))
 
 
 def _send_blocked_from_gate(data: Dict[str, Any]) -> bool:
     """True when Meta/Cloud outbound must not leave Hermes."""
-    if _agent_paused_from_gate(data):
-        return True
-    if data.get("live_send_blocked"):
-        return True
-    mode = str(data.get("whatsapp_channel_mode") or "").strip().lower()
-    return mode in ("draft", "off")
+    return bool(outbound_disposition_from_gate(data).get("send_blocked"))
 
 
 def _lookup_guest_automation_gate(
@@ -219,7 +258,7 @@ def guest_automation_paused(
     conversation_id: Optional[str] = None,
     force_refresh: bool = False,
 ) -> bool:
-    """Return True when pause/needs_human/Off blocks the agent (not Draft alone)."""
+    """Return True when pause/Off blocks the agent (not Draft, not Sunset needs_human)."""
     if not _is_luna_runtime():
         return False
     phone = _normalize_phone(guest_phone)
@@ -256,24 +295,53 @@ def paused_for_webhook_body(body: bytes) -> bool:
     return any(guest_automation_paused(p, force_refresh=True) for p in phones)
 
 
-def whatsapp_send_blocked(chat_id: Any) -> bool:
-    """Re-check immediately before outbound send (Draft/Off/pause suppression)."""
+def whatsapp_outbound_disposition(chat_id: Any, *, force_refresh: bool = True) -> Dict[str, Any]:
+    """Live send/draft decision for one chat. Fail-closed on gate errors.
+
+    ``force_refresh`` is the send-time contract: re-check immediately before
+    outbound (the lookup itself is uncached).
+    """
+    del force_refresh
     phone = _phone_from_chat_id(chat_id)
+    idle = {
+        "agent_paused": False,
+        "send_blocked": False,
+        "stage_as_draft": False,
+        "reason": "no_phone",
+        "whatsapp_channel_mode": None,
+    }
     try:
         from wolfhouse.explicit_human_handoff import is_local_automation_blocked
 
         if is_local_automation_blocked(phone):
-            return True
+            return {
+                "agent_paused": True,
+                "send_blocked": True,
+                "stage_as_draft": False,
+                "reason": "local_automation_blocked",
+                "whatsapp_channel_mode": None,
+            }
     except Exception:
         pass
     if not phone:
-        return False
+        return idle
     if not _is_luna_runtime():
-        return False
+        return idle
     _key, data, fail_closed = _lookup_guest_automation_gate(phone)
     if fail_closed or data is None:
-        return True
-    return _send_blocked_from_gate(data)
+        return {
+            "agent_paused": True,
+            "send_blocked": True,
+            "stage_as_draft": False,
+            "reason": "gate_fail_closed",
+            "whatsapp_channel_mode": None,
+        }
+    return outbound_disposition_from_gate(data)
+
+
+def whatsapp_send_blocked(chat_id: Any) -> bool:
+    """Re-check immediately before outbound send (Draft/Off/pause suppression)."""
+    return bool(whatsapp_outbound_disposition(chat_id, force_refresh=True).get("send_blocked"))
 
 
 def guest_paused_for_event(event: Any) -> bool:

@@ -74,6 +74,7 @@ const steps = [
   ['verify:luna-handoff-lifecycle', 'verify-luna-handoff-lifecycle.js'],
   ['verify:luna-needs-human-no-pause', 'verify-luna-needs-human-no-pause.js'],
   ['verify:luna-explicit-human-handoff', 'verify-luna-explicit-human-handoff.js'],
+  ['verify:sunset-luna-live-test-001', 'verify-sunset-luna-live-test-001.js'],
   ['verify:luna-catalog-services', 'verify-luna-catalog-services.js'],
   ['verify:luna-same-desk-admin-catalog', 'verify-luna-same-desk-admin-catalog.js'],
   ['verify:luna-same-desk-email-presentation', 'verify-luna-same-desk-email-presentation.js'],

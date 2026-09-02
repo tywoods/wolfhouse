@@ -1061,11 +1061,61 @@ def update_booking_contact(params, **kwargs):
     })
 
 
+_AUTO_ESCALATION_REASONS = frozenset({
+    "unclear",
+    "vague",
+    "unclear_request",
+    "large_party",
+    "party_size",
+    "group_size",
+    "group_too_large",
+    "missing_dates",
+    "missing_school",
+    "lesson_vs_rental",
+    "insufficient_seats",
+    "no_seats_available",
+})
+
+
+def _normalize_handoff_reason(reason):
+    return str(reason or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _is_auto_escalation_reason(reason):
+    """True when the model is trying to hand off instead of asking one question."""
+    return _normalize_handoff_reason(reason) in _AUTO_ESCALATION_REASONS
+
+
+def _clarify_first_guest_action(reason):
+    key = _normalize_handoff_reason(reason)
+    if key in ("missing_dates",):
+        return "Which date works for you?"
+    if key in ("missing_school",):
+        return "Are you coming to Somo or El Sardinero?"
+    if key in ("lesson_vs_rental", "unclear", "vague", "unclear_request"):
+        return "What would you like to book — a lesson or a rental?"
+    if key in ("large_party", "party_size", "group_size", "group_too_large",
+               "insufficient_seats", "no_seats_available"):
+        return "Which date would you like for that group?"
+    return "What would you like help with — a lesson or a rental?"
+
+
 def flag_needs_human(params, **kwargs):
     del kwargs
     payload = dict(params or {})
     # Tenant must come from runtime (LUNA_CLIENT_SLUG via _post_bot). Never trust the model.
     payload.pop("client_slug", None)
+    if _is_auto_escalation_reason(payload.get("reason")):
+        return _json_result({
+            "success": False,
+            "tool": "flag_needs_human",
+            "needs_human": False,
+            "blocked_reasons": ["clarify_first"],
+            "staff_review_needed": False,
+            "do_not_escalate": True,
+            "guest_safe_next_action": _clarify_first_guest_action(payload.get("reason")),
+            "error": "Ask one clarifying question instead of handing off.",
+        })
     # Do not let the model pick an arbitrary conversation UUID across tenants.
     payload.pop("conversation_id", None)
     session_phone = _session_guest_phone()
@@ -1609,6 +1659,26 @@ def get_sunset_private_lesson(params, **kwargs):
     })
 
 
+def _remaining_seat_guest_action(data):
+    """Guest copy from Staff API remaining seats. Never invent a capacity number."""
+    raw = (data or {}).get("seats_available")
+    try:
+        seats = int(raw)
+    except (TypeError, ValueError):
+        seats = None
+    if seats is None:
+        return (
+            "That group is larger than the seats left that day — "
+            "would another date or time work?"
+        )
+    if seats <= 0:
+        return "That day is full — would another date or time work?"
+    return (
+        f"There are {seats} seats left that day, which is fewer than your group — "
+        "would another date or time work?"
+    )
+
+
 def get_sunset_lesson_availability(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -1633,10 +1703,19 @@ def get_sunset_lesson_availability(params, **kwargs):
             pass
     data = _post_bot("/sunset/lesson-availability", body)
     ok = bool(data.get("ok"))
-    # take_request=true means capacity is unknown or full — Luna must take the
-    # request and let staff confirm the exact slot; never invent a seat.
-    take_request = bool(data.get("take_request")) or not ok
     reason = data.get("reason")
+    remaining_shortfall = reason in ("insufficient_seats", "no_seats_available")
+    # take_request is only for unknown capacity — not for a known remaining-seat
+    # shortfall, and never a party-size handoff.
+    take_request = (bool(data.get("take_request")) or not ok) and not remaining_shortfall
+    if remaining_shortfall:
+        guest_action = _remaining_seat_guest_action(data)
+    elif take_request:
+        guest_action = (
+            "Let me take your request — the team will confirm the exact lesson time for that day 😊"
+        )
+    else:
+        guest_action = None
     return _json_result({
         "success": ok,
         "tool": "get_sunset_lesson_availability",
@@ -1652,10 +1731,7 @@ def get_sunset_lesson_availability(params, **kwargs):
         "reason": reason,
         "staff_review_needed": False,
         "do_not_escalate": True,
-        "guest_safe_next_action": (
-            "Let me take your request — the team will confirm the exact lesson time for that day 😊"
-            if take_request else None
-        ),
+        "guest_safe_next_action": guest_action,
     })
 
 
@@ -2984,7 +3060,7 @@ def _sunset_write_tools():
         ("create_sunset_payment_link", "Create a secure Stripe payment link (test mode) for an existing Sunset booking. Pass booking_id or booking_code. Returns secure_payment_url — send that link to the guest. Never say 'Stripe' to guests.", create_sunset_payment_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "idempotency_key": {"type": "string"}, **loc}, []),
         ("get_sunset_payment_status", "Check webhook/reconcile-confirmed payment truth for a Sunset booking. Use when a guest says they paid; never mark paid from guest text alone. Returns paid/unpaid + balance_due_cents.", get_sunset_payment_status, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
         ("get_sunset_waiver_link", "Get the liability waiver link for a Sunset booking to send to the guest (required before a lesson). Pass booking_id or booking_code; returns waiver_url.", get_sunset_waiver_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
-        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for refunds, complaints, paid cancellation/change, payment mismatch, safety, or tool errors you cannot resolve. Do NOT use when the guest message is merely unclear (missing school, dates, party size, lesson vs rental, etc.) — ask one clarifying question instead. Do NOT use solely for take_request lesson queue. After success, briefly say a human from the Sunset team is coming into the chat and ask no question.", flag_needs_human, {"phone": {"type": "string"}, "reason": {"type": "string", "description": "Use human_requested for explicit human/staff transfer requests."}}, []),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for refunds, complaints, paid cancellation/change, payment mismatch, safety, or tool errors you cannot resolve. Do NOT use when the guest message is merely unclear (missing school, dates, party size, lesson vs rental, etc.) and do NOT use for a large party or remaining-seat shortfall — ask one clarifying question, or tell remaining seats and offer another slot. Do NOT use solely for take_request lesson queue. After success, persist Needs human AND still produce the guest-visible reassurance that a human from the Sunset team is coming into the chat; ask no question. Needs human is review state — keep answering later inbound questions.", flag_needs_human, {"phone": {"type": "string"}, "reason": {"type": "string", "description": "Use human_requested for explicit human/staff transfer requests."}}, []),
     ]
 
 
@@ -3043,7 +3119,7 @@ def _sunset_tools():
             [],
         ),
         ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
-        ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). Pass quantity (surfer count) when known — take_request is true when remaining seats are less than the party size, not only when the day is full. If take_request is true, take the guest's request and say a human from the Sunset team is coming into the chat to confirm the exact time/seats and that nothing is booked yet — do not call flag_needs_human solely for take_request; never invent a seat or slot. If date or quantity is missing, ask one clarifying question instead of flagging needs_human.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, "quantity": {"type": "integer", "description": "Number of surfers in the party when known."}, **loc}, ["date"]),
+        ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). Always pass quantity (surfer count) when known. If has_seats is true, continue the normal booking flow — party size 15 (or any large party) alone is never a reason to call flag_needs_human. If remaining seats are fewer than the party (reason insufficient_seats / no_seats_available), tell the guest the tool's seats_available figure and offer another date or time; do not invent a seat and do not hand off. take_request is only for unknown capacity, not for a known remaining-seat shortfall. If date or quantity is missing, ask one clarifying question instead of flagging needs_human.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, "quantity": {"type": "integer", "description": "Number of surfers in the party when known."}, **loc}, ["date"]),
         ("get_sunset_joinable_courses", "List Admin-configured courses a guest can currently join BEFORE offering or booking a course. Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity.", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
         ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options, prices, or inclusions. Offer only returned offerings; preserve offering_id and course_id exactly. Read free_included_equipment_labels / guest_equipment from each offering — only claim free gear when may_claim_free_equipment is true (never invent wax/board lists). For rentals use get_sunset_rental_catalog instead.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
         ("get_sunset_offering_quote", "Get the authoritative quote for one exact catalog offering. Three independent price authorities (never invent or cross-substitute): (1) course/lesson package amount from this quote, (2) course-equipment during_course amounts from returned equipment_options/quote lines (policy included may be €0 and quote-owned — omit course_equipment to auto-expand included only), (3) course-equipment all_day amounts from mode all_day (independent of during_course and of standalone rentals from get_sunset_rental_price). The same physical gear may appear as a standalone rental and as course equipment — distinct commercial lines. Optional gear is never auto-included — pass intent course_equipment:{mode,quantity} only when the guest selects it. Always copy opaque quote_provenance into create unchanged (exact wire + fingerprint). Do not send wire arrays as course_equipment input.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates."}, "course_equipment": {"type": "object", "properties": {"mode": {"type": "string", "enum": ["during_course", "all_day"]}, "quantity": {"type": "integer", "minimum": 1}}, "required": ["mode", "quantity"], "additionalProperties": False, "description": "Guest gear intent only ({mode,quantity}). Do not send wire arrays; Staff API expands offering keys from Admin equipment_options."}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
