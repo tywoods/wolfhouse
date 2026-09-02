@@ -45,6 +45,11 @@ check('B4', /memories_cleared/.test(freshStart), 'fresh-start reports memories_c
 check('B5', /HERMES_HOME\/memories/.test(bootstrap), 'SOUL version bump clears memories dir');
 check('B6', /latest message/.test(soul) && /Never assume language from their phone/.test(soul), 'SOUL: match latest message language');
 check('B7', /list_my_bookings/.test(soul) && /welcome back/i.test(soul), 'SOUL: welcome back only with existing booking');
+check('B8', /Payment information\/status for an existing booking/.test(soul)
+  && /First call \*\*list_my_bookings\*\*/.test(soul)
+  && /call \*\*get_payment_status\*\* with its `booking_code`/.test(soul)
+  && /call \*\*create_balance_payment_link\*\* with the selected `booking_code`/.test(soul),
+  'SOUL: recover existing booking payment truth from sender phone before answering');
 
 // C — skip deposit-vs-full when deposit >= total
 check('C1', quoteHasRemainingBalanceAfterDeposit({ total_cents: 8000, deposit_required_cents: 10000 }) === false,

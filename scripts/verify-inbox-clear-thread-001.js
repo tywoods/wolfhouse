@@ -367,6 +367,9 @@ async function main() {
   const loadFn = sliceFn(threadSrc, 'loadConvDetail');
   const cookFn = sliceFn(threadSrc, 'inboxCookSelectedConversationHeaderActions');
   ok('Clear button helper exists', /function inboxClearThreadButtonHtml\(/.test(threadSrc));
+  ok('successful Clear visibly replaces old bubbles with an explicit cleared state',
+    /getElementById\('thread-container'\)/.test(threadSrc)
+    && /thread\.innerHTML = .*Conversation cleared/.test(threadSrc));
   ok('header luna row includes Clear button html',
     /inboxClearThreadButtonHtml\(/.test(loadFn) || /id="btn-inbox-clear-thread"/.test(loadFn));
   ok('cooked order appends chrome then Clear then Refresh',
