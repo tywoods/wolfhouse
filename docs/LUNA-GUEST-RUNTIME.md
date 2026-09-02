@@ -73,11 +73,11 @@ A failure becomes one of:
 
 | Phase | Name | What ships | What does not |
 | --- | --- | --- | --- |
-| **0** | Contract | This file | Code, deploy |
-| **1** | Foundation | Same HTTP ACA runtime; persist+enqueue; Postgres; outbox; existing gates; **sending off**; no Caddy/Meta change | Intelligence cutover, live WhatsApp flip |
-| **2** | Intelligence | Planner → policy → Staff API → frozen facts → voice + guardian **on that same runtime** | Second service / second On/Off |
-| **3** | Prove | First-answer pack · shadow · staging test number · then cutover: **WhatsApp first**, then **email** onto the same runtime; Hermes remains rollback | Production; n8n |
-| **4** | After live | Ledger · replay · dashboards | Rewriting the contract mid-flight |
+| Phase 0 | Contract | This file | Code, deploy |
+| Phase 1 | Foundation | Same HTTP ACA runtime; persist+enqueue; Postgres; outbox; existing gates; **sending off**; no Caddy/Meta change | Intelligence cutover, live WhatsApp flip |
+| Phase 2 | Intelligence | Planner → policy → Staff API → frozen facts → voice + guardian **on that same runtime** | Second service / second On/Off |
+| Phase 3 | Prove | First-answer pack · shadow · staging test number · then cutover: **WhatsApp first**, then **email** onto the same runtime; Hermes remains rollback | Production; n8n |
+| Phase 4 | After live | Ledger · replay · dashboards | Rewriting the contract mid-flight |
 
 **Cutover gate:** shadow + first-answer pack + a live test conversation pass. Only then point WhatsApp; then move email onto the same runtime. Until then, live guests stay on `hermes-sunset-luna`.
 
