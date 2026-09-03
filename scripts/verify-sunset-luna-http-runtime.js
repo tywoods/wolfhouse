@@ -137,6 +137,7 @@ assert('ACA targets Sunset Staff staging exactly', /WOLFHOUSE_STAFF_API_BASE_URL
 assert('outbound fails closed against cross-tenant Staff host', /sunset_staff_base_url_required/.test(outbound) && !/or "https:\/\/staff-staging\.lunafrontdesk\.com"/.test(outbound));
 assert('compose keeps hermes-sunset-luna gateway run', /hermes-sunset-luna:[\s\S]*command:\s*gateway run/.test(compose));
 assert('luna-http reuses gateway and Sunset role', /hermes-sunset-luna-http:[\s\S]*command:\s*gateway run[\s\S]*HERMES_ROLE: sunset-luna[\s\S]*SUNSET_LUNA_REQUIRE_ISOLATED_AUTH: "true"/.test(compose));
+assert('luna-http exposes dedicated author listener on 8095', /hermes-sunset-luna-http:[\s\S]*127\.0\.0\.1:8095:8095[\s\S]*SUNSET_LUNA_EMAIL_AUTHOR_LISTEN_PORT: "8095"/.test(compose));
 assert('ACA reuses canonical gateway owner', /args:[\s\S]*- gateway\s+- run[\s\S]*HERMES_ROLE\s*\n\s*value: sunset-luna/.test(aca));
 assert('ACA requires isolated auth mode', /SUNSET_LUNA_REQUIRE_ISOLATED_AUTH\s*\n\s*value: 'true'/.test(aca));
 const requiredAcaChains = [

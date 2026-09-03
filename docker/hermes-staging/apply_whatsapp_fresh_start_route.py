@@ -9,6 +9,15 @@ import sys
 from pathlib import Path
 
 FRESH_START_TAG = "_wgfs.register_fresh_start_route(app)"
+SAME_LUNA_AUTHOR_ROUTE_TAG = "register_same_luna_author_route(app)"
+SAME_LUNA_AUTHOR_ROUTE = """
+        try:
+            from wolfhouse.email_draft_same_luna import register_same_luna_author_route
+            if not register_same_luna_author_route(app):
+                logger.error("Same-Luna email author route unavailable: identity or secrets unproven")
+        except Exception as _same_luna_author_route_exc:
+            logger.exception("Same-Luna email author route registration failed: %s", _same_luna_author_route_exc)
+"""
 WEBHOOK_ANCHOR_RE = re.compile(
     r"app\.router\.add_post\(self\._webhook_path, self\._handle_webhook\)",
     re.MULTILINE,
@@ -43,11 +52,20 @@ def apply_patches(module_path: Path) -> dict:
             count=1,
         )
         module_path.write_text(s, encoding="utf-8")
+    if SAME_LUNA_AUTHOR_ROUTE_TAG not in s:
+        if FRESH_START_TAG not in s:
+            raise RuntimeError("fresh start route missing before same-luna author route")
+        if FRESH_START_ROUTE in s:
+            s = s.replace(FRESH_START_ROUTE, FRESH_START_ROUTE + SAME_LUNA_AUTHOR_ROUTE, 1)
+        else:
+            s = s.replace(FRESH_START_TAG, FRESH_START_TAG + SAME_LUNA_AUTHOR_ROUTE, 1)
+        module_path.write_text(s, encoding="utf-8")
     _compile_check(module_path)
     return {
         "ok": True,
         "path": str(module_path),
         "fresh_start_route": FRESH_START_TAG in s,
+        "same_luna_author_route": SAME_LUNA_AUTHOR_ROUTE_TAG in s,
     }
 
 

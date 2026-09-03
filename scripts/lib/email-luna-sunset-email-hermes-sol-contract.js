@@ -21,15 +21,15 @@ const ownKeys = Reflect.ownKeys;
 
 const HERMES_SOL_PROVIDER = 'openai-codex';
 const HERMES_SOL_MODEL = 'gpt-5.6-sol';
-const HERMES_SOL_RUNTIME = 'sunset-email-luna';
-const HERMES_SOL_ROLE = 'sunset-email-luna';
+const HERMES_SOL_RUNTIME = 'hermes-sunset-luna-http';
+const HERMES_SOL_ROLE = 'sunset-luna';
 const HERMES_SOL_TENANT = 'sunset';
 const HERMES_SOL_LOCATION_KEY = 'sunset-somo';
 const HERMES_SOL_REQUEST_SCHEMA = 'sunset_email_luna_draft_plan_v1';
 const HERMES_SOL_RESULT_SCHEMA = 'sunset_email_luna_draft_plan_result_v1';
 const HERMES_SOL_TEMPLATE_REQUEST_SCHEMA = 'sunset_email_luna_template_plan_v1';
 const HERMES_SOL_TEMPLATE_RESULT_SCHEMA = 'sunset_email_luna_template_plan_result_v1';
-const HERMES_SOL_DRAFT_PATH = '/v1/internal/email-draft-plan';
+const HERMES_SOL_DRAFT_PATH = '/whatsapp/v1/internal/email-draft-plan';
 const HERMES_SOL_MARKER_NAME = 'email_luna_hermes_sol';
 
 const REQUEST_KEYS = freeze([

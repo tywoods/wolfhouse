@@ -203,7 +203,7 @@ const NOW_MS = Date.parse(ISSUED);
 const SOL = Object.freeze({
   provider: 'openai-codex',
   model: 'gpt-5.6-sol',
-  runtime: 'sunset-email-luna',
+  runtime: 'hermes-sunset-luna-http',
 });
 const THREAD_DRAFT = 'Thanks for writing about the mailbox. Would you like to make a booking?';
 const HMAC_SECRET = 'mvp004-sol-hmac-test-secret';
@@ -1548,7 +1548,7 @@ async function main() {
       request_id: REQUEST_ID,
       provider: 'openai-codex',
       model: 'gpt-5.6-sol',
-      runtime: 'sunset-email-luna',
+      runtime: 'hermes-sunset-luna-http',
     }, {
       client_id: C, location_id: L, conversation_id: V, source_inbound_event_id: M,
     }, HMAC_SECRET, THREAD_DRAFT);
@@ -4149,7 +4149,7 @@ Module._load = function(request, parent, isMain) {
     assert.equal(evidenceOut.leftover, false);
     assert.equal(evidenceOut.sol_model, 'gpt-5.6-sol');
     assert.equal(evidenceOut.sol_provider, 'openai-codex');
-    assert.equal(evidenceOut.sol_runtime, 'sunset-email-luna');
+    assert.equal(evidenceOut.sol_runtime, 'hermes-sunset-luna-http');
     assert.equal(typeof evidenceOut.approvals, 'number');
     assert.equal(typeof evidenceOut.journals, 'number');
     assert.equal(typeof evidenceOut.provider_sends, 'number');

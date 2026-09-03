@@ -42,6 +42,7 @@ const {
   ENV_HMAC_SECRET,
   ENV_TLS_PIN,
   ACA_INTERNAL_HTTPS,
+  LUNABOX_AUTHOR_HTTPS,
   snapshotSunsetEmailHermesSolEnv,
   isSunsetEmailHermesSolAuthorEnabled,
   resolveSunsetEmailHermesSolClientConfig,
@@ -177,6 +178,7 @@ function startFakeHermes(onRequest) {
     const seen = new Set();
     const hits = [];
     const server = http.createServer(async (req, res) => {
+      res.setHeader('connection', 'close');
       try {
         const raw = await readReq(req);
         hits.push({
@@ -233,7 +235,7 @@ function startFakeHermes(onRequest) {
         res.writeHead(500); res.end(JSON.stringify({ error: 'server' }));
       }
     });
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(8095, '127.0.0.1', () => {
       resolve({ server, port: server.address().port, hits, seen });
     });
   });
@@ -393,8 +395,9 @@ function assertNoSecretsLogged(hits) {
 
   assert.equal(HERMES_SOL_PROVIDER, 'openai-codex');
   assert.equal(HERMES_SOL_MODEL, 'gpt-5.6-sol');
-  assert.equal(HERMES_SOL_RUNTIME, HERMES_SOL_ROLE);
-  assert.equal(HERMES_SOL_DRAFT_PATH, '/v1/internal/email-draft-plan');
+  assert.equal(HERMES_SOL_RUNTIME, 'hermes-sunset-luna-http');
+  assert.equal(HERMES_SOL_ROLE, 'sunset-luna');
+  assert.equal(HERMES_SOL_DRAFT_PATH, '/whatsapp/v1/internal/email-draft-plan');
 
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({ env: {} }), false);
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
@@ -412,15 +415,26 @@ function assertNoSecretsLogged(hits) {
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
     env: hermesEnv(9, { [ENV_BASE_URL]: 'http://lunabox.example.test:8093' }),
   }), false);
-  const acaOrigin = 'https://luna-sunset-staging-email-luna.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io';
-  assert.equal(ACA_INTERNAL_HTTPS.test(acaOrigin), true);
+  const lunaboxOrigin = 'https://lunabox.lunafrontdesk.com';
+  const lunaboxAuthor = `${lunaboxOrigin}/whatsapp/v1/internal/email-draft-plan`;
+  const acaOrigin = 'https://luna-sunset-staging-luna-http.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io';
+  assert.equal(LUNABOX_AUTHOR_HTTPS.test(lunaboxOrigin), true);
+  assert.equal(ACA_INTERNAL_HTTPS.test(lunaboxOrigin), true);
+  assert.equal(ACA_INTERNAL_HTTPS.test(acaOrigin), false);
+  assert.equal(ACA_INTERNAL_HTTPS.test('https://luna-sunset-staging-email-luna.internal.redbeach-6a768db0.northeurope.azurecontainerapps.io'), false);
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: lunaboxOrigin }),
+  }), true, 'lunabox HTTPS origin is on without SPKI pin');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9, { [ENV_BASE_URL]: lunaboxAuthor }),
+  }), true, 'exact lunabox origin/path is on');
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
     env: hermesEnv(9, { [ENV_BASE_URL]: acaOrigin }),
-  }), true, 'ACA internal HTTPS with CA+hostname is on without SPKI pin');
+  }), false, 'luna-http ACA is not an author target');
   const pin = 'a'.repeat(64);
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
     env: hermesEnv(9, {
-      [ENV_BASE_URL]: acaOrigin,
+      [ENV_BASE_URL]: lunaboxOrigin,
       [ENV_TLS_PIN]: pin,
     }),
   }), true);
@@ -451,7 +465,19 @@ function assertNoSecretsLogged(hits) {
   assert.equal(isSunsetEmailHermesSolAuthorEnabled({
     env: hermesEnv(9, { [ENV_HMAC_SECRET]: ` ${HMAC_SECRET}` }),
   }), false, 'leading whitespace HMAC must not enable');
-  console.log('  PASS  activation is exact, default-off, getter-safe, and ACA-internal allowlisted');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(8092),
+  }), false, 'old exited runtime loopback is forbidden');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(8094),
+  }), false, 'live WhatsApp listener is not the local proof listener');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(9000),
+  }), false, 'arbitrary loopback author ports are forbidden');
+  assert.equal(isSunsetEmailHermesSolAuthorEnabled({
+    env: hermesEnv(8095),
+  }), true, 'only the dedicated loopback proof listener is allowed');
+  console.log('  PASS  activation is exact, default-off, getter-safe, and lunabox HTTPS allowlisted');
 
   const fake = await startFakeHermes();
   const env = hermesEnv(fake.port);
@@ -881,12 +907,12 @@ function assertNoSecretsLogged(hits) {
   const RID = '77777777-7777-4777-8777-777777777777';
   const STAFF_REV = 'luna-sunset-staging-staff-api--0000001';
   const STAFF_REPLICA = 'luna-sunset-staging-staff-api--0000001-6d8f9c7b5d-abcde';
-  const LUNA_REV = 'luna-sunset-staging-email-luna--0000001';
-  const LUNA_REPLICA = 'luna-sunset-staging-email-luna--0000001-6d8f9c7b5d-xyz12';
+  const LUNA_REV = 'hermes-sunset-luna-http--0000001';
+  const LUNA_REPLICA = 'hermes-sunset-luna-http--0000001-6d8f9c7b5d-xyz12';
   const AUTH = Object.freeze({ alg: 'HMAC-SHA256', request_id: RID, hmac_verified: true });
-  const MARK = Object.freeze({ provider: 'openai-codex', model: 'gpt-5.6-sol', runtime: 'sunset-email-luna' });
+  const MARK = Object.freeze({ provider: 'openai-codex', model: 'gpt-5.6-sol', runtime: 'hermes-sunset-luna-http' });
   const attemptLog = (id) => (
-    `email-draft-server attempt request_id=${id} provider=openai-codex model=gpt-5.6-sol runtime=sunset-email-luna hmac=ok`
+    `same-luna-author attempt request_id=${id} hostname=hermes-sunset-luna-http pid=1 home=/opt/data/.hermes webhook_port=8094 author_port=8095 provider=openai-codex model=gpt-5.6-sol runtime=hermes-sunset-luna-http hmac=ok`
   );
   const NOW_MS = Date.parse('2026-08-26T18:00:00.000Z');
   const ndjsonLog = (id, extra) => JSON.stringify({
@@ -1055,7 +1081,7 @@ function assertNoSecretsLogged(hits) {
       return {
         status: 'draft_ready',
         draft_text: LIVE_EN_BODY,
-        marker: { provider: 'openai', model: 'gpt-4o-mini', runtime: 'sunset-email-luna' },
+        marker: { provider: 'openai', model: 'gpt-4o-mini', runtime: 'hermes-sunset-luna-http' },
         authenticity: AUTH,
       };
     },
@@ -1377,7 +1403,7 @@ function assertNoSecretsLogged(hits) {
   assert.equal(wrongAppLogs.ok, false);
   assert.equal(wrongAppLogs.reason, 'wrong_target');
   const wrongRevLogs = parseEmailLunaAttemptLogs(
-    `${ndjsonLog(RID, { revision: 'luna-sunset-staging-email-luna--deadbeef' })}\n`,
+    `${ndjsonLog(RID, { revision: 'hermes-sunset-luna-http--deadbeef' })}\n`,
     RID, [], { requireTimestamp: true, nowMs: NOW_MS, revision: LUNA_REV },
   );
   assert.equal(wrongRevLogs.ok, false);
@@ -1542,6 +1568,7 @@ function assertNoSecretsLogged(hits) {
   assert.equal(bash2.status, 0, bash2.stderr);
   const pyCompile = spawnSync('python3', ['-m', 'py_compile',
     'docker/hermes-staging/wolfhouse/email_draft_server.py',
+    'docker/hermes-staging/wolfhouse/email_draft_same_luna.py',
     'docker/hermes-staging/wolfhouse/email_draft_contract.py',
     'docker/hermes-staging/wolfhouse/email_draft_invoke.py',
     'docker/hermes-staging/wolfhouse/email_draft_hermes.py',

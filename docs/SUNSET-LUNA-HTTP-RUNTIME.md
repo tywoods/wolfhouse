@@ -3,13 +3,48 @@
 **Status:** SUNSET-LUNA-CARRY-001 source-ready; not deployed or cut over.
 **Does not:** change Meta/Caddy, n8n, Stripe, production, or send a guest message.
 
+## Same-Luna Staff email author (SUNSET-LUNA-EMAIL-SAME-001)
+
+Sunset staging Staff **Create Draft** and **generate-on-open** are authored by the
+**same live Lunabox WhatsApp Luna** (`hermes-sunset-luna-http` on **8094**), not by
+`luna-sunset-staging-email-luna` and not by a separate ACA `luna-http` runtime.
+This source change is not deployed or cut over.
+
+| Surface | URL |
+| --- | --- |
+| **Intended Staff author URL** | `https://lunabox.lunafrontdesk.com/whatsapp/v1/internal/email-draft-plan` |
+| Lunabox probe (loopback) | `http://127.0.0.1:8095/whatsapp/v1/internal/email-draft-plan` |
+
+Live topology (verified; supersedes stale tracked Caddy/docs):
+
+- `hermes-sunset-luna-http` is Up on `127.0.0.1:8094`, home `/var/lib/hermes-sunset-luna-http`.
+- Caddy `/whatsapp/*` → `localhost:8094` is **unchanged** (this change does not add or edit Caddy).
+- Old `hermes-sunset-luna:8092` is **Exited** and untouched.
+- Staff ACA calls the Caddy URL above. Do not point `EMAIL_LUNA_HERMES_SOL_BASE_URL` at an internal ACA luna-http origin.
+
+The closed author route is registered on the existing 8094 gateway HTTP app at
+`/whatsapp/v1/internal/email-draft-plan` (sibling of `/whatsapp/webhook`). A
+dedicated in-process listener on **8095** is loopback-only local proof. Provenance
+`runtime=hermes-sunset-luna-http` is bound from live process identity (role
+`sunset-luna`, isolated home, webhook 8094, Sol + `wolfhouse_staff_api`,
+hostname/pid/home in the attempt log). The old email-luna ACA YAML remains as
+rollback; do not delete it. Do not add email-author wiring to the luna-http ACA
+manifest.
+
+Staff env retarget (sunset-staging only): set `EMAIL_LUNA_HERMES_SOL_BASE_URL` to
+`https://lunabox.lunafrontdesk.com` (path may be omitted or the exact
+`/whatsapp/v1/internal/email-draft-plan`). Keep `EMAIL_LUNA_HERMES_SOL_AUTHOR_ENABLED=true`.
+HMAC remains Key Vault `email-luna-hermes-sol-hmac`. Bearer is this runtime's
+`API_SERVER_KEY`. Do not set `LUNA_AI_MODEL`. Inbox Auto / conversation Luna On /
+tenant Global Pause stay the existing controls; Needs Human stays advisory.
+
 ## Hypothesis (verified)
 
 | Runtime | Pattern | Owns live WhatsApp? |
 | --- | --- | --- |
-| `hermes-sunset-luna` | `command: gateway run` on Lunabox `:8092` behind Caddy `/whatsapp/*` | **Yes** |
-| `hermes-sunset-email-luna` / ACA `luna-sunset-staging-email-luna` | Python HTTP (`email_draft_server.py`), Sol, no gateway | No (Staff email drafts) |
-| **`hermes-sunset-luna-http` / ACA `luna-sunset-staging-luna-http`** | Existing Hermes `gateway run`, role `sunset-luna`, port 8094 | Source-capable; no ownership until a separately approved Meta cutover |
+| `hermes-sunset-luna` | `command: gateway run` on Lunabox `:8092` | **No — Exited, untouched** |
+| `hermes-sunset-email-luna` / ACA `luna-sunset-staging-email-luna` | Python HTTP (`email_draft_server.py`), Sol, no gateway | No (rollback Staff email drafts) |
+| **`hermes-sunset-luna-http`** | Existing Hermes `gateway run`, role `sunset-luna`, port **8094**, home `/var/lib/hermes-sunset-luna-http` | **Yes** — live Caddy `/whatsapp/*` → `localhost:8094` |
 
 The audit found direct reuse is possible at the gateway-owner boundary. Hermes' Meta adapter and turn runner live in the upstream image, while this repo owns its tested Sunset patch bundle. Luna-http therefore selects the same `sunset-luna` role and `gateway run` command rather than teaching the private JSON server a parallel bot.
 
@@ -79,4 +114,4 @@ Do **not** pass `--environment` with `--yaml`. Do **not** recreate `hermes-sunse
 
 ## Gateway ownership and cutover boundary
 
-Meta currently targets `https://lunabox.lunafrontdesk.com/whatsapp/webhook`; Caddy routes that to the ordinary `hermes-sunset-luna:8092`, which remains the sole live Sunset gateway owner. This source change neither edits that callback nor Caddy. A separately approved operator cutover would move the **same existing gateway webhook owner** to the ACA endpoint after credential, signature/challenge, routing, pause/Needs Human, and both kill-switch checks. It must not add a Meta adapter, route through the Python shadow, or substitute a Staff-send implementation. Production and Wolfhouse numbers remain outside this boundary.
+Live Meta/Caddy already target `https://lunabox.lunafrontdesk.com/whatsapp/webhook` → Caddy `/whatsapp/*` → `hermes-sunset-luna-http:8094`. Tracked Caddy reference files may still show `:8090`/`:8092`; live topology supersedes them. This source change neither edits Caddy nor the Exited `:8092` runtime. Staff email authoring uses that same 8094 gateway via `/whatsapp/v1/internal/email-draft-plan`. Do not create or claim a second ACA luna-http runtime as the author. Production and Wolfhouse numbers remain outside this boundary.

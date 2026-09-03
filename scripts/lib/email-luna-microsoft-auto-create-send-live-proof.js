@@ -984,13 +984,13 @@ function snapshotSolMarker(value) {
   const provider = ownData(value, 'provider') || value.provider;
   const model = ownData(value, 'model') || value.model;
   const runtime = ownData(value, 'runtime') || value.runtime;
-  if (provider !== 'openai-codex' || model !== 'gpt-5.6-sol' || runtime !== 'sunset-email-luna') {
+  if (provider !== 'openai-codex' || model !== 'gpt-5.6-sol' || runtime !== 'hermes-sunset-luna-http') {
     return null;
   }
   return freeze({
     provider: 'openai-codex',
     model: 'gpt-5.6-sol',
-    runtime: 'sunset-email-luna',
+    runtime: 'hermes-sunset-luna-http',
   });
 }
 
@@ -3806,7 +3806,7 @@ async function runStaffOwnerProof(input) {
         hmac_kind: provenance.hmac_kind,
         sol_provider: 'openai-codex',
         sol_model: 'gpt-5.6-sol',
-        sol_runtime: 'sunset-email-luna',
+        sol_runtime: 'hermes-sunset-luna-http',
       }),
     });
   } finally {
