@@ -265,15 +265,56 @@ class ShadowTurnTests(unittest.TestCase):
             "frozen_facts": {"scope": "course_choices", "do_not_claim_date_full": True},
             "intended_reply": "The 10:00 class has room. Does 10:00 work?",
             "first_answer": {"ok": True, "notes": []}, "provenance": {}, "send_enabled": False}
+        gate_requests = []
         status, payload = handle_inbound_request(
             raw_body=raw, authorization="Bearer token", expected_token="token",
             replay=ReplayCache(), store=store,
-            gate_lookup=lambda _r: {"success": True, "whatsapp_channel_mode": "auto"},
+            gate_lookup=lambda request: gate_requests.append(request) or {
+                "success": True, "whatsapp_channel_mode": "auto"},
             intelligence_runner=lambda _r: shadow,
         )
         self.assertEqual(status, 200)
+        self.assertEqual(gate_requests[0]["conversation_id"], "co-1")
         self.assertEqual(store.completed["intended_reply"], shadow["intended_reply"])
         self.assertFalse(payload["outbox"]["send_enabled"])
+
+    def test_paused_gate_blocks_send_but_still_runs_shadow_guardian(self):
+        class Store:
+            def persist_and_enqueue(self, _req):
+                return {"duplicate": False, "inbound_event_id": "in-2", "conversation_id": "co-2"}
+            def complete_turn(self, _context, payload, gate):
+                self.payload = payload
+                self.gate = gate
+                return {"outbox_id": "out-2", "status": "blocked",
+                        "send_enabled": False, "sent": False}
+        store = Store()
+        raw = json.dumps({"schema": REQUEST_SCHEMA, "tenant_id": "sunset",
+            "location_key": "sunset-somo", "request_id": "shadow-http-paused-1",
+            "channel": "http_probe", "text": "Thursday for 14", "date": "2026-09-03",
+            "quantity": 14, "outbound_mode": "none"}).encode()
+        shadow_calls = []
+        shadow = {"planner": {"intent": "availability"},
+            "frozen_facts": {"verified": True, "scope": "course_choices",
+                             "has_fitting_course": True, "do_not_claim_date_full": True,
+                             "courses": [{"seats_remaining": 22,
+                                          "schedules": [{"start_time": "10:00"}]}]},
+            "intended_reply": "The 10:00 class has 22 open spots. Does 10:00 work for you?",
+            "first_answer": {"ok": True, "notes": []}, "provenance": {}, "send_enabled": False}
+        status, payload = handle_inbound_request(
+            raw_body=raw, authorization="Bearer token", expected_token="token",
+            replay=ReplayCache(), store=store,
+            gate_lookup=lambda _r: {"success": True, "bot_paused": True,
+                                    "global_paused": True, "live_send_blocked": True,
+                                    "whatsapp_channel_mode": "off"},
+            intelligence_runner=lambda request: shadow_calls.append(request) or shadow,
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(len(shadow_calls), 1)
+        self.assertTrue(payload["first_answer"]["ok"])
+        self.assertEqual(payload["shadow"]["frozen_facts"]["courses"][0]["seats_remaining"], 22)
+        self.assertTrue(payload["gate_snapshot"]["live_send_blocked"])
+        self.assertFalse(payload["outbox"]["send_enabled"])
+        self.assertFalse(payload["outbox"]["sent"])
 
 
 if __name__ == "__main__":
