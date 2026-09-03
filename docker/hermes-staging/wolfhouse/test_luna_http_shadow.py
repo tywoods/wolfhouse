@@ -59,6 +59,25 @@ class ShadowTurnTests(unittest.TestCase):
         self.assertEqual(result["frozen_facts"]["open_spots"], 22)
         self.assertTrue(result["first_answer"]["ok"])
 
+    def test_timed_single_place_uses_singular_copy(self):
+        result = run_shadow_turn(
+            {"request_id": "t-single", "text": "Is there room for 1 person at 10?",
+             "date": "2026-09-03", "quantity": 1, "slot_time": "10:00",
+             "language": "en", "location_id": "sunset-somo"},
+            staff_lookup=lambda _i, _p: {"success": True, "scope": "course_slot",
+                "course_capacity": 25, "seats_booked": 0, "seats_available": 25,
+                "slot_time": "10:00", "has_seats": True, "reason": None},
+            invoke=lambda _s, user: attempt(
+                json.loads(user.split("BEGIN POLICY\n", 1)[1].split("\nEND POLICY", 1)[0])
+                ["allowed_replies"][0]
+            ),
+        )
+        self.assertTrue(result["first_answer"]["ok"])
+        self.assertEqual(
+            result["intended_reply"],
+            "There are 25 open spots in the 10:00 class. Would you like 1 place?",
+        )
+
     def test_included_gear_is_not_described_as_extra(self):
         def staff_lookup(intent, _params):
             self.assertEqual(intent, "catalog")

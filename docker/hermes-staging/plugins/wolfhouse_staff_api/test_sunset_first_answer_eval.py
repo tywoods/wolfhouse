@@ -184,6 +184,16 @@ def score_first_reply(case: dict) -> dict:
     kind = str(case.get("kind") or "")
     fail_notes: list[str] = []
 
+    raw_guest = case.get("guest")
+    guest = raw_guest if isinstance(raw_guest, dict) else {}
+    requested_quantity = _int_or_none(guest.get("quantity"))
+    if requested_quantity == 1 and re.search(r"\b(?:1|one|una?)\s+(?:places|spots|plazas)\b", reply, re.I):
+        fail_notes.append("singular_plural_mismatch")
+    elif requested_quantity is not None and requested_quantity != 1 and re.search(
+        rf"\b{requested_quantity}\s+(?:place|spot|plaza)\b", reply, re.I
+    ):
+        fail_notes.append("singular_plural_mismatch")
+
     poison = staff.get("poison_daily") if isinstance(staff.get("poison_daily"), dict) else {}
     poison_remaining = _int_or_none(
         staff.get("poison_daily_remaining")

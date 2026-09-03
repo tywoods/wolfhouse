@@ -173,8 +173,10 @@ def policy_decision(req: dict[str, Any], frozen: dict[str, Any]) -> dict[str, An
         if (valid_math and isinstance(slot, str) and slot and type(qty) is int
                 and 1 <= qty <= 99 and frozen.get("has_seats") is True
                 and cast(int, spots) >= cast(int, qty)):
-            replies = ([f"Quedan {spots} plazas en la clase de las {slot}. ¿Quieres {qty} plazas?"] if lang == "es" else
-                       [f"There are {spots} open spots in the {slot} class. Would you like {qty} places?"])
+            requested_place = "plaza" if qty == 1 else "plazas"
+            requested_place_en = "place" if qty == 1 else "places"
+            replies = ([f"Quedan {spots} plazas en la clase de las {slot}. ¿Quieres {qty} {requested_place}?"] if lang == "es" else
+                       [f"There are {spots} open spots in the {slot} class. Would you like {qty} {requested_place_en}?"])
     elif scope == "course_choices" and frozen.get("do_not_claim_date_full") is True:
         qty = req.get("quantity")
         if type(qty) is not int or not 1 <= qty <= 99:
