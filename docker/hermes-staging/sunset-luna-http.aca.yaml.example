@@ -90,6 +90,8 @@ properties:
             secretRef: luna-bot-token
           - name: LUNA_HTTP_DATABASE_URL
             secretRef: luna-http-database-url
+          - name: PGSSLROOTCERT
+            value: /etc/ssl/certs/ca-certificates.crt
         probes:
           - type: Liveness
             httpGet:
