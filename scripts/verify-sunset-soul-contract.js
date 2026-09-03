@@ -60,18 +60,27 @@ assert('use names sparingly', /names?\s*—?\s*sparingly|use the guest'?s name o
 console.log('\n[First reply — hospitality before intake]');
 assert('every fresh conversation starts with a human welcome',
   /every fresh conversation starts with a real human welcome/i.test(soul));
-assert('bare greetings are not forced into lesson-versus-rental intake',
-  /do not immediately force a lesson-versus-rental choice/i.test(soul));
-assert('first reply may contain no intake question',
-  /social first message may simply welcome|no intake question is allowed/i.test(soul));
+assert('non-booking first message offers lessons or a board-and-wetsuit rental',
+  /did not already (say|ask)[^\n]*(book|reserve)[^\n]*(lesson|course)[^\n]*(board)[^\n]*(wetsuit)/i.test(soul));
+assert('explicit booking intent skips the offer and progresses booking',
+  /already (said|asked)[^\n]*(book|reserve)[^\n]*skip[^\n]*offer[^\n]*(booking|next missing detail)/i.test(soul));
 assert('explicit booking intent still gets welcome plus one next detail',
   /explicit booking intent:[^\n]*welcome[^\n]*next missing detail/i.test(soul));
 assert('clipped administrative first-line paraphrase is forbidden',
   /never make the first line a clipped administrative paraphrase/i.test(soul));
 
-console.log('\n[Tool-failure ownership — no false confirmation]');
-assert('calm tool-failure ownership copy present',
-  /couldn'?t finish that booking just yet/i.test(soul) && /checking it with the team/i.test(soul));
+console.log('\n[Recoverable create consent — no false handoff]');
+assert('create requires literal boolean confirmation',
+  /guest_confirmed_booking[^\n]*(literal boolean|boolean)[^\n]*true/i.test(soul));
+assert('confirmation-required create result is recoverable',
+  /guest_confirmed_booking_required[^\n]*(recoverable|not a tool error|normal confirmation)/i.test(soul));
+assert('recoverable create asks guest_safe_next_action without handoff',
+  /ask[^\n]*guest_safe_next_action/i.test(soul)
+  && /guest_safe_next_action[^\n]*(do not|never)[^\n]*flag_needs_human/i.test(soul));
+assert('confirmed rental retry preserves authoritative rental pricing',
+  /retry[^\n]*guest_confirmed_booking[^\n]*true[^\n]*rental_pricing[^\n]*get_sunset_rental_price/i.test(soul));
+assert('needs-human is advisory and Luna still answers',
+  /needs human[^\n]*advisory[^\n]*(still|continue)[^\n]*(answer|reply)/i.test(soul));
 assert('never falsely confirm on tool failure',
   /no false confirmation|never (imply|say)[\s\S]{0,60}(went through|created|confirmed)/i.test(soul)
   || /never confirm a booking is held without the create succeeding/i.test(soul));
