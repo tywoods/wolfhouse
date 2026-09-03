@@ -1,0 +1,26 @@
+{
+  "id": "timed-leftover-en-singular-place",
+  "kind": "timed_leftover",
+  "lang": "en",
+  "expect_pass": false,
+  "expect_fail_notes_any": [
+    "singular_plural_mismatch"
+  ],
+  "purpose": "When the guest requests exactly one place, the first answer must fail closed on mixed singular/plural copy such as '1 places'.",
+  "guest": {
+    "message": "Is there room for 1 person in Thursday's 10:00 class?",
+    "date": "2026-09-03",
+    "quantity": 1,
+    "slot_time": "10:00"
+  },
+  "staff": {
+    "scope": "course_slot",
+    "course_capacity": 25,
+    "seats_booked": 0,
+    "seats_available": 25,
+    "has_seats": true,
+    "reason": null,
+    "slot_time": "10:00"
+  },
+  "first_reply": "There are 25 open spots in the 10:00 class. Would you like 1 places?"
+}
