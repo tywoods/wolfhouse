@@ -53,11 +53,8 @@ def main() -> int:
     if re.search(r"^\s+command:", text, re.M):
         print("refuse: YAML must not set command (would skip /init)", file=sys.stderr)
         return 1
-    if "gateway run" in text:
-        print("refuse: YAML must not use gateway run (WhatsApp stays on hermes-sunset-luna)", file=sys.stderr)
-        return 1
-    if "WHATSAPP_CLOUD" in text or "graph.facebook.com" in text:
-        print("refuse: YAML must not wire Meta WhatsApp", file=sys.stderr)
+    if "value: sunset-luna" not in text or "\n          - gateway\n          - run\n" not in text:
+        print("refuse: YAML must reuse the sunset-luna gateway owner", file=sys.stderr)
         return 1
     Path(args.output).write_text(text, encoding="utf-8")
     print(f"filled {args.output}")

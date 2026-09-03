@@ -632,6 +632,9 @@ elif [ "$HERMES_ROLE" = "luna" ] \
   || [ "$HERMES_ROLE" = "sunset-luna" ] \
   || [ "$HERMES_ROLE" = "seadog" ]; then
   if [ "$HERMES_ROLE" = "sunset-luna" ]; then
+    if [ "${SUNSET_LUNA_REQUIRE_ISOLATED_AUTH:-}" = "true" ]; then
+      require_isolated_sunset_luna_http_auth
+    fi
     [ "${LUNA_CLIENT_SLUG:-}" = "sunset" ] || { echo "sunset-luna requires LUNA_CLIENT_SLUG=sunset" >&2; exit 1; }
     [ -n "${LUNA_ALLOWED_LOCATION_IDS:-}" ] || { echo "sunset-luna requires LUNA_ALLOWED_LOCATION_IDS" >&2; exit 1; }
     [ -n "${API_SERVER_KEY:-}" ] || { echo "sunset-luna requires API_SERVER_KEY" >&2; exit 1; }
@@ -671,7 +674,9 @@ elif [ "$HERMES_ROLE" = "luna" ] \
       cp /etc/hermes-staging/seadog-SOUL.md "$HERMES_HOME/SOUL.md"
     fi
   fi
-  link_shared_auth
+  if [ "$HERMES_ROLE" != "sunset-luna" ] || [ "${SUNSET_LUNA_REQUIRE_ISOLATED_AUTH:-}" != "true" ]; then
+    link_shared_auth
+  fi
 elif [ "$HERMES_ROLE" = "sunset-email-luna" ]; then
   [ "${LUNA_CLIENT_SLUG:-}" = "sunset" ] || { echo "sunset-email-luna requires LUNA_CLIENT_SLUG=sunset" >&2; exit 1; }
   [ "${LUNA_TENANT_ID:-}" = "sunset" ] || { echo "sunset-email-luna requires LUNA_TENANT_ID=sunset" >&2; exit 1; }

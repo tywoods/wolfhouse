@@ -1,18 +1,15 @@
-# Sunset-staging shared Luna HTTP runtime (first slice).
+# Sunset-staging Sunset Luna gateway carried onto the luna-http ACA.
 # Colocated with Staff API + email-luna in luna-sunset-staging-env. Internal TLS.
 # Do not apply infra/azure Bicep. Fill only values Skipper can query
 # (subscription ID, environment resource ID, identity resource ID, image SHA).
 # Never commit secrets. Never leave angle-bracket placeholders in the applied YAML.
 #
 # Keep image ENTRYPOINT (/init). Args replace CMD only so bootstrap still runs.
-# Production interpreter is exactly /opt/hermes/.venv/bin/python.
-#
 # Isolated openai-codex credential lives on a dedicated Azure Files share
 # mounted at /opt/data. Canonical Hermes home is /opt/data/.hermes
-# (HOME=/opt/data). No shared WhatsApp pool. No Meta Graph webhook.
-#
-# Live guest WhatsApp remains hermes-sunset-luna on Lunabox Caddy /whatsapp/*.
-# Meta cutover is NOT this YAML — see docs/SUNSET-LUNA-HTTP-RUNTIME.md § Later.
+# (HOME=/opt/data). This runs the existing Hermes gateway owner; it does not
+# reproduce Sunset behavior in the private JSON server. Applying this source
+# manifest does not itself cut over Meta.
 #
 # Skipper: docs/SUNSET-LUNA-HTTP-RUNTIME.md fills a temp copy then:
 #   az containerapp create|update -g luna-sunset-staging-rg -n luna-sunset-staging-luna-http --yaml FILLED.yaml
@@ -38,6 +35,31 @@ properties:
       - name: luna-http-database-url
         keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/sunset-database-url
         identity: <identity-id>
+      - name: whatsapp-cloud-access-token
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/meta-whatsapp-token
+        identity: <identity-id>
+      - name: whatsapp-cloud-app-secret
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/meta-app-secret
+        identity: <identity-id>
+      - name: whatsapp-cloud-verify-token
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/meta-whatsapp-verify-token
+        identity: <identity-id>
+      - name: sunset-somo-phone-number-id
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/sunset-somo-whatsapp-phone-number-id
+        identity: <identity-id>
+      # Canonical outbound ID deliberately reuses the repo-proven Somo owner.
+      - name: whatsapp-cloud-phone-number-id
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/sunset-somo-whatsapp-phone-number-id
+        identity: <identity-id>
+      - name: sunset-sardinero-phone-number-id
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/sunset-sardinero-whatsapp-phone-number-id
+        identity: <identity-id>
+      - name: whatsapp-dry-run
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/whatsapp-dry-run
+        identity: <identity-id>
+      - name: luna-auto-send-enabled
+        keyVaultUrl: https://luna-sunset-staging-kv.vault.azure.net/secrets/luna-auto-send-enabled
+        identity: <identity-id>
     registries:
       - server: whstagingacr.azurecr.io
         identity: <identity-id>
@@ -54,8 +76,8 @@ properties:
       - name: hermes-sunset-luna-http
         image: whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>
         args:
-          - /opt/hermes/.venv/bin/python
-          - /etc/hermes-staging/wolfhouse/luna_http_server.py
+          - gateway
+          - run
         volumeMounts:
           - volumeName: hermes-home
             mountPath: /opt/data
@@ -65,7 +87,9 @@ properties:
           - name: HERMES_HOME
             value: /opt/data/.hermes
           - name: HERMES_ROLE
-            value: sunset-luna-http
+            value: sunset-luna
+          - name: SUNSET_LUNA_REQUIRE_ISOLATED_AUTH
+            value: 'true'
           - name: LUNA_TENANT_ID
             value: sunset
           - name: LUNA_CLIENT_SLUG
@@ -74,9 +98,7 @@ properties:
             value: sunset-somo
           - name: SUNSET_INGRESS_LOCATION_ID
             value: sunset-somo
-          - name: LUNA_HTTP_LISTEN_HOST
-            value: 0.0.0.0
-          - name: LUNA_HTTP_LISTEN_PORT
+          - name: WHATSAPP_CLOUD_WEBHOOK_PORT
             value: '8094'
           - name: PYTHONPATH
             value: /etc/hermes-staging
@@ -90,18 +112,32 @@ properties:
             secretRef: luna-bot-token
           - name: LUNA_HTTP_DATABASE_URL
             secretRef: luna-http-database-url
+          - name: WHATSAPP_CLOUD_ACCESS_TOKEN
+            secretRef: whatsapp-cloud-access-token
+          - name: WHATSAPP_CLOUD_PHONE_NUMBER_ID
+            secretRef: whatsapp-cloud-phone-number-id
+          - name: WHATSAPP_CLOUD_APP_SECRET
+            secretRef: whatsapp-cloud-app-secret
+          - name: WHATSAPP_CLOUD_VERIFY_TOKEN
+            secretRef: whatsapp-cloud-verify-token
+          - name: SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID
+            secretRef: sunset-somo-phone-number-id
+          - name: SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID
+            secretRef: sunset-sardinero-phone-number-id
+          - name: WHATSAPP_DRY_RUN
+            secretRef: whatsapp-dry-run
+          - name: LUNA_AUTO_SEND_ENABLED
+            secretRef: luna-auto-send-enabled
           - name: PGSSLROOTCERT
             value: /etc/ssl/certs/ca-certificates.crt
         probes:
           - type: Liveness
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 8094
             initialDelaySeconds: 10
             periodSeconds: 20
           - type: Readiness
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: 8094
             initialDelaySeconds: 5
             periodSeconds: 10
