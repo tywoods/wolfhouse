@@ -1461,6 +1461,8 @@ function assertNoSecretsLogged(hits) {
   assert.match(proofSrc, /createStaffEmailLunaDraftOpen/);
   assert.match(proofSrc, /regenerateEmailLunaDraftOnStaffClick/);
   assert.match(proofSrc, /\/staff\/inbox\/email\/create-draft/);
+  assert.match(proofSrc, /SQL_RESOLVE_PROOF_ACTOR[\s\S]*c\.needs_human IS TRUE/,
+    'live proof must select only a conversation eligible for the Staff owner write CAS');
   assert.doesNotMatch(proofSrc, /__MAIL_MVP_007_/);
   assert.doesNotMatch(proofSrc, /MAIL_MVP_007_INPROCESS_PROOF/);
   assert.doesNotMatch(proveSrc, /__MAIL_MVP_007_/);

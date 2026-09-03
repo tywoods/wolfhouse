@@ -62,6 +62,7 @@ const SQL_RESOLVE_PROOF_ACTOR = [
   '  ON loc.client_id=ev.client_id AND loc.id=ev.location_id',
   '  AND loc.location_id=\'sunset-somo\'',
   ' WHERE c.id=$1::uuid AND c.phone ~ \'^(emailv1|email):\' AND c.status=\'open\'',
+  '  AND c.needs_human IS TRUE',
   ' ORDER BY CASE su.role WHEN \'operator\' THEN 0 WHEN \'admin\' THEN 1 ELSE 2 END, su.id',
   ' LIMIT 1',
 ].join('');
