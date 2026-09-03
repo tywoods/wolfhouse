@@ -45988,8 +45988,10 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
       handoff_status: needsHuman ? ((handoff && handoff.status) || 'open') : null,
       conversation_paused: conversationPaused,
       global_paused: result.global_paused === true,
-      effective_paused: conversationPaused || result.effective_paused === true || needsHuman,
-      can_continue_guest_automation: !(conversationPaused || needsHuman),
+      // Needs Human is advisory on Sunset. Only explicit pause state stops Luna;
+      // never project the advisory flag as Luna Off in the Staff UI response.
+      effective_paused: conversationPaused || result.effective_paused === true,
+      can_continue_guest_automation: !(conversationPaused || result.effective_paused === true),
       auto_resumed: false,
       staff_notification: result.staff_notification || null,
       elapsed_ms: elapsed,
