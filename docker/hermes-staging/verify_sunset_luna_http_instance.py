@@ -122,6 +122,8 @@ def main() -> int:
         "http_reuses_gateway": "command: gateway run" in http_svc,
         "http_reuses_sunset_role": "HERMES_ROLE: sunset-luna" in http_svc,
         "http_localhost_port": '"127.0.0.1:8094:8094"' in http_svc,
+        "http_author_port": '"127.0.0.1:8095:8095"' in http_svc
+        and "SUNSET_LUNA_EMAIL_AUTHOR_LISTEN_PORT: \"8095\"" in http_svc,
         "http_isolated_home": "/var/lib/hermes-sunset-luna-http:/opt/data" in http_svc,
         "http_no_shared_auth": "/var/lib/hermes-shared" not in http_svc,
         "http_isolated_mode": 'SUNSET_LUNA_REQUIRE_ISOLATED_AUTH: "true"' in http_svc,
@@ -176,6 +178,19 @@ def main() -> int:
             aca, "luna-auto-send-enabled", "luna-auto-send-enabled",
             "LUNA_AUTO_SEND_ENABLED",
         ),
+        "aca_no_email_author_wiring": (
+            "EMAIL_LUNA_HERMES_SOL_RESPONSE_HMAC_SECRET" not in aca
+            and "SUNSET_LUNA_EMAIL_AUTHOR_LISTEN_PORT" not in aca
+            and "additionalPortMappings" not in aca
+            and "resp-hmac-secret" not in aca
+        ),
+        "gateway_starts_same_luna_author": "start_same_luna_author_listener" in gateway_patches,
+        "gateway_registers_whatsapp_author_route": (
+            "register_same_luna_author_route" in (STAGING / "apply_whatsapp_fresh_start_route.py").read_text(encoding="utf-8")
+            and "/whatsapp/v1/internal/email-draft-plan" in (STAGING / "wolfhouse/email_draft_same_luna.py").read_text(encoding="utf-8")
+        ),
+        "email_luna_aca_kept_for_rollback": "name: luna-sunset-staging-email-luna"
+        in (STAGING / "sunset-email-luna.aca.yaml.example").read_text(encoding="utf-8"),
         "configured_gateway_pause_gate": (
             "from wolfhouse.pause_gate import whatsapp_outbound_disposition" in gateway_patches
             and "check-guest-automation-gate" in pause_gate

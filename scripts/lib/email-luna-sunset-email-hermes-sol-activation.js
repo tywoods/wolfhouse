@@ -3,7 +3,9 @@
 /**
  * MAIL-MVP-007 — dedicated Sunset staging Hermes Sol author activation.
  *
- * Exact gates only. No other tenant/client path. Never reads LUNA_AI_MODEL.
+ * Exact gates only. Sunset-staging Staff author is the live Lunabox
+ * hermes-sunset-luna-http Caddy URL (plus loopback for tests / :8095 proof).
+ * Never reads LUNA_AI_MODEL. ACA luna-http is not an author target.
  */
 
 const util = require('node:util');
@@ -11,6 +13,7 @@ const {
   HERMES_SOL_PROVIDER,
   HERMES_SOL_MODEL,
   HERMES_SOL_RUNTIME,
+  HERMES_SOL_DRAFT_PATH,
 } = require('./email-luna-sunset-email-hermes-sol-contract');
 
 const isProxy = util.types.isProxy.bind(undefined);
@@ -32,7 +35,9 @@ const MAX_TOKEN_CHARS = 256;
 const MAX_PIN_CHARS = 64;
 const LOCAL_HTTP = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
 const LOCAL_HTTPS = /^https:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
-const ACA_INTERNAL_HTTPS = /^https:\/\/luna-sunset-staging-email-luna\.internal\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.northeurope\.azurecontainerapps\.io$/i;
+const LOCAL_PROOF_HTTP = /^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):8095$/i;
+const LUNABOX_AUTHOR_HTTPS = /^https:\/\/lunabox\.lunafrontdesk\.com$/i;
+const ACA_INTERNAL_HTTPS = LUNABOX_AUTHOR_HTTPS;
 const TLS_PIN = /^[0-9a-f]{64}$/i;
 
 function ownData(value, key) {
@@ -60,9 +65,15 @@ function normalizeBaseUrl(raw) {
   let url;
   try { url = new URL(text); } catch { return null; }
   if (url.username || url.password || url.search || url.hash) return null;
-  if (url.pathname && url.pathname !== '/') return null;
   const origin = `${url.protocol}//${url.host}`;
-  if (LOCAL_HTTP.test(origin) || LOCAL_HTTPS.test(origin) || ACA_INTERNAL_HTTPS.test(origin)) {
+  const path = url.pathname || '/';
+  const loopback = LOCAL_PROOF_HTTP.test(origin);
+  if (loopback) {
+    if (path !== '/') return null;
+    return origin.replace(/\/+$/, '');
+  }
+  if (LUNABOX_AUTHOR_HTTPS.test(origin)) {
+    if (path !== '/' && path !== HERMES_SOL_DRAFT_PATH) return null;
     return origin.replace(/\/+$/, '');
   }
   return null;
@@ -119,7 +130,7 @@ function isSunsetEmailHermesSolAuthorEnabled(input) {
   const url = normalizeBaseUrl(ownData(env, ENV_BASE_URL));
   if (!url) return false;
   const loopback = isLoopbackOrigin(url);
-  if (!loopback && !ACA_INTERNAL_HTTPS.test(url)) return false;
+  if (!loopback && !LUNABOX_AUTHOR_HTTPS.test(url)) return false;
   const pinRaw = ownData(env, ENV_TLS_PIN);
   const pin = normalizeTlsPin(pinRaw);
   if (pinRaw !== undefined && pinRaw !== null && pinRaw !== '' && !pin) {
@@ -196,4 +207,7 @@ module.exports = freeze({
   normalizeTlsPin,
   isLoopbackOrigin,
   ACA_INTERNAL_HTTPS,
+  LUNABOX_AUTHOR_HTTPS,
+  LOCAL_PROOF_HTTP,
+  HERMES_SOL_DRAFT_PATH,
 });

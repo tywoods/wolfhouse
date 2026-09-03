@@ -84,6 +84,16 @@ RUNNER_START_PATCH = (
     '        global _wolfhouse_gateway_runner\n'
     '        _wolfhouse_gateway_runner = self'
 )
+SAME_LUNA_AUTHOR_START_TAG = "start_same_luna_author_listener"
+SAME_LUNA_AUTHOR_START = '''
+        try:
+            from wolfhouse.email_draft_same_luna import start_same_luna_author_listener
+            _same_luna_author = start_same_luna_author_listener()
+            if not _same_luna_author.get("started"):
+                logger.error("Same-Luna email author probe listener unavailable: %s", _same_luna_author.get("reason", "unknown"))
+        except Exception as _same_luna_author_exc:
+            logger.exception("Same-Luna email author probe listener startup failed: %s", _same_luna_author_exc)
+'''
 GATEWAY_RUNNER_CLASS_RE = re.compile(r"^class GatewayRunner\b", re.MULTILINE)
 
 INTERNAL_FILTER_HELPERS = r'''
@@ -691,6 +701,12 @@ def apply_patches(run_path: Path) -> dict:
 
     if RUNNER_START_PATCH not in s and RUNNER_START_ANCHOR in s:
         s = s.replace(RUNNER_START_ANCHOR, RUNNER_START_PATCH, 1)
+    if SAME_LUNA_AUTHOR_START_TAG not in s and "_wolfhouse_gateway_runner = self" in s:
+        s = s.replace(
+            "        _wolfhouse_gateway_runner = self",
+            "        _wolfhouse_gateway_runner = self" + SAME_LUNA_AUTHOR_START,
+            1,
+        )
 
     if INTERNAL_FILTER_TAG not in s:
         if "\nimport re\n" not in s and "\nimport re\r\n" not in s:

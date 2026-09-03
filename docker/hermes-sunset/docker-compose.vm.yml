@@ -2,7 +2,9 @@ services:
   # Guest WhatsApp for Sunset Somo. Kill switches live in /etc/hermes-sunset-luna.env,
   # deliberately not here: Luna will not send unless WHATSAPP_DRY_RUN=false AND
   # LUNA_AUTO_SEND_ENABLED=true, both as those literal strings. Unset = silent.
-  # Live Caddy /whatsapp/* → :8092. See docs/LUNA-SEND-KILL-SWITCH.md (Sunset).
+  # Old Lunabox gateway on :8092. Live topology: this container is Exited and
+  # untouched. Caddy /whatsapp/* now reaches hermes-sunset-luna-http:8094.
+  # Do not edit this service as part of same-Luna email authoring.
   hermes-sunset-luna:
     image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
     container_name: hermes-sunset-luna
@@ -68,10 +70,10 @@ services:
     env_file:
       - /etc/hermes-sunset-email-luna.env
 
-  # Opt-in staging rehearsal of the exact Sunset gateway on port 8094. This uses
-  # the existing gateway/SOUL/plugin/Meta adapter/send gates; it is not a second bot.
-  # Lunabox loopback is for Skipper-local probe only. Staff API reaches the
-  # colocated ACA `luna-sunset-staging-luna-http` (internal TLS ingress).
+  # Live Sunset WhatsApp Luna on Lunabox :8094 (home /var/lib/hermes-sunset-luna-http).
+  # Caddy /whatsapp/* → 127.0.0.1:8094 is unchanged. Staff email drafts use the same
+  # process via POST /whatsapp/v1/internal/email-draft-plan (no new Caddy route).
+  # 8095 is loopback-only local proof. Do not target a separate ACA luna-http author.
   # See docs/SUNSET-LUNA-HTTP-RUNTIME.md.
   # Start separately: docker compose --profile sunset-luna-http up -d --no-deps hermes-sunset-luna-http
   hermes-sunset-luna-http:
@@ -83,6 +85,7 @@ services:
     command: gateway run
     ports:
       - "127.0.0.1:8094:8094"
+      - "127.0.0.1:8095:8095"
     volumes:
       - /var/lib/hermes-sunset-luna-http:/opt/data
       - /opt/wolfhouse/WH/docker/hermes-sunset/SOUL.md:/etc/hermes-sunset/SOUL.md:ro
@@ -96,6 +99,8 @@ services:
       LUNA_ALLOWED_LOCATION_IDS: sunset-somo
       SUNSET_INGRESS_LOCATION_ID: sunset-somo
       WHATSAPP_CLOUD_WEBHOOK_PORT: "8094"
+      SUNSET_LUNA_EMAIL_AUTHOR_LISTEN_HOST: 0.0.0.0
+      SUNSET_LUNA_EMAIL_AUTHOR_LISTEN_PORT: "8095"
       GENERIC_TIMEZONE: Europe/Madrid
     env_file:
       - /etc/hermes-sunset-luna-http.env

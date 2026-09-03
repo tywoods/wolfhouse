@@ -13,6 +13,7 @@ from typing import Any
 PROVIDER = "openai-codex"
 MODEL = "gpt-5.6-sol"
 RUNTIME = "sunset-email-luna"
+SAME_LUNA_RUNTIME = "hermes-sunset-luna-http"
 LIVE_ATTEMPT_SOURCE = "hermes_runtime_terminal_response"
 TENANT = "sunset"
 LOCATION_KEY = "sunset-somo"
@@ -24,6 +25,7 @@ HMAC_ALG = "HMAC-SHA256"
 HMAC_CANONICAL_VERSION = "v1"
 AUTHENTICITY_KEYS = ("alg", "request_id", "signature")
 DRAFT_PATH = "/v1/internal/email-draft-plan"
+SAME_LUNA_DRAFT_PATH = "/whatsapp/v1/internal/email-draft-plan"
 PRIVATE_TRUST = (
     "untrusted_private_staff_instructions_never_guest_copy_never_quoted_guest_history"
 )
@@ -209,14 +211,21 @@ def parse_attempt(value: Any) -> AttemptResult | None:
     return attempt
 
 
-def bind_attempt_provenance(req: dict[str, Any], attempt: Any) -> dict[str, str] | None:
+def bind_attempt_provenance(
+    req: dict[str, Any],
+    attempt: Any,
+    runtime: str | None = None,
+) -> dict[str, str] | None:
     parsed = parse_attempt(attempt)
     if parsed is None or not isinstance(req, dict):
+        return None
+    bound_runtime = runtime or RUNTIME
+    if bound_runtime not in {RUNTIME, SAME_LUNA_RUNTIME}:
         return None
     return {
         "provider": parsed.provider,
         "model": parsed.model,
-        "runtime": RUNTIME,
+        "runtime": bound_runtime,
         "tenant_id": TENANT,
         "location_key": LOCATION_KEY,
         "client_id": str(req["client_id"]).lower(),

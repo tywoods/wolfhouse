@@ -288,7 +288,7 @@ function create004Harness(withPgClient) {
         leftover: false,
         sol_model: 'gpt-5.6-sol',
         sol_provider: 'openai-codex',
-        sol_runtime: 'sunset-email-luna',
+        sol_runtime: 'hermes-sunset-luna-http',
       };
     },
     async verifyGraphArrival() {

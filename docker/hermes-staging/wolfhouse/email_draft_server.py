@@ -22,6 +22,9 @@ from wolfhouse.email_draft_contract import (
     DRAFT_PATH,
     MAX_BODY,
     RESULT_SCHEMA,
+    RUNTIME,
+    SAME_LUNA_DRAFT_PATH,
+    SAME_LUNA_RUNTIME,
     TEMPLATE_PLAN_KEYS,
     TEMPLATE_REQUEST_SCHEMA,
     TEMPLATE_RESULT_SCHEMA,
@@ -107,6 +110,7 @@ def handle_draft_request(
     invoke: Callable[[str, str], AttemptResult | str],
     replay: ReplayCache,
     hmac_secret: str,
+    runtime: str | None = None,
 ) -> tuple[int, dict]:
     if not expected_token or not _constant_time_eq(
         authorization, f"Bearer {expected_token}"
@@ -146,7 +150,19 @@ def handle_draft_request(
     if attempt is None:
         replay.release(request_id)
         return 502, {"error": "provenance_unavailable"}
-    provenance = bind_attempt_provenance(req, attempt)
+    bound_runtime = runtime or None
+    if bound_runtime == SAME_LUNA_RUNTIME:
+        from wolfhouse.email_draft_same_luna import live_same_luna_identity
+
+        live = live_same_luna_identity()
+        if live is None or live.get("runtime") != SAME_LUNA_RUNTIME:
+            replay.release(request_id)
+            return 502, {"error": "provenance_unavailable"}
+        bound_runtime = live["runtime"]
+    elif bound_runtime not in {None, RUNTIME}:
+        replay.release(request_id)
+        return 502, {"error": "provenance_unavailable"}
+    provenance = bind_attempt_provenance(req, attempt, runtime=bound_runtime)
     if provenance is None:
         replay.release(request_id)
         return 502, {"error": "provenance_unavailable"}
@@ -190,12 +206,20 @@ def make_handler(
     invoke: Callable[[str, str], AttemptResult | str],
     replay: ReplayCache,
     hmac_secret: str,
+    runtime: str | None = None,
+    draft_path: str | None = None,
 ):
+    owner_runtime = runtime or RUNTIME
+    owner_path = draft_path or (
+        SAME_LUNA_DRAFT_PATH if owner_runtime == SAME_LUNA_RUNTIME else DRAFT_PATH
+    )
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def log_message(self, fmt: str, *args) -> None:  # noqa: A003
-            sys.stderr.write("email-draft-server " + (fmt % args) + "\n")
+            prefix = "same-luna-author " if owner_runtime == SAME_LUNA_RUNTIME else "email-draft-server "
+            sys.stderr.write(prefix + (fmt % args) + "\n")
 
         def _send(self, status: int, payload: dict) -> None:
             body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -208,12 +232,12 @@ def make_handler(
 
         def do_GET(self) -> None:  # noqa: N802
             if self.path.rstrip("/") == "/healthz":
-                self._send(200, {"ok": True, "runtime": "sunset-email-luna"})
+                self._send(200, {"ok": True, "runtime": owner_runtime})
                 return
             self._send(404, {"error": "not_found"})
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path.split("?", 1)[0] != DRAFT_PATH:
+            if self.path.split("?", 1)[0] != owner_path:
                 self._send(404, {"error": "not_found"})
                 return
             length = self.headers.get("content-length", "")
@@ -234,16 +258,35 @@ def make_handler(
                 invoke=invoke,
                 replay=replay,
                 hmac_secret=hmac_secret,
+                runtime=runtime,
             )
             if status == 200 and isinstance(payload.get("provenance"), dict):
-                sys.stderr.write(
-                    "email-draft-server attempt "
-                    f"request_id={payload.get('authenticity', {}).get('request_id', '')} "
-                    f"provider={payload['provenance'].get('provider')} "
-                    f"model={payload['provenance'].get('model')} "
-                    f"runtime={payload['provenance'].get('runtime')} "
-                    "hmac=ok\n"
-                )
+                if owner_runtime == SAME_LUNA_RUNTIME:
+                    from wolfhouse.email_draft_same_luna import live_same_luna_identity
+
+                    live = live_same_luna_identity() or {}
+                    sys.stderr.write(
+                        "same-luna-author attempt "
+                        f"request_id={payload.get('authenticity', {}).get('request_id', '')} "
+                        f"hostname={live.get('hostname', '')} "
+                        f"pid={live.get('pid', '')} "
+                        f"home={live.get('hermes_home', '')} "
+                        f"webhook_port={live.get('webhook_port', '')} "
+                        f"author_port={live.get('author_port', '')} "
+                        f"provider={payload['provenance'].get('provider')} "
+                        f"model={payload['provenance'].get('model')} "
+                        f"runtime={payload['provenance'].get('runtime')} "
+                        "hmac=ok\n"
+                    )
+                else:
+                    sys.stderr.write(
+                        "email-draft-server attempt "
+                        f"request_id={payload.get('authenticity', {}).get('request_id', '')} "
+                        f"provider={payload['provenance'].get('provider')} "
+                        f"model={payload['provenance'].get('model')} "
+                        f"runtime={payload['provenance'].get('runtime')} "
+                        "hmac=ok\n"
+                    )
             self._send(status, payload)
 
     return Handler

@@ -321,13 +321,13 @@ function snapshotSolRuntimeMarker(value) {
   const provider = ownData(value, 'provider') || value.provider;
   const model = ownData(value, 'model') || value.model;
   const runtime = ownData(value, 'runtime') || value.runtime;
-  if (provider !== 'openai-codex' || model !== 'gpt-5.6-sol' || runtime !== 'sunset-email-luna') {
+  if (provider !== 'openai-codex' || model !== 'gpt-5.6-sol' || runtime !== 'hermes-sunset-luna-http') {
     return null;
   }
   return freeze({
     provider: 'openai-codex',
     model: 'gpt-5.6-sol',
-    runtime: 'sunset-email-luna',
+    runtime: 'hermes-sunset-luna-http',
   });
 }
 

@@ -335,7 +335,7 @@ class EmailOnlySoulReplaceAndStartupOrderTests(unittest.TestCase):
         bootstrap = BOOTSTRAP.read_text(encoding="utf-8")
         self.assertIn("install_sunset_email_luna_soul", bootstrap)
         email = re.search(
-            r'elif \[ "\$HERMES_ROLE" = "sunset-email-luna" \]; then\n(.*?)(?=\nelse\n)',
+            r'elif \[ "\$HERMES_ROLE" = "sunset-email-luna" \]; then\n(.*?)(?=\nelif |\nelse\n)',
             bootstrap,
             re.S,
         )

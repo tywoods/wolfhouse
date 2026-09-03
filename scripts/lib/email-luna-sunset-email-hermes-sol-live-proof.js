@@ -25,7 +25,8 @@ const AZ_DEFAULT = '/opt/data/home/.local/bin/az';
 const PTY_BIN = '/usr/bin/script';
 const RG = 'luna-sunset-staging-rg';
 const STAFF_APP = 'luna-sunset-staging-staff-api';
-const EMAIL_LUNA_APP = 'luna-sunset-staging-email-luna';
+// Lunabox live WhatsApp container. Not ACA luna-sunset-staging-luna-http.
+const EMAIL_LUNA_APP = 'hermes-sunset-luna-http';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
 const PROOF_REMOTE_ENV_PATH = '/tmp/mail-mvp-007-proof.env';
 const PROOF_REMOTE_NODE = 'scripts/prove-mail-mvp-007-create-draft.js';
@@ -126,13 +127,13 @@ function snapshotMarker(marker) {
   const provider = ownData(marker, 'provider');
   const model = ownData(marker, 'model');
   const runtime = ownData(marker, 'runtime');
-  if (provider !== 'openai-codex' || model !== 'gpt-5.6-sol' || runtime !== 'sunset-email-luna') {
+  if (provider !== 'openai-codex' || model !== 'gpt-5.6-sol' || runtime !== 'hermes-sunset-luna-http') {
     return null;
   }
   return freeze({
     provider: 'openai-codex',
     model: 'gpt-5.6-sol',
-    runtime: 'sunset-email-luna',
+    runtime: 'hermes-sunset-luna-http',
   });
 }
 
@@ -845,11 +846,11 @@ function extractLogFields(row) {
 function isPostCompletionMarker(line, requestId) {
   if (typeof line !== 'string') return false;
   const needle = `request_id=${requestId}`;
-  return line.includes('email-draft-server attempt ')
+  return line.includes('same-luna-author attempt ')
     && line.includes(needle)
     && line.includes('provider=openai-codex')
     && line.includes('model=gpt-5.6-sol')
-    && line.includes('runtime=sunset-email-luna')
+    && line.includes('runtime=hermes-sunset-luna-http')
     && line.includes('hmac=ok')
     && !/hmac=(?!ok\b)/.test(line);
 }
@@ -859,8 +860,8 @@ function isPreCompletionSpoof(line, requestId) {
   const needle = `request_id=${requestId}`;
   if (!line.includes(needle)) return false;
   if (isPostCompletionMarker(line, requestId)) return false;
-  return /email-draft-server POST |echo |hmac=pending|invoke_started|input-echo/i.test(line)
-    || (line.includes('email-draft-server') && !line.includes('hmac=ok'));
+  return /same-luna-author POST |email-draft-server POST |echo |hmac=pending|invoke_started|input-echo/i.test(line)
+    || ((line.includes('same-luna-author') || line.includes('email-draft-server')) && !line.includes('hmac=ok'));
 }
 
 function parseEmailLunaAttemptLogs(raw, requestId, secrets, options) {
@@ -991,7 +992,7 @@ function innerProofLooksComplete(inner) {
   if (!requestId || inner.hmac_verified !== true) return false;
   if (!inner.marker || inner.marker.provider !== 'openai-codex'
       || inner.marker.model !== 'gpt-5.6-sol'
-      || inner.marker.runtime !== 'sunset-email-luna') {
+      || inner.marker.runtime !== 'hermes-sunset-luna-http') {
     return false;
   }
   const deltas = inner.deltas;
@@ -1132,7 +1133,7 @@ async function reconcileDeployedProof(input, context) {
       marker: freeze({
         provider: 'openai-codex',
         model: 'gpt-5.6-sol',
-        runtime: 'sunset-email-luna',
+        runtime: 'hermes-sunset-luna-http',
       }),
       request_id: attemptId,
       hmac_verified: true,
