@@ -123,6 +123,17 @@ async function main() {
     && /clientSlug\s*===\s*['"]sunset['"]|!==\s*['"]sunset['"]/.test(gateFn),
     'gate must keep conversations_needs_human behind a Sunset skip');
 
+  const needsHumanHandler = apiSrc.slice(
+    apiSrc.indexOf('async function handleConversationNeedsHuman'),
+    apiSrc.indexOf('async function handleConversationResetAgentSession'),
+  );
+  assert('Needs Human response stays advisory and does not report Luna effectively paused',
+    /effective_paused:\s*conversationPaused\s*\|\|\s*result\.effective_paused\s*===\s*true/.test(needsHumanHandler)
+    && /can_continue_guest_automation:\s*!\(conversationPaused\s*\|\|\s*result\.effective_paused\s*===\s*true\)/.test(needsHumanHandler)
+    && !/effective_paused:[^\n]*needsHuman/.test(needsHumanHandler)
+    && !/can_continue_guest_automation:[^\n]*needsHuman/.test(needsHumanHandler),
+    'response must derive automation state from explicit pause only');
+
   console.log('\n[B] GREEN: sunset + needs_human → no pause');
   const pgSunset = makePg();
   const sunset = await markConversationNeedsHuman(pgSunset, {
