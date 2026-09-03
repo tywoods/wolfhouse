@@ -214,6 +214,51 @@ ok, detail = assert_exact_rental(body, "bike_rental", "1_day", 1, 1200)
 check("[9] bike rental_pricing → rentals[]", ok, detail)
 check("[9] bike success", r.get("success") is True)
 
+# [10] Multi-day range preferred over service_date (live bug: elif dropped range).
+QUOTE_2D = {
+    "ok": True,
+    "result": {
+        "item": "surfboard_wetsuit_rental",
+        "duration": "2_days",
+        "amount_cents": 4000,
+    },
+}
+fake = with_fake({"/sunset/rental-price": QUOTE_2D, "/sunset/booking-create": BOOKING_OK})
+r = json.loads(mod.create_sunset_booking(base_payload(
+    service_date="2026-09-04",
+    date_from="2026-09-04",
+    date_to="2026-09-05",
+    rental_pricing={
+        "offering_key": "surfboard_wetsuit_rental",
+        "duration": "2_days",
+        "quantity": 1,
+        "quoted_total_cents": 4000,
+    },
+)))
+body = fake.body_for("/sunset/booking-create")
+ok, detail = assert_exact_rental(body, "surfboard_wetsuit_rental", "2_days", 1, 4000)
+check("[10] 2_days with range+service_date → booking POST", fake.called("/sunset/booking-create"))
+check("[10] 2_days keeps date_from/date_to (not collapsed to service_date)",
+      bool(body)
+      and body.get("date_from") == "2026-09-04"
+      and body.get("date_to") == "2026-09-05",
+      body)
+check("[10] 2_days exact rentals[]", ok, detail)
+check("[10] 2_days success", r.get("success") is True)
+
+# [11] 1-day service_date alone still synthesizes date_from=date_to for rentals[].
+fake = with_fake({"/sunset/rental-price": QUOTE_SW, "/sunset/booking-create": BOOKING_OK})
+r = json.loads(mod.create_sunset_booking(base_payload(rental_pricing={
+    "offering_key": "surfboard_wetsuit_rental", "duration": "1_day", "quantity": 1, "quoted_total_cents": 2500,
+})))
+body = fake.body_for("/sunset/booking-create")
+check("[11] 1_day service_date synthesizes date_from=date_to",
+      bool(body)
+      and body.get("date_from") == "2026-07-21"
+      and body.get("date_to") == "2026-07-21",
+      body)
+check("[11] 1_day success", r.get("success") is True)
+
 print(f"\nResults: {PASSED} passed, {FAILED} failed")
 if FAILED:
     sys.exit(1)

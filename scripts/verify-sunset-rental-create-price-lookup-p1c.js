@@ -89,6 +89,26 @@ const LIVE_MAPPED_PRICES = [
   },
   {
     category: 'rental',
+    offering_key: 'surfboard_wetsuit_rental__2_days',
+    item_code: 'surfboard_wetsuit_rental__2_days',
+    unit: 'day',
+    amount: 40,
+    amount_cents: 4000,
+    active: true,
+    source: 'db',
+  },
+  {
+    category: 'rental',
+    offering_key: 'surfboard_wetsuit_rental__3_days',
+    item_code: 'surfboard_wetsuit_rental__3_days',
+    unit: 'day',
+    amount: 55,
+    amount_cents: 5500,
+    active: true,
+    source: 'db',
+  },
+  {
+    category: 'rental',
     offering_key: 'board_and_suit_rental__1_day',
     item_code: 'board_and_suit_rental__1_day',
     unit: 'day',
@@ -354,6 +374,47 @@ function buildCmd(body) {
   });
 }
 
+/** Multi-day catalog rental create — date_from/date_to span the duration. */
+function buildMultiDayCmd(dayCount, opts = {}) {
+  const start = opts.start || SERVICE_DATE;
+  const dates = [];
+  let cur = start;
+  for (let i = 0; i < dayCount; i += 1) {
+    dates.push(cur);
+    const d = new Date(`${cur}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    cur = d.toISOString().slice(0, 10);
+  }
+  const duration = dayCount === 1 ? '1_day' : `${dayCount}_days`;
+  const quoted = opts.quoted_total_cents != null ? opts.quoted_total_cents
+    : (dayCount === 1 ? 2500 : dayCount === 2 ? 4000 : 5500);
+  return buildSunsetBookingCreateCommand({
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    trustedLocationId: LOC,
+    transportBody: {
+      guest_name: opts.guest_name || 'MultiDay Guest',
+      guest_confirmed_booking: true,
+      payment_status: 'unpaid',
+      date_from: dates[0],
+      date_to: dates[dates.length - 1],
+      components: {},
+      rentals: [{
+        offering_key: 'surfboard_wetsuit_rental',
+        duration_key: duration,
+        quantity: opts.quantity || 1,
+      }],
+      rental_pricing: {
+        offering_key: 'surfboard_wetsuit_rental',
+        duration,
+        quantity: opts.quantity || 1,
+        quoted_total_cents: quoted,
+      },
+      ...(opts.extra || {}),
+    },
+    now: FIXED_NOW,
+  });
+}
+
 async function main() {
   console.log('\nverify:sunset-rental-create-price-lookup-p1c\n');
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
@@ -518,6 +579,69 @@ async function main() {
     ok('surfboard_wetsuit total >= 5000', out && out.body && Number(out.body.total_cents) >= 5000, out && out.body && out.body.total_cents);
   }
 
+  // B3b/B3c/B3d — 1/2/3-day surfboard_wetsuit with rental_pricing + date_from/date_to
+  for (const dayCount of [1, 2, 3]) {
+    const duration = dayCount === 1 ? '1_day' : `${dayCount}_days`;
+    const quoted = dayCount === 1 ? 2500 : dayCount === 2 ? 4000 : 5500;
+    const pg = makeCreatePg({ bookingCode: `SUNSET-20260822-SW${dayCount}D` });
+    const built = buildMultiDayCmd(dayCount, { quoted_total_cents: quoted });
+    ok(`${duration} cmd builds`, built.ok === true, built);
+    const out = await executeSunsetBookingCreate(pg, built.command);
+    ok(`${duration} create ok`, out && out.ok === true, JSON.stringify(out && out.body || out).slice(0, 320));
+    ok(`${duration} booking_id present`,
+      out && out.body && (out.body.booking_id || out.body.booking_code),
+      JSON.stringify(out && out.body || out).slice(0, 200));
+    const spanMeta = pg.state.services.find((s) => {
+      const m = s.metadata || {};
+      return m.offering_key === 'surfboard_wetsuit_rental' && m.duration_key === duration;
+    });
+    const covered = spanMeta && (spanMeta.metadata.rental_service_dates || spanMeta.metadata.covered_dates);
+    ok(`${duration} one exact offering row covering ${dayCount} calendar day(s)`,
+      !!spanMeta
+      && Array.isArray(covered)
+      && covered.length === dayCount
+      && !spanMeta.metadata.bundle_part,
+      JSON.stringify(spanMeta && spanMeta.metadata));
+    ok(`${duration} total >= ${quoted}`,
+      out && out.body && Number(out.body.total_cents) >= quoted,
+      out && out.body && out.body.total_cents);
+  }
+
+  // Live bug reproduction: 2_days with rental_pricing only (plugin promote) + range
+  {
+    const pg = makeCreatePg({ bookingCode: 'SUNSET-20260904-LIVE' });
+    const built = buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+      trustedLocationId: LOC,
+      transportBody: {
+        guest_name: 'Ty',
+        guest_confirmed_booking: true,
+        payment_status: 'unpaid',
+        date_from: '2026-09-04',
+        date_to: '2026-09-05',
+        components: {},
+        rental_pricing: {
+          offering_key: 'surfboard_wetsuit_rental',
+          duration: '2_days',
+          quantity: 1,
+          quoted_total_cents: 4000,
+        },
+      },
+      now: FIXED_NOW,
+    });
+    const out = await executeSunsetBookingCreate(pg, built.command);
+    ok('live 2_days rental_pricing+range create ok (no handoff)',
+      out && out.ok === true, JSON.stringify(out && out.body || out).slice(0, 320));
+    ok('live 2_days has booking_id',
+      out && out.body && out.body.booking_id, out && out.body);
+    const covered = (pg.state.services[0] && pg.state.services[0].metadata
+      && (pg.state.services[0].metadata.rental_service_dates
+        || pg.state.services[0].metadata.covered_dates)) || [];
+    ok('live 2_days persists Sep 4–5 as one rental',
+      Array.isArray(covered) && covered.join(',') === '2026-09-04,2026-09-05',
+      JSON.stringify(covered));
+  }
+
   // B4 board_and_suit when only surfboard_wetsuit priced → fail closed (P0b exact-only)
   {
     const pg = makeCreatePg({
@@ -562,6 +686,13 @@ async function main() {
     /surfboard_wetsuit_rental/.test(pluginSrc) && /_bundle_item_candidates|_rental_price_lookup/.test(pluginSrc));
   ok('plugin re-quotes via /sunset/rental-price (same as get_sunset_rental_price)',
     pluginSrc.includes('/sunset/rental-price'));
+  ok('plugin prefers date_from/date_to over service_date for create body',
+    /has_date_from = _clean\(payload\.get\("date_from"\)\)/.test(pluginSrc)
+    && /if has_date_from and has_date_to:/.test(pluginSrc)
+    && /elif payload\.get\("service_date"\):/.test(pluginSrc));
+  ok('plugin synthesizes date_from/date_to from service_date when rentals present',
+    /body\["date_from"\] = single/.test(pluginSrc)
+    && /body\["date_to"\] = single/.test(pluginSrc));
 
   console.log(`\nResults: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);
