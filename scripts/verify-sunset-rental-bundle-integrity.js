@@ -324,8 +324,46 @@ const multiDateValidated = validateScheduleBookingBody(multiDateBody, {
   allowEmptyComponents: true,
   refDate: FIXED_NOW,
 });
-assert('multi-date rental_pricing request rejected',
+assert('half_day rental_pricing with two dates rejected',
   multiDateValidated.ok === false, multiDateValidated.error);
+
+// Duration-priced multi-day catalog rental: contiguous range + matching duration.
+const multiDayOkBody = {
+  guest_name: 'MultiDay',
+  payment_status: 'unpaid',
+  date_from: SERVICE_DATE,
+  date_to: SERVICE_DATE_2,
+  components: {},
+  rental_pricing: {
+    offering_key: 'surfboard_wetsuit_rental',
+    duration: '2_days',
+    quantity: 1,
+    quoted_total_cents: 4000,
+  },
+};
+const multiDayOk = validateScheduleBookingBody(multiDayOkBody, {
+  allowEmptyComponents: true,
+  refDate: FIXED_NOW,
+});
+assert('2_days rental_pricing + date_from/date_to validates',
+  multiDayOk.ok === true, multiDayOk.error);
+assert('2_days rental keeps both service dates',
+  multiDayOk.ok
+  && Array.isArray(multiDayOk.value.service_dates)
+  && multiDayOk.value.service_dates.length === 2,
+  JSON.stringify(multiDayOk.ok && multiDayOk.value.service_dates));
+
+const durationMismatch = validateScheduleBookingBody({
+  ...multiDayOkBody,
+  rental_pricing: {
+    offering_key: 'surfboard_wetsuit_rental',
+    duration: '1_day',
+    quantity: 1,
+    quoted_total_cents: 2500,
+  },
+}, { allowEmptyComponents: true, refDate: FIXED_NOW });
+assert('1_day rental_pricing with two dates rejected',
+  durationMismatch.ok === false, durationMismatch.error);
 
 // Future exact offering: normalizeRentalPricing does not invent/require component halves.
 const exactNorm = normalizeRentalPricing(

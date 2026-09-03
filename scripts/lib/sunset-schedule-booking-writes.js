@@ -2142,8 +2142,24 @@ function validateScheduleBookingBody(body, opts) {
   const idempotency_key = b.idempotency_key != null ? String(b.idempotency_key).trim().slice(0, 120) : '';
   const rentalPricing = normalizeRentalPricing(b.rental_pricing, components.value);
   if (!rentalPricing.ok) return rentalPricing;
+  // Duration-priced catalog rentals may span multiple calendar days (2_days,
+  // 3_days, …). Reject only when the dates are non-contiguous or the duration
+  // key does not match the inclusive date span (e.g. half_day / 1_day with
+  // two dates). Single-day short packages still require exactly one date.
   if (!rentalPricing.skip && serviceDates.value.length > 1) {
-    return { ok: false, error: 'rental_pricing requires exactly one service date' };
+    const sortedDates = serviceDates.value.slice().sort();
+    const spanDates = inclusiveIsoDatesFromRange(sortedDates[0], sortedDates[sortedDates.length - 1]);
+    const contiguous = spanDates.length === sortedDates.length
+      && spanDates.every((d, i) => d === sortedDates[i]);
+    const expectedDuration = rentalDurationKeyFromDateRange(sortedDates[0], sortedDates[sortedDates.length - 1]);
+    if (!contiguous || rentalPricing.value.duration !== expectedDuration) {
+      return {
+        ok: false,
+        error: contiguous
+          ? `rental_pricing.duration must be ${expectedDuration} for the selected dates`
+          : 'rental_pricing requires exactly one service date',
+      };
+    }
   }
   const customLines = normalizeCustomLineItems(b.custom_line_items);
   if (!customLines.ok) return customLines;
@@ -4192,6 +4208,37 @@ async function createSunsetScheduleBooking(pg, opts) {
           ...bodyIn,
           rentals: [{ offering_key, duration_key, quantity }],
         };
+      }
+    }
+  }
+  // Canonical/generic rentals require date_from/date_to. Derive from
+  // service_dates / service_date when Luna only sent those (1-day path).
+  // Multi-day duration still fails closed later if the span ≠ duration_key.
+  {
+    const hasRentals = Array.isArray(bodyIn.rentals) && bodyIn.rentals.length > 0;
+    const dateFrom = String(bodyIn.date_from || '').slice(0, 10);
+    const dateTo = String(bodyIn.date_to || '').slice(0, 10);
+    if (hasRentals && (!dateFrom || !dateTo)) {
+      let derivedFrom = '';
+      let derivedTo = '';
+      if (Array.isArray(bodyIn.service_dates) && bodyIn.service_dates.length) {
+        const sorted = bodyIn.service_dates
+          .map((d) => String(d || '').slice(0, 10))
+          .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+          .sort();
+        if (sorted.length) {
+          derivedFrom = sorted[0];
+          derivedTo = sorted[sorted.length - 1];
+        }
+      } else if (bodyIn.service_date) {
+        const single = String(bodyIn.service_date).slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(single)) {
+          derivedFrom = single;
+          derivedTo = single;
+        }
+      }
+      if (derivedFrom && derivedTo) {
+        bodyIn = { ...bodyIn, date_from: derivedFrom, date_to: derivedTo };
       }
     }
   }

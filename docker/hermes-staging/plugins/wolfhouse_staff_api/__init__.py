@@ -2903,13 +2903,34 @@ def create_sunset_booking(params, **kwargs):
         body["rental_pricing"] = rp_in
 
     # Dates.
-    if isinstance(payload.get("service_dates"), list) and payload.get("service_dates"):
+    # Catalog rentals become rentals[] and Staff requires date_from/date_to spanning
+    # the quoted duration. Prefer an explicit range when present so a multi-day
+    # rental is not collapsed by a lone service_date (prior elif dropped the range).
+    has_date_from = _clean(payload.get("date_from"))
+    has_date_to = _clean(payload.get("date_to"))
+    if has_date_from and has_date_to:
+        body["date_from"] = payload.get("date_from")
+        body["date_to"] = payload.get("date_to")
+    elif isinstance(payload.get("service_dates"), list) and payload.get("service_dates"):
         body["service_dates"] = payload["service_dates"]
     elif payload.get("service_date"):
         body["service_date"] = payload.get("service_date")
-    elif payload.get("date_from") and payload.get("date_to"):
-        body["date_from"] = payload.get("date_from")
-        body["date_to"] = payload.get("date_to")
+    # When rentals[] is present without a range, synthesize date_from/date_to from
+    # service_date(s) so 1-day catalog creates still satisfy Staff's contract.
+    if isinstance(body.get("rentals"), list) and body.get("rentals"):
+        if not (_clean(body.get("date_from")) and _clean(body.get("date_to"))):
+            if isinstance(body.get("service_dates"), list) and body.get("service_dates"):
+                cleaned = [_clean(d) for d in body["service_dates"] if _clean(d)]
+                cleaned.sort()
+                if cleaned:
+                    body["date_from"] = cleaned[0]
+                    body["date_to"] = cleaned[-1]
+            elif _clean(body.get("service_date") or payload.get("service_date")):
+                single = _clean(body.get("service_date") or payload.get("service_date"))
+                body["date_from"] = single
+                body["date_to"] = single
+                if not body.get("service_date"):
+                    body["service_date"] = single
     for opt in ("payment_status", "notes", "idempotency_key", "location_id"):
         if payload.get(opt) not in (None, ""):
             body[opt] = payload.get(opt)
@@ -3142,9 +3163,9 @@ def _sunset_write_tools():
             "quote_provenance": {"type": "object", "description": "Opaque authoritative quote_provenance from get_sunset_offering_quote. Copy unchanged. Required for course gear. Carries quote_lane, exact course_equipment wire array, line_items, and fingerprint — create re-quotes on the recorded lane and must match exactly. Plugin posts the provenance wire to booking-create."},
             "rental_pricing": {"type": "object", "description": "For catalog rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price / catalog quote (item+duration the guest selected)."},
             "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
-            "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates)."},
-            "date_from": {"type": "string", "description": "Range start YYYY-MM-DD (with date_to)."},
-            "date_to": {"type": "string", "description": "Range end YYYY-MM-DD (with date_from)."},
+            "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates). For multi-day catalog rentals prefer date_from+date_to instead."},
+            "date_from": {"type": "string", "description": "Range start YYYY-MM-DD (with date_to). Required with date_to for multi-day catalog rentals whose rental_pricing.duration is 2_days/3_days/… — pass the inclusive rental window, not a single service_date."},
+            "date_to": {"type": "string", "description": "Range end YYYY-MM-DD (with date_from). Inclusive end of a multi-day catalog rental window."},
             "notes": {"type": "string"},
             "idempotency_key": {"type": "string", "description": "Optional idempotency key to avoid duplicate bookings."},
             **loc,
