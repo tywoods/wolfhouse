@@ -131,17 +131,20 @@ def handle_inbound_request(
                 "conversation_id": context["conversation_id"],
             }
         replay.mark_invoke_started(request_id)
-        gate = normalize_gate_snapshot((gate_lookup or lookup_gate)(req))
-        if gate["live_send_blocked"] and gate["bot_paused"]:
-            lookup = {"ok": False, "result": None, "notes": ["automation_gate_paused"]}
-            shadow = None
-        elif intelligence_runner is not None:
+        gate_request = req
+        if context and not req.get("conversation_id"):
+            gate_request = {**req, "conversation_id": context["conversation_id"]}
+        gate = normalize_gate_snapshot((gate_lookup or lookup_gate)(gate_request))
+        if intelligence_runner is not None:
             # Production shadow path: planner -> policy -> Staff facts -> voice.
-            # It has no sender or booking-write capability; complete_turn below
-            # persists the intended reply to the Postgres outbox with send off.
+            # Pause / Luna Off / Auto Off only block sending. The shadow still
+            # runs read-only Staff facts and the first-answer guardian.
             shadow = intelligence_runner(req)
             lookup = {"ok": shadow["first_answer"]["ok"], "result": shadow["frozen_facts"],
                       "notes": shadow["first_answer"]["notes"]}
+        elif gate["live_send_blocked"] and gate["bot_paused"]:
+            lookup = {"ok": False, "result": None, "notes": ["automation_gate_paused"]}
+            shadow = None
         else:
             shadow = None
             lookup = run_first_answer_lookup(req, availability=availability)
