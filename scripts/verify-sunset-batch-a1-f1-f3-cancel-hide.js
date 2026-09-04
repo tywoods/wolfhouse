@@ -47,7 +47,7 @@ ok('F3 trend mode wire', /__financeTrendMode/.test(adminUi) || /__financeTrendMo
 // Finance UI cleanup
 ok('no Sunset Finance kick title rendered', !/Sunset · Finance/.test(redesign) || /pfb-kick\{display:none/.test(api));
 ok('custom range picker (no bare Apply-only custom)', /open-custom-range|pfb-custom-range-trigger/.test(redesign + adminUi));
-ok('product note at foot', /pfb-sub--foot|revenueByProductNote/.test(redesign));
+ok('product note at foot gone', !/Where the money/.test(redesign) && !/pfb-sub--foot/.test(redesign));
 ok('accommodation rename path', /Accommodation|product\.accommodation/.test(redesign + summary));
 
 // 4-row revenue

@@ -384,8 +384,6 @@ function renderFinanceRedesignHtml(summary) {
     '</span><span class="pfb-pill pfb-pill--green">' + financeRedesignEsc(financeRedesignFmtEur(out.due_soon_cents || 0)) + '</span></div>';
   html += '<div class="pfb-age"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.overdue', 'Overdue (>7d)')) +
     '</span><span class="pfb-pill pfb-pill--red">' + financeRedesignEsc(financeRedesignFmtEur(out.overdue_cents || 0)) + '</span></div>';
-  html += '<div class="pfb-note">' + financeRedesignEsc(financeRedesignT('admin.finance.agingNote',
-    'Aged by last service date (no contractual due date).')) + '</div>';
   html += '</div></div>';
 
   html += '</div>'; // hero
@@ -416,7 +414,6 @@ function renderFinanceRedesignHtml(summary) {
     html += financeRedesignBarRow(lab, p.cents, p.pct, cls);
   });
   html += '</div>';
-  html += '<div class="pfb-sub pfb-sub--foot">' + financeRedesignEsc(financeRedesignT('admin.finance.revenueByProductNote', "Where the money's coming from (booked by service date)")) + '</div>';
   html += '</div>';
 
   html += '<div class="pfb-card pfb-card--bars pfb-card--capacity">';
@@ -472,13 +469,14 @@ function renderFinanceRedesignHtml(summary) {
   });
   html += '</div></div>'; // bars + cap-top
   if (cap.unsold_seats != null) {
-    html += '<div class="pfb-callout">';
-    html += '<span>' + financeRedesignEsc(String(cap.unsold_seats) + ' ' +
-      financeRedesignT('admin.finance.unsoldSeats', 'unsold seats this period')) + '</span>';
-    if (cap.left_on_table_cents != null) {
-      html += '<span>≈ <b>' + financeRedesignEsc(financeRedesignFmtEur(cap.left_on_table_cents)) + '</b> ' +
-        financeRedesignEsc(financeRedesignT('admin.finance.leftOnTable', 'left on the table')) + '</span>';
-    }
+    var spotsN = String(cap.unsold_seats);
+    var spotsCopy = g === 'year'
+      ? financeRedesignT('admin.finance.spotsAvailableYear', '{n} spots available this year').replace('{n}', spotsN)
+      : (g === 'day'
+        ? financeRedesignT('admin.finance.spotsAvailableToday', '{n} spots available today').replace('{n}', spotsN)
+        : financeRedesignT('admin.finance.spotsAvailableMonth', '{n} spots available this month').replace('{n}', spotsN));
+    html += '<div class="pfb-callout pfb-callout--spots" style="justify-content:flex-end;text-align:right">';
+    html += '<span>' + financeRedesignEsc(spotsCopy) + '</span>';
     html += '</div>';
   }
   html += '</div></div>'; // two
@@ -486,7 +484,7 @@ function renderFinanceRedesignHtml(summary) {
   // Gross trend — Days vs 12-month. Live wire: 12-month adopts Year period + refetch
   // so KPIs match the year window (P2). Renderer still accepts any period + chart mode.
   var rawTrend = (typeof window !== 'undefined' && window.__financeTrendMode) ? String(window.__financeTrendMode) : '';
-  if (!rawTrend && g === 'year') rawTrend = 'year';
+  if (g === 'year') rawTrend = 'year';
   if (!rawTrend) rawTrend = 'days';
   var trendMode = (rawTrend === 'year' || rawTrend === 'months' || rawTrend === '12m') ? 'year' : 'days';
   var trendRows = trendMode === 'year'

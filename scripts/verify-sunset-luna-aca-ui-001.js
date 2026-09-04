@@ -127,21 +127,14 @@ function makeSandbox(opts) {
 
 const sunsetEn = makeSandbox({ portalClient: 'sunset', client: 'sunset', lang: 'en' });
 sunsetEn.paintSunsetLunaRuntimeStatus();
-assert.ok(/data-sunset-luna-runtime="1"/.test(sunsetEn.__wrap.html), 'sunset EN paints card');
-assert.ok(/Guest WhatsApp/.test(sunsetEn.__wrap.html), 'sunset EN title');
-assert.ok(/Live on Hermes/.test(sunsetEn.__wrap.html), 'sunset EN pill');
-assert.ok(/additive and not live for guests/.test(sunsetEn.__wrap.html), 'sunset EN note');
-assert.ok(/class="pill pill-green"/.test(sunsetEn.__wrap.html), 'Hermes uses existing green pill');
+assert.strictEqual(sunsetEn.__wrap.html, '', 'sunset EN no longer paints ACA additive banner');
+assert.ok(!/additive and not live/.test(sunsetEn.__wrap.html), 'sunset EN no additive note');
 assert.ok(!/<button/.test(sunsetEn.__wrap.html), 'painted chrome has no button');
 assert.ok(!/type="checkbox"/.test(sunsetEn.__wrap.html), 'painted chrome has no switch');
-assert.ok(!/webhook|cutover/i.test(sunsetEn.__wrap.html), 'painted chrome has no cutover');
 
 const sunsetEs = makeSandbox({ portalClient: 'sunset', client: 'sunset', lang: 'es' });
 sunsetEs.paintSunsetLunaRuntimeStatus();
-assert.ok(/WhatsApp de huéspedes/.test(sunsetEs.__wrap.html), 'sunset ES title');
-assert.ok(/Activo en Hermes/.test(sunsetEs.__wrap.html), 'sunset ES pill');
-assert.ok(/no está activo para huéspedes/.test(sunsetEs.__wrap.html), 'sunset ES note');
-assert.ok(!/Guest WhatsApp/.test(sunsetEs.__wrap.html), 'ES does not keep EN title');
+assert.strictEqual(sunsetEs.__wrap.html, '', 'sunset ES no longer paints ACA additive banner');
 
 const wolf = makeSandbox({ portalClient: '', client: 'wolfhouse', lang: 'en' });
 wolf.paintSunsetLunaRuntimeStatus();
@@ -153,14 +146,10 @@ assert.strictEqual(switched.__wrap.html, '', 'sunset html + wolfhouse client hid
 
 const locale = makeSandbox({ portalClient: 'sunset', client: 'sunset', lang: 'en' });
 locale.paintSunsetLunaRuntimeStatus();
-const first = locale.__wrap.html;
-locale.__setCard({
-  parentNode: { removeChild() { locale.__wrap.html = ''; } },
-});
+assert.strictEqual(locale.__wrap.html, '', 'locale re-paint stays empty (banner gone)');
 locale.portalLang = 'es';
 locale.paintSunsetLunaRuntimeStatus();
-assert.ok(/WhatsApp de huéspedes/.test(locale.__wrap.html), 'locale re-paint is Spanish');
-assert.ok(first.indexOf('Guest WhatsApp') >= 0, 'first paint was English');
+assert.strictEqual(locale.__wrap.html, '', 'ES locale re-paint stays empty');
 
 assert.ok(
   sha256(THREAD).length === 64,

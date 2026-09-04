@@ -834,7 +834,9 @@ function adminEmailLastSyncStale(raw, connected){
   return Number.isFinite(age) && age > ADMIN_EMAIL_STALE_SYNC_MS;
 }
 function adminEmailComingCardHtml(provider, titleEn, titleEs, blurbEn, blurbEs){
-  var disabledLabel = emailUiT('admin.email.notAvailableYet', 'Not available yet', 'Aún no disponible');
+  var disabledLabel = provider === 'gmail_api'
+    ? emailUiT('admin.email.removeGoogleButton', 'Remove Gmail', 'Quitar Gmail')
+    : emailUiT('admin.email.notAvailableYet', 'Not available yet', 'Aún no disponible');
   return '<section class="portal-admin-email-settings portal-admin-email-card is-disabled" data-email-provider="' + escHtml(provider) + '" data-email-state="coming">' +
     '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
     '<h3 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.' + provider, titleEn, titleEs)) + '</h3>' +
@@ -977,8 +979,10 @@ function renderAdminEmailSettingsState(state, data, provider){
     var disconnectSafetyI18n = key === 'registered_not_connected'
       ? 'admin.email.removeSafetyNote'
       : (provider === 'gmail_api' ? 'admin.email.disconnectGoogleSafetyNote' : 'admin.email.disconnectSafetyNote');
+    var gmailRemoveDisabled = provider === 'gmail_api' && !connected && key !== 'registered_not_connected';
     html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' + escHtml(disconnectGroupLabel) + '">' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-provider="' + escHtml(provider) + '" data-i18n="' + escHtml(disconnectI18n) + '" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '">' +
+      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-provider="' + escHtml(provider) + '" data-i18n="' + escHtml(disconnectI18n) + '" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '"' +
+      (gmailRemoveDisabled ? ' disabled' : '') + '>' +
       escHtml(disconnectBtnLabel) +
       '</button>' +
       '</div>';

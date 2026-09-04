@@ -164,6 +164,9 @@ var INBOX_CONTEXT_CSS = [
   '.inbox-guest-inline-save{flex:0 0 auto;padding:9px 16px;font-size:12px;font-weight:600}',
   '.inbox-guest-notes-title{max-width:7.6em}',
   '.inbox-guest-notes-display.is-empty,.inbox-guest-inline-display.is-empty{color:var(--text-3)}',
+  '.inbox-guest-tags-label{font-size:11px;font-weight:650;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);margin:0 8px 0 0}',
+  '.inbox-guest-tags-add{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;',
+  'border:1px solid var(--border);border-radius:6px;font-size:16px;line-height:1;color:var(--text-2);background:var(--surface)}',
   '.inbox-guest-tags-open{display:flex;flex-wrap:wrap;gap:4px;align-items:center;border:none;background:none;',
   'padding:0;margin:0;cursor:pointer;text-align:left}',
   '.inbox-guest-tags-edit{display:flex;flex-direction:column;gap:10px;margin-top:6px}',
@@ -1251,13 +1254,14 @@ function inboxCustomerGuestTagsHtml(data) {
   var keys = inboxGuestCrmTagKeys();
   var autoKeys = inboxGuestAutoTagKeys();
   var html = '<div class="inbox-guest-tags" id="inbox-guest-tags">';
+  html += '<span class="inbox-guest-tags-label">' +
+    inboxContextEsc(inboxContextT('customers.detail.addTags', 'Add Tags:')) + '</span>';
   html += '<button type="button" class="inbox-guest-tags-open" id="inbox-guest-tags-open" aria-label="' +
-    inboxContextEsc(inboxContextT('customers.detail.tags', 'Tags')) + '">';
+    inboxContextEsc(inboxContextT('customers.detail.addTags', 'Add Tags:')) + '">';
   if (display.length) {
     for (var d = 0; d < display.length; d++) html += inboxGuestTagChip(display[d], id);
-  } else {
-    html += '<span class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noTags', 'No tags')) + '</span>';
   }
+  html += '<span class="inbox-guest-tags-add" aria-hidden="true">+</span>';
   html += '</button>';
   html += '<div class="inbox-guest-tags-edit" id="inbox-guest-tags-edit" hidden>';
   html += '<div class="inbox-guest-tags-row">';
@@ -1360,19 +1364,6 @@ function inboxCustomerFullHtml(data, opts) {
     svcBody = '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noServices', 'No services yet')) + '</div>';
   }
   html += collapse(inboxContextT('customers.detail.services', 'Previous lessons and rentals'), services.length, svcBody);
-
-  var messages = (data && data.messages) || [];
-  var msgBody = '';
-  if (messages.length) {
-    for (var mi = 0; mi < messages.length; mi++) {
-      var m = messages[mi];
-      msgBody += '<div class="customers-msg"><div class="customers-msg-dir">' +
-        inboxContextEsc(m.direction || '') + '</div><div>' + inboxContextEsc(m.message_text || '') + '</div></div>';
-    }
-  } else {
-    msgBody = '<div class="customers-section-empty">' + inboxContextEsc(inboxContextT('customers.detail.noMessages', 'No messages')) + '</div>';
-  }
-  html += collapse(inboxContextT('customers.detail.messages', 'Recent messages'), messages.length, msgBody);
 
   if (typeof renderCustomerWaiverFormsSection === 'function') {
     html += renderCustomerWaiverFormsSection(data);
