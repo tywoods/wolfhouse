@@ -462,8 +462,12 @@ function performWhatsAppDraftDelete(convId, targetEl){
   var st=whatsappDraftState(convId),ta=targetEl&&targetEl.querySelector('#draft-textarea');
   if(!ta||st.inFlight)return;
   var approval=whatsappDraftCanonicalUuid(st.approvalId);
-  if(!approval){whatsappDraftShowStatus(targetEl,'error','Delete failed');return;}
-  var exact=String(ta.value==null?'':ta.value),snap=String(convId),mySeq=++st.seq;st.inFlight=true;setWhatsAppComposerLocked(targetEl,true);
+  var exact=String(ta.value==null?'':ta.value);
+  if(!approval){
+    // Empty / never-saved draft: idempotent no-op. Do not error or wipe thread state.
+    return;
+  }
+  var snap=String(convId),mySeq=++st.seq;st.inFlight=true;setWhatsAppComposerLocked(targetEl,true);
   fetch(whatsappDraftGetUrl(convId)+'&approval_id='+encodeURIComponent(approval),{method:'DELETE',headers:{Accept:'application/json'}}).then(whatsappDraftParseFetchJson).then(function(out){
     if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;
     var accepted=acceptWhatsAppDeleteSuccess(out.parseOk&&out.status===200?out.data:null,snap);
@@ -473,7 +477,9 @@ function performWhatsAppDraftDelete(convId, targetEl){
 }
 function performWhatsAppComposerSave(convId,targetEl){
   var st=whatsappDraftState(convId),ta=targetEl&&targetEl.querySelector('#draft-textarea');if(!ta||st.inFlight)return;
-  var text=String(ta.value==null?'':ta.value);if(!text.length||whatsappDraftUtf8ByteLength(text)>WHATSAPP_DRAFT_MAX_UTF8_BYTES){whatsappDraftShowStatus(targetEl,'error','Enter valid draft text before saving.');return;}
+  var text=String(ta.value==null?'':ta.value);
+  if(!String(text).trim())return;
+  if(whatsappDraftUtf8ByteLength(text)>WHATSAPP_DRAFT_MAX_UTF8_BYTES){whatsappDraftShowStatus(targetEl,'error','Enter valid draft text before saving.');return;}
   var snap=String(convId),mySeq=++st.seq;st.inFlight=true;setWhatsAppComposerLocked(targetEl,true);
   fetch('/staff/inbox/whatsapp/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId,draft_text:text,client_slug:getClient()})}).then(whatsappDraftParseFetchJson).then(function(out){
     if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;

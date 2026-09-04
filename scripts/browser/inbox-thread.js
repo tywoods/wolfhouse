@@ -2000,8 +2000,8 @@ function performEmailDraftSave(convId, targetEl, thenApprove){
   var subjectEl = targetEl.querySelector('#inbox-email-reply-subject');
   var subjectText = subjectEl ? String(subjectEl.value == null ? '' : subjectEl.value).trim() : '';
   var bytes = emailUtf8ByteLength(messageText);
-  if (!messageText.length) {
-    showDraftSendStatus(statusEl, 'error', 'Enter a reply before saving a draft.');
+  if (!String(messageText).trim()) {
+    // Empty / whitespace-only Save: idempotent no-op. Do not error or POST.
     return;
   }
   if (bytes > EMAIL_DRAFT_MAX_UTF8_BYTES) {
@@ -2186,8 +2186,9 @@ function performEmailApproveSend(convId, targetEl){
 function performEmailDraftDelete(convId, targetEl){
   var st=emailReplyState(convId),ta=targetEl.querySelector('#draft-textarea'),statusEl=targetEl.querySelector('#draft-send-status');
   if(!ta||st.locked||st.inFlight)return;
-  var exact=String(ta.value==null?'':ta.value),snap=String(convId),approval=st.approvalId,mySeq=++st.seq;
-  if(!approval)return;st.inFlight=true;setEmailReplyControlsDisabled(targetEl,true,false);
+  var exact=String(ta.value==null?'':ta.value),snap=String(convId),approval=st.approvalId;
+  if(!approval)return;
+  var mySeq=++st.seq;st.inFlight=true;setEmailReplyControlsDisabled(targetEl,true,false);
   fetch('/staff/inbox/email/draft?conversation_id='+encodeURIComponent(convId)+'&approval_id='+encodeURIComponent(approval),{method:'DELETE',headers:{Accept:'application/json'}})
     .then(emailParseFetchJson).then(function(out){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;
       var accepted=out.parseOk&&out.status===200?acceptEmailDeleteSuccess(out.data,snap):null;

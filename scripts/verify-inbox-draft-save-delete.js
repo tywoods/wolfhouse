@@ -45,5 +45,9 @@ async function transactionCase({name,resolveRows=[ownedRow()],deleteRows=[],thro
   assert.match(en,/inbox\.detail\.reply\.saveDraft/);assert.match(en,/inbox\.detail\.reply\.deleteDraft/);assert.match(es,/inbox\.detail\.reply\.saveDraft/);assert.match(es,/inbox\.detail\.reply\.deleteDraft/);
   assert.match(wai,/mount\.hidden = true/);assert.match(wai,/mount\.innerHTML = ''/);assert.equal((ui.match(/id=\\?"btn-delete-draft\\?"/g)||[]).length>=1,true);assert.match(ui,/String\(ta\.value==null\?'':ta\.value\)/);
   assert.match(api,/#inbox-shell \.btn-email-approve-send,#inbox-shell \.btn-delete-draft\{/);assert.doesNotMatch(api,/(^|\n)\.btn-delete-draft(?=[:,{])/m);
-  console.log('verify:inbox-draft-save-delete PASSED (executable WA origin/validation/transaction/exact CAS, DTO, UI authority, scoped CSS)');
+  assert.match(wai,/if\(!String\(text\)\.trim\(\)\)return;/);
+  assert.doesNotMatch(wai,/if\(!approval\)\{whatsappDraftShowStatus\(targetEl,'error','Delete failed'\);return;\}/);
+  assert.doesNotMatch(ui,/Enter a reply before saving a draft\./);
+  assert.match(ui,/if \(!String\(messageText\)\.trim\(\)\) \{/);
+  console.log('verify:inbox-draft-save-delete PASSED (executable WA origin/validation/transaction/exact CAS, DTO, UI authority, scoped CSS, empty no-op)');
 })().catch(e=>{console.error(e);process.exit(1);});
