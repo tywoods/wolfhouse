@@ -45,13 +45,13 @@ const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const summary = computeSunsetFinanceSummary({
   now: new Date('2026-07-15T10:00:00Z'),
   bookings: [
-    { booking_id: 'l1', total_amount_cents: 3000, record_source: 'luna_guest' },
-    { booking_id: 's1', total_amount_cents: 2000, record_source: 'staff_manual' },
+    { booking_id: 'l1', total_amount_cents: 3000 },
+    { booking_id: 's1', total_amount_cents: 2000 },
   ],
   bsr: [
-    { booking_id: 'l1', service_date: '2026-07-15', service_type: 'surf_lesson', quantity: 2, amount_due_cents: 2000, metadata: {} },
-    { booking_id: 'l1', service_date: '2026-07-15', service_type: 'wetsuit', quantity: 1, amount_due_cents: 1000, metadata: {} },
-    { booking_id: 's1', service_date: '2026-07-15', service_type: 'surf_lesson', quantity: 9, amount_due_cents: 2000, metadata: {} },
+    { booking_id: 'l1', service_date: '2026-07-15', service_type: 'surf_lesson', quantity: 2, amount_due_cents: 2000, metadata: {}, source: 'luna_guest' },
+    { booking_id: 'l1', service_date: '2026-07-15', service_type: 'wetsuit', quantity: 1, amount_due_cents: 1000, metadata: {}, source: 'luna_guest' },
+    { booking_id: 's1', service_date: '2026-07-15', service_type: 'surf_lesson', quantity: 9, amount_due_cents: 2000, metadata: {}, source: 'staff_manual' },
   ],
   payments: [], surf_packs: [], rental_stock: [],
   view: { granularity: 'day', anchor: '2026-07-15' },
@@ -63,11 +63,12 @@ assert.deepStrictEqual(summary.redesign.luna_bookings, {
     { service_type: 'wetsuit', quantity: 1 },
   ],
 });
-console.log('ok - Finance Luna bookings uses booking record_source truth');
+console.log('ok - Finance Luna bookings uses booking_service_records.source truth');
 
 const financeData = fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-finance-data.js'), 'utf8');
-assert.match(financeData, /b\.record_source/);
-assert.match(financeData, /record_source:\s*r\.record_source/);
+assert.doesNotMatch(financeData, /b\.record_source/);
+assert.match(financeData, /bsr\.source/);
+assert.match(financeData, /source:\s*r\.source/);
 const financeUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-finance-redesign-ui.js'), 'utf8');
 assert.match(financeUi, /Luna bookings/);
 assert.match(financeUi, /luna_bookings/);

@@ -21,7 +21,8 @@ const BSR_SQL = `
          bsr.booking_id, bsr.service_date::text AS service_date,
          bsr.service_type::text AS service_type,
          bsr.quantity,
-         bsr.amount_due_cents, bsr.metadata
+         bsr.amount_due_cents, bsr.metadata,
+         bsr.source
     FROM booking_service_records bsr
     JOIN bookings b ON b.id = bsr.booking_id
     JOIN clients c ON b.client_id = c.id
@@ -35,7 +36,7 @@ const BSR_SQL = `
 `;
 
 const BOOKINGS_SQL = `
-  SELECT DISTINCT b.id AS booking_id, b.total_amount_cents, b.balance_due_cents, b.record_source
+  SELECT DISTINCT b.id AS booking_id, b.total_amount_cents, b.balance_due_cents
     FROM bookings b
     JOIN booking_service_records bsr ON bsr.booking_id = b.id
     JOIN clients c ON b.client_id = c.id
@@ -109,6 +110,7 @@ function mapBsr(r) {
     quantity: r.quantity != null ? Number(r.quantity) : 1,
     amount_due_cents: r.amount_due_cents,
     metadata: r.metadata || {},
+    source: r.source != null ? String(r.source) : null,
   };
 }
 

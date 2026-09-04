@@ -39,6 +39,7 @@ ok("BSR scopes location via bookings.metadata->>'location_id' = $2", /metadata\s
 ok('BSR selects amount_due_cents + metadata (for effective due)', /amount_due_cents/.test(bsr) && /metadata/.test(bsr));
 ok('BSR selects service_type for product buckets', /service_type/.test(bsr));
 ok('BSR selects quantity for capacity', /quantity/.test(bsr));
+ok('BSR selects source for Luna provenance (not bookings.record_source)', /bsr\.source/.test(BSR_SQL));
 
 // ── Bookings totals query (distinct qualifying bookings) ────────────────────
 const bk = norm(BOOKINGS_SQL);
@@ -48,6 +49,7 @@ ok('bookings query enforces booking tenant through clients', /join clients/.test
 ok('bookings excludes cancelled/canceled/expired/hold only', /b\.status(?:::\w+)?\s+not in\s*\([^)]*'cancelled'[^)]*'canceled'[^)]*'expired'[^)]*'hold'/.test(bk) && !/'blocked'/.test(bk));
 ok('bookings query is distinct / grouped by booking', /distinct/.test(bk) || /group by/.test(bk));
 ok('bookings query shares BSR qualification (source + location)', /demo_fixture_stage888/.test(bk) && /location_id'\s*=\s*\$2/.test(bk));
+ok('bookings query does not select b.record_source (column does not exist)', !/b\.record_source/.test(BOOKINGS_SQL));
 
 // ── Payments query encodes Collected(gross) scope ───────────────────────────
 const pay = norm(PAYMENTS_SQL);

@@ -938,6 +938,7 @@ function computeSunsetFinanceSummary(args) {
       service_type: r.service_type != null ? String(r.service_type) : null,
       quantity: r.quantity != null && Number.isFinite(Number(r.quantity)) ? Number(r.quantity) : 1,
       metadata: r.metadata || {},
+      source: r.source != null ? String(r.source) : (r.record_source != null ? String(r.record_source) : null),
     }));
   const datedPayments = paymentAmounts
     .filter((p) => p.paid_at != null)
@@ -1042,9 +1043,19 @@ function computeSunsetFinanceSummary(args) {
   const qualifyingPrimary = new Set();
   for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(r.booking_id);
 
-  const lunaBookingIds = new Set(bookings
-    .filter((b) => b && b.record_source === 'luna_guest')
-    .map((b) => String(b.booking_id)));
+  // Luna provenance lives on booking_service_records.source ('luna_guest').
+  // bookings.record_source is not a column — selecting it 500s the Finance tab.
+  const lunaBookingIds = new Set();
+  for (const b of bookings || []) {
+    if (b && String(b.record_source || '') === 'luna_guest' && b.booking_id != null) {
+      lunaBookingIds.add(String(b.booking_id));
+    }
+  }
+  for (const r of datedBsr) {
+    if (r && String(r.source || '') === 'luna_guest' && r.booking_id != null) {
+      lunaBookingIds.add(String(r.booking_id));
+    }
+  }
   const lunaQualifying = new Set();
   const lunaByService = new Map();
   for (const r of datedBsr) {
