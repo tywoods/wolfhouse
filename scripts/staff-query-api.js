@@ -46026,7 +46026,7 @@ async function handleConversationSpam(convId, req, res, user) {
     const result = await withPgClient((pg) => setConversationSpam(pg, {
       conversation_id: convId, client_slug: clientSlug, is_spam: body.is_spam,
       actor: (user && (user.staff_user_id || user.email)) || 'staff_portal',
-    }, pauseConversation));
+    }, pauseConversation, resumeConversation));
     if (!result.ok) return send404(res);
     appendAuditLog({ ts: new Date().toISOString(), intent: 'action:api:conversation.spam',
       category: 'conversation_api', client_slug: clientSlug, conversation_id: convId,

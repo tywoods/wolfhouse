@@ -359,12 +359,33 @@ async function pauseConversation(pg, input) {
 async function resumeConversation(pg, input) {
   const { clientSlug, conversationId, guestPhone } = normalizeScope(input);
   const resumedBy = String(input.resumed_by || '').trim();
+  const conversationOnly = input.conversation_only === true;
 
-  const active = await getPauseState(pg, {
-    client_slug:     clientSlug,
-    conversation_id: conversationId,
-    guest_phone:     guestPhone,
-  });
+  let active;
+  if (conversationOnly && conversationId) {
+    try {
+      const r = await pg.query(
+        `SELECT ${SELECT_PAUSE_STATE_COLS}
+           FROM bot_pause_states
+          WHERE client_slug = $1
+            AND conversation_id = $2
+            AND paused = TRUE
+          ORDER BY paused_at DESC
+          LIMIT 1`,
+        [clientSlug, conversationId],
+      );
+      active = { row: r.rows[0] || null, source: r.rows[0] ? 'bot_pause_states' : 'default_active' };
+    } catch (err) {
+      if (isMissingBotPauseStatesTable(err)) return { row: null, table_missing: true };
+      throw err;
+    }
+  } else {
+    active = await getPauseState(pg, {
+      client_slug:     clientSlug,
+      conversation_id: conversationId,
+      guest_phone:     guestPhone,
+    });
+  }
   if (active.table_missing) {
     return { row: null, table_missing: true };
   }

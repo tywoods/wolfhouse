@@ -26,7 +26,7 @@ UPDATE conversations conv
            ${conversationSpamSelectExpr('conv')} AS is_spam,
            conv.phone`;
 
-async function setConversationSpam(pg, input, pauseConversation) {
+async function setConversationSpam(pg, input, pauseConversation, resumeConversation) {
   const conversationId = String(input.conversation_id || '').trim();
   const clientSlug = String(input.client_slug || '').trim();
   const isSpam = input.is_spam === true;
@@ -40,6 +40,7 @@ async function setConversationSpam(pg, input, pauseConversation) {
       return { ok: false, reason: 'conversation_not_found' };
     }
     let pause = null;
+    let resume = null;
     if (isSpam) {
       // Use the canonical pause owner in the same transaction. It deterministically
       // updates an existing tenant/thread pause or inserts one when absent.
@@ -51,9 +52,20 @@ async function setConversationSpam(pg, input, pauseConversation) {
         paused_by: actor,
       });
       if (!pause || pause.table_missing || !pause.row) throw new Error('spam_luna_pause_failed');
+    } else {
+      resume = await resumeConversation(pg, {
+        client_slug: clientSlug,
+        conversation_id: conversationId,
+        guest_phone: row.phone || null,
+        resumed_by: actor,
+        // Spam off restores this conversation only. A tenant-wide Global Pause
+        // must remain authoritative and cannot be cleared from a thread action.
+        conversation_only: true,
+      });
+      if (!resume || resume.table_missing) throw new Error('spam_luna_resume_failed');
     }
     await pg.query('COMMIT');
-    return { ok: true, conversation_id: conversationId, is_spam: isSpam, luna_paused: isSpam ? true : undefined };
+    return { ok: true, conversation_id: conversationId, is_spam: isSpam, luna_paused: isSpam };
   } catch (err) {
     try { await pg.query('ROLLBACK'); } catch (_e) { /* preserve original */ }
     throw err;

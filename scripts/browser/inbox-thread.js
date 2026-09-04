@@ -66,12 +66,13 @@ function wireInboxSpamButton(conv, targetEl){
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ client_slug: getClient(), is_spam: next }),
     }).then(function(r){ return r.json().then(function(data){ if (!r.ok || !data.success) throw new Error('spam update failed'); return data; }); })
-      .then(function(){
+      .then(function(data){
         conv.is_spam = next;
+        conv.luna_paused = !!data.luna_paused;
         btn.setAttribute('aria-pressed', next ? 'true' : 'false');
         btn.classList.toggle('is-active', next);
-        patchInboxConvRow(convId, { is_spam: next, luna_paused: next ? true : conv.luna_paused });
-        if (next) updateLunaPauseUiInPlace(targetEl, true);
+        patchInboxConvRow(convId, { is_spam: next, luna_paused: !!data.luna_paused });
+        updateLunaPauseUiInPlace(targetEl, !!data.luna_paused);
         refreshInboxViewsRail();
         loadInbox(null, { silent: true, preserveDetail: false });
       })
