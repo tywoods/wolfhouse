@@ -100,21 +100,10 @@ function slrsFindCard() {
 
 function paintSunsetLunaRuntimeStatus() {
   try {
-    var wrap = slrsFindWrap();
-    if (!wrap) return;
     var existing = slrsFindCard();
-    if (!slrsIsSunset()) {
-      if (existing && existing.parentNode && typeof existing.parentNode.removeChild === 'function') {
-        existing.parentNode.removeChild(existing);
-      }
-      return;
-    }
-    slrsEnsureCss();
-    var html = slrsCardHtml();
     if (existing && existing.parentNode && typeof existing.parentNode.removeChild === 'function') {
       existing.parentNode.removeChild(existing);
     }
-    if (typeof wrap.insertAdjacentHTML === 'function') wrap.insertAdjacentHTML('afterbegin', html);
-    else wrap.innerHTML = html + (wrap.innerHTML || '');
+    return;
   } catch (_e) { /* never break Admin */ }
 }

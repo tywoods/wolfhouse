@@ -83,6 +83,17 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '  color:var(--ck-ink);',
   '  font-family:inherit;',
   '}',
+  /* Light: follow Salt/Sand tokens (no new palette names). Exact --ck-* hex stay as fallbacks. */
+  'html:not([data-theme="dark"]) .cockpit{',
+  '  --ck-surface:var(--surface);',
+  '  --ck-surface-2:var(--surface-soft);',
+  '  --ck-chip:var(--surface-soft);',
+  '  --ck-ink:var(--text);',
+  '  --ck-ink-2:var(--text-2);',
+  '  --ck-ink-3:var(--text-3);',
+  '  --ck-olive:var(--primary);',
+  '  --ck-olive-dark:var(--primary-hover);',
+  '}',
   /* Dark mode — match portal schedule cards, no light island */
   '[data-theme="dark"] .cockpit{',
   '  --ck-surface:#252526;',
@@ -830,49 +841,52 @@ function scheduleRenderDayCockpit(mount, data) {
   }
   main.appendChild(hero);
 
-  /* ribbon — overlapping sessions stack into lanes so Mañana stays clickable */
-  var packed = scheduleCockpitAssignLanes(list);
-  list = packed.list;
-  var laneH = 28;
-  var laneGap = 4;
-  var topPad = 20;
-  var botPad = 14;
-  var ribbonH = topPad + botPad + packed.laneCount * laneH + Math.max(0, packed.laneCount - 1) * laneGap;
-  var ribbon = el('div', 'ck-ribbon');
-  ribbon.style.height = ribbonH + 'px';
-  ribbon.appendChild(el('div', 'ck-ribbon__track'));
-  list.forEach(function (s) {
-    var state = now != null && now >= s.e ? 'done' : live && s.id === live.id ? 'live' : s.booked ? 'done' : 'empty';
-    var blockCls = 'ck-block ck-block--' + (state === 'done' && !(now != null && now >= s.e) ? 'done' : state);
-    var b = el('button', blockCls);
-    b.type = 'button';
-    var lane = s.lane || 0;
-    b.style.left = pct(s.s) + '%';
-    b.style.width = (((s.e - s.s) / spanMin) * 100) + '%';
-    b.style.top = (topPad + lane * (laneH + laneGap)) + 'px';
-    b.style.height = laneH + 'px';
-    b.style.zIndex = String(2 + lane);
-    b.textContent = scheduleCockpitDisplayName(String(s.name || '')).replace(/^Curso /, '') + ' · ' +
-      scheduleCockpitCapacityLabel(s.booked || 0, s.capacity) +
-      (now != null && now >= s.e ? ' ✓' : '');
-    b.title = scheduleCockpitDisplayName(s.name) + ' ' + s.start + '–' + s.end;
-    b.setAttribute('data-ps-session-id', String(s.id || ''));
-    b.addEventListener('click', function () {
-      if (s.booked) { if (on.session) on.session(s.id); }
-      else if (on.create) on.create(s.id);
+  /* ribbon — overlapping sessions stack into lanes so Mañana stays clickable.
+     Monthly Horario is a calendar month, not an hour timeline. */
+  if (rangeKey !== 'next30') {
+    var packed = scheduleCockpitAssignLanes(list);
+    list = packed.list;
+    var laneH = 28;
+    var laneGap = 4;
+    var topPad = 20;
+    var botPad = 14;
+    var ribbonH = topPad + botPad + packed.laneCount * laneH + Math.max(0, packed.laneCount - 1) * laneGap;
+    var ribbon = el('div', 'ck-ribbon');
+    ribbon.style.height = ribbonH + 'px';
+    ribbon.appendChild(el('div', 'ck-ribbon__track'));
+    list.forEach(function (s) {
+      var state = now != null && now >= s.e ? 'done' : live && s.id === live.id ? 'live' : s.booked ? 'done' : 'empty';
+      var blockCls = 'ck-block ck-block--' + (state === 'done' && !(now != null && now >= s.e) ? 'done' : state);
+      var b = el('button', blockCls);
+      b.type = 'button';
+      var lane = s.lane || 0;
+      b.style.left = pct(s.s) + '%';
+      b.style.width = (((s.e - s.s) / spanMin) * 100) + '%';
+      b.style.top = (topPad + lane * (laneH + laneGap)) + 'px';
+      b.style.height = laneH + 'px';
+      b.style.zIndex = String(2 + lane);
+      b.textContent = scheduleCockpitDisplayName(String(s.name || '')).replace(/^Curso /, '') + ' · ' +
+        scheduleCockpitCapacityLabel(s.booked || 0, s.capacity) +
+        (now != null && now >= s.e ? ' ✓' : '');
+      b.title = scheduleCockpitDisplayName(s.name) + ' ' + s.start + '–' + s.end;
+      b.setAttribute('data-ps-session-id', String(s.id || ''));
+      b.addEventListener('click', function () {
+        if (s.booked) { if (on.session) on.session(s.id); }
+        else if (on.create) on.create(s.id);
+      });
+      ribbon.appendChild(b);
     });
-    ribbon.appendChild(b);
-  });
-  if (now != null && now >= win[0] * 60 && now <= win[1] * 60) {
-    var needle = el('div', 'ck-needle');
-    needle.style.left = pct(now) + '%';
-    needle.appendChild(el('b', null, scheduleCockpitPad(Math.floor(now / 60)) + ':' + scheduleCockpitPad(now % 60)));
-    ribbon.appendChild(needle);
+    if (now != null && now >= win[0] * 60 && now <= win[1] * 60) {
+      var needle = el('div', 'ck-needle');
+      needle.style.left = pct(now) + '%';
+      needle.appendChild(el('b', null, scheduleCockpitPad(Math.floor(now / 60)) + ':' + scheduleCockpitPad(now % 60)));
+      ribbon.appendChild(needle);
+    }
+    var hours = el('div', 'ck-hours');
+    for (var h = win[0]; h <= win[1]; h += 2) hours.appendChild(el('span', null, scheduleCockpitPad(h)));
+    ribbon.appendChild(hours);
+    main.appendChild(ribbon);
   }
-  var hours = el('div', 'ck-hours');
-  for (var h = win[0]; h <= win[1]; h += 2) hours.appendChild(el('span', null, scheduleCockpitPad(h)));
-  ribbon.appendChild(hours);
-  main.appendChild(ribbon);
   body.appendChild(main);
 
   /* prep rail — exact offering labels/qty (course add-ons first, then top others) */
