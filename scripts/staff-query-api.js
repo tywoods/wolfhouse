@@ -506,6 +506,7 @@ const {
   deleteConversationHard,
 } = require('./lib/staff-conversation-writes');
 const { resetHermesGuestSession, resetHermesConversationSession } = require('./lib/luna-hermes-guest-session-reset');
+const { setConversationSpam } = require('./lib/staff-conversation-spam');
 const {
   performInboxClearThreadReset,
   mapInboxClearThreadHttpStatus,
@@ -1283,6 +1284,7 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
+const CONV_SPAM_RE        = new RegExp(`^/staff/conversations/(${UUID_RE})/spam$`, 'i');
 const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
 const CONV_RESET_LUNA_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-luna-context$`, 'i');
 const CONV_RESET_AGENT_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-agent-session$`, 'i');
@@ -46013,6 +46015,26 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   }
 }
 
+async function handleConversationSpam(convId, req, res, user) {
+  let body;
+  try { body = JSON.parse(await readBody(req)); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (typeof body.is_spam !== 'boolean') return send400(res, 'is_spam boolean is required');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  try {
+    const result = await withPgClient((pg) => setConversationSpam(pg, {
+      conversation_id: convId, client_slug: clientSlug, is_spam: body.is_spam,
+      actor: (user && (user.staff_user_id || user.email)) || 'staff_portal',
+    }, pauseConversation));
+    if (!result.ok) return send404(res);
+    appendAuditLog({ ts: new Date().toISOString(), intent: 'action:api:conversation.spam',
+      category: 'conversation_api', client_slug: clientSlug, conversation_id: convId,
+      is_spam: body.is_spam, staff_user_id: user ? user.staff_user_id : null, success: true });
+    return sendJSON(res, 200, { success: true, ...result });
+  } catch (_) { return sendJSON(res, 500, { success: false, error: 'spam update failed' }); }
+}
+
 async function handleConversationResetAgentSession(convId, req, res, user) {
   const started = Date.now();
   const hostHeader = String(req.headers.host || '');
@@ -50054,6 +50076,17 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
+  }
+
+  const convSpamMatch = CONV_SPAM_RE.exec(pathname);
+  if (convSpamMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/spam' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleConversationSpam(convSpamMatch[1], req, res, auth.user);
   }
 
   const convResetAgentMatch = CONV_RESET_AGENT_RE.exec(pathname);

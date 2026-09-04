@@ -120,6 +120,7 @@ function declareView(view) {
     crmFilter: view.crmFilter || null,
     channel: view.channel || null,
     needsHuman: !!view.needsHuman,
+    spamSelected: !!view.spamSelected,
     /** When false, the view stays queryable for CRM gates but is omitted from the rail. */
     rail: view.rail !== false,
     requires: Object.freeze(view.requires ? view.requires.slice() : []),
@@ -135,6 +136,15 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     description: 'Every open or on-hold conversation on this tenant and location.',
+  }),
+  declareView({
+    id: 'spam',
+    label: 'Spam',
+    group: 'inbox',
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
+    source: INBOX_VIEW_SOURCES.CONVERSATIONS,
+    spamSelected: true,
+    description: 'Threads explicitly marked as spam by staff.',
   }),
   declareView({
     id: 'whatsapp',
@@ -441,6 +451,7 @@ function buildConversationSourceQuery(view, clientSlug, query, page, opts) {
   const scope = resolveInboxConversationLocationScope(clientSlug, query);
   const channelScoped = !!view.channel;
   const needsHumanScoped = !!view.needsHuman;
+  const spamSelected = !!view.spamSelected;
   const includeEmailSubject = !(opts && opts.includeEmailSubject === false);
   const params = [clientSlug];
   if (scope.scoped) params.push(scope.locationId);
@@ -470,6 +481,7 @@ function buildConversationSourceQuery(view, clientSlug, query, page, opts) {
       locationScoped: scope.scoped,
       channelScoped,
       needsHumanScoped,
+      spamSelected,
       includeEmailSubject,
       ...(keyset ? { keyset } : {}),
     }),
@@ -479,6 +491,7 @@ function buildConversationSourceQuery(view, clientSlug, query, page, opts) {
     channel: view.channel,
     channelParamIndex: channelScoped ? conversationInboxChannelParamIndex(scope.scoped) : null,
     needsHuman: needsHumanScoped,
+    spamSelected,
     locationScoped: scope.scoped,
     locationId: scope.locationId,
     hasSearch: false,
@@ -590,6 +603,7 @@ function buildInboxViewCountsPlan(input) {
       key: v.id,
       channel: v.channel,
       needsHuman: !!v.needsHuman,
+      spamSelected: !!v.spamSelected,
     }));
     const params = [clientSlug];
     if (scope.scoped) params.push(scope.locationId);

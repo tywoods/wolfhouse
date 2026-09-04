@@ -37,6 +37,7 @@ const {
   sqlConversationLocationExpr,
   sqlConversationLocationMatch,
 } = require('./sunset-school-locations');
+const { buildConversationSpamPredicate, conversationSpamSelectExpr } = require('./staff-conversation-spam');
 const {
   sqlExcludeSystemSenderConversations,
 } = require('./staff-inbox-system-sender');
@@ -179,12 +180,13 @@ function inboxNeedsHumanWhereClause(scoped) {
   return scoped ? '\n  AND conv.needs_human = TRUE' : '';
 }
 
-function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped) {
+function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped, spamSelected, includeAllSpam) {
   // System/noreply mailers (GoDaddy, Apollo, mailer-daemon, no-reply@…) must not
   // inflate guest conversation lists or rail/badge counts. Same fragment on list
   // and counts so the numbers stay honest with the rows staff see.
   return `WHERE c.slug = $1
-  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}${inboxNeedsHumanWhereClause(needsHumanScoped)}${sqlExcludeSystemSenderConversations('conv')}`;
+  AND conv.status IN ('open', 'on_hold')
+  ${includeAllSpam ? '' : `AND ${buildConversationSpamPredicate({ spamSelected: !!spamSelected })}\n  `}${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}${inboxNeedsHumanWhereClause(needsHumanScoped)}${sqlExcludeSystemSenderConversations('conv')}`;
 }
 
 /**
@@ -220,6 +222,7 @@ function getConversationInboxQuery(opts = {}) {
   const scoped = !!opts.locationScoped;
   const channelScoped = !!opts.channelScoped;
   const needsHumanScoped = !!opts.needsHumanScoped;
+  const spamSelected = !!opts.spamSelected;
   const keyset = opts.keyset && typeof opts.keyset === 'object' ? opts.keyset : null;
   const cursorParamIndex = keyset && keyset.cursorParamIndex ? keyset.cursorParamIndex : null;
   const cursorClause = cursorParamIndex ? conversationInboxCursorClause(cursorParamIndex) : '';
@@ -244,6 +247,7 @@ SELECT
   conv.language,
   conv.bot_mode::text,
   conv.needs_human,
+  ${conversationSpamSelectExpr('conv')} AS is_spam,
   conv.status::text          AS conversation_status,
   conv.conversation_stage,
   conv.last_message_preview,
@@ -293,7 +297,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) bphone ON TRUE
 ${inboxCustomerLinkJoinSql()}
-${conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped)}${cursorClause}
+${conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped, spamSelected)}${cursorClause}
 ${pageSql}
 `;
 }
@@ -334,13 +338,17 @@ function getConversationInboxCountsQuery(opts) {
     }
     seen.add(key);
     // Quoted because view ids are free to collide with reserved words ("all").
-    if (column && column.needsHuman) {
-      return `  COUNT(*) FILTER (WHERE conv.needs_human = TRUE)::int AS "${key}"`;
+    if (column && column.spamSelected) {
+      return `  COUNT(*) FILTER (WHERE ${buildConversationSpamPredicate({ spamSelected: true })})::int AS "${key}"`;
     }
-    if (!column.channel) return `  COUNT(*)::int AS "${key}"`;
+    const nonSpam = buildConversationSpamPredicate({ spamSelected: false });
+    if (column && column.needsHuman) {
+      return `  COUNT(*) FILTER (WHERE conv.needs_human = TRUE AND ${nonSpam})::int AS "${key}"`;
+    }
+    if (!column.channel) return `  COUNT(*) FILTER (WHERE ${nonSpam})::int AS "${key}"`;
     const idx = channelParam;
     channelParam += 1;
-    return `  COUNT(*) FILTER (WHERE ${sqlConversationChannelExpr('conv')} = $${idx})::int AS "${key}"`;
+    return `  COUNT(*) FILTER (WHERE ${nonSpam} AND ${sqlConversationChannelExpr('conv')} = $${idx})::int AS "${key}"`;
   });
 
   return `
@@ -348,7 +356,7 @@ SELECT
 ${selected.join(',\n')}
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
-${conversationInboxWhereSql(scoped, false, false)}
+${conversationInboxWhereSql(scoped, false, false, false, true)}
 `;
 }
 
@@ -371,6 +379,7 @@ SELECT
   conv.language,
   conv.bot_mode::text,
   conv.needs_human,
+  ${conversationSpamSelectExpr('conv')} AS is_spam,
   conv.status::text          AS conversation_status,
   conv.conversation_stage,
   conv.pending_action,

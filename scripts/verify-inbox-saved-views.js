@@ -387,7 +387,7 @@ const convPass = countsPlan.passes.find((p) => p.source === INBOX_VIEW_SOURCES.C
 assert('rail counts include a needs_human FILTER column',
   !!convPass
   && convPass.viewIds.includes('needs_human')
-  && /COUNT\(\*\) FILTER \(WHERE conv\.needs_human = TRUE\)::int AS "needs_human"/.test(convPass.sql));
+  && /COUNT\(\*\) FILTER \(WHERE conv\.needs_human = TRUE AND NOT \(.+metadata->>'is_spam'/.test(convPass.sql));
 assert('needs_attention is not counted on the rail',
   !countsPlan.views.some((v) => v.id === 'needs_attention')
   && countsPlan.passes.every((p) => !p.viewIds.includes('needs_attention')));
@@ -397,7 +397,7 @@ assert('getConversationInboxCountsQuery accepts needsHuman columns',
       { key: 'all', channel: null },
       { key: 'needs_human', channel: null, needsHuman: true },
     ],
-  }).includes('FILTER (WHERE conv.needs_human = TRUE)'));
+  }).includes("FILTER (WHERE conv.needs_human = TRUE AND NOT (lower(btrim(COALESCE(conv.metadata->>'is_spam'"));
 
 console.log('\n[5] Tenant and location scoping on every available view');
 

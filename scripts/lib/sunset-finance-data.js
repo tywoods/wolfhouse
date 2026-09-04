@@ -35,7 +35,7 @@ const BSR_SQL = `
 `;
 
 const BOOKINGS_SQL = `
-  SELECT DISTINCT b.id AS booking_id, b.total_amount_cents, b.balance_due_cents
+  SELECT DISTINCT b.id AS booking_id, b.total_amount_cents, b.balance_due_cents, b.record_source
     FROM bookings b
     JOIN booking_service_records bsr ON bsr.booking_id = b.id
     JOIN clients c ON b.client_id = c.id
@@ -258,6 +258,7 @@ async function fetchSunsetFinanceData(pg, scope) {
       booking_id: r.booking_id,
       total_amount_cents: r.total_amount_cents,
       balance_due_cents: r.balance_due_cents,
+      record_source: r.record_source != null ? String(r.record_source) : null,
     }));
     const payments = rows(paymentsRes).map((r) => ({
       payment_id: r.payment_id != null ? String(r.payment_id) : null,
@@ -434,6 +435,7 @@ async function fetchLodgingFinanceData(pg, scope) {
       booking_id: r.booking_id,
       total_amount_cents: r.total_amount_cents,
       balance_due_cents: r.balance_due_cents,
+      record_source: r.record_source != null ? String(r.record_source) : null,
     }));
     const payments = rows(paymentsRes).map((r) => ({
       payment_id: r.payment_id != null ? String(r.payment_id) : null,

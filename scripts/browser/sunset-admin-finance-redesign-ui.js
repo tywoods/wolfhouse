@@ -265,6 +265,7 @@ function renderFinanceRedesignHtml(summary) {
   var out = R.outstanding || {};
   var cap = R.capacity || {};
   var products = Array.isArray(R.revenue_by_product) ? R.revenue_by_product : [];
+  var lunaBookings = R.luna_bookings || { total_bookings: 0, by_service: [] };
   var g = view.granularity || 'month';
 
   var title = financeRedesignTitle(view);
@@ -389,6 +390,15 @@ function renderFinanceRedesignHtml(summary) {
   html += '</div></div>';
 
   html += '</div>'; // hero
+
+  html += '<div class="pfb-card pfb-card--luna-bookings" data-finance-luna-bookings="1">';
+  html += '<div class="pfb-sec">Luna bookings</div>';
+  html += '<div class="pfb-mid">' + financeRedesignEsc(String(lunaBookings.total_bookings || 0)) + '</div>';
+  (Array.isArray(lunaBookings.by_service) ? lunaBookings.by_service : []).forEach(function(row){
+    html += '<div class="pfb-row"><span>' + financeRedesignEsc(row.service_type || 'other') +
+      '</span><b>' + financeRedesignEsc(String(row.quantity || 0)) + '</b></div>';
+  });
+  html += '</div>';
 
   // Two-col: product + capacity
   html += '<div class="pfb-two">';
