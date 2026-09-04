@@ -642,7 +642,7 @@ console.log('\n── inbox WhatsApp draft UI ──');
   ok('never paints the second Luna draft box',
     /mount\.hidden = true/.test(uiSrc)
     && /function renderInboxWhatsAppDraftCard[\s\S]*mount\.innerHTML = ''/.test(uiSrc)
-    && /performInboxSend\(convId, '', targetEl\)/.test(uiSrc)
+    && /performInboxSend\(activeConvId, '', targetEl\)/.test(uiSrc)
     && /closest\('#btn-send-reply'\)/.test(uiSrc)
     && !/performWhatsAppDraftSaveThenApprove\(convId, targetEl\);/.test(uiSrc));
   ok('GET URL carries conversation_id',
@@ -656,10 +656,17 @@ console.log('\n── inbox WhatsApp draft UI ──');
     sandbox.renderInboxWhatsAppDraftCard({ querySelector: () => mountNode }, { draftText: DRAFT });
     ok('live render never paints the Luna draft card', mountNode.hidden === true && mountNode.innerHTML === '');
     const ta = { disabled: false, value: 'Portal leftover' };
-    sandbox.hydrateWhatsAppReplyComposer({
+    const hydrateTarget = {
       querySelector: (sel) => (sel === '#draft-textarea' ? ta : null),
-    }, DRAFT);
-    ok('hydrate overwrites leftover reply text with Luna draft', ta.value === DRAFT);
+    };
+    sandbox.hydrateWhatsAppReplyComposer(hydrateTarget, DRAFT, { composerDirty: false });
+    ok('initial hydrate overwrites leftover reply text with Luna draft', ta.value === DRAFT);
+    ta.value = 'Unsaved staff reply that just failed to send';
+    sandbox.hydrateWhatsAppReplyComposer(hydrateTarget, DRAFT, { composerDirty: true });
+    ok('live draft refresh preserves dirty staff reply after failed send',
+      ta.value === 'Unsaved staff reply that just failed to send');
+    ok('background draft refresh does not clear Send Reply errors',
+      !/showDraftSendStatus\(statusEl, '', ''\)/.test(uiSrc));
   }
   {
     ok('reads guest phone from thread meta',
@@ -694,6 +701,7 @@ console.log('\n── inbox WhatsApp draft UI ──');
     sandbox.whatsappDraftState(V).sent = false;
     sandbox.wireInboxWhatsAppDraft(V, targetEl);
     const sendListener = listeners.find((l) => l.capture);
+    const inputListener = listeners.find((l) => l.type === 'input');
     const ev = {
       preventDefault: function () {},
       stopImmediatePropagation: function () {},
@@ -704,6 +712,41 @@ console.log('\n── inbox WhatsApp draft UI ──');
     ok('Luna-hydrated Send reply omits masked display recipient so route uses canonical phone/wa_id',
       sendCalls.length === 1 && sendCalls[0].id === V && sendCalls[0].phone === '',
       `calls=${JSON.stringify(sendCalls)}`);
+    sandbox.whatsappDraftState(V).composerDirty = true;
+    sandbox.wireInboxWhatsAppDraft(V, targetEl);
+    const sameConversationReplacement = { disabled: false, value: 'Fresh composer subtree' };
+    sandbox.hydrateWhatsAppReplyComposer(
+      { querySelector: (sel) => (sel === '#draft-textarea' ? sameConversationReplacement : null) },
+      'Same conversation durable draft',
+      sandbox.whatsappDraftState(V),
+    );
+    ok('same-conversation subtree replacement resets stale dirty state and hydrates',
+      sandbox.whatsappDraftState(V).composerDirty === false
+      && sameConversationReplacement.value === 'Same conversation durable draft');
+    const replacementTextarea = {
+      disabled: false,
+      value: 'Replacement composer staff edit',
+      closest: function (sel) { return sel === '#draft-textarea' ? this : null; },
+    };
+    sandbox.whatsappDraftState(OTHER).draftText = 'Second conversation Luna draft';
+    sandbox.whatsappDraftState(OTHER).sent = false;
+    sandbox.wireInboxWhatsAppDraft(OTHER, targetEl);
+    if (inputListener) inputListener.fn({ target: replacementTextarea });
+    sandbox.hydrateWhatsAppReplyComposer(
+      { querySelector: (sel) => (sel === '#draft-textarea' ? replacementTextarea : null) },
+      'Second conversation Luna draft',
+      sandbox.whatsappDraftState(OTHER),
+    );
+    ok('replacement composer input is delegated and survives live hydration',
+      replacementTextarea.value === 'Replacement composer staff edit'
+      && sandbox.whatsappDraftState(OTHER).composerDirty === true);
+    if (sendListener) sendListener.fn(ev);
+    ok('reused detail container sends the current conversation, not the first closure',
+      sendCalls.length === 2 && sendCalls[1].id === OTHER && sendCalls[1].phone === '',
+      `calls=${JSON.stringify(sendCalls)}`);
+    ok('successful durable save and delete mark the composer clean',
+      /st\.draftText=text;st\.approvalId=accepted\.approval_id;st\.composerDirty=false/.test(uiSrc)
+      && /st\.approvalId=null;st\.draftText='';st\.composerDirty=false/.test(uiSrc));
   }
   {
     const executeSrc = fs.readFileSync(
