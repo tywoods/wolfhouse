@@ -170,6 +170,7 @@ function loadRuntime(withWrap) {
     inboxEmptyDetailHtml: () => '<div>select a conversation</div>',
     hideInboxMobileThread: () => {},
     inboxParkRefreshBtn: () => {},
+    inboxTeardownClearThreadDialog: () => {},
     isPortalMobile: () => false,
     conversationNeedsHuman: (c) => !!(c && c.needs_human),
     renderInboxConvCardHtml: (c) => `<div class="conv-card" data-id="${c.conversation_id}"></div>`,

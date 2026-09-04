@@ -348,11 +348,11 @@ ok('does not collide with email draft', WHATSAPP_DRAFT_PATH !== EMAIL_DRAFT_PATH
 ok('does not collide with email approve-send', WHATSAPP_APPROVE_SEND_PATH !== EMAIL_APPROVE_SEND_PATH);
 ok('minRole operator matches email drafts', WHATSAPP_DRAFT_MIN_ROLE === 'operator');
 ok('channel is whatsapp', WHATSAPP_DRAFT_CHANNEL === 'whatsapp');
-ok('route table GET+POST draft and POST approve-send operator', WHATSAPP_DRAFT_ROUTE_TABLE.length === 3
+ok('route table GET+POST+DELETE draft and POST approve-send operator', WHATSAPP_DRAFT_ROUTE_TABLE.length === 4
   && WHATSAPP_DRAFT_ROUTE_TABLE.every((r) => r.minRole === 'operator')
-  && eq(WHATSAPP_DRAFT_ROUTE_TABLE.map((r) => r.method), ['GET', 'POST', 'POST'])
-  && WHATSAPP_DRAFT_ROUTE_TABLE[2].path === WHATSAPP_APPROVE_SEND_PATH
-  && WHATSAPP_DRAFT_ROUTE_TABLE[2].id === 'whatsapp_approve_send');
+  && eq(WHATSAPP_DRAFT_ROUTE_TABLE.map((r) => r.method), ['GET', 'POST', 'DELETE', 'POST'])
+  && WHATSAPP_DRAFT_ROUTE_TABLE[3].path === WHATSAPP_APPROVE_SEND_PATH
+  && WHATSAPP_DRAFT_ROUTE_TABLE[3].id === 'whatsapp_approve_send');
 ok('POST body keys', eq(POST_BODY_KEYS.slice(), ['conversation_id', 'draft_text', 'client_slug']));
 ok('approve body keys', eq(APPROVE_BODY_KEYS.slice(), ['conversation_id', 'client_slug', 'approval_id']));
 ok('GET DTO keys', eq(GET_SUCCESS_DTO_KEYS.slice(), [
@@ -450,8 +450,8 @@ for (const dep of ['sendJSON', 'send400', 'readBody', 'assertStaffClientAccess',
 const dispatchStart = apiSrc.indexOf('if (pathname === WHATSAPP_DRAFT_PATH)');
 ok('router matches the whatsapp draft path', dispatchStart > 0);
 const dispatch = apiSrc.slice(dispatchStart, dispatchStart + 900);
-ok('router requires operator auth on GET and POST',
-  (dispatch.match(/requireAuth\(req, res, 'operator'\)/g) || []).length === 2);
+ok('router requires operator auth on GET, POST and DELETE',
+  (dispatch.match(/requireAuth\(req, res, 'operator'\)/g) || []).length === 3);
 ok('router minRole matches every route table entry',
   WHATSAPP_DRAFT_ROUTE_TABLE.every((r) => r.minRole === 'operator'));
 ok('router dispatches GET then POST handlers',
@@ -459,7 +459,7 @@ ok('router dispatches GET then POST handlers',
   && dispatch.indexOf('handleWhatsAppDraftPost(') > dispatch.indexOf('handleWhatsAppDraftGet('));
 ok('router authenticates before dispatching GET',
   dispatch.indexOf("requireAuth(req, res, 'operator')") < dispatch.indexOf('handleWhatsAppDraftGet('));
-ok('router rejects other methods', /Allow: 'GET, POST'/.test(dispatch));
+ok('router rejects other methods', /Allow: 'GET, POST, DELETE'/.test(dispatch));
 const approveDispatchStart = apiSrc.indexOf('if (pathname === WHATSAPP_APPROVE_SEND_PATH)');
 ok('router matches the whatsapp approve-send path', approveDispatchStart > 0);
 const approveDispatch = apiSrc.slice(approveDispatchStart, approveDispatchStart + 700);

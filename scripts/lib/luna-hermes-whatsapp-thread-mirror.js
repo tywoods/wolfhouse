@@ -166,7 +166,7 @@ async function stageHermesWhatsAppOutboundDraft(pg, input) {
   }
 }
 
-async function expirePendingWhatsAppDraftForConversation(pg, clientId, conversationId) {
+async function deletePendingWhatsAppDraftForConversation(pg, clientId, conversationId) {
   const cid = trimStr(clientId);
   const conv = trimStr(conversationId);
   if (!cid || !conv) return { expired: 0 };
@@ -177,6 +177,9 @@ async function expirePendingWhatsAppDraftForConversation(pg, clientId, conversat
     return { expired: 0 };
   }
 }
+// Existing callers expire on successful send; explicit Delete uses the same
+// tenant+conversation+pending-only CAS semantics.
+const expirePendingWhatsAppDraftForConversation = deletePendingWhatsAppDraftForConversation;
 
 function parseHermesWhatsAppThreadMirrorBody(body) {
   const src = body || {};

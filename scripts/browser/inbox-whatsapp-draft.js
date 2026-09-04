@@ -14,6 +14,8 @@ var WHATSAPP_DRAFT_MAX_UTF8_BYTES = 8000;
 var WHATSAPP_DRAFT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 var _whatsappDraftStateByConv = Object.create(null);
 var _whatsappDraftUtf8Encoder = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
+var WHATSAPP_DELETE_OK_KEYS = ['success','conversation_id','channel','deleted'];
+var WHATSAPP_SAVE_OK_KEYS = ['success','conversation_id','channel','approval_id','draft_text','status'];
 
 function whatsappDraftState(convId){
   var id = String(convId || '');
@@ -43,6 +45,20 @@ function whatsappDraftCanonicalUuid(raw){
   if (typeof raw !== 'string') return null;
   var t = raw.trim().toLowerCase();
   return WHATSAPP_DRAFT_UUID_RE.test(t) ? t : null;
+}
+function whatsappDraftExactKeys(data,keys){
+  try{if(!data||typeof data!=='object'||Array.isArray(data)||Object.getPrototypeOf(data)!==Object.prototype)return false;var actual=Reflect.ownKeys(data);if(actual.length!==keys.length)return false;return actual.every(function(k){var d=Object.getOwnPropertyDescriptor(data,k);return typeof k==='string'&&keys.indexOf(k)>=0&&d&&d.enumerable&&Object.prototype.hasOwnProperty.call(d,'value')&&!d.get&&!d.set;});}catch(_e){return false;}
+}
+function acceptWhatsAppDeleteSuccess(data,convId){
+  if(!whatsappDraftExactKeys(data,WHATSAPP_DELETE_OK_KEYS)||data.success!==true||data.channel!=='whatsapp'||typeof data.deleted!=='boolean')return null;
+  var cid=whatsappDraftCanonicalUuid(data.conversation_id);return cid&&cid===String(convId).toLowerCase()?data:null;
+}
+function acceptWhatsAppSaveSuccess(data,convId,text){
+  if(!whatsappDraftExactKeys(data,WHATSAPP_SAVE_OK_KEYS)||data.success!==true||data.channel!=='whatsapp'||data.status!=='pending'||data.draft_text!==text)return null;
+  var cid=whatsappDraftCanonicalUuid(data.conversation_id),aid=whatsappDraftCanonicalUuid(data.approval_id);return cid&&cid===String(convId).toLowerCase()&&aid?{approval_id:aid}:null;
+}
+function setWhatsAppComposerLocked(targetEl,locked){
+  if(!targetEl)return;['#draft-textarea','#btn-save-draft','#btn-delete-draft','#btn-send-reply'].forEach(function(sel){var node=targetEl.querySelector(sel);if(node)node.disabled=!!locked;});
 }
 
 function whatsappDraftGetUrl(convId){
@@ -322,7 +338,7 @@ function performWhatsAppDraftApprove(convId, targetEl){
     var ta = whatsappDraftMount(targetEl) && whatsappDraftMount(targetEl).querySelector('#whatsapp-draft-textarea');
     var live = ta ? String(ta.value == null ? '' : ta.value) : '';
     if (live !== st.draftText) {
-      showDraftSendStatus(whatsappDraftStatusEl(targetEl), 'error', 'Save the current text before approving.');
+      showDraftSendStatus(whatsappDraftStatusEl(targetEl), 'error', 'Save this edit before approving.');
       return;
     }
   }
@@ -440,6 +456,31 @@ function performWhatsAppDraftSaveThenApprove(convId, targetEl){
     });
 }
 
+function performWhatsAppDraftDelete(convId, targetEl){
+  var st=whatsappDraftState(convId),ta=targetEl&&targetEl.querySelector('#draft-textarea');
+  if(!ta||st.inFlight)return;
+  var approval=whatsappDraftCanonicalUuid(st.approvalId);
+  if(!approval){whatsappDraftShowStatus(targetEl,'error','Delete failed');return;}
+  var exact=String(ta.value==null?'':ta.value),snap=String(convId),mySeq=++st.seq;st.inFlight=true;setWhatsAppComposerLocked(targetEl,true);
+  fetch(whatsappDraftGetUrl(convId)+'&approval_id='+encodeURIComponent(approval),{method:'DELETE',headers:{Accept:'application/json'}}).then(whatsappDraftParseFetchJson).then(function(out){
+    if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;
+    var accepted=acceptWhatsAppDeleteSuccess(out.parseOk&&out.status===200?out.data:null,snap);
+    if(accepted&&accepted.deleted===true&&ta.value===exact&&st.approvalId===approval){ta.value='';st.approvalId=null;st.draftText='';whatsappDraftShowStatus(targetEl,'ok','Draft deleted');}
+    else whatsappDraftShowStatus(targetEl,'error','Delete failed. Reload to confirm the current draft.');setWhatsAppComposerLocked(targetEl,false);
+  }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;whatsappDraftShowStatus(targetEl,'error','Delete failed');setWhatsAppComposerLocked(targetEl,false);});
+}
+function performWhatsAppComposerSave(convId,targetEl){
+  var st=whatsappDraftState(convId),ta=targetEl&&targetEl.querySelector('#draft-textarea');if(!ta||st.inFlight)return;
+  var text=String(ta.value==null?'':ta.value);if(!text.length||whatsappDraftUtf8ByteLength(text)>WHATSAPP_DRAFT_MAX_UTF8_BYTES){whatsappDraftShowStatus(targetEl,'error','Enter valid draft text before saving.');return;}
+  var snap=String(convId),mySeq=++st.seq;st.inFlight=true;setWhatsAppComposerLocked(targetEl,true);
+  fetch('/staff/inbox/whatsapp/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId,draft_text:text,client_slug:getClient()})}).then(whatsappDraftParseFetchJson).then(function(out){
+    if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;
+    var accepted=acceptWhatsAppSaveSuccess(out.parseOk&&out.status===200?out.data:null,snap,text);
+    if(accepted&&ta.value===text){st.draftText=text;st.approvalId=accepted.approval_id;whatsappDraftShowStatus(targetEl,'ok','Draft saved');}
+    else whatsappDraftShowStatus(targetEl,'error','Save failed');setWhatsAppComposerLocked(targetEl,false);
+  }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;whatsappDraftShowStatus(targetEl,'error','Save failed');setWhatsAppComposerLocked(targetEl,false);});
+}
+
 function wireInboxWhatsAppDraft(convId, targetEl){
   var mount = whatsappDraftMount(targetEl);
   if (!mount) return;
@@ -460,6 +501,12 @@ function wireInboxWhatsAppDraft(convId, targetEl){
       var btn = ev.target && ev.target.closest ? ev.target.closest('#btn-send-reply') : null;
       if (!btn || !targetEl.contains(btn)) return;
       var st = whatsappDraftState(convId);
+      if (st.inFlight) {
+        if (ev.preventDefault) ev.preventDefault();
+        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
+        if (ev.stopPropagation) ev.stopPropagation();
+        return;
+      }
       if (!st.draftText || st.sent) return;
       // Staff Send reply must use the staff send helper. approve-send is
       // blocked by dry-run / auto-send kill switches (empty status = nothing happens).
@@ -473,5 +520,9 @@ function wireInboxWhatsAppDraft(convId, targetEl){
       performInboxSend(convId, '', targetEl);
     }, true);
   }
+  var saveDraftBtn = targetEl && targetEl.querySelector('#btn-save-draft');
+  var deleteDraftBtn = targetEl && targetEl.querySelector('#btn-delete-draft');
+  if (saveDraftBtn) saveDraftBtn.addEventListener('click', function(){ performWhatsAppComposerSave(convId, targetEl); });
+  if (deleteDraftBtn) deleteDraftBtn.addEventListener('click', function(){ performWhatsAppDraftDelete(convId, targetEl); });
   loadInboxWhatsAppDraft(convId, targetEl);
 }
