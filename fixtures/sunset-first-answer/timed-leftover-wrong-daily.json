@@ -8,22 +8,22 @@
     "missing_course_open_spots"
   ],
   "guest": {
-    "message": "Thursday 10:00 for 14",
-    "date": "2026-09-03",
-    "quantity": 14,
-    "slot_time": "10:00"
+    "message": "Friday 25 September at 12:00 for 5",
+    "date": "2026-09-25",
+    "quantity": 5,
+    "slot_time": "12:00"
   },
   "staff": {
     "scope": "course_slot",
-    "course_id": "curso-matutino",
-    "slot_time": "10:00",
-    "course_capacity": 25,
-    "seats_booked": 3,
-    "seats_available": 22,
-    "requested_quantity": 14,
+    "course_id": "f8d21572-63b5-4187-8fe8-73d18e15d4f3",
+    "slot_time": "12:00",
+    "course_capacity": 24,
+    "seats_booked": 13,
+    "seats_available": 11,
+    "requested_quantity": 5,
     "has_seats": true,
     "daily_capacity": null,
     "poison_daily_remaining": 1
   },
-  "first_reply": "Thursday at 10:00 only has 1 spot left for the day, so 14 will not fit — that class is basically full."
+  "first_reply": "Friday at 12:00 only has 1 spot left for the day, so 5 will not fit — that class is basically full."
 }

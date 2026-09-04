@@ -8,19 +8,20 @@
   ],
   "purpose": "When the guest requests exactly one place, the first answer must fail closed on mixed singular/plural copy such as '1 places'.",
   "guest": {
-    "message": "Is there room for 1 person in Thursday's 10:00 class?",
-    "date": "2026-09-03",
+    "message": "Is there room for 1 person in Friday 25 September's 12:00 class?",
+    "date": "2026-09-25",
     "quantity": 1,
-    "slot_time": "10:00"
+    "slot_time": "12:00"
   },
   "staff": {
     "scope": "course_slot",
-    "course_capacity": 25,
-    "seats_booked": 0,
-    "seats_available": 25,
+    "course_id": "f8d21572-63b5-4187-8fe8-73d18e15d4f3",
+    "course_capacity": 24,
+    "seats_booked": 13,
+    "seats_available": 11,
     "has_seats": true,
     "reason": null,
-    "slot_time": "10:00"
+    "slot_time": "12:00"
   },
-  "first_reply": "There are 25 open spots in the 10:00 class. Would you like 1 places?"
+  "first_reply": "There are 11 open spots in the 12:00 class. Would you like 1 places?"
 }
