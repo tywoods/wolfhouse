@@ -17,6 +17,8 @@ assert.match(spam.SQL_SET_CONVERSATION_SPAM, /c\.slug = \$2/);
 assert.match(spam.SQL_SET_CONVERSATION_SPAM, /conv\.id = \$1::uuid/);
 assert.match(spam.setConversationSpam.toString(), /BEGIN/);
 assert.match(spam.setConversationSpam.toString(), /pauseConversation/);
+assert.match(spam.setConversationSpam.toString(), /resumeConversation/);
+assert.match(spam.setConversationSpam.toString(), /resumed_by/);
 assert.doesNotMatch(spam.setConversationSpam.toString(), /UPDATE bot_pause_states/);
 assert.strictEqual(spam.normalizeSpamSelection('spam'), true);
 assert.strictEqual(spam.normalizeSpamSelection('all'), false);
@@ -32,6 +34,12 @@ assert.match(countsSql, /FILTER \(WHERE NOT \(/);
 assert.doesNotMatch(countsSql, /AND NOT \([^\n]+is_spam[^\n]+\)\s*$/m,
   'outer count scope must include spam so its filtered count is non-zero');
 console.log('ok - server-authoritative tenant/thread spam contract');
+
+const { listInboxSavedViewDeclarations } = require('./lib/staff-inbox-saved-views');
+const railIds = listInboxSavedViewDeclarations().filter((view) => view.rail !== false).map((view) => view.id);
+assert.strictEqual(railIds.indexOf('upcoming'), railIds.indexOf('checked_in') + 1);
+assert.strictEqual(railIds.indexOf('spam'), railIds.indexOf('lesson_today') + 1);
+console.log('ok - Inbox rail places Upcoming under Checked in and Spam under Lesson today');
 
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const summary = computeSunsetFinanceSummary({

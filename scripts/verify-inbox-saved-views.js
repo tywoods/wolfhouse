@@ -125,8 +125,13 @@ for (const specLabel of [
 }
 
 assert('people views support broadcast multi-select',
-  declarations.filter((v) => v.group === 'people' && v.available && v.rail !== false && v.id !== 'do_not_contact')
+  declarations.filter((v) => v.group === 'people' && v.available && v.rail !== false
+    && v.id !== 'do_not_contact' && v.id !== 'spam')
     .every((v) => v.multiSelect === true));
+assert('spam is a non-broadcast conversation filter under Lesson today',
+  getInboxSavedViewDeclaration('spam').group === 'people'
+  && getInboxSavedViewDeclaration('spam').multiSelect === false
+  && ids.indexOf('spam') === ids.indexOf('lesson_today') + 1);
 assert('do_not_contact is never multi-selectable',
   getInboxSavedViewDeclaration('do_not_contact').multiSelect === false);
 assert('needs_attention CRM view stays off the rail',
