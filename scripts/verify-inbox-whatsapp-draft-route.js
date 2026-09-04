@@ -642,7 +642,7 @@ console.log('\n── inbox WhatsApp draft UI ──');
   ok('never paints the second Luna draft box',
     /mount\.hidden = true/.test(uiSrc)
     && /function renderInboxWhatsAppDraftCard[\s\S]*mount\.innerHTML = ''/.test(uiSrc)
-    && /performInboxSend\(convId, inboxWhatsAppDraftGuestPhone/.test(uiSrc)
+    && /performInboxSend\(convId, '', targetEl\)/.test(uiSrc)
     && /closest\('#btn-send-reply'\)/.test(uiSrc)
     && !/performWhatsAppDraftSaveThenApprove\(convId, targetEl\);/.test(uiSrc));
   ok('GET URL carries conversation_id',
@@ -701,9 +701,9 @@ console.log('\n── inbox WhatsApp draft UI ──');
       target: { closest: function (sel) { return sel === '#btn-send-reply' ? { id: 'btn-send-reply' } : null; } },
     };
     if (sendListener) sendListener.fn(ev);
-    ok('Send reply with pending draft calls staff send-reply',
-      sendCalls.length === 1 && sendCalls[0].id === V && sendCalls[0].phone === '+491726422307',
-      `calls=${sendCalls.length}`);
+    ok('Luna-hydrated Send reply omits masked display recipient so route uses canonical phone/wa_id',
+      sendCalls.length === 1 && sendCalls[0].id === V && sendCalls[0].phone === '',
+      `calls=${JSON.stringify(sendCalls)}`);
   }
   {
     const executeSrc = fs.readFileSync(

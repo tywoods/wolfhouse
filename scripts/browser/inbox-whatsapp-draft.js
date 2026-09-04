@@ -467,7 +467,10 @@ function wireInboxWhatsAppDraft(convId, targetEl){
       if (ev.preventDefault) ev.preventDefault();
       if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
       if (ev.stopPropagation) ev.stopPropagation();
-      performInboxSend(convId, inboxWhatsAppDraftGuestPhone(targetEl), targetEl);
+      // Header contact text is presentation data and can be masked/formatted.
+      // Omit `to`; the route resolves the owned conversation's canonical phone/wa_id.
+      // Non-empty forged recipients remain rejected at the route boundary.
+      performInboxSend(convId, '', targetEl);
     }, true);
   }
   loadInboxWhatsAppDraft(convId, targetEl);
