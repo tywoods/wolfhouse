@@ -58,8 +58,9 @@ ok('Email sent bar hides after 20 seconds',
   && thread.includes('function inboxEmailSentStatusMs')
   && thread.includes("message === 'Email sent'")
   && thread.includes('setTimeout'));
-ok('Save draft stays in DOM for draft tests but is hidden',
+ok('Save stays intentionally hidden and Delete is visible',
   thread.includes('id="btn-email-save-draft" hidden')
+  && thread.includes('id="btn-delete-draft"')
   && thread.includes("id=\"btn-email-approve-send\""));
 ok('no Email Auto and no Luna auto-send in this slice',
   thread.includes('/staff/inbox/email/approve-send')

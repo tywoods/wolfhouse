@@ -594,6 +594,8 @@ const STAFF_PORTAL_STRINGS = {
     'inbox.detail.email.contextAria': 'Draft context',
     'inbox.detail.email.generateLuna': 'Generate Luna draft',
     'inbox.detail.email.saveDraft': 'Save draft',
+    'inbox.detail.reply.saveDraft': 'Save draft',
+    'inbox.detail.reply.deleteDraft': 'Delete draft',
     'inbox.detail.email.createDraft': 'Create Draft',
     'inbox.detail.email.approveSend': 'Approve & send',
     'inbox.detail.reply.send': 'Send reply',

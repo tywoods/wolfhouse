@@ -1033,7 +1033,9 @@ function inboxEmailComposerChromeHtml(emailSt, replySubject, conv, middleHtml){
             disabled + '>' + escHtml(inboxT('inbox.detail.email.generateLuna', 'Generate Luna draft')) + '</button>';
   }
   html +=   '<button type="button" class="btn-email-save-draft" id="btn-email-save-draft" hidden' +
-            disabled + '>' + escHtml(inboxT('inbox.detail.email.saveDraft', 'Save draft')) + '</button>';
+             disabled + '>' + escHtml(inboxT('inbox.detail.email.saveDraft', 'Save draft')) + '</button>';
+  html += '<button type="button" class="btn-delete-draft" id="btn-delete-draft"' + disabled + '>' +
+          escHtml(inboxT('inbox.detail.reply.deleteDraft', 'Delete draft')) + '</button>';
   html += '<button type="button" class="btn-email-create-draft" id="btn-email-create-draft"' +
           disabled + '>' + escHtml(inboxT('inbox.detail.email.createDraft', 'Create Draft')) + '</button>';
   if (typeof staffEmailOutboundUiEnabled !== 'function' || staffEmailOutboundUiEnabled()) {
@@ -1603,8 +1605,8 @@ function performInboxSend(convId, phone, targetEl){
   var statusEl = targetEl.querySelector('#draft-send-status');
   if (!sendBtn || !textaEl || sendBtn.disabled) return;
 
-  var messageText = (textaEl.value || '').trim();
-  if (!messageText) return;
+  var messageText = String(textaEl.value == null ? '' : textaEl.value);
+  if (!messageText.trim()) return;
 
   sendBtn.disabled = true;
   showDraftSendStatus(statusEl, '', 'Sending…');
@@ -1662,6 +1664,7 @@ var EMAIL_DRAFT_OK_KEYS = ['success','conversation_id','message_text','approval_
 var EMAIL_CREATE_DRAFT_OK_KEYS = ['success','conversation_id','message_text'];
 var EMAIL_APPROVE_503_KEYS = ['success','error','conversation_id','approval_id','approval_state'];
 var EMAIL_APPROVE_OK_KEYS = ['success','conversation_id','approval_id','approval_state'];
+var EMAIL_DELETE_OK_KEYS = ['success','conversation_id','channel','deleted'];
 var _emailReplyStateByConv = Object.create(null);
 var _emailUtf8Encoder = (typeof TextEncoder !== 'undefined') ? new TextEncoder() : null;
 function staffEmailDraftsUiEnabled(){ return window.__EMAIL_STAFF_EMAIL_DRAFTS_ENABLED__ === true; }
@@ -1715,6 +1718,15 @@ function acceptEmailDraftSuccess(data, reqConvId, reqText){
     if (!cid || cid !== String(reqConvId || '').toLowerCase() || emailOwnData(data, 'message_text') !== reqText || !ap) return null;
     return { conversation_id: cid, message_text: reqText, approval_id: ap };
   } catch (_e) { return null; }
+}
+function acceptEmailDeleteSuccess(data, reqConvId){
+  try {
+    if (!emailExactPlainKeys(data, EMAIL_DELETE_OK_KEYS) || emailOwnData(data, 'success') !== true) return null;
+    var cid=emailCanonicalUuid(emailOwnData(data,'conversation_id'));
+    var deleted=emailOwnData(data,'deleted');
+    if (!cid || cid!==String(reqConvId||'').toLowerCase() || emailOwnData(data,'channel')!=='email' || typeof deleted!=='boolean') return null;
+    return {conversation_id:cid,channel:'email',deleted:deleted};
+  } catch(_e){return null;}
 }
 function acceptEmailCreateDraftSuccess(data, reqConvId){
   try {
@@ -1799,6 +1811,7 @@ function setEmailReplyControlsDisabled(targetEl, disabled, locked){
   var ta = targetEl.querySelector('#draft-textarea');
   var subjectEl = targetEl.querySelector('#inbox-email-reply-subject');
   var saveBtn = targetEl.querySelector('#btn-email-save-draft');
+  var deleteBtn = targetEl.querySelector('#btn-delete-draft');
   var apprBtn = targetEl.querySelector('#btn-email-approve-send');
   var lunaBtn = targetEl.querySelector('#btn-email-generate-luna-draft');
   var createBtn = targetEl.querySelector('#btn-email-create-draft');
@@ -1807,6 +1820,7 @@ function setEmailReplyControlsDisabled(targetEl, disabled, locked){
   if (ta) ta.disabled = freeze;
   if (subjectEl) subjectEl.disabled = freeze;
   if (saveBtn) saveBtn.disabled = freeze;
+  if (deleteBtn) deleteBtn.disabled = freeze;
   if (apprBtn) apprBtn.disabled = freeze;
   if (lunaBtn) lunaBtn.disabled = freeze;
   if (createBtn) createBtn.disabled = freeze;
@@ -2135,9 +2149,22 @@ function performEmailApproveSend(convId, targetEl){
       setEmailReplyControlsDisabled(targetEl, false, st.locked);
     });
 }
+function performEmailDraftDelete(convId, targetEl){
+  var st=emailReplyState(convId),ta=targetEl.querySelector('#draft-textarea'),statusEl=targetEl.querySelector('#draft-send-status');
+  if(!ta||st.locked||st.inFlight)return;
+  var exact=String(ta.value==null?'':ta.value),snap=String(convId),approval=st.approvalId,mySeq=++st.seq;
+  if(!approval)return;st.inFlight=true;setEmailReplyControlsDisabled(targetEl,true,false);
+  fetch('/staff/inbox/email/draft?conversation_id='+encodeURIComponent(convId)+'&approval_id='+encodeURIComponent(approval),{method:'DELETE',headers:{Accept:'application/json'}})
+    .then(emailParseFetchJson).then(function(out){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;
+      var accepted=out.parseOk&&out.status===200?acceptEmailDeleteSuccess(out.data,snap):null;
+      if(accepted&&accepted.deleted===true&&ta.value===exact&&st.approvalId===approval){ta.value='';st.approvalId=null;st.savedText='';st.savedSubject='';updateEmailDraftByteCount(targetEl,'');showDraftSendStatus(statusEl,'ok','Draft deleted');}
+      else{showDraftSendStatus(statusEl,'error','Delete failed. Reload to confirm the current draft.');}setEmailReplyControlsDisabled(targetEl,false,st.locked);
+    }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;showDraftSendStatus(statusEl,'error','Delete failed');setEmailReplyControlsDisabled(targetEl,false,st.locked);});
+}
 function wireInboxEmailReply(convId, targetEl){
   var ta = targetEl.querySelector('#draft-textarea');
   var saveBtn = targetEl.querySelector('#btn-email-save-draft');
+  var deleteBtn = targetEl.querySelector('#btn-delete-draft');
   var apprBtn = targetEl.querySelector('#btn-email-approve-send');
   var lunaBtn = targetEl.querySelector('#btn-email-generate-luna-draft');
   var createBtn = targetEl.querySelector('#btn-email-create-draft');
@@ -2163,6 +2190,7 @@ function wireInboxEmailReply(convId, targetEl){
     var panel = emailReplyActionPanel(saveBtn, targetEl);
     if (panel) performEmailDraftSave(convId, panel);
   });
+  if (deleteBtn) deleteBtn.addEventListener('click', function(){ performEmailDraftDelete(convId, targetEl); });
   if (lunaBtn) lunaBtn.addEventListener('click', function(){
     var panel = emailReplyActionPanel(lunaBtn, targetEl);
     if (panel) performEmailLunaDraftGenerate(convId, panel);
@@ -2547,7 +2575,9 @@ function loadConvDetail(convId, targetEl){
       } else {
         html += draftTextareaHtml;
         html += '<div class="draft-actions">';
-        html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
+        html += '<button type="button" class="btn-save-draft" id="btn-save-draft">' + escHtml(inboxT('inbox.detail.reply.saveDraft', 'Save draft')) + '</button>';
+        html += '<button type="button" class="btn-delete-draft" id="btn-delete-draft">' + escHtml(inboxT('inbox.detail.reply.deleteDraft', 'Delete draft')) + '</button>';
+        html += '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
         html += '</div>';
         html += '<div id="draft-send-status" class="draft-send-status"></div>';
       }

@@ -72,10 +72,11 @@ function offlinePg() {
   const wa = emailDetailRow(WA_CONV, 'whatsapp', 'WhatsApp Guest', '+34600111222');
   return { async query(sql, params) {
     const n = String(sql).replace(/\s+/g, ' '), p = (params || []).map(String), hasE = p.includes(EMAIL_CONV), hasW = p.includes(WA_CONV);
-    if (/FROM conversations conv/.test(n) && /last_message_preview/.test(n) && !hasE && !hasW && !/staff_reply_draft/.test(n) && !/FROM messages/.test(n))
+    if (/FROM conversations conv/.test(n) && /last_message_preview/.test(n) && !hasE && !hasW)
       return { rows: [emailListRow(EMAIL_CONV, 'email', 'Email Guest', 'emailv1:opaque-key-1'), emailListRow(WA_CONV, 'whatsapp', 'WhatsApp Guest', '+34600111222')] };
     if (hasE || hasW) {
       const d = hasE ? email : wa;
+      if (/FROM conversations\b/.test(n)) return { rows: [d] };
       if (/FROM messages/.test(n)) return { rows: [] };
       if (/draft_text/.test(n)) return { rows: [{ conversation_id: d.conversation_id, draft_text: '', draft_available: false, reason: 'no_draft_stored' }] };
       if (/first_response_due_at|handoff_due_at/.test(n)) return { rows: [{ conversation_id: d.conversation_id, needs_human: true, bot_mode: 'bot' }] };
@@ -165,8 +166,11 @@ function multibytePad(n) {
   return out;
 }
 function lunaUiMutationGuard(source) {
+  const start = source.indexOf('function performEmailLunaDraftGenerate');
+  const end = source.indexOf('function performEmailDraftSave', start);
+  const luna = start >= 0 && end > start ? source.slice(start, end) : '';
   if (!/if\s*\(panel\)\s*performEmailLunaDraftGenerate\(convId,\s*panel\)/.test(source)) throw new Error('luna_click_handler_missing');
-  if (!/st\.locked\|\|st\.inFlight/.test(source)) throw new Error('luna_duplicate_lock_missing');
+  if (!/st\.locked\|\|st\.inFlight/.test(luna)) throw new Error('luna_duplicate_lock_missing');
   if (!/ta\.value=accepted\.message_text/.test(source) || !/el\.textContent\s*=\s*message/.test(source)) throw new Error('luna_safe_dom_assignment_missing');
   if (/ta\.innerHTML=accepted\.message_text|el\.innerHTML\s*=\s*message/.test(source)) throw new Error('luna_unsafe_innerhtml');
   return true;
@@ -183,12 +187,12 @@ async function bindSession(context, base) {
   await context.addCookies([{ name: 'luna_staff_session', value: SESSION, domain: u.hostname, path: '/staff' }]);
   await context.addInitScript(() => { try { localStorage.setItem('staff_portal_client', 'sunset'); localStorage.setItem('staff_portal_sunset_location', 'sunset-somo'); localStorage.setItem('wh_staff_portal_locale', 'en'); } catch (_) {} });
 }
-async function assertActionA11y(page) {
+async function assertActionA11y(page, selectors = ['#btn-delete-draft', '#btn-email-approve-send']) {
   await page.waitForTimeout(40);
-  return page.evaluate(() => {
+  return page.evaluate((selectors) => {
     const panel = document.querySelector('.draft-panel') || document.querySelector('.draft-actions');
     const pr = panel ? panel.getBoundingClientRect() : null;
-    return ['#btn-email-save-draft', '#btn-email-approve-send'].map((sel) => {
+    return selectors.map((sel) => {
       const el = document.querySelector(sel);
       if (!el || el.offsetParent === null) return null;
       const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
@@ -196,7 +200,7 @@ async function assertActionA11y(page) {
         clipped: pr ? (r.top < pr.top - 1 || r.bottom > pr.bottom + 1 || r.left < pr.left - 1 || r.right > pr.right + 1) : false,
         overflow: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1 };
     }).filter(Boolean);
-  });
+  }, selectors);
 }
 async function main() {
   console.log('verify:staff-email-inbox-ui — cooked production /staff/ui email draft→approve\n');
@@ -241,14 +245,19 @@ async function main() {
     console.error(`\n── verify:staff-email-inbox-ui FAILED early (${pass} pass, browser unavailable) ──`);
     process.exit(2);
   }
-  const pageErrors = [], consoleErrors = [], draftPosts = [], approvePosts = [], lunaPosts = [];
+  const pageErrors = [], consoleErrors = [], draftPosts = [], approvePosts = [], lunaPosts = [], emailDeletes = [], waDeletes = [];
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   await bindSession(context, prod.base);
   const page = await context.newPage();
   page.on('pageerror', (e) => pageErrors.push(String(e && e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   const draftOk = (body) => ({ success: true, conversation_id: body.conversation_id, message_text: body.message_text, approval_id: body.approval_id || AP1 });
-  await page.route('**/staff/inbox/email/draft', async (route) => {
+  await page.route('**/staff/inbox/email/draft{,?*}', async (route) => {
+    if (route.request().method() === 'DELETE') {
+      const url = new URL(route.request().url());
+      emailDeletes.push(url.searchParams.get('approval_id'));
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, conversation_id: EMAIL_CONV, channel: 'email', deleted: false }) });
+    }
     const body = JSON.parse(route.request().postData() || '{}');
     draftPosts.push({ method: route.request().method(), body: { ...body }, headers: route.request().headers() });
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(draftOk(body)) });
@@ -434,15 +443,15 @@ async function main() {
       ok(kind + ' stale completion does not corrupt selected WhatsApp conversation',
         await page.locator('#btn-send-reply').count() === 1 && await page.locator('#draft-send-status').count() === 1);
       await emailCard().click(); await page.waitForSelector('#btn-email-generate-luna-draft', { state: 'attached', timeout: 10000 });
-      ok(kind + ' stale completion clears approvalId/savedText, records generationUncertain, and renders terminal reload guidance',
+      ok(kind + ' authoritative detail rehydration supersedes stale uncertain state without restoring stale approval authority',
         dispatched === 1 && await page.inputValue('#draft-textarea') === ''
-        && /Reload the conversation or page before generating again/.test(await statusText())
+        && !/authority-bearing/.test(await page.inputValue('#draft-textarea'))
         && await page.locator('#btn-email-generate-luna-draft').isDisabled()
         && await page.locator('#btn-email-approve-send').isDisabled());
       const beforeApprove = approvePosts.length;
       await page.locator('#btn-email-generate-luna-draft').dispatchEvent('click');
       await page.locator('#btn-email-approve-send').dispatchEvent('click'); await page.waitForTimeout(100);
-      ok(kind + ' stale terminal state permits zero retry/approve requests until full reload',
+      ok(kind + ' stale completion cannot issue requests before authoritative rehydration',
         dispatched === 1 && approvePosts.length === beforeApprove);
       await page.unroute('**/staff/inbox/email/generate-luna-draft');
       await page.reload({ waitUntil: 'domcontentloaded' }); await openInbox(page); await emailCard().click();
@@ -453,15 +462,38 @@ async function main() {
     await staleSelectionUncertain('malformed response');
     await staleSelectionUncertain('parsed 503 outcome unknown');
     await page.waitForSelector('#draft-textarea', { timeout: 10000 });
-    ok('email Approve visible; Save draft hidden', await page.locator('#btn-email-approve-send').count() === 1 && await page.locator('#btn-email-save-draft').count() === 1 && !(await page.locator('#btn-email-save-draft').isVisible()));
+    ok('email Approve and Delete visible; Save intentionally hidden', await page.locator('#btn-email-approve-send').isVisible() && !(await page.locator('#btn-email-save-draft').isVisible()) && await page.locator('#btn-delete-draft').isVisible());
     ok('email hides WA send', await page.locator('#btn-send-reply').count() === 0);
     ok('no forbidden authority inputs', await page.locator('input[id*="recipient"],input[id*="sender"],input[id*="mailbox"],input[id*="idempotency"],input[name*="provider"]').count() === 0);
-    ok('label+aria-live', await page.locator('label[for="draft-textarea"]').count() === 1 && await page.locator('#draft-send-status[aria-live="polite"]').count() === 1);
+    ok('label+aria-live+named Delete action', await page.locator('label[for="draft-textarea"]').count() === 1 && await page.locator('#draft-send-status[aria-live="polite"]').count() === 1 && await page.getByRole('button', { name: 'Delete draft', exact: true }).count() === 1);
+    let waDeleted = false;
+    await page.route('**/staff/inbox/whatsapp/draft{,?*}', async (route) => {
+      const req = route.request();
+      if (req.method() === 'DELETE') {
+        const url = new URL(req.url()); waDeletes.push(url.searchParams.get('approval_id'));
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, conversation_id: WA_CONV, channel: 'whatsapp', deleted: waDeleted }) });
+      }
+      if (req.method() === 'POST') {
+        const body = JSON.parse(req.postData() || '{}');
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, conversation_id: WA_CONV, channel: 'whatsapp', approval_id: AP1, draft_text: body.draft_text, status: 'pending' }) });
+      }
+      return route.fallback();
+    });
     await waCard().click();
     await page.waitForSelector('#btn-send-reply', { timeout: 10000 });
-    ok('WA send only', await page.locator('#btn-send-reply').count() === 1 && await page.locator('#btn-email-save-draft').count() === 0);
-    await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
+    ok('WA Save, Delete, and Send visible', await page.locator('#btn-send-reply').isVisible() && await page.locator('#btn-save-draft').isVisible() && await page.locator('#btn-delete-draft').isVisible() && await page.locator('#btn-email-save-draft').count() === 0);
+    await page.fill('#draft-textarea', 'Exact WA draft text'); await page.click('#btn-save-draft'); await waitStatus('Draft saved');
+    await page.click('#btn-delete-draft'); await waitStatus('Delete failed');
+    ok('WA strict 200 deleted:false preserves exact text/authority and does not claim deletion',
+      await page.inputValue('#draft-textarea') === 'Exact WA draft text' && !/deleted/i.test(await statusText()) && waDeletes.join(',') === AP1);
+    await page.click('#btn-delete-draft'); await waitStatus('Delete failed');
+    ok('WA no-op retry carries same approval authority', waDeletes.join(',') === AP1 + ',' + AP1);
+    waDeleted = true;
+    await page.fill('#draft-textarea', 'Exact WA draft text'); await page.click('#btn-delete-draft'); await waitStatus('Draft deleted');
+    ok('WA true deletion clears text only with unchanged snapped authority', await page.inputValue('#draft-textarea') === '' && waDeletes.at(-1) === AP1);
+    await page.unroute('**/staff/inbox/whatsapp/draft{,?*}');
+    await page.reload({ waitUntil: 'domcontentloaded' }); await openInbox(page); await emailCard().click();
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
     draftPosts.length = 0;
     await page.evaluate(() => {
       const button = document.querySelector('#btn-email-save-draft');
@@ -480,11 +512,36 @@ async function main() {
     await waitStatus('Draft saved');
     ok('action binds to button-owned draft panel despite duplicate ancestor target', draftPosts.length === 1 && draftPosts[0].body.message_text === 'First email draft body');
     await page.evaluate(() => document.querySelector('.gate3-duplicate-target-decoy')?.remove());
-    ok('first draft null id exact keys', draftPosts.length === 1 && draftPosts[0].method === 'POST' && Object.keys(draftPosts[0].body).sort().join(',') === 'approval_id,conversation_id,message_text' && draftPosts[0].body.conversation_id === EMAIL_CONV && draftPosts[0].body.message_text === 'First email draft body' && draftPosts[0].body.approval_id === null && /application\/json/i.test(String(draftPosts[0].headers['content-type'] || '')));
+    ok('first draft null id exact keys', draftPosts.length === 1 && draftPosts[0].method === 'POST' && Object.keys(draftPosts[0].body).sort().join(',') === 'approval_id,conversation_id,email_subject,message_text,subject' && draftPosts[0].body.conversation_id === EMAIL_CONV && draftPosts[0].body.message_text === 'First email draft body' && draftPosts[0].body.subject === draftPosts[0].body.email_subject && draftPosts[0].body.approval_id === null && /application\/json/i.test(String(draftPosts[0].headers['content-type'] || '')));
     await page.fill('#draft-textarea', 'Updated email draft body');
     await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
     ok('second draft reuses approval id', draftPosts.length === 2 && draftPosts[1].body.approval_id === AP1 && draftPosts[1].body.message_text === 'Updated email draft body' && draftPosts[1].body.conversation_id === EMAIL_CONV);
+    await page.click('#btn-delete-draft'); await waitStatus('Delete failed');
+    ok('email strict 200 deleted:false preserves exact text/authority and does not claim deletion',
+      await page.inputValue('#draft-textarea') === 'Updated email draft body'
+      && !/deleted/i.test(await statusText()) && emailDeletes.join(',') === AP1);
+    await page.click('#btn-delete-draft'); await waitStatus('Delete failed');
+    ok('email no-op retry carries same approval authority', emailDeletes.join(',') === AP1 + ',' + AP1);
+
+    await page.unroute('**/staff/inbox/email/draft{,?*}');
+    let releaseEmailDelete;
+    await page.route('**/staff/inbox/email/draft{,?*}', async (route) => {
+      if (route.request().method() === 'DELETE') {
+        const url = new URL(route.request().url()); emailDeletes.push(url.searchParams.get('approval_id'));
+        await new Promise(resolve => { releaseEmailDelete = resolve; });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, conversation_id: EMAIL_CONV, channel: 'email', deleted: true }) });
+      }
+      const body = JSON.parse(route.request().postData() || '{}'); draftPosts.push({ method: route.request().method(), body: { ...body }, headers: route.request().headers() });
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(draftOk(body)) });
+    });
+    await page.click('#btn-delete-draft');
+    await page.waitForFunction(() => document.querySelector('#btn-delete-draft')?.disabled === true);
+    await page.evaluate(() => { document.querySelector('#draft-textarea').value = 'replacement text'; });
+    releaseEmailDelete(); await page.waitForTimeout(100);
+    ok('email stale true-delete completion preserves replacement text and does not claim deletion',
+      await page.inputValue('#draft-textarea') === 'replacement text' && !/Draft deleted/i.test(await statusText()));
+    await page.fill('#draft-textarea', 'Updated email draft body');
     approvePosts.length = 0;
     await page.fill('#draft-textarea', 'Unsaved change');
     await page.click('#btn-email-approve-send');
@@ -497,13 +554,13 @@ async function main() {
     await page.waitForSelector('#btn-send-reply', { timeout: 8000 });
     ok('WA enabled after email lock', await page.locator('#btn-send-reply').isEnabled());
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 8000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 8000 });
     ok('email stays locked', await page.locator('#draft-textarea').isDisabled() && await page.locator('#btn-email-save-draft').isDisabled());
     draftPosts.length = 0; approvePosts.length = 0;
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
     await page.fill('#draft-textarea', 'Isolation draft A');
     await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
@@ -533,7 +590,7 @@ async function main() {
     await c1.catch(() => {});
     await page.waitForTimeout(60);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 8000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 8000 });
     await page.waitForFunction(() => !document.querySelector('#btn-email-save-draft')?.disabled, null, { timeout: 5000 });
     const taStale = await page.inputValue('#draft-textarea');
     ok('stale body not applied to textarea', taStale !== 'STALE_TEXT_SHOULD_NOT_APPLY' && !/STALE_TEXT/.test(taStale));
@@ -596,7 +653,7 @@ async function main() {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
     await page.fill('#draft-textarea', 'need approve without save');
     approvePosts.length = 0;
     draftPosts.length = 0;
@@ -664,7 +721,7 @@ async function main() {
     await page.fill('#draft-textarea', 'recover-after-reject');
     await page.locator('#btn-email-save-draft').dispatchEvent('click');
     await waitStatus('Draft saved');
-    ok('after rejects still null approval_id', draftPosts[0] && draftPosts[0].body.approval_id === null);
+    ok('after rejected saves preserves prior authoritative approval_id', draftPosts[0] && draftPosts[0].body.approval_id === AP1);
     /* Hostile: planted body/err never enter DOM; fixed status map; no fabricated lock. */
     const PLANTED = 'SENT token=secret SQL provider';
     const noLeak = (c) => { c = String(c || ''); return !c.includes(PLANTED) && !/token=secret|atk-NEVER_LEAK|SELECT \* FROM|HTTP\s+\d{3}/i.test(c) && !/\bsent\b/i.test(c); };
@@ -763,7 +820,7 @@ async function main() {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
     await page.unroute('**/staff/inbox/email/draft').catch(() => {});
     await page.route('**/staff/inbox/email/draft', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
@@ -791,13 +848,13 @@ async function main() {
     await ap2.catch(() => {});
     await page.waitForTimeout(80);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 8000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 8000 });
     ok('stale approve after switch does not lock', await page.locator('#draft-textarea').isEnabled());
     /* B1: HTTP 200 committed-send success ownership — exact production DTO only. */
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
     await page.unroute('**/staff/inbox/email/draft').catch(() => {});
     await page.route('**/staff/inbox/email/draft', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
@@ -850,7 +907,7 @@ async function main() {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
     await page.unroute('**/staff/inbox/email/draft').catch(() => {});
     await page.route('**/staff/inbox/email/draft', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
@@ -908,7 +965,7 @@ async function main() {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
     await page.unroute('**/staff/inbox/email/draft').catch(() => {});
     await page.route('**/staff/inbox/email/draft', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
@@ -940,7 +997,7 @@ async function main() {
     await staleCommitClick.catch(() => {});
     await page.waitForTimeout(100);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 8000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 8000 });
     ok('stale 200 after switch does not lock', await page.locator('#draft-textarea').isEnabled()
       && await page.locator('#btn-email-approve-send').isEnabled());
 
@@ -972,7 +1029,7 @@ async function main() {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await openInbox(page);
     await emailCard().click();
-    await page.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
+    await page.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
     await page.unroute('**/staff/inbox/email/draft').catch(() => {});
     await page.route('**/staff/inbox/email/draft', async (route) => {
       const body = JSON.parse(route.request().postData() || '{}');
@@ -995,15 +1052,24 @@ async function main() {
     for (const width of [1280, 390]) {
       await page.setViewportSize({ width, height: 900 });
       await emailCard().click();
-      await page.waitForSelector('#btn-email-save-draft', { state: 'visible', timeout: 10000 });
+      await page.waitForSelector('#btn-delete-draft', { state: 'visible', timeout: 10000 });
       await page.waitForSelector('#btn-email-approve-send', { state: 'visible', timeout: 10000 });
-      await page.evaluate(() => { const a = document.querySelector('#btn-email-save-draft'); const b = document.querySelector('#btn-email-approve-send'); if (a && a.scrollIntoView) a.scrollIntoView({ block: 'nearest' }); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' }); });
+      await page.evaluate(() => { const a = document.querySelector('#btn-delete-draft'); const b = document.querySelector('#btn-email-approve-send'); if (a && a.scrollIntoView) a.scrollIntoView({ block: 'nearest' }); if (b && b.scrollIntoView) b.scrollIntoView({ block: 'nearest' }); });
       const layout = await assertActionA11y(page);
       const tallOk = layout.length >= 2 && layout.every((x) => Math.round(x.h) >= 44 && (x.minH >= 44 || Math.round(x.h) >= 44));
       ok('actions height>=44 @' + width, tallOk, JSON.stringify(layout));
       ok('actions in container @' + width, layout.length >= 2 && layout.every((x) => !x.clipped), JSON.stringify(layout));
       ok('actions keyboard-focusable @' + width, layout.length >= 2 && layout.every((x) => x.focusable));
       ok('no h-overflow @' + width, layout.every((x) => !x.overflow) && await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1));
+      if (width <= 900) await page.locator('.inbox-mobile-back').click();
+      await waCard().click();
+      await page.waitForSelector('#btn-save-draft', { state: 'visible', timeout: 10000 });
+      await page.waitForSelector('#btn-send-reply', { state: 'visible', timeout: 10000 });
+      const waLayout = await assertActionA11y(page, ['#btn-save-draft', '#btn-delete-draft', '#btn-send-reply']);
+      const waTallOk = waLayout.length === 3 && waLayout.every((x) => Math.round(x.h) >= 44 && (x.minH >= 44 || Math.round(x.h) >= 44));
+      ok('WA actions height>=44 @' + width, waTallOk, JSON.stringify(waLayout));
+      ok('WA actions keyboard-focusable @' + width, waLayout.length === 3 && waLayout.every((x) => x.focusable));
+      ok('WA actions in container @' + width, waLayout.length === 3 && waLayout.every((x) => !x.clipped), JSON.stringify(waLayout));
     }
     ok('zero pageerror', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));
     const serious = consoleErrors.filter((t) => !/favicon|Failed to load resource/i.test(t));
@@ -1045,8 +1111,9 @@ async function main() {
     await pageDraft.goto(prod.base + '/staff/ui?client=sunset&location=sunset-somo', { waitUntil: 'domcontentloaded' });
     await openInbox(pageDraft);
     await pageDraft.locator('.conv-card').filter({ hasText: 'Email Guest' }).first().click();
-    await pageDraft.waitForSelector('#btn-email-save-draft', { timeout: 10000 });
-    ok('drafts-on Save', await pageDraft.locator('#btn-email-save-draft').count() === 1);
+    await pageDraft.waitForSelector('#btn-email-save-draft', { state: 'attached', timeout: 10000 });
+    await pageDraft.waitForSelector('#btn-delete-draft', { state: 'visible', timeout: 10000 });
+    ok('drafts-on keeps legacy Save hidden and shows Delete', !(await pageDraft.locator('#btn-email-save-draft').isVisible()) && await pageDraft.locator('#btn-delete-draft').isVisible());
     ok('outbound-off hides Approve', await pageDraft.locator('#btn-email-approve-send').count() === 0);
     await pageDraft.close(); await ctxDraft.close();
     ok('channel===email only', htmlOn.includes("c.channel === 'email'") && htmlOn.includes('never infer'));

@@ -70,6 +70,7 @@ const POST_SUCCESS_DTO_KEYS = Object.freeze([
   'draft_text',
   'status',
 ]);
+const DELETE_SUCCESS_DTO_KEYS = Object.freeze(['success', 'conversation_id', 'channel', 'deleted']);
 const APPROVE_SUCCESS_DTO_KEYS = Object.freeze([
   'success',
   'conversation_id',
@@ -111,6 +112,13 @@ const WHATSAPP_DRAFT_ROUTE_TABLE = Object.freeze([
   {
     id: 'whatsapp_draft_post',
     method: 'POST',
+    path: WHATSAPP_DRAFT_PATH,
+    match: 'exact',
+    minRole: WHATSAPP_DRAFT_MIN_ROLE,
+  },
+  {
+    id: 'whatsapp_draft_delete',
+    method: 'DELETE',
     path: WHATSAPP_DRAFT_PATH,
     match: 'exact',
     minRole: WHATSAPP_DRAFT_MIN_ROLE,
@@ -165,6 +173,13 @@ DO UPDATE SET
   created_by_staff_user_id = EXCLUDED.created_by_staff_user_id
 RETURNING id::text AS approval_id, conversation_id::text AS conversation_id,
   channel, draft_text, status
+`.replace(/\s+/g, ' ').trim();
+
+const SQL_DELETE_PENDING = `
+UPDATE luna_outbound_approvals SET status = 'expired'
+WHERE client_id = $1::uuid AND conversation_id = $2::uuid
+  AND id = $3::uuid AND channel = 'whatsapp' AND status = 'pending'
+RETURNING id::text AS approval_id
 `.replace(/\s+/g, ' ').trim();
 
 const SQL_SELECT_LATEST_FOR_UPDATE = `
@@ -233,6 +248,21 @@ function headerValue(headers, name) {
     values.push(d.value);
   }
   return values.length === 1 && typeof values[0] === 'string' ? values[0] : undefined;
+}
+
+function validateSameOrigin(req, env) {
+  const fail = Object.freeze({ ok: false, status: 403, body: Object.freeze({ success: false, error: 'forbidden_origin' }) });
+  try {
+    const configured = ownData(env && typeof env === 'object' ? env : {}, 'STAFF_PORTAL_ORIGIN');
+    const raw = headerValue(req && req.headers, 'origin');
+    if (typeof configured !== 'string' || typeof raw !== 'string' || !configured || !raw) return fail;
+    const expected = new URL(configured);
+    const got = new URL(raw);
+    if ((expected.protocol !== 'https:' && expected.protocol !== 'http:') || got.username || got.password
+      || got.search || got.hash || (got.pathname !== '' && got.pathname !== '/')) return fail;
+    return `${got.protocol}//${got.host}` === `${expected.protocol}//${expected.host}`
+      ? Object.freeze({ ok: true }) : fail;
+  } catch { return fail; }
 }
 
 function isExactApplicationJson(ct) {
@@ -721,6 +751,38 @@ function createWhatsAppDraftRoutes(deps) {
     }
   }
 
+  async function handleWhatsAppDraftDelete(query, req, res, user) {
+    const originGate = validateSameOrigin(req, runtimeEnv);
+    if (!originGate.ok) return sendJSON(res, originGate.status, originGate.body);
+    const actor = actorFromUser(user);
+    if (!actor) return sendJSON(res, 403, FORBIDDEN);
+    const conversationId = parseConversationIdQuery(query || {});
+    const approvalRaw = ownData(query || {}, 'approval_id');
+    const approvalId = parseUuid(typeof approvalRaw === 'string' ? approvalRaw : null);
+    if (!conversationId || !approvalId) return sendJSON(res, 400, INVALID_REQUEST);
+    const slugRaw = ownData(query || {}, 'client') || ownData(query || {}, 'client_slug');
+    const clientSlug = resolveClientSlug(typeof slugRaw === 'string' ? slugRaw : null, actor, DEFAULT_CLIENT);
+    if (!gateClient(res, user, clientSlug)) return undefined;
+    try {
+      const outcome = await withPgClient(async (pg) => {
+        await pg.query('BEGIN');
+        try {
+          const owned = await resolveOwnedWhatsApp(pg, actor, clientSlug, conversationId, true);
+          if (!owned.ok) { await pg.query('ROLLBACK'); return owned; }
+          const removed = await pg.query(SQL_DELETE_PENDING, [owned.client_id, owned.conversation_id, approvalId]);
+          await pg.query('COMMIT');
+          return { status: 200, body: Object.freeze({ success: true,
+            conversation_id: owned.conversation_id, channel: WHATSAPP_DRAFT_CHANNEL,
+            deleted: !!(removed && removed.rows && removed.rows.length) }) };
+        } catch (error) {
+          try { await pg.query('ROLLBACK'); } catch { /* preserve original error */ }
+          throw error;
+        }
+      });
+      return sendJSON(res, outcome.status, outcome.body);
+    } catch { return sendJSON(res, 500, DRAFT_FAILED); }
+  }
+
   async function readApproveBody(req) {
     try {
       let text;
@@ -918,6 +980,7 @@ function createWhatsAppDraftRoutes(deps) {
   const handlers = Object.freeze({
     whatsapp_draft_get: handleWhatsAppDraftGet,
     whatsapp_draft_post: handleWhatsAppDraftPost,
+    whatsapp_draft_delete: handleWhatsAppDraftDelete,
     whatsapp_approve_send: handleWhatsAppApproveSend,
   });
 
@@ -928,6 +991,7 @@ function createWhatsAppDraftRoutes(deps) {
     handlers,
     handleWhatsAppDraftGet,
     handleWhatsAppDraftPost,
+    handleWhatsAppDraftDelete,
     handleWhatsAppApproveSend,
   };
 }
@@ -947,6 +1011,7 @@ module.exports = {
   APPROVE_REQUIRED_KEYS,
   GET_SUCCESS_DTO_KEYS,
   POST_SUCCESS_DTO_KEYS,
+  DELETE_SUCCESS_DTO_KEYS,
   APPROVE_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES,
   DRAFT_MAX_BYTES,
@@ -954,6 +1019,7 @@ module.exports = {
   SQL_RESOLVE_FOR_UPDATE,
   SQL_SELECT_PENDING,
   SQL_UPSERT_PENDING,
+  SQL_DELETE_PENDING,
   SQL_SELECT_LATEST_FOR_UPDATE,
   SQL_MARK_APPROVED,
   SQL_MARK_SENT,

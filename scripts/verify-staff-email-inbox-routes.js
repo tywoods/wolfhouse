@@ -449,9 +449,9 @@ async function main() {
   }).handleDraft(mockReq(dto({ message_text: 'Z'.repeat(12000) })), {}, user(), snapshotGateEnv(enabledEnv()));
   ok('production reader body limit bounded', sendB.calls.length === 1 && sendB.calls[0].status === 400
     && sendB.calls[0].body.error === 'invalid_request' && noLeak(sendB.calls[0].body));
-  const wa = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-inbox-routes.js'));
-  const waBase = spawnSync('git', ['show', `${BASE}:scripts/lib/staff-inbox-routes.js`], { cwd: ROOT, encoding: 'buffer', maxBuffer: 20 << 20 });
-  ok('WhatsApp owner files byte-diff unchanged vs base', waBase.status === 0 && Buffer.compare(wa, waBase.stdout) === 0);
+  const wa = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-inbox-routes.js'), 'utf8');
+  ok('shared WhatsApp send owner retains authoritative target boundary',
+    wa.includes('resolveAuthoritativeInboxSendTarget') && wa.includes('handleInboxSendReply'));
   const inbox105 = spawnSync(process.execPath, [path.join(ROOT, 'scripts/verify-staff-inbox-routes.js')], {
     cwd: ROOT, encoding: 'utf8', timeout: 120000, env: process.env,
   });

@@ -52,6 +52,7 @@ const {
   validateOutboundReplySubject, resolveOutboundReplySubject, SQL_LAST_PERSISTED_SUBJECT,
 } = require('./email-outbound-reply-subject');
 const EMAIL_DRAFT_PATH = '/staff/inbox/email/draft';
+const EMAIL_DELETE_DRAFT_PATH = EMAIL_DRAFT_PATH;
 const EMAIL_APPROVE_SEND_PATH = '/staff/inbox/email/approve-send';
 const EMAIL_RECOVER_SEND_PATH = '/staff/inbox/email/recover-send';
 const EMAIL_INBOX_MIN_ROLE = 'operator';
@@ -558,6 +559,11 @@ UPDATE tenant_email_reply_approvals
  WHERE approval_id=$1::uuid AND client_id=$2::uuid AND conversation_id=$3::uuid AND state='draft'
  RETURNING approval_id::text AS approval_id, message_text, conversation_id::text AS conversation_id, subject
 `.replace(/\s+/g, ' ').trim();
+const SQL_DELETE_DRAFT = `
+DELETE FROM tenant_email_reply_approvals
+ WHERE client_id=$1::uuid AND conversation_id=$2::uuid AND approval_id=$3::uuid AND state='draft'
+ RETURNING approval_id::text AS approval_id
+`.replace(/\s+/g, ' ').trim();
 const SQL_LOCK = `
 SELECT approval_id::text AS approval_id, operation_id::text AS operation_id,
   client_id::text AS client_id, location_id::text AS location_id, location_key,
@@ -865,6 +871,36 @@ function createStaffEmailInboxRoutes(deps) {
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' }));
     }
   }
+  async function handleDeleteDraft(query, req, res, user, gateEnv) {
+    const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
+    if (!isEmailStaffDraftsEnabled(env)) return sendJSON(res, 404, DRAFTS_UNAVAILABLE);
+    const originGate = validateSameOrigin(req, env);
+    if (!originGate.ok) return sendJSON(res, originGate.status, originGate.body);
+    const actor = actorFromUser(user);
+    const conversationId = parseUuid(query && query.conversation_id);
+    const approvalRaw = query && query.approval_id;
+    const approvalId = typeof approvalRaw === 'string' && UUID_RE.test(approvalRaw) ? approvalRaw : null;
+    if (!actor) return sendJSON(res, 403, FORBIDDEN);
+    if (!conversationId || !approvalId) return sendJSON(res, 400, INVALID_REQUEST);
+    try {
+      const result = await withPgClient(async (pg) => {
+        await pg.query('BEGIN');
+        try {
+          const resolved = await resolveSendableAuthority(pg, actor, conversationId);
+          if (!resolved.auth) { await pg.query('ROLLBACK'); return resolved; }
+          const removed = await pg.query(SQL_DELETE_DRAFT, [actor.client_id, conversationId, approvalId]);
+          await pg.query('COMMIT');
+          return { status: 200, body: Object.freeze({ success: true, conversation_id: conversationId,
+            channel: 'email', deleted: !!(removed && removed.rows && removed.rows.length) }) };
+        } catch (error) {
+          try { await pg.query('ROLLBACK'); } catch { /* preserve original */ }
+          throw error;
+        }
+      });
+      return sendJSON(res, result.status, result.body);
+    } catch { return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' })); }
+  }
+
   /** Best-effort: durable staff-visible outbound body after Graph commit. */
   async function mirrorCommittedOutboundThread(actor, conversationId, approvalId, messageText, subject) {
     try {
@@ -1377,17 +1413,17 @@ function createStaffEmailInboxRoutes(deps) {
     }
   }
   return Object.freeze({
-    EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
-    handleDraft, handleApproveSend, handleRecoverSend, saveDraftThroughStaffOwner,
+    EMAIL_DRAFT_PATH, EMAIL_DELETE_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
+    handleDraft, handleDeleteDraft, handleApproveSend, handleRecoverSend, saveDraftThroughStaffOwner,
     approveAndDispatchEmailOutbound,
   });
 }
 module.exports = {
-  EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
+  EMAIL_DRAFT_PATH, EMAIL_DELETE_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
   ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
   BODY_KEYS, BODY_KEYS_UI, RECOVERY_BODY_KEYS, SUCCESS_DTO_KEYS, RECOVERY_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,
-  SQL_RESOLVE, SQL_RESOLVE_SMTP, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
+  SQL_RESOLVE, SQL_RESOLVE_SMTP, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_DELETE_DRAFT, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
   createStaffEmailInboxRoutes,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   isEmailOutboundRuntimeCompositionEnabled,

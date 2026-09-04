@@ -2827,7 +2827,7 @@ const whatsAppDraftRoutes = createWhatsAppDraftRoutes({
   evaluateGuestReplySendRouteWithPause,
   runtimeEnv: process.env,
 });
-const { handleWhatsAppDraftGet, handleWhatsAppDraftPost, handleWhatsAppApproveSend } = whatsAppDraftRoutes;
+const { handleWhatsAppDraftGet, handleWhatsAppDraftPost, handleWhatsAppDraftDelete, handleWhatsAppApproveSend } = whatsAppDraftRoutes;
 
 // Inbox Phase 4 email-first segment broadcasts. Operator auth stays in the
 // router; handlers re-apply assertStaffClientAccess. Send snapshots recipients
@@ -19313,7 +19313,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .btn-copy:hover{background:#7FA3B8}
 [data-theme="dark"] .btn-copy{background:#1e4a68;color:#c8dce8}
 [data-theme="dark"] .btn-copy:hover{background:#265878}
-.btn-send-reply{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .18s}
+#inbox-shell .btn-send-reply{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .18s;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
 .btn-send-reply:hover{background:var(--primary-hover)}
 [data-theme="dark"] .btn-send-reply{background:var(--primary);color:#f0f4f0}
 [data-theme="dark"] .btn-send-reply:hover{background:var(--primary-hover)}
@@ -19327,6 +19327,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .email-draft-byte-count{font-size:11px;color:var(--text-3);margin-top:6px;box-sizing:border-box;max-width:100%}
 .email-draft-byte-count.is-over{color:#8B3A3A;font-weight:600}
 .btn-email-save-draft{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+#inbox-shell .btn-save-draft{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
 #btn-email-save-draft{display:none!important}
 #btn-email-generate-luna-draft{display:none!important}
 .inbox-email-create-draft-bar{display:flex;align-items:flex-end;gap:12px;margin-top:10px;width:100%;box-sizing:border-box;flex-wrap:wrap}
@@ -19338,9 +19339,9 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .btn-email-create-draft:hover{background:var(--primary-hover)}
 .btn-email-create-draft:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
 .btn-email-save-draft:hover{background:#7FA3B8}
-.btn-email-save-draft:disabled,.btn-email-approve-send:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
-.btn-email-approve-send{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
-.btn-email-approve-send:hover{background:var(--primary-hover)}
+.btn-email-save-draft:disabled,.btn-email-approve-send:disabled,#inbox-shell .btn-delete-draft:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default}
+#inbox-shell .btn-email-approve-send,#inbox-shell .btn-delete-draft{background:var(--primary);color:#fff;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;min-height:44px;height:auto;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto}
+.btn-email-approve-send:hover,#inbox-shell .btn-delete-draft:hover{background:var(--primary-hover)}
 [data-theme="dark"] .btn-email-save-draft{background:#1e4a68;color:#c8dce8}
 [data-theme="dark"] .btn-email-create-draft{background:var(--primary);color:#f0f4f0}
 [data-theme="dark"] .btn-email-create-draft:hover{background:var(--primary-hover)}
@@ -21330,10 +21331,12 @@ body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .draft-pa
 body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
 body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-create-draft,
 body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send,
+body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .btn-delete-draft,
 body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-save-draft,
 body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-create-draft,
-body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send{
-  min-height:0;height:auto;padding:9px 16px;font-size:12px;
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-email-approve-send,
+body:has([data-inbox-preset="all4"][aria-pressed="true"]) #inbox-shell .btn-delete-draft{
+  min-height:44px;height:auto;padding:9px 16px;font-size:12px;
 }
 body:has([data-inbox-preset="chat"][aria-pressed="true"]) .inbox-peek-edge-col4,
 body:has([data-inbox-preset="chat"][aria-pressed="true"]) #inbox-shell .sidebar-expand-btn,
@@ -49893,8 +49896,13 @@ async function router(req, res) {
       if (!auth.ok) return;
       return handleWhatsAppDraftPost(req, res, auth.user);
     }
-    res.writeHead(405, { Allow: 'GET, POST' });
-    return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET or POST for inbox/whatsapp/draft' }));
+    if (method === 'DELETE') {
+      const auth = await requireAuth(req, res, 'operator');
+      if (!auth.ok) return;
+      return handleWhatsAppDraftDelete(parsed.query, req, res, auth.user);
+    }
+    res.writeHead(405, { Allow: 'GET, POST, DELETE' });
+    return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET, POST or DELETE for inbox/whatsapp/draft' }));
   }
 
   // WhatsApp draft approve-send. Kill switches live in the handler (dry-run /
@@ -50009,6 +50017,13 @@ async function router(req, res) {
     const ct = validateEmailInboxJsonContentType(req);
     if (!ct.ok) return sendJSON(res, ct.status, ct.body);
     return emailInboxRoutes.handleDraft(req, res, auth.user, emailInboxGateEnv);
+  }
+  if (pathname === EMAIL_DRAFT_PATH && method === 'DELETE') {
+    const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
+    if (!isEmailStaffDraftsEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_drafts_unavailable' });
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return emailInboxRoutes.handleDeleteDraft(parsed.query, req, res, auth.user, emailInboxGateEnv);
   }
   if (pathname === EMAIL_APPROVE_SEND_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);

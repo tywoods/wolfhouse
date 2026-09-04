@@ -221,6 +221,8 @@ module.exports = {
   "inbox.detail.email.contextAria": "Contexto del borrador",
   "inbox.detail.email.generateLuna": "Generar borrador de Luna",
   "inbox.detail.email.saveDraft": "Guardar borrador",
+  "inbox.detail.reply.saveDraft": "Guardar borrador",
+  "inbox.detail.reply.deleteDraft": "Eliminar borrador",
   "inbox.detail.email.createDraft": "Crear borrador",
   "inbox.detail.email.approveSend": "Aprobar y enviar",
   "inbox.detail.reply.send": "Enviar respuesta",
