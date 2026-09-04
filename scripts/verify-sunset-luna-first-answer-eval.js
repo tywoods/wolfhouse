@@ -75,13 +75,17 @@ assert(
   loaded.some((c) => c.expect_pass === false && c.kind === 'fail_closed_wrong_reply'),
 );
 assert(
-  'open spots = course remaining (22) in timed fixture Staff',
+  'timed fixture open spots = course capacity − booked',
   loaded.some(
-    (c) => c.kind === 'timed_leftover'
+    (c) => c.id === 'timed-leftover-en-open-spots'
+      && c.guest
+      && c.guest.date === '2026-09-25'
+      && c.guest.slot_time === '12:00'
       && c.staff
-      && c.staff.seats_available === 22
-      && c.staff.seats_booked === 3
-      && c.staff.course_capacity === 25,
+      && c.staff.seats_available === 11
+      && c.staff.seats_booked === 13
+      && c.staff.course_capacity === 24
+      && c.staff.seats_available === c.staff.course_capacity - c.staff.seats_booked,
   ),
 );
 assert(
