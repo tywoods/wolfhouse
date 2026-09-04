@@ -27,6 +27,7 @@ function whatsappDraftState(convId){
       editing: false,
       inFlight: false,
       sent: false,
+      composerDirty: false,
       seq: 0,
     };
   }
@@ -217,10 +218,13 @@ function applyWhatsAppDraftFromGet(st, data){
 }
 
 /** Put pending Luna draft into the Write a reply… box for Send reply. */
-function hydrateWhatsAppReplyComposer(targetEl, draftText){
+function hydrateWhatsAppReplyComposer(targetEl, draftText, st){
   if (!targetEl || !draftText) return;
   var ta = targetEl.querySelector('#draft-textarea');
   if (!ta || ta.disabled) return;
+  // The 3s live poll reloads the durable Luna draft. Never let that background
+  // refresh overwrite a staff edit (especially while a provider failure is shown).
+  if (st && st.composerDirty) return;
   ta.value = draftText;
 }
 
@@ -243,9 +247,7 @@ function loadInboxWhatsAppDraft(convId, targetEl){
         st.sent = false;
       }
       renderInboxWhatsAppDraftCard(targetEl, st);
-      if (st.draftText) hydrateWhatsAppReplyComposer(targetEl, st.draftText);
-      var statusEl = targetEl.querySelector('#draft-send-status');
-      if (statusEl) showDraftSendStatus(statusEl, '', '');
+      if (st.draftText) hydrateWhatsAppReplyComposer(targetEl, st.draftText, st);
     })
     .catch(function(){
       if (mySeq !== st.seq) return;
@@ -465,7 +467,7 @@ function performWhatsAppDraftDelete(convId, targetEl){
   fetch(whatsappDraftGetUrl(convId)+'&approval_id='+encodeURIComponent(approval),{method:'DELETE',headers:{Accept:'application/json'}}).then(whatsappDraftParseFetchJson).then(function(out){
     if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;
     var accepted=acceptWhatsAppDeleteSuccess(out.parseOk&&out.status===200?out.data:null,snap);
-    if(accepted&&accepted.deleted===true&&ta.value===exact&&st.approvalId===approval){ta.value='';st.approvalId=null;st.draftText='';whatsappDraftShowStatus(targetEl,'ok','Draft deleted');}
+    if(accepted&&accepted.deleted===true&&ta.value===exact&&st.approvalId===approval){ta.value='';st.approvalId=null;st.draftText='';st.composerDirty=false;whatsappDraftShowStatus(targetEl,'ok','Draft deleted');}
     else whatsappDraftShowStatus(targetEl,'error','Delete failed. Reload to confirm the current draft.');setWhatsAppComposerLocked(targetEl,false);
   }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;whatsappDraftShowStatus(targetEl,'error','Delete failed');setWhatsAppComposerLocked(targetEl,false);});
 }
@@ -476,7 +478,7 @@ function performWhatsAppComposerSave(convId,targetEl){
   fetch('/staff/inbox/whatsapp/draft',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({conversation_id:convId,draft_text:text,client_slug:getClient()})}).then(whatsappDraftParseFetchJson).then(function(out){
     if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;
     var accepted=acceptWhatsAppSaveSuccess(out.parseOk&&out.status===200?out.data:null,snap,text);
-    if(accepted&&ta.value===text){st.draftText=text;st.approvalId=accepted.approval_id;whatsappDraftShowStatus(targetEl,'ok','Draft saved');}
+    if(accepted&&ta.value===text){st.draftText=text;st.approvalId=accepted.approval_id;st.composerDirty=false;whatsappDraftShowStatus(targetEl,'ok','Draft saved');}
     else whatsappDraftShowStatus(targetEl,'error','Save failed');setWhatsAppComposerLocked(targetEl,false);
   }).catch(function(){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;whatsappDraftShowStatus(targetEl,'error','Save failed');setWhatsAppComposerLocked(targetEl,false);});
 }
@@ -495,12 +497,28 @@ function wireInboxWhatsAppDraft(convId, targetEl){
       else if (btn.id === 'btn-whatsapp-draft-discard') performWhatsAppDraftDiscard(convId, targetEl);
     });
   }
+  if (targetEl) {
+    targetEl.dataset.whatsappDraftConversationId = String(convId);
+    // This function runs after loadConvDetail paints a new composer subtree.
+    // Mark that new textarea clean even when the same conversation is reopened.
+    whatsappDraftState(convId).composerDirty = false;
+  }
   if (targetEl && targetEl.dataset.wiredWhatsappDraftSend !== '1') {
     targetEl.dataset.wiredWhatsappDraftSend = '1';
+    // The detail container is stable while loadConvDetail replaces its children.
+    // Delegate from the container and resolve the active conversation at event time.
+    targetEl.addEventListener('input', function(ev){
+      var textarea = ev.target && ev.target.closest ? ev.target.closest('#draft-textarea') : null;
+      if (!textarea || !targetEl.contains(textarea)) return;
+      var activeConvId = targetEl.dataset.whatsappDraftConversationId;
+      if (activeConvId) whatsappDraftState(activeConvId).composerDirty = true;
+    });
     targetEl.addEventListener('click', function(ev){
       var btn = ev.target && ev.target.closest ? ev.target.closest('#btn-send-reply') : null;
       if (!btn || !targetEl.contains(btn)) return;
-      var st = whatsappDraftState(convId);
+      var activeConvId = targetEl.dataset.whatsappDraftConversationId;
+      if (!activeConvId) return;
+      var st = whatsappDraftState(activeConvId);
       if (st.inFlight) {
         if (ev.preventDefault) ev.preventDefault();
         if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
@@ -517,7 +535,7 @@ function wireInboxWhatsAppDraft(convId, targetEl){
       // Header contact text is presentation data and can be masked/formatted.
       // Omit `to`; the route resolves the owned conversation's canonical phone/wa_id.
       // Non-empty forged recipients remain rejected at the route boundary.
-      performInboxSend(convId, '', targetEl);
+      performInboxSend(activeConvId, '', targetEl);
     }, true);
   }
   var saveDraftBtn = targetEl && targetEl.querySelector('#btn-save-draft');
