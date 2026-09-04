@@ -1042,6 +1042,26 @@ function computeSunsetFinanceSummary(args) {
   const qualifyingPrimary = new Set();
   for (const r of datedBsr) if (inRange(r.service_date, primaryRange)) qualifyingPrimary.add(r.booking_id);
 
+  const lunaBookingIds = new Set(bookings
+    .filter((b) => b && b.record_source === 'luna_guest')
+    .map((b) => String(b.booking_id)));
+  const lunaQualifying = new Set();
+  const lunaByService = new Map();
+  for (const r of datedBsr) {
+    const bookingId = String(r.booking_id);
+    if (!lunaBookingIds.has(bookingId) || !inRange(r.service_date, primaryRange)) continue;
+    lunaQualifying.add(bookingId);
+    const serviceType = String(r.service_type || 'other');
+    const qty = Number.isFinite(r.quantity) ? r.quantity : 1;
+    lunaByService.set(serviceType, (lunaByService.get(serviceType) || 0) + qty);
+  }
+  const luna_bookings = {
+    total_bookings: lunaQualifying.size,
+    by_service: [...lunaByService.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([service_type, quantity]) => ({ service_type, quantity })),
+  };
+
   // Next 30: forward pipeline from today (see next30RangeForPeriod); future-only periods anchor at period start.
   let next_30_days_cents = 0;
   if (next30Range) {
@@ -1279,6 +1299,7 @@ function computeSunsetFinanceSummary(args) {
       vs_yoy_pct: deltaPct(primaryStats.outstanding_cents, yoyStats.outstanding_cents),
     },
     revenue_by_product,
+    luna_bookings,
     capacity: {
       seats_filled: capacityKnown ? seats_filled : lessonQty,
       seats_capacity: capacityKnown ? seats_capacity : null,

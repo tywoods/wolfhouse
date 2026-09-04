@@ -44,6 +44,39 @@ function detailHeaderSwitchesHtml(c, lunaGuestPaused){
     channel: c && c.channel,
     paused: !!lunaGuestPaused,
     needs_human: !!(c && c.needs_human),
+  }) + inboxSpamButtonHtml(c && c.is_spam);
+}
+
+function inboxSpamButtonHtml(isSpam){
+  return '<button type="button" class="pill inbox-spam-btn' + (isSpam ? ' is-active' : '') +
+    '" id="btn-inbox-spam" aria-pressed="' + (isSpam ? 'true' : 'false') +
+    '" title="Mark this conversation as spam">Spam</button>';
+}
+
+function wireInboxSpamButton(conv, targetEl){
+  targetEl = inboxThreadScope(targetEl);
+  var btn = targetEl && targetEl.querySelector('#btn-inbox-spam');
+  if (!btn || btn.dataset.wiredSpam === '1') return;
+  btn.dataset.wiredSpam = '1';
+  btn.addEventListener('click', function(){
+    var convId = conv && (conv.conversation_id || conv.id);
+    var next = btn.getAttribute('aria-pressed') !== 'true';
+    btn.disabled = true;
+    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/spam', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_slug: getClient(), is_spam: next }),
+    }).then(function(r){ return r.json().then(function(data){ if (!r.ok || !data.success) throw new Error('spam update failed'); return data; }); })
+      .then(function(){
+        conv.is_spam = next;
+        btn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        btn.classList.toggle('is-active', next);
+        patchInboxConvRow(convId, { is_spam: next, luna_paused: next ? true : conv.luna_paused });
+        if (next) updateLunaPauseUiInPlace(targetEl, true);
+        refreshInboxViewsRail();
+        loadInbox(null, { silent: true, preserveDetail: false });
+      })
+      .catch(function(){ alert('Could not update spam status.'); })
+      .finally(function(){ btn.disabled = false; });
   });
 }
 
@@ -721,6 +754,7 @@ function inboxPaintChatChromeSlot(conv, lunaGuestPaused){
   }
   if (!slot) return;
   slot.innerHTML = detailHeaderSwitchesHtml(conv, lunaGuestPaused);
+  wireInboxSpamButton(conv, slot);
   var raise = slot.querySelector('#inbox-needs-human-raise');
   var nh = typeof document !== 'undefined' ? document.getElementById('inbox-needs-human-slot') : null;
   if (raise && nh && raise.parentNode !== nh) nh.appendChild(raise);
