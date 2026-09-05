@@ -107,11 +107,26 @@ def _unique_cache_worker(tree: ast.AST) -> tuple[ast.AST, int]:
 
 
 def _walk_excluding_nested_scopes(node: ast.AST):
-    nested = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-    for child in ast.iter_child_nodes(node):
-        yield child
-        if not isinstance(child, nested):
-            yield from _walk_excluding_nested_scopes(child)
+    """Independent parent-chain oracle, ordered by source position, not DFS."""
+    parents = {child: parent for parent in ast.walk(node)
+               for child in ast.iter_child_nodes(parent)}
+    owned = []
+    for candidate in ast.walk(node):
+        if candidate is node:
+            continue
+        parent = parents[candidate]
+        while parent is not node:
+            if isinstance(parent, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                   ast.ClassDef, ast.Lambda, ast.GeneratorExp)) or (
+                type(parent).__name__ == "TypeAlias"
+            ):
+                break
+            parent = parents[parent]
+        else:
+            owned.append(candidate)
+    return sorted(owned, key=lambda item: (
+        getattr(item, "lineno", 0), getattr(item, "col_offset", 0)
+    ))
 
 
 def _worker_tail(indent: int) -> str:
@@ -535,6 +550,99 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
                 self.assertIn("return None", mutant)
                 self.assertNotIn(f"{pad}return result\n", mutant)
                 self._reject_no_write(mutant)
+
+    def _assert_deferred_decoy_refused(self, expression: str) -> None:
+        for indent in (8, 12):
+            with self.subTest(indent=indent, expression=expression):
+                good, _ = gw.apply_luna_personality_gateway_patches(skeleton(indent))
+                pad = " " * indent
+                mutant = good.replace(
+                    _worker_tail(indent),
+                    f"{pad}decoy = {expression}\n{pad}return None\n",
+                    1,
+                )
+                self.assertNotEqual(mutant, good)
+                # Execute the malformed worker: this oracle does not use either
+                # production or test AST traversal to infer call ownership.
+                with _stub_personality():
+                    ns = {"AIAgent": _SentinelAgent}
+                    exec(compile(mutant, "<deferred-decoy>", "exec"), ns)
+                    result, _ = _invoke_emitted(
+                        ns, SimpleNamespace(platform=SimpleNamespace(value="whatsapp"))
+                    )
+                    self.assertIsNone(result)
+                    self.assertEqual(_SentinelAgent.constructed, [])
+                    self.assertEqual(_SentinelAgent.conversations, [])
+                self._reject_no_write(mutant)
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "run.py"
+                    path.write_text(_apply_patches_marker_prefix() + mutant, encoding="utf-8")
+                    before = path.read_bytes()
+                    with self.assertRaisesRegex(RuntimeError, "luna personality"):
+                        gw.apply_patches(path)
+                    self.assertEqual(path.read_bytes(), before)
+
+    def test_uncalled_lambda_decoy_rejected_without_write(self) -> None:
+        self._assert_deferred_decoy_refused(
+            "lambda: AIAgent(model='sentinel').run_conversation('synthetic')"
+        )
+
+    def test_unconsumed_generator_decoys_rejected_without_write(self) -> None:
+        for expression in (
+            "(AIAgent(model='sentinel').run_conversation('synthetic') for _ in (0,))",
+            "(None for _ in (0,) if AIAgent(model='sentinel').run_conversation('synthetic'))",
+            "(None for _ in (0,) for item in AIAgent(model='sentinel').run_conversation('synthetic'))",
+        ):
+            self._assert_deferred_decoy_refused(expression)
+
+    @unittest.skipUnless(hasattr(ast, "TypeAlias"), "type statements require Python 3.12+")
+    def test_lazy_type_alias_decoy_rejected_without_write(self) -> None:
+        for indent in (8, 12):
+            with self.subTest(indent=indent):
+                good, _ = gw.apply_luna_personality_gateway_patches(skeleton(indent))
+                pad = " " * indent
+                mutant = good.replace(
+                    _worker_tail(indent),
+                    f"{pad}type Decoy = AIAgent(model='sentinel').run_conversation('synthetic')\n"
+                    f"{pad}return None\n",
+                    1,
+                )
+                with _stub_personality():
+                    ns = {"AIAgent": _SentinelAgent}
+                    exec(compile(mutant, "<lazy-type-alias-decoy>", "exec"), ns)
+                    result, _ = _invoke_emitted(
+                        ns, SimpleNamespace(platform=SimpleNamespace(value="whatsapp"))
+                    )
+                    self.assertIsNone(result)
+                    self.assertEqual(_SentinelAgent.constructed, [])
+                    self.assertEqual(_SentinelAgent.conversations, [])
+                self._reject_no_write(mutant)
+
+    def test_real_continuation_with_unused_deferred_decoys_is_accepted(self) -> None:
+        for indent in (8, 12):
+            for bind_raises in (False, True):
+                with self.subTest(indent=indent, bind_raises=bind_raises):
+                    pad = " " * indent
+                    source = skeleton(indent).replace(
+                        _worker_tail(indent),
+                        f"{pad}unused_lambda = lambda: AIAgent(model='decoy').run_conversation('unused')\n"
+                        f"{pad}unused_generator = (AIAgent(model='decoy').run_conversation('unused') for _ in (0,))\n"
+                        + _worker_tail(indent),
+                        1,
+                    )
+                    emitted, _ = gw.apply_luna_personality_gateway_patches(source)
+                    twice, meta = gw.apply_luna_personality_gateway_patches(emitted)
+                    self.assertEqual(twice, emitted)
+                    self.assertFalse(meta["changed"])
+                    with _stub_personality(bind_raises=bind_raises):
+                        ns = {"AIAgent": _SentinelAgent}
+                        exec(compile(emitted, "<real-continuation>", "exec"), ns)
+                        result, _ = _invoke_emitted(
+                            ns, SimpleNamespace(platform=SimpleNamespace(value="whatsapp"))
+                        )
+                        self.assertEqual(result, STRUCTURED_RESULT)
+                        self.assertEqual(_SentinelAgent.constructed, [{"model": "sentinel"}])
+                        self.assertEqual(_SentinelAgent.conversations, [("synthetic", {})])
 
     def test_nested_function_decoys_rejected(self) -> None:
         for indent in (8, 12):

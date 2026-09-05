@@ -503,8 +503,17 @@ def _canonical_bind_rebuild_stmts(indent: int) -> list[ast.stmt]:
 
 
 def _walk_excluding_nested_scopes(node: ast.AST):
-    """Yield AST nodes in this scope; do not descend into nested fn/class bodies."""
-    nested = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    """Yield owner nodes, conservatively excluding nested/deferred scopes.
+
+    A generator's element, filters and later iterables run only on iteration;
+    a type statement's value is lazy too (Python 3.12+). None prove continuation.
+    """
+    nested = (
+        ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+        ast.Lambda, ast.GeneratorExp,
+    )
+    if hasattr(ast, "TypeAlias"):
+        nested += (ast.TypeAlias,)
     for child in ast.iter_child_nodes(node):
         yield child
         if not isinstance(child, nested):
