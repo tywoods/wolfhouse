@@ -202,6 +202,11 @@ const {
   resolveNotificationSettingsLocationId,
 } = require('./lib/staff-notification-settings-routes');
 const {
+  createLunaPersonalityRoutes,
+  LUNA_PERSONALITY_PATH,
+  LUNA_PERSONALITY_BOT_PATH,
+} = require('./lib/staff-luna-personality-routes');
+const {
   createAutomatedNotificationsRoutes,
   AUTOMATED_NOTIFICATIONS_PATH,
   resolveAutomatedNotificationsLocationId,
@@ -2657,6 +2662,18 @@ const {
   handleNotificationSettingsGet,
   handleNotificationSettingsPut,
 } = notificationSettingsRoutes;
+
+const lunaPersonalityRoutes = createLunaPersonalityRoutes({
+  sendJSON,
+  send400,
+  readBody,
+  withPgClient,
+});
+const {
+  handleLunaPersonalityGet,
+  handleLunaPersonalityPut,
+  handleLunaPersonalityBotGet,
+} = lunaPersonalityRoutes;
 
 // Staff automated-notifications collection routes (GET/POST). Auth stays in router (admin).
 // PUT/DELETE /:id remain inline below. Helpers from staff-automated-notifications.js injected.
@@ -51739,6 +51756,24 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleEmailRegistryChannelEndpointsPost(parsed.query, req, res, auth.user);
+  }
+
+  // ── Luna Personality (tenant-wide WhatsApp-only closed ID) ────────────────
+  // Auth stays here; tenant is the authenticated principal, never the caller body.
+  if (pathname === LUNA_PERSONALITY_PATH && method === 'GET') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleLunaPersonalityGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === LUNA_PERSONALITY_PATH && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleLunaPersonalityPut(parsed.query, req, res, auth.user);
+  }
+  if (pathname === LUNA_PERSONALITY_BOT_PATH && method === 'GET') {
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleLunaPersonalityBotGet(parsed.query, req, res, auth.user);
   }
 
   // ── Staff WhatsApp notification settings (admin+owner) ─────────────────────

@@ -27,6 +27,7 @@ const {
 const { buildWhatsAppPackageLines } = require('./luna-guest-package-explainer');
 const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
 const { isHandoffPromiseReply } = require('./luna-guest-handoff-promise');
+const { injectPersonalityPackOnce } = require('./luna-guest-personality-runtime');
 
 const FLAG = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED';
 const FLAG_PROD = 'LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED_PROD';
@@ -339,8 +340,8 @@ function buildAuthorInput(args) {
   };
 }
 
-function buildAuthorSystemPrompt() {
-  return [
+function buildAuthorSystemPrompt(personalityPack, composerState) {
+  const base = [
     'You are Luna, the Wolfhouse surf-house front desk host (Cami personality).',
     'Rewrite ONE WhatsApp reply for the guest using ONLY the JSON facts provided.',
     'You must NOT invent prices, availability, payment status, booking confirmation, or URLs.',
@@ -366,6 +367,12 @@ function buildAuthorSystemPrompt() {
     'PACKAGES: Use ONLY package_facts.formatted_lines — never invent yoga, breakfast, workshops, dinners, or trips.',
     'Return ONLY valid JSON: {"reply":"your message"}',
   ].join('\n');
+  return injectPersonalityPackOnce({
+    system_prompt: base,
+    pack: personalityPack || null,
+    channel: 'whatsapp',
+    composer_state: composerState,
+  }).system_prompt;
 }
 
 function buildAuthorUserPrompt(input, retryHint) {
@@ -690,7 +697,7 @@ async function runCamiGuestReplyAuthor(input, options) {
   try {
     rawText = await withTimeout(
       caller({
-        system: buildAuthorSystemPrompt(),
+        system: buildAuthorSystemPrompt(input && input.personality_pack, input && input.composer_state),
         user: buildAuthorUserPrompt(authorInput),
         model: authorModel(env),
         env,
@@ -818,6 +825,7 @@ async function applyCamiReplyAuthorStage(args) {
     guest_phone: a.guest_phone,
     conversation_id: a.conversation_id,
     channel_mode: a.channel_mode || 'orchestrator_dry_run',
+    personality_pack: a.personality_pack || null,
   }, {
     env: a.env,
     authorCaller: a.authorCaller,
