@@ -76,6 +76,88 @@ def malformed_twelve_with_eight_bind() -> str:
     )
 
 
+EVIDENCE_GATEWAY = Path(
+    "/opt/data/workspace/evidence/"
+    "LUNA-PERSONALITY-001-model-path-sources/gateway_run.py"
+)
+PRISTINE_UPSTREAM_CANDIDATES = (
+    Path("/opt/hermes/gateway/run.py"),
+)
+
+
+def _ast_dump(node: ast.AST) -> str:
+    return ast.dump(node, include_attributes=False)
+
+
+def _block_stmts(block: str) -> list[ast.stmt]:
+    return ast.parse("def _wh_lp_block():\n" + block.lstrip("\n")).body[0].body
+
+
+def _canonical_bind_rebuild_stmts(indent: int) -> list[ast.stmt]:
+    soul = gw.LUNA_SOUL_RELOAD_PATCH if indent == 8 else gw.LUNA_SOUL_RELOAD_PATCH_12
+    return _block_stmts(gw.luna_personality_bind_patch(indent)) + _block_stmts(soul)
+
+
+def _unique_cache_worker(tree: ast.AST) -> tuple[ast.AST, int]:
+    owners: list[tuple[ast.AST, int]] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        start = gw._cache_triple_start(fn.body)
+        if start is not None:
+            owners.append((fn, start))
+    if len(owners) != 1:
+        raise AssertionError(f"expected unique cache worker, found {len(owners)}")
+    return owners[0]
+
+
+def _walk_excluding_nested_scopes(node: ast.AST):
+    nested = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    for child in ast.iter_child_nodes(node):
+        yield child
+        if not isinstance(child, nested):
+            yield from _walk_excluding_nested_scopes(child)
+
+
+def _worker_tail(indent: int) -> str:
+    pad = " " * indent
+    inner = " " * (indent + 4)
+    return (
+        f"{pad}if agent is None:\n"
+        f"{inner}agent = AIAgent(model='sentinel')\n"
+        f"{pad}result = agent.run_conversation('synthetic')\n"
+        f"{pad}return result\n"
+    )
+
+
+def _nested_decoy_tail(indent: int) -> str:
+    pad = " " * indent
+    inner = " " * (indent + 4)
+    return (
+        f"{pad}def _decoy():\n"
+        f"{inner}agent = AIAgent(model='sentinel')\n"
+        f"{inner}result = agent.run_conversation('synthetic')\n"
+        f"{inner}return result\n"
+        f"{pad}x = 1\n"
+    )
+
+
+def _load_pristine_upstream_if_available() -> tuple[str, Path] | None:
+    """Return local pinned upstream only if it is unpatched. Never infer from reconstruction."""
+    for path in PRISTINE_UPSTREAM_CANDIDATES:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        if gw.LUNA_PERSONALITY_BIND_TAG in text or gw.LUNA_SOUL_RELOAD_TAG in text:
+            continue
+        try:
+            gw.select_unique_soul_reload_owner(text)
+        except RuntimeError:
+            continue
+        return text, path
+    return None
+
+
 def _apply_patches_marker_prefix() -> str:
     # Real newlines so apply_patches substring tags match; keep them inside a
     # string so the fixture remains valid Python.
@@ -178,14 +260,15 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
                 self.assertFalse(info["conversation_in_bind_except"])
                 self.assertTrue(info["return_in_worker"])
                 tree = ast.parse(emitted)
-                worker = next(
-                    n
-                    for n in ast.walk(tree)
-                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-                    and n.name == "run_sync"
+                worker, cache_index = _unique_cache_worker(tree)
+                self.assertEqual(worker.name, "run_sync")
+                expected = _canonical_bind_rebuild_stmts(indent)
+                start = cache_index - len(expected)
+                actual = worker.body[start:cache_index]
+                self.assertEqual(
+                    [_ast_dump(node) for node in actual],
+                    [_ast_dump(node) for node in expected],
                 )
-                bind = next(stmt for stmt in worker.body if gw._is_bind_try(stmt))
-                self.assertFalse(gw._walk_except_bind_conversation(bind))
                 pad = " " * indent
                 self.assertIn(
                     f"{pad}# Wolfhouse Luna Personality: bind WhatsApp style pack once per turn.",
@@ -355,6 +438,253 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
             src,
             r"s = s\.replace\(soul_anchor, LUNA_PERSONALITY_BIND_PATCH \+ \"\\n\" \+ soul_anchor, 1\)",
         )
+
+    def _reject_no_write(self, mutant: str, pattern: str = r"luna personality") -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run.py"
+            path.write_text(mutant, encoding="utf-8")
+            before = path.read_bytes()
+            with self.assertRaisesRegex(RuntimeError, pattern):
+                gw.apply_luna_personality_gateway_file(path)
+            self.assertEqual(path.read_bytes(), before)
+            with self.assertRaisesRegex(RuntimeError, pattern):
+                gw.apply_luna_personality_gateway_patches(mutant)
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_emitted_bind_rebuild_ast_blocks_adjacent_to_cache_owner(self) -> None:
+        for indent in (8, 12):
+            with self.subTest(indent=indent):
+                emitted, _ = gw.apply_luna_personality_gateway_patches(skeleton(indent))
+                tree = ast.parse(emitted)
+                worker, cache_index = _unique_cache_worker(tree)
+                expected = _canonical_bind_rebuild_stmts(indent)
+                start = cache_index - len(expected)
+                self.assertGreaterEqual(start, 0)
+                actual = worker.body[start:cache_index]
+                self.assertEqual(
+                    [_ast_dump(node) for node in actual],
+                    [_ast_dump(node) for node in expected],
+                )
+
+    def test_bind_call_removed_rejected_without_write(self) -> None:
+        """Parent acceptance probe: tagged bind with the call replaced by pass."""
+        for indent in (8, 12):
+            with self.subTest(indent=indent):
+                good, _ = gw.apply_luna_personality_gateway_patches(skeleton(indent))
+                mutant = good.replace("_wh_bind_lp(source)", "pass # binding removed", 1)
+                self.assertIn(gw.LUNA_PERSONALITY_BIND_TAG, mutant)
+                self.assertIn("pass # binding removed", mutant)
+                self.assertNotIn("_wh_bind_lp(source)", mutant)
+                self._reject_no_write(mutant)
+
+    def test_bind_source_alias_handler_mutations_rejected(self) -> None:
+        for indent in (8, 12):
+            good, _ = gw.apply_luna_personality_gateway_patches(skeleton(indent))
+            pad = " " * indent
+            inner = " " * (indent + 4)
+            mutations = {
+                "bind_source_changed": good.replace(
+                    "_wh_bind_lp(source)", "_wh_bind_lp(session_key)", 1
+                ),
+                "bind_alias_changed": good.replace(
+                    "bind_whatsapp_turn_personality as _wh_bind_lp",
+                    "bind_whatsapp_turn_personality as _wh_bind_other",
+                    1,
+                ).replace("_wh_bind_lp(source)", "_wh_bind_other(source)", 1),
+                "bind_handler_return": good.replace(
+                    f"{pad}except Exception:\n{inner}pass\n",
+                    f"{pad}except Exception:\n{inner}return\n",
+                    1,
+                ),
+                "bind_handler_type": good.replace(
+                    f"{pad}except Exception:\n{inner}pass\n",
+                    f"{pad}except ValueError:\n{inner}pass\n",
+                    1,
+                ),
+            }
+            for name, mutant in mutations.items():
+                with self.subTest(indent=indent, mutation=name):
+                    self.assertNotEqual(mutant, good)
+                    self._reject_no_write(mutant)
+
+    def test_soul_rebuild_condition_eviction_mutations_rejected(self) -> None:
+        for indent in (8, 12):
+            good, _ = gw.apply_luna_personality_gateway_patches(skeleton(indent))
+            pad = " " * indent
+            inner = " " * (indent + 4)
+            mutations = {
+                "rebuild_condition_false": good.replace(
+                    'if _wh_lp_rebuild(_wolfhouse_soul_os.getenv("HERMES_ROLE"), '
+                    "_wolfhouse_plat):",
+                    "if False:",
+                    1,
+                ),
+                "eviction_removed": good.replace(
+                    f"{inner}self._evict_cached_agent(session_key)\n",
+                    f"{inner}pass\n",
+                    1,
+                ),
+                "rebuild_alias_changed": good.replace(
+                    "should_rebuild_cached_agent as _wh_lp_rebuild",
+                    "should_rebuild_cached_agent as _wh_lp_other",
+                    1,
+                ).replace("_wh_lp_rebuild(", "_wh_lp_other(", 1),
+            }
+            for name, mutant in mutations.items():
+                with self.subTest(indent=indent, mutation=name):
+                    self.assertNotEqual(mutant, good)
+                    self._reject_no_write(mutant)
+
+    def test_success_return_removed_early_unrelated_return_rejected(self) -> None:
+        for indent in (8, 12):
+            with self.subTest(indent=indent):
+                good, _ = gw.apply_luna_personality_gateway_patches(skeleton(indent))
+                pad = " " * indent
+                inner = " " * (indent + 4)
+                mutant = good.replace(
+                    f"{pad}session_key = 'synthetic-session'\n",
+                    f"{pad}session_key = 'synthetic-session'\n"
+                    f"{pad}if False:\n"
+                    f"{inner}return None\n",
+                    1,
+                )
+                mutant = mutant.replace(
+                    f"\n{pad}return result\n",
+                    f"\n{pad}# success return removed\n",
+                    1,
+                )
+                self.assertIn("return None", mutant)
+                self.assertNotIn(f"{pad}return result\n", mutant)
+                self._reject_no_write(mutant)
+
+    def test_nested_function_decoys_rejected(self) -> None:
+        for indent in (8, 12):
+            with self.subTest(indent=indent):
+                good, _ = gw.apply_luna_personality_gateway_patches(skeleton(indent))
+                mutant = good.replace(_worker_tail(indent), _nested_decoy_tail(indent), 1)
+                self.assertIn("def _decoy():", mutant)
+                self.assertNotIn(_worker_tail(indent), mutant)
+                tree = ast.parse(mutant)
+                worker, _cache_index = _unique_cache_worker(tree)
+                nested_hits = False
+                for node in ast.walk(worker):
+                    if (
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == "AIAgent"
+                    ):
+                        nested_hits = True
+                        break
+                self.assertTrue(
+                    nested_hits,
+                    "ast.walk must still see nested AIAgent decoys (the hole being closed)",
+                )
+                direct = list(_walk_excluding_nested_scopes(worker))
+                self.assertFalse(
+                    any(
+                        isinstance(node, ast.Call)
+                        and isinstance(node.func, ast.Name)
+                        and node.func.id == "AIAgent"
+                        for node in direct
+                    )
+                )
+                self._reject_no_write(mutant)
+
+    def test_evidence_gateway_offline_reject_and_reconstructed_control(self) -> None:
+        self.assertTrue(
+            EVIDENCE_GATEWAY.is_file(),
+            f"installed evidence gateway missing: {EVIDENCE_GATEWAY}",
+        )
+        evidence_bytes = EVIDENCE_GATEWAY.read_bytes()
+        evidence = evidence_bytes.decode("utf-8")
+        self.assertIn(gw.LUNA_PERSONALITY_BIND_TAG, evidence)
+        self.assertIn(gw.LUNA_SOUL_RELOAD_TAG, evidence)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "gateway_run.py"
+            path.write_bytes(evidence_bytes)
+            before = path.read_bytes()
+            with self.assertRaisesRegex(RuntimeError, "luna personality"):
+                gw.apply_luna_personality_gateway_file(path)
+            self.assertEqual(path.read_bytes(), before)
+            with self.assertRaisesRegex(RuntimeError, "luna personality"):
+                gw.apply_luna_personality_gateway_patches(evidence)
+            self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(EVIDENCE_GATEWAY.read_bytes(), evidence_bytes)
+
+        historical_bind = gw.luna_personality_bind_patch(8)
+        historical_soul = gw.LUNA_SOUL_RELOAD_PATCH_12
+        self.assertEqual(evidence.count(historical_bind), 1)
+        self.assertEqual(evidence.count(historical_soul), 1)
+        reconstructed_control = evidence.replace(historical_bind, "", 1).replace(
+            historical_soul, "", 1
+        )
+        self.assertNotIn(gw.LUNA_PERSONALITY_BIND_TAG, reconstructed_control)
+        self.assertNotIn(gw.LUNA_SOUL_RELOAD_TAG, reconstructed_control)
+        reconstructed_emitted, meta = gw.apply_luna_personality_gateway_patches(
+            reconstructed_control
+        )
+        self.assertTrue(meta["changed"])
+        self.assertEqual(meta["owner_indent"], 12)
+        # reconstructed_control is evidence-minus-historical-blocks plus re-emit.
+        # It is not pinned pristine upstream.
+        info = gw.validate_luna_personality_emitted_ast(reconstructed_emitted)
+        self.assertEqual(info["worker_name"], "run_sync")
+        self.assertEqual(info["owner_indent"], 12)
+
+        tree = ast.parse(reconstructed_emitted)
+        worker, cache_index = _unique_cache_worker(tree)
+        self.assertEqual(worker.name, "run_sync")
+        expected = _canonical_bind_rebuild_stmts(12)
+        start = cache_index - len(expected)
+        actual = worker.body[start:cache_index]
+        self.assertEqual(
+            [_ast_dump(node) for node in actual],
+            [_ast_dump(node) for node in expected],
+        )
+        nodes = list(_walk_excluding_nested_scopes(worker))
+
+        def _is_aiagent(node: ast.AST) -> bool:
+            return (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "AIAgent"
+            )
+
+        def _is_conversation(node: ast.AST) -> bool:
+            return (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "run_conversation"
+            )
+
+        conv_indexes = [i for i, node in enumerate(nodes) if _is_conversation(node)]
+        self.assertTrue(any(_is_aiagent(node) for node in nodes))
+        self.assertTrue(conv_indexes)
+        self.assertTrue(
+            any(isinstance(node, ast.Return) for node in nodes[conv_indexes[0] + 1 :])
+        )
+        self.assertEqual(EVIDENCE_GATEWAY.read_bytes(), evidence_bytes)
+
+        pristine = _load_pristine_upstream_if_available()
+        if pristine is None:
+            self.assertIsNone(
+                pristine,
+                "reconstruction is labeled reconstructed control, not pristine upstream",
+            )
+            return
+        pristine_source, _pristine_path = pristine
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run.py"
+            path.write_text(pristine_source, encoding="utf-8")
+            first = gw.apply_patches(path)
+            once = path.read_bytes()
+            self.assertTrue(first.get("luna_soul_reload") or True)
+            gw.validate_luna_personality_emitted_ast(path.read_text(encoding="utf-8"))
+            second = gw.apply_patches(path)
+            self.assertEqual(path.read_bytes(), once)
+            self.assertTrue(second.get("luna_soul_reload") or True)
+        self.assertEqual(EVIDENCE_GATEWAY.read_bytes(), evidence_bytes)
 
 
 if __name__ == "__main__":

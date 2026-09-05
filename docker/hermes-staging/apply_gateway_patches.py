@@ -484,79 +484,56 @@ def _cache_triple_start(body: list[ast.stmt]) -> int | None:
     return None
 
 
-def _is_bind_try(node: ast.AST) -> bool:
-    if not isinstance(node, ast.Try):
-        return False
-    for stmt in node.body:
-        if (
-            isinstance(stmt, ast.ImportFrom)
-            and stmt.module == "wolfhouse.luna_personality"
-            and any(alias.name == "bind_whatsapp_turn_personality" for alias in stmt.names)
-        ):
-            return True
-    return False
+def _ast_dump(node: ast.AST) -> str:
+    return ast.dump(node, include_attributes=False)
 
 
-def _walk_except_bind_conversation(bind: ast.Try) -> bool:
-    for handler in bind.handlers:
-        for node in ast.walk(handler):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "run_conversation"
-            ):
-                return True
-    return False
+def _stmts_from_indented_block(block: str) -> list[ast.stmt]:
+    tree = ast.parse("def _wh_lp_block():\n" + block.lstrip("\n"))
+    return tree.body[0].body
 
 
-def _has_run_conversation(node: ast.AST) -> bool:
-    for child in ast.walk(node):
-        if (
-            isinstance(child, ast.Call)
-            and isinstance(child.func, ast.Attribute)
-            and child.func.attr == "run_conversation"
-        ):
-            return True
-    return False
+def _canonical_bind_rebuild_stmts(indent: int) -> list[ast.stmt]:
+    if indent not in LUNA_PERSONALITY_SUPPORTED_INDENTS:
+        raise RuntimeError(f"luna personality bind indent unsupported: {indent}")
+    soul = LUNA_SOUL_RELOAD_PATCH if indent == 8 else LUNA_SOUL_RELOAD_PATCH_12
+    return _stmts_from_indented_block(luna_personality_bind_patch(indent)) + (
+        _stmts_from_indented_block(soul)
+    )
 
 
-def _has_aiagent(node: ast.AST) -> bool:
-    for child in ast.walk(node):
-        if (
-            isinstance(child, ast.Call)
-            and isinstance(child.func, ast.Name)
-            and child.func.id == "AIAgent"
-        ):
-            return True
-    return False
+def _walk_excluding_nested_scopes(node: ast.AST):
+    """Yield AST nodes in this scope; do not descend into nested fn/class bodies."""
+    nested = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+    for child in ast.iter_child_nodes(node):
+        yield child
+        if not isinstance(child, nested):
+            yield from _walk_excluding_nested_scopes(child)
 
 
-def _return_outside_bind_except(worker: ast.AST, bind: ast.Try) -> bool:
-    skip = set(bind.handlers)
+def _is_aiagent_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "AIAgent"
+    )
 
-    class Finder(ast.NodeVisitor):
-        def __init__(self) -> None:
-            self.found = False
 
-        def visit(self, node: ast.AST):
-            if node in skip:
-                return
-            if isinstance(node, ast.Return):
-                self.found = True
-                return
-            self.generic_visit(node)
-
-    finder = Finder()
-    finder.visit(worker)
-    return finder.found
+def _is_run_conversation_call(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "run_conversation"
+    )
 
 
 def validate_luna_personality_emitted_ast(source: str) -> dict:
     """Reject tag-only / malformed personality injection.
 
-    Bind, rebuild, cache, AIAgent, conversation, and a success return must
-    live in the unique cache-owner worker. Conversation must not sit in the
-    bind ``except`` suite.
+    Exact bind + rebuild AST blocks must sit adjacent to the unique cache
+    owner, in that order. AIAgent, conversation, and a success return after
+    conversation must live in the worker itself, not a nested decoy.
+    Canonical bind ``except`` is ``pass``, so conversation cannot sit there.
     """
     if not isinstance(source, str) or not source:
         raise RuntimeError("luna personality emitted AST invalid: empty source")
@@ -584,70 +561,45 @@ def validate_luna_personality_emitted_ast(source: str) -> dict:
             f"found {len(owners)}"
         )
     worker, cache_index = owners[0]
-    bind_nodes = [stmt for stmt in worker.body if _is_bind_try(stmt)]
-    if len(bind_nodes) != 1:
-        raise RuntimeError(
-            "luna personality emitted AST invalid: unique bind try in worker required, "
-            f"found {len(bind_nodes)}"
-        )
-    bind = bind_nodes[0]
-    if _walk_except_bind_conversation(bind):
-        raise RuntimeError(
-            "luna personality emitted AST invalid: conversation under bind except"
-        )
-    rebuild_direct = False
-    for stmt in worker.body:
-        if (
-            isinstance(stmt, ast.ImportFrom)
-            and stmt.module == "wolfhouse.luna_personality"
-            and any(alias.name == "should_rebuild_cached_agent" for alias in stmt.names)
-        ):
-            rebuild_direct = True
-            break
-    if not rebuild_direct:
-        raise RuntimeError(
-            "luna personality emitted AST invalid: rebuild not in worker"
-        )
-    if any(
-        isinstance(n, ast.Attribute) and n.attr == "_evict_cached_agent"
-        for handler in bind.handlers
-        for n in ast.walk(handler)
-    ):
-        raise RuntimeError(
-            "luna personality emitted AST invalid: rebuild under bind except"
-        )
-    if not _has_aiagent(worker):
-        raise RuntimeError("luna personality emitted AST invalid: AIAgent not in worker")
-    if any(_has_aiagent(handler) for handler in bind.handlers):
-        raise RuntimeError(
-            "luna personality emitted AST invalid: AIAgent under bind except"
-        )
-    if not _has_run_conversation(worker):
-        raise RuntimeError(
-            "luna personality emitted AST invalid: conversation not in worker"
-        )
-    if not _return_outside_bind_except(worker, bind):
-        raise RuntimeError(
-            "luna personality emitted AST invalid: success return not in worker"
-        )
-
-    bind_index = worker.body.index(bind)
-    if bind_index >= cache_index:
-        raise RuntimeError(
-            "luna personality emitted AST invalid: bind must precede cache owner"
-        )
     cache_assign = worker.body[cache_index]
     owner_indent = _leading_indent(source.splitlines()[cache_assign.lineno - 1])
     if owner_indent not in LUNA_PERSONALITY_SUPPORTED_INDENTS:
         raise RuntimeError(
             f"luna personality emitted AST invalid: owner indent {owner_indent}"
         )
+
+    expected = _canonical_bind_rebuild_stmts(owner_indent)
+    start = cache_index - len(expected)
+    if start < 0:
+        raise RuntimeError(
+            "luna personality emitted AST invalid: bind/rebuild not adjacent to cache owner"
+        )
+    actual = worker.body[start:cache_index]
+    if [_ast_dump(node) for node in actual] != [_ast_dump(node) for node in expected]:
+        raise RuntimeError(
+            "luna personality emitted AST invalid: bind/rebuild AST mismatch"
+        )
+    bind = actual[0]
     bind_indent = _leading_indent(source.splitlines()[bind.lineno - 1])
     if bind_indent != owner_indent:
         raise RuntimeError(
             "luna personality emitted AST invalid: bind indent "
             f"{bind_indent} != owner indent {owner_indent}"
         )
+
+    nodes = list(_walk_excluding_nested_scopes(worker))
+    if not any(_is_aiagent_call(node) for node in nodes):
+        raise RuntimeError("luna personality emitted AST invalid: AIAgent not in worker")
+    conv_indexes = [i for i, node in enumerate(nodes) if _is_run_conversation_call(node)]
+    if not conv_indexes:
+        raise RuntimeError(
+            "luna personality emitted AST invalid: conversation not in worker"
+        )
+    if not any(isinstance(node, ast.Return) for node in nodes[conv_indexes[0] + 1 :]):
+        raise RuntimeError(
+            "luna personality emitted AST invalid: success return not in worker"
+        )
+
     return {
         "worker_name": worker.name,
         "owner_indent": owner_indent,
