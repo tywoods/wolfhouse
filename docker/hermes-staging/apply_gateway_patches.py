@@ -9,6 +9,7 @@ Patches:
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import re
 import sys
@@ -355,14 +356,28 @@ SESSION_STALE_ENDED_AT_OLD = "                    if _wh_row is None or _wh_row.
 SESSION_STALE_ENDED_AT_NEW = "                    if _wh_row is None:"
 
 LUNA_PERSONALITY_BIND_TAG = "bind_whatsapp_turn_personality"
-LUNA_PERSONALITY_BIND_PATCH = '''
-        # Wolfhouse Luna Personality: bind WhatsApp style pack once per turn.
-        try:
-            from wolfhouse.luna_personality import bind_whatsapp_turn_personality as _wh_bind_lp
-            _wh_bind_lp(source)
-        except Exception:
-            pass
-'''
+LUNA_PERSONALITY_SUPPORTED_INDENTS = (8, 12)
+
+
+def luna_personality_bind_patch(indent: int) -> str:
+    """Bind block indented to the selected cache/rebuild owner (8 or 12 spaces)."""
+    if indent not in LUNA_PERSONALITY_SUPPORTED_INDENTS:
+        raise RuntimeError(f"luna personality bind indent unsupported: {indent}")
+    pad = " " * indent
+    inner = " " * (indent + 4)
+    return (
+        "\n"
+        f"{pad}# Wolfhouse Luna Personality: bind WhatsApp style pack once per turn.\n"
+        f"{pad}try:\n"
+        f"{inner}from wolfhouse.luna_personality import bind_whatsapp_turn_personality as _wh_bind_lp\n"
+        f"{inner}_wh_bind_lp(source)\n"
+        f"{pad}except Exception:\n"
+        f"{inner}pass\n"
+    )
+
+
+LUNA_PERSONALITY_BIND_PATCH = luna_personality_bind_patch(8)
+LUNA_PERSONALITY_BIND_PATCH_12 = luna_personality_bind_patch(12)
 LUNA_PERSONALITY_CLEAR_TAG = "clear_bound_personality"
 LUNA_SOUL_RELOAD_TAG = "# Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply."
 LUNA_SOUL_RELOAD_PATCH = '''
@@ -395,6 +410,306 @@ SOUL_RELOAD_ANCHORS = (
         LUNA_SOUL_RELOAD_PATCH_12,
     ),
 )
+
+
+def _leading_indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _anchor_indent(anchor: str) -> int:
+    first = anchor.splitlines()[0]
+    return _leading_indent(first)
+
+
+def select_unique_soul_reload_owner(source: str) -> tuple[str, str, int]:
+    """Require exactly one 8- or 12-space cache/rebuild owner."""
+    if not isinstance(source, str) or not source:
+        raise RuntimeError("luna personality cache owner missing")
+    matches: list[tuple[str, str, int]] = []
+    for anchor, patch in SOUL_RELOAD_ANCHORS:
+        count = source.count(anchor)
+        if count > 1:
+            raise RuntimeError(
+                f"luna personality cache owner duplicate (count={count})"
+            )
+        if count == 1:
+            indent = _anchor_indent(anchor)
+            if indent not in LUNA_PERSONALITY_SUPPORTED_INDENTS:
+                raise RuntimeError(
+                    f"luna personality cache owner indent unsupported: {indent}"
+                )
+            matches.append((anchor, patch, indent))
+    if not matches:
+        raise RuntimeError("luna personality cache owner missing")
+    if len(matches) > 1:
+        raise RuntimeError("luna personality cache owner ambiguous")
+    return matches[0]
+
+
+def _is_agent_none_assign(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+        return False
+    target = node.targets[0]
+    if not isinstance(target, ast.Name) or target.id != "agent":
+        return False
+    return isinstance(node.value, ast.Constant) and node.value.value is None
+
+
+def _is_getattr_assign(node: ast.AST, name: str, attr: str) -> bool:
+    if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+        return False
+    target = node.targets[0]
+    if not isinstance(target, ast.Name) or target.id != name:
+        return False
+    value = node.value
+    if not isinstance(value, ast.Call):
+        return False
+    func = value.func
+    if not isinstance(func, ast.Name) or func.id != "getattr":
+        return False
+    if len(value.args) < 2:
+        return False
+    key = value.args[1]
+    return isinstance(key, ast.Constant) and key.value == attr
+
+
+def _cache_triple_start(body: list[ast.stmt]) -> int | None:
+    for index in range(len(body) - 2):
+        if (
+            _is_agent_none_assign(body[index])
+            and _is_getattr_assign(body[index + 1], "_cache_lock", "_agent_cache_lock")
+            and _is_getattr_assign(body[index + 2], "_cache", "_agent_cache")
+        ):
+            return index
+    return None
+
+
+def _is_bind_try(node: ast.AST) -> bool:
+    if not isinstance(node, ast.Try):
+        return False
+    for stmt in node.body:
+        if (
+            isinstance(stmt, ast.ImportFrom)
+            and stmt.module == "wolfhouse.luna_personality"
+            and any(alias.name == "bind_whatsapp_turn_personality" for alias in stmt.names)
+        ):
+            return True
+    return False
+
+
+def _walk_except_bind_conversation(bind: ast.Try) -> bool:
+    for handler in bind.handlers:
+        for node in ast.walk(handler):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "run_conversation"
+            ):
+                return True
+    return False
+
+
+def _has_run_conversation(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if (
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Attribute)
+            and child.func.attr == "run_conversation"
+        ):
+            return True
+    return False
+
+
+def _has_aiagent(node: ast.AST) -> bool:
+    for child in ast.walk(node):
+        if (
+            isinstance(child, ast.Call)
+            and isinstance(child.func, ast.Name)
+            and child.func.id == "AIAgent"
+        ):
+            return True
+    return False
+
+
+def _return_outside_bind_except(worker: ast.AST, bind: ast.Try) -> bool:
+    skip = set(bind.handlers)
+
+    class Finder(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.found = False
+
+        def visit(self, node: ast.AST):
+            if node in skip:
+                return
+            if isinstance(node, ast.Return):
+                self.found = True
+                return
+            self.generic_visit(node)
+
+    finder = Finder()
+    finder.visit(worker)
+    return finder.found
+
+
+def validate_luna_personality_emitted_ast(source: str) -> dict:
+    """Reject tag-only / malformed personality injection.
+
+    Bind, rebuild, cache, AIAgent, conversation, and a success return must
+    live in the unique cache-owner worker. Conversation must not sit in the
+    bind ``except`` suite.
+    """
+    if not isinstance(source, str) or not source:
+        raise RuntimeError("luna personality emitted AST invalid: empty source")
+    if source.count(LUNA_PERSONALITY_BIND_TAG) != 1:
+        raise RuntimeError("luna personality emitted AST invalid: bind tag")
+    if source.count(LUNA_SOUL_RELOAD_TAG) != 1:
+        raise RuntimeError("luna personality emitted AST invalid: rebuild tag")
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise RuntimeError(
+            f"luna personality emitted AST invalid: syntax error: {exc}"
+        ) from exc
+
+    owners: list[tuple[ast.AST, int]] = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        start = _cache_triple_start(fn.body)
+        if start is not None:
+            owners.append((fn, start))
+    if len(owners) != 1:
+        raise RuntimeError(
+            "luna personality emitted AST invalid: unique cache worker required, "
+            f"found {len(owners)}"
+        )
+    worker, cache_index = owners[0]
+    bind_nodes = [stmt for stmt in worker.body if _is_bind_try(stmt)]
+    if len(bind_nodes) != 1:
+        raise RuntimeError(
+            "luna personality emitted AST invalid: unique bind try in worker required, "
+            f"found {len(bind_nodes)}"
+        )
+    bind = bind_nodes[0]
+    if _walk_except_bind_conversation(bind):
+        raise RuntimeError(
+            "luna personality emitted AST invalid: conversation under bind except"
+        )
+    rebuild_direct = False
+    for stmt in worker.body:
+        if (
+            isinstance(stmt, ast.ImportFrom)
+            and stmt.module == "wolfhouse.luna_personality"
+            and any(alias.name == "should_rebuild_cached_agent" for alias in stmt.names)
+        ):
+            rebuild_direct = True
+            break
+    if not rebuild_direct:
+        raise RuntimeError(
+            "luna personality emitted AST invalid: rebuild not in worker"
+        )
+    if any(
+        isinstance(n, ast.Attribute) and n.attr == "_evict_cached_agent"
+        for handler in bind.handlers
+        for n in ast.walk(handler)
+    ):
+        raise RuntimeError(
+            "luna personality emitted AST invalid: rebuild under bind except"
+        )
+    if not _has_aiagent(worker):
+        raise RuntimeError("luna personality emitted AST invalid: AIAgent not in worker")
+    if any(_has_aiagent(handler) for handler in bind.handlers):
+        raise RuntimeError(
+            "luna personality emitted AST invalid: AIAgent under bind except"
+        )
+    if not _has_run_conversation(worker):
+        raise RuntimeError(
+            "luna personality emitted AST invalid: conversation not in worker"
+        )
+    if not _return_outside_bind_except(worker, bind):
+        raise RuntimeError(
+            "luna personality emitted AST invalid: success return not in worker"
+        )
+
+    bind_index = worker.body.index(bind)
+    if bind_index >= cache_index:
+        raise RuntimeError(
+            "luna personality emitted AST invalid: bind must precede cache owner"
+        )
+    cache_assign = worker.body[cache_index]
+    owner_indent = _leading_indent(source.splitlines()[cache_assign.lineno - 1])
+    if owner_indent not in LUNA_PERSONALITY_SUPPORTED_INDENTS:
+        raise RuntimeError(
+            f"luna personality emitted AST invalid: owner indent {owner_indent}"
+        )
+    bind_indent = _leading_indent(source.splitlines()[bind.lineno - 1])
+    if bind_indent != owner_indent:
+        raise RuntimeError(
+            "luna personality emitted AST invalid: bind indent "
+            f"{bind_indent} != owner indent {owner_indent}"
+        )
+    return {
+        "worker_name": worker.name,
+        "owner_indent": owner_indent,
+        "bind_in_worker": True,
+        "rebuild_in_worker": True,
+        "cache_in_worker": True,
+        "aiagent_in_worker": True,
+        "conversation_in_worker": True,
+        "conversation_in_bind_except": False,
+        "return_in_worker": True,
+    }
+
+
+def apply_luna_personality_gateway_patches(source: str) -> tuple[str, dict]:
+    """Insert personality bind + SOUL rebuild against the unique cache owner.
+
+    Fail closed on missing / duplicate / ambiguous owners and on malformed
+    already-tagged source. Does not write files.
+    """
+    owner_anchor, soul_patch, indent = select_unique_soul_reload_owner(source)
+    original = source
+    meta = {
+        "owner_indent": indent,
+        "luna_personality_bind": False,
+        "luna_soul_reload": False,
+        "changed": False,
+        "luna_soul_reload_note": None,
+    }
+    bind_present = LUNA_PERSONALITY_BIND_TAG in source
+    soul_present = LUNA_SOUL_RELOAD_TAG in source
+    if not bind_present:
+        source = source.replace(
+            owner_anchor, luna_personality_bind_patch(indent) + "\n" + owner_anchor, 1
+        )
+        meta["luna_personality_bind"] = True
+    if not soul_present:
+        source = source.replace(owner_anchor, soul_patch + "\n" + owner_anchor, 1)
+        meta["luna_soul_reload"] = True
+    validate_luna_personality_emitted_ast(source)
+    meta["changed"] = source != original
+    meta["luna_personality_bind_present"] = LUNA_PERSONALITY_BIND_TAG in source
+    meta["luna_soul_reload_present"] = LUNA_SOUL_RELOAD_TAG in source
+    return source, meta
+
+
+def apply_luna_personality_gateway_file(run_path: Path) -> dict:
+    """Apply personality gateway patches to a file; write only after validation."""
+    original = run_path.read_bytes()
+    try:
+        source, meta = apply_luna_personality_gateway_patches(original.decode("utf-8"))
+    except Exception:
+        if run_path.read_bytes() != original:
+            raise RuntimeError("luna personality patch wrote on rejection") from None
+        raise
+    encoded = source.encode("utf-8")
+    if encoded != original:
+        run_path.write_text(source, encoding="utf-8")
+        meta["changed"] = True
+    else:
+        meta["changed"] = False
+    meta["path"] = str(run_path)
+    return meta
 
 RUNTIME_PATCH_HOOK_TAG = "# Wolfhouse: install runtime WhatsApp patches when gateway loads."
 RUNTIME_PATCH_HOOK = '''
@@ -778,12 +1093,8 @@ def apply_patches(run_path: Path) -> dict:
     if _old_guard_call in s and _new_guard_call not in s:
         s = s.replace(_old_guard_call, _new_guard_call, 1)
 
-    if LUNA_PERSONALITY_BIND_TAG not in s:
-        for soul_anchor, _soul_patch in SOUL_RELOAD_ANCHORS:
-            if soul_anchor not in s:
-                continue
-            s = s.replace(soul_anchor, LUNA_PERSONALITY_BIND_PATCH + "\n" + soul_anchor, 1)
-            break
+    s, lp_meta = apply_luna_personality_gateway_patches(s)
+    soul_note = lp_meta.get("luna_soul_reload_note")
     if LUNA_PERSONALITY_CLEAR_TAG not in s:
         clear_anchor = (
             '            for _wolfhouse_key in ("WOLFHOUSE_WHATSAPP_GUEST_PHONE", "WHATSAPP_GUEST_PHONE"):\n'
@@ -804,17 +1115,6 @@ def apply_patches(run_path: Path) -> dict:
                 '        clear_session_vars(tokens)',
                 1,
             )
-    soul_note = None
-    if LUNA_SOUL_RELOAD_TAG not in s:
-        applied_soul = False
-        for soul_anchor, soul_patch in SOUL_RELOAD_ANCHORS:
-            if soul_anchor not in s:
-                continue
-            s = s.replace(soul_anchor, soul_patch + "\n" + soul_anchor, 1)
-            applied_soul = True
-            break
-        if not applied_soul:
-            soul_note = "agent-cache anchor not found (SOUL reload skipped)"
 
     run_path.write_text(s, encoding="utf-8")
     plain = apply_run_plain_reply_patch(run_path)
