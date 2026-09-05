@@ -93,6 +93,22 @@ ok('separate-process runner uses authenticated exact-target HTTP',
   && /parse_exact_eval_url/.test(runnerSrc)
   && /lunabox\.lunafrontdesk\.com/.test(runnerSrc)
   && !/import gateway.run/.test(runnerSrc));
+ok('eval path is Sunset HTTP /whatsapp/v1/internal not Wolfhouse /wolfhouse',
+  /LIVE_EVAL_PATH = "\/whatsapp\/v1\/internal\/luna-personality-live-eval"/.test(evalSrc)
+  && /live_sunset_eval_identity/.test(evalSrc)
+  && /hermes-sunset-luna-http/.test(evalSrc)
+  && /8094/.test(evalSrc)
+  && !/LIVE_EVAL_PATH = "\/wolfhouse\/luna-personality-live-eval"/.test(evalSrc));
+ok('provider dispatch is SDK create/converse not worker start',
+  /observe_provider_dispatch/.test(isoSrc)
+  && /provider_dispatch_wrapped/.test(isoSrc)
+  && /unsupported_provider_backend/.test(isoSrc)
+  && /Worker start is not SDK dispatch/.test(isoSrc));
+ok('readiness requires serving runner handler and session db before Staff writes',
+  /gateway_runner_unavailable/.test(evalSrc)
+  && /gateway_handler_unavailable/.test(evalSrc)
+  && /gateway_session_db_unavailable/.test(evalSrc)
+  && /serving_runtime_missing/.test(evalSrc));
 ok('canonical FINAL handler text not interim send substitute',
   /extract_final_handler_text/.test(evalSrc)
   && /final_handler_text/.test(evalSrc)

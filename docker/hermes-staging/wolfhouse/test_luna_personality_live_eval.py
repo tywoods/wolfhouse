@@ -11,6 +11,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent
@@ -33,8 +34,12 @@ from wolfhouse.luna_personality_isolation import (  # noqa: E402
     install_isolation_runtime,
     isolation_status,
     mark_test_isolation_installed,
+    observe_provider_invocation,
     preflight_isolation_or_abort,
     reset_isolation_runtime_for_tests,
+    _wrap_openai_client_factory,
+    _wrap_bedrock_client_factory,
+    settle_isolated_work,
 )
 from wolfhouse.luna_personality_live_eval import (  # noqa: E402
     ALLOWED_CASE_IDS,
@@ -44,8 +49,11 @@ from wolfhouse.luna_personality_live_eval import (  # noqa: E402
     default_invoke_live_gateway,
     evaluate_generated_reply,
     extract_final_handler_text,
+    live_sunset_eval_identity,
     load_corpus,
+    register_live_eval_route,
     run_isolated_personality_eval,
+    serving_eval_readiness,
     simulated_model_turn,
 )
 from wolfhouse.run_luna_personality_live_proof import (  # noqa: E402
@@ -127,6 +135,14 @@ def _complete_targets():
 
     provider.interruptible_api_call = interruptible_api_call
     provider.interruptible_streaming_api_call = interruptible_streaming_api_call
+
+    class _FactoryOwner:
+        def _create_request_openai_client(self, *a, **k):  # noqa: ANN001
+            def create(**kw):  # noqa: ANN003
+                return SimpleNamespace(id="factory-double", kwargs=kw)
+
+            return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
     return IsolationTargets(
         whatsapp_adapter_cls=_FakeAdapter,
         plugins_mod=plugins,
@@ -136,7 +152,43 @@ def _complete_targets():
         provider_mod=provider,
         wrap_executor=True,
         wrap_thread=True,
+        openai_client_factory_owner=_FactoryOwner,
     )
+
+
+def _counter_session_db(effects, label="agent_append"):  # noqa: ANN001
+    return SimpleNamespace(
+        create_session=lambda **k: effects.append(f"{label}:create") or None,
+        end_session=lambda **k: effects.append(f"{label}:end") or None,
+        append_message=lambda **k: effects.append(label) or None,
+    )
+
+
+def _extract_unchanged(path: Path, name: str, namespace: dict):
+    """Compile the named function from source unchanged. Not a copied body."""
+    import ast
+    import __future__
+
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    node = next(
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name
+    )
+    exec(
+        compile(
+            ast.Module(body=[node], type_ignores=[]),
+            str(path),
+            "exec",
+            flags=__future__.annotations.compiler_flag,
+        ),
+        namespace,
+    )
+    return namespace[name]
+
+
+HERMES_HELPERS = Path("/opt/hermes/agent/chat_completion_helpers.py")
+HERMES_RUN_AGENT = Path("/opt/hermes/run_agent.py")
 
 
 class IsolationContextTests(unittest.TestCase):
@@ -830,9 +882,15 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
             capture_send_if_isolated("interim typing")
             return "Welcome, I can help you book."
 
-        runner = SimpleNamespace(_handle_message=handler, session_store=_complete_targets().session_store_cls())
+        effects = []
+        runner = SimpleNamespace(
+            _handle_message=handler,
+            session_store=_complete_targets().session_store_cls(),
+            _session_db=_counter_session_db(effects),
+        )
         t = _complete_targets()
         t.session_store = runner.session_store
+        t.session_db = runner._session_db
         install_isolation_runtime(targets=t, runner=runner)
         cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
         cap.ephemeral_chat_id = "490000000001"
@@ -854,15 +912,18 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
 
     def test_eval_url_rejects_http_userinfo_and_wrong_path(self) -> None:
         with self.assertRaises(IsolationAbort):
-            parse_exact_eval_url("http://lunabox.lunafrontdesk.com/wolfhouse/luna-personality-live-eval")
+            parse_exact_eval_url("http://lunabox.lunafrontdesk.com/whatsapp/v1/internal/luna-personality-live-eval")
         with self.assertRaises(IsolationAbort):
-            parse_exact_eval_url("https://user:pass@lunabox.lunafrontdesk.com/wolfhouse/luna-personality-live-eval")
+            parse_exact_eval_url("https://user:pass@lunabox.lunafrontdesk.com/whatsapp/v1/internal/luna-personality-live-eval")
         with self.assertRaises(IsolationAbort):
             parse_exact_eval_url("https://lunabox.lunafrontdesk.com/wolfhouse/simulate-guest-turn")
+        with self.assertRaises(IsolationAbort):
+            parse_exact_eval_url("https://lunabox.lunafrontdesk.com/wolfhouse/luna-personality-live-eval")
         self.assertEqual(
-            parse_exact_eval_url("https://lunabox.lunafrontdesk.com/wolfhouse/luna-personality-live-eval"),
-            "https://lunabox.lunafrontdesk.com/wolfhouse/luna-personality-live-eval",
+            parse_exact_eval_url("https://lunabox.lunafrontdesk.com/whatsapp/v1/internal/luna-personality-live-eval"),
+            "https://lunabox.lunafrontdesk.com/whatsapp/v1/internal/luna-personality-live-eval",
         )
+        self.assertEqual(LIVE_EVAL_PATH, "/whatsapp/v1/internal/luna-personality-live-eval")
 
     def test_serving_eval_http_posts_authenticated_exact_path(self) -> None:
         captured = {}
@@ -891,12 +952,12 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
             return _Resp()
 
         transport = ServingEvalHttpTransport(
-            "https://lunabox.lunafrontdesk.com/wolfhouse/luna-personality-live-eval",
+            "https://lunabox.lunafrontdesk.com/whatsapp/v1/internal/luna-personality-live-eval",
             "tok",
         )
         with mock.patch("wolfhouse.run_luna_personality_live_proof.urlopen", fake_urlopen):
             row = transport.post_eval("warmth-greeting-en", "sunny")
-        self.assertEqual(captured["url"], "https://lunabox.lunafrontdesk.com/wolfhouse/luna-personality-live-eval")
+        self.assertEqual(captured["url"], "https://lunabox.lunafrontdesk.com/whatsapp/v1/internal/luna-personality-live-eval")
         header_map = {k.lower(): v for k, v in captured["headers"].items()}
         self.assertEqual(header_map.get("x-luna-bot-token"), "tok")
         self.assertEqual(captured["method"], "POST")
@@ -1009,7 +1070,7 @@ class ProviderDispatchTests(unittest.TestCase):
                 )
         self.assertEqual(ctx.exception.reason, "pack_not_observed_from_provider")
 
-    def test_thread_worker_dispatch_counts_and_ordinary_turn_passthrough(self) -> None:
+    def test_thread_worker_start_is_not_dispatch(self) -> None:
         t = _complete_targets()
 
         def helper(agent, api_kwargs):  # noqa: ANN001
@@ -1029,14 +1090,41 @@ class ProviderDispatchTests(unittest.TestCase):
         tok = enter_isolated_turn(cap)
         try:
             preflight_isolation_or_abort(require_live_seams=True, targets=t)
-            t.provider_mod.interruptible_api_call(None, {"model": "gpt-4o-mini", "messages": "Luna Personality this turn: sunny (DEFAULT"})
+            t.provider_mod.interruptible_api_call(
+                None,
+                {"model": "gpt-4o-mini", "messages": "Luna Personality this turn: sunny (DEFAULT"},
+            )
             self.assertEqual(cap.provider_helper_attempts, 1)
-            self.assertGreaterEqual(cap.model_calls, 1)
-            self.assertTrue(cap.model_called)
-            self.assertTrue(cap.observed_pack_from_provider)
+            self.assertEqual(cap.model_calls, 0)
+            self.assertFalse(cap.model_called)
+            self.assertFalse(cap.observed_pack_from_provider)
         finally:
             exit_isolated_turn(tok)
         self.assertIsNone(deny_tool_if_isolated("create_sunset_booking"))
+
+    def test_unsupported_backend_fails_before_dispatch(self) -> None:
+        t = _complete_targets()
+        calls = []
+
+        def helper(agent, api_kwargs):  # noqa: ANN001
+            calls.append("dispatched")
+            return {"response": "should-not-run"}
+
+        t.provider_mod.interruptible_api_call = helper
+        install_isolation_runtime(targets=t)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t)
+            agent = SimpleNamespace(api_mode="anthropic_messages")
+            with self.assertRaises(IsolationAbort) as ctx:
+                t.provider_mod.interruptible_api_call(agent, {"model": "claude", "messages": []})
+            self.assertIn("unsupported_provider_backend:anthropic_messages", ctx.exception.reason)
+            self.assertEqual(calls, [])
+            self.assertEqual(cap.model_calls, 0)
+            self.assertEqual(cap.provider_helper_attempts, 1)
+        finally:
+            exit_isolated_turn(tok)
 
 
 class ServingIdentityHonestyTests(unittest.TestCase):
@@ -1049,7 +1137,7 @@ class ServingIdentityHonestyTests(unittest.TestCase):
             "LUNA_PERSONALITY_STAFF_COOKIE": "sess",
             "HERMES_HOME": "/opt/data/.hermes",
             "HERMES_MODEL": "gpt-4o-mini",
-            "LUNA_PERSONALITY_EVAL_BASE_URL": "https://lunabox.lunafrontdesk.com/wolfhouse/luna-personality-live-eval",
+            "LUNA_PERSONALITY_EVAL_BASE_URL": "https://lunabox.lunafrontdesk.com/whatsapp/v1/internal/luna-personality-live-eval",
         }
         with mock.patch.dict(os.environ, env, clear=False):
             pre = serving_preflight()
@@ -1073,6 +1161,380 @@ class ServingIdentityHonestyTests(unittest.TestCase):
             with self.assertRaises(IsolationAbort) as ctx:
                 assert_sunset_serving_identity(require_staff_origin=True)
         self.assertIn("staff_origin_not_allowlisted", ctx.exception.reason)
+
+
+class GatewaySessionDbBoundaryTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_isolation_runtime_for_tests()
+
+    def test_unwrapped_runner_session_db_flush_is_denied(self) -> None:
+        self.assertTrue(HERMES_RUN_AGENT.is_file())
+        effects = []
+        t = _complete_targets()
+        t.session_store = t.session_store_cls()
+        t.session_store._db = SimpleNamespace(
+            create_session=lambda **k: effects.append("store_create"),
+            end_session=lambda **k: effects.append("store_end"),
+            append_message=lambda **k: effects.append("store_append"),
+        )
+        runner = SimpleNamespace(session_store=t.session_store, _session_db=_counter_session_db(effects, "agent_append"))
+        t.session_db = runner._session_db
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            ns: dict = {
+                "_is_multimodal_tool_result": lambda x: False,
+                "logger": SimpleNamespace(warning=lambda *a, **k: None, debug=lambda *a, **k: None),
+            }
+            flush = _extract_unchanged(HERMES_RUN_AGENT, "_flush_messages_to_session_db", ns)
+            agent = SimpleNamespace(
+                _session_db=runner._session_db,
+                _session_db_created=True,
+                _apply_persist_user_message_override=lambda x: None,
+                session_id="lunaeval_probe",
+                _last_flushed_db_idx=0,
+            )
+            flush(agent, [{"role": "assistant", "content": "synthetic"}])
+            self.assertEqual(effects, [])
+            self.assertEqual(cap.journal_writes_completed, 0)
+            self.assertGreaterEqual(cap.journal_writes_denied, 1)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_stale_effective_db_and_optional_methods_fail_preflight(self) -> None:
+        effects = []
+        t = _complete_targets()
+        t.session_store = t.session_store_cls()
+        t.session_store._db = SimpleNamespace(
+            create_session=lambda **k: effects.append("store_create"),
+            end_session=lambda **k: effects.append("store_end"),
+            append_message=lambda **k: effects.append("store_append"),
+        )
+        t.session_store.rewrite_transcript = lambda *a, **k: effects.append("rewrite")
+        runner = SimpleNamespace(session_store=t.session_store, _session_db=_counter_session_db(effects))
+        t.session_db = runner._session_db
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            t.session_store._db.append_message = lambda **k: effects.append("stale_db_append")
+            with self.assertRaises(IsolationAbort) as ctx:
+                preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertIn("journal_wrapped", ctx.exception.reason)
+            t.session_store._db.append_message(session_id="x", role="assistant", content="synthetic")
+            self.assertEqual(effects, ["stale_db_append"])
+            self.assertEqual(cap.journal_writes_completed, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_stale_optional_method_fails_preflight(self) -> None:
+        t = _complete_targets()
+        t.session_store = t.session_store_cls()
+        t.session_store.rewrite_transcript = lambda *a, **k: "rewrote"
+        install_isolation_runtime(targets=t)
+        t.session_store.rewrite_transcript = lambda *a, **k: "stale"
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            with self.assertRaises(IsolationAbort) as ctx:
+                preflight_isolation_or_abort(require_live_seams=True, targets=t)
+            self.assertIn("journal_wrapped", ctx.exception.reason)
+        finally:
+            exit_isolated_turn(tok)
+
+
+class ServingReadinessAndRouteTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_isolation_runtime_for_tests()
+
+    def test_readiness_without_runner_is_not_ready(self) -> None:
+        t = _complete_targets()
+        env = {
+            "HERMES_ROLE": "sunset-luna",
+            "LUNA_CLIENT_SLUG": "sunset",
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://sunset-staging.lunafrontdesk.com",
+            "HERMES_HOME": "/opt/data/.hermes",
+            "HERMES_MODEL": "gpt-4o-mini",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            rec = serving_eval_readiness(targets=t, runner=None)
+        self.assertFalse(rec["ready"])
+        self.assertEqual(rec["error"], "gateway_runner_unavailable")
+        self.assertIn("gateway_runner_unavailable", rec["runtime_missing"])
+
+    def test_readiness_requires_handler_and_session_db(self) -> None:
+        t = _complete_targets()
+        runner = SimpleNamespace(session_store=t.session_store_cls())
+        rec = serving_eval_readiness(targets=t, runner=runner)
+        self.assertFalse(rec["ready"])
+        self.assertIn(rec["error"], {"gateway_handler_unavailable", "gateway_session_db_unavailable"})
+
+    def test_handler_final_without_adapter_send_is_success_contract(self) -> None:
+        async def no_send(_msg, cap, _meta):  # noqa: ANN001
+            observe_provider_invocation(
+                "gpt-4o-mini",
+                "Luna Personality this turn: sunny (DEFAULT — current live Wolf-House tone).",
+            )
+            return "Welcome, I can help you book a stay."
+
+        with mock.patch.dict(os.environ, {"HERMES_ROLE": "sunset-luna", "LUNA_CLIENT_SLUG": "sunset"}, clear=False):
+            row = _run(
+                run_isolated_personality_eval(
+                    case_id="warmth-greeting-en",
+                    personality_id="sunny",
+                    corpus=CORPUS,
+                    fetch_setting=lambda _t: {"personality_id": "sunny"},
+                    invoke_turn=no_send,
+                    serving_preflight=False,
+                    evidence_kind="live_gateway",
+                )
+            )
+        self.assertEqual(row["final_handler_text"], "Welcome, I can help you book a stay.")
+        self.assertEqual(row["sends_attempted"], 0)
+        self.assertEqual(row["sends_completed"], 0)
+        self.assertTrue(row["whatsapp_suppressed"])
+        self.assertTrue(row["ok"])
+
+    def test_eval_route_registers_only_on_sunset_http_identity(self) -> None:
+        class _Router:
+            def __init__(self) -> None:
+                self.gets = []
+                self.posts = []
+
+            def add_get(self, path, handler):  # noqa: ANN001
+                self.gets.append(path)
+
+            def add_post(self, path, handler):  # noqa: ANN001
+                self.posts.append(path)
+
+        class _App:
+            def __init__(self) -> None:
+                self.router = _Router()
+
+        wolf = {
+            "HERMES_ROLE": "luna",
+            "LUNA_CLIENT_SLUG": "wolfhouse-somo",
+            "WHATSAPP_CLOUD_WEBHOOK_PORT": "8090",
+            "SUNSET_LUNA_REQUIRE_ISOLATED_AUTH": "",
+        }
+        sunset = {
+            "HERMES_ROLE": "sunset-luna",
+            "LUNA_CLIENT_SLUG": "sunset",
+            "WHATSAPP_CLOUD_WEBHOOK_PORT": "8094",
+            "SUNSET_LUNA_REQUIRE_ISOLATED_AUTH": "true",
+        }
+        with mock.patch.dict(os.environ, wolf, clear=False):
+            app = _App()
+            self.assertIsNone(live_sunset_eval_identity())
+            self.assertFalse(register_live_eval_route(app))
+            self.assertEqual(app.router.gets, [])
+            self.assertEqual(app.router.posts, [])
+        with mock.patch.dict(os.environ, sunset, clear=False):
+            app = _App()
+            ident = live_sunset_eval_identity()
+            self.assertEqual(ident["runtime"], "hermes-sunset-luna-http")
+            self.assertTrue(register_live_eval_route(app))
+            self.assertEqual(app.router.gets, [LIVE_EVAL_PATH])
+            self.assertEqual(app.router.posts, [LIVE_EVAL_PATH])
+
+    def test_source_caddy_wolfhouse_prefix_unchanged_eval_not_under_it(self) -> None:
+        repo = Path(__file__).resolve().parents[3]
+        caddy = (repo / "scripts" / "_lunabox-caddyfile").read_text(encoding="utf-8")
+        ref = (repo / "docker" / "hermes-staging" / "lunabox-caddyfile.reference").read_text(encoding="utf-8")
+        self.assertIn("reverse_proxy /wolfhouse/* localhost:8090", caddy)
+        self.assertIn("reverse_proxy /wolfhouse/* localhost:8090", ref)
+        self.assertNotIn("/wolfhouse/luna-personality-live-eval", caddy)
+        self.assertEqual(LIVE_EVAL_PATH, "/whatsapp/v1/internal/luna-personality-live-eval")
+        self.assertTrue(LIVE_EVAL_PATH.startswith("/whatsapp/"))
+        self.assertNotIn("8094", caddy)
+
+
+class RealProviderHelperDispatchTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_isolation_runtime_for_tests()
+
+    def test_extracted_nonstream_client_failure_is_zero_dispatch(self) -> None:
+        self.assertTrue(HERMES_HELPERS.is_file())
+        t = _complete_targets()
+        creates = []
+        ns: dict = {
+            "threading": threading,
+            "time": __import__("time"),
+            "os": os,
+            "logger": SimpleNamespace(
+                debug=lambda *a, **k: None,
+                warning=lambda *a, **k: None,
+                info=lambda *a, **k: None,
+            ),
+            "_is_openai_codex_backend": lambda a: False,
+            "estimate_request_context_tokens": lambda x: 0,
+            "_env_float": lambda name, default: default,
+            "Optional": Optional,
+        }
+        real = _extract_unchanged(HERMES_HELPERS, "interruptible_api_call", ns)
+        t.provider_mod.interruptible_api_call = real
+        install_isolation_runtime(targets=t)
+
+        def boom(*a, **k):  # noqa: ANN001
+            raise RuntimeError("client construction failed")
+
+        agent = SimpleNamespace(
+            api_mode="chat_completions",
+            _interrupt_requested=False,
+            _compute_non_stream_stale_timeout=lambda kw: 180,
+            _touch_activity=lambda x: None,
+            _create_request_openai_client=boom,
+            _close_request_openai_client=lambda *a, **k: None,
+        )
+        _wrap_openai_client_factory(agent)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            with self.assertRaises(RuntimeError):
+                t.provider_mod.interruptible_api_call(
+                    agent,
+                    {
+                        "model": "counter-model",
+                        "messages": [{"role": "system", "content": "Luna Personality this turn: calm. Patient."}],
+                    },
+                )
+            settle_isolated_work(cap, timeout_s=2.0)
+            self.assertEqual(creates, [])
+            self.assertEqual(cap.model_calls, 0)
+            self.assertFalse(cap.model_called)
+            self.assertFalse(cap.observed_pack_from_provider)
+            self.assertEqual(cap.provider_helper_attempts, 1)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_extracted_nonstream_create_counts_one_dispatch(self) -> None:
+        self.assertTrue(HERMES_HELPERS.is_file())
+        t = _complete_targets()
+        creates = []
+        ns: dict = {
+            "threading": threading,
+            "time": __import__("time"),
+            "os": os,
+            "logger": SimpleNamespace(
+                debug=lambda *a, **k: None,
+                warning=lambda *a, **k: None,
+                info=lambda *a, **k: None,
+            ),
+            "_is_openai_codex_backend": lambda a: False,
+            "estimate_request_context_tokens": lambda x: 0,
+            "_env_float": lambda name, default: default,
+            "Optional": Optional,
+        }
+        real = _extract_unchanged(HERMES_HELPERS, "interruptible_api_call", ns)
+        t.provider_mod.interruptible_api_call = real
+        install_isolation_runtime(targets=t)
+
+        def make_client(*a, **k):  # noqa: ANN001
+            def create(**kw):  # noqa: ANN003
+                creates.append(dict(kw))
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+
+            return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+        agent = SimpleNamespace(
+            api_mode="chat_completions",
+            _interrupt_requested=False,
+            _compute_non_stream_stale_timeout=lambda kw: 180,
+            _touch_activity=lambda x: None,
+            _create_request_openai_client=make_client,
+            _close_request_openai_client=lambda *a, **k: None,
+        )
+        _wrap_openai_client_factory(agent)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            t.provider_mod.interruptible_api_call(
+                agent,
+                {
+                    "model": "counter-model",
+                    "messages": [{"role": "system", "content": "Luna Personality this turn: calm. Patient."}],
+                },
+            )
+            settle_isolated_work(cap, timeout_s=2.0)
+            self.assertEqual(len(creates), 1)
+            self.assertEqual(creates[0].get("model"), "counter-model")
+            self.assertEqual(cap.model_calls, 1)
+            self.assertTrue(cap.model_called)
+            self.assertTrue(cap.observed_pack_from_provider)
+            self.assertEqual(cap.observed_pack_id, "calm")
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_extracted_bedrock_stream_fallback_counts_every_dispatch(self) -> None:
+        self.assertTrue(HERMES_HELPERS.is_file())
+        t = _complete_targets()
+        dispatches = []
+        bedrock = types.ModuleType("agent.bedrock_adapter")
+
+        class _Denied(Exception):
+            pass
+
+        def _get_bedrock_runtime_client(region):  # noqa: ANN001
+            def converse_stream(**kw):  # noqa: ANN003
+                dispatches.append("converse_stream")
+                raise _Denied("iam denied stream")
+
+            def converse(**kw):  # noqa: ANN003
+                dispatches.append("converse")
+                return {"output": {"message": {"content": [{"text": "ok"}]}}}
+
+            return SimpleNamespace(converse_stream=converse_stream, converse=converse)
+
+        bedrock._get_bedrock_runtime_client = _get_bedrock_runtime_client
+        bedrock.invalidate_runtime_client = lambda *a, **k: None
+        bedrock.is_stale_connection_error = lambda e: False
+        bedrock.is_streaming_access_denied_error = lambda e: True
+        bedrock.normalize_converse_response = lambda raw: raw
+        bedrock.stream_converse_with_callbacks = lambda *a, **k: None
+        t.bedrock_adapter_mod = bedrock
+        sys.modules["agent.bedrock_adapter"] = bedrock
+        ns: dict = {
+            "threading": threading,
+            "time": __import__("time"),
+            "logger": SimpleNamespace(
+                debug=lambda *a, **k: None,
+                warning=lambda *a, **k: None,
+                info=lambda *a, **k: None,
+            ),
+        }
+        real = _extract_unchanged(HERMES_HELPERS, "interruptible_streaming_api_call", ns)
+        t.provider_mod.interruptible_streaming_api_call = real
+        try:
+            install_isolation_runtime(targets=t)
+            _wrap_bedrock_client_factory(bedrock)
+            agent = SimpleNamespace(
+                api_mode="bedrock_converse",
+                _interrupt_requested=False,
+                _safe_print=lambda x: None,
+                _disable_streaming=False,
+            )
+            cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+            tok = enter_isolated_turn(cap)
+            try:
+                t.provider_mod.interruptible_streaming_api_call(
+                    agent,
+                    {
+                        "modelId": "counter-model",
+                        "system": [{"text": "Luna Personality this turn: calm. Patient."}],
+                    },
+                )
+                settle_isolated_work(cap, timeout_s=2.0)
+                self.assertEqual(dispatches, ["converse_stream", "converse"])
+                self.assertEqual(cap.model_calls, 2)
+                self.assertEqual(cap.model, "counter-model")
+                self.assertTrue(cap.observed_pack_from_provider)
+            finally:
+                exit_isolated_turn(tok)
+        finally:
+            sys.modules.pop("agent.bedrock_adapter", None)
 
 
 if __name__ == "__main__":

@@ -622,6 +622,8 @@ def register_simulate_route(app) -> None:
     try:
         from wolfhouse.luna_personality_live_eval import register_live_eval_route
 
+        # Identity-gated: Wolfhouse 8090 no-ops; Sunset HTTP 8094 registers
+        # /whatsapp/v1/internal/luna-personality-live-eval. Simulate paths stay.
         register_live_eval_route(app)
     except Exception:
         # Isolated eval is additive. Default simulate must still register.

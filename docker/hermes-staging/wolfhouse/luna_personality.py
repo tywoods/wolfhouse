@@ -151,8 +151,8 @@ def _sunny(tenant_id: str, channel: str, reason: Optional[str], applied: bool) -
     }
 
 
-def parse_exact_staff_origin(url: str) -> str:
-    """Exact allowlisted Staff origin. Substring hosts, HTTP, userinfo, ports, paths fail."""
+def parse_https_staff_origin(url: str, *, allowlist: Optional[frozenset] = None) -> str:
+    """Exact https Staff origin. Optional Sunset-only allowlist for isolated eval."""
     from wolfhouse.luna_personality_isolation import IsolationAbort
 
     raw = str(url or "").strip()
@@ -165,13 +165,18 @@ def parse_exact_staff_origin(url: str) -> str:
     if parsed.port:
         raise IsolationAbort("staff_origin_port_forbidden")
     origin = f"{parsed.scheme}://{host}"
-    if origin not in ALLOWED_STAFF_ORIGINS:
+    if allowlist is not None and origin not in allowlist:
         raise IsolationAbort(f"staff_origin_not_allowlisted:{host or 'empty'}")
     if parsed.path not in ("", "/"):
         raise IsolationAbort("staff_origin_path_forbidden")
     if parsed.query or parsed.fragment:
         raise IsolationAbort("staff_origin_query_forbidden")
     return origin
+
+
+def parse_exact_staff_origin(url: str) -> str:
+    """Sunset-only Staff origin for isolated eval / operator proof. Not ordinary Wolfhouse."""
+    return parse_https_staff_origin(url, allowlist=ALLOWED_STAFF_ORIGINS)
 
 
 def canonical_bot_auth_headers(token: str) -> Dict[str, str]:
@@ -191,7 +196,14 @@ def default_fetch_setting(_tenant_id: str) -> Dict[str, Any]:
     token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
     if not base or not token:
         raise RuntimeError("setting_unavailable")
-    origin = parse_exact_staff_origin(base)
+    from wolfhouse.luna_personality_isolation import current_isolated_turn
+
+    # Sunset allowlist is isolated-eval only. Ordinary Wolfhouse turns keep
+    # tenant Staff origin authority (staff-staging / wolfhouse-somo).
+    if current_isolated_turn() is not None:
+        origin = parse_exact_staff_origin(base)
+    else:
+        origin = parse_https_staff_origin(base, allowlist=None)
     req = urllib.request.Request(
         f"{origin}{STAFF_BOT_PERSONALITY_PATH}",
         method="GET",

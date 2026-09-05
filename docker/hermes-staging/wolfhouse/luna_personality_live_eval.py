@@ -49,7 +49,13 @@ from wolfhouse.luna_personality_isolation import (
 )
 from wolfhouse.staging_guard import assert_staging_environment
 
-LIVE_EVAL_PATH = "/wolfhouse/luna-personality-live-eval"
+# Sibling of /whatsapp/webhook and /whatsapp/v1/internal/email-draft-plan on
+# hermes-sunset-luna-http (8094). Tracked Caddy /wolfhouse/* stays Wolfhouse 8090.
+# Registration is Sunset-HTTP-identity gated so Wolfhouse 8090 does not serve it.
+# Live Caddy /whatsapp/* correspondence is not claimed by this source binding.
+LIVE_EVAL_PATH = "/whatsapp/v1/internal/luna-personality-live-eval"
+SUNSET_HTTP_WEBHOOK_PORT = "8094"
+SUNSET_HTTP_RUNTIME = "hermes-sunset-luna-http"
 SUNSET_SLUG = "sunset"
 SUNSET_ROLE = "sunset-luna"
 EXPECTED_HERMES_HOME = "/opt/data/.hermes"
@@ -604,7 +610,10 @@ async def run_isolated_personality_eval(
             personality_id=pid,
             reply=cap.reply_text,
         )
-        whatsapp_suppressed = cap.sends_attempted > 0 and cap.sends_completed == 0
+        # Canonical _handle_message FINAL text is success without requiring an
+        # outer adapter send the handler did not invoke. Leak = completed send.
+        send_leaked = cap.sends_completed > 0
+        whatsapp_suppressed = not send_leaked
         ok = bool(semantic.get("ok")) and whatsapp_suppressed and cap.tools_invoked == 0
         return {
             "ok": ok,
@@ -673,10 +682,62 @@ def _eval_unauthorized(request) -> Optional[Any]:
     return None
 
 
+def resolve_gateway_runner(runner: Any = None) -> Any:
+    if runner is not None:
+        return runner
+    try:
+        from gateway.run import _wolfhouse_gateway_runner  # noqa: WPS433
+
+        return _wolfhouse_gateway_runner
+    except Exception:
+        return None
+
+
+def live_sunset_eval_identity() -> Optional[Dict[str, Any]]:
+    """Source-owned Sunset HTTP runtime identity for eval route registration.
+
+    Same process facts as hermes-sunset-luna-http (role, isolated auth, 8094,
+    sunset slug). Does not inspect live Caddy or claim ingress proof.
+    """
+    role = (os.getenv("HERMES_ROLE") or "").strip()
+    isolated = (os.getenv("SUNSET_LUNA_REQUIRE_ISOLATED_AUTH") or "").strip()
+    webhook = (os.getenv("WHATSAPP_CLOUD_WEBHOOK_PORT") or "").strip()
+    slug = (os.getenv("LUNA_CLIENT_SLUG") or os.getenv("LUNA_BOT_CLIENT_SLUG") or "").strip()
+    if role != SUNSET_ROLE or isolated != "true" or webhook != SUNSET_HTTP_WEBHOOK_PORT or slug != SUNSET_SLUG:
+        return None
+    return {
+        "runtime": SUNSET_HTTP_RUNTIME,
+        "HERMES_ROLE": role,
+        "LUNA_CLIENT_SLUG": slug,
+        "webhook_port": webhook,
+        "eval_path": LIVE_EVAL_PATH,
+    }
+
+
+def serving_runtime_missing(runner: Any) -> List[str]:
+    missing: List[str] = []
+    if runner is None:
+        return ["gateway_runner_unavailable"]
+    handler = getattr(runner, "_handle_message", None)
+    if not callable(handler):
+        missing.append("gateway_handler_unavailable")
+    if getattr(runner, "session_store", None) is None:
+        missing.append("session_store_unavailable")
+    if getattr(runner, "_session_db", None) is None:
+        missing.append("gateway_session_db_unavailable")
+    return missing
+
+
 def serving_eval_readiness(*, targets: Optional[IsolationTargets] = None, runner: Any = None) -> Dict[str, Any]:
-    """Inspect serving isolation/identity. Does not invoke a model or mutate Staff."""
-    install_isolation_runtime(targets=targets, runner=runner)
-    live = isolation_status(targets=targets, runner=runner)
+    """Inspect serving isolation/identity. Does not invoke a model or mutate Staff.
+
+    Requires an available serving runner, callable handler, effective instances,
+    and full seams before any Staff access/write. Classes/env alone are not ready.
+    """
+    resolved = resolve_gateway_runner(runner)
+    runtime_missing = serving_runtime_missing(resolved)
+    install_isolation_runtime(targets=targets, runner=resolved)
+    live = isolation_status(targets=targets, runner=resolved)
     try:
         identity = server_owned_serving_identity(require_home=True, require_staff_origin=True)
         identity_error = None
@@ -689,15 +750,26 @@ def serving_eval_readiness(*, targets: Optional[IsolationTargets] = None, runner
         }
         identity_error = exc.reason
     missing = [k for k in REQUIRED_LIVE_SEAMS if not live.get(k)]
-    ready = not missing and identity_error is None
+    ready = not missing and not runtime_missing and identity_error is None
+    error = None
+    if not ready:
+        if runtime_missing:
+            error = runtime_missing[0]
+        elif identity_error:
+            error = identity_error
+        else:
+            error = "seams_incomplete:" + ",".join(missing)
     return {
         "ok": ready,
         "ready": ready,
         "preflight_only": True,
         "isolation": live,
         "missing_seams": missing,
+        "runtime_missing": runtime_missing,
+        "gateway_runner_available": resolved is not None,
+        "handler_callable": bool(resolved is not None and callable(getattr(resolved, "_handle_message", None))),
         "serving_identity": identity,
-        "error": None if ready else (identity_error or ("seams_incomplete:" + ",".join(missing))),
+        "error": error,
         "live_acceptance": False,
         "consumed_model_observed": False,
         "consumed_soul_observed": False,
@@ -705,8 +777,15 @@ def serving_eval_readiness(*, targets: Optional[IsolationTargets] = None, runner
     }
 
 
-def register_live_eval_route(app) -> None:
-    """Authenticated Sunset-only allowlisted eval. Does not alter simulate defaults."""
+def register_live_eval_route(app) -> bool:
+    """Authenticated Sunset-HTTP eval. Wolfhouse 8090 identity does not register.
+
+    Does not alter simulate defaults or Caddy /wolfhouse/* → 8090.
+    """
+    if live_sunset_eval_identity() is None:
+        return False
+    if getattr(app, "_luna_personality_eval_registered", False):
+        return True
 
     async def _handle_ready(request):
         denied = _eval_unauthorized(request)
@@ -775,6 +854,9 @@ def register_live_eval_route(app) -> None:
                 "tools_not_isolated",
                 "isolation_context_missing",
                 "gateway_runner_unavailable",
+                "gateway_handler_unavailable",
+                "gateway_session_db_unavailable",
+                "session_store_unavailable",
             }:
                 status = 503
             return web.json_response({"ok": False, "error": exc.reason}, status=status)
@@ -793,6 +875,8 @@ def register_live_eval_route(app) -> None:
 
     app.router.add_get(LIVE_EVAL_PATH, _handle_ready)
     app.router.add_post(LIVE_EVAL_PATH, _handle)
+    setattr(app, "_luna_personality_eval_registered", True)
+    return True
 
 
 async def simulated_model_turn(

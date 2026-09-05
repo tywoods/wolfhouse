@@ -44,6 +44,14 @@ REQUIRED_LIVE_SEAMS: Tuple[str, ...] = (
     "thread_ctx_wrapped",
     "provider_wrapped",
     "provider_streaming_wrapped",
+    "provider_dispatch_wrapped",
+)
+
+# Actual helper backends whose SDK create/converse/converse_stream we can observe.
+# Unsupported api_mode values fail closed BEFORE dispatch.
+SUPPORTED_PROVIDER_BACKENDS: Tuple[str, ...] = (
+    "chat_completions",
+    "bedrock_converse",
 )
 
 PERSISTENCE_WRITE_METHODS: Tuple[str, ...] = (
@@ -94,15 +102,12 @@ _executor_ctx_wrapped = False
 _thread_ctx_wrapped = False
 _provider_wrapped = False
 _provider_streaming_wrapped = False
+_provider_dispatch_wrapped = False
 
 # (owner, attr, original). Tests restore these; production never unwraps.
 _ORIG_OWNERS: List[Tuple[Any, str, Any]] = []
 _EXECUTOR_ORIG: Optional[Callable[..., Any]] = None
 _THREAD_START_ORIG: Optional[Callable[..., Any]] = None
-_PENDING_PROVIDER: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
-    "luna_personality_pending_provider",
-    default=None,
-)
 
 
 @dataclass
@@ -159,6 +164,12 @@ class IsolationTargets:
     provider_streaming_attr: str = "interruptible_streaming_api_call"
     wrap_executor: bool = True
     wrap_thread: bool = True
+    session_db: Any = None
+    agent_session_db: Any = None
+    session_db_cls: Any = None
+    whatsapp_adapter: Any = None
+    openai_client_factory_owner: Any = None
+    bedrock_adapter_mod: Any = None
 
 
 class IsolationAbort(RuntimeError):
@@ -262,7 +273,7 @@ def observe_provider_helper_attempt(kind: Optional[str] = None, model: Optional[
 
 
 def observe_provider_invocation(model: Optional[str] = None, prompt_blob: Any = None) -> None:
-    """Record actual provider-worker dispatch, not helper entry."""
+    """Record one actual SDK/provider call, not helper entry or worker start."""
     cap = _ISOLATED.get()
     if cap is None:
         return
@@ -280,6 +291,12 @@ def observe_provider_invocation(model: Optional[str] = None, prompt_blob: Any = 
         if token:
             cap.observed_pack_id = token
             cap.observed_pack_injected = True
+
+
+def observe_provider_dispatch(api_kwargs: Any = None, *, model: Optional[str] = None, prompt_blob: Any = None) -> None:
+    """Observe the actual create/converse kwargs at the provider call boundary."""
+    resolved_model, blob = _extract_provider_model_blob(api_kwargs, {})
+    observe_provider_invocation(model or resolved_model, prompt_blob or blob)
 
 
 def record_model_call(model: Optional[str] = None) -> None:
@@ -659,12 +676,93 @@ def _persistence_owner_complete(owner: Any) -> bool:
         fn = getattr(owner, name, None)
         if fn is None or not _is_wrapped(fn):
             return False
+    for name in PERSISTENCE_OPTIONAL_WRITE_METHODS:
+        fn = getattr(owner, name, None)
+        if fn is not None and not _is_wrapped(fn):
+            return False
     return True
 
 
-def _wrap_journal(*, store_cls: Any = None, store: Any = None, runner: Any = None) -> bool:
+def _sqlite_owner_complete(db: Any) -> bool:
+    if db is None:
+        return True
+    present = False
+    for name in SQLITE_WRITE_METHODS:
+        fn = getattr(db, name, None)
+        if fn is None:
+            continue
+        present = True
+        if not _is_wrapped(fn):
+            return False
+    return True if present else True
+
+
+def _session_db_ready(db: Any) -> bool:
+    """Effective SessionDB/store._db must exist and have wrapped write methods."""
+    if db is None:
+        return False
+    present = [name for name in SQLITE_WRITE_METHODS if getattr(db, name, None) is not None]
+    if not present:
+        return False
+    return all(_is_wrapped(getattr(db, name)) for name in present)
+
+
+def _unique_objs(items: Sequence[Any]) -> List[Any]:
+    out: List[Any] = []
+    seen: set = set()
+    for item in items:
+        if item is None:
+            continue
+        key = id(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def _iter_effective_session_dbs(*, store: Any = None, runner: Any = None, targets: Optional[IsolationTargets] = None) -> List[Any]:
+    t = targets or IsolationTargets()
+    dbs: List[Any] = []
+    if store is not None:
+        dbs.append(getattr(store, "_db", None))
+    if t.session_db is not None:
+        dbs.append(t.session_db)
+    if t.agent_session_db is not None:
+        dbs.append(t.agent_session_db)
+    if runner is not None:
+        dbs.append(getattr(runner, "_session_db", None))
+        for holder_name in ("_running_agents", "_agent_cache"):
+            holder = getattr(runner, holder_name, None)
+            if not isinstance(holder, dict):
+                continue
+            for val in holder.values():
+                agent = val[0] if isinstance(val, (tuple, list)) and val else val
+                dbs.append(getattr(agent, "_session_db", None))
+    return _unique_objs(dbs)
+
+
+def _discover_session_db_cls(explicit: Any = None) -> Any:
+    if explicit is not None:
+        return explicit
+    try:
+        from hermes_state import SessionDB as cls  # type: ignore
+
+        return cls
+    except Exception:
+        return None
+
+
+def _wrap_journal(
+    *,
+    store_cls: Any = None,
+    store: Any = None,
+    runner: Any = None,
+    targets: Optional[IsolationTargets] = None,
+) -> bool:
     global _journal_wrapped
-    cls, instance = _resolve_session_store(store_cls=store_cls, store=store, runner=runner)
+    t = targets or IsolationTargets()
+    cls, instance = _resolve_session_store(store_cls=store_cls or t.session_store_cls, store=store or t.session_store, runner=runner)
     wrapped_any = False
     owners: List[Any] = []
     if cls is not None:
@@ -675,6 +773,14 @@ def _wrap_journal(*, store_cls: Any = None, store: Any = None, runner: Any = Non
         _journal_wrapped = False
         return False
 
+    db_cls = _discover_session_db_cls(t.session_db_cls)
+    if db_cls is not None:
+        for name in SQLITE_WRITE_METHODS:
+            if getattr(db_cls, name, None) is None:
+                continue
+            if _wrap_persistence_method(db_cls, name):
+                wrapped_any = True
+
     for owner in owners:
         for name in PERSISTENCE_WRITE_METHODS + PERSISTENCE_OPTIONAL_WRITE_METHODS:
             if getattr(owner, name, None) is None:
@@ -683,14 +789,31 @@ def _wrap_journal(*, store_cls: Any = None, store: Any = None, runner: Any = Non
                 wrapped_any = True
         db = getattr(owner, "_db", None) if not isinstance(owner, type) else None
         if db is not None:
-            _wrap_sqlite_db(db)
+            if _wrap_sqlite_db(db):
+                wrapped_any = True
+
+    for db in _iter_effective_session_dbs(store=instance, runner=runner, targets=t):
+        if _wrap_sqlite_db(db):
+            wrapped_any = True
 
     class_ok = _persistence_owner_complete(cls) if cls is not None else False
     inst_ok = True
     if instance is not None:
-        inst_ok = _persistence_owner_complete(instance)
-    _journal_wrapped = bool(wrapped_any and class_ok and inst_ok)
-    if instance is None:
+        inst_ok = _persistence_owner_complete(instance) and _sqlite_owner_complete(getattr(instance, "_db", None))
+    dbs_ok = True
+    for db in _iter_effective_session_dbs(store=instance, runner=runner, targets=t):
+        if not _session_db_ready(db):
+            dbs_ok = False
+            break
+    runner_db_ok = True
+    if runner is not None:
+        runner_db_ok = _session_db_ready(getattr(runner, "_session_db", None))
+    if t.session_db is not None:
+        runner_db_ok = runner_db_ok and _session_db_ready(t.session_db)
+    if t.agent_session_db is not None:
+        runner_db_ok = runner_db_ok and _session_db_ready(t.agent_session_db)
+    _journal_wrapped = bool(wrapped_any and class_ok and inst_ok and dbs_ok and runner_db_ok)
+    if instance is None and runner is None and t.session_db is None:
         _journal_wrapped = bool(wrapped_any and class_ok)
     return _journal_wrapped
 
@@ -739,10 +862,8 @@ def _wrap_thread_context_propagation() -> bool:
 
         def _runner(*_a: Any, **_k: Any):
             def _work():
-                pending = _PENDING_PROVIDER.get()
-                if pending:
-                    observe_provider_invocation(pending.get("model"), pending.get("blob"))
-                    _PENDING_PROVIDER.set(None)
+                # Worker start is not SDK dispatch. Observation happens at the
+                # actual create/converse boundary. Preserve raw worker context.
                 return target(*args, **kwargs)
 
             return ctx.run(_work)
@@ -783,23 +904,30 @@ def _prompt_blob_from_kwargs(api_kwargs: Any) -> str:
     parts: List[str] = []
     for key in ("messages", "input", "instructions", "system"):
         val = api_kwargs.get(key)
-        if val:
+        if not val:
+            continue
+        if key == "system" and isinstance(val, list):
+            for part in val:
+                if isinstance(part, dict) and part.get("text"):
+                    parts.append(str(part.get("text")))
+                else:
+                    parts.append(str(part))
+        else:
             parts.append(str(val))
-    model = api_kwargs.get("model")
+    model = api_kwargs.get("model") or api_kwargs.get("modelId")
     if model:
         parts.append(str(model))
     return "\n".join(parts)
 
 
 def _extract_provider_model_blob(api_kwargs: Any, kwargs: Dict[str, Any]) -> Tuple[Optional[str], str]:
-    model = None
-    blob = ""
-    if isinstance(api_kwargs, dict):
-        model = api_kwargs.get("model")
-        blob = _prompt_blob_from_kwargs(api_kwargs)
-    elif isinstance(kwargs.get("api_kwargs"), dict):
-        model = kwargs["api_kwargs"].get("model")
-        blob = _prompt_blob_from_kwargs(kwargs["api_kwargs"])
+    payload = api_kwargs
+    if not isinstance(payload, dict):
+        payload = kwargs.get("api_kwargs") if isinstance(kwargs.get("api_kwargs"), dict) else kwargs
+    if not isinstance(payload, dict):
+        return None, str(api_kwargs or "")
+    model = payload.get("model") or payload.get("modelId")
+    blob = _prompt_blob_from_kwargs(payload)
     return (str(model) if model else None), blob
 
 
@@ -816,15 +944,14 @@ def _wrap_one_provider_helper(mod: Any, attr: str, kind: str) -> bool:
             if agent is None and api_kwargs is None:
                 return orig(*rest, **kwargs)
             return orig(agent, api_kwargs, *rest, **kwargs)
-        model, blob = _extract_provider_model_blob(api_kwargs, kwargs)
+        model, _blob = _extract_provider_model_blob(api_kwargs, kwargs)
         observe_provider_helper_attempt(kind, model)
-        token = _PENDING_PROVIDER.set({"model": model, "blob": blob, "kind": kind})
-        try:
-            if agent is None and api_kwargs is None:
-                return orig(*rest, **kwargs)
-            return orig(agent, api_kwargs, *rest, **kwargs)
-        finally:
-            _PENDING_PROVIDER.reset(token)
+        mode = str(getattr(agent, "api_mode", None) or "chat_completions")
+        if mode not in SUPPORTED_PROVIDER_BACKENDS:
+            raise IsolationAbort(f"unsupported_provider_backend:{mode}")
+        if agent is None and api_kwargs is None:
+            return orig(*rest, **kwargs)
+        return orig(agent, api_kwargs, *rest, **kwargs)
 
     _mark(_wrapped)
     _save_orig(mod, attr, orig)
@@ -853,6 +980,125 @@ def _wrap_provider(
     return _provider_wrapped, _provider_streaming_wrapped
 
 
+def _observe_create_call(original: Any) -> Any:
+    def create(*args: Any, **kwargs: Any):
+        cap = _ISOLATED.get()
+        if cap is not None:
+            payload = kwargs if kwargs else (args[0] if args and isinstance(args[0], dict) else {})
+            observe_provider_dispatch(payload)
+        return original(*args, **kwargs)
+
+    _mark(create)
+    return create
+
+
+def _observe_openai_client(client: Any) -> Any:
+    cap = _ISOLATED.get()
+    if cap is None or client is None:
+        return client
+    try:
+        orig_create = client.chat.completions.create
+    except Exception as exc:
+        raise IsolationAbort("provider_dispatch_unobservable") from exc
+    if _is_wrapped(orig_create):
+        return client
+    client.chat.completions.create = _observe_create_call(orig_create)
+    return client
+
+
+def _observe_bedrock_client(client: Any) -> Any:
+    cap = _ISOLATED.get()
+    if cap is None or client is None:
+        return client
+    wrapped_any = False
+    for name in ("converse", "converse_stream"):
+        orig = getattr(client, name, None)
+        if orig is None or _is_wrapped(orig):
+            if orig is not None and _is_wrapped(orig):
+                wrapped_any = True
+            continue
+        setattr(client, name, _observe_create_call(orig))
+        wrapped_any = True
+    if not wrapped_any:
+        raise IsolationAbort("provider_dispatch_unobservable")
+    return client
+
+
+def _discover_ai_agent_cls() -> Any:
+    try:
+        from run_agent import AIAgent  # type: ignore
+
+        return AIAgent
+    except Exception:
+        return None
+
+
+def _discover_bedrock_mod() -> Any:
+    try:
+        import agent.bedrock_adapter as mod  # type: ignore
+
+        return mod
+    except Exception:
+        return None
+
+
+def _wrap_openai_client_factory(owner: Any) -> bool:
+    if owner is None:
+        return False
+    orig = getattr(owner, "_create_request_openai_client", None)
+    if orig is None:
+        return False
+    already_on_instance = False
+    if not isinstance(owner, type):
+        already_on_instance = "_create_request_openai_client" in getattr(owner, "__dict__", {})
+    if _is_wrapped(orig) and (isinstance(owner, type) or already_on_instance):
+        return True
+
+    def _wrapped(*args: Any, **kwargs: Any):
+        client = orig(*args, **kwargs)
+        return _observe_openai_client(client)
+
+    _mark(_wrapped)
+    _save_orig(owner, "_create_request_openai_client", orig)
+    setattr(owner, "_create_request_openai_client", _wrapped)
+    return True
+
+
+def _wrap_bedrock_client_factory(mod: Any) -> bool:
+    if mod is None:
+        return False
+    orig = getattr(mod, "_get_bedrock_runtime_client", None)
+    if orig is None:
+        return False
+    if _is_wrapped(orig):
+        return True
+
+    def _wrapped(*args: Any, **kwargs: Any):
+        client = orig(*args, **kwargs)
+        return _observe_bedrock_client(client)
+
+    _mark(_wrapped)
+    _save_orig(mod, "_get_bedrock_runtime_client", orig)
+    setattr(mod, "_get_bedrock_runtime_client", _wrapped)
+    return True
+
+
+def _wrap_provider_dispatch(*, targets: Optional[IsolationTargets] = None) -> bool:
+    global _provider_dispatch_wrapped
+    t = targets or IsolationTargets()
+    factory_owner = t.openai_client_factory_owner
+    if factory_owner is None:
+        factory_owner = _discover_ai_agent_cls()
+    openai_ok = _wrap_openai_client_factory(factory_owner)
+    bedrock_mod = t.bedrock_adapter_mod
+    if bedrock_mod is None:
+        bedrock_mod = _discover_bedrock_mod()
+    _wrap_bedrock_client_factory(bedrock_mod)
+    factory_fn = getattr(factory_owner, "_create_request_openai_client", None) if factory_owner is not None else None
+    _provider_dispatch_wrapped = _is_wrapped(factory_fn)
+    return _provider_dispatch_wrapped
+
+
 def inspect_live_seams(
     *,
     targets: Optional[IsolationTargets] = None,
@@ -870,9 +1116,19 @@ def inspect_live_seams(
             send_cls = None
     send_fn = getattr(send_cls, "send", None) if send_cls is not None else None
     extra_ok = True
+    send_owners: List[Any] = []
     if send_cls is not None:
+        send_owners.append(send_cls)
+    if t.whatsapp_adapter is not None:
+        send_owners.append(t.whatsapp_adapter)
+    if runner is not None:
+        for attr in ("whatsapp_adapter", "adapter"):
+            obj = getattr(runner, attr, None)
+            if obj is not None:
+                send_owners.append(obj)
+    for owner in _unique_objs(send_owners):
         for name in WHATSAPP_SEND_METHODS:
-            fn = getattr(send_cls, name, None)
+            fn = getattr(owner, name, None)
             if name == "send" and fn is None:
                 extra_ok = False
             elif fn is not None and not _is_wrapped(fn):
@@ -907,10 +1163,27 @@ def inspect_live_seams(
     if inst is None and runner is not None:
         inst = getattr(runner, "session_store", None)
     class_persist = _persistence_owner_complete(store_cls) if store_cls is not None else False
+    inst_persist = True
     if inst is not None:
-        journal_ok = class_persist and _persistence_owner_complete(inst)
+        inst_persist = _persistence_owner_complete(inst) and _sqlite_owner_complete(getattr(inst, "_db", None))
+    dbs_ok = True
+    for db in _iter_effective_session_dbs(store=inst, runner=runner, targets=t):
+        if not _session_db_ready(db):
+            dbs_ok = False
+            break
+    runner_db_ok = True
+    if runner is not None:
+        runner_db_ok = _session_db_ready(getattr(runner, "_session_db", None))
+    if t.session_db is not None:
+        runner_db_ok = runner_db_ok and _session_db_ready(t.session_db)
+    if t.agent_session_db is not None:
+        runner_db_ok = runner_db_ok and _session_db_ready(t.agent_session_db)
+    if inst is not None:
+        journal_ok = class_persist and inst_persist and dbs_ok and runner_db_ok
     else:
-        journal_ok = class_persist
+        journal_ok = class_persist and dbs_ok and runner_db_ok
+        if runner is None and t.session_db is None and t.agent_session_db is None:
+            journal_ok = class_persist
 
     provider_mod = t.provider_mod
     if provider_mod is None:
@@ -924,6 +1197,12 @@ def inspect_live_seams(
     streaming_fn = (
         getattr(provider_mod, t.provider_streaming_attr, None) if provider_mod is not None else None
     )
+    factory_owner = t.openai_client_factory_owner
+    if factory_owner is None:
+        factory_owner = _discover_ai_agent_cls()
+    factory_fn = (
+        getattr(factory_owner, "_create_request_openai_client", None) if factory_owner is not None else None
+    )
 
     return {
         "send_wrapped": _is_wrapped(send_fn),
@@ -936,6 +1215,7 @@ def inspect_live_seams(
         "thread_ctx_wrapped": _is_wrapped(getattr(threading.Thread, "start", None)),
         "provider_wrapped": _is_wrapped(provider_fn),
         "provider_streaming_wrapped": _is_wrapped(streaming_fn),
+        "provider_dispatch_wrapped": _is_wrapped(factory_fn),
     }
 
 
@@ -954,10 +1234,11 @@ def install_isolation_runtime(
     post_ok = _wrap_post_bot(t.post_bot_mods)
     hook_ok = _wrap_pre_tool_call_block(t.plugins_mod)
     disp_ok = _wrap_tool_dispatcher(t.handle_function_call_mod)
-    journal_ok = _wrap_journal(store_cls=t.session_store_cls, store=t.session_store, runner=runner)
+    journal_ok = _wrap_journal(store_cls=t.session_store_cls, store=t.session_store, runner=runner, targets=t)
     exec_ok = _wrap_executor_context_propagation() if t.wrap_executor else _is_wrapped(getattr(ThreadPoolExecutor, "submit", None))
     thread_ok = _wrap_thread_context_propagation() if t.wrap_thread else _is_wrapped(getattr(threading.Thread, "start", None))
     prov_ok, stream_ok = _wrap_provider(t.provider_mod, t.provider_attr, t.provider_streaming_attr)
+    dispatch_ok = _wrap_provider_dispatch(targets=t)
     live = inspect_live_seams(targets=t, runner=runner)
     complete = all(live.get(k) for k in REQUIRED_LIVE_SEAMS)
     _installed = complete
@@ -973,6 +1254,7 @@ def install_isolation_runtime(
         "thread_ctx_wrapped": thread_ok and live["thread_ctx_wrapped"],
         "provider_wrapped": prov_ok and live["provider_wrapped"],
         "provider_streaming_wrapped": stream_ok and live["provider_streaming_wrapped"],
+        "provider_dispatch_wrapped": dispatch_ok and live["provider_dispatch_wrapped"],
         "live": live,
     }
 
@@ -1021,7 +1303,8 @@ def reset_isolation_runtime_for_tests() -> None:
     global _installed, _send_wrapped, _send_methods_wrapped, _post_bot_wrapped
     global _tool_hook_wrapped, _tool_dispatcher_wrapped, _journal_wrapped
     global _executor_ctx_wrapped, _thread_ctx_wrapped, _provider_wrapped
-    global _provider_streaming_wrapped, _EXECUTOR_ORIG, _THREAD_START_ORIG
+    global _provider_streaming_wrapped, _provider_dispatch_wrapped
+    global _EXECUTOR_ORIG, _THREAD_START_ORIG
     for owner, attr, orig in reversed(_ORIG_OWNERS):
         try:
             setattr(owner, attr, orig)
@@ -1045,3 +1328,4 @@ def reset_isolation_runtime_for_tests() -> None:
     _thread_ctx_wrapped = False
     _provider_wrapped = False
     _provider_streaming_wrapped = False
+    _provider_dispatch_wrapped = False
