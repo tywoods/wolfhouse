@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import gc
+import hashlib
 import importlib.util
 import json
 import os
 import sys
+import tempfile
 import textwrap
 import threading
 import types
@@ -47,9 +49,11 @@ from wolfhouse.luna_personality_isolation import (  # noqa: E402
 )
 from wolfhouse.luna_personality_live_eval import (  # noqa: E402
     ALLOWED_CASE_IDS,
+    INSTALLED_CORPUS_PATH,
     LIVE_EVAL_PATH,
     assert_sunset_serving_identity,
     build_eval_user_message,
+    corpus_candidates,
     default_invoke_live_gateway,
     evaluate_generated_reply,
     extract_final_handler_text,
@@ -59,6 +63,7 @@ from wolfhouse.luna_personality_live_eval import (  # noqa: E402
     run_isolated_personality_eval,
     serving_eval_readiness,
     simulated_model_turn,
+    _corpus_path,
 )
 from wolfhouse.run_luna_personality_live_proof import (  # noqa: E402
     OfflineEvalHttpTransportDouble,
@@ -2567,6 +2572,127 @@ class AdapterMapAndTurnEntryTests(unittest.TestCase):
         with self.assertRaises(StopProbe):
             t.conversation_loop_mod.run_conversation(agent_plain, "hi")
         self.assertEqual(prologue, ["canonical_turn_prologue"])
+
+
+CANONICAL_CORPUS = REPO / "fixtures" / "luna-personality-corpus.json"
+CONTEXT_CORPUS = STAGING / "fixtures" / "luna-personality-corpus.json"
+INSTALLED_COPY = (
+    "COPY fixtures/luna-personality-corpus.json "
+    "/etc/hermes-staging/fixtures/luna-personality-corpus.json"
+)
+STAGING_BUILD_CALLERS = (
+    REPO / "scripts" / "deploy-staging-hermes-vm.js",
+    REPO / "scripts" / "deploy-staging-hermes.js",
+    REPO / "docs" / "MAIL-MVP-007-SUNSET-EMAIL-SOL-RUNBOOK.md",
+)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _dockerfile_copy_pairs(text: str) -> list:
+    pairs = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith("COPY "):
+            continue
+        parts = line.split()
+        if len(parts) < 3 or parts[1].startswith("--from"):
+            continue
+        src = parts[1]
+        dest = parts[-1]
+        pairs.append((src, dest))
+    return pairs
+
+
+class CorpusImagePackagingTests(unittest.TestCase):
+    """Image-context + installed-path packaging. Not live model acceptance."""
+
+    def test_dockerfile_copies_context_corpus_to_installed_path(self) -> None:
+        dockerfile = (STAGING / "Dockerfile").read_text(encoding="utf-8")
+        self.assertIn(INSTALLED_COPY, dockerfile)
+        pairs = _dockerfile_copy_pairs(dockerfile)
+        matching = [
+            (src, dest)
+            for src, dest in pairs
+            if src == "fixtures/luna-personality-corpus.json"
+            or src.rstrip("/") == "fixtures"
+        ]
+        self.assertEqual(len(matching), 1, matching)
+        src, dest = matching[0]
+        self.assertEqual(src, "fixtures/luna-personality-corpus.json")
+        self.assertEqual(dest, str(INSTALLED_CORPUS_PATH))
+        self.assertFalse(any(src == "." for src, _dest in pairs))
+        self.assertFalse(any(src.startswith("..") for src, _dest in pairs))
+        self.assertIn("COPY wolfhouse /etc/hermes-staging/wolfhouse", dockerfile)
+
+    def test_hermes_staging_build_context_contains_canonical_bytes(self) -> None:
+        self.assertTrue(CANONICAL_CORPUS.is_file())
+        self.assertTrue(
+            CONTEXT_CORPUS.is_file(),
+            "corpus must be inside docker/hermes-staging so ACR context can COPY it",
+        )
+        self.assertEqual(CONTEXT_CORPUS.read_bytes(), CANONICAL_CORPUS.read_bytes())
+        self.assertEqual(_sha256(CONTEXT_CORPUS), _sha256(CANONICAL_CORPUS))
+        context_root = STAGING.resolve()
+        self.assertTrue(str(CONTEXT_CORPUS.resolve()).startswith(str(context_root) + os.sep))
+        dockerfile = (STAGING / "Dockerfile").read_text(encoding="utf-8")
+        for src, dest in _dockerfile_copy_pairs(dockerfile):
+            if src != "fixtures/luna-personality-corpus.json":
+                continue
+            src_path = context_root / src
+            self.assertTrue(src_path.is_file(), src_path)
+            self.assertEqual(src_path.read_bytes(), CANONICAL_CORPUS.read_bytes())
+            self.assertEqual(dest, str(INSTALLED_CORPUS_PATH))
+
+    def test_packaged_corpus_preserves_allowlisted_matrix(self) -> None:
+        packaged = load_corpus(CONTEXT_CORPUS)
+        canonical = load_corpus(CANONICAL_CORPUS)
+        self.assertEqual(packaged, canonical)
+        ids = {item.get("id") for item in packaged.get("cases") or []}
+        self.assertEqual(ids, set(ALLOWED_CASE_IDS))
+        self.assertEqual(packaged.get("closed_ids"), ["sunny", "calm", "concise", "extra"])
+
+    def test_installed_loader_resolves_image_path_not_repo_checkout(self) -> None:
+        self.assertEqual(
+            INSTALLED_CORPUS_PATH,
+            Path("/etc/hermes-staging/fixtures/luna-personality-corpus.json"),
+        )
+        self.assertIn(INSTALLED_CORPUS_PATH, corpus_candidates())
+        with tempfile.TemporaryDirectory() as raw:
+            staging = Path(raw) / "etc" / "hermes-staging"
+            wolf = staging / "wolfhouse"
+            fixtures = staging / "fixtures"
+            wolf.mkdir(parents=True)
+            fixtures.mkdir(parents=True)
+            fake_mod = wolf / "luna_personality_live_eval.py"
+            fake_mod.write_text("# installed layout\n", encoding="utf-8")
+            installed = fixtures / "luna-personality-corpus.json"
+            installed.write_bytes(CANONICAL_CORPUS.read_bytes())
+            checkout = Path(raw) / "fixtures" / "luna-personality-corpus.json"
+            self.assertFalse(checkout.is_file())
+            resolved = _corpus_path(here=fake_mod)
+            self.assertEqual(resolved, installed)
+            self.assertNotEqual(resolved, CANONICAL_CORPUS)
+            self.assertEqual(resolved.read_bytes(), CANONICAL_CORPUS.read_bytes())
+            self.assertEqual(_sha256(resolved), _sha256(CANONICAL_CORPUS))
+            loaded = load_corpus(here=fake_mod)
+            self.assertEqual(loaded, load_corpus(CANONICAL_CORPUS))
+
+    def test_staging_build_callers_keep_hermes_staging_context(self) -> None:
+        for path in STAGING_BUILD_CALLERS:
+            text = path.read_text(encoding="utf-8")
+            self.assertTrue(path.is_file(), path)
+            self.assertIn("docker/hermes-staging/Dockerfile", text)
+            self.assertRegex(
+                text,
+                r"(--file|-f) docker/hermes-staging/Dockerfile docker/hermes-staging",
+            )
+            self.assertNotRegex(
+                text,
+                r"(--file|-f) docker/hermes-staging/Dockerfile \.",
+            )
 
 
 if __name__ == "__main__":

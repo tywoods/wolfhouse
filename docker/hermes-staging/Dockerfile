@@ -21,6 +21,9 @@ COPY plugins /etc/hermes-staging/plugins
 COPY wolfhouse_whatsapp_mirror.py /etc/hermes-staging/wolfhouse_whatsapp_mirror.py
 COPY wolfhouse_guest_fresh_start.py /etc/hermes-staging/wolfhouse_guest_fresh_start.py
 COPY wolfhouse /etc/hermes-staging/wolfhouse
+# Canonical bytes: fixtures/luna-personality-corpus.json. This context is
+# docker/hermes-staging (not repo root). Keep the two files byte-identical.
+COPY fixtures/luna-personality-corpus.json /etc/hermes-staging/fixtures/luna-personality-corpus.json
 COPY apply_gateway_patches.py /etc/hermes-staging/apply_gateway_patches.py
 COPY sunset_tenant_routing.py /etc/hermes-staging/sunset_tenant_routing.py
 COPY verify_plain_reply_patches.py /etc/hermes-staging/verify_plain_reply_patches.py

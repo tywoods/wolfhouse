@@ -1,0 +1,144 @@
+{
+  "product": "Luna Personality",
+  "owner": "scripts/lib/luna-guest-personality-packs.js",
+  "gate": "scripts/verify-luna-personality-contract.js",
+  "spanish_variant": "peninsular",
+  "closed_ids": ["sunny", "calm", "concise", "extra"],
+  "default_id": "sunny",
+  "channel": "whatsapp",
+  "notes": [
+    "Reviewed meaning-preserving EN/ES acceptance copy for all four closed IDs.",
+    "Warmth-eligible turns may differ in cadence/emoji; truth-frozen turns must be identical.",
+    "Spanish is peninsular (vale, móvil, vosotros) — never Latin-American."
+  ],
+  "cases": [
+    {
+      "id": "warmth-greeting-en",
+      "lang": "en",
+      "kind": "warmth_eligible",
+      "composer_state": "greeting",
+      "guest_text": "Hi!",
+      "meaning": "welcome the guest and offer to help book a stay",
+      "shared_tokens": ["welcome", "book"],
+      "meaning_tokens": "welcome book stay",
+      "frozen_facts": [],
+      "replies": {
+        "sunny": "Hey! Welcome to Wolf-House 🌊 I can help you book a stay — what dates are you thinking?",
+        "calm": "Welcome to Wolf-House. I can help you book a stay whenever you are ready. Which dates work?",
+        "concise": "Welcome — I can help you book a stay. Dates?",
+        "extra": "Yesss welcome to Wolf-House!! 🌊🙌🐺 So happy you're here! I can help you book a stay — what dates are you dreaming of? 😊"
+      }
+    },
+    {
+      "id": "warmth-dates-en",
+      "lang": "en",
+      "kind": "warmth_eligible",
+      "composer_state": "ask_dates",
+      "guest_text": "We want to come in August",
+      "meaning": "ask for check-in and check-out dates",
+      "shared_tokens": ["check-in", "check-out"],
+      "meaning_tokens": "check-in check-out dates",
+      "frozen_facts": [],
+      "replies": {
+        "sunny": "Love August 🌊 What check-in and check-out dates are you thinking?",
+        "calm": "August works. Could you share your check-in and check-out dates?",
+        "concise": "Check-in and check-out dates?",
+        "extra": "August is going to be amazing!! 🌊☀️ What check-in and check-out dates should I lock in for you? 😊🙌"
+      }
+    },
+    {
+      "id": "warmth-greeting-es",
+      "lang": "es",
+      "kind": "warmth_eligible",
+      "composer_state": "greeting",
+      "guest_text": "Hola!",
+      "meaning": "dar la bienvenida y ofrecer ayuda para reservar",
+      "shared_tokens": ["bienvenid", "reserva"],
+      "meaning_tokens": "bienvenida reservar",
+      "frozen_facts": [],
+      "replies": {
+        "sunny": "¡Hola! Bienvenidos a Wolf-House 🌊 Puedo ayudaros a reservar — ¿qué fechas tenéis en mente?",
+        "calm": "Bienvenidos a Wolf-House. Puedo ayudaros a reservar cuando queráis. ¿Qué fechas os vienen bien?",
+        "concise": "Bienvenidos — os ayudo a reservar. ¿Fechas?",
+        "extra": "¡¡Bienvenidos a Wolf-House!! 🌊🙌🐺 Me alegra un montón que estéis aquí. ¿Os ayudo a reservar? ¿Qué fechas soñáis? 😊 Vale, cuando queráis."
+      }
+    },
+    {
+      "id": "warmth-dates-es",
+      "lang": "es",
+      "kind": "warmth_eligible",
+      "composer_state": "ask_dates",
+      "guest_text": "Queremos venir en agosto",
+      "meaning": "pedir fechas de entrada y salida",
+      "shared_tokens": ["entrada", "salida"],
+      "meaning_tokens": "entrada salida fechas",
+      "frozen_facts": [],
+      "replies": {
+        "sunny": "Agosto pinta genial 🌊 ¿Qué fechas de entrada y salida tenéis?",
+        "calm": "Agosto encaja. ¿Me decís las fechas de entrada y salida?",
+        "concise": "¿Fechas de entrada y salida?",
+        "extra": "¡Agosto va a estar increíble!! 🌊☀️ ¿Qué fechas de entrada y salida os pongo? 😊🙌 Vale, cuando las tengáis."
+      }
+    },
+    {
+      "id": "truth-payment-link-en",
+      "lang": "en",
+      "kind": "truth_frozen",
+      "composer_state": "payment_link_sent",
+      "guest_text": "send the deposit link",
+      "meaning": "send the exact deposit payment URL and amount",
+      "frozen_facts": ["https://pay.example/abc", "€100"],
+      "replies": {
+        "sunny": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc",
+        "calm": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc",
+        "concise": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc",
+        "extra": "Your stay is held for the €100 deposit. Pay here: https://pay.example/abc"
+      }
+    },
+    {
+      "id": "truth-payment-link-es",
+      "lang": "es",
+      "kind": "truth_frozen",
+      "composer_state": "payment_link_sent",
+      "guest_text": "envía el enlace del depósito",
+      "meaning": "enviar la URL y el importe exactos del depósito",
+      "frozen_facts": ["https://pay.example/abc", "€100"],
+      "replies": {
+        "sunny": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc",
+        "calm": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc",
+        "concise": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc",
+        "extra": "Tu plaza queda reservada con el depósito de €100. Paga aquí: https://pay.example/abc"
+      }
+    },
+    {
+      "id": "invariant-identity-en",
+      "lang": "en",
+      "kind": "invariant",
+      "composer_state": "confirmation_sent_ack",
+      "guest_text": "did we get confirmation?",
+      "meaning": "confirm Luna identity and booking confirmation without restyling truth",
+      "frozen_facts": ["WH-G27-4411"],
+      "replies": {
+        "sunny": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House.",
+        "calm": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House.",
+        "concise": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House.",
+        "extra": "You're all set — booking WH-G27-4411 is confirmed. I'm Luna at Wolf-House."
+      }
+    },
+    {
+      "id": "invariant-spots-es",
+      "lang": "es",
+      "kind": "invariant",
+      "composer_state": "safe_handoff",
+      "guest_text": "no hay plazas?",
+      "meaning": "handoff copy stays frozen; availability fact unchanged",
+      "frozen_facts": ["2 plazas"],
+      "replies": {
+        "sunny": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí.",
+        "calm": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí.",
+        "concise": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí.",
+        "extra": "Hay 2 plazas; un compañero del equipo lo revisa y te escribe aquí."
+      }
+    }
+  ]
+}
