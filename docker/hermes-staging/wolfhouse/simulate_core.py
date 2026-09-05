@@ -612,3 +612,10 @@ def register_simulate_route(app) -> None:
 
     app.router.add_post(SIMULATE_PATH, _handle_simulate_guest_turn)
     app.router.add_post(SIMULATE_BURST_PATH, _handle_simulate_guest_turn)
+    try:
+        from wolfhouse.luna_personality_live_eval import register_live_eval_route
+
+        register_live_eval_route(app)
+    except Exception:
+        # Isolated eval is additive. Default simulate must still register.
+        pass

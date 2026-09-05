@@ -68,6 +68,47 @@ class LunaPersonalityTests(unittest.TestCase):
         self.assertIn("Luna Personality this turn: calm", first)
         self.assertEqual(first, second)
 
+    def test_canonical_bot_auth_headers_match_require_bot_auth(self) -> None:
+        headers = lp.canonical_bot_auth_headers("tok")
+        self.assertEqual(headers["X-Luna-Bot-Token"], "tok")
+        self.assertEqual(headers["Accept"], "application/json")
+        self.assertNotIn("Cookie", headers)
+        self.assertNotIn("cookie", headers)
+
+    def test_default_fetch_setting_sends_canonical_header(self) -> None:
+        captured = {}
+
+        class _Resp:
+            def read(self) -> bytes:
+                return b'{"personality_id":"calm","source":"stored"}'
+
+            def __enter__(self) -> "_Resp":
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+        def fake_urlopen(req, timeout=0):  # noqa: ANN001
+            captured["url"] = req.full_url
+            captured["headers"] = dict(req.headers.items())
+            captured["method"] = req.get_method()
+            return _Resp()
+
+        env = {
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://sunset-staging.lunafrontdesk.com",
+            "LUNA_BOT_INTERNAL_TOKEN": "tok",
+        }
+        with mock.patch.dict(os.environ, env, clear=False), mock.patch(
+            "urllib.request.urlopen", fake_urlopen
+        ):
+            parsed = lp.default_fetch_setting("sunset")
+        self.assertEqual(parsed["personality_id"], "calm")
+        self.assertEqual(captured["method"], "GET")
+        self.assertTrue(captured["url"].endswith("/staff/bot/luna-personality"))
+        header_map = {k.lower(): v for k, v in captured["headers"].items()}
+        self.assertEqual(header_map.get("x-luna-bot-token"), "tok")
+        self.assertNotIn("cookie", header_map)
+
     def test_failure_defaults_sunny(self) -> None:
         def boom(_tid: str) -> dict:
             raise RuntimeError("nope")

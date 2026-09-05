@@ -148,6 +148,18 @@ def _sunny(tenant_id: str, channel: str, reason: Optional[str], applied: bool) -
     }
 
 
+def canonical_bot_auth_headers(token: str) -> Dict[str, str]:
+    """Headers requireBotAuth accepts on /staff/bot/* (no Staff cookies).
+
+    Staff API must use the same LUNA_BOT_INTERNAL_TOKEN as this runtime.
+    Bot principal tenant is Staff-side LUNA_BOT_CLIENT_SLUG (preferred) or
+    DEFAULT_CLIENT_SLUG — for Sunset that value must be ``sunset``. Do not
+    rotate tokens here; a mismatch is HTTP 401 from requireBotAuth, and a
+    missing runtime slug is HTTP 503 bot_principal_tenant_unconfigured.
+    """
+    return {"X-Luna-Bot-Token": str(token or "").strip(), "Accept": "application/json"}
+
+
 def default_fetch_setting(_tenant_id: str) -> Dict[str, Any]:
     base = (os.getenv("WOLFHOUSE_STAFF_API_BASE_URL") or "").rstrip("/")
     token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
@@ -156,7 +168,7 @@ def default_fetch_setting(_tenant_id: str) -> Dict[str, Any]:
     req = urllib.request.Request(
         f"{base}/staff/bot/luna-personality",
         method="GET",
-        headers={"X-Luna-Bot-Token": token, "Accept": "application/json"},
+        headers=canonical_bot_auth_headers(token),
     )
     with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as res:
         body = res.read().decode("utf-8") if res else "{}"

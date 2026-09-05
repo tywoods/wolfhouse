@@ -6,8 +6,9 @@
  *   GET/PUT /staff/luna-personality     requireAuth('operator') in the router
  *   GET     /staff/bot/luna-personality requireBotAuth() in the router
  *
- * Tenant is always the authenticated principal's client_id. Callers cannot
- * choose another tenant. Persist only a closed ID in clients.settings JSONB.
+ * Tenant is always the authenticated principal: staff session client_id, or
+ * bot-token principal client_slug (FORTRESS 15E). Callers cannot choose
+ * another tenant. Persist only a closed ID in clients.settings JSONB.
  */
 
 const {
@@ -24,6 +25,39 @@ const {
 const LUNA_PERSONALITY_PATH = '/staff/luna-personality';
 const LUNA_PERSONALITY_BOT_PATH = '/staff/bot/luna-personality';
 const LUNA_PERSONALITY_MIN_ROLE = 'operator';
+
+function trimStr(v) {
+  return v == null ? '' : String(v).trim();
+}
+
+function resolvePrincipalTenant(user) {
+  if (!user || typeof user !== 'object') return null;
+  const clientId = trimStr(user.client_id);
+  const clientSlug = trimStr(user.client_slug).toLowerCase();
+  if (clientId) {
+    return { kind: 'id', client_id: clientId, client_slug: clientSlug || null };
+  }
+  if (clientSlug) {
+    return { kind: 'slug', client_id: null, client_slug: clientSlug };
+  }
+  return null;
+}
+
+function callerTenantConflictsPrincipal(caller, user) {
+  const tenant = resolvePrincipalTenant(user);
+  if (!tenant || !caller || typeof caller !== 'object') return false;
+  const qSlug = trimStr(caller.client_slug).toLowerCase();
+  const qId = trimStr(caller.client_id);
+  if (qSlug) {
+    if (tenant.client_slug) return qSlug !== tenant.client_slug;
+    return true;
+  }
+  if (qId) {
+    if (tenant.client_id) return qId !== tenant.client_id;
+    return true;
+  }
+  return false;
+}
 
 function storedIdFromSettings(settings) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return null;
@@ -52,12 +86,24 @@ function createLunaPersonalityRoutes(deps) {
   }
   const { sendJSON, readBody, withPgClient } = deps;
 
-  async function loadSettings(clientId) {
+  async function loadSettingsById(clientId) {
     if (!clientId) return null;
     const row = await withPgClient(async (pg) => {
       const result = await pg.query(
         `SELECT settings FROM clients WHERE id = $1::uuid LIMIT 1`,
         [clientId],
+      );
+      return result.rows[0] || null;
+    });
+    return row && row.settings ? row.settings : {};
+  }
+
+  async function loadSettingsBySlug(clientSlug) {
+    if (!clientSlug) return null;
+    const row = await withPgClient(async (pg) => {
+      const result = await pg.query(
+        `SELECT settings FROM clients WHERE slug = $1 LIMIT 1`,
+        [clientSlug],
       );
       return result.rows[0] || null;
     });
@@ -83,7 +129,7 @@ function createLunaPersonalityRoutes(deps) {
     return row;
   }
 
-  function requireUser(res, user) {
+  function requireStaffUser(res, user) {
     if (user && user.client_id) return true;
     sendJSON(res, 401, {
       success: false,
@@ -93,10 +139,13 @@ function createLunaPersonalityRoutes(deps) {
     return false;
   }
 
-  async function handleLunaPersonalityGet(_query, _req, res, user) {
-    if (!requireUser(res, user)) return;
+  async function handleLunaPersonalityGet(query, _req, res, user) {
+    if (!requireStaffUser(res, user)) return;
+    if (callerTenantConflictsPrincipal(query, user)) {
+      return sendJSON(res, 403, { success: false, error: 'client_access_denied' });
+    }
     try {
-      const settings = await loadSettings(user.client_id);
+      const settings = await loadSettingsById(user.client_id);
       const normalized = normalizeStoredPersonalityId(storedIdFromSettings(settings));
       return sendJSON(res, 200, publicPayload(normalized));
     } catch (_err) {
@@ -104,8 +153,11 @@ function createLunaPersonalityRoutes(deps) {
     }
   }
 
-  async function handleLunaPersonalityPut(_query, req, res, user) {
-    if (!requireUser(res, user)) return;
+  async function handleLunaPersonalityPut(query, req, res, user) {
+    if (!requireStaffUser(res, user)) return;
+    if (callerTenantConflictsPrincipal(query, user)) {
+      return sendJSON(res, 403, { success: false, error: 'client_access_denied' });
+    }
     let body;
     try {
       body = JSON.parse(await readBody(req) || '{}');
@@ -119,6 +171,9 @@ function createLunaPersonalityRoutes(deps) {
     }
     if (body && body.channel != null && String(body.channel).trim().toLowerCase() !== CHANNEL) {
       return sendJSON(res, 400, { success: false, error: 'whatsapp_only' });
+    }
+    if (callerTenantConflictsPrincipal(body, user)) {
+      return sendJSON(res, 403, { success: false, error: 'client_access_denied' });
     }
     const nextId = body && body.personality_id;
     if (!isClosedPersonalityId(nextId)) {
@@ -141,10 +196,25 @@ function createLunaPersonalityRoutes(deps) {
     }
   }
 
-  async function handleLunaPersonalityBotGet(_query, _req, res, user) {
-    if (!requireUser(res, user)) return;
+  async function handleLunaPersonalityBotGet(query, _req, res, user) {
+    // Bot token principal is { role, staff_user_id, client_slug } with no
+    // session client_id (FORTRESS 15E). Tenant comes from that principal only.
+    const tenant = resolvePrincipalTenant(user);
+    if (!tenant) {
+      sendJSON(res, 401, {
+        success: false,
+        error: 'Authentication required. Provide X-Luna-Bot-Token header or POST /staff/auth/login first.',
+        auth_url: '/staff/auth/login',
+      });
+      return;
+    }
+    if (callerTenantConflictsPrincipal(query, user)) {
+      return sendJSON(res, 403, { success: false, error: 'client_access_denied' });
+    }
     try {
-      const settings = await loadSettings(user.client_id);
+      const settings = tenant.kind === 'id'
+        ? await loadSettingsById(tenant.client_id)
+        : await loadSettingsBySlug(tenant.client_slug);
       const normalized = normalizeStoredPersonalityId(storedIdFromSettings(settings));
       return sendJSON(res, 200, publicPayload(normalized));
     } catch (_err) {
@@ -176,4 +246,6 @@ module.exports = {
   SETTINGS_KEY,
   DEFAULT_PERSONALITY_ID,
   createLunaPersonalityRoutes,
+  resolvePrincipalTenant,
+  callerTenantConflictsPrincipal,
 };
