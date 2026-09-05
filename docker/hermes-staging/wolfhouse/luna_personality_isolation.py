@@ -18,9 +18,13 @@ journal writes are denied before invocation.
 from __future__ import annotations
 
 import json
+import threading
+import uuid
 from concurrent.futures.thread import ThreadPoolExecutor
 from contextvars import ContextVar, Token, copy_context
 from dataclasses import dataclass, field
+from datetime import datetime
+from types import SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 ISOLATION_DENY_MESSAGE = "luna_personality_isolated_no_tools"
@@ -37,7 +41,28 @@ REQUIRED_LIVE_SEAMS: Tuple[str, ...] = (
     "post_bot_wrapped",
     "journal_wrapped",
     "executor_ctx_wrapped",
+    "thread_ctx_wrapped",
     "provider_wrapped",
+    "provider_streaming_wrapped",
+)
+
+PERSISTENCE_WRITE_METHODS: Tuple[str, ...] = (
+    "get_or_create_session",
+    "append_to_transcript",
+    "_save",
+    "update_session",
+)
+
+PERSISTENCE_OPTIONAL_WRITE_METHODS: Tuple[str, ...] = (
+    "rewrite_transcript",
+    "suspend_session",
+    "mark_resume_pending",
+)
+
+SQLITE_WRITE_METHODS: Tuple[str, ...] = (
+    "create_session",
+    "end_session",
+    "append_message",
 )
 
 WHATSAPP_SEND_METHODS: Tuple[str, ...] = (
@@ -66,11 +91,18 @@ _tool_hook_wrapped = False
 _tool_dispatcher_wrapped = False
 _journal_wrapped = False
 _executor_ctx_wrapped = False
+_thread_ctx_wrapped = False
 _provider_wrapped = False
+_provider_streaming_wrapped = False
 
 # (owner, attr, original). Tests restore these; production never unwraps.
 _ORIG_OWNERS: List[Tuple[Any, str, Any]] = []
 _EXECUTOR_ORIG: Optional[Callable[..., Any]] = None
+_THREAD_START_ORIG: Optional[Callable[..., Any]] = None
+_PENDING_PROVIDER: ContextVar[Optional[Dict[str, Any]]] = ContextVar(
+    "luna_personality_pending_provider",
+    default=None,
+)
 
 
 @dataclass
@@ -89,6 +121,8 @@ class IsolatedTurnCapture:
     model_calls: int = 0
     model: Optional[str] = None
     model_called: bool = False
+    provider_helper_attempts: int = 0
+    provider_helper_kind: Optional[str] = None
     isolation_ready: bool = False
     observed_pack_id: Optional[str] = None
     observed_pack_injected: bool = False
@@ -96,7 +130,14 @@ class IsolatedTurnCapture:
     setting_source: Optional[str] = None
     setting_fallback: Optional[str] = None
     ephemeral_chat_id: Optional[str] = None
+    ephemeral_session_id: Optional[str] = None
     evidence_kind: str = "unspecified"
+    interim_send_text: Optional[str] = None
+    final_handler_text: Optional[str] = None
+    in_flight_threads: List[Any] = field(default_factory=list)
+    provider_work_settled: bool = False
+    persistence_denied: Dict[str, int] = field(default_factory=dict)
+    persistence_effects_completed: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -115,7 +156,9 @@ class IsolationTargets:
     handle_function_call_mod: Any = None
     provider_mod: Any = None
     provider_attr: str = "interruptible_api_call"
+    provider_streaming_attr: str = "interruptible_streaming_api_call"
     wrap_executor: bool = True
+    wrap_thread: bool = True
 
 
 class IsolationAbort(RuntimeError):
@@ -171,15 +214,18 @@ def capture_send_if_isolated(content: Any) -> Optional[Dict[str, Any]]:
     cap.sends_attempted += 1
     text = str(content or "").strip()
     if text:
-        cap.reply_text = text
+        # Interim/streaming send is not the canonical handler FINAL return.
+        cap.interim_send_text = text
     return {"suppressed": True, "raw_response": {ISOLATION_NO_SEND: True}}
 
 
-def deny_journal_if_isolated() -> bool:
+def deny_journal_if_isolated(effect: Optional[str] = None) -> bool:
     cap = _ISOLATED.get()
     if cap is None:
         return False
     cap.journal_writes_denied += 1
+    if effect:
+        cap.persistence_denied[effect] = cap.persistence_denied.get(effect, 0) + 1
     return True
 
 
@@ -203,8 +249,20 @@ def record_consumed_pack(
         cap.setting_fallback = str(fallback)
 
 
+def observe_provider_helper_attempt(kind: Optional[str] = None, model: Optional[str] = None) -> None:
+    """Helper entry/attempt. Not an actual provider dispatch count."""
+    cap = _ISOLATED.get()
+    if cap is None:
+        return
+    cap.provider_helper_attempts += 1
+    if kind:
+        cap.provider_helper_kind = str(kind)
+    if model and not cap.model:
+        cap.model = str(model)
+
+
 def observe_provider_invocation(model: Optional[str] = None, prompt_blob: Any = None) -> None:
-    """Record an actual provider entry. Not a voluntary test counter."""
+    """Record actual provider-worker dispatch, not helper entry."""
     cap = _ISOLATED.get()
     if cap is None:
         return
@@ -225,7 +283,7 @@ def observe_provider_invocation(model: Optional[str] = None, prompt_blob: Any = 
 
 
 def record_model_call(model: Optional[str] = None) -> None:
-    """Deprecated alias — production must observe via provider wrapper."""
+    """Deprecated alias — production must observe via provider-worker dispatch."""
     observe_provider_invocation(model)
 
 
@@ -404,11 +462,20 @@ def _iter_post_bot_modules(explicit: Sequence[Any] = ()) -> List[Any]:
         if mod is not None and id(mod) not in seen and hasattr(mod, "_post_bot"):
             found.append(mod)
             seen.add(id(mod))
+    if explicit:
+        # Pinned owners: do not import/scan sys.modules (combined-suite contamination).
+        return found
     try:
         import sys
         import importlib
     except Exception:
         return found
+    exact = sys.modules.get("wolfhouse_staff_api")
+    plugins = sys.modules.get("plugins.wolfhouse_staff_api")
+    for loaded in (exact, plugins):
+        if loaded and hasattr(loaded, "_post_bot") and id(loaded) not in seen:
+            found.append(loaded)
+            seen.add(id(loaded))
     for key, loaded in list(sys.modules.items()):
         if loaded and key.endswith("wolfhouse_staff_api") and hasattr(loaded, "_post_bot"):
             if id(loaded) not in seen:
@@ -458,18 +525,13 @@ def _wrap_post_bot(explicit: Sequence[Any] = ()) -> bool:
     return _post_bot_wrapped
 
 
-def _wrap_journal(*, store_cls: Any = None, store: Any = None, runner: Any = None) -> bool:
-    global _journal_wrapped
-    targets: List[Tuple[Any, str, Any]] = []
+def _resolve_session_store(*, store_cls: Any = None, store: Any = None, runner: Any = None) -> Tuple[Any, Any]:
     cls = store_cls
     if cls is None:
         try:
             from gateway.session import SessionStore as cls  # type: ignore
         except Exception:
             cls = None
-    if cls is not None and hasattr(cls, "append_to_transcript"):
-        targets.append((cls, "append_to_transcript", cls.append_to_transcript))
-
     instance = store
     if instance is None and runner is not None:
         instance = getattr(runner, "session_store", None)
@@ -480,48 +542,156 @@ def _wrap_journal(*, store_cls: Any = None, store: Any = None, runner: Any = Non
             instance = getattr(gw_runner, "session_store", None) if gw_runner is not None else None
         except Exception:
             instance = None
-    if instance is not None and hasattr(instance, "append_to_transcript"):
-        # Instance may already be the class method; wrap instance anyway if distinct.
-        inst_fn = instance.append_to_transcript
-        if not _is_wrapped(inst_fn):
-            targets.append((instance, "append_to_transcript", inst_fn))
+    return cls, instance
 
-    if not targets:
-        _journal_wrapped = False
+
+def _ephemeral_session_entry(store: Any, source: Any) -> Any:
+    cap = _ISOLATED.get()
+    try:
+        key = store._generate_session_key(source)  # noqa: SLF001
+    except Exception:
+        digits = (cap.ephemeral_chat_id if cap else uuid.uuid4().hex[:10])
+        key = f"ephemeral:whatsapp_cloud:dm:{digits}"
+    sid = f"lunaeval_{uuid.uuid4().hex[:12]}"
+    now = datetime.now()
+    try:
+        from gateway.session import SessionEntry  # type: ignore
+
+        entry = SessionEntry(
+            session_key=key,
+            session_id=sid,
+            created_at=now,
+            updated_at=now,
+            origin=source,
+        )
+    except Exception:
+        entry = SimpleNamespace(
+            session_key=key,
+            session_id=sid,
+            created_at=now,
+            updated_at=now,
+            origin=source,
+            suspended=False,
+            resume_pending=False,
+            total_tokens=0,
+        )
+    if cap is not None:
+        cap.ephemeral_session_id = sid
+    return entry
+
+
+def _wrap_persistence_method(owner: Any, name: str) -> bool:
+    orig = getattr(owner, name, None)
+    if orig is None:
         return False
+    already_on_instance = False
+    if not isinstance(owner, type):
+        already_on_instance = name in getattr(owner, "__dict__", {})
+    if _is_wrapped(orig) and (isinstance(owner, type) or already_on_instance):
+        return True
 
-    wrapped_ok = False
-    for owner, attr, orig in targets:
+    def _factory(method_name: str, original: Any, bound_owner: Any):
+        def _isolated_persist(*args: Any, **kwargs: Any):
+            if deny_journal_if_isolated(method_name):
+                if method_name == "get_or_create_session":
+                    if isinstance(bound_owner, type):
+                        self_obj = args[0] if args else None
+                        source = args[1] if len(args) > 1 else kwargs.get("source")
+                    else:
+                        self_obj = bound_owner
+                        source = args[0] if args else kwargs.get("source")
+                    return _ephemeral_session_entry(self_obj, source)
+                if method_name in {"suspend_session", "mark_resume_pending"}:
+                    return False
+                return None
+            cap = _ISOLATED.get()
+            result = original(*args, **kwargs)
+            if cap is not None:
+                cap.journal_writes_completed += 1
+                cap.persistence_effects_completed.append(method_name)
+            return result
+
+        return _isolated_persist
+
+    wrapped = _factory(name, orig, owner)
+    _mark(wrapped)
+    _save_orig(owner, name, orig)
+    setattr(owner, name, wrapped)
+    return True
+
+
+def _wrap_sqlite_db(db: Any) -> bool:
+    if db is None:
+        return True
+    ok_all = True
+    for name in SQLITE_WRITE_METHODS:
+        orig = getattr(db, name, None)
         if orig is None:
             continue
         if _is_wrapped(orig):
-            wrapped_ok = True
             continue
 
-        def _factory(original: Any):
-            def _isolated_append(*args: Any, **kwargs: Any):
-                if deny_journal_if_isolated():
+        def _factory(method_name: str, original: Any):
+            def _isolated_sqlite(*args: Any, **kwargs: Any):
+                if deny_journal_if_isolated(f"sqlite:{method_name}"):
                     return None
                 cap = _ISOLATED.get()
                 result = original(*args, **kwargs)
                 if cap is not None:
                     cap.journal_writes_completed += 1
+                    cap.persistence_effects_completed.append(f"sqlite:{method_name}")
                 return result
 
-            return _isolated_append
+            return _isolated_sqlite
 
-        wrapped = _factory(orig)
+        wrapped = _factory(name, orig)
         _mark(wrapped)
-        _save_orig(owner, attr, orig)
-        setattr(owner, attr, wrapped)
-        wrapped_ok = True
+        _save_orig(db, name, orig)
+        setattr(db, name, wrapped)
+        ok_all = ok_all and _is_wrapped(getattr(db, name, None))
+    return ok_all
 
-    live = False
+
+def _persistence_owner_complete(owner: Any) -> bool:
+    if owner is None:
+        return False
+    for name in PERSISTENCE_WRITE_METHODS:
+        fn = getattr(owner, name, None)
+        if fn is None or not _is_wrapped(fn):
+            return False
+    return True
+
+
+def _wrap_journal(*, store_cls: Any = None, store: Any = None, runner: Any = None) -> bool:
+    global _journal_wrapped
+    cls, instance = _resolve_session_store(store_cls=store_cls, store=store, runner=runner)
+    wrapped_any = False
+    owners: List[Any] = []
     if cls is not None:
-        live = _is_wrapped(getattr(cls, "append_to_transcript", None))
+        owners.append(cls)
     if instance is not None:
-        live = live or _is_wrapped(getattr(instance, "append_to_transcript", None))
-    _journal_wrapped = bool(wrapped_ok and live)
+        owners.append(instance)
+    if not owners:
+        _journal_wrapped = False
+        return False
+
+    for owner in owners:
+        for name in PERSISTENCE_WRITE_METHODS + PERSISTENCE_OPTIONAL_WRITE_METHODS:
+            if getattr(owner, name, None) is None:
+                continue
+            if _wrap_persistence_method(owner, name):
+                wrapped_any = True
+        db = getattr(owner, "_db", None) if not isinstance(owner, type) else None
+        if db is not None:
+            _wrap_sqlite_db(db)
+
+    class_ok = _persistence_owner_complete(cls) if cls is not None else False
+    inst_ok = True
+    if instance is not None:
+        inst_ok = _persistence_owner_complete(instance)
+    _journal_wrapped = bool(wrapped_any and class_ok and inst_ok)
+    if instance is None:
+        _journal_wrapped = bool(wrapped_any and class_ok)
     return _journal_wrapped
 
 
@@ -547,6 +717,66 @@ def _wrap_executor_context_propagation() -> bool:
     return True
 
 
+def _wrap_thread_context_propagation() -> bool:
+    """Copy isolated ContextVar into threading.Thread workers (provider path)."""
+    global _thread_ctx_wrapped, _THREAD_START_ORIG
+    orig = threading.Thread.start
+    if _is_wrapped(orig):
+        _thread_ctx_wrapped = True
+        return True
+    _THREAD_START_ORIG = orig
+
+    def _start(self):  # type: ignore[no-untyped-def]
+        cap = _ISOLATED.get()
+        if cap is None:
+            return orig(self)
+        target = getattr(self, "_target", None)
+        if target is None:
+            return orig(self)
+        ctx = copy_context()
+        args = getattr(self, "_args", ()) or ()
+        kwargs = dict(getattr(self, "_kwargs", None) or {})
+
+        def _runner(*_a: Any, **_k: Any):
+            def _work():
+                pending = _PENDING_PROVIDER.get()
+                if pending:
+                    observe_provider_invocation(pending.get("model"), pending.get("blob"))
+                    _PENDING_PROVIDER.set(None)
+                return target(*args, **kwargs)
+
+            return ctx.run(_work)
+
+        self._target = _runner
+        self._args = ()
+        self._kwargs = {}
+        cap.in_flight_threads.append(self)
+        return orig(self)
+
+    _mark(_start, ctx=True)
+    threading.Thread.start = _start  # type: ignore[method-assign]
+    _thread_ctx_wrapped = True
+    return True
+
+
+def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 2.0) -> None:
+    """Join isolated provider/worker threads. Fail closed if work stays alive."""
+    if cap is None:
+        return
+    unsettled = False
+    for thread in list(cap.in_flight_threads or []):
+        is_alive = getattr(thread, "is_alive", None)
+        join = getattr(thread, "join", None)
+        if callable(is_alive) and is_alive():
+            if callable(join):
+                join(timeout_s)
+            if is_alive():
+                unsettled = True
+    cap.provider_work_settled = not unsettled
+    if unsettled:
+        raise IsolationAbort("provider_work_unsettled")
+
+
 def _prompt_blob_from_kwargs(api_kwargs: Any) -> str:
     if not isinstance(api_kwargs, dict):
         return str(api_kwargs or "")
@@ -561,42 +791,66 @@ def _prompt_blob_from_kwargs(api_kwargs: Any) -> str:
     return "\n".join(parts)
 
 
-def _wrap_provider(provider_mod: Any = None, attr: str = "interruptible_api_call") -> bool:
-    global _provider_wrapped
+def _extract_provider_model_blob(api_kwargs: Any, kwargs: Dict[str, Any]) -> Tuple[Optional[str], str]:
+    model = None
+    blob = ""
+    if isinstance(api_kwargs, dict):
+        model = api_kwargs.get("model")
+        blob = _prompt_blob_from_kwargs(api_kwargs)
+    elif isinstance(kwargs.get("api_kwargs"), dict):
+        model = kwargs["api_kwargs"].get("model")
+        blob = _prompt_blob_from_kwargs(kwargs["api_kwargs"])
+    return (str(model) if model else None), blob
+
+
+def _wrap_one_provider_helper(mod: Any, attr: str, kind: str) -> bool:
+    orig = getattr(mod, attr, None)
+    if orig is None:
+        return False
+    if _is_wrapped(orig):
+        return True
+
+    def _wrapped(agent=None, api_kwargs=None, *rest: Any, **kwargs: Any):
+        cap = _ISOLATED.get()
+        if cap is None:
+            if agent is None and api_kwargs is None:
+                return orig(*rest, **kwargs)
+            return orig(agent, api_kwargs, *rest, **kwargs)
+        model, blob = _extract_provider_model_blob(api_kwargs, kwargs)
+        observe_provider_helper_attempt(kind, model)
+        token = _PENDING_PROVIDER.set({"model": model, "blob": blob, "kind": kind})
+        try:
+            if agent is None and api_kwargs is None:
+                return orig(*rest, **kwargs)
+            return orig(agent, api_kwargs, *rest, **kwargs)
+        finally:
+            _PENDING_PROVIDER.reset(token)
+
+    _mark(_wrapped)
+    _save_orig(mod, attr, orig)
+    setattr(mod, attr, _wrapped)
+    return True
+
+
+def _wrap_provider(
+    provider_mod: Any = None,
+    attr: str = "interruptible_api_call",
+    streaming_attr: str = "interruptible_streaming_api_call",
+) -> Tuple[bool, bool]:
+    global _provider_wrapped, _provider_streaming_wrapped
     mod = provider_mod
     if mod is None:
         try:
             import agent.chat_completion_helpers as mod  # type: ignore
         except Exception:
             _provider_wrapped = False
-            return False
-    orig = getattr(mod, attr, None)
-    if orig is None:
-        _provider_wrapped = False
-        return False
-    if _is_wrapped(orig):
-        _provider_wrapped = True
-        return True
-
-    def _wrapped(agent=None, api_kwargs=None, *rest: Any, **kwargs: Any):
-        model = None
-        blob = ""
-        if isinstance(api_kwargs, dict):
-            model = api_kwargs.get("model")
-            blob = _prompt_blob_from_kwargs(api_kwargs)
-        elif isinstance(kwargs.get("api_kwargs"), dict):
-            model = kwargs["api_kwargs"].get("model")
-            blob = _prompt_blob_from_kwargs(kwargs["api_kwargs"])
-        observe_provider_invocation(model, blob)
-        if agent is None and api_kwargs is None:
-            return orig(*rest, **kwargs)
-        return orig(agent, api_kwargs, *rest, **kwargs)
-
-    _mark(_wrapped)
-    _save_orig(mod, attr, orig)
-    setattr(mod, attr, _wrapped)
-    _provider_wrapped = True
-    return True
+            _provider_streaming_wrapped = False
+            return False, False
+    nonstream_ok = _wrap_one_provider_helper(mod, attr, "nonstreaming")
+    stream_ok = _wrap_one_provider_helper(mod, streaming_attr, "streaming")
+    _provider_wrapped = bool(nonstream_ok and _is_wrapped(getattr(mod, attr, None)))
+    _provider_streaming_wrapped = bool(stream_ok and _is_wrapped(getattr(mod, streaming_attr, None)))
+    return _provider_wrapped, _provider_streaming_wrapped
 
 
 def inspect_live_seams(
@@ -649,12 +903,14 @@ def inspect_live_seams(
             from gateway.session import SessionStore as store_cls  # type: ignore
         except Exception:
             store_cls = None
-    journal_fn = getattr(store_cls, "append_to_transcript", None) if store_cls is not None else None
-    if not _is_wrapped(journal_fn):
-        inst = t.session_store
-        if inst is None and runner is not None:
-            inst = getattr(runner, "session_store", None)
-        journal_fn = getattr(inst, "append_to_transcript", None) if inst is not None else journal_fn
+    inst = t.session_store
+    if inst is None and runner is not None:
+        inst = getattr(runner, "session_store", None)
+    class_persist = _persistence_owner_complete(store_cls) if store_cls is not None else False
+    if inst is not None:
+        journal_ok = class_persist and _persistence_owner_complete(inst)
+    else:
+        journal_ok = class_persist
 
     provider_mod = t.provider_mod
     if provider_mod is None:
@@ -665,6 +921,9 @@ def inspect_live_seams(
     provider_fn = (
         getattr(provider_mod, t.provider_attr, None) if provider_mod is not None else None
     )
+    streaming_fn = (
+        getattr(provider_mod, t.provider_streaming_attr, None) if provider_mod is not None else None
+    )
 
     return {
         "send_wrapped": _is_wrapped(send_fn),
@@ -672,9 +931,11 @@ def inspect_live_seams(
         "tool_hook_wrapped": _is_wrapped(hook_fn),
         "tool_dispatcher_wrapped": _is_wrapped(disp_fn),
         "post_bot_wrapped": post_ok,
-        "journal_wrapped": _is_wrapped(journal_fn),
+        "journal_wrapped": journal_ok,
         "executor_ctx_wrapped": _is_wrapped(getattr(ThreadPoolExecutor, "submit", None)),
+        "thread_ctx_wrapped": _is_wrapped(getattr(threading.Thread, "start", None)),
         "provider_wrapped": _is_wrapped(provider_fn),
+        "provider_streaming_wrapped": _is_wrapped(streaming_fn),
     }
 
 
@@ -695,7 +956,8 @@ def install_isolation_runtime(
     disp_ok = _wrap_tool_dispatcher(t.handle_function_call_mod)
     journal_ok = _wrap_journal(store_cls=t.session_store_cls, store=t.session_store, runner=runner)
     exec_ok = _wrap_executor_context_propagation() if t.wrap_executor else _is_wrapped(getattr(ThreadPoolExecutor, "submit", None))
-    prov_ok = _wrap_provider(t.provider_mod, t.provider_attr)
+    thread_ok = _wrap_thread_context_propagation() if t.wrap_thread else _is_wrapped(getattr(threading.Thread, "start", None))
+    prov_ok, stream_ok = _wrap_provider(t.provider_mod, t.provider_attr, t.provider_streaming_attr)
     live = inspect_live_seams(targets=t, runner=runner)
     complete = all(live.get(k) for k in REQUIRED_LIVE_SEAMS)
     _installed = complete
@@ -708,7 +970,9 @@ def install_isolation_runtime(
         "tool_dispatcher_wrapped": disp_ok and live["tool_dispatcher_wrapped"],
         "journal_wrapped": journal_ok and live["journal_wrapped"],
         "executor_ctx_wrapped": exec_ok and live["executor_ctx_wrapped"],
+        "thread_ctx_wrapped": thread_ok and live["thread_ctx_wrapped"],
         "provider_wrapped": prov_ok and live["provider_wrapped"],
+        "provider_streaming_wrapped": stream_ok and live["provider_streaming_wrapped"],
         "live": live,
     }
 
@@ -756,7 +1020,8 @@ def reset_isolation_runtime_for_tests() -> None:
     """Restore originals. Test-only. Does not change production send gates."""
     global _installed, _send_wrapped, _send_methods_wrapped, _post_bot_wrapped
     global _tool_hook_wrapped, _tool_dispatcher_wrapped, _journal_wrapped
-    global _executor_ctx_wrapped, _provider_wrapped, _EXECUTOR_ORIG
+    global _executor_ctx_wrapped, _thread_ctx_wrapped, _provider_wrapped
+    global _provider_streaming_wrapped, _EXECUTOR_ORIG, _THREAD_START_ORIG
     for owner, attr, orig in reversed(_ORIG_OWNERS):
         try:
             setattr(owner, attr, orig)
@@ -766,6 +1031,9 @@ def reset_isolation_runtime_for_tests() -> None:
     if _EXECUTOR_ORIG is not None:
         ThreadPoolExecutor.submit = _EXECUTOR_ORIG  # type: ignore[method-assign]
         _EXECUTOR_ORIG = None
+    if _THREAD_START_ORIG is not None:
+        threading.Thread.start = _THREAD_START_ORIG  # type: ignore[method-assign]
+        _THREAD_START_ORIG = None
     _installed = False
     _send_wrapped = False
     _send_methods_wrapped = False
@@ -774,4 +1042,6 @@ def reset_isolation_runtime_for_tests() -> None:
     _tool_dispatcher_wrapped = False
     _journal_wrapped = False
     _executor_ctx_wrapped = False
+    _thread_ctx_wrapped = False
     _provider_wrapped = False
+    _provider_streaming_wrapped = False

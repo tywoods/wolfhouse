@@ -25,11 +25,13 @@ from wolfhouse.luna_personality import (
     default_fetch_setting,
     get_personality_pack,
     inject_personality_pack_once,
+    parse_exact_staff_origin,
 )
 from wolfhouse.luna_personality_isolation import (
     IsolatedTurnCapture,
     IsolationAbort,
     IsolationTargets,
+    REQUIRED_LIVE_SEAMS,
     capture_send_if_isolated,
     deny_post_bot_if_isolated,
     deny_tool_if_isolated,
@@ -43,6 +45,7 @@ from wolfhouse.luna_personality_isolation import (
     record_consumed_pack,
     record_personality_fetch,
     record_tool_invocation_violation,
+    settle_isolated_work,
 )
 from wolfhouse.staging_guard import assert_staging_environment
 
@@ -129,26 +132,80 @@ def build_eval_user_message(case: Dict[str, Any]) -> str:
     )
 
 
-def assert_sunset_serving_identity(*, require_home: bool = False) -> Dict[str, str]:
+def server_owned_serving_identity(*, require_home: bool = False, require_staff_origin: bool = False) -> Dict[str, Any]:
+    """Server-owned env/file declarations. Not consumed model/SOUL/home observations."""
     role = (os.getenv("HERMES_ROLE") or "").strip()
     slug = (os.getenv("LUNA_CLIENT_SLUG") or os.getenv("LUNA_BOT_CLIENT_SLUG") or "").strip()
     home = (os.getenv("HERMES_HOME") or "").strip()
     expected_home = (os.getenv("LUNA_PERSONALITY_EXPECTED_HERMES_HOME") or EXPECTED_HERMES_HOME).strip()
+    model_env = (os.getenv("HERMES_MODEL") or os.getenv("LLM_MODEL") or "").strip()
     if role != SUNSET_ROLE:
         raise IsolationAbort(f"refusing_non_sunset_role:{role or 'unset'}")
     if slug != SUNSET_SLUG:
         raise IsolationAbort(f"refusing_non_sunset_tenant:{slug or 'unset'}")
+    home_env_matches = bool(home) and os.path.normpath(home) == os.path.normpath(expected_home)
+    soul_file_present = False
+    if home:
+        soul = Path(home) / "SOUL.md"
+        soul_file_present = soul.is_file() and bool(soul.read_text(encoding="utf-8").strip())
+    if not soul_file_present:
+        alt = Path("/etc/hermes-staging/SOUL.md")
+        soul_file_present = alt.is_file() and bool(alt.read_text(encoding="utf-8").strip())
     if require_home:
         if not home:
             raise IsolationAbort("hermes_home_missing")
-        if os.path.normpath(home) != os.path.normpath(expected_home):
+        if not home_env_matches:
             raise IsolationAbort("hermes_home_mismatch")
-        soul = Path(home) / "SOUL.md"
-        if not soul.is_file() or not soul.read_text(encoding="utf-8").strip():
-            alt = Path("/etc/hermes-staging/SOUL.md")
-            if not alt.is_file() or not alt.read_text(encoding="utf-8").strip():
-                raise IsolationAbort("soul_unobserved")
-    return {"HERMES_ROLE": role, "LUNA_CLIENT_SLUG": slug, "HERMES_HOME": home}
+        if not soul_file_present:
+            raise IsolationAbort("soul_file_missing")
+    staff_origin = None
+    staff_origin_ok = False
+    staff_origin_error = None
+    base = (os.getenv("WOLFHOUSE_STAFF_API_BASE_URL") or "").rstrip("/")
+    try:
+        staff_origin = parse_exact_staff_origin(base) if base else None
+        staff_origin_ok = bool(staff_origin)
+    except IsolationAbort as exc:
+        staff_origin_error = exc.reason
+        staff_origin_ok = False
+    if require_staff_origin and not staff_origin_ok:
+        raise IsolationAbort(staff_origin_error or "staff_origin_not_allowlisted:empty")
+    return {
+        "kind": "server_owned_env_declaration_not_consumed_observation",
+        "HERMES_ROLE": role,
+        "LUNA_CLIENT_SLUG": slug,
+        "HERMES_HOME_env": home,
+        "home_env_declared": bool(home),
+        "home_env_matches_expected": home_env_matches,
+        "soul_file_present": soul_file_present,
+        "model_env_declared": bool(model_env),
+        "model_env_name": model_env or None,
+        "consumed_model_observed": False,
+        "consumed_soul_observed": False,
+        "consumed_home_observed": False,
+        "staff_origin_enforced": staff_origin,
+        "staff_origin_ok": staff_origin_ok,
+        "staff_origin_error": staff_origin_error,
+    }
+
+
+def assert_sunset_serving_identity(*, require_home: bool = False, require_staff_origin: bool = False) -> Dict[str, Any]:
+    return server_owned_serving_identity(require_home=require_home, require_staff_origin=require_staff_origin)
+
+
+def extract_final_handler_text(result: Any) -> str:
+    """Canonical FINAL text returned by GatewayRunner._handle_message. Not send capture."""
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result.strip()
+    if isinstance(result, dict):
+        for key in ("final_response", "response", "text"):
+            val = result.get(key)
+            if isinstance(val, str) and val.strip():
+                return val.strip()
+        return ""
+    return str(result).strip()
 
 
 def _emoji_or_bang(text: str) -> int:
@@ -376,15 +433,13 @@ async def default_invoke_live_gateway(
     cap: IsolatedTurnCapture,
     meta: Dict[str, Any],
 ) -> str:
-    try:
-        from gateway.config import Platform
-        from gateway.platforms.base import MessageEvent, MessageType
-        from gateway.run import _wolfhouse_gateway_runner  # noqa: WPS433
-        from gateway.session import SessionSource
-    except Exception as exc:
-        raise IsolationAbort(f"gateway_runner_unavailable:{type(exc).__name__}") from exc
-
-    runner = _wolfhouse_gateway_runner
+    runner = meta.get("gateway_runner")
+    if runner is None:
+        try:
+            from gateway.run import _wolfhouse_gateway_runner  # noqa: WPS433
+        except Exception as exc:
+            raise IsolationAbort(f"gateway_runner_unavailable:{type(exc).__name__}") from exc
+        runner = _wolfhouse_gateway_runner
     if runner is None:
         raise IsolationAbort("gateway_runner_unavailable")
 
@@ -394,26 +449,49 @@ async def default_invoke_live_gateway(
 
     digits = cap.ephemeral_chat_id or _ephemeral_digits()
     cap.ephemeral_chat_id = digits
-    source = SessionSource(
-        platform=Platform.WHATSAPP_CLOUD,
-        chat_id=digits,
-        user_id=digits,
-        chat_type="dm",
-        user_name="Personality Eval",
-    )
-    event = MessageEvent(
-        text=user_message,
-        message_type=MessageType.TEXT,
-        source=source,
-        message_id=f"wamid.personality-eval.{uuid.uuid4().hex[:12]}",
-    )
     try:
-        await runner._handle_message(event)  # noqa: SLF001
+        from gateway.config import Platform
+        from gateway.platforms.base import MessageEvent, MessageType
+        from gateway.session import SessionSource
+
+        source = SessionSource(
+            platform=Platform.WHATSAPP_CLOUD,
+            chat_id=digits,
+            user_id=digits,
+            chat_type="dm",
+            user_name="Personality Eval",
+        )
+        event = MessageEvent(
+            text=user_message,
+            message_type=MessageType.TEXT,
+            source=source,
+            message_id=f"wamid.personality-eval.{uuid.uuid4().hex[:12]}",
+        )
+    except Exception as exc:
+        if meta.get("gateway_runner") is None:
+            raise IsolationAbort(f"gateway_types_unavailable:{type(exc).__name__}") from exc
+        source = SimpleNamespace(
+            platform=SimpleNamespace(value="whatsapp_cloud"),
+            chat_id=digits,
+            user_id=digits,
+            chat_type="dm",
+            user_name="Personality Eval",
+        )
+        event = SimpleNamespace(
+            text=user_message,
+            source=source,
+            message_id=f"wamid.personality-eval.{uuid.uuid4().hex[:12]}",
+        )
+    try:
+        result = await runner._handle_message(event)  # noqa: SLF001
     except IsolationAbort:
         raise
     except Exception as exc:
         raise IsolationAbort(f"gateway_turn_failed:{type(exc).__name__}") from exc
-    return cap.reply_text or ""
+    final = extract_final_handler_text(result)
+    cap.final_handler_text = final
+    # Do not substitute interim send capture for the canonical FINAL return.
+    return final
 
 
 async def run_isolated_personality_eval(
@@ -439,12 +517,19 @@ async def run_isolated_personality_eval(
         raise IsolationAbort("foreign_tenant_fetch")
     if serving_preflight:
         assert_staging_environment()
-        identity = assert_sunset_serving_identity(require_home=require_live_seams)
+        identity = assert_sunset_serving_identity(
+            require_home=require_live_seams,
+            require_staff_origin=True,
+        )
     else:
         identity = {
+            "kind": "server_owned_env_declaration_not_consumed_observation",
             "HERMES_ROLE": os.getenv("HERMES_ROLE") or "",
             "LUNA_CLIENT_SLUG": os.getenv("LUNA_CLIENT_SLUG") or SUNSET_SLUG,
-            "HERMES_HOME": os.getenv("HERMES_HOME") or "",
+            "HERMES_HOME_env": os.getenv("HERMES_HOME") or "",
+            "consumed_model_observed": False,
+            "consumed_soul_observed": False,
+            "consumed_home_observed": False,
         }
 
     loaded = corpus or load_corpus()
@@ -493,9 +578,13 @@ async def run_isolated_personality_eval(
                 "evidence_kind": kind_label,
             },
         )
-        cap.reply_text = str(reply or cap.reply_text or "").strip()
+        cap.final_handler_text = str(reply or "").strip()
+        cap.reply_text = cap.final_handler_text
+        settle_isolated_work(cap)
 
         if cap.tools_invoked > 0 or cap.sends_completed > 0 or cap.journal_writes_completed > 0:
+            raise IsolationAbort("isolation_violated")
+        if cap.persistence_effects_completed:
             raise IsolationAbort("isolation_violated")
         if not cap.model_called or cap.model_calls < 1:
             raise IsolationAbort("model_not_invoked")
@@ -506,8 +595,9 @@ async def run_isolated_personality_eval(
         observed = cap.observed_pack_id or pack_id
         if observed != pid:
             raise IsolationAbort(f"pack_mismatch:requested={pid}:observed={observed or 'none'}")
-        if case.get("kind") == "warmth_eligible" and not cap.observed_pack_injected and kind_label != "test_double":
-            raise IsolationAbort("pack_not_observed_in_prompt")
+        if kind_label != "test_double" and case.get("kind") == "warmth_eligible":
+            if not cap.observed_pack_from_provider:
+                raise IsolationAbort("pack_not_observed_from_provider")
 
         semantic = evaluate_generated_reply(
             case=case,
@@ -531,10 +621,16 @@ async def run_isolated_personality_eval(
             "sends_completed": cap.sends_completed,
             "journal_writes_denied": cap.journal_writes_denied,
             "journal_writes_completed": cap.journal_writes_completed,
+            "persistence_denied": dict(cap.persistence_denied),
+            "persistence_effects_completed": list(cap.persistence_effects_completed),
             "personality_fetches": cap.personality_fetches,
             "model_calls": cap.model_calls,
+            "provider_helper_attempts": cap.provider_helper_attempts,
+            "provider_helper_kind": cap.provider_helper_kind,
             "model": cap.model,
             "model_called": cap.model_called,
+            "final_handler_text": cap.final_handler_text,
+            "interim_send_text": cap.interim_send_text,
             "whatsapp_suppressed": whatsapp_suppressed,
             "isolation": isolation_status(targets=isolation_targets),
             "serving_identity": identity,
@@ -546,27 +642,85 @@ async def run_isolated_personality_eval(
             "ephemeral_chat_id": cap.ephemeral_chat_id,
             "evidence_kind": cap.evidence_kind,
             "live_acceptance": False if kind_label == "test_double" else None,
+            "consumed_model_observed": bool(cap.model_called and cap.model_calls >= 1),
+            "consumed_soul_observed": False,
+            "consumed_home_observed": False,
         }
     finally:
+        settle_exc = None
+        try:
+            settle_isolated_work(cap)
+        except IsolationAbort as exc:
+            settle_exc = exc
+        except Exception:
+            pass
         exit_isolated_turn(token)
+        if settle_exc is not None:
+            raise settle_exc
+
+
+def _eval_unauthorized(request) -> Optional[Any]:
+    from aiohttp import web
+
+    token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
+    if not token:
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    hdr = request.headers.get("X-Luna-Bot-Token") or request.headers.get("Authorization") or ""
+    if hdr.startswith("Bearer "):
+        hdr = hdr[7:].strip()
+    if hdr != token:
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+    return None
+
+
+def serving_eval_readiness(*, targets: Optional[IsolationTargets] = None, runner: Any = None) -> Dict[str, Any]:
+    """Inspect serving isolation/identity. Does not invoke a model or mutate Staff."""
+    install_isolation_runtime(targets=targets, runner=runner)
+    live = isolation_status(targets=targets, runner=runner)
+    try:
+        identity = server_owned_serving_identity(require_home=True, require_staff_origin=True)
+        identity_error = None
+    except IsolationAbort as exc:
+        identity = {
+            "kind": "server_owned_env_declaration_not_consumed_observation",
+            "consumed_model_observed": False,
+            "consumed_soul_observed": False,
+            "consumed_home_observed": False,
+        }
+        identity_error = exc.reason
+    missing = [k for k in REQUIRED_LIVE_SEAMS if not live.get(k)]
+    ready = not missing and identity_error is None
+    return {
+        "ok": ready,
+        "ready": ready,
+        "preflight_only": True,
+        "isolation": live,
+        "missing_seams": missing,
+        "serving_identity": identity,
+        "error": None if ready else (identity_error or ("seams_incomplete:" + ",".join(missing))),
+        "live_acceptance": False,
+        "consumed_model_observed": False,
+        "consumed_soul_observed": False,
+        "consumed_home_observed": False,
+    }
 
 
 def register_live_eval_route(app) -> None:
     """Authenticated Sunset-only allowlisted eval. Does not alter simulate defaults."""
 
+    async def _handle_ready(request):
+        denied = _eval_unauthorized(request)
+        if denied is not None:
+            return denied
+        from aiohttp import web
+
+        rec = serving_eval_readiness()
+        return web.json_response(rec, status=200 if rec.get("ready") else 503)
+
     async def _handle(request):
-        token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
-        if not token:
-            from aiohttp import web
-
-            return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
-        hdr = request.headers.get("X-Luna-Bot-Token") or request.headers.get("Authorization") or ""
-        if hdr.startswith("Bearer "):
-            hdr = hdr[7:].strip()
-        if hdr != token:
-            from aiohttp import web
-
-            return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+        denied = _eval_unauthorized(request)
+        if denied is not None:
+            return denied
 
         try:
             body = await request.json()
@@ -597,6 +751,12 @@ def register_live_eval_route(app) -> None:
                 from aiohttp import web
 
                 return web.json_response({"ok": False, "error": "caller_override_rejected"}, status=400)
+
+        if body.get("preflight_only") is True:
+            from aiohttp import web
+
+            rec = serving_eval_readiness()
+            return web.json_response(rec, status=200 if rec.get("ready") else 503)
 
         try:
             result = await run_isolated_personality_eval(
@@ -631,6 +791,7 @@ def register_live_eval_route(app) -> None:
 
         return web.json_response(result)
 
+    app.router.add_get(LIVE_EVAL_PATH, _handle_ready)
     app.router.add_post(LIVE_EVAL_PATH, _handle)
 
 

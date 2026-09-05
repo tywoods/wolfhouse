@@ -145,6 +145,13 @@ def _find_staff_plugin_module() -> tuple[Any, Optional[str]]:
     import importlib
     import sys
 
+    exact = sys.modules.get("wolfhouse_staff_api")
+    if exact is not None and hasattr(exact, "_post_bot"):
+        return exact, None
+    plugins = sys.modules.get("plugins.wolfhouse_staff_api")
+    if plugins is not None and hasattr(plugins, "_post_bot"):
+        return plugins, None
+
     for key, loaded in list(sys.modules.items()):
         if not loaded or not key.endswith("wolfhouse_staff_api"):
             continue

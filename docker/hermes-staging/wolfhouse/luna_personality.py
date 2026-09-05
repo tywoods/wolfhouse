@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from contextvars import ContextVar
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import urlparse
 
 PRODUCT_NAME = "Luna Personality"
 CHANNEL = "whatsapp"
@@ -25,6 +26,8 @@ CLOSED_PERSONALITY_IDS = ("sunny", "calm", "concise", "extra")
 GUEST_WHATSAPP_LUNA_ROLES = frozenset({"luna", "sunset-luna"})
 FETCH_TIMEOUT_S = 0.8
 INJECTION_MARK = "Luna Personality this turn:"
+ALLOWED_STAFF_ORIGINS = frozenset({"https://sunset-staging.lunafrontdesk.com"})
+STAFF_BOT_PERSONALITY_PATH = "/staff/bot/luna-personality"
 
 PACKS: Dict[str, Dict[str, str]] = {
     "sunny": {
@@ -148,6 +151,29 @@ def _sunny(tenant_id: str, channel: str, reason: Optional[str], applied: bool) -
     }
 
 
+def parse_exact_staff_origin(url: str) -> str:
+    """Exact allowlisted Staff origin. Substring hosts, HTTP, userinfo, ports, paths fail."""
+    from wolfhouse.luna_personality_isolation import IsolationAbort
+
+    raw = str(url or "").strip()
+    parsed = urlparse(raw)
+    if parsed.scheme != "https":
+        raise IsolationAbort("staff_origin_not_https")
+    if parsed.username or parsed.password:
+        raise IsolationAbort("staff_origin_userinfo_forbidden")
+    host = (parsed.hostname or "").lower()
+    if parsed.port:
+        raise IsolationAbort("staff_origin_port_forbidden")
+    origin = f"{parsed.scheme}://{host}"
+    if origin not in ALLOWED_STAFF_ORIGINS:
+        raise IsolationAbort(f"staff_origin_not_allowlisted:{host or 'empty'}")
+    if parsed.path not in ("", "/"):
+        raise IsolationAbort("staff_origin_path_forbidden")
+    if parsed.query or parsed.fragment:
+        raise IsolationAbort("staff_origin_query_forbidden")
+    return origin
+
+
 def canonical_bot_auth_headers(token: str) -> Dict[str, str]:
     """Headers requireBotAuth accepts on /staff/bot/* (no Staff cookies).
 
@@ -165,8 +191,9 @@ def default_fetch_setting(_tenant_id: str) -> Dict[str, Any]:
     token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
     if not base or not token:
         raise RuntimeError("setting_unavailable")
+    origin = parse_exact_staff_origin(base)
     req = urllib.request.Request(
-        f"{base}/staff/bot/luna-personality",
+        f"{origin}{STAFF_BOT_PERSONALITY_PATH}",
         method="GET",
         headers=canonical_bot_auth_headers(token),
     )
@@ -200,6 +227,8 @@ def resolve_whatsapp_personality_once(
     if ch != CHANNEL:
         return _sunny(tid, ch, "not_whatsapp", applied=False)
     fetcher = fetch_setting or default_fetch_setting
+    from wolfhouse.luna_personality_isolation import IsolationAbort, current_isolated_turn
+
     try:
         raw = fetcher(tid)
         stored = None
@@ -210,15 +239,8 @@ def resolve_whatsapp_personality_once(
         normalized = normalize_stored_id(stored)
         pack = get_personality_pack(normalized["id"])
         fallback = None if normalized["source"] == "stored" else normalized["source"]
-        try:
-            from wolfhouse.luna_personality_isolation import IsolationAbort, current_isolated_turn
-
-            if current_isolated_turn() is not None and fallback:
-                raise IsolationAbort(f"setting_fallback:{fallback}")
-        except IsolationAbort:
-            raise
-        except Exception:
-            pass
+        if current_isolated_turn() is not None and fallback:
+            raise IsolationAbort(f"setting_fallback:{fallback}")
         return {
             "applied": True,
             "pack": pack,
@@ -230,17 +252,14 @@ def resolve_whatsapp_personality_once(
                 fallback_reason=fallback,
             ),
         }
+    except IsolationAbort as exc:
+        if current_isolated_turn() is not None:
+            raise
+        return _sunny(tid, ch, exc.reason, applied=True)
     except Exception as exc:
         reason = "setting_timeout" if "timed out" in str(exc).lower() or "timeout" in str(exc).lower() else "setting_failure"
-        try:
-            from wolfhouse.luna_personality_isolation import IsolationAbort, current_isolated_turn
-
-            if current_isolated_turn() is not None:
-                raise IsolationAbort(f"setting_fallback:{reason}") from exc
-        except IsolationAbort:
-            raise
-        except Exception:
-            pass
+        if current_isolated_turn() is not None:
+            raise IsolationAbort(f"setting_fallback:{reason}") from exc
         return _sunny(tid, ch, reason, applied=True)
 
 

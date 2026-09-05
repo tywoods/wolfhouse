@@ -81,11 +81,36 @@ ok('runner execute-live owns snapshot PUT restore GET',
   && /OfflineStaffTransportDouble/.test(runnerSrc)
   && /never live acceptance/.test(runnerSrc));
 ok('exact origin allowlist not substring',
-  /ALLOWED_STAFF_ORIGINS/.test(runnerSrc)
-  && /sunset-staging\.lunafrontdesk\.com/.test(runnerSrc)
-  && /staff_origin_not_allowlisted/.test(runnerSrc));
+  /ALLOWED_STAFF_ORIGINS/.test(pySrc)
+  && /sunset-staging\.lunafrontdesk\.com/.test(pySrc)
+  && /staff_origin_not_allowlisted/.test(pySrc)
+  && /parse_exact_staff_origin/.test(runnerSrc)
+  && /parse_exact_eval_url/.test(runnerSrc));
 ok('same-process gateway invoke not a second SOUL/model',
   /_handle_message/.test(evalSrc) && !/alternate SOUL|second bot/i.test(evalSrc));
+ok('separate-process runner uses authenticated exact-target HTTP',
+  /ServingEvalHttpTransport/.test(runnerSrc)
+  && /parse_exact_eval_url/.test(runnerSrc)
+  && /lunabox\.lunafrontdesk\.com/.test(runnerSrc)
+  && !/import gateway.run/.test(runnerSrc));
+ok('canonical FINAL handler text not interim send substitute',
+  /extract_final_handler_text/.test(evalSrc)
+  && /final_handler_text/.test(evalSrc)
+  && /interim_send_text/.test(isoSrc));
+ok('independent restore GET always attempted',
+  /independent_get_attempted/.test(runnerSrc)
+  && /effective_restored/.test(runnerSrc)
+  && /exact_source_restored/.test(runnerSrc)
+  && /ambiguous_outcome/.test(runnerSrc));
+ok('provider dispatch distinct from helper entry; streaming wrapped',
+  /observe_provider_helper_attempt/.test(isoSrc)
+  && /interruptible_streaming_api_call/.test(isoSrc)
+  && /provider_streaming_wrapped/.test(isoSrc)
+  && /pack_not_observed_from_provider/.test(evalSrc));
+ok('env/file presence is not consumed observation',
+  /consumed_model_observed/.test(runnerSrc)
+  && /server_owned_env_declaration_not_consumed_observation/.test(runnerSrc)
+  && !/\"model_observed\": bool\(model\)/.test(runnerSrc));
 ok('eval fails closed on pack mismatch, fallback, missing model',
   /pack_mismatch/.test(evalSrc) && /setting_fallback/.test(evalSrc)
   && /model_not_invoked/.test(evalSrc) && /missing_generated_reply/.test(evalSrc));

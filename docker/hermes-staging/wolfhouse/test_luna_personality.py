@@ -109,6 +109,18 @@ class LunaPersonalityTests(unittest.TestCase):
         self.assertEqual(header_map.get("x-luna-bot-token"), "tok")
         self.assertNotIn("cookie", header_map)
 
+    def test_default_fetch_setting_rejects_attacker_origin(self) -> None:
+        from wolfhouse.luna_personality_isolation import IsolationAbort
+
+        env = {
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://sunset-staging.attacker.invalid",
+            "LUNA_BOT_INTERNAL_TOKEN": "tok",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            with self.assertRaises(IsolationAbort) as ctx:
+                lp.default_fetch_setting("sunset")
+        self.assertIn("staff_origin_not_allowlisted", ctx.exception.reason)
+
     def test_failure_defaults_sunny(self) -> None:
         def boom(_tid: str) -> dict:
             raise RuntimeError("nope")
