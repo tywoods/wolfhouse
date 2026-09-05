@@ -354,6 +354,16 @@ SESSION_STALE_PATCH = '''
 SESSION_STALE_ENDED_AT_OLD = "                    if _wh_row is None or _wh_row.get(\"ended_at\"):"
 SESSION_STALE_ENDED_AT_NEW = "                    if _wh_row is None:"
 
+LUNA_PERSONALITY_BIND_TAG = "bind_whatsapp_turn_personality"
+LUNA_PERSONALITY_BIND_PATCH = '''
+        # Wolfhouse Luna Personality: bind WhatsApp style pack once per turn.
+        try:
+            from wolfhouse.luna_personality import bind_whatsapp_turn_personality as _wh_bind_lp
+            _wh_bind_lp(source)
+        except Exception:
+            pass
+'''
+LUNA_PERSONALITY_CLEAR_TAG = "clear_bound_personality"
 LUNA_SOUL_RELOAD_TAG = "# Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply."
 LUNA_SOUL_RELOAD_PATCH = '''
         # Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply.
@@ -766,6 +776,32 @@ def apply_patches(run_path: Path) -> dict:
     if _old_guard_call in s and _new_guard_call not in s:
         s = s.replace(_old_guard_call, _new_guard_call, 1)
 
+    if LUNA_PERSONALITY_BIND_TAG not in s:
+        for soul_anchor, _soul_patch in SOUL_RELOAD_ANCHORS:
+            if soul_anchor not in s:
+                continue
+            s = s.replace(soul_anchor, LUNA_PERSONALITY_BIND_PATCH + "\n" + soul_anchor, 1)
+            break
+    if LUNA_PERSONALITY_CLEAR_TAG not in s:
+        clear_anchor = (
+            '            for _wolfhouse_key in ("WOLFHOUSE_WHATSAPP_GUEST_PHONE", "WHATSAPP_GUEST_PHONE"):\n'
+            '                _wolfhouse_os.environ.pop(_wolfhouse_key, None)\n'
+            '        except Exception:\n'
+            '            pass\n'
+            '        clear_session_vars(tokens)'
+        )
+        if clear_anchor in s:
+            s = s.replace(
+                clear_anchor,
+                '            for _wolfhouse_key in ("WOLFHOUSE_WHATSAPP_GUEST_PHONE", "WHATSAPP_GUEST_PHONE"):\n'
+                '                _wolfhouse_os.environ.pop(_wolfhouse_key, None)\n'
+                '            from wolfhouse.luna_personality import clear_bound_personality as _wh_clear_lp\n'
+                '            _wh_clear_lp()\n'
+                '        except Exception:\n'
+                '            pass\n'
+                '        clear_session_vars(tokens)',
+                1,
+            )
     soul_note = None
     if LUNA_SOUL_RELOAD_TAG not in s:
         applied_soul = False
@@ -1032,6 +1068,7 @@ def install_runtime_whatsapp_patches() -> dict:
         "pause_send": False,
         "send_flags": False,
         "burst_coalesce": False,
+        "luna_personality": False,
     }
     try:
         import gateway.run as _gw_run_mod
@@ -1063,6 +1100,11 @@ def install_runtime_whatsapp_patches() -> dict:
     try:
         from wolfhouse.whatsapp_burst_coalesce import install_whatsapp_burst_coalesce_patch
         applied["burst_coalesce"] = bool(install_whatsapp_burst_coalesce_patch())
+    except Exception:
+        pass
+    try:
+        from wolfhouse.luna_personality import install_soul_append_runtime_patch
+        applied["luna_personality"] = bool(install_soul_append_runtime_patch())
     except Exception:
         pass
     return applied

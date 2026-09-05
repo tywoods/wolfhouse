@@ -16,6 +16,11 @@ const {
   shouldSkipCamiAuthor,
 } = require('./luna-guest-composer-ownership');
 const { isFrontdeskAuthoringBriefLeak } = require('./luna-guest-frontdesk-reply');
+const {
+  resolveWhatsAppPersonalityOnce,
+  injectPersonalityPackOnce,
+  shouldFreezePersonalityStyle,
+} = require('./luna-guest-personality-runtime');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -68,6 +73,22 @@ async function applyGuestReplyPipeline(args) {
       : null,
   });
 
+  const composerState = a.composed && a.composed.composer_state;
+  const personalityTurn = await resolveWhatsAppPersonalityOnce({
+    tenant_id: a.tenant_id || a.client_id || a.client_slug,
+    channel: a.channel || 'whatsapp',
+    fetchSetting: a.fetchPersonalitySetting,
+    env,
+  });
+  const personalityFrozen = shouldFreezePersonalityStyle(composerState) || camiSkip.skip === true;
+  const personalityPack = personalityFrozen ? null : personalityTurn.pack;
+  injectPersonalityPackOnce({
+    system_prompt: '',
+    pack: personalityPack,
+    channel: 'whatsapp',
+    composer_state: composerState,
+  });
+
   let camiStage;
   if (camiSkip.skip || !isCamiReplyAuthorEnabled(env)) {
     camiStage = {
@@ -103,6 +124,7 @@ async function applyGuestReplyPipeline(args) {
       channel_mode: a.channel_mode || 'orchestrator_dry_run',
       env,
       authorCaller: a.authorCaller,
+      personality_pack: personalityPack,
     });
   }
 
@@ -140,6 +162,7 @@ async function applyGuestReplyPipeline(args) {
     },
     guest_agent_brain: agentStage.observability,
     cami_reply_author: camiStage.observability,
+    luna_personality: personalityTurn.observability,
   };
 }
 

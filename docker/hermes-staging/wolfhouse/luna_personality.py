@@ -1,0 +1,314 @@
+"""Luna Personality — WhatsApp-only closed style packs for the same Luna.
+
+Resolve once per guest turn at the trusted gateway boundary and inject one
+short server-owned pack into the in-memory SOUL/authoring prompt. Never
+accept style text from API, DB, guest, or caller. Failures default to sunny
+and must not block the reply.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import threading
+import time
+import urllib.error
+import urllib.request
+from contextvars import ContextVar
+from typing import Any, Callable, Dict, Optional
+
+PRODUCT_NAME = "Luna Personality"
+CHANNEL = "whatsapp"
+SETTINGS_KEY = "luna_personality"
+DEFAULT_PERSONALITY_ID = "sunny"
+CLOSED_PERSONALITY_IDS = ("sunny", "calm", "concise", "extra")
+CACHE_TTL_S = 15.0
+CACHE_MAX = 64
+FETCH_TIMEOUT_S = 0.8
+INJECTION_MARK = "Luna Personality this turn:"
+
+PACKS: Dict[str, Dict[str, str]] = {
+    "sunny": {
+        "id": "sunny",
+        "instruction": (
+            "Luna Personality this turn: sunny (DEFAULT — current live Wolf-House tone). "
+            "Upbeat playful surf-host warmth. Light emoji (usually 0–2, tasteful emoji, never a wall). "
+            "Friendly, human WhatsApp cadence. One clear next step. "
+            "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
+            "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
+            "handoff decisions, or language."
+        ),
+    },
+    "calm": {
+        "id": "calm",
+        "instruction": (
+            "Luna Personality this turn: calm. "
+            "Patient, reassuring, low-key. Soft warmth, fewer emoji, no hype, no elongated openers. "
+            "Steady WhatsApp cadence. One clear next step. "
+            "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
+            "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
+            "handoff decisions, or language."
+        ),
+    },
+    "concise": {
+        "id": "concise",
+        "instruction": (
+            "Luna Personality this turn: concise. "
+            "Friendly but short. Tight sentences, minimal emoji, no extra cheer. "
+            "Keep the same next step in fewer words. "
+            "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
+            "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
+            "handoff decisions, or language."
+        ),
+    },
+    "extra": {
+        "id": "extra",
+        "instruction": (
+            "Luna Personality this turn: extra. "
+            "Ultra bright, over-the-top friendly surf-host energy. More emoji than sunny, still readable. "
+            "Celebratory cadence without inventing facts. "
+            "Wording/cadence/warmth/emoji only. Never change facts, prices, availability, open spots, "
+            "permissions, tool choice or results, identity, booking/payment state, URLs, confirmations, "
+            "handoff decisions, or language."
+        ),
+    },
+}
+
+COMPOSER_OWNED_STATES = frozenset(
+    {
+        "stripe_test_link_created",
+        "payment_link_sent",
+        "payment_received_preview_ready",
+        "confirmation_sent_ack",
+        "safe_handoff",
+    }
+)
+
+_bound: ContextVar[Optional[Dict[str, Any]]] = ContextVar("luna_personality_bound", default=None)
+_cache: Dict[str, Dict[str, Any]] = {}
+_cache_lock = threading.Lock()
+_soul_patch_installed = False
+
+
+def is_closed_id(value: Any) -> bool:
+    return str(value or "").strip().lower() in CLOSED_PERSONALITY_IDS
+
+
+def normalize_stored_id(value: Any) -> Dict[str, str]:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return {"id": DEFAULT_PERSONALITY_ID, "source": "default"}
+    if raw in CLOSED_PERSONALITY_IDS:
+        return {"id": raw, "source": "stored"}
+    return {"id": DEFAULT_PERSONALITY_ID, "source": "invalid_fallback"}
+
+
+def get_personality_pack(personality_id: Any) -> Dict[str, str]:
+    key = str(personality_id or "").strip().lower()
+    if key not in PACKS:
+        key = DEFAULT_PERSONALITY_ID
+    return PACKS[key]
+
+
+def personality_observability(
+    *,
+    tenant_id: Optional[str],
+    channel: str,
+    personality_id: str,
+    source: Optional[str],
+    fallback_reason: Optional[str],
+) -> Dict[str, Optional[str]]:
+    return {
+        "tenant_id": tenant_id,
+        "channel": channel,
+        "personality_id": personality_id if is_closed_id(personality_id) else DEFAULT_PERSONALITY_ID,
+        "source": source,
+        "fallback_reason": fallback_reason,
+    }
+
+
+def _platform_name(source: Any) -> str:
+    plat = getattr(source, "platform", None)
+    return str(getattr(plat, "value", plat or "")).strip().lower()
+
+
+def _tenant_id() -> str:
+    return (os.getenv("LUNA_CLIENT_SLUG") or os.getenv("LUNA_BOT_CLIENT_SLUG") or "").strip()
+
+
+def _sunny(tenant_id: str, channel: str, reason: Optional[str], applied: bool) -> Dict[str, Any]:
+    pack = get_personality_pack(DEFAULT_PERSONALITY_ID)
+    return {
+        "applied": applied,
+        "pack": pack if applied else None,
+        "observability": personality_observability(
+            tenant_id=tenant_id or None,
+            channel=channel,
+            personality_id=DEFAULT_PERSONALITY_ID,
+            source="default",
+            fallback_reason=reason,
+        ),
+    }
+
+
+def default_fetch_setting(_tenant_id: str) -> Dict[str, Any]:
+    base = (os.getenv("WOLFHOUSE_STAFF_API_BASE_URL") or "").rstrip("/")
+    token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
+    if not base or not token:
+        raise RuntimeError("setting_unavailable")
+    req = urllib.request.Request(
+        f"{base}/staff/bot/luna-personality",
+        method="GET",
+        headers={"X-Luna-Bot-Token": token, "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as res:
+        body = res.read().decode("utf-8") if res else "{}"
+    parsed = json.loads(body or "{}")
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _cache_get(tenant_id: str, now: float) -> Optional[Dict[str, Any]]:
+    with _cache_lock:
+        hit = _cache.get(tenant_id)
+        if hit and hit["expires_at"] > now:
+            return hit["value"]
+        if hit:
+            _cache.pop(tenant_id, None)
+    return None
+
+
+def _cache_set(tenant_id: str, value: Dict[str, Any], now: float, ttl: float = CACHE_TTL_S) -> None:
+    with _cache_lock:
+        if len(_cache) >= CACHE_MAX:
+            oldest = next(iter(_cache), None)
+            if oldest is not None:
+                _cache.pop(oldest, None)
+        _cache[tenant_id] = {"expires_at": now + ttl, "value": value}
+
+
+def clear_personality_cache() -> None:
+    with _cache_lock:
+        _cache.clear()
+
+
+def resolve_whatsapp_personality_once(
+    *,
+    tenant_id: Optional[str] = None,
+    channel: str = CHANNEL,
+    fetch_setting: Optional[Callable[[str], Dict[str, Any]]] = None,
+    now: Optional[float] = None,
+) -> Dict[str, Any]:
+    ch = (channel or CHANNEL).strip().lower() or CHANNEL
+    tid = (tenant_id if tenant_id is not None else _tenant_id()).strip()
+    if ch != CHANNEL:
+        return _sunny(tid, ch, "not_whatsapp", applied=False)
+    clock = time.time() if now is None else now
+    cached = _cache_get(tid or "_missing_tenant_", clock)
+    if cached is not None:
+        return cached
+    fetcher = fetch_setting or default_fetch_setting
+    try:
+        raw = fetcher(tid)
+        stored = None
+        if isinstance(raw, dict):
+            stored = raw.get("personality_id")
+            if stored is None:
+                stored = raw.get(SETTINGS_KEY)
+        normalized = normalize_stored_id(stored)
+        pack = get_personality_pack(normalized["id"])
+        fallback = None if normalized["source"] == "stored" else normalized["source"]
+        value = {
+            "applied": True,
+            "pack": pack,
+            "observability": personality_observability(
+                tenant_id=tid or None,
+                channel=ch,
+                personality_id=pack["id"],
+                source=normalized["source"],
+                fallback_reason=fallback,
+            ),
+        }
+        _cache_set(tid or "_missing_tenant_", value, clock)
+        return value
+    except Exception as exc:
+        reason = "setting_timeout" if "timed out" in str(exc).lower() or "timeout" in str(exc).lower() else "setting_failure"
+        value = _sunny(tid, ch, reason, applied=True)
+        _cache_set(tid or "_missing_tenant_", value, clock, ttl=min(CACHE_TTL_S, 3.0))
+        return value
+
+
+def should_freeze_personality_style(composer_state: Optional[str]) -> bool:
+    return str(composer_state or "").strip() in COMPOSER_OWNED_STATES
+
+
+def inject_personality_pack_once(
+    system_prompt: str,
+    pack: Optional[Dict[str, str]],
+    *,
+    channel: str = CHANNEL,
+    composer_state: Optional[str] = None,
+    already_injected: bool = False,
+) -> Dict[str, Any]:
+    text = system_prompt if isinstance(system_prompt, str) else str(system_prompt or "")
+    ch = (channel or CHANNEL).strip().lower() or CHANNEL
+    if already_injected or INJECTION_MARK in text:
+        return {"system_prompt": text, "injected": False, "injection_count": 0}
+    if ch != CHANNEL or not pack or not pack.get("instruction"):
+        return {"system_prompt": text, "injected": False, "injection_count": 0}
+    if should_freeze_personality_style(composer_state):
+        return {"system_prompt": text, "injected": False, "injection_count": 0}
+    return {
+        "system_prompt": f"{text}\n\n{pack['instruction']}",
+        "injected": True,
+        "injection_count": 1,
+    }
+
+
+def bind_whatsapp_turn_personality(source: Any, fetch_setting: Optional[Callable[[str], Dict[str, Any]]] = None) -> Dict[str, Any]:
+    channel = _platform_name(source) or CHANNEL
+    if channel not in {"whatsapp", "whatsapp_cloud"}:
+        bound = _sunny(_tenant_id(), channel, "not_whatsapp", applied=False)
+        _bound.set(bound)
+        return bound
+    bound = resolve_whatsapp_personality_once(channel=CHANNEL, fetch_setting=fetch_setting)
+    _bound.set(bound)
+    return bound
+
+
+def get_bound_personality() -> Optional[Dict[str, Any]]:
+    return _bound.get()
+
+
+def clear_bound_personality() -> None:
+    _bound.set(None)
+
+
+def apply_personality_to_soul_text(soul_text: str) -> str:
+    bound = get_bound_personality() or {}
+    if not bound.get("applied"):
+        return soul_text
+    result = inject_personality_pack_once(soul_text, bound.get("pack"), channel=CHANNEL)
+    return result["system_prompt"]
+
+
+def install_soul_append_runtime_patch() -> bool:
+    """Append the bound pack when SOUL.md is read in-memory. Idempotent."""
+    global _soul_patch_installed
+    if _soul_patch_installed:
+        return True
+    from pathlib import Path
+
+    orig = Path.read_text
+
+    def _read_text(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        text = orig(self, *args, **kwargs)
+        try:
+            if getattr(self, "name", "") == "SOUL.md":
+                return apply_personality_to_soul_text(text)
+        except Exception:
+            return text
+        return text
+
+    Path.read_text = _read_text  # type: ignore[method-assign]
+    _soul_patch_installed = True
+    return True
