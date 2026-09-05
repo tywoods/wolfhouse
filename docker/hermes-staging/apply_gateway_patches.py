@@ -368,15 +368,17 @@ LUNA_SOUL_RELOAD_TAG = "# Wolfhouse Luna: rebuild agent each turn so SOUL.md cha
 LUNA_SOUL_RELOAD_PATCH = '''
         # Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply.
         import os as _wolfhouse_soul_os
+        from wolfhouse.luna_personality import should_rebuild_cached_agent as _wh_lp_rebuild
         _wolfhouse_plat = getattr(source.platform, "value", str(source.platform or ""))
-        if _wolfhouse_soul_os.getenv("HERMES_ROLE") == "luna" and _wolfhouse_plat in ("whatsapp", "whatsapp_cloud"):
+        if _wh_lp_rebuild(_wolfhouse_soul_os.getenv("HERMES_ROLE"), _wolfhouse_plat):
             self._evict_cached_agent(session_key)
 '''
 LUNA_SOUL_RELOAD_PATCH_12 = '''
             # Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply.
             import os as _wolfhouse_soul_os
+            from wolfhouse.luna_personality import should_rebuild_cached_agent as _wh_lp_rebuild
             _wolfhouse_plat = getattr(source.platform, "value", str(source.platform or ""))
-            if _wolfhouse_soul_os.getenv("HERMES_ROLE") == "luna" and _wolfhouse_plat in ("whatsapp", "whatsapp_cloud"):
+            if _wh_lp_rebuild(_wolfhouse_soul_os.getenv("HERMES_ROLE"), _wolfhouse_plat):
                 self._evict_cached_agent(session_key)
 '''
 SOUL_RELOAD_ANCHORS = (

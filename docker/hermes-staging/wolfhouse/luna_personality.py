@@ -1,17 +1,17 @@
 """Luna Personality — WhatsApp-only closed style packs for the same Luna.
 
 Resolve once per guest turn at the trusted gateway boundary and inject one
-short server-owned pack into the in-memory SOUL/authoring prompt. Never
-accept style text from API, DB, guest, or caller. Failures default to sunny
-and must not block the reply.
+short server-owned pack into the in-memory SOUL/authoring prompt. Each new
+turn fetches the authoritative tenant setting again so a Staff PUT is visible
+on the next reply. Within-turn reuse is the bound ContextVar, not a TTL cache.
+Never accept style text from API, DB, guest, or caller. Failures default to
+sunny and must not block the reply.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import threading
-import time
 import urllib.error
 import urllib.request
 from contextvars import ContextVar
@@ -22,8 +22,7 @@ CHANNEL = "whatsapp"
 SETTINGS_KEY = "luna_personality"
 DEFAULT_PERSONALITY_ID = "sunny"
 CLOSED_PERSONALITY_IDS = ("sunny", "calm", "concise", "extra")
-CACHE_TTL_S = 15.0
-CACHE_MAX = 64
+GUEST_WHATSAPP_LUNA_ROLES = frozenset({"luna", "sunset-luna"})
 FETCH_TIMEOUT_S = 0.8
 INJECTION_MARK = "Luna Personality this turn:"
 
@@ -85,8 +84,6 @@ COMPOSER_OWNED_STATES = frozenset(
 )
 
 _bound: ContextVar[Optional[Dict[str, Any]]] = ContextVar("luna_personality_bound", default=None)
-_cache: Dict[str, Dict[str, Any]] = {}
-_cache_lock = threading.Lock()
 _soul_patch_installed = False
 
 
@@ -167,28 +164,16 @@ def default_fetch_setting(_tenant_id: str) -> Dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _cache_get(tenant_id: str, now: float) -> Optional[Dict[str, Any]]:
-    with _cache_lock:
-        hit = _cache.get(tenant_id)
-        if hit and hit["expires_at"] > now:
-            return hit["value"]
-        if hit:
-            _cache.pop(tenant_id, None)
+def clear_personality_cache() -> None:
+    """No-op. Cross-turn result caching would hide a Staff PUT from the next reply."""
     return None
 
 
-def _cache_set(tenant_id: str, value: Dict[str, Any], now: float, ttl: float = CACHE_TTL_S) -> None:
-    with _cache_lock:
-        if len(_cache) >= CACHE_MAX:
-            oldest = next(iter(_cache), None)
-            if oldest is not None:
-                _cache.pop(oldest, None)
-        _cache[tenant_id] = {"expires_at": now + ttl, "value": value}
-
-
-def clear_personality_cache() -> None:
-    with _cache_lock:
-        _cache.clear()
+def should_rebuild_cached_agent(role: Optional[str], platform: Optional[str]) -> bool:
+    """Evict the cached Hermes agent for guest-Luna WhatsApp roles only."""
+    r = str(role or "").strip()
+    p = str(getattr(platform, "value", platform) or "").strip().lower()
+    return r in GUEST_WHATSAPP_LUNA_ROLES and p in {"whatsapp", "whatsapp_cloud"}
 
 
 def resolve_whatsapp_personality_once(
@@ -202,10 +187,6 @@ def resolve_whatsapp_personality_once(
     tid = (tenant_id if tenant_id is not None else _tenant_id()).strip()
     if ch != CHANNEL:
         return _sunny(tid, ch, "not_whatsapp", applied=False)
-    clock = time.time() if now is None else now
-    cached = _cache_get(tid or "_missing_tenant_", clock)
-    if cached is not None:
-        return cached
     fetcher = fetch_setting or default_fetch_setting
     try:
         raw = fetcher(tid)
@@ -217,7 +198,7 @@ def resolve_whatsapp_personality_once(
         normalized = normalize_stored_id(stored)
         pack = get_personality_pack(normalized["id"])
         fallback = None if normalized["source"] == "stored" else normalized["source"]
-        value = {
+        return {
             "applied": True,
             "pack": pack,
             "observability": personality_observability(
@@ -228,13 +209,9 @@ def resolve_whatsapp_personality_once(
                 fallback_reason=fallback,
             ),
         }
-        _cache_set(tid or "_missing_tenant_", value, clock)
-        return value
     except Exception as exc:
         reason = "setting_timeout" if "timed out" in str(exc).lower() or "timeout" in str(exc).lower() else "setting_failure"
-        value = _sunny(tid, ch, reason, applied=True)
-        _cache_set(tid or "_missing_tenant_", value, clock, ttl=min(CACHE_TTL_S, 3.0))
-        return value
+        return _sunny(tid, ch, reason, applied=True)
 
 
 def should_freeze_personality_style(composer_state: Optional[str]) -> bool:

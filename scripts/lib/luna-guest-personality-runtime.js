@@ -4,6 +4,9 @@
  * Luna Personality runtime — resolve the closed WhatsApp ID once per guest
  * turn and inject one server-owned style pack into the authoring seam.
  *
+ * Callers resolve exactly once per WhatsApp turn. Each new turn fetches the
+ * authoritative tenant setting again so a Staff PUT is visible on the next
+ * reply. No cross-turn result cache (Staff cannot invalidate Hermes).
  * Failures/timeouts never block the guest reply (sunny default).
  */
 
@@ -17,28 +20,10 @@ const {
 const { COMPOSER_OWNED_STATES } = require('./luna-guest-composer-ownership');
 
 const DEFAULT_TIMEOUT_MS = 800;
-const CACHE_TTL_MS = 15000;
-const CACHE_MAX = 64;
 const INJECTION_MARK = 'Luna Personality this turn:';
-
-const CACHE = new Map();
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
-}
-
-function cacheKey(tenantId) {
-  return trimStr(tenantId) || '_missing_tenant_';
-}
-
-function pruneCache(now) {
-  if (CACHE.size <= CACHE_MAX) return;
-  for (const [key, entry] of CACHE) {
-    if (!entry || entry.expiresAt <= now) CACHE.delete(key);
-    if (CACHE.size <= CACHE_MAX) return;
-  }
-  const first = CACHE.keys().next().value;
-  if (first) CACHE.delete(first);
 }
 
 function shouldFreezePersonalityStyle(composerState) {
@@ -116,13 +101,6 @@ async function resolveWhatsAppPersonalityOnce(args) {
     };
   }
 
-  const now = Number.isFinite(a.now) ? a.now : Date.now();
-  const key = cacheKey(tenantId);
-  const hit = CACHE.get(key);
-  if (hit && hit.expiresAt > now) {
-    return hit.value;
-  }
-
   const fetchSetting = a.fetchSetting || defaultFetchPersonalitySetting;
   try {
     const raw = await withTimeout(fetchSetting({
@@ -133,7 +111,7 @@ async function resolveWhatsAppPersonalityOnce(args) {
     const stored = raw && (raw.personality_id != null ? raw.personality_id : raw[require('./luna-guest-personality-packs').SETTINGS_KEY]);
     const normalized = normalizeStoredPersonalityId(stored);
     const pack = getPersonalityPack(normalized.id);
-    const value = {
+    return {
       applied: true,
       pack,
       observability: personalityObservability({
@@ -144,17 +122,11 @@ async function resolveWhatsAppPersonalityOnce(args) {
         fallback_reason: normalized.source === 'stored' ? null : normalized.source,
       }),
     };
-    pruneCache(now);
-    CACHE.set(key, { expiresAt: now + CACHE_TTL_MS, value });
-    return value;
   } catch (err) {
     const reason = (err && err.code === 'setting_timeout') || (err && err.message === 'setting_timeout')
       ? 'setting_timeout'
       : 'setting_failure';
-    const value = sunnyFallback(tenantId, channel, reason);
-    pruneCache(now);
-    CACHE.set(key, { expiresAt: now + Math.min(CACHE_TTL_MS, 3000), value });
-    return value;
+    return sunnyFallback(tenantId, channel, reason);
   }
 }
 
@@ -182,12 +154,12 @@ function injectPersonalityPackOnce(args) {
 }
 
 function clearPersonalityRuntimeCache() {
-  CACHE.clear();
+  // Intentionally empty: a cross-turn result cache would hide Staff PUT from
+  // the next WhatsApp turn (Hermes cannot be invalidated by Staff API).
 }
 
 module.exports = {
   DEFAULT_TIMEOUT_MS,
-  CACHE_TTL_MS,
   INJECTION_MARK,
   shouldFreezePersonalityStyle,
   resolveWhatsAppPersonalityOnce,

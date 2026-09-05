@@ -78,13 +78,39 @@ ok('shouldFreezePersonalityStyle exported', typeof runtime.shouldFreezePersonali
     && first.observability.channel === 'whatsapp'
     && first.observability.tenant_id === 't-calm');
 
+  const sameNow = Date.now();
   const second = await runtime.resolveWhatsAppPersonalityOnce({
     tenant_id: 't-calm',
     channel: 'whatsapp',
     fetchSetting,
+    now: sameNow,
   });
-  ok('bounded cache: second resolve does not re-fetch', fetchCalls === 1 && second.pack.id === 'calm');
+  ok('new turn re-fetches authoritative setting', fetchCalls === 2 && second.pack.id === 'calm');
   ok('same immutable pack instance', first.pack === second.pack && Object.isFrozen(first.pack));
+
+  let nextReplyFetches = 0;
+  let storedId = 'calm';
+  const nextReplyFetch = async () => {
+    nextReplyFetches += 1;
+    return { personality_id: storedId };
+  };
+  const calmTurn = await runtime.resolveWhatsAppPersonalityOnce({
+    tenant_id: 'sunset',
+    channel: 'whatsapp',
+    fetchSetting: nextReplyFetch,
+    now: sameNow,
+  });
+  storedId = 'concise';
+  const conciseTurn = await runtime.resolveWhatsAppPersonalityOnce({
+    tenant_id: 'sunset',
+    channel: 'whatsapp',
+    fetchSetting: nextReplyFetch,
+    now: sameNow,
+  });
+  ok('consecutive turns calm -> concise fetch twice',
+    nextReplyFetches === 2
+    && calmTurn.pack.id === 'calm'
+    && conciseTurn.pack.id === 'concise');
 
   const email = await runtime.resolveWhatsAppPersonalityOnce({
     tenant_id: 't-calm',
@@ -217,6 +243,13 @@ ok('shouldFreezePersonalityStyle exported', typeof runtime.shouldFreezePersonali
   ok('gateway patch binds personality at trusted turn boundary',
     /bind_whatsapp_turn_personality/.test(patchSrc)
     && /luna_personality/.test(patchSrc));
+  ok('no cross-turn personality result cache',
+    !/CACHE_TTL_MS\s*=\s*15000/.test(fs.readFileSync(RUNTIME_PATH, 'utf8'))
+    && !/CACHE_TTL_S\s*=\s*15/.test(pySrc));
+  ok('cached-agent eviction covers sunset-luna guest role',
+    /should_rebuild_cached_agent/.test(patchSrc)
+    && /GUEST_WHATSAPP_LUNA_ROLES[\s\S]{0,80}sunset-luna/.test(pySrc)
+    && !/getenv\("HERMES_ROLE"\) == "luna" and _wolfhouse_plat in \("whatsapp"/.test(patchSrc));
   ok('no second SOUL / TTS / second bot',
     !/tts|text.to.speech|second bot|alternate SOUL/i.test(pySrc));
 

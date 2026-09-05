@@ -18,7 +18,6 @@ const {
   resolveWhatsAppPersonalityOnce,
   injectPersonalityPackOnce,
   shouldFreezePersonalityStyle,
-  clearPersonalityRuntimeCache,
 } = require('./luna-guest-personality-runtime');
 const { createLunaPersonalityRoutes } = require('./staff-luna-personality-routes');
 
@@ -102,7 +101,6 @@ function createNoSendHarness(opts) {
     if (!store[tenantId]) store[tenantId] = { id: tenantId, settings: {} };
     if (a.personality_id && isClosedPersonalityId(a.personality_id)) {
       await persist(tenantId, a.personality_id);
-      clearPersonalityRuntimeCache();
     }
     const scenario = cases.get(a.case_id) || corpus.cases[0];
     let fetchCalls = 0;
@@ -169,7 +167,6 @@ function emojiOrBang(text) {
 
 async function runNoSendAcceptance(opts) {
   const corpus = (opts && opts.corpus) || require('../../fixtures/luna-personality-corpus.json');
-  clearPersonalityRuntimeCache();
   const harness = createNoSendHarness({
     corpus,
     tenants: {
@@ -188,7 +185,6 @@ async function runNoSendAcceptance(opts) {
 
   for (const id of CLOSED_PERSONALITY_IDS) {
     await harness.persist('sunset', id);
-    clearPersonalityRuntimeCache();
     ids.add(id);
     for (const scenario of corpus.cases) {
       langs.add(scenario.lang);
@@ -224,7 +220,6 @@ async function runNoSendAcceptance(opts) {
       && scenario.replies.concise.length < scenario.replies.extra.length);
   }
 
-  clearPersonalityRuntimeCache();
   const defaultTurn = await harness.runTurn({
     tenant_id: 'sunset-empty',
     case_id: 'warmth-greeting-en',
@@ -235,10 +230,8 @@ async function runNoSendAcceptance(opts) {
     corpus,
     tenants: { sunset: { settings: { luna_personality: 'cami', inbox_channel_modes: { whatsapp: 'auto' } } } },
   });
-  clearPersonalityRuntimeCache();
   const invalidTurn = await invalidHarness.runTurn({ tenant_id: 'sunset', case_id: 'warmth-greeting-en' });
 
-  clearPersonalityRuntimeCache();
   const failTurn = await harness.runTurn({
     tenant_id: 'sunset',
     case_id: 'warmth-greeting-en',

@@ -98,6 +98,34 @@ const corpus = JSON.parse(fs.readFileSync(CORPUS_PATH, 'utf8'));
   });
   ok('next turn picks up concise', next.personality_id === 'concise' && next.reply.length < turn.reply.length);
 
+  await harness.persist('sunset', 'calm');
+  let consecutiveFetches = 0;
+  const consecutiveFetch = async () => {
+    consecutiveFetches += 1;
+    return { personality_id: harness.store.sunset.settings.luna_personality };
+  };
+  const calmTurn = await harness.runTurn({
+    tenant_id: 'sunset',
+    case_id: 'warmth-greeting-en',
+    fetchSetting: consecutiveFetch,
+  });
+  await harness.persist('sunset', 'concise');
+  const conciseTurn = await harness.runTurn({
+    tenant_id: 'sunset',
+    case_id: 'warmth-greeting-en',
+    fetchSetting: consecutiveFetch,
+  });
+  ok('consecutive turns calm -> concise fetch twice without cache clear',
+    consecutiveFetches === 2
+    && calmTurn.personality_id === 'calm'
+    && conciseTurn.personality_id === 'concise'
+    && conciseTurn.reply.length < calmTurn.reply.length);
+  ok('no-send does not clear runtime cache after Staff persistence',
+    !/persist\([\s\S]{0,80}clearPersonalityRuntimeCache\(/.test(fs.readFileSync(MODULE_PATH, 'utf8'))
+    && !/await persist\(tenantId, a\.personality_id\);\s*clearPersonalityRuntimeCache\(/.test(
+      fs.readFileSync(MODULE_PATH, 'utf8'),
+    ));
+
   const frozen = await harness.runTurn({
     tenant_id: 'sunset',
     case_id: 'truth-payment-link-en',
