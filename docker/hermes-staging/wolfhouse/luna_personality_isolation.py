@@ -40,15 +40,18 @@ REQUIRED_LIVE_SEAMS: Tuple[str, ...] = (
     "tool_dispatcher_wrapped",
     "post_bot_wrapped",
     "journal_wrapped",
+    "snapshot_wrapped",
+    "mirror_wrapped",
     "executor_ctx_wrapped",
     "thread_ctx_wrapped",
     "provider_wrapped",
     "provider_streaming_wrapped",
     "provider_dispatch_wrapped",
+    "turn_entry_wrapped",
 )
 
 # Actual helper backends whose SDK create/converse/converse_stream we can observe.
-# Unsupported api_mode values fail closed BEFORE dispatch.
+# Unsupported api_mode values fail closed BEFORE dispatch and BEFORE turn entry.
 SUPPORTED_PROVIDER_BACKENDS: Tuple[str, ...] = (
     "chat_completions",
     "bedrock_converse",
@@ -65,12 +68,21 @@ PERSISTENCE_OPTIONAL_WRITE_METHODS: Tuple[str, ...] = (
     "rewrite_transcript",
     "suspend_session",
     "mark_resume_pending",
+    "switch_session",
 )
 
+# Actual SessionDB write owners, including the shared _execute_write seam.
 SQLITE_WRITE_METHODS: Tuple[str, ...] = (
     "create_session",
     "end_session",
     "append_message",
+    "update_token_counts",
+    "update_session_cwd",
+    "update_session_meta",
+    "update_session_model",
+    "update_system_prompt",
+    "reopen_session",
+    "_execute_write",
 )
 
 WHATSAPP_SEND_METHODS: Tuple[str, ...] = (
@@ -86,6 +98,39 @@ WHATSAPP_SEND_METHODS: Tuple[str, ...] = (
     "send_document",
 )
 
+# Actual AIAgent snapshot writers. JSON snapshots are independent of SessionDB.
+AGENT_SNAPSHOT_METHODS: Tuple[str, ...] = (
+    "_persist_session",
+    "_save_session_log",
+    "_flush_messages_to_session_db",
+)
+
+# Alternate / turn-entry owners that can bypass the guarded helper path.
+AGENT_TURN_METHODS: Tuple[str, ...] = (
+    "run_conversation",
+    "chat",
+    "_run_codex_app_server_turn",
+    "_run_codex_stream",
+    "_run_codex_create_stream_fallback",
+    "_anthropic_messages_create",
+    "switch_model",
+)
+
+MIRROR_FUNCTIONS: Tuple[str, ...] = (
+    "mirror_whatsapp_thread",
+    "enqueue_mirror_payload",
+    "get_mirror_queue",
+    "_post_mirror_sync",
+    "mirror_whatsapp_outbound_after_send",
+    "mirror_whatsapp_outbound_as_draft",
+    "mirror_raw_inbound",
+)
+
+MIRROR_QUEUE_METHODS: Tuple[str, ...] = (
+    "enqueue",
+    "_deliver",
+)
+
 _ISOLATED: ContextVar[Optional["IsolatedTurnCapture"]] = ContextVar(
     "luna_personality_isolated_turn",
     default=None,
@@ -98,16 +143,21 @@ _post_bot_wrapped = False
 _tool_hook_wrapped = False
 _tool_dispatcher_wrapped = False
 _journal_wrapped = False
+_snapshot_wrapped = False
+_mirror_wrapped = False
 _executor_ctx_wrapped = False
 _thread_ctx_wrapped = False
 _provider_wrapped = False
 _provider_streaming_wrapped = False
 _provider_dispatch_wrapped = False
+_turn_entry_wrapped = False
 
 # (owner, attr, original). Tests restore these; production never unwraps.
 _ORIG_OWNERS: List[Tuple[Any, str, Any]] = []
 _EXECUTOR_ORIG: Optional[Callable[..., Any]] = None
 _THREAD_START_ORIG: Optional[Callable[..., Any]] = None
+_ACTIVE_TARGETS: Optional[IsolationTargets] = None
+_ACTIVE_RUNNER: Any = None
 
 
 @dataclass
@@ -170,6 +220,12 @@ class IsolationTargets:
     whatsapp_adapter: Any = None
     openai_client_factory_owner: Any = None
     bedrock_adapter_mod: Any = None
+    agent_cls: Any = None
+    mirror_mod: Any = None
+    conversation_loop_mod: Any = None
+    codex_runtime_mod: Any = None
+    atomic_json_mod: Any = None
+    atomic_json_attr: str = "atomic_json_write"
 
 
 class IsolationAbort(RuntimeError):
@@ -407,25 +463,97 @@ def _send_result(captured: Dict[str, Any]) -> Any:
         return None
 
 
-def _wrap_send_adapter(adapter_cls: Any = None) -> bool:
-    global _send_wrapped, _send_methods_wrapped
-    cls = adapter_cls
-    if cls is None:
-        try:
-            import gateway.platforms.whatsapp_cloud as wh_mod  # type: ignore
-
-            cls = getattr(wh_mod, "WhatsAppCloudAdapter", None)
-        except Exception:
-            cls = None
-    if cls is None:
-        _send_wrapped = False
-        _send_methods_wrapped = False
+def _send_owner_complete(owner: Any) -> bool:
+    if owner is None:
         return False
+    send_fn = getattr(owner, "send", None)
+    if send_fn is None or not _is_wrapped(send_fn):
+        return False
+    for name in WHATSAPP_SEND_METHODS:
+        fn = getattr(owner, name, None)
+        if fn is not None and not _is_wrapped(fn):
+            return False
+    return True
 
+
+def _refuse_stale_adapter(adapter: Any) -> None:
+    """Revalidate at use: unwrapped instance send must not reach delivery."""
+    if adapter is None or _ISOLATED.get() is None:
+        return
+    if not _send_owner_complete(adapter):
+        raise IsolationAbort("stale_adapter_send")
+
+
+class _RevalidatingAdapterMap(dict):
+    """runner.adapters proxy: refuse stale instance send before delivery."""
+
+    def get(self, key, default=None):  # type: ignore[no-untyped-def]
+        adapter = dict.get(self, key, default)
+        _refuse_stale_adapter(adapter)
+        return adapter
+
+    def __getitem__(self, key):  # type: ignore[no-untyped-def]
+        adapter = dict.__getitem__(self, key)
+        _refuse_stale_adapter(adapter)
+        return adapter
+
+    def values(self):  # type: ignore[no-untyped-def]
+        vals = list(dict.values(self))
+        for adapter in vals:
+            _refuse_stale_adapter(adapter)
+        return vals
+
+    def items(self):  # type: ignore[no-untyped-def]
+        pairs = list(dict.items(self))
+        for _key, adapter in pairs:
+            _refuse_stale_adapter(adapter)
+        return pairs
+
+
+def _platform_key(platform: Any) -> Any:
+    return getattr(platform, "value", platform)
+
+
+def _iter_effective_adapters(*, runner: Any = None, targets: Optional[IsolationTargets] = None) -> List[Any]:
+    t = targets or IsolationTargets()
+    found: List[Any] = []
+    if t.whatsapp_adapter is not None:
+        found.append(t.whatsapp_adapter)
+    if runner is not None:
+        for attr in ("whatsapp_adapter", "adapter"):
+            obj = getattr(runner, attr, None)
+            if obj is not None:
+                found.append(obj)
+        adapters = getattr(runner, "adapters", None)
+        if isinstance(adapters, dict):
+            found.extend(list(dict.values(adapters)))
+    return _unique_objs(found)
+
+
+def _install_adapter_map(runner: Any) -> None:
+    if runner is None:
+        return
+    adapters = getattr(runner, "adapters", None)
+    if not isinstance(adapters, dict):
+        return
+    if isinstance(adapters, _RevalidatingAdapterMap):
+        return
+    wrapped = _RevalidatingAdapterMap(adapters)
+    _save_orig(runner, "adapters", adapters)
+    runner.adapters = wrapped
+    router = getattr(runner, "delivery_router", None)
+    if router is not None and getattr(router, "adapters", None) is adapters:
+        _save_orig(router, "adapters", adapters)
+        router.adapters = wrapped
+
+
+def _wrap_send_owner(owner: Any) -> bool:
+    if owner is None:
+        return False
     wrapped_any = False
     missing_required = False
     for name in WHATSAPP_SEND_METHODS:
-        orig = getattr(cls, name, None)
+        orig = getattr(owner, name, None)
         if orig is None:
             if name == "send":
                 missing_required = True
@@ -436,6 +564,7 @@ def _wrap_send_adapter(adapter_cls: Any = None) -> bool:
 
         def _factory(method_name: str, original: Any):
             async def _isolated_send(self, *args: Any, **kwargs: Any):
+                _refuse_stale_adapter(self)
                 content = None
                 if method_name == "send":
                     if len(args) >= 2:
@@ -457,19 +586,60 @@ def _wrap_send_adapter(adapter_cls: Any = None) -> bool:
 
         wrapped = _factory(name, orig)
         _mark(wrapped)
-        _save_orig(cls, name, orig)
-        setattr(cls, name, wrapped)
+        _save_orig(owner, name, orig)
+        setattr(owner, name, wrapped)
         wrapped_any = True
 
-    send_fn = getattr(cls, "send", None)
-    _send_wrapped = _is_wrapped(send_fn)
-    extra = [n for n in WHATSAPP_SEND_METHODS if n != "send" and getattr(cls, n, None) is not None]
-    _send_methods_wrapped = _send_wrapped and all(_is_wrapped(getattr(cls, n, None)) for n in extra)
     if missing_required:
+        return False
+    return wrapped_any and _send_owner_complete(owner)
+
+
+def _discover_whatsapp_adapter_cls(explicit: Any = None) -> Any:
+    if explicit is not None:
+        return explicit
+    try:
+        import gateway.platforms.whatsapp_cloud as wh_mod  # type: ignore
+
+        return getattr(wh_mod, "WhatsAppCloudAdapter", None)
+    except Exception:
+        return None
+
+
+def _wrap_send_adapter(adapter_cls: Any = None, *, runner: Any = None, targets: Optional[IsolationTargets] = None) -> bool:
+    global _send_wrapped, _send_methods_wrapped
+    t = targets or IsolationTargets()
+    cls = _discover_whatsapp_adapter_cls(adapter_cls if adapter_cls is not None else t.whatsapp_adapter_cls)
+    if cls is None and t.whatsapp_adapter is None and runner is None:
         _send_wrapped = False
         _send_methods_wrapped = False
         return False
-    return bool(_send_wrapped and _send_methods_wrapped and wrapped_any)
+
+    wrapped_any = False
+    if cls is not None and _wrap_send_owner(cls):
+        wrapped_any = True
+    _install_adapter_map(runner)
+    for owner in _iter_effective_adapters(runner=runner, targets=t):
+        if _wrap_send_owner(owner):
+            wrapped_any = True
+
+    send_fn = getattr(cls, "send", None) if cls is not None else None
+    _send_wrapped = _is_wrapped(send_fn) if cls is not None else bool(_iter_effective_adapters(runner=runner, targets=t))
+    extra_ok = True
+    owners = []
+    if cls is not None:
+        owners.append(cls)
+    owners.extend(_iter_effective_adapters(runner=runner, targets=t))
+    for owner in _unique_objs(owners):
+        if not _send_owner_complete(owner):
+            extra_ok = False
+            break
+    _send_methods_wrapped = bool(_send_wrapped and extra_ok and wrapped_any)
+    if cls is not None and getattr(cls, "send", None) is None:
+        _send_wrapped = False
+        _send_methods_wrapped = False
+        return False
+    return bool(_send_wrapped and _send_methods_wrapped)
 
 
 def _iter_post_bot_modules(explicit: Sequence[Any] = ()) -> List[Any]:
@@ -721,6 +891,24 @@ def _unique_objs(items: Sequence[Any]) -> List[Any]:
     return out
 
 
+def _iter_effective_agents(*, runner: Any = None, targets: Optional[IsolationTargets] = None) -> List[Any]:
+    t = targets or IsolationTargets()
+    agents: List[Any] = []
+    if runner is not None:
+        for holder_name in ("_running_agents", "_agent_cache"):
+            holder = getattr(runner, holder_name, None)
+            if not isinstance(holder, dict):
+                continue
+            for val in holder.values():
+                agent = val[0] if isinstance(val, (tuple, list)) and val else val
+                if agent is None or agent is True or agent is False:
+                    continue
+                if getattr(agent, "_luna_personality_pending_sentinel", False):
+                    continue
+                agents.append(agent)
+    return _unique_objs(agents)
+
+
 def _iter_effective_session_dbs(*, store: Any = None, runner: Any = None, targets: Optional[IsolationTargets] = None) -> List[Any]:
     t = targets or IsolationTargets()
     dbs: List[Any] = []
@@ -732,13 +920,8 @@ def _iter_effective_session_dbs(*, store: Any = None, runner: Any = None, target
         dbs.append(t.agent_session_db)
     if runner is not None:
         dbs.append(getattr(runner, "_session_db", None))
-        for holder_name in ("_running_agents", "_agent_cache"):
-            holder = getattr(runner, holder_name, None)
-            if not isinstance(holder, dict):
-                continue
-            for val in holder.values():
-                agent = val[0] if isinstance(val, (tuple, list)) and val else val
-                dbs.append(getattr(agent, "_session_db", None))
+        for agent in _iter_effective_agents(runner=runner, targets=t):
+            dbs.append(getattr(agent, "_session_db", None))
     return _unique_objs(dbs)
 
 
@@ -816,6 +999,466 @@ def _wrap_journal(
     if instance is None and runner is None and t.session_db is None:
         _journal_wrapped = bool(wrapped_any and class_ok)
     return _journal_wrapped
+
+
+def _discover_agent_cls(explicit: Any = None) -> Any:
+    if explicit is not None:
+        return explicit
+    try:
+        from run_agent import AIAgent as cls  # type: ignore
+
+        return cls
+    except Exception:
+        return None
+
+
+def _snapshot_owner_complete(owner: Any) -> bool:
+    if owner is None:
+        return False
+    present = False
+    for name in AGENT_SNAPSHOT_METHODS:
+        fn = getattr(owner, name, None)
+        if fn is None:
+            continue
+        present = True
+        if not _is_wrapped(fn):
+            return False
+    return present
+
+
+def _wrap_agent_snapshot_owner(owner: Any) -> bool:
+    if owner is None:
+        return False
+    wrapped_any = False
+    for name in AGENT_SNAPSHOT_METHODS:
+        orig = getattr(owner, name, None)
+        if orig is None:
+            continue
+        already_on_instance = False
+        if not isinstance(owner, type):
+            already_on_instance = name in getattr(owner, "__dict__", {})
+        if _is_wrapped(orig) and (isinstance(owner, type) or already_on_instance):
+            wrapped_any = True
+            continue
+
+        def _factory(method_name: str, original: Any):
+            def _isolated_snapshot(*args: Any, **kwargs: Any):
+                if deny_journal_if_isolated(f"snapshot:{method_name}"):
+                    return None
+                cap = _ISOLATED.get()
+                result = original(*args, **kwargs)
+                if cap is not None:
+                    cap.journal_writes_completed += 1
+                    cap.persistence_effects_completed.append(f"snapshot:{method_name}")
+                return result
+
+            return _isolated_snapshot
+
+        wrapped = _factory(name, orig)
+        _mark(wrapped)
+        _save_orig(owner, name, orig)
+        setattr(owner, name, wrapped)
+        wrapped_any = True
+    return wrapped_any
+
+
+def _discover_atomic_json(*, targets: Optional[IsolationTargets] = None) -> Tuple[Any, str]:
+    t = targets or IsolationTargets()
+    if t.atomic_json_mod is not None:
+        return t.atomic_json_mod, t.atomic_json_attr
+    try:
+        import utils as mod  # type: ignore
+
+        return mod, "atomic_json_write"
+    except Exception:
+        return None, "atomic_json_write"
+
+
+def _wrap_atomic_json_write(*, targets: Optional[IsolationTargets] = None) -> bool:
+    mod, attr = _discover_atomic_json(targets=targets)
+    if mod is None:
+        return False
+    orig = getattr(mod, attr, None)
+    if orig is None:
+        return False
+    if _is_wrapped(orig):
+        return True
+
+    def _isolated_atomic(*args: Any, **kwargs: Any):
+        if deny_journal_if_isolated("atomic_json_write"):
+            return None
+        cap = _ISOLATED.get()
+        result = orig(*args, **kwargs)
+        if cap is not None:
+            cap.journal_writes_completed += 1
+            cap.persistence_effects_completed.append("atomic_json_write")
+        return result
+
+    _mark(_isolated_atomic)
+    _save_orig(mod, attr, orig)
+    setattr(mod, attr, _isolated_atomic)
+    return True
+
+
+def _wrap_snapshots(*, runner: Any = None, targets: Optional[IsolationTargets] = None) -> bool:
+    global _snapshot_wrapped
+    t = targets or IsolationTargets()
+    cls = _discover_agent_cls(t.agent_cls)
+    wrapped_any = False
+    if cls is not None and _wrap_agent_snapshot_owner(cls):
+        wrapped_any = True
+    if _wrap_atomic_json_write(targets=t):
+        wrapped_any = True
+    for agent in _iter_effective_agents(runner=runner, targets=t):
+        if _wrap_agent_snapshot_owner(agent):
+            wrapped_any = True
+    _snapshot_wrapped = _snapshot_owners_live(runner=runner, targets=t)
+    return _snapshot_wrapped and wrapped_any
+
+
+def _snapshot_owners_live(*, runner: Any = None, targets: Optional[IsolationTargets] = None) -> bool:
+    t = targets or IsolationTargets()
+    cls = _discover_agent_cls(t.agent_cls)
+    agents = _iter_effective_agents(runner=runner, targets=t)
+    if cls is None and not agents:
+        return False
+    if cls is not None and not _snapshot_owner_complete(cls):
+        return False
+    for agent in agents:
+        has_snapshot = any(getattr(agent, name, None) is not None for name in AGENT_SNAPSHOT_METHODS)
+        if has_snapshot and not _snapshot_owner_complete(agent):
+            return False
+    mod, attr = _discover_atomic_json(targets=t)
+    atomic_fn = getattr(mod, attr, None) if mod is not None else None
+    if atomic_fn is not None and not _is_wrapped(atomic_fn):
+        return False
+    return True
+
+
+def _discover_mirror_mod(explicit: Any = None) -> Any:
+    if explicit is not None:
+        return explicit
+    try:
+        import wolfhouse_whatsapp_mirror as mod  # type: ignore
+
+        return mod
+    except Exception:
+        try:
+            import importlib
+
+            return importlib.import_module("wolfhouse_whatsapp_mirror")
+        except Exception:
+            return None
+
+
+def _wrap_mirror_function(mod: Any, name: str) -> bool:
+    orig = getattr(mod, name, None)
+    if orig is None:
+        return False
+    if _is_wrapped(orig):
+        return True
+
+    def _factory(method_name: str, original: Any):
+        def _isolated_mirror(*args: Any, **kwargs: Any):
+            cap = _ISOLATED.get()
+            if cap is not None:
+                deny_journal_if_isolated(f"mirror:{method_name}")
+                if method_name == "get_mirror_queue":
+                    raise IsolationAbort("isolated_mirror_queue_denied")
+                if method_name == "enqueue_mirror_payload":
+                    return False
+                if method_name == "mirror_whatsapp_outbound_as_draft":
+                    return {"staged": False, "reason": "luna_personality_isolated"}
+                if method_name == "_post_mirror_sync":
+                    return None
+                return None
+            return original(*args, **kwargs)
+
+        return _isolated_mirror
+
+    wrapped = _factory(name, orig)
+    _mark(wrapped)
+    _save_orig(mod, name, orig)
+    setattr(mod, name, wrapped)
+    return True
+
+
+def _wrap_mirror_queue_owner(owner: Any) -> bool:
+    if owner is None:
+        return True
+    ok_all = True
+    for name in MIRROR_QUEUE_METHODS:
+        orig = getattr(owner, name, None)
+        if orig is None:
+            continue
+        if _is_wrapped(orig):
+            continue
+
+        def _factory(method_name: str, original: Any):
+            def _isolated_queue(*args: Any, **kwargs: Any):
+                cap = _ISOLATED.get()
+                if cap is not None:
+                    deny_journal_if_isolated(f"mirror:{method_name}")
+                    if method_name == "enqueue":
+                        return False
+                    return None
+                return original(*args, **kwargs)
+
+            return _isolated_queue
+
+        wrapped = _factory(name, orig)
+        _mark(wrapped)
+        _save_orig(owner, name, orig)
+        setattr(owner, name, wrapped)
+        ok_all = ok_all and _is_wrapped(getattr(owner, name, None))
+    return ok_all
+
+
+def _mirror_mod_complete(mod: Any) -> bool:
+    if mod is None:
+        return False
+    present = False
+    for name in MIRROR_FUNCTIONS:
+        fn = getattr(mod, name, None)
+        if fn is None:
+            continue
+        present = True
+        if not _is_wrapped(fn):
+            return False
+    queue_cls = getattr(mod, "MirrorQueue", None)
+    if queue_cls is not None:
+        for name in MIRROR_QUEUE_METHODS:
+            fn = getattr(queue_cls, name, None)
+            if fn is not None and not _is_wrapped(fn):
+                return False
+    return present
+
+
+def _wrap_mirror(*, targets: Optional[IsolationTargets] = None) -> bool:
+    global _mirror_wrapped
+    t = targets or IsolationTargets()
+    mod = _discover_mirror_mod(t.mirror_mod)
+    if mod is None:
+        _mirror_wrapped = False
+        return False
+    wrapped_any = False
+    for name in MIRROR_FUNCTIONS:
+        if getattr(mod, name, None) is None:
+            continue
+        if _wrap_mirror_function(mod, name):
+            wrapped_any = True
+    queue_cls = getattr(mod, "MirrorQueue", None)
+    if queue_cls is not None and _wrap_mirror_queue_owner(queue_cls):
+        wrapped_any = True
+    existing = getattr(mod, "_MIRROR_QUEUE", None)
+    if existing is not None:
+        _wrap_mirror_queue_owner(existing)
+    _mirror_wrapped = bool(wrapped_any and _mirror_mod_complete(mod))
+    return _mirror_wrapped
+
+
+def effective_api_mode(agent: Any) -> str:
+    mode = getattr(agent, "api_mode", None) if agent is not None else None
+    text = str(mode or "chat_completions").strip() or "chat_completions"
+    return text
+
+
+def refuse_unsupported_backend(agent: Any = None, *, mode: Optional[str] = None) -> str:
+    resolved = str(mode or effective_api_mode(agent) or "chat_completions")
+    if resolved not in SUPPORTED_PROVIDER_BACKENDS:
+        raise IsolationAbort(f"unsupported_provider_backend:{resolved}")
+    return resolved
+
+
+def _wrap_turn_owner_method(owner: Any, name: str) -> bool:
+    orig = getattr(owner, name, None)
+    if orig is None:
+        return False
+    already_on_instance = False
+    if not isinstance(owner, type):
+        already_on_instance = name in getattr(owner, "__dict__", {})
+    if _is_wrapped(orig) and (isinstance(owner, type) or already_on_instance):
+        return True
+
+    def _factory(method_name: str, original: Any, bound_owner: Any):
+        def _isolated_turn(*args: Any, **kwargs: Any):
+            cap = _ISOLATED.get()
+            if cap is None:
+                return original(*args, **kwargs)
+            self_obj = bound_owner if not isinstance(bound_owner, type) else (args[0] if args else None)
+            if method_name == "switch_model":
+                new_mode = kwargs.get("api_mode")
+                if new_mode is None and len(args) >= 5:
+                    new_mode = args[4]
+                if new_mode:
+                    refuse_unsupported_backend(self_obj, mode=str(new_mode))
+                raise IsolationAbort("isolated_model_switch_denied")
+            refuse_unsupported_backend(self_obj)
+            if method_name in {
+                "_run_codex_app_server_turn",
+                "_run_codex_stream",
+                "_run_codex_create_stream_fallback",
+                "_anthropic_messages_create",
+            }:
+                raise IsolationAbort(f"unsupported_turn_owner:{method_name}")
+            return original(*args, **kwargs)
+
+        return _isolated_turn
+
+    wrapped = _factory(name, orig, owner)
+    _mark(wrapped)
+    _save_orig(owner, name, orig)
+    setattr(owner, name, wrapped)
+    return True
+
+
+def _turn_owner_complete(owner: Any) -> bool:
+    if owner is None:
+        return False
+    present = False
+    for name in AGENT_TURN_METHODS:
+        fn = getattr(owner, name, None)
+        if fn is None:
+            continue
+        present = True
+        if not _is_wrapped(fn):
+            return False
+    return present
+
+
+def _discover_conversation_loop(explicit: Any = None) -> Any:
+    if explicit is not None:
+        return explicit
+    try:
+        import agent.conversation_loop as mod  # type: ignore
+
+        return mod
+    except Exception:
+        return None
+
+
+def _discover_codex_runtime(explicit: Any = None) -> Any:
+    if explicit is not None:
+        return explicit
+    try:
+        import agent.codex_runtime as mod  # type: ignore
+
+        return mod
+    except Exception:
+        return None
+
+
+def _wrap_module_turn_entry(mod: Any, attr: str) -> bool:
+    if mod is None:
+        return False
+    orig = getattr(mod, attr, None)
+    if orig is None:
+        return False
+    if _is_wrapped(orig):
+        return True
+
+    def _isolated_entry(agent=None, *args: Any, **kwargs: Any):
+        cap = _ISOLATED.get()
+        if cap is None:
+            if agent is None:
+                return orig(*args, **kwargs)
+            return orig(agent, *args, **kwargs)
+        refuse_unsupported_backend(agent)
+        if attr == "run_codex_app_server_turn":
+            raise IsolationAbort("unsupported_turn_owner:run_codex_app_server_turn")
+        if agent is None:
+            return orig(*args, **kwargs)
+        return orig(agent, *args, **kwargs)
+
+    _mark(_isolated_entry)
+    _save_orig(mod, attr, orig)
+    setattr(mod, attr, _isolated_entry)
+    return True
+
+
+def _cached_agents_supported(runner: Any) -> bool:
+    for agent in _iter_effective_agents(runner=runner):
+        mode = effective_api_mode(agent)
+        if mode not in SUPPORTED_PROVIDER_BACKENDS:
+            return False
+    return True
+
+
+def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] = None) -> bool:
+    global _turn_entry_wrapped
+    t = targets or IsolationTargets()
+    cls = _discover_agent_cls(t.agent_cls)
+    wrapped_any = False
+    if cls is not None:
+        for name in AGENT_TURN_METHODS:
+            if getattr(cls, name, None) is None:
+                continue
+            if _wrap_turn_owner_method(cls, name):
+                wrapped_any = True
+    for agent in _iter_effective_agents(runner=runner, targets=t):
+        for name in AGENT_TURN_METHODS:
+            if getattr(agent, name, None) is None:
+                continue
+            if _wrap_turn_owner_method(agent, name):
+                wrapped_any = True
+    loop_mod = _discover_conversation_loop(t.conversation_loop_mod)
+    if _wrap_module_turn_entry(loop_mod, "run_conversation"):
+        wrapped_any = True
+    codex_mod = _discover_codex_runtime(t.codex_runtime_mod)
+    if _wrap_module_turn_entry(codex_mod, "run_codex_app_server_turn"):
+        wrapped_any = True
+    if runner is not None:
+        orig_handle = getattr(runner, "_handle_message", None)
+        if callable(orig_handle) and not _is_wrapped(orig_handle):
+            async def _isolated_handle(*args: Any, **kwargs: Any):
+                cap = _ISOLATED.get()
+                if cap is not None:
+                    live = inspect_live_seams(targets=_ACTIVE_TARGETS or t, runner=runner)
+                    missing = [k for k in REQUIRED_LIVE_SEAMS if not live.get(k)]
+                    if missing:
+                        raise IsolationAbort("seams_incomplete:" + ",".join(missing))
+                    for agent in _iter_effective_agents(runner=runner, targets=t):
+                        refuse_unsupported_backend(agent)
+                result = orig_handle(*args, **kwargs)
+                if hasattr(result, "__await__"):
+                    result = await result
+                return result
+
+            _mark(_isolated_handle)
+            _save_orig(runner, "_handle_message", orig_handle)
+            runner._handle_message = _isolated_handle
+            wrapped_any = True
+    _turn_entry_wrapped = _turn_entry_live(runner=runner, targets=t)
+    return bool(_turn_entry_wrapped and wrapped_any)
+
+
+def _turn_entry_live(*, runner: Any = None, targets: Optional[IsolationTargets] = None) -> bool:
+    t = targets or IsolationTargets()
+    cls = _discover_agent_cls(t.agent_cls)
+    agents = _iter_effective_agents(runner=runner, targets=t)
+    if cls is None and not agents and t.conversation_loop_mod is None and t.codex_runtime_mod is None:
+        loop_mod = _discover_conversation_loop(None)
+        if loop_mod is None:
+            return False
+    if cls is not None and not _turn_owner_complete(cls):
+        return False
+    for agent in agents:
+        has_turn = any(getattr(agent, name, None) is not None for name in AGENT_TURN_METHODS)
+        if has_turn and not _turn_owner_complete(agent):
+            return False
+        if effective_api_mode(agent) not in SUPPORTED_PROVIDER_BACKENDS:
+            return False
+    loop_mod = _discover_conversation_loop(t.conversation_loop_mod)
+    if loop_mod is not None:
+        fn = getattr(loop_mod, "run_conversation", None)
+        if fn is None or not _is_wrapped(fn):
+            return False
+    codex_mod = _discover_codex_runtime(t.codex_runtime_mod)
+    if codex_mod is not None:
+        fn = getattr(codex_mod, "run_codex_app_server_turn", None)
+        if fn is not None and not _is_wrapped(fn):
+            return False
+    return True
 
 
 def _wrap_executor_context_propagation() -> bool:
@@ -931,6 +1574,28 @@ def _extract_provider_model_blob(api_kwargs: Any, kwargs: Dict[str, Any]) -> Tup
     return (str(model) if model else None), blob
 
 
+def _assert_dispatch_factories_live(agent: Any = None, *, mode: Optional[str] = None, targets: Optional[IsolationTargets] = None) -> None:
+    """Revalidate the selected backend's actual factory before helper dispatch."""
+    t = targets or _ACTIVE_TARGETS or IsolationTargets()
+    resolved = str(mode or effective_api_mode(agent) or "chat_completions")
+    if resolved not in SUPPORTED_PROVIDER_BACKENDS:
+        raise IsolationAbort(f"unsupported_provider_backend:{resolved}")
+    if resolved == "chat_completions":
+        factory = None
+        if agent is not None:
+            factory = getattr(agent, "_create_request_openai_client", None)
+        if factory is None:
+            owner = t.openai_client_factory_owner or _discover_ai_agent_cls()
+            factory = getattr(owner, "_create_request_openai_client", None) if owner is not None else None
+        if not _is_wrapped(factory):
+            raise IsolationAbort("stale_openai_client_factory")
+    elif resolved == "bedrock_converse":
+        bedrock_mod = t.bedrock_adapter_mod or _discover_bedrock_mod()
+        factory = getattr(bedrock_mod, "_get_bedrock_runtime_client", None) if bedrock_mod is not None else None
+        if not _is_wrapped(factory):
+            raise IsolationAbort("stale_bedrock_client_factory")
+
+
 def _wrap_one_provider_helper(mod: Any, attr: str, kind: str) -> bool:
     orig = getattr(mod, attr, None)
     if orig is None:
@@ -946,9 +1611,8 @@ def _wrap_one_provider_helper(mod: Any, attr: str, kind: str) -> bool:
             return orig(agent, api_kwargs, *rest, **kwargs)
         model, _blob = _extract_provider_model_blob(api_kwargs, kwargs)
         observe_provider_helper_attempt(kind, model)
-        mode = str(getattr(agent, "api_mode", None) or "chat_completions")
-        if mode not in SUPPORTED_PROVIDER_BACKENDS:
-            raise IsolationAbort(f"unsupported_provider_backend:{mode}")
+        mode = refuse_unsupported_backend(agent)
+        _assert_dispatch_factories_live(agent, mode=mode)
         if agent is None and api_kwargs is None:
             return orig(*rest, **kwargs)
         return orig(agent, api_kwargs, *rest, **kwargs)
@@ -1083,20 +1747,46 @@ def _wrap_bedrock_client_factory(mod: Any) -> bool:
     return True
 
 
-def _wrap_provider_dispatch(*, targets: Optional[IsolationTargets] = None) -> bool:
+def _wrap_provider_dispatch(*, runner: Any = None, targets: Optional[IsolationTargets] = None) -> bool:
     global _provider_dispatch_wrapped
     t = targets or IsolationTargets()
     factory_owner = t.openai_client_factory_owner
     if factory_owner is None:
-        factory_owner = _discover_ai_agent_cls()
+        factory_owner = t.agent_cls or _discover_ai_agent_cls() or _discover_agent_cls()
     openai_ok = _wrap_openai_client_factory(factory_owner)
+    if t.agent_cls is not None and t.agent_cls is not factory_owner:
+        openai_ok = _wrap_openai_client_factory(t.agent_cls) or openai_ok
     bedrock_mod = t.bedrock_adapter_mod
     if bedrock_mod is None:
         bedrock_mod = _discover_bedrock_mod()
-    _wrap_bedrock_client_factory(bedrock_mod)
+    bedrock_ok = _wrap_bedrock_client_factory(bedrock_mod)
+    for agent in _iter_effective_agents(runner=runner, targets=t):
+        if getattr(agent, "_create_request_openai_client", None) is not None:
+            openai_ok = _wrap_openai_client_factory(agent) or openai_ok
+    _provider_dispatch_wrapped = _provider_dispatch_live(runner=runner, targets=t)
+    return bool(_provider_dispatch_wrapped and openai_ok and bedrock_ok)
+
+
+def _provider_dispatch_live(*, runner: Any = None, targets: Optional[IsolationTargets] = None) -> bool:
+    t = targets or IsolationTargets()
+    factory_owner = t.openai_client_factory_owner
+    if factory_owner is None:
+        factory_owner = t.agent_cls or _discover_ai_agent_cls() or _discover_agent_cls()
     factory_fn = getattr(factory_owner, "_create_request_openai_client", None) if factory_owner is not None else None
-    _provider_dispatch_wrapped = _is_wrapped(factory_fn)
-    return _provider_dispatch_wrapped
+    if not _is_wrapped(factory_fn):
+        return False
+    bedrock_mod = t.bedrock_adapter_mod if t.bedrock_adapter_mod is not None else _discover_bedrock_mod()
+    bedrock_fn = getattr(bedrock_mod, "_get_bedrock_runtime_client", None) if bedrock_mod is not None else None
+    if bedrock_fn is None or not _is_wrapped(bedrock_fn):
+        return False
+    for agent in _iter_effective_agents(runner=runner, targets=t):
+        mode = effective_api_mode(agent)
+        if mode not in SUPPORTED_PROVIDER_BACKENDS:
+            return False
+        inst_factory = getattr(agent, "_create_request_openai_client", None)
+        if inst_factory is not None and not _is_wrapped(inst_factory):
+            return False
+    return True
 
 
 def inspect_live_seams(
@@ -1119,20 +1809,11 @@ def inspect_live_seams(
     send_owners: List[Any] = []
     if send_cls is not None:
         send_owners.append(send_cls)
-    if t.whatsapp_adapter is not None:
-        send_owners.append(t.whatsapp_adapter)
-    if runner is not None:
-        for attr in ("whatsapp_adapter", "adapter"):
-            obj = getattr(runner, attr, None)
-            if obj is not None:
-                send_owners.append(obj)
+    send_owners.extend(_iter_effective_adapters(runner=runner, targets=t))
     for owner in _unique_objs(send_owners):
-        for name in WHATSAPP_SEND_METHODS:
-            fn = getattr(owner, name, None)
-            if name == "send" and fn is None:
-                extra_ok = False
-            elif fn is not None and not _is_wrapped(fn):
-                extra_ok = False
+        if not _send_owner_complete(owner):
+            extra_ok = False
+            break
 
     plugins_mod = t.plugins_mod
     if plugins_mod is None:
@@ -1197,25 +1878,22 @@ def inspect_live_seams(
     streaming_fn = (
         getattr(provider_mod, t.provider_streaming_attr, None) if provider_mod is not None else None
     )
-    factory_owner = t.openai_client_factory_owner
-    if factory_owner is None:
-        factory_owner = _discover_ai_agent_cls()
-    factory_fn = (
-        getattr(factory_owner, "_create_request_openai_client", None) if factory_owner is not None else None
-    )
-
+    has_send_owner = send_cls is not None or bool(_iter_effective_adapters(runner=runner, targets=t))
     return {
-        "send_wrapped": _is_wrapped(send_fn),
-        "send_methods_wrapped": bool(_is_wrapped(send_fn) and extra_ok),
+        "send_wrapped": (_is_wrapped(send_fn) if send_cls is not None else extra_ok) and has_send_owner,
+        "send_methods_wrapped": bool(extra_ok and has_send_owner and (send_cls is None or _is_wrapped(send_fn))),
         "tool_hook_wrapped": _is_wrapped(hook_fn),
         "tool_dispatcher_wrapped": _is_wrapped(disp_fn),
         "post_bot_wrapped": post_ok,
         "journal_wrapped": journal_ok,
+        "snapshot_wrapped": _snapshot_owners_live(runner=runner, targets=t),
+        "mirror_wrapped": _mirror_mod_complete(_discover_mirror_mod(t.mirror_mod)),
         "executor_ctx_wrapped": _is_wrapped(getattr(ThreadPoolExecutor, "submit", None)),
         "thread_ctx_wrapped": _is_wrapped(getattr(threading.Thread, "start", None)),
         "provider_wrapped": _is_wrapped(provider_fn),
         "provider_streaming_wrapped": _is_wrapped(streaming_fn),
-        "provider_dispatch_wrapped": _is_wrapped(factory_fn),
+        "provider_dispatch_wrapped": _provider_dispatch_live(runner=runner, targets=t),
+        "turn_entry_wrapped": _turn_entry_live(runner=runner, targets=t),
     }
 
 
@@ -1228,17 +1906,22 @@ def install_isolation_runtime(
 
     Does not mark isolation ready. Preflight inspects live owners.
     """
-    global _installed
+    global _installed, _ACTIVE_TARGETS, _ACTIVE_RUNNER
     t = targets or IsolationTargets()
-    send_ok = _wrap_send_adapter(t.whatsapp_adapter_cls)
+    _ACTIVE_TARGETS = t
+    _ACTIVE_RUNNER = runner
+    send_ok = _wrap_send_adapter(t.whatsapp_adapter_cls, runner=runner, targets=t)
     post_ok = _wrap_post_bot(t.post_bot_mods)
     hook_ok = _wrap_pre_tool_call_block(t.plugins_mod)
     disp_ok = _wrap_tool_dispatcher(t.handle_function_call_mod)
     journal_ok = _wrap_journal(store_cls=t.session_store_cls, store=t.session_store, runner=runner, targets=t)
+    snapshot_ok = _wrap_snapshots(runner=runner, targets=t)
+    mirror_ok = _wrap_mirror(targets=t)
     exec_ok = _wrap_executor_context_propagation() if t.wrap_executor else _is_wrapped(getattr(ThreadPoolExecutor, "submit", None))
     thread_ok = _wrap_thread_context_propagation() if t.wrap_thread else _is_wrapped(getattr(threading.Thread, "start", None))
     prov_ok, stream_ok = _wrap_provider(t.provider_mod, t.provider_attr, t.provider_streaming_attr)
-    dispatch_ok = _wrap_provider_dispatch(targets=t)
+    dispatch_ok = _wrap_provider_dispatch(runner=runner, targets=t)
+    turn_ok = _wrap_turn_entry(runner=runner, targets=t)
     live = inspect_live_seams(targets=t, runner=runner)
     complete = all(live.get(k) for k in REQUIRED_LIVE_SEAMS)
     _installed = complete
@@ -1250,11 +1933,14 @@ def install_isolation_runtime(
         "tool_hook_wrapped": hook_ok and live["tool_hook_wrapped"],
         "tool_dispatcher_wrapped": disp_ok and live["tool_dispatcher_wrapped"],
         "journal_wrapped": journal_ok and live["journal_wrapped"],
+        "snapshot_wrapped": snapshot_ok and live["snapshot_wrapped"],
+        "mirror_wrapped": mirror_ok and live["mirror_wrapped"],
         "executor_ctx_wrapped": exec_ok and live["executor_ctx_wrapped"],
         "thread_ctx_wrapped": thread_ok and live["thread_ctx_wrapped"],
         "provider_wrapped": prov_ok and live["provider_wrapped"],
         "provider_streaming_wrapped": stream_ok and live["provider_streaming_wrapped"],
         "provider_dispatch_wrapped": dispatch_ok and live["provider_dispatch_wrapped"],
+        "turn_entry_wrapped": turn_ok and live["turn_entry_wrapped"],
         "live": live,
     }
 
@@ -1302,9 +1988,10 @@ def reset_isolation_runtime_for_tests() -> None:
     """Restore originals. Test-only. Does not change production send gates."""
     global _installed, _send_wrapped, _send_methods_wrapped, _post_bot_wrapped
     global _tool_hook_wrapped, _tool_dispatcher_wrapped, _journal_wrapped
+    global _snapshot_wrapped, _mirror_wrapped, _turn_entry_wrapped
     global _executor_ctx_wrapped, _thread_ctx_wrapped, _provider_wrapped
     global _provider_streaming_wrapped, _provider_dispatch_wrapped
-    global _EXECUTOR_ORIG, _THREAD_START_ORIG
+    global _EXECUTOR_ORIG, _THREAD_START_ORIG, _ACTIVE_TARGETS, _ACTIVE_RUNNER
     for owner, attr, orig in reversed(_ORIG_OWNERS):
         try:
             setattr(owner, attr, orig)
@@ -1324,8 +2011,13 @@ def reset_isolation_runtime_for_tests() -> None:
     _tool_hook_wrapped = False
     _tool_dispatcher_wrapped = False
     _journal_wrapped = False
+    _snapshot_wrapped = False
+    _mirror_wrapped = False
+    _turn_entry_wrapped = False
     _executor_ctx_wrapped = False
     _thread_ctx_wrapped = False
     _provider_wrapped = False
     _provider_streaming_wrapped = False
     _provider_dispatch_wrapped = False
+    _ACTIVE_TARGETS = None
+    _ACTIVE_RUNNER = None

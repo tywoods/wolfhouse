@@ -104,6 +104,23 @@ ok('provider dispatch is SDK create/converse not worker start',
   && /provider_dispatch_wrapped/.test(isoSrc)
   && /unsupported_provider_backend/.test(isoSrc)
   && /Worker start is not SDK dispatch/.test(isoSrc));
+ok('snapshot and bootstrap mirror are required persistence owners',
+  /snapshot_wrapped/.test(isoSrc)
+  && /_save_session_log/.test(isoSrc)
+  && /atomic_json_write/.test(isoSrc)
+  && /mirror_wrapped/.test(isoSrc)
+  && /enqueue_mirror_payload/.test(isoSrc)
+  && /isolated_mirror_queue_denied/.test(isoSrc));
+ok('adapter map instances are certified and revalidated at use',
+  /_RevalidatingAdapterMap/.test(isoSrc)
+  && /stale_adapter_send/.test(isoSrc)
+  && /runner.adapters/.test(isoSrc));
+ok('bedrock factory and turn-entry backends fail closed before work',
+  /stale_bedrock_client_factory/.test(isoSrc)
+  && /turn_entry_wrapped/.test(isoSrc)
+  && /codex_app_server/.test(isoSrc)
+  && /unsupported_turn_owner/.test(isoSrc)
+  && /refuse_unsupported_backend/.test(isoSrc));
 ok('readiness requires serving runner handler and session db before Staff writes',
   /gateway_runner_unavailable/.test(evalSrc)
   && /gateway_handler_unavailable/.test(evalSrc)

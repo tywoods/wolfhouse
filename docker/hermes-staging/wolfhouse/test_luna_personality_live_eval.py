@@ -143,6 +143,72 @@ def _complete_targets():
 
             return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
+    class _AgentCls:
+        api_mode = "chat_completions"
+
+        def _persist_session(self, *a, **k):  # noqa: ANN001
+            return None
+
+        def _save_session_log(self, *a, **k):  # noqa: ANN001
+            return None
+
+        def _flush_messages_to_session_db(self, *a, **k):  # noqa: ANN001
+            return None
+
+        def run_conversation(self, *a, **k):  # noqa: ANN001
+            return {"final_response": "ok"}
+
+        def chat(self, *a, **k):  # noqa: ANN001
+            return "ok"
+
+        def _run_codex_app_server_turn(self, **k):  # noqa: ANN003
+            return {"final_response": "codex"}
+
+        def _run_codex_stream(self, *a, **k):  # noqa: ANN001
+            return None
+
+        def _run_codex_create_stream_fallback(self, *a, **k):  # noqa: ANN001
+            return None
+
+        def _anthropic_messages_create(self, *a, **k):  # noqa: ANN001
+            return None
+
+        def switch_model(self, *a, **k):  # noqa: ANN001
+            return None
+
+        def _create_request_openai_client(self, *a, **k):  # noqa: ANN001
+            return _FactoryOwner()._create_request_openai_client()
+
+    mirror = types.ModuleType("isolation_double_mirror")
+    mirror.mirror_whatsapp_thread = lambda *a, **k: None
+    mirror.enqueue_mirror_payload = lambda *a, **k: True
+    mirror.get_mirror_queue = lambda: SimpleNamespace(enqueue=lambda p: True, _deliver=lambda item: None)
+    mirror._post_mirror_sync = lambda p: {}
+    mirror.mirror_whatsapp_outbound_after_send = lambda *a, **k: None
+    mirror.mirror_whatsapp_outbound_as_draft = lambda *a, **k: {"staged": False}
+    mirror.mirror_raw_inbound = lambda *a, **k: None
+
+    class _MirrorQueue:
+        def enqueue(self, payload):  # noqa: ANN001
+            return True
+
+        def _deliver(self, item):  # noqa: ANN001
+            return None
+
+    mirror.MirrorQueue = _MirrorQueue
+
+    loop_mod = types.ModuleType("isolation_double_loop")
+    loop_mod.run_conversation = lambda agent, *a, **k: {"final_response": "ok"}
+    codex_mod = types.ModuleType("isolation_double_codex")
+    codex_mod.run_codex_app_server_turn = lambda agent, **k: {"final_response": "codex"}
+    bedrock = types.ModuleType("isolation_double_bedrock")
+    bedrock._get_bedrock_runtime_client = lambda region: SimpleNamespace(
+        converse=lambda **k: {},
+        converse_stream=lambda **k: {},
+    )
+    atomic = types.ModuleType("isolation_double_atomic")
+    atomic.atomic_json_write = lambda *a, **k: None
+
     return IsolationTargets(
         whatsapp_adapter_cls=_FakeAdapter,
         plugins_mod=plugins,
@@ -153,6 +219,12 @@ def _complete_targets():
         wrap_executor=True,
         wrap_thread=True,
         openai_client_factory_owner=_FactoryOwner,
+        agent_cls=_AgentCls,
+        mirror_mod=mirror,
+        conversation_loop_mod=loop_mod,
+        codex_runtime_mod=codex_mod,
+        bedrock_adapter_mod=bedrock,
+        atomic_json_mod=atomic,
     )
 
 
@@ -161,6 +233,8 @@ def _counter_session_db(effects, label="agent_append"):  # noqa: ANN001
         create_session=lambda **k: effects.append(f"{label}:create") or None,
         end_session=lambda **k: effects.append(f"{label}:end") or None,
         append_message=lambda **k: effects.append(label) or None,
+        update_token_counts=lambda **k: effects.append(f"{label}:tokens") or None,
+        _execute_write=lambda fn: effects.append(f"{label}:exec") or fn(None),
     )
 
 
@@ -189,6 +263,76 @@ def _extract_unchanged(path: Path, name: str, namespace: dict):
 
 HERMES_HELPERS = Path("/opt/hermes/agent/chat_completion_helpers.py")
 HERMES_RUN_AGENT = Path("/opt/hermes/run_agent.py")
+HERMES_LOOP = Path("/opt/hermes/agent/conversation_loop.py")
+HERMES_GATEWAY = Path("/opt/hermes/gateway/run.py")
+HERMES_STATE = Path("/opt/hermes/hermes_state.py")
+
+
+def _extract_if_branch(path: Path, needle: str, fn_name: str, arg_names: list, namespace: dict):
+    """Compile an unchanged AST If from production source into a tiny function."""
+    import ast
+    import __future__
+
+    src = path.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    node = None
+    for cand in ast.walk(tree):
+        if not isinstance(cand, ast.If):
+            continue
+        try:
+            text = ast.get_source_segment(src, cand.test) or ast.unparse(cand.test)
+        except Exception:
+            text = ""
+        if needle in text:
+            node = cand
+            break
+    if node is None:
+        raise AssertionError(f"no If containing {needle!r} in {path}")
+    has_await = any(isinstance(child, ast.Await) for child in ast.walk(node))
+    fn_cls = ast.AsyncFunctionDef if has_await else ast.FunctionDef
+    fn = fn_cls(
+        name=fn_name,
+        args=ast.arguments(
+            posonlyargs=[],
+            args=[ast.arg(arg=name) for name in arg_names],
+            kwonlyargs=[],
+            kw_defaults=[],
+            defaults=[],
+            vararg=None,
+            kwarg=None,
+        ),
+        body=[node],
+        decorator_list=[],
+        returns=None,
+    )
+    ast.fix_missing_locations(fn)
+    exec(
+        compile(
+            ast.Module(body=[fn], type_ignores=[]),
+            str(path),
+            "exec",
+            flags=__future__.annotations.compiler_flag,
+        ),
+        namespace,
+    )
+    return namespace[fn_name]
+
+
+def _runner_with_db(t, effects=None):  # noqa: ANN001
+    effects = effects if effects is not None else []
+    t.session_store = t.session_store_cls()
+    db = _counter_session_db(effects)
+    t.session_store._db = db
+    t.session_db = db
+    runner = SimpleNamespace(
+        session_store=t.session_store,
+        _session_db=db,
+        adapters={},
+        _agent_cache={},
+        _running_agents={},
+        _handle_message=lambda event: "final",
+    )
+    return runner, effects
 
 
 class IsolationContextTests(unittest.TestCase):
@@ -1535,6 +1679,343 @@ class RealProviderHelperDispatchTests(unittest.TestCase):
                 exit_isolated_turn(tok)
         finally:
             sys.modules.pop("agent.bedrock_adapter", None)
+
+    def test_stale_bedrock_factory_refuses_before_dispatch(self) -> None:
+        self.assertTrue(HERMES_HELPERS.is_file())
+        t = _complete_targets()
+        dispatches = []
+        bedrock = types.ModuleType("agent.bedrock_adapter")
+
+        class _Denied(Exception):
+            pass
+
+        def _live_factory(region):  # noqa: ANN001
+            def converse_stream(**kw):  # noqa: ANN003
+                dispatches.append("converse_stream")
+                raise _Denied("iam denied stream")
+
+            def converse(**kw):  # noqa: ANN003
+                dispatches.append("converse")
+                return {"output": {"message": {"content": [{"text": "ok"}]}}}
+
+            return SimpleNamespace(converse_stream=converse_stream, converse=converse)
+
+        bedrock._get_bedrock_runtime_client = _live_factory
+        bedrock.invalidate_runtime_client = lambda *a, **k: None
+        bedrock.is_stale_connection_error = lambda e: False
+        bedrock.is_streaming_access_denied_error = lambda e: True
+        bedrock.normalize_converse_response = lambda raw: raw
+        bedrock.stream_converse_with_callbacks = lambda *a, **k: None
+        t.bedrock_adapter_mod = bedrock
+        sys.modules["agent.bedrock_adapter"] = bedrock
+        ns: dict = {
+            "threading": threading,
+            "time": __import__("time"),
+            "logger": SimpleNamespace(debug=lambda *a, **k: None, warning=lambda *a, **k: None, info=lambda *a, **k: None),
+        }
+        real = _extract_unchanged(HERMES_HELPERS, "interruptible_streaming_api_call", ns)
+        t.provider_mod.interruptible_streaming_api_call = real
+        try:
+            install_isolation_runtime(targets=t)
+            wrapped_factory = bedrock._get_bedrock_runtime_client
+            bedrock._get_bedrock_runtime_client = _live_factory
+            cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+            tok = enter_isolated_turn(cap)
+            try:
+                with self.assertRaises(IsolationAbort) as ctx:
+                    preflight_isolation_or_abort(require_live_seams=True, targets=t)
+                self.assertIn("provider_dispatch_wrapped", ctx.exception.reason)
+                agent = SimpleNamespace(api_mode="bedrock_converse", _interrupt_requested=False, _safe_print=lambda x: None)
+                with self.assertRaises(IsolationAbort) as helper_ctx:
+                    t.provider_mod.interruptible_streaming_api_call(
+                        agent,
+                        {
+                            "modelId": "counter-model",
+                            "system": [{"text": "Luna Personality this turn: calm. Patient."}],
+                        },
+                    )
+                self.assertIn("stale_bedrock_client_factory", helper_ctx.exception.reason)
+                self.assertEqual(dispatches, [])
+                self.assertEqual(cap.model_calls, 0)
+                self.assertFalse(cap.observed_pack_from_provider)
+            finally:
+                exit_isolated_turn(tok)
+            bedrock._get_bedrock_runtime_client = wrapped_factory
+        finally:
+            sys.modules.pop("agent.bedrock_adapter", None)
+
+
+class SnapshotAndMirrorIsolationTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_isolation_runtime_for_tests()
+
+    def test_extracted_persist_session_denies_snapshot_and_db(self) -> None:
+        self.assertTrue(HERMES_RUN_AGENT.is_file())
+        t = _complete_targets()
+        runner, effects = _runner_with_db(t)
+        agent = SimpleNamespace(
+            _session_json_enabled=True,
+            _session_db=runner._session_db,
+            _session_db_created=True,
+            _last_flushed_db_idx=0,
+            session_id="lunaeval_probe",
+            _drop_trailing_empty_response_scaffolding=lambda messages: None,
+            _apply_persist_user_message_override=lambda messages: None,
+            _save_session_log=lambda messages=None: effects.append("agent_json_snapshot"),
+            _flush_messages_to_session_db=lambda messages, conv=None: runner._session_db.append_message(
+                session_id="x", role="assistant", content="synthetic"
+            ),
+        )
+        runner._agent_cache["k"] = (agent, "sig", 0)
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            ns: dict = {"logger": SimpleNamespace(warning=lambda *a, **k: None, debug=lambda *a, **k: None)}
+            persist = _extract_unchanged(HERMES_RUN_AGENT, "_persist_session", ns)
+            persist(agent, [{"role": "assistant", "content": "synthetic"}])
+            self.assertEqual(effects, [])
+            self.assertEqual(cap.journal_writes_completed, 0)
+            self.assertGreaterEqual(cap.journal_writes_denied, 1)
+            self.assertNotIn("agent_json_snapshot", cap.persistence_effects_completed)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_stale_snapshot_method_fails_preflight(self) -> None:
+        t = _complete_targets()
+        runner, effects = _runner_with_db(t)
+        agent = SimpleNamespace(
+            api_mode="chat_completions",
+            _persist_session=lambda *a, **k: effects.append("persist"),
+            _save_session_log=lambda *a, **k: effects.append("agent_json_snapshot"),
+            _flush_messages_to_session_db=lambda *a, **k: effects.append("flush"),
+            _run_codex_app_server_turn=lambda **k: effects.append("codex"),
+            run_conversation=lambda *a, **k: {"final_response": "ok"},
+            chat=lambda *a, **k: "ok",
+            _run_codex_stream=lambda *a, **k: None,
+            _run_codex_create_stream_fallback=lambda *a, **k: None,
+            _anthropic_messages_create=lambda *a, **k: None,
+            switch_model=lambda *a, **k: None,
+            _create_request_openai_client=t.openai_client_factory_owner()._create_request_openai_client,
+        )
+        runner._agent_cache["k"] = (agent, "sig", 0)
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            agent._save_session_log = lambda *a, **k: effects.append("stale_snapshot")
+            with self.assertRaises(IsolationAbort) as ctx:
+                preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertIn("snapshot_wrapped", ctx.exception.reason)
+            agent._save_session_log([{"role": "assistant", "content": "synthetic"}])
+            self.assertEqual(effects, ["stale_snapshot"])
+            self.assertEqual(cap.journal_writes_completed, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_update_token_counts_denied_not_fake_zero(self) -> None:
+        t = _complete_targets()
+        runner, effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            runner._session_db.update_token_counts(session_id="x", input_tokens=3, output_tokens=1)
+            self.assertEqual(effects, [])
+            self.assertGreaterEqual(cap.persistence_denied.get("sqlite:update_token_counts", 0), 1)
+            self.assertEqual(cap.journal_writes_completed, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_canonical_mirror_denied_before_queue(self) -> None:
+        import wolfhouse_whatsapp_mirror as mirror
+
+        t = _complete_targets()
+        t.mirror_mod = mirror
+        http = []
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            source = SimpleNamespace(user_id="491234567890", chat_id="491234567890", user_name="Eval")
+            event = SimpleNamespace(metadata={}, message_id="wamid.eval", timestamp=None, message_type="text")
+            with mock.patch.object(mirror, "get_mirror_queue", side_effect=AssertionError("queue must not be created")):
+                with mock.patch("urllib.request.urlopen", side_effect=lambda *a, **k: http.append("http") or (_ for _ in ()).throw(AssertionError("http"))):
+                    mirror.mirror_whatsapp_thread(source, event, "inbound", "hello from eval")
+            self.assertEqual(http, [])
+            self.assertGreaterEqual(cap.journal_writes_denied, 1)
+            self.assertEqual(cap.journal_writes_completed, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_ordinary_mirror_passthrough_when_not_isolated(self) -> None:
+        t = _complete_targets()
+        calls = []
+        t.mirror_mod.mirror_whatsapp_thread = lambda *a, **k: calls.append("mirror")
+        t.mirror_mod.enqueue_mirror_payload = lambda payload: calls.append("enqueue") or True
+        install_isolation_runtime(targets=t)
+        t.mirror_mod.mirror_whatsapp_thread("s", "e", "inbound", "hi")
+        t.mirror_mod.enqueue_mirror_payload({"guest_phone": "+1"})
+        self.assertEqual(calls, ["mirror", "enqueue"])
+
+
+class _HashPlatform:
+    def __init__(self, value: str = "whatsapp_cloud") -> None:
+        self.value = value
+
+    def __hash__(self) -> int:
+        return hash(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        return getattr(other, "value", other) == self.value
+
+
+class AdapterMapAndTurnEntryTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_isolation_runtime_for_tests()
+
+    def test_stale_adapter_map_send_fails_preflight(self) -> None:
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        adapter = _FakeAdapter()
+        platform = _HashPlatform()
+        runner.adapters = {platform: adapter}
+        install_isolation_runtime(targets=t, runner=runner)
+
+        async def stale_send(*a, **k):  # noqa: ANN001
+            return SimpleNamespace(success=True)
+
+        adapter.send = stale_send
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            with self.assertRaises(IsolationAbort) as ctx:
+                preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertIn("send_methods_wrapped", ctx.exception.reason)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_pairing_branch_refuses_before_delivery(self) -> None:
+        self.assertTrue(HERMES_GATEWAY.is_file())
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        adapter = _FakeAdapter()
+        platform = _HashPlatform()
+        runner.adapters = {platform: adapter}
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            ns: dict = {"logger": SimpleNamespace(debug=lambda *a, **k: None, warning=lambda *a, **k: None)}
+            source = SimpleNamespace(
+                platform=platform,
+                user_id="49eval",
+                user_name="Eval",
+                chat_id="49eval",
+                chat_type="dm",
+            )
+            runner._is_user_authorized = lambda src: False
+            runner._get_unauthorized_dm_behavior = lambda plat: "pair"
+            runner.pairing_store = SimpleNamespace(
+                _is_rate_limited=lambda *a, **k: False,
+                generate_code=lambda *a, **k: "PAIR1",
+                _record_rate_limit=lambda *a, **k: None,
+            )
+            branch = _extract_if_branch(
+                HERMES_GATEWAY,
+                "_get_unauthorized_dm_behavior",
+                "_pair_branch",
+                ["self", "source"],
+                ns,
+            )
+            _run(branch(runner, source))
+            self.assertGreaterEqual(cap.sends_attempted, 1)
+            self.assertEqual(cap.sends_completed, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_codex_app_server_branch_zero_alternate_work(self) -> None:
+        self.assertTrue(HERMES_LOOP.is_file())
+        t = _complete_targets()
+        effects = []
+
+        def _codex_orig(self, **k):  # noqa: ANN001
+            effects.append("alternate_provider_turn")
+            return {"final_response": "codex"}
+
+        t.agent_cls._run_codex_app_server_turn = _codex_orig
+        runner, _db_effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            agent = t.agent_cls()
+            agent.api_mode = "codex_app_server"
+            ns: dict = {
+                "user_message": "hi",
+                "original_user_message": "hi",
+                "messages": [],
+                "effective_task_id": "t1",
+                "_should_review_memory": False,
+            }
+            branch = _extract_if_branch(
+                HERMES_LOOP,
+                "codex_app_server",
+                "_codex_branch",
+                ["agent"],
+                ns,
+            )
+            with self.assertRaises(IsolationAbort) as ctx:
+                branch(agent)
+            self.assertIn("unsupported_provider_backend:codex_app_server", ctx.exception.reason)
+            self.assertEqual(effects, [])
+            self.assertEqual(cap.model_calls, 0)
+            self.assertEqual(cap.provider_helper_attempts, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_supported_cached_agent_turn_entry_is_ready(self) -> None:
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        agent = t.agent_cls()
+        agent.api_mode = "chat_completions"
+        runner._agent_cache["k"] = (agent, "sig", 0)
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            with self.assertRaises(IsolationAbort) as ctx:
+                agent._run_codex_app_server_turn(user_message="hi")
+            self.assertIn("unsupported_turn_owner:_run_codex_app_server_turn", ctx.exception.reason)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_stale_codex_turn_owner_fails_preflight(self) -> None:
+        t = _complete_targets()
+        runner, effects = _runner_with_db(t)
+        agent = t.agent_cls()
+        agent.api_mode = "chat_completions"
+        runner._agent_cache["k"] = (agent, "sig", 0)
+        install_isolation_runtime(targets=t, runner=runner)
+        agent._run_codex_app_server_turn = lambda **k: effects.append("alternate_provider_turn")
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            with self.assertRaises(IsolationAbort) as ctx:
+                preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertIn("turn_entry_wrapped", ctx.exception.reason)
+            agent._run_codex_app_server_turn(user_message="hi")
+            self.assertEqual(effects, ["alternate_provider_turn"])
+        finally:
+            exit_isolated_turn(tok)
 
 
 if __name__ == "__main__":
