@@ -99,22 +99,52 @@ MEANING_NEGATION_RE = re.compile(
 
 InvokeTurn = Callable[[str, IsolatedTurnCapture, Dict[str, Any]], Awaitable[str]]
 
+CORPUS_FILENAME = "luna-personality-corpus.json"
+# Image install path. docker/hermes-staging is the ACR/VM build context, so the
+# Dockerfile copies docker/hermes-staging/fixtures/<name> here. Do not broaden
+# that context to the repo root.
+INSTALLED_CORPUS_PATH = Path("/etc/hermes-staging/fixtures") / CORPUS_FILENAME
+REPO_MOUNT_CORPUS_PATH = Path("/opt/wolfhouse/WH/fixtures") / CORPUS_FILENAME
 
-def _corpus_path() -> Path:
-    here = Path(__file__).resolve()
-    candidates = [
-        here.parents[3] / "fixtures" / "luna-personality-corpus.json",
-        Path("/opt/wolfhouse/WH/fixtures/luna-personality-corpus.json"),
-        Path("/etc/hermes-staging/fixtures/luna-personality-corpus.json"),
-    ]
-    for p in candidates:
-        if p.is_file():
-            return p
+
+def corpus_candidates(*, here: Optional[Path] = None) -> List[Path]:
+    """Resolve the allowlisted corpus without duplicating the matrix.
+
+    Order:
+    1. Staging-root relative to this module (source checkout and image).
+    2. Repo-root fixtures/ when the module lives at docker/hermes-staging/wolfhouse.
+    3. Optional Lunabox repo mount (absent in hermes-sunset-luna-http).
+    4. Hardcoded image install path.
+    """
+    module = (here or Path(__file__)).resolve()
+    candidates: List[Path] = []
+    if len(module.parents) > 1:
+        candidates.append(module.parents[1] / "fixtures" / CORPUS_FILENAME)
+    if len(module.parents) > 3:
+        candidates.append(module.parents[3] / "fixtures" / CORPUS_FILENAME)
+    candidates.append(REPO_MOUNT_CORPUS_PATH)
+    candidates.append(INSTALLED_CORPUS_PATH)
+    seen = set()
+    unique: List[Path] = []
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
+def _corpus_path(*, here: Optional[Path] = None) -> Path:
+    candidates = corpus_candidates(here=here)
+    for path in candidates:
+        if path.is_file():
+            return path
     return candidates[0]
 
 
-def load_corpus(path: Optional[Path] = None) -> Dict[str, Any]:
-    target = path or _corpus_path()
+def load_corpus(path: Optional[Path] = None, *, here: Optional[Path] = None) -> Dict[str, Any]:
+    target = path or _corpus_path(here=here)
     return json.loads(target.read_text(encoding="utf-8"))
 
 

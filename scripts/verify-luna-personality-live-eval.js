@@ -8,6 +8,7 @@
  * Does not call a live model, deploy, or mutate staging.
  */
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -172,6 +173,30 @@ ok('eval fails closed on pack mismatch, fallback, missing model',
 ok('grading rejects contradictions and does not claim complete semantic proof',
   /contradicted_fact/.test(evalSrc) && /complete_semantic_proof/.test(evalSrc)
   && /PENINSULAR_MARKERS/.test(evalSrc) && /missing_spanish_language/.test(evalSrc));
+
+const dockerfileSrc = fs.readFileSync(path.join(ROOT, 'docker/hermes-staging/Dockerfile'), 'utf8');
+const canonicalCorpus = path.join(ROOT, 'fixtures/luna-personality-corpus.json');
+const contextCorpus = path.join(ROOT, 'docker/hermes-staging/fixtures/luna-personality-corpus.json');
+const installedCopy = 'COPY fixtures/luna-personality-corpus.json /etc/hermes-staging/fixtures/luna-personality-corpus.json';
+ok('Dockerfile copies corpus from hermes-staging context to installed path',
+  dockerfileSrc.includes(installedCopy)
+  && /INSTALLED_CORPUS_PATH = Path\("\/etc\/hermes-staging\/fixtures"\)/.test(evalSrc)
+  && !/^COPY \. /m.test(dockerfileSrc));
+ok('hermes-staging image context contains corpus file', fs.existsSync(contextCorpus));
+const canonicalBytes = fs.readFileSync(canonicalCorpus);
+const contextBytes = fs.existsSync(contextCorpus) ? fs.readFileSync(contextCorpus) : Buffer.alloc(0);
+const canonicalHash = crypto.createHash('sha256').update(canonicalBytes).digest('hex');
+const contextHash = crypto.createHash('sha256').update(contextBytes).digest('hex');
+ok('packaged corpus sha256 matches canonical fixture',
+  contextBytes.equals(canonicalBytes) && contextHash === canonicalHash,
+  `${contextHash} vs ${canonicalHash}`);
+const deployVm = fs.readFileSync(path.join(ROOT, 'scripts/deploy-staging-hermes-vm.js'), 'utf8');
+const deployAca = fs.readFileSync(path.join(ROOT, 'scripts/deploy-staging-hermes.js'), 'utf8');
+ok('staging Hermes build callers keep docker/hermes-staging context',
+  /--file docker\/hermes-staging\/Dockerfile docker\/hermes-staging/.test(deployVm)
+  && /--file docker\/hermes-staging\/Dockerfile docker\/hermes-staging/.test(deployAca)
+  && !/--file docker\/hermes-staging\/Dockerfile \./.test(deployVm)
+  && !/--file docker\/hermes-staging\/Dockerfile \./.test(deployAca));
 
 const py = spawnSync('python3', ['-m', 'unittest', 'wolfhouse.test_luna_personality_live_eval'], {
   cwd: path.join(ROOT, 'docker/hermes-staging'),
