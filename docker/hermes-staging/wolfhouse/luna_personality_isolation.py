@@ -17,6 +17,8 @@ journal writes are denied before invocation.
 
 from __future__ import annotations
 
+import importlib.util
+import inspect
 import json
 import threading
 import uuid
@@ -24,7 +26,7 @@ from concurrent.futures.thread import ThreadPoolExecutor
 from contextvars import ContextVar, Token, copy_context
 from dataclasses import dataclass, field
 from datetime import datetime
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 ISOLATION_DENY_MESSAGE = "luna_personality_isolated_no_tools"
@@ -476,6 +478,36 @@ def _send_owner_complete(owner: Any) -> bool:
     return True
 
 
+def _is_already_bound_effective_method(owner: Any, original: Any) -> bool:
+    """True when original is an instance-bound callable, not a class descriptor.
+
+    Class functions rely on the descriptor protocol to bind ``self``. Already-bound
+    instance methods and functions stored on the instance must not take an extra
+    wrapper ``self`` or keyword calls (chat_id=/content=) break.
+    """
+    if owner is None or isinstance(owner, type) or original is None:
+        return False
+    if inspect.ismethod(original) and getattr(original, "__self__", None) is owner:
+        return True
+    if isinstance(original, MethodType):
+        return True
+    try:
+        inst_dict = object.__getattribute__(owner, "__dict__")
+    except Exception:
+        inst_dict = None
+    if not isinstance(inst_dict, dict) or original not in inst_dict.values():
+        return False
+    return inspect.isfunction(original) or inspect.iscoroutinefunction(original) or callable(original)
+
+
+def _send_content_from_call(args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> Any:
+    if len(args) >= 2:
+        return args[1]
+    if "content" in kwargs:
+        return kwargs.get("content")
+    return None
+
+
 def _refuse_stale_adapter(adapter: Any) -> None:
     """Revalidate at use: unwrapped instance send must not reach delivery."""
     if adapter is None or _ISOLATED.get() is None:
@@ -562,15 +594,29 @@ def _wrap_send_owner(owner: Any) -> bool:
             wrapped_any = True
             continue
 
-        def _factory(method_name: str, original: Any):
-            async def _isolated_send(self, *args: Any, **kwargs: Any):
+        bound = _is_already_bound_effective_method(owner, orig)
+
+        def _factory(method_name: str, original: Any, bound_owner: Any, already_bound: bool):
+            if already_bound:
+                async def _isolated_send_bound(*args: Any, **kwargs: Any):
+                    _refuse_stale_adapter(bound_owner)
+                    content = _send_content_from_call(args, kwargs) if method_name == "send" else None
+                    captured = capture_send_if_isolated(content)
+                    if captured is not None:
+                        return _send_result(captured)
+                    result = original(*args, **kwargs)
+                    if hasattr(result, "__await__"):
+                        result = await result
+                    cap = _ISOLATED.get()
+                    if cap is not None:
+                        cap.sends_completed += 1
+                    return result
+
+                return _isolated_send_bound
+
+            async def _isolated_send_descriptor(self, *args: Any, **kwargs: Any):
                 _refuse_stale_adapter(self)
-                content = None
-                if method_name == "send":
-                    if len(args) >= 2:
-                        content = args[1]
-                    else:
-                        content = kwargs.get("content")
+                content = _send_content_from_call(args, kwargs) if method_name == "send" else None
                 captured = capture_send_if_isolated(content)
                 if captured is not None:
                     return _send_result(captured)
@@ -582,9 +628,9 @@ def _wrap_send_owner(owner: Any) -> bool:
                     cap.sends_completed += 1
                 return result
 
-            return _isolated_send
+            return _isolated_send_descriptor
 
-        wrapped = _factory(name, orig)
+        wrapped = _factory(name, orig, owner, bound)
         _mark(wrapped)
         _save_orig(owner, name, orig)
         setattr(owner, name, wrapped)
@@ -1151,6 +1197,99 @@ def _discover_mirror_mod(explicit: Any = None) -> Any:
             return None
 
 
+def _is_mirror_dynamic_owner(name: Any, location: Any) -> bool:
+    name_s = str(name or "")
+    loc_s = str(location or "").replace("\\", "/")
+    if name_s == "wolfhouse_whatsapp_mirror" or name_s.endswith(".wolfhouse_whatsapp_mirror"):
+        return True
+    return loc_s.endswith("wolfhouse_whatsapp_mirror.py")
+
+
+def _wrap_fresh_mirror_module(mod: Any) -> bool:
+    """Wrap a dynamically exec'd mirror module. Cached import wrapping is not this path."""
+    if mod is None:
+        return False
+    for name in MIRROR_FUNCTIONS:
+        if getattr(mod, name, None) is None:
+            continue
+        _wrap_mirror_function(mod, name)
+    queue_cls = getattr(mod, "MirrorQueue", None)
+    if queue_cls is not None:
+        _wrap_mirror_queue_owner(queue_cls)
+    existing = getattr(mod, "_MIRROR_QUEUE", None)
+    if existing is not None:
+        _wrap_mirror_queue_owner(existing)
+    return _mirror_mod_complete(mod)
+
+
+def _attach_mirror_exec_wrapper(spec: Any, name: Any, location: Any) -> None:
+    if spec is None:
+        return
+    origin = location if location is not None else getattr(spec, "origin", None)
+    spec_name = name if name is not None else getattr(spec, "name", None)
+    if not _is_mirror_dynamic_owner(spec_name, origin):
+        return
+    loader = getattr(spec, "loader", None)
+    orig_exec = getattr(loader, "exec_module", None)
+    if orig_exec is None or _is_wrapped(orig_exec):
+        return
+
+    def exec_module(module: Any) -> None:
+        orig_exec(module)
+        wrapped = _wrap_fresh_mirror_module(module)
+        if _ISOLATED.get() is not None and not wrapped:
+            deny_journal_if_isolated("mirror:missing_isolation_owner")
+            raise IsolationAbort("missing_isolation_owner")
+
+    _mark(exec_module)
+    loader.exec_module = exec_module
+
+
+def _dynamic_mirror_loader_live() -> bool:
+    spec_fn = getattr(importlib.util, "spec_from_file_location", None)
+    from_spec = getattr(importlib.util, "module_from_spec", None)
+    return _is_wrapped(spec_fn) and _is_wrapped(from_spec)
+
+
+def _wrap_dynamic_mirror_loader() -> bool:
+    """Wrap the actual bootstrap INBOUND_MIRROR loader (spec/module/exec_module).
+
+    apply_gateway_patches.INBOUND_MIRROR does spec_from_file_location +
+    module_from_spec + loader.exec_module each turn, creating a fresh module
+    object that is not the cached imported wolfhouse_whatsapp_mirror.
+    """
+    orig_spec = getattr(importlib.util, "spec_from_file_location", None)
+    orig_from_spec = getattr(importlib.util, "module_from_spec", None)
+    if orig_spec is None or orig_from_spec is None:
+        return False
+    if _is_wrapped(orig_spec) and _is_wrapped(orig_from_spec):
+        return True
+
+    if not _is_wrapped(orig_spec):
+        def spec_from_file_location(name, location=None, *args: Any, **kwargs: Any):  # noqa: ANN001
+            spec = orig_spec(name, location, *args, **kwargs)
+            _attach_mirror_exec_wrapper(spec, name, location)
+            return spec
+
+        _mark(spec_from_file_location)
+        _save_orig(importlib.util, "spec_from_file_location", orig_spec)
+        importlib.util.spec_from_file_location = spec_from_file_location  # type: ignore[method-assign]
+
+    if not _is_wrapped(orig_from_spec):
+        def module_from_spec(spec):  # noqa: ANN001
+            module = orig_from_spec(spec)
+            origin = getattr(spec, "origin", None)
+            spec_name = getattr(spec, "name", None)
+            _attach_mirror_exec_wrapper(spec, spec_name, origin)
+            return module
+
+        _mark(module_from_spec)
+        _save_orig(importlib.util, "module_from_spec", orig_from_spec)
+        importlib.util.module_from_spec = module_from_spec  # type: ignore[method-assign]
+
+    return _dynamic_mirror_loader_live()
+
+
 def _wrap_mirror_function(mod: Any, name: str) -> bool:
     orig = getattr(mod, name, None)
     if orig is None:
@@ -1253,7 +1392,8 @@ def _wrap_mirror(*, targets: Optional[IsolationTargets] = None) -> bool:
     existing = getattr(mod, "_MIRROR_QUEUE", None)
     if existing is not None:
         _wrap_mirror_queue_owner(existing)
-    _mirror_wrapped = bool(wrapped_any and _mirror_mod_complete(mod))
+    loader_ok = _wrap_dynamic_mirror_loader()
+    _mirror_wrapped = bool(wrapped_any and _mirror_mod_complete(mod) and loader_ok)
     return _mirror_wrapped
 
 
@@ -1268,6 +1408,19 @@ def refuse_unsupported_backend(agent: Any = None, *, mode: Optional[str] = None)
     if resolved not in SUPPORTED_PROVIDER_BACKENDS:
         raise IsolationAbort(f"unsupported_provider_backend:{resolved}")
     return resolved
+
+
+def _certify_effective_agent_before_turn_prologue(agent: Any) -> None:
+    """Certify the effective agent at the actual turn boundary before prologue.
+
+    Canonical ``conversation_loop.run_conversation`` calls ``build_turn_context``
+    before the dispatch loop. Cached-runner preflight and later SDK helper
+    revalidation are not this boundary. Do not certify by wrapper markers alone:
+    the live OpenAI/Bedrock factory objects must be wrapped, and unsupported
+    backends still fail closed first.
+    """
+    refuse_unsupported_backend(agent)
+    _assert_dispatch_factories_live(agent)
 
 
 def _wrap_turn_owner_method(owner: Any, name: str) -> bool:
@@ -1301,6 +1454,7 @@ def _wrap_turn_owner_method(owner: Any, name: str) -> bool:
                 "_anthropic_messages_create",
             }:
                 raise IsolationAbort(f"unsupported_turn_owner:{method_name}")
+            _certify_effective_agent_before_turn_prologue(self_obj)
             return original(*args, **kwargs)
 
         return _isolated_turn
@@ -1366,6 +1520,7 @@ def _wrap_module_turn_entry(mod: Any, attr: str) -> bool:
         refuse_unsupported_backend(agent)
         if attr == "run_codex_app_server_turn":
             raise IsolationAbort("unsupported_turn_owner:run_codex_app_server_turn")
+        _certify_effective_agent_before_turn_prologue(agent)
         if agent is None:
             return orig(*args, **kwargs)
         return orig(agent, *args, **kwargs)
@@ -1887,7 +2042,10 @@ def inspect_live_seams(
         "post_bot_wrapped": post_ok,
         "journal_wrapped": journal_ok,
         "snapshot_wrapped": _snapshot_owners_live(runner=runner, targets=t),
-        "mirror_wrapped": _mirror_mod_complete(_discover_mirror_mod(t.mirror_mod)),
+        "mirror_wrapped": (
+            _mirror_mod_complete(_discover_mirror_mod(t.mirror_mod))
+            and _dynamic_mirror_loader_live()
+        ),
         "executor_ctx_wrapped": _is_wrapped(getattr(ThreadPoolExecutor, "submit", None)),
         "thread_ctx_wrapped": _is_wrapped(getattr(threading.Thread, "start", None)),
         "provider_wrapped": _is_wrapped(provider_fn),

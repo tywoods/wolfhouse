@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 import sys
+import textwrap
 import threading
 import types
 import unittest
@@ -266,6 +268,8 @@ HERMES_RUN_AGENT = Path("/opt/hermes/run_agent.py")
 HERMES_LOOP = Path("/opt/hermes/agent/conversation_loop.py")
 HERMES_GATEWAY = Path("/opt/hermes/gateway/run.py")
 HERMES_STATE = Path("/opt/hermes/hermes_state.py")
+HERMES_WHATSAPP = Path("/opt/hermes/gateway/platforms/whatsapp_cloud.py")
+CANONICAL_MIRROR = STAGING / "wolfhouse_whatsapp_mirror.py"
 
 
 def _extract_if_branch(path: Path, needle: str, fn_name: str, arg_names: list, namespace: dict):
@@ -333,6 +337,69 @@ def _runner_with_db(t, effects=None):  # noqa: ANN001
         _handle_message=lambda event: "final",
     )
     return runner, effects
+
+
+def _eval_source_event():
+    source = SimpleNamespace(user_id="491234567890", chat_id="491234567890", user_name="Eval")
+    event = SimpleNamespace(
+        metadata={},
+        message_id="wamid.eval",
+        timestamp=None,
+        message_type="text",
+        text="hello from eval",
+    )
+    return source, event
+
+
+def _exec_unchanged_inbound_mirror(source, event, message_text):
+    """Execute the unchanged bootstrap fragment with only the deploy path redirected."""
+    import apply_gateway_patches as patches
+
+    fragment = patches.INBOUND_MIRROR
+    if "spec_from_file_location" not in fragment or "module_from_spec" not in fragment or "exec_module" not in fragment:
+        raise AssertionError("INBOUND_MIRROR bootstrap fragment is not the dynamic loader")
+    redirected = fragment.replace(
+        "/etc/hermes-staging/wolfhouse_whatsapp_mirror.py",
+        str(CANONICAL_MIRROR),
+    )
+    if redirected == fragment:
+        raise AssertionError("failed to redirect only the deployment mirror path")
+    ns = {"source": source, "event": event, "message_text": message_text}
+    exec(compile(textwrap.dedent(redirected), "INBOUND_MIRROR", "exec"), ns, ns)
+    return ns
+
+
+def _install_fresh_queue_counter(effects, fresh):
+    """Replace only the fresh module's get_mirror_queue after the real loader exec.
+
+    Chains onto the isolation-wrapped spec_from_file_location so the unchanged
+    bootstrap fragment still uses the real dynamic module loader.
+    """
+    orig_spec = importlib.util.spec_from_file_location
+
+    def spec_from_file_location(name, location=None, *args, **kwargs):  # noqa: ANN001
+        spec = orig_spec(name, location, *args, **kwargs)
+        loader = getattr(spec, "loader", None)
+        orig_exec = getattr(loader, "exec_module", None)
+
+        def exec_module(module):  # noqa: ANN001
+            orig_exec(module)
+            def get_mirror_queue():
+                def enqueue(payload):  # noqa: ANN001
+                    effects.append("queue_enqueue")
+                    return True
+                return SimpleNamespace(enqueue=enqueue)
+            module.get_mirror_queue = get_mirror_queue
+            entry = getattr(module, "mirror_whatsapp_thread", None)
+            fresh["mod"] = module
+            fresh["fresh_module"] = True
+            fresh["fresh_entry_wrapped"] = bool(getattr(entry, "_luna_personality_isolated", False))
+
+        loader.exec_module = exec_module
+        return spec
+
+    importlib.util.spec_from_file_location = spec_from_file_location
+    return orig_spec
 
 
 class IsolationContextTests(unittest.TestCase):
@@ -1863,6 +1930,80 @@ class SnapshotAndMirrorIsolationTests(unittest.TestCase):
         t.mirror_mod.enqueue_mirror_payload({"guest_phone": "+1"})
         self.assertEqual(calls, ["mirror", "enqueue"])
 
+    def test_dynamic_loader_required_missing_owner_fails_closed(self) -> None:
+        import wolfhouse.luna_personality_isolation as iso
+        import wolfhouse_whatsapp_mirror as mirror
+
+        t = _complete_targets()
+        t.mirror_mod = mirror
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        live = inspect_live_seams(targets=t, runner=runner)
+        self.assertTrue(live["mirror_wrapped"])
+        self.assertTrue(getattr(importlib.util.spec_from_file_location, "_luna_personality_isolated", False))
+        orig_spec = None
+        for owner, attr, orig in iso._ORIG_OWNERS:
+            if owner is importlib.util and attr == "spec_from_file_location":
+                orig_spec = orig
+                break
+        self.assertIsNotNone(orig_spec)
+        importlib.util.spec_from_file_location = orig_spec
+        live = inspect_live_seams(targets=t, runner=runner)
+        self.assertFalse(live["mirror_wrapped"])
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            with self.assertRaises(IsolationAbort) as ctx:
+                preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertIn("mirror_wrapped", ctx.exception.reason)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_unchanged_bootstrap_inbound_mirror_fresh_module_denied_before_queue(self) -> None:
+        import wolfhouse_whatsapp_mirror as mirror
+
+        self.assertTrue(CANONICAL_MIRROR.is_file())
+        t = _complete_targets()
+        t.mirror_mod = mirror
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        effects = []
+        fresh = {}
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            _install_fresh_queue_counter(effects, fresh)
+            source, event = _eval_source_event()
+            with mock.patch.dict(os.environ, {"LUNA_CLIENT_SLUG": "sunset"}, clear=False):
+                _exec_unchanged_inbound_mirror(source, event, "hello from eval")
+            self.assertTrue(fresh.get("fresh_module"))
+            self.assertIsNot(fresh.get("mod"), mirror)
+            self.assertTrue(fresh.get("fresh_entry_wrapped"))
+            self.assertEqual(effects, [])
+            self.assertGreaterEqual(cap.journal_writes_denied, 1)
+            self.assertEqual(cap.journal_writes_completed, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_ordinary_dynamic_bootstrap_mirror_passthrough(self) -> None:
+        import wolfhouse_whatsapp_mirror as mirror
+
+        self.assertTrue(CANONICAL_MIRROR.is_file())
+        t = _complete_targets()
+        t.mirror_mod = mirror
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        effects = []
+        fresh = {}
+        _install_fresh_queue_counter(effects, fresh)
+        source, event = _eval_source_event()
+        with mock.patch.dict(os.environ, {"LUNA_CLIENT_SLUG": "sunset"}, clear=False):
+            _exec_unchanged_inbound_mirror(source, event, "hello from eval")
+        self.assertTrue(fresh.get("fresh_module"))
+        self.assertEqual(effects, ["queue_enqueue"])
+        self.assertIsNone(current_isolated_turn())
+
 
 class _HashPlatform:
     def __init__(self, value: str = "whatsapp_cloud") -> None:
@@ -2016,6 +2157,200 @@ class AdapterMapAndTurnEntryTests(unittest.TestCase):
             self.assertEqual(effects, ["alternate_provider_turn"])
         finally:
             exit_isolated_turn(tok)
+
+    def test_extracted_whatsapp_send_bound_instance_preserves_keyword_and_returns(self) -> None:
+        self.assertTrue(HERMES_WHATSAPP.is_file())
+
+        class SendResult:
+            def __init__(self, success=True, message_id=None, error=None, raw_response=None, **_k):  # noqa: ANN003
+                self.success = success
+                self.message_id = message_id
+                self.error = error
+                self.raw_response = raw_response
+
+        ns = {"SendResult": SendResult, "Optional": Optional, "Dict": dict, "Any": object}
+        send_fn = _extract_unchanged(HERMES_WHATSAPP, "send", ns)
+        adapter = SimpleNamespace(_http_client=None)
+        adapter.send = types.MethodType(send_fn, adapter)
+        before = _run(adapter.send(chat_id="49111", content="hello"))
+        self.assertFalse(before.success)
+        self.assertEqual(before.error, "Not connected")
+
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        platform = _HashPlatform()
+        runner.adapters = {platform: adapter}
+        install_isolation_runtime(targets=t, runner=runner)
+        after_kw = _run(adapter.send(chat_id="49111", content="hello"))
+        self.assertFalse(after_kw.success)
+        self.assertEqual(after_kw.error, "Not connected")
+        after_pos = _run(adapter.send("49111", "hello"))
+        self.assertFalse(after_pos.success)
+        self.assertEqual(after_pos.error, "Not connected")
+
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            _run(adapter.send(chat_id="49111", content="hello"))
+            self.assertGreaterEqual(cap.sends_attempted, 1)
+            self.assertEqual(cap.sends_completed, 0)
+            with self.assertRaises(IsolationAbort) as ctx:
+                runner.adapters.get(platform)
+                adapter.send = send_fn
+                preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertIn("send_methods_wrapped", ctx.exception.reason)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_bound_counter_send_preserves_original_return_and_call_args(self) -> None:
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        calls = []
+
+        async def counter_send(*args, **kwargs):  # noqa: ANN001
+            calls.append({"args": args, "kwargs": dict(kwargs)})
+            return "original-result"
+
+        adapter = SimpleNamespace()
+        adapter.send = counter_send
+        platform = _HashPlatform()
+        runner.adapters = {platform: adapter}
+        install_isolation_runtime(targets=t, runner=runner)
+        result_kw = _run(adapter.send(chat_id="c1", content="hello"))
+        self.assertEqual(result_kw, "original-result")
+        self.assertEqual(calls, [{"args": (), "kwargs": {"chat_id": "c1", "content": "hello"}}])
+        calls.clear()
+        result_pos = _run(adapter.send("c1", "hello"))
+        self.assertEqual(result_pos, "original-result")
+        self.assertEqual(calls, [{"args": ("c1", "hello"), "kwargs": {}}])
+        class_adapter = t.whatsapp_adapter_cls()
+        class_kw = _run(class_adapter.send(chat_id="c2", content="hi"))
+        self.assertTrue(getattr(class_kw, "success", False))
+
+    def test_stale_adapter_map_refusal_still_at_use(self) -> None:
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        adapter = _FakeAdapter()
+        platform = _HashPlatform()
+        runner.adapters = {platform: adapter}
+        install_isolation_runtime(targets=t, runner=runner)
+
+        async def stale_send(*a, **k):  # noqa: ANN001
+            return SimpleNamespace(success=True)
+
+        adapter.send = stale_send
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            with self.assertRaises(IsolationAbort) as ctx:
+                runner.adapters.get(platform)
+            self.assertIn("stale_adapter_send", ctx.exception.reason)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_new_shadowed_factory_refused_before_canonical_prologue(self) -> None:
+        self.assertTrue(HERMES_LOOP.is_file())
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        self.assertEqual(runner._agent_cache, {})
+        prologue = []
+        provider = []
+
+        class StopProbe(Exception):
+            pass
+
+        def build_turn_context(*a, **k):  # noqa: ANN001
+            prologue.append("canonical_turn_prologue")
+            raise StopProbe()
+
+        ns: dict = {
+            "build_turn_context": build_turn_context,
+            "_restore_or_build_system_prompt": object(),
+            "_install_safe_stdio": object(),
+            "_sanitize_surrogates": object(),
+            "_summarize_user_message_for_log": object(),
+            "set_session_context": object(),
+            "set_current_write_origin": object(),
+            "_ra": object(),
+        }
+        real = _extract_unchanged(HERMES_LOOP, "run_conversation", ns)
+        t.conversation_loop_mod.run_conversation = real
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertEqual(runner._agent_cache, {})
+
+            def unwrapped_factory(*a, **k):  # noqa: ANN001
+                provider.append("factory")
+                return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: provider.append("sdk"))))
+
+            agent = t.agent_cls()
+            agent.api_mode = "chat_completions"
+            agent._create_request_openai_client = unwrapped_factory
+            with self.assertRaises(IsolationAbort) as module_ctx:
+                t.conversation_loop_mod.run_conversation(agent, "hi")
+            self.assertIn("stale_openai_client_factory", module_ctx.exception.reason)
+            self.assertEqual(prologue, [])
+            self.assertEqual(provider, [])
+
+            with self.assertRaises(IsolationAbort) as agent_ctx:
+                agent.run_conversation("hi")
+            self.assertIn("stale_openai_client_factory", agent_ctx.exception.reason)
+            self.assertEqual(prologue, [])
+            self.assertEqual(provider, [])
+            self.assertEqual(cap.model_calls, 0)
+            self.assertEqual(cap.provider_helper_attempts, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_accepted_factory_module_turn_reaches_prologue(self) -> None:
+        self.assertTrue(HERMES_LOOP.is_file())
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+
+        class StopProbe(Exception):
+            pass
+
+        prologue = []
+
+        def build_turn_context(*a, **k):  # noqa: ANN001
+            prologue.append("canonical_turn_prologue")
+            raise StopProbe("StopProbe:")
+
+        ns: dict = {
+            "build_turn_context": build_turn_context,
+            "_restore_or_build_system_prompt": object(),
+            "_install_safe_stdio": object(),
+            "_sanitize_surrogates": object(),
+            "_summarize_user_message_for_log": object(),
+            "set_session_context": object(),
+            "set_current_write_origin": object(),
+            "_ra": object(),
+        }
+        real = _extract_unchanged(HERMES_LOOP, "run_conversation", ns)
+        t.conversation_loop_mod.run_conversation = real
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            agent = t.agent_cls()
+            agent.api_mode = "chat_completions"
+            with self.assertRaises(StopProbe):
+                t.conversation_loop_mod.run_conversation(agent, "hi")
+            self.assertEqual(prologue, ["canonical_turn_prologue"])
+        finally:
+            exit_isolated_turn(tok)
+
+        prologue.clear()
+        agent_plain = t.agent_cls()
+        agent_plain.api_mode = "chat_completions"
+        with self.assertRaises(StopProbe):
+            t.conversation_loop_mod.run_conversation(agent_plain, "hi")
+        self.assertEqual(prologue, ["canonical_turn_prologue"])
 
 
 if __name__ == "__main__":

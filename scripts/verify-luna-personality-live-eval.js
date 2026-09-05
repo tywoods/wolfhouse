@@ -111,16 +111,33 @@ ok('snapshot and bootstrap mirror are required persistence owners',
   && /mirror_wrapped/.test(isoSrc)
   && /enqueue_mirror_payload/.test(isoSrc)
   && /isolated_mirror_queue_denied/.test(isoSrc));
+ok('dynamic bootstrap mirror loader wraps spec/module/exec_module not only cached import',
+  /spec_from_file_location/.test(isoSrc)
+  && /module_from_spec/.test(isoSrc)
+  && /exec_module/.test(isoSrc)
+  && /_wrap_fresh_mirror_module/.test(isoSrc)
+  && /missing_isolation_owner/.test(isoSrc)
+  && /_dynamic_mirror_loader_live/.test(isoSrc));
 ok('adapter map instances are certified and revalidated at use',
   /_RevalidatingAdapterMap/.test(isoSrc)
   && /stale_adapter_send/.test(isoSrc)
   && /runner.adapters/.test(isoSrc));
+ok('send wrapper distinguishes class descriptors from already-bound instance methods',
+  /_is_already_bound_effective_method/.test(isoSrc)
+  && /_isolated_send_bound/.test(isoSrc)
+  && /_isolated_send_descriptor/.test(isoSrc)
+  && /inspect\.ismethod/.test(isoSrc));
 ok('bedrock factory and turn-entry backends fail closed before work',
   /stale_bedrock_client_factory/.test(isoSrc)
   && /turn_entry_wrapped/.test(isoSrc)
   && /codex_app_server/.test(isoSrc)
   && /unsupported_turn_owner/.test(isoSrc)
   && /refuse_unsupported_backend/.test(isoSrc));
+ok('new agent factories are certified at agent and module turn before prologue',
+  /_certify_effective_agent_before_turn_prologue/.test(isoSrc)
+  && /build_turn_context/.test(isoSrc)
+  && /_assert_dispatch_factories_live/.test(isoSrc)
+  && /Do not certify by wrapper markers alone/.test(isoSrc));
 ok('readiness requires serving runner handler and session db before Staff writes',
   /gateway_runner_unavailable/.test(evalSrc)
   && /gateway_handler_unavailable/.test(evalSrc)
