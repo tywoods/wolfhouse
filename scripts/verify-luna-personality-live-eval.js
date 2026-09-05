@@ -118,6 +118,11 @@ ok('dynamic bootstrap mirror loader wraps spec/module/exec_module not only cache
   && /_wrap_fresh_mirror_module/.test(isoSrc)
   && /missing_isolation_owner/.test(isoSrc)
   && /_dynamic_mirror_loader_live/.test(isoSrc));
+ok('fresh dynamic mirror originals are not rooted in the long-lived registry',
+  /persist_original=False/.test(isoSrc)
+  && /_wrap_mirror_function\(mod, name, persist_original=False\)/.test(isoSrc)
+  && /_wrap_mirror_queue_owner\([^)]*persist_original=False\)/.test(isoSrc)
+  && /Ephemeral modules are not recorded in _ORIG_OWNERS/.test(isoSrc));
 ok('adapter map instances are certified and revalidated at use',
   /_RevalidatingAdapterMap/.test(isoSrc)
   && /stale_adapter_send/.test(isoSrc)

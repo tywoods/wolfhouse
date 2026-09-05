@@ -384,6 +384,14 @@ def _mark(fn: Any, *, ctx: bool = False) -> Any:
 
 
 def _save_orig(owner: Any, attr: str, orig: Any) -> None:
+    """Record long-lived originals for test reset. Production never unwraps.
+
+    Do not record ephemeral dynamically exec'd mirror modules, their classes, or
+    their functions. Those graphs are discarded by the canonical bootstrap after
+    each use; storing them here (or in a weak-key map whose values close over
+    the owner via ``__globals__`` / bound methods) would root them for the
+    process lifetime.
+    """
     _ORIG_OWNERS.append((owner, attr, orig))
 
 
@@ -1206,19 +1214,26 @@ def _is_mirror_dynamic_owner(name: Any, location: Any) -> bool:
 
 
 def _wrap_fresh_mirror_module(mod: Any) -> bool:
-    """Wrap a dynamically exec'd mirror module. Cached import wrapping is not this path."""
+    """Wrap a dynamically exec'd mirror module. Cached import wrapping is not this path.
+
+    Ephemeral modules are not recorded in _ORIG_OWNERS: the original registry is
+    for long-lived owners that tests restore. Wrappers stay on the module while
+    a caller retains it; dropping the module must allow GC without a test-only
+    reset. Do not store originals in a weak-key map either — function
+    ``__globals__`` and bound methods would keep the module alive.
+    """
     if mod is None:
         return False
     for name in MIRROR_FUNCTIONS:
         if getattr(mod, name, None) is None:
             continue
-        _wrap_mirror_function(mod, name)
+        _wrap_mirror_function(mod, name, persist_original=False)
     queue_cls = getattr(mod, "MirrorQueue", None)
     if queue_cls is not None:
-        _wrap_mirror_queue_owner(queue_cls)
+        _wrap_mirror_queue_owner(queue_cls, persist_original=False)
     existing = getattr(mod, "_MIRROR_QUEUE", None)
     if existing is not None:
-        _wrap_mirror_queue_owner(existing)
+        _wrap_mirror_queue_owner(existing, persist_original=False)
     return _mirror_mod_complete(mod)
 
 
@@ -1290,7 +1305,7 @@ def _wrap_dynamic_mirror_loader() -> bool:
     return _dynamic_mirror_loader_live()
 
 
-def _wrap_mirror_function(mod: Any, name: str) -> bool:
+def _wrap_mirror_function(mod: Any, name: str, *, persist_original: bool = True) -> bool:
     orig = getattr(mod, name, None)
     if orig is None:
         return False
@@ -1317,12 +1332,13 @@ def _wrap_mirror_function(mod: Any, name: str) -> bool:
 
     wrapped = _factory(name, orig)
     _mark(wrapped)
-    _save_orig(mod, name, orig)
+    if persist_original:
+        _save_orig(mod, name, orig)
     setattr(mod, name, wrapped)
     return True
 
 
-def _wrap_mirror_queue_owner(owner: Any) -> bool:
+def _wrap_mirror_queue_owner(owner: Any, *, persist_original: bool = True) -> bool:
     if owner is None:
         return True
     ok_all = True
@@ -1347,7 +1363,8 @@ def _wrap_mirror_queue_owner(owner: Any) -> bool:
 
         wrapped = _factory(name, orig)
         _mark(wrapped)
-        _save_orig(owner, name, orig)
+        if persist_original:
+            _save_orig(owner, name, orig)
         setattr(owner, name, wrapped)
         ok_all = ok_all and _is_wrapped(getattr(owner, name, None))
     return ok_all

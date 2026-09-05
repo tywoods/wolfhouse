@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import importlib.util
 import json
 import os
@@ -11,6 +12,7 @@ import textwrap
 import threading
 import types
 import unittest
+import weakref
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
@@ -400,6 +402,30 @@ def _install_fresh_queue_counter(effects, fresh):
 
     importlib.util.spec_from_file_location = spec_from_file_location
     return orig_spec
+
+
+def _load_canonical_fresh_mirror():
+    """Load the unchanged repository mirror the same way canonical bootstrap does."""
+    spec = importlib.util.spec_from_file_location(
+        "wolfhouse_whatsapp_mirror",
+        str(CANONICAL_MIRROR),
+    )
+    if spec is None or getattr(spec, "loader", None) is None:
+        raise AssertionError("canonical bootstrap mirror spec/loader missing")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _count_retained_fresh_mirror_loads(loads: int = 12) -> int:
+    refs = []
+    for _ in range(loads):
+        mod = _load_canonical_fresh_mirror()
+        refs.append(weakref.ref(mod))
+        del mod
+    gc.collect()
+    gc.collect()
+    return sum(1 for ref in refs if ref() is not None)
 
 
 class IsolationContextTests(unittest.TestCase):
@@ -2003,6 +2029,196 @@ class SnapshotAndMirrorIsolationTests(unittest.TestCase):
         self.assertTrue(fresh.get("fresh_module"))
         self.assertEqual(effects, ["queue_enqueue"])
         self.assertIsNone(current_isolated_turn())
+
+
+class DynamicMirrorLifecycleTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        reset_isolation_runtime_for_tests()
+
+    def test_repeated_ordinary_dynamic_mirror_loads_are_not_rooted_by_originals_registry(self) -> None:
+        import wolfhouse.luna_personality_isolation as iso
+
+        self.assertTrue(CANONICAL_MIRROR.is_file())
+        self.assertIsNone(current_isolated_turn())
+        before_install = _count_retained_fresh_mirror_loads(12)
+        self.assertEqual(before_install, 0)
+
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        self.assertIsNone(current_isolated_turn())
+        registry_before = len(iso._ORIG_OWNERS)
+        self.assertGreater(registry_before, 0)
+        after_install = _count_retained_fresh_mirror_loads(12)
+        registry_added = len(iso._ORIG_OWNERS) - registry_before
+        self.assertEqual(
+            after_install,
+            0,
+            "ephemeral bootstrap mirrors must be collectable without test-only reset",
+        )
+        self.assertEqual(registry_added, 0)
+        self.assertIsNone(current_isolated_turn())
+
+    def test_repeated_isolated_dynamic_mirror_loads_are_not_rooted_by_originals_registry(self) -> None:
+        import wolfhouse.luna_personality_isolation as iso
+
+        self.assertTrue(CANONICAL_MIRROR.is_file())
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        registry_before = len(iso._ORIG_OWNERS)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertIsNotNone(current_isolated_turn())
+            retained = _count_retained_fresh_mirror_loads(12)
+            registry_added = len(iso._ORIG_OWNERS) - registry_before
+            self.assertEqual(retained, 0)
+            self.assertEqual(registry_added, 0)
+        finally:
+            exit_isolated_turn(tok)
+        self.assertIsNone(current_isolated_turn())
+
+    def test_retained_fresh_module_wrapped_functions_remain_usable(self) -> None:
+        self.assertTrue(CANONICAL_MIRROR.is_file())
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        mod = _load_canonical_fresh_mirror()
+        self.assertTrue(getattr(mod.mirror_whatsapp_thread, "_luna_personality_isolated", False))
+        source, event = _eval_source_event()
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            with mock.patch.object(mod, "get_mirror_queue", side_effect=AssertionError("queue must not be created")):
+                with mock.patch.object(mod, "enqueue_mirror_payload", side_effect=AssertionError("enqueue must not run")):
+                    mod.mirror_whatsapp_thread(source, event, "inbound", "hello from eval")
+            self.assertGreaterEqual(cap.journal_writes_denied, 1)
+            self.assertEqual(cap.journal_writes_completed, 0)
+        finally:
+            exit_isolated_turn(tok)
+
+        effects = []
+
+        def get_mirror_queue():
+            def enqueue(payload):  # noqa: ANN001
+                effects.append("queue_enqueue")
+                return True
+
+            return SimpleNamespace(enqueue=enqueue)
+
+        mod.get_mirror_queue = get_mirror_queue
+        with mock.patch.dict(os.environ, {"LUNA_CLIENT_SLUG": "sunset"}, clear=False):
+            mod.mirror_whatsapp_thread(source, event, "inbound", "hello from eval")
+        self.assertEqual(effects, ["queue_enqueue"])
+        self.assertIsNone(current_isolated_turn())
+
+    def test_missing_dynamic_mirror_owner_fails_closed_before_effects(self) -> None:
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+
+        class EmptyMirrorLoader:
+            def create_module(self, spec):  # noqa: ANN001
+                return None
+
+            def exec_module(self, module):  # noqa: ANN001
+                module.loaded = True
+
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            spec = importlib.util.spec_from_file_location(
+                name="wolfhouse_whatsapp_mirror",
+                location=str(CANONICAL_MIRROR),
+                loader=EmptyMirrorLoader(),
+            )
+            mod = importlib.util.module_from_spec(spec)
+            with self.assertRaises(IsolationAbort) as ctx:
+                spec.loader.exec_module(mod)
+            self.assertEqual(ctx.exception.reason, "missing_isolation_owner")
+            self.assertGreaterEqual(cap.journal_writes_denied, 1)
+            self.assertEqual(cap.journal_writes_completed, 0)
+            self.assertTrue(getattr(mod, "loaded", False))
+            self.assertIsNone(getattr(mod, "mirror_whatsapp_thread", None))
+        finally:
+            exit_isolated_turn(tok)
+
+    def test_unrelated_importlib_loader_kwargs_remain_compatible(self) -> None:
+        t = _complete_targets()
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+
+        class OrdinaryLoader:
+            def create_module(self, spec):  # noqa: ANN001
+                return None
+
+            def exec_module(self, module):  # noqa: ANN001
+                module.answer = 42
+                return "loader-result"
+
+        loader = OrdinaryLoader()
+        spec = importlib.util.spec_from_file_location(
+            name="ordinary_plugin",
+            location="ordinary_plugin.py",
+            loader=loader,
+            submodule_search_locations=["ordinary_plugin"],
+        )
+        self.assertIs(spec.loader, loader)
+        self.assertFalse(getattr(spec.loader.exec_module, "_luna_personality_isolated", False))
+        mod = importlib.util.module_from_spec(spec)
+        result = spec.loader.exec_module(mod)
+        self.assertEqual(result, "loader-result")
+        self.assertEqual(mod.answer, 42)
+        self.assertEqual(getattr(spec, "name", None), "ordinary_plugin")
+        self.assertFalse(getattr(mod, "_luna_personality_isolated", False))
+
+    def test_repeated_install_reset_restores_long_lived_owners_only(self) -> None:
+        import wolfhouse.luna_personality_isolation as iso
+        import wolfhouse_whatsapp_mirror as mirror
+
+        self.assertTrue(CANONICAL_MIRROR.is_file())
+        t = _complete_targets()
+        t.mirror_mod = mirror
+        runner, _effects = _runner_with_db(t)
+        install_isolation_runtime(targets=t, runner=runner)
+        self.assertTrue(iso._is_wrapped(mirror.mirror_whatsapp_thread))
+        self.assertTrue(iso._is_wrapped(importlib.util.spec_from_file_location))
+        self.assertTrue(any(owner is mirror for owner, _attr, _orig in iso._ORIG_OWNERS))
+        self.assertTrue(
+            any(
+                owner is importlib.util and attr == "spec_from_file_location"
+                for owner, attr, _orig in iso._ORIG_OWNERS
+            )
+        )
+
+        fresh = _load_canonical_fresh_mirror()
+        self.assertTrue(getattr(fresh.mirror_whatsapp_thread, "_luna_personality_isolated", False))
+        self.assertFalse(any(owner is fresh for owner, _attr, _orig in iso._ORIG_OWNERS))
+        queue_cls = getattr(fresh, "MirrorQueue", None)
+        self.assertFalse(any(owner is queue_cls for owner, _attr, _orig in iso._ORIG_OWNERS))
+        fresh_ref = weakref.ref(fresh)
+        del fresh
+        gc.collect()
+        gc.collect()
+        self.assertIsNone(fresh_ref())
+
+        reset_isolation_runtime_for_tests()
+        self.assertEqual(iso._ORIG_OWNERS, [])
+        self.assertFalse(iso._is_wrapped(mirror.mirror_whatsapp_thread))
+        self.assertFalse(iso._is_wrapped(importlib.util.spec_from_file_location))
+
+        install_isolation_runtime(targets=t, runner=runner)
+        self.assertTrue(iso._is_wrapped(mirror.mirror_whatsapp_thread))
+        self.assertTrue(iso._is_wrapped(importlib.util.spec_from_file_location))
+        self.assertTrue(any(owner is mirror for owner, _attr, _orig in iso._ORIG_OWNERS))
+        reset_isolation_runtime_for_tests()
+        self.assertEqual(iso._ORIG_OWNERS, [])
+        self.assertFalse(iso._is_wrapped(mirror.mirror_whatsapp_thread))
+        self.assertFalse(iso._is_wrapped(importlib.util.spec_from_file_location))
 
 
 class _HashPlatform:
