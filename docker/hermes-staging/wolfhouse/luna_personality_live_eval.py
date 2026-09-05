@@ -15,17 +15,21 @@ import re
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Sequence
 
 from wolfhouse.luna_personality import (
     CLOSED_PERSONALITY_IDS,
+    COMPOSER_OWNED_STATES,
     DEFAULT_PERSONALITY_ID,
     bind_whatsapp_turn_personality,
+    default_fetch_setting,
     get_personality_pack,
+    inject_personality_pack_once,
 )
 from wolfhouse.luna_personality_isolation import (
     IsolatedTurnCapture,
     IsolationAbort,
+    IsolationTargets,
     capture_send_if_isolated,
     deny_post_bot_if_isolated,
     deny_tool_if_isolated,
@@ -34,8 +38,9 @@ from wolfhouse.luna_personality_isolation import (
     install_isolation_runtime,
     isolation_status,
     mark_test_isolation_installed,
+    observe_provider_invocation,
     preflight_isolation_or_abort,
-    record_model_call,
+    record_consumed_pack,
     record_personality_fetch,
     record_tool_invocation_violation,
 )
@@ -44,6 +49,7 @@ from wolfhouse.staging_guard import assert_staging_environment
 LIVE_EVAL_PATH = "/wolfhouse/luna-personality-live-eval"
 SUNSET_SLUG = "sunset"
 SUNSET_ROLE = "sunset-luna"
+EXPECTED_HERMES_HOME = "/opt/data/.hermes"
 
 ALLOWED_CASE_IDS = frozenset(
     {
@@ -60,13 +66,25 @@ ALLOWED_CASE_IDS = frozenset(
 
 LATAM_MARKERS = re.compile(r"\b(celular|ustedes|vos sos|\bche\b|okis|computadora)\b", re.I)
 PENINSULAR_MARKERS = re.compile(
-    r"\b(vale|móvil|vosotros|tenéis|queréis|vais|ordenador|vuestro)\b",
+    r"\b(vale|móvil|vosotros|tenéis|queréis|vais|ordenador|vuestro|ayudaros|os vienen|os ayudo)\b",
+    re.I,
+)
+SPANISH_EVIDENCE = re.compile(
+    r"[áéíóúñ¿¡]|\b(hay|plaza|plazas|compañero|bienvenid\w*|reserva\w*|tenéis|queréis|"
+    r"vale|móvil|entrada|salida|depósito|paga|aquí|os |tu plaza|fechas)\b",
     re.I,
 )
 EXTRA_URL_RE = re.compile(r"https?://[^\s]+", re.I)
-EURO_RE = re.compile(r"€\s?\d+(?:[.,]\d+)?")
+AMOUNT_RE = re.compile(
+    r"(?:€\s?\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:€|euros?|eur)\b)",
+    re.I,
+)
 UNSUPPORTED_FACT_RE = re.compile(
-    r"\b(available now|sold out|confirmed booking|open spots?)\b",
+    r"\b(available now|sold out|open spots?|free flights?|we charge)\b",
+    re.I,
+)
+MEANING_NEGATION_RE = re.compile(
+    r"\b(do not book|don't book|dont book|no reserve|no reserv(?:e|ar))\b",
     re.I,
 )
 
@@ -111,14 +129,25 @@ def build_eval_user_message(case: Dict[str, Any]) -> str:
     )
 
 
-def assert_sunset_serving_identity() -> Dict[str, str]:
+def assert_sunset_serving_identity(*, require_home: bool = False) -> Dict[str, str]:
     role = (os.getenv("HERMES_ROLE") or "").strip()
     slug = (os.getenv("LUNA_CLIENT_SLUG") or os.getenv("LUNA_BOT_CLIENT_SLUG") or "").strip()
     home = (os.getenv("HERMES_HOME") or "").strip()
+    expected_home = (os.getenv("LUNA_PERSONALITY_EXPECTED_HERMES_HOME") or EXPECTED_HERMES_HOME).strip()
     if role != SUNSET_ROLE:
         raise IsolationAbort(f"refusing_non_sunset_role:{role or 'unset'}")
     if slug != SUNSET_SLUG:
         raise IsolationAbort(f"refusing_non_sunset_tenant:{slug or 'unset'}")
+    if require_home:
+        if not home:
+            raise IsolationAbort("hermes_home_missing")
+        if os.path.normpath(home) != os.path.normpath(expected_home):
+            raise IsolationAbort("hermes_home_mismatch")
+        soul = Path(home) / "SOUL.md"
+        if not soul.is_file() or not soul.read_text(encoding="utf-8").strip():
+            alt = Path("/etc/hermes-staging/SOUL.md")
+            if not alt.is_file() or not alt.read_text(encoding="utf-8").strip():
+                raise IsolationAbort("soul_unobserved")
     return {"HERMES_ROLE": role, "LUNA_CLIENT_SLUG": slug, "HERMES_HOME": home}
 
 
@@ -128,6 +157,45 @@ def _emoji_or_bang(text: str) -> int:
     return len(em) + bangs
 
 
+def _normalize_amount(token: str) -> str:
+    raw = str(token or "").lower()
+    raw = raw.replace("euros", "").replace("euro", "").replace("eur", "").replace("€", "")
+    raw = raw.replace(",", ".").strip()
+    try:
+        return f"{float(raw):.2f}"
+    except Exception:
+        return raw
+
+
+def _fact_contradicted(text: str, fact: str) -> bool:
+    escaped = re.escape(str(fact))
+    patterns = (
+        rf"\bnot\s+{escaped}",
+        rf"\bthere are not\s+{escaped}",
+        rf"\bno hay\s+{escaped}",
+        rf"\bno\s+{escaped}",
+        rf"{escaped}\s+is not",
+        rf"aren't\s+{escaped}",
+        rf"isn't\s+{escaped}",
+    )
+    return any(re.search(p, text, re.I) for p in patterns)
+
+
+def _positive_token(text: str, tok: str) -> bool:
+    token = str(tok or "").strip().lower()
+    if not token:
+        return True
+    lowered = text.lower()
+    if token in {"book", "reserva", "reservar"}:
+        if MEANING_NEGATION_RE.search(lowered):
+            return False
+    if token.startswith("bienvenid") or token.startswith("reserva") or token == "welcome":
+        return bool(re.search(rf"\b{re.escape(token)}", lowered))
+    if "-" in token or " " in token:
+        return token in lowered
+    return bool(re.search(rf"\b{re.escape(token)}\b", lowered))
+
+
 def evaluate_generated_reply(
     *,
     case: Dict[str, Any],
@@ -135,48 +203,64 @@ def evaluate_generated_reply(
     reply: str,
     fixture_echo_forbidden: bool = True,
 ) -> Dict[str, Any]:
+    """Deterministic checks. Not complete semantic proof of live model quality."""
     text = str(reply or "")
     findings: List[str] = []
     kind = str(case.get("kind") or "")
     lang = str(case.get("lang") or "en")
     fixture = ((case.get("replies") or {}).get(personality_id) or "").strip()
+    frozen = [str(f) for f in (case.get("frozen_facts") or []) if str(f).strip()]
+    composer_state = str(case.get("composer_state") or "")
 
     if not text.strip():
         findings.append("empty_reply")
-    if fixture_echo_forbidden and fixture and text.strip() == fixture:
+    fixture_echo = bool(fixture and text.strip() == fixture)
+    if fixture_echo_forbidden and fixture_echo:
         findings.append("fixture_echo")
 
-    for fact in case.get("frozen_facts") or []:
-        if str(fact) not in text:
+    for fact in frozen:
+        if fact not in text:
             findings.append(f"missing_fact:{fact}")
+        if _fact_contradicted(text, fact):
+            findings.append(f"contradicted_fact:{fact}")
 
-    if kind in {"truth_frozen", "invariant"}:
-        allowed_urls = set()
-        allowed_euros = set()
-        for fact in case.get("frozen_facts") or []:
-            allowed_urls.update(EXTRA_URL_RE.findall(str(fact)))
-            allowed_euros.update(EURO_RE.findall(str(fact)))
-        for url in EXTRA_URL_RE.findall(text):
-            if url not in allowed_urls:
-                findings.append(f"unsupported_url:{url}")
-        for euro in EURO_RE.findall(text):
-            if euro not in allowed_euros and allowed_euros:
-                findings.append(f"unsupported_amount:{euro}")
+    allowed_urls = set()
+    allowed_amounts = set()
+    for fact in frozen:
+        allowed_urls.update(EXTRA_URL_RE.findall(str(fact)))
+        allowed_amounts.update(_normalize_amount(m) for m in AMOUNT_RE.findall(str(fact)))
+
+    for url in EXTRA_URL_RE.findall(text):
+        if url not in allowed_urls:
+            findings.append(f"unsupported_url:{url}")
+    for amount in AMOUNT_RE.findall(text):
+        norm = _normalize_amount(amount)
+        if allowed_amounts:
+            if norm not in allowed_amounts:
+                findings.append(f"unsupported_amount:{amount}")
+        elif kind == "warmth_eligible":
+            findings.append(f"unsupported_amount:{amount}")
+
+    if UNSUPPORTED_FACT_RE.search(text):
+        findings.append("unsupported_availability_or_addition")
 
     lower = text.lower()
     if kind == "warmth_eligible":
-        tokens = [
+        shared = [str(t).lower() for t in (case.get("shared_tokens") or [])]
+        meaning_tokens = [
             t
-            for t in re.split(r"[^a-záéíóúüñ]+", str(case.get("meaning_tokens") or case.get("meaning") or "").lower())
+            for t in re.split(
+                r"[^a-záéíóúüñ-]+",
+                str(case.get("meaning_tokens") or case.get("meaning") or "").lower(),
+            )
             if len(t) >= 4
         ]
-        shared = [str(t).lower() for t in (case.get("shared_tokens") or [])]
-        if tokens:
-            must = tokens[:2]
-            if not any(t in lower for t in must) and not (shared and all(t in lower for t in shared)):
-                findings.append("meaning_tokens_missing")
-        elif shared and not all(t in lower for t in shared):
-            findings.append("shared_tokens_missing")
+        required = shared or meaning_tokens[:2]
+        for tok in required:
+            if not _positive_token(text, tok):
+                findings.append(f"meaning_token_missing:{tok}")
+        if MEANING_NEGATION_RE.search(text):
+            findings.append("required_meaning_negated")
 
     if kind == "invariant" and "identity" in str(case.get("id") or "") and "luna" not in lower:
         findings.append("identity_missing")
@@ -184,14 +268,26 @@ def evaluate_generated_reply(
     if lang == "es":
         if LATAM_MARKERS.search(text):
             findings.append("latam_spanish")
+        if not SPANISH_EVIDENCE.search(text):
+            findings.append("missing_spanish_language")
+        if kind == "warmth_eligible" and not PENINSULAR_MARKERS.search(text):
+            findings.append("missing_peninsular_spanish")
+        english_heavy = bool(
+            re.search(r"\b(there are not|there are|confirmed booking|free flights|do not book)\b", lower)
+        )
+        if english_heavy:
+            findings.append("english_on_es")
     if lang == "en" and re.search(r"\b(hola|bienvenid|gracias|reservar)\b", lower):
         findings.append("unexpected_spanish_on_en")
 
-    if UNSUPPORTED_FACT_RE.search(text) and kind == "warmth_eligible":
-        findings.append("unsupported_availability_claim")
+    if composer_state in COMPOSER_OWNED_STATES and kind in {"truth_frozen", "invariant"}:
+        # Truth-frozen / composer-owned: extra cheer must not rewrite facts.
+        if personality_id == "extra" and _emoji_or_bang(text) > 8:
+            findings.append("truth_frozen_overstyled")
 
+    deterministic_ok = not findings
     return {
-        "ok": not findings,
+        "ok": deterministic_ok,
         "findings": findings,
         "reply_len": len(text),
         "emoji_or_bang": _emoji_or_bang(text),
@@ -199,6 +295,61 @@ def evaluate_generated_reply(
         "case_id": case.get("id"),
         "lang": lang,
         "kind": kind,
+        "fixture_echo": fixture_echo,
+        "complete_semantic_proof": False,
+        "assessment_kind": "deterministic_checks_not_complete_semantic_proof",
+        "remaining_human_or_live_assessment": True,
+    }
+
+
+def _row_kind(row: Dict[str, Any]) -> str:
+    return str(row.get("kind") or (row.get("semantic") or {}).get("kind") or "")
+
+
+def _row_emoji(row: Dict[str, Any]) -> int:
+    sem = row.get("semantic") or {}
+    return int(row.get("emoji_or_bang") or sem.get("emoji_or_bang") or 0)
+
+
+def _row_len(row: Dict[str, Any]) -> int:
+    sem = row.get("semantic") or {}
+    return int(row.get("reply_len") or sem.get("reply_len") or 0)
+
+
+def compare_pack_styles(rows: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Comparative four-pack style. Deterministic only; remaining assessment is human/live."""
+    findings: List[str] = []
+    by_case: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        by_case.setdefault(str(row.get("case_id") or ""), []).append(row)
+    for case_id, group in by_case.items():
+        if not case_id:
+            continue
+        kind = _row_kind(group[0])
+        by_pack = {str(r.get("personality_id")): r for r in group}
+        extra = by_pack.get("extra") or {}
+        sunny = by_pack.get("sunny") or {}
+        calm = by_pack.get("calm") or {}
+        concise = by_pack.get("concise") or {}
+        if kind == "warmth_eligible":
+            if extra and concise and _row_emoji(extra) < _row_emoji(concise):
+                findings.append(f"extra_not_more_expressive_than_concise:{case_id}")
+            if concise and sunny and _row_len(concise) > _row_len(sunny) + 40:
+                findings.append(f"concise_not_shorter_than_sunny:{case_id}")
+            if extra and calm and _row_emoji(extra) < _row_emoji(calm):
+                findings.append(f"extra_not_warmer_than_calm:{case_id}")
+        if kind in {"truth_frozen", "invariant"}:
+            facts = []
+            for r in group:
+                sem = r.get("semantic") or {}
+                facts.append(tuple(sem.get("findings") or ()))
+            if facts and any(item != facts[0] for item in facts[1:]):
+                findings.append(f"truth_frozen_fact_parity_broken:{case_id}")
+    return {
+        "ok": not findings,
+        "findings": findings,
+        "complete_style_proof": False,
+        "assessment_kind": "deterministic_pack_comparison_not_complete_style_proof",
     }
 
 
@@ -215,16 +366,21 @@ def fetch_setting_guard(fetch_setting: Callable[[str], Dict[str, Any]]) -> Calla
     return _guarded
 
 
+def _ephemeral_digits() -> str:
+    n = int(uuid.uuid4().hex[:10], 16) % 10**10
+    return f"49{n:010d}"
+
+
 async def default_invoke_live_gateway(
     user_message: str,
     cap: IsolatedTurnCapture,
     meta: Dict[str, Any],
 ) -> str:
     try:
-        from gateway.run import _wolfhouse_gateway_runner  # noqa: WPS433
         from gateway.config import Platform
-        from gateway.session import SessionSource
         from gateway.platforms.base import MessageEvent, MessageType
+        from gateway.run import _wolfhouse_gateway_runner  # noqa: WPS433
+        from gateway.session import SessionSource
     except Exception as exc:
         raise IsolationAbort(f"gateway_runner_unavailable:{type(exc).__name__}") from exc
 
@@ -232,10 +388,12 @@ async def default_invoke_live_gateway(
     if runner is None:
         raise IsolationAbort("gateway_runner_unavailable")
 
-    install_isolation_runtime(runner=runner)
-    preflight_isolation_or_abort(require_live_seams=True)
+    targets = meta.get("isolation_targets")
+    install_isolation_runtime(runner=runner, targets=targets)
+    preflight_isolation_or_abort(require_live_seams=True, targets=targets, runner=runner)
 
-    digits = "490000009901"
+    digits = cap.ephemeral_chat_id or _ephemeral_digits()
+    cap.ephemeral_chat_id = digits
     source = SessionSource(
         platform=Platform.WHATSAPP_CLOUD,
         chat_id=digits,
@@ -249,7 +407,6 @@ async def default_invoke_live_gateway(
         source=source,
         message_id=f"wamid.personality-eval.{uuid.uuid4().hex[:12]}",
     )
-    record_model_call(os.getenv("HERMES_MODEL") or os.getenv("LLM_MODEL") or "serving")
     try:
         await runner._handle_message(event)  # noqa: SLF001
     except IsolationAbort:
@@ -268,6 +425,8 @@ async def run_isolated_personality_eval(
     invoke_turn: Optional[InvokeTurn] = None,
     require_live_seams: bool = False,
     serving_preflight: bool = True,
+    isolation_targets: Optional[IsolationTargets] = None,
+    evidence_kind: Optional[str] = None,
 ) -> Dict[str, Any]:
     cid = str(case_id or "").strip()
     pid = str(personality_id or "").strip().lower()
@@ -280,7 +439,7 @@ async def run_isolated_personality_eval(
         raise IsolationAbort("foreign_tenant_fetch")
     if serving_preflight:
         assert_staging_environment()
-        identity = assert_sunset_serving_identity()
+        identity = assert_sunset_serving_identity(require_home=require_live_seams)
     else:
         identity = {
             "HERMES_ROLE": os.getenv("HERMES_ROLE") or "",
@@ -291,58 +450,102 @@ async def run_isolated_personality_eval(
     loaded = corpus or load_corpus()
     case = case_by_id(loaded, cid)
     user_message = build_eval_user_message(case)
+    kind_label = "test_double" if invoke_turn is not None else "live_gateway"
+    if evidence_kind:
+        kind_label = evidence_kind
 
     if invoke_turn is None:
-        install_isolation_runtime()
+        install_isolation_runtime(targets=isolation_targets)
+    elif require_live_seams:
+        install_isolation_runtime(targets=isolation_targets)
     else:
         mark_test_isolation_installed()
 
     cap = IsolatedTurnCapture(case_id=cid, personality_id=pid, tenant_id=SUNSET_SLUG)
+    cap.ephemeral_chat_id = _ephemeral_digits()
+    cap.evidence_kind = kind_label
     token = enter_isolated_turn(cap)
     try:
-        preflight_isolation_or_abort(require_live_seams=require_live_seams)
+        preflight_isolation_or_abort(
+            require_live_seams=require_live_seams,
+            targets=isolation_targets,
+        )
 
         source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"))
-        fetcher = fetch_setting_guard(fetch_setting) if fetch_setting else None
+        fetcher = fetch_setting_guard(fetch_setting or default_fetch_setting)
         bound = bind_whatsapp_turn_personality(source, fetch_setting=fetcher)
-        pack_id = ((bound.get("pack") or {}).get("id")) or DEFAULT_PERSONALITY_ID
+        obs = bound.get("observability") or {}
+        if obs.get("fallback_reason"):
+            raise IsolationAbort(f"setting_fallback:{obs.get('fallback_reason')}")
+        pack_id = ((bound.get("pack") or {}).get("id")) or ""
+        if pack_id != pid:
+            raise IsolationAbort(f"pack_mismatch:requested={pid}:bound={pack_id or 'none'}")
 
         invoker = invoke_turn or default_invoke_live_gateway
-        reply = await invoker(user_message, cap, {"case": case, "pack_id": pack_id, "identity": identity})
-        if not cap.model_called:
-            record_model_call(os.getenv("HERMES_MODEL") or "injected")
+        reply = await invoker(
+            user_message,
+            cap,
+            {
+                "case": case,
+                "pack_id": pack_id,
+                "identity": identity,
+                "isolation_targets": isolation_targets,
+                "evidence_kind": kind_label,
+            },
+        )
         cap.reply_text = str(reply or cap.reply_text or "").strip()
 
-        if cap.tools_invoked > 0 or cap.sends_completed > 0:
+        if cap.tools_invoked > 0 or cap.sends_completed > 0 or cap.journal_writes_completed > 0:
             raise IsolationAbort("isolation_violated")
+        if not cap.model_called or cap.model_calls < 1:
+            raise IsolationAbort("model_not_invoked")
+        if not cap.reply_text:
+            raise IsolationAbort("missing_generated_reply")
+        if cap.setting_fallback:
+            raise IsolationAbort(f"setting_fallback:{cap.setting_fallback}")
+        observed = cap.observed_pack_id or pack_id
+        if observed != pid:
+            raise IsolationAbort(f"pack_mismatch:requested={pid}:observed={observed or 'none'}")
+        if case.get("kind") == "warmth_eligible" and not cap.observed_pack_injected and kind_label != "test_double":
+            raise IsolationAbort("pack_not_observed_in_prompt")
 
         semantic = evaluate_generated_reply(
             case=case,
             personality_id=pid,
             reply=cap.reply_text,
         )
+        whatsapp_suppressed = cap.sends_attempted > 0 and cap.sends_completed == 0
+        ok = bool(semantic.get("ok")) and whatsapp_suppressed and cap.tools_invoked == 0
         return {
-            "ok": True,
+            "ok": ok,
             "case_id": cid,
             "lang": case.get("lang"),
             "kind": case.get("kind"),
-            "personality_id": pack_id,
+            "personality_id": observed,
             "requested_personality_id": pid,
             "reply_text": cap.reply_text,
-            "fixture_echo": False,
+            "fixture_echo": bool(semantic.get("fixture_echo")),
             "tools_invoked": cap.tools_invoked,
             "tools_denied": list(cap.tools_denied),
             "sends_attempted": cap.sends_attempted,
             "sends_completed": cap.sends_completed,
             "journal_writes_denied": cap.journal_writes_denied,
+            "journal_writes_completed": cap.journal_writes_completed,
             "personality_fetches": cap.personality_fetches,
             "model_calls": cap.model_calls,
             "model": cap.model,
-            "whatsapp_suppressed": True,
-            "isolation": isolation_status(),
+            "model_called": cap.model_called,
+            "whatsapp_suppressed": whatsapp_suppressed,
+            "isolation": isolation_status(targets=isolation_targets),
             "serving_identity": identity,
             "semantic": semantic,
-            "pack_instruction_mark": get_personality_pack(pack_id)["id"],
+            "pack_instruction_mark": get_personality_pack(observed)["id"],
+            "observed_pack_id": observed,
+            "observed_pack_injected": cap.observed_pack_injected,
+            "observed_pack_from_provider": cap.observed_pack_from_provider,
+            "ephemeral_chat_id": cap.ephemeral_chat_id,
+            "evidence_kind": cap.evidence_kind,
+            "live_acceptance": False if kind_label == "test_double" else None,
         }
     finally:
         exit_isolated_turn(token)
@@ -377,7 +580,6 @@ def register_live_eval_route(app) -> None:
 
             return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
 
-        # Hostile: refuse arbitrary prompts / tenant / model / auth overrides.
         for banned in (
             "text",
             "message_text",
@@ -407,7 +609,13 @@ def register_live_eval_route(app) -> None:
             from aiohttp import web
 
             status = 403 if "non_sunset" in exc.reason or "unauthorized" in exc.reason else 400
-            if exc.reason in {"isolation_not_installed", "send_adapter_not_isolated", "tools_not_isolated", "isolation_context_missing"}:
+            if exc.reason.startswith("seams_incomplete") or exc.reason in {
+                "isolation_not_installed",
+                "send_adapter_not_isolated",
+                "tools_not_isolated",
+                "isolation_context_missing",
+                "gateway_runner_unavailable",
+            }:
                 status = 503
             return web.json_response({"ok": False, "error": exc.reason}, status=status)
         except SystemExit as exc:
@@ -431,10 +639,14 @@ async def simulated_model_turn(
     cap: IsolatedTurnCapture,
     meta: Dict[str, Any],
 ) -> str:
-    """Test double: genuinely generate (not fixture echo), prove tool/send denial."""
+    """TEST DOUBLE — not live acceptance, not a real model, not personality uptake proof.
+
+    Exercises production deny/send/provider-observe owners. Generated text is a
+    labeled double used only for offline unit tests.
+    """
+    cap.evidence_kind = "test_double"
     case = meta["case"]
     pack_id = meta["pack_id"]
-    # Attempted business tools — must be denied, never invoked.
     for tool in (
         "check_availability",
         "quote_booking",
@@ -442,6 +654,8 @@ async def simulated_model_turn(
         "create_sunset_payment_link",
         "get_sunset_lesson_availability",
         "preview_package_prices",
+        "terminal",
+        "web_search",
     ):
         blocked = deny_tool_if_isolated(tool, {})
         if not blocked:
@@ -449,8 +663,10 @@ async def simulated_model_turn(
         denied_bot = deny_post_bot_if_isolated(f"/staff/bot/{tool}", {})
         if denied_bot is None:
             record_tool_invocation_violation(f"post_bot:{tool}")
-    capture_send_if_isolated("")  # will be overwritten with generated reply
-    record_model_call("test-double-not-fixture")
+    pack = get_personality_pack(pack_id)
+    injected = inject_personality_pack_once("# Luna test-double SOUL", pack, composer_state=str(case.get("composer_state") or "greeting"))
+    observe_provider_invocation("test-double-not-live", injected.get("system_prompt") or pack.get("instruction"))
+    record_consumed_pack(pack_id, injected=bool(injected.get("injected")) or case.get("kind") != "warmth_eligible")
 
     facts = [str(f) for f in (case.get("frozen_facts") or [])]
     lang = case.get("lang")
@@ -470,14 +686,14 @@ async def simulated_model_turn(
                 body = f"I'm Luna at Wolf-House. Booking {facts[0] if facts else ''} is confirmed (synthetic eval)."
             if case.get("id") == "truth-payment-link-en":
                 body = f"Your stay is held. Pay the deposit here: {' '.join(facts)}"
-        generated = f"{body} [generated:{pack_id}:{case.get('id')}]"
+        generated = f"{body} [generated-test-double:{pack_id}:{case.get('id')}]"
     else:
         meaning = str(case.get("meaning") or "")
         if lang == "es":
             base = {
                 "sunny": f"¡Hola! Bienvenidos a Wolf-House 🌊 Puedo ayudaros a reservar — {meaning}. ¿Qué fechas tenéis?",
                 "calm": f"Bienvenidos a Wolf-House. Puedo ayudaros a reservar. {meaning}. ¿Qué fechas os vienen bien?",
-                "concise": f"Bienvenidos. {meaning}. ¿Fechas?",
+                "concise": f"Bienvenidos — os ayudo. {meaning}. ¿Fechas?",
                 "extra": f"¡¡Bienvenidos a Wolf-House!! 🌊🙌🐺 {meaning} ¿Qué fechas soñáis? 😊 Vale.",
             }[pack_id]
         else:
@@ -487,7 +703,7 @@ async def simulated_model_turn(
                 "concise": f"Welcome. {meaning}. Dates?",
                 "extra": f"Yesss welcome to Wolf-House!! 🌊🙌 I can help you book a stay — {meaning} 😊",
             }[pack_id]
-        generated = f"{base} [generated:{pack_id}:{case.get('id')}]"
+        generated = f"{base} [generated-test-double:{pack_id}:{case.get('id')}]"
     cap.reply_text = generated
     capture_send_if_isolated(generated)
     return generated

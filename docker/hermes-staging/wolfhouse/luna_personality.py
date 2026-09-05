@@ -210,6 +210,15 @@ def resolve_whatsapp_personality_once(
         normalized = normalize_stored_id(stored)
         pack = get_personality_pack(normalized["id"])
         fallback = None if normalized["source"] == "stored" else normalized["source"]
+        try:
+            from wolfhouse.luna_personality_isolation import IsolationAbort, current_isolated_turn
+
+            if current_isolated_turn() is not None and fallback:
+                raise IsolationAbort(f"setting_fallback:{fallback}")
+        except IsolationAbort:
+            raise
+        except Exception:
+            pass
         return {
             "applied": True,
             "pack": pack,
@@ -223,6 +232,15 @@ def resolve_whatsapp_personality_once(
         }
     except Exception as exc:
         reason = "setting_timeout" if "timed out" in str(exc).lower() or "timeout" in str(exc).lower() else "setting_failure"
+        try:
+            from wolfhouse.luna_personality_isolation import IsolationAbort, current_isolated_turn
+
+            if current_isolated_turn() is not None:
+                raise IsolationAbort(f"setting_fallback:{reason}") from exc
+        except IsolationAbort:
+            raise
+        except Exception:
+            pass
         return _sunny(tid, ch, reason, applied=True)
 
 
@@ -246,8 +264,15 @@ def inject_personality_pack_once(
         return {"system_prompt": text, "injected": False, "injection_count": 0}
     if should_freeze_personality_style(composer_state):
         return {"system_prompt": text, "injected": False, "injection_count": 0}
+    injected_prompt = f"{text}\n\n{pack['instruction']}"
+    try:
+        from wolfhouse.luna_personality_isolation import record_consumed_pack
+
+        record_consumed_pack(pack.get("id"), injected=True)
+    except Exception:
+        pass
     return {
-        "system_prompt": f"{text}\n\n{pack['instruction']}",
+        "system_prompt": injected_prompt,
         "injected": True,
         "injection_count": 1,
     }
@@ -261,6 +286,19 @@ def bind_whatsapp_turn_personality(source: Any, fetch_setting: Optional[Callable
         return bound
     bound = resolve_whatsapp_personality_once(channel=CHANNEL, fetch_setting=fetch_setting)
     _bound.set(bound)
+    try:
+        from wolfhouse.luna_personality_isolation import record_consumed_pack
+
+        pack = bound.get("pack") or {}
+        obs = bound.get("observability") or {}
+        record_consumed_pack(
+            pack.get("id"),
+            injected=False,
+            source=obs.get("source"),
+            fallback=obs.get("fallback_reason"),
+        )
+    except Exception:
+        pass
     return bound
 
 

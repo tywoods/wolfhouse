@@ -48,9 +48,18 @@ ok('isolation uses ContextVar not process env', /ContextVar/.test(isoSrc) && !/W
 ok('isolation aborts before model, does not warn-and-continue',
   /IsolationAbort/.test(isoSrc) && /preflight_isolation_or_abort/.test(isoSrc)
   && !/warnings.append\(f"tool_capture_unavailable/.test(isoSrc));
+ok('live preflight requires ALL seams AND, never OR',
+  /REQUIRED_LIVE_SEAMS/.test(isoSrc)
+  && /tool_hook_wrapped/.test(isoSrc)
+  && /journal_wrapped/.test(isoSrc)
+  && /executor_ctx_wrapped/.test(isoSrc)
+  && !/if not \(_post_bot_wrapped or _tool_hook_wrapped\)/.test(isoSrc));
+ok('executor copies ContextVar into worker threads',
+  /copy_context\(/.test(isoSrc) && /ThreadPoolExecutor\.submit/.test(isoSrc));
 ok('business tools denied including reads/previews',
   /check_availability/.test(evalSrc) && /quote_booking/.test(evalSrc)
-  && /get_sunset_lesson_availability/.test(evalSrc) && /preview_package_prices/.test(evalSrc));
+  && /get_sunset_lesson_availability/.test(evalSrc) && /preview_package_prices/.test(evalSrc)
+  && /terminal/.test(evalSrc) && /web_search/.test(evalSrc));
 ok('allowlisted case ids only', /ALLOWED_CASE_IDS/.test(evalSrc) && /caller_override_rejected/.test(evalSrc));
 ok('no arbitrary text/model/tenant overrides on route',
   /"text"/.test(evalSrc) && /"model"/.test(evalSrc) && /"client_slug"/.test(evalSrc));
@@ -63,8 +72,26 @@ ok('canonical bot header helper present', /canonical_bot_auth_headers/.test(pySr
 ok('runner defaults to dry-run and qualifies stored sunny restore',
   /dry-run/.test(runnerSrc) && /source=stored/.test(runnerSrc)
   && /LUNA_PERSONALITY_LIVE_PROOF/.test(runnerSrc));
+ok('runner execute-live owns snapshot PUT restore GET',
+  /execute_live_matrix/.test(runnerSrc)
+  && /put_and_verify/.test(runnerSrc)
+  && /StaffSessionTransport/.test(runnerSrc)
+  && /bot_write_not_authorized/.test(runnerSrc)
+  && /parse_exact_staff_origin/.test(runnerSrc)
+  && /OfflineStaffTransportDouble/.test(runnerSrc)
+  && /never live acceptance/.test(runnerSrc));
+ok('exact origin allowlist not substring',
+  /ALLOWED_STAFF_ORIGINS/.test(runnerSrc)
+  && /sunset-staging\.lunafrontdesk\.com/.test(runnerSrc)
+  && /staff_origin_not_allowlisted/.test(runnerSrc));
 ok('same-process gateway invoke not a second SOUL/model',
   /_handle_message/.test(evalSrc) && !/alternate SOUL|second bot/i.test(evalSrc));
+ok('eval fails closed on pack mismatch, fallback, missing model',
+  /pack_mismatch/.test(evalSrc) && /setting_fallback/.test(evalSrc)
+  && /model_not_invoked/.test(evalSrc) && /missing_generated_reply/.test(evalSrc));
+ok('grading rejects contradictions and does not claim complete semantic proof',
+  /contradicted_fact/.test(evalSrc) && /complete_semantic_proof/.test(evalSrc)
+  && /PENINSULAR_MARKERS/.test(evalSrc) && /missing_spanish_language/.test(evalSrc));
 
 const py = spawnSync('python3', ['-m', 'unittest', 'wolfhouse.test_luna_personality_live_eval'], {
   cwd: path.join(ROOT, 'docker/hermes-staging'),
