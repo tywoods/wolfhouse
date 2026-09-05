@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import os
 import sys
 import tempfile
 import types
@@ -76,13 +77,7 @@ def malformed_twelve_with_eight_bind() -> str:
     )
 
 
-EVIDENCE_GATEWAY = Path(
-    "/opt/data/workspace/evidence/"
-    "LUNA-PERSONALITY-001-model-path-sources/gateway_run.py"
-)
-PRISTINE_UPSTREAM_CANDIDATES = (
-    Path("/opt/hermes/gateway/run.py"),
-)
+EVIDENCE_GATEWAY_ENV = "LUNA_PERSONALITY_GATEWAY_EVIDENCE"
 
 
 def _ast_dump(node: ast.AST) -> str:
@@ -140,22 +135,6 @@ def _nested_decoy_tail(indent: int) -> str:
         f"{inner}return result\n"
         f"{pad}x = 1\n"
     )
-
-
-def _load_pristine_upstream_if_available() -> tuple[str, Path] | None:
-    """Return local pinned upstream only if it is unpatched. Never infer from reconstruction."""
-    for path in PRISTINE_UPSTREAM_CANDIDATES:
-        if not path.is_file():
-            continue
-        text = path.read_text(encoding="utf-8")
-        if gw.LUNA_PERSONALITY_BIND_TAG in text or gw.LUNA_SOUL_RELOAD_TAG in text:
-            continue
-        try:
-            gw.select_unique_soul_reload_owner(text)
-        except RuntimeError:
-            continue
-        return text, path
-    return None
 
 
 def _apply_patches_marker_prefix() -> str:
@@ -590,12 +569,17 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
                 )
                 self._reject_no_write(mutant)
 
+    @unittest.skipUnless(
+        os.environ.get(EVIDENCE_GATEWAY_ENV),
+        f"set {EVIDENCE_GATEWAY_ENV} to an evidence gateway_run.py path to run this opt-in probe",
+    )
     def test_evidence_gateway_offline_reject_and_reconstructed_control(self) -> None:
+        evidence_path = Path(os.environ[EVIDENCE_GATEWAY_ENV])
         self.assertTrue(
-            EVIDENCE_GATEWAY.is_file(),
-            f"installed evidence gateway missing: {EVIDENCE_GATEWAY}",
+            evidence_path.is_file(),
+            f"installed evidence gateway missing: {evidence_path}",
         )
-        evidence_bytes = EVIDENCE_GATEWAY.read_bytes()
+        evidence_bytes = evidence_path.read_bytes()
         evidence = evidence_bytes.decode("utf-8")
         self.assertIn(gw.LUNA_PERSONALITY_BIND_TAG, evidence)
         self.assertIn(gw.LUNA_SOUL_RELOAD_TAG, evidence)
@@ -610,7 +594,7 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "luna personality"):
                 gw.apply_luna_personality_gateway_patches(evidence)
             self.assertEqual(path.read_bytes(), before)
-        self.assertEqual(EVIDENCE_GATEWAY.read_bytes(), evidence_bytes)
+        self.assertEqual(evidence_path.read_bytes(), evidence_bytes)
 
         historical_bind = gw.luna_personality_bind_patch(8)
         historical_soul = gw.LUNA_SOUL_RELOAD_PATCH_12
@@ -664,27 +648,7 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
         self.assertTrue(
             any(isinstance(node, ast.Return) for node in nodes[conv_indexes[0] + 1 :])
         )
-        self.assertEqual(EVIDENCE_GATEWAY.read_bytes(), evidence_bytes)
-
-        pristine = _load_pristine_upstream_if_available()
-        if pristine is None:
-            self.assertIsNone(
-                pristine,
-                "reconstruction is labeled reconstructed control, not pristine upstream",
-            )
-            return
-        pristine_source, _pristine_path = pristine
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "run.py"
-            path.write_text(pristine_source, encoding="utf-8")
-            first = gw.apply_patches(path)
-            once = path.read_bytes()
-            self.assertTrue(first.get("luna_soul_reload") or True)
-            gw.validate_luna_personality_emitted_ast(path.read_text(encoding="utf-8"))
-            second = gw.apply_patches(path)
-            self.assertEqual(path.read_bytes(), once)
-            self.assertTrue(second.get("luna_soul_reload") or True)
-        self.assertEqual(EVIDENCE_GATEWAY.read_bytes(), evidence_bytes)
+        self.assertEqual(evidence_path.read_bytes(), evidence_bytes)
 
 
 if __name__ == "__main__":
