@@ -145,6 +145,13 @@ def _find_staff_plugin_module() -> tuple[Any, Optional[str]]:
     import importlib
     import sys
 
+    exact = sys.modules.get("wolfhouse_staff_api")
+    if exact is not None and hasattr(exact, "_post_bot"):
+        return exact, None
+    plugins = sys.modules.get("plugins.wolfhouse_staff_api")
+    if plugins is not None and hasattr(plugins, "_post_bot"):
+        return plugins, None
+
     for key, loaded in list(sys.modules.items()):
         if not loaded or not key.endswith("wolfhouse_staff_api"):
             continue
@@ -612,3 +619,12 @@ def register_simulate_route(app) -> None:
 
     app.router.add_post(SIMULATE_PATH, _handle_simulate_guest_turn)
     app.router.add_post(SIMULATE_BURST_PATH, _handle_simulate_guest_turn)
+    try:
+        from wolfhouse.luna_personality_live_eval import register_live_eval_route
+
+        # Identity-gated: Wolfhouse 8090 no-ops; Sunset HTTP 8094 registers
+        # /whatsapp/v1/internal/luna-personality-live-eval. Simulate paths stay.
+        register_live_eval_route(app)
+    except Exception:
+        # Isolated eval is additive. Default simulate must still register.
+        pass

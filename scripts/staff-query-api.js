@@ -206,6 +206,7 @@ const {
   LUNA_PERSONALITY_PATH,
   LUNA_PERSONALITY_BOT_PATH,
 } = require('./lib/staff-luna-personality-routes');
+const { createRequireBotAuth } = require('./lib/staff-require-bot-auth');
 const {
   createAutomatedNotificationsRoutes,
   AUTOMATED_NOTIFICATIONS_PATH,
@@ -1570,72 +1571,15 @@ async function requireOwnerInsightsAuth(req, res) {
 //     authenticated bot principal via dispatchBotRouteBoundToPrincipalTenant.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function requireBotAuth(req, res) {
-  // 1. No-auth open mode (local/dev)
-  if (!STAFF_AUTH_REQUIRED) return { ok: true, user: null, auth_mode: 'open' };
-
-  // 2. Bot token path — only active when LUNA_BOT_INTERNAL_TOKEN is configured
-  if (LUNA_BOT_INTERNAL_TOKEN) {
-    const rawHeader = req.headers['x-luna-bot-token'] || '';
-    const bearerHeader = req.headers['authorization'] || '';
-    const bearerToken = bearerHeader.startsWith('Bearer ')
-      ? bearerHeader.slice(7).trim()
-      : '';
-    const provided = rawHeader || bearerToken;
-
-    if (provided) {
-      // Constant-time comparison to prevent timing attacks
-      const configBuf   = Buffer.from(LUNA_BOT_INTERNAL_TOKEN, 'utf8');
-      const providedBuf = Buffer.from(provided, 'utf8');
-      const match = configBuf.length === providedBuf.length &&
-        crypto.timingSafeEqual(configBuf, providedBuf);
-      if (match) {
-        // FORTRESS 15E — bind bot principal to one authoritative runtime tenant.
-        const knownSlugs = listBaselineClients().map((c) => c.slug);
-        const principal = buildStaffBotAuthPrincipal(process.env, {
-          knownClientSlugs: knownSlugs,
-        });
-        if (!principal.ok || !principal.user) {
-          sendJSON(res, 503, {
-            success: false,
-            error: 'bot_principal_tenant_unconfigured',
-            reason: principal.reason || 'missing_runtime_client_slug',
-          });
-          return { ok: false };
-        }
-        if (!enforceAuthenticatedStaffRouteAuthz(req, res, principal.user)) return { ok: false };
-        return { ok: true, user: principal.user, auth_mode: 'bot_token' };
-      }
-      // Token provided but wrong → 401 immediately (do not fall through to session)
-      sendJSON(res, 401, {
-        success: false,
-        error:   'Invalid bot token.',
-      });
-      return { ok: false };
-    }
-  }
-
-  // 3. Fall through to normal session cookie auth
-  let user;
-  try {
-    user = await loadAuthSession(req);
-  } catch (_) {
-    sendJSON(res, 500, { success: false, error: 'auth session lookup failed' });
-    return { ok: false };
-  }
-
-  if (!user) {
-    sendJSON(res, 401, {
-      success:  false,
-      error:    'Authentication required. Provide X-Luna-Bot-Token header or POST /staff/auth/login first.',
-      auth_url: '/staff/auth/login',
-    });
-    return { ok: false };
-  }
-
-  if (!enforceAuthenticatedStaffRouteAuthz(req, res, user)) return { ok: false };
-  return { ok: true, user, auth_mode: 'session' };
-}
+const requireBotAuth = createRequireBotAuth({
+  getStaffAuthRequired: () => STAFF_AUTH_REQUIRED,
+  getBotToken: () => LUNA_BOT_INTERNAL_TOKEN,
+  listBaselineClients,
+  buildPrincipal: buildStaffBotAuthPrincipal,
+  enforceAuthenticatedStaffRouteAuthz,
+  loadAuthSession,
+  sendJSON,
+});
 
 // FORTRESS 15E — common bot-route dispatch: require principal access to the
 // route's effective tenant before handler execution. Propagates auth.user into

@@ -263,6 +263,9 @@ ok('shouldFreezePersonalityStyle exported', typeof runtime.shouldFreezePersonali
     process.stderr.write(py.stderr || '');
   }
   ok('python luna_personality tests green', py.status === 0, `status ${py.status}`);
+  ok('python fetch uses canonical bot token header',
+    /def canonical_bot_auth_headers/.test(pySrc)
+    && /X-Luna-Bot-Token/.test(pySrc));
 
   console.log(`\nverify:luna-personality-runtime: ${pass} passed, ${fail} failed`);
   process.exit(fail === 0 ? 0 : 1);

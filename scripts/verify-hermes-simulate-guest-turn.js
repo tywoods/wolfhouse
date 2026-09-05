@@ -50,6 +50,11 @@ const dockerfile = fs.readFileSync(path.join(H, 'Dockerfile'), 'utf8');
 const bootstrap = fs.readFileSync(path.join(H, 'bootstrap.sh'), 'utf8');
 
 check('A1 simulate route path', /\/wolfhouse\/simulate-guest-turn/.test(core));
+check('A1b isolated personality eval is a separate route',
+  fs.existsSync(path.join(WOLF, 'luna_personality_live_eval.py'))
+  && /register_live_eval_route/.test(core)
+  && /luna-personality-live-eval/.test(fs.readFileSync(path.join(WOLF, 'luna_personality_live_eval.py'), 'utf8')));
+check('A1c default simulate still exposes allow_writes', /allow_writes=bool\(body.get\("allow_writes"\)\)/.test(core));
 check('A2 suppresses WhatsApp outbound', /suppressed_whatsapp/.test(core) && /WOLFHOUSE_SIMULATE_GUEST_TURN/.test(core));
 check('A3 captures tool_calls with args', /tool_calls/.test(core) && /"args"/.test(core));
 check('A4 staging guard', /assert_staging_environment/.test(core) && /staging/.test(guard));

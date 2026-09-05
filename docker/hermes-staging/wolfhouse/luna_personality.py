@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from contextvars import ContextVar
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import urlparse
 
 PRODUCT_NAME = "Luna Personality"
 CHANNEL = "whatsapp"
@@ -25,6 +26,8 @@ CLOSED_PERSONALITY_IDS = ("sunny", "calm", "concise", "extra")
 GUEST_WHATSAPP_LUNA_ROLES = frozenset({"luna", "sunset-luna"})
 FETCH_TIMEOUT_S = 0.8
 INJECTION_MARK = "Luna Personality this turn:"
+ALLOWED_STAFF_ORIGINS = frozenset({"https://sunset-staging.lunafrontdesk.com"})
+STAFF_BOT_PERSONALITY_PATH = "/staff/bot/luna-personality"
 
 PACKS: Dict[str, Dict[str, str]] = {
     "sunny": {
@@ -148,15 +151,63 @@ def _sunny(tenant_id: str, channel: str, reason: Optional[str], applied: bool) -
     }
 
 
+def parse_https_staff_origin(url: str, *, allowlist: Optional[frozenset] = None) -> str:
+    """Exact https Staff origin. Optional Sunset-only allowlist for isolated eval."""
+    from wolfhouse.luna_personality_isolation import IsolationAbort
+
+    raw = str(url or "").strip()
+    parsed = urlparse(raw)
+    if parsed.scheme != "https":
+        raise IsolationAbort("staff_origin_not_https")
+    if parsed.username or parsed.password:
+        raise IsolationAbort("staff_origin_userinfo_forbidden")
+    host = (parsed.hostname or "").lower()
+    if parsed.port:
+        raise IsolationAbort("staff_origin_port_forbidden")
+    origin = f"{parsed.scheme}://{host}"
+    if allowlist is not None and origin not in allowlist:
+        raise IsolationAbort(f"staff_origin_not_allowlisted:{host or 'empty'}")
+    if parsed.path not in ("", "/"):
+        raise IsolationAbort("staff_origin_path_forbidden")
+    if parsed.query or parsed.fragment:
+        raise IsolationAbort("staff_origin_query_forbidden")
+    return origin
+
+
+def parse_exact_staff_origin(url: str) -> str:
+    """Sunset-only Staff origin for isolated eval / operator proof. Not ordinary Wolfhouse."""
+    return parse_https_staff_origin(url, allowlist=ALLOWED_STAFF_ORIGINS)
+
+
+def canonical_bot_auth_headers(token: str) -> Dict[str, str]:
+    """Headers requireBotAuth accepts on /staff/bot/* (no Staff cookies).
+
+    Staff API must use the same LUNA_BOT_INTERNAL_TOKEN as this runtime.
+    Bot principal tenant is Staff-side LUNA_BOT_CLIENT_SLUG (preferred) or
+    DEFAULT_CLIENT_SLUG — for Sunset that value must be ``sunset``. Do not
+    rotate tokens here; a mismatch is HTTP 401 from requireBotAuth, and a
+    missing runtime slug is HTTP 503 bot_principal_tenant_unconfigured.
+    """
+    return {"X-Luna-Bot-Token": str(token or "").strip(), "Accept": "application/json"}
+
+
 def default_fetch_setting(_tenant_id: str) -> Dict[str, Any]:
     base = (os.getenv("WOLFHOUSE_STAFF_API_BASE_URL") or "").rstrip("/")
     token = (os.getenv("LUNA_BOT_INTERNAL_TOKEN") or "").strip()
     if not base or not token:
         raise RuntimeError("setting_unavailable")
+    from wolfhouse.luna_personality_isolation import current_isolated_turn
+
+    # Sunset allowlist is isolated-eval only. Ordinary Wolfhouse turns keep
+    # tenant Staff origin authority (staff-staging / wolfhouse-somo).
+    if current_isolated_turn() is not None:
+        origin = parse_exact_staff_origin(base)
+    else:
+        origin = parse_https_staff_origin(base, allowlist=None)
     req = urllib.request.Request(
-        f"{base}/staff/bot/luna-personality",
+        f"{origin}{STAFF_BOT_PERSONALITY_PATH}",
         method="GET",
-        headers={"X-Luna-Bot-Token": token, "Accept": "application/json"},
+        headers=canonical_bot_auth_headers(token),
     )
     with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as res:
         body = res.read().decode("utf-8") if res else "{}"
@@ -188,6 +239,8 @@ def resolve_whatsapp_personality_once(
     if ch != CHANNEL:
         return _sunny(tid, ch, "not_whatsapp", applied=False)
     fetcher = fetch_setting or default_fetch_setting
+    from wolfhouse.luna_personality_isolation import IsolationAbort, current_isolated_turn
+
     try:
         raw = fetcher(tid)
         stored = None
@@ -198,6 +251,8 @@ def resolve_whatsapp_personality_once(
         normalized = normalize_stored_id(stored)
         pack = get_personality_pack(normalized["id"])
         fallback = None if normalized["source"] == "stored" else normalized["source"]
+        if current_isolated_turn() is not None and fallback:
+            raise IsolationAbort(f"setting_fallback:{fallback}")
         return {
             "applied": True,
             "pack": pack,
@@ -209,8 +264,14 @@ def resolve_whatsapp_personality_once(
                 fallback_reason=fallback,
             ),
         }
+    except IsolationAbort as exc:
+        if current_isolated_turn() is not None:
+            raise
+        return _sunny(tid, ch, exc.reason, applied=True)
     except Exception as exc:
         reason = "setting_timeout" if "timed out" in str(exc).lower() or "timeout" in str(exc).lower() else "setting_failure"
+        if current_isolated_turn() is not None:
+            raise IsolationAbort(f"setting_fallback:{reason}") from exc
         return _sunny(tid, ch, reason, applied=True)
 
 
@@ -234,8 +295,15 @@ def inject_personality_pack_once(
         return {"system_prompt": text, "injected": False, "injection_count": 0}
     if should_freeze_personality_style(composer_state):
         return {"system_prompt": text, "injected": False, "injection_count": 0}
+    injected_prompt = f"{text}\n\n{pack['instruction']}"
+    try:
+        from wolfhouse.luna_personality_isolation import record_consumed_pack
+
+        record_consumed_pack(pack.get("id"), injected=True)
+    except Exception:
+        pass
     return {
-        "system_prompt": f"{text}\n\n{pack['instruction']}",
+        "system_prompt": injected_prompt,
         "injected": True,
         "injection_count": 1,
     }
@@ -249,6 +317,19 @@ def bind_whatsapp_turn_personality(source: Any, fetch_setting: Optional[Callable
         return bound
     bound = resolve_whatsapp_personality_once(channel=CHANNEL, fetch_setting=fetch_setting)
     _bound.set(bound)
+    try:
+        from wolfhouse.luna_personality_isolation import record_consumed_pack
+
+        pack = bound.get("pack") or {}
+        obs = bound.get("observability") or {}
+        record_consumed_pack(
+            pack.get("id"),
+            injected=False,
+            source=obs.get("source"),
+            fallback=obs.get("fallback_reason"),
+        )
+    except Exception:
+        pass
     return bound
 
 
