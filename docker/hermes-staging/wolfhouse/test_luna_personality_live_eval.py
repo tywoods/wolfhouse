@@ -2489,6 +2489,92 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                             worker.join(2)
 
 
+class CodexCancellationTests(unittest.TestCase):
+    def test_retained_stream_and_retry_reset_with_ordinary_controls(self):
+        import run_agent
+        from agent.chat_completion_helpers import interruptible_api_call
+        from wolfhouse import crowsnest_ai_usage_reporter as reporter
+        reset_isolation_runtime_for_tests()
+        for phase in ('stream', 'retry', 'ordinary', 'ordinary-retry'):
+            with self.subTest(phase=phase):
+                entered, release = threading.Event(), threading.Event()
+                calls, closes, workers, outcomes, deltas = [], [], [], [], []
+                agent = object.__new__(run_agent.AIAgent)
+                agent.__dict__.update(vars(PatcherAgent := SimpleNamespace(
+                    model='fixture-model', api_mode='codex_responses', provider='openai',
+                    _interrupt_requested=False, client=SimpleNamespace(is_closed=False),
+                    _client_kwargs={'api_key': 'fixture'},
+                    _compute_non_stream_stale_timeout=lambda _kw: 100,
+                    _touch_activity=lambda _reason: None, _client_log_context=lambda: 'fixture',
+                    _fire_stream_delta=deltas.append, _fire_reasoning_delta=lambda _text: None)))
+                def hold():
+                    workers.append(threading.current_thread())
+                    entered.set()
+                    if not release.wait(5):
+                        raise AssertionError('OLD release missing')
+                def sdk(**kwargs):
+                    index = len(closes) if phase.startswith('ordinary') else len(clients)
+                    class Stream:
+                        def __iter__(self):
+                            if index == 0 and phase == 'stream':
+                                hold()
+                                yield {'type': 'response.output_text.delta', 'delta': 'OLD'}
+                            yield {'type': 'response.completed', 'response': {'status': 'completed'}}
+                        def close(self):
+                            stream_closes.append(index)
+                    def create(**_kwargs):
+                        calls.append(index)
+                        if 'retry' in phase and calls.count(index) == 1 and index == 0:
+                            raise ConnectionError('original transport cause')
+                        return Stream()
+                    client = SimpleNamespace(responses=SimpleNamespace(create=create),
+                        close=lambda: closes.append((index, threading.get_ident())))
+                    clients.append(client)
+                    return client
+                def failed(*_args, **_kwargs):
+                    if phase == 'retry':
+                        hold()
+                def invoke():
+                    try:
+                        outcomes.append(interruptible_api_call(agent, {'model': agent.model}))
+                    except BaseException as exc:
+                        outcomes.append(exc)
+                clients, stream_closes = [], []
+                controller = threading.Thread(target=invoke)
+                with mock.patch.object(run_agent, 'OpenAI', sdk), mock.patch.object(reporter, 'observe_attempt_failure', failed):
+                    try:
+                        controller.start()
+                        if not phase.startswith('ordinary'):
+                            self.assertTrue(entered.wait(2))
+                            agent._interrupt_requested = True
+                            controller.join(2)
+                            self.assertFalse(controller.is_alive())
+                            self.assertIsInstance(outcomes[0], InterruptedError)
+                            self.assertEqual(closes, [])
+                            agent._interrupt_requested = False
+                            next_result = interruptible_api_call(agent, {'model': agent.model})
+                            self.assertEqual(next_result.terminal_event_type, 'response.completed')
+                            self.assertTrue(workers[0].is_alive())
+                            release.set()
+                            workers[0].join(2)
+                            self.assertFalse(workers[0].is_alive())
+                            self.assertEqual(calls, [0, 1], 'OLD cannot regain retry permission')
+                            self.assertEqual(deltas, [], 'OLD cannot regain event permission')
+                            self.assertEqual(closes.count((0, workers[0].ident)), 1)
+                        else:
+                            controller.join(2)
+                            self.assertFalse(controller.is_alive())
+                            self.assertEqual(outcomes[0].terminal_event_type, 'response.completed')
+                            self.assertEqual(calls, [0, 0] if phase == 'ordinary-retry' else [0])
+                        self.assertEqual(len(closes), len(clients))
+                        self.assertEqual(len(stream_closes), 2 if phase == 'stream' else 1)
+                    finally:
+                        release.set()
+                        controller.join(2)
+                        for worker in workers:
+                            worker.join(2)
+
+
 class RevocationBoundaryTests(unittest.TestCase):
     """B3a settlement revocation, not stream terminal or HTTP cancellation proof."""
     setUp = ResponsesObservationTests.setUp
