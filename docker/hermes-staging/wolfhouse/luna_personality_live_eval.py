@@ -717,8 +717,15 @@ async def run_isolated_personality_eval(
         failure = first_abort if first_abort is not None else settle_exc
         if failure is not None:
             failure.cleanup_error = settle_exc.reason if settle_exc is not None else None
-            # Closed scalar snapshot only, after settlement. Unobserved effect
-            # classes remain unknown; wrapper installation is not zero proof.
+            # Scalars are observations, not final totals when bounded cleanup
+            # timed out or a returned stream still lacks terminal evidence.
+            # Even settled tracked work says nothing about HTTP/auth/telemetry
+            # effects or arbitrary untracked consumers.
+            tracked_settled = settle_exc is None and cap.provider_work_settled is True
+            snapshot_state = (
+                "settled_tracked_work" if tracked_settled and not cap._responses_unverified
+                else "partial"
+            )
             failure.counters = {
                 key: value if type(value) is int and 0 <= value <= 2**53 - 1 else None
                 for key in ("tools_invoked", "sends_attempted", "sends_completed",
@@ -729,7 +736,11 @@ async def run_isolated_personality_eval(
                 for value in (getattr(cap, key, None),)
             }
             failure.counters.update(auth_effects=None, telemetry_effects=None, provider_http_effects=None)
-            failure.counters["responses_terminal_verified"] = cap.responses_terminal_verified is True
+            failure.counters.update(
+                provider_work_settled=tracked_settled, counter_snapshot_state=snapshot_state,
+                responses_terminal_verified=(snapshot_state == "settled_tracked_work"
+                                             and cap.responses_terminal_verified is True),
+            )
         if first_abort is None and settle_exc is not None:
             raise settle_exc
 

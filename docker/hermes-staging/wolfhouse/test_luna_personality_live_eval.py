@@ -667,6 +667,7 @@ class IsolatedEvalTests(unittest.TestCase):
             raise first
         def cleanup(cap):
             cap.sends_attempted = 2
+            cap.provider_work_settled = cap.responses_terminal_verified = True
             raise IsolationAbort("provider_work_unsettled")
         with mock.patch.object(live, "settle_isolated_work", cleanup):
             with self.assertRaises(IsolationAbort) as caught:
@@ -676,6 +677,9 @@ class IsolatedEvalTests(unittest.TestCase):
                     invoke_turn=abort, serving_preflight=False))
         self.assertIs(caught.exception, first)
         self.assertEqual(first.cleanup_error, "provider_work_unsettled")
+        self.assertEqual(first.counters.get("counter_snapshot_state"), "partial")
+        self.assertIs(first.counters.get("provider_work_settled"), False)
+        self.assertFalse(first.counters["responses_terminal_verified"])
         self.assertEqual(first.counters["sends_attempted"], 2)
         self.assertIsNone(first.counters["model_calls"])
         self.assertIsNone(first.counters["auth_effects"])
@@ -2300,6 +2304,13 @@ class CancellationEvidenceTests(unittest.TestCase):
     stream = ResponsesTerminalTests.stream
 
     def test_late_failure_snapshot_stays_partial_after_bounded_settlement(self):
+        self._late_failure(tracked=True)
+
+    def test_untracked_observer_failure_is_partial_even_after_thread_drain(self):
+        self._late_failure(tracked=False)
+
+    def _late_failure(self, tracked):
+        from contextvars import copy_context
         from wolfhouse import luna_personality_live_eval as live
         first, late = IsolationAbort("request_identity_changed"), IsolationAbort("fixture_late_failure")
         entered, release = threading.Event(), threading.Event()
@@ -2312,6 +2323,7 @@ class CancellationEvidenceTests(unittest.TestCase):
             raise late
             yield  # actual lazy SDK stream, not a copied parser
         raw.__class__.__iter__ = lambda _self: events()
+        start = threading.Thread.start
         self.iso._wrap_thread_context_propagation()
         async def turn(_message, cap, _meta):
             captures.append(cap)
@@ -2323,9 +2335,10 @@ class CancellationEvidenceTests(unittest.TestCase):
                     self.runtime.run_codex_stream(self.agent, self.payload, client=self.client)
                 except BaseException as exc:
                     receipts.append(exc)
-            thread = threading.Thread(target=worker)
+            ctx = copy_context()
+            thread = threading.Thread(target=lambda: ctx.run(worker))
             workers.append(thread)
-            thread.start()
+            thread.start() if tracked else start(thread)
             self.assertTrue(entered.wait(2))
             raise first
         try:
@@ -2335,10 +2348,10 @@ class CancellationEvidenceTests(unittest.TestCase):
                     fetch_setting=lambda _t: {"personality_id": "sunny"}, invoke_turn=turn,
                     serving_preflight=False, evidence_kind="test_double"))
             self.assertIs(caught.exception, first)
-            self.assertEqual(first.cleanup_error, "provider_work_unsettled")
+            self.assertEqual(first.cleanup_error, "provider_work_unsettled" if tracked else None)
             snapshot = json.loads(json.dumps(first.counters))
             self.assertEqual(snapshot.get("counter_snapshot_state"), "partial")
-            self.assertIs(snapshot.get("provider_work_settled"), False)
+            self.assertIs(snapshot.get("provider_work_settled"), not tracked)
             self.assertFalse(snapshot["responses_terminal_verified"])
             self.assertEqual(snapshot["responses_iteration_failed"], 0)  # observed, NOT final zero
             self.assertIsNone(snapshot["provider_http_effects"])
@@ -2370,6 +2383,91 @@ class CancellationEvidenceTests(unittest.TestCase):
         self.assertFalse(first.counters["responses_terminal_verified"])
         for key in ("auth_effects", "telemetry_effects", "provider_http_effects"):
             self.assertIsNone(first.counters[key])
+
+
+class PinnedCancellationOwnerTests(unittest.TestCase):
+    """Unchanged ordinary helper: characterize the exact upstream split, not Codex admission."""
+    def tearDown(self):
+        reset_isolation_runtime_for_tests()
+
+    def test_actual_registration_reset_and_owner_cleanup(self):
+        import run_agent
+        from agent.chat_completion_helpers import interruptible_api_call
+        reset_isolation_runtime_for_tests()
+        for phase in ("factory", "registration", "registered"):
+            with self.subTest(phase=phase):
+                entered, release = threading.Event(), threading.Event()
+                calls, closes, shutdowns, workers, kwargs_seen, outcome = [], [], [], [], [], []
+                agent = object.__new__(run_agent.AIAgent)
+                agent.model, agent.api_mode, agent.provider = "fixture-model", "chat_completions", "openai"
+                agent._interrupt_requested = False
+                agent.client = SimpleNamespace(is_closed=False)
+                agent._client_kwargs = {"api_key": "fixture", "http_client": object()}
+                agent._compute_non_stream_stale_timeout = lambda _kw: 100
+                payload = {"model": agent.model, "messages": []}
+                def wait():
+                    workers.append(threading.current_thread())
+                    entered.set()
+                    if not release.wait(8):
+                        raise AssertionError("fixture cancellation barrier expired")
+                def sdk(**kwargs):
+                    index = len(kwargs_seen)
+                    kwargs_seen.append(kwargs)
+                    def create(**_kwargs):
+                        calls.append((index, threading.get_ident()))
+                        if index == 0 and phase == "registered":
+                            wait()
+                            raise ConnectionError("fixture cancelled transport")
+                        return index
+                    sock = SimpleNamespace(shutdown=lambda how: shutdowns.append((index, threading.get_ident(), how)),
+                                           close=lambda: self.fail("socket FD released by abort"))
+                    pool = SimpleNamespace(_connections=[SimpleNamespace(_network_stream=SimpleNamespace(_sock=sock))])
+                    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+                        _client=SimpleNamespace(_transport=SimpleNamespace(_pool=pool)),
+                        close=lambda: closes.append((index, threading.get_ident())))
+                    if index == 0 and phase == "factory":
+                        wait()
+                    return client
+                factory = agent._create_request_openai_client
+                def after_factory(**kwargs):
+                    client = factory(**kwargs)  # genuine original acquisition before registration barrier
+                    if len(kwargs_seen) == 1 and phase == "registration":
+                        wait()
+                    return client
+                agent._create_request_openai_client = after_factory
+                def invoke():
+                    try:
+                        outcome.append(interruptible_api_call(agent, payload))
+                    except BaseException as exc:
+                        outcome.append(exc)
+                controller = threading.Thread(target=invoke)
+                with mock.patch.object(run_agent, "OpenAI", sdk):
+                    try:
+                        controller.start()
+                        self.assertTrue(entered.wait(2))
+                        agent._interrupt_requested = True
+                        controller.join(2)
+                        self.assertFalse(controller.is_alive())
+                        self.assertIsInstance(outcome[0], InterruptedError)
+                        self.assertEqual(closes, [])  # stranger MUST NOT full-close/pop
+                        self.assertEqual(len(shutdowns), 1 if phase == "registered" else 0)
+                        agent._interrupt_requested = False  # next cached turn, old worker still retained
+                        self.assertEqual(interruptible_api_call(agent, payload), 1)
+                        release.set()
+                        workers[0].join(2)
+                        self.assertFalse(workers[0].is_alive())
+                        self.assertEqual([i for i, _ in closes].count(0), 1)
+                        self.assertIn((0, workers[0].ident), closes)
+                        self.assertTrue(all(kw["max_retries"] == 0 for kw in kwargs_seen))
+                        # Known missing lexical guard: late registration still dispatches.
+                        self.assertEqual([i for i, _ in calls].count(0), 1)
+                        self.assertIsInstance(outcome[0], InterruptedError)
+                        print("PINNED_CANCEL_OWNER", phase, "late_create", phase != "registered", flush=True)
+                    finally:
+                        release.set()
+                        controller.join(2)
+                        for worker in workers:
+                            worker.join(2)
 
 
 class RevocationBoundaryTests(unittest.TestCase):

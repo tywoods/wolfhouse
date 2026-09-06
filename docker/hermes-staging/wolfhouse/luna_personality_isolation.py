@@ -254,7 +254,7 @@ class IsolationAbort(RuntimeError):
         super().__init__(reason)
         self.reason = reason
         self.cleanup_error: Optional[str] = None
-        self.counters: Optional[Dict[str, Optional[int]]] = None
+        self.counters: Optional[Dict[str, int | bool | str | None]] = None
 
 
 def refuse_unverified_runtime() -> None:
