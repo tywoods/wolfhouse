@@ -21,7 +21,9 @@ import importlib.util
 import inspect
 import json
 import threading
+import time
 import uuid
+from contextlib import contextmanager
 from concurrent.futures.thread import ThreadPoolExecutor
 from contextvars import ContextVar, Token, copy_context
 from dataclasses import dataclass, field
@@ -201,6 +203,9 @@ class IsolatedTurnCapture:
     final_handler_text: Optional[str] = None
     in_flight_threads: List[Any] = field(default_factory=list)
     provider_work_settled: bool = False
+    _provider_revoked: bool = field(default=False, init=False, repr=False, compare=False)
+    _provider_operations: int = field(default=0, init=False, repr=False, compare=False)
+    _provider_lifetime: Any = field(default_factory=threading.Condition, init=False, repr=False, compare=False)
     persistence_denied: Dict[str, int] = field(default_factory=dict)
     persistence_effects_completed: List[str] = field(default_factory=list)
 
@@ -1727,8 +1732,9 @@ def _wrap_thread_context_propagation() -> bool:
         self._target = _runner
         self._args = ()
         self._kwargs = {}
-        cap.in_flight_threads.append(self)
-        return orig(self)
+        with _isolated_provider_operation(cap):
+            cap.in_flight_threads.append(self)
+            return orig(self)
 
     _mark(_start, ctx=True)
     threading.Thread.start = _start  # type: ignore[method-assign]
@@ -1736,17 +1742,46 @@ def _wrap_thread_context_propagation() -> bool:
     return True
 
 
+@contextmanager
+def _isolated_provider_operation(cap: Optional[IsolatedTurnCapture]):
+    """Linearized admission, not cancellation of an accepted SDK operation."""
+    if cap is None:
+        yield
+        return
+    with cap._provider_lifetime:
+        if cap._provider_revoked:
+            raise IsolationAbort("provider_lifetime_revoked")
+        cap._provider_operations += 1
+    try:
+        yield
+    finally:
+        with cap._provider_lifetime:
+            cap._provider_operations -= 1
+            if cap._provider_revoked and not cap._provider_operations:
+                cap._provider_lifetime.notify_all()
+
+
 def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 2.0) -> None:
-    """Join isolated provider/worker threads. Fail closed if work stays alive."""
+    """Revoke before draining admitted operations/threads under one deadline.
+
+    A returned stream is not an active create operation. This does not certify
+    terminal SSE evidence or quiescence of untracked stream consumers.
+    """
     if cap is None:
         return
-    unsettled = False
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    with cap._provider_lifetime:
+        cap._provider_revoked = True
+        while cap._provider_operations and time.monotonic() < deadline:
+            cap._provider_lifetime.wait(max(0.0, deadline - time.monotonic()))
+        unsettled = bool(cap._provider_operations)
     for thread in list(cap.in_flight_threads or []):
         is_alive = getattr(thread, "is_alive", None)
         join = getattr(thread, "join", None)
         if callable(is_alive) and is_alive():
             if callable(join):
-                join(timeout_s)
+                if thread is not threading.current_thread():
+                    join(max(0.0, deadline - time.monotonic()))
             if is_alive():
                 unsettled = True
     cap.provider_work_settled = not unsettled
@@ -1883,20 +1918,21 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
             else:
                 _check_request_identity(binding)
         cap = _ISOLATED.get()
-        if cap is not None:
-            payload = kwargs if kwargs else (args[0] if args and isinstance(args[0], dict) else {})
-            if responses:
-                if args or kwargs.get("stream") is not True or kwargs.get("model") != binding[2]:
-                    raise IsolationAbort("responses_dispatch_identity_changed")
-            observe_provider_dispatch(payload)
-            if responses:
+        with _isolated_provider_operation(cap):
+            if cap is not None:
+                payload = kwargs if kwargs else (args[0] if args and isinstance(args[0], dict) else {})
+                if responses:
+                    if args or kwargs.get("stream") is not True or kwargs.get("model") != binding[2]:
+                        raise IsolationAbort("responses_dispatch_identity_changed")
+                observe_provider_dispatch(payload)
+                if responses:
+                    with cap._responses_sdk_lock:
+                        cap.responses_sdk_attempted = min(cap.responses_sdk_attempted + 1, 2**53 - 1)
+            result = original(*args, **kwargs)
+            if responses and cap is not None:
                 with cap._responses_sdk_lock:
-                    cap.responses_sdk_attempted = min(cap.responses_sdk_attempted + 1, 2**53 - 1)
-        result = original(*args, **kwargs)
-        if responses and cap is not None:
-            with cap._responses_sdk_lock:
-                cap.responses_sdk_returned = min(cap.responses_sdk_returned + 1, 2**53 - 1)
-        return result
+                    cap.responses_sdk_returned = min(cap.responses_sdk_returned + 1, 2**53 - 1)
+            return result
 
     _mark(create)
     create._luna_request_identity = binding
@@ -1996,9 +2032,12 @@ def _wrap_openai_client_factory(owner: Any, _name: str = "_create_request_openai
         _check_request_identity(binding)
         token = _REQUEST_ACQUISITION.set(binding)
         try:
-            client = orig(*args, **kwargs)
-            _check_request_identity(binding)
-            return client if _name == "_ensure_primary_openai_client" else _observe_openai_client(client)
+            with _isolated_provider_operation(cap):
+                client = orig(*args, **kwargs)
+                _check_request_identity(binding)
+                # An accepted acquisition returns to its existing cleanup owner.
+                # Observation installs a retained guard; it grants no new create.
+                return client if _name == "_ensure_primary_openai_client" else _observe_openai_client(client)
         finally:
             _REQUEST_ACQUISITION.reset(token)
 
