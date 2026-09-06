@@ -1930,6 +1930,13 @@ class _ObservedResponsesStream:
         self._stream, self._cap = stream, cap
         self._terminal = None
         self._iterated = self._close_attempted = self._iteration_failed = False
+        self._active = self._sealed = self._accepted = self._closed = self._finalized = False
+
+    def _finish_locked(self):
+        if (self._accepted and self._sealed and not self._active and self._closed
+                and not self._iteration_failed and not self._finalized):
+            self._finalized = True
+            self._cap._responses_unverified -= 1
 
     def __iter__(self):
         cap = self._cap
@@ -1937,22 +1944,33 @@ class _ObservedResponsesStream:
             if self._iterated or self._close_attempted:
                 raise IsolationAbort("responses_stream_reused")
             self._iterated = True
-        try:
-            for event in self._stream:
+        iterator = None
+        while True:
+            with cap._responses_sdk_lock:
+                if self._sealed:
+                    return  # retained generators cannot advance the underlying iterator
+                self._active = True
+            try:
+                if iterator is None:
+                    iterator = iter(self._stream)
+                event = next(iterator)
                 kind = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
                 with cap._responses_sdk_lock:
                     if self._terminal is None and kind in ("response.completed", "response.failed", "response.incomplete"):
                         self._terminal = kind
                         if kind == "response.completed":
                             cap.responses_completed = min(cap.responses_completed + 1, 2**53 - 1)
-                yield event
-        except GeneratorExit:
-            raise  # parser stops at terminal; generator closure is not SDK failure
-        except BaseException:
-            with cap._responses_sdk_lock:
-                self._iteration_failed = True
-                cap.responses_iteration_failed = min(cap.responses_iteration_failed + 1, 2**53 - 1)
-            raise
+            except StopIteration:
+                return
+            except BaseException:
+                with cap._responses_sdk_lock:
+                    self._iteration_failed = True
+                    cap.responses_iteration_failed = min(cap.responses_iteration_failed + 1, 2**53 - 1)
+                raise
+            finally:
+                with cap._responses_sdk_lock:
+                    self._active = False
+            yield event
 
     def close(self):
         cap = self._cap
@@ -1971,9 +1989,39 @@ class _ObservedResponsesStream:
             raise
         with cap._responses_sdk_lock:
             cap.responses_close_succeeded = min(cap.responses_close_succeeded + 1, 2**53 - 1)
-            if self._terminal == "response.completed" and not self._iteration_failed:
-                cap._responses_unverified -= 1
+            self._closed = True
+            self._finish_locked()
         return result
+
+
+def _wrap_codex_parser(mod: Any) -> None:
+    name = "_consume_codex_event_stream"
+    original = getattr(mod, name, None)
+    if not callable(original) or _is_wrapped(original):
+        return
+
+    def consume(event_iter, *, model, on_text_delta=None, on_reasoning_delta=None,
+                on_first_delta=None, on_event=None, interrupt_check=None):
+        observed = event_iter if type(event_iter) is _ObservedResponsesStream else None
+        if observed is not None and _ISOLATED.get() is not observed._cap:
+            observed = None
+        accepted = False
+        try:
+            result = original(event_iter, model=model, on_text_delta=on_text_delta,
+                              on_reasoning_delta=on_reasoning_delta, on_first_delta=on_first_delta,
+                              on_event=on_event, interrupt_check=interrupt_check)
+            accepted = observed is not None and result.terminal_event_type == "response.completed"
+            return result
+        finally:
+            if observed is not None:
+                with observed._cap._responses_sdk_lock:
+                    observed._sealed = True
+                    observed._accepted = bool(accepted and not observed._active)
+                    observed._finish_locked()
+
+    _mark(consume)
+    _save_orig(mod, name, original)
+    setattr(mod, name, consume)
 
 
 def _observe_create_call(original: Any, binding: Any = None, *, responses: bool = False) -> Any:
@@ -2316,6 +2364,7 @@ def install_isolation_runtime(
     prov_ok, stream_ok = _wrap_provider(t.provider_mod, t.provider_attr, t.provider_streaming_attr)
     dispatch_ok = _wrap_provider_dispatch(runner=runner, targets=t)
     turn_ok = _wrap_turn_entry(runner=runner, targets=t)
+    _wrap_codex_parser(_discover_codex_runtime(t.codex_runtime_mod))
     live = inspect_live_seams(targets=t, runner=runner)
     complete = all(live.get(k) for k in REQUIRED_LIVE_SEAMS)
     _installed = complete

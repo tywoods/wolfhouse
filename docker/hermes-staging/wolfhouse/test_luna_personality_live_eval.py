@@ -1876,6 +1876,7 @@ class ResponsesObservationTests(unittest.TestCase):
         reset_isolation_runtime_for_tests()
         self.addCleanup(reset_isolation_runtime_for_tests)
         self.iso, self.runtime = iso, codex_runtime
+        iso._wrap_codex_parser(codex_runtime)
         self.agent = object.__new__(run_agent.AIAgent)
         self.agent.model, self.agent.api_mode = "fixture-model", "codex_responses"
         self.agent.provider, self.agent._interrupt_requested = "openai-codex", False
@@ -2179,6 +2180,54 @@ class TerminalReview(unittest.TestCase):
         finally:
             exit_isolated_turn(token)
 
+    def test_parser_seal_close_pending_and_retained_resume(self):
+        observed_type = self.iso._ObservedResponsesStream
+        original_iter, retained, pending = observed_type.__iter__, [], []
+        def record(stream):
+            iterator = original_iter(stream)
+            retained.append(iterator)
+            return iterator
+        raw = self.stream([{'type': 'response.completed'}, {'type': 'response.failed'}])
+        close = raw.close
+        def pending_close():
+            self.iso.settle_isolated_work(self.cap)
+            pending.append(self.cap.responses_terminal_verified)
+            close()
+        raw.close = pending_close
+        token = enter_isolated_turn(self.cap)
+        try:
+            with mock.patch.object(observed_type, '__iter__', record):
+                result = self.run_stream(raw)
+            self.iso.settle_isolated_work(self.cap)
+            self.assertEqual(result.terminal_event_type, 'response.completed')
+            self.assertEqual(pending, [False])
+            self.assertTrue(self.cap.responses_terminal_verified)
+            self.assertEqual(list(retained[0]), [])
+            self.assertEqual(self.cap.responses_iteration_failed, 0)
+            self.assertEqual(self.cap._responses_unverified, 0)
+        finally:
+            exit_isolated_turn(token)
+
+    def test_parser_install_reset_ordinary_and_missing_wrap(self):
+        wrapped = self.runtime._consume_codex_event_stream
+        self.iso._wrap_codex_parser(self.runtime)
+        self.assertIs(self.runtime._consume_codex_event_stream, wrapped)
+        self.iso.reset_isolation_runtime_for_tests()
+        original = self.runtime._consume_codex_event_stream
+        self.assertIsNot(original, wrapped)
+        for parser in (original, wrapped):
+            result = parser(iter([{'type': 'response.completed'}]), model='ordinary')
+            self.assertEqual((result.model, result.terminal_event_type), ('ordinary', 'response.completed'))
+            with self.assertRaisesRegex(RuntimeError, 'terminal response'):
+                parser(iter([]), model='ordinary')
+        token = enter_isolated_turn(self.cap)
+        try:
+            self.run_stream(self.stream([{'type': 'response.completed'}]))
+            self.iso.settle_isolated_work(self.cap)
+            self.assertFalse(self.cap.responses_terminal_verified)
+        finally:
+            exit_isolated_turn(token)
+
     def test_helper_rejects_terminal_before_acceptance(self):
         agent = self.agent
         class InterruptedStream:
@@ -2215,17 +2264,19 @@ class TerminalReview(unittest.TestCase):
             self.iso._observe_openai_client(self.client)
             observed = self.client.responses.create(**self.payload, stream=True)
             iterator = iter(observed)
-            next(iterator)
             def advance():
                 try:
                     next(iterator)
                 except BaseException as exc:
                     errors.append(exc)
             worker = threading.Thread(target=advance)
-            worker.start()
-            self.assertTrue(entered.wait(5))
-            observed.close()
-            observed.close()
+            def on_event(event):
+                worker.start()
+                self.assertTrue(entered.wait(5))
+                observed.close()
+                observed.close()
+            with mock.patch.object(type(observed), '__iter__', lambda stream: iterator):
+                self.runtime._consume_codex_event_stream(observed, model=self.agent.model, on_event=on_event)
             self.iso.settle_isolated_work(self.cap, timeout_s=0)
             premature = self.cap.responses_terminal_verified
             release.set()
