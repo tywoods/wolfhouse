@@ -2147,7 +2147,7 @@ class AcquisitionRevocationTests(unittest.TestCase):
         finally:
             exit_isolated_turn(token)
         before = len(self.acquisitions)
-        for call in (self.request, self.agent._ensure_primary_openai_client,
+        for call in (self.request, lambda: self.agent._ensure_primary_openai_client(reason="offline-revocation"),
                      lambda: client.chat.completions.create(model="fixture-model")):
             with self.subTest(call=call), self.assertRaises(IsolationAbort):
                 retained.run(call)
