@@ -2150,6 +2150,100 @@ class ResponsesTerminalTests(unittest.TestCase):
                     exit_isolated_turn(token)
 
 
+class TerminalReview(unittest.TestCase):
+    # Consolidated from evidence/LUNA-PERSONALITY-001-prb3b-review-probe.py.
+    setUp = ResponsesTerminalTests.setUp
+    stream = ResponsesTerminalTests.stream
+    run_stream = ResponsesTerminalTests.run_stream
+
+    def test_parser_controls_and_conservative_retry(self):
+        token = enter_isolated_turn(self.cap)
+        try:
+            attempts = iter([self.stream([], ConnectionError('fixture retry')), self.stream([{'type': 'response.completed', 'response': {'status': 'completed', 'id': 'fixture', 'usage': {}}}])])
+            self.client.responses.create = lambda **kwargs: next(attempts)
+            self.iso._observe_openai_client(self.client)
+            final = self.runtime.run_codex_stream(self.agent, self.payload, client=self.client)
+            self.assertEqual(final.terminal_event_type, 'response.completed')
+            self.iso.settle_isolated_work(self.cap)
+            self.assertFalse(self.cap.responses_terminal_verified)
+            self.assertEqual((self.cap.responses_sdk_returned, self.cap._responses_unverified, self.cap.responses_iteration_failed), (2, 1, 1))
+        finally:
+            exit_isolated_turn(token)
+        self.setUp()
+        token = enter_isolated_turn(self.cap)
+        try:
+            final = self.run_stream(self.stream([{'type': 'response.completed'}]))
+            self.iso.settle_isolated_work(self.cap)
+            self.assertEqual(final.terminal_event_type, 'response.completed')
+            self.assertTrue(self.cap.responses_terminal_verified)
+        finally:
+            exit_isolated_turn(token)
+
+    def test_helper_rejects_terminal_before_acceptance(self):
+        agent = self.agent
+        class InterruptedStream:
+            def __iter__(self):
+                agent._interrupt_requested = True
+                yield {'type': 'response.completed', 'response': {'status': 'completed'}}
+            def close(self):
+                pass
+        token = enter_isolated_turn(self.cap)
+        try:
+            with self.assertRaisesRegex(RuntimeError, 'terminal response'):
+                self.run_stream(InterruptedStream())
+            self.iso.settle_isolated_work(self.cap)
+            self.assertFalse(self.cap.responses_terminal_verified, 'helper rejected terminal but observer certifies success')
+        finally:
+            exit_isolated_turn(token)
+
+    def test_close_during_active_iteration_leaves_stale_true(self):
+        entered, release = threading.Event(), threading.Event()
+        cause, errors = IsolationAbort('fixture_late_iteration'), []
+        class Stream:
+            def __iter__(self):
+                yield {'type': 'response.completed', 'response': {'status': 'completed'}}
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError('fixture barrier timeout')
+                raise cause
+            def close(self):
+                return None
+        token = enter_isolated_turn(self.cap)
+        worker = None
+        try:
+            self.client.responses.create = lambda **kwargs: Stream()
+            self.iso._observe_openai_client(self.client)
+            observed = self.client.responses.create(**self.payload, stream=True)
+            iterator = iter(observed)
+            next(iterator)
+            def advance():
+                try:
+                    next(iterator)
+                except BaseException as exc:
+                    errors.append(exc)
+            worker = threading.Thread(target=advance)
+            worker.start()
+            self.assertTrue(entered.wait(5))
+            observed.close()
+            observed.close()
+            self.iso.settle_isolated_work(self.cap, timeout_s=0)
+            premature = self.cap.responses_terminal_verified
+            release.set()
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(errors, [cause])
+            self.assertEqual(self.cap.responses_close_succeeded, 1)
+            self.assertEqual(self.cap.responses_iteration_failed, 1)
+            self.iso.settle_isolated_work(self.cap, timeout_s=0)
+            self.assertFalse(self.cap.responses_terminal_verified, 'late iteration failure never re-poisons decremented unverified count')
+            self.assertFalse(premature)
+        finally:
+            release.set()
+            if worker is not None:
+                worker.join(5)
+            exit_isolated_turn(token)
+
+
 class RevocationBoundaryTests(unittest.TestCase):
     """B3a settlement revocation, not stream terminal or HTTP cancellation proof."""
     setUp = ResponsesObservationTests.setUp
