@@ -2018,6 +2018,14 @@ class ResponsesObservationTests(unittest.TestCase):
             exit_isolated_turn(token)
 
 
+class ResponsesConcurrencyTests(unittest.TestCase):
+    setUp = ResponsesObservationTests.setUp
+
+    def test_concurrent_sdk_counts(self):
+        from scripts.test_luna_personality_responses_concurrency import check_concurrent_counts
+        check_concurrent_counts(self)
+
+
 class RealProviderHelperDispatchTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
