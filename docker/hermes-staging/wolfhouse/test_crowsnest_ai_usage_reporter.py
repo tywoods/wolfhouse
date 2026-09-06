@@ -147,5 +147,21 @@ class ReporterTests(unittest.TestCase):
             self.assertIsNone(reporter._post(event, ENV))
 
 
+class IsolatedProducerTests(unittest.TestCase):
+    def test_isolated_direct_has_zero_config_and_queue_admissions(self):
+        from wolfhouse import luna_personality_isolation as isolation
+        cap = isolation.IsolatedTurnCapture("producer", "warm")
+        q = queue.Queue()
+        with patch.object(reporter, "_queue", q), \
+             patch.object(reporter, "_worker", SimpleNamespace(is_alive=lambda: True)), \
+             patch.object(reporter, "read_config", wraps=reporter.read_config) as config:
+            token = isolation.enter_isolated_turn(cap)
+            try:
+                self.assertIsNone(reporter.enqueue_event({"probe": True}, env=ENV))
+            finally:
+                isolation.exit_isolated_turn(token)
+            self.assertEqual((config.call_count, q.qsize()), (0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()
