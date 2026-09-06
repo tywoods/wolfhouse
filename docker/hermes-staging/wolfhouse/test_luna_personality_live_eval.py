@@ -2386,7 +2386,7 @@ class CancellationEvidenceTests(unittest.TestCase):
 
 
 class PinnedCancellationOwnerTests(unittest.TestCase):
-    """Unchanged ordinary helper: characterize the exact upstream split, not Codex admission."""
+    """Pinned ordinary helper: late-registration cancellation and worker ownership."""
     def tearDown(self):
         reset_isolation_runtime_for_tests()
 
@@ -2394,9 +2394,25 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
         import run_agent
         from agent.chat_completion_helpers import interruptible_api_call
         reset_isolation_runtime_for_tests()
-        for phase in ("factory", "registration", "registered"):
+        from agent import chat_completion_helpers as helper
+        for phase in ("factory", "registration", "registered", "ordering"):
             with self.subTest(phase=phase):
-                entered, release = threading.Event(), threading.Event()
+                entered, release, contender = threading.Event(), threading.Event(), threading.Event()
+                class OrderedLock:
+                    def __init__(self):
+                        self.lock, self.first = threading.Lock(), True
+                    def __enter__(self):
+                        if self.lock.locked() and threading.get_ident() == controller.ident:
+                            contender.set()
+                        self.lock.acquire()
+                        if self.first and phase == "ordering" and len(kwargs_seen) == 1:
+                            self.first = False
+                            entered.set()  # registration holds lock BEFORE reading cancel flag
+                            if not contender.wait(8):
+                                raise AssertionError("cancellation contender missing")
+                        return self
+                    def __exit__(self, *_exc):
+                        self.lock.release()
                 calls, closes, shutdowns, workers, kwargs_seen, outcome = [], [], [], [], [], []
                 agent = object.__new__(run_agent.AIAgent)
                 agent.model, agent.api_mode, agent.provider = "fixture-model", "chat_completions", "openai"
@@ -2415,7 +2431,7 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                     kwargs_seen.append(kwargs)
                     def create(**_kwargs):
                         calls.append((index, threading.get_ident()))
-                        if index == 0 and phase == "registered":
+                        if index == 0 and phase in ("registered", "ordering"):
                             wait()
                             raise ConnectionError("fixture cancelled transport")
                         return index
@@ -2441,7 +2457,9 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                     except BaseException as exc:
                         outcome.append(exc)
                 controller = threading.Thread(target=invoke)
-                with mock.patch.object(run_agent, "OpenAI", sdk):
+                with mock.patch.object(run_agent, "OpenAI", sdk), mock.patch.object(
+                        helper, "threading", SimpleNamespace(Lock=OrderedLock, Thread=threading.Thread,
+                                                             get_ident=threading.get_ident)):
                     try:
                         controller.start()
                         self.assertTrue(entered.wait(2))
@@ -2450,7 +2468,7 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                         self.assertFalse(controller.is_alive())
                         self.assertIsInstance(outcome[0], InterruptedError)
                         self.assertEqual(closes, [])  # stranger MUST NOT full-close/pop
-                        self.assertEqual(len(shutdowns), 1 if phase == "registered" else 0)
+                        self.assertEqual(len(shutdowns), 1 if phase in ("registered", "ordering") else 0)
                         agent._interrupt_requested = False  # next cached turn, old worker still retained
                         self.assertEqual(interruptible_api_call(agent, payload), 1)
                         release.set()
@@ -2459,10 +2477,11 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                         self.assertEqual([i for i, _ in closes].count(0), 1)
                         self.assertIn((0, workers[0].ident), closes)
                         self.assertTrue(all(kw["max_retries"] == 0 for kw in kwargs_seen))
-                        # Known missing lexical guard: late registration still dispatches.
-                        self.assertEqual([i for i, _ in calls].count(0), 1)
+                        # Registration-first admits one; cancellation-first admits none.
+                        self.assertEqual([i for i, _ in calls].count(0), int(phase in ("registered", "ordering")))
+                        self.assertEqual([i for i, _ in calls].count(1), 1)
                         self.assertIsInstance(outcome[0], InterruptedError)
-                        print("PINNED_CANCEL_OWNER", phase, "late_create", phase != "registered", flush=True)
+                        print("PINNED_CANCEL_OWNER", phase, "old_create", [i for i, _ in calls].count(0), flush=True)
                     finally:
                         release.set()
                         controller.join(2)
