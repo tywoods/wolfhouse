@@ -2295,6 +2295,83 @@ class TerminalReview(unittest.TestCase):
             exit_isolated_turn(token)
 
 
+class CancellationEvidenceTests(unittest.TestCase):
+    setUp = ResponsesTerminalTests.setUp
+    stream = ResponsesTerminalTests.stream
+
+    def test_late_failure_snapshot_stays_partial_after_bounded_settlement(self):
+        from wolfhouse import luna_personality_live_eval as live
+        first, late = IsolationAbort("request_identity_changed"), IsolationAbort("fixture_late_failure")
+        entered, release = threading.Event(), threading.Event()
+        receipts, workers, captures = [], [], []
+        raw = self.stream([])
+        def events():
+            entered.set()
+            if not release.wait(8):
+                raise AssertionError("fixture barrier expired")
+            raise late
+            yield  # actual lazy SDK stream, not a copied parser
+        raw.__class__.__iter__ = lambda _self: events()
+        self.iso._wrap_thread_context_propagation()
+        async def turn(_message, cap, _meta):
+            captures.append(cap)
+            cap._request_identity = (cap, self.agent, self.agent.model, self.agent.api_mode)
+            self.client.responses.create = lambda **kwargs: raw
+            self.iso._observe_openai_client(self.client)
+            def worker():
+                try:
+                    self.runtime.run_codex_stream(self.agent, self.payload, client=self.client)
+                except BaseException as exc:
+                    receipts.append(exc)
+            thread = threading.Thread(target=worker)
+            workers.append(thread)
+            thread.start()
+            self.assertTrue(entered.wait(2))
+            raise first
+        try:
+            with self.assertRaises(IsolationAbort) as caught:
+                _run(live.run_isolated_personality_eval(
+                    case_id="warmth-greeting-en", personality_id="sunny", corpus=CORPUS,
+                    fetch_setting=lambda _t: {"personality_id": "sunny"}, invoke_turn=turn,
+                    serving_preflight=False, evidence_kind="test_double"))
+            self.assertIs(caught.exception, first)
+            self.assertEqual(first.cleanup_error, "provider_work_unsettled")
+            snapshot = json.loads(json.dumps(first.counters))
+            self.assertEqual(snapshot.get("counter_snapshot_state"), "partial")
+            self.assertIs(snapshot.get("provider_work_settled"), False)
+            self.assertFalse(snapshot["responses_terminal_verified"])
+            self.assertEqual(snapshot["responses_iteration_failed"], 0)  # observed, NOT final zero
+            self.assertIsNone(snapshot["provider_http_effects"])
+            release.set()
+            workers[0].join(2)
+            self.assertFalse(workers[0].is_alive())
+            self.assertEqual(receipts, [late])
+            self.iso.settle_isolated_work(captures[0])
+            self.assertEqual(captures[0].responses_iteration_failed, 1)
+            self.assertEqual(captures[0].responses_close_succeeded, 1)
+            self.assertFalse(captures[0].responses_terminal_verified)
+            self.assertEqual(first.counters, snapshot)  # no retroactive final certification
+        finally:
+            release.set()
+            for thread in workers:
+                thread.join(2)
+
+    def test_settled_failure_snapshot_labels_only_tracked_work(self):
+        first = IsolationAbort("request_identity_changed")
+        async def turn(_message, _cap, _meta):
+            raise first
+        with self.assertRaises(IsolationAbort):
+            _run(run_isolated_personality_eval(
+                case_id="warmth-greeting-en", personality_id="sunny", corpus=CORPUS,
+                fetch_setting=lambda _t: {"personality_id": "sunny"}, invoke_turn=turn,
+                serving_preflight=False))
+        self.assertEqual(first.counters.get("counter_snapshot_state"), "settled_tracked_work")
+        self.assertIs(first.counters.get("provider_work_settled"), True)
+        self.assertFalse(first.counters["responses_terminal_verified"])
+        for key in ("auth_effects", "telemetry_effects", "provider_http_effects"):
+            self.assertIsNone(first.counters[key])
+
+
 class RevocationBoundaryTests(unittest.TestCase):
     """B3a settlement revocation, not stream terminal or HTTP cancellation proof."""
     setUp = ResponsesObservationTests.setUp
