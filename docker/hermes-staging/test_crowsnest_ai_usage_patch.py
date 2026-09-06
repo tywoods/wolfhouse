@@ -75,7 +75,7 @@ class PatcherTests(unittest.TestCase):
                 self.assertEqual(set(candidates), set(paths))
                 self.assertEqual(candidates[paths[0]], before[paths[0]])
                 expected = dict(candidates)
-                expected[paths[2]] = patcher.patch_cancelled_registration(expected[paths[2]])
+                patcher.patch_codex_cancellation(expected, paths)
                 self.assertEqual(result, {'changed': state == 'pristine', 'paths': [str(p) for p in paths[1:]]})
                 writes = []
                 write_text = Path.write_text
@@ -87,7 +87,7 @@ class PatcherTests(unittest.TestCase):
                     self.assertEqual(patcher.main(), 0)
                     self.assertEqual(patcher.main(), 0)
                 self.assertTrue(all(p.read_text() == expected[p] for p in paths), 'exact candidate bytes')
-                self.assertTrue(writes == [(p, expected[p]) for p in paths[1:] if expected[p] != before[p]], 'only final changed candidates written once')
+                self.assertTrue(writes == [(p, expected[p]) for p in (paths[1], paths[2], paths[0]) if expected[p] != before[p]], 'only final changed candidates written once')
 
     def test_main_final_candidate_validation_precedes_all_writes(self):
         import io
@@ -100,8 +100,12 @@ class PatcherTests(unittest.TestCase):
             def record(path, text, *args, **kwargs):
                 writes.append(path)
                 return write_text(path, text, *args, **kwargs)
-            # Fault at the existing final transform result, not an import/fixture error.
-            with patch.object(patcher, '_module_path', names.__getitem__), patch.object(patcher, 'patch_cancelled_registration', return_value='not valid python !'), patch.object(Path, 'write_text', record), patch('sys.stderr', io.StringIO()):
+            transform = patcher.patch_codex_cancellation
+            def invalid_final(candidates, paths):
+                transform(candidates, paths)
+                candidates[paths[2]] = 'not valid python !'
+            # Corrupt the final candidate after fingerprint validation, before compile/write.
+            with patch.object(patcher, '_module_path', names.__getitem__), patch.object(patcher, 'patch_codex_cancellation', side_effect=invalid_final), patch.object(Path, 'write_text', record), patch('sys.stderr', io.StringIO()):
                 status = patcher.main()
             self.assertEqual(status, 1, 'invalid final candidate must fail')
             self.assertEqual(writes, [], 'validate final candidates before any write')
@@ -130,13 +134,6 @@ class PatcherTests(unittest.TestCase):
                     paths = self.copy_pinned(Path(d))
                     before = {p: p.read_bytes() for p in paths}
                     names = dict(zip(('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers'), paths))
-                    prepare = patcher.prepare_files
-                    def prepared(*args):
-                        originals, candidates, result = prepare(*args)
-                        if target == 0:
-                            # Prospective third file boundary ONLY; no real forwarder proof.
-                            candidates[paths[0]] += '\n# synthetic third candidate\n'
-                        return originals, candidates, result
                     write_text, write_bytes = Path.write_text, Path.write_bytes
                     denied = paths[target] if fault == 'restore-denied' else paths[1] if fault == 'earlier-restore-denied' else None
                     restored = []
@@ -152,7 +149,7 @@ class PatcherTests(unittest.TestCase):
                             raise OSError('B3e restore denial')
                         return write_bytes(path, data)
                     stderr = io.StringIO()
-                    with patch.object(patcher, '_module_path', names.__getitem__), patch.object(patcher, 'prepare_files', prepared), patch.object(Path, 'write_text', fail), patch.object(Path, 'write_bytes', restore), patch('sys.stderr', stderr):
+                    with patch.object(patcher, '_module_path', names.__getitem__), patch.object(Path, 'write_text', fail), patch.object(Path, 'write_bytes', restore), patch('sys.stderr', stderr):
                         self.assertEqual(patcher.main(), 1)
                     self.assertIn('B3e original write denial', stderr.getvalue())
                     self.assertTrue(all(p.read_bytes() == data for p, data in before.items() if p != denied), 'restore traversal must recover every non-denied input')
@@ -162,6 +159,32 @@ class PatcherTests(unittest.TestCase):
                         self.assertTrue(denied.read_bytes() != before[denied])
                     if fault == 'earlier-restore-denied' and target != 1:
                         self.assertIn(paths[target], restored, 'restoration must continue after earlier denial')
+
+    def test_three_owner_drift_and_mixed_states_never_attempt_writes(self):
+        import io
+        for state in ('pristine', 'crowsnest', 'b3d', 'b3e'):
+            for target in range(3):
+                with self.subTest(state=state, target=target), tempfile.TemporaryDirectory() as d:
+                    paths = self.copy_pinned(Path(d))
+                    names = dict(zip(('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers'), paths))
+                    if state != 'pristine':
+                        patcher.patch_files(*paths)
+                    if state == 'b3d':
+                        paths[2].write_text(patcher.patch_cancelled_registration(paths[2].read_text()))
+                    with patch.object(patcher, '_module_path', names.__getitem__):
+                        before_patch = paths[target].read_bytes()
+                        if state == 'b3e':
+                            self.assertEqual(patcher.main(), 0)
+                        for drift in (paths[target].read_bytes() + b'\n', before_patch):
+                            if drift == before_patch and state != 'b3e':
+                                continue
+                            paths[target].write_bytes(drift)
+                            before = [p.read_bytes() for p in paths]
+                            with patch.object(Path, 'write_text') as wt, patch.object(Path, 'write_bytes') as wb, patch('sys.stderr', io.StringIO()):
+                                self.assertEqual(patcher.main(), 1)
+                            wt.assert_not_called()
+                            wb.assert_not_called()
+                            self.assertEqual([p.read_bytes() for p in paths], before)
 
     def load_patched_runtime(self, root):
         paths = self.copy_pinned(root)

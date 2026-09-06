@@ -2395,17 +2395,18 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
         from agent.chat_completion_helpers import interruptible_api_call
         reset_isolation_runtime_for_tests()
         from agent import chat_completion_helpers as helper
-        for phase in ("factory", "registration", "registered", "ordering"):
+        for phase in ("factory", "registration", "registered", "ordering", "attempt-ordering"):
             with self.subTest(phase=phase):
                 entered, release, contender = threading.Event(), threading.Event(), threading.Event()
                 class OrderedLock:
                     def __init__(self):
-                        self.lock, self.first = threading.Lock(), True
+                        self.lock, self.first, self.entries = threading.Lock(), True, 0
                     def __enter__(self):
                         if self.lock.locked() and threading.get_ident() == controller.ident:
                             contender.set()
                         self.lock.acquire()
-                        if self.first and phase == "ordering" and len(kwargs_seen) == 1:
+                        self.entries += 1
+                        if self.first and threading.get_ident() != controller.ident and self.entries == (2 if phase == 'attempt-ordering' else 1) and phase in ('ordering', 'attempt-ordering') and len(kwargs_seen) == 1:
                             self.first = False
                             entered.set()  # registration holds lock BEFORE reading cancel flag
                             if not contender.wait(8):
@@ -2416,6 +2417,8 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                 calls, closes, shutdowns, workers, kwargs_seen, outcome = [], [], [], [], [], []
                 agent = object.__new__(run_agent.AIAgent)
                 agent.model, agent.api_mode, agent.provider = "fixture-model", "chat_completions", "openai"
+                if phase == 'attempt-ordering':
+                    agent.api_mode = 'codex_responses'
                 agent._interrupt_requested = False
                 agent.client = SimpleNamespace(is_closed=False)
                 agent._client_kwargs = {"api_key": "fixture", "http_client": object()}
@@ -2431,14 +2434,15 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                     kwargs_seen.append(kwargs)
                     def create(**_kwargs):
                         calls.append((index, threading.get_ident()))
-                        if index == 0 and phase in ("registered", "ordering"):
+                        if index == 0 and phase in ("registered", "ordering", "attempt-ordering"):
                             wait()
                             raise ConnectionError("fixture cancelled transport")
-                        return index
+                        return SimpleNamespace(output=[]) if phase == 'attempt-ordering' else index
                     sock = SimpleNamespace(shutdown=lambda how: shutdowns.append((index, threading.get_ident(), how)),
                                            close=lambda: self.fail("socket FD released by abort"))
                     pool = SimpleNamespace(_connections=[SimpleNamespace(_network_stream=SimpleNamespace(_sock=sock))])
                     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)),
+                        responses=SimpleNamespace(create=create),
                         _client=SimpleNamespace(_transport=SimpleNamespace(_pool=pool)),
                         close=lambda: closes.append((index, threading.get_ident())))
                     if index == 0 and phase == "factory":
@@ -2468,9 +2472,11 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                         self.assertFalse(controller.is_alive())
                         self.assertIsInstance(outcome[0], InterruptedError)
                         self.assertEqual(closes, [])  # stranger MUST NOT full-close/pop
-                        self.assertEqual(len(shutdowns), 1 if phase in ("registered", "ordering") else 0)
+                        self.assertEqual(len(shutdowns), 1 if phase in ("registered", "ordering", "attempt-ordering") else 0)
+                        if phase == 'attempt-ordering':
+                            self.assertTrue(contender.is_set(), 'attempt admission must serialize with cancellation')
                         agent._interrupt_requested = False  # next cached turn, old worker still retained
-                        self.assertEqual(interruptible_api_call(agent, payload), 1)
+                        self.assertEqual(interruptible_api_call(agent, payload), SimpleNamespace(output=[]) if phase == 'attempt-ordering' else 1)
                         release.set()
                         workers[0].join(2)
                         self.assertFalse(workers[0].is_alive())
@@ -2478,7 +2484,7 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
                         self.assertIn((0, workers[0].ident), closes)
                         self.assertTrue(all(kw["max_retries"] == 0 for kw in kwargs_seen))
                         # Registration-first admits one; cancellation-first admits none.
-                        self.assertEqual([i for i, _ in calls].count(0), int(phase in ("registered", "ordering")))
+                        self.assertEqual([i for i, _ in calls].count(0), int(phase in ("registered", "ordering", "attempt-ordering")))
                         self.assertEqual([i for i, _ in calls].count(1), 1)
                         self.assertIsInstance(outcome[0], InterruptedError)
                         print("PINNED_CANCEL_OWNER", phase, "old_create", [i for i, _ in calls].count(0), flush=True)
@@ -2490,6 +2496,33 @@ class PinnedCancellationOwnerTests(unittest.TestCase):
 
 
 class CodexCancellationTests(unittest.TestCase):
+    def test_forwarder_first_and_retry_admission(self):
+        import run_agent
+        from agent import codex_runtime
+        agent = SimpleNamespace(_interrupt_requested=False, provider='openai',
+            _fire_stream_delta=lambda _text: None, _fire_reasoning_delta=lambda _text: None,
+            _touch_activity=lambda _reason: None, _client_log_context=lambda: 'fixture')
+        for deny in (1, 2):
+            calls, admissions = [], []
+            cause = InterruptedError('attempt denied')
+            def admit():
+                admissions.append(len(calls))
+                if len(admissions) == deny:
+                    raise cause
+            def create(**_kwargs):
+                calls.append(1)
+                raise ConnectionError('retry')
+            client = SimpleNamespace(responses=SimpleNamespace(create=create))
+            predicate = lambda: False
+            with mock.patch.object(codex_runtime, 'run_codex_stream', wraps=codex_runtime.run_codex_stream) as forward, self.assertRaises(BaseException) as raised:
+                run_agent.AIAgent._run_codex_stream(agent, {}, client=client,
+                    request_cancelled=predicate, admit_attempt=admit)
+            self.assertIs(raised.exception, cause)
+            self.assertIs(forward.call_args.kwargs.get('request_cancelled'), predicate)
+            self.assertIs(forward.call_args.kwargs.get('admit_attempt'), admit)
+            self.assertEqual(calls, [1] * (deny - 1))
+            self.assertEqual(admissions, list(range(deny)))
+
     def test_retained_stream_and_retry_reset_with_ordinary_controls(self):
         import run_agent
         from agent.chat_completion_helpers import interruptible_api_call
@@ -2500,7 +2533,7 @@ class CodexCancellationTests(unittest.TestCase):
                 entered, release = threading.Event(), threading.Event()
                 calls, closes, workers, outcomes, deltas = [], [], [], [], []
                 agent = object.__new__(run_agent.AIAgent)
-                agent.__dict__.update(vars(PatcherAgent := SimpleNamespace(
+                agent.__dict__.update(vars(SimpleNamespace(
                     model='fixture-model', api_mode='codex_responses', provider='openai',
                     _interrupt_requested=False, client=SimpleNamespace(is_closed=False),
                     _client_kwargs={'api_key': 'fixture'},
@@ -2564,7 +2597,7 @@ class CodexCancellationTests(unittest.TestCase):
                         else:
                             controller.join(2)
                             self.assertFalse(controller.is_alive())
-                            self.assertEqual(outcomes[0].terminal_event_type, 'response.completed')
+                            self.assertEqual(getattr(outcomes[0], 'terminal_event_type', None), 'response.completed')
                             self.assertEqual(calls, [0, 0] if phase == 'ordinary-retry' else [0])
                         self.assertEqual(len(closes), len(clients))
                         self.assertEqual(len(stream_closes), 2 if phase == 'stream' else 1)

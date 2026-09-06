@@ -266,6 +266,63 @@ def patch_cancelled_registration(text: str) -> str:
     return patched
 
 
+# B3e operands are scoped to the named lexical owner; hashes cover full modules.
+B3E = (
+    ('_run_codex_stream', '7a36be48ffdc0fe62b855263683d55c1c7138cc65acf597175920fcf86b45bd5', (
+        ('    def _run_codex_stream(self, api_kwargs: dict, client: Any = None, on_first_delta: callable = None):\n',
+         '    def _run_codex_stream(self, api_kwargs: dict, client: Any = None, on_first_delta: callable = None,\n                          request_cancelled=None, admit_attempt=None):\n'),
+        ('        return run_codex_stream(self, api_kwargs, client, on_first_delta)\n',
+         '        return run_codex_stream(self, api_kwargs, client, on_first_delta,\n                                request_cancelled=request_cancelled, admit_attempt=admit_attempt)\n'),
+    )),
+    ('run_codex_stream', '0d1ac4bc9cee7976a0d152613f858cdc91d9dd9faeaf7308accf3117ba397935', (
+        ('def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta=None):\n',
+         'def run_codex_stream(agent, api_kwargs: dict, client: Any = None, on_first_delta=None,\n                     request_cancelled=None, admit_attempt=None):\n'),
+        ('        return bool(agent._interrupt_requested)\n',
+         '        return bool(agent._interrupt_requested or (request_cancelled and request_cancelled()))\n'),
+        ('        if agent._interrupt_requested:\n', '        if _interrupt_check():\n'),
+        ('            event_stream = active_client.responses.create(**stream_kwargs)\n',
+         '            if admit_attempt is not None:\n                admit_attempt()\n            event_stream = active_client.responses.create(**stream_kwargs)\n'),
+    )),
+    ('interruptible_api_call', '96b0fa3846ba7e39fa828cbca26dcb7c136c1410c8db49034804fcb9aad21e35', (
+        ('    def _call():\n',
+         '    def request_cancelled():\n        return _request_cancelled["value"]\n\n    def admit_attempt():\n        with request_client_lock:\n            if request_cancelled():\n                raise InterruptedError("Request cancelled before Codex attempt")\n\n    def _call():\n'),
+        ('                        on_first_delta=getattr(agent, "_codex_on_first_delta", None),\n',
+         '                        on_first_delta=getattr(agent, "_codex_on_first_delta", None),\n                        request_cancelled=request_cancelled,\n                        admit_attempt=admit_attempt,\n'),
+    )),
+)
+
+
+def _b3e_replace(text, owner, changes, inverse=False):
+    import ast
+    nodes = [n for n in ast.walk(ast.parse(text)) if isinstance(n, ast.FunctionDef) and n.name == owner]
+    if len(nodes) != 1:
+        raise RuntimeError("B3e lexical owner drift")
+    node, lines = nodes[0], text.splitlines(keepends=True)
+    body = ''.join(lines[node.lineno - 1:node.end_lineno])
+    for old, new in reversed(changes) if inverse else changes:
+        body = _replace_once(body, new if inverse else old, old if inverse else new, "B3e lexical replacement")
+    return ''.join(lines[:node.lineno - 1]) + body + ''.join(lines[node.end_lineno:])
+
+
+def patch_codex_cancellation(candidates, paths):
+    import hashlib
+    marked = ['request_cancelled=' in candidates[path] for path in paths]
+    if any(marked) and not all(marked):
+        raise RuntimeError("B3e mixed cancellation state")
+    for path, (owner, expected, changes) in zip(paths, B3E):
+        text = candidates[path]
+        if all(marked):
+            text = _b3e_replace(text, owner, changes, inverse=True)
+        if owner == 'interruptible_api_call':
+            text = patch_cancelled_registration(text)  # inverse B3e precedes B3d validation
+        if hashlib.sha256(text.encode('utf-8')).hexdigest() != expected:
+            raise RuntimeError("B3e reconstructed source fingerprint drift")
+        patched = _b3e_replace(text, owner, changes)
+        if all(marked) and patched != candidates[path]:
+            raise RuntimeError("B3e noncanonical cancellation state")
+        candidates[path] = patched
+
+
 def main():
     originals = {}
     try:
@@ -275,7 +332,7 @@ def main():
         paths = (runtime_path, helper_path, run_agent_path)
         originals = {path: path.read_bytes() for path in paths}
         source, candidates, result = prepare_files(run_agent_path, runtime_path, helper_path)
-        candidates[helper_path] = patch_cancelled_registration(candidates[helper_path])
+        patch_codex_cancellation(candidates, (run_agent_path, runtime_path, helper_path))
         for path in paths:
             compile(candidates[path], str(path), "exec")
         for path in paths:
