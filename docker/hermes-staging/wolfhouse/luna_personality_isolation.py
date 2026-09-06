@@ -180,6 +180,7 @@ class IsolatedTurnCapture:
     model_called: bool = False
     provider_helper_attempts: int = 0
     telemetry_producer_suppressed: int = 0
+    _telemetry_producer_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
     provider_helper_kind: Optional[str] = None
     isolation_ready: bool = False
     observed_pack_id: Optional[str] = None
@@ -255,7 +256,8 @@ def deny_telemetry_if_isolated() -> bool:
     if cap is None:
         return False
     try:
-        cap.telemetry_producer_suppressed = min(cap.telemetry_producer_suppressed + 1, 2**53 - 1)
+        with cap._telemetry_producer_lock:
+            cap.telemetry_producer_suppressed = min(cap.telemetry_producer_suppressed + 1, 2**53 - 1)
     except Exception:
         # Diagnostic failure must never reopen the shared producer queue.
         pass
