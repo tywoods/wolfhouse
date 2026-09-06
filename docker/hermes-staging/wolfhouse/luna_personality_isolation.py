@@ -177,6 +177,7 @@ class IsolatedTurnCapture:
     personality_fetches: int = 0
     model_calls: int = 0
     model: Optional[str] = None
+    _request_identity: Any = field(default=None, repr=False, compare=False)
     model_called: bool = False
     provider_helper_attempts: int = 0
     telemetry_producer_suppressed: int = 0
@@ -1559,8 +1560,8 @@ def _wrap_module_turn_entry(mod: Any, attr: str) -> bool:
                 return orig(*args, **kwargs)
             return orig(agent, *args, **kwargs)
         refuse_unsupported_backend(agent)
-        if attr == "run_codex_app_server_turn":
-            raise IsolationAbort("unsupported_turn_owner:run_codex_app_server_turn")
+        if attr in {"run_codex_app_server_turn", "run_codex_stream", "run_codex_create_stream_fallback"}:
+            raise IsolationAbort(f"unsupported_turn_owner:{attr}")
         _certify_effective_agent_before_turn_prologue(agent)
         if agent is None:
             return orig(*args, **kwargs)
@@ -1610,8 +1611,9 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
     if _wrap_module_turn_entry(loop_mod, "run_conversation"):
         wrapped_any = True
     codex_mod = _discover_codex_runtime(t.codex_runtime_mod)
-    if _wrap_module_turn_entry(codex_mod, "run_codex_app_server_turn"):
-        wrapped_any = True
+    for name in ("run_codex_app_server_turn", "run_codex_stream", "run_codex_create_stream_fallback"):
+        if _wrap_module_turn_entry(codex_mod, name):
+            wrapped_any = True
     if runner is not None:
         orig_handle = getattr(runner, "_handle_message", None)
         if callable(orig_handle) and not _is_wrapped(orig_handle):
@@ -1660,9 +1662,10 @@ def _turn_entry_live(*, runner: Any = None, targets: Optional[IsolationTargets] 
             return False
     codex_mod = _discover_codex_runtime(t.codex_runtime_mod)
     if codex_mod is not None:
-        fn = getattr(codex_mod, "run_codex_app_server_turn", None)
-        if fn is not None and not _is_wrapped(fn):
-            return False
+        for name in ("run_codex_app_server_turn", "run_codex_stream", "run_codex_create_stream_fallback"):
+            fn = getattr(codex_mod, name, None)
+            if fn is not None and not _is_wrapped(fn):
+                return False
     return True
 
 
@@ -1849,8 +1852,21 @@ def _wrap_provider(
     return _provider_wrapped, _provider_streaming_wrapped
 
 
-def _observe_create_call(original: Any) -> Any:
+_REQUEST_ACQUISITION: ContextVar[Any] = ContextVar("luna_request_acquisition", default=None)
+
+
+def _check_request_identity(binding: Any) -> None:
+    cap, agent, model, mode = binding
+    if (_ISOLATED.get() is not cap or cap._request_identity is not binding
+            or getattr(agent, "model", None) != model or effective_api_mode(agent) != mode):
+        raise IsolationAbort("request_identity_changed")
+    refuse_unsupported_backend(agent)
+
+
+def _observe_create_call(original: Any, binding: Any = None) -> Any:
     def create(*args: Any, **kwargs: Any):
+        if binding is not None:
+            _check_request_identity(binding)
         cap = _ISOLATED.get()
         if cap is not None:
             payload = kwargs if kwargs else (args[0] if args and isinstance(args[0], dict) else {})
@@ -1858,6 +1874,7 @@ def _observe_create_call(original: Any) -> Any:
         return original(*args, **kwargs)
 
     _mark(create)
+    create._luna_request_identity = binding
     return create
 
 
@@ -1865,13 +1882,19 @@ def _observe_openai_client(client: Any) -> Any:
     cap = _ISOLATED.get()
     if cap is None or client is None:
         return client
+    binding = cap._request_identity
+    if binding is None:
+        raise IsolationAbort("request_identity_missing")
+    _check_request_identity(binding)
     try:
         orig_create = client.chat.completions.create
     except Exception as exc:
         raise IsolationAbort("provider_dispatch_unobservable") from exc
     if _is_wrapped(orig_create):
+        if getattr(orig_create, "_luna_request_identity", None) is not binding:
+            raise IsolationAbort("request_identity_changed")
         return client
-    client.chat.completions.create = _observe_create_call(orig_create)
+    client.chat.completions.create = _observe_create_call(orig_create, binding)
     return client
 
 
@@ -1911,25 +1934,49 @@ def _discover_bedrock_mod() -> Any:
         return None
 
 
-def _wrap_openai_client_factory(owner: Any) -> bool:
+def _wrap_openai_client_factory(owner: Any, _name: str = "_create_request_openai_client") -> bool:
     if owner is None:
         return False
-    orig = getattr(owner, "_create_request_openai_client", None)
+    orig = getattr(owner, _name, None)
     if orig is None:
         return False
     already_on_instance = False
     if not isinstance(owner, type):
-        already_on_instance = "_create_request_openai_client" in getattr(owner, "__dict__", {})
+        already_on_instance = _name in getattr(owner, "__dict__", {})
     if _is_wrapped(orig) and (isinstance(owner, type) or already_on_instance):
         return True
 
     def _wrapped(*args: Any, **kwargs: Any):
-        client = orig(*args, **kwargs)
-        return _observe_openai_client(client)
+        cap = _ISOLATED.get()
+        if cap is None:
+            return orig(*args, **kwargs)
+        agent = (args[0] if args else kwargs.get("self")) if isinstance(owner, type) else owner
+        mode = refuse_unsupported_backend(agent)
+        model = getattr(agent, "model", None)
+        if agent is None or not isinstance(model, str) or not model:
+            raise IsolationAbort("request_identity_missing")
+        binding = cap._request_identity
+        if _name == "_ensure_primary_openai_client":
+            if binding is None or _REQUEST_ACQUISITION.get() is not binding:
+                raise IsolationAbort("primary_client_acquisition_denied")
+        elif binding is None:
+            binding = cap._request_identity = (cap, agent, model, mode)
+        if binding[1] is not agent:
+            raise IsolationAbort("request_identity_changed")
+        _check_request_identity(binding)
+        token = _REQUEST_ACQUISITION.set(binding)
+        try:
+            client = orig(*args, **kwargs)
+            _check_request_identity(binding)
+            return client if _name == "_ensure_primary_openai_client" else _observe_openai_client(client)
+        finally:
+            _REQUEST_ACQUISITION.reset(token)
 
     _mark(_wrapped)
-    _save_orig(owner, "_create_request_openai_client", orig)
-    setattr(owner, "_create_request_openai_client", _wrapped)
+    _save_orig(owner, _name, orig)
+    setattr(owner, _name, _wrapped)
+    if _name == "_create_request_openai_client":
+        _wrap_openai_client_factory(owner, "_ensure_primary_openai_client")
     return True
 
 

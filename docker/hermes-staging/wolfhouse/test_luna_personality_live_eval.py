@@ -1764,6 +1764,60 @@ class RequestIdentityBoundaryTests(unittest.TestCase):
         self.assertEqual(len(self.dispatches), 2)
         self.assertEqual(len(self.acquisitions), 2)
 
+    def test_missing_identity_mode_change_and_other_agent_fail_closed(self):
+        token = enter_isolated_turn(self.cap)
+        try:
+            self.agent.model = None
+            with self.assertRaises(IsolationAbort):
+                self.request()
+            self.assertEqual(self.acquisitions, [])
+            self.agent.model = "fixture-model"
+            client = self.request()
+            other = object.__new__(self.ra.AIAgent)
+            other.model, other.api_mode = self.agent.model, self.agent.api_mode
+            with self.assertRaises(IsolationAbort):
+                other._create_request_openai_client(reason="other-agent")
+            self.agent.api_mode = "bedrock_converse"
+            with self.assertRaises(IsolationAbort):
+                client.chat.completions.create(model="fixture-model")
+            with self.assertRaises(IsolationAbort):
+                self.request()
+            self.agent.api_mode = "codex_responses"
+            with self.assertRaises(IsolationAbort):
+                client.chat.completions.create(model="fixture-model")
+            with self.assertRaises(IsolationAbort):
+                self.request()
+            self.agent.api_mode = "chat_completions"
+            with self.assertRaises(IsolationAbort):
+                self.agent._ensure_primary_openai_client(reason="outside-request")
+            self.assertEqual(len(self.acquisitions), 1)
+            self.assertEqual(self.dispatches, [])
+        finally:
+            exit_isolated_turn(token)
+
+    def test_retained_create_denies_reset_cross_capture_and_forged_marker(self):
+        token = enter_isolated_turn(self.cap)
+        try:
+            client = self.request()
+        finally:
+            exit_isolated_turn(token)
+        with self.assertRaises(IsolationAbort):
+            client.chat.completions.create(model="fixture-model")
+        token = enter_isolated_turn(IsolatedTurnCapture(case_id="other", personality_id="sunny"))
+        try:
+            self.request()
+            with self.assertRaises(IsolationAbort):
+                client.chat.completions.create(model="fixture-model")
+            with self.assertRaises(IsolationAbort):
+                self.iso._observe_openai_client(client)
+            raw = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: None)))
+            self.iso._mark(raw.chat.completions.create)
+            with self.assertRaises(IsolationAbort):
+                self.iso._observe_openai_client(raw)
+            self.assertEqual(self.dispatches, [])
+        finally:
+            exit_isolated_turn(token)
+
     def test_module_explicit_raw_and_primary_denied_before_resources(self):
         from agent import codex_runtime
         self.iso._wrap_turn_entry(targets=IsolationTargets(agent_cls=self.ra.AIAgent, codex_runtime_mod=codex_runtime))
@@ -1816,6 +1870,7 @@ class RealProviderHelperDispatchTests(unittest.TestCase):
             raise RuntimeError("client construction failed")
 
         agent = SimpleNamespace(
+            model="counter-model",
             api_mode="chat_completions",
             _interrupt_requested=False,
             _compute_non_stream_stale_timeout=lambda kw: 180,
@@ -1874,6 +1929,7 @@ class RealProviderHelperDispatchTests(unittest.TestCase):
             return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
         agent = SimpleNamespace(
+            model="counter-model",
             api_mode="chat_completions",
             _interrupt_requested=False,
             _compute_non_stream_stale_timeout=lambda kw: 180,
