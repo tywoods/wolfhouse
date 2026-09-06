@@ -1686,6 +1686,106 @@ class ServingReadinessAndRouteTests(unittest.TestCase):
         self.assertNotIn("8094", caddy)
 
 
+class RequestIdentityBoundaryTests(unittest.TestCase):
+    """Dormant seam: real installed owners, never constructor/route admission."""
+
+    def setUp(self):
+        import run_agent
+        from wolfhouse import luna_personality_isolation as iso
+        self.ra, self.iso = run_agent, iso
+        self.agent = object.__new__(run_agent.AIAgent)
+        self.agent.model, self.agent.api_mode = "fixture-model", "chat_completions"
+        self.agent.provider = "openai"
+        self.agent._interrupt_requested = False
+        self.agent.client = SimpleNamespace(is_closed=lambda: False)
+        self.agent._client_kwargs = {"api_key": "fixture", "base_url": "https://fixture.invalid/v1", "http_client": object()}
+        self.agent._client_log_context = lambda: "offline-fixture"
+        self.acquisitions, self.dispatches = [], []
+        def sdk(**kwargs):
+            self.acquisitions.append(kwargs)
+            def create(**payload):
+                self.dispatches.append(payload)
+                return "fixture-result"
+            return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        self.sdk_patch = mock.patch.object(run_agent, "OpenAI", sdk)
+        self.sdk_patch.start()
+        self.addCleanup(self.sdk_patch.stop)
+        self.addCleanup(reset_isolation_runtime_for_tests)
+        _wrap_openai_client_factory(run_agent.AIAgent)
+        _wrap_openai_client_factory(self.agent)
+        self.cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+
+    def request(self):
+        return self.agent._create_request_openai_client(reason="offline-b2a")
+
+    def test_codex_request_denies_before_primary_acquisition(self):
+        self.agent.api_mode = "codex_responses"
+        def ensure(**kwargs):
+            self.acquisitions.append("ensure")
+            raise AssertionError("primary acquisition reached")
+        self.agent._ensure_primary_openai_client = ensure
+        token = enter_isolated_turn(self.cap)
+        try:
+            with self.assertRaises(IsolationAbort):
+                self.request()
+            self.assertEqual(self.acquisitions, [])
+        finally:
+            exit_isolated_turn(token)
+
+    def test_real_factory_positive_and_retained_identity(self):
+        ordinary = self.request()
+        self.assertEqual(ordinary.chat.completions.create(model="fixture-model"), "fixture-result")
+        self.assertEqual(self.acquisitions[0]["max_retries"], 0)
+        self.assertNotIn("max_retries", self.agent._client_kwargs)
+        token = enter_isolated_turn(self.cap)
+        try:
+            client = self.request()
+            create = client.chat.completions.create
+            self.iso._observe_openai_client(client)
+            self.assertIs(client.chat.completions.create, create)
+            self.assertEqual(create(model="fixture-model"), "fixture-result")
+            self.assertEqual(self.cap.model_calls, 1)
+            self.agent.model = "changed-model"
+            with self.assertRaises(IsolationAbort):
+                create(model="fixture-model")
+            with self.assertRaises(IsolationAbort):
+                self.request()
+            self.agent.model = "fixture-model"
+        finally:
+            exit_isolated_turn(token)
+        with self.assertRaises(IsolationAbort):
+            create(model="fixture-model")
+        other = enter_isolated_turn(IsolatedTurnCapture(case_id="other", personality_id="sunny"))
+        try:
+            with self.assertRaises(IsolationAbort):
+                create(model="fixture-model")
+        finally:
+            exit_isolated_turn(other)
+        self.assertEqual(len(self.dispatches), 2)
+        self.assertEqual(len(self.acquisitions), 2)
+
+    def test_module_explicit_raw_and_primary_denied_before_resources(self):
+        from agent import codex_runtime
+        self.iso._wrap_turn_entry(targets=IsolationTargets(agent_cls=self.ra.AIAgent, codex_runtime_mod=codex_runtime))
+        def tripwire(*args, **kwargs):
+            self.acquisitions.append("resource")
+            raise AssertionError("resource reached")
+        self.agent._ensure_primary_openai_client = tripwire
+        raw = SimpleNamespace(responses=SimpleNamespace(create=tripwire))
+        token = enter_isolated_turn(self.cap)
+        try:
+            for name in ("run_codex_stream", "run_codex_create_stream_fallback"):
+                for client in (None, raw):
+                    with self.subTest(name=name, explicit=client is not None):
+                        with self.assertRaises(IsolationAbort):
+                            getattr(codex_runtime, name)(self.agent, {}, client=client)
+            with self.assertRaises(IsolationAbort):
+                self.ra.AIAgent._ensure_primary_openai_client(self.agent, reason="raw-primary")
+            self.assertEqual(self.acquisitions, [])
+        finally:
+            exit_isolated_turn(token)
+
+
 class RealProviderHelperDispatchTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
