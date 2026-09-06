@@ -24,6 +24,41 @@ class PatcherTests(unittest.TestCase):
             path.chmod(0o600)
         return run_agent, runtime, helper
 
+    def test_main_final_write_failure_restores_inputs(self):
+        import io
+        for crowsnest in (False, True):
+            for partial, restore_denied in ((False, False), (True, False), (True, True)):
+                with self.subTest(crowsnest=crowsnest, partial=partial, restore_denied=restore_denied), tempfile.TemporaryDirectory() as d:
+                    paths = self.copy_pinned(Path(d))
+                    if crowsnest:
+                        patcher.patch_files(*paths)
+                    before = [p.read_bytes() for p in paths]
+                    names = dict(zip(('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers'), paths))
+                    write_text, write_bytes = Path.write_text, Path.write_bytes
+                    error = OSError('R1 final-helper-write denial')
+                    def fail_final(path, text, *args, **kwargs):
+                        if path == paths[2] and 'Request cancelled before client registration' in text:
+                            if partial:
+                                write_text(path, text[:31], *args, **kwargs)
+                            raise error
+                        return write_text(path, text, *args, **kwargs)
+                    def restore(path, data):
+                        if restore_denied and path == paths[2]:
+                            raise OSError('R1 restore denial')
+                        return write_bytes(path, data)
+                    stderr = io.StringIO()
+                    with patch.object(patcher, '_module_path', names.__getitem__), patch.object(Path, 'write_text', fail_final), patch.object(Path, 'write_bytes', restore), patch('sys.stderr', stderr):
+                        self.assertEqual(patcher.main(), 1)
+                    self.assertIn(str(error), stderr.getvalue())
+                    after = [p.read_bytes() for p in paths]
+                    if restore_denied:
+                        self.assertIn('rollback failed', stderr.getvalue())
+                        self.assertIn('R1 restore denial', stderr.getvalue())
+                        self.assertEqual(after[:2], before[:2])
+                        self.assertNotEqual(after[2], before[2])
+                    else:
+                        self.assertTrue(after == before, 'R1 failed main must restore every input byte')
+
     def load_patched_runtime(self, root):
         paths = self.copy_pinned(root)
         patcher.patch_files(*paths)
