@@ -183,6 +183,8 @@ class IsolatedTurnCapture:
     # Observed create calls only: returned does not mean stream completion or HTTP success.
     responses_sdk_attempted: int = 0
     responses_sdk_returned: int = 0
+    # Capture-local accounting only; never held across parsing or the SDK call.
+    _responses_sdk_lock: Any = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
     telemetry_producer_suppressed: int = 0
     _telemetry_producer_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
     provider_helper_kind: Optional[str] = None
@@ -1888,10 +1890,12 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
                     raise IsolationAbort("responses_dispatch_identity_changed")
             observe_provider_dispatch(payload)
             if responses:
-                cap.responses_sdk_attempted = min(cap.responses_sdk_attempted + 1, 2**53 - 1)
+                with cap._responses_sdk_lock:
+                    cap.responses_sdk_attempted = min(cap.responses_sdk_attempted + 1, 2**53 - 1)
         result = original(*args, **kwargs)
         if responses and cap is not None:
-            cap.responses_sdk_returned = min(cap.responses_sdk_returned + 1, 2**53 - 1)
+            with cap._responses_sdk_lock:
+                cap.responses_sdk_returned = min(cap.responses_sdk_returned + 1, 2**53 - 1)
         return result
 
     _mark(create)

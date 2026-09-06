@@ -7,7 +7,7 @@ def check_concurrent_counts(fixture):
     sys.setswitchinterval(0.000001)
     fixture.addCleanup(sys.setswitchinterval, previous_interval)
     iso, cap = fixture.iso, fixture.cap
-    for trial in range(4):
+    for trial in range(5):
         receipts, lock = [], threading.Lock()
         overlap = threading.Barrier(16)
         def edge(**kwargs):
@@ -36,11 +36,11 @@ def check_concurrent_counts(fixture):
             receipts.clear()
             contexts = [contextvars.copy_context() for _ in range(16)]
             barrier = threading.Barrier(16)
-            calls = 10 if trial == 3 else 10000
+            calls = 10 if trial >= 3 else 10000
             def worker():
                 barrier.wait(timeout=10)
                 for i in range(calls):
-                    fail = trial == 3 and i % 2 == 1
+                    fail = trial >= 3 and i % 2 == 1
                     try:
                         assert create(model='fixture-model', stream=True, overlap=i == 0, fail=fail) is fixture.result
                         assert not fail
@@ -53,7 +53,7 @@ def check_concurrent_counts(fixture):
             observed = (cap.responses_sdk_attempted, cap.responses_sdk_returned)
             assert all(type(n) is int for n in observed)
             assert len(receipts) == 16 * calls
-            assert sum(receipts) == 16 * calls // (2 if trial == 3 else 1)
+            assert sum(receipts) == 16 * calls // (2 if trial >= 3 else 1)
             expected = (min(start + len(receipts), 2**53 - 1), min(start + sum(receipts), 2**53 - 1))
             print('NATURAL_CONCURRENT', trial, 'SDK_RECEIPTS', (len(receipts), sum(receipts)), 'ATTEMPTED_RETURNED', observed, flush=True)
             assert observed == expected, (observed, expected)
