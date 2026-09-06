@@ -225,9 +225,45 @@ def _module_path(name: str) -> Path:
     return Path(spec.origin)
 
 
+def patch_cancelled_registration(text: str) -> str:
+    """Two-hunk owner extension; accept only the exact pinned post-Crowsnest helper."""
+    import hashlib
+    registration = '            request_client_holder["owner_tid"] = threading.get_ident()\n'
+    guarded = registration + (
+        '            if _request_cancelled["value"]:\n'
+        '                raise InterruptedError("Request cancelled before client registration")\n'
+    )
+    cancellation = '            _request_cancelled["value"] = True\n'
+    ordered = '            with request_client_lock:\n    ' + cancellation
+    start = text.index('def interruptible_api_call(agent, api_kwargs: dict):\n')
+    end = text.index('\ndef build_api_kwargs(', start)
+    prefix, owner, suffix = text[:start], text[start:end], text[end:]
+    normalized = owner
+    marked = guarded in owner or ordered in owner
+    if marked:
+        normalized = _replace_once(normalized, guarded, registration, "cancel registration guard")
+        normalized = _replace_once(normalized, ordered, cancellation, "cancel writer lock")
+    if hashlib.sha256((prefix + normalized + suffix).encode("utf-8")).hexdigest() != (
+        "64fb34842dc0267927f6a28daf6e400b3a46310e427dfbebf902db10219e7bd2"
+    ):
+        raise RuntimeError("cancel registration source fingerprint drift")
+    patched = _replace_once(normalized, registration, guarded, "client ownership registration")
+    patched = _replace_once(patched, cancellation, ordered, "request cancellation writer")
+    patched = prefix + patched + suffix
+    compile(patched, "agent/chat_completion_helpers.py", "exec")
+    return patched
+
+
 def main():
     try:
-        print(patch_files(_module_path("run_agent"), _module_path("agent.codex_runtime"), _module_path("agent.chat_completion_helpers")))
+        helper_path = _module_path("agent.chat_completion_helpers")
+        helper = helper_path.read_text(encoding="utf-8")
+        candidate = helper if "crowsnest_guest_reply_context_v2" in helper else _replace_once(
+            helper, HELPER_ANCHOR, HELPER_REPLACEMENT, "approved main Luna turn")
+        patched_helper = patch_cancelled_registration(candidate)
+        print(patch_files(_module_path("run_agent"), _module_path("agent.codex_runtime"), helper_path))
+        if patched_helper != helper:
+            helper_path.write_text(patched_helper, encoding="utf-8")
     except Exception as exc:
         print(f"apply_crowsnest_ai_usage_patch failed: {exc}", file=sys.stderr)
         return 1
