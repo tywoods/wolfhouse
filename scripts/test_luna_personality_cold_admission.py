@@ -1,10 +1,10 @@
 """Offline composed cold/warm control; run only in the pinned network-none image."""
-import signal, faulthandler, asyncio, json, os
+import signal, faulthandler
 signal.signal(signal.SIGALRM, signal.SIG_DFL)
 signal.alarm(35)
 faulthandler.enable()
 faulthandler.dump_traceback_later(12, repeat=True)
-
+import asyncio, json, os
 from pathlib import Path
 
 home = Path(os.environ['HERMES_HOME'])
@@ -134,8 +134,7 @@ async def main():
         event = MessageEvent(text='fixture question', message_type=MessageType.TEXT,
                              source=source, message_id='fixture-message')
         try:
-            key = runner._session_key_for_source(source)
-            generation = runner._begin_session_run_generation(key)
+            generation = runner._begin_session_run_generation(key := runner._session_key_for_source(source))
             await runner._handle_message_with_agent(event, source, key, generation)
         except isolation.IsolationAbort as exc:
             assert exc.reason == 'runtime_resolution_unverified', exc.reason

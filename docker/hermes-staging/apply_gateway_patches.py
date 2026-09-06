@@ -691,6 +691,26 @@ def apply_luna_cold_admission(source: str) -> str:
                    and ast.unparse(n.test) in ('isinstance(e, IsolationAbort)', 'isinstance(exc, IsolationAbort)')]
     if sorted(owner(n).name for n in abort_tests if owner(n)) != ['_handle_message_with_agent', 'run_sync']:
         raise RuntimeError('cold admission causal catch ownership invalid')
+    for defense in abort_tests:
+        fn, handler = owner(defense), parents[defense]
+        target = '_resolve_session_agent_runtime' if fn.name == 'run_sync' else '_run_agent'
+        calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and
+                 isinstance(n.func, ast.Attribute) and ast.unparse(n.func) == 'self.' + target and owner(n) is fn]
+        protected = []
+        for call in calls:
+            node = call
+            while node in parents and not isinstance(parents[node], ast.Try):
+                node = parents[node]
+            if node in parents and node in parents[node].body:
+                protected.append(parents[node])
+        if (len(protected) != 1 or not isinstance(handler, ast.ExceptHandler) or
+                handler not in protected[0].handlers or protected[0].handlers != [handler] or
+                handler.name != ('exc' if fn.name == 'run_sync' else 'e') or
+                ast.unparse(handler.type) != 'Exception' or handler.body[:2] != [handler.body[0], defense] or
+                ast.unparse(handler.body[0]) != 'from wolfhouse.luna_personality_isolation import IsolationAbort' or
+                len(defense.body) != 1 or not isinstance(defense.body[0], ast.Raise) or
+                defense.body[0].exc is not None or defense.body[0].cause is not None or defense.orelse):
+            raise RuntimeError('cold admission causal catch protected try invalid')
     return source
 
 
