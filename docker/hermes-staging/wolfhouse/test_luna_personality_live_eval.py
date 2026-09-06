@@ -2058,12 +2058,8 @@ class ResponsesTerminalTests(unittest.TestCase):
                             self.run_stream(stream)
                     else:
                         self.run_stream(stream)
-                    if terminal == 'completed':
-                        self.iso.settle_isolated_work(self.cap)
-                    else:
-                        with self.assertRaises(IsolationAbort) as caught:
-                            self.iso.settle_isolated_work(self.cap)
-                        self.assertEqual(caught.exception.reason, 'responses_terminal_unverified')
+                    self.iso.settle_isolated_work(self.cap)
+                    self.assertIs(getattr(self.cap, 'responses_terminal_verified', None), terminal == 'completed')
                     self.assertEqual(getattr(self.cap, 'responses_completed', None), int(terminal == 'completed'))
                     self.assertEqual(getattr(self.cap, 'responses_close_succeeded', None), int(terminal != 'concrete'))
                     if terminal != 'concrete':
@@ -2086,8 +2082,8 @@ class ResponsesTerminalTests(unittest.TestCase):
                         self.assertIs(caught.exception, iteration_error)
                     else:
                         self.run_stream(stream)  # pinned helper swallows close failure
-                    with self.assertRaises(IsolationAbort):
-                        self.iso.settle_isolated_work(self.cap)
+                    self.iso.settle_isolated_work(self.cap)
+                    self.assertIs(getattr(self.cap, 'responses_terminal_verified', None), False)
                     self.assertEqual(getattr(self.cap, 'responses_close_failed', None), 1)
                     self.assertEqual(getattr(self.cap, 'responses_iteration_failed', None), int(iteration_error is not None))
                     self.assertEqual(stream.closes, 1)
@@ -2109,8 +2105,8 @@ class ResponsesTerminalTests(unittest.TestCase):
                         list(observed)
                     else:
                         observed.close()
-                    with self.assertRaises(IsolationAbort):
-                        self.iso.settle_isolated_work(self.cap)
+                    self.iso.settle_isolated_work(self.cap)
+                    self.assertIs(getattr(self.cap, 'responses_terminal_verified', None), False)
                     self.assertEqual(getattr(self.cap, 'responses_completed', None), int(consume))
                     self.assertEqual(getattr(self.cap, 'responses_close_succeeded', None), int(not consume))
                 finally:
