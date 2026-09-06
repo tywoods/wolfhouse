@@ -2022,7 +2022,7 @@ class ResponsesConcurrencyTests(unittest.TestCase):
     setUp = ResponsesObservationTests.setUp
 
     def test_concurrent_sdk_counts(self):
-        from scripts.test_luna_personality_responses_concurrency import check_concurrent_counts
+        from wolfhouse.responses_concurrency_probe import check_concurrent_counts
         check_concurrent_counts(self)
 
 
