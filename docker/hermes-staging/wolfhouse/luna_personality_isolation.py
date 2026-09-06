@@ -185,6 +185,12 @@ class IsolatedTurnCapture:
     # Observed create calls only: returned does not mean stream completion or HTTP success.
     responses_sdk_attempted: int = 0
     responses_sdk_returned: int = 0
+    responses_completed: int = 0
+    responses_close_succeeded: int = 0
+    responses_close_failed: int = 0
+    responses_iteration_failed: int = 0
+    responses_terminal_verified: bool = False
+    _responses_unverified: int = field(default=0, repr=False, compare=False)
     # Capture-local accounting only; never held across parsing or the SDK call.
     _responses_sdk_lock: Any = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
     telemetry_producer_suppressed: int = 0
@@ -1785,6 +1791,10 @@ def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 
             if is_alive():
                 unsettled = True
     cap.provider_work_settled = not unsettled
+    with cap._responses_sdk_lock:
+        cap.responses_terminal_verified = bool(
+            not unsettled and cap.responses_sdk_returned and not cap._responses_unverified
+        )
     if unsettled:
         raise IsolationAbort("provider_work_unsettled")
 
@@ -1910,6 +1920,62 @@ def _check_request_identity(binding: Any) -> None:
     refuse_unsupported_backend(binding[1])
 
 
+class _ObservedResponsesStream:
+    """Lazy evidence only; the pinned helper retains parser/retry/close ownership.
+
+    This is not a consumer lifetime registry or HTTP cancellation mechanism.
+    No payloads, exception text, or response objects enter the capture.
+    """
+    def __init__(self, stream: Any, cap: IsolatedTurnCapture):
+        self._stream, self._cap = stream, cap
+        self._terminal = None
+        self._iterated = self._close_attempted = self._iteration_failed = False
+
+    def __iter__(self):
+        cap = self._cap
+        with cap._responses_sdk_lock:
+            if self._iterated or self._close_attempted:
+                raise IsolationAbort("responses_stream_reused")
+            self._iterated = True
+        try:
+            for event in self._stream:
+                kind = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
+                with cap._responses_sdk_lock:
+                    if self._terminal is None and kind in ("response.completed", "response.failed", "response.incomplete"):
+                        self._terminal = kind
+                        if kind == "response.completed":
+                            cap.responses_completed = min(cap.responses_completed + 1, 2**53 - 1)
+                yield event
+        except GeneratorExit:
+            raise  # parser stops at terminal; generator closure is not SDK failure
+        except BaseException:
+            with cap._responses_sdk_lock:
+                self._iteration_failed = True
+                cap.responses_iteration_failed = min(cap.responses_iteration_failed + 1, 2**53 - 1)
+            raise
+
+    def close(self):
+        cap = self._cap
+        with cap._responses_sdk_lock:
+            if self._close_attempted:
+                return None
+            self._close_attempted = True
+        try:
+            close = getattr(self._stream, "close", None)
+            if not callable(close):
+                raise IsolationAbort("responses_close_unobservable")
+            result = close()
+        except BaseException:
+            with cap._responses_sdk_lock:
+                cap.responses_close_failed = min(cap.responses_close_failed + 1, 2**53 - 1)
+            raise
+        with cap._responses_sdk_lock:
+            cap.responses_close_succeeded = min(cap.responses_close_succeeded + 1, 2**53 - 1)
+            if self._terminal == "response.completed" and not self._iteration_failed:
+                cap._responses_unverified -= 1
+        return result
+
+
 def _observe_create_call(original: Any, binding: Any = None, *, responses: bool = False) -> Any:
     def create(*args: Any, **kwargs: Any):
         if binding is not None:
@@ -1932,6 +1998,10 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
             if responses and cap is not None:
                 with cap._responses_sdk_lock:
                     cap.responses_sdk_returned = min(cap.responses_sdk_returned + 1, 2**53 - 1)
+                    cap._responses_unverified += 1
+                    cap.responses_terminal_verified = False
+                if hasattr(result, "__iter__"):
+                    result = _ObservedResponsesStream(result, cap)
             return result
 
     _mark(create)
