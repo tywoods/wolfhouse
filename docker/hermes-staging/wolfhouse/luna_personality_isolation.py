@@ -234,6 +234,14 @@ class IsolationAbort(RuntimeError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
+        self.cleanup_error: Optional[str] = None
+        self.counters: Optional[Dict[str, Optional[int]]] = None
+
+
+def refuse_unverified_runtime() -> None:
+    """No inert canonical route authority exists for this containment slice."""
+    if _ISOLATED.get() is not None:
+        raise IsolationAbort("runtime_resolution_unverified")
 
 
 def current_isolated_turn() -> Optional[IsolatedTurnCapture]:
@@ -1562,6 +1570,15 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
     cls = _discover_agent_cls(t.agent_cls)
     wrapped_any = False
     if cls is not None:
+        original_init = getattr(cls, "__init__", None)
+        if callable(original_init) and not _is_wrapped(original_init):
+            def _isolated_init(self, *args: Any, **kwargs: Any):
+                if _ISOLATED.get() is not None:
+                    raise IsolationAbort("constructor_boundary_unverified")
+                return original_init(self, *args, **kwargs)
+            _mark(_isolated_init)
+            _save_orig(cls, "__init__", original_init)
+            cls.__init__ = _isolated_init
         for name in AGENT_TURN_METHODS:
             if getattr(cls, name, None) is None:
                 continue

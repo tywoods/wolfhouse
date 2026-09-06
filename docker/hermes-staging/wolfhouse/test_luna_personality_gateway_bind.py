@@ -412,7 +412,31 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), before)
 
     def test_apply_patches_writes_valid_layout_and_is_idempotent(self) -> None:
-        body = _apply_patches_marker_prefix() + skeleton(12)
+        body = skeleton(12).replace(
+            "            session_key = 'synthetic-session'\n",
+            '            try:\n'
+            '                model, runtime_kwargs = self._resolve_session_agent_runtime(\n'
+            '                    source)\n'
+            '            except Exception as exc:\n'
+            '                return {\n'
+            '                    "final_response": f"⚠️ Provider authentication failed: {exc}",\n'
+            '                }\n'
+            "            session_key = 'synthetic-session'\n",
+        )
+        body += (
+            '    async def _handle_message_with_agent(self):\n'
+            '        try:\n'
+            '            return await self._run_agent_inner(None)\n'
+            '        except Exception as e:\n'
+            '            # Stop typing indicator on error too\n'
+            '            return None\n'
+        )
+        body = body.replace(
+            '        def run_sync():\n',
+            '        # ---- Proxy mode: delegate to remote API server ----\n'
+            '        def run_sync():\n',
+        )
+        body = _apply_patches_marker_prefix() + body
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "run.py"
             path.write_text(body, encoding="utf-8")
@@ -424,6 +448,14 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
             second = gw.apply_patches(path)
             self.assertEqual(path.read_bytes(), once)
             self.assertTrue(second["luna_soul_reload"])
+            for old, new in (("def _run_agent_inner(", "def unrelated_entry("),
+                             ("def _handle_message_with_agent(", "def unrelated_catch("),
+                             ("        refuse_unverified_runtime()\n", "        if False: refuse_unverified_runtime()\n"),
+                             ("            refuse_unverified_runtime()\n", "            if False: refuse_unverified_runtime()\n")):
+                hostile = once.decode().replace(old, new, 1)
+                ast.parse(hostile)
+                with self.subTest(drift=new), self.assertRaises(RuntimeError):
+                    gw.apply_luna_cold_admission(hostile)
 
     def test_apply_patches_source_uses_real_personality_emitter(self) -> None:
         src = Path(gw.__file__).read_text(encoding="utf-8")

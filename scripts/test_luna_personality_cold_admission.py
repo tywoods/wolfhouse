@@ -46,7 +46,8 @@ from gateway.session import SessionSource
 runner = gateway.GatewayRunner(GatewayConfig())
 source = SessionSource(platform=Platform.LOCAL, chat_id='fixture', user_id='fixture')
 async def main():
-    for temperature in ('cold', 'warm'):
+    mode = globals().get('mode', 'normal')
+    for temperature in (() if mode == 'fresh' else ('cold', 'warm')):
         result = await runner._run_agent_inner('fixture question', '', [], source,
             'fixture-session', session_key='fixture-key')
         assert result.get('final_response') == 'fixture ordinary reply', result.get('final_response')
@@ -60,22 +61,93 @@ async def main():
     isolation.install_isolation_runtime(runner=runner)
     downstream = []
     def tripwire(frame, event, arg):
-        if event == 'call' and frame.f_code.co_name == '_resolve_session_agent_runtime':
-            downstream.append('resolver')
+        seams = {'_resolve_session_agent_runtime', '_resolve_turn_agent_config',
+                 'resolve_runtime_provider', 'load_pool', '_auth_store_lock',
+                 'resolve_codex_runtime_credentials', '_save_auth_store',
+                 '_refresh_codex_auth_tokens', 'create_openai_client',
+                 'get_model_context_length', 'init_agent', '_get_proxy_url', '_run_agent_via_proxy'}
+        if mode.startswith('worker-'):
+            seams = {'_resolve_session_agent_runtime', 'init_agent'}
+        if event == 'call' and frame.f_code.co_name in seams:
+            stack = []
+            current = frame
+            while current is not None:
+                stack.append(current.f_code.co_name)
+                current = current.f_back
+            downstream.append(stack)
             raise AssertionError('resource boundary reached')
     cap = isolation.IsolatedTurnCapture(case_id='fixture', personality_id='balanced', tenant_id='sunset')
     token = isolation.enter_isolated_turn(cap)
     # Profile the real worker before the resolver body, without replacing its owner.
     threading.setprofile_all_threads(tripwire)
     try:
+        routes = [('configured', None), ('missing', {}), ('unknown', {'api_mode': 'unknown'}),
+                  ('malformed', {'api_mode': []}), ('auto', {'provider': 'auto'}),
+                  ('custom', {'provider': 'custom'}), ('codex', {'provider': 'openai-codex', 'api_mode': 'codex_responses'}),
+                  ('app-server', {'api_mode': 'codex_app_server'}),
+                  ('complete-override', {'model': 'fixture-model', 'provider': 'custom', 'api_mode': 'chat_completions',
+                                         'api_key': 'synthetic-not-a-credential', 'base_url': 'https://fixture.invalid/v1'})]
+        for temperature, session_key in (('cold', 'fixture-cold-key'), ('warm', 'fixture-key')):
+            before_cache = dict(runner._agent_cache)
+            for route, override in routes:
+                if override is not None:
+                    runner._session_model_overrides[session_key] = override
+                try:
+                    await runner._run_agent_inner('fixture question', '', [], source,
+                        'fixture-session', session_key=session_key)
+                except isolation.IsolationAbort as exc:
+                    assert exc.reason == 'runtime_resolution_unverified', exc.reason
+                else:
+                    raise AssertionError('isolated request admitted; downstream=' + repr(downstream))
+                finally:
+                    runner._session_model_overrides.pop(session_key, None)
+                assert downstream == [], downstream
+                assert runner._agent_cache == before_cache, ('cache changed', list(before_cache), list(runner._agent_cache))
+                print('ISOLATED_PRE_RESOURCE_PASS', temperature, route, flush=True)
+        from run_agent import AIAgent
+        for kwargs in ({}, {'provider': 'openai-codex', 'api_mode': 'codex_responses'},
+                       {'api_mode': 'codex_app_server'}, {'api_mode': []},
+                       {'model': 'gpt-4o-mini', 'provider': 'custom', 'api_key': 'synthetic-not-a-credential',
+                        'base_url': 'https://fixture.invalid/v1'}):
+            try:
+                AIAgent(**kwargs)
+            except isolation.IsolationAbort as exc:
+                assert exc.reason == 'constructor_boundary_unverified', exc.reason
+            else:
+                raise AssertionError('isolated constructor admitted without authority')
+            assert downstream == [], downstream
+        print('CONSTRUCTOR_PRE_RESOURCE_PASS', flush=True)
+        # Peer-isolated causal test: bypass only admission, inject an abort before
+        # the real resolver body, and exercise its genuine auth-friendly catch.
+        original_guard = isolation.refuse_unverified_runtime
+        isolation.refuse_unverified_runtime = lambda: None
+        def abort_at_resolver(frame, event, arg):
+            if event == 'call' and frame.f_code.co_name == '_resolve_session_agent_runtime':
+                raise isolation.IsolationAbort('constructor_boundary_unverified')
+        threading.setprofile_all_threads(abort_at_resolver)
         try:
-            await runner._run_agent_inner('fixture question', '', [], source,
-                'fixture-session', session_key='fixture-key')
+            try:
+                await runner._run_agent_inner('fixture question', '', [], source,
+                    'fixture-session', session_key='fixture-key')
+            except isolation.IsolationAbort as exc:
+                assert exc.reason == 'constructor_boundary_unverified'
+            else:
+                raise AssertionError('auth-friendly catch swallowed typed cause')
+        finally:
+            isolation.refuse_unverified_runtime = original_guard
+        print('INNER_TYPED_CAUSE_PASS', flush=True)
+        threading.setprofile_all_threads(None)
+        from gateway.platforms.base import MessageEvent, MessageType
+        event = MessageEvent(text='fixture question', message_type=MessageType.TEXT,
+                             source=source, message_id='fixture-message')
+        try:
+            key = runner._session_key_for_source(source)
+            generation = runner._begin_session_run_generation(key)
+            await runner._handle_message_with_agent(event, source, key, generation)
         except isolation.IsolationAbort as exc:
             assert exc.reason == 'runtime_resolution_unverified', exc.reason
         else:
-            raise AssertionError('isolated warm request did not propagate runtime_resolution_unverified; downstream=' + repr(downstream))
-        assert downstream == []
+            raise AssertionError('outer gateway catch swallowed typed cause')
     finally:
         threading.setprofile_all_threads(None)
         sys.setprofile(None)
