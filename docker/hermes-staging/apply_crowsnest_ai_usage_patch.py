@@ -255,16 +255,26 @@ def patch_cancelled_registration(text: str) -> str:
 
 
 def main():
+    originals = {}
     try:
         helper_path = _module_path("agent.chat_completion_helpers")
         helper = helper_path.read_text(encoding="utf-8")
         candidate = helper if "crowsnest_guest_reply_context_v2" in helper else _replace_once(
             helper, HELPER_ANCHOR, HELPER_REPLACEMENT, "approved main Luna turn")
         patched_helper = patch_cancelled_registration(candidate)
-        print(patch_files(_module_path("run_agent"), _module_path("agent.codex_runtime"), helper_path))
+        runtime_path = _module_path("agent.codex_runtime")
+        originals = {path: path.read_bytes() for path in (runtime_path, helper_path)}
+        print(patch_files(_module_path("run_agent"), runtime_path, helper_path))
         if patched_helper != helper:
             helper_path.write_text(patched_helper, encoding="utf-8")
     except Exception as exc:
+        # Best-effort caught-error recovery, not a crash-atomic transaction.
+        for path, data in originals.items():
+            try:
+                if path.read_bytes() != data:
+                    path.write_bytes(data)
+            except Exception as restore_exc:
+                print(f"apply_crowsnest_ai_usage_patch rollback failed: {path}: {restore_exc}", file=sys.stderr)
         print(f"apply_crowsnest_ai_usage_patch failed: {exc}", file=sys.stderr)
         return 1
     return 0
