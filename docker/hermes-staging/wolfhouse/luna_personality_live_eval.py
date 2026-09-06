@@ -622,6 +622,8 @@ async def run_isolated_personality_eval(
         cap.reply_text = cap.final_handler_text
         settle_isolated_work(cap)
 
+        if cap._responses_unverified:
+            raise IsolationAbort("responses_terminal_unverified")
         if cap.tools_invoked > 0 or cap.sends_completed > 0 or cap.journal_writes_completed > 0:
             raise IsolationAbort("isolation_violated")
         if cap.persistence_effects_completed:
@@ -671,8 +673,10 @@ async def run_isolated_personality_eval(
             "model_calls": cap.model_calls,
             "provider_helper_attempts": cap.provider_helper_attempts,
             **{key: value if type(value) is int and 0 <= value <= 2**53 - 1 else None
-               for key in ("responses_sdk_attempted", "responses_sdk_returned")
+               for key in ("responses_sdk_attempted", "responses_sdk_returned", "responses_completed",
+                           "responses_close_succeeded", "responses_close_failed", "responses_iteration_failed")
                for value in (getattr(cap, key, None),)},
+            "responses_terminal_verified": cap.responses_terminal_verified is True,
             "provider_http_effects": None,
             "telemetry_producer_suppressed": suppressed if type(suppressed) is int and 0 <= suppressed <= 2**53 - 1 else None,
             "telemetry_effects": None,
@@ -720,10 +724,12 @@ async def run_isolated_personality_eval(
                 for key in ("tools_invoked", "sends_attempted", "sends_completed",
                             "journal_writes_denied", "journal_writes_completed",
                             "personality_fetches", "model_calls", "provider_helper_attempts",
-                            "telemetry_producer_suppressed", "responses_sdk_attempted", "responses_sdk_returned")
+                            "telemetry_producer_suppressed", "responses_sdk_attempted", "responses_sdk_returned",
+                            "responses_completed", "responses_close_succeeded", "responses_close_failed", "responses_iteration_failed")
                 for value in (getattr(cap, key, None),)
             }
             failure.counters.update(auth_effects=None, telemetry_effects=None, provider_http_effects=None)
+            failure.counters["responses_terminal_verified"] = cap.responses_terminal_verified is True
         if first_abort is None and settle_exc is not None:
             raise settle_exc
 
