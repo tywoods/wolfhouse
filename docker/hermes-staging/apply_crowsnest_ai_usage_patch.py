@@ -181,8 +181,10 @@ def _validate_patched(runtime: str, helper: str) -> None:
             raise RuntimeError(f"crowsnest patch corruption: {label}")
 
 
-def patch_files(run_agent_path: Path, runtime_path: Path, helper_path: Path):
-    originals = [p.read_text(encoding="utf-8") for p in (run_agent_path, runtime_path, helper_path)]
+def prepare_files(run_agent_path: Path, runtime_path: Path, helper_path: Path):
+    """Read, validate and compile candidates without writing any input."""
+    paths = (run_agent_path, runtime_path, helper_path)
+    originals = [p.read_text(encoding="utf-8") for p in paths]
     runtime, helper = originals[1], originals[2]
     runtime_marked = MARKER in runtime
     helper_marked = "crowsnest_guest_reply_context_v2" in helper
@@ -192,7 +194,8 @@ def patch_files(run_agent_path: Path, runtime_path: Path, helper_path: Path):
         _validate_patched(runtime, helper)
         for text, path in zip(originals, (run_agent_path, runtime_path, helper_path)):
             compile(text, str(path), "exec")
-        return {"changed": False, "paths": [str(runtime_path), str(helper_path)]}
+        result = {"changed": False, "paths": [str(runtime_path), str(helper_path)]}
+        return dict(zip(paths, originals)), dict(zip(paths, originals)), result
 
     patched_runtime = _replace_once(runtime, RUNTIME_TERMINAL_ANCHOR, RUNTIME_TERMINAL_REPLACEMENT, "terminal event status")
     patched_runtime = _replace_once(patched_runtime, RUNTIME_DEFAULT_STATUS_ANCHOR, RUNTIME_DEFAULT_STATUS_REPLACEMENT, "default terminal status")
@@ -209,13 +212,22 @@ def patch_files(run_agent_path: Path, runtime_path: Path, helper_path: Path):
     compile(originals[0], str(run_agent_path), "exec")
     compile(patched_runtime, str(runtime_path), "exec")
     compile(patched_helper, str(helper_path), "exec")
-    runtime_path.write_text(patched_runtime, encoding="utf-8")
+    candidates = dict(zip(paths, (originals[0], patched_runtime, patched_helper)))
+    result = {"changed": True, "paths": [str(runtime_path), str(helper_path)]}
+    return dict(zip(paths, originals)), candidates, result
+
+
+def patch_files(run_agent_path: Path, runtime_path: Path, helper_path: Path):
+    originals, candidates, result = prepare_files(run_agent_path, runtime_path, helper_path)
+    if not result["changed"]:
+        return result
+    runtime_path.write_text(candidates[runtime_path], encoding="utf-8")
     try:
-        helper_path.write_text(patched_helper, encoding="utf-8")
+        helper_path.write_text(candidates[helper_path], encoding="utf-8")
     except Exception:
-        runtime_path.write_text(runtime, encoding="utf-8")
+        runtime_path.write_text(originals[runtime_path], encoding="utf-8")
         raise
-    return {"changed": True, "paths": [str(runtime_path), str(helper_path)]}
+    return result
 
 
 def _module_path(name: str) -> Path:
@@ -258,15 +270,18 @@ def main():
     originals = {}
     try:
         helper_path = _module_path("agent.chat_completion_helpers")
-        helper = helper_path.read_text(encoding="utf-8")
-        candidate = helper if "crowsnest_guest_reply_context_v2" in helper else _replace_once(
-            helper, HELPER_ANCHOR, HELPER_REPLACEMENT, "approved main Luna turn")
-        patched_helper = patch_cancelled_registration(candidate)
         runtime_path = _module_path("agent.codex_runtime")
-        originals = {path: path.read_bytes() for path in (runtime_path, helper_path)}
-        print(patch_files(_module_path("run_agent"), runtime_path, helper_path))
-        if patched_helper != helper:
-            helper_path.write_text(patched_helper, encoding="utf-8")
+        run_agent_path = _module_path("run_agent")
+        paths = (runtime_path, helper_path, run_agent_path)
+        originals = {path: path.read_bytes() for path in paths}
+        source, candidates, result = prepare_files(run_agent_path, runtime_path, helper_path)
+        candidates[helper_path] = patch_cancelled_registration(candidates[helper_path])
+        for path in paths:
+            compile(candidates[path], str(path), "exec")
+        for path in paths:
+            if candidates[path] != source[path]:
+                path.write_text(candidates[path], encoding="utf-8")
+        print(result)
     except Exception as exc:
         # Best-effort caught-error recovery, not a crash-atomic transaction.
         for path, data in originals.items():
