@@ -669,6 +669,9 @@ async def run_isolated_personality_eval(
             "personality_fetches": cap.personality_fetches,
             "model_calls": cap.model_calls,
             "provider_helper_attempts": cap.provider_helper_attempts,
+            "telemetry_producer_suppressed": cap.telemetry_producer_suppressed,
+            "telemetry_effects": None,
+            "auth_effects": None,
             "provider_helper_kind": cap.provider_helper_kind,
             "model": cap.model,
             "model_called": cap.model_called,
@@ -711,7 +714,8 @@ async def run_isolated_personality_eval(
                 key: value if type(value) is int and 0 <= value <= 2**53 - 1 else None
                 for key in ("tools_invoked", "sends_attempted", "sends_completed",
                             "journal_writes_denied", "journal_writes_completed",
-                            "personality_fetches", "model_calls", "provider_helper_attempts")
+                            "personality_fetches", "model_calls", "provider_helper_attempts",
+                            "telemetry_producer_suppressed")
                 for value in (getattr(cap, key, None),)
             }
             failure.counters.update(auth_effects=None, telemetry_effects=None)

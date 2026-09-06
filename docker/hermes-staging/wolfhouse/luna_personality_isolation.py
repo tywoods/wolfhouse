@@ -179,6 +179,7 @@ class IsolatedTurnCapture:
     model: Optional[str] = None
     model_called: bool = False
     provider_helper_attempts: int = 0
+    telemetry_producer_suppressed: int = 0
     provider_helper_kind: Optional[str] = None
     isolation_ready: bool = False
     observed_pack_id: Optional[str] = None
@@ -246,6 +247,19 @@ def refuse_unverified_runtime() -> None:
 
 def current_isolated_turn() -> Optional[IsolatedTurnCapture]:
     return _ISOLATED.get()
+
+
+def deny_telemetry_if_isolated() -> bool:
+    """Deny producer admission; this scalar is not an external-effects count."""
+    cap = current_isolated_turn()
+    if cap is None:
+        return False
+    try:
+        cap.telemetry_producer_suppressed = min(cap.telemetry_producer_suppressed + 1, 2**53 - 1)
+    except Exception:
+        # Diagnostic failure must never reopen the shared producer queue.
+        pass
+    return True
 
 
 def enter_isolated_turn(cap: IsolatedTurnCapture) -> Token:
