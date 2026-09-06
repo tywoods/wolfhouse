@@ -603,11 +603,16 @@ class IsolatedEvalTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
 
-    def test_producer_scalar_serialization_success_and_typed_failure(self):
+    def test_producer_fault_scalar_serialization_success_and_typed_failure(self):
+        self.test_producer_scalar_serialization_success_and_typed_failure(fault=True)
+
+    def test_producer_scalar_serialization_success_and_typed_failure(self, fault=False):
         from wolfhouse import crowsnest_ai_usage_reporter as reporter
         first = IsolationAbort("runtime_resolution_unverified")
         for fail in (False, True):
             async def turn(message, cap, meta):
+                if fault:
+                    cap.telemetry_producer_suppressed = object()
                 reporter.enqueue_event(None, env={})
                 if fail:
                     raise first
@@ -624,7 +629,7 @@ class IsolatedEvalTests(unittest.TestCase):
             else:
                 snapshot = _run(call)
             wire = json.loads(json.dumps(snapshot))
-            self.assertEqual(wire["telemetry_producer_suppressed"], 1)
+            self.assertEqual(wire["telemetry_producer_suppressed"], None if fault else 1)
             self.assertIsNone(wire["telemetry_effects"])
             self.assertIsNone(wire["auth_effects"])
 

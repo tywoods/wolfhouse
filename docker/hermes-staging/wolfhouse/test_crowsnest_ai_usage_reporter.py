@@ -224,6 +224,49 @@ class IsolatedProducerTests(unittest.TestCase):
                                     self.assertEqual(event["status"], ("succeeded", "failed")[index])
                                 self.assertIsNone(reporter._worker)
 
+    def test_concurrent_copied_context_exact_count_and_saturation(self):
+        import sys, threading
+        from wolfhouse import luna_personality_isolation as isolation
+        previous = sys.getswitchinterval()
+        try:
+            sys.setswitchinterval(0.000001)
+            for initial, calls in ((0, 100000), (2**53 - 100, 100)):
+                cap = isolation.IsolatedTurnCapture("concurrent", "warm")
+                cap.telemetry_producer_suppressed = initial
+                separate = isolation.IsolatedTurnCapture("separate", "warm")
+                token = isolation.enter_isolated_turn(cap)
+                contexts = [contextvars.copy_context() for _ in range(8)]
+                isolation.exit_isolated_turn(token)
+                barrier = threading.Barrier(8, timeout=10)
+                errors = []
+                def work():
+                    try:
+                        barrier.wait()
+                        for _ in range(calls):
+                            self.assertIsNone(reporter.enqueue_event(None, env={}))
+                    except BaseException as exc:
+                        errors.append(exc)
+                threads = [threading.Thread(target=c.run, args=(work,)) for c in contexts]
+                q = queue.Queue()
+                with patch.object(reporter, "_queue", q), patch.object(reporter, "_worker", None):
+                    for thread in threads:
+                        thread.start()
+                    for thread in threads:
+                        thread.join(20)
+                    self.assertFalse(any(thread.is_alive() for thread in threads))
+                    self.assertEqual(errors, [])
+                    self.assertEqual(q.qsize(), 0)
+                    self.assertIsNone(reporter._worker)
+                    self.assertEqual(cap.telemetry_producer_suppressed, min(initial + 8*calls, 2**53 - 1))
+                    self.assertEqual(separate.telemetry_producer_suppressed, 0)
+                    self.assertIsNone(isolation.current_isolated_turn())
+                    with patch.object(reporter, "read_config", wraps=reporter.read_config) as config:
+                        self.assertIsNone(reporter.enqueue_event(None, env={}))
+                        config.assert_called_once_with({})
+                    self.assertEqual(cap.telemetry_producer_suppressed, min(initial + 8*calls, 2**53 - 1))
+        finally:
+            sys.setswitchinterval(previous)
+
     def test_counter_saturates_and_bad_counter_still_denies(self):
         from wolfhouse import luna_personality_isolation as isolation
         cap = isolation.IsolatedTurnCapture("bound", "warm")
