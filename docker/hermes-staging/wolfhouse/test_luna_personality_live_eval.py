@@ -2041,6 +2041,41 @@ class ResponsesTerminalTests(unittest.TestCase):
         self.iso._observe_openai_client(self.client)
         return self.runtime.run_codex_stream(self.agent, self.payload, client=self.client)
 
+    def test_eval_terminal_gate_and_detached_snapshots(self):
+        for terminal in ('completed', 'failed', 'typed'):
+            with self.subTest(terminal=terminal):
+                self.setUp()
+                mark_test_isolation_installed()
+                cause = IsolationAbort('fixture_original')
+                retained = []
+                async def turn(message, cap, meta):
+                    self.cap = cap
+                    cap._request_identity = (cap, self.agent, self.agent.model, self.agent.api_mode)
+                    retained.append(cap)
+                    events = [] if terminal == 'typed' else [{'type': 'response.' + terminal}]
+                    self.run_stream(self.stream(events, cause if terminal == 'typed' else None))
+                    return await simulated_model_turn(message, cap, meta)
+                call = run_isolated_personality_eval(
+                    case_id='warmth-greeting-en', personality_id='sunny', corpus=CORPUS,
+                    fetch_setting=lambda _t: {'personality_id': 'sunny'}, invoke_turn=turn,
+                    serving_preflight=False, evidence_kind='test_double')
+                if terminal == 'completed':
+                    snapshot = _run(call)
+                else:
+                    with self.assertRaises(IsolationAbort) as caught:
+                        _run(call)
+                    if terminal == 'typed':
+                        self.assertIs(caught.exception, cause)
+                    else:
+                        self.assertEqual(caught.exception.reason, 'responses_terminal_unverified')
+                    snapshot = caught.exception.counters
+                self.assertIs(snapshot.get('responses_terminal_verified'), terminal == 'completed')
+                self.assertEqual(snapshot.get('responses_close_succeeded'), 1)
+                wire = json.dumps(snapshot, sort_keys=True)
+                retained[0].responses_close_succeeded = 999
+                retained[0].responses_terminal_verified = not retained[0].responses_terminal_verified
+                self.assertEqual(json.dumps(snapshot, sort_keys=True), wire)
+
     def test_terminal_and_close_are_required_not_returned_or_consumed(self):
         for terminal in ('completed', 'failed', 'incomplete', None, 'empty', 'concrete'):
             with self.subTest(terminal=terminal):
