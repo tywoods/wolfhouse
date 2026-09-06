@@ -426,7 +426,7 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
         body += (
             '    async def _handle_message_with_agent(self):\n'
             '        try:\n'
-            '            return await self._run_agent_inner(None)\n'
+            '            return await self._run_agent(None)\n'
             '        except Exception as e:\n'
             '            # Stop typing indicator on error too\n'
             '            return None\n'
@@ -456,6 +456,14 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
                 ast.parse(hostile)
                 with self.subTest(drift=new), self.assertRaises(RuntimeError):
                     gw.apply_luna_cold_admission(hostile)
+            for pad, var in (('            ', 'exc'), ('        ', 'e')):
+                old = pad + 'except Exception as ' + var + ':\n'
+                new = pad + 'except Exception as caught:\n' + pad + '    return None\n' + pad + 'try:\n' + pad + '    pass\n' + old
+                hostile = once.decode().replace(old, new, 1)
+                path.write_text(hostile)
+                with self.subTest(relocated=var), self.assertRaisesRegex(RuntimeError, 'causal catch'):
+                    gw.apply_patches(path)
+                self.assertEqual(path.read_bytes(), hostile.encode())
 
     def test_apply_patches_source_uses_real_personality_emitter(self) -> None:
         src = Path(gw.__file__).read_text(encoding="utf-8")

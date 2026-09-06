@@ -1,13 +1,10 @@
 """Offline composed cold/warm control; run only in the pinned network-none image."""
-import signal
-import faulthandler
+import signal, faulthandler, asyncio, json, os
 signal.signal(signal.SIGALRM, signal.SIG_DFL)
 signal.alarm(35)
 faulthandler.enable()
 faulthandler.dump_traceback_later(12, repeat=True)
-import asyncio
-import json
-import os
+
 from pathlib import Path
 
 home = Path(os.environ['HERMES_HOME'])
@@ -36,8 +33,7 @@ def send(self, request, **kwargs):
         'message': {'role': 'assistant', 'content': 'fixture ordinary reply'}, 'finish_reason': 'stop'}],
         'usage': {'prompt_tokens': 1, 'completion_tokens': 1, 'total_tokens': 2}})
 httpx.Client.send = send
-import tools.tirith_security
-import tools.lazy_deps
+import tools.tirith_security, tools.lazy_deps
 tools.tirith_security.ensure_installed = lambda **kw: False
 tools.lazy_deps._venv_pip_install = lambda *args, **kwargs: False
 import gateway.run as gateway
@@ -55,8 +51,7 @@ async def main():
         assert len(runner._agent_cache) == 1
         print('NON_EVAL_CONTROL_PASS', temperature, flush=True)
     print('HTTP_FIXTURE_PATHS', calls, flush=True)
-    import sys
-    import threading
+    import sys, threading
     from wolfhouse import luna_personality_isolation as isolation
     isolation.install_isolation_runtime(runner=runner)
     downstream = []
@@ -69,8 +64,7 @@ async def main():
         if mode.startswith('worker-'):
             seams = {'_resolve_session_agent_runtime', 'init_agent'}
         if event == 'call' and frame.f_code.co_name in seams:
-            stack = []
-            current = frame
+            stack, current = [], frame
             while current is not None:
                 stack.append(current.f_code.co_name)
                 current = current.f_back
@@ -119,8 +113,7 @@ async def main():
         print('CONSTRUCTOR_PRE_RESOURCE_PASS', flush=True)
         # Peer-isolated causal test: bypass only admission, inject an abort before
         # the real resolver body, and exercise its genuine auth-friendly catch.
-        original_guard = isolation.refuse_unverified_runtime
-        isolation.refuse_unverified_runtime = lambda: None
+        original_guard, isolation.refuse_unverified_runtime = isolation.refuse_unverified_runtime, lambda: None
         def abort_at_resolver(frame, event, arg):
             if event == 'call' and frame.f_code.co_name == '_resolve_session_agent_runtime':
                 raise isolation.IsolationAbort('constructor_boundary_unverified')
