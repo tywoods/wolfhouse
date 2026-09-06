@@ -603,6 +603,32 @@ class IsolatedEvalTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
 
+    def test_responses_scalar_snapshot_success_and_typed_failure(self):
+        for value in (2, None, True, -1, 2**53):
+            for fail in (False, True):
+                with self.subTest(value=value, fail=fail):
+                    async def turn(message, cap, meta):
+                        cap.responses_sdk_attempted = cap.responses_sdk_returned = value
+                        if fail:
+                            raise IsolationAbort("request_identity_changed")
+                        return await simulated_model_turn(message, cap, meta)
+                    call = run_isolated_personality_eval(
+                        case_id="warmth-greeting-en", personality_id="sunny", corpus=CORPUS,
+                        fetch_setting=lambda _t: {"personality_id": "sunny"}, invoke_turn=turn,
+                        serving_preflight=False, evidence_kind="test_double")
+                    if fail:
+                        with self.assertRaises(IsolationAbort) as caught:
+                            _run(call)
+                        snapshot = caught.exception.counters
+                    else:
+                        snapshot = _run(call)
+                    wire = json.loads(json.dumps(snapshot))
+                    for key in ("responses_sdk_attempted", "responses_sdk_returned"):
+                        self.assertIn(key, wire)
+                        self.assertEqual(wire[key], 2 if type(value) is int and value == 2 else None)
+                    self.assertIn("provider_http_effects", wire)
+                    self.assertIsNone(wire["provider_http_effects"])
+
     def test_producer_fault_scalar_serialization_success_and_typed_failure(self):
         self.test_producer_scalar_serialization_success_and_typed_failure(fault=True)
 
@@ -1901,7 +1927,95 @@ class ResponsesObservationTests(unittest.TestCase):
                     self.assertNotIn("PRIVATE_FIXTURE", repr(self.cap))
                 finally:
                     exit_isolated_turn(token)
-                self.client.responses.create = self.raw_create
+                    self.client.responses.create = self.raw_create
+
+
+    def test_each_retry_rechecks_capture_binding_effective_model_and_mode(self):
+        for change in ("model", "api_mode", "binding", "capture"):
+            with self.subTest(change=change):
+                self.agent.model, self.agent.api_mode = "fixture-model", "codex_responses"
+                self.cap._request_identity = self.binding
+                self.calls.clear()
+                tokens = [enter_isolated_turn(self.cap)]
+                def create(**kwargs):
+                    self.calls.append(kwargs)
+                    if len(self.calls) == 1:
+                        if change == "binding":
+                            self.cap._request_identity = tuple(list(self.binding))
+                        elif change == "capture":
+                            tokens.append(enter_isolated_turn(IsolatedTurnCapture("other", "sunny")))
+                        else:
+                            setattr(self.agent, change, "changed")
+                        raise ConnectionError("fixture retry after identity drift")
+                    return self.result
+                self.client.responses.create = create
+                before = self.cap.model_calls
+                try:
+                    self.iso._observe_openai_client(self.client)
+                    with self.assertRaises(IsolationAbort):
+                        self.runtime.run_codex_stream(self.agent, self.payload, client=self.client)
+                    self.assertEqual(len(self.calls), 1)
+                    self.assertEqual(self.cap.model_calls - before, 1)
+                    self.assertEqual(self.cap.responses_sdk_returned, 0)
+                finally:
+                    for token in reversed(tokens):
+                        exit_isolated_turn(token)
+
+    def test_retained_observer_rejects_payload_reset_cross_capture_and_marker(self):
+        def create_edge(**kwargs):
+            self.calls.append(kwargs)
+            return self.result
+        self.client.responses.create = create_edge
+        token = enter_isolated_turn(self.cap)
+        try:
+            self.iso._observe_openai_client(self.client)
+            create = self.client.responses.create
+            for payload in ({"model": "other", "stream": True}, {"stream": True},
+                            {"model": "fixture-model"}, {"model": "fixture-model", "stream": 1}):
+                with self.subTest(payload=payload), self.assertRaises(IsolationAbort):
+                    create(**payload)
+            self.assertEqual(self.calls, [])
+            self.assertEqual(self.cap.responses_sdk_attempted, 0)
+            self.client.responses.create = self.raw_create
+            self.iso._mark(self.raw_create)
+            with self.assertRaises(IsolationAbort):
+                self.iso._observe_openai_client(self.client)
+        finally:
+            exit_isolated_turn(token)
+        with self.assertRaises(IsolationAbort):
+            create(model="fixture-model", stream=True)
+        token = enter_isolated_turn(IsolatedTurnCapture("other", "sunny"))
+        try:
+            with self.assertRaises(IsolationAbort):
+                create(model="fixture-model", stream=True)
+        finally:
+            exit_isolated_turn(token)
+        self.assertEqual(self.calls, [])
+
+    def test_missing_model_cannot_be_observer_binding(self):
+        self.agent.model = None
+        self.cap._request_identity = (self.cap, self.agent, None, "codex_responses")
+        token = enter_isolated_turn(self.cap)
+        try:
+            with self.assertRaises(IsolationAbort):
+                self.iso._observe_openai_client(self.client)
+        finally:
+            exit_isolated_turn(token)
+
+    def test_input_pack_and_saturation_at_sdk_boundary(self):
+        token = enter_isolated_turn(self.cap)
+        try:
+            self.client.responses.create = lambda **kwargs: self.result
+            self.iso._observe_openai_client(self.client)
+            self.cap.responses_sdk_attempted = self.cap.responses_sdk_returned = 2**53 - 1
+            self.client.responses.create(model="fixture-model", stream=True,
+                                         input="Luna Personality this turn: calm. PRIVATE_INPUT")
+            self.assertEqual(self.cap.observed_pack_id, "calm")
+            self.assertEqual(self.cap.responses_sdk_attempted, 2**53 - 1)
+            self.assertEqual(self.cap.responses_sdk_returned, 2**53 - 1)
+            self.assertNotIn("PRIVATE_INPUT", repr(self.cap))
+        finally:
+            exit_isolated_turn(token)
 
 
 class RealProviderHelperDispatchTests(unittest.TestCase):

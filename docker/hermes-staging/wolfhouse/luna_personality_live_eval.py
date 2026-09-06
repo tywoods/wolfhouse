@@ -670,6 +670,10 @@ async def run_isolated_personality_eval(
             "personality_fetches": cap.personality_fetches,
             "model_calls": cap.model_calls,
             "provider_helper_attempts": cap.provider_helper_attempts,
+            **{key: value if type(value) is int and 0 <= value <= 2**53 - 1 else None
+               for key in ("responses_sdk_attempted", "responses_sdk_returned")
+               for value in (getattr(cap, key, None),)},
+            "provider_http_effects": None,
             "telemetry_producer_suppressed": suppressed if type(suppressed) is int and 0 <= suppressed <= 2**53 - 1 else None,
             "telemetry_effects": None,
             "auth_effects": None,
@@ -716,10 +720,10 @@ async def run_isolated_personality_eval(
                 for key in ("tools_invoked", "sends_attempted", "sends_completed",
                             "journal_writes_denied", "journal_writes_completed",
                             "personality_fetches", "model_calls", "provider_helper_attempts",
-                            "telemetry_producer_suppressed")
+                            "telemetry_producer_suppressed", "responses_sdk_attempted", "responses_sdk_returned")
                 for value in (getattr(cap, key, None),)
             }
-            failure.counters.update(auth_effects=None, telemetry_effects=None)
+            failure.counters.update(auth_effects=None, telemetry_effects=None, provider_http_effects=None)
         if first_abort is None and settle_exc is not None:
             raise settle_exc
 
