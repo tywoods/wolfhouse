@@ -2018,6 +2018,107 @@ class ResponsesObservationTests(unittest.TestCase):
             exit_isolated_turn(token)
 
 
+class ResponsesTerminalTests(unittest.TestCase):
+    """Pinned parser/helper; SDK event source only is synthetic."""
+    setUp = ResponsesObservationTests.setUp
+
+    def stream(self, events, error=None, close_error=None):
+        class Stream:
+            def __init__(self):
+                self.closes = 0
+            def __iter__(self):
+                yield from events
+                if error is not None:
+                    raise error
+            def close(self):
+                self.closes += 1
+                if close_error is not None:
+                    raise close_error
+        return Stream()
+
+    def run_stream(self, stream):
+        self.client.responses.create = lambda **kwargs: stream
+        self.iso._observe_openai_client(self.client)
+        return self.runtime.run_codex_stream(self.agent, self.payload, client=self.client)
+
+    def test_terminal_and_close_are_required_not_returned_or_consumed(self):
+        for terminal in ('completed', 'failed', 'incomplete', None, 'empty', 'concrete'):
+            with self.subTest(terminal=terminal):
+                self.setUp()
+                events = [] if terminal == 'empty' else [{'type': 'response.output_text.delta', 'delta': 'fixture'}]
+                if terminal in ('completed', 'failed', 'incomplete'):
+                    events.append({'type': 'response.' + terminal, 'response': {'status': terminal}})
+                stream = self.stream(events)
+                if terminal == 'concrete':
+                    stream = SimpleNamespace(output=[], status='completed')
+                token = enter_isolated_turn(self.cap)
+                try:
+                    if terminal == 'empty':
+                        with self.assertRaisesRegex(RuntimeError, 'terminal response'):
+                            self.run_stream(stream)
+                    else:
+                        self.run_stream(stream)
+                    if terminal == 'completed':
+                        self.iso.settle_isolated_work(self.cap)
+                    else:
+                        with self.assertRaises(IsolationAbort) as caught:
+                            self.iso.settle_isolated_work(self.cap)
+                        self.assertEqual(caught.exception.reason, 'responses_terminal_unverified')
+                    self.assertEqual(getattr(self.cap, 'responses_completed', None), int(terminal == 'completed'))
+                    self.assertEqual(getattr(self.cap, 'responses_close_succeeded', None), int(terminal != 'concrete'))
+                    if terminal != 'concrete':
+                        self.assertEqual(stream.closes, 1)
+                    self.assertEqual(self.cap.responses_sdk_returned, 1)
+                finally:
+                    exit_isolated_turn(token)
+
+    def test_close_failure_and_typed_iteration_cause_remain_separate(self):
+        for iteration_error in (None, IsolationAbort('fixture_original')):
+            with self.subTest(iteration_error=iteration_error):
+                self.setUp()
+                events = [] if iteration_error else [{'type': 'response.completed'}]
+                stream = self.stream(events, iteration_error, RuntimeError('PRIVATE_CLOSE'))
+                token = enter_isolated_turn(self.cap)
+                try:
+                    if iteration_error:
+                        with self.assertRaises(IsolationAbort) as caught:
+                            self.run_stream(stream)
+                        self.assertIs(caught.exception, iteration_error)
+                    else:
+                        self.run_stream(stream)  # pinned helper swallows close failure
+                    with self.assertRaises(IsolationAbort):
+                        self.iso.settle_isolated_work(self.cap)
+                    self.assertEqual(getattr(self.cap, 'responses_close_failed', None), 1)
+                    self.assertEqual(getattr(self.cap, 'responses_iteration_failed', None), int(iteration_error is not None))
+                    self.assertEqual(stream.closes, 1)
+                    self.assertNotIn('PRIVATE_CLOSE', repr(self.cap))
+                finally:
+                    exit_isolated_turn(token)
+
+    def test_early_close_and_missing_close_cannot_certify_completion(self):
+        for consume in (False, True):
+            with self.subTest(consume=consume):
+                self.setUp()
+                raw = self.stream([{'type': 'response.completed'}])
+                token = enter_isolated_turn(self.cap)
+                try:
+                    self.client.responses.create = lambda **kwargs: raw
+                    self.iso._observe_openai_client(self.client)
+                    observed = self.client.responses.create(**self.payload, stream=True)
+                    if consume:
+                        list(observed)
+                    else:
+                        observed.close()
+                    with self.assertRaises(IsolationAbort):
+                        self.iso.settle_isolated_work(self.cap)
+                    self.assertEqual(getattr(self.cap, 'responses_completed', None), int(consume))
+                    self.assertEqual(getattr(self.cap, 'responses_close_succeeded', None), int(not consume))
+                finally:
+                    if consume:
+                        observed.close()
+                    exit_isolated_turn(token)
+
+
 class RevocationBoundaryTests(unittest.TestCase):
     """B3a settlement revocation, not stream terminal or HTTP cancellation proof."""
     setUp = ResponsesObservationTests.setUp
