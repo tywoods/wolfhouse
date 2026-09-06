@@ -263,6 +263,17 @@ ok('shouldFreezePersonalityStyle exported', typeof runtime.shouldFreezePersonali
     process.stderr.write(py.stderr || '');
   }
   ok('python luna_personality tests green', py.status === 0, `status ${py.status}`);
+  const bindTest = path.join(ROOT, 'docker/hermes-staging/wolfhouse/test_luna_personality_gateway_bind.py');
+  ok('python gateway bind indent test exists', fs.existsSync(bindTest));
+  const bindPy = spawnSync('python3', ['-m', 'unittest', 'wolfhouse.test_luna_personality_gateway_bind'], {
+    cwd: path.join(ROOT, 'docker/hermes-staging'),
+    encoding: 'utf8',
+  });
+  if (bindPy.status !== 0) {
+    process.stdout.write(bindPy.stdout || '');
+    process.stderr.write(bindPy.stderr || '');
+  }
+  ok('python luna personality gateway bind tests green', bindPy.status === 0, `status ${bindPy.status}`);
   ok('python fetch uses canonical bot token header',
     /def canonical_bot_auth_headers/.test(pySrc)
     && /X-Luna-Bot-Token/.test(pySrc));

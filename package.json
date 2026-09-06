@@ -328,6 +328,7 @@
     "verify:luna-personality-contract": "node scripts/verify-luna-personality-contract.js",
     "verify:luna-personality-staff-api": "node scripts/verify-luna-personality-staff-api.js",
     "verify:luna-personality-runtime": "node scripts/verify-luna-personality-runtime.js",
+    "verify:luna-personality-gateway-bind": "node scripts/verify-luna-personality-gateway-bind.js",
     "verify:luna-personality-no-send": "node scripts/verify-luna-personality-no-send.js",
     "verify:luna-personality-live-eval": "node scripts/verify-luna-personality-live-eval.js",
     "verify:sunset-luna-live-test-001": "node scripts/verify-sunset-luna-live-test-001.js",
