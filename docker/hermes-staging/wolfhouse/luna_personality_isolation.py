@@ -180,6 +180,11 @@ class IsolatedTurnCapture:
     _request_identity: Any = field(default=None, repr=False, compare=False)
     model_called: bool = False
     provider_helper_attempts: int = 0
+    # Observed create calls only: returned does not mean stream completion or HTTP success.
+    responses_sdk_attempted: int = 0
+    responses_sdk_returned: int = 0
+    # Capture-local accounting only; never held across parsing or the SDK call.
+    _responses_sdk_lock: Any = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
     telemetry_producer_suppressed: int = 0
     _telemetry_producer_lock: Any = field(default_factory=threading.Lock, repr=False, compare=False)
     provider_helper_kind: Optional[str] = None
@@ -1855,23 +1860,43 @@ def _wrap_provider(
 _REQUEST_ACQUISITION: ContextVar[Any] = ContextVar("luna_request_acquisition", default=None)
 
 
-def _check_request_identity(binding: Any) -> None:
+def _check_observation_identity(binding: Any) -> None:
+    """Binding integrity only, NOT supported runtime or acquisition authority."""
     cap, agent, model, mode = binding
+    if agent is None or not isinstance(model, str) or not model:
+        raise IsolationAbort("request_identity_missing")
     if (_ISOLATED.get() is not cap or cap._request_identity is not binding
             or getattr(agent, "model", None) != model or effective_api_mode(agent) != mode):
         raise IsolationAbort("request_identity_changed")
-    refuse_unsupported_backend(agent)
 
 
-def _observe_create_call(original: Any, binding: Any = None) -> Any:
+def _check_request_identity(binding: Any) -> None:
+    _check_observation_identity(binding)
+    refuse_unsupported_backend(binding[1])
+
+
+def _observe_create_call(original: Any, binding: Any = None, *, responses: bool = False) -> Any:
     def create(*args: Any, **kwargs: Any):
         if binding is not None:
-            _check_request_identity(binding)
+            if responses:
+                _check_observation_identity(binding)
+            else:
+                _check_request_identity(binding)
         cap = _ISOLATED.get()
         if cap is not None:
             payload = kwargs if kwargs else (args[0] if args and isinstance(args[0], dict) else {})
+            if responses:
+                if args or kwargs.get("stream") is not True or kwargs.get("model") != binding[2]:
+                    raise IsolationAbort("responses_dispatch_identity_changed")
             observe_provider_dispatch(payload)
-        return original(*args, **kwargs)
+            if responses:
+                with cap._responses_sdk_lock:
+                    cap.responses_sdk_attempted = min(cap.responses_sdk_attempted + 1, 2**53 - 1)
+        result = original(*args, **kwargs)
+        if responses and cap is not None:
+            with cap._responses_sdk_lock:
+                cap.responses_sdk_returned = min(cap.responses_sdk_returned + 1, 2**53 - 1)
+        return result
 
     _mark(create)
     create._luna_request_identity = binding
@@ -1885,16 +1910,21 @@ def _observe_openai_client(client: Any) -> Any:
     binding = cap._request_identity
     if binding is None:
         raise IsolationAbort("request_identity_missing")
-    _check_request_identity(binding)
+    responses = binding[3] == "codex_responses"
+    if responses:
+        _check_observation_identity(binding)
+    else:
+        _check_request_identity(binding)
     try:
-        orig_create = client.chat.completions.create
+        endpoint = client.responses if responses else client.chat.completions
+        orig_create = endpoint.create
     except Exception as exc:
         raise IsolationAbort("provider_dispatch_unobservable") from exc
     if _is_wrapped(orig_create):
         if getattr(orig_create, "_luna_request_identity", None) is not binding:
             raise IsolationAbort("request_identity_changed")
         return client
-    client.chat.completions.create = _observe_create_call(orig_create, binding)
+    endpoint.create = _observe_create_call(orig_create, binding, responses=responses)
     return client
 
 
