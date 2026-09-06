@@ -2018,6 +2018,181 @@ class ResponsesObservationTests(unittest.TestCase):
             exit_isolated_turn(token)
 
 
+class RevocationBoundaryTests(unittest.TestCase):
+    """B3a settlement revocation, not stream terminal or HTTP cancellation proof."""
+    setUp = ResponsesObservationTests.setUp
+
+    def test_settlement_revokes_copied_context_even_after_parent_reset(self):
+        from contextvars import copy_context
+        self.client.responses.create = lambda **kwargs: self.result
+        token = enter_isolated_turn(self.cap)
+        try:
+            self.iso._observe_openai_client(self.client)
+            retained = copy_context()
+            self.assertIs(self.runtime.run_codex_stream(self.agent, self.payload, client=self.client), self.result)
+            settle_isolated_work(self.cap)
+        finally:
+            exit_isolated_turn(token)
+        before = self.cap.responses_sdk_attempted
+        with self.assertRaises(IsolationAbort):
+            retained.run(self.runtime.run_codex_stream, self.agent, self.payload, client=self.client)
+        self.assertEqual(self.cap.responses_sdk_attempted, before)
+        self.assertTrue(self.cap.provider_work_settled)
+        ordinary = SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: self.result))
+        self.assertIs(self.runtime.run_codex_stream(self.agent, self.payload, client=ordinary), self.result)
+
+    def test_accepted_create_can_finish_but_revoked_retry_cannot_start(self):
+        from contextvars import copy_context
+        import threading
+        for outcome in ("return", "retry", "typed"):
+            with self.subTest(outcome=outcome):
+                self.setUp()
+                entered, release = threading.Event(), threading.Event()
+                receipts, results = [], []
+                cause = IsolationAbort("fixture_typed_cause")
+                def edge(**kwargs):
+                    receipts.append(threading.get_ident())
+                    entered.set()
+                    if not release.wait(3):
+                        raise AssertionError("fixture release missing")
+                    if outcome == "retry":
+                        raise ConnectionError("fixture retry")
+                    if outcome == "typed":
+                        raise cause
+                    return self.result
+                self.client.responses.create = edge
+                token = enter_isolated_turn(self.cap)
+                try:
+                    self.iso._observe_openai_client(self.client)
+                    context = copy_context()
+                finally:
+                    exit_isolated_turn(token)
+                def work():
+                    try:
+                        results.append(context.run(self.runtime.run_codex_stream, self.agent, self.payload, client=self.client))
+                    except BaseException as exc:
+                        results.append(exc)
+                worker = threading.Thread(target=work)
+                worker.start()
+                try:
+                    self.assertTrue(entered.wait(3))
+                    with self.assertRaises(IsolationAbort) as failure:
+                        settle_isolated_work(self.cap, timeout_s=0.02)
+                    self.assertEqual(failure.exception.reason, "provider_work_unsettled")
+                    # An unrelated ordinary call overlaps the accepted old create.
+                    ordinary = SimpleNamespace(responses=SimpleNamespace(create=lambda **kwargs: self.result))
+                    self.assertIs(self.runtime.run_codex_stream(self.agent, self.payload, client=ordinary), self.result)
+                finally:
+                    release.set()
+                    worker.join(3)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(len(receipts), 1)
+                if outcome == "return":
+                    self.assertIs(results[0], self.result)
+                elif outcome == "typed":
+                    self.assertIs(results[0], cause)
+                else:
+                    self.assertIsInstance(results[0], IsolationAbort)
+                settle_isolated_work(self.cap)
+                self.assertEqual(self.cap.responses_sdk_attempted, 1)
+                self.assertEqual(self.cap.responses_sdk_returned, int(outcome == "return"))
+
+    def test_settlement_has_one_deadline_and_denies_new_thread_start(self):
+        import threading
+        import time
+        release = threading.Event()
+        workers = [threading.Thread(target=lambda: release.wait(3)) for _ in range(3)]
+        for worker in workers:
+            worker.start()
+        self.cap.in_flight_threads.extend(workers)
+        started = time.monotonic()
+        try:
+            with self.assertRaises(IsolationAbort):
+                settle_isolated_work(self.cap, timeout_s=0.1)
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 0.23)
+        finally:
+            release.set()
+            for worker in workers:
+                worker.join(3)
+        settle_isolated_work(self.cap)
+        self.iso._wrap_thread_context_propagation()
+        token = enter_isolated_turn(self.cap)
+        late = threading.Thread(target=lambda: None)
+        try:
+            with self.assertRaises(IsolationAbort):
+                late.start()
+        finally:
+            exit_isolated_turn(token)
+            if late.ident is not None:
+                late.join(3)
+        self.assertIsNone(late.ident)
+
+
+class AcquisitionRevocationTests(unittest.TestCase):
+    setUp = RequestIdentityBoundaryTests.setUp
+    request = RequestIdentityBoundaryTests.request
+
+    def test_copied_acquisition_extent_cannot_acquire_after_settlement(self):
+        from contextvars import copy_context
+        token = enter_isolated_turn(self.cap)
+        try:
+            client = self.request()
+            acquisition = self.iso._REQUEST_ACQUISITION.set(self.cap._request_identity)
+            try:
+                retained = copy_context()
+            finally:
+                self.iso._REQUEST_ACQUISITION.reset(acquisition)
+            settle_isolated_work(self.cap)
+        finally:
+            exit_isolated_turn(token)
+        before = len(self.acquisitions)
+        for call in (self.request, self.agent._ensure_primary_openai_client,
+                     lambda: client.chat.completions.create(model="fixture-model")):
+            with self.subTest(call=call), self.assertRaises(IsolationAbort):
+                retained.run(call)
+        self.assertEqual(len(self.acquisitions), before)
+        self.assertEqual(self.dispatches, [])
+
+    def test_accepted_factory_returns_observed_client_to_existing_owner(self):
+        from contextvars import copy_context
+        import threading
+        entered, release = threading.Event(), threading.Event()
+        results = []
+        edge = self.ra.OpenAI
+        def sdk(**kwargs):
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError("fixture release missing")
+            return edge(**kwargs)
+        token = enter_isolated_turn(self.cap)
+        context = copy_context()
+        exit_isolated_turn(token)
+        def work():
+            try:
+                results.append(context.run(self.request))
+            except BaseException as exc:
+                results.append(exc)
+        with mock.patch.object(self.ra, "OpenAI", sdk):
+            worker = threading.Thread(target=work)
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(3))
+                with self.assertRaises(IsolationAbort):
+                    settle_isolated_work(self.cap, timeout_s=0.02)
+            finally:
+                release.set()
+                worker.join(3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(results), 1)
+        self.assertNotIsInstance(results[0], BaseException)
+        with self.assertRaises(IsolationAbort):
+            context.run(results[0].chat.completions.create, model="fixture-model")
+        self.assertEqual(len(self.acquisitions), 1)
+        self.assertEqual(self.dispatches, [])
+        settle_isolated_work(self.cap)
+
+
 class ResponsesConcurrencyTests(unittest.TestCase):
     setUp = ResponsesObservationTests.setUp
 
