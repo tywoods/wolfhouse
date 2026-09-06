@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 import uuid
 from typing import Any, Mapping
+from wolfhouse.luna_personality_isolation import deny_telemetry_if_isolated
 
 ENV_NAMES = (
     "CROWSNEST_AI_USAGE_INGEST_URL",
@@ -176,6 +177,8 @@ def _worker_loop():
 
 
 def enqueue_event(event, *, env=os.environ):
+    if deny_telemetry_if_isolated():
+        return None
     global _worker
     cfg = read_config(env)
     if cfg is None or event is None:
@@ -208,6 +211,8 @@ def guest_reply_context():
 
 
 def observe_attempt_result(response, configured_model, latency_ms, *, provider, env=os.environ):
+    if deny_telemetry_if_isolated():
+        return None
     if _eligible(provider, env):
         enqueue_event(build_attempt_event(response=response, configured_model=configured_model, latency_ms=latency_ms, env=env), env=env)
     return None
@@ -225,6 +230,8 @@ def _classify(exc):
 
 
 def observe_attempt_failure(exc, configured_model, latency_ms, *, provider, env=os.environ):
+    if deny_telemetry_if_isolated():
+        return None
     if _eligible(provider, env):
         enqueue_event(build_failure_event(configured_model, latency_ms, _classify(exc), env=env), env=env)
     return None

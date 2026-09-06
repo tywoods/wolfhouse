@@ -603,6 +603,36 @@ class IsolatedEvalTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
 
+    def test_producer_fault_scalar_serialization_success_and_typed_failure(self):
+        self.test_producer_scalar_serialization_success_and_typed_failure(fault=True)
+
+    def test_producer_scalar_serialization_success_and_typed_failure(self, fault=False):
+        from wolfhouse import crowsnest_ai_usage_reporter as reporter
+        first = IsolationAbort("runtime_resolution_unverified")
+        for fail in (False, True):
+            async def turn(message, cap, meta):
+                if fault:
+                    cap.telemetry_producer_suppressed = object()
+                reporter.enqueue_event(None, env={})
+                if fail:
+                    raise first
+                return await simulated_model_turn(message, cap, meta)
+            call = run_isolated_personality_eval(
+                case_id="warmth-greeting-en", personality_id="sunny", corpus=CORPUS,
+                fetch_setting=lambda _t: {"personality_id": "sunny"}, invoke_turn=turn,
+                serving_preflight=False, evidence_kind="test_double")
+            if fail:
+                with self.assertRaises(IsolationAbort) as caught:
+                    _run(call)
+                self.assertIs(caught.exception, first)
+                snapshot = first.counters
+            else:
+                snapshot = _run(call)
+            wire = json.loads(json.dumps(snapshot))
+            self.assertEqual(wire["telemetry_producer_suppressed"], None if fault else 1)
+            self.assertIsNone(wire["telemetry_effects"])
+            self.assertIsNone(wire["auth_effects"])
+
     def test_first_abort_survives_cleanup_with_final_bounded_counts(self) -> None:
         from wolfhouse import luna_personality_live_eval as live
         first = IsolationAbort("runtime_resolution_unverified")

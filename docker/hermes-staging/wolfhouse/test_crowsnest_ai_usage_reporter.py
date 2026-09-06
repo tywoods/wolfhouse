@@ -147,5 +147,156 @@ class ReporterTests(unittest.TestCase):
             self.assertIsNone(reporter._post(event, ENV))
 
 
+class IsolatedProducerTests(unittest.TestCase):
+    @staticmethod
+    def entries(env=ENV):
+        return (
+            lambda: reporter.observe_attempt_result(RAW, "model", 1, provider="openai-codex", env=env),
+            lambda: reporter.observe_attempt_failure(TimeoutError(), "model", 1, provider="openai-codex", env=env),
+            lambda: reporter.enqueue_event({"probe": True}, env=env),
+        )
+
+    def test_each_entry_precedes_hostile_dependencies(self):
+        from wolfhouse import luna_personality_isolation as isolation
+        from contextlib import ExitStack
+        class HostileEnv(dict):
+            def get(self, *args):
+                raise AssertionError("environment reached")
+        for index in range(3):
+            seams = ["read_config", "_eligible", "build_attempt_event", "build_failure_event"]
+            if index == 1:
+                seams.append("_classify")
+            for seam in seams + [None]:
+                with self.subTest(entry=index, seam=seam), ExitStack() as stack:
+                    if seam:
+                        stack.enter_context(patch.object(reporter, seam, side_effect=AssertionError(seam)))
+                    cap = isolation.IsolatedTurnCapture("probe", "warm")
+                    token = isolation.enter_isolated_turn(cap)
+                    stack.callback(isolation.exit_isolated_turn, token)
+                    stack.enter_context(reporter.guest_reply_context())
+                    self.assertIsNone(self.entries(HostileEnv() if seam is None else ENV)[index]())
+                    self.assertEqual(cap.telemetry_producer_suppressed, 1)
+
+    def test_no_queue_lock_or_worker_touch_and_copied_context(self):
+        from wolfhouse import luna_personality_isolation as isolation
+        from unittest.mock import Mock
+        for worker in (None, Mock()):
+            for full in (False, True):
+                q = queue.Queue(maxsize=1)
+                if full:
+                    q.put_nowait("historical")
+                with patch.object(reporter, "_queue", q), patch.object(reporter, "_worker", worker), \
+                     patch.object(q, "put_nowait", side_effect=AssertionError("queue")), \
+                     patch.object(reporter, "_worker_lock") as lock, patch("threading.Thread") as thread:
+                    lock.__enter__.side_effect = AssertionError("lock")
+                    cap = isolation.IsolatedTurnCapture("copy", "warm")
+                    token = isolation.enter_isolated_turn(cap)
+                    copied = contextvars.copy_context()
+                    isolation.exit_isolated_turn(token)
+                    for entry in self.entries():
+                        self.assertIsNone(copied.run(entry))
+                    self.assertEqual(cap.telemetry_producer_suppressed, 3)
+                    self.assertEqual(q.qsize(), int(full))
+                    self.assertIsNone(isolation.current_isolated_turn())
+                    thread.assert_not_called()
+                    if worker is not None:
+                        self.assertEqual(worker.mock_calls, [])
+
+    def test_ordinary_entries_configured_disabled_full_and_start_failure(self):
+        for env in (ENV, {}):
+            for full in (False, True):
+                for index in range(3):
+                    with self.subTest(env=bool(env), full=full, entry=index):
+                        q = queue.Queue(maxsize=1)
+                        if full:
+                            q.put_nowait("historical")
+                        with patch.object(reporter, "_queue", q), patch.object(reporter, "_worker", None), \
+                             patch("threading.Thread") as thread, reporter.guest_reply_context():
+                            thread.return_value.start.side_effect = RuntimeError("offline start failure")
+                            self.assertIsNone(self.entries(env)[index]())
+                            admitted = bool(env) and not full
+                            self.assertEqual(thread.call_count, int(admitted))
+                            self.assertEqual(q.qsize(), int(full or admitted))
+                            if admitted:
+                                event, cfg = q.get_nowait()
+                                self.assertEqual(cfg, reporter.read_config(ENV))
+                                if index < 2:
+                                    self.assertEqual(event["status"], ("succeeded", "failed")[index])
+                                self.assertIsNone(reporter._worker)
+
+    def test_concurrent_copied_context_exact_count_and_saturation(self):
+        import sys, threading
+        from wolfhouse import luna_personality_isolation as isolation
+        previous = sys.getswitchinterval()
+        try:
+            sys.setswitchinterval(0.000001)
+            for initial, calls in ((0, 100000), (2**53 - 100, 100)):
+                cap = isolation.IsolatedTurnCapture("concurrent", "warm")
+                cap.telemetry_producer_suppressed = initial
+                separate = isolation.IsolatedTurnCapture("separate", "warm")
+                token = isolation.enter_isolated_turn(cap)
+                contexts = [contextvars.copy_context() for _ in range(8)]
+                isolation.exit_isolated_turn(token)
+                barrier = threading.Barrier(8, timeout=10)
+                errors = []
+                def work():
+                    try:
+                        barrier.wait()
+                        for _ in range(calls):
+                            self.assertIsNone(reporter.enqueue_event(None, env={}))
+                    except BaseException as exc:
+                        errors.append(exc)
+                threads = [threading.Thread(target=c.run, args=(work,)) for c in contexts]
+                q = queue.Queue()
+                with patch.object(reporter, "_queue", q), patch.object(reporter, "_worker", None):
+                    for thread in threads:
+                        thread.start()
+                    for thread in threads:
+                        thread.join(20)
+                    self.assertFalse(any(thread.is_alive() for thread in threads))
+                    self.assertEqual(errors, [])
+                    self.assertEqual(q.qsize(), 0)
+                    self.assertIsNone(reporter._worker)
+                    self.assertEqual(cap.telemetry_producer_suppressed, min(initial + 8*calls, 2**53 - 1))
+                    self.assertEqual(separate.telemetry_producer_suppressed, 0)
+                    self.assertIsNone(isolation.current_isolated_turn())
+                    with patch.object(reporter, "read_config", wraps=reporter.read_config) as config:
+                        self.assertIsNone(reporter.enqueue_event(None, env={}))
+                        config.assert_called_once_with({})
+                    self.assertEqual(cap.telemetry_producer_suppressed, min(initial + 8*calls, 2**53 - 1))
+        finally:
+            sys.setswitchinterval(previous)
+
+    def test_counter_saturates_and_bad_counter_still_denies(self):
+        from wolfhouse import luna_personality_isolation as isolation
+        cap = isolation.IsolatedTurnCapture("bound", "warm")
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            cap.telemetry_producer_suppressed = 2**53 - 2
+            for entry in self.entries():
+                self.assertIsNone(entry())
+                self.assertEqual(cap.telemetry_producer_suppressed, 2**53 - 1)
+            cap.telemetry_producer_suppressed = object()
+            with patch.object(reporter, "read_config", side_effect=AssertionError("fail-open")):
+                for entry in self.entries():
+                    self.assertIsNone(entry())
+        finally:
+            isolation.exit_isolated_turn(token)
+
+    def test_isolated_direct_has_zero_config_and_queue_admissions(self):
+        from wolfhouse import luna_personality_isolation as isolation
+        cap = isolation.IsolatedTurnCapture("producer", "warm")
+        q = queue.Queue()
+        with patch.object(reporter, "_queue", q), \
+             patch.object(reporter, "_worker", SimpleNamespace(is_alive=lambda: True)), \
+             patch.object(reporter, "read_config", wraps=reporter.read_config) as config:
+            token = isolation.enter_isolated_turn(cap)
+            try:
+                self.assertIsNone(reporter.enqueue_event({"probe": True}, env=ENV))
+            finally:
+                isolation.exit_isolated_turn(token)
+            self.assertEqual((config.call_count, q.qsize()), (0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()
