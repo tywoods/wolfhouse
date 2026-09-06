@@ -1840,6 +1840,70 @@ class RequestIdentityBoundaryTests(unittest.TestCase):
             exit_isolated_turn(token)
 
 
+class ResponsesObservationTests(unittest.TestCase):
+    """Internal dormant observation, NOT admitted Codex runtime composition."""
+
+    def setUp(self):
+        import run_agent
+        from agent import codex_runtime
+        from wolfhouse import luna_personality_isolation as iso
+        reset_isolation_runtime_for_tests()
+        self.addCleanup(reset_isolation_runtime_for_tests)
+        self.iso, self.runtime = iso, codex_runtime
+        self.agent = object.__new__(run_agent.AIAgent)
+        self.agent.model, self.agent.api_mode = "fixture-model", "codex_responses"
+        self.agent.provider, self.agent._interrupt_requested = "openai-codex", False
+        self.agent._client_log_context = lambda: "offline-fixture"
+        self.cap = IsolatedTurnCapture(case_id="fixture", personality_id="sunny")
+        # Existing tuple shape, explicitly supplied internal provenance, not a
+        # factory-issued/admitted capability. No constructor or resolver fakes.
+        self.binding = (self.cap, self.agent, self.agent.model, self.agent.api_mode)
+        self.cap._request_identity = self.binding
+        self.calls = []
+        self.result = SimpleNamespace(output=[])
+        def create(**kwargs):
+            self.calls.append(kwargs)
+            if len(self.calls) == 1:
+                raise ConnectionError("fixture connect failure")
+            return self.result
+        self.raw_create = create
+        self.client = SimpleNamespace(responses=SimpleNamespace(create=create))
+        self.payload = {"model": self.agent.model, "instructions": "Luna Personality this turn: sunny. PRIVATE_FIXTURE",
+                        "input": [{"role": "user", "content": "fixture question"}]}
+
+    def test_retry_alias_and_consumed_pack_are_actual_create_observations(self):
+        for name in ("run_codex_stream", "run_codex_create_stream_fallback"):
+            with self.subTest(helper=name):
+                self.calls.clear()
+                self.assertIs(getattr(self.runtime, name)(self.agent, self.payload, client=self.client), self.result)
+                self.assertEqual(len(self.calls), 2)  # ordinary unchanged helper retry
+                self.calls.clear()
+                token = enter_isolated_turn(self.cap)
+                try:
+                    try:
+                        self.iso._observe_openai_client(self.client)
+                    except IsolationAbort as exc:
+                        self.fail("dormant observer refused valid binding: " + exc.reason)
+                    create = self.client.responses.create
+                    self.iso._observe_openai_client(self.client)
+                    self.assertIs(self.client.responses.create, create)
+                    before = self.cap.model_calls
+                    self.assertIs(getattr(self.runtime, name)(self.agent, self.payload, client=self.client), self.result)
+                    self.assertEqual(len(self.calls), 2)
+                    self.assertEqual(self.cap.model_calls - before, 2)
+                    self.assertEqual(getattr(self.cap, "responses_sdk_attempted", None), self.cap.model_calls)
+                    self.assertEqual(getattr(self.cap, "responses_sdk_returned", None), self.cap.model_calls // 2)
+                    self.assertEqual(self.cap.provider_helper_attempts, 0)
+                    self.assertEqual(self.cap.model, "fixture-model")
+                    self.assertEqual(self.cap.observed_pack_id, "sunny")
+                    self.assertTrue(self.cap.observed_pack_from_provider)
+                    self.assertTrue(all(c["stream"] is True for c in self.calls))
+                    self.assertNotIn("PRIVATE_FIXTURE", repr(self.cap))
+                finally:
+                    exit_isolated_turn(token)
+                self.client.responses.create = self.raw_create
+
+
 class RealProviderHelperDispatchTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
