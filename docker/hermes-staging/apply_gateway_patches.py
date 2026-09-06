@@ -622,6 +622,98 @@ def validate_luna_personality_emitted_ast(source: str) -> dict:
     }
 
 
+def apply_luna_cold_admission(source: str) -> str:
+    """Reject before proxy/config/tool discovery, with a second worker defense."""
+    entry = '        # ---- Proxy mode: delegate to remote API server ----\n'
+    guarded_entry = (
+        '        from wolfhouse.luna_personality_isolation import refuse_unverified_runtime\n'
+        '        refuse_unverified_runtime()\n' + entry
+    )
+    if guarded_entry not in source:
+        if source.count(entry) != 1:
+            raise RuntimeError('cold admission entry ambiguous or malformed')
+        source = source.replace(entry, guarded_entry, 1)
+    if source.count(guarded_entry) != 1:
+        raise RuntimeError('cold admission entry duplicated')
+    anchor = '            try:\n                model, runtime_kwargs = self._resolve_session_agent_runtime('
+    replacement = (
+        '            from wolfhouse.luna_personality_isolation import refuse_unverified_runtime\n'
+        '            refuse_unverified_runtime()\n' + anchor
+    )
+    if replacement not in source:
+        if source.count(anchor) != 1 or '            refuse_unverified_runtime()' in source:
+            raise RuntimeError('cold admission owner ambiguous or malformed')
+        source = source.replace(anchor, replacement, 1)
+    if source.count(replacement) != 1:
+        raise RuntimeError('cold admission owner duplicated')
+    catches = [
+        ('        except Exception as e:\n            # Stop typing indicator on error too',
+         '        except Exception as e:\n            from wolfhouse.luna_personality_isolation import IsolationAbort\n            if isinstance(e, IsolationAbort):\n                raise\n            # Stop typing indicator on error too'),
+        ('            except Exception as exc:\n                return {\n                    "final_response": f"⚠️ Provider authentication failed: {exc}",',
+         '            except Exception as exc:\n                from wolfhouse.luna_personality_isolation import IsolationAbort\n                if isinstance(exc, IsolationAbort):\n                    raise\n                return {\n                    "final_response": f"⚠️ Provider authentication failed: {exc}",'),
+    ]
+    for old, new in catches:
+        if new not in source:
+            if source.count(old) != 1:
+                raise RuntimeError('cold admission causal catch ambiguous or malformed')
+            source = source.replace(old, new, 1)
+        if source.count(new) != 1:
+            raise RuntimeError('cold admission causal catch duplicated')
+    tree = ast.parse(source)
+    workers = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == 'run_sync'
+               and any(isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+                       and c.func.id == 'refuse_unverified_runtime' for c in ast.walk(n))]
+    if len(workers) != 1:
+        raise RuntimeError('cold admission not owned by worker')
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    def owner(node):
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                return node
+        return None
+    guards = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+              and isinstance(n.func, ast.Name) and n.func.id == 'refuse_unverified_runtime']
+    if len(guards) != 2 or sorted(owner(n).name for n in guards if owner(n)) != ['_run_agent_inner', 'run_sync']:
+        raise RuntimeError('cold admission entry/worker ownership invalid')
+    for guard in guards:
+        fn = owner(guard)
+        statement = parents[guard]
+        if statement not in fn.body:
+            raise RuntimeError('cold admission guard is conditional')
+        index = fn.body.index(statement)
+        if fn.name == '_run_agent_inner' and any(
+                not isinstance(n, (ast.ImportFrom, ast.Expr)) or
+                isinstance(n, ast.Expr) and not isinstance(n.value, ast.Constant)
+                for n in fn.body[:index]):
+            raise RuntimeError('cold admission entry follows effects')
+    abort_tests = [n for n in ast.walk(tree) if isinstance(n, ast.If)
+                   and ast.unparse(n.test) in ('isinstance(e, IsolationAbort)', 'isinstance(exc, IsolationAbort)')]
+    if sorted(owner(n).name for n in abort_tests if owner(n)) != ['_handle_message_with_agent', 'run_sync']:
+        raise RuntimeError('cold admission causal catch ownership invalid')
+    for defense in abort_tests:
+        fn, handler = owner(defense), parents[defense]
+        target = '_resolve_session_agent_runtime' if fn.name == 'run_sync' else '_run_agent'
+        calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call) and
+                 isinstance(n.func, ast.Attribute) and ast.unparse(n.func) == 'self.' + target and owner(n) is fn]
+        protected = []
+        for call in calls:
+            node = call
+            while node in parents and not isinstance(parents[node], ast.Try):
+                node = parents[node]
+            if node in parents and node in parents[node].body:
+                protected.append(parents[node])
+        if (len(protected) != 1 or not isinstance(handler, ast.ExceptHandler) or
+                handler not in protected[0].handlers or protected[0].handlers != [handler] or
+                handler.name != ('exc' if fn.name == 'run_sync' else 'e') or
+                ast.unparse(handler.type) != 'Exception' or handler.body[:2] != [handler.body[0], defense] or
+                ast.unparse(handler.body[0]) != 'from wolfhouse.luna_personality_isolation import IsolationAbort' or
+                len(defense.body) != 1 or not isinstance(defense.body[0], ast.Raise) or
+                defense.body[0].exc is not None or defense.body[0].cause is not None or defense.orelse):
+            raise RuntimeError('cold admission causal catch protected try invalid')
+    return source
+
+
 def apply_luna_personality_gateway_patches(source: str) -> tuple[str, dict]:
     """Insert personality bind + SOUL rebuild against the unique cache owner.
 
@@ -1055,6 +1147,7 @@ def apply_patches(run_path: Path) -> dict:
         s = s.replace(_old_guard_call, _new_guard_call, 1)
 
     s, lp_meta = apply_luna_personality_gateway_patches(s)
+    s = apply_luna_cold_admission(s)
     soul_note = lp_meta.get("luna_soul_reload_note")
     if LUNA_PERSONALITY_CLEAR_TAG not in s:
         clear_anchor = (

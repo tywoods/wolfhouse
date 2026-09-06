@@ -603,6 +603,68 @@ class IsolatedEvalTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
 
+    def test_first_abort_survives_cleanup_with_final_bounded_counts(self) -> None:
+        from wolfhouse import luna_personality_live_eval as live
+        first = IsolationAbort("runtime_resolution_unverified")
+        async def abort(_message, cap, _meta):
+            cap.model_calls = None
+            raise first
+        def cleanup(cap):
+            cap.sends_attempted = 2
+            raise IsolationAbort("provider_work_unsettled")
+        with mock.patch.object(live, "settle_isolated_work", cleanup):
+            with self.assertRaises(IsolationAbort) as caught:
+                _run(run_isolated_personality_eval(
+                    case_id="warmth-greeting-en", personality_id="sunny", corpus=CORPUS,
+                    fetch_setting=lambda _t: {"personality_id": "sunny"},
+                    invoke_turn=abort, serving_preflight=False))
+        self.assertIs(caught.exception, first)
+        self.assertEqual(first.cleanup_error, "provider_work_unsettled")
+        self.assertEqual(first.counters["sends_attempted"], 2)
+        self.assertIsNone(first.counters["model_calls"])
+        self.assertIsNone(first.counters["auth_effects"])
+        self.assertIsNone(first.counters["telemetry_effects"])
+
+    def test_unverified_readiness_and_admission_precede_staff(self) -> None:
+        from wolfhouse import luna_personality_live_eval as live
+        with mock.patch.object(live, "install_isolation_runtime"), \
+             mock.patch.object(live, "serving_runtime_missing", return_value=[]), \
+             mock.patch.object(live, "server_owned_serving_identity", return_value={}), \
+             mock.patch.object(live, "isolation_status", return_value=dict.fromkeys(live.REQUIRED_LIVE_SEAMS, True)):
+            rec = live.serving_eval_readiness(runner=SimpleNamespace(_handle_message=lambda: None))
+        self.assertFalse(rec["ready"])
+        self.assertEqual(rec["error"], "runtime_resolution_unverified")
+        self.assertEqual(rec["missing_seams"], [])
+        fetch = mock.Mock(side_effect=AssertionError("Staff reached"))
+        with mock.patch.object(live, "install_isolation_runtime"), \
+             mock.patch.object(live, "preflight_isolation_or_abort"):
+            with self.assertRaises(IsolationAbort) as caught:
+                _run(run_isolated_personality_eval(
+                    case_id="warmth-greeting-en", personality_id="sunny", corpus=CORPUS,
+                    fetch_setting=fetch, serving_preflight=False, require_live_seams=True))
+        self.assertEqual(caught.exception.reason, "runtime_resolution_unverified")
+        fetch.assert_not_called()
+
+    def test_http_abort_retains_terminal_evidence(self) -> None:
+        from wolfhouse import luna_personality_live_eval as live
+        first = IsolationAbort("runtime_resolution_unverified")
+        first.cleanup_error, first.counters = "provider_work_unsettled", {"auth_effects": None}
+        handlers = {}
+        app = SimpleNamespace(router=SimpleNamespace(
+            add_get=lambda *_: None, add_post=lambda path, fn: handlers.update(post=fn)))
+        request = SimpleNamespace(json=mock.AsyncMock(return_value={"case_id": "warmth-greeting-en"}))
+        web = SimpleNamespace(json_response=lambda body, **kw: (body, kw))
+        with mock.patch.object(live, "live_sunset_eval_identity", return_value={}), \
+             mock.patch.object(live, "_eval_unauthorized", return_value=None), \
+             mock.patch.object(live, "run_isolated_personality_eval", side_effect=first), \
+             mock.patch.dict(sys.modules, {"aiohttp": SimpleNamespace(web=web)}):
+            live.register_live_eval_route(app)
+            body, options = _run(handlers["post"](request))
+        self.assertEqual(body["error"], first.reason)
+        self.assertEqual(body.get("cleanup_error"), first.cleanup_error)
+        self.assertEqual(body.get("counters"), first.counters)
+        self.assertEqual(options["status"], 503)
+
     def test_allowlist_rejects_arbitrary_prompt(self) -> None:
         async def go():
             return await run_isolated_personality_eval(
@@ -1498,7 +1560,7 @@ class ServingReadinessAndRouteTests(unittest.TestCase):
             "HERMES_ROLE": "sunset-luna",
             "LUNA_CLIENT_SLUG": "sunset",
             "WOLFHOUSE_STAFF_API_BASE_URL": "https://sunset-staging.lunafrontdesk.com",
-            "HERMES_HOME": "/opt/data/.hermes",
+            "HERMES_HOME": os.path.join(os.environ["HOME"], "readiness-fixture"),
             "HERMES_MODEL": "gpt-4o-mini",
         }
         with mock.patch.dict(os.environ, env, clear=False):
@@ -2314,11 +2376,11 @@ class AdapterMapAndTurnEntryTests(unittest.TestCase):
         t.agent_cls._run_codex_app_server_turn = _codex_orig
         runner, _db_effects = _runner_with_db(t)
         install_isolation_runtime(targets=t, runner=runner)
+        agent = t.agent_cls()  # Pre-existing instance: test the independent turn defense.
         cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
         tok = enter_isolated_turn(cap)
         try:
             preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
-            agent = t.agent_cls()
             agent.api_mode = "codex_app_server"
             ns: dict = {
                 "user_message": "hi",
@@ -2498,6 +2560,7 @@ class AdapterMapAndTurnEntryTests(unittest.TestCase):
         real = _extract_unchanged(HERMES_LOOP, "run_conversation", ns)
         t.conversation_loop_mod.run_conversation = real
         install_isolation_runtime(targets=t, runner=runner)
+        agent = t.agent_cls()  # Independent turn defense, not constructor admission.
         cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
         tok = enter_isolated_turn(cap)
         try:
@@ -2508,7 +2571,6 @@ class AdapterMapAndTurnEntryTests(unittest.TestCase):
                 provider.append("factory")
                 return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: provider.append("sdk"))))
 
-            agent = t.agent_cls()
             agent.api_mode = "chat_completions"
             agent._create_request_openai_client = unwrapped_factory
             with self.assertRaises(IsolationAbort) as module_ctx:
@@ -2554,11 +2616,11 @@ class AdapterMapAndTurnEntryTests(unittest.TestCase):
         real = _extract_unchanged(HERMES_LOOP, "run_conversation", ns)
         t.conversation_loop_mod.run_conversation = real
         install_isolation_runtime(targets=t, runner=runner)
+        agent = t.agent_cls()  # Independent turn defense, not constructor admission.
         cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
         tok = enter_isolated_turn(cap)
         try:
             preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
-            agent = t.agent_cls()
             agent.api_mode = "chat_completions"
             with self.assertRaises(StopProbe):
                 t.conversation_loop_mod.run_conversation(agent, "hi")

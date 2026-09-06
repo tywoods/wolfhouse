@@ -45,6 +45,7 @@ from wolfhouse.luna_personality_isolation import (
     record_consumed_pack,
     record_personality_fetch,
     record_tool_invocation_violation,
+    refuse_unverified_runtime,
     settle_isolated_work,
 )
 from wolfhouse.staging_guard import assert_staging_environment
@@ -586,7 +587,10 @@ async def run_isolated_personality_eval(
     cap.ephemeral_chat_id = _ephemeral_digits()
     cap.evidence_kind = kind_label
     token = enter_isolated_turn(cap)
+    first_abort = None
     try:
+        if invoke_turn is None:
+            refuse_unverified_runtime()
         preflight_isolation_or_abort(
             require_live_seams=require_live_seams,
             targets=isolation_targets,
@@ -685,6 +689,9 @@ async def run_isolated_personality_eval(
             "consumed_soul_observed": False,
             "consumed_home_observed": False,
         }
+    except IsolationAbort as exc:
+        first_abort = exc
+        raise
     finally:
         settle_exc = None
         try:
@@ -692,9 +699,23 @@ async def run_isolated_personality_eval(
         except IsolationAbort as exc:
             settle_exc = exc
         except Exception:
-            pass
-        exit_isolated_turn(token)
-        if settle_exc is not None:
+            settle_exc = IsolationAbort("cleanup_failed")
+        finally:
+            exit_isolated_turn(token)
+        failure = first_abort if first_abort is not None else settle_exc
+        if failure is not None:
+            failure.cleanup_error = settle_exc.reason if settle_exc is not None else None
+            # Closed scalar snapshot only, after settlement. Unobserved effect
+            # classes remain unknown; wrapper installation is not zero proof.
+            failure.counters = {
+                key: value if type(value) is int and 0 <= value <= 2**53 - 1 else None
+                for key in ("tools_invoked", "sends_attempted", "sends_completed",
+                            "journal_writes_denied", "journal_writes_completed",
+                            "personality_fetches", "model_calls", "provider_helper_attempts")
+                for value in (getattr(cap, key, None),)
+            }
+            failure.counters.update(auth_effects=None, telemetry_effects=None)
+        if first_abort is None and settle_exc is not None:
             raise settle_exc
 
 
@@ -789,6 +810,10 @@ def serving_eval_readiness(*, targets: Optional[IsolationTargets] = None, runner
             error = identity_error
         else:
             error = "seams_incomplete:" + ",".join(missing)
+    # Installed wrappers do not establish inert canonical route authority.
+    if ready:
+        error = "runtime_resolution_unverified"
+        ready = False
     return {
         "ok": ready,
         "ready": ready,
@@ -887,9 +912,13 @@ def register_live_eval_route(app) -> bool:
                 "gateway_handler_unavailable",
                 "gateway_session_db_unavailable",
                 "session_store_unavailable",
+                "runtime_resolution_unverified",
+                "constructor_boundary_unverified",
             }:
                 status = 503
-            return web.json_response({"ok": False, "error": exc.reason}, status=status)
+            return web.json_response({"ok": False, "error": exc.reason,
+                                      "cleanup_error": exc.cleanup_error,
+                                      "counters": exc.counters}, status=status)
         except SystemExit as exc:
             from aiohttp import web
 
