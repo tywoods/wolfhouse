@@ -365,9 +365,41 @@ def patch_worker_origin(text, inverse=False):
     return _b3e_replace(text, 'interruptible_api_call', WORKER_ORIGIN)
 
 
+STREAMING_ORIGIN = (
+    ('    result = {"response": None, "error": None, "partial_tool_names": []}\n',
+     '    from wolfhouse.luna_personality_isolation import (current_isolated_turn, check_worker_origin,\n'
+     '        acquire_streaming_request_client, IsolationAbort, retain_worker_abort)\n'
+     '    _stream_origin = current_isolated_turn()\n'
+     '    result = {"response": None, "error": None, "partial_tool_names": []}\n'),
+    ('        import httpx as _httpx\n        # Per-provider',
+     '        check_worker_origin(_stream_origin, agent)\n'
+     '        import httpx as _httpx\n        # Per-provider'),
+    ('            agent._create_request_openai_client(\n                reason="chat_completion_stream_request",',
+     '            acquire_streaming_request_client(_stream_origin, agent,\n                reason="chat_completion_stream_request",'),
+    ('        stream = request_client.chat.completions.create(**stream_kwargs)\n',
+     '        check_worker_origin(_stream_origin, agent)\n'
+     '        stream = request_client.chat.completions.create(**stream_kwargs)\n'),
+    ('                except Exception as e:\n                    # If the main poll loop',
+     '                except Exception as e:\n'
+     '                    if isinstance(e, IsolationAbort):\n'
+     '                        result["error"] = e\n'
+     '                        retain_worker_abort(e, _stream_origin)\n'
+     '                        return\n'
+     '                    # If the main poll loop'),
+)
+
+
+def patch_streaming_origin(text, inverse=False):
+    for old, new in reversed(STREAMING_ORIGIN):
+        if new in text:
+            text = _b3e_replace(text, 'interruptible_streaming_api_call', ((old, new),), inverse=True)
+    return text if inverse else _b3e_replace(text, 'interruptible_streaming_api_call', STREAMING_ORIGIN)
+
+
 def patch_codex_cancellation(candidates, paths):
     import hashlib
     helper = paths[2]
+    candidates[helper] = patch_streaming_origin(candidates[helper], inverse=True)
     candidates[helper] = patch_worker_origin(candidates[helper], inverse=True)
     b4_marked = [changes[0][1] in candidates[helper] for owner, changes in B4_HELPER]
     if any(b4_marked) and not all(b4_marked):
@@ -393,6 +425,7 @@ def patch_codex_cancellation(candidates, paths):
     for owner, changes in B4_HELPER:
         candidates[helper] = _b3e_replace(candidates[helper], owner, changes)
     candidates[helper] = patch_worker_origin(candidates[helper])
+    candidates[helper] = patch_streaming_origin(candidates[helper])
 
 
 # PRC remains denial-only: direct canonical entries cannot bypass gateway/class guards.
