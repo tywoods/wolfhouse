@@ -750,6 +750,8 @@ module.exports = {
   'schedule.create.idempotencyConflict': 'Esta solicitud de creación entra en conflicto con una reserva anterior. Cierra e inicia una nueva creación.',
   'schedule.create.quoteTotal': 'Total presupuestado',
   'schedule.create.quoteFailed': 'Presupuesto no disponible',
+  'schedule.create.rentalDurationMismatch': 'La duración del alquiler debe coincidir con las fechas seleccionadas.',
+  'schedule.create.courseNotOnSelectedDates': 'Este curso no está disponible en las fechas seleccionadas.',
   'schedule.create.quotePastDate': 'Fecha pasada — Guardar mantiene los precios guardados; actualizar el presupuesto es opcional.',
   'schedule.create.priceNotConfigured': 'Precio no configurado',
   'schedule.create.unpriced': 'Sin precio',

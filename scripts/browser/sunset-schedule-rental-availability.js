@@ -224,8 +224,10 @@ function scheduleCompatibleRentalDurationKeys(activeDurationKeys, dateDurationKe
       }
     });
   } else {
-    // Exact active N_days is exclusive. Only when it is absent may 1_day be
-    // selected (and repeated once per date on the server). Never hour packages.
+    // Exact active N_days is exclusive. When absent, 1_day may be selected for
+    // *generic* offerings only (server repeats once per date). Canonical board /
+    // wetsuit / S+W paths reject 1_day on multi-day — projection filters that.
+    // Never hour packages across a multi-day span.
     if (set[want]) {
       out.push(want);
     } else if (set['1_day'] || set.full_day) {
@@ -362,10 +364,18 @@ function scheduleProjectStandaloneRentals(opts) {
   }
 
   var projected = [];
+  var multiDaySpan = dateDurationKey && dateDurationKey !== '1_day'
+    && /^[1-9][0-9]*_days$/.test(dateDurationKey);
   Object.keys(byKey).forEach(function(key) {
     var item = byKey[key];
     var activeKeys = Object.keys(item._durationMap);
     var compatible = scheduleCompatibleRentalDurationKeys(activeKeys, dateDurationKey);
+    // Canonical rentals have no server-side 1_day×N repeat (generics do). When the
+    // exact N_days package is absent, omit the offering — never offer a 1_day
+    // duration that quote/create will reject as rental_duration_mismatch.
+    if (multiDaySpan && SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) >= 0) {
+      compatible = compatible.filter(function(dk) { return dk === dateDurationKey; });
+    }
     if (!compatible.length) return;
     var durations = compatible.map(function(dk) {
       return item._durationMap[dk] || {
