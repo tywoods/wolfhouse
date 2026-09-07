@@ -82,6 +82,86 @@ class MetadataAdmissionTests(unittest.TestCase):
         self.assertIsNone(isolation.current_isolated_turn())
 
 
+    def test_independent_metadata_guard_removal_and_restoration(self):
+        import ast
+        import copy
+        import types
+        from pathlib import Path
+        from agent import model_metadata as metadata
+        original = ast.parse(Path(metadata.__file__).read_text())
+        for name in METADATA_ENTRIES:
+            owner = getattr(metadata, name)
+            saved = owner.__code__
+            tree = copy.deepcopy(original)
+            node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+            self.assertIsInstance(node.body[1], ast.ImportFrom)
+            del node.body[1:3]
+            code = compile(tree, metadata.__file__, 'exec')
+            owner.__code__ = next(c for c in code.co_consts if isinstance(c, types.CodeType) and c.co_name == name)
+            try:
+                result = unittest.TestResult()
+                MetadataAdmissionTests('test_four_entries_deny_before_original_operations').run(result)
+                self.assertEqual(result.errors, [], 'fixture errors are not causal kills')
+                self.assertEqual(len(result.failures), {'get_model_context_length': 24, 'save_context_length': 16}.get(name, 8))
+                print('METADATA_GUARD_REMOVAL_KILLED', name, len(result.failures), flush=True)
+            finally:
+                owner.__code__ = saved
+            self.assertIs(owner.__code__, saved)
+        self.test_four_entries_deny_before_original_operations()
+        self.test_ordinary_cache_controls_and_warm_denial()
+
+    def test_ordinary_cache_controls_and_warm_denial(self):
+        import json
+        import os
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch, Mock
+        from contextlib import ExitStack
+        from agent import model_metadata as metadata
+        self.assertIsNone(isolation.current_isolated_turn())
+        with tempfile.TemporaryDirectory() as home, ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {'HERMES_HOME': home, 'HOME': home}))
+            stack.enter_context(patch.object(metadata, '_codex_oauth_context_cache', {}))
+            stack.enter_context(patch.object(metadata, '_codex_oauth_context_cache_time', 0))
+            response = Mock(status_code=200)
+            response.json.return_value = {'models': [{'slug': 'gpt-5-fixture', 'context_window': 272000}]}
+            http = stack.enter_context(patch.object(metadata.requests, 'get', return_value=response))
+            stack.enter_context(patch.object(metadata, '_resolve_requests_verify', return_value=True))
+            model, url = 'gpt-5-fixture', 'https://fixture.invalid'
+            self.assertEqual(metadata.get_model_context_length(model, config_context_length=8192), 8192)
+            for warm in (False, True):
+                self.assertIsNone(metadata.save_context_length(model, url, 8192))
+                self.assertEqual(metadata.get_model_context_length(model, url), 8192)
+                self.assertEqual(metadata._fetch_codex_oauth_context_lengths('synthetic-only'), {model: 272000})
+                self.assertIsNone(metadata._save_model_metadata_disk_cache({model: {'context_length': 8192}}))
+                disk = json.loads(metadata._get_model_metadata_cache_path().read_text())
+                self.assertIn(model, str(disk))
+            self.assertEqual(http.call_count, 1, 'hot Codex memory cache avoids second HTTP')
+            metadata.save_context_length(model, url, 1050000)
+            before = {p: p.read_bytes() for p in Path(home).rglob('*') if p.is_file()}
+            calls = (
+                (metadata.get_model_context_length, (model,), {'config_context_length': 8192}),
+                (metadata.get_model_context_length, (model, url), {'provider': 'openai-codex', 'api_key': 'synthetic-only'}),
+                (metadata._fetch_codex_oauth_context_lengths, ('synthetic-only',), {}),
+                (metadata.save_context_length, (model, url, 1050000), {}),
+                (metadata._save_model_metadata_disk_cache, ({model: {}},), {}),
+            )
+            token = isolation.enter_isolated_turn(False)
+            try:
+                with patch('builtins.open', side_effect=AssertionError('warm denial read/write')):
+                    for owner, args, kwargs in calls:
+                        with self.assertRaises(isolation.IsolationAbort) as caught:
+                            owner(*args, **kwargs)
+                        self.assertEqual(caught.exception.reason, 'auth_boundary_unsupported')
+            finally:
+                isolation.exit_isolated_turn(token)
+            self.assertEqual({p: p.read_bytes() for p in Path(home).rglob('*') if p.is_file()}, before)
+            self.assertEqual(http.call_count, 1)
+            self.assertEqual(metadata.get_model_context_length(model, url, provider='openai-codex', api_key='synthetic-only'), 272000)
+            self.assertEqual(metadata.get_cached_context_length(model, url), 272000)
+            self.assertEqual(http.call_count, 1, 'stale persistent cache reconciles with hot Codex cache')
+
+
 class AuxiliaryAdmissionTests(unittest.TestCase):
     def test_six_entries_deny_before_effects(self):
         import inspect
