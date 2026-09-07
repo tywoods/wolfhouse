@@ -21,6 +21,67 @@ AUX_ENTRIES = ('resolve_provider_client', 'resolve_vision_provider_client',
                '_refresh_provider_credentials', '_recover_provider_pool', '_select_pool_entry', '_peek_pool_entry')
 
 
+METADATA_ENTRIES = ('get_model_context_length', '_fetch_codex_oauth_context_lengths',
+                    'save_context_length', '_save_model_metadata_disk_cache')
+
+
+class MetadataAdmissionTests(unittest.TestCase):
+    def test_four_entries_deny_before_original_operations(self):
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from agent import model_metadata as metadata
+        from hermes_cli import config
+        effects = []
+        def tripwire(*args, **kwargs):
+            effects.append('original operation')
+            raise AssertionError('original metadata operation reached')
+        class Hostile:
+            __bool__ = __str__ = __format__ = __getattr__ = tripwire
+        hostile = Hostile()
+        calls = (
+            ('get_model_context_length', ('fixture',), {'config_context_length': 8192}),
+            ('get_model_context_length', ('fixture', 'https://fixture.invalid'), {'custom_providers': [hostile]}),
+            ('get_model_context_length', ('fixture', 'https://fixture.invalid'), {'provider': 'openai-codex'}),
+            ('_fetch_codex_oauth_context_lengths', ('synthetic-only',), {}),
+            ('save_context_length', ('fixture', 'https://fixture.invalid', 8192), {}),
+            ('save_context_length', (hostile, hostile, 8192), {}),
+            ('_save_model_metadata_disk_cache', ({'fixture': {}},), {}),
+        )
+        cap = isolation.IsolatedTurnCapture(case_id='metadata', personality_id='balanced', tenant_id='sunset')
+        for state in (cap, False, {}, hostile):
+            token = isolation.enter_isolated_turn(state)
+            retained = contextvars.copy_context()
+            isolation.exit_isolated_turn(token)
+            for revoked in (False, True):
+                if revoked:
+                    isolation.settle_isolated_work(cap)
+                for name, args, kwargs in calls:
+                    owner = getattr(metadata, name)
+                    self.assertTrue(owner.__code__.co_filename.startswith('/tmp/prc-owners/'))
+                    with self.subTest(owner=name, state=type(state).__name__, revoked=revoked, args=len(args)), ExitStack() as stack:
+                        for dependency in (*METADATA_ENTRIES, '_strip_provider_prefix', '_load_context_cache',
+                                           '_get_context_cache_path', '_get_model_metadata_cache_path',
+                                           '_invalidate_cached_context_length', 'atomic_json_write'):
+                            if dependency != name:
+                                stack.enter_context(patch.object(metadata, dependency, tripwire))
+                        stack.enter_context(patch.object(config, 'get_custom_provider_context_length', tripwire))
+                        stack.enter_context(patch.object(metadata.time, 'time', tripwire))
+                        stack.enter_context(patch.object(metadata.requests, 'get', tripwire))
+                        stack.enter_context(patch.object(metadata, '_codex_oauth_context_cache', {'fixture': 8192}))
+                        stack.enter_context(patch.object(metadata, '_codex_oauth_context_cache_time', 1e30))
+                        effects.clear()
+                        try:
+                            retained.run(owner, *args, **kwargs)
+                        except Exception as error:
+                            caught = error
+                        else:
+                            caught = None
+                        self.assertEqual(effects, [], 'denial must precede config/cache/path/read/HTTP/write')
+                        self.assertIsInstance(caught, isolation.IsolationAbort)
+                        self.assertEqual(caught.reason, 'auth_boundary_unsupported')
+        self.assertIsNone(isolation.current_isolated_turn())
+
+
 class AuxiliaryAdmissionTests(unittest.TestCase):
     def test_six_entries_deny_before_effects(self):
         import inspect
