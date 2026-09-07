@@ -18,7 +18,7 @@ class CompressorSixTests(unittest.TestCase):
                   conversation.check_compression_model_feasibility, auxiliary.get_text_auxiliary_client,
                   auxiliary.call_llm, auxiliary._get_cached_client)
         for fn in owners:
-            for mode in ('remove', 'late', 'caught'):
+            for mode in ('remove', 'late', 'caught', 'unconditional'):
                 tree = ast.parse(Path(fn.__code__.co_filename).read_text())
                 scope = tree
                 for part in fn.__qualname__.split('.'):
@@ -27,6 +27,9 @@ class CompressorSixTests(unittest.TestCase):
                 guard = scope.body[index:index + 2]
                 self.assertIsInstance(guard[0], ast.ImportFrom)
                 del scope.body[index:index + 2]
+                if mode == 'unconditional':
+                    guard[1].test = ast.Constant(value=True)
+                    scope.body[index:index] = guard
                 if mode == 'late':
                     late = index + (3 if fn is auxiliary._get_cached_client else 1)
                     scope.body[late:late] = guard
@@ -39,6 +42,14 @@ class CompressorSixTests(unittest.TestCase):
                 saved = fn.__code__
                 try:
                     fn.__code__ = code
+                    if mode == 'unconditional':
+                        self.assertIsNone(isolation.current_isolated_turn())
+                        positive = self.test_ordinary_auxiliary_cold_warm_overrides_stale if fn in owners[3:] else self.test_ordinary_constructor_summary_feasibility
+                        with self.assertRaises(isolation.IsolationAbort) as rejected:
+                            positive()
+                        self.assertEqual(rejected.exception.reason, 'auth_boundary_unsupported')
+                        print('COMPRESSOR_UNCONDITIONAL_KILLED', fn.__qualname__, flush=True)
+                        continue
                     result = unittest.TestResult()
                     CompressorSixTests('test_six_entries_before_first_effect').run(result)
                     self.assertEqual(result.errors, [], 'fixture errors cannot kill a mutant')
@@ -47,7 +58,7 @@ class CompressorSixTests(unittest.TestCase):
                     print('COMPRESSOR_MUTANT_KILLED', fn.__qualname__, mode, flush=True)
                 finally:
                     fn.__code__ = saved
-                self.assertIs(fn.__code__, saved)
+                    self.assertIs(fn.__code__, saved)
         self.test_six_entries_before_first_effect()
         self.test_ordinary_constructor_summary_feasibility()
         self.test_ordinary_auxiliary_cold_warm_overrides_stale()
@@ -66,6 +77,14 @@ class CompressorSixTests(unittest.TestCase):
         self.assertIn('Synthetic summary', summary)
         self.assertEqual(dispatch.call_count, 1)
         self.assertEqual(dispatch.call_args.kwargs['main_runtime']['model'], 'fixture')
+        before = instance.__dict__.copy()
+        token = isolation.enter_isolated_turn(False)
+        try:
+            with self.assertRaises(isolation.IsolationAbort):
+                instance._generate_summary([])
+            self.assertEqual(instance.__dict__, before)
+        finally:
+            isolation.exit_isolated_turn(token)
         agent = SimpleNamespace(compression_enabled=True, _current_main_runtime=lambda: {'model': 'fixture'},
                                 _custom_providers=[], context_compressor=instance, provider='fixture')
         with patch.object(auxiliary, 'get_text_auxiliary_client', return_value=(SimpleNamespace(base_url='https://fixture.invalid', api_key='synthetic-only'), 'fixture')) as client:
@@ -107,6 +126,20 @@ class CompressorSixTests(unittest.TestCase):
             with patch.object(asyncio, 'get_event_loop', return_value=new_loop):
                 self.assertEqual(auxiliary._get_cached_client(async_mode=True, **kwargs), (client, 'fixture'))
             close.assert_called_once_with(client)
+            before = auxiliary._client_cache.copy()
+            resolver.reset_mock()
+            close.reset_mock()
+            token = isolation.enter_isolated_turn(False)
+            try:
+                for async_mode in (False, True):
+                    with patch.object(asyncio, 'get_event_loop', side_effect=AssertionError('loop inspected')):
+                        with self.assertRaises(isolation.IsolationAbort):
+                            auxiliary._get_cached_client(async_mode=async_mode, **kwargs)
+                self.assertEqual(auxiliary._client_cache, before)
+                resolver.assert_not_called()
+                close.assert_not_called()
+            finally:
+                isolation.exit_isolated_turn(token)
 
     def test_six_entries_before_first_effect(self):
         effects = []
