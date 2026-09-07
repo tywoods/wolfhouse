@@ -2152,6 +2152,19 @@ def _discover_bedrock_mod() -> Any:
         return None
 
 
+_REQUEST_CALLER: ContextVar[Any] = ContextVar("luna_request_caller", default=None)
+
+
+def acquire_streaming_request_client(origin: Any, agent: Any, **kwargs: Any):
+    """Request-local authority; never bind a shared factory to a prior turn."""
+    check_worker_origin(origin, agent)
+    token = _REQUEST_CALLER.set((origin, agent))
+    try:
+        return agent._create_request_openai_client(**kwargs)
+    finally:
+        _REQUEST_CALLER.reset(token)
+
+
 def _wrap_openai_client_factory(owner: Any, _name: str = "_create_request_openai_client") -> bool:
     if owner is None:
         return False
@@ -2165,6 +2178,12 @@ def _wrap_openai_client_factory(owner: Any, _name: str = "_create_request_openai
         return True
 
     def _wrapped(*args: Any, **kwargs: Any):
+        caller = _REQUEST_CALLER.get()
+        if caller is not None:
+            check_worker_origin(*caller)
+            actual = (args[0] if args else kwargs.get("self")) if isinstance(owner, type) else owner
+            if actual is not caller[1]:
+                raise IsolationAbort("request_identity_changed")
         cap = _ISOLATED.get()
         if cap is None:
             return orig(*args, **kwargs)
