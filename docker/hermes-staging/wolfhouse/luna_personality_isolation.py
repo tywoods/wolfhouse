@@ -1714,11 +1714,62 @@ def _wrap_executor_context_propagation() -> bool:
 
     def _submit(self, fn, /, *args, **kwargs):  # type: ignore[no-untyped-def]
         ctx = copy_context()
+        cap = _ISOLATED.get()
+        if cap is None:
+            return orig(self, ctx.run, fn, *args, **kwargs)
+
+        # Account for submitted work, not the lifetime of a reusable pool thread.
+        # Registration precedes submit so settlement cannot miss queued work.
+        with cap._provider_lifetime:
+            if cap._provider_revoked:
+                raise IsolationAbort("provider_lifetime_revoked")
+            cap._provider_operations += 1
+            cap.provider_work_settled = False
+        completed = False
+        started = False
+
+        def _complete():
+            nonlocal completed
+            with cap._provider_lifetime:
+                if not completed:
+                    completed = True
+                    cap._provider_operations -= 1
+                    cap._provider_lifetime.notify_all()
 
         def _runner():
-            return fn(*args, **kwargs)
+            nonlocal started
+            with cap._provider_lifetime:
+                # Failed cold starts can leave an item in the executor queue.
+                if completed:
+                    return None
+                started = True
+            try:
+                return fn(*args, **kwargs)
+            except IsolationAbort as exc:
+                retain_worker_abort(exc, cap)
+                raise
+            finally:
+                # An asyncio await can be cancelled while this callable runs.
+                _complete()
 
-        return orig(self, ctx.run, _runner)
+        def _cancelled(future):
+            if future.cancelled():
+                _complete()
+
+        # Cold-pool thread creation must not capture the submitting request.
+        # Only this work item enters its copied context; warm workers are shared.
+        token = _ISOLATED.set(None)
+        try:
+            future = orig(self, ctx.run, _runner)
+        except BaseException:
+            with cap._provider_lifetime:
+                if not started:
+                    _complete()
+            raise
+        finally:
+            _ISOLATED.reset(token)
+        future.add_done_callback(_cancelled)
+        return future
 
     _mark(_submit, ctx=True)
     ThreadPoolExecutor.submit = _submit  # type: ignore[method-assign]
@@ -1798,8 +1849,10 @@ def retain_worker_abort(exc: IsolationAbort, cap: Any = _ISOLATED) -> None:
 
 
 def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 2.0) -> None:
-    """Revoke before draining admitted operations/threads under one deadline.
+    """Revoke and drain provider operations, submitted work and helper threads.
 
+    Submitted callables share the operation counter and this single deadline;
+    reusable executor threads are not request-scoped helpers to join.
     A returned stream is not an active create operation. This does not certify
     terminal SSE evidence or quiescence of untracked stream consumers.
     """
