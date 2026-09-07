@@ -193,6 +193,34 @@ class PatcherTests(unittest.TestCase):
                     else:
                         self.assertTrue(after == before, 'R1 failed main must restore every input byte')
 
+    def test_worker_origin_inverse_repair_and_no_write_drift(self):
+        import ast
+        with tempfile.TemporaryDirectory() as d:
+            paths = self.copy_pinned(Path(d))
+            names = self.module_paths(paths)
+            with patch.object(patcher, '_module_path', names.__getitem__):
+                self.assertEqual(patcher.main(), 0)
+                expected = {p: p.read_bytes() for p in names.values()}
+                helper = paths[2]
+                text = helper.read_text()
+                node = patcher._admission_owner(text, 'interruptible_api_call')
+                workers = [n for n in node.body if isinstance(n, ast.FunctionDef) and n.name == '_call']
+                self.assertEqual(len(workers), 1)
+                self.assertIsInstance(workers[0].body[0], ast.Try)
+                self.assertEqual(workers[0].body[0].body[0].value.func.id, 'check_worker_origin')
+                for old, new in patcher.WORKER_ORIGIN:
+                    helper.write_text(patcher._b3e_replace(text, 'interruptible_api_call', ((old, new),), inverse=True))
+                    self.assertEqual(patcher.main(), 0)
+                    self.assertEqual(helper.read_text(), text)
+                helper.write_text(text.replace('check_worker_origin(_worker_origin, agent)', 'check_worker_origin(None, agent)', 1))
+                before = {p: p.read_bytes() for p in names.values()}
+                with patch.object(Path, 'write_text', side_effect=AssertionError('drift wrote')):
+                    self.assertEqual(patcher.main(), 1)
+                self.assertEqual({p: p.read_bytes() for p in names.values()}, before)
+                helper.write_bytes(expected[helper])
+                self.assertEqual(patcher.main(), 0)
+                self.assertEqual({p: p.read_bytes() for p in names.values()}, expected)
+
     def test_preparation_and_main_commit_exact_candidates(self):
         self.assertTrue(callable(getattr(patcher, 'prepare_files', None)), 'pure preparation boundary required')
         for state in ('pristine', 'crowsnest', 'b3d'):
