@@ -191,6 +191,26 @@ guest-facing receptionist.
 EOF
   chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
   chmod 640 "$HERMES_HOME/SOUL.md" 2>/dev/null || true
+
+  # Force bot @mention hearing every boot (CoS / Deckhand wake Sea Dog).
+  # Laptop write-env-files does not emit hermes-seadog.env; a host env regen
+  # has historically dropped DISCORD_ALLOW_BOTS and deafened bot @mentions.
+  # Pin here like Skipper's wake-channel pin so CoS approved_job keeps working.
+  if [ -f "$HERMES_HOME/.env" ]; then
+    _wh_seadog_env_set() {
+      _k="$1"; _v="$2"
+      if grep -q "^${_k}=" "$HERMES_HOME/.env" 2>/dev/null; then
+        sed -i "s|^${_k}=.*|${_k}=${_v}|" "$HERMES_HOME/.env"
+      else
+        printf '%s=%s\n' "$_k" "$_v" >> "$HERMES_HOME/.env"
+      fi
+    }
+    _wh_seadog_env_set DISCORD_ALLOW_BOTS mentions
+  else
+    printf 'DISCORD_ALLOW_BOTS=mentions\n' > "$HERMES_HOME/.env"
+    chown hermes:hermes "$HERMES_HOME/.env" 2>/dev/null || true
+    chmod 600 "$HERMES_HOME/.env" 2>/dev/null || true
+  fi
 fi
 
 if [ "$HERMES_ROLE" = "deckhand" ]; then
@@ -275,6 +295,23 @@ EOF
   chown -R hermes:hermes "$HERMES_HOME/workspace" 2>/dev/null || true
   chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
   chmod 640 "$HERMES_HOME/config.yaml" 2>/dev/null || true
+
+  # Same bot-mention hearing pin as Seadog — Deckhand also wakes on peer @me.
+  if [ -f "$HERMES_HOME/.env" ]; then
+    _wh_deckhand_env_set() {
+      _k="$1"; _v="$2"
+      if grep -q "^${_k}=" "$HERMES_HOME/.env" 2>/dev/null; then
+        sed -i "s|^${_k}=.*|${_k}=${_v}|" "$HERMES_HOME/.env"
+      else
+        printf '%s=%s\n' "$_k" "$_v" >> "$HERMES_HOME/.env"
+      fi
+    }
+    _wh_deckhand_env_set DISCORD_ALLOW_BOTS mentions
+  else
+    printf 'DISCORD_ALLOW_BOTS=mentions\n' > "$HERMES_HOME/.env"
+    chown hermes:hermes "$HERMES_HOME/.env" 2>/dev/null || true
+    chmod 600 "$HERMES_HOME/.env" 2>/dev/null || true
+  fi
 fi
 
 # Deterministic outbound alias->mention rewrite (seadog + deckhand only).
@@ -371,6 +408,11 @@ _WH_AGENTS = {
 _WH_ROLE = (_os.environ.get("HERMES_ROLE", "") or "").strip().lower()
 _WH_MINE = _WH_AGENTS.get(_WH_ROLE, set())
 _WH_ALL_AGENTS = set().union(*_WH_AGENTS.values()) if _WH_AGENTS else set()
+# Pin bot-mention admission for A2A peers. Docker env_file / laptop regen can
+# drop DISCORD_ALLOW_BOTS; force it here so CoS/Deckhand @mentions are never
+# Discord-deaf even when /etc/hermes-seadog.env omitted the flag.
+if _WH_ROLE in ("seadog", "deckhand"):
+    _os.environ["DISCORD_ALLOW_BOTS"] = "mentions"
 # Per-bot policy (env WH_REQUIRE_MENTION): true => answer a human only when
 # explicitly tagged (Sea Dog); false/unset => read everything except messages
 # aimed only at the OTHER agent (Deckhand).
@@ -395,6 +437,19 @@ def _wh_should_skip_human(message):
     return bool(_addr) and not _me      # read-all: skip only if aimed at the other
 
 
+def _wh_message_mentions_me(message):
+    """True when a peer bot (or human) @mentions this agent's user/role id."""
+    if not _WH_MINE:
+        return False
+    for _u in getattr(message, "mentions", []) or []:
+        if getattr(_u, "id", None) in _WH_MINE:
+            return True
+    for _r in getattr(message, "role_mentions", []) or []:
+        if getattr(_r, "id", None) in _WH_MINE:
+            return True
+    return False
+
+
 def _wh_make_hm(_orig):
     async def _hm(self, message, role_authorized=False):
         try:
@@ -408,10 +463,17 @@ def _wh_make_hm(_orig):
                     if _wh_should_skip_human(message):
                         return                           # not for me (policy/routing)
                 else:
-                    _n = _wh_hops.get(_ch, 0) + 1        # peer-bot hop cap
-                    _wh_hops[_ch] = _n
-                    if _n > _WH_MAX_HOPS:
-                        return
+                    # Explicit @me from a peer bot (CoS approved_job, Deckhand
+                    # handoff) is a new job wake — reset hop-cap so CoS's
+                    # reset/approve/approved_job burst never deafens us after
+                    # a done. Unmentioned peer-bot chatter still increments.
+                    if _wh_message_mentions_me(message):
+                        _wh_hops[_ch] = 0
+                    else:
+                        _n = _wh_hops.get(_ch, 0) + 1    # peer-bot hop cap
+                        _wh_hops[_ch] = _n
+                        if _n > _WH_MAX_HOPS:
+                            return
         except Exception:
             pass
         return await _orig(self, message, role_authorized)
