@@ -74,6 +74,80 @@ class FallbackAbortTests(unittest.TestCase):
         finally:
             self.agent.thinking_callback = previous
 
+    def test_late_worker_abort_at_outer_eval_settlement_boundary(self):
+        from openai.resources.chat.completions import Completions
+        from wolfhouse import luna_personality_live_eval as live
+        for before_deadline in (True, False):
+            with self.subTest(before_deadline=before_deadline):
+                iso.install_isolation_runtime(runner=self.runner)
+                entered, release, returned, settling = (threading.Event() for _ in range(4))
+                workers, controller_results, captures = [], [], []
+                cause = iso.IsolationAbort("provider_lifetime_revoked")
+                cause.__cause__ = ValueError("synthetic cause")
+                def create(*args, **kwargs):
+                    workers.append(threading.current_thread())
+                    entered.set()
+                    if not release.wait(5):
+                        raise AssertionError("worker release missing")
+                    raise cause
+                def interrupt():
+                    if entered.wait(2):
+                        self.agent._interrupt_requested = True
+                    if before_deadline and returned.wait(2) and settling.wait(2):
+                        release.set()
+                original_settle = iso.settle_isolated_work
+                def settle(cap):
+                    settling.set()
+                    return original_settle(cap, timeout_s=2 if before_deadline else 0)
+                async def invoke(message, cap, meta):
+                    captures.append(cap)
+                    cap.telemetry_producer_suppressed = 7
+                    try:
+                        return helper.interruptible_api_call(self.agent,
+                            {"model": self.agent.model, "messages": []})
+                    except InterruptedError as exc:
+                        controller_results.append(exc)
+                        raise
+                    finally:
+                        returned.set()
+                interrupter = threading.Thread(target=interrupt)
+                self.agent._interrupt_requested = False
+                interrupter.start()
+                try:
+                    with mock.patch.object(Completions, "create", create), mock.patch.object(live, "settle_isolated_work", settle):
+                        try:
+                            asyncio.run(live.run_isolated_personality_eval(
+                                case_id="warmth-greeting-en", personality_id="sunny", serving_preflight=False,
+                                fetch_setting=lambda slug: {"personality_id": "sunny"}, invoke_turn=invoke))
+                        except Exception as exc:
+                            failure = exc
+                        else:
+                            self.fail("cancelled eval became successful")
+                    self.assertEqual(len(controller_results), 1)
+                    self.assertIsInstance(controller_results[0], InterruptedError)
+                    if before_deadline:
+                        self.assertIs(failure, cause)
+                        self.assertEqual(failure.counters["telemetry_producer_suppressed"], 7)
+                    else:
+                        self.assertIsInstance(failure, iso.IsolationAbort)
+                        self.assertEqual(failure.reason, "provider_work_unsettled")
+                        self.assertEqual(failure.counters["counter_snapshot_state"], "partial")
+                        snapshot = dict(failure.counters)
+                    release.set()
+                    for worker in workers:
+                        worker.join(2)
+                        self.assertFalse(worker.is_alive())
+                    if not before_deadline:
+                        self.assertEqual(failure.counters, snapshot)
+                        self.assertIsNot(failure, cause)
+                finally:
+                    release.set()
+                    interrupter.join(2)
+                    for worker in workers:
+                        worker.join(2)
+                    self.agent._interrupt_requested = False
+                    iso.reset_isolation_runtime_for_tests()
+
     def test_fallback_precedes_all_resource_and_state_access(self):
         class HostileAgent:
             def __getattribute__(self, name):
