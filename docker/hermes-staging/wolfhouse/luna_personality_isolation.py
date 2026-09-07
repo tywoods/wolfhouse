@@ -209,6 +209,7 @@ class IsolatedTurnCapture:
     final_handler_text: Optional[str] = None
     in_flight_threads: List[Any] = field(default_factory=list)
     provider_work_settled: bool = False
+    _worker_abort: Any = field(default=None, init=False, repr=False, compare=False)
     _provider_revoked: bool = field(default=False, init=False, repr=False, compare=False)
     _provider_operations: int = field(default=0, init=False, repr=False, compare=False)
     _provider_lifetime: Any = field(default_factory=threading.Condition, init=False, repr=False, compare=False)
@@ -1767,6 +1768,16 @@ def _isolated_provider_operation(cap: Optional[IsolatedTurnCapture]):
                 cap._provider_lifetime.notify_all()
 
 
+def retain_worker_abort(exc: IsolationAbort) -> None:
+    """First canonical worker failure wins; no payload or parallel registry."""
+    cap = _ISOLATED.get()
+    if cap is not None and isinstance(exc, IsolationAbort):
+        with cap._provider_lifetime:
+            if cap._worker_abort is None:
+                cap._worker_abort = exc
+            cap._provider_lifetime.notify_all()
+
+
 def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 2.0) -> None:
     """Revoke before draining admitted operations/threads under one deadline.
 
@@ -1797,6 +1808,10 @@ def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 
         )
     if unsettled:
         raise IsolationAbort("provider_work_unsettled")
+    with cap._provider_lifetime:
+        failure = cap._worker_abort
+    if failure is not None:
+        raise failure
 
 
 def _prompt_blob_from_kwargs(api_kwargs: Any) -> str:

@@ -304,8 +304,51 @@ def _b3e_replace(text, owner, changes, inverse=False):
     return ''.join(lines[:node.lineno - 1]) + body + ''.join(lines[node.end_lineno:])
 
 
+B4_HELPER = (
+    ('try_activate_fallback', ((
+        '    if reason in {FailoverReason.rate_limit, FailoverReason.billing}:\n',
+        '    from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
+        '    if current_isolated_turn() is not None:\n'
+        '        raise IsolationAbort("isolated_fallback_denied")\n'
+        '    if reason in {FailoverReason.rate_limit, FailoverReason.billing}:\n',
+    ),)),
+    ('interruptible_api_call', ((
+        '        except Exception as e:\n',
+        '        except Exception as e:\n'
+        '            from wolfhouse.luna_personality_isolation import IsolationAbort, retain_worker_abort\n'
+        '            if isinstance(e, IsolationAbort):\n'
+        '                result["error"] = e\n'
+        '                retain_worker_abort(e)\n'
+        '                return\n',
+    ),)),
+)
+B4_CATCH = ((
+    '            except Exception as api_error:\n',
+    '            except Exception as api_error:\n'
+    '                from wolfhouse.luna_personality_isolation import IsolationAbort\n'
+    '                if isinstance(api_error, IsolationAbort):\n'
+    '                    raise\n',
+),)
+
+
+def patch_conversation_abort(text):
+    import hashlib
+    marked = B4_CATCH[0][1] in text
+    original = _b3e_replace(text, 'run_conversation', B4_CATCH, inverse=True) if marked else text
+    if hashlib.sha256(original.encode('utf-8')).hexdigest() != '3e89d9bb00d0b375b94a947600dd15934b300119bc1d56f2b04bdf59db56341b':
+        raise RuntimeError('B4 conversation source fingerprint drift')
+    return _b3e_replace(original, 'run_conversation', B4_CATCH)
+
+
 def patch_codex_cancellation(candidates, paths):
     import hashlib
+    helper = paths[2]
+    b4_marked = [changes[0][1] in candidates[helper] for owner, changes in B4_HELPER]
+    if any(b4_marked) and not all(b4_marked):
+        raise RuntimeError('B4 mixed helper state')
+    if all(b4_marked):
+        for owner, changes in reversed(B4_HELPER):
+            candidates[helper] = _b3e_replace(candidates[helper], owner, changes, inverse=True)
     marked = ['request_cancelled=' in candidates[path] for path in paths]
     if any(marked) and not all(marked):
         raise RuntimeError("B3e mixed cancellation state")
@@ -321,6 +364,8 @@ def patch_codex_cancellation(candidates, paths):
         if all(marked) and patched != candidates[path]:
             raise RuntimeError("B3e noncanonical cancellation state")
         candidates[path] = patched
+    for owner, changes in B4_HELPER:
+        candidates[helper] = _b3e_replace(candidates[helper], owner, changes)
 
 
 def main():
@@ -329,9 +374,14 @@ def main():
         helper_path = _module_path("agent.chat_completion_helpers")
         runtime_path = _module_path("agent.codex_runtime")
         run_agent_path = _module_path("run_agent")
-        paths = (runtime_path, helper_path, run_agent_path)
+        conversation_path = _module_path("agent.conversation_loop")
+        paths = (runtime_path, helper_path, run_agent_path, conversation_path)
         originals = {path: path.read_bytes() for path in paths}
         source, candidates, result = prepare_files(run_agent_path, runtime_path, helper_path)
+        source[conversation_path] = originals[conversation_path].decode('utf-8')
+        if (B4_CATCH[0][1] in source[conversation_path]) != (B4_HELPER[0][1][0][1] in source[helper_path]):
+            raise RuntimeError('B4 mixed conversation/helper state')
+        candidates[conversation_path] = patch_conversation_abort(source[conversation_path])
         patch_codex_cancellation(candidates, (run_agent_path, runtime_path, helper_path))
         for path in paths:
             compile(candidates[path], str(path), "exec")
