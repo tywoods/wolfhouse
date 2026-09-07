@@ -758,6 +758,7 @@ async function main() {
           !!(sep1Paint && sep1Paint.ok && sep1Paint.isStart),
           JSON.stringify(sep1Paint)
         );
+        await page.screenshot({ path: path.join(shotDir, '03a-sep1-start-highlight.png'), fullPage: false }).catch(() => {});
         ok(
           'Sep 1 first click issues no summary request yet',
           requests.length === reqBeforeSep,
@@ -784,6 +785,7 @@ async function main() {
           looksLocalizedCustomRange(sepLabel, '2026-09-01', '2026-09-15'),
           sepLabel
         );
+        await page.screenshot({ path: path.join(shotDir, '03-sep1-range-applied.png'), fullPage: false }).catch(() => {});
         // Spot-check Sep 7–15 still selectable as start of a fresh range
         await page.locator('#admin-finance-body [data-finance-gran="month"]').click().catch(() => {});
         await page.waitForSelector('#admin-finance-body [data-finance-gran="month"].is-on', { timeout: 8000 }).catch(() => {});
@@ -792,7 +794,16 @@ async function main() {
         ok('Sep7 spot: on 2026-09', await ensureCalendarYm(page, '2026-09'));
         const reqBeforeSep7 = requests.length;
         await clickDay(page, '2026-09-07');
-        await sleep(40);
+        await sleep(80);
+        const sep7Paint = await page.evaluate(() => {
+          const btn = document.querySelector('#pfb-custom-range-pop [data-pfb-day="2026-09-07"]');
+          return {
+            ok: !!btn,
+            isStart: !!(btn && (btn.classList.contains('is-start') || btn.classList.contains('is-selected-start'))),
+          };
+        });
+        ok('Sep 7 highlights as start (spot-check)', !!(sep7Paint && sep7Paint.isStart), JSON.stringify(sep7Paint));
+        await page.screenshot({ path: path.join(shotDir, '04-sep7-start-selected.png'), fullPage: false }).catch(() => {});
         await clickDay(page, '2026-09-15');
         await page
           .waitForFunction(
@@ -807,7 +818,21 @@ async function main() {
           !!sep7Reqs.find((r) => isCompleteCustom(r.query, '2026-09-07', '2026-09-15')),
           sep7Reqs.map((r) => r.url).join(' | ')
         );
-        await page.screenshot({ path: path.join(shotDir, '03-sep1-range-applied.png'), fullPage: false }).catch(() => {});
+        // Also capture Sep 1 mid-selection with calendar still open (reopen + click only start)
+        await page.locator('#pfb-custom-range-trigger, #admin-finance-body [data-finance-nav="open-custom-range"]').first().click();
+        if ((await waitCalendar(page, 2500)).ok) {
+          ok('reopen for Sep1 mid-select shot', await ensureCalendarYm(page, '2026-09'));
+          await page.locator('#pfb-custom-range-pop [data-pfb-cal="clear"]').click().catch(() => {});
+          await sleep(40);
+          await clickDay(page, '2026-09-01');
+          await sleep(80);
+          await page.screenshot({ path: path.join(shotDir, '05-sep1-start-selected.png'), fullPage: false }).catch(() => {});
+          const mid = await page.evaluate(() => {
+            const btn = document.querySelector('#pfb-custom-range-pop [data-pfb-day="2026-09-01"]');
+            return !!(btn && (btn.classList.contains('is-start') || btn.classList.contains('is-selected-start')));
+          });
+          ok('Sep 1 mid-select screenshot state is start', mid);
+        }
       }
 
       // ── Runtime: Finance must not call schedule past-blocker; helper may still exist for Create ──
