@@ -61,13 +61,40 @@ function schedulePortalQuoteFailureMessage(result) {
       || 'Some dates have no seasonal price. Stays including these nights cannot be quoted.';
   }
   if (rc === 'course_full' || rc === 'course_capacity_not_configured') {
-    var seats = body.seats_remaining != null ? Number(body.seats_remaining) : (body.capacity != null ? Number(body.capacity) : 24);
-    if (!Number.isFinite(seats) || seats < 0) seats = 24;
     var es = false;
     try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+    if (rc === 'course_capacity_not_configured') {
+      return portalT('schedule.create.courseCapacityNotConfigured')
+        || (es
+          ? 'La capacidad de este curso no está configurada.'
+          : 'Course capacity is not configured.');
+    }
+    var openSpots = body.open_spots != null ? Number(body.open_spots)
+      : (body.seats_remaining != null ? Number(body.seats_remaining) : null);
+    var needed = body.requested_quantity != null ? Number(body.requested_quantity) : null;
+    // Never invent a leftover number (old path defaulted to 24 and looked like total capacity).
+    if (!Number.isFinite(openSpots) || openSpots < 0) {
+      return portalT('schedule.create.courseNotEnoughOpenSpots')
+        || (es
+          ? 'No hay suficientes plazas abiertas en este curso.'
+          : 'Not enough open spots on this course.');
+    }
+    if (openSpots === 0) {
+      return portalT('schedule.create.courseFullOpenSpots')
+        || (es
+          ? 'Este curso está completo — 0 plazas abiertas.'
+          : 'This course is full — 0 open spots.');
+    }
+    if (Number.isFinite(needed) && needed > openSpots) {
+      return es
+        ? ('Solo hay ' + String(openSpots) + ' plazas abiertas en este curso (hacen falta '
+          + String(needed) + ').')
+        : ('Only ' + String(openSpots) + ' open spots left on this course (party needs '
+          + String(needed) + ').');
+    }
     return es
-      ? ('Este curso solo tiene ' + String(seats) + ' plazas.')
-      : ('This course only has ' + String(seats) + ' seats.');
+      ? ('Solo hay ' + String(openSpots) + ' plazas abiertas en este curso.')
+      : ('Only ' + String(openSpots) + ' open spots left on this course.');
   }
   if (rc === 'explicit_past_date') {
     return portalT('schedule.create.quotePastDate')
@@ -2847,6 +2874,14 @@ function submitScheduleManualBooking() {
       }
       if (d.reason_code === 'idempotency_key_intent_conflict' || d.error === 'idempotency_key_intent_conflict') {
         throw new Error(portalT('schedule.create.idempotencyConflict') || 'This create request conflicts with a previous booking. Close and start a new create.');
+      }
+      if (d.reason_code === 'course_full' || d.error === 'course_full'
+        || d.reason_code === 'course_capacity_not_configured'
+        || d.error === 'course_capacity_not_configured') {
+        var capMsg = typeof schedulePortalQuoteFailureMessage === 'function'
+          ? schedulePortalQuoteFailureMessage({ ok: false, body: d, error: d.error || d.reason_code })
+          : null;
+        if (capMsg) throw new Error(capMsg);
       }
       var httpErr = d.error || d.message || ('HTTP ' + res.status);
       if (res.status === 503) {

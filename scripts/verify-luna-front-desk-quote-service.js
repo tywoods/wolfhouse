@@ -723,6 +723,11 @@ async function run() {
   const qLuna = await executeSunsetQuote(makePg({ existingCourseSeats: { [`${PACK_ID}|${SATURDAY}`]: 2 } }), lunaBuilt.command, { adminCfg: cfg });
   assert('manual course_full', qManual.ok === false && (qManual.body.reason === 'course_full' || qManual.body.error === 'course_full'));
   assert('luna course_full', qLuna.ok === false && (qLuna.body.reason === 'course_full' || qLuna.body.error === 'course_full'));
+  // Quote must preserve open spots — never strip seats_remaining (portal used to invent "24 seats").
+  assert('manual quote keeps seats_remaining 0', qManual.body && qManual.body.seats_remaining === 0, JSON.stringify(qManual.body));
+  assert('manual quote keeps open_spots 0', qManual.body && qManual.body.open_spots === 0, JSON.stringify(qManual.body));
+  assert('luna quote keeps seats_remaining 0', qLuna.body && qLuna.body.seats_remaining === 0, JSON.stringify(qLuna.body));
+  assert('luna quote keeps open_spots 0', qLuna.body && qLuna.body.open_spots === 0, JSON.stringify(qLuna.body));
 
   console.log('\n[I] Missing price fails closed');
   const badCfg = {
