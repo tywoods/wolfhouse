@@ -32,12 +32,14 @@ def canonical_owner():
 
 
 class WorkerOriginTests(unittest.TestCase):
-    def retain(self, cap):
+    def retain(self, cap, shared_agent=None):
         effects = []
         client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: effects.append('dispatch'))))
         agent = SimpleNamespace(api_mode='chat_completions', model='fixture', provider='openai',
                                 _create_request_openai_client=lambda **kw: (effects.append('factory'), client)[1],
                                 _close_request_openai_client=lambda *a, **kw: effects.append('close'))
+        if shared_agent is not None:
+            agent = shared_agent
         retained = {}
         class Escaped(Exception):
             pass
@@ -235,8 +237,15 @@ class WorkerOriginTests(unittest.TestCase):
             iso.settle_isolated_work(old)
             token = iso.enter_isolated_turn(nxt)
             try:
+                agent._interrupt_requested = True
+                following, next_effects, next_agent = self.retain(nxt, agent)
+                self.assertIs(next_agent, agent)
+                self.assertIs(following['agent'], retained['agent'])
+                next_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: next_effects.append('dispatch'))))
+                agent._create_request_openai_client = lambda **kw: (next_effects.append('factory'), next_client)[1]
+                owner_tid = worker.ident
+                agent._close_request_openai_client = lambda *a, **kw: (effects if threading.get_ident() == owner_tid else next_effects).append('close')
                 agent._interrupt_requested = False
-                following, next_effects, _ = self.retain(nxt)
                 following['_call']()
                 self.assertEqual(next_effects, ['factory', 'dispatch', 'close'])
                 with self.assertRaises(iso.IsolationAbort):
@@ -252,6 +261,97 @@ class WorkerOriginTests(unittest.TestCase):
         self.assertIs(old._worker_abort, retained['result']['error'])
         self.assertIsInstance(old._worker_abort, iso.IsolationAbort)
         self.assertIsNone(nxt._worker_abort)
+
+    def test_registration_lock_serializes_returned_client_and_cancel(self):
+        retained, effects, agent = self.retain(None)
+        progress = threading.Event()
+        mutex = threading.Lock()
+        class ObservedLock:
+            def __enter__(self):
+                progress.set()
+                mutex.acquire()
+            def __exit__(self, *args):
+                mutex.release()
+        class Holder(dict):
+            def __setitem__(self, key, value):
+                super().__setitem__(key, value)
+                progress.set()
+        holder = Holder(retained['request_client_holder'])
+        for fn in (retained['_set_request_client'], retained['_close_request_client_once'], retained['admit_attempt']):
+            cells = dict(zip(fn.__code__.co_freevars, fn.__closure__))
+            if 'request_client_lock' in cells:
+                cells['request_client_lock'].cell_contents = ObservedLock()
+            if 'request_client_holder' in cells:
+                cells['request_client_holder'].cell_contents = holder
+        closed, errors = [], []
+        client = object()
+        agent._close_request_openai_client = lambda obj, **kw: closed.append((obj, threading.get_ident()))
+        def register():
+            try:
+                retained['_set_request_client'](client)
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                retained['_close_request_client_once']('complete')
+        mutex.acquire()
+        worker = threading.Thread(target=register)
+        worker.start()
+        try:
+            self.assertTrue(progress.wait(3))
+            self.assertIsNone(holder['client'], 'registration published while cancellation owns lock')
+            retained['_request_cancelled']['value'] = True
+        finally:
+            mutex.release()
+            worker.join(3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], InterruptedError)
+        self.assertEqual(closed, [(client, worker.ident)])
+
+    def test_request_local_cancel_survives_shared_interrupt_clear(self):
+        retained, effects, agent = self.retain(None)
+        retained['_request_cancelled']['value'] = True
+        agent._interrupt_requested = False
+        with self.assertRaises(InterruptedError):
+            retained['admit_attempt']()
+        self.assertEqual(effects, [])
+
+    def test_required_targeted_omissions_are_behavioral(self):
+        import types
+        from unittest.mock import patch
+        fn = canonical_owner()
+        saved = fn.__code__
+        for owner, mutation, test in (
+            ('_set_request_client', 'lock', 'test_registration_lock_serializes_returned_client_and_cancel'),
+            ('request_cancelled', 'shared', 'test_request_local_cancel_survives_shared_interrupt_clear'),
+            ('admit_attempt', 'origin', 'test_old_worker_overlaps_next_without_adopting_next'),
+        ):
+            with self.subTest(owner=owner):
+                tree = ast.parse(fn._source)
+                target = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == owner)
+                if mutation == 'lock':
+                    self.assertIsInstance(target.body[0], ast.With)
+                    target.body[0:1] = target.body[0].body
+                elif mutation == 'shared':
+                    target.body = ast.parse('return agent._interrupt_requested').body
+                else:
+                    self.assertEqual(ast.unparse(target.body[0]), 'check_worker_origin(_worker_origin, agent)')
+                    target.body.pop(0)
+                    self.assertEqual(ast.unparse(tree).count('check_worker_origin(_worker_origin, agent)'), 1)
+                compiled = compile(ast.fix_missing_locations(tree), 'targeted-origin-mutant', 'exec')
+                fn.__code__ = next(c for c in compiled.co_consts if isinstance(c, types.CodeType) and c.co_name == fn.__name__)
+                try:
+                    with patch(__name__ + '.canonical_owner', return_value=fn):
+                        result = unittest.TestResult()
+                        WorkerOriginTests(test).run(result)
+                    self.assertEqual(result.errors, [], 'fixture errors are not causal kills')
+                    self.assertGreater(len(result.failures), 0, owner)
+                finally:
+                    fn.__code__ = saved
+                self.assertIs(fn.__code__, saved)
+        self.test_registration_lock_serializes_returned_client_and_cancel()
+        self.test_request_local_cancel_survives_shared_interrupt_clear()
+        self.test_old_worker_overlaps_next_without_adopting_next()
 
     def test_ordinary_retained_worker_preserves_factory_dispatch_close(self):
         retained, effects, agent = self.retain(None)
