@@ -395,6 +395,56 @@ def patch_constructor_admission(source, candidates, paths):
         raise RuntimeError('PRC mixed constructor/resolver state')
 
 
+# Whole-source pins cover direct entries as well as retained credential pools.
+PRD = (
+    ('hermes_cli.auth', '161c3f751553a270e7db4052161f9e733332869ad654a848a0e1b984eb32c9da',
+     ('resolve_codex_runtime_credentials', '_read_codex_tokens', '_auth_store_lock',
+      '_load_auth_store', '_save_auth_store', '_sync_codex_pool_entries', '_save_codex_tokens',
+      '_recover_codex_tokens_from_cli', 'refresh_codex_oauth_pure', '_refresh_codex_auth_tokens',
+      '_import_codex_cli_tokens', '_pool_codex_access_token', '_codex_pool_rate_limit_status')),
+    ('agent.credential_pool', '0c412fb49cdf51e9023f8f515d4e029380e3e23615c7e4d3de55dd4b007d5458',
+     ('load_pool', 'select', '_select_unlocked', '_available_entries', '_refresh_entry',
+      'mark_exhausted_and_rotate', 'try_refresh_current', '_try_refresh_current_unlocked', '_persist')),
+)
+
+
+def patch_auth_admission(source, candidates, paths):
+    import ast
+    import hashlib
+    for path, (_, expected, owners) in zip(paths, PRD):
+        text = source[path]
+        for owner in reversed(owners):
+            nodes = [n for n in ast.walk(ast.parse(text)) if isinstance(n, ast.FunctionDef) and n.name == owner]
+            if len(nodes) != 1:
+                raise RuntimeError('PRD lexical owner drift')
+            node = nodes[0]
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+                first = node.body[1]
+            indent = ' ' * first.col_offset
+            guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
+                     + indent + 'if current_isolated_turn() is not None:\n'
+                     + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
+            lines = text.splitlines(keepends=True)
+            start = first.lineno - 1
+            if ''.join(lines[start:start + 3]) == guard:
+                text = ''.join(lines[:start] + lines[start + 3:])
+        if hashlib.sha256(text.encode('utf-8')).hexdigest() != expected:
+            raise RuntimeError('PRD auth/pool source fingerprint drift')
+        for owner in owners:
+            node = next(n for n in ast.walk(ast.parse(text)) if isinstance(n, ast.FunctionDef) and n.name == owner)
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+                first = node.body[1]
+            indent = ' ' * first.col_offset
+            anchor = text.splitlines(keepends=True)[first.lineno - 1]
+            guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
+                     + indent + 'if current_isolated_turn() is not None:\n'
+                     + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
+            text = _b3e_replace(text, owner, ((anchor, guard + anchor),))
+        candidates[path] = text
+
+
 def main():
     originals = {}
     try:
@@ -403,11 +453,13 @@ def main():
         run_agent_path = _module_path("run_agent")
         conversation_path = _module_path("agent.conversation_loop")
         admission_paths = tuple(_module_path(name) for name, *_ in PRC)
-        paths = (runtime_path, helper_path, run_agent_path, conversation_path, *admission_paths)
+        auth_paths = tuple(_module_path(name) for name, *_ in PRD)
+        paths = (runtime_path, helper_path, run_agent_path, conversation_path, *admission_paths, *auth_paths)
         originals = {path: path.read_bytes() for path in paths}
         source, candidates, result = prepare_files(run_agent_path, runtime_path, helper_path)
-        source.update({path: originals[path].decode('utf-8') for path in admission_paths})
+        source.update({path: originals[path].decode('utf-8') for path in (*admission_paths, *auth_paths)})
         patch_constructor_admission(source, candidates, admission_paths)
+        patch_auth_admission(source, candidates, auth_paths)
         source[conversation_path] = originals[conversation_path].decode('utf-8')
         if (B4_CATCH[0][1] in source[conversation_path]) != (B4_HELPER[0][1][0][1] in source[helper_path]):
             raise RuntimeError('B4 mixed conversation/helper state')
