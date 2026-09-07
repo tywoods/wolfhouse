@@ -179,5 +179,147 @@ class StreamingOriginTests(unittest.TestCase):
         self.test_matrix_and_first_cause_settlement()
 
 
+class CanonicalFactoryStreamingTests(unittest.TestCase):
+    retain = StreamingOriginTests.retain
+    invoke = StreamingOriginTests.invoke
+
+    def setUp(self):
+        from wolfhouse.test_luna_personality_live_eval import RequestIdentityBoundaryTests
+        RequestIdentityBoundaryTests.setUp(self)
+        self.effects = []
+        agent = self.agent
+        agent.base_url = 'https://api.githubcopilot.com'
+        agent._client_kwargs['base_url'] = agent.base_url
+        agent._client_kwargs.pop('http_client')
+        self.original_kwargs = dict(agent._client_kwargs)
+        lock = agent._openai_client_lock
+        def locked():
+            self.effects.append('lock')
+            return lock()
+        agent._openai_client_lock = locked
+        agent._copilot_headers_for_request = lambda **kw: (self.effects.append('headers'), {'vision': 'fixture'})[1]
+        agent._close_request_openai_client = lambda *a, **kw: self.effects.append(('close', threading.get_ident()))
+        agent._stream_diag_init = lambda: {}
+        for name in ('_touch_activity', '_capture_rate_limits', '_capture_credits',
+                     '_stream_diag_capture_response', '_check_openrouter_cache_status', '_fire_stream_delta'):
+            setattr(agent, name, lambda *a: None)
+        def sdk(**kwargs):
+            self.effects.append(('client', kwargs))
+            def create(**payload):
+                self.effects.append('SDK')
+                return [NS(choices=[NS(delta=NS(content='fixture', tool_calls=None), finish_reason='stop')])]
+            return NS(chat=NS(completions=NS(create=create)), is_closed=lambda: False)
+        self.ra.OpenAI = sdk
+
+    def test_real_factory_refusal_keyword_binding_forms_and_positive_config(self):
+        for form in ('class', 'bound', 'shadow'):
+            with self.subTest(form=form):
+                iso.reset_isolation_runtime_for_tests()
+                agent = self.agent
+                if form == 'shadow':
+                    agent._create_request_openai_client = types.MethodType(self.ra.AIAgent._create_request_openai_client, agent)
+                iso._wrap_openai_client_factory(self.ra.AIAgent if form == 'class' else agent)
+                old, nxt = capture(), capture('NEXT')
+                retained, _, same = self.retain(old, agent)
+                self.assertIs(same, agent)
+                for ambient in (None, nxt, False, {}, copy.copy(old)):
+                    before = list(self.effects)
+                    self.invoke(retained, ambient)
+                    self.assertEqual(self.effects, before, 'refusal entered lock/rebuild/header/client/SDK')
+                old._provider_revoked = True
+                self.invoke(retained, old)
+                self.assertEqual(self.effects, before)
+                token = iso.enter_isolated_turn(nxt)
+                try:
+                    with self.assertRaises(iso.IsolationAbort):
+                        agent._ensure_primary_openai_client(reason='direct-summary-or-codex')
+                    self.assertEqual(self.effects, before)
+                    fn = self.ra.AIAgent._create_request_openai_client if form == 'class' else agent._create_request_openai_client
+                    kwargs = dict(reason='keyword-positive', api_kwargs={'messages': [{'content': [{'type': 'image_url'}]}]})
+                    if form == 'class':
+                        kwargs['self'] = agent
+                    client = fn(**kwargs)
+                    self.assertIsNotNone(client)
+                finally:
+                    iso.exit_isolated_turn(token)
+                self.assertIn('headers', self.effects)
+                clients = [e[1] for e in self.effects if isinstance(e, tuple) and e[0] == 'client']
+                self.assertEqual(clients[-1]['max_retries'], 0)
+                self.assertEqual(agent._client_kwargs, self.original_kwargs)
+                newer, _, same = self.retain(nxt, agent)
+                normal, _, also_same = self.retain(None, agent)
+                self.assertIs(same, also_same)
+                self.invoke(newer, nxt)
+                self.invoke(normal, None)
+                self.assertEqual(newer['result']['response'].choices[0].message.content, 'fixture')
+                self.assertEqual(normal['result']['response'].choices[0].message.content, 'fixture')
+
+    def test_blocked_acquisition_revoked_return_owned_cleanup_no_sdk(self):
+        entered, release = threading.Event(), threading.Event()
+        edge, outcomes = self.ra.OpenAI, []
+        old, nxt = capture(), capture('NEXT')
+        retained, _, agent = self.retain(old, self.agent)
+        def sdk(**kwargs):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            return edge(**kwargs)
+        self.ra.OpenAI = sdk
+        def work():
+            try:
+                self.invoke(retained, old)
+            except BaseException as exc:
+                outcomes.append(exc)
+        worker = threading.Thread(target=work)
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(3))
+            with self.assertRaises(iso.IsolationAbort) as unsettled:
+                iso.settle_isolated_work(old, timeout_s=0.01)
+            self.assertEqual(unsettled.exception.reason, 'provider_work_unsettled')
+            self.ra.OpenAI = edge
+            newer, _, same = self.retain(nxt, agent)
+            self.assertIs(same, agent)
+            self.invoke(newer, nxt)
+            self.assertIsNone(nxt._worker_abort)
+        finally:
+            release.set()
+            worker.join(3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(outcomes, [])
+        self.assertEqual(self.effects.count('SDK'), 1, 'only NEXT may dispatch')
+        self.assertEqual(self.effects.count(('close', worker.ident)), 1)
+        self.assertIsNone(retained['request_client_holder']['client'])
+        cause = retained['result']['error']
+        self.assertIsInstance(cause, iso.IsolationAbort)
+        self.assertIs(old._worker_abort, cause)
+        with self.assertRaises(iso.IsolationAbort) as settled:
+            iso.settle_isolated_work(old)
+        self.assertIs(settled.exception, cause)
+
+    def test_factory_caller_authority_and_primary_independent(self):
+        old, nxt = capture(), capture('NEXT')
+        agent = self.agent
+        token = iso.enter_isolated_turn(nxt)
+        authority = iso._REQUEST_CALLER.set((old, agent))
+        try:
+            before = list(self.effects)
+            with self.assertRaises(iso.IsolationAbort):
+                agent._create_request_openai_client(reason='retained-authority')
+            self.assertEqual(self.effects, before)
+        finally:
+            iso._REQUEST_CALLER.reset(authority)
+            iso.exit_isolated_turn(token)
+        for mode in ('chat_completions', 'codex_responses'):
+            token = iso.enter_isolated_turn(old)
+            agent.api_mode = mode
+            try:
+                with self.assertRaises(iso.IsolationAbort):
+                    self.ra.AIAgent._ensure_primary_openai_client(self=agent, reason='direct')
+                self.assertEqual(self.effects, before)
+            finally:
+                iso.exit_isolated_turn(token)
+        agent.api_mode = 'chat_completions'
+
+
 if __name__ == '__main__':
     unittest.main()
