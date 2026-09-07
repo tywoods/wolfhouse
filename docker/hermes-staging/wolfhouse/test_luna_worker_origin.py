@@ -27,6 +27,7 @@ def canonical_owner():
     node = next(n for n in ast.parse(text).body if isinstance(n, ast.FunctionDef) and n.name == 'interruptible_api_call')
     scope = {'threading': threading, 'logger': logging.getLogger(__name__)}
     exec(compile(ast.Module(body=[node], type_ignores=[]), 'canonical-worker-owner', 'exec'), scope)
+    scope['interruptible_api_call']._source = ast.unparse(node)
     return scope['interruptible_api_call']
 
 
@@ -86,6 +87,35 @@ class WorkerOriginTests(unittest.TestCase):
                     cap._provider_revoked = True
                     with self.assertRaises(iso.IsolationAbort):
                         child.run(retained['admit_attempt'])
+
+    def test_lexical_guard_and_cleanup_mutants(self):
+        import types
+        from unittest.mock import patch
+        fn = canonical_owner()
+        saved = fn.__code__
+        mutants = (
+            ('_worker_origin = current_isolated_turn()', '_worker_origin = None', 'test_retained_after_parent_reset_denies_before_factory'),
+            ('check_worker_origin(_worker_origin, agent)', 'check_worker_origin(current_isolated_turn(), agent)', 'test_retained_after_parent_reset_denies_before_factory'),
+            ('check_worker_origin(_worker_origin, agent)', 'None', 'test_origin_state_matrix_and_attempt_revalidation'),
+            ('if _request_cancelled[\'value\']:', 'if False:', 'test_blocked_factory_cancel_before_registration_preserves_owner_close'),
+            ('agent._abort_request_openai_client(request_client, reason=reason)', 'agent._close_request_openai_client(request_client, reason=reason)', 'test_stranger_abort_never_full_closes_and_owner_closes_once'),
+        )
+        for old, new, test in mutants:
+            with self.subTest(mutant=new):
+                self.assertIn(old, fn._source)
+                code = compile(fn._source.replace(old, new), 'canonical-worker-mutant', 'exec')
+                fn.__code__ = next(c for c in code.co_consts if isinstance(c, types.CodeType) and c.co_name == fn.__name__)
+                try:
+                    with patch(__name__ + '.canonical_owner', return_value=fn):
+                        result = unittest.TestResult()
+                        WorkerOriginTests(test).run(result)
+                    self.assertEqual(result.errors, [], 'fixture errors are not mutant kills')
+                    self.assertGreater(len(result.failures), 0)
+                finally:
+                    fn.__code__ = saved
+                self.assertIs(fn.__code__, saved)
+        self.test_retained_after_parent_reset_denies_before_factory()
+        self.test_stranger_abort_never_full_closes_and_owner_closes_once()
 
     def test_attempt_omission_restores_exact_code_identity(self):
         from unittest.mock import patch
@@ -171,6 +201,57 @@ class WorkerOriginTests(unittest.TestCase):
         self.assertEqual(closes, [worker.ident])
         retained['_close_request_client_once']('again')
         self.assertEqual(closes, [worker.ident])
+
+    def test_unconditional_denial_fails_ordinary_positive(self):
+        from unittest.mock import patch
+        def deny(*args):
+            raise iso.IsolationAbort('fixture_unconditional_denial')
+        with patch.object(iso, 'check_worker_origin', deny):
+            result = unittest.TestResult()
+            WorkerOriginTests('test_ordinary_retained_worker_preserves_factory_dispatch_close').run(result)
+            self.assertEqual(result.errors, [])
+            self.assertEqual(len(result.failures), 1)
+
+    def test_old_worker_overlaps_next_without_adopting_next(self):
+        from contextvars import copy_context
+        old = iso.IsolatedTurnCapture(case_id='old', personality_id='balanced', tenant_id='sunset')
+        nxt = iso.IsolatedTurnCapture(case_id='next', personality_id='balanced', tenant_id='sunset')
+        retained, effects, agent = self.retain(old)
+        entered, release = threading.Event(), threading.Event()
+        def dispatch(**kw):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            retained['admit_attempt']()
+            effects.append('retry-dispatch')
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=dispatch)))
+        agent._create_request_openai_client = lambda **kw: (effects.append('factory'), client)[1]
+        token = iso.enter_isolated_turn(old)
+        context = copy_context()
+        iso.exit_isolated_turn(token)
+        worker = threading.Thread(target=lambda: context.run(retained['_call']))
+        worker.start()
+        try:
+            self.assertTrue(entered.wait(3))
+            iso.settle_isolated_work(old)
+            token = iso.enter_isolated_turn(nxt)
+            try:
+                agent._interrupt_requested = False
+                following, next_effects, _ = self.retain(nxt)
+                following['_call']()
+                self.assertEqual(next_effects, ['factory', 'dispatch', 'close'])
+                with self.assertRaises(iso.IsolationAbort):
+                    retained['admit_attempt']()
+                self.assertIsNone(nxt._worker_abort)
+            finally:
+                iso.exit_isolated_turn(token)
+        finally:
+            release.set()
+            worker.join(3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(effects, ['factory', 'close'])
+        self.assertIs(old._worker_abort, retained['result']['error'])
+        self.assertIsInstance(old._worker_abort, iso.IsolationAbort)
+        self.assertIsNone(nxt._worker_abort)
 
     def test_ordinary_retained_worker_preserves_factory_dispatch_close(self):
         retained, effects, agent = self.retain(None)
