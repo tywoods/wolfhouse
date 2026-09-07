@@ -11,6 +11,7 @@ const {
 } = require('./sunset-school-locations');
 const {
   normalizeAccommodationRanges,
+  assertAccommodationRangesContiguous,
   STAFF_ACCOMMODATION_COMPONENT,
 } = require('./sunset-accommodation-price-resolver');
 
@@ -230,6 +231,22 @@ async function saveAccommodationConfig(client, {
         error: norm.error,
         reason_code: norm.reason_code || 'accommodation_ranges_invalid',
         overlap: norm.overlap || null,
+      },
+    };
+  }
+  // Fail closed on inter-season holes (exclusive month-end mistakes, etc.).
+  // Open calendar before the first / after the last range is allowed (off-season).
+  const contiguous = assertAccommodationRangesContiguous(norm.value);
+  if (!contiguous.ok) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        error: contiguous.error,
+        reason_code: contiguous.reason_code || 'accommodation_ranges_gap',
+        gaps: contiguous.gaps || null,
+        uncovered_nights: contiguous.uncovered_nights || null,
       },
     };
   }
