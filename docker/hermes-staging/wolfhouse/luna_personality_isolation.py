@@ -268,6 +268,24 @@ def current_isolated_turn() -> Optional[IsolatedTurnCapture]:
     return _ISOLATED.get()
 
 
+def check_worker_origin(origin: Any, agent: Any) -> None:
+    """A retained worker may neither adopt ambient isolation nor escape its origin."""
+    ambient = current_isolated_turn()
+    if origin is None and ambient is None:
+        return
+    if type(origin) is not IsolatedTurnCapture or ambient is not origin:
+        raise IsolationAbort("request_identity_changed")
+    with origin._provider_lifetime:
+        if origin._provider_revoked:
+            raise IsolationAbort("provider_work_revoked")
+        refuse_unsupported_backend(agent)
+        if origin._request_identity is not None:
+            binding = origin._request_identity
+            if type(binding) is not tuple or len(binding) != 4 or binding[1] is not agent:
+                raise IsolationAbort("request_identity_changed")
+            _check_request_identity(binding)
+
+
 def deny_telemetry_if_isolated() -> bool:
     """Deny producer admission; this scalar is not an external-effects count."""
     cap = current_isolated_turn()
@@ -1768,10 +1786,11 @@ def _isolated_provider_operation(cap: Optional[IsolatedTurnCapture]):
                 cap._provider_lifetime.notify_all()
 
 
-def retain_worker_abort(exc: IsolationAbort) -> None:
+def retain_worker_abort(exc: IsolationAbort, cap: Any = _ISOLATED) -> None:
     """First canonical worker failure wins; no payload or parallel registry."""
-    cap = _ISOLATED.get()
-    if cap is not None and isinstance(exc, IsolationAbort):
+    if cap is _ISOLATED:
+        cap = _ISOLATED.get()
+    if type(cap) is IsolatedTurnCapture and isinstance(exc, IsolationAbort):
         with cap._provider_lifetime:
             if cap._worker_abort is None:
                 cap._worker_abort = exc

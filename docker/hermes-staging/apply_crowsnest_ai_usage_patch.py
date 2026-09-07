@@ -340,9 +340,35 @@ def patch_conversation_abort(text):
     return _b3e_replace(original, 'run_conversation', B4_CATCH)
 
 
+WORKER_ORIGIN = (
+    ('                retain_worker_abort(e)\n',
+     '                retain_worker_abort(e, _worker_origin)\n'),
+    ('    result = {"response": None, "error": None}\n',
+     '    from wolfhouse.luna_personality_isolation import current_isolated_turn, check_worker_origin\n'
+     '    _worker_origin = current_isolated_turn()\n'
+     '    result = {"response": None, "error": None}\n'),
+    ('    def _call():\n        try:\n',
+     '    def _call():\n        try:\n            check_worker_origin(_worker_origin, agent)\n'),
+    ('    def admit_attempt():\n        with request_client_lock:\n',
+     '    def admit_attempt():\n        check_worker_origin(_worker_origin, agent)\n        with request_client_lock:\n'),
+)
+
+
+def patch_worker_origin(text, inverse=False):
+    # The whole-module B3/B4 inverse pins below validate surrounding ancestry.
+    # Independent whole-hunk omissions are repairable; relocated/drifted hunks refuse.
+    for old, new in reversed(WORKER_ORIGIN):
+        if new in text:
+            text = _b3e_replace(text, 'interruptible_api_call', ((old, new),), inverse=True)
+    if inverse:
+        return text
+    return _b3e_replace(text, 'interruptible_api_call', WORKER_ORIGIN)
+
+
 def patch_codex_cancellation(candidates, paths):
     import hashlib
     helper = paths[2]
+    candidates[helper] = patch_worker_origin(candidates[helper], inverse=True)
     b4_marked = [changes[0][1] in candidates[helper] for owner, changes in B4_HELPER]
     if any(b4_marked) and not all(b4_marked):
         raise RuntimeError('B4 mixed helper state')
@@ -366,6 +392,7 @@ def patch_codex_cancellation(candidates, paths):
         candidates[path] = patched
     for owner, changes in B4_HELPER:
         candidates[helper] = _b3e_replace(candidates[helper], owner, changes)
+    candidates[helper] = patch_worker_origin(candidates[helper])
 
 
 # PRC remains denial-only: direct canonical entries cannot bypass gateway/class guards.
