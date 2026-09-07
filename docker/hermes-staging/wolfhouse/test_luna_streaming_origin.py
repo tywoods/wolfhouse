@@ -10,6 +10,7 @@ import threading
 import time
 from types import SimpleNamespace as NS
 import types
+import uuid
 import unittest
 from unittest.mock import patch
 from wolfhouse import luna_personality_isolation as iso
@@ -22,7 +23,7 @@ def canonical_owner():
         raise unittest.SkipTest('pinned emitted helper not supplied')
     node = next(n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.FunctionDef)
                 and n.name == 'interruptible_streaming_api_call')
-    scope = dict(threading=threading, time=time, logger=logging.getLogger(__name__),
+    scope = dict(threading=threading, time=time, uuid=uuid, logger=logging.getLogger(__name__),
         get_provider_request_timeout=lambda *a: 10, SimpleNamespace=NS,
         env_float=lambda key, default: default, env_int=lambda key, default: default)
     exec(compile(ast.Module(body=[node], type_ignores=[]), 'canonical-streaming-owner', 'exec'), scope)
