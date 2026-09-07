@@ -2010,6 +2010,7 @@ def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 
         while cap._provider_operations and time.monotonic() < deadline:
             cap._provider_lifetime.wait(max(0.0, deadline - time.monotonic()))
         unsettled = bool(cap._provider_operations)
+        failure = cap._worker_abort
     for thread in list(cap.in_flight_threads or []):
         is_alive = getattr(thread, "is_alive", None)
         join = getattr(thread, "join", None)
@@ -2025,9 +2026,10 @@ def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 
             not unsettled and cap.responses_sdk_returned and not cap._responses_unverified
         )
     if unsettled:
+        if failure is not None:
+            failure.cleanup_error = "provider_work_unsettled"
+            raise failure
         raise IsolationAbort("provider_work_unsettled")
-    with cap._provider_lifetime:
-        failure = cap._worker_abort
     if failure is not None:
         raise failure
 
