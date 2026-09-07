@@ -408,6 +408,9 @@ PRD = (
     ('agent.auxiliary_client', '317d71beee41a235171d25c441c46587d64246c1ca6efa9c9aee8c5c53475f3c',
      ('resolve_provider_client', 'resolve_vision_provider_client', '_refresh_provider_credentials',
       '_recover_provider_pool', '_select_pool_entry', '_peek_pool_entry')),
+    ('agent.model_metadata', '44e28ae9a1ca9cbc147827f509203de1e5351e089994a04e1a63d3c82b676431',
+     ('get_model_context_length', '_fetch_codex_oauth_context_lengths',
+      'save_context_length', '_save_model_metadata_disk_cache')),
 )
 
 

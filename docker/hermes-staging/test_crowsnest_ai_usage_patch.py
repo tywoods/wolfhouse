@@ -24,7 +24,7 @@ class PatcherTests(unittest.TestCase):
             path.chmod(0o600)
         shutil.copy2(PINNED / "agent/conversation_loop.py", root / "agent/conversation_loop.py")
         (root / "agent/conversation_loop.py").chmod(0o600)
-        for relative in ('agent/agent_init.py', 'hermes_cli/runtime_provider.py', 'hermes_cli/auth.py', 'agent/credential_pool.py', 'agent/auxiliary_client.py'):
+        for relative in ('agent/agent_init.py', 'hermes_cli/runtime_provider.py', 'hermes_cli/auth.py', 'agent/credential_pool.py', 'agent/auxiliary_client.py', 'agent/model_metadata.py'):
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(PINNED / relative, target)
@@ -33,13 +33,16 @@ class PatcherTests(unittest.TestCase):
 
     def module_paths(self, paths):
         names = ('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers', 'agent.conversation_loop',
-                 'agent.agent_init', 'hermes_cli.runtime_provider', 'hermes_cli.auth', 'agent.credential_pool', 'agent.auxiliary_client')
+                 'agent.agent_init', 'hermes_cli.runtime_provider', 'hermes_cli.auth', 'agent.credential_pool', 'agent.auxiliary_client', 'agent.model_metadata')
         return {name: paths[0].parent / (name.replace('.', '/') + '.py') for name in names}
 
-    def test_auxiliary_first_operation_ast_parity_and_each_repair(self):
+    def test_metadata_first_operation_ast_parity_and_each_repair(self):
+        self.test_auxiliary_first_operation_ast_parity_and_each_repair('agent.model_metadata')
+
+    def test_auxiliary_first_operation_ast_parity_and_each_repair(self, module='agent.auxiliary_client'):
         import ast
-        row = next(row for row in patcher.PRD if row[0] == 'agent.auxiliary_client')
-        source = (PINNED / 'agent/auxiliary_client.py').read_text()
+        row = next(row for row in patcher.PRD if row[0] == module)
+        source = (PINNED / (module.replace('.', '/') + '.py')).read_text()
         target = Path('auxiliary.py')
         def emit(text):
             candidates = {}
@@ -60,7 +63,10 @@ class PatcherTests(unittest.TestCase):
             del node.body[1:3]
         self.assertEqual(ast.dump(tree), ast.dump(ast.parse(source)))
 
-    def test_auxiliary_compile_and_restoration_omission_controls(self):
+    def test_metadata_compile_and_restoration_omission_controls(self):
+        self.test_auxiliary_compile_and_restoration_omission_controls('model_metadata', 9)
+
+    def test_auxiliary_compile_and_restoration_omission_controls(self, owner='auxiliary_client', index=8):
         source = Path(patcher.__file__).read_text()
         for old, new, probe in (
             ('compile(candidates[path], str(path), "exec")', 'compile("pass" if path.name == "auxiliary_client.py" else candidates[path], str(path), "exec")',
@@ -68,6 +74,9 @@ class PatcherTests(unittest.TestCase):
             ('for path, data in originals.items():', 'for path, data in originals.items():\n            if path.name == "auxiliary_client.py":\n                continue',
              lambda: PatcherTests().test_main_all_candidate_write_faults(targets=(8,))),
         ):
+            old, new = old.replace('auxiliary_client', owner), new.replace('auxiliary_client', owner)
+            if owner != 'auxiliary_client':
+                probe = (lambda: PatcherTests().test_main_final_candidate_validation_precedes_all_writes(admission='agent.' + owner)) if old.startswith('compile') else (lambda: PatcherTests().test_main_all_candidate_write_faults(targets=(index,)))
             self.assertEqual(source.count(old), 1)
             namespace = {'__name__': 'mutant'}
             exec(compile(source.replace(old, new), 'patcher-mutant.py', 'exec'), namespace)
@@ -80,8 +89,8 @@ class PatcherTests(unittest.TestCase):
                 patcher.main.__code__ = original
             self.assertIs(patcher.main.__code__, original)
             print('GENERATOR_OMISSION_KILLED', old, flush=True)
-        self.test_main_final_candidate_validation_precedes_all_writes(admission='agent.auxiliary_client')
-        self.test_main_all_candidate_write_faults(targets=(8,))
+        self.test_main_final_candidate_validation_precedes_all_writes(admission='agent.' + owner)
+        self.test_main_all_candidate_write_faults(targets=(index,))
 
     def test_auth_pool_fingerprint_rejection_before_write(self):
         import io
@@ -229,7 +238,7 @@ class PatcherTests(unittest.TestCase):
                 self.assertEqual(patcher.main(), 0)
             self.assertEqual(writes, [True], 'main must commit final helper only')
 
-    def test_main_all_candidate_write_faults(self, targets=(1, 2, 0, 3, 4, 5, 6, 7, 8)):
+    def test_main_all_candidate_write_faults(self, targets=(1, 2, 0, 3, 4, 5, 6, 7, 8, 9)):
         import io
         self.assertTrue(callable(getattr(patcher, 'prepare_files', None)), 'candidate ownership boundary required')
         for target in targets:
