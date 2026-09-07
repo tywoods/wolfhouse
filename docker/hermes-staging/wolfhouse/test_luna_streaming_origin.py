@@ -161,6 +161,7 @@ class StreamingOriginTests(unittest.TestCase):
             ('_stream_origin, agent', 'current_isolated_turn(), agent', 'test_matrix_and_first_cause_settlement'),
             ('check_worker_origin(_stream_origin, agent)', 'None', 'test_entry_is_independent_of_acquisition_authority'),
             ('check_worker_origin(_stream_origin, agent)', "(_ for _ in ()).throw(IsolationAbort('deny'))", 'test_same_cached_agent_old_next_ordinary_overlap'),
+            ('retain_worker_abort(e, _stream_origin)', 'None', 'test_matrix_and_first_cause_settlement'),
         )
         for old, new, test in mutants:
             with self.subTest(mutant=new):
@@ -309,6 +310,48 @@ class CanonicalFactoryStreamingTests(unittest.TestCase):
         with self.assertRaises(iso.IsolationAbort) as settled:
             iso.settle_isolated_work(old)
         self.assertIs(settled.exception, cause)
+
+    def test_dispatch_guard_independent_after_real_acquisition(self):
+        old = capture()
+        retained, _, agent = self.retain(old, self.agent)
+        acquire = iso.acquire_streaming_request_client
+        def revoke_after_return(origin, actual, **kwargs):
+            client = acquire(origin, actual, **kwargs)
+            old._provider_revoked = True
+            return client
+        # Keep canonical acquisition/headers/client creation; neutralize only
+        # the downstream observer peer to attribute refusal to lexical dispatch.
+        with patch.object(iso, '_observe_openai_client', lambda client: client), \
+             patch.object(iso, 'acquire_streaming_request_client', revoke_after_return):
+            self.invoke(retained, old)
+        self.assertIn('lock', self.effects)
+        self.assertIn('headers', self.effects)
+        self.assertEqual(sum(isinstance(e, tuple) and e[0] == 'client' for e in self.effects), 1)
+        self.assertNotIn('SDK', self.effects)
+        self.assertEqual(self.effects.count(('close', threading.get_ident())), 1)
+        self.assertIsNone(retained['request_client_holder']['client'])
+        self.assertIsInstance(retained['result']['error'], iso.IsolationAbort)
+        self.assertIs(old._worker_abort, retained['result']['error'])
+
+    def test_causal_dispatch_guard_restores_green(self):
+        fn = canonical_owner()
+        saved = fn.__code__
+        old = 'check_worker_origin(_stream_origin, agent)\n        stream ='
+        self.assertEqual(fn._source.count(old), 1)
+        code = compile(fn._source.replace(old, 'None\n        stream ='), 'dispatch-mutant', 'exec')
+        fn.__code__ = next(c for c in code.co_consts if isinstance(c, types.CodeType) and c.co_name == fn.__name__)
+        try:
+            with patch(__name__ + '.canonical_owner', return_value=fn):
+                result = unittest.TestResult()
+                CanonicalFactoryStreamingTests('test_dispatch_guard_independent_after_real_acquisition').run(result)
+            self.assertEqual(result.errors, [], 'fixture errors are not kills')
+            self.assertGreater(len(result.failures), 0)
+        finally:
+            fn.__code__ = saved
+        self.assertIs(fn.__code__, saved)
+        result = unittest.TestResult()
+        CanonicalFactoryStreamingTests('test_dispatch_guard_independent_after_real_acquisition').run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors or result.failures)
 
     def test_causal_acquisition_and_primary_mutants(self):
         import inspect
