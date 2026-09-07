@@ -43771,6 +43771,7 @@ async function handleAdminConfigAccommodationPut(query, req, res, user) {
       enabled: body.enabled,
       ranges: body.ranges,
       currency: body.currency || 'EUR',
+      bed_capacity: body.bed_capacity,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
     appendAuditLog({
