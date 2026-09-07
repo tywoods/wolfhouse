@@ -1656,17 +1656,31 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
         if callable(orig_handle) and not _is_wrapped(orig_handle):
             async def _isolated_handle(*args: Any, **kwargs: Any):
                 cap = _ISOLATED.get()
-                if cap is not None:
-                    live = inspect_live_seams(targets=_ACTIVE_TARGETS or t, runner=runner)
-                    missing = [k for k in REQUIRED_LIVE_SEAMS if not live.get(k)]
-                    if missing:
-                        raise IsolationAbort("seams_incomplete:" + ",".join(missing))
-                    for agent in _iter_effective_agents(runner=runner, targets=t):
-                        refuse_unsupported_backend(agent)
-                result = orig_handle(*args, **kwargs)
-                if hasattr(result, "__await__"):
-                    result = await result
-                return result
+                primary_error = None
+                try:
+                    if cap is not None:
+                        live = inspect_live_seams(targets=_ACTIVE_TARGETS or t, runner=runner)
+                        missing = [k for k in REQUIRED_LIVE_SEAMS if not live.get(k)]
+                        if missing:
+                            raise IsolationAbort("seams_incomplete:" + ",".join(missing))
+                        for agent in _iter_effective_agents(runner=runner, targets=t):
+                            refuse_unsupported_backend(agent)
+                    result = orig_handle(*args, **kwargs)
+                    if hasattr(result, "__await__"):
+                        result = await result
+                    return result
+                except BaseException as exc:
+                    primary_error = exc
+                    if isinstance(exc, IsolationAbort):
+                        retain_worker_abort(exc, cap)
+                    raise
+                finally:
+                    if cap is not None:
+                        try:
+                            await settle_isolated_async_work(cap)
+                        except BaseException:
+                            if primary_error is None:
+                                raise
 
             _mark(_isolated_handle)
             _save_orig(runner, "_handle_message", orig_handle)
@@ -1996,6 +2010,7 @@ def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 
         while cap._provider_operations and time.monotonic() < deadline:
             cap._provider_lifetime.wait(max(0.0, deadline - time.monotonic()))
         unsettled = bool(cap._provider_operations)
+        failure = cap._worker_abort
     for thread in list(cap.in_flight_threads or []):
         is_alive = getattr(thread, "is_alive", None)
         join = getattr(thread, "join", None)
@@ -2011,9 +2026,10 @@ def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 
             not unsettled and cap.responses_sdk_returned and not cap._responses_unverified
         )
     if unsettled:
+        if failure is not None:
+            failure.cleanup_error = "provider_work_unsettled"
+            raise failure
         raise IsolationAbort("provider_work_unsettled")
-    with cap._provider_lifetime:
-        failure = cap._worker_abort
     if failure is not None:
         raise failure
 
