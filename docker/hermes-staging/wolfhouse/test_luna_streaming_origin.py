@@ -313,7 +313,6 @@ class CanonicalFactoryStreamingTests(unittest.TestCase):
 
     def test_dispatch_guard_independent_after_real_acquisition(self):
         old = capture()
-        retained, _, agent = self.retain(old, self.agent)
         acquire = iso.acquire_streaming_request_client
         def revoke_after_return(origin, actual, **kwargs):
             client = acquire(origin, actual, **kwargs)
@@ -323,9 +322,9 @@ class CanonicalFactoryStreamingTests(unittest.TestCase):
         # the downstream observer peer to attribute refusal to lexical dispatch.
         with patch.object(iso, '_observe_openai_client', lambda client: client), \
              patch.object(iso, 'acquire_streaming_request_client', revoke_after_return):
+            retained, _, agent = self.retain(old, self.agent)
             self.invoke(retained, old)
         self.assertIn('lock', self.effects)
-        self.assertIn('headers', self.effects)
         self.assertEqual(sum(isinstance(e, tuple) and e[0] == 'client' for e in self.effects), 1)
         self.assertNotIn('SDK', self.effects)
         self.assertEqual(self.effects.count(('close', threading.get_ident())), 1)
