@@ -209,6 +209,8 @@ class IsolatedTurnCapture:
     final_handler_text: Optional[str] = None
     in_flight_threads: List[Any] = field(default_factory=list)
     provider_work_settled: bool = False
+    async_work_settled: bool = False
+    _async_operations: int = field(default=0, init=False, repr=False, compare=False)
     _worker_abort: Any = field(default=None, init=False, repr=False, compare=False)
     _provider_revoked: bool = field(default=False, init=False, repr=False, compare=False)
     _provider_operations: int = field(default=0, init=False, repr=False, compare=False)
@@ -1704,6 +1706,95 @@ def _turn_entry_live(*, runner: Any = None, targets: Optional[IsolationTargets] 
     return True
 
 
+def _wrap_async_completion() -> bool:
+    """Install custody on genuine consumer entry, with exact reset ownership."""
+    try:
+        from gateway.stream_consumer import GatewayStreamConsumer
+    except ImportError:
+        return False
+    original = GatewayStreamConsumer.run
+    if not _is_wrapped(original):
+        async def _run(self, *args, **kwargs):
+            cap = _ISOLATED.get()
+            if cap is None:
+                return await original(self, *args, **kwargs)
+            with cap._provider_lifetime:
+                cap._async_operations += 1
+                cap.async_work_settled = False
+            try:
+                return await original(self, *args, **kwargs)
+            except IsolationAbort as exc:
+                retain_worker_abort(exc, cap)
+                raise
+            finally:
+                with cap._provider_lifetime:
+                    cap._async_operations -= 1
+                    cap._provider_lifetime.notify_all()
+        _mark(_run)
+        _save_orig(GatewayStreamConsumer, "run", original)
+        GatewayStreamConsumer.run = _run
+    import gateway.run as gateway
+    schedule = gateway.safe_schedule_threadsafe
+    if not _is_wrapped(schedule):
+        def _schedule(coro, loop, **kwargs):
+            cap = _ISOLATED.get()
+            if cap is None:
+                return schedule(coro, loop, **kwargs)
+            with cap._provider_lifetime:
+                cap._async_operations += 1
+                cap.async_work_settled = False
+            started = False
+            completed = False
+
+            def _complete():
+                nonlocal completed
+                with cap._provider_lifetime:
+                    if not completed:
+                        completed = True
+                        cap._async_operations -= 1
+                        cap._provider_lifetime.notify_all()
+
+            def _queued_done(future=None):
+                with cap._provider_lifetime:
+                    if not started and not completed:
+                        coro.close()
+                        _complete()
+
+            async def _owned():
+                nonlocal started
+                with cap._provider_lifetime:
+                    if completed:
+                        return None
+                    started = True
+                token = _ISOLATED.set(cap)
+                try:
+                    return await coro
+                except IsolationAbort as exc:
+                    retain_worker_abort(exc, cap)
+                    raise
+                finally:
+                    _ISOLATED.reset(token)
+                    _complete()
+
+            owned = _owned()
+            try:
+                future = schedule(owned, loop, **kwargs)
+            except BaseException:
+                _queued_done()
+                owned.close()
+                raise
+            if future is None:
+                _queued_done()
+                owned.close()
+            else:
+                future.add_done_callback(_queued_done)
+            return future
+        _mark(_schedule)
+        _save_orig(gateway, "safe_schedule_threadsafe", schedule)
+        gateway.safe_schedule_threadsafe = _schedule
+    return True
+
+
 def _wrap_executor_context_propagation() -> bool:
     global _executor_ctx_wrapped, _EXECUTOR_ORIG
     orig = ThreadPoolExecutor.submit
@@ -1846,6 +1937,47 @@ def retain_worker_abort(exc: IsolationAbort, cap: Any = _ISOLATED) -> None:
             if cap._worker_abort is None:
                 cap._worker_abort = exc
             cap._provider_lifetime.notify_all()
+
+
+async def settle_isolated_async_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 2.0) -> None:
+    """One nonblocking deadline for registered async, provider and helper work.
+
+    This certifies owned work only, not uninstrumented tasks or whole ingress.
+    Provider-only settlement retains its independent historical contract.
+    """
+    if cap is None:
+        return
+    import asyncio
+    from gateway.stream_consumer import GatewayStreamConsumer
+    import gateway.run as gateway
+    cap.async_work_settled = False
+    if not (_is_wrapped(GatewayStreamConsumer.run) and _is_wrapped(gateway.safe_schedule_threadsafe)):
+        raise IsolationAbort("async_completion_unverified")
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    with cap._provider_lifetime:
+        cap._provider_revoked = True
+        cap.async_work_settled = False
+    while True:
+        with cap._provider_lifetime:
+            provider_pending = bool(cap._provider_operations) or any(
+                thread.is_alive() for thread in cap.in_flight_threads
+            )
+            cap.provider_work_settled = not provider_pending
+            pending = provider_pending or bool(cap._async_operations)
+            cap.async_work_settled = not pending
+            failure = cap._worker_abort
+        with cap._responses_sdk_lock:
+            cap.responses_terminal_verified = bool(
+                not provider_pending and cap.responses_sdk_returned and not cap._responses_unverified
+            )
+        if not pending:
+            if failure is not None:
+                raise failure
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise IsolationAbort("async_work_unsettled")
+        await asyncio.sleep(min(0.005, remaining))
 
 
 def settle_isolated_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 2.0) -> None:
@@ -2458,6 +2590,7 @@ def install_isolation_runtime(
     t = targets or IsolationTargets()
     _ACTIVE_TARGETS = t
     _ACTIVE_RUNNER = runner
+    _wrap_async_completion()
     send_ok = _wrap_send_adapter(t.whatsapp_adapter_cls, runner=runner, targets=t)
     post_ok = _wrap_post_bot(t.post_bot_mods)
     hook_ok = _wrap_pre_tool_call_block(t.plugins_mod)
