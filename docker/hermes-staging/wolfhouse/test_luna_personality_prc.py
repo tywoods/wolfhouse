@@ -71,6 +71,112 @@ class AuxiliaryAdmissionTests(unittest.TestCase):
         self.assertIsNone(isolation.current_isolated_turn())
 
 
+    def test_independent_guard_mutants_and_restored_control(self):
+        import ast
+        import copy
+        import types
+        from pathlib import Path
+        from agent import auxiliary_client as aux
+        original = ast.parse(Path(aux.__file__).read_text())
+        for name in AUX_ENTRIES:
+            owner = getattr(aux, name)
+            saved = owner.__code__
+            for mutation in ('remove', 'after-acquisition', 'inside-catch', 'unconditional'):
+                tree = copy.deepcopy(original)
+                node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+                guard = node.body[1:3]
+                del node.body[1:3]
+                if mutation == 'after-acquisition':
+                    node.body[2:2] = guard
+                elif mutation == 'inside-catch':
+                    catch = next((n for n in node.body if isinstance(n, ast.Try)), None)
+                    if catch is None:
+                        catch = ast.Try(body=node.body[1:], handlers=[ast.ExceptHandler(type=ast.Name(id='Exception', ctx=ast.Load()), name=None, body=[ast.Return(value=ast.Constant(None))])], orelse=[], finalbody=[])
+                        node.body[1:] = [catch]
+                    catch.body[0:0] = guard
+                elif mutation == 'unconditional':
+                    guard[1].test = ast.Constant(True)
+                    node.body[1:1] = guard
+                code = compile(ast.fix_missing_locations(tree), aux.__file__, 'exec')
+                owner.__code__ = next(c for c in code.co_consts if isinstance(c, types.CodeType) and c.co_name == name)
+                try:
+                    method = 'test_ordinary_cold_warm_clients_and_recovery' if mutation == 'unconditional' else 'test_six_entries_deny_before_effects'
+                    result = unittest.TestResult()
+                    AuxiliaryAdmissionTests(method).run(result)
+                    self.assertFalse(result.wasSuccessful(), (name, mutation, 'survived'))
+                    if mutation != 'unconditional':
+                        self.assertEqual(result.errors, [])
+                        self.assertEqual(len(result.failures), 8)
+                    else:
+                        self.assertTrue(all('IsolationAbort: auth_boundary_unsupported' in trace for _, trace in result.errors))
+                    print('AUX_MUTANT_KILLED', name, mutation, len(result.failures), len(result.errors), flush=True)
+                finally:
+                    owner.__code__ = saved
+        self.test_six_entries_deny_before_effects()
+        self.test_ordinary_cold_warm_clients_and_recovery()
+
+    def test_ordinary_cold_warm_clients_and_recovery(self):
+        import asyncio
+        import os
+        from unittest.mock import patch, Mock
+        from agent import auxiliary_client as aux
+        from hermes_cli import auth
+        self.assertIsNone(isolation.current_isolated_turn())
+        sentinel = object()
+        unrelated = ('unrelated', 'model', False)
+        with patch.dict(aux._client_cache, {unrelated: (sentinel, 'model', None)}, clear=True), patch.dict(os.environ, {'OPENAI_API_KEY': 'synthetic-only'}):
+            for temperature in ('cold', 'warm'):
+                for asynchronous in (False, True):
+                    for vision in (False, True):
+                        if vision:
+                            provider, client, model = aux.resolve_vision_provider_client('custom', 'fixture-model',
+                                base_url='https://fixture.invalid/v1', api_key='synthetic-only', async_mode=asynchronous)
+                            self.assertEqual(provider, 'custom')
+                        else:
+                            client, model = aux.resolve_provider_client('custom', 'fixture-model',
+                                explicit_base_url='https://fixture.invalid/v1', async_mode=asynchronous)
+                        self.assertEqual(model, 'fixture-model')
+                        self.assertEqual(str(client.base_url), 'https://fixture.invalid/v1/')
+                        self.assertEqual(client.api_key, 'synthetic-only')
+                        self.assertEqual(type(client).__name__, 'AsyncOpenAI' if asynchronous else 'OpenAI')
+                        if asynchronous:
+                            asyncio.run(client.close())
+                        else:
+                            client.close()
+                self.assertIs(aux._client_cache[unrelated][0], sentinel)
+            cached, model = aux._get_cached_client('custom', 'fixture-model', False, base_url='https://fixture.invalid/v1', api_key='synthetic-only')
+            self.assertIs(aux._get_cached_client('custom', 'fixture-model', False, base_url='https://fixture.invalid/v1', api_key='synthetic-only')[0], cached)
+            self.assertEqual(model, 'fixture-model')
+            aux._evict_cached_clients('custom')
+            for outcome in ({'api_key': 'synthetic-new'}, {'api_key': ''}, OSError('synthetic refresh')):
+                stale = Mock()
+                key = ('openai-codex', 'fixture', False)
+                aux._client_cache[key] = (stale, 'fixture', None)
+                with patch.object(auth, 'resolve_codex_runtime_credentials', side_effect=outcome if isinstance(outcome, Exception) else None, return_value=outcome) as refresh:
+                    self.assertEqual(aux._refresh_provider_credentials('codex'), outcome == {'api_key': 'synthetic-new'})
+                    refresh.assert_called_once_with(force_refresh=True)
+                self.assertEqual(key not in aux._client_cache, outcome == {'api_key': 'synthetic-new'})
+                self.assertIs(aux._client_cache[unrelated][0], sentinel)
+            pool = Mock()
+            entry = object()
+            pool.has_credentials.return_value = True
+            pool.select.return_value = pool.current.return_value = entry
+            with patch.object(aux, 'load_pool', return_value=pool):
+                self.assertEqual(aux._select_pool_entry('openai'), (True, entry))
+                self.assertIs(aux._peek_pool_entry('openai'), entry)
+                for success in (True, False):
+                    pool.try_refresh_current.return_value = entry if success else None
+                    pool.mark_exhausted_and_rotate.return_value = None
+                    error = RuntimeError('synthetic auth')
+                    error.status_code = 401
+                    self.assertEqual(aux._recover_provider_pool('openai', error), success)
+            with patch.object(aux, 'load_pool', side_effect=OSError('synthetic pool')):
+                self.assertEqual(aux._select_pool_entry('openai'), (False, None))
+                self.assertIsNone(aux._peek_pool_entry('openai'))
+                self.assertFalse(aux._recover_provider_pool('openai', RuntimeError('synthetic')))
+            self.assertIs(aux._client_cache[unrelated][0], sentinel)
+
+
 class DirectAuthPoolTests(unittest.TestCase):
     def test_all_direct_entries_active_revoked_and_hostile(self):
         import inspect

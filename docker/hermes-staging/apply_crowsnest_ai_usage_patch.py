@@ -405,6 +405,9 @@ PRD = (
     ('agent.credential_pool', '0c412fb49cdf51e9023f8f515d4e029380e3e23615c7e4d3de55dd4b007d5458',
      ('load_pool', 'select', '_select_unlocked', '_available_entries', '_refresh_entry',
       'mark_exhausted_and_rotate', 'try_refresh_current', '_try_refresh_current_unlocked', '_persist')),
+    ('agent.auxiliary_client', '317d71beee41a235171d25c441c46587d64246c1ca6efa9c9aee8c5c53475f3c',
+     ('resolve_provider_client', 'resolve_vision_provider_client', '_refresh_provider_credentials',
+      '_recover_provider_pool', '_select_pool_entry', '_peek_pool_entry')),
 )
 
 
@@ -437,11 +440,12 @@ def patch_auth_admission(source, candidates, paths):
             if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
                 first = node.body[1]
             indent = ' ' * first.col_offset
-            anchor = text.splitlines(keepends=True)[first.lineno - 1]
             guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
                      + indent + 'if current_isolated_turn() is not None:\n'
                      + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
-            text = _b3e_replace(text, owner, ((anchor, guard + anchor),))
+            lines = text.splitlines(keepends=True)
+            start = first.lineno - 1
+            text = ''.join(lines[:start]) + guard + ''.join(lines[start:])
         candidates[path] = text
 
 
