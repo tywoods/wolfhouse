@@ -407,11 +407,35 @@ PRD = (
       'mark_exhausted_and_rotate', 'try_refresh_current', '_try_refresh_current_unlocked', '_persist')),
     ('agent.auxiliary_client', '317d71beee41a235171d25c441c46587d64246c1ca6efa9c9aee8c5c53475f3c',
      ('resolve_provider_client', 'resolve_vision_provider_client', '_refresh_provider_credentials',
-      '_recover_provider_pool', '_select_pool_entry', '_peek_pool_entry')),
+      '_recover_provider_pool', '_select_pool_entry', '_peek_pool_entry',
+      'get_text_auxiliary_client', 'call_llm', '_get_cached_client')),
     ('agent.model_metadata', '44e28ae9a1ca9cbc147827f509203de1e5351e089994a04e1a63d3c82b676431',
      ('get_model_context_length', '_fetch_codex_oauth_context_lengths',
       'save_context_length', '_save_model_metadata_disk_cache')),
+    ('agent.context_compressor', '2e24e1f77e91c396156776e8a940bf8088fa259f8e44fd4627d7eba16c44353b',
+     ('ContextCompressor.__init__', 'ContextCompressor._generate_summary')),
+    ('agent.conversation_compression', '956696cc13b349074eef3812902dc487af1a207c328218246c63b00c8bb9255f',
+     ('check_compression_model_feasibility',)),
 )
+
+
+def _admission_owner(text, owner):
+    import ast
+    tree = ast.parse(text)
+    if '.' in owner:
+        scope = tree
+        parts = owner.split('.')
+        for index, part in enumerate(parts):
+            kind = ast.FunctionDef if index == len(parts) - 1 else ast.ClassDef
+            nodes = [node for node in scope.body if isinstance(node, kind) and node.name == part]
+            if len(nodes) != 1:
+                raise RuntimeError('PRD qualified lexical owner drift')
+            scope = nodes[0]
+        return scope
+    nodes = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == owner]
+    if len(nodes) != 1:
+        raise RuntimeError('PRD lexical owner drift')
+    return nodes[0]
 
 
 def patch_auth_admission(source, candidates, paths):
@@ -420,10 +444,7 @@ def patch_auth_admission(source, candidates, paths):
     for path, (_, expected, owners) in zip(paths, PRD):
         text = source[path]
         for owner in reversed(owners):
-            nodes = [n for n in ast.walk(ast.parse(text)) if isinstance(n, ast.FunctionDef) and n.name == owner]
-            if len(nodes) != 1:
-                raise RuntimeError('PRD lexical owner drift')
-            node = nodes[0]
+            node = _admission_owner(text, owner)
             first = node.body[0]
             if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
                 first = node.body[1]
@@ -438,7 +459,7 @@ def patch_auth_admission(source, candidates, paths):
         if hashlib.sha256(text.encode('utf-8')).hexdigest() != expected:
             raise RuntimeError('PRD auth/pool source fingerprint drift')
         for owner in owners:
-            node = next(n for n in ast.walk(ast.parse(text)) if isinstance(n, ast.FunctionDef) and n.name == owner)
+            node = _admission_owner(text, owner)
             first = node.body[0]
             if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
                 first = node.body[1]

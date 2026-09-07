@@ -12,6 +12,45 @@ PINNED = Path("/opt/hermes")
 
 
 class PatcherTests(unittest.TestCase):
+    def test_compressor_qualified_selection_and_inversion(self):
+        import ast
+        for module in ('agent.context_compressor', 'agent.conversation_compression'):
+            row = next(row for row in patcher.PRD if row[0] == module)
+            source = (PINNED / (module.replace('.', '/') + '.py')).read_text()
+            target = Path('compressor.py')
+            def emit(text):
+                candidates = {}
+                with patch.object(patcher, 'PRD', (row,)):
+                    patcher.patch_auth_admission({target: text}, candidates, (target,))
+                return candidates[target]
+            emitted = emit(source)
+            self.assertEqual(emit(emitted), emitted)
+            tree = ast.parse(emitted)
+            for name in row[2]:
+                scope = tree
+                for part in name.split('.'):
+                    matches = [n for n in scope.body if getattr(n, 'name', None) == part]
+                    self.assertEqual(len(matches), 1)
+                    scope = matches[0]
+                index = int(isinstance(scope.body[0], ast.Expr))
+                guard = scope.body[index:index + 2]
+                self.assertEqual(ast.unparse(guard[0]), 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort')
+                self.assertEqual(ast.unparse(guard[1]), "if current_isolated_turn() is not None:\n    raise IsolationAbort('auth_boundary_unsupported')")
+                lines = emitted.splitlines(keepends=True)
+                partial = ''.join(lines[:guard[0].lineno - 1] + lines[guard[1].end_lineno:])
+                self.assertEqual(emit(partial), emitted)
+                del scope.body[index:index + 2]
+            self.assertEqual(ast.dump(tree), ast.dump(ast.parse(source)))
+        fixture = 'class Decoy:\n    def __init__(self): pass\nclass ContextCompressor:\n    def __init__(self): pass\n'
+        self.assertEqual(patcher._admission_owner(fixture, 'ContextCompressor.__init__').lineno, 4)
+        for altered in (fixture.replace('ContextCompressor', 'Wrong'), fixture + fixture, fixture.replace('    def __init__(self): pass', '    def other(self): pass')):
+            with self.assertRaisesRegex(RuntimeError, 'qualified lexical owner drift'):
+                patcher._admission_owner(altered, 'ContextCompressor.__init__')
+
+    def test_compressor_compile_and_restoration_omission_controls(self):
+        self.test_auxiliary_compile_and_restoration_omission_controls('context_compressor', 10)
+        self.test_auxiliary_compile_and_restoration_omission_controls('conversation_compression', 11)
+
     def copy_pinned(self, root):
         run_agent = root / "run_agent.py"
         runtime = root / "agent/codex_runtime.py"
@@ -24,7 +63,7 @@ class PatcherTests(unittest.TestCase):
             path.chmod(0o600)
         shutil.copy2(PINNED / "agent/conversation_loop.py", root / "agent/conversation_loop.py")
         (root / "agent/conversation_loop.py").chmod(0o600)
-        for relative in ('agent/agent_init.py', 'hermes_cli/runtime_provider.py', 'hermes_cli/auth.py', 'agent/credential_pool.py', 'agent/auxiliary_client.py', 'agent/model_metadata.py'):
+        for relative in ('agent/agent_init.py', 'hermes_cli/runtime_provider.py', 'hermes_cli/auth.py', 'agent/credential_pool.py', 'agent/auxiliary_client.py', 'agent/model_metadata.py', 'agent/context_compressor.py', 'agent/conversation_compression.py'):
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(PINNED / relative, target)
@@ -33,7 +72,7 @@ class PatcherTests(unittest.TestCase):
 
     def module_paths(self, paths):
         names = ('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers', 'agent.conversation_loop',
-                 'agent.agent_init', 'hermes_cli.runtime_provider', 'hermes_cli.auth', 'agent.credential_pool', 'agent.auxiliary_client', 'agent.model_metadata')
+                 'agent.agent_init', 'hermes_cli.runtime_provider', 'hermes_cli.auth', 'agent.credential_pool', 'agent.auxiliary_client', 'agent.model_metadata', 'agent.context_compressor', 'agent.conversation_compression')
         return {name: paths[0].parent / (name.replace('.', '/') + '.py') for name in names}
 
     def test_metadata_first_operation_ast_parity_and_each_repair(self):
@@ -108,9 +147,9 @@ class PatcherTests(unittest.TestCase):
                         text += '\n# unexpected source drift\n'
                     else:
                         guard = '    from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n    if current_isolated_turn() is not None:\n        raise IsolationAbort("auth_boundary_unsupported")\n'
-                        if module == 'agent.credential_pool':
+                        if module in ('agent.credential_pool', 'agent.context_compressor'):
                             guard = ''.join('    ' + line for line in guard.splitlines(keepends=True))
-                        indent = '        ' if module == 'agent.credential_pool' else '    '
+                        indent = '        ' if module in ('agent.credential_pool', 'agent.context_compressor') else '    '
                         text = text.replace(guard, indent + 'if False:\n' + ''.join('    ' + line for line in guard.splitlines(keepends=True)), 1)
                         compile(text, str(target), 'exec')
                     target.write_text(text)
