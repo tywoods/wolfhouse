@@ -127,7 +127,7 @@ class MetadataAdmissionTests(unittest.TestCase):
             response.json.return_value = {'models': [{'slug': 'gpt-5-fixture', 'context_window': 272000}]}
             http = stack.enter_context(patch.object(metadata.requests, 'get', return_value=response))
             stack.enter_context(patch.object(metadata, '_resolve_requests_verify', return_value=True))
-            model, url = 'gpt-5-fixture', 'https://fixture.invalid'
+            model, url = 'gpt-5-fixture', 'https://chatgpt.com/backend-api/codex'
             self.assertEqual(metadata.get_model_context_length(model, config_context_length=8192), 8192)
             for warm in (False, True):
                 self.assertIsNone(metadata.save_context_length(model, url, 8192))
