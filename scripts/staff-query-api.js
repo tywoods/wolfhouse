@@ -28654,8 +28654,9 @@ function scheduleWireCreateRentals(wrap){
     if (!t) return;
     if (t.classList && t.classList.contains('ps-create-rental-duration')) {
       var rowDur = t.closest ? t.closest('[data-rental-offering]') : null;
+      var pickedDur = String(t.value || '').trim();
       if (rowDur) {
-        try { rowDur.setAttribute('data-rental-duration-key', String(t.value || '').trim()); } catch (_rd) { /* ignore */ }
+        try { rowDur.setAttribute('data-rental-duration-key', pickedDur); } catch (_rd) { /* ignore */ }
         var opt = t.options && t.selectedIndex >= 0 ? t.options[t.selectedIndex] : null;
         var cents = opt ? opt.getAttribute('data-amount-cents') : '';
         if (cents) {
@@ -28670,6 +28671,20 @@ function scheduleWireCreateRentals(wrap){
             priceEl.setAttribute('data-amount-cents', cents);
             priceEl.textContent = scheduleFormatCentsMoney(Number(cents));
           }
+        }
+      }
+      // Multi-day package selection expands date_to so quote/create match.
+      if (pickedDur && typeof scheduleSyncDateInputsToRentalDuration === 'function') {
+        var synced = scheduleSyncDateInputsToRentalDuration(pickedDur, {
+          fromId: 'ps-create-date-from',
+          toId: 'ps-create-date-to',
+          afterSync: function() {
+            if (typeof scheduleSyncCreateDateRangeUi === 'function') scheduleSyncCreateDateRangeUi();
+          },
+        });
+        if (synced && synced.changed) {
+          // date-to change handler re-renders rentals + invalidates quote.
+          return;
         }
       }
       if (typeof schedulePortalInvalidateCreateQuoteIntent === 'function') {
@@ -28872,10 +28887,14 @@ function scheduleRenderCreateRentals(){
     var key = o.offering_key;
     var durs = Array.isArray(o.durations) ? o.durations : [];
     var was = prev[key] || {};
-    var rowDuration = String(was.duration_key || o.duration_key
-      || (durs[0] && durs[0].duration_key) || duration || '').trim();
-    if (durs.length && !durs.some(function(d){ return d.duration_key === rowDuration; })) {
-      rowDuration = durs[0].duration_key;
+    var spanDur = duration || dateDuration || '1_day';
+    var rowDuration = String(was.duration_key || '').trim();
+    var prevStillValid = !!(rowDuration
+      && durs.some(function(d){ return d.duration_key === rowDuration; })
+      && (typeof scheduleRentalDurationMatchesDateSpan !== 'function'
+        || scheduleRentalDurationMatchesDateSpan(rowDuration, spanDur)));
+    if (!prevStillValid) {
+      rowDuration = String(o.duration_key || (durs[0] && durs[0].duration_key) || spanDur || '').trim();
     }
     var offeringLabel = (typeof scheduleRentalOfferingDisplayLabel === 'function')
       ? scheduleRentalOfferingDisplayLabel(key, o.label, portalT)
