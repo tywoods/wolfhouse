@@ -1656,17 +1656,31 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
         if callable(orig_handle) and not _is_wrapped(orig_handle):
             async def _isolated_handle(*args: Any, **kwargs: Any):
                 cap = _ISOLATED.get()
-                if cap is not None:
-                    live = inspect_live_seams(targets=_ACTIVE_TARGETS or t, runner=runner)
-                    missing = [k for k in REQUIRED_LIVE_SEAMS if not live.get(k)]
-                    if missing:
-                        raise IsolationAbort("seams_incomplete:" + ",".join(missing))
-                    for agent in _iter_effective_agents(runner=runner, targets=t):
-                        refuse_unsupported_backend(agent)
-                result = orig_handle(*args, **kwargs)
-                if hasattr(result, "__await__"):
-                    result = await result
-                return result
+                primary_error = None
+                try:
+                    if cap is not None:
+                        live = inspect_live_seams(targets=_ACTIVE_TARGETS or t, runner=runner)
+                        missing = [k for k in REQUIRED_LIVE_SEAMS if not live.get(k)]
+                        if missing:
+                            raise IsolationAbort("seams_incomplete:" + ",".join(missing))
+                        for agent in _iter_effective_agents(runner=runner, targets=t):
+                            refuse_unsupported_backend(agent)
+                    result = orig_handle(*args, **kwargs)
+                    if hasattr(result, "__await__"):
+                        result = await result
+                    return result
+                except BaseException as exc:
+                    primary_error = exc
+                    if isinstance(exc, IsolationAbort):
+                        retain_worker_abort(exc, cap)
+                    raise
+                finally:
+                    if cap is not None:
+                        try:
+                            await settle_isolated_async_work(cap)
+                        except BaseException:
+                            if primary_error is None:
+                                raise
 
             _mark(_isolated_handle)
             _save_orig(runner, "_handle_message", orig_handle)
