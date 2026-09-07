@@ -193,6 +193,41 @@ class PatcherTests(unittest.TestCase):
                     else:
                         self.assertTrue(after == before, 'R1 failed main must restore every input byte')
 
+    def test_streaming_origin_inverse_repair_and_no_write_drift(self):
+        import ast
+        import io
+        with tempfile.TemporaryDirectory() as d:
+            paths = self.copy_pinned(Path(d))
+            names = self.module_paths(paths)
+            with patch.object(patcher, '_module_path', names.__getitem__):
+                self.assertEqual(patcher.main(), 0)
+                expected = {p: p.read_bytes() for p in names.values()}
+                helper = paths[2]
+                text = helper.read_text()
+                node = patcher._admission_owner(text, 'interruptible_streaming_api_call')
+                attempt = next(n for n in node.body if isinstance(n, ast.FunctionDef) and n.name == '_call_chat_completions')
+                self.assertEqual(attempt.body[1].value.func.id, 'check_worker_origin')
+                pristine = patcher.patch_streaming_origin(text, inverse=True)
+                old_worker = patcher._admission_owner(pristine, 'interruptible_api_call')
+                self.assertEqual(ast.dump(old_worker), ast.dump(patcher._admission_owner(text, 'interruptible_api_call')))
+                for old, new in patcher.STREAMING_ORIGIN:
+                    helper.write_text(patcher._b3e_replace(text, 'interruptible_streaming_api_call', ((old, new),), inverse=True))
+                    self.assertEqual(patcher.main(), 0)
+                    self.assertEqual({p: p.read_bytes() for p in names.values()}, expected)
+                for damaged in (text.replace('check_worker_origin(_stream_origin, agent)', 'check_worker_origin(None, agent)', 1),
+                                text.replace('        check_worker_origin(_stream_origin, agent)\n',
+                                             '        if False:\n            check_worker_origin(_stream_origin, agent)\n', 1),
+                                text + '\n# unapproved drift\n'):
+                    compile(damaged, str(helper), 'exec')
+                    helper.write_text(damaged)
+                    before = {p: p.read_bytes() for p in names.values()}
+                    with patch.object(Path, 'write_text', side_effect=AssertionError('write before refusal')), patch('sys.stderr', io.StringIO()):
+                        self.assertEqual(patcher.main(), 1)
+                    self.assertEqual({p: p.read_bytes() for p in names.values()}, before)
+                helper.write_text(text)
+                self.assertEqual(patcher.main(), 0)
+                self.assertEqual({p: p.read_bytes() for p in names.values()}, expected)
+
     def test_worker_origin_inverse_repair_and_no_write_drift(self):
         import ast
         with tempfile.TemporaryDirectory() as d:

@@ -296,6 +296,35 @@ class CanonicalFactoryStreamingTests(unittest.TestCase):
             iso.settle_isolated_work(old)
         self.assertIs(settled.exception, cause)
 
+    def test_causal_acquisition_and_primary_mutants(self):
+        import inspect
+        rows = (
+            (iso.acquire_streaming_request_client, 'check_worker_origin(origin, agent)', 'pass',
+             StreamingOriginTests, 'test_acquisition_authority_is_independent_of_entry'),
+            (iso._wrap_openai_client_factory, 'if caller is not None:', 'if False:',
+             CanonicalFactoryStreamingTests, 'test_factory_caller_authority_and_primary_independent'),
+            (iso._wrap_openai_client_factory, 'if binding is None or _REQUEST_ACQUISITION.get() is not binding:', 'if False:',
+             CanonicalFactoryStreamingTests, 'test_factory_caller_authority_and_primary_independent'),
+        )
+        for fn, old, new, cls, test in rows:
+            with self.subTest(mutant=old):
+                text = inspect.getsource(fn)
+                self.assertEqual(text.count(old), 1)
+                code = compile(text.replace(old, new), 'authority-mutant', 'exec')
+                saved = fn.__code__
+                fn.__code__ = next(c for c in code.co_consts if isinstance(c, types.CodeType) and c.co_name == fn.__name__)
+                try:
+                    result = unittest.TestResult()
+                    cls(test).run(result)
+                    self.assertEqual(result.errors, [], 'fixture errors are not kills')
+                    self.assertGreater(len(result.failures), 0)
+                finally:
+                    fn.__code__ = saved
+                self.assertIs(fn.__code__, saved)
+        result = unittest.TestResult()
+        CanonicalFactoryStreamingTests('test_factory_caller_authority_and_primary_independent').run(result)
+        self.assertTrue(result.wasSuccessful(), result.errors or result.failures)
+
     def test_factory_caller_authority_and_primary_independent(self):
         old, nxt = capture(), capture('NEXT')
         agent = self.agent
@@ -309,6 +338,12 @@ class CanonicalFactoryStreamingTests(unittest.TestCase):
         finally:
             iso._REQUEST_CALLER.reset(authority)
             iso.exit_isolated_turn(token)
+        token = iso.enter_isolated_turn(old)
+        try:
+            agent._create_request_openai_client(reason='prime-binding')
+        finally:
+            iso.exit_isolated_turn(token)
+        before = list(self.effects)
         for mode in ('chat_completions', 'codex_responses'):
             token = iso.enter_isolated_turn(old)
             agent.api_mode = mode
