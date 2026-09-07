@@ -9,6 +9,115 @@ from hermes_cli.runtime_provider import resolve_runtime_provider
 from wolfhouse import luna_personality_isolation as isolation
 
 
+AUTH_ENTRIES = ('resolve_codex_runtime_credentials', '_read_codex_tokens', '_auth_store_lock',
+                '_load_auth_store', '_save_auth_store', '_sync_codex_pool_entries', '_save_codex_tokens',
+                '_recover_codex_tokens_from_cli', 'refresh_codex_oauth_pure', '_refresh_codex_auth_tokens',
+                '_import_codex_cli_tokens', '_pool_codex_access_token', '_codex_pool_rate_limit_status')
+POOL_ENTRIES = ('load_pool', 'select', '_select_unlocked', '_available_entries', '_refresh_entry',
+                'mark_exhausted_and_rotate', 'try_refresh_current', '_try_refresh_current_unlocked', '_persist')
+
+
+class DirectAuthPoolTests(unittest.TestCase):
+    def test_all_direct_entries_active_revoked_and_hostile(self):
+        import inspect
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from hermes_cli import auth
+        from agent import credential_pool as pools
+        seen = []
+        def tripwire(*args, **kwargs):
+            seen.append('resource/coercion')
+            raise AssertionError('resource/coercion reached')
+        class Hostile:
+            __getattr__ = __getitem__ = __bool__ = __iter__ = __enter__ = tripwire
+        hostile = Hostile()
+        entries = [(auth, name) for name in AUTH_ENTRIES]
+        entries += [(pools if name == 'load_pool' else pools.CredentialPool, name) for name in POOL_ENTRIES]
+        cap = isolation.IsolatedTurnCapture(case_id='direct-auth', personality_id='balanced', tenant_id='sunset')
+        token = isolation.enter_isolated_turn(cap)
+        retained = contextvars.copy_context()
+        isolation.exit_isolated_turn(token)
+        for revoked in (False, True):
+            if revoked:
+                isolation.settle_isolated_work(cap)
+            for module, name in entries:
+                owner = getattr(module, name)
+                effective = inspect.unwrap(owner)
+                self.assertTrue(effective.__code__.co_filename.startswith('/tmp/prc-owners/'))
+                with self.subTest(revoked=revoked, owner=name), ExitStack() as stack:
+                    for peer_module, peer_name in entries:
+                        if (peer_module, peer_name) != (module, name):
+                            stack.enter_context(patch.object(peer_module, peer_name, tripwire))
+                    for dependency in ('_file_lock', '_auth_file_path', 'write_credential_pool'):
+                        for resource_module in (auth, pools):
+                            if hasattr(resource_module, dependency):
+                                stack.enter_context(patch.object(resource_module, dependency, tripwire))
+                    stack.enter_context(patch.object(auth.os, 'getenv', tripwire))
+                    stack.enter_context(patch.object(pools.time, 'time', tripwire))
+                    args, kwargs = [], {}
+                    for parameter in inspect.signature(owner).parameters.values():
+                        if parameter.kind == parameter.KEYWORD_ONLY:
+                            kwargs[parameter.name] = hostile
+                        else:
+                            args.append(hostile)
+                    def invoke():
+                        result = owner(*args, **kwargs)
+                        if name == '_auth_store_lock':
+                            with result:
+                                pass
+                    seen.clear()
+                    try:
+                        retained.run(invoke)
+                    except Exception as error:
+                        caught = error
+                    else:
+                        caught = None
+                    self.assertIsInstance(caught, isolation.IsolationAbort)
+                    self.assertEqual(caught.reason, 'auth_boundary_unsupported')
+                    self.assertEqual(seen, [])
+        self.assertIsNone(isolation.current_isolated_turn())
+
+    def test_ordinary_and_retained_real_pool(self):
+        from hermes_cli import auth
+        from agent.credential_pool import load_pool
+        from unittest.mock import patch
+        CanonicalAdmissionTests('test_ordinary_auth_pool_resolution_uses_canonical_synthetic_store').test_ordinary_auth_pool_resolution_uses_canonical_synthetic_store()
+        pool = load_pool('openai-codex')
+        for temperature in ('cold', 'warm'):
+            entry = pool.select()
+            self.assertIsNotNone(entry)
+            self.assertEqual(auth.resolve_codex_runtime_credentials()['api_key'], entry.access_token)
+        cap = isolation.IsolatedTurnCapture(case_id='retained-pool', personality_id='balanced', tenant_id='sunset')
+        token = isolation.enter_isolated_turn(cap)
+        retained = contextvars.copy_context()
+        isolation.exit_isolated_turn(token)
+        for revoked in (False, True):
+            if revoked:
+                isolation.settle_isolated_work(cap)
+            with patch.object(pool, '_lock') as lock:
+                for invoke in (pool.select, pool._select_unlocked, pool._available_entries, pool._persist,
+                               pool.try_refresh_current, pool._try_refresh_current_unlocked,
+                               lambda: pool._refresh_entry(entry, force=True),
+                               lambda: pool.mark_exhausted_and_rotate(status_code=429)):
+                    with self.assertRaises(isolation.IsolationAbort):
+                        retained.run(invoke)
+                lock.__enter__.assert_not_called()
+        self.assertEqual(pool.select().access_token, entry.access_token)
+
+    def test_direct_codex_resolution_precedes_acquisition(self):
+        from hermes_cli import auth
+        from unittest.mock import patch
+        cap = isolation.IsolatedTurnCapture(case_id='direct-auth', personality_id='balanced', tenant_id='sunset')
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            with patch.object(auth, '_read_codex_tokens', side_effect=AssertionError('credential acquisition reached')) as read:
+                with self.assertRaises(isolation.IsolationAbort):
+                    auth.resolve_codex_runtime_credentials(force_refresh=[])
+                read.assert_not_called()
+        finally:
+            isolation.exit_isolated_turn(token)
+
+
 class CanonicalAdmissionTests(unittest.TestCase):
     def test_canonical_constructor_abort_survives_real_eval_with_unknown_effects(self):
         import asyncio

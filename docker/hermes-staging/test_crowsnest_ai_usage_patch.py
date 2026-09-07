@@ -24,7 +24,7 @@ class PatcherTests(unittest.TestCase):
             path.chmod(0o600)
         shutil.copy2(PINNED / "agent/conversation_loop.py", root / "agent/conversation_loop.py")
         (root / "agent/conversation_loop.py").chmod(0o600)
-        for relative in ('agent/agent_init.py', 'hermes_cli/runtime_provider.py'):
+        for relative in ('agent/agent_init.py', 'hermes_cli/runtime_provider.py', 'hermes_cli/auth.py', 'agent/credential_pool.py'):
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(PINNED / relative, target)
@@ -32,8 +32,36 @@ class PatcherTests(unittest.TestCase):
         return run_agent, runtime, helper
 
     def module_paths(self, paths):
-        return dict(zip(('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers', 'agent.conversation_loop', 'agent.agent_init', 'hermes_cli.runtime_provider'),
-                        (*paths[:3], paths[2].with_name('conversation_loop.py'), paths[2].with_name('agent_init.py'), paths[0].parent / 'hermes_cli/runtime_provider.py')))
+        names = ('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers', 'agent.conversation_loop',
+                 'agent.agent_init', 'hermes_cli.runtime_provider', 'hermes_cli.auth', 'agent.credential_pool')
+        return {name: paths[0].parent / (name.replace('.', '/') + '.py') for name in names}
+
+    def test_auth_pool_fingerprint_rejection_before_write(self):
+        import io
+        for module, _, owners in patcher.PRD:
+            for altered in ('drift', 'relocated'):
+                with self.subTest(module=module, altered=altered), tempfile.TemporaryDirectory() as d:
+                    names = self.module_paths(self.copy_pinned(Path(d)))
+                    target = names[module]
+                    candidates = {}
+                    source = {target: target.read_text()}
+                    with patch.object(patcher, 'PRD', ((module, next(row[1] for row in patcher.PRD if row[0] == module), owners),)):
+                        patcher.patch_auth_admission(source, candidates, (target,))
+                    text = candidates[target]
+                    if altered == 'drift':
+                        text += '\n# unexpected source drift\n'
+                    else:
+                        guard = '    from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n    if current_isolated_turn() is not None:\n        raise IsolationAbort("auth_boundary_unsupported")\n'
+                        if module == 'agent.credential_pool':
+                            guard = ''.join('    ' + line for line in guard.splitlines(keepends=True))
+                        indent = '        ' if module == 'agent.credential_pool' else '    '
+                        text = text.replace(guard, indent + 'if False:\n' + ''.join('    ' + line for line in guard.splitlines(keepends=True)), 1)
+                        compile(text, str(target), 'exec')
+                    target.write_text(text)
+                    before = {p: p.read_bytes() for p in names.values()}
+                    with patch.object(patcher, '_module_path', names.__getitem__), patch.object(Path, 'write_text', side_effect=AssertionError('write reached')), patch('sys.stderr', io.StringIO()):
+                        self.assertEqual(patcher.main(), 1)
+                    self.assertEqual({p: p.read_bytes() for p in names.values()}, before)
 
     def test_main_final_write_failure_restores_inputs(self):
         import io
@@ -100,6 +128,10 @@ class PatcherTests(unittest.TestCase):
                 admission = tuple(names[name] for name, *_ in patcher.PRC)
                 before.update({p: p.read_text() for p in admission})
                 patcher.patch_constructor_admission(before, expected, admission)
+                auth_paths = tuple(names[name] for name, *_ in patcher.PRD)
+                before.update({p: p.read_text() for p in auth_paths})
+                patcher.patch_auth_admission(before, expected, auth_paths)
+                admission += auth_paths
                 with patch.object(patcher, '_module_path', names.__getitem__), patch.object(Path, 'write_text', record):
                     self.assertEqual(patcher.main(), 0)
                     self.assertEqual(patcher.main(), 0)
@@ -110,7 +142,7 @@ class PatcherTests(unittest.TestCase):
         self.test_main_final_candidate_validation_precedes_all_writes(conversation=True)
 
     def test_prc_candidate_compile_precedes_writes(self):
-        for name, *_ in patcher.PRC:
+        for name, *_ in (*patcher.PRC, *patcher.PRD):
             self.test_main_final_candidate_validation_precedes_all_writes(admission=name)
 
     def test_main_final_candidate_validation_precedes_all_writes(self, conversation=False, admission=None):
@@ -153,7 +185,7 @@ class PatcherTests(unittest.TestCase):
     def test_main_all_candidate_write_faults(self):
         import io
         self.assertTrue(callable(getattr(patcher, 'prepare_files', None)), 'candidate ownership boundary required')
-        for target in (1, 2, 0, 3, 4, 5):
+        for target in (1, 2, 0, 3, 4, 5, 6, 7):
             for fault in ('deny', 'partial', 'restore-denied', 'earlier-restore-denied'):
                 with self.subTest(target=target, fault=fault), tempfile.TemporaryDirectory() as d:
                     paths = self.copy_pinned(Path(d))
