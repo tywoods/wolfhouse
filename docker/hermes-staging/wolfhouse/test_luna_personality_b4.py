@@ -5,9 +5,7 @@ import sys
 import threading
 import unittest
 from unittest import mock
-
 from wolfhouse import luna_personality_isolation as iso
-
 
 class FallbackAbortTests(unittest.TestCase):
     @classmethod
@@ -32,10 +30,8 @@ class FallbackAbortTests(unittest.TestCase):
     def tearDownClass(cls):
         import faulthandler
         faulthandler.cancel_dump_traceback_later()
-
     def tearDown(self):
         iso.reset_isolation_runtime_for_tests()
-
     def test_canonical_catch_to_outer_eval_preserves_identity_and_evidence(self):
         from openai.resources.chat.completions import Completions
         from wolfhouse import luna_personality_live_eval as live
@@ -73,7 +69,6 @@ class FallbackAbortTests(unittest.TestCase):
                 self.assertIsNone(cause.counters[field])
         finally:
             self.agent.thinking_callback = previous
-
     def test_late_worker_abort_at_outer_eval_settlement_boundary(self):
         from openai.resources.chat.completions import Completions
         from wolfhouse import luna_personality_live_eval as live
@@ -147,7 +142,39 @@ class FallbackAbortTests(unittest.TestCase):
                         worker.join(2)
                     self.agent._interrupt_requested = False
                     iso.reset_isolation_runtime_for_tests()
-
+    def test_ordinary_fallback_uses_pinned_router_and_sdk_fixture(self):
+        import copy
+        agent = copy.copy(self.agent)
+        agent._fallback_index = 0
+        agent._fallback_chain = [{"provider": "custom", "model": "gpt-4o",
+            "base_url": "https://fixture.invalid/v1", "api_key": "synthetic-not-a-credential"}]
+        agent._fallback_activated = False
+        agent._transport_cache = {}
+        agent.context_compressor = None
+        self.assertTrue(helper.try_activate_fallback(agent, helper.FailoverReason.rate_limit))
+        self.assertEqual((agent.model, agent.provider, agent._fallback_index), ("gpt-4o", "custom", 1))
+        self.assertTrue(agent._fallback_activated)
+        reply = helper.interruptible_api_call(agent, {"model": agent.model, "messages": []})
+        self.assertEqual(reply.choices[0].message.content, "fixture ordinary reply")
+        agent.client.close()
+    def test_primary_worker_and_cleanup_precedence(self):
+        from wolfhouse import luna_personality_live_eval as live
+        primary, late = iso.IsolationAbort("primary"), iso.IsolationAbort("late")
+        async def invoke(message, cap, meta):
+            iso.retain_worker_abort(primary)
+            iso.retain_worker_abort(late)
+            self.assertIs(cap._worker_abort, primary)
+            raise primary
+        with mock.patch.object(live, "settle_isolated_work", side_effect=iso.IsolationAbort("cleanup_failed")):
+            try:
+                asyncio.run(live.run_isolated_personality_eval(case_id="warmth-greeting-en",
+                    personality_id="sunny", serving_preflight=False,
+                    fetch_setting=lambda slug: {"personality_id": "sunny"}, invoke_turn=invoke))
+            except iso.IsolationAbort as exc:
+                self.assertIs(exc, primary)
+                self.assertEqual(exc.cleanup_error, "cleanup_failed")
+            else:
+                self.fail("primary lost")
     def test_fallback_precedes_all_resource_and_state_access(self):
         class HostileAgent:
             def __getattribute__(self, name):
@@ -164,7 +191,6 @@ class FallbackAbortTests(unittest.TestCase):
                 self.fail("fallback was not refused")
         finally:
             iso.exit_isolated_turn(token)
-
     def test_cancelled_worker_retains_typed_error_in_original_handoff(self):
         from openai.resources.chat.completions import Completions
         entered, release = threading.Event(), threading.Event()

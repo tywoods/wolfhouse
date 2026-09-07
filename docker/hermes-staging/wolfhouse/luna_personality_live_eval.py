@@ -714,14 +714,16 @@ async def run_isolated_personality_eval(
             settle_exc = IsolationAbort("cleanup_failed")
         finally:
             exit_isolated_turn(token)
-        failure = first_abort if first_abort is not None else settle_exc
+        with cap._provider_lifetime:
+            worker_abort = cap._worker_abort if cap.provider_work_settled else None
+        failure = first_abort if first_abort is not None else (worker_abort or settle_exc)
         if failure is not None:
-            failure.cleanup_error = settle_exc.reason if settle_exc is not None else None
+            failure.cleanup_error = settle_exc.reason if settle_exc is not None and settle_exc is not failure else None
             # Scalars are observations, not final totals when bounded cleanup
             # timed out or a returned stream still lacks terminal evidence.
             # Even settled tracked work says nothing about HTTP/auth/telemetry
             # effects or arbitrary untracked consumers.
-            tracked_settled = settle_exc is None and cap.provider_work_settled is True
+            tracked_settled = (settle_exc is None or settle_exc is worker_abort) and cap.provider_work_settled is True
             snapshot_state = (
                 "settled_tracked_work" if tracked_settled and not cap._responses_unverified
                 else "partial"
@@ -741,8 +743,8 @@ async def run_isolated_personality_eval(
                 responses_terminal_verified=(snapshot_state == "settled_tracked_work"
                                              and cap.responses_terminal_verified is True),
             )
-        if first_abort is None and settle_exc is not None:
-            raise settle_exc
+        if first_abort is None and failure is not None:
+            raise failure
 
 
 def _eval_unauthorized(request) -> Optional[Any]:
