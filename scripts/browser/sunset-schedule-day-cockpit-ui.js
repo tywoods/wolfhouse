@@ -446,21 +446,36 @@ function scheduleCockpitClassify(data, now) {
  * Month-scoped live/next using wall clock + per-session dates.
  * Needle stays frozen in Monthly; hero still picks the true upcoming session
  * (not the first session of the day, which may already be DONE).
+ *
+ * focusIso (selected day inside the month) ties First up to the current
+ * selection: a future focus day anchors "next" on/after that day; today/past
+ * focus keeps wall-clock upcoming so completed morning sessions stay skipped.
  */
-function scheduleCockpitClassifyMonth(data, todayIso, nowMin) {
+function scheduleCockpitClassifyMonth(data, todayIso, nowMin, focusIso) {
   var list = scheduleCockpitClassify(data, null).list;
   var today = String(todayIso || '').slice(0, 10);
+  var focus = String(focusIso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(focus)) focus = today;
   var now = nowMin == null || !isFinite(Number(nowMin)) ? null : Number(nowMin);
   var live = null;
   var next = null;
+  // Future selection → next on/after that day. Today/past → wall-clock upcoming.
+  var anchorDate = today;
+  var anchorMin = now;
+  if (focus && today && focus > today) {
+    anchorDate = focus;
+    anchorMin = -1;
+  }
   if (today && now != null) {
     live = list.find(function (x) {
       return x.date === today && now >= x.s && now < x.e;
     }) || null;
+  }
+  if (anchorDate && anchorMin != null) {
     next = list.find(function (x) {
       if (!x.date) return false;
-      if (x.date > today) return true;
-      return x.date === today && x.s > now;
+      if (x.date > anchorDate) return true;
+      return x.date === anchorDate && x.s > anchorMin;
     }) || null;
   } else {
     next = list[0] || null;
@@ -544,15 +559,24 @@ function scheduleRenderDayCockpit(mount, data) {
   var classified;
   if (rangeKeyEarly === 'next30') {
     // Needle stays frozen (now null below); hero uses wall clock so First up
-    // skips sessions that are already DONE.
+    // skips sessions that are already DONE. Prefer live nav focus so Daily →
+    // Next → Monthly keeps First up tied to the selected day.
     var wall = new Date();
     var wallMin = typeof data.now === 'number'
       ? data.now
       : (wall.getHours() * 60 + wall.getMinutes());
+    var focusIsoHero = data.focusDayIso || data.focusDateIso || '';
+    try {
+      if (typeof scheduleGetNavigationSnapshot === 'function') {
+        var focusSnap = scheduleGetNavigationSnapshot();
+        if (focusSnap && focusSnap.focusDateIso) focusIsoHero = focusSnap.focusDateIso;
+      }
+    } catch (_focusHero) { /* keep data focus */ }
     classified = scheduleCockpitClassifyMonth(
       data,
       scheduleCockpitLocalIsoDate(wall),
-      wallMin
+      wallMin,
+      focusIsoHero
     );
   } else {
     classified = scheduleCockpitClassify(data, now);
@@ -1173,6 +1197,8 @@ function scheduleBuildDayCockpitData(src) {
   var out = {
     venue: src.venue != null ? src.venue : 'Sunset',
     date: src.date || src.activeDayIso || '',
+    rangeStartIso: src.rangeStartIso || '',
+    focusDayIso: src.focusDayIso || src.focusDateIso || '',
     range: range,
     loading: !!src.loading,
     layout: layout === 'cards' ? 'cards' : 'timeline',
