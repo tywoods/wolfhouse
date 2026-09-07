@@ -71,9 +71,14 @@ class PatcherTests(unittest.TestCase):
             self.assertEqual(source.count(old), 1)
             namespace = {'__name__': 'mutant'}
             exec(compile(source.replace(old, new), 'patcher-mutant.py', 'exec'), namespace)
-            with patch.object(patcher.main, '__code__', namespace['main'].__code__):
+            original = patcher.main.__code__
+            patcher.main.__code__ = namespace['main'].__code__
+            try:
                 with self.assertRaises(AssertionError):
                     probe()
+            finally:
+                patcher.main.__code__ = original
+            self.assertIs(patcher.main.__code__, original)
             print('GENERATOR_OMISSION_KILLED', old, flush=True)
         self.test_main_final_candidate_validation_precedes_all_writes(admission='agent.auxiliary_client')
         self.test_main_all_candidate_write_faults(targets=(8,))
