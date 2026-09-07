@@ -368,6 +368,33 @@ def patch_codex_cancellation(candidates, paths):
         candidates[helper] = _b3e_replace(candidates[helper], owner, changes)
 
 
+# PRC remains denial-only: direct canonical entries cannot bypass gateway/class guards.
+PRC = (
+    ('agent.agent_init', 'init_agent', 'd12a316782bf266e4d0dba375f0514d9305196441d0215cfa511aedb6d41d830',
+     '    _install_safe_stdio()\n', 'constructor_boundary_unverified'),
+    ('hermes_cli.runtime_provider', 'resolve_runtime_provider', 'ed27f72119792496ed129db92ccfa9ab55bc9b420236414aa76e0c8218cfa4af',
+     '    requested_provider = resolve_requested_provider(requested)\n', 'runtime_resolution_unverified'),
+)
+
+
+def patch_constructor_admission(source, candidates, paths):
+    import hashlib
+    marked = []
+    for path, (_, owner, expected, anchor, reason) in zip(paths, PRC):
+        guard = ('    from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
+                 '    if current_isolated_turn() is not None:\n'
+                 f'        raise IsolationAbort("{reason}")\n')
+        changes = ((anchor, guard + anchor),)
+        present = guard in source[path]
+        marked.append(present)
+        original = _b3e_replace(source[path], owner, changes, inverse=True) if present else source[path]
+        if hashlib.sha256(original.encode('utf-8')).hexdigest() != expected:
+            raise RuntimeError('PRC constructor source fingerprint drift')
+        candidates[path] = _b3e_replace(original, owner, changes)
+    if any(marked) and not all(marked):
+        raise RuntimeError('PRC mixed constructor/resolver state')
+
+
 def main():
     originals = {}
     try:
@@ -375,9 +402,12 @@ def main():
         runtime_path = _module_path("agent.codex_runtime")
         run_agent_path = _module_path("run_agent")
         conversation_path = _module_path("agent.conversation_loop")
-        paths = (runtime_path, helper_path, run_agent_path, conversation_path)
+        admission_paths = tuple(_module_path(name) for name, *_ in PRC)
+        paths = (runtime_path, helper_path, run_agent_path, conversation_path, *admission_paths)
         originals = {path: path.read_bytes() for path in paths}
         source, candidates, result = prepare_files(run_agent_path, runtime_path, helper_path)
+        source.update({path: originals[path].decode('utf-8') for path in admission_paths})
+        patch_constructor_admission(source, candidates, admission_paths)
         source[conversation_path] = originals[conversation_path].decode('utf-8')
         if (B4_CATCH[0][1] in source[conversation_path]) != (B4_HELPER[0][1][0][1] in source[helper_path]):
             raise RuntimeError('B4 mixed conversation/helper state')

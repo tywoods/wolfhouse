@@ -24,11 +24,16 @@ class PatcherTests(unittest.TestCase):
             path.chmod(0o600)
         shutil.copy2(PINNED / "agent/conversation_loop.py", root / "agent/conversation_loop.py")
         (root / "agent/conversation_loop.py").chmod(0o600)
+        for relative in ('agent/agent_init.py', 'hermes_cli/runtime_provider.py'):
+            target = root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(PINNED / relative, target)
+            target.chmod(0o600)
         return run_agent, runtime, helper
 
     def module_paths(self, paths):
-        return dict(zip(('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers', 'agent.conversation_loop'),
-                        (*paths[:3], paths[2].with_name('conversation_loop.py'))))
+        return dict(zip(('run_agent', 'agent.codex_runtime', 'agent.chat_completion_helpers', 'agent.conversation_loop', 'agent.agent_init', 'hermes_cli.runtime_provider'),
+                        (*paths[:3], paths[2].with_name('conversation_loop.py'), paths[2].with_name('agent_init.py'), paths[0].parent / 'hermes_cli/runtime_provider.py')))
 
     def test_main_final_write_failure_restores_inputs(self):
         import io
@@ -92,16 +97,23 @@ class PatcherTests(unittest.TestCase):
                 conversation = names['agent.conversation_loop']
                 before[conversation] = conversation.read_text()
                 expected[conversation] = patcher.patch_conversation_abort(before[conversation])
+                admission = tuple(names[name] for name, *_ in patcher.PRC)
+                before.update({p: p.read_text() for p in admission})
+                patcher.patch_constructor_admission(before, expected, admission)
                 with patch.object(patcher, '_module_path', names.__getitem__), patch.object(Path, 'write_text', record):
                     self.assertEqual(patcher.main(), 0)
                     self.assertEqual(patcher.main(), 0)
-                self.assertTrue(all(p.read_text() == expected[p] for p in paths), 'exact candidate bytes')
-                self.assertTrue(writes == [(p, expected[p]) for p in (paths[1], paths[2], paths[0], conversation) if expected[p] != before[p]], 'only final changed candidates written once')
+                self.assertTrue(all(p.read_text() == data for p, data in expected.items()), 'exact candidate bytes')
+                self.assertTrue(writes == [(p, expected[p]) for p in (paths[1], paths[2], paths[0], conversation, *admission) if expected[p] != before[p]], 'only final changed candidates written once')
 
     def test_conversation_candidate_compile_precedes_writes(self):
         self.test_main_final_candidate_validation_precedes_all_writes(conversation=True)
 
-    def test_main_final_candidate_validation_precedes_all_writes(self, conversation=False):
+    def test_prc_candidate_compile_precedes_writes(self):
+        for name, *_ in patcher.PRC:
+            self.test_main_final_candidate_validation_precedes_all_writes(admission=name)
+
+    def test_main_final_candidate_validation_precedes_all_writes(self, conversation=False, admission=None):
         import io
         with tempfile.TemporaryDirectory() as d:
             paths = self.copy_pinned(Path(d))
@@ -115,7 +127,8 @@ class PatcherTests(unittest.TestCase):
             transform = patcher.patch_codex_cancellation
             def invalid_final(candidates, paths):
                 transform(candidates, paths)
-                candidates[paths[2].with_name('conversation_loop.py') if conversation else paths[2]] = 'not valid python !'
+                target = names[admission] if admission else paths[2].with_name('conversation_loop.py') if conversation else paths[2]
+                candidates[target] = 'not valid python !'
             # Corrupt the final candidate after fingerprint validation, before compile/write.
             with patch.object(patcher, '_module_path', names.__getitem__), patch.object(patcher, 'patch_codex_cancellation', side_effect=invalid_final), patch.object(Path, 'write_text', record), patch('sys.stderr', io.StringIO()):
                 status = patcher.main()
@@ -140,13 +153,13 @@ class PatcherTests(unittest.TestCase):
     def test_main_all_candidate_write_faults(self):
         import io
         self.assertTrue(callable(getattr(patcher, 'prepare_files', None)), 'candidate ownership boundary required')
-        for target in (1, 2, 0, 3):
+        for target in (1, 2, 0, 3, 4, 5):
             for fault in ('deny', 'partial', 'restore-denied', 'earlier-restore-denied'):
                 with self.subTest(target=target, fault=fault), tempfile.TemporaryDirectory() as d:
                     paths = self.copy_pinned(Path(d))
-                    paths = (*paths, paths[2].with_name('conversation_loop.py'))
-                    before = {p: p.read_bytes() for p in paths}
                     names = self.module_paths(paths)
+                    paths = tuple(names.values())
+                    before = {p: p.read_bytes() for p in paths}
                     write_text, write_bytes = Path.write_text, Path.write_bytes
                     denied = paths[target] if fault == 'restore-denied' else paths[1] if fault == 'earlier-restore-denied' else None
                     restored = []
@@ -176,7 +189,7 @@ class PatcherTests(unittest.TestCase):
     def test_three_owner_drift_and_mixed_states_never_attempt_writes(self):
         import io
         for state in ('pristine', 'crowsnest', 'b3d', 'b3e'):
-            for target in range(4):
+            for target in range(6):
                 with self.subTest(state=state, target=target), tempfile.TemporaryDirectory() as d:
                     paths = self.copy_pinned(Path(d))
                     names = self.module_paths(paths)
@@ -184,7 +197,7 @@ class PatcherTests(unittest.TestCase):
                         patcher.patch_files(*paths)
                     if state == 'b3d':
                         paths[2].write_text(patcher.patch_cancelled_registration(paths[2].read_text()))
-                    paths = (*paths, names['agent.conversation_loop'])
+                    paths = tuple(names.values())
                     with patch.object(patcher, '_module_path', names.__getitem__):
                         before_patch = paths[target].read_bytes()
                         if state == 'b3e':
