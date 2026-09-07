@@ -10,11 +10,16 @@ const {
   withFinanceDiagnostics,
   toIntSoft,
 } = require('./sunset-finance-summary');
+const {
+  BOOKING_STATUS_EXCLUSIONS_SQL,
+  PAYMENT_COLLECTED_SCOPE_SQL,
+} = require('./sunset-staff-money-scope');
 
 // Finance excludes transient/terminal non-operational bookings from BSR/booked views.
 // Gross paid cash intentionally includes cancelled-booking payments until recorded refunds
 // reduce Net (Slice 2 ledger). Deleted schedule bookings set payments.finance_exclusion.
-const BOOKING_EXCLUSIONS = "('cancelled', 'canceled', 'expired', 'hold')";
+// Shared with Bookings KPIs via sunset-staff-money-scope (do not diverge).
+const BOOKING_EXCLUSIONS = BOOKING_STATUS_EXCLUSIONS_SQL;
 
 const BSR_SQL = `
   SELECT bsr.id::text AS service_record_id,
@@ -57,10 +62,7 @@ const PAYMENTS_SQL = `
    WHERE c.slug = $1
      AND b.metadata->>'location_id' = $2
      AND p.status = 'paid'
-     AND p.paid_at IS NOT NULL
-     AND COALESCE((p.metadata->>'test_booking_cancelled')::boolean, false) = false
-     AND p.finance_exclusion IS NULL
-     AND COALESCE((p.metadata->>'schedule_booking_deleted')::boolean, false) = false
+     ${PAYMENT_COLLECTED_SCOPE_SQL}
 `;
 
 /**
@@ -385,8 +387,7 @@ const LODGING_PAYMENTS_SQL = `
     JOIN clients c ON b.client_id = c.id
    WHERE c.slug = $1
      AND p.status = 'paid'
-     AND p.paid_at IS NOT NULL
-     AND COALESCE((p.metadata->>'test_booking_cancelled')::boolean, false) = false
+     ${PAYMENT_COLLECTED_SCOPE_SQL}
 `;
 
 const LODGING_REFUNDS_SQL = `
