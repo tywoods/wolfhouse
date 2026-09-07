@@ -185,7 +185,21 @@ class CanonicalFactoryStreamingTests(unittest.TestCase):
 
     def setUp(self):
         from wolfhouse.test_luna_personality_live_eval import RequestIdentityBoundaryTests
+        # A nested mutant must not inherit a previously installed GREEN class
+        # wrapper through the new instance wrapper's bound-original closure.
+        iso.reset_isolation_runtime_for_tests()
         RequestIdentityBoundaryTests.setUp(self)
+        expected = next(c for c in iso._wrap_openai_client_factory.__code__.co_consts
+                        if isinstance(c, types.CodeType) and c.co_name == '_wrapped')
+        for owner in (self.ra.AIAgent, self.agent):
+            for name in ('_create_request_openai_client', '_ensure_primary_openai_client'):
+                fn = getattr(owner, name)
+                self.assertIs(fn.__code__, expected)
+                cells = dict(zip(fn.__code__.co_freevars,
+                                 (c.cell_contents for c in fn.__closure__)))
+                original = cells['orig']
+                if iso._is_wrapped(original):
+                    self.assertIs(original.__code__, expected)
         self.effects = []
         agent = self.agent
         agent.base_url = 'https://api.githubcopilot.com'
