@@ -21,6 +21,9 @@ var scheduleDrawerState = {
   activeBookingKey: null,
   prevBodyOverflow: null,
   dismissWired: false,
+  // When set (e.g. Reservas → drawer), close restores this tab if something
+  // else activated Horario underneath. Null for native Horario opens.
+  returnTab: null,
 };
 
 function scheduleCloneDrawerCtx(ctx){
@@ -380,6 +383,29 @@ function scheduleRefreshDrawer(){
   }).catch(function(){});
 }
 
+function scheduleDrawerCaptureReturnTab(row){
+  var tab = row && row._drawerReturnTab != null ? String(row._drawerReturnTab).trim() : '';
+  // Only honor known top-level tabs; never invent navigation.
+  if (tab === 'bookings' || tab === 'portal-home' || tab === 'conversations' || tab === 'customers' || tab === 'admin') {
+    scheduleDrawerState.returnTab = tab;
+    return;
+  }
+  scheduleDrawerState.returnTab = null;
+}
+
+function scheduleDrawerRestoreReturnTab(){
+  var returnTab = scheduleDrawerState.returnTab;
+  scheduleDrawerState.returnTab = null;
+  if (!returnTab) return;
+  var panel = typeof el === 'function' ? el('tab-' + returnTab) : null;
+  if (panel && panel.classList && panel.classList.contains('active')) return;
+  var tabFn = (typeof window !== 'undefined' && typeof window.switchToTab === 'function')
+    ? window.switchToTab
+    : (typeof switchToTab === 'function' ? switchToTab : null);
+  if (!tabFn) return;
+  try { tabFn(returnTab, null); } catch (_st) { /* ignore */ }
+}
+
 function openScheduleDetailDrawer(row){
   if (!row) return;
   scheduleEnsureRowId(row);
@@ -390,6 +416,7 @@ function openScheduleDetailDrawer(row){
 
   var openGen = scheduleDrawerBumpOpenGeneration();
   scheduleLastDrawerRowId = row._scheduleId;
+  scheduleDrawerCaptureReturnTab(row);
 
   var useDrawerApi = scheduleDrawerCanLoadCanonical(row)
     || !!(row._drawerFromCustomer && (row.booking_id || row.booking_code));
@@ -463,6 +490,9 @@ function closeScheduleDetailDrawer(){
   }
   scheduleDrawerMarkDetailOpen(false);
   scheduleDrawerUnlockPage();
+  // After overlay is gone: if Reservas (or another owner) asked to return,
+  // restore that tab when Horario was activated underneath the drawer.
+  scheduleDrawerRestoreReturnTab();
 }
 
 if (typeof window !== 'undefined') {

@@ -958,7 +958,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.finance.trend.monthDays': 'Days',
     'admin.finance.product.accommodation': 'Accommodation',
     'admin.bookings.status.hidden': 'Hidden',
-    'admin.bookings.openInSchedule': 'Open in Schedule',
+    'admin.bookings.openInSchedule': 'Open booking',
     'admin.bookings.action.unhide': 'Unhide',
     'admin.bookings.action.hide': 'Hide',
     'admin.bookings.action.restore': 'Restore',

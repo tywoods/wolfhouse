@@ -1134,10 +1134,10 @@ async function testGeneratedUi() {
       await page.locator('button.portal-admin-bookings-code-link[data-bookings-open-schedule]').count() >= 1);
     const codeAria = await page.locator('button.portal-admin-bookings-code-link').first().getAttribute('aria-label');
     ok('booking code has ARIA label (localized, not raw i18n key)',
-      !!(codeAria && /^(Open in Schedule|Abrir en Agenda):/.test(codeAria) && !/admin\.bookings\./.test(codeAria)),
+      !!(codeAria && /^(Open booking|Abrir reserva):/.test(codeAria) && !/admin\.bookings\./.test(codeAria)),
       codeAria);
     const codeTitle = await page.locator('button.portal-admin-bookings-code-link').first().getAttribute('title');
-    ok('booking code title matches localized open-in-schedule label',
+    ok('booking code title matches localized open-booking label',
       !!(codeTitle && codeTitle === codeAria && !/admin\.bookings\./.test(codeTitle)),
       codeTitle);
     const guestHtml = await page.locator('.portal-admin-bookings-guest-link').first().innerHTML();
@@ -1159,6 +1159,7 @@ async function testGeneratedUi() {
           booking_code: row && row.booking_code,
           service_date: row && row.service_date,
           from_customer: !!(row && row._drawerFromCustomer),
+          return_tab: row && row._drawerReturnTab ? String(row._drawerReturnTab) : null,
         });
       };
       window.scheduleOpenDayDetail = function (iso) {
@@ -1187,7 +1188,8 @@ async function testGeneratedUi() {
         && c.booking_id === 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
         && c.booking_code === fullCode
         && c.service_date === '2026-07-10'
-        && c.from_customer === true),
+        && c.from_customer === true
+        && c.return_tab === 'bookings'),
       JSON.stringify(navCalls));
     ok('Bookings panel still active after code click',
       await page.locator('#tab-bookings.tab-panel.active').count() === 1);
