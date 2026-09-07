@@ -18,6 +18,8 @@ journal writes are denied before invocation.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import hmac
 import inspect
 import json
 import threading
@@ -138,6 +140,9 @@ MIRROR_QUEUE_METHODS: Tuple[str, ...] = (
 _ISOLATED: ContextVar[Optional["IsolatedTurnCapture"]] = ContextVar(
     "luna_personality_isolated_turn",
     default=None,
+)
+_RUNTIME_ROUTE: ContextVar[Optional["_RuntimeRouteAdmission"]] = ContextVar(
+    "luna_runtime_route_admission", default=None
 )
 
 _installed = False
@@ -260,10 +265,71 @@ class IsolationAbort(RuntimeError):
         self.counters: Optional[Dict[str, int | bool | str | None]] = None
 
 
-def refuse_unverified_runtime() -> None:
-    """No inert canonical route authority exists for this containment slice."""
-    if _ISOLATED.get() is not None:
+@dataclass
+class _RuntimeRouteAdmission:
+    cap: IsolatedTurnCapture
+    runner: Any
+    source: Any
+    agents: Tuple[Any, ...]
+    canonical: bytes
+    digest: bytes
+    stage: int = 0
+
+
+def _runtime_route_canonical(cap: IsolatedTurnCapture, source: Any, agents: Tuple[Any, ...]) -> bytes:
+    platform = getattr(getattr(source, "platform", None), "value", None)
+    fields = ["wolfhouse.runtime-route", 1, cap.tenant_id, platform,
+              getattr(source, "chat_id", None), getattr(source, "user_id", None),
+              cap.case_id, cap.personality_id,
+              [[id(agent), effective_api_mode(agent)] for agent in agents]]
+    if any(value is None or type(value) is not str or not value for value in fields[2:8]):
         raise IsolationAbort("runtime_resolution_unverified")
+    return json.dumps(fields, ensure_ascii=True, separators=(",", ":")).encode()
+
+
+def _issue_runtime_route_admission(cap: IsolatedTurnCapture, event: Any, runner: Any) -> Token:
+    """Mint a request-scoped opaque capability from trusted ingress owners."""
+    if type(cap) is not IsolatedTurnCapture or cap is not _ISOLATED.get() or cap.tenant_id != "sunset":
+        raise IsolationAbort("runtime_resolution_unverified")
+    source = getattr(event, "source", None)
+    agents = tuple(_iter_effective_agents(runner=runner))
+    if not agents or runner is not _ACTIVE_RUNNER:
+        raise IsolationAbort("runtime_resolution_unverified")
+    canonical = _runtime_route_canonical(cap, source, agents)
+    admission = _RuntimeRouteAdmission(cap, runner, source, agents, canonical,
+                                       hashlib.sha256(canonical).digest())
+    return _RUNTIME_ROUTE.set(admission)
+
+
+def refuse_unverified_runtime() -> None:
+    """Consume one of the two exact generated admission stages, else deny."""
+    cap, admission = _ISOLATED.get(), _RUNTIME_ROUTE.get()
+    if cap is None:
+        return
+    agents = tuple(_iter_effective_agents(runner=_ACTIVE_RUNNER))
+    if type(admission) is not _RuntimeRouteAdmission:
+        raise IsolationAbort("runtime_resolution_unverified")
+    try:
+        canonical = _runtime_route_canonical(cap, admission.source, agents)
+        issued = _runtime_route_canonical(cap, admission.source, admission.agents)
+        expanded = (admission.stage in (0, 1) and len(agents) > len(admission.agents)
+                    and admission.canonical == issued
+                    and hmac.compare_digest(admission.digest, hashlib.sha256(issued).digest())
+                    and all(any(old is current for current in agents) for old in admission.agents))
+        if expanded:
+            admission.agents, admission.canonical = agents, canonical
+            admission.digest = hashlib.sha256(canonical).digest()
+        same_agents = (len(admission.agents) == len(agents)
+                       and all(old is current for old, current in zip(admission.agents, agents)))
+        valid = (type(admission) is _RuntimeRouteAdmission and admission.cap is cap
+                 and admission.runner is _ACTIVE_RUNNER and same_agents
+                 and admission.stage in (0, 1) and admission.canonical == canonical
+                 and hmac.compare_digest(admission.digest, hashlib.sha256(canonical).digest()))
+    except Exception:
+        valid = False
+    if not valid:
+        raise IsolationAbort("runtime_resolution_unverified")
+    admission.stage += 1
 
 
 def current_isolated_turn() -> Optional[IsolatedTurnCapture]:
@@ -1657,14 +1723,17 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
             async def _isolated_handle(*args: Any, **kwargs: Any):
                 cap = _ISOLATED.get()
                 primary_error = None
+                admission_token = None
                 try:
-                    if cap is not None:
+                    if cap is not None and _RUNTIME_ROUTE.get() is None:
                         live = inspect_live_seams(targets=_ACTIVE_TARGETS or t, runner=runner)
                         missing = [k for k in REQUIRED_LIVE_SEAMS if not live.get(k)]
                         if missing:
                             raise IsolationAbort("seams_incomplete:" + ",".join(missing))
                         for agent in _iter_effective_agents(runner=runner, targets=t):
                             refuse_unsupported_backend(agent)
+                        event = args[0] if args else kwargs.get("event")
+                        admission_token = _issue_runtime_route_admission(cap, event, runner)
                     result = orig_handle(*args, **kwargs)
                     if hasattr(result, "__await__"):
                         result = await result
@@ -1681,6 +1750,8 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
                         except BaseException:
                             if primary_error is None:
                                 raise
+                    if admission_token is not None:
+                        _RUNTIME_ROUTE.reset(admission_token)
 
             _mark(_isolated_handle)
             _save_orig(runner, "_handle_message", orig_handle)
