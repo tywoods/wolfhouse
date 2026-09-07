@@ -91,6 +91,9 @@ ok('refunds filter source staff_manual_record', /staff_manual_record/.test(ref))
       if (/from tenant_rental_offerings|from tenant_surf_pack/.test(s)) {
         return Promise.resolve({ rows: [] });
       }
+      if (/from tenant_accommodation_settings/.test(s)) {
+        return Promise.resolve({ rows: [{ bed_capacity: 2 }] });
+      }
       return Promise.resolve({ rows: [{ booking_id: 'B1', total_amount_cents: 10000, balance_due_cents: 8500 }] });
     },
   };
@@ -98,10 +101,11 @@ ok('refunds filter source staff_manual_record', /staff_manual_record/.test(ref))
   const data = await fetchSunsetFinanceData(fakePg, { clientSlug: 'sunset', locationId: 'sunset-somo' });
   ok('fetch wraps all reads in one repeatable-read read-only transaction', /begin.*repeatable read.*read only/.test(norm(calls[0].sql)) && /commit/.test(norm(calls[calls.length - 1].sql)));
   const scopedCalls = calls.filter((c) => Array.isArray(c.params));
-  ok('fetch issues 6 scoped queries (bsr/bookings/payments/refunds/stock/packs)', scopedCalls.length === 6, scopedCalls.length);
+  ok('fetch issues 7 scoped queries (bsr/bookings/payments/refunds/stock/packs/accommodation)', scopedCalls.length === 7, scopedCalls.length);
   ok('every scoped query is parameterized with [sunset, sunset-somo]', scopedCalls.every((c) => c.params[0] === 'sunset' && c.params[1] === 'sunset-somo'));
   ok('fetch returns bsr/payments/bookings arrays', Array.isArray(data.bsr) && Array.isArray(data.payments) && Array.isArray(data.bookings));
   ok('fetch returns refund_records + rental_stock + surf_packs', Array.isArray(data.refund_records) && Array.isArray(data.rental_stock) && Array.isArray(data.surf_packs));
+  ok('fetch returns accommodation_settings bed_capacity', data.accommodation_settings && data.accommodation_settings.bed_capacity === 2);
   ok('fetch keeps empty pending_refund_payments key for compat', Array.isArray(data.pending_refund_payments) && data.pending_refund_payments.length === 0);
 
   // End-to-end into the pure lib.

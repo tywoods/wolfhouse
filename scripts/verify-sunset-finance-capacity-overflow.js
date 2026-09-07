@@ -48,9 +48,8 @@ const html = box.renderFinanceRedesignHtml({
       seats_filled: 132,
       seats_capacity: 100,
       by_product: [
-        { slot: 'lessons', label: 'Lessons', pct: 132, detail: '132/100' },
-        { slot: 'boards', label: 'Boards', pct: 80, detail: '16/20' },
-        { slot: 'other', label: 'Staff accommodation', used: 2, pct: null, detail: '2' },
+        { slot: 'lessons', label: 'Lessons', pct: 132, detail: '132/100', oversold: true },
+        { slot: 'boards', label: 'Boards', pct: 80, detail: '16/20', oversold: false },
       ],
     },
     daily_gross_trend: [],
@@ -70,7 +69,7 @@ assert.ok(/--pfb-ring:100%/.test(html), 'ring arc clamped to 100%');
 assert.ok(/pfb-ring is-over/.test(html), 'ring over class');
 assert.ok(/style="width:80%"/.test(html), 'under-capacity row keeps honest fill');
 assert.ok(!/out 2/.test(html), 'no out-N leftover for accommodation without stock');
-assert.ok(html.includes('Accommodation') || html.includes('Alojamiento'));
+assert.ok(!/Staff accommodation|Alojamiento/.test(html), 'accommodation without bed_capacity stays hidden');
 
 const under = box.renderFinanceRedesignHtml({
   redesign: {
