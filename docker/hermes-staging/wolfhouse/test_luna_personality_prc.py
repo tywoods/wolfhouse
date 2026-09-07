@@ -17,6 +17,60 @@ POOL_ENTRIES = ('load_pool', 'select', '_select_unlocked', '_available_entries',
                 'mark_exhausted_and_rotate', 'try_refresh_current', '_try_refresh_current_unlocked', '_persist')
 
 
+AUX_ENTRIES = ('resolve_provider_client', 'resolve_vision_provider_client',
+               '_refresh_provider_credentials', '_recover_provider_pool', '_select_pool_entry', '_peek_pool_entry')
+
+
+class AuxiliaryAdmissionTests(unittest.TestCase):
+    def test_six_entries_deny_before_effects(self):
+        import inspect
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from agent import auxiliary_client as aux
+        effects = []
+        def tripwire(*args, **kwargs):
+            effects.append('acquisition/coercion')
+            raise AssertionError('acquisition/coercion reached')
+        class Hostile:
+            __getattr__ = __getitem__ = __bool__ = __str__ = tripwire
+        hostile = Hostile()
+        cap = isolation.IsolatedTurnCapture(case_id='aux', personality_id='balanced', tenant_id='sunset')
+        for state in (cap, False, {}, hostile):
+            token = isolation.enter_isolated_turn(state)
+            retained = contextvars.copy_context()
+            isolation.exit_isolated_turn(token)
+            for revoked in (False, True):
+                if revoked:
+                    isolation.settle_isolated_work(cap)
+                for name in AUX_ENTRIES:
+                    owner = getattr(aux, name)
+                    self.assertTrue(owner.__code__.co_filename.startswith('/tmp/prc-owners/'))
+                    with self.subTest(owner=name, state=type(state).__name__, revoked=revoked), ExitStack() as stack:
+                        for dependency in (*AUX_ENTRIES, '_validate_proxy_env_urls', '_normalize_aux_provider',
+                                           '_resolve_task_provider_model', 'load_pool', '_evict_cached_clients',
+                                           'OpenAI', '_read_main_model'):
+                            if dependency != name:
+                                stack.enter_context(patch.object(aux, dependency, tripwire))
+                        args, kwargs = [], {}
+                        for parameter in inspect.signature(owner).parameters.values():
+                            if parameter.kind == parameter.KEYWORD_ONLY:
+                                kwargs[parameter.name] = hostile
+                            else:
+                                args.append(hostile)
+                        effects.clear()
+                        try:
+                            retained.run(owner, *args, **kwargs)
+                        except Exception as error:
+                            caught = error
+                        else:
+                            caught = None
+                        self.assertEqual(effects, [], 'entry must refuse before acquisition/coercion')
+                        self.assertIsInstance(caught, isolation.IsolationAbort)
+                        self.assertEqual(caught.reason, 'auth_boundary_unsupported')
+                        self.assertIsNone(caught.__cause__)
+        self.assertIsNone(isolation.current_isolated_turn())
+
+
 class DirectAuthPoolTests(unittest.TestCase):
     def test_all_direct_entries_active_revoked_and_hostile(self):
         import inspect
