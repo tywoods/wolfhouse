@@ -441,8 +441,10 @@ def patch_constructor_admission(source, candidates, paths):
     import hashlib
     marked = []
     for path, (_, owner, expected, anchor, reason) in zip(paths, PRC):
-        guard = ('    from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
-                 '    if current_isolated_turn() is not None:\n'
+        admitted = ', runtime_route_execution_admitted' if reason == 'runtime_resolution_unverified' else ''
+        suffix = ' and not runtime_route_execution_admitted()' if admitted else ''
+        guard = (f'    from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort{admitted}\n'
+                 f'    if current_isolated_turn() is not None{suffix}:\n'
                  f'        raise IsolationAbort("{reason}")\n')
         changes = ((anchor, guard + anchor),)
         present = guard in source[path]

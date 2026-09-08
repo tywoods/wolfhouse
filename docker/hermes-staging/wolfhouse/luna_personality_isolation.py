@@ -38,6 +38,8 @@ ISOLATION_NO_SEND = "luna_personality_isolated_no_send"
 PACK_INJECTION_MARK = "Luna Personality this turn:"
 _WRAP_MARK = "_luna_personality_isolated"
 _CTX_MARK = "_luna_personality_ctx"
+RUNTIME_RESOLUTION_STAGE = "runtime_resolution"
+AGENT_EXECUTION_STAGE = "agent_execution"
 
 REQUIRED_LIVE_SEAMS: Tuple[str, ...] = (
     "send_wrapped",
@@ -273,7 +275,8 @@ class _RuntimeRouteAdmission:
     agents: Tuple[Any, ...]
     canonical: bytes
     digest: bytes
-    stage: int = 0
+    stage: str = "issued"
+    identity: Any = field(default=None, repr=False, compare=False)
 
 
 def _runtime_route_canonical(cap: IsolatedTurnCapture, source: Any, agents: Tuple[Any, ...]) -> bytes:
@@ -298,11 +301,12 @@ def _issue_runtime_route_admission(cap: IsolatedTurnCapture, event: Any, runner:
     canonical = _runtime_route_canonical(cap, source, agents)
     admission = _RuntimeRouteAdmission(cap, runner, source, agents, canonical,
                                        hashlib.sha256(canonical).digest())
+    admission.identity = admission
     return _RUNTIME_ROUTE.set(admission)
 
 
-def refuse_unverified_runtime() -> None:
-    """Consume one of the two exact generated admission stages, else deny."""
+def refuse_unverified_runtime(stage: str = "") -> None:
+    """Advance only through trusted generated semantic locations, else deny."""
     cap, admission = _ISOLATED.get(), _RUNTIME_ROUTE.get()
     if cap is None:
         return
@@ -312,7 +316,8 @@ def refuse_unverified_runtime() -> None:
     try:
         canonical = _runtime_route_canonical(cap, admission.source, agents)
         issued = _runtime_route_canonical(cap, admission.source, admission.agents)
-        expanded = (admission.stage in (0, 1) and len(agents) > len(admission.agents)
+        expanded = (admission.stage in ("issued", RUNTIME_RESOLUTION_STAGE)
+                    and len(agents) > len(admission.agents)
                     and admission.canonical == issued
                     and hmac.compare_digest(admission.digest, hashlib.sha256(issued).digest())
                     and all(any(old is current for current in agents) for old in admission.agents))
@@ -321,19 +326,26 @@ def refuse_unverified_runtime() -> None:
             admission.digest = hashlib.sha256(canonical).digest()
         same_agents = (len(admission.agents) == len(agents)
                        and all(old is current for old, current in zip(admission.agents, agents)))
-        valid = (type(admission) is _RuntimeRouteAdmission and admission.cap is cap
-                 and admission.runner is _ACTIVE_RUNNER and same_agents
-                 and admission.stage in (0, 1) and admission.canonical == canonical
+        valid = (admission.cap is cap and admission.runner is _ACTIVE_RUNNER and same_agents
+                 and admission.identity is admission and admission.canonical == canonical
                  and hmac.compare_digest(admission.digest, hashlib.sha256(canonical).digest()))
     except Exception:
         valid = False
-    if not valid:
+    transition = ((admission.stage == "issued" and stage == RUNTIME_RESOLUTION_STAGE)
+                  or (admission.stage == RUNTIME_RESOLUTION_STAGE
+                      and stage in (RUNTIME_RESOLUTION_STAGE, AGENT_EXECUTION_STAGE)))
+    if not valid or not transition:
         raise IsolationAbort("runtime_resolution_unverified")
-    admission.stage += 1
+    admission.stage = stage
 
 
 def current_isolated_turn() -> Optional[IsolatedTurnCapture]:
     return _ISOLATED.get()
+
+
+def runtime_route_execution_admitted() -> bool:
+    admission = _RUNTIME_ROUTE.get()
+    return (type(admission) is _RuntimeRouteAdmission and admission.identity is admission and admission.cap is _ISOLATED.get() and admission.runner is _ACTIVE_RUNNER and admission.stage == AGENT_EXECUTION_STAGE)
 
 
 def check_worker_origin(origin: Any, agent: Any) -> None:

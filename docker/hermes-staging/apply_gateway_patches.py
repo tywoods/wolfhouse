@@ -626,8 +626,8 @@ def apply_luna_cold_admission(source: str) -> str:
     """Reject before proxy/config/tool discovery, with a second worker defense."""
     entry = '        # ---- Proxy mode: delegate to remote API server ----\n'
     guarded_entry = (
-        '        from wolfhouse.luna_personality_isolation import refuse_unverified_runtime\n'
-        '        refuse_unverified_runtime()\n' + entry
+        '        from wolfhouse.luna_personality_isolation import refuse_unverified_runtime, RUNTIME_RESOLUTION_STAGE\n'
+        '        refuse_unverified_runtime(RUNTIME_RESOLUTION_STAGE)\n' + entry
     )
     if guarded_entry not in source:
         if source.count(entry) != 1:
@@ -637,11 +637,11 @@ def apply_luna_cold_admission(source: str) -> str:
         raise RuntimeError('cold admission entry duplicated')
     anchor = '            try:\n                model, runtime_kwargs = self._resolve_session_agent_runtime('
     replacement = (
-        '            from wolfhouse.luna_personality_isolation import refuse_unverified_runtime\n'
-        '            refuse_unverified_runtime()\n' + anchor
+        '            from wolfhouse.luna_personality_isolation import refuse_unverified_runtime, AGENT_EXECUTION_STAGE\n'
+        '            refuse_unverified_runtime(AGENT_EXECUTION_STAGE)\n' + anchor
     )
     if replacement not in source:
-        if source.count(anchor) != 1 or '            refuse_unverified_runtime()' in source:
+        if source.count(anchor) != 1 or '            refuse_unverified_runtime(' in source:
             raise RuntimeError('cold admission owner ambiguous or malformed')
         source = source.replace(anchor, replacement, 1)
     if source.count(replacement) != 1:
@@ -678,6 +678,9 @@ def apply_luna_cold_admission(source: str) -> str:
         raise RuntimeError('cold admission entry/worker ownership invalid')
     for guard in guards:
         fn = owner(guard)
+        expected_stage = 'RUNTIME_RESOLUTION_STAGE' if fn.name == '_run_agent_inner' else 'AGENT_EXECUTION_STAGE'
+        if len(guard.args) != 1 or ast.unparse(guard.args[0]) != expected_stage or guard.keywords:
+            raise RuntimeError('cold admission semantic stage invalid')
         statement = parents[guard]
         if statement not in fn.body:
             raise RuntimeError('cold admission guard is conditional')

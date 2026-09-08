@@ -1249,6 +1249,7 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
         effects = []
         runner = SimpleNamespace(
             _handle_message=handler,
+            _agent_cache={"sunset-fixture": SimpleNamespace(api_mode="chat_completions")},
             session_store=_complete_targets().session_store_cls(),
             _session_db=_counter_session_db(effects),
         )
