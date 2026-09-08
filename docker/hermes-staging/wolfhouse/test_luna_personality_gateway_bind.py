@@ -450,8 +450,8 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
             self.assertTrue(second["luna_soul_reload"])
             for old, new in (("def _run_agent_inner(", "def unrelated_entry("),
                              ("def _handle_message_with_agent(", "def unrelated_catch("),
-                             ("        refuse_unverified_runtime()\n", "        if False: refuse_unverified_runtime()\n"),
-                             ("            refuse_unverified_runtime()\n", "            if False: refuse_unverified_runtime()\n")):
+                             ("        refuse_unverified_runtime(RUNTIME_RESOLUTION_STAGE)\n", "        if False: refuse_unverified_runtime(RUNTIME_RESOLUTION_STAGE)\n"),
+                             ("            refuse_unverified_runtime(AGENT_EXECUTION_STAGE)\n", "            if False: refuse_unverified_runtime(AGENT_EXECUTION_STAGE)\n")):
                 hostile = once.decode().replace(old, new, 1)
                 ast.parse(hostile)
                 with self.subTest(drift=new), self.assertRaises(RuntimeError):

@@ -70,7 +70,7 @@ async def main():
         if event == 'return' and frame.f_code.co_name == '_handle_message':
             import linecache
             print('INGRESS_RETURN', frame.f_lineno, linecache.getline(frame.f_code.co_filename, frame.f_lineno).strip(), flush=True)
-        if event == 'call' and frame.f_code.co_name in {'_handle_message', '_isolated_handle', '_handle_message_with_agent', 'settle_isolated_async_work'}:
+        if event == 'call' and frame.f_code.co_name in {'_handle_message', '_isolated_handle', '_handle_message_with_agent', '_issue_runtime_route_admission', 'refuse_unverified_runtime', 'settle_isolated_async_work'}:
             observed.append([frame.f_code.co_name, frame.f_code.co_filename])
     print('INGRESS_PREREQUISITES', runner._startup_restore_in_progress, runner._is_user_authorized(source), flush=True)
     ordinary_before = len(calls)
@@ -93,9 +93,10 @@ async def main():
     print('WHOLE_INGRESS_TRACE', json.dumps({'owners': observed, 'outcome': str(outcome), 'fixture_sdk_delta': len(calls)-before, 'async_work_settled': cap.async_work_settled}), flush=True)
     assert any(name == '_handle_message' for name, path in observed), 'genuine ingress not entered'
     assert any(name == '_handle_message_with_agent' for name, path in observed), 'agent ingress not entered'
-    assert outcome == 'runtime_resolution_unverified', outcome
-    assert len(calls) == before, 'closed isolation admission reached SDK'
+    assert outcome == 'fixture ordinary reply', outcome
+    assert len(calls) > before, 'admitted captured ingress missed SDK'
+    assert cap.responses_sdk_attempted > 0
     assert cap.async_work_settled
-    print('CAPTURED_AGENT_REACHING_REFUSAL_AND_DRAIN_PASS', flush=True)
+    print('CAPTURED_RUNTIME_ROUTE_SDK_AND_DRAIN_PASS', flush=True)
     assert any(name == 'settle_isolated_async_work' for name, path in observed), 'production ingress returned without invoking async completion owner'
 asyncio.run(main())
