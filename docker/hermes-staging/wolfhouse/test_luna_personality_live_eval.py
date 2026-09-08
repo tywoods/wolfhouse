@@ -710,6 +710,39 @@ class IsolatedEvalTests(unittest.TestCase):
         self.assertEqual(caught.exception.reason, "canonical_gateway_boundary_reached")
         fetch.assert_called_once_with("")
 
+    def test_http_route_resolves_canonical_invoker_at_request_time(self) -> None:
+        from wolfhouse import luna_personality_live_eval as canonical
+
+        spec = importlib.util.spec_from_file_location("stale_live_eval", canonical.__file__)
+        stale = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(stale)
+        handlers, seen = {}, {}
+        app = SimpleNamespace(router=SimpleNamespace(
+            add_get=lambda *_: None, add_post=lambda path, fn: handlers.update(post=fn)))
+        request = SimpleNamespace(json=mock.AsyncMock(return_value={
+            "case_id": "warmth-greeting-en", "personality_id": "sunny"}))
+        web = SimpleNamespace(json_response=lambda body, **kw: (body, kw))
+        invoker = object()
+
+        async def canonical_run(**kwargs):
+            seen.update(kwargs)
+            return {"ok": True}
+
+        async def stale_run(**_kwargs):
+            return {"ok": False, "error": "stale_route_binding"}
+
+        with mock.patch.object(stale, "live_sunset_eval_identity", return_value={}), \
+             mock.patch.object(stale, "_eval_unauthorized", return_value=None), \
+             mock.patch.object(stale, "run_isolated_personality_eval", stale_run), \
+             mock.patch.object(canonical, "run_isolated_personality_eval", canonical_run), \
+             mock.patch.object(canonical, "default_invoke_live_gateway", invoker), \
+             mock.patch.dict(sys.modules, {"aiohttp": SimpleNamespace(web=web)}):
+            stale.register_live_eval_route(app)
+            body, _options = _run(handlers["post"](request))
+        self.assertTrue(body["ok"])
+        self.assertIs(seen["invoke_turn"], invoker)
+
     def test_http_abort_retains_terminal_evidence(self) -> None:
         from wolfhouse import luna_personality_live_eval as live
         first = IsolationAbort("runtime_resolution_unverified")
