@@ -9,6 +9,7 @@ auth overrides.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
@@ -915,11 +916,16 @@ def register_live_eval_route(app) -> bool:
             return web.json_response(rec, status=200 if rec.get("ready") else 503)
 
         try:
-            result = await run_isolated_personality_eval(
+            # Route registration can outlive/reload a module alias. Resolve both
+            # the evaluator and its patched gateway boundary canonically per request.
+            canonical_live = importlib.import_module("wolfhouse.luna_personality_live_eval")
+
+            result = await canonical_live.run_isolated_personality_eval(
                 case_id=str(body.get("case_id") or ""),
                 personality_id=str(body.get("personality_id") or DEFAULT_PERSONALITY_ID),
                 require_live_seams=True,
                 serving_preflight=True,
+                invoke_turn=canonical_live.default_invoke_live_gateway,
             )
         except IsolationAbort as exc:
             from aiohttp import web
