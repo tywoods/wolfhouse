@@ -506,7 +506,8 @@ def patch_auth_admission(source, candidates, paths):
     # _load_auth_store nests through the lock even for a warm, read-only load.
     # Mutating callers retain their own unconditional entry guards.
     read_only = {'resolve_codex_runtime_credentials', '_read_codex_tokens',
-                 '_load_auth_store', '_auth_store_lock'}
+                 '_load_auth_store', '_auth_store_lock', '_pool_codex_access_token',
+                 '_codex_pool_rate_limit_status'}
     for path, (_, expected, owners) in zip(paths, PRD):
         text = source[path]
         for owner in reversed(owners):
