@@ -75,6 +75,23 @@ class RuntimeRouteAdmissionTests(unittest.TestCase):
     def test_ordinary_turn_is_unchanged(self):
         iso.refuse_unverified_runtime()
 
+    def test_canonical_cold_gateway_issues_before_first_agent_exists(self):
+        runner = SimpleNamespace(_running_agents={}, _agent_cache={})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"), chat_id="fixture", user_id="fixture")
+        cap = iso.IsolatedTurnCapture(case_id="case", personality_id="balanced", tenant_id="sunset")
+        iso._ACTIVE_RUNNER = runner
+        token = iso.enter_isolated_turn(cap)
+        try:
+            admission_token = iso._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+            try:
+                iso.refuse_unverified_runtime(iso.RUNTIME_RESOLUTION_STAGE)
+                iso.refuse_unverified_runtime(iso.AGENT_EXECUTION_STAGE)
+                self.assertTrue(iso.runtime_route_execution_admitted())
+            finally:
+                iso._RUNTIME_ROUTE.reset(admission_token)
+        finally:
+            iso.exit_isolated_turn(token)
+
     def test_trusted_descriptor_admits_semantic_retry_then_one_way_execution(self):
         agent = SimpleNamespace(api_mode="chat_completions")
         runner = SimpleNamespace(_agent_cache={"fixture": agent})
