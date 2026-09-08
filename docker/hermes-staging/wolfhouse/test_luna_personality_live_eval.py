@@ -1244,6 +1244,38 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
 
+    def test_real_gateway_source_skips_consuming_preauth_hook_only_for_exact_eval(self) -> None:
+        """Hostile RED: verify the actual serving source, not a mocked handler."""
+        import ast
+        from wolfhouse import luna_personality_isolation as iso
+        from apply_gateway_patches import apply_luna_cold_admission
+
+        patched = apply_luna_cold_admission(HERMES_GATEWAY.read_text(encoding="utf-8"))
+        tree = ast.parse(patched)
+        handle = next(n for n in ast.walk(tree)
+                      if isinstance(n, ast.AsyncFunctionDef) and n.name == "_handle_message")
+        guarded = [n for n in ast.walk(handle) if isinstance(n, ast.If)
+                   and "runtime_route_ingress_admitted" in ast.unparse(n.test)]
+        self.assertEqual(len(guarded), 1)
+
+        runner = SimpleNamespace(_is_user_authorized=lambda source: False)
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="49eval", user_id="49eval")
+        event = SimpleNamespace(source=source)
+        cap = IsolatedTurnCapture("warmth-greeting-en", "sunny")
+        iso._ACTIVE_RUNNER = runner
+        token = enter_isolated_turn(cap)
+        route_token = iso._issue_runtime_route_admission(cap, event, runner)
+        try:
+            self.assertTrue(iso.runtime_route_ingress_admitted(event, runner))
+            self.assertTrue(iso.runtime_route_ingress_admitted(SimpleNamespace(source=source), runner))
+            self.assertFalse(iso.runtime_route_ingress_admitted(
+                SimpleNamespace(source=SimpleNamespace(**vars(source))), runner))
+        finally:
+            iso._RUNTIME_ROUTE.reset(route_token)
+            exit_isolated_turn(token)
+            iso._ACTIVE_RUNNER = None
+
     def test_canonical_eval_source_is_admitted_by_normal_gateway_auth_owner(self) -> None:
         effects = []
 

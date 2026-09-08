@@ -624,6 +624,18 @@ def validate_luna_personality_emitted_ast(source: str) -> dict:
 
 def apply_luna_cold_admission(source: str) -> str:
     """Reject before proxy/config/tool discovery, with a second worker defense."""
+    prehook = '        if not is_internal:\n            try:\n                from hermes_cli.plugins import invoke_hook as _invoke_hook\n'
+    guarded_prehook = (
+        '        from wolfhouse.luna_personality_isolation import runtime_route_ingress_admitted\n'
+        '        if not is_internal and not runtime_route_ingress_admitted(event, self):\n'
+        '            try:\n                from hermes_cli.plugins import invoke_hook as _invoke_hook\n'
+    )
+    if guarded_prehook not in source:
+        if source.count(prehook) != 1:
+            raise RuntimeError('pre-auth plugin ingress anchor ambiguous or malformed')
+        source = source.replace(prehook, guarded_prehook, 1)
+    if source.count(guarded_prehook) != 1:
+        raise RuntimeError('pre-auth plugin ingress guard duplicated')
     entry = '        # ---- Proxy mode: delegate to remote API server ----\n'
     guarded_entry = (
         '        from wolfhouse.luna_personality_isolation import refuse_unverified_runtime, RUNTIME_RESOLUTION_STAGE\n'
