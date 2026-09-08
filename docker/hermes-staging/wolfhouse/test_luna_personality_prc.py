@@ -420,6 +420,50 @@ class DirectAuthPoolTests(unittest.TestCase):
 
 
 class CanonicalAdmissionTests(unittest.TestCase):
+    def test_provider_auth_scope_admits_complete_warm_pool_read_graph(self):
+        import sys
+        from hermes_cli import auth
+        runner = SimpleNamespace(_agent_cache={})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="image-eval", user_id="image-eval")
+        auth._save_auth_store({'version': auth.AUTH_STORE_VERSION, 'providers': {},
+                               'credential_pool': {'openai-codex': [
+                                   {'access_token': 'synthetic-pool-token'}]}})
+        cap = isolation.IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        isolation._ACTIVE_RUNNER = runner
+        turn = isolation.enter_isolated_turn(cap)
+        route = isolation._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        seen = []
+        names = {'resolve_codex_runtime_credentials', '_read_codex_tokens', '_auth_store_lock',
+                 '_load_auth_store', '_pool_codex_access_token', '_codex_pool_rate_limit_status'}
+        def trace(frame, event, arg):
+            if event == 'call' and frame.f_code.co_name in names:
+                seen.append((frame.f_code.co_name, isolation.provider_auth_execution_admitted()))
+        try:
+            isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
+            isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
+            sys.setprofile(trace)
+            with isolation.isolated_provider_auth_scope():
+                result = auth.resolve_codex_runtime_credentials()
+            self.assertEqual(result['api_key'], 'synthetic-pool-token')
+            expected = ['resolve_codex_runtime_credentials', '_read_codex_tokens',
+                        '_auth_store_lock', '_load_auth_store', '_pool_codex_access_token',
+                        '_auth_store_lock', '_load_auth_store']
+            observed = iter(name for name, admitted in seen)
+            for helper in expected:
+                self.assertIn(helper, observed)
+            self.assertTrue(all(admitted for name, admitted in seen))
+            with self.assertRaises(isolation.IsolationAbort):
+                auth._pool_codex_access_token()
+            with self.assertRaises(isolation.IsolationAbort):
+                with isolation.isolated_provider_auth_scope():
+                    pass
+        finally:
+            sys.setprofile(None)
+            isolation._RUNTIME_ROUTE.reset(route)
+            isolation.exit_isolated_turn(turn)
+            isolation._ACTIVE_RUNNER = None
+
     def test_provider_auth_scope_admits_nested_read_lock_only_once(self):
         from hermes_cli import auth
         runner = SimpleNamespace(_agent_cache={})
