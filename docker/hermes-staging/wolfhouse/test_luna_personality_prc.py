@@ -420,6 +420,31 @@ class DirectAuthPoolTests(unittest.TestCase):
 
 
 class CanonicalAdmissionTests(unittest.TestCase):
+    def test_runtime_resolver_is_admitted_only_inside_bound_provider_auth_scope(self):
+        runner = SimpleNamespace(_agent_cache={"image": SimpleNamespace(api_mode="codex_responses")})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="image-eval", user_id="image-eval")
+        cap = isolation.IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        isolation._ACTIVE_RUNNER = runner
+        turn = isolation.enter_isolated_turn(cap)
+        route = isolation._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        try:
+            isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
+            isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
+            with isolation.isolated_provider_auth_scope():
+                resolved = resolve_runtime_provider(requested="openai-codex", target_model="gpt-5")
+            self.assertIs(type(resolved), dict)
+            self.assertEqual(resolved["provider"], "openai-codex")
+            self.assertEqual(resolved["api_mode"], "codex_responses")
+            self.assertTrue(isolation.runtime_route_execution_admitted())
+            with self.assertRaises(isolation.IsolationAbort):
+                with isolation.isolated_provider_auth_scope():
+                    pass
+        finally:
+            isolation._RUNTIME_ROUTE.reset(route)
+            isolation.exit_isolated_turn(turn)
+            isolation._ACTIVE_RUNNER = None
+
     def test_canonical_constructor_abort_survives_real_eval_with_unknown_effects(self):
         import asyncio
         from wolfhouse import luna_personality_live_eval as live
