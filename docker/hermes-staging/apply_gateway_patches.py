@@ -649,8 +649,11 @@ def apply_luna_cold_admission(source: str) -> str:
         raise RuntimeError('cold admission entry duplicated')
     anchor = '            try:\n                model, runtime_kwargs = self._resolve_session_agent_runtime('
     replacement = (
-        '            from wolfhouse.luna_personality_isolation import refuse_unverified_runtime, AGENT_EXECUTION_STAGE\n'
-        '            refuse_unverified_runtime(AGENT_EXECUTION_STAGE)\n' + anchor
+        '            from wolfhouse.luna_personality_isolation import refuse_unverified_runtime, AGENT_EXECUTION_STAGE, isolated_provider_auth_scope\n'
+        '            refuse_unverified_runtime(AGENT_EXECUTION_STAGE)\n'
+        '            try:\n'
+        '                with isolated_provider_auth_scope():\n'
+        '                    model, runtime_kwargs = self._resolve_session_agent_runtime('
     )
     if replacement not in source:
         if source.count(anchor) != 1 or '            refuse_unverified_runtime(' in source:
@@ -720,14 +723,15 @@ def apply_luna_cold_admission(source: str) -> str:
                 node = parents[node]
             if node in parents and node in parents[node].body:
                 protected.append(parents[node])
-        if (len(protected) != 1 or not isinstance(handler, ast.ExceptHandler) or
-                handler not in protected[0].handlers or protected[0].handlers != [handler] or
-                handler.name != ('exc' if fn.name == 'run_sync' else 'e') or
+        if (len(protected) != 1 or (fn.name == 'run_sync' and
+                (not isinstance(node, ast.With) or len(node.items) != 1 or node.items[0].optional_vars is not None or
+                 ast.unparse(node.items[0].context_expr) != 'isolated_provider_auth_scope()')) or
+                not isinstance(handler, ast.ExceptHandler) or handler not in protected[0].handlers or
+                protected[0].handlers != [handler] or handler.name != ('exc' if fn.name == 'run_sync' else 'e') or
                 ast.unparse(handler.type) != 'Exception' or handler.body[:2] != [handler.body[0], defense] or
                 ast.unparse(handler.body[0]) != 'from wolfhouse.luna_personality_isolation import isolation_abort_from_chain' or
                 len(defense.body) != 1 or not isinstance(defense.body[0], ast.Raise) or
-                ast.unparse(defense.body[0].exc) != '_wh_isolation_abort' or
-                defense.body[0].cause is not None or defense.orelse):
+                ast.unparse(defense.body[0].exc) != '_wh_isolation_abort' or defense.body[0].cause is not None or defense.orelse):
             raise RuntimeError('cold admission causal catch protected try invalid')
     return source
 
