@@ -296,7 +296,7 @@ def _issue_runtime_route_admission(cap: IsolatedTurnCapture, event: Any, runner:
         raise IsolationAbort("runtime_resolution_unverified")
     source = getattr(event, "source", None)
     agents = tuple(_iter_effective_agents(runner=runner))
-    if not agents or runner is not _ACTIVE_RUNNER:
+    if runner is not _ACTIVE_RUNNER:
         raise IsolationAbort("runtime_resolution_unverified")
     canonical = _runtime_route_canonical(cap, source, agents)
     admission = _RuntimeRouteAdmission(cap, runner, source, agents, canonical,
