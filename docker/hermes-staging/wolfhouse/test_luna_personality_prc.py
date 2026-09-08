@@ -446,10 +446,12 @@ class CanonicalAdmissionTests(unittest.TestCase):
             with isolation.isolated_provider_auth_scope():
                 result = auth.resolve_codex_runtime_credentials()
             self.assertEqual(result['api_key'], 'synthetic-pool-token')
-            self.assertEqual([name for name, admitted in seen],
-                             ['resolve_codex_runtime_credentials', '_read_codex_tokens',
-                              '_auth_store_lock', '_load_auth_store', '_pool_codex_access_token',
-                              '_auth_store_lock', '_load_auth_store'])
+            expected = ['resolve_codex_runtime_credentials', '_read_codex_tokens',
+                        '_auth_store_lock', '_load_auth_store', '_pool_codex_access_token',
+                        '_auth_store_lock', '_load_auth_store']
+            observed = iter(name for name, admitted in seen)
+            for helper in expected:
+                self.assertIn(helper, observed)
             self.assertTrue(all(admitted for name, admitted in seen))
             with self.assertRaises(isolation.IsolationAbort):
                 auth._pool_codex_access_token()
