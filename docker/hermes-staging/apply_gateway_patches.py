@@ -660,9 +660,9 @@ def apply_luna_cold_admission(source: str) -> str:
         raise RuntimeError('cold admission owner duplicated')
     catches = [
         ('        except Exception as e:\n            # Stop typing indicator on error too',
-         '        except Exception as e:\n            from wolfhouse.luna_personality_isolation import IsolationAbort\n            if isinstance(e, IsolationAbort):\n                raise\n            # Stop typing indicator on error too'),
+         '        except Exception as e:\n            from wolfhouse.luna_personality_isolation import isolation_abort_from_chain\n            if (_wh_isolation_abort := isolation_abort_from_chain(e)) is not None:\n                raise _wh_isolation_abort\n            # Stop typing indicator on error too'),
         ('            except Exception as exc:\n                return {\n                    "final_response": f"⚠️ Provider authentication failed: {exc}",',
-         '            except Exception as exc:\n                from wolfhouse.luna_personality_isolation import IsolationAbort\n                if isinstance(exc, IsolationAbort):\n                    raise\n                return {\n                    "final_response": f"⚠️ Provider authentication failed: {exc}",'),
+         '            except Exception as exc:\n                from wolfhouse.luna_personality_isolation import isolation_abort_from_chain\n                if (_wh_isolation_abort := isolation_abort_from_chain(exc)) is not None:\n                    raise _wh_isolation_abort\n                return {\n                    "final_response": f"⚠️ Provider authentication failed: {exc}",'),
     ]
     for old, new in catches:
         if new not in source:
@@ -703,7 +703,9 @@ def apply_luna_cold_admission(source: str) -> str:
                 for n in fn.body[:index]):
             raise RuntimeError('cold admission entry follows effects')
     abort_tests = [n for n in ast.walk(tree) if isinstance(n, ast.If)
-                   and ast.unparse(n.test) in ('isinstance(e, IsolationAbort)', 'isinstance(exc, IsolationAbort)')]
+                   and ast.unparse(n.test) in (
+                       '(_wh_isolation_abort := isolation_abort_from_chain(e)) is not None',
+                       '(_wh_isolation_abort := isolation_abort_from_chain(exc)) is not None')]
     if sorted(owner(n).name for n in abort_tests if owner(n)) != ['_handle_message_with_agent', 'run_sync']:
         raise RuntimeError('cold admission causal catch ownership invalid')
     for defense in abort_tests:
@@ -722,9 +724,10 @@ def apply_luna_cold_admission(source: str) -> str:
                 handler not in protected[0].handlers or protected[0].handlers != [handler] or
                 handler.name != ('exc' if fn.name == 'run_sync' else 'e') or
                 ast.unparse(handler.type) != 'Exception' or handler.body[:2] != [handler.body[0], defense] or
-                ast.unparse(handler.body[0]) != 'from wolfhouse.luna_personality_isolation import IsolationAbort' or
+                ast.unparse(handler.body[0]) != 'from wolfhouse.luna_personality_isolation import isolation_abort_from_chain' or
                 len(defense.body) != 1 or not isinstance(defense.body[0], ast.Raise) or
-                defense.body[0].exc is not None or defense.body[0].cause is not None or defense.orelse):
+                ast.unparse(defense.body[0].exc) != '_wh_isolation_abort' or
+                defense.body[0].cause is not None or defense.orelse):
             raise RuntimeError('cold admission causal catch protected try invalid')
     return source
 
