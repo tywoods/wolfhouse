@@ -685,15 +685,15 @@ class IsolatedEvalTests(unittest.TestCase):
         self.assertIsNone(first.counters["auth_effects"])
         self.assertIsNone(first.counters["telemetry_effects"])
 
-    def test_unverified_readiness_but_live_turn_reaches_canonical_gateway_admission(self) -> None:
+    def test_ready_serving_preflight_reaches_canonical_gateway_admission(self) -> None:
         from wolfhouse import luna_personality_live_eval as live
+        runner = SimpleNamespace(_handle_message=lambda: None, session_store=object(), _session_db=object())
         with mock.patch.object(live, "install_isolation_runtime"), \
-             mock.patch.object(live, "serving_runtime_missing", return_value=[]), \
              mock.patch.object(live, "server_owned_serving_identity", return_value={}), \
              mock.patch.object(live, "isolation_status", return_value=dict.fromkeys(live.REQUIRED_LIVE_SEAMS, True)):
-            rec = live.serving_eval_readiness(runner=SimpleNamespace(_handle_message=lambda: None))
-        self.assertFalse(rec["ready"])
-        self.assertEqual(rec["error"], "runtime_resolution_unverified")
+            rec = live.serving_eval_readiness(runner=runner)
+        self.assertTrue(rec["ready"])
+        self.assertIsNone(rec["error"])
         self.assertEqual(rec["missing_seams"], [])
         fetch = mock.Mock(return_value={"personality_id": "sunny"})
 

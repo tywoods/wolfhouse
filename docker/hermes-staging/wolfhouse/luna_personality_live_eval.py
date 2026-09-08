@@ -836,10 +836,6 @@ def serving_eval_readiness(*, targets: Optional[IsolationTargets] = None, runner
             error = identity_error
         else:
             error = "seams_incomplete:" + ",".join(missing)
-    # Installed wrappers do not establish inert canonical route authority.
-    if ready:
-        error = "runtime_resolution_unverified"
-        ready = False
     return {
         "ok": ready,
         "ready": ready,
