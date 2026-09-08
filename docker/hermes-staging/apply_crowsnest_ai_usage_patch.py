@@ -503,6 +503,7 @@ def _admission_owner(text, owner):
 def patch_auth_admission(source, candidates, paths):
     import ast
     import hashlib
+    read_only = {'resolve_codex_runtime_credentials', '_read_codex_tokens', '_load_auth_store'}
     for path, (_, expected, owners) in zip(paths, PRD):
         text = source[path]
         for owner in reversed(owners):
@@ -511,8 +512,10 @@ def patch_auth_admission(source, candidates, paths):
             if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
                 first = node.body[1]
             indent = ' ' * first.col_offset
-            guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
-                     + indent + 'if current_isolated_turn() is not None:\n'
+            admitted = ', provider_auth_execution_admitted' if owner in read_only else ''
+            suffix = ' and not provider_auth_execution_admitted()' if admitted else ''
+            guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort' + admitted + '\n'
+                     + indent + 'if current_isolated_turn() is not None' + suffix + ':\n'
                      + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
             lines = text.splitlines(keepends=True)
             start = first.lineno - 1
@@ -526,8 +529,10 @@ def patch_auth_admission(source, candidates, paths):
             if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
                 first = node.body[1]
             indent = ' ' * first.col_offset
-            guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
-                     + indent + 'if current_isolated_turn() is not None:\n'
+            admitted = ', provider_auth_execution_admitted' if owner in read_only else ''
+            suffix = ' and not provider_auth_execution_admitted()' if admitted else ''
+            guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort' + admitted + '\n'
+                     + indent + 'if current_isolated_turn() is not None' + suffix + ':\n'
                      + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
             lines = text.splitlines(keepends=True)
             start = first.lineno - 1

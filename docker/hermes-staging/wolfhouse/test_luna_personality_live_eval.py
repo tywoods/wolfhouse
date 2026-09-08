@@ -1369,6 +1369,47 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
         self.assertEqual(seen, {"exact": True, "copied": False})
         self.assertFalse(runner._is_user_authorized(SimpleNamespace(chat_id="490000000001")))
 
+    def test_provider_auth_capability_is_scoped_one_shot_and_tamper_closed(self) -> None:
+        from wolfhouse import luna_personality_isolation as iso
+
+        runner = SimpleNamespace(_agent_cache={"a": SimpleNamespace(api_mode="chat_completions")})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="49eval", user_id="49eval")
+        cap = IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        iso._ACTIVE_RUNNER = runner
+        turn = enter_isolated_turn(cap)
+        route = iso._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        try:
+            self.assertFalse(iso.provider_auth_execution_admitted())
+            iso.refuse_unverified_runtime(iso.RUNTIME_RESOLUTION_STAGE)
+            iso.refuse_unverified_runtime(iso.AGENT_EXECUTION_STAGE)
+            with iso.isolated_provider_auth_scope():
+                self.assertTrue(iso.provider_auth_execution_admitted())
+            self.assertFalse(iso.provider_auth_execution_admitted())
+            with self.assertRaises(IsolationAbort):
+                with iso.isolated_provider_auth_scope():
+                    pass
+            iso._RUNTIME_ROUTE.get().identity = object()
+            self.assertFalse(iso.provider_auth_execution_admitted())
+        finally:
+            iso._RUNTIME_ROUTE.reset(route)
+            exit_isolated_turn(turn)
+            iso._ACTIVE_RUNNER = None
+
+    def test_provider_auth_capability_absent_wrong_tenant_and_stage_fail_closed(self) -> None:
+        from wolfhouse import luna_personality_isolation as iso
+
+        cap = IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="other")
+        token = enter_isolated_turn(cap)
+        try:
+            with self.assertRaises(IsolationAbort):
+                with iso.isolated_provider_auth_scope():
+                    pass
+            with self.assertRaises(IsolationAbort):
+                iso._issue_runtime_route_admission(cap, SimpleNamespace(source=None), object())
+        finally:
+            exit_isolated_turn(token)
+
     def test_eval_auth_admission_rejects_every_mutated_binding(self) -> None:
         from wolfhouse import luna_personality_isolation as iso
 

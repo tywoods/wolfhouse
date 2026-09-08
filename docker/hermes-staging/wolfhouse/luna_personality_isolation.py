@@ -348,6 +348,22 @@ def runtime_route_execution_admitted() -> bool:
     return (type(admission) is _RuntimeRouteAdmission and admission.identity is admission and admission.cap is _ISOLATED.get() and admission.runner is _ACTIVE_RUNNER and admission.stage == AGENT_EXECUTION_STAGE)
 
 
+def provider_auth_execution_admitted() -> bool:
+    admission = _RUNTIME_ROUTE.get()
+    return type(admission) is _RuntimeRouteAdmission and admission.identity is admission and admission.cap is _ISOLATED.get() and admission.runner is _ACTIVE_RUNNER and admission.stage == "provider_auth"
+
+
+@contextmanager
+def isolated_provider_auth_scope():
+    admission = _RUNTIME_ROUTE.get()
+    if current_isolated_turn() is None: yield; return
+    if type(admission) is not _RuntimeRouteAdmission or not runtime_route_execution_admitted():
+        raise IsolationAbort("provider_auth_capability_invalid")
+    admission.stage = "provider_auth"
+    try: yield
+    finally: admission.stage = "provider_auth_used"
+
+
 def _runtime_route_source_admitted(source: Any, runner: Any) -> bool:
     """Authorize only the exact ephemeral source owned by this isolated request."""
     cap, admission = _ISOLATED.get(), _RUNTIME_ROUTE.get()
