@@ -424,6 +424,12 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
             "            session_key = 'synthetic-session'\n",
         )
         body += (
+            '    async def _handle_message(self, event, is_internal=False):\n'
+            '        if not is_internal:\n'
+            '            try:\n'
+            '                from hermes_cli.plugins import invoke_hook as _invoke_hook\n'
+            '            except Exception:\n'
+            '                pass\n'
             '    async def _handle_message_with_agent(self):\n'
             '        try:\n'
             '            return await self._run_agent(None)\n'
@@ -464,6 +470,61 @@ class LunaPersonalityGatewayBindTests(unittest.TestCase):
                 with self.subTest(relocated=var), self.assertRaisesRegex(RuntimeError, 'causal catch'):
                     gw.apply_patches(path)
                 self.assertEqual(path.read_bytes(), hostile.encode())
+
+    def test_provider_auth_catch_propagates_wrapped_isolation_abort(self) -> None:
+        """The image worker route must not turn a causal abort into auth text."""
+        body = skeleton(12).replace(
+            "            session_key = 'synthetic-session'\n",
+            '            try:\n'
+            '                model, runtime_kwargs = self._resolve_session_agent_runtime(source)\n'
+            '            except Exception as exc:\n'
+            '                return {\n'
+            '                    "final_response": f"⚠️ Provider authentication failed: {exc}",\n'
+            '                }\n'
+            "            session_key = 'synthetic-session'\n",
+        ).replace(
+            '        def run_sync():\n',
+            '        # ---- Proxy mode: delegate to remote API server ----\n'
+            '        def run_sync():\n',
+        )
+        body += (
+            '    async def _handle_message(self, event, is_internal=False):\n'
+            '        if not is_internal:\n'
+            '            try:\n'
+            '                from hermes_cli.plugins import invoke_hook as _invoke_hook\n'
+            '            except Exception:\n'
+            '                pass\n'
+            '    async def _handle_message_with_agent(self):\n'
+            '        try:\n'
+            '            return await self._run_agent(None)\n'
+            '        except Exception as e:\n'
+            '            # Stop typing indicator on error too\n'
+            '            return None\n'
+        )
+        emitted = gw.apply_luna_cold_admission(body)
+        scope = {}
+        exec(compile(emitted, '<registered-image-route>', 'exec'), scope)
+        gateway = scope['Gateway']()
+        from wolfhouse.luna_personality_isolation import IsolationAbort
+        abort = IsolationAbort('runtime_resolution_unverified')
+
+        def wrapped(_source):
+            try:
+                raise abort
+            except IsolationAbort as cause:
+                raise RuntimeError('opaque resolver failure') from cause
+
+        gateway._resolve_session_agent_runtime = wrapped
+        with self.assertRaises(IsolationAbort) as caught:
+            asyncio.run(gateway._run_agent_inner('image-context'))
+        self.assertIs(caught.exception, abort)
+
+        def ordinary_auth_failure(_source):
+            raise RuntimeError('ordinary auth failure')
+
+        gateway._resolve_session_agent_runtime = ordinary_auth_failure
+        result = asyncio.run(gateway._run_agent_inner('image-context'))
+        self.assertIn('Provider authentication failed', result['final_response'])
 
     def test_apply_patches_source_uses_real_personality_emitter(self) -> None:
         src = Path(gw.__file__).read_text(encoding="utf-8")

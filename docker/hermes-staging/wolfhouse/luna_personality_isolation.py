@@ -2079,6 +2079,18 @@ def retain_worker_abort(exc: IsolationAbort, cap: Any = _ISOLATED) -> None:
             cap._provider_lifetime.notify_all()
 
 
+def isolation_abort_from_chain(exc: BaseException) -> Optional[IsolationAbort]:
+    """Return a typed isolation failure from an explicit/implicit cause chain."""
+    seen = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, IsolationAbort):
+            return current
+        current = current.__cause__ or current.__context__
+    return None
+
+
 async def settle_isolated_async_work(cap: Optional[IsolatedTurnCapture], timeout_s: float = 2.0) -> None:
     """One nonblocking deadline for registered async, provider and helper work.
 
