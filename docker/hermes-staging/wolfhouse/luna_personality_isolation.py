@@ -364,6 +364,16 @@ def _runtime_route_source_admitted(source: Any, runner: Any) -> bool:
         return False
 
 
+def runtime_route_ingress_admitted(event: Any, runner: Any) -> bool:
+    """Admit only this eval event past pre-auth plugins that may consume it."""
+    admission = _RUNTIME_ROUTE.get()
+    return (
+        type(admission) is _RuntimeRouteAdmission
+        and getattr(event, "source", None) is admission.source
+        and _runtime_route_source_admitted(admission.source, runner)
+    )
+
+
 def _wrap_gateway_auth(runner: Any) -> None:
     if runner is None:
         return
