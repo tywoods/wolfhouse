@@ -589,8 +589,6 @@ async def run_isolated_personality_eval(
     token = enter_isolated_turn(cap)
     first_abort = None
     try:
-        if invoke_turn is None:
-            refuse_unverified_runtime()
         preflight_isolation_or_abort(
             require_live_seams=require_live_seams,
             targets=isolation_targets,

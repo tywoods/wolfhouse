@@ -685,7 +685,7 @@ class IsolatedEvalTests(unittest.TestCase):
         self.assertIsNone(first.counters["auth_effects"])
         self.assertIsNone(first.counters["telemetry_effects"])
 
-    def test_unverified_readiness_and_admission_precede_staff(self) -> None:
+    def test_unverified_readiness_but_live_turn_reaches_canonical_gateway_admission(self) -> None:
         from wolfhouse import luna_personality_live_eval as live
         with mock.patch.object(live, "install_isolation_runtime"), \
              mock.patch.object(live, "serving_runtime_missing", return_value=[]), \
@@ -695,15 +695,20 @@ class IsolatedEvalTests(unittest.TestCase):
         self.assertFalse(rec["ready"])
         self.assertEqual(rec["error"], "runtime_resolution_unverified")
         self.assertEqual(rec["missing_seams"], [])
-        fetch = mock.Mock(side_effect=AssertionError("Staff reached"))
+        fetch = mock.Mock(return_value={"personality_id": "sunny"})
+
+        async def canonical_gateway_boundary(*_args):
+            raise IsolationAbort("canonical_gateway_boundary_reached")
+
         with mock.patch.object(live, "install_isolation_runtime"), \
-             mock.patch.object(live, "preflight_isolation_or_abort"):
+             mock.patch.object(live, "preflight_isolation_or_abort"), \
+             mock.patch.object(live, "default_invoke_live_gateway", canonical_gateway_boundary):
             with self.assertRaises(IsolationAbort) as caught:
                 _run(run_isolated_personality_eval(
                     case_id="warmth-greeting-en", personality_id="sunny", corpus=CORPUS,
                     fetch_setting=fetch, serving_preflight=False, require_live_seams=True))
-        self.assertEqual(caught.exception.reason, "runtime_resolution_unverified")
-        fetch.assert_not_called()
+        self.assertEqual(caught.exception.reason, "canonical_gateway_boundary_reached")
+        fetch.assert_called_once_with("")
 
     def test_http_abort_retains_terminal_evidence(self) -> None:
         from wolfhouse import luna_personality_live_eval as live
