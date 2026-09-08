@@ -420,6 +420,31 @@ class DirectAuthPoolTests(unittest.TestCase):
 
 
 class CanonicalAdmissionTests(unittest.TestCase):
+    def test_provider_auth_scope_admits_nested_read_lock_only_once(self):
+        from hermes_cli import auth
+        runner = SimpleNamespace(_agent_cache={})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="image-eval", user_id="image-eval")
+        cap = isolation.IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        isolation._ACTIVE_RUNNER = runner
+        turn = isolation.enter_isolated_turn(cap)
+        route = isolation._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        try:
+            isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
+            isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
+            with isolation.isolated_provider_auth_scope():
+                self.assertIsInstance(auth._load_auth_store(), dict)
+            self.assertTrue(isolation.runtime_route_execution_admitted())
+            with self.assertRaises(isolation.IsolationAbort):
+                auth._load_auth_store()
+            with self.assertRaises(isolation.IsolationAbort):
+                with isolation.isolated_provider_auth_scope():
+                    pass
+        finally:
+            isolation._RUNTIME_ROUTE.reset(route)
+            isolation.exit_isolated_turn(turn)
+            isolation._ACTIVE_RUNNER = None
+
     def test_runtime_resolver_is_admitted_only_inside_bound_provider_auth_scope(self):
         runner = SimpleNamespace(_agent_cache={"image": SimpleNamespace(api_mode="codex_responses")})
         source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),

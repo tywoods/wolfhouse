@@ -503,7 +503,10 @@ def _admission_owner(text, owner):
 def patch_auth_admission(source, candidates, paths):
     import ast
     import hashlib
-    read_only = {'resolve_codex_runtime_credentials', '_read_codex_tokens', '_load_auth_store'}
+    # _load_auth_store nests through the lock even for a warm, read-only load.
+    # Mutating callers retain their own unconditional entry guards.
+    read_only = {'resolve_codex_runtime_credentials', '_read_codex_tokens',
+                 '_load_auth_store', '_auth_store_lock'}
     for path, (_, expected, owners) in zip(paths, PRD):
         text = source[path]
         for owner in reversed(owners):
