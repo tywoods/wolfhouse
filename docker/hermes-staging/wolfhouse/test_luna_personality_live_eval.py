@@ -1386,6 +1386,7 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
             with iso.isolated_provider_auth_scope():
                 self.assertTrue(iso.provider_auth_execution_admitted())
             self.assertFalse(iso.provider_auth_execution_admitted())
+            self.assertTrue(iso.runtime_route_execution_admitted())
             with self.assertRaises(IsolationAbort):
                 with iso.isolated_provider_auth_scope():
                     pass
