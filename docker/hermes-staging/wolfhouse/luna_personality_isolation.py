@@ -348,6 +348,39 @@ def runtime_route_execution_admitted() -> bool:
     return (type(admission) is _RuntimeRouteAdmission and admission.identity is admission and admission.cap is _ISOLATED.get() and admission.runner is _ACTIVE_RUNNER and admission.stage == AGENT_EXECUTION_STAGE)
 
 
+def _runtime_route_source_admitted(source: Any, runner: Any) -> bool:
+    """Authorize only the exact ephemeral source owned by this isolated request."""
+    cap, admission = _ISOLATED.get(), _RUNTIME_ROUTE.get()
+    if type(cap) is not IsolatedTurnCapture or type(admission) is not _RuntimeRouteAdmission:
+        return False
+    try:
+        canonical = _runtime_route_canonical(cap, source, admission.agents)
+        return (admission.identity is admission and admission.cap is cap
+                and admission.runner is runner is _ACTIVE_RUNNER
+                and admission.source is source and admission.stage == "issued"
+                and admission.canonical == canonical
+                and hmac.compare_digest(admission.digest, hashlib.sha256(canonical).digest()))
+    except Exception:
+        return False
+
+
+def _wrap_gateway_auth(runner: Any) -> None:
+    if runner is None:
+        return
+    original = getattr(runner, "_is_user_authorized", None)
+    if not callable(original) or _is_wrapped(original):
+        return
+
+    def _isolated_authorized(source: Any, *args: Any, **kwargs: Any) -> bool:
+        if _runtime_route_source_admitted(source, runner):
+            return True
+        return bool(original(source, *args, **kwargs))
+
+    _mark(_isolated_authorized)
+    _save_orig(runner, "_is_user_authorized", original)
+    runner._is_user_authorized = _isolated_authorized
+
+
 def check_worker_origin(origin: Any, agent: Any) -> None:
     """A retained worker may neither adopt ambient isolation nor escape its origin."""
     ambient = current_isolated_turn()
@@ -2689,6 +2722,7 @@ def install_isolation_runtime(
     t = targets or IsolationTargets()
     _ACTIVE_TARGETS = t
     _ACTIVE_RUNNER = runner
+    _wrap_gateway_auth(runner)
     _wrap_async_completion()
     send_ok = _wrap_send_adapter(t.whatsapp_adapter_cls, runner=runner, targets=t)
     post_ok = _wrap_post_bot(t.post_bot_mods)

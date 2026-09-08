@@ -1244,6 +1244,125 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
 
+    def test_canonical_eval_source_is_admitted_by_normal_gateway_auth_owner(self) -> None:
+        effects = []
+
+        async def handler(event):  # noqa: ANN001
+            effects.append(("auth", runner._is_user_authorized(event.source)))
+            return "Welcome."
+
+        runner = SimpleNamespace(
+            _handle_message=handler,
+            _is_user_authorized=lambda source, **kw: False,
+            _agent_cache={"sunset-fixture": SimpleNamespace(api_mode="chat_completions")},
+            session_store=_complete_targets().session_store_cls(),
+            _session_db=_counter_session_db(effects),
+        )
+        t = _complete_targets()
+        t.session_store, t.session_db = runner.session_store, runner._session_db
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        cap.ephemeral_chat_id = "490000000001"
+        tok = enter_isolated_turn(cap)
+        try:
+            with mock.patch("wolfhouse.luna_personality_isolation.settle_isolated_async_work", mock.AsyncMock()):
+                self.assertEqual(_run(default_invoke_live_gateway("hi", cap, {
+                    "isolation_targets": t, "gateway_runner": runner})), "Welcome.")
+        finally:
+            exit_isolated_turn(tok)
+        self.assertIn(("auth", True), effects)
+        self.assertFalse(runner._is_user_authorized(SimpleNamespace()))
+
+    def test_eval_auth_admission_rejects_copied_source_and_replay(self) -> None:
+        seen = {}
+
+        async def handler(event):  # noqa: ANN001
+            copied = SimpleNamespace(**vars(event.source))
+            seen["exact"] = runner._is_user_authorized(event.source)
+            seen["copied"] = runner._is_user_authorized(copied)
+            return "Welcome."
+
+        runner = SimpleNamespace(
+            _handle_message=handler,
+            _is_user_authorized=lambda source, **kw: False,
+            _agent_cache={"sunset-fixture": SimpleNamespace(api_mode="chat_completions")},
+            session_store=_complete_targets().session_store_cls(),
+            _session_db=_counter_session_db([]),
+        )
+        t = _complete_targets()
+        t.session_store, t.session_db = runner.session_store, runner._session_db
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        cap.ephemeral_chat_id = "490000000001"
+        tok = enter_isolated_turn(cap)
+        try:
+            with mock.patch("wolfhouse.luna_personality_isolation.settle_isolated_async_work", mock.AsyncMock()):
+                _run(default_invoke_live_gateway("hi", cap, {
+                    "isolation_targets": t, "gateway_runner": runner}))
+        finally:
+            exit_isolated_turn(tok)
+        self.assertEqual(seen, {"exact": True, "copied": False})
+        self.assertFalse(runner._is_user_authorized(SimpleNamespace(chat_id="490000000001")))
+
+    def test_eval_auth_admission_rejects_every_mutated_binding(self) -> None:
+        from wolfhouse import luna_personality_isolation as iso
+
+        seen = {}
+
+        async def handler(event):  # noqa: ANN001
+            admission = iso._RUNTIME_ROUTE.get()
+            source, active_cap = event.source, current_isolated_turn()
+            self.assertTrue(runner._is_user_authorized(source))
+
+            def rejected(name, owner, attr, bad):  # noqa: ANN001
+                saved = getattr(owner, attr)
+                setattr(owner, attr, bad)
+                try:
+                    seen[name] = runner._is_user_authorized(source)
+                finally:
+                    setattr(owner, attr, saved)
+
+            rejected("tenant", active_cap, "tenant_id", "wolfhouse-somo")
+            rejected("source", admission, "source", SimpleNamespace(**vars(source)))
+            rejected("stage", admission, "stage", iso.RUNTIME_RESOLUTION_STAGE)
+            rejected("capture", admission, "cap", IsolatedTurnCapture("warmth-greeting-en", "sunny"))
+            rejected("runner", admission, "runner", SimpleNamespace())
+            rejected("identity", admission, "identity", SimpleNamespace())
+            rejected("canonical", admission, "canonical", admission.canonical + b"x")
+            rejected("digest", admission, "digest", b"\x00" * len(admission.digest))
+            return "Welcome."
+
+        delegated = []
+
+        def ordinary_auth(source, *args, **kwargs):  # noqa: ANN001
+            delegated.append((source, args, kwargs))
+            return kwargs.get("ordinary", False)
+
+        runner = SimpleNamespace(
+            _handle_message=handler,
+            _is_user_authorized=ordinary_auth,
+            _agent_cache={"sunset-fixture": SimpleNamespace(api_mode="chat_completions")},
+            session_store=_complete_targets().session_store_cls(),
+            _session_db=_counter_session_db([]),
+        )
+        t = _complete_targets()
+        t.session_store, t.session_db = runner.session_store, runner._session_db
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        cap.ephemeral_chat_id = "490000000001"
+        tok = enter_isolated_turn(cap)
+        try:
+            with mock.patch("wolfhouse.luna_personality_isolation.settle_isolated_async_work", mock.AsyncMock()):
+                self.assertEqual(_run(default_invoke_live_gateway("hi", cap, {
+                    "isolation_targets": t, "gateway_runner": runner})), "Welcome.")
+        finally:
+            exit_isolated_turn(tok)
+        self.assertEqual(seen, {name: False for name in (
+            "tenant", "source", "stage", "capture", "runner", "identity", "canonical", "digest")})
+        ordinary = SimpleNamespace(chat_id="ordinary")
+        self.assertTrue(runner._is_user_authorized(ordinary, "arg", ordinary=True))
+        self.assertEqual(delegated[-1], (ordinary, ("arg",), {"ordinary": True}))
+
     def test_handler_final_return_is_canonical_reply_not_send_capture(self) -> None:
         async def handler(event):  # noqa: ANN001
             from wolfhouse.luna_personality_isolation import capture_send_if_isolated
