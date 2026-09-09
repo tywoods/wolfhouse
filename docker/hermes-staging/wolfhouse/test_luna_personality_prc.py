@@ -420,6 +420,40 @@ class DirectAuthPoolTests(unittest.TestCase):
 
 
 class CanonicalAdmissionTests(unittest.TestCase):
+    def test_runtime_resolution_admits_xai_read_lock_but_no_mutation(self):
+        import inspect
+        from hermes_cli import auth
+        from agent import credential_pool as pools
+        runner = SimpleNamespace(_agent_cache={})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"), chat_id="xai", user_id="xai")
+        cap = isolation.IsolatedTurnCapture("xai-runtime-resolution", "sunny", tenant_id="sunset")
+        isolation._ACTIVE_RUNNER = runner
+        turn = isolation.enter_isolated_turn(cap)
+        route = isolation._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        try:
+            isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
+            self.assertTrue(isolation.runtime_route_execution_admitted())
+            auth._read_xai_oauth_tokens()
+            with auth._auth_store_lock():
+                pass
+            hostile = object()
+            entries = [(auth, name) for name in AUTH_ENTRIES if name not in ('resolve_codex_runtime_credentials', '_read_codex_tokens', '_auth_store_lock', '_load_auth_store', '_pool_codex_access_token', '_codex_pool_rate_limit_status')]
+            entries += [(pools.CredentialPool, name) for name in POOL_ENTRIES if name not in ('select', '_select_unlocked', '_available_entries')]
+            for owner, name in entries:
+                fn = getattr(owner, name)
+                args = [hostile for p in inspect.signature(fn).parameters.values() if p.default is inspect.Parameter.empty and p.kind not in (p.VAR_POSITIONAL, p.VAR_KEYWORD)]
+                with self.subTest(owner=name), self.assertRaises(isolation.IsolationAbort):
+                    fn(*args)
+            admission = isolation._RUNTIME_ROUTE.get()
+            admission.stage = "issued"
+            with self.assertRaises(isolation.IsolationAbort):
+                with auth._auth_store_lock():
+                    pass
+        finally:
+            isolation._RUNTIME_ROUTE.reset(route)
+            isolation.exit_isolated_turn(turn)
+            isolation._ACTIVE_RUNNER = None
+
     def test_provider_auth_scope_admits_complete_warm_pool_read_graph(self):
         import sys
         from hermes_cli import auth
