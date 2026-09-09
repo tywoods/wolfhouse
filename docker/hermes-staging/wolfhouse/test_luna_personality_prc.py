@@ -501,7 +501,14 @@ class CanonicalAdmissionTests(unittest.TestCase):
         try:
             isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
             isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
+            class BoundConstructor:
+                def __init__(self):
+                    self.ready = True
+                def run_conversation(self):
+                    pass
+            isolation._wrap_turn_entry(targets=isolation.IsolationTargets(agent_cls=BoundConstructor))
             with isolation.isolated_provider_auth_scope():
+                self.assertTrue(BoundConstructor().ready)
                 class ConstructorReached(Exception):
                     pass
                 def reached():
@@ -510,6 +517,8 @@ class CanonicalAdmissionTests(unittest.TestCase):
                     with self.assertRaises(ConstructorReached):
                         init_agent(SimpleNamespace())
                 resolved = resolve_runtime_provider(requested="openai-codex", target_model="gpt-5")
+            with self.assertRaises(isolation.IsolationAbort):
+                BoundConstructor()
             self.assertIs(type(resolved), dict)
             self.assertEqual(resolved["provider"], "openai-codex")
             self.assertEqual(resolved["api_mode"], "codex_responses")
