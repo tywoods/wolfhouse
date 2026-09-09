@@ -215,9 +215,17 @@ for (const c of warmthEn.concat(warmthEs)) {
       .filter((w) => w.length >= 4);
     if (!tokens.length) return false;
     const must = tokens.slice(0, 2);
+    const groups = Array.isArray(c.required_any_groups) ? c.required_any_groups : [];
     return CLOSED_IDS.every((id) => {
       const lower = c.replies[id].toLowerCase();
-      return must.some((t) => lower.includes(t)) || (c.shared_tokens || []).every((t) => lower.includes(String(t).toLowerCase()));
+      if (groups.length) {
+        return groups.every((group) => Array.isArray(group.tokens) && group.tokens.some((raw) => {
+          const token = String(raw).toLowerCase();
+          return token.endsWith('*') ? lower.includes(token.slice(0, -1)) : lower.includes(token);
+        }));
+      }
+      const shared = c.shared_tokens || [];
+      return must.some((t) => lower.includes(t)) || (shared.length > 0 && shared.every((t) => lower.includes(String(t).toLowerCase())));
     });
   })());
 }

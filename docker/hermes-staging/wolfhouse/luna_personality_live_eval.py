@@ -362,11 +362,14 @@ def evaluate_generated_reply(
             )
             if len(t) >= 4
         ]
-        required = shared or meaning_tokens[:2]
+        groups = case.get("required_any_groups") or []
+        # Concept groups are the explicit semantic contract when present. They
+        # permit reviewed equivalents without also requiring one literal stem.
+        required = shared or ([] if groups else meaning_tokens[:2])
         for tok in required:
             if not _positive_token(text, tok):
                 findings.append(f"meaning_token_missing:{tok}")
-        for group in case.get("required_any_groups") or []:
+        for group in groups:
             name = str(group.get("name") or "concept")
             tokens = [str(tok) for tok in (group.get("tokens") or [])]
             if not tokens or not any(_positive_token(text, tok) for tok in tokens):

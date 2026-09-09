@@ -1052,6 +1052,35 @@ class IsolatedEvalTests(unittest.TestCase):
         )
         self.assertTrue(scored["ok"], scored["findings"])
 
+    def test_spanish_greeting_accepts_explicit_equivalent_without_bienvenid(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-greeting-es")
+        scored = evaluate_generated_reply(
+            case=case,
+            personality_id="extra",
+            reply=(
+                "¡Hola! Qué alegría tenerte por Sunset 🌊☀️ Podemos organizarte una clase "
+                "o curso de surf, o alquilarte tabla y neopreno. ¿Qué plan te apetece? 🏄‍♀️✨"
+            ),
+        )
+        self.assertTrue(scored["ok"], scored["findings"])
+
+    def test_spanish_greeting_still_rejects_help_only_or_vacuous_replies(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-greeting-es")
+        replies = (
+            "Puedo ayudarte a organizar una clase o un alquiler. ¿Qué necesitas?",
+            "Hola.",
+            "¿En qué puedo ayudarte?",
+        )
+        for reply in replies:
+            with self.subTest(reply=reply):
+                scored = evaluate_generated_reply(
+                    case=case,
+                    personality_id="extra",
+                    reply=reply,
+                    fixture_echo_forbidden=False,
+                )
+                self.assertFalse(scored["ok"], scored)
+
     def test_pr934_correct_sunset_domain_date_clarification_is_accepted(self) -> None:
         cases = {c["id"]: c for c in CORPUS["cases"]}
         samples = (

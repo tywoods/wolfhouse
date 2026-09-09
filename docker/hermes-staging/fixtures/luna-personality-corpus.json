@@ -59,8 +59,10 @@
       "guest_text": "Hola!",
       "meaning": "saludar con calidez y ofrecer un siguiente paso útil adecuado al negocio",
       "response_contract": "Responde en español peninsular o neutro. Saluda con calidez y ofrece un siguiente paso útil adecuado al negocio; no presupongas que es un alojamiento.",
-      "shared_tokens": ["bienvenid"],
-      "required_any_groups": [{"name": "helpful_next_step", "tokens": ["ayud*", "reserv*", "organiz*", "clase", "curso", "alquil*", "siguiente"]}],
+      "required_any_groups": [
+        {"name": "explicit_greeting_or_welcome", "tokens": ["hola", "bienvenid*", "encantad*", "alegría tenerte"]},
+        {"name": "helpful_next_step", "tokens": ["ayud*", "reserv*", "organiz*", "clase", "curso", "alquil*", "siguiente"]}
+      ],
       "meaning_tokens": "bienvenida ayuda siguiente paso",
       "frozen_facts": [],
       "replies": {
