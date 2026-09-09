@@ -26,6 +26,37 @@ METADATA_ENTRIES = ('get_model_context_length', '_fetch_codex_oauth_context_leng
 
 
 class MetadataAdmissionTests(unittest.TestCase):
+    def test_bound_provider_auth_admits_only_compressor_initialization(self):
+        from agent.context_compressor import ContextCompressor
+
+        runner = SimpleNamespace(_agent_cache={})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="compressor", user_id="compressor")
+        cap = isolation.IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        isolation._ACTIVE_RUNNER = runner
+        turn = isolation.enter_isolated_turn(cap)
+        route = isolation._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        try:
+            isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
+            isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
+            with isolation.isolated_provider_auth_scope():
+                compressor = ContextCompressor("fixture", config_context_length=8192)
+                self.assertEqual(compressor.context_length, 8192)
+            with self.assertRaises(isolation.IsolationAbort):
+                ContextCompressor("fixture", config_context_length=8192)  # replay/direct
+            admission = isolation._RUNTIME_ROUTE.get()
+            admission.stage = isolation.RUNTIME_RESOLUTION_STAGE
+            with self.assertRaises(isolation.IsolationAbort):
+                ContextCompressor("fixture", config_context_length=8192)  # wrong route
+            admission.stage = "provider_auth"
+            admission.identity = object()
+            with self.assertRaises(isolation.IsolationAbort):
+                ContextCompressor("fixture", config_context_length=8192)  # mutated identity
+        finally:
+            isolation._RUNTIME_ROUTE.reset(route)
+            isolation.exit_isolated_turn(turn)
+            isolation._ACTIVE_RUNNER = None
+
     def test_bound_provider_auth_metadata_resolution_is_side_effect_free_but_ordinary_caches(self):
         from unittest.mock import Mock, patch
         from agent import model_metadata as metadata

@@ -34,8 +34,13 @@ class PatcherTests(unittest.TestCase):
                     scope = matches[0]
                 index = int(isinstance(scope.body[0], ast.Expr))
                 guard = scope.body[index:index + 2]
-                self.assertEqual(ast.unparse(guard[0]), 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort')
-                self.assertEqual(ast.unparse(guard[1]), "if current_isolated_turn() is not None:\n    raise IsolationAbort('auth_boundary_unsupported')")
+                expected_import = 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort'
+                expected_if = "if current_isolated_turn() is not None:\n    raise IsolationAbort('auth_boundary_unsupported')"
+                if name == 'ContextCompressor.__init__':
+                    expected_import += ', provider_auth_execution_admitted'
+                    expected_if = "if current_isolated_turn() is not None and (not provider_auth_execution_admitted()):\n    raise IsolationAbort('auth_boundary_unsupported')"
+                self.assertEqual(ast.unparse(guard[0]), expected_import)
+                self.assertEqual(ast.unparse(guard[1]), expected_if)
                 lines = emitted.splitlines(keepends=True)
                 partial = ''.join(lines[:guard[0].lineno - 1] + lines[guard[1].end_lineno:])
                 self.assertEqual(emit(partial), emitted)
