@@ -527,7 +527,8 @@ def patch_auth_admission(source, candidates, paths):
     # Mutating callers retain their own unconditional entry guards.
     read_only = {'resolve_codex_runtime_credentials', '_read_codex_tokens', 'load_pool',
                  '_load_auth_store', '_auth_store_lock', '_pool_codex_access_token',
-                 '_codex_pool_rate_limit_status', 'get_model_context_length'}
+                 '_codex_pool_rate_limit_status', 'get_model_context_length',
+                 'ContextCompressor.__init__'}
     for path, (_, expected, owners) in zip(paths, PRD):
         text = source[path]
         if path.name == 'model_metadata.py' and METADATA_DISK_SAVE[1] in text:
