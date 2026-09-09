@@ -1015,6 +1015,41 @@ class IsolatedEvalTests(unittest.TestCase):
         msg = build_eval_user_message(case)
         self.assertIn("https://pay.example/abc", msg)
         self.assertIn("€100", msg)
+
+    def test_semantic_amount_accepts_euro_symbol_after_equivalent_number(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "truth-payment-link-es")
+        scored = evaluate_generated_reply(
+            case=case,
+            personality_id="sunny",
+            reply="El depósito es de 100 €. Paga aquí: https://pay.example/abc",
+        )
+        self.assertTrue(scored["ok"], scored["findings"])
+
+    def test_eval_message_contracts_warmth_greeting_en(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-greeting-en")
+        msg = build_eval_user_message(case)
+        self.assertIn("offer to help book a stay", msg)
+
+    def test_eval_message_contracts_warmth_dates_en(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-dates-en")
+        msg = build_eval_user_message(case)
+        self.assertIn("check-in and check-out", msg)
+
+    def test_eval_message_contracts_warmth_greeting_peninsular_es(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-greeting-es")
+        msg = build_eval_user_message(case)
+        self.assertIn("ayudaros a reservar", msg)
+
+    def test_eval_message_contracts_warmth_dates_peninsular_es(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-dates-es")
+        msg = build_eval_user_message(case)
+        self.assertIn("entrada y salida", msg)
+        self.assertIn("Peninsular Spanish", msg)
+
+    def test_eval_message_contracts_luna_identity(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "invariant-identity-en")
+        msg = build_eval_user_message(case)
+        self.assertIn("identify yourself as Luna", msg)
         self.assertIn("not live availability", msg)
         self.assertIn(case["guest_text"], msg)
 
