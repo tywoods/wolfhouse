@@ -517,12 +517,13 @@ class CanonicalAdmissionTests(unittest.TestCase):
                     with self.assertRaises(ConstructorReached):
                         init_agent(SimpleNamespace())
                 resolved = resolve_runtime_provider(requested="openai-codex", target_model="gpt-5")
+            self.assertTrue(BoundConstructor().ready)
             with self.assertRaises(isolation.IsolationAbort):
                 BoundConstructor()
             self.assertIs(type(resolved), dict)
             self.assertEqual(resolved["provider"], "openai-codex")
             self.assertEqual(resolved["api_mode"], "codex_responses")
-            self.assertTrue(isolation.runtime_route_execution_admitted())
+            self.assertFalse(isolation.runtime_route_execution_admitted())
             with self.assertRaises(isolation.IsolationAbort):
                 with isolation.isolated_provider_auth_scope():
                     pass
