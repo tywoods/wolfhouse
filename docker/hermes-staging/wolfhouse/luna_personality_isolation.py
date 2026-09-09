@@ -1764,7 +1764,7 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
         original_init = getattr(cls, "__init__", None)
         if callable(original_init) and not _is_wrapped(original_init):
             def _isolated_init(self, *args: Any, **kwargs: Any):
-                if _ISOLATED.get() is not None:
+                if _ISOLATED.get() is not None and not provider_auth_execution_admitted():
                     raise IsolationAbort("constructor_boundary_unverified")
                 return original_init(self, *args, **kwargs)
             _mark(_isolated_init)
