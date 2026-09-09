@@ -652,6 +652,85 @@ states.forEach((s) => {
   }
 })();
 
+console.log('\n[6b] SUNSET-MONTHLY-CARDS — Monthly locks Cards; Daily stays enabled');
+(function monthlyCardsLock() {
+  const { doc } = createMinimalDocument();
+  function paint(src) {
+    const mount = doc.createElement('div');
+    mount.ownerDocument = doc;
+    const data = cockpit.scheduleBuildDayCockpitData(src);
+    cockpit.scheduleRenderDayCockpit(mount, data);
+    return { mount, data };
+  }
+  function layoutSeg(mount) {
+    return mount.querySelector('.ck-seg--layout');
+  }
+  function layoutBtns(mount) {
+    const seg = layoutSeg(mount);
+    return seg ? (seg.children || []).filter((c) => c.tagName === 'BUTTON') : [];
+  }
+  const sessions = producerSessions;
+  const daily = paint({
+    venue: 'Sunset',
+    date: TODAY_ISO,
+    navMode: 'day',
+    layout: 'timeline',
+    now: 12 * 60 + 37,
+    sessions,
+    unpaidCount: 1,
+    needReplyCount: 0,
+    on: { layout: function () {} },
+  });
+  const dailyBtns = layoutBtns(daily.mount);
+  assert('daily layout seg present', !!layoutSeg(daily.mount));
+  assert('daily layout not locked class', dailyBtns.length === 2 && !/\bis-locked\b/.test(layoutSeg(daily.mount).className || ''));
+  assert('daily Timeline selected', dailyBtns[0] && dailyBtns[0].getAttribute('aria-pressed') === 'true' && /Timeline/.test(dailyBtns[0].textContent));
+  assert('daily Cards not selected', dailyBtns[1] && dailyBtns[1].getAttribute('aria-pressed') === 'false');
+  assert('daily layout buttons enabled', dailyBtns.every((b) => b.disabled !== true && b.getAttribute('disabled') == null && b.getAttribute('aria-disabled') !== 'true'));
+  assert('daily layout click wired', dailyBtns.every((b) => Array.isArray(b._listeners.click) && b._listeners.click.length > 0));
+
+  const monthly = paint({
+    venue: 'Sunset',
+    date: TODAY_ISO,
+    navMode: 'next30',
+    layout: 'timeline', // stored Daily preference must not win
+    now: 12 * 60 + 37,
+    sessions,
+    unpaidCount: 1,
+    needReplyCount: 0,
+    on: { layout: function () { throw new Error('monthly layout must not fire'); } },
+  });
+  const monthlyBtns = layoutBtns(monthly.mount);
+  const monthlySeg = layoutSeg(monthly.mount);
+  assert('monthly layout seg present', !!monthlySeg);
+  assert('monthly layout locked class', /\bis-locked\b/.test(monthlySeg.className || ''));
+  assert('monthly Cards selected', monthlyBtns[1] && /Cards/.test(monthlyBtns[1].textContent) && monthlyBtns[1].getAttribute('aria-pressed') === 'true');
+  assert('monthly Timeline not selected', monthlyBtns[0] && /Timeline/.test(monthlyBtns[0].textContent) && monthlyBtns[0].getAttribute('aria-pressed') === 'false');
+  assert('monthly layout buttons disabled', monthlyBtns.length === 2 && monthlyBtns.every((b) => b.disabled === true || b.getAttribute('disabled') != null));
+  assert('monthly layout aria-disabled', monthlyBtns.every((b) => b.getAttribute('aria-disabled') === 'true') || monthlySeg.getAttribute('aria-disabled') === 'true');
+  assert('monthly layout click not wired', monthlyBtns.every((b) => !b._listeners.click || b._listeners.click.length === 0));
+
+  const dailyCards = paint({
+    venue: 'Sunset',
+    date: TODAY_ISO,
+    navMode: 'day',
+    layout: 'cards',
+    sessions,
+    unpaidCount: 0,
+    needReplyCount: 0,
+    on: { layout: function () {} },
+  });
+  const dailyCardsBtns = layoutBtns(dailyCards.mount);
+  assert('daily Cards selection still works', dailyCardsBtns[1] && dailyCardsBtns[1].getAttribute('aria-pressed') === 'true');
+  assert('daily Cards still enabled', dailyCardsBtns.every((b) => b.disabled !== true && b.getAttribute('disabled') == null));
+
+  const cockpitSrc = fs.readFileSync(MODULE_PATH, 'utf8');
+  assert('monthly layout handler no-ops next30/month/monthly',
+    /live === 'next30' \|\| live === 'month' \|\| live === 'monthly'/.test(cockpitSrc));
+  assert('monthly lock does not persist Cards via scheduleSetDayOpsLayoutMode on enter',
+    !/rangeKey === 'next30'[\s\S]{0,80}scheduleSetDayOpsLayoutMode\('cards'\)/.test(cockpitSrc));
+})();
+
 console.log('\n[7] LANG-003 — ES Horario chrome + Medio Día');
 (function lang003EsChrome() {
   const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');

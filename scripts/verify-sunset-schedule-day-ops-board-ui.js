@@ -1810,5 +1810,80 @@ assert('cards grid CSS present', apiSrc.includes('.portal-schedule-cards-grid{')
 assert('cards grid uses --ps-card-cols', apiSrc.includes('--ps-card-cols'));
 assert('cards collapse to 1 col on mobile', apiSrc.includes('.portal-schedule-cards-grid{grid-template-columns:1fr!important}'));
 
+console.log('\n[6c] SUNSET-MONTHLY-CARDS — light Paid/Unpaid pebbles readable (not white-on-pale)');
+(function statusPebbleContrast() {
+  function lastBody(src, needle) {
+    let idx = -1;
+    let from = 0;
+    while (true) {
+      const i = src.indexOf(needle, from);
+      if (i === -1) break;
+      const prefix = src.slice(Math.max(0, i - 96), i);
+      // Light-view gate: ignore dark-theme rules (those are meant to be pale-on-dark).
+      if (!/\[data-theme=["']dark["']\][^{]*$/.test(prefix)) idx = i;
+      from = i + 1;
+    }
+    if (idx < 0) return '';
+    const open = src.indexOf('{', idx);
+    const close = src.indexOf('}', open);
+    if (open < 0 || close < 0) return '';
+    return src.slice(open + 1, close);
+  }
+  function hexOf(body, prop) {
+    const re = new RegExp('(?:^|[;{])\\s*' + prop + '\\s*:\\s*(#[0-9A-Fa-f]{3,8})');
+    const m = re.exec(';' + body);
+    return m ? m[1] : '';
+  }
+  function expand(hex) {
+    hex = String(hex || '').replace('#', '');
+    if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('');
+    return hex.toLowerCase();
+  }
+  function lum(hex) {
+    const h = expand(hex);
+    const rgb = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+    const f = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    const [r, g, b] = rgb.map(f);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  function contrast(fg, bg) {
+    const a = lum(fg);
+    const b = lum(bg);
+    const hi = Math.max(a, b);
+    const lo = Math.min(a, b);
+    return (hi + 0.05) / (lo + 0.05);
+  }
+  function isPaleOrWhite(hex) {
+    const h = expand(hex);
+    if (!h || h.length < 6) return true;
+    if (h === 'ffffff' || h === 'fff') return true;
+    return lum(hex) > 0.55;
+  }
+
+  const paidBody = lastBody(apiSrc, '.portal-schedule-status.is-paid{');
+  const unpaidBody = lastBody(apiSrc, '.portal-schedule-status.is-unpaid');
+  const lightPaid = lastBody(apiSrc, ':root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-paid{');
+  const lightUnpaid = lastBody(apiSrc, ':root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-unpaid');
+  const wkUnpaid = lastBody(apiSrc, '.portal-schedule-wk-flag.is-unpaid{');
+
+  const paidColor = hexOf(paidBody, 'color') || hexOf(lightPaid, 'color');
+  const paidBg = hexOf(paidBody, 'background') || hexOf(lightPaid, 'background');
+  const unpaidColor = hexOf(unpaidBody, 'color') || hexOf(lightUnpaid, 'color');
+  const unpaidBg = hexOf(unpaidBody, 'background') || hexOf(lightUnpaid, 'background');
+  const flagColor = hexOf(wkUnpaid, 'color') || unpaidColor;
+  const flagBg = hexOf(wkUnpaid, 'background') || unpaidBg;
+
+  assert('paid pebble has fill + ink', !!paidColor && !!paidBg, `color=${paidColor} bg=${paidBg}`);
+  assert('unpaid pebble has fill + ink', !!unpaidColor && !!unpaidBg, `color=${unpaidColor} bg=${unpaidBg}`);
+  assert('paid ink is not washed mint #6b8f71', expand(paidColor) !== '6b8f71');
+  assert('paid ink is not white/pale', !isPaleOrWhite(paidColor), paidColor);
+  assert('unpaid ink is not white/pale', !isPaleOrWhite(unpaidColor), unpaidColor);
+  assert('paid light contrast >= 7', contrast(paidColor, paidBg) >= 7, `${paidColor} on ${paidBg} = ${contrast(paidColor, paidBg).toFixed(2)}`);
+  assert('unpaid light contrast >= 7', contrast(unpaidColor, unpaidBg) >= 7, `${unpaidColor} on ${unpaidBg} = ${contrast(unpaidColor, unpaidBg).toFixed(2)}`);
+  assert('wk-flag unpaid contrast >= 7', contrast(flagColor, flagBg) >= 7, `${flagColor} on ${flagBg} = ${contrast(flagColor, flagBg).toFixed(2)}`);
+  assert('no washed paid color leftover', !/\.portal-schedule-status\.is-paid\{color:#6b8f71\}/.test(apiSrc));
+  assert('light tab paid ink not pale', !isPaleOrWhite(hexOf(lightPaid, 'color') || paidColor));
+})();
+
 console.log(`\n── verify:sunset-schedule-day-ops-board-ui ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 if (fail) process.exit(1);

@@ -82,6 +82,7 @@ const steps = [
   ['verify:luna-personality-gateway-bind', 'verify-luna-personality-gateway-bind.js'],
   ['verify:luna-personality-no-send', 'verify-luna-personality-no-send.js'],
   ['verify:luna-personality-live-eval', 'verify-luna-personality-live-eval.js'],
+  ['verify:luna-personality-radios', 'verify-luna-personality-radios.js'],
   ['verify:sunset-luna-live-test-001', 'verify-sunset-luna-live-test-001.js'],
   ['verify:luna-catalog-services', 'verify-luna-catalog-services.js'],
   ['verify:luna-same-desk-admin-catalog', 'verify-luna-same-desk-admin-catalog.js'],

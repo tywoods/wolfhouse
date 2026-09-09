@@ -16942,8 +16942,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .btn-ghost{background:var(--sched-surface);border-color:var(--sched-border);color:var(--sched-text-2)}
 :root:not([data-theme="dark"]) #tab-portal-home .btn-ghost:hover{background:var(--sched-surface-soft);border-color:var(--sched-border)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-unpaid,
-:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-pending{color:#9C4A42;background:#F6E3E0}
-:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-paid{color:#3F6B4F;background:#E3F0E7}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-pending{color:#7A2E28;background:#F6E3E0}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-paid{color:#24553A;background:#E3F0E7}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-item-card.source-staff,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-item-card.source-luna{background:var(--sched-surface-soft);border-color:var(--sched-border-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-week-forecast-card:hover,
@@ -18179,8 +18179,8 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-chip-main{display:flex;align-items:flex-start;gap:6px}
 .portal-schedule-chip-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .portal-schedule-status{display:inline-block;font-size:11px;font-weight:600;line-height:1.3;white-space:nowrap}
-.portal-schedule-status.is-paid{color:#6b8f71}
-.portal-schedule-status.is-pending,.portal-schedule-status.is-unpaid{color:#B4534A}
+.portal-schedule-status.is-paid{color:#24553A}
+.portal-schedule-status.is-pending,.portal-schedule-status.is-unpaid{color:#7A2E28}
 [data-theme="dark"] .portal-schedule-status.is-pending,[data-theme="dark"] .portal-schedule-status.is-unpaid{color:#ffb896}
 .portal-schedule-status.is-needs-reply{color:#9a8ab8}
 .portal-schedule-pebble{display:none}
@@ -18622,8 +18622,8 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-src-chip.is-staff i{background:#2F6B4F}
 .portal-schedule-src-chip.is-luna{background:#E4ECF4;color:#3F6288}
 .portal-schedule-src-chip.is-luna i{background:#4A7BA6}
-.portal-schedule-status.is-unpaid,.portal-schedule-status.is-pending{background:#F6E3E0;color:#9C4A42;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
-.portal-schedule-status.is-paid{background:#E3F0E7;color:#3F6B4F;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
+.portal-schedule-status.is-unpaid,.portal-schedule-status.is-pending{background:#F6E3E0;color:#7A2E28;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
+.portal-schedule-status.is-paid{background:#E3F0E7;color:#24553A;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 .portal-schedule-status.is-waiver{background:#D8EDDB;color:#256B41;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 [data-theme="dark"] .portal-schedule-status.is-waiver{background:rgba(90,190,120,.16);color:#8fe0a5}
 [data-theme="dark"] .portal-schedule-status.is-paid{background:rgba(90,190,120,.16);color:#9ee0a8}
@@ -18647,8 +18647,8 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-wk-slot-track i.is-luna{background:#4A7BA6}
 .portal-schedule-wk-flags{display:flex;flex-wrap:wrap;gap:4px;margin-top:9px}
 .portal-schedule-wk-flag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px}
-.portal-schedule-wk-flag.is-unpaid{background:#F6E3E0;color:#9C4A42}
-.portal-schedule-wk-flag.is-reply{background:#EDE7F4;color:#6B5080}
+.portal-schedule-wk-flag.is-unpaid{background:#F6E3E0;color:#7A2E28}
+.portal-schedule-wk-flag.is-reply{background:#EDE7F4;color:#4A2E66}
 .portal-schedule-next30-wrap{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px}
 .portal-schedule-next30-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .portal-schedule-next30-dow{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);text-align:center;padding-bottom:2px}
@@ -23203,6 +23203,22 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <span class="luna-header-mode-btn is-active" data-i18n="lunaStaff.style.palette.sand">Sand</span>
       </div>
     </div>
+  </section>
+
+  <section class="staff-style-card luna-header-mode-card" id="staff-luna-personality-card" aria-label="Luna Personality">
+    <div class="luna-header-mode-head">
+      <span class="luna-header-mode-title" data-i18n="lunaStaff.personality.title">Luna Personality</span>
+      <span class="luna-header-mode-sub" data-i18n="lunaStaff.personality.sub">WhatsApp wording, cadence, warmth, and emoji only. Same Luna — never changes facts, prices, availability, or sends.</span>
+    </div>
+    <div class="staff-style-mode">
+      <div class="staff-style-row" role="radiogroup" aria-label="Luna Personality" id="staff-luna-personality-radios">
+        <button type="button" class="luna-header-mode-btn" data-personality-id="sunny" data-i18n="lunaStaff.personality.sunny" aria-pressed="true">Sunny</button>
+        <button type="button" class="luna-header-mode-btn" data-personality-id="calm" data-i18n="lunaStaff.personality.calm" aria-pressed="false">Calm</button>
+        <button type="button" class="luna-header-mode-btn" data-personality-id="concise" data-i18n="lunaStaff.personality.concise" aria-pressed="false">Concise</button>
+        <button type="button" class="luna-header-mode-btn" data-personality-id="extra" data-i18n="lunaStaff.personality.extra" aria-pressed="false">Extra</button>
+      </div>
+    </div>
+    <div id="staff-luna-personality-status" class="al-hint" role="status"></div>
   </section>
 
 ${showOwnerScheduleBridge ? `
@@ -32231,8 +32247,69 @@ function isLunaStaffTabActive(){
   return !!(panel && panel.classList.contains('active'));
 }
 
+function lunaPersonalityApplyUi(id){
+  var closed = ['sunny', 'calm', 'concise', 'extra'];
+  var raw = String(id || '').toLowerCase();
+  var next = closed.indexOf(raw) >= 0 ? raw : 'sunny';
+  var row = el('staff-luna-personality-radios');
+  if (!row) return;
+  var btns = row.querySelectorAll('[data-personality-id]');
+  for (var i = 0; i < btns.length; i++){
+    var on = btns[i].getAttribute('data-personality-id') === next;
+    if (btns[i].classList) btns[i].classList.toggle('is-active', on);
+    if (btns[i].setAttribute) btns[i].setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+}
+
+function lunaPersonalityWireOnce(){
+  var row = el('staff-luna-personality-radios');
+  if (!row || row._lunaPersonalityWired) return;
+  row._lunaPersonalityWired = true;
+  row.addEventListener('click', function(e){
+    var t = e.target;
+    if (!t || !t.closest) return;
+    var btn = t.closest('[data-personality-id]');
+    if (!btn || (row.contains && !row.contains(btn))) return;
+    var id = btn.getAttribute('data-personality-id');
+    if (['sunny', 'calm', 'concise', 'extra'].indexOf(id) < 0) return;
+    lunaPersonalityApplyUi(id);
+    fetch('/staff/luna-personality', {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ personality_id: id }),
+    })
+      .then(function(r){
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        var data = out.data || {};
+        if (!data.success) throw new Error(data.error || ('HTTP ' + out.status));
+        lunaPersonalityApplyUi(data.personality_id);
+      })
+      .catch(function(){ lunaPersonalityLoad(); });
+  });
+}
+
+function lunaPersonalityLoad(){
+  var card = el('staff-luna-personality-card');
+  if (!card) return;
+  lunaPersonalityWireOnce();
+  fetch('/staff/luna-personality', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    .then(function(r){
+      if (r.status === 401) throw new Error('Authentication required');
+      return r.ok ? r.json() : { success: false };
+    })
+    .then(function(data){
+      if (!data || data.success !== true) return;
+      lunaPersonalityApplyUi(data.personality_id);
+    })
+    .catch(function(){ /* keep default sunny until a later load */ });
+}
+
 function wireLunaStaffTabCards(){
   lunaGlobalPauseLoad();
+  lunaPersonalityLoad();
   staffWhatsappNumbersLoad();
   houseNotesLoad();
   maybeLoadStaffNotificationSettings();

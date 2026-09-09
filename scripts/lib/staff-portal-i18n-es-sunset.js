@@ -1179,5 +1179,11 @@ module.exports = {
   'lunaStaff.style.combo.saltDark': 'Sal oscura',
   'lunaStaff.style.combo.sandLight': 'Arena clara',
   'lunaStaff.style.combo.sandDark': 'Arena oscura',
+  'lunaStaff.personality.title': 'Personalidad de Luna',
+  'lunaStaff.personality.sub': 'Solo redacción, ritmo, calidez y emoji de WhatsApp. La misma Luna — nunca cambia hechos, precios, disponibilidad ni envíos.',
+  'lunaStaff.personality.sunny': 'Soleada',
+  'lunaStaff.personality.calm': 'Serena',
+  'lunaStaff.personality.concise': 'Concisa',
+  'lunaStaff.personality.extra': 'A tope',
 
 };

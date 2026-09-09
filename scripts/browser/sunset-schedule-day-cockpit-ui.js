@@ -132,6 +132,10 @@ var SCHEDULE_DAY_COCKPIT_CSS = [
   '.ck-seg button[aria-pressed="true"]{background:var(--ck-olive);color:#fff;font-weight:600;}',
   '.ck-seg--range button[aria-pressed="true"]{background:var(--ck-dark);color:var(--ck-on-dark);}',
   '@media (max-width:768px){.ck-seg--layout{display:none!important;}}',
+  '.ck-seg--layout.is-locked button,.ck-seg--layout button:disabled{cursor:not-allowed;pointer-events:none;}',
+  '.ck-seg--layout.is-locked button:not([aria-pressed="true"]){opacity:.55;}',
+  '.ck-seg--layout.is-locked button[aria-pressed="true"]{background:var(--ck-olive);color:#fff;}',
+  '.ck-seg--layout.is-locked button:hover{color:inherit;}',
   '.ck-date{display:flex;flex-direction:column;gap:1px;}',
   '.ck-date b{font-size:16px;font-weight:700;letter-spacing:-.01em;line-height:1.1;}',
   '.ck-date span{font-size:11px;color:var(--ck-ink-3);}',
@@ -664,16 +668,24 @@ function scheduleRenderDayCockpit(mount, data) {
     ranges.appendChild(b);
   });
   right.appendChild(ranges);
-  // Timeline | Cards — same chrome as Daily/Monthly; place may move later.
-  var layouts = el('div', 'ck-seg ck-seg--layout');
-  var layoutKey = data.layout === 'cards' ? 'cards' : 'timeline';
+  // Timeline | Cards — Daily only. Monthly is cards-only, so lock the switch on Cards.
+  var monthlyLocked = rangeKey === 'next30';
+  var layouts = el('div', 'ck-seg ck-seg--layout' + (monthlyLocked ? ' is-locked' : ''));
+  var layoutKey = monthlyLocked ? 'cards' : (data.layout === 'cards' ? 'cards' : 'timeline');
+  if (monthlyLocked) layouts.setAttribute('aria-disabled', 'true');
   [['timeline', scheduleCockpitT('schedule.cockpit.layout.timeline', 'Timeline')],
    ['cards', scheduleCockpitT('schedule.cockpit.layout.cards', 'Cards')]].forEach(function (row) {
     var key = row[0], label = row[1];
     var b = el('button', null, label);
     b.type = 'button';
     b.setAttribute('aria-pressed', layoutKey === key ? 'true' : 'false');
-    if (on.layout) b.addEventListener('click', function () { on.layout(key); });
+    if (monthlyLocked) {
+      b.disabled = true;
+      b.setAttribute('disabled', 'disabled');
+      b.setAttribute('aria-disabled', 'true');
+    } else if (on.layout) {
+      b.addEventListener('click', function () { on.layout(key); });
+    }
     layouts.appendChild(b);
   });
   right.appendChild(layouts);
@@ -1264,6 +1276,10 @@ function scheduleDayCockpitDefaultHandlers() {
       }
     },
     layout: function (kind) {
+      try {
+        var live = typeof scheduleCurrentViewMode === 'function' ? scheduleCurrentViewMode() : '';
+        if (live === 'next30' || live === 'month' || live === 'monthly') return;
+      } catch (_layoutLock) { /* keep */ }
       var mode = kind === 'cards' ? 'cards' : 'timeline';
       if (typeof scheduleSetDayOpsLayoutMode === 'function') return scheduleSetDayOpsLayoutMode(mode);
     },
