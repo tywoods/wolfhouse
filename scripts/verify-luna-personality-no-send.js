@@ -78,6 +78,21 @@ const corpus = JSON.parse(fs.readFileSync(CORPUS_PATH, 'utf8'));
   ok('warmth turns stylistically distinct', report.warmth_distinct === true);
   ok('spanish remains peninsular', report.spanish_peninsular === true);
 
+  const neutralCorpus = JSON.parse(JSON.stringify(corpus));
+  for (const scenario of neutralCorpus.cases.filter((c) => c.lang === 'es' && c.kind === 'warmth_eligible')) {
+    for (const id of CLOSED_IDS) scenario.replies[id] = 'Perfecto. ¿Qué fecha prefieres?';
+  }
+  const neutralReport = await sim.runNoSendAcceptance({ corpus: neutralCorpus });
+  ok('neutral Spain-valid Spanish needs no positive peninsular marker',
+    neutralReport.spanish_peninsular === true);
+
+  const latamCorpus = JSON.parse(JSON.stringify(neutralCorpus));
+  const spanishWarmth = latamCorpus.cases.find((c) => c.lang === 'es' && c.kind === 'warmth_eligible');
+  spanishWarmth.replies.sunny = 'Perfecto. ¿Qué fecha prefieren ustedes?';
+  const latamReport = await sim.runNoSendAcceptance({ corpus: latamCorpus });
+  ok('explicit Latin-American-only markers remain rejected',
+    latamReport.spanish_peninsular === false);
+
   const harness = sim.createNoSendHarness({
     tenants: {
       sunset: { settings: { inbox_channel_modes: { whatsapp: 'auto' }, house_notes: 'keep' } },

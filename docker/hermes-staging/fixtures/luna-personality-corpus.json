@@ -9,7 +9,7 @@
   "notes": [
     "Reviewed meaning-preserving EN/ES acceptance copy for all four closed IDs.",
     "Warmth-eligible turns may differ in cadence/emoji; truth-frozen turns must be identical.",
-    "Spanish is peninsular (vale, móvil, vosotros) — never Latin-American."
+    "Spanish is Peninsular or neutral Spanish; explicit Latin-American-only markers are rejected."
   ],
   "cases": [
     {
@@ -18,16 +18,17 @@
       "kind": "warmth_eligible",
       "composer_state": "greeting",
       "guest_text": "Hi!",
-      "meaning": "welcome the guest and offer to help book a stay",
-      "response_contract": "Welcome the guest and offer to help book a stay.",
-      "shared_tokens": ["welcome", "book"],
-      "meaning_tokens": "welcome book stay",
+      "meaning": "warmly greet the guest and offer a helpful next step appropriate to the tenant",
+      "response_contract": "Reply in English. Greet the guest warmly and offer one helpful next step appropriate to this tenant and its services; do not assume an accommodation business.",
+      "shared_tokens": ["welcome"],
+      "required_any_groups": [{"name": "helpful_next_step", "tokens": ["help", "arrange", "book", "reserve", "lesson", "course", "rental", "next"]}],
+      "meaning_tokens": "welcome helpful next step",
       "frozen_facts": [],
       "replies": {
-        "sunny": "Hey! Welcome to Wolf-House 🌊 I can help you book a stay — what dates are you thinking?",
-        "calm": "Welcome to Wolf-House. I can help you book a stay whenever you are ready. Which dates work?",
-        "concise": "Welcome — I can help you book a stay. Dates?",
-        "extra": "Yesss welcome to Wolf-House!! 🌊🙌🐺 So happy you're here! I can help you book a stay — what dates are you dreaming of? 😊"
+        "sunny": "Hey! Welcome 🌊 How can I help you today?",
+        "calm": "Welcome. I’m here to help whenever you’re ready.",
+        "concise": "Welcome — how can I help?",
+        "extra": "Yesss, welcome!! 🌊🙌 So happy you’re here! What can I help you with today? 😊"
       }
     },
     {
@@ -36,16 +37,18 @@
       "kind": "warmth_eligible",
       "composer_state": "ask_dates",
       "guest_text": "We want to come in August",
-      "meaning": "ask for check-in and check-out dates",
-      "response_contract": "Ask for the check-in and check-out dates.",
-      "shared_tokens": ["check-in", "check-out"],
-      "meaning_tokens": "check-in check-out dates",
+      "meaning": "clarify which dates or days in August the guest means without assuming the tenant's business domain",
+      "response_contract": "Reply in English. Ask which dates or days in August the guest means, using language appropriate to this tenant without assuming its business domain.",
+      "shared_tokens": ["august"],
+      "required_any_groups": [{"name": "date_clarification", "tokens": ["date", "dates", "day", "days", "when"]}],
+      "require_question": true,
+      "meaning_tokens": "august dates days",
       "frozen_facts": [],
       "replies": {
-        "sunny": "Love August 🌊 What check-in and check-out dates are you thinking?",
-        "calm": "August works. Could you share your check-in and check-out dates?",
-        "concise": "Check-in and check-out dates?",
-        "extra": "August is going to be amazing!! 🌊☀️ What check-in and check-out dates should I lock in for you? 😊🙌"
+        "sunny": "August sounds great 🌊 Which dates are you thinking?",
+        "calm": "August works. Which days would suit you?",
+        "concise": "Which August dates?",
+        "extra": "August sounds amazing!! 🌊☀️ Which days are you dreaming of? 😊🙌"
       }
     },
     {
@@ -54,16 +57,17 @@
       "kind": "warmth_eligible",
       "composer_state": "greeting",
       "guest_text": "Hola!",
-      "meaning": "dar la bienvenida y ofrecer ayuda para reservar",
-      "response_contract": "Reply in Peninsular Spanish; welcome the guests and offer ayudaros a reservar.",
-      "shared_tokens": ["bienvenid", "reserva"],
-      "meaning_tokens": "bienvenida reservar",
+      "meaning": "saludar con calidez y ofrecer un siguiente paso útil adecuado al negocio",
+      "response_contract": "Responde en español peninsular o neutro. Saluda con calidez y ofrece un siguiente paso útil adecuado al negocio; no presupongas que es un alojamiento.",
+      "shared_tokens": ["bienvenid"],
+      "required_any_groups": [{"name": "helpful_next_step", "tokens": ["ayud*", "reserv*", "organiz*", "clase", "curso", "alquil*", "siguiente"]}],
+      "meaning_tokens": "bienvenida ayuda siguiente paso",
       "frozen_facts": [],
       "replies": {
-        "sunny": "¡Hola! Bienvenidos a Wolf-House 🌊 Puedo ayudaros a reservar — ¿qué fechas tenéis en mente?",
-        "calm": "Bienvenidos a Wolf-House. Puedo ayudaros a reservar cuando queráis. ¿Qué fechas os vienen bien?",
-        "concise": "Bienvenidos — os ayudo a reservar. ¿Fechas?",
-        "extra": "¡¡Bienvenidos a Wolf-House!! 🌊🙌🐺 Me alegra un montón que estéis aquí. ¿Os ayudo a reservar? ¿Qué fechas soñáis? 😊 Vale, cuando queráis."
+        "sunny": "¡Hola! Bienvenidos 🌊 ¿En qué puedo ayudaros?",
+        "calm": "Bienvenidos. Estoy aquí para ayudar cuando queráis.",
+        "concise": "Bienvenidos — ¿en qué puedo ayudar?",
+        "extra": "¡¡Bienvenidos!! 🌊🙌 Me alegra un montón que estéis aquí. ¿En qué puedo ayudaros hoy? 😊"
       }
     },
     {
@@ -72,16 +76,18 @@
       "kind": "warmth_eligible",
       "composer_state": "ask_dates",
       "guest_text": "Queremos venir en agosto",
-      "meaning": "pedir fechas de entrada y salida",
-      "response_contract": "Reply in Peninsular Spanish and ask for the fechas de entrada y salida using vosotros forms.",
-      "shared_tokens": ["entrada", "salida"],
-      "meaning_tokens": "entrada salida fechas",
+      "meaning": "aclarar qué fechas o días de agosto quiere el cliente sin presuponer el tipo de negocio",
+      "response_contract": "Responde en español peninsular o neutro. Pregunta qué fechas o días de agosto quiere el cliente, con lenguaje adecuado sin presuponer el tipo de negocio.",
+      "shared_tokens": ["agosto"],
+      "required_any_groups": [{"name": "date_clarification", "tokens": ["fecha", "fechas", "día", "días", "cuando", "cuándo"]}],
+      "require_question": true,
+      "meaning_tokens": "agosto fechas días",
       "frozen_facts": [],
       "replies": {
-        "sunny": "Agosto pinta genial 🌊 ¿Qué fechas de entrada y salida tenéis?",
-        "calm": "Agosto encaja. ¿Me decís las fechas de entrada y salida?",
-        "concise": "¿Fechas de entrada y salida?",
-        "extra": "¡Agosto va a estar increíble!! 🌊☀️ ¿Qué fechas de entrada y salida os pongo? 😊🙌 Vale, cuando las tengáis."
+        "sunny": "Agosto pinta genial 🌊 ¿Qué fechas tenéis en mente?",
+        "calm": "Agosto encaja. ¿Qué días os vienen bien?",
+        "concise": "¿Qué fechas de agosto?",
+        "extra": "¡Agosto va a estar increíble!! 🌊☀️ ¿Qué días os apetecen? 😊🙌"
       }
     },
     {

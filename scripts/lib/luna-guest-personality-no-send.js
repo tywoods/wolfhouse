@@ -24,7 +24,6 @@ const { createLunaPersonalityRoutes } = require('./staff-luna-personality-routes
 const AUTO_SEND_ENABLED = false;
 const WHATSAPP_SUPPRESSED = true;
 const LATAM_MARKERS = /\b(celular|ustedes|vos sos|\bche\b|okis|computadora)\b/i;
-const PENINSULAR_MARKERS = /\b(vale|móvil|vosotros|tenéis|queréis|vais|ordenador|vuestro)\b/i;
 const TOOL_BASELINE = Object.freeze(['check_availability']);
 
 function cloneSettings(src) {
@@ -205,9 +204,6 @@ async function runNoSendAcceptance(opts) {
       }
       if (scenario.lang === 'es' && scenario.kind === 'warmth_eligible') {
         if (LATAM_MARKERS.test(turn.reply)) spanishOk = false;
-        if (!CLOSED_PERSONALITY_IDS.some((pid) => PENINSULAR_MARKERS.test(scenario.replies[pid]))) {
-          spanishOk = false;
-        }
       }
     }
   }
