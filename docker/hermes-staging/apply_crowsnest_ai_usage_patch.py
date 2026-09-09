@@ -510,7 +510,7 @@ def patch_auth_admission(source, candidates, paths):
     # Mutating callers retain their own unconditional entry guards.
     read_only = {'resolve_codex_runtime_credentials', '_read_codex_tokens', 'load_pool',
                  '_load_auth_store', '_auth_store_lock', '_pool_codex_access_token',
-                 '_codex_pool_rate_limit_status'}
+                 '_codex_pool_rate_limit_status', 'get_model_context_length'}
     for path, (_, expected, owners) in zip(paths, PRD):
         text = source[path]
         for owner in reversed(owners):
@@ -532,6 +532,12 @@ def patch_auth_admission(source, candidates, paths):
             start = first.lineno - 1
             if ''.join(lines[start:start + 3]) == guard:
                 text = ''.join(lines[:start] + lines[start + 3:])
+            elif owner == 'get_model_context_length':
+                legacy = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
+                          + indent + 'if current_isolated_turn() is not None:\n'
+                          + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
+                if ''.join(lines[start:start + 3]) == legacy:
+                    text = ''.join(lines[:start] + lines[start + 3:])
         if hashlib.sha256(text.encode('utf-8')).hexdigest() != expected:
             raise RuntimeError('PRD auth/pool source fingerprint drift')
         for owner in owners:
