@@ -94,7 +94,8 @@ class PatcherTests(unittest.TestCase):
         for name in row[2]:
             node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
             self.assertIsInstance(node.body[1], ast.ImportFrom)
-            self.assertEqual(ast.unparse(node.body[2]), "if current_isolated_turn() is not None:\n    raise IsolationAbort('auth_boundary_unsupported')")
+            condition = "current_isolated_turn() is not None and (not provider_auth_execution_admitted())" if name == 'get_model_context_length' else "current_isolated_turn() is not None"
+            self.assertEqual(ast.unparse(node.body[2]), f"if {condition}:\n    raise IsolationAbort('auth_boundary_unsupported')")
             first, last = node.body[1].lineno, node.body[2].end_lineno
             lines = emitted.splitlines(keepends=True)
             partial = ''.join(lines[:first - 1] + lines[last:])

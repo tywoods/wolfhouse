@@ -26,6 +26,51 @@ METADATA_ENTRIES = ('get_model_context_length', '_fetch_codex_oauth_context_leng
 
 
 class MetadataAdmissionTests(unittest.TestCase):
+    def test_bound_provider_auth_admits_only_top_level_metadata_read(self):
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from agent import model_metadata as metadata
+        runner = SimpleNamespace(_agent_cache={})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="metadata", user_id="metadata")
+        cap = isolation.IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        isolation._ACTIVE_RUNNER = runner
+        turn = isolation.enter_isolated_turn(cap)
+        route = isolation._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        effects = []
+        def hostile(*args, **kwargs):
+            effects.append('effect')
+            raise AssertionError('denied metadata effect reached')
+        try:
+            isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
+            isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
+            with isolation.isolated_provider_auth_scope():
+                self.assertEqual(metadata.get_model_context_length('fixture', config_context_length=8192), 8192)
+                for owner, args in ((metadata._fetch_codex_oauth_context_lengths, ('token',)),
+                                    (metadata.save_context_length, ('fixture', 'https://fixture.invalid', 8192)),
+                                    (metadata._save_model_metadata_disk_cache, ({'fixture': {}},))):
+                    with self.subTest(owner=owner.__name__), ExitStack() as stack:
+                        stack.enter_context(patch.object(metadata.requests, 'get', hostile))
+                        stack.enter_context(patch.object(metadata, 'atomic_json_write', hostile))
+                        with self.assertRaises(isolation.IsolationAbort) as caught:
+                            owner(*args)
+                        self.assertEqual(caught.exception.reason, 'auth_boundary_unsupported')
+            self.assertEqual(effects, [])
+            with self.assertRaises(isolation.IsolationAbort):
+                metadata.get_model_context_length('fixture', config_context_length=8192)  # replay
+            admission = isolation._RUNTIME_ROUTE.get()
+            admission.stage = isolation.RUNTIME_RESOLUTION_STAGE
+            with self.assertRaises(isolation.IsolationAbort):
+                metadata.get_model_context_length('fixture', config_context_length=8192)  # wrong route
+            admission.stage = 'provider_auth'
+            admission.identity = object()
+            with self.assertRaises(isolation.IsolationAbort):
+                metadata.get_model_context_length('fixture', config_context_length=8192)  # mutated identity
+        finally:
+            isolation._RUNTIME_ROUTE.reset(route)
+            isolation.exit_isolated_turn(turn)
+            isolation._ACTIVE_RUNNER = None
+
     def test_four_entries_deny_before_original_operations(self):
         from contextlib import ExitStack
         from unittest.mock import patch
