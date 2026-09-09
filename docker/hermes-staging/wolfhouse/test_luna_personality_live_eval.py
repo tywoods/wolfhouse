@@ -3791,6 +3791,29 @@ class AdapterMapAndTurnEntryTests(unittest.TestCase):
         finally:
             exit_isolated_turn(tok)
 
+    def test_codex_responses_stream_turn_owner_is_admitted(self) -> None:
+        t = _complete_targets()
+        effects = []
+
+        def _codex_stream(self, *args, **kwargs):  # noqa: ANN001
+            effects.append("codex_responses_stream")
+            return "reply"
+
+        t.agent_cls._run_codex_stream = _codex_stream
+        runner, _db_effects = _runner_with_db(t)
+        agent = t.agent_cls()
+        agent.api_mode = "codex_responses"
+        runner._agent_cache["k"] = (agent, "sig", 0)
+        install_isolation_runtime(targets=t, runner=runner)
+        cap = IsolatedTurnCapture(case_id="warmth-greeting-en", personality_id="sunny")
+        tok = enter_isolated_turn(cap)
+        try:
+            preflight_isolation_or_abort(require_live_seams=True, targets=t, runner=runner)
+            self.assertEqual(agent._run_codex_stream({}, client=object()), "reply")
+            self.assertEqual(effects, ["codex_responses_stream"])
+        finally:
+            exit_isolated_turn(tok)
+
     def test_stale_codex_turn_owner_fails_preflight(self) -> None:
         t = _complete_targets()
         runner, effects = _runner_with_db(t)
