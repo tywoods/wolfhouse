@@ -1666,7 +1666,6 @@ def _wrap_turn_owner_method(owner: Any, name: str) -> bool:
             refuse_unsupported_backend(self_obj)
             if method_name in {
                 "_run_codex_app_server_turn",
-                "_run_codex_stream",
                 "_run_codex_create_stream_fallback",
                 "_anthropic_messages_create",
             }:
@@ -1735,7 +1734,7 @@ def _wrap_module_turn_entry(mod: Any, attr: str) -> bool:
                 return orig(*args, **kwargs)
             return orig(agent, *args, **kwargs)
         refuse_unsupported_backend(agent)
-        if attr in {"run_codex_app_server_turn", "run_codex_stream", "run_codex_create_stream_fallback"}:
+        if attr in {"run_codex_app_server_turn", "run_codex_create_stream_fallback"}:
             raise IsolationAbort(f"unsupported_turn_owner:{attr}")
         _certify_effective_agent_before_turn_prologue(agent)
         if agent is None:
