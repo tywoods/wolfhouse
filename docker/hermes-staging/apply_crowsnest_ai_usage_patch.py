@@ -517,10 +517,10 @@ def patch_auth_admission(source, candidates, paths):
                 first = node.body[1]
             indent = ' ' * first.col_offset
             admitted = ', provider_auth_execution_admitted' if owner in read_only else ''
-            if owner == '_auth_store_lock':
+            if owner in ('_auth_store_lock', '_load_auth_store'):
                 admitted += ', runtime_route_execution_admitted'
             suffix = ' and not provider_auth_execution_admitted()' if admitted else ''
-            if owner == '_auth_store_lock':
+            if owner in ('_auth_store_lock', '_load_auth_store'):
                 suffix = ' and not (provider_auth_execution_admitted() or runtime_route_execution_admitted())'
             guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort' + admitted + '\n'
                      + indent + 'if current_isolated_turn() is not None' + suffix + ':\n'
@@ -538,10 +538,10 @@ def patch_auth_admission(source, candidates, paths):
                 first = node.body[1]
             indent = ' ' * first.col_offset
             admitted = ', provider_auth_execution_admitted' if owner in read_only else ''
-            if owner == '_auth_store_lock':
+            if owner in ('_auth_store_lock', '_load_auth_store'):
                 admitted += ', runtime_route_execution_admitted'
             suffix = ' and not provider_auth_execution_admitted()' if admitted else ''
-            if owner == '_auth_store_lock':
+            if owner in ('_auth_store_lock', '_load_auth_store'):
                 suffix = ' and not (provider_auth_execution_admitted() or runtime_route_execution_admitted())'
             guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort' + admitted + '\n'
                      + indent + 'if current_isolated_turn() is not None' + suffix + ':\n'
