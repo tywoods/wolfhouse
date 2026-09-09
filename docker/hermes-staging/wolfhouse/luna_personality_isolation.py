@@ -345,7 +345,7 @@ def current_isolated_turn() -> Optional[IsolatedTurnCapture]:
 
 def runtime_route_execution_admitted() -> bool:
     admission = _RUNTIME_ROUTE.get()
-    return (type(admission) is _RuntimeRouteAdmission and admission.identity is admission and admission.cap is _ISOLATED.get() and admission.runner is _ACTIVE_RUNNER and admission.stage in (AGENT_EXECUTION_STAGE, "provider_auth_used"))
+    return (type(admission) is _RuntimeRouteAdmission and admission.identity is admission and admission.cap is _ISOLATED.get() and admission.runner is _ACTIVE_RUNNER and admission.stage in (RUNTIME_RESOLUTION_STAGE, AGENT_EXECUTION_STAGE, "provider_auth_used"))
 
 
 def provider_auth_execution_admitted() -> bool:
