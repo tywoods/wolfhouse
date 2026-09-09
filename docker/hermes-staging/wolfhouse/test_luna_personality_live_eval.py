@@ -1015,6 +1015,8 @@ class IsolatedEvalTests(unittest.TestCase):
         msg = build_eval_user_message(case)
         self.assertIn("https://pay.example/abc", msg)
         self.assertIn("€100", msg)
+        self.assertIn("reserved .example domain", msg)
+        self.assertIn("must reproduce", msg)
 
     def test_semantic_amount_accepts_euro_symbol_after_equivalent_number(self) -> None:
         case = next(c for c in CORPUS["cases"] if c["id"] == "truth-payment-link-es")

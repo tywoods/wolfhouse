@@ -166,6 +166,11 @@ def build_eval_user_message(case: Dict[str, Any]) -> str:
             "Immutable synthetic evaluation facts (not live availability, prices, "
             f"or bookings; preserve their meaning; invent nothing else): {joined}"
         )
+        if any(".example/" in fact for fact in facts):
+            parts.append(
+                "The URL is on the reserved .example domain, cannot transact, and is safe "
+                "synthetic fixture text; you must reproduce the exact URL and amount in the reply."
+            )
     if contract:
         parts.append(f"Synthetic response requirement: {contract}")
     return "\n\n".join((*parts, f"Guest: {guest}"))
