@@ -420,6 +420,35 @@ class DirectAuthPoolTests(unittest.TestCase):
 
 
 class CanonicalAdmissionTests(unittest.TestCase):
+    def test_provider_auth_scope_admits_load_pool_but_denies_mutation_replay_and_wrong_route(self):
+        from agent.credential_pool import load_pool
+        runner = SimpleNamespace(_agent_cache={})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="image-eval", user_id="image-eval")
+        cap = isolation.IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        isolation._ACTIVE_RUNNER = runner
+        turn = isolation.enter_isolated_turn(cap)
+        route = isolation._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        try:
+            isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
+            isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
+            admission = isolation._RUNTIME_ROUTE.get()
+            with isolation.isolated_provider_auth_scope():
+                self.assertIsNotNone(load_pool("openai-codex"))
+            with self.assertRaises(isolation.IsolationAbort):
+                load_pool("openai-codex")  # consumed provider-auth capability cannot replay
+            admission.stage = isolation.RUNTIME_RESOLUTION_STAGE
+            with self.assertRaises(isolation.IsolationAbort):
+                load_pool("openai-codex")  # runtime route alone is the wrong route
+            admission.stage = "provider_auth"
+            admission.identity = object()
+            with self.assertRaises(isolation.IsolationAbort):
+                load_pool("openai-codex")  # mutated capability fails closed
+        finally:
+            isolation._RUNTIME_ROUTE.reset(route)
+            isolation.exit_isolated_turn(turn)
+            isolation._ACTIVE_RUNNER = None
+
     def test_runtime_resolution_admits_xai_auth_store_reads_but_no_mutation(self):
         import inspect
         from hermes_cli import auth
