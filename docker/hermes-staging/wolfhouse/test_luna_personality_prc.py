@@ -420,7 +420,7 @@ class DirectAuthPoolTests(unittest.TestCase):
 
 
 class CanonicalAdmissionTests(unittest.TestCase):
-    def test_runtime_resolution_admits_xai_read_lock_but_no_mutation(self):
+    def test_runtime_resolution_admits_xai_auth_store_reads_but_no_mutation(self):
         import inspect
         from hermes_cli import auth
         from agent import credential_pool as pools
@@ -434,6 +434,7 @@ class CanonicalAdmissionTests(unittest.TestCase):
             isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
             self.assertTrue(isolation.runtime_route_execution_admitted())
             auth._read_xai_oauth_tokens()
+            auth._load_auth_store()
             with auth._auth_store_lock():
                 pass
             hostile = object()
@@ -446,6 +447,8 @@ class CanonicalAdmissionTests(unittest.TestCase):
                     fn(*args)
             admission = isolation._RUNTIME_ROUTE.get()
             admission.stage = "issued"
+            with self.assertRaises(isolation.IsolationAbort):
+                auth._load_auth_store()
             with self.assertRaises(isolation.IsolationAbort):
                 with auth._auth_store_lock():
                     pass
