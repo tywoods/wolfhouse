@@ -62,6 +62,7 @@ REQUIRED_LIVE_SEAMS: Tuple[str, ...] = (
 # Unsupported api_mode values fail closed BEFORE dispatch and BEFORE turn entry.
 SUPPORTED_PROVIDER_BACKENDS: Tuple[str, ...] = (
     "chat_completions",
+    "codex_responses",
     "bedrock_converse",
 )
 

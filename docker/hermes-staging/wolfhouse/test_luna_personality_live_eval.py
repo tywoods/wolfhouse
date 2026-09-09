@@ -1980,8 +1980,8 @@ class RequestIdentityBoundaryTests(unittest.TestCase):
     def request(self):
         return self.agent._create_request_openai_client(reason="offline-b2a")
 
-    def test_codex_request_denies_before_primary_acquisition(self):
-        self.agent.api_mode = "codex_responses"
+    def test_unsupported_request_denies_before_primary_acquisition(self):
+        self.agent.api_mode = "anthropic_messages"
         def ensure(**kwargs):
             self.acquisitions.append("ensure")
             raise AssertionError("primary acquisition reached")
