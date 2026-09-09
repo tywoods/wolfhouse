@@ -490,6 +490,7 @@ class CanonicalAdmissionTests(unittest.TestCase):
             isolation._ACTIVE_RUNNER = None
 
     def test_runtime_resolver_is_admitted_only_inside_bound_provider_auth_scope(self):
+        from unittest.mock import patch
         runner = SimpleNamespace(_agent_cache={"image": SimpleNamespace(api_mode="codex_responses")})
         source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
                                  chat_id="image-eval", user_id="image-eval")
@@ -501,6 +502,13 @@ class CanonicalAdmissionTests(unittest.TestCase):
             isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
             isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
             with isolation.isolated_provider_auth_scope():
+                class ConstructorReached(Exception):
+                    pass
+                def reached():
+                    raise ConstructorReached()
+                with patch.dict(init_agent.__globals__, {'_install_safe_stdio': reached}):
+                    with self.assertRaises(ConstructorReached):
+                        init_agent(SimpleNamespace())
                 resolved = resolve_runtime_provider(requested="openai-codex", target_model="gpt-5")
             self.assertIs(type(resolved), dict)
             self.assertEqual(resolved["provider"], "openai-codex")
