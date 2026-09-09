@@ -87,7 +87,7 @@ SPANISH_EVIDENCE = re.compile(
 )
 EXTRA_URL_RE = re.compile(r"https?://[^\s]+", re.I)
 AMOUNT_RE = re.compile(
-    r"(?:€\s?\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:€|euros?|eur)\b)",
+    r"(?:€\s?\d+(?:[.,]\d+)?|\d+(?:[.,]\d+)?\s*(?:€(?!\d)|euros?\b|eur\b))",
     re.I,
 )
 UNSUPPORTED_FACT_RE = re.compile(
@@ -160,14 +160,19 @@ def case_by_id(corpus: Dict[str, Any], case_id: str) -> Dict[str, Any]:
 def build_eval_user_message(case: Dict[str, Any]) -> str:
     guest = str(case.get("guest_text") or "").strip()
     facts = [str(f) for f in (case.get("frozen_facts") or []) if str(f).strip()]
-    if not facts:
+    contract = str(case.get("response_contract") or "").strip()
+    if not facts and not contract:
         return guest
-    joined = "; ".join(facts)
-    return (
-        "Immutable synthetic evaluation facts (not live availability, prices, "
-        f"or bookings; copy them unchanged; invent nothing else): {joined}\n\n"
-        f"Guest: {guest}"
-    )
+    parts = []
+    if facts:
+        joined = "; ".join(facts)
+        parts.append(
+            "Immutable synthetic evaluation facts (not live availability, prices, "
+            f"or bookings; preserve their meaning; invent nothing else): {joined}"
+        )
+    if contract:
+        parts.append(f"Synthetic response requirement: {contract}")
+    return "\n\n".join((*parts, f"Guest: {guest}"))
 
 
 def server_owned_serving_identity(*, require_home: bool = False, require_staff_origin: bool = False) -> Dict[str, Any]:
@@ -313,8 +318,11 @@ def evaluate_generated_reply(
     if fixture_echo_forbidden and fixture_echo:
         findings.append("fixture_echo")
 
+    observed_amounts = {_normalize_amount(m) for m in AMOUNT_RE.findall(text)}
     for fact in frozen:
-        if fact not in text:
+        fact_amounts = {_normalize_amount(m) for m in AMOUNT_RE.findall(fact)}
+        fact_present = bool(fact_amounts & observed_amounts) if fact_amounts else fact in text
+        if not fact_present:
             findings.append(f"missing_fact:{fact}")
         if _fact_contradicted(text, fact):
             findings.append(f"contradicted_fact:{fact}")
