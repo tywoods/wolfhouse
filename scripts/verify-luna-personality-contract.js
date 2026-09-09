@@ -20,7 +20,7 @@ const SPEC_PATH = path.join(ROOT, 'docs/LUNA-GUEST-BEHAVIOR-SPEC.md');
 
 const CLOSED_IDS = ['sunny', 'calm', 'concise', 'extra'];
 const LATAM_MARKERS = /\b(celular|ustedes|vos sos|\bche\b|okis|okey|computadora)\b/i;
-const PENINSULAR_MARKERS = /\b(vale|móvil|vosotros|tenéis|queréis|vais|ordenador|vuestro)\b/i;
+
 
 let pass = 0;
 let fail = 0;
@@ -231,10 +231,8 @@ for (const c of frozen) {
 for (const c of warmthEs) {
   for (const id of CLOSED_IDS) {
     const reply = c.replies[id];
-    ok(`${c.id}/${id} Spanish is peninsular (no LATAM markers)`, !LATAM_MARKERS.test(reply));
+    ok(`${c.id}/${id} Spanish is peninsular or neutral (no LATAM-only markers)`, !LATAM_MARKERS.test(reply));
   }
-  ok(`${c.id} uses at least one peninsular cue across packs`,
-    CLOSED_IDS.some((id) => PENINSULAR_MARKERS.test(c.replies[id])));
 }
 
 console.log('\n[3] Spec owner row');

@@ -76,10 +76,6 @@ ALLOWED_CASE_IDS = frozenset(
 )
 
 LATAM_MARKERS = re.compile(r"\b(celular|ustedes|vos sos|\bche\b|okis|computadora)\b", re.I)
-PENINSULAR_MARKERS = re.compile(
-    r"\b(vale|móvil|vosotros|tenéis|queréis|vais|ordenador|vuestro|ayudaros|os vienen|os ayudo)\b",
-    re.I,
-)
 SPANISH_EVIDENCE = re.compile(
     r"[áéíóúñ¿¡]|\b(hay|plaza|plazas|compañero|bienvenid\w*|reserva\w*|tenéis|queréis|"
     r"vale|móvil|entrada|salida|depósito|paga|aquí|os |tu plaza|fechas)\b",
@@ -286,6 +282,9 @@ def _positive_token(text: str, tok: str) -> bool:
     if not token:
         return True
     lowered = text.lower()
+    if token.endswith("*"):
+        stem = token[:-1]
+        return bool(stem and re.search(rf"\b{re.escape(stem)}", lowered))
     if token in {"book", "reserva", "reservar"}:
         if MEANING_NEGATION_RE.search(lowered):
             return False
@@ -362,6 +361,13 @@ def evaluate_generated_reply(
         for tok in required:
             if not _positive_token(text, tok):
                 findings.append(f"meaning_token_missing:{tok}")
+        for group in case.get("required_any_groups") or []:
+            name = str(group.get("name") or "concept")
+            tokens = [str(tok) for tok in (group.get("tokens") or [])]
+            if not tokens or not any(_positive_token(text, tok) for tok in tokens):
+                findings.append(f"meaning_group_missing:{name}")
+        if case.get("require_question") and "?" not in text and "¿" not in text:
+            findings.append("clarifying_question_missing")
         if MEANING_NEGATION_RE.search(text):
             findings.append("required_meaning_negated")
 
@@ -373,8 +379,6 @@ def evaluate_generated_reply(
             findings.append("latam_spanish")
         if not SPANISH_EVIDENCE.search(text):
             findings.append("missing_spanish_language")
-        if kind == "warmth_eligible" and not PENINSULAR_MARKERS.search(text):
-            findings.append("missing_peninsular_spanish")
         english_heavy = bool(
             re.search(r"\b(there are not|there are|confirmed booking|free flights|do not book)\b", lower)
         )
@@ -1028,21 +1032,7 @@ async def simulated_model_turn(
                 body = f"Your stay is held. Pay the deposit here: {' '.join(facts)}"
         generated = f"{body} [generated-test-double:{pack_id}:{case.get('id')}]"
     else:
-        meaning = str(case.get("meaning") or "")
-        if lang == "es":
-            base = {
-                "sunny": f"¡Hola! Bienvenidos a Wolf-House 🌊 Puedo ayudaros a reservar — {meaning}. ¿Qué fechas tenéis?",
-                "calm": f"Bienvenidos a Wolf-House. Puedo ayudaros a reservar. {meaning}. ¿Qué fechas os vienen bien?",
-                "concise": f"Bienvenidos — os ayudo. {meaning}. ¿Fechas?",
-                "extra": f"¡¡Bienvenidos a Wolf-House!! 🌊🙌🐺 {meaning} ¿Qué fechas soñáis? 😊 Vale.",
-            }[pack_id]
-        else:
-            base = {
-                "sunny": f"Hey! Welcome to Wolf-House 🌊 I can help you book a stay — {meaning}. What dates are you thinking?",
-                "calm": f"Welcome to Wolf-House. I can help you book a stay. {meaning}. Which dates work?",
-                "concise": f"Welcome. {meaning}. Dates?",
-                "extra": f"Yesss welcome to Wolf-House!! 🌊🙌 I can help you book a stay — {meaning} 😊",
-            }[pack_id]
+        base = str((case.get("replies") or {}).get(pack_id) or "")
         generated = f"{base} [generated-test-double:{pack_id}:{case.get('id')}]"
     cap.reply_text = generated
     capture_send_if_isolated(generated)

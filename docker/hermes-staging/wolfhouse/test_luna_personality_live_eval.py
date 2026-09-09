@@ -1025,26 +1025,59 @@ class IsolatedEvalTests(unittest.TestCase):
         )
         self.assertTrue(scored["ok"], scored["findings"])
 
-    def test_eval_message_contracts_warmth_greeting_en(self) -> None:
+    def test_warmth_contracts_are_tenant_safe_and_domain_neutral(self) -> None:
+        warmth = [c for c in CORPUS["cases"] if c["kind"] == "warmth_eligible"]
+        joined = " ".join(
+            str(c.get(key) or "")
+            for c in warmth
+            for key in ("meaning", "response_contract", "meaning_tokens")
+        ).lower()
+        self.assertNotIn("wolf-house", joined)
+        self.assertNotIn("book a stay", joined)
+        self.assertNotIn("check-in", joined)
+        self.assertNotIn("check-out", joined)
+        self.assertNotIn("entrada y salida", joined)
+
+    def test_pr934_correct_sunset_domain_greeting_is_accepted(self) -> None:
         case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-greeting-en")
-        msg = build_eval_user_message(case)
-        self.assertIn("offer to help book a stay", msg)
+        scored = evaluate_generated_reply(
+            case=case,
+            personality_id="sunny",
+            reply=(
+                "Hi! Welcome to Sunset Surf School 🌊 I can help you arrange a surf "
+                "lesson or course, or a board rental with a wetsuit—what sounds good? 🏄"
+            ),
+        )
+        self.assertTrue(scored["ok"], scored["findings"])
 
-    def test_eval_message_contracts_warmth_dates_en(self) -> None:
-        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-dates-en")
-        msg = build_eval_user_message(case)
-        self.assertIn("check-in and check-out", msg)
+    def test_pr934_correct_sunset_domain_date_clarification_is_accepted(self) -> None:
+        cases = {c["id"]: c for c in CORPUS["cases"]}
+        samples = (
+            ("warmth-dates-es", "¡Bienvenidos a Sunset! En agosto podemos ayudaros con clases de surf. ¿Qué días queréis venir?"),
+        )
+        for case_id, reply in samples:
+            with self.subTest(case_id=case_id):
+                scored = evaluate_generated_reply(case=cases[case_id], personality_id="calm", reply=reply)
+                self.assertTrue(scored["ok"], scored["findings"])
 
-    def test_eval_message_contracts_warmth_greeting_peninsular_es(self) -> None:
-        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-greeting-es")
-        msg = build_eval_user_message(case)
-        self.assertIn("ayudaros a reservar", msg)
-
-    def test_eval_message_contracts_warmth_dates_peninsular_es(self) -> None:
+    def test_neutral_spanish_is_peninsular_acceptable_without_positive_marker(self) -> None:
         case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-dates-es")
-        msg = build_eval_user_message(case)
-        self.assertIn("entrada y salida", msg)
-        self.assertIn("Peninsular Spanish", msg)
+        scored = evaluate_generated_reply(
+            case=case,
+            personality_id="concise",
+            reply="Perfecto. ¿Qué días de agosto prefieres?",
+        )
+        self.assertTrue(scored["ok"], scored["findings"])
+
+    def test_explicit_latam_only_marker_remains_rejected(self) -> None:
+        case = next(c for c in CORPUS["cases"] if c["id"] == "warmth-dates-es")
+        scored = evaluate_generated_reply(
+            case=case,
+            personality_id="sunny",
+            reply="Perfecto. ¿Qué días de agosto prefieren ustedes?",
+        )
+        self.assertFalse(scored["ok"])
+        self.assertIn("latam_spanish", scored["findings"])
 
     def test_eval_message_contracts_luna_identity(self) -> None:
         case = next(c for c in CORPUS["cases"] if c["id"] == "invariant-identity-en")

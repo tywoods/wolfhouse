@@ -172,7 +172,7 @@ ok('eval fails closed on pack mismatch, fallback, missing model',
   && /model_not_invoked/.test(evalSrc) && /missing_generated_reply/.test(evalSrc));
 ok('grading rejects contradictions and does not claim complete semantic proof',
   /contradicted_fact/.test(evalSrc) && /complete_semantic_proof/.test(evalSrc)
-  && /PENINSULAR_MARKERS/.test(evalSrc) && /missing_spanish_language/.test(evalSrc));
+  && /LATAM_MARKERS/.test(evalSrc) && /missing_spanish_language/.test(evalSrc));
 
 const dockerfileSrc = fs.readFileSync(path.join(ROOT, 'docker/hermes-staging/Dockerfile'), 'utf8');
 const canonicalCorpus = path.join(ROOT, 'fixtures/luna-personality-corpus.json');
