@@ -447,6 +447,9 @@ def patch_constructor_admission(source, candidates, paths):
                  f'    if current_isolated_turn() is not None{suffix}:\n'
                  f'        raise IsolationAbort("{reason}")\n')
         changes = ((anchor, guard + anchor),)
+        if owner == 'resolve_runtime_provider':
+            changes += (('    should_use_pool = provider != "openrouter"\n',
+                         '    should_use_pool = provider != "openrouter" and not (provider == "openai-codex" and provider_auth_execution_admitted())\n'),)
         present = guard in source[path]
         marked.append(present)
         original = _b3e_replace(source[path], owner, changes, inverse=True) if present else source[path]

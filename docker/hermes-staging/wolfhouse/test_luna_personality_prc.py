@@ -557,6 +557,7 @@ class CanonicalAdmissionTests(unittest.TestCase):
 
     def test_runtime_resolver_is_admitted_only_inside_bound_provider_auth_scope(self):
         from unittest.mock import patch
+        from hermes_cli import runtime_provider
         runner = SimpleNamespace(_agent_cache={"image": SimpleNamespace(api_mode="codex_responses")})
         source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
                                  chat_id="image-eval", user_id="image-eval")
@@ -582,7 +583,9 @@ class CanonicalAdmissionTests(unittest.TestCase):
                 with patch.dict(init_agent.__globals__, {'_install_safe_stdio': reached}):
                     with self.assertRaises(ConstructorReached):
                         init_agent(SimpleNamespace())
-                resolved = resolve_runtime_provider(requested="openai-codex", target_model="gpt-5")
+                with patch.object(runtime_provider, 'load_pool', side_effect=AssertionError('pool selection reached')) as load:
+                    resolved = resolve_runtime_provider(requested="openai-codex", target_model="gpt-5")
+                load.assert_not_called()
             self.assertTrue(BoundConstructor().ready)
             with self.assertRaises(isolation.IsolationAbort):
                 BoundConstructor()
