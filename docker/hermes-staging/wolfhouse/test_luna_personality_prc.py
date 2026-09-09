@@ -26,6 +26,47 @@ METADATA_ENTRIES = ('get_model_context_length', '_fetch_codex_oauth_context_leng
 
 
 class MetadataAdmissionTests(unittest.TestCase):
+    def test_bound_provider_auth_metadata_resolution_is_side_effect_free_but_ordinary_caches(self):
+        from unittest.mock import Mock, patch
+        from agent import model_metadata as metadata
+
+        runner = SimpleNamespace(_agent_cache={})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="metadata-side-effect-free", user_id="metadata-side-effect-free")
+        cap = isolation.IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        response = Mock(status_code=200)
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"data": [{"id": "fixture-new-model", "context_length": 314159}]}
+
+        def clear_memory_cache():
+            metadata._model_metadata_cache = {}
+            metadata._model_metadata_cache_time = 0
+
+        clear_memory_cache()
+        with patch.object(metadata, "_model_metadata_disk_cache_age_seconds", return_value=None), \
+             patch.object(metadata.requests, "get", return_value=response), \
+             patch.object(metadata, "_save_model_metadata_disk_cache") as save:
+            self.assertEqual(metadata.get_model_context_length("fixture-new-model"), 314159)
+            save.assert_called_once()
+
+        clear_memory_cache()
+        isolation._ACTIVE_RUNNER = runner
+        turn = isolation.enter_isolated_turn(cap)
+        route = isolation._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        try:
+            isolation.refuse_unverified_runtime(isolation.RUNTIME_RESOLUTION_STAGE)
+            isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
+            with patch.object(metadata, "_model_metadata_disk_cache_age_seconds", return_value=None), \
+                 patch.object(metadata.requests, "get", return_value=response), \
+                 patch.object(metadata, "_save_model_metadata_disk_cache") as save:
+                with isolation.isolated_provider_auth_scope():
+                    self.assertEqual(metadata.get_model_context_length("fixture-new-model"), 314159)
+                save.assert_not_called()
+        finally:
+            isolation._RUNTIME_ROUTE.reset(route)
+            isolation.exit_isolated_turn(turn)
+            isolation._ACTIVE_RUNNER = None
+
     def test_bound_provider_auth_admits_only_top_level_metadata_read(self):
         from contextlib import ExitStack
         from unittest.mock import patch

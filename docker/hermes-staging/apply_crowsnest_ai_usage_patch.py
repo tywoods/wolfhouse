@@ -483,6 +483,23 @@ PRD = (
      ('check_compression_model_feasibility',)),
 )
 
+METADATA_DISK_SAVE = (
+    '        _save_model_metadata_disk_cache(cache)\n',
+    '        # Isolated provider-auth metadata is a read-only operation.  The exact\n'
+    '        # generated caller binding prevents direct fetch/save use from borrowing it.\n'
+    '        from wolfhouse.luna_personality_isolation import (\n'
+    '            current_isolated_turn, provider_auth_execution_admitted,\n'
+    '        )\n'
+    '        import sys as _luna_metadata_sys\n'
+    '        _luna_bound_metadata_read = (\n'
+    '            current_isolated_turn() is not None\n'
+    '            and provider_auth_execution_admitted()\n'
+    '            and _luna_metadata_sys._getframe(1).f_code is get_model_context_length.__code__\n'
+    '        )\n'
+    '        if not _luna_bound_metadata_read:\n'
+    '            _save_model_metadata_disk_cache(cache)\n',
+)
+
 
 def _admission_owner(text, owner):
     import ast
@@ -513,6 +530,9 @@ def patch_auth_admission(source, candidates, paths):
                  '_codex_pool_rate_limit_status', 'get_model_context_length'}
     for path, (_, expected, owners) in zip(paths, PRD):
         text = source[path]
+        if path.name == 'model_metadata.py' and METADATA_DISK_SAVE[1] in text:
+            text = _replace_once(text, METADATA_DISK_SAVE[1], METADATA_DISK_SAVE[0],
+                                 'isolated metadata disk-save inverse')
         for owner in reversed(owners):
             node = _admission_owner(text, owner)
             first = node.body[0]
@@ -558,6 +578,9 @@ def patch_auth_admission(source, candidates, paths):
             lines = text.splitlines(keepends=True)
             start = first.lineno - 1
             text = ''.join(lines[:start]) + guard + ''.join(lines[start:])
+        if path.name == 'model_metadata.py':
+            text = _replace_once(text, METADATA_DISK_SAVE[0], METADATA_DISK_SAVE[1],
+                                 'isolated metadata disk-save suppression')
         candidates[path] = text
 
 

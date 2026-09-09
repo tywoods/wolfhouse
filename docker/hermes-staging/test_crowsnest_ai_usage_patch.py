@@ -90,7 +90,8 @@ class PatcherTests(unittest.TestCase):
             return candidates[target]
         emitted = emit(source)
         self.assertEqual(emit(emitted), emitted)
-        tree = ast.parse(emitted)
+        ast_source = emitted.replace(patcher.METADATA_DISK_SAVE[1], patcher.METADATA_DISK_SAVE[0], 1) if module == 'agent.model_metadata' else emitted
+        tree = ast.parse(ast_source)
         for name in row[2]:
             node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
             self.assertIsInstance(node.body[1], ast.ImportFrom)
