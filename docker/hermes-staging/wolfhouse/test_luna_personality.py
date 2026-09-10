@@ -36,6 +36,12 @@ class LunaPersonalityTests(unittest.TestCase):
         self.assertEqual(lp.normalize_stored_id("cami")["id"], "sunny")
         self.assertEqual(lp.normalize_stored_id("cami")["source"], "invalid_fallback")
 
+    def test_extra_explicitly_outpaces_concise_and_calm_for_en_es_warmth_dates(self) -> None:
+        instruction = lp.get_personality_pack("extra")["instruction"].lower()
+        self.assertIn("english and spanish warmth/date replies", instruction)
+        self.assertIn("more expressive than concise", instruction)
+        self.assertIn("warmer than calm", instruction)
+
     def test_new_turn_refetches_authoritative_setting(self) -> None:
         calls = {"n": 0}
         stored = {"id": "calm"}
