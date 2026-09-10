@@ -147,6 +147,23 @@ assert(
     && !genericFiveDay.some((o) => o.duration_key === '4_hours'),
   JSON.stringify(genericFiveDay),
 );
+const canonicalOnlyOneDayPrices = [
+  { category: 'rental', offering_key: 'board_rental__1_day', amount: 15, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'board_rental__2_hours', amount: 10, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'wetsuit_rental__1_day', amount: 8, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'towel_rental__1_day', amount: 5, active: true, location_id: 'sunset-somo' },
+];
+const canonicalFiveDay = mod.scheduleActiveRentalsForDuration(
+  canonicalOnlyOneDayPrices, '5_days', 'sunset-somo',
+);
+assert(
+  'canonical multi-day without exact N_days is omitted (no 1_day mismatch trap); generic still falls back',
+  !canonicalFiveDay.some((o) => o.offering_key === 'board_rental')
+    && !canonicalFiveDay.some((o) => o.offering_key === 'wetsuit_rental')
+    && canonicalFiveDay.some((o) => o.offering_key === 'towel_rental' && o.duration_key === '1_day')
+    && !canonicalFiveDay.some((o) => /hour|half_day/i.test(o.duration_key)),
+  JSON.stringify(canonicalFiveDay),
+);
 assert(
   'Somo isolation: elSardi price not selected for Somo',
   !oneDay.some((o) => o.amount_cents === 1200),
