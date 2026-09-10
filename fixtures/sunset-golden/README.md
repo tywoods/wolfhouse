@@ -20,6 +20,8 @@ The runner is **review-only**. The central no-send guard blocks booking creation
 - Schema: `sunset-golden-manifest-v1` (see `_manifest.json`)
 - Seed prices reference `config/clients/sunset.baseline.json` with `pricing_status: unverified_seed`
 - Placeholders `{like_this}` in expected reply shapes mean config/tool-sourced values at runtime
+- Fixture 03 is the active ordinary EN adult group-lesson path (availability read; `components.lesson`; no retired group quote tool)
+- Fixture 08 is the active ordinary ES Mon–Thu morning group-lesson path (dated lessons; `components.lesson`; no retired group quote tool)
 - Fixture 09 is the active rapid-fire Spanish group-lesson quote path (coalesced input; quote-before-name)
 
 ## Scenarios

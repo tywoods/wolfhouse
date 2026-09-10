@@ -149,6 +149,21 @@ for (const name of fixtureNames) {
       `got client_slug=${JSON.stringify(f.client_slug)}`);
   }
 
+  // Active LR2 promotion contract for ordinary group-lesson fixtures.
+  if (String(name).includes('sunset-golden-03') || String(name).includes('sunset-golden-08')) {
+    assert(`  ${name} — LR2 fixture is active`, f.status === 'active' && f.active === true,
+      `status=${JSON.stringify(f.status)} active=${JSON.stringify(f.active)}`);
+    const exp = f.expectations || {};
+    assert(`  ${name} — blocks retired group quote tool`,
+      Array.isArray(exp.must_not_call_tools) && exp.must_not_call_tools.includes('get_sunset_group_lesson_quote'));
+    assert(`  ${name} — create payload is components.lesson`,
+      exp.after_name_and_confirm_components
+        && exp.after_name_and_confirm_components.lesson
+        && !exp.after_name_and_confirm_components.group_lesson
+        && !exp.after_name_and_confirm_components.course,
+      JSON.stringify(exp.after_name_and_confirm_components));
+  }
+
   fixturePass++;
 }
 
@@ -174,6 +189,14 @@ assert(
   'runner file exists',
   fs.existsSync(RUNNER_PATH),
   RUNNER_PATH,
+);
+assert(
+  'fixture 03 listed in manifest',
+  fixtureNames.some((n) => String(n).includes('sunset-golden-03')),
+);
+assert(
+  'fixture 08 listed in manifest',
+  fixtureNames.some((n) => String(n).includes('sunset-golden-08')),
 );
 assert(
   'fixture 09 listed in manifest',

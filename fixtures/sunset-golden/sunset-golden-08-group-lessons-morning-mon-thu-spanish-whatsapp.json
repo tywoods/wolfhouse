@@ -1,12 +1,15 @@
 {
-  "_schema": "sunset-golden-draft-v1",
+  "_schema": "sunset-golden-active-v1",
   "id": "sunset-golden-08-group-lessons-morning-mon-thu-spanish-whatsapp",
-  "status": "draft",
-  "active": false,
+  "status": "active",
+  "active": true,
   "tenant_id": "sunset",
   "channel": "whatsapp",
   "label": "Draft incident fixture (runner not_wired): Spanish 1 adult wants group classes Mon–Thu mornings — treat as 4 dated lessons unless configured course selected",
-  "spec_refs": ["docs/LUNA-GUEST-BEHAVIOR-SPEC.md §0, §6.1", "docker/hermes-sunset/SOUL.md booking flow"],
+  "spec_refs": [
+    "docs/LUNA-GUEST-BEHAVIOR-SPEC.md §0, §6.1",
+    "docker/hermes-sunset/SOUL.md booking flow"
+  ],
   "contact_name": "Mateo Test",
   "reference_date": "2026-07-13",
   "turns": [
@@ -26,7 +29,12 @@
         "behavior": {
           "language": "es",
           "resolves_relative_dates": true,
-          "expected_service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"],
+          "expected_service_dates": [
+            "2026-07-20",
+            "2026-07-21",
+            "2026-07-22",
+            "2026-07-23"
+          ],
           "participant_count": 1,
           "must_not_ask_surf_level": true,
           "asks_one_next_question": true
@@ -76,11 +84,18 @@
               "arguments": {
                 "location_id": "sunset-somo",
                 "quantity": 1,
-                "service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"]
+                "service_dates": [
+                  "2026-07-20",
+                  "2026-07-21",
+                  "2026-07-22",
+                  "2026-07-23"
+                ]
               }
             }
           ],
-          "must_not_call_tools": ["get_sunset_group_lesson_quote"],
+          "must_not_call_tools": [
+            "get_sunset_group_lesson_quote"
+          ],
           "asks_one_next_question": true
         }
       }
@@ -97,8 +112,14 @@
           "must_not_perform_write_in_simulation": true,
           "tool_payload_shape": {
             "components_key": "lesson",
-            "components": { "lesson": { "quantity": 1 } },
-            "must_not_use_components_key": ["group_lesson"],
+            "components": {
+              "lesson": {
+                "quantity": 1
+              }
+            },
+            "must_not_use_components_key": [
+              "group_lesson"
+            ],
             "course_requires_course_id": true,
             "quantity_means_surfers_not_days": true,
             "preserves_time_preference": true
@@ -112,5 +133,39 @@
     "no_booking_write_in_simulation": true,
     "no_price_invented": true,
     "canonical_component_for_dated_group_lessons": "lesson"
-  }
+  },
+  "expectations": {
+    "must_call_tools": [
+      "get_sunset_lesson_availability"
+    ],
+    "must_not_call_tools": [
+      "get_sunset_group_lesson_quote"
+    ],
+    "quote_args": {
+      "location_id": "sunset-somo",
+      "quantity": 1,
+      "service_dates_count": 4
+    },
+    "must_not_ask_booking_name_before_quote": true,
+    "must_not_call_before_name": [
+      "create_sunset_booking",
+      "create_sunset_payment_link"
+    ],
+    "after_name_and_confirm_components": {
+      "lesson": {
+        "quantity": 1
+      }
+    },
+    "forbidden_component_keys": [
+      "group_lesson",
+      "group_class",
+      "group_class_lesson",
+      "class"
+    ],
+    "create_must_be_blocked_when_allow_writes_false": true
+  },
+  "allow_writes": false,
+  "whatsapp_suppressed": true,
+  "language": "es",
+  "location_id": "sunset-somo"
 }
