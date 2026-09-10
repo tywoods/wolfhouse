@@ -167,16 +167,16 @@ A **Demo** is a redacted Sunset-staging replay showing the guest input, Luna out
 
 ## LR2.4 — Failure map: Closed-fixture contract / abort observability
 
-**Status bar:** `LR2.4 | Status Active | Closed-fixture contract and abort-observability mismatch mapped; harness #944 deployed | Next gate: Seadog re-QA on Healthy harness`.
+**Status bar:** `LR2.4 | Status Active | Golden offline PASS; failure-map docs/verifier current; case-09 TRACE still blocked | Next gate: resolve zero-tools TRACE before live 03/08`.
 
 | Field | Value |
 |---|---|
 | Family | `Closed-fixture contract / abort observability mismatch` |
 | Severity | Major — case-scoped QA blocker |
-| Status | Open until Seadog re-QA completes on the now-deployed closed isolated harness from #944 |
-| Evidence tips | Seadog `1547630912865443913`; Skipper triage `1547632801266925711`; Cap `1547633972014489622`; harness #944 deployed |
-| Owner boundary | Skipper owns LR3 harness/runtime admission; Deckhand may keep this map current and babysit fixture/doc PRs only |
+| Status | Partially cleared: #944 closed isolated harness is merged and deployed, #943 fixtures landed, and #945/#946 docs/verifier follow-ups are merged. Golden offline is PASS, but case-09 remains BLOCKED on the zero-tools TRACE gap; 03/08 live execution stays on HOLD. |
+| Evidence tips | Seadog `1547630912865443913`; Skipper triage `1547632801266925711`; Cap `1547633972014489622`; #943 fixtures; #944 harness merged+deployed; #945/#946 docs/verifier merged |
+| Owner boundary | Skipper owns LR3 harness/runtime admission and the case-09 TRACE unblock; Deckhand may keep this map current and babysit fixture/doc PRs only |
 
-This family caps named closed-fixture failures where the test contract expects an observable fail-closed/abort result, but the harness evidence cannot yet distinguish contract failure from missing/ambiguous abort observability. Treat affected cases as QA-blocked, not PASS, until the #944 closed isolated harness reports Healthy for the scoped case and Seadog re-runs the checks.
+This family now records the split result honestly: the closed isolated harness and map stub shipped, and the offline golden path passes against the merged fixture/doc verifier work. It is **not** a full LR2.4 PASS while case-09 still cannot produce the required zero-tools TRACE evidence. Treat case-09 as BLOCKED pending TRACE, and keep 03/08 live checks on HOLD until that unblock is explicitly cleared.
 
 Operational limits remain unchanged: no `hermes-sunset-luna-http` deploy, no live-eval scope expansion by Deckhand, no `inbox-thread.js`, no `/sethome`, no production, and no merge by Deckhand.
