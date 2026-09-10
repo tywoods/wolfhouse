@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import json
 import os
 import sys
@@ -30,6 +31,8 @@ from wolfhouse.luna_group_lesson_live_eval import (  # noqa: E402
     ALLOWED_CASE_IDS,
     BoundedMetadataCapture,
     CAPTURE_LIMIT,
+    DIAGNOSTIC_CONTROL_NAME,
+    GROUP_LESSON_DIAGNOSTIC_PATH,
     GROUP_LESSON_EVAL_PATH,
     READ_ONLY_STAFF_PATHS,
     READ_ONLY_TOOL_ALLOWLIST,
@@ -155,6 +158,47 @@ class GroupLessonCase09Tests(unittest.TestCase):
             body, status = _run(app.router.posts[GROUP_LESSON_EVAL_PATH](Request()))
         self.assertEqual(status, 401)
         self.assertEqual(body, {"ok": False, "error": "unauthorized"})
+
+    def test_diagnostic_route_is_separate_and_normal_route_still_rejects_overrides(self):
+        app = _App()
+        env = {
+            "HERMES_ROLE": "sunset-luna", "SUNSET_LUNA_REQUIRE_ISOLATED_AUTH": "true",
+            "WHATSAPP_CLOUD_WEBHOOK_PORT": "8094", "LUNA_CLIENT_SLUG": "sunset",
+            "LUNA_BOT_INTERNAL_TOKEN": "secret",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            self.assertTrue(register_group_lesson_eval_route(app))
+        self.assertIn(GROUP_LESSON_DIAGNOSTIC_PATH, app.router.posts)
+
+        def response(body, status=200):
+            return body, status
+
+        request = SimpleNamespace(
+            headers={"X-Luna-Bot-Token": "secret"},
+            json=lambda: asyncio.sleep(0, result={
+                "case_id": "sunset-group-lesson-09-es",
+                "diagnostic_control": DIAGNOSTIC_CONTROL_NAME,
+            }),
+        )
+        module = "wolfhouse.luna_group_lesson_live_eval"
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch.dict(sys.modules, {"aiohttp": SimpleNamespace(web=SimpleNamespace(json_response=response))}), \
+                mock.patch(f"{module}.run_isolated_group_lesson_eval", new=mock.AsyncMock(return_value={"ok": False})) as run:
+            unauthorized_request = SimpleNamespace(
+                headers={"X-Luna-Bot-Token": "wrong"}, json=request.json,
+            )
+            unauthorized_body, unauthorized_status = _run(
+                app.router.posts[GROUP_LESSON_DIAGNOSTIC_PATH](unauthorized_request)
+            )
+            normal_body, normal_status = _run(app.router.posts[GROUP_LESSON_EVAL_PATH](request))
+            diag_body, diag_status = _run(app.router.posts[GROUP_LESSON_DIAGNOSTIC_PATH](request))
+        self.assertEqual((unauthorized_status, unauthorized_body["error"]), (401, "unauthorized"))
+        self.assertEqual((normal_status, normal_body["error"]), (400, "caller_override_rejected"))
+        self.assertEqual(diag_status, 200)
+        self.assertEqual(diag_body, {"ok": False})
+        run.assert_awaited_once_with(
+            case_id="sunset-group-lesson-09-es", diagnostic_control=DIAGNOSTIC_CONTROL_NAME,
+        )
 
     def test_route_rejects_arbitrary_text_and_all_caller_owned_runtime_overrides(self):
         app = _App()
@@ -503,6 +547,63 @@ class GroupLessonCase09Tests(unittest.TestCase):
         serialized = json.dumps(result)
         for forbidden in (secret, "private-location", "schema-secret", raw_args):
             self.assertNotIn(forbidden, serialized)
+
+    def test_named_catalog_control_consumption_is_atomic(self):
+        cap = IsolatedTurnCapture(case_id="case-09", personality_id="sunny")
+        cap.diagnostic_tool_choice = "get_sunset_lesson_catalog"
+        cap.diagnostic_tool_choice_remaining = 1
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            outcomes = list(pool.map(lambda _: cap.consume_diagnostic_tool_choice(), range(32)))
+
+        self.assertEqual(outcomes.count("get_sunset_lesson_catalog"), 1)
+        self.assertEqual(outcomes.count(None), 31)
+        self.assertEqual(cap.diagnostic_tool_choice_remaining, 0)
+
+    def test_named_catalog_control_is_request_local_and_consumed_once(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        cap.diagnostic_tool_choice = "get_sunset_lesson_catalog"
+        cap.diagnostic_tool_choice_remaining = 1
+        cap.metadata_capture = capture
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        actual_choices = []
+
+        class Stream:
+            def __iter__(self):
+                yield {"type": "response.completed", "response": {"status": "completed", "output": []}}
+            def close(self):
+                return None
+
+        def provider(**kwargs):
+            actual_choices.append(kwargs.get("tool_choice"))
+            return Stream()
+
+        base = {"model": agent.model, "stream": True, "input": "private",
+                "tools": [{"type": "function", "name": "get_sunset_lesson_catalog",
+                           "parameters": {"type": "object"}}], "tool_choice": "auto"}
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            create = isolation._observe_create_call(provider, binding, responses=True)
+            first = create(**base)
+            list(first)
+            first.close()
+            second = create(**base)
+            list(second)
+            second.close()
+        finally:
+            isolation.exit_isolated_turn(token)
+        self.assertEqual(actual_choices, [
+            {"type": "function", "name": "get_sunset_lesson_catalog"}, "auto",
+        ])
+        result = capture.finalize(model_reached=True)
+        self.assertEqual([call["request"]["tool_choice"] for call in result["calls"]], [
+            "function:get_sunset_lesson_catalog", "auto",
+        ])
+        self.assertEqual(cap.diagnostic_tool_choice_remaining, 0)
 
     def test_real_responses_stream_wrapper_captures_terminal_metadata(self):
         import wolfhouse.luna_personality_isolation as isolation

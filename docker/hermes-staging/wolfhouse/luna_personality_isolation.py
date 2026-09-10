@@ -238,6 +238,18 @@ class IsolatedTurnCapture:
     persistence_effects_completed: List[str] = field(default_factory=list)
     # Optional bounded, no-payload instrumentation owned by this same turn.
     metadata_capture: Any = field(default=None, repr=False, compare=False)
+    # Closed diagnostic-only request-local provider override. Never configured by ordinary turns.
+    diagnostic_tool_choice: Optional[str] = field(default=None, repr=False, compare=False)
+    diagnostic_tool_choice_remaining: int = field(default=0, repr=False, compare=False)
+    _diagnostic_tool_choice_lock: Any = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
+
+    def consume_diagnostic_tool_choice(self) -> Optional[str]:
+        """Atomically consume the one request-local diagnostic provider override."""
+        with self._diagnostic_tool_choice_lock:
+            if self.diagnostic_tool_choice_remaining <= 0:
+                return None
+            self.diagnostic_tool_choice_remaining -= 1
+            return self.diagnostic_tool_choice
 
 
 @dataclass
@@ -2515,6 +2527,26 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
         with _isolated_provider_operation(cap):
             instrumentation = getattr(cap, "metadata_capture", None) if cap is not None else None
             if cap is not None:
+                if cap.diagnostic_tool_choice_remaining:
+                    if (not responses or binding is None or args or kwargs.get("stream") is not True
+                            or kwargs.get("model") != binding[2]):
+                        raise IsolationAbort("diagnostic_tool_choice_not_isolatable")
+                    if cap.diagnostic_tool_choice != "get_sunset_lesson_catalog":
+                        raise IsolationAbort("diagnostic_tool_choice_invalid")
+                    if kwargs.get("tool_choice") not in (None, "auto"):
+                        raise IsolationAbort("diagnostic_tool_choice_conflict")
+                    offered = kwargs.get("tools")
+                    offered_names = {
+                        item.get("name") for item in (offered or []) if isinstance(item, dict)
+                    }
+                    if cap.diagnostic_tool_choice not in offered_names:
+                        raise IsolationAbort("diagnostic_tool_not_offered")
+                    diagnostic_choice = cap.consume_diagnostic_tool_choice()
+                    if diagnostic_choice is not None:
+                        kwargs = dict(kwargs)
+                        kwargs["tool_choice"] = {
+                            "type": "function", "name": diagnostic_choice,
+                        }
                 payload = kwargs if kwargs else (args[0] if args and isinstance(args[0], dict) else {})
                 prompts = payload.get("messages") or payload.get("input")
                 if prompts is None:
