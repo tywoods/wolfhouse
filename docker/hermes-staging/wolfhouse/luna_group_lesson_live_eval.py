@@ -28,6 +28,12 @@ from wolfhouse.luna_personality_live_eval import (
     live_sunset_eval_identity,
     serving_eval_readiness,
 )
+from wolfhouse.luna_responses_provider import (
+    item_type_name as _item_type_name,
+    normalize_responses_tool_choice,
+    responses_tool_choice_wire,
+    tool_choice_capture_label as _tool_choice_capture_label,
+)
 from wolfhouse.staging_guard import assert_staging_environment
 
 GROUP_LESSON_EVAL_PATH = "/whatsapp/v1/internal/luna-group-lesson-live-eval"
@@ -85,10 +91,11 @@ class BoundedMetadataCapture:
         "state": "not-reached", "attempted": None, "sent": None,
         "prompt_fingerprints": None, "tool_names": None,
         "tool_schema_fingerprints": None, "tool_choice": None,
+        "tool_choice_wire": None,
     })
     response: Dict[str, Any] = field(default_factory=lambda: {
         "state": "not-reached", "status": None, "finish_reason": None,
-        "tool_calls": None,
+        "tool_calls": None, "output_item_types": None,
     })
     executor: Dict[str, Any] = field(default_factory=lambda: {
         "state": "not-reached", "dispositions": None,
@@ -142,17 +149,8 @@ class BoundedMetadataCapture:
                 function = tool.get("function") if isinstance(tool.get("function"), dict) else tool
                 names.append(str(function.get("name") or "unknown")[:256])
                 schemas.append(_fingerprint(function.get("parameters", function.get("inputSchema"))))
-        choice_metadata = None
-        if isinstance(tool_choice, str):
-            choice_metadata = tool_choice[:256]
-        elif isinstance(tool_choice, dict):
-            if tool_choice.get("type") == "function" and isinstance(tool_choice.get("name"), str):
-                choice_metadata = "function:" + tool_choice["name"][:128]
-            else:
-                choice_type = next(iter(tool_choice), "unknown")
-                selected = tool_choice.get(choice_type)
-                selected_name = selected.get("name") if isinstance(selected, dict) else None
-                choice_metadata = str(choice_type)[:128] + ((":" + str(selected_name)[:128]) if selected_name else "")
+        choice_metadata = _tool_choice_capture_label(tool_choice)
+        choice_wire = responses_tool_choice_wire(tool_choice) if tool_choice is not None else None
         new_call = (self._current_call is None
                     or self._current_call["response"].get("state") != "not-reached"
                     or bool(self._current_call["request"].get("sent")))
@@ -169,12 +167,14 @@ class BoundedMetadataCapture:
             "tool_schema_validity": schema_validity,
             "schemas_valid": (all(schema_validity) if schema_validity is not None else None),
             "tool_choice": choice_metadata,
+            "tool_choice_wire": choice_wire,
         }
         call["request"] = dict(self.request)
 
     def observe_response(self, *, status: Any, finish_reason: Any = None,
                          tool_calls: Any = None, provider_shape: str = "unknown",
-                         completion_category: str = "other") -> None:
+                         completion_category: str = "other",
+                         output_item_types: Any = None) -> None:
         calls = None
         if isinstance(tool_calls, (list, tuple)):
             calls = []
@@ -187,12 +187,16 @@ class BoundedMetadataCapture:
                     "name": str(function.get("name") or "unknown")[:256],
                     "arg_validation": str(call.get("arg_validation") or "capture-unavailable")[:256],
                 })
+        type_names = None
+        if isinstance(output_item_types, (list, tuple)):
+            type_names = [str(item)[:64] for item in output_item_types[:CAPTURE_LIMIT]]
         self.response = {
             "state": "observed-none" if calls == [] else "observed",
             "status": str(status)[:256] if status is not None else None,
             "finish_reason": str(finish_reason)[:256] if finish_reason is not None else None,
             "provider_shape": provider_shape,
             "completion_category": completion_category,
+            "output_item_types": type_names,
             "tool_calls": calls,
         }
         call = self._ensure_call()
@@ -253,21 +257,32 @@ class BoundedMetadataCapture:
                 # calls in output. Retain only identity and validation state.
                 finish_reason = status
                 calls = []
+                output_types = []
                 for item in output[:CAPTURE_LIMIT]:
-                    if get(item, "type") != "function_call":
+                    item_type = _item_type_name(get(item, "type"))
+                    if item_type is not None:
+                        output_types.append(item_type)
+                    if item_type != "function_call":
                         continue
+                    nested = get(item, "function")
+                    name = get(item, "name")
+                    arguments = get(item, "arguments")
+                    if isinstance(nested, dict):
+                        if name is None:
+                            name = nested.get("name")
+                        if arguments is None:
+                            arguments = nested.get("arguments")
                     calls.append({
                         "id": get(item, "call_id") or get(item, "id"),
-                        "function": {"name": get(item, "name"),
-                                     "arguments": get(item, "arguments")},
+                        "function": {"name": name, "arguments": arguments},
                     })
-                output_types = [get(item, "type") for item in output[:CAPTURE_LIMIT]]
                 content_types = [
-                    get(part, "type")
+                    _item_type_name(get(part, "type"))
                     for item in output[:CAPTURE_LIMIT]
                     for part in ((get(item, "content") or [])
                                  if isinstance(get(item, "content"), (list, tuple)) else [])
                 ]
+                content_types = [kind for kind in content_types if kind]
                 if calls:
                     completion_category = "tool_calls"
                 elif "refusal" in output_types or "refusal" in content_types:
@@ -277,6 +292,34 @@ class BoundedMetadataCapture:
                 elif (any(kind in {"message", "output_text"} for kind in output_types)
                       or "output_text" in content_types):
                     completion_category = "text_only"
+                else:
+                    # Completed/non-message Responses with no extractable
+                    # function_call items — Cap LR3.1 sealed empty-tool boundary.
+                    completion_category = "empty_tool_calls"
+                reduced = None
+                if isinstance(calls, (list, tuple)):
+                    reduced = []
+                    for call in calls[:CAPTURE_LIMIT]:
+                        function = get(call, "function", call)
+                        arguments = get(function, "arguments")
+                        validation = get(call, "arg_validation", "capture-unavailable")
+                        if isinstance(arguments, str):
+                            try:
+                                validation = "valid" if isinstance(json.loads(arguments), dict) else "invalid:not-object"
+                            except (TypeError, ValueError):
+                                validation = "invalid:json"
+                        elif isinstance(arguments, dict):
+                            validation = "valid"
+                        reduced.append({"id": get(call, "id"), "function": {"name": get(function, "name")},
+                                        "arg_validation": validation})
+                self.observe_response(
+                    status=status or "ok", finish_reason=finish_reason, tool_calls=reduced,
+                    provider_shape=provider_shape, completion_category=completion_category,
+                    output_item_types=output_types,
+                )
+                if reduced == []:
+                    self.observed_no_executor_calls()
+                return
         reduced = None
         if isinstance(calls, (list, tuple)):
             reduced = []

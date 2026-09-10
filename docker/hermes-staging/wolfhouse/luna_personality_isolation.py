@@ -33,6 +33,11 @@ from datetime import datetime
 from types import MethodType, SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from wolfhouse.luna_responses_provider import (
+    normalize_responses_tool_choice,
+    responses_tool_choice_wire,
+)
+
 ISOLATION_DENY_MESSAGE = "luna_personality_isolated_no_tools"
 ISOLATION_NO_SEND = "luna_personality_isolated_no_send"
 PACK_INJECTION_MARK = "Luna Personality this turn:"
@@ -2536,17 +2541,26 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
                     if kwargs.get("tool_choice") not in (None, "auto"):
                         raise IsolationAbort("diagnostic_tool_choice_conflict")
                     offered = kwargs.get("tools")
-                    offered_names = {
-                        item.get("name") for item in (offered or []) if isinstance(item, dict)
-                    }
+                    offered_names = set()
+                    for item in (offered or []):
+                        if not isinstance(item, dict):
+                            continue
+                        if isinstance(item.get("name"), str) and item["name"]:
+                            offered_names.add(item["name"])
+                        nested = item.get("function")
+                        if isinstance(nested, dict) and isinstance(nested.get("name"), str) and nested["name"]:
+                            offered_names.add(nested["name"])
                     if cap.diagnostic_tool_choice not in offered_names:
                         raise IsolationAbort("diagnostic_tool_not_offered")
                     diagnostic_choice = cap.consume_diagnostic_tool_choice()
                     if diagnostic_choice is not None:
                         kwargs = dict(kwargs)
-                        kwargs["tool_choice"] = {
-                            "type": "function", "name": diagnostic_choice,
-                        }
+                        try:
+                            kwargs["tool_choice"] = normalize_responses_tool_choice({
+                                "type": "function", "name": diagnostic_choice,
+                            })
+                        except ValueError as exc:
+                            raise IsolationAbort(str(exc)) from exc
                 payload = kwargs if kwargs else (args[0] if args and isinstance(args[0], dict) else {})
                 prompts = payload.get("messages") or payload.get("input")
                 if prompts is None:
@@ -2558,6 +2572,20 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
                 if tools is None and isinstance(payload.get("toolConfig"), dict):
                     tools = payload["toolConfig"].get("tools")
                 tool_choice = payload.get("tool_choice") or payload.get("toolChoice")
+                if responses and tool_choice is not None:
+                    wire = responses_tool_choice_wire(tool_choice)
+                    if wire == "unsupported_label":
+                        raise IsolationAbort("unsupported_tool_choice_label")
+                    if wire in {"chat_function", "responses_function", "option"}:
+                        try:
+                            normalized = normalize_responses_tool_choice(tool_choice)
+                        except ValueError as exc:
+                            raise IsolationAbort(str(exc)) from exc
+                        if normalized != tool_choice:
+                            kwargs = dict(kwargs)
+                            kwargs["tool_choice"] = normalized
+                            payload = kwargs
+                            tool_choice = normalized
                 if instrumentation is not None:
                     instrumentation.observe_request(
                         attempted=True, sent=False, prompts=prompts, tools=tools,
