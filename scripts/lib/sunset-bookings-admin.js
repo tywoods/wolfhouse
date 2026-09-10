@@ -304,18 +304,37 @@ function digitsOnly(value) {
   return String(value || '').replace(/\D+/g, '');
 }
 
+/**
+ * Phone digit-subset matching only for phone-shaped queries.
+ * Rejects mixed guest labels like "BF Deep 7 Sep" whose incidental "7"
+ * would otherwise match nearly every ES mobile containing digit 7
+ * (Bug Finder P1 on sunset-staging Bookings search).
+ */
+function isPhoneLikeSearchQuery(q) {
+  const s = String(q || '').trim();
+  if (!s) return false;
+  // Digits + common phone punctuation only — any letter means name/code search.
+  if (/[a-z]/i.test(s)) return false;
+  const digits = digitsOnly(s);
+  // Require enough digits to avoid 1–2 digit floods across the list.
+  return digits.length >= 3;
+}
+
 function bookingMatchesSearch(row, q) {
   const needle = normalizeSearch(q);
   if (!needle) return true;
   const code = String(row.booking_code || '').toLowerCase();
   const guest = String(row.guest_name || '').toLowerCase();
-  const phone = String(row.phone || '').toLowerCase();
-  const phoneDigits = digitsOnly(row.phone);
-  const needleDigits = digitsOnly(needle);
   if (code.includes(needle)) return true;
   if (guest.includes(needle)) return true;
-  if (phone.includes(needle)) return true;
-  if (needleDigits && phoneDigits.includes(needleDigits)) return true;
+  // Phone match only when the query itself looks like a phone / digit search.
+  if (isPhoneLikeSearchQuery(needle)) {
+    const phone = String(row.phone || '').toLowerCase();
+    const phoneDigits = digitsOnly(row.phone);
+    const needleDigits = digitsOnly(needle);
+    if (phone.includes(needle)) return true;
+    if (needleDigits && phoneDigits.includes(needleDigits)) return true;
+  }
   return false;
 }
 
