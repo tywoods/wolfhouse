@@ -56,8 +56,9 @@ REQUIRED_CASE_09_TOOL_SEQUENCE = (
     "get_sunset_offering_quote",
 )
 REQUIRED_CASE_09_STAFF_PATHS = frozenset(READ_ONLY_STAFF_PATHS)
+REQUIRED_TOOL_INSTRUCTION_MARKER = "You must successfully complete these read-only tools in this exact order"
 CAPTURE_LIMIT = 32
-CAPTURE_SCHEMA_VERSION = 1
+CAPTURE_SCHEMA_VERSION = 2
 
 
 def _fingerprint(value: Any) -> str:
@@ -73,7 +74,10 @@ class BoundedMetadataCapture:
 
     model: Optional[str]
     revisions: Dict[str, Optional[str]]
+    instruction_marker: Optional[str] = None
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    calls: list = field(default_factory=list)
+    _current_call: Optional[Dict[str, Any]] = field(default=None, init=False, repr=False)
     request: Dict[str, Any] = field(default_factory=lambda: {
         "state": "not-reached", "attempted": None, "sent": None,
         "prompt_fingerprints": None, "tool_names": None,
@@ -86,6 +90,41 @@ class BoundedMetadataCapture:
     executor: Dict[str, Any] = field(default_factory=lambda: {
         "state": "not-reached", "dispositions": None,
     })
+
+    def _contains_instruction_marker(self, value: Any) -> Optional[bool]:
+        if not self.instruction_marker:
+            return None
+        if isinstance(value, str):
+            return self.instruction_marker in value
+        if isinstance(value, dict):
+            return any(self._contains_instruction_marker(item) is True for item in value.values())
+        if isinstance(value, (list, tuple)):
+            return any(self._contains_instruction_marker(item) is True for item in value)
+        return False
+
+    @staticmethod
+    def _schema_valid(tool: Any) -> bool:
+        if not isinstance(tool, dict):
+            return False
+        function = tool.get("function") if isinstance(tool.get("function"), dict) else tool
+        schema = function.get("parameters", function.get("inputSchema"))
+        return (isinstance(function.get("name"), str) and bool(function["name"])
+                and isinstance(schema, dict) and schema.get("type") == "object")
+
+    def _ensure_call(self, *, new_request: bool = False) -> Dict[str, Any]:
+        if new_request or self._current_call is None:
+            if len(self.calls) >= CAPTURE_LIMIT:
+                return self.calls[-1]
+            index = len(self.calls) + 1
+            self._current_call = {
+                "call_index": index,
+                "correlation_id": f"{self.run_id}:{index}",
+                "request": {"state": "not-reached"},
+                "response": {"state": "not-reached"},
+                "executor": {"state": "not-reached", "dispositions": None},
+            }
+            self.calls.append(self._current_call)
+        return self._current_call
 
     def observe_request(self, *, attempted: bool, sent: bool, prompts: Any = None,
                         tools: Any = None, tool_choice: Any = None) -> None:
@@ -108,17 +147,28 @@ class BoundedMetadataCapture:
             selected = tool_choice.get(choice_type)
             selected_name = selected.get("name") if isinstance(selected, dict) else None
             choice_metadata = str(choice_type)[:128] + ((":" + str(selected_name)[:128]) if selected_name else "")
+        new_call = (self._current_call is None
+                    or self._current_call["response"].get("state") != "not-reached"
+                    or bool(self._current_call["request"].get("sent")))
+        call = self._ensure_call(new_request=new_call)
+        schema_validity = ([self._schema_valid(tool) for tool in tool_values[:CAPTURE_LIMIT]]
+                           if tool_values is not None else None)
         self.request = {
             "state": "observed", "attempted": bool(attempted), "sent": bool(sent),
             "prompt_fingerprints": ([_fingerprint(item) for item in prompt_values[:CAPTURE_LIMIT]]
                                     if prompt_values is not None else None),
+            "instruction_marker_present": self._contains_instruction_marker(prompt_values),
             "tool_names": names if tool_values is not None else None,
             "tool_schema_fingerprints": schemas if tool_values is not None else None,
+            "tool_schema_validity": schema_validity,
+            "schemas_valid": (all(schema_validity) if schema_validity is not None else None),
             "tool_choice": choice_metadata,
         }
+        call["request"] = dict(self.request)
 
     def observe_response(self, *, status: Any, finish_reason: Any = None,
-                         tool_calls: Any = None) -> None:
+                         tool_calls: Any = None, provider_shape: str = "unknown",
+                         completion_category: str = "other") -> None:
         calls = None
         if isinstance(tool_calls, (list, tuple)):
             calls = []
@@ -135,8 +185,23 @@ class BoundedMetadataCapture:
             "state": "observed-none" if calls == [] else "observed",
             "status": str(status)[:256] if status is not None else None,
             "finish_reason": str(finish_reason)[:256] if finish_reason is not None else None,
+            "provider_shape": provider_shape,
+            "completion_category": completion_category,
             "tool_calls": calls,
         }
+        call = self._ensure_call()
+        call["response"] = dict(self.response)
+
+    @staticmethod
+    def _is_clarification(value: Any) -> bool:
+        if isinstance(value, str):
+            return value.rstrip().endswith("?")
+        if isinstance(value, dict):
+            return any(BoundedMetadataCapture._is_clarification(item)
+                       for key, item in value.items() if key in {"content", "text", "output_text"})
+        if isinstance(value, (list, tuple)):
+            return any(BoundedMetadataCapture._is_clarification(item) for item in value)
+        return False
 
     def observe_provider_result(self, result: Any) -> None:
         """Reduce OpenAI/Bedrock response shapes without retaining payloads."""
@@ -145,13 +210,25 @@ class BoundedMetadataCapture:
 
         choices = get(result, "choices")
         finish_reason, calls = None, None
+        provider_shape = "unknown"
+        completion_category = "other"
         status = get(result, "status")
         if isinstance(choices, (list, tuple)) and choices:
+            provider_shape = "chat_completions"
             choice = choices[0]
             finish_reason = get(choice, "finish_reason")
             message = get(choice, "message")
             calls = get(message, "tool_calls") if message is not None else None
+            if get(message, "refusal") is not None:
+                completion_category = "refusal"
+            elif calls:
+                completion_category = "tool_calls"
+            elif self._is_clarification(get(message, "content")):
+                completion_category = "clarification"
+            elif get(message, "content") is not None:
+                completion_category = "text_only"
         elif isinstance(result, dict) and isinstance(result.get("output"), dict):
+            provider_shape = "bedrock_converse"
             finish_reason = result.get("stopReason")
             message = result["output"].get("message", result["output"])
             content = message.get("content") if isinstance(message, dict) else None
@@ -161,9 +238,11 @@ class BoundedMetadataCapture:
                          for item in content[:CAPTURE_LIMIT]
                          for use in [item.get("toolUse") if isinstance(item, dict) else None]
                          if isinstance(use, dict)]
+                completion_category = "tool_calls" if calls else "text_only"
         else:
             output = get(result, "output")
             if isinstance(output, (list, tuple)):
+                provider_shape = "openai_responses"
                 # OpenAI Responses terminal objects expose completed function
                 # calls in output. Retain only identity and validation state.
                 finish_reason = status
@@ -176,6 +255,22 @@ class BoundedMetadataCapture:
                         "function": {"name": get(item, "name"),
                                      "arguments": get(item, "arguments")},
                     })
+                output_types = [get(item, "type") for item in output[:CAPTURE_LIMIT]]
+                content_types = [
+                    get(part, "type")
+                    for item in output[:CAPTURE_LIMIT]
+                    for part in ((get(item, "content") or [])
+                                 if isinstance(get(item, "content"), (list, tuple)) else [])
+                ]
+                if calls:
+                    completion_category = "tool_calls"
+                elif "refusal" in output_types or "refusal" in content_types:
+                    completion_category = "refusal"
+                elif self._is_clarification(output):
+                    completion_category = "clarification"
+                elif (any(kind in {"message", "output_text"} for kind in output_types)
+                      or "output_text" in content_types):
+                    completion_category = "text_only"
         reduced = None
         if isinstance(calls, (list, tuple)):
             reduced = []
@@ -192,7 +287,10 @@ class BoundedMetadataCapture:
                     validation = "valid"
                 reduced.append({"id": get(call, "id"), "function": {"name": get(function, "name")},
                                 "arg_validation": validation})
-        self.observe_response(status=status or "ok", finish_reason=finish_reason, tool_calls=reduced)
+        self.observe_response(
+            status=status or "ok", finish_reason=finish_reason, tool_calls=reduced,
+            provider_shape=provider_shape, completion_category=completion_category,
+        )
         if reduced == []:
             self.observed_no_executor_calls()
 
@@ -200,17 +298,35 @@ class BoundedMetadataCapture:
                            reason: Any = None) -> None:
         if disposition not in {"accepted", "rejected", "dispatched", "completed", "failed"}:
             raise ValueError("invalid_executor_disposition")
-        if self.executor["dispositions"] is None:
-            self.executor = {"state": "observed", "dispositions": []}
-        if len(self.executor["dispositions"]) < CAPTURE_LIMIT:
-            self.executor["dispositions"].append({
-                "id": str(call_id or "")[:256] or None,
+        call = self._ensure_call()
+        call_executor = call["executor"]
+        if call_executor["dispositions"] is None:
+            call_executor = call["executor"] = {"state": "observed", "dispositions": []}
+        provider_call_id = str(call_id or "")[:256] or None
+        if provider_call_id is None:
+            matching = [item.get("id") for item in (call["response"].get("tool_calls") or [])
+                        if item.get("name") == str(name)]
+            if len(matching) == 1:
+                provider_call_id = matching[0]
+        if len(call_executor["dispositions"]) < CAPTURE_LIMIT:
+            disposition_record = {
+                "id": provider_call_id,
+                "provider_call_id": provider_call_id,
+                "call_index": call["call_index"],
+                "correlation_id": call["correlation_id"],
                 "name": str(name or "unknown")[:256],
                 "disposition": disposition,
                 "reason": str(reason)[:256] if reason is not None else None,
-            })
+            }
+            call_executor["dispositions"].append(disposition_record)
+        self.executor = {
+            "state": call_executor["state"],
+            "dispositions": list(call_executor["dispositions"]),
+        }
 
     def observed_no_executor_calls(self) -> None:
+        call = self._ensure_call()
+        call["executor"] = {"state": "observed-none", "dispositions": []}
         self.executor = {"state": "observed-none", "dispositions": []}
 
     def finalize(self, *, model_reached: bool) -> Dict[str, Any]:
@@ -218,9 +334,24 @@ class BoundedMetadataCapture:
             for section in (self.request, self.response, self.executor):
                 if section["state"] == "not-reached":
                     section["state"] = "capture-unavailable"
+            for call in self.calls:
+                for key in ("request", "response", "executor"):
+                    if call[key]["state"] == "not-reached":
+                        call[key]["state"] = "capture-unavailable"
         return {
             "schema_version": CAPTURE_SCHEMA_VERSION, "run_id": self.run_id,
             "revisions": dict(self.revisions), "model": self.model,
+            "calls": [{
+                "call_index": call["call_index"],
+                "correlation_id": call["correlation_id"],
+                "request": dict(call["request"]),
+                "response": dict(call["response"]),
+                "executor": {
+                    "state": call["executor"]["state"],
+                    "dispositions": (list(call["executor"]["dispositions"])
+                                     if isinstance(call["executor"]["dispositions"], list) else None),
+                },
+            } for call in self.calls],
             "request": dict(self.request), "response": dict(self.response),
             "executor": {"state": self.executor["state"],
                          "dispositions": (list(self.executor["dispositions"])
@@ -262,7 +393,7 @@ def _message(case: Dict[str, Any]) -> str:
     return (
         "Closed Sunset staging LR3.2 evaluation. You may call only these read-only tools: "
         + ", ".join(sorted(READ_ONLY_TOOL_ALLOWLIST))
-        + ". You must successfully complete these read-only tools in this exact order before "
+        + ". " + REQUIRED_TOOL_INSTRUCTION_MARKER + " before "
         + "completing the response: " + required_sequence + ". "
         + case["response_contract"] + "\n\nGuest: " + case["guest_text"]
     )
@@ -318,6 +449,7 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, requ
         model=declared or None,
         revisions={"wolfhouse": os.getenv("WOLFHOUSE_REVISION") or None,
                    "hermes": os.getenv("HERMES_REVISION") or None},
+        instruction_marker=REQUIRED_TOOL_INSTRUCTION_MARKER,
     )
     cap.metadata_capture = instrumentation
     token = enter_isolated_turn(cap)
