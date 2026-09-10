@@ -41,6 +41,7 @@ class LunaPersonalityTests(unittest.TestCase):
         self.assertIn("english and spanish warmth/date replies", instruction)
         self.assertIn("more expressive than concise", instruction)
         self.assertIn("warmer than calm", instruction)
+        self.assertIn("at least two colorful emoji", instruction)
 
     def test_new_turn_refetches_authoritative_setting(self) -> None:
         calls = {"n": 0}
