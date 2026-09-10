@@ -120,6 +120,7 @@ function declareView(view) {
     crmFilter: view.crmFilter || null,
     channel: view.channel || null,
     needsHuman: !!view.needsHuman,
+    ownerLab: !!view.ownerLab,
     spamSelected: !!view.spamSelected,
     /** When false, the view stays queryable for CRM gates but is omitted from the rail. */
     rail: view.rail !== false,
@@ -154,6 +155,15 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     channel: INBOX_VIEW_CHANNELS.EMAIL,
     description: 'Open conversations on the email channel.',
+  }),
+  declareView({
+    id: 'owner_lab',
+    label: 'Owner Lab',
+    group: 'inbox',
+    defaultSort: INBOX_VIEW_SORTS.RECENT,
+    source: INBOX_VIEW_SOURCES.CONVERSATIONS,
+    ownerLab: true,
+    description: 'Open lab/test conversations marked by open-phone testing metadata.',
   }),
   declareView({
     id: 'snoozed',
@@ -451,6 +461,7 @@ function buildConversationSourceQuery(view, clientSlug, query, page, opts) {
   const scope = resolveInboxConversationLocationScope(clientSlug, query);
   const channelScoped = !!view.channel;
   const needsHumanScoped = !!view.needsHuman;
+  const ownerLabScoped = !!view.ownerLab;
   const spamSelected = !!view.spamSelected;
   const includeEmailSubject = !(opts && opts.includeEmailSubject === false);
   const params = [clientSlug];
@@ -481,6 +492,7 @@ function buildConversationSourceQuery(view, clientSlug, query, page, opts) {
       locationScoped: scope.scoped,
       channelScoped,
       needsHumanScoped,
+      ownerLabScoped,
       spamSelected,
       includeEmailSubject,
       ...(keyset ? { keyset } : {}),
@@ -603,6 +615,7 @@ function buildInboxViewCountsPlan(input) {
       key: v.id,
       channel: v.channel,
       needsHuman: !!v.needsHuman,
+      ownerLab: !!v.ownerLab,
       spamSelected: !!v.spamSelected,
     }));
     const params = [clientSlug];

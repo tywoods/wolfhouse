@@ -55,6 +55,12 @@ var INBOX_ROWS_CSS = [
   /* Needs-human attention: same orange as .inbox-needs-human-raise.is-on */
   '.conv-card.inbox-row-needs-human .inbox-channel-badge{color:#E8893A}',
   '.conv-card.inbox-row-needs-human .inbox-channel-badge svg{stroke:currentColor}',
+  '.conv-card.inbox-row-owner-lab{border-color:rgba(232,137,58,.55)}',
+  '.inbox-owner-lab-chip{display:inline-flex;align-items:center;max-width:100%;',
+  'margin-top:6px;padding:3px 7px;border-radius:999px;border:1px solid rgba(232,137,58,.45);',
+  'background:rgba(232,137,58,.12);color:#9C4D16;font-size:10px;font-weight:800;',
+  'letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  'html.theme-dark .inbox-owner-lab-chip{background:rgba(232,137,58,.18);color:#F2B36E;border-color:rgba(242,179,110,.45)}',
   /* INBOX-CHANNEL-ICON-STATE-001: unread WA green / email Luna blue; read stays grey. */
   '.conv-card.inbox-row-unread:not(.inbox-row-needs-human) .inbox-channel-badge-whatsapp{color:#25D366}',
   '.conv-card.inbox-row-unread:not(.inbox-row-needs-human) .inbox-channel-badge-email{color:#3B7FB0}',
@@ -168,6 +174,19 @@ function inboxRowHasUnread(row) {
     if (!isNaN(readAt) && !isNaN(activity) && activity > readAt) return true;
   }
   return false;
+}
+
+function inboxRowIsOwnerLab(row) {
+  if (!row || typeof row !== 'object') return false;
+  if (row.open_phone_testing === true) return true;
+  return String(row.guest_tester_class || '').trim().length > 0;
+}
+
+function inboxRowsOwnerLabChipHtml(row) {
+  if (!inboxRowIsOwnerLab(row)) return '';
+  var cls = String((row && row.guest_tester_class) || '').trim();
+  var label = 'Owner Lab' + (cls ? ' · ' + cls : '');
+  return '<div class="inbox-owner-lab-chip">' + inboxRowsEsc(label) + '</div>';
 }
 
 /** Same Needs human copy as the thread header raise control (EN/ES via existing keys). */
@@ -499,6 +518,7 @@ function inboxRowsWrapConvCardHtml(html, row) {
   if (unread) extras += ' inbox-row-unread';
   if (multi) extras += ' inbox-row-multiselect';
   if (row && row.needs_human === true) extras += ' inbox-row-needs-human';
+  if (inboxRowIsOwnerLab(row)) extras += ' inbox-row-owner-lab';
   var newOpen = open.replace(/class="([^"]*)"/, 'class="$1' + extras + '"');
   if (key && newOpen.indexOf('data-inbox-row-key=') < 0) {
     newOpen = newOpen.replace(/<div\b/, '<div data-inbox-row-key="' + inboxRowsEsc(key) + '"');
@@ -519,7 +539,7 @@ function inboxRowsWrapConvCardHtml(html, row) {
       (typeof inboxPersonDisplayName === 'function') ? inboxPersonDisplayName(row) : (row && row.guest_name)
     )) + '</div>';
   prefix += '<div class="inbox-row-body">';
-  var suffix = '</div>';
+  var suffix = inboxRowsOwnerLabChipHtml(row) + '</div>';
   if (unread) suffix += '<span class="inbox-row-unread-dot" aria-hidden="true"></span>';
   return newOpen + prefix + inner + suffix + closeMatch[0];
 }
@@ -1147,6 +1167,8 @@ if (typeof window !== 'undefined') {
   window.__inboxRows = {
     initials: inboxRowInitials,
     hasUnread: inboxRowHasUnread,
+    isOwnerLab: inboxRowIsOwnerLab,
+    ownerLabChipHtml: inboxRowsOwnerLabChipHtml,
     rowKey: inboxRowKey,
     wrapConvCardHtml: inboxRowsWrapConvCardHtml,
     rewriteNeedsHumanChip: inboxRowsRewriteNeedsHumanChip,

@@ -109,6 +109,8 @@ const INBOX_PERSON_ROW_FIELDS = Object.freeze([
   'handoff_status',
   'luna_paused',
   'booking_code',
+  'open_phone_testing',
+  'guest_tester_class',
   'booking_count',
   'service_count',
   'is_booked',
@@ -267,6 +269,8 @@ function projectConversationPersonRow(view, raw) {
   row.handoff_status = raw.handoff_status || null;
   row.luna_paused = !!raw.luna_paused;
   row.booking_code = raw.booking_code || null;
+  row.open_phone_testing = raw.open_phone_testing === true;
+  row.guest_tester_class = raw.guest_tester_class || null;
   row.cursor = encodeInboxListCursor(view, raw);
   return row;
 }

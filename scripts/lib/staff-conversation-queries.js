@@ -180,13 +180,22 @@ function inboxNeedsHumanWhereClause(scoped) {
   return scoped ? '\n  AND conv.needs_human = TRUE' : '';
 }
 
-function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped, spamSelected, includeAllSpam) {
+function sqlConversationOwnerLabPredicate(convAlias) {
+  const conv = convAlias || 'conv';
+  return `(${conv}.metadata->>'open_phone_testing' = 'true' OR NULLIF(btrim(${conv}.metadata->>'guest_tester_class'), '') IS NOT NULL)`;
+}
+
+function inboxOwnerLabWhereClause(scoped) {
+  return scoped ? `\n  AND ${sqlConversationOwnerLabPredicate('conv')}` : '';
+}
+
+function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped, spamSelected, includeAllSpam, ownerLabScoped) {
   // System/noreply mailers (GoDaddy, Apollo, mailer-daemon, no-reply@…) must not
   // inflate guest conversation lists or rail/badge counts. Same fragment on list
   // and counts so the numbers stay honest with the rows staff see.
   return `WHERE c.slug = $1
   AND conv.status IN ('open', 'on_hold')
-  ${includeAllSpam ? '' : `AND ${buildConversationSpamPredicate({ spamSelected: !!spamSelected })}\n  `}${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}${inboxNeedsHumanWhereClause(needsHumanScoped)}${sqlExcludeSystemSenderConversations('conv')}`;
+  ${includeAllSpam ? '' : `AND ${buildConversationSpamPredicate({ spamSelected: !!spamSelected })}\n  `}${inboxLocationWhereClause(scoped)}${inboxChannelWhereClause(channelScoped, conversationInboxChannelParamIndex(scoped))}${inboxNeedsHumanWhereClause(needsHumanScoped)}${inboxOwnerLabWhereClause(ownerLabScoped)}${sqlExcludeSystemSenderConversations('conv')}`;
 }
 
 /**
@@ -211,6 +220,8 @@ function conversationInboxCursorClause(paramIndex) {
  * @param {boolean} [opts.channelScoped]
  * @param {boolean} [opts.needsHumanScoped] - Inbox "Needs human" view: only
  *   conversations.needs_human = TRUE (independent of CRM customers)
+ * @param {boolean} [opts.ownerLabScoped] - Owner Lab view: conversations marked
+ *   with open-phone testing / guest tester metadata
  * @param {boolean} [opts.includeEmailSubject=true] - correlated subquery over
  *   tenant_email_inbound_* tables. False when those relations are missing.
  * @param {{ limitParamIndex: number, cursorParamIndex?: number|null }} [opts.keyset]
@@ -222,6 +233,7 @@ function getConversationInboxQuery(opts = {}) {
   const scoped = !!opts.locationScoped;
   const channelScoped = !!opts.channelScoped;
   const needsHumanScoped = !!opts.needsHumanScoped;
+  const ownerLabScoped = !!opts.ownerLabScoped;
   const spamSelected = !!opts.spamSelected;
   const keyset = opts.keyset && typeof opts.keyset === 'object' ? opts.keyset : null;
   const cursorParamIndex = keyset && keyset.cursorParamIndex ? keyset.cursorParamIndex : null;
@@ -297,7 +309,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) bphone ON TRUE
 ${inboxCustomerLinkJoinSql()}
-${conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped, spamSelected)}${cursorClause}
+${conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped, spamSelected, false, ownerLabScoped)}${cursorClause}
 ${pageSql}
 `;
 }
@@ -314,9 +326,10 @@ ${pageSql}
  *
  * @param {object} opts
  * @param {boolean} [opts.locationScoped]
- * @param {Array<{ key: string, channel: string|null, needsHuman?: boolean }>} opts.columns
- *   channel null + needsHuman false counts every conversation in scope;
- *   needsHuman true counts conversations.needs_human = TRUE only
+ * @param {Array<{ key: string, channel: string|null, needsHuman?: boolean, ownerLab?: boolean }>} opts.columns
+ *   channel null + needsHuman/ownerLab false counts every conversation in scope;
+ *   needsHuman true counts conversations.needs_human = TRUE only; ownerLab true
+ *   counts lab/test conversations marked by metadata
  * @returns {string} SQL ($1 client slug; optional $2 location; then one param per
  *   channel column, in column order)
  */
@@ -344,6 +357,9 @@ function getConversationInboxCountsQuery(opts) {
     const nonSpam = buildConversationSpamPredicate({ spamSelected: false });
     if (column && column.needsHuman) {
       return `  COUNT(*) FILTER (WHERE conv.needs_human = TRUE AND ${nonSpam})::int AS "${key}"`;
+    }
+    if (column && column.ownerLab) {
+      return `  COUNT(*) FILTER (WHERE ${sqlConversationOwnerLabPredicate('conv')} AND ${nonSpam})::int AS "${key}"`;
     }
     if (!column.channel) return `  COUNT(*) FILTER (WHERE ${nonSpam})::int AS "${key}"`;
     const idx = channelParam;
