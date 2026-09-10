@@ -166,11 +166,13 @@ async function assertCourseAssignable(pg, {
       body: {
         success: false,
         error: 'course_capacity_not_configured',
+        reason_code: 'course_capacity_not_configured',
         course_id: pack.pack_id,
       },
     };
   }
-  const qty = Math.max(1, Number(quantity) || 1);
+  // Party size only — never total capacity, never day-count.
+  const qty = normalizeCoursePartyQuantity(quantity);
   const perDate = [];
   for (const iso of schedule.dates) {
     const booked = await countConfirmedCourseSeatsOnDate(pg, {
@@ -180,12 +182,15 @@ async function assertCourseAssignable(pg, {
       serviceDate: iso,
       excludeBookingId,
     });
+    // Open spots = configured capacity − confirmed seats on that date.
     const remaining = capacity - booked;
+    const openSpots = Math.max(0, remaining);
     perDate.push({
       date: iso,
       capacity,
       seats_booked: booked,
-      seats_remaining: Math.max(0, remaining),
+      seats_remaining: openSpots,
+      open_spots: openSpots,
     });
     if (remaining < qty) {
       return {
@@ -194,11 +199,13 @@ async function assertCourseAssignable(pg, {
         body: {
           success: false,
           error: 'course_full',
+          reason_code: 'course_full',
           course_id: pack.pack_id,
           date: iso,
           capacity,
           seats_booked: booked,
-          seats_remaining: Math.max(0, remaining),
+          seats_remaining: openSpots,
+          open_spots: openSpots,
           requested_quantity: qty,
         },
       };
@@ -212,6 +219,44 @@ async function assertCourseAssignable(pg, {
     capacity,
     dates: schedule.dates,
     capacity_by_date: perDate,
+  };
+}
+
+/** Party size for capacity gates (surfers). Never invents capacity or day-count. */
+function normalizeCoursePartyQuantity(quantity) {
+  const n = Number(quantity);
+  if (!Number.isFinite(n) || n < 1) return 1;
+  return Math.floor(n);
+}
+
+/**
+ * Preserve Staff open-spots fields when remapping assertCourseAssignable failures
+ * into quote/create HTTP bodies. Dropping seats_remaining made the portal invent "24 seats".
+ */
+function mapCourseCapacityGateFailure(gate, overrides = {}) {
+  const b = (gate && gate.body && typeof gate.body === 'object') ? gate.body : {};
+  const openSpots = b.seats_remaining != null
+    ? Number(b.seats_remaining)
+    : (b.open_spots != null ? Number(b.open_spots) : null);
+  const err = b.error || b.reason_code || 'course_full';
+  return {
+    ok: false,
+    status: (gate && gate.status) || 409,
+    body: {
+      success: false,
+      reason: err,
+      reason_code: b.reason_code || err,
+      error: err,
+      course_id: overrides.course_id != null ? overrides.course_id : (b.course_id || null),
+      date: b.date || null,
+      capacity: b.capacity != null ? Number(b.capacity) : null,
+      seats_booked: b.seats_booked != null ? Number(b.seats_booked) : null,
+      seats_remaining: Number.isFinite(openSpots) ? openSpots : null,
+      open_spots: Number.isFinite(openSpots) ? openSpots : null,
+      requested_quantity: b.requested_quantity != null ? Number(b.requested_quantity) : null,
+      capacity_by_date: b.capacity_by_date || null,
+      ...overrides,
+    },
   };
 }
 
@@ -300,5 +345,7 @@ module.exports = {
   countConfirmedLessonSlotSeatsOnDate,
   loadAdminCourseById,
   assertCourseAssignable,
+  normalizeCoursePartyQuantity,
+  mapCourseCapacityGateFailure,
   listJoinableSunsetOfferings,
 };

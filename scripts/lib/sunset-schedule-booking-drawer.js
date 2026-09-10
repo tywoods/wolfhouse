@@ -1835,12 +1835,15 @@ async function updateSunsetScheduleBooking(pg, opts) {
     } else if (input.components.course) {
       const { assertCourseAssignable } = require('./sunset-admin-course-join');
       const { packPriceItemCode } = require('./sunset-admin-price-identity');
+      const partyQty = input.surfer_count != null
+        ? Math.max(1, Number(input.surfer_count) || 1)
+        : Math.max(1, Number(input.components.course.quantity) || 1);
       const gate = await assertCourseAssignable(pg, {
         clientSlug,
         locationId: recordLocationId,
         courseId: input.components.course.course_id,
         serviceDates: input.service_dates,
-        quantity: input.components.course.quantity,
+        quantity: partyQty,
         excludeBookingId: bookingId,
       });
       if (!gate.ok) return rollback(gate);
