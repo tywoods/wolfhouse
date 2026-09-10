@@ -385,6 +385,10 @@ function renderFinanceRedesignHtml(summary) {
     '</span><span class="pfb-pill pfb-pill--green">' + financeRedesignEsc(financeRedesignFmtEur(out.due_soon_cents || 0)) + '</span></div>';
   html += '<div class="pfb-age"><span>' + financeRedesignEsc(financeRedesignT('admin.finance.overdue', 'Overdue (>7d)')) +
     '</span><span class="pfb-pill pfb-pill--red">' + financeRedesignEsc(financeRedesignFmtEur(out.overdue_cents || 0)) + '</span></div>';
+  html += '<div class="pfb-scope-note" data-finance-kpi-scope="1" style="margin-top:8px;font-size:12px;line-height:1.35;opacity:0.78">' +
+    financeRedesignEsc(financeRedesignT('admin.finance.kpiScopeNote',
+      'Net uses paid cash in this period (excludes deleted-booking payments). Outstanding excludes cancelled, expired, and hold bookings — same Staff ledger rules as Bookings KPIs.')) +
+    '</div>';
   html += '</div></div>';
 
   html += '</div>'; // hero
