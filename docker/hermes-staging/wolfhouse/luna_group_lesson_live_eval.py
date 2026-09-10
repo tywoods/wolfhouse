@@ -86,11 +86,40 @@ def _case(case_id: str) -> Dict[str, Any]:
 
 
 def _message(case: Dict[str, Any]) -> str:
+    required_sequence = " -> ".join(REQUIRED_CASE_09_TOOL_SEQUENCE)
     return (
-        "Closed Sunset staging LR2.1 evaluation. You may call only these read-only tools: "
+        "Closed Sunset staging LR3.2 evaluation. You may call only these read-only tools: "
         + ", ".join(sorted(READ_ONLY_TOOL_ALLOWLIST))
-        + ". " + case["response_contract"] + "\n\nGuest: " + case["guest_text"]
+        + ". You must successfully complete these read-only tools in this exact order before "
+        + "completing the response: " + required_sequence + ". "
+        + case["response_contract"] + "\n\nGuest: " + case["guest_text"]
     )
+
+
+def _abort_counters(cap: IsolatedTurnCapture, *, settled: bool) -> Dict[str, Any]:
+    def count(name: str):
+        value = getattr(cap, name, None)
+        return value if settled and type(value) is int and 0 <= value <= 2**53 - 1 else None
+
+    def observed(name: str):
+        value = getattr(cap, name, None)
+        return list(value) if isinstance(value, list) else None
+
+    return {
+        "read_tools_invoked": observed("read_tools_invoked"),
+        "read_tools_completed": observed("read_tools_completed"),
+        "read_staff_paths_invoked": observed("read_staff_paths_invoked"),
+        "read_staff_paths_completed": observed("read_staff_paths_completed"),
+        "required_tool_sequence": list(REQUIRED_CASE_09_TOOL_SEQUENCE),
+        "required_staff_paths": sorted(REQUIRED_CASE_09_STAFF_PATHS),
+        "tools_invoked_prohibited": count("tools_invoked"),
+        "sends_attempted": count("sends_attempted"),
+        "sends_completed": count("sends_completed"),
+        "journal_writes_completed": count("journal_writes_completed"),
+        "persistence_effects_completed": observed("persistence_effects_completed"),
+        "model_calls": count("model_calls"),
+        "counter_snapshot_state": "settled_tracked_work" if settled else "partial",
+    }
 
 
 async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, require_live_seams: bool = True):
@@ -110,6 +139,7 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, requ
     cap.read_only_staff_paths = READ_ONLY_STAFF_PATHS
     cap.evidence_kind = "live_gateway" if invoke_turn is None else "test_double"
     token = enter_isolated_turn(cap)
+    first_abort = None
     try:
         preflight_isolation_or_abort(require_live_seams=require_live_seams)
         reply = await (invoke_turn or default_invoke_live_gateway)(_message(case), cap, {"case": case})
@@ -157,11 +187,26 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, requ
             "model_calls": cap.model_calls,
             "serving_identity": identity,
         }
+    except IsolationAbort as exc:
+        first_abort = exc
+        raise
     finally:
+        settle_abort = None
+        settled = False
         try:
             settle_isolated_work(cap)
+            settled = True
+        except IsolationAbort as exc:
+            settle_abort = exc
+        except Exception:
+            settle_abort = IsolationAbort("cleanup_failed")
         finally:
             exit_isolated_turn(token)
+        failure = first_abort or settle_abort
+        if failure is not None:
+            failure.counters = _abort_counters(cap, settled=settled)
+            if first_abort is None:
+                raise failure
 
 
 def register_group_lesson_eval_route(app) -> bool:

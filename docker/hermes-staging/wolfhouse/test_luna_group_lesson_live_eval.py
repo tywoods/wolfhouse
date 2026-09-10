@@ -20,6 +20,7 @@ if str(STAGING) not in sys.path:
 
 from wolfhouse.luna_personality_isolation import (  # noqa: E402
     IsolatedTurnCapture,
+    IsolationAbort,
     deny_post_bot_if_isolated,
     deny_tool_if_isolated,
     enter_isolated_turn,
@@ -32,6 +33,8 @@ from wolfhouse.luna_group_lesson_live_eval import (  # noqa: E402
     READ_ONLY_TOOL_ALLOWLIST,
     REQUIRED_CASE_09_STAFF_PATHS,
     REQUIRED_CASE_09_TOOL_SEQUENCE,
+    _abort_counters,
+    _message,
     load_group_lesson_corpus,
     register_group_lesson_eval_route,
     run_isolated_group_lesson_eval,
@@ -185,6 +188,18 @@ class GroupLessonCase09Tests(unittest.TestCase):
                 body, status = _run(app.router.posts[GROUP_LESSON_EVAL_PATH](request))
             self.assertEqual((body["error"], status), ("caller_override_rejected", 400))
 
+    def test_closed_prompt_requires_successful_reads_in_exact_order_before_completion(self):
+        case = load_group_lesson_corpus(REPO / "fixtures" / "luna-group-lesson-live-corpus.json")["cases"][0]
+        message = _message(case)
+        required = (
+            "You must successfully complete these read-only tools in this exact order before "
+            "completing the response: get_sunset_lesson_catalog -> "
+            "get_sunset_lesson_availability -> get_sunset_offering_quote."
+        )
+        self.assertIn(required, message)
+        self.assertIn(case["response_contract"], message)
+        self.assertIn("Guest: " + case["guest_text"], message)
+
     def test_case_09_rejects_authorized_but_uncompleted_reads(self):
         async def invoke(_message, cap, _context):
             args = {"tenant_id": "sunset", "location_id": "sunset-somo"}
@@ -202,10 +217,100 @@ class GroupLessonCase09Tests(unittest.TestCase):
         with mock.patch.dict(os.environ, env, clear=False), \
                 mock.patch(f"{module}.assert_staging_environment"), \
                 mock.patch(f"{module}.assert_sunset_serving_identity", return_value={"runtime": "hermes-sunset-luna-http"}):
-            with self.assertRaisesRegex(Exception, "required_tool_sequence_incomplete"):
+            with self.assertRaisesRegex(Exception, "required_tool_sequence_incomplete") as caught:
                 _run(run_isolated_group_lesson_eval(
                     case_id="sunset-group-lesson-09-es", invoke_turn=invoke, require_live_seams=False,
                 ))
+        counters = caught.exception.counters
+        self.assertIsInstance(counters, dict)
+        self.assertEqual(counters["read_tools_invoked"], list(REQUIRED_CASE_09_TOOL_SEQUENCE))
+        self.assertEqual(counters["read_tools_completed"], [])
+        self.assertEqual(set(counters["read_staff_paths_invoked"]), REQUIRED_CASE_09_STAFF_PATHS)
+        self.assertEqual(counters["read_staff_paths_completed"], [])
+        self.assertEqual(counters["sends_attempted"], 0)
+        self.assertEqual(counters["sends_completed"], 0)
+        self.assertEqual(counters["journal_writes_completed"], 0)
+        self.assertEqual(counters["persistence_effects_completed"], [])
+        self.assertIn(counters["counter_snapshot_state"], ("settled_tracked_work", "partial"))
+
+    def test_out_of_order_completed_sequence_aborts_with_observed_sequence(self):
+        async def invoke(_message, cap, _context):
+            cap.read_tools_completed.extend((
+                "get_sunset_lesson_availability",
+                "get_sunset_lesson_catalog",
+                "get_sunset_offering_quote",
+            ))
+            cap.read_staff_paths_completed.extend(REQUIRED_CASE_09_STAFF_PATHS)
+            cap.model_called = True
+            cap.model_calls = 1
+            cap.model = "gpt-5.6-sol"
+            return "not evidence"
+
+        env = {"HERMES_MODEL": "gpt-5.6-sol", "LUNA_CLIENT_SLUG": "sunset"}
+        module = "wolfhouse.luna_group_lesson_live_eval"
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch(f"{module}.assert_staging_environment"), \
+                mock.patch(f"{module}.assert_sunset_serving_identity", return_value={"runtime": "hermes-sunset-luna-http"}), \
+                self.assertRaisesRegex(Exception, "required_tool_sequence_incomplete") as caught:
+            _run(run_isolated_group_lesson_eval(
+                case_id="sunset-group-lesson-09-es", invoke_turn=invoke, require_live_seams=False,
+            ))
+        self.assertEqual(caught.exception.counters["read_tools_completed"], [
+            "get_sunset_lesson_availability",
+            "get_sunset_lesson_catalog",
+            "get_sunset_offering_quote",
+        ])
+
+    def test_tool_failure_aborts_honestly_without_fake_completion_or_effects(self):
+        async def invoke(_message, cap, _context):
+            cap.read_tools_invoked.extend((
+                "get_sunset_lesson_catalog", "get_sunset_lesson_availability",
+            ))
+            cap.read_tools_completed.append("get_sunset_lesson_catalog")
+            cap.read_staff_paths_invoked.extend((
+                "/sunset/catalog", "/sunset/joinable-courses", "/sunset/lesson-availability",
+            ))
+            cap.read_staff_paths_completed.extend(("/sunset/catalog", "/sunset/joinable-courses"))
+            cap.model_called = True
+            cap.model_calls = 1
+            cap.model = "gpt-5.6-sol"
+            raise IsolationAbort("authoritative_read_failed")
+
+        env = {"HERMES_MODEL": "gpt-5.6-sol", "LUNA_CLIENT_SLUG": "sunset"}
+        module = "wolfhouse.luna_group_lesson_live_eval"
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch(f"{module}.assert_staging_environment"), \
+                mock.patch(f"{module}.assert_sunset_serving_identity", return_value={"runtime": "hermes-sunset-luna-http"}), \
+                self.assertRaisesRegex(IsolationAbort, "authoritative_read_failed") as caught:
+            _run(run_isolated_group_lesson_eval(
+                case_id="sunset-group-lesson-09-es", invoke_turn=invoke, require_live_seams=False,
+            ))
+        counters = caught.exception.counters
+        self.assertEqual(counters["read_tools_invoked"], [
+            "get_sunset_lesson_catalog", "get_sunset_lesson_availability",
+        ])
+        self.assertEqual(counters["read_tools_completed"], ["get_sunset_lesson_catalog"])
+        self.assertEqual(counters["sends_completed"], 0)
+        self.assertEqual(counters["journal_writes_completed"], 0)
+        self.assertEqual(counters["persistence_effects_completed"], [])
+
+    def test_unsettled_abort_nulls_nonfinal_scalars_instead_of_fake_zero(self):
+        cap = IsolatedTurnCapture(case_id="sunset-group-lesson-09-es", personality_id="sunny")
+        snapshot = _abort_counters(cap, settled=False)
+        for key in (
+            "tools_invoked_prohibited", "sends_attempted", "sends_completed",
+            "journal_writes_completed", "model_calls",
+        ):
+            self.assertIsNone(snapshot[key], key)
+        self.assertEqual(snapshot["counter_snapshot_state"], "partial")
+        self.assertEqual(snapshot["read_tools_completed"], [])
+
+    def test_unknown_counter_value_remains_unknown_instead_of_fake_zero(self):
+        cap = IsolatedTurnCapture(case_id="sunset-group-lesson-09-es", personality_id="sunny")
+        setattr(cap, "sends_completed", None)
+        snapshot = _abort_counters(cap, settled=False)
+        self.assertIsNone(snapshot["sends_completed"])
+        self.assertEqual(snapshot["counter_snapshot_state"], "partial")
 
     def test_completion_accounting_rejects_explicit_and_ambiguous_failures(self):
         import wolfhouse.luna_personality_isolation as isolation
