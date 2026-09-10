@@ -393,6 +393,82 @@ class GroupLessonCase09Tests(unittest.TestCase):
         for forbidden in ("private prompt", "raw schema secret", '"arguments"', '"result"'):
             self.assertNotIn(forbidden, serialized)
 
+    def test_capture_preserves_each_model_call_with_discrimination_metadata(self):
+        marker = "MANDATORY_READ_SEQUENCE"
+        capture = BoundedMetadataCapture(
+            "gpt-5.6-sol", {}, instruction_marker=marker,
+        )
+        valid_tool = {"type": "function", "function": {
+            "name": "get_sunset_lesson_catalog",
+            "parameters": {"type": "object", "properties": {}},
+        }}
+        capture.observe_request(
+            attempted=True, sent=True,
+            prompts=[{"role": "system", "content": marker + " private-first"}],
+            tools=[valid_tool], tool_choice="auto",
+        )
+        capture.observe_provider_result({
+            "choices": [{"finish_reason": "stop", "message": {"content": "private answer"}}],
+        })
+        capture.observe_request(
+            attempted=True, sent=True,
+            prompts=[{"role": "user", "content": "private-second"}],
+            tools=[{"type": "function", "function": {"name": "broken", "parameters": []}}],
+            tool_choice="auto",
+        )
+        capture.observe_provider_result({
+            "status": "completed",
+            "output": [{"type": "message", "content": [
+                {"type": "refusal", "refusal": "private refusal"},
+            ]}],
+        })
+
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["schema_version"], 2)
+        self.assertEqual([call["call_index"] for call in result["calls"]], [1, 2])
+        self.assertEqual(len({call["correlation_id"] for call in result["calls"]}), 2)
+        self.assertTrue(result["calls"][0]["request"]["instruction_marker_present"])
+        self.assertFalse(result["calls"][1]["request"]["instruction_marker_present"])
+        self.assertTrue(result["calls"][0]["request"]["schemas_valid"])
+        self.assertFalse(result["calls"][1]["request"]["schemas_valid"])
+        self.assertEqual(result["calls"][0]["response"]["provider_shape"], "chat_completions")
+        self.assertEqual(result["calls"][0]["response"]["completion_category"], "text_only")
+        self.assertEqual(result["calls"][1]["response"]["provider_shape"], "openai_responses")
+        self.assertEqual(result["calls"][1]["response"]["completion_category"], "refusal")
+        serialized = json.dumps(result)
+        for forbidden in ("private-first", "private-second", "private answer", "private refusal"):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_capture_classifies_question_only_as_clarification_without_retaining_text(self):
+        secret = "PRIVATE clarification?"
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
+        capture.observe_provider_result({
+            "choices": [{"finish_reason": "stop", "message": {"content": secret}}],
+        })
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["calls"][0]["response"]["completion_category"], "clarification")
+        self.assertNotIn(secret, json.dumps(result))
+
+    def test_capture_links_executor_dispositions_to_current_provider_call(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
+        capture.observe_response(
+            status="ok", finish_reason="tool_calls",
+            provider_shape="chat_completions", completion_category="tool_calls",
+            tool_calls=[{"id": "provider-call-7", "function": {"name": "read_ok"},
+                         "arg_validation": "valid"}],
+        )
+        capture.record_disposition(
+            call_id=None, name="read_ok", disposition="dispatched",
+        )
+        result = capture.finalize(model_reached=True)
+        call = result["calls"][0]
+        disposition = call["executor"]["dispositions"][0]
+        self.assertEqual(disposition["call_index"], call["call_index"])
+        self.assertEqual(disposition["correlation_id"], call["correlation_id"])
+        self.assertEqual(disposition["provider_call_id"], "provider-call-7")
+
     def test_actual_provider_boundary_populates_bounded_request_and_response(self):
         import wolfhouse.luna_personality_isolation as isolation
 
@@ -462,6 +538,7 @@ class GroupLessonCase09Tests(unittest.TestCase):
         self.assertEqual((result["request"]["attempted"], result["request"]["sent"]), (True, True))
         self.assertEqual(result["response"], {
             "state": "observed", "status": "completed", "finish_reason": "completed",
+            "provider_shape": "openai_responses", "completion_category": "tool_calls",
             "tool_calls": [{"id": "call-stream-1", "name": "get_sunset_lesson_catalog",
                             "arg_validation": "valid"}],
         })
