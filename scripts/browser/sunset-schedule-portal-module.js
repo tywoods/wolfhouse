@@ -2063,6 +2063,11 @@ function schedulePortalRenderCreateIntentSummary(payload) {
     if (!tierLab && comps.course.tier_key) {
       tierLab = schedulePortalDurationLabel(comps.course.tier_key) || '';
     }
+    if (comps.course.duration_days != null && Number(comps.course.duration_days) > 0
+      && typeof schedulePortalFormatInclusiveDaysLabel === 'function') {
+      var courseSpanLab = schedulePortalFormatInclusiveDaysLabel(comps.course.duration_days);
+      if (courseSpanLab) tierLab = courseSpanLab;
+    }
     if (tierLab && tierLab !== String(comps.course.tier_key || '')) durationLab = tierLab;
     if (comps.course.quantity) primary.push('\u00d7' + String(comps.course.quantity));
     if (comps.course.equipment_included === true) primary.push('Equipment included — board + wetsuit (€0)');
@@ -2413,6 +2418,14 @@ function schedulePortalInclusiveDateCount(dateFrom, dateTo) {
   return (scheduleEnumerateDates(df, dt) || []).length;
 }
 
+/** Staff-facing "N Days" from inclusive span — never reuse a mismatched pricing-tier label. */
+function schedulePortalFormatInclusiveDaysLabel(days) {
+  var n = Number(days);
+  if (!Number.isFinite(n) || n < 1) return '';
+  if (n === 1) return '1 ' + portalT('schedule.drawer.dayWordCap');
+  return String(Math.round(n)) + ' ' + portalT('schedule.drawer.daysWordCap');
+}
+
 /** Exact sellable matches by projected duration_days only (no key guessing/nearest). */
 function schedulePortalMatchSellableCourseTiersByDurationDays(course, durationDays) {
   var n = Number(durationDays);
@@ -2463,12 +2476,16 @@ function schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo) {
     if (!seven) {
       return { ok: false, errorKey: 'schedule.create.courseDurationUnavailable', duration_days: days };
     }
+    // Display the actual inclusive span — Admin 7_days label ("7 days") is pricing identity only.
+    var spanLab814 = typeof schedulePortalFormatInclusiveDaysLabel === 'function'
+      ? schedulePortalFormatInclusiveDaysLabel(days)
+      : (String(days) + ' days');
     return {
       ok: true,
       tier_key: '7_days',
       duration_days: days,
       offering_id: seven.offering_id || ('surf_pack_' + id + '__7_days'),
-      tier_label: seven.label != null ? String(seven.label) : '',
+      tier_label: spanLab814 || (seven.label != null ? String(seven.label) : ''),
       pricing_basis: '7_days_prorate',
     };
   }
