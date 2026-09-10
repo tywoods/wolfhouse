@@ -1,14 +1,14 @@
 'use strict';
 
 /**
- * Finanzas Bug Finder #7 — "Próximos 30 días" forward pipeline.
+ * Finanzas — "Next 30 days" tab-invariant rolling window.
  *
- * Month/Year/Custom must not cap Next 30 at period end or return €0 on past
- * periods while Booked / Entregado sin pagar move. Forward window is
- * wall-clock today…today+29 except wholly-future periods (PR #628) and Day
- * drill-down (selected day only).
+ * Bug Finder 2026-09-07 P2: Day tab showed selected-day dues (€3,003) while
+ * Month/Year/custom showed the rolling next-30 figure (€48,098).
  *
- * Stay off Pendiente/outstanding math (parallel fix) and Inbox/email.
+ * Contract: pipeline.next_30_days_cents is wall-clock today…today+29 in the
+ * location TZ on every Finance tab (Day / Month / Year / custom). It must not
+ * inherit the selected period range.
  */
 
 const path = require('path');
@@ -29,6 +29,9 @@ function eq(label, got, want) { ok(label, got === want, `got ${JSON.stringify(go
 const NOW = new Date('2026-08-15T10:00:00Z');
 const TZ = 'Europe/Madrid';
 const TODAY = '2026-08-15';
+const ROLLING = { start: '2026-08-15', end: '2026-09-13' };
+// Aug20 + Sep5 inside rolling window; Jul / Aug1 / Oct outside.
+const ROLLING_CENTS = 20000 + 30000;
 
 const bookings = [
   { booking_id: 'JUL', total_amount_cents: 10000 },
@@ -56,76 +59,93 @@ function pipe(view) {
   }).redesign.pipeline;
 }
 
-console.log('\n[1] next30RangeForPeriod helper');
+console.log('\n[1] next30RangeForPeriod — always today…today+29');
+const ROLLING_JSON = JSON.stringify(ROLLING);
 eq(
-  'past month → forward from today (not null)',
+  'past month → rolling from today',
   JSON.stringify(next30RangeForPeriod({ start: '2026-07-01', end: '2026-07-31' }, TODAY, 'month')),
-  JSON.stringify({ start: '2026-08-15', end: '2026-09-13' }),
+  ROLLING_JSON,
 );
 eq(
-  'current month spans into next month',
+  'current month → rolling from today',
   JSON.stringify(next30RangeForPeriod({ start: '2026-08-01', end: '2026-08-31' }, TODAY, 'month')),
-  JSON.stringify({ start: '2026-08-15', end: '2026-09-13' }),
+  ROLLING_JSON,
 );
 eq(
-  'future month from period start',
+  'future month → still rolling from today (not period start)',
   JSON.stringify(next30RangeForPeriod({ start: '2026-10-01', end: '2026-10-31' }, TODAY, 'month')),
-  JSON.stringify({ start: '2026-10-01', end: '2026-10-30' }),
+  ROLLING_JSON,
 );
 eq(
-  'future day is itself',
+  'future day → still rolling from today (not day drill-down)',
   JSON.stringify(next30RangeForPeriod({ start: '2026-10-01', end: '2026-10-01' }, TODAY, 'day')),
-  JSON.stringify({ start: '2026-10-01', end: '2026-10-01' }),
+  ROLLING_JSON,
 );
 eq(
-  'year from today +29 (not capped at Dec 31)',
+  'year → rolling from today (not clipped to Dec 31)',
   JSON.stringify(next30RangeForPeriod({ start: '2026-01-01', end: '2026-12-31' }, TODAY, 'year')),
-  JSON.stringify({ start: '2026-08-15', end: '2026-09-13' }),
-);
-
-console.log('\n[2] pipeline.next_30_days_cents — forward pipeline, not period-stuck €0');
-eq(
-  'July past month Next 30 includes forward Aug/Sep pipeline',
-  pipe({ granularity: 'month', anchor: '2026-07-15' }).next_30_days_cents,
-  20000 + 30000,
+  ROLLING_JSON,
 );
 eq(
-  'August month includes Aug20 + Sep (cross-month, not capped at Aug 31)',
-  pipe({ granularity: 'month', anchor: '2026-08-15' }).next_30_days_cents,
-  20000 + 30000,
+  'custom future → rolling from today',
+  JSON.stringify(next30RangeForPeriod({ start: '2026-10-01', end: '2026-10-15' }, TODAY, 'custom')),
+  ROLLING_JSON,
 );
-eq('September future month Next 30 is Sep dues', pipe({ granularity: 'month', anchor: '2026-09-15' }).next_30_days_cents, 30000);
 eq(
-  'October future month Next 30 is Oct dues (not stuck at wall-clock window €0)',
-  pipe({ granularity: 'month', anchor: '2026-10-15' }).next_30_days_cents,
-  40000,
+  'selected past day → rolling from today',
+  JSON.stringify(next30RangeForPeriod({ start: '2026-08-01', end: '2026-08-01' }, TODAY, 'day')),
+  ROLLING_JSON,
 );
 
-const dayOct = pipe({ granularity: 'day', anchor: '2026-10-01' });
-eq('October Day Booked', dayOct.booked_cents, 40000);
-eq('October Day Next 30 equals that day (day drill-down)', dayOct.next_30_days_cents, 40000);
-
-const dayAug = pipe({ granularity: 'day', anchor: '2026-08-20' });
-eq('August Day Next 30 is that day only', dayAug.next_30_days_cents, 20000);
-
+console.log('\n[2] pipeline.next_30_days_cents — identical across tabs');
+const dayToday = pipe({ granularity: 'day', anchor: '2026-08-15' });
+const dayFuture = pipe({ granularity: 'day', anchor: '2026-10-01' });
+const dayPast = pipe({ granularity: 'day', anchor: '2026-08-01' });
+const month = pipe({ granularity: 'month', anchor: '2026-08-15' });
+const monthPast = pipe({ granularity: 'month', anchor: '2026-07-15' });
+const monthFuture = pipe({ granularity: 'month', anchor: '2026-10-15' });
 const year = pipe({ granularity: 'year', anchor: '2026-08-15' });
-eq('Year Next 30 is Aug15–Sep13 slice (Aug20+Sep), not whole year', year.next_30_days_cents, 20000 + 30000);
+const custom = pipe({ granularity: 'custom', start: '2026-10-01', end: '2026-10-15' });
+
+eq('Day (today) Next 30 = rolling Aug20+Sep', dayToday.next_30_days_cents, ROLLING_CENTS);
+eq('Day (future Oct 1) Next 30 = same rolling (not Oct-only)', dayFuture.next_30_days_cents, ROLLING_CENTS);
+eq('Day (past Aug 1) Next 30 = same rolling', dayPast.next_30_days_cents, ROLLING_CENTS);
+eq('Month Next 30 = rolling', month.next_30_days_cents, ROLLING_CENTS);
+eq('Past month Next 30 = rolling (not €0)', monthPast.next_30_days_cents, ROLLING_CENTS);
+eq('Future month Next 30 = rolling (not Oct-only)', monthFuture.next_30_days_cents, ROLLING_CENTS);
+eq('Year Next 30 = rolling slice (not whole year)', year.next_30_days_cents, ROLLING_CENTS);
+eq('Custom future Next 30 = rolling', custom.next_30_days_cents, ROLLING_CENTS);
+
 ok('Year Next 30 < Year Booked', year.next_30_days_cents < year.booked_cents);
 
-const custom = pipe({ granularity: 'custom', start: '2026-10-01', end: '2026-10-15' });
-eq('Custom future range Next 30 includes Oct', custom.next_30_days_cents, 40000);
-
+const tabValues = [
+  dayToday.next_30_days_cents,
+  dayFuture.next_30_days_cents,
+  dayPast.next_30_days_cents,
+  month.next_30_days_cents,
+  monthPast.next_30_days_cents,
+  monthFuture.next_30_days_cents,
+  year.next_30_days_cents,
+  custom.next_30_days_cents,
+];
 ok(
-  'Month Jul/Aug/Sep/Oct Next 30 values are not all identical',
-  new Set([
-    pipe({ granularity: 'month', anchor: '2026-07-15' }).next_30_days_cents,
-    pipe({ granularity: 'month', anchor: '2026-08-15' }).next_30_days_cents,
-    pipe({ granularity: 'month', anchor: '2026-09-15' }).next_30_days_cents,
-    pipe({ granularity: 'month', anchor: '2026-10-15' }).next_30_days_cents,
-  ]).size >= 3,
+  'Day/Month/Year/custom Next 30 all identical',
+  new Set(tabValues).size === 1 && tabValues[0] === ROLLING_CENTS,
+  `values=${JSON.stringify(tabValues)}`,
 );
 
-console.log('\n[3] Bug Finder #7 repro — delivered unpaid in-period, Next 30 not stuck at €0');
+// Regression: Day must not collapse to selected-day dues only (BF P2).
+ok(
+  'Day Next 30 includes Sep (not day-clipped €20k)',
+  dayToday.next_30_days_cents > 20000,
+);
+ok(
+  'Day booked can differ from Next 30 (period vs rolling)',
+  dayToday.booked_cents !== dayToday.next_30_days_cents
+    || dayFuture.booked_cents !== dayFuture.next_30_days_cents,
+);
+
+console.log('\n[3] next_30_range exposed + late-month still forward');
 const lateMonth = computeSunsetFinanceSummary({
   now: new Date('2026-08-26T10:00:00Z'),
   timeZone: TZ,
@@ -141,7 +161,23 @@ ok(
 );
 ok(
   'pipeline exposes next_30_range for UI/debug',
-  lateMonth.pipeline.next_30_range && lateMonth.pipeline.next_30_range.start === '2026-08-26',
+  lateMonth.pipeline.next_30_range
+    && lateMonth.pipeline.next_30_range.start === '2026-08-26'
+    && lateMonth.pipeline.next_30_range.end === '2026-09-24',
+);
+
+const dayLate = computeSunsetFinanceSummary({
+  now: new Date('2026-08-26T10:00:00Z'),
+  timeZone: TZ,
+  view: { granularity: 'day', anchor: '2026-08-10' },
+  bookings,
+  bsr,
+  payments: [],
+}).redesign;
+eq(
+  'late Day tab Next 30 matches late Month tab',
+  dayLate.pipeline.next_30_days_cents,
+  lateMonth.pipeline.next_30_days_cents,
 );
 
 const pastDelivered = computeSunsetFinanceSummary({
