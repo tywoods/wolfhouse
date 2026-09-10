@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "owner": "wolfhouse.luna_group_lesson_live_eval",
+  "cases": [
+    {
+      "id": "sunset-group-lesson-09-es",
+      "source_fixture": "sunset-golden-09-rapid-group-lesson-quote-whatsapp",
+      "tenant_id": "sunset",
+      "location_id": "sunset-somo",
+      "model": "gpt-5.6-sol",
+      "language": "es",
+      "guest_text": "Somos dos personas\nQueremos clases grupales\nEl lunes, martes, miércoles y jueves que vienen\nPor la mañana",
+      "required_reads": [
+        "get_sunset_lesson_catalog",
+        "get_sunset_lesson_availability",
+        "get_sunset_offering_quote"
+      ],
+      "response_contract": "Use only authoritative Sunset catalog, availability, and offering-quote results. If any authoritative read needed for a grounded answer is unavailable, reply explicitly BLOCKED; never invent availability, course, price, inclusion, booking, hold, or payment success. Do not send or write anything."
+    }
+  ]
+}

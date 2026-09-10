@@ -180,6 +180,17 @@ class IsolatedTurnCapture:
     reply_text: Optional[str] = None
     tools_denied: List[str] = field(default_factory=list)
     tools_invoked: int = 0
+    # Empty by default: the personality route remains no-tools. A separate
+    # closed corpus may install exact read-only names/Staff paths per turn.
+    read_only_tool_allowlist: frozenset[str] = field(default_factory=frozenset)
+    read_only_staff_paths: frozenset[str] = field(default_factory=frozenset)
+    # Authorization/preflight observations are not execution evidence.
+    read_tools_invoked: List[str] = field(default_factory=list)
+    read_staff_paths_invoked: List[str] = field(default_factory=list)
+    # Appended only after the real dispatcher / Staff transport returns
+    # without an error result.
+    read_tools_completed: List[str] = field(default_factory=list)
+    read_staff_paths_completed: List[str] = field(default_factory=list)
     sends_attempted: int = 0
     sends_completed: int = 0
     journal_writes_denied: int = 0
@@ -458,6 +469,14 @@ def deny_tool_if_isolated(tool_name: str, args: Optional[Dict[str, Any]] = None,
     if cap is None:
         return None
     name = str(tool_name or "unknown")
+    if name in cap.read_only_tool_allowlist:
+        supplied = args if isinstance(args, dict) else {}
+        if (supplied.get("tenant_id") not in (None, "sunset")
+                or supplied.get("location_id") != "sunset-somo"):
+            cap.tools_denied.append(name)
+            return ISOLATION_DENY_MESSAGE
+        cap.read_tools_invoked.append(name)
+        return None
     cap.tools_denied.append(name)
     return ISOLATION_DENY_MESSAGE
 
@@ -466,7 +485,14 @@ def deny_post_bot_if_isolated(path: str, payload: Optional[Dict[str, Any]] = Non
     cap = _ISOLATED.get()
     if cap is None:
         return None
-    cap.tools_denied.append(str(path or "staff_bot"))
+    name = str(path or "staff_bot")
+    supplied = payload if isinstance(payload, dict) else {}
+    if (name in cap.read_only_staff_paths
+            and supplied.get("tenant_id") in (None, "sunset")
+            and supplied.get("location_id") == "sunset-somo"):
+        cap.read_staff_paths_invoked.append(name)
+        return None
+    cap.tools_denied.append(name)
     return {
         "success": False,
         "simulate_write_blocked": True,
@@ -474,6 +500,24 @@ def deny_post_bot_if_isolated(path: str, payload: Optional[Dict[str, Any]] = Non
         "error": ISOLATION_DENY_MESSAGE,
         "path": path,
     }
+
+
+def _isolated_result_succeeded(result: Any) -> bool:
+    """Accept only an explicit positive tool/transport result; ambiguity is failure."""
+    parsed = result
+    if isinstance(result, str):
+        try:
+            parsed = json.loads(result)
+        except Exception:
+            return False
+    if not isinstance(parsed, dict):
+        return False
+    if parsed.get("error") or parsed.get("denied") or parsed.get("blocked"):
+        return False
+    status = str(parsed.get("status") or "").strip().lower()
+    if status in {"blocked", "denied", "error", "failed", "failure"}:
+        return False
+    return parsed.get("success") is True or parsed.get("ok") is True
 
 
 def capture_send_if_isolated(content: Any) -> Optional[Dict[str, Any]]:
@@ -651,7 +695,12 @@ def _wrap_tool_dispatcher(handle_mod: Any = None) -> bool:
         blocked = deny_tool_if_isolated(str(function_name), function_args if isinstance(function_args, dict) else {})
         if blocked:
             return json.dumps({"error": blocked}, ensure_ascii=False)
-        return orig(function_name, function_args, *rest, **kwargs)
+        result = orig(function_name, function_args, *rest, **kwargs)
+        cap = _ISOLATED.get()
+        if (cap is not None and str(function_name) in cap.read_only_tool_allowlist
+                and _isolated_result_succeeded(result)):
+            cap.read_tools_completed.append(str(function_name))
+        return result
 
     _mark(_wrapped)
     _save_orig(mod, "handle_function_call", orig)
@@ -954,7 +1003,12 @@ def _wrap_post_bot(explicit: Sequence[Any] = ()) -> bool:
                 denied = deny_post_bot_if_isolated(path, payload)
                 if denied is not None:
                     return denied
-                return original(path, payload, *rest, **kwargs)
+                result = original(path, payload, *rest, **kwargs)
+                cap = _ISOLATED.get()
+                if (cap is not None and str(path) in cap.read_only_staff_paths
+                        and _isolated_result_succeeded(result)):
+                    cap.read_staff_paths_completed.append(str(path))
+                return result
 
             return _isolated_post_bot
 
