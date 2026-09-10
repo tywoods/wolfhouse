@@ -31,6 +31,9 @@ from wolfhouse.luna_personality_live_eval import (
 from wolfhouse.staging_guard import assert_staging_environment
 
 GROUP_LESSON_EVAL_PATH = "/whatsapp/v1/internal/luna-group-lesson-live-eval"
+GROUP_LESSON_DIAGNOSTIC_PATH = "/whatsapp/v1/internal/luna-group-lesson-named-read-diagnostic"
+DIAGNOSTIC_CONTROL_NAME = "named_catalog_read_once"
+DIAGNOSTIC_TOOL_NAME = "get_sunset_lesson_catalog"
 CORPUS_FILENAME = "luna-group-lesson-live-corpus.json"
 CORPUS_SHA256 = "0f48e31cb007f90e3596f7d0b973e6962c562d6f46b49243df40ca109cd53cf4"
 INSTALLED_CORPUS_PATH = Path("/etc/hermes-staging/fixtures") / CORPUS_FILENAME
@@ -143,10 +146,13 @@ class BoundedMetadataCapture:
         if isinstance(tool_choice, str):
             choice_metadata = tool_choice[:256]
         elif isinstance(tool_choice, dict):
-            choice_type = next(iter(tool_choice), "unknown")
-            selected = tool_choice.get(choice_type)
-            selected_name = selected.get("name") if isinstance(selected, dict) else None
-            choice_metadata = str(choice_type)[:128] + ((":" + str(selected_name)[:128]) if selected_name else "")
+            if tool_choice.get("type") == "function" and isinstance(tool_choice.get("name"), str):
+                choice_metadata = "function:" + tool_choice["name"][:128]
+            else:
+                choice_type = next(iter(tool_choice), "unknown")
+                selected = tool_choice.get(choice_type)
+                selected_name = selected.get("name") if isinstance(selected, dict) else None
+                choice_metadata = str(choice_type)[:128] + ((":" + str(selected_name)[:128]) if selected_name else "")
         new_call = (self._current_call is None
                     or self._current_call["response"].get("state") != "not-reached"
                     or bool(self._current_call["request"].get("sent")))
@@ -429,7 +435,11 @@ def _abort_counters(cap: IsolatedTurnCapture, *, settled: bool,
     return result
 
 
-async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, require_live_seams: bool = True):
+async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None,
+                                         require_live_seams: bool = True,
+                                         diagnostic_control: Optional[str] = None):
+    if diagnostic_control not in (None, DIAGNOSTIC_CONTROL_NAME):
+        raise IsolationAbort("diagnostic_control_invalid")
     case = _case(str(case_id or "").strip())
     assert_staging_environment()
     identity = assert_sunset_serving_identity(require_home=require_live_seams, require_staff_origin=True)
@@ -444,6 +454,9 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, requ
     cap = IsolatedTurnCapture(case_id=case["id"], personality_id="sunny", tenant_id="sunset")
     cap.read_only_tool_allowlist = READ_ONLY_TOOL_ALLOWLIST
     cap.read_only_staff_paths = READ_ONLY_STAFF_PATHS
+    if diagnostic_control == DIAGNOSTIC_CONTROL_NAME:
+        cap.diagnostic_tool_choice = DIAGNOSTIC_TOOL_NAME
+        cap.diagnostic_tool_choice_remaining = 1
     cap.evidence_kind = "live_gateway" if invoke_turn is None else "test_double"
     instrumentation = BoundedMetadataCapture(
         model=declared or None,
@@ -568,7 +581,35 @@ def register_group_lesson_eval_route(app) -> bool:
             return web.json_response({"ok": False, "status": "BLOCKED", "error": type(exc).__name__}, status=500)
         return web.json_response(result, status=200)
 
+    async def _diagnostic_handle(request):
+        denied = _eval_unauthorized(request)
+        if denied is not None:
+            return denied
+        from aiohttp import web
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+        expected = {"case_id", "diagnostic_control"}
+        if (not isinstance(body, dict) or set(body) != expected
+                or not isinstance(body.get("case_id"), str)
+                or body.get("diagnostic_control") != DIAGNOSTIC_CONTROL_NAME):
+            return web.json_response({"ok": False, "error": "caller_override_rejected"}, status=400)
+        try:
+            canonical = importlib.import_module("wolfhouse.luna_group_lesson_live_eval")
+            result = await canonical.run_isolated_group_lesson_eval(
+                case_id=str(body.get("case_id") or ""),
+                diagnostic_control=DIAGNOSTIC_CONTROL_NAME,
+            )
+        except IsolationAbort as exc:
+            return web.json_response({"ok": False, "status": "BLOCKED", "error": exc.reason,
+                                      "counters": exc.counters}, status=503)
+        except Exception as exc:
+            return web.json_response({"ok": False, "status": "BLOCKED", "error": type(exc).__name__}, status=500)
+        return web.json_response(result, status=200)
+
     app.router.add_get(GROUP_LESSON_EVAL_PATH, _ready)
     app.router.add_post(GROUP_LESSON_EVAL_PATH, _handle)
+    app.router.add_post(GROUP_LESSON_DIAGNOSTIC_PATH, _diagnostic_handle)
     setattr(app, "_luna_group_lesson_eval_registered", True)
     return True
