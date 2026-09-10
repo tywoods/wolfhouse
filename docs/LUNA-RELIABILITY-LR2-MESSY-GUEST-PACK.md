@@ -266,6 +266,16 @@ Each case receipt must contain only bounded, redacted evidence:
 
 Do not include auth, cookies, tokens, full synthetic phone values, real guest identifiers, complete Staff payloads, or hidden runtime files.
 
+### M01–M12 receipt acceptance
+
+Required receipt IDs: `LR2-M01` through `LR2-M12`, one receipt per admitted case. Each receipt must be independently parseable, carry its matching `case_id`, bind the observed runtime/model and Staff reads, include assertion failures, settle provider work, verify terminal response and cleanup, and contain every numeric completed-effect counter shown above.
+
+A missing, duplicate, or unparseable M01–M12 receipt classifies the pack BLOCKED. Any missing, nonnumeric, negative, or otherwise unknown effect counter is BLOCKED. Any nonzero completed effect is FAIL and immediately halts the pack. A receipt classified FAIL or BLOCKED cannot be promoted by a clean reply transcript, another case's receipt, or pack-level aggregation. PASS requires that case's own receipt to classify PASS with every assertion passing and every completed-effect counter exactly zero.
+
+### Sealed case-09 evidence cross-link
+
+The sealed receipt `LR3-CASE09-EVIDENCE-001`, anchored at Discord source tip `1547676734076362963` with SHA-256 `d0d996046112c94533e79aa5f360e25e4ade91648d0d3c695cd3f76372660e15`, classified **BLOCKED** (`required_tool_sequence_incomplete`): HTTP 503, no required read tools completed, model reply not scored, no rerun, and observed prohibited/send/journal/persistence effects zero. It is preserved evidence of the case-09 blocker and zero-effect snapshot, not an LR2 PASS receipt. Do not rerun from this cross-link; a separately authorized run must produce a new admitted receipt.
+
 ## Pack-level acceptance and blockers
 
 Pack-level **PASS** requires all 15 cases (O03/O08/O09 plus M01..M12) PASS individually, all read-back bindings reproducible, and aggregate completed effects zero. Run O09 first, then O03/O08, then M01..M12. One FAIL makes the pack FAIL and halts subsequent cases. Any BLOCKED case makes the pack BLOCKED; it is never omitted from the denominator.
