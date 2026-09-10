@@ -95,6 +95,53 @@ function nextFourWeekdayMornings() {
   return dates;
 }
 
+function assertActiveFixture(fixture, fixtureNo) {
+  assert(`fixture ${fixtureNo} active status`, fixture.status === 'active');
+  assert(`fixture ${fixtureNo} active=true`, fixture.active === true);
+  assert(`fixture ${fixtureNo} writes suppressed`, fixture.allow_writes !== true && fixture.whatsapp_suppressed === true);
+}
+
+function assertDatedGroupLessonContract(fixture, fixtureNo, expectedQty, expectedDateCount) {
+  assertActiveFixture(fixture, fixtureNo);
+  const expect = fixture.expectations || {};
+  const mustCall = expect.must_call_tools || [];
+  const mustNotCall = expect.must_not_call_tools || [];
+  assert(`fixture ${fixtureNo} requires availability read`, mustCall.includes('get_sunset_lesson_availability'));
+  assert(`fixture ${fixtureNo} retired group quote not used`, mustNotCall.includes('get_sunset_group_lesson_quote'));
+  assert(`fixture ${fixtureNo} quote before name`, expect.must_not_ask_booking_name_before_quote === true);
+  assert(`fixture ${fixtureNo} quote_args location`, expect.quote_args && expect.quote_args.location_id === 'sunset-somo');
+  assert(`fixture ${fixtureNo} quote_args quantity`, expect.quote_args && Number(expect.quote_args.quantity) === expectedQty);
+  assert(`fixture ${fixtureNo} quote_args date count`, expect.quote_args && Number(expect.quote_args.service_dates_count) === expectedDateCount);
+
+  const createComponents = expect.after_name_and_confirm_components || {};
+  assert(
+    `fixture ${fixtureNo} create uses components.lesson`,
+    createComponents.lesson
+      && Number(createComponents.lesson.quantity) === expectedQty
+      && !createComponents.course
+      && !createComponents.group_lesson,
+    JSON.stringify(createComponents),
+  );
+  for (const key of expect.forbidden_component_keys || []) {
+    assert(`fixture ${fixtureNo} forbids ${key}`, !Object.hasOwn(createComponents, key));
+  }
+
+  for (const tool of expect.must_not_call_before_name || ['create_sunset_booking', 'create_sunset_payment_link']) {
+    const blocked = guardedToolCall(tool, fixture, () => ({ ok: true, success: true, leaked: true }));
+    assert(`fixture ${fixtureNo} ${tool} blocked by central guard`, blocked && blocked.blocked === true && blocked.reason === BLOCK_REASON);
+  }
+}
+
+function runFixture03(fixture) {
+  console.log('\n[fixture-03] ordinary EN adult group lesson (guarded review-only)');
+  assertDatedGroupLessonContract(fixture, '03', 2, 1);
+}
+
+function runFixture08(fixture) {
+  console.log('\n[fixture-08] ordinary ES Mon–Thu morning group lessons (guarded review-only)');
+  assertDatedGroupLessonContract(fixture, '08', 1, 4);
+}
+
 function runFixture09(fixture) {
   console.log('\n[fixture-09] rapid group lesson quote (guarded review-only)');
 
@@ -314,6 +361,12 @@ function runStructureListed(manifest, onlyFixture) {
     }
     assert(`${name} valid JSON`, !!data);
     assert(`${name} has identity`, !!(data.id || data.name));
+    if (name.includes('sunset-golden-03')) {
+      runFixture03(data);
+    }
+    if (name.includes('sunset-golden-08')) {
+      runFixture08(data);
+    }
     if (name.includes('sunset-golden-09')) {
       runFixture09(data);
     }

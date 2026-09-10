@@ -836,6 +836,7 @@
     "verify:sunset-full-day-equipment-addon": "node scripts/verify-sunset-full-day-equipment-addon.js",
     "verify:sunset-catalog-response-preview": "node scripts/verify-sunset-catalog-response-preview.js",
     "verify:sunset-golden": "node scripts/verify-sunset-golden.js",
+    "verify:luna-reliability-lr2-sunset-golden-fixtures": "node scripts/verify-luna-reliability-lr2-sunset-golden-fixtures.js",
     "verify:sunset-portal-slice1-seed": "node scripts/verify-sunset-portal-slice1-seed.js",
     "verify:sunset-portal-slice1": "node scripts/verify-sunset-portal-slice1.js",
     "verify:sunset-portal-v1": "node scripts/verify-sunset-portal-v1.js",

@@ -1,12 +1,15 @@
 {
-  "_schema": "sunset-golden-draft-v1",
+  "_schema": "sunset-golden-active-v1",
   "id": "sunset-golden-03-adult-group-lesson-two-whatsapp",
-  "status": "draft",
-  "active": false,
+  "status": "active",
+  "active": true,
   "tenant_id": "sunset",
   "channel": "whatsapp",
   "label": "Two adults want group lesson tomorrow — capacity-limited, ask time or offer seed slots, no confirm without Staff API",
-  "spec_refs": ["docs/sunset/LUNA-SUNSET-OVERVIEW.md §3.2", "docs/sunset/SUNSET-GUEST-JOURNEY-DRAFT.md §2"],
+  "spec_refs": [
+    "docs/sunset/LUNA-SUNSET-OVERVIEW.md §3.2",
+    "docs/sunset/SUNSET-GUEST-JOURNEY-DRAFT.md §2"
+  ],
   "config_refs": [
     "catalog.lessons.offerings.group_lesson_adult",
     "catalog.lessons.scheduling.common_slot_times",
@@ -24,11 +27,17 @@
           "inventory_model": "capacity_limited",
           "participant_count": 2,
           "asks_preferred_time_or_offers_seed_slots": true,
-          "seed_slot_times": ["11:00-13:00", "16:00-18:00"],
+          "seed_slot_times": [
+            "11:00-13:00",
+            "16:00-18:00"
+          ],
           "requires_staff_api_for_availability": true,
           "must_not_confirm_without_tool_result": true,
           "asks_one_next_question": true,
-          "next_question_about": ["preferred_time", "slot_choice"],
+          "next_question_about": [
+            "preferred_time",
+            "slot_choice"
+          ],
           "must_not": [
             "payment_link",
             "seat_confirmed",
@@ -36,7 +45,13 @@
             "accommodation_style_manual_hotel_confirm"
           ]
         },
-        "reply_not_contains": ["http", "stripe", "confirmed", "booked", "reserved"],
+        "reply_not_contains": [
+          "http",
+          "stripe",
+          "confirmed",
+          "booked",
+          "reserved"
+        ],
         "expected_no_payment_link": true,
         "expected_no_handoff": true
       }
@@ -46,5 +61,38 @@
     "no_payment_link": true,
     "no_lesson_seat_confirmed_without_capacity_check": true,
     "tenant_isolation": "sunset_only"
-  }
+  },
+  "expectations": {
+    "must_call_tools": [
+      "get_sunset_lesson_availability"
+    ],
+    "must_not_call_tools": [
+      "get_sunset_group_lesson_quote"
+    ],
+    "quote_args": {
+      "location_id": "sunset-somo",
+      "quantity": 2,
+      "service_dates_count": 1
+    },
+    "must_not_ask_booking_name_before_quote": true,
+    "must_not_call_before_name": [
+      "create_sunset_booking",
+      "create_sunset_payment_link"
+    ],
+    "after_name_and_confirm_components": {
+      "lesson": {
+        "quantity": 2
+      }
+    },
+    "forbidden_component_keys": [
+      "group_lesson",
+      "group_class",
+      "group_class_lesson",
+      "class"
+    ],
+    "create_must_be_blocked_when_allow_writes_false": true
+  },
+  "allow_writes": false,
+  "whatsapp_suppressed": true,
+  "location_id": "sunset-somo"
 }
