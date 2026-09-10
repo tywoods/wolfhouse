@@ -20,9 +20,13 @@ function check(name, condition) {
 }
 
 check('pack is Sunset Somo EN/ES group-lesson scoped',
-  pack.includes('EN/ES ordinary group lessons')
+  pack.includes('ordinary fixtures 03/08/09 plus the 12-case EN/ES messy group-lesson pack')
   && pack.includes('tenant `sunset`')
   && pack.includes('location `sunset-somo`'));
+
+check('execution requires Healthy exact runtime and Chief LR2-start',
+  pack.includes('`hermes-sunset-luna-http` revision is **Healthy**')
+  && pack.includes('Chief must issue an explicit **LR2-start** signal'));
 
 for (const boundary of [
   'no live WhatsApp turns',
@@ -61,10 +65,16 @@ check('exactly 12 uniquely numbered closed cases',
   && new Set(caseIds).size === 12
   && caseIds.join(',') === '01,02,03,04,05,06,07,08,09,10,11,12');
 
+const ordinaryIds = [...pack.matchAll(/^\*\*LR2-O(03|08|09)\b/gm)].map((m) => m[1]);
+check('ordinary 03/08/09 cases are exact and unique',
+  ordinaryIds.length === 3
+  && new Set(ordinaryIds).size === 3
+  && ordinaryIds.join(',') === '03,08,09');
+
 check('every case has explicit PASS assertions',
-  (pack.match(/^PASS assertions:/gm) || []).length === 12);
+  (pack.match(/^PASS assertions:/gm) || []).length === 15);
 check('every case has explicit FAIL criteria',
-  (pack.match(/^FAIL if /gm) || []).length === 12);
+  (pack.match(/^FAIL if /gm) || []).length === 15);
 check('global PASS FAIL BLOCKED classifications are explicit',
   pack.includes('### PASS — every item required')
   && pack.includes('### FAIL')
@@ -78,13 +88,14 @@ check('per-case sanitized receipt is defined',
   && pack.includes('"booking_write":0')
   && pack.includes('"whatsapp_send":0'));
 check('pack-level denominator and halt rules are defined',
-  pack.includes('all 12 cases PASS individually')
+  pack.includes('all 15 cases (O03/O08/O09 plus M01..M12) PASS individually')
+  && pack.includes('Run O09 first, then O03/O08, then M01..M12')
   && pack.includes('One FAIL makes the pack FAIL')
   && pack.includes('Any BLOCKED case makes the pack BLOCKED'));
 check('execution blockers and next gate are explicit',
   pack.includes('## Pack-level acceptance and blockers')
   && pack.includes('Current blockers to execution')
-  && pack.includes('Next gate: LR2.1 corpus seam'));
+  && pack.includes('Next gate: corpus PR reviewed + Healthy hermes-sunset-luna-http + Chief LR2-start'));
 
-console.log(`\nLR2.2 messy-guest pack: ${passed} passed, ${failed} failed`);
+console.log(`\nLR2.1/LR2.2 Seadog corpus QA contract: ${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

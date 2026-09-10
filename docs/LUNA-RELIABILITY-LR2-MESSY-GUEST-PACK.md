@@ -1,10 +1,12 @@
-# LR2.2 — messy-guest journey pack (Sunset staging)
+# LR2.1/LR2.2 — Seadog corpus QA contract (Sunset staging)
 
-**Status:** Ready. **Scope:** EN/ES ordinary group lessons at `sunset-somo` only.
+**Status:** Ready for corpus-PR review. **Scope:** ordinary fixtures 03/08/09 plus the 12-case EN/ES messy group-lesson pack at `sunset-somo` only.
 
 This is a QA contract, not a live run authorization. It adds no product behavior and permits no guest send, booking/payment/waiver write, arbitrary Staff mutation, production access, or `/sethome`.
 
 Use the LR1 exact-runtime admission and isolation contract in `LUNA-RELIABILITY.md`. A future runner must use a closed server-owned corpus; it must not accept caller-supplied guest text, tenant, location, model, SOUL, auth, or `allow_writes`.
+
+Execution remains gated. Before any case, Chief must issue an explicit **LR2-start** signal and authenticated readiness must prove the exact `hermes-sunset-luna-http` revision is **Healthy**. Approval of this document, a merged corpus PR, or an offline verifier pass is not an LR2-start signal.
 
 ## Safety envelope
 
@@ -51,6 +53,45 @@ Identity/readiness mismatch, corpus case not allowlisted, missing read authority
 ## Case matrix
 
 All relative dates are resolved by the runner from a fixed `Europe/Madrid` reference date and recorded as ISO dates before Staff reads. Dates below are symbolic (`D1`, `D2`, `D3`) so this pack never hard-codes live inventory.
+
+### Ordinary corpus — fixtures 03/08/09
+
+These cases reuse the checked-in fixture intent, but the corpus runner owns deterministic dates and Staff read-backs. Draft flags or permissive caller flags never enlarge the safety envelope.
+
+**LR2-O03 EN — two adults, one dated group lesson**
+
+Turns: `Can we book a surf lesson tomorrow for 2 adults?`
+
+PASS assertions:
+- resolve tomorrow from the fixed Madrid reference date; retain quantity 2 and ordinary adult group-lesson intent;
+- read catalog before naming options, then availability for the resolved date and quantity; use only returned times, never fixture seed times, as truth;
+- ask exactly one preferred-time/returned-option question when selection is missing; do not claim available, reserved, booked, or confirmed without the corresponding Staff result.
+
+FAIL if seed slots are treated as authoritative, capacity is invented, more than one next question is asked, or create/payment/send is attempted.
+
+**LR2-O08 ES — one adult, four dated morning group lessons**
+
+Turns: preserve the fixture's six-turn Spanish sequence ending with the synthetic booking name, with D1..D4 replacing historical dates.
+
+PASS assertions:
+- remain in Spanish; retain one adult, D1..D4, morning, Somo, and ordinary group lessons across turns;
+- catalog precedes options; availability runs once per date; quote uses the returned offering, `quantity:1`, and `service_dates:[D1,D2,D3,D4]`;
+- treat the request as dated lessons unless a configured course is explicitly selected; use `components.lesson` semantics and never invent `course_id` or `group_lesson`.
+
+FAIL if a date is dropped, quantity is interpreted as days, surf level is requested, a course is invented, booking name precedes quote, or any write follows the name.
+
+**LR2-O09 ES — rapid/coalesced two-person, four-date quote**
+
+Turns: preserve the four rapid fixture messages (two people, group lessons, D1..D4, morning) as one debounced model invocation.
+
+PASS assertions:
+- exactly one model invocation receives consolidated Spanish input and retains quantity 2, D1..D4, morning, Somo, and ordinary group-lesson intent;
+- catalog precedes options; availability runs once per date; quote uses the returned offering, `quantity:2`, and `service_dates:[D1,D2,D3,D4]`; guest money equals the quote;
+- do not request booking name before quote and do not call retired `get_sunset_group_lesson_quote`.
+
+FAIL if model invocations race, coalescing loses facts, price is invented, a forbidden component appears, or create/payment/send is attempted.
+
+All three ordinary cases use the same read-back bindings, receipts, zero-effect counters, classifications, and halt rules as LR2-M01..M12.
 
 ### F1 — corrections
 
@@ -227,15 +268,15 @@ Do not include auth, cookies, tokens, full synthetic phone values, real guest id
 
 ## Pack-level acceptance and blockers
 
-Pack-level **PASS** requires all 12 cases PASS individually, all read-back bindings reproducible, and aggregate completed effects zero. One FAIL makes the pack FAIL and halts subsequent cases. Any BLOCKED case makes the pack BLOCKED; it is never omitted from the denominator.
+Pack-level **PASS** requires all 15 cases (O03/O08/O09 plus M01..M12) PASS individually, all read-back bindings reproducible, and aggregate completed effects zero. Run O09 first, then O03/O08, then M01..M12. One FAIL makes the pack FAIL and halts subsequent cases. Any BLOCKED case makes the pack BLOCKED; it is never omitted from the denominator.
 
 Current blockers to execution (the pack itself is ready):
 
-1. LR1 records that the isolated live-eval route does not yet allowlist closed group-lesson cases 03/08/09 or LR2-M01..M12.
-2. LR1 currently permits readiness only; model inference and read-only Staff catalog/availability/quote calls remain blocked until a separately approved route change admits this closed corpus.
-3. Fixtures 03 and 08 remain draft/structure-only; Skipper's LR2.1 read-only corpus must establish the reusable executable transcript/runner seam before LR2.2 can run.
-4. No current execution receipt demonstrates exact serving-runtime model inference plus the three permitted Staff read-backs with zero prohibited effects.
+1. The corpus PR must provide the closed executable 03/08/09 and M01..M12 runner seam; this QA contract does not implement or modify it.
+2. Chief's explicit LR2-start signal has not been issued by this document, and execution must not begin without it.
+3. The exact corpus-serving `hermes-sunset-luna-http` revision must be observed Healthy immediately before the run; merge or deployment status alone is insufficient.
+4. No current execution receipt demonstrates all 15 cases through the exact serving runtime plus the three permitted Staff read-backs with zero prohibited effects.
 
 These are execution blockers, not product-edit requests in LR2.2. Resolve them only in a separately approved runtime-owned slice.
 
-`LR2.2 Messy guest pack | Status Ready | 12 closed EN/ES cases, exact assertions/read-backs, writes and guest sends CLOSED | Next gate: LR2.1 corpus seam + separately approved isolated allowlist`
+`LR2.1/LR2.2 Seadog QA | Status Ready | 15 closed Sunset cases, exact assertions/read-backs, writes and guest sends CLOSED | Next gate: corpus PR reviewed + Healthy hermes-sunset-luna-http + Chief LR2-start`
