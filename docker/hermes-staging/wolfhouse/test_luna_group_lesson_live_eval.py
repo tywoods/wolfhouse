@@ -44,6 +44,10 @@ from wolfhouse.luna_group_lesson_live_eval import (  # noqa: E402
     register_group_lesson_eval_route,
     run_isolated_group_lesson_eval,
 )
+from wolfhouse.luna_responses_provider import (  # noqa: E402
+    normalize_responses_tool_choice,
+    responses_tool_choice_wire,
+)
 from wolfhouse.simulate_core import register_simulate_route  # noqa: E402
 
 
@@ -603,6 +607,9 @@ class GroupLessonCase09Tests(unittest.TestCase):
         self.assertEqual([call["request"]["tool_choice"] for call in result["calls"]], [
             "function:get_sunset_lesson_catalog", "auto",
         ])
+        self.assertEqual([call["request"]["tool_choice_wire"] for call in result["calls"]], [
+            "responses_function", "option",
+        ])
         self.assertEqual(cap.diagnostic_tool_choice_remaining, 0)
 
     def test_real_responses_stream_wrapper_captures_terminal_metadata(self):
@@ -640,6 +647,7 @@ class GroupLessonCase09Tests(unittest.TestCase):
         self.assertEqual(result["response"], {
             "state": "observed", "status": "completed", "finish_reason": "completed",
             "provider_shape": "openai_responses", "completion_category": "tool_calls",
+            "output_item_types": ["function_call"],
             "tool_calls": [{"id": "call-stream-1", "name": "get_sunset_lesson_catalog",
                             "arg_validation": "valid"}],
         })
@@ -674,8 +682,164 @@ class GroupLessonCase09Tests(unittest.TestCase):
         result = capture.finalize(model_reached=True)
         self.assertEqual(result["response"]["state"], "observed-none")
         self.assertEqual(result["response"]["tool_calls"], [])
+        self.assertEqual(result["response"]["completion_category"], "empty_tool_calls")
+        self.assertEqual(result["response"]["output_item_types"], [])
         self.assertEqual(result["executor"], {"state": "observed-none", "dispositions": []})
         self.assertNotIn("private input", json.dumps(result))
+
+    def test_lr32_responses_tool_choice_label_is_not_wire_format(self):
+        """Cap LR3.1 saw capture label function:NAME; that string is not wire."""
+        flat = {"type": "function", "name": "get_sunset_lesson_catalog"}
+        nested = {"type": "function", "function": {"name": "get_sunset_lesson_catalog"}}
+        label = "function:get_sunset_lesson_catalog"
+        self.assertEqual(responses_tool_choice_wire(flat), "responses_function")
+        self.assertEqual(responses_tool_choice_wire(nested), "chat_function")
+        self.assertEqual(responses_tool_choice_wire(label), "unsupported_label")
+        self.assertEqual(normalize_responses_tool_choice(flat), flat)
+        self.assertEqual(normalize_responses_tool_choice(nested), flat)
+        with self.assertRaisesRegex(ValueError, "unsupported_tool_choice_label"):
+            normalize_responses_tool_choice(label)
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice=flat)
+        capture.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice=nested)
+        capture.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice=label)
+        result = capture.finalize(model_reached=True)
+        self.assertEqual([call["request"]["tool_choice"] for call in result["calls"]], [
+            "function:get_sunset_lesson_catalog",
+            "function:get_sunset_lesson_catalog",
+            "function:get_sunset_lesson_catalog",
+        ])
+        self.assertEqual([call["request"]["tool_choice_wire"] for call in result["calls"]], [
+            "responses_function", "chat_function", "unsupported_label",
+        ])
+
+    def test_lr32_responses_create_rejects_capture_label_string_tool_choice(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+        called = []
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            create = isolation._observe_create_call(
+                lambda **kwargs: called.append(kwargs), binding, responses=True,
+            )
+            with self.assertRaisesRegex(IsolationAbort, "unsupported_tool_choice_label"):
+                create(model=agent.model, stream=True, input="private",
+                       tool_choice="function:get_sunset_lesson_catalog")
+        finally:
+            isolation.exit_isolated_turn(token)
+        self.assertEqual(called, [])
+
+    def test_lr32_responses_create_normalizes_chat_nested_tool_choice(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+        seen = []
+
+        class Stream:
+            def __iter__(self):
+                yield {"type": "response.completed", "response": {"status": "completed", "output": []}}
+            def close(self):
+                return None
+
+        def provider(**kwargs):
+            seen.append(kwargs.get("tool_choice"))
+            return Stream()
+
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            create = isolation._observe_create_call(provider, binding, responses=True)
+            observed = create(
+                model=agent.model, stream=True, input="private",
+                tools=[{"type": "function", "name": "get_sunset_lesson_catalog",
+                        "parameters": {"type": "object"}}],
+                tool_choice={"type": "function",
+                             "function": {"name": "get_sunset_lesson_catalog"}},
+            )
+            list(observed)
+            observed.close()
+        finally:
+            isolation.exit_isolated_turn(token)
+        self.assertEqual(seen, [{"type": "function", "name": "get_sunset_lesson_catalog"}])
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["request"]["tool_choice"], "function:get_sunset_lesson_catalog")
+        self.assertEqual(result["request"]["tool_choice_wire"], "responses_function")
+
+    def test_lr32_empty_completed_responses_are_diagnosable_empty_tool_calls(self):
+        """Sealed Cap LR3.1 boundary: completed + tool_calls=[] must not be opaque other."""
+        from enum import Enum
+
+        class ItemType(Enum):
+            FUNCTION_CALL = "function_call"
+            REASONING = "reasoning"
+
+        sealed = BoundedMetadataCapture("gpt-5.6-sol", {})
+        sealed.observe_request(
+            attempted=True, sent=True, prompts=[],
+            tools=[{"type": "function", "name": "get_sunset_lesson_catalog",
+                    "parameters": {"type": "object"}}],
+            tool_choice={"type": "function", "name": "get_sunset_lesson_catalog"},
+        )
+        sealed.observe_provider_result({"status": "completed", "output": []})
+        sealed_result = sealed.finalize(model_reached=True)
+        self.assertEqual(sealed_result["request"]["tool_choice"], "function:get_sunset_lesson_catalog")
+        self.assertEqual(sealed_result["request"]["tool_choice_wire"], "responses_function")
+        self.assertEqual(sealed_result["response"]["provider_shape"], "openai_responses")
+        self.assertEqual(sealed_result["response"]["completion_category"], "empty_tool_calls")
+        self.assertEqual(sealed_result["response"]["state"], "observed-none")
+        self.assertEqual(sealed_result["response"]["tool_calls"], [])
+        self.assertEqual(sealed_result["response"]["output_item_types"], [])
+
+        reasoning = BoundedMetadataCapture("gpt-5.6-sol", {})
+        reasoning.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
+        reasoning.observe_provider_result({
+            "status": "completed",
+            "output": [{"type": "reasoning", "summary": [{"type": "summary_text", "text": "SECRET"}]}],
+        })
+        reasoning_result = reasoning.finalize(model_reached=True)
+        self.assertEqual(reasoning_result["response"]["completion_category"], "empty_tool_calls")
+        self.assertEqual(reasoning_result["response"]["output_item_types"], ["reasoning"])
+        self.assertNotIn("SECRET", json.dumps(reasoning_result))
+
+        enum_cap = BoundedMetadataCapture("gpt-5.6-sol", {})
+        enum_cap.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
+        enum_cap.observe_provider_result(SimpleNamespace(
+            status="completed",
+            output=[SimpleNamespace(
+                type=ItemType.FUNCTION_CALL, call_id="call-enum-1",
+                name="get_sunset_lesson_catalog", arguments="{}",
+            )],
+        ))
+        enum_result = enum_cap.finalize(model_reached=True)
+        self.assertEqual(enum_result["response"]["completion_category"], "tool_calls")
+        self.assertEqual(enum_result["response"]["tool_calls"], [{
+            "id": "call-enum-1", "name": "get_sunset_lesson_catalog", "arg_validation": "valid",
+        }])
+        self.assertEqual(enum_result["response"]["output_item_types"], ["function_call"])
+
+        nested = BoundedMetadataCapture("gpt-5.6-sol", {})
+        nested.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
+        nested.observe_provider_result({
+            "status": "completed",
+            "output": [{"type": "function_call", "call_id": "call-nested-1",
+                        "function": {"name": "get_sunset_lesson_catalog",
+                                     "arguments": "{\"location_id\":\"PRIVATE\"}"}}],
+        })
+        nested_result = nested.finalize(model_reached=True)
+        self.assertEqual(nested_result["response"]["completion_category"], "tool_calls")
+        self.assertEqual(nested_result["response"]["tool_calls"], [{
+            "id": "call-nested-1", "name": "get_sunset_lesson_catalog", "arg_validation": "valid",
+        }])
+        self.assertNotIn("PRIVATE", json.dumps(nested_result))
 
     def test_responses_predispatch_rejection_is_attempted_but_not_sent(self):
         import wolfhouse.luna_personality_isolation as isolation
