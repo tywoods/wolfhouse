@@ -7,7 +7,7 @@ const crypto = require('crypto');
 
 const root = path.join(__dirname, '..');
 const planPath = path.join(root, 'LUNA-RELIABILITY.md');
-const APPROVED_PLAN_SHA256 = '508254f497e9a2dc773134018be2737943327a771dd2de5ce27634b598f96934';
+const APPROVED_LR1_SHA256 = '508254f497e9a2dc773134018be2737943327a771dd2de5ce27634b598f96934';
 let passed = 0;
 let failed = 0;
 
@@ -34,23 +34,29 @@ function hasEvery(text, exactLines) {
   return exactLines.every((line) => text.split('\n').includes(line));
 }
 
+function lr1ContractText(text) {
+  const nextChapter = text.indexOf('\n## LR2.');
+  return nextChapter < 0 ? text : text.slice(0, nextChapter);
+}
+
 function contractFailures(text) {
   const failures = [];
   const require = (condition, label) => { if (!condition) failures.push(label); };
-  const lr11 = section(text, '## LR1.1 — Booking promise', '## LR1.2 — Authority, limits and budget');
-  const lr12 = section(text, '## LR1.2 — Authority, limits and budget', '## LR1.3 — Safe test path');
-  const target = section(text, '### Exact target', '### Synthetic identifiers');
-  const identifiers = section(text, '### Synthetic identifiers', '### Permitted-effects allowlist');
-  const effects = section(text, '### Permitted-effects allowlist', '### Pause, timeout and cleanup');
-  const cleanup = section(text, '### Pause, timeout and cleanup', '## LR1.4 — Test contract with Seadog');
-  const success = section(text, '### Success', '### Fail');
-  const fail = section(text, '### Fail', '### Blocked');
-  const blocked = section(text, '### Blocked', '### Demo');
-  const demo = section(text, '### Demo', '### LR1 exit evidence');
+  const lr1Text = lr1ContractText(text);
+  const lr11 = section(lr1Text, '## LR1.1 — Booking promise', '## LR1.2 — Authority, limits and budget');
+  const lr12 = section(lr1Text, '## LR1.2 — Authority, limits and budget', '## LR1.3 — Safe test path');
+  const target = section(lr1Text, '### Exact target', '### Synthetic identifiers');
+  const identifiers = section(lr1Text, '### Synthetic identifiers', '### Permitted-effects allowlist');
+  const effects = section(lr1Text, '### Permitted-effects allowlist', '### Pause, timeout and cleanup');
+  const cleanup = section(lr1Text, '### Pause, timeout and cleanup', '## LR1.4 — Test contract with Seadog');
+  const success = section(lr1Text, '### Success', '### Fail');
+  const fail = section(lr1Text, '### Fail', '### Blocked');
+  const blocked = section(lr1Text, '### Blocked', '### Demo');
+  const demo = section(lr1Text, '### Demo', '### LR1 exit evidence');
 
-  require(crypto.createHash('sha256').update(text).digest('hex') === APPROVED_PLAN_SHA256, 'complete approved plan digest');
-  require(text.startsWith('# Luna Reliability — plan of record\n'), 'plan heading');
-  require(hasEvery(text, [
+  require(crypto.createHash('sha256').update(lr1Text).digest('hex') === APPROVED_LR1_SHA256, 'complete approved LR1 contract digest');
+  require(lr1Text.startsWith('# Luna Reliability — plan of record\n'), 'plan heading');
+  require(hasEvery(lr1Text, [
     '**Project state:** LR1 CLEARANCE complete as a scope and admission contract. This document does not authorize a guest send, booking write, payment-link write, production operation, `/sethome`, or an Owner Lab build.',
     '**Mandatory status bar:** `Phase/chapter LRx.y | Status Not started|Ready|Active|Blocked|Done | Evidence/blocker one line | Next gate`.',
   ]), 'top-level exclusions and status bar');
@@ -86,14 +92,19 @@ function contractFailures(text) {
     '- production and cross-tenant access — CLOSED.',
   ]), 'readiness-only allowlist and closed effects');
   require(effects.includes('No model inference is currently permitted by LR1.') && effects.includes('only a closed `03`/`08`/`09`-derived Sunset group-lesson case'), 'group-lesson inference remains blocked');
-  require(!/(?:WhatsApp send|email send|create_sunset_booking|create_sunset_payment_link|production and cross-tenant access)\s*[—:-]+\s*(?:OPEN|ALLOWED|PERMITTED)/i.test(effects), 'no contradictory effect authorization');
+  require(!/(?:WhatsApp send|email send|create_sunset_booking|create_sunset_payment_link|production and cross-tenant access)\s*[—:-]+\s*(?:OPEN|ALLOWED|PERMITTED|AUTHORIZED)/i.test(text), 'no contradictory effect authorization');
   require(!/allow_writes\s*=\s*true/i.test(text), 'allow_writes is never enabled');
+  require(!/Booking and payment writes are permitted\./i.test(text), 'no appended booking/payment authorization');
+  require(!/Production access is enabled\./i.test(text), 'no appended production authorization');
+  require(!/Arbitrary guest text may be submitted\./i.test(text), 'no appended arbitrary guest-text authorization');
+  require(!/Model inference is currently permitted for personality\/truth cases\./i.test(text), 'no appended personality inference authorization');
+  require(!/Model inference is currently permitted for case 10\./i.test(text), 'no appended out-of-subset inference authorization');
   require(cleanup.includes('180 seconds maximum') && cleanup.includes('completed counters are zero') && cleanup.includes('Unknown is not zero.'), 'timeout, zero counters and unknown handling');
   require(success.includes('all prohibited-effect completed counters are numeric zero') && success.includes('Seadog can reproduce'), 'substantive Success contract');
   require(fail.includes('completes safely and deterministically') && fail.includes('Any side-effect leak is also Fail'), 'substantive Fail contract');
   require(blocked.includes('unknown counters') && blocked.includes('Blocked is never reported as PASS.'), 'substantive Blocked contract');
   require(demo.includes('It is not a real WhatsApp message and must not contact a guest.'), 'substantive no-send Demo contract');
-  require(text.includes('Live group-lesson execution remains **Blocked by design**'), 'LR1 conclusion remains readiness-only');
+  require(lr1Text.includes('Live group-lesson execution remains **Blocked by design**'), 'LR1 conclusion remains readiness-only');
   return failures;
 }
 
