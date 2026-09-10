@@ -167,16 +167,16 @@ A **Demo** is a redacted Sunset-staging replay showing the guest input, Luna out
 
 ## LR2.4 — Failure map: Closed-fixture contract / abort observability
 
-**Status bar:** `LR2.4 | Status Active | Golden offline PASS; failure-map docs/verifier current; case-09 TRACE still blocked | Next gate: resolve zero-tools TRACE before live 03/08`.
+**Status bar:** `LR2.4 | Status Active | Golden offline PASS; #948/#949 landed; case-09 capture re-QA pending external Seadog evidence | Next gate: classify case-09 TRACE from admitted capture before live 03/08`.
 
 | Field | Value |
 |---|---|
 | Family | `Closed-fixture contract / abort observability mismatch` |
 | Severity | Major — case-scoped QA blocker |
-| Status | Partially cleared: #944 closed isolated harness is merged and deployed, #943 fixtures landed, and #945/#946 docs/verifier follow-ups are merged. Golden offline is PASS, but case-09 remains BLOCKED on the zero-tools TRACE gap; 03/08 live execution stays on HOLD. |
-| Evidence tips | Seadog `1547630912865443913`; Skipper triage `1547632801266925711`; Cap `1547633972014489622`; #943 fixtures; #944 harness merged+deployed; #945/#946 docs/verifier merged |
-| Owner boundary | Skipper owns LR3 harness/runtime admission and the case-09 TRACE unblock; Deckhand may keep this map current and babysit fixture/doc PRs only |
+| Status | Partially cleared: #944 closed isolated harness is merged and deployed, #943 fixtures landed, #945/#946/#947 docs/verifier follow-ups are merged, #948 hardened the LR2 messy-pack receipt contract, and #949 added metadata-first capture instrumentation at master tip `0ee15c4d`. Golden offline is PASS, but case-09 remains BLOCKED until Seadog's capture re-QA produces admitted zero-tools TRACE evidence; 03/08 live execution stays on HOLD. |
+| Evidence tips | Seadog `1547630912865443913`; Skipper triage `1547632801266925711`; Cap `1547633972014489622`; #943 fixtures; #944 harness merged+deployed; #945/#946/#947 docs/verifier follow-ups; #948 messy-pack verifier; #949 metadata-first capture instrumentation `0ee15c4d` |
+| Owner boundary | Skipper owns LR3 harness/runtime admission and the case-09 TRACE unblock; Seadog owns live capture re-QA/classification; Deckhand may keep this map current and babysit fixture/doc/harness-only PRs without touching runtime, inbox, email, guest sends, or deployment |
 
-This family now records the split result honestly: the closed isolated harness and map stub shipped, and the offline golden path passes against the merged fixture/doc verifier work. It is **not** a full LR2.4 PASS while case-09 still cannot produce the required zero-tools TRACE evidence. Treat case-09 as BLOCKED pending TRACE, and keep 03/08 live checks on HOLD until that unblock is explicitly cleared.
+This family records the split result honestly: the closed isolated harness and map stub shipped, the offline golden path passes against the merged fixture/doc verifier work, and the metadata-first capture hook needed for zero-tool diagnosis has landed. It is **not** a full LR2.4 PASS while case-09 is still awaiting an admitted capture classification. Treat case-09 as BLOCKED pending Seadog TRACE evidence, and keep 03/08 live checks on HOLD until that unblock is explicitly cleared.
 
-Operational limits remain unchanged: no `hermes-sunset-luna-http` deploy, no live-eval scope expansion by Deckhand, no `inbox-thread.js`, no `/sethome`, no production, and no merge by Deckhand.
+Operational limits remain unchanged: no `hermes-sunset-luna-http` deploy, no live-eval scope expansion by Deckhand, no capture-image rerun by Deckhand, no `inbox-thread.js`, no email inbound/poller work, no `/sethome`, no production, and no merge by Deckhand.
