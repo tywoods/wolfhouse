@@ -164,3 +164,19 @@ A **Demo** is a redacted Sunset-staging replay showing the guest input, Luna out
 - This scope, effects allowlist, owner map and Success/Fail/Blocked/Demo contract are executable-document checked by `scripts/verify-luna-reliability-lr1-clearance.js`.
 
 **LR1 clearance conclusion:** authorised safe testing scope and criteria are complete. Live group-lesson execution remains **Blocked by design** until a later approved change adds those cases to a closed isolated corpus; generic simulation remains forbidden.
+
+## LR2.4 — Failure map: Closed-fixture contract / abort observability
+
+**Status bar:** `LR2.4 | Status Active | Closed-fixture contract and abort-observability mismatch mapped; harness #944 deployed | Next gate: Seadog re-QA on Healthy harness`.
+
+| Field | Value |
+|---|---|
+| Family | `Closed-fixture contract / abort observability mismatch` |
+| Severity | Major — case-scoped QA blocker |
+| Status | Open until Seadog re-QA completes on the now-deployed closed isolated harness from #944 |
+| Evidence tips | Seadog `1547630912865443913`; Skipper triage `1547632801266925711`; Cap `1547633972014489622`; harness #944 deployed |
+| Owner boundary | Skipper owns LR3 harness/runtime admission; Deckhand may keep this map current and babysit fixture/doc PRs only |
+
+This family caps named closed-fixture failures where the test contract expects an observable fail-closed/abort result, but the harness evidence cannot yet distinguish contract failure from missing/ambiguous abort observability. Treat affected cases as QA-blocked, not PASS, until the #944 closed isolated harness reports Healthy for the scoped case and Seadog re-runs the checks.
+
+Operational limits remain unchanged: no `hermes-sunset-luna-http` deploy, no live-eval scope expansion by Deckhand, no `inbox-thread.js`, no `/sethome`, no production, and no merge by Deckhand.
