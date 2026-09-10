@@ -2206,14 +2206,30 @@ function adminFormatAccomIsoDate(iso){
 }
 
 function adminFormatAccomDateRange(checkIn, checkOut){
+  // Half-open storage [check_in, check_out): display inclusive first→last night.
   var from = String(checkIn || '').slice(0, 10);
-  var to = String(checkOut || '').slice(0, 10);
-  if (!adminAccommodationIsIsoDate(from)) return adminFormatAccomIsoDate(to) || '—';
-  if (!adminAccommodationIsIsoDate(to) || from === to) return adminFormatAccomIsoDate(from);
-  if (typeof financeRedesignFormatIsoRange === 'function') {
-    return financeRedesignFormatIsoRange(from, to).replace(' – ', ' → ');
+  var toExclusive = String(checkOut || '').slice(0, 10);
+  if (!adminAccommodationIsIsoDate(from)) return adminFormatAccomIsoDate(toExclusive) || '—';
+  if (!adminAccommodationIsIsoDate(toExclusive)) return adminFormatAccomIsoDate(from);
+  var lastNight = adminAccommodationAddDaysIso(toExclusive, -1);
+  if (!adminAccommodationIsIsoDate(lastNight) || String(lastNight) < from) {
+    return adminFormatAccomIsoDate(from);
   }
-  return adminFormatAccomIsoDate(from) + ' → ' + adminFormatAccomIsoDate(to);
+  if (from === lastNight) return adminFormatAccomIsoDate(from);
+  if (typeof financeRedesignFormatIsoRange === 'function') {
+    return financeRedesignFormatIsoRange(from, lastNight).replace(' – ', ' → ');
+  }
+  return adminFormatAccomIsoDate(from) + ' → ' + adminFormatAccomIsoDate(lastNight);
+}
+
+function adminAccommodationLastNightFromCheckOut(checkOut){
+  if (!adminAccommodationIsIsoDate(checkOut)) return '';
+  return adminAccommodationAddDaysIso(checkOut, -1);
+}
+
+function adminAccommodationCheckOutFromLastNight(lastNight){
+  if (!adminAccommodationIsIsoDate(lastNight)) return String(lastNight || '').trim().slice(0, 10);
+  return adminAccommodationAddDaysIso(lastNight, 1);
 }
 
 function adminFindAccommodationCoverageGaps(ranges){
@@ -2242,10 +2258,8 @@ function adminFormatAccommodationGapLabel(gap){
   if (!gap || !adminAccommodationIsIsoDate(gap.gap_start) || !adminAccommodationIsIsoDate(gap.gap_end)) {
     return '';
   }
-  var lastNight = adminAccommodationAddDaysIso(gap.gap_end, -1);
-  if (!adminAccommodationIsIsoDate(lastNight)) return adminFormatAccomIsoDate(gap.gap_start);
-  if (gap.gap_start === lastNight) return adminFormatAccomIsoDate(gap.gap_start);
-  return adminFormatAccomDateRange(gap.gap_start, lastNight);
+  // gap is half-open; season formatter shows inclusive nights.
+  return adminFormatAccomDateRange(gap.gap_start, gap.gap_end);
 }
 
 function renderAdminAccommodationCoverageWarning(ranges){
@@ -2272,17 +2286,18 @@ function renderAdminAccommodationRangeRows(ranges, editing){
   ranges.forEach(function(r, idx){
     html += '<article class="portal-admin-price-card portal-admin-accommodation-range" data-accom-range-idx="' + idx + '">';
     if (editing){
-      // Title | date range | price columns (+ remove). Dates share one cell so columns line up.
+      // Title | inclusive first→last night | price (+ remove). API stores half-open check_out.
+      var lastNight = adminAccommodationLastNightFromCheckOut(r.check_out);
       html += '<div class="portal-admin-accommodation-range-row is-editing">';
       html += '<div class="portal-admin-accommodation-col-title"><label data-i18n="admin.accommodation.rangeTitle">' +
         escHtml(portalT('admin.accommodation.rangeTitle') || 'Title') + '</label>';
       html += '<input type="text" maxlength="120" data-accom-field="title" value="' + escHtml(r.title || '') + '"></div>';
       html += '<div class="portal-admin-accommodation-col-dates">';
-      html += '<label data-i18n="admin.accommodation.checkIn">' + escHtml(portalT('admin.accommodation.checkIn') || 'Check in') +
-        ' → ' + escHtml(portalT('admin.accommodation.checkOut') || 'Check out') + '</label>';
+      html += '<label data-i18n="admin.accommodation.firstNight">' + escHtml(portalT('admin.accommodation.firstNight') || 'First night') +
+        ' → ' + escHtml(portalT('admin.accommodation.lastNight') || 'Last night') + '</label>';
       html += '<div style="display:flex;gap:6px;min-width:0;flex-wrap:wrap">';
       html += '<input type="date" data-accom-field="check_in" value="' + escHtml(r.check_in || '') + '" style="flex:1 1 7rem;min-width:0">';
-      html += '<input type="date" data-accom-field="check_out" value="' + escHtml(r.check_out || '') + '" style="flex:1 1 7rem;min-width:0">';
+      html += '<input type="date" data-accom-field="last_night" value="' + escHtml(lastNight || '') + '" style="flex:1 1 7rem;min-width:0">';
       html += '</div></div>';
       html += '<div class="portal-admin-accommodation-col-price"><label data-i18n="admin.accommodation.nightlyEur">' +
         escHtml(portalT('admin.accommodation.nightlyEur') || 'Per night (€)') + '</label>';
@@ -2335,6 +2350,8 @@ function renderAdminSectionAccommodationFromConfig(cfg){
   }
   html += '</div>';
   // Help sentence intentionally not rendered (UI cleanup); i18n key retained for docs/verifiers.
+  // Coverage gaps: show in readout and edit so month-end holes are visible before Save.
+  html += renderAdminAccommodationCoverageWarning(ac.ranges);
   if (editing){
     html += '<div class="portal-admin-edit-form" data-testid="admin-accommodation-edit">';
     html += '<label class="portal-admin-equip-enabled"><input type="checkbox" id="admin-accom-enabled"' +
@@ -2350,7 +2367,6 @@ function renderAdminSectionAccommodationFromConfig(cfg){
       escHtml(portalT('admin.action.cancel') || 'Cancel') + '</button>';
     html += '</div></div>';
   } else {
-    html += renderAdminAccommodationCoverageWarning(ac.ranges);
     html += '<p class="portal-admin-muted" data-testid="admin-accommodation-no-room-inventory" data-i18n="admin.accommodation.noRoomInventory">'
       + escHtml(portalT('admin.accommodation.noRoomInventory')
         || 'Seasonal nightly rate only — no room inventory or occupancy enforcement.')
@@ -2372,7 +2388,9 @@ function adminReadAccommodationDraftFromDom(){
     if (!titleEl) return; // readout card
     var title = String(titleEl.value || '').trim();
     var checkIn = String((card.querySelector('[data-accom-field="check_in"]') || {}).value || '').trim();
-    var checkOut = String((card.querySelector('[data-accom-field="check_out"]') || {}).value || '').trim();
+    // UI collects inclusive last night; API stores exclusive check_out (= last + 1 day).
+    var lastNight = String((card.querySelector('[data-accom-field="last_night"]') || {}).value || '').trim();
+    var checkOut = adminAccommodationCheckOutFromLastNight(lastNight);
     var eurRaw = String((card.querySelector('[data-accom-field="amount_eur"]') || {}).value || '').trim();
     // Strict 2-decimal helper (same owner as other Admin euro fields) — never float Math.round.
     var centsParsed = adminParseEurosToCents(eurRaw);
@@ -2384,6 +2402,64 @@ function adminReadAccommodationDraftFromDom(){
     });
   });
   return { enabled: enabled, ranges: ranges, currency: 'EUR' };
+}
+
+/**
+ * Client-side Accommodation season save gate (mirrors server order + gap rules).
+ * Draft ranges must already be half-open (check_out exclusive) from adminReadAccommodationDraftFromDom.
+ */
+function adminValidateAccommodationDraft(draft){
+  var ranges = draft && Array.isArray(draft.ranges) ? draft.ranges : [];
+  for (var i = 0; i < ranges.length; i += 1) {
+    var r = ranges[i] || {};
+    var title = String(r.title || '').trim();
+    if (!title) {
+      return {
+        ok: false,
+        error: portalT('admin.accommodation.titleRequired')
+          || 'Each season range needs a title.',
+      };
+    }
+    var checkIn = String(r.check_in || '').slice(0, 10);
+    var checkOut = String(r.check_out || '').slice(0, 10);
+    if (!adminAccommodationIsIsoDate(checkIn) || !adminAccommodationIsIsoDate(checkOut)) {
+      return {
+        ok: false,
+        error: portalT('admin.accommodation.datesRequired')
+          || 'Each season range needs a first night and last night.',
+      };
+    }
+    // After inclusive→exclusive conversion: check_out must be strictly after check_in.
+    // first > last ⇒ check_out <= check_in (e.g. first May 1 / last Apr 30 → check_out May 1).
+    if (checkOut <= checkIn) {
+      return {
+        ok: false,
+        error: portalT('admin.accommodation.dateOrder')
+          || 'Season start must be on or before the last night.',
+      };
+    }
+    var cents = Number(r.amount_cents);
+    if (!Number.isFinite(cents) || !Number.isInteger(cents) || cents <= 0) {
+      return {
+        ok: false,
+        error: portalT('admin.accommodation.amountRequired')
+          || 'Each season range needs a positive nightly price.',
+      };
+    }
+  }
+  var gaps = adminFindAccommodationCoverageGaps(ranges);
+  if (gaps.length) {
+    var labels = gaps.map(adminFormatAccommodationGapLabel).filter(Boolean);
+    var template = portalT('admin.accommodation.coverageGapBlock')
+      || portalT('admin.accommodation.coverageGap')
+      || 'Cannot save: some dates have no seasonal price: {gaps}.';
+    return {
+      ok: false,
+      error: String(template).replace('{gaps}', labels.join('; ') || 'gap'),
+      gaps: gaps,
+    };
+  }
+  return { ok: true };
 }
 
 // adminSaveAccommodation removed: unwired dead duplicate. Live save is the
@@ -4534,6 +4610,11 @@ function wireAdminTab(){
     }
     if (action === 'save-accommodation'){
       var accomDraft = adminReadAccommodationDraftFromDom();
+      var accomValid = adminValidateAccommodationDraft(accomDraft);
+      if (!accomValid.ok) {
+        adminShowMessage('error', accomValid.error || (portalT('admin.edit.saveFailed') || 'Save failed'));
+        return;
+      }
       var saveAccomOpSeq = adminBeginOp();
       adminShowMessage('', '');
       try {
