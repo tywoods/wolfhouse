@@ -2668,13 +2668,16 @@ function financeDateMoveFocus(iso, key){
   return null;
 }
 
+/**
+ * Finance custom range selection — reporting allows historical days.
+ * Do NOT reuse scheduleCreateDateRangeSelectDay: that helper rejects past
+ * dates (staff-create booking rule), which blocked day-1 / earlier months
+ * on Finance (e.g. Sep 1 when today is Sep 7).
+ */
 function financeSelectRangeDay(draft, iso){
   draft = draft || { start: null, end: null };
   iso = String(iso || '').slice(0, 10);
   if (!financeDateIsValidIso(iso)) return draft;
-  if (typeof scheduleCreateDateRangeSelectDay === 'function') {
-    return scheduleCreateDateRangeSelectDay(draft, iso) || draft;
-  }
   var start = financeDateIsValidIso(draft.start) ? draft.start : null;
   var end = financeDateIsValidIso(draft.end) ? draft.end : null;
   if (!start || end) return { start: iso, end: null };
