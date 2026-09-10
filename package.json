@@ -824,6 +824,7 @@
     "verify:sunset-schedule-view-grid-ui": "node scripts/verify-sunset-schedule-view-grid-ui.js",
     "verify:sunset-schedule-architecture": "node scripts/verify-sunset-schedule-architecture.js",
     "verify:sunset-schedule-navigation-ui": "node scripts/verify-sunset-schedule-navigation-ui.js",
+    "verify:sunset-schedule-bug-021": "node scripts/verify-sunset-schedule-bug-021.js",
     "verify:sunset-schedule-row-normalizer": "node scripts/verify-sunset-schedule-row-normalizer.js",
     "verify:sunset-schedule-data-loader": "node scripts/verify-sunset-schedule-data-loader.js",
     "verify:sunset-schedule-journeys": "node scripts/verify-sunset-schedule-journeys.js",
