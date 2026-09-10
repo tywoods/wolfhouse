@@ -28,6 +28,7 @@ assert.ok(bookingsSrc.includes('function adminBookingsOpenInSchedule'), 'open he
 assert.ok(bookingsSrc.includes('function adminBookingsServiceDayIso'), 'service-day ISO helper present');
 assert.ok(bookingsSrc.includes('openScheduleDetailDrawer'), 'opens shared detail drawer');
 assert.ok(bookingsSrc.includes('_drawerFromCustomer: true'), 'uses customer/drawer fetch shape');
+assert.ok(bookingsSrc.includes("_drawerReturnTab: 'bookings'"), 'asks close to restore Bookings');
 assert.ok(
   /Do not deep-link into Horario|Bookings stays active/.test(bookingsSrc),
   'documents stay-on-Reservas contract'
@@ -145,6 +146,7 @@ assert.strictEqual(drawers[0].booking_id, BOOKING_ID);
 assert.strictEqual(drawers[0].booking_code, BOOKING_CODE);
 assert.strictEqual(drawers[0].service_date, SERVICE);
 assert.strictEqual(drawers[0]._drawerFromCustomer, true);
+assert.strictEqual(drawers[0]._drawerReturnTab, 'bookings', 'close must restore Bookings');
 assert.strictEqual(JSON.stringify(ctx.adminBookingsState.filters), filtersBefore,
   'filters unchanged while drawer is open');
 
@@ -154,12 +156,15 @@ drawers.length = 0;
 ctx.adminBookingsOpenInSchedule(BOOKING_ID, { service_date_start: SERVICE, booking_code: BOOKING_CODE });
 assert.strictEqual(drawers.length, 1, 'hint path still opens drawer');
 assert.strictEqual(drawers[0].service_date, SERVICE, 'hint service_date reaches drawer');
+assert.strictEqual(drawers[0]._drawerReturnTab, 'bookings', 'hint path still returns to Bookings');
 assert.deepStrictEqual(tabCalls, [], 'hint path still never switches tab');
 
 // Close: X / Escape / backdrop must hide the overlay and restore the identical
 // filtered Reservas list — never switchToTab('portal-home') / Horario.
 const drawerSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-schedule-drawer-controller.js'), 'utf8');
 assert.ok(drawerSrc.includes('function closeScheduleDetailDrawer'), 'close owner present');
+assert.ok(drawerSrc.includes('function scheduleDrawerRestoreReturnTab'), 'return-tab restore present');
+assert.ok(drawerSrc.includes('function scheduleDrawerCaptureReturnTab'), 'return-tab capture present');
 assert.ok(/closeBtn\.onclick\s*=\s*closeScheduleDetailDrawer/.test(drawerSrc), 'X wires closeScheduleDetailDrawer');
 assert.ok(/function scheduleDrawerOnBackdropClick[\s\S]{0,250}closeScheduleDetailDrawer\(\)/.test(drawerSrc),
   'backdrop click closes drawer');
@@ -170,8 +175,13 @@ const closeStart = drawerSrc.indexOf('function closeScheduleDetailDrawer');
 const closeEnd = drawerSrc.indexOf('\nif (typeof window !== \'undefined\') {', closeStart);
 assert.ok(closeStart > 0 && closeEnd > closeStart, 'close function bounds');
 const closeFnSrc = drawerSrc.slice(closeStart, closeEnd);
-assert.ok(!/\bswitchToTab\b/.test(closeFnSrc), 'closeScheduleDetailDrawer never switchToTab');
-assert.ok(!/portal-home/.test(closeFnSrc), 'closeScheduleDetailDrawer never Horario');
+assert.ok(/scheduleDrawerRestoreReturnTab\s*\(/.test(closeFnSrc), 'close restores return tab');
+assert.ok(!/portal-home/.test(closeFnSrc), 'closeScheduleDetailDrawer never hardcodes Horario');
+
+const captureStart = drawerSrc.indexOf('function scheduleDrawerCaptureReturnTab');
+const openDrawerStart = drawerSrc.indexOf('function openScheduleDetailDrawer');
+assert.ok(captureStart > 0 && openDrawerStart > captureStart, 'return-tab helpers before open');
+const returnHelpersSrc = drawerSrc.slice(captureStart, openDrawerStart);
 
 const closeDom = {
   'ps-detail-drawer': {
@@ -190,18 +200,25 @@ const closeDom = {
   'ps-drawer-refresh': null,
   'ps-drawer-copy-code': null,
   'ps-create-modal': null,
+  'tab-bookings': { id: 'tab-bookings', classList: { contains(c) { return c === 'active' && !!closeDom._bookingsActive; } } },
+  'tab-portal-home': { id: 'tab-portal-home', classList: { contains(c) { return c === 'active' && !closeDom._bookingsActive; } } },
 };
+closeDom._bookingsActive = true;
 const closeTabCalls = [];
 const closeCtx = {
   console,
   el(id) { return closeDom[id] || null; },
-  switchToTab(tab) { closeTabCalls.push(String(tab || '')); },
+  switchToTab(tab) {
+    closeTabCalls.push(String(tab || ''));
+    closeDom._bookingsActive = String(tab || '') === 'bookings';
+  },
   scheduleDrawerState: {
     row: { booking_id: BOOKING_ID },
     ctx: {},
     editing: false,
     activeBookingKey: 'k',
     dismissWired: false,
+    returnTab: null,
   },
   scheduleDrawerBumpOpenGeneration() {},
   scheduleDrawerUnlockPage() {},
@@ -220,45 +237,68 @@ const backdropStart = drawerSrc.indexOf('function scheduleDrawerOnBackdropClick'
 const keyEnd = drawerSrc.indexOf('\nfunction scheduleDrawerWireDismiss', backdropStart);
 assert.ok(headerStart > 0 && headerEnd > headerStart && backdropStart > 0 && keyEnd > backdropStart,
   'dismiss helper bounds');
-const dismissSrc = drawerSrc.slice(backdropStart, keyEnd) + '\n'
+const dismissSrc = returnHelpersSrc + '\n'
+  + drawerSrc.slice(backdropStart, keyEnd) + '\n'
   + drawerSrc.slice(headerStart, headerEnd) + '\n'
   + closeFnSrc
   + '\nthis.closeScheduleDetailDrawer = closeScheduleDetailDrawer;'
   + '\nthis.scheduleDrawerOnBackdropClick = scheduleDrawerOnBackdropClick;'
   + '\nthis.scheduleDrawerOnKeydown = scheduleDrawerOnKeydown;'
-  + '\nthis.scheduleWireDrawerHeaderActions = scheduleWireDrawerHeaderActions;';
+  + '\nthis.scheduleWireDrawerHeaderActions = scheduleWireDrawerHeaderActions;'
+  + '\nthis.scheduleDrawerCaptureReturnTab = scheduleDrawerCaptureReturnTab;'
+  + '\nthis.scheduleDrawerRestoreReturnTab = scheduleDrawerRestoreReturnTab;';
 vm.createContext(closeCtx);
 vm.runInContext(dismissSrc, closeCtx);
 
-function assertClosed(label) {
+function assertClosed(label, opts) {
+  opts = opts || {};
   assert.strictEqual(closeDom['ps-detail-drawer'].style.display, 'none', label + ': drawer hidden');
   assert.strictEqual(closeDom['ps-drawer-backdrop'].style.display, 'none', label + ': backdrop hidden');
-  assert.deepStrictEqual(closeTabCalls, [], label + ': no switchToTab');
+  assert.deepStrictEqual(closeTabCalls, opts.expectTabCalls || [], label + ': tab calls');
   assert.strictEqual(JSON.stringify(closeCtx.adminBookingsState.filters), filtersBefore,
     label + ': filters intact');
-  assert.strictEqual(tabs.bookings, true, label + ': still on Bookings');
-  assert.strictEqual(tabs['portal-home'], false, label + ': Horario still inactive');
+  assert.strictEqual(closeDom._bookingsActive, true, label + ': Bookings active after close');
 }
 
-function reopenShell() {
+function reopenShell(returnTab) {
   closeDom['ps-detail-drawer'].style.display = 'block';
   closeDom['ps-detail-drawer'].hidden = false;
   closeDom['ps-drawer-backdrop'].style.display = 'block';
   closeCtx.scheduleDrawerState.row = { booking_id: BOOKING_ID };
+  closeCtx.scheduleDrawerState.returnTab = returnTab == null ? null : returnTab;
+  closeTabCalls.length = 0;
 }
 
+// Happy path: already on Bookings with returnTab=bookings → no switchToTab.
+closeDom._bookingsActive = true;
+reopenShell('bookings');
 closeCtx.scheduleWireDrawerHeaderActions();
 assert.ok(typeof closeDom['ps-drawer-close'].onclick === 'function', 'X onclick wired');
 closeDom['ps-drawer-close'].onclick();
 assertClosed('X');
 
-reopenShell();
+reopenShell('bookings');
 closeCtx.scheduleDrawerOnKeydown({ key: 'Escape', preventDefault() {} });
 assertClosed('Escape');
 
-reopenShell();
+reopenShell('bookings');
 closeCtx.scheduleDrawerOnBackdropClick({ target: closeDom['ps-drawer-backdrop'] });
 assertClosed('backdrop');
+
+// Sep 7 leftover: Horario was activated under the overlay → close restores Bookings.
+closeDom._bookingsActive = false;
+reopenShell('bookings');
+closeDom['ps-drawer-close'].onclick();
+assertClosed('X restores Bookings after Horario hijack', { expectTabCalls: ['bookings'] });
+assert.strictEqual(closeCtx.scheduleDrawerState.returnTab, null, 'returnTab cleared after restore');
+
+// Native Horario open (no returnTab): close must not bounce to Bookings.
+closeDom._bookingsActive = false;
+reopenShell(null);
+closeDom['ps-drawer-close'].onclick();
+assert.strictEqual(closeDom['ps-detail-drawer'].style.display, 'none', 'Horario close hides drawer');
+assert.deepStrictEqual(closeTabCalls, [], 'Horario close does not invent Bookings return');
+assert.strictEqual(closeDom._bookingsActive, false, 'stays on Schedule when opened from Schedule');
 
 drawers.length = 0;
 assert.strictEqual(tabs.bookings, true, 'after close, still on Bookings');
