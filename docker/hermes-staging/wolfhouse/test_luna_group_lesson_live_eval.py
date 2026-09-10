@@ -28,6 +28,8 @@ from wolfhouse.luna_personality_isolation import (  # noqa: E402
 )
 from wolfhouse.luna_group_lesson_live_eval import (  # noqa: E402
     ALLOWED_CASE_IDS,
+    BoundedMetadataCapture,
+    CAPTURE_LIMIT,
     GROUP_LESSON_EVAL_PATH,
     READ_ONLY_STAFF_PATHS,
     READ_ONLY_TOOL_ALLOWLIST,
@@ -323,6 +325,230 @@ class GroupLessonCase09Tests(unittest.TestCase):
             self.assertFalse(isolation._isolated_result_succeeded(result), repr(result))
         self.assertTrue(isolation._isolated_result_succeeded({"success": True}))
         self.assertTrue(isolation._isolated_result_succeeded('{"ok": true}'))
+
+    def test_capture_no_invocation_is_not_reached_not_fake_zero(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {"wolfhouse": "abc", "hermes": None})
+        result = capture.finalize(model_reached=False)
+        self.assertEqual(result["request"]["state"], "not-reached")
+        self.assertIsNone(result["request"]["attempted"])
+        self.assertEqual(result["response"]["state"], "not-reached")
+        self.assertEqual(result["executor"]["state"], "not-reached")
+        self.assertIsNone(result["executor"]["dispositions"])
+
+    def test_capture_provider_error_preserves_attempt_and_no_payload(self):
+        secret = "SECRET guest@example.test"
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {"wolfhouse": None, "hermes": None})
+        capture.observe_request(attempted=True, sent=True, prompts=[secret], tools=[], tool_choice="auto")
+        capture.observe_response(status="provider_error", finish_reason=None, tool_calls=None)
+        result = capture.finalize(model_reached=True)
+        self.assertTrue(result["request"]["sent"])
+        self.assertEqual(result["response"]["status"], "provider_error")
+        self.assertIsNone(result["response"]["tool_calls"])
+        self.assertEqual(result["executor"]["state"], "capture-unavailable")
+        self.assertNotIn(secret, json.dumps(result))
+
+    def test_capture_response_without_calls_is_observed_none(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.observe_response(status="ok", finish_reason="stop", tool_calls=[])
+        capture.observed_no_executor_calls()
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["response"]["state"], "observed-none")
+        self.assertEqual(result["response"]["tool_calls"], [])
+        self.assertEqual(result["executor"], {"state": "observed-none", "dispositions": []})
+
+    def test_capture_rejected_call_records_validation_and_reason_without_args(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.observe_response(status="ok", finish_reason="tool_calls", tool_calls=[{
+            "id": "call-1", "function": {"name": "get_sunset_lesson_catalog"},
+            "arg_validation": "invalid:location_id",
+            "arguments": {"credential": "MUST_NOT_LEAK"},
+        }])
+        capture.record_disposition(call_id="call-1", name="get_sunset_lesson_catalog",
+                                   disposition="rejected", reason="arg_validation_failed")
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["response"]["tool_calls"][0]["arg_validation"], "invalid:location_id")
+        self.assertEqual(result["executor"]["dispositions"][0]["disposition"], "rejected")
+        self.assertNotIn("MUST_NOT_LEAK", json.dumps(result))
+
+    def test_capture_successful_dispatch_is_bounded_metadata_only(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {"wolfhouse": "rev-w", "hermes": "rev-h"})
+        tools = [{"function": {"name": f"tool-{i}", "parameters": {
+            "type": "object", "description": "raw schema secret"}}} for i in range(CAPTURE_LIMIT + 3)]
+        capture.observe_request(attempted=True, sent=True, prompts=["private prompt"],
+                                tools=tools, tool_choice="required")
+        capture.observe_response(status="ok", finish_reason="tool_calls", tool_calls=[{
+            "id": "call-2", "function": {"name": "get_sunset_lesson_catalog"},
+            "arg_validation": "valid", "arguments": {"guest": "private"},
+        }])
+        for disposition in ("accepted", "dispatched", "completed"):
+            capture.record_disposition(call_id="call-2", name="get_sunset_lesson_catalog",
+                                       disposition=disposition, reason=None)
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(len(result["request"]["tool_names"]), CAPTURE_LIMIT)
+        self.assertTrue(all(item.startswith("sha256:") for item in
+                            result["request"]["tool_schema_fingerprints"]))
+        self.assertEqual([item["disposition"] for item in result["executor"]["dispositions"]],
+                         ["accepted", "dispatched", "completed"])
+        serialized = json.dumps(result)
+        for forbidden in ("private prompt", "raw schema secret", '"arguments"', '"result"'):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_actual_provider_boundary_populates_bounded_request_and_response(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        secret = "guest-secret@example.test"
+        raw_args = '{"location_id":"private-location"}'
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {"wolfhouse": "w", "hermes": "h"})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        cap.metadata_capture = capture
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            create = isolation._observe_create_call(lambda **_kwargs: {
+                "choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [{
+                    "id": "call-provider-1", "function": {
+                        "name": "get_sunset_lesson_catalog", "arguments": raw_args,
+                    },
+                }]}}],
+            })
+            create(model="gpt-5.6-sol", messages=[{"role": "user", "content": secret}],
+                   tools=[{"type": "function", "function": {"name": "get_sunset_lesson_catalog",
+                           "parameters": {"type": "object", "description": "schema-secret"}}}],
+                   tool_choice="required")
+        finally:
+            isolation.exit_isolated_turn(token)
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["request"]["state"], "observed")
+        self.assertEqual((result["request"]["attempted"], result["request"]["sent"]), (True, True))
+        self.assertEqual(result["request"]["tool_names"], ["get_sunset_lesson_catalog"])
+        self.assertEqual(result["response"]["finish_reason"], "tool_calls")
+        self.assertEqual(result["response"]["tool_calls"], [{
+            "id": "call-provider-1", "name": "get_sunset_lesson_catalog", "arg_validation": "valid",
+        }])
+        serialized = json.dumps(result)
+        for forbidden in (secret, "private-location", "schema-secret", raw_args):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_real_responses_stream_wrapper_captures_terminal_metadata(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        secret = "STREAM_SECRET guest@example.test"
+        raw_args = '{"location_id":"STREAM_PRIVATE"}'
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+
+        class Stream:
+            def __iter__(self):
+                yield {"type": "response.completed", "response": {
+                    "status": "completed", "output": [{"type": "function_call",
+                    "call_id": "call-stream-1", "name": "get_sunset_lesson_catalog",
+                    "arguments": raw_args, "raw": secret}]}}
+            def close(self):
+                return None
+
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            create = isolation._observe_create_call(lambda **_kwargs: Stream(), binding, responses=True)
+            observed = create(model=agent.model, stream=True, input=[{"content": secret}],
+                              tools=[{"type": "function", "name": "get_sunset_lesson_catalog",
+                                      "parameters": {"description": secret}}])
+            self.assertEqual([event["type"] for event in observed], ["response.completed"])
+            observed.close()
+        finally:
+            isolation.exit_isolated_turn(token)
+        result = capture.finalize(model_reached=True)
+        self.assertEqual((result["request"]["attempted"], result["request"]["sent"]), (True, True))
+        self.assertEqual(result["response"], {
+            "state": "observed", "status": "completed", "finish_reason": "completed",
+            "tool_calls": [{"id": "call-stream-1", "name": "get_sunset_lesson_catalog",
+                            "arg_validation": "valid"}],
+        })
+        self.assertNotIn(secret, json.dumps(result))
+        self.assertNotIn("STREAM_PRIVATE", json.dumps(result))
+
+    def test_real_responses_stream_wrapper_captures_observed_none(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+
+        class Stream:
+            def __iter__(self):
+                yield SimpleNamespace(type="response.completed",
+                                      response=SimpleNamespace(status="completed", output=[]))
+            def close(self):
+                return None
+
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            observed = isolation._observe_create_call(
+                lambda **_kwargs: Stream(), binding, responses=True,
+            )(model=agent.model, stream=True, input="private input")
+            list(observed)
+            observed.close()
+        finally:
+            isolation.exit_isolated_turn(token)
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["response"]["state"], "observed-none")
+        self.assertEqual(result["response"]["tool_calls"], [])
+        self.assertEqual(result["executor"], {"state": "observed-none", "dispositions": []})
+        self.assertNotIn("private input", json.dumps(result))
+
+    def test_responses_predispatch_rejection_is_attempted_but_not_sent(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+        called = []
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            create = isolation._observe_create_call(lambda **_kwargs: called.append(True), binding,
+                                                     responses=True)
+            with self.assertRaisesRegex(IsolationAbort, "responses_dispatch_identity_changed"):
+                create(model=agent.model, stream=False, input="PRIVATE_REJECTED")
+        finally:
+            isolation.exit_isolated_turn(token)
+        result = capture.finalize(model_reached=False)
+        self.assertEqual((result["request"]["attempted"], result["request"]["sent"]), (True, False))
+        self.assertEqual(called, [])
+        self.assertNotIn("PRIVATE_REJECTED", json.dumps(result))
+
+    def test_actual_dispatcher_wrapper_populates_execution_dispositions(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        cap.read_only_tool_allowlist = frozenset({"read_ok", "read_error"})
+        cap.metadata_capture = capture
+        dispatcher = SimpleNamespace(handle_function_call=lambda name, _args: (
+            json.dumps({"error": "controlled"}) if name == "read_error" else json.dumps({"success": True})
+        ))
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            self.assertTrue(isolation._wrap_tool_dispatcher(dispatcher))
+            valid_args = {"tenant_id": "sunset", "location_id": "sunset-somo",
+                          "secret": "never-captured"}
+            dispatcher.handle_function_call("read_ok", valid_args)
+            dispatcher.handle_function_call("read_error", valid_args)
+            dispatcher.handle_function_call("write_denied", {})
+        finally:
+            isolation.exit_isolated_turn(token)
+            isolation.reset_isolation_runtime_for_tests()
+        dispositions = capture.finalize(model_reached=True)["executor"]["dispositions"]
+        self.assertEqual([item["disposition"] for item in dispositions], [
+            "accepted", "dispatched", "completed", "accepted", "dispatched", "failed", "rejected",
+        ])
+        self.assertEqual(dispositions[-2]["reason"], "dispatcher_error_result")
+        self.assertEqual(dispositions[-1]["reason"], "isolation_policy")
+        self.assertNotIn("never-captured", json.dumps(dispositions))
 
     def test_actual_hermes_dispatcher_and_controlled_staff_transport_prove_exact_completed_reads(self):
         import model_tools
