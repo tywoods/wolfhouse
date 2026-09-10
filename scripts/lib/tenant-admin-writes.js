@@ -32,6 +32,34 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const ADMIN_WRITE_MIN_ROLE = 'admin';
 const ROLE_RANK = { viewer: 1, operator: 2, admin: 3, owner: 4 };
 
+/** Rental catalog amounts — fail closed on negative / absurd values (€100,000). */
+const MAX_RENTAL_AMOUNT_CENTS = 10000000;
+
+/**
+ * Shared integer-cents gate for Admin rental (and related) money fields.
+ * @param {unknown} value
+ * @param {{ requirePositive?: boolean, max?: number }} [opts]
+ * @returns {{ ok:true, value:number } | { ok:false, error:string }}
+ */
+function validateAmountCents(value, opts) {
+  const options = opts || {};
+  const max = options.max != null ? Number(options.max) : MAX_RENTAL_AMOUNT_CENTS;
+  const n = Number(value);
+  if (!Number.isInteger(n)) {
+    return { ok: false, error: 'amount_cents must be an integer' };
+  }
+  if (n < 0) {
+    return { ok: false, error: 'amount_cents must be integer >= 0' };
+  }
+  if (!Number.isInteger(max) || max < 0 || n > max) {
+    return { ok: false, error: 'amount_cents too large' };
+  }
+  if (options.requirePositive === true && n <= 0) {
+    return { ok: false, error: 'amount_cents must be > 0 to enable' };
+  }
+  return { ok: true, value: n };
+}
+
 const PRICE_PATCH_FIELDS = new Set([
   'display_name',
   'amount_cents',
@@ -244,9 +272,9 @@ function validateLessonKindAgeFrequency(body, out) {
     out.weekdays_active = LESSON_FREQUENCY_PRESETS[freq];
   }
   if (body.amount_cents != null) {
-    const n = Number(body.amount_cents);
-    if (!Number.isInteger(n) || n < 0) return { ok: false, error: 'amount_cents must be integer >= 0' };
-    out.amount_cents = n;
+    const amount = validateAmountCents(body.amount_cents);
+    if (!amount.ok) return amount;
+    out.amount_cents = amount.value;
   }
   return { ok: true };
 }
@@ -501,11 +529,7 @@ function resolveOfferingForPriceWrite(body) {
 }
 
 function assertPositiveAmountForActivation(amountCents) {
-  const n = Number(amountCents);
-  if (!Number.isInteger(n) || n <= 0) {
-    return { ok: false, error: 'amount_cents must be > 0 to enable' };
-  }
-  return { ok: true, value: n };
+  return validateAmountCents(amountCents, { requirePositive: true });
 }
 
 function validatePriceCreateBody(body) {
@@ -516,11 +540,9 @@ function validatePriceCreateBody(body) {
   if (!group.ok) return group;
   const period = String(body.period_window || '').trim();
   if (!isValidRentalPeriod(period)) return { ok: false, error: 'invalid period_window' };
-  const n = Number(body.amount_cents);
-  if (!Number.isInteger(n) || n < 0) return { ok: false, error: 'amount_cents must be integer >= 0' };
   // Create always inserts active=true — require a positive sellable amount.
-  const positive = assertPositiveAmountForActivation(n);
-  if (!positive.ok) return positive;
+  const amount = validateAmountCents(body.amount_cents, { requirePositive: true });
+  if (!amount.ok) return amount;
   const currency = body.currency != null ? String(body.currency).trim().toUpperCase() : 'EUR';
   if (body.currency != null && !CURRENCY_RE.test(currency)) return { ok: false, error: 'currency must be 3-letter code' };
   return {
@@ -529,7 +551,7 @@ function validatePriceCreateBody(body) {
       rental_group: group.rental_group,
       offering_key: group.offering_key,
       period_window: period,
-      amount_cents: n,
+      amount_cents: amount.value,
       currency,
     },
   };
@@ -546,9 +568,9 @@ function validatePricePatchBody(body) {
     out.display_name = text;
   }
   if (body.amount_cents != null) {
-    const n = Number(body.amount_cents);
-    if (!Number.isInteger(n) || n < 0) return { ok: false, error: 'amount_cents must be integer >= 0' };
-    out.amount_cents = n;
+    const amount = validateAmountCents(body.amount_cents);
+    if (!amount.ok) return amount;
+    out.amount_cents = amount.value;
   }
   if (body.currency != null) {
     const cur = String(body.currency).trim().toUpperCase();
@@ -992,10 +1014,11 @@ async function putFullDayEquipmentAddonRule(client, {
   if (!tablesExist) {
     return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
   }
-  const cents = Number.parseInt(amountCents, 10);
-  if (!Number.isInteger(cents) || cents < 0 || cents > 1000000) {
+  const amount = validateAmountCents(amountCents, { max: 1000000 });
+  if (!amount.ok) {
     return { ok: false, status: 400, body: { success: false, error: 'amount_cents must be an integer 0–1000000' } };
   }
+  const cents = amount.value;
   const loc = normalizeSunsetLocationId(locationId);
   const patch = {
     display_name: FULL_DAY_EQUIPMENT_ADDON_DISPLAY,
@@ -2335,6 +2358,7 @@ async function commitRentalEquipmentEdit(client, {
 module.exports = {
   SUNSET_ADMIN_CLIENT,
   ADMIN_WRITE_MIN_ROLE,
+  MAX_RENTAL_AMOUNT_CENTS,
   RENTAL_PERIOD_WINDOWS,
   RENTAL_PERIOD_WINDOWS_READABLE,
   RENTAL_SHORT_DURATION_KEYS,
@@ -2346,6 +2370,7 @@ module.exports = {
   validateUuid,
   validateAdminPriceRuleId,
   validateAdminLessonTimeRuleId,
+  validateAmountCents,
   validatePricePatchBody,
   validateLessonCapacityBody,
   validateLessonTimeCreateBody,
