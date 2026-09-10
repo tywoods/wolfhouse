@@ -22,8 +22,9 @@ assert.ok(api.includes('el(\'sns-new-enabled\').disabled = !serverOn'));
 assert.ok(api.includes('el(\'sns-new-enabled\').checked = serverOn && !!nc.enabled'));
 assert.ok(redesign.includes("var pctLabel = rawPct != null ? (String(Math.round(rawPct)) + '%') : ''"));
 assert.ok(redesign.includes('pfb-bar-row--util'));
-assert.ok(finance.includes("detail: stockKnown ? `${used}/${stockSum}` : (used ? String(used) : '—')"));
-assert.ok(!finance.includes('out ${used}'));
+assert.ok(finance.includes('scaledPeriodStockCapacity'), 'period stock scaling helper');
+assert.ok(finance.includes('accommodationGuestNightsInRange'), 'accommodation guest-night helper');
+assert.ok(!finance.includes('detail: stockKnown ? `${used}/${stockSum}` : (used ? String(used) :'));
 assert.ok(!api.includes('inbox-thread.js'));
 
 const start = redesign.indexOf('function financeRedesignEsc');
@@ -47,8 +48,7 @@ const html = box.renderFinanceRedesignHtml({
       seats_filled: 132,
       seats_capacity: 100,
       by_product: [
-        { slot: 'lessons', label: 'Lessons', pct: 132, detail: '132/100' },
-        { slot: 'other', label: 'Staff accommodation', used: 2, pct: null, detail: '2' },
+        { slot: 'lessons', label: 'Lessons', pct: 132, detail: '132/100', oversold: true },
       ],
     },
     daily_gross_trend: [],
@@ -65,8 +65,7 @@ assert.ok(/pfb-bar-fill[^>]*is-over[^>]*style="width:100%"/.test(html)
   || /pfb-bar-fill[^"]*is-over[^"]*"[^>]*width:100%/.test(html), 'fill clamps at 100% with over style');
 assert.ok(/pfb-ring is-over|data-finance-cap-ring="1"[^>]*data-capacity-over="1"/.test(html), 'ring marks over-capacity');
 assert.ok(/--pfb-ring:100%/.test(html), 'ring visual clamps at 100%');
-assert.ok(html.includes('Alojamiento') || html.includes('Accommodation'));
-assert.ok(!/out 2/.test(html), 'no English out-N leftover');
+assert.ok(!/Staff accommodation|Alojamiento/.test(html), 'accommodation without bed_capacity stays hidden');
 
 assert.ok(api.includes('.pfb-bar-fill.is-over') && api.includes('.pfb-ring.is-over'), 'over-capacity CSS present');
 assert.ok(/minmax\(4\.75rem,\s*max-content\)/.test(api), 'capacity amt column can grow for 132/100');
