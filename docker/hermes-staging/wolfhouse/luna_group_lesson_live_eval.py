@@ -6,6 +6,8 @@ import importlib
 import hashlib
 import json
 import os
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -54,6 +56,176 @@ REQUIRED_CASE_09_TOOL_SEQUENCE = (
     "get_sunset_offering_quote",
 )
 REQUIRED_CASE_09_STAFF_PATHS = frozenset(READ_ONLY_STAFF_PATHS)
+CAPTURE_LIMIT = 32
+CAPTURE_SCHEMA_VERSION = 1
+
+
+def _fingerprint(value: Any) -> str:
+    """Fingerprint canonical metadata without retaining the payload."""
+    encoded = json.dumps(value, ensure_ascii=True, sort_keys=True,
+                         separators=(",", ":"), default=str).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+@dataclass
+class BoundedMetadataCapture:
+    """Bounded no-payload trace populated at provider/executor boundaries."""
+
+    model: Optional[str]
+    revisions: Dict[str, Optional[str]]
+    run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    request: Dict[str, Any] = field(default_factory=lambda: {
+        "state": "not-reached", "attempted": None, "sent": None,
+        "prompt_fingerprints": None, "tool_names": None,
+        "tool_schema_fingerprints": None, "tool_choice": None,
+    })
+    response: Dict[str, Any] = field(default_factory=lambda: {
+        "state": "not-reached", "status": None, "finish_reason": None,
+        "tool_calls": None,
+    })
+    executor: Dict[str, Any] = field(default_factory=lambda: {
+        "state": "not-reached", "dispositions": None,
+    })
+
+    def observe_request(self, *, attempted: bool, sent: bool, prompts: Any = None,
+                        tools: Any = None, tool_choice: Any = None) -> None:
+        """Hash prompt/schema values immediately; never retain their payloads."""
+        prompt_values = prompts if isinstance(prompts, (list, tuple)) else None
+        tool_values = tools if isinstance(tools, (list, tuple)) else None
+        names, schemas = [], []
+        if tool_values is not None:
+            for tool in tool_values[:CAPTURE_LIMIT]:
+                if not isinstance(tool, dict):
+                    continue
+                function = tool.get("function") if isinstance(tool.get("function"), dict) else tool
+                names.append(str(function.get("name") or "unknown")[:256])
+                schemas.append(_fingerprint(function.get("parameters", function.get("inputSchema"))))
+        choice_metadata = None
+        if isinstance(tool_choice, str):
+            choice_metadata = tool_choice[:256]
+        elif isinstance(tool_choice, dict):
+            choice_type = next(iter(tool_choice), "unknown")
+            selected = tool_choice.get(choice_type)
+            selected_name = selected.get("name") if isinstance(selected, dict) else None
+            choice_metadata = str(choice_type)[:128] + ((":" + str(selected_name)[:128]) if selected_name else "")
+        self.request = {
+            "state": "observed", "attempted": bool(attempted), "sent": bool(sent),
+            "prompt_fingerprints": ([_fingerprint(item) for item in prompt_values[:CAPTURE_LIMIT]]
+                                    if prompt_values is not None else None),
+            "tool_names": names if tool_values is not None else None,
+            "tool_schema_fingerprints": schemas if tool_values is not None else None,
+            "tool_choice": choice_metadata,
+        }
+
+    def observe_response(self, *, status: Any, finish_reason: Any = None,
+                         tool_calls: Any = None) -> None:
+        calls = None
+        if isinstance(tool_calls, (list, tuple)):
+            calls = []
+            for call in tool_calls[:CAPTURE_LIMIT]:
+                if not isinstance(call, dict):
+                    continue
+                function = call.get("function") if isinstance(call.get("function"), dict) else call
+                calls.append({
+                    "id": str(call.get("id") or "")[:256] or None,
+                    "name": str(function.get("name") or "unknown")[:256],
+                    "arg_validation": str(call.get("arg_validation") or "capture-unavailable")[:256],
+                })
+        self.response = {
+            "state": "observed-none" if calls == [] else "observed",
+            "status": str(status)[:256] if status is not None else None,
+            "finish_reason": str(finish_reason)[:256] if finish_reason is not None else None,
+            "tool_calls": calls,
+        }
+
+    def observe_provider_result(self, result: Any) -> None:
+        """Reduce OpenAI/Bedrock response shapes without retaining payloads."""
+        def get(owner: Any, key: str, default: Any = None) -> Any:
+            return owner.get(key, default) if isinstance(owner, dict) else getattr(owner, key, default)
+
+        choices = get(result, "choices")
+        finish_reason, calls = None, None
+        status = get(result, "status")
+        if isinstance(choices, (list, tuple)) and choices:
+            choice = choices[0]
+            finish_reason = get(choice, "finish_reason")
+            message = get(choice, "message")
+            calls = get(message, "tool_calls") if message is not None else None
+        elif isinstance(result, dict) and isinstance(result.get("output"), dict):
+            finish_reason = result.get("stopReason")
+            message = result["output"].get("message", result["output"])
+            content = message.get("content") if isinstance(message, dict) else None
+            if isinstance(content, list):
+                calls = [{"id": use.get("toolUseId"), "function": {"name": use.get("name")},
+                          "arg_validation": "capture-unavailable"}
+                         for item in content[:CAPTURE_LIMIT]
+                         for use in [item.get("toolUse") if isinstance(item, dict) else None]
+                         if isinstance(use, dict)]
+        else:
+            output = get(result, "output")
+            if isinstance(output, (list, tuple)):
+                # OpenAI Responses terminal objects expose completed function
+                # calls in output. Retain only identity and validation state.
+                finish_reason = status
+                calls = []
+                for item in output[:CAPTURE_LIMIT]:
+                    if get(item, "type") != "function_call":
+                        continue
+                    calls.append({
+                        "id": get(item, "call_id") or get(item, "id"),
+                        "function": {"name": get(item, "name"),
+                                     "arguments": get(item, "arguments")},
+                    })
+        reduced = None
+        if isinstance(calls, (list, tuple)):
+            reduced = []
+            for call in calls[:CAPTURE_LIMIT]:
+                function = get(call, "function", call)
+                arguments = get(function, "arguments")
+                validation = get(call, "arg_validation", "capture-unavailable")
+                if isinstance(arguments, str):
+                    try:
+                        validation = "valid" if isinstance(json.loads(arguments), dict) else "invalid:not-object"
+                    except (TypeError, ValueError):
+                        validation = "invalid:json"
+                elif isinstance(arguments, dict):
+                    validation = "valid"
+                reduced.append({"id": get(call, "id"), "function": {"name": get(function, "name")},
+                                "arg_validation": validation})
+        self.observe_response(status=status or "ok", finish_reason=finish_reason, tool_calls=reduced)
+        if reduced == []:
+            self.observed_no_executor_calls()
+
+    def record_disposition(self, *, call_id: Any, name: Any, disposition: str,
+                           reason: Any = None) -> None:
+        if disposition not in {"accepted", "rejected", "dispatched", "completed", "failed"}:
+            raise ValueError("invalid_executor_disposition")
+        if self.executor["dispositions"] is None:
+            self.executor = {"state": "observed", "dispositions": []}
+        if len(self.executor["dispositions"]) < CAPTURE_LIMIT:
+            self.executor["dispositions"].append({
+                "id": str(call_id or "")[:256] or None,
+                "name": str(name or "unknown")[:256],
+                "disposition": disposition,
+                "reason": str(reason)[:256] if reason is not None else None,
+            })
+
+    def observed_no_executor_calls(self) -> None:
+        self.executor = {"state": "observed-none", "dispositions": []}
+
+    def finalize(self, *, model_reached: bool) -> Dict[str, Any]:
+        if model_reached:
+            for section in (self.request, self.response, self.executor):
+                if section["state"] == "not-reached":
+                    section["state"] = "capture-unavailable"
+        return {
+            "schema_version": CAPTURE_SCHEMA_VERSION, "run_id": self.run_id,
+            "revisions": dict(self.revisions), "model": self.model,
+            "request": dict(self.request), "response": dict(self.response),
+            "executor": {"state": self.executor["state"],
+                         "dispositions": (list(self.executor["dispositions"])
+                                          if isinstance(self.executor["dispositions"], list) else None)},
+        }
 
 
 def corpus_candidates(*, here: Optional[Path] = None):
@@ -96,7 +268,8 @@ def _message(case: Dict[str, Any]) -> str:
     )
 
 
-def _abort_counters(cap: IsolatedTurnCapture, *, settled: bool) -> Dict[str, Any]:
+def _abort_counters(cap: IsolatedTurnCapture, *, settled: bool,
+                    instrumentation: Optional[BoundedMetadataCapture] = None) -> Dict[str, Any]:
     def count(name: str):
         value = getattr(cap, name, None)
         return value if settled and type(value) is int and 0 <= value <= 2**53 - 1 else None
@@ -105,7 +278,7 @@ def _abort_counters(cap: IsolatedTurnCapture, *, settled: bool) -> Dict[str, Any
         value = getattr(cap, name, None)
         return list(value) if isinstance(value, list) else None
 
-    return {
+    result = {
         "read_tools_invoked": observed("read_tools_invoked"),
         "read_tools_completed": observed("read_tools_completed"),
         "read_staff_paths_invoked": observed("read_staff_paths_invoked"),
@@ -120,6 +293,9 @@ def _abort_counters(cap: IsolatedTurnCapture, *, settled: bool) -> Dict[str, Any
         "model_calls": count("model_calls"),
         "counter_snapshot_state": "settled_tracked_work" if settled else "partial",
     }
+    if instrumentation is not None:
+        result["capture"] = instrumentation.finalize(model_reached=bool(cap.model_called))
+    return result
 
 
 async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, require_live_seams: bool = True):
@@ -138,11 +314,20 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, requ
     cap.read_only_tool_allowlist = READ_ONLY_TOOL_ALLOWLIST
     cap.read_only_staff_paths = READ_ONLY_STAFF_PATHS
     cap.evidence_kind = "live_gateway" if invoke_turn is None else "test_double"
+    instrumentation = BoundedMetadataCapture(
+        model=declared or None,
+        revisions={"wolfhouse": os.getenv("WOLFHOUSE_REVISION") or None,
+                   "hermes": os.getenv("HERMES_REVISION") or None},
+    )
+    cap.metadata_capture = instrumentation
     token = enter_isolated_turn(cap)
     first_abort = None
     try:
         preflight_isolation_or_abort(require_live_seams=require_live_seams)
-        reply = await (invoke_turn or default_invoke_live_gateway)(_message(case), cap, {"case": case})
+        reply = await (invoke_turn or default_invoke_live_gateway)(
+            _message(case), cap,
+            {"case": case, "capture_instrumentation": instrumentation},
+        )
         cap.final_handler_text = str(reply or "").strip()
         settle_isolated_work(cap)
         if cap.model_calls < 1 or not cap.model_called:
@@ -185,6 +370,7 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, requ
             "persistence_effects_completed": list(cap.persistence_effects_completed),
             "model": cap.model,
             "model_calls": cap.model_calls,
+            "capture": instrumentation.finalize(model_reached=bool(cap.model_called)),
             "serving_identity": identity,
         }
     except IsolationAbort as exc:
@@ -204,7 +390,9 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None, requ
             exit_isolated_turn(token)
         failure = first_abort or settle_abort
         if failure is not None:
-            failure.counters = _abort_counters(cap, settled=settled)
+            failure.counters = _abort_counters(
+                cap, settled=settled, instrumentation=instrumentation,
+            )
             if first_abort is None:
                 raise failure
 

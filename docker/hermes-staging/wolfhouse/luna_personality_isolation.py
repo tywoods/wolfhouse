@@ -236,6 +236,8 @@ class IsolatedTurnCapture:
     _provider_lifetime: Any = field(default_factory=threading.Condition, init=False, repr=False, compare=False)
     persistence_denied: Dict[str, int] = field(default_factory=dict)
     persistence_effects_completed: List[str] = field(default_factory=list)
+    # Optional bounded, no-payload instrumentation owned by this same turn.
+    metadata_capture: Any = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -692,14 +694,34 @@ def _wrap_tool_dispatcher(handle_mod: Any = None) -> bool:
         return True
 
     def _wrapped(function_name: str, function_args: Any = None, *rest: Any, **kwargs: Any) -> Any:
-        blocked = deny_tool_if_isolated(str(function_name), function_args if isinstance(function_args, dict) else {})
-        if blocked:
-            return json.dumps({"error": blocked}, ensure_ascii=False)
-        result = orig(function_name, function_args, *rest, **kwargs)
         cap = _ISOLATED.get()
-        if (cap is not None and str(function_name) in cap.read_only_tool_allowlist
-                and _isolated_result_succeeded(result)):
-            cap.read_tools_completed.append(str(function_name))
+        instrumentation = getattr(cap, "metadata_capture", None) if cap is not None else None
+        name = str(function_name)
+        blocked = deny_tool_if_isolated(name, function_args if isinstance(function_args, dict) else {})
+        if blocked:
+            if instrumentation is not None:
+                instrumentation.record_disposition(call_id=None, name=name,
+                                                    disposition="rejected", reason="isolation_policy")
+            return json.dumps({"error": blocked}, ensure_ascii=False)
+        if instrumentation is not None:
+            instrumentation.record_disposition(call_id=None, name=name, disposition="accepted")
+            instrumentation.record_disposition(call_id=None, name=name, disposition="dispatched")
+        try:
+            result = orig(function_name, function_args, *rest, **kwargs)
+        except BaseException:
+            if instrumentation is not None:
+                instrumentation.record_disposition(call_id=None, name=name,
+                                                    disposition="failed", reason="dispatcher_exception")
+            raise
+        succeeded = _isolated_result_succeeded(result)
+        if instrumentation is not None:
+            instrumentation.record_disposition(
+                call_id=None, name=name,
+                disposition="completed" if succeeded else "failed",
+                reason=None if succeeded else "dispatcher_error_result",
+            )
+        if (cap is not None and name in cap.read_only_tool_allowlist and succeeded):
+            cap.read_tools_completed.append(name)
         return result
 
     _mark(_wrapped)
@@ -2410,6 +2432,12 @@ class _ObservedResponsesStream:
                 with cap._responses_sdk_lock:
                     if self._terminal is None and kind in ("response.completed", "response.failed", "response.incomplete"):
                         self._terminal = kind
+                        instrumentation = getattr(cap, "metadata_capture", None)
+                        if instrumentation is not None:
+                            response = (event.get("response") if isinstance(event, dict)
+                                        else getattr(event, "response", None))
+                            if response is not None:
+                                instrumentation.observe_provider_result(response)
                         if kind == "response.completed":
                             cap.responses_completed = min(cap.responses_completed + 1, 2**53 - 1)
             except StopIteration:
@@ -2485,16 +2513,46 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
                 _check_request_identity(binding)
         cap = _ISOLATED.get()
         with _isolated_provider_operation(cap):
+            instrumentation = getattr(cap, "metadata_capture", None) if cap is not None else None
             if cap is not None:
                 payload = kwargs if kwargs else (args[0] if args and isinstance(args[0], dict) else {})
+                prompts = payload.get("messages") or payload.get("input")
+                if prompts is None:
+                    prompts = [payload[key] for key in ("instructions", "system")
+                               if payload.get(key) is not None]
+                elif not isinstance(prompts, (list, tuple)):
+                    prompts = [prompts]
+                tools = payload.get("tools")
+                if tools is None and isinstance(payload.get("toolConfig"), dict):
+                    tools = payload["toolConfig"].get("tools")
+                tool_choice = payload.get("tool_choice") or payload.get("toolChoice")
+                if instrumentation is not None:
+                    instrumentation.observe_request(
+                        attempted=True, sent=False, prompts=prompts, tools=tools,
+                        tool_choice=tool_choice,
+                    )
                 if responses:
                     if args or kwargs.get("stream") is not True or kwargs.get("model") != binding[2]:
                         raise IsolationAbort("responses_dispatch_identity_changed")
                 observe_provider_dispatch(payload)
+                if instrumentation is not None:
+                    # "sent" means admitted to the SDK callable, after all
+                    # wrapper-owned validation which can abort dispatch.
+                    instrumentation.observe_request(
+                        attempted=True, sent=True, prompts=prompts, tools=tools,
+                        tool_choice=tool_choice,
+                    )
                 if responses:
                     with cap._responses_sdk_lock:
                         cap.responses_sdk_attempted = min(cap.responses_sdk_attempted + 1, 2**53 - 1)
-            result = original(*args, **kwargs)
+            try:
+                result = original(*args, **kwargs)
+            except BaseException:
+                if instrumentation is not None:
+                    instrumentation.observe_response(status="provider_error", tool_calls=None)
+                raise
+            if instrumentation is not None and not responses:
+                instrumentation.observe_provider_result(result)
             if responses and cap is not None:
                 with cap._responses_sdk_lock:
                     cap.responses_sdk_returned = min(cap.responses_sdk_returned + 1, 2**53 - 1)
