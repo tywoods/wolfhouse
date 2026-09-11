@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, Dict, List, Tuple
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent
@@ -1091,6 +1092,207 @@ class GroupLessonCase09Tests(unittest.TestCase):
         self.assertEqual(finalized["response"]["native_stream_event_types"], ["response.completed"])
         self.assertEqual(finalized["response"]["boundary_verdict"], "adapter_drop_recovered")
         self.assertNotIn("private", json.dumps(finalized))
+
+    def test_lr32_app_handoff_promotes_completed_assembled_call_over_empty_terminal(self):
+        """Sealed #957 order: valid done item must replace premature empty-terminal capture."""
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+        call = {
+            "type": "function_call", "id": "fc-sealed-957",
+            "call_id": "call-sealed-957", "name": "get_sunset_lesson_catalog",
+            "arguments": "{\"location\":\"sunset-somo\"}", "status": "completed",
+        }
+        events = [
+            {"type": "response.created"},
+            {"type": "response.in_progress"},
+            {"type": "response.output_item.added", "item": {"type": "reasoning"}},
+            {"type": "response.output_item.done", "item": {"type": "reasoning"}},
+            {"type": "response.output_item.added", "item": dict(call, status="in_progress")},
+            {"type": "response.function_call_arguments.delta", "delta": "{\"location\":"},
+            {"type": "response.function_call_arguments.delta", "delta": "\"sunset-somo\"}"},
+            {"type": "response.function_call_arguments.done", "arguments": call["arguments"]},
+            {"type": "response.output_item.done", "item": call},
+            {"type": "response.completed", "response": {
+                "id": "resp-sealed-957", "model": agent.model, "status": "completed",
+                "usage": {"input_tokens": 1, "output_tokens": 1}, "output": [],
+            }},
+        ]
+
+        class SealedStream:
+            def __iter__(self):
+                return iter(events)
+
+            def close(self):
+                return None
+
+        def assemble(event_iter, *, model, **_kwargs):
+            output = [event["item"] for event in event_iter
+                      if event.get("type") == "response.output_item.done"]
+            return SimpleNamespace(
+                id="resp-sealed-957", model=model, status="completed",
+                usage={"input_tokens": 1, "output_tokens": 1}, output=output,
+                output_text="", terminal_event_type="response.completed",
+            )
+
+        runtime = SimpleNamespace(_consume_codex_event_stream=assemble)
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            isolation._wrap_codex_parser(runtime)
+            create = isolation._observe_create_call(
+                lambda **_kwargs: SealedStream(), binding, responses=True,
+            )
+            stream = create(
+                model=agent.model, stream=True, input="private",
+                tools=[{"type": "function", "name": call["name"],
+                        "parameters": {"type": "object", "properties": {}}}],
+                tool_choice="auto",
+            )
+            result = runtime._consume_codex_event_stream(stream, model=agent.model)
+            stream.close()
+        finally:
+            isolation.exit_isolated_turn(token)
+
+        finalized = capture.finalize(model_reached=True)
+        executables = normalize_output_to_executable_calls(result.output)
+        dispatched = [(item["name"], item["id"], item["arguments"]) for item in executables]
+        self.assertEqual(result.id, "resp-sealed-957")
+        self.assertEqual(result.status, "completed")
+        self.assertEqual(result.usage, {"input_tokens": 1, "output_tokens": 1})
+        self.assertEqual(dispatched, [(call["name"], call["call_id"], call["arguments"])])
+        self.assertEqual(finalized["response"]["completion_category"], "tool_calls")
+        self.assertEqual(finalized["response"]["tool_calls"], [{
+            "id": call["call_id"], "name": call["name"], "arg_validation": "valid",
+        }])
+        self.assertEqual(finalized["response"]["normalized_call_count"], 1)
+        self.assertEqual(finalized["response"]["boundary_verdict"], "native_calls_present")
+        self.assertEqual(getattr(stream, "_recovery_evidence", {}).get("recovery"),
+                         "assembled_already_has_calls")
+
+    def test_lr32_app_handoff_rejects_unsafe_promotion_and_duplicate_concat(self):
+        """Only validated calls from the same completed response become authoritative."""
+        import wolfhouse.luna_personality_isolation as isolation
+
+        valid_call = {
+            "type": "function_call", "call_id": "call-safe",
+            "name": "get_sunset_lesson_catalog", "arguments": "{}",
+            "status": "completed",
+        }
+
+        def exercise(*, assembled_output, terminal_type="response.completed",
+                     terminal_status="completed", terminal_output=None,
+                     assembled_status=None, assembled_id="resp-safe", terminal_id="resp-safe"):
+            capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+            cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+            agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+            binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+            cap.metadata_capture = capture
+            terminal_response = {
+                "id": terminal_id, "status": terminal_status,
+                "output": list(terminal_output or []),
+            }
+            events = [
+                {"type": "response.output_item.done", "item": item}
+                for item in assembled_output
+            ] + [{"type": terminal_type, "response": terminal_response}]
+
+            class Stream:
+                def __iter__(self):
+                    return iter(events)
+
+                def close(self):
+                    return None
+
+            def assemble(event_iter, *, model, **_kwargs):
+                list(event_iter)
+                return SimpleNamespace(
+                    id=assembled_id, model=model,
+                    status=assembled_status or terminal_status,
+                    usage={"input_tokens": 1, "output_tokens": 1},
+                    output=list(assembled_output), output_text="",
+                    terminal_event_type=terminal_type,
+                )
+
+            runtime = SimpleNamespace(_consume_codex_event_stream=assemble)
+            token = isolation.enter_isolated_turn(cap)
+            try:
+                isolation._wrap_codex_parser(runtime)
+                create = isolation._observe_create_call(
+                    lambda **_kwargs: Stream(), binding, responses=True,
+                )
+                stream = create(
+                    model=agent.model, stream=True, input="private",
+                    tools=[{"type": "function", "name": valid_call["name"],
+                            "parameters": {"type": "object", "properties": {}}}],
+                    tool_choice="auto",
+                )
+                result = runtime._consume_codex_event_stream(stream, model=agent.model)
+                stream.close()
+            finally:
+                isolation.exit_isolated_turn(token)
+            return result, capture.finalize(model_reached=True)
+
+        cases: List[Tuple[str, Dict[str, Any]]] = [
+            ("empty", {"assembled_output": []}),
+            ("incomplete_args", {"assembled_output": [dict(valid_call, arguments="{")]}),
+            ("failed", {"assembled_output": [valid_call],
+                        "terminal_type": "response.failed", "terminal_status": "failed"}),
+            ("incomplete", {"assembled_output": [valid_call],
+                            "terminal_type": "response.incomplete", "terminal_status": "incomplete"}),
+            ("mismatched_response", {"assembled_output": [valid_call],
+                                     "terminal_id": "resp-other"}),
+        ]
+        for label, kwargs in cases:
+            with self.subTest(label=label):
+                _result, finalized = exercise(**kwargs)
+                self.assertNotEqual(finalized["response"]["completion_category"], "tool_calls")
+                self.assertEqual(finalized["response"].get("tool_calls") or [], [])
+
+        result, finalized = exercise(
+            assembled_output=[valid_call], terminal_output=[valid_call],
+        )
+        self.assertEqual(len(normalize_output_to_executable_calls(result.output)), 1)
+        self.assertEqual(len(finalized["response"]["tool_calls"]), 1)
+        self.assertEqual(finalized["response"]["tool_calls"][0]["id"], "call-safe")
+
+        class InterruptedStream:
+            def __iter__(self):
+                yield {"type": "response.output_item.done", "item": valid_call}
+                raise KeyboardInterrupt()
+
+            def close(self):
+                return None
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+        runtime = SimpleNamespace(
+            _consume_codex_event_stream=lambda event_iter, **_kwargs: list(event_iter),
+        )
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            isolation._wrap_codex_parser(runtime)
+            create = isolation._observe_create_call(
+                lambda **_kwargs: InterruptedStream(), binding, responses=True,
+            )
+            stream = create(
+                model=agent.model, stream=True, input="private",
+                tools=[{"type": "function", "name": valid_call["name"],
+                        "parameters": {"type": "object", "properties": {}}}],
+                tool_choice="auto",
+            )
+            with self.assertRaises(KeyboardInterrupt):
+                runtime._consume_codex_event_stream(stream, model=agent.model)
+        finally:
+            isolation.exit_isolated_turn(token)
+        interrupted = capture.finalize(model_reached=True)
+        self.assertEqual(interrupted["response"].get("tool_calls") or [], [])
 
     def test_lr32_wire_to_native_fixtures_discriminate_native_empty_vs_adapter_drop(self):
         """Offline redacted fixtures: boundary record + replay prove where the call is."""
