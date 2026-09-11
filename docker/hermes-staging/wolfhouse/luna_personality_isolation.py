@@ -2558,10 +2558,34 @@ def _wrap_codex_parser(mod: Any) -> None:
                             ),
                             recovery=evidence.get("recovery"),
                         )
-                    if (evidence.get("recovery") == "terminal_function_calls_merged"
-                            and observed._terminal_response is not None):
-                        # Re-classify capture from the recovered assembled output so
-                        # metadata matches the executable path (still no dispatch).
+                    recovery = evidence.get("recovery")
+                    terminal = observed._terminal_response
+                    assembled_status = (
+                        result.get("status") if isinstance(result, dict)
+                        else getattr(result, "status", None)
+                    )
+                    terminal_status = (
+                        terminal.get("status") if isinstance(terminal, dict)
+                        else getattr(terminal, "status", None)
+                    )
+                    assembled_id = (
+                        result.get("id") if isinstance(result, dict)
+                        else getattr(result, "id", None)
+                    )
+                    terminal_id = (
+                        terminal.get("id") if isinstance(terminal, dict)
+                        else getattr(terminal, "id", None)
+                    )
+                    same_response = not (assembled_id and terminal_id) or assembled_id == terminal_id
+                    if (recovery in {"assembled_already_has_calls",
+                                     "terminal_function_calls_merged"}
+                            and observed._terminal == "response.completed"
+                            and assembled_status == "completed"
+                            and terminal_status == "completed"
+                            and same_response):
+                        # The terminal object may be empty even though output_item.done
+                        # assembled validated calls for this same completed response.
+                        # Make the assembled result authoritative at app handoff.
                         instrumentation.observe_provider_result(result)
             terminal_type = getattr(result, "terminal_event_type", None)
             if terminal_type is None and isinstance(result, dict):
