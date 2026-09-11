@@ -22,6 +22,7 @@ import hashlib
 import hmac
 import inspect
 import json
+import sys
 import threading
 import time
 import uuid
@@ -698,6 +699,17 @@ def _wrap_pre_tool_call_block(plugins_mod: Any = None) -> bool:
     return True
 
 
+def _rebind_tool_dispatcher_aliases(original: Any, wrapped: Any) -> None:
+    """Update Hermes aliases imported before the model_tools wrapper was installed."""
+    run_agent = sys.modules.get("run_agent")
+    if run_agent is None:
+        return
+    current = getattr(run_agent, "handle_function_call", None)
+    if current is original:
+        _save_orig(run_agent, "handle_function_call", current)
+        run_agent.handle_function_call = wrapped
+
+
 def _wrap_tool_dispatcher(handle_mod: Any = None) -> bool:
     global _tool_dispatcher_wrapped
     mod = handle_mod
@@ -712,6 +724,9 @@ def _wrap_tool_dispatcher(handle_mod: Any = None) -> bool:
         _tool_dispatcher_wrapped = False
         return False
     if _is_wrapped(orig):
+        original = getattr(orig, "_luna_personality_dispatcher_original", None)
+        if original is not None:
+            _rebind_tool_dispatcher_aliases(original, orig)
         _tool_dispatcher_wrapped = True
         return True
 
@@ -747,8 +762,10 @@ def _wrap_tool_dispatcher(handle_mod: Any = None) -> bool:
         return result
 
     _mark(_wrapped)
+    setattr(_wrapped, "_luna_personality_dispatcher_original", orig)
     _save_orig(mod, "handle_function_call", orig)
     mod.handle_function_call = _wrapped
+    _rebind_tool_dispatcher_aliases(orig, _wrapped)
     _tool_dispatcher_wrapped = True
     return True
 

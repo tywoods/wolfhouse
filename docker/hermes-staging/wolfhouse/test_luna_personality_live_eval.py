@@ -45,8 +45,10 @@ from wolfhouse.luna_personality_isolation import (  # noqa: E402
     reset_isolation_runtime_for_tests,
     _wrap_openai_client_factory,
     _wrap_bedrock_client_factory,
+    _wrap_tool_dispatcher,
     settle_isolated_work,
 )
+from wolfhouse.luna_group_lesson_live_eval import BoundedMetadataCapture  # noqa: E402
 from wolfhouse.luna_personality_live_eval import (  # noqa: E402
     ALLOWED_CASE_IDS,
     INSTALLED_CORPUS_PATH,
@@ -436,6 +438,65 @@ def _count_retained_fresh_mirror_loads(loads: int = 12) -> int:
 class IsolationContextTests(unittest.TestCase):
     def tearDown(self) -> None:
         reset_isolation_runtime_for_tests()
+
+    def test_dispatcher_wrapper_rebinds_stale_run_agent_alias(self) -> None:
+        calls = []
+
+        def original(name, args):
+            calls.append((name, args))
+            return json.dumps({"success": True})
+
+        model_tools = types.ModuleType("rebind_model_tools")
+        model_tools.handle_function_call = original
+        run_agent = types.ModuleType("run_agent")
+        run_agent.handle_function_call = original
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.observe_request(
+            attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto",
+        )
+        capture.observe_response(
+            status="ok",
+            finish_reason="tool_calls",
+            tool_calls=[{
+                "id": "call-sealed-1",
+                "function": {"name": "get_sunset_lesson_catalog"},
+                "arg_validation": "valid",
+            }],
+            provider_shape="openai_responses",
+            completion_category="tool_calls",
+        )
+        cap = IsolatedTurnCapture(case_id="case-09", personality_id="sunny")
+        cap.metadata_capture = capture
+        cap.read_only_tool_allowlist = frozenset({"get_sunset_lesson_catalog"})
+
+        with mock.patch.dict(sys.modules, {"run_agent": run_agent}, clear=False):
+            self.assertTrue(_wrap_tool_dispatcher(model_tools))
+            wrapped = model_tools.handle_function_call
+            self.assertIs(run_agent.handle_function_call, wrapped)
+            # Re-installation must also repair a stale alias after model_tools is already wrapped.
+            run_agent.handle_function_call = original
+            self.assertTrue(_wrap_tool_dispatcher(model_tools))
+            self.assertIs(run_agent.handle_function_call, wrapped)
+            token = enter_isolated_turn(cap)
+            try:
+                result = run_agent.handle_function_call(
+                    "get_sunset_lesson_catalog", {"location_id": "sunset-somo"},
+                )
+            finally:
+                exit_isolated_turn(token)
+
+        self.assertEqual(calls, [("get_sunset_lesson_catalog", {"location_id": "sunset-somo"})])
+        self.assertEqual(json.loads(result), {"success": True})
+        final_capture = capture.finalize(model_reached=True)
+        call1_dispositions = final_capture["calls"][0]["executor"]["dispositions"]
+        self.assertEqual(
+            [entry["disposition"] for entry in call1_dispositions],
+            ["accepted", "dispatched", "completed"],
+        )
+        self.assertTrue(all(entry["provider_call_id"] == "call-sealed-1"
+                            for entry in call1_dispositions))
+        self.assertEqual(cap.read_tools_completed, ["get_sunset_lesson_catalog"])
+        self.assertIs(run_agent.handle_function_call, model_tools.handle_function_call)
 
     def test_preflight_aborts_before_model_when_context_missing(self) -> None:
         with self.assertRaises(IsolationAbort) as ctx:
