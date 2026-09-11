@@ -521,6 +521,13 @@ class BoundedMetadataCapture:
 
     def observed_no_executor_calls(self) -> None:
         call = self._ensure_call()
+        call_executor = call["executor"]
+        if call_executor.get("dispositions"):
+            self.executor = {
+                "state": call_executor["state"],
+                "dispositions": list(call_executor["dispositions"]),
+            }
+            return
         call["executor"] = {"state": "observed-none", "dispositions": []}
         self.executor = {"state": "observed-none", "dispositions": []}
 
