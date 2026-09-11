@@ -1,0 +1,21 @@
+{
+  "schema": "luna-lr32-wire-to-native",
+  "id": "observation-incomplete-no-terminal",
+  "description": "Streaming with no recorded stream event types and no terminal status — cannot claim native empty.",
+  "transport": {
+    "api_mode": "codex_responses",
+    "model": "gpt-5.6-sol",
+    "endpoint": "https://api.openai.com/v1/responses",
+    "streaming": true
+  },
+  "request_wire": {
+    "tool_choice_wire": "responses_function",
+    "tools_wire": ["responses_function"]
+  },
+  "native_stream_event_types": [],
+  "assembled": {
+    "output": []
+  },
+  "terminal_response": null,
+  "expected_boundary_verdict": "observation_incomplete"
+}

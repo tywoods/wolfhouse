@@ -1,6 +1,6 @@
 """Responses API request/response adapter helpers (offline + isolation).
 
-Cap LR3.1-NAMED-READ-DIAG-RESULT-001 / LR3.2 tip after #953:
+Cap LR3.1-NAMED-READ-DIAG-RESULT-001 / LR3.2 tip after #953 / post-#956:
 
 - Capture label ``function:TOOL`` is not a valid Responses ``tool_choice`` string.
   Canonical wire is ``{"type":"function","name":TOOL}``. Chat nested
@@ -12,17 +12,42 @@ Cap LR3.1-NAMED-READ-DIAG-RESULT-001 / LR3.2 tip after #953:
   When the provider places ``function_call`` items only on the terminal output,
   those calls are lost before executable normalization. Recovery merges terminal
   native items into the assembled response without dispatching tools.
+- Post-#956 live still sealed ``empty_tool_calls`` with ``output_item_types=[]``.
+  Labels alone cannot say WHERE the call disappeared. Wire-to-native boundary
+  records + offline replay discriminate native-empty vs adapter-drop before any
+  further repair/deploy.
 """
 
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import urlparse
 
 UNSUPPORTED_TOOL_CHOICE_LABEL_PREFIX = "function:"
 _INCOMPLETE_ITEM_STATUSES = frozenset({"queued", "in_progress", "incomplete"})
 PROVIDER_EMPTY_WITH_WIRE_OK = "provider_empty_with_wire_ok"
+BOUNDARY_RECORD_SCHEMA_VERSION = 1
+# Sealed post-#956 live (digest sha256:f74d9e5d… / master 39c9f014): wire OK +
+# completed + tool_calls=[] + output_item_types=[]. Offline adapter recovers when
+# native function_call is present; sealed capture lacked stream event types and
+# assembled/terminal split, so observation_incomplete remains unfalsified from
+# sealed alone. Do not keep repairing extraction until a boundary record proves
+# adapter-drop.
+COMPATIBILITY_BLOCKER_ID = (
+    "lr32_post956_native_empty_or_observation_incomplete"
+)
+COMPATIBILITY_BLOCKER_MISSING_EVIDENCE = (
+    "native_stream_event_types",
+    "terminal_output_item_types",
+    "assembled_output_item_types",
+    "normalized_call_count",
+    "boundary_verdict",
+)
+DIRECT_COMPARE_FLAG = "LUNA_LR32_BOUNDARY_DIRECT_COMPARE"
 
 
 def item_type_name(value: Any) -> Optional[str]:
@@ -237,10 +262,17 @@ def normalize_function_call_to_executable(item: Any, *, index: int = 0) -> Dict[
 
 
 def normalize_output_to_executable_calls(output: Any) -> List[Dict[str, Any]]:
-    """Normalize all completed native function_call items to executable descriptors."""
+    """Normalize all completed native function_call items to executable descriptors.
+
+    Items that cannot become executables are skipped (caller uses native type lists
+    + empty result to classify ``lost_normalization``). Never dispatches tools.
+    """
     calls: List[Dict[str, Any]] = []
     for index, item in enumerate(extract_native_function_call_items(output)):
-        calls.append(normalize_function_call_to_executable(item, index=index))
+        try:
+            calls.append(normalize_function_call_to_executable(item, index=index))
+        except ValueError:
+            continue
     return calls
 
 
@@ -297,10 +329,15 @@ def merge_terminal_function_calls_into_assembled(
     if not recovered_items:
         evidence["recovery"] = "terminal_empty_or_non_call"
         return assembled, evidence
-    namespaces = [
-        function_call_item_as_namespace(item, index=index)
-        for index, item in enumerate(recovered_items)
-    ]
+    namespaces = []
+    for index, item in enumerate(recovered_items):
+        try:
+            namespaces.append(function_call_item_as_namespace(item, index=index))
+        except ValueError:
+            continue
+    if not namespaces:
+        evidence["recovery"] = "recovery_normalization_failed"
+        return assembled, evidence
     # Prove the real normalization path: recovered native items must become
     # executable descriptors before they are attached to the assembled response.
     executables = normalize_output_to_executable_calls(namespaces)
@@ -349,3 +386,354 @@ def classify_empty_tool_boundary(
     if "function_call" in native_item_types and not executable_calls:
         return "lost_normalization"
     return "empty_tool_calls"
+
+
+def redact_endpoint_identity(base_url: Any) -> Optional[str]:
+    """Host + path only; never retain query, fragment, credentials, or guest payloads."""
+    if not isinstance(base_url, str) or not base_url.strip():
+        return None
+    try:
+        parsed = urlparse(base_url.strip())
+    except ValueError:
+        return "unparseable"
+    host = (parsed.hostname or "").lower()[:253]
+    if not host:
+        return "missing_host"
+    path = (parsed.path or "").rstrip("/")[:128] or "/"
+    scheme = (parsed.scheme or "https").lower()[:16]
+    return f"{scheme}://{host}{path}"
+
+
+def _bounded_type_list(values: Any, *, limit: int = 32) -> List[str]:
+    if not isinstance(values, (list, tuple)):
+        return []
+    out: List[str] = []
+    for item in values[:limit]:
+        name = item_type_name(item) if not isinstance(item, str) else str(item).strip()
+        if name:
+            out.append(name[:64])
+    return out
+
+
+def discriminate_wire_to_native(
+    *,
+    tool_choice_wire: Optional[str],
+    tools_wire: Sequence[str],
+    streaming: bool,
+    native_stream_event_types: Sequence[str],
+    terminal_status: Optional[str],
+    terminal_output_item_types: Sequence[str],
+    assembled_output_item_types: Sequence[str],
+    normalized_call_count: int,
+    recovery: Optional[str] = None,
+) -> str:
+    """Return a boundary verdict: where the call is relative to wire → native → normalize.
+
+    Capture labels alone are insufficient — this requires event/item type lists and
+    a normalized call count from the real adapter path (still no tool dispatch).
+    """
+    if normalized_call_count > 0:
+        if recovery == "terminal_function_calls_merged":
+            return "adapter_drop_recovered"
+        return "native_calls_present"
+    terminal = item_type_name(terminal_status)
+    stream_types = _bounded_type_list(native_stream_event_types)
+    terminal_types = _bounded_type_list(terminal_output_item_types)
+    assembled_types = _bounded_type_list(assembled_output_item_types)
+    if streaming and not stream_types and terminal is None:
+        return "observation_incomplete"
+    if "function_call" in terminal_types or "function_call" in assembled_types:
+        return "lost_normalization"
+    if any(kind in {"response.failed", "response.incomplete"} for kind in stream_types):
+        return "terminal_not_completed"
+    if terminal in _INCOMPLETE_ITEM_STATUSES:
+        return "terminal_incomplete"
+    category = classify_empty_tool_boundary(
+        tool_choice_wire=tool_choice_wire,
+        tools_wire=tools_wire,
+        native_item_types=terminal_types or assembled_types,
+        executable_calls=[],
+    )
+    if category == PROVIDER_EMPTY_WITH_WIRE_OK:
+        # Wire admitted + completed/empty native → provider empty (or still-missing
+        # observation fields if stream types never recorded — callers must attach them).
+        if streaming and "response.completed" not in stream_types and terminal is None:
+            return "observation_incomplete"
+        return PROVIDER_EMPTY_WITH_WIRE_OK
+    return category
+
+
+def build_wire_to_native_boundary_record(
+    *,
+    api_mode: Optional[str],
+    model: Optional[str],
+    endpoint: Any = None,
+    streaming: bool,
+    tool_choice: Any = None,
+    tools: Any = None,
+    tool_choice_wire: Optional[str] = None,
+    tools_wire: Optional[Sequence[str]] = None,
+    native_stream_event_types: Sequence[str] = (),
+    terminal_status: Optional[str] = None,
+    terminal_output_item_types: Sequence[str] = (),
+    assembled_output_item_types: Sequence[str] = (),
+    normalized_call_count: int = 0,
+    recovery: Optional[str] = None,
+    executable_names: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """Build a redacted wire→native boundary record (no credentials / guest payloads)."""
+    if tool_choice_wire is None and tool_choice is not None:
+        tool_choice_wire = responses_tool_choice_wire(tool_choice)
+    if tools_wire is None and isinstance(tools, (list, tuple)):
+        tools_wire = [responses_tool_schema_wire(tool) for tool in tools[:32]]
+    tools_wire_list = list(tools_wire or [])
+    choice_label = tool_choice_capture_label(tool_choice) if tool_choice is not None else None
+    if choice_label is None and tool_choice_wire == "responses_function":
+        choice_label = "function:(wire-only)"
+    stream_types = _bounded_type_list(native_stream_event_types)
+    terminal_types = _bounded_type_list(terminal_output_item_types)
+    assembled_types = _bounded_type_list(assembled_output_item_types)
+    count = max(0, int(normalized_call_count))
+    verdict = discriminate_wire_to_native(
+        tool_choice_wire=tool_choice_wire,
+        tools_wire=tools_wire_list,
+        streaming=bool(streaming),
+        native_stream_event_types=stream_types,
+        terminal_status=terminal_status,
+        terminal_output_item_types=terminal_types,
+        assembled_output_item_types=assembled_types,
+        normalized_call_count=count,
+        recovery=recovery,
+    )
+    record: Dict[str, Any] = {
+        "schema_version": BOUNDARY_RECORD_SCHEMA_VERSION,
+        "transport": {
+            "api_mode": str(api_mode)[:64] if api_mode is not None else None,
+            "model": str(model)[:128] if model is not None else None,
+            "endpoint": redact_endpoint_identity(endpoint),
+            "streaming": bool(streaming),
+        },
+        "request_wire": {
+            "tool_choice_label": choice_label[:256] if choice_label else None,
+            "tool_choice_wire": tool_choice_wire,
+            "tools_wire": tools_wire_list[:32],
+            "tools_count": len(tools_wire_list),
+        },
+        "native_response": {
+            "stream_event_types": stream_types,
+            "terminal_status": item_type_name(terminal_status),
+            "terminal_output_item_types": terminal_types,
+            "assembled_output_item_types": assembled_types,
+        },
+        "normalization": {
+            "normalized_call_count": count,
+            "executable_names": [str(name)[:128] for name in (executable_names or [])[:32]],
+            "recovery": recovery or "none",
+        },
+        "boundary_verdict": verdict,
+    }
+    if verdict == PROVIDER_EMPTY_WITH_WIRE_OK:
+        record["compatibility_blocker"] = {
+            "id": COMPATIBILITY_BLOCKER_ID,
+            "missing_evidence_if_observation_unproven": list(
+                COMPATIBILITY_BLOCKER_MISSING_EVIDENCE
+            ),
+            "guidance": (
+                "Native empty despite valid named/auto wire — investigate endpoint/"
+                "proxy tool_choice support/enforcement; do not keep repairing extraction."
+            ),
+        }
+    return record
+
+
+def replay_native_through_adapter(
+    *,
+    assembled: Any,
+    terminal_response: Any,
+    tool_choice_wire: str,
+    tools_wire: Sequence[str],
+    api_mode: str = "codex_responses",
+    model: str = "gpt-5.6-sol",
+    endpoint: Optional[str] = None,
+    streaming: bool = True,
+    native_stream_event_types: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """Offline replay: feed native terminal/assembled through the deployed adapter.
+
+    Returns ``{merged, evidence, boundary_record, boundary_verdict}`` without
+    dispatching tools. Discriminates:
+    - native function_call present, normalized absent → lost_normalization / repair
+    - native genuinely empty with wire OK → provider_empty_with_wire_ok (blocker)
+    """
+    merged, evidence = merge_terminal_function_calls_into_assembled(
+        assembled, terminal_response,
+    )
+    executables = normalize_output_to_executable_calls(_field(merged, "output"))
+    if native_stream_event_types is None:
+        # Synthetic default only when the caller omitted stream evidence entirely.
+        stream_types = ["response.completed"] if streaming else []
+    else:
+        stream_types = list(native_stream_event_types)
+    terminal_status = item_type_name(_field(terminal_response, "status"))
+    record = build_wire_to_native_boundary_record(
+        api_mode=api_mode,
+        model=model,
+        endpoint=endpoint,
+        streaming=streaming,
+        tool_choice_wire=tool_choice_wire,
+        tools_wire=tools_wire,
+        native_stream_event_types=stream_types,
+        terminal_status=terminal_status,
+        terminal_output_item_types=evidence.get("terminal_output_item_types") or [],
+        assembled_output_item_types=native_output_item_types(_field(merged, "output")),
+        normalized_call_count=len(executables),
+        recovery=evidence.get("recovery"),
+        executable_names=[call["name"] for call in executables],
+    )
+    return {
+        "merged": merged,
+        "evidence": evidence,
+        "executables": executables,
+        "boundary_record": record,
+        "boundary_verdict": record["boundary_verdict"],
+    }
+
+
+def load_boundary_fixture(path: Any) -> Dict[str, Any]:
+    """Load one redacted boundary fixture JSON (offline only)."""
+    raw = Path(path).read_text(encoding="utf-8")
+    data = json.loads(raw)
+    if not isinstance(data, dict) or data.get("schema") != "luna-lr32-wire-to-native":
+        raise ValueError("boundary_fixture_schema_invalid")
+    return data
+
+
+def replay_boundary_fixture(path: Any) -> Dict[str, Any]:
+    """Replay a fixture through the adapter and return discrimination result."""
+    fixture = load_boundary_fixture(path)
+    assembled = fixture.get("assembled") or {"output": [], "status": "completed"}
+    request = fixture.get("request_wire") or {}
+    transport = fixture.get("transport") or {}
+    stream_types = list(fixture.get("native_stream_event_types") or [])
+    expected = fixture.get("expected_boundary_verdict")
+
+    if "terminal_response" in fixture and fixture.get("terminal_response") is None:
+        # Explicit null terminal — do not invent a completed empty response.
+        record = build_wire_to_native_boundary_record(
+            api_mode=str(transport.get("api_mode") or "codex_responses"),
+            model=str(transport.get("model") or "gpt-5.6-sol"),
+            endpoint=transport.get("endpoint"),
+            streaming=bool(transport.get("streaming", True)),
+            tool_choice_wire=str(request.get("tool_choice_wire") or "absent"),
+            tools_wire=list(request.get("tools_wire") or []),
+            native_stream_event_types=stream_types,
+            terminal_status=None,
+            terminal_output_item_types=[],
+            assembled_output_item_types=native_output_item_types(
+                assembled.get("output") if isinstance(assembled, dict)
+                else _field(assembled, "output")
+            ),
+            normalized_call_count=0,
+            recovery="terminal_absent",
+        )
+        return {
+            "merged": assembled,
+            "evidence": {"recovery": "terminal_absent"},
+            "executables": [],
+            "boundary_record": record,
+            "boundary_verdict": record["boundary_verdict"],
+            "fixture_id": fixture.get("id"),
+            "expected_boundary_verdict": expected,
+            "matches_expected": expected is None or expected == record["boundary_verdict"],
+        }
+
+    terminal = fixture.get("terminal_response")
+    if terminal is None:
+        terminal = {"status": "completed", "output": []}
+    result = replay_native_through_adapter(
+        assembled=assembled,
+        terminal_response=terminal,
+        tool_choice_wire=str(request.get("tool_choice_wire") or "absent"),
+        tools_wire=list(request.get("tools_wire") or []),
+        api_mode=str(transport.get("api_mode") or "codex_responses"),
+        model=str(transport.get("model") or "gpt-5.6-sol"),
+        endpoint=transport.get("endpoint"),
+        streaming=bool(transport.get("streaming", True)),
+        native_stream_event_types=stream_types,
+    )
+    # Prefer pre-merge assembled types when merge left assembled unchanged but
+    # native function_call items were un-normalizable (lost_normalization).
+    if not result["executables"]:
+        terminal_types = native_output_item_types(_field(terminal, "output"))
+        assembled_types = native_output_item_types(_field(assembled, "output"))
+        if "function_call" in terminal_types or "function_call" in assembled_types:
+            result["boundary_record"] = build_wire_to_native_boundary_record(
+                api_mode=str(transport.get("api_mode") or "codex_responses"),
+                model=str(transport.get("model") or "gpt-5.6-sol"),
+                endpoint=transport.get("endpoint"),
+                streaming=bool(transport.get("streaming", True)),
+                tool_choice_wire=str(request.get("tool_choice_wire") or "absent"),
+                tools_wire=list(request.get("tools_wire") or []),
+                native_stream_event_types=stream_types,
+                terminal_status=item_type_name(_field(terminal, "status")),
+                terminal_output_item_types=terminal_types,
+                assembled_output_item_types=assembled_types,
+                normalized_call_count=0,
+                recovery=result["evidence"].get("recovery"),
+            )
+            result["boundary_verdict"] = result["boundary_record"]["boundary_verdict"]
+    result["fixture_id"] = fixture.get("id")
+    result["expected_boundary_verdict"] = expected
+    result["matches_expected"] = (expected is None
+                                  or expected == result["boundary_verdict"])
+    return result
+
+
+def direct_compare_enabled() -> bool:
+    """Bounded no-tool-dispatch direct-client compare (off by default).
+
+    Cap: only when existing evidence cannot discriminate. Stops at native response —
+    no follow-up auto turn, model swap, credential/routing change, or retry-until-green.
+    """
+    return os.getenv(DIRECT_COMPARE_FLAG, "").strip() in {"1", "true", "yes"}
+
+
+def design_direct_compare_probe(
+    *,
+    model: str,
+    api_mode: str,
+    endpoint: Any,
+    tool_choice: Any,
+    tools: Sequence[Any],
+) -> Dict[str, Any]:
+    """Describe (or refuse) a bounded adapter-vs-direct probe; never sends by itself."""
+    record = build_wire_to_native_boundary_record(
+        api_mode=api_mode,
+        model=model,
+        endpoint=endpoint,
+        streaming=True,
+        tool_choice=tool_choice,
+        tools=list(tools),
+        native_stream_event_types=[],
+        terminal_status=None,
+        terminal_output_item_types=[],
+        assembled_output_item_types=[],
+        normalized_call_count=0,
+    )
+    return {
+        "enabled": direct_compare_enabled(),
+        "flag": DIRECT_COMPARE_FLAG,
+        "stop_at": "native_response",
+        "disallowed": [
+            "follow_up_auto_turn",
+            "model_swap",
+            "credential_or_routing_change",
+            "retry_until_green",
+            "tool_dispatch",
+        ],
+        "preflight_boundary_record": record,
+        "note": (
+            "Compare current adapter vs minimal direct client to the same configured "
+            "endpoint/model; retain only redacted boundary records from each leg."
+        ),
+    }

@@ -1,0 +1,27 @@
+{
+  "schema": "luna-lr32-wire-to-native",
+  "id": "native-empty-wire-ok",
+  "description": "Named-read wire healthy; terminal and assembled outputs genuinely empty — provider_empty_with_wire_ok compatibility blocker, not extraction repair.",
+  "transport": {
+    "api_mode": "codex_responses",
+    "model": "gpt-5.6-sol",
+    "endpoint": "https://api.openai.com/v1/responses",
+    "streaming": true
+  },
+  "request_wire": {
+    "tool_choice_wire": "responses_function",
+    "tools_wire": ["responses_function", "responses_function", "responses_function"]
+  },
+  "native_stream_event_types": ["response.completed"],
+  "assembled": {
+    "status": "completed",
+    "output": [],
+    "terminal_event_type": "response.completed"
+  },
+  "terminal_response": {
+    "status": "completed",
+    "output": []
+  },
+  "expected_boundary_verdict": "provider_empty_with_wire_ok",
+  "sealed_live_shape_note": "Matches post-#956 sealed case-09 / named-read shape: tools_wire=all responses_function, tool_choice=function:get_sunset_lesson_catalog, status=completed, tool_calls=[], output_item_types=[]. Sealed runs lacked stream_event_types and assembled/terminal split."
+}

@@ -45,13 +45,18 @@ from wolfhouse.luna_group_lesson_live_eval import (  # noqa: E402
     run_isolated_group_lesson_eval,
 )
 from wolfhouse.luna_responses_provider import (  # noqa: E402
+    COMPATIBILITY_BLOCKER_ID,
+    COMPATIBILITY_BLOCKER_MISSING_EVIDENCE,
     PROVIDER_EMPTY_WITH_WIRE_OK,
     classify_empty_tool_boundary,
+    design_direct_compare_probe,
     merge_terminal_function_calls_into_assembled,
     normalize_function_call_to_executable,
     normalize_output_to_executable_calls,
     normalize_responses_tool_choice,
     normalize_responses_tools,
+    redact_endpoint_identity,
+    replay_boundary_fixture,
     responses_tool_choice_wire,
     responses_tool_schema_wire,
 )
@@ -479,7 +484,7 @@ class GroupLessonCase09Tests(unittest.TestCase):
         })
 
         result = capture.finalize(model_reached=True)
-        self.assertEqual(result["schema_version"], 2)
+        self.assertEqual(result["schema_version"], 3)
         self.assertEqual([call["call_index"] for call in result["calls"]], [1, 2])
         self.assertEqual(len({call["correlation_id"] for call in result["calls"]}), 2)
         self.assertTrue(result["calls"][0]["request"]["instruction_marker_present"])
@@ -651,13 +656,18 @@ class GroupLessonCase09Tests(unittest.TestCase):
             isolation.exit_isolated_turn(token)
         result = capture.finalize(model_reached=True)
         self.assertEqual((result["request"]["attempted"], result["request"]["sent"]), (True, True))
-        self.assertEqual(result["response"], {
-            "state": "observed", "status": "completed", "finish_reason": "completed",
-            "provider_shape": "openai_responses", "completion_category": "tool_calls",
-            "output_item_types": ["function_call"],
-            "tool_calls": [{"id": "call-stream-1", "name": "get_sunset_lesson_catalog",
-                            "arg_validation": "valid"}],
-        })
+        self.assertEqual(result["response"]["state"], "observed")
+        self.assertEqual(result["response"]["status"], "completed")
+        self.assertEqual(result["response"]["finish_reason"], "completed")
+        self.assertEqual(result["response"]["provider_shape"], "openai_responses")
+        self.assertEqual(result["response"]["completion_category"], "tool_calls")
+        self.assertEqual(result["response"]["output_item_types"], ["function_call"])
+        self.assertEqual(result["response"]["tool_calls"], [{
+            "id": "call-stream-1", "name": "get_sunset_lesson_catalog", "arg_validation": "valid",
+        }])
+        self.assertEqual(result["response"]["native_stream_event_types"], ["response.completed"])
+        self.assertEqual(result["response"]["normalized_call_count"], 1)
+        self.assertEqual(result["response"]["boundary_verdict"], "native_calls_present")
         self.assertNotIn(secret, json.dumps(result))
         self.assertNotIn("STREAM_PRIVATE", json.dumps(result))
 
@@ -801,10 +811,16 @@ class GroupLessonCase09Tests(unittest.TestCase):
         self.assertEqual(sealed_result["request"]["tool_choice"], "function:get_sunset_lesson_catalog")
         self.assertEqual(sealed_result["request"]["tool_choice_wire"], "responses_function")
         self.assertEqual(sealed_result["response"]["provider_shape"], "openai_responses")
-        self.assertEqual(sealed_result["response"]["completion_category"], "empty_tool_calls")
+        # Wire OK + empty native → provider_empty_with_wire_ok (not opaque empty_tool_calls).
+        self.assertEqual(sealed_result["response"]["completion_category"], PROVIDER_EMPTY_WITH_WIRE_OK)
         self.assertEqual(sealed_result["response"]["state"], "observed-none")
         self.assertEqual(sealed_result["response"]["tool_calls"], [])
         self.assertEqual(sealed_result["response"]["output_item_types"], [])
+        self.assertEqual(sealed_result["response"]["boundary_verdict"], PROVIDER_EMPTY_WITH_WIRE_OK)
+        self.assertEqual(
+            sealed_result["response"]["boundary_record"]["compatibility_blocker"]["id"],
+            COMPATIBILITY_BLOCKER_ID,
+        )
 
         reasoning = BoundedMetadataCapture("gpt-5.6-sol", {})
         reasoning.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
@@ -1072,7 +1088,130 @@ class GroupLessonCase09Tests(unittest.TestCase):
         self.assertEqual(finalized["response"]["completion_category"], "tool_calls")
         self.assertEqual(finalized["response"]["tool_calls"][0]["name"],
                          "get_sunset_lesson_catalog")
+        self.assertEqual(finalized["response"]["native_stream_event_types"], ["response.completed"])
+        self.assertEqual(finalized["response"]["boundary_verdict"], "adapter_drop_recovered")
         self.assertNotIn("private", json.dumps(finalized))
+
+    def test_lr32_wire_to_native_fixtures_discriminate_native_empty_vs_adapter_drop(self):
+        """Offline redacted fixtures: boundary record + replay prove where the call is."""
+        root = REPO / "fixtures" / "luna-lr32-wire-to-native"
+        expected = {
+            "terminal-function-call-adapter-recovery.json": "adapter_drop_recovered",
+            "native-empty-wire-ok.json": PROVIDER_EMPTY_WITH_WIRE_OK,
+            "observation-incomplete-no-terminal.json": "observation_incomplete",
+            "lost-normalization-native-present.json": "lost_normalization",
+        }
+        for name, verdict in expected.items():
+            with self.subTest(fixture=name):
+                result = replay_boundary_fixture(root / name)
+                self.assertTrue(result["matches_expected"], result)
+                self.assertEqual(result["boundary_verdict"], verdict)
+                record = result["boundary_record"]
+                self.assertEqual(record["transport"]["api_mode"], "codex_responses")
+                self.assertEqual(record["transport"]["model"], "gpt-5.6-sol")
+                self.assertTrue(record["transport"]["streaming"])
+                self.assertEqual(
+                    record["transport"]["endpoint"],
+                    "https://api.openai.com/v1/responses",
+                )
+                self.assertIn("tool_choice_wire", record["request_wire"])
+                self.assertIn("tools_wire", record["request_wire"])
+                self.assertIn("stream_event_types", record["native_response"])
+                self.assertIn("normalized_call_count", record["normalization"])
+                self.assertNotIn("sk-", json.dumps(record))
+                self.assertNotIn("Authorization", json.dumps(record))
+        empty = replay_boundary_fixture(root / "native-empty-wire-ok.json")
+        self.assertEqual(
+            empty["boundary_record"]["compatibility_blocker"]["id"],
+            COMPATIBILITY_BLOCKER_ID,
+        )
+        for field in COMPATIBILITY_BLOCKER_MISSING_EVIDENCE:
+            self.assertIn(
+                field,
+                empty["boundary_record"]["compatibility_blocker"][
+                    "missing_evidence_if_observation_unproven"
+                ],
+            )
+        recovered = replay_boundary_fixture(
+            root / "terminal-function-call-adapter-recovery.json"
+        )
+        self.assertEqual(len(recovered["executables"]), 1)
+        self.assertEqual(recovered["executables"][0]["name"], "get_sunset_lesson_catalog")
+
+    def test_lr32_consume_wrap_records_stream_event_types_for_native_empty(self):
+        """Hypothesis check: empty output_item_types with recorded stream events = native empty."""
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+
+        class EmptyTerminalStream:
+            def __iter__(self):
+                yield {"type": "response.completed", "response": {
+                    "status": "completed", "output": [],
+                }}
+
+            def close(self):
+                return None
+
+        def assemble(event_iter, *, model, **_kwargs):
+            for _event in event_iter:
+                pass
+            return SimpleNamespace(
+                output=[], output_text="", status="completed",
+                model=model, terminal_event_type="response.completed",
+            )
+
+        runtime = SimpleNamespace(_consume_codex_event_stream=assemble)
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            isolation._wrap_codex_parser(runtime)
+            create = isolation._observe_create_call(
+                lambda **_kwargs: EmptyTerminalStream(), binding, responses=True,
+            )
+            stream = create(
+                model=agent.model, stream=True, input="private",
+                tools=[{"type": "function", "name": "get_sunset_lesson_catalog",
+                        "parameters": {"type": "object", "properties": {}}}],
+                tool_choice={"type": "function", "name": "get_sunset_lesson_catalog"},
+            )
+            runtime._consume_codex_event_stream(stream, model=agent.model)
+            stream.close()
+        finally:
+            isolation.exit_isolated_turn(token)
+
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["request"]["api_mode"], "codex_responses")
+        self.assertEqual(result["request"]["streaming"], True)
+        self.assertEqual(result["response"]["native_stream_event_types"], ["response.completed"])
+        self.assertEqual(result["response"]["output_item_types"], [])
+        self.assertEqual(result["response"]["completion_category"], PROVIDER_EMPTY_WITH_WIRE_OK)
+        self.assertEqual(result["response"]["boundary_verdict"], PROVIDER_EMPTY_WITH_WIRE_OK)
+        self.assertEqual(result["response"]["normalized_call_count"], 0)
+
+    def test_lr32_direct_compare_probe_is_flag_gated_and_stops_at_native(self):
+        probe = design_direct_compare_probe(
+            model="gpt-5.6-sol",
+            api_mode="codex_responses",
+            endpoint="https://user:secret@api.openai.com/v1/responses?key=leak",
+            tool_choice={"type": "function", "name": "get_sunset_lesson_catalog"},
+            tools=[{"type": "function", "name": "get_sunset_lesson_catalog",
+                    "parameters": {"type": "object"}}],
+        )
+        self.assertFalse(probe["enabled"])
+        self.assertEqual(probe["stop_at"], "native_response")
+        self.assertIn("tool_dispatch", probe["disallowed"])
+        self.assertEqual(
+            probe["preflight_boundary_record"]["transport"]["endpoint"],
+            "https://api.openai.com/v1/responses",
+        )
+        self.assertNotIn("secret", json.dumps(probe))
+        self.assertNotIn("leak", json.dumps(probe))
+        self.assertEqual(redact_endpoint_identity("https://api.openai.com/v1/responses"),
+                         "https://api.openai.com/v1/responses")
 
     def test_lr32_create_normalizes_chat_nested_tools_on_wire(self):
         import wolfhouse.luna_personality_isolation as isolation

@@ -1,0 +1,34 @@
+{
+  "schema": "luna-lr32-wire-to-native",
+  "id": "terminal-function-call-adapter-recovery",
+  "description": "June-pin done-only assemble empty; terminal response.output has function_call — adapter must recover without dispatch.",
+  "transport": {
+    "api_mode": "codex_responses",
+    "model": "gpt-5.6-sol",
+    "endpoint": "https://api.openai.com/v1/responses",
+    "streaming": true
+  },
+  "request_wire": {
+    "tool_choice_wire": "responses_function",
+    "tools_wire": ["responses_function"]
+  },
+  "native_stream_event_types": ["response.completed"],
+  "assembled": {
+    "status": "completed",
+    "output": [],
+    "terminal_event_type": "response.completed"
+  },
+  "terminal_response": {
+    "status": "completed",
+    "output": [
+      {
+        "type": "function_call",
+        "call_id": "call-fixture-terminal-1",
+        "name": "get_sunset_lesson_catalog",
+        "arguments": "{}",
+        "status": "completed"
+      }
+    ]
+  },
+  "expected_boundary_verdict": "adapter_drop_recovered"
+}
