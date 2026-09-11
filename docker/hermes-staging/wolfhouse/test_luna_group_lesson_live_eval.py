@@ -45,8 +45,15 @@ from wolfhouse.luna_group_lesson_live_eval import (  # noqa: E402
     run_isolated_group_lesson_eval,
 )
 from wolfhouse.luna_responses_provider import (  # noqa: E402
+    PROVIDER_EMPTY_WITH_WIRE_OK,
+    classify_empty_tool_boundary,
+    merge_terminal_function_calls_into_assembled,
+    normalize_function_call_to_executable,
+    normalize_output_to_executable_calls,
     normalize_responses_tool_choice,
+    normalize_responses_tools,
     responses_tool_choice_wire,
+    responses_tool_schema_wire,
 )
 from wolfhouse.simulate_core import register_simulate_route  # noqa: E402
 
@@ -840,6 +847,288 @@ class GroupLessonCase09Tests(unittest.TestCase):
             "id": "call-nested-1", "name": "get_sunset_lesson_catalog", "arg_validation": "valid",
         }])
         self.assertNotIn("PRIVATE", json.dumps(nested_result))
+
+    def test_lr32_flat_and_chat_tools_normalize_to_responses_wire(self):
+        """Hermes _responses_tools drops flat tools; wolfhouse must preserve them."""
+        flat = [{"type": "function", "name": "get_sunset_lesson_catalog",
+                 "parameters": {"type": "object", "properties": {}}}]
+        nested = [{"type": "function", "function": {
+            "name": "get_sunset_lesson_catalog",
+            "parameters": {"type": "object", "properties": {}},
+        }}]
+        self.assertEqual(responses_tool_schema_wire(flat[0]), "responses_function")
+        self.assertEqual(responses_tool_schema_wire(nested[0]), "chat_function")
+        expected = [{
+            "type": "function",
+            "name": "get_sunset_lesson_catalog",
+            "description": "",
+            "strict": False,
+            "parameters": {"type": "object", "properties": {}},
+        }]
+        self.assertEqual(normalize_responses_tools(flat), expected)
+        self.assertEqual(normalize_responses_tools(nested), expected)
+
+    def test_lr32_synthetic_function_call_survives_real_normalization_without_dispatch(self):
+        """Offline red→green: native function_call → executable descriptor, no dispatch."""
+        from enum import Enum
+
+        class ItemType(Enum):
+            FUNCTION_CALL = "function_call"
+
+        dispatched = []
+        synthetic = {
+            "type": "function_call",
+            "call_id": "call-lr32-1",
+            "name": "get_sunset_lesson_catalog",
+            "arguments": "{}",
+            "status": "completed",
+        }
+        nested = {
+            "type": "function_call",
+            "call_id": "call-lr32-2",
+            "function": {"name": "get_sunset_lesson_availability", "arguments": "{}"},
+        }
+        enum_item = SimpleNamespace(
+            type=ItemType.FUNCTION_CALL, call_id="call-lr32-3",
+            name="get_sunset_offering_quote", arguments="{}", status="completed",
+        )
+        executables = normalize_output_to_executable_calls([synthetic, nested, enum_item])
+        self.assertEqual([call["name"] for call in executables], [
+            "get_sunset_lesson_catalog",
+            "get_sunset_lesson_availability",
+            "get_sunset_offering_quote",
+        ])
+        self.assertEqual(executables[0]["function"]["arguments"], "{}")
+        self.assertEqual(dispatched, [], "normalization must not dispatch tools")
+
+        with self.assertRaisesRegex(ValueError, "incomplete_function_call"):
+            normalize_function_call_to_executable({
+                "type": "function_call", "name": "get_sunset_lesson_catalog",
+                "arguments": "{}", "status": "in_progress",
+            })
+        with self.assertRaisesRegex(ValueError, "function_call_missing_name"):
+            normalize_function_call_to_executable({
+                "type": "function_call", "call_id": "x", "arguments": "{}",
+            })
+        self.assertEqual(
+            classify_empty_tool_boundary(
+                tool_choice_wire="responses_function",
+                tools_wire=["responses_function"],
+                native_item_types=["refusal"],
+                executable_calls=[],
+            ),
+            "refusal",
+        )
+        self.assertEqual(
+            classify_empty_tool_boundary(
+                tool_choice_wire="responses_function",
+                tools_wire=["responses_function"],
+                native_item_types=[],
+                executable_calls=[],
+            ),
+            PROVIDER_EMPTY_WITH_WIRE_OK,
+        )
+        self.assertEqual(
+            classify_empty_tool_boundary(
+                tool_choice_wire="responses_function",
+                tools_wire=["responses_function"],
+                native_item_types=["function_call"],
+                executable_calls=[],
+            ),
+            "lost_normalization",
+        )
+
+    def test_lr32_terminal_only_function_call_is_recovered_into_assembled_output(self):
+        """June-pin done-only assembly drops terminal output function_calls — repair merges them."""
+        assembled = SimpleNamespace(
+            output=[], output_text="", status="completed",
+            terminal_event_type="response.completed", model="gpt-5.6-sol",
+        )
+        terminal = {
+            "status": "completed",
+            "output": [{
+                "type": "function_call",
+                "call_id": "call-terminal-1",
+                "name": "get_sunset_lesson_catalog",
+                "arguments": "{}",
+                "status": "completed",
+            }],
+        }
+        merged, evidence = merge_terminal_function_calls_into_assembled(assembled, terminal)
+        self.assertEqual(evidence["recovery"], "terminal_function_calls_merged")
+        self.assertEqual(evidence["recovered_function_calls"], 1)
+        self.assertEqual(evidence["executable_names"], ["get_sunset_lesson_catalog"])
+        self.assertEqual(evidence["terminal_output_item_types"], ["function_call"])
+        self.assertEqual(evidence["assembled_output_item_types"], [])
+        executables = normalize_output_to_executable_calls(merged.output)
+        self.assertEqual(executables[0]["name"], "get_sunset_lesson_catalog")
+        self.assertEqual(executables[0]["id"], "call-terminal-1")
+
+        empty_merged, empty_evidence = merge_terminal_function_calls_into_assembled(
+            assembled, {"status": "completed", "output": []},
+        )
+        self.assertIs(empty_merged, assembled)
+        self.assertEqual(empty_evidence["recovery"], "terminal_empty_or_non_call")
+
+        refusal_merged, refusal_evidence = merge_terminal_function_calls_into_assembled(
+            assembled, {"status": "completed", "output": [{"type": "refusal"}]},
+        )
+        self.assertIs(refusal_merged, assembled)
+        self.assertEqual(refusal_evidence["recovery"], "terminal_refusal")
+
+        incomplete_merged, incomplete_evidence = merge_terminal_function_calls_into_assembled(
+            assembled, {
+                "status": "incomplete",
+                "output": [{"type": "function_call", "name": "get_sunset_lesson_catalog",
+                            "arguments": "{}", "status": "incomplete"}],
+            },
+        )
+        self.assertIs(incomplete_merged, assembled)
+        self.assertEqual(incomplete_evidence["recovery"], "terminal_incomplete")
+
+    def test_lr32_consume_wrap_recovers_terminal_function_call_without_dispatch(self):
+        """Real isolation consume wrap: done-only empty assemble + terminal call → recovered."""
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+        dispatched = []
+
+        class DoneOnlyAssembler:
+            """Mirrors June-pin hermes: ignores terminal response.output."""
+
+            def __call__(self, event_iter, *, model, **_kwargs):
+                output_items = []
+                terminal_event_type = None
+                status = "completed"
+                for event in event_iter:
+                    kind = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
+                    if kind == "response.output_item.done":
+                        item = event.get("item") if isinstance(event, dict) else getattr(event, "item", None)
+                        if item is not None:
+                            output_items.append(item)
+                    if kind in {"response.completed", "response.failed", "response.incomplete"}:
+                        terminal_event_type = kind
+                        response = (event.get("response") if isinstance(event, dict)
+                                    else getattr(event, "response", None))
+                        if isinstance(response, dict) and isinstance(response.get("status"), str):
+                            status = response["status"]
+                return SimpleNamespace(
+                    output=list(output_items), output_text="", status=status,
+                    model=model, terminal_event_type=terminal_event_type,
+                )
+
+        runtime = SimpleNamespace(_consume_codex_event_stream=DoneOnlyAssembler())
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            isolation._wrap_codex_parser(runtime)
+
+            class ProviderStream:
+                def __iter__(self):
+                    yield {"type": "response.completed", "response": {
+                        "status": "completed",
+                        "output": [{
+                            "type": "function_call",
+                            "call_id": "call-wire-1",
+                            "name": "get_sunset_lesson_catalog",
+                            "arguments": "{}",
+                            "status": "completed",
+                        }],
+                    }}
+
+                def close(self):
+                    return None
+
+            create = isolation._observe_create_call(
+                lambda **_kwargs: ProviderStream(),
+                binding, responses=True,
+            )
+            stream = create(
+                model=agent.model, stream=True, input="private",
+                tools=[{"type": "function", "function": {
+                    "name": "get_sunset_lesson_catalog",
+                    "parameters": {"type": "object", "properties": {}},
+                }}],
+                tool_choice={"type": "function",
+                             "function": {"name": "get_sunset_lesson_catalog"}},
+            )
+            result = runtime._consume_codex_event_stream(stream, model=agent.model)
+            stream.close()
+        finally:
+            isolation.exit_isolated_turn(token)
+
+        self.assertEqual(dispatched, [])
+        self.assertEqual(len(result.output), 1)
+        executables = normalize_output_to_executable_calls(result.output)
+        self.assertEqual(executables[0]["name"], "get_sunset_lesson_catalog")
+        self.assertEqual(getattr(stream, "_recovery_evidence", {}).get("recovery"),
+                         "terminal_function_calls_merged")
+        finalized = capture.finalize(model_reached=True)
+        self.assertEqual(finalized["request"]["tool_choice_wire"], "responses_function")
+        self.assertEqual(finalized["request"]["tools_wire"], ["responses_function"])
+        self.assertEqual(finalized["response"]["completion_category"], "tool_calls")
+        self.assertEqual(finalized["response"]["tool_calls"][0]["name"],
+                         "get_sunset_lesson_catalog")
+        self.assertNotIn("private", json.dumps(finalized))
+
+    def test_lr32_create_normalizes_chat_nested_tools_on_wire(self):
+        import wolfhouse.luna_personality_isolation as isolation
+
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        cap = IsolatedTurnCapture("sunset-group-lesson-09-es", "sunny", tenant_id="sunset")
+        agent = SimpleNamespace(model="gpt-5.6-sol", api_mode="codex_responses")
+        binding = cap._request_identity = (cap, agent, agent.model, agent.api_mode)
+        cap.metadata_capture = capture
+        seen = []
+
+        class Stream:
+            def __iter__(self):
+                yield {"type": "response.completed", "response": {"status": "completed", "output": []}}
+
+            def close(self):
+                return None
+
+        def provider(**kwargs):
+            seen.append(kwargs.get("tools"))
+            return Stream()
+
+        token = isolation.enter_isolated_turn(cap)
+        try:
+            create = isolation._observe_create_call(provider, binding, responses=True)
+            observed = create(
+                model=agent.model, stream=True, input="private",
+                tools=[{"type": "function", "function": {
+                    "name": "get_sunset_lesson_catalog",
+                    "parameters": {"type": "object", "properties": {}},
+                }}],
+                tool_choice="auto",
+            )
+            list(observed)
+            observed.close()
+        finally:
+            isolation.exit_isolated_turn(token)
+        self.assertEqual(seen, [[{
+            "type": "function",
+            "name": "get_sunset_lesson_catalog",
+            "description": "",
+            "strict": False,
+            "parameters": {"type": "object", "properties": {}},
+        }]])
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(result["request"]["tools_wire"], ["responses_function"])
+        self.assertEqual(result["request"]["tool_choice_wire"], "option")
+        self.assertEqual(
+            classify_empty_tool_boundary(
+                tool_choice_wire=result["request"]["tool_choice_wire"],
+                tools_wire=result["request"]["tools_wire"],
+                native_item_types=result["response"].get("output_item_types") or [],
+                executable_calls=result["response"].get("tool_calls") or [],
+            ),
+            PROVIDER_EMPTY_WITH_WIRE_OK,
+        )
 
     def test_responses_predispatch_rejection_is_attempted_but_not_sent(self):
         import wolfhouse.luna_personality_isolation as isolation

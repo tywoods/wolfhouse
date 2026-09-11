@@ -31,27 +31,30 @@ function section(heading, nextHeading) {
 const map = section('## LR2.4 — Failure map: Closed-fixture contract / abort observability');
 
 check('LR2.4 failure map section exists', map.length > 0);
-check('LR3.2 status bar records #953 live retest result without claiming PASS',
+check('LR3.2 status bar records offline adapter repair without claiming PASS',
   map.includes('LR3.2 | Status Active')
-  && map.includes('#953 landed; healthy deploy observed but auto + named-read live retests still empty_tool_calls')
+  && map.includes('post-953 live retest still empty_tool_calls')
+  && map.includes('offline adapter repair proves terminal function_call recovery')
+  && map.includes('provider_empty_with_wire_ok remains fail-closed')
   && map.includes('03/08 HOLD')
   && map.includes('live case-09 remains BLOCKED')
   && !/full LR3\.2 PASS/i.test(map.replace('not** a full LR3.2 PASS', '')));
-check('master-tip metadata, adapter landing, and post-953 empty-tool classification are named',
+check('master-tip metadata, adapter landing, post-953 empty-tool classification, and offline repair are named',
   map.includes('#949 added metadata-first capture instrumentation at master tip `0ee15c4d`')
   && map.includes('#948 hardened the LR2 messy-pack receipt contract')
   && map.includes('#953 merged the Responses adapter `tool_choice` wire plus `empty_tool_calls` classification at master tip `0deceb93`')
   && map.includes('completion_category=empty_tool_calls')
-  && map.includes('auto and named-read'));
-check('03/08 live execution remains held behind repair owner plan',
+  && map.includes('auto and named-read')
+  && map.includes('offline LR3.2 adapter repair (terminal function_call recovery + `provider_empty_with_wire_ok`)'));
+check('03/08 live execution remains held behind Chief-gated live retest after adapter deploy',
   map.includes('03/08 live execution stays on HOLD')
-  && map.includes('Next gate: repair owner plan before any 03/08 live run'));
+  && map.includes('Next gate: Chief-gated live retest after adapter deploy'));
 check('offline fixture hygiene keeps 03/08 review-only while live HOLD remains',
   map.includes('Sunset golden fixtures 03 and 08 remain active review-only corpus entries')
   && map.includes('they are **not** admitted live cases while 03/08 is on HOLD')
   && map.includes('do not run live 03/08 until the failure-map gate is cleared'));
 check('owner boundaries keep Deckhand in fixture/doc/harness-only lane',
-  map.includes('Runtime/admission owners hold the next repair plan and any admitted live retest')
+  map.includes('Runtime/admission owners hold adapter deploy and any admitted live retest')
   && map.includes('Deckhand may keep this map current and babysit fixture/doc/harness-only PRs'));
 
 for (const closed of [

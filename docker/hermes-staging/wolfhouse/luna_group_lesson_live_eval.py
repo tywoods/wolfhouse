@@ -32,6 +32,7 @@ from wolfhouse.luna_responses_provider import (
     item_type_name as _item_type_name,
     normalize_responses_tool_choice,
     responses_tool_choice_wire,
+    responses_tool_schema_wire,
     tool_choice_capture_label as _tool_choice_capture_label,
 )
 from wolfhouse.staging_guard import assert_staging_environment
@@ -91,7 +92,7 @@ class BoundedMetadataCapture:
         "state": "not-reached", "attempted": None, "sent": None,
         "prompt_fingerprints": None, "tool_names": None,
         "tool_schema_fingerprints": None, "tool_choice": None,
-        "tool_choice_wire": None,
+        "tool_choice_wire": None, "tools_wire": None,
     })
     response: Dict[str, Any] = field(default_factory=lambda: {
         "state": "not-reached", "status": None, "finish_reason": None,
@@ -151,6 +152,8 @@ class BoundedMetadataCapture:
                 schemas.append(_fingerprint(function.get("parameters", function.get("inputSchema"))))
         choice_metadata = _tool_choice_capture_label(tool_choice)
         choice_wire = responses_tool_choice_wire(tool_choice) if tool_choice is not None else None
+        tools_wire = ([responses_tool_schema_wire(tool) for tool in tool_values[:CAPTURE_LIMIT]]
+                      if tool_values is not None else None)
         new_call = (self._current_call is None
                     or self._current_call["response"].get("state") != "not-reached"
                     or bool(self._current_call["request"].get("sent")))
@@ -168,6 +171,7 @@ class BoundedMetadataCapture:
             "schemas_valid": (all(schema_validity) if schema_validity is not None else None),
             "tool_choice": choice_metadata,
             "tool_choice_wire": choice_wire,
+            "tools_wire": tools_wire,
         }
         call["request"] = dict(self.request)
 
