@@ -29,6 +29,9 @@ from wolfhouse.luna_personality_live_eval import (
     serving_eval_readiness,
 )
 from wolfhouse.luna_responses_provider import (
+    PROVIDER_EMPTY_WITH_WIRE_OK,
+    build_wire_to_native_boundary_record,
+    classify_empty_tool_boundary,
     item_type_name as _item_type_name,
     normalize_responses_tool_choice,
     responses_tool_choice_wire,
@@ -68,7 +71,7 @@ REQUIRED_CASE_09_TOOL_SEQUENCE = (
 REQUIRED_CASE_09_STAFF_PATHS = frozenset(READ_ONLY_STAFF_PATHS)
 REQUIRED_TOOL_INSTRUCTION_MARKER = "You must successfully complete these read-only tools in this exact order"
 CAPTURE_LIMIT = 32
-CAPTURE_SCHEMA_VERSION = 2
+CAPTURE_SCHEMA_VERSION = 3
 
 
 def _fingerprint(value: Any) -> str:
@@ -87,6 +90,9 @@ class BoundedMetadataCapture:
     instruction_marker: Optional[str] = None
     run_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     calls: list = field(default_factory=list)
+    api_mode: Optional[str] = None
+    endpoint: Optional[str] = None
+    streaming: Optional[bool] = None
     _current_call: Optional[Dict[str, Any]] = field(default=None, init=False, repr=False)
     request: Dict[str, Any] = field(default_factory=lambda: {
         "state": "not-reached", "attempted": None, "sent": None,
@@ -97,10 +103,19 @@ class BoundedMetadataCapture:
     response: Dict[str, Any] = field(default_factory=lambda: {
         "state": "not-reached", "status": None, "finish_reason": None,
         "tool_calls": None, "output_item_types": None,
+        "native_stream_event_types": None,
+        "terminal_output_item_types": None,
+        "assembled_output_item_types": None,
+        "normalized_call_count": None,
+        "boundary_verdict": None,
     })
     executor: Dict[str, Any] = field(default_factory=lambda: {
         "state": "not-reached", "dispositions": None,
     })
+    _stream_event_types: list = field(default_factory=list, init=False, repr=False)
+    _terminal_output_item_types: list = field(default_factory=list, init=False, repr=False)
+    _assembled_output_item_types: list = field(default_factory=list, init=False, repr=False)
+    _recovery: Optional[str] = field(default=None, init=False, repr=False)
 
     def _contains_instruction_marker(self, value: Any) -> Optional[bool]:
         if not self.instruction_marker:
@@ -138,8 +153,16 @@ class BoundedMetadataCapture:
         return self._current_call
 
     def observe_request(self, *, attempted: bool, sent: bool, prompts: Any = None,
-                        tools: Any = None, tool_choice: Any = None) -> None:
+                        tools: Any = None, tool_choice: Any = None,
+                        api_mode: Any = None, endpoint: Any = None,
+                        streaming: Any = None) -> None:
         """Hash prompt/schema values immediately; never retain their payloads."""
+        if api_mode is not None:
+            self.api_mode = str(api_mode)[:64]
+        if endpoint is not None:
+            self.endpoint = str(endpoint)[:512]
+        if streaming is not None:
+            self.streaming = bool(streaming)
         prompt_values = prompts if isinstance(prompts, (list, tuple)) else None
         tool_values = tools if isinstance(tools, (list, tuple)) else None
         names, schemas = [], []
@@ -172,8 +195,98 @@ class BoundedMetadataCapture:
             "tool_choice": choice_metadata,
             "tool_choice_wire": choice_wire,
             "tools_wire": tools_wire,
+            "api_mode": self.api_mode,
+            "streaming": self.streaming,
         }
         call["request"] = dict(self.request)
+
+    def observe_stream_event_type(self, event_type: Any) -> None:
+        """Record native SSE/event type names only (no payloads)."""
+        name = _item_type_name(event_type)
+        if not name:
+            return
+        if len(self._stream_event_types) < CAPTURE_LIMIT:
+            self._stream_event_types.append(name[:64])
+        call = self._ensure_call()
+        call_response = call.setdefault("response", {"state": "not-reached"})
+        call_response["native_stream_event_types"] = list(self._stream_event_types)
+
+    def observe_adapter_boundary(
+        self,
+        *,
+        terminal_output_item_types: Any = None,
+        assembled_output_item_types: Any = None,
+        normalized_call_count: Any = None,
+        recovery: Any = None,
+    ) -> None:
+        """Attach post-adapter native/assembled type lists + normalized call count."""
+        if isinstance(terminal_output_item_types, (list, tuple)):
+            self._terminal_output_item_types = [
+                str(item)[:64] for item in terminal_output_item_types[:CAPTURE_LIMIT]
+            ]
+        if isinstance(assembled_output_item_types, (list, tuple)):
+            self._assembled_output_item_types = [
+                str(item)[:64] for item in assembled_output_item_types[:CAPTURE_LIMIT]
+            ]
+        if recovery is not None:
+            self._recovery = str(recovery)[:128]
+        count = None
+        if normalized_call_count is not None:
+            try:
+                count = max(0, int(normalized_call_count))
+            except (TypeError, ValueError):
+                count = None
+        call = self._ensure_call()
+        response = dict(call.get("response") or self.response)
+        response["terminal_output_item_types"] = list(self._terminal_output_item_types)
+        response["assembled_output_item_types"] = list(self._assembled_output_item_types)
+        if count is not None:
+            response["normalized_call_count"] = count
+        if self._recovery is not None:
+            response["recovery"] = self._recovery
+        record = self._boundary_record_for(response)
+        if record is not None:
+            response["boundary_verdict"] = record["boundary_verdict"]
+            response["boundary_record"] = record
+        call["response"] = response
+        self.response = dict(response)
+
+    def _boundary_record_for(self, response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        request = self.request if self.request.get("state") == "observed" else {}
+        tool_choice_wire = request.get("tool_choice_wire")
+        tools_wire = request.get("tools_wire") or []
+        if tool_choice_wire is None and not tools_wire and not self._stream_event_types:
+            return None
+        stream_types = list(self._stream_event_types) or response.get("native_stream_event_types") or []
+        terminal_types = (list(self._terminal_output_item_types)
+                          or response.get("terminal_output_item_types")
+                          or response.get("output_item_types")
+                          or [])
+        assembled_types = (list(self._assembled_output_item_types)
+                           or response.get("assembled_output_item_types")
+                           or [])
+        count = response.get("normalized_call_count")
+        if count is None:
+            calls = response.get("tool_calls")
+            count = len(calls) if isinstance(calls, list) else 0
+        return build_wire_to_native_boundary_record(
+            api_mode=self.api_mode or request.get("api_mode"),
+            model=self.model,
+            endpoint=self.endpoint,
+            streaming=bool(self.streaming if self.streaming is not None else True),
+            tool_choice_wire=tool_choice_wire,
+            tools_wire=tools_wire,
+            native_stream_event_types=stream_types,
+            terminal_status=response.get("status"),
+            terminal_output_item_types=terminal_types,
+            assembled_output_item_types=assembled_types,
+            normalized_call_count=count,
+            recovery=self._recovery or response.get("recovery"),
+            executable_names=[
+                item.get("name") for item in (response.get("tool_calls") or [])
+                if isinstance(item, dict) and item.get("name")
+            ],
+        )
 
     def observe_response(self, *, status: Any, finish_reason: Any = None,
                          tool_calls: Any = None, provider_shape: str = "unknown",
@@ -194,6 +307,18 @@ class BoundedMetadataCapture:
         type_names = None
         if isinstance(output_item_types, (list, tuple)):
             type_names = [str(item)[:64] for item in output_item_types[:CAPTURE_LIMIT]]
+        # Prefer classifier when wire is known so empty native + healthy wire is not
+        # collapsed into opaque empty_tool_calls (post-#956 Cap discrimination).
+        if completion_category in {"empty_tool_calls", "other", PROVIDER_EMPTY_WITH_WIRE_OK}:
+            request = self.request if self.request.get("state") == "observed" else {}
+            classified = classify_empty_tool_boundary(
+                tool_choice_wire=request.get("tool_choice_wire"),
+                tools_wire=request.get("tools_wire") or [],
+                native_item_types=type_names or [],
+                executable_calls=calls or [],
+            )
+            if classified != "empty_tool_calls" or completion_category == "empty_tool_calls":
+                completion_category = classified
         self.response = {
             "state": "observed-none" if calls == [] else "observed",
             "status": str(status)[:256] if status is not None else None,
@@ -202,7 +327,24 @@ class BoundedMetadataCapture:
             "completion_category": completion_category,
             "output_item_types": type_names,
             "tool_calls": calls,
+            "native_stream_event_types": list(self._stream_event_types) or None,
+            "terminal_output_item_types": list(self._terminal_output_item_types) or type_names,
+            "assembled_output_item_types": list(self._assembled_output_item_types) or None,
+            "normalized_call_count": len(calls) if calls is not None else None,
         }
+        record = self._boundary_record_for(self.response)
+        if record is not None:
+            self.response["boundary_verdict"] = record["boundary_verdict"]
+            self.response["boundary_record"] = {
+                key: record[key] for key in (
+                    "schema_version", "transport", "request_wire", "native_response",
+                    "normalization", "boundary_verdict",
+                ) if key in record
+            }
+            if "compatibility_blocker" in record:
+                self.response["boundary_record"]["compatibility_blocker"] = (
+                    record["compatibility_blocker"]
+                )
         call = self._ensure_call()
         call["response"] = dict(self.response)
 
@@ -394,6 +536,8 @@ class BoundedMetadataCapture:
         return {
             "schema_version": CAPTURE_SCHEMA_VERSION, "run_id": self.run_id,
             "revisions": dict(self.revisions), "model": self.model,
+            "api_mode": self.api_mode,
+            "streaming": self.streaming,
             "calls": [{
                 "call_index": call["call_index"],
                 "correlation_id": call["correlation_id"],

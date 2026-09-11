@@ -1,0 +1,39 @@
+{
+  "schema": "luna-lr32-wire-to-native",
+  "id": "lost-normalization-native-present",
+  "description": "Native function_call item present but arguments/name cannot become executable — lost_normalization (adapter extraction defect).",
+  "transport": {
+    "api_mode": "codex_responses",
+    "model": "gpt-5.6-sol",
+    "endpoint": "https://api.openai.com/v1/responses",
+    "streaming": true
+  },
+  "request_wire": {
+    "tool_choice_wire": "responses_function",
+    "tools_wire": ["responses_function"]
+  },
+  "native_stream_event_types": ["response.output_item.done", "response.completed"],
+  "assembled": {
+    "status": "completed",
+    "output": [
+      {
+        "type": "function_call",
+        "call_id": "call-fixture-lost-1",
+        "arguments": "{}",
+        "status": "completed"
+      }
+    ]
+  },
+  "terminal_response": {
+    "status": "completed",
+    "output": [
+      {
+        "type": "function_call",
+        "call_id": "call-fixture-lost-1",
+        "arguments": "{}",
+        "status": "completed"
+      }
+    ]
+  },
+  "expected_boundary_verdict": "lost_normalization"
+}

@@ -31,24 +31,29 @@ function section(heading, nextHeading) {
 const map = section('## LR2.4 — Failure map: Closed-fixture contract / abort observability');
 
 check('LR2.4 failure map section exists', map.length > 0);
-check('LR3.2 status bar records offline adapter repair without claiming PASS',
+check('LR3.2 status bar records post-#956 boundary isolation without claiming PASS',
   map.includes('LR3.2 | Status Active')
-  && map.includes('post-953 live retest still empty_tool_calls')
-  && map.includes('offline adapter repair proves terminal function_call recovery')
-  && map.includes('provider_empty_with_wire_ok remains fail-closed')
+  && map.includes('#956 landed + live retest still empty_tool_calls')
+  && map.includes('sha256:f74d9e5d')
+  && map.includes('wire-to-native boundary record')
+  && map.includes('lr32_post956_native_empty_or_observation_incomplete')
   && map.includes('03/08 HOLD')
   && map.includes('live case-09 remains BLOCKED')
   && !/full LR3\.2 PASS/i.test(map.replace('not** a full LR3.2 PASS', '')));
-check('master-tip metadata, adapter landing, post-953 empty-tool classification, and offline repair are named',
+check('master-tip metadata, #956 digest, and wire-to-native discrimination are named',
   map.includes('#949 added metadata-first capture instrumentation at master tip `0ee15c4d`')
   && map.includes('#948 hardened the LR2 messy-pack receipt contract')
   && map.includes('#953 merged the Responses adapter `tool_choice` wire plus `empty_tool_calls` classification at master tip `0deceb93`')
+  && map.includes('#956 recovered terminal `function_call` items + wire tools normalization at master tip `39c9f014`')
   && map.includes('completion_category=empty_tool_calls')
-  && map.includes('auto and named-read')
-  && map.includes('offline LR3.2 adapter repair (terminal function_call recovery + `provider_empty_with_wire_ok`)'));
-check('03/08 live execution remains held behind Chief-gated live retest after adapter deploy',
+  && map.includes('output_item_types=[]')
+  && map.includes('fixtures/luna-lr32-wire-to-native/')
+  && map.includes('provider_empty_with_wire_ok')
+  && map.includes('observation_incomplete')
+  && map.includes('adapter_drop_recovered'));
+check('03/08 live execution remains held behind Chief-gated live retest after boundary capture deploy',
   map.includes('03/08 live execution stays on HOLD')
-  && map.includes('Next gate: Chief-gated live retest after adapter deploy'));
+  && map.includes('Next gate: Chief-gated live retest only after boundary fields are on the capture image'));
 check('offline fixture hygiene keeps 03/08 review-only while live HOLD remains',
   map.includes('Sunset golden fixtures 03 and 08 remain active review-only corpus entries')
   && map.includes('they are **not** admitted live cases while 03/08 is on HOLD')
@@ -56,6 +61,9 @@ check('offline fixture hygiene keeps 03/08 review-only while live HOLD remains',
 check('owner boundaries keep Deckhand in fixture/doc/harness-only lane',
   map.includes('Runtime/admission owners hold adapter deploy and any admitted live retest')
   && map.includes('Deckhand may keep this map current and babysit fixture/doc/harness-only PRs'));
+check('compatibility blocker forbids further extraction repair without wire-to-native proof',
+  map.includes('do **not** keep repairing extraction')
+  && map.includes('LUNA_LR32_BOUNDARY_DIRECT_COMPARE'));
 
 for (const closed of [
   'no `hermes-sunset-luna-http` deploy',

@@ -35,6 +35,8 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from wolfhouse.luna_responses_provider import (
     merge_terminal_function_calls_into_assembled,
+    native_output_item_types,
+    normalize_output_to_executable_calls,
     normalize_responses_tool_choice,
     normalize_responses_tools,
     responses_tool_choice_wire,
@@ -2454,6 +2456,11 @@ class _ObservedResponsesStream:
                 event = next(iterator)
                 kind = event.get("type") if isinstance(event, dict) else getattr(event, "type", None)
                 with cap._responses_sdk_lock:
+                    instrumentation = getattr(cap, "metadata_capture", None)
+                    if instrumentation is not None and kind is not None:
+                        observe_stream = getattr(instrumentation, "observe_stream_event_type", None)
+                        if callable(observe_stream):
+                            observe_stream(kind)
                     if self._terminal is None and kind in ("response.completed", "response.failed", "response.incomplete"):
                         self._terminal = kind
                         response = (event.get("response") if isinstance(event, dict)
@@ -2461,7 +2468,6 @@ class _ObservedResponsesStream:
                         # Retain terminal response for done-only assembler recovery
                         # (June-pin hermes ignores response.completed.response.output).
                         self._terminal_response = response
-                        instrumentation = getattr(cap, "metadata_capture", None)
                         if instrumentation is not None and response is not None:
                             instrumentation.observe_provider_result(response)
                         if kind == "response.completed":
@@ -2536,12 +2542,27 @@ def _wrap_codex_parser(mod: Any) -> None:
                 )
                 observed._recovery_evidence = evidence
                 instrumentation = getattr(observed._cap, "metadata_capture", None)
-                if (instrumentation is not None
-                        and evidence.get("recovery") == "terminal_function_calls_merged"
-                        and observed._terminal_response is not None):
-                    # Re-classify capture from the recovered assembled output so
-                    # metadata matches the executable path (still no dispatch).
-                    instrumentation.observe_provider_result(result)
+                if instrumentation is not None:
+                    observe_boundary = getattr(instrumentation, "observe_adapter_boundary", None)
+                    if callable(observe_boundary):
+                        merged_output = (
+                            result.get("output") if isinstance(result, dict)
+                            else getattr(result, "output", None)
+                        )
+                        observe_boundary(
+                            terminal_output_item_types=evidence.get(
+                                "terminal_output_item_types") or [],
+                            assembled_output_item_types=native_output_item_types(merged_output),
+                            normalized_call_count=len(
+                                normalize_output_to_executable_calls(merged_output)
+                            ),
+                            recovery=evidence.get("recovery"),
+                        )
+                    if (evidence.get("recovery") == "terminal_function_calls_merged"
+                            and observed._terminal_response is not None):
+                        # Re-classify capture from the recovered assembled output so
+                        # metadata matches the executable path (still no dispatch).
+                        instrumentation.observe_provider_result(result)
             terminal_type = getattr(result, "terminal_event_type", None)
             if terminal_type is None and isinstance(result, dict):
                 terminal_type = result.get("terminal_event_type")
@@ -2644,9 +2665,15 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
                         if responses_tool_schema_wire(tool) != "responses_function":
                             raise IsolationAbort("responses_tools_not_flat_on_wire")
                 if instrumentation is not None:
+                    api_mode = binding[3] if binding is not None else None
+                    streaming_flag = kwargs.get("stream") if "stream" in kwargs else None
+                    endpoint = None
+                    if responses:
+                        endpoint = "responses.create"
                     instrumentation.observe_request(
                         attempted=True, sent=False, prompts=prompts, tools=tools,
-                        tool_choice=tool_choice,
+                        tool_choice=tool_choice, api_mode=api_mode,
+                        endpoint=endpoint, streaming=streaming_flag,
                     )
                 if responses:
                     if args or kwargs.get("stream") is not True or kwargs.get("model") != binding[2]:
@@ -2655,9 +2682,13 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
                 if instrumentation is not None:
                     # "sent" means admitted to the SDK callable, after all
                     # wrapper-owned validation which can abort dispatch.
+                    api_mode = binding[3] if binding is not None else None
+                    streaming_flag = kwargs.get("stream") if "stream" in kwargs else None
+                    endpoint = "responses.create" if responses else None
                     instrumentation.observe_request(
                         attempted=True, sent=True, prompts=prompts, tools=tools,
-                        tool_choice=tool_choice,
+                        tool_choice=tool_choice, api_mode=api_mode,
+                        endpoint=endpoint, streaming=streaming_flag,
                     )
                 if responses:
                     with cap._responses_sdk_lock:
