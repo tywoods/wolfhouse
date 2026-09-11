@@ -31,16 +31,19 @@ function section(heading, nextHeading) {
 const map = section('## LR2.4 — Failure map: Closed-fixture contract / abort observability');
 
 check('LR2.4 failure map section exists', map.length > 0);
-check('status bar records #948/#949 without claiming PASS',
-  map.includes('Golden offline PASS; #948/#949 landed; case-09 capture re-QA pending external Seadog evidence')
+check('LR3.2 status bar records #953 adapter landing without claiming PASS',
+  map.includes('LR3.2 | Status Active')
+  && map.includes('#953 Responses adapter tool_choice wire + empty_tool_calls classification merged at master tip 0deceb93')
+  && map.includes('case-09 live retest remains Chief-gated')
   && map.includes('case-09 remains BLOCKED')
-  && !/full LR2\.4 PASS/i.test(map.replace('not** a full LR2.4 PASS', '')));
-check('master-tip metadata instrumentation evidence is named',
+  && !/full LR3\.2 PASS/i.test(map.replace('not** a full LR3.2 PASS', '')));
+check('master-tip metadata and adapter evidence are named',
   map.includes('#949 added metadata-first capture instrumentation at master tip `0ee15c4d`')
-  && map.includes('#948 hardened the LR2 messy-pack receipt contract'));
-check('03/08 live execution remains held behind case-09 TRACE classification',
+  && map.includes('#948 hardened the LR2 messy-pack receipt contract')
+  && map.includes('#953 merged the Responses adapter `tool_choice` wire plus `empty_tool_calls` classification at master tip `0deceb93`'));
+check('03/08 live execution remains held behind Chief-gated live retest',
   map.includes('03/08 live execution stays on HOLD')
-  && map.includes('Next gate: classify case-09 TRACE from admitted capture before live 03/08'));
+  && map.includes('Next gate: Chief-gated admitted live retest before 03/08'));
 check('owner boundaries keep Deckhand out of live re-QA collision',
   map.includes('Seadog owns live capture re-QA/classification')
   && map.includes('Deckhand may keep this map current and babysit fixture/doc/harness-only PRs'));
@@ -51,6 +54,7 @@ for (const closed of [
   'no capture-image rerun by Deckhand',
   'no `inbox-thread.js`',
   'no email inbound/poller work',
+  'no Skipper-owned adapter code',
   'no `/sethome`',
   'no production',
   'no merge by Deckhand',
