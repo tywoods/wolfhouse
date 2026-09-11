@@ -34,6 +34,7 @@ from datetime import datetime
 from types import MethodType, SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from wolfhouse.luna_capture_identity_trace import current_trace, emit as emit_identity_trace
 from wolfhouse.luna_responses_provider import (
     merge_terminal_function_calls_into_assembled,
     native_output_item_types,
@@ -249,6 +250,8 @@ class IsolatedTurnCapture:
     persistence_effects_completed: List[str] = field(default_factory=list)
     # Optional bounded, no-payload instrumentation owned by this same turn.
     metadata_capture: Any = field(default=None, repr=False, compare=False)
+    # Independent, identity-only LR3.2 trace.
+    identity_trace: Any = field(default=None, repr=False, compare=False)
     # Closed diagnostic-only request-local provider override. Never configured by ordinary turns.
     diagnostic_tool_choice: Optional[str] = field(default=None, repr=False, compare=False)
     diagnostic_tool_choice_remaining: int = field(default=0, repr=False, compare=False)
@@ -378,6 +381,12 @@ def refuse_unverified_runtime(stage: str = "") -> None:
 
 def current_isolated_turn() -> Optional[IsolatedTurnCapture]:
     return _ISOLATED.get()
+
+
+def _identity_event(cap: Any, event: str, **fields: Any) -> None:
+    emit_identity_trace(current_trace(), event,
+                        capture=cap if type(cap) is IsolatedTurnCapture else None,
+                        **fields)
 
 
 def runtime_route_execution_admitted() -> bool:
@@ -732,6 +741,8 @@ def _wrap_tool_dispatcher(handle_mod: Any = None) -> bool:
 
     def _wrapped(function_name: str, function_args: Any = None, *rest: Any, **kwargs: Any) -> Any:
         cap = _ISOLATED.get()
+        _identity_event(cap, "dispatcher", call_id=kwargs.get("call_id"), status="entered",
+                        reason="tool_dispatcher")
         instrumentation = getattr(cap, "metadata_capture", None) if cap is not None else None
         name = str(function_name)
         blocked = deny_tool_if_isolated(name, function_args if isinstance(function_args, dict) else {})
@@ -1917,6 +1928,7 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
         if callable(orig_handle) and not _is_wrapped(orig_handle):
             async def _isolated_handle(*args: Any, **kwargs: Any):
                 cap = _ISOLATED.get()
+                _identity_event(cap, "handler", status="entered", reason="gateway_handler")
                 primary_error = None
                 admission_token = None
                 try:
@@ -1996,6 +2008,7 @@ def _wrap_async_completion() -> bool:
     if not _is_wrapped(original):
         async def _run(self, *args, **kwargs):
             cap = _ISOLATED.get()
+            _identity_event(cap, "handler_entry", status="entered", reason="stream_consumer")
             if cap is None:
                 return await original(self, *args, **kwargs)
             with cap._provider_lifetime:
@@ -2023,6 +2036,7 @@ def _wrap_async_completion() -> bool:
             with cap._provider_lifetime:
                 cap._async_operations += 1
                 cap.async_work_settled = False
+            _identity_event(cap, "enqueue", status="queued", reason="safe_schedule_threadsafe")
             started = False
             completed = False
 
@@ -2480,6 +2494,9 @@ class _ObservedResponsesStream:
                             observe_stream(kind)
                     if self._terminal is None and kind in ("response.completed", "response.failed", "response.incomplete"):
                         self._terminal = kind
+                        _identity_event(cap, "provider_response_consumed",
+                                        status="completed" if kind == "response.completed" else "failed",
+                                        reason=kind)
                         response = (event.get("response") if isinstance(event, dict)
                                     else getattr(event, "response", None))
                         # Retain terminal response for done-only assembler recovery
@@ -2536,6 +2553,7 @@ def _wrap_codex_parser(mod: Any) -> None:
         if observed is not None and _ISOLATED.get() is not observed._cap:
             observed = None
         accepted = False
+        _identity_event(_ISOLATED.get(), "loop", status="entered", reason="codex_parser")
         try:
             call_kwargs: Dict[str, Any] = {
                 "model": model,

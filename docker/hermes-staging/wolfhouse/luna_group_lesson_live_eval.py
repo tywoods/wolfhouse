@@ -20,6 +20,7 @@ from wolfhouse.luna_personality_isolation import (
     mark_test_isolation_installed,
     preflight_isolation_or_abort,
     settle_isolated_work,
+    current_isolated_turn,
 )
 from wolfhouse.luna_personality_live_eval import (
     _eval_unauthorized,
@@ -27,6 +28,14 @@ from wolfhouse.luna_personality_live_eval import (
     default_invoke_live_gateway,
     live_sunset_eval_identity,
     serving_eval_readiness,
+)
+from wolfhouse.luna_capture_identity_trace import (
+    current_trace,
+    emit as emit_identity_trace,
+    enter_trace,
+    exit_trace,
+    finalize as finalize_identity_trace,
+    trace_from_environment,
 )
 from wolfhouse.luna_responses_provider import (
     PROVIDER_EMPTY_WITH_WIRE_OK,
@@ -494,6 +503,11 @@ class BoundedMetadataCapture:
         if disposition not in {"accepted", "rejected", "dispatched", "completed", "failed"}:
             raise ValueError("invalid_executor_disposition")
         call = self._ensure_call()
+        effective_call_id = call_id if call_id is not None else call.get("correlation_id")
+        active_cap = current_isolated_turn()
+        emit_identity_trace(current_trace(),
+                            "record_disposition_entry", capture=active_cap,
+                            call_id=effective_call_id, status=disposition)
         call_executor = call["executor"]
         if call_executor["dispositions"] is None:
             call_executor = call["executor"] = {"state": "observed", "dispositions": []}
@@ -518,6 +532,10 @@ class BoundedMetadataCapture:
             "state": call_executor["state"],
             "dispositions": list(call_executor["dispositions"]),
         }
+        emit_identity_trace(current_trace(),
+                            "record_disposition_post_write", capture=active_cap,
+                            call_id=effective_call_id, status=disposition,
+                            disposition_count=len(call_executor["dispositions"]))
 
     def observed_no_executor_calls(self) -> None:
         call = self._ensure_call()
@@ -532,6 +550,7 @@ class BoundedMetadataCapture:
         self.executor = {"state": "observed-none", "dispositions": []}
 
     def finalize(self, *, model_reached: bool) -> Dict[str, Any]:
+        active_cap = current_isolated_turn()
         if model_reached:
             for section in (self.request, self.response, self.executor):
                 if section["state"] == "not-reached":
@@ -540,7 +559,7 @@ class BoundedMetadataCapture:
                 for key in ("request", "response", "executor"):
                     if call[key]["state"] == "not-reached":
                         call[key]["state"] = "capture-unavailable"
-        return {
+        snapshot = {
             "schema_version": CAPTURE_SCHEMA_VERSION, "run_id": self.run_id,
             "revisions": dict(self.revisions), "model": self.model,
             "api_mode": self.api_mode,
@@ -561,6 +580,21 @@ class BoundedMetadataCapture:
                          "dispositions": (list(self.executor["dispositions"])
                                           if isinstance(self.executor["dispositions"], list) else None)},
         }
+        identity_trace = current_trace()
+        if identity_trace is not None:
+            try:
+                disposition_count = sum(
+                    len((call.get("executor") or {}).get("dispositions") or [])
+                    for call in self.calls
+                )
+                emit_identity_trace(
+                    identity_trace, "serialization_finalize", capture=active_cap,
+                    disposition_count=disposition_count, status="completed",
+                    reason="metadata_capture_finalize",
+                )
+            except BaseException:
+                pass
+        return snapshot
 
 
 def corpus_candidates(*, here: Optional[Path] = None):
@@ -663,6 +697,9 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None,
         instruction_marker=REQUIRED_TOOL_INSTRUCTION_MARKER,
     )
     cap.metadata_capture = instrumentation
+    cap.identity_trace = trace_from_environment(run_id=instrumentation.run_id, attempt_id="1")
+    trace_token = enter_trace(cap.identity_trace)
+    emit_identity_trace(cap.identity_trace, "attach", capture=cap, status="attached")
     token = enter_isolated_turn(cap)
     first_abort = None
     try:
@@ -730,7 +767,13 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None,
         except Exception:
             settle_abort = IsolationAbort("cleanup_failed")
         finally:
-            exit_isolated_turn(token)
+            failure_for_trace = first_abort or settle_abort
+            try:
+                finalize_identity_trace(cap.identity_trace, capture=cap,
+                                        failed=bool(failure_for_trace))
+            finally:
+                exit_isolated_turn(token)
+                exit_trace(trace_token)
         failure = first_abort or settle_abort
         if failure is not None:
             failure.counters = _abort_counters(
