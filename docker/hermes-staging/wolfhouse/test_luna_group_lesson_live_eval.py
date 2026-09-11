@@ -416,6 +416,72 @@ class GroupLessonCase09Tests(unittest.TestCase):
         self.assertEqual(result["response"]["state"], "observed-none")
         self.assertEqual(result["response"]["tool_calls"], [])
         self.assertEqual(result["executor"], {"state": "observed-none", "dispositions": []})
+        self.assertEqual(result["calls"][0]["executor"],
+                         {"state": "observed-none", "dispositions": []})
+
+    def test_final_receipt_preserves_completed_dispositions_after_empty_observation(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
+        capture.observe_response(status="completed", finish_reason="tool_calls", tool_calls=[{
+            "id": "call-1", "function": {"name": "get_sunset_lesson_catalog"},
+            "arg_validation": "valid",
+        }])
+        for disposition in ("accepted", "dispatched", "completed"):
+            capture.record_disposition(call_id="call-1", name="get_sunset_lesson_catalog",
+                                       disposition=disposition)
+        capture.observe_provider_result({"status": "completed", "output": []})
+
+        result = capture.finalize(model_reached=True)
+        expected = ["accepted", "dispatched", "completed"]
+        self.assertEqual([item["disposition"] for item in result["calls"][0]["executor"]["dispositions"]],
+                         expected)
+        self.assertEqual([item["disposition"] for item in result["executor"]["dispositions"]], expected)
+
+    def test_final_receipt_keeps_call1_execution_when_call2_is_empty(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
+        capture.observe_response(status="completed", finish_reason="tool_calls", tool_calls=[{
+            "id": "call-1", "function": {"name": "get_sunset_lesson_catalog"},
+            "arg_validation": "valid",
+        }])
+        for disposition in ("accepted", "dispatched", "completed"):
+            capture.record_disposition(call_id="call-1", name="get_sunset_lesson_catalog",
+                                       disposition=disposition)
+        capture.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto")
+        capture.observe_provider_result({"status": "completed", "output": []})
+
+        result = capture.finalize(model_reached=True)
+        self.assertEqual(
+            [item["disposition"] for item in result["calls"][0]["executor"]["dispositions"]],
+            ["accepted", "dispatched", "completed"],
+        )
+        self.assertEqual(result["calls"][1]["executor"],
+                         {"state": "observed-none", "dispositions": []})
+        self.assertEqual(result["executor"], {"state": "observed-none", "dispositions": []})
+
+    def test_final_receipt_preserves_rejection_after_empty_observation(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.record_disposition(call_id="call-1", name="get_sunset_lesson_catalog",
+                                   disposition="rejected", reason="arg_validation_failed")
+        capture.observe_provider_result({"status": "completed", "output": []})
+
+        result = capture.finalize(model_reached=True)
+        self.assertEqual([item["disposition"] for item in result["calls"][0]["executor"]["dispositions"]],
+                         ["rejected"])
+        self.assertEqual([item["disposition"] for item in result["executor"]["dispositions"]],
+                         ["rejected"])
+
+    def test_final_receipt_preserves_failure_after_empty_observation(self):
+        capture = BoundedMetadataCapture("gpt-5.6-sol", {})
+        capture.record_disposition(call_id="call-1", name="get_sunset_lesson_catalog",
+                                   disposition="failed", reason="handler_error")
+        capture.observe_provider_result({"status": "completed", "output": []})
+
+        result = capture.finalize(model_reached=True)
+        self.assertEqual([item["disposition"] for item in result["calls"][0]["executor"]["dispositions"]],
+                         ["failed"])
+        self.assertEqual([item["disposition"] for item in result["executor"]["dispositions"]],
+                         ["failed"])
 
     def test_capture_rejected_call_records_validation_and_reason_without_args(self):
         capture = BoundedMetadataCapture("gpt-5.6-sol", {})
