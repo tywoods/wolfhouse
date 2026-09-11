@@ -58,7 +58,7 @@ check('master-tip metadata, #956 digest, and wire-to-native discrimination are n
   && map.includes('adapter_drop_recovered'));
 check('03/08 live execution remains held behind independent handler-disposition evidence',
   map.includes('03/08 live execution stays on HOLD')
-  && map.includes('Next gate: independent handler/disposition evidence before treating read_tools_completed=[] or executor-none as authoritative'));
+  && map.includes('Next gate: #962-image offline reclassify A|B|REPAIRED after classification A + dispatcher rebind deploy; do not treat read_tools_completed=[] or executor-none as authoritative alone'));
 check('offline fixture hygiene keeps 03/08 review-only while live HOLD remains',
   map.includes('Sunset golden fixtures 03 and 08 remain active review-only corpus entries')
   && map.includes('they are **not** admitted live cases while 03/08 is on HOLD')

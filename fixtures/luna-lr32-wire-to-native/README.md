@@ -23,8 +23,7 @@ Keep call boundaries explicit:
   evidence proves whether dispatch did or did not run.
 
 Staff `read_tools_completed=[]` may share the same faulty observer path. Treat it
-as **unproven until independent handler evidence**; do not turn it into a PASS or
-no-dispatch claim while the Chief isolation harness is in flight.
+as **unproven until independent handler evidence** (observer-only capture is insufficient); Chief sealed classification **A** on the #960 image (handler ran; dispositions missing). #962 rebind is deployed; offline reclassify on the #962 image decides A|B|REPAIRED. Do not invent PASS or no-dispatch from observer fields alone.
 
 ## Cap A/B/C offline checklist stub
 
