@@ -153,6 +153,16 @@ _ALLOWED_EVENTS = frozenset({
     "loop", "dispatcher", "handler", "record_disposition_entry",
     "record_disposition_post_write", "serialization_finalize", "finalize",
     "sink_failure",
+    "live_output_item_done", "live_normalized_return", "live_assistant_tool_calls",
+})
+_LIVE_BOOL_FIELDS = frozenset({
+    "arguments_present", "arguments_valid", "excluded", "predicate",
+})
+_LIVE_INT_FIELDS = frozenset({"returned_call_count", "actual_call_count"})
+_LIVE_TEXT_FIELDS = frozenset({
+    "response_id", "item_type", "status_literal", "item_id", "call_name",
+    "input_item_id", "finish_reason", "branch", "reason_code", "history_role",
+    "history_type", "history_call_id",
 })
 _ALLOWED_STATUS = frozenset({
     "attached", "queued", "entered", "consumed", "completed", "failed",
@@ -265,6 +275,23 @@ class CaptureIdentityTrace:
                 return
             record = self._record(event, capture=capture, call_id=call_id,
                                   disposition_count=disposition_count, status=status, reason=reason)
+            if event.startswith("live_"):
+                # Fixed shape makes unavailable correlation/metadata explicit rather
+                # than silently omitting it; no caller-selected keys are admitted.
+                record.update({key: None for key in _LIVE_TEXT_FIELDS})
+                record.update({key: None for key in _LIVE_BOOL_FIELDS})
+                record.update({key: None for key in _LIVE_INT_FIELDS})
+                for key in _LIVE_BOOL_FIELDS:
+                    if type(_ignored.get(key)) is bool:
+                        record[key] = _ignored[key]
+                for key in _LIVE_INT_FIELDS:
+                    value = _ignored.get(key)
+                    if type(value) is int and 0 <= value <= TRACE_LIMIT:
+                        record[key] = value
+                for key in _LIVE_TEXT_FIELDS:
+                    value = _ignored.get(key)
+                    if isinstance(value, str):
+                        record[key] = value[:128]
             payload = (json.dumps(record, ensure_ascii=True, separators=(",", ":")) + "\n").encode()
             with self._lock:
                 if len(self._records) >= self._limit:
