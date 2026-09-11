@@ -3,7 +3,8 @@
 
 The June stream assembler retains ``response.output_item.done.item`` verbatim.
 Mapping-shaped function_call items therefore need mapping access at transport
-normalization; otherwise the actual conversation loop observes zero calls.
+normalization. Ordinary streams may also retain Enum discriminators and Chat-style
+nested ``function`` fields, which must match Luna's executable-call extraction.
 """
 
 from pathlib import Path
@@ -18,9 +19,14 @@ ITEM_OLD = '''    for item in output:
 '''
 ITEM_NEW = '''    for item in output:
         # output_item.done payloads are retained verbatim by the stream
-        # assembler. Accept SDK objects and mapping-shaped events here.
-        item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
-        item_status = item.get("status") if isinstance(item, dict) else getattr(item, "status", None)
+        # assembler. Accept SDK objects and mapping-shaped events here, and
+        # coerce SDK Enum discriminators the same way as Luna's boundary owner.
+        raw_item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+        item_type_value = getattr(raw_item_type, "value", raw_item_type)
+        item_type = str(item_type_value).strip() if item_type_value is not None else None
+        raw_item_status = item.get("status") if isinstance(item, dict) else getattr(item, "status", None)
+        item_status_value = getattr(raw_item_status, "value", raw_item_status)
+        item_status = str(item_status_value).strip() if item_status_value is not None else None
 '''
 FIELDS_OLD = '''            fn_name = getattr(item, "name", "") or ""
             arguments = getattr(item, "arguments", "{}")
@@ -29,8 +35,17 @@ FIELDS_OLD = '''            fn_name = getattr(item, "name", "") or ""
             raw_call_id = getattr(item, "call_id", None)
             raw_item_id = getattr(item, "id", None)
 '''
-FIELDS_NEW = '''            fn_name = (item.get("name", "") if isinstance(item, dict) else getattr(item, "name", "")) or ""
-            arguments = item.get("arguments", "{}") if isinstance(item, dict) else getattr(item, "arguments", "{}")
+FIELDS_NEW = '''            nested = item.get("function") if isinstance(item, dict) else getattr(item, "function", None)
+            fn_name = item.get("name") if isinstance(item, dict) else getattr(item, "name", None)
+            arguments = item.get("arguments") if isinstance(item, dict) else getattr(item, "arguments", None)
+            if isinstance(nested, dict):
+                if fn_name is None:
+                    fn_name = nested.get("name")
+                if arguments is None:
+                    arguments = nested.get("arguments")
+            fn_name = fn_name or ""
+            if arguments is None:
+                arguments = "{}"
             if not isinstance(arguments, str):
                 arguments = json.dumps(arguments, ensure_ascii=False)
             raw_call_id = item.get("call_id") if isinstance(item, dict) else getattr(item, "call_id", None)

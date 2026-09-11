@@ -1,5 +1,6 @@
-"""LR-3.2 actual-loop regression for the sealed #958 executor handoff."""
+"""LR-3.2 actual-loop regressions for top-level and nested/Enum handoffs."""
 
+from enum import Enum
 from types import SimpleNamespace
 from unittest import mock
 import json
@@ -14,8 +15,12 @@ sys.modules.setdefault("fal_client", types.SimpleNamespace())
 import run_agent
 
 
+class ItemType(Enum):
+    FUNCTION_CALL = "function_call"
+
+
 class ExecutorHandoffTest(unittest.TestCase):
-    def test_sealed_call1_enters_actual_loop_and_dispatcher(self):
+    def _run_actual_loop(self, call_item):
         tool_name = "get_sunset_lesson_catalog"
         definitions = [{"type": "function", "function": {
             "name": tool_name, "description": "Controlled read.",
@@ -35,16 +40,9 @@ class ExecutorHandoffTest(unittest.TestCase):
         agent._persist_session = lambda _messages, history=None: None
         agent._save_trajectory = lambda _messages, _user_message, _completed: None
 
-        # Exact sealed call-1 handoff shape: output_item.done is retained as a
-        # dict, terminal response is completed, and there is no assistant text.
         call1 = SimpleNamespace(
-            output=[{
-                "type": "function_call", "id": "fc-sealed-958",
-                "call_id": "call-sealed-958", "name": tool_name,
-                "arguments": json.dumps({"location": "sunset-somo"}),
-                "status": "completed",
-            }],
-            output_text="", status="completed", model="gpt-5.6-sol",
+            output=[call_item], output_text="", status="completed",
+            model="gpt-5.6-sol",
             usage=SimpleNamespace(input_tokens=1, output_tokens=1, total_tokens=2),
         )
         final = SimpleNamespace(
@@ -57,13 +55,18 @@ class ExecutorHandoffTest(unittest.TestCase):
         )
         responses = [call1, final]
         dispatched = []
+        model_requests = []
 
         def controlled_staff_dispatch(name, arguments, *_args, **_kwargs):
             dispatched.append((name, dict(arguments)))
             return json.dumps({"success": True, "controlled": True})
 
+        def controlled_model(request):
+            model_requests.append(request)
+            return responses.pop(0)
+
         with mock.patch.object(agent, "_interruptible_api_call",
-                               side_effect=lambda _kwargs: responses.pop(0)), \
+                               side_effect=controlled_model), \
                 mock.patch.object(run_agent, "handle_function_call",
                                   side_effect=controlled_staff_dispatch):
             result = agent.run_conversation("sealed case 09 call 1")
@@ -75,6 +78,27 @@ class ExecutorHandoffTest(unittest.TestCase):
         self.assertEqual(assistant_calls[0]["tool_calls"][0]["id"],
                          "call-sealed-958")
         self.assertTrue(any(m.get("role") == "tool" for m in result["messages"]))
+        self.assertEqual(len(model_requests), 2)
+        self.assertIn("function_call_output", json.dumps(model_requests[1], default=str))
+
+    def test_sealed_top_level_call_enters_actual_loop_and_dispatcher(self):
+        self._run_actual_loop({
+            "type": "function_call", "id": "fc-sealed-958",
+            "call_id": "call-sealed-958", "name": "get_sunset_lesson_catalog",
+            "arguments": json.dumps({"location": "sunset-somo"}),
+            "status": "completed",
+        })
+
+    def test_nested_enum_call_enters_actual_loop_and_dispatcher(self):
+        self._run_actual_loop({
+            "type": ItemType.FUNCTION_CALL, "id": "fc-sealed-958",
+            "call_id": "call-sealed-958",
+            "function": {
+                "name": "get_sunset_lesson_catalog",
+                "arguments": {"location": "sunset-somo"},
+            },
+            "status": "completed",
+        })
 
 
 if __name__ == "__main__":
