@@ -34,8 +34,11 @@ from types import MethodType, SimpleNamespace
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from wolfhouse.luna_responses_provider import (
+    merge_terminal_function_calls_into_assembled,
     normalize_responses_tool_choice,
+    normalize_responses_tools,
     responses_tool_choice_wire,
+    responses_tool_schema_wire,
 )
 
 ISOLATION_DENY_MESSAGE = "luna_personality_isolated_no_tools"
@@ -2416,10 +2419,14 @@ class _ObservedResponsesStream:
 
     This is not a consumer lifetime registry or HTTP cancellation mechanism.
     No payloads, exception text, or response objects enter the capture.
+    Terminal response objects are retained only long enough for the isolation
+    consume wrap to recover function_call items dropped by done-only assembly.
     """
     def __init__(self, stream: Any, cap: IsolatedTurnCapture):
         self._stream, self._cap = stream, cap
         self._terminal = None
+        self._terminal_response = None
+        self._recovery_evidence: Optional[Dict[str, Any]] = None
         self._iterated = self._close_attempted = self._iteration_failed = False
         self._active = self._sealed = self._accepted = self._closed = self._finalized = False
 
@@ -2449,12 +2456,14 @@ class _ObservedResponsesStream:
                 with cap._responses_sdk_lock:
                     if self._terminal is None and kind in ("response.completed", "response.failed", "response.incomplete"):
                         self._terminal = kind
+                        response = (event.get("response") if isinstance(event, dict)
+                                    else getattr(event, "response", None))
+                        # Retain terminal response for done-only assembler recovery
+                        # (June-pin hermes ignores response.completed.response.output).
+                        self._terminal_response = response
                         instrumentation = getattr(cap, "metadata_capture", None)
-                        if instrumentation is not None:
-                            response = (event.get("response") if isinstance(event, dict)
-                                        else getattr(event, "response", None))
-                            if response is not None:
-                                instrumentation.observe_provider_result(response)
+                        if instrumentation is not None and response is not None:
+                            instrumentation.observe_provider_result(response)
                         if kind == "response.completed":
                             cap.responses_completed = min(cap.responses_completed + 1, 2**53 - 1)
             except StopIteration:
@@ -2498,16 +2507,47 @@ def _wrap_codex_parser(mod: Any) -> None:
         return
 
     def consume(event_iter, *, model, on_text_delta=None, on_reasoning_delta=None,
-                on_first_delta=None, on_event=None, interrupt_check=None):
+                on_first_delta=None, on_event=None, interrupt_check=None,
+                on_commentary_message=None, **_compat: Any):
         observed = event_iter if type(event_iter) is _ObservedResponsesStream else None
         if observed is not None and _ISOLATED.get() is not observed._cap:
             observed = None
         accepted = False
         try:
-            result = original(event_iter, model=model, on_text_delta=on_text_delta,
-                              on_reasoning_delta=on_reasoning_delta, on_first_delta=on_first_delta,
-                              on_event=on_event, interrupt_check=interrupt_check)
-            accepted = observed is not None and result.terminal_event_type == "response.completed"
+            call_kwargs: Dict[str, Any] = {
+                "model": model,
+                "on_text_delta": on_text_delta,
+                "on_reasoning_delta": on_reasoning_delta,
+                "on_first_delta": on_first_delta,
+                "on_event": on_event,
+                "interrupt_check": interrupt_check,
+            }
+            # Newer Hermes assemblers accept on_commentary_message; June pin does not.
+            if on_commentary_message is not None:
+                call_kwargs["on_commentary_message"] = on_commentary_message
+            try:
+                result = original(event_iter, **call_kwargs)
+            except TypeError:
+                call_kwargs.pop("on_commentary_message", None)
+                result = original(event_iter, **call_kwargs)
+            if observed is not None:
+                result, evidence = merge_terminal_function_calls_into_assembled(
+                    result, observed._terminal_response,
+                )
+                observed._recovery_evidence = evidence
+                instrumentation = getattr(observed._cap, "metadata_capture", None)
+                if (instrumentation is not None
+                        and evidence.get("recovery") == "terminal_function_calls_merged"
+                        and observed._terminal_response is not None):
+                    # Re-classify capture from the recovered assembled output so
+                    # metadata matches the executable path (still no dispatch).
+                    instrumentation.observe_provider_result(result)
+            terminal_type = getattr(result, "terminal_event_type", None)
+            if terminal_type is None and isinstance(result, dict):
+                terminal_type = result.get("terminal_event_type")
+            if observed is not None and terminal_type is None:
+                terminal_type = observed._terminal
+            accepted = observed is not None and terminal_type == "response.completed"
             return result
         finally:
             if observed is not None:
@@ -2571,6 +2611,18 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
                 tools = payload.get("tools")
                 if tools is None and isinstance(payload.get("toolConfig"), dict):
                     tools = payload["toolConfig"].get("tools")
+                if tools is None and isinstance(payload.get("extra_body"), dict):
+                    tools = payload["extra_body"].get("tools")
+                if responses and tools is not None:
+                    try:
+                        normalized_tools = normalize_responses_tools(tools)
+                    except ValueError as exc:
+                        raise IsolationAbort(str(exc)) from exc
+                    if normalized_tools != tools:
+                        kwargs = dict(kwargs)
+                        kwargs["tools"] = normalized_tools
+                        payload = kwargs
+                        tools = normalized_tools
                 tool_choice = payload.get("tool_choice") or payload.get("toolChoice")
                 if responses and tool_choice is not None:
                     wire = responses_tool_choice_wire(tool_choice)
@@ -2586,6 +2638,11 @@ def _observe_create_call(original: Any, binding: Any = None, *, responses: bool 
                             kwargs["tool_choice"] = normalized
                             payload = kwargs
                             tool_choice = normalized
+                if responses and tools is not None:
+                    # Fail closed if any offered tool is still Chat-nested on the wire.
+                    for tool in tools:
+                        if responses_tool_schema_wire(tool) != "responses_function":
+                            raise IsolationAbort("responses_tools_not_flat_on_wire")
                 if instrumentation is not None:
                     instrumentation.observe_request(
                         attempted=True, sent=False, prompts=prompts, tools=tools,
