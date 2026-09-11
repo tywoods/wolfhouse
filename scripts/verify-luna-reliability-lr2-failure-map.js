@@ -6,7 +6,9 @@ const path = require('path');
 
 const root = path.join(__dirname, '..');
 const planPath = path.join(root, 'LUNA-RELIABILITY.md');
+const wireReadmePath = path.join(root, 'fixtures', 'luna-lr32-wire-to-native', 'README.md');
 const text = fs.readFileSync(planPath, 'utf8');
+const wireReadme = fs.readFileSync(wireReadmePath, 'utf8');
 let passed = 0;
 let failed = 0;
 
@@ -31,12 +33,15 @@ function section(heading, nextHeading) {
 const map = section('## LR2.4 — Failure map: Closed-fixture contract / abort observability');
 
 check('LR2.4 failure map section exists', map.length > 0);
-check('LR3.2 status bar records post-#956 boundary isolation without claiming PASS',
+check('LR3.2 status bar records observer-stale-after-promote without claiming PASS',
   map.includes('LR3.2 | Status Active')
   && map.includes('#956 landed + live retest still empty_tool_calls')
   && map.includes('sha256:f74d9e5d')
-  && map.includes('wire-to-native boundary record')
-  && map.includes('lr32_post956_native_empty_or_observation_incomplete')
+  && map.includes('1547934800348975165')
+  && map.includes('1547935282974687245')
+  && map.includes('observer-stale-after-promote')
+  && map.includes('not proof dispatch never ran')
+  && map.includes('call1 provider_empty_with_wire_ok remains separate from call2 stale observer')
   && map.includes('03/08 HOLD')
   && map.includes('live case-09 remains BLOCKED')
   && !/full LR3\.2 PASS/i.test(map.replace('not** a full LR3.2 PASS', '')));
@@ -51,9 +56,9 @@ check('master-tip metadata, #956 digest, and wire-to-native discrimination are n
   && map.includes('provider_empty_with_wire_ok')
   && map.includes('observation_incomplete')
   && map.includes('adapter_drop_recovered'));
-check('03/08 live execution remains held behind Chief-gated live retest after boundary capture deploy',
+check('03/08 live execution remains held behind independent handler-disposition evidence',
   map.includes('03/08 live execution stays on HOLD')
-  && map.includes('Next gate: Chief-gated live retest only after boundary fields are on the capture image'));
+  && map.includes('Next gate: #962-image offline reclassify A|B|REPAIRED after classification A + dispatcher rebind deploy; do not treat read_tools_completed=[] or executor-none as authoritative alone'));
 check('offline fixture hygiene keeps 03/08 review-only while live HOLD remains',
   map.includes('Sunset golden fixtures 03 and 08 remain active review-only corpus entries')
   && map.includes('they are **not** admitted live cases while 03/08 is on HOLD')
@@ -61,9 +66,24 @@ check('offline fixture hygiene keeps 03/08 review-only while live HOLD remains',
 check('owner boundaries keep Deckhand in fixture/doc/harness-only lane',
   map.includes('Runtime/admission owners hold adapter deploy and any admitted live retest')
   && map.includes('Deckhand may keep this map current and babysit fixture/doc/harness-only PRs'));
-check('compatibility blocker forbids further extraction repair without wire-to-native proof',
-  map.includes('do **not** keep repairing extraction')
-  && map.includes('LUNA_LR32_BOUNDARY_DIRECT_COMPARE'));
+check('compatibility blocker forbids observer-only no-dispatch claims',
+  map.includes('lr32_post956_observer_stale_after_promote')
+  && map.includes('do **not** claim PASS or no-dispatch from observer-only capture')
+  && map.includes('read_tools_completed=[]')
+  && map.includes('unproven until independent handler evidence'));
+check('offline README keeps Cap A/B/C checklist and observer-stale caveats',
+  wireReadme.includes('observer-stale-after-promote')
+  && wireReadme.includes('call1: `provider_empty_with_wire_ok`')
+  && wireReadme.includes('call2: `observer-stale-after-promote`')
+  && wireReadme.includes('Staff `read_tools_completed=[]`')
+  && wireReadme.includes('unproven until independent handler evidence')
+  && wireReadme.includes('`classification`')
+  && wireReadme.includes('`handler_entries`')
+  && wireReadme.includes('`record_disposition_entries`')
+  && wireReadme.includes('`history_before_call2`')
+  && wireReadme.includes('`final_capture`')
+  && wireReadme.includes('`first_divergent_*`')
+  && wireReadme.includes('Do not invent PASS'));
 
 for (const closed of [
   'no `hermes-sunset-luna-http` deploy',
