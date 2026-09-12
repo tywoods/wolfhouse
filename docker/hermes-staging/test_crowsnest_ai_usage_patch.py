@@ -7,11 +7,50 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import apply_crowsnest_ai_usage_patch as patcher
+import apply_luna_live_loop_trace_patch as live_loop_patcher
 
 PINNED = Path("/opt/hermes")
 
 
 class PatcherTests(unittest.TestCase):
+    def test_current_conversation_lineage_accepts_b4_reapply(self):
+        source = (PINNED / "agent/conversation_loop.py").read_text()
+        for relative, anchor, replacement in live_loop_patcher.PATCHES:
+            if relative != "agent/conversation_loop.py" or replacement in source:
+                continue
+            self.assertEqual(source.count(anchor), 1)
+            source = source.replace(anchor, replacement, 1)
+        emitted = patcher.patch_conversation_abort(source)
+        self.assertEqual(patcher.patch_conversation_abort(emitted), emitted)
+        self.assertEqual(emitted.count(patcher.B4_CATCH[0][1]), 1)
+        with self.assertRaisesRegex(RuntimeError, "B4 conversation source fingerprint drift"):
+            patcher.patch_conversation_abort(source + "\n# unknown lineage\n")
+
+    def test_live_loop_codex_runtime_lineage_accepts_cancellation_reapply(self):
+        with tempfile.TemporaryDirectory() as d:
+            paths = self.copy_pinned(Path(d))
+            runtime = paths[1]
+            relative, anchor, replacement = live_loop_patcher.PATCHES[0]
+            self.assertEqual(relative, "agent/codex_runtime.py")
+            source = runtime.read_text()
+            if replacement not in source:
+                self.assertEqual(source.count(anchor), 1)
+                source = source.replace(anchor, replacement, 1)
+                runtime.write_text(source)
+            else:
+                self.assertEqual(source.count(replacement), 1)
+            candidates = {path: path.read_text() for path in paths}
+            patcher.patch_codex_cancellation(candidates, paths)
+            emitted = dict(candidates)
+            patcher.patch_codex_cancellation(candidates, paths)
+            self.assertEqual(candidates, emitted)
+            self.assertEqual(candidates[runtime].count(replacement), 1)
+
+            drifted = {path: path.read_text() for path in paths}
+            drifted[runtime] += "\n# unknown lineage\n"
+            with self.assertRaisesRegex(RuntimeError, "B3e reconstructed source fingerprint drift"):
+                patcher.patch_codex_cancellation(drifted, paths)
+
     def test_compressor_qualified_selection_and_inversion(self):
         import ast
         for module in ('agent.context_compressor', 'agent.conversation_compression'):
