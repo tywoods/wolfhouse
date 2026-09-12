@@ -404,6 +404,7 @@ def patch_streaming_origin(text, inverse=False):
 
 B3E_ADDITIONAL_FINGERPRINTS = {
     'run_codex_stream': frozenset({
+        '0042756244d91ebc83eae9da4f5f9a58e54ea1d56466aa5b61eab878fed46a49',
         '45c4f837557008f02ad6a14d777c0ac84f38472e1b5b05ba26b1fb106f84dddd',
     }),
 }
