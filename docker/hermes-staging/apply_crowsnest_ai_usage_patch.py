@@ -331,11 +331,17 @@ B4_CATCH = ((
 ),)
 
 
+B4_CONVERSATION_FINGERPRINTS = frozenset({
+    '3e89d9bb00d0b375b94a947600dd15934b300119bc1d56f2b04bdf59db56341b',
+    '662475c721c056f109d436338f0760c63c2d7a8694302b40ccb7ff4c17353f55',
+})
+
+
 def patch_conversation_abort(text):
     import hashlib
     marked = B4_CATCH[0][1] in text
     original = _b3e_replace(text, 'run_conversation', B4_CATCH, inverse=True) if marked else text
-    if hashlib.sha256(original.encode('utf-8')).hexdigest() != '3e89d9bb00d0b375b94a947600dd15934b300119bc1d56f2b04bdf59db56341b':
+    if hashlib.sha256(original.encode('utf-8')).hexdigest() not in B4_CONVERSATION_FINGERPRINTS:
         raise RuntimeError('B4 conversation source fingerprint drift')
     return _b3e_replace(original, 'run_conversation', B4_CATCH)
 
@@ -396,6 +402,13 @@ def patch_streaming_origin(text, inverse=False):
     return text if inverse else _b3e_replace(text, 'interruptible_streaming_api_call', STREAMING_ORIGIN)
 
 
+B3E_ADDITIONAL_FINGERPRINTS = {
+    'run_codex_stream': frozenset({
+        '45c4f837557008f02ad6a14d777c0ac84f38472e1b5b05ba26b1fb106f84dddd',
+    }),
+}
+
+
 def patch_codex_cancellation(candidates, paths):
     import hashlib
     helper = paths[2]
@@ -416,7 +429,9 @@ def patch_codex_cancellation(candidates, paths):
             text = _b3e_replace(text, owner, changes, inverse=True)
         if owner == 'interruptible_api_call':
             text = patch_cancelled_registration(text)  # inverse B3e precedes B3d validation
-        if hashlib.sha256(text.encode('utf-8')).hexdigest() != expected:
+        actual = hashlib.sha256(text.encode('utf-8')).hexdigest()
+        accepted = {expected, *B3E_ADDITIONAL_FINGERPRINTS.get(owner, ())}
+        if actual not in accepted:
             raise RuntimeError("B3e reconstructed source fingerprint drift")
         patched = _b3e_replace(text, owner, changes)
         if all(marked) and patched != candidates[path]:
