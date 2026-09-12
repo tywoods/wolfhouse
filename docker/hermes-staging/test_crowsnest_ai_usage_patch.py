@@ -29,6 +29,7 @@ class PatcherTests(unittest.TestCase):
     def test_live_loop_codex_runtime_lineage_accepts_cancellation_reapply(self):
         with tempfile.TemporaryDirectory() as d:
             paths = self.copy_pinned(Path(d))
+            patcher.patch_files(*paths)
             runtime = paths[1]
             relative, anchor, replacement = live_loop_patcher.PATCHES[0]
             self.assertEqual(relative, "agent/codex_runtime.py")
