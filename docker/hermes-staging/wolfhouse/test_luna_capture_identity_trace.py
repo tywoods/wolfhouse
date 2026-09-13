@@ -629,5 +629,66 @@ class CaptureIdentityTraceTests(unittest.TestCase):
                              for item in identity.snapshot()))
 
 
+    def test_late_run_agent_alias_rebinds_at_ordinary_turn_entry(self):
+        calls = []
+
+        def original(name, args):
+            calls.append((name, args))
+            return json.dumps({"success": True})
+
+        model_tools = types.ModuleType("model_tools")
+        setattr(model_tools, "handle_function_call", original)
+        late_run_agent = types.ModuleType("run_agent")
+        setattr(late_run_agent, "handle_function_call", original)
+
+        class Agent:
+            def run_conversation(self):
+                return late_run_agent.handle_function_call(
+                    "get_sunset_lesson_catalog", {"location_id": "sunset-somo"}
+                )
+
+        metadata = BoundedMetadataCapture("gpt-5.6-sol", {})
+        metadata.observe_response(
+            status="ok", finish_reason="tool_calls",
+            tool_calls=[{"id": "call_tXVaS810j7kU0QZkddNeT3xV", "function": {
+                "name": "get_sunset_lesson_catalog"}, "arg_validation": "valid"}],
+            provider_shape="openai_responses", completion_category="tool_calls",
+        )
+        capture = iso.IsolatedTurnCapture("sealed-call-1", "sunny")
+        capture.metadata_capture = metadata
+        capture.read_only_tool_allowlist = frozenset({"get_sunset_lesson_catalog"})
+
+        saved_run_agent = sys.modules.pop("run_agent", None)
+        saved_model_tools = sys.modules.get("model_tools")
+        try:
+            sys.modules["model_tools"] = model_tools
+            self.assertTrue(iso._wrap_tool_dispatcher(model_tools))
+            sys.modules["run_agent"] = late_run_agent
+            self.assertIs(late_run_agent.handle_function_call, original)
+            self.assertTrue(iso._wrap_turn_owner_method(Agent, "run_conversation"))
+            token = iso.enter_isolated_turn(capture)
+            try:
+                with patch.object(iso, "refuse_unsupported_backend"), \
+                        patch.object(iso, "_certify_effective_agent_before_turn_prologue"):
+                    Agent().run_conversation()
+            finally:
+                iso.exit_isolated_turn(token)
+        finally:
+            iso.reset_isolation_runtime_for_tests()
+            if saved_run_agent is None:
+                sys.modules.pop("run_agent", None)
+            else:
+                sys.modules["run_agent"] = saved_run_agent
+            if saved_model_tools is None:
+                sys.modules.pop("model_tools", None)
+            else:
+                sys.modules["model_tools"] = saved_model_tools
+
+        self.assertEqual(calls, [("get_sunset_lesson_catalog", {"location_id": "sunset-somo"})])
+        dispositions = metadata.finalize(model_reached=True)["calls"][0]["executor"]["dispositions"]
+        self.assertEqual([item["disposition"] for item in dispositions],
+                         ["accepted", "dispatched", "completed"])
+
+
 if __name__ == "__main__":
     unittest.main()
