@@ -958,7 +958,10 @@ function renderAdminBookingsSummary() {
       metric('admin.bookings.metric.refunded', adminBookingsFormatEur(s.refunded_cents), 'refunded') +
       metric('admin.bookings.metric.net', adminBookingsFormatEur(s.net_cents), 'net') +
       metric('admin.bookings.metric.outstanding', adminBookingsFormatEur(s.outstanding_cents), 'outstanding') +
-    '</div>';
+    '</div>' +
+    '<p class="portal-admin-bookings-summary-note" data-bookings-kpi-scope="1" style="margin:8px 0 0;font-size:12px;line-height:1.35;opacity:0.78;max-width:72rem">' +
+      escHtml(portalT('admin.bookings.summaryScopeNote')) +
+    '</p>';
 
   function metric(labelKey, value, tone) {
     var toneClass = tone ? (' is-' + String(tone)) : '';

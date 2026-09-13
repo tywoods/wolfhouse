@@ -13,6 +13,9 @@ const {
   normalizeSunsetLocationId,
 } = require('./sunset-school-locations');
 const {
+  PAYMENT_COLLECTED_SCOPE_SQL,
+} = require('./sunset-staff-money-scope');
+const {
   BookingsAdminError,
   buildBookingListRow,
   computeBookingsSummary,
@@ -183,6 +186,7 @@ WHERE c.slug = $1
 ORDER BY bsr.service_date NULLS LAST, bsr.id
 `;
 
+// Same collected/net payment scope as Finance (finance_exclusion + schedule-deleted).
 const PAYMENTS_FOR_BOOKINGS_SQL = `
 SELECT
   p.booking_id::text AS booking_id,
@@ -193,8 +197,7 @@ INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
   AND b.id = ANY($2::uuid[])
   AND p.status = 'paid'::payment_record_status
-  AND p.paid_at IS NOT NULL
-  AND COALESCE((p.metadata->>'test_booking_cancelled')::boolean, false) = false
+  ${PAYMENT_COLLECTED_SCOPE_SQL}
 GROUP BY p.booking_id
 `;
 
@@ -552,8 +555,7 @@ async function loadCollectedGrossForBooking(pg, clientSlug, bookingId) {
       WHERE c.slug = $1
         AND p.booking_id = $2::uuid
         AND p.status = 'paid'::payment_record_status
-        AND p.paid_at IS NOT NULL
-        AND COALESCE((p.metadata->>'test_booking_cancelled')::boolean, false) = false`,
+        ${PAYMENT_COLLECTED_SCOPE_SQL}`,
     [clientSlug, bookingId],
   );
   return Number(rows(r)[0] && rows(r)[0].collected_cents || 0);

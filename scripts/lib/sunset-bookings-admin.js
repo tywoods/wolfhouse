@@ -1,5 +1,9 @@
 'use strict';
 
+const {
+  isExcludedBookingStatus,
+} = require('./sunset-staff-money-scope');
+
 /**
  * Sunset Admin Bookings tab (N1) — pure domain contracts.
  *
@@ -16,10 +20,12 @@
  *   - hide → bookings.hidden (+ legacy schedule_archived meta)
  *
  * Money:
- *   collected  = gross settled/collected payments (status paid)
+ *   collected  = gross settled/collected payments (status paid), same ledger
+ *                exclusions as Finance (finance_exclusion / schedule-deleted)
  *   refunded   = Σ manual booking_refund_records.amount_cents
  *   net        = collected − refunded
- *   outstanding = max(charged − collected, 0)  // never below zero
+ *   outstanding = max(charged − collected, 0) for operational bookings;
+ *                 cancelled / expired / hold contribute 0 (Finance parity)
  *
  * Export: parseListQuery caps interactive page size; export uses a dedicated
  * path with EXPORT_HARD_CAP (truthful truncated flag if exceeded).
@@ -275,6 +281,8 @@ function computeMoneyStory(input) {
 
 /**
  * Summary over the full filtered set (not a page slice).
+ * Outstanding skips cancelled/expired/hold (Finance operational scope).
+ * Collected/net already use Finance payment ledger exclusions at SQL load.
  */
 function computeBookingsSummary(rows) {
   let bookingsCount = 0;
@@ -285,6 +293,9 @@ function computeBookingsSummary(rows) {
     bookingsCount += 1;
     collected = checkedAdd(collected, row.collected_cents != null ? row.collected_cents : 0);
     refunded = checkedAdd(refunded, row.refunded_cents != null ? row.refunded_cents : 0);
+    // Prefer raw DB status when present (hold/expired); else classified status.
+    const statusForScope = row.booking_status != null ? row.booking_status : row.status;
+    if (isExcludedBookingStatus(statusForScope)) continue;
     outstanding = checkedAdd(outstanding, row.outstanding_cents != null ? row.outstanding_cents : 0);
   }
   return {
@@ -891,6 +902,11 @@ function buildBookingListRow(input) {
     refunded_cents: src.refunded_cents != null ? src.refunded_cents : 0,
     outstanding_cents: src.outstanding_cents,
   });
+  // Finance parity: cancelled / expired / hold are not operational outstanding.
+  const rawBookingStatus = booking.status != null ? booking.status : src.status;
+  if (isExcludedBookingStatus(rawBookingStatus)) {
+    money.outstanding_cents = 0;
+  }
   const span = serviceDateSpan(services);
   const meta = parseMeta(booking.metadata);
   const locationId = String(
@@ -1009,6 +1025,8 @@ function buildBookingListRow(input) {
     paid_cents: money.collected_cents,
     ...money,
     status,
+    /** Raw DB status (hold/expired/cancelled) for Finance-parity KPI scope. */
+    booking_status: rawBookingStatus != null ? String(rawBookingStatus) : null,
     status_tags,
     hidden,
     needs_refund,
