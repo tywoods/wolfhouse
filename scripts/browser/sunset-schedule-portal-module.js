@@ -40,6 +40,20 @@ function schedulePortalQuoteFailureMessage(result) {
   var rc = String(
     body.reason_code || body.reason || body.error || (result && result.error) || '',
   ).trim();
+  var humanError = '';
+  if (body.error != null && String(body.error).trim()) {
+    humanError = String(body.error).trim();
+  } else if (result && result.error != null && String(result.error).trim()) {
+    humanError = String(result.error).trim();
+  }
+  // Prefer staff-safe prose from the server over snake_case reason codes.
+  // Keep this check inline — offline gates extract this function alone into a VM.
+  var humanIsProse = false;
+  if (humanError && humanError.length >= 8 && humanError !== rc
+    && !/^[a-z][a-z0-9_]*$/.test(humanError)
+    && (/\s/.test(humanError) || /[A-Z]/.test(humanError) || /[€$]|[áéíóúñ¿¡]/i.test(humanError))) {
+    humanIsProse = true;
+  }
   if (uiKey) {
     var fromKey = portalT(uiKey);
     if (fromKey && fromKey !== uiKey) return fromKey;
@@ -55,10 +69,27 @@ function schedulePortalQuoteFailureMessage(result) {
       && Array.isArray(body.uncovered_nights) && body.uncovered_nights.length) {
       return scheduleAccommodationUncoveredWarningMessage(body.uncovered_nights);
     }
-    if (body.error) return String(body.error);
+    if (humanIsProse) return humanError;
     return portalT('schedule.create.accommodation.uncoveredNights')
       || portalT('admin.accommodation.coverageGap')
       || 'Some dates have no seasonal price. Stays including these nights cannot be quoted.';
+  }
+  if (rc === 'rental_duration_mismatch' || rc === 'rental_duration_not_compatible'
+    || rc === 'invalid_rental_duration') {
+    if (humanIsProse) return humanError;
+    return portalT('schedule.create.rentalDurationMismatch')
+      || 'Rental duration must match the selected dates.';
+  }
+  if (rc === 'service_dates_not_on_course_schedule'
+    || rc === 'offering_not_available_on_dates'
+    || rc === 'weekday_not_allowed'
+    || rc === 'outside_effective_range'
+    || rc === 'excluded_date'
+    || rc === 'course_schedule_not_configured'
+    || rc === 'schedule_not_configured') {
+    if (humanIsProse) return humanError;
+    return portalT('schedule.create.courseNotOnSelectedDates')
+      || 'This course is not available on the selected dates.';
   }
   if (rc === 'course_full' || rc === 'course_capacity_not_configured') {
     var seats = body.seats_remaining != null ? Number(body.seats_remaining) : (body.capacity != null ? Number(body.capacity) : 24);
@@ -80,6 +111,7 @@ function schedulePortalQuoteFailureMessage(result) {
   if (result && result.status === 503) {
     return portalT('schedule.create.quoteBusy') || 'Price check is busy — wait a moment and try again.';
   }
+  if (humanIsProse) return humanError;
   return portalT('schedule.create.quoteFailed') || 'Quote unavailable';
 }
 

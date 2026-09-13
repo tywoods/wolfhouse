@@ -726,6 +726,7 @@
     "verify:sunset-staff-edit-past-quote-save": "node scripts/verify-sunset-staff-edit-past-quote-save.js",
     "verify:sunset-staff-schedule-date-boundary": "node scripts/verify-sunset-staff-schedule-date-boundary.js",
     "verify:sunset-batch-d4-course-rental-quote": "node scripts/verify-sunset-batch-d4-course-rental-quote.js",
+    "verify:sunset-course-rental-combo-quote": "node scripts/verify-sunset-course-rental-combo-quote.js",
     "verify:sunset-batch-inbox-sidebar-toggle": "node scripts/verify-sunset-batch-inbox-sidebar-toggle.js",
     "verify:sunset-finance-revenue-by-product-f2": "node scripts/verify-sunset-finance-revenue-by-product-f2.js",
     "verify:sunset-booking-unhide-action": "node scripts/verify-sunset-booking-unhide-action.js",

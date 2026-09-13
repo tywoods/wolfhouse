@@ -757,6 +757,20 @@ function rentalDurationKeyFromDateRange(dateFrom, dateTo) {
 }
 
 /**
+ * Short rental windows allowed on a single-day span — same set as quote
+ * normalizeCanonicalRentalsForQuote (1_hour / 2_hours / half_day / full_day).
+ * Multi-day spans still require the exact N_days package identity.
+ */
+const CANONICAL_SHORT_RENTAL_DURATION_KEYS = Object.freeze([
+  '1_hour', '2_hours', 'half_day', 'full_day',
+]);
+const CANONICAL_SHORT_RENTAL_DURATION_SET = new Set(CANONICAL_SHORT_RENTAL_DURATION_KEYS);
+
+function isCanonicalShortRentalDurationKey(key) {
+  return CANONICAL_SHORT_RENTAL_DURATION_SET.has(String(key || '').trim());
+}
+
+/**
  * When canonical rentals[] is present, expand into operational components and
  * capture rental context for authoritative quote application on create.
  */
@@ -826,12 +840,18 @@ function prepareCanonicalRentalsForCreate(body, opts) {
     if (!durationKey) {
       return { ok: false, error: `rentals[${i}].duration_key is required`, reason: 'invalid_rental_duration' };
     }
+    // Match quote: short windows are legal on a single-day span only. Multi-day
+    // still requires exact N_days — never accept 1_day (or hours) for 3_days.
     if (durationKey !== expectedDuration) {
-      return {
-        ok: false,
-        error: `rentals[${i}].duration_key must be ${expectedDuration} for the selected dates`,
-        reason: 'rental_duration_mismatch',
-      };
+      const shortOkOnSingleDay = expectedDuration === '1_day'
+        && isCanonicalShortRentalDurationKey(durationKey);
+      if (!shortOkOnSingleDay) {
+        return {
+          ok: false,
+          error: `rentals[${i}].duration_key must be ${expectedDuration} for the selected dates`,
+          reason: 'rental_duration_mismatch',
+        };
+      }
     }
     const qty = Number(row.quantity);
     if (!Number.isInteger(qty) || qty < 1) {
@@ -5323,6 +5343,8 @@ module.exports = {
   isExactOfferingFutureWriteKey,
   isComponentLaneRentalKey,
   rentalDurationKeyFromDateRange,
+  isCanonicalShortRentalDurationKey,
+  CANONICAL_SHORT_RENTAL_DURATION_KEYS,
   inclusiveIsoDatesFromRange,
   applyAuthoritativeQuoteAmounts,
   resolveAuthoritativeScheduleQuoteInTxn,
