@@ -175,45 +175,85 @@ function isCompleteCustom(q, start, end) {
 function runSupplementaryUnitChecks() {
   console.log('\n[supplementary] unit/source-shape (not release authority)\n');
 
-  function scheduleCreateDateRangeIsValidIso(iso) {
-    iso = String(iso || '').slice(0, 10);
-    if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(iso)) return false;
-    const [y, m, d] = iso.split('-').map(Number);
-    if (!y || !m || !d) return false;
-    const dt = new Date(Date.UTC(y, m - 1, d));
-    return dt.getUTCFullYear() === y && dt.getUTCMonth() + 1 === m && dt.getUTCDate() === d;
+  // Mirror Finance-local selection (must allow historical days for reporting).
+  function financeDateIsValidIso(iso) {
+    const s = String(iso || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    const parts = s.split('-').map(Number);
+    const dt = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    return (
+      dt.getUTCFullYear() === parts[0] &&
+      dt.getUTCMonth() + 1 === parts[1] &&
+      dt.getUTCDate() === parts[2]
+    );
   }
-  function scheduleCreateDateRangeSelectDay(state, iso) {
-    state = state || {};
-    var start = state.start ? String(state.start).slice(0, 10) : null;
-    var end = state.end ? String(state.end).slice(0, 10) : null;
+  function financeSelectRangeDay(draft, iso) {
+    draft = draft || { start: null, end: null };
     iso = String(iso || '').slice(0, 10);
-    if (!scheduleCreateDateRangeIsValidIso(iso)) return { start: start, end: end };
+    if (!financeDateIsValidIso(iso)) return draft;
+    const start = financeDateIsValidIso(draft.start) ? draft.start : null;
+    const end = financeDateIsValidIso(draft.end) ? draft.end : null;
+    if (!start || end) return { start: iso, end: null };
+    if (iso < start) return { start: iso, end: null };
+    return { start: start, end: iso };
+  }
+
+  // Past-blocking schedule helper (booking create) — Finance must NOT reuse this.
+  function scheduleCreateDateRangeSelectDayPastBlocking(state, iso, todayIso) {
+    state = state || {};
+    let start = state.start ? String(state.start).slice(0, 10) : null;
+    let end = state.end ? String(state.end).slice(0, 10) : null;
+    iso = String(iso || '').slice(0, 10);
+    if (!financeDateIsValidIso(iso)) return { start: start, end: end };
+    if (iso < String(todayIso || '').slice(0, 10)) return { start: start, end: end };
     if (!start || (start && end)) return { start: iso, end: null };
     if (iso < start) return { start: iso, end: null };
     return { start: start, end: iso };
   }
 
-  let st = scheduleCreateDateRangeSelectDay({}, '2026-08-10');
-  ok('helper first click holds start only', st.start === '2026-08-10' && st.end == null);
-  st = scheduleCreateDateRangeSelectDay(st, '2026-08-15');
-  ok('helper second later click sets end', st.start === '2026-08-10' && st.end === '2026-08-15');
-  st = scheduleCreateDateRangeSelectDay({}, '2026-08-10');
-  st = scheduleCreateDateRangeSelectDay(st, '2026-08-10');
-  ok('helper same-day second click start===end', st.start === '2026-08-10' && st.end === '2026-08-10');
-  st = scheduleCreateDateRangeSelectDay({ start: '2026-08-15', end: null }, '2026-08-10');
-  ok('helper reverse second click restarts start', st.start === '2026-08-10' && st.end == null);
+  let st = financeSelectRangeDay({}, '2026-08-10');
+  ok('finance first click holds start only', st.start === '2026-08-10' && st.end == null);
+  st = financeSelectRangeDay(st, '2026-08-15');
+  ok('finance second later click sets end', st.start === '2026-08-10' && st.end === '2026-08-15');
+  st = financeSelectRangeDay({}, '2026-08-10');
+  st = financeSelectRangeDay(st, '2026-08-10');
+  ok('finance same-day second click start===end', st.start === '2026-08-10' && st.end === '2026-08-10');
+  st = financeSelectRangeDay({ start: '2026-08-15', end: null }, '2026-08-10');
+  ok('finance reverse second click restarts start', st.start === '2026-08-10' && st.end == null);
+
+  // P1 regression: Sep 1 must be selectable when "today" is Sep 7 (past vs schedule helper).
+  const blocked = scheduleCreateDateRangeSelectDayPastBlocking({}, '2026-09-01', '2026-09-07');
+  ok(
+    'schedule past-blocker rejects Sep 1 when today is Sep 7 (bug signature)',
+    blocked.start == null && blocked.end == null
+  );
+  st = financeSelectRangeDay({}, '2026-09-01');
+  ok('finance allows Sep 1 start when today is Sep 7', st.start === '2026-09-01' && st.end == null);
+  st = financeSelectRangeDay(st, '2026-09-15');
+  ok('finance allows Sep 1→15 range', st.start === '2026-09-01' && st.end === '2026-09-15');
+  st = financeSelectRangeDay({}, '2026-09-07');
+  ok('finance still allows today Sep 7', st.start === '2026-09-07' && st.end == null);
+  // Day-1 of other months (not falsy-day bug)
+  st = financeSelectRangeDay({}, '2026-08-01');
+  ok('finance allows Aug 1 (day-1 not falsy)', st.start === '2026-08-01' && st.end == null);
+  st = financeSelectRangeDay({}, '2026-10-01');
+  ok('finance allows Oct 1 (day-1 not falsy)', st.start === '2026-10-01' && st.end == null);
 
   const adminSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-ui.js'), 'utf8');
   const redesignSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-finance-redesign-ui.js'), 'utf8');
   ok(
-    'source uses (state, iso) order',
-    /scheduleCreateDateRangeSelectDay\(\s*draft\s*,\s*iso\s*\)/.test(adminSrc)
-      || /scheduleCreateDateRangeSelectDay\(\s*financeCustomRangeDraft[^,]*,\s*iso\s*\)/.test(adminSrc)
+    'financeSelectRangeDay does not call scheduleCreateDateRangeSelectDay (past-blocker)',
+    /function\s+financeSelectRangeDay\s*\([\s\S]*?^\}/m.test(adminSrc) &&
+      !/function\s+financeSelectRangeDay[\s\S]*?scheduleCreateDateRangeSelectDay/.test(
+        adminSrc.slice(
+          adminSrc.indexOf('function financeSelectRangeDay'),
+          adminSrc.indexOf('function financeSelectRangeDay') + 800
+        )
+      )
   );
   ok(
-    'source does not use (iso, state) order',
-    !/scheduleCreateDateRangeSelectDay\(\s*iso\s*,\s*(?:draft|financeCustomRangeDraft)/.test(adminSrc)
+    'financeSelectRangeDay is self-contained range logic',
+    /function\s+financeSelectRangeDay[\s\S]{0,500}if\s*\(\s*!start\s*\|\|\s*end\s*\)/.test(adminSrc)
   );
   ok(
     'source Custom gran opens client picker (no openCustomPicker reload)',
@@ -691,33 +731,137 @@ async function main() {
         await page.locator('#pfb-custom-range-pop [data-pfb-cal="close"]').click().catch(() => {});
       }
 
-      // ── Runtime helper presence (actual cooked modules) ──
-      // Production modules are IIFE-scoped (not window globals). Prove presence in
-      // the cooked page artifact + product single-day journey (above) exercises the
-      // real call path. Fallback branch must remain in source for safety.
+      // ── P1: Sep 1 selectable when calendar "today" is after day-1 (past vs booking helper) ──
+      // Root cause was financeSelectRangeDay reusing scheduleCreateDateRangeSelectDay,
+      // which rejects iso < scheduleTodayIso(). Finance reporting must allow history.
+      {
+        await page.locator('#admin-finance-body [data-finance-gran="month"]').click().catch(() => {});
+        await page.waitForSelector('#admin-finance-body [data-finance-gran="month"].is-on', { timeout: 8000 }).catch(() => {});
+        await clickCustom(page);
+        ok('Sep1 journey: Custom opens calendar', (await waitCalendar(page, 2500)).ok);
+        ok('Sep1 journey: navigate to 2026-09', await ensureCalendarYm(page, '2026-09'));
+        const reqBeforeSep = requests.length;
+        await clickDay(page, '2026-09-01');
+        await sleep(80);
+        const sep1Paint = await page.evaluate(() => {
+          const pop = document.getElementById('pfb-custom-range-pop');
+          const btn = pop && pop.querySelector('[data-pfb-day="2026-09-01"],[data-date="2026-09-01"]');
+          return {
+            ok: !!(pop && btn),
+            isStart: !!(btn && (btn.classList.contains('is-start') || btn.classList.contains('is-selected-start'))),
+            isSelected: !!(btn && btn.classList.contains('is-selected')),
+            ariaPressed: btn ? btn.getAttribute('aria-pressed') : null,
+          };
+        });
+        ok(
+          'Sep 1 2026 highlights as custom range start (past day allowed)',
+          !!(sep1Paint && sep1Paint.ok && sep1Paint.isStart),
+          JSON.stringify(sep1Paint)
+        );
+        await page.screenshot({ path: path.join(shotDir, '03a-sep1-start-highlight.png'), fullPage: false }).catch(() => {});
+        ok(
+          'Sep 1 first click issues no summary request yet',
+          requests.length === reqBeforeSep,
+          requests.slice(reqBeforeSep).map((r) => r.url).join(' | ') || 'none'
+        );
+        await clickDay(page, '2026-09-15');
+        await page
+          .waitForFunction(
+            () => !!document.querySelector('#admin-finance-body [data-finance-gran="custom"].is-on'),
+            null,
+            { timeout: 8000 }
+          )
+          .catch(() => {});
+        const sepReqs = requests.slice(reqBeforeSep);
+        const sepComplete = sepReqs.find((r) => isCompleteCustom(r.query, '2026-09-01', '2026-09-15'));
+        ok(
+          'Sep 1→15 complete range issues exact custom&start&end',
+          !!sepComplete,
+          sepReqs.map((r) => r.url).join(' | ')
+        );
+        const sepLabel = await page.locator('#admin-finance-body [data-finance-range-label]').innerText().catch(() => '');
+        ok(
+          'Sep 1→15 range label localized',
+          looksLocalizedCustomRange(sepLabel, '2026-09-01', '2026-09-15'),
+          sepLabel
+        );
+        await page.screenshot({ path: path.join(shotDir, '03-sep1-range-applied.png'), fullPage: false }).catch(() => {});
+        // Spot-check Sep 7–15 still selectable as start of a fresh range
+        await page.locator('#admin-finance-body [data-finance-gran="month"]').click().catch(() => {});
+        await page.waitForSelector('#admin-finance-body [data-finance-gran="month"].is-on', { timeout: 8000 }).catch(() => {});
+        await clickCustom(page);
+        ok('Sep7 spot: calendar open', (await waitCalendar(page, 2500)).ok);
+        ok('Sep7 spot: on 2026-09', await ensureCalendarYm(page, '2026-09'));
+        const reqBeforeSep7 = requests.length;
+        await clickDay(page, '2026-09-07');
+        await sleep(80);
+        const sep7Paint = await page.evaluate(() => {
+          const btn = document.querySelector('#pfb-custom-range-pop [data-pfb-day="2026-09-07"]');
+          return {
+            ok: !!btn,
+            isStart: !!(btn && (btn.classList.contains('is-start') || btn.classList.contains('is-selected-start'))),
+          };
+        });
+        ok('Sep 7 highlights as start (spot-check)', !!(sep7Paint && sep7Paint.isStart), JSON.stringify(sep7Paint));
+        await page.screenshot({ path: path.join(shotDir, '04-sep7-start-selected.png'), fullPage: false }).catch(() => {});
+        await clickDay(page, '2026-09-15');
+        await page
+          .waitForFunction(
+            () => !!document.querySelector('#admin-finance-body [data-finance-gran="custom"].is-on'),
+            null,
+            { timeout: 8000 }
+          )
+          .catch(() => {});
+        const sep7Reqs = requests.slice(reqBeforeSep7);
+        ok(
+          'Sep 7→15 still works (no regression)',
+          !!sep7Reqs.find((r) => isCompleteCustom(r.query, '2026-09-07', '2026-09-15')),
+          sep7Reqs.map((r) => r.url).join(' | ')
+        );
+        // Also capture Sep 1 mid-selection with calendar still open (reopen + click only start)
+        await page.locator('#pfb-custom-range-trigger, #admin-finance-body [data-finance-nav="open-custom-range"]').first().click();
+        if ((await waitCalendar(page, 2500)).ok) {
+          ok('reopen for Sep1 mid-select shot', await ensureCalendarYm(page, '2026-09'));
+          await page.locator('#pfb-custom-range-pop [data-pfb-cal="clear"]').click().catch(() => {});
+          await sleep(40);
+          await clickDay(page, '2026-09-01');
+          await sleep(80);
+          await page.screenshot({ path: path.join(shotDir, '05-sep1-start-selected.png'), fullPage: false }).catch(() => {});
+          const mid = await page.evaluate(() => {
+            const btn = document.querySelector('#pfb-custom-range-pop [data-pfb-day="2026-09-01"]');
+            return !!(btn && (btn.classList.contains('is-start') || btn.classList.contains('is-selected-start')));
+          });
+          ok('Sep 1 mid-select screenshot state is start', mid);
+        }
+      }
+
+      // ── Runtime: Finance must not call schedule past-blocker; helper may still exist for Create ──
       const cookedHasHelper = await page.evaluate(() => {
         const html = document.documentElement && document.documentElement.innerHTML
           ? document.documentElement.innerHTML
           : '';
+        const finIdx = html.indexOf('function financeSelectRangeDay');
+        const finSlice = finIdx >= 0 ? html.slice(finIdx, finIdx + 900) : '';
         return {
-          decl: /function\s+scheduleCreateDateRangeSelectDay\s*\(\s*state\s*,\s*iso\s*\)/.test(html),
-          callSite: /scheduleCreateDateRangeSelectDay\(\s*draft\s*,\s*iso\s*\)/.test(html)
-            || /scheduleCreateDateRangeSelectDay\(\s*financeCustomRangeDraft/.test(html),
-          fallback: /typeof scheduleCreateDateRangeSelectDay\s*===\s*['"]function['"]/.test(html),
+          scheduleDecl: /function\s+scheduleCreateDateRangeSelectDay\s*\(\s*state\s*,\s*iso\s*\)/.test(html),
+          financeDecl: /function\s+financeSelectRangeDay\s*\(/.test(html),
+          financeCallsSchedule: /scheduleCreateDateRangeSelectDay/.test(finSlice),
         };
       });
       ok(
-        'actual scheduleCreateDateRangeSelectDay present in cooked injected modules (state, iso)',
-        !!(cookedHasHelper && cookedHasHelper.decl),
+        'cooked page still has scheduleCreateDateRangeSelectDay (Create drawer)',
+        !!(cookedHasHelper && cookedHasHelper.scheduleDecl),
         JSON.stringify(cookedHasHelper)
       );
       ok(
-        'finance picker call site uses (state, iso) against cooked helper',
-        !!(cookedHasHelper && cookedHasHelper.callSite)
+        'cooked financeSelectRangeDay present',
+        !!(cookedHasHelper && cookedHasHelper.financeDecl),
+        JSON.stringify(cookedHasHelper)
       );
       ok(
-        'fallback typeof guard present if production runtime lacks helper',
-        !!(cookedHasHelper && cookedHasHelper.fallback)
+        'cooked financeSelectRangeDay does not call scheduleCreateDateRangeSelectDay',
+        !!(cookedHasHelper && !cookedHasHelper.financeCallsSchedule),
+        JSON.stringify(cookedHasHelper)
       );
     }
 
@@ -826,18 +970,20 @@ async function main() {
         windowTypeof === 'undefined',
         `got ${JSON.stringify(windowTypeof)}`
       );
-      // Confirm disabled rename present and original decl absent in live DOM HTML
+      // Confirm disabled rename present and original decl absent in live DOM HTML.
+      // Finance no longer depends on scheduleCreateDateRangeSelectDay; rewrite still
+      // proves the picker works when the Create helper is unavailable.
       const liveHtmlShape = await fbPage.evaluate(() => {
         const html = document.documentElement ? document.documentElement.innerHTML : '';
         return {
           hasDisabled: /function\s+__disabled_scheduleCreateDateRangeSelectDay\s*\(/.test(html),
           hasOriginal: /function\s+scheduleCreateDateRangeSelectDay\s*\(/.test(html),
-          hasFallbackGuard: /typeof scheduleCreateDateRangeSelectDay\s*===\s*['"]function['"]/.test(html),
+          financeSelfContained: /function\s+financeSelectRangeDay/.test(html),
         };
       });
       ok(
         'fallback rewrite disabled cooked helper declaration',
-        !!(liveHtmlShape.hasDisabled && !liveHtmlShape.hasOriginal && liveHtmlShape.hasFallbackGuard),
+        !!(liveHtmlShape.hasDisabled && !liveHtmlShape.hasOriginal && liveHtmlShape.financeSelfContained),
         JSON.stringify(liveHtmlShape)
       );
 
