@@ -2161,6 +2161,9 @@ function adminAccommodationFromCfg(cfg){
   return {
     enabled: a.enabled === true,
     currency: String(a.currency || 'EUR').toUpperCase() || 'EUR',
+    bed_capacity: a.bed_capacity != null && Number.isFinite(Number(a.bed_capacity)) && Number(a.bed_capacity) > 0
+      ? Number(a.bed_capacity)
+      : null,
     ranges: Array.isArray(a.ranges) ? a.ranges.slice() : [],
     source: a.source || 'default',
   };
@@ -2328,6 +2331,10 @@ function renderAdminSectionAccommodationFromConfig(cfg){
   html += '<span class="portal-admin-muted" data-testid="admin-accommodation-enabled-status">' + escHtml(ac.enabled
     ? (portalT('admin.accommodation.enabledYes') || 'Enabled')
     : (portalT('admin.accommodation.enabledNo') || 'Disabled')) + '</span>';
+  if (!editing && ac.bed_capacity != null) {
+    html += '<span class="portal-admin-muted" data-testid="admin-accommodation-bed-capacity">' +
+      escHtml(String(ac.bed_capacity) + ' ' + (portalT('admin.accommodation.beds') || 'beds')) + '</span>';
+  }
   html += '</div>';
   if (writes && !editing){
     html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-accommodation" aria-label="' +
@@ -2340,6 +2347,11 @@ function renderAdminSectionAccommodationFromConfig(cfg){
     html += '<label class="portal-admin-equip-enabled"><input type="checkbox" id="admin-accom-enabled"' +
       (ac.enabled ? ' checked' : '') + '> ' +
       escHtml(portalT('admin.accommodation.enabled') || 'Enabled') + '</label>';
+    html += '<label class="portal-admin-accommodation-bed-capacity"><span data-i18n="admin.accommodation.bedCapacity">' +
+      escHtml(portalT('admin.accommodation.bedCapacity') || 'Bed capacity') + '</span> ';
+    html += '<input type="number" id="admin-accom-bed-capacity" class="bk-input" min="1" max="999" step="1" value="' +
+      escHtml(ac.bed_capacity != null ? String(ac.bed_capacity) : '') + '" placeholder="—" aria-label="' +
+      escHtml(portalT('admin.accommodation.bedCapacity') || 'Bed capacity') + '"></label>';
     html += renderAdminAccommodationRangeRows(ac.ranges, true);
     html += '<div class="portal-admin-edit-actions" style="margin-top:10px">';
     html += '<button type="button" class="btn btn-ghost" data-admin-action="accom-add-range">+ ' +
@@ -2364,6 +2376,13 @@ function renderAdminSectionAccommodationFromConfig(cfg){
 function adminReadAccommodationDraftFromDom(){
   var enabledEl = el('admin-accom-enabled');
   var enabled = !!(enabledEl && enabledEl.checked);
+  var bedCapEl = el('admin-accom-bed-capacity');
+  var bedRaw = bedCapEl ? String(bedCapEl.value || '').trim() : '';
+  var bed_capacity = null;
+  if (bedRaw) {
+    var bedNum = Number(bedRaw);
+    if (Number.isInteger(bedNum) && bedNum >= 1 && bedNum <= 999) bed_capacity = bedNum;
+  }
   var ranges = [];
   var cards = document.querySelectorAll('article.portal-admin-accommodation-range[data-accom-range-idx]');
   cards.forEach(function(card){
@@ -2383,7 +2402,7 @@ function adminReadAccommodationDraftFromDom(){
       amount_cents: centsParsed.ok ? centsParsed.value : 0,
     });
   });
-  return { enabled: enabled, ranges: ranges, currency: 'EUR' };
+  return { enabled: enabled, bed_capacity: bed_capacity, ranges: ranges, currency: 'EUR' };
 }
 
 // adminSaveAccommodation removed: unwired dead duplicate. Live save is the

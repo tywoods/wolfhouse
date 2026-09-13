@@ -158,8 +158,8 @@ eq('due soon uses period-capped unpaid (not full booking remainder)', s.redesign
 eq('overdue in primary July may be 0 (B_PAST outside period)', s.redesign.outstanding.overdue_cents, 0);
 
 ok('capacity seats known', s.redesign.capacity.seats_capacity != null && s.redesign.capacity.seats_capacity > 0);
-ok('boards stock used', s.redesign.capacity.boards_stock === 20);
-ok('wetsuits stock used', s.redesign.capacity.wetsuits_stock === 15);
+ok('boards stock used (period-scaled)', s.redesign.capacity.boards_stock === 20 * 31);
+ok('wetsuits stock used (period-scaled)', s.redesign.capacity.wetsuits_stock === 15 * 31);
 ok('boards out counted', s.redesign.capacity.boards_out >= 1);
 ok('daily trend has LY ghost fields', Array.isArray(s.redesign.daily_gross_trend) && s.redesign.daily_gross_trend[0]
   && 'ly_collected_gross_cents' in s.redesign.daily_gross_trend[0]);

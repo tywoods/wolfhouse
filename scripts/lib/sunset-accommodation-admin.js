@@ -46,10 +46,16 @@ async function ensureAccommodationTables(client) {
       location_id     TEXT,
       enabled         BOOLEAN NOT NULL DEFAULT false,
       currency        CHAR(3) NOT NULL DEFAULT 'EUR',
+      bed_capacity    INTEGER
+                      CHECK (bed_capacity IS NULL OR (bed_capacity >= 1 AND bed_capacity <= 999)),
       created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_by      UUID REFERENCES staff_users(id) ON DELETE SET NULL
     )`);
+  await client.query(`
+    ALTER TABLE tenant_accommodation_settings
+      ADD COLUMN IF NOT EXISTS bed_capacity INTEGER
+      CHECK (bed_capacity IS NULL OR (bed_capacity >= 1 AND bed_capacity <= 999))`);
   await client.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_accommodation_settings_scope
       ON tenant_accommodation_settings (client_slug, COALESCE(location_id, ''))`);
@@ -165,7 +171,7 @@ async function loadAccommodationConfig(client, clientSlug, locationId) {
 
   // MULTICLIENT_SCOPE_OK: client_slug + location_id predicates
   const settingsRes = await client.query(
-    `SELECT id, enabled, currency
+    `SELECT id, enabled, currency, bed_capacity
        FROM tenant_accommodation_settings
       WHERE client_slug = $1
         AND location_id IS NOT DISTINCT FROM $2
@@ -194,6 +200,10 @@ async function loadAccommodationConfig(client, clientSlug, locationId) {
     currency: settings && settings.currency
       ? String(settings.currency).toUpperCase()
       : 'EUR',
+    bed_capacity: settings && settings.bed_capacity != null && Number.isInteger(Number(settings.bed_capacity))
+      && Number(settings.bed_capacity) > 0
+      ? Number(settings.bed_capacity)
+      : null,
     ranges,
     source: settings || ranges.length ? 'db' : 'default',
     settings_id: settings && settings.id ? String(settings.id) : null,
@@ -208,7 +218,7 @@ async function loadAccommodationConfig(client, clientSlug, locationId) {
  * Overlap/validation fail closed before any write.
  */
 async function saveAccommodationConfig(client, {
-  clientSlug, locationId, enabled, ranges, currency, actor,
+  clientSlug, locationId, enabled, ranges, currency, bed_capacity, actor,
 } = {}) {
   const gate = assertSunsetClient(clientSlug);
   if (!gate.ok) return gate;
@@ -243,6 +253,22 @@ async function saveAccommodationConfig(client, {
     };
   }
   const actorId = actor && actor.staff_user_id ? actor.staff_user_id : null;
+  let beds = null;
+  if (bed_capacity != null && bed_capacity !== '') {
+    const n = Number(bed_capacity);
+    if (!Number.isInteger(n) || n < 1 || n > 999) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          success: false,
+          error: 'bed_capacity must be an integer 1..999 or null',
+          reason_code: 'accommodation_bed_capacity_invalid',
+        },
+      };
+    }
+    beds = n;
+  }
 
   await ensureAccommodationTables(client);
 
@@ -267,17 +293,17 @@ async function saveAccommodationConfig(client, {
       await client.query(
         // MULTICLIENT_SCOPE_OK
         `UPDATE tenant_accommodation_settings
-            SET enabled = $1, currency = $2, updated_by = $3, updated_at = NOW()
-          WHERE id = $4::uuid AND client_slug = $5`,
-        [en, cur, actorId, existing.rows[0].id, gate.clientSlug],
+            SET enabled = $1, currency = $2, bed_capacity = $3, updated_by = $4, updated_at = NOW()
+          WHERE id = $5::uuid AND client_slug = $6`,
+        [en, cur, beds, actorId, existing.rows[0].id, gate.clientSlug],
       );
     } else {
       await client.query(
         // MULTICLIENT_SCOPE_OK
         `INSERT INTO tenant_accommodation_settings
-           (client_slug, location_id, enabled, currency, updated_by)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [gate.clientSlug, loc, en, cur, actorId],
+           (client_slug, location_id, enabled, currency, bed_capacity, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [gate.clientSlug, loc, en, cur, beds, actorId],
       );
     }
 
@@ -317,6 +343,7 @@ async function saveAccommodationConfig(client, {
         accommodation: {
           enabled: en,
           currency: cur,
+          bed_capacity: beds,
           ranges: inserted,
           source: 'db',
           location_id: loc,
