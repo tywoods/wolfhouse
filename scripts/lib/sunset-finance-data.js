@@ -99,6 +99,15 @@ const SURF_PACKS_SQL = `
      AND (location_id = $2 OR location_id IS NULL OR location_id = '')
 `;
 
+// Optional Finance occupancy denom for Alojamiento (null → row hidden; never invent beds).
+const ACCOMMODATION_SETTINGS_SQL = `
+  SELECT bed_capacity
+    FROM tenant_accommodation_settings
+   WHERE client_slug = $1
+     AND location_id IS NOT DISTINCT FROM $2
+   LIMIT 1
+`;
+
 function rows(result) { return result && Array.isArray(result.rows) ? result.rows : []; }
 
 function mapBsr(r) {
@@ -254,6 +263,19 @@ async function fetchSunsetFinanceData(pg, scope) {
     } catch (_e) {
       packsRes = { rows: [] };
     }
+    let accommodationSettings = null;
+    try {
+      const accRes = await pg.query(ACCOMMODATION_SETTINGS_SQL, params);
+      const row = accRes.rows[0];
+      if (row && row.bed_capacity != null) {
+        const beds = Number(row.bed_capacity);
+        if (Number.isInteger(beds) && beds > 0) {
+          accommodationSettings = { bed_capacity: beds };
+        }
+      }
+    } catch (_e) {
+      accommodationSettings = null; // column/table may be absent on older DBs
+    }
 
     const bsr = rows(bsrRes).map(mapBsr);
     const bookings = rows(bookingsRes).map((r) => ({
@@ -332,6 +354,7 @@ async function fetchSunsetFinanceData(pg, scope) {
       refund_ledger_unavailable: refundLedgerUnavailable,
       rental_stock,
       surf_packs,
+      accommodation_settings: accommodationSettings,
       // Soft-fail diagnostics for Captain (malformed: IDs only; drift: booking_id + recon cents).
       data_quality: {
         malformed_count: diagnostics.malformed.length,
@@ -488,6 +511,7 @@ async function fetchLodgingFinanceData(pg, scope) {
       refund_ledger_unavailable: refundLedgerUnavailable,
       rental_stock: [],
       surf_packs: [],
+      accommodation_settings: null,
       data_quality: {
         malformed_count: diagnostics.malformed.length,
         malformed: diagnostics.malformed.slice(),
@@ -513,6 +537,7 @@ module.exports = {
   REFUNDS_SQL,
   RENTAL_STOCK_SQL,
   SURF_PACKS_SQL,
+  ACCOMMODATION_SETTINGS_SQL,
   fetchSunsetFinanceData,
   fetchLodgingFinanceData,
   FinanceDataQualityError,
