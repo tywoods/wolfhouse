@@ -4629,12 +4629,15 @@ async function createSunsetScheduleBooking(pg, opts) {
     } // end lessons[] multi-course branch
   } else if (input.components.course) {
     const { assertCourseAssignable } = require('./sunset-admin-course-join');
+    const partyQty = input.surfer_count != null
+      ? Math.max(1, Number(input.surfer_count) || 1)
+      : Math.max(1, Number(input.components.course.quantity) || 1);
     const gate = await assertCourseAssignable(pg, {
       clientSlug,
       locationId,
       courseId: input.components.course.course_id,
       serviceDates: input.service_dates,
-      quantity: input.components.course.quantity,
+      quantity: partyQty,
     });
     if (!gate.ok) return gate;
     assignedCourse = gate;

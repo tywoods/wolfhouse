@@ -30,7 +30,11 @@ const {
   applyNoLessonEquipmentQtyFromSurfers,
   STAFF_CUSTOM_LINE_COMPONENT,
 } = require('./sunset-schedule-booking-writes');
-const { assertCourseAssignable } = require('./sunset-admin-course-join');
+const {
+  assertCourseAssignable,
+  mapCourseCapacityGateFailure,
+  normalizeCoursePartyQuantity,
+} = require('./sunset-admin-course-join');
 const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
 const {
   normalizeSunsetLocationId,
@@ -444,20 +448,7 @@ async function quoteSelectedCoursesIndependently(pg, command, catalog, requireDb
       serviceDates: dates,
       quantity: qty,
     });
-    if (!cap.ok) {
-      return {
-        ok: false,
-        status: cap.status || 409,
-        body: {
-          success: false,
-          reason: cap.body && cap.body.error,
-          reason_code: cap.body && (cap.body.reason_code || cap.body.error),
-          error: cap.body && cap.body.error,
-          course_id: sc.course_id,
-          capacity_by_date: cap.body && cap.body.capacity_by_date,
-        },
-      };
-    }
+    if (!cap.ok) return mapCourseCapacityGateFailure(cap, { course_id: sc.course_id });
     offering._capacity_by_date = cap.capacity_by_date;
     const lineOut = await quoteOfferingLine(pg, command, offering, dates, qty, requireDb);
     if (!lineOut.ok) return lineOut;
@@ -568,20 +559,7 @@ async function quoteGroupLessonsIndividually(pg, command, catalog, requireDb, le
       serviceDates: [lesson.date],
       quantity: qty,
     });
-    if (!cap.ok) {
-      return {
-        ok: false,
-        status: cap.status || 409,
-        body: {
-          success: false,
-          reason: cap.body && cap.body.error,
-          reason_code: cap.body && (cap.body.reason_code || cap.body.error),
-          error: cap.body && cap.body.error,
-          course_id: lesson.course_id,
-          capacity_by_date: cap.body && cap.body.capacity_by_date,
-        },
-      };
-    }
+    if (!cap.ok) return mapCourseCapacityGateFailure(cap, { course_id: lesson.course_id });
     offering._capacity_by_date = cap.capacity_by_date;
     const lineOut = await quoteOfferingLine(pg, command, offering, [lesson.date], qty, requireDb);
     if (!lineOut.ok) return lineOut;
@@ -1105,18 +1083,7 @@ async function quoteOfferingLine(pg, command, offering, serviceDates, quantity, 
         quantity,
       });
       if (!cap.ok) {
-        return {
-          ok: false,
-          status: cap.status || 409,
-          body: {
-            success: false,
-            reason: cap.body && cap.body.error,
-            reason_code: cap.body && (cap.body.reason_code || cap.body.error),
-            error: cap.body && cap.body.error,
-            course_id: offering.course_id,
-            capacity_by_date: cap.body && cap.body.capacity_by_date,
-          },
-        };
+        return mapCourseCapacityGateFailure(cap, { course_id: offering.course_id });
       }
       offering._capacity_by_date = cap.capacity_by_date;
     }
@@ -2387,7 +2354,10 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
     }
     const offering = nestOfferingForQuote(matches[0]);
-    const qty = Math.max(1, Number(input.components.course.quantity) || 1);
+    // Prefer booking-level surfer_count (party size) over component quantity.
+    const qty = input.surfer_count != null
+      ? normalizeCoursePartyQuantity(input.surfer_count)
+      : normalizeCoursePartyQuantity(input.components.course.quantity);
     const lineOut = pg
       ? await quoteOfferingLine(pg, command, offering, serviceDates, qty, requireDb)
       : quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
@@ -2774,7 +2744,9 @@ function quoteByComponentsSync(command, catalog, requireDb) {
       return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
     }
     const offering = nestOfferingForQuote(matches[0]);
-    const qty = Math.max(1, Number(input.components.course.quantity) || 1);
+    const qty = input.surfer_count != null
+      ? normalizeCoursePartyQuantity(input.surfer_count)
+      : normalizeCoursePartyQuantity(input.components.course.quantity);
     const lineOut = quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
     if (!lineOut.ok) return lineOut;
     lines.push({
