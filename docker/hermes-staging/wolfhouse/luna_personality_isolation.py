@@ -1790,6 +1790,8 @@ def _wrap_turn_owner_method(owner: Any, name: str) -> bool:
                     refuse_unsupported_backend(self_obj, mode=str(new_mode))
                 raise IsolationAbort("isolated_model_switch_denied")
             refuse_unsupported_backend(self_obj)
+            if not _wrap_tool_dispatcher():
+                raise IsolationAbort("tool_dispatcher_rebind_failed")
             if method_name in {
                 "_run_codex_app_server_turn",
                 "_run_codex_create_stream_fallback",
