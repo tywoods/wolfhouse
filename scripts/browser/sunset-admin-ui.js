@@ -293,8 +293,10 @@ function adminFormatEuroDisplay(amount){
 
 /**
  * Strict euro text → integer cents (max 2 fraction digits, no float round).
- * Accepts "12", "12.5", "12.50", "12,50". Rejects negatives, >2 decimals, NaN.
+ * Accepts "12", "12.5", "12.50", "12,50". Rejects negatives, >2 decimals, NaN,
+ * and absurd amounts (aligned with server MAX_RENTAL_AMOUNT_CENTS).
  */
+var ADMIN_MAX_AMOUNT_CENTS = 10000000; // €100,000 — must match tenant-admin-writes
 function adminParseEurosToCents(text){
   var s = String(text == null ? '' : text).trim();
   if (!s) return { ok: false, error: portalT('admin.edit.amountRequired') };
@@ -329,10 +331,129 @@ function adminParseEurosToCents(text){
   if (!Number.isFinite(cents) || !Number.isInteger(cents) || cents < 0) {
     return { ok: false, error: portalT('admin.edit.amountInvalid') };
   }
-  if (cents > Number.MAX_SAFE_INTEGER) {
+  if (cents > ADMIN_MAX_AMOUNT_CENTS) {
     return { ok: false, error: portalT('admin.edit.amountInvalid') };
   }
   return { ok: true, value: cents };
+}
+
+/**
+ * Rental Amount field gate (create + edit). Empty fails unless allowEmpty.
+ * requirePositive defaults true for sellable rental durations.
+ */
+function adminRentalAmountFieldState(text, opts){
+  opts = opts || {};
+  var raw = String(text == null ? '' : text).trim();
+  if (!raw) {
+    if (opts.allowEmpty) return { ok: true, empty: true, value: null };
+    return { ok: false, error: portalT('admin.edit.amountRequired') };
+  }
+  var parsed = adminParseEurosToCents(raw);
+  if (!parsed.ok) return parsed;
+  if (opts.requirePositive !== false && !(parsed.value > 0)) {
+    return { ok: false, error: portalT('admin.edit.amountRequiredToEnable') };
+  }
+  return parsed;
+}
+
+/** Live-validate Create rental Amount — disable Save when negative/invalid/empty. */
+function adminSyncNewEquipmentFormValidation(){
+  var form = el('admin-add-equip-form');
+  if (!form) return { ok: true };
+  var amountEl = el('admin-new-equip-amount');
+  var saveBtn = form.querySelector('[data-admin-action="save-new-equipment"]');
+  var errEl = form.querySelector('[data-admin-equip-amount-error]');
+  var state = adminRentalAmountFieldState(amountEl && amountEl.value, { requirePositive: true });
+  var dirty = !!(amountEl && String(amountEl.value || '').trim() !== '');
+  if (saveBtn) saveBtn.disabled = !state.ok;
+  if (amountEl) {
+    if (!state.ok && dirty) amountEl.setAttribute('aria-invalid', 'true');
+    else amountEl.removeAttribute('aria-invalid');
+  }
+  if (errEl) {
+    var show = !state.ok && dirty;
+    errEl.textContent = show ? (state.error || portalT('admin.edit.amountInvalid') || '') : '';
+    errEl.style.display = show ? 'block' : 'none';
+  }
+  return state;
+}
+
+/** Live-validate edit rental price Amounts — disable Save when any amount is bad. */
+function adminSyncEquipmentEditAmountValidation(equipKey){
+  var key = String(equipKey || '').trim();
+  if (!key || typeof document === 'undefined') return { ok: true };
+  var card = document.querySelector('[data-admin-equip="' + key + '"]');
+  if (!card) return { ok: true };
+  var saveBtn = card.querySelector('[data-admin-action="save-equipment"]');
+  var invalid = false;
+  var amounts = card.querySelectorAll('[data-admin-price-field="amount"]');
+  for (var i = 0; i < amounts.length; i++) {
+    var inp = amounts[i];
+    var st = adminRentalAmountFieldState(inp && inp.value, { requirePositive: true });
+    if (!st.ok) {
+      invalid = true;
+      if (inp) inp.setAttribute('aria-invalid', 'true');
+    } else if (inp) {
+      inp.removeAttribute('aria-invalid');
+    }
+  }
+  var draft = el('admin-new-price-amount');
+  var draftForm = el('admin-add-price-form');
+  if (draftForm && draft && String(draft.value || '').trim() !== '') {
+    var dst = adminRentalAmountFieldState(draft.value, { requirePositive: true });
+    if (!dst.ok) {
+      invalid = true;
+      draft.setAttribute('aria-invalid', 'true');
+    } else {
+      draft.removeAttribute('aria-invalid');
+    }
+  } else if (draft) {
+    draft.removeAttribute('aria-invalid');
+  }
+  if (saveBtn) saveBtn.disabled = invalid;
+  return { ok: !invalid };
+}
+
+function adminSyncOpenRentalAmountValidation(){
+  if (el('admin-add-equip-form')) adminSyncNewEquipmentFormValidation();
+  if (typeof document === 'undefined' || !document.querySelectorAll) return;
+  var btns = document.querySelectorAll('[data-admin-action="save-equipment"][data-equip-key]');
+  for (var i = 0; i < btns.length; i++) {
+    var k = btns[i].getAttribute('data-equip-key') || '';
+    if (k) adminSyncEquipmentEditAmountValidation(k);
+  }
+}
+
+function adminWireRentalAmountValidation(){
+  var root = el('tab-admin');
+  if (!root || root.dataset.adminRentalAmountWired === '1') return;
+  root.dataset.adminRentalAmountWired = '1';
+  function onAmountField(ev){
+    var node = ev && ev.target;
+    if (!node) return;
+    var id = node.id || '';
+    if (id === 'admin-new-equip-amount') {
+      adminSyncNewEquipmentFormValidation();
+      return;
+    }
+    if (id === 'admin-new-price-amount') {
+      var draftHost = node.closest ? node.closest('[data-equip-key]') : null;
+      var draftKey = draftHost ? String(draftHost.getAttribute('data-equip-key') || '').trim() : '';
+      if (!draftKey) {
+        var editCard = node.closest ? node.closest('[data-admin-equip]') : null;
+        draftKey = editCard ? String(editCard.getAttribute('data-admin-equip') || '').trim() : '';
+      }
+      if (draftKey) adminSyncEquipmentEditAmountValidation(draftKey);
+      return;
+    }
+    if (node.getAttribute && node.getAttribute('data-admin-price-field') === 'amount') {
+      var card = node.closest ? node.closest('[data-admin-equip]') : null;
+      var key = card ? String(card.getAttribute('data-admin-equip') || '').trim() : '';
+      if (key) adminSyncEquipmentEditAmountValidation(key);
+    }
+  }
+  root.addEventListener('input', onAmountField);
+  root.addEventListener('change', onAmountField);
 }
 function adminApiRequest(method, path, body){
   var opts = { method: method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
@@ -1435,9 +1556,10 @@ function renderAdminAddEquipmentForm(){
     renderAdminDurationControl('admin-new-equip', 'days', 1) +
     '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + amountId + '">' +
     escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-    '<input type="text" class="portal-admin-equip-amount" id="' + amountId + '" inputmode="decimal" placeholder="0.00"></div>' +
+    '<input type="text" class="portal-admin-equip-amount" id="' + amountId + '" inputmode="decimal" placeholder="0.00" aria-describedby="admin-new-equip-amount-error">' +
+    '<p id="admin-new-equip-amount-error" class="state-msg error portal-admin-equip-amount-error" data-admin-equip-amount-error="new" style="display:none;margin:4px 0 0;font-size:12px;padding:6px 8px" role="alert"></p></div>' +
     '<div class="portal-admin-edit-actions">' +
-    '<button type="button" class="btn btn-primary" data-admin-action="save-new-equipment">' + escHtml(portalT('admin.action.save')) + '</button>' +
+    '<button type="button" class="btn btn-primary" data-admin-action="save-new-equipment" disabled>' + escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
     '</div></div>';
 }
@@ -1737,6 +1859,8 @@ function renderAdminSectionPricesFromConfig(cfg){
   html += '</div>'; // equip-list
   box.innerHTML = html;
   // Rental Prices panel intentionally does not fetch/render today's availability.
+  adminWireRentalAmountValidation();
+  adminSyncOpenRentalAmountValidation();
 }
 
 function renderAdminSectionCapacityFromConfig(cfg){
