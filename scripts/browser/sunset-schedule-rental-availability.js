@@ -157,9 +157,23 @@ function scheduleParseRentalPriceIdentity(price) {
   if (parts.length >= 2) {
     return { offering_key: parts[0], duration_key: parts.slice(1).join('__') };
   }
+  // Admin write / hybrid payloads may carry period_window without a __ suffix
+  // or a duration-shaped unit. Prefer unit when it is already a duration key;
+  // otherwise fall back to period_window so multi-day packages stay selectable.
+  var unit = String((price && price.unit) || '').trim();
+  var period = String((price && price.period_window) || '').trim();
+  var durationKey = '';
+  if (unit && (scheduleIsHourRentalDurationKey(unit) || scheduleIsDayRentalDurationKey(unit)
+    || scheduleIsShortRentalDurationKey(unit) || unit === '1_day' || unit === 'full_day')) {
+    durationKey = unit;
+  } else if (period) {
+    durationKey = period;
+  } else {
+    durationKey = unit;
+  }
   return {
     offering_key: raw,
-    duration_key: String((price && price.unit) || '').trim(),
+    duration_key: durationKey,
   };
 }
 
@@ -199,11 +213,99 @@ function scheduleRentalPriceMatchesLocation(price, locationId) {
 }
 
 /**
+ * Day count encoded by a rental duration_key, or null when not a day package.
+ * Hours / unknown keys return null (caller treats as single-day UI span).
+ */
+function scheduleDayCountFromRentalDurationKey(durationKey) {
+  var k = String(durationKey || '').trim();
+  if (!k) return null;
+  if (k === '1_day' || k === 'full_day') return 1;
+  var dayMatch = k.match(/^([1-9][0-9]*)_days$/);
+  if (dayMatch) return Number(dayMatch[1]);
+  return null;
+}
+
+/** Add (or subtract) whole days to a YYYY-MM-DD local calendar date. */
+function scheduleAddDaysToIsoDate(iso, deltaDays) {
+  var raw = String(iso || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '';
+  var n = Number(deltaDays);
+  if (!Number.isFinite(n)) return raw;
+  var d = new Date(raw + 'T12:00:00');
+  if (isNaN(d.getTime())) return '';
+  d.setDate(d.getDate() + Math.trunc(n));
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1);
+  if (m.length < 2) m = '0' + m;
+  var day = String(d.getDate());
+  if (day.length < 2) day = '0' + day;
+  return y + '-' + m + '-' + day;
+}
+
+/**
+ * Whether a selected rental duration_key matches the calendar span identity.
+ * Hour packages match a single-day span; day packages must equal N_days / 1_day.
+ */
+function scheduleRentalDurationMatchesDateSpan(durationKey, dateDurationKey) {
+  var dur = String(durationKey || '').trim();
+  var want = String(dateDurationKey || '').trim() || '1_day';
+  if (!dur) return false;
+  if (scheduleIsHourRentalDurationKey(dur)) return want === '1_day';
+  if (dur === 'full_day') dur = '1_day';
+  return dur === want;
+}
+
+/**
+ * Sync Create/Edit date_from/date_to to the selected rental day package.
+ * Returns { changed, from, to, dayCount } or null when duration is not a day package.
+ * Hour packages and 1_day/full_day leave dates alone (Staff-chosen span wins;
+ * generic 1_day×N still needs a multi-day calendar range).
+ */
+function scheduleSyncDateInputsToRentalDuration(durationKey, opts) {
+  var o = opts || {};
+  var dayCount = scheduleDayCountFromRentalDurationKey(durationKey);
+  if (!(dayCount >= 1)) return null;
+  if (dayCount === 1) {
+    return { changed: false, from: '', to: '', dayCount: 1, skippedSingleDayPackage: true };
+  }
+  var fromId = o.fromId || 'ps-create-date-from';
+  var toId = o.toId || 'ps-create-date-to';
+  var fromEl = o.fromEl || (typeof el === 'function' ? el(fromId) : null);
+  var toEl = o.toEl || (typeof el === 'function' ? el(toId) : null);
+  if (!fromEl || !toEl) {
+    return { changed: false, from: '', to: '', dayCount: dayCount, missingInputs: true };
+  }
+  var from = String(fromEl.value || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+    return { changed: false, from: from, to: String(toEl.value || '').slice(0, 10), dayCount: dayCount };
+  }
+  var nextTo = scheduleAddDaysToIsoDate(from, dayCount - 1);
+  if (!nextTo) {
+    return { changed: false, from: from, to: String(toEl.value || '').slice(0, 10), dayCount: dayCount };
+  }
+  var prevTo = String(toEl.value || '').slice(0, 10);
+  if (prevTo === nextTo) {
+    return { changed: false, from: from, to: nextTo, dayCount: dayCount };
+  }
+  toEl.value = nextTo;
+  if (o.dispatchChange !== false) {
+    try { toEl.dispatchEvent(new Event('change', { bubbles: true })); } catch (_e) { /* ignore */ }
+  }
+  if (typeof o.afterSync === 'function') {
+    try { o.afterSync({ from: from, to: nextTo, dayCount: dayCount }); } catch (_a) { /* ignore */ }
+  }
+  return { changed: true, from: from, to: nextTo, dayCount: dayCount };
+}
+
+/**
  * Compatible duration packages for a calendar span.
- * - One day (1_day): all active N_hours (+ legacy half/1h/2h) plus 1_day.
- * - Multi-day (N_days): exact active N_days is the ONLY selectable duration when
- *   present; only when exact is absent may active 1_day be offered for per-date
- *   repeat. Hour packages are never offered across multi-day ranges.
+ * - One day (1_day): all active N_hours (+ legacy half/1h/2h), 1_day, AND every
+ *   priced multi-day package (2_days / 5_days / …). Selecting an N_days package
+ *   syncs date_to so quote/create stay duration-matched.
+ * - Multi-day (N_days): exact active N_days is preferred; other priced N_days
+ *   stay selectable (date sync on change). Only when exact is absent may active
+ *   1_day be offered for generic per-date repeat. Hour packages never span
+ *   multi-day ranges.
  */
 function scheduleCompatibleRentalDurationKeys(activeDurationKeys, dateDurationKey) {
   var want = String(dateDurationKey || '').trim();
@@ -216,19 +318,23 @@ function scheduleCompatibleRentalDurationKeys(activeDurationKeys, dateDurationKe
   var out = [];
   var multiDay = want && want !== '1_day' && /^[1-9][0-9]*_days$/.test(want);
   if (!multiDay) {
-    // Single-day span: hour packages + 1_day (full_day folds into 1_day display identity).
+    // Single-day span: hours + 1_day + all priced multi-day packages.
     Object.keys(set).forEach(function(k) {
       if (scheduleIsHourRentalDurationKey(k)) out.push(k);
       else if (k === '1_day' || k === 'full_day') {
         if (out.indexOf('1_day') < 0) out.push('1_day');
+      } else if (/^[1-9][0-9]*_days$/.test(k)) {
+        out.push(k);
       }
     });
   } else {
-    // Exact active N_days is exclusive. Only when it is absent may 1_day be
-    // selected (and repeated once per date on the server). Never hour packages.
-    if (set[want]) {
-      out.push(want);
-    } else if (set['1_day'] || set.full_day) {
+    // Multi-day: expose every priced N_days package (Staff may switch + sync
+    // dates). Exact want sorts naturally via scheduleRentalDurationSortValue.
+    // 1_day only when exact is absent (generic per-date repeat fallback).
+    Object.keys(set).forEach(function(k) {
+      if (/^[1-9][0-9]*_days$/.test(k)) out.push(k);
+    });
+    if (!set[want] && (set['1_day'] || set.full_day)) {
       out.push('1_day');
     }
   }
@@ -362,10 +468,20 @@ function scheduleProjectStandaloneRentals(opts) {
   }
 
   var projected = [];
+  var multiDaySpan = dateDurationKey && dateDurationKey !== '1_day'
+    && /^[1-9][0-9]*_days$/.test(dateDurationKey);
   Object.keys(byKey).forEach(function(key) {
     var item = byKey[key];
     var activeKeys = Object.keys(item._durationMap);
     var compatible = scheduleCompatibleRentalDurationKeys(activeKeys, dateDurationKey);
+    // Canonical rentals have no server-side 1_day×N repeat (generics do). On a
+    // multi-day span, only the exact N_days package is quote/create-safe — omit
+    // the offering when absent rather than offering a mismatched package or a
+    // 1_day trap. Other priced N_days stay selectable on a single-day span
+    // (Staff picks the package → date_to syncs).
+    if (multiDaySpan && SCHEDULE_CANONICAL_RENTAL_OFFERINGS.indexOf(key) >= 0) {
+      compatible = compatible.filter(function(dk) { return dk === dateDurationKey; });
+    }
     if (!compatible.length) return;
     var durations = compatible.map(function(dk) {
       return item._durationMap[dk] || {
@@ -377,13 +493,30 @@ function scheduleProjectStandaloneRentals(opts) {
       return d && d.amount_cents != null && d.amount_cents > 0;
     });
     if (!durations.length) return;
+    // Prefer the package that matches the calendar span when present; otherwise
+    // prefer 1_day fallback (generic repeat) before any other option.
+    var preferred = null;
+    for (var pi = 0; pi < durations.length; pi++) {
+      if (scheduleRentalDurationMatchesDateSpan(durations[pi].duration_key, dateDurationKey)) {
+        preferred = durations[pi];
+        break;
+      }
+    }
+    if (!preferred) {
+      for (var pj = 0; pj < durations.length; pj++) {
+        if (durations[pj].duration_key === '1_day') {
+          preferred = durations[pj];
+          break;
+        }
+      }
+    }
+    if (!preferred) preferred = durations[0];
     projected.push({
       offering_key: item.offering_key,
       label: item.label,
       durations: durations,
-      // Convenience: first compatible duration for initial row render.
-      duration_key: durations[0].duration_key,
-      amount_cents: durations[0].amount_cents,
+      duration_key: preferred.duration_key,
+      amount_cents: preferred.amount_cents,
       duration_keys: durations.map(function(d) { return d.duration_key; }),
     });
   });
@@ -709,6 +842,10 @@ if (typeof module !== 'undefined' && module.exports) {
     scheduleShortRentalDurationFallbackLabel: scheduleShortRentalDurationFallbackLabel,
     scheduleRentalDurationSortValue: scheduleRentalDurationSortValue,
     scheduleRentalDurationKeyFromDates: scheduleRentalDurationKeyFromDates,
+    scheduleDayCountFromRentalDurationKey: scheduleDayCountFromRentalDurationKey,
+    scheduleAddDaysToIsoDate: scheduleAddDaysToIsoDate,
+    scheduleRentalDurationMatchesDateSpan: scheduleRentalDurationMatchesDateSpan,
+    scheduleSyncDateInputsToRentalDuration: scheduleSyncDateInputsToRentalDuration,
     scheduleParseRentalPriceIdentity: scheduleParseRentalPriceIdentity,
     scheduleRentalPriceAmountCents: scheduleRentalPriceAmountCents,
     scheduleRentalPriceIsSellable: scheduleRentalPriceIsSellable,

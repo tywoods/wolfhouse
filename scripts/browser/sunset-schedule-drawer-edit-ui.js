@@ -1741,8 +1741,9 @@ function scheduleWireDrawerRentals(wrap) {
     if (!t) return;
     if (t.classList && t.classList.contains('ps-drawer-rental-duration')) {
       var rowDur = t.closest ? t.closest('[data-rental-offering]') : null;
+      var pickedDur = String(t.value || '').trim();
       if (rowDur) {
-        try { rowDur.setAttribute('data-rental-duration-key', String(t.value || '').trim()); } catch (_rd) { /* ignore */ }
+        try { rowDur.setAttribute('data-rental-duration-key', pickedDur); } catch (_rd) { /* ignore */ }
         var opt = t.options && t.selectedIndex >= 0 ? t.options[t.selectedIndex] : null;
         var cents = opt ? opt.getAttribute('data-amount-cents') : '';
         if (cents) {
@@ -1757,6 +1758,20 @@ function scheduleWireDrawerRentals(wrap) {
             priceEl.setAttribute('data-amount-cents', cents);
             priceEl.textContent = scheduleFormatCentsMoney(Number(cents));
           }
+        }
+      }
+      if (pickedDur && typeof scheduleSyncDateInputsToRentalDuration === 'function') {
+        var synced = scheduleSyncDateInputsToRentalDuration(pickedDur, {
+          fromId: 'ps-drawer-date-from',
+          toId: 'ps-drawer-date-to',
+          afterSync: function() {
+            if (typeof scheduleSyncDrawerDateRangeUi === 'function') scheduleSyncDrawerDateRangeUi();
+          },
+        });
+        if (synced && synced.changed) {
+          scheduleDrawerMarkPriceStale();
+          scheduleDrawerSyncFooter();
+          return;
         }
       }
       scheduleDrawerMarkPriceStale();
@@ -1981,18 +1996,22 @@ function scheduleRenderDrawerRentals() {
     var durs = Array.isArray(o.durations) ? o.durations.slice() : [];
     var was = prev[key] || {};
     var checked = !!was.checked || isCompat;
-    var rowDuration = String(was.duration_key || o.duration_key
-      || (durs[0] && durs[0].duration_key) || duration || '').trim();
-    if (durs.length && !durs.some(function(d) { return d.duration_key === rowDuration; })) {
-      if (was.duration_key) {
+    var spanDur = duration || dateDuration || '1_day';
+    var rowDuration = String(was.duration_key || '').trim();
+    var prevStillValid = !!(rowDuration
+      && durs.some(function(d) { return d.duration_key === rowDuration; })
+      && (typeof scheduleRentalDurationMatchesDateSpan !== 'function'
+        || scheduleRentalDurationMatchesDateSpan(rowDuration, spanDur)));
+    if (!prevStillValid) {
+      if (isCompat && was.duration_key) {
         durs = [{
           duration_key: was.duration_key,
           amount_cents: null,
           label: was.duration_key,
         }].concat(durs);
         rowDuration = was.duration_key;
-      } else if (durs[0]) {
-        rowDuration = durs[0].duration_key;
+      } else {
+        rowDuration = String(o.duration_key || (durs[0] && durs[0].duration_key) || spanDur || '').trim();
       }
     }
     var offeringLabel = (typeof scheduleRentalOfferingDisplayLabel === 'function')
