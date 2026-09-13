@@ -249,6 +249,15 @@ ok('needs_human rows color the channel icon with Luna attention orange',
   && rowsSrc.includes('#E8893A')
   && /inbox-row-needs-human[^}]*inbox-channel-badge\{color:#E8893A\}/.test(rowsSrc.replace(/\s+/g, ''))
   && !threadSrc.includes('inbox-row-needs-human'));
+ok('unread list rows use a soft Luna blue tint (not needs-human orange)',
+  rowsSrc.includes('inbox-row-unread')
+  && rowsSrc.includes('#E3EEF5')
+  && rowsSrc.includes('#D5E5EF')
+  && /inbox-row-unread:not\(\.selected\)\{background:#E3EEF5\}/.test(rowsSrc.replace(/\s+/g, ''))
+  && !rowsSrc.includes('#25D366'));
+ok('needs-human channel badge stays orange — unread CSS does not recolor it blue',
+  /inbox-row-needs-human[^}]*inbox-channel-badge\{color:#E8893A\}/.test(rowsSrc.replace(/\s+/g, ''))
+  && !/inbox-row-unread[^}]*inbox-channel-badge\{color:#/.test(rowsSrc.replace(/\s+/g, '')));
 ok('label uses existing Needs human raise key (not invented ES strings)',
   rowsSrc.includes("'inbox.detail.needsHuman.raise'")
   && rowsSrc.includes("'inbox.detail.meta.needsStaffReply'")
