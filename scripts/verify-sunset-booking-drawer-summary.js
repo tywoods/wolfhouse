@@ -167,6 +167,9 @@ assert('invoice shows balance/paid-in-full/refund states',
   invoiceCardFn.includes('paidInFull')
   && (invoiceCardFn.includes('balanceDue') || invoiceCardFn.includes('dueSuffix') || invoiceCardFn.includes('remaining'))
   && (invoiceCardFn.includes('refundCredit') || invoiceCardFn.includes('needsRefund') || invoiceCardFn.includes('refund')));
+assert('paid-in-full footer binds to paid_cents not hardcoded zero',
+  invoiceCardFn.includes('scheduleDrawerEur(paid)')
+  && !/paidInFull[\s\S]{0,220}scheduleDrawerEur\(0\)/.test(invoiceCardFn));
 
 console.log('\n[6b] Presentation-safe paid ledger on drawer context');
 
