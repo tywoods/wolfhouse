@@ -154,15 +154,19 @@ _ALLOWED_EVENTS = frozenset({
     "record_disposition_post_write", "serialization_finalize", "finalize",
     "sink_failure",
     "live_output_item_done", "live_normalized_return", "live_assistant_tool_calls",
+    "live_append_body_receipt",
 })
 _LIVE_BOOL_FIELDS = frozenset({
     "arguments_present", "arguments_valid", "excluded", "predicate",
+    "capture_complete", "authoritative_read_proven",
 })
 _LIVE_INT_FIELDS = frozenset({"returned_call_count", "actual_call_count"})
 _LIVE_TEXT_FIELDS = frozenset({
     "response_id", "item_type", "status_literal", "item_id", "call_name",
     "input_item_id", "finish_reason", "branch", "reason_code", "history_role",
     "history_type", "history_call_id",
+    "api_request_id", "producer", "append_site", "result_class", "result_capture",
+    "capture_failure", "dispatcher_disposition",
 })
 _ALLOWED_STATUS = frozenset({
     "attached", "queued", "entered", "consumed", "completed", "failed",
