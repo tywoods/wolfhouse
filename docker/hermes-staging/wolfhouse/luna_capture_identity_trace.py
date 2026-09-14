@@ -165,7 +165,7 @@ _LIVE_TEXT_FIELDS = frozenset({
     "response_id", "item_type", "status_literal", "item_id", "call_name",
     "input_item_id", "finish_reason", "branch", "reason_code", "history_role",
     "history_type", "history_call_id",
-    "request_id", "producer", "append_site", "result_class", "result_capture",
+    "api_request_id", "producer", "append_site", "result_class", "result_capture",
     "capture_failure", "dispatcher_disposition",
 })
 _ALLOWED_STATUS = frozenset({

@@ -30,14 +30,28 @@ PATCHES = (
     (
         "        _tool_content = agent._tool_result_content_for_active_model(function_name, function_result)\n        messages.append(make_tool_result_message(function_name, _tool_content, tool_call.id))\n",
         "        _tool_content = agent._tool_result_content_for_active_model(function_name, function_result)\n"
-        "        _append_body_message = make_tool_result_message(function_name, _tool_content, tool_call.id)\n"
-        "        messages.append(_append_body_message)\n"
+        "        _append_receipt_snapshot = None\n"
         "        try:\n"
-        "            from wolfhouse.luna_append_body_receipt import observe_append_body as _observe_append_body\n"
-        "            _observe_append_body(_append_body_message, producer=_append_receipt_producer, "
-        "response_id=getattr(agent, \"_current_api_request_id\", None))\n"
-        "        except BaseException:\n"
-        "            pass\n",
+        "            from wolfhouse.luna_append_body_receipt import (\n"
+        "                is_enabled as _append_receipt_enabled,\n"
+        "                observe_append_body as _observe_append_body,\n"
+        "                snapshot_append_body as _snapshot_append_body,\n"
+        "            )\n"
+        "            if _append_receipt_enabled():\n"
+        "                _append_receipt_snapshot = _snapshot_append_body(_tool_content)\n"
+        "        except Exception:\n"
+        "            pass\n"
+        "        messages.append(make_tool_result_message(function_name, _tool_content, tool_call.id))\n"
+        "        if _append_receipt_snapshot is not None:\n"
+        "            try:\n"
+        "                _observe_append_body(\n"
+        "                    _append_receipt_snapshot, call_id=tool_call.id,\n"
+        "                    producer=_append_receipt_producer,\n"
+        "                    api_request_id=getattr(agent, \"_current_api_request_id\", None),\n"
+        "                    response_id=None,\n"
+        "                )\n"
+        "            except Exception:\n"
+        "                pass\n",
     ),
 )
 
