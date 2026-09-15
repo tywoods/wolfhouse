@@ -28,6 +28,11 @@ from wolfhouse.luna_personality_isolation import (  # noqa: E402
     enter_isolated_turn,
     exit_isolated_turn,
 )
+from wolfhouse.fixtures.ordinary_entrypoint_provider_sentinels import (  # noqa: E402
+    pre_provider_early_return_invoke,
+    provider_boundary_sentinel_invoke,
+    run_off_on_matrix,
+)
 from wolfhouse.luna_group_lesson_live_eval import (  # noqa: E402
     ALLOWED_CASE_IDS,
     BoundedMetadataCapture,
@@ -395,6 +400,91 @@ class GroupLessonCase09Tests(unittest.TestCase):
         self.assertEqual(result["response"]["state"], "not-reached")
         self.assertEqual(result["executor"]["state"], "not-reached")
         self.assertIsNone(result["executor"]["dispositions"])
+
+    def test_provider_boundary_sentinel_reaches_model_without_external_effects(self):
+        env = {"HERMES_MODEL": "gpt-5.6-sol", "LUNA_CLIENT_SLUG": "sunset"}
+        module = "wolfhouse.luna_group_lesson_live_eval"
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch(f"{module}.assert_staging_environment"), \
+                mock.patch(f"{module}.assert_sunset_serving_identity", return_value={"runtime": "hermes-sunset-luna-http"}):
+            result = _run(run_isolated_group_lesson_eval(
+                case_id="sunset-group-lesson-09-es",
+                invoke_turn=provider_boundary_sentinel_invoke,
+                require_live_seams=False,
+            ))
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "BLOCKED")
+        self.assertEqual(result["error"], "authoritative_read_result_unobservable")
+        self.assertTrue(result["generated_reply_withheld"])
+        self.assertEqual(result["model"], "gpt-5.6-sol")
+        self.assertEqual(result["model_calls"], 1)
+        self.assertEqual(result["sends_completed"], 0)
+        self.assertEqual(result["journal_writes_completed"], 0)
+        self.assertEqual(result["persistence_effects_completed"], [])
+        self.assertIn("create_sunset_booking", result["tools_denied"])
+        self.assertIn("/bookings", result["tools_denied"])
+        self.assertEqual(result["read_tools_completed"], list(REQUIRED_CASE_09_TOOL_SEQUENCE))
+        self.assertEqual(set(result["read_staff_paths_completed"]), REQUIRED_CASE_09_STAFF_PATHS)
+        self.assertEqual(result["capture"]["model"], "gpt-5.6-sol")
+
+    def test_pre_provider_early_return_regression_scaffold_classifies_model_not_invoked(self):
+        env = {"HERMES_MODEL": "gpt-5.6-sol", "LUNA_CLIENT_SLUG": "sunset"}
+        module = "wolfhouse.luna_group_lesson_live_eval"
+        with mock.patch.dict(os.environ, env, clear=False), \
+                mock.patch(f"{module}.assert_staging_environment"), \
+                mock.patch(f"{module}.assert_sunset_serving_identity", return_value={"runtime": "hermes-sunset-luna-http"}), \
+                self.assertRaisesRegex(IsolationAbort, "model_not_invoked") as caught:
+            _run(run_isolated_group_lesson_eval(
+                case_id="sunset-group-lesson-09-es",
+                invoke_turn=pre_provider_early_return_invoke,
+                require_live_seams=False,
+            ))
+        counters = caught.exception.counters
+        self.assertIsInstance(counters, dict)
+        assert isinstance(counters, dict)
+        capture = counters.get("capture")
+        self.assertIsInstance(capture, dict)
+        assert isinstance(capture, dict)
+        request = capture.get("request")
+        self.assertIsInstance(request, dict)
+        assert isinstance(request, dict)
+        self.assertEqual(counters["model_calls"], 0)
+        self.assertEqual(request["state"], "not-reached")
+        sends_attempted = counters.get("sends_attempted")
+        self.assertIsInstance(sends_attempted, int)
+        assert isinstance(sends_attempted, int)
+        self.assertGreaterEqual(sends_attempted, 1)
+        self.assertEqual(counters["sends_completed"], 0)
+        self.assertEqual(counters["journal_writes_completed"], 0)
+        self.assertEqual(counters["persistence_effects_completed"], [])
+
+    def test_off_on_matrix_helper_captures_off_vs_on_offline_only(self):
+        env = {"HERMES_MODEL": "gpt-5.6-sol", "LUNA_CLIENT_SLUG": "sunset"}
+        module = "wolfhouse.luna_group_lesson_live_eval"
+
+        async def runner(label, invoke):  # noqa: ANN001
+            self.assertIn(label, {"OFF_pre_provider_early_return", "ON_provider_boundary_sentinel"})
+            with mock.patch.dict(os.environ, env, clear=False), \
+                    mock.patch(f"{module}.assert_staging_environment"), \
+                    mock.patch(f"{module}.assert_sunset_serving_identity", return_value={"runtime": "hermes-sunset-luna-http"}):
+                return await run_isolated_group_lesson_eval(
+                    case_id="sunset-group-lesson-09-es",
+                    invoke_turn=invoke,
+                    require_live_seams=False,
+                )
+
+        rows = _run(run_off_on_matrix(runner))
+        self.assertEqual([r["label"] for r in rows], [
+            "OFF_pre_provider_early_return", "ON_provider_boundary_sentinel",
+        ])
+        self.assertEqual(rows[0]["error"], "model_not_invoked")
+        self.assertFalse(rows[0]["provider_boundary_reached"])
+        self.assertTrue(rows[0]["external_effects_denied"])
+        self.assertTrue(rows[0]["offline_only"])
+        self.assertEqual(rows[1]["error"], None)
+        self.assertEqual(rows[1]["row"]["error"], "authoritative_read_result_unobservable")
+        self.assertEqual(rows[1]["row"]["model_calls"], 1)
+        self.assertTrue(rows[1]["offline_only"])
 
     def test_capture_provider_error_preserves_attempt_and_no_payload(self):
         secret = "SECRET guest@example.test"
