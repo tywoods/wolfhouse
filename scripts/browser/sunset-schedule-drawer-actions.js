@@ -84,11 +84,24 @@ var SunsetScheduleDrawerActions = (function scheduleDrawerActionsFactory() {
   }
 
   function paymentStatusLabel(status, method) {
-    if (status !== 'paid') return portalT('schedule.payment.unpaid');
-    if (method === 'bank_transfer') return portalT('schedule.payment.paidBankTransfer');
-    if (method === 'in_store') return portalT('schedule.payment.paidInStore');
-    if (method === 'link') return portalT('schedule.payment.paidViaLink');
-    return portalT('schedule.payment.paid');
+    var s = String(status == null ? '' : status).trim().toLowerCase();
+    if (s === 'paid' || s === 'paid_in_full' || s === 'complete' || s === 'completed') {
+      if (method === 'bank_transfer') return portalT('schedule.payment.paidBankTransfer');
+      if (method === 'in_store') return portalT('schedule.payment.paidInStore');
+      if (method === 'link') return portalT('schedule.payment.paidViaLink');
+      return portalT('schedule.payment.paid');
+    }
+    // Partial must not collapse to Unpaid (edit header + invoice status).
+    if (
+      s === 'partial'
+      || s === 'partially_paid'
+      || s === 'deposit_paid'
+      || s === 'balance_due'
+    ) {
+      return portalT('schedule.payment.partial');
+    }
+    if (s === 'pending') return portalT('schedule.payment.pending');
+    return portalT('schedule.payment.unpaid');
   }
 
   function paymentShortUrl(ctx) {

@@ -894,6 +894,7 @@ module.exports = {
   'schedule.payment.paid': 'Pagado',
   'schedule.payment.pending': 'Pendiente',
   'schedule.payment.unpaid': 'Sin pagar',
+  'schedule.payment.partial': 'Parcial',
   'schedule.payment.paidBankTransfer': 'Pagado - Transferencia',
   'schedule.payment.paidInStore': 'Pagado - Efectivo',
   'schedule.payment.paidViaLink': 'Pagado - Stripe',

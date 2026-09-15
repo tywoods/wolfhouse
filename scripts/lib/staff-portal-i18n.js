@@ -1268,6 +1268,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.needsAction': 'Needs action',
     'schedule.payment.paid': 'Paid',
     'schedule.payment.unpaid': 'Unpaid',
+    'schedule.payment.partial': 'Partial',
     'schedule.payment.pending': 'Pending',
     'schedule.payment.paidBankTransfer': 'Paid - Bank Transfer',
     'schedule.payment.paidInStore': 'Paid - Cash',

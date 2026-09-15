@@ -653,7 +653,19 @@ function scheduleDrawerBuildCommercialLines(items, rentalPricing) {
     if (!doCollapse(g)) { g.items.forEach(function(li) { singles.push(li); }); return; }
     var dayKeys = Object.keys(g.dates).sort(), n = dayKeys.length || 0, durKey = g.duration_key || (rp && rp.duration) || null, durLab = '';
     if (durKey && typeof schedulePortalDurationLabel === 'function') durLab = schedulePortalDurationLabel(durKey) || '';
-    if (!durLab && n > 0) durLab = n === 1 ? ('1 ' + portalT('schedule.drawer.dayWordCap')) : (String(n) + ' ' + portalT('schedule.drawer.daysWordCap'));
+    // Covered service days win when they disagree with the pricing-tier key label
+    // (e.g. 8–14 day span priced from Admin 7_days must not read "7 days").
+    if (n > 0) {
+      var countLab = n === 1
+        ? ('1 ' + portalT('schedule.drawer.dayWordCap'))
+        : (String(n) + ' ' + portalT('schedule.drawer.daysWordCap'));
+      var keyDays = null;
+      if (typeof durationDaysFromTierKey === 'function') keyDays = durationDaysFromTierKey(durKey);
+      else if (/^(\d+)_days$/.test(String(durKey || ''))) keyDays = Number(RegExp.$1);
+      else if (String(durKey || '') === '1_week') keyDays = 7;
+      else if (String(durKey || '') === '2_weeks') keyDays = 14;
+      if (!durLab || (keyDays != null && Number(keyDays) !== n)) durLab = countLab;
+    }
     // Equipment groups: never put date coverage on the invoice (day numbers look like prices).
     // Explicit unit×days math owns the subtitle via attachMath + formatCommercialMathLabel.
     if (g.is_equipment_group) durLab = '';
@@ -944,7 +956,14 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
   var to = scheduleDrawerDDMMYY((ctx && ctx.date_to) || (ctx && ctx.date_from));
   var dayMap = {};
   items.forEach(function(li){ var d = String(li.service_date || '').slice(0, 10); if (d) dayMap[d] = true; });
-  var dayCount = Object.keys(dayMap).length || ((from && to && from !== to) ? 2 : 1);
+  var serviceDayCount = Object.keys(dayMap).length;
+  var spanDayCount = 0;
+  if (typeof schedulePortalInclusiveDateCount === 'function' && ctx && ctx.date_from) {
+    spanDayCount = schedulePortalInclusiveDateCount(ctx.date_from, ctx.date_to || ctx.date_from) || 0;
+  }
+  // Prefer distinct service days (billable truth). Fall back to inclusive booking span
+  // when line items lack dates — never invent a hard-coded "2".
+  var dayCount = serviceDayCount || spanDayCount || 1;
   var surfers = (comps.course && comps.course.quantity)
     || (comps.private_lesson && (comps.private_lesson.surfer_count || comps.private_lesson.quantity))
     || (comps.lesson && comps.lesson.quantity) || 0;
@@ -1207,7 +1226,13 @@ function scheduleRenderDrawerPaymentSectionViewHtml(ctx){
     '</span><span class="ctx-inv-total-amount owing" id="ps-drawer-remaining">' + escHtml(scheduleDrawerEur(pay.balance_due_cents)) + '</span></div>';
   var effPaid = (Number(pay.paid_cents || 0) > 0 && (pay.balance_due_cents == null || Number(pay.balance_due_cents) <= 0));
   // Never label Pagado from status enums when paid cents are €0 (chip ↔ drawer parity).
-  var effStatus = effPaid ? 'paid' : (Number(pay.paid_cents || 0) > 0 ? pay.payment_status : 'unpaid');
+  // Partial cash must not collapse to Unpaid when payment_status was coerced.
+  var rawPayStatus = pay.payment_status != null ? String(pay.payment_status).trim() : '';
+  var effStatus = effPaid
+    ? 'paid'
+    : (Number(pay.paid_cents || 0) > 0
+      ? (rawPayStatus && rawPayStatus.toLowerCase() !== 'unpaid' ? rawPayStatus : 'partial')
+      : (rawPayStatus || 'unpaid'));
   html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(portalT('schedule.col.payment')) +
     '</span><span class="ctx-inv-total-amount' + (effPaid ? ' paid' : '') + '" id="ps-drawer-pay-status">' + escHtml(schedulePaymentStatusLabel(effStatus, ctx && ctx.payment_method)) + '</span></div>';
   html += '</div>';

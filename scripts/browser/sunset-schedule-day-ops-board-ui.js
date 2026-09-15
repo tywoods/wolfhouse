@@ -722,9 +722,7 @@ function scheduleCanonicalBookedServiceDates(group){
   var out = [];
   if (hasExplicit){
     out = Object.keys(explicit).sort();
-    return out;
-  }
-  if (fromTo.from){
+  } else if (fromTo.from){
     if (typeof scheduleEnumerateDates === 'function'){
       out = (scheduleEnumerateDates(fromTo.from, fromTo.to || fromTo.from) || [])
         .map(scheduleDayOpsIsoDateToken).filter(Boolean);
@@ -742,14 +740,20 @@ function scheduleCanonicalBookedServiceDates(group){
         ? [fromTo.from]
         : [fromTo.from, fromTo.to].filter(Boolean);
     }
-    if (out.length) return out;
   }
-  out = Object.keys(singles).sort();
+  if (!out.length) out = Object.keys(singles).sort();
+  // Union observed per-row service_date singles — an incomplete explicit array must not
+  // hide additional booked service days on the same booking.
+  if (out.length) {
+    Object.keys(singles).forEach(function(d){
+      if (out.indexOf(d) < 0) out.push(d);
+    });
+    out.sort();
+  }
 
-  // Display-only fallback: when a course+equipment booking is multi-day in the
-  // loaded schedule snapshot, derive position from peer service dates of the
-  // same booking (never invent span from duration alone).
-  if (out.length <= 1 && group && group.booking_id
+  // Display-only extension: peer schedule rows for the same booking may carry more
+  // service days than a stale/short explicit metadata array (never invent from duration).
+  if (group && group.booking_id
     && typeof scheduleGetRowsSnapshot === 'function') {
     try {
       var snap = scheduleGetRowsSnapshot() || [];
