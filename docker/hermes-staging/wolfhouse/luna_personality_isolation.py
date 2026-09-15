@@ -159,6 +159,9 @@ _ISOLATED: ContextVar[Optional["IsolatedTurnCapture"]] = ContextVar(
 _RUNTIME_ROUTE: ContextVar[Optional["_RuntimeRouteAdmission"]] = ContextVar(
     "luna_runtime_route_admission", default=None
 )
+_PROVIDER_AUTH: ContextVar[Optional["_RuntimeRouteAdmission"]] = ContextVar(
+    "luna_provider_auth_admission", default=None
+)
 
 _installed = False
 _send_wrapped = False
@@ -401,18 +404,30 @@ def runtime_route_execution_admitted() -> bool:
 
 def provider_auth_execution_admitted() -> bool:
     admission = _RUNTIME_ROUTE.get()
-    return type(admission) is _RuntimeRouteAdmission and admission.identity is admission and admission.cap is _ISOLATED.get() and admission.runner is _ACTIVE_RUNNER and admission.stage == "provider_auth"
+    return (type(admission) is _RuntimeRouteAdmission
+            and _PROVIDER_AUTH.get() is admission
+            and admission.identity is admission
+            and admission.cap is _ISOLATED.get()
+            and admission.runner is _ACTIVE_RUNNER)
 
 
 @contextmanager
 def isolated_provider_auth_scope():
     admission = _RUNTIME_ROUTE.get()
     if current_isolated_turn() is None: yield; return
-    if type(admission) is not _RuntimeRouteAdmission or not runtime_route_execution_admitted() or admission.stage != AGENT_EXECUTION_STAGE:
+    if (type(admission) is not _RuntimeRouteAdmission
+            or admission.identity is not admission
+            or admission.cap is not _ISOLATED.get()
+            or admission.runner is not _ACTIVE_RUNNER
+            or admission.stage != AGENT_EXECUTION_STAGE):
         raise IsolationAbort("provider_auth_capability_invalid")
+    token = _PROVIDER_AUTH.set(admission)
     admission.stage = "provider_auth"
-    try: yield
-    finally: admission.stage = "provider_auth_used"
+    try:
+        yield
+    finally:
+        _PROVIDER_AUTH.reset(token)
+        admission.stage = "provider_auth_used"
 
 
 def _runtime_route_source_admitted(source: Any, runner: Any) -> bool:
@@ -1949,16 +1964,22 @@ def _wrap_turn_entry(*, runner: Any = None, targets: Optional[IsolationTargets] 
         if callable(original_init) and not _is_wrapped(original_init):
             def _isolated_init(self, *args: Any, **kwargs: Any):
                 admission = _RUNTIME_ROUTE.get()
-                if _ISOLATED.get() is None or provider_auth_execution_admitted():
+                if _ISOLATED.get() is None:
+                    return original_init(self, *args, **kwargs)
+                if provider_auth_execution_admitted():
                     return original_init(self, *args, **kwargs)
                 if (type(admission) is not _RuntimeRouteAdmission
-                        or not runtime_route_execution_admitted()
-                        or admission.stage != "provider_auth_used"):
+                        or admission.identity is not admission
+                        or admission.cap is not _ISOLATED.get()
+                        or admission.runner is not _ACTIVE_RUNNER
+                        or admission.stage not in ("provider_auth_used", "provider_auth")):
                     raise IsolationAbort("constructor_boundary_unverified")
+                token = _PROVIDER_AUTH.set(admission)
                 admission.stage = "provider_auth"
                 try:
                     return original_init(self, *args, **kwargs)
                 finally:
+                    _PROVIDER_AUTH.reset(token)
                     admission.stage = "constructor_used"
             _mark(_isolated_init)
             _save_orig(cls, "__init__", original_init)

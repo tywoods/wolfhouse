@@ -1557,6 +1557,70 @@ class HandlerFinalAndHttpRunnerTests(unittest.TestCase):
             exit_isolated_turn(turn)
             iso._ACTIVE_RUNNER = None
 
+    def test_provider_auth_capability_is_context_local_for_overlapping_constructors_only(self) -> None:
+        import contextvars
+        import threading
+        from concurrent.futures import ThreadPoolExecutor
+        from wolfhouse import luna_personality_isolation as iso
+
+        second_entered = threading.Event()
+        first_completed = threading.Event()
+        observed = []
+
+        class ConcurrentAgent:
+            def __init__(self, index):
+                if index == 0:
+                    self.assert_admitted()
+                    second_entered.wait(timeout=2)
+                else:
+                    second_entered.set()
+                    first_completed.wait(timeout=2)
+                    self.assert_admitted()
+
+            @staticmethod
+            def assert_admitted():
+                observed.append(iso.provider_auth_execution_admitted())
+
+        runner = SimpleNamespace(_agent_cache={"a": SimpleNamespace(api_mode="chat_completions")})
+        source = SimpleNamespace(platform=SimpleNamespace(value="whatsapp_cloud"),
+                                 chat_id="49eval", user_id="49eval")
+        cap = IsolatedTurnCapture("warmth-greeting-en", "sunny", tenant_id="sunset")
+        iso._ACTIVE_RUNNER = runner
+        turn = enter_isolated_turn(cap)
+        route = iso._issue_runtime_route_admission(cap, SimpleNamespace(source=source), runner)
+        try:
+            iso.refuse_unverified_runtime(iso.RUNTIME_RESOLUTION_STAGE)
+            iso.refuse_unverified_runtime(iso.AGENT_EXECUTION_STAGE)
+            with iso.isolated_provider_auth_scope():
+                pass
+            iso._wrap_turn_entry(
+                runner=runner, targets=IsolationTargets(agent_cls=ConcurrentAgent))
+            self.assertTrue(iso._is_wrapped(ConcurrentAgent.__init__))
+            contexts = (contextvars.copy_context(), contextvars.copy_context())
+
+            def construct(index):
+                try:
+                    ConcurrentAgent(index)
+                finally:
+                    if index == 0:
+                        first_completed.set()
+                return iso.provider_auth_execution_admitted()
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(ctx.run, construct, index)
+                           for index, ctx in enumerate(contexts)]
+                self.assertEqual([future.result(timeout=3) for future in futures],
+                                 [False, False])
+            self.assertEqual(observed, [True, True])
+            self.assertFalse(iso.provider_auth_execution_admitted())
+            with self.assertRaises(IsolationAbort) as later:
+                ConcurrentAgent(2)
+            self.assertEqual(later.exception.reason, "constructor_boundary_unverified")
+        finally:
+            iso._RUNTIME_ROUTE.reset(route)
+            exit_isolated_turn(turn)
+            iso._ACTIVE_RUNNER = None
+
     def test_provider_auth_capability_absent_wrong_tenant_and_stage_fail_closed(self) -> None:
         from wolfhouse import luna_personality_isolation as iso
 

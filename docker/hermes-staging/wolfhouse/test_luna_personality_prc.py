@@ -98,7 +98,7 @@ class MetadataAdmissionTests(unittest.TestCase):
             isolation.exit_isolated_turn(turn)
             isolation._ACTIVE_RUNNER = None
 
-    def test_bound_provider_auth_admits_only_top_level_metadata_read(self):
+    def test_bound_provider_auth_metadata_fetch_falls_back_without_transport_or_writes(self):
         from contextlib import ExitStack
         from unittest.mock import patch
         from agent import model_metadata as metadata
@@ -118,9 +118,12 @@ class MetadataAdmissionTests(unittest.TestCase):
             isolation.refuse_unverified_runtime(isolation.AGENT_EXECUTION_STAGE)
             with isolation.isolated_provider_auth_scope():
                 self.assertEqual(metadata.get_model_context_length('fixture', config_context_length=8192), 8192)
-                for owner, args in ((metadata._fetch_codex_oauth_context_lengths, ('token',)),
-                                    (metadata.save_context_length, ('fixture', 'https://fixture.invalid', 8192)),
-                                    (metadata._save_model_metadata_disk_cache, ({'fixture': {}},))):
+                with patch.object(metadata.requests, 'get', hostile), \
+                     patch.object(metadata, 'atomic_json_write', hostile):
+                    self.assertEqual(metadata._fetch_codex_oauth_context_lengths('token'), {})
+                    self.assertIsNone(metadata.save_context_length(
+                        'fixture', 'https://fixture.invalid', 8192))
+                for owner, args in ((metadata._save_model_metadata_disk_cache, ({'fixture': {}},)),):
                     with self.subTest(owner=owner.__name__), ExitStack() as stack:
                         stack.enter_context(patch.object(metadata.requests, 'get', hostile))
                         stack.enter_context(patch.object(metadata, 'atomic_json_write', hostile))
