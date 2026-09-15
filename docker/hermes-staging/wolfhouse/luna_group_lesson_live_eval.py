@@ -683,7 +683,14 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None,
         install_isolation_runtime()
     else:
         mark_test_isolation_installed()
-    cap = IsolatedTurnCapture(case_id=case["id"], personality_id="sunny", tenant_id="sunset")
+    case_tenant = case.get("tenant_id")
+    case_location = case.get("location_id")
+    cap = IsolatedTurnCapture(
+        case_id=case["id"],
+        personality_id="sunny",
+        tenant_id=case_tenant if isinstance(case_tenant, str) else "sunset",
+        location_id=case_location if isinstance(case_location, str) else None,
+    )
     cap.read_only_tool_allowlist = READ_ONLY_TOOL_ALLOWLIST
     cap.read_only_staff_paths = READ_ONLY_STAFF_PATHS
     if diagnostic_control == DIAGNOSTIC_CONTROL_NAME:
