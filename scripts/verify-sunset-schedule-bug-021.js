@@ -9,10 +9,17 @@
  *   (Daily correctly showed Curso Tarde). Monthly keeps day-scoped subtitle +
  *   “TODAY'S PREP”.
  *
+ * Residual after #835 (still open P2):
+ *   Monthly collapsed focusDateIso to the month 1st while only forwardOffset
+ *   survived, so the selected day silently snapped in the nav snapshot and
+ *   First up could stay on today's upcoming session after a future-day focus.
+ *
  * Outcomes:
  *   1) setView(Monthly) preserves forwardOffset (no snap to today)
- *   2) Monthly First up = next upcoming (wall clock), not a completed session
- *   3) Monthly prep title / session counts are month-scoped
+ *   2) Monthly focusDateIso keeps the selected day; rangeStartIso month-aligns
+ *   3) Monthly First up = next upcoming (wall clock), not a completed session
+ *   4) Future focus day ties Monthly First up to that selection
+ *   5) Monthly prep title / session counts are month-scoped
  *
  * Stay off inbox-thread.js, email-settings, Skipper inbound, Hermes/SOUL, WhatsApp.
  */
@@ -160,8 +167,12 @@ function createMinimalDocument() {
   const afterMonthly = sandbox.scheduleGetNavigationSnapshot();
   assert.strictEqual(afterMonthly.mode, 'next30');
   assert.strictEqual(afterMonthly.forwardOffset, 1, 'Monthly must keep selected-day offset (not 0/today)');
+  assert.strictEqual(afterMonthly.focusDateIso, '2026-09-02', 'Monthly must keep selected focus day (not month 1st)');
+  assert.strictEqual(afterMonthly.rangeStartIso, '2026-09-01', 'Monthly rangeStart month-aligns');
   assert.strictEqual(String(afterMonthly.rangeStartIso).slice(0, 7), '2026-09', 'month stays September');
   assert.notStrictEqual(afterMonthly.forwardOffset, 0, 'must not snap to today');
+  assert.notStrictEqual(afterMonthly.focusDateIso, afterMonthly.rangeStartIso,
+    'focus day stays on selection while rangeStart month-aligns');
 }
 
 // --- 2 + 3) Monthly First up skips DONE + month prep title ---
@@ -227,6 +238,48 @@ function createMinimalDocument() {
   const monthTitle = cockpit.scheduleCockpitPrepTitle(true, todayIso, 'next30');
   assert.ok(/THIS MONTH'S PREP|PREP ·/.test(monthTitle), monthTitle);
   assert.ok(monthTitle.indexOf("TODAY'S PREP") < 0, monthTitle);
+}
+
+// --- 4) Future focus day ties Monthly First up to the selection ---
+{
+  const cockpit = require(path.join(ROOT, 'scripts/browser/sunset-schedule-day-cockpit-ui.js'));
+  const todayIso = '2026-09-07';
+  const focusIso = '2026-09-15';
+  const sessions = [
+    { id: 'today-am', name: 'Curso Matutino', start: '10:00', end: '12:00', booked: 3, capacity: 24, date: todayIso },
+    { id: 'today-pm', name: 'Curso Tarde', start: '16:00', end: '18:00', booked: 4, capacity: 24, date: todayIso },
+    { id: 'focus-am', name: 'Curso Focus Day', start: '10:00', end: '12:00', booked: 2, capacity: 24, date: focusIso },
+    { id: 'later', name: 'Curso Extra', start: '10:00', end: '12:00', booked: 1, capacity: 24, date: '2026-09-20' },
+  ];
+  // Without focus, wall clock at 13:30 would pick today's Tarde.
+  const wallOnly = cockpit.scheduleCockpitClassifyMonth({ sessions }, todayIso, 13 * 60 + 30);
+  assert.ok(wallOnly.next && wallOnly.next.name === 'Curso Tarde', 'wall-clock next is Tarde');
+
+  // With future focus (Sep 15), First up must follow the selection — not stale today Tarde.
+  const focused = cockpit.scheduleCockpitClassifyMonth({ sessions }, todayIso, 13 * 60 + 30, focusIso);
+  assert.ok(focused.next && focused.next.name === 'Curso Focus Day', 'focus day ties First up to selection');
+  assert.ok(focused.next.name !== 'Curso Tarde', 'must not keep stale today First up after future selection');
+
+  const doc = createMinimalDocument();
+  const mount = doc.createElement('div');
+  mount.ownerDocument = doc;
+  const data = cockpit.scheduleBuildDayCockpitData({
+    venue: 'Sunset',
+    date: '2026-09-01',
+    rangeStartIso: '2026-09-01',
+    focusDayIso: focusIso,
+    range: 'next30',
+    now: 13 * 60 + 30,
+    sessions: sessions,
+    prep: { items: [], unpaid: 0, needReply: 0 },
+    on: {},
+  });
+  assert.strictEqual(data.focusDayIso, focusIso, 'build keeps focusDayIso for Monthly hero');
+  cockpit.scheduleRenderDayCockpit(mount, data);
+  const text = mount.textContent || '';
+  assert.ok(/First up:/.test(text), 'Monthly shows First up for focused day');
+  assert.ok(/Curso Focus Day/.test(text), 'First up names focused-day session');
+  assert.ok(!/First up:\s*Curso Tarde/.test(text), 'First up must not stay on stale today Tarde');
 }
 
 // --- prep items accept YYYY-MM month token ---

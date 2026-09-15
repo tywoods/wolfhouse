@@ -199,8 +199,11 @@ if (modExists) {
   ctx.setScheduleView('next30');
   assert('daily→next→monthly keeps offset', snap().forwardOffset === 1 && snap().mode === 'next30');
   assert('monthly month-aligns selected day', String(snap().rangeStartIso || '').slice(0, 7) === '2026-07');
+  assert('monthly keeps focus on selected day', snap().focusDateIso === '2026-07-16');
+  assert('monthly focus ≠ month-start collapse', snap().focusDateIso !== snap().rangeStartIso);
   ctx.setScheduleView('day');
   assert('monthly→daily keeps offset', snap().forwardOffset === 1 && snap().mode === 'day');
+  assert('monthly→daily restores focus day', snap().focusDateIso === '2026-07-16');
   ctx.scheduleNavigatePrev();
   assert('day prev back to 0', snap().forwardOffset === 0);
 
