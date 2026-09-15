@@ -170,6 +170,9 @@ sys.path.insert(0, str(root)); sys.path.insert(0, str(staging))
 import apply_luna_executor_handoff_patch as handoff
 import apply_luna_live_loop_trace_patch as live
 import apply_luna_append_body_receipt_patch as candidate
+# Image order is handoff, live-loop, append-body; each is applied twice.
+# Re-apply here so the copy's already-patched adapter lineage is admitted.
+handoff.main(); live.patch_root(root); candidate.patch_root(root)
 handoff.main(); live.patch_root(root); candidate.patch_root(root)
 # Keep the integration focused on the real patched owner while replacing only
 # its broad optional import graph with deterministic seams.
