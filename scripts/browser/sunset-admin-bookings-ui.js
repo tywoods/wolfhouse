@@ -41,7 +41,7 @@ var adminBookingsState = {
   guestPeekGen: 0,
 };
 
-/** Resolve Open-in-Schedule chrome; never expose a raw i18n key (EN + ES). */
+/** Resolve Open-booking chrome; never expose a raw i18n key (EN + ES). */
 function adminBookingsOpenScheduleLabel(code) {
   var KEY = 'admin.bookings.openInSchedule';
   var loc = 'en';
@@ -50,7 +50,8 @@ function adminBookingsOpenScheduleLabel(code) {
     else if (typeof portalLang === 'string' && portalLang) loc = String(portalLang);
   } catch (_l) { loc = 'en'; }
   loc = String(loc || 'en').toLowerCase();
-  var fallback = loc.indexOf('es') === 0 ? 'Abrir en Agenda' : 'Open in Schedule';
+  // Overlay stays on Reservas — do not advertise Horario / Agenda.
+  var fallback = loc.indexOf('es') === 0 ? 'Abrir reserva' : 'Open booking';
   function isRawKey(s) {
     var text = String(s || '').trim();
     if (!text) return true;
@@ -1123,8 +1124,10 @@ function adminBookingsServiceDayIso(value) {
  * instead of Reservas.
  *
  * Same drawer owner as Horario/Customers: openScheduleDetailDrawer with
- * _drawerFromCustomer (canonical detail fetch). Body-port the shell first so
- * the overlay is not trapped inside #tab-portal-home while Bookings is shown.
+ * _drawerFromCustomer (canonical detail fetch) + _drawerReturnTab:'bookings'
+ * so close restores Reservas if Horario was activated under the overlay.
+ * Body-port the shell first so the overlay is not trapped inside
+ * #tab-portal-home while Bookings is shown.
  */
 function adminBookingsOpenInSchedule(bookingId, hint) {
   var id = String(bookingId || '').trim();
@@ -1176,6 +1179,8 @@ function adminBookingsOpenInSchedule(bookingId, hint) {
     service_date_start: start || null,
     check_in: row.check_in || null,
     _drawerFromCustomer: true,
+    // Close must land back on Bookings if Horario was activated under the overlay.
+    _drawerReturnTab: 'bookings',
   });
 }
 

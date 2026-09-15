@@ -58,11 +58,11 @@ function runLabel(sandbox) {
 const ariaRaw = runLabel({ portalT(key) { return key; }, getStaffLocale() { return 'en'; } });
 assert.ok(!/admin\.bookings\./.test(ariaRaw), ariaRaw);
 assert.ok(ariaRaw.indexOf('SUNSET-20260811-EA783E') >= 0);
-assert.strictEqual(ariaRaw, 'Open in Schedule: SUNSET-20260811-EA783E');
+assert.strictEqual(ariaRaw, 'Open booking: SUNSET-20260811-EA783E');
 
 const ariaEs = runLabel({ portalT(key) { return key; }, getStaffLocale() { return 'es'; } });
 assert.ok(!/admin\.bookings\./.test(ariaEs), ariaEs);
-assert.strictEqual(ariaEs, 'Abrir en Agenda: SUNSET-20260811-EA783E');
+assert.strictEqual(ariaEs, 'Abrir reserva: SUNSET-20260811-EA783E');
 
 assert.ok(bookingsSrc.includes('adminBookingsOpenScheduleLabel(code)'));
 assert.ok(bookingsSrc.includes("title=\"' + escHtml(openScheduleLabel) + '\""));
