@@ -189,6 +189,9 @@ class IsolatedTurnCapture:
     case_id: str
     personality_id: str
     tenant_id: str = "sunset"
+    # Server-bound school for this isolated turn. Unset means not bound at
+    # this seam; never defaulted to sunset-somo.
+    location_id: Optional[str] = None
     reply_text: Optional[str] = None
     tools_denied: List[str] = field(default_factory=list)
     tools_invoked: int = 0
@@ -497,6 +500,46 @@ def _is_wrapped(fn: Any) -> bool:
     return bool(fn) and bool(getattr(fn, _WRAP_MARK, False) or getattr(fn, _CTX_MARK, False))
 
 
+ISOLATED_CATALOG_READ_TOOL = "get_sunset_lesson_catalog"
+_AUTHORIZED_ISOLATION_TENANT_ID = "sunset"
+_AUTHORIZED_ISOLATION_LOCATION_ID = "sunset-somo"
+
+
+def resolve_isolated_catalog_read_location(
+    tool_name: str,
+    args: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Fill missing catalog-read location_id from IsolatedTurnCapture only.
+
+    Provenance is the ordinary call's isolation context (``_ISOLATED``), bound
+    by the route owner from closed server-side tenant/school identity. This
+    never reads tool names as a location source, model-supplied school labels,
+    process env, or ``sunset_tenant_routing`` ambient fallbacks.
+
+    Mutates ``args`` in place so the exact same dict the ordinary validator
+    sees is the dict sequential execution later hands to the stub. Fail-closed:
+    any missing, ambiguous, cross-tenant, aliased, or explicit location_id
+    leaves args unchanged for the existing restricted-read gate.
+    """
+    if str(tool_name or "") != ISOLATED_CATALOG_READ_TOOL:
+        return args
+    if not isinstance(args, dict):
+        return args
+    if "location_id" in args or "location" in args:
+        return args
+    cap = current_isolated_turn()
+    if type(cap) is not IsolatedTurnCapture:
+        return args
+    tenant = cap.tenant_id
+    location = cap.location_id
+    if tenant != _AUTHORIZED_ISOLATION_TENANT_ID:
+        return args
+    if location != _AUTHORIZED_ISOLATION_LOCATION_ID:
+        return args
+    args["location_id"] = location
+    return args
+
+
 def deny_tool_if_isolated(tool_name: str, args: Optional[Dict[str, Any]] = None, **_kwargs: Any) -> Optional[str]:
     """Return a block message when an isolated turn is active; else None."""
     cap = _ISOLATED.get()
@@ -696,7 +739,18 @@ def _wrap_pre_tool_call_block(plugins_mod: Any = None) -> bool:
         *rest: Any,
         **kwargs: Any,
     ) -> Optional[str]:
-        blocked = deny_tool_if_isolated(tool_name, args, **kwargs)
+        try:
+            resolve_isolated_catalog_read_location(tool_name, args)
+            blocked = deny_tool_if_isolated(tool_name, args, **kwargs)
+        except Exception:
+            isolated = _ISOLATED.get()
+            if isolated is None:
+                raise
+            try:
+                isolated.tools_denied.append(str(tool_name or "unknown"))
+            except Exception:
+                pass
+            return ISOLATION_DENY_MESSAGE
         if blocked:
             return blocked
         return current(tool_name, args, *rest, **kwargs)
