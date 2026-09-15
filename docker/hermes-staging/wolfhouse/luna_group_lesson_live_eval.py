@@ -693,15 +693,26 @@ async def run_isolated_group_lesson_eval(*, case_id: str, invoke_turn=None,
     )
     cap.read_only_tool_allowlist = READ_ONLY_TOOL_ALLOWLIST
     cap.read_only_staff_paths = READ_ONLY_STAFF_PATHS
+    # Server-owned marker: set only after closed corpus, staging identity, tenant,
+    # location, and model validation above. Request headers cannot set this field.
+    cap._lr32_server_validated_synthetic = True
     if diagnostic_control == DIAGNOSTIC_CONTROL_NAME:
         cap.diagnostic_tool_choice = DIAGNOSTIC_TOOL_NAME
         cap.diagnostic_tool_choice_remaining = 1
     cap.evidence_kind = "live_gateway" if invoke_turn is None else "test_double"
+    # The exact capture run is operator/server configuration.  It is not accepted
+    # from the request, corpus case, or invoke_turn callback.
+    try:
+        from wolfhouse.luna_call1_failure_envelope import approved_server_run_id
+        _capture_run_id = approved_server_run_id()
+    except BaseException:
+        _capture_run_id = None
     instrumentation = BoundedMetadataCapture(
         model=declared or None,
         revisions={"wolfhouse": os.getenv("WOLFHOUSE_REVISION") or None,
                    "hermes": os.getenv("HERMES_REVISION") or None},
         instruction_marker=REQUIRED_TOOL_INSTRUCTION_MARKER,
+        **({"run_id": _capture_run_id} if _capture_run_id is not None else {}),
     )
     cap.metadata_capture = instrumentation
     cap.identity_trace = trace_from_environment(run_id=instrumentation.run_id, attempt_id="1")

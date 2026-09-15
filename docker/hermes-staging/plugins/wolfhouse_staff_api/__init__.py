@@ -257,9 +257,27 @@ def _post_bot(path, payload):
             "X-Luna-Bot-Token": token,
         },
     )
+    _lr32_handle = None
+    _lr32_transport_id = None
+    try:
+        from wolfhouse import luna_call1_failure_envelope as _lr32_envelope
+        _lr32_handle = _lr32_envelope.current_handle()
+        _lr32_transport_id = _lr32_envelope.transport_attempt(_lr32_handle)
+    except Exception:
+        _lr32_envelope = None
     try:
         with urllib.request.urlopen(req, timeout=25) as res:
-            text = res.read().decode("utf-8", errors="replace")
+            _lr32_raw_body = res.read()
+            if _lr32_envelope is not None:
+                try:
+                    _lr32_envelope.transport_result(
+                        _lr32_handle, transport_id=_lr32_transport_id,
+                        http_status=getattr(res, "status", None), body=_lr32_raw_body,
+                        staff_receipt=_lr32_envelope.staff_receipt_from_headers(getattr(res, "headers", None)),
+                    )
+                except BaseException:
+                    pass
+            text = _lr32_raw_body.decode("utf-8", errors="replace")
             try:
                 data = json.loads(text or "{}")
             except json.JSONDecodeError:
@@ -270,7 +288,17 @@ def _post_bot(path, payload):
                 return data
             return {"success": True, "staff_api_status": "ok", "data": data}
     except urllib.error.HTTPError as exc:
-        text = exc.read().decode("utf-8", errors="replace")
+        _lr32_raw_body = exc.read()
+        if _lr32_envelope is not None:
+            try:
+                _lr32_envelope.transport_result(
+                    _lr32_handle, transport_id=_lr32_transport_id, http_status=exc.code,
+                    body=_lr32_raw_body,
+                    staff_receipt=_lr32_envelope.staff_receipt_from_headers(getattr(exc, "headers", None)),
+                )
+            except BaseException:
+                pass
+        text = _lr32_raw_body.decode("utf-8", errors="replace")
         try:
             data = json.loads(text or "{}")
         except json.JSONDecodeError:
@@ -284,6 +312,13 @@ def _post_bot(path, payload):
             "error": _safe_text(data.get("error") or data.get("message") or str(exc)),
         }
     except Exception as exc:  # network/config safety; never crash the guest agent
+        if _lr32_envelope is not None:
+            try:
+                _lr32_envelope.transport_result(
+                    _lr32_handle, transport_id=_lr32_transport_id, exception=exc,
+                )
+            except BaseException:
+                pass
         return {
             "success": False,
             "staff_api_status": "unavailable",
@@ -1966,7 +2001,7 @@ def _attach_guest_equipment_truth(offering):
     return out
 
 
-def get_sunset_lesson_catalog(params, **kwargs):
+def _get_sunset_lesson_catalog_impl(params, **kwargs):
     """Read the configured Sunset course/private offerings before describing them."""
     del kwargs
     payload = dict(params or {})
@@ -2023,6 +2058,31 @@ def get_sunset_lesson_catalog(params, **kwargs):
         "staff_review_needed": not ok,
         "guest_safe_next_action": None if ok else "Let me confirm the current course options with the team and get right back to you 😊",
     })
+
+
+def get_sunset_lesson_catalog(params, **kwargs):
+    """Capture-only wrapper around the unchanged catalog transform."""
+    _lr32_handle = None
+    try:
+        from wolfhouse import luna_call1_failure_envelope as _lr32_envelope
+        _lr32_handle = _lr32_envelope.adapter_entry("get_sunset_lesson_catalog", params)
+    except Exception:
+        _lr32_envelope = None
+    try:
+        result = _get_sunset_lesson_catalog_impl(params, **kwargs)
+    except Exception as exc:
+        if _lr32_envelope is not None:
+            try:
+                _lr32_envelope.plugin_return(_lr32_handle, None, exception=exc)
+            except BaseException:
+                pass
+        raise
+    if _lr32_envelope is not None:
+        try:
+            _lr32_envelope.plugin_return(_lr32_handle, result)
+        except BaseException:
+            pass
+    return result
 
 
 

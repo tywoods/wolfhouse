@@ -255,6 +255,8 @@ class IsolatedTurnCapture:
     metadata_capture: Any = field(default=None, repr=False, compare=False)
     # Independent, identity-only LR3.2 trace.
     identity_trace: Any = field(default=None, repr=False, compare=False)
+    # Server-owned admission bit for the closed LR3.2 synthetic route only.
+    _lr32_server_validated_synthetic: bool = field(default=False, repr=False, compare=False)
     # Closed diagnostic-only request-local provider override. Never configured by ordinary turns.
     diagnostic_tool_choice: Optional[str] = field(default=None, repr=False, compare=False)
     diagnostic_tool_choice_remaining: int = field(default=0, repr=False, compare=False)
