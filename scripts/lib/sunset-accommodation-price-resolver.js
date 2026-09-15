@@ -251,6 +251,7 @@ function findCoveringRange(ranges, nightIso) {
 /**
  * Calendar gaps between sorted accommodation season ranges (half-open windows).
  * Adjacent ranges (prev.check_out === cur.check_in) have no gap.
+ * Does not flag open ends before the first / after the last range (off-season OK).
  * @returns {Array<{gap_start:string,gap_end:string}>} uncovered half-open windows
  */
 function findAccommodationCoverageGaps(ranges) {
@@ -274,6 +275,27 @@ function findAccommodationCoverageGaps(ranges) {
     }
   }
   return gaps;
+}
+
+/**
+ * Reject Admin season saves that leave calendar holes between ranges.
+ * Month-end exclusive mistakes (Apr 30 / May 31 / …) surface here.
+ * @returns {{ ok:true } | { ok:false, error:string, reason_code:string, gaps:Array, uncovered_nights:string[] }}
+ */
+function assertAccommodationRangesContiguous(ranges) {
+  const gaps = findAccommodationCoverageGaps(ranges);
+  if (!gaps.length) return { ok: true };
+  const uncovered = enumerateUncoveredNightsFromGaps(gaps);
+  const span = formatUncoveredSpan(uncovered);
+  return {
+    ok: false,
+    error: span
+      ? `Season ranges leave uncovered nights: ${span}. Adjacent seasons must meet (no gaps).`
+      : 'Season ranges leave uncovered nights between seasons. Adjacent seasons must meet (no gaps).',
+    reason_code: 'accommodation_ranges_gap',
+    gaps,
+    uncovered_nights: uncovered,
+  };
 }
 
 /**
@@ -870,6 +892,7 @@ module.exports = {
   rangeCoversNight,
   findCoveringRange,
   findAccommodationCoverageGaps,
+  assertAccommodationRangesContiguous,
   enumerateUncoveredNightsFromGaps,
   isAccommodationNightUncovered,
   formatUncoveredSpan,

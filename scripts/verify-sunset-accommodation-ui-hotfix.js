@@ -399,11 +399,21 @@ ok('Admin coverage gap warning rendered in readout mode',
   /renderAdminAccommodationCoverageWarning/.test(adminUi)
   && /data-testid="admin-accommodation-coverage-warning"/.test(adminUi)
   && /adminFindAccommodationCoverageGaps/.test(adminUi));
+ok('Admin edit collects inclusive last_night → exclusive check_out',
+  /data-accom-field="last_night"/.test(adminUi)
+  && /adminAccommodationCheckOutFromLastNight/.test(adminUi)
+  && /adminValidateAccommodationDraft/.test(adminUi)
+  && /admin\.accommodation\.dateOrder/.test(adminUi)
+  && /admin\.accommodation\.coverageGapBlock/.test(adminUi));
 ok('Admin coverage gap warning CSS present',
   /portal-admin-accommodation-coverage-warn/.test(apiSrc));
 ok('Admin coverage gap i18n EN/ES',
   /'admin\.accommodation\.coverageGap'/.test(i18nEn)
-  && /'admin\.accommodation\.coverageGap'/.test(i18nEs));
+  && /'admin\.accommodation\.coverageGap'/.test(i18nEs)
+  && /'admin\.accommodation\.firstNight'/.test(i18nEn)
+  && /'admin\.accommodation\.lastNight'/.test(i18nEs)
+  && /'admin\.accommodation\.dateOrder'/.test(i18nEn)
+  && /'admin\.accommodation\.coverageGapBlock'/.test(i18nEs));
 
 // ── 5) i18n EN/ES/IT ───────────────────────────────────────────────────────
 console.log('\n[5] i18n EN/ES/IT for checkInOut + Save');
@@ -840,14 +850,70 @@ ok('Admin locale date range EN includes month name not raw ISO', (() => {
     const b = financeRedesignFormatIsoDate(end);
     return a + ' – ' + b;
   };
+  // Half-open [Mar 1, May 1) displays inclusive through 30 Apr.
   const fn = new Function(
     'financeRedesignFormatIsoDate',
     'financeRedesignFormatIsoRange',
     'getStaffLocale',
-    chunk + '; return adminFormatAccomDateRange("2026-03-01", "2026-04-30");',
+    chunk + '; return adminFormatAccomDateRange("2026-03-01", "2026-05-01");',
   );
   const out = fn(financeRedesignFormatIsoDate, financeRedesignFormatIsoRange, () => 'en');
-  return /Mar/.test(out) && /2026/.test(out) && !/2026-03-01/.test(out);
+  return /Mar/.test(out) && /Apr/.test(out) && /2026/.test(out)
+    && !/2026-03-01/.test(out) && !/\bMay\b/.test(out);
+})());
+ok('Admin inclusive last_night convert round-trips Apr 30 → May 1 check_out', (() => {
+  const chunk = [
+    extractNamedFn(adminUi, 'adminAccommodationIsIsoDate'),
+    extractNamedFn(adminUi, 'adminAccommodationAddDaysIso'),
+    extractNamedFn(adminUi, 'adminAccommodationLastNightFromCheckOut'),
+    extractNamedFn(adminUi, 'adminAccommodationCheckOutFromLastNight'),
+  ].join('\n');
+  const fn = new Function(
+    chunk
+    + '; return {'
+    + '  out: adminAccommodationCheckOutFromLastNight("2026-04-30"),'
+    + '  back: adminAccommodationLastNightFromCheckOut("2026-05-01"),'
+    + '  inverted: adminAccommodationCheckOutFromLastNight("2026-04-30")'
+    + '};',
+  );
+  const r = fn();
+  return r.out === '2026-05-01' && r.back === '2026-04-30';
+})());
+ok('Admin validate blocks start > last night and month-end gaps', (() => {
+  const chunk = [
+    extractNamedFn(adminUi, 'adminAccommodationIsIsoDate'),
+    extractNamedFn(adminUi, 'adminAccommodationAddDaysIso'),
+    extractNamedFn(adminUi, 'adminFormatAccomIsoDate'),
+    extractNamedFn(adminUi, 'adminFormatAccomDateRange'),
+    extractNamedFn(adminUi, 'adminFindAccommodationCoverageGaps'),
+    extractNamedFn(adminUi, 'adminFormatAccommodationGapLabel'),
+    extractNamedFn(adminUi, 'adminValidateAccommodationDraft'),
+  ].join('\n');
+  const portalT = (key) => {
+    if (key === 'admin.accommodation.dateOrder') return 'DATE_ORDER';
+    if (key === 'admin.accommodation.coverageGapBlock') return 'GAP_BLOCK:{gaps}';
+    return key;
+  };
+  const financeRedesignFormatIsoDate = (iso) => iso;
+  const financeRedesignFormatIsoRange = (a, b) => a + ' – ' + b;
+  const fn = new Function(
+    'portalT', 'financeRedesignFormatIsoDate', 'financeRedesignFormatIsoRange', 'getStaffLocale',
+    chunk + '; return {'
+      + 'inverted: adminValidateAccommodationDraft({ranges:[{title:"X",check_in:"2026-05-01",check_out:"2026-05-01",amount_cents:4000}]}),'
+      + 'gaps: adminValidateAccommodationDraft({ranges:['
+      + '{title:"Apr",check_in:"2026-04-01",check_out:"2026-04-30",amount_cents:4000},'
+      + '{title:"May",check_in:"2026-05-01",check_out:"2026-05-31",amount_cents:5000}'
+      + ']}),'
+      + 'ok: adminValidateAccommodationDraft({ranges:['
+      + '{title:"Apr",check_in:"2026-04-01",check_out:"2026-05-01",amount_cents:4000},'
+      + '{title:"May",check_in:"2026-05-01",check_out:"2026-06-01",amount_cents:5000}'
+      + ']})'
+      + '};',
+  );
+  const r = fn(portalT, financeRedesignFormatIsoDate, financeRedesignFormatIsoRange, () => 'en');
+  return r.inverted.ok === false && /DATE_ORDER/.test(r.inverted.error)
+    && r.gaps.ok === false && /GAP_BLOCK:/.test(r.gaps.error) && /2026-04-30/.test(r.gaps.error)
+    && r.ok.ok === true;
 })());
 ok('Admin locale date range ES includes Spanish month', (() => {
   const chunk = [

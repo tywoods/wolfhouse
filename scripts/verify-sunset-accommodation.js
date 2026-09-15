@@ -81,6 +81,17 @@ const ov = resolver.normalizeAccommodationRanges([
 ]);
 ok('overlap rejected', ov.ok === false && ov.reason_code === 'accommodation_ranges_overlap', ov.error);
 
+const inverted = resolver.normalizeAccommodationRanges([
+  { title: 'Bad', check_in: '2026-05-01', check_out: '2026-04-30', amount_cents: 4000 },
+]);
+ok('start > end rejected (date order)',
+  inverted.ok === false && inverted.reason_code === 'accommodation_date_order', inverted.error);
+const sameDayWindow = resolver.normalizeAccommodationRanges([
+  { title: 'Zero', check_in: '2026-05-01', check_out: '2026-05-01', amount_cents: 4000 },
+]);
+ok('start == end rejected (need exclusive check_out after check_in)',
+  sameDayWindow.ok === false && sameDayWindow.reason_code === 'accommodation_date_order');
+
 const gapRanges = resolver.normalizeAccommodationRanges([
   { title: 'Spring', check_in: '2026-03-01', check_out: '2026-12-01', amount_cents: 4000 },
   { title: 'Next spring', check_in: '2027-03-01', check_out: '2027-12-01', amount_cents: 5000 },
@@ -91,6 +102,38 @@ ok('coverage gap finder finds winter hole', gaps.length === 1
   && gaps[0].gap_end === '2027-03-01');
 ok('adjacent ranges have no coverage gap',
   resolver.findAccommodationCoverageGaps(adj.value).length === 0);
+
+// Month-end exclusive mistake: staff enter Apr 30 / May 31 as exclusive ends → silent holes.
+const monthEndHoles = resolver.normalizeAccommodationRanges([
+  { title: 'Apr', check_in: '2026-04-01', check_out: '2026-04-30', amount_cents: 4000 },
+  { title: 'May', check_in: '2026-05-01', check_out: '2026-05-31', amount_cents: 5000 },
+  { title: 'Jun', check_in: '2026-06-01', check_out: '2026-06-30', amount_cents: 5000 },
+]).value;
+const monthGaps = resolver.findAccommodationCoverageGaps(monthEndHoles);
+ok('exclusive month-ends leave Apr 30 / May 31 holes',
+  monthGaps.length === 2
+  && monthGaps[0].gap_start === '2026-04-30' && monthGaps[0].gap_end === '2026-05-01'
+  && monthGaps[1].gap_start === '2026-05-31' && monthGaps[1].gap_end === '2026-06-01',
+  JSON.stringify(monthGaps));
+const monthGapBlock = resolver.assertAccommodationRangesContiguous(monthEndHoles);
+ok('contiguous assert blocks month-end exclusive holes',
+  monthGapBlock.ok === false
+  && monthGapBlock.reason_code === 'accommodation_ranges_gap'
+  && String(monthGapBlock.error || '').includes('2026-04-30')
+  && String(monthGapBlock.error || '').includes('2026-05-31'),
+  monthGapBlock.error);
+// Inclusive last nights Mar1–Apr30 + May1–May31 store as [Mar1,May1)+[May1,Jun1).
+const inclusiveFixed = resolver.normalizeAccommodationRanges([
+  { title: 'Spring', check_in: '2026-03-01', check_out: '2026-05-01', amount_cents: 4000 },
+  { title: 'May', check_in: '2026-05-01', check_out: '2026-06-01', amount_cents: 5000 },
+]).value;
+ok('inclusive last-night conversion meets with no gap',
+  resolver.assertAccommodationRangesContiguous(inclusiveFixed).ok === true
+  && resolver.findAccommodationCoverageGaps(inclusiveFixed).length === 0);
+ok('trailing open end (Dec+) is not a contiguous gap',
+  resolver.assertAccommodationRangesContiguous([
+    { title: 'Season', check_in: '2026-03-01', check_out: '2026-12-01', amount_cents: 4000 },
+  ]).ok === true);
 
 const single = resolver.priceAccommodationStay({
   ranges: adj.value, checkIn: D(0), checkOut: D(3),
@@ -450,6 +493,38 @@ function mockPg() {
   });
   ok('wolfhouse save denied', wolfRes.ok === false && wolfRes.status === 403);
 
+  const gapSave = await admin.saveAccommodationConfig({
+    query: async () => { throw new Error('should not write when gaps rejected'); },
+  }, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    enabled: true,
+    ranges: [
+      { title: 'Apr', check_in: '2026-04-01', check_out: '2026-04-30', amount_cents: 4000 },
+      { title: 'May', check_in: '2026-05-01', check_out: '2026-05-31', amount_cents: 5000 },
+    ],
+  });
+  ok('server save rejects exclusive month-end gaps',
+    gapSave.ok === false && gapSave.status === 400
+    && gapSave.body && gapSave.body.reason_code === 'accommodation_ranges_gap'
+    && /2026-04-30/.test(String(gapSave.body.error || '')),
+    JSON.stringify(gapSave.body || gapSave));
+
+  const invertedSave = await admin.saveAccommodationConfig({
+    query: async () => { throw new Error('should not write when date order rejected'); },
+  }, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    enabled: true,
+    ranges: [
+      { title: 'Bad', check_in: '2026-06-01', check_out: '2026-05-01', amount_cents: 4000 },
+    ],
+  });
+  ok('server save rejects start > end',
+    invertedSave.ok === false && invertedSave.status === 400
+    && invertedSave.body && invertedSave.body.reason_code === 'accommodation_date_order',
+    JSON.stringify(invertedSave.body || invertedSave));
+
   const createWolf = await writes.createSunsetScheduleBooking({
     query: async () => ({ rows: [] }),
   }, {
@@ -487,13 +562,20 @@ function mockPg() {
     /function renderAdminSectionAccommodationFromConfig/.test(adminUi));
   ok('admin save accommodation action',
     /action === 'save-accommodation'/.test(adminUi)
-    && /\/staff\/admin\/config\/accommodation/.test(adminUi));
+    && /\/staff\/admin\/config\/accommodation/.test(adminUi)
+    && /adminValidateAccommodationDraft/.test(adminUi));
+  ok('admin edit uses inclusive last_night field (half-open on wire)',
+    /data-accom-field="last_night"/.test(adminUi)
+    && /adminAccommodationCheckOutFromLastNight/.test(adminUi)
+    && /admin\.accommodation\.dateOrder/.test(adminUi));
   ok('admin edit/add/remove range actions',
     /edit-accommodation/.test(adminUi)
     && /accom-add-range/.test(adminUi)
     && /accom-remove-range/.test(adminUi));
   ok('admin hides for non-sunset',
     /getClient\(\) !== 'sunset'/.test(adminUi));
+  ok('admin coverage warning shown in edit and readout',
+    /renderAdminAccommodationCoverageWarning\(ac\.ranges\)/.test(adminUi));
 
   ok('Create Accommodation + under custom addon',
     /ps-create-accommodation-add-btn/.test(apiSrc)
