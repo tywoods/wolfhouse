@@ -168,6 +168,9 @@ _LIVE_TEXT_FIELDS = frozenset({
     "api_request_id", "producer", "append_site", "result_class", "result_capture",
     "capture_failure", "dispatcher_disposition",
 })
+_LIVE_TEXT_MAX = 128
+_LIVE_BODY_MAX = 1024
+_LIVE_BODY_FIELDS = frozenset({"result_capture"})
 _ALLOWED_STATUS = frozenset({
     "attached", "queued", "entered", "consumed", "completed", "failed",
     "accepted", "rejected", "dispatched", "missing", "closed", "truncated",
@@ -295,7 +298,12 @@ class CaptureIdentityTrace:
                 for key in _LIVE_TEXT_FIELDS:
                     value = _ignored.get(key)
                     if isinstance(value, str):
-                        record[key] = value[:128]
+                        limit = _LIVE_BODY_MAX if key in _LIVE_BODY_FIELDS else _LIVE_TEXT_MAX
+                        record[key] = value[:limit]
+                        if key in _LIVE_BODY_FIELDS and len(value) > limit:
+                            record["capture_complete"] = False
+                            if record.get("capture_failure") is None:
+                                record["capture_failure"] = "capture_truncated"
             payload = (json.dumps(record, ensure_ascii=True, separators=(",", ":")) + "\n").encode()
             with self._lock:
                 if len(self._records) >= self._limit:
