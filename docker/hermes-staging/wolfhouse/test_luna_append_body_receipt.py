@@ -15,8 +15,19 @@ from wolfhouse import luna_append_body_receipt as receipt
 from wolfhouse import luna_capture_identity_trace as sink
 
 
+def _reset_and_unlink_test_sinks():
+    """Test-only cleanup; production trace code never removes evidence."""
+    sink.reset_trace_sink_for_tests()
+    for path in sink.trace_paths():
+        try:
+            path.unlink()
+        except (FileNotFoundError, OSError):
+            pass
+
+
 class AppendBodyReceiptTests(unittest.TestCase):
     def setUp(self):
+        _reset_and_unlink_test_sinks()
         self.trace = sink.CaptureIdentityTrace(run_id="synthetic-run-7", attempt_id="attempt-2")
         self.token = sink.enter_trace(self.trace)
         self.capture = types.SimpleNamespace(
@@ -28,6 +39,7 @@ class AppendBodyReceiptTests(unittest.TestCase):
     def tearDown(self):
         self.capture_patch.stop()
         sink.exit_trace(self.token)
+        _reset_and_unlink_test_sinks()
 
     def emit(self, value, **kwargs):
         snapshot = receipt.snapshot_append_body(value)
@@ -90,34 +102,47 @@ class AppendBodyReceiptTests(unittest.TestCase):
 
     def test_real_sink_preserves_under_cap_body_and_marks_over_cap_incomplete(self):
         """Receipt bounds at 1024; the real sink must not silently clip result_capture to 128."""
-        under = {"answer": "U" * 200}
-        over = {"answer": "O" * 2000}
-        expected_under = json.dumps(under, ensure_ascii=True, separators=(",", ":"))
-        expected_over = json.dumps(over, ensure_ascii=True, separators=(",", ":"))
-        self.assertGreater(len(expected_under), 128)
-        self.assertLessEqual(len(expected_under), receipt._MAX_CAPTURE)
-        self.assertGreater(len(expected_over), receipt._MAX_CAPTURE)
-        with patch.dict(os.environ, {receipt.ENABLE_ENV: "1"}, clear=True):
-            receipt.observe_append_body(
-                receipt.snapshot_append_body(under), call_id="call-9",
-                producer="P" * 200, api_request_id="A" * 200, response_id=None,
-            )
-            receipt.observe_append_body(
-                receipt.snapshot_append_body(over), call_id="call-9",
-                producer="executor_return", api_request_id="api-request-3",
-                response_id=None,
-            )
-        under_row, over_row = self.trace.snapshot()
-        self.assertEqual(under_row["result_capture"], expected_under)
-        self.assertGreater(len(under_row["result_capture"]), 128)
-        self.assertTrue(under_row["capture_complete"])
-        self.assertIsNone(under_row["capture_failure"])
-        self.assertEqual(under_row["producer"], "P" * 128)
-        self.assertEqual(under_row["api_request_id"], "A" * 128)
-        self.assertEqual(len(over_row["result_capture"]), receipt._MAX_CAPTURE)
-        self.assertEqual(over_row["result_capture"], expected_over[:receipt._MAX_CAPTURE])
-        self.assertFalse(over_row["capture_complete"])
-        self.assertEqual(over_row["capture_failure"], "capture_truncated")
+        _reset_and_unlink_test_sinks()
+        identity = sink.CaptureIdentityTrace(
+            path=sink.TRACE_PATH, run_id="synthetic-run-7", attempt_id="attempt-2",
+        )
+        token = sink.enter_trace(identity)
+        try:
+            under = {"answer": "U" * 200}
+            over = {"answer": "O" * 2000}
+            expected_under = json.dumps(under, ensure_ascii=True, separators=(",", ":"))
+            expected_over = json.dumps(over, ensure_ascii=True, separators=(",", ":"))
+            self.assertGreater(len(expected_under), 128)
+            self.assertLessEqual(len(expected_under), receipt._MAX_CAPTURE)
+            self.assertGreater(len(expected_over), receipt._MAX_CAPTURE)
+            with patch.dict(os.environ, {receipt.ENABLE_ENV: "1"}, clear=True):
+                receipt.observe_append_body(
+                    receipt.snapshot_append_body(under), call_id="call-9",
+                    producer="P" * 200, api_request_id="A" * 200, response_id=None,
+                )
+                receipt.observe_append_body(
+                    receipt.snapshot_append_body(over), call_id="call-9",
+                    producer="executor_return", api_request_id="api-request-3",
+                    response_id=None,
+                )
+            persisted = [
+                json.loads(line) for line in sink.trace_path().read_text().splitlines() if line
+            ]
+            self.assertEqual(len(persisted), 2)
+            under_row, over_row = persisted
+            self.assertEqual(under_row["result_capture"], expected_under)
+            self.assertGreater(len(under_row["result_capture"]), 128)
+            self.assertTrue(under_row["capture_complete"])
+            self.assertIsNone(under_row["capture_failure"])
+            self.assertEqual(under_row["producer"], "P" * 128)
+            self.assertEqual(under_row["api_request_id"], "A" * 128)
+            self.assertEqual(len(over_row["result_capture"]), receipt._MAX_CAPTURE)
+            self.assertEqual(over_row["result_capture"], expected_over[:receipt._MAX_CAPTURE])
+            self.assertFalse(over_row["capture_complete"])
+            self.assertEqual(over_row["capture_failure"], "capture_truncated")
+        finally:
+            sink.exit_trace(token)
+            _reset_and_unlink_test_sinks()
 
 
 class OrdinaryAppendPatchTests(unittest.TestCase):
