@@ -13,6 +13,10 @@ import importlib.util
 import sys
 
 PIN_SHA256 = "bc32d3fbc0cef1a7e7b93d82eb0ec2cac1fcb4342eb22a17d0fed36f2f5d3b7b"
+# Live-loop also patches this adapter after handoff. Image order is handoff, then
+# live-loop; the append-body gate re-applies handoff on that ordered lineage.
+LIVE_LOOP_ADAPTER_SHA256 = "d7fb525f3b69cc702c70a7cbcfc647e14b437864b1288c59360358c998237862"
+ADAPTER_FINGERPRINTS = frozenset({PIN_SHA256, LIVE_LOOP_ADAPTER_SHA256})
 ITEM_OLD = '''    for item in output:
         item_type = getattr(item, "type", None)
         item_status = getattr(item, "status", None)
@@ -70,7 +74,7 @@ def patch_text(text):
         original = _once(original, FIELDS_NEW, FIELDS_OLD, "fields inverse")
     else:
         original = text
-    if hashlib.sha256(original.encode()).hexdigest() != PIN_SHA256:
+    if hashlib.sha256(original.encode()).hexdigest() not in ADAPTER_FINGERPRINTS:
         raise RuntimeError("executor handoff adapter source fingerprint drift")
     candidate = _once(original, ITEM_OLD, ITEM_NEW, "item")
     return _once(candidate, FIELDS_OLD, FIELDS_NEW, "fields")
