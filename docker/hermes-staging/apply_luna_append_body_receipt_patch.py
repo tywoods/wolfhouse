@@ -51,7 +51,17 @@ PATCHES = (
         "                    response_id=None,\n"
         "                )\n"
         "            except Exception:\n"
-        "                pass\n",
+        "                pass\n"
+        "        try:\n"
+        "            from wolfhouse.luna_call1_failure_envelope import append_result as _lr32_call1_append\n"
+        "            _lr32_call1_append(\n"
+        "                call_id=tool_call.id,\n"
+        "                api_request_id=getattr(agent, \"_current_api_request_id\", None),\n"
+        "                response_id=None, value=_tool_content, dispatcher_disposition=None,\n"
+        "                producer=_append_receipt_producer,\n"
+        "            )\n"
+        "        except Exception:\n"
+        "            pass\n",
     ),
 )
 

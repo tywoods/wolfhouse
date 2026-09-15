@@ -210,6 +210,7 @@ module('model_tools', _emit_post_tool_call_hook=noop)
 from agent import tool_executor as owner
 from wolfhouse import luna_append_body_receipt as receipt
 from wolfhouse import luna_capture_identity_trace as sink
+from wolfhouse import luna_call1_failure_envelope as envelope
 
 trace = sink.CaptureIdentityTrace(run_id='synthetic-integration', attempt_id='attempt-1')
 token = sink.enter_trace(trace)
@@ -217,6 +218,8 @@ capture = types.SimpleNamespace(metadata_capture=types.SimpleNamespace(dispositi
 receipt._current_capture = lambda: capture
 os.environ[receipt.ENABLE_ENV] = '1'
 executions = []
+envelopes = []
+envelope.append_result = lambda **kw: envelopes.append({k: kw.get(k) for k in ('call_id','producer','api_request_id','value')})
 
 def dispatch(name, args, *a, **kw):
     executions.append(name)
@@ -264,7 +267,8 @@ os.environ[receipt.ENABLE_ENV] = '0'
 off_output = call('success_off','c5')
 rows = trace.snapshot(); sink.exit_trace(token)
 print(json.dumps({'executions': executions, 'outputs': outputs, 'failed_observer_output': failed_observer_output,
-                  'off_output': off_output, 'off_snapshot_calls': len(snapshot_calls), 'rows': rows}, default=str))
+                  'off_output': off_output, 'off_snapshot_calls': len(snapshot_calls), 'rows': rows,
+                  'envelopes': envelopes}, default=str))
 '''
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "hermes"
@@ -292,6 +296,11 @@ print(json.dumps({'executions': executions, 'outputs': outputs, 'failed_observer
         self.assertEqual(result["failed_observer_output"][0]["content"]["kind"], "success_after_observer_failure")
         self.assertEqual(result["off_output"][0]["content"]["kind"], "success_off")
         self.assertEqual(result["off_snapshot_calls"], 0)
+        self.assertEqual([row["call_id"] for row in result["envelopes"]], ["c1", "c2", "c3", "c4", "c5"])
+        self.assertEqual([row["producer"] for row in result["envelopes"]],
+                         ["local_validation_rejection", "caught_exception", "executor_return",
+                          "executor_return", "executor_return"])
+        self.assertTrue(all(row["api_request_id"] == "api-request-real" for row in result["envelopes"]))
 
 
 if __name__ == "__main__":

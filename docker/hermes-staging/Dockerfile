@@ -74,7 +74,7 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/apply_luna_live_loop_trace_patch.py \
  && python /etc/hermes-staging/apply_luna_append_body_receipt_patch.py \
  && python /etc/hermes-staging/apply_luna_append_body_receipt_patch.py \
- && python -m unittest wolfhouse.test_luna_executor_handoff test_luna_executor_handoff_patch test_luna_live_loop_trace_patch wolfhouse.test_luna_append_body_receipt -v
+ && python -m unittest wolfhouse.test_luna_executor_handoff test_luna_executor_handoff_patch test_luna_live_loop_trace_patch wolfhouse.test_luna_append_body_receipt wolfhouse.test_luna_call1_failure_envelope -v
 # NOTE: Water-cooler A2A adapter patch is intentionally NOT applied at image
 # build. Bootstrap applies it only when HERMES_ROLE is seadog|deckhand and
 # WATER_COOLER_A2A_ENABLED=true (fail-closed default off for all roles).
