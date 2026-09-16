@@ -147,16 +147,17 @@ def adapter_entry(tool_name: str, params: Any) -> CallCapture | None:
                              predicates=predicates)
             return None
         # Exactly one call-1 claim per request-local capture/run, including repeats.
+        rejection_reason = None
         with _LOCK:
             shared_pending = getattr(capture, _CAPTURE_PENDING_ATTR, ())
             if type(shared_pending) is not tuple:
-                _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
-                                 reason="pending_invalid", predicates=predicates)
-                return None
-            if any(item.run_id == identity.run_id for item in shared_pending):
-                _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
-                                 reason="duplicate_handle", predicates=predicates)
-                return None
+                rejection_reason = "pending_invalid"
+            elif any(item.run_id == identity.run_id for item in shared_pending):
+                rejection_reason = "duplicate_handle"
+        if rejection_reason is not None:
+            _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
+                             reason=rejection_reason, predicates=predicates)
+            return None
         mapping = type(params) is dict
         location = params.get("location_id") if mapping else None
         handle = CallCapture(identity.run_id, identity.attempt_id, expected_call_id, {
@@ -168,17 +169,19 @@ def adapter_entry(tool_name: str, params: Any) -> CallCapture | None:
         # ordinary append seam runs back in the parent Context. A ContextVar write
         # in that worker does not flow back. Bind the handle to the shared,
         # request-local isolated-turn capture as well as the local Context.
+        rejection_reason = None
         with _LOCK:
             shared_pending = getattr(capture, _CAPTURE_PENDING_ATTR, ())
             if type(shared_pending) is not tuple:
-                _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
-                                 reason="pending_invalid", predicates=predicates)
-                return None
-            if any(item.run_id == identity.run_id for item in shared_pending):
-                _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
-                                 reason="duplicate_handle", predicates=predicates)
-                return None
-            setattr(capture, _CAPTURE_PENDING_ATTR, shared_pending + (handle,))
+                rejection_reason = "pending_invalid"
+            elif any(item.run_id == identity.run_id for item in shared_pending):
+                rejection_reason = "duplicate_handle"
+            else:
+                setattr(capture, _CAPTURE_PENDING_ATTR, shared_pending + (handle,))
+        if rejection_reason is not None:
+            _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
+                             reason=rejection_reason, predicates=predicates)
+            return None
         _adapter_receipt(identity, capture, call_id=expected_call_id, status="accepted",
                          reason="handle_created", predicates=predicates, pending_created=True)
         return handle
@@ -348,17 +351,24 @@ def append_result(*, call_id: Any, api_request_id: Any, response_id: Any, value:
                    same_request_capture=True, handle_match=False, consumed=False, stage="append_match")
         return None
     handle = matches[0]
+    rejection_count = None
     with _LOCK:
         current = getattr(capture, _CAPTURE_PENDING_ATTR, ())
-        if type(current) is not tuple or sum(item is handle for item in current) != 1:
-            trace_emit(identity, "lr32_append_outcome", capture=capture, call_id=call_key,
-                       status="rejected", reason="handle_not_current",
-                       expected_call_id=handle.expected_call_id,
-                       exact_match_count=sum(item is handle for item in current)
-                       if type(current) is tuple else 0,
-                       same_request_capture=True, handle_match=False, consumed=False, stage="append_match")
-            return None
-        setattr(capture, _CAPTURE_PENDING_ATTR, tuple(item for item in current if item is not handle))
+        current_count = (sum(item is handle for item in current)
+                         if type(current) is tuple else 0)
+        if type(current) is not tuple or current_count != 1:
+            rejection_count = current_count
+        else:
+            setattr(capture, _CAPTURE_PENDING_ATTR,
+                    tuple(item for item in current if item is not handle))
+    if rejection_count is not None:
+        trace_emit(identity, "lr32_append_outcome", capture=capture, call_id=call_key,
+                   status="rejected", reason="handle_not_current",
+                   expected_call_id=handle.expected_call_id,
+                   exact_match_count=rejection_count,
+                   same_request_capture=True, handle_match=False, consumed=False,
+                   stage="append_match")
+        return None
     trace_emit(identity, "lr32_append_outcome", capture=capture, call_id=call_key,
                status="consumed", reason="exact_match",
                expected_call_id=handle.expected_call_id, exact_match_count=1,

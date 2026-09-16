@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, contextvars, json, os, subprocess, sys, tempfile, threading, types, unittest
+import ast, asyncio, contextvars, json, os, subprocess, sys, tempfile, threading, types, unittest
 from pathlib import Path
 from unittest.mock import patch
 from wolfhouse import luna_call1_failure_envelope as env
@@ -114,6 +114,159 @@ class Call1FailureEnvelopeTests(unittest.TestCase):
         internal = self.identity.snapshot()[-1]
         self.assertEqual((internal["status"], internal["reason"]), ("rejected", "internal_error"))
         self.assertNotIn("must-not-be-recorded", json.dumps(internal))
+
+    def test_receipt_emitters_are_never_called_under_handle_lock(self):
+        source = Path(env.__file__).read_text()
+        tree = ast.parse(source)
+        violations = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.With, ast.AsyncWith)):
+                continue
+            owns_handle_lock = any(
+                isinstance(item.context_expr, ast.Name) and item.context_expr.id == "_LOCK"
+                for item in node.items
+            )
+            if not owns_handle_lock:
+                continue
+            for nested in ast.walk(node):
+                if not isinstance(nested, ast.Call):
+                    continue
+                name = nested.func.id if isinstance(nested.func, ast.Name) else None
+                if name in {"_adapter_receipt", "trace_emit"}:
+                    violations.append((nested.lineno, name))
+        self.assertEqual(violations, [])
+
+    def test_every_moved_rejection_branch_keeps_its_locked_decision(self):
+        class DecisionLock:
+            def __init__(self, on_enter):
+                self._lock = threading.RLock()
+                self._on_enter = on_enter
+                self.entries = 0
+            def __enter__(self):
+                self._lock.acquire()
+                self.entries += 1
+                self._on_enter(self.entries)
+                return self
+            def __exit__(self, *_args):
+                self._lock.release()
+
+        with patch.dict(os.environ, self.good, clear=True):
+            setattr(self.capture, env._CAPTURE_PENDING_ATTR, [])
+            self.assertIsNone(self.enter())
+            self.assertEqual(self.identity.snapshot()[-1]["reason"], "pending_invalid")
+
+            for reason, replacement in (
+                ("pending_invalid", lambda handle: []),
+                ("duplicate_handle", lambda handle: (handle,)),
+            ):
+                env.reset_for_tests()
+                self.identity._records.clear()
+                original_capture = env.CallCapture
+                created = []
+                def mutate_second(entry):
+                    if entry == 2:
+                        setattr(self.capture, env._CAPTURE_PENDING_ATTR, replacement(created[0]))
+                decision_lock = DecisionLock(mutate_second)
+                def create_handle(*args, **kwargs):
+                    handle = original_capture(*args, **kwargs)
+                    created.append(handle)
+                    return handle
+                with patch.object(env, "_LOCK", decision_lock), \
+                     patch.object(env, "CallCapture", side_effect=create_handle):
+                    self.assertIsNone(self.enter())
+                receipt = self.identity.snapshot()[-1]
+                self.assertEqual((receipt["status"], receipt["reason"]), ("rejected", reason))
+                self.assertFalse(receipt["pending_created"])
+
+            env.reset_for_tests()
+            self.identity._records.clear()
+            handle = self.enter()
+            self.assertIsNotNone(handle)
+            invalidate_lock = DecisionLock(
+                lambda entry: setattr(self.capture, env._CAPTURE_PENDING_ATTR, ())
+            )
+            with patch.object(env, "_LOCK", invalidate_lock):
+                self.assertIsNone(env.append_result(
+                    call_id="call-5", api_request_id=None, response_id=None,
+                    value="x", dispatcher_disposition=None,
+                ))
+            receipt = self.identity.snapshot()[-1]
+            self.assertEqual(
+                (receipt["event"], receipt["status"], receipt["reason"]),
+                ("lr32_append_outcome", "rejected", "handle_not_current"),
+            )
+            self.assertEqual(receipt["exact_match_count"], 0)
+            self.assertFalse(receipt["consumed"])
+
+    def test_duplicate_receipt_does_not_hold_handle_lock_across_requests(self):
+        capture_a = self.capture
+        capture_b = types.SimpleNamespace(
+            _lr32_server_validated_synthetic=True,
+            metadata_capture=types.SimpleNamespace(calls=[self.call]),
+        )
+        existing = env.CallCapture(
+            "approved-7", "attempt-a", "call-5",
+            {"tool": env.TARGET_TOOL, "call_ordinal": 1, "arg_shape": {}},
+        )
+        setattr(capture_a, env._CAPTURE_PENDING_ATTR, (existing,))
+        local = threading.local()
+        emitter_entered = threading.Event()
+        release_emitter = threading.Event()
+        b_started = threading.Event()
+        b_done = threading.Event()
+        errors = []
+        results = {}
+        original_receipt = env._adapter_receipt
+
+        def current_capture():
+            return capture_a if getattr(local, "name", None) == "a" else capture_b
+
+        def paused_receipt(identity, capture, **kwargs):
+            if getattr(local, "name", None) == "a" and kwargs.get("reason") == "duplicate_handle":
+                emitter_entered.set()
+                if not release_emitter.wait(2):
+                    raise AssertionError("A receipt release was not signalled")
+            return original_receipt(identity, capture, **kwargs)
+
+        def run(name, done=None):
+            identity = trace.CaptureIdentityTrace(run_id="approved-7", attempt_id=f"attempt-{name}")
+            token = trace.enter_trace(identity)
+            local.name = name
+            try:
+                if name == "b":
+                    b_started.set()
+                results[name] = env.adapter_entry(env.TARGET_TOOL, {"location_id": "sunset-somo"})
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                if done is not None:
+                    done.set()
+                trace.exit_trace(token)
+
+        with patch.dict(os.environ, self.good, clear=True), \
+             patch.object(env, "_current_capture", side_effect=current_capture), \
+             patch.object(env, "_adapter_receipt", side_effect=paused_receipt):
+            thread_a = threading.Thread(target=run, args=("a",), daemon=True)
+            thread_b = threading.Thread(target=run, args=("b", b_done), daemon=True)
+            thread_a.start()
+            try:
+                self.assertTrue(emitter_entered.wait(2), "A never reached duplicate receipt")
+                thread_b.start()
+                self.assertTrue(b_started.wait(2), "B never started")
+                self.assertTrue(
+                    b_done.wait(1),
+                    "B handle critical section blocked behind A receipt I/O",
+                )
+            finally:
+                release_emitter.set()
+                thread_a.join(2)
+                if thread_b.ident is not None:
+                    thread_b.join(2)
+            self.assertFalse(thread_a.is_alive())
+            self.assertFalse(thread_b.is_alive())
+        self.assertEqual(errors, [])
+        self.assertIsNone(results["a"])
+        self.assertIsInstance(results["b"], env.CallCapture)
 
     def test_receipts_redaction_projection_checksum_atomic_and_aggregate_budget(self):
         with patch.dict(os.environ,self.good,clear=True):
