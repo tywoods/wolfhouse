@@ -321,7 +321,9 @@ os._exit(0)
             identity = envelope.current_trace()
             capture = envelope._current_capture()
             approved = envelope.approved_server_run_id()
+            proven = envelope._metadata_call1(capture) if capture is not None else None
             result = real_adapter_entry(*args, **kwargs)
+            pending = getattr(capture, envelope._CAPTURE_PENDING_ATTR, ()) if capture else ()
             adapter_results.append({
                 "admitted": result is not None,
                 "identity_present": identity is not None,
@@ -331,13 +333,51 @@ os._exit(0)
                 "server_marker": bool(
                     capture and getattr(capture, "_lr32_server_validated_synthetic", False) is True
                 ),
-                "metadata_call1": bool(capture and envelope._metadata_call1(capture) is not None),
+                "metadata_call1": proven is not None,
+                "metadata_expected_id": proven[1] if proven is not None else None,
+                "returned_handle": result is not None,
+                "handle_expected_id": result.expected_call_id if result is not None else None,
+                "handle_capture_failure": result.capture_failure if result is not None else None,
+                "pending_count_after": len(pending) if type(pending) is tuple else None,
+                "pending_contains_handle": bool(
+                    result is not None and type(pending) is tuple
+                    and sum(item is result for item in pending) == 1
+                ),
+                "capture_identity": id(capture) if capture is not None else None,
             })
             return result
 
         def observed_append_result(*args, **kwargs):
+            capture = envelope._current_capture()
+            pending_before = getattr(capture, envelope._CAPTURE_PENDING_ATTR, ()) if capture else ()
+            actual_id = kwargs.get("call_id")
+            matches_before = (
+                [item for item in pending_before if item.expected_call_id == str(actual_id)[:128]]
+                if type(pending_before) is tuple else []
+            )
+            observed_handle = matches_before[0] if len(matches_before) == 1 else None
             result = real_append_result(*args, **kwargs)
-            append_results.append(result)
+            pending_after = getattr(capture, envelope._CAPTURE_PENDING_ATTR, ()) if capture else ()
+            append_results.append({
+                "actual_id": actual_id,
+                "capture_identity": id(capture) if capture is not None else None,
+                "pending_count_before": len(pending_before) if type(pending_before) is tuple else None,
+                "exact_match_count_before": len(matches_before),
+                "matched_expected_id": (
+                    observed_handle.expected_call_id if observed_handle is not None else None
+                ),
+                "consumed": bool(
+                    observed_handle is not None and type(pending_after) is tuple
+                    and all(item is not observed_handle for item in pending_after)
+                ),
+                "pending_count_after": len(pending_after) if type(pending_after) is tuple else None,
+                "publication_path": str(result) if result is not None else None,
+                "published": bool(result is not None and result.is_file()),
+                "handle_capture_failure": (
+                    observed_handle.capture_failure if observed_handle is not None else None
+                ),
+                "producer": kwargs.get("producer"),
+            })
             return result
         env = dict(self.base_env)
         env.update({
@@ -422,9 +462,36 @@ os._exit(0)
             "run_ids_match": trace_enabled,
             "server_marker": True,
             "metadata_call1": True,
+            "metadata_expected_id": CALL_ID,
+            "returned_handle": trace_enabled,
+            "handle_expected_id": CALL_ID if trace_enabled else None,
+            "handle_capture_failure": None,
+            "pending_count_after": 1 if trace_enabled else 0,
+            "pending_contains_handle": trace_enabled,
+            "capture_identity": on_adapter[0]["capture_identity"],
         }], on[1])
         self.assertEqual(len(off_append), 1)
         self.assertEqual(len(on_append), 1)
+        self.assertEqual(off_append[0]["actual_id"], CALL_ID)
+        self.assertEqual(off_append[0]["exact_match_count_before"], 0)
+        self.assertFalse(off_append[0]["consumed"])
+        self.assertFalse(off_append[0]["published"])
+        self.assertEqual(on_append[0], {
+            "actual_id": CALL_ID,
+            "capture_identity": on_adapter[0]["capture_identity"],
+            "pending_count_before": 1 if trace_enabled else 0,
+            "exact_match_count_before": 1 if trace_enabled else 0,
+            "matched_expected_id": CALL_ID if trace_enabled else None,
+            "consumed": trace_enabled,
+            "pending_count_after": 0,
+            "publication_path": (
+                str(envelope.ARTIFACT_DIR / f"lr32-call1-{RUN_ID}.json")
+                if trace_enabled else None
+            ),
+            "published": trace_enabled,
+            "handle_capture_failure": None,
+            "producer": "executor_return",
+        }, on[1])
 
         artifact = envelope.ARTIFACT_DIR / f"lr32-call1-{RUN_ID}.json"
         if not trace_enabled:

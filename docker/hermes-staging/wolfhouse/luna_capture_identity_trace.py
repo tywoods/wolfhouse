@@ -24,6 +24,8 @@ TRACE_PATH_PREFIX = "/tmp/lr32-capture-identity-trace."
 TRACE_PATH_PATTERN = "/tmp/lr32-capture-identity-trace.<pid>.<start>.jsonl"
 TRACE_LIMIT = 256
 TRACE_FILE_MAX_BYTES = 1024 * 1024
+LR32_RECEIPT_LIMIT = 8
+LR32_RECEIPT_MAX_BYTES = 8 * 1024
 
 _SINK_LOCK = threading.RLock()
 _SINK_FD: Optional[int] = None
@@ -155,6 +157,7 @@ _ALLOWED_EVENTS = frozenset({
     "sink_failure",
     "live_output_item_done", "live_normalized_return", "live_assistant_tool_calls",
     "live_append_body_receipt",
+    "lr32_adapter_outcome", "lr32_append_outcome", "lr32_publication_outcome",
 })
 _LIVE_BOOL_FIELDS = frozenset({
     "arguments_present", "arguments_valid", "excluded", "predicate",
@@ -171,6 +174,17 @@ _LIVE_TEXT_FIELDS = frozenset({
 _LIVE_TEXT_MAX = 128
 _LIVE_BODY_MAX = 1024
 _LIVE_BODY_FIELDS = frozenset({"result_capture"})
+_RECEIPT_BOOL_FIELDS = frozenset({
+    "identity_present", "capture_present", "approved_present", "run_ids_match", "server_marker",
+    "scope_match", "metadata_call1", "pending_created", "same_request_capture",
+    "handle_match", "consumed", "capture_complete",
+})
+_RECEIPT_INT_FIELDS = frozenset({"exact_match_count"})
+_RECEIPT_TEXT_FIELDS = frozenset({"expected_call_id", "stage", "capture_failure"})
+_ALLOWED_STAGE = frozenset({
+    "adapter", "append_match", "append_capture", "metadata_projection",
+    "envelope_assembly", "sink_validation", "publication",
+})
 _ALLOWED_STATUS = frozenset({
     "attached", "queued", "entered", "consumed", "completed", "failed",
     "accepted", "rejected", "dispatched", "missing", "closed", "truncated",
@@ -181,6 +195,12 @@ _ALLOWED_REASONS = frozenset({
     "codex_parser", "response.completed", "response.failed", "response.incomplete",
     "write_failed", "output_limit", "completed", "failed", "trace_context_missing",
     "metadata_capture_finalize",
+    "tool_mismatch", "identity_missing", "capture_missing", "approval_missing",
+    "run_mismatch", "server_marker_missing", "scope_mismatch", "metadata_call1_missing",
+    "pending_invalid", "duplicate_handle", "handle_created", "no_exact_match",
+    "ambiguous_match", "handle_not_current", "exact_match", "published",
+    "append_capture_failed", "metadata_projection_failed", "envelope_assembly_failed",
+    "sink_validation_failed", "publication_failed", "persistence_failed", "internal_error",
 })
 
 
@@ -199,6 +219,8 @@ class CaptureIdentityTrace:
         self._lock = threading.Lock()
         self._sink_failed = False
         self._truncated = False
+        self._receipt_count = 0
+        self._receipt_bytes = 0
         if self._path_enabled:
             _initialize_sink()
 
@@ -304,9 +326,38 @@ class CaptureIdentityTrace:
                             record["capture_complete"] = False
                             if record.get("capture_failure") is None:
                                 record["capture_failure"] = "capture_truncated"
+            elif event.startswith("lr32_"):
+                record.update({key: None for key in _RECEIPT_TEXT_FIELDS})
+                record.update({key: None for key in _RECEIPT_BOOL_FIELDS})
+                record.update({key: None for key in _RECEIPT_INT_FIELDS})
+                for key in _RECEIPT_BOOL_FIELDS:
+                    if type(_ignored.get(key)) is bool:
+                        record[key] = _ignored[key]
+                for key in _RECEIPT_INT_FIELDS:
+                    value = _ignored.get(key)
+                    if type(value) is int and 0 <= value <= TRACE_LIMIT:
+                        record[key] = value
+                for key in _RECEIPT_TEXT_FIELDS:
+                    value = _ignored.get(key)
+                    if isinstance(value, str):
+                        if key == "stage":
+                            if value in _ALLOWED_STAGE:
+                                record[key] = value
+                        elif key == "capture_failure":
+                            if value in _ALLOWED_REASONS:
+                                record[key] = value
+                        else:
+                            record[key] = value[:_LIVE_TEXT_MAX]
             payload = (json.dumps(record, ensure_ascii=True, separators=(",", ":")) + "\n").encode()
+            is_receipt = event.startswith("lr32_")
             with self._lock:
                 if len(self._records) >= self._limit:
+                    return
+                if is_receipt and (
+                    self._receipt_count >= LR32_RECEIPT_LIMIT
+                    or self._receipt_bytes + len(payload) > LR32_RECEIPT_MAX_BYTES
+                ):
+                    self._failure_locked(capture, truncated=True)
                     return
                 try:
                     if self._path_rejected:
@@ -319,6 +370,9 @@ class CaptureIdentityTrace:
                         self._records.append(record)
                     else:
                         self._records.append(record)
+                    if is_receipt:
+                        self._receipt_count += 1
+                        self._receipt_bytes += len(payload)
                 except BaseException:
                     self._failure_locked(capture)
         except BaseException:
