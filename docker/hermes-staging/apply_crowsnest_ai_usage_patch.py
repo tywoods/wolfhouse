@@ -545,6 +545,28 @@ def patch_auth_admission(source, candidates, paths):
                  '_load_auth_store', '_auth_store_lock', '_pool_codex_access_token',
                  '_codex_pool_rate_limit_status', 'get_model_context_length',
                  'ContextCompressor.__init__'}
+    fallback_read_only = {
+        '_fetch_codex_oauth_context_lengths': '{}',
+        'save_context_length': 'None',
+    }
+
+    def auth_guard(owner, indent):
+        if owner in fallback_read_only:
+            return (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort, provider_auth_execution_admitted\n'
+                    + indent + 'if current_isolated_turn() is not None:\n'
+                    + indent + '    if provider_auth_execution_admitted():\n'
+                    + indent + '        return ' + fallback_read_only[owner] + '\n'
+                    + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
+        admitted = ', provider_auth_execution_admitted' if owner in read_only else ''
+        if owner in ('_auth_store_lock', '_load_auth_store'):
+            admitted += ', runtime_route_execution_admitted'
+        suffix = ' and not provider_auth_execution_admitted()' if admitted else ''
+        if owner in ('_auth_store_lock', '_load_auth_store'):
+            suffix = ' and not (provider_auth_execution_admitted() or runtime_route_execution_admitted())'
+        return (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort' + admitted + '\n'
+                + indent + 'if current_isolated_turn() is not None' + suffix + ':\n'
+                + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
+
     for path, (_, expected, owners) in zip(paths, PRD):
         text = source[path]
         if path.name == 'model_metadata.py' and METADATA_DISK_SAVE[1] in text:
@@ -556,20 +578,13 @@ def patch_auth_admission(source, candidates, paths):
             if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
                 first = node.body[1]
             indent = ' ' * first.col_offset
-            admitted = ', provider_auth_execution_admitted' if owner in read_only else ''
-            if owner in ('_auth_store_lock', '_load_auth_store'):
-                admitted += ', runtime_route_execution_admitted'
-            suffix = ' and not provider_auth_execution_admitted()' if admitted else ''
-            if owner in ('_auth_store_lock', '_load_auth_store'):
-                suffix = ' and not (provider_auth_execution_admitted() or runtime_route_execution_admitted())'
-            guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort' + admitted + '\n'
-                     + indent + 'if current_isolated_turn() is not None' + suffix + ':\n'
-                     + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
+            guard = auth_guard(owner, indent)
             lines = text.splitlines(keepends=True)
             start = first.lineno - 1
-            if ''.join(lines[start:start + 3]) == guard:
-                text = ''.join(lines[:start] + lines[start + 3:])
-            elif owner == 'get_model_context_length':
+            guard_lines = len(guard.splitlines())
+            if ''.join(lines[start:start + guard_lines]) == guard:
+                text = ''.join(lines[:start] + lines[start + guard_lines:])
+            elif owner == 'get_model_context_length' or owner in fallback_read_only:
                 legacy = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort\n'
                           + indent + 'if current_isolated_turn() is not None:\n'
                           + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
@@ -583,15 +598,7 @@ def patch_auth_admission(source, candidates, paths):
             if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
                 first = node.body[1]
             indent = ' ' * first.col_offset
-            admitted = ', provider_auth_execution_admitted' if owner in read_only else ''
-            if owner in ('_auth_store_lock', '_load_auth_store'):
-                admitted += ', runtime_route_execution_admitted'
-            suffix = ' and not provider_auth_execution_admitted()' if admitted else ''
-            if owner in ('_auth_store_lock', '_load_auth_store'):
-                suffix = ' and not (provider_auth_execution_admitted() or runtime_route_execution_admitted())'
-            guard = (indent + 'from wolfhouse.luna_personality_isolation import current_isolated_turn, IsolationAbort' + admitted + '\n'
-                     + indent + 'if current_isolated_turn() is not None' + suffix + ':\n'
-                     + indent + '    raise IsolationAbort("auth_boundary_unsupported")\n')
+            guard = auth_guard(owner, indent)
             lines = text.splitlines(keepends=True)
             start = first.lineno - 1
             text = ''.join(lines[:start]) + guard + ''.join(lines[start:])
