@@ -14,6 +14,8 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -204,6 +206,49 @@ def _normalized_result(body):
 
 
 class OrdinaryHandlerEnvelopeParityTests(unittest.TestCase):
+    def test_plugin_disabled_fresh_process_has_no_catalog_or_dispatcher(self):
+        with tempfile.TemporaryDirectory() as root:
+            home = Path(root) / "home"
+            home.mkdir(mode=0o700)
+            (home / "config.yaml").write_text(
+                "model:\n  default: gpt-5.6-sol\n  provider: openrouter\n",
+                encoding="utf-8",
+            )
+            plugins = home / "plugins"
+            plugins.mkdir()
+            shutil.copytree(
+                "/etc/hermes-staging/plugins/wolfhouse_staff_api",
+                plugins / "wolfhouse_staff_api",
+            )
+            script = """
+from hermes_cli.plugins import discover_plugins, get_plugin_manager
+discover_plugins()
+import model_tools
+name = 'get_sunset_lesson_catalog'
+definitions = model_tools.get_tool_definitions(skip_tool_search_assembly=True)
+offered = {item.get('function', {}).get('name') for item in definitions if isinstance(item, dict)}
+assert name not in offered
+assert name not in set(get_plugin_manager()._plugin_tool_names)
+import os
+os._exit(0)
+"""
+            env = dict(os.environ)
+            env.update({
+                "HOME": str(home),
+                "HERMES_HOME": str(home),
+                "WOLFHOUSE_STAFF_API_BASE_URL": "https://offline.invalid",
+                "LUNA_BOT_INTERNAL_TOKEN": "offline-token",
+            })
+            result = subprocess.run(
+                [sys.executable, "-c", script],
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=60,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name) / "home"
@@ -254,6 +299,10 @@ class OrdinaryHandlerEnvelopeParityTests(unittest.TestCase):
             self.base_env["LUNA_LR32_CAPTURE_IDENTITY_TRACE_PATH"] = (
                 "/tmp/lr32-capture-identity-trace.jsonl"
             )
+        if os.getenv("LR32_TEST_EXPORT_ARTIFACT"):
+            self.base_env["LR32_TEST_EXPORT_ARTIFACT"] = os.environ[
+                "LR32_TEST_EXPORT_ARTIFACT"
+            ]
 
     def tearDown(self):
         reset_isolation_runtime_for_tests()
@@ -397,6 +446,18 @@ class OrdinaryHandlerEnvelopeParityTests(unittest.TestCase):
         self.assertEqual(document["plugin_return"]["classification"], "json_failure")
         self.assertEqual(document["dispatcher"]["disposition"], "failed")
         self.assertEqual(document["append"]["producer"], "executor_return")
+        print("ARTIFACT_EVIDENCE " + json.dumps({
+            "checksum_sha256": digest,
+            "capture_complete": document["capture_complete"],
+            "run_id": document["ids"]["run_id"],
+            "tool_call_id": document["ids"]["tool_call_id"],
+            "transport_outcome": document["transport"]["outcome"],
+            "dispatcher_disposition": document["dispatcher"]["disposition"],
+            "append_producer": document["append"]["producer"],
+        }, sort_keys=True))
+        export_path = os.getenv("LR32_TEST_EXPORT_ARTIFACT")
+        if export_path:
+            shutil.copy2(artifact, export_path)
 
 
 if __name__ == "__main__":
