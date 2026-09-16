@@ -267,6 +267,52 @@ class CaptureIdentityTraceTests(unittest.TestCase):
         self.assertEqual(records[0]["capture_present"], False)
         self.assertEqual(records[0]["reason"], "write_failed")
 
+    def test_lr32_receipts_are_fixed_shape_bounded_and_payload_free(self):
+        identity = trace.CaptureIdentityTrace(run_id="r", attempt_id="a")
+        identity.emit(
+            "lr32_append_outcome", capture=object(), call_id="c" * 300,
+            status="rejected", reason="no_exact_match", expected_call_id="e" * 300,
+            exact_match_count=9999, same_request_capture=True, handle_match=False,
+            consumed=False, stage="attacker-controlled", payload={"secret": "do-not-record"},
+            url="https://private.invalid",
+        )
+        record = identity.snapshot()[0]
+        self.assertEqual(record["call_id"], "c" * 128)
+        self.assertEqual(record["expected_call_id"], "e" * 128)
+        self.assertIsNone(record["exact_match_count"])
+        self.assertTrue(record["same_request_capture"])
+        self.assertFalse(record["handle_match"])
+        self.assertFalse(record["consumed"])
+        self.assertIsNone(record["stage"])
+        self.assertNotIn("payload", record)
+        self.assertNotIn("url", record)
+
+        sink_identity = trace.CaptureIdentityTrace(
+            path=trace.TRACE_PATH, run_id="run-sink", attempt_id="attempt-sink"
+        )
+        sink_identity.emit(
+            "lr32_publication_outcome", capture=object(), call_id="call-sink",
+            status="completed", reason="published", stage="publication",
+            capture_complete=True,
+        )
+        sink_rows = [json.loads(line) for line in trace.trace_path().read_text().splitlines()]
+        self.assertEqual(sink_rows[-1]["event"], "lr32_publication_outcome")
+        self.assertEqual((sink_rows[-1]["status"], sink_rows[-1]["reason"]),
+                         ("completed", "published"))
+
+        bounded = trace.CaptureIdentityTrace(run_id="run-budget", attempt_id="attempt-budget")
+        capture = object()
+        for index in range(9):
+            bounded.emit(
+                "lr32_append_outcome", capture=capture, call_id=f"call-{index}",
+                status="rejected", reason="no_exact_match", exact_match_count=0,
+            )
+        bounded_rows = bounded.snapshot()
+        self.assertEqual(sum(row["event"].startswith("lr32_") for row in bounded_rows), 8)
+        self.assertEqual(bounded_rows[-1]["event"], "sink_failure")
+        self.assertEqual((bounded_rows[-1]["status"], bounded_rows[-1]["reason"]),
+                         ("truncated", "output_limit"))
+
     def test_concurrent_turns_keep_distinct_capture_identity(self):
         traces = [trace.CaptureIdentityTrace(run_id="same", attempt_id=str(i)) for i in range(2)]
         captures = [object(), object()]

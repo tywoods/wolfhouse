@@ -41,6 +41,80 @@ class Call1FailureEnvelopeTests(unittest.TestCase):
         self.assertEqual(doc["adapter_entry"]["call_ordinal"],1); self.assertEqual(doc["append"]["producer"],"executor_return")
         self.assertEqual(doc["dispatcher"]["disposition"],"completed")
 
+    def test_trace_receipts_cover_adapter_append_and_publication_decisions(self):
+        with patch.dict(os.environ, self.good, clear=True):
+            handle = self.enter()
+            self.assertIsNotNone(handle)
+            self.assertIsNotNone(self.finish(handle))
+        receipts = [row for row in self.identity.snapshot()
+                    if row["event"].startswith("lr32_")]
+        self.assertEqual([row["event"] for row in receipts], [
+            "lr32_adapter_outcome", "lr32_append_outcome", "lr32_publication_outcome",
+        ])
+        adapter, append, publication = receipts
+        self.assertEqual((adapter["status"], adapter["reason"]), ("accepted", "handle_created"))
+        self.assertTrue(adapter["metadata_call1"])
+        self.assertTrue(adapter["pending_created"])
+        self.assertEqual(adapter["call_id"], "call-5")
+        self.assertEqual((append["status"], append["reason"]), ("consumed", "exact_match"))
+        self.assertEqual(append["call_id"], "call-5")
+        self.assertEqual(append["expected_call_id"], "call-5")
+        self.assertEqual(append["exact_match_count"], 1)
+        self.assertTrue(append["same_request_capture"])
+        self.assertTrue(append["handle_match"])
+        self.assertEqual((publication["status"], publication["reason"]),
+                         ("completed", "published"))
+        self.assertTrue(publication["capture_complete"])
+        self.assertIsNone(publication["capture_failure"])
+
+    def test_trace_receipts_cover_rejected_admission_no_match_and_publication_failure(self):
+        with patch.dict(os.environ, {**self.good, "HERMES_ROLE": "deckhand"}, clear=True):
+            self.assertIsNone(self.enter())
+        rejected = self.identity.snapshot()[-1]
+        self.assertEqual((rejected["event"], rejected["status"], rejected["reason"]),
+                         ("lr32_adapter_outcome", "rejected", "scope_mismatch"))
+        self.assertFalse(rejected["pending_created"])
+
+        with patch.dict(os.environ, self.good, clear=True):
+            handle = self.enter()
+            self.assertIsNone(env.append_result(
+                call_id="wrong", api_request_id=None, response_id=None, value="x",
+                dispatcher_disposition=None,
+            ))
+            with patch.object(env, "_atomic_write", side_effect=OSError("injected")):
+                self.assertIsNone(self.finish(handle))
+        no_match, consumed, failed = self.identity.snapshot()[-3:]
+        self.assertEqual((no_match["event"], no_match["status"], no_match["reason"]),
+                         ("lr32_append_outcome", "rejected", "no_exact_match"))
+        self.assertEqual(no_match["exact_match_count"], 0)
+        self.assertEqual((consumed["status"], consumed["reason"]),
+                         ("consumed", "exact_match"))
+        self.assertEqual((failed["event"], failed["status"], failed["reason"]),
+                         ("lr32_publication_outcome", "failed", "publication_failed"))
+        self.assertEqual(failed["stage"], "publication")
+        self.assertFalse(failed["capture_complete"])
+        self.assertEqual(failed["capture_failure"], "persistence_failed")
+
+    def test_receipts_keep_unreached_predicates_unknown_and_close_internal_error(self):
+        with patch.dict(os.environ, self.good, clear=True), patch.object(
+            env, "_current_capture", return_value=None
+        ):
+            self.assertIsNone(self.enter())
+        missing = self.identity.snapshot()[-1]
+        self.assertEqual((missing["status"], missing["reason"]), ("rejected", "capture_missing"))
+        self.assertTrue(missing["identity_present"])
+        self.assertFalse(missing["capture_present"])
+        for field in ("approved_present", "run_ids_match", "server_marker", "scope_match", "metadata_call1"):
+            self.assertIsNone(missing[field], field)
+
+        with patch.dict(os.environ, self.good, clear=True), patch.object(
+            env, "CallCapture", side_effect=RuntimeError("must-not-be-recorded")
+        ):
+            self.assertIsNone(self.enter())
+        internal = self.identity.snapshot()[-1]
+        self.assertEqual((internal["status"], internal["reason"]), ("rejected", "internal_error"))
+        self.assertNotIn("must-not-be-recorded", json.dumps(internal))
+
     def test_receipts_redaction_projection_checksum_atomic_and_aggregate_budget(self):
         with patch.dict(os.environ,self.good,clear=True):
             h=self.enter(); tid=env.transport_attempt(h)

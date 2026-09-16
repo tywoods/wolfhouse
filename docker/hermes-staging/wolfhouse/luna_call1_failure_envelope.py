@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from wolfhouse.luna_capture_identity_trace import current_trace
+from wolfhouse.luna_capture_identity_trace import current_trace, emit as trace_emit
 from wolfhouse.luna_append_body_receipt import snapshot_append_body, _redact_frozen
 
 ENABLE_ENV = "LUNA_LR32_CALL1_FAILURE_ENVELOPE_ENABLED"
@@ -85,33 +85,77 @@ def _metadata_call1(capture: Any) -> tuple[Any, str] | None:
     return call, str(first["id"])[:128]
 
 
-def _admitted(tool_name: str) -> tuple[Any, Any, str] | None:
+def _admission_decision(tool_name: str) -> tuple[Any, Any, str | None, str, dict[str, bool | None]]:
+    identity = current_trace()
+    capture = None
+    predicates: dict[str, bool | None] = {
+        "identity_present": None, "capture_present": None, "approved_present": None,
+        "run_ids_match": None, "server_marker": None, "scope_match": None,
+        "metadata_call1": None,
+    }
     if tool_name != TARGET_TOOL:
-        return None
-    identity, capture, approved = current_trace(), _current_capture(), approved_server_run_id()
-    if identity is None or capture is None or approved is None or approved != identity.run_id:
-        return None
-    if getattr(capture, "_lr32_server_validated_synthetic", False) is not True:
-        return None
-    if (os.getenv("HERMES_ROLE") != "sunset-luna" or os.getenv("LUNA_CLIENT_SLUG") != "sunset" or
-            os.getenv("SUNSET_INGRESS_LOCATION_ID") != "sunset-somo"):
-        return None
+        return identity, capture, None, "tool_mismatch", predicates
+    predicates["identity_present"] = identity is not None
+    if identity is None:
+        return identity, capture, None, "identity_missing", predicates
+    capture = _current_capture()
+    predicates["capture_present"] = capture is not None
+    if capture is None:
+        return identity, capture, None, "capture_missing", predicates
+    approved = approved_server_run_id()
+    predicates["approved_present"] = approved is not None
+    if approved is None:
+        return identity, capture, None, "approval_missing", predicates
+    predicates["run_ids_match"] = approved == identity.run_id
+    if not predicates["run_ids_match"]:
+        return identity, capture, None, "run_mismatch", predicates
+    predicates["server_marker"] = (
+        getattr(capture, "_lr32_server_validated_synthetic", False) is True
+    )
+    if not predicates["server_marker"]:
+        return identity, capture, None, "server_marker_missing", predicates
+    predicates["scope_match"] = (
+        os.getenv("HERMES_ROLE") == "sunset-luna"
+        and os.getenv("LUNA_CLIENT_SLUG") == "sunset"
+        and os.getenv("SUNSET_INGRESS_LOCATION_ID") == "sunset-somo"
+    )
+    if not predicates["scope_match"]:
+        return identity, capture, None, "scope_mismatch", predicates
     proven = _metadata_call1(capture)
-    return (identity, capture, proven[1]) if proven is not None else None
+    predicates["metadata_call1"] = proven is not None
+    if proven is None:
+        return identity, capture, None, "metadata_call1_missing", predicates
+    return identity, capture, proven[1], "accepted", predicates
+
+
+def _adapter_receipt(identity: Any, capture: Any, *, call_id: str | None,
+                     status: str, reason: str, predicates: dict[str, bool | None],
+                     pending_created: bool = False) -> None:
+    trace_emit(identity, "lr32_adapter_outcome", capture=capture, call_id=call_id,
+               status=status, reason=reason, pending_created=pending_created,
+               stage="adapter", **predicates)
 
 
 def adapter_entry(tool_name: str, params: Any) -> CallCapture | None:
+    identity = capture = None
+    predicates: dict[str, bool | None] = {}
     try:
-        admitted = _admitted(tool_name)
-        if admitted is None:
+        identity, capture, expected_call_id, reason, predicates = _admission_decision(tool_name)
+        if reason != "accepted" or expected_call_id is None:
+            _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
+                             reason=reason if reason != "accepted" else "metadata_call1_missing",
+                             predicates=predicates)
             return None
-        identity, capture, expected_call_id = admitted
         # Exactly one call-1 claim per request-local capture/run, including repeats.
         with _LOCK:
             shared_pending = getattr(capture, _CAPTURE_PENDING_ATTR, ())
             if type(shared_pending) is not tuple:
+                _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
+                                 reason="pending_invalid", predicates=predicates)
                 return None
             if any(item.run_id == identity.run_id for item in shared_pending):
+                _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
+                                 reason="duplicate_handle", predicates=predicates)
                 return None
         mapping = type(params) is dict
         location = params.get("location_id") if mapping else None
@@ -126,11 +170,21 @@ def adapter_entry(tool_name: str, params: Any) -> CallCapture | None:
         # request-local isolated-turn capture as well as the local Context.
         with _LOCK:
             shared_pending = getattr(capture, _CAPTURE_PENDING_ATTR, ())
-            if type(shared_pending) is not tuple or any(item.run_id == identity.run_id for item in shared_pending):
+            if type(shared_pending) is not tuple:
+                _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
+                                 reason="pending_invalid", predicates=predicates)
+                return None
+            if any(item.run_id == identity.run_id for item in shared_pending):
+                _adapter_receipt(identity, capture, call_id=expected_call_id, status="rejected",
+                                 reason="duplicate_handle", predicates=predicates)
                 return None
             setattr(capture, _CAPTURE_PENDING_ATTR, shared_pending + (handle,))
+        _adapter_receipt(identity, capture, call_id=expected_call_id, status="accepted",
+                         reason="handle_created", predicates=predicates, pending_created=True)
         return handle
     except BaseException:
+        _adapter_receipt(identity, capture, call_id=None, status="rejected",
+                         reason="internal_error", predicates=predicates)
         return None
 
 
@@ -271,28 +325,55 @@ def append_result(*, call_id: Any, api_request_id: Any, response_id: Any, value:
                   dispatcher_disposition: Any, producer: Any = None) -> Path | None:
     """Finalize only the handle bound to this exact provider call id."""
     call_key = str(call_id)[:128] if call_id is not None else ""
-    capture = _current_capture()
+    identity, capture = current_trace(), _current_capture()
     if capture is None:
+        trace_emit(identity, "lr32_append_outcome", capture=capture, call_id=call_key,
+                   status="rejected", reason="capture_missing", exact_match_count=0,
+                   same_request_capture=False, handle_match=False, consumed=False, stage="append_match")
         return None
     shared_pending = getattr(capture, _CAPTURE_PENDING_ATTR, ())
     if type(shared_pending) is not tuple:
+        trace_emit(identity, "lr32_append_outcome", capture=capture, call_id=call_key,
+                   status="rejected", reason="pending_invalid", exact_match_count=0,
+                   same_request_capture=True, handle_match=False, consumed=False, stage="append_match")
         return None
     pending = shared_pending
     matches = [item for item in pending if item.expected_call_id == call_key]
-    if len(matches) != 1: return None
+    if len(matches) != 1:
+        expected = pending[0].expected_call_id if len(pending) == 1 else None
+        trace_emit(identity, "lr32_append_outcome", capture=capture, call_id=call_key,
+                   status="rejected",
+                   reason="no_exact_match" if not matches else "ambiguous_match",
+                   expected_call_id=expected, exact_match_count=len(matches),
+                   same_request_capture=True, handle_match=False, consumed=False, stage="append_match")
+        return None
     handle = matches[0]
     with _LOCK:
         current = getattr(capture, _CAPTURE_PENDING_ATTR, ())
         if type(current) is not tuple or sum(item is handle for item in current) != 1:
+            trace_emit(identity, "lr32_append_outcome", capture=capture, call_id=call_key,
+                       status="rejected", reason="handle_not_current",
+                       expected_call_id=handle.expected_call_id,
+                       exact_match_count=sum(item is handle for item in current)
+                       if type(current) is tuple else 0,
+                       same_request_capture=True, handle_match=False, consumed=False, stage="append_match")
             return None
         setattr(capture, _CAPTURE_PENDING_ATTR, tuple(item for item in current if item is not handle))
+    trace_emit(identity, "lr32_append_outcome", capture=capture, call_id=call_key,
+               status="consumed", reason="exact_match",
+               expected_call_id=handle.expected_call_id, exact_match_count=1,
+               same_request_capture=True, handle_match=True, consumed=True,
+               stage="append_match")
+    stage = "append_capture"
     try:
         result, complete, failure = _safe_append(value)
+        stage = "metadata_projection"
         metadata = getattr(capture, "metadata_capture", None)
         call1 = (getattr(metadata, "calls", None) or [{}])[0]
         if response_id is None and isinstance(call1, dict): response_id = call1.get("response_id")
         if dispatcher_disposition is None: dispatcher_disposition = _disposition(capture, call_key)
         handle.capture_incomplete, handle.capture_failure = not complete, failure
+        stage = "envelope_assembly"
         doc = {
             "schema": "lr32-call1-failure-envelope/v1", "capture_complete": complete, "capture_failure": failure,
             "persistence": "host_mount_required_not_proven",
@@ -307,14 +388,25 @@ def append_result(*, call_id: Any, api_request_id: Any, response_id: Any, value:
         doc["checksum_sha256"] = checksum(doc)
         payload = json.dumps(doc, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
         if len(payload) > MAX_ENVELOPE_BYTES: raise OSError("envelope oversize")
+        stage = "sink_validation"
         directory = _sink_directory()
         safe = re.sub(r"[^A-Za-z0-9_.-]", "_", handle.run_id)[:128]
         destination = f"lr32-call1-{safe}.json"
+        stage = "publication"
         with _LOCK:
             # One fixed final object per run makes the aggregate run budget 16 KiB.
-            return _atomic_write(directory, destination, payload)
+            published = _atomic_write(directory, destination, payload)
+        trace_emit(identity, "lr32_publication_outcome", capture=capture, call_id=call_key,
+                   status="completed", reason="published", expected_call_id=handle.expected_call_id,
+                   stage="publication", capture_complete=complete, capture_failure=failure)
+        return published
     except BaseException:
+        failure_reason = f"{stage}_failed"
         handle.capture_incomplete, handle.capture_failure = True, "persistence_failed"
+        trace_emit(identity, "lr32_publication_outcome", capture=capture, call_id=call_key,
+                   status="failed", reason=failure_reason,
+                   expected_call_id=handle.expected_call_id, stage=stage,
+                   capture_complete=False, capture_failure=handle.capture_failure)
         return None
 
 
