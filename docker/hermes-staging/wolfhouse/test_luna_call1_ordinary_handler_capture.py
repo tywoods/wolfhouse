@@ -1,0 +1,403 @@
+"""Offline full ordinary-handler parity for the LR3.2 call-1 envelope.
+
+The exact-image gate runs this file with ``--network none``.  Provider and Staff
+transport are deterministic doubles; route registration, request admission,
+GatewayRunner._handle_message, metadata capture, copied worker context, the
+registered Staff plugin, production tool-result append owner and envelope sink
+stay real.
+"""
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import tempfile
+import types
+import unittest
+from unittest.mock import patch
+
+from wolfhouse import luna_call1_failure_envelope as envelope
+from wolfhouse.luna_group_lesson_live_eval import (
+    GROUP_LESSON_EVAL_PATH,
+    register_group_lesson_eval_route,
+)
+from wolfhouse.luna_personality_isolation import reset_isolation_runtime_for_tests
+
+
+CASE_ID = "sunset-group-lesson-09-es"
+MODEL = "gpt-5.6-sol"
+RUN_ID = "lr32-ordinary-handler-offline-parity"
+CALL_ID = "call-lr32-ordinary-handler-1"
+RESPONSE_ID = "resp-lr32-ordinary-handler-1"
+
+
+class _Stream:
+    def __init__(self, events):
+        self._events = list(events)
+
+    def __iter__(self):
+        return iter(self._events)
+
+    def close(self):
+        return None
+
+
+class _DeterministicResponses:
+    def __init__(self):
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            call = {
+                "type": "function_call",
+                "id": "item-lr32-ordinary-handler-1",
+                "call_id": CALL_ID,
+                "name": envelope.TARGET_TOOL,
+                "arguments": json.dumps({"location_id": "sunset-somo"}),
+                "status": "completed",
+            }
+            return _Stream([
+                {"type": "response.output_item.done", "item": call},
+                {"type": "response.completed", "response": {
+                    "id": RESPONSE_ID,
+                    "model": MODEL,
+                    "status": "completed",
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                    "output": [call],
+                }},
+            ])
+        message = {
+            "type": "message",
+            "id": "msg-lr32-ordinary-handler-2",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": "Offline deterministic stop."}],
+        }
+        return _Stream([
+            {"type": "response.output_text.delta", "delta": "Offline deterministic stop.",
+             "item_id": "msg-offline", "output_index": 0, "content_index": 0},
+            {"type": "response.output_item.done", "item": message},
+            {"type": "response.completed", "response": {
+                "id": "resp-lr32-ordinary-handler-2",
+                "model": MODEL,
+                "status": "completed",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+                "output": [message],
+            }},
+        ])
+
+
+class _DeterministicChatCompletions:
+    def __init__(self):
+        self.calls = 0
+
+    def create(self, **kwargs):
+        self.calls += 1
+        from openai.types.chat import ChatCompletionChunk
+
+        def chunk(payload):
+            return ChatCompletionChunk.model_validate(payload)
+
+        if self.calls == 1:
+            return _Stream([
+                chunk({
+                    "id": RESPONSE_ID,
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": MODEL,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {
+                            "content": None,
+                            "tool_calls": [{
+                                "index": 0,
+                                "id": CALL_ID,
+                                "type": "function",
+                                "function": {
+                                    "name": envelope.TARGET_TOOL,
+                                    "arguments": json.dumps({"location_id": "sunset-somo"}),
+                                },
+                            }],
+                        },
+                        "finish_reason": None,
+                    }],
+                }),
+                chunk({
+                    "id": RESPONSE_ID,
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": MODEL,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+                }),
+            ])
+        return _Stream([
+            chunk({
+                "id": "resp-lr32-ordinary-handler-2",
+                "object": "chat.completion.chunk",
+                "created": 2,
+                "model": MODEL,
+                "choices": [{
+                    "index": 0,
+                    "delta": {"content": "Offline deterministic stop."},
+                    "finish_reason": "stop",
+                }],
+            }),
+        ])
+
+
+class _DeterministicClient:
+    def __init__(self):
+        self.responses = _DeterministicResponses()
+        self.chat = types.SimpleNamespace(completions=_DeterministicChatCompletions())
+
+    def close(self):
+        return None
+
+
+class _Router:
+    def __init__(self):
+        self.posts = {}
+        self.gets = {}
+
+    def add_post(self, path, handler):
+        self.posts[path] = handler
+
+    def add_get(self, path, handler):
+        self.gets[path] = handler
+
+
+class _App:
+    def __init__(self):
+        self.router = _Router()
+
+
+class _Request:
+    headers = {"X-Luna-Bot-Token": "offline-route-token"}
+
+    async def json(self):
+        return {"case_id": CASE_ID}
+
+
+def _decode_response(response):
+    return response.status, json.loads(response.body.decode("utf-8"))
+
+
+def _normalized_result(body):
+    counters = body.get("counters") or body
+    return {
+        "status": body.get("status"),
+        "error": body.get("error"),
+        "read_tools_invoked": counters.get("read_tools_invoked"),
+        "read_tools_completed": counters.get("read_tools_completed"),
+        "read_staff_paths_invoked": counters.get("read_staff_paths_invoked"),
+        "read_staff_paths_completed": counters.get("read_staff_paths_completed"),
+        "model_calls": counters.get("model_calls"),
+        "sends_attempted": counters.get("sends_attempted"),
+        "sends_completed": counters.get("sends_completed"),
+        "journal_writes_completed": counters.get("journal_writes_completed"),
+        "persistence_effects_completed": counters.get("persistence_effects_completed"),
+    }
+
+
+class OrdinaryHandlerEnvelopeParityTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name) / "home"
+        self.home.mkdir(mode=0o700)
+        (self.home / "SOUL.md").write_text("offline exact-image Luna\n", encoding="utf-8")
+        (self.home / "config.yaml").write_text(
+            "model:\n"
+            "  default: gpt-5.6-sol\n"
+            "  provider: openrouter\n"
+            "toolsets:\n"
+            "  - wolfhouse_staff_api\n"
+            "plugins:\n"
+            "  enabled:\n"
+            "    - wolfhouse-staff-api\n",
+            encoding="utf-8",
+        )
+        plugins = self.home / "plugins"
+        plugins.mkdir()
+        shutil.copytree(
+            "/etc/hermes-staging/plugins/wolfhouse_staff_api",
+            plugins / "wolfhouse_staff_api",
+        )
+        envelope.ARTIFACT_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+        for item in envelope.ARTIFACT_DIR.iterdir():
+            if item.is_file():
+                item.unlink()
+        self.base_env = {
+            "HERMES_ROLE": "sunset-luna",
+            "LUNA_CLIENT_SLUG": "sunset",
+            "SUNSET_INGRESS_LOCATION_ID": "sunset-somo",
+            "LUNA_ALLOWED_LOCATION_IDS": "sunset-somo",
+            "HERMES_MODEL": MODEL,
+            "HERMES_HOME": str(self.home),
+            "LUNA_PERSONALITY_EXPECTED_HERMES_HOME": str(self.home),
+            "WOLFHOUSE_STAFF_API_BASE_URL": "https://sunset-staging.lunafrontdesk.com",
+            "WHATSAPP_CLOUD_WEBHOOK_PORT": "8094",
+            "SUNSET_LUNA_REQUIRE_ISOLATED_AUTH": "true",
+            "LUNA_BOT_INTERNAL_TOKEN": "offline-route-token",
+            "OPENAI_API_KEY": "offline-provider-token",
+            "OPENROUTER_API_KEY": "offline-provider-token",
+            "LUNA_AUTO_SEND_ENABLED": "0",
+            "LUNA_CAPTURE_IDENTITY_TRACE_ENABLED": "0",
+            "LUNA_LIVE_LOOP_TRACE_ENABLED": "0",
+            "LUNA_APPEND_BODY_RECEIPT_ENABLED": "0",
+            "LUNA_LR32_DIRECT_COMPARE_ENABLED": "0",
+        }
+        if os.getenv("LR32_TEST_TRACE_TOKEN") == "valid":
+            self.base_env["LUNA_LR32_CAPTURE_IDENTITY_TRACE_PATH"] = (
+                "/tmp/lr32-capture-identity-trace.jsonl"
+            )
+
+    def tearDown(self):
+        reset_isolation_runtime_for_tests()
+        envelope.reset_for_tests()
+        self.tmp.cleanup()
+
+    async def _run_route(self, enabled):
+        client = _DeterministicClient()
+        app = _App()
+        adapter_results = []
+        append_results = []
+        real_adapter_entry = envelope.adapter_entry
+        real_append_result = envelope.append_result
+
+        def observed_adapter_entry(*args, **kwargs):
+            identity = envelope.current_trace()
+            capture = envelope._current_capture()
+            approved = envelope.approved_server_run_id()
+            result = real_adapter_entry(*args, **kwargs)
+            adapter_results.append({
+                "admitted": result is not None,
+                "identity_present": identity is not None,
+                "capture_present": capture is not None,
+                "approved_present": approved is not None,
+                "run_ids_match": bool(identity and approved == identity.run_id),
+                "server_marker": bool(
+                    capture and getattr(capture, "_lr32_server_validated_synthetic", False) is True
+                ),
+                "metadata_call1": bool(capture and envelope._metadata_call1(capture) is not None),
+            })
+            return result
+
+        def observed_append_result(*args, **kwargs):
+            result = real_append_result(*args, **kwargs)
+            append_results.append(result)
+            return result
+        env = dict(self.base_env)
+        env.update({
+            envelope.ENABLE_ENV: "1" if enabled else "0",
+            envelope.APPROVED_RUN_ENV: RUN_ID if enabled else "",
+            envelope.ARTIFACT_DIR_ENV: str(envelope.ARTIFACT_DIR) if enabled else "",
+        })
+        with patch.dict(os.environ, env, clear=True):
+            from gateway import run as gateway_run
+            from hermes_cli.plugins import discover_plugins, get_plugin_manager
+            discover_plugins()
+            import model_tools
+            definitions = model_tools.get_tool_definitions(
+                enabled_toolsets=["wolfhouse_staff_api"],
+                skip_tool_search_assembly=True,
+            )
+            offered = {
+                item.get("function", {}).get("name")
+                for item in definitions
+                if isinstance(item, dict)
+            }
+            self.assertIn(envelope.TARGET_TOOL, offered)
+            loaded = get_plugin_manager().list_plugins()
+            self.assertTrue(
+                any(item.get("name") == "wolfhouse-staff-api" for item in loaded),
+                loaded,
+            )
+            self.assertIn(
+                envelope.TARGET_TOOL,
+                set(get_plugin_manager()._plugin_tool_names),
+            )
+            from run_agent import AIAgent
+            runtime = {
+                "api_key": "offline-provider-token",
+                "base_url": "https://offline.invalid/v1",
+                "provider": "openai",
+                "api_mode": "codex_responses",
+                "command": None,
+                "args": [],
+                "credential_pool": None,
+                "max_tokens": None,
+            }
+            with patch.object(
+                     gateway_run, "_resolve_runtime_agent_kwargs", return_value=runtime,
+                 ), patch.object(
+                     AIAgent, "_create_openai_client", return_value=client,
+                 ), patch(
+                     "urllib.request.urlopen", side_effect=TimeoutError("offline-staff-transport"),
+                 ), patch.object(
+                     envelope, "adapter_entry", side_effect=observed_adapter_entry,
+                 ), patch.object(
+                     envelope, "append_result", side_effect=observed_append_result,
+                 ):
+                runner = gateway_run.GatewayRunner()
+                gateway_run._wolfhouse_gateway_runner = runner
+                self.assertTrue(register_group_lesson_eval_route(app))
+                response = await app.router.posts[GROUP_LESSON_EVAL_PATH](_Request())
+        return _decode_response(response), max(
+            client.responses.calls, client.chat.completions.calls,
+        ), adapter_results, append_results
+
+    def test_off_on_full_ordinary_handler_publishes_correlated_failure_envelope(self):
+        trace_enabled = os.getenv("LR32_TEST_TRACE_TOKEN") == "valid"
+        off, off_provider_calls, off_adapter, off_append = asyncio.run(self._run_route(False))
+        reset_isolation_runtime_for_tests()
+        envelope.reset_for_tests()
+        self.assertEqual(list(envelope.ARTIFACT_DIR.iterdir()), [])
+
+        on, on_provider_calls, on_adapter, on_append = asyncio.run(self._run_route(True))
+
+        self.assertEqual(off[0], 503)
+        self.assertEqual(on[0], 503)
+        self.assertEqual(off_provider_calls, 2, off[1])
+        self.assertEqual(on_provider_calls, 2, on[1])
+        self.assertEqual(_normalized_result(off[1]), _normalized_result(on[1]))
+        self.assertEqual([item["admitted"] for item in off_adapter], [False])
+        self.assertEqual(on_adapter, [{
+            "admitted": trace_enabled,
+            "identity_present": trace_enabled,
+            "capture_present": True,
+            "approved_present": True,
+            "run_ids_match": trace_enabled,
+            "server_marker": True,
+            "metadata_call1": True,
+        }], on[1])
+        self.assertEqual(len(off_append), 1)
+        self.assertEqual(len(on_append), 1)
+
+        artifact = envelope.ARTIFACT_DIR / f"lr32-call1-{RUN_ID}.json"
+        if not trace_enabled:
+            self.assertFalse(artifact.exists())
+            return
+        self.assertTrue(artifact.is_file(), on[1])
+        document = json.loads(artifact.read_text(encoding="utf-8"))
+        digest = document.pop("checksum_sha256")
+        canonical = json.dumps(document, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+        self.assertEqual(digest, hashlib.sha256(canonical).hexdigest())
+        self.assertTrue(document["capture_complete"])
+        self.assertEqual(document["ids"]["run_id"], RUN_ID)
+        self.assertEqual(document["ids"]["tool_call_id"], CALL_ID)
+        # The ordinary executor append DTO does not carry the provider response id;
+        # correlation is owned by the server run id plus exact tool-call id.
+        self.assertIsNone(document["ids"]["model_response_id"])
+        self.assertEqual(document["transport"]["outcome"], "transport_exception")
+        self.assertEqual(document["transport"]["exception_class"], "TimeoutError")
+        self.assertEqual(document["plugin_return"]["classification"], "json_failure")
+        self.assertEqual(document["dispatcher"]["disposition"], "failed")
+        self.assertEqual(document["append"]["producer"], "executor_return")
+
+
+if __name__ == "__main__":
+    unittest.main()
