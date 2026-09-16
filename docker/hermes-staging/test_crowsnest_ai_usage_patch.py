@@ -137,11 +137,32 @@ class PatcherTests(unittest.TestCase):
         self.assertEqual(emit(emitted), emitted)
         ast_source = emitted.replace(patcher.METADATA_DISK_SAVE[1], patcher.METADATA_DISK_SAVE[0], 1) if module == 'agent.model_metadata' else emitted
         tree = ast.parse(ast_source)
+        metadata_fallbacks = {
+            '_fetch_codex_oauth_context_lengths': '{}',
+            'save_context_length': 'None',
+        }
         for name in row[2]:
             node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
             self.assertIsInstance(node.body[1], ast.ImportFrom)
-            condition = "current_isolated_turn() is not None and (not provider_auth_execution_admitted())" if name == 'get_model_context_length' else "current_isolated_turn() is not None"
-            self.assertEqual(ast.unparse(node.body[2]), f"if {condition}:\n    raise IsolationAbort('auth_boundary_unsupported')")
+            if name in metadata_fallbacks:
+                expected_guard = (
+                    "if current_isolated_turn() is not None:\n"
+                    "    if provider_auth_execution_admitted():\n"
+                    f"        return {metadata_fallbacks[name]}\n"
+                    "    raise IsolationAbort('auth_boundary_unsupported')"
+                )
+            else:
+                condition = "current_isolated_turn() is not None and (not provider_auth_execution_admitted())" if name == 'get_model_context_length' else "current_isolated_turn() is not None"
+                expected_guard = f"if {condition}:\n    raise IsolationAbort('auth_boundary_unsupported')"
+            actual_guard = ast.unparse(node.body[2])
+            self.assertEqual(actual_guard, expected_guard)
+            if name in metadata_fallbacks:
+                with self.assertRaises(AssertionError):
+                    self.assertEqual(actual_guard.replace(
+                        f"return {metadata_fallbacks[name]}", "return 'wrong'", 1), expected_guard)
+                with self.assertRaises(AssertionError):
+                    self.assertEqual(actual_guard.replace(
+                        "if provider_auth_execution_admitted():", "if True:", 1), expected_guard)
             first, last = node.body[1].lineno, node.body[2].end_lineno
             lines = emitted.splitlines(keepends=True)
             partial = ''.join(lines[:first - 1] + lines[last:])
