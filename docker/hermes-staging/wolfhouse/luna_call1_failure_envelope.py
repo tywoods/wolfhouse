@@ -5,7 +5,6 @@ path, and every hook is best effort: diagnostics can never affect dispatch.
 """
 from __future__ import annotations
 
-import contextvars
 import hashlib
 import json
 import os
@@ -29,7 +28,7 @@ MAX_APPEND_BYTES = 2048
 MAX_ENVELOPE_BYTES = 16 * 1024
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 _LOCK = threading.RLock()
-_PENDING: contextvars.ContextVar[tuple["CallCapture", ...]] = contextvars.ContextVar("lr32_call1_pending", default=())
+_CAPTURE_PENDING_ATTR = "_lr32_call1_failure_envelope_pending"
 
 
 @dataclass
@@ -106,10 +105,14 @@ def adapter_entry(tool_name: str, params: Any) -> CallCapture | None:
         admitted = _admitted(tool_name)
         if admitted is None:
             return None
-        identity, _capture, expected_call_id = admitted
-        # Exactly one call-1 claim per request context/run, including repeats.
-        if any(item.run_id == identity.run_id for item in _PENDING.get()):
-            return None
+        identity, capture, expected_call_id = admitted
+        # Exactly one call-1 claim per request-local capture/run, including repeats.
+        with _LOCK:
+            shared_pending = getattr(capture, _CAPTURE_PENDING_ATTR, ())
+            if type(shared_pending) is not tuple:
+                return None
+            if any(item.run_id == identity.run_id for item in shared_pending):
+                return None
         mapping = type(params) is dict
         location = params.get("location_id") if mapping else None
         handle = CallCapture(identity.run_id, identity.attempt_id, expected_call_id, {
@@ -117,7 +120,15 @@ def adapter_entry(tool_name: str, params: Any) -> CallCapture | None:
             "arg_shape": {"is_mapping": mapping, "has_location_id": mapping and "location_id" in params,
                           "location_is_string": type(location) is str},
         })
-        _PENDING.set(_PENDING.get() + (handle,))
+        # The synchronous plugin can execute in a copied worker Context while the
+        # ordinary append seam runs back in the parent Context. A ContextVar write
+        # in that worker does not flow back. Bind the handle to the shared,
+        # request-local isolated-turn capture as well as the local Context.
+        with _LOCK:
+            shared_pending = getattr(capture, _CAPTURE_PENDING_ATTR, ())
+            if type(shared_pending) is not tuple or any(item.run_id == identity.run_id for item in shared_pending):
+                return None
+            setattr(capture, _CAPTURE_PENDING_ATTR, shared_pending + (handle,))
         return handle
     except BaseException:
         return None
@@ -125,8 +136,11 @@ def adapter_entry(tool_name: str, params: Any) -> CallCapture | None:
 
 def current_handle() -> CallCapture | None:
     try:
-        pending = _PENDING.get()
-        return pending[-1] if pending else None
+        capture = _current_capture()
+        if capture is None:
+            return None
+        shared = getattr(capture, _CAPTURE_PENDING_ATTR, ())
+        return shared[-1] if type(shared) is tuple and shared else None
     except BaseException:
         return None
 
@@ -257,14 +271,23 @@ def append_result(*, call_id: Any, api_request_id: Any, response_id: Any, value:
                   dispatcher_disposition: Any, producer: Any = None) -> Path | None:
     """Finalize only the handle bound to this exact provider call id."""
     call_key = str(call_id)[:128] if call_id is not None else ""
-    pending = _PENDING.get()
+    capture = _current_capture()
+    if capture is None:
+        return None
+    shared_pending = getattr(capture, _CAPTURE_PENDING_ATTR, ())
+    if type(shared_pending) is not tuple:
+        return None
+    pending = shared_pending
     matches = [item for item in pending if item.expected_call_id == call_key]
     if len(matches) != 1: return None
     handle = matches[0]
-    _PENDING.set(tuple(item for item in pending if item is not handle))
+    with _LOCK:
+        current = getattr(capture, _CAPTURE_PENDING_ATTR, ())
+        if type(current) is not tuple or sum(item is handle for item in current) != 1:
+            return None
+        setattr(capture, _CAPTURE_PENDING_ATTR, tuple(item for item in current if item is not handle))
     try:
         result, complete, failure = _safe_append(value)
-        capture = _current_capture()
         metadata = getattr(capture, "metadata_capture", None)
         call1 = (getattr(metadata, "calls", None) or [{}])[0]
         if response_id is None and isinstance(call1, dict): response_id = call1.get("response_id")
@@ -296,4 +319,9 @@ def append_result(*, call_id: Any, api_request_id: Any, response_id: Any, value:
 
 
 def reset_for_tests() -> None:
-    _PENDING.set(())
+    try:
+        capture = _current_capture()
+        if capture is not None and hasattr(capture, _CAPTURE_PENDING_ATTR):
+            delattr(capture, _CAPTURE_PENDING_ATTR)
+    except BaseException:
+        pass

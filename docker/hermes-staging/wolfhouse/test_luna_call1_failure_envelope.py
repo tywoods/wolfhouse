@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, json, os, subprocess, sys, tempfile, threading, types, unittest
+import asyncio, contextvars, json, os, subprocess, sys, tempfile, threading, types, unittest
 from pathlib import Path
 from unittest.mock import patch
 from wolfhouse import luna_call1_failure_envelope as env
@@ -14,8 +14,8 @@ class Call1FailureEnvelopeTests(unittest.TestCase):
         self.token=trace.enter_trace(self.identity)
         self.call={"call_index":1,"response_id":"resp-4","response":{"tool_calls":[{"id":"call-5","function":{"name":env.TARGET_TOOL}}]},"executor":{"dispositions":[{"provider_call_id":"call-5","disposition":"completed"}]}}
         self.capture=types.SimpleNamespace(_lr32_server_validated_synthetic=True,metadata_capture=types.SimpleNamespace(calls=[self.call]))
-        self.cp=patch.object(env,"_current_capture",return_value=self.capture); self.cp.start()
-        self.good={env.ENABLE_ENV:"1",env.APPROVED_RUN_ENV:"approved-7",env.ARTIFACT_DIR_ENV:self.tmp.name,"HERMES_ROLE":"sunset-luna","LUNA_CLIENT_SLUG":"sunset","SUNSET_INGRESS_LOCATION_ID":"sunset-somo"}
+        self.cp=patch.object(env,"_current_capture",return_value=self.capture); self.capture_mock=self.cp.start()
+        self.good={env.ENABLE_ENV:"1",env.APPROVED_RUN_ENV:"approved-7",env.ARTIFACT_DIR_ENV:self.tmp.name,"HERMES_ROLE":"sunset-luna","LUNA_CLIENT_SLUG":"sunset","SUNSET_INGRESS_LOCATION_ID":"sunset-somo","LUNA_ALLOWED_LOCATION_IDS":"sunset-somo","LUNA_BOT_INTERNAL_TOKEN":"offline-test-token","WOLFHOUSE_STAFF_API_BASE_URL":"https://offline.invalid"}
     def tearDown(self):
         self.cp.stop(); self.dir_patch.stop(); trace.exit_trace(self.token); env.reset_for_tests()
     def enter(self): return env.adapter_entry(env.TARGET_TOOL,{"location_id":"sunset-somo"})
@@ -88,6 +88,64 @@ except FileExistsError:
                 h=self.enter(); h.expected_call_id=f"c{i}"; tid=env.transport_attempt(h); env.transport_result(h,transport_id=tid,**kw)
                 env.plugin_return(h,None,exception=ValueError()); p=env.append_result(call_id=f"c{i}",api_request_id=None,response_id=None,value="bad",dispatcher_disposition="failed",producer="caught_exception")
             d=json.loads(Path(p).read_text()); self.assertEqual(d["transport"]["outcome"],want); self.assertEqual(d["plugin_return"]["classification"],"transform_exception:ValueError")
+
+    def test_ordinary_plugin_worker_context_publishes_transport_error_envelope(self):
+        """The real plugin runs in a copied worker Context; append runs in its parent."""
+        from plugins import wolfhouse_staff_api as plugin
+        from wolfhouse.luna_group_lesson_live_eval import BoundedMetadataCapture
+
+        metadata = BoundedMetadataCapture(
+            model="gpt-5.6-sol", revisions={"wolfhouse": None, "hermes": None},
+            api_mode="codex_responses", streaming=True,
+        )
+        metadata.observe_request(
+            attempted=True, sent=True, prompts=[], tools=[], tool_choice="auto",
+            api_mode="codex_responses", endpoint=None, streaming=True,
+        )
+        metadata.observe_response(
+            status="completed", finish_reason="completed", provider_shape="openai_responses",
+            completion_category="tool_calls", output_item_types=["function_call"],
+            tool_calls=[{"id": "sealed-call1", "name": env.TARGET_TOOL, "arg_validation": "valid"}],
+        )
+        self.capture.metadata_capture = metadata
+        # No network: urllib is the external transport seam. The real plugin,
+        # adapter, transport observers, append owner, validation and sink remain.
+        with patch.dict(os.environ, self.good, clear=True), \
+             patch("urllib.request.urlopen", side_effect=TimeoutError("offline-control")):
+            worker = contextvars.copy_context()
+            result = worker.run(plugin.get_sunset_lesson_catalog, {"location_id": "sunset-somo"})
+            self.assertIn('"success": false', result.lower())
+            handle = env.current_handle()
+            self.assertIsNotNone(handle)
+            self.assertEqual(handle.expected_call_id, "sealed-call1")
+            self.assertEqual(handle.transport["outcome"], "transport_exception")
+            path = env.append_result(
+                call_id="sealed-call1", api_request_id="sealed-request",
+                response_id=None, value=result, dispatcher_disposition="failed",
+                producer="executor_return",
+            )
+        self.assertIsNotNone(path)
+        document = json.loads(Path(path).read_text())
+        self.assertEqual(document["ids"]["tool_call_id"], "sealed-call1")
+        self.assertEqual(document["transport"]["outcome"], "transport_exception")
+        self.assertEqual(document["dispatcher"]["disposition"], "failed")
+        checksum = document.pop("checksum_sha256")
+        self.assertEqual(checksum, env.checksum(document))
+
+    def test_active_capture_cannot_observe_or_finalize_another_capture_handle(self):
+        with patch.dict(os.environ, self.good, clear=True):
+            handle = self.enter()
+            self.assertIsNotNone(handle)
+            other = types.SimpleNamespace(
+                _lr32_server_validated_synthetic=True,
+                metadata_capture=types.SimpleNamespace(calls=[self.call]),
+            )
+            self.capture_mock.return_value = other
+            self.assertIsNone(env.current_handle())
+            self.assertIsNone(self.finish(handle))
+            self.capture_mock.return_value = self.capture
+            self.assertIs(env.current_handle(), handle)
+            self.assertIsNotNone(self.finish(handle))
 
     def test_async_and_thread_contexts_do_not_cross_call_ids(self):
         results=[]
