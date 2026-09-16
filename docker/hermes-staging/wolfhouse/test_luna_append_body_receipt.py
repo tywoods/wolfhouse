@@ -162,9 +162,9 @@ class OrdinaryAppendPatchTests(unittest.TestCase):
         """Copy the pin, apply predecessor/candidate patches, import and drive the real owner."""
         staging = Path(__file__).resolve().parents[1]
         harness = r'''
-import json, os, sys, types
+import contextvars, json, os, sys, types
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 root, staging = Path(sys.argv[1]), Path(sys.argv[2])
 sys.path.insert(0, str(root)); sys.path.insert(0, str(staging))
 import apply_luna_executor_handoff_patch as handoff
@@ -219,6 +219,7 @@ receipt._current_capture = lambda: capture
 os.environ[receipt.ENABLE_ENV] = '1'
 executions = []
 envelopes = []
+real_envelope_append = envelope.append_result
 envelope.append_result = lambda **kw: envelopes.append({k: kw.get(k) for k in ('call_id','producer','api_request_id','value')})
 
 def dispatch(name, args, *a, **kw):
@@ -249,8 +250,8 @@ agent._apply_pending_steer_to_tool_results.return_value = None
 agent._record_file_mutation_result.return_value = None
 agent._touch_activity.return_value = None
 
-def call(name, cid):
-    tc = types.SimpleNamespace(id=cid, function=types.SimpleNamespace(name=name, arguments='{}'))
+def call(name, cid, arguments='{}'):
+    tc = types.SimpleNamespace(id=cid, function=types.SimpleNamespace(name=name, arguments=arguments))
     msg = types.SimpleNamespace(tool_calls=[tc]); messages=[]
     owner.execute_tool_calls_sequential(agent, msg, messages, 'task')
     return messages
@@ -265,10 +266,51 @@ original_snapshot = receipt.snapshot_append_body
 receipt.snapshot_append_body = lambda value: (snapshot_calls.append(value), original_snapshot(value))[1]
 os.environ[receipt.ENABLE_ENV] = '0'
 off_output = call('success_off','c5')
+
+# Drive the actual patched production owner through the real plugin wrapper,
+# transport observers, append observer, validator and no-replace sink. Only the
+# external urllib transport is stubbed; the provider tool call is deterministic.
+import importlib.util
+plugin_spec = importlib.util.spec_from_file_location(
+    'offline_wolfhouse_staff_api', staging / 'plugins' / 'wolfhouse_staff_api' / '__init__.py')
+staff_plugin = importlib.util.module_from_spec(plugin_spec); plugin_spec.loader.exec_module(staff_plugin)
+from wolfhouse.luna_group_lesson_live_eval import BoundedMetadataCapture
+metadata = BoundedMetadataCapture(model='gpt-5.6-sol', revisions={'wolfhouse':None,'hermes':None},
+                                  api_mode='codex_responses', streaming=True)
+metadata.observe_request(attempted=True, sent=True, prompts=[], tools=[], tool_choice='auto',
+                         api_mode='codex_responses', endpoint=None, streaming=True)
+metadata.observe_response(status='completed', finish_reason='completed', provider_shape='openai_responses',
+                          completion_category='tool_calls', output_item_types=['function_call'],
+                          tool_calls=[{'id':'sealed-owner-call','name':envelope.TARGET_TOOL,
+                                      'arg_validation':'valid'}])
+capture = types.SimpleNamespace(_lr32_server_validated_synthetic=True, metadata_capture=metadata)
+receipt._current_capture = lambda: capture
+envelope._current_capture = lambda: capture
+envelope.append_result = real_envelope_append
+envelope_dir = root / 'envelope-sink'; envelope_dir.mkdir(); envelope_dir.chmod(0o700)
+envelope.ARTIFACT_DIR = envelope_dir
+os.environ.update({
+    envelope.ENABLE_ENV:'1', envelope.APPROVED_RUN_ENV:'synthetic-integration',
+    envelope.ARTIFACT_DIR_ENV:str(envelope_dir), 'HERMES_ROLE':'sunset-luna',
+    'LUNA_CLIENT_SLUG':'sunset', 'SUNSET_INGRESS_LOCATION_ID':'sunset-somo',
+    'LUNA_ALLOWED_LOCATION_IDS':'sunset-somo', 'LUNA_BOT_INTERNAL_TOKEN':'offline-test-token',
+    'WOLFHOUSE_STAFF_API_BASE_URL':'https://offline.invalid',
+})
+def plugin_dispatch(name, args, *a, **kw):
+    executions.append(name)
+    return contextvars.copy_context().run(staff_plugin.get_sunset_lesson_catalog, args)
+owner._ra = lambda: types.SimpleNamespace(handle_function_call=plugin_dispatch)
+with patch('urllib.request.urlopen', side_effect=TimeoutError('offline-owner-control')):
+    real_owner_output = call(envelope.TARGET_TOOL, 'sealed-owner-call',
+                             '{"location_id":"sunset-somo"}')
+envelope_paths = [str(p) for p in envelope_dir.iterdir()]
+handle_after = envelope.current_handle()
 rows = trace.snapshot(); sink.exit_trace(token)
 print(json.dumps({'executions': executions, 'outputs': outputs, 'failed_observer_output': failed_observer_output,
                   'off_output': off_output, 'off_snapshot_calls': len(snapshot_calls), 'rows': rows,
-                  'envelopes': envelopes}, default=str))
+                  'envelopes': envelopes, 'real_owner_output': real_owner_output,
+                  'envelope_paths': envelope_paths, 'handle_after': None if handle_after is None else handle_after.expected_call_id,
+                  'metadata_calls': metadata.calls}, default=str))
 '''
         with tempfile.TemporaryDirectory() as td:
             root = Path(td) / "hermes"
@@ -281,7 +323,7 @@ print(json.dumps({'executions': executions, 'outputs': outputs, 'failed_observer
             )
             self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
         result = json.loads(proc.stdout.strip().splitlines()[-1])
-        self.assertEqual(result["executions"], ["explode", "success", "success_after_observer_failure", "success_off"])
+        self.assertEqual(result["executions"], ["explode", "success", "success_after_observer_failure", "success_off", "get_sunset_lesson_catalog"])
         self.assertEqual(len(result["rows"]), 3)  # observer failure and OFF each emit no receipt
         self.assertEqual([row["producer"] for row in result["rows"]],
                          ["local_validation_rejection", "caught_exception", "executor_return"])
@@ -301,6 +343,8 @@ print(json.dumps({'executions': executions, 'outputs': outputs, 'failed_observer
                          ["local_validation_rejection", "caught_exception", "executor_return",
                           "executor_return", "executor_return"])
         self.assertTrue(all(row["api_request_id"] == "api-request-real" for row in result["envelopes"]))
+        self.assertEqual(len(result["envelope_paths"]), 1, result)
+        self.assertEqual(result["real_owner_output"][0]["tool_call_id"], "sealed-owner-call")
 
 
 if __name__ == "__main__":
