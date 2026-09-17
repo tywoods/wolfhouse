@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import sys
 import unittest
@@ -91,6 +92,54 @@ class GuardPathTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertIn("sunset/booking-create", norm)
 
+    def test_sunset_booking_only_mode_requires_existing_bot_booking_gate(self):
+        old = os.environ.get("BOT_BOOKING_ENABLED")
+        try:
+            os.environ.pop("BOT_BOOKING_ENABLED", None)
+            _norm, _body, warnings = guard_bot_path_and_payload(
+                "/sunset/booking-create",
+                {"guest_confirmed_booking": True},
+                allow_writes=False,
+                booking_only_mode="sunset_booking_only",
+            )
+            self.assertIn("blocked_sunset_booking_write_bot_booking_disabled", warnings)
+            self.assertTrue(is_simulate_write_blocked(warnings))
+
+            os.environ["BOT_BOOKING_ENABLED"] = "true"
+            norm, body, warnings = guard_bot_path_and_payload(
+                "/sunset/booking-create",
+                {"guest_confirmed_booking": True},
+                allow_writes=False,
+                booking_only_mode="sunset_booking_only",
+            )
+            self.assertIn("sunset/booking-create", norm)
+            self.assertIn("allowed_sunset_booking_only_write_in_simulate", warnings)
+            self.assertFalse(is_simulate_write_blocked(warnings))
+            self.assertIs(body.get("simulator_booking_only_mode"), True)
+        finally:
+            if old is None:
+                os.environ.pop("BOT_BOOKING_ENABLED", None)
+            else:
+                os.environ["BOT_BOOKING_ENABLED"] = old
+
+    def test_sunset_booking_only_mode_still_blocks_payment_and_waiver(self):
+        old = os.environ.get("BOT_BOOKING_ENABLED")
+        try:
+            os.environ["BOT_BOOKING_ENABLED"] = "true"
+            for path in ("/sunset/payment-link", "/sunset/waiver-link"):
+                _norm, _body, warnings = guard_bot_path_and_payload(
+                    path,
+                    {"booking_id": "bk-1"},
+                    allow_writes=False,
+                    booking_only_mode="sunset_booking_only",
+                )
+                self.assertTrue(is_simulate_write_blocked(warnings), (path, warnings))
+        finally:
+            if old is None:
+                os.environ.pop("BOT_BOOKING_ENABLED", None)
+            else:
+                os.environ["BOT_BOOKING_ENABLED"] = old
+
 
 class WrappedPostBotTests(unittest.TestCase):
     def test_wrapped_post_bot_never_calls_orig_for_sunset_writes(self):
@@ -141,6 +190,42 @@ class WrappedPostBotTests(unittest.TestCase):
 
         core._remove_patches(cap)
         sys.modules.pop("wolfhouse_staff_api", None)
+
+
+    def test_wrapped_post_bot_allows_only_sunset_booking_in_booking_only_mode(self):
+        import types
+
+        import wolfhouse.simulate_core as core
+
+        old = os.environ.get("BOT_BOOKING_ENABLED")
+        os.environ["BOT_BOOKING_ENABLED"] = "true"
+        orig_calls = []
+
+        def orig_post_bot(path, payload):
+            orig_calls.append((path, payload))
+            return {"success": True, "path": path, "booking_code": "SUN-OK"}
+
+        fake_mod = types.ModuleType("wolfhouse_staff_api")
+        fake_mod._post_bot = orig_post_bot
+        sys.modules["wolfhouse_staff_api"] = fake_mod
+        cap = core.SimulateCapture(allow_writes=False, booking_only_mode="sunset_booking_only")
+        try:
+            core._install_tool_capture(cap)
+            result = fake_mod._post_bot("/sunset/booking-create", {"guest_confirmed_booking": True})
+            self.assertTrue(result.get("success"))
+            self.assertEqual(len(orig_calls), 1)
+            self.assertTrue(orig_calls[0][1].get("simulator_booking_only_mode"))
+
+            pay_result = fake_mod._post_bot("/sunset/payment-link", {"booking_id": "bk-1"})
+            self.assertTrue(pay_result.get("simulate_write_blocked"))
+            self.assertEqual(len(orig_calls), 1)
+        finally:
+            core._remove_patches(cap)
+            sys.modules.pop("wolfhouse_staff_api", None)
+            if old is None:
+                os.environ.pop("BOT_BOOKING_ENABLED", None)
+            else:
+                os.environ["BOT_BOOKING_ENABLED"] = old
 
     def test_synthetic_blocked_result_shape(self):
         blocked = synthetic_blocked_result(

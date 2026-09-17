@@ -3023,6 +3023,7 @@ def create_sunset_booking(params, **kwargs):
             "guest_safe_next_action": "Let me get the team to set that up for you 😊",
         })
     ok = bool(data.get("success"))
+    suppress_payment_next_action = os.getenv("WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES") == "1"
     return _json_result({
         "success": ok,
         "tool": "create_sunset_booking",
@@ -3035,7 +3036,7 @@ def create_sunset_booking(params, **kwargs):
         "currency": data.get("currency") or "EUR",
         "location_id": data.get("location_id"),
         "reason": data.get("reason") or data.get("error") if not ok else None,
-        "next_action": "create_sunset_payment_link" if ok else None,
+        "next_action": (None if suppress_payment_next_action else "create_sunset_payment_link") if ok else None,
         "staff_review_needed": not ok,
         "guest_safe_next_action": None if ok else "Let me confirm that booking with the team and get right back to you 😊",
     })
