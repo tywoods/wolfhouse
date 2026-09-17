@@ -1225,7 +1225,7 @@ html[data-theme="dark"] .live-simulator-toolbar{background:linear-gradient(180de
 html[data-theme="dark"] .live-simulator-thread{background:linear-gradient(180deg,rgba(33,41,50,.7),rgba(26,32,39,.92))}
 .live-simulator-empty{display:grid;place-items:center;min-height:100%;text-align:center;color:var(--text-3)}.live-simulator-empty-inner{max-width:430px}.live-simulator-empty-icon{font-size:38px;margin-bottom:10px}.live-simulator-empty h2{margin:0 0 8px;color:var(--navy);font-size:1.2rem}
 .live-simulator-message{width:fit-content;max-width:min(620px,76%);margin:0 0 10px;padding:9px 12px 10px;border-radius:18px;border:1px solid var(--border-soft);background:var(--surface-raised);box-shadow:0 1px 2px rgba(30,42,54,.06)}
-.live-simulator-message--guest{margin-right:auto;background:var(--surface-raised);border-color:var(--border-soft);border-bottom-left-radius:6px}.live-simulator-message--operator{margin-right:auto;background:var(--surface-raised);border-color:var(--border-soft);border-bottom-left-radius:6px}.live-simulator-message--luna{margin-left:auto;background:linear-gradient(180deg,#4F8199 0%,#3F6F86 100%);border-color:rgba(74,124,148,.35);border-bottom-right-radius:6px;color:#fff}.live-simulator-message--system{max-width:100%;width:100%;background:var(--amber-soft);border-color:rgba(154,107,27,.28);color:var(--amber)}
+.live-simulator-message--guest{margin-left:auto;background:linear-gradient(180deg,#4F8199 0%,#3F6F86 100%);border-color:rgba(74,124,148,.35);border-bottom-right-radius:6px;color:#fff}.live-simulator-message--operator{margin-left:auto;background:linear-gradient(180deg,#4F8199 0%,#3F6F86 100%);border-color:rgba(74,124,148,.35);border-bottom-right-radius:6px;color:#fff}.live-simulator-message--luna{margin-right:auto;background:var(--surface-raised);border-color:var(--border-soft);border-bottom-left-radius:6px;color:var(--charcoal)}.live-simulator-message--system{max-width:100%;width:100%;background:var(--amber-soft);border-color:rgba(154,107,27,.28);color:var(--amber)}
 .live-simulator-message-meta{display:flex;gap:6px;justify-content:space-between;align-items:center;margin-bottom:4px;color:var(--text-3);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.live-simulator-message-text{white-space:pre-wrap;color:var(--charcoal)}.live-simulator-message--luna .live-simulator-message-meta{color:rgba(255,255,255,.78)}.live-simulator-message--luna .live-simulator-message-text{color:#fff}.live-simulator-message-time{font-weight:700;letter-spacing:0;text-transform:none;opacity:.86}
 .live-simulator-composer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;padding:12px;border-top:1px solid var(--border-soft);background:var(--surface)}
 @media(max-width:640px){.live-simulator-toolbar,.live-simulator-composer{display:grid;grid-template-columns:1fr}}
@@ -3248,11 +3248,10 @@ function renderLiveSimulatorMain() {
             </label>
           </div>
           <div class="live-simulator-limitation" aria-label="Live Simulator limitation">
-            <strong>Sunset staging bookings enabled.</strong>
+            <strong>You can create Sunset staging bookings, test payment links, check test payment status, and register or fetch waiver links.</strong>
             <ul>
-              <li>WhatsApp/SMS and other external sends stay off.</li>
-              <li>Payments and waiver creation stay off.</li>
-              <li>API keeps <code>allow_writes:false</code>; Sunset booking-create only is server controlled.</li>
+              <li>Nothing is sent to a real guest; WhatsApp/SMS stay off.</li>
+              <li>Only this synthetic Sunset staging guest is in scope; live payments and other writes stay off.</li>
             </ul>
           </div>
           <div class="live-simulator-chat" aria-label="Conversation thread">
@@ -3299,6 +3298,14 @@ function renderLiveSimulatorScript(nonce) {
   const thread = root.querySelector('[data-live-simulator-thread]');
   const empty = root.querySelector('[data-live-simulator-empty]');
   const status = root.querySelector('[data-live-simulator-status]');
+  const threads = new Map();
+  function normalizePhoneKey(value) { return String(value || '').replace(/\D/g, ''); }
+  function threadKey() { return tenant.value + ':' + normalizePhoneKey(phone.value); }
+  function currentState() {
+    const key = threadKey();
+    if (!threads.has(key)) threads.set(key, { messages: [], draft: '', inFlight: false });
+    return threads.get(key);
+  }
   function setStatus(message, alert) {
     status.textContent = message;
     if (alert) status.setAttribute('role', 'alert');
@@ -3332,7 +3339,24 @@ function renderLiveSimulatorScript(nonce) {
     msg.textContent = body || '—';
     wrap.append(meta, msg);
     thread.appendChild(wrap);
+    currentState().messages.push({ kind, label, body });
     thread.scrollTop = thread.scrollHeight;
+  }
+  function renderThread() {
+    thread.querySelectorAll('.live-simulator-message').forEach((node) => node.remove());
+    const state = currentState();
+    state.messages.forEach((item) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'live-simulator-message live-simulator-message--' + item.kind;
+      const msg = document.createElement('div'); msg.className = 'live-simulator-message-text'; msg.textContent = item.body || '—';
+      wrap.appendChild(msg); thread.appendChild(wrap);
+    });
+    text.value = state.draft;
+  }
+  function appendFollowUpLinks(data) {
+    const result = ((data.tool_calls || []).slice(-1)[0] || {}).follow_up_links || {};
+    const urls = [result.secure_payment_url, result.guest_payment_url, result.payment_short_url, result.waiver_url, result.waiver_public_url].filter(Boolean);
+    urls.forEach((url) => { const link = document.createElement('a'); link.href = url; link.textContent = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; thread.lastElementChild.appendChild(link); });
   }
   let inFlight = false;
   async function submitGuestTurn(event) {
@@ -3344,6 +3368,8 @@ function renderLiveSimulatorScript(nonce) {
       from_phone: phone.value,
       text: draftText,
     };
+    const requestKey = threadKey();
+    const requestState = currentState();
     if (!payload.text.trim()) {
       setStatus('Type a guest message first.', true);
       text.focus();
@@ -3351,6 +3377,7 @@ function renderLiveSimulatorScript(nonce) {
     }
     appendMessage('guest', 'Guest · ' + payload.from_phone + ' · ' + tenant.options[tenant.selectedIndex].text, payload.text);
     text.value = '';
+    requestState.draft = '';
     inFlight = true;
     submit.disabled = true;
     setStatus('Sending guest turn to Luna…', false);
@@ -3370,7 +3397,12 @@ function renderLiveSimulatorScript(nonce) {
         text.focus();
         return;
       }
-      appendMessage('luna', (data.tenant_label || 'Luna') + ' · ' + (data.memory_scope || payload.tenant + ':' + payload.from_phone), data.reply_text || '(Luna returned no visible reply text.)');
+      if (threadKey() === requestKey) {
+        appendMessage('luna', (data.tenant_label || 'Luna') + ' · ' + (data.memory_scope || payload.tenant + ':' + payload.from_phone), data.reply_text || '(Luna returned no visible reply text.)');
+        appendFollowUpLinks(data);
+      } else {
+        requestState.messages.push({ kind: 'luna', label: data.tenant_label || 'Luna', body: data.reply_text || '—' });
+      }
       const limitation = data.limitation && data.limitation.limitation_flag ? ' · ' + data.limitation.limitation_flag : '';
       setStatus('Reply received from ' + (data.tenant_label || payload.tenant) + limitation, false);
       text.focus();
@@ -3386,12 +3418,15 @@ function renderLiveSimulatorScript(nonce) {
     }
   }
   form.addEventListener('submit', submitGuestTurn);
+  tenant.addEventListener('change', renderThread);
+  phone.addEventListener('change', renderThread);
+  text.addEventListener('input', () => { currentState().draft = text.value; });
   text.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
     event.preventDefault();
     if (inFlight || submit.disabled) return;
     // Prefer click(): requestSubmit(disabledSubmitter) throws InvalidStateError.
-    submit.click();
+    form.requestSubmit(submit);
   });
 })();
 </script>`;

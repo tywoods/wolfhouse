@@ -3023,7 +3023,11 @@ def create_sunset_booking(params, **kwargs):
             "guest_safe_next_action": "Let me get the team to set that up for you 😊",
         })
     ok = bool(data.get("success"))
-    suppress_payment_next_action = os.getenv("WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES") == "1"
+    isolated_simulator = os.getenv("WOLFHOUSE_SIMULATE_ISOLATED_WRITES") == "1"
+    suppress_payment_next_action = (
+        os.getenv("WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES") == "1"
+        and not isolated_simulator
+    )
     return _json_result({
         "success": ok,
         "tool": "create_sunset_booking",

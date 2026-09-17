@@ -111,6 +111,7 @@ def guard_bot_path_and_payload(
     *,
     allow_writes: bool,
     booking_only_mode: str = "",
+    synthetic_identity: str = "",
 ) -> Tuple[str, Dict[str, Any], List[str]]:
     """Return (path, payload, warnings). Redirect write routes to preview when writes disabled.
 
@@ -129,6 +130,18 @@ def guard_bot_path_and_payload(
         booking_only_mode == "sunset_booking_only"
         and os.getenv("BOT_BOOKING_ENABLED") == "true"
     )
+    sunset_isolated = (
+        booking_only_mode == "sunset_isolated"
+        and os.getenv("BOT_BOOKING_ENABLED") == "true"
+        and bool(str(synthetic_identity or "").strip())
+    )
+    if booking_only_mode == "sunset_isolated":
+        supplied_identity = str(body.get("guest_phone") or synthetic_identity or "").strip()
+        if not sunset_isolated or supplied_identity != str(synthetic_identity).strip():
+            warnings.append("blocked_sunset_isolated_identity_mismatch")
+            return norm, body, warnings
+        body["guest_phone"] = str(synthetic_identity).strip()
+        body["simulator_isolated_mode"] = True
 
     if "booking-create-from-plan" in norm or norm.endswith("/bookings/create"):
         warnings.append("redirected_create_to_booking_preview")
@@ -160,6 +173,9 @@ def guard_bot_path_and_payload(
         body["simulate_write_blocked"] = True
 
     if "sunset/booking-create" in norm:
+        if sunset_isolated:
+            warnings.append("allowed_sunset_isolated_booking")
+            return norm, body, warnings
         if sunset_booking_only:
             warnings.append("allowed_sunset_booking_only_write_in_simulate")
             body["simulator_booking_only_mode"] = True
@@ -171,12 +187,22 @@ def guard_bot_path_and_payload(
         return norm, body, warnings
 
     if any(frag in norm for frag in ("sunset/payment-link", "sunset/payment-link/")):
+        if sunset_isolated:
+            warnings.append("allowed_sunset_isolated_test_payment")
+            return norm, body, warnings
         warnings.append("blocked_sunset_payment_write_in_simulate")
         return norm, body, warnings
 
     # Waiver link generation mutates/registration state — fail closed without writes.
     if "sunset/waiver-link" in norm or "waiver-link" in norm:
+        if sunset_isolated:
+            warnings.append("allowed_sunset_isolated_waiver")
+            return norm, body, warnings
         warnings.append("blocked_sunset_waiver_write_in_simulate")
+        return norm, body, warnings
+
+    if "sunset/payment-status" in norm and sunset_isolated:
+        warnings.append("allowed_sunset_isolated_payment_status")
         return norm, body, warnings
 
     return norm, body, warnings

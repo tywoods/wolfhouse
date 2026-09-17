@@ -10,6 +10,7 @@ const {
   LIVE_SIMULATOR_ROUTE,
   TENANT_SIMULATE_PATH,
   SUNSET_BOOKING_ONLY_MODE,
+  SUNSET_ISOLATED_MODE,
   WRITE_DENY_LIST,
   buildTenantRequest,
   normalizePhone,
@@ -77,6 +78,7 @@ async function main() {
   ok('write deny-list names booking writes', WRITE_DENY_LIST.includes('create_booking_from_plan') && WRITE_DENY_LIST.includes('create_payment_link'));
   ok('write deny-list names external sends', WRITE_DENY_LIST.includes('send_whatsapp_message') && WRITE_DENY_LIST.includes('send_sms'));
   ok('server-controlled Sunset booking-only mode is named', SUNSET_BOOKING_ONLY_MODE === 'sunset_booking_only');
+  ok('server-controlled Sunset isolated mode is named', SUNSET_ISOLATED_MODE === 'sunset_isolated');
 
   const whRuntime = resolveTenantRuntime('wolfhouse', {});
   const sunsetRuntime = resolveTenantRuntime('sunset', {});
@@ -94,7 +96,7 @@ async function main() {
   ok('tenant request builds safely', built.ok === true);
   ok('caller phone maps to tenant memory thread', built.payload.thread === sunsetPhone && built.payload.guest_phone === sunsetPhone);
   ok('writes hard disabled even if UI later sends extra fields', built.payload.allow_writes === false);
-  ok('Sunset request carries booking-only mode without unrestricted writes', built.payload.simulator_write_mode === SUNSET_BOOKING_ONLY_MODE && built.limitation.booking_writes_enabled === true);
+  ok('Sunset request carries isolated mode and synthetic identity without unrestricted writes', built.payload.simulator_write_mode === SUNSET_ISOLATED_MODE && built.payload.simulator_synthetic_identity === sunsetPhone && built.limitation.booking_writes_enabled === true);
   ok('tenant token is only in server-side header', built.headers['X-Luna-Bot-Token'] === 'server-side-secret' && !JSON.stringify(built.payload).includes('server-side-secret'));
 
   ok('random runtime hosts still fail closed without allowlist', runtimeOriginAllowed('https://random.invalid', { env: {} }) === false);
@@ -178,8 +180,8 @@ async function main() {
     },
   });
   ok('Sunset proxy targets declared isolated staging runtime', seenSunsetUpstream.url === 'http://127.0.0.1:8094/wolfhouse/simulate-guest-turn');
-  ok('Sunset booking-only mode never flips allow_writes true', seenSunsetUpstream.body.allow_writes === false && seenSunsetUpstream.body.simulator_write_mode === SUNSET_BOOKING_ONLY_MODE);
-  ok('Sunset booking-only limitation keeps payments and waivers off', sunsetResult.limitation.booking_writes_enabled === true && sunsetResult.limitation.payments_enabled === false && sunsetResult.limitation.waiver_creation_enabled === false);
+  ok('Sunset isolated mode never flips allow_writes true', seenSunsetUpstream.body.allow_writes === false && seenSunsetUpstream.body.simulator_write_mode === SUNSET_ISOLATED_MODE);
+  ok('Sunset isolated limitation enables only test payment/status and waiver registration/link', sunsetResult.limitation.booking_writes_enabled === true && sunsetResult.limitation.test_payments_enabled === true && sunsetResult.limitation.payment_status_enabled === true && sunsetResult.limitation.waiver_registration_enabled === true);
 
   process.env.CROWSNEST_AUTH_REQUIRED = 'true';
   process.env.CROWSNEST_AUTH_USERNAME = 'operator';
@@ -212,9 +214,9 @@ async function main() {
   const pluginSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'), 'utf8');
   ok('booking-only guard reuses existing BOT_BOOKING_ENABLED gate', /booking_only_mode == "sunset_booking_only"[\s\S]*os\.getenv\("BOT_BOOKING_ENABLED"\) == "true"/.test(guardSrc));
   ok('booking-only guard allows only existing sunset booking-create path', /if "sunset\/booking-create" in norm:[\s\S]*allowed_sunset_booking_only_write_in_simulate/.test(guardSrc));
-  ok('booking-only guard still blocks Sunset payment and waiver writes', /blocked_sunset_payment_write_in_simulate/.test(guardSrc) && /blocked_sunset_waiver_write_in_simulate/.test(guardSrc));
+  ok('isolated guard explicitly permits scoped payment/status/waiver paths', /allowed_sunset_isolated_test_payment/.test(guardSrc) && /allowed_sunset_isolated_payment_status/.test(guardSrc) && /allowed_sunset_isolated_waiver/.test(guardSrc));
   ok('simulate route accepts booking-only mode separately from allow_writes', /booking_only_mode=str\(body\.get\("simulator_write_mode"\)/.test(coreSrc) && /allow_writes=bool\(body\.get\("allow_writes"\)\)/.test(coreSrc));
-  ok('Sunset booking tool suppresses automatic payment next-action only in simulator booking-only mode', /WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES/.test(pluginSrc) && /next_action": \(None if suppress_payment_next_action else "create_sunset_payment_link"\)/.test(pluginSrc));
+  ok('Sunset booking tool restores payment follow-up in isolated mode', /WOLFHOUSE_SIMULATE_ISOLATED_WRITES/.test(pluginSrc) && /create_sunset_payment_link/.test(pluginSrc));
 
   console.log('\nverify:crowsnest-live-simulator passed');
 }
