@@ -18,12 +18,14 @@ const AUTH_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-auth
 const AI_USAGE_CONTRACT_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-ai-usage-contract.js');
 const AI_USAGE_ADAPTER_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-ai-usage-adapter.js');
 const AI_USAGE_STORE_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-ai-usage-store.js');
+const LIVE_SIMULATOR_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-live-simulator.js');
 const AI_USAGE_DOC_PATH = path.join(ROOT, 'docs', 'crowsnest', 'AI-USAGE-EVENT-CONTRACT.md');
 const AI_USAGE_ADAPTER_DOC_PATH = path.join(ROOT, 'docs', 'crowsnest', 'AI-USAGE-ADAPTER.md');
 const AI_USAGE_STORE_DOC_PATH = path.join(ROOT, 'docs', 'crowsnest', 'AI-USAGE-STORE.md');
 const AI_USAGE_VERIFY_PATH = path.join(ROOT, 'scripts', 'verify-crowsnest-ai-usage-contract.js');
 const AI_USAGE_ADAPTER_VERIFY_PATH = path.join(ROOT, 'scripts', 'verify-crowsnest-ai-usage-adapter.js');
 const AI_USAGE_STORE_VERIFY_PATH = path.join(ROOT, 'scripts', 'verify-crowsnest-ai-usage-store.js');
+const LIVE_SIMULATOR_VERIFY_PATH = path.join(ROOT, 'scripts', 'verify-crowsnest-live-simulator.js');
 const DOC_PRODUCT = path.join(ROOT, 'docs', 'CROWSNEST.md');
 const DOC_PLAN = path.join(ROOT, 'docs', 'CROWSNEST-LOCATION-PLAN.md');
 const DOC_DEPLOY = path.join(ROOT, 'docs', 'CROWSNEST-DEPLOY-PLAN.md');
@@ -75,12 +77,14 @@ ok('scripts/lib/crowsnest/crowsnest-sales.js exists', fs.existsSync(SALES_PATH))
 ok('scripts/lib/crowsnest/crowsnest-ai-usage-contract.js exists', fs.existsSync(AI_USAGE_CONTRACT_PATH));
 ok('scripts/lib/crowsnest/crowsnest-ai-usage-adapter.js exists', fs.existsSync(AI_USAGE_ADAPTER_PATH));
 ok('scripts/lib/crowsnest/crowsnest-ai-usage-store.js exists', fs.existsSync(AI_USAGE_STORE_PATH));
+ok('scripts/lib/crowsnest/crowsnest-live-simulator.js exists', fs.existsSync(LIVE_SIMULATOR_PATH));
 ok('docs/crowsnest/AI-USAGE-EVENT-CONTRACT.md exists', fs.existsSync(AI_USAGE_DOC_PATH));
 ok('docs/crowsnest/AI-USAGE-ADAPTER.md exists', fs.existsSync(AI_USAGE_ADAPTER_DOC_PATH));
 ok('docs/crowsnest/AI-USAGE-STORE.md exists', fs.existsSync(AI_USAGE_STORE_DOC_PATH));
 ok('scripts/verify-crowsnest-ai-usage-contract.js exists', fs.existsSync(AI_USAGE_VERIFY_PATH));
 ok('scripts/verify-crowsnest-ai-usage-adapter.js exists', fs.existsSync(AI_USAGE_ADAPTER_VERIFY_PATH));
 ok('scripts/verify-crowsnest-ai-usage-store.js exists', fs.existsSync(AI_USAGE_STORE_VERIFY_PATH));
+ok('scripts/verify-crowsnest-live-simulator.js exists', fs.existsSync(LIVE_SIMULATOR_VERIFY_PATH));
 
 const apiSrc = read(API_PATH) || '';
 const pageSrc = read(PAGE_PATH) || '';
@@ -139,6 +143,7 @@ ok('getCrowsnestOnboardingChecklist exported', /function getCrowsnestOnboardingC
 ok('crowsnest-page requires crowsnest-clients', pageSrc.includes("require('./crowsnest-clients')"));
 ok('crowsnest-page requires crowsnest-onboarding', pageSrc.includes("require('./crowsnest-onboarding')"));
 ok('crowsnest-api requires crowsnest-page', apiSrc.includes("require('./lib/crowsnest/crowsnest-page')"));
+ok('crowsnest-api requires crowsnest-live-simulator', apiSrc.includes("require('./lib/crowsnest/crowsnest-live-simulator')"));
 
 // ── Slice 1: four-section nav + Spyglass default ────────────────────────────
 ok('router protects /clients', routerBody.includes("pathname === '/clients'"));
@@ -428,6 +433,7 @@ ok('package.json parses', pkg != null);
 ok('package.json has crowsnest:start', pkg && pkg.scripts && typeof pkg.scripts['crowsnest:start'] === 'string');
 ok('package.json has verify:crowsnest', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest'] === 'string');
 ok('package.json has verify:crowsnest-auth', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-auth'] === 'string');
+ok('package.json has verify:crowsnest-live-simulator', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-live-simulator'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-contract', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-contract'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-adapter', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-adapter'] === 'string');
 ok('package.json has verify:crowsnest-ai-usage-store', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-ai-usage-store'] === 'string');
