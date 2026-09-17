@@ -41,6 +41,7 @@ class SimulateCapture:
     language_detected: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
     allow_writes: bool = False
+    booking_only_mode: str = ""
     orig_send: Any = None
     orig_post_bot: Any = None
     patched_send: bool = False
@@ -201,6 +202,7 @@ def _install_tool_capture(cap: SimulateCapture) -> None:
             path,
             payload or {},
             allow_writes=cap.allow_writes,
+            booking_only_mode=cap.booking_only_mode,
         )
         cap.warnings.extend(guard_warnings)
         if not cap.allow_writes and is_simulate_write_blocked(guard_warnings):
@@ -316,6 +318,7 @@ async def run_simulated_turn(
     text: str,
     lang: Optional[str] = None,
     allow_writes: bool = False,
+    booking_only_mode: str = "",
     timeout_sec: float = 180.0,
 ) -> Dict[str, Any]:
     assert_staging_environment()
@@ -323,11 +326,12 @@ async def run_simulated_turn(
     if not text or not str(text).strip():
         raise ValueError("text is required")
 
-    cap = SimulateCapture(allow_writes=allow_writes)
+    cap = SimulateCapture(allow_writes=allow_writes, booking_only_mode=str(booking_only_mode or ""))
     cap.language_detected = _detect_language(text, lang)
 
     os.environ["WOLFHOUSE_SIMULATE_GUEST_TURN"] = "1"
     os.environ["WOLFHOUSE_SIMULATE_ALLOW_WRITES"] = "1" if allow_writes else "0"
+    os.environ["WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES"] = "1" if cap.booking_only_mode == "sunset_booking_only" else "0"
     os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = f"+{digits}"
     os.environ["WHATSAPP_GUEST_PHONE"] = f"+{digits}"
 
@@ -362,6 +366,7 @@ async def run_simulated_turn(
     finally:
         _remove_patches(cap)
         os.environ.pop("WOLFHOUSE_SIMULATE_GUEST_TURN", None)
+        os.environ.pop("WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES", None)
 
     session_id = _resolve_session_id(digits)
 
@@ -384,6 +389,7 @@ async def run_simulated_turn(
         "session_id": session_id,
         "language_detected": cap.language_detected,
         "allow_writes": allow_writes,
+        "booking_only_mode": cap.booking_only_mode,
         "warnings": cap.warnings,
         "whatsapp_suppressed": True,
     }
@@ -401,6 +407,7 @@ async def run_simulated_burst(
     messages: List[Dict[str, Any]],
     lang: Optional[str] = None,
     allow_writes: bool = False,
+    booking_only_mode: str = "",
     timeout_sec: float = 180.0,
 ) -> Dict[str, Any]:
     """Inject an ordered burst of synthetic WhatsApp messages (staging only).
@@ -421,6 +428,7 @@ async def run_simulated_burst(
 
     os.environ["WOLFHOUSE_SIMULATE_GUEST_TURN"] = "1"
     os.environ["WOLFHOUSE_SIMULATE_ALLOW_WRITES"] = "1" if allow_writes else "0"
+    os.environ["WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES"] = "1" if cap.booking_only_mode == "sunset_booking_only" else "0"
     os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = f"+{digits}"
     os.environ["WHATSAPP_GUEST_PHONE"] = f"+{digits}"
 
@@ -502,6 +510,7 @@ async def run_simulated_burst(
     finally:
         _remove_patches(cap)
         os.environ.pop("WOLFHOUSE_SIMULATE_GUEST_TURN", None)
+        os.environ.pop("WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES", None)
 
     session_id = _resolve_session_id(digits)
     burst_snap: Dict[str, Any] = {}
@@ -603,6 +612,7 @@ def register_simulate_route(app) -> None:
                 text=str(body.get("text") or body.get("message_text") or ""),
                 lang=body.get("lang") or body.get("language"),
                 allow_writes=bool(body.get("allow_writes")),
+                booking_only_mode=str(body.get("simulator_write_mode") or ""),
             )
         except SystemExit as exc:
             from aiohttp import web

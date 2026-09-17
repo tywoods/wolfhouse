@@ -2,11 +2,14 @@
 'use strict';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const http = require('http');
 
 const {
   LIVE_SIMULATOR_ROUTE,
   TENANT_SIMULATE_PATH,
+  SUNSET_BOOKING_ONLY_MODE,
   WRITE_DENY_LIST,
   buildTenantRequest,
   normalizePhone,
@@ -73,6 +76,7 @@ async function main() {
   ok('tenant route shape is capped to /wolfhouse/simulate-guest-turn', TENANT_SIMULATE_PATH === '/wolfhouse/simulate-guest-turn');
   ok('write deny-list names booking writes', WRITE_DENY_LIST.includes('create_booking_from_plan') && WRITE_DENY_LIST.includes('create_payment_link'));
   ok('write deny-list names external sends', WRITE_DENY_LIST.includes('send_whatsapp_message') && WRITE_DENY_LIST.includes('send_sms'));
+  ok('server-controlled Sunset booking-only mode is named', SUNSET_BOOKING_ONLY_MODE === 'sunset_booking_only');
 
   const whRuntime = resolveTenantRuntime('wolfhouse', {});
   const sunsetRuntime = resolveTenantRuntime('sunset', {});
@@ -90,6 +94,7 @@ async function main() {
   ok('tenant request builds safely', built.ok === true);
   ok('caller phone maps to tenant memory thread', built.payload.thread === sunsetPhone && built.payload.guest_phone === sunsetPhone);
   ok('writes hard disabled even if UI later sends extra fields', built.payload.allow_writes === false);
+  ok('Sunset request carries booking-only mode without unrestricted writes', built.payload.simulator_write_mode === SUNSET_BOOKING_ONLY_MODE && built.limitation.booking_writes_enabled === true);
   ok('tenant token is only in server-side header', built.headers['X-Luna-Bot-Token'] === 'server-side-secret' && !JSON.stringify(built.payload).includes('server-side-secret'));
 
   ok('random runtime hosts still fail closed without allowlist', runtimeOriginAllowed('https://random.invalid', { env: {} }) === false);
@@ -138,11 +143,43 @@ async function main() {
     },
   });
   ok('proxy posts to declared tenant route', seenUpstream.url === 'http://127.0.0.1:8090/wolfhouse/simulate-guest-turn');
-  ok('proxy strips write intent and forwards chosen phone', seenUpstream.body.allow_writes === false && seenUpstream.body.thread === wolfPhone);
+  ok('proxy strips write intent and forwards chosen phone', seenUpstream.body.allow_writes === false && seenUpstream.body.thread === wolfPhone && !seenUpstream.body.simulator_write_mode);
   ok('shaped result exposes memory scope by tenant+phone', result.ok === true && result.memory_scope === `wolfhouse:${wolfPhone}`);
   ok('shaped result exposes visible limitation flag', result.limitation.limitation_flag === 'writes_and_external_sends_disabled');
   ok('shaped result reports suppressed external WhatsApp', result.limitation.tenant_whatsapp_suppressed === true);
   ok('shaped result reports blocked write tools', result.limitation.blocked_write_tools.includes('create_booking_from_plan'));
+
+  let seenSunsetUpstream = null;
+  const sunsetResult = await runLiveSimulatorTurn({
+    tenantId: 'sunset',
+    fromPhone: sunsetPhone,
+    text: 'Book it please',
+  }, {
+    env: { CROWSNEST_LIVE_SIM_SUNSET_TOKEN: 'tok' },
+    fetchImpl: async (url, options) => {
+      seenSunsetUpstream = { url, options, body: JSON.parse(options.body) };
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          ok: true,
+          guest_phone: sunsetPhone,
+          reply_text: 'Done — booking created.',
+          allow_writes: false,
+          whatsapp_suppressed: true,
+          tool_calls: [{
+            name: 'create_sunset_booking',
+            result_summary: { success: true, write_performed: true, booking_code: 'SUN-123', next_action: null },
+            simulate_guard: ['allowed_sunset_booking_only_write_in_simulate'],
+          }],
+          warnings: ['allowed_sunset_booking_only_write_in_simulate'],
+        }),
+      };
+    },
+  });
+  ok('Sunset proxy targets declared isolated staging runtime', seenSunsetUpstream.url === 'http://127.0.0.1:8094/wolfhouse/simulate-guest-turn');
+  ok('Sunset booking-only mode never flips allow_writes true', seenSunsetUpstream.body.allow_writes === false && seenSunsetUpstream.body.simulator_write_mode === SUNSET_BOOKING_ONLY_MODE);
+  ok('Sunset booking-only limitation keeps payments and waivers off', sunsetResult.limitation.booking_writes_enabled === true && sunsetResult.limitation.payments_enabled === false && sunsetResult.limitation.waiver_creation_enabled === false);
 
   process.env.CROWSNEST_AUTH_REQUIRED = 'true';
   process.env.CROWSNEST_AUTH_USERNAME = 'operator';
@@ -167,6 +204,17 @@ async function main() {
   } finally {
     await close(server);
   }
+
+
+  const repoRoot = path.resolve(__dirname, '..');
+  const guardSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/wolfhouse/simulate_write_guards.py'), 'utf8');
+  const coreSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/wolfhouse/simulate_core.py'), 'utf8');
+  const pluginSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'), 'utf8');
+  ok('booking-only guard reuses existing BOT_BOOKING_ENABLED gate', /booking_only_mode == "sunset_booking_only"[\s\S]*os\.getenv\("BOT_BOOKING_ENABLED"\) == "true"/.test(guardSrc));
+  ok('booking-only guard allows only existing sunset booking-create path', /if "sunset\/booking-create" in norm:[\s\S]*allowed_sunset_booking_only_write_in_simulate/.test(guardSrc));
+  ok('booking-only guard still blocks Sunset payment and waiver writes', /blocked_sunset_payment_write_in_simulate/.test(guardSrc) && /blocked_sunset_waiver_write_in_simulate/.test(guardSrc));
+  ok('simulate route accepts booking-only mode separately from allow_writes', /booking_only_mode=str\(body\.get\("simulator_write_mode"\)/.test(coreSrc) && /allow_writes=bool\(body\.get\("allow_writes"\)\)/.test(coreSrc));
+  ok('Sunset booking tool suppresses automatic payment next-action only in simulator booking-only mode', /WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES/.test(pluginSrc) && /next_action": \(None if suppress_payment_next_action else "create_sunset_payment_link"\)/.test(pluginSrc));
 
   console.log('\nverify:crowsnest-live-simulator passed');
 }

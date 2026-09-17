@@ -17,6 +17,7 @@ const MAX_LANG_CHARS = 16;
 const LIVE_SIMULATOR_ROUTE = '/api/live-simulator/guest-turn';
 const TENANT_SIMULATE_PATH = '/wolfhouse/simulate-guest-turn';
 const ALLOWED_HOSTS_ENV = 'CROWSNEST_LIVE_SIM_ALLOWED_HOSTS';
+const SUNSET_BOOKING_ONLY_MODE = 'sunset_booking_only';
 
 const WRITE_DENY_LIST = Object.freeze([
   'create_booking_from_plan',
@@ -177,6 +178,8 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     message_text: messageText,
     allow_writes: false,
   };
+  const bookingOnlyMode = tenant === 'sunset';
+  if (bookingOnlyMode) payload.simulator_write_mode = SUNSET_BOOKING_ONLY_MODE;
   const safeLang = sanitizeLang(lang);
   if (safeLang) payload.lang = safeLang;
 
@@ -193,17 +196,22 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     phone,
     payload,
     headers,
-    limitation: buildLiveSimulatorLimitation(),
+    limitation: buildLiveSimulatorLimitation({ bookingOnlyMode: tenant === 'sunset' }),
   };
 }
 
-function buildLiveSimulatorLimitation() {
+function buildLiveSimulatorLimitation(options = {}) {
+  const bookingOnlyMode = options.bookingOnlyMode === true;
   return {
     staging_only: true,
     writes_enabled: false,
+    booking_writes_enabled: bookingOnlyMode,
+    booking_write_mode: bookingOnlyMode ? SUNSET_BOOKING_ONLY_MODE : null,
     whatsapp_sends_enabled: false,
     sms_sends_enabled: false,
-    limitation_flag: 'writes_and_external_sends_disabled',
+    payments_enabled: false,
+    waiver_creation_enabled: false,
+    limitation_flag: bookingOnlyMode ? 'sunset_booking_only_writes_enabled' : 'writes_and_external_sends_disabled',
     denied_actions: WRITE_DENY_LIST.slice(),
   };
 }
@@ -327,6 +335,7 @@ async function runLiveSimulatorTurn(input, options = {}) {
 module.exports = {
   LIVE_SIMULATOR_ROUTE,
   TENANT_SIMULATE_PATH,
+  SUNSET_BOOKING_ONLY_MODE,
   TENANTS,
   WRITE_DENY_LIST,
   buildLiveSimulatorLimitation,
