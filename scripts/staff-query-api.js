@@ -20639,6 +20639,10 @@ body.luna-header-ui.header-collapsed #bc-side-drawer{top:52px}
   pointer-events:auto;
   z-index:46;
 }
+body.luna-header-ui.luna-hdr-compact #tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer.is-open,
+body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-side-drawer.is-open{
+  top:52px!important;
+}
 @media (max-width:768px){
   #bc-side-drawer{display:none!important}
 }
@@ -41882,7 +41886,13 @@ function bcSyncSideDrawerTop(){
     var tr = tabs.getBoundingClientRect();
     if (tr.bottom > 0) tabsBottom = Math.round(tr.bottom);
   }
+  var body = document.body;
+  var compactHeader = !!(body && (body.classList.contains('luna-hdr-compact') || body.classList.contains('header-collapsed')));
   var y = Math.max(bannerBottom, tabsBottom, 0);
+  if (compactHeader) {
+    rail.style.top = y + 'px';
+    return;
+  }
   if (bannerBottom > 0 && tabsBottom <= bannerBottom + 8) y = bannerBottom + 52;
   rail.style.top = (y + 4) + 'px';
 }
