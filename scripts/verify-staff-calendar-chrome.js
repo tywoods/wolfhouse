@@ -86,7 +86,7 @@ assert.match(api, /compactHeader/);
 assert.match(api, /rail\.style\.top = y \+ 'px'/);
 assert.match(api, /#tab-bed-calendar\.bc-cal-side-pinned #bc-side-drawer\.is-open/);
 assert.match(api, /luna-hdr-compact #tab-bed-calendar\.bc-cal-side-pinned #bc-side-drawer\.is-open/);
-assert.match(api, /top:52px!important/);
+assert.match(api, /top:56px!important/);
 assert.match(api, /border-radius:var\(--radius,14px\)/);
 assert.match(api, /right:16px/);
 assert.match(api, /function bcFieldEditPaintInline/);
