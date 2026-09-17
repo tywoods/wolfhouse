@@ -145,7 +145,109 @@ class AppendBodyReceiptTests(unittest.TestCase):
             _reset_and_unlink_test_sinks()
 
 
+def _assert_ordinary_event_inventory(testcase, rows):
+    """Assert both receipt families without allowing extras to disappear in filtering."""
+    expected_events = [
+        "live_append_body_receipt",
+        "live_append_body_receipt",
+        "live_append_body_receipt",
+        "lr32_adapter_outcome",
+        "lr32_append_outcome",
+        "lr32_publication_outcome",
+    ]
+    testcase.assertEqual([row["event"] for row in rows], expected_events)
+
+    append_rows = [row for row in rows if row["event"] == "live_append_body_receipt"]
+    structural_rows = [row for row in rows if row["event"] in {
+        "lr32_adapter_outcome", "lr32_append_outcome", "lr32_publication_outcome",
+    }]
+    testcase.assertEqual([row["call_id"] for row in append_rows], ["c1", "c2", "c3"])
+    testcase.assertEqual(
+        [row["producer"] for row in append_rows],
+        ["local_validation_rejection", "caught_exception", "executor_return"],
+    )
+    testcase.assertTrue(all(
+        row["api_request_id"] == "api-request-real" and row["response_id"] is None
+        for row in append_rows
+    ))
+
+    adapter, append, publication = structural_rows
+    testcase.assertEqual(
+        (adapter["status"], adapter["reason"]), ("accepted", "handle_created"),
+    )
+    testcase.assertTrue(adapter["pending_created"])
+    testcase.assertTrue(adapter["metadata_call1"])
+    testcase.assertEqual(
+        (append["status"], append["reason"]), ("consumed", "exact_match"),
+    )
+    testcase.assertEqual(append["expected_call_id"], "sealed-owner-call")
+    testcase.assertEqual(append["exact_match_count"], 1)
+    testcase.assertTrue(append["handle_match"])
+    testcase.assertTrue(append["consumed"])
+    testcase.assertEqual(
+        (publication["status"], publication["reason"], publication["stage"]),
+        ("completed", "published", "publication"),
+    )
+    testcase.assertTrue(publication["capture_complete"])
+    testcase.assertIsNone(publication["capture_failure"])
+    for row in structural_rows:
+        testcase.assertEqual(row["run_id"], "synthetic-integration")
+        testcase.assertEqual(row["attempt_id"], "attempt-1")
+        testcase.assertEqual(row["call_id"], "sealed-owner-call")
+
+
 class OrdinaryAppendPatchTests(unittest.TestCase):
+    def test_event_inventory_oracle_rejects_structural_and_append_body_corruption(self):
+        append_rows = [
+            {
+                "event": "live_append_body_receipt",
+                "call_id": call_id,
+                "producer": producer,
+                "api_request_id": "api-request-real",
+                "response_id": None,
+            }
+            for call_id, producer in (
+                ("c1", "local_validation_rejection"),
+                ("c2", "caught_exception"),
+                ("c3", "executor_return"),
+            )
+        ]
+        structural = [
+            {
+                "event": "lr32_adapter_outcome", "status": "accepted",
+                "reason": "handle_created", "pending_created": True,
+                "metadata_call1": True, "run_id": "synthetic-integration",
+                "attempt_id": "attempt-1", "call_id": "sealed-owner-call",
+            },
+            {
+                "event": "lr32_append_outcome", "status": "consumed",
+                "reason": "exact_match", "call_id": "sealed-owner-call",
+                "expected_call_id": "sealed-owner-call", "exact_match_count": 1,
+                "handle_match": True, "consumed": True,
+                "run_id": "synthetic-integration", "attempt_id": "attempt-1",
+            },
+            {
+                "event": "lr32_publication_outcome", "status": "completed",
+                "reason": "published", "stage": "publication",
+                "capture_complete": True, "capture_failure": None,
+                "run_id": "synthetic-integration", "attempt_id": "attempt-1",
+                "call_id": "sealed-owner-call",
+            },
+        ]
+        valid = append_rows + structural
+        _assert_ordinary_event_inventory(self, valid)
+
+        corruptions = {
+            "removed": valid[:-1],
+            "duplicated": valid + [dict(structural[-1])],
+            "reordered": append_rows + [structural[1], structural[0], structural[2]],
+            "wrong_correlation": append_rows + [dict(structural[0], call_id="wrong"), *structural[1:]],
+            "extra_c4_append": [*append_rows, dict(append_rows[-1], call_id="c4"), *structural],
+        }
+        for name, rows in corruptions.items():
+            with self.subTest(name=name), self.assertRaises(AssertionError):
+                _assert_ordinary_event_inventory(self, rows)
+
     def test_pinned_owner_patch_is_idempotent_and_uses_exception_snapshot_and_correct_correlation(self):
         source = Path("/opt/hermes/agent/tool_executor.py").read_text()
         once = image_patch.patch_text(source)
@@ -324,11 +426,7 @@ print(json.dumps({'executions': executions, 'outputs': outputs, 'failed_observer
             self.assertEqual(proc.returncode, 0, proc.stdout + "\n" + proc.stderr)
         result = json.loads(proc.stdout.strip().splitlines()[-1])
         self.assertEqual(result["executions"], ["explode", "success", "success_after_observer_failure", "success_off", "get_sunset_lesson_catalog"])
-        self.assertEqual(len(result["rows"]), 3)  # observer failure and OFF each emit no receipt
-        self.assertEqual([row["producer"] for row in result["rows"]],
-                         ["local_validation_rejection", "caught_exception", "executor_return"])
-        self.assertTrue(all(row["api_request_id"] == "api-request-real" and row["response_id"] is None
-                            for row in result["rows"]))
+        _assert_ordinary_event_inventory(self, result["rows"])
         appended = result["outputs"]
         self.assertEqual([m[0]["tool_call_id"] for m in appended], ["c1", "c2", "c3"])
         self.assertIsInstance(appended[0][0]["content"], str)
