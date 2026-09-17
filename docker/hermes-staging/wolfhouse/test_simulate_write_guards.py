@@ -92,10 +92,12 @@ class GuardPathTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertIn("sunset/booking-create", norm)
 
-    def test_sunset_booking_only_mode_requires_existing_bot_booking_gate(self):
-        old = os.environ.get("BOT_BOOKING_ENABLED")
+    def test_sunset_booking_only_mode_blocks_when_no_booking_gate_enabled(self):
+        old_bot = os.environ.get("BOT_BOOKING_ENABLED")
+        old_sim = os.environ.get("SUNSET_SIMULATOR_BOOKING_ENABLED")
         try:
             os.environ.pop("BOT_BOOKING_ENABLED", None)
+            os.environ.pop("SUNSET_SIMULATOR_BOOKING_ENABLED", None)
             _norm, _body, warnings = guard_bot_path_and_payload(
                 "/sunset/booking-create",
                 {"guest_confirmed_booking": True},
@@ -104,8 +106,22 @@ class GuardPathTests(unittest.TestCase):
             )
             self.assertIn("blocked_sunset_booking_write_bot_booking_disabled", warnings)
             self.assertTrue(is_simulate_write_blocked(warnings))
+        finally:
+            if old_bot is None:
+                os.environ.pop("BOT_BOOKING_ENABLED", None)
+            else:
+                os.environ["BOT_BOOKING_ENABLED"] = old_bot
+            if old_sim is None:
+                os.environ.pop("SUNSET_SIMULATOR_BOOKING_ENABLED", None)
+            else:
+                os.environ["SUNSET_SIMULATOR_BOOKING_ENABLED"] = old_sim
 
+    def test_sunset_booking_only_mode_allows_when_bot_booking_enabled(self):
+        old_bot = os.environ.get("BOT_BOOKING_ENABLED")
+        old_sim = os.environ.get("SUNSET_SIMULATOR_BOOKING_ENABLED")
+        try:
             os.environ["BOT_BOOKING_ENABLED"] = "true"
+            os.environ.pop("SUNSET_SIMULATOR_BOOKING_ENABLED", None)
             norm, body, warnings = guard_bot_path_and_payload(
                 "/sunset/booking-create",
                 {"guest_confirmed_booking": True},
@@ -117,15 +133,47 @@ class GuardPathTests(unittest.TestCase):
             self.assertFalse(is_simulate_write_blocked(warnings))
             self.assertIs(body.get("simulator_booking_only_mode"), True)
         finally:
-            if old is None:
+            if old_bot is None:
                 os.environ.pop("BOT_BOOKING_ENABLED", None)
             else:
-                os.environ["BOT_BOOKING_ENABLED"] = old
+                os.environ["BOT_BOOKING_ENABLED"] = old_bot
+            if old_sim is None:
+                os.environ.pop("SUNSET_SIMULATOR_BOOKING_ENABLED", None)
+            else:
+                os.environ["SUNSET_SIMULATOR_BOOKING_ENABLED"] = old_sim
+
+    def test_sunset_booking_only_mode_allows_when_simulator_booking_enabled(self):
+        old_bot = os.environ.get("BOT_BOOKING_ENABLED")
+        old_sim = os.environ.get("SUNSET_SIMULATOR_BOOKING_ENABLED")
+        try:
+            os.environ.pop("BOT_BOOKING_ENABLED", None)
+            os.environ["SUNSET_SIMULATOR_BOOKING_ENABLED"] = "true"
+            norm, body, warnings = guard_bot_path_and_payload(
+                "/sunset/booking-create",
+                {"guest_confirmed_booking": True},
+                allow_writes=False,
+                booking_only_mode="sunset_booking_only",
+            )
+            self.assertIn("sunset/booking-create", norm)
+            self.assertIn("allowed_sunset_booking_only_write_in_simulate", warnings)
+            self.assertFalse(is_simulate_write_blocked(warnings))
+            self.assertIs(body.get("simulator_booking_only_mode"), True)
+        finally:
+            if old_bot is None:
+                os.environ.pop("BOT_BOOKING_ENABLED", None)
+            else:
+                os.environ["BOT_BOOKING_ENABLED"] = old_bot
+            if old_sim is None:
+                os.environ.pop("SUNSET_SIMULATOR_BOOKING_ENABLED", None)
+            else:
+                os.environ["SUNSET_SIMULATOR_BOOKING_ENABLED"] = old_sim
 
     def test_sunset_booking_only_mode_still_blocks_payment_and_waiver(self):
-        old = os.environ.get("BOT_BOOKING_ENABLED")
+        old_bot = os.environ.get("BOT_BOOKING_ENABLED")
+        old_sim = os.environ.get("SUNSET_SIMULATOR_BOOKING_ENABLED")
         try:
-            os.environ["BOT_BOOKING_ENABLED"] = "true"
+            os.environ.pop("BOT_BOOKING_ENABLED", None)
+            os.environ["SUNSET_SIMULATOR_BOOKING_ENABLED"] = "true"
             for path in ("/sunset/payment-link", "/sunset/waiver-link"):
                 _norm, _body, warnings = guard_bot_path_and_payload(
                     path,
@@ -135,10 +183,14 @@ class GuardPathTests(unittest.TestCase):
                 )
                 self.assertTrue(is_simulate_write_blocked(warnings), (path, warnings))
         finally:
-            if old is None:
+            if old_bot is None:
                 os.environ.pop("BOT_BOOKING_ENABLED", None)
             else:
-                os.environ["BOT_BOOKING_ENABLED"] = old
+                os.environ["BOT_BOOKING_ENABLED"] = old_bot
+            if old_sim is None:
+                os.environ.pop("SUNSET_SIMULATOR_BOOKING_ENABLED", None)
+            else:
+                os.environ["SUNSET_SIMULATOR_BOOKING_ENABLED"] = old_sim
 
 
     def test_sunset_isolated_mode_allows_only_scoped_test_flows(self):

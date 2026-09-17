@@ -116,8 +116,9 @@ def guard_bot_path_and_payload(
     """Return (path, payload, warnings). Redirect write routes to preview when writes disabled.
 
     ``booking_only_mode='sunset_booking_only'`` is narrower than allow_writes:
-    it permits only Sunset's existing booking-create bot path, only when the
-    existing BOT_BOOKING_ENABLED gate is already true. Payments, waivers, sends,
+    it permits only Sunset's existing booking-create bot path. Production still
+    needs the existing BOT_BOOKING_ENABLED gate; isolated simulator runtimes may
+    opt in with SUNSET_SIMULATOR_BOOKING_ENABLED=true. Payments, waivers, sends,
     and unrelated mutations remain blocked.
     """
     warnings: List[str] = []
@@ -126,9 +127,10 @@ def guard_bot_path_and_payload(
 
     norm = _norm_path(path)
     body = copy.deepcopy(payload or {})
+    simulator_booking_flag = os.getenv("BOT_BOOKING_ENABLED") == "true" or os.getenv("SUNSET_SIMULATOR_BOOKING_ENABLED") == "true"
     sunset_booking_only = (
         booking_only_mode == "sunset_booking_only"
-        and os.getenv("BOT_BOOKING_ENABLED") == "true"
+        and simulator_booking_flag
     )
     sunset_isolated = (
         booking_only_mode == "sunset_isolated"
