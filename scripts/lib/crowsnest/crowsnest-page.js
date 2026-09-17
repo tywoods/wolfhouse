@@ -3389,8 +3389,9 @@ function renderLiveSimulatorScript(nonce) {
   text.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing) return;
     event.preventDefault();
-    if (typeof form.requestSubmit === 'function') form.requestSubmit(submit);
-    else submit.click();
+    if (inFlight || submit.disabled) return;
+    // Prefer click(): requestSubmit(disabledSubmitter) throws InvalidStateError.
+    submit.click();
   });
 })();
 </script>`;
