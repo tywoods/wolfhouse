@@ -12,7 +12,7 @@ const {
 
 const CONFIG_DIR = path.join(__dirname, '..', '..', 'config', 'clients');
 
-const SUPPORTED_CLIENTS = new Set(['wolfhouse-somo']);
+const SUPPORTED_CLIENTS = new Set(['wolfhouse-somo', 'sunset']);
 
 const _cache = new Map();
 
@@ -108,7 +108,7 @@ function getLunaMessagingPlaybookValue(clientSlug, dotPath, fallback = null) {
 
 function resolvePlaybookLang(language) {
   const code = String(language || 'en').trim().toLowerCase().slice(0, 2);
-  return code === 'it' ? 'it' : 'en';
+  return ['en', 'es', 'it'].includes(code) ? code : 'en';
 }
 
 function pickLocalizedPlaybook(entry, language) {
