@@ -45207,14 +45207,16 @@ function sunsetBotRejectAccommodationFields(body) {
 
 async function handleBotSunsetBookingCreate(req, res) {
   const started = Date.now();
-  if (!BOT_BOOKING_ENABLED) {
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const simulatorBookingOnlyMode = body && body.simulator_booking_only_mode === true;
+  const simulatorBookingEnabled = process.env.SUNSET_SIMULATOR_BOOKING_ENABLED === 'true';
+  if (!BOT_BOOKING_ENABLED && !(simulatorBookingOnlyMode && simulatorBookingEnabled)) {
     return sendJSON(res, 200, {
       ok: false, success: false, disabled: 'bot_booking_disabled',
       reason: 'Bot booking creation is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
     });
   }
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   const loc = sunsetBotResolveLocation(body);
   if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
   const forbidden = sunsetBotRejectAccommodationFields(body);

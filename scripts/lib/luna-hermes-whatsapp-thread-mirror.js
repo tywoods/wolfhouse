@@ -200,6 +200,10 @@ function parseHermesWhatsAppThreadMirrorBody(body) {
   const messageTimestamp = trimStr(src.message_timestamp || src.timestamp) || null;
   const needsHuman = toBool(src.needs_human);
   const handoffReason = trimStr(src.handoff_reason || src.needs_human_reason) || null;
+  const simulatorSynthetic = toBool(src.simulator_synthetic);
+  const sourceOwner = trimStr(src.source_owner) || null;
+  const suppressNotifications = toBool(src.suppress_notifications) || simulatorSynthetic;
+  const suppressApprovals = toBool(src.suppress_approvals) || simulatorSynthetic;
 
   if (!clientSlug) return { ok: false, status: 400, error: 'client_slug required' };
   if (!guestPhone) return { ok: false, status: 400, error: 'guest_phone required' };
@@ -225,6 +229,10 @@ function parseHermesWhatsAppThreadMirrorBody(body) {
       message_timestamp: messageTimestamp,
       needs_human: needsHuman,
       handoff_reason: handoffReason,
+      simulator_synthetic: simulatorSynthetic,
+      source_owner: sourceOwner,
+      suppress_notifications: suppressNotifications,
+      suppress_approvals: suppressApprovals,
     },
   };
 }
@@ -314,8 +322,16 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
   if (channelHints && channelHints.location_id) {
     hints.location_id = channelHints.location_id;
   }
+  const metadataBase = { channel: 'whatsapp', hermes_luna: true };
+  if (channelHints && channelHints.simulator_synthetic === true) {
+    metadataBase.simulator_synthetic = true;
+    metadataBase.source_owner = 'simulate-guest-turn';
+    metadataBase.open_phone_testing = true;
+    metadataBase.guest_tester_class = 'Simulator';
+    metadataBase.whatsapp_delivered = false;
+  }
   const metadata = mergeSunsetInboundLocationMetadata(
-    { channel: 'whatsapp', hermes_luna: true },
+    metadataBase,
     hints,
     clientSlug,
   );
@@ -377,6 +393,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
       receiving_whatsapp_number: i.receiving_whatsapp_number,
       phone_number_id: i.phone_number_id,
       location_id: i.location_id,
+      simulator_synthetic: i.simulator_synthetic === true,
     },
   );
   if (!ensured || !ensured.conversation_id) {
@@ -398,14 +415,18 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
 
   if (i.direction === 'inbound') {
     const thread = await persistHermesLunaInboundThreadMessage(pg, base);
-    staff_notification = await maybeNotifyNewConversation(pg, env, {
-      created: ensured.created === true,
-      client_slug: i.client_slug,
-      location_id: ensured.location_id,
-      conversation_id: conversationId,
-      guest_phone: ensured.guest_phone,
-      guest_name: ensured.guest_name,
-    }, notifyContext);
+    if (i.suppress_notifications === true) {
+      staff_notification = { suppressed: true, reason: 'simulator_synthetic' };
+    } else {
+      staff_notification = await maybeNotifyNewConversation(pg, env, {
+        created: ensured.created === true,
+        client_slug: i.client_slug,
+        location_id: ensured.location_id,
+        conversation_id: conversationId,
+        guest_phone: ensured.guest_phone,
+        guest_name: ensured.guest_name,
+      }, notifyContext);
+    }
     return {
       ok: true,
       conversation_id: conversationId,
@@ -439,7 +460,8 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
   }
 
   // Draft: stage pending approval for portal review; do not insert a sent bubble.
-  if (whatsappMode === 'draft') {
+  // Synthetic simulator turns are displayed in Inbox but must never create sendable approvals.
+  if (whatsappMode === 'draft' && i.suppress_approvals !== true) {
     const staged = await stageHermesWhatsAppOutboundDraft(pg, {
       client_id: clientId,
       client_slug: i.client_slug,
@@ -493,26 +515,30 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
       [conversationId, reason, handoffAt],
     );
     if (!wasNeedsHuman) {
-      staff_notification = await maybeNotifyHumanNeeded(pg, env, {
-        transitioned: true,
-        handoff_event_key: handoffAt,
-        client_slug: i.client_slug,
-        location_id: ensured.location_id,
-        conversation_id: conversationId,
-        guest_phone: ensured.guest_phone,
-        guest_name: ensured.guest_name,
-        reason,
-      }, notifyContext);
+      if (i.suppress_notifications === true) {
+        staff_notification = { suppressed: true, reason: 'simulator_synthetic' };
+      } else {
+        staff_notification = await maybeNotifyHumanNeeded(pg, env, {
+          transitioned: true,
+          handoff_event_key: handoffAt,
+          client_slug: i.client_slug,
+          location_id: ensured.location_id,
+          conversation_id: conversationId,
+          guest_phone: ensured.guest_phone,
+          guest_name: ensured.guest_name,
+          reason,
+        }, notifyContext);
+      }
     }
   }
   return {
     ok: true,
     conversation_id: conversationId,
     direction: 'outbound',
-    whatsapp_channel_mode: 'auto',
+    whatsapp_channel_mode: whatsappMode === 'draft' ? 'draft_suppressed' : 'auto',
     thread,
     staff_notification,
-  };
+};
 }
 
 module.exports = {

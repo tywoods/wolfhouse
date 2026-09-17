@@ -212,7 +212,7 @@ async function main() {
   const guardSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/wolfhouse/simulate_write_guards.py'), 'utf8');
   const coreSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/wolfhouse/simulate_core.py'), 'utf8');
   const pluginSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'), 'utf8');
-  ok('booking-only guard reuses existing BOT_BOOKING_ENABLED gate', /booking_only_mode == "sunset_booking_only"[\s\S]*os\.getenv\("BOT_BOOKING_ENABLED"\) == "true"/.test(guardSrc));
+  ok('booking-only guard requires BOT_BOOKING_ENABLED or isolated SUNSET_SIMULATOR_BOOKING_ENABLED gate', /simulator_booking_flag = os\.getenv\("BOT_BOOKING_ENABLED"\) == "true" or os\.getenv\("SUNSET_SIMULATOR_BOOKING_ENABLED"\) == "true"/.test(guardSrc));
   ok('booking-only guard allows only existing sunset booking-create path', /if "sunset\/booking-create" in norm:[\s\S]*allowed_sunset_booking_only_write_in_simulate/.test(guardSrc));
   ok('isolated guard explicitly permits scoped payment/status/waiver paths', /allowed_sunset_isolated_test_payment/.test(guardSrc) && /allowed_sunset_isolated_payment_status/.test(guardSrc) && /allowed_sunset_isolated_waiver/.test(guardSrc));
   ok('simulate route accepts booking-only mode separately from allow_writes', /booking_only_mode=str\(body\.get\("simulator_write_mode"\)/.test(coreSrc) && /allow_writes=bool\(body\.get\("allow_writes"\)\)/.test(coreSrc));

@@ -332,6 +332,11 @@ def build_mirror_payload(
         "direction": direction,
         "message_text": msg[:4000],
     }
+    if os.getenv("WOLFHOUSE_SIMULATE_GUEST_TURN") == "1":
+        payload["simulator_synthetic"] = True
+        payload["source_owner"] = "simulate-guest-turn"
+        payload["suppress_notifications"] = True
+        payload["suppress_approvals"] = True
     location_id = resolve_mirror_location_id(client_slug)
     if location_id:
         payload["location_id"] = location_id
