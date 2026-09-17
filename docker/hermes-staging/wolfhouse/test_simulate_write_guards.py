@@ -211,6 +211,8 @@ class GuardPathTests(unittest.TestCase):
                 self.assertIn(warning, warnings)
                 self.assertFalse(is_simulate_write_blocked(warnings))
                 self.assertTrue(body.get("simulator_isolated_mode"))
+                if path == "/sunset/booking-create":
+                    self.assertTrue(body.get("simulator_booking_only_mode"))
             _norm, _body, warnings = guard_bot_path_and_payload(
                 "/sunset/payment-link", {"guest_phone": "+34600009999"},
                 allow_writes=False, booking_only_mode="sunset_isolated",

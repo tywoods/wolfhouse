@@ -177,6 +177,7 @@ def guard_bot_path_and_payload(
     if "sunset/booking-create" in norm:
         if sunset_isolated:
             warnings.append("allowed_sunset_isolated_booking")
+            body["simulator_booking_only_mode"] = True
             return norm, body, warnings
         if sunset_booking_only:
             warnings.append("allowed_sunset_booking_only_write_in_simulate")
