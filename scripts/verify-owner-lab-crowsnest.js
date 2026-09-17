@@ -2,7 +2,8 @@
 
 const assert = require('assert/strict');
 const {
-  ensureConversationForGuestPhone,
+  parseHermesWhatsAppThreadMirrorBody,
+  mirrorHermesWhatsAppThreadMessage,
 } = require('./lib/luna-hermes-whatsapp-thread-mirror');
 const {
   getConversationInboxQuery,
@@ -23,21 +24,44 @@ async function main() {
     return { rows: [] };
   } };
 
-  const durable = '+999000000000001';
-  const source = '+34600111222';
-  const ensured = await ensureConversationForGuestPhone(pg, 'sunset', durable, null, 'hello', {
+  const durable = '+999000000001';
+  const source = '+34612111222';
+  const parsed = parseHermesWhatsAppThreadMirrorBody({
+    client_slug: 'sunset',
+    guest_phone: durable,
+    direction: 'inbound',
+    message_text: 'hello',
     location_id: 'sunset-somo',
     simulator_synthetic: true,
     source_owner: 'crowsnest-guest-door',
-    simulator_source_phone: source,
+    simulator_source_phone: ' +34 612 111 222 ',
   });
-  assert.equal(ensured.guest_phone, durable, 'durable conversation key remains +999');
-  assert.equal(ensured.metadata.open_phone_testing, true);
-  assert.equal(ensured.metadata.guest_tester_class, 'Simulator');
-  assert.equal(ensured.metadata.simulator_source_phone, source);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.input.simulator_source_phone, source, 'trusted source phone is normalized by public parser');
+  const mirrored = await mirrorHermesWhatsAppThreadMessage(pg, parsed.input);
+  assert.equal(mirrored.ok, true, 'parsed payload traverses real mirror path');
   const insert = calls.find((c) => /INSERT INTO conversations/.test(c.sql));
   assert(insert, 'conversation upsert executed');
   assert.equal(insert.params[1], durable, 'never creates a conversation under source phone');
+  const metadata = JSON.parse(insert.params[3]);
+  assert.equal(metadata.open_phone_testing, true);
+  assert.equal(metadata.guest_tester_class, 'Simulator');
+  assert.equal(metadata.simulator_source_phone, source, 'source phone reaches conversation metadata/upsert');
+
+  for (const [label, overrides] of [
+    ['ordinary', { simulator_synthetic: false }],
+    ['malformed', { simulator_source_phone: 'not-a-phone' }],
+    ['untrusted owner', { source_owner: 'crowsnest-admin' }],
+    ['case-changed owner', { source_owner: 'Crowsnest-Guest-Door' }],
+  ]) {
+    const candidate = parseHermesWhatsAppThreadMirrorBody({
+      client_slug: 'sunset', guest_phone: durable, direction: 'inbound', message_text: 'hello',
+      simulator_synthetic: true, source_owner: 'crowsnest-guest-door', simulator_source_phone: source,
+      ...overrides,
+    });
+    assert.equal(candidate.ok, true, `${label} payload otherwise parses`);
+    assert.equal(candidate.input.simulator_source_phone, undefined, `${label} input cannot project source phone`);
+  }
 
   const inboxSql = getConversationInboxQuery({ ownerLabScoped: true });
   assert.match(inboxSql, /open_phone_testing.*guest_tester_class/s, 'Owner Lab predicate remains OR contract');
