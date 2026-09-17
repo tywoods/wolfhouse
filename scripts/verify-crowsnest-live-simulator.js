@@ -215,6 +215,7 @@ async function main() {
   ok('booking-only guard requires BOT_BOOKING_ENABLED or isolated SUNSET_SIMULATOR_BOOKING_ENABLED gate', /simulator_booking_flag = os\.getenv\("BOT_BOOKING_ENABLED"\) == "true" or os\.getenv\("SUNSET_SIMULATOR_BOOKING_ENABLED"\) == "true"/.test(guardSrc));
   ok('booking-only guard allows only existing sunset booking-create path', /if "sunset\/booking-create" in norm:[\s\S]*allowed_sunset_booking_only_write_in_simulate/.test(guardSrc));
   ok('isolated guard explicitly permits scoped payment/status/waiver paths', /allowed_sunset_isolated_test_payment/.test(guardSrc) && /allowed_sunset_isolated_payment_status/.test(guardSrc) && /allowed_sunset_isolated_waiver/.test(guardSrc));
+  ok('isolated booking passes Staff API simulator booking-only flag', /allowed_sunset_isolated_booking[\s\S]*body\["simulator_booking_only_mode"\] = True/.test(guardSrc));
   ok('simulate route accepts booking-only mode separately from allow_writes', /booking_only_mode=str\(body\.get\("simulator_write_mode"\)/.test(coreSrc) && /allow_writes=bool\(body\.get\("allow_writes"\)\)/.test(coreSrc));
   ok('Sunset booking tool restores payment follow-up in isolated mode', /WOLFHOUSE_SIMULATE_ISOLATED_WRITES/.test(pluginSrc) && /create_sunset_payment_link/.test(pluginSrc));
 
