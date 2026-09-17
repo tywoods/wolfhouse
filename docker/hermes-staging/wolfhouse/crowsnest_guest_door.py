@@ -123,7 +123,10 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
 
         def guarded_phone():
             scope = current_crowsnest_scope()
-            return scope.synthetic_phone if scope is not None else original_phone()
+            # Staff Inbox persistence uses the deterministic non-routable +999
+            # identity. Tool lookups/mutations must target that same conversation,
+            # never the selected source phone that has no synthetic Inbox row.
+            return scope.inbox_phone if scope is not None else original_phone()
 
         def guarded_post(path, payload):
             scope = current_crowsnest_scope()
