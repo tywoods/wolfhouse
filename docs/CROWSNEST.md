@@ -50,7 +50,11 @@ Later, operators may also:
 | Writes / DB / Stripe / WhatsApp | Crowsnest does not own tenant writes. Live Simulator proxy is staging/no-send only and hard-denies booking/payment/message writes. |
 | Deploy / Azure / domain | Live standalone app with login portal promoted — see location/deploy plans |
 
-The current UI is only a safe shell. The AI Usage Panel has not been implemented yet.
+The current UI keeps safe operator shells plus the Live Simulator tab; the simulator posts only to Crowsnest's authenticated `/api/live-simulator/guest-turn` proxy and never exposes tenant tokens in the browser.
+
+### Live Simulator UI (slice 2 — browser shell for API slice)
+
+Protected **Live Simulator** tab at `/live-simulator` lets authenticated operators choose **Sunset Luna** or **Wolfhouse Luna**, edit the simulated **From phone number**, send a guest message to `POST /api/live-simulator/guest-turn`, and view Luna replies in a local thread. The visible limitation remains prominent: writes and external sends are disabled, booking/payment UI writes are out of scope, and the API enforces `allow_writes:false`. Same tenant + phone continues that simulated guest; an unused phone starts fresh. No tenant bot tokens or API credentials are emitted to browser HTML or JavaScript. Verify with `npm run verify:crowsnest` and `npm run verify:crowsnest-live-simulator`.
 
 ### Slice 3 (adapter only — not integrated)
 

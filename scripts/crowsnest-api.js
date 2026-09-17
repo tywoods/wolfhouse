@@ -327,7 +327,7 @@ function createBrowserCspNonce() {
   return crypto.randomBytes(16).toString('base64');
 }
 
-function getBrowserSecurityHeaders(cspNonce = '') {
+function getBrowserSecurityHeaders(cspNonce = '', allowNonceScript = false) {
   const headers = { ...BASE_BROWSER_HEADERS };
   if (cspNonce) {
     headers['Content-Security-Policy'] = [
@@ -337,7 +337,7 @@ function getBrowserSecurityHeaders(cspNonce = '') {
       "object-src 'none'",
       "form-action 'self'",
       "img-src 'self'",
-      "script-src 'none'",
+      allowNonceScript ? `script-src 'nonce-${cspNonce}'` : "script-src 'none'",
       `style-src 'nonce-${cspNonce}'`,
     ].join('; ');
   }
@@ -356,16 +356,17 @@ function sendJSON(res, status, body, extraHeaders = {}) {
 }
 
 function sendHTML(res, status, html, extraHeaders = {}, cspNonce = '') {
-  // Apply the operator's saved theme (server cookie; CSP forbids client JS) to the root element.
+  // Apply the operator's saved theme (server cookie; CSP forbids client JS except the Live Simulator nonce script) to the root element.
   const theme = res && res.crowsnestTheme === 'dark' ? 'dark' : 'light';
   const themed = typeof html === 'string'
     ? html.replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
     : html;
+  const allowNonceScript = Boolean(cspNonce && typeof themed === 'string' && themed.includes('data-live-simulator-root'));
   res.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',
     'Content-Length': Buffer.byteLength(themed, 'utf8'),
     ...extraHeaders,
-    ...getBrowserSecurityHeaders(cspNonce),
+    ...getBrowserSecurityHeaders(cspNonce, allowNonceScript),
   });
   res.end(themed);
 }
@@ -1134,6 +1135,7 @@ function resolveProtectedUiView(pathname) {
   if (pathname === '/clients') return 'clients';
   if (pathname === '/billing') return 'billing';
   if (pathname === '/communications') return 'communications';
+  if (pathname === '/live-simulator') return 'live_simulator';
   if (pathname === '/sales') return 'sales';
   // `/`, `/crowsnest`, `/crowsnest/ui` → Spyglass
   return 'spyglass';
@@ -2476,6 +2478,7 @@ async function router(req, res) {
     || pathname === '/clients'
     || pathname === '/billing'
     || pathname === '/communications'
+    || pathname === '/live-simulator'
     || pathname === '/sales'
   ) {
     return handleProtectedUi(req, res, method, pathname);

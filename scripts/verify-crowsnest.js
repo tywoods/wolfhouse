@@ -104,6 +104,7 @@ const uiHtml = renderPageHtml(); // default = Spyglass
 const clientsHtml = renderPageHtml({ view: 'clients' });
 const billingHtml = renderPageHtml({ view: 'billing' });
 const communicationsHtml = renderPageHtml({ view: 'communications' });
+const liveSimulatorHtml = renderPageHtml({ view: 'live_simulator', cspNonce: 'verify-nonce' });
 const spyglassAliasHtml = renderPageHtml({ view: 'spyglass' });
 const productDoc = read(DOC_PRODUCT) || '';
 const planDoc = read(DOC_PLAN) || '';
@@ -149,6 +150,7 @@ ok('crowsnest-api requires crowsnest-live-simulator', apiSrc.includes("require('
 ok('router protects /clients', routerBody.includes("pathname === '/clients'"));
 ok('router protects /billing', routerBody.includes("pathname === '/billing'"));
 ok('router protects /communications', routerBody.includes("pathname === '/communications'"));
+ok('router protects /live-simulator', routerBody.includes("pathname === '/live-simulator'"));
 ok('router keeps Spyglass aliases /crowsnest and /crowsnest/ui', routerBody.includes("pathname === '/crowsnest'") && routerBody.includes("pathname === '/crowsnest/ui'"));
 ok('router keeps root / as Spyglass', routerBody.includes("pathname === '/'"));
 ok('handleProtectedUi passes view/route into page renderer', /renderCrowsnestPage\s*\(\s*\{[\s\S]*view\s*:/.test(protectedUiBody) || /renderCrowsnestPage\s*\(\s*\{[\s\S]*route\s*:/.test(protectedUiBody));
@@ -176,8 +178,9 @@ function assertSharedNav(label, html, activeHref) {
   ok(`${label} nav has Clients link`, navHrefPresent(html, '/clients'));
   ok(`${label} nav has Billing link`, navHrefPresent(html, '/billing'));
   ok(`${label} nav has Communications link`, navHrefPresent(html, '/communications'));
+  ok(`${label} nav has Live Simulator link`, navHrefPresent(html, '/live-simulator'));
   ok(`${label} nav has Sales link`, navHrefPresent(html, '/sales'));
-  ok(`${label} nav labels present`, /Spyglass/i.test(html) && />Clients</.test(html) && /Billing/i.test(html) && /Communications/i.test(html) && />Sales</.test(html));
+  ok(`${label} nav labels present`, /Spyglass/i.test(html) && />Clients</.test(html) && /Billing/i.test(html) && /Communications/i.test(html) && /Live Simulator/i.test(html) && />Sales</.test(html));
   ok(`${label} has exactly one aria-current=page`, countAriaCurrent(html) === 1);
   const activeRe = new RegExp(`<a\\b[^>]*\\bhref=["']${activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["'][^>]*aria-current=["']page["']|<a\\b[^>]*aria-current=["']page["'][^>]*\\bhref=["']${activeHref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']`, 'i');
   ok(`${label} aria-current on active href ${activeHref}`, activeRe.test(html));
@@ -191,6 +194,15 @@ assertSharedNav('Spyglass', uiHtml, '/');
 assertSharedNav('Clients', clientsHtml, '/clients');
 assertSharedNav('Billing', billingHtml, '/billing');
 assertSharedNav('Communications', communicationsHtml, '/communications');
+assertSharedNav('Live Simulator', liveSimulatorHtml, '/live-simulator');
+ok('Live Simulator view renders heading and controls', /<h1[^>]*>[\s\S]*Live Simulator/i.test(liveSimulatorHtml) && /data-live-simulator-form/.test(liveSimulatorHtml));
+ok('Live Simulator tenant dropdown maps Sunset/Wolfhouse values', /<option value="sunset">Sunset Luna<\/option>/.test(liveSimulatorHtml) && /<option value="wolfhouse">Wolfhouse Luna<\/option>/.test(liveSimulatorHtml));
+ok('Live Simulator uses API guest-turn endpoint only', /fetch\('\/api\/live-simulator\/guest-turn'/.test(liveSimulatorHtml));
+ok('Live Simulator has editable from phone number', /name="from_phone"[^>]*data-live-simulator-phone/.test(liveSimulatorHtml));
+ok('Live Simulator shows screenshot-friendly empty state', /Ready for a Luna turn/.test(liveSimulatorHtml) && /Luna replies will appear here/.test(liveSimulatorHtml));
+ok('Live Simulator visible limitation says writes and sends disabled', /writes and external sends disabled/i.test(liveSimulatorHtml) && /No booking\/payment UI writes/.test(liveSimulatorHtml) && /No WhatsApp or SMS sends/.test(liveSimulatorHtml));
+ok('Live Simulator browser code does not include tenant tokens', !/LUNA_BOT_INTERNAL_TOKEN|CROWSNEST_LIVE_SIM_.*TOKEN|X-Luna-Bot-Token/.test(liveSimulatorHtml));
+ok('CSP permits only nonce inline script for browser UI', /script-src '\$\{cspNonce\}'|script-src 'nonce-/.test(apiSrc) && !/script-src 'unsafe-inline'/.test(apiSrc));
 const salesHtml = renderPageHtml({ view: 'sales' });
 assertSharedNav('Sales', salesHtml, '/sales');
 ok('Sales view renders Sales heading', /<h1[^>]*>[\s\S]*Sales/i.test(salesHtml));
@@ -278,6 +290,8 @@ const CROWSNEST_LIB_DIR = path.join(ROOT, 'scripts', 'lib', 'crowsnest');
 const CROWSNEST_OUTBOUND_ALLOWLIST = new Set([
   // Slice B: dedicated Azure Container Apps Job-start adapter (injected fetch only).
   'crowsnest-spyglass-refresh-azure-job-start.js',
+  // Live Simulator UI uses browser fetch to the same-origin Crowsnest proxy only.
+  'crowsnest-page.js',
 ]);
 const crowsnestOutboundRe = /\bfetch\s*\(|require\(['"]axios|require\(['"]node-fetch|https?\.request\s*\(|https?\.get\s*\(/;
 const crowsnestLibOutboundViolations = fs.existsSync(CROWSNEST_LIB_DIR)
