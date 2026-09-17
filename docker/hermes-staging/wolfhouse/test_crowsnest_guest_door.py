@@ -177,6 +177,10 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(row["guest_phone"] == scope.inbox_phone for row in seen))
         self.assertTrue(all(row["suppress_approvals"] for row in seen))
         self.assertTrue(all(row["suppress_notifications"] for row in seen))
+        self.assertTrue(all(row["open_phone_testing"] is True for row in seen))
+        self.assertTrue(all(row["guest_tester_class"] == "Simulator" for row in seen))
+        self.assertTrue(all(row["simulator_source_phone"] == scope.synthetic_phone for row in seen))
+        self.assertTrue(all(row["guest_phone"] != row["simulator_source_phone"] for row in seen))
 
     async def test_caller_cancellation_revokes_and_collects_late_worker(self):
         task = asyncio.create_task(run_crowsnest_guest_turn(

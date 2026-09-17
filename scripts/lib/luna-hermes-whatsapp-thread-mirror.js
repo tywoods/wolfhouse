@@ -329,6 +329,11 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
     metadataBase.open_phone_testing = true;
     metadataBase.guest_tester_class = 'Simulator';
     metadataBase.whatsapp_delivered = false;
+    const simulatorSourcePhone = normalizeGuestPhone(channelHints.simulator_source_phone);
+    // Display-only provenance: durable lookup/insert remains guestPhone (+999).
+    if (simulatorSourcePhone && metadataBase.source_owner === 'crowsnest-guest-door') {
+      metadataBase.simulator_source_phone = simulatorSourcePhone;
+    }
   }
   const metadata = mergeSunsetInboundLocationMetadata(
     metadataBase,
@@ -395,6 +400,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
       location_id: i.location_id,
       simulator_synthetic: i.simulator_synthetic === true,
       source_owner: i.source_owner,
+      simulator_source_phone: i.simulator_source_phone,
     },
   );
   if (!ensured || !ensured.conversation_id) {

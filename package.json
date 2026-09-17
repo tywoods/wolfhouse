@@ -92,6 +92,7 @@
     "verify:crowsnest": "node scripts/verify-crowsnest.js",
     "verify:crowsnest-auth": "node scripts/verify-crowsnest-auth.js",
     "verify:crowsnest-live-simulator": "node scripts/verify-crowsnest-live-simulator.js",
+    "verify:owner-lab-crowsnest": "node scripts/verify-owner-lab-crowsnest.js",
     "verify:crowsnest-ai-usage-contract": "node scripts/verify-crowsnest-ai-usage-contract.js",
     "verify:crowsnest-ai-usage-adapter": "node scripts/verify-crowsnest-ai-usage-adapter.js",
     "verify:crowsnest-ai-usage-store": "node scripts/verify-crowsnest-ai-usage-store.js",

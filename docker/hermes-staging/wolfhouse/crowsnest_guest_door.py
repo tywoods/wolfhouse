@@ -91,7 +91,9 @@ def simulator_mirror_fields(
         "source_owner": "crowsnest-guest-door",
         "suppress_notifications": True,
         "suppress_approvals": True,
+        "open_phone_testing": True,
         "guest_tester_class": "Simulator",
+        "simulator_source_phone": scope.synthetic_phone,
         "whatsapp_delivered": False,
         "simulator_session_key": scope.session_key,
         "simulator_source_phone_hash": hashlib.sha256(
