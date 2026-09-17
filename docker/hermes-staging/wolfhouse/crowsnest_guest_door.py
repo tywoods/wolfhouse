@@ -37,6 +37,7 @@ _GLOBAL_LIMIT: Optional[asyncio.Semaphore] = None
 _INSTALLED_STAFF: set[int] = set()
 _INSTALLED_WHATSAPP: set[int] = set()
 _EXECUTOR_GUARD_INSTALLED = False
+_PENDING_SIM_REPLIES: Dict[str, str] = {}
 _PHONE_RE = re.compile(r"^\+?[0-9]{10,15}$")
 
 
@@ -169,32 +170,45 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
         original_send = adapter_cls.send
 
         async def guarded_send(self, chat_id, content, reply_to=None, metadata=None):
+            from gateway.platforms.base import SendResult
+
             scope = current_crowsnest_scope()
-            synthetic_destination = str(chat_id or "").startswith("crowsnest-sim:")
+            chat_key = str(chat_id or "")
+            synthetic_destination = chat_key.startswith("crowsnest-sim:")
+            text = str(content or "").strip()
             if scope is None and not synthetic_destination:
                 return await original_send(
                     self, chat_id, content, reply_to=reply_to, metadata=metadata
                 )
+            # Capture reply even when ContextVar was stripped on a background task.
+            if synthetic_destination and text:
+                _PENDING_SIM_REPLIES[chat_key] = text
             if scope is None:
                 # Permanent destination denial survives unsupported queues that
-                # accidentally strip ContextVars.
-                return SimpleNamespace(
-                    success=False,
-                    message_id=None,
+                # accidentally strip ContextVars. Still return a real SendResult
+                # so gateway retry/fallback never AttributeErrors on .error.
+                return SendResult(
+                    success=True,
+                    message_id=f"crowsnest-suppressed-{uuid.uuid4().hex[:12]}",
+                    error=None,
                     raw_response={
                         "simulator": True,
                         "whatsapp_suppressed": True,
-                        "reason": "request_scope_missing",
+                        "reason": "request_scope_missing_captured",
                     },
+                    retryable=False,
                 )
             # No authority can be acquired later: active, revoked and timed-out
             # simulator work all terminate here without calling real transport.
             scope.transport_attempts += 1
-            scope.reply_text = str(content or "").strip()
-            return SimpleNamespace(
+            if text:
+                scope.reply_text = text
+            return SendResult(
                 success=True,
                 message_id=f"crowsnest-suppressed-{uuid.uuid4().hex[:12]}",
+                error=None,
                 raw_response={"simulator": True, "whatsapp_suppressed": True},
+                retryable=False,
             )
 
         guarded_send._crowsnest_request_guard = True  # type: ignore[attr-defined]
@@ -215,17 +229,29 @@ def _find_staff_module() -> Any:
     import importlib
     import sys
 
-    for name in ("wolfhouse_staff_api", "plugins.wolfhouse_staff_api"):
+    # Live Hermes directory plugins load as hermes_plugins.<slug>.
+    candidates = (
+        "hermes_plugins.wolfhouse_staff_api",
+        "wolfhouse_staff_api",
+        "plugins.wolfhouse_staff_api",
+    )
+    for name in candidates:
         loaded = sys.modules.get(name)
         if loaded is not None and hasattr(loaded, "_post_bot"):
             return loaded
-    for name in ("plugins.wolfhouse_staff_api", "wolfhouse_staff_api"):
+    for name in candidates:
         try:
             loaded = importlib.import_module(name)
             if hasattr(loaded, "_post_bot"):
                 return loaded
         except Exception:
             continue
+    # Last resort: any already-loaded module that owns the Staff bot transport.
+    for loaded in list(sys.modules.values()):
+        if loaded is not None and hasattr(loaded, "_post_bot") and hasattr(loaded, "register"):
+            mod_name = getattr(loaded, "__name__", "") or ""
+            if "staff_api" in mod_name or "wolfhouse_staff" in mod_name:
+                return loaded
     return None
 
 
@@ -242,38 +268,30 @@ def _global_limit() -> asyncio.Semaphore:
 
 
 def _make_event(scope: CrowsnestGuestScope, text: str) -> Any:
-    try:
-        from gateway.config import Platform
-        from gateway.platforms.base import MessageEvent, MessageType
-        from gateway.session import SessionSource
+    from gateway.config import Platform
+    from gateway.platforms.base import MessageEvent, MessageType
+    from gateway.session import SessionSource
 
-        source = SessionSource(
-            platform=Platform.WHATSAPP_CLOUD,
-            chat_id=scope.session_key,
-            user_id=scope.session_key,
-            chat_type="dm",
-            user_name="Simulator",
-        )
-        return MessageEvent(
-            text=text,
-            message_type=MessageType.TEXT,
-            source=source,
-            message_id=f"crowsnest.sim.{uuid.uuid4().hex}",
-            metadata={"crowsnest_simulator": True, "simulator_session_key": scope.session_key},
-        )
-    except Exception:
-        return SimpleNamespace(
-            text=text,
-            source=SimpleNamespace(
-                platform=SimpleNamespace(value="whatsapp_cloud"),
-                chat_id=scope.session_key,
-                user_id=scope.session_key,
-                chat_type="dm",
-                user_name="Simulator",
-            ),
-            message_id=f"crowsnest.sim.{uuid.uuid4().hex}",
-            metadata={"crowsnest_simulator": True, "simulator_session_key": scope.session_key},
-        )
+    # Pinned MessageEvent has no metadata kwarg; attach after construction so the
+    # mirror skip and request-owned guards can still read crowsnest_simulator.
+    source = SessionSource(
+        platform=Platform.WHATSAPP_CLOUD,
+        chat_id=scope.session_key,
+        user_id=scope.session_key,
+        chat_type="dm",
+        user_name="Simulator",
+    )
+    event = MessageEvent(
+        text=text,
+        message_type=MessageType.TEXT,
+        source=source,
+        message_id=f"crowsnest.sim.{uuid.uuid4().hex}",
+    )
+    event.metadata = {
+        "crowsnest_simulator": True,
+        "simulator_session_key": scope.session_key,
+    }
+    return event
 
 
 async def _call_mirror(mirror: Callable[..., Any], **kwargs: Any) -> Any:
@@ -284,6 +302,12 @@ async def _call_mirror(mirror: Callable[..., Any], **kwargs: Any) -> Any:
 async def _default_mirror(*, direction: str, phone: str, text: str, scope: CrowsnestGuestScope) -> Any:
     import wolfhouse_whatsapp_mirror as mirror_mod  # type: ignore
 
+    # Staff auto-mode outbound requires whatsapp_message_id for durable rows.
+    # Simulator never sends Meta traffic; mint a request-owned synthetic id.
+    synthetic_wamid = (
+        f"wamid.crowsnest.sim.{scope.request_id}.{direction}."
+        f"{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
+    )
     payload = {
         "client_slug": "sunset",
         "guest_phone": scope.inbox_phone,
@@ -291,17 +315,27 @@ async def _default_mirror(*, direction: str, phone: str, text: str, scope: Crows
         "message_text": text[:4000],
         **simulator_mirror_fields(scope),
         "location_id": "sunset-somo",
+        "whatsapp_message_id": synthetic_wamid,
         "idempotency_key": hashlib.sha256(
             f"{scope.request_id}:{direction}:{text}".encode("utf-8")
         ).hexdigest()[:32],
     }
     # Durable readback: this call returns only after Staff API persisted the row.
     posted = await asyncio.to_thread(mirror_mod._post_mirror_sync, payload)
-    thread = posted.get("thread") if isinstance(posted, dict) else None
-    durable = isinstance(thread, dict) and (
-        thread.get("persisted") is True or thread.get("duplicate") is True
+    if not isinstance(posted, dict):
+        raise RuntimeError("inbox_persist_unconfirmed")
+    # Staff whatsapp-thread-mirror returns success + thread_message; accept legacy
+    # ok/thread aliases so older fixtures keep working.
+    acknowledged = posted.get("success") is True or posted.get("ok") is True
+    thread = posted.get("thread_message")
+    if not isinstance(thread, dict):
+        thread = posted.get("thread") if isinstance(posted.get("thread"), dict) else {}
+    durable = bool(thread) and (
+        thread.get("persisted") is True
+        or thread.get("duplicate") is True
+        or thread.get("draft_staged") is True
     )
-    if not isinstance(posted, dict) or posted.get("ok") is not True or not durable:
+    if not acknowledged or not durable:
         raise RuntimeError("inbox_persist_unconfirmed")
     return posted
 
@@ -397,7 +431,8 @@ async def run_crowsnest_guest_turn(
                     "transport_attempts": scope.transport_attempts,
                 }
             result = task.result()
-            reply = str(result or scope.reply_text or "").strip()
+            pending = _PENDING_SIM_REPLIES.pop(scope.session_key, "")
+            reply = str(result or scope.reply_text or pending or "").strip()
             if not reply:
                 raise RuntimeError("missing_reply")
             await _call_mirror(
