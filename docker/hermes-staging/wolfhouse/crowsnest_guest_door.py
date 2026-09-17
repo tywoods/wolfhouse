@@ -144,8 +144,6 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                 path,
                 payload or {},
                 allow_writes=False,
-                booking_only_mode="",
-                synthetic_identity=scope.synthetic_phone,
             )
             if is_simulate_write_blocked(warnings):
                 result = synthetic_blocked_result(norm, warnings, allow_writes=False)

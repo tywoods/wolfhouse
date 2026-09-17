@@ -207,6 +207,41 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ordinary["path"], "/ordinary")
 
+    async def test_guest_door_accepts_deployed_guard_contract_for_reads_and_handoff(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        original_guard = door.guard_bot_path_and_payload
+
+        def deployed_guard(path, payload, *, allow_writes):
+            return original_guard(path, payload, allow_writes=allow_writes)
+
+        door.guard_bot_path_and_payload = deployed_guard
+        try:
+            scope = CrowsnestGuestScope.create("+34" + "600111888")
+            token = door._SCOPE.set(scope)
+            try:
+                availability = self.staff._post_bot(
+                    "/sunset/lesson-availability", {"date": "2026-09-18"}
+                )
+                handoff = self.staff._post_bot(
+                    "/needs-human", {"reason": "guest_requested_human"}
+                )
+            finally:
+                door._SCOPE.reset(token)
+        finally:
+            door.guard_bot_path_and_payload = original_guard
+
+        self.assertTrue(availability["success"])
+        self.assertTrue(handoff["success"])
+        self.assertEqual(
+            [path for path, _payload in self.staff.calls],
+            [
+                "/staff/bot/sunset/lesson-availability",
+                "/staff/bot/needs-human",
+            ],
+        )
+        self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
+
 
 if __name__ == "__main__":
     unittest.main()
