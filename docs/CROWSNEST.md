@@ -47,7 +47,7 @@ Later, operators may also:
 | Login portal (live) | `GET /login` renders the branded operator sign-in page; `POST /login` issues an in-memory session cookie; `POST /logout` clears it |
 | Browser access (live) | Unauthenticated UI requests to `/`, `/crowsnest`, and `/crowsnest/ui` redirect `302` to `/login` with no Basic challenge; legacy Basic Auth still works if supplied |
 | Asset route (live) | `/crowsnest/assets/logo.png` serves the bundled logo as `image/png` with long-lived cache headers |
-| Writes / DB / Stripe / WhatsApp | **None** |
+| Writes / DB / Stripe / WhatsApp | Crowsnest does not own tenant writes. Live Simulator proxy is staging/no-send only and hard-denies booking/payment/message writes. |
 | Deploy / Azure / domain | Live standalone app with login portal promoted — see location/deploy plans |
 
 The current UI is only a safe shell. The AI Usage Panel has not been implemented yet.
@@ -194,11 +194,38 @@ Legacy single-account smoke (fallback only):
 CROWSNEST_AUTH_REQUIRED=true CROWSNEST_AUTH_USERNAME=admin CROWSNEST_AUTH_PASSWORD=admin npm run crowsnest:start
 ```
 
+### Crows Nest Live Simulator API (API slice, no UI yet)
+
+Protected server-side endpoint: `POST /api/live-simulator/guest-turn`.
+
+Request JSON:
+
+```json
+{
+  "tenant": "wolfhouse",
+  "from_phone": "+491701234567",
+  "text": "Hi Luna, do you have space next week?",
+  "lang": "en"
+}
+```
+
+Contract:
+
+- `tenant` selects the tenant Luna runtime: `wolfhouse` → Wolfhouse Luna on declared local port **8090**; `sunset` → Sunset Luna on declared local port **8094**.
+- Crowsnest forwards only to the safely scoped tenant simulator route `POST /wolfhouse/simulate-guest-turn` on `localhost` / `127.0.0.1`; non-local origins fail closed.
+- `from_phone` is normalized to E.164 digits and forwarded as both `thread` and `guest_phone`. Conversation memory is therefore scoped by **tenant + phone**: the same phone continues that tenant's simulated guest; an unused phone starts a new simulated guest; the same phone on another tenant is separate.
+- Luna bot credentials stay server-side (`CROWSNEST_LIVE_SIM_WOLFHOUSE_TOKEN`, `CROWSNEST_LIVE_SIM_SUNSET_TOKEN`; fallback to existing internal-token envs where configured) and are never returned in the API response.
+- First slice limitation: `allow_writes` is forced false. Response includes `limitation.limitation_flag = "writes_and_external_sends_disabled"`, `writes_enabled:false`, `whatsapp_sends_enabled:false`, `sms_sends_enabled:false`, plus the denied action list. Tenant simulator output should report `whatsapp_suppressed:true` when the live runtime captured rather than sent the reply.
+- Denied write/send actions include booking/payment links, add services/catalog camps, transfer/contact/package updates, handoff flag writes, WhatsApp sends, and SMS sends. Reads/tool lookups are allowed through the tenant simulator.
+
+Verify with `npm run verify:crowsnest-live-simulator`.
+
 Verify:
 
 ```bash
 npm run verify:crowsnest
 npm run verify:crowsnest-auth
+npm run verify:crowsnest-live-simulator
 npm run verify:crowsnest-sales
 npm run verify:crowsnest-sales-ux
 npm run verify:crowsnest-sales-durable

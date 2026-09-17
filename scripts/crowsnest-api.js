@@ -129,6 +129,11 @@ const {
 const {
   createAzureContainerAppsJobStartTransport,
 } = require('./lib/crowsnest/crowsnest-spyglass-refresh-azure-job-start');
+const {
+  LIVE_SIMULATOR_ROUTE,
+  parseJsonBody,
+  runLiveSimulatorTurn,
+} = require('./lib/crowsnest/crowsnest-live-simulator');
 
 const METRICS_INGEST_TOKEN_ENV = 'CROWSNEST_METRICS_INGEST_TOKEN';
 const METRICS_INGEST_MAX_BODY = 64 * 1024; // snapshots are tiny; cap the surface
@@ -239,6 +244,40 @@ async function handleAiUsageIngest(req, res, method) {
     code: (result && result.code) || 'rejected',
     errors: (result && result.errors) || undefined,
   }, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/live-simulator/guest-turn — authenticated operators only. Proxies a
+// staging Luna turn to the tenant-local simulator route while keeping bot tokens
+// server-side. The caller-selected from_phone is the memory key inside that
+// tenant runtime; writes and external sends are hard disabled.
+async function handleLiveSimulatorGuestTurn(req, res, method) {
+  if (method !== 'POST') {
+    return sendMethodNotAllowed(res, 'POST');
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendJSON(res, 401, { success: false, error: 'unauthorized' }, { 'Cache-Control': 'no-store' });
+  }
+
+  let raw;
+  try {
+    raw = await readLimitedBody(req, 16 * 1024);
+  } catch {
+    return sendPayloadTooLarge(res);
+  }
+  const parsed = parseJsonBody(raw);
+  if (!parsed.ok) {
+    return sendJSON(res, parsed.status || 400, { ok: false, code: parsed.error, error: parsed.error }, { 'Cache-Control': 'no-store' });
+  }
+
+  const body = parsed.body || {};
+  const result = await runLiveSimulatorTurn({
+    tenantId: body.tenant || body.client || body.runtime,
+    fromPhone: body.from_phone || body.fromPhone || body.guest_phone || body.phone,
+    text: body.text || body.message_text || body.message,
+    lang: body.lang || body.language,
+  });
+  const status = result.status || (result.ok ? 200 : 400);
+  return sendJSON(res, status, result, { 'Cache-Control': 'no-store' });
 }
 
 const PORT = Number(process.env.CROWSNEST_PORT) || 3040;
@@ -2341,6 +2380,10 @@ async function router(req, res) {
     return handleAiUsageIngest(req, res, method);
   }
 
+  if (pathname === LIVE_SIMULATOR_ROUTE) {
+    return handleLiveSimulatorGuestTurn(req, res, method);
+  }
+
   if (pathname === '/spyglass/refresh-all') {
     return handleSpyglassRefreshAll(req, res, method);
   }
@@ -2477,6 +2520,7 @@ module.exports = {
   HOST,
   sendSalesUnavailable,
   handleClientMetricsIngest,
+  handleLiveSimulatorGuestTurn,
   handleSpyglassRefreshAll,
   METRICS_INGEST_TOKEN_ENV,
 };
