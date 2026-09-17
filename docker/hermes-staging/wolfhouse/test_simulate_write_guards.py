@@ -141,6 +141,42 @@ class GuardPathTests(unittest.TestCase):
                 os.environ["BOT_BOOKING_ENABLED"] = old
 
 
+    def test_sunset_isolated_mode_allows_only_scoped_test_flows(self):
+        old = os.environ.get("BOT_BOOKING_ENABLED")
+        os.environ["BOT_BOOKING_ENABLED"] = "true"
+        try:
+            for path, warning in (
+                ("/sunset/booking-create", "allowed_sunset_isolated_booking"),
+                ("/sunset/payment-link", "allowed_sunset_isolated_test_payment"),
+                ("/sunset/payment-status", "allowed_sunset_isolated_payment_status"),
+                ("/sunset/waiver-link", "allowed_sunset_isolated_waiver"),
+            ):
+                _norm, body, warnings = guard_bot_path_and_payload(
+                    path, {"guest_phone": "+34600001222"}, allow_writes=False,
+                    booking_only_mode="sunset_isolated",
+                    synthetic_identity="+34600001222",
+                )
+                self.assertIn(warning, warnings)
+                self.assertFalse(is_simulate_write_blocked(warnings))
+                self.assertTrue(body.get("simulator_isolated_mode"))
+            _norm, _body, warnings = guard_bot_path_and_payload(
+                "/sunset/payment-link", {"guest_phone": "+34600009999"},
+                allow_writes=False, booking_only_mode="sunset_isolated",
+                synthetic_identity="+34600001222",
+            )
+            self.assertTrue(is_simulate_write_blocked(warnings))
+            _norm, _body, warnings = guard_bot_path_and_payload(
+                "/transfers/save", {}, allow_writes=False,
+                booking_only_mode="sunset_isolated", synthetic_identity="+34600001222",
+            )
+            self.assertNotIn("allowed_sunset_isolated", " ".join(warnings))
+        finally:
+            if old is None:
+                os.environ.pop("BOT_BOOKING_ENABLED", None)
+            else:
+                os.environ["BOT_BOOKING_ENABLED"] = old
+
+
 class WrappedPostBotTests(unittest.TestCase):
     def test_wrapped_post_bot_never_calls_orig_for_sunset_writes(self):
         import types

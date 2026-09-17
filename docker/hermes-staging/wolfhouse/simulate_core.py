@@ -42,6 +42,7 @@ class SimulateCapture:
     warnings: List[str] = field(default_factory=list)
     allow_writes: bool = False
     booking_only_mode: str = ""
+    synthetic_identity: str = ""
     orig_send: Any = None
     orig_post_bot: Any = None
     patched_send: bool = False
@@ -203,6 +204,7 @@ def _install_tool_capture(cap: SimulateCapture) -> None:
             payload or {},
             allow_writes=cap.allow_writes,
             booking_only_mode=cap.booking_only_mode,
+            synthetic_identity=cap.synthetic_identity,
         )
         cap.warnings.extend(guard_warnings)
         if not cap.allow_writes and is_simulate_write_blocked(guard_warnings):
@@ -226,6 +228,11 @@ def _install_tool_capture(cap: SimulateCapture) -> None:
                 "name": tool_name_from_path(norm_path),
                 "args": dict(payload or {}),
                 "result_summary": summarize_tool_result(result),
+                "follow_up_links": {
+                    key: result.get(key)
+                    for key in ("secure_payment_url", "guest_payment_url", "payment_short_url", "waiver_url", "waiver_public_url")
+                    if isinstance(result, dict) and result.get(key)
+                },
                 "simulate_guard": guard_warnings or None,
             }
         )
@@ -319,6 +326,7 @@ async def run_simulated_turn(
     lang: Optional[str] = None,
     allow_writes: bool = False,
     booking_only_mode: str = "",
+    synthetic_identity: str = "",
     timeout_sec: float = 180.0,
 ) -> Dict[str, Any]:
     assert_staging_environment()
@@ -326,12 +334,17 @@ async def run_simulated_turn(
     if not text or not str(text).strip():
         raise ValueError("text is required")
 
-    cap = SimulateCapture(allow_writes=allow_writes, booking_only_mode=str(booking_only_mode or ""))
+    cap = SimulateCapture(
+        allow_writes=allow_writes,
+        booking_only_mode=str(booking_only_mode or ""),
+        synthetic_identity=str(synthetic_identity or ""),
+    )
     cap.language_detected = _detect_language(text, lang)
 
     os.environ["WOLFHOUSE_SIMULATE_GUEST_TURN"] = "1"
     os.environ["WOLFHOUSE_SIMULATE_ALLOW_WRITES"] = "1" if allow_writes else "0"
     os.environ["WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES"] = "1" if cap.booking_only_mode == "sunset_booking_only" else "0"
+    os.environ["WOLFHOUSE_SIMULATE_ISOLATED_WRITES"] = "1" if cap.booking_only_mode == "sunset_isolated" else "0"
     os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = f"+{digits}"
     os.environ["WHATSAPP_GUEST_PHONE"] = f"+{digits}"
 
@@ -367,6 +380,7 @@ async def run_simulated_turn(
         _remove_patches(cap)
         os.environ.pop("WOLFHOUSE_SIMULATE_GUEST_TURN", None)
         os.environ.pop("WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES", None)
+        os.environ.pop("WOLFHOUSE_SIMULATE_ISOLATED_WRITES", None)
 
     session_id = _resolve_session_id(digits)
 
@@ -429,6 +443,7 @@ async def run_simulated_burst(
     os.environ["WOLFHOUSE_SIMULATE_GUEST_TURN"] = "1"
     os.environ["WOLFHOUSE_SIMULATE_ALLOW_WRITES"] = "1" if allow_writes else "0"
     os.environ["WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES"] = "1" if cap.booking_only_mode == "sunset_booking_only" else "0"
+    os.environ["WOLFHOUSE_SIMULATE_ISOLATED_WRITES"] = "1" if cap.booking_only_mode == "sunset_isolated" else "0"
     os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = f"+{digits}"
     os.environ["WHATSAPP_GUEST_PHONE"] = f"+{digits}"
 
@@ -511,6 +526,7 @@ async def run_simulated_burst(
         _remove_patches(cap)
         os.environ.pop("WOLFHOUSE_SIMULATE_GUEST_TURN", None)
         os.environ.pop("WOLFHOUSE_SIMULATE_BOOKING_ONLY_WRITES", None)
+        os.environ.pop("WOLFHOUSE_SIMULATE_ISOLATED_WRITES", None)
 
     session_id = _resolve_session_id(digits)
     burst_snap: Dict[str, Any] = {}
@@ -613,6 +629,7 @@ def register_simulate_route(app) -> None:
                 lang=body.get("lang") or body.get("language"),
                 allow_writes=bool(body.get("allow_writes")),
                 booking_only_mode=str(body.get("simulator_write_mode") or ""),
+                synthetic_identity=str(body.get("simulator_synthetic_identity") or ""),
             )
         except SystemExit as exc:
             from aiohttp import web

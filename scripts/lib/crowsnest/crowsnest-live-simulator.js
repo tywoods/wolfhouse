@@ -18,6 +18,7 @@ const LIVE_SIMULATOR_ROUTE = '/api/live-simulator/guest-turn';
 const TENANT_SIMULATE_PATH = '/wolfhouse/simulate-guest-turn';
 const ALLOWED_HOSTS_ENV = 'CROWSNEST_LIVE_SIM_ALLOWED_HOSTS';
 const SUNSET_BOOKING_ONLY_MODE = 'sunset_booking_only';
+const SUNSET_ISOLATED_MODE = 'sunset_isolated';
 
 const WRITE_DENY_LIST = Object.freeze([
   'create_booking_from_plan',
@@ -178,8 +179,11 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     message_text: messageText,
     allow_writes: false,
   };
-  const bookingOnlyMode = tenant === 'sunset';
-  if (bookingOnlyMode) payload.simulator_write_mode = SUNSET_BOOKING_ONLY_MODE;
+  const isolatedMode = tenant === 'sunset';
+  if (isolatedMode) {
+    payload.simulator_write_mode = SUNSET_ISOLATED_MODE;
+    payload.simulator_synthetic_identity = phone.e164;
+  }
   const safeLang = sanitizeLang(lang);
   if (safeLang) payload.lang = safeLang;
 
@@ -196,22 +200,26 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     phone,
     payload,
     headers,
-    limitation: buildLiveSimulatorLimitation({ bookingOnlyMode: tenant === 'sunset' }),
+    limitation: buildLiveSimulatorLimitation({ isolatedMode: tenant === 'sunset' }),
   };
 }
 
 function buildLiveSimulatorLimitation(options = {}) {
   const bookingOnlyMode = options.bookingOnlyMode === true;
+  const isolatedMode = options.isolatedMode === true;
   return {
     staging_only: true,
     writes_enabled: false,
-    booking_writes_enabled: bookingOnlyMode,
-    booking_write_mode: bookingOnlyMode ? SUNSET_BOOKING_ONLY_MODE : null,
+    booking_writes_enabled: bookingOnlyMode || isolatedMode,
+    booking_write_mode: isolatedMode ? SUNSET_ISOLATED_MODE : (bookingOnlyMode ? SUNSET_BOOKING_ONLY_MODE : null),
     whatsapp_sends_enabled: false,
     sms_sends_enabled: false,
     payments_enabled: false,
     waiver_creation_enabled: false,
-    limitation_flag: bookingOnlyMode ? 'sunset_booking_only_writes_enabled' : 'writes_and_external_sends_disabled',
+    test_payments_enabled: isolatedMode,
+    payment_status_enabled: isolatedMode,
+    waiver_registration_enabled: isolatedMode,
+    limitation_flag: isolatedMode ? 'sunset_isolated_test_flows_enabled' : (bookingOnlyMode ? 'sunset_booking_only_writes_enabled' : 'writes_and_external_sends_disabled'),
     denied_actions: WRITE_DENY_LIST.slice(),
   };
 }
@@ -336,6 +344,7 @@ module.exports = {
   LIVE_SIMULATOR_ROUTE,
   TENANT_SIMULATE_PATH,
   SUNSET_BOOKING_ONLY_MODE,
+  SUNSET_ISOLATED_MODE,
   TENANTS,
   WRITE_DENY_LIST,
   buildLiveSimulatorLimitation,
