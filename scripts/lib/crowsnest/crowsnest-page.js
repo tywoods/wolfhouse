@@ -1359,15 +1359,128 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
   white-space:nowrap;
   border:0;
 }
+
+.live-simulator-shell{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:16px;
+}
+@media(min-width:980px){
+  .live-simulator-shell{grid-template-columns:minmax(280px,360px) minmax(0,1fr);align-items:start}
+}
+.live-simulator-form{
+  display:grid;
+  gap:14px;
+}
+.live-simulator-form label{
+  display:grid;
+  gap:6px;
+  color:var(--navy);
+  font-size:13px;
+  font-weight:800;
+}
+.live-simulator-form select,
+.live-simulator-form input,
+.live-simulator-form textarea{
+  width:100%;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  background:var(--surface-raised);
+  color:var(--charcoal);
+  font:inherit;
+  padding:10px 12px;
+}
+.live-simulator-form textarea{min-height:130px;resize:vertical;line-height:1.45}
+.live-simulator-help{display:block;color:var(--text-3);font-size:12px;font-weight:600;line-height:1.35}
+.live-simulator-limitation{
+  display:grid;
+  gap:8px;
+  padding:12px 14px;
+  border:1px solid rgba(154,107,27,.28);
+  border-radius:var(--radius-sm);
+  background:var(--amber-soft);
+  color:var(--amber);
+  font-size:13px;
+}
+.live-simulator-limitation strong{color:var(--amber)}
+.live-simulator-limitation ul{margin:0 0 0 18px;color:var(--amber)}
+.live-simulator-chat{
+  display:grid;
+  gap:12px;
+  min-height:520px;
+}
+.live-simulator-thread{
+  min-height:420px;
+  max-height:680px;
+  overflow:auto;
+  padding:14px;
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(255,252,247,.92));
+  box-shadow:var(--shadow-soft) inset;
+}
+html[data-theme="dark"] .live-simulator-thread{
+  background:linear-gradient(180deg,rgba(33,41,50,.7),rgba(26,32,39,.92));
+}
+.live-simulator-empty{
+  display:grid;
+  place-items:center;
+  min-height:360px;
+  text-align:center;
+  color:var(--text-3);
+}
+.live-simulator-empty-inner{max-width:430px}
+.live-simulator-empty-icon{font-size:38px;margin-bottom:10px}
+.live-simulator-empty h2{margin:0 0 8px;color:var(--navy);font-size:1.2rem}
+.live-simulator-message{
+  width:fit-content;
+  max-width:min(680px,88%);
+  margin:0 0 12px;
+  padding:10px 12px;
+  border-radius:16px;
+  border:1px solid var(--border-soft);
+  background:var(--surface-raised);
+  box-shadow:var(--shadow-soft);
+}
+.live-simulator-message--operator{margin-left:auto;background:var(--sea-soft);border-color:rgba(74,124,148,.25)}
+.live-simulator-message--luna{margin-right:auto;background:var(--surface-raised)}
+.live-simulator-message--system{max-width:100%;width:100%;background:var(--amber-soft);border-color:rgba(154,107,27,.28);color:var(--amber)}
+.live-simulator-message-meta{
+  display:block;
+  margin-bottom:4px;
+  color:var(--text-3);
+  font-size:11px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.live-simulator-message-text{white-space:pre-wrap;color:var(--charcoal)}
+.live-simulator-status{
+  min-height:20px;
+  color:var(--text-3);
+  font-size:13px;
+  font-weight:700;
+}
+.live-simulator-status[role="alert"]{color:var(--red)}
+.live-simulator-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  color:var(--text-3);
+  font-size:12px;
+}
+.live-simulator-meta code{font-size:12px}
+
 `;
 
-const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft', 'sales_discovery', 'sales_analytics', 'sales_governance']);
+const CROWSNEST_VIEWS = new Set(['spyglass', 'clients', 'billing', 'communications', 'live_simulator', 'sales', 'sales_detail', 'sales_review', 'sales_crm_preview', 'sales_outreach_draft', 'sales_discovery', 'sales_analytics', 'sales_governance']);
 
 const CROWSNEST_NAV_ITEMS = [
   { view: 'spyglass', href: '/', label: 'Spyglass' },
   { view: 'clients', href: '/clients', label: 'Clients' },
   { view: 'billing', href: '/billing', label: 'Billing' },
   { view: 'communications', href: '/communications', label: 'Communications' },
+  { view: 'live_simulator', href: '/live-simulator', label: 'Live Simulator' },
   { view: 'sales', href: '/sales', label: 'Sales' },
 ];
 
@@ -3205,10 +3318,143 @@ function renderSalesDiscoveryMain(options = {}) {
     </section>`;
 }
 
+
+function renderLiveSimulatorMain() {
+  return `<section id="live-simulator" class="live-simulator-shell" aria-labelledby="live-simulator-title" data-live-simulator-root>
+      <article class="card">
+        <h2 class="section">Simulator controls</h2>
+        <p class="section-note">Pick the Luna runtime and guest phone. Reusing the same phone continues that simulated guest for that tenant; an unused phone starts fresh.</p>
+        <form class="live-simulator-form" data-live-simulator-form>
+          <label for="live-simulator-tenant">Tenant
+            <select id="live-simulator-tenant" name="tenant" data-live-simulator-tenant>
+              <option value="sunset">Sunset Luna</option>
+              <option value="wolfhouse">Wolfhouse Luna</option>
+            </select>
+          </label>
+          <label for="live-simulator-phone">From phone number
+            <input id="live-simulator-phone" name="from_phone" type="tel" inputmode="tel" autocomplete="off" value="+34600000001" data-live-simulator-phone>
+            <span class="live-simulator-help">10–15 digits; the same tenant + number keeps memory continuity.</span>
+          </label>
+          <label for="live-simulator-message">Guest message
+            <textarea id="live-simulator-message" name="text" data-live-simulator-text placeholder="Hi, do you have space next weekend?"></textarea>
+          </label>
+          <button class="btn-primary" type="submit" data-live-simulator-submit>Send guest turn</button>
+        </form>
+        <div class="live-simulator-limitation" aria-label="Live Simulator limitation">
+          <strong>Visible limitation: writes and external sends disabled</strong>
+          <ul>
+            <li>No booking/payment UI writes.</li>
+            <li>No WhatsApp or SMS sends.</li>
+            <li>The API forces <code>allow_writes:false</code> for this slice.</li>
+          </ul>
+        </div>
+      </article>
+      <article class="card live-simulator-chat">
+        <div class="panel-head">
+          <h2 class="panel-title">Conversation thread</h2>
+          <span class="sample-badge sample-badge--live">Operator session</span>
+        </div>
+        <div class="live-simulator-thread" data-live-simulator-thread aria-live="polite">
+          <div class="live-simulator-empty" data-live-simulator-empty>
+            <div class="live-simulator-empty-inner">
+              <div class="live-simulator-empty-icon" aria-hidden="true">🌙</div>
+              <h2>Ready for a Luna turn</h2>
+              <p>Choose Sunset or Wolfhouse, keep or edit the phone number, then send a guest message. Luna replies will appear here.</p>
+            </div>
+          </div>
+        </div>
+        <p class="live-simulator-status" data-live-simulator-status>Idle — no simulated guest turns yet.</p>
+        <div class="live-simulator-meta" aria-label="Simulator request metadata">
+          <span>Endpoint: <code>/api/live-simulator/guest-turn</code></span>
+          <span>Browser tokens: <code>none</code></span>
+        </div>
+      </article>
+    </section>`;
+}
+
+function renderLiveSimulatorScript(nonce) {
+  if (!nonce) return '';
+  const nonceAttr = ` nonce="${escapeHtml(nonce)}"`;
+  return `<script${nonceAttr}>
+(() => {
+  const root = document.querySelector('[data-live-simulator-root]');
+  if (!root) return;
+  const form = root.querySelector('[data-live-simulator-form]');
+  const tenant = root.querySelector('[data-live-simulator-tenant]');
+  const phone = root.querySelector('[data-live-simulator-phone]');
+  const text = root.querySelector('[data-live-simulator-text]');
+  const submit = root.querySelector('[data-live-simulator-submit]');
+  const thread = root.querySelector('[data-live-simulator-thread]');
+  const empty = root.querySelector('[data-live-simulator-empty]');
+  const status = root.querySelector('[data-live-simulator-status]');
+  function setStatus(message, alert) {
+    status.textContent = message;
+    if (alert) status.setAttribute('role', 'alert');
+    else status.removeAttribute('role');
+  }
+  function appendMessage(kind, label, body) {
+    if (empty) empty.remove();
+    const wrap = document.createElement('div');
+    wrap.className = 'live-simulator-message live-simulator-message--' + kind;
+    const meta = document.createElement('span');
+    meta.className = 'live-simulator-message-meta';
+    meta.textContent = label;
+    const msg = document.createElement('div');
+    msg.className = 'live-simulator-message-text';
+    msg.textContent = body || '—';
+    wrap.append(meta, msg);
+    thread.appendChild(wrap);
+    thread.scrollTop = thread.scrollHeight;
+  }
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const payload = {
+      tenant: tenant.value,
+      from_phone: phone.value,
+      text: text.value,
+    };
+    if (!payload.text.trim()) {
+      setStatus('Type a guest message first.', true);
+      text.focus();
+      return;
+    }
+    appendMessage('operator', 'Guest · ' + payload.from_phone + ' · ' + tenant.options[tenant.selectedIndex].text, payload.text);
+    submit.disabled = true;
+    setStatus('Sending guest turn to Luna…', false);
+    try {
+      const resp = await fetch('/api/live-simulator/guest-turn', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.ok === false) {
+        appendMessage('system', 'Simulator', data.error || data.code || ('HTTP ' + resp.status));
+        setStatus('Simulator request failed.', true);
+        return;
+      }
+      appendMessage('luna', (data.tenant_label || 'Luna') + ' · ' + (data.memory_scope || payload.tenant + ':' + payload.from_phone), data.reply_text || '(Luna returned no visible reply text.)');
+      const limitation = data.limitation && data.limitation.limitation_flag ? ' · ' + data.limitation.limitation_flag : '';
+      setStatus('Reply received from ' + (data.tenant_label || payload.tenant) + limitation, false);
+      text.value = '';
+      text.focus();
+    } catch (err) {
+      appendMessage('system', 'Simulator', 'Network error while contacting the live simulator.');
+      setStatus('Network error while contacting the live simulator.', true);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+})();
+</script>`;
+}
+
 function renderViewMain(view, clients, templates, options = {}) {
   if (view === 'clients') return renderClientsMain(clients, templates);
   if (view === 'billing') return renderBillingMain();
   if (view === 'communications') return renderCommunicationsMain();
+  if (view === 'live_simulator') return renderLiveSimulatorMain();
   if (view === 'sales') return renderSalesMain(options);
   if (view === 'sales_detail') return renderSalesDetailMain(options);
   if (view === 'sales_review') return renderSalesReviewMain(options);
@@ -3224,6 +3470,7 @@ function viewPageTitle(view) {
   if (view === 'clients') return 'Clients';
   if (view === 'billing') return 'Billing';
   if (view === 'communications') return 'Communications';
+  if (view === 'live_simulator') return 'Live Simulator';
   if (view === 'sales_review') return 'Sales review queue';
   if (view === 'sales_analytics') return 'Sales analytics';
   if (view === 'sales_governance') return 'Sales governance';
@@ -3238,6 +3485,7 @@ function viewSubtitle(view) {
   if (view === 'clients') return 'Static client cards, templates, and onboarding mockup';
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Communications sources are not connected yet';
+  if (view === 'live_simulator') return 'Staging Luna guest-turn simulator — authenticated operator session, no browser tokens, no writes or external sends';
   if (view === 'sales') return 'Operator Sales cockpit — pipeline, attention queue, and human-approved intake';
   if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, manual contacts, qualification, CRM preview, outreach draft, and Admin decision';
   if (view === 'sales_review') return 'Sales review queue — operating buckets for operator decisions';
@@ -3254,6 +3502,7 @@ const CROWSNEST_SECTION_PATH = {
   clients: '/clients',
   billing: '/billing',
   communications: '/communications',
+  live_simulator: '/live-simulator',
   sales: '/sales',
 };
 
@@ -3325,6 +3574,7 @@ function renderCrowsnestPage(options = {}) {
 
     ${main}
   </div>
+  ${view === 'live_simulator' ? renderLiveSimulatorScript(nonce) : ''}
 </body>
 </html>`;
 }
