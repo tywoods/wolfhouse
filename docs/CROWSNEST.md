@@ -54,7 +54,7 @@ The current UI keeps safe operator shells plus the Live Simulator tab; the simul
 
 ### Live Simulator UI (slice 2 — browser shell for API slice)
 
-Protected **Live Simulator** tab at `/live-simulator` lets authenticated operators choose **Sunset Luna** or **Wolfhouse Luna**, edit the simulated **From phone number**, send a guest message to `POST /api/live-simulator/guest-turn`, and view Luna replies in a local thread. The visible limitation remains prominent: writes and external sends are disabled, booking/payment UI writes are out of scope, and the API enforces `allow_writes:false`. Same tenant + phone continues that simulated guest; an unused phone starts fresh. No tenant bot tokens or API credentials are emitted to browser HTML or JavaScript. Verify with `npm run verify:crowsnest` and `npm run verify:crowsnest-live-simulator`.
+Protected **Live Simulator** tab at `/live-simulator` gives authenticated operators an inbox-style thread as the primary surface: a slim toolbar chooses **Sunset Luna** or **Wolfhouse Luna** and edits the simulated **From phone number**, while the bottom composer sends guest messages to `POST /api/live-simulator/guest-turn`. Guest turns, Luna replies, and simulator system notices append in order without a page reload. The visible limitation remains prominent: writes and external sends are disabled, booking/payment UI writes are out of scope, and the API enforces `allow_writes:false`. Same tenant + phone continues that simulated guest; an unused phone starts fresh. No tenant bot tokens or API credentials are emitted to browser HTML or JavaScript. Verify with `npm run verify:crowsnest` and `npm run verify:crowsnest-live-simulator`.
 
 ### Slice 3 (adapter only — not integrated)
 

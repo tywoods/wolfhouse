@@ -1361,24 +1361,43 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
 }
 
 .live-simulator-shell{
-  display:grid;
-  grid-template-columns:1fr;
-  gap:16px;
+  display:block;
 }
-@media(min-width:980px){
-  .live-simulator-shell{grid-template-columns:minmax(280px,360px) minmax(0,1fr);align-items:start}
+.live-simulator-inbox{
+  min-height:calc(100vh - 230px);
+  height:calc(100vh - 230px);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+@media(max-width:760px){
+  .live-simulator-inbox{min-height:calc(100vh - 190px);height:auto}
 }
 .live-simulator-form{
-  display:grid;
-  gap:14px;
+  display:flex;
+  flex-direction:column;
+  min-height:0;
+  height:100%;
 }
-.live-simulator-form label{
+.live-simulator-toolbar{
+  display:flex;
+  align-items:end;
+  gap:10px;
+  padding:10px 12px;
+  border-bottom:1px solid var(--border-soft);
+  background:linear-gradient(180deg,rgba(255,255,255,.74),rgba(255,252,247,.92));
+}
+html[data-theme="dark"] .live-simulator-toolbar{background:linear-gradient(180deg,rgba(33,41,50,.72),rgba(26,32,39,.9))}
+.live-simulator-toolbar label,
+.live-simulator-composer label{
   display:grid;
-  gap:6px;
+  gap:5px;
   color:var(--navy);
-  font-size:13px;
+  font-size:12px;
   font-weight:800;
 }
+.live-simulator-toolbar label{min-width:160px}
+.live-simulator-toolbar label:last-of-type{flex:1;min-width:220px}
 .live-simulator-form select,
 .live-simulator-form input,
 .live-simulator-form textarea{
@@ -1388,34 +1407,34 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
   background:var(--surface-raised);
   color:var(--charcoal);
   font:inherit;
-  padding:10px 12px;
+  padding:9px 11px;
 }
-.live-simulator-form textarea{min-height:130px;resize:vertical;line-height:1.45}
-.live-simulator-help{display:block;color:var(--text-3);font-size:12px;font-weight:600;line-height:1.35}
+.live-simulator-form textarea{min-height:52px;max-height:160px;resize:vertical;line-height:1.45}
+.live-simulator-help{display:block;color:var(--text-3);font-size:11px;font-weight:600;line-height:1.3}
 .live-simulator-limitation{
-  display:grid;
-  gap:8px;
-  padding:12px 14px;
-  border:1px solid rgba(154,107,27,.28);
-  border-radius:var(--radius-sm);
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px 10px;
+  align-items:center;
+  padding:8px 12px;
+  border-bottom:1px solid rgba(154,107,27,.22);
   background:var(--amber-soft);
   color:var(--amber);
-  font-size:13px;
+  font-size:12px;
 }
 .live-simulator-limitation strong{color:var(--amber)}
-.live-simulator-limitation ul{margin:0 0 0 18px;color:var(--amber)}
+.live-simulator-limitation ul{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0;padding:0;list-style:none;color:var(--amber)}
 .live-simulator-chat{
-  display:grid;
-  gap:12px;
-  min-height:520px;
+  display:flex;
+  flex-direction:column;
+  flex:1;
+  min-height:0;
 }
 .live-simulator-thread{
-  min-height:420px;
-  max-height:680px;
+  flex:1;
+  min-height:360px;
   overflow:auto;
-  padding:14px;
-  border:1px solid var(--border-soft);
-  border-radius:var(--radius);
+  padding:18px;
   background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(255,252,247,.92));
   box-shadow:var(--shadow-soft) inset;
 }
@@ -1425,7 +1444,7 @@ html[data-theme="dark"] .live-simulator-thread{
 .live-simulator-empty{
   display:grid;
   place-items:center;
-  min-height:360px;
+  min-height:100%;
   text-align:center;
   color:var(--text-3);
 }
@@ -1434,7 +1453,7 @@ html[data-theme="dark"] .live-simulator-thread{
 .live-simulator-empty h2{margin:0 0 8px;color:var(--navy);font-size:1.2rem}
 .live-simulator-message{
   width:fit-content;
-  max-width:min(680px,88%);
+  max-width:min(680px,82%);
   margin:0 0 12px;
   padding:10px 12px;
   border-radius:16px;
@@ -1442,6 +1461,7 @@ html[data-theme="dark"] .live-simulator-thread{
   background:var(--surface-raised);
   box-shadow:var(--shadow-soft);
 }
+.live-simulator-message--guest{margin-left:auto;background:var(--sea-soft);border-color:rgba(74,124,148,.25)}
 .live-simulator-message--operator{margin-left:auto;background:var(--sea-soft);border-color:rgba(74,124,148,.25)}
 .live-simulator-message--luna{margin-right:auto;background:var(--surface-raised)}
 .live-simulator-message--system{max-width:100%;width:100%;background:var(--amber-soft);border-color:rgba(154,107,27,.28);color:var(--amber)}
@@ -1455,6 +1475,27 @@ html[data-theme="dark"] .live-simulator-thread{
   letter-spacing:.04em;
 }
 .live-simulator-message-text{white-space:pre-wrap;color:var(--charcoal)}
+.live-simulator-composer{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  gap:10px;
+  align-items:end;
+  padding:12px;
+  border-top:1px solid var(--border-soft);
+  background:var(--surface);
+}
+@media(max-width:640px){
+  .live-simulator-toolbar,.live-simulator-composer{display:grid;grid-template-columns:1fr}
+}
+.live-simulator-footer{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  padding:8px 12px 10px;
+  border-top:1px solid var(--border-soft);
+}
 .live-simulator-status{
   min-height:20px;
   color:var(--text-3);
@@ -3321,53 +3362,53 @@ function renderSalesDiscoveryMain(options = {}) {
 
 function renderLiveSimulatorMain() {
   return `<section id="live-simulator" class="live-simulator-shell" aria-labelledby="live-simulator-title" data-live-simulator-root>
-      <article class="card">
-        <h2 class="section">Simulator controls</h2>
-        <p class="section-note">Pick the Luna runtime and guest phone. Reusing the same phone continues that simulated guest for that tenant; an unused phone starts fresh.</p>
+      <article class="card live-simulator-inbox">
         <form class="live-simulator-form" data-live-simulator-form>
-          <label for="live-simulator-tenant">Tenant
-            <select id="live-simulator-tenant" name="tenant" data-live-simulator-tenant>
-              <option value="sunset">Sunset Luna</option>
-              <option value="wolfhouse">Wolfhouse Luna</option>
-            </select>
-          </label>
-          <label for="live-simulator-phone">From phone number
-            <input id="live-simulator-phone" name="from_phone" type="tel" inputmode="tel" autocomplete="off" value="+34600000001" data-live-simulator-phone>
-            <span class="live-simulator-help">10–15 digits; the same tenant + number keeps memory continuity.</span>
-          </label>
-          <label for="live-simulator-message">Guest message
-            <textarea id="live-simulator-message" name="text" data-live-simulator-text placeholder="Hi, do you have space next weekend?"></textarea>
-          </label>
-          <button class="btn-primary" type="submit" data-live-simulator-submit>Send guest turn</button>
-        </form>
-        <div class="live-simulator-limitation" aria-label="Live Simulator limitation">
-          <strong>Visible limitation: writes and external sends disabled</strong>
-          <ul>
-            <li>No booking/payment UI writes.</li>
-            <li>No WhatsApp or SMS sends.</li>
-            <li>The API forces <code>allow_writes:false</code> for this slice.</li>
-          </ul>
-        </div>
-      </article>
-      <article class="card live-simulator-chat">
-        <div class="panel-head">
-          <h2 class="panel-title">Conversation thread</h2>
-          <span class="sample-badge sample-badge--live">Operator session</span>
-        </div>
-        <div class="live-simulator-thread" data-live-simulator-thread aria-live="polite">
-          <div class="live-simulator-empty" data-live-simulator-empty>
-            <div class="live-simulator-empty-inner">
-              <div class="live-simulator-empty-icon" aria-hidden="true">🌙</div>
-              <h2>Ready for a Luna turn</h2>
-              <p>Choose Sunset or Wolfhouse, keep or edit the phone number, then send a guest message. Luna replies will appear here.</p>
+          <div class="live-simulator-toolbar" aria-label="Simulator controls">
+            <label for="live-simulator-tenant">Tenant
+              <select id="live-simulator-tenant" name="tenant" data-live-simulator-tenant>
+                <option value="sunset">Sunset Luna</option>
+                <option value="wolfhouse">Wolfhouse Luna</option>
+              </select>
+            </label>
+            <label for="live-simulator-phone">From phone
+              <input id="live-simulator-phone" name="from_phone" type="tel" inputmode="tel" autocomplete="off" value="+346****0001" data-live-simulator-phone>
+              <span class="live-simulator-help">Same tenant + phone keeps continuity; a new phone starts a new guest.</span>
+            </label>
+          </div>
+          <div class="live-simulator-limitation" aria-label="Live Simulator limitation">
+            <strong>Writes and external sends disabled.</strong>
+            <ul>
+              <li>No booking/payment UI writes.</li>
+              <li>No WhatsApp or SMS sends.</li>
+              <li>API forces <code>allow_writes:false</code>.</li>
+            </ul>
+          </div>
+          <div class="live-simulator-chat" aria-label="Conversation thread">
+            <div class="live-simulator-thread" data-live-simulator-thread aria-live="polite">
+              <div class="live-simulator-empty" data-live-simulator-empty>
+                <div class="live-simulator-empty-inner">
+                  <div class="live-simulator-empty-icon" aria-hidden="true">🌙</div>
+                  <h2>Ready for a Luna turn</h2>
+                  <p>Send a guest message from the composer below. Guest turns and Luna replies will appear here in order.</p>
+                </div>
+              </div>
+            </div>
+            <div class="live-simulator-composer">
+              <label for="live-simulator-message">Message
+                <textarea id="live-simulator-message" name="text" data-live-simulator-text placeholder="Hi, do you have space next weekend?"></textarea>
+              </label>
+              <button class="btn-primary" type="submit" data-live-simulator-submit>Send</button>
+            </div>
+            <div class="live-simulator-footer">
+              <p class="live-simulator-status" data-live-simulator-status>Idle — no simulated guest turns yet.</p>
+              <div class="live-simulator-meta" aria-label="Simulator request metadata">
+                <span>Endpoint: <code>/api/live-simulator/guest-turn</code></span>
+                <span>Browser tokens: <code>none</code></span>
+              </div>
             </div>
           </div>
-        </div>
-        <p class="live-simulator-status" data-live-simulator-status>Idle — no simulated guest turns yet.</p>
-        <div class="live-simulator-meta" aria-label="Simulator request metadata">
-          <span>Endpoint: <code>/api/live-simulator/guest-turn</code></span>
-          <span>Browser tokens: <code>none</code></span>
-        </div>
+        </form>
       </article>
     </section>`;
 }
@@ -3418,7 +3459,7 @@ function renderLiveSimulatorScript(nonce) {
       text.focus();
       return;
     }
-    appendMessage('operator', 'Guest · ' + payload.from_phone + ' · ' + tenant.options[tenant.selectedIndex].text, payload.text);
+    appendMessage('guest', 'Guest · ' + payload.from_phone + ' · ' + tenant.options[tenant.selectedIndex].text, payload.text);
     submit.disabled = true;
     setStatus('Sending guest turn to Luna…', false);
     try {
