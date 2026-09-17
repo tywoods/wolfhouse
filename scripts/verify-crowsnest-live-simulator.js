@@ -12,6 +12,7 @@ const {
   normalizePhone,
   resolveTenantRuntime,
   runLiveSimulatorTurn,
+  runtimeOriginAllowed,
 } = require('./lib/crowsnest/crowsnest-live-simulator');
 
 const { server } = require('./crowsnest-api');
@@ -91,10 +92,24 @@ async function main() {
   ok('writes hard disabled even if UI later sends extra fields', built.payload.allow_writes === false);
   ok('tenant token is only in server-side header', built.headers['X-Luna-Bot-Token'] === 'server-side-secret' && !JSON.stringify(built.payload).includes('server-side-secret'));
 
-  const unsafe = buildTenantRequest({ tenantId: 'wolfhouse', fromPhone: sunsetPhone, text: 'Hi' }, {
-    CROWSNEST_LIVE_SIM_WOLFHOUSE_ORIGIN: 'https://example.com',
+  ok('random runtime hosts still fail closed without allowlist', runtimeOriginAllowed('https://random.invalid', { env: {} }) === false);
+  ok('allowed host env permits ACA-to-lunabox runtime host', runtimeOriginAllowed('https://lunabox.lunafrontdesk.com', {
+    env: { CROWSNEST_LIVE_SIM_ALLOWED_HOSTS: 'lunabox.lunafrontdesk.com, other.example' },
+  }) === true);
+  ok('non-http runtime protocols are denied even when host allowlisted', runtimeOriginAllowed('ftp://lunabox.lunafrontdesk.com', {
+    env: { CROWSNEST_LIVE_SIM_ALLOWED_HOSTS: 'lunabox.lunafrontdesk.com' },
+  }) === false);
+
+  const explicitSunsetRuntime = resolveTenantRuntime('sunset', {
+    CROWSNEST_LIVE_SIM_SUNSET_ORIGIN: 'https://lunabox.lunafrontdesk.com',
   });
-  ok('non-localhost runtime origins fail closed', unsafe.ok === false && unsafe.code === 'runtime_not_safely_scoped');
+  ok('explicit tenant origin host is trusted for server-side runtime env', explicitSunsetRuntime.origin_allowed === true && explicitSunsetRuntime.origin === 'https://lunabox.lunafrontdesk.com');
+
+  const unsafe = buildTenantRequest({ tenantId: 'wolfhouse', fromPhone: sunsetPhone, text: 'Hi' }, {
+    CROWSNEST_LIVE_SIM_ALLOWED_HOSTS: 'lunabox.lunafrontdesk.com',
+    CROWSNEST_LIVE_SIM_WOLFHOUSE_ORIGIN: 'ftp://lunabox.lunafrontdesk.com',
+  });
+  ok('explicit non-http runtime origins fail closed', unsafe.ok === false && unsafe.code === 'runtime_not_safely_scoped');
 
   let seenUpstream = null;
   const result = await runLiveSimulatorTurn({
