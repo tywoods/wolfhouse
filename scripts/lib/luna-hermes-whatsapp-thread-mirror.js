@@ -79,6 +79,14 @@ function normalizeGuestPhone(phone) {
   return normalizeCustomerPhone(phone);
 }
 
+function normalizeSimulatorSourcePhone(phone) {
+  const raw = trimStr(phone);
+  if (!raw || !/^[+\d\s().-]+$/.test(raw)) return null;
+  const digits = raw.replace(/\D/g, '');
+  if (!/^[1-9]\d{6,14}$/.test(digits)) return null;
+  return `+${digits}`;
+}
+
 function toBool(v) {
   if (v === true) return true;
   if (v === false || v == null) return false;
@@ -202,6 +210,9 @@ function parseHermesWhatsAppThreadMirrorBody(body) {
   const handoffReason = trimStr(src.handoff_reason || src.needs_human_reason) || null;
   const simulatorSynthetic = toBool(src.simulator_synthetic);
   const sourceOwner = trimStr(src.source_owner) || null;
+  const simulatorSourcePhone = simulatorSynthetic && sourceOwner === 'crowsnest-guest-door'
+    ? normalizeSimulatorSourcePhone(src.simulator_source_phone)
+    : null;
   const suppressNotifications = toBool(src.suppress_notifications) || simulatorSynthetic;
   const suppressApprovals = toBool(src.suppress_approvals) || simulatorSynthetic;
 
@@ -231,6 +242,7 @@ function parseHermesWhatsAppThreadMirrorBody(body) {
       handoff_reason: handoffReason,
       simulator_synthetic: simulatorSynthetic,
       source_owner: sourceOwner,
+      ...(simulatorSourcePhone ? { simulator_source_phone: simulatorSourcePhone } : {}),
       suppress_notifications: suppressNotifications,
       suppress_approvals: suppressApprovals,
     },
@@ -329,6 +341,11 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
     metadataBase.open_phone_testing = true;
     metadataBase.guest_tester_class = 'Simulator';
     metadataBase.whatsapp_delivered = false;
+    const simulatorSourcePhone = normalizeGuestPhone(channelHints.simulator_source_phone);
+    // Display-only provenance: durable lookup/insert remains guestPhone (+999).
+    if (simulatorSourcePhone && metadataBase.source_owner === 'crowsnest-guest-door') {
+      metadataBase.simulator_source_phone = simulatorSourcePhone;
+    }
   }
   const metadata = mergeSunsetInboundLocationMetadata(
     metadataBase,
@@ -395,6 +412,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
       location_id: i.location_id,
       simulator_synthetic: i.simulator_synthetic === true,
       source_owner: i.source_owner,
+      simulator_source_phone: i.simulator_source_phone,
     },
   );
   if (!ensured || !ensured.conversation_id) {

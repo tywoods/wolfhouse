@@ -92,6 +92,7 @@ const INBOX_PERSON_ROW_FIELDS = Object.freeze([
   'source',
   'view',
   'phone',
+  'durable_phone',
   'display_name',
   'email',
   'language',
@@ -251,7 +252,8 @@ function projectCustomerPersonRow(view, raw) {
 function projectConversationPersonRow(view, raw) {
   const row = personRowShell(view);
   row.key = `${INBOX_VIEW_SOURCES.CONVERSATIONS}:${raw.conversation_id || ''}`;
-  row.phone = raw.phone || null;
+  row.durable_phone = raw.phone || null;
+  row.phone = raw.display_phone || raw.phone || null;
   row.display_name = raw.guest_name || null;
   row.email = raw.guest_email || null;
   row.language = raw.language || null;
