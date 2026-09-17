@@ -207,6 +207,18 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ordinary["path"], "/ordinary")
 
+    async def test_tool_session_phone_matches_durable_simulator_inbox_identity(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+34" + "600111777")
+        token = door._SCOPE.set(scope)
+        try:
+            self.assertEqual(self.staff._session_guest_phone(), scope.inbox_phone)
+            self.assertTrue(self.staff._session_guest_phone().startswith("+999"))
+            self.assertNotEqual(self.staff._session_guest_phone(), scope.synthetic_phone)
+        finally:
+            door._SCOPE.reset(token)
+
     async def test_guest_door_accepts_deployed_guard_contract_for_reads_and_handoff(self):
         import wolfhouse.crowsnest_guest_door as door
 
