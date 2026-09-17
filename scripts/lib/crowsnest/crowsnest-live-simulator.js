@@ -16,6 +16,7 @@ const MAX_LANG_CHARS = 16;
 
 const LIVE_SIMULATOR_ROUTE = '/api/live-simulator/guest-turn';
 const TENANT_SIMULATE_PATH = '/wolfhouse/simulate-guest-turn';
+const ALLOWED_HOSTS_ENV = 'CROWSNEST_LIVE_SIM_ALLOWED_HOSTS';
 
 const WRITE_DENY_LIST = Object.freeze([
   'create_booking_from_plan',
@@ -88,7 +89,26 @@ function parseJsonBody(raw) {
   }
 }
 
-function runtimeOriginAllowed(origin) {
+function normalizeAllowedHost(value) {
+  return String(value || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+}
+
+function parseAllowedHosts(value) {
+  return String(value || '')
+    .split(',')
+    .map(normalizeAllowedHost)
+    .filter(Boolean);
+}
+
+function originHostname(origin) {
+  try {
+    return normalizeAllowedHost(new URL(origin).hostname);
+  } catch {
+    return '';
+  }
+}
+
+function runtimeOriginAllowed(origin, options = {}) {
   let url;
   try {
     url = new URL(origin);
@@ -96,24 +116,34 @@ function runtimeOriginAllowed(origin) {
     return false;
   }
   const hostname = url.hostname.toLowerCase();
+  const env = options.env || process.env;
+  const allowedHosts = new Set([
+    '127.0.0.1',
+    'localhost',
+    '::1',
+    ...parseAllowedHosts(env[ALLOWED_HOSTS_ENV]),
+    ...(Array.isArray(options.trustedOriginHosts) ? options.trustedOriginHosts.map(normalizeAllowedHost) : []),
+  ].filter(Boolean));
   return (
     (url.protocol === 'http:' || url.protocol === 'https:')
-    && (hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1')
+    && allowedHosts.has(normalizeAllowedHost(hostname))
   );
 }
 
 function resolveTenantRuntime(tenantId, env = process.env) {
   const tenant = TENANTS[tenantId];
   if (!tenant) return null;
-  const origin = String(env[tenant.envOrigin] || tenant.defaultOrigin || '').trim().replace(/\/+$/, '');
+  const explicitOrigin = String(env[tenant.envOrigin] || '').trim();
+  const origin = String(explicitOrigin || tenant.defaultOrigin || '').trim().replace(/\/+$/, '');
   const fallbackToken = tenant.fallbackTokenEnv ? env[tenant.fallbackTokenEnv] : '';
   const token = String(env[tenant.envToken] || fallbackToken || '').trim();
+  const trustedOriginHosts = explicitOrigin ? [originHostname(origin)] : [];
   return {
     ...tenant,
     origin,
     url: `${origin}${TENANT_SIMULATE_PATH}`,
     token,
-    origin_allowed: runtimeOriginAllowed(origin),
+    origin_allowed: runtimeOriginAllowed(origin, { env, trustedOriginHosts }),
   };
 }
 
@@ -305,6 +335,7 @@ module.exports = {
   normalizeTenant,
   parseJsonBody,
   postTenantSimulator,
+  runtimeOriginAllowed,
   resolveTenantRuntime,
   runLiveSimulatorTurn,
   shapeSimulatorResponse,

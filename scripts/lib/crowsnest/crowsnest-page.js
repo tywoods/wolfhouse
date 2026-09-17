@@ -1208,6 +1208,28 @@ html[data-theme="dark"] .onboarding-form textarea{
   border-color:var(--border);
   color:var(--navy);
 }
+
+.live-simulator-shell{display:block}
+.live-simulator-inbox{min-height:calc(100vh - 230px);height:calc(100vh - 230px);display:flex;flex-direction:column;overflow:hidden}
+@media(max-width:760px){.live-simulator-inbox{min-height:calc(100vh - 190px);height:auto}}
+.live-simulator-form{display:flex;flex-direction:column;min-height:0;height:100%}
+.live-simulator-toolbar{display:flex;align-items:end;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-soft);background:linear-gradient(180deg,rgba(255,255,255,.74),rgba(255,252,247,.92))}
+html[data-theme="dark"] .live-simulator-toolbar{background:linear-gradient(180deg,rgba(33,41,50,.72),rgba(26,32,39,.9))}
+.live-simulator-toolbar label,.live-simulator-composer label{display:grid;gap:5px;color:var(--navy);font-size:12px;font-weight:800}
+.live-simulator-toolbar label{min-width:160px}.live-simulator-toolbar label:last-of-type{flex:1;min-width:220px}
+.live-simulator-form select,.live-simulator-form input,.live-simulator-form textarea{width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-raised);color:var(--charcoal);font:inherit;padding:9px 11px}
+.live-simulator-form textarea{min-height:52px;max-height:160px;resize:vertical;line-height:1.45}.live-simulator-help{display:block;color:var(--text-3);font-size:11px;font-weight:600;line-height:1.3}
+.live-simulator-limitation{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:8px 12px;border-bottom:1px solid rgba(154,107,27,.22);background:var(--amber-soft);color:var(--amber);font-size:12px}
+.live-simulator-limitation strong{color:var(--amber)}.live-simulator-limitation ul{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0;padding:0;list-style:none;color:var(--amber)}
+.live-simulator-chat{display:flex;flex-direction:column;flex:1;min-height:0}.live-simulator-thread{flex:1;min-height:360px;overflow:auto;padding:18px 20px;background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(255,252,247,.92));box-shadow:var(--shadow-soft) inset}
+html[data-theme="dark"] .live-simulator-thread{background:linear-gradient(180deg,rgba(33,41,50,.7),rgba(26,32,39,.92))}
+.live-simulator-empty{display:grid;place-items:center;min-height:100%;text-align:center;color:var(--text-3)}.live-simulator-empty-inner{max-width:430px}.live-simulator-empty-icon{font-size:38px;margin-bottom:10px}.live-simulator-empty h2{margin:0 0 8px;color:var(--navy);font-size:1.2rem}
+.live-simulator-message{width:fit-content;max-width:min(620px,76%);margin:0 0 10px;padding:9px 12px 10px;border-radius:18px;border:1px solid var(--border-soft);background:var(--surface-raised);box-shadow:0 1px 2px rgba(30,42,54,.06)}
+.live-simulator-message--guest{margin-right:auto;background:var(--surface-raised);border-color:var(--border-soft);border-bottom-left-radius:6px}.live-simulator-message--operator{margin-right:auto;background:var(--surface-raised);border-color:var(--border-soft);border-bottom-left-radius:6px}.live-simulator-message--luna{margin-left:auto;background:linear-gradient(180deg,#4F8199 0%,#3F6F86 100%);border-color:rgba(74,124,148,.35);border-bottom-right-radius:6px;color:#fff}.live-simulator-message--system{max-width:100%;width:100%;background:var(--amber-soft);border-color:rgba(154,107,27,.28);color:var(--amber)}
+.live-simulator-message-meta{display:flex;gap:6px;justify-content:space-between;align-items:center;margin-bottom:4px;color:var(--text-3);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}.live-simulator-message-text{white-space:pre-wrap;color:var(--charcoal)}.live-simulator-message--luna .live-simulator-message-meta{color:rgba(255,255,255,.78)}.live-simulator-message--luna .live-simulator-message-text{color:#fff}.live-simulator-message-time{font-weight:700;letter-spacing:0;text-transform:none;opacity:.86}
+.live-simulator-composer{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;padding:12px;border-top:1px solid var(--border-soft);background:var(--surface)}
+@media(max-width:640px){.live-simulator-toolbar,.live-simulator-composer{display:grid;grid-template-columns:1fr}}
+.live-simulator-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px 10px;border-top:1px solid var(--border-soft)}.live-simulator-status{min-height:20px;color:var(--text-3);font-size:13px;font-weight:700}.live-simulator-status[role="alert"]{color:var(--red)}.live-simulator-meta{display:flex;flex-wrap:wrap;gap:8px;color:var(--text-3);font-size:12px}.live-simulator-meta code{font-size:12px}
 `;
 
 const CROWSNEST_LOGIN_CSS = `
@@ -1360,157 +1382,6 @@ a:focus-visible,button:focus-visible,input:focus-visible{outline:none;box-shadow
   border:0;
 }
 
-.live-simulator-shell{
-  display:block;
-}
-.live-simulator-inbox{
-  min-height:calc(100vh - 230px);
-  height:calc(100vh - 230px);
-  display:flex;
-  flex-direction:column;
-  overflow:hidden;
-}
-@media(max-width:760px){
-  .live-simulator-inbox{min-height:calc(100vh - 190px);height:auto}
-}
-.live-simulator-form{
-  display:flex;
-  flex-direction:column;
-  min-height:0;
-  height:100%;
-}
-.live-simulator-toolbar{
-  display:flex;
-  align-items:end;
-  gap:10px;
-  padding:10px 12px;
-  border-bottom:1px solid var(--border-soft);
-  background:linear-gradient(180deg,rgba(255,255,255,.74),rgba(255,252,247,.92));
-}
-html[data-theme="dark"] .live-simulator-toolbar{background:linear-gradient(180deg,rgba(33,41,50,.72),rgba(26,32,39,.9))}
-.live-simulator-toolbar label,
-.live-simulator-composer label{
-  display:grid;
-  gap:5px;
-  color:var(--navy);
-  font-size:12px;
-  font-weight:800;
-}
-.live-simulator-toolbar label{min-width:160px}
-.live-simulator-toolbar label:last-of-type{flex:1;min-width:220px}
-.live-simulator-form select,
-.live-simulator-form input,
-.live-simulator-form textarea{
-  width:100%;
-  border:1px solid var(--border);
-  border-radius:var(--radius-sm);
-  background:var(--surface-raised);
-  color:var(--charcoal);
-  font:inherit;
-  padding:9px 11px;
-}
-.live-simulator-form textarea{min-height:52px;max-height:160px;resize:vertical;line-height:1.45}
-.live-simulator-help{display:block;color:var(--text-3);font-size:11px;font-weight:600;line-height:1.3}
-.live-simulator-limitation{
-  display:flex;
-  flex-wrap:wrap;
-  gap:6px 10px;
-  align-items:center;
-  padding:8px 12px;
-  border-bottom:1px solid rgba(154,107,27,.22);
-  background:var(--amber-soft);
-  color:var(--amber);
-  font-size:12px;
-}
-.live-simulator-limitation strong{color:var(--amber)}
-.live-simulator-limitation ul{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0;padding:0;list-style:none;color:var(--amber)}
-.live-simulator-chat{
-  display:flex;
-  flex-direction:column;
-  flex:1;
-  min-height:0;
-}
-.live-simulator-thread{
-  flex:1;
-  min-height:360px;
-  overflow:auto;
-  padding:18px;
-  background:linear-gradient(180deg,rgba(255,255,255,.78),rgba(255,252,247,.92));
-  box-shadow:var(--shadow-soft) inset;
-}
-html[data-theme="dark"] .live-simulator-thread{
-  background:linear-gradient(180deg,rgba(33,41,50,.7),rgba(26,32,39,.92));
-}
-.live-simulator-empty{
-  display:grid;
-  place-items:center;
-  min-height:100%;
-  text-align:center;
-  color:var(--text-3);
-}
-.live-simulator-empty-inner{max-width:430px}
-.live-simulator-empty-icon{font-size:38px;margin-bottom:10px}
-.live-simulator-empty h2{margin:0 0 8px;color:var(--navy);font-size:1.2rem}
-.live-simulator-message{
-  width:fit-content;
-  max-width:min(680px,82%);
-  margin:0 0 12px;
-  padding:10px 12px;
-  border-radius:16px;
-  border:1px solid var(--border-soft);
-  background:var(--surface-raised);
-  box-shadow:var(--shadow-soft);
-}
-.live-simulator-message--guest{margin-left:auto;background:var(--sea-soft);border-color:rgba(74,124,148,.25)}
-.live-simulator-message--operator{margin-left:auto;background:var(--sea-soft);border-color:rgba(74,124,148,.25)}
-.live-simulator-message--luna{margin-right:auto;background:var(--surface-raised)}
-.live-simulator-message--system{max-width:100%;width:100%;background:var(--amber-soft);border-color:rgba(154,107,27,.28);color:var(--amber)}
-.live-simulator-message-meta{
-  display:block;
-  margin-bottom:4px;
-  color:var(--text-3);
-  font-size:11px;
-  font-weight:800;
-  text-transform:uppercase;
-  letter-spacing:.04em;
-}
-.live-simulator-message-text{white-space:pre-wrap;color:var(--charcoal)}
-.live-simulator-composer{
-  display:grid;
-  grid-template-columns:minmax(0,1fr) auto;
-  gap:10px;
-  align-items:end;
-  padding:12px;
-  border-top:1px solid var(--border-soft);
-  background:var(--surface);
-}
-@media(max-width:640px){
-  .live-simulator-toolbar,.live-simulator-composer{display:grid;grid-template-columns:1fr}
-}
-.live-simulator-footer{
-  display:flex;
-  flex-wrap:wrap;
-  align-items:center;
-  justify-content:space-between;
-  gap:8px;
-  padding:8px 12px 10px;
-  border-top:1px solid var(--border-soft);
-}
-.live-simulator-status{
-  min-height:20px;
-  color:var(--text-3);
-  font-size:13px;
-  font-weight:700;
-}
-.live-simulator-status[role="alert"]{color:var(--red)}
-.live-simulator-meta{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  color:var(--text-3);
-  font-size:12px;
-}
-.live-simulator-meta code{font-size:12px}
 
 `;
 
@@ -3433,13 +3304,29 @@ function renderLiveSimulatorScript(nonce) {
     if (alert) status.setAttribute('role', 'alert');
     else status.removeAttribute('role');
   }
+  function nowTime() {
+    return new Intl.DateTimeFormat([], { hour: '2-digit', minute: '2-digit' }).format(new Date());
+  }
+  function describeFailure(resp, data) {
+    const parts = [];
+    if (resp && resp.status) parts.push('HTTP ' + resp.status);
+    if (data && data.code) parts.push(String(data.code));
+    if (data && data.error) parts.push(String(data.error));
+    return parts.length ? parts.join(' · ') : 'Simulator request failed.';
+  }
   function appendMessage(kind, label, body) {
     if (empty) empty.remove();
     const wrap = document.createElement('div');
     wrap.className = 'live-simulator-message live-simulator-message--' + kind;
     const meta = document.createElement('span');
     meta.className = 'live-simulator-message-meta';
-    meta.textContent = label;
+    const who = document.createElement('span');
+    who.textContent = label;
+    const time = document.createElement('time');
+    time.className = 'live-simulator-message-time';
+    time.dateTime = new Date().toISOString();
+    time.textContent = nowTime();
+    meta.append(who, time);
     const msg = document.createElement('div');
     msg.className = 'live-simulator-message-text';
     msg.textContent = body || '—';
@@ -3471,8 +3358,9 @@ function renderLiveSimulatorScript(nonce) {
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || data.ok === false) {
-        appendMessage('system', 'Simulator', data.error || data.code || ('HTTP ' + resp.status));
-        setStatus('Simulator request failed.', true);
+        const failure = describeFailure(resp, data);
+        appendMessage('system', 'Simulator', failure);
+        setStatus(failure, true);
         return;
       }
       appendMessage('luna', (data.tenant_label || 'Luna') + ' · ' + (data.memory_scope || payload.tenant + ':' + payload.from_phone), data.reply_text || '(Luna returned no visible reply text.)');
@@ -3481,8 +3369,9 @@ function renderLiveSimulatorScript(nonce) {
       text.value = '';
       text.focus();
     } catch (err) {
-      appendMessage('system', 'Simulator', 'Network error while contacting the live simulator.');
-      setStatus('Network error while contacting the live simulator.', true);
+      const failure = 'Network error while contacting the live simulator' + (err && err.message ? ': ' + err.message : '.');
+      appendMessage('system', 'Simulator', failure);
+      setStatus(failure, true);
     } finally {
       submit.disabled = false;
     }

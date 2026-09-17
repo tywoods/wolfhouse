@@ -54,7 +54,7 @@ The current UI keeps safe operator shells plus the Live Simulator tab; the simul
 
 ### Live Simulator UI (slice 2 — browser shell for API slice)
 
-Protected **Live Simulator** tab at `/live-simulator` gives authenticated operators an inbox-style thread as the primary surface: a slim toolbar chooses **Sunset Luna** or **Wolfhouse Luna** and edits the simulated **From phone number**, while the bottom composer sends guest messages to `POST /api/live-simulator/guest-turn`. Guest turns, Luna replies, and simulator system notices append in order without a page reload. The visible limitation remains prominent: writes and external sends are disabled, booking/payment UI writes are out of scope, and the API enforces `allow_writes:false`. Same tenant + phone continues that simulated guest; an unused phone starts fresh. No tenant bot tokens or API credentials are emitted to browser HTML or JavaScript. Verify with `npm run verify:crowsnest` and `npm run verify:crowsnest-live-simulator`.
+Protected **Live Simulator** tab at `/live-simulator` gives authenticated operators an inbox-style thread as the primary surface: a slim toolbar chooses **Sunset Luna** or **Wolfhouse Luna** and edits the simulated **From phone number**, while the bottom composer sends guest messages to `POST /api/live-simulator/guest-turn`. Guest turns render on the left as light bubbles; Luna replies render on the right as primary/blue bubbles; timestamps and simulator system notices append in order without a page reload. HTTP failures surface the response status plus JSON `code` / `error` when present. The visible limitation remains prominent: writes and external sends are disabled, booking/payment UI writes are out of scope, and the API enforces `allow_writes:false`. Same tenant + phone continues that simulated guest; an unused phone starts fresh. No tenant bot tokens or API credentials are emitted to browser HTML or JavaScript. Verify with `npm run verify:crowsnest` and `npm run verify:crowsnest-live-simulator`.
 
 ### Slice 3 (adapter only — not integrated)
 
@@ -216,13 +216,24 @@ Request JSON:
 Contract:
 
 - `tenant` selects the tenant Luna runtime: `wolfhouse` → Wolfhouse Luna on declared local port **8090**; `sunset` → Sunset Luna on declared local port **8094**.
-- Crowsnest forwards only to the safely scoped tenant simulator route `POST /wolfhouse/simulate-guest-turn` on `localhost` / `127.0.0.1`; non-local origins fail closed.
+- Crowsnest forwards only to the safely scoped tenant simulator route `POST /wolfhouse/simulate-guest-turn`. Local smoke defaults stay on `localhost` / `127.0.0.1`. Non-local runtime hosts require `http`/`https` and either an explicit comma allowlist in `CROWSNEST_LIVE_SIM_ALLOWED_HOSTS` or a tenant runtime origin env (`CROWSNEST_LIVE_SIM_WOLFHOUSE_ORIGIN` / `CROWSNEST_LIVE_SIM_SUNSET_ORIGIN`) whose host is trusted server-side. Random hosts still fail closed.
 - `from_phone` is normalized to E.164 digits and forwarded as both `thread` and `guest_phone`. Conversation memory is therefore scoped by **tenant + phone**: the same phone continues that tenant's simulated guest; an unused phone starts a new simulated guest; the same phone on another tenant is separate.
 - Luna bot credentials stay server-side (`CROWSNEST_LIVE_SIM_WOLFHOUSE_TOKEN`, `CROWSNEST_LIVE_SIM_SUNSET_TOKEN`; fallback to existing internal-token envs where configured) and are never returned in the API response.
 - First slice limitation: `allow_writes` is forced false. Response includes `limitation.limitation_flag = "writes_and_external_sends_disabled"`, `writes_enabled:false`, `whatsapp_sends_enabled:false`, `sms_sends_enabled:false`, plus the denied action list. Tenant simulator output should report `whatsapp_suppressed:true` when the live runtime captured rather than sent the reply.
 - Denied write/send actions include booking/payment links, add services/catalog camps, transfer/contact/package updates, handoff flag writes, WhatsApp sends, and SMS sends. Reads/tool lookups are allowed through the tenant simulator.
 
 Verify with `npm run verify:crowsnest-live-simulator`.
+
+ACA → Lunabox runtime wiring requires the tenant origin/token pair for each enabled simulator:
+
+```bash
+CROWSNEST_LIVE_SIM_SUNSET_ORIGIN=https://lunabox.lunafrontdesk.com
+CROWSNEST_LIVE_SIM_SUNSET_TOKEN=...
+CROWSNEST_LIVE_SIM_WOLFHOUSE_ORIGIN=https://lunabox.lunafrontdesk.com
+CROWSNEST_LIVE_SIM_WOLFHOUSE_TOKEN=...
+# Optional shared host allowlist for non-local runtime origins:
+CROWSNEST_LIVE_SIM_ALLOWED_HOSTS=lunabox.lunafrontdesk.com
+```
 
 Verify:
 

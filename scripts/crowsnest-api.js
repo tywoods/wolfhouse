@@ -336,6 +336,7 @@ function getBrowserSecurityHeaders(cspNonce = '', allowNonceScript = false) {
       "base-uri 'none'",
       "object-src 'none'",
       "form-action 'self'",
+      "connect-src 'self'",
       "img-src 'self'",
       allowNonceScript ? `script-src 'nonce-${cspNonce}'` : "script-src 'none'",
       `style-src 'nonce-${cspNonce}'`,

@@ -200,9 +200,14 @@ ok('Live Simulator tenant dropdown maps Sunset/Wolfhouse values', /<option value
 ok('Live Simulator uses API guest-turn endpoint only', /fetch\('\/api\/live-simulator\/guest-turn'/.test(liveSimulatorHtml));
 ok('Live Simulator has editable from phone number', /name="from_phone"[^>]*data-live-simulator-phone/.test(liveSimulatorHtml));
 ok('Live Simulator shows screenshot-friendly empty state', /Ready for a Luna turn/.test(liveSimulatorHtml) && /Luna replies will appear here/.test(liveSimulatorHtml));
+ok('Live Simulator styles guest bubbles left and Luna replies right', /live-simulator-message--guest\{[^}]*margin-right:auto[^}]*background:var\(--surface-raised\)/.test(pageSrc) && /live-simulator-message--luna\{[^}]*margin-left:auto[^}]*linear-gradient\(180deg,#4F8199/.test(pageSrc));
+ok('Live Simulator bubbles render timestamp metadata', /live-simulator-message-time/.test(liveSimulatorHtml) && /time\.dateTime = new Date\(\)\.toISOString\(\)/.test(liveSimulatorHtml));
+ok('Live Simulator HTTP failures show status plus JSON code/error', /function describeFailure/.test(liveSimulatorHtml) && /parts\.push\('HTTP ' \+ resp\.status\)/.test(liveSimulatorHtml) && /data\.code/.test(liveSimulatorHtml) && /data\.error/.test(liveSimulatorHtml));
+ok('Live Simulator appends Luna reply after successful guest turn', /appendMessage\('guest'/.test(liveSimulatorHtml) && /appendMessage\('luna'/.test(liveSimulatorHtml) && liveSimulatorHtml.indexOf("appendMessage('guest'") < liveSimulatorHtml.indexOf("appendMessage('luna'"));
 ok('Live Simulator visible limitation says writes and sends disabled', /writes and external sends disabled/i.test(liveSimulatorHtml) && /No booking\/payment UI writes/.test(liveSimulatorHtml) && /No WhatsApp or SMS sends/.test(liveSimulatorHtml));
 ok('Live Simulator browser code does not include tenant tokens', !/LUNA_BOT_INTERNAL_TOKEN|CROWSNEST_LIVE_SIM_.*TOKEN|X-Luna-Bot-Token/.test(liveSimulatorHtml));
 ok('CSP permits only nonce inline script for browser UI', /script-src '\$\{cspNonce\}'|script-src 'nonce-/.test(apiSrc) && !/script-src 'unsafe-inline'/.test(apiSrc));
+ok('CSP permits same-origin Live Simulator fetch only', /connect-src 'self'/.test(apiSrc) && !/connect-src \*/.test(apiSrc));
 const salesHtml = renderPageHtml({ view: 'sales' });
 assertSharedNav('Sales', salesHtml, '/sales');
 ok('Sales view renders Sales heading', /<h1[^>]*>[\s\S]*Sales/i.test(salesHtml));
@@ -279,8 +284,9 @@ ok('Billing placeholder has no forms or mutations', (() => {
 ok('Billing does not invent amounts', !hasInventedMetricNumber(billingHtml));
 ok('Communications placeholder says not connected', /not connected|not available|no data source|unavailable/i.test(communicationsHtml) && /Communications/i.test(communicationsHtml));
 ok('Communications placeholder has no send/recipient controls', (() => {
-  const withoutLogout = communicationsHtml.replace(/<form[^>]+action=["']\/logout["'][\s\S]*?<\/form>/i, '');
-  return !/send message|recipient|compose/i.test(communicationsHtml) && !/<form\b/i.test(withoutLogout);
+  const withoutStyle = communicationsHtml.replace(/<style\b[\s\S]*?<\/style>/gi, '');
+  const withoutLogout = withoutStyle.replace(/<form[^>]+action=["']\/logout["'][\s\S]*?<\/form>/i, '');
+  return !/send message|recipient|compose/i.test(withoutStyle) && !/<form\b/i.test(withoutLogout);
 })());
 ok('Communications does not invent counts', !hasInventedMetricNumber(communicationsHtml));
 
