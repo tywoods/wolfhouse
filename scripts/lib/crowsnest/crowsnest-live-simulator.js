@@ -179,11 +179,7 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     message_text: messageText,
     allow_writes: false,
   };
-  const isolatedMode = tenant === 'sunset';
-  if (isolatedMode) {
-    payload.simulator_write_mode = SUNSET_ISOLATED_MODE;
-    payload.simulator_synthetic_identity = phone.e164;
-  }
+
   const safeLang = sanitizeLang(lang);
   if (safeLang) payload.lang = safeLang;
 
@@ -200,7 +196,7 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     phone,
     payload,
     headers,
-    limitation: buildLiveSimulatorLimitation({ isolatedMode: tenant === 'sunset' }),
+    limitation: buildLiveSimulatorLimitation(),
   };
 }
 

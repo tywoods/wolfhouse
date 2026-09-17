@@ -332,11 +332,23 @@ def build_mirror_payload(
         "direction": direction,
         "message_text": msg[:4000],
     }
-    if os.getenv("WOLFHOUSE_SIMULATE_GUEST_TURN") == "1":
-        payload["simulator_synthetic"] = True
-        payload["source_owner"] = "simulate-guest-turn"
-        payload["suppress_notifications"] = True
-        payload["suppress_approvals"] = True
+    simulator_fields = {}
+    try:
+        from wolfhouse.crowsnest_guest_door import simulator_mirror_fields
+
+        simulator_fields = simulator_mirror_fields()
+    except Exception:
+        simulator_fields = {}
+    # Legacy env remains label-only compatibility. It owns no transport/tool
+    # permission; the protected Crows Nest door uses request context.
+    if not simulator_fields and os.getenv("WOLFHOUSE_SIMULATE_GUEST_TURN") == "1":
+        simulator_fields = {
+            "simulator_synthetic": True,
+            "source_owner": "simulate-guest-turn-legacy",
+            "suppress_notifications": True,
+            "suppress_approvals": True,
+        }
+    payload.update(simulator_fields)
     location_id = resolve_mirror_location_id(client_slug)
     if location_id:
         payload["location_id"] = location_id
@@ -684,6 +696,11 @@ def _normalize_phone(raw: Any) -> str:
 def mirror_whatsapp_thread(source, event, direction, text, wa_id=None, contact_name=None) -> None:
     """Enqueue a staff-inbox mirror. Never raises into the WhatsApp/Luna path."""
     try:
+        meta = getattr(event, "metadata", None)
+        if isinstance(meta, dict) and meta.get("crowsnest_simulator") is True:
+            # The protected internal door persists both directions synchronously
+            # and verifies the Staff API response. Do not enqueue a duplicate.
+            return
         if direction == "inbound" and is_coalesced_agent_inbound(event):
             logger.info(
                 "%s",

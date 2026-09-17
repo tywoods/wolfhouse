@@ -330,6 +330,20 @@ async def run_simulated_turn(
     timeout_sec: float = 180.0,
 ) -> Dict[str, Any]:
     assert_staging_environment()
+    # Enter the already-running GatewayRunner directly. Never mutate process env
+    # or monkeypatch transport/tool functions per request: those legacy mechanics
+    # can retarget an interleaved ordinary guest turn.
+    if allow_writes or booking_only_mode:
+        raise ValueError("crowsnest_guest_door_never_accepts_write_authority")
+    from wolfhouse.crowsnest_guest_door import run_live_crowsnest_guest_turn
+
+    return await run_live_crowsnest_guest_turn(
+        phone=thread,
+        text=text,
+        timeout_sec=timeout_sec,
+    )
+
+    # Unreachable legacy implementation retained temporarily for compatibility.
     digits = thread_to_digits(thread)
     if not text or not str(text).strip():
         raise ValueError("text is required")
@@ -600,36 +614,27 @@ def register_simulate_route(app) -> None:
 
             return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
 
-        # Burst payload: ordered messages array (staging rapid-fire harness).
+        # Legacy burst injection used the same process-wide patches as single-turn
+        # simulation. It is intentionally disabled until it has an equivalent
+        # request-owned queue contract.
         if isinstance(body.get("messages"), list) and body.get("messages"):
-            try:
-                result = await run_simulated_burst(
-                    thread=str(body.get("thread") or body.get("guest_phone") or ""),
-                    messages=list(body.get("messages") or []),
-                    lang=body.get("lang") or body.get("language"),
-                    # Burst endpoint always fail-closed — ignore caller allow_writes.
-                    allow_writes=False,
-                )
-            except SystemExit as exc:
-                from aiohttp import web
-
-                return web.json_response({"ok": False, "error": str(exc)}, status=403)
-            except Exception as exc:
-                from aiohttp import web
-
-                return web.json_response({"ok": False, "error": str(exc)}, status=500)
             from aiohttp import web
 
-            return web.json_response(result)
+            return web.json_response(
+                {"ok": False, "error": "legacy_burst_disabled_for_one_runner_safety"},
+                status=410,
+            )
 
         try:
             result = await run_simulated_turn(
                 thread=str(body.get("thread") or body.get("guest_phone") or ""),
                 text=str(body.get("text") or body.get("message_text") or ""),
                 lang=body.get("lang") or body.get("language"),
-                allow_writes=bool(body.get("allow_writes")),
-                booking_only_mode=str(body.get("simulator_write_mode") or ""),
-                synthetic_identity=str(body.get("simulator_synthetic_identity") or ""),
+                # Server-owned permanent denial. Caller fields can never grant
+                # write or live-send authority to the internal guest door.
+                allow_writes=False,
+                booking_only_mode="",
+                synthetic_identity="",
             )
         except SystemExit as exc:
             from aiohttp import web

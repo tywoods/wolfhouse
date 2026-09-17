@@ -64,7 +64,7 @@ ok('business tools denied including reads/previews',
 ok('allowlisted case ids only', /ALLOWED_CASE_IDS/.test(evalSrc) && /caller_override_rejected/.test(evalSrc));
 ok('no arbitrary text/model/tenant overrides on route',
   /"text"/.test(evalSrc) && /"model"/.test(evalSrc) && /"client_slug"/.test(evalSrc));
-ok('default simulate allow_writes preserved', /allow_writes=bool\(body.get\("allow_writes"\)\)/.test(coreSrc));
+ok('protected guest door hard-denies caller write authority', /allow_writes=False[\s\S]{0,160}booking_only_mode=""/.test(coreSrc));
 ok('isolated route registered without replacing simulate',
   /register_live_eval_route/.test(coreSrc) && /simulate-guest-turn/.test(coreSrc));
 ok('bot GET resolves slug-only principal',
