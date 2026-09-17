@@ -309,13 +309,23 @@ os._exit(0)
         envelope.reset_for_tests()
         self.tmp.cleanup()
 
-    async def _run_route(self, enabled):
+    async def _run_route(self, enabled, *, scope_overrides=None):
         client = _DeterministicClient()
         app = _App()
         adapter_results = []
         append_results = []
+        receipt_rows = []
         real_adapter_entry = envelope.adapter_entry
         real_append_result = envelope.append_result
+        real_trace_emit = envelope.trace_emit
+
+        def observed_trace_emit(identity, event, **kwargs):
+            if event in {"lr32_adapter_outcome", "lr32_append_outcome", "lr32_publication_outcome"}:
+                receipt_rows.append({
+                    "event": event,
+                    **{key: value for key, value in kwargs.items() if key != "capture"},
+                })
+            return real_trace_emit(identity, event, **kwargs)
 
         def observed_adapter_entry(*args, **kwargs):
             identity = envelope.current_trace()
@@ -385,6 +395,12 @@ os._exit(0)
             envelope.APPROVED_RUN_ENV: RUN_ID if enabled else "",
             envelope.ARTIFACT_DIR_ENV: str(envelope.ARTIFACT_DIR) if enabled else "",
         })
+        # Apply the historical scope tuple after fixture defaults and before ordinary entry.
+        for key, value in (scope_overrides or {}).items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
         with patch.dict(os.environ, env, clear=True):
             from gateway import run as gateway_run
             from hermes_cli.plugins import discover_plugins, get_plugin_manager
@@ -430,11 +446,14 @@ os._exit(0)
                      envelope, "adapter_entry", side_effect=observed_adapter_entry,
                  ), patch.object(
                      envelope, "append_result", side_effect=observed_append_result,
+                 ), patch.object(
+                     envelope, "trace_emit", side_effect=observed_trace_emit,
                  ):
                 runner = gateway_run.GatewayRunner()
                 gateway_run._wolfhouse_gateway_runner = runner
                 self.assertTrue(register_group_lesson_eval_route(app))
                 response = await app.router.posts[GROUP_LESSON_EVAL_PATH](_Request())
+        self.last_receipt_rows = receipt_rows
         return _decode_response(response), max(
             client.responses.calls, client.chat.completions.calls,
         ), adapter_results, append_results
@@ -525,6 +544,108 @@ os._exit(0)
         export_path = os.getenv("LR32_TEST_EXPORT_ARTIFACT")
         if export_path:
             shutil.copy2(artifact, export_path)
+
+    def test_scope_parity_missing_ingress_reproduces_sealed_rejection(self):
+        """Config evidence lacks ingress and the ordinary path reproduces sealed scope_mismatch."""
+        self.maxDiff = None
+        self.base_env["LUNA_LR32_CAPTURE_IDENTITY_TRACE_PATH"] = (
+            "/tmp/lr32-capture-identity-trace.jsonl"
+        )
+
+        accepted, accepted_calls, accepted_adapter, accepted_append = asyncio.run(
+            self._run_route(True)
+        )
+        accepted_receipts = list(self.last_receipt_rows)
+        accepted_artifact = envelope.ARTIFACT_DIR / f"lr32-call1-{RUN_ID}.json"
+        accepted_document = json.loads(accepted_artifact.read_text(encoding="utf-8"))
+        accepted_digest = accepted_document.pop("checksum_sha256")
+        accepted_canonical = json.dumps(
+            accepted_document, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        ).encode()
+        self.assertEqual(accepted_digest, hashlib.sha256(accepted_canonical).hexdigest())
+
+        accepted_artifact.unlink()
+        reset_isolation_runtime_for_tests()
+        envelope.reset_for_tests()
+
+        synthetic, synthetic_calls, synthetic_adapter, synthetic_append = asyncio.run(
+            self._run_route(
+                True,
+                scope_overrides={
+                    "HERMES_ROLE": "sunset-luna",
+                    "LUNA_CLIENT_SLUG": "sunset",
+                    "LUNA_BOT_CLIENT_SLUG": None,
+                    "SUNSET_INGRESS_LOCATION_ID": None,
+                },
+            )
+        )
+        synthetic_receipts = list(self.last_receipt_rows)
+
+        self.assertEqual(accepted[0], 503)
+        self.assertEqual(synthetic[0], 503)
+        self.assertEqual(accepted_calls, 2)
+        self.assertEqual(synthetic_calls, 2)
+        self.assertEqual(_normalized_result(accepted[1]), _normalized_result(synthetic[1]))
+        normalized = _normalized_result(synthetic[1])
+        self.assertEqual(normalized["sends_attempted"], 0)
+        self.assertEqual(normalized["sends_completed"], 0)
+        self.assertEqual(normalized["journal_writes_completed"], 0)
+        self.assertEqual(normalized["persistence_effects_completed"], [])
+
+        self.assertEqual(len(accepted_adapter), 1)
+        self.assertTrue(accepted_adapter[0]["identity_present"])
+        self.assertTrue(accepted_adapter[0]["capture_present"])
+        self.assertTrue(accepted_adapter[0]["approved_present"])
+        self.assertTrue(accepted_adapter[0]["run_ids_match"])
+        self.assertTrue(accepted_adapter[0]["server_marker"])
+        self.assertTrue(accepted_adapter[0]["metadata_call1"])
+        self.assertTrue(accepted_adapter[0]["pending_contains_handle"])
+        self.assertEqual(accepted_append[0]["exact_match_count_before"], 1)
+        self.assertTrue(accepted_append[0]["consumed"])
+        self.assertTrue(accepted_append[0]["published"])
+        self.assertEqual(
+            [(row["event"], row["status"], row["reason"]) for row in accepted_receipts],
+            [
+                ("lr32_adapter_outcome", "accepted", "handle_created"),
+                ("lr32_append_outcome", "consumed", "exact_match"),
+                ("lr32_publication_outcome", "completed", "published"),
+            ],
+        )
+
+        # This tuple is explicitly synthetic: stopped-container/config evidence proves
+        # the variable was absent, not that it was absent at adapter execution time.
+        self.assertEqual(len(synthetic_adapter), 1)
+        self.assertFalse(synthetic_adapter[0]["admitted"])
+        self.assertTrue(synthetic_adapter[0]["identity_present"])
+        self.assertTrue(synthetic_adapter[0]["capture_present"])
+        self.assertTrue(synthetic_adapter[0]["approved_present"])
+        self.assertTrue(synthetic_adapter[0]["run_ids_match"])
+        self.assertTrue(synthetic_adapter[0]["server_marker"])
+        self.assertFalse(synthetic_adapter[0]["pending_contains_handle"])
+        self.assertEqual(len(synthetic_append), 1)
+        self.assertEqual(synthetic_append[0]["actual_id"], CALL_ID)
+        self.assertEqual(synthetic_append[0]["exact_match_count_before"], 0)
+        self.assertFalse(synthetic_append[0]["consumed"])
+        self.assertFalse(synthetic_append[0]["published"])
+        self.assertEqual(
+            [(row["event"], row["status"], row["reason"]) for row in synthetic_receipts],
+            [
+                ("lr32_adapter_outcome", "rejected", "scope_mismatch"),
+                ("lr32_append_outcome", "rejected", "no_exact_match"),
+            ],
+        )
+        adapter_receipt = synthetic_receipts[0]
+        self.assertFalse(adapter_receipt["scope_match"])
+        self.assertIsNone(adapter_receipt["metadata_call1"])
+        self.assertFalse(adapter_receipt["pending_created"])
+        append_receipt = synthetic_receipts[1]
+        self.assertEqual(append_receipt["call_id"], CALL_ID)
+        self.assertEqual(append_receipt["exact_match_count"], 0)
+        self.assertFalse(append_receipt["handle_match"])
+        self.assertFalse(append_receipt["consumed"])
+        self.assertFalse(any(row["event"] == "lr32_publication_outcome"
+                             for row in synthetic_receipts))
+        self.assertEqual(list(envelope.ARTIFACT_DIR.iterdir()), [])
 
 
 if __name__ == "__main__":
