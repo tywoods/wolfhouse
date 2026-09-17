@@ -959,9 +959,10 @@ class IsolatedEvalTests(unittest.TestCase):
         self.assertIn("case_id_not_allowlisted", src)
         self.assertNotIn("allow_writes=bool", src)
 
-    def test_default_simulate_still_has_allow_writes(self) -> None:
+    def test_default_simulate_hard_denies_caller_write_authority(self):
         core = Path(__file__).with_name("simulate_core.py").read_text(encoding="utf8")
-        self.assertIn("allow_writes=bool(body.get(\"allow_writes\"))", core)
+        self.assertIn("allow_writes=False", core)
+        self.assertIn("crowsnest_guest_door_never_accepts_write_authority", core)
         self.assertIn("register_live_eval_route", core)
 
     def test_semantic_rejects_unsupported_url(self) -> None:

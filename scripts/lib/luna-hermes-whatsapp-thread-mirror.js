@@ -325,7 +325,7 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
   const metadataBase = { channel: 'whatsapp', hermes_luna: true };
   if (channelHints && channelHints.simulator_synthetic === true) {
     metadataBase.simulator_synthetic = true;
-    metadataBase.source_owner = 'simulate-guest-turn';
+    metadataBase.source_owner = trimStr(channelHints.source_owner) || 'crowsnest-guest-door';
     metadataBase.open_phone_testing = true;
     metadataBase.guest_tester_class = 'Simulator';
     metadataBase.whatsapp_delivered = false;
@@ -394,6 +394,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
       phone_number_id: i.phone_number_id,
       location_id: i.location_id,
       simulator_synthetic: i.simulator_synthetic === true,
+      source_owner: i.source_owner,
     },
   );
   if (!ensured || !ensured.conversation_id) {
