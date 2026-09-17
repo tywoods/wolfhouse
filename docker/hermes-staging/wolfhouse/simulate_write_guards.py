@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from typing import Any, Dict, List, Tuple
 
 _PREVIEW_PATH = "/staff/bot/booking-preview"
@@ -104,14 +105,30 @@ def _norm_path(path: str) -> str:
     return norm
 
 
-def guard_bot_path_and_payload(path: str, payload: Dict[str, Any], *, allow_writes: bool) -> Tuple[str, Dict[str, Any], List[str]]:
-    """Return (path, payload, warnings). Redirect write routes to preview when writes disabled."""
+def guard_bot_path_and_payload(
+    path: str,
+    payload: Dict[str, Any],
+    *,
+    allow_writes: bool,
+    booking_only_mode: str = "",
+) -> Tuple[str, Dict[str, Any], List[str]]:
+    """Return (path, payload, warnings). Redirect write routes to preview when writes disabled.
+
+    ``booking_only_mode='sunset_booking_only'`` is narrower than allow_writes:
+    it permits only Sunset's existing booking-create bot path, only when the
+    existing BOT_BOOKING_ENABLED gate is already true. Payments, waivers, sends,
+    and unrelated mutations remain blocked.
+    """
     warnings: List[str] = []
     if allow_writes:
         return path, payload, warnings
 
     norm = _norm_path(path)
     body = copy.deepcopy(payload or {})
+    sunset_booking_only = (
+        booking_only_mode == "sunset_booking_only"
+        and os.getenv("BOT_BOOKING_ENABLED") == "true"
+    )
 
     if "booking-create-from-plan" in norm or norm.endswith("/bookings/create"):
         warnings.append("redirected_create_to_booking_preview")
@@ -143,7 +160,14 @@ def guard_bot_path_and_payload(path: str, payload: Dict[str, Any], *, allow_writ
         body["simulate_write_blocked"] = True
 
     if "sunset/booking-create" in norm:
-        warnings.append("blocked_sunset_booking_write_in_simulate")
+        if sunset_booking_only:
+            warnings.append("allowed_sunset_booking_only_write_in_simulate")
+            body["simulator_booking_only_mode"] = True
+            return norm, body, warnings
+        if booking_only_mode == "sunset_booking_only":
+            warnings.append("blocked_sunset_booking_write_bot_booking_disabled")
+        else:
+            warnings.append("blocked_sunset_booking_write_in_simulate")
         return norm, body, warnings
 
     if any(frag in norm for frag in ("sunset/payment-link", "sunset/payment-link/")):
