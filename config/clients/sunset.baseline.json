@@ -379,15 +379,15 @@
     "safe_default": "do_not_send_payment_link_without_confirmed_deposit_rule_and_pricing_status_confirmed"
   },
   "confirmation": {
-    "_status": "skeleton",
-    "confirmation_send_mode": "dry_run",
+    "_status": "approved_after_payment_truth",
+    "confirmation_send_mode": "auto_after_payment_truth",
     "confirmation_requires_payment_truth": true,
     "include_service_details": true,
     "include_meeting_point": null,
     "include_arrive_before_minutes": 20,
     "_arrive_note": "For lessons, confirm meeting point and the 20-min-early rule when owner verifies.",
     "include_what_to_bring": null,
-    "safe_default": "keep_dry_run_until_real_send_gate_is_proven"
+    "safe_default": "send_once_only_after_authoritative_payment_truth_and_only_when_runtime_auto_send_is_enabled_and_whatsapp_dry_run_is_off"
   },
   "cancellation": {
     "_status": "skeleton_handoff_only",

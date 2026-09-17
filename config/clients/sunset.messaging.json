@@ -2,5 +2,20 @@
   "public_urls": {
     "public_payment_base_url": "https://sunset-staging.lunafrontdesk.com",
     "public_guest_base_url": "https://sunset-staging.lunafrontdesk.com"
+  },
+  "confirmation_templates": {
+    "placeholders": [
+      "guest_name",
+      "booking_code",
+      "amount_paid",
+      "balance_due"
+    ],
+    "en": "Payment received — thank you, {guest_name}! 🏄‍♂️🌊\n\nBooking: {booking_code}\nPaid: {amount_paid}\nBalance due: {balance_due}\n\nYour booking is confirmed. We can't wait to get you in the water!",
+    "es": "Pago recibido — ¡gracias, {guest_name}! 🏄‍♂️🌊\n\nReserva: {booking_code}\nPagado: {amount_paid}\nSaldo pendiente: {balance_due}\n\nTu reserva está confirmada. ¡Estamos deseando verte en el agua!",
+    "rules": [
+      "only_after_stripe_webhook_truth",
+      "include_amount_paid_and_balance_due",
+      "never_include_hostel_gate_or_room_fields"
+    ]
   }
 }
