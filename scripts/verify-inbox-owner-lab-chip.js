@@ -52,8 +52,8 @@ assert.match(css, /html\.theme-dark \.inbox-owner-lab-chip\{[^}]*rgba\(78,178,17
 assert.doesNotMatch(css, /\.inbox-owner-lab-chip\{[^}]*232,137,58/s,
   'Owner Lab chip no longer uses the old orange fill/border');
 
-assert.match(listSrc, /inboxFilter === 'owner_lab'[\s\S]*list = list\.filter\(isOwnerLabRow\)/,
-  'legacy desktop/mobile list filter keeps Owner Lab rows only under Owner Lab');
+assert.match(listSrc, /inboxFilter === 'owner_lab' \|\| savedViewOwnerLab[\s\S]*list = list\.filter\(isOwnerLabRow\)/,
+  'legacy/filter and saved-view paths keep Owner Lab rows under Owner Lab');
 assert.match(listSrc, /else \{\s*list = list\.filter\(function\(c\)\{ return !isOwnerLabRow\(c\); \}\);\s*\}/,
   'legacy desktop/mobile All and WhatsApp filters exclude Owner Lab rows');
 assert.match(listSrc, /\['all', 'email', 'whatsapp', 'needs-human', 'owner_lab'\]/,
