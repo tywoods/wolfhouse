@@ -201,7 +201,13 @@ async function tryAutoSendBookingConfirmation(input, context) {
     payment_status: row.payment_status,
     guest_name: trimStr(src.guest_name) || trimStr(row.guest_name_meta) || null,
     language_hint: trimStr(src.language_hint) || 'en',
-  }, { pg, env });
+  }, {
+    pg,
+    env,
+    // Established from authoritative deployment scope + durable Crows Nest
+    // conversation ownership above, never from public preview input.
+    trusted_crowsnest_sunset_course: !!simulator,
+  });
 
   if (!preview || preview.confirmation_preview_ready !== true) {
     return {

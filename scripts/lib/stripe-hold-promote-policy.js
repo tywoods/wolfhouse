@@ -84,6 +84,14 @@ function coerceDbBool(value) {
   return value === true || value === 't' || value === 'true' || value === 1 || value === '1';
 }
 
+function isAuthoritativeSunsetStagingPaymentScope(pm, env) {
+  const e = env || process.env;
+  return String(pm && pm.client_slug || '').trim() === 'sunset'
+    && String(e.DEFAULT_CLIENT_SLUG || '').trim() === 'sunset'
+    && String(e.LUNA_DEPLOYMENT || '').trim() === 'sunset-staging'
+    && String(e.NODE_ENV || '').trim().toLowerCase() === 'staging';
+}
+
 function buildPaymentAfterHoldExpiryMetadata(locked, reason) {
   return {
     [PAYMENT_AFTER_HOLD_EXPIRY_META_KEY]: {
@@ -432,20 +440,38 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
   validateLockedPaymentIdentityForStripeTruth(lockedPayment, session, identityCtx);
 
   if (lockedPayment.payment_status === 'paid') {
+    const sunsetStaging = isAuthoritativeSunsetStagingPaymentScope(
+      pm,
+      (opts && opts.env) || process.env,
+    );
+    const promotePaidPending = sunsetStaging && locked.booking_status === 'payment_pending';
+    if (promotePaidPending) {
+      await pg.query(
+        `UPDATE bookings
+            SET status = 'confirmed'::booking_status,
+                updated_at = NOW()
+          WHERE id = $1::uuid
+            AND client_id = $2
+            AND status = 'payment_pending'::booking_status`,
+        [pm.booking_id, pm.client_id],
+      );
+    }
     return {
       ok: true,
       already_paid: true,
       idempotent: true,
       decision: {
-        promote_to_confirmed: false,
+        promote_to_confirmed: promotePaidPending,
         payment_after_hold_expiry: false,
         payment_on_terminal_booking: false,
-        allow_auto_confirmation: false,
-        reason: 'already_paid_under_lock',
+        allow_auto_confirmation: promotePaidPending,
+        reason: promotePaidPending
+          ? 'already_paid_payment_pending_promote_ok'
+          : 'already_paid_under_lock',
         fail_closed: false,
         metadata_patch: null,
       },
-      locked,
+      locked: promotePaidPending ? { ...locked, booking_status: 'confirmed' } : locked,
       lockedPayment,
       money: null,
     };
@@ -492,10 +518,7 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
   };
 
   const env = (opts && opts.env) || process.env;
-  const sunsetStaging = String(pm.client_slug || '').trim() === 'sunset'
-    && String(env.DEFAULT_CLIENT_SLUG || '').trim() === 'sunset'
-    && String(env.LUNA_DEPLOYMENT || '').trim() === 'sunset-staging'
-    && String(env.NODE_ENV || '').trim().toLowerCase() === 'staging';
+  const sunsetStaging = isAuthoritativeSunsetStagingPaymentScope(pm, env);
   const decision = decideStripeHoldPromote(
     locked,
     { newBkPayStatus: money.newBkPayStatus },
