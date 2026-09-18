@@ -795,14 +795,22 @@ function scheduleDrawerFormatCommercialMathLabel(line) {
   }
 
   // Multi-day course package / total_only: exact daily when cents divide; else labeled avg.
+  // Unit is per-surfer-day (total / (days × qty)). When qty > 1, always show ×N surfers so
+  // the subtitle reconciles to the charged line total (days × unit × surfers).
   // Never claim rounded average × days equals the right-side amount.
   if (isCourse && days > 1 && (mode === 'package' || mode === 'total_only')) {
     var denom = days * qty;
+    var dayMath = '';
     if (denom > 0 && Number.isFinite(total) && total % denom === 0) {
-      return scheduleDrawerFormatDaysTimesUnit(days, total / denom);
+      dayMath = scheduleDrawerFormatDaysTimesUnit(days, total / denom);
+    } else if (denom > 0 && Number.isFinite(total) && total > 0) {
+      dayMath = scheduleDrawerFormatDaysAvgUnit(days, Math.round(total / denom));
     }
-    if (denom > 0 && Number.isFinite(total) && total > 0) {
-      return scheduleDrawerFormatDaysAvgUnit(days, Math.round(total / denom));
+    if (dayMath) {
+      if (qty > 1) {
+        dayMath += ' \u00d7 ' + String(qty) + ' ' + portalT('schedule.drawer.surfersWord');
+      }
+      return dayMath;
     }
   }
 
@@ -834,7 +842,14 @@ function scheduleDrawerFormatCommercialMathLabel(line) {
   }
   if (mode === 'package' && unit != null) {
     var pkg = scheduleDrawerEur(unit);
-    if (qty > 1) pkg += ' \u00d7 ' + String(qty);
+    if (qty > 1) {
+      // Course/party lines: label the multiplier as surfers (matches linear path).
+      if (isCourse || /surfers?/i.test(String(line.label || ''))) {
+        pkg += ' \u00d7 ' + String(qty) + ' ' + portalT('schedule.drawer.surfersWord');
+      } else {
+        pkg += ' \u00d7 ' + String(qty);
+      }
+    }
     if (line.duration_label) pkg += ' \u00b7 ' + line.duration_label;
     else if (days > 1) pkg += ' \u00b7 ' + String(days) + ' ' + portalT('schedule.drawer.daysWordCap');
     return pkg;
