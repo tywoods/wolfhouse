@@ -17,7 +17,12 @@ const {
 
 const ROOT = path.join(__dirname, '..');
 const OUT_DIR = path.join(ROOT, 'tmp', 'mobile-people-order');
-const WIDTHS = [360, 390, 430];
+const VIEWPORTS = [
+  { width: 360, height: 844 },
+  { width: 390, height: 720 },
+  { width: 390, height: 844 },
+  { width: 430, height: 844 },
+];
 let pass = 0;
 let fail = 0;
 
@@ -37,8 +42,9 @@ function sourceAssertions() {
   ok('mobile Luna card is moved after the list card',
     /inboxList\.insertAdjacentElement\('afterend', card\)/.test(shell)
     && /card\.classList\.add\('is-inbox-mobile-docked'\)/.test(shell));
-  ok('mobile grid has rows for filter, search, list, Luna',
-    shell.includes('grid-template-rows:auto auto minmax(0,1fr) auto!important'));
+  ok('mobile grid has intrinsic rows for filter, search, list, Luna',
+    shell.includes('grid-template-rows:auto auto auto auto!important')
+    && shell.includes('#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:0 0 auto;height:auto;overflow:visible}'));
 }
 
 async function main() {
@@ -50,10 +56,12 @@ async function main() {
   const browser = await playwright.chromium.launch({ headless: true });
   const evidence = {};
   try {
-    for (const width of WIDTHS) {
-      for (const theme of ['light', ...(width === 390 ? ['dark'] : [])]) {
+    for (const viewport of VIEWPORTS) {
+      const width = viewport.width;
+      const height = viewport.height;
+      for (const theme of ['light', ...(width === 390 && height === 720 ? ['dark'] : [])]) {
         const page = await browser.newPage();
-        await page.setViewportSize({ width, height: 844 });
+        await page.setViewportSize({ width, height });
         await page.goto(`${base}/staff/ui`, { waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => typeof window.switchToTab === 'function', null, { timeout: 15000 });
         await page.evaluate((themeName) => {
@@ -72,13 +80,47 @@ async function main() {
           }
           const list = document.getElementById('conv-list');
           if (list) {
-            list.innerHTML = '<button class="conv-card"><span class="conv-card-header-row"><span class="conv-card-name">Ana Mobile QA</span><span class="conv-card-time">now</span></span></button><button class="conv-card"><span class="conv-card-header-row"><span class="conv-card-name">Berto Mobile QA</span><span class="conv-card-time">1m</span></span></button>';
+            const rowHtml = (id, name, time, chip) => '<button type="button" class="conv-card inbox-row inbox-row-owner-lab" data-mobile-owner-row="' + id + '">' +
+              '<span class="inbox-row-body"><span class="conv-card-header-row"><span class="conv-card-name">' + name + '</span><span class="conv-card-time">' + time + '</span></span>' +
+              '<span class="conv-card-preview">Owner Lab mobile row should remain selectable.</span>' +
+              (chip ? '<span class="inbox-owner-lab-chip">Owner Lab</span>' : '') + '</span></button>';
+            list.innerHTML = [
+              rowHtml('row-1', 'Ana Mobile QA', 'now', true),
+              rowHtml('row-2', 'Berto Mobile QA', '1m', true),
+              rowHtml('row-3', 'Carla Mobile QA', '2m', true),
+              rowHtml('row-4', 'Guest', '3m', true),
+            ].join('');
+            window.__mobileOwnerClicked = null;
+            list.querySelectorAll('[data-mobile-owner-row]').forEach(function(btn){
+              btn.addEventListener('click', function(){ window.__mobileOwnerClicked = btn.getAttribute('data-mobile-owner-row'); });
+            });
           }
           const shell = document.getElementById('inbox-shell');
           if (shell) shell.classList.remove('show-thread');
           if (window.__syncInboxMobileOrder) window.__syncInboxMobileOrder();
           else if (window.__syncCustomersMobileAutonomy) window.__syncCustomersMobileAutonomy();
         }, theme);
+        await page.waitForTimeout(SETTLE_MS);
+        await page.evaluate(() => {
+          const list = document.getElementById('conv-list');
+          if (!list) return;
+          const rowHtml = (id, name, time) => '<button type="button" class="conv-card inbox-row inbox-row-owner-lab" data-mobile-owner-row="' + id + '">' +
+            '<span class="inbox-row-body"><span class="conv-card-header-row"><span class="conv-card-name">' + name + '</span><span class="conv-card-time">' + time + '</span></span>' +
+            '<span class="conv-card-preview">Owner Lab mobile row should remain selectable.</span>' +
+            '<span class="inbox-owner-lab-chip">Owner Lab</span></span></button>';
+          list.innerHTML = [
+            rowHtml('row-1', 'Ana Mobile QA', 'now'),
+            rowHtml('row-2', 'Berto Mobile QA', '1m'),
+            rowHtml('row-3', 'Carla Mobile QA', '2m'),
+            rowHtml('row-4', 'Guest', '3m'),
+          ].join('');
+          window.__mobileOwnerClicked = null;
+          list.querySelectorAll('[data-mobile-owner-row]').forEach(function(btn){
+            btn.addEventListener('click', function(){ window.__mobileOwnerClicked = btn.getAttribute('data-mobile-owner-row'); });
+          });
+          if (window.__syncInboxMobileOrder) window.__syncInboxMobileOrder();
+          else if (window.__syncCustomersMobileAutonomy) window.__syncCustomersMobileAutonomy();
+        });
         await page.waitForTimeout(SETTLE_MS);
         const metric = await page.evaluate(() => {
           const rect = (sel) => {
@@ -92,25 +134,42 @@ async function main() {
             const el = document.querySelector(sel);
             return el && el.parentElement ? (el.parentElement.id || el.parentElement.className || el.parentElement.tagName) : null;
           };
+          const rowRects = Array.from(document.querySelectorAll('#conv-list [data-mobile-owner-row]')).map((el) => {
+            const b = el.getBoundingClientRect();
+            return { id: el.getAttribute('data-mobile-owner-row'), top: b.top, bottom: b.bottom, left: b.left, right: b.right, width: b.width, height: b.height };
+          });
           return {
-            viewport: innerWidth,
+            viewport: `${innerWidth}x${innerHeight}`,
             bodyScrollW: document.documentElement.scrollWidth,
             filter: rect('#inbox-views-rail'),
             search: rect('#tab-conversations .inbox-conv-search-wrap'),
             list: rect('#inbox-card'),
             rows: rect('#conv-list'),
+            rowRects,
             autonomy: rect('#tab-conversations #inbox-shell-channel-defaults'),
             searchParent: parentId('#tab-conversations .inbox-conv-search-wrap'),
             autonomyParent: parentId('#tab-conversations #inbox-shell-channel-defaults'),
             shellOrder: Array.from(document.querySelectorAll('#inbox-shell > *')).map((el) => el.id || el.className || el.tagName).filter(Boolean),
           };
         });
-        evidence[`${width}-${theme}`] = metric;
-        await page.screenshot({ path: path.join(OUT_DIR, `people-order-${width}-${theme}.png`), fullPage: true });
-        ok(`${width}px ${theme} has no horizontal overflow`, metric.bodyScrollW <= width, JSON.stringify({ scrollWidth: metric.bodyScrollW, width }));
-        ok(`${width}px ${theme} search is a shell row above list`, metric.searchParent === 'inbox-shell' && metric.search && metric.list && metric.search.bottom <= metric.list.top + 1, JSON.stringify(metric));
-        ok(`${width}px ${theme} Luna is a shell row below list`, metric.autonomyParent === 'inbox-shell' && metric.autonomy && metric.list && metric.autonomy.top >= metric.list.bottom - 1, JSON.stringify(metric));
-        ok(`${width}px ${theme} visual order is filter → search → list → Luna`,
+        const key = `${width}x${height}-${theme}`;
+        evidence[key] = metric;
+        await page.screenshot({ path: path.join(OUT_DIR, `people-order-${width}x${height}-${theme}.png`), fullPage: true });
+        ok(`${width}x${height} ${theme} has no horizontal overflow`, metric.bodyScrollW <= width, JSON.stringify({ scrollWidth: metric.bodyScrollW, width }));
+        ok(`${width}x${height} ${theme} search is a shell row above list`, metric.searchParent === 'inbox-shell' && metric.search && metric.list && metric.search.bottom <= metric.list.top + 1, JSON.stringify(metric));
+        ok(`${width}x${height} ${theme} Luna is a shell row below list`, metric.autonomyParent === 'inbox-shell' && metric.autonomy && metric.list && metric.autonomy.top >= metric.list.bottom - 1, JSON.stringify(metric));
+        ok(`${width}x${height} ${theme} all four rows sit above Luna`,
+          metric.rowRects.length === 4 && metric.autonomy
+          && metric.rowRects.every((row) => row.bottom <= metric.autonomy.top - 1),
+          JSON.stringify({ rows: metric.rowRects, autonomy: metric.autonomy }));
+        const fourth = metric.rowRects[3];
+        if (fourth) {
+          await page.mouse.click((fourth.left + fourth.right) / 2, (fourth.top + fourth.bottom) / 2);
+          await page.waitForTimeout(50);
+        }
+        const clicked = await page.evaluate(() => window.__mobileOwnerClicked || null);
+        ok(`${width}x${height} ${theme} fourth row click reaches the row, not Luna`, clicked === 'row-4', JSON.stringify({ clicked, fourth, autonomy: metric.autonomy }));
+        ok(`${width}x${height} ${theme} visual order is filter → search → list → Luna`,
           metric.filter && metric.search && metric.list && metric.autonomy
           && metric.search.top >= metric.filter.bottom - 1
           && metric.list.top >= metric.search.bottom - 1

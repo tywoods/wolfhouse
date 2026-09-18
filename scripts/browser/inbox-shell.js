@@ -304,6 +304,11 @@ function inboxShellSyncMobileLayout(){
   inboxShellSyncCustomersMobileAutonomy();
 }
 
+function inboxShellScheduleMobileLayoutSync(){
+  if (typeof window === 'undefined') return;
+  window.setTimeout(inboxShellSyncMobileLayout, 0);
+}
+
 function inboxShellSyncCustomersMobileAutonomy(){
   if (typeof document === 'undefined') return;
   var card = inboxShellById('inbox-shell-channel-defaults');
@@ -429,12 +434,13 @@ function inboxShellCssText(){
     'border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);',
     'box-shadow:none;flex:0 0 auto}',
     '@media(max-width:768px){',
-    '#tab-conversations #inbox-shell.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr) auto!important}',
+    '#tab-conversations #inbox-shell.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto auto auto auto!important}',
     '#tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order{width:100%;max-width:100%;box-sizing:border-box;margin:0;align-self:stretch;order:2}',
     '#tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order .inbox-conv-search{height:40px;font-size:16px;background:var(--surface)}',
     '#tab-conversations #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{width:100%;max-width:100%;box-sizing:border-box;margin:8px 0 0;align-self:stretch;order:4}',
     '#tab-conversations #inbox-shell > .inbox-col1{order:1}',
-    '#tab-conversations #inbox-shell > #inbox-card{min-height:0;order:3}',
+    '#tab-conversations #inbox-shell > #inbox-card{min-height:0;order:3;overflow:visible}',
+    '#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:0 0 auto;height:auto;overflow:visible}',
     '}',
     '.channelAutonomyLabel{margin:0;padding:0 8px 4px;font-size:10px;font-weight:700;letter-spacing:.08em;color:var(--text-2);text-transform:uppercase}',
     '.channelAutonomyHead{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 8px 4px}',
@@ -825,12 +831,13 @@ function inboxMockupThemeCssText(){
     '#tabs .inbox-layout-controls{display:none!important}',
     '#tab-conversations .inbox-shell-channel-defaults{width:100%;max-width:100%;box-sizing:border-box}',
     '#inbox-shell.inbox-two-col.inbox-shell-cols{grid-template-columns:1fr!important;width:100%;max-width:100%}',
-    '#inbox-shell.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto auto minmax(0,1fr) auto!important}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols:not(.show-thread){grid-template-rows:auto auto auto auto!important}',
     '#tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order{width:100%;max-width:100%;box-sizing:border-box;margin:0;align-self:stretch;order:2}',
     '#tab-conversations #inbox-shell > .inbox-conv-search-wrap.is-inbox-mobile-order .inbox-conv-search{height:40px;font-size:16px;background:var(--surface)}',
     '#tab-conversations #inbox-shell > .inbox-shell-channel-defaults.is-inbox-mobile-docked{width:100%;max-width:100%;box-sizing:border-box;margin:8px 0 0;align-self:stretch;order:4}',
     '#tab-conversations #inbox-shell > .inbox-col1{order:1}',
-    '#tab-conversations #inbox-shell > #inbox-card{min-height:0;order:3}',
+    '#tab-conversations #inbox-shell > #inbox-card{min-height:0;order:3;overflow:visible}',
+    '#tab-conversations #inbox-shell:not(.show-thread) > #inbox-card .inbox-left-rows{flex:0 0 auto;height:auto;overflow:visible}',
     '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-col1,',
     '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left{width:100%;max-width:100%;align-self:stretch}',
     '}',
@@ -1346,7 +1353,14 @@ if (typeof window !== 'undefined') {
   window.inboxShellApplyGuestPanelPref = inboxShellApplyGuestPanelPref;
   window.__syncCustomersMobileAutonomy = inboxShellSyncMobileLayout;
   window.__syncInboxMobileOrder = inboxShellSyncMobileLayout;
-  window.addEventListener('resize', function(){ setTimeout(inboxShellSyncMobileLayout, 0); });
+  window.addEventListener('resize', inboxShellScheduleMobileLayoutSync);
+  if (typeof document !== 'undefined' && document.addEventListener) {
+    document.addEventListener('click', function(ev){
+      var target = ev && ev.target;
+      var node = target && target.closest ? target.closest('.tab-btn, #inbox-mobile-back, .inbox-mobile-back') : null;
+      if (node) inboxShellScheduleMobileLayoutSync();
+    });
+  }
 }
 
 if (typeof document !== 'undefined') {
