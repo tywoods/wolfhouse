@@ -31791,12 +31791,15 @@ function staffNotificationAllRecipients(){
       var phone = String((r && r.phone) || '').trim();
       if (!phone || seen[phone]) return;
       seen[phone] = true;
+      var staffNumberId = String((r && (r.staff_number_id || r.id)) || '').trim();
+      var group = String((r && r.permission_group) || 'staff').trim();
       out.push({
-        display_name: String((r && r.name) || '').trim(),
+        id: staffNumberId || null,
+        display_name: String((r && (r.display_name || r.name)) || '').trim(),
         phone: phone,
-        permission_group: 'staff',
-        active: true,
-        from_alerts: true,
+        permission_group: group === 'owner' ? 'owner' : 'staff',
+        active: r && r.active === false ? false : true,
+        from_alerts: !staffNumberId,
       });
     });
   }
