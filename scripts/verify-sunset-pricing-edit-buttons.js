@@ -25,6 +25,8 @@ function read(rel) {
 
 const adminUi = read('scripts/browser/sunset-admin-ui.js');
 const apiSrc = read('scripts/staff-query-api.js');
+const packRulesSrc = read('scripts/lib/sunset-admin-pack-rules.js');
+const tenantConfigSrc = read('scripts/lib/tenant-business-config.js');
 
 const packCardRender = (adminUi.match(/function renderAdminPackCards\([\s\S]*?function adminRenderPrivateEquipmentInline/) || [])[0] || '';
 const packEditForm = (adminUi.match(/function adminRenderPackEditForm\([\s\S]*?function adminReadPackFormPayload/) || [])[0] || '';
@@ -80,6 +82,24 @@ assert.ok(packEditForm.includes('data-admin-action="delete-pack"'), 'editor has 
 assert.ok(packEditForm.includes("portalT('admin.packs.deleteCourse')"), 'editor uses Delete course label');
 assert.ok(/var deleteCourseBtn = pid/.test(packEditForm), 'Delete course omitted for new courses');
 assert.ok(packEditForm.includes('portal-admin-pack-edit-footer'), 'delete lives in pack editor footer');
+assert.ok(packEditForm.includes('portal-admin-pack-enabled-toggle'), 'editor has Enabled/Disabled control');
+assert.ok(/deleteCourseBtn \+\s*statusToggleHtml \+\s*'<div class="portal-admin-pack-edit-footer-right">'/.test(packEditForm), 'Enabled/Disabled control sits between Delete and Cancel');
+assert.ok(packEditForm.includes("id=\"' + prefix + '-active\""), 'editor active checkbox is keyed to course form');
+assert.ok(packEditForm.includes("p.active !== false"), 'editor defaults missing active to Enabled');
+
+assert.ok(packCardRender.includes('portal-admin-pack-title-row'), 'course card title row has status dot wrapper');
+assert.ok(packCardRender.includes('portal-admin-equip-status-dot'), 'course card reuses enabled dot visual language');
+assert.ok(packCardRender.includes("packActive ? ' is-on' : ' is-off'"), 'course card paints green/grey active state');
+assert.ok(packCardRender.includes('data-admin-pack-active'), 'course card exposes active state');
+
+assert.ok(apiSrc.includes('.portal-admin-pack-title-row .portal-admin-equip-status-dot'), 'course title dot CSS aligns reused dot');
+assert.ok(apiSrc.includes('.portal-admin-pack-enabled-toggle'), 'course enabled toggle CSS present');
+
+assert.ok(packRulesSrc.includes('active: cfg.enabled !== false'), 'surf pack mapper returns enabled state');
+assert.ok(packRulesSrc.includes('includeDisabled === true'), 'surf pack loader can include disabled courses for admin');
+assert.ok(packRulesSrc.includes("(config_json->>'enabled') IS DISTINCT FROM 'false'"), 'default surf pack loader excludes disabled courses');
+assert.ok(tenantConfigSrc.includes('includeDisabledSurfPacks'), 'admin config can request disabled courses');
+assert.ok(apiSrc.includes('includeDisabledSurfPacks: true'), 'Staff admin config includes disabled courses for Pricing cards');
 
 assert.ok(!adminUi.includes('inbox-thread.js'));
 assert.ok(!adminUi.includes('staff-email-settings'));
