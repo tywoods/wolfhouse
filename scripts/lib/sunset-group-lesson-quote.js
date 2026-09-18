@@ -12,6 +12,7 @@ const {
 } = require('./sunset-stripe-payment-links');
 const { parseIsoDateStrict } = require('./sunset-guest-date-intake');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const { requestedBeachKey, resolveRequestedBeach } = require('./sunset-beach-propagation');
 
 const SUNSET_CLIENT_SLUG = SUNSET_ADMIN_CLIENT;
 const MAX_SERVICE_DATES = 31;
@@ -108,13 +109,21 @@ async function quoteSunsetGroupLessonsAsync(opts) {
   if (!validated.ok) {
     return { ok: false, success: false, reason: validated.reason, detail: validated.detail };
   }
-  let adminCfg;
+  const beachKey = requestedBeachKey(opts.body);
+  if (beachKey) {
+    const resolved = await resolveRequestedBeach(opts.pgClient, { clientSlug, locationId, beachKey });
+    if (!resolved.ok) return { ok: false, success: false, reason: resolved.reason };
+    validated.beach = resolved.beach;
+  }
+  let adminCfg = opts.adminCfg || null;
   try {
-    adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, {
-      pgClient: opts.pgClient,
-      locationId,
-      skipDb: opts.skipDb,
-    });
+    if (!adminCfg) {
+      adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, {
+        pgClient: opts.pgClient,
+        locationId,
+        skipDb: opts.skipDb,
+      });
+    }
   } catch (_) {
     adminCfg = null;
   }

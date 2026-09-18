@@ -25,6 +25,11 @@ const {
   normalizeSunsetLocationId,
   isSunsetLocationId,
 } = require('./sunset-school-locations');
+const {
+  requestedBeachKey,
+  resolveRequestedBeach,
+  applyBeachToCatalogProjection,
+} = require('./sunset-beach-propagation');
 
 const CATALOG_CHANNELS = Object.freeze({
   MANUAL_STAFF: 'manual_staff',
@@ -425,6 +430,7 @@ async function enrichJoinableCourses(pg, command, courses) {
       group_size: capacity,
       capacity,
       equipment_included: course.equipment_included === true,
+      beaches: Array.isArray(course.beaches) ? course.beaches.slice() : [],
       seats_booked: asOfDate ? seatsBooked : null,
       seats_remaining: seatsRemaining,
       joinable: asOfDate ? joinable : true,
@@ -435,6 +441,7 @@ async function enrichJoinableCourses(pg, command, courses) {
       bookable: course.bookable !== false,
       eligible_on_requested_dates: course.eligible_on_requested_dates,
       schedule_rejection: course.schedule_rejection || null,
+      beach: course.beach || null,
     });
   }
   const includeFull = command.transportBody && command.transportBody.include_full === true;
@@ -551,8 +558,20 @@ async function executeSunsetCatalog(pg, command, opts = {}) {
     return mapCatalogFailure({ reason: CATALOG_EXCLUSION_REASONS.ADMIN_DB_UNAVAILABLE }, command);
   }
 
-  const projection = await loadCatalogProjection(pg, command, adminCfg);
+  let projection = await loadCatalogProjection(pg, command, adminCfg);
   if (!projection.ok) return mapCatalogFailure(projection, command);
+
+  const beachKey = requestedBeachKey(command.transportBody);
+  if (beachKey) {
+    const resolved = await resolveRequestedBeach(pg, {
+      clientSlug: command.clientSlug,
+      locationId: command.locationId,
+      beachKey,
+    });
+    if (!resolved.ok) return mapCatalogFailure(resolved, command);
+    projection = applyBeachToCatalogProjection(projection, resolved.beach);
+    if (!projection.ok) return mapCatalogFailure(projection, command);
+  }
 
   let joinable = null;
   if (command.includeCapacity && pg) {
@@ -573,6 +592,9 @@ function executeSunsetCatalogSync(command, opts = {}) {
   const adminCfg = opts.adminCfg;
   if (!adminCfg || adminCfg.ok === false) {
     return mapCatalogFailure({ reason: CATALOG_EXCLUSION_REASONS.ADMIN_DB_UNAVAILABLE }, command);
+  }
+  if (requestedBeachKey(command.transportBody)) {
+    return mapCatalogFailure({ reason: 'beach_registry_unavailable' }, command);
   }
 
   const projectionOpts = {

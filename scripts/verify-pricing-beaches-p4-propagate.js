@@ -1,48 +1,58 @@
 'use strict';
 
 const assert = require('assert');
-const { projectStableBeachIdentity, selectCourseForBeach } = require('./lib/sunset-beach-propagation');
-const { nestCatalogOffering } = require('./lib/luna-front-desk-catalog-service');
-const { buildCourseSlotAvailabilityResult } = require('./lib/sunset-lesson-availability');
-const { buildGroupLessonQuoteResult } = require('./lib/sunset-group-lesson-quote');
+const { CATALOG_CHANNELS, buildSunsetCatalogCommand, executeSunsetCatalog } = require('./lib/luna-front-desk-catalog-service');
+const { resolveCourseScopedLessonAvailability } = require('./lib/sunset-lesson-availability');
+const { quoteSunsetGroupLessonsAsync } = require('./lib/sunset-group-lesson-quote');
 
-let passed = 0;
-function ok(label, value) { assert.ok(value, label); passed += 1; console.log(`  PASS ${label}`); }
-
+const LOC = 'sunset-somo';
+const COURSE = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const registry = [
-  { client_slug: 'sunset', location_id: 'sunset-somo', beach_key: 'somo', display_name: 'Somo', active: true },
-  { client_slug: 'sunset', location_id: 'sunset-somo', beach_key: 'loredo', display_name: 'Loredo', active: true },
-  { client_slug: 'sunset', location_id: 'sunset-sardinero', beach_key: 'somo', display_name: 'Foreign Somo', active: true },
-  { client_slug: 'sunset', location_id: 'sunset-somo', beach_key: 'closed', display_name: 'Closed', active: false },
+  { client_slug: 'sunset', location_id: LOC, beach_key: 'somo', display_name: 'Somo Central', active: true },
+  { client_slug: 'sunset', location_id: LOC, beach_key: 'closed', display_name: 'Closed', active: false },
+  { client_slug: 'sunset', location_id: 'sunset-sardinero', beach_key: 'foreign', display_name: 'Foreign', active: true },
 ];
-const course = { course_id: 'course-1', beaches: ['somo'], capacity: 12, seats_booked: 3, seats_remaining: 9 };
-
-console.log('\nverify:pricing-beaches-p4-propagate\n');
-const identity = projectStableBeachIdentity({ clientSlug: 'sunset', locationId: 'sunset-somo', beachKey: 'somo', registry });
-ok('registry resolves stable key and label', identity.ok && identity.beach.beach_key === 'somo' && identity.beach.display_name === 'Somo');
-for (const [label, args, reason] of [
-  ['unknown beach fails closed', { beachKey: 'ghost' }, 'unknown_beach'],
-  ['inactive beach fails closed', { beachKey: 'closed' }, 'inactive_beach'],
-  ['foreign-property beach fails closed', { beachKey: 'somo', locationId: 'sunset-liencres' }, 'foreign_property_beach'],
-]) {
-  const out = projectStableBeachIdentity({ clientSlug: 'sunset', locationId: 'sunset-somo', registry, ...args });
-  ok(label, !out.ok && out.reason === reason);
+const cfg = {
+  ok: true, source: 'db', currency: 'EUR',
+  surf_packs: [{ pack_id: COURSE, label: 'Course', active: true, group_size: 12, beaches: ['somo'], weekly: 'daily', schedules: ['1000_1200'], price_tiers: [{ key: 'day', label: 'Day', hours: 2, amount_cents: 4200 }] }],
+  prices: [{ id: 'price-1', category: 'package', offering_key: `surf_pack_${COURSE}__day`, item_code: `surf_pack_${COURSE}__day`, amount_cents: 4200, unit: 'day', active: true, currency: 'EUR' }],
+};
+function pg() {
+  const calls = [];
+  return { calls, query: async (sql, params) => {
+    calls.push({ sql: String(sql), params });
+    if (/tenant_surf_beaches/.test(sql)) return { rows: registry.filter((r) => r.client_slug === params[0] && r.beach_key === params[1]) };
+    if (/tenant_surf_pack_rules/.test(sql)) return { rows: cfg.surf_packs.map((p) => ({ id: p.pack_id, label: p.label, config_json: { group_size: p.group_size, beaches: p.beaches, weekly: p.weekly, schedules: p.schedules, price_tiers: p.price_tiers } })) };
+    if (/tenant_price_rules/.test(sql)) return { rows: [{ id: 'price-1', amount_cents: 4200, currency: 'EUR', item_type: 'package', item_code: `surf_pack_${COURSE}__day`, unit: 'day', location_id: LOC }] };
+    if (/COALESCE\(SUM/.test(sql)) return { rows: [{ seats: 3 }] };
+    if (/tenant_business_config/.test(sql)) return { rows: [] };
+    return { rows: [] };
+  } };
 }
+function ok(label, condition) { assert.ok(condition, label); console.log(`  PASS ${label}`); }
 
-const selected = selectCourseForBeach([course], identity.beach);
-ok('catalog course selection keeps stable key', selected.ok && selected.course.beach.beach_key === 'somo');
-const catalog = nestCatalogOffering({ offering_id: 'surf_pack_course-1__day', offering_type: 'course', label: 'Course', active: true, bookable: true, unit_amount_cents: 4200, billing_unit: 'day', course_id: 'course-1', beach: selected.course.beach, beaches: ['somo'] });
-ok('catalog emits stable beach identity', catalog.beach.beach_key === 'somo' && catalog.beach.display_name === 'Somo');
-const availability = buildCourseSlotAvailabilityResult({ course: selected.course, quantity: 2, dateIso: '2027-06-10', locationId: 'sunset-somo', slotTime: '10:00' });
-ok('availability propagates identical beach identity', availability.beach.beach_key === catalog.beach.beach_key);
-const quote = buildGroupLessonQuoteResult('sunset-somo', { service_dates: ['2027-06-10'], quantity: 2, date_count: 1, beach: availability.beach }, 4200, { source: 'db' });
-ok('quote and Luna-facing truth retain identical beach identity', quote.beach.beach_key === catalog.beach.beach_key && quote.total_cents === 8400);
+(async () => {
+  console.log('\nverify:pricing-beaches-p4-propagate runtime seams\n');
+  const db = pg();
+  const built = buildSunsetCatalogCommand({ channel: CATALOG_CHANNELS.LUNA_WHATSAPP, trustedLocationId: LOC, transportBody: { beach_key: 'somo', require_db: true } });
+  const catalog = await executeSunsetCatalog(db, built.command, { adminCfg: cfg });
+  const offering = catalog.ok && catalog.body.courses.find((o) => o.course_id === COURSE);
+  ok('public Luna catalog resolves registry identity', offering && offering.beach && offering.beach.beach_key === 'somo' && offering.beach.display_name === 'Somo Central');
+  ok('catalog registry lookup uses trusted scope, not transport overrides', db.calls.some((c) => /tenant_surf_beaches/.test(c.sql) && c.params[0] === 'sunset'));
 
-const renamed = projectStableBeachIdentity({ clientSlug: 'sunset', locationId: 'sunset-somo', beachKey: 'somo', registry: registry.map((r) => r.beach_key === 'somo' && r.location_id === 'sunset-somo' ? { ...r, display_name: 'Somo Central' } : r) });
-ok('label rename does not alter stable identity', renamed.beach.beach_key === 'somo' && renamed.beach.display_name === 'Somo Central');
-ok('label rename cannot alter authoritative price/capacity', quote.unit_amount_cents === 4200 && availability.course_capacity === 12 && availability.seats_available === 9);
-ok('beach projection contains no fabricated price/capacity', !('amount_cents' in identity.beach) && !('capacity' in identity.beach));
-ok('read path exposes no send/write/payment side effects', !/send|insert|update|delete|stripe|payment/i.test(projectStableBeachIdentity.toString()));
-const wolfhouse = projectStableBeachIdentity({ clientSlug: 'wolfhouse', locationId: 'wolfhouse-somo', beachKey: 'somo', registry });
-ok('Wolfhouse remains outside Sunset propagation', !wolfhouse.ok && wolfhouse.reason === 'invalid_tenant');
-console.log(`\n${passed} passed — verify:pricing-beaches-p4-propagate OK`);
+  const availability = await resolveCourseScopedLessonAvailability(db, { clientSlug: 'sunset', locationId: LOC, dateIso: '2027-06-10', quantity: 2, slotTime: '10:00', beachKey: 'somo' });
+  ok('runtime availability resolves and emits same identity', availability.ok && availability.beach.beach_key === offering.beach.beach_key && availability.seats_available === 9);
+
+  const quote = await quoteSunsetGroupLessonsAsync({ clientSlug: 'sunset', locationId: LOC, body: { service_dates: ['2027-06-10'], quantity: 2, beach_key: 'somo' }, pgClient: db, adminCfg: { ok: true, source: 'db', prices: [{ category: 'lesson', offering_key: 'lesson_slot_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee__session', unit: 'session', amount_cents: 4200, active: true, source: 'db', pricing_status: 'confirmed', effective_state: 'db' }] }, refDate: new Date('2026-01-01T00:00:00Z') });
+  ok('runtime quote resolves and emits same identity without owning price', quote.ok && quote.beach.beach_key === offering.beach.beach_key && quote.total_cents === 8400);
+
+  for (const [key, reason] of [['ghost', 'unknown_beach'], ['closed', 'inactive_beach'], ['foreign', 'foreign_property_beach']]) {
+    const out = await quoteSunsetGroupLessonsAsync({ clientSlug: 'sunset', locationId: LOC, body: { service_dates: ['2027-06-10'], beach_key: key }, pgClient: db, adminCfg: { ok: true, source: 'db', prices: [{ category: 'lesson', offering_key: 'lesson_slot_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee__session', unit: 'session', amount_cents: 4200, active: true, source: 'db', pricing_status: 'confirmed', effective_state: 'db' }] }, refDate: new Date('2026-01-01T00:00:00Z') });
+    ok(`${key} fails closed through runtime quote`, !out.ok && out.reason === reason);
+  }
+  const override = buildSunsetCatalogCommand({ channel: CATALOG_CHANNELS.LUNA_WHATSAPP, trustedLocationId: LOC, transportBody: { beach_key: 'somo', client_slug: 'wolfhouse', location_id: 'sunset-sardinero', require_db: true } });
+  const protectedResult = await executeSunsetCatalog(db, override.command, { adminCfg: cfg });
+  ok('request cannot override trusted tenant/property', protectedResult.ok && protectedResult.body.location_id === LOC);
+  ok('registry read performs no writes', !db.calls.some((c) => /\b(?:INSERT|UPDATE|DELETE)\b/i.test(c.sql)));
+  console.log('\nverify:pricing-beaches-p4-propagate OK');
+})().catch((err) => { console.error(err.stack || err); process.exit(1); });

@@ -44981,6 +44981,7 @@ async function handleBotSunsetLessonAvailability(req, res) {
         quantity: body.quantity,
         slotTime,
         courseId,
+        beachKey: body.beach_key,
       }));
       return sendJSON(res, 200, { ...courseResult, elapsed_ms: Date.now() - started });
     } catch (err) {

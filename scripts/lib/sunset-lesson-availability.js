@@ -13,6 +13,7 @@ const {
   listJoinableSunsetOfferings,
   parsePackScheduleKey,
 } = require('./sunset-admin-course-join');
+const { resolveRequestedBeach } = require('./sunset-beach-propagation');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 
@@ -199,6 +200,7 @@ async function resolveCourseScopedLessonAvailability(pg, {
   quantity,
   slotTime,
   courseId,
+  beachKey,
   clientSlug = SUNSET_CLIENT_SLUG,
 } = {}) {
   const listed = await listJoinableSunsetOfferings(pg, {
@@ -223,7 +225,16 @@ async function resolveCourseScopedLessonAvailability(pg, {
     };
   }
 
-  const picked = pickJoinableCourseForAvailability(listed.courses, { courseId, slotTime });
+  let courses = listed.courses;
+  if (beachKey) {
+    const resolved = await resolveRequestedBeach(pg, { clientSlug, locationId, beachKey });
+    if (!resolved.ok) return { ok: false, success: false, reason: resolved.reason };
+    courses = courses
+      .filter((course) => Array.isArray(course.beaches) && course.beaches.map(String).includes(resolved.beach.beach_key))
+      .map((course) => ({ ...course, beach: { ...resolved.beach } }));
+    if (!courses.length) return { ok: false, success: false, reason: 'beach_not_offered' };
+  }
+  const picked = pickJoinableCourseForAvailability(courses, { courseId, slotTime });
   if (!picked.ok) {
     return {
       ok: true,
