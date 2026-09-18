@@ -17356,7 +17356,8 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-equip-name{font-size:14px;font-weight:700;color:var(--text);line-height:1.25;max-width:100%;overflow:hidden;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal;word-break:break-word;min-width:0;flex:1 1 auto}
 .portal-admin-equip-status{display:block;min-width:0;font-size:12px;line-height:1.35}
 .portal-admin-equip-status-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--text-3)}
-.portal-admin-equip-status-dot.is-on{background:var(--primary)}
+.portal-admin-equip-status-dot.is-on{background:#1F6B4A}
+html[data-theme="dark"] .portal-admin-equip-status-dot.is-on{background:#5a9468}
 .portal-admin-equip-status-dot.is-off{background:var(--text-3)}
 .portal-admin-equip-status-text{min-width:0;display:inline}
 .portal-admin-equip-meta-sep{white-space:pre}

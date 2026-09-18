@@ -721,6 +721,37 @@ async function browserFixture() {
       JSON.stringify(bikeMeta),
     );
     ok('zero today visible/slot on browse card', !bikeMeta.today && stockCall === 0, `stockCall=${stockCall} ${JSON.stringify(bikeMeta)}`);
+    const lightDotColors = await page.locator('[data-admin-equip="bicycle"]').evaluate((row) => {
+      const onDot = row.querySelector('.portal-admin-equip-status-dot.is-on');
+      const offDot = document.querySelector('[data-admin-equip="towel_rental"] .portal-admin-equip-status-dot.is-off');
+      return {
+        on: onDot ? getComputedStyle(onDot).backgroundColor : '',
+        off: offDot ? getComputedStyle(offDot).backgroundColor : '',
+      };
+    });
+    ok(
+      'enabled status dot uses brighter light green; disabled remains muted',
+      lightDotColors.on === 'rgb(31, 107, 74)' && lightDotColors.off === 'rgb(142, 142, 147)',
+      JSON.stringify(lightDotColors),
+    );
+    const darkDotColors = await page.evaluate(() => {
+      const prev = document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme', 'dark');
+      const onDot = document.querySelector('[data-admin-equip="bicycle"] .portal-admin-equip-status-dot.is-on');
+      const offDot = document.querySelector('[data-admin-equip="towel_rental"] .portal-admin-equip-status-dot.is-off');
+      const colors = {
+        on: onDot ? getComputedStyle(onDot).backgroundColor : '',
+        off: offDot ? getComputedStyle(offDot).backgroundColor : '',
+      };
+      if (prev == null) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', prev);
+      return colors;
+    });
+    ok(
+      'enabled status dot uses brighter dark green; disabled remains muted',
+      darkDotColors.on === 'rgb(90, 148, 104)' && darkDotColors.off === 'rgb(110, 110, 110)',
+      JSON.stringify(darkDotColors),
+    );
     ok(
       'zero browse overflow/compact delete; one pencil',
       !bikeMeta.overflow && !bikeMeta.compactDelete && bikeMeta.pencils === 1,
