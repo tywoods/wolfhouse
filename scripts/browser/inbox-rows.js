@@ -45,9 +45,6 @@ var INBOX_ROWS_CSS = [
   '.inbox-row-select-footer{flex-shrink:0;display:flex;align-items:center;gap:10px;',
   'padding:8px 12px;border-top:1px solid var(--border-soft);font-size:12px;color:var(--text-2)}',
   '.inbox-row-select-footer[hidden]{display:none!important}',
-  '.inbox-row-broadcast-btn{margin-left:auto;border:1px solid var(--border);',
-  'border-radius:8px;background:var(--surface);padding:6px 10px;font-size:12px;',
-  'font-weight:600;cursor:pointer}',
   '#inbox-shell[data-inbox-multiselect="false"] .inbox-row-select,',
   '#tab-conversations[data-inbox-multiselect="false"] .inbox-row-select,',
   '#inbox-shell .inbox-row-select,',
@@ -635,18 +632,7 @@ function inboxRowsEnsureSelectFooter() {
     footer.id = 'inbox-row-select-footer';
     footer.className = 'inbox-row-select-footer';
     footer.innerHTML = '<span id="inbox-row-selected-count" hidden>0 selected</span>';
-    if (typeof inboxBroadcastOpen === 'function') {
-      footer.innerHTML += '<button type="button" class="inbox-row-broadcast-btn" id="inbox-row-broadcast">Email broadcast</button>';
-    }
     card.appendChild(footer);
-    var btn = footer.querySelector('#inbox-row-broadcast');
-    if (btn) {
-      btn.addEventListener('click', function(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        inboxRowsOpenBroadcast();
-      });
-    }
   }
   footer.hidden = false;
   inboxRowsSyncFooter();
