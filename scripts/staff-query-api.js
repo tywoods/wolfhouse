@@ -17056,7 +17056,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-subsection-title-row .portal-admin-subsection-title{margin-bottom:0}
 .portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-height:0}
 .portal-admin-price-card.is-inactive{opacity:.62}
-.portal-admin-switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;margin-right:8px}.portal-admin-switch input{position:absolute;opacity:0;width:0;height:0}.portal-admin-switch-slider{position:relative;width:34px;height:19px;background:var(--border-soft,#c9c2b8);border-radius:999px;transition:background .15s ease;flex-shrink:0}.portal-admin-switch-slider::before{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.28)}.portal-admin-switch input:checked+.portal-admin-switch-slider{background:#2e8b57}.portal-admin-switch input:checked+.portal-admin-switch-slider::before{transform:translateX(15px)}.portal-admin-switch.is-mixed .portal-admin-switch-slider{background:#c88a00}.portal-admin-switch-text{font-size:12px;font-weight:600;color:var(--text-2);white-space:nowrap;min-width:52px}
+/* Legacy portal-admin-switch kept for any residual markup; Pricing Enabled uses portal-admin-equip-switch. */
+.portal-admin-switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;margin-right:8px}.portal-admin-switch input{position:absolute;opacity:0;width:0;height:0}.portal-admin-switch-slider{position:relative;width:34px;height:19px;background:var(--border-soft,#c9c2b8);border-radius:999px;transition:background .15s ease;flex-shrink:0}.portal-admin-switch-slider::before{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.28)}.portal-admin-switch input:checked+.portal-admin-switch-slider{background:var(--sched-primary,var(--primary,#1B4D3E))}.portal-admin-switch input:checked+.portal-admin-switch-slider::before{transform:translateX(15px)}.portal-admin-switch.is-mixed .portal-admin-switch-slider{background:#c88a00}.portal-admin-switch-text{font-size:12px;font-weight:600;color:var(--text-2);white-space:nowrap;min-width:52px}
 .portal-admin-price-available{font-size:11px;font-weight:600;color:var(--text-2);white-space:nowrap}
 .portal-admin-price-card-main,.portal-admin-lesson-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .portal-admin-price-title,.portal-admin-lesson-title{font-weight:700;color:var(--text);line-height:1.25;font-size:13px}
@@ -17083,6 +17084,7 @@ html[data-theme="dark"] .portal-admin-accommodation-status-dot.is-on{background:
 .portal-admin-accommodation-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px}
 .portal-admin-accommodation-edit-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
 .portal-admin-accommodation-edit-title{font-size:16px;font-weight:600;color:var(--text);font-family:var(--font-display)}
+.portal-admin-accommodation-enabled-field{display:inline-flex;align-items:center;gap:10px;margin:0;min-height:28px}
 .portal-admin-accommodation-enabled-switch{margin:0}
 .portal-admin-accommodation-edit-form{display:flex;flex-direction:column;gap:8px}
 @media (max-width:520px){
@@ -17581,8 +17583,9 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-pack-title-row{display:flex;align-items:flex-start;gap:8px;min-width:0}
 .portal-admin-pack-title-row .portal-admin-equip-status-dot{margin-top:.45em}
 .portal-admin-pack-sub{font-size:11px;color:var(--text-3)}
-.portal-admin-pack-enabled-toggle{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 8px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text-2);font-size:12px;font-weight:650;line-height:1;white-space:nowrap}
-.portal-admin-pack-enabled-toggle input{width:14px;height:14px;margin:0;accent-color:#1F6B4A}
+/* Group Courses Enabled: same equip-switch as Rental Prices (darker --sched-primary). */
+.portal-admin-pack-enabled-field{display:inline-flex;align-items:center;gap:10px;margin:0;min-height:28px}
+.portal-admin-pack-enabled-switch{margin:0}
 .portal-admin-pill-group{display:flex;flex-direction:column;gap:6px;margin:0 0 8px;min-width:0}
 .portal-admin-pill-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
 .portal-admin-pill-row{display:flex;flex-wrap:wrap;gap:6px;padding:1px 0 2px;min-width:0}
