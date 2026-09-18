@@ -273,6 +273,34 @@ function inboxShellAdoptSearch(){
   if (wrap.parentNode !== list) list.insertBefore(wrap, list.firstChild);
 }
 
+function inboxShellIsMobile(){
+  if (typeof window === 'undefined') return false;
+  if (window.matchMedia) return window.matchMedia('(max-width: 768px)').matches;
+  return window.innerWidth <= 768;
+}
+
+function inboxShellCustomersPanelActive(){
+  if (typeof document === 'undefined') return false;
+  var panel = inboxShellById('tab-customers');
+  return !!(panel && panel.classList && panel.classList.contains('active'));
+}
+
+function inboxShellSyncCustomersMobileAutonomy(){
+  if (typeof document === 'undefined') return;
+  var card = inboxShellById('inbox-shell-channel-defaults');
+  var defaultSlot = inboxShellById('inbox-channel-autonomy-slot');
+  if (!card || !defaultSlot) return;
+  var customersList = document.querySelector('#tab-customers .customers-list-col');
+  var shouldDock = inboxShellIsMobile() && inboxShellCustomersPanelActive() && customersList;
+  if (shouldDock) {
+    if (card.parentNode !== customersList) customersList.appendChild(card);
+    card.classList.add('is-customers-mobile-docked');
+  } else {
+    if (card.parentNode !== defaultSlot) defaultSlot.appendChild(card);
+    card.classList.remove('is-customers-mobile-docked');
+  }
+}
+
 function inboxShellChannelIconSvg(channel){
   if (channel === 'email') {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
@@ -1255,6 +1283,7 @@ function mountInboxShellChrome(){
   inboxShellAdoptGlobalPause();
   inboxShellAdoptSearch();
   inboxShellAdoptLayoutControls();
+  inboxShellSyncCustomersMobileAutonomy();
   inboxShellHydrateFromSession();
   inboxShellSyncFromPauseState();
   inboxShellFinishGuestHide();
@@ -1262,6 +1291,8 @@ function mountInboxShellChrome(){
 
 if (typeof window !== 'undefined') {
   window.inboxShellApplyGuestPanelPref = inboxShellApplyGuestPanelPref;
+  window.__syncCustomersMobileAutonomy = inboxShellSyncCustomersMobileAutonomy;
+  window.addEventListener('resize', function(){ setTimeout(inboxShellSyncCustomersMobileAutonomy, 0); });
 }
 
 if (typeof document !== 'undefined') {
