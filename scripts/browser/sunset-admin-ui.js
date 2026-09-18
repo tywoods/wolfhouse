@@ -726,9 +726,9 @@ function adminEquipmentRowsHtml(rows){
 function adminRenderEquipmentEditor(rows,prefix){
   // Heading keeps Equipment title. Empty state: compact + beside title.
   // Once items exist: + moves next to the last row's × (no heading +).
+  // No three-price helper blurb under the title (Ty: remove from edit UI).
   var list = rows || [];
   var addEqLabel = portalT('admin.courseEquipment.add') || 'Add equipment';
-  var threePrice = portalT('admin.courseEquipment.threePriceHelp') || '';
   var headingAdd = !list.length
     ? '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-equipment-add" data-admin-action="add-equipment-option" aria-label="'+escHtml(addEqLabel)+'" title="'+escHtml(addEqLabel)+'">+</button>'
     : '';
@@ -737,9 +737,6 @@ function adminRenderEquipmentEditor(rows,prefix){
     '<h4>'+escHtml(portalT('admin.courseEquipment.editorTitle'))+'</h4>' +
     headingAdd +
     '</div>' +
-    (threePrice
-      ? '<p class="portal-admin-equipment-three-price-help" data-admin-equipment-three-price-help="1">'+escHtml(threePrice)+'</p>'
-      : '') +
     '<div data-equipment-option-rows>'+adminEquipmentRowsHtml(list)+'</div>' +
     '</section>';
 }
@@ -1142,9 +1139,17 @@ function adminRenderPackEditForm(pid, pack){
     ? '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-pack-delete" data-admin-action="delete-pack" data-pack-id="' + escHtml(pid) + '" aria-label="' + escHtml(deleteCourseLabel) + '">' + escHtml(deleteCourseLabel) + '</button>'
     : '';
   var packActive = p.active !== false;
+  // Same pill switch as Rental Prices Enabled (portal-admin-equip-switch).
+  var enabledLabel = portalT('admin.prices.enabled') || 'Enabled';
   var statusToggleHtml = pid
-    ? '<label class="portal-admin-pack-enabled-toggle"><input type="checkbox" id="' + prefix + '-active" data-admin-action="toggle-pack-active"' + (packActive ? ' checked' : '') + '> ' +
-      '<span data-admin-pack-active-label="1">' + escHtml(packActive ? 'Enabled' : 'Disabled') + '</span></label>'
+    ? '<div class="portal-admin-pack-enabled-field">' +
+      '<span class="portal-admin-equip-switch-caption">' + escHtml(enabledLabel) + '</span>' +
+      '<label class="portal-admin-equip-switch portal-admin-pack-enabled-switch" title="' + escHtml(enabledLabel) + '" for="' + prefix + '-active">' +
+      '<input type="checkbox" id="' + prefix + '-active" data-admin-action="toggle-pack-active"' +
+      (packActive ? ' checked' : '') +
+      ' aria-label="' + escHtml(enabledLabel) + '">' +
+      '<span class="portal-admin-equip-switch-slider" aria-hidden="true"></span>' +
+      '</label></div>'
     : '';
   var inner = '<div class="portal-admin-pack-form"' + formAttr + '>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
@@ -2507,11 +2512,15 @@ function renderAdminSectionAccommodationFromConfig(cfg){
   if (editing){
     html += '<div class="portal-admin-accommodation-edit-header"><div class="portal-admin-accommodation-edit-title">' +
       escHtml(portalT('admin.accommodation.productName') || 'Surf House') + '</div>';
-    html += '<label class="portal-admin-switch portal-admin-accommodation-enabled-switch" for="admin-accom-enabled">' +
-      '<input type="checkbox" id="admin-accom-enabled"' + (ac.enabled ? ' checked' : '') + '>' +
-      '<span class="portal-admin-switch-slider"></span>' +
-      '<span class="portal-admin-switch-text">' + escHtml(portalT('admin.accommodation.enabled') || 'Enabled') + '</span>' +
-      '</label></div>';
+    // Same Enabled switch as Rental Prices (darker --sched-primary / --primary green).
+    var acEnabledLabel = portalT('admin.accommodation.enabled') || portalT('admin.prices.enabled') || 'Enabled';
+    html += '<div class="portal-admin-accommodation-enabled-field">' +
+      '<span class="portal-admin-equip-switch-caption">' + escHtml(acEnabledLabel) + '</span>' +
+      '<label class="portal-admin-equip-switch portal-admin-accommodation-enabled-switch" title="' + escHtml(acEnabledLabel) + '" for="admin-accom-enabled">' +
+      '<input type="checkbox" id="admin-accom-enabled"' + (ac.enabled ? ' checked' : '') +
+      ' aria-label="' + escHtml(acEnabledLabel) + '">' +
+      '<span class="portal-admin-equip-switch-slider" aria-hidden="true"></span>' +
+      '</label></div></div>';
     html += '<div class="portal-admin-edit-form portal-admin-accommodation-edit-form" data-testid="admin-accommodation-edit">';
     html += renderAdminAccommodationRangeRows(ac.ranges, true);
     html += '<div class="portal-admin-edit-actions" style="margin-top:10px">';
@@ -3829,9 +3838,7 @@ function wireAdminTab(){
       return;
     }
     if (action === 'toggle-pack-active'){
-      var packToggle = btn;
-      var packToggleLabel = packToggle && packToggle.parentElement ? packToggle.parentElement.querySelector('[data-admin-pack-active-label]') : null;
-      if (packToggleLabel) packToggleLabel.textContent = packToggle.checked ? 'Enabled' : 'Disabled';
+      // Native checkbox flip; switch track color follows :checked CSS (equip-switch).
       return;
     }
     if (action === 'toggle-pill'){

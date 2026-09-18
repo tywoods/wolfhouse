@@ -82,7 +82,10 @@ assert.ok(packEditForm.includes('data-admin-action="delete-pack"'), 'editor has 
 assert.ok(packEditForm.includes("portalT('admin.packs.deleteCourse')"), 'editor uses Delete course label');
 assert.ok(/var deleteCourseBtn = pid/.test(packEditForm), 'Delete course omitted for new courses');
 assert.ok(packEditForm.includes('portal-admin-pack-edit-footer'), 'delete lives in pack editor footer');
-assert.ok(packEditForm.includes('portal-admin-pack-enabled-toggle'), 'editor has Enabled/Disabled control');
+assert.ok(packEditForm.includes('portal-admin-equip-switch'), 'editor Enabled uses shared Pricing switch');
+assert.ok(packEditForm.includes('portal-admin-pack-enabled-switch'), 'editor Enabled keeps pack layout hook');
+assert.ok(packEditForm.includes('portal-admin-equip-switch-slider'), 'editor Enabled is a pill switch, not a checkbox');
+assert.ok(!packEditForm.includes('portal-admin-pack-enabled-toggle'), 'editor no longer uses checkbox Enabled toggle');
 assert.ok(/deleteCourseBtn \+\s*statusToggleHtml \+\s*'<div class="portal-admin-pack-edit-footer-right">'/.test(packEditForm), 'Enabled/Disabled control sits between Delete and Cancel');
 assert.ok(packEditForm.includes("id=\"' + prefix + '-active\""), 'editor active checkbox is keyed to course form');
 assert.ok(packEditForm.includes("p.active !== false"), 'editor defaults missing active to Enabled');
@@ -93,13 +96,38 @@ assert.ok(packCardRender.includes("packActive ? ' is-on' : ' is-off'"), 'course 
 assert.ok(packCardRender.includes('data-admin-pack-active'), 'course card exposes active state');
 
 assert.ok(apiSrc.includes('.portal-admin-pack-title-row .portal-admin-equip-status-dot'), 'course title dot CSS aligns reused dot');
-assert.ok(apiSrc.includes('.portal-admin-pack-enabled-toggle'), 'course enabled toggle CSS present');
+assert.ok(apiSrc.includes('.portal-admin-pack-enabled-field'), 'course enabled switch field CSS present');
+assert.ok(apiSrc.includes('.portal-admin-pack-enabled-switch'), 'course enabled switch CSS present');
+assert.ok(!apiSrc.includes('.portal-admin-pack-enabled-toggle{'), 'old course checkbox toggle CSS removed');
+
+// Accommodation Enabled shares rental equip-switch (darker --sched-primary), not #2e8b57.
+assert.ok(
+  /portal-admin-equip-switch portal-admin-accommodation-enabled-switch/.test(adminUi),
+  'accommodation Enabled uses rental equip-switch component',
+);
+assert.ok(
+  /portal-admin-equip-switch input:checked \+ \.portal-admin-equip-switch-slider\{[^}]*var\(--sched-primary,var\(--primary\)\)/.test(apiSrc),
+  'rental/accommodation/group Enabled on-state uses --sched-primary/--primary',
+);
+assert.ok(
+  !/\.portal-admin-switch input:checked\+\.portal-admin-switch-slider\{background:#2e8b57\}/.test(apiSrc),
+  'legacy switch no longer hardcodes lighter #2e8b57 on-state',
+);
 
 assert.ok(packRulesSrc.includes('active: cfg.enabled !== false'), 'surf pack mapper returns enabled state');
 assert.ok(packRulesSrc.includes('includeDisabled === true'), 'surf pack loader can include disabled courses for admin');
 assert.ok(packRulesSrc.includes("(config_json->>'enabled') IS DISTINCT FROM 'false'"), 'default surf pack loader excludes disabled courses');
 assert.ok(tenantConfigSrc.includes('includeDisabledSurfPacks'), 'admin config can request disabled courses');
 assert.ok(apiSrc.includes('includeDisabledSurfPacks: true'), 'Staff admin config includes disabled courses for Pricing cards');
+
+// Group Courses Equipment editor: no three-price helper blurb under the title.
+const equipEditor = (adminUi.match(/function adminRenderEquipmentEditor\([\s\S]*?function adminReadEquipmentOptions/) || [])[0] || '';
+assert.ok(equipEditor, 'adminRenderEquipmentEditor slice');
+assert.ok(equipEditor.includes("portalT('admin.courseEquipment.editorTitle')"), 'Equipment title remains');
+assert.ok(!equipEditor.includes('threePriceHelp'), 'three-price help i18n not rendered in editor');
+assert.ok(!equipEditor.includes('portal-admin-equipment-three-price-help'), 'three-price help element removed');
+assert.ok(!equipEditor.includes('data-admin-equipment-three-price-help'), 'three-price help testid removed');
+assert.ok(!adminUi.includes('Three independent prices: standalone rental'), 'exact helper copy not painted in admin UI');
 
 assert.ok(!adminUi.includes('inbox-thread.js'));
 assert.ok(!adminUi.includes('staff-email-settings'));
