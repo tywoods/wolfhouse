@@ -250,14 +250,15 @@ async function createSurfPackRule(client, { clientSlug, locationId, body, actor 
   const cfg = { ...defaultPackConfig(), ...validated.patch };
   if (!cfg.price_tiers || !cfg.price_tiers.length) cfg.price_tiers = DEFAULT_PRICE_TIERS;
   const loc = normalizeSunsetLocationId(locationId);
-  const beachValidation = await validateBeachKeys(client, { clientSlug, locationId: loc, beachKeys: cfg.beaches });
-  if (!beachValidation.ok) {
-    return { ok: false, status: 400, body: { success: false, error: 'invalid beach', missing_beaches: beachValidation.missing } };
-  }
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_surf_pack_rules');
   const label = validated.patch.label;
   await client.query('BEGIN');
   try {
+    const beachValidation = await validateBeachKeys(client, { clientSlug, locationId: loc, beachKeys: cfg.beaches });
+    if (!beachValidation.ok) {
+      await client.query('ROLLBACK');
+      return { ok: false, status: 400, body: { success: false, error: 'invalid beach', missing_beaches: beachValidation.missing } };
+    }
     if (body.equipment_options != null) {
       const offerings = await listRentalOfferings(client, { clientSlug, locationId: loc, includeInactive: false });
       cfg.equipment_options = validateEquipmentOptions(body.equipment_options, { offerings, clientSlug, locationId: loc });
@@ -314,17 +315,18 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
     return { ok: false, status: 400, body: { success: false, error: 'empty body' } };
   }
   const loc = normalizeSunsetLocationId(locationId);
-  if (validated.patch.beaches) {
-    const beachValidation = await validateBeachKeys(client, {
-      clientSlug, locationId: loc, beachKeys: validated.patch.beaches,
-    });
-    if (!beachValidation.ok) {
-      return { ok: false, status: 400, body: { success: false, error: 'invalid beach', missing_beaches: beachValidation.missing } };
-    }
-  }
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_surf_pack_rules');
   await client.query('BEGIN');
   try {
+    if (validated.patch.beaches) {
+      const beachValidation = await validateBeachKeys(client, {
+        clientSlug, locationId: loc, beachKeys: validated.patch.beaches,
+      });
+      if (!beachValidation.ok) {
+        await client.query('ROLLBACK');
+        return { ok: false, status: 400, body: { success: false, error: 'invalid beach', missing_beaches: beachValidation.missing } };
+      }
+    }
     if (body.equipment_options != null) {
       const offerings = await listRentalOfferings(client, { clientSlug, locationId: loc, includeInactive: false });
       validated.patch.equipment_options = validateEquipmentOptions(body.equipment_options, { offerings, clientSlug, locationId: loc });

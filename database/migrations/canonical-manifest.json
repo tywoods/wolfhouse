@@ -1532,7 +1532,7 @@
       "inForwardChain": true,
       "rationale": "PRICING-BEACHES-P2-CRUD-001: tenant/property-scoped stable surf beach identities, with additive backfill from existing pack JSON and no price/capacity mutation.",
       "downFilename": "102_tenant_surf_beach_registry_down.sql",
-      "sha256": "04c98edf1d4acdd9fa8fc8b2578f7fc3f084c6d3aeb9097e30572642ad91681c"
+      "sha256": "53f08ffab19453adce2e14524877d2079e212ccaf59ef094c1bff4f2c7a21e40"
     },
     {
       "id": "102_tenant_surf_beach_registry_down",

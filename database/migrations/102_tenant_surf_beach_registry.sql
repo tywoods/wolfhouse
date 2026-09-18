@@ -27,7 +27,7 @@ CREATE TRIGGER tenant_surf_beaches_updated_at
 -- Preserve every beach identity already referenced by an existing pack. This is
 -- additive and never rewrites pack JSON, prices, group size, or capacity.
 INSERT INTO tenant_surf_beaches (tenant_id, client_slug, location_id, beach_key, display_name)
-SELECT DISTINCT p.tenant_id, p.client_slug, COALESCE(NULLIF(p.location_id, ''), 'somo'), b.beach_key,
+SELECT DISTINCT p.tenant_id, p.client_slug, COALESCE(NULLIF(btrim(p.location_id), ''), 'sunset-somo'), b.beach_key,
        initcap(replace(b.beach_key, '_', ' '))
 FROM tenant_surf_pack_rules p
 CROSS JOIN LATERAL jsonb_array_elements_text(

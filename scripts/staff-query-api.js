@@ -594,6 +594,7 @@ const {
   createSurfBeach,
   patchSurfBeach,
   deleteSurfBeach,
+  resolveRequiredSunsetLocation,
 } = require('./lib/sunset-surf-beach-registry');
 const {
   validatePrivateLessonBody,
@@ -44038,7 +44039,9 @@ async function handleAdminConfigSurfBeach(method, beachKeyRaw, query, req, res, 
   const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  const locationId = normalizeSunsetLocationId(query.location);
+  const location = resolveRequiredSunsetLocation(query);
+  if (!location.ok) return sendJSON(res, 400, { success: false, error: location.error });
+  const locationId = location.locationId;
   const actor = { staff_user_id: user && user.staff_user_id, email: user && user.email };
   if (method !== 'GET') {
     const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
@@ -44070,10 +44073,12 @@ async function handleAdminConfigSurfPackPost(query, req, res, user) {
   const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
   if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const location = resolveRequiredSunsetLocation(query);
+  if (!location.ok) return sendJSON(res, 400, { success: false, error: location.error });
   let body;
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   try {
-    const locationId = normalizeSunsetLocationId(query.location);
+    const locationId = location.locationId;
     const result = await withPgClient(async (pg) => createSurfPackRule(pg, {
       clientSlug, locationId, body, actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
@@ -44091,12 +44096,14 @@ async function handleAdminConfigSurfPackPatch(ruleIdRaw, query, req, res, user) 
   const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
   if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const location = resolveRequiredSunsetLocation(query);
+  if (!location.ok) return sendJSON(res, 400, { success: false, error: location.error });
   const idCheck = validateUuid(ruleIdRaw, 'surf pack rule id');
   if (!idCheck.ok) return send400(res, idCheck.error);
   let body;
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   try {
-    const locationId = normalizeSunsetLocationId(query.location);
+    const locationId = location.locationId;
     const result = await withPgClient(async (pg) => patchSurfPackRule(pg, {
       ruleId: idCheck.value, clientSlug, locationId, body, actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
@@ -44114,10 +44121,12 @@ async function handleAdminConfigSurfPackDelete(ruleIdRaw, query, req, res, user)
   const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
   if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const location = resolveRequiredSunsetLocation(query);
+  if (!location.ok) return sendJSON(res, 400, { success: false, error: location.error });
   const idCheck = validateUuid(ruleIdRaw, 'surf pack rule id');
   if (!idCheck.ok) return send400(res, idCheck.error);
   try {
-    const locationId = normalizeSunsetLocationId(query.location);
+    const locationId = location.locationId;
     const result = await withPgClient(async (pg) => deactivateSurfPackRule(pg, {
       ruleId: idCheck.value, clientSlug, locationId, actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
