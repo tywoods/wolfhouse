@@ -95,8 +95,9 @@ async function main() {
   }, { CROWSNEST_LIVE_SIM_SUNSET_TOKEN: 'server-side-secret' });
   ok('tenant request builds safely', built.ok === true);
   ok('caller phone maps to tenant memory thread', built.payload.thread === sunsetPhone && built.payload.guest_phone === sunsetPhone);
-  ok('writes hard disabled even if UI later sends extra fields', built.payload.allow_writes === false);
-  ok('Sunset request cannot grant write authority or inject a live identity', !built.payload.simulator_write_mode && !built.payload.simulator_synthetic_identity && built.limitation.booking_writes_enabled === false);
+  ok('caller cannot inject write authority or a live identity', built.payload.allow_writes === false && !built.payload.simulator_write_mode && !built.payload.simulator_synthetic_identity);
+  ok('server-owned Sunset door advertises all Staff tool writes', built.limitation.writes_enabled === true && built.limitation.staff_tool_writes_enabled === true && built.limitation.denied_actions.length === 2);
+  ok('permanent transport fences remain advertised', built.limitation.whatsapp_sends_enabled === false && built.limitation.sms_sends_enabled === false && built.limitation.denied_actions.includes('send_whatsapp_message'));
   ok('tenant token is only in server-side header', built.headers['X-Luna-Bot-Token'] === 'server-side-secret' && !JSON.stringify(built.payload).includes('server-side-secret'));
 
   ok('random runtime hosts still fail closed without allowlist', runtimeOriginAllowed('https://random.invalid', { env: {} }) === false);
@@ -180,8 +181,8 @@ async function main() {
     },
   });
   ok('Sunset proxy targets declared isolated staging runtime', seenSunsetUpstream.url === 'http://127.0.0.1:8094/wolfhouse/simulate-guest-turn');
-  ok('Sunset protected door never sends write-mode authority', seenSunsetUpstream.body.allow_writes === false && !seenSunsetUpstream.body.simulator_write_mode);
-  ok('Sunset protected door denies booking/payment/waiver mutations', sunsetResult.limitation.booking_writes_enabled === false && sunsetResult.limitation.test_payments_enabled === false && sunsetResult.limitation.payment_status_enabled === false && sunsetResult.limitation.waiver_registration_enabled === false);
+  ok('Sunset protected door keeps authority server-owned', seenSunsetUpstream.body.allow_writes === false && !seenSunsetUpstream.body.simulator_write_mode);
+  ok('Sunset protected door permits booking/payment/waiver Staff mutations', sunsetResult.limitation.booking_writes_enabled === true && sunsetResult.limitation.payments_enabled === true && sunsetResult.limitation.waiver_creation_enabled === true);
 
   process.env.CROWSNEST_AUTH_REQUIRED = 'true';
   process.env.CROWSNEST_AUTH_USERNAME = 'operator';

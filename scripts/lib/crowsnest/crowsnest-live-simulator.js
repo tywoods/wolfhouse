@@ -5,7 +5,8 @@
  *
  * Operators choose tenant + guest phone in Crowsnest; this module keeps the
  * tenant runtime URL/token server-side and always calls the staging simulator in
- * no-write/no-send mode. Conversation continuity is provided by the tenant Luna
+ * no-send mode. The Sunset staging door has server-owned Staff-tool write
+ * authority; browser input can never grant it. Conversation continuity is provided by the tenant Luna
  * runtime: the caller-chosen phone is forwarded as the simulator thread/guest
  * phone, and each tenant runtime has its own session store.
  */
@@ -196,27 +197,29 @@ function buildTenantRequest({ tenantId, fromPhone, text, lang }, env = process.e
     phone,
     payload,
     headers,
-    limitation: buildLiveSimulatorLimitation(),
+    limitation: buildLiveSimulatorLimitation({ allStaffToolWrites: tenant === 'sunset' }),
   };
 }
 
 function buildLiveSimulatorLimitation(options = {}) {
   const bookingOnlyMode = options.bookingOnlyMode === true;
   const isolatedMode = options.isolatedMode === true;
+  const allStaffToolWrites = options.allStaffToolWrites === true;
   return {
     staging_only: true,
-    writes_enabled: false,
-    booking_writes_enabled: bookingOnlyMode || isolatedMode,
-    booking_write_mode: isolatedMode ? SUNSET_ISOLATED_MODE : (bookingOnlyMode ? SUNSET_BOOKING_ONLY_MODE : null),
+    writes_enabled: allStaffToolWrites,
+    staff_tool_writes_enabled: allStaffToolWrites,
+    booking_writes_enabled: allStaffToolWrites || bookingOnlyMode || isolatedMode,
+    booking_write_mode: allStaffToolWrites ? 'sunset_all_staff_tools' : (isolatedMode ? SUNSET_ISOLATED_MODE : (bookingOnlyMode ? SUNSET_BOOKING_ONLY_MODE : null)),
     whatsapp_sends_enabled: false,
     sms_sends_enabled: false,
-    payments_enabled: false,
-    waiver_creation_enabled: false,
-    test_payments_enabled: isolatedMode,
-    payment_status_enabled: isolatedMode,
-    waiver_registration_enabled: isolatedMode,
-    limitation_flag: isolatedMode ? 'sunset_isolated_test_flows_enabled' : (bookingOnlyMode ? 'sunset_booking_only_writes_enabled' : 'writes_and_external_sends_disabled'),
-    denied_actions: WRITE_DENY_LIST.slice(),
+    payments_enabled: allStaffToolWrites,
+    waiver_creation_enabled: allStaffToolWrites,
+    test_payments_enabled: allStaffToolWrites || isolatedMode,
+    payment_status_enabled: allStaffToolWrites || isolatedMode,
+    waiver_registration_enabled: allStaffToolWrites || isolatedMode,
+    limitation_flag: allStaffToolWrites ? 'sunset_staff_tools_enabled_external_transport_suppressed' : (isolatedMode ? 'sunset_isolated_test_flows_enabled' : (bookingOnlyMode ? 'sunset_booking_only_writes_enabled' : 'writes_and_external_sends_disabled')),
+    denied_actions: allStaffToolWrites ? ['send_whatsapp_message', 'send_sms'] : WRITE_DENY_LIST.slice(),
   };
 }
 

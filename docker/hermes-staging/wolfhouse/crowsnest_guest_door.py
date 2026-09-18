@@ -3,7 +3,7 @@
 Unlike the legacy simulator this module never mutates process environment or swaps
 functions per request.  A request-owned ContextVar capability follows the turn
 through asyncio tasks.  Permanent boundary guards use that capability to deny
-external transport and writes; revocation therefore remains effective after a
+external transport; revocation also removes Staff-write authority after a
 request timeout or cancellation, including late worker completion.
 """
 from __future__ import annotations
@@ -79,6 +79,18 @@ def current_crowsnest_scope() -> Optional[CrowsnestGuestScope]:
     return _SCOPE.get()
 
 
+def _normalize_staff_bot_path(path: Any) -> str:
+    raw = str(path or "").strip()
+    if raw.startswith("http://") or raw.startswith("https://"):
+        return raw
+    clean = raw.lstrip("/")
+    if clean.startswith("staff/bot/"):
+        return "/" + clean
+    if clean.startswith("bot/"):
+        return "/staff/" + clean
+    return "/staff/bot/" + clean
+
+
 def simulator_mirror_fields(
     scope: Optional[CrowsnestGuestScope] = None,
 ) -> Dict[str, Any]:
@@ -145,10 +157,14 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     "simulator_guard": ["request_scope_revoked"],
                 })
                 return result
+            # This server-owned door exists only on the isolated Sunset staging
+            # Luna runtime. While the request is active it has the same Staff
+            # tool authority as an ordinary Sunset WhatsApp turn. External
+            # WhatsApp transport remains permanently intercepted below.
             norm, guarded, warnings = guard_bot_path_and_payload(
-                path,
+                _normalize_staff_bot_path(path),
                 payload or {},
-                allow_writes=False,
+                allow_writes=True,
             )
             if is_simulate_write_blocked(warnings):
                 result = synthetic_blocked_result(norm, warnings, allow_writes=False)
@@ -452,6 +468,7 @@ async def run_crowsnest_guest_turn(
                 "transport_calls": scope.transport_calls,
                 "transport_attempts": scope.transport_attempts,
                 "inbox_persisted": True,
+                "allow_writes": True,
             }
         finally:
             scope.revoked = True
