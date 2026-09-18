@@ -2135,7 +2135,7 @@ function adminRenderBeachManager(cfg, writes){
         html += adminRenderBeachEditRow(b);
       } else {
         html += '<div class="portal-admin-beach-row" data-admin-beach="' + escHtml(key) + '">';
-        html += '<div class="portal-admin-beach-id"><strong>' + escHtml(b.display_name || key) + '</strong><span>' + escHtml(key) + '</span></div>';
+        html += '<div class="portal-admin-beach-id"><strong>' + escHtml(b.display_name || key) + '</strong></div>';
         if (writes) html += '<div class="portal-admin-beach-actions">'
           + '<button type="button" class="btn btn-ghost portal-admin-pricing-edit-btn" data-admin-action="edit-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.edit', 'Edit beach')) + '">✎</button>'
           + '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-icon-btn" data-admin-action="delete-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.delete', 'Delete beach')) + '">×</button>'
@@ -2157,8 +2157,6 @@ function adminRenderBeachEditRow(beach){
   html += '<div class="portal-admin-beach-edit-title">' + escHtml(label) + '</div>';
   html += '<div class="portal-admin-edit-field"><label for="' + escHtml(prefix) + '-name">' + escHtml(adminBeachText('admin.beaches.name', 'Name')) + '</label>';
   html += '<input type="text" id="' + escHtml(prefix) + '-name" data-beach-field="display_name" maxlength="120" value="' + escHtml(beach && beach.display_name || '') + '"></div>';
-  html += '<div class="portal-admin-edit-field"><label for="' + escHtml(prefix) + '-key">' + escHtml(adminBeachText('admin.beaches.key', 'Key')) + '</label>';
-  html += '<input type="text" id="' + escHtml(prefix) + '-key" data-beach-field="beach_key" maxlength="80" ' + (isNew ? '' : 'disabled ') + 'value="' + escHtml(key) + '"></div>';
   html += '<div class="portal-admin-beach-edit-actions"><button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>';
   html += '<button type="button" class="btn btn-primary" data-admin-action="' + (isNew ? 'save-new-beach' : 'save-beach') + '" data-beach-key="' + escHtml(key) + '">' + escHtml(portalT('admin.action.save')) + '</button></div>';
   html += '</div>';
@@ -2169,9 +2167,15 @@ function adminReadBeachPayload(beachKey){
   var root = document.querySelector('[data-admin-beach-form="' + selectorKey + '"]');
   if (!root) return null;
   var nameEl = root.querySelector('[data-beach-field="display_name"]');
-  var keyEl = root.querySelector('[data-beach-field="beach_key"]');
   var body = { display_name: nameEl ? String(nameEl.value || '').trim() : '' };
-  if (!beachKey) body.beach_key = keyEl ? String(keyEl.value || '').trim() : '';
+  if (!beachKey && body.display_name) {
+    body.beach_key = body.display_name
+      .toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .replace(/_+/g, '_');
+  }
   return body;
 }
 function renderAdminSectionLessonTimesFromConfig(cfg){
@@ -3854,7 +3858,7 @@ function wireAdminTab(){
       var beachBody = adminReadBeachPayload(saveBeachKey);
       if (!beachBody){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
       if (!beachBody.display_name){ adminShowMessage('error', adminBeachText('admin.beaches.nameRequired', 'Beach name is required.')); return; }
-      if (action === 'save-new-beach' && !beachBody.beach_key){ adminShowMessage('error', adminBeachText('admin.beaches.keyRequired', 'Beach key is required.')); return; }
+      if (action === 'save-new-beach' && !beachBody.beach_key){ adminShowMessage('error', adminBeachText('admin.beaches.nameInvalid', 'Beach name must contain at least one letter or number.')); return; }
       var saveBeachOpSeq = adminBeginOp();
       adminShowMessage('', '');
       try {
