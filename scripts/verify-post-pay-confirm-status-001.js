@@ -1,0 +1,169 @@
+'use strict';
+
+const assert = require('assert/strict');
+const fs = require('fs');
+const { decideStripeHoldPromote } = require('./lib/stripe-hold-promote-policy');
+const { tryAutoSendBookingConfirmation } = require('./lib/luna-guest-confirmation-auto-send');
+const { CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE } = require('./lib/luna-staff-inbox-thread-message');
+
+const BOOKING = '11111111-1111-1111-1111-111111111111';
+const CONVERSATION = '22222222-2222-2222-2222-222222222222';
+const CLIENT = '33333333-3333-3333-3333-333333333333';
+const PHONE = '+9990000001';
+const ENV = {
+  NODE_ENV: 'staging', LUNA_DEPLOYMENT: 'sunset-staging', DEFAULT_CLIENT_SLUG: 'sunset',
+  LUNA_AUTO_SEND_ENABLED: 'false', WHATSAPP_DRY_RUN: 'false',
+};
+
+function makeProductionShapedPg({ simulator = true, failInsertOnce = false, failTimestampOnce = false } = {}) {
+  const messages = [];
+  const calls = [];
+  let confirmationSentAt = null;
+  return {
+    calls,
+    messages,
+    get confirmationSentAt() { return confirmationSentAt; },
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      const flat = sql.replace(/\s+/g, ' ').trim();
+      if (flat.includes('FROM bookings b INNER JOIN clients c') && flat.includes('confirmation_sent_at')) {
+        return { rows: [{ id: BOOKING, booking_code: 'SUN-001', booking_status: 'confirmed',
+          payment_status: 'deposit_paid',
+          confirmation_sent_at: confirmationSentAt, guest_phone_meta: PHONE, guest_name_meta: 'Sim Guest' }] };
+      }
+      if (flat.includes('LEFT JOIN LATERAL') && flat.includes('FROM payments')) {
+        return { rows: [{ amount_paid_cents: 10000, payment_record_status: 'paid',
+          booking_payment_status: 'deposit_paid' }] };
+      }
+      if (flat.includes('FROM conversations conv') && flat.includes("metadata->>'simulator_synthetic' = 'true'")) {
+        return { rows: simulator ? [{ conversation_id: CONVERSATION, location_id: 'sunset-somo',
+          simulator_source_phone: '+34600111222' }] : [] };
+      }
+      if (flat === 'SELECT id FROM clients WHERE slug = $1 LIMIT 1') return { rows: [{ id: CLIENT }] };
+      if (flat.includes('FROM conversations WHERE client_id = $1 AND phone = $2')) {
+        return { rows: [{ conversation_id: CONVERSATION }] };
+      }
+      if (flat.startsWith('INSERT INTO conversations')) return { rows: [{ conversation_id: CONVERSATION }] };
+      if (flat.includes('INSERT INTO customers') || flat.includes('UPDATE customers')
+        || flat.includes('SELECT id') && flat.includes('FROM customers')) return { rows: [] };
+      if (flat.includes('lower(btrim(COALESCE') && flat.includes('FROM clients c')) {
+        return { rows: [{ client_id: CLIENT, whatsapp_mode: 'auto' }] };
+      }
+      if (flat.startsWith('SELECT pg_advisory_')) return { rows: [{}] };
+      if (flat.includes('FROM messages m') && flat.includes("metadata->>'idempotency_key'")) {
+        const found = messages.find((m) => m.idempotency_key === params[2]);
+        return { rows: found ? [{ message_id: found.id, source: found.source,
+          direction: 'outbound', whatsapp_message_id: null }] : [] };
+      }
+      if (flat.includes('FROM conversations conv') && flat.includes('c.slug = $1 AND conv.id = $2::uuid')) {
+        return { rows: [{ id: CONVERSATION, client_id: CLIENT }] };
+      }
+      if (flat.startsWith('INSERT INTO messages')) {
+        if (failInsertOnce) {
+          failInsertOnce = false;
+          throw new Error('injected post-commit Inbox failure');
+        }
+        const metadata = JSON.parse(params[4]);
+        const row = { id: `m-${messages.length + 1}`, source: params[3],
+          idempotency_key: metadata.idempotency_key, whatsapp_message_id: null };
+        messages.push(row);
+        return { rows: [{ message_id: row.id, source: row.source, direction: 'outbound' }], rowCount: 1 };
+      }
+      if (flat.startsWith('UPDATE bookings b') && flat.includes('confirmation_sent_at = NOW()')) {
+        assert.equal(messages.length, 1, 'timestamp can only be written after Inbox persistence');
+        if (failTimestampOnce) {
+          failTimestampOnce = false;
+          throw new Error('injected post-Inbox timestamp failure');
+        }
+        confirmationSentAt = confirmationSentAt || '2026-09-18T12:00:00Z';
+        return { rows: [{ confirmation_sent_at: confirmationSentAt }], rowCount: 1 };
+      }
+      if (flat.includes('SELECT b.confirmation_sent_at') || flat.includes('SELECT confirmation_sent_at')) {
+        return { rows: confirmationSentAt ? [{ confirmation_sent_at: confirmationSentAt }] : [] };
+      }
+      throw new Error(`unexpected SQL: ${flat}`);
+    },
+  };
+}
+
+async function attempt(pg, overrides = {}, env = ENV, sendCounter = { count: 0 }) {
+  return tryAutoSendBookingConfirmation({
+    booking_id: BOOKING, booking_code: 'SUN-001', to: PHONE, client_slug: 'sunset',
+    idempotency_key: 'confirmation:auto:webhook:SUN-001:evt_1', ...overrides,
+  }, {
+    pg, env,
+    runGuestConfirmationPreviewDryRun: async () => ({ confirmation_preview_ready: true,
+      message_preview: 'Payment received — SUN-001 is confirmed.' }),
+    sendMessage: async () => { sendCounter.count += 1; throw new Error('provider forbidden'); },
+  });
+}
+
+(async () => {
+  const paid = { newBkPayStatus: 'deposit_paid' };
+  assert.equal(decideStripeHoldPromote({ booking_status: 'payment_pending' }, paid).promote_to_confirmed, false);
+  assert.equal(decideStripeHoldPromote({ booking_status: 'payment_pending' }, paid,
+    { sunset_staging: true }).promote_to_confirmed, true);
+  assert.equal(decideStripeHoldPromote({ booking_status: 'hold', hold_expired_by_db: false }, paid)
+    .promote_to_confirmed, true, 'existing hold behavior remains unchanged');
+
+  const pg = makeProductionShapedPg();
+  const sends = { count: 0 };
+  const first = await attempt(pg, {}, ENV, sends);
+  assert.equal(first.confirmation_sent, true);
+  assert.equal(first.synthetic_inbox_persisted, true);
+  assert.equal(first.synthetic_inbox.thread.source, CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE);
+  assert.equal(pg.messages.length, 1);
+  assert.equal(pg.messages[0].whatsapp_message_id, null, 'synthetic persistence needs no provider ID');
+  assert.equal(sends.count, 0, 'provider never called');
+  assert.ok(pg.confirmationSentAt, 'timestamp set after persistence');
+
+  // Exercise the real mirror/persistence owner again: idempotency finds the same bubble.
+  const replayPg = makeProductionShapedPg();
+  replayPg.messages.push(pg.messages[0]);
+  const replay = await attempt(replayPg, {}, ENV, sends);
+  assert.equal(replay.synthetic_inbox.thread.duplicate, true);
+  assert.equal(replayPg.messages.length, 1);
+  assert.equal(sends.count, 0);
+
+  // A committed payment whose post-commit Inbox write failed converges on retry.
+  const insertFailurePg = makeProductionShapedPg({ failInsertOnce: true });
+  await assert.rejects(attempt(insertFailurePg, {}, ENV, sends), /post-commit Inbox failure/);
+  const insertRecovery = await attempt(insertFailurePg, {}, ENV, sends);
+  assert.equal(insertRecovery.confirmation_sent, true);
+  assert.equal(insertFailurePg.messages.length, 1);
+  assert.ok(insertFailurePg.confirmationSentAt);
+
+  // If the bubble committed but timestamping failed, retry finds that same bubble
+  // and completes confirmation_sent_at without a provider call or second message.
+  const timestampFailurePg = makeProductionShapedPg({ failTimestampOnce: true });
+  await assert.rejects(attempt(timestampFailurePg, {}, ENV, sends), /post-Inbox timestamp failure/);
+  assert.equal(timestampFailurePg.messages.length, 1);
+  assert.equal(timestampFailurePg.confirmationSentAt, null);
+  const timestampRecovery = await attempt(timestampFailurePg, {}, ENV, sends);
+  assert.equal(timestampRecovery.synthetic_inbox.thread.duplicate, true);
+  assert.equal(timestampFailurePg.messages.length, 1);
+  assert.ok(timestampFailurePg.confirmationSentAt);
+  assert.equal(sends.count, 0);
+
+  const webhookSource = fs.readFileSync(require.resolve('./staff-query-api'), 'utf8');
+  assert.ok(webhookSource.includes('if (bookingDuplicateClaim) {\n    await reconcileSimulatorConfirmation();'));
+  assert.ok(webhookSource.includes('if (paymentTruthResult && paymentTruthResult.already_paid) {\n    const confirmationReconciliation = await reconcileSimulatorConfirmation();'));
+  assert.ok(webhookSource.includes('confirmation:auto:webhook:${pm.booking_code}:${pm.payment_id}'));
+
+  const ordinary = await attempt(makeProductionShapedPg({ simulator: false }));
+  assert.equal(ordinary.skip_reason, 'luna_auto_send_not_enabled');
+  const wrongTenant = await attempt(makeProductionShapedPg(), { client_slug: 'wolfhouse-somo' });
+  assert.equal(wrongTenant.skip_reason, 'luna_auto_send_not_enabled');
+  const production = await attempt(makeProductionShapedPg(), {}, { ...ENV, NODE_ENV: 'production' });
+  assert.equal(production.skip_reason, 'luna_auto_send_not_enabled');
+  for (const nodeEnv of [undefined, '', '   ', ' production ', 'development', 'test']) {
+    const env = { ...ENV };
+    if (nodeEnv === undefined) delete env.NODE_ENV;
+    else env.NODE_ENV = nodeEnv;
+    const rejected = await attempt(makeProductionShapedPg(), {}, env);
+    assert.equal(rejected.skip_reason, 'luna_auto_send_not_enabled',
+      `NODE_ENV=${JSON.stringify(nodeEnv)} must fail closed`);
+  }
+
+  console.log('PASS verify-post-pay-confirm-status-001');
+})().catch((err) => { console.error(err.stack || err); process.exit(1); });

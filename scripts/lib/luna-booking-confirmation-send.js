@@ -44,7 +44,7 @@ function trimStr(v) {
 }
 
 function buildConfirmationSendAudit(fields) {
-  const audit = { confirmation_sent_via: 'whatsapp' };
+  const audit = { confirmation_sent_via: fields.confirmation_sent_via || 'whatsapp' };
   if (fields.guest_message_send_id) audit.confirmation_send_id = fields.guest_message_send_id;
   if (fields.provider_message_id) audit.confirmation_provider_message_id = fields.provider_message_id;
   if (fields.confirmation_sent_source) audit.confirmation_sent_source = fields.confirmation_sent_source;

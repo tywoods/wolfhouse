@@ -10,6 +10,7 @@ const OPEN_DEMO_INBOUND_SOURCE = 'open_demo_whatsapp_inbound';
 const OPEN_DEMO_LIVE_REPLY_SOURCE = 'luna_open_demo_live_reply';
 const HERMES_LUNA_INBOUND_SOURCE = 'hermes_luna_whatsapp_inbound';
 const HERMES_LUNA_OUTBOUND_SOURCE = 'hermes_luna_whatsapp_reply';
+const CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE = 'crowsnest_simulator_confirmation';
 
 function trimStr(v) {
   if (v == null) return '';
@@ -456,16 +457,73 @@ async function persistHermesLunaOutboundThreadMessage(pg, input, options) {
   return { ok: true, persisted: false, reason: 'insert_no_row' };
 }
 
+/** Persist a simulator-only Staff Inbox bubble without pretending Meta sent it. */
+async function persistCrowsnestSyntheticConfirmationThreadMessage(pg, input) {
+  const payload = input || {};
+  const clientSlug = trimStr(payload.client_slug);
+  const conversationId = trimStr(payload.conversation_id);
+  const messageText = trimStr(payload.message_text);
+  const idemKey = trimStr(payload.idempotency_key);
+  if (!clientSlug || !conversationId || !messageText || !idemKey) {
+    return { ok: false, persisted: false, reason: 'missing_synthetic_fields' };
+  }
+
+  // Session lock serializes the tenant/conversation/key read+insert pair even when
+  // this owner is called outside a DB transaction. No provider ID is manufactured.
+  const lockKey = `${clientSlug}:${conversationId}:${idemKey}`;
+  await pg.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [lockKey]);
+  try {
+    const existing = await findStaffInboxThreadMessage(pg, clientSlug, conversationId, {
+      idempotency_key: idemKey,
+    });
+    if (existing) {
+      return {
+        ok: true, persisted: false, duplicate: true, message_id: existing.message_id,
+        source: existing.source || CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
+      };
+    }
+    const conv = await loadConversationClientId(pg, clientSlug, conversationId);
+    if (!conv) return { ok: true, persisted: false, reason: 'conversation_not_found' };
+    const metadata = {
+      idempotency_key: idemKey,
+      simulator_synthetic: true,
+      provider_send_performed: false,
+      audit_source: CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
+    };
+    const insert = await pg.query(
+      `INSERT INTO messages (
+         client_id, conversation_id, direction, message_text, message_type,
+         source, whatsapp_message_id, route, metadata
+       ) VALUES ($1, $2, 'outbound', $3, 'text', $4, NULL, 'staff_portal', $5::jsonb)
+       RETURNING id::text AS message_id, source, direction::text AS direction`,
+      [conv.client_id, conversationId, messageText, CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
+        JSON.stringify(metadata)],
+    );
+    const row = insert.rows[0];
+    return row
+      ? {
+        ok: true, persisted: true, duplicate: false, message_id: row.message_id,
+        source: row.source, direction: row.direction,
+      }
+      : { ok: true, persisted: false, reason: 'insert_no_row' };
+  } finally {
+    await pg.query('SELECT pg_advisory_unlock(hashtextextended($1, 0))', [lockKey]);
+  }
+}
+
 module.exports = {
   OPEN_DEMO_INBOUND_SOURCE,
   OPEN_DEMO_LIVE_REPLY_SOURCE,
   HERMES_LUNA_INBOUND_SOURCE,
   HERMES_LUNA_OUTBOUND_SOURCE,
+  CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
   shouldPersistStaffInboxThreadMessage,
   findStaffInboxThreadMessage,
   persistOpenDemoInboundThreadMessage: withInboxLiveNotify(persistOpenDemoInboundThreadMessage),
   persistOpenDemoLiveReplyThreadMessage: withInboxLiveNotify(persistOpenDemoLiveReplyThreadMessage),
   persistHermesLunaInboundThreadMessage: withInboxLiveNotify(persistHermesLunaInboundThreadMessage),
   persistHermesLunaOutboundThreadMessage: withInboxLiveNotify(persistHermesLunaOutboundThreadMessage),
+  persistCrowsnestSyntheticConfirmationThreadMessage:
+    withInboxLiveNotify(persistCrowsnestSyntheticConfirmationThreadMessage),
   persistStaffInboxSentThreadMessage: withInboxLiveNotify(persistStaffInboxSentThreadMessage),
 };

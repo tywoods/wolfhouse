@@ -892,7 +892,6 @@ const {
 } = require('./lib/luna-booking-confirmation-send');
 const {
   tryAutoSendBookingConfirmation,
-  isAutoConfirmationSendEnabled,
 } = require('./lib/luna-guest-confirmation-auto-send');
 const {
   buildLunaGuestReplyDraft,
@@ -14962,7 +14961,28 @@ async function handleStripeWebhook(req, res) {
     return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
   }
 
+  const reconcileSimulatorConfirmation = async () => {
+    if (!pm.guest_phone) return null;
+    try {
+      return await withPgClient((pg) => tryAutoSendBookingConfirmation({
+        booking_id: pm.booking_id,
+        booking_code: pm.booking_code,
+        to: pm.guest_phone,
+        client_slug: pm.client_slug || 'wolfhouse-somo',
+        // Stable across exact-event and distinct-event retries for this payment.
+        idempotency_key: `confirmation:auto:webhook:${pm.booking_code}:${pm.payment_id}`,
+      }, { pg, env: process.env, simulatorReconciliationOnly: true }));
+    } catch (confirmErr) {
+      return {
+        attempted: true,
+        skipped: true,
+        skip_reason: `reconcile_error:${String(confirmErr.message || confirmErr).slice(0, 80)}`,
+      };
+    }
+  };
+
   if (bookingDuplicateClaim) {
+    await reconcileSimulatorConfirmation();
     return sendJSON(res, 200, buildStripeEventClaimIdempotentBody({
       stripeEventId: event.id,
       eventType,
@@ -14973,6 +14993,7 @@ async function handleStripeWebhook(req, res) {
   }
 
   if (paymentTruthResult && paymentTruthResult.already_paid) {
+    const confirmationReconciliation = await reconcileSimulatorConfirmation();
     appendAuditLog({
       ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
       category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
@@ -14991,6 +15012,7 @@ async function handleStripeWebhook(req, res) {
       payment_status:            'paid',
       no_whatsapp:               true,
       no_confirmation_sent:      true,
+      confirmation_reconciliation: confirmationReconciliation,
       message:                   'Payment already marked paid under lock (idempotent — no double-count / no second auto-send)',
     });
   }
@@ -15019,7 +15041,6 @@ async function handleStripeWebhook(req, res) {
   let confirmationAutoSend = null;
   if (
     allowAutoConfirmation
-    && isAutoConfirmationSendEnabled(process.env)
     && pm.guest_phone
   ) {
     try {
@@ -15029,7 +15050,7 @@ async function handleStripeWebhook(req, res) {
         to: pm.guest_phone,
         client_slug: pm.client_slug || 'wolfhouse-somo',
         guest_name: pm.guest_name,
-        idempotency_key: `confirmation:auto:webhook:${pm.booking_code}:${event.id}`,
+        idempotency_key: `confirmation:auto:webhook:${pm.booking_code}:${pm.payment_id}`,
       }, { pg, env: process.env }));
     } catch (confirmErr) {
       confirmationAutoSend = {
@@ -15053,6 +15074,7 @@ async function handleStripeWebhook(req, res) {
   }
 
   const confirmationSent = confirmationAutoSend && confirmationAutoSend.confirmation_sent === true;
+  const whatsappSent = confirmationSent && confirmationAutoSend.whatsapp_suppressed !== true;
   const elapsed = Date.now() - started;
   appendAuditLog({
     ts: new Date().toISOString(), intent: 'webhook:stripe:payment_truth',
@@ -15060,7 +15082,7 @@ async function handleStripeWebhook(req, res) {
     payment_id: pm.payment_id, booking_id: pm.booking_id,
     booking_code: pm.booking_code, amount_paid_cents: newPmPaidCents,
     new_bk_payment_status: newBkPayStatus, elapsed_ms: elapsed,
-    whatsapp_called: confirmationSent,
+    whatsapp_called: whatsappSent,
     n8n_called: false, email_sent: false,
     confirmation_auto_send: confirmationAutoSend,
     payment_after_hold_expiry: paymentAfterHoldExpiry,
@@ -15084,7 +15106,7 @@ async function handleStripeWebhook(req, res) {
     payment_on_terminal_booking: paymentOnTerminalBooking,
     hold_promote_reason:       holdPromoteDecision ? holdPromoteDecision.reason : null,
     hold_promoted_to_confirmed: !!(holdPromoteDecision && holdPromoteDecision.promote_to_confirmed),
-    no_whatsapp:               !confirmationSent,
+    no_whatsapp:               !whatsappSent,
     no_email:                  true,
     no_n8n:                    true,
     no_confirmation_sent:      !confirmationSent,
