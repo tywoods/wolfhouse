@@ -374,10 +374,12 @@ async function runGuestConfirmationPreviewDryRun(input, context) {
     const mapped = mapPreviewSuccess(preview, mergedDraft, language);
 
     const clientConfig = loadClientConfirmationConfig(previewInput.client_slug);
-    if (!mapped.room_label) {
+    const trustedRoomlessSunsetCourse = ctx.trusted_crowsnest_sunset_course === true
+      && previewInput.client_slug === 'sunset';
+    if (!mapped.room_label && !trustedRoomlessSunsetCourse) {
       return buildHandoffResponse(['missing_room_number_or_label'], mapped);
     }
-    if (!mapped.gate_code) {
+    if (!mapped.gate_code && !trustedRoomlessSunsetCourse) {
       return buildHandoffResponse(['missing_gate_code'], mapped);
     }
     if (clientConfig.include_address && !mapped.address) {

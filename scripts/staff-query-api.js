@@ -14964,14 +14964,32 @@ async function handleStripeWebhook(req, res) {
   const reconcileSimulatorConfirmation = async () => {
     if (!pm.guest_phone) return null;
     try {
-      return await withPgClient((pg) => tryAutoSendBookingConfirmation({
-        booking_id: pm.booking_id,
-        booking_code: pm.booking_code,
-        to: pm.guest_phone,
-        client_slug: pm.client_slug || 'wolfhouse-somo',
-        // Stable across exact-event and distinct-event retries for this payment.
-        idempotency_key: `confirmation:auto:webhook:${pm.booking_code}:${pm.payment_id}`,
-      }, { pg, env: process.env, simulatorReconciliationOnly: true }));
+      return await withPgClient(async (pg) => {
+        await pg.query('BEGIN');
+        try {
+          // Exact-event claims skip the original apply callback. Re-enter the
+          // locked owner so an already-paid Sunset payment can repair a stale
+          // payment_pending booking before confirmation readiness is evaluated.
+          await applyStripeBookingPaymentTruthWrites(pg, {
+            pm,
+            session,
+            stripePaidCents,
+            env: process.env,
+          });
+          await pg.query('COMMIT');
+        } catch (err) {
+          try { await pg.query('ROLLBACK'); } catch (_) {}
+          throw err;
+        }
+        return tryAutoSendBookingConfirmation({
+          booking_id: pm.booking_id,
+          booking_code: pm.booking_code,
+          to: pm.guest_phone,
+          client_slug: pm.client_slug || 'wolfhouse-somo',
+          // Stable across exact-event and distinct-event retries for this payment.
+          idempotency_key: `confirmation:auto:webhook:${pm.booking_code}:${pm.payment_id}`,
+        }, { pg, env: process.env, simulatorReconciliationOnly: true });
+      });
     } catch (confirmErr) {
       return {
         attempted: true,

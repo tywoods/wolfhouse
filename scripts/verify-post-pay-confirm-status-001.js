@@ -2,8 +2,12 @@
 
 const assert = require('assert/strict');
 const fs = require('fs');
-const { decideStripeHoldPromote } = require('./lib/stripe-hold-promote-policy');
+const {
+  decideStripeHoldPromote,
+  applyStripeBookingPaymentTruthWrites,
+} = require('./lib/stripe-hold-promote-policy');
 const { tryAutoSendBookingConfirmation } = require('./lib/luna-guest-confirmation-auto-send');
+const { runGuestConfirmationPreviewDryRun } = require('./lib/luna-guest-confirmation-preview-dry-run');
 const { CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE } = require('./lib/luna-staff-inbox-thread-message');
 
 const BOOKING = '11111111-1111-1111-1111-111111111111';
@@ -14,6 +18,36 @@ const ENV = {
   NODE_ENV: 'staging', LUNA_DEPLOYMENT: 'sunset-staging', DEFAULT_CLIENT_SLUG: 'sunset',
   LUNA_AUTO_SEND_ENABLED: 'false', WHATSAPP_DRY_RUN: 'false',
 };
+
+function makeAlreadyPaidPendingPg() {
+  let bookingStatus = 'payment_pending';
+  const calls = [];
+  return {
+    calls,
+    get bookingStatus() { return bookingStatus; },
+    async query(sql, params = []) {
+      calls.push({ sql, params });
+      const flat = sql.replace(/\s+/g, ' ').trim();
+      if (flat.includes('FROM bookings') && flat.endsWith('FOR UPDATE')) {
+        return { rows: [{ booking_id: BOOKING, booking_status: bookingStatus,
+          hold_expires_at: null, hold_expired_by_db: false, bk_total: 14000,
+          bk_amount_paid: 14000, bk_balance: 0, bk_deposit: 14000 }] };
+      }
+      if (flat.includes('FROM payments') && flat.endsWith('FOR UPDATE')) {
+        return { rows: [{ payment_id: '44444444-4444-4444-4444-444444444444',
+          booking_id: BOOKING, client_id: CLIENT, payment_status: 'paid',
+          payment_kind: 'full', amount_due_cents: 14000, amount_paid_cents: 14000,
+          currency: 'EUR', stripe_checkout_session_id: 'cs_sunset_paid' }] };
+      }
+      if (flat.startsWith('UPDATE bookings') && flat.includes("status = 'confirmed'::booking_status")) {
+        assert.deepEqual(params, [BOOKING, CLIENT]);
+        if (bookingStatus === 'payment_pending') bookingStatus = 'confirmed';
+        return { rowCount: 1, rows: [{ booking_status: bookingStatus }] };
+      }
+      throw new Error(`unexpected already-paid SQL: ${flat}`);
+    },
+  };
+}
 
 function makeProductionShapedPg({ simulator = true, failInsertOnce = false, failTimestampOnce = false } = {}) {
   const messages = [];
@@ -105,6 +139,50 @@ async function attempt(pg, overrides = {}, env = ENV, sendCounter = { count: 0 }
     { sunset_staging: true }).promote_to_confirmed, true);
   assert.equal(decideStripeHoldPromote({ booking_status: 'hold', hold_expired_by_db: false }, paid)
     .promote_to_confirmed, true, 'existing hold behavior remains unchanged');
+
+  // Live-shaped Sunset state: paid row, €140, course booking still payment_pending.
+  const paidPendingPg = makeAlreadyPaidPendingPg();
+  const truthInput = {
+    pm: { payment_id: '44444444-4444-4444-4444-444444444444', booking_id: BOOKING,
+      client_id: CLIENT, client_slug: 'sunset' },
+    session: { id: 'cs_sunset_paid', amount_total: 14000, currency: 'eur',
+      metadata: { payment_id: '44444444-4444-4444-4444-444444444444' } },
+    stripePaidCents: 14000,
+    env: ENV,
+  };
+  const paidPending = await applyStripeBookingPaymentTruthWrites(paidPendingPg, truthInput);
+  assert.equal(paidPending.already_paid, true);
+  assert.equal(paidPending.decision.promote_to_confirmed, true);
+  assert.equal(paidPendingPg.bookingStatus, 'confirmed');
+  const exactRetry = await applyStripeBookingPaymentTruthWrites(paidPendingPg, truthInput);
+  assert.equal(exactRetry.decision.promote_to_confirmed, false, 'exact retry is idempotent');
+
+  for (const [label, scopedInput] of [
+    ['Wolfhouse', { ...truthInput, pm: { ...truthInput.pm, client_slug: 'wolfhouse-somo' } }],
+    ['production', { ...truthInput, env: { ...ENV, NODE_ENV: 'production' } }],
+  ]) {
+    const protectedPg = makeAlreadyPaidPendingPg();
+    const protectedResult = await applyStripeBookingPaymentTruthWrites(protectedPg, scopedInput);
+    assert.equal(protectedResult.decision.promote_to_confirmed, false, `${label} remains protected`);
+    assert.equal(protectedPg.bookingStatus, 'payment_pending', `${label} status is preserved`);
+  }
+
+  const noRoomDraft = { booking_code: 'SUNSET-20260918-2283C6', payment_status: 'paid',
+    amount_paid_cents: 14000, balance_due_cents: 0, room_number: null,
+    gate_code: null, address: null,
+    proposed_confirmation_message: 'Your Sunset surf course is confirmed.' };
+  const trustedNoRoom = await runGuestConfirmationPreviewDryRun({
+    client_slug: 'sunset', booking_code: noRoomDraft.booking_code, payment_status: 'paid',
+    confirmation_draft: noRoomDraft,
+  }, { use_fixture_pg: true, trusted_crowsnest_sunset_course: true });
+  assert.equal(trustedNoRoom.confirmation_preview_ready, true);
+  assert.equal(trustedNoRoom.room_label, null);
+  assert.equal(trustedNoRoom.gate_code, null);
+  const ordinaryNoRoom = await runGuestConfirmationPreviewDryRun({
+    client_slug: 'wolfhouse-somo', booking_code: 'WH-NO-ROOM', payment_status: 'paid',
+    confirmation_draft: { ...noRoomDraft, booking_code: 'WH-NO-ROOM' },
+  }, { use_fixture_pg: true });
+  assert.deepEqual(ordinaryNoRoom.block_reasons, ['missing_room_number_or_label']);
 
   const pg = makeProductionShapedPg();
   const sends = { count: 0 };
