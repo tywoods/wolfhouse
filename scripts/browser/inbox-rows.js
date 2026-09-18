@@ -55,12 +55,12 @@ var INBOX_ROWS_CSS = [
   /* Needs-human attention: same orange as .inbox-needs-human-raise.is-on */
   '.conv-card.inbox-row-needs-human .inbox-channel-badge{color:#E8893A}',
   '.conv-card.inbox-row-needs-human .inbox-channel-badge svg{stroke:currentColor}',
-  '.conv-card.inbox-row-owner-lab{border-color:rgba(232,137,58,.55)}',
+  '.conv-card.inbox-row-owner-lab{border-color:rgba(63,146,142,.45)}',
   '.inbox-owner-lab-chip{display:inline-flex;align-items:center;max-width:100%;',
-  'margin-top:6px;padding:3px 7px;border-radius:999px;border:1px solid rgba(232,137,58,.45);',
-  'background:rgba(232,137,58,.12);color:#9C4D16;font-size:10px;font-weight:800;',
-  'letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-  'html.theme-dark .inbox-owner-lab-chip{background:rgba(232,137,58,.18);color:#F2B36E;border-color:rgba(242,179,110,.45)}',
+  'margin-top:6px;padding:3px 7px;border-radius:999px;border:1px solid rgba(63,146,142,.38);',
+  'background:rgba(63,146,142,.14);color:#256C68;font-size:10px;font-weight:800;',
+  'letter-spacing:.02em;text-transform:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+  'html.theme-dark .inbox-owner-lab-chip{background:rgba(78,178,173,.20);color:#8ED6D1;border-color:rgba(142,214,209,.42)}',
   /* INBOX-CHANNEL-ICON-STATE-001: unread WA green / email Luna blue; read stays grey. */
   '.conv-card.inbox-row-unread:not(.inbox-row-needs-human) .inbox-channel-badge-whatsapp{color:#25D366}',
   '.conv-card.inbox-row-unread:not(.inbox-row-needs-human) .inbox-channel-badge-email{color:#3B7FB0}',
@@ -184,9 +184,7 @@ function inboxRowIsOwnerLab(row) {
 
 function inboxRowsOwnerLabChipHtml(row) {
   if (!inboxRowIsOwnerLab(row)) return '';
-  var cls = String((row && row.guest_tester_class) || '').trim();
-  var label = 'Owner Lab' + (cls ? ' · ' + cls : '');
-  return '<div class="inbox-owner-lab-chip">' + inboxRowsEsc(label) + '</div>';
+  return '<div class="inbox-owner-lab-chip">Owner Lab</div>';
 }
 
 /** Same Needs human copy as the thread header raise control (EN/ES via existing keys). */
