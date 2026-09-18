@@ -47,7 +47,8 @@ function filterInboxConversations(convs){
     if (!c || typeof c !== 'object') return false;
     return c.open_phone_testing === true || String(c.guest_tester_class || '').trim().length > 0;
   };
-  if (inboxFilter === 'owner_lab'){
+  var savedViewOwnerLab = (typeof inboxSavedViewId === 'string' && inboxSavedViewId === 'owner_lab');
+  if (inboxFilter === 'owner_lab' || savedViewOwnerLab){
     list = list.filter(isOwnerLabRow);
   } else {
     list = list.filter(function(c){ return !isOwnerLabRow(c); });
