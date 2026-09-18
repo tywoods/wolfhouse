@@ -20086,6 +20086,20 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .cc-section{margin-bottom:22px}
 .cc-section-hdr{font-size:14px;font-weight:700;color:var(--text);margin:0 0 4px}
 .cc-section-sub{font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.45;max-width:640px}
+/* Staff Numbers edit mode */
+.swn-edit-btn{background:transparent;border:none;cursor:pointer;padding:2px 6px;font-size:14px;color:var(--text-2);line-height:1;border-radius:4px;transition:color .15s,background .15s}
+.swn-edit-btn:hover{color:var(--text);background:var(--surface-soft)}
+.swn-edit-input,.swn-edit-select{padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text);min-width:80px}
+.swn-edit-input:focus,.swn-edit-select:focus{outline:none;border-color:var(--accent)}
+.swn-edit-active-wrap{display:inline-flex;align-items:center;gap:4px}
+.swn-edit-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.swn-edit-row td{vertical-align:middle}
+#swn-tbody .swn-save-btn{background:var(--accent);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
+#swn-tbody .swn-save-btn:hover{opacity:.9}
+#swn-tbody .swn-cancel-btn{background:var(--surface-soft);color:var(--text);border:1px solid var(--border-soft);padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
+#swn-tbody .swn-cancel-btn:hover{background:var(--surface)}
+#swn-tbody .swn-delete-btn{background:transparent;color:#9d3b30;border:1px solid rgba(157,59,48,.35);padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer}
+#swn-tbody .swn-delete-btn:hover{background:rgba(157,59,48,.08)}
 .cc-role-note{font-size:10.5px;color:var(--text-3);font-style:italic;margin:-6px 0 10px}
 #cc-staff-notification-settings .sns-card-hdr{margin-bottom:4px}
 #cc-staff-notification-settings .sns-card-sub{margin-bottom:0}
@@ -20427,6 +20441,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #swn-tbody td{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border:none;font-size:13px;gap:12px}
 #swn-tbody td::before{content:attr(data-label);font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0}
 #swn-tbody td:last-child{justify-content:flex-end;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-soft)}
+/* staff-portal-mobile:staff-numbers — edit mode inputs */
+#swn-tbody .swn-edit-input,#swn-tbody .swn-edit-select{width:100%;min-width:0;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
+#swn-tbody .swn-edit-row td{flex-direction:column;align-items:stretch;gap:4px}
+#swn-tbody .swn-edit-row td::before{margin-bottom:2px}
+#swn-tbody .swn-edit-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+#swn-tbody .swn-edit-actions .btn{flex:1 1 auto;min-width:80px}
 #cc-staff-whatsapp-numbers .al-form-row{flex-direction:column;align-items:stretch;gap:10px}
 #cc-staff-whatsapp-numbers .al-form-row input,#cc-staff-whatsapp-numbers .al-form-row select,#cc-staff-whatsapp-numbers .al-form-row button{width:100%;min-width:0;box-sizing:border-box}
 /* staff-portal-mobile:cust-outreach — full-width bottom sheet on phone */
@@ -31794,6 +31814,71 @@ function staffWhatsappNumbersPendingLoad(){
   return !!(staffWhatsappNumbersLoading || staffNotificationSettingsFetchInFlight);
 }
 
+function staffWhatsappNumbersI18n(key, fallbackEn, fallbackEs){
+  try {
+    if (typeof portalT === 'function') {
+      var t = String(portalT(key) || '');
+      if (t && t !== key) return t;
+    }
+  } catch (_e) { /* ignore */ }
+  var es = false;
+  try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+  return es ? fallbackEs : fallbackEn;
+}
+
+function staffWhatsappNumbersRenderRow(n, isEditing){
+  var grp = n.from_alerts
+    ? (function(){
+        try {
+          if (typeof portalT === 'function') {
+            var lab = String(portalT('lunaStaff.alerts.title') || '');
+            if (lab && lab !== 'lunaStaff.alerts.title') return lab;
+          }
+        } catch (_e) { /* ignore */ }
+        var es = false;
+        try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
+        return es ? 'Alertas de conversación' : 'Guest alerts';
+      })()
+    : (n.permission_group === 'owner' ? 'Owner' : 'Staff');
+
+  // Rows from_alerts (notification recipients) or without id cannot be edited
+  var canEdit = !n.from_alerts && n.id;
+
+  if (isEditing && canEdit) {
+    var saveLbl = staffWhatsappNumbersI18n('lunaStaff.numbers.save', 'Save', 'Guardar');
+    var cancelLbl = staffWhatsappNumbersI18n('lunaStaff.numbers.cancel', 'Cancel', 'Cancelar');
+    var deleteLbl = staffWhatsappNumbersI18n('lunaStaff.numbers.delete', 'Delete', 'Eliminar');
+    return '<tr class="swn-mobile-card swn-edit-row" data-swn-id="' + escHtml(n.id) + '">'
+      + '<td data-label="Name"><input type="text" class="swn-edit-input swn-edit-name" value="' + escHtml(n.display_name || '') + '" placeholder="Name"></td>'
+      + '<td data-label="Phone"><input type="text" class="swn-edit-input swn-edit-phone" value="' + escHtml(n.phone || '') + '" placeholder="+15551234567"></td>'
+      + '<td data-label="Group"><select class="swn-edit-select swn-edit-group">'
+      + '<option value="staff"' + (n.permission_group !== 'owner' ? ' selected' : '') + '>Staff</option>'
+      + '<option value="owner"' + (n.permission_group === 'owner' ? ' selected' : '') + '>Owner</option>'
+      + '</select></td>'
+      + '<td data-label="Active"><label class="swn-edit-active-wrap"><input type="checkbox" class="swn-edit-active"' + (n.active ? ' checked' : '') + '> <span>' + staffWhatsappNumbersI18n('lunaStaff.numbers.active', 'Active', 'Activo') + '</span></label></td>'
+      + '<td data-label=""><div class="swn-edit-actions">'
+      + '<button type="button" class="swn-save-btn" data-swn-id="' + escHtml(n.id) + '">' + escHtml(saveLbl) + '</button>'
+      + '<button type="button" class="swn-cancel-btn" data-swn-id="' + escHtml(n.id) + '">' + escHtml(cancelLbl) + '</button>'
+      + '<button type="button" class="swn-delete-btn" data-swn-id="' + escHtml(n.id) + '">' + escHtml(deleteLbl) + '</button>'
+      + '</div></td>'
+      + '</tr>';
+  }
+
+  // Display mode
+  var editBtn = canEdit
+    ? '<button type="button" class="swn-edit-btn" data-swn-id="' + escHtml(n.id) + '" title="' + staffWhatsappNumbersI18n('lunaStaff.numbers.edit', 'Edit', 'Editar') + '">✎</button>'
+    : '';
+  return '<tr class="swn-mobile-card" data-swn-id="' + escHtml(n.id || '') + '">'
+    + '<td data-label="Name">' + escHtml(n.display_name || '') + '</td>'
+    + '<td data-label="Phone">' + escHtml(n.phone) + '</td>'
+    + '<td data-label="Group">' + escHtml(grp) + '</td>'
+    + '<td data-label="Active">' + (n.active ? 'Yes' : 'No') + '</td>'
+    + '<td data-label="">' + editBtn + '</td>'
+    + '</tr>';
+}
+
+var staffWhatsappNumbersEditingId = null;
+
 function staffWhatsappNumbersRender(numbers){
   var tbody = el('swn-tbody');
   if (!tbody) return;
@@ -31809,34 +31894,47 @@ function staffWhatsappNumbersRender(numbers){
       tbody.innerHTML = '<tr><td colspan="5" style="opacity:.7">' + escHtml(staffWhatsappNumbersEmptyLabel()) + '</td></tr>';
     }
   } else {
-  tbody.innerHTML = rows.map(function(n){
-    var grp = n.from_alerts
-      ? (function(){
-          try {
-            if (typeof portalT === 'function') {
-              var lab = String(portalT('lunaStaff.alerts.title') || '');
-              if (lab && lab !== 'lunaStaff.alerts.title') return lab;
-            }
-          } catch (_e) { /* ignore */ }
-          var es = false;
-          try { es = String((typeof portalLang === 'string' && portalLang) || '') === 'es'; } catch (_l) { es = false; }
-          return es ? 'Alertas de conversación' : 'Guest alerts';
-        })()
-      : (n.permission_group === 'owner' ? 'Owner' : 'Staff');
-    var remove = n.from_alerts || !n.id
-      ? ''
-      : '<button type="button" class="btn swn-remove-btn" data-swn-id="' + escHtml(n.id) + '">Remove</button>';
-    return '<tr class="swn-mobile-card">'
-      + '<td data-label="Name">' + escHtml(n.display_name || '') + '</td>'
-      + '<td data-label="Phone">' + escHtml(n.phone) + '</td>'
-      + '<td data-label="Group">' + escHtml(grp) + '</td>'
-      + '<td data-label="Active">' + (n.active ? 'Yes' : 'No') + '</td>'
-      + '<td data-label="">' + remove + '</td>'
-      + '</tr>';
-  }).join('');
-  tbody.querySelectorAll('.swn-remove-btn').forEach(function(b){
-    b.addEventListener('click', function(){ staffWhatsappNumberRemove(b.getAttribute('data-swn-id')); });
-  });
+    tbody.innerHTML = rows.map(function(n){
+      return staffWhatsappNumbersRenderRow(n, staffWhatsappNumbersEditingId === n.id);
+    }).join('');
+
+    // Wire edit button clicks
+    tbody.querySelectorAll('.swn-edit-btn').forEach(function(b){
+      b.addEventListener('click', function(){
+        staffWhatsappNumbersEditingId = b.getAttribute('data-swn-id');
+        staffWhatsappNumbersRender(staffWhatsappNumbersCache);
+      });
+    });
+
+    // Wire save button clicks
+    tbody.querySelectorAll('.swn-save-btn').forEach(function(b){
+      b.addEventListener('click', function(){
+        var id = b.getAttribute('data-swn-id');
+        var row = b.closest('tr');
+        if (!row) return;
+        var phone = (row.querySelector('.swn-edit-phone') || {}).value || '';
+        var group = (row.querySelector('.swn-edit-group') || {}).value || 'staff';
+        var name = (row.querySelector('.swn-edit-name') || {}).value || '';
+        var active = !!(row.querySelector('.swn-edit-active') || {}).checked;
+        staffWhatsappNumberUpdate(id, phone, group, name, active);
+      });
+    });
+
+    // Wire cancel button clicks
+    tbody.querySelectorAll('.swn-cancel-btn').forEach(function(b){
+      b.addEventListener('click', function(){
+        staffWhatsappNumbersEditingId = null;
+        staffWhatsappNumbersRender(staffWhatsappNumbersCache);
+      });
+    });
+
+    // Wire delete button clicks
+    tbody.querySelectorAll('.swn-delete-btn').forEach(function(b){
+      b.addEventListener('click', function(){
+        var id = b.getAttribute('data-swn-id');
+        staffWhatsappNumberRemove(id);
+      });
+    });
   }
   automatedStaffNotificationsRecipientsRender();
 }
@@ -32335,6 +32433,38 @@ function staffWhatsappNumberAdd(){
     .catch(function(){ staffWhatsappShowMsg('error', 'Failed to add number.'); });
 }
 
+function staffWhatsappNumberUpdate(id, phone, group, name, active){
+  if (!id) return;
+  phone = String(phone || '').trim();
+  group = String(group || 'staff').trim();
+  name = String(name || '').trim();
+  if (!phone){
+    staffWhatsappShowMsg('error', 'Phone is required.');
+    return;
+  }
+  staffWhatsappShowMsg(null, null);
+  fetch('/staff/whatsapp-numbers' + staffWhatsappNumberQuery(), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: phone, permission_group: group, display_name: name || null, active: active }),
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success !== true){
+        var failMsg = staffWhatsappNumbersI18n('lunaStaff.numbers.saveFailed', 'Could not save number.', 'No se pudo guardar el número.');
+        staffWhatsappShowMsg('error', (data && data.error) ? data.error : failMsg);
+        return;
+      }
+      staffWhatsappNumbersEditingId = null;
+      staffWhatsappNumbersLoad();
+    })
+    .catch(function(){
+      var failMsg = staffWhatsappNumbersI18n('lunaStaff.numbers.saveFailed', 'Could not save number.', 'No se pudo guardar el número.');
+      staffWhatsappShowMsg('error', failMsg);
+    });
+}
+
 function staffWhatsappNumberRemove(id){
   if (!id) return;
   staffWhatsappShowMsg(null, null);
@@ -32345,12 +32475,17 @@ function staffWhatsappNumberRemove(id){
     .then(function(r){ return r.json(); })
     .then(function(data){
       if (!data || data.success !== true){
-        staffWhatsappShowMsg('error', (data && data.error) ? data.error : 'Failed to remove number.');
+        var failMsg = staffWhatsappNumbersI18n('lunaStaff.numbers.deleteFailed', 'Could not delete number.', 'No se pudo eliminar el número.');
+        staffWhatsappShowMsg('error', (data && data.error) ? data.error : failMsg);
         return;
       }
+      staffWhatsappNumbersEditingId = null;
       staffWhatsappNumbersLoad();
     })
-    .catch(function(){ staffWhatsappShowMsg('error', 'Failed to remove number.'); });
+    .catch(function(){
+      var failMsg = staffWhatsappNumbersI18n('lunaStaff.numbers.deleteFailed', 'Could not delete number.', 'No se pudo eliminar el número.');
+      staffWhatsappShowMsg('error', failMsg);
+    });
 }
 
 var staffNotificationSettingsCache = { new_conversation: { enabled: false, recipients: [] }, human_needed: { enabled: false, recipients: [] } };
