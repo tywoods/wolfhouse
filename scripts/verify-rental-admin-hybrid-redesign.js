@@ -3,8 +3,10 @@
 /**
  * verify:rental-admin-hybrid-redesign
  *
- * Admin ▸ RENTAL PRICES hybrid redesign (compact browse + expand-in-place).
+ * Admin ▸ Equipment hybrid redesign (compact browse + expand-in-place).
  * UI-only — production-generated /staff/ui; APIs intercepted.
+ *
+ * Section chrome: title "Equipment" + Group Courses circled + (not primary Add button).
  *
  * Duration × is PRE-EXISTING immediate DELETE with confirmation (not staged into
  * /commit). This suite documents and asserts that contract; it does not change it.
@@ -100,11 +102,18 @@ function sourceContracts() {
   const es = read('scripts/lib/staff-portal-i18n-es-sunset.js');
 
   ok(
-    'header has stable Add Equipment mount slot (not body toolbar)',
+    'header has stable Equipment circled-+ mount slot (not body toolbar)',
     /id="admin-prices-hdr-actions"/.test(apiSrc)
       && /adminPopulatePricesHeaderActions|admin-prices-hdr-actions/.test(adminUi)
       && !/portal-admin-equip-toolbar/.test(adminUi)
       && /portal-admin-prices-hdr/.test(apiSrc),
+  );
+  ok(
+    'Equipment header uses Group Courses circled + (not primary Add equipment button)',
+    /adminPopulatePricesHeaderActions[\s\S]{0,500}portal-admin-icon-btn[\s\S]{0,200}data-admin-action="add-equipment"/.test(adminUi)
+      && !/adminPopulatePricesHeaderActions[\s\S]{0,400}btn-primary/.test(adminUi)
+      && /'admin\.section\.prices': 'Equipment'/.test(en)
+      && /'admin\.section\.prices': 'Equipo'/.test(es),
   );
   ok(
     'panel does not call/render today availability',
@@ -634,6 +643,9 @@ async function browserFixture() {
         bodyAddCount: bodyAdd.length,
         titleText: title ? (title.textContent || '').trim() : '',
         btnText: btn ? (btn.textContent || '').trim() : '',
+        btnAria: btn ? (btn.getAttribute('aria-label') || '') : '',
+        btnIsPrimary: btn ? btn.classList.contains('btn-primary') : false,
+        btnIsIcon: btn ? btn.classList.contains('portal-admin-icon-btn') : false,
         titleBefore,
         sameRow,
         overlap,
@@ -642,7 +654,7 @@ async function browserFixture() {
     });
     ok(`${label}: header present`, !hdr.missing, JSON.stringify(hdr));
     ok(`${label}: exact one title`, hdr.titleCount === 1, JSON.stringify(hdr));
-    ok(`${label}: exact one + Add equipment`, hdr.addCount === 1, JSON.stringify(hdr));
+    ok(`${label}: exact one circled + add-equipment`, hdr.addCount === 1, JSON.stringify(hdr));
     ok(`${label}: DOM order title before action`, hdr.titleBefore, JSON.stringify(hdr));
     ok(`${label}: no body toolbar/add duplicate`, !hdr.bodyToolbar && hdr.bodyAddCount === 0, JSON.stringify(hdr));
     ok(`${label}: no title/button overlap`, !hdr.overlap, JSON.stringify(hdr));
@@ -659,10 +671,16 @@ async function browserFixture() {
   try {
     await openAdminPricing();
 
-    // ── 0 header: exact one title + one Add; order + geometry ──
+    // ── 0 header: exact one title + one circled +; order + geometry ──
     const hdrDesktop = await measureHeader('desktop-header');
-    ok('i18n title present on header', /rental prices/i.test(hdrDesktop.titleText), hdrDesktop.titleText);
-    ok('Add equipment button text', /\+|add equipment/i.test(hdrDesktop.btnText), hdrDesktop.btnText);
+    ok('i18n title present on header', /^equipment$/i.test(hdrDesktop.titleText), hdrDesktop.titleText);
+    ok('circled + is icon-only (no Add equipment label)', /^\+$/.test(hdrDesktop.btnText), hdrDesktop.btnText);
+    ok(
+      'circled + matches Group Courses chrome (icon-btn, not primary)',
+      hdrDesktop.btnIsIcon && !hdrDesktop.btnIsPrimary
+        && /add equipment/i.test(hdrDesktop.btnAria),
+      JSON.stringify(hdrDesktop),
+    );
 
     // ── 1 exact chips + status for every fixture item ──
     for (const key of Object.keys(EXPECTED_CHIPS)) {

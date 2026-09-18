@@ -1634,16 +1634,18 @@ function adminEquipPriceChipLabel(durationLabel, euros){
 }
 
 /**
- * Mount + Add equipment into the stable section header slot (title left / button right).
+ * Mount circled + beside the Equipment section title (same chrome as Group Courses / Beaches).
  * Does not render a second toolbar inside #admin-prices-body.
  */
 function adminPopulatePricesHeaderActions(writes){
   var hdrActions = el('admin-prices-hdr-actions');
   if (!hdrActions) return;
   if (writes){
+    var addLabel = portalT('admin.prices.addEquipment') || 'Add equipment';
     hdrActions.hidden = false;
-    hdrActions.innerHTML = '<button type="button" class="btn btn-primary" data-admin-action="add-equipment">+ ' +
-      escHtml(portalT('admin.prices.addEquipment') || 'Add equipment') + '</button>';
+    hdrActions.innerHTML = '<div class="portal-admin-card-actions">' +
+      '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-equipment" aria-label="' +
+      escHtml(addLabel) + '" title="' + escHtml(addLabel) + '">+</button></div>';
   } else {
     hdrActions.hidden = true;
     hdrActions.innerHTML = '';
@@ -1656,10 +1658,10 @@ function renderAdminSectionPricesFromConfig(cfg){
   var writes = adminCfgWritesEnabled(cfg);
   var items = adminMergeEquipmentPricingItems(cfg);
   var addingItem = writes && adminEditTarget === 'equip-add-item';
-  // Title + Add equipment share one header row (stable mount slot outside body).
+  // Title + circled + share one header row (stable mount slot outside body).
   adminPopulatePricesHeaderActions(writes);
   var html = '';
-  // + Add equipment stays available in header even while one row is expanded / add form open.
+  // Circled + stays available in header even while one row is expanded / add form open.
   if (writes && addingItem) html += renderAdminAddEquipmentForm();
   if (!items.length && !addingItem){
     html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.noEquipment') || 'No equipment yet — add your first item.') + '</p>';

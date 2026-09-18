@@ -1584,7 +1584,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.action.apiOnlyTitle': 'Admin writes are API-only until UI editing ships',
     'admin.banner.writesDisabled': 'Admin writes are not enabled yet.',
     'admin.banner.lunaNote': 'These settings will eventually control what Luna quotes and offers.',
-    'admin.section.prices': 'Rental prices',
+    'admin.section.prices': 'Equipment',
     'admin.section.accommodation': 'Accommodation',
     'admin.accommodation.title': 'Accommodation',
     'admin.accommodation.help': 'Seasonal per-night prices only. No room type, bed assignment, or occupancy capacity — checkout night is free. Disabled blocks new booking additions; existing stays keep their saved price.',
