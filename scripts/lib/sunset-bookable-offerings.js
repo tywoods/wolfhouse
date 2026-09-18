@@ -424,6 +424,7 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
         pack_id: o.course_id,
         label: o.course_label || o.guest_description || o.label,
         capacity: o.capacity,
+        beaches: Array.isArray(o.beaches) ? o.beaches.slice() : [],
         equipment_options: Array.isArray(o.equipment_options) ? o.equipment_options.map((x) => ({ ...x })) : [],
         weekly: o.schedule && o.schedule.weekly,
         weekdays: (o.schedule && o.schedule.allowed_weekdays) || [],
@@ -640,6 +641,8 @@ function scheduleCoursesFromBookableProjection(projection) {
     label: c.label,
     slot_time: c.slot_time || '',
     capacity: c.capacity,
+    beaches: Array.isArray(c.beaches) ? c.beaches.slice() : [],
+    beach: c.beach || null,
     equipment_options: Array.isArray(c.equipment_options) ? c.equipment_options.map((x) => ({ ...x })) : [],
     price_tiers: (c.price_tiers || []).map((t) => {
       const key = t.key;

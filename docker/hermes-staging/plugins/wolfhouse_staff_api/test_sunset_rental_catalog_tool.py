@@ -208,6 +208,38 @@ check("[a5] disabled course excluded", not any(
     for o in off5
 ), off5)
 
+# [a5b] A beach-scoped production Luna catalog call forwards the opaque beach
+# identity to Staff and preserves the exact scoped course/offering identity.
+fake5b = FakeBot({
+    "/sunset/catalog": {
+        "ok": True,
+        "location_id": "sunset-somo",
+        "beach": {"beach_key": "somo-central", "display_name": "Somo Central"},
+        "offerings": [{
+            "offering_id": "surf_pack_course-somo__day",
+            "offering_type": "course",
+            "course_id": "course-somo",
+            "tier_key": "day",
+            "beach": {"beach_key": "somo-central", "display_name": "Somo Central"},
+            "active": True,
+        }],
+    }
+})
+mod._post_bot = fake5b  # type: ignore[attr-defined]
+out5b = json.loads(mod.get_sunset_lesson_catalog({
+    "location_id": "sunset-somo",
+    "beach_key": "somo-central",
+}))
+check("[a5b] lesson catalog forwards exact beach_key", fake5b.calls == [
+    ("/sunset/catalog", {"location_id": "sunset-somo", "beach_key": "somo-central"})
+], fake5b.calls)
+scoped5b = (out5b.get("offerings") or [{}])[0]
+check("[a5b] lesson catalog preserves scoped beach/course/offering identity",
+      scoped5b.get("beach", {}).get("beach_key") == "somo-central"
+      and scoped5b.get("course_id") == "course-somo"
+      and scoped5b.get("offering_id") == "surf_pack_course-somo__day",
+      out5b)
+
 # [a6] SAME-DESK-001: serialized inactive flags (false/"false"/0/"0") never offered
 for raw, name in ((False, "false-bool"), ("false", "false-str"), (0, "zero-int"), ("0", "zero-str")):
     fake_inactive = FakeBot({

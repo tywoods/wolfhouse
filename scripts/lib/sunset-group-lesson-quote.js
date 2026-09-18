@@ -12,6 +12,7 @@ const {
 } = require('./sunset-stripe-payment-links');
 const { parseIsoDateStrict } = require('./sunset-guest-date-intake');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const { requestedBeachKey, resolveRequestedBeach } = require('./sunset-beach-propagation');
 
 const SUNSET_CLIENT_SLUG = SUNSET_ADMIN_CLIENT;
 const MAX_SERVICE_DATES = 31;
@@ -69,6 +70,10 @@ function buildGroupLessonQuoteResult(locationId, validated, unitCents, adminCfg)
     ok: true,
     tool: 'get_sunset_group_lesson_quote',
     location_id: locationId,
+    beach: validated.beach && validated.beach.beach_key ? {
+      beach_key: validated.beach.beach_key,
+      display_name: validated.beach.display_name,
+    } : null,
     service_dates: validated.service_dates,
     quantity: validated.quantity,
     date_count: validated.date_count,
@@ -104,19 +109,30 @@ async function quoteSunsetGroupLessonsAsync(opts) {
   if (!validated.ok) {
     return { ok: false, success: false, reason: validated.reason, detail: validated.detail };
   }
-  let adminCfg;
+  const beachKey = requestedBeachKey(opts.body);
+  if (beachKey) {
+    const resolved = await resolveRequestedBeach(opts.pgClient, { clientSlug, locationId, beachKey });
+    if (!resolved.ok) return { ok: false, success: false, reason: resolved.reason };
+    // This legacy contract has no course/offering identity. Beach-scoped money
+    // must flow through catalog -> exact course offering -> canonical quote.
+    return { ok: false, success: false, reason: 'beach_course_quote_required' };
+  }
+  let adminCfg = opts.adminCfg || null;
   try {
-    adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, {
-      pgClient: opts.pgClient,
-      locationId,
-      skipDb: opts.skipDb,
-    });
+    if (!adminCfg) {
+      adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, {
+        pgClient: opts.pgClient,
+        locationId,
+        skipDb: opts.skipDb,
+      });
+    }
   } catch (_) {
     adminCfg = null;
   }
   if (!adminCfg || adminCfg.ok === false) {
     return { ok: false, success: false, reason: 'admin_config_unavailable' };
   }
+
   const unitCents = resolveSunsetGroupLessonUnitCents(adminCfg.prices || []);
   if (unitCents == null) {
     return { ok: false, success: false, reason: 'group_lesson_price_unavailable' };

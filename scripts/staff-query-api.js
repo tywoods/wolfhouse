@@ -44970,9 +44970,13 @@ async function handleBotSunsetLessonAvailability(req, res) {
   const courseId = body.course_id != null && String(body.course_id).trim()
     ? String(body.course_id).trim()
     : null;
+  const beachKey = body.beach_key != null && String(body.beach_key).trim()
+    ? String(body.beach_key).trim()
+    : null;
 
-  // Timed / course-scoped path — same remaining as joinable-courses / Horario.
-  if (slotTime || courseId) {
+  // Beach / timed / course-scoped path — registry + course allowlist and the
+  // same remaining seats as joinable-courses / Horario.
+  if (beachKey || slotTime || courseId) {
     try {
       const courseResult = await withPgClient(async (pg) => resolveCourseScopedLessonAvailability(pg, {
         clientSlug,
@@ -44981,6 +44985,7 @@ async function handleBotSunsetLessonAvailability(req, res) {
         quantity: body.quantity,
         slotTime,
         courseId,
+        beachKey,
       }));
       return sendJSON(res, 200, { ...courseResult, elapsed_ms: Date.now() - started });
     } catch (err) {
