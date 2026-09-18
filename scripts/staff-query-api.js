@@ -17433,6 +17433,15 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-equip-add-duration{display:flex;align-items:center;justify-content:center;width:100%;min-height:44px;margin:0 0 12px;padding:10px 12px;border:1px dashed var(--border-soft);border-radius:10px;background:transparent;color:var(--primary);font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-sizing:border-box}
 .portal-admin-equip-add-duration:hover{border-color:var(--primary);background:var(--surface-soft)}
 .portal-admin-equip-draft-form{margin:0 0 12px;padding:10px;border:1px dashed var(--border-soft);border-radius:10px;background:var(--surface-soft)}
+/* Multi-duration rows for Add Equipment form */
+.portal-admin-new-equip-durations{display:flex;flex-direction:column;gap:8px;width:100%;margin:0 0 6px}
+.portal-admin-new-equip-dur-row{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);min-width:0}
+.portal-admin-new-equip-dur-row .portal-admin-equip-field{flex:0 0 auto;min-width:0}
+.portal-admin-new-equip-amount-field{flex:0 0 100px;max-width:120px}
+.portal-admin-new-equip-remove-dur{flex:0 0 32px;min-width:32px;width:32px;height:32px;min-height:32px;padding:0;font-size:16px;line-height:1;border-radius:50%;margin-left:auto}
+.portal-admin-new-equip-add-dur{display:inline-flex;align-items:center;justify-content:center;min-height:36px;margin:0 0 12px;padding:8px 14px;border:1px dashed var(--border-soft);border-radius:8px;background:transparent;color:var(--primary);font:inherit;font-size:13px;font-weight:600;cursor:pointer;box-sizing:border-box}
+.portal-admin-new-equip-add-dur:hover{border-color:var(--primary);background:var(--surface-soft)}
+.portal-admin-new-equip-add-dur:focus-visible{outline:2px solid var(--focus,var(--primary));outline-offset:2px}
 .portal-admin-equip-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-top:4px;min-width:0}
 .portal-admin-equip-footer-right{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-left:auto}
 .portal-admin-equip-delete{min-height:44px}

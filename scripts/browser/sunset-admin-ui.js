@@ -1,5 +1,7 @@
 var adminConfigCache = null;
 var adminEditTarget = null;
+/** In-memory draft duration rows for Add Equipment form (cleared on cancel/save). */
+var adminNewEquipDraftDurations = null;
 /** In-memory Admin sub-tab: 'finance' | 'pricing'. Reset only on Admin reload (loadAdminTab). */
 var adminActiveSubTab = 'finance';
 /**
@@ -1450,25 +1452,84 @@ function renderAdminDurationInvalidControl(prefix, displayLabel){
     '</select></div>';
 }
 
+/**
+ * Read current duration rows from the Add Equipment form DOM.
+ * Returns array of { unit, count, amount }.
+ */
+function adminReadNewEquipDurations(){
+  var wrap = el('admin-new-equip-durations');
+  if (!wrap) return adminNewEquipDraftDurations || [{ unit: 'days', count: 1, amount: '' }];
+  var rows = wrap.querySelectorAll('[data-new-equip-dur-idx]');
+  var out = [];
+  for (var i = 0; i < rows.length; i++){
+    var row = rows[i];
+    var idx = parseInt(row.getAttribute('data-new-equip-dur-idx'), 10);
+    var countEl = el('admin-new-equip-dur-' + idx + '-count');
+    var unitEl = el('admin-new-equip-dur-' + idx + '-unit');
+    var amountEl = el('admin-new-equip-dur-' + idx + '-amount');
+    out.push({
+      unit: unitEl ? String(unitEl.value || 'days') : 'days',
+      count: countEl ? parseInt(countEl.value, 10) || 1 : 1,
+      amount: amountEl ? String(amountEl.value || '') : '',
+    });
+  }
+  return out.length ? out : [{ unit: 'days', count: 1, amount: '' }];
+}
+
+/**
+ * Render a single duration + price row for the Add Equipment form.
+ * @param {number} idx - Row index (0-based)
+ * @param {object} row - { unit, count, amount } or defaults
+ * @param {boolean} canRemove - True if this row can be removed (has × button)
+ */
+function renderAdminNewEquipDurationRow(idx, row, canRemove){
+  var prefix = 'admin-new-equip-dur-' + idx;
+  var amountId = prefix + '-amount';
+  var u = (row && row.unit) || 'days';
+  var c = (row && row.count) || 1;
+  var amt = (row && row.amount != null) ? String(row.amount) : '';
+  var removeDurLabel = portalT('admin.prices.removeDuration') || 'Remove duration';
+  var html = '<div class="portal-admin-new-equip-dur-row" data-new-equip-dur-idx="' + idx + '">';
+  html += renderAdminDurationControl(prefix, u, c);
+  html += '<div class="portal-admin-edit-field portal-admin-equip-field portal-admin-new-equip-amount-field"><label for="' + escHtml(amountId) + '">' +
+    escHtml(portalT('admin.edit.amountEur')) + '</label>' +
+    '<input type="text" class="portal-admin-equip-amount" id="' + escHtml(amountId) + '" data-new-equip-dur-amount="' + idx +
+    '" inputmode="decimal" placeholder="0.00" value="' + escHtml(amt) + '"></div>';
+  if (canRemove){
+    html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger portal-admin-new-equip-remove-dur" ' +
+      'data-admin-action="remove-new-equip-duration" data-new-equip-dur-idx="' + idx +
+      '" title="' + escHtml(removeDurLabel) + '" aria-label="' + escHtml(removeDurLabel) + '">×</button>';
+  }
+  html += '</div>';
+  return html;
+}
+
 function renderAdminAddEquipmentForm(){
   var nameId = 'admin-new-equip-name';
   var stockId = 'admin-new-equip-stock';
-  var amountId = 'admin-new-equip-amount';
-  return '<div class="portal-admin-edit-form portal-admin-equip-form" id="admin-add-equip-form">' +
+  var durations = adminNewEquipDraftDurations;
+  if (!durations || !durations.length) {
+    durations = [{ unit: 'days', count: 1, amount: '' }];
+  }
+  var html = '<div class="portal-admin-edit-form portal-admin-equip-form" id="admin-add-equip-form">' +
     '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + nameId + '">' +
     escHtml(portalT('admin.prices.equipmentName') || 'Equipment name') + '</label>' +
     '<input type="text" id="' + nameId + '" placeholder="Kayak"></div>' +
     '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + stockId + '">' +
     escHtml(portalT('admin.prices.stock') || 'Total stock') + '</label>' +
-    '<input type="number" id="' + stockId + '" min="0" max="999" step="1" placeholder="" inputmode="numeric"></div>' +
-    renderAdminDurationControl('admin-new-equip', 'days', 1) +
-    '<div class="portal-admin-edit-field portal-admin-equip-field"><label for="' + amountId + '">' +
-    escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-    '<input type="text" class="portal-admin-equip-amount" id="' + amountId + '" inputmode="decimal" placeholder="0.00"></div>' +
-    '<div class="portal-admin-edit-actions">' +
+    '<input type="number" id="' + stockId + '" min="0" max="999" step="1" placeholder="" inputmode="numeric"></div>';
+  html += '<div class="portal-admin-new-equip-durations" id="admin-new-equip-durations">';
+  for (var i = 0; i < durations.length; i++) {
+    html += renderAdminNewEquipDurationRow(i, durations[i], durations.length > 1);
+  }
+  html += '</div>';
+  html += '<button type="button" class="portal-admin-new-equip-add-dur" data-admin-action="add-new-equip-duration">+ ' +
+    escHtml(portalT('admin.prices.addDurationPrice') || 'Add duration + price') + '</button>';
+  html += '<div class="portal-admin-edit-actions">' +
     '<button type="button" class="btn btn-primary" data-admin-action="save-new-equipment">' + escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
     '</div></div>';
+  return html;
 }
 
 function renderAdminAddEquipPriceForm(offeringKey){
@@ -4014,6 +4075,7 @@ function wireAdminTab(){
     }
     if (action === 'cancel-edit'){
       adminEditTarget = null;
+      adminNewEquipDraftDurations = null;
       // Cancel drops rental-edit ownership only — not unrelated Admin notices.
       if (typeof adminClearEquipErrors === 'function') adminClearEquipErrors();
       renderAdminFromConfig(cfg);
@@ -4027,8 +4089,26 @@ function wireAdminTab(){
     }
     if (action === 'add-equipment'){
       adminEditTarget = 'equip-add-item';
+      adminNewEquipDraftDurations = [{ unit: 'days', count: 1, amount: '' }];
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'add-new-equip-duration'){
+      var durs = adminReadNewEquipDurations();
+      durs.push({ unit: 'days', count: 1, amount: '' });
+      adminNewEquipDraftDurations = durs;
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'remove-new-equip-duration'){
+      var removeIdx = parseInt(btn.getAttribute('data-new-equip-dur-idx'), 10);
+      var curDurs = adminReadNewEquipDurations();
+      if (curDurs.length > 1 && removeIdx >= 0 && removeIdx < curDurs.length) {
+        curDurs.splice(removeIdx, 1);
+        adminNewEquipDraftDurations = curDurs;
+        renderAdminFromConfig(cfg);
+      }
       return;
     }
     if (action === 'edit-equipment'){
@@ -4491,12 +4571,36 @@ function wireAdminTab(){
       if (!eqName){ adminShowMessage('error', portalT('admin.prices.equipmentNameRequired') || 'Enter an equipment name'); return; }
       var eqKey = adminSlugOfferingKey(eqName);
       if (!eqKey){ adminShowMessage('error', portalT('admin.prices.equipmentNameRequired') || 'Enter an equipment name'); return; }
-      var eqDur = adminReadDurationControl('admin-new-equip');
-      if (!eqDur.duration_key){ adminShowMessage('error', portalT('admin.prices.invalidDuration') || 'Enter a valid duration'); return; }
-      var eqAmountInput = el('admin-new-equip-amount');
-      var eqCents = adminParseEurosToCents(eqAmountInput && eqAmountInput.value);
-      if (!eqCents.ok){ adminShowMessage('error', eqCents.error); return; }
-      if (!(eqCents.value > 0)){ adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable')); return; }
+
+      var eqDurs = adminReadNewEquipDurations();
+      var eqPrices = [];
+      var seenDurKeys = {};
+      for (var di = 0; di < eqDurs.length; di++) {
+        var durRow = eqDurs[di];
+        var durKey = (typeof rentalDurationKeyFromUnitCount === 'function')
+          ? rentalDurationKeyFromUnitCount(durRow.unit, durRow.count) : '';
+        if (!durKey) {
+          adminShowMessage('error', portalT('admin.prices.invalidDuration') || 'Enter a valid duration');
+          return;
+        }
+        if (seenDurKeys[durKey]) {
+          adminShowMessage('error', portalT('admin.prices.duplicateDuration') || 'Duplicate duration: ' + durKey);
+          return;
+        }
+        seenDurKeys[durKey] = true;
+        var durCents = adminParseEurosToCents(durRow.amount);
+        if (!durCents.ok) { adminShowMessage('error', durCents.error); return; }
+        if (!(durCents.value > 0)) {
+          adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable'));
+          return;
+        }
+        eqPrices.push({ period_window: durKey, amount_cents: durCents.value });
+      }
+      if (!eqPrices.length) {
+        adminShowMessage('error', portalT('admin.prices.invalidDuration') || 'Enter a valid duration');
+        return;
+      }
+
       var eqStockInput = el('admin-new-equip-stock');
       var eqStockRaw = eqStockInput ? String(eqStockInput.value || '').trim() : '';
       var eqStockQty = null;
@@ -4510,7 +4614,7 @@ function wireAdminTab(){
       }
       var eqOpSeq = adminBeginOp();
       adminShowMessage('', '');
-      // Atomic create: offering + first duration price in one request (no partial catalog).
+      // Atomic create: offering + duration prices in one request (no partial catalog).
       // Do NOT append random suffixes to bypass name uniqueness. Preserve input on error.
       var createBody = {
         offering_key: eqKey,
@@ -4518,7 +4622,7 @@ function wireAdminTab(){
         group_key: 'equipment',
         excludes: [],
         stock_quantity: eqStockQty,
-        prices: [{ period_window: eqDur.duration_key, amount_cents: eqCents.value }],
+        prices: eqPrices,
       };
       adminApiRequest('POST', '/staff/admin/config/rental-offerings' + adminClientQuery(), createBody)
       .then(function(offRes){
@@ -4537,6 +4641,7 @@ function wireAdminTab(){
           return;
         }
         adminEditTarget = null;
+        adminNewEquipDraftDurations = null;
         adminShowMessage('success', portalT('admin.edit.addedPrice'));
         adminReleaseBusy(eqOpSeq);
         adminReloadConfig();
