@@ -81,6 +81,7 @@ vm.runInContext(
     + '\nthis.staffWhatsappNumbersEmptyLabel = staffWhatsappNumbersEmptyLabel;'
     + '\nthis.staffWhatsappNumbersLoadingLabel = staffWhatsappNumbersLoadingLabel;'
     + '\nthis.staffWhatsappNumbersPendingLoad = staffWhatsappNumbersPendingLoad;'
+    + '\nthis.staffWhatsappNumbersRenderRow = staffWhatsappNumbersRenderRow;'
     + '\nthis.staffWhatsappNumbersRender = staffWhatsappNumbersRender;',
   box,
 );
@@ -91,6 +92,28 @@ assert.ok(box._tbody.innerHTML.includes('+346****0001'), 'alert recipient phone 
 assert.ok(box._tbody.innerHTML.includes('data-swn-id="staff-1"'), 'recipient staff_number_id survives fallback row');
 assert.ok(box._tbody.innerHTML.includes('swn-edit-btn'), 'recipient with staff_number_id keeps edit pen');
 assert.ok(box._tbody.innerHTML.includes('Owner'), 'recipient permission_group survives fallback row');
+
+box.staffWhatsappNumbersRender([
+  { staff_number_id: 'api-staff-2', display_name: 'Herbie', phone: '+346****0004', permission_group: 'staff', active: true },
+]);
+assert.ok(box._tbody.innerHTML.includes('data-swn-id="api-staff-2"'), 'API/fallback rows with staff_number_id but no id keep their DOM id');
+assert.ok(box._tbody.innerHTML.includes('swn-edit-btn'), 'API/fallback rows with staff_number_id but no id keep edit pen');
+
+box.staffWhatsappNumbersRender([
+  { staff_number_id: 'api-staff-3', display_name: 'Herbie', phone: '+346****0005', permission_group: 'owner', active: true, from_alerts: true },
+]);
+assert.ok(box._tbody.innerHTML.includes('data-swn-id="api-staff-3"'), 'staff_number_id beats from_alerts when the row is a real staff number');
+assert.ok(box._tbody.innerHTML.includes('swn-edit-btn'), 'real staff-number row remains editable even if from_alerts is set');
+assert.ok(box._tbody.innerHTML.includes('Owner'), 'real staff-number row keeps its group label, not Guest alerts');
+const editRow = box.staffWhatsappNumbersRenderRow(
+  { staff_number_id: 'api-staff-4', display_name: 'Herbie', phone: '+346****0006', permission_group: 'owner', active: true },
+  true,
+);
+assert.ok(editRow.includes('class="swn-edit-input swn-edit-name"'), 'editing row exposes name input');
+assert.ok(editRow.includes('class="swn-edit-input swn-edit-phone"'), 'editing row exposes phone input');
+assert.ok(editRow.includes('class="swn-edit-select swn-edit-group"'), 'editing row exposes group select');
+assert.ok(editRow.includes('class="swn-edit-active"'), 'editing row exposes active checkbox');
+assert.ok(editRow.includes('class="swn-delete-btn"'), 'editing row exposes Delete');
 
 box.staffNotificationSettingsCache = {
   new_conversation: { enabled: true, recipients: [{ name: 'Fallback only', phone: '+346****0003' }] },
