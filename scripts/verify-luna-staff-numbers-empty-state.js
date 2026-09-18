@@ -51,7 +51,7 @@ const slice = api.slice(start, end);
 
 const box = {
   staffNotificationSettingsCache: {
-    new_conversation: { enabled: true, recipients: [{ name: 'Alex', phone: '+34600000001' }] },
+    new_conversation: { enabled: true, recipients: [{ staff_number_id: 'staff-1', name: 'Alex', phone: '+346****0001', permission_group: 'owner' }] },
     human_needed: { enabled: false, recipients: [] },
   },
   staffWhatsappNumbersLoading: false,
@@ -87,7 +87,18 @@ vm.runInContext(
 
 box.staffWhatsappNumbersRender([]);
 assert.ok(!/No numbers yet/.test(box._tbody.innerHTML), 'alert recipients clear empty chrome');
-assert.ok(box._tbody.innerHTML.includes('+34600000001'), 'alert recipient phone rendered');
+assert.ok(box._tbody.innerHTML.includes('+346****0001'), 'alert recipient phone rendered');
+assert.ok(box._tbody.innerHTML.includes('data-swn-id="staff-1"'), 'recipient staff_number_id survives fallback row');
+assert.ok(box._tbody.innerHTML.includes('swn-edit-btn'), 'recipient with staff_number_id keeps edit pen');
+assert.ok(box._tbody.innerHTML.includes('Owner'), 'recipient permission_group survives fallback row');
+
+box.staffNotificationSettingsCache = {
+  new_conversation: { enabled: true, recipients: [{ name: 'Fallback only', phone: '+346****0003' }] },
+  human_needed: { enabled: false, recipients: [] },
+};
+box.staffWhatsappNumbersRender([]);
+assert.ok(box._tbody.innerHTML.includes('+346****0003'), 'legacy alert-only recipient still renders');
+assert.ok(!box._tbody.innerHTML.includes('swn-edit-btn'), 'legacy alert-only recipient without id stays non-editable');
 
 box.staffNotificationSettingsCache = {
   new_conversation: { enabled: false, recipients: [] },
