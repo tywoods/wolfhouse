@@ -37,9 +37,11 @@ console.log('ok - server-authoritative tenant/thread spam contract');
 
 const { listInboxSavedViewDeclarations } = require('./lib/staff-inbox-saved-views');
 const railIds = listInboxSavedViewDeclarations().filter((view) => view.rail !== false).map((view) => view.id);
-assert.strictEqual(railIds.indexOf('upcoming'), railIds.indexOf('checked_in') + 1);
+assert.strictEqual(railIds.indexOf('lesson_today'), railIds.indexOf('checked_in') + 1);
 assert.strictEqual(railIds.indexOf('spam'), railIds.indexOf('lesson_today') + 1);
-console.log('ok - Inbox rail places Upcoming under Checked in and Spam under Lesson today');
+assert.strictEqual(railIds.indexOf('owner_lab'), railIds.indexOf('waiver_due') + 1);
+assert.ok(railIds.indexOf('owner_lab') > railIds.indexOf('needs_human'));
+console.log('ok - Inbox rail places Lesson today under Checked in, Owner Lab under Waiver pending, and Spam under Lesson today');
 
 const { computeSunsetFinanceSummary } = require('./lib/sunset-finance-summary');
 const summary = computeSunsetFinanceSummary({

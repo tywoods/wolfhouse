@@ -119,15 +119,23 @@ assert('declarations ordered by rail group',
 for (const specLabel of [
   'Approvals', 'Needs human', 'Unassigned',
   'All', 'WhatsApp', 'Email', 'Snoozed',
-  'Checked in', 'Arriving today', 'Hot leads', 'Warm leads', 'Unpaid', 'Waiver due',
+  'Checked in', 'Arriving today', 'Hot leads', 'Warm leads', 'Unpaid', 'Waiver due', 'Owner Lab',
 ]) {
   assert(`spec rail view present: ${specLabel}`, declarations.some((v) => v.label === specLabel));
 }
 
-assert('people views support broadcast multi-select',
-  declarations.filter((v) => v.group === 'people' && v.available && v.rail !== false
+assert('customer-source people views support broadcast multi-select',
+  declarations.filter((v) => v.group === 'people' && v.source === INBOX_VIEW_SOURCES.CUSTOMERS && v.available && v.rail !== false
     && v.id !== 'do_not_contact' && v.id !== 'spam')
     .every((v) => v.multiSelect === true));
+assert('Lesson today sits directly under Checked in on the People rail',
+  ids.indexOf('lesson_today') === ids.indexOf('checked_in') + 1);
+assert('Owner Lab is a People rail conversation view directly under Waiver pending',
+  getInboxSavedViewDeclaration('owner_lab').group === 'people'
+  && getInboxSavedViewDeclaration('owner_lab').source === INBOX_VIEW_SOURCES.CONVERSATIONS
+  && getInboxSavedViewDeclaration('owner_lab').ownerLab === true
+  && getInboxSavedViewDeclaration('owner_lab').multiSelect === false
+  && ids.indexOf('owner_lab') === ids.indexOf('waiver_due') + 1);
 assert('spam is a non-broadcast conversation filter under Lesson today',
   getInboxSavedViewDeclaration('spam').group === 'people'
   && getInboxSavedViewDeclaration('spam').multiSelect === false

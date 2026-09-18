@@ -72,9 +72,11 @@ async function main() {
 
   const rail = listInboxSavedViewDeclarations().filter((view) => view.rail !== false);
   const ids = rail.map((view) => view.id);
-  assert.strictEqual(ids.indexOf('upcoming'), ids.indexOf('checked_in') + 1);
+  assert.strictEqual(ids.indexOf('lesson_today'), ids.indexOf('checked_in') + 1);
   assert.strictEqual(ids.indexOf('spam'), ids.indexOf('lesson_today') + 1);
+  assert.strictEqual(ids.indexOf('owner_lab'), ids.indexOf('waiver_due') + 1);
   assert.strictEqual(rail.find((view) => view.id === 'spam').multiSelect, false);
+  assert.strictEqual(rail.find((view) => view.id === 'owner_lab').group, 'people');
 
   const ui = fs.readFileSync(path.join(__dirname, 'browser/inbox-thread.js'), 'utf8');
   assert.match(ui, /conv\.luna_paused = !!data\.luna_paused/);
