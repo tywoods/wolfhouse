@@ -886,7 +886,7 @@ function inboxMockupThemeCssText(){
     '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list.conv-list{',
     'flex:1 1 auto;min-height:100%;box-sizing:border-box;',
     '}',
-    /* Continuous panel surface: search + idle rows inherit the column fill */
+    /* Continuous panel: search + idle rows inherit the column fill surface */
     '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left > .inbox-conv-search-wrap{',
     'background:transparent;',
     '}',

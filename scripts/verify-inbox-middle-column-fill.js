@@ -94,6 +94,7 @@ async function measureFill(page, rowCount) {
     const lr = rows.getBoundingClientRect();
     const cl = list.getBoundingClientRect();
     const cr = card.getBoundingClientRect();
+    const last = list.lastElementChild ? list.lastElementChild.getBoundingClientRect() : null;
     const csList = getComputedStyle(list);
     const csRows = getComputedStyle(rows);
     return {
@@ -101,12 +102,15 @@ async function measureFill(page, rowCount) {
       cardH: cr.height,
       rowsH: lr.height,
       listH: cl.height,
+      lastRowBottomInList: last ? (last.bottom - cl.top) : 0,
       rowsScrollH: rows.scrollHeight,
       rowsClientH: rows.clientHeight,
       listMinH: csList.minHeight,
       rowsOverflowY: csRows.overflowY,
       rowsFlex: `${csRows.flexGrow} ${csRows.flexShrink} ${csRows.flexBasis}`,
       listFlex: `${csList.flexGrow} ${csList.flexShrink} ${csList.flexBasis}`,
+      listBg: csList.backgroundColor,
+      cardBg: getComputedStyle(card).backgroundColor,
     };
   }, rowCount);
 }
@@ -148,6 +152,9 @@ async function browserAssertions() {
       JSON.stringify({ cardH: shortM.cardH }));
     ok('short list: no scrollbar needed on left-rows',
       shortM.ok && shortM.rowsScrollH <= shortM.rowsClientH + 2,
+      JSON.stringify(shortM));
+    ok('short list: filled panel continues below last row',
+      shortM.ok && shortM.listH > (shortM.lastRowBottomInList || 0) + 80,
       JSON.stringify(shortM));
 
     await page.screenshot({
