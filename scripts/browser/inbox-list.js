@@ -42,6 +42,16 @@ function conversationHasOpenHandoff(conv){
 
 function filterInboxConversations(convs){
   var list = convs || [];
+  var isOwnerLabRow = function(c){
+    if (typeof inboxRowIsOwnerLab === 'function') return inboxRowIsOwnerLab(c);
+    if (!c || typeof c !== 'object') return false;
+    return c.open_phone_testing === true || String(c.guest_tester_class || '').trim().length > 0;
+  };
+  if (inboxFilter === 'owner_lab'){
+    list = list.filter(isOwnerLabRow);
+  } else {
+    list = list.filter(function(c){ return !isOwnerLabRow(c); });
+  }
   if (inboxFilter === 'needs-human'){
     list = list.filter(conversationNeedsHuman);
   } else if (inboxFilter === 'email'){
@@ -354,7 +364,7 @@ function pollInboxSelectedThreadLive(){
 }
 
 function setInboxFilter(mode){
-  var allowed = ['all', 'email', 'whatsapp', 'needs-human'];
+  var allowed = ['all', 'email', 'whatsapp', 'needs-human', 'owner_lab'];
   inboxFilter = allowed.indexOf(mode) >= 0 ? mode : 'all';
   updateInboxFilterUI();
   if (inboxConversationsCache) applyInboxFilter();

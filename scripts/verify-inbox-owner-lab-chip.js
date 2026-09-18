@@ -7,6 +7,7 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..');
 const src = fs.readFileSync(path.join(ROOT, 'scripts/browser/inbox-rows.js'), 'utf8');
+const listSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/inbox-list.js'), 'utf8');
 
 const sandbox = {
   window: {},
@@ -51,4 +52,11 @@ assert.match(css, /html\.theme-dark \.inbox-owner-lab-chip\{[^}]*rgba\(78,178,17
 assert.doesNotMatch(css, /\.inbox-owner-lab-chip\{[^}]*232,137,58/s,
   'Owner Lab chip no longer uses the old orange fill/border');
 
-console.log('PASS verify-inbox-owner-lab-chip: Owner Lab* chips render exact label with soft teal light/dark styling');
+assert.match(listSrc, /inboxFilter === 'owner_lab'[\s\S]*list = list\.filter\(isOwnerLabRow\)/,
+  'legacy desktop/mobile list filter keeps Owner Lab rows only under Owner Lab');
+assert.match(listSrc, /else \{\s*list = list\.filter\(function\(c\)\{ return !isOwnerLabRow\(c\); \}\);\s*\}/,
+  'legacy desktop/mobile All and WhatsApp filters exclude Owner Lab rows');
+assert.match(listSrc, /\['all', 'email', 'whatsapp', 'needs-human', 'owner_lab'\]/,
+  'legacy filter allow-list accepts Owner Lab without breaking the row chip path');
+
+console.log('PASS verify-inbox-owner-lab-chip: Owner Lab* chips render exact label with soft teal light/dark styling and filter isolation');

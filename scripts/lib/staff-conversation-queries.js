@@ -198,7 +198,9 @@ function sqlConversationDisplayPhoneExpr(convAlias) {
 }
 
 function inboxOwnerLabWhereClause(scoped) {
-  return scoped ? `\n  AND ${sqlConversationOwnerLabPredicate('conv')}` : '';
+  if (scoped === true) return `\n  AND ${sqlConversationOwnerLabPredicate('conv')}`;
+  if (scoped === false) return `\n  AND NOT ${sqlConversationOwnerLabPredicate('conv')}`;
+  return '';
 }
 
 function conversationInboxWhereSql(scoped, channelScoped, needsHumanScoped, spamSelected, includeAllSpam, ownerLabScoped) {
@@ -245,7 +247,7 @@ function getConversationInboxQuery(opts = {}) {
   const scoped = !!opts.locationScoped;
   const channelScoped = !!opts.channelScoped;
   const needsHumanScoped = !!opts.needsHumanScoped;
-  const ownerLabScoped = !!opts.ownerLabScoped;
+  const ownerLabScoped = opts.ownerLabScoped === true;
   const spamSelected = !!opts.spamSelected;
   const keyset = opts.keyset && typeof opts.keyset === 'object' ? opts.keyset : null;
   const cursorParamIndex = keyset && keyset.cursorParamIndex ? keyset.cursorParamIndex : null;
@@ -364,20 +366,21 @@ function getConversationInboxCountsQuery(opts) {
     }
     seen.add(key);
     // Quoted because view ids are free to collide with reserved words ("all").
+    const nonOwnerLab = `NOT ${sqlConversationOwnerLabPredicate('conv')}`;
     if (column && column.spamSelected) {
-      return `  COUNT(*) FILTER (WHERE ${buildConversationSpamPredicate({ spamSelected: true })})::int AS "${key}"`;
+      return `  COUNT(*) FILTER (WHERE ${buildConversationSpamPredicate({ spamSelected: true })} AND ${nonOwnerLab})::int AS "${key}"`;
     }
     const nonSpam = buildConversationSpamPredicate({ spamSelected: false });
     if (column && column.needsHuman) {
-      return `  COUNT(*) FILTER (WHERE conv.needs_human = TRUE AND ${nonSpam})::int AS "${key}"`;
+      return `  COUNT(*) FILTER (WHERE conv.needs_human = TRUE AND ${nonSpam} AND ${nonOwnerLab})::int AS "${key}"`;
     }
     if (column && column.ownerLab) {
       return `  COUNT(*) FILTER (WHERE ${sqlConversationOwnerLabPredicate('conv')} AND ${nonSpam})::int AS "${key}"`;
     }
-    if (!column.channel) return `  COUNT(*) FILTER (WHERE ${nonSpam})::int AS "${key}"`;
+    if (!column.channel) return `  COUNT(*) FILTER (WHERE ${nonSpam} AND ${nonOwnerLab})::int AS "${key}"`;
     const idx = channelParam;
     channelParam += 1;
-    return `  COUNT(*) FILTER (WHERE ${nonSpam} AND ${sqlConversationChannelExpr('conv')} = $${idx})::int AS "${key}"`;
+    return `  COUNT(*) FILTER (WHERE ${nonSpam} AND ${nonOwnerLab} AND ${sqlConversationChannelExpr('conv')} = $${idx})::int AS "${key}"`;
   });
 
   return `

@@ -342,6 +342,14 @@ assert('conversation cursor is recency + id only',
 const convAllSunset = buildInboxViewQuery({ view: 'all', clientSlug: SUNSET, query: { location: 'sunset-sardinero' } });
 assert('inbox All (sunset) delegates to the location-scoped query',
   convAllSunset.ok === true && convAllSunset.sql === getConversationInboxQuery({ locationScoped: true }));
+const ownerLabPredicate = "conv.metadata->>'open_phone_testing' = 'true' OR NULLIF(btrim(conv.metadata->>'guest_tester_class'), '') IS NOT NULL";
+assert('inbox All excludes Owner Lab threads from the list',
+  convAll.ok === true && convAll.sql.includes(`AND NOT (${ownerLabPredicate})`));
+const ownerLabBuilt = buildInboxViewQuery({ view: 'owner_lab', clientSlug: WOLFHOUSE, query: {} });
+assert('Owner Lab view keeps Owner Lab threads visible/selectable',
+  ownerLabBuilt.ok === true
+  && ownerLabBuilt.sql.includes(`AND (${ownerLabPredicate})`)
+  && !ownerLabBuilt.sql.includes(`AND NOT (${ownerLabPredicate})`));
 
 for (const [viewId, channel] of [['whatsapp', 'whatsapp'], ['email', 'email']]) {
   for (const clientSlug of [WOLFHOUSE, SUNSET]) {
@@ -358,6 +366,10 @@ for (const [viewId, channel] of [['whatsapp', 'whatsapp'], ['email', 'email']]) 
       && built.params[idx - 1] === channel
       && built.sql.includes(`= $${idx}`)
       && !built.sql.includes(`session_state->>'channel', 'whatsapp') = '${channel}'`));
+    if (viewId === 'whatsapp') {
+      assert(`whatsapp view (${clientSlug}): Owner Lab threads are isolated from WhatsApp`,
+        built.ok === true && built.sql.includes(`AND NOT (${ownerLabPredicate})`));
+    }
   }
 }
 
@@ -403,6 +415,10 @@ assert('getConversationInboxCountsQuery accepts needsHuman columns',
       { key: 'needs_human', channel: null, needsHuman: true },
     ],
   }).includes("FILTER (WHERE conv.needs_human = TRUE AND NOT (lower(btrim(COALESCE(conv.metadata->>'is_spam'"));
+assert('rail counts isolate Owner Lab from All and WhatsApp counts',
+  /COUNT\(\*\) FILTER \(WHERE NOT \(lower\(btrim\(COALESCE\(conv\.metadata->>'is_spam'[\s\S]*AND NOT \(conv\.metadata->>'open_phone_testing'[\s\S]*AS "all"/.test(convPass.sql)
+  && /AND NOT \(conv\.metadata->>'open_phone_testing'[\s\S]*COALESCE\(conv\.metadata->>'channel', conv\.session_state->>'channel', 'whatsapp'\) = \$/.test(convPass.sql)
+  && /COUNT\(\*\) FILTER \(WHERE \(conv\.metadata->>'open_phone_testing'[\s\S]*AS "owner_lab"/.test(convPass.sql));
 
 console.log('\n[5] Tenant and location scoping on every available view');
 
