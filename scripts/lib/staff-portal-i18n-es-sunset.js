@@ -265,6 +265,7 @@ module.exports = {
   'admin.accommodation.saved': 'Alojamiento guardado.',
   'admin.accommodation.coverageGap': 'Algunas fechas no tienen precio de temporada: {gaps}. Las estancias que incluyan esas noches no se pueden cotizar.',
   'admin.accommodation.noRoomInventory': 'Solo tarifa nocturna de temporada — sin inventario de habitaciones ni control de ocupación.',
+  'admin.accommodation.productName': 'Surf House',
   'schedule.create.accommodation.title': 'Alojamiento',
   'schedule.create.accommodation.add': 'Alojamiento +',
   'schedule.create.accommodation.checkIn': 'Entrada',

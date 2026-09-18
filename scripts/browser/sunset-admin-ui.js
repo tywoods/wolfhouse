@@ -1963,7 +1963,7 @@ function renderAdminPackCards(packs, writes, defaultCap){
   if (writes && !adminPackSectionEditing()){
     html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-pack" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
   }
-  html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.packs.help')) + '</p>';
+  html += '</div></div>';
   if (writes && adminEditTarget === 'pack:new') html += adminRenderPackEditForm('', adminDefaultPackSeed());
   var list = packs && packs.length ? packs.slice() : [];
   // A1: earliest course run time first (not alphabetical by name).
@@ -2183,7 +2183,7 @@ function renderAdminPrivateLessonCard(cfg, writes){
   var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
   html += '<h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.privateLessons.title')) + '</h3>';
   // Edit control lives on the closed 2a row (full-width columns mockup) — not the title row.
-  html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.privateLessons.help')) + '</p>';
+  html += '</div></div>';
   html += '<article class="portal-admin-lesson-card portal-admin-private-lesson-card" data-admin-private-lesson-card="1">';
   if (editing) html += renderAdminPrivateLessonEditForm(pl);
   else html += renderAdminPrivateLessonReadout(pl, { showEdit: canEdit });
@@ -2199,7 +2199,7 @@ function adminRenderBeachManager(cfg, writes){
   if (writes && !adminBeachSectionEditing()){
     html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-beach" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
   }
-  html += '</div></div><p class="portal-admin-muted">' + escHtml(adminBeachText('admin.beaches.help', 'Manage beach names used by group course selectors. Prices and capacity stay on their own cards.')) + '</p>';
+  html += '</div></div>';
   if (writes && editingNew) html += adminRenderBeachEditCard(null);
   if (!beaches.length && !editingNew) {
     html += '<p class="portal-admin-muted" data-testid="admin-beaches-empty">' + escHtml(adminBeachText('admin.beaches.empty', 'No beaches configured yet. Click + to add a beach.')) + '</p>';
@@ -2482,26 +2482,30 @@ function renderAdminSectionAccommodationFromConfig(cfg){
   var writes = adminCfgWritesEnabled(cfg);
   var ac = adminAccommodationFromCfg(cfg);
   var editing = writes && adminEditTarget === 'accommodation';
-  // Single top card title only (no section-hdr duplicate). Enabled sits beside title.
+  // Single top card title only (no section-hdr duplicate). Status dot right of title; switch top-right in edit.
   var html = '<div class="portal-admin-subsection" data-testid="admin-accommodation-card">';
   html += '<div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
   html += '<h3 class="portal-admin-subsection-title" data-i18n="admin.accommodation.title">' +
     escHtml(portalT('admin.accommodation.title') || 'Accommodation') + '</h3>';
-  html += '<span class="portal-admin-muted" data-testid="admin-accommodation-enabled-status">' + escHtml(ac.enabled
-    ? (portalT('admin.accommodation.enabledYes') || 'Enabled')
-    : (portalT('admin.accommodation.enabledNo') || 'Disabled')) + '</span>';
+  html += '<span class="portal-admin-accommodation-status-dot' + (ac.enabled ? ' is-on' : ' is-off') +
+    '" data-testid="admin-accommodation-enabled-status" aria-hidden="true"></span>';
   html += '</div>';
   if (writes && !editing){
     html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-accommodation" aria-label="' +
       escHtml(portalT('admin.action.edit') || 'Edit') + '">✎</button></div>';
   }
   html += '</div>';
-  // Help sentence intentionally not rendered (UI cleanup); i18n key retained for docs/verifiers.
+  // Accommodation card body wraps edit form or readonly ranges.
+  html += '<article class="portal-admin-lesson-card portal-admin-accommodation-card' + (editing ? ' is-editing' : '') + '" data-admin-accommodation-card="1">';
   if (editing){
-    html += '<div class="portal-admin-edit-form" data-testid="admin-accommodation-edit">';
-    html += '<label class="portal-admin-equip-enabled"><input type="checkbox" id="admin-accom-enabled"' +
-      (ac.enabled ? ' checked' : '') + '> ' +
-      escHtml(portalT('admin.accommodation.enabled') || 'Enabled') + '</label>';
+    html += '<div class="portal-admin-accommodation-edit-header"><div class="portal-admin-accommodation-edit-title">' +
+      escHtml(portalT('admin.accommodation.productName') || 'Surf House') + '</div>';
+    html += '<label class="portal-admin-switch portal-admin-accommodation-enabled-switch" for="admin-accom-enabled">' +
+      '<input type="checkbox" id="admin-accom-enabled"' + (ac.enabled ? ' checked' : '') + '>' +
+      '<span class="portal-admin-switch-slider"></span>' +
+      '<span class="portal-admin-switch-text">' + escHtml(portalT('admin.accommodation.enabled') || 'Enabled') + '</span>' +
+      '</label></div>';
+    html += '<div class="portal-admin-edit-form portal-admin-accommodation-edit-form" data-testid="admin-accommodation-edit">';
     html += renderAdminAccommodationRangeRows(ac.ranges, true);
     html += '<div class="portal-admin-edit-actions" style="margin-top:10px">';
     html += '<button type="button" class="btn btn-ghost" data-admin-action="accom-add-range">+ ' +
@@ -2513,13 +2517,9 @@ function renderAdminSectionAccommodationFromConfig(cfg){
     html += '</div></div>';
   } else {
     html += renderAdminAccommodationCoverageWarning(ac.ranges);
-    html += '<p class="portal-admin-muted" data-testid="admin-accommodation-no-room-inventory" data-i18n="admin.accommodation.noRoomInventory">'
-      + escHtml(portalT('admin.accommodation.noRoomInventory')
-        || 'Seasonal nightly rate only — no room inventory or occupancy enforcement.')
-      + '</p>';
     html += renderAdminAccommodationRangeRows(ac.ranges, false);
   }
-  html += '</div>';
+  html += '</article></div>';
   box.innerHTML = html;
 }
 

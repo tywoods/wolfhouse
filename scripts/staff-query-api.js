@@ -17065,14 +17065,26 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 /* Accommodation seasonal ranges: stable title / date / price columns */
 .portal-admin-accommodation-range-list{display:flex;flex-direction:column;gap:8px;width:100%;min-width:0}
 .portal-admin-accommodation-range-row{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.5fr) minmax(0,.9fr);gap:8px 12px;align-items:baseline;width:100%;min-width:0;box-sizing:border-box}
-.portal-admin-accommodation-range-row.is-editing{grid-template-columns:minmax(0,1.1fr) minmax(0,1.5fr) minmax(0,.9fr) auto;align-items:end}
+.portal-admin-accommodation-range-row.is-editing{grid-template-columns:minmax(0,1.1fr) minmax(0,1.5fr) minmax(0,.9fr) auto;align-items:stretch}
 .portal-admin-accommodation-range-title{font-size:14px;font-weight:700;color:var(--text);line-height:1.2;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .portal-admin-accommodation-range-dates{font-size:12px;color:var(--text-2);line-height:1.3;min-width:0;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .portal-admin-accommodation-range-price{font-size:14px;font-weight:700;color:var(--text);white-space:nowrap;text-align:right;justify-self:end}
-.portal-admin-accommodation-range-row.is-editing > div{min-width:0}
-.portal-admin-accommodation-range-row.is-editing label{font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:2px}
-.portal-admin-accommodation-range-row.is-editing input{width:100%;max-width:100%;min-width:0;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box}
+.portal-admin-accommodation-range-row.is-editing > div{min-width:0;display:flex;flex-direction:column;justify-content:flex-end}
+.portal-admin-accommodation-range-row.is-editing label{font-size:10px;font-weight:700;color:var(--text-2);display:block;margin-bottom:2px;flex:0 0 auto}
+.portal-admin-accommodation-range-row.is-editing input{width:100%;max-width:100%;min-width:0;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box;flex:0 0 auto}
+.portal-admin-accommodation-range-row.is-editing .portal-admin-danger{font-size:16px;padding:4px 8px;min-height:26px;align-self:flex-end}
 .portal-admin-accommodation-coverage-warn{margin:10px 0 0;border-color:rgba(200,138,0,.4);color:#8a6100}
+/* Accommodation section status dot (next to title) */
+.portal-admin-accommodation-status-dot{flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:var(--text-3)}
+.portal-admin-accommodation-status-dot.is-on{background:#22c55e}
+html[data-theme="dark"] .portal-admin-accommodation-status-dot.is-on{background:#4ade80}
+.portal-admin-accommodation-status-dot.is-off{background:var(--text-3)}
+/* Accommodation card in edit mode: switch top-right */
+.portal-admin-accommodation-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px}
+.portal-admin-accommodation-edit-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.portal-admin-accommodation-edit-title{font-size:16px;font-weight:600;color:var(--text);font-family:var(--font-display)}
+.portal-admin-accommodation-enabled-switch{margin:0}
+.portal-admin-accommodation-edit-form{display:flex;flex-direction:column;gap:8px}
 @media (max-width:520px){
   .portal-admin-accommodation-range-row{grid-template-columns:1fr 1fr;gap:6px 8px}
   .portal-admin-accommodation-range-title{grid-column:1 / -1}
@@ -17336,8 +17348,9 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-beach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:8px}
 .portal-admin-beach-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%;box-sizing:border-box}
 .portal-admin-beach-card.is-editing{border-color:var(--primary)}
-.portal-admin-beach-card .portal-admin-card-actions{gap:6px}
-.portal-admin-beach-title{font-size:14px;font-weight:700;color:var(--text);font-family:var(--font-display);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+.portal-admin-beach-card .portal-admin-card-actions{display:flex;flex-direction:column;align-items:center;gap:4px}
+.portal-admin-beach-card .portal-admin-card-actions .portal-admin-danger{font-size:14px;padding:2px 6px;min-height:20px}
+.portal-admin-beach-title{font-size:16px;font-weight:600;color:var(--text);font-family:var(--font-display);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
 .portal-admin-beach-edit-form{display:flex;flex-direction:column;gap:10px}
 .portal-admin-beach-edit-form .portal-admin-edit-field{margin:0}
 .portal-admin-beach-edit-form .portal-admin-edit-field label{display:block;font-size:10px;font-weight:700;color:var(--text-2);margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em}
