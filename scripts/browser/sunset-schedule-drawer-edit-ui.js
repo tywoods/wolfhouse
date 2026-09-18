@@ -1219,7 +1219,12 @@ function scheduleRenderDrawerPaymentSectionEditHtml(ctx) {
     html += '</div>';
   }
   var effPaid=(Number(pay.paid_cents||0)>0&&(pay.balance_due_cents==null||Number(pay.balance_due_cents)<=0));
-  var effStatus=effPaid?'paid':(Number(pay.paid_cents||0)>0?pay.payment_status:'unpaid');
+  var rawPayStatus = pay.payment_status != null ? String(pay.payment_status).trim() : '';
+  var effStatus = effPaid
+    ? 'paid'
+    : (Number(pay.paid_cents || 0) > 0
+      ? (rawPayStatus && rawPayStatus.toLowerCase() !== 'unpaid' ? rawPayStatus : 'partial')
+      : (rawPayStatus || 'unpaid'));
   function tot(id,lab,amt,cls){return '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">'+escHtml(lab)+'</span><span class="ctx-inv-total-amount'+(cls?(' '+cls):'')+'" id="'+id+'">'+escHtml(scheduleDrawerEur(amt))+'</span></div>';}
   html+='<div class="ctx-inv-group ctx-inv-totals" style="margin-top:10px">'+tot('ps-drawer-subtotal',portalT('schedule.drawer.subtotal'),pay.subtotal_cents,'')+tot('ps-drawer-paid',portalT('schedule.drawer.paid'),pay.paid_cents,'paid')+tot('ps-drawer-remaining',portalT('schedule.drawer.remaining'),pay.balance_due_cents,'owing')+'<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">'+escHtml(portalT('schedule.col.payment'))+'</span><span class="ctx-inv-total-amount'+(effPaid?' paid':'')+'" id="ps-drawer-pay-status">'+escHtml(schedulePaymentStatusLabel(effStatus,ctx&&ctx.payment_method))+'</span></div></div></div>';
   return html;
@@ -1237,10 +1242,21 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   var selectedCourseId = selectedCourseIds.length ? selectedCourseIds[0] : '';
   var courseQty = (comps.course && comps.course.quantity) || (comps.lesson && comps.lesson.quantity) || 1;
   var code = (ctx && ctx.booking_code) || (row && row.booking_code) || '';
-  var statusLabel = schedulePaymentStatusLabel(
-    (ctx && ctx.payment && ctx.payment.payment_status) || (ctx && ctx.payment_status) || 'unpaid',
-    ctx && ctx.payment_method
-  );
+  var paySnap = (ctx && ctx.payment) || {};
+  var hdrPaidCents = Number(paySnap.paid_cents || 0);
+  var hdrDue = paySnap.balance_due_cents != null ? Number(paySnap.balance_due_cents) : null;
+  var hdrFullyPaid = paySnap.payment_status === 'paid'
+    || (hdrPaidCents > 0 && (hdrDue == null || hdrDue <= 0));
+  var hdrRawStatus = (paySnap.payment_status != null && String(paySnap.payment_status).trim() !== '')
+    ? String(paySnap.payment_status).trim()
+    : (ctx && ctx.payment_status != null ? String(ctx.payment_status).trim() : '');
+  // Partial cash must surface as Partial — never collapse to Unpaid in the edit header.
+  var hdrStatus = hdrFullyPaid
+    ? 'paid'
+    : (hdrPaidCents > 0
+      ? (hdrRawStatus && String(hdrRawStatus).toLowerCase() !== 'unpaid' ? hdrRawStatus : 'partial')
+      : (hdrRawStatus || 'unpaid'));
+  var statusLabel = schedulePaymentStatusLabel(hdrStatus, ctx && ctx.payment_method);
   var mainMode = privateOn ? 'private' : (courseOn ? 'group' : 'none');
   // Booking guest/surfer seed for course/private qty + #ps-drawer-surfers (not equipment units).
   var seedSurfers = 1;
@@ -2345,6 +2361,12 @@ function scheduleDrawerRefreshDurationConfirm(){
     return;
   }
   var lab=derived.tier_label||(typeof schedulePortalDurationLabel==='function'?schedulePortalDurationLabel(derived.tier_key):'')||derived.tier_key;
+  // Prefer actual inclusive span when present (8–14 must not display as Admin "7 days").
+  if (derived.duration_days != null && Number(derived.duration_days) > 0
+    && typeof schedulePortalFormatInclusiveDaysLabel === 'function') {
+    var spanLab = schedulePortalFormatInclusiveDaysLabel(derived.duration_days);
+    if (spanLab) lab = spanLab;
+  }
   box.innerHTML='<p class="portal-schedule-drawer-hint portal-schedule-drawer-duration-ok" style="margin:0">'+escHtml(portalT('schedule.drawer.durationConfirm')+': '+lab)+'</p>';
 }
 
@@ -3219,6 +3241,11 @@ function scheduleDrawerRenderIntentSummary(payload) {
       tierLab = (typeof schedulePortalDurationLabel === 'function'
         ? schedulePortalDurationLabel(comps.course.tier_key) : '') || '';
     }
+    if (comps.course.duration_days != null && Number(comps.course.duration_days) > 0
+      && typeof schedulePortalFormatInclusiveDaysLabel === 'function') {
+      var courseSpanLab = schedulePortalFormatInclusiveDaysLabel(comps.course.duration_days);
+      if (courseSpanLab) tierLab = courseSpanLab;
+    }
     if (tierLab && tierLab !== String(comps.course.tier_key || '')) durationLab = tierLab;
     if (comps.course.quantity) primary.push('\u00d7' + String(comps.course.quantity));
   } else if (comps.private_lesson) {
@@ -3668,6 +3695,7 @@ function scheduleReadDrawerEditPayload() {
         row.tier_key = derivedOne.tier_key;
         row.offering_id = derivedOne.offering_id || ('surf_pack_' + courseId + '__' + derivedOne.tier_key);
         if (derivedOne.tier_label) row.tier_label = derivedOne.tier_label;
+        if (derivedOne.duration_days != null) row.duration_days = derivedOne.duration_days;
       }
       selectedCourses.push(row);
     });
@@ -3683,6 +3711,7 @@ function scheduleReadDrawerEditPayload() {
       components.course.offering_id = primary.offering_id
         || ('surf_pack_' + primary.course_id + '__' + primary.tier_key);
       if (primary.tier_label) components.course.tier_label = primary.tier_label;
+      if (primary.duration_days != null) components.course.duration_days = primary.duration_days;
     }
   }
   if (mode === 'private') {

@@ -542,9 +542,21 @@ function aggregateComponentsFromServices(services) {
 function deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents) {
   const paid = Number(paidCents) || 0;
   const subtotal = Number(subtotalCents) || 0;
+  // Cash truth first — Partial when some paid and still owing vs subtotal.
   if (paid > 0 && (subtotal === 0 || paid >= subtotal)) return 'paid';
+  if (paid > 0 && subtotal > 0 && paid < subtotal) return 'partial';
   const raw = String(booking && booking.payment_status || '').toLowerCase();
-  if (raw === 'paid' || raw === 'complete' || raw === 'completed') return 'paid';
+  if (raw === 'paid' || raw === 'complete' || raw === 'completed' || raw === 'paid_in_full') {
+    return 'paid';
+  }
+  if (
+    raw === 'partial'
+    || raw === 'partially_paid'
+    || raw === 'deposit_paid'
+    || raw === 'balance_due'
+  ) {
+    return 'partial';
+  }
   return 'unpaid';
 }
 
