@@ -50,6 +50,41 @@ const INBOX_VIEW_GROUPS = Object.freeze([
   Object.freeze({ id: 'people', label: 'PEOPLE' }),
 ]);
 
+/**
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: Sunset surfaces are the messenger (Inbox) and
+ * the people directory (Guest). Each filter belongs to exactly one surface.
+ */
+const INBOX_VIEW_SURFACES = Object.freeze({
+  INBOX: 'inbox',
+  GUEST: 'guest',
+});
+
+/**
+ * Ordered stable IDs for each Sunset surface.
+ * Inbox: all, whatsapp, email, needs_human, spam, owner_lab
+ * Guest: all_people, checked_in, lesson_today, upcoming, hot_leads, warm_leads, unpaid, waiver_due, do_not_contact
+ */
+const SUNSET_INBOX_SURFACE_ORDER = Object.freeze([
+  'all',
+  'whatsapp',
+  'email',
+  'needs_human',
+  'spam',
+  'owner_lab',
+]);
+
+const SUNSET_GUEST_SURFACE_ORDER = Object.freeze([
+  'all_people',
+  'checked_in',
+  'lesson_today',
+  'upcoming',
+  'hot_leads',
+  'warm_leads',
+  'unpaid',
+  'waiver_due',
+  'do_not_contact',
+]);
+
 const INBOX_VIEW_GROUP_IDS = Object.freeze(INBOX_VIEW_GROUPS.map((g) => g.id));
 
 /** Sort ids describe the ORDER BY already baked into each delegated builder. */
@@ -124,6 +159,13 @@ function declareView(view) {
     spamSelected: !!view.spamSelected,
     /** When false, the view stays queryable for CRM gates but is omitted from the rail. */
     rail: view.rail !== false,
+    /**
+     * INBOX-GUEST-SIDEBAR-SPLIT-001: surface ownership for Sunset.
+     * 'inbox' = messenger filters (All, WhatsApp, Email, Needs human, Spam, Owner Lab)
+     * 'guest' = people directory filters (All people, Checked in, Lesson today, etc.)
+     * Preserved from declaration for tenant-scoped surface logic.
+     */
+    surface: view.surface || null,
     requires: Object.freeze(view.requires ? view.requires.slice() : []),
     description: view.description || '',
   });
@@ -136,6 +178,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     group: 'inbox',
     defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     description: 'Every open or on-hold conversation on this tenant and location.',
   }),
   declareView({
@@ -145,6 +188,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     channel: INBOX_VIEW_CHANNELS.WHATSAPP,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     description: 'Open conversations on the WhatsApp channel.',
   }),
   declareView({
@@ -154,6 +198,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     channel: INBOX_VIEW_CHANNELS.EMAIL,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     description: 'Open conversations on the email channel.',
   }),
   declareView({
@@ -161,6 +206,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     label: 'Snoozed',
     group: 'inbox',
     defaultSort: INBOX_VIEW_SORTS.RECENT,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     requires: ['conversations.last_read_at'],
     description: 'Threads hidden until their snooze expires.',
   }),
@@ -169,6 +215,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     label: 'Approvals',
     group: 'needs_you',
     defaultSort: INBOX_VIEW_SORTS.RECENT,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     requires: ['luna_outbound_approvals'],
     description: 'Luna drafts waiting for a staff decision, across WhatsApp and email.',
   }),
@@ -179,6 +226,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     needsHuman: true,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     description: 'Open conversations with conversations.needs_human = TRUE.',
   }),
   declareView({
@@ -196,6 +244,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     label: 'Unassigned',
     group: 'needs_you',
     defaultSort: INBOX_VIEW_SORTS.RECENT,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     requires: ['conversations.assigned_to'],
     description: 'Open threads with no staff owner.',
   }),
@@ -207,6 +256,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'all',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'One row per person on this tenant and location.',
   }),
   declareView({
@@ -217,6 +267,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'checked_in_now',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'Guests mid-stay tonight. Empty on surf-only tenants.',
   }),
   declareView({
@@ -227,15 +278,17 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'lesson_today',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'People with a service scheduled today.',
   }),
   declareView({
     id: 'spam',
     label: 'Spam',
-    group: 'people',
+    group: 'inbox',
     defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     spamSelected: true,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     description: 'Threads explicitly marked as spam by staff.',
   }),
   declareView({
@@ -246,6 +299,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'upcoming',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'People with a service scheduled after today.',
   }),
   declareView({
@@ -254,6 +308,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     group: 'people',
     defaultSort: INBOX_VIEW_SORTS.BOOKED_THEN_RECENT,
     multiSelect: true,
+    surface: INBOX_VIEW_SURFACES.GUEST,
     requires: ['customers.filter.arriving_today'],
     description: 'Guests whose stay starts today.',
   }),
@@ -265,6 +320,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'hot_leads',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'People with a booking or service, or tagged hot_lead by staff.',
   }),
   declareView({
@@ -275,6 +331,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'warm_leads',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'Contacted but never booked, or tagged warm_lead by staff.',
   }),
   declareView({
@@ -285,6 +342,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'unpaid',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'People with a balance due on a live booking.',
   }),
   declareView({
@@ -295,15 +353,17 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'waiver_pending',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'Lesson booked with no completed waiver. Surf tenants only.',
   }),
   declareView({
     id: 'owner_lab',
     label: 'Owner Lab',
-    group: 'people',
+    group: 'inbox',
     defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,
     ownerLab: true,
+    surface: INBOX_VIEW_SURFACES.INBOX,
     description: 'Open lab/test conversations marked by open-phone testing metadata.',
   }),
   declareView({
@@ -313,6 +373,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     defaultSort: INBOX_VIEW_SORTS.BOOKED_THEN_RECENT,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'do_not_contact',
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'Suppressed from outreach. Never multi-selectable for broadcast.',
   }),
 ]);
@@ -395,6 +456,59 @@ function orderedViews() {
     .map((entry) => entry.view);
 }
 
+/**
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: Return views ordered by their Sunset surface.
+ * For the Inbox surface (messenger): all, whatsapp, email, needs_human, spam, owner_lab
+ * For the Guest surface (people): all_people, checked_in, lesson_today, upcoming, hot_leads, warm_leads, unpaid, waiver_due, do_not_contact
+ * Non-Sunset tenants continue to use the legacy group-based ordering.
+ */
+function surfaceOrderRank(viewId, surface) {
+  if (surface === INBOX_VIEW_SURFACES.INBOX) {
+    const idx = SUNSET_INBOX_SURFACE_ORDER.indexOf(viewId);
+    return idx < 0 ? SUNSET_INBOX_SURFACE_ORDER.length : idx;
+  }
+  if (surface === INBOX_VIEW_SURFACES.GUEST) {
+    const idx = SUNSET_GUEST_SURFACE_ORDER.indexOf(viewId);
+    return idx < 0 ? SUNSET_GUEST_SURFACE_ORDER.length : idx;
+  }
+  return 0;
+}
+
+function orderedViewsBySurface(surface) {
+  const orderList = surface === INBOX_VIEW_SURFACES.INBOX
+    ? SUNSET_INBOX_SURFACE_ORDER
+    : surface === INBOX_VIEW_SURFACES.GUEST
+      ? SUNSET_GUEST_SURFACE_ORDER
+      : null;
+  if (!orderList) return orderedViews();
+
+  return INBOX_SAVED_VIEWS
+    .filter((view) => view.surface === surface)
+    .sort((a, b) => surfaceOrderRank(a.id, surface) - surfaceOrderRank(b.id, surface));
+}
+
+/**
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: Check if a view belongs to a specific surface.
+ */
+function viewBelongsToSurface(viewId, surface) {
+  if (surface === INBOX_VIEW_SURFACES.INBOX) {
+    return SUNSET_INBOX_SURFACE_ORDER.indexOf(viewId) >= 0;
+  }
+  if (surface === INBOX_VIEW_SURFACES.GUEST) {
+    return SUNSET_GUEST_SURFACE_ORDER.indexOf(viewId) >= 0;
+  }
+  return false;
+}
+
+/**
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: Get the default view for a surface.
+ */
+function getDefaultViewForSurface(surface) {
+  if (surface === INBOX_VIEW_SURFACES.INBOX) return 'all';
+  if (surface === INBOX_VIEW_SURFACES.GUEST) return 'all_people';
+  return 'all';
+}
+
 /** Every declared view, including the ones that cannot run yet. */
 function listInboxSavedViewDeclarations(opts) {
   const capabilities = opts && opts.capabilities;
@@ -404,6 +518,40 @@ function listInboxSavedViewDeclarations(opts) {
 /** Only the views that can run against the schema described by `capabilities`. */
 function listInboxSavedViews(opts) {
   return listInboxSavedViewDeclarations(opts).filter((view) => view.available && view.rail !== false);
+}
+
+/**
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: List views for a specific Sunset surface.
+ * Returns views ordered according to the canonical surface order, filtered to
+ * only include available views. For non-Sunset tenants, returns all available views.
+ *
+ * @param {object} opts
+ * @param {string} opts.surface - 'inbox' or 'guest'
+ * @param {object} [opts.capabilities] - schema capabilities
+ * @param {boolean} [opts.isSunset] - whether to apply Sunset surface filtering
+ * @returns {object[]} decorated views for the surface
+ */
+function listInboxSavedViewsBySurface(opts) {
+  const surface = opts && opts.surface;
+  const isSunset = opts && opts.isSunset !== false;
+  const capabilities = opts && opts.capabilities;
+
+  if (!isSunset || !surface) {
+    return listInboxSavedViews({ capabilities });
+  }
+
+  const orderList = surface === INBOX_VIEW_SURFACES.INBOX
+    ? SUNSET_INBOX_SURFACE_ORDER
+    : surface === INBOX_VIEW_SURFACES.GUEST
+      ? SUNSET_GUEST_SURFACE_ORDER
+      : null;
+
+  if (!orderList) return listInboxSavedViews({ capabilities });
+
+  const allViews = listInboxSavedViews({ capabilities });
+  const surfaceViews = allViews.filter((v) => orderList.indexOf(v.id) >= 0);
+
+  return surfaceViews.sort((a, b) => orderList.indexOf(a.id) - orderList.indexOf(b.id));
 }
 
 function getInboxSavedViewDeclaration(viewId, opts) {
@@ -651,11 +799,17 @@ module.exports = {
   UNAVAILABLE_NOT_IMPLEMENTED,
   ERROR_UNKNOWN_VIEW,
   ERROR_VIEW_UNAVAILABLE,
+  INBOX_VIEW_SURFACES,
+  SUNSET_INBOX_SURFACE_ORDER,
+  SUNSET_GUEST_SURFACE_ORDER,
   listInboxSavedViews,
+  listInboxSavedViewsBySurface,
   listInboxSavedViewDeclarations,
   getInboxSavedViewDeclaration,
   resolveInboxViewAvailability,
   resolveInboxConversationLocationScope,
+  viewBelongsToSurface,
+  getDefaultViewForSurface,
   buildInboxViewQuery,
   buildInboxViewCountsPlan,
 };

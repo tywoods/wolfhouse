@@ -891,6 +891,16 @@ function inboxRowsGuestOnCustomersSource() {
 }
 
 function inboxRowsEnterGuestDirectory() {
+  /* INBOX-GUEST-SIDEBAR-SPLIT-001: Switch the rail to the Guest surface. */
+  if (typeof inboxViewsSwitchSurface === 'function') {
+    inboxViewsSwitchSurface('guest');
+    return;
+  }
+  if (typeof window !== 'undefined' && window.__inboxViews && window.__inboxViews.switchSurface) {
+    window.__inboxViews.switchSurface('guest');
+    return;
+  }
+  /* Fallback: legacy behavior for non-split rail. */
   if (inboxRowsGuestOnCustomersSource()) {
     inboxRowsRerenderGuestViewList();
     return;
@@ -910,6 +920,16 @@ function inboxRowsEnterGuestDirectory() {
 }
 
 function inboxRowsLeaveGuestDirectory() {
+  /* INBOX-GUEST-SIDEBAR-SPLIT-001: Switch the rail to the Inbox surface. */
+  if (typeof inboxViewsSwitchSurface === 'function') {
+    inboxViewsSwitchSurface('inbox');
+    return;
+  }
+  if (typeof window !== 'undefined' && window.__inboxViews && window.__inboxViews.switchSurface) {
+    window.__inboxViews.switchSurface('inbox');
+    return;
+  }
+  /* Fallback: legacy behavior for non-split rail. */
   var restore = inboxRowsGuestPriorViewId;
   inboxRowsGuestPriorViewId = '';
   if (restore && typeof selectInboxSavedView === 'function') {

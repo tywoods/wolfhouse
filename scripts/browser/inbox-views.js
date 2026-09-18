@@ -19,6 +19,54 @@ var inboxSavedViewExpanded = false;
 var INBOX_VIEW_SOURCE_CUSTOMERS = 'customers';
 var INBOX_CONV_ID_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: Surface ownership for Sunset.
+ * 'inbox' = messenger filters (All, WhatsApp, Email, Needs human, Spam, Owner Lab)
+ * 'guest' = people directory filters (All people, Checked in, Lesson today, etc.)
+ */
+var INBOX_VIEW_SURFACE_INBOX = 'inbox';
+var INBOX_VIEW_SURFACE_GUEST = 'guest';
+var inboxCurrentSurface = INBOX_VIEW_SURFACE_INBOX;
+var inboxLastInboxViewId = 'all';
+var inboxLastGuestViewId = 'all_people';
+
+var INBOX_SURFACE_ORDER_INBOX = ['all', 'whatsapp', 'email', 'needs_human', 'spam', 'owner_lab'];
+var INBOX_SURFACE_ORDER_GUEST = ['all_people', 'checked_in', 'lesson_today', 'upcoming', 'hot_leads', 'warm_leads', 'unpaid', 'waiver_due', 'do_not_contact'];
+
+function inboxViewGetSurfaceForViewId(viewId) {
+  if (INBOX_SURFACE_ORDER_INBOX.indexOf(viewId) >= 0) return INBOX_VIEW_SURFACE_INBOX;
+  if (INBOX_SURFACE_ORDER_GUEST.indexOf(viewId) >= 0) return INBOX_VIEW_SURFACE_GUEST;
+  return INBOX_VIEW_SURFACE_INBOX;
+}
+
+function inboxViewGetDefaultViewForSurface(surface) {
+  if (surface === INBOX_VIEW_SURFACE_GUEST) return 'all_people';
+  return 'all';
+}
+
+function inboxViewGetSurfaceOrder(surface) {
+  if (surface === INBOX_VIEW_SURFACE_GUEST) return INBOX_SURFACE_ORDER_GUEST;
+  return INBOX_SURFACE_ORDER_INBOX;
+}
+
+function inboxViewsSyncSurfaceFromPreset() {
+  var isGuest = false;
+  try {
+    if (typeof inboxColumnsRuntime !== 'undefined'
+        && inboxColumnsRuntime
+        && inboxColumnsRuntime.record
+        && inboxColumnsRuntime.record.preset === 'guest') {
+      isGuest = true;
+    }
+  } catch (_e) {}
+  if (!isGuest && typeof document !== 'undefined' && document.querySelector) {
+    if (document.querySelector('[data-inbox-preset="guest"][aria-pressed="true"]')) {
+      isGuest = true;
+    }
+  }
+  return isGuest ? INBOX_VIEW_SURFACE_GUEST : INBOX_VIEW_SURFACE_INBOX;
+}
+
 function inboxViewsConvIdIsUuid(id) {
   return INBOX_CONV_ID_UUID_RE.test(String(id || '').trim());
 }
@@ -227,47 +275,45 @@ function renderInboxViewsRail(data){
     rail.innerHTML = '<div class="inbox-views-empty">' + escHtml(portalT('inbox.rail.empty')) + '</div>';
     return;
   }
-  var known = {};
-  var order = [];
-  for (var g = 0; g < groups.length; g++){
-    if (groups[g] && groups[g].id && !known[groups[g].id]){
-      known[groups[g].id] = true;
-      order.push(groups[g].id);
-    }
+
+  /* INBOX-GUEST-SIDEBAR-SPLIT-001: Filter and order views by current surface. */
+  var surface = inboxCurrentSurface || inboxViewsSyncSurfaceFromPreset();
+  var surfaceOrder = inboxViewGetSurfaceOrder(surface);
+  var surfaceViews = views.filter(function(v) {
+    return surfaceOrder.indexOf(v.id) >= 0;
+  });
+  surfaceViews.sort(function(a, b) {
+    return surfaceOrder.indexOf(a.id) - surfaceOrder.indexOf(b.id);
+  });
+
+  if (!surfaceViews.length) {
+    rail.innerHTML = '<div class="inbox-views-empty">' + escHtml(portalT('inbox.rail.empty')) + '</div>';
+    return;
   }
-  for (var v = 0; v < views.length; v++){
-    var gid = views[v] && views[v].group;
-    if (gid && !known[gid]){
-      known[gid] = true;
-      order.push(gid);
-    }
+
+  /* If the current selection is not in the visible surface, pick the default. */
+  var currentInSurface = surfaceViews.some(function(v) { return v.id === inboxSavedViewId; });
+  if (!currentInSurface) {
+    inboxSavedViewId = inboxViewGetDefaultViewForSurface(surface);
   }
-  if (views.every(function(view){ return view.id !== inboxSavedViewId; })){
-    inboxSavedViewId = (views[0] && views[0].id) || INBOX_DEFAULT_SAVED_VIEW;
-  }
+
+  /* Build flat list without group headers for the split surfaces. */
   var html = '';
-  for (var i = 0; i < order.length; i++){
-    var groupId = order[i];
-    var items = views.filter(function(view){ return view.group === groupId; });
-    if (!items.length) continue;
-    html += '<div class="inbox-views-group" data-inbox-view-group="' + escHtml(groupId) + '">';
-    html += '<div class="inbox-views-group-label">' + escHtml(inboxViewsGroupLabel(groups, groupId)) + '</div>';
-    for (var j = 0; j < items.length; j++){
-      var view = items[j];
-      var active = view.id === inboxSavedViewId;
-      var countHtml = (view.count == null)
-        ? ''
-        : '<span class="inbox-views-item-count">' + escHtml(String(view.count)) + '</span>';
-      html += '<button type="button" class="inbox-views-item' + (active ? ' is-active' : '') + '"' +
-        ' data-inbox-view="' + escHtml(view.id) + '"' +
-        (active ? ' aria-current="true"' : '') +
-        '>';
-      html += inboxViewsItemIconHtml(view.id);
-      html += '<span class="inbox-views-item-label">' + escHtml(inboxViewsLabel(view)) + '</span>';
-      html += countHtml;
-      html += '</button>';
-    }
-    html += '</div>';
+  for (var j = 0; j < surfaceViews.length; j++) {
+    var view = surfaceViews[j];
+    var active = view.id === inboxSavedViewId;
+    var countHtml = (view.count == null)
+      ? ''
+      : '<span class="inbox-views-item-count">' + escHtml(String(view.count)) + '</span>';
+    html += '<button type="button" class="inbox-views-item' + (active ? ' is-active' : '') + '"' +
+      ' data-inbox-view="' + escHtml(view.id) + '"' +
+      ' data-inbox-view-surface="' + escHtml(surface) + '"' +
+      (active ? ' aria-current="true"' : '') +
+      '>';
+    html += inboxViewsItemIconHtml(view.id);
+    html += '<span class="inbox-views-item-label">' + escHtml(inboxViewsLabel(view)) + '</span>';
+    html += countHtml;
+    html += '</button>';
   }
   rail.innerHTML = html;
   applyInboxViewCounts(views);
@@ -310,7 +356,17 @@ function refreshInboxViewsRail(){
 }
 
 function selectInboxSavedView(viewId){
-  inboxSavedViewId = viewId || INBOX_DEFAULT_SAVED_VIEW;
+  viewId = viewId || INBOX_DEFAULT_SAVED_VIEW;
+  inboxSavedViewId = viewId;
+
+  /* INBOX-GUEST-SIDEBAR-SPLIT-001: Remember last selection per surface. */
+  var viewSurface = inboxViewGetSurfaceForViewId(viewId);
+  if (viewSurface === INBOX_VIEW_SURFACE_INBOX) {
+    inboxLastInboxViewId = viewId;
+  } else if (viewSurface === INBOX_VIEW_SURFACE_GUEST) {
+    inboxLastGuestViewId = viewId;
+  }
+
   inboxFilter = 'all';
   if (typeof updateInboxFilterUI === 'function') updateInboxFilterUI();
   var rail = el('inbox-views-rail');
@@ -554,5 +610,57 @@ loadConvDetail = function(convId, targetEl) {
   if (!el('inbox-views-rail')) return _inboxViewsLegacyLoadConvDetail(convId, targetEl);
   return inboxViewsResolveLoadConvDetail(convId, targetEl);
 };
+
+/**
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: Switch the rail surface and restore the last
+ * valid view for that surface. Called by inbox-rows.js when the preset changes.
+ *
+ * @param {string} surface - 'inbox' or 'guest'
+ */
+function inboxViewsSwitchSurface(surface) {
+  var newSurface = surface === INBOX_VIEW_SURFACE_GUEST
+    ? INBOX_VIEW_SURFACE_GUEST
+    : INBOX_VIEW_SURFACE_INBOX;
+
+  if (newSurface === inboxCurrentSurface) {
+    /* Same surface — just re-render with the correct order. */
+    refreshInboxViewsRail();
+    return;
+  }
+
+  inboxCurrentSurface = newSurface;
+
+  /* Restore the last selected view for this surface. */
+  var restoreViewId = newSurface === INBOX_VIEW_SURFACE_GUEST
+    ? inboxLastGuestViewId
+    : inboxLastInboxViewId;
+
+  /* Validate the restore view is still in the surface order. */
+  var surfaceOrder = inboxViewGetSurfaceOrder(newSurface);
+  if (surfaceOrder.indexOf(restoreViewId) < 0) {
+    restoreViewId = inboxViewGetDefaultViewForSurface(newSurface);
+  }
+
+  inboxSavedViewId = restoreViewId;
+  refreshInboxViewsRail();
+  loadInbox(null, { silent: false, preserveDetail: true });
+}
+
+/**
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: Get the current surface state.
+ */
+function inboxViewsGetCurrentSurface() {
+  return inboxCurrentSurface || INBOX_VIEW_SURFACE_INBOX;
+}
+
+if (typeof window !== 'undefined') {
+  window.__inboxViews = window.__inboxViews || {};
+  window.__inboxViews.switchSurface = inboxViewsSwitchSurface;
+  window.__inboxViews.getCurrentSurface = inboxViewsGetCurrentSurface;
+  window.__inboxViews.SURFACE_INBOX = INBOX_VIEW_SURFACE_INBOX;
+  window.__inboxViews.SURFACE_GUEST = INBOX_VIEW_SURFACE_GUEST;
+  window.__inboxViews.getSurfaceForViewId = inboxViewGetSurfaceForViewId;
+  window.__inboxViews.getDefaultViewForSurface = inboxViewGetDefaultViewForSurface;
+}
 
 wireInboxViewsRail();
