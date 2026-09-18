@@ -43,10 +43,23 @@ function selectCourseForBeach(courses, beach) {
 
 function applyBeachToCatalogProjection(projection, beach) {
   const key = beach.beach_key;
-  const courses = (projection.courses || []).filter((c) => Array.isArray(c.beaches) && c.beaches.map(String).includes(key));
-  const ids = new Set(courses.map((c) => String(c.course_id || c.pack_id || '')));
-  const offerings = (projection.offerings || []).filter((o) => o.offering_type !== 'course' || ids.has(String(o.course_id || '')));
-  if (!courses.length) return { ok: false, reason: 'beach_not_offered' };
+  const beachCourses = (projection.courses || []).filter((c) => (
+    c && Array.isArray(c.beaches) && c.beaches.map(String).includes(key)
+  ));
+  if (!beachCourses.length) return { ok: false, reason: 'beach_course_unavailable' };
+  const beachIds = new Set(beachCourses.map((c) => String(c.course_id || c.pack_id || '')));
+  const offerings = (projection.offerings || []).filter((o) => (
+    o && o.offering_type === 'course' && beachIds.has(String(o.course_id || ''))
+    && o.active !== false && o.bookable === true
+    && o.price_identity && String(o.price_identity.item_code || '').trim()
+    && String(o.offering_id || '').trim() === String(o.price_identity.item_code || '').trim()
+    && Number.isInteger(o.unit_amount_cents) && o.unit_amount_cents > 0
+  ));
+  const bookableIds = new Set(offerings.map((o) => String(o.course_id || '')));
+
+  const courses = beachCourses.filter((c) => bookableIds.has(String(c.course_id || c.pack_id || '')));
+  if (!courses.length) return { ok: false, reason: 'beach_course_unpriced' };
+  if (courses.length > 1) return { ok: false, reason: 'ambiguous_beach_course' };
   return {
     ...projection,
     courses: courses.map((c) => ({ ...c, beach: { ...beach } })),
