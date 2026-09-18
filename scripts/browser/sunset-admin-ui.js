@@ -2211,11 +2211,18 @@ function adminRenderBeachManager(cfg, writes){
       var editing = adminEditTarget === 'beach:' + key;
       html += '<article class="portal-admin-beach-card' + (editing ? ' is-editing' : '') + '" data-admin-beach-card="' + escHtml(key) + '">';
       html += '<div class="portal-admin-card-title-row"><div class="portal-admin-beach-title">' + escHtml(b.display_name || key) + '</div>';
-      if (writes && !editing && !adminBeachSectionEditing()){
-        html += '<div class="portal-admin-card-actions">'
-          + '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.edit', 'Edit beach')) + '" title="' + escHtml(portalT('admin.action.edit')) + '">✎</button>'
-          + '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.delete', 'Delete beach')) + '">×</button>'
-          + '</div>';
+      if (writes) {
+        if (editing) {
+          // Edit mode: delete × in stacked card chrome (polish column under pencil slot).
+          html += '<div class="portal-admin-card-actions">'
+            + '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.delete', 'Delete beach')) + '">×</button>'
+            + '</div>';
+        } else if (!adminBeachSectionEditing()) {
+          // Browse: pencil only — no × until Edit opens this beach.
+          html += '<div class="portal-admin-card-actions">'
+            + '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.edit', 'Edit beach')) + '" title="' + escHtml(portalT('admin.action.edit')) + '">✎</button>'
+            + '</div>';
+        }
       }
       html += '</div>';
       if (editing) html += adminRenderBeachEditCard(b);
