@@ -39,6 +39,13 @@ assert.ok(/data-testid=\"admin-beach-manager\"/.test(renderManager), 'compact be
 assert.ok(/data-admin-action=\"add-beach\"/.test(renderManager), 'beach manager has add action');
 assert.ok(/data-admin-action=\"edit-beach\"/.test(renderManager), 'beach manager has edit action');
 assert.ok(/data-admin-action=\"delete-beach\"/.test(renderManager), 'beach manager has delete action');
+// BEACHES-DELETE-X-AFTER-EDIT-001: closed cards are pencil-only; × only in edit mode.
+const closedBeachActions = /else if \(!adminBeachSectionEditing\(\)\) \{([\s\S]*?)\}[\s\S]*?html \+= '<\/div>';/.exec(renderManager)
+  || /!adminBeachSectionEditing\(\)[\s\S]{0,40}\{([\s\S]*?)\}/.exec(renderManager);
+assert.ok(closedBeachActions, 'closed beach card actions branch exists');
+assert.ok(/edit-beach/.test(closedBeachActions[1]), 'closed beach cards show edit pencil');
+assert.ok(!/delete-beach/.test(closedBeachActions[1]), 'closed beach cards do not show delete ×');
+assert.ok(/if \(editing\) \{[\s\S]*?delete-beach/.test(renderManager), 'delete × is available in beach edit mode');
 assert.ok(!/data-beach-field=\\"(?:amount_cents|capacity|price_tiers)\\"|id=\\"[^\\"]*(?:amount|capacity|price)[^\\"]*\\"/.test(renderManager), 'beach manager form does not render price or capacity fields');
 assert.ok(/adminRenderBeachManager\(cfg, writes\) \+ renderAdminPackCards/.test(ui), 'beach manager renders above course selectors');
 
