@@ -247,7 +247,7 @@ module.exports = {
   'admin.section.capacity': 'Capacidad de clases en grupo',
   'admin.section.changeHistory': 'Historial de cambios',
   'admin.section.lessonTimes': 'Clases en grupo y cursos en grupo',
-  'admin.section.prices': 'Precios de alquiler',
+  'admin.section.prices': 'Equipo',
   'admin.section.accommodation': 'Alojamiento',
   'admin.accommodation.title': 'Alojamiento',
   'admin.accommodation.help': 'Solo precios por noche por temporada. Sin tipo de habitación, asignación de camas ni capacidad de ocupación. La noche de salida no se cobra. Si se desactiva no se pueden añadir nuevas estancias; las existentes conservan su precio guardado.',

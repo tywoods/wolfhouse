@@ -17336,12 +17336,13 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-equip-row.is-equip-disabled .portal-admin-equip-chip{background:var(--surface);color:var(--text-2);border-color:var(--border-soft)}
 .portal-admin-equip-row.is-equip-disabled .portal-admin-equip-actions,
 .portal-admin-equip-row.is-equip-disabled .portal-admin-equip-status-text{opacity:1}
-/* ── Admin Rental Prices hybrid: compact rows + expand-in-place editor ── */
-/* Section header: title left + Add equipment mount slot right (one row, wrap on narrow) */
-.portal-admin-prices-hdr{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px 12px;min-width:0}
-.portal-admin-prices-hdr .portal-admin-section-hdr-title{flex:1 1 auto;min-width:0;line-height:1.3}
-.portal-admin-prices-hdr-actions{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;min-width:0}
-.portal-admin-prices-hdr-actions .btn{white-space:nowrap}
+/* ── Admin Equipment (rental) hybrid: compact rows + expand-in-place editor ── */
+/* Section header: title + circled + beside it (match Group Courses / Beaches chrome) */
+.portal-admin-prices-hdr{display:flex;align-items:center;justify-content:flex-start;flex-wrap:wrap;gap:6px;min-width:0}
+.portal-admin-prices-hdr .portal-admin-section-hdr-title{flex:0 1 auto;min-width:0;line-height:1.3}
+.portal-admin-prices-hdr-actions{flex:0 0 auto;display:inline-flex;align-items:center;gap:2px;min-width:0}
+.portal-admin-prices-hdr .portal-admin-icon-btn{font-size:10px;padding:1px 6px;min-width:0;line-height:1.4}
+.portal-admin-prices-hdr .portal-admin-card-actions{gap:2px}
 /* Clear separation between add-equipment drawer and the equipment list */
 #admin-prices-body #admin-add-equip-form{margin-bottom:20px}
 /* Beach cards: match Group Courses card pattern */
@@ -22569,7 +22570,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </section>
       <section class="portal-admin-section" id="admin-sec-prices">
         <div class="portal-admin-section-hdr portal-admin-prices-hdr" data-admin-prices-hdr>
-          <div class="portal-admin-section-hdr-title" data-i18n="admin.section.prices">Rental prices</div>
+          <div class="portal-admin-section-hdr-title" data-i18n="admin.section.prices">Equipment</div>
           <div class="portal-admin-prices-hdr-actions" id="admin-prices-hdr-actions" hidden></div>
         </div>
         <div class="portal-admin-section-body" id="admin-prices-body"></div>
