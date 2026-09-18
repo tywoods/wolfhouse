@@ -291,13 +291,19 @@ function inboxShellSyncCustomersMobileAutonomy(){
   var defaultSlot = inboxShellById('inbox-channel-autonomy-slot');
   if (!card || !defaultSlot) return;
   var customersList = document.querySelector('#tab-customers .customers-list-col');
+  var customersToolbar = document.querySelector('#tab-customers .customers-toolbar-main');
+  var addBtn = inboxShellById('cust-add-btn');
   var shouldDock = inboxShellIsMobile() && inboxShellCustomersPanelActive() && customersList;
   if (shouldDock) {
     if (card.parentNode !== customersList) customersList.appendChild(card);
     card.classList.add('is-customers-mobile-docked');
+    if (addBtn && addBtn.parentNode !== customersList) customersList.appendChild(addBtn);
+    if (addBtn) addBtn.classList.add('is-customers-mobile-docked-add');
   } else {
     if (card.parentNode !== defaultSlot) defaultSlot.appendChild(card);
     card.classList.remove('is-customers-mobile-docked');
+    if (addBtn && customersToolbar && addBtn.parentNode !== customersToolbar) customersToolbar.appendChild(addBtn);
+    if (addBtn) addBtn.classList.remove('is-customers-mobile-docked-add');
   }
 }
 

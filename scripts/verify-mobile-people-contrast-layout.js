@@ -63,6 +63,7 @@ async function main() {
         if (list && !list.children.length) {
           list.innerHTML = '<div class="customers-card"><div class="customers-card-body"><div class="customers-card-heading"><div class="customers-card-name">QA Guest</div><span class="customers-card-phone">+34 600 000 000</span></div><div class="customers-badges"><span class="customers-badge customers-badge-warm">Warm lead</span></div></div></div>';
         }
+        const toolbarOrder = Array.from(document.querySelectorAll('#tab-customers .customers-toolbar-main > *')).map((el) => el.id || el.className || el.tagName);
         let sample = document.getElementById('mobile-contrast-samples');
         if (!sample) {
           sample = document.createElement('div');
@@ -82,7 +83,9 @@ async function main() {
           search: rect('#cust-search'),
           list: rect('#cust-list'),
           autonomy: rect('#tab-customers .customers-list-col #inbox-shell-channel-defaults'),
+          addButton: rect('#tab-customers .customers-list-col #cust-add-btn'),
           samples,
+          toolbarOrder,
           selectedWeights: samples.filter((s) => /Selected|Frequency|Auto/.test(s.text)).map((s) => Number.parseInt(s.fontWeight, 10) || 0),
         };
       });
@@ -94,8 +97,9 @@ async function main() {
       await page.screenshot({ path: path.join(OUT_DIR, `people-${width}.png`), fullPage: true });
 
       ok(`${width}px People has no horizontal overflow`, metric.bodyScrollW <= width, JSON.stringify({ scrollWidth: metric.bodyScrollW, width }));
-      ok(`${width}px search sits under filters`, metric.filter && metric.search && metric.search.top >= metric.filter.bottom - 1, JSON.stringify({ filter: metric.filter, search: metric.search }));
-      ok(`${width}px Luna autonomy is docked under contact list`, metric.list && metric.autonomy && metric.autonomy.top >= metric.list.bottom - 1, JSON.stringify({ list: metric.list, autonomy: metric.autonomy }));
+      ok(`${width}px toolbar DOM keeps filters before search`, metric.toolbarOrder.indexOf('cust-search') > metric.toolbarOrder.indexOf('customers-filters-wrap'), JSON.stringify(metric.toolbarOrder));
+      ok(`${width}px visual order is filter → search → list → Luna`, metric.filter && metric.search && metric.list && metric.autonomy && metric.search.top >= metric.filter.bottom - 1 && metric.list.top >= metric.search.bottom - 1 && metric.autonomy.top >= metric.list.bottom - 1, JSON.stringify({ filter: metric.filter, search: metric.search, list: metric.list, autonomy: metric.autonomy }));
+      ok(`${width}px add customer stays below Luna on mobile`, metric.addButton && metric.addButton.top >= metric.autonomy.bottom - 1, JSON.stringify({ autonomy: metric.autonomy, addButton: metric.addButton }));
       ok(`${width}px pebble/chip labels pass readable contrast`, metric.sampleContrasts.every((v) => v >= 4.5), JSON.stringify(metric.sampleContrasts));
       ok(`${width}px selected pebbles stay visually stronger`, metric.selectedWeights.every((v) => v >= 700), JSON.stringify(metric.selectedWeights));
       await page.close();

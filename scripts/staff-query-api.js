@@ -18927,6 +18927,7 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 #tab-customers .state-msg{margin:8px 0;font-size:13px;color:var(--text-2)}
 /* staff-portal-mobile:customers-order — phone order is filter → search → list → Luna controls. */
 #tab-customers .customers-list-col #inbox-shell-channel-defaults.is-customers-mobile-docked{margin:8px 6px 6px;width:auto;flex:0 0 auto}
+#tab-customers .customers-list-col #cust-add-btn.is-customers-mobile-docked-add{margin:0 6px 8px;width:auto;flex:0 0 auto;justify-content:center}
 #tab-customers .customers-list-col #inbox-shell-channel-defaults.is-customers-mobile-docked + .customers-list-scroll{min-height:0}
 @media(max-width:640px){
   #tab-customers .customers-toolbar-main{display:grid;grid-template-columns:1fr 1fr;align-items:stretch;gap:8px}
@@ -20256,6 +20257,9 @@ body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:10
 .nav-menu-tools .staff-lang-btn.is-active{color:#000!important}
 .nav-menu-tools .staff-lang-sep{color:#555!important}
 .nav-menu-tools .staff-theme-toggle{grid-area:theme;border-color:#6b7280!important;background:#fff!important;color:#111827!important;width:40px;height:40px;flex:0 0 auto;justify-self:start}
+.nav-menu-tools .staff-theme-toggle .staff-theme-icon{display:block;color:currentColor!important;opacity:1!important;filter:none!important}
+.nav-menu-tools .staff-theme-toggle:not(.is-dark) .staff-theme-icon-sun{display:none!important}
+.nav-menu-tools .staff-theme-toggle.is-dark .staff-theme-icon-moon{display:none!important}
 .nav-menu-tools .staff-theme-toggle:hover{background:var(--surface);border-color:var(--text-3)}
 .nav-menu-tools .btn-logout{grid-area:logout;background:#fff!important;color:#1d1d1f!important;border:1px solid #9ca3af!important;border-radius:20px;padding:9px 14px;font-size:12px;font-weight:800;flex:0 0 auto;white-space:nowrap;margin:0;justify-self:end;max-width:100%;box-shadow:0 1px 2px rgba(17,24,39,.12)}
 #tabs .tabs-global-pause{margin-top:0}
@@ -22378,11 +22382,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <button type="button" class="inbox-view-btn" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.conversations">Conversations</button>
         <button type="button" class="inbox-view-btn is-active" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
       </div>
-      <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
       <div class="customers-filters-wrap">
         <button type="button" id="cust-filters-btn" class="btn btn-ghost customers-filters-trigger" aria-haspopup="true" aria-expanded="false" data-i18n="customers.filters.button">Filters</button>
         <div id="cust-filters-menu" class="customers-filters-menu" role="menu" aria-hidden="true"></div>
       </div>
+      <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
       <button type="button" id="cust-add-btn" class="btn btn-primary customers-add-btn" data-i18n="customers.add">Add customer</button>
     </div>
     <div id="cust-filter-chips" class="customers-filter-chips" aria-live="polite"></div>
