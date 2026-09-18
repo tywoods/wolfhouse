@@ -165,6 +165,11 @@ function adminPackSectionEditing(){
 function adminPrivateLessonSectionEditing(){
   return adminEditTarget === 'private-lesson';
 }
+function adminBeachSectionEditing(){
+  if (!adminEditTarget) return false;
+  var t = String(adminEditTarget);
+  return t === 'beach:new' || t.indexOf('beach:') === 0;
+}
 
 var adminSaveBusy = false;
 var adminLoadSeq = 0;
@@ -2127,60 +2132,72 @@ function renderAdminPrivateLessonCard(cfg, writes){
 function adminRenderBeachManager(cfg, writes){
   var beaches = (cfg && Array.isArray(cfg.surf_beaches)) ? cfg.surf_beaches.slice() : [];
   var editingNew = adminEditTarget === 'beach:new';
-  var html = '<div class="portal-admin-beach-manager" data-testid="admin-beach-manager">';
-  html += '<div class="portal-admin-beach-manager-head"><div><h3>' + escHtml(adminBeachText('admin.beaches.title', 'Beaches')) + '</h3>';
-  html += '<p class="portal-admin-muted">' + escHtml(adminBeachText('admin.beaches.help', 'Manage beach names used by group course selectors. Prices and capacity stay on their own cards.')) + '</p></div>';
-  if (writes && !editingNew) html += '<button type="button" class="btn btn-ghost" data-admin-action="add-beach">+ ' + escHtml(adminBeachText('admin.beaches.add', 'Add beach')) + '</button>';
-  html += '</div>';
-  if (editingNew) html += adminRenderBeachEditRow(null);
+  var html = '<div class="portal-admin-subsection portal-admin-beach-section" data-testid="admin-beach-manager">';
+  html += '<div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+  html += '<h3 class="portal-admin-subsection-title">' + escHtml(adminBeachText('admin.beaches.title', 'Beaches')) + '</h3>';
+  if (writes && !adminBeachSectionEditing()){
+    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-beach" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
+  }
+  html += '</div></div><p class="portal-admin-muted">' + escHtml(adminBeachText('admin.beaches.help', 'Manage beach names used by group course selectors. Prices and capacity stay on their own cards.')) + '</p>';
+  if (writes && editingNew) html += adminRenderBeachEditCard(null);
   if (!beaches.length && !editingNew) {
-    html += '<p class="portal-admin-muted" data-testid="admin-beaches-empty">' + escHtml(adminBeachText('admin.beaches.empty', 'No beaches configured yet. Add beach names before assigning them to courses.')) + '</p>';
-  } else {
-    html += '<div class="portal-admin-beach-list">';
+    html += '<p class="portal-admin-muted" data-testid="admin-beaches-empty">' + escHtml(adminBeachText('admin.beaches.empty', 'No beaches configured yet. Click + to add a beach.')) + '</p>';
+  } else if (beaches.length || editingNew) {
+    html += '<div class="portal-admin-beach-grid">';
     beaches.forEach(function(b){
       var key = String(b.beach_key || '');
       if (!key) return;
-      if (adminEditTarget === 'beach:' + key) {
-        html += adminRenderBeachEditRow(b);
-      } else {
-        html += '<div class="portal-admin-beach-row" data-admin-beach="' + escHtml(key) + '">';
-        html += '<div class="portal-admin-beach-id"><strong>' + escHtml(b.display_name || key) + '</strong><span>' + escHtml(key) + '</span></div>';
-        if (writes) html += '<div class="portal-admin-beach-actions">'
-          + '<button type="button" class="btn btn-ghost portal-admin-pricing-edit-btn" data-admin-action="edit-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.edit', 'Edit beach')) + '">✎</button>'
-          + '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-icon-btn" data-admin-action="delete-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.delete', 'Delete beach')) + '">×</button>'
+      var editing = adminEditTarget === 'beach:' + key;
+      html += '<article class="portal-admin-beach-card' + (editing ? ' is-editing' : '') + '" data-admin-beach-card="' + escHtml(key) + '">';
+      html += '<div class="portal-admin-card-title-row"><div class="portal-admin-beach-title">' + escHtml(b.display_name || key) + '</div>';
+      if (writes && !editing && !adminBeachSectionEditing()){
+        html += '<div class="portal-admin-card-actions">'
+          + '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.edit', 'Edit beach')) + '" title="' + escHtml(portalT('admin.action.edit')) + '">✎</button>'
+          + '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.delete', 'Delete beach')) + '">×</button>'
           + '</div>';
-        html += '</div>';
       }
+      html += '</div>';
+      if (editing) html += adminRenderBeachEditCard(b);
+      html += '</article>';
     });
     html += '</div>';
   }
   html += '</div>';
   return html;
 }
-function adminRenderBeachEditRow(beach){
+function adminRenderBeachEditCard(beach){
   var isNew = !beach;
   var key = beach ? String(beach.beach_key || '') : '';
   var prefix = isNew ? 'admin-beach-new' : ('admin-beach-' + key.replace(/[^a-zA-Z0-9_-]/g, '_'));
-  var label = isNew ? adminBeachText('admin.beaches.new', 'New beach') : adminBeachText('admin.beaches.edit', 'Edit beach');
-  var html = '<div class="portal-admin-beach-row is-editing" data-admin-beach-form="' + escHtml(isNew ? 'new' : key) + '">';
-  html += '<div class="portal-admin-beach-edit-title">' + escHtml(label) + '</div>';
+  var html = '';
+  if (isNew) {
+    html += '<article class="portal-admin-beach-card is-editing" data-admin-beach-card="new">';
+    html += '<div class="portal-admin-card-title-row"><div class="portal-admin-beach-title">' + escHtml(adminBeachText('admin.beaches.new', 'New beach')) + '</div></div>';
+  }
+  html += '<div class="portal-admin-beach-edit-form" data-admin-beach-form="' + escHtml(isNew ? 'new' : key) + '">';
   html += '<div class="portal-admin-edit-field"><label for="' + escHtml(prefix) + '-name">' + escHtml(adminBeachText('admin.beaches.name', 'Name')) + '</label>';
   html += '<input type="text" id="' + escHtml(prefix) + '-name" data-beach-field="display_name" maxlength="120" value="' + escHtml(beach && beach.display_name || '') + '"></div>';
-  html += '<div class="portal-admin-edit-field"><label for="' + escHtml(prefix) + '-key">' + escHtml(adminBeachText('admin.beaches.key', 'Key')) + '</label>';
-  html += '<input type="text" id="' + escHtml(prefix) + '-key" data-beach-field="beach_key" maxlength="80" ' + (isNew ? '' : 'disabled ') + 'value="' + escHtml(key) + '"></div>';
   html += '<div class="portal-admin-beach-edit-actions"><button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>';
   html += '<button type="button" class="btn btn-primary" data-admin-action="' + (isNew ? 'save-new-beach' : 'save-beach') + '" data-beach-key="' + escHtml(key) + '">' + escHtml(portalT('admin.action.save')) + '</button></div>';
   html += '</div>';
+  if (isNew) html += '</article>';
   return html;
+}
+function adminGenerateBeachKey(displayName){
+  return String(displayName || '').toLowerCase().trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^a-z0-9_]/g, '')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 80) || 'beach';
 }
 function adminReadBeachPayload(beachKey){
   var selectorKey = beachKey ? String(beachKey).replace(/"/g, '\\"') : 'new';
   var root = document.querySelector('[data-admin-beach-form="' + selectorKey + '"]');
   if (!root) return null;
   var nameEl = root.querySelector('[data-beach-field="display_name"]');
-  var keyEl = root.querySelector('[data-beach-field="beach_key"]');
   var body = { display_name: nameEl ? String(nameEl.value || '').trim() : '' };
-  if (!beachKey) body.beach_key = keyEl ? String(keyEl.value || '').trim() : '';
+  if (!beachKey) body.beach_key = adminGenerateBeachKey(body.display_name);
   return body;
 }
 function renderAdminSectionLessonTimesFromConfig(cfg){

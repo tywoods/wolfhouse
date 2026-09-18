@@ -49,7 +49,7 @@ assert.ok(/POST'[\s\S]{0,180}\/staff\/admin\/config\/surf-beaches/.test(ui), 'ne
 assert.ok(/PATCH'[\s\S]{0,180}\/staff\/admin\/config\/surf-beaches/.test(ui), 'beach rename saves to surf-beaches PATCH');
 assert.ok(/DELETE'[\s\S]{0,180}\/staff\/admin\/config\/surf-beaches/.test(ui), 'beach delete saves to surf-beaches DELETE');
 
-assert.ok(/\.portal-admin-beach-manager/.test(api), 'Staff UI CSS includes compact beach manager styles');
+assert.ok(/\.portal-admin-beach-card/.test(api), 'Staff UI CSS includes beach card styles');
 assert.ok(api.includes('/staff/admin/config/surf-beaches'), 'Staff API exposes surf-beaches routes used by UI');
 
 assert.ok(registry.validateBeachBody({ beach_key: 'playa_de_los_locos', display_name: 'Los Locos' }, { create: true }).ok, 'registry accepts key+name create');
