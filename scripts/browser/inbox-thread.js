@@ -53,6 +53,22 @@ function inboxSpamButtonHtml(isSpam){
     '" title="Mark this conversation as spam">Spam</button>';
 }
 
+function inboxDeleteConversationButtonHtml(c){
+  if (!staffIsAdmin() || !c || c._is_demo_preview) return '';
+  return '<button type="button" class="pill inbox-conv-delete-btn" id="btn-inbox-conv-delete" title="Delete this conversation permanently" aria-label="Delete conversation permanently">Delete</button>';
+}
+
+function wireInboxConversationDeleteButton(convId, targetEl){
+  targetEl = inboxThreadScope(targetEl);
+  var btn = targetEl && targetEl.querySelector('#btn-inbox-conv-delete');
+  if (!btn || btn.dataset.wiredDeleteConversation === '1') return;
+  btn.dataset.wiredDeleteConversation = '1';
+  btn.addEventListener('click', function(ev){
+    ev.preventDefault();
+    wireDeleteConversation(convId, { button: btn });
+  });
+}
+
 function wireInboxSpamButton(conv, targetEl){
   targetEl = inboxThreadScope(targetEl);
   var btn = targetEl && targetEl.querySelector('#btn-inbox-spam');
@@ -2551,7 +2567,7 @@ function loadConvDetail(convId, targetEl){
     html +=     '<div class="detail-header-right">';
     html +=       '<div class="inbox-header-stack">';
     html +=         '<div class="inbox-header-stack-channel">' + inboxComposerChannelSwitchHtml(composerChannel) + '</div>';
-    html +=         '<div class="inbox-header-stack-luna" id="inbox-header-luna-row">' + inboxClearThreadButtonHtml() + '</div>';
+    html +=         '<div class="inbox-header-stack-luna" id="inbox-header-luna-row">' + inboxClearThreadButtonHtml() + inboxDeleteConversationButtonHtml(c) + '</div>';
     html +=       '</div>';
     html +=       '<button type="button" class="sidebar-expand-btn" id="inbox-sidebar-expand" aria-controls="inbox-detail-sidebar" title="' + escHtml(t('inbox.detail.sidebar.show') || portalT('inbox.detail.sidebar.show') || 'Show bookings') + '" aria-label="' + escHtml(t('inbox.detail.sidebar.show') || 'Show bookings') + '">&#8592;</button>';
     html +=     '</div>';
@@ -2678,6 +2694,7 @@ function loadConvDetail(convId, targetEl){
     wireLunaPauseSwitch(convId, targetEl);
     wireInboxLunaModeControl(targetEl);
     wireInboxClearThread(convId, targetEl);
+    wireInboxConversationDeleteButton(convId, targetEl);
     wireFreshStart(convId, targetEl);
     wireAgentSessionReset(convId, targetEl);
 
@@ -2837,11 +2854,15 @@ function wireFreshStart(convId, targetEl){
   });
 }
 
-function wireDeleteConversation(convId){
+function wireDeleteConversation(convId, opts){
+  opts = opts || {};
   if (!convId) return;
   if (!window.confirm('Delete this conversation permanently? This cannot be undone.')) return;
+  var btn = opts.button || null;
+  if (btn) btn.disabled = true;
   fetch('/staff/conversations/' + encodeURIComponent(convId) + inboxClientQuery(), {
     method: 'DELETE',
+    credentials: 'same-origin',
     headers: { Accept: 'application/json' },
   })
     .then(function(r){
@@ -2868,5 +2889,6 @@ function wireDeleteConversation(convId){
     })
     .catch(function(err){
       alert(err.message || 'Could not delete conversation');
-    });
+    })
+    .finally(function(){ if (btn) btn.disabled = false; });
 }

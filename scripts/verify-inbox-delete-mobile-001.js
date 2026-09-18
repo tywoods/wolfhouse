@@ -41,7 +41,13 @@ class FakePg {
     this.calls.push({ sql, params });
     if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [], rowCount: 0 };
     if (/SELECT conv\.id::text AS conversation_id, conv\.phone/.test(sql)) {
-      return this.found ? { rows: [{ conversation_id: params[1], phone: '+34600000000' }], rowCount: 1 } : { rows: [], rowCount: 0 };
+      return this.found ? { rows: [{ conversation_id: params[1], phone: '+346****0000', client_id: 'client-1' }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    }
+    if (/SELECT to_regclass\(\$1\) AS regclass/.test(sql)) {
+      return { rows: [{ regclass: params[0] }], rowCount: 1 };
+    }
+    if (/DELETE FROM tenant_email_/.test(sql) || /DELETE FROM luna_outbound_approvals/.test(sql)) {
+      return { rows: [], rowCount: 1 };
     }
     if (/DELETE FROM bot_pause_states bps/.test(sql)) {
       const protectsSibling = /NOT EXISTS[\s\S]*sibling\.id <> \$2::uuid[\s\S]*sibling\.phone = \$3/.test(sql);
@@ -61,6 +67,12 @@ class FakePg {
     /async function deleteConversationHard/.test(writesSrc)
     && /DELETE FROM conversations conv/.test(writesSrc)
     && !/setConversationSpam/.test(writesSrc));
+  check('hard-delete helper clears RESTRICT child rows before conversation delete',
+    /tenant_email_luna_automation_queue/.test(writesSrc)
+    && /tenant_email_same_desk_auto_send_claims/.test(writesSrc)
+    && /tenant_email_reply_approvals/.test(writesSrc)
+    && /luna_outbound_approvals/.test(writesSrc)
+    && /child_rows_deleted/.test(writesSrc));
   check('pause cleanup is scoped and protected from same-phone sibling side effects',
     /DELETE FROM bot_pause_states bps[\s\S]*bps\.conversation_id = \$2[\s\S]*bps\.guest_phone = \$3[\s\S]*NOT EXISTS[\s\S]*sibling\.id <> \$2::uuid[\s\S]*sibling\.phone = \$3/.test(writesSrc));
 
@@ -68,14 +80,21 @@ class FakePg {
   const ok = await deleteConversationHard(okPg, 'sunset', '11111111-1111-4111-8111-111111111111');
   assert.equal(ok.found, true);
   assert.equal(ok.pause_states_deleted, 2);
-  assert.deepEqual(okPg.calls.map(c => c.sql === 'BEGIN' || c.sql === 'COMMIT' || c.sql === 'ROLLBACK' ? c.sql : c.sql.match(/^\s*(SELECT|DELETE FROM [a-z_]+|DELETE FROM conversations)/)[0].trim().replace(/\s+/g, ' ')), [
-    'BEGIN',
-    'SELECT',
-    'DELETE FROM bot_pause_states',
-    'DELETE FROM conversations',
-    'COMMIT',
-  ]);
-  console.log('PASS hard-delete exact disposable record path commits conversation delete');
+  const okCallKinds = okPg.calls.map(c => {
+    if (c.sql === 'BEGIN' || c.sql === 'COMMIT' || c.sql === 'ROLLBACK') return c.sql;
+    if (/SELECT conv\.id::text/.test(c.sql)) return 'SELECT conversation';
+    if (/SELECT to_regclass/.test(c.sql)) return 'SELECT optional table';
+    if (/DELETE FROM tenant_email_/.test(c.sql) || /DELETE FROM luna_outbound_approvals/.test(c.sql)) return 'DELETE child';
+    if (/DELETE FROM bot_pause_states/.test(c.sql)) return 'DELETE pause';
+    if (/DELETE FROM conversations/.test(c.sql)) return 'DELETE conversation';
+    return c.sql.slice(0, 60);
+  });
+  check('hard-delete exact disposable record path commits conversation delete',
+    okCallKinds[0] === 'BEGIN'
+    && okCallKinds.includes('DELETE child')
+    && okCallKinds.includes('DELETE pause')
+    && okCallKinds.at(-2) === 'DELETE conversation'
+    && okCallKinds.at(-1) === 'COMMIT');
 
   const missingPg = new FakePg({ found: false });
   const missing = await deleteConversationHard(missingPg, 'sunset', '22222222-2222-4222-8222-222222222222');
@@ -101,6 +120,11 @@ class FakePg {
     && /opacity:0/.test(shellSrc));
   check('phone delete glyph persists with 44px tap target',
     /@media\(max-width:768px\)[\s\S]{0,260}\.conv-card-delete\{opacity:\.72;width:44px;height:44px;min-width:44px/.test(shellSrc));
+  check('full thread delete button renders for admin and uses the same DELETE helper',
+    /function inboxDeleteConversationButtonHtml/.test(threadSrc)
+    && /id=\"btn-inbox-conv-delete\"/.test(threadSrc)
+    && /wireInboxConversationDeleteButton\(convId, targetEl\)/.test(threadSrc)
+    && /wireDeleteConversation\(convId, \{ button: btn \}\)/.test(threadSrc));
   check('delete handler keeps existing confirm + DELETE route and selected-thread clear',
     /window\.confirm\('Delete this conversation permanently\? This cannot be undone\.'\)/.test(threadSrc)
     && /fetch\('\/staff\/conversations\/' \+ encodeURIComponent\(convId\) \+ inboxClientQuery\(\), \{[\s\S]{0,120}method: 'DELETE'/.test(threadSrc)
