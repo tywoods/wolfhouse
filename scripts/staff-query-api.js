@@ -19173,6 +19173,10 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .conv-card-pills{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
 .conv-card-handoff{font-size:11px;color:var(--text-2);margin-top:5px;font-style:italic}
 .conv-list-empty{padding:24px 16px;color:var(--text-3);font-size:13px;text-align:center;font-style:italic}
+.inbox-views-load-more{padding:12px 14px 16px;display:flex;justify-content:center;background:var(--surface);border-bottom:1px solid var(--border-soft)}
+.inbox-views-load-more-btn{width:100%;max-width:220px;padding:8px 12px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);color:var(--text);font-size:12px;font-weight:700;cursor:pointer}
+.inbox-views-load-more-btn:hover:not(:disabled){background:var(--teal);color:var(--primary)}
+.inbox-views-load-more-btn:disabled{opacity:.62;cursor:progress}
 /* ── Inbox right panel ───────────────────────────────────────────────────── */
 .inbox-right{flex:1;overflow-y:auto;padding:24px;background:var(--surface)}
 .inbox-empty-right{flex:1 1 0;width:100%;min-width:0;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;color:var(--text-3);text-align:center;gap:10px;box-sizing:border-box}
