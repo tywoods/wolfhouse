@@ -382,6 +382,13 @@ function main() {
   ok('CSS chip refund_needed dark palette', /chip--refund_needed\{color:#fcd34d;[^}]*background:rgba\(245,158,11,\.18\)/.test(api));
   ok('CSS chip hidden dark palette', /chip--hidden\{color:#cbd5e1;[^}]*background:rgba\(100,116,139,\.18\)/.test(api));
   ok('CSS chips smaller padding/font', /\.portal-admin-bookings-chip\{[^}]*padding:2px 7px;[^}]*font-size:10px/.test(api));
+  ok('CSS chip paid light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--paid\{color:#166534;background:#dcfce7/.test(api));
+  ok('CSS chip unpaid light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--unpaid\{color:#475569;background:#f1f5f9/.test(api));
+  ok('CSS chip partial light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--partial\{color:#115e59;background:#ccfbf1/.test(api));
+  ok('CSS chip refunded light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--refunded\{color:#6b21a8;background:#f3e8ff/.test(api));
+  ok('CSS chip cancelled light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--cancelled\{color:#991b1b;background:#fee2e2/.test(api));
+  ok('CSS chip hidden light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--hidden\{color:#334155;background:#e2e8f0/.test(api));
+  ok('CSS chip refund_needed light mode', /:root:not\(\[data-theme="dark"\]\)\s*\.portal-admin-bookings-chip--refund_needed\{color:#92400e;background:#fef3c7/.test(api));
   ok('i18n col.type present EN', (() => {
     const i18n = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-i18n.js'), 'utf8');
     return /'admin\.bookings\.col\.type':\s*'Type'/.test(i18n)
