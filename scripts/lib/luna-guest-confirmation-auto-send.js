@@ -98,21 +98,37 @@ async function loadBookingSendState(pg, { bookingId, bookingCode, clientSlug }) 
   return r.rows[0] || null;
 }
 
-async function loadCrowsnestSimulatorContext(pg, clientSlug, guestPhone) {
+async function loadCrowsnestSimulatorContext(pg, clientSlug, guestPhones) {
+  const phones = [...new Set((Array.isArray(guestPhones) ? guestPhones : [guestPhones])
+    .map(trimStr).filter(Boolean))];
+  if (phones.length === 0) return null;
   const r = await pg.query(
     `SELECT conv.id::text AS conversation_id,
+            conv.phone,
             conv.metadata->>'location_id' AS location_id,
             conv.metadata->>'simulator_source_phone' AS simulator_source_phone
        FROM conversations conv
        INNER JOIN clients c ON c.id = conv.client_id
       WHERE c.slug = $1
-        AND conv.phone = $2
+        AND conv.phone = ANY($2::text[])
         AND conv.metadata->>'simulator_synthetic' = 'true'
-        AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
-      LIMIT 1`,
-    [clientSlug, guestPhone],
+        AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'`,
+    [clientSlug, phones],
   );
-  return r.rows[0] || null;
+  const rows = Array.isArray(r.rows) ? r.rows : [];
+  const conversationIds = [...new Set(rows.map((row) => trimStr(row.conversation_id)).filter(Boolean))];
+  // Phone aliases are only safe when every trusted match converges on one
+  // durable conversation. Never let query order choose between conversations.
+  if (conversationIds.length !== 1) return null;
+  const matches = rows.filter((row) => trimStr(row.conversation_id) === conversationIds[0]);
+  const canonical = matches.find((row) => phones.includes(trimStr(row.phone)));
+  if (!canonical || !trimStr(canonical.phone)) return null;
+  return {
+    ...canonical,
+    conversation_id: conversationIds[0],
+    phone: trimStr(canonical.phone),
+    matched_booking_phones: [...new Set(matches.map((row) => trimStr(row.phone)).filter(Boolean))],
+  };
 }
 
 /**
@@ -177,10 +193,28 @@ async function tryAutoSendBookingConfirmation(input, context) {
   if (!to) return { ...base, skip_reason: 'missing_guest_phone', booking_code: row.booking_code };
 
   const sunsetStaging = isAuthoritativeSunsetStaging(env, clientSlug);
-  const simulator = sunsetStaging ? await loadCrowsnestSimulatorContext(pg, clientSlug, to) : null;
+  // Public webhook projections are never identity authority. Resolve only from
+  // the booking reloaded after payment commit, retaining each source as audit
+  // provenance for the established conversation.
+  const durableBookingPhones = [
+    { source: 'booking_metadata_guest_phone', phone: trimStr(row.guest_phone_meta) },
+    { source: 'booking_phone_column', phone: trimStr(row.guest_phone_column) },
+  ].filter((identity) => identity.phone);
+  const resolvedSimulator = sunsetStaging ? await loadCrowsnestSimulatorContext(
+    pg,
+    clientSlug,
+    durableBookingPhones.map((identity) => identity.phone),
+  ) : null;
+  const simulator = resolvedSimulator ? {
+    ...resolvedSimulator,
+    matched_booking_identities: durableBookingPhones.filter(
+      (identity) => resolvedSimulator.matched_booking_phones.includes(identity.phone),
+    ),
+  } : null;
   if (ctx.simulatorReconciliationOnly === true && !simulator) {
     return { ...base, skip_reason: 'not_trusted_sunset_simulator', booking_code: row.booking_code };
   }
+  if (simulator) to = trimStr(simulator.phone) || to;
   if (simulator && !PAID_BOOKING_STATUSES.has(trimStr(row.payment_status).toLowerCase())) {
     return { ...base, skip_reason: 'booking_not_paid', booking_code: row.booking_code };
   }

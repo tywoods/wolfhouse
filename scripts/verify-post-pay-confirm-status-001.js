@@ -49,7 +49,8 @@ function makeAlreadyPaidPendingPg() {
   };
 }
 
-function makeProductionShapedPg({ simulator = true, failInsertOnce = false, failTimestampOnce = false } = {}) {
+function makeProductionShapedPg({ simulator = true, failInsertOnce = false, failTimestampOnce = false,
+  durablePhone = PHONE, columnPhone = null, simulatorRows = null } = {}) {
   const messages = [];
   const calls = [];
   let confirmationSentAt = null;
@@ -63,15 +64,20 @@ function makeProductionShapedPg({ simulator = true, failInsertOnce = false, fail
       if (flat.includes('FROM bookings b INNER JOIN clients c') && flat.includes('confirmation_sent_at')) {
         return { rows: [{ id: BOOKING, booking_code: 'SUN-001', booking_status: 'confirmed',
           payment_status: 'deposit_paid',
-          confirmation_sent_at: confirmationSentAt, guest_phone_meta: PHONE, guest_name_meta: 'Sim Guest' }] };
+          confirmation_sent_at: confirmationSentAt, guest_phone_meta: durablePhone,
+          guest_phone_column: columnPhone, guest_name_meta: 'Sim Guest' }] };
       }
       if (flat.includes('LEFT JOIN LATERAL') && flat.includes('FROM payments')) {
         return { rows: [{ amount_paid_cents: 10000, payment_record_status: 'paid',
           booking_payment_status: 'deposit_paid' }] };
       }
       if (flat.includes('FROM conversations conv') && flat.includes("metadata->>'simulator_synthetic' = 'true'")) {
-        return { rows: simulator ? [{ conversation_id: CONVERSATION, location_id: 'sunset-somo',
-          simulator_source_phone: '+34600111222' }] : [] };
+        const candidates = params[1];
+        const available = simulatorRows || [{ conversation_id: CONVERSATION, phone: durablePhone,
+          location_id: 'sunset-somo', simulator_source_phone: '+346****1222' }];
+        const rows = simulator && Array.isArray(candidates)
+          ? available.filter((row) => candidates.includes(row.phone)) : [];
+        return { rows };
       }
       if (flat === 'SELECT id FROM clients WHERE slug = $1 LIMIT 1') return { rows: [{ id: CLIENT }] };
       if (flat.includes('FROM conversations WHERE client_id = $1 AND phone = $2')) {
@@ -120,7 +126,7 @@ function makeProductionShapedPg({ simulator = true, failInsertOnce = false, fail
   };
 }
 
-async function attempt(pg, overrides = {}, env = ENV, sendCounter = { count: 0 }) {
+async function attempt(pg, overrides = {}, env = ENV, sendCounter = { count: 0 }, contextOverrides = {}) {
   return tryAutoSendBookingConfirmation({
     booking_id: BOOKING, booking_code: 'SUN-001', to: PHONE, client_slug: 'sunset',
     idempotency_key: 'confirmation:auto:webhook:SUN-001:evt_1', ...overrides,
@@ -129,6 +135,7 @@ async function attempt(pg, overrides = {}, env = ENV, sendCounter = { count: 0 }
     runGuestConfirmationPreviewDryRun: async () => ({ confirmation_preview_ready: true,
       message_preview: 'Payment received — SUN-001 is confirmed.' }),
     sendMessage: async () => { sendCounter.count += 1; throw new Error('provider forbidden'); },
+    ...contextOverrides,
   });
 }
 
@@ -194,6 +201,58 @@ async function attempt(pg, overrides = {}, env = ENV, sendCounter = { count: 0 }
   assert.equal(pg.messages[0].whatsapp_message_id, null, 'synthetic persistence needs no provider ID');
   assert.equal(sends.count, 0, 'provider never called');
   assert.ok(pg.confirmationSentAt, 'timestamp set after persistence');
+
+  // Public projection deliberately points at another trusted conversation. It
+  // must not compete with the durable booking identity or receive the bubble.
+  const durablePhone = '+999****5143';
+  const projectedPhone = '+999****0000';
+  const unrelatedConversation = '55555555-5555-5555-5555-555555555555';
+  const publicPathPg = makeProductionShapedPg({ durablePhone, simulatorRows: [
+    { conversation_id: unrelatedConversation, phone: projectedPhone,
+      location_id: 'sunset-somo', simulator_source_phone: '+346****9999' },
+    { conversation_id: CONVERSATION, phone: durablePhone,
+      location_id: 'sunset-somo', simulator_source_phone: '+346****1222' },
+  ] });
+  const publicPath = await attempt(publicPathPg, { to: projectedPhone }, ENV, sends);
+  assert.equal(publicPath.confirmation_sent, true);
+  assert.equal(publicPath.skip_reason, null);
+  const trustLookup = publicPathPg.calls.find(({ sql }) => sql.includes('FROM conversations conv')
+    && sql.includes("metadata->>'simulator_synthetic' = 'true'"));
+  assert.deepEqual(trustLookup.params[1], [durablePhone]);
+  assert.equal(trustLookup.sql.includes('LIMIT 1'), false, 'trusted lookup must inspect every match');
+  assert.equal(publicPathPg.messages.length, 1);
+  assert.equal(sends.count, 0, 'public reconciliation remains provider-free');
+
+  // Conflicting durable metadata/column identities resolving to different
+  // trusted conversations fail closed, independent of result ordering.
+  const columnPhone = '+999****7777';
+  const conflictingPg = makeProductionShapedPg({ durablePhone, columnPhone, simulatorRows: [
+    { conversation_id: CONVERSATION, phone: durablePhone, location_id: 'sunset-somo' },
+    { conversation_id: unrelatedConversation, phone: columnPhone, location_id: 'sunset-somo' },
+  ] });
+  const conflicting = await attempt(conflictingPg, { to: projectedPhone }, ENV, sends,
+    { simulatorReconciliationOnly: true });
+  assert.equal(conflicting.skip_reason, 'not_trusted_sunset_simulator');
+  assert.equal(conflictingPg.messages.length, 0);
+
+  // Duplicate query rows are acceptable only when all rows identify the same
+  // conversation; distinct conversation IDs for one durable phone are not.
+  const duplicateDistinctPg = makeProductionShapedPg({ durablePhone, simulatorRows: [
+    { conversation_id: CONVERSATION, phone: durablePhone, location_id: 'sunset-somo' },
+    { conversation_id: unrelatedConversation, phone: durablePhone, location_id: 'sunset-somo' },
+  ] });
+  const duplicateDistinct = await attempt(duplicateDistinctPg, {}, ENV, sends,
+    { simulatorReconciliationOnly: true });
+  assert.equal(duplicateDistinct.skip_reason, 'not_trusted_sunset_simulator');
+  assert.equal(duplicateDistinctPg.messages.length, 0);
+
+  const duplicateSamePg = makeProductionShapedPg({ durablePhone, simulatorRows: [
+    { conversation_id: CONVERSATION, phone: durablePhone, location_id: 'sunset-somo' },
+    { conversation_id: CONVERSATION, phone: durablePhone, location_id: 'sunset-somo' },
+  ] });
+  const duplicateSame = await attempt(duplicateSamePg, {}, ENV, sends);
+  assert.equal(duplicateSame.confirmation_sent, true);
+  assert.equal(duplicateSamePg.messages.length, 1);
 
   // Exercise the real mirror/persistence owner again: idempotency finds the same bubble.
   const replayPg = makeProductionShapedPg();
