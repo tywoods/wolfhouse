@@ -11,6 +11,7 @@ const {
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
 const { validateEquipmentOptions, normalizeEquipmentOptions } = require('./sunset-course-equipment-options');
 const { listRentalOfferings } = require('./tenant-rental-offerings');
+const { BEACH_KEY_RE, validateBeachKeys } = require('./sunset-surf-beach-registry');
 const {
   CANONICAL_DAY_DURATION_KEYS,
   isCanonicalDayDurationKey,
@@ -19,7 +20,6 @@ const {
   LEGACY_TIER_KEY_TO_CANONICAL,
 } = require('./sunset-admin-duration-keys');
 
-const PACK_BEACHES = new Set(['el_sardinero', 'liencres', 'somo']);
 const PACK_AGE_BANDS = new Set(['all_ages', '6_and_up', '6_to_11', '12_and_up']);
 const PACK_WEEKLY = new Set(['daily', 'mon_fri', 'sat_sun']);
 const PACK_SCHEDULE_KEYS = new Set(['0930_1130', '1215_1415']);
@@ -54,7 +54,7 @@ function defaultPackConfig() {
     equipment_options: [],
     age_band: '12_and_up',
     group_size: 16,
-    beaches: ['el_sardinero', 'liencres', 'somo'],
+    beaches: [],
     weekly: 'mon_fri',
     schedules: ['0930_1130', '1215_1415'],
     price_tiers: [],
@@ -135,7 +135,7 @@ function validatePackBody(body, { requireLabel } = {}) {
     const beaches = [];
     for (const b of body.beaches) {
       const key = String(b).trim();
-      if (!PACK_BEACHES.has(key)) return { ok: false, error: 'invalid beach' };
+      if (!BEACH_KEY_RE.test(key)) return { ok: false, error: 'invalid beach' };
       if (!beaches.includes(key)) beaches.push(key);
     }
     out.beaches = beaches;
@@ -250,6 +250,10 @@ async function createSurfPackRule(client, { clientSlug, locationId, body, actor 
   const cfg = { ...defaultPackConfig(), ...validated.patch };
   if (!cfg.price_tiers || !cfg.price_tiers.length) cfg.price_tiers = DEFAULT_PRICE_TIERS;
   const loc = normalizeSunsetLocationId(locationId);
+  const beachValidation = await validateBeachKeys(client, { clientSlug, locationId: loc, beachKeys: cfg.beaches });
+  if (!beachValidation.ok) {
+    return { ok: false, status: 400, body: { success: false, error: 'invalid beach', missing_beaches: beachValidation.missing } };
+  }
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_surf_pack_rules');
   const label = validated.patch.label;
   await client.query('BEGIN');
@@ -310,6 +314,14 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
     return { ok: false, status: 400, body: { success: false, error: 'empty body' } };
   }
   const loc = normalizeSunsetLocationId(locationId);
+  if (validated.patch.beaches) {
+    const beachValidation = await validateBeachKeys(client, {
+      clientSlug, locationId: loc, beachKeys: validated.patch.beaches,
+    });
+    if (!beachValidation.ok) {
+      return { ok: false, status: 400, body: { success: false, error: 'invalid beach', missing_beaches: beachValidation.missing } };
+    }
+  }
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_surf_pack_rules');
   await client.query('BEGIN');
   try {
@@ -445,7 +457,6 @@ async function deactivateSurfPackRule(client, { ruleId, clientSlug, locationId, 
 }
 
 module.exports = {
-  PACK_BEACHES,
   PACK_AGE_BANDS,
   PACK_WEEKLY,
   PACK_SCHEDULE_KEYS,
