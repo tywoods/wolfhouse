@@ -172,10 +172,24 @@ async function deleteConversationHard(pg, clientSlug, convId) {
       return { found: false };
     }
     const phone = exists.rows[0].phone;
-    await pg.query(
-      `DELETE FROM bot_pause_states
-        WHERE client_slug = $1
-          AND (conversation_id = $2 OR guest_phone = $3)`,
+    const pauseDelete = await pg.query(
+      `DELETE FROM bot_pause_states bps
+        WHERE bps.client_slug = $1
+          AND (
+            bps.conversation_id = $2
+            OR (
+              NULLIF($3, '') IS NOT NULL
+              AND bps.guest_phone = $3
+              AND NOT EXISTS (
+                SELECT 1
+                  FROM conversations sibling
+                  JOIN clients sibling_client ON sibling_client.id = sibling.client_id
+                 WHERE sibling_client.slug = $1
+                   AND sibling.id <> $2::uuid
+                   AND sibling.phone = $3
+              )
+            )
+          )`,
       [clientSlug, convId, phone],
     );
     const del = await pg.query(
@@ -188,7 +202,11 @@ async function deleteConversationHard(pg, clientSlug, convId) {
       [clientSlug, convId],
     );
     await pg.query('COMMIT');
-    return { found: del.rows.length > 0, conversation_id: del.rows[0]?.conversation_id || null };
+    return {
+      found: del.rows.length > 0,
+      conversation_id: del.rows[0]?.conversation_id || null,
+      pause_states_deleted: pauseDelete.rowCount || 0,
+    };
   } catch (err) {
     await pg.query('ROLLBACK');
     throw err;

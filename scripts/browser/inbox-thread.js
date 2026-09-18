@@ -1320,7 +1320,7 @@ function wireLunaPauseSwitch(convId, targetEl){
 /* Render inbox conversation cards (left column) */
 function renderInboxConvCardHtml(c, profile){
   var delBtn = (staffIsAdmin() && !c._is_demo_preview)
-    ? '<button type="button" class="conv-card-delete" title="Delete conversation" aria-label="Delete conversation">&times;</button>'
+    ? '<button type="button" class="conv-card-delete" title="Delete conversation" aria-label="Delete conversation permanently">&times;</button>'
     : '';
   var handoffLine = '';
   if (conversationHasOpenHandoff(c) && c.handoff_reason){
@@ -1343,9 +1343,9 @@ function renderInboxConvCardHtml(c, profile){
       ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>'
       : '';
     return '<div class="conv-card' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
-      delBtn +
       '<div class="conv-card-header-row">' +
         '<div class="conv-card-name">' + escHtml(inboxPersonDisplayName(c)) + '</div>' +
+        delBtn +
       '</div>' +
       subjectLine +
       (contactLine ? '<div class="conv-card-contact">' + escHtml(contactLine) + '</div>' : '') +
@@ -1361,9 +1361,9 @@ function renderInboxConvCardHtml(c, profile){
     '</div>';
   }
   return '<div class="conv-card conv-card-mobile-dense' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
-    delBtn +
     '<div class="conv-card-header-row">' +
       '<div class="conv-card-name">' + escHtml(inboxPersonDisplayName(c)) + '</div>' +
+      delBtn +
     '</div>' +
     ((c.phone && !inboxIsOpaqueEmailIdentity(c.phone)) ? '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' : '') +
     '<div class="conv-card-meta-row">' +

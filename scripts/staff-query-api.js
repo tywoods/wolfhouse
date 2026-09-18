@@ -31176,7 +31176,7 @@ function portalStartupAfterSession(){
   applyClientPortalProfile(getClient());
   var tab = profile.default_tab || 'bed-calendar';
   if (isTabHiddenForClient(tab, getClient())) tab = profile.is_surf_vertical ? 'portal-home' : 'bed-calendar';
-  if (isPortalMobile() && !isTabHiddenForClient('conversations', getClient())) tab = 'conversations';
+  // Mobile uses the same landing tab as desktop. Conversation deep links below still land on Inbox.
   // Inbox deep-link (?conversation=): land on Inbox — do not boot Horario catalog first.
   try {
     var deepConv = (new URLSearchParams(window.location.search || '').get('conversation') || '').trim();
