@@ -3,8 +3,10 @@
 /**
  * verify:rental-admin-hybrid-redesign
  *
- * Admin ▸ RENTAL PRICES hybrid redesign (compact browse + expand-in-place).
+ * Admin ▸ Equipment hybrid redesign (compact browse + expand-in-place).
  * UI-only — production-generated /staff/ui; APIs intercepted.
+ *
+ * Section chrome: title "Equipment" + Group Courses circled + (not primary Add button).
  *
  * Duration × is PRE-EXISTING immediate DELETE with confirmation (not staged into
  * /commit). This suite documents and asserts that contract; it does not change it.
