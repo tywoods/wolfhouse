@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from wolfhouse.crowsnest_guest_door import (
     CrowsnestGuestScope,
@@ -154,18 +155,57 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         scope = CrowsnestGuestScope.create("+34" + "600111445")
         token = door._SCOPE.set(scope)
         try:
-            results = [
-                self.staff._post_bot("/sunset/booking-create", {"guest_confirmed_booking": True}),
-                self.staff._post_bot("/sunset/payment-link", {"booking_id": "bk-1"}),
-                self.staff._post_bot("/sunset/waiver/register", {"booking_id": "bk-1"}),
-                self.staff._post_bot("/booking/contact", {"booking_id": "bk-1", "guest_name": "Tom"}),
-            ]
+            with patch.dict("os.environ", {
+                "HERMES_ROLE": "sunset-luna",
+                "LUNA_TENANT_ID": "sunset",
+                "LUNA_CLIENT_SLUG": "sunset",
+                "SUNSET_INGRESS_LOCATION_ID": "sunset-somo",
+                "WHATSAPP_CLOUD_WEBHOOK_PORT": "8094",
+            }, clear=False):
+                results = [
+                    self.staff._post_bot("/sunset/booking-create", {"guest_confirmed_booking": True}),
+                    self.staff._post_bot("/sunset/payment-link", {"booking_id": "bk-1"}),
+                    self.staff._post_bot("/sunset/waiver/register", {"booking_id": "bk-1"}),
+                    self.staff._post_bot("/booking/contact", {"booking_id": "bk-1", "guest_name": "Tom"}),
+                ]
         finally:
             door._SCOPE.reset(token)
 
         self.assertTrue(all(result["success"] for result in results))
         self.assertEqual(len(self.staff.calls), 4)
+        self.assertTrue(all(payload["simulator_synthetic"] is True for _path, payload in self.staff.calls))
+        self.assertTrue(all(payload["suppress_notifications"] is True for _path, payload in self.staff.calls))
+        self.assertTrue(all(payload["suppress_approvals"] is True for _path, payload in self.staff.calls))
         self.assertFalse(any(call.get("simulator_guard") for call in scope.tool_calls))
+        self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
+
+    async def test_shared_wolfhouse_door_cannot_mint_staff_write_authority(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+34" + "600111446")
+        token = door._SCOPE.set(scope)
+        try:
+            with patch.dict("os.environ", {
+                "HERMES_ROLE": "luna",
+                "LUNA_TENANT_ID": "wolfhouse-somo",
+                "LUNA_CLIENT_SLUG": "wolfhouse-somo",
+                "SUNSET_INGRESS_LOCATION_ID": "",
+                "WHATSAPP_CLOUD_WEBHOOK_PORT": "8090",
+            }, clear=False):
+                result = self.staff._post_bot(
+                    "/bookings/create",
+                    {"guest_name": "No Leak", "client_slug": "wolfhouse-somo"},
+                )
+        finally:
+            door._SCOPE.reset(token)
+
+        self.assertEqual(
+            self.staff.calls,
+            [("/staff/bot/booking-preview", {"guest_name": "No Leak", "client_slug": "wolfhouse-somo"})],
+        )
+        self.assertTrue(result["success"])
+        self.assertEqual(result["path"], "/staff/bot/booking-preview")
+        self.assertIn("redirected_create_to_booking_preview", scope.tool_calls[0]["simulator_guard"])
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
 
     async def test_inbox_identity_is_synthetic_and_persistence_is_verified(self):

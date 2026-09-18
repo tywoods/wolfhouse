@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import os
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -91,6 +92,17 @@ def _normalize_staff_bot_path(path: Any) -> str:
     return "/staff/bot/" + clean
 
 
+def _sunset_staging_staff_writes_enabled() -> bool:
+    """Mint write authority from exact runtime identity, never request JSON."""
+    return (
+        os.getenv("HERMES_ROLE", "").strip() == "sunset-luna"
+        and os.getenv("LUNA_TENANT_ID", "").strip() == "sunset"
+        and os.getenv("LUNA_CLIENT_SLUG", "").strip() == "sunset"
+        and os.getenv("SUNSET_INGRESS_LOCATION_ID", "").strip() == "sunset-somo"
+        and os.getenv("WHATSAPP_CLOUD_WEBHOOK_PORT", "").strip() == "8094"
+    )
+
+
 def simulator_mirror_fields(
     scope: Optional[CrowsnestGuestScope] = None,
 ) -> Dict[str, Any]:
@@ -157,18 +169,28 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
                     "simulator_guard": ["request_scope_revoked"],
                 })
                 return result
-            # This server-owned door exists only on the isolated Sunset staging
-            # Luna runtime. While the request is active it has the same Staff
-            # tool authority as an ordinary Sunset WhatsApp turn. External
-            # WhatsApp transport remains permanently intercepted below.
+            # Authority is minted from the exact one-Luna Sunset runtime identity,
+            # never request JSON. The shared Wolfhouse :8090 route stays no-write.
+            allow_staff_writes = _sunset_staging_staff_writes_enabled()
             norm, guarded, warnings = guard_bot_path_and_payload(
                 _normalize_staff_bot_path(path),
                 payload or {},
-                allow_writes=True,
+                allow_writes=allow_staff_writes,
             )
             if is_simulate_write_blocked(warnings):
                 result = synthetic_blocked_result(norm, warnings, allow_writes=False)
             else:
+                if allow_staff_writes:
+                    # Preserve trusted simulator provenance across Staff writes so
+                    # notification-aware handlers can apply the same suppression
+                    # contract. The target remains the non-routable +999 identity.
+                    guarded = {
+                        **dict(guarded or {}),
+                        "simulator_synthetic": True,
+                        "source_owner": "crowsnest-guest-door",
+                        "suppress_notifications": True,
+                        "suppress_approvals": True,
+                    }
                 result = original_post(norm, guarded)
             scope.tool_calls.append({
                 "name": tool_name_from_path(norm),
@@ -468,7 +490,7 @@ async def run_crowsnest_guest_turn(
                 "transport_calls": scope.transport_calls,
                 "transport_attempts": scope.transport_attempts,
                 "inbox_persisted": True,
-                "allow_writes": True,
+                "allow_writes": _sunset_staging_staff_writes_enabled(),
             }
         finally:
             scope.revoked = True
