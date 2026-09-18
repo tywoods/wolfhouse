@@ -498,7 +498,9 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId, op
   const lessonCapacityRaw = mapCapacityRows(capacityRes.rows);
   const lesson_times = attachLessonPrices(mapLessonTimeRows(timeRes.rows), prices);
   const { loadSurfPacksFromDb } = require('./sunset-admin-pack-rules');
-  const surf_packs = await loadSurfPacksFromDb(client, slug, loc);
+  const surf_packs = await loadSurfPacksFromDb(client, slug, loc, {
+    includeDisabled: opts.includeDisabledSurfPacks === true,
+  });
   const privateLessonLoad = await loadPrivateLessonFromDb(client, slug, loc);
   const private_lesson = privateLessonLoad.api;
   const change_history = mapAuditRows(auditRes.rows);
@@ -753,6 +755,7 @@ async function resolveTenantBusinessConfigAsync(clientSlug, options = {}) {
     try {
       const loadOpts = {
         includeInactiveCanonicalRentals: options.includeInactiveCanonicalRentals === true,
+        includeDisabledSurfPacks: options.includeDisabledSurfPacks === true,
       };
       const dbResult = options.loadFromDb
         ? await options.loadFromDb(clientSlug, options.pgClient, locationId)

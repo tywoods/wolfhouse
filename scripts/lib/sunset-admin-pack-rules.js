@@ -101,6 +101,7 @@ function mapPackRow(row) {
     schedules: Array.isArray(cfg.schedules) ? cfg.schedules : [],
     equipment_options: normalizeEquipmentOptions(cfg.equipment_options),
     price_tiers,
+    active: cfg.enabled !== false,
     source: 'db',
   };
 }
@@ -144,6 +145,9 @@ function validatePackBody(body, { requireLabel } = {}) {
     const w = String(body.weekly).trim();
     if (!PACK_WEEKLY.has(w)) return { ok: false, error: 'invalid weekly' };
     out.weekly = w;
+  }
+  if (body.active != null) {
+    out.enabled = body.active === true || body.active === 'true' || body.active === 1 || body.active === '1';
   }
   if (body.schedules != null) {
     if (!Array.isArray(body.schedules)) return { ok: false, error: 'schedules must be array' };
@@ -213,14 +217,16 @@ async function surfPackTableExists(client) {
   return result.rows.length > 0;
 }
 
-async function loadSurfPacksFromDb(client, clientSlug, locationId) {
+async function loadSurfPacksFromDb(client, clientSlug, locationId, opts = {}) {
   await ensureSurfPackTable(client);
   const loc = normalizeSunsetLocationId(locationId);
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_surf_pack_rules');
+  const includeDisabled = opts && opts.includeDisabled === true;
   const params = hasLoc ? [clientSlug, loc] : [clientSlug];
+  const enabledWhere = includeDisabled ? '' : " AND (config_json->>'enabled') IS DISTINCT FROM 'false'";
   const where = hasLoc
-    ? 'client_slug = $1 AND location_id = $2 AND active = true'
-    : 'client_slug = $1 AND active = true';
+    ? ('client_slug = $1 AND location_id = $2 AND active = true' + enabledWhere)
+    : ('client_slug = $1 AND active = true' + enabledWhere);
   const result = await client.query(
     `SELECT id, label, config_json FROM tenant_surf_pack_rules WHERE ${where} ORDER BY label`,
     params,
@@ -333,8 +339,8 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
     }
     const existing = await client.query(
       hasLoc
-        ? `SELECT * FROM tenant_surf_pack_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 AND active = true FOR UPDATE`
-        : `SELECT * FROM tenant_surf_pack_rules WHERE id = $1::uuid AND client_slug = $2 AND active = true FOR UPDATE`,
+        ? `SELECT * FROM tenant_surf_pack_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 FOR UPDATE`
+        : `SELECT * FROM tenant_surf_pack_rules WHERE id = $1::uuid AND client_slug = $2 FOR UPDATE`,
       hasLoc ? [ruleId, clientSlug, loc] : [ruleId, clientSlug],
     );
     if (!existing.rows[0]) {

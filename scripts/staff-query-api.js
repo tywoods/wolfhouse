@@ -17558,7 +17558,11 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-pack-card.is-editing,
 .portal-admin-pack-card:has([data-admin-pack-form]){min-width:0;max-width:100%;width:auto}
 .portal-admin-pack-title{font-size:14px;font-weight:700;color:var(--text)}
+.portal-admin-pack-title-row{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.portal-admin-pack-title-row .portal-admin-equip-status-dot{margin-top:.45em}
 .portal-admin-pack-sub{font-size:11px;color:var(--text-3)}
+.portal-admin-pack-enabled-toggle{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 8px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface);color:var(--text-2);font-size:12px;font-weight:650;line-height:1;white-space:nowrap}
+.portal-admin-pack-enabled-toggle input{width:14px;height:14px;margin:0;accent-color:#1F6B4A}
 .portal-admin-pill-group{display:flex;flex-direction:column;gap:6px;margin:0 0 8px;min-width:0}
 .portal-admin-pill-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
 .portal-admin-pill-row{display:flex;flex-wrap:wrap;gap:6px;padding:1px 0 2px;min-width:0}
@@ -42836,6 +42840,7 @@ async function handleAdminConfig(query, res, user) {
     ? await resolveTenantBusinessConfigAsync(clientSlug, {
       locationId,
       includeInactiveCanonicalRentals: true,
+      includeDisabledSurfPacks: true,
     })
     : resolveTenantBusinessConfig(clientSlug, locationId);
   if (!resolved.ok) {

@@ -1134,6 +1134,11 @@ function adminRenderPackEditForm(pid, pack){
   var deleteCourseBtn = pid
     ? '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-pack-delete" data-admin-action="delete-pack" data-pack-id="' + escHtml(pid) + '" aria-label="' + escHtml(deleteCourseLabel) + '">' + escHtml(deleteCourseLabel) + '</button>'
     : '';
+  var packActive = p.active !== false;
+  var statusToggleHtml = pid
+    ? '<label class="portal-admin-pack-enabled-toggle"><input type="checkbox" id="' + prefix + '-active" data-admin-action="toggle-pack-active"' + (packActive ? ' checked' : '') + '> ' +
+      '<span data-admin-pack-active-label="1">' + escHtml(packActive ? 'Enabled' : 'Disabled') + '</span></label>'
+    : '';
   var inner = '<div class="portal-admin-pack-form"' + formAttr + '>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
     '<input type="text" id="' + prefix + '-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
@@ -1148,6 +1153,7 @@ function adminRenderPackEditForm(pid, pack){
     adminRenderPackTierFields(p.price_tiers || [], prefix) +
     '<div class="portal-admin-edit-actions portal-admin-pack-edit-footer">' +
     deleteCourseBtn +
+    statusToggleHtml +
     '<div class="portal-admin-pack-edit-footer-right">' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
     '<button type="button" class="btn btn-primary" data-admin-action="' + (pid ? 'save-pack' : 'save-new-pack') + '" data-pack-id="' + escHtml(pid || '') + '">' + escHtml(portalT('admin.action.save')) + '</button>' +
@@ -1174,6 +1180,7 @@ function adminReadPackFormPayload(pid){
   var schedulesParsed = adminReadPackSchedules(prefix);
   var groupSizeEl = el(prefix + '-group-size');
   var groupSizeParsed = adminParseCapacity(groupSizeEl && groupSizeEl.value);
+  var activeEl = el(prefix + '-active');
   return {
     label: labelEl ? String(labelEl.value || '').trim() : '',
     age_band: adminCollectSinglePill('age_band', '12_and_up', root),
@@ -1182,6 +1189,7 @@ function adminReadPackFormPayload(pid){
     _equipmentError: adminReadEquipmentOptions(root).ok ? '' : adminReadEquipmentOptions(root).error,
     beaches: adminCollectPillValues('beaches', root),
     weekly: adminCollectSinglePill('weekly', 'mon_fri', root),
+    active: activeEl ? !!activeEl.checked : true,
     schedules: schedulesParsed.ok ? schedulesParsed.value : [],
     price_tiers: tiers,
     _scheduleError: schedulesParsed.ok ? '' : schedulesParsed.error,
@@ -1923,8 +1931,9 @@ function renderAdminPackCards(packs, writes, defaultCap){
   list.forEach(function(p){
     var pid = (p.pack_id || p.id) ? String(p.pack_id || p.id) : '';
     var editing = writes && adminEditTarget === ('pack:' + pid);
-    html += '<article class="portal-admin-pack-card' + (editing ? ' is-editing' : '') + '" data-admin-pack-card="' + escHtml(pid) + '">';
-    html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-pack-title">' + escHtml(p.label || 'Pack') + '</div>' +
+    var packActive = p.active !== false;
+    html += '<article class="portal-admin-pack-card' + (editing ? ' is-editing' : '') + '" data-admin-pack-card="' + escHtml(pid) + '" data-admin-pack-active="' + (packActive ? '1' : '0') + '">';
+    html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-pack-title-row"><span class="portal-admin-equip-status-dot' + (packActive ? ' is-on' : ' is-off') + '" aria-hidden="true"></span><div class="portal-admin-pack-title">' + escHtml(p.label || 'Pack') + '</div></div>' +
       '<div class="portal-admin-pack-sub">' + escHtml(adminLessonAgeLabel(p.age_band)) + '</div></div>';
     if (writes && !editing && !adminPackSectionEditing()){
       html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-pack" data-pack-id="' +
@@ -3728,10 +3737,16 @@ function wireAdminTab(){
     var action = btn.getAttribute('data-admin-action');
     // Do not preventDefault on native checkboxes — that blocks Enabled/Disabled flips.
     // (course-equipment-policy is a non-submit control that also must keep default.)
-    if (action !== 'course-equipment-policy' && action !== 'toggle-equip-enabled') ev.preventDefault();
+    if (action !== 'course-equipment-policy' && action !== 'toggle-equip-enabled' && action !== 'toggle-pack-active') ev.preventDefault();
     var cfg = adminConfigCache;
     if (!cfg && action !== 'toggle-pill'){
       adminShowMessage('error', portalT('admin.loading'));
+      return;
+    }
+    if (action === 'toggle-pack-active'){
+      var packToggle = btn;
+      var packToggleLabel = packToggle && packToggle.parentElement ? packToggle.parentElement.querySelector('[data-admin-pack-active-label]') : null;
+      if (packToggleLabel) packToggleLabel.textContent = packToggle.checked ? 'Enabled' : 'Disabled';
       return;
     }
     if (action === 'toggle-pill'){
