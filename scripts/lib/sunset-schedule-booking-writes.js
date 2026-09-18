@@ -2272,7 +2272,51 @@ function validateScheduleBookingBody(body, opts) {
       surfer_count: surfer_count != null ? surfer_count : null,
       course_equipment,
       lessons: lessonsOut,
+      beach_key: String(bodyForComponents.beach_key || '').trim() || null,
     },
+  };
+}
+
+/**
+ * Resolve the guest-facing beach for a lesson booking from the canonical beach
+ * registry and the exact course(s) assigned to the booking. A requested beach
+ * is accepted only when every assigned course offers it. With no requested
+ * beach, infer only when the assigned courses share exactly one beach.
+ */
+async function resolveSunsetBookingBeach(pg, {
+  clientSlug, locationId, requestedBeachKey, assignedCourses,
+} = {}) {
+  if (String(clientSlug || '').trim() !== SUNSET_CLIENT_SLUG) return null;
+  const courses = (Array.isArray(assignedCourses) ? assignedCourses : [])
+    .map((course) => course && course.pack ? course.pack : course)
+    .filter(Boolean);
+  if (!courses.length || !pg || typeof pg.query !== 'function') return null;
+
+  const beachSets = courses.map((course) => new Set(
+    (Array.isArray(course.beaches) ? course.beaches : [])
+      .map((value) => String(value || '').trim())
+      .filter(Boolean),
+  ));
+  if (beachSets.some((set) => set.size === 0)) return null;
+  const shared = [...beachSets[0]].filter((key) => beachSets.every((set) => set.has(key)));
+  const requested = String(requestedBeachKey || '').trim();
+  const selectedKey = requested ? (shared.includes(requested) ? requested : null)
+    : (shared.length === 1 ? shared[0] : null);
+  if (!selectedKey) return null;
+
+  const result = await pg.query(
+    `SELECT beach_key, display_name
+       FROM tenant_surf_beaches
+      WHERE client_slug = $1 AND location_id = $2
+        AND beach_key = ANY($3::text[]) AND active = TRUE`,
+    [clientSlug, locationId, shared],
+  );
+  const row = (Array.isArray(result && result.rows) ? result.rows : [])
+    .find((candidate) => String(candidate.beach_key || '').trim() === selectedKey);
+  if (!row) return null;
+  return {
+    beach_key: selectedKey,
+    display_name: String(row.display_name || '').trim() || selectedKey,
   };
 }
 
@@ -2379,6 +2423,7 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
             sr.metadata->>'location_id' AS location_id,
             sr.metadata->>'idempotency_intent_fp' AS idempotency_intent_fp,
             sr.metadata->>'idempotency_key' AS idempotency_key,
+            b.metadata->'beach' AS booking_beach,
             b.hold_expires_at,
             b.status::text AS booking_status
        FROM booking_service_records sr
@@ -2660,6 +2705,10 @@ function buildScheduleBookingIntentFingerprint(input, locationId, opts) {
     notes: String((input && input.notes) || ''),
     needs_reply: !!(input && input.needs_reply),
   };
+  const beachKey = String((input && input.beach_key) || '').trim();
+  // Preserve compatibility with historical no-beach fingerprints while making
+  // every explicit course beach part of the immutable booking intent.
+  if (beachKey) payload.beach_key = beachKey;
   // Normalized canonical course_equipment wire — selected-vs-omitted, offering,
   // mode, and qty changes must conflict on idempotent replay. Only emit the key
   // when a selection is present so historical fingerprints without CE still match
@@ -4016,6 +4065,8 @@ function buildCreateRequestIdempotencyIdentity(body, locationId, quoteProvenance
     notes: b.notes != null ? String(b.notes) : '',
     needs_reply: b.needs_reply === true || b.needs_reply === 'true' || b.needs_reply === 1,
   };
+  const beachKey = String(b.beach_key || '').trim();
+  if (beachKey) inputLike.beach_key = beachKey;
   const opts = {
     rentals,
     custom_line_items: Array.isArray(b.custom_line_items) ? b.custom_line_items : [],
@@ -4169,6 +4220,9 @@ function evaluateIdempotentReplay(existingRows, input, locationId, opts) {
       },
     };
   }
+  const bookingBeach = first.booking_beach && typeof first.booking_beach === 'object'
+    ? first.booking_beach
+    : null;
   return {
     ok: true, replay: true, status: 200,
     body: {
@@ -4176,6 +4230,10 @@ function evaluateIdempotentReplay(existingRows, input, locationId, opts) {
       booking_code: first.booking_code, booking_id: first.booking_id,
       hold_expires_at: first.hold_expires_at || null,
       status: first.booking_status || null,
+      beach: bookingBeach,
+      guest_confirmation_text: bookingBeach && bookingBeach.display_name
+        ? `Your lesson is booked at ${bookingBeach.display_name}.`
+        : null,
       records: existingRows.map(scheduleRowFromDb), booking: scheduleRowFromDb(first),
     },
   };
@@ -4732,6 +4790,18 @@ async function createSunsetScheduleBooking(pg, opts) {
   const componentKeys = componentList(input.components);
   const guestCount = resolveGuestCount(input.components);
   const { firstDate } = bookingHeaderDates(input);
+  const assignedCourseValues = assignedCoursesById
+    ? Object.values(assignedCoursesById).filter(Boolean)
+    : [];
+  const assignedCourseList = assignedCourseValues.length
+    ? assignedCourseValues
+    : (assignedCourse ? [assignedCourse] : []);
+  const bookingBeach = await resolveSunsetBookingBeach(pg, {
+    clientSlug,
+    locationId,
+    requestedBeachKey: input.beach_key,
+    assignedCourses: assignedCourseList,
+  });
 
   await pg.query('BEGIN');
   try {
@@ -4932,6 +5002,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           components: componentKeys,
           guest_phone: input.guest_phone,
           location_id: locationId || null,
+          beach: bookingBeach,
           sunset_payment_method: paymentMethod,
           rental_pricing: rentalPricingDescriptor || null,
           rentals: allRequestedRentals.length ? allRequestedRentals : null,
@@ -5232,6 +5303,10 @@ async function createSunsetScheduleBooking(pg, opts) {
         booking_id: bookingId,
         total_cents: priced.total_cents,
         currency: 'EUR',
+        beach: bookingBeach,
+        guest_confirmation_text: bookingBeach
+          ? `Your lesson is booked at ${bookingBeach.display_name}.`
+          : null,
         sunset_price_source: priced.sunset_price_source || 'db',
         ...(payToBookHold ? {
           hold_expires_at: holdExpiresAt,
@@ -5306,6 +5381,7 @@ module.exports = {
   resolveFullDayEquipmentAddonUnitCents,
   insertFullDayEquipmentAddonRows,
   validateScheduleBookingBody,
+  resolveSunsetBookingBeach,
   bookingStatusFromPayment,
   componentList,
   insertServiceRecord,

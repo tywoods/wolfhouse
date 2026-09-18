@@ -2998,7 +2998,7 @@ def create_sunset_booking(params, **kwargs):
                 body["date_to"] = single
                 if not body.get("service_date"):
                     body["service_date"] = single
-    for opt in ("payment_status", "notes", "idempotency_key", "location_id"):
+    for opt in ("payment_status", "notes", "idempotency_key", "location_id", "beach_key"):
         if payload.get(opt) not in (None, ""):
             body[opt] = payload.get(opt)
 
@@ -3046,6 +3046,8 @@ def create_sunset_booking(params, **kwargs):
         "amount_eur": (round(data.get("total_cents") / 100, 2) if isinstance(data.get("total_cents"), (int, float)) else None),
         "currency": data.get("currency") or "EUR",
         "location_id": data.get("location_id"),
+        "beach": data.get("beach") if isinstance(data.get("beach"), dict) else None,
+        "guest_confirmation_text": _clean(data.get("guest_confirmation_text")) or None,
         "reason": data.get("reason") or data.get("error") if not ok else None,
         "next_action": (None if suppress_payment_next_action else "create_sunset_payment_link") if ok else None,
         "staff_review_needed": not ok,
@@ -3235,6 +3237,7 @@ def _sunset_write_tools():
             "quote_provenance": {"type": "object", "description": "Opaque authoritative quote_provenance from get_sunset_offering_quote. Copy unchanged. Required for course gear. Carries quote_lane, exact course_equipment wire array, line_items, and fingerprint — create re-quotes on the recorded lane and must match exactly. Plugin posts the provenance wire to booking-create."},
             "rental_pricing": {"type": "object", "description": "For catalog rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price / catalog quote (item+duration the guest selected)."},
             "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
+            "beach_key": {"type": "string", "description": "Stable beach_key returned with the selected course/slot. Pass it through unchanged so the booking confirmation names the authoritative beach; never invent it."},
             "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates). For multi-day catalog rentals prefer date_from+date_to instead."},
             "date_from": {"type": "string", "description": "Range start YYYY-MM-DD (with date_to). Required with date_to for multi-day catalog rentals whose rental_pricing.duration is 2_days/3_days/… — pass the inclusive rental window, not a single service_date."},
             "date_to": {"type": "string", "description": "Range end YYYY-MM-DD (with date_from). Inclusive end of a multi-day catalog rental window."},
