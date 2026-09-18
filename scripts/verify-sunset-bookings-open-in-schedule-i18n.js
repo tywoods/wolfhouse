@@ -15,8 +15,8 @@ const ROOT = path.join(__dirname, '..');
 const KEY = 'admin.bookings.openInSchedule';
 const CODE = 'SUNSET-20260811-EA783E';
 
-assert.strictEqual(STAFF_PORTAL_STRINGS.en[KEY], 'Open in Schedule', 'EN pack');
-assert.strictEqual(STAFF_PORTAL_STRINGS.es[KEY], 'Abrir en Agenda', 'ES pack');
+assert.strictEqual(STAFF_PORTAL_STRINGS.en[KEY], 'Open booking', 'EN pack');
+assert.strictEqual(STAFF_PORTAL_STRINGS.es[KEY], 'Abrir reserva', 'ES pack');
 
 const bookingsSrc = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
 const labelStart = bookingsSrc.indexOf('function adminBookingsOpenScheduleLabel');
@@ -50,7 +50,7 @@ function assertClean(label, where) {
   };
   const fn = loadHelper(box);
   const out = fn(CODE);
-  assert.strictEqual(out, 'Open in Schedule: ' + CODE, 'EN portalT');
+  assert.strictEqual(out, 'Open booking: ' + CODE, 'EN portalT');
   assertClean(out, 'EN portalT');
 }
 
@@ -62,7 +62,7 @@ function assertClean(label, where) {
   };
   const fn = loadHelper(box);
   const out = fn(CODE);
-  assert.strictEqual(out, 'Abrir en Agenda: ' + CODE, 'ES portalT');
+  assert.strictEqual(out, 'Abrir reserva: ' + CODE, 'ES portalT');
   assertClean(out, 'ES portalT');
 }
 
@@ -74,7 +74,7 @@ function assertClean(label, where) {
   };
   const fn = loadHelper(box);
   const out = fn(CODE);
-  assert.strictEqual(out, 'Open in Schedule: ' + CODE, 'EN raw-key fallback');
+  assert.strictEqual(out, 'Open booking: ' + CODE, 'EN raw-key fallback');
   assertClean(out, 'EN raw-key fallback');
 }
 
@@ -86,7 +86,7 @@ function assertClean(label, where) {
   };
   const fn = loadHelper(box);
   const out = fn(CODE);
-  assert.strictEqual(out, 'Abrir en Agenda: ' + CODE, 'ES raw-key fallback');
+  assert.strictEqual(out, 'Abrir reserva: ' + CODE, 'ES raw-key fallback');
   assertClean(out, 'ES raw-key fallback');
 }
 
@@ -100,7 +100,7 @@ function assertClean(label, where) {
   };
   const fn = loadHelper(box);
   const out = fn(CODE);
-  assert.strictEqual(out, 'Abrir en Agenda: ' + CODE, 'ES window.t');
+  assert.strictEqual(out, 'Abrir reserva: ' + CODE, 'ES window.t');
   assertClean(out, 'ES window.t');
 }
 
