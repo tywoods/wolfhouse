@@ -113,10 +113,12 @@ def _bind_non_routable_phone_identity(value: Any, inbox_phone: str) -> Any:
     for key, item in value.items():
         normalized_key = str(key).strip().lower().replace("-", "_")
         is_phone_identity = (
-            normalized_key in {"phone", "mobile", "whatsapp"}
-            or normalized_key.endswith("_phone")
-            or normalized_key.startswith("phone_")
-            or "whatsapp_phone" in normalized_key
+            normalized_key in {
+                "phone", "phone_number", "mobile", "mobile_number", "telephone",
+                "telephone_number", "cell", "cell_number", "cellphone",
+                "cellphone_number", "whatsapp", "whatsapp_number", "whatsapp_phone",
+            }
+            or normalized_key.endswith(("_phone", "_mobile", "_telephone", "_cell", "_cellphone"))
         )
         bound[key] = inbox_phone if is_phone_identity else _bind_non_routable_phone_identity(item, inbox_phone)
     return bound
