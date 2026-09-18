@@ -120,6 +120,15 @@ assert.ok(packRulesSrc.includes("(config_json->>'enabled') IS DISTINCT FROM 'fal
 assert.ok(tenantConfigSrc.includes('includeDisabledSurfPacks'), 'admin config can request disabled courses');
 assert.ok(apiSrc.includes('includeDisabledSurfPacks: true'), 'Staff admin config includes disabled courses for Pricing cards');
 
+// Group Courses Equipment editor: no three-price helper blurb under the title.
+const equipEditor = (adminUi.match(/function adminRenderEquipmentEditor\([\s\S]*?function adminReadEquipmentOptions/) || [])[0] || '';
+assert.ok(equipEditor, 'adminRenderEquipmentEditor slice');
+assert.ok(equipEditor.includes("portalT('admin.courseEquipment.editorTitle')"), 'Equipment title remains');
+assert.ok(!equipEditor.includes('threePriceHelp'), 'three-price help i18n not rendered in editor');
+assert.ok(!equipEditor.includes('portal-admin-equipment-three-price-help'), 'three-price help element removed');
+assert.ok(!equipEditor.includes('data-admin-equipment-three-price-help'), 'three-price help testid removed');
+assert.ok(!adminUi.includes('Three independent prices: standalone rental'), 'exact helper copy not painted in admin UI');
+
 assert.ok(!adminUi.includes('inbox-thread.js'));
 assert.ok(!adminUi.includes('staff-email-settings'));
 

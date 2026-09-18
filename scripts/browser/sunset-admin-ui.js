@@ -726,9 +726,9 @@ function adminEquipmentRowsHtml(rows){
 function adminRenderEquipmentEditor(rows,prefix){
   // Heading keeps Equipment title. Empty state: compact + beside title.
   // Once items exist: + moves next to the last row's × (no heading +).
+  // No three-price helper blurb under the title (Ty: remove from edit UI).
   var list = rows || [];
   var addEqLabel = portalT('admin.courseEquipment.add') || 'Add equipment';
-  var threePrice = portalT('admin.courseEquipment.threePriceHelp') || '';
   var headingAdd = !list.length
     ? '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-equipment-add" data-admin-action="add-equipment-option" aria-label="'+escHtml(addEqLabel)+'" title="'+escHtml(addEqLabel)+'">+</button>'
     : '';
@@ -737,9 +737,6 @@ function adminRenderEquipmentEditor(rows,prefix){
     '<h4>'+escHtml(portalT('admin.courseEquipment.editorTitle'))+'</h4>' +
     headingAdd +
     '</div>' +
-    (threePrice
-      ? '<p class="portal-admin-equipment-three-price-help" data-admin-equipment-three-price-help="1">'+escHtml(threePrice)+'</p>'
-      : '') +
     '<div data-equipment-option-rows>'+adminEquipmentRowsHtml(list)+'</div>' +
     '</section>';
 }

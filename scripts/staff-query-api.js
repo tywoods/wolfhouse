@@ -17147,7 +17147,6 @@ html[data-theme="dark"] .portal-admin-accommodation-status-dot.is-on{background:
 .portal-admin-private-equip-zone{display:flex;align-items:flex-end;flex:1 1 48%;min-width:0;padding:0 10px;border-left:1px solid var(--border-soft);overflow:hidden}
 .portal-admin-private-equip-zone .portal-admin-equipment-editor{grid-column:auto;width:100%;min-width:0;margin:0}
 .portal-admin-private-equip-zone .portal-admin-equipment-heading-row{margin:0 0 6px}
-.portal-admin-private-equip-zone .portal-admin-equipment-three-price-help{display:none}
 .portal-admin-private-equip-zone [data-equipment-option-rows]{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0}
 .portal-admin-private-equip-zone .portal-admin-equipment-option-row{margin:0}
 .portal-admin-private-edit-actions{display:flex;align-items:flex-end;gap:8px;flex:0 0 auto;padding-left:10px;border-left:1px solid var(--border-soft);margin:0}
