@@ -137,7 +137,7 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [("34600777888", "ordinary reply")])
         self.assertFalse(any(path == "/sunset/payment-link" for path, _ in self.staff.calls))
 
-    async def test_scope_is_request_owned_and_denies_unverified_writes(self):
+    async def test_scope_is_request_owned_and_keeps_transport_suppressed(self):
         scope = CrowsnestGuestScope.create("+34600111444")
         self.assertTrue(scope.session_key.startswith("crowsnest-sim:"))
         result = await run_crowsnest_guest_turn(
@@ -147,6 +147,26 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["transport_calls"], 0)
         self.assertEqual(result["session_key"], scope.session_key)
+
+    async def test_active_sunset_simulator_scope_forwards_all_staff_tool_writes(self):
+        import wolfhouse.crowsnest_guest_door as door
+
+        scope = CrowsnestGuestScope.create("+34" + "600111445")
+        token = door._SCOPE.set(scope)
+        try:
+            results = [
+                self.staff._post_bot("/sunset/booking-create", {"guest_confirmed_booking": True}),
+                self.staff._post_bot("/sunset/payment-link", {"booking_id": "bk-1"}),
+                self.staff._post_bot("/sunset/waiver/register", {"booking_id": "bk-1"}),
+                self.staff._post_bot("/booking/contact", {"booking_id": "bk-1", "guest_name": "Tom"}),
+            ]
+        finally:
+            door._SCOPE.reset(token)
+
+        self.assertTrue(all(result["success"] for result in results))
+        self.assertEqual(len(self.staff.calls), 4)
+        self.assertFalse(any(call.get("simulator_guard") for call in scope.tool_calls))
+        self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
 
     async def test_inbox_identity_is_synthetic_and_persistence_is_verified(self):
         import wolfhouse_whatsapp_mirror as mirror_mod
