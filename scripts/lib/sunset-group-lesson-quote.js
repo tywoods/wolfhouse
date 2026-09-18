@@ -69,6 +69,10 @@ function buildGroupLessonQuoteResult(locationId, validated, unitCents, adminCfg)
     ok: true,
     tool: 'get_sunset_group_lesson_quote',
     location_id: locationId,
+    beach: validated.beach && validated.beach.beach_key ? {
+      beach_key: validated.beach.beach_key,
+      display_name: validated.beach.display_name,
+    } : null,
     service_dates: validated.service_dates,
     quantity: validated.quantity,
     date_count: validated.date_count,

@@ -88,6 +88,12 @@ function nestCatalogOffering(raw) {
       unit: raw.billing_unit || 'session',
     },
     course_id: raw.course_id || null,
+    // Stable registry identity is metadata only: it never owns price or capacity.
+    beach: raw.beach && raw.beach.beach_key ? {
+      beach_key: raw.beach.beach_key,
+      display_name: raw.beach.display_name,
+    } : null,
+    beaches: Array.isArray(raw.beaches) ? raw.beaches.slice() : [],
     // Course-owned multi-item equipment options (labels + cents). Current quote
     // authority never falls back to scalar equipment_included / equipment_price_cents.
     equipment_options: Array.isArray(raw.equipment_options)

@@ -169,6 +169,10 @@ function buildCourseSlotAvailabilityResult({
     scope: 'course_slot',
     course_id: course.course_id || course.pack_id || null,
     course_label: course.label || null,
+    beach: course.beach && course.beach.beach_key ? {
+      beach_key: course.beach.beach_key,
+      display_name: course.beach.display_name,
+    } : null,
     slot_time: slotTime || null,
     // Authoritative leftover for this timed class (Horario / joinable-courses).
     course_capacity: capacity,
