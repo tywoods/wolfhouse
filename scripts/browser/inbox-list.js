@@ -47,11 +47,16 @@ function filterInboxConversations(convs){
     if (!c || typeof c !== 'object') return false;
     return c.open_phone_testing === true || String(c.guest_tester_class || '').trim().length > 0;
   };
+  // OWNER-LAB-FILTER-ISOLATE-QA-001: Owner Lab saved view is already scoped by
+  // GET /staff/inbox/list?view=owner_lab. Trust those rows — re-filtering with
+  // isOwnerLabRow emptied the middle list while the rail badge still showed 4.
   var savedViewOwnerLab = (typeof inboxSavedViewId === 'string' && inboxSavedViewId === 'owner_lab');
-  if (inboxFilter === 'owner_lab' || savedViewOwnerLab){
-    list = list.filter(isOwnerLabRow);
-  } else {
-    list = list.filter(function(c){ return !isOwnerLabRow(c); });
+  if (!savedViewOwnerLab) {
+    if (inboxFilter === 'owner_lab') {
+      list = list.filter(isOwnerLabRow);
+    } else {
+      list = list.filter(function(c){ return !isOwnerLabRow(c); });
+    }
   }
   if (inboxFilter === 'needs-human'){
     list = list.filter(conversationNeedsHuman);

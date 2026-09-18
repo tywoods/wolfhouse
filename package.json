@@ -94,6 +94,7 @@
     "verify:crowsnest-live-simulator": "node scripts/verify-crowsnest-live-simulator.js",
     "verify:owner-lab-crowsnest": "node scripts/verify-owner-lab-crowsnest.js",
     "verify:inbox-owner-lab-chip": "node scripts/verify-inbox-owner-lab-chip.js",
+    "verify:owner-lab-saved-view-list": "node scripts/verify-owner-lab-saved-view-list.js",
     "verify:crowsnest-ai-usage-contract": "node scripts/verify-crowsnest-ai-usage-contract.js",
     "verify:crowsnest-ai-usage-adapter": "node scripts/verify-crowsnest-ai-usage-adapter.js",
     "verify:crowsnest-ai-usage-store": "node scripts/verify-crowsnest-ai-usage-store.js",
