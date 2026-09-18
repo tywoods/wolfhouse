@@ -5,6 +5,7 @@ process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const { CATALOG_CHANNELS, buildSunsetCatalogCommand, executeSunsetCatalog } = require('./lib/luna-front-desk-catalog-service');
 const { resolveCourseScopedLessonAvailability } = require('./lib/sunset-lesson-availability');
 const { quoteSunsetGroupLessonsAsync } = require('./lib/sunset-group-lesson-quote');
@@ -58,6 +59,12 @@ function ok(label, condition) { assert.ok(condition, label); console.log(`  PASS
   const availabilitySchema = pluginSource.slice(pluginSource.indexOf('(\"get_sunset_lesson_availability\"'), pluginSource.indexOf('(\"get_sunset_joinable_courses\"'));
   ok('production Luna availability forwards beach_key', /body\[\"beach_key\"\]\s*=/.test(availabilityTool));
   ok('production Luna availability schema accepts beach_key', /\"beach_key\"\s*:/.test(availabilitySchema));
+  const catalogTool = pluginSource.slice(pluginSource.indexOf('def _get_sunset_lesson_catalog_impl'), pluginSource.indexOf('def get_sunset_lesson_catalog'));
+  const catalogSchema = pluginSource.slice(pluginSource.indexOf('(\"get_sunset_lesson_catalog\"'), pluginSource.indexOf('(\"get_sunset_offering_quote\"'));
+  ok('production Luna catalog forwards beach_key', /body\[\"beach_key\"\]\s*=\s*payload\[\"beach_key\"\]/.test(catalogTool));
+  ok('production Luna catalog schema accepts optional beach_key', /\"beach_key\"\s*:/.test(catalogSchema) && !/\[\s*\"beach_key\"\s*\]/.test(catalogSchema));
+  const pluginRegression = spawnSync(process.env.PYTHON || 'python3', [path.join(__dirname, '..', 'docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_rental_catalog_tool.py')], { encoding: 'utf8' });
+  ok('production Luna catalog plugin runtime regression passes', pluginRegression.status === 0 && /lesson catalog forwards exact beach_key/.test(pluginRegression.stdout));
   const staffSource = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
   ok('Staff beach-only requests enter course-scoped availability', /if \(beachKey \|\| slotTime \|\| courseId\)/.test(staffSource));
 
