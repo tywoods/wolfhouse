@@ -173,6 +173,14 @@ async function runHarness() {
     && src.includes('updateInboxSavedViewPagination(data, true)'));
   ok('Load more styling is in the staff portal stylesheet', apiSrc.includes('.inbox-views-load-more-btn'));
 
+  console.log('\n── infinite scroll / auto-load contract ──');
+  ok('wireInboxSavedViewInfiniteScroll function exists', src.includes('function wireInboxSavedViewInfiniteScroll()'));
+  ok('infinite scroll is wired in renderInboxSavedViewLoadMore', src.includes('wireInboxSavedViewInfiniteScroll()'));
+  ok('scroll handler checks remaining < 200 threshold', /remaining\s*<\s*200/.test(src));
+  ok('auto-load scheduleInboxSavedViewAutoLoad function exists', src.includes('function scheduleInboxSavedViewAutoLoad()'));
+  ok('auto-load is triggered after applyInboxSavedViewRows', /applyInboxFilter\(opts[^)]*\);\s*renderInboxSavedViewLoadMore\(\);\s*scheduleInboxSavedViewAutoLoad\(\)/.test(src));
+  ok('resetInboxSavedViewInfiniteScroll is called on new view load', src.includes('resetInboxSavedViewInfiniteScroll()'));
+
   console.log('\n── dynamic harness ──');
   await runHarness();
 
