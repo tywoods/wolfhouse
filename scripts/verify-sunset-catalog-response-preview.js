@@ -97,6 +97,7 @@ console.log('\n[4] Unknown tool');
 
 const unk = buildSunsetCatalogResponsePreview({
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   tool_id: 'nonexistent_tool',
   args: {},
 });
@@ -109,6 +110,7 @@ console.log('\n[5] Invalid args');
 
 const noItem = buildSunsetCatalogResponsePreview({
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   tool_id: 'get_sunset_rental_price',
   args: { duration: '1_day' },
   dry_run: true,
@@ -118,6 +120,7 @@ assert('reason=invalid_args for missing item', noItem.reason === 'invalid_args')
 
 const noDuration = buildSunsetCatalogResponsePreview({
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   tool_id: 'get_sunset_rental_price',
   args: { item: 'board' },
   dry_run: true,
@@ -132,6 +135,7 @@ console.log('\n[6] Dry-run preview (unverified_seed price)');
 // Test input as specified in task brief
 const dryRunInput = {
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   tool_id: 'get_sunset_rental_price',
   args: { item: 'board', duration: '1_day' },
   dry_run: true,
@@ -189,6 +193,7 @@ console.log('\n[7] Live/default mode — blocks unverified_seed');
 
 const liveInput = {
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   tool_id: 'get_sunset_rental_price',
   args: { item: 'board', duration: '1_day' },
   // dry_run omitted → defaults to false → require_confirmed=true
@@ -228,6 +233,7 @@ const PREVIEW_CASES = [
 for (const c of PREVIEW_CASES) {
   const pr = buildSunsetCatalogResponsePreview({
     client_slug: 'sunset',
+    location_id: 'sunset-somo',
     tool_id: 'get_sunset_rental_price',
     args: c,
     dry_run: true,

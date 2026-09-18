@@ -87,10 +87,7 @@ async function main() {
     loadRule: loadOmit,
     args: { item: TOOL_ITEM, duration: TOOL_DURATION },
   });
-  assert('neither ctx nor args location_id → Somo default',
-    omitted.ok === true && omitted.location_id === SOMO && omitted.result.amount_cents === SOMO_CENTS,
-    JSON.stringify(omitted));
-  assert('omitted location issues one loadRule call', loadOmit.callCount() === 1, String(loadOmit.callCount()));
+  assertFailClosed('neither ctx nor args location_id', omitted, loadOmit, 'unknown_location');
 
   for (const [label, ctx] of [
     ['ctx valid Somo', { location_id: SOMO }],
@@ -153,8 +150,9 @@ async function main() {
 
   console.log('\n[L3] resolveSunsetBotBodyLocation — HTTP body aliases');
   const omitBody = resolveSunsetBotBodyLocation({ item: TOOL_ITEM });
-  assert('body omits both location_id and location → Somo default',
-    omitBody.ok === true && omitBody.location_id === SOMO, JSON.stringify(omitBody));
+  assert('body omits both location_id and location → unknown_location',
+    omitBody.ok === false && omitBody.reason === 'unknown_location' && omitBody.location_id === null,
+    JSON.stringify(omitBody));
 
   for (const [label, body] of [
     ['explicit location_id null', { location_id: null }],

@@ -21,6 +21,7 @@ const SUNSET_TENANT = 'sunset';
  *
  * @param {object} input
  *   client_slug  {string}   Must be 'sunset'.
+ *   location_id  {string}   Required trusted property scope.
  *   tool_id      {string}   Tool to invoke (e.g. 'get_sunset_rental_price').
  *   args         {object}   Tool-specific arguments.
  *   dry_run      {boolean}  When true, allows unverified_seed prices through the
@@ -50,6 +51,7 @@ function buildSunsetCatalogResponsePreview(input) {
 
   const toolResult = executeSunsetCatalogTool(toolId, {
     client_slug: clientSlug,
+    location_id: inp.location_id,
     args: inp.args || {},
     dry_run: inp.dry_run === true,
   });

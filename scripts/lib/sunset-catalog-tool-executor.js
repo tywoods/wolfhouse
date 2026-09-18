@@ -15,7 +15,7 @@ const {
   lookupSunsetRentalPriceAsync,
   lookupSunsetFullDayEquipmentAddon,
 } = require('./sunset-rental-price-lookup');
-const { normalizeSunsetLocationId, isSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+const { normalizeSunsetLocationId, isSunsetLocationId } = require('./sunset-school-locations');
 const { resolveTenantBusinessConfig } = require('./tenant-business-config');
 const {
   buildPrivateLessonCatalogItem,
@@ -59,9 +59,9 @@ function classifyExplicitSunsetLocation(raw) {
 }
 
 /**
- * Resolve rental/catalog location from trusted ctx ingress vs model args.
- * Omission → documented Somo default; explicit invalid → fail closed;
- * conflicting valid scopes → location_scope_mismatch.
+ * Resolve rental/catalog property scope from trusted ctx ingress vs model args.
+ * Missing or invalid scope fails closed; conflicting valid scopes produce
+ * location_scope_mismatch. Pricing/catalog reads must never guess Somo.
  */
 function resolveSunsetCatalogToolLocation(ctx, args) {
   const ctxObj = ctx || {};
@@ -91,12 +91,12 @@ function resolveSunsetCatalogToolLocation(ctx, args) {
   }
   if (ctxExplicit) return { ok: true, location_id: ctxNorm };
   if (argsExplicit) return { ok: true, location_id: argsNorm };
-  return { ok: true, location_id: DEFAULT_SUNSET_LOCATION_ID };
+  return { ok: false, reason: 'unknown_location' };
 }
 
 /**
  * Resolve Sunset bot HTTP body location aliases (location_id, location).
- * Omission → Somo default; explicit invalid or conflicting aliases → fail closed.
+ * Missing, invalid, or conflicting property scope fails closed.
  */
 function resolveSunsetBotBodyLocation(body) {
   const b = body && typeof body === 'object' ? body : {};
@@ -128,7 +128,12 @@ function resolveSunsetBotBodyLocation(body) {
     return { ok: true, location_id: locRes.location_id, raw: locRes.location_id };
   }
 
-  return { ok: true, location_id: DEFAULT_SUNSET_LOCATION_ID, raw: null };
+  return {
+    ok: false,
+    location_id: null,
+    raw: null,
+    reason: 'unknown_location',
+  };
 }
 
 /**

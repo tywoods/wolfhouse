@@ -234,7 +234,7 @@ function mockInsertPg() {
 
   // ── 7. Luna conversation-behavior fixtures (offline) ──────────────────────
   console.log('\n[7] Luna offer copy fixtures');
-  const offer = buildSunsetCatalogResponsePreview({ client_slug: 'sunset', tool_id: 'get_sunset_full_day_equipment_addon', args: { location_id: 'sunset-somo', dates: ['2026-07-20', '2026-07-21'], quantity: 3 } });
+  const offer = buildSunsetCatalogResponsePreview({ client_slug: 'sunset', location_id: 'sunset-somo', tool_id: 'get_sunset_full_day_equipment_addon', args: { dates: ['2026-07-20', '2026-07-21'], quantity: 3 } });
   assert('offer preview ok', offer.ok === true);
   assert('offer copy exact Spanish w/ price from tool',
     offer.offer_text_es === 'También puedes quedarte con el material el resto del día por 10 € más por persona. ¿Te gustaría añadirlo?',
