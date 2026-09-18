@@ -12,7 +12,7 @@ const {
 } = require('./sunset-stripe-payment-links');
 const { parseIsoDateStrict } = require('./sunset-guest-date-intake');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
-const { requestedBeachKey, resolveRequestedBeach } = require('./sunset-beach-propagation');
+const { requestedBeachKey, resolveRequestedBeach, selectCourseForBeach } = require('./sunset-beach-propagation');
 
 const SUNSET_CLIENT_SLUG = SUNSET_ADMIN_CLIENT;
 const MAX_SERVICE_DATES = 31;
@@ -129,6 +129,12 @@ async function quoteSunsetGroupLessonsAsync(opts) {
   }
   if (!adminCfg || adminCfg.ok === false) {
     return { ok: false, success: false, reason: 'admin_config_unavailable' };
+  }
+  if (validated.beach) {
+    // This quote contract has no course id. A beach-scoped quote is therefore
+    // safe only when the canonical admin pack allowlist identifies one course.
+    const selected = selectCourseForBeach(adminCfg.surf_packs, validated.beach);
+    if (!selected.ok) return { ok: false, success: false, reason: selected.reason };
   }
   const unitCents = resolveSunsetGroupLessonUnitCents(adminCfg.prices || []);
   if (unitCents == null) {

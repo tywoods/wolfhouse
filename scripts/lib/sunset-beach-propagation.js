@@ -17,16 +17,15 @@ async function resolveRequestedBeach(client, { clientSlug, locationId, beachKey 
     result = await client.query(
       `SELECT location_id, beach_key, display_name, active
          FROM tenant_surf_beaches
-        WHERE client_slug = $1 AND beach_key = $2`,
-      [clientSlug, key],
+        WHERE client_slug = $1 AND location_id = $2 AND beach_key = $3`,
+      [clientSlug, locationId, key],
     );
   } catch (_) {
     return { ok: false, reason: 'beach_registry_unavailable' };
   }
   const rows = Array.isArray(result && result.rows) ? result.rows : [];
-  const scopedRows = rows.filter((row) => String(row.location_id) === String(locationId));
-  if (!scopedRows.length) return { ok: false, reason: rows.length ? 'foreign_property_beach' : 'unknown_beach' };
-  const scoped = scopedRows.find((row) => row.active === true);
+  if (!rows.length) return { ok: false, reason: 'unknown_beach' };
+  const scoped = rows.find((row) => row.active === true);
   if (!scoped) return { ok: false, reason: 'inactive_beach' };
   return { ok: true, beach: Object.freeze({ beach_key: key, display_name: String(scoped.display_name || key) }) };
 }
