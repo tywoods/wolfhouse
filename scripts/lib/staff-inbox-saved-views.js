@@ -75,7 +75,7 @@ const SUNSET_INBOX_SURFACE_ORDER = Object.freeze([
 
 const SUNSET_GUEST_SURFACE_ORDER = Object.freeze([
   'all_people',
-  'checked_in',
+  'equipment_out',
   'lesson_today',
   'upcoming',
   'hot_leads',
@@ -260,6 +260,17 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     description: 'One row per person on this tenant and location.',
   }),
   declareView({
+    id: 'equipment_out',
+    label: 'Equipment Out',
+    group: 'people',
+    defaultSort: INBOX_VIEW_SORTS.BOOKED_THEN_RECENT,
+    multiSelect: true,
+    source: INBOX_VIEW_SOURCES.CUSTOMERS,
+    crmFilter: 'equipment_out',
+    surface: INBOX_VIEW_SURFACES.GUEST,
+    description: 'Guests with equipment currently out: within rental/lesson time window, or all day for all-day bookings. Surf tenants only.',
+  }),
+  declareView({
     id: 'checked_in',
     label: 'Checked in',
     group: 'people',
@@ -267,8 +278,8 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     multiSelect: true,
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'checked_in_now',
-    surface: INBOX_VIEW_SURFACES.GUEST,
-    description: 'Guests mid-stay tonight. Empty on surf-only tenants.',
+    rail: false,
+    description: 'Guests mid-stay tonight. Lodging tenants only; hidden from Sunset surf rail.',
   }),
   declareView({
     id: 'lesson_today',

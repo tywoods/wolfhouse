@@ -43,6 +43,7 @@ const ALLOWED_FILTERS = new Set([
   'warm_leads',
   'hot_leads',
   'checked_in_now',
+  'equipment_out',
   'do_not_contact',
   'lesson_today',
   'upcoming',
@@ -797,6 +798,8 @@ function buildCustomerListFilterClause(opts) {
     filterClause = 'AND COALESCE(ba.has_balance_due, FALSE) = TRUE';
   } else if (filter === 'waiver_pending') {
     filterClause = surfCrm ? 'AND COALESCE(wp.waiver_pending, FALSE) = TRUE' : 'AND FALSE';
+  } else if (filter === 'equipment_out') {
+    filterClause = surfCrm ? 'AND COALESCE(eo.equipment_out, FALSE) = TRUE' : 'AND FALSE';
   }
   return filterClause;
 }
@@ -904,6 +907,44 @@ waiver_pending_agg AS (
 )` : '';
   const waiverPendingJoin = surfCrm
     ? '\nLEFT JOIN waiver_pending_agg wp ON wp.phone_digits = cu.phone_digits'
+    : '';
+
+  // Equipment-out aggregate is Sunset-only: guests with equipment currently out.
+  // A guest appears when they have a linked booking with a service today that is:
+  //   - within its rental/lesson time window (service_time_local to service_time_local_end), OR
+  //   - all day (no specific end time, or marked as all-day duration like full_day)
+  // Time comparison uses Europe/Madrid timezone for Sunset schools.
+  const equipmentOutCte = surfCrm ? `,
+equipment_out_agg AS (
+  SELECT ${sqlCustomerPhoneDigits('b.phone')} AS phone_digits, TRUE AS equipment_out
+  FROM booking_service_records bsr
+  INNER JOIN bookings b ON b.id = bsr.booking_id
+  INNER JOIN clients c ON c.id = b.client_id
+  WHERE bsr.client_slug = $1
+    AND c.slug = $1
+    AND b.phone IS NOT NULL
+    AND bsr.service_date = CURRENT_DATE
+    AND bsr.status::text <> 'cancelled'
+    AND bsr.service_type IN ('wetsuit', 'surfboard', 'surf_lesson')
+    AND (
+      -- All-day booking: no specific end time, or duration key indicates full day
+      bsr.service_time_local_end IS NULL
+      OR TRIM(bsr.service_time_local_end) = ''
+      OR bsr.metadata->>'duration_key' IN ('full_day', '1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days')
+      -- Within time window: current local time is between start and end
+      OR (
+        bsr.service_time_local IS NOT NULL
+        AND TRIM(bsr.service_time_local) <> ''
+        AND bsr.service_time_local_end IS NOT NULL
+        AND TRIM(bsr.service_time_local_end) <> ''
+        AND to_char(NOW() AT TIME ZONE 'Europe/Madrid', 'HH24:MI') >= bsr.service_time_local
+        AND to_char(NOW() AT TIME ZONE 'Europe/Madrid', 'HH24:MI') < bsr.service_time_local_end
+      )
+    )${serviceLocClause}
+  GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
+)` : '';
+  const equipmentOutJoin = surfCrm
+    ? '\nLEFT JOIN equipment_out_agg eo ON eo.phone_digits = cu.phone_digits'
     : '';
 
   const cteSql = `WITH customer_crm_merged AS (
@@ -1034,7 +1075,7 @@ checked_in_agg AS (
     AND b.check_in <= CURRENT_DATE
     AND b.check_out > CURRENT_DATE${bookingLocClause}
   GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
-)${waiverPendingCte}`;
+)${waiverPendingCte}${equipmentOutCte}`;
 
   const fromSql = `FROM customer_base cu
 INNER JOIN customer_crm_merged crm ON crm.phone_digits = cu.phone_digits
@@ -1043,7 +1084,7 @@ LEFT JOIN booking_agg ba ON ba.phone_digits = cu.phone_digits
 LEFT JOIN service_agg sa ON sa.phone_digits = cu.phone_digits
 LEFT JOIN handoff_open ho ON ho.phone_digits = cu.phone_digits
 LEFT JOIN last_service ls ON ls.phone_digits = cu.phone_digits
-LEFT JOIN checked_in_agg cia ON cia.phone_digits = cu.phone_digits${waiverPendingJoin}`;
+LEFT JOIN checked_in_agg cia ON cia.phone_digits = cu.phone_digits${waiverPendingJoin}${equipmentOutJoin}`;
 
   return { cteSql, fromSql };
 }
