@@ -1113,6 +1113,8 @@ module.exports = {
   'inbox.rail.view.do_not_contact': 'No contactar',
   'inbox.rail.view.whatsapp': 'WhatsApp',
   'inbox.rail.view.email': 'Email',
+  'inbox.rail.view.spam': 'Spam',
+  'inbox.rail.view.owner_lab': 'Owner Lab',
   'inbox.rail.empty': 'No hay vistas',
   'inbox.rail.loadError': 'No se pudieron cargar las vistas',
   'inbox.channelControl.title': 'AUTONOMÍA LUNA',

@@ -130,16 +130,20 @@ assert('customer-source people views support broadcast multi-select',
     .every((v) => v.multiSelect === true));
 assert('Lesson today sits directly under Checked in on the People rail',
   ids.indexOf('lesson_today') === ids.indexOf('checked_in') + 1);
-assert('Owner Lab is a People rail conversation view directly under Waiver pending',
-  getInboxSavedViewDeclaration('owner_lab').group === 'people'
+/*
+ * INBOX-GUEST-SIDEBAR-SPLIT-001: Owner Lab and Spam moved to Inbox surface (group='inbox').
+ * Legacy positioning checks no longer apply; verify surface ownership instead.
+ */
+assert('Owner Lab is an Inbox surface conversation view with ownerLab flag',
+  getInboxSavedViewDeclaration('owner_lab').group === 'inbox'
   && getInboxSavedViewDeclaration('owner_lab').source === INBOX_VIEW_SOURCES.CONVERSATIONS
   && getInboxSavedViewDeclaration('owner_lab').ownerLab === true
   && getInboxSavedViewDeclaration('owner_lab').multiSelect === false
-  && ids.indexOf('owner_lab') === ids.indexOf('waiver_due') + 1);
-assert('spam is a non-broadcast conversation filter under Lesson today',
-  getInboxSavedViewDeclaration('spam').group === 'people'
+  && getInboxSavedViewDeclaration('owner_lab').surface === 'inbox');
+assert('spam is a non-broadcast Inbox surface conversation filter',
+  getInboxSavedViewDeclaration('spam').group === 'inbox'
   && getInboxSavedViewDeclaration('spam').multiSelect === false
-  && ids.indexOf('spam') === ids.indexOf('lesson_today') + 1);
+  && getInboxSavedViewDeclaration('spam').surface === 'inbox');
 assert('do_not_contact is never multi-selectable',
   getInboxSavedViewDeclaration('do_not_contact').multiSelect === false);
 assert('needs_attention CRM view stays off the rail',
