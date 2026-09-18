@@ -63,6 +63,7 @@ const steps = [
   ['verify:staff-broadcasts', 'verify-staff-broadcasts.js'],
   ['verify:inbox-context', 'verify-inbox-context.js'],
   ['verify:inbox-theme', 'verify-inbox-theme.js'],
+  ['verify:inbox-middle-column-fill', 'verify-inbox-middle-column-fill.js'],
   ['verify:inbox-rows', 'verify-inbox-rows.js'],
   ['verify:inbox-list-timestamp', 'verify-inbox-list-timestamp.js'],
   ['verify:inbox-filter-reselect', 'verify-inbox-filter-reselect.js'],

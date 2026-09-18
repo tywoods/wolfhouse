@@ -870,8 +870,45 @@ function inboxMockupThemeCssText(){
     '}',
     '.inbox-layout-preset-btn[data-inbox-preset="chat"]{display:none!important}',
     '}',
+    /* INBOX-MIDDLE-COLUMN-FILL-001: desktop Full view — list scroll region fills
+     * column 2 height so short lists are not a short strip in a tall empty card.
+     * Mobile keeps content-sized left-rows (People/Inbox order + Autonomía). */
+    '@media(min-width:769px){',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left{',
+    'display:flex;flex-direction:column;min-height:0;height:100%;align-self:stretch;',
+    '}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left > .inbox-left-rows{',
+    'flex:1 1 0;min-height:0;height:auto;',
+    'display:flex;flex-direction:column;',
+    'overflow-y:auto;-webkit-overflow-scrolling:touch;',
+    'overscroll-behavior:contain;touch-action:pan-y;',
+    '}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list.conv-list{',
+    'flex:1 1 auto;min-height:100%;box-sizing:border-box;',
+    '}',
+    /* Continuous panel: search + idle rows inherit the column fill surface */
+    '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left > .inbox-conv-search-wrap{',
+    'background:transparent;',
+    '}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list .conv-card{',
+    'background:transparent;',
+    '}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list .conv-card:hover{',
+    'background:rgba(47,74,62,.08);',
+    '}',
+    '#inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list .conv-card.selected{',
+    'background:var(--teal);',
+    '}',
+    '[data-theme="dark"] #inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list .conv-card:hover{',
+    'background:#2a2a2a;',
+    '}',
+    '[data-theme="dark"] #inbox-shell.inbox-two-col.inbox-shell-cols > .inbox-left #conv-list .conv-card.selected{',
+    'background:var(--staff-green-bg,#1e3a28);',
+    '}',
+    '}',
   ].join('');
 }
+
 
 function inboxMockupThemeEnsureStyle(){
   if (typeof document === 'undefined') return;
