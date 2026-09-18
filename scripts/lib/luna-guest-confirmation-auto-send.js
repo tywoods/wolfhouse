@@ -7,6 +7,8 @@
 
 const { runGuestConfirmationPreviewDryRun } = require('./luna-guest-confirmation-preview-dry-run');
 const { runGuestConfirmationSendGoNoGo, isWhatsappDryRun } = require('./luna-guest-confirmation-send-go-no-go');
+const { mirrorHermesWhatsAppThreadMessage } = require('./luna-hermes-whatsapp-thread-mirror');
+const { markBookingConfirmationSent } = require('./luna-booking-confirmation-send');
 
 const PAID_BOOKING_STATUSES = new Set(['deposit_paid', 'paid']);
 
@@ -19,7 +21,16 @@ function isAutoConfirmationSendEnabled(env) {
   return String(e.LUNA_AUTO_SEND_ENABLED || '').trim().toLowerCase() === 'true';
 }
 
-async function loadVerifiedPaymentTruth(pg, bookingId) {
+function isAuthoritativeSunsetStaging(env, clientSlug) {
+  const e = env || process.env;
+  const nodeEnv = trimStr(e.NODE_ENV).toLowerCase();
+  return trimStr(clientSlug) === 'sunset'
+    && trimStr(e.DEFAULT_CLIENT_SLUG) === 'sunset'
+    && trimStr(e.LUNA_DEPLOYMENT) === 'sunset-staging'
+    && nodeEnv === 'staging';
+}
+
+async function loadVerifiedPaymentTruth(pg, bookingId, clientSlug) {
   const id = trimStr(bookingId);
   if (!id) return { verified: false, reason: 'missing_booking_id' };
   const r = await pg.query(
@@ -27,16 +38,17 @@ async function loadVerifiedPaymentTruth(pg, bookingId) {
             COALESCE(p.amount_paid_cents, 0)::bigint AS amount_paid_cents,
             p.status::text AS payment_record_status
        FROM bookings b
+       INNER JOIN clients c ON c.id = b.client_id
        LEFT JOIN LATERAL (
          SELECT amount_paid_cents, status
            FROM payments
-          WHERE booking_id = b.id
+          WHERE booking_id = b.id AND client_id = b.client_id
           ORDER BY paid_at DESC NULLS LAST, created_at DESC
           LIMIT 1
        ) p ON true
-      WHERE b.id = $1::uuid
+      WHERE b.id = $1::uuid AND c.slug = $2
       LIMIT 1`,
-    [id],
+    [id, trimStr(clientSlug)],
   );
   const row = r.rows[0];
   if (!row) return { verified: false, reason: 'booking_not_found' };
@@ -59,26 +71,47 @@ async function loadVerifiedPaymentTruth(pg, bookingId) {
   };
 }
 
-async function loadBookingSendState(pg, { bookingId, bookingCode }) {
+async function loadBookingSendState(pg, { bookingId, bookingCode, clientSlug }) {
   const id = trimStr(bookingId);
   const code = trimStr(bookingCode);
   if (!id && !code) return null;
   const q = id
-    ? `SELECT id, booking_code, payment_status::text AS payment_status,
-              confirmation_sent_at,
-              metadata->'guest'->>'phone' AS guest_phone_meta,
-              NULLIF(TRIM(phone), '') AS guest_phone_column,
-              metadata->'guest'->>'name' AS guest_name_meta,
-              guest_name
-         FROM bookings WHERE id = $1::uuid LIMIT 1`
-    : `SELECT id, booking_code, payment_status::text AS payment_status,
-              confirmation_sent_at,
-              metadata->'guest'->>'phone' AS guest_phone_meta,
-              NULLIF(TRIM(phone), '') AS guest_phone_column,
-              metadata->'guest'->>'name' AS guest_name_meta,
-              guest_name
-         FROM bookings WHERE booking_code = $1 LIMIT 1`;
-  const r = await pg.query(q, [id || code]);
+    ? `SELECT b.id, b.booking_code, b.status::text AS booking_status,
+              b.payment_status::text AS payment_status,
+              b.confirmation_sent_at,
+              b.metadata->'guest'->>'phone' AS guest_phone_meta,
+              NULLIF(TRIM(b.phone), '') AS guest_phone_column,
+              b.metadata->'guest'->>'name' AS guest_name_meta,
+              b.guest_name
+         FROM bookings b INNER JOIN clients c ON c.id = b.client_id
+        WHERE b.id = $1::uuid AND c.slug = $2 LIMIT 1`
+    : `SELECT b.id, b.booking_code, b.status::text AS booking_status,
+              b.payment_status::text AS payment_status,
+              b.confirmation_sent_at,
+              b.metadata->'guest'->>'phone' AS guest_phone_meta,
+              NULLIF(TRIM(b.phone), '') AS guest_phone_column,
+              b.metadata->'guest'->>'name' AS guest_name_meta,
+              b.guest_name
+         FROM bookings b INNER JOIN clients c ON c.id = b.client_id
+        WHERE b.booking_code = $1 AND c.slug = $2 LIMIT 1`;
+  const r = await pg.query(q, [id || code, trimStr(clientSlug)]);
+  return r.rows[0] || null;
+}
+
+async function loadCrowsnestSimulatorContext(pg, clientSlug, guestPhone) {
+  const r = await pg.query(
+    `SELECT conv.id::text AS conversation_id,
+            conv.metadata->>'location_id' AS location_id,
+            conv.metadata->>'simulator_source_phone' AS simulator_source_phone
+       FROM conversations conv
+       INNER JOIN clients c ON c.id = conv.client_id
+      WHERE c.slug = $1
+        AND conv.phone = $2
+        AND conv.metadata->>'simulator_synthetic' = 'true'
+        AND conv.metadata->>'source_owner' = 'crowsnest-guest-door'
+      LIMIT 1`,
+    [clientSlug, guestPhone],
+  );
   return r.rows[0] || null;
 }
 
@@ -100,9 +133,6 @@ async function tryAutoSendBookingConfirmation(input, context) {
     confirmation_sent: false,
   };
 
-  if (!isAutoConfirmationSendEnabled(env)) {
-    return { ...base, skip_reason: 'luna_auto_send_not_enabled' };
-  }
   if (!pg) {
     return { ...base, skip_reason: 'missing_pg' };
   }
@@ -114,7 +144,7 @@ async function tryAutoSendBookingConfirmation(input, context) {
 
   let row;
   try {
-    row = await loadBookingSendState(pg, { bookingId, bookingCode });
+    row = await loadBookingSendState(pg, { bookingId, bookingCode, clientSlug });
   } catch (err) {
     return { ...base, skip_reason: `db_error:${String(err.message || err).slice(0, 80)}` };
   }
@@ -132,7 +162,7 @@ async function tryAutoSendBookingConfirmation(input, context) {
     };
   }
 
-  const paymentTruth = await loadVerifiedPaymentTruth(pg, row.id);
+  const paymentTruth = await loadVerifiedPaymentTruth(pg, row.id, clientSlug);
   if (!paymentTruth.verified) {
     return {
       ...base,
@@ -146,7 +176,25 @@ async function tryAutoSendBookingConfirmation(input, context) {
   if (!to) to = trimStr(row.guest_phone_meta) || trimStr(row.guest_phone_column);
   if (!to) return { ...base, skip_reason: 'missing_guest_phone', booking_code: row.booking_code };
 
-  const preview = await runGuestConfirmationPreviewDryRun({
+  const sunsetStaging = isAuthoritativeSunsetStaging(env, clientSlug);
+  const simulator = sunsetStaging ? await loadCrowsnestSimulatorContext(pg, clientSlug, to) : null;
+  if (ctx.simulatorReconciliationOnly === true && !simulator) {
+    return { ...base, skip_reason: 'not_trusted_sunset_simulator', booking_code: row.booking_code };
+  }
+  if (simulator && !PAID_BOOKING_STATUSES.has(trimStr(row.payment_status).toLowerCase())) {
+    return { ...base, skip_reason: 'booking_not_paid', booking_code: row.booking_code };
+  }
+  if (simulator && !['confirmed', 'payment_pending', 'checked_in'].includes(
+    trimStr(row.booking_status).toLowerCase(),
+  )) {
+    return { ...base, skip_reason: 'booking_status_not_confirmation_eligible', booking_code: row.booking_code };
+  }
+  if (!simulator && !isAutoConfirmationSendEnabled(env)) {
+    return { ...base, skip_reason: 'luna_auto_send_not_enabled' };
+  }
+
+  const previewConfirmation = ctx.runGuestConfirmationPreviewDryRun || runGuestConfirmationPreviewDryRun;
+  const preview = await previewConfirmation({
     client_slug: clientSlug,
     booking_id: row.id,
     booking_code: row.booking_code,
@@ -168,6 +216,59 @@ async function tryAutoSendBookingConfirmation(input, context) {
 
   const idempotencyKey = trimStr(src.idempotency_key)
     || `confirmation:auto:${row.booking_code}:${row.id}`;
+
+  if (simulator) {
+    const persistMirror = ctx.mirrorHermesWhatsAppThreadMessage || mirrorHermesWhatsAppThreadMessage;
+    const mirrored = await persistMirror(pg, {
+      client_slug: clientSlug,
+      guest_phone: to,
+      direction: 'outbound',
+      message_text: preview.message_preview,
+      idempotency_key: idempotencyKey,
+      location_id: simulator.location_id || null,
+      simulator_synthetic: true,
+      source_owner: 'crowsnest-guest-door',
+      simulator_source_phone: simulator.simulator_source_phone || null,
+      suppress_notifications: true,
+      suppress_approvals: true,
+    }, { env });
+    const persisted = !!(mirrored && mirrored.ok === true && mirrored.thread
+      && (mirrored.thread.persisted === true || mirrored.thread.duplicate === true));
+    if (!persisted) {
+      return {
+        ...base,
+        attempted: true,
+        skip_reason: 'synthetic_inbox_persist_failed',
+        preview,
+        booking_code: row.booking_code,
+        synthetic_inbox: mirrored,
+        whatsapp_suppressed: true,
+      };
+    }
+    const markSent = ctx.markBookingConfirmationSent || markBookingConfirmationSent;
+    const marked = await markSent(pg, {
+      client_slug: clientSlug,
+      booking_id: row.id,
+      guest_message_send_id: idempotencyKey,
+      provider_message_id: null,
+      confirmation_sent_source: 'crowsnest_simulator_staff_inbox',
+      confirmation_sent_via: 'staff_inbox_simulator',
+    });
+    return {
+      attempted: true,
+      skipped: false,
+      skip_reason: null,
+      preview,
+      send: null,
+      confirmation_sent: !!(marked && (marked.updated || marked.already_sent)),
+      confirmation_sent_at: marked && marked.confirmation_sent_at,
+      booking_code: row.booking_code,
+      synthetic_inbox: mirrored,
+      synthetic_inbox_persisted: true,
+      whatsapp_suppressed: true,
+      whatsapp_dry_run: true,
+    };
+  }
 
   const send = await runGuestConfirmationSendGoNoGo({
     confirmation_preview_result: preview,
@@ -203,7 +304,9 @@ async function tryAutoSendBookingConfirmation(input, context) {
 module.exports = {
   PAID_BOOKING_STATUSES,
   isAutoConfirmationSendEnabled,
+  isAuthoritativeSunsetStaging,
   tryAutoSendBookingConfirmation,
   loadBookingSendState,
   loadVerifiedPaymentTruth,
+  loadCrowsnestSimulatorContext,
 };

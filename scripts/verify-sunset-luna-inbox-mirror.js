@@ -72,11 +72,13 @@ console.log('\n[3] Staff API tenant scope + parse');
 const {
   parseHermesWhatsAppThreadMirrorBody,
   assertHermesMirrorTenantScope,
+  isAuthorizedSunsetStagingSyntheticConfirmation,
   mirrorHermesWhatsAppThreadMessage,
 } = require('./lib/luna-hermes-whatsapp-thread-mirror');
 const {
   HERMES_LUNA_INBOUND_SOURCE,
   HERMES_LUNA_OUTBOUND_SOURCE,
+  CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
 } = require('./lib/luna-staff-inbox-thread-message');
 
 const sunsetBody = parseHermesWhatsAppThreadMirrorBody({
@@ -135,6 +137,28 @@ const badLoc = assertHermesMirrorTenantScope(
   { DEFAULT_CLIENT_SLUG: 'sunset' },
 );
 assert('invalid Sunset location rejected', badLoc.ok === false, JSON.stringify(badLoc));
+
+const syntheticClaim = parseHermesWhatsAppThreadMirrorBody({
+  client_slug: 'sunset', location_id: 'sunset-somo', guest_phone: '+34600111222',
+  direction: 'outbound', message_text: 'Confirmed', idempotency_key: 'synthetic-parse-1',
+  simulator_synthetic: true, source_owner: 'crowsnest-guest-door',
+});
+const trustedSyntheticEnv = {
+  DEFAULT_CLIENT_SLUG: 'sunset', LUNA_DEPLOYMENT: 'sunset-staging', NODE_ENV: 'staging',
+};
+assert('public parser preserves synthetic claim without granting authority', syntheticClaim.ok === true
+  && isAuthorizedSunsetStagingSyntheticConfirmation(syntheticClaim.input, {}) === false);
+assert('owner grants only exact Sunset staging synthetic claim',
+  isAuthorizedSunsetStagingSyntheticConfirmation(syntheticClaim.input, trustedSyntheticEnv) === true);
+assert('owner rejects production synthetic claim',
+  isAuthorizedSunsetStagingSyntheticConfirmation(syntheticClaim.input, { ...trustedSyntheticEnv, NODE_ENV: 'production' }) === false);
+assert('owner rejects missing/wrong deployment environment',
+  isAuthorizedSunsetStagingSyntheticConfirmation(syntheticClaim.input, { ...trustedSyntheticEnv, LUNA_DEPLOYMENT: '' }) === false
+    && isAuthorizedSunsetStagingSyntheticConfirmation(syntheticClaim.input, { ...trustedSyntheticEnv, LUNA_DEPLOYMENT: 'sunset-production' }) === false);
+assert('owner rejects wrong tenant and forged source flags',
+  isAuthorizedSunsetStagingSyntheticConfirmation({ ...syntheticClaim.input, client_slug: 'wolfhouse-somo' }, trustedSyntheticEnv) === false
+    && isAuthorizedSunsetStagingSyntheticConfirmation({ ...syntheticClaim.input, source_owner: 'attacker' }, trustedSyntheticEnv) === false
+    && isAuthorizedSunsetStagingSyntheticConfirmation({ ...syntheticClaim.input, simulator_synthetic: false }, trustedSyntheticEnv) === false);
 
 const staffSrc = read(STAFF_API);
 assert('handler calls assertHermesMirrorTenantScope', staffSrc.includes('assertHermesMirrorTenantScope'));
@@ -282,8 +306,9 @@ function makeFakePg(opts) {
       if (/INSERT INTO messages/.test(s)) {
         const direction = /'inbound'/.test(s) ? 'inbound' : 'outbound';
         const source = params[3];
-        const waId = params[4];
-        const meta = JSON.parse(params[direction === 'inbound' ? 5 : 6] || '{}');
+        const synthetic = source === CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE;
+        const waId = synthetic ? null : params[4];
+        const meta = JSON.parse(params[synthetic ? 4 : (direction === 'inbound' ? 5 : 6)] || '{}');
         if (waId && messages.some((m) => m.whatsapp_message_id === waId)) {
           const err = new Error('duplicate');
           err.code = '23505';
@@ -414,6 +439,54 @@ function makeFakePg(opts) {
   assert('off mode suppresses outbound', offOut.thread && offOut.thread.suppressed === true);
   assert('off mode stages no draft', !offOut.draft && pgOff.drafts.size === 0);
   assert('off mode inserts no message', pgOff.messages.filter((m) => m.direction === 'outbound').length === 0);
+
+  // Synthetic claims only bypass mode Off under exact owner-established
+  // Sunset-staging authority. Retry is idempotent and no send seam is entered.
+  const syntheticInput = {
+    ...syntheticClaim.input,
+    guest_phone: '+34600111333',
+    idempotency_key: 'synthetic-off-1',
+  };
+  const rejectedEnvs = [
+    {},
+    { ...trustedSyntheticEnv, NODE_ENV: 'production' },
+    { ...trustedSyntheticEnv, NODE_ENV: ' production ' },
+    { ...trustedSyntheticEnv, NODE_ENV: '' },
+    { ...trustedSyntheticEnv, NODE_ENV: '   ' },
+    { ...trustedSyntheticEnv, NODE_ENV: 'development' },
+    { ...trustedSyntheticEnv, NODE_ENV: 'test' },
+    { ...trustedSyntheticEnv, DEFAULT_CLIENT_SLUG: 'wolfhouse-somo' },
+    { ...trustedSyntheticEnv, LUNA_DEPLOYMENT: '' },
+    { ...trustedSyntheticEnv, LUNA_DEPLOYMENT: 'wrong-staging' },
+  ];
+  for (let n = 0; n < rejectedEnvs.length; n += 1) {
+    const rejectedPg = makeFakePg({ clientModes: { sunset: 'off' } });
+    const rejected = await mirrorHermesWhatsAppThreadMessage(rejectedPg, syntheticInput, { env: rejectedEnvs[n] });
+    assert(`unauthorized synthetic Off case ${n + 1} remains suppressed`, rejected.thread.suppressed === true
+      && rejectedPg.messages.length === 0);
+  }
+  const forgedPg = makeFakePg({ clientModes: { sunset: 'off' } });
+  const forged = await mirrorHermesWhatsAppThreadMessage(forgedPg,
+    { ...syntheticInput, source_owner: 'forged-owner' }, { env: trustedSyntheticEnv });
+  assert('forged synthetic/source flags cannot persist through Off', forged.thread.suppressed === true
+    && forgedPg.messages.length === 0);
+
+  const trustedOffPg = makeFakePg({ clientModes: { sunset: 'off' } });
+  const trustedOff1 = await mirrorHermesWhatsAppThreadMessage(
+    trustedOffPg, syntheticInput, { env: trustedSyntheticEnv },
+  );
+  const trustedOff2 = await mirrorHermesWhatsAppThreadMessage(
+    trustedOffPg, syntheticInput, { env: trustedSyntheticEnv },
+  );
+  const syntheticRows = trustedOffPg.messages.filter(
+    (m) => m.source === CROWSNEST_SYNTHETIC_CONFIRMATION_SOURCE,
+  );
+  assert('trusted Sunset staging + Off persists exactly one Inbox row', trustedOff1.thread.persisted === true
+    && trustedOff2.thread.duplicate === true && syntheticRows.length === 1);
+  assert('trusted synthetic Off is provider-free with no approval/notification',
+    trustedOff1.provider_send_performed === false && trustedOff1.draft === null
+      && trustedOff1.staff_notification && trustedOff1.staff_notification.suppressed === true
+      && trustedOffPg.drafts.size === 0);
 
   const convMeta = [...pg.conversations.values()][0];
   assert('one Sunset conversation', pg.conversations.size === 1);

@@ -14,6 +14,7 @@ const { resolvePortalDeployClient } = require('./staff-portal-clients');
 const {
   persistHermesLunaInboundThreadMessage,
   persistHermesLunaOutboundThreadMessage,
+  persistCrowsnestSyntheticConfirmationThreadMessage,
 } = require('./luna-staff-inbox-thread-message');
 const {
   mergeSunsetInboundLocationMetadata,
@@ -92,6 +93,23 @@ function toBool(v) {
   if (v === false || v == null) return false;
   const s = trimStr(v).toLowerCase();
   return s === 'true' || s === '1' || s === 'yes';
+}
+
+/**
+ * Provider-free synthetic confirmation persistence is a narrowly bounded
+ * Sunset-staging capability. Payload flags are claims, not authority: the
+ * mirror owner must also establish deployment and tenant authority itself.
+ */
+function isAuthorizedSunsetStagingSyntheticConfirmation(input, env) {
+  const i = input || {};
+  const e = env && typeof env === 'object' ? env : process.env;
+  const nodeEnv = trimStr(e.NODE_ENV).toLowerCase();
+  return i.simulator_synthetic === true
+    && trimStr(i.source_owner) === 'crowsnest-guest-door'
+    && trimStr(i.client_slug) === SUNSET_CLIENT_SLUG
+    && trimStr(e.DEFAULT_CLIENT_SLUG) === SUNSET_CLIENT_SLUG
+    && trimStr(e.LUNA_DEPLOYMENT) === 'sunset-staging'
+    && nodeEnv === 'staging';
 }
 
 /** WhatsApp does not render markdown links — flatten before mirror persist. */
@@ -400,6 +418,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
   const i = input || {};
   const env = (opts && opts.env) || process.env;
   const notifyContext = (opts && opts.notify_context) || {};
+  const authorizedSynthetic = isAuthorizedSunsetStagingSyntheticConfirmation(i, env);
   const ensured = await ensureConversationForGuestPhone(
     pg,
     i.client_slug,
@@ -410,9 +429,11 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
       receiving_whatsapp_number: i.receiving_whatsapp_number,
       phone_number_id: i.phone_number_id,
       location_id: i.location_id,
-      simulator_synthetic: i.simulator_synthetic === true,
-      source_owner: i.source_owner,
-      simulator_source_phone: i.simulator_source_phone,
+      // Public request flags are claims; only owner-established authority may
+      // decorate durable conversation state as simulator-synthetic.
+      simulator_synthetic: authorizedSynthetic,
+      source_owner: authorizedSynthetic ? i.source_owner : null,
+      simulator_source_phone: authorizedSynthetic ? i.simulator_source_phone : null,
     },
   );
   if (!ensured || !ensured.conversation_id) {
@@ -458,6 +479,23 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
   const modeInfo = await loadClientWhatsAppChannelMode(pg, i.client_slug);
   const whatsappMode = modeInfo.whatsapp_mode || 'auto';
   const clientId = modeInfo.client_id || ensured.client_id;
+
+  // A trusted simulator confirmation is an Inbox-only audit artifact, not an
+  // outbound send. Persist before Off/Draft gates and return immediately: no
+  // approval, notification, handoff, or provider path can run.
+  if (authorizedSynthetic) {
+    const thread = await persistCrowsnestSyntheticConfirmationThreadMessage(pg, base);
+    return {
+      ok: thread && thread.ok !== false,
+      conversation_id: conversationId,
+      direction: 'outbound',
+      whatsapp_channel_mode: whatsappMode,
+      provider_send_performed: false,
+      thread,
+      draft: null,
+      staff_notification: { suppressed: true, reason: 'simulator_synthetic' },
+    };
+  }
 
   // Off: suppress both sent-bubble and draft staging.
   if (whatsappMode === 'off') {
@@ -563,6 +601,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
 module.exports = {
   parseHermesWhatsAppThreadMirrorBody,
   assertHermesMirrorTenantScope,
+  isAuthorizedSunsetStagingSyntheticConfirmation,
   ensureConversationForGuestPhone,
   mirrorHermesWhatsAppThreadMessage,
   loadClientWhatsAppChannelMode,

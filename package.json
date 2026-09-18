@@ -1180,7 +1180,8 @@
     "verify:sunset-private-course-card-onerow": "node scripts/verify-sunset-private-course-card-onerow.js",
     "verify:sunset-group-course-card-opt3": "node scripts/verify-sunset-group-course-card-opt3.js",
     "prove:email-inbound-inbox-bridge-pglite": "node scripts/prove-email-inbound-inbox-bridge-pglite.js",
-    "verify:email-authoritative-message-content": "node scripts/verify-email-authoritative-message-content.js"
+    "verify:email-authoritative-message-content": "node scripts/verify-email-authoritative-message-content.js",
+    "verify:post-pay-confirm-status-001": "node scripts/verify-post-pay-confirm-status-001.js"
   },
   "dependencies": {
     "@azure/identity": "4.13.1",

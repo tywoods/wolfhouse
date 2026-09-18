@@ -46,7 +46,11 @@ async function hydrateGuestContextPaymentTruth(pg, guestContext) {
   }
 
   try {
-    const row = await loadBookingSendState(pg, { bookingId, bookingCode });
+    const row = await loadBookingSendState(pg, {
+      bookingId,
+      bookingCode,
+      clientSlug: trimStr(ctx.client_slug),
+    });
     return mergePaymentTruthRowIntoContext(ctx, row);
   } catch (_) {
     return attachActiveThreadToGuestContext(normalizeGuestContextForChain(ctx));

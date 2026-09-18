@@ -279,7 +279,7 @@ function validateLockedPaymentForStripeTruth(lockedPayment, session, ctx) {
 /**
  * Pure policy decision from a locked booking snapshot + derived money status.
  */
-function decideStripeHoldPromote(locked, money) {
+function decideStripeHoldPromote(locked, money, scope) {
   const newBkPayStatus = money && money.newBkPayStatus;
   const moneyOk = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
 
@@ -345,12 +345,14 @@ function decideStripeHoldPromote(locked, money) {
   }
 
   if (AUTO_CONFIRM_ELIGIBLE_STATUSES.has(status)) {
+    const scopedPendingPromotion = status === 'payment_pending' && moneyOk
+      && scope && scope.sunset_staging === true;
     return {
-      promote_to_confirmed: false,
+      promote_to_confirmed: !!scopedPendingPromotion,
       payment_after_hold_expiry: false,
       payment_on_terminal_booking: false,
       allow_auto_confirmation: moneyOk,
-      reason: 'non_hold_preserve',
+      reason: scopedPendingPromotion ? 'payment_pending_promote_ok' : 'non_hold_preserve',
       fail_closed: false,
       metadata_patch: null,
     };
@@ -489,7 +491,16 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     newBkPayStatus: derived.newBkPayStatus,
   };
 
-  const decision = decideStripeHoldPromote(locked, { newBkPayStatus: money.newBkPayStatus });
+  const env = (opts && opts.env) || process.env;
+  const sunsetStaging = String(pm.client_slug || '').trim() === 'sunset'
+    && String(env.DEFAULT_CLIENT_SLUG || '').trim() === 'sunset'
+    && String(env.LUNA_DEPLOYMENT || '').trim() === 'sunset-staging'
+    && String(env.NODE_ENV || '').trim().toLowerCase() === 'staging';
+  const decision = decideStripeHoldPromote(
+    locked,
+    { newBkPayStatus: money.newBkPayStatus },
+    { sunset_staging: sunsetStaging },
+  );
   if (decision.fail_closed) {
     const err = new Error(decision.reason);
     err.code = decision.reason;
@@ -555,7 +566,7 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
            SET amount_paid_cents = $1,
                balance_due_cents = $2,
                payment_status    = $3::payment_status,
-               status            = CASE WHEN status = 'hold' AND $6 THEN 'confirmed'::booking_status ELSE status END,
+               status            = CASE WHEN status IN ('hold', 'payment_pending') AND $6 THEN 'confirmed'::booking_status ELSE status END,
                metadata          = COALESCE(metadata, '{}'::jsonb) || $5::jsonb
          WHERE id = $4::uuid
            AND client_id = $7`,
@@ -575,7 +586,7 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
            SET amount_paid_cents = $1,
                balance_due_cents = $2,
                payment_status    = $3::payment_status,
-               status            = CASE WHEN status = 'hold' AND $5 THEN 'confirmed'::booking_status ELSE status END
+               status            = CASE WHEN status IN ('hold', 'payment_pending') AND $5 THEN 'confirmed'::booking_status ELSE status END
          WHERE id = $4::uuid
            AND client_id = $6`,
       [
