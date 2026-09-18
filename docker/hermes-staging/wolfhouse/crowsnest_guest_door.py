@@ -103,24 +103,37 @@ def _sunset_staging_staff_writes_enabled() -> bool:
     )
 
 
+def _phone_identity_alias(key: Any, value: Any) -> bool:
+    """Recognize model-supplied phone identities without rewriting UI/data objects."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return False
+    raw = str(key).strip().replace("-", "_").replace(" ", "_")
+    snake = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", raw).lower()
+    tokens = {token for token in snake.split("_") if token}
+    if tokens & {"phone", "telephone", "cellphone"}:
+        return True
+    if snake in {"mobile", "cell", "whatsapp"}:
+        return True
+    identity_context = {
+        "guest", "contact", "customer", "recipient", "primary", "secondary",
+        "number", "e164", "whatsapp",
+    }
+    return bool(tokens & {"mobile", "cell"} and tokens & identity_context)
+
+
 def _bind_non_routable_phone_identity(value: Any, inbox_phone: str) -> Any:
-    """Copy payloads while replacing every supplied phone identity with +999."""
+    """Copy payloads while replacing supplied scalar phone identities with +999."""
     if isinstance(value, list):
         return [_bind_non_routable_phone_identity(item, inbox_phone) for item in value]
     if not isinstance(value, dict):
         return value
     bound: Dict[str, Any] = {}
     for key, item in value.items():
-        normalized_key = str(key).strip().lower().replace("-", "_")
-        is_phone_identity = (
-            normalized_key in {
-                "phone", "phone_number", "mobile", "mobile_number", "telephone",
-                "telephone_number", "cell", "cell_number", "cellphone",
-                "cellphone_number", "whatsapp", "whatsapp_number", "whatsapp_phone",
-            }
-            or normalized_key.endswith(("_phone", "_mobile", "_telephone", "_cell", "_cellphone"))
+        bound[key] = (
+            inbox_phone
+            if _phone_identity_alias(key, item)
+            else _bind_non_routable_phone_identity(item, inbox_phone)
         )
-        bound[key] = inbox_phone if is_phone_identity else _bind_non_routable_phone_identity(item, inbox_phone)
     return bound
 
 

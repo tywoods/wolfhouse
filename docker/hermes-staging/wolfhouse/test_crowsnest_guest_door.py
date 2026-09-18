@@ -163,7 +163,15 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
                 "WHATSAPP_CLOUD_WEBHOOK_PORT": "8094",
             }, clear=False):
                 results = [
-                    self.staff._post_bot("/sunset/booking-create", {"guest_confirmed_booking": True, "guest_phone": "+34600111445"}),
+                    self.staff._post_bot("/sunset/booking-create", {
+                        "guest_confirmed_booking": True,
+                        "guest_phone": "+34600111445",
+                        "guestPhone": "+34600111445",
+                        "phone_e164": "+34600111445",
+                        "phone_primary": "+34600111445",
+                        "mobile": {"ui_enabled": True},
+                        "mobile_ui": True,
+                    }),
                     self.staff._post_bot("/sunset/payment-link", {"booking_id": "bk-1", "phone": "+34600111445"}),
                     self.staff._post_bot("/sunset/waiver/register", {"booking_id": "bk-1", "contact_phone": "+34600111445"}),
                     self.staff._post_bot("/booking/contact", {"booking_id": "bk-1", "guest_name": "Tom", "contact": {"mobile": "+34600111445"}}),
@@ -177,6 +185,11 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(payload["suppress_notifications"] is True for _path, payload in self.staff.calls))
         self.assertTrue(all(payload["suppress_approvals"] is True for _path, payload in self.staff.calls))
         self.assertEqual(self.staff.calls[0][1]["guest_phone"], scope.inbox_phone)
+        self.assertEqual(self.staff.calls[0][1]["guestPhone"], scope.inbox_phone)
+        self.assertEqual(self.staff.calls[0][1]["phone_e164"], scope.inbox_phone)
+        self.assertEqual(self.staff.calls[0][1]["phone_primary"], scope.inbox_phone)
+        self.assertEqual(self.staff.calls[0][1]["mobile"], {"ui_enabled": True})
+        self.assertIs(self.staff.calls[0][1]["mobile_ui"], True)
         self.assertEqual(self.staff.calls[1][1]["phone"], scope.inbox_phone)
         self.assertEqual(self.staff.calls[2][1]["contact_phone"], scope.inbox_phone)
         self.assertEqual(self.staff.calls[3][1]["contact"]["mobile"], scope.inbox_phone)
