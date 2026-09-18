@@ -895,6 +895,8 @@
     "verify:inbox-context": "node scripts/verify-inbox-context.js",
     "verify:inbox-link-guest": "node scripts/verify-inbox-link-guest.js",
     "verify:inbox-rows": "node scripts/verify-inbox-rows.js",
+    "verify:inbox-delete-mobile-001": "node scripts/verify-inbox-delete-mobile-001.js",
+    "verify:inbox-delete-mobile-viewports": "node scripts/verify-inbox-delete-mobile-viewports.js",
     "verify:inbox-list-timestamp": "node scripts/verify-inbox-list-timestamp.js",
     "verify:inbox-filter-reselect": "node scripts/verify-inbox-filter-reselect.js",
     "verify:inbox-thread-mockup": "node scripts/verify-inbox-thread-mockup.js",
