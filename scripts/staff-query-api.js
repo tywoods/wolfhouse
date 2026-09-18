@@ -21253,6 +21253,7 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 .staff-style-row--static{pointer-events:none}
 .staff-style-row--static .luna-header-mode-btn{cursor:default}
 [data-theme="dark"] .staff-style-row{background:var(--surface-soft)}
+[data-theme="dark"] .staff-style-row--static .luna-header-mode-btn.is-active{background:var(--surface);border-color:var(--border)}
 @media (max-width:719px){
   .luna-header-ui{--luna-banner-h:74px}
   .luna-header-ui .btn-logout{padding:7px 14px;font-size:11.5px}
@@ -23296,7 +23297,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
     <div class="luna-header-mode-head">
       <span class="luna-header-mode-title" data-i18n="lunaStaff.style.title">Style</span>
-      <span class="luna-header-mode-sub" data-i18n="lunaStaff.style.sub">Header look and light palettes. Dark mode uses Sand. The moon toggle switches light and dark. Header changes apply when you save.</span>
     </div>
     <div id="luna-header-mode-card" class="staff-style-header-block" aria-label="Header style">
       <span class="luna-header-mode-current" id="luna-header-mode-current">—</span>
@@ -23328,7 +23328,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <section class="staff-style-card luna-header-mode-card" id="staff-luna-personality-card" aria-label="Luna Personality">
     <div class="luna-header-mode-head">
       <span class="luna-header-mode-title" data-i18n="lunaStaff.personality.title">Luna Personality</span>
-      <span class="luna-header-mode-sub" data-i18n="lunaStaff.personality.sub">WhatsApp wording, cadence, warmth, and emoji only. Same Luna — never changes facts, prices, availability, or sends.</span>
     </div>
     <div class="staff-style-mode">
       <div class="staff-style-row" role="radiogroup" aria-label="Luna Personality" id="staff-luna-personality-radios">

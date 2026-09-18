@@ -78,7 +78,6 @@ const pageHtml = `<!doctype html>
 <section class="staff-style-card luna-header-mode-card" id="staff-style-card" aria-label="Style">
   <div class="luna-header-mode-head">
     <span class="luna-header-mode-title">Style</span>
-    <span class="luna-header-mode-sub">Header look, palette, and light or dark.</span>
   </div>
   <div id="luna-header-mode-card" class="staff-style-header-block" aria-label="Header style">
     <span class="luna-header-mode-current" id="luna-header-mode-current">—</span>
