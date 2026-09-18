@@ -187,6 +187,8 @@ function startFixtureServer(html) {
   const { loadClientPortalProfile } = require(path.join(ROOT, 'scripts', 'lib', 'staff-portal-clients'));
   const profile = loadClientPortalProfile(CLIENT);
 
+  const deletedConversations = new Set();
+
   const server = http.createServer((req, res) => {
     const url = String(req.url || '');
     const pathname = url.split('?')[0];
@@ -236,7 +238,7 @@ function startFixtureServer(html) {
             display_name: 'Marta Silva',
             last_activity: '2026-08-13T05:55:00.000Z',
           }),
-        ],
+        ].filter((row) => !deletedConversations.has(row.conversation_id)),
       });
       return;
     }
@@ -244,10 +246,21 @@ function startFixtureServer(html) {
       json({
         success: true,
         conversations: [
-          conversationRow(CONV_ID, 'Hernan Diaz', '+34600111222', 'Is a bed free from Friday?'),
-          conversationRow(CONV_ID_2, 'Marta Silva', '+34600333444', 'Can I add a board rental?'),
-        ],
+          conversationRow(CONV_ID, 'Hernan Diaz', '+346****1222', 'Is a bed free from Friday?'),
+          conversationRow(CONV_ID_2, 'Marta Silva', '+346****3444', 'Can I add a board rental?'),
+        ].filter((row) => !deletedConversations.has(row.conversation_id)),
       });
+      return;
+    }
+    const deleteMatch = /^\/staff\/conversations\/([0-9a-f-]+)$/.exec(pathname);
+    if (deleteMatch && req.method === 'DELETE') {
+      deletedConversations.add(deleteMatch[1]);
+      json({ success: true, conversation_id: deleteMatch[1], deleted: true });
+      return;
+    }
+    if (deleteMatch && deletedConversations.has(deleteMatch[1])) {
+      res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify({ success: false, error: 'not found' }));
       return;
     }
     if (pathname === `/staff/inbox/thread/${CONV_ID}`) {
@@ -682,6 +695,7 @@ module.exports = {
   loadPlaywright,
   openInbox,
   CONV_ID,
+  CONV_ID_2,
   SETTLE_MS,
 };
 

@@ -157,11 +157,18 @@ async function resetLunaConversationContext(pg, clientSlug, convId, opts) {
   }
 }
 
+async function deleteOptionalConversationRows(pg, tableName, whereSql, params) {
+  const exists = await pg.query('SELECT to_regclass($1) AS regclass', [`public.${tableName}`]);
+  if (!exists.rows[0]?.regclass) return 0;
+  const del = await pg.query(`DELETE FROM ${tableName} ${whereSql}`, params);
+  return del.rowCount || 0;
+}
+
 async function deleteConversationHard(pg, clientSlug, convId) {
   await pg.query('BEGIN');
   try {
     const exists = await pg.query(
-      `SELECT conv.id::text AS conversation_id, conv.phone
+      `SELECT conv.id::text AS conversation_id, conv.phone, conv.client_id::text AS client_id
          FROM conversations conv
          INNER JOIN clients c ON c.id = conv.client_id
         WHERE c.slug = $1 AND conv.id = $2::uuid`,
@@ -172,6 +179,34 @@ async function deleteConversationHard(pg, clientSlug, convId) {
       return { found: false };
     }
     const phone = exists.rows[0].phone;
+    const childDeletes = {};
+
+    // Remove conversation-owned children that deliberately RESTRICT the parent row.
+    // Plain WhatsApp rows usually only cascade messages, but Sunset email / draft rows
+    // can otherwise make the Inbox delete button look like a no-op with "delete failed".
+    const byClientConversation = `
+      WHERE client_id = (SELECT id FROM clients WHERE slug = $1)
+        AND conversation_id = $2::uuid`;
+    const childTables = [
+      'tenant_email_luna_automation_queue',
+      'tenant_email_luna_automation_issuance_material',
+      'tenant_email_luna_automation_shadow_outcomes',
+      'tenant_email_same_desk_auto_send_claims',
+      'tenant_email_outbound_send_journal',
+      'tenant_email_reply_approvals',
+      'luna_outbound_approvals',
+      'tenant_email_luna_policy_audit',
+      'tenant_email_inbound_inbox_projections',
+    ];
+    for (const tableName of childTables) {
+      childDeletes[tableName] = await deleteOptionalConversationRows(
+        pg,
+        tableName,
+        byClientConversation,
+        [clientSlug, convId],
+      );
+    }
+
     const pauseDelete = await pg.query(
       `DELETE FROM bot_pause_states bps
         WHERE bps.client_slug = $1
@@ -206,6 +241,7 @@ async function deleteConversationHard(pg, clientSlug, convId) {
       found: del.rows.length > 0,
       conversation_id: del.rows[0]?.conversation_id || null,
       pause_states_deleted: pauseDelete.rowCount || 0,
+      child_rows_deleted: childDeletes,
     };
   } catch (err) {
     await pg.query('ROLLBACK');
