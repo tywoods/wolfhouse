@@ -214,6 +214,10 @@ function nestOfferingForQuote(raw) {
     offering_id: raw.offering_id,
     offering_type: raw.offering_type,
     course_id: raw.course_id || null,
+    beach: raw.beach && raw.beach.beach_key ? {
+      beach_key: raw.beach.beach_key,
+      display_name: raw.beach.display_name,
+    } : null,
     // Course-owned multi-item equipment options (server labels/cents). No legacy
     // equipment_included / scalar equipment_price_cents on the current quote path.
     equipment_options: Array.isArray(raw.equipment_options)
@@ -1277,6 +1281,10 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
     location_id: command.locationId,
     channel: command.channel,
     quote_lane: 'exact_offering',
+    beach: offering.beach && offering.beach.beach_key ? {
+      beach_key: offering.beach.beach_key,
+      display_name: offering.beach.display_name,
+    } : null,
     offering_id: line.offering_id,
     offering_type: offering.offering_type,
     course_id: line.course_id,

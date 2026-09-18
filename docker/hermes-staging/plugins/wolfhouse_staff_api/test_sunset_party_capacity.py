@@ -147,6 +147,25 @@ def main() -> int:
     check("timed path surfaces course_capacity not daily invent", timed.get("course_capacity") == 25 and timed.get("daily_capacity") is None, str(timed))
     check("timed path surfaces slot_time", timed.get("slot_time") == "10:00", str(timed))
 
+    print("\n[B2a] Beach-only selection — forwards stable identity to Staff course scope")
+    fake_beach = with_fake({
+        "/sunset/lesson-availability": {
+            "ok": True, "success": True, "date": "2026-09-03",
+            "location_id": "sunset-somo", "scope": "course_slot",
+            "capacity_known": True, "has_seats": True, "seats_available": 22,
+            "beach": {"beach_key": "somo", "display_name": "Somo Central"},
+        },
+    })
+    beach = json.loads(mod.get_sunset_lesson_availability({
+        "date": "2026-09-03", "quantity": 2, "beach_key": "somo",
+    }))
+    check("beach-only request calls lesson availability, not unscoped choices",
+          fake_beach.calls and "/sunset/lesson-availability" in fake_beach.calls[0][0], str(fake_beach.calls))
+    check("forwards beach_key to Staff API",
+          fake_beach.calls and fake_beach.calls[0][1].get("beach_key") == "somo", str(fake_beach.calls))
+    check("availability response preserves stable beach identity",
+          beach.get("beach", {}).get("beach_key") == "somo", str(beach))
+
     print("\n[B3] Unspecified time — use joinable-course leftovers, never whole-day capacity")
     fake_unspecified = with_fake({
         "/sunset/joinable-courses": {

@@ -3,6 +3,8 @@
 process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
 
 const assert = require('assert');
+const fs = require('fs');
+const path = require('path');
 const { CATALOG_CHANNELS, buildSunsetCatalogCommand, executeSunsetCatalog } = require('./lib/luna-front-desk-catalog-service');
 const { resolveCourseScopedLessonAvailability } = require('./lib/sunset-lesson-availability');
 const { quoteSunsetGroupLessonsAsync } = require('./lib/sunset-group-lesson-quote');
@@ -51,6 +53,13 @@ function ok(label, condition) { assert.ok(condition, label); console.log(`  PASS
 
   const availability = await resolveCourseScopedLessonAvailability(db, { clientSlug: 'sunset', locationId: LOC, dateIso: '2027-06-10', quantity: 2, slotTime: '10:00', beachKey: 'somo' });
   ok('runtime availability resolves and emits same identity', availability.ok && availability.beach.beach_key === offering.beach.beach_key && availability.seats_available === 9);
+  const pluginSource = fs.readFileSync(path.join(__dirname, '..', 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'), 'utf8');
+  const availabilityTool = pluginSource.slice(pluginSource.indexOf('def get_sunset_lesson_availability'), pluginSource.indexOf('def get_sunset_joinable_courses'));
+  const availabilitySchema = pluginSource.slice(pluginSource.indexOf('(\"get_sunset_lesson_availability\"'), pluginSource.indexOf('(\"get_sunset_joinable_courses\"'));
+  ok('production Luna availability forwards beach_key', /body\[\"beach_key\"\]\s*=/.test(availabilityTool));
+  ok('production Luna availability schema accepts beach_key', /\"beach_key\"\s*:/.test(availabilitySchema));
+  const staffSource = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+  ok('Staff beach-only requests enter course-scoped availability', /if \(beachKey \|\| slotTime \|\| courseId\)/.test(staffSource));
 
   const exact = catalog.body.offerings.find((o) => o.course_id === COURSE);
   ok('beach resolves to exact course price identity', exact && exact.offering_id === `surf_pack_${COURSE}__day` && exact.price_identity.item_code === exact.offering_id && exact.price.amount_cents === 4200);
@@ -60,6 +69,7 @@ function ok(label, condition) { assert.ok(condition, label); console.log(`  PASS
   ok('ambiguous active courses fail closed', applyBeachToCatalogProjection({ courses: [...projected.courses, { course_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', beaches: ['somo'] }], offerings: [...projected.offerings, { ...projected.offerings[0], course_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', offering_id: 'surf_pack_eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee__day', price_identity: { item_code: 'surf_pack_eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee__day' } }] }, { beach_key: 'somo' }).reason === 'ambiguous_beach_course');
   const quote = await executeSunsetQuote(db, buildSunsetQuoteCommand({ channel: QUOTE_CHANNELS.LUNA_WHATSAPP, trustedLocationId: LOC, transportBody: { offering_id: exact.offering_id, course_id: COURSE, tier_key: 'day', service_dates: ['2027-06-10'], quantity: 2, beach_key: 'somo', require_db: true } }).command, { adminCfg: cfg });
   ok('canonical Luna quote uses exact course price', quote.ok && quote.body.course_id === COURSE && quote.body.offering_id === exact.offering_id && quote.body.total_cents === 8400);
+  ok('canonical Luna quote preserves selected beach identity', quote.ok && quote.body.beach && quote.body.beach.beach_key === offering.beach.beach_key);
   const mismatch = await executeSunsetQuote(db, buildSunsetQuoteCommand({ channel: QUOTE_CHANNELS.LUNA_WHATSAPP, trustedLocationId: LOC, transportBody: { offering_id: 'lesson_slot_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee__session', course_id: COURSE, service_dates: ['2027-06-10'], quantity: 2, beach_key: 'somo', require_db: true } }).command, { adminCfg: cfg });
   ok('mismatched generic lesson price identity is rejected', !mismatch.ok && !(mismatch.body && Number.isInteger(mismatch.body.total_cents)));
   const legacy = await quoteSunsetGroupLessonsAsync({ clientSlug: 'sunset', locationId: LOC, body: { service_dates: ['2027-06-10'], quantity: 2, beach_key: 'somo' }, pgClient: db, adminCfg: { ...cfg, prices: [{ category: 'lesson', offering_key: 'lesson_slot_aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee__session', unit: 'session', amount_cents: 9999, active: true }] }, refDate: new Date('2026-01-01T00:00:00Z') });
