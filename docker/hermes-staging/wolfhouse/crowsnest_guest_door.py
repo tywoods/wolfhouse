@@ -103,6 +103,25 @@ def _sunset_staging_staff_writes_enabled() -> bool:
     )
 
 
+def _bind_non_routable_phone_identity(value: Any, inbox_phone: str) -> Any:
+    """Copy payloads while replacing every supplied phone identity with +999."""
+    if isinstance(value, list):
+        return [_bind_non_routable_phone_identity(item, inbox_phone) for item in value]
+    if not isinstance(value, dict):
+        return value
+    bound: Dict[str, Any] = {}
+    for key, item in value.items():
+        normalized_key = str(key).strip().lower().replace("-", "_")
+        is_phone_identity = (
+            normalized_key in {"phone", "mobile", "whatsapp"}
+            or normalized_key.endswith("_phone")
+            or normalized_key.startswith("phone_")
+            or "whatsapp_phone" in normalized_key
+        )
+        bound[key] = inbox_phone if is_phone_identity else _bind_non_routable_phone_identity(item, inbox_phone)
+    return bound
+
+
 def simulator_mirror_fields(
     scope: Optional[CrowsnestGuestScope] = None,
 ) -> Dict[str, Any]:
@@ -174,7 +193,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
             allow_staff_writes = _sunset_staging_staff_writes_enabled()
             norm, guarded, warnings = guard_bot_path_and_payload(
                 _normalize_staff_bot_path(path),
-                payload or {},
+                _bind_non_routable_phone_identity(payload or {}, scope.inbox_phone),
                 allow_writes=allow_staff_writes,
             )
             if is_simulate_write_blocked(warnings):
