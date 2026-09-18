@@ -1503,6 +1503,26 @@
       "rationale": "Fail-closed while claim rows exist. If the table exists, ACCESS EXCLUSIVE is acquired before the emptiness check and trigger/table drop so a concurrent insert cannot commit between check and DROP. Absent-table and empty complete-up downs are safe: trigger drops are guarded by to_regclass. Does not rewrite tenant_email_reply_approvals.",
       "pairsWith": "100_tenant_email_same_desk_auto_send_claims.sql",
       "sha256": "bade76f6567466224eeb444c118058727dc425d50a3638991482c035254490d8"
+    },
+    {
+      "id": "101_luna_guest_runtime_phase1",
+      "filename": "101_luna_guest_runtime_phase1.sql",
+      "order": 97,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Generic Luna Guest Runtime Phase 1 durable conversations, inbound events, queue, and reply outbox. No provider sender or autonomy toggle.",
+      "downFilename": "101_luna_guest_runtime_phase1_down.sql",
+      "sha256": "83b6b8b24faa3ecab92a8f7229c452c836faed04488511ea2123e7af2617fb92"
+    },
+    {
+      "id": "101_luna_guest_runtime_phase1_down",
+      "filename": "101_luna_guest_runtime_phase1_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Fail-closed rollback while any Luna Guest Runtime durable rows exist; otherwise drops the four Phase 1 tables.",
+      "pairsWith": "101_luna_guest_runtime_phase1.sql",
+      "sha256": "242a258f256165949e986f3af0314288a81b1d02332d83a08fc3f93ade83e5de"
     }
   ]
 }
