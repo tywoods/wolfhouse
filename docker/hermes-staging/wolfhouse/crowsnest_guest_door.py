@@ -103,6 +103,40 @@ def _sunset_staging_staff_writes_enabled() -> bool:
     )
 
 
+def _phone_identity_alias(key: Any, value: Any) -> bool:
+    """Recognize model-supplied phone identities without rewriting UI/data objects."""
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return False
+    raw = str(key).strip().replace("-", "_").replace(" ", "_")
+    snake = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", raw).lower()
+    tokens = {token for token in snake.split("_") if token}
+    if tokens & {"phone", "telephone", "cellphone"}:
+        return True
+    if snake in {"mobile", "cell", "whatsapp"}:
+        return True
+    identity_context = {
+        "guest", "contact", "customer", "recipient", "primary", "secondary",
+        "number", "e164", "whatsapp",
+    }
+    return bool(tokens & {"mobile", "cell"} and tokens & identity_context)
+
+
+def _bind_non_routable_phone_identity(value: Any, inbox_phone: str) -> Any:
+    """Copy payloads while replacing supplied scalar phone identities with +999."""
+    if isinstance(value, list):
+        return [_bind_non_routable_phone_identity(item, inbox_phone) for item in value]
+    if not isinstance(value, dict):
+        return value
+    bound: Dict[str, Any] = {}
+    for key, item in value.items():
+        bound[key] = (
+            inbox_phone
+            if _phone_identity_alias(key, item)
+            else _bind_non_routable_phone_identity(item, inbox_phone)
+        )
+    return bound
+
+
 def simulator_mirror_fields(
     scope: Optional[CrowsnestGuestScope] = None,
 ) -> Dict[str, Any]:
@@ -174,7 +208,7 @@ def install_request_owned_guards(staff_module: Any, whatsapp_module: Any) -> Non
             allow_staff_writes = _sunset_staging_staff_writes_enabled()
             norm, guarded, warnings = guard_bot_path_and_payload(
                 _normalize_staff_bot_path(path),
-                payload or {},
+                _bind_non_routable_phone_identity(payload or {}, scope.inbox_phone),
                 allow_writes=allow_staff_writes,
             )
             if is_simulate_write_blocked(warnings):
