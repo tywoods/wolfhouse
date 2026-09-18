@@ -189,10 +189,18 @@ assert('EN i18n has inbox.rail.view.spam',
   i18nEnSrc.includes("'inbox.rail.view.spam':") || i18nEnSrc.includes('"inbox.rail.view.spam":'));
 assert('EN i18n has inbox.rail.view.owner_lab',
   i18nEnSrc.includes("'inbox.rail.view.owner_lab':") || i18nEnSrc.includes('"inbox.rail.view.owner_lab":'));
+assert('EN Inbox Full rail label is Lab (not Owner Lab)',
+  i18nEnSrc.includes("'inbox.rail.view.owner_lab': 'Lab'"));
 assert('ES i18n has inbox.rail.view.spam',
   i18nEsSrc.includes("'inbox.rail.view.spam':") || i18nEsSrc.includes('"inbox.rail.view.spam":'));
 assert('ES i18n has inbox.rail.view.owner_lab',
   i18nEsSrc.includes("'inbox.rail.view.owner_lab':") || i18nEsSrc.includes('"inbox.rail.view.owner_lab":'));
+assert('ES Sunset Inbox Full rail label is Lab (not Owner Lab)',
+  i18nEsSrc.includes("'inbox.rail.view.owner_lab': 'Lab'"));
+assert('owner_lab declaration fallback label is Lab',
+  getInboxSavedViewDeclaration('owner_lab').label === 'Lab');
+assert('owner_lab view id stays owner_lab',
+  getInboxSavedViewDeclaration('owner_lab').id === 'owner_lab');
 
 console.log('\n[10] inbox-views.js surface management');
 

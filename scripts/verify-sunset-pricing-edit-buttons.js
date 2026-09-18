@@ -113,6 +113,25 @@ assert.ok(
   !/\.portal-admin-switch input:checked\+\.portal-admin-switch-slider\{background:#2e8b57\}/.test(apiSrc),
   'legacy switch no longer hardcodes lighter #2e8b57 on-state',
 );
+// Accommodation header status light matches Rental Prices enabled status-dot green.
+assert.ok(
+  /\.portal-admin-equip-status-dot\.is-on\{background:#1F6B4A\}/.test(apiSrc),
+  'rental enabled status-dot uses #1F6B4A',
+);
+assert.ok(
+  /\.portal-admin-accommodation-status-dot\.is-on\{background:#1F6B4A\}/.test(apiSrc),
+  'accommodation enabled status-dot matches rental #1F6B4A',
+);
+assert.ok(
+  /html\[data-theme="dark"\] \.portal-admin-equip-status-dot\.is-on\{background:#5a9468\}/.test(apiSrc)
+    && /html\[data-theme="dark"\] \.portal-admin-accommodation-status-dot\.is-on\{background:#5a9468\}/.test(apiSrc),
+  'accommodation dark enabled status-dot matches rental #5a9468',
+);
+assert.ok(
+  !/\.portal-admin-accommodation-status-dot\.is-on\{background:#22c55e\}/.test(apiSrc)
+    && !/html\[data-theme="dark"\] \.portal-admin-accommodation-status-dot\.is-on\{background:#4ade80\}/.test(apiSrc),
+  'accommodation status-dot no longer uses brighter neon greens',
+);
 
 assert.ok(packRulesSrc.includes('active: cfg.enabled !== false'), 'surf pack mapper returns enabled state');
 assert.ok(packRulesSrc.includes('includeDisabled === true'), 'surf pack loader can include disabled courses for admin');

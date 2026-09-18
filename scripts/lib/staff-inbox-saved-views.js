@@ -369,7 +369,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
   }),
   declareView({
     id: 'owner_lab',
-    label: 'Owner Lab',
+    label: 'Lab',
     group: 'inbox',
     defaultSort: INBOX_VIEW_SORTS.RECENT,
     source: INBOX_VIEW_SOURCES.CONVERSATIONS,

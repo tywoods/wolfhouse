@@ -121,7 +121,7 @@ assert('declarations ordered by rail group',
 for (const specLabel of [
   'Approvals', 'Needs human', 'Unassigned',
   'All', 'WhatsApp', 'Email', 'Snoozed',
-  'Equipment Out', 'Arriving today', 'Hot leads', 'Warm leads', 'Unpaid', 'Waiver due', 'Owner Lab',
+  'Equipment Out', 'Arriving today', 'Hot leads', 'Warm leads', 'Unpaid', 'Waiver due', 'Lab',
 ]) {
   assert(`spec rail view present: ${specLabel}`, declarations.some((v) => v.label === specLabel));
 }

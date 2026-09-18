@@ -17077,8 +17077,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-accommodation-coverage-warn{margin:10px 0 0;border-color:rgba(200,138,0,.4);color:#8a6100}
 /* Accommodation section status dot (next to title) */
 .portal-admin-accommodation-status-dot{flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:var(--text-3)}
-.portal-admin-accommodation-status-dot.is-on{background:#22c55e}
-html[data-theme="dark"] .portal-admin-accommodation-status-dot.is-on{background:#4ade80}
+.portal-admin-accommodation-status-dot.is-on{background:#1F6B4A}
+html[data-theme="dark"] .portal-admin-accommodation-status-dot.is-on{background:#5a9468}
 .portal-admin-accommodation-status-dot.is-off{background:var(--text-3)}
 /* Accommodation card in edit mode: switch top-right */
 .portal-admin-accommodation-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px}
