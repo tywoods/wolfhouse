@@ -35,8 +35,10 @@ function ok(label, condition) { assert.ok(condition, label); passed += 1; consol
     return { rows: [] };
   } };
   const registryCheck = await beaches.validateBeachKeys(client, { clientSlug: 'sunset', locationId: 'somo', beachKeys: ['somo', 'ghost'] });
+  const registryLookup = calls.find((call) => /SELECT beach_key FROM tenant_surf_beaches/.test(call.sql));
   ok('pack beach validation rejects keys absent from same property registry', !registryCheck.ok && registryCheck.missing[0] === 'ghost');
-  ok('registry lookup is tenant/property scoped', calls[0].params[0] === 'sunset' && calls[0].params[1] === 'somo');
+  ok('registry lookup is tenant/property scoped', registryLookup.params[0] === 'sunset' && registryLookup.params[1] === 'somo');
+  ok('runtime guard provisions surf beach registry before lookups', /CREATE TABLE IF NOT EXISTS tenant_surf_beaches/.test(calls.map((call) => call.sql).join('\n')));
 
   const deleteCalls = [];
   const blockedClient = { query: async (sql) => {
@@ -50,7 +52,7 @@ function ok(label, condition) { assert.ok(condition, label); passed += 1; consol
   ok('delete is blocked while an active/in-use pack references beach', blocked.status === 409 && blocked.body.error === 'beach_in_use');
   ok('delete transaction begins before locking the beach', deleteCalls[0] === 'BEGIN' && /FOR UPDATE/.test(deleteCalls[1]));
   ok('blocked delete rolls back', deleteCalls.at(-1) === 'ROLLBACK');
-  ok('pack registry validation takes a compatible row lock', /FOR SHARE/.test(calls[0].sql));
+  ok('pack registry validation takes a compatible row lock', /FOR SHARE/.test(registryLookup.sql));
 
   ok('migration creates dedicated scoped registry', /CREATE TABLE IF NOT EXISTS tenant_surf_beaches/.test(migration) && /location_id\s+TEXT NOT NULL/.test(migration));
   ok('migration backfills existing config_json beaches without changing pack data', /jsonb_array_elements_text/.test(migration) && !/UPDATE\s+tenant_surf_pack_rules/i.test(migration));

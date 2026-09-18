@@ -4,6 +4,64 @@ const { isSunsetLocationId, normalizeSunsetLocationId } = require('./sunset-scho
 
 const BEACH_KEY_RE = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const ALLOWED_FIELDS = new Set(['beach_key', 'display_name']);
+const SCHEMA_LOCK_KEY_1 = 20260918;
+const SCHEMA_LOCK_KEY_2 = 102;
+let schemaEnsurePromise = null;
+
+async function ensureSurfBeachRegistry(client) {
+  if (schemaEnsurePromise) return schemaEnsurePromise;
+  schemaEnsurePromise = (async () => {
+    await client.query('SELECT pg_advisory_lock($1, $2)', [SCHEMA_LOCK_KEY_1, SCHEMA_LOCK_KEY_2]);
+    try {
+      await client.query(`CREATE TABLE IF NOT EXISTS tenant_surf_beaches (
+        id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        tenant_id    TEXT NOT NULL DEFAULT 'sunset',
+        client_slug  TEXT NOT NULL,
+        location_id  TEXT NOT NULL,
+        beach_key    TEXT NOT NULL CHECK (beach_key ~ '^[a-z0-9]+(?:_[a-z0-9]+)*$'),
+        display_name TEXT NOT NULL CHECK (btrim(display_name) <> ''),
+        active       BOOLEAN NOT NULL DEFAULT true,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_by   UUID REFERENCES staff_users(id) ON DELETE SET NULL
+      )`);
+      await client.query(`COMMENT ON TABLE tenant_surf_beaches IS
+        'Stable tenant/property-scoped surf beach catalog identities. Prices and capacity intentionally live elsewhere.'`);
+      await client.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_tenant_surf_beaches_scope_key
+        ON tenant_surf_beaches (client_slug, location_id, beach_key) WHERE active = true`);
+      await client.query(`CREATE INDEX IF NOT EXISTS idx_tenant_surf_beaches_scope
+        ON tenant_surf_beaches (client_slug, location_id, active)`);
+      await client.query('DROP TRIGGER IF EXISTS tenant_surf_beaches_updated_at ON tenant_surf_beaches');
+      await client.query(`CREATE TRIGGER tenant_surf_beaches_updated_at
+        BEFORE UPDATE ON tenant_surf_beaches FOR EACH ROW EXECUTE FUNCTION set_updated_at()`);
+      await client.query(`DO $$
+      BEGIN
+        IF to_regclass('public.tenant_surf_pack_rules') IS NOT NULL THEN
+          EXECUTE $sql$
+            INSERT INTO tenant_surf_beaches (tenant_id, client_slug, location_id, beach_key, display_name)
+            SELECT DISTINCT p.tenant_id, p.client_slug, COALESCE(NULLIF(btrim(p.location_id), ''), 'sunset-somo'), b.beach_key,
+                   initcap(replace(b.beach_key, '_', ' '))
+            FROM tenant_surf_pack_rules p
+            CROSS JOIN LATERAL jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(p.config_json->'beaches') = 'array'
+                   THEN p.config_json->'beaches' ELSE '[]'::jsonb END
+            ) AS b(beach_key)
+            WHERE b.beach_key ~ '^[a-z0-9]+(?:_[a-z0-9]+)*$'
+            ON CONFLICT DO NOTHING
+          $sql$;
+        END IF;
+      END $$`);
+    } finally {
+      await client.query('SELECT pg_advisory_unlock($1, $2)', [SCHEMA_LOCK_KEY_1, SCHEMA_LOCK_KEY_2]);
+    }
+  })();
+  try {
+    await schemaEnsurePromise;
+  } catch (err) {
+    schemaEnsurePromise = null;
+    throw err;
+  }
+}
 
 function resolveRequiredSunsetLocation(query = {}) {
   if (!isSunsetLocationId(query.location)) return { ok: false, error: 'invalid_location' };
@@ -31,6 +89,7 @@ function validateBeachBody(body, { create = false } = {}) {
 }
 
 async function listSurfBeaches(client, { clientSlug, locationId }) {
+  await ensureSurfBeachRegistry(client);
   const result = await client.query(
     `SELECT beach_key, display_name FROM tenant_surf_beaches
       WHERE client_slug = $1 AND location_id = $2 AND active = true
@@ -39,6 +98,7 @@ async function listSurfBeaches(client, { clientSlug, locationId }) {
 }
 
 async function validateBeachKeys(client, { clientSlug, locationId, beachKeys }) {
+  await ensureSurfBeachRegistry(client);
   const keys = [...new Set((beachKeys || []).map((key) => String(key).trim()))];
   if (!keys.length) return { ok: true, missing: [] };
   const result = await client.query(
@@ -52,6 +112,7 @@ async function validateBeachKeys(client, { clientSlug, locationId, beachKeys }) 
 }
 
 async function createSurfBeach(client, { clientSlug, locationId, body, actor = {} }) {
+  await ensureSurfBeachRegistry(client);
   const validated = validateBeachBody(body, { create: true });
   if (!validated.ok) return { ok: false, status: 400, body: { success: false, error: validated.error } };
   try {
@@ -69,6 +130,7 @@ async function createSurfBeach(client, { clientSlug, locationId, body, actor = {
 }
 
 async function patchSurfBeach(client, { clientSlug, locationId, beachKey, body, actor = {} }) {
+  await ensureSurfBeachRegistry(client);
   const validated = validateBeachBody(body);
   if (!validated.ok) return { ok: false, status: 400, body: { success: false, error: validated.error } };
   const result = await client.query(
@@ -81,6 +143,7 @@ async function patchSurfBeach(client, { clientSlug, locationId, beachKey, body, 
 }
 
 async function deleteSurfBeach(client, { clientSlug, locationId, beachKey, actor = {} }) {
+  await ensureSurfBeachRegistry(client);
   await client.query('BEGIN');
   try {
     const existing = await client.query(
@@ -117,4 +180,4 @@ async function deleteSurfBeach(client, { clientSlug, locationId, beachKey, actor
   }
 }
 
-module.exports = { BEACH_KEY_RE, resolveRequiredSunsetLocation, validateBeachBody, listSurfBeaches, validateBeachKeys, createSurfBeach, patchSurfBeach, deleteSurfBeach };
+module.exports = { BEACH_KEY_RE, resolveRequiredSunsetLocation, validateBeachBody, ensureSurfBeachRegistry, listSurfBeaches, validateBeachKeys, createSurfBeach, patchSurfBeach, deleteSurfBeach };
