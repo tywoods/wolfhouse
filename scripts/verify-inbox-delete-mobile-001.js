@@ -118,6 +118,12 @@ class FakePg {
     && /conv-card:focus-within \.conv-card-delete/.test(shellSrc)
     && /conv-card-delete:focus-visible/.test(shellSrc)
     && /opacity:0/.test(shellSrc));
+  check('delete glyph is plain grey × with no red circle/pill chrome',
+    /INBOX-LIST-HOVER-AND-DELETE-X-001/.test(shellSrc)
+    && /#inbox-shell \.conv-card-delete\{[\s\S]{0,280}border-radius:0;background:transparent!important;color:var\(--text-3\)/.test(shellSrc)
+    && !/#inbox-shell \.conv-card-delete[^{]*\{[^}]*border-radius:999px/.test(shellSrc)
+    && !/conv-card-delete:hover[\s\S]{0,120}color:#9C3D3D/.test(shellSrc)
+    && !/conv-card-delete:hover[\s\S]{0,120}background:rgba\(156,61,61/.test(shellSrc));
   check('phone delete glyph persists with 44px tap target',
     /@media\(max-width:768px\)[\s\S]{0,260}\.conv-card-delete\{opacity:\.72;width:44px;height:44px;min-width:44px/.test(shellSrc));
   check('full thread delete button renders for admin and uses the same DELETE helper',

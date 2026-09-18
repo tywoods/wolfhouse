@@ -327,6 +327,7 @@
     "verify:inbox-shell-channel-defaults": "node scripts/verify-inbox-shell-channel-defaults.js",
     "verify:inbox-theme": "node scripts/verify-inbox-theme.js",
     "verify:inbox-middle-column-fill": "node scripts/verify-inbox-middle-column-fill.js",
+    "verify:inbox-list-hover-delete-x": "node scripts/verify-inbox-list-hover-delete-x.js",
     "verify:luna-pause-handoff-controls": "node scripts/verify-luna-pause-handoff-controls.js",
     "verify:luna-handoff-lifecycle": "node scripts/verify-luna-handoff-lifecycle.js",
     "verify:luna-needs-human-no-pause": "node scripts/verify-luna-needs-human-no-pause.js",

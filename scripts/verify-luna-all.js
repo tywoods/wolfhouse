@@ -64,6 +64,7 @@ const steps = [
   ['verify:inbox-context', 'verify-inbox-context.js'],
   ['verify:inbox-theme', 'verify-inbox-theme.js'],
   ['verify:inbox-middle-column-fill', 'verify-inbox-middle-column-fill.js'],
+  ['verify:inbox-list-hover-delete-x', 'verify-inbox-list-hover-delete-x.js'],
   ['verify:inbox-rows', 'verify-inbox-rows.js'],
   ['verify:inbox-list-timestamp', 'verify-inbox-list-timestamp.js'],
   ['verify:inbox-filter-reselect', 'verify-inbox-filter-reselect.js'],
