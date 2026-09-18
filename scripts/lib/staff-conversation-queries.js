@@ -182,7 +182,7 @@ function inboxNeedsHumanWhereClause(scoped) {
 
 function sqlConversationOwnerLabPredicate(convAlias) {
   const conv = convAlias || 'conv';
-  return `(${conv}.metadata->>'open_phone_testing' = 'true' OR NULLIF(btrim(${conv}.metadata->>'guest_tester_class'), '') IS NOT NULL)`;
+  return `(COALESCE(${conv}.metadata->>'open_phone_testing' = 'true', FALSE) OR NULLIF(btrim(${conv}.metadata->>'guest_tester_class'), '') IS NOT NULL)`;
 }
 
 /** Staff-visible source phone only for provenance minted by the Crows Nest door. */
@@ -847,6 +847,7 @@ WHERE c.slug = $1
 module.exports = {
   DEFAULT_SUNSET_LOCATION_ID,
   sqlConversationChannelExpr,
+  sqlConversationOwnerLabPredicate,
   sqlCurrentEmailSubjectExpr,
   sqlConversationDisplayPhoneExpr,
   isEmailInboundSubjectSchemaError,

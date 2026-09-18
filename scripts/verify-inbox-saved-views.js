@@ -12,6 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PGlite } = require('@electric-sql/pglite');
 
 const {
   INBOX_SAVED_VIEWS,
@@ -50,6 +51,7 @@ const {
   conversationInboxChannelParamIndex,
   CONVERSATION_INBOX_CURSOR_FIELDS,
   isEmailInboundSubjectSchemaError,
+  sqlConversationOwnerLabPredicate,
 } = require('./lib/staff-conversation-queries');
 
 const ROOT = path.join(__dirname, '..');
@@ -358,14 +360,14 @@ assert('conversation cursor is recency + id only',
 const convAllSunset = buildInboxViewQuery({ view: 'all', clientSlug: SUNSET, query: { location: 'sunset-sardinero' } });
 assert('inbox All (sunset) delegates to the location-scoped query',
   convAllSunset.ok === true && convAllSunset.sql === getConversationInboxQuery({ locationScoped: true }));
-const ownerLabPredicate = "conv.metadata->>'open_phone_testing' = 'true' OR NULLIF(btrim(conv.metadata->>'guest_tester_class'), '') IS NOT NULL";
+const ownerLabPredicate = sqlConversationOwnerLabPredicate('conv');
 assert('inbox All excludes Owner Lab threads from the list',
-  convAll.ok === true && convAll.sql.includes(`AND NOT (${ownerLabPredicate})`));
+  convAll.ok === true && convAll.sql.includes(`AND NOT ${ownerLabPredicate}`));
 const ownerLabBuilt = buildInboxViewQuery({ view: 'owner_lab', clientSlug: WOLFHOUSE, query: {} });
 assert('Owner Lab view keeps Owner Lab threads visible/selectable',
   ownerLabBuilt.ok === true
-  && ownerLabBuilt.sql.includes(`AND (${ownerLabPredicate})`)
-  && !ownerLabBuilt.sql.includes(`AND NOT (${ownerLabPredicate})`));
+  && ownerLabBuilt.sql.includes(`AND ${ownerLabPredicate}`)
+  && !ownerLabBuilt.sql.includes(`AND NOT ${ownerLabPredicate}`));
 
 for (const [viewId, channel] of [['whatsapp', 'whatsapp'], ['email', 'email']]) {
   for (const clientSlug of [WOLFHOUSE, SUNSET]) {
@@ -384,7 +386,7 @@ for (const [viewId, channel] of [['whatsapp', 'whatsapp'], ['email', 'email']]) 
       && !built.sql.includes(`session_state->>'channel', 'whatsapp') = '${channel}'`));
     if (viewId === 'whatsapp') {
       assert(`whatsapp view (${clientSlug}): Owner Lab threads are isolated from WhatsApp`,
-        built.ok === true && built.sql.includes(`AND NOT (${ownerLabPredicate})`));
+        built.ok === true && built.sql.includes(`AND NOT ${ownerLabPredicate}`));
     }
   }
 }
@@ -432,9 +434,10 @@ assert('getConversationInboxCountsQuery accepts needsHuman columns',
     ],
   }).includes("FILTER (WHERE conv.needs_human = TRUE AND NOT (lower(btrim(COALESCE(conv.metadata->>'is_spam'"));
 assert('rail counts isolate Owner Lab from All and WhatsApp counts',
-  /COUNT\(\*\) FILTER \(WHERE NOT \(lower\(btrim\(COALESCE\(conv\.metadata->>'is_spam'[\s\S]*AND NOT \(conv\.metadata->>'open_phone_testing'[\s\S]*AS "all"/.test(convPass.sql)
-  && /AND NOT \(conv\.metadata->>'open_phone_testing'[\s\S]*COALESCE\(conv\.metadata->>'channel', conv\.session_state->>'channel', 'whatsapp'\) = \$/.test(convPass.sql)
-  && /COUNT\(\*\) FILTER \(WHERE \(conv\.metadata->>'open_phone_testing'[\s\S]*AS "owner_lab"/.test(convPass.sql));
+  convPass.sql.includes(`AND NOT ${ownerLabPredicate}`)
+  && convPass.sql.includes(`FILTER (WHERE ${ownerLabPredicate}`)
+  && convPass.sql.indexOf(`AND NOT ${ownerLabPredicate}`)
+    < convPass.sql.indexOf("COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') = $"));
 
 console.log('\n[5] Tenant and location scoping on every available view');
 
@@ -610,11 +613,53 @@ assert('rail does not fan out to /staff-state',
 assert('rail does not dump /staff/conversations for counts',
   !VIEWS_UI_SRC.includes('/staff/conversations'));
 
-console.log('\n' + '─'.repeat(48));
-console.log(`Results: ${pass} passed, ${fail} failed`);
-if (fail > 0) {
-  console.error('verify:inbox-saved-views — FAILED');
-  process.exit(1);
+async function verifyOwnerLabPredicateSemantics() {
+  console.log('\n[10] Owner Lab predicate — executable PostgreSQL three-valued semantics');
+  const db = new PGlite();
+  const cases = [
+    { label: 'missing metadata is ordinary', metadata: {}, expected: false },
+    { label: 'explicit false without class is ordinary', metadata: { open_phone_testing: false }, expected: false },
+    { label: 'explicit true is Owner Lab', metadata: { open_phone_testing: true }, expected: true },
+    { label: 'tester class alone is Owner Lab', metadata: { guest_tester_class: 'Simulator' }, expected: true },
+    { label: 'blank tester class is ordinary', metadata: { open_phone_testing: false, guest_tester_class: '   ' }, expected: false },
+    { label: 'tester class overrides explicit false', metadata: { open_phone_testing: false, guest_tester_class: 'Owner' }, expected: true },
+  ];
+
+  try {
+    await db.exec('CREATE TABLE owner_lab_cases (label text, metadata jsonb, expected boolean)');
+    for (const testCase of cases) {
+      await db.query(
+        'INSERT INTO owner_lab_cases (label, metadata, expected) VALUES ($1, $2::jsonb, $3)',
+        [testCase.label, JSON.stringify(testCase.metadata), testCase.expected],
+      );
+    }
+    const result = await db.query(`
+      SELECT label, expected, ${sqlConversationOwnerLabPredicate('conv')} AS actual
+      FROM owner_lab_cases conv
+      ORDER BY label
+    `);
+    for (const row of result.rows) {
+      assert(`${row.label}: SQL returns total boolean ${row.expected}`,
+        typeof row.actual === 'boolean' && row.actual === row.expected,
+        `actual=${String(row.actual)} expected=${row.expected}`);
+    }
+  } finally {
+    await db.close();
+  }
 }
-console.log('verify:inbox-saved-views — ALL CHECKS PASSED');
-process.exit(0);
+
+verifyOwnerLabPredicateSemantics()
+  .then(() => {
+    console.log('\n' + '─'.repeat(48));
+    console.log(`Results: ${pass} passed, ${fail} failed`);
+    if (fail > 0) {
+      console.error('verify:inbox-saved-views — FAILED');
+      process.exit(1);
+    }
+    console.log('verify:inbox-saved-views — ALL CHECKS PASSED');
+    process.exit(0);
+  })
+  .catch((err) => {
+    console.error('verify:inbox-saved-views — ERROR', err);
+    process.exit(1);
+  });
