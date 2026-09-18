@@ -1464,7 +1464,9 @@ function renderAdminDurationInvalidControl(prefix, displayLabel){
 function adminReadNewEquipDurations(){
   var wrap = el('admin-new-equip-durations');
   if (!wrap) return adminNewEquipDraftDurations || [{ unit: 'days', count: 1, amount: '' }];
-  var rows = wrap.querySelectorAll('[data-new-equip-dur-idx]');
+  // Only row containers — never the × button. The × used to share
+  // data-new-equip-dur-idx with the row, so a bare attr selector double-counted.
+  var rows = wrap.querySelectorAll('.portal-admin-new-equip-dur-row');
   var out = [];
   for (var i = 0; i < rows.length; i++){
     var row = rows[i];
@@ -1501,8 +1503,9 @@ function renderAdminNewEquipDurationRow(idx, row, canRemove){
     '<input type="text" class="portal-admin-equip-amount" id="' + escHtml(amountId) + '" data-new-equip-dur-amount="' + idx +
     '" inputmode="decimal" placeholder="0.00" value="' + escHtml(amt) + '"></div>';
   if (canRemove){
+    // Distinct attr from the row's data-new-equip-dur-idx so DOM reads cannot double-count.
     html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger portal-admin-new-equip-remove-dur" ' +
-      'data-admin-action="remove-new-equip-duration" data-new-equip-dur-idx="' + idx +
+      'data-admin-action="remove-new-equip-duration" data-new-equip-remove-idx="' + idx +
       '" title="' + escHtml(removeDurLabel) + '" aria-label="' + escHtml(removeDurLabel) + '">×</button>';
   }
   html += '</div>';
@@ -4116,8 +4119,9 @@ function wireAdminTab(){
       return;
     }
     if (action === 'remove-new-equip-duration'){
-      var removeIdx = parseInt(btn.getAttribute('data-new-equip-dur-idx'), 10);
+      var removeIdx = parseInt(btn.getAttribute('data-new-equip-remove-idx'), 10);
       var curDurs = adminReadNewEquipDurations();
+      // Remove that row only; never add. Keep at least one duration row.
       if (curDurs.length > 1 && removeIdx >= 0 && removeIdx < curDurs.length) {
         curDurs.splice(removeIdx, 1);
         adminNewEquipDraftDurations = curDurs;
