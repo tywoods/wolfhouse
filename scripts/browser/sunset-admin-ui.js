@@ -383,16 +383,22 @@ function adminReloadConfigKeepingEdit(keepTarget){
           return;
         }
         if (!data || data.success !== true) return Promise.reject(new Error('load failed'));
-        // Refresh rental offerings (incl. inactive) so course dropdown + Enabled state stay authoritative.
-        return fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true&_ts=' + Date.now(), { credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'} })
-          .then(function(r){ return r.ok ? r.json() : { offerings: [] }; }).catch(function(){ return { offerings: [] }; })
-          .then(function(catalog){
+        // Refresh identity catalogs (incl. inactive equipment + active beaches) so Pricing selectors stay authoritative.
+        return Promise.all([
+          fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true&_ts=' + Date.now(), { credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'} })
+            .then(function(r){ return r.ok ? r.json() : { offerings: [] }; }).catch(function(){ return { offerings: [] }; }),
+          fetch('/staff/admin/config/surf-beaches' + adminClientQuery() + '&_ts=' + Date.now(), { credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'} })
+            .then(function(r){ return r.ok ? r.json() : { beaches: [] }; }).catch(function(){ return { beaches: [] }; }),
+        ]).then(function(results){
+            var catalog = results[0] || {};
+            var beachCatalog = results[1] || {};
             var gate2 = adminReloadKeepingEditOwnership(loadSeq, originSchoolKey, originEditTarget);
             if (!gate2.apply) {
               adminReleaseBusy(loadSeq);
               return;
             }
             data._equipment_offerings = catalog && Array.isArray(catalog.offerings) ? catalog.offerings : (data.rental_offerings || []);
+            data.surf_beaches = beachCatalog && Array.isArray(beachCatalog.beaches) ? beachCatalog.beaches : (data.surf_beaches || []);
             adminConfigCache = data;
             adminEditTarget = saved;
             // Keep unsaved Pricing field drafts while re-rendering for a kept edit target.
@@ -486,11 +492,21 @@ function adminResolveLessonSlotFields(s){
 }
 
 
-function adminPackBeachOptions(){ return [
-  { value: 'el_sardinero', label: portalT('admin.packs.beach.el_sardinero') },
-  { value: 'liencres', label: portalT('admin.packs.beach.liencres') },
-  { value: 'somo', label: portalT('admin.packs.beach.somo') },
-];}
+function adminBeachText(key, fallback){
+  var t = portalT(key);
+  return t === key ? fallback : t;
+}
+function adminSurfBeaches(){
+  var rows = adminConfigCache && Array.isArray(adminConfigCache.surf_beaches) ? adminConfigCache.surf_beaches : [];
+  return rows.filter(function(b){ return !!(b && b.beach_key); }).map(function(b){
+    return { beach_key: String(b.beach_key || ''), display_name: String(b.display_name || b.beach_key || '') };
+  });
+}
+function adminPackBeachOptions(){
+  return adminSurfBeaches().map(function(b){
+    return { value: b.beach_key, label: b.display_name || b.beach_key };
+  });
+}
 function adminPackGroupSizeOptions(){ return [8, 12, 16, 20, 24].map(function(n){
   return { value: String(n), label: portalT('admin.packs.groupExclusive').replace('{n}', String(n)) };
 });}
@@ -570,7 +586,7 @@ function adminDefaultPackConfigSeed(){
     equipment_options: [],
     age_band: '12_and_up',
     group_size: 16,
-    beaches: ['el_sardinero', 'liencres', 'somo'],
+    beaches: [],
     weekly: 'mon_fri',
     schedules: ['0930_1130', '1215_1415'],
     price_tiers: [],
@@ -2099,6 +2115,65 @@ function renderAdminPrivateLessonCard(cfg, writes){
   html += '</article></div>';
   return html;
 }
+function adminRenderBeachManager(cfg, writes){
+  var beaches = (cfg && Array.isArray(cfg.surf_beaches)) ? cfg.surf_beaches.slice() : [];
+  var editingNew = adminEditTarget === 'beach:new';
+  var html = '<div class="portal-admin-beach-manager" data-testid="admin-beach-manager">';
+  html += '<div class="portal-admin-beach-manager-head"><div><h3>' + escHtml(adminBeachText('admin.beaches.title', 'Beaches')) + '</h3>';
+  html += '<p class="portal-admin-muted">' + escHtml(adminBeachText('admin.beaches.help', 'Manage beach names used by group course selectors. Prices and capacity stay on their own cards.')) + '</p></div>';
+  if (writes && !editingNew) html += '<button type="button" class="btn btn-ghost" data-admin-action="add-beach">+ ' + escHtml(adminBeachText('admin.beaches.add', 'Add beach')) + '</button>';
+  html += '</div>';
+  if (editingNew) html += adminRenderBeachEditRow(null);
+  if (!beaches.length && !editingNew) {
+    html += '<p class="portal-admin-muted" data-testid="admin-beaches-empty">' + escHtml(adminBeachText('admin.beaches.empty', 'No beaches configured yet. Add beach names before assigning them to courses.')) + '</p>';
+  } else {
+    html += '<div class="portal-admin-beach-list">';
+    beaches.forEach(function(b){
+      var key = String(b.beach_key || '');
+      if (!key) return;
+      if (adminEditTarget === 'beach:' + key) {
+        html += adminRenderBeachEditRow(b);
+      } else {
+        html += '<div class="portal-admin-beach-row" data-admin-beach="' + escHtml(key) + '">';
+        html += '<div class="portal-admin-beach-id"><strong>' + escHtml(b.display_name || key) + '</strong><span>' + escHtml(key) + '</span></div>';
+        if (writes) html += '<div class="portal-admin-beach-actions">'
+          + '<button type="button" class="btn btn-ghost portal-admin-pricing-edit-btn" data-admin-action="edit-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.edit', 'Edit beach')) + '">✎</button>'
+          + '<button type="button" class="btn btn-ghost portal-admin-danger portal-admin-icon-btn" data-admin-action="delete-beach" data-beach-key="' + escHtml(key) + '" aria-label="' + escHtml(adminBeachText('admin.beaches.delete', 'Delete beach')) + '">×</button>'
+          + '</div>';
+        html += '</div>';
+      }
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+function adminRenderBeachEditRow(beach){
+  var isNew = !beach;
+  var key = beach ? String(beach.beach_key || '') : '';
+  var prefix = isNew ? 'admin-beach-new' : ('admin-beach-' + key.replace(/[^a-zA-Z0-9_-]/g, '_'));
+  var label = isNew ? adminBeachText('admin.beaches.new', 'New beach') : adminBeachText('admin.beaches.edit', 'Edit beach');
+  var html = '<div class="portal-admin-beach-row is-editing" data-admin-beach-form="' + escHtml(isNew ? 'new' : key) + '">';
+  html += '<div class="portal-admin-beach-edit-title">' + escHtml(label) + '</div>';
+  html += '<div class="portal-admin-edit-field"><label for="' + escHtml(prefix) + '-name">' + escHtml(adminBeachText('admin.beaches.name', 'Name')) + '</label>';
+  html += '<input type="text" id="' + escHtml(prefix) + '-name" data-beach-field="display_name" maxlength="120" value="' + escHtml(beach && beach.display_name || '') + '"></div>';
+  html += '<div class="portal-admin-edit-field"><label for="' + escHtml(prefix) + '-key">' + escHtml(adminBeachText('admin.beaches.key', 'Key')) + '</label>';
+  html += '<input type="text" id="' + escHtml(prefix) + '-key" data-beach-field="beach_key" maxlength="80" ' + (isNew ? '' : 'disabled ') + 'value="' + escHtml(key) + '"></div>';
+  html += '<div class="portal-admin-beach-edit-actions"><button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>';
+  html += '<button type="button" class="btn btn-primary" data-admin-action="' + (isNew ? 'save-new-beach' : 'save-beach') + '" data-beach-key="' + escHtml(key) + '">' + escHtml(portalT('admin.action.save')) + '</button></div>';
+  html += '</div>';
+  return html;
+}
+function adminReadBeachPayload(beachKey){
+  var selectorKey = beachKey ? String(beachKey).replace(/"/g, '\\"') : 'new';
+  var root = document.querySelector('[data-admin-beach-form="' + selectorKey + '"]');
+  if (!root) return null;
+  var nameEl = root.querySelector('[data-beach-field="display_name"]');
+  var keyEl = root.querySelector('[data-beach-field="beach_key"]');
+  var body = { display_name: nameEl ? String(nameEl.value || '').trim() : '' };
+  if (!beachKey) body.beach_key = keyEl ? String(keyEl.value || '').trim() : '';
+  return body;
+}
 function renderAdminSectionLessonTimesFromConfig(cfg){
   var box = el('admin-times-body');
   if (!box) return;
@@ -2109,7 +2184,7 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
     ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
   // Course equipment is owned per Group/Private card (equipment_options). The obsolete
   // location-wide Equipment + Price (All Day + Surfboard/Wetsuit) block is retired.
-  box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes);
+  box.innerHTML = adminRenderBeachManager(cfg, writes) + renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes);
   adminWirePackFormValidation();
   adminSyncAllPackFormValidation();
 }
@@ -3591,10 +3666,16 @@ function loadAdminTab(opts){
         clearAdminLoadTimeout();
         if (loadSeq !== adminLoadSeq) return;
         if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
-        return fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true&_ts=' + Date.now(), { credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'} })
-          .then(function(r){return r.ok?r.json():{offerings:[]};}).catch(function(){return {offerings:[]};})
-          .then(function(catalog){
+        return Promise.all([
+          fetch('/staff/admin/config/rental-offerings' + adminClientQuery() + '&include_inactive=true&_ts=' + Date.now(), { credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'} })
+            .then(function(r){return r.ok?r.json():{offerings:[]};}).catch(function(){return {offerings:[]};}),
+          fetch('/staff/admin/config/surf-beaches' + adminClientQuery() + '&_ts=' + Date.now(), { credentials:'same-origin', cache:'no-store', headers:{Accept:'application/json'} })
+            .then(function(r){return r.ok?r.json():{beaches:[]};}).catch(function(){return {beaches:[]};}),
+        ]).then(function(results){
+        var catalog = results[0] || {};
+        var beachCatalog = results[1] || {};
         data._equipment_offerings = catalog && Array.isArray(catalog.offerings) ? catalog.offerings : (data.rental_offerings || []);
+        data.surf_beaches = beachCatalog && Array.isArray(beachCatalog.beaches) ? beachCatalog.beaches : (data.surf_beaches || []);
         adminConfigCache = data;
         if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
         // Canonical config load — server truth, no draft replay.
@@ -3715,7 +3796,7 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'save-equip-meta' || action === 'save-equipment' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'delete-rental-offering' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'toggle-group-availability' || action === 'toggle-equip-enabled' || action === 'add-equipment' || action === 'edit-equipment' || action === 'add-equip-price' || action === 'save-new-equipment' || action === 'save-price-amount' || action === 'save-equip-meta' || action === 'save-equipment' || action === 'edit-accommodation' || action === 'save-accommodation' || action === 'accom-add-range' || action === 'accom-remove-range' || action === 'add-beach' || action === 'edit-beach' || action === 'delete-beach' || action === 'save-beach' || action === 'save-new-beach'){
       if (!adminCfgWritesEnabled(cfg)) return;
     }
     if (action === 'delete-rental-offering'){
@@ -3750,6 +3831,83 @@ function wireAdminTab(){
       } catch (syncErr) {
         if (!adminOpStillOwns(delEquipOpSeq)) return;
         adminReleaseBusy(delEquipOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
+      return;
+    }
+    if (action === 'add-beach'){
+      adminEditTarget = 'beach:new';
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'edit-beach'){
+      var editBeachKey = String(btn.getAttribute('data-beach-key') || '').trim();
+      if (!editBeachKey) return;
+      adminEditTarget = 'beach:' + editBeachKey;
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'save-new-beach' || action === 'save-beach'){
+      var saveBeachKey = action === 'save-beach' ? String(btn.getAttribute('data-beach-key') || '').trim() : '';
+      var beachBody = adminReadBeachPayload(saveBeachKey);
+      if (!beachBody){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
+      if (!beachBody.display_name){ adminShowMessage('error', adminBeachText('admin.beaches.nameRequired', 'Beach name is required.')); return; }
+      if (action === 'save-new-beach' && !beachBody.beach_key){ adminShowMessage('error', adminBeachText('admin.beaches.keyRequired', 'Beach key is required.')); return; }
+      var saveBeachOpSeq = adminBeginOp();
+      adminShowMessage('', '');
+      try {
+        adminApiRequest(action === 'save-new-beach' ? 'POST' : 'PATCH', '/staff/admin/config/surf-beaches' + (saveBeachKey ? '/' + encodeURIComponent(saveBeachKey) : '') + adminClientQuery(), beachBody)
+        .then(function(res){
+          if (!adminOpStillOwns(saveBeachOpSeq)) return;
+          if (res.status !== 200 && res.status !== 201 || !res.data || res.data.success !== true){
+            adminReleaseBusy(saveBeachOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', adminBeachText('admin.beaches.saved', 'Beach saved.'));
+          adminReleaseBusy(saveBeachOpSeq);
+          adminEditTarget = null;
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(saveBeachOpSeq)) return;
+          adminReleaseBusy(saveBeachOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(saveBeachOpSeq)) return;
+        adminReleaseBusy(saveBeachOpSeq);
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
+      }
+      return;
+    }
+    if (action === 'delete-beach'){
+      var deleteBeachKey = String(btn.getAttribute('data-beach-key') || '').trim();
+      if (!deleteBeachKey || !window.confirm(adminBeachText('admin.beaches.deleteConfirm', 'Delete this beach? Courses using it will block deletion.'))) return;
+      var deleteBeachOpSeq = adminBeginOp();
+      adminShowMessage('', '');
+      try {
+        adminApiRequest('DELETE', '/staff/admin/config/surf-beaches/' + encodeURIComponent(deleteBeachKey) + adminClientQuery(), {})
+        .then(function(res){
+          if (!adminOpStillOwns(deleteBeachOpSeq)) return;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminReleaseBusy(deleteBeachOpSeq);
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', adminBeachText('admin.beaches.deleted', 'Beach deleted.'));
+          adminReleaseBusy(deleteBeachOpSeq);
+          adminEditTarget = null;
+          adminReloadConfig();
+        }).catch(function(err){
+          if (!adminOpStillOwns(deleteBeachOpSeq)) return;
+          adminReleaseBusy(deleteBeachOpSeq);
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      } catch (syncErr) {
+        if (!adminOpStillOwns(deleteBeachOpSeq)) return;
+        adminReleaseBusy(deleteBeachOpSeq);
         adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + (syncErr && syncErr.message ? syncErr.message : String(syncErr)));
       }
       return;
