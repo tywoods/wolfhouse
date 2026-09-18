@@ -219,7 +219,9 @@ function buildLiveSimulatorLimitation(options = {}) {
     payment_status_enabled: allStaffToolWrites || isolatedMode,
     waiver_registration_enabled: allStaffToolWrites || isolatedMode,
     limitation_flag: allStaffToolWrites ? 'sunset_staff_tools_enabled_external_transport_suppressed' : (isolatedMode ? 'sunset_isolated_test_flows_enabled' : (bookingOnlyMode ? 'sunset_booking_only_writes_enabled' : 'writes_and_external_sends_disabled')),
-    denied_actions: allStaffToolWrites ? ['send_whatsapp_message', 'send_sms'] : WRITE_DENY_LIST.slice(),
+    // Sunset exposes every Staff tool. External transport is a separate,
+    // permanent adapter boundary represented by the *_sends_enabled fields.
+    denied_actions: allStaffToolWrites ? [] : WRITE_DENY_LIST.slice(),
   };
 }
 

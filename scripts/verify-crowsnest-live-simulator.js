@@ -96,8 +96,8 @@ async function main() {
   ok('tenant request builds safely', built.ok === true);
   ok('caller phone maps to tenant memory thread', built.payload.thread === sunsetPhone && built.payload.guest_phone === sunsetPhone);
   ok('caller cannot inject write authority or a live identity', built.payload.allow_writes === false && !built.payload.simulator_write_mode && !built.payload.simulator_synthetic_identity);
-  ok('server-owned Sunset door advertises all Staff tool writes', built.limitation.writes_enabled === true && built.limitation.staff_tool_writes_enabled === true && built.limitation.denied_actions.length === 2);
-  ok('permanent transport fences remain advertised', built.limitation.whatsapp_sends_enabled === false && built.limitation.sms_sends_enabled === false && built.limitation.denied_actions.includes('send_whatsapp_message'));
+  ok('server-owned Sunset door advertises all Staff tool writes', built.limitation.writes_enabled === true && built.limitation.staff_tool_writes_enabled === true && built.limitation.denied_actions.length === 0);
+  ok('permanent transport fences remain advertised', built.limitation.whatsapp_sends_enabled === false && built.limitation.sms_sends_enabled === false);
   ok('tenant token is only in server-side header', built.headers['X-Luna-Bot-Token'] === 'server-side-secret' && !JSON.stringify(built.payload).includes('server-side-secret'));
 
   ok('random runtime hosts still fail closed without allowlist', runtimeOriginAllowed('https://random.invalid', { env: {} }) === false);
