@@ -340,6 +340,28 @@ function renderInboxSavedViewLoadMore(){
   btn.addEventListener('click', function(){ loadInboxSavedViewNextPage(); });
   wrap.appendChild(btn);
   list.appendChild(wrap);
+  wireInboxSavedViewInfiniteScroll();
+}
+
+var inboxSavedViewScrollWired = false;
+var inboxSavedViewScrollHandler = null;
+
+function wireInboxSavedViewInfiniteScroll(){
+  var list = el('conv-list');
+  if (!list || inboxSavedViewScrollWired) return;
+  inboxSavedViewScrollWired = true;
+  var scrollEl = list.closest('.inbox-conv-list-wrap') || list.parentElement || list;
+  inboxSavedViewScrollHandler = function(){
+    if (!inboxSavedViewHasMore || !inboxSavedViewNextCursor || inboxSavedViewLoadingMore) return;
+    var remaining = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+    if (remaining < 200) loadInboxSavedViewNextPage();
+  };
+  scrollEl.addEventListener('scroll', inboxSavedViewScrollHandler, { passive: true });
+}
+
+function resetInboxSavedViewInfiniteScroll(){
+  inboxSavedViewScrollWired = false;
+  inboxSavedViewScrollHandler = null;
 }
 
 function applyInboxSavedViewRows(rows, opts){
@@ -347,6 +369,28 @@ function applyInboxSavedViewRows(rows, opts){
   inboxConversationsCache = mergeSurfInboxConversations(mapped, getPortalProfile(getClient()));
   applyInboxFilter(opts || {});
   renderInboxSavedViewLoadMore();
+  scheduleInboxSavedViewAutoLoad();
+}
+
+var inboxSavedViewAutoLoadScheduled = false;
+
+function scheduleInboxSavedViewAutoLoad(){
+  if (inboxSavedViewAutoLoadScheduled) return;
+  if (!inboxSavedViewHasMore || !inboxSavedViewNextCursor || inboxSavedViewLoadingMore) return;
+  inboxSavedViewAutoLoadScheduled = true;
+  setTimeout(function(){
+    inboxSavedViewAutoLoadScheduled = false;
+    checkInboxSavedViewAutoLoad();
+  }, 50);
+}
+
+function checkInboxSavedViewAutoLoad(){
+  if (!inboxSavedViewHasMore || !inboxSavedViewNextCursor || inboxSavedViewLoadingMore) return;
+  var list = el('conv-list');
+  if (!list) return;
+  var scrollEl = list.closest('.inbox-conv-list-wrap') || list.parentElement || list;
+  var remaining = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+  if (remaining < 200) loadInboxSavedViewNextPage();
 }
 
 function updateInboxSavedViewPagination(data, append){
@@ -381,6 +425,7 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
   inboxSavedViewNextCursor = null;
   inboxSavedViewLoadingMore = false;
   inboxSavedViewExpanded = false;
+  resetInboxSavedViewInfiniteScroll();
   renderInboxSavedViewLoadMore();
 
   return fetch(inboxSavedViewListUrl(viewId))
