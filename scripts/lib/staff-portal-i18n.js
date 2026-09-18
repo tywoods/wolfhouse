@@ -321,7 +321,7 @@ const STAFF_PORTAL_STRINGS = {
     'inbox.rail.view.whatsapp': 'WhatsApp',
     'inbox.rail.view.email': 'Email',
     'inbox.rail.view.spam': 'Spam',
-    'inbox.rail.view.owner_lab': 'Owner Lab',
+    'inbox.rail.view.owner_lab': 'Lab',
     'inbox.rail.empty': 'No views',
     'inbox.rail.loadError': "Couldn't load views",
     'calendar.title': 'Booking Calendar',
