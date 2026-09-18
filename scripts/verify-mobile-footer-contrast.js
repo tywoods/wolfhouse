@@ -83,6 +83,7 @@ async function main() {
             borderColor: parseRgb(cs.borderColor),
             opacity: Number(cs.opacity),
             display: cs.display,
+            visibility: cs.visibility,
             width: Math.round(b.width),
             height: Math.round(b.height),
             left: Math.round(b.left),
@@ -91,6 +92,11 @@ async function main() {
             bottom: Math.round(b.bottom),
           };
         };
+        const visibleThemeIcon = Array.from(document.querySelectorAll('#nav-menu-tools #staff-theme-toggle .staff-theme-icon')).find((icon) => {
+          const cs = getComputedStyle(icon);
+          const b = icon.getBoundingClientRect();
+          return cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) > 0 && b.width >= 10 && b.height >= 10;
+        });
         const footer = document.querySelector('#nav-menu-tools');
         const footerStyle = getComputedStyle(footer);
         return {
@@ -102,6 +108,7 @@ async function main() {
           lang: rect(document.querySelector('#nav-menu-tools #staff-lang-switch')),
           langButtons: Array.from(document.querySelectorAll('#nav-menu-tools .staff-lang-btn')).map(rect),
           theme: rect(document.querySelector('#nav-menu-tools #staff-theme-toggle')),
+          themeIcon: rect(visibleThemeIcon),
         };
       });
       const bg = metric.footerBackground;
@@ -110,6 +117,7 @@ async function main() {
         lang: contrast(metric.lang.color, bg),
         langButtons: metric.langButtons.map((btn) => contrast(btn.color, bg)),
         themeIcon: contrast(metric.theme.color, metric.theme.background),
+        themeGlyph: metric.themeIcon ? contrast(metric.themeIcon.color, metric.theme.background) : 0,
         themeBorder: contrast(metric.theme.borderColor, bg),
       };
       evidence[width] = metric;
@@ -119,7 +127,7 @@ async function main() {
       ok(`${width}px footer visible and tappable`, metric.footer.height >= 58 && metric.footer.width <= width, JSON.stringify(metric.footer));
       ok(`${width}px logout is readable on light footer`, metric.contrast.logout >= 4.5, metric.contrast.logout.toFixed(2));
       ok(`${width}px language label/buttons readable`, metric.contrast.lang >= 4.5 && metric.contrast.langButtons.every((v) => v >= 4.5), JSON.stringify(metric.contrast));
-      ok(`${width}px theme toggle icon and border are visible`, metric.contrast.themeIcon >= 4.5 && metric.contrast.themeBorder >= 2.0, JSON.stringify(metric.contrast));
+      ok(`${width}px theme toggle icon and border are visible`, metric.themeIcon && metric.themeIcon.width >= 10 && metric.themeIcon.height >= 10 && metric.contrast.themeIcon >= 4.5 && metric.contrast.themeGlyph >= 4.5 && metric.contrast.themeBorder >= 2.0, JSON.stringify({ contrast: metric.contrast, themeIcon: metric.themeIcon }));
       ok(`${width}px controls fit within drawer`, metric.logout.right <= width && metric.theme.left >= 0 && metric.lang.right <= width, JSON.stringify({ logout: metric.logout, theme: metric.theme, lang: metric.lang }));
     }
     fs.writeFileSync(path.join(OUT_DIR, 'evidence.json'), `${JSON.stringify(evidence, null, 2)}\n`);
