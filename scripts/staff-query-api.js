@@ -31851,8 +31851,14 @@ function staffWhatsappNumbersI18n(key, fallbackEn, fallbackEs){
   return es ? fallbackEs : fallbackEn;
 }
 
+function staffWhatsappNumbersRowId(n){
+  return String((n && (n.id || n.staff_number_id || n.staffNumberId)) || '').trim();
+}
+
 function staffWhatsappNumbersRenderRow(n, isEditing){
-  var grp = n.from_alerts
+  var rowId = staffWhatsappNumbersRowId(n);
+  var isLegacyAlertOnly = !!(n && n.from_alerts && !rowId);
+  var grp = isLegacyAlertOnly
     ? (function(){
         try {
           if (typeof portalT === 'function') {
@@ -31866,14 +31872,16 @@ function staffWhatsappNumbersRenderRow(n, isEditing){
       })()
     : (n.permission_group === 'owner' ? 'Owner' : 'Staff');
 
-  // Rows from_alerts (notification recipients) or without id cannot be edited
-  var canEdit = !n.from_alerts && n.id;
+  // Legacy alert-only recipients have no staff-number id and cannot be edited.
+  // Real staff-number rows may arrive as id (normal route) or staff_number_id
+  // (automated-recipient/fallback shape); keep either identity editable.
+  var canEdit = !!rowId && !isLegacyAlertOnly;
 
   if (isEditing && canEdit) {
     var saveLbl = staffWhatsappNumbersI18n('lunaStaff.numbers.save', 'Save', 'Guardar');
     var cancelLbl = staffWhatsappNumbersI18n('lunaStaff.numbers.cancel', 'Cancel', 'Cancelar');
     var deleteLbl = staffWhatsappNumbersI18n('lunaStaff.numbers.delete', 'Delete', 'Eliminar');
-    return '<tr class="swn-mobile-card swn-edit-row" data-swn-id="' + escHtml(n.id) + '">'
+    return '<tr class="swn-mobile-card swn-edit-row" data-swn-id="' + escHtml(rowId) + '">'
       + '<td data-label="Name"><input type="text" class="swn-edit-input swn-edit-name" value="' + escHtml(n.display_name || '') + '" placeholder="Name"></td>'
       + '<td data-label="Phone"><input type="text" class="swn-edit-input swn-edit-phone" value="' + escHtml(n.phone || '') + '" placeholder="+15551234567"></td>'
       + '<td data-label="Group"><select class="swn-edit-select swn-edit-group">'
@@ -31882,18 +31890,18 @@ function staffWhatsappNumbersRenderRow(n, isEditing){
       + '</select></td>'
       + '<td data-label="Active"><label class="swn-edit-active-wrap"><input type="checkbox" class="swn-edit-active"' + (n.active ? ' checked' : '') + '> <span>' + staffWhatsappNumbersI18n('lunaStaff.numbers.active', 'Active', 'Activo') + '</span></label></td>'
       + '<td data-label=""><div class="swn-edit-actions">'
-      + '<button type="button" class="swn-save-btn" data-swn-id="' + escHtml(n.id) + '">' + escHtml(saveLbl) + '</button>'
-      + '<button type="button" class="swn-cancel-btn" data-swn-id="' + escHtml(n.id) + '">' + escHtml(cancelLbl) + '</button>'
-      + '<button type="button" class="swn-delete-btn" data-swn-id="' + escHtml(n.id) + '">' + escHtml(deleteLbl) + '</button>'
+      + '<button type="button" class="swn-save-btn" data-swn-id="' + escHtml(rowId) + '">' + escHtml(saveLbl) + '</button>'
+      + '<button type="button" class="swn-cancel-btn" data-swn-id="' + escHtml(rowId) + '">' + escHtml(cancelLbl) + '</button>'
+      + '<button type="button" class="swn-delete-btn" data-swn-id="' + escHtml(rowId) + '">' + escHtml(deleteLbl) + '</button>'
       + '</div></td>'
       + '</tr>';
   }
 
   // Display mode
   var editBtn = canEdit
-    ? '<button type="button" class="swn-edit-btn" data-swn-id="' + escHtml(n.id) + '" title="' + staffWhatsappNumbersI18n('lunaStaff.numbers.edit', 'Edit', 'Editar') + '">✎</button>'
+    ? '<button type="button" class="swn-edit-btn" data-swn-id="' + escHtml(rowId) + '" title="' + staffWhatsappNumbersI18n('lunaStaff.numbers.edit', 'Edit', 'Editar') + '">✎</button>'
     : '';
-  return '<tr class="swn-mobile-card" data-swn-id="' + escHtml(n.id || '') + '">'
+  return '<tr class="swn-mobile-card" data-swn-id="' + escHtml(rowId) + '">'
     + '<td data-label="Name">' + escHtml(n.display_name || '') + '</td>'
     + '<td data-label="Phone">' + escHtml(n.phone) + '</td>'
     + '<td data-label="Group">' + escHtml(grp) + '</td>'
@@ -31920,7 +31928,7 @@ function staffWhatsappNumbersRender(numbers){
     }
   } else {
     tbody.innerHTML = rows.map(function(n){
-      return staffWhatsappNumbersRenderRow(n, staffWhatsappNumbersEditingId === n.id);
+      return staffWhatsappNumbersRenderRow(n, staffWhatsappNumbersEditingId === staffWhatsappNumbersRowId(n));
     }).join('');
 
     // Wire edit button clicks
