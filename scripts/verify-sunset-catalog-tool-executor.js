@@ -125,6 +125,7 @@ console.log('\n[6] Invalid args');
 
 const noItem = executeSunsetCatalogTool('get_sunset_rental_price', {
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   args: { duration: '1_hour' },
 });
 assert('rejects missing item', !noItem.ok);
@@ -132,6 +133,7 @@ assert('reason=invalid_args for missing item', noItem.reason === 'invalid_args')
 
 const noDuration = executeSunsetCatalogTool('get_sunset_rental_price', {
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   args: { item: 'board' },
 });
 assert('rejects missing duration', !noDuration.ok);
@@ -143,6 +145,7 @@ console.log('\n[7] Dry-run rental price lookup');
 
 const dryRun = executeSunsetCatalogTool('get_sunset_rental_price', {
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   dry_run: true,
   args: { item: 'board', duration: '1_hour' },
 });
@@ -177,6 +180,7 @@ console.log('\n[8] Live mode — unverified_seed block');
 
 const liveLookup = executeSunsetCatalogTool('get_sunset_rental_price', {
   client_slug: 'sunset',
+  location_id: 'sunset-somo',
   dry_run: false,
   args: { item: 'board', duration: '1_hour', require_confirmed: true },
 });
