@@ -11,6 +11,11 @@ var INBOX_DEFAULT_SAVED_VIEW = 'all';
 var inboxSavedViewId = INBOX_DEFAULT_SAVED_VIEW;
 var inboxViewsListGen = 0;
 var inboxViewsRailGen = 0;
+var inboxSavedViewRows = [];
+var inboxSavedViewHasMore = false;
+var inboxSavedViewNextCursor = null;
+var inboxSavedViewLoadingMore = false;
+var inboxSavedViewExpanded = false;
 var INBOX_VIEW_SOURCE_CUSTOMERS = 'customers';
 var INBOX_CONV_ID_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -96,8 +101,10 @@ function inboxSavedViewsUrl(){
   return '/staff/inbox/views' + inboxClientQuery();
 }
 
-function inboxSavedViewListUrl(viewId){
-  return '/staff/inbox/list' + inboxClientQuery() + '&view=' + encodeURIComponent(viewId || inboxSavedViewId || INBOX_DEFAULT_SAVED_VIEW);
+function inboxSavedViewListUrl(viewId, cursor){
+  var url = '/staff/inbox/list' + inboxClientQuery() + '&view=' + encodeURIComponent(viewId || inboxSavedViewId || INBOX_DEFAULT_SAVED_VIEW);
+  if (cursor) url += '&cursor=' + encodeURIComponent(cursor);
+  return url;
 }
 
 function mapInboxPersonRowToConv(row){
@@ -318,10 +325,36 @@ function selectInboxSavedView(viewId){
   loadInbox(null, { silent: false, preserveDetail: false });
 }
 
+function renderInboxSavedViewLoadMore(){
+  var list = el('conv-list');
+  if (!list) return;
+  list.querySelectorAll('.inbox-views-load-more').forEach(function(node){ node.remove(); });
+  if (!inboxSavedViewHasMore || !inboxSavedViewNextCursor) return;
+  var wrap = document.createElement('div');
+  wrap.className = 'inbox-views-load-more';
+  var btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'inbox-views-load-more-btn';
+  btn.textContent = inboxSavedViewLoadingMore ? 'Loading more…' : 'Load more';
+  btn.disabled = !!inboxSavedViewLoadingMore;
+  btn.addEventListener('click', function(){ loadInboxSavedViewNextPage(); });
+  wrap.appendChild(btn);
+  list.appendChild(wrap);
+}
+
 function applyInboxSavedViewRows(rows, opts){
   var mapped = (rows || []).map(mapInboxPersonRowToConv);
   inboxConversationsCache = mergeSurfInboxConversations(mapped, getPortalProfile(getClient()));
   applyInboxFilter(opts || {});
+  renderInboxSavedViewLoadMore();
+}
+
+function updateInboxSavedViewPagination(data, append){
+  var rows = (data && data.rows) || [];
+  inboxSavedViewRows = append ? inboxSavedViewRows.concat(rows) : rows.slice();
+  if (append) inboxSavedViewExpanded = true;
+  inboxSavedViewHasMore = !!(data && data.has_more);
+  inboxSavedViewNextCursor = (data && data.next_cursor) || null;
 }
 
 function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
@@ -343,8 +376,14 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
   }
 
   refreshInboxViewsRail();
+  inboxSavedViewRows = [];
+  inboxSavedViewHasMore = false;
+  inboxSavedViewNextCursor = null;
+  inboxSavedViewLoadingMore = false;
+  inboxSavedViewExpanded = false;
+  renderInboxSavedViewLoadMore();
 
-  fetch(inboxSavedViewListUrl(viewId))
+  return fetch(inboxSavedViewListUrl(viewId))
     .then(function(r){
       if (r.status === 401){
         el('inbox-state').innerHTML = '⚠ Authentication required &mdash; <strong>POST /staff/auth/login</strong> first.';
@@ -362,7 +401,8 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
       renderInboxSchoolContext(null);
       if (selectConvIdAfterLoad) selectedConvId = selectConvIdAfterLoad;
       else if (keepConvId) selectedConvId = keepConvId;
-      applyInboxSavedViewRows(data.rows || [], {
+      updateInboxSavedViewPagination(data, false);
+      applyInboxSavedViewRows(inboxSavedViewRows, {
         preserveDetail: !!(preserveDetail && !selectConvIdAfterLoad),
         selectedId: selectedConvId,
       });
@@ -384,9 +424,48 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
     });
 }
 
+function loadInboxSavedViewNextPage(){
+  if (inboxSavedViewLoadingMore || !inboxSavedViewHasMore || !inboxSavedViewNextCursor) return Promise.resolve();
+  var viewId = inboxSavedViewId || INBOX_DEFAULT_SAVED_VIEW;
+  var cursor = inboxSavedViewNextCursor;
+  var gen = inboxViewsListGen;
+  inboxSavedViewLoadingMore = true;
+  renderInboxSavedViewLoadMore();
+  return fetch(inboxSavedViewListUrl(viewId, cursor))
+    .then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      if (gen !== inboxViewsListGen) return;
+      if (!data || !data.success) throw new Error((data && data.error) || 'API error');
+      updateInboxSavedViewPagination(data, true);
+      applyInboxSavedViewRows(inboxSavedViewRows, { preserveDetail: true, selectedId: selectedConvId });
+    })
+    .catch(function(err){
+      if (gen !== inboxViewsListGen) return;
+      var state = el('inbox-state');
+      if (state){
+        state.textContent = 'Error loading more people: ' + err.message;
+        state.classList.add('error');
+        state.style.display = 'block';
+      }
+    })
+    .then(function(){
+      if (gen !== inboxViewsListGen) return;
+      inboxSavedViewLoadingMore = false;
+      renderInboxSavedViewLoadMore();
+    });
+}
+
 function pollInboxSavedViewListLive(){
   if (!inboxLivePollActive || !isInboxTabVisible()) return;
   if (inboxListPollInFlight) return;
+  if (inboxSavedViewExpanded){
+    refreshInboxViewsRail();
+    setInboxLiveStatus('live', 'Live');
+    return;
+  }
   inboxListPollInFlight = true;
   var keepConvId = selectedConvId;
   var viewId = inboxSavedViewId || INBOX_DEFAULT_SAVED_VIEW;
@@ -402,7 +481,8 @@ function pollInboxSavedViewListLive(){
       if (!data || !data.success) throw new Error((data && data.error) || 'API error');
       renderInboxSchoolContext(null);
       if (keepConvId) selectedConvId = keepConvId;
-      applyInboxSavedViewRows(data.rows || [], { preserveDetail: true, selectedId: selectedConvId });
+      updateInboxSavedViewPagination(data, false);
+      applyInboxSavedViewRows(inboxSavedViewRows, { preserveDetail: true, selectedId: selectedConvId });
       setInboxLiveStatus('live', 'Live');
     })
     .catch(function(){
