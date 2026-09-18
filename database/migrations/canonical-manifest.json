@@ -1523,6 +1523,26 @@
       "rationale": "Fail-closed rollback while any Luna Guest Runtime durable rows exist; otherwise drops the four Phase 1 tables.",
       "pairsWith": "101_luna_guest_runtime_phase1.sql",
       "sha256": "242a258f256165949e986f3af0314288a81b1d02332d83a08fc3f93ade83e5de"
+    },
+    {
+      "id": "102_tenant_surf_beach_registry",
+      "filename": "102_tenant_surf_beach_registry.sql",
+      "order": 98,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "PRICING-BEACHES-P2-CRUD-001: tenant/property-scoped stable surf beach identities, with additive backfill from existing pack JSON and no price/capacity mutation.",
+      "downFilename": "102_tenant_surf_beach_registry_down.sql",
+      "sha256": "53f08ffab19453adce2e14524877d2079e212ccaf59ef094c1bff4f2c7a21e40"
+    },
+    {
+      "id": "102_tenant_surf_beach_registry_down",
+      "filename": "102_tenant_surf_beach_registry_down.sql",
+      "order": null,
+      "classification": "rollback_down",
+      "inForwardChain": false,
+      "rationale": "Fail-closed rollback while catalog identities exist; otherwise drops only tenant_surf_beaches.",
+      "pairsWith": "102_tenant_surf_beach_registry.sql",
+      "sha256": "0dda409a58379972bd7babb08846c17636ee34ed8a1f9c6005c95f376faa3bb9"
     }
   ]
 }
