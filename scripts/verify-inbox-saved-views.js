@@ -119,7 +119,7 @@ assert('declarations ordered by rail group',
 for (const specLabel of [
   'Approvals', 'Needs human', 'Unassigned',
   'All', 'WhatsApp', 'Email', 'Snoozed',
-  'Checked in', 'Arriving today', 'Hot leads', 'Warm leads', 'Unpaid', 'Waiver due', 'Owner Lab',
+  'Equipment Out', 'Arriving today', 'Hot leads', 'Warm leads', 'Unpaid', 'Waiver due', 'Owner Lab',
 ]) {
   assert(`spec rail view present: ${specLabel}`, declarations.some((v) => v.label === specLabel));
 }
@@ -128,8 +128,12 @@ assert('customer-source people views support broadcast multi-select',
   declarations.filter((v) => v.group === 'people' && v.source === INBOX_VIEW_SOURCES.CUSTOMERS && v.available && v.rail !== false
     && v.id !== 'do_not_contact' && v.id !== 'spam')
     .every((v) => v.multiSelect === true));
-assert('Lesson today sits directly under Checked in on the People rail',
-  ids.indexOf('lesson_today') === ids.indexOf('checked_in') + 1);
+// On the Sunset Guest rail, lesson_today comes directly after equipment_out.
+// The hidden checked_in view (rail: false, for lodging only) sits between them in declarations
+// but is not shown on the surf/Sunset Guest surface.
+const guestSurfaceOrder = require('./lib/staff-inbox-saved-views').SUNSET_GUEST_SURFACE_ORDER;
+assert('Lesson today sits directly under Equipment Out on the Sunset Guest surface',
+  guestSurfaceOrder.indexOf('lesson_today') === guestSurfaceOrder.indexOf('equipment_out') + 1);
 /*
  * INBOX-GUEST-SIDEBAR-SPLIT-001: Owner Lab and Spam moved to Inbox surface (group='inbox').
  * Legacy positioning checks no longer apply; verify surface ownership instead.
@@ -188,7 +192,7 @@ assert('module wires no HTTP routes',
 console.log('\n[3] SQL equivalence — all ten ALLOWED_FILTERS through the registry');
 
 const allowed = Array.from(ALLOWED_FILTERS).sort();
-assert('ALLOWED_FILTERS still has ten values', allowed.length === 10, allowed.join(','));
+assert('ALLOWED_FILTERS still has eleven values', allowed.length === 11, allowed.join(','));
 assert('every ALLOWED_FILTERS value maps to a view',
   allowed.every((f) => !!INBOX_VIEW_ID_BY_CRM_FILTER[f]),
   allowed.filter((f) => !INBOX_VIEW_ID_BY_CRM_FILTER[f]).join(','));
@@ -197,7 +201,7 @@ assert('no view claims a filter outside ALLOWED_FILTERS',
 assert('each filter is owned by exactly one view',
   new Set(Object.values(INBOX_VIEW_ID_BY_CRM_FILTER)).size === allowed.length);
 
-/** Golden text of the ten predicates as they stand today, per CRM vertical. */
+/** Golden text of the eleven predicates as they stand today, per CRM vertical. */
 const GOLDEN_FILTER_SQL = {
   all: { lodging: '', surf: '' },
   hot_leads: {
@@ -218,6 +222,7 @@ const GOLDEN_FILTER_SQL = {
     )`,
   },
   checked_in_now: { lodging: 'AND COALESCE(cia.checked_in_now, FALSE) = TRUE', surf: 'AND FALSE' },
+  equipment_out: { lodging: 'AND FALSE', surf: 'AND COALESCE(eo.equipment_out, FALSE) = TRUE' },
   do_not_contact: { lodging: "AND COALESCE((crm.crm_tags->>'do_not_contact')::boolean, FALSE) = TRUE" },
   needs_attention: { lodging: 'AND (lc.needs_human OR COALESCE(ho.has_open_handoff, FALSE))' },
   lesson_today: { lodging: 'AND COALESCE(sa.has_service_today, FALSE) = TRUE' },
@@ -304,13 +309,12 @@ assert('waiver_due keeps the surf-only waiver aggregate',
 const lodgingWaiver = buildInboxViewQuery({ view: 'waiver_due', clientSlug: WOLFHOUSE, query: {} });
 assert('waiver_due stays empty on a lodging tenant',
   lodgingWaiver.ok === true && lodgingWaiver.filterSql === 'AND FALSE');
-const surfCheckedIn = buildInboxViewQuery({ view: 'checked_in', clientSlug: SUNSET, query: {} });
-assert('checked_in stays empty on a surf tenant',
-  surfCheckedIn.ok === true && surfCheckedIn.filterSql === 'AND FALSE');
-const lodgingCheckedIn = buildInboxViewQuery({ view: 'checked_in', clientSlug: WOLFHOUSE, query: {} });
-assert('checked_in uses the stay-dates aggregate on a lodging tenant',
-  lodgingCheckedIn.ok === true
-  && lodgingCheckedIn.filterSql === 'AND COALESCE(cia.checked_in_now, FALSE) = TRUE');
+const surfEquipmentOut = buildInboxViewQuery({ view: 'equipment_out', clientSlug: SUNSET, query: {} });
+assert('equipment_out uses the rental/lesson time window aggregate on a surf tenant',
+  surfEquipmentOut.ok === true && surfEquipmentOut.filterSql === 'AND COALESCE(eo.equipment_out, FALSE) = TRUE');
+const lodgingEquipmentOut = buildInboxViewQuery({ view: 'equipment_out', clientSlug: WOLFHOUSE, query: {} });
+assert('equipment_out stays empty on a lodging tenant',
+  lodgingEquipmentOut.ok === true && lodgingEquipmentOut.filterSql === 'AND FALSE');
 
 console.log('\n[4] Conversation views — delegated inbox SQL plus parameterized channel');
 

@@ -8,7 +8,7 @@
  * Proves:
  *   - Surface ownership is declared for all Inbox and Guest views
  *   - Sunset Inbox surface order: all, whatsapp, email, needs_human, spam, owner_lab
- *   - Sunset Guest surface order: all_people, checked_in, lesson_today, upcoming,
+ *   - Sunset Guest surface order: all_people, equipment_out, lesson_today, upcoming,
  *     hot_leads, warm_leads, unpaid, waiver_due, do_not_contact
  *   - Owner Lab is Inbox-only (not in Guest surface order)
  *   - Spam is Inbox-only (not in Guest surface order)
@@ -91,10 +91,10 @@ for (const viewId of expectedInboxOrder) {
     !viewBelongsToSurface(viewId, INBOX_VIEW_SURFACES.GUEST));
 }
 
-console.log('\n[3] Guest surface order: all_people, checked_in, lesson_today, upcoming, hot_leads, warm_leads, unpaid, waiver_due, do_not_contact');
+console.log('\n[3] Guest surface order: all_people, equipment_out, lesson_today, upcoming, hot_leads, warm_leads, unpaid, waiver_due, do_not_contact');
 
 const expectedGuestOrder = [
-  'all_people', 'checked_in', 'lesson_today', 'upcoming',
+  'all_people', 'equipment_out', 'lesson_today', 'upcoming',
   'hot_leads', 'warm_leads', 'unpaid', 'waiver_due', 'do_not_contact'
 ];
 assert('Guest surface has exactly 9 filters',
@@ -255,12 +255,12 @@ if (clientGuestOrderMatch) {
   assert('Client INBOX_SURFACE_ORDER_GUEST found', false, 'could not parse');
 }
 
-console.log('\n[13] Checked in is NOT renamed to Equipment Out');
+console.log('\n[13] Equipment Out filter for surf tenants');
 
-const checkedInDecl = getInboxSavedViewDeclaration('checked_in');
-assert('checked_in view label is "Checked in"',
-  checkedInDecl && checkedInDecl.label === 'Checked in',
-  checkedInDecl ? `got "${checkedInDecl.label}"` : 'view not found');
+const equipmentOutDecl = getInboxSavedViewDeclaration('equipment_out');
+assert('equipment_out view label is "Equipment Out"',
+  equipmentOutDecl && equipmentOutDecl.label === 'Equipment Out',
+  equipmentOutDecl ? `got "${equipmentOutDecl.label}"` : 'view not found');
 
 console.log('\n' + '─'.repeat(60));
 console.log(`Results: ${pass} passed, ${fail} failed`);

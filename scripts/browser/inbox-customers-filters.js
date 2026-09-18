@@ -16,6 +16,7 @@ var CUSTOMERS_STATUS_FILTER_DEFS = [
   { id: 'warm_leads', i18n: 'customers.filter.warmLeads', title: 'customers.filter.warmLeadsTitle', lodgingOnly: false },
   { id: 'hot_leads', i18n: 'customers.filter.hotLeads', title: 'customers.filter.hotLeadsTitle' },
   { id: 'checked_in_now', i18n: 'customers.filter.checkedInNow', title: 'customers.filter.checkedInNowTitle', lodgingOnly: true },
+  { id: 'equipment_out', i18n: 'customers.filter.equipmentOut', title: 'customers.filter.equipmentOutTitle', surfOnly: true },
   { id: 'lesson_today', i18n: 'customers.filter.lessonToday', title: 'customers.filter.lessonTodayTitle', surfOnly: true },
   { id: 'upcoming', i18n: 'customers.filter.upcoming', title: 'customers.filter.upcomingTitle', surfOnly: true },
   { id: 'unpaid', i18n: 'customers.filter.unpaid', title: 'customers.filter.unpaidTitle', surfOnly: true },

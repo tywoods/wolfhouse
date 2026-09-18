@@ -31,7 +31,7 @@ var inboxLastInboxViewId = 'all';
 var inboxLastGuestViewId = 'all_people';
 
 var INBOX_SURFACE_ORDER_INBOX = ['all', 'whatsapp', 'email', 'needs_human', 'spam', 'owner_lab'];
-var INBOX_SURFACE_ORDER_GUEST = ['all_people', 'checked_in', 'lesson_today', 'upcoming', 'hot_leads', 'warm_leads', 'unpaid', 'waiver_due', 'do_not_contact'];
+var INBOX_SURFACE_ORDER_GUEST = ['all_people', 'equipment_out', 'lesson_today', 'upcoming', 'hot_leads', 'warm_leads', 'unpaid', 'waiver_due', 'do_not_contact'];
 
 function inboxViewGetSurfaceForViewId(viewId) {
   if (INBOX_SURFACE_ORDER_INBOX.indexOf(viewId) >= 0) return INBOX_VIEW_SURFACE_INBOX;
@@ -246,7 +246,7 @@ var INBOX_VIEWS_ICON_BY_ID = {
   owner_lab: 'flame',
   all_people: 'people',
   unassigned: 'people',
-  checked_in: 'check-circle',
+  equipment_out: 'surfboard',
   hot_leads: 'flame',
   warm_leads: 'sun',
   unpaid: 'card',
