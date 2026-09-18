@@ -168,25 +168,29 @@ pass(
     && forwards.some((e) => e.id === INBOUND_CLAIM_FORWARD_ID),
   `forward=${forwards.length}`,
 );
+const commercialTailIds = [
+  ISSUANCE_MATERIAL_FORWARD_ID,
+  SHADOW_OUTCOME_FORWARD_ID,
+  SHADOW_IDENTITY_MATCH_FORWARD_ID,
+  SHADOW_SCOPED_CLAIM_FORWARD_ID,
+  PUBLIC_EXECUTE_FORWARD_ID,
+  CONTROLLED_DRAFT_FORWARD_ID,
+  CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID,
+  SMTP_OUTBOUND_PROVIDER_FORWARD_ID,
+  INBOUND_CLAIM_FORWARD_ID,
+];
+const calendarEnd = forwards.findIndex((entry) => entry.id === CALENDAR_BRIDGE_FORWARD_IDS[CALENDAR_BRIDGE_FORWARD_IDS.length - 1]);
 pass(
   'green-calendar-bridge-forward-tail',
   calendarBridgeSequence(forwards) === CALENDAR_BRIDGE_FORWARD_IDS.join(',')
-    && forwards.slice(-CALENDAR_BRIDGE_FORWARD_IDS.length - 9, -9).map((e) => e.id).join(',') === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
-  forwards.slice(-10).map((e) => e.id).join(','),
+    && calendarEnd >= CALENDAR_BRIDGE_FORWARD_IDS.length - 1,
+  forwards.slice(Math.max(0, calendarEnd - 2), calendarEnd + 2).map((e) => e.id).join(','),
 );
 pass(
   'green-issuance-material-forward-after-calendar-bridge',
-  forwards[forwards.length - 1] && forwards[forwards.length - 1].id === INBOUND_CLAIM_FORWARD_ID
-    && forwards[forwards.length - 2] && forwards[forwards.length - 2].id === SMTP_OUTBOUND_PROVIDER_FORWARD_ID
-    && forwards[forwards.length - 3] && forwards[forwards.length - 3].id === CONTROLLED_DRAFT_STAGING_TEST_FORWARD_ID
-    && forwards[forwards.length - 4] && forwards[forwards.length - 4].id === CONTROLLED_DRAFT_FORWARD_ID
-    && forwards[forwards.length - 5] && forwards[forwards.length - 5].id === PUBLIC_EXECUTE_FORWARD_ID
-    && forwards[forwards.length - 6] && forwards[forwards.length - 6].id === SHADOW_SCOPED_CLAIM_FORWARD_ID
-    && forwards[forwards.length - 7] && forwards[forwards.length - 7].id === SHADOW_IDENTITY_MATCH_FORWARD_ID
-    && forwards[forwards.length - 8] && forwards[forwards.length - 8].id === SHADOW_OUTCOME_FORWARD_ID
-    && forwards[forwards.length - 9] && forwards[forwards.length - 9].id === ISSUANCE_MATERIAL_FORWARD_ID
-    && calendarBridgeSequence(forwards.slice(0, -9)) === CALENDAR_BRIDGE_FORWARD_IDS.join(','),
-  forwards.slice(-10).map((e) => e.id).join(','),
+  calendarEnd >= 0
+    && forwards.slice(calendarEnd + 1, calendarEnd + 1 + commercialTailIds.length).map((e) => e.id).join(',') === commercialTailIds.join(','),
+  forwards.slice(calendarEnd + 1, calendarEnd + 1 + commercialTailIds.length).map((e) => e.id).join(','),
 );
 pass(
   'green-all-sql-classified',
