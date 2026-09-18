@@ -17331,20 +17331,18 @@ html[data-theme="dark"] .portal-admin-equip-switch input:checked + .portal-admin
 .portal-admin-prices-hdr-actions .btn{white-space:nowrap}
 /* Clear separation between add-equipment drawer and the equipment list */
 #admin-prices-body #admin-add-equip-form{margin-bottom:20px}
-.portal-admin-beach-manager{margin:0 0 14px;padding:12px;border:1px solid var(--border-soft);border-radius:12px;background:var(--surface-soft);min-width:0;max-width:100%;box-sizing:border-box}
-.portal-admin-beach-manager-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:0 0 10px;min-width:0}
-.portal-admin-beach-manager h3{margin:0 0 4px;font-size:15px;line-height:1.25;color:var(--text)}
-.portal-admin-beach-list{display:flex;flex-wrap:wrap;gap:8px;min-width:0;max-width:100%}
-.portal-admin-beach-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface);min-width:160px;max-width:100%;box-sizing:border-box;flex:1 1 190px}
-.portal-admin-beach-id{display:flex;flex-direction:column;gap:2px;min-width:0}
-.portal-admin-beach-id strong{font-size:13px;line-height:1.25;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.portal-admin-beach-id span{font-size:11px;color:var(--text-2);line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
-.portal-admin-beach-actions{display:inline-flex;align-items:center;gap:4px;flex:0 0 auto}
-.portal-admin-beach-row.is-editing{align-items:flex-end;flex-wrap:wrap;flex:1 1 100%;background:var(--surface);border-color:var(--primary);padding:10px}
-.portal-admin-beach-edit-title{flex:1 1 100%;font-size:13px;font-weight:700;color:var(--primary);line-height:1.25}
-.portal-admin-beach-row.is-editing .portal-admin-edit-field{flex:1 1 180px;min-width:0;margin:0}
-.portal-admin-beach-row.is-editing input{width:100%;min-width:0;min-height:35px;height:35px;padding:4px 8px;font-size:13px;box-sizing:border-box}
-.portal-admin-beach-edit-actions{display:inline-flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+/* Beach cards: match Group Courses card pattern */
+.portal-admin-beach-section{margin-bottom:14px}
+.portal-admin-beach-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:8px}
+.portal-admin-beach-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%;box-sizing:border-box}
+.portal-admin-beach-card.is-editing{border-color:var(--primary)}
+.portal-admin-beach-card .portal-admin-card-actions{gap:6px}
+.portal-admin-beach-title{font-size:14px;font-weight:700;color:var(--text);font-family:var(--font-display);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+.portal-admin-beach-edit-form{display:flex;flex-direction:column;gap:10px}
+.portal-admin-beach-edit-form .portal-admin-edit-field{margin:0}
+.portal-admin-beach-edit-form .portal-admin-edit-field label{display:block;font-size:10px;font-weight:700;color:var(--text-2);margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em}
+.portal-admin-beach-edit-form input{width:100%;min-width:0;min-height:35px;height:35px;padding:4px 8px;font-size:13px;box-sizing:border-box;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text)}
+.portal-admin-beach-edit-actions{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:4px}
 .portal-admin-equip-list{display:flex;flex-direction:column;gap:8px;min-width:0;max-width:100%}
 .portal-admin-equip-row{min-width:0;max-width:100%;box-sizing:border-box}
 .portal-admin-equip-compact{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);min-width:0;max-width:100%;box-sizing:border-box}
