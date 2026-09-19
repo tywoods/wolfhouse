@@ -2485,63 +2485,25 @@ function renderAdminAccommodationRangeRows(ranges, editing){
   return html;
 }
 
-function renderAdminSectionAccommodationFromConfig(cfg){
-  var box = el('admin-accommodation-body');
-  if (!box) return;
-  // Sunset Pricing only — section is in Admin HTML; hide for non-sunset clients.
+/**
+ * Hide Admin → Pricing Accommodation chrome for every client.
+ * Ty: Pricing will not use this section. Keep helpers + save/edit handlers and
+ * accommodation APIs so booking flows that still reference stays stay intact.
+ */
+function adminHidePricingAccommodationSection(){
   var sec = el('admin-sec-accommodation');
-  if (typeof getClient === 'function' && getClient() !== 'sunset'){
-    if (sec) sec.style.display = 'none';
-    box.innerHTML = '';
-    return;
+  if (sec) {
+    sec.style.display = 'none';
+    sec.hidden = true;
+    sec.setAttribute('aria-hidden', 'true');
   }
-  if (sec) sec.style.display = '';
-  var writes = adminCfgWritesEnabled(cfg);
-  var ac = adminAccommodationFromCfg(cfg);
-  var editing = writes && adminEditTarget === 'accommodation';
-  // Single top card title only (no section-hdr duplicate). Status dot right of title; switch top-right in edit.
-  var html = '<div class="portal-admin-subsection" data-testid="admin-accommodation-card">';
-  html += '<div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
-  html += '<h3 class="portal-admin-subsection-title" data-i18n="admin.accommodation.title">' +
-    escHtml(portalT('admin.accommodation.title') || 'Accommodation') + '</h3>';
-  html += '<span class="portal-admin-accommodation-status-dot' + (ac.enabled ? ' is-on' : ' is-off') +
-    '" data-testid="admin-accommodation-enabled-status" aria-hidden="true"></span>';
-  html += '</div>';
-  if (writes && !editing){
-    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-pricing-edit-btn" data-admin-action="edit-accommodation" aria-label="' +
-      escHtml(portalT('admin.action.edit') || 'Edit') + '">✎</button></div>';
-  }
-  html += '</div>';
-  // Accommodation card body wraps edit form or readonly ranges.
-  html += '<article class="portal-admin-lesson-card portal-admin-accommodation-card' + (editing ? ' is-editing' : '') + '" data-admin-accommodation-card="1">';
-  if (editing){
-    html += '<div class="portal-admin-accommodation-edit-header"><div class="portal-admin-accommodation-edit-title">' +
-      escHtml(portalT('admin.accommodation.productName') || 'Surf House') + '</div>';
-    // Same Enabled switch as Rental Prices (darker --sched-primary / --primary green).
-    var acEnabledLabel = portalT('admin.accommodation.enabled') || portalT('admin.prices.enabled') || 'Enabled';
-    html += '<div class="portal-admin-accommodation-enabled-field">' +
-      '<span class="portal-admin-equip-switch-caption">' + escHtml(acEnabledLabel) + '</span>' +
-      '<label class="portal-admin-equip-switch portal-admin-accommodation-enabled-switch" title="' + escHtml(acEnabledLabel) + '" for="admin-accom-enabled">' +
-      '<input type="checkbox" id="admin-accom-enabled"' + (ac.enabled ? ' checked' : '') +
-      ' aria-label="' + escHtml(acEnabledLabel) + '">' +
-      '<span class="portal-admin-equip-switch-slider" aria-hidden="true"></span>' +
-      '</label></div></div>';
-    html += '<div class="portal-admin-edit-form portal-admin-accommodation-edit-form" data-testid="admin-accommodation-edit">';
-    html += renderAdminAccommodationRangeRows(ac.ranges, true);
-    html += '<div class="portal-admin-edit-actions" style="margin-top:10px">';
-    html += '<button type="button" class="btn btn-ghost" data-admin-action="accom-add-range">+ ' +
-      escHtml(portalT('admin.accommodation.addRange') || 'Add season range') + '</button>';
-    html += '<button type="button" class="btn btn-primary" data-admin-action="save-accommodation">' +
-      escHtml(portalT('admin.action.save') || 'Save') + '</button>';
-    html += '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' +
-      escHtml(portalT('admin.action.cancel') || 'Cancel') + '</button>';
-    html += '</div></div>';
-  } else {
-    html += renderAdminAccommodationCoverageWarning(ac.ranges);
-    html += renderAdminAccommodationRangeRows(ac.ranges, false);
-  }
-  html += '</article></div>';
-  box.innerHTML = html;
+  var box = el('admin-accommodation-body');
+  if (box) box.innerHTML = '';
+}
+
+function renderAdminSectionAccommodationFromConfig(cfg){
+  // Pricing Accommodation UI retired — never paint the card (all clients).
+  adminHidePricingAccommodationSection();
 }
 
 function adminReadAccommodationDraftFromDom(){
@@ -3830,6 +3792,8 @@ function wireAdminTab(){
   var root = el('tab-admin');
   if (!root || root.dataset.adminWired === '1') return;
   root.dataset.adminWired = '1';
+  // Hide Pricing Accommodation before config fetch so empty shell never flashes.
+  adminHidePricingAccommodationSection();
   root.addEventListener('click', function(ev){
     var btn = ev.target && ev.target.closest ? ev.target.closest('[data-admin-action]') : null;
     if (!btn || adminSaveBusy) return;

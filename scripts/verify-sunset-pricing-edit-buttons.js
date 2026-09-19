@@ -3,9 +3,10 @@
 /**
  * Admin → Pricing: one ✎ size; Delete course only while editing.
  *
- *  - Group / private / rental / accommodation closed pencils share
+ *  - Group / private / rental closed pencils share
  *    portal-admin-pricing-edit-btn as a 40×28, 4px-radius rectangle
  *    scoped to #admin-panel-pricing
+ *  - Accommodation Pricing UI is hidden (not painted)
  *  - Closed group course cards do not paint Delete course
  *  - Delete course lives in the pack editor footer (existing courses only)
  *
@@ -49,8 +50,13 @@ assert.ok(
   'rental pencil uses shared pricing-edit class',
 );
 assert.ok(
-  /portal-admin-pricing-edit-btn[\s\S]{0,180}edit-accommodation|edit-accommodation[\s\S]{0,220}portal-admin-pricing-edit-btn/.test(adminUi),
-  'accommodation pencil uses shared pricing-edit class',
+  /function adminHidePricingAccommodationSection/.test(adminUi)
+    && /function renderAdminSectionAccommodationFromConfig[\s\S]{0,400}adminHidePricingAccommodationSection\(\)/.test(adminUi),
+  'Pricing Accommodation section is hidden (not painted)',
+);
+assert.ok(
+  !/data-testid="admin-accommodation-card"/.test(adminUi),
+  'Pricing Accommodation card markup is not painted',
 );
 
 assert.ok(
@@ -100,37 +106,18 @@ assert.ok(apiSrc.includes('.portal-admin-pack-enabled-field'), 'course enabled s
 assert.ok(apiSrc.includes('.portal-admin-pack-enabled-switch'), 'course enabled switch CSS present');
 assert.ok(!apiSrc.includes('.portal-admin-pack-enabled-toggle{'), 'old course checkbox toggle CSS removed');
 
-// Accommodation Enabled shares rental equip-switch (darker --sched-primary), not #2e8b57.
-assert.ok(
-  /portal-admin-equip-switch portal-admin-accommodation-enabled-switch/.test(adminUi),
-  'accommodation Enabled uses rental equip-switch component',
-);
+// Rental / group Enabled on-state uses --sched-primary (shared Pricing switch).
 assert.ok(
   /portal-admin-equip-switch input:checked \+ \.portal-admin-equip-switch-slider\{[^}]*var\(--sched-primary,var\(--primary\)\)/.test(apiSrc),
-  'rental/accommodation/group Enabled on-state uses --sched-primary/--primary',
+  'rental/group Enabled on-state uses --sched-primary/--primary',
 );
 assert.ok(
   !/\.portal-admin-switch input:checked\+\.portal-admin-switch-slider\{background:#2e8b57\}/.test(apiSrc),
   'legacy switch no longer hardcodes lighter #2e8b57 on-state',
 );
-// Accommodation header status light matches Rental Prices enabled status-dot green.
 assert.ok(
   /\.portal-admin-equip-status-dot\.is-on\{background:#1F6B4A\}/.test(apiSrc),
   'rental enabled status-dot uses #1F6B4A',
-);
-assert.ok(
-  /\.portal-admin-accommodation-status-dot\.is-on\{background:#1F6B4A\}/.test(apiSrc),
-  'accommodation enabled status-dot matches rental #1F6B4A',
-);
-assert.ok(
-  /html\[data-theme="dark"\] \.portal-admin-equip-status-dot\.is-on\{background:#5a9468\}/.test(apiSrc)
-    && /html\[data-theme="dark"\] \.portal-admin-accommodation-status-dot\.is-on\{background:#5a9468\}/.test(apiSrc),
-  'accommodation dark enabled status-dot matches rental #5a9468',
-);
-assert.ok(
-  !/\.portal-admin-accommodation-status-dot\.is-on\{background:#22c55e\}/.test(apiSrc)
-    && !/html\[data-theme="dark"\] \.portal-admin-accommodation-status-dot\.is-on\{background:#4ade80\}/.test(apiSrc),
-  'accommodation status-dot no longer uses brighter neon greens',
 );
 
 assert.ok(packRulesSrc.includes('active: cfg.enabled !== false'), 'surf pack mapper returns enabled state');

@@ -492,8 +492,10 @@ function mockPg() {
     /edit-accommodation/.test(adminUi)
     && /accom-add-range/.test(adminUi)
     && /accom-remove-range/.test(adminUi));
-  ok('admin hides for non-sunset',
-    /getClient\(\) !== 'sunset'/.test(adminUi));
+  ok('admin Pricing hides Accommodation UI for all clients',
+    /function adminHidePricingAccommodationSection/.test(adminUi)
+    && /adminHidePricingAccommodationSection\(\)/.test(adminUi)
+    && !/data-testid="admin-accommodation-card"/.test(adminUi));
 
   ok('Create Accommodation + under custom addon',
     /ps-create-accommodation-add-btn/.test(apiSrc)

@@ -367,20 +367,21 @@ ok('Edit summary collapsed saved state',
   /ps-drawer-accommodation-summary/.test(editUi)
   && /scheduleDrawerAccommodationEditorOpen/.test(editUi));
 
-// ── 4) Admin Pricing card cleanup ──────────────────────────────────────────
-console.log('\n[4] Admin Pricing Accommodation card cleanup');
-ok('Admin section has no duplicate section-hdr Accommodation title',
+// ── 4) Admin Pricing Accommodation section hidden ─────────────────────────
+console.log('\n[4] Admin Pricing Accommodation section hidden');
+ok('Admin section shell remains (hidden) without duplicate section-hdr',
   !/<div class="portal-admin-section-hdr"[^>]*data-i18n="admin\.section\.accommodation"/.test(apiSrc)
   && /id="admin-sec-accommodation"/.test(apiSrc)
-  && /id="admin-accommodation-body"/.test(apiSrc));
-ok('Admin card keeps single title with Enabled beside it',
-  /data-i18n="admin\.accommodation\.title"/.test(adminUi)
-  && /data-testid="admin-accommodation-enabled-status"/.test(adminUi)
-  && /portal-admin-subsection-title-group[\s\S]{0,400}admin\.accommodation\.title[\s\S]{0,400}admin-accommodation-enabled-status/.test(adminUi));
+  && /id="admin-accommodation-body"/.test(apiSrc)
+  && /id="admin-sec-accommodation"[^>]*\bhidden\b/.test(apiSrc));
+ok('Admin Pricing hide helper retires the card for all clients',
+  /function adminHidePricingAccommodationSection/.test(adminUi)
+  && /adminHidePricingAccommodationSection\(\)/.test(adminUi)
+  && !/data-testid="admin-accommodation-card"/.test(adminUi));
 ok('Admin help sentence not rendered',
   !/data-i18n="admin\.accommodation\.help"/.test(adminUi)
   && !/Seasonal per-night prices\. Checkout night is free/.test(adminUi));
-ok('Admin range rows use stable title/date/price columns',
+ok('Admin range helpers retained for booking coverage (not painted in Pricing)',
   /portal-admin-accommodation-range-row/.test(adminUi)
   && /portal-admin-accommodation-range-title/.test(adminUi)
   && /portal-admin-accommodation-range-dates/.test(adminUi)
@@ -388,14 +389,13 @@ ok('Admin range rows use stable title/date/price columns',
 ok('Admin column CSS present and responsive',
   /portal-admin-accommodation-range-row\{[^}]*grid-template-columns/.test(apiSrc)
   && /@media \(max-width:520px\)[\s\S]{0,400}portal-admin-accommodation-range-row/.test(apiSrc));
-ok('Admin edit toggle + save-accommodation preserved',
+ok('Admin edit/save action handlers preserved (UI not painted)',
   /edit-accommodation/.test(adminUi)
-  && /save-accommodation/.test(adminUi)
-  && /admin-accom-enabled/.test(adminUi));
+  && /save-accommodation/.test(adminUi));
 ok('Admin range readout uses locale formatter (not raw ISO concat)',
   /adminFormatAccomDateRange\(r\.check_in, r\.check_out\)/.test(adminUi)
   && !/escHtml\(\(r\.check_in \|\| ''\) \+ ' → ' \+ \(r\.check_out \|\| ''\)\)/.test(adminUi));
-ok('Admin coverage gap warning rendered in readout mode',
+ok('Admin coverage gap helpers retained',
   /renderAdminAccommodationCoverageWarning/.test(adminUi)
   && /data-testid="admin-accommodation-coverage-warning"/.test(adminUi)
   && /adminFindAccommodationCoverageGaps/.test(adminUi));

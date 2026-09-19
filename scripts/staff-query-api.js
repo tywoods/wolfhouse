@@ -22503,8 +22503,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         </div>
         <div class="portal-admin-section-body" id="admin-prices-body"></div>
       </section>
-      <section class="portal-admin-section" id="admin-sec-accommodation" data-testid="admin-sec-accommodation">
-        <!-- Single title lives on the card (admin.accommodation.title); no section-hdr duplicate. -->
+      <section class="portal-admin-section" id="admin-sec-accommodation" data-testid="admin-sec-accommodation" hidden aria-hidden="true">
+        <!-- Pricing Accommodation UI retired — shell kept hidden; booking APIs unchanged. -->
         <div class="portal-admin-section-body" id="admin-accommodation-body"></div>
       </section>
     </div>
