@@ -146,10 +146,10 @@ ${getStaffPortalI18nBootstrapScript(enabledLocales)}
           </div>
         </div>
         <div class="field">
-          <label for="email" data-i18n="login.email">Email</label>
+          <label for="email" data-i18n="login.email">User</label>
           <div class="fieldInputWrap">
             ${ICON_ENVELOPE}
-            <input id="email" name="email" type="email" placeholder="staff@example.com" autocomplete="username" required>
+            <input id="email" name="email" type="text" autocomplete="username" spellcheck="false" required>
           </div>
         </div>
         <div class="field">

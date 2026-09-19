@@ -45,7 +45,11 @@ check('rejects production/prod in URL', src.includes('production') && src.includ
 console.log('\n[2] Explicit env gates');
 check('requires ALLOW_SUNSET_STAFF_USER_SEED', src.includes('ALLOW_SUNSET_STAFF_USER_SEED'));
 check('requires SUNSET_STAFF_EMAIL', src.includes('SUNSET_STAFF_EMAIL'));
+check('accepts SUNSET_STAFF_USER alias', src.includes('SUNSET_STAFF_USER'));
+check('does not require @ in login identifier', !src.includes("email.includes('@')"));
+check('normalizes login identifier case-insensitively', src.includes('normalizeStaffLogin') && src.includes(".trim().toLowerCase()"));
 check('requires SUNSET_STAFF_PASSWORD', src.includes('SUNSET_STAFF_PASSWORD'));
+check('does not hardcode staging Admin password', !src.includes('SunsetLuna2026'));
 
 console.log('\n[3] Secret hygiene');
 check('does not console.log password', !/console\.log\([^\)]*password/i.test(src));
@@ -56,6 +60,12 @@ console.log('\n[4] Sunset-only scope');
 check('scopes to client slug sunset', src.includes("CLIENT_SLUG = 'sunset'") || src.includes('sunset'));
 check('does not reference all_clients_emails', !src.includes('all_clients_emails'));
 check('upserts staff_users by sunset client', src.includes('staff_users'));
+check('update path does not overwrite email', (() => {
+  const start = src.indexOf('UPDATE staff_users');
+  const end = src.indexOf('INSERT INTO staff_users', start);
+  const block = start >= 0 && end > start ? src.slice(start, end) : '';
+  return /SET password_hash/.test(block) && !/\bemail\s*=/.test(block);
+})());
 
 console.log('\n[5] Idempotent upsert');
 check('checks existing staff user', src.includes('existing.rows'));

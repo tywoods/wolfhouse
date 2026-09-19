@@ -77,6 +77,11 @@ assert('Luna Front Desk Admin help copy', i18nSrc.includes('Contact your Luna Fr
 assert('auth POST /staff/auth/login preserved', pageSrc.includes('/staff/auth/login'));
 assert('doSignIn + btn-signin preserved', pageSrc.includes('doSignIn') && pageSrc.includes('btn-signin'));
 assert('field ids client/email/password preserved', wolfhouseHtml.includes('id="client"') && wolfhouseHtml.includes('id="email"') && wolfhouseHtml.includes('id="password"'));
+assert('login user field is type=text not email', /id="email"[^>]*type="text"/.test(wolfhouseHtml) && !/id="email"[^>]*type="email"/.test(wolfhouseHtml));
+assert('login user fallback label is User', /data-i18n="login.email">User</.test(wolfhouseHtml));
+assert('login user EN string is User', /'login.email': 'User'/.test(i18nSrc));
+assert('login user ES string is Usuario', /"login.email": "Usuario"/.test(i18nEsSrc));
+assert('login user field has no email placeholder', !wolfhouseHtml.includes('staff@example.com'));
 
 assert('Wolfhouse default client value', wolfhouseHtml.includes('value="wolfhouse-somo"'));
 assert('Sunset default client value', sunsetHtml.includes('value="sunset"'));

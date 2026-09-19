@@ -109,6 +109,9 @@ withEnv({ DEFAULT_CLIENT_SLUG: 'sunset', LUNA_DEPLOYMENT: undefined }, () => {
   ok('DEFAULT_CLIENT_SLUG=sunset can mint sunset portal session',
     typeof CLIENTS.canMintStaffPortalSession === 'function'
       && CLIENTS.canMintStaffPortalSession(SUNSET_USER, 'sunset') === true);
+  ok('DEFAULT_CLIENT_SLUG=sunset can mint when company is typed Sunset',
+    typeof CLIENTS.canMintStaffPortalSession === 'function'
+      && CLIENTS.canMintStaffPortalSession(SUNSET_USER, 'Sunset') === true);
   ok('DEFAULT_CLIENT_SLUG=sunset cannot mint wolfhouse session',
     typeof CLIENTS.canMintStaffPortalSession === 'function'
       && CLIENTS.canMintStaffPortalSession(WOLF_USER, 'wolfhouse-somo') === false);

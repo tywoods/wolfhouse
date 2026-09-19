@@ -4,7 +4,7 @@
  * One-off Sunset staging staff login user (guarded).
  *
  *   ALLOW_SUNSET_STAFF_USER_SEED=1 \
- *   SUNSET_STAFF_EMAIL=you@example.com \
+ *   SUNSET_STAFF_EMAIL=Admin \
  *   SUNSET_STAFF_PASSWORD=... \
  *   WOLFHOUSE_DATABASE_URL=postgres://... \
  *   node scripts/fixtures/sunset-staging-staff-user.js
@@ -90,12 +90,12 @@ function assertEnvGates() {
   }
 }
 
-function normalizeEmail(email) {
-  return String(email || '').trim().toLowerCase();
+function normalizeStaffLogin(raw) {
+  return String(raw || '').trim().toLowerCase();
 }
 
 function redactEmail(email) {
-  const e = normalizeEmail(email);
+  const e = normalizeStaffLogin(email);
   const at = e.indexOf('@');
   if (at <= 1) return '***';
   return `${e[0]}***${e.slice(at)}`;
@@ -134,7 +134,7 @@ async function upsertStaffUser(pg, { email, passwordHash, displayName }) {
   const clientId = clientRes.rows[0].id;
 
   const existing = await pg.query(
-    `SELECT id::text AS id
+    `SELECT id::text AS id, email
        FROM staff_users
       WHERE client_id = $1::uuid
         AND lower(email) = $2
@@ -189,9 +189,11 @@ async function upsertStaffUser(pg, { email, passwordHash, displayName }) {
 async function main() {
   assertEnvGates();
 
-  const email = normalizeEmail(process.env.SUNSET_STAFF_EMAIL);
-  if (!email || !email.includes('@')) {
-    throw new Error('SUNSET_STAFF_EMAIL is required');
+  const email = normalizeStaffLogin(
+    process.env.SUNSET_STAFF_USER || process.env.SUNSET_STAFF_EMAIL,
+  );
+  if (!email) {
+    throw new Error('SUNSET_STAFF_EMAIL or SUNSET_STAFF_USER is required');
   }
 
   const password = await resolvePassword();

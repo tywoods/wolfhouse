@@ -144,8 +144,8 @@ function canMintStaffPortalSession(user, loginClientSlug, options) {
   if (!slug) return false;
   if (!user) return false;
   const sessionSlug = String(user.client_slug || '').trim();
-  if (!sessionSlug || sessionSlug !== slug) return false;
-  return userCanAccessClient(user, slug, options);
+  if (!sessionSlug || sessionSlug.toLowerCase() !== slug.toLowerCase()) return false;
+  return userCanAccessClient(user, sessionSlug, options);
 }
 
 function loadBaselineJson(clientSlug) {
