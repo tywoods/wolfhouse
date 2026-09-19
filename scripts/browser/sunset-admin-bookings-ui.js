@@ -377,6 +377,9 @@ function renderAdminBookingsShell(opts) {
           '</select>' +
         '</label>' +
         '<div class="portal-admin-bookings-actions">' +
+          '<button type="button" class="btn btn-ghost" id="admin-bookings-clear">' +
+            escHtml(portalT('admin.bookings.dateRangeClear') || 'Clear') +
+          '</button>' +
           '<button type="button" class="btn btn-ghost" id="admin-bookings-export">' +
             escHtml(portalT('admin.bookings.exportCsv')) +
           '</button>' +
@@ -472,6 +475,31 @@ function adminBookingsReadFiltersFromDom() {
   // Archived checkbox removed — hidden filter uses show_hidden only.
   f.include_archived = false;
   f.offset = 0;
+  if (typeof adminBookingsSyncDateRangeDisplay === 'function') adminBookingsSyncDateRangeDisplay();
+}
+
+function adminBookingsClearFilters() {
+  var f = adminBookingsState.filters;
+  f.q = '';
+  f.date_from = '';
+  f.date_to = '';
+  f.status = '';
+  f.type = '';
+  f.include_archived = false;
+  f.offset = 0;
+  f.sort = '';
+  f.dir = '';
+  adminBookingsState.expandedId = null;
+  var q = el('admin-bookings-q');
+  var df = el('admin-bookings-date-from');
+  var dt = el('admin-bookings-date-to');
+  var st = el('admin-bookings-status');
+  var ty = el('admin-bookings-type');
+  if (q) q.value = '';
+  if (df) { df.value = ''; df.setAttribute('data-range-cleared', '1'); }
+  if (dt) { dt.value = ''; dt.setAttribute('data-range-cleared', '1'); }
+  if (st) st.value = '';
+  if (ty) ty.value = '';
   if (typeof adminBookingsSyncDateRangeDisplay === 'function') adminBookingsSyncDateRangeDisplay();
 }
 
@@ -906,6 +934,14 @@ function wireAdminBookingsPanel() {
       adminBookingsReadFiltersFromDom();
       var url = '/staff/admin/bookings/export.csv?' + adminBookingsBuildQuery();
       window.open(url, '_blank', 'noopener');
+    });
+  }
+
+  var clearAllBtn = el('admin-bookings-clear');
+  if (clearAllBtn) {
+    clearAllBtn.addEventListener('click', function () {
+      adminBookingsClearFilters();
+      loadAdminBookings();
     });
   }
 
@@ -1543,6 +1579,7 @@ if (typeof window !== 'undefined') {
   window.renderAdminBookingsShell = renderAdminBookingsShell;
   window.adminBookingsReadFiltersFromDom = adminBookingsReadFiltersFromDom;
   window.adminBookingsRestoreFiltersToDom = adminBookingsRestoreFiltersToDom;
+  window.adminBookingsClearFilters = adminBookingsClearFilters;
   window.adminBookingsBuildQuery = adminBookingsBuildQuery;
   window.loadAdminBookings = loadAdminBookings;
   window.renderAdminBookingsTable = renderAdminBookingsTable;

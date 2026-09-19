@@ -462,6 +462,17 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
   var silent = !!opts.silent;
   var preserveDetail = !!opts.preserveDetail;
   var keepConvId = selectConvIdAfterLoad || (preserveDetail ? selectedConvId : null);
+  /* Cold refresh can restore the Guest column preset from localStorage before
+   * any preset-click wrapper runs. Treat the preset as authoritative so the
+   * first list fetch + rail render use People/all_people together before paint
+   * (not Inbox/all + Guest chrome). */
+  var presetSurface = inboxViewsSyncSurfaceFromPreset();
+  if (presetSurface !== inboxCurrentSurface) {
+    inboxCurrentSurface = presetSurface;
+    inboxSavedViewId = presetSurface === INBOX_VIEW_SURFACE_GUEST
+      ? (inboxLastGuestViewId || 'all_people')
+      : (inboxLastInboxViewId || INBOX_DEFAULT_SAVED_VIEW);
+  }
   var viewId = inboxSavedViewId || INBOX_DEFAULT_SAVED_VIEW;
   var gen = ++inboxViewsListGen;
 
