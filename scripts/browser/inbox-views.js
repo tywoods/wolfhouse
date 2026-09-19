@@ -168,10 +168,14 @@ function inboxViewsPaintPersonCustomerCard(row) {
     .catch(function(){ paint(fallback); });
 }
 
-function inboxViewsOpenPersonWithoutConversation(row, targetEl) {
+function inboxViewsOpenGuestCustomerCard(row, targetEl) {
   if (row && row._inbox_view_key) selectedConvId = row._inbox_view_key;
   inboxViewsPaintEmptyPersonDetail(row, targetEl);
   inboxViewsPaintPersonCustomerCard(row);
+}
+
+function inboxViewsOpenPersonWithoutConversation(row, targetEl) {
+  inboxViewsOpenGuestCustomerCard(row, targetEl);
 }
 
 function inboxViewsResolveLoadConvDetail(convId, targetEl) {
@@ -645,10 +649,13 @@ function inboxViewsOpenGuestByPhone(phone, opts) {
         }
         return false;
       }
-      var key = match.key || match.conversation_id;
-      if (key && typeof loadConvDetail === 'function') {
-        return Promise.resolve(loadConvDetail(key)).then(function(){ return true; });
-      }
+      var key = match.key || match._inbox_view_key || match.conversation_id;
+      if (key) selectedConvId = key;
+      // Bookings guest-name clicks are a People-card action, not a thread-open action.
+      // Even when the People row has a conversation_id, keep the right pane on
+      // inboxCustomerFullHtml; Start/Open conversation on the card is the only
+      // path that may load a message thread.
+      inboxViewsOpenGuestCustomerCard(match, el('detail-content'));
       return true;
     })
     .catch(function(err){
