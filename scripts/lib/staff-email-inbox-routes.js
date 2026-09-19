@@ -55,7 +55,13 @@ const EMAIL_DRAFT_PATH = '/staff/inbox/email/draft';
 const EMAIL_DELETE_DRAFT_PATH = EMAIL_DRAFT_PATH;
 const EMAIL_APPROVE_SEND_PATH = '/staff/inbox/email/approve-send';
 const EMAIL_RECOVER_SEND_PATH = '/staff/inbox/email/recover-send';
-const EMAIL_INBOX_MIN_ROLE = 'operator';
+/** Draft create/save/delete: any authenticated staff session (viewer+). */
+const EMAIL_DRAFT_MIN_ROLE = 'viewer';
+/** Approve/send + recover: operator+ (unchanged). */
+const EMAIL_APPROVE_MIN_ROLE = 'operator';
+/** @deprecated Prefer EMAIL_DRAFT_MIN_ROLE / EMAIL_APPROVE_MIN_ROLE. */
+const EMAIL_INBOX_MIN_ROLE = EMAIL_APPROVE_MIN_ROLE;
+const EMAIL_STAFF_ROLES = Object.freeze(['viewer', 'operator', 'admin', 'owner']);
 const ENV_DRAFTS_ENABLED = 'EMAIL_STAFF_EMAIL_DRAFTS_ENABLED';
 const ENV_OUTBOUND_ENABLED = 'EMAIL_STAFF_OUTBOUND_ENABLED';
 const ENV_SEND_ENABLED = 'EMAIL_OUTBOUND_SEND_ENABLED';
@@ -492,7 +498,7 @@ INNER JOIN tenant_email_inbound_events ev ON ev.client_id = p.client_id AND ev.i
 INNER JOIN tenant_locations loc ON loc.client_id = ev.client_id AND loc.id = ev.location_id
 INNER JOIN tenant_channel_endpoints ep ON ep.client_id = ev.client_id AND ep.id = ev.endpoint_id
   AND ep.location_id = loc.location_id
-WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('operator','admin','owner')
+WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('viewer','operator','admin','owner')
   AND c.phone ~ '^(emailv1|email):' AND ev.provider = 'microsoft_graph' AND ep.provider = 'microsoft_graph'
   AND ep.channel = 'email' AND ep.auth_mode = 'delegated_authorization_code'
   AND ep.connector_mode = 'microsoft_delegated_oauth' AND ep.mailbox_access_kind = 'own_user'
@@ -519,7 +525,7 @@ INNER JOIN tenant_email_inbound_events ev ON ev.client_id = p.client_id AND ev.i
 INNER JOIN tenant_locations loc ON loc.client_id = ev.client_id AND loc.id = ev.location_id
 INNER JOIN tenant_channel_endpoints ep ON ep.client_id = ev.client_id AND ep.id = ev.endpoint_id
   AND ep.location_id = loc.location_id
-WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('operator','admin','owner')
+WHERE cl.id = $1::uuid AND su.status = 'active' AND su.role IN ('viewer','operator','admin','owner')
   AND c.phone ~ '^(emailv1|email):' AND ev.provider = 'imap_smtp' AND ep.provider = 'imap_smtp'
   AND ep.channel = 'email' AND ep.auth_mode IS NULL AND ep.connector_mode IS NULL
   AND ep.mailbox_kind IS NULL AND ep.mailbox_access_kind IS NULL AND ep.binding_status IS NULL
@@ -643,7 +649,7 @@ function actorFromUser(user) {
   const sid = parseUuid(typeof user.staff_user_id === 'string' ? user.staff_user_id : null);
   const clientId = parseUuid(typeof user.client_id === 'string' ? user.client_id : null);
   const role = typeof user.role === 'string' ? user.role : null;
-  return (sid && clientId && role && ['operator', 'admin', 'owner'].includes(role))
+  return (sid && clientId && role && EMAIL_STAFF_ROLES.includes(role))
     ? Object.freeze({ staff_user_id: sid, client_id: clientId, role }) : null;
 }
 function auditSafe(appendAuditLog, fields) {
@@ -1413,13 +1419,15 @@ function createStaffEmailInboxRoutes(deps) {
     }
   }
   return Object.freeze({
-    EMAIL_DRAFT_PATH, EMAIL_DELETE_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
+    EMAIL_DRAFT_PATH, EMAIL_DELETE_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH,
+    EMAIL_DRAFT_MIN_ROLE, EMAIL_APPROVE_MIN_ROLE, EMAIL_INBOX_MIN_ROLE, EMAIL_STAFF_ROLES,
     handleDraft, handleDeleteDraft, handleApproveSend, handleRecoverSend, saveDraftThroughStaffOwner,
     approveAndDispatchEmailOutbound,
   });
 }
 module.exports = {
-  EMAIL_DRAFT_PATH, EMAIL_DELETE_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
+  EMAIL_DRAFT_PATH, EMAIL_DELETE_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH,
+  EMAIL_DRAFT_MIN_ROLE, EMAIL_APPROVE_MIN_ROLE, EMAIL_INBOX_MIN_ROLE, EMAIL_STAFF_ROLES,
   ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
   BODY_KEYS, BODY_KEYS_UI, RECOVERY_BODY_KEYS, SUCCESS_DTO_KEYS, RECOVERY_SUCCESS_DTO_KEYS,
   BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SEND_PUBLIC_CODES,

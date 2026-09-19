@@ -210,7 +210,7 @@ function noSideEffects(h) {
     actorCapability({ [Symbol('ambient')]: true }),
     Object.assign(Object.create({ ambient: true }), actorCapability()),
     actorCapability({ staff_user_id: 7 }), actorCapability({ client_id: 'not-a-uuid' }),
-    actorCapability({ role: 1 }), actorCapability({ role: 'viewer' }),
+    actorCapability({ role: 1 }), actorCapability({ role: 'guest' }),
   ]) {
     h = makeHarness(); out = await invoke(h, { conversation_id: V }, hostile);
     assert.equal(out.status, 403); noSideEffects(h);
@@ -227,10 +227,16 @@ function noSideEffects(h) {
   assert.equal(out.status, 404); noSideEffects(h); assert.equal(dbHits, 0);
 
   // Authentication, same origin, exact JSON, and role are mandatory.
-  for (const u of [null, actorCapability({ role: 'viewer' }), actorCapability({ client_id: C2 })]) {
+  // viewer is an authenticated staff role and must pass the actor gate (403 only for
+  // missing/invalid actor or foreign client — not for role=viewer alone).
+  for (const u of [null, actorCapability({ role: 'guest' }), actorCapability({ client_id: C2 })]) {
     h = makeHarness(); out = await invoke(h, { conversation_id: V }, u);
     assert.ok([401, 403, 404].includes(out.status)); noSideEffects(h);
   }
+  h = makeHarness(); out = await invoke(h, { conversation_id: V }, actorCapability({ role: 'viewer' }));
+  assert.notEqual(out.status, 403, 'viewer actor must not be rejected as forbidden');
+  assert.equal(out.status, 503, 'viewer reaches capability gate after actor auth');
+  assert.equal(out.body.error, EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR);
 
   for (const [label, body, headers, status] of [
     ['wrong origin', { conversation_id: V }, { origin: 'https://evil.test' }, 403],

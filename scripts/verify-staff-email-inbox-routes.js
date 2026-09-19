@@ -7,7 +7,8 @@ const { EventEmitter } = require('node:events');
 const { spawnSync } = require('node:child_process');
 const ROOT = path.join(__dirname, '..');
 const {
-  createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_INBOX_MIN_ROLE,
+  createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH,
+  EMAIL_DRAFT_MIN_ROLE, EMAIL_APPROVE_MIN_ROLE, EMAIL_INBOX_MIN_ROLE,
   BODY_KEYS, SUCCESS_DTO_KEYS, BODY_MAX_BYTES, MESSAGE_MAX_BYTES, SQL_RESOLVE, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_JOURNAL_EXISTS,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
   snapshotGateEnv, snapshotEmailReplyBody, validateJsonContentType, validateSameOrigin,
@@ -172,7 +173,10 @@ function productionReadBody(req) {
 async function main() {
   console.log('verify:staff-email-inbox-routes');
   ok('contract paths/keys/body caps', EMAIL_DRAFT_PATH === '/staff/inbox/email/draft'
-    && EMAIL_APPROVE_SEND_PATH === '/staff/inbox/email/approve-send' && EMAIL_INBOX_MIN_ROLE === 'operator'
+    && EMAIL_APPROVE_SEND_PATH === '/staff/inbox/email/approve-send'
+    && EMAIL_DRAFT_MIN_ROLE === 'viewer'
+    && EMAIL_APPROVE_MIN_ROLE === 'operator'
+    && EMAIL_INBOX_MIN_ROLE === 'operator'
     && BODY_KEYS.join(',') === 'conversation_id,message_text,approval_id'
     && SUCCESS_DTO_KEYS.join(',') === 'success,conversation_id,message_text,approval_id'
     && BODY_MAX_BYTES === 10240 && MESSAGE_MAX_BYTES === 8000
@@ -461,7 +465,8 @@ async function main() {
   const ai = apiSrc.indexOf('pathname === EMAIL_APPROVE_SEND_PATH');
   const inbox = require('./lib/staff-inbox-routes');
   ok('router wiring + WhatsApp path intact', di > 0 && ai > 0
-    && apiSrc.slice(di, di + 500).indexOf('isEmailStaffDraftsEnabled') < apiSrc.slice(di, di + 500).indexOf("requireAuth(req, res, 'operator')")
+    && apiSrc.slice(di, di + 500).indexOf('isEmailStaffDraftsEnabled') < apiSrc.slice(di, di + 500).indexOf('requireAuth(req, res, EMAIL_DRAFT_MIN_ROLE)')
+    && apiSrc.slice(ai, ai + 500).indexOf('isEmailStaffOutboundEnabled') < apiSrc.slice(ai, ai + 500).indexOf('requireAuth(req, res, EMAIL_APPROVE_MIN_ROLE)')
     && apiSrc.includes('handleInboxSendReply') && inbox.INBOX_SEND_REPLY_PATH === '/staff/inbox/send-reply'
     && !inbox.INBOX_ROUTE_TABLE.some((r) => /email/.test(r.path || '')));
   const up = fs.readFileSync(path.join(ROOT, 'database/migrations/070_tenant_email_reply_approvals.sql'), 'utf8');
