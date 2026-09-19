@@ -287,12 +287,9 @@ ok('Billing placeholder has no forms or mutations', (() => {
   return !/<form\b/i.test(withoutLogout) && !/type=["']submit["']/i.test(withoutLogout);
 })());
 ok('Billing does not invent amounts', !hasInventedMetricNumber(billingHtml));
-ok('Communications placeholder says not connected', /not connected|not available|no data source|unavailable/i.test(communicationsHtml) && /Communications/i.test(communicationsHtml));
-ok('Communications placeholder has no send/recipient controls', (() => {
-  const withoutStyle = communicationsHtml.replace(/<style\b[\s\S]*?<\/style>/gi, '');
-  const withoutLogout = withoutStyle.replace(/<form[^>]+action=["']\/logout["'][\s\S]*?<\/form>/i, '');
-  return !/send message|recipient|compose/i.test(withoutStyle) && !/<form\b/i.test(withoutLogout);
-})());
+ok('Communications renders staging routing control', /Current binding/i.test(communicationsHtml) && /Save routing/i.test(communicationsHtml));
+ok('Communications has explicit confirmation', /Confirm routing change/i.test(communicationsHtml) && /Old Luna/i.test(communicationsHtml) && /New Luna/i.test(communicationsHtml));
+ok('Communications allowlists staging number', /\+34 663 43 94 19/.test(communicationsHtml) && /Production and unknown numbers are denied/i.test(communicationsHtml));
 ok('Communications does not invent counts', !hasInventedMetricNumber(communicationsHtml));
 
 ok('product doc labels Slice 1 as merged and deployed', /Slice 1/i.test(productDoc) && /merged and deployed/i.test(productDoc) && /14a7e3f7f656dd8a7dc11b528b8a645d3feb1210/.test(productDoc) && /crowsnest-internal--0000010/.test(productDoc) && /#128|PR #128|pull\/128/i.test(productDoc) && /cb11e/.test(productDoc) && /wh-staging-staff-api--0000520/.test(productDoc) && !/local candidate/i.test(productDoc));
