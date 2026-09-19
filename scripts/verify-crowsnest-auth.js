@@ -481,7 +481,7 @@ function assertTimingSafeEqualStringCoverage() {
   assertBothCredentialComparisonsAlwaysRun();
 }
 
-function assertBrowserSecurityHeaders(name, res, { expectCsp = false } = {}) {
+function assertBrowserSecurityHeaders(name, res, { expectCsp = false, expectNonceScript = false } = {}) {
   ok(`${name} sets nosniff`, String(res.headers['x-content-type-options'] || '').toLowerCase() === 'nosniff');
   ok(`${name} sets referrer-policy`, String(res.headers['referrer-policy'] || '').toLowerCase() === 'no-referrer');
   ok(`${name} sets x-frame-options`, String(res.headers['x-frame-options'] || '').toUpperCase() === 'DENY');
@@ -494,7 +494,10 @@ function assertBrowserSecurityHeaders(name, res, { expectCsp = false } = {}) {
     ok(`${name} CSP object-src denied`, csp.includes("object-src 'none'"));
     ok(`${name} CSP form-action self`, csp.includes("form-action 'self'"));
     ok(`${name} CSP img-src self`, csp.includes("img-src 'self'"));
-    ok(`${name} CSP script-src none`, csp.includes("script-src 'none'"));
+    ok(
+      `${name} CSP script policy`,
+      expectNonceScript ? csp.includes(`script-src 'nonce-${nonce}'`) : csp.includes("script-src 'none'"),
+    );
     ok(`${name} CSP has style nonce`, Boolean(nonce));
     const styleNonces = getStyleNonces(res.body);
     ok(`${name} inline style nonce matches CSP`, styleNonces.length > 0 && styleNonces.every((value) => value === nonce));
@@ -992,7 +995,7 @@ async function main() {
         const res = await request(port, route.path, { headers: { Cookie: cookie } });
         ok(`GET ${route.path} => 200`, res.statusCode === 200);
         ok(`GET ${route.path} no-store`, /no-store/i.test(String(res.headers['cache-control'] || '')));
-        assertBrowserSecurityHeaders(`GET ${route.path}`, res, { expectCsp: true });
+        assertBrowserSecurityHeaders(`GET ${route.path}`, res, { expectCsp: true, expectNonceScript: Boolean(route.expectComms) });
         ok(`GET ${route.path} nav Spyglass href`, /href=["']\/["']/.test(res.body));
         ok(`GET ${route.path} nav Clients href`, /href=["']\/clients["']/.test(res.body));
         ok(`GET ${route.path} nav Billing href`, /href=["']\/billing["']/.test(res.body));
@@ -1048,10 +1051,10 @@ async function main() {
           ok('Billing has no mutation form', !/<form\b/i.test(res.body.replace(/<form[^>]+action=["']\/logout["'][\s\S]*?<\/form>/i, '')));
         }
         if (route.expectComms) {
-          ok('Communications placeholder heading', /Communications/i.test(res.body));
-          ok('Communications not connected copy', /not connected|not available|no data source|unavailable/i.test(res.body));
+          ok('Communications routing heading', /Communications/i.test(res.body));
+          ok('Communications current binding', /Current binding/i.test(res.body));
           ok('Communications invents no counts', !hasInventedMetricNumber(res.body));
-          ok('Communications has no send controls', !/send message|recipient/i.test(res.body));
+          ok('Communications has no message send controls', !/send message|recipient/i.test(res.body));
         }
         if (route.expectSales) {
           ok('Sales route heading', /<h1[^>]*>[\s\S]*Sales/i.test(res.body));

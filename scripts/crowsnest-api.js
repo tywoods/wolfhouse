@@ -362,7 +362,11 @@ function sendHTML(res, status, html, extraHeaders = {}, cspNonce = '') {
   const themed = typeof html === 'string'
     ? html.replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
     : html;
-  const allowNonceScript = Boolean(cspNonce && typeof themed === 'string' && themed.includes('data-live-simulator-root'));
+  const allowNonceScript = Boolean(
+    cspNonce
+      && typeof themed === 'string'
+      && (themed.includes('data-live-simulator-root') || themed.includes('data-communications-root')),
+  );
   res.writeHead(status, {
     'Content-Type': 'text/html; charset=utf-8',
     'Content-Length': Buffer.byteLength(themed, 'utf8'),
@@ -1095,6 +1099,67 @@ async function handleLogout(req, res, method) {
     'Set-Cookie': getClearedSessionCookieHeader(),
     'Cache-Control': 'no-store',
   });
+}
+
+const LUNA_ROUTING_PREFIX = '/api/staging/luna-routing/';
+const LUNA_ROUTING_NUMBER_ID = 'staging-es-34663439419';
+const LUNA_ROUTING_TARGET_IDS = new Set(['sunset', 'wolfhouse']);
+const LUNA_ROUTING_METHODS = Object.freeze({ targets: 'GET', effective: 'GET', audit: 'GET', confirm: 'POST', apply: 'POST' });
+
+function resolveLunaRoutingControllerBaseUrl() {
+  const raw = String(process.env.CROWSNEST_LUNA_ROUTING_CONTROLLER_URL || '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) return null;
+    return url;
+  } catch { return null; }
+}
+
+function validateLunaRoutingMutation(action, body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return 'invalid_json_body';
+  if (body.number_id !== LUNA_ROUTING_NUMBER_ID) return 'unknown_or_production_number_denied';
+  if (!LUNA_ROUTING_TARGET_IDS.has(body.target_id)) return 'unknown_target_denied';
+  if (!LUNA_ROUTING_TARGET_IDS.has(body.expected_old_target_id)) return 'invalid_expected_old_target';
+  if (action === 'apply' && (typeof body.confirmation_token !== 'string' || body.confirmation_token.length < 8 || body.confirmation_token.length > 512)) return 'invalid_confirmation_token';
+  return null;
+}
+
+async function handleLunaRoutingController(req, res, method, pathname) {
+  const action = pathname.slice(LUNA_ROUTING_PREFIX.length);
+  const expectedMethod = LUNA_ROUTING_METHODS[action];
+  if (!expectedMethod || action.includes('/')) return sendJSON(res, 404, { ok: false, error: 'not found' });
+  if (method !== expectedMethod) return sendMethodNotAllowed(res, expectedMethod);
+  if (!isBrowserUiAuthorized(req)) return sendJSON(res, 401, { ok: false, error: 'authentication_required' });
+  const baseUrl = resolveLunaRoutingControllerBaseUrl();
+  if (!baseUrl) return sendJSON(res, 503, { ok: false, error: 'routing_controller_not_configured' });
+  const upstreamUrl = new URL(action, baseUrl.href.endsWith('/') ? baseUrl : `${baseUrl.href}/`);
+  let bodyText;
+  if (method === 'POST') {
+    let raw;
+    try { raw = await readLimitedBody(req, 4 * 1024); } catch { return sendJSON(res, 413, { ok: false, error: 'request_too_large' }); }
+    const parsedResult = parseJsonBody(raw);
+    if (!parsedResult.ok) return sendJSON(res, 400, { ok: false, error: 'invalid_json_body' });
+    const parsed = parsedResult.body;
+    const validationError = validateLunaRoutingMutation(action, parsed);
+    if (validationError) return sendJSON(res, 400, { ok: false, error: validationError });
+    const safeBody = { number_id: LUNA_ROUTING_NUMBER_ID, target_id: parsed.target_id, expected_old_target_id: parsed.expected_old_target_id };
+    if (action === 'apply') safeBody.confirmation_token = parsed.confirmation_token;
+    bodyText = JSON.stringify(safeBody);
+  }
+  try {
+    const upstream = await fetch(upstreamUrl, {
+      method,
+      headers: bodyText ? { Accept: 'application/json', 'Content-Type': 'application/json' } : { Accept: 'application/json' },
+      body: bodyText,
+      redirect: 'error',
+      signal: AbortSignal.timeout(8000),
+    });
+    const text = await upstream.text();
+    let payload;
+    try { payload = JSON.parse(text); } catch { payload = { ok: false, error: 'invalid_controller_response' }; }
+    return sendJSON(res, upstream.status, payload);
+  } catch { return sendJSON(res, 502, { ok: false, error: 'routing_controller_unavailable' }); }
 }
 
 function handleAsset(req, res, method, pathname) {
@@ -2385,6 +2450,10 @@ async function router(req, res) {
 
   if (pathname === LIVE_SIMULATOR_ROUTE) {
     return handleLiveSimulatorGuestTurn(req, res, method);
+  }
+
+  if (pathname.startsWith(LUNA_ROUTING_PREFIX)) {
+    return handleLunaRoutingController(req, res, method, pathname);
   }
 
   if (pathname === '/spyglass/refresh-all') {
