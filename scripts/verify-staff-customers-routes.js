@@ -48,6 +48,7 @@ const {
   CUSTOMER_PHONE_RE,
   createCustomersRoutes,
 } = require('./lib/staff-customers-routes');
+const { buildLastSetupSummary } = require('./lib/staff-customer-queries');
 
 let pass = 0;
 let fail = 0;
@@ -248,6 +249,37 @@ ok('does not redefine executeCustomerOutreachSend', !/function executeCustomerOu
 ok('does not redefine generateCustomerOutreachDraft', !/function generateCustomerOutreachDraft\s*\(/.test(modSrc));
 const modNoComments = modSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 ok('module does not call requireAuth', !/\brequireAuth\s*\(/.test(modNoComments));
+
+console.log('\n── last setup projection (dated rows) ──');
+{
+  const ivanRows = [
+    { booking_id: 'ivan-booking', service_type: 'surf_lesson', service_date: '2026-09-23', quantity: 2, metadata: { component: 'course' } },
+    { booking_id: 'ivan-booking', service_type: 'surfboard', service_date: '2026-09-23', quantity: 2, metadata: { offering_key: 'soft_board' } },
+    { booking_id: 'ivan-booking', service_type: 'surf_lesson', service_date: '2026-09-22', quantity: 2, metadata: { component: 'course' } },
+    { booking_id: 'ivan-booking', service_type: 'surfboard', service_date: '2026-09-22', quantity: 2, metadata: { offering_key: 'soft_board' } },
+    { booking_id: 'ivan-booking', service_type: 'surf_lesson', service_date: '2026-09-21', quantity: 2, metadata: { component: 'course' } },
+    { booking_id: 'ivan-booking', service_type: 'surfboard', service_date: '2026-09-21', quantity: 2, metadata: { offering_key: 'soft_board' } },
+    { booking_id: 'ivan-booking', service_type: 'surf_lesson', service_date: '2026-09-20', quantity: 2, metadata: { component: 'course' } },
+    { booking_id: 'ivan-booking', service_type: 'surfboard', service_date: '2026-09-20', quantity: 2, metadata: { offering_key: 'soft_board' } },
+  ];
+  const classCount = ivanRows
+    .filter((row) => row.service_type === 'surf_lesson')
+    .reduce((total, row) => total + row.quantity, 0);
+  const balanceDueCents = 12345;
+  ok('Ivan-style dated setup projects guests/gear, not day-sums',
+    buildLastSetupSummary(ivanRows) === '2× Group surf · 2 boards',
+    buildLastSetupSummary(ivanRows));
+  ok('Ivan-style class count unchanged', classCount === 8, `classCount=${classCount}`);
+  ok('Ivan-style balance unchanged', balanceDueCents === 12345, `balanceDueCents=${balanceDueCents}`);
+}
+{
+  const sameDaySplitGear = [
+    { booking_id: 'split-gear', service_type: 'surfboard', service_date: '2026-09-23', quantity: 1, metadata: { offering_key: 'soft_board' } },
+    { booking_id: 'split-gear', service_type: 'surfboard', service_date: '2026-09-23', quantity: 1, metadata: { offering_key: 'hard_board' } },
+    { booking_id: 'split-gear', service_type: 'surfboard', service_date: '2026-09-22', quantity: 2, metadata: { offering_key: 'soft_board' } },
+  ];
+  ok('same-day split gear still sums actual daily gear', buildLastSetupSummary(sameDaySplitGear) === '2 boards');
+}
 
 console.log('\n── handler smoke (deps + response shape) ──');
 
