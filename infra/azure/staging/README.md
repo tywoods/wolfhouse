@@ -220,6 +220,38 @@ az containerapp ingress traffic set --name wh-staging-staff-api --resource-group
 
 ---
 
+## Keep staff-staging warm (scale-to-zero off)
+
+`staff-staging.lunafrontdesk.com` is a custom hostname on **one** Container App: `wh-staging-staff-api` in `wh-staging-rg` (subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`). There is no separate frontend app.
+
+**Root cause of ~2 min cold starts:** Azure Container Apps scale property `properties.template.scale.minReplicas = 0` (scale-to-zero when idle).
+
+**IaC:** `infra/azure/staging/main.bicep` sets Staff API `minReplicas: 1` (n8n main/worker stay at `0`). This does **not** change production.
+
+**Live apply (staging only — run on an authenticated operator laptop; do not target prod):**
+
+```bash
+az account set --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9
+
+# Confirm current scale (expect minReplicas 0 before fix)
+az containerapp show -g wh-staging-rg -n wh-staging-staff-api \
+  --query "properties.template.scale" -o json
+
+# Keep warm
+az containerapp update -g wh-staging-rg -n wh-staging-staff-api \
+  --min-replicas 1 --max-replicas 1
+
+# Confirm
+az containerapp show -g wh-staging-rg -n wh-staging-staff-api \
+  --query "properties.template.scale" -o json
+```
+
+**Verify for Ty:** after idle (or immediately after the update), `curl -w '%{time_total}\n' -o /dev/null -s https://staff-staging.lunafrontdesk.com/healthz` and open `/staff/ui` — first load should be seconds, not ~2 minutes. Replica count should stay ≥1 in the Azure portal.
+
+**Out of scope:** production apps, Lunabox Hermes, Sunset staging (`luna-sunset-staging-staff-api` already uses minReplicas=1).
+
+---
+
 ## Cost estimate (staging, idle)
 
 | Resource | Approx idle cost |
