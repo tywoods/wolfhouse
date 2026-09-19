@@ -250,7 +250,7 @@ ok('does not redefine generateCustomerOutreachDraft', !/function generateCustome
 const modNoComments = modSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
 ok('module does not call requireAuth', !/\brequireAuth\s*\(/.test(modNoComments));
 
-console.log('\n── last setup projection (dated rows) ──');
+console.log('\n── last setup projection (dated / undated / metadata dates) ──');
 {
   const ivanRows = [
     { booking_id: 'ivan-booking', service_type: 'surf_lesson', service_date: '2026-09-23', quantity: 2, metadata: { component: 'course' } },
@@ -273,12 +273,101 @@ console.log('\n── last setup projection (dated rows) ──');
   ok('Ivan-style balance unchanged', balanceDueCents === 12345, `balanceDueCents=${balanceDueCents}`);
 }
 {
+  // Seadog QA shape: 2 surfers × 8 lesson-day copies with no service_date on the row.
+  // Pre-fix this summed to "16× Group surf · 16 boards".
+  const undatedEightDay = [];
+  for (let day = 0; day < 8; day += 1) {
+    undatedEightDay.push({
+      booking_id: 'SUNSET-20260919-90AE14',
+      service_type: 'surf_lesson',
+      service_date: null,
+      quantity: 2,
+      metadata: { component: 'course' },
+    });
+    undatedEightDay.push({
+      booking_id: 'SUNSET-20260919-90AE14',
+      service_type: 'surfboard',
+      service_date: null,
+      quantity: 2,
+      metadata: { offering_key: 'soft_board' },
+    });
+  }
+  const undatedClassCount = undatedEightDay
+    .filter((row) => row.service_type === 'surf_lesson')
+    .reduce((total, row) => total + row.quantity, 0);
+  const undatedBalanceDueCents = 9900;
+  ok('8-day undated 2-surfer setup projects guests/boards, not day×surfers',
+    buildLastSetupSummary(undatedEightDay) === '2× Group surf · 2 boards',
+    buildLastSetupSummary(undatedEightDay));
+  ok('8-day undated class count unchanged (lesson totals still day×surfers)',
+    undatedClassCount === 16, `classCount=${undatedClassCount}`);
+  ok('8-day undated balance sentinel unchanged',
+    undatedBalanceDueCents === 9900, `balanceDueCents=${undatedBalanceDueCents}`);
+}
+{
+  // Dates live only in metadata.service_date (row.service_date empty).
+  const metaDatedEightDay = [];
+  for (let day = 0; day < 8; day += 1) {
+    const iso = `2026-09-${String(12 + day).padStart(2, '0')}`;
+    metaDatedEightDay.push({
+      booking_id: 'meta-dated-8',
+      service_type: 'surf_lesson',
+      service_date: '',
+      quantity: 2,
+      metadata: { component: 'course', service_date: iso },
+    });
+    metaDatedEightDay.push({
+      booking_id: 'meta-dated-8',
+      service_type: 'surfboard',
+      service_date: null,
+      quantity: 2,
+      metadata: { offering_key: 'soft_board', service_date: `${iso}T09:00:00.000Z` },
+    });
+  }
+  ok('metadata.service_date 8-day setup projects guests/boards, not day-sums',
+    buildLastSetupSummary(metaDatedEightDay) === '2× Group surf · 2 boards',
+    buildLastSetupSummary(metaDatedEightDay));
+}
+{
+  // node-pg Date objects must coerce to YYYY-MM-DD (not "Wed Sep 23" string slice).
+  const pgDateEightDay = [];
+  for (let day = 0; day < 8; day += 1) {
+    const d = new Date(Date.UTC(2026, 8, 12 + day));
+    pgDateEightDay.push({
+      booking_id: 'pg-date-8',
+      service_type: 'surf_lesson',
+      service_date: d,
+      quantity: 2,
+      metadata: { component: 'course' },
+    });
+    pgDateEightDay.push({
+      booking_id: 'pg-date-8',
+      service_type: 'surfboard',
+      service_date: d,
+      quantity: 2,
+      metadata: { offering_key: 'soft_board' },
+    });
+  }
+  ok('pg Date 8-day setup projects guests/boards, not day-sums',
+    buildLastSetupSummary(pgDateEightDay) === '2× Group surf · 2 boards',
+    buildLastSetupSummary(pgDateEightDay));
+}
+{
   const sameDaySplitGear = [
     { booking_id: 'split-gear', service_type: 'surfboard', service_date: '2026-09-23', quantity: 1, metadata: { offering_key: 'soft_board' } },
     { booking_id: 'split-gear', service_type: 'surfboard', service_date: '2026-09-23', quantity: 1, metadata: { offering_key: 'hard_board' } },
     { booking_id: 'split-gear', service_type: 'surfboard', service_date: '2026-09-22', quantity: 2, metadata: { offering_key: 'soft_board' } },
   ];
   ok('same-day split gear still sums actual daily gear', buildLastSetupSummary(sameDaySplitGear) === '2 boards');
+}
+{
+  const undatedSplitGear = [
+    { booking_id: 'undated-split', service_type: 'surfboard', service_date: null, quantity: 1, metadata: { offering_key: 'soft_board' } },
+    { booking_id: 'undated-split', service_type: 'surfboard', service_date: null, quantity: 1, metadata: { offering_key: 'hard_board' } },
+  ];
+  ok('undated same-day split gear still sums soft+hard boards',
+    buildLastSetupSummary(undatedSplitGear) === '2 boards',
+    buildLastSetupSummary(undatedSplitGear));
 }
 
 console.log('\n── handler smoke (deps + response shape) ──');
