@@ -31,7 +31,11 @@ const LOC = 'sunset-somo';
 const TIER = '2_days';
 const GROUP_UNIT = 4000;
 const PRIVATE_UNIT = 6000;
-const FIXED_NOW = new Date('2026-07-28T12:00:00Z');
+const TEST_YEAR = new Date().getUTCFullYear() + 1;
+const GROUP_DATE_1 = `${TEST_YEAR}-08-03`;
+const GROUP_DATE_2 = `${TEST_YEAR}-08-04`;
+const PRIVATE_DATE = `${TEST_YEAR}-08-10`;
+const FIXED_NOW = new Date(`${TEST_YEAR}-07-28T12:00:00Z`);
 const GROUP_ITEM = packPriceItemCode(PACK_ID, TIER);
 
 const OFFERINGS = [
@@ -168,7 +172,10 @@ function makeTxnPg(seed = {}) {
     bookings: deepClone(seed.bookings || []),
     services: deepClone(seed.services || []),
     payments: deepClone(seed.payments || []),
-    offerings: deepClone(seed.offerings || OFFERINGS),
+    offerings: deepClone(seed.offerings || OFFERINGS).map((offering) => ({
+      stock_quantity: 99,
+      ...offering,
+    })),
     clientId: seed.clientId || CLIENT_ID,
     rollbacks: 0,
     commits: 0,
@@ -634,9 +641,9 @@ function groupCreateBody(equipment, extras = {}) {
   return {
     guest_name: extras.guest_name || 'Group Guest',
     guest_phone: '+34600111222',
-    date_from: '2026-08-03',
-    date_to: '2026-08-04',
-    service_dates: ['2026-08-03', '2026-08-04'],
+    date_from: GROUP_DATE_1,
+    date_to: GROUP_DATE_2,
+    service_dates: [GROUP_DATE_1, GROUP_DATE_2],
     payment_status: 'unpaid',
     components: {
       course: {
@@ -655,16 +662,16 @@ function privateCreateBody(equipment, extras = {}) {
   return {
     guest_name: extras.guest_name || 'Private Guest',
     guest_phone: '+34600111222',
-    date_from: '2026-08-10',
-    date_to: '2026-08-10',
-    service_dates: ['2026-08-10'],
+    date_from: PRIVATE_DATE,
+    date_to: PRIVATE_DATE,
+    service_dates: [PRIVATE_DATE],
     payment_status: 'unpaid',
     components: {
       private_lesson: {
         enabled: true,
         surfer_count: 3,
         quantity: 1,
-        sessions: [{ date: '2026-08-10', start: '10:00', end: '12:00' }],
+        sessions: [{ date: PRIVATE_DATE, start: '10:00', end: '12:00' }],
       },
     },
     course_equipment: equipment,
@@ -712,7 +719,7 @@ function seedEditBooking() {
     service_record_id: 'sr-eq-soft',
     booking_id: BOOKING_ID,
     service_type: 'addon_service',
-    service_date: '2026-08-03',
+    service_date: GROUP_DATE_1,
     quantity: 2,
     amount_due_cents: 3000,
     amount_paid_cents: 0,
@@ -742,7 +749,7 @@ function seedEditBooking() {
     service_record_id: 'sr-eq-carbon',
     booking_id: BOOKING_ID,
     service_type: 'addon_service',
-    service_date: '2026-08-03',
+    service_date: GROUP_DATE_1,
     quantity: 1,
     amount_due_cents: 200,
     amount_paid_cents: 0,
@@ -775,7 +782,7 @@ function seedEditBooking() {
       phone: '+34600111222',
       status: 'payment_pending',
       payment_status: 'waiting_payment',
-      check_in: '2026-08-03',
+      check_in: GROUP_DATE_1,
       check_out: '2026-08-05',
       guest_count: 3,
       total_amount_cents: 15200,
@@ -796,7 +803,7 @@ function seedEditBooking() {
         service_record_id: 'sr-course-1',
         booking_id: BOOKING_ID,
         service_type: 'surf_lesson',
-        service_date: '2026-08-03',
+        service_date: GROUP_DATE_1,
         quantity: 3,
         amount_due_cents: 12000,
         amount_paid_cents: 0,
@@ -819,7 +826,7 @@ function seedEditBooking() {
         service_record_id: 'sr-course-2',
         booking_id: BOOKING_ID,
         service_type: 'surf_lesson',
-        service_date: '2026-08-04',
+        service_date: GROUP_DATE_2,
         quantity: 3,
         amount_due_cents: 0,
         amount_paid_cents: 0,
@@ -844,7 +851,7 @@ function seedEditBooking() {
         service_record_id: 'sr-custom-1',
         booking_id: BOOKING_ID,
         service_type: 'addon_service',
-        service_date: '2026-08-03',
+        service_date: GROUP_DATE_1,
         quantity: 1,
         amount_due_cents: 0,
         amount_paid_cents: 0,
@@ -866,7 +873,7 @@ function seedEditBooking() {
         service_record_id: 'sr-import-preserve',
         booking_id: BOOKING_ID,
         service_type: 'addon_service',
-        service_date: '2026-08-03',
+        service_date: GROUP_DATE_1,
         quantity: 1,
         amount_due_cents: 999,
         amount_paid_cents: 0,
@@ -942,7 +949,7 @@ function seedEditBooking() {
     });
     assert.deepStrictEqual(
       [...new Set(equip.map((r) => String(r.service_date).slice(0, 10)))].sort(),
-      ['2026-08-03', '2026-08-04'],
+      [GROUP_DATE_1, GROUP_DATE_2],
     );
 
     const courseRows = pg.state.services.filter((s) => parseMeta(s.metadata).component === 'course');
@@ -950,6 +957,15 @@ function seedEditBooking() {
     // Group 3 × 4000 = 12000 + equip 4400 = 16400
     assert.strictEqual(Number(pg.state.bookings[0].total_amount_cents), 16400, 'booking total includes equipment');
     assert.strictEqual(Number(result.body.total_cents), 16400);
+    const persistedQuoteLines = parseMeta(pg.state.bookings[0].metadata).quote_line_items || [];
+    const softboardQuoteLine = persistedQuoteLines.find((line) => line.offering_key === 'softboard');
+    assert(softboardQuoteLine, 'persisted quote line keeps course-equipment offering identity');
+    assert.strictEqual(softboardQuoteLine.course_equipment, true);
+    assert.strictEqual(softboardQuoteLine.component, 'course_equipment');
+    assert.strictEqual(softboardQuoteLine.course_equipment_mode, 'all_day');
+    assert.strictEqual(softboardQuoteLine.offering_key, 'softboard');
+    assert.strictEqual(softboardQuoteLine.date_count, 2);
+    assert.deepStrictEqual(softboardQuoteLine.service_dates, [GROUP_DATE_1, GROUP_DATE_2]);
 
     // Invoice reads persisted per-date money (no double-count across aggregate)
     const inv = equip.map((r) => formatServiceRecordInvoiceLineText(r));
@@ -1008,9 +1024,9 @@ function seedEditBooking() {
     const editBody = {
       guest_name: 'Edit Guest',
       guest_phone: '+34600111222',
-      date_from: '2026-08-03',
-      date_to: '2026-08-04',
-      service_dates: ['2026-08-03', '2026-08-04'],
+      date_from: GROUP_DATE_1,
+      date_to: GROUP_DATE_2,
+      service_dates: [GROUP_DATE_1, GROUP_DATE_2],
       payment_status: 'unpaid',
       components: {
         course: {
@@ -1146,9 +1162,9 @@ function seedEditBooking() {
         body: {
           guest_name: 'Edit Guest',
           guest_phone: '+34600111222',
-          date_from: '2026-08-03',
-          date_to: '2026-08-04',
-          service_dates: ['2026-08-03', '2026-08-04'],
+          date_from: GROUP_DATE_1,
+          date_to: GROUP_DATE_2,
+          service_dates: [GROUP_DATE_1, GROUP_DATE_2],
           payment_status: 'unpaid',
           components: {
             course: {
@@ -1219,7 +1235,7 @@ function seedEditBooking() {
       { offering_key: 'softboard', mode: 'all_day', quantity: 1, amount_cents: 9 },
     ])).ok, 'client money rejected');
     assert(!w2.validateScheduleBookingBody({
-      guest_name: 'x', guest_phone: '+34600111222', service_dates: ['2026-08-03'],
+      guest_name: 'x', guest_phone: '+34600111222', service_dates: [GROUP_DATE_1],
       payment_status: 'unpaid',
       components: { surfboard: { quantity: 1 } }, surfer_count: 1,
       course_equipment: selectionMixed(),
@@ -1240,7 +1256,7 @@ function seedEditBooking() {
         { offering_key: 'no_price_row', mode: 'during_course', quantity: 1 },
       ],
       surfers: 4,
-      bookingDates: ['2026-08-03', '2026-08-04'],
+      bookingDates: [GROUP_DATE_1, GROUP_DATE_2],
       course: { course_id: PACK_ID, equipment_options: GROUP_OPTIONS },
       offerings: OFFERINGS,
       attribution: {
@@ -1265,7 +1281,7 @@ function seedEditBooking() {
       () => w2.insertCourseEquipmentRows(makeTxnPg(), {
         clientSlug: 'sunset', bookingId: BOOKING_ID, bookingCode: 'X', guestName: 'X',
         selection: [{ offering_key: 'foreign_location', mode: 'during_course', quantity: 1 }],
-        surfers: 1, bookingDates: ['2026-08-03'],
+        surfers: 1, bookingDates: [GROUP_DATE_1],
         course: { equipment_options: [{ offering_key: 'foreign_location', during_course_price_cents: 1, all_day_price_cents: 0 }] },
         offerings: OFFERINGS, attribution: { metadataSource: 's', staffManualSchedule: true, dbSource: 'staff_manual' },
         locationId: LOC, srPayment: 'pending',
@@ -1279,7 +1295,7 @@ function seedEditBooking() {
     assert.strictEqual(typeof w2.rowMatchesQuoteLine, 'function', 'rowMatchesQuoteLine exported');
     const equipRow = {
       service_type: 'addon_service',
-      service_date: '2026-08-03',
+      service_date: GROUP_DATE_1,
       quantity: 2,
       metadata: {
         course_equipment: true,
@@ -1290,7 +1306,7 @@ function seedEditBooking() {
     };
     const fullDayRow = {
       service_type: 'addon_service',
-      service_date: '2026-08-03',
+      service_date: GROUP_DATE_1,
       quantity: 2,
       metadata: {
         component: 'full_day_equipment_extension',
@@ -1345,7 +1361,7 @@ function seedEditBooking() {
     // Standalone no-lesson still validates
     assert.strictEqual(w2.validateScheduleBookingBody({
       guest_name: 'No Lesson', guest_phone: '+34600111222',
-      service_dates: ['2026-08-03'], payment_status: 'unpaid',
+      service_dates: [GROUP_DATE_1], payment_status: 'unpaid',
       components: { surfboard: { quantity: 1 } }, surfer_count: 1,
     }).ok, true);
 
