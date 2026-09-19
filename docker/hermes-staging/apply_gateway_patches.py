@@ -1446,6 +1446,7 @@ def install_runtime_whatsapp_patches() -> dict:
         "pause_send": False,
         "send_flags": False,
         "burst_coalesce": False,
+        "fresh_start_command": False,
         "luna_personality": False,
     }
     try:
@@ -1478,6 +1479,11 @@ def install_runtime_whatsapp_patches() -> dict:
     try:
         from wolfhouse.whatsapp_burst_coalesce import install_whatsapp_burst_coalesce_patch
         applied["burst_coalesce"] = bool(install_whatsapp_burst_coalesce_patch())
+    except Exception:
+        pass
+    try:
+        from wolfhouse.whatsapp_fresh_start_command import install_whatsapp_fresh_start_command_patch
+        applied["fresh_start_command"] = bool(install_whatsapp_fresh_start_command_patch())
     except Exception:
         pass
     try:
