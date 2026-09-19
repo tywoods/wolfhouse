@@ -1262,8 +1262,10 @@ function applyBotAddonPaymentLinkFields(target, ctx, checkoutUrl, stripeSessionI
 // STRIPE_WEBHOOK_SKIP_VERIFY: ONLY for local/dev fixture testing. Never true in production.
 //   Default false — production always verifies signatures.
 // STRIPE_WEBHOOK_CLIENT_SLUG: authoritative tenant for webhook payment lookup (FORTRESS 15B).
-//   Prefer this over DEFAULT_CLIENT_SLUG. Both set and conflicting → fail closed (no DB write).
-//   Neither set → fail closed (no DB write). Never hardcode tenant; set per deployment.
+//   Prefer this over DEFAULT_CLIENT_SLUG, then STAFF_API_INGRESS_TENANT_SLUG (RADAR 16AN).
+//   Conflicting set values → fail closed (no DB write). None set → fail closed.
+//   Never hardcode tenant; set per deployment (Wolfhouse staging must set this explicitly
+//   because DEFAULT_CLIENT_SLUG is intentionally unset).
 const STRIPE_WEBHOOK_SECRET      = process.env.STRIPE_WEBHOOK_SECRET      || null;
 const STRIPE_WEBHOOK_SKIP_VERIFY = process.env.STRIPE_WEBHOOK_SKIP_VERIFY === 'true';
 const STAFF_OPERATOR_TOKEN   = process.env.STAFF_OPERATOR_TOKEN  || '';

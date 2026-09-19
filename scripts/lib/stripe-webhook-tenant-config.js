@@ -10,8 +10,10 @@
  * Priority:
  *   1. STRIPE_WEBHOOK_CLIENT_SLUG (dedicated, preferred)
  *   2. DEFAULT_CLIENT_SLUG only when nonempty (compat fallback)
- *   3. If both set and conflict → fail closed
- *   4. If neither set → fail closed
+ *   3. STAFF_API_INGRESS_TENANT_SLUG (RADAR 16AN dedicated admission identity;
+ *      Wolfhouse staging intentionally leaves DEFAULT_CLIENT_SLUG unset)
+ *   4. If any two set values conflict → fail closed
+ *   5. If none set → fail closed
  */
 
 function trimSlug(v) {
@@ -33,8 +35,11 @@ function resolveStripeWebhookExpectedClientSlug(env) {
   const src = env || process.env || {};
   const webhookSlug = trimSlug(src.STRIPE_WEBHOOK_CLIENT_SLUG);
   const defaultSlug = trimSlug(src.DEFAULT_CLIENT_SLUG);
+  const ingressSlug = trimSlug(src.STAFF_API_INGRESS_TENANT_SLUG);
 
-  if (webhookSlug && defaultSlug && webhookSlug !== defaultSlug) {
+  const setValues = [webhookSlug, defaultSlug, ingressSlug].filter(Boolean);
+  const unique = [...new Set(setValues)];
+  if (unique.length > 1) {
     return {
       ok: false,
       client_slug: null,
@@ -60,6 +65,16 @@ function resolveStripeWebhookExpectedClientSlug(env) {
       client_slug: defaultSlug,
       reason: 'default_client_slug_compat',
       source: 'DEFAULT_CLIENT_SLUG',
+      no_db_write: false,
+    };
+  }
+
+  if (ingressSlug) {
+    return {
+      ok: true,
+      client_slug: ingressSlug,
+      reason: 'staff_api_ingress_tenant_slug',
+      source: 'STAFF_API_INGRESS_TENANT_SLUG',
       no_db_write: false,
     };
   }

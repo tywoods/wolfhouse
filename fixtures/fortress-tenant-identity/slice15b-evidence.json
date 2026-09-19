@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15B",
-  "generated_at": "2026-07-20T01:18:04.408Z",
+  "generated_at": "2026-09-19T22:08:03.429Z",
   "master_basis": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
   "live_mutation": false,
   "red": {
-    "total": 11,
-    "passed": 11,
+    "total": 12,
+    "passed": 12,
     "cases": [
       {
         "id": "missing_runtime_slug",
@@ -14,6 +14,10 @@
       },
       {
         "id": "conflicting_runtime_slugs",
+        "ok": true
+      },
+      {
+        "id": "conflicting_ingress_vs_default",
         "ok": true
       },
       {
@@ -80,7 +84,7 @@
       }
     ]
   },
-  "pass": 39,
+  "pass": 42,
   "fail": 0,
   "gates_note": "offline only; zero live Stripe/DB/payment/deploy/guest mutation"
 }
