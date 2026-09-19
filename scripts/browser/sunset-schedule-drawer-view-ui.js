@@ -1122,13 +1122,21 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
   return html;
 }
 
+function scheduleRenderSunsetViewNotesSectionHtml(ctx){
+  var notes = ctx && ctx.notes != null ? String(ctx.notes).trim() : '';
+  var body = notes
+    ? '<p class="portal-schedule-drawer-kv" style="margin:0" data-testid="ps-drawer-view-notes">' +
+      escHtml(notes) + '</p>'
+    : '<p class="portal-schedule-drawer-kv is-muted" style="margin:0" data-testid="ps-drawer-view-notes-empty">' +
+      escHtml(portalT('schedule.drawer.notesEmpty')) + '</p>';
+  return scheduleDrawerSectionHtml('schedule.drawer.section.notes', body);
+}
+
 function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
   html += scheduleRenderSunsetInvoiceCardHtml(ctx);
-  if (ctx && ctx.notes) {
-    html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
-      '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
-  }
+  // Always show Notes chrome on view (same slot as Edit): under invoice, above waiver.
+  html += scheduleRenderSunsetViewNotesSectionHtml(ctx);
   html += scheduleRenderDrawerWaiverSectionHtml(ctx);
   html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';

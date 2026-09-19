@@ -1255,6 +1255,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.section.rentals': 'Equipment',
     'schedule.drawer.section.payment': 'Payment',
     'schedule.drawer.section.notes': 'Notes',
+    'schedule.drawer.notesEmpty': 'No notes yet.',
     'schedule.create.notes': 'Notes',
     'schedule.create.needsReply': 'Needs reply',
     'schedule.create.submit': 'Create booking',

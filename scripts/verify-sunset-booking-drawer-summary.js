@@ -162,9 +162,15 @@ assert('invoice keeps stripe copy/delete ids', drawerSrc.includes("'ps-drawer-st
 assert('invoice keeps payment-link create id', drawerSrc.includes('id="ps-drawer-stripe-link"'));
 assert('sunset notes sit under invoice and above waiver', (() => {
   const inv = sunsetViewFn.indexOf('scheduleRenderSunsetInvoiceCardHtml');
-  const notes = sunsetViewFn.indexOf('schedule.drawer.section.notes');
+  const notes = sunsetViewFn.indexOf('scheduleRenderSunsetViewNotesSectionHtml');
   const waiver = sunsetViewFn.indexOf('scheduleRenderDrawerWaiverSectionHtml');
   return inv >= 0 && notes > inv && waiver > notes;
+})());
+assert('sunset view notes helper always renders section chrome', (() => {
+  const notesFn = fnBody(drawerSrc, 'scheduleRenderSunsetViewNotesSectionHtml');
+  return notesFn.includes('schedule.drawer.section.notes')
+    && notesFn.includes('schedule.drawer.notesEmpty')
+    && !/if\s*\(\s*ctx\s*&&\s*ctx\.notes\s*\)/.test(sunsetViewFn);
 })());
 assert('pay-link money actions stay inside invoice card',
   invoiceCardFn.includes('scheduleRenderSunsetMoneyActionsHtml')

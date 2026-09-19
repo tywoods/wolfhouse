@@ -95,6 +95,27 @@ function normalizeDrawerGuestPhone(raw) {
   return p;
 }
 
+/**
+ * Booking notes for drawer view/edit.
+ * Prefer bookings.metadata.notes (notes-only Edit writes here without rewriting
+ * service rows), then the first non-empty service-record notes.
+ */
+function resolveDrawerNotesFromBundle(bundle) {
+  if (!bundle) return null;
+  const bookingMeta = parseMeta(bundle.booking && bundle.booking.metadata);
+  const fromBooking = bookingMeta && bookingMeta.notes != null
+    ? String(bookingMeta.notes).trim()
+    : '';
+  if (fromBooking) return fromBooking;
+  const services = Array.isArray(bundle.services) ? bundle.services : [];
+  for (let i = 0; i < services.length; i++) {
+    const raw = services[i] && services[i].notes;
+    const note = raw != null ? String(raw).trim() : '';
+    if (note) return note;
+  }
+  return null;
+}
+
 function resolveDrawerGuestPhoneFromBundle(bundle) {
   if (!bundle || !bundle.booking) return null;
   const booking = bundle.booking;
@@ -948,7 +969,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       payments_paid_cents: Number(bundle.payments_paid_cents || 0),
       guest_name: bundle.booking.guest_name,
       phone: resolveDrawerGuestPhoneFromBundle(bundle),
-      notes: bundle.services[0] && bundle.services[0].notes ? bundle.services[0].notes : null,
+      notes: resolveDrawerNotesFromBundle(bundle),
       payment_status: payment.payment_status,
       payment_method: payment.payment_status === 'paid' ? (normalizePaymentMethod(meta.sunset_payment_method) || null) : null,
       date_from: agg.date_from,
@@ -1773,6 +1794,14 @@ async function updateSunsetScheduleBooking(pg, opts) {
       if (Number(headerUpd && headerUpd.rowCount) !== 1) {
         return rollback({ ok: false, status: 409, body: { success: false, error: 'booking_update_conflict' } });
       }
+      // Keep service-row metadata.notes aligned so list/legacy readers match drawer.
+      await pg.query(
+        // MULTICLIENT_SCOPE_OK: same booking + client_slug as header update
+        `UPDATE booking_service_records
+            SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('notes', $1::text)
+          WHERE booking_id = $2::uuid AND client_slug = $3`,
+        [input.notes || null, bookingId, clientSlug],
+      );
       if (input.payment_status === 'paid') {
         const paidApply = await applyEditPaidAmountInTxn(pg, {
           bookingId, clientId, paymentsPaidCents: lockedBundle.payments_paid_cents,
@@ -3027,6 +3056,7 @@ module.exports = {
   normalizePaymentMethod,
   normalizeDrawerGuestPhone,
   resolveDrawerGuestPhoneFromBundle,
+  resolveDrawerNotesFromBundle,
   formatSunsetDrawerDailyItemLabel,
   pricingIntentFromBundle,
   customLineItemsFromBundle,

@@ -868,6 +868,7 @@ module.exports = {
   'schedule.drawer.needsAction': 'Requiere acción',
   'schedule.drawer.needsReply': 'Requiere respuesta',
   'schedule.drawer.notes': 'Notas',
+  'schedule.drawer.notesEmpty': 'Sin notas aún.',
   'schedule.drawer.readOnly': 'Solo lectura — los cambios se gestionan en la conversación o el calendario.',
   'schedule.drawer.recordId': 'ID de registro',
   'schedule.drawer.source': 'Origen',
