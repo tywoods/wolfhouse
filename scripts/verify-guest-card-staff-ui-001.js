@@ -26,6 +26,7 @@ function assert(label, condition, detail) {
 console.log('\nverify:guest-card-staff-ui-001 — focused Staff UI checks\n');
 
 const customerProfile = file('scripts', 'browser', 'inbox-customers-profile.js');
+const inboxContext = file('scripts', 'browser', 'inbox-context.js');
 const drawerController = file('scripts', 'browser', 'sunset-schedule-drawer-controller.js');
 const drawerView = file('scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
 const staffApi = file('scripts', 'staff-query-api.js');
@@ -34,12 +35,25 @@ const i18nEn = file('scripts', 'lib', 'staff-portal-i18n.js');
 const i18nEs = file('scripts', 'lib', 'staff-portal-i18n-es-sunset.js');
 
 console.log('[1] People/customer card header actions');
-assert('Create booking action is visible in customer card header', customerProfile.includes('id="cust-profile-create-booking"'));
-assert('Start/Open conversation action is visible in customer card header', customerProfile.includes('id="cust-conversation-btn"')
+const inboxFullHtml = inboxContext.slice(
+  inboxContext.indexOf('function inboxCustomerFullHtml'),
+  inboxContext.indexOf('function inboxCustomerUnmatchedHtml')
+);
+assert('Create booking action is visible in customer profile renderer', customerProfile.includes('id="cust-profile-create-booking"'));
+assert('Create booking action is visible in Inbox Guest full header', inboxFullHtml.includes('id="inbox-create-booking-for-guest"'));
+assert('Start/Open conversation action is visible in customer profile renderer', customerProfile.includes('id="cust-conversation-btn"')
   && customerProfile.includes('customers.conversation.start')
   && customerProfile.includes('customers.conversation.open'));
-assert('Edit profile action is explicit in customer card header', customerProfile.includes('id="cust-profile-edit-btn"')
+assert('Start/Open conversation action is visible in Inbox Guest full header', inboxFullHtml.includes('id="cust-conversation-btn"')
+  && inboxFullHtml.includes('customers.conversation.start')
+  && inboxFullHtml.includes('customers.conversation.open'));
+assert('Edit profile action is explicit in customer profile renderer', customerProfile.includes('id="cust-profile-edit-btn"')
   && customerProfile.includes('customers.editProfile'));
+assert('Edit profile action is explicit in Inbox Guest full header', inboxFullHtml.includes('id="cust-profile-edit-btn"')
+  && inboxFullHtml.includes('customers.editProfile'));
+assert('Inbox Guest header wires conversation + edit actions', inboxContext.includes('inboxCustomerOpenOrStartConversation')
+  && inboxContext.includes("querySelector('#cust-conversation-btn')")
+  && inboxContext.includes("querySelector('#cust-profile-edit-btn')"));
 
 console.log('\n[2] Message/Start conversation phone hardening + i18n');
 assert('customer card validates real WhatsApp phones', customerProfile.includes('function customerHasWhatsappMessagePhone')

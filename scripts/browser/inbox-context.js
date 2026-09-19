@@ -1295,6 +1295,28 @@ function inboxCustomerGuestTagsHtml(data) {
   return html;
 }
 
+function inboxCustomerConversationId(data, opts) {
+  if (data && data.identity && data.identity.conversation_id) return data.identity.conversation_id;
+  if (data && data.conversation_summary && data.conversation_summary.conversation_id) return data.conversation_summary.conversation_id;
+  if (opts && opts.conv && opts.conv.conversation_id) return opts.conv.conversation_id;
+  return null;
+}
+
+function inboxCustomerHasWhatsappMessagePhone(data) {
+  var raw = data && data.phone != null ? String(data.phone).trim() : '';
+  if (!raw) return false;
+  if (/^(emailcust1|emailv1|email):/i.test(raw)) return false;
+  if (raw.indexOf('staff:') === 0) return false;
+  if (/[A-Za-z]/.test(raw)) return false;
+  var digits = raw.replace(/\D/g, '');
+  return digits.length >= 6;
+}
+
+function inboxCustomerConversationDisabledText(data) {
+  if (inboxCustomerHasWhatsappMessagePhone(data)) return '';
+  return inboxContextT('customers.conversation.needPhone', 'Add a real WhatsApp phone number before starting a conversation.');
+}
+
 function inboxCustomerFullHtml(data, opts) {
   opts = opts || {};
   var id = (data && data.identity) || {};
@@ -1303,6 +1325,12 @@ function inboxCustomerFullHtml(data, opts) {
   var phone = (data && data.phone) || '';
   var email = id.email || (cacheRow && cacheRow.email) || '';
   var language = id.language || (cacheRow && cacheRow.language) || '';
+  var convId = inboxCustomerConversationId(data, opts);
+  var convLabel = convId
+    ? inboxContextT('customers.conversation.open', 'Open conversation')
+    : inboxContextT('customers.conversation.start', 'Start conversation');
+  var convDisabled = convId ? false : !inboxCustomerHasWhatsappMessagePhone(data);
+  var convDisabledText = convDisabled ? inboxCustomerConversationDisabledText(data) : '';
   var notes = '';
   if (data && data.notes) notes = data.notes.internal_staff_notes || data.notes.notes || '';
   if (!notes && opts.conv && opts.conv.internal_staff_notes) notes = opts.conv.internal_staff_notes;
@@ -1327,7 +1355,15 @@ function inboxCustomerFullHtml(data, opts) {
   html += '<div class="customers-profile-hdr-actions">';
   html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest">' +
     inboxContextEsc(inboxContextT('customers.detail.createBooking', 'Create booking')) + '</button>';
+  html += '<button type="button" class="btn btn-primary" id="cust-conversation-btn"' +
+    (convDisabled ? ' disabled title="' + inboxContextEsc(convDisabledText) + '"' : '') + '>' +
+    inboxContextEsc(convLabel) + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="cust-profile-edit-btn">' +
+    inboxContextEsc(inboxContextT('customers.editProfile', 'Edit profile')) + '</button>';
   html += '</div></div>';
+  html += '<p id="cust-profile-msg" class="state-msg" style="' +
+    (convDisabledText ? 'display:block;' : 'display:none;') + 'margin-top:8px">' +
+    inboxContextEsc(convDisabledText) + '</p>';
   html += '<div class="customers-profile-fields">';
   html += inboxCustomerInlineFieldHtml('phone', inboxContextEsc(inboxContextT('customers.detail.phone', 'Phone')), phone, '—', false);
   html += inboxCustomerInlineFieldHtml('email', inboxContextEsc(inboxContextT('customers.detail.email', 'Email')), email, '—', false);
@@ -1827,12 +1863,77 @@ function inboxCustomerSaveTags(root) {
   });
 }
 
+function inboxCustomerShowProfileMessage(sidebar, text, error) {
+  var msg = sidebar && sidebar.querySelector('#cust-profile-msg');
+  if (!msg) return;
+  msg.className = error ? 'state-msg error' : 'state-msg';
+  msg.textContent = text || '';
+  msg.style.display = text ? 'block' : 'none';
+}
+
+function inboxCustomerOpenOrStartConversation(sidebar, data, opts) {
+  data = data || {};
+  opts = opts || {};
+  var convId = inboxCustomerConversationId(data, opts);
+  if (convId) {
+    if (typeof openInboxToConversation === 'function') openInboxToConversation(convId);
+    return;
+  }
+  if (!inboxCustomerHasWhatsappMessagePhone(data)) {
+    inboxCustomerShowProfileMessage(sidebar, inboxCustomerConversationDisabledText(data), false);
+    return;
+  }
+  var phone = data.phone || '';
+  if (!phone) return;
+  var btn = sidebar && sidebar.querySelector('#cust-conversation-btn');
+  if (btn && btn.disabled) return;
+  if (btn) btn.disabled = true;
+  inboxCustomerShowProfileMessage(sidebar, '', false);
+  var idemKey = 'customer-profile-conv-' + phone;
+  fetch('/staff/customers/' + encodeURIComponent(phone) + '/create-conversation?client=' +
+    encodeURIComponent(typeof getClient === 'function' ? getClient() : ''), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idempotency_key: idemKey,
+      reason: 'Created from customer profile',
+    }),
+  }).then(function(r) {
+    return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+  }).then(function(res) {
+    if (!res.ok || !res.body || !res.body.success) {
+      throw new Error((res.body && res.body.error) || 'conversation failed');
+    }
+    var newConvId = res.body.conversation_id;
+    if (newConvId) {
+      if (!data.identity) data.identity = {};
+      data.identity.conversation_id = newConvId;
+      if (!data.conversation_summary) data.conversation_summary = {};
+      data.conversation_summary.conversation_id = newConvId;
+      if (typeof openInboxToConversation === 'function') openInboxToConversation(newConvId);
+    }
+  }).catch(function(err) {
+    inboxCustomerShowProfileMessage(sidebar,
+      inboxContextT('customers.conversation.failed', 'Could not start conversation.') + ' ' + err.message,
+      true);
+  }).finally(function() {
+    if (btn) btn.disabled = false;
+  });
+}
+
 function inboxCustomerWireFull(sidebar, data) {
-  var edit = sidebar && sidebar.querySelector('#inbox-customer-edit-profile');
+  var edit = sidebar && (sidebar.querySelector('#cust-profile-edit-btn') || sidebar.querySelector('#inbox-customer-edit-profile'));
   if (edit && edit.dataset.inboxCustomerWired !== '1') {
     edit.dataset.inboxCustomerWired = '1';
     edit.addEventListener('click', function() {
       inboxCustomerStartEdit();
+    });
+  }
+  var convBtn = sidebar && sidebar.querySelector('#cust-conversation-btn');
+  if (convBtn && convBtn.dataset.inboxCustomerWired !== '1') {
+    convBtn.dataset.inboxCustomerWired = '1';
+    convBtn.addEventListener('click', function() {
+      inboxCustomerOpenOrStartConversation(sidebar, data, { conv: inboxContextLastConv });
     });
   }
   inboxCustomerWireNotes(sidebar);
