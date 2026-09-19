@@ -3055,6 +3055,17 @@ def create_sunset_booking(params, **kwargs):
     })
 
 
+_SUNSET_LOCATION_MAP_URLS = {
+    "sunset-somo": "https://www.google.com/maps/search/?api=1&query=Sunset+Surf+School+Somo",
+    "sunset-sardinero": "https://www.google.com/maps/search/?api=1&query=Sunset+Surf+School+El+Sardinero",
+}
+
+
+def _sunset_guest_location_line(location_id):
+    url = _SUNSET_LOCATION_MAP_URLS.get(_clean(location_id).lower())
+    return f"📍 {url}" if url else None
+
+
 def create_sunset_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -3087,6 +3098,7 @@ def create_sunset_payment_link(params, **kwargs):
     guest_url = _guest_payment_url(data)
     checkout_url = _clean(data.get("checkout_url") or data.get("payment_link_url"))
     ok = bool(data.get("success")) and bool(guest_url)
+    location_id = _clean(data.get("location_id")) or _clean(payload.get("location_id"))
     return _json_result({
         "success": ok,
         "tool": "create_sunset_payment_link",
@@ -3099,6 +3111,8 @@ def create_sunset_payment_link(params, **kwargs):
         "secure_payment_url": guest_url or None,
         "payment_short_url": data.get("payment_short_url"),
         "guest_payment_url": guest_url or None,
+        # Exact school directions are tool-owned; unknown scope fails closed.
+        "guest_location_line": _sunset_guest_location_line(location_id),
         "checkout_url": checkout_url or None,
         "idempotent": bool(data.get("idempotent")),
         "next_action": "send_secure_payment_link" if ok else None,
