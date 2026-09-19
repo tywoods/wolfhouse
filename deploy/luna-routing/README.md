@@ -11,22 +11,24 @@ There is no wildcard controller route.
 
 ## Least-privilege Caddy contract
 
-The one-time root installer adds exactly this routing contract before the existing exact
+The root installer adds this marked routing contract in the unique
+`lunabox.lunafrontdesk.com` site, immediately before its single broad
 `reverse_proxy /whatsapp/* ...` anchor:
 
 ```caddyfile
+# BEGIN luna-routing-contract
 handle /_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook {
   rewrite * /v1/routes/meta-whatsapp-verified-webhook
   reverse_proxy 127.0.0.1:8096
 }
 import /var/lib/luna-routing/luna-number-route.caddy
+# END luna-routing-contract
 ```
 
 The unprivileged `luna-routing` controller can modify only that dedicated fragment. It
-cannot write, rename, or chown `/etc/caddy/Caddyfile`. Before every read/mutation it
-checks the installer-recorded root Caddyfile SHA-256 and exact import position. It accepts
-only the canonical exact `/whatsapp/webhook` fragment, validates a temporary complete
-Caddyfile with `/usr/bin/caddy`, preserves fragment uid/gid/mode, atomically replaces the
+cannot read, write, rename, or chown `/etc/caddy/Caddyfile`. It accepts only the canonical
+exact `/whatsapp/webhook` fragment, validates a minimal temporary wrapper importing the
+candidate with fixed `/usr/bin/caddy`, preserves fragment uid/gid/mode, atomically replaces the
 fragment, runs only `/usr/bin/sudo -n /usr/bin/systemctl reload caddy`, and verifies the
 effective admin JSON.
 
@@ -44,13 +46,15 @@ sudo env CONTROLLER_ENV=/root/luna-routing.env CADDYFILE=/etc/caddy/Caddyfile \
 sudo deploy/luna-routing/install-luna-routing.sh --verify
 ```
 
-`--dry-run` validates source artifacts and a candidate full Caddyfile without host
-mutation. `--install` is root-only, creates the system user/group and directories, copies
+`--dry-run` performs source/static checks without requiring host Caddy. `--install` is
+root-only, stages and validates the complete candidate before mutation, creates the system user/group and directories, copies
 the script/unit/environment/sudoers/tmpfiles/initial Wolfhouse fragment, validates
-sudoers, backs up and metadata-preservingly patches the root Caddyfile, records its hash,
+sudoers, backs up and metadata-preservingly patches the root Caddyfile last,
 then daemon-reloads, enables/starts the controller, reloads Caddy, and verifies readback.
-It fails closed on an ambiguous anchor or partial contract. A completed installation is
-verified rather than patched a second time; use `--verify` for repeat checks.
+It traps partial failures and restores prior artifacts. It fails closed on duplicate sites,
+routes, markers, misleading comments, or partial contracts. Reinstall is idempotent and
+repairs missing artifacts; use `--update-contract` for reviewed contract drift and `--verify`
+for host/service-user read checks.
 
 ## Database order (Azure PostgreSQL)
 
