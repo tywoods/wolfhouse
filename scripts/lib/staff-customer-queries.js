@@ -1355,6 +1355,22 @@ function isCancelledServiceRecord(row) {
   return st === 'cancelled' || st === 'canceled';
 }
 
+function lastSetupDatedProjectionTotal(bucket) {
+  if (!bucket || typeof bucket !== 'object') return 0;
+  const datedTotals = Object.values(bucket.dated || {}).map((n) => Number(n) || 0);
+  const maxDated = datedTotals.length ? Math.max(...datedTotals) : 0;
+  return maxDated + (Number(bucket.undated) || 0);
+}
+
+function addLastSetupProjectionQuantity(bucket, row, qty) {
+  const dateKey = row && row.service_date ? String(row.service_date).slice(0, 10) : '';
+  if (dateKey) {
+    bucket.dated[dateKey] = (bucket.dated[dateKey] || 0) + qty;
+  } else {
+    bucket.undated += qty;
+  }
+}
+
 function buildLastSetupSummary(serviceRows) {
   const rows = (serviceRows || []).filter((row) => row && !isCancelledServiceRecord(row));
   if (!rows.length) return null;
@@ -1364,8 +1380,8 @@ function buildLastSetupSummary(serviceRows) {
     ? rows.filter((row) => String(row.booking_id || row.booking_code || '') === latestKey)
     : [latest];
   const courses = {};
-  let boards = 0;
-  let wetsuits = 0;
+  const boards = { dated: {}, undated: 0 };
+  const wetsuits = { dated: {}, undated: 0 };
   let otherParts = [];
   for (const row of lastOrder) {
     const meta = parseServiceRecordMetadata(row);
@@ -1373,11 +1389,11 @@ function buildLastSetupSummary(serviceRows) {
     const qty = Number(row.quantity) > 0 ? Number(row.quantity) : 1;
     const offeringKey = String(meta.offering_key || '');
     if (type === 'surfboard' || /board/i.test(offeringKey)) {
-      boards += qty;
+      addLastSetupProjectionQuantity(boards, row, qty);
       continue;
     }
     if (type === 'wetsuit' || /wetsuit/i.test(offeringKey)) {
-      wetsuits += qty;
+      addLastSetupProjectionQuantity(wetsuits, row, qty);
       continue;
     }
     if (
@@ -1387,16 +1403,22 @@ function buildLastSetupSummary(serviceRows) {
       || meta.component === 'private_lesson'
     ) {
       const name = lastSetupCourseLabel(row, meta);
-      courses[name] = (courses[name] || 0) + qty;
+      if (!courses[name]) courses[name] = { dated: {}, undated: 0 };
+      addLastSetupProjectionQuantity(courses[name], row, qty);
       continue;
     }
     const leftover = type.replace(/_/g, ' ').trim();
     if (leftover) otherParts.push(`${qty} ${leftover}`);
   }
-  const courseParts = Object.keys(courses).map((name) => `${courses[name]}× ${name}`);
+  const courseParts = Object.keys(courses)
+    .map((name) => [name, lastSetupDatedProjectionTotal(courses[name])])
+    .filter(([, qty]) => qty > 0)
+    .map(([name, qty]) => `${qty}× ${name}`);
+  const boardCount = lastSetupDatedProjectionTotal(boards);
+  const wetsuitCount = lastSetupDatedProjectionTotal(wetsuits);
   const gear = [];
-  if (boards) gear.push(`${boards} board${boards === 1 ? '' : 's'}`);
-  if (wetsuits) gear.push(`${wetsuits} wetsuit${wetsuits === 1 ? '' : 's'}`);
+  if (boardCount) gear.push(`${boardCount} board${boardCount === 1 ? '' : 's'}`);
+  if (wetsuitCount) gear.push(`${wetsuitCount} wetsuit${wetsuitCount === 1 ? '' : 's'}`);
   const bits = [];
   if (courseParts.length) bits.push(courseParts.join(', '));
   if (gear.length) bits.push(gear.join(' · '));
