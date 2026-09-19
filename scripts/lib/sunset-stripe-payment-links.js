@@ -634,6 +634,7 @@ function courseOfferingGroupKey(meta) {
 function isCourseServiceMeta(meta) {
   const m = meta || {};
   const component = String(m.component || m.staff_ui_service_type || '').toLowerCase();
+  if (m.course_equipment === true || component === 'course_equipment') return false;
   return component === 'course' || !!m.course_id;
 }
 
