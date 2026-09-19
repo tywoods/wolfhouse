@@ -8,7 +8,12 @@ const ENVIRONMENT = 'staging';
 const ACTIONS = Object.freeze({ flip: 'flip_to_sunset', rollback: 'rollback_to_wolfhouse' });
 const REGISTERED_LUNAS = Object.freeze([Object.freeze({ id: 'wolfhouse', upstream: '127.0.0.1:8090' }), Object.freeze({ id: 'sunset', upstream: '127.0.0.1:8094' })]);
 const pools = new Map();
-function isStagingEnvironment(env = process.env) { return String(env.NODE_ENV || '').trim().toLowerCase() === 'staging' && String(env.CROWSNEST_ENVIRONMENT || '').trim().toLowerCase() === 'staging'; }
+function isStagingEnvironment(env = process.env) {
+  // Azure Crow’s Nest runs Node in production mode even for the staging deployment.
+  // This dedicated deployment-scope flag is the fail-closed authority; absent or any
+  // value other than the exact staging label keeps routing unavailable.
+  return String(env.CROWSNEST_ENVIRONMENT || '').trim().toLowerCase() === 'staging';
+}
 function config(env = process.env) { if (!isStagingEnvironment(env)) return null; const raw = String(env.CROWSNEST_LUNA_ROUTING_CONTROLLER_URL || ''); const key = String(env.CROWSNEST_LUNA_ROUTING_CONTROLLER_HMAC_KEY || ''); const dsn = String(env.CROWSNEST_COMMS_DATABASE_URL || ''); try { const url = new URL(raw); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash && url.pathname === '/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook' && key.length >= 32 && dsn ? { url: url.href, key, dsn } : null; } catch (_) { return null; } }
 function canonical(method, routePath, timestamp, nonce, body) { return [method, routePath, timestamp, nonce, body].join('\n'); }
 function signedHeaders(method, routePath, body, key, now = Date.now(), nonce = crypto.randomUUID()) { const timestamp = String(now); const signature = crypto.createHmac('sha256', key).update(canonical(method, routePath, timestamp, nonce, body)).digest('hex'); return { authorization: `HMAC ${signature}`, 'x-routing-timestamp': timestamp, 'x-routing-nonce': nonce }; }

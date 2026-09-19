@@ -66,6 +66,7 @@ The following must remain true:
 | `CROWSNEST_PORT` | `3040` |
 | `CROWSNEST_HOST` | `0.0.0.0` |
 | `NODE_ENV` | `production` in Azure |
+| `CROWSNEST_ENVIRONMENT` | Must be exactly `staging` to expose Luna-number routing; absent or any other value fails closed. This is independent of Azure’s required `NODE_ENV=production`. |
 | `CROWSNEST_AUTH_REQUIRED` | `true` on the public app |
 | `CROWSNEST_AUTH_EARTHLING_USERNAME` | Azure secret ref `cn-auth-user` (**VERIFIED CURRENT LIVE**); never commit the value |
 | `CROWSNEST_AUTH_EARTHLING_PASSWORD` | Azure secret ref `cn-auth-pass` (**VERIFIED CURRENT LIVE**); never commit the value |
