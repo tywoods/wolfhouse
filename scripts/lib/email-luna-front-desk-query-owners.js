@@ -112,12 +112,82 @@ function offeringMatchesLookup(offering, lookup) {
 }
 
 function uniqueMatchingOffering(offerings, lookup, authority) {
+  const matches = matchingOfferings(offerings, lookup, authority);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function matchingOfferings(offerings, lookup, authority) {
   const needle = asText(lookup);
-  if (!needle || !Array.isArray(offerings)) return null;
-  const matches = offerings.filter((row) => (
+  if (!needle || !Array.isArray(offerings)) return [];
+  return offerings.filter((row) => (
     offeringMatchesLookup(row, needle) && catalogFactFromOffering(authority, row)
   ));
-  return matches.length === 1 ? matches[0] : null;
+}
+
+const LOOKUP_STOP_WORDS = new Set([
+  ...GENERIC_OFFERING_WORDS,
+  'much', 'cuesta', 'cuanto', 'hello', 'hola', 'please', 'gracias', 'about',
+  'what', 'want', 'need', 'necesit', 'precio',
+]);
+
+function lookupContentWords(lookup) {
+  return paddedHay(lookup).trim().split(/\s+/)
+    .filter((word) => word.length >= 4 && !LOOKUP_STOP_WORDS.has(word));
+}
+
+/**
+ * Multi-item open-draft: only when the guest named 2+ distinct offerings.
+ * A generic word that hits many rows stays unresolved (never first-row).
+ */
+function selectCatalogOfferings(offerings, lookup, authority) {
+  const matches = matchingOfferings(offerings, lookup, authority);
+  if (matches.length <= 1) return matches;
+  const claimed = [];
+  const used = new Set();
+  for (const word of lookupContentWords(lookup)) {
+    const hits = matches.filter((row) => offeringMatchesLookup(row, word));
+    if (hits.length !== 1) continue;
+    const key = asText(hits[0].offering_id)
+      || asText(hits[0].offering_item_code)
+      || asText(hits[0].item_code)
+      || asText(hits[0].offering_key);
+    if (!key || used.has(key)) continue;
+    used.add(key);
+    claimed.push(hits[0]);
+  }
+  return claimed.length >= 2 ? claimed : [];
+}
+
+function combineCatalogFacts(facts) {
+  const rows = Array.isArray(facts) ? facts.filter(Boolean) : [];
+  if (!rows.length) return null;
+  if (rows.length === 1) return rows[0];
+  const labels = [];
+  const items = [];
+  let cents = 0;
+  for (const row of rows.slice(0, 4)) {
+    if (row.fact !== 'catalog' || row.status !== 'found') return null;
+    if (!asText(row.label) || !asText(row.item)) return null;
+    if (!Number.isSafeInteger(row.amount_cents) || row.amount_cents <= 0) return null;
+    labels.push(asText(row.label));
+    items.push(asText(row.item));
+    cents += row.amount_cents;
+  }
+  if (!Number.isSafeInteger(cents) || cents <= 0) return null;
+  let label = labels.join(' + ');
+  if (label.length > 80) label = labels.slice(0, 2).join(' + ');
+  if (label.length > 80) label = labels[0].slice(0, 80);
+  return {
+    fact: 'catalog',
+    status: 'found',
+    client_id: rows[0].client_id,
+    location_id: rows[0].location_id,
+    item: items.join('+').slice(0, 200),
+    label,
+    currency: asText(rows[0].currency) || 'EUR',
+    amount_cents: cents,
+    active: true,
+  };
 }
 
 function assertBoundAuthority(authority, expectedClientId, expectedLocationId) {
@@ -229,13 +299,18 @@ function createEmailLunaFrontDeskQueryOwners(opts) {
     const offerings = (result.body && Array.isArray(result.body.offerings))
       ? result.body.offerings
       : [];
-    const match = uniqueMatchingOffering(offerings, lookup, authority);
-    if (!match) return [];
-    const quoted = await quoteOffering(
-      authority,
-      asText(match.offering_id) || asText(match.offering_item_code) || asText(match.item_code),
-    );
-    return quoted || [];
+    const selected = selectCatalogOfferings(offerings, lookup, authority);
+    if (!selected.length) return [];
+    const facts = [];
+    for (const match of selected.slice(0, 4)) {
+      const quoted = await quoteOffering(
+        authority,
+        asText(match.offering_id) || asText(match.offering_item_code) || asText(match.item_code),
+      );
+      if (quoted) facts.push(quoted);
+    }
+    const combined = combineCatalogFacts(facts);
+    return combined || [];
   }
 
   async function missing() {
@@ -257,4 +332,8 @@ module.exports = {
   catalogFactFromOffering,
   quoteFactFromQuoteBody,
   offeringMatchesLookup,
+  uniqueMatchingOffering,
+  matchingOfferings,
+  selectCatalogOfferings,
+  combineCatalogFacts,
 };
