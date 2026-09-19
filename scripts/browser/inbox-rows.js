@@ -672,11 +672,31 @@ function inboxRowsWireCheckboxes() {
   }
 }
 
-/** One list empty state + select-a-thread detail prompt (Bug Finder #18). */
+function inboxRowsGuestEmptyText(key, fallback) {
+  if (typeof portalT === 'function') {
+    var translated = portalT(key);
+    if (translated && translated !== key) return translated;
+  }
+  return fallback;
+}
+
+function inboxRowsGuestEmptyListMessage() {
+  return inboxRowsGuestEmptyText('inbox.guest.empty.list', 'No guests match this search.');
+}
+
+function inboxRowsGuestEmptyDetailHtml() {
+  return '<div class="inbox-empty-right inbox-guest-empty-right">' +
+    '<p class="main-msg">' + inboxRowsEsc(inboxRowsGuestEmptyText('inbox.guest.empty.main', 'No guest selected.')) + '</p>' +
+    '<p class="sub-msg">' + inboxRowsEsc(inboxRowsGuestEmptyText('inbox.guest.empty.sub', 'Choose a guest from the list.')) + '</p>' +
+    '</div>';
+}
+
+/** One list empty state + neutral detail prompt (Bug Finder #18). */
 function inboxRowsFixEmptyChrome(convs, opts) {
   if (convs && convs.length > 0) return;
   opts = opts || {};
-  var preserveDetail = !!(opts.preserveDetail && (opts.selectedId ||
+  var guestEmpty = inboxRowsGuestViewActive();
+  var preserveDetail = !guestEmpty && !!(opts.preserveDetail && (opts.selectedId ||
     (typeof selectedConvId !== 'undefined' && selectedConvId)));
   var stateEl = inboxRowsEl('inbox-state');
   if (stateEl) {
@@ -684,15 +704,22 @@ function inboxRowsFixEmptyChrome(convs, opts) {
     stateEl.classList.remove('error');
   }
   var list = inboxRowsEl('conv-list');
-  if (list && typeof inboxEmptyListMessage === 'function') {
-    var emptyMsg = inboxEmptyListMessage();
+  if (list) {
+    var emptyMsg = guestEmpty
+      ? inboxRowsGuestEmptyListMessage()
+      : (typeof inboxEmptyListMessage === 'function' ? inboxEmptyListMessage() : '');
     list.innerHTML = '<div class="conv-list-empty">' + inboxRowsEsc(emptyMsg) + '</div>';
   }
   if (!preserveDetail) {
     var detail = inboxRowsEl('detail-content');
-    if (detail && typeof inboxEmptyDetailHtml === 'function') {
-      detail.innerHTML = inboxEmptyDetailHtml();
+    if (guestEmpty && typeof selectedConvId !== 'undefined') selectedConvId = null;
+    if (guestEmpty && typeof inboxSelectionGeneration !== 'undefined') inboxSelectionGeneration += 1;
+    if (detail) {
+      if (detail.classList && detail.classList.remove) detail.classList.remove('is-loading-detail');
+      if (guestEmpty) detail.innerHTML = inboxRowsGuestEmptyDetailHtml();
+      else if (typeof inboxEmptyDetailHtml === 'function') detail.innerHTML = inboxEmptyDetailHtml();
     }
+    if (guestEmpty && typeof hideInboxMobileThread === 'function') hideInboxMobileThread();
   }
 }
 
@@ -1185,6 +1212,8 @@ if (typeof window !== 'undefined') {
     needsHumanLabel: inboxRowsNeedsHumanLabel,
     hideLegacyFilterChips: inboxRowsHideLegacyFilterChips,
     fixEmptyChrome: inboxRowsFixEmptyChrome,
+    guestEmptyListMessage: inboxRowsGuestEmptyListMessage,
+    guestEmptyDetailHtml: inboxRowsGuestEmptyDetailHtml,
     openBroadcast: inboxRowsOpenBroadcast,
     preserveSelectionOpts: inboxRowsPreserveSelectionOpts,
     wrapFilterReselect: inboxRowsWrapFilterReselect,
