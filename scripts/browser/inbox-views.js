@@ -117,13 +117,61 @@ function inboxViewsPaintEmptyPersonDetail(row, targetEl) {
   html += '</div></div></div>';
   html += '<div class="thread-section"><div class="thread"><div class="thread-messages">';
   html += inboxViewsEmptyThreadCopy();
-  html += '</div></div></div></div></div>';
+  html += '</div></div></div></div>';
+  html += '<div class="detail-sidebar" id="inbox-detail-sidebar"></div></div>';
   targetEl.innerHTML = html;
+}
+
+function inboxViewsPaintPersonCustomerCard(row) {
+  var sidebar = typeof inboxContextSidebarEl === 'function'
+    ? inboxContextSidebarEl()
+    : (typeof el === 'function' ? el('inbox-detail-sidebar') : null);
+  if (!sidebar || !row) return;
+  var phone = normalizeCustomerPhoneClient(row.phone) || String(row.phone || '').trim();
+  if (!phone) return;
+  var fallback = {
+    success: true,
+    phone: phone,
+    identity: {
+      customer_id: row.customer_id || null,
+      phone: phone,
+      display_name: row.guest_name || row.display_name || null,
+      email: row.email || row.guest_email || null,
+      language: row.language || null,
+      crm_tags: row.crm_tags || {},
+      auto_tags: row.auto_tags || {},
+      display_tags: row.display_tags || [],
+    },
+    bookings: [],
+    service_records: [],
+    handoffs: [],
+    open_handoffs: [],
+    messages: [],
+    notes: {},
+  };
+  function paint(data) {
+    var payload = data && data.success ? data : fallback;
+    sidebar.innerHTML = typeof inboxCustomerFullHtml === 'function'
+      ? inboxCustomerFullHtml(payload, { composite: { context: payload, bookings: payload.bookings || [] }, conv: null })
+      : '';
+    if (typeof inboxContextWireActions === 'function') inboxContextWireActions(sidebar, { conversation: null });
+    if (typeof inboxCustomerWireFull === 'function') inboxCustomerWireFull(sidebar, payload);
+  }
+  paint(fallback);
+  var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' + encodeURIComponent(getClient());
+  if (getClient() === 'sunset' && typeof getSunsetLocation === 'function') {
+    url += '&location=' + encodeURIComponent(getSunsetLocation());
+  }
+  fetch(url)
+    .then(function(r){ return r.json().then(function(data){ if (!r.ok || !data.success) throw new Error((data && data.error) || ('HTTP ' + r.status)); return data; }); })
+    .then(paint)
+    .catch(function(){ paint(fallback); });
 }
 
 function inboxViewsOpenPersonWithoutConversation(row, targetEl) {
   if (row && row._inbox_view_key) selectedConvId = row._inbox_view_key;
   inboxViewsPaintEmptyPersonDetail(row, targetEl);
+  inboxViewsPaintPersonCustomerCard(row);
 }
 
 function inboxViewsResolveLoadConvDetail(convId, targetEl) {

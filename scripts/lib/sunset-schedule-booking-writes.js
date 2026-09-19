@@ -5057,6 +5057,14 @@ async function createSunsetScheduleBooking(pg, opts) {
         created: customerResult.body.created === true,
         duplicate: customerResult.body.duplicate === true,
       };
+      await pg.query(
+        `UPDATE bookings
+            SET customer_id = $2::uuid,
+                updated_at = NOW()
+          WHERE id = $1::uuid
+            AND (customer_id IS NULL OR customer_id = $2::uuid)`,
+        [bookingId, customerResult.body.customer_id],
+      );
     }
 
     const createdRows = await insertScheduleComponentServiceRows(pg, {
