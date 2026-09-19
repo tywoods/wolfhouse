@@ -530,7 +530,7 @@ function adminBookingsCloseGuestPeek() {
 
 /**
  * Bookings GUEST-column link: open the canonical Inbox → Guest/People card.
- * Keep this path on the Bookings click handler; never navigate to /staff/guest/… .
+ * Keep this path on the Bookings click handler; never navigate to the retired guest route.
  */
 function adminBookingsOpenGuestInInbox(rowKey, trigger) {
   var row = adminBookingsFindRowById(rowKey) || {};

@@ -137,12 +137,11 @@ ok('inbox-shell.js is chrome (channel defaults), not a column-layout fork',
   fs.existsSync(LAYOUT_MODULE)
   && /function mountInboxShellChrome\(/.test(fs.readFileSync(LAYOUT_MODULE, 'utf8'))
   && !/INBOX_COLUMNS_PRESETS|initInboxColumns\(/.test(fs.readFileSync(LAYOUT_MODULE, 'utf8')));
-ok('Customers tab is still in the Conversations toolbar',
-  /data-view="customers"/.test(apiSrc)
-  && /onclick="switchToTab\('customers'\)"/.test(apiSrc)
-  && /data-i18n="nav\.tab\.customers"/.test(apiSrc));
-ok('Customers tab panel is still present',
-  /id="tab-customers"/.test(apiSrc) || /id='tab-customers'/.test(apiSrc) || /tab-customers/.test(apiSrc));
+ok('Inbox toolbar exposes Full/Guest layout, not old Customers destination',
+  /data-view="full"/.test(apiSrc)
+  && /data-view="guest"/.test(apiSrc)
+  && !/onclick="switchToTab\('customers'\)"/.test(apiSrc));
+ok('Customers tab panel is retired', !/id="tab-customers"/.test(apiSrc));
 
 console.log('\n── wrap existing list loaders ──');
 ok('loadInbox is wrapped to the saved-view list when the rail is mounted',

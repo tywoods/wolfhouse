@@ -91,6 +91,7 @@ const INBOX_PERSON_ROW_FIELDS = Object.freeze([
   'key',
   'source',
   'view',
+  'customer_id',
   'phone',
   'durable_phone',
   'display_name',
@@ -224,6 +225,7 @@ function projectCustomerPersonRow(view, raw) {
   const phone = normalizeCustomerPhone(raw.phone) || raw.phone || null;
   const row = personRowShell(view);
   row.key = `${INBOX_VIEW_SOURCES.CUSTOMERS}:${phone || ''}`;
+  row.customer_id = raw.customer_id || null;
   row.phone = phone;
   row.display_name = raw.display_name || null;
   row.email = raw.email || null;
@@ -252,6 +254,7 @@ function projectCustomerPersonRow(view, raw) {
 function projectConversationPersonRow(view, raw) {
   const row = personRowShell(view);
   row.key = `${INBOX_VIEW_SOURCES.CONVERSATIONS}:${raw.conversation_id || ''}`;
+  row.customer_id = raw.customer_id || null;
   row.durable_phone = raw.phone || null;
   row.phone = raw.display_phone || raw.phone || null;
   row.display_name = raw.guest_name || null;

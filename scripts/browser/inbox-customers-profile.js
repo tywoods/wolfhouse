@@ -651,27 +651,16 @@ function openCustomerCardForPhone(phone, opts) {
   opts = opts || {};
   phone = normalizeCustomerPhoneClient(phone);
   var preferredCustomerId = String(opts.customer_id || opts.customerId || '').trim();
-  if (!phone && !preferredCustomerId) return Promise.resolve();
-  var profile = getPortalProfile(getClient());
-  if (!portalHasCustomersCrm(profile)) return Promise.resolve();
-  var search = el('cust-search');
-  if (search) search.value = phone || preferredCustomerId;
-  switchToTab('customers');
-  return waitForCustomersDom().then(function() {
-    var searchEl = el('cust-search');
-    if (searchEl) searchEl.value = phone || preferredCustomerId;
-    return loadCustomersList();
-  }).then(function() {
-    if (preferredCustomerId && Array.isArray(customersCache)) {
-      for (var i = 0; i < customersCache.length; i += 1) {
-        if (String(customersCache[i].customer_id || '').trim() === preferredCustomerId) {
-          phone = normalizeCustomerPhoneClient(customersCache[i].phone) || customersCache[i].phone || phone;
-          break;
-        }
-      }
-    }
-    return loadCustomerDetail(phone);
-  });
+  if (!phone && !preferredCustomerId) return Promise.resolve(false);
+  if (typeof switchToTab === 'function') switchToTab('conversations');
+  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest'); } catch (_preset) {}
+  if (typeof inboxViewsOpenGuestByPhone === 'function') {
+    return inboxViewsOpenGuestByPhone(phone, { customer_id: preferredCustomerId });
+  }
+  if (typeof window !== 'undefined' && window.__inboxViews && typeof window.__inboxViews.openGuestByPhone === 'function') {
+    return window.__inboxViews.openGuestByPhone(phone, { customer_id: preferredCustomerId });
+  }
+  return Promise.resolve(false);
 }
 
 function loadCustomerDetail(phone) {

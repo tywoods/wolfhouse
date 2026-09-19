@@ -40,7 +40,7 @@ ok('Bookings admin list selects b.customer_id', /b\.customer_id::text AS custome
 ok('Bookings admin domain returns customer_id', /customer_id:\s*booking\.customer_id \|\| src\.customer_id/.test(domain));
 ok('Customer list API exposes customer_id', /customer_id:\s*row\.customer_id/.test(customerRoutes));
 ok('Customer list query projects cu.id as customer_id', /cu\.id::text AS customer_id/.test(customerQueries));
-ok('openCustomerCardForPhone prefers opts.customer_id when present', /preferredCustomerId/.test(customers) && /customersCache\[i\]\.customer_id/.test(customers));
+ok('openCustomerCardForPhone passes opts.customer_id into Guest People helper', /preferredCustomerId/.test(customers) && /inboxViewsOpenGuestByPhone\(phone, \{ customer_id: preferredCustomerId \}\)/.test(customers));
 
 if (process.exitCode) process.exit(process.exitCode);
 console.log('PASS BOOKINGS-GUEST-LINK-TO-INBOX-001');

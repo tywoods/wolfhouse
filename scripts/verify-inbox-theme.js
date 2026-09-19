@@ -256,9 +256,8 @@ ok('staff-query-api.js has no new theme CSS block pasted into the template',
   && !/--inbox-paper/.test(apiSrc)
   && !/inboxMockupThemeCssText/.test(apiSrc)
   && !/INJECT:inbox-theme/.test(apiSrc));
-ok('Customers tab, Pause Luna Globally, Reset Luna, Full Wipe stay in the portal',
-  /nav\.tab\.customers/.test(apiSrc)
-  && /data-view="customers"/.test(apiSrc)
+ok('Guest layout switch, Pause Luna Globally, Reset Luna, Full Wipe stay in the portal',
+  /data-view="guest"/.test(apiSrc)
   && /Pause Luna Globally/.test(apiSrc)
   && /Reset Luna session/.test(threadSrc)
   && /Full Wipe/.test(threadSrc));

@@ -95,10 +95,10 @@ if (fs.existsSync(QUERIES_PATH)) {
 console.log('\n[3] staff-query-api.js — Customers tab UI');
 
 if (apiSrc) {
-  assert('Customers tab button', apiSrc.includes('data-tab="customers"'));
-  assert('Customers tab panel', apiSrc.includes('id="tab-customers"'));
-  assert('portalHasCustomersCrm helper', apiSrc.includes('function portalHasCustomersCrm('));
-  assert('customers tab gated by CRM profile', apiSrc.includes("tab === 'customers' && !portalHasCustomersCrm(profile)"));
+  assert('Customers tab button retired', !apiSrc.includes('data-tab="customers"'));
+  assert('Customers tab panel retired', !apiSrc.includes('id="tab-customers"'));
+  assert('portalHasCustomersCrm helper remains for APIs', apiSrc.includes('function portalHasCustomersCrm('));
+  assert('customers tab always hidden if requested', apiSrc.includes("tab === 'customers') return true"));
   assert('loadCustomersTab function', apiSrc.includes('function loadCustomersTab('));
   assert('loadCustomersList uses portalHasCustomersCrm', apiSrc.includes('if (!portalHasCustomersCrm(profile)) return'));
   assert('applyCustomersPortalI18n for surf copy', apiSrc.includes('function applyCustomersPortalI18n('));

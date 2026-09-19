@@ -67,12 +67,12 @@ if (apiSrc) {
   assert('applyClientPortalProfile shows customers via CRM gate',
     apiSrc.includes('portalHasCustomersCrm(profile) ? \'\' : \'none\'')
     && apiSrc.includes("if (tab === 'customers')"));
-  assert('isTabHiddenForClient uses CRM gate',
-    apiSrc.includes("tab === 'customers' && !portalHasCustomersCrm(profile)"));
+  assert('isTabHiddenForClient retires customers tab destination',
+    apiSrc.includes("tab === 'customers') return true"));
   assert('no surf-only customers tab gate',
     !apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
-  assert('Sunset customers school heading in HTML',
-    apiSrc.includes('id="customers-school-heading"') && apiSrc.includes('customers-school-heading'));
+  assert('retired Customers panel has no school heading HTML',
+    !apiSrc.includes('id="customers-school-heading"'));
   assert('portalT used in customers list', apiSrc.includes("portalT('customers.empty.sub')"));
   assert('school context still sunset surf only', apiSrc.includes('function isSunsetSurfActive()')
     && apiSrc.includes('function renderCustomersSchoolContext('));
@@ -176,8 +176,8 @@ if (apiSrc) {
   assert('customers.create audit intent', handlerSrc.includes("intent: 'api:customers.create'"));
   assert('create uses assertStaffClientAccess', handlerSrc.includes('createOrMergeManualCustomer')
     && /handleCustomerCreate[\s\S]{0,800}assertStaffClientAccess/.test(handlerSrc));
-  assert('Add customer button in UI', apiSrc.includes('id="cust-add-btn"'));
-  assert('Add customer form fields', apiSrc.includes('id="cust-add-name"') && apiSrc.includes('id="cust-add-phone"'));
+  assert('retired Customers UI removes Add customer button', !apiSrc.includes('id="cust-add-btn"'));
+  assert('retired Customers UI removes Add customer form fields', !apiSrc.includes('id="cust-add-name"') && !apiSrc.includes('id="cust-add-phone"'));
   assert('submitCustomerAdd POST fetch', apiSrc.includes("method: 'POST'")
     && apiSrc.includes('submitCustomerAdd'));
   assert('after create loads customer detail', apiSrc.includes('loadCustomerDetail(newPhone)'));
@@ -243,7 +243,7 @@ if (apiSrc) {
   assert('hot_leads status filter in dropdown defs', apiSrc.includes("id: 'hot_leads'"));
   assert('checked_in_now lodging-only in dropdown defs', apiSrc.includes("id: 'checked_in_now'") && apiSrc.includes('lodgingOnly: true'));
   assert('do_not_contact status filter in dropdown defs', apiSrc.includes("id: 'do_not_contact'"));
-  assert('filters dropdown trigger', apiSrc.includes('id="cust-filters-btn"') && apiSrc.includes('data-cust-status-filter'));
+  assert('retired Customers UI removes filters dropdown trigger', !apiSrc.includes('id="cust-filters-btn"'));
   assert('PATCH /staff/customers/:phone/tags route', apiSrc.includes('CUSTOMER_TAGS_RE')
     && handlerSrc.includes('handleCustomerTagsUpdate'));
   assert('customers.tags audit intent', handlerSrc.includes("intent: 'api:customers.tags'"));
@@ -311,16 +311,16 @@ console.log('\n[7] Outreach drawer shell — selection UI, no sends');
 
 if (apiSrc) {
   assert('bulk selection checkboxes', apiSrc.includes('cust-bulk-check') && apiSrc.includes('customers-card-check'));
-  assert('bulk action bar + selected count', apiSrc.includes('id="cust-bulk-bar"') && apiSrc.includes('id="cust-selected-count"') && apiSrc.includes('updateCustomersBulkSelectionUI'));
-  assert('select all shown control', apiSrc.includes('id="cust-select-all-shown"') && apiSrc.includes('selectAllShownCustomers'));
-  assert('message selected button', apiSrc.includes('id="cust-message-selected-btn"'));
-  assert('outreach drawer shell', apiSrc.includes('id="customers-outreach-drawer"') && apiSrc.includes('cust-outreach-backdrop'));
+  assert('retired Customers UI removes bulk action bar shell', !apiSrc.includes('id="cust-bulk-bar"') && apiSrc.includes('updateCustomersBulkSelectionUI'));
+  assert('retired Customers UI removes select all shown control', !apiSrc.includes('id="cust-select-all-shown"') && apiSrc.includes('selectAllShownCustomers'));
+  assert('retired Customers UI removes message selected button', !apiSrc.includes('id="cust-message-selected-btn"'));
+  assert('retired Customers UI removes outreach drawer shell', !apiSrc.includes('id="customers-outreach-drawer"'));
   assert('drawer recipients + warnings', apiSrc.includes('buildCustomersOutreachPlan') && apiSrc.includes('skippedDnc'));
   assert('drawer message textarea', apiSrc.includes('cust-outreach-message'));
   assert('template picker in drawer', apiSrc.includes('cust-outreach-template-select') && apiSrc.includes('loadCustomerMessageTemplates'));
   assert('apply template to message', apiSrc.includes('applyCustomerMessageTemplateBody'));
   assert('save draft as template', apiSrc.includes('saveCustomerMessageTemplateFromDraft'));
-  assert('send button in drawer', apiSrc.includes('id="cust-outreach-send"'));
+  assert('retired Customers UI removes send button in drawer', !apiSrc.includes('id="cust-outreach-send"'));
   assert('mobile bottom sheet CSS marker', apiSrc.includes('staff-portal-mobile:cust-outreach'));
   assert('tag save still PATCH only', apiSrc.includes("'/tags?client='"));
 }
@@ -477,7 +477,7 @@ if (apiSrc) {
   assert('customer profile create-booking button', apiSrc.includes('id="cust-profile-create-booking"'));
   assert('customer profile create-booking label', apiSrc.includes("portalT('customers.detail.createBooking')"));
   assert('inbox create-booking-for-guest button', apiSrc.includes('id="inbox-create-booking-for-guest"'));
-  assert('inbox create-booking label', apiSrc.includes("t('inbox.detail.bookings.createForGuest')"));
+  assert('inbox create-booking label', fs.readFileSync(I18N_PATH, 'utf8').includes('inbox.detail.bookings.createForGuest'));
 
   // Opener function exists and behaves per Option A.
   assert('openCreateBookingFromContact defined', apiSrc.includes('function openCreateBookingFromContact('));
@@ -516,19 +516,19 @@ console.log('\n[12] Open customer card shortcuts — booking drawer + inbox');
 
 if (apiSrc) {
   assert('booking drawer open customer card button', apiSrc.includes('id="bc-open-customer-card"'));
-  assert('inbox open customer card button', apiSrc.includes('id="inbox-open-customer-card"'));
+  assert('inbox open customer card action retired from thread toolbar', !apiSrc.includes('id="inbox-open-customer-card"'));
   assert('openCustomerCardForPhone helper defined', apiSrc.includes('function openCustomerCardForPhone('));
   assert('helper normalizes phone', /function openCustomerCardForPhone[\s\S]{0,200}normalizeCustomerPhoneClient/.test(apiSrc));
-  assert('helper switches to customers tab', /function openCustomerCardForPhone[\s\S]{0,400}switchToTab\('customers'\)/.test(apiSrc));
-  assert('helper sets cust-search', /function openCustomerCardForPhone[\s\S]{0,600}cust-search/.test(apiSrc));
-  assert('helper loads customer detail', /function openCustomerCardForPhone[\s\S]{0,800}loadCustomerDetail\(phone\)/.test(apiSrc));
-  assert('helper waits for customers DOM', apiSrc.includes('function waitForCustomersDom('));
+  assert('helper switches to Inbox tab', /function openCustomerCardForPhone[\s\S]{0,400}switchToTab\('conversations'\)/.test(apiSrc));
+  assert('helper forces Guest preset', /function openCustomerCardForPhone[\s\S]{0,500}inboxColumnsSetPreset\('guest'\)/.test(apiSrc));
+  assert('helper opens Guest People card', /function openCustomerCardForPhone[\s\S]{0,800}inboxViewsOpenGuestByPhone/.test(apiSrc));
+  assert('retired customers destination absent from helper', !/function openCustomerCardForPhone[\s\S]{0,900}(switchToTab\('customers'\)|cust-search|loadCustomersList|waitForCustomersDom)/.test(apiSrc));
   assert('loadCustomersList returns promise on skip', /function loadCustomersList\(\)[\s\S]{0,120}return Promise\.resolve\(\)/.test(apiSrc));
   assert('loadCustomersList returns fetch promise', /function loadCustomersList\([\s\S]*?return fetch\(url\)/.test(apiSrc));
   assert('booking drawer syncs customer card button', apiSrc.includes('function bcSyncCustomerCardButton('));
   assert('booking resolves guest phone', apiSrc.includes('function bcResolveGuestPhone('));
   assert('booking button hidden without phone', /bc-open-customer-card[\s\S]{0,80}display:none/.test(apiSrc));
-  assert('inbox button only when phone exists', /convPhone && portalHasCustomersCrm/.test(apiSrc));
+  assert('inbox thread still uses canonical customer opener where needed', apiSrc.includes('openCustomerCardForPhone(convPhone)'));
   assert('soft grey button style', apiSrc.includes('.btn-soft-grey'));
   const shortcutMatch = apiSrc.match(/function openCustomerCardForPhone\([\s\S]*?\n\}/);
   const shortcutBody = shortcutMatch ? shortcutMatch[0] : '';
