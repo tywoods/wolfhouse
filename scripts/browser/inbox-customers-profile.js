@@ -211,6 +211,21 @@ function customerResolveConversationId(data) {
   return cs && cs.conversation_id ? cs.conversation_id : null;
 }
 
+function customerHasWhatsappMessagePhone(data) {
+  var raw = data && data.phone != null ? String(data.phone).trim() : '';
+  if (!raw) return false;
+  if (/^(emailcust1|emailv1|email):/i.test(raw)) return false;
+  if (raw.indexOf('staff:') === 0) return false;
+  if (/[A-Za-z]/.test(raw)) return false;
+  var digits = raw.replace(/\D/g, '');
+  return digits.length >= 6;
+}
+
+function customerConversationDisabledText(data) {
+  if (customerHasWhatsappMessagePhone(data)) return '';
+  return portalT('customers.conversation.needPhone');
+}
+
 function customerPaymentStatusLabel(raw) {
   var s = String(raw == null ? '' : raw).trim().toLowerCase().replace(/\s+/g, '_');
   if (!s || s === '—' || s === '-') return '—';
@@ -364,6 +379,8 @@ function renderCustomerProfileSection(data, editing) {
   var displayName = id.display_name || data.phone || 'Guest';
   var convId = customerResolveConversationId(data);
   var convLabel = convId ? portalT('customers.conversation.open') : portalT('customers.conversation.start');
+  var convDisabled = convId ? false : !customerHasWhatsappMessagePhone(data);
+  var convDisabledText = convDisabled ? customerConversationDisabledText(data) : '';
   if (!editing) {
     var contactBits = [];
     if (data.phone) contactBits.push(data.phone);
@@ -377,7 +394,7 @@ function renderCustomerProfileSection(data, editing) {
       '</div>' +
       '<div class="customers-profile-hdr-actions">' +
       '<button type="button" class="btn btn-ghost" id="cust-profile-create-booking">' + escHtml(portalT('customers.detail.createBooking')) + '</button>' +
-      '<button type="button" class="btn btn-primary" id="cust-conversation-btn">' + escHtml(convLabel) + '</button>' +
+      '<button type="button" class="btn btn-primary" id="cust-conversation-btn"' + (convDisabled ? ' disabled title="' + escHtml(convDisabledText) + '"' : '') + '>' + escHtml(convLabel) + '</button>' +
       '<button type="button" class="btn btn-ghost" id="cust-profile-edit-btn">' + escHtml(portalT('customers.editProfile')) + '</button>' +
       '</div></div>' +
       '<div class="customers-profile-fields">' +
@@ -388,7 +405,7 @@ function renderCustomerProfileSection(data, editing) {
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.lastSetup')) + '</span><span class="customers-profile-field-value' + (lastSetup ? '' : ' is-muted') + '">' + escHtml(lastSetup || portalT('customers.detail.noServices')) + '</span></div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.notes')) + '</span><span class="customers-profile-field-value' + (notes ? '' : ' is-muted') + '">' + escHtml(notes || portalT('customers.detail.noNotes')) + '</span></div>' +
       '</div>' +
-      '<p id="cust-profile-msg" class="state-msg" style="display:none;margin-top:8px"></p>' +
+      '<p id="cust-profile-msg" class="state-msg" style="' + (convDisabledText ? 'display:block;' : 'display:none;') + 'margin-top:8px">' + escHtml(convDisabledText) + '</p>' +
       '</div>';
   }
   return '<div class="customers-section" id="cust-profile-section">' +
@@ -447,6 +464,15 @@ function customerOpenOrStartConversation() {
   var convId = customerResolveConversationId(customerDetailState.data);
   if (convId) {
     openInboxToConversation(convId);
+    return;
+  }
+  if (!customerHasWhatsappMessagePhone(customerDetailState.data)) {
+    var msg = el('cust-profile-msg');
+    if (msg) {
+      msg.className = 'state-msg';
+      msg.textContent = customerConversationDisabledText(customerDetailState.data);
+      msg.style.display = 'block';
+    }
     return;
   }
   customerStartConversationFromProfile();
