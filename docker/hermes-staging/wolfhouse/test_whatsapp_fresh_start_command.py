@@ -9,7 +9,7 @@ import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 ROOT = Path(__file__).resolve().parent
 if str(ROOT.parent) not in sys.path:
@@ -23,7 +23,7 @@ class FakeAdapter:
         self.sent = []
         self.original_calls = []
 
-    async def _send_with_retry(self, **kwargs):
+    async def send(self, **kwargs):
         self.sent.append(kwargs)
         return SimpleNamespace(success=True, message_id="ack-1")
 
@@ -55,10 +55,15 @@ class FreshStartCommandTests(unittest.TestCase):
             mod,
             "reset_session_key_only",
             return_value={"ok": True, "reset": True, "hard_delete": False, "scope": "session_key"},
-        ) as reset:
+        ) as reset, patch.object(
+            mod,
+            "reset_sender_for_adapter_event",
+            new=AsyncMock(return_value=True),
+        ) as barrier:
             asyncio.run(mod.handle_or_delegate(adapter, event, original))
 
         reset.assert_called_once_with("491700000000")
+        barrier.assert_awaited_once_with(adapter, event)
         self.assertEqual(original_calls, [])
         self.assertEqual(len(adapter.sent), 1)
         self.assertEqual(adapter.sent[0]["chat_id"], "491700000000")
@@ -79,6 +84,42 @@ class FreshStartCommandTests(unittest.TestCase):
         self.assertEqual(len(adapter.sent), 1)
         self.assertIn("couldn’t reset", adapter.sent[0]["content"])
 
+    def test_reset_exception_fails_closed_and_uses_public_send(self):
+        adapter = FakeAdapter()
+        event = self._event()
+
+        async def original(_adapter, _event):
+            self.fail("Fresh Start must never enter model dispatch")
+
+        with patch.object(mod, "reset_session_key_only", side_effect=RuntimeError("db unavailable")):
+            asyncio.run(mod.handle_or_delegate(adapter, event, original))
+
+        self.assertEqual(len(adapter.sent), 1)
+        self.assertIn("couldn’t reset", adapter.sent[0]["content"])
+        self.assertEqual(adapter.sent[0]["metadata"], {"wolfhouse_fresh_start_ack": True})
+
+    def test_broad_reset_contract_is_rejected(self):
+        adapter = FakeAdapter()
+        event = self._event()
+
+        async def original(_adapter, _event):
+            self.fail("Fresh Start must never enter model dispatch")
+
+        unsafe = {
+            "ok": True,
+            "reset": True,
+            "scope": "all_guest_sessions",
+            "hard_delete": True,
+            "memories_cleared": {"cleared": ["MEMORY.md"]},
+        }
+        with patch.object(mod, "reset_session_key_only", return_value=unsafe), patch.object(
+            mod, "reset_sender_for_adapter_event", new=AsyncMock()
+        ) as barrier:
+            asyncio.run(mod.handle_or_delegate(adapter, event, original))
+
+        barrier.assert_not_awaited()
+        self.assertIn("couldn’t reset", adapter.sent[0]["content"])
+
     def test_non_command_delegates_unchanged(self):
         adapter = FakeAdapter()
         event = self._event("Can we make a fresh start?")
@@ -92,6 +133,48 @@ class FreshStartCommandTests(unittest.TestCase):
         self.assertEqual(result, "delegated")
         self.assertEqual(original_calls, [event])
         self.assertEqual(adapter.sent, [])
+
+    def test_reset_drops_buffered_sender_work_and_cancels_timers(self):
+        from wolfhouse.whatsapp_burst_coalesce import BurstBuffer, BurstCoalescer
+
+        cancelled = []
+        coalescer = BurstCoalescer(cancel_fn=lambda handle: cancelled.append(handle))
+        adapter = SimpleNamespace(_phone_number_id="pnid")
+        event = self._event()
+        event.source.platform = SimpleNamespace(value="whatsapp_cloud")
+        key = coalescer.key_for_adapter_event(adapter, event)
+        state = coalescer._sender(key)
+        state.buffer = BurstBuffer(timer_handle="buffer-timer")
+        state.pending = BurstBuffer(timer_handle="pending-timer")
+        state.structured_queue.append(object())
+
+        self.assertTrue(asyncio.run(coalescer.reset_sender_for_adapter_event(adapter, event)))
+        self.assertEqual(cancelled, ["buffer-timer", "pending-timer"])
+        self.assertNotIn(key, coalescer._senders)
+
+    def test_reset_cancels_active_sender_task_before_ack_boundary(self):
+        from wolfhouse.whatsapp_burst_coalesce import BurstCoalescer
+
+        async def scenario():
+            coalescer = BurstCoalescer()
+            adapter = SimpleNamespace(_phone_number_id="pnid")
+            event = self._event()
+            event.source.platform = SimpleNamespace(value="whatsapp_cloud")
+            key = coalescer.key_for_adapter_event(adapter, event)
+            state = coalescer._sender(key)
+
+            async def stale_dispatch():
+                await asyncio.Event().wait()
+
+            task = asyncio.create_task(stale_dispatch())
+            await asyncio.sleep(0)
+            state.active_run = True
+            state.active_task = task
+            self.assertTrue(await coalescer.reset_sender_for_adapter_event(adapter, event))
+            self.assertTrue(task.cancelled())
+            self.assertNotIn(key, coalescer._senders)
+
+        asyncio.run(scenario())
 
     def test_gateway_runtime_installs_command_patch(self):
         source = (ROOT.parent / "apply_gateway_patches.py").read_text(encoding="utf-8")

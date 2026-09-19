@@ -11,6 +11,7 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from wolfhouse_guest_fresh_start import reset_session_key_only
+from wolfhouse.whatsapp_burst_coalesce import reset_sender_for_adapter_event
 
 logger = logging.getLogger(__name__)
 
@@ -57,19 +58,32 @@ async def handle_or_delegate(
         return await original(adapter, event)
 
     phone = _guest_phone(event)
-    result = reset_session_key_only(phone) if phone else {"ok": False}
-    ok = bool(result.get("ok") and result.get("reset"))
+    try:
+        result = reset_session_key_only(phone) if phone else {"ok": False}
+    except Exception:
+        logger.exception("Fresh Start session reset failed")
+        result = {"ok": False, "reset": False, "scope": "session_key"}
+    ok = bool(
+        result.get("ok") is True
+        and result.get("reset") is True
+        and result.get("scope") == "session_key"
+        and result.get("hard_delete") is False
+        and result.get("memories_cleared") is None
+    )
+    if ok:
+        await reset_sender_for_adapter_event(adapter, event)
     reply = SUCCESS_REPLY if ok else FAILURE_REPLY
-    await adapter._send_with_retry(
+    send_result = await adapter.send(
         chat_id=getattr(getattr(event, "source", None), "chat_id", phone),
         content=reply,
         reply_to=None,
-        metadata=None,
+        metadata={"wolfhouse_fresh_start_ack": True},
     )
     logger.info(
-        "Fresh Start command handled: reset=%s scope=%s",
+        "Fresh Start command handled: reset=%s scope=%s delivered=%s",
         ok,
         str(result.get("scope") or "unknown"),
+        bool(getattr(send_result, "success", False)),
     )
     return None
 
