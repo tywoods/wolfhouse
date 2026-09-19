@@ -1113,6 +1113,7 @@ module.exports = {
   'inbox.rail.view.needs_human': 'Requiere personal',
   'inbox.rail.view.all_people': 'Todas las personas',
   'inbox.rail.view.equipment_out': 'Material fuera',
+  'inbox.rail.view.checked_in': 'Con check-in',
   'inbox.rail.view.hot_leads': 'Clientes potenciales calientes',
   'inbox.rail.view.warm_leads': 'Clientes potenciales templados',
   'inbox.rail.view.unpaid': 'Sin pagar',

@@ -36,6 +36,7 @@ const {
   buildCustomerListParams,
   buildCustomerListCountsParams,
   clampLimit,
+  isAccommodationCrmClient,
 } = require('./staff-customer-queries');
 const {
   conversationInboxChannelParamIndex,
@@ -76,6 +77,19 @@ const SUNSET_INBOX_SURFACE_ORDER = Object.freeze([
 const SUNSET_GUEST_SURFACE_ORDER = Object.freeze([
   'all_people',
   'equipment_out',
+  'lesson_today',
+  'upcoming',
+  'hot_leads',
+  'warm_leads',
+  'unpaid',
+  'waiver_due',
+  'do_not_contact',
+]);
+
+/** Lodging Guest rail: Checked in instead of Sunset Equipment Out. */
+const WOLFHOUSE_GUEST_SURFACE_ORDER = Object.freeze([
+  'all_people',
+  'checked_in',
   'lesson_today',
   'upcoming',
   'hot_leads',
@@ -279,6 +293,7 @@ const INBOX_SAVED_VIEWS = Object.freeze([
     source: INBOX_VIEW_SOURCES.CUSTOMERS,
     crmFilter: 'checked_in_now',
     rail: false,
+    surface: INBOX_VIEW_SURFACES.GUEST,
     description: 'Guests mid-stay tonight. Lodging tenants only; hidden from Sunset surf rail.',
   }),
   declareView({
@@ -460,6 +475,26 @@ function groupRank(groupId) {
   return idx < 0 ? INBOX_VIEW_GROUP_IDS.length : idx;
 }
 
+function guestSurfaceOrderForClient(clientSlug) {
+  const slug = String(clientSlug || '').trim();
+  if (slug && isAccommodationCrmClient(slug)) return WOLFHOUSE_GUEST_SURFACE_ORDER;
+  return SUNSET_GUEST_SURFACE_ORDER;
+}
+
+function railIncludesView(view, clientSlug) {
+  if (!view || !view.available) return false;
+  const slug = String(clientSlug || '').trim();
+  if (view.id === 'equipment_out') {
+    if (!slug) return view.rail !== false;
+    return !isAccommodationCrmClient(slug);
+  }
+  if (view.id === 'checked_in') {
+    if (!slug) return false;
+    return isAccommodationCrmClient(slug);
+  }
+  return view.rail !== false;
+}
+
 function orderedViews() {
   return INBOX_SAVED_VIEWS
     .map((view, idx) => ({ view, idx }))
@@ -528,7 +563,8 @@ function listInboxSavedViewDeclarations(opts) {
 
 /** Only the views that can run against the schema described by `capabilities`. */
 function listInboxSavedViews(opts) {
-  return listInboxSavedViewDeclarations(opts).filter((view) => view.available && view.rail !== false);
+  const clientSlug = opts && (opts.clientSlug || opts.client_slug);
+  return listInboxSavedViewDeclarations(opts).filter((view) => railIncludesView(view, clientSlug));
 }
 
 /**
@@ -546,20 +582,21 @@ function listInboxSavedViewsBySurface(opts) {
   const surface = opts && opts.surface;
   const isSunset = opts && opts.isSunset !== false;
   const capabilities = opts && opts.capabilities;
+  const clientSlug = opts && (opts.clientSlug || opts.client_slug);
 
   if (!isSunset || !surface) {
-    return listInboxSavedViews({ capabilities });
+    return listInboxSavedViews({ capabilities, clientSlug });
   }
 
   const orderList = surface === INBOX_VIEW_SURFACES.INBOX
     ? SUNSET_INBOX_SURFACE_ORDER
     : surface === INBOX_VIEW_SURFACES.GUEST
-      ? SUNSET_GUEST_SURFACE_ORDER
+      ? guestSurfaceOrderForClient(clientSlug || SUNSET_CLIENT_SLUG)
       : null;
 
-  if (!orderList) return listInboxSavedViews({ capabilities });
+  if (!orderList) return listInboxSavedViews({ capabilities, clientSlug });
 
-  const allViews = listInboxSavedViews({ capabilities });
+  const allViews = listInboxSavedViews({ capabilities, clientSlug: clientSlug || (isSunset ? SUNSET_CLIENT_SLUG : '') });
   const surfaceViews = allViews.filter((v) => orderList.indexOf(v.id) >= 0);
 
   return surfaceViews.sort((a, b) => orderList.indexOf(a.id) - orderList.indexOf(b.id));
@@ -746,7 +783,7 @@ function buildInboxViewCountsPlan(input) {
   const req = input && typeof input === 'object' ? input : {};
   const clientSlug = String(req.clientSlug || req.client_slug || '').trim();
   const query = req.query && typeof req.query === 'object' ? req.query : {};
-  const views = listInboxSavedViews({ capabilities: req.capabilities });
+  const views = listInboxSavedViews({ capabilities: req.capabilities, clientSlug });
 
   const customerViews = views.filter((v) => v.source === INBOX_VIEW_SOURCES.CUSTOMERS);
   const conversationViews = views.filter((v) => v.source === INBOX_VIEW_SOURCES.CONVERSATIONS);
@@ -813,6 +850,8 @@ module.exports = {
   INBOX_VIEW_SURFACES,
   SUNSET_INBOX_SURFACE_ORDER,
   SUNSET_GUEST_SURFACE_ORDER,
+  WOLFHOUSE_GUEST_SURFACE_ORDER,
+  guestSurfaceOrderForClient,
   listInboxSavedViews,
   listInboxSavedViewsBySurface,
   listInboxSavedViewDeclarations,
