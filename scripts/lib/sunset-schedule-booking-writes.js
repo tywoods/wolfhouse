@@ -5035,6 +5035,30 @@ async function createSunsetScheduleBooking(pg, opts) {
       ],
     );
     const bookingId = bookingIns.rows[0].id;
+
+    // Staff-created Sunset bookings must also materialize in People/Customers.
+    // This is a CRM/customer row only: do not create an Inbox conversation here.
+    let customerLink = null;
+    if (attribution.staffManualSchedule === true && input.guest_phone) {
+      const { createOrMergeManualCustomer } = require('./staff-customer-queries');
+      const customerResult = await createOrMergeManualCustomer(pg, clientSlug, {
+        display_name: input.guest_name,
+        phone: input.guest_phone,
+      }, { location_id: locationId });
+      if (!customerResult || !customerResult.ok || !customerResult.body || !customerResult.body.customer_id) {
+        throw Object.assign(new Error('customer_link_failed'), {
+          reason_code: 'customer_link_failed',
+          customerLinkFailed: true,
+        });
+      }
+      customerLink = {
+        customer_id: customerResult.body.customer_id,
+        phone: customerResult.body.phone || input.guest_phone,
+        created: customerResult.body.created === true,
+        duplicate: customerResult.body.duplicate === true,
+      };
+    }
+
     const createdRows = await insertScheduleComponentServiceRows(pg, {
       clientSlug, bookingId, bookingCode, input, componentKeys, attribution,
       locationId, srPayment, privateLessonConfig, assignedCourse, assignedCoursesById,
@@ -5328,6 +5352,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         } : {}),
         records: createdRows.map(scheduleRowFromDb),
         booking: scheduleRowFromDb(createdRows[0]),
+        ...(customerLink ? { customer: customerLink } : {}),
         ...(assignedCourse ? {
           assigned_course: {
             course_id: assignedCourse.course_id,

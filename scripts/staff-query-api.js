@@ -25434,6 +25434,9 @@ function scheduleNormalizeGuestPhone(raw){
   var p = String(raw == null ? '' : raw).trim();
   if (!p) return '';
   if (p.indexOf('staff:') === 0) return '';
+  if (/^(emailcust1|emailv1|email):/i.test(p)) return '';
+  if (/[A-Za-z]/.test(p)) return '';
+  if (p.replace(/\D/g, '').length < 6) return '';
   return p;
 }
 

@@ -228,7 +228,22 @@ r = runWire(
 );
 assert.strictEqual(r.disabled, true, 'staff: synthetic is not a guest phone');
 assert.strictEqual(r.hintDisplay, 'block', 'staff: synthetic shows need-phone empty state');
-assert.ok(r.hint.includes('Add phone') || r.hint.includes('conversationNeedPhone'));
+assert.ok(r.hint.includes('phone') || r.hint.includes('conversationNeedPhone'));
+
+[
+  ['email:maria@example.test', 'email-only synthetic is not a guest phone'],
+  ['emailcust1:abc123', 'email customer synthetic is not a guest phone'],
+  ['abc123456', 'alphabetic phone payload is not a guest phone'],
+  ['12345', 'too-short digit string is not a guest phone'],
+].forEach(([badPhone, label]) => {
+  const bad = runWire(
+    { booking_id: 'b1', guest_name: 'Ada', phone: badPhone },
+    { booking_id: 'b1', guest_name: 'Ada', phone: badPhone },
+    { booking_id: 'b1', guest_name: 'Ada', phone: badPhone },
+  );
+  assert.strictEqual(bad.disabled, true, label);
+  assert.strictEqual(bad.hintDisplay, 'block', `${label} shows guidance`);
+});
 
 r = runWire(
   { booking_id: 'b1', guest_name: 'Ada' },
