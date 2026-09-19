@@ -46688,7 +46688,7 @@ async function handleConversationClearMessages(convId, req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Staff Portal — hard delete conversation (admin+ only; no env gate)
+// Staff Portal — hard delete conversation (any authenticated staff; no env gate)
 //
 // DELETE /staff/conversations/:id?client=<slug>
 // ─────────────────────────────────────────────────────────────────────────────
@@ -50428,7 +50428,8 @@ async function router(req, res) {
       res.writeHead(405, { Allow: 'POST' });
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/clear-thread-session' }));
     }
-    const auth = await requireAuth(req, res, 'operator');
+    // Any authenticated staff session (viewer+) may Clear — not owner/admin-only.
+    const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleConversationClearThreadSession(convClearThreadMatch[1], req, res, auth.user);
   }
@@ -50457,7 +50458,8 @@ async function router(req, res) {
 
   const convDeleteMatch = CONV_ID_RE.exec(pathname);
   if (convDeleteMatch && method === 'DELETE') {
-    const auth = await requireAuth(req, res, 'admin');
+    // Any authenticated staff session (viewer+) may hard-delete — not admin/owner-only.
+    const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleConversationDelete(convDeleteMatch[1], parsed.query, res, auth.user);
   }
@@ -52975,10 +52977,10 @@ async function startStaffQueryApiCli() {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/send-reply       <- 23d Inbox reply send`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/needs-human <- needs_human toggle`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-agent-session <- Hermes session wipe (operator+, staging)`);
-  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-thread-session <- Inbox Clear session_key (operator+, staging)`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-thread-session <- Inbox Clear session_key (viewer+, staging)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-luna-context <- Fresh Start (operator+, staging)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-messages <- clear thread legacy (operator+)`);
-  console.log(`    DELETE http://127.0.0.1:${PORT}/staff/conversations/:id?client=... <- hard delete (admin+)`);
+  console.log(`    DELETE http://127.0.0.1:${PORT}/staff/conversations/:id?client=... <- hard delete (viewer+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/auth/session <- role + client access list`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/test/reset-luna-phone  <- 19g.11a staging test reset (operator+)`);
   console.log(`    GET  http://127.0.0.1:${PORT}/staff/conversations/:id`);

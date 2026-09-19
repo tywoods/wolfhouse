@@ -135,6 +135,11 @@ class FakePg {
     /window\.confirm\('Delete this conversation permanently\? This cannot be undone\.'\)/.test(threadSrc)
     && /fetch\('\/staff\/conversations\/' \+ encodeURIComponent\(convId\) \+ inboxClientQuery\(\), \{[\s\S]{0,120}method: 'DELETE'/.test(threadSrc)
     && /if \(selectedConvId === convId\)[\s\S]{0,220}inboxEmptyDetailHtml\(\)[\s\S]{0,120}hideInboxMobileThread\(\)/.test(threadSrc));
+  check('conversation DELETE auth is viewer+ (any authenticated staff), not admin-only',
+    /const convDeleteMatch = CONV_ID_RE\.exec\(pathname\);[\s\S]{0,280}requireAuth\(req, res, 'viewer'\)/.test(apiSrc)
+    && !/const convDeleteMatch = CONV_ID_RE\.exec\(pathname\);[\s\S]{0,280}requireAuth\(req, res, 'admin'\)/.test(apiSrc)
+    && /r\.status === 403\) throw new Error\('Not allowed'\)/.test(threadSrc)
+    && !/Admin access required/.test(threadSrc));
   check('spam and Clear remain separate from hard delete',
     /\/staff\/conversations\/.*\/spam/.test(threadSrc)
     && /clear-thread-session/.test(threadSrc)

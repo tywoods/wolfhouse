@@ -2870,7 +2870,7 @@ function wireDeleteConversation(convId, opts){
   })
     .then(function(r){
       if (r.status === 401) throw new Error('Authentication required');
-      if (r.status === 403) throw new Error('Admin access required');
+      if (r.status === 403) throw new Error('Not allowed');
       return r.json().then(function(data){ return { status: r.status, data: data }; });
     })
     .then(function(out){
