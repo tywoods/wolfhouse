@@ -4803,7 +4803,7 @@ async function createSunsetScheduleBooking(pg, opts) {
   let rentalPricingDescriptor = buildRentalPricingDescriptor(input.rental_pricing, input.service_dates);
   const componentKeys = componentList(input.components);
   const guestCount = resolveGuestCount(input.components);
-  const { firstDate } = bookingHeaderDates(input);
+  const { firstDate, lastDate } = bookingHeaderDates(input);
   const assignedCourseValues = assignedCoursesById
     ? Object.values(assignedCoursesById).filter(Boolean)
     : [];
@@ -4993,9 +4993,9 @@ async function createSunsetScheduleBooking(pg, opts) {
          check_in, check_out, guest_count, hold_expires_at, deposit_required_cents, metadata
        ) VALUES (
          $1::uuid, $2, $3, $4, $5::booking_status, $6::payment_status,
-         $7::date, ($7::date + INTERVAL '1 day')::date, $8,
+         $7::date, ($8::date + INTERVAL '1 day')::date, $9,
          ${payToBookHold ? "NOW() + INTERVAL '24 hours'" : 'NULL'},
-         $10, $9::jsonb
+         $11, $10::jsonb
        )
        RETURNING id::text AS id, booking_code, hold_expires_at, status::text AS status`,
       [
@@ -5006,6 +5006,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         bookingStatus,
         bookingPayment,
         firstDate,
+        lastDate,
         guestCount,
         JSON.stringify({
           source: attribution.metadataSource,
@@ -5431,6 +5432,7 @@ module.exports = {
   resolveSunsetBookingBeach,
   bookingStatusFromPayment,
   componentList,
+  bookingHeaderDates,
   insertServiceRecord,
   generateSunsetManualBookingCode,
   scheduleRowFromDb,
