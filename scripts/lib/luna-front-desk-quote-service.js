@@ -341,6 +341,7 @@ function buildCourseEquipmentQuoteLines({
     };
   }
   const lines = equipmentQuote.lines.map((line) => ({
+    component: 'course_equipment',
     offering_key: line.offering_key,
     label: line.label,
     quantity: line.quantity,

@@ -3265,12 +3265,26 @@ async function applyAuthoritativeSchedulePricingInTxn(pg, opts) {
         const base = {
           component: line && line.component,
           offering_id: line && line.offering_id,
+          offering_key: line && line.offering_key,
           offering_item_code: line && (line.offering_item_code || line.item_code),
           duration_key: line && line.duration_key,
           quantity: line && line.quantity,
           unit_amount_cents: line && line.unit_amount_cents,
           total_cents: line && line.total_cents,
         };
+        // Keep the complete course-equipment identity and per-date basis. Besides
+        // making the persisted quote auditable, this prevents later booking paths
+        // from degrading a multi-day CE line into an anonymous amount-only row.
+        if (line && line.course_equipment === true) {
+          base.course_equipment = true;
+          base.course_equipment_mode = line.course_equipment_mode;
+          base.date_count = line.date_count;
+          base.service_dates = Array.isArray(line.service_dates)
+            ? line.service_dates.slice()
+            : [];
+          base.price_source = line.price_source;
+          base.billing_unit = line.billing_unit;
+        }
         // Staff custom lines: keep identity + signed cents for audit/display (amount_due CHECK ≥ 0).
         if (line && (line.component === STAFF_CUSTOM_LINE_COMPONENT
           || line.price_source === STAFF_CUSTOM_LINE_SOURCE)) {
