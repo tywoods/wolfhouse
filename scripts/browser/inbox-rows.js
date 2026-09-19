@@ -704,19 +704,23 @@ function inboxRowsFixEmptyChrome(convs, opts) {
     stateEl.classList.remove('error');
   }
   var list = inboxRowsEl('conv-list');
-  if (list) {
-    var emptyMsg = guestEmpty
-      ? inboxRowsGuestEmptyListMessage()
-      : (typeof inboxEmptyListMessage === 'function' ? inboxEmptyListMessage() : '');
+  if (list && (guestEmpty || typeof inboxEmptyListMessage === 'function')) {
+    var emptyMsg = guestEmpty ? inboxRowsGuestEmptyListMessage() : inboxEmptyListMessage();
     list.innerHTML = '<div class="conv-list-empty">' + inboxRowsEsc(emptyMsg) + '</div>';
   }
   if (!preserveDetail) {
     var detail = inboxRowsEl('detail-content');
-    if (guestEmpty && typeof selectedConvId !== 'undefined') selectedConvId = null;
-    if (guestEmpty && typeof inboxSelectionGeneration !== 'undefined') inboxSelectionGeneration += 1;
+    if (guestEmpty) {
+      if (typeof inboxTeardownClearThreadDialog === 'function') inboxTeardownClearThreadDialog();
+      if (typeof selectedConvId !== 'undefined') selectedConvId = null;
+      if (typeof inboxSelectionGeneration !== 'undefined') inboxSelectionGeneration += 1;
+      if (typeof inboxParkRefreshBtn === 'function') inboxParkRefreshBtn();
+    }
     if (detail) {
-      if (detail.classList && detail.classList.remove) detail.classList.remove('is-loading-detail');
-      if (guestEmpty) detail.innerHTML = inboxRowsGuestEmptyDetailHtml();
+      if (guestEmpty) {
+        if (detail.classList && detail.classList.remove) detail.classList.remove('is-loading-detail');
+        detail.innerHTML = inboxRowsGuestEmptyDetailHtml();
+      }
       else if (typeof inboxEmptyDetailHtml === 'function') detail.innerHTML = inboxEmptyDetailHtml();
     }
     if (guestEmpty && typeof hideInboxMobileThread === 'function') hideInboxMobileThread();
