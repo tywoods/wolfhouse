@@ -21,6 +21,7 @@ const ui = read('scripts/browser/sunset-admin-bookings-ui.js');
 const data = read('scripts/lib/sunset-bookings-admin-data.js');
 const domain = read('scripts/lib/sunset-bookings-admin.js');
 const customers = read('scripts/browser/inbox-customers-profile.js');
+const inboxViews = read('scripts/browser/inbox-views.js');
 const customerRoutes = read('scripts/lib/staff-customers-routes.js');
 const customerQueries = read('scripts/lib/staff-customer-queries.js');
 
@@ -41,6 +42,12 @@ ok('Bookings admin domain returns customer_id', /customer_id:\s*booking\.custome
 ok('Customer list API exposes customer_id', /customer_id:\s*row\.customer_id/.test(customerRoutes));
 ok('Customer list query projects cu.id as customer_id', /cu\.id::text AS customer_id/.test(customerQueries));
 ok('openCustomerCardForPhone passes opts.customer_id into Guest People helper', /preferredCustomerId/.test(customers) && /inboxViewsOpenGuestByPhone\(phone, \{ customer_id: preferredCustomerId \}\)/.test(customers));
+const guestByPhoneFn = /function inboxViewsOpenGuestByPhone\([\s\S]*?\n}\n\nfunction loadInboxSavedViewNextPage/.exec(inboxViews);
+ok('Guest-by-phone helper exists', !!guestByPhoneFn);
+const guestByPhoneSrc = guestByPhoneFn ? guestByPhoneFn[0] : '';
+ok('Guest-by-phone paints People card for matched guest', /inboxViewsOpenGuestCustomerCard\(match, el\('detail-content'\)\)/.test(guestByPhoneSrc));
+ok('Guest-by-phone does not load conversation for matched guest', !/loadConvDetail\(/.test(guestByPhoneSrc));
+ok('Guest People card uses inboxCustomerFullHtml', /function inboxViewsPaintPersonCustomerCard[\s\S]*inboxCustomerFullHtml/.test(inboxViews));
 
 if (process.exitCode) process.exit(process.exitCode);
 console.log('PASS BOOKINGS-GUEST-LINK-TO-INBOX-001');
