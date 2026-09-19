@@ -323,6 +323,41 @@ class BurstCoalescer:
             self._senders[key] = st
         return st
 
+    async def reset_sender_for_adapter_event(self, adapter: Any, event: Any) -> bool:
+        """Atomically discard one sender's buffered and active ingress work.
+
+        The session reset invalidates the gateway run generation before this is
+        called. Here we own the independent coalescer state: cancel timers,
+        discard queued follow-ups, and cancel/await any stale active dispatch so
+        it cannot repopulate the replacement session after acknowledgement.
+        """
+        key = self.key_for_adapter_event(adapter, event)
+        st = self._senders.get(key)
+        if st is None:
+            return False
+        self._cancel_timer(st.buffer)
+        self._cancel_timer(st.pending)
+        st.buffer = None
+        st.pending = None
+        st.structured_queue.clear()
+        task = st.active_task
+        if task is not None and task is not asyncio.current_task() and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                logger.exception(
+                    "%s",
+                    {"event": "whatsapp_burst_reset_cancel_failed", "sender_key": mask_sender_key(key)},
+                )
+        st.active_run = False
+        st.active_task = None
+        self._senders.pop(key, None)
+        self._log("whatsapp_burst_sender_reset", key, active_run=bool(task))
+        return True
+
     def _combined_char_count(self, buf: BurstBuffer) -> int:
         return sum(len(m.text or "") for m in buf.messages) + max(0, len(buf.messages) - 1)
 
@@ -796,6 +831,7 @@ class BurstCoalescer:
             )
 
         st.active_run = True
+        st.active_task = asyncio.current_task()
         self._stats["agent_invocations"] += 1
         failed = False
         try:
@@ -841,6 +877,7 @@ class BurstCoalescer:
             )
             return
         st.active_run = True
+        st.active_task = asyncio.current_task()
         self._stats["agent_invocations"] += 1
         try:
             await adapter_dispatch.dispatch_fn(event)
@@ -853,6 +890,7 @@ class BurstCoalescer:
             )
         finally:
             st.active_run = False
+            st.active_task = None
             await self._drain_followups(st)
 
     async def _drain_followups(self, st: SenderState) -> None:
@@ -929,6 +967,14 @@ _COALESCER: Optional[BurstCoalescer] = None
 
 def get_coalescer() -> Optional[BurstCoalescer]:
     return _COALESCER
+
+
+async def reset_sender_for_adapter_event(adapter: Any, event: Any) -> bool:
+    """Discard and synchronize one sender's ingress state if enabled."""
+    coalescer = _COALESCER
+    if coalescer is None:
+        return False
+    return await coalescer.reset_sender_for_adapter_event(adapter, event)
 
 
 def reset_coalescer_for_tests() -> None:
