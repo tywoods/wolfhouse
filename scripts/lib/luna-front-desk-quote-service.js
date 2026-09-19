@@ -1585,14 +1585,31 @@ function assertCanonicalRentalServiceDatesMatchRange(transportBody, expectedDate
   if (new Set(got).size !== got.length) {
     return { ok: false, reason: 'invalid_service_dates', error: 'service_dates must not contain duplicates' };
   }
-  const expected = [...(expectedDates || [])].slice().sort();
+  if (!got.length) {
+    return { ok: false, reason: 'invalid_service_dates', error: 'service_dates must include at least one date' };
+  }
   const sortedGot = got.slice().sort();
-  if (expected.length !== sortedGot.length
-    || expected.some((d, i) => d !== sortedGot[i])) {
+  const range = [...(expectedDates || [])].slice().sort();
+  if (!range.length) {
+    return { ok: true };
+  }
+  const rangeSet = new Set(range);
+  for (const d of sortedGot) {
+    if (!rangeSet.has(d)) {
+      return {
+        ok: false,
+        reason: 'service_dates_mismatch',
+        error: 'service_dates must fall within date_from/date_to',
+      };
+    }
+  }
+  // Gaps OK — date_from/date_to owners are first/last of the inclusive span
+  // (or of selected days). Selected set may be a sparse subset of the span.
+  if (sortedGot[0] < range[0] || sortedGot[sortedGot.length - 1] > range[range.length - 1]) {
     return {
       ok: false,
       reason: 'service_dates_mismatch',
-      error: 'service_dates must match the inclusive date_from/date_to range exactly',
+      error: 'service_dates must fall within date_from/date_to',
     };
   }
   return { ok: true };

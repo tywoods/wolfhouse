@@ -114,6 +114,12 @@ function attachStaffQuoteUiContract(result) {
 }
 
 function calendarDayCountFromBody(body) {
+  if (Array.isArray(body && body.service_dates) && body.service_dates.length) {
+    const uniq = [...new Set(
+      body.service_dates.map((d) => String(d || '').slice(0, 10)).filter(Boolean),
+    )];
+    if (uniq.length) return uniq.length;
+  }
   const from = String(body && body.date_from || '').slice(0, 10);
   const to = String(body && body.date_to || body && body.date_from || '').slice(0, 10);
   if (!from || !to || to < from) return 0;
@@ -184,7 +190,12 @@ async function executeSunsetStaffScheduleBookingQuote(opts) {
     serviceDate: String(body.date_from || '').slice(0, 10),
     source: 'staff_manual',
     calendarDayCount: calendarDayCountFromBody(body),
-    bookingDurationKey: rentalDurationKeyFromDateRange(body.date_from, body.date_to),
+    bookingDurationKey: (() => {
+      const n = calendarDayCountFromBody(body);
+      if (n === 1) return '1_day';
+      if (n > 1) return `${n}_days`;
+      return rentalDurationKeyFromDateRange(body.date_from, body.date_to);
+    })(),
     dateFrom: body.date_from,
     dateTo: body.date_to || body.date_from,
     listOfferings: o.listOfferings,

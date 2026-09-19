@@ -761,6 +761,7 @@
     "verify:sunset-edit-drawer-parity": "node scripts/verify-sunset-edit-drawer-parity.js",
     "verify:sunset-create-drawer-layout-equipment-quote-hotfix": "node scripts/verify-sunset-create-drawer-layout-equipment-quote-hotfix.js",
     "verify:sunset-create-drawer-polish": "node scripts/verify-sunset-create-drawer-polish.js",
+    "verify:booking-nonconsecutive-days-001": "node scripts/verify-booking-nonconsecutive-days-001.js",
     "verify:sunset-create-date-picker-past-block": "node scripts/verify-sunset-create-date-picker-past-block.js",
     "verify:sunset-create-past-date-block": "node scripts/verify-sunset-create-past-date-block.js",
     "verify:sunset-create-custom-line": "node scripts/verify-sunset-create-custom-line.js",
