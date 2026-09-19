@@ -8,7 +8,8 @@ const ENVIRONMENT = 'staging';
 const ACTIONS = Object.freeze({ flip: 'flip_to_sunset', rollback: 'rollback_to_wolfhouse' });
 const REGISTERED_LUNAS = Object.freeze([Object.freeze({ id: 'wolfhouse', upstream: '127.0.0.1:8090' }), Object.freeze({ id: 'sunset', upstream: '127.0.0.1:8094' })]);
 const pools = new Map();
-function config(env = process.env) { const raw = String(env.CROWSNEST_LUNA_ROUTING_CONTROLLER_URL || ''); const key = String(env.CROWSNEST_LUNA_ROUTING_CONTROLLER_HMAC_KEY || ''); const dsn = String(env.CROWSNEST_COMMS_DATABASE_URL || ''); try { const url = new URL(raw); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash && url.pathname === '/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook' && key.length >= 32 && dsn ? { url: url.href, key, dsn } : null; } catch (_) { return null; } }
+function isStagingEnvironment(env = process.env) { return String(env.NODE_ENV || '').trim().toLowerCase() === 'staging' && String(env.CROWSNEST_ENVIRONMENT || '').trim().toLowerCase() === 'staging'; }
+function config(env = process.env) { if (!isStagingEnvironment(env)) return null; const raw = String(env.CROWSNEST_LUNA_ROUTING_CONTROLLER_URL || ''); const key = String(env.CROWSNEST_LUNA_ROUTING_CONTROLLER_HMAC_KEY || ''); const dsn = String(env.CROWSNEST_COMMS_DATABASE_URL || ''); try { const url = new URL(raw); return url.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash && url.pathname === '/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook' && key.length >= 32 && dsn ? { url: url.href, key, dsn } : null; } catch (_) { return null; } }
 function canonical(method, routePath, timestamp, nonce, body) { return [method, routePath, timestamp, nonce, body].join('\n'); }
 function signedHeaders(method, routePath, body, key, now = Date.now(), nonce = crypto.randomUUID()) { const timestamp = String(now); const signature = crypto.createHmac('sha256', key).update(canonical(method, routePath, timestamp, nonce, body)).digest('hex'); return { authorization: `HMAC ${signature}`, 'x-routing-timestamp': timestamp, 'x-routing-nonce': nonce }; }
 function sharedPool(dsn, poolFactory) { if (poolFactory) return poolFactory({ connectionString: dsn, max: 3 }); if (!pools.has(dsn)) { const { Pool } = require('pg'); pools.set(dsn, new Pool({ connectionString: dsn, max: 3 })); } return pools.get(dsn); }
@@ -48,13 +49,15 @@ function createAuditStore(dsn, poolFactory) {
 }
 async function closeAuditPools() { const values = [...pools.values()]; pools.clear(); await Promise.all(values.map((pool) => pool.end())); }
 async function callController(method, payload, cfg, transport = fetch) { const body = payload ? JSON.stringify(payload) : ''; const headers = { accept: 'application/json', 'content-type': 'application/json', ...signedHeaders(method, CONTROLLER_PATH, body, cfg.key) }; let response; try { response = await transport(cfg.url, { method, headers, body: body || undefined, signal: AbortSignal.timeout(10000) }); } catch (_) { return { ok: false, status: 503, indeterminate: method === 'POST', code: method === 'POST' ? 'routing_outcome_indeterminate' : 'routing_controller_unavailable' }; } let result = {}; try { result = await response.json(); } catch (_) { } if (!response.ok || result.ok !== true) return { ok: false, status: [409, 415, 422].includes(response.status) ? response.status : 503, code: result.code || 'routing_controller_rejected', indeterminate: result.indeterminate === true, events: Array.isArray(result.events) ? result.events : [] }; return result; }
-async function readLunaNumberRoute(options = {}) { const cfg = config(options.env); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' }; const result = await callController('GET', null, cfg, options.transport); return result.ok ? { ok: true, number_e164: NUMBER_E164, phone_number_id: PHONE_NUMBER_ID, environment: ENVIRONMENT, route: result.route } : result; }
+async function readLunaNumberRoute(options = {}) { const runtimeEnv = options.env || process.env; if (!isStagingEnvironment(runtimeEnv)) return { ok: false, status: 404, code: 'routing_not_available' }; const cfg = config(runtimeEnv); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' }; const result = await callController('GET', null, cfg, options.transport); return result.ok ? { ok: true, number_e164: NUMBER_E164, phone_number_id: PHONE_NUMBER_ID, environment: ENVIRONMENT, route: result.route } : result; }
 async function mutate(action, input, actor, options = {}) {
+  const runtimeEnv = options.env || process.env;
+  if (!isStagingEnvironment(runtimeEnv)) return { ok: false, status: 404, code: 'routing_not_available' };
   if (!Object.values(ACTIONS).includes(action)) return { ok: false, status: 422, code: 'invalid_action' };
   if (!actor || !['earthling', 'monshies'].includes(actor.account_id)) return { ok: false, status: 403, code: 'named_operator_required' };
   const expected = String(input && input.expected_revision || ''); const operationId = String(input && input.operation_id || '');
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId) || !/^[a-f0-9]{64}$/i.test(expected)) return { ok: false, status: 422, code: 'invalid_confirmation' };
-  const cfg = config(options.env); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' };
+  const cfg = config(runtimeEnv); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' };
   const store = options.auditStore || createAuditStore(cfg.dsn, options.poolFactory); const base = { operation_id: operationId, actor, action, expected_revision: expected };
   let begun; try { begun = await store.begin(base); } catch (_) { return { ok: false, status: 503, code: 'audit_unavailable' }; }
   if (begun.conflict) return { ok: false, status: 409, code: 'operation_id_conflict' };
@@ -65,4 +68,4 @@ async function mutate(action, input, actor, options = {}) {
 }
 const flipLunaNumberRoute = (input, actor, options) => mutate(ACTIONS.flip, input, actor, options);
 const rollbackLunaNumberRoute = (input, actor, options) => mutate(ACTIONS.rollback, input, actor, options);
-module.exports = { CONTROLLER_PATH, NUMBER_E164, PHONE_NUMBER_ID, EXACT_PATH, ENVIRONMENT, ACTIONS, REGISTERED_LUNAS, canonical, signedHeaders, createAuditStore, closeAuditPools, readLunaNumberRoute, flipLunaNumberRoute, rollbackLunaNumberRoute };
+module.exports = { CONTROLLER_PATH, NUMBER_E164, PHONE_NUMBER_ID, EXACT_PATH, ENVIRONMENT, ACTIONS, REGISTERED_LUNAS, isStagingEnvironment, canonical, signedHeaders, createAuditStore, closeAuditPools, readLunaNumberRoute, flipLunaNumberRoute, rollbackLunaNumberRoute };

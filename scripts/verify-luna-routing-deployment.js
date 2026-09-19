@@ -14,6 +14,14 @@ const finalValidation=installer.indexOf('validate --config "$stage/Caddyfile"');
 const rootInstall=installer.indexOf('"$stage/Caddyfile" "$CADDYFILE"');
 assert.ok(stagedValidation>0 && stagedValidation<fragmentInstall && fragmentInstall<finalValidation && finalValidation<rootInstall);
 assert.match(installer,/source\.replace\(canonical,`import \$\{process\.env\.STAGED_FRAGMENT\}`\)/);
+assert.match(installer,/stage-route-fragment\.js" "\$FRAGMENT"/);
+assert.ok(installer.indexOf('stage-route-fragment.js" "$FRAGMENT"') < installer.indexOf('STAGED_FRAGMENT="$stage/fragment"'));
+const sunset='handle /whatsapp/webhook {\n  reverse_proxy 127.0.0.1:8094\n}\n';
+assert.equal(require(path.join(__dirname,'luna-number-routing-controller')).parseRoute(sunset).target_luna,'sunset');
+const stageFragment=require(path.join(root,'stage-route-fragment')).stageRouteFragment; const fragmentDir=fs.mkdtempSync(path.join(os.tmpdir(),'route-fragment-')); const live=path.join(fragmentDir,'live'); const seed=path.join(root,'luna-number-route.caddy'); const staged=path.join(fragmentDir,'staged');
+assert.equal(stageFragment(live,seed,staged),'seeded'); assert.equal(fs.readFileSync(staged,'utf8'),fs.readFileSync(seed,'utf8'));
+fs.writeFileSync(live,sunset); assert.equal(stageFragment(live,seed,staged),'preserved'); assert.equal(fs.readFileSync(staged,'utf8'),sunset);
+fs.writeFileSync(live,'unknown route\n'); assert.throws(()=>stageFragment(live,seed,staged),/not a canonical route fragment/);
 // Rollback removes a newly introduced service while its unit is addressable, restores artifacts,
 // reloads restored systemd/Caddy state, and restores prior enable/active booleans while retaining
 // the original exit status.

@@ -139,6 +139,7 @@ const {
   readLunaNumberRoute,
   flipLunaNumberRoute,
   rollbackLunaNumberRoute,
+  isStagingEnvironment: isLunaNumberRoutingStaging,
 } = require('./lib/crowsnest/crowsnest-luna-number-routing');
 
 const LUNA_NUMBER_ROUTE_API = '/api/communications/luna-number-route';
@@ -291,6 +292,9 @@ async function handleLiveSimulatorGuestTurn(req, res, method) {
 }
 
 async function handleLunaNumberRoute(req, res, method, action) {
+  if (!isLunaNumberRoutingStaging(process.env)) {
+    return sendJSON(res, 404, { ok: false, code: 'routing_not_available' }, { 'Cache-Control': 'no-store' });
+  }
   if (!isBrowserUiAuthorized(req)) {
     return sendJSON(res, 401, { ok: false, code: 'unauthorized' }, { 'Cache-Control': 'no-store' });
   }
