@@ -350,6 +350,7 @@
     "verify:repo-sync-ssh-identity": "node scripts/verify-repo-sync-ssh-identity.js",
     "setup:git-hooks": "node scripts/setup-git-hooks.js",
     "verify:luna-soul-clean": "node scripts/verify-luna-soul-clean.js",
+    "verify:wolfhouse-hospitality-first": "node scripts/verify-wolfhouse-hospitality-first.js",
     "verify:luna-add-guest-to-booking": "node scripts/verify-luna-add-guest-to-booking.js",
     "verify:luna-add-guest-paid": "node scripts/verify-luna-add-guest-paid.js",
     "verify:luna-booking-full-span": "node scripts/verify-luna-booking-full-span.js",
