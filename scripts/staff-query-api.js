@@ -31178,6 +31178,24 @@ var CUSTOMER_AUTO_TAG_KEYS = ${JSON.stringify(CUSTOMER_AUTO_TAG_KEYS)};
 var CUSTOMER_DISPLAY_TAG_ORDER = ${JSON.stringify(CUSTOMER_DISPLAY_TAG_ORDER)};
 /* INJECT:inbox-customers-profile */
 
+// Schedule and Bookings "Open customer" must land in Inbox Guest mode, not the retired Customers tab.
+// Keep this override after the injected profile module so it wins even if an older profile bundle is served.
+function openCustomerCardForPhone(phone, opts) {
+  opts = opts || {};
+  phone = normalizeCustomerPhoneClient(phone);
+  var preferredCustomerId = String(opts.customer_id || opts.customerId || '').trim();
+  if (!phone && !preferredCustomerId) return Promise.resolve(false);
+  if (typeof switchToTab === 'function') switchToTab('conversations');
+  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest'); } catch (_preset) {}
+  if (typeof inboxViewsOpenGuestByPhone === 'function') {
+    return inboxViewsOpenGuestByPhone(phone, { customer_id: preferredCustomerId });
+  }
+  if (typeof window !== 'undefined' && window.__inboxViews && typeof window.__inboxViews.openGuestByPhone === 'function') {
+    return window.__inboxViews.openGuestByPhone(phone, { customer_id: preferredCustomerId });
+  }
+  return Promise.resolve(false);
+}
+
 function dsTodayIso(){
   var d = new Date();
   var m = String(d.getMonth() + 1).padStart(2, '0');
