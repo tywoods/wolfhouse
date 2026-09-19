@@ -1125,11 +1125,11 @@ function scheduleRenderSunsetInvoiceCardHtml(ctx){
 function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
   html += scheduleRenderSunsetInvoiceCardHtml(ctx);
-  html += scheduleRenderDrawerWaiverSectionHtml(ctx);
   if (ctx && ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
   }
+  html += scheduleRenderDrawerWaiverSectionHtml(ctx);
   html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<div class="portal-schedule-drawer-actions">';

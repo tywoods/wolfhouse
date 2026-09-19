@@ -160,6 +160,15 @@ assert('record-payment prefills outstanding balance input', recordFn.includes('s
 assert('invoice card preserves payment-box id', invoiceCardFn.includes('id="ps-drawer-payment-box"'));
 assert('invoice keeps stripe copy/delete ids', drawerSrc.includes("'ps-drawer-stripe-copy'") && drawerSrc.includes('id="ps-drawer-stripe-delete"'));
 assert('invoice keeps payment-link create id', drawerSrc.includes('id="ps-drawer-stripe-link"'));
+assert('sunset notes sit under invoice and above waiver', (() => {
+  const inv = sunsetViewFn.indexOf('scheduleRenderSunsetInvoiceCardHtml');
+  const notes = sunsetViewFn.indexOf('schedule.drawer.section.notes');
+  const waiver = sunsetViewFn.indexOf('scheduleRenderDrawerWaiverSectionHtml');
+  return inv >= 0 && notes > inv && waiver > notes;
+})());
+assert('pay-link money actions stay inside invoice card',
+  invoiceCardFn.includes('scheduleRenderSunsetMoneyActionsHtml')
+  && sunsetViewFn.indexOf('scheduleRenderSunsetMoneyActionsHtml') < 0);
 assert('progress bar for group waiver', waiverModSrc.includes('ps-reg-progress-bar'));
 assert('invoice footer uses paid_payments credits',
   invoiceCardFn.includes('paid_payments') || invoiceCardFn.includes('paid_ledger'));
