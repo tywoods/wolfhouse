@@ -525,6 +525,83 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
     });
 }
 
+
+function inboxViewsMatchGuestRow(row, phone, customerId) {
+  if (!row) return false;
+  var preferredCustomerId = String(customerId || '').trim();
+  if (preferredCustomerId && String(row.customer_id || '').trim() === preferredCustomerId) return true;
+  var targetPhone = normalizeCustomerPhoneClient(phone) || String(phone || '').trim();
+  if (!targetPhone) return false;
+  var rowPhone = normalizeCustomerPhoneClient(row.phone) || normalizeCustomerPhoneClient(row.durable_phone) || String(row.phone || row.durable_phone || '').trim();
+  return !!rowPhone && rowPhone === targetPhone;
+}
+
+function inboxViewsFindGuestRow(rows, phone, customerId) {
+  rows = Array.isArray(rows) ? rows : [];
+  for (var i = 0; i < rows.length; i += 1) {
+    if (inboxViewsMatchGuestRow(rows[i], phone, customerId)) return rows[i];
+  }
+  return null;
+}
+
+function inboxViewsOpenGuestByPhone(phone, opts) {
+  opts = opts || {};
+  var preferredCustomerId = String(opts.customer_id || opts.customerId || '').trim();
+  var targetPhone = normalizeCustomerPhoneClient(phone) || String(phone || '').trim();
+  if (!targetPhone && !preferredCustomerId) return Promise.resolve(false);
+  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest'); } catch (_preset) {}
+  inboxCurrentSurface = INBOX_VIEW_SURFACE_GUEST;
+  inboxSavedViewId = 'all_people';
+  inboxLastGuestViewId = 'all_people';
+  refreshInboxViewsRail();
+  var q = targetPhone || preferredCustomerId;
+  var url = '/staff/inbox/list?client=' + encodeURIComponent(getClient()) +
+    '&view=all_people&limit=99&q=' + encodeURIComponent(q || '');
+  if (getClient() === 'sunset') url += '&location=' + encodeURIComponent(getSunsetLocation());
+  var gen = ++inboxViewsListGen;
+  var state = el('inbox-state');
+  if (state) {
+    state.textContent = 'Loading guest…';
+    state.classList.remove('error');
+    state.style.display = 'block';
+  }
+  return fetch(url)
+    .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(data){
+      if (gen !== inboxViewsListGen) return false;
+      if (!data || !data.success) throw new Error((data && data.error) || 'API error');
+      renderInboxSchoolContext(null);
+      updateInboxSavedViewPagination(data, false);
+      var match = inboxViewsFindGuestRow(inboxSavedViewRows, targetPhone, preferredCustomerId);
+      if (!match && !preferredCustomerId && targetPhone && Array.isArray(inboxSavedViewRows) && inboxSavedViewRows.length === 1) {
+        match = inboxSavedViewRows[0];
+      }
+      var selectedKey = match ? match.key : null;
+      applyInboxSavedViewRows(inboxSavedViewRows, { preserveDetail: false, selectedId: selectedKey });
+      if (state) state.style.display = 'none';
+      if (!match) {
+        var detail = el('detail-content');
+        if (detail) {
+          detail.innerHTML = '<div class="inbox-empty-right"><p class="main-msg">Guest not found in People</p><p class="sub-msg">Try All people search in Guest mode.</p></div>';
+        }
+        return false;
+      }
+      var key = match.key || match.conversation_id;
+      if (key && typeof loadConvDetail === 'function') {
+        return Promise.resolve(loadConvDetail(key)).then(function(){ return true; });
+      }
+      return true;
+    })
+    .catch(function(err){
+      if (state) {
+        state.textContent = 'Error loading guest: ' + err.message;
+        state.classList.add('error');
+        state.style.display = 'block';
+      }
+      return false;
+    });
+}
+
 function loadInboxSavedViewNextPage(){
   if (inboxSavedViewLoadingMore || !inboxSavedViewHasMore || !inboxSavedViewNextCursor) return Promise.resolve();
   var viewId = inboxSavedViewId || INBOX_DEFAULT_SAVED_VIEW;
@@ -661,6 +738,7 @@ if (typeof window !== 'undefined') {
   window.__inboxViews.SURFACE_GUEST = INBOX_VIEW_SURFACE_GUEST;
   window.__inboxViews.getSurfaceForViewId = inboxViewGetSurfaceForViewId;
   window.__inboxViews.getDefaultViewForSurface = inboxViewGetDefaultViewForSurface;
+  window.__inboxViews.openGuestByPhone = inboxViewsOpenGuestByPhone;
 }
 
 wireInboxViewsRail();

@@ -456,8 +456,8 @@ function checkRenderedCss(client, html) {
   const railBody = railStart < 0 ? '' : html.slice(railStart, html.indexOf('</nav>', railStart));
   ok('column 1 is a labelled nav landmark holding the view + filter navigation',
     /<nav class="inbox-col1" id="inbox-col1"[^>]*aria-label="Inbox views"/.test(html)
-    && /data-view="conversations"/.test(railBody)
-    && /data-view="customers"/.test(railBody)
+    && /data-view="full"/.test(railBody)
+    && /data-view="guest"/.test(railBody)
     && /data-inbox-filter="all"/.test(railBody)
     && /data-inbox-filter="needs-human"/.test(railBody));
   ok('preset control is a labelled group of three buttons with aria state and Alt hints',

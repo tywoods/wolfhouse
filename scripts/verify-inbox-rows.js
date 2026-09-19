@@ -166,8 +166,9 @@ ok('old Conversations filter chips remain in the API template',
   && apiSrc.includes('data-inbox-filter="all"')
   && apiSrc.includes('data-inbox-filter="needs-human"')
   && /All Conversations/.test(apiSrc));
-ok('Customers tab and Pause Luna stay in the API template',
-  /data-view="customers"/.test(apiSrc)
+ok('Full/Guest layout switch and Pause Luna stay in the API template',
+  /data-view="full"/.test(apiSrc)
+  && /data-view="guest"/.test(apiSrc)
   && /Global Pause/.test(apiSrc));
 ok('Reset Luna session and Full Wipe stay in inbox-thread.js (untouched)',
   threadSrc.includes('Reset Luna session')

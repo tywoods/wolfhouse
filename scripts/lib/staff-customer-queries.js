@@ -1090,6 +1090,7 @@ LEFT JOIN checked_in_agg cia ON cia.phone_digits = cu.phone_digits${waiverPendin
 }
 
 const CUSTOMER_LIST_PROJECTION_SQL = `SELECT
+  cu.id::text AS customer_id,
   cu.phone,
   lc.conversation_id,
   COALESCE(lc.display_name, cu.full_name) AS display_name,
@@ -1223,6 +1224,7 @@ conv AS (
   LIMIT 1
 )
 SELECT
+  cust.id::text AS customer_id,
   conv.id::text AS conversation_id,
   COALESCE(cust.phone, conv.phone) AS phone,
   COALESCE(conv.display_name, cust.full_name) AS display_name,

@@ -110,6 +110,7 @@ function createCustomersRoutes(deps) {
       lastServiceSummary = qty + ' ' + label;
     }
     return {
+      customer_id: row.customer_id || null,
       phone: normalizeCustomerPhone(row.phone) || row.phone,
       conversation_id: row.conversation_id || null,
       display_name: row.display_name || null,

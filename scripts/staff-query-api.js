@@ -21403,10 +21403,8 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 .luna-header-ui #customers-school-heading,
 .luna-header-ui #inbox-school-context{display:none!important}
 
-/* ── Inbox ⇄ Customers: one tab, two views ───────────────────────────────────
-   Customers is folded into the Inbox tab via a segmented toggle at the top of
-   both panels; the standalone Customers nav tab is dropped. */
-#tabs .tab-btn[data-tab="customers"]{display:none!important}
+/* ── Inbox Full ⇄ Guest: old Customers destination retired ──────────────────
+   People opens only through Inbox Guest mode; the old Customers tab/panel is gone. */
 .inbox-view-switch{display:inline-flex;gap:3px;background:var(--surface-soft,#f1ece1);border-radius:10px;padding:3px;margin:0;flex:0 0 auto;align-self:center}
 .inbox-view-btn{border:1px solid transparent;background:transparent;border-radius:8px;padding:6px 12px;font:inherit;font-size:12px;font-weight:600;color:var(--luna-teal-dark,#2c5f56);cursor:pointer;white-space:nowrap;line-height:1.2}
 .inbox-view-btn:hover{background:rgba(0,0,0,.04)}
@@ -21415,7 +21413,7 @@ body.luna-header-ui.header-collapsed #tab-bed-calendar.bc-cal-side-pinned #bc-si
 [data-theme="dark"] .inbox-view-btn{color:#cfe6e2}
 [data-theme="dark"] .inbox-view-btn:hover{background:rgba(255,255,255,.05)}
 [data-theme="dark"] .inbox-view-btn.is-active{background:var(--cream);color:var(--primary);border-color:var(--border)}
-/* Toolbar-docked Conversations|Customers pill (left of search / client select). */
+/* Toolbar-docked Full|Guest pill. */
 .customers-toolbar-main > .inbox-view-switch,
 .inbox-toolbar-top > .inbox-view-switch{order:-1;margin-right:4px}
 /* Conversations shell mirrors Customers: 1240 wrap + toolbar + two framed cards. */
@@ -21722,8 +21720,8 @@ body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-two-col.inbox-s
 .inbox-col1 .inbox-filter-btn .hq-count{margin-left:auto}
 .inbox-col1 .inbox-view-btn::before,
 .inbox-col1 .inbox-filter-btn::before{flex:0 0 auto;width:18px;text-align:center;font-size:14px;line-height:1;content:"\\2022"}
-.inbox-col1 .inbox-view-btn[data-view="conversations"]::before{content:"\\1F4AC"}
-.inbox-col1 .inbox-view-btn[data-view="customers"]::before{content:"\\1F464"}
+.inbox-col1 .inbox-view-btn[data-view="full"]::before{content:"\\25A6"}
+.inbox-col1 .inbox-view-btn[data-view="guest"]::before{content:"\\1F464"}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="all"]::before{content:"\\2630"}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="needs-human"]::before{content:"\\26A0"}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="email"]::before{content:"\\2709"}
@@ -22181,7 +22179,6 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   <button class="tab-btn" data-tab="conversations"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.4 8.4 0 0 1 4 11.5 8.5 8.5 0 0 1 12.5 3 8.4 8.4 0 0 1 21 11.5z"/></svg></span><span class="tab-label" data-i18n="nav.tab.inbox">Inbox</span></button>
   <button class="tab-btn" data-tab="bookings"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12a1 1 0 0 1 1 1v17l-3.2-2-2.4 2-2.4-2L8.2 21 5 19V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></span><span class="tab-label" data-i18n="nav.tab.bookings">Bookings</span></button>
   <button class="tab-btn" data-tab="day-schedule" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><span class="tab-label" data-i18n="nav.tab.daySchedule">Day Schedule</span></button>
-  <button class="tab-btn" data-tab="customers" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 2.7-5 6-5s6 2 6 5M16 3.6a3 3 0 0 1 0 5.8M21 20c0-2.2-1.3-4-3.4-4.7"/></svg></span><span class="tab-label" data-i18n="nav.tab.customers">Customers</span></button>
   <button class="tab-btn" data-tab="ask-luna"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/></svg></span><span class="tab-label" data-i18n="nav.tab.lunaStaff">Luna Staff</span></button>
   <button class="tab-btn" data-tab="services" style="display:none"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0l-7.2-7.2A2 2 0 0 1 3 12V4a1 1 0 0 1 1-1h8a2 2 0 0 1 1.4.6l7.2 7.2a2 2 0 0 1 0 2.6z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg></span><span class="tab-label">Camps, Lessons and Services</span></button>
   <button class="tab-btn" data-tab="tour-operator"><span class="tab-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3 4v14l6 2 6-2 6 2V6l-6-2-6 2zM9 6v14M15 4v14"/></svg></span><span class="tab-label" data-i18n="nav.tab.tourOperator">Tour Operator</span></button>
@@ -22470,81 +22467,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 </div>
 </div><!-- /tab-portal-home -->
 
-<!-- ── Customers tab (shared CRM) ───────────────────────────────────────── -->
-<div id="tab-customers" class="tab-panel">
-<div class="customers-wrap">
-  <header class="customers-header">
-    <h1 class="customers-school-heading" id="customers-school-heading" style="display:none" aria-live="polite">—</h1>
-  </header>
-  <div class="customers-toolbar">
-    <div class="customers-toolbar-main">
-      <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
-        <button type="button" class="inbox-view-btn" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.conversations">Conversations</button>
-        <button type="button" class="inbox-view-btn is-active" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
-      </div>
-      <div class="customers-filters-wrap">
-        <button type="button" id="cust-filters-btn" class="btn btn-ghost customers-filters-trigger" aria-haspopup="true" aria-expanded="false" data-i18n="customers.filters.button">Filters</button>
-        <div id="cust-filters-menu" class="customers-filters-menu" role="menu" aria-hidden="true"></div>
-      </div>
-      <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
-      <button type="button" id="cust-add-btn" class="btn btn-primary customers-add-btn" data-i18n="customers.add">Add customer</button>
-    </div>
-    <div id="cust-filter-chips" class="customers-filter-chips" aria-live="polite"></div>
-  </div>
-  <div id="cust-bulk-bar" class="customers-bulk-bar" aria-hidden="true">
-    <span id="cust-selected-count" class="customers-selected-count">0 selected</span>
-    <button type="button" id="cust-select-all-shown" class="btn btn-ghost" data-i18n="customers.bulk.selectAllShown">Select all shown</button>
-    <button type="button" id="cust-clear-selection" class="btn btn-ghost" data-i18n="customers.bulk.clearSelection">Clear selection</button>
-    <button type="button" id="cust-delete-selected-btn" class="btn btn-danger" disabled data-i18n="customers.bulk.delete">Delete</button>
-    <button type="button" id="cust-message-selected-btn" class="btn btn-primary" disabled data-i18n="customers.outreach.messageSelected">Message selected</button>
-  </div>
-  <div id="cust-add-panel" class="customers-add-panel" style="display:none" aria-hidden="true">
-    <label class="customers-edit-field"><span data-i18n="customers.detail.name">Name</span><input id="cust-add-name" type="text" autocomplete="name"></label>
-    <label class="customers-edit-field"><span data-i18n="customers.detail.phone">Phone</span><input id="cust-add-phone" type="tel" autocomplete="tel"></label>
-    <label class="customers-edit-field"><span data-i18n="customers.detail.notes">Notes</span><textarea id="cust-add-notes" rows="2" placeholder=""></textarea></label>
-    <div class="customers-add-actions">
-      <button type="button" class="btn btn-primary" id="cust-add-submit" data-i18n="customers.addSubmit">Save customer</button>
-      <button type="button" class="btn btn-ghost" id="cust-add-cancel" data-i18n="customers.cancel">Cancel</button>
-    </div>
-    <p id="cust-add-msg" class="state-msg" style="display:none;margin-top:8px"></p>
-  </div>
-  <div id="cust-state" class="state-msg" style="display:none"></div>
-  <div class="customers-two-col">
-    <div class="customers-list-col">
-      <div id="cust-list" class="customers-list-scroll"></div>
-    </div>
-    <div id="cust-detail" class="customers-detail-col">
-      <div class="customers-detail-empty" data-i18n="customers.detail.select">Select a customer to view their profile.</div>
-    </div>
-  </div>
-</div>
-<div id="cust-outreach-backdrop" class="customers-outreach-backdrop" aria-hidden="true"></div>
-<aside id="customers-outreach-drawer" class="customers-outreach-drawer" aria-hidden="true" role="dialog" aria-labelledby="cust-outreach-title">
-  <div class="customers-outreach-drawer-hdr">
-    <h3 id="cust-outreach-title" data-i18n="customers.outreach.title">Message customers</h3>
-    <button type="button" class="btn btn-ghost" id="cust-outreach-close" data-i18n="customers.outreach.close">Close</button>
-  </div>
-  <div id="cust-outreach-body" class="customers-outreach-body"></div>
-  <div class="customers-outreach-actions">
-    <button type="button" id="cust-outreach-send" class="btn btn-primary" disabled data-i18n="customers.outreach.sendWhatsApp">Send WhatsApp</button>
-  </div>
-</aside>
-<div id="cust-outreach-confirm-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
-  <div class="portal-schedule-create-backdrop" id="cust-outreach-confirm-backdrop"></div>
-  <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="cust-outreach-confirm-title">
-    <h3 id="cust-outreach-confirm-title" data-i18n="customers.outreach.confirmTitle">Send WhatsApp messages?</h3>
-    <div id="cust-outreach-confirm-stats" class="customers-outreach-confirm-stats"></div>
-    <div id="cust-outreach-confirm-skipped" class="customers-outreach-warn-muted"></div>
-    <div class="customers-outreach-section-hdr" data-i18n="customers.outreach.confirmPreview">Message preview</div>
-    <div id="cust-outreach-confirm-preview" class="customers-outreach-confirm-preview"></div>
-    <div class="portal-schedule-create-actions">
-      <button type="button" class="btn btn-primary" id="cust-outreach-confirm-send" data-i18n="customers.outreach.confirmSend">Send WhatsApp</button>
-      <button type="button" class="btn btn-ghost" id="cust-outreach-confirm-cancel" data-i18n="customers.outreach.confirmCancel">Cancel</button>
-    </div>
-    <p id="cust-outreach-confirm-msg" class="state-msg" style="display:none;margin-top:8px"></p>
-  </div>
-</div>
-</div><!-- /tab-customers -->
+<!-- Customers tab retired: People opens through Inbox Guest mode only. -->
 
 <!-- ── Admin tab (Sunset: Finance shell + Pricing) ───────────────────────── -->
 <div id="tab-admin" class="tab-panel">
@@ -22715,9 +22638,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
     <!-- COLUMN 1: tab switch + API-backed saved-view rail -->
     <nav class="inbox-col1" id="inbox-col1" data-i18n-aria="inbox.rail.label" aria-label="Inbox views">
-      <div class="inbox-view-switch" role="tablist" aria-label="Inbox view">
-        <button type="button" class="inbox-view-btn is-active" role="tab" data-view="conversations" onclick="switchToTab('conversations')" data-i18n="nav.tab.conversations">Conversations</button>
-        <button type="button" class="inbox-view-btn" role="tab" data-view="customers" onclick="switchToTab('customers')" data-i18n="nav.tab.customers">Customers</button>
+      <div class="inbox-view-switch" role="tablist" aria-label="Inbox layout">
+        <button type="button" class="inbox-view-btn is-active" role="tab" data-view="full" onclick="if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('all4')">Full</button>
+        <button type="button" class="inbox-view-btn" role="tab" data-view="guest" onclick="if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest')">Guest</button>
       </div>
       <div id="inbox-views-rail" class="inbox-views-rail" aria-label="Saved views"></div>
       <div id="inbox-channel-autonomy-slot" class="inbox-channel-autonomy-slot"></div>
@@ -23984,8 +23907,11 @@ function switchToTab(tab, subtab){
   var prevTab = prevPanel && prevPanel.id ? String(prevPanel.id).replace(/^tab-/, '') : '';
   document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
-  // Customers is an Inbox sub-view — keep the Inbox (conversations) nav tab highlighted.
-  var navTab = (tab === 'customers') ? 'conversations' : tab;
+  if (tab === 'customers') {
+    tab = 'conversations';
+    try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest'); } catch (_custRedirect) {}
+  }
+  var navTab = tab;
   var btn = document.querySelector('.tab-btn[data-tab="' + navTab + '"]');
   if (btn && btn.style.display !== 'none') btn.classList.add('active');
   var panel = el('tab-' + tab);
@@ -24005,7 +23931,6 @@ function switchToTab(tab, subtab){
     stopInboxLivePolling();
   }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
-  if (tab === 'customers') loadCustomersTab();
   if (tab === 'admin') { openAdminTabForCurrentClient({ resetSubTab: true }); }
   if (tab === 'bookings') {
     if (typeof loadBookingsTopTab === 'function') loadBookingsTopTab();
@@ -24032,8 +23957,7 @@ function switchToTab(tab, subtab){
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   if (tab !== 'conversations') hideInboxMobileThread();
-  // Inbox ⇄ Customers segmented toggle: reflect which view is showing.
-  try { document.querySelectorAll('.inbox-view-btn').forEach(function(vb){ vb.classList.toggle('is-active', vb.getAttribute('data-view') === tab); }); } catch (_vw) {}
+  // Full ⇄ Guest segmented toggle is driven by inboxColumnsSetPreset.
   staffNotificationSettingsApplyVisibility();
   try { if (window.__syncNavQuickFlip) window.__syncNavQuickFlip(tab); } catch (_f2) {}
   try { if (window.__syncCustomersMobileAutonomy) window.__syncCustomersMobileAutonomy(); } catch (_custMob) {}
@@ -24904,7 +24828,6 @@ function setSunsetLocation(locationId){
   refreshSunsetSchoolContextLabels();
   if (getPortalProfile(getClient()).is_surf_vertical) {
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
-    if (el('tab-customers') && el('tab-customers').classList.contains('active')) loadCustomersTab();
     if (el('tab-admin') && el('tab-admin').classList.contains('active')) { loadAdminTab(); }
     if (el('tab-bookings') && el('tab-bookings').classList.contains('active')) {
       if (typeof loadBookingsTopTab === 'function') loadBookingsTopTab();
@@ -24987,7 +24910,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (hidden.indexOf(tab) >= 0) return true;
   if (window.__STAFF_PORTAL_DEV_TABS__ !== true && (tab === 'query-tools' || tab === 'luna-guest-simulator')) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
-  if (tab === 'customers' && !portalHasCustomersCrm(profile)) return true;
+  if (tab === 'customers') return true;
   if (tab === 'admin' && !profile.is_surf_vertical && !portalIsLodgingAdmin(clientSlug)) return true;
   // Bookings top-level: same surf-shop visibility as Admin (Sunset / surf vertical).
   // Lodging keeps Bookings inside its own Admin shell instead.
@@ -25031,8 +24954,6 @@ function applySurfNavLabels(profile){
   }
   var homeBtn = document.querySelector('.tab-btn[data-tab="portal-home"]');
   if (homeBtn && profile.is_surf_vertical) setNavLabel(homeBtn, 'nav.tab.portalHome');
-  var custBtn = document.querySelector('.tab-btn[data-tab="customers"]');
-  if (custBtn && portalHasCustomersCrm(profile)) setNavLabel(custBtn, 'nav.tab.customers');
   var calBtn = document.querySelector('.tab-btn[data-tab="bed-calendar"]');
   if (calBtn && (profile.is_surf_vertical || portalIsLodgingAdmin())) setNavLabel(calBtn, 'nav.tab.portalHome');
   var convBtn = document.querySelector('.tab-btn[data-tab="conversations"]');

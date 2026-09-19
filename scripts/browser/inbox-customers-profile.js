@@ -650,19 +650,17 @@ function waitForCustomersDom(maxTries) {
 function openCustomerCardForPhone(phone, opts) {
   opts = opts || {};
   phone = normalizeCustomerPhoneClient(phone);
-  if (!phone) return Promise.resolve();
-  var profile = getPortalProfile(getClient());
-  if (!portalHasCustomersCrm(profile)) return Promise.resolve();
-  var search = el('cust-search');
-  if (search) search.value = phone;
-  switchToTab('customers');
-  return waitForCustomersDom().then(function() {
-    var searchEl = el('cust-search');
-    if (searchEl) searchEl.value = phone;
-    return loadCustomersList();
-  }).then(function() {
-    return loadCustomerDetail(phone);
-  });
+  var preferredCustomerId = String(opts.customer_id || opts.customerId || '').trim();
+  if (!phone && !preferredCustomerId) return Promise.resolve(false);
+  if (typeof switchToTab === 'function') switchToTab('conversations');
+  try { if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest'); } catch (_preset) {}
+  if (typeof inboxViewsOpenGuestByPhone === 'function') {
+    return inboxViewsOpenGuestByPhone(phone, { customer_id: preferredCustomerId });
+  }
+  if (typeof window !== 'undefined' && window.__inboxViews && typeof window.__inboxViews.openGuestByPhone === 'function') {
+    return window.__inboxViews.openGuestByPhone(phone, { customer_id: preferredCustomerId });
+  }
+  return Promise.resolve(false);
 }
 
 function loadCustomerDetail(phone) {

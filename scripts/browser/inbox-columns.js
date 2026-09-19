@@ -204,6 +204,15 @@ function inboxColumnsReflectControls(state) {
     presetBtns[i].setAttribute('aria-pressed', isCurrent ? 'true' : 'false');
     presetBtns[i].classList.toggle('is-active', isCurrent);
   }
+  var layoutBtns = document.querySelectorAll('.inbox-view-btn[data-view="full"], .inbox-view-btn[data-view="guest"]');
+  for (var k = 0; k < layoutBtns.length; k += 1) {
+    var view = layoutBtns[k].getAttribute('data-view');
+    var active = view === 'guest'
+      ? inboxColumnsRuntime.record.preset === 'guest'
+      : inboxColumnsRuntime.record.preset !== 'guest';
+    layoutBtns[k].setAttribute('aria-pressed', active ? 'true' : 'false');
+    layoutBtns[k].classList.toggle('is-active', active);
+  }
   var toggles = document.querySelectorAll('[data-inbox-col-toggle]');
   for (var j = 0; j < toggles.length; j += 1) {
     var col = toggles[j].getAttribute('data-inbox-col-toggle');
