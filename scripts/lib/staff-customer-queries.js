@@ -1355,20 +1355,60 @@ function isCancelledServiceRecord(row) {
   return st === 'cancelled' || st === 'canceled';
 }
 
+function lastSetupIsoDateKey(value) {
+  if (value == null || value === '') return '';
+  if (value instanceof Date) {
+    if (!Number.isFinite(value.getTime())) return '';
+    return value.toISOString().slice(0, 10);
+  }
+  const text = String(value).trim();
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : '';
+}
+
+function lastSetupServiceDateKey(row, meta) {
+  return lastSetupIsoDateKey(row && row.service_date)
+    || lastSetupIsoDateKey(meta && meta.service_date)
+    || '';
+}
+
+function lastSetupUndatedKey(row, meta) {
+  const offeringKey = String((meta && meta.offering_key) || '').trim();
+  if (offeringKey) return `offering:${offeringKey}`;
+  const component = String((meta && (meta.component || meta.staff_ui_service_type)) || '').trim();
+  if (component) return `component:${component}`;
+  const type = String((row && row.service_type) || '').trim();
+  return type ? `type:${type}` : '_';
+}
+
+function lastSetupEmptyBucket() {
+  return { dated: {}, undatedByKey: {} };
+}
+
 function lastSetupDatedProjectionTotal(bucket) {
   if (!bucket || typeof bucket !== 'object') return 0;
   const datedTotals = Object.values(bucket.dated || {}).map((n) => Number(n) || 0);
   const maxDated = datedTotals.length ? Math.max(...datedTotals) : 0;
-  return maxDated + (Number(bucket.undated) || 0);
+  const undatedTotals = Object.values(bucket.undatedByKey || {}).map((n) => Number(n) || 0);
+  const undatedSum = undatedTotals.reduce((sum, n) => sum + n, 0);
+  // Legacy undated scalar (pre undatedByKey) — keep additive for any in-memory callers.
+  const undatedLegacy = Number(bucket.undated) || 0;
+  return maxDated + undatedSum + undatedLegacy;
 }
 
-function addLastSetupProjectionQuantity(bucket, row, qty) {
-  const dateKey = row && row.service_date ? String(row.service_date).slice(0, 10) : '';
+function addLastSetupProjectionQuantity(bucket, row, qty, meta) {
+  const dateKey = lastSetupServiceDateKey(row, meta);
   if (dateKey) {
     bucket.dated[dateKey] = (bucket.dated[dateKey] || 0) + qty;
-  } else {
-    bucket.undated += qty;
+    return;
   }
+  // Undated per-day copies share a key → take max (not sum) so day×guests does not inflate.
+  // Different keys (e.g. soft_board + hard_board) still sum after max-per-key.
+  if (!bucket.undatedByKey || typeof bucket.undatedByKey !== 'object') {
+    bucket.undatedByKey = {};
+  }
+  const undatedKey = lastSetupUndatedKey(row, meta);
+  bucket.undatedByKey[undatedKey] = Math.max(Number(bucket.undatedByKey[undatedKey]) || 0, qty);
 }
 
 function buildLastSetupSummary(serviceRows) {
@@ -1380,8 +1420,8 @@ function buildLastSetupSummary(serviceRows) {
     ? rows.filter((row) => String(row.booking_id || row.booking_code || '') === latestKey)
     : [latest];
   const courses = {};
-  const boards = { dated: {}, undated: 0 };
-  const wetsuits = { dated: {}, undated: 0 };
+  const boards = lastSetupEmptyBucket();
+  const wetsuits = lastSetupEmptyBucket();
   let otherParts = [];
   for (const row of lastOrder) {
     const meta = parseServiceRecordMetadata(row);
@@ -1389,11 +1429,11 @@ function buildLastSetupSummary(serviceRows) {
     const qty = Number(row.quantity) > 0 ? Number(row.quantity) : 1;
     const offeringKey = String(meta.offering_key || '');
     if (type === 'surfboard' || /board/i.test(offeringKey)) {
-      addLastSetupProjectionQuantity(boards, row, qty);
+      addLastSetupProjectionQuantity(boards, row, qty, meta);
       continue;
     }
     if (type === 'wetsuit' || /wetsuit/i.test(offeringKey)) {
-      addLastSetupProjectionQuantity(wetsuits, row, qty);
+      addLastSetupProjectionQuantity(wetsuits, row, qty, meta);
       continue;
     }
     if (
@@ -1403,8 +1443,8 @@ function buildLastSetupSummary(serviceRows) {
       || meta.component === 'private_lesson'
     ) {
       const name = lastSetupCourseLabel(row, meta);
-      if (!courses[name]) courses[name] = { dated: {}, undated: 0 };
-      addLastSetupProjectionQuantity(courses[name], row, qty);
+      if (!courses[name]) courses[name] = lastSetupEmptyBucket();
+      addLastSetupProjectionQuantity(courses[name], row, qty, meta);
       continue;
     }
     const leftover = type.replace(/_/g, ' ').trim();
