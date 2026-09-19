@@ -1126,6 +1126,12 @@ async function main() {
         /id="ps-drawer-course-list"/.test(group.html));
       ok('group: multi-day from/to seeded 20→22',
         /value="2026-07-20"/.test(group.html) && /value="2026-07-22"/.test(group.html));
+      ok('group: Number of surfers under Dates (not hidden)',
+        group.html.indexOf('ps-drawer-date-range') < group.html.indexOf('ps-drawer-surfers-field')
+          && group.html.indexOf('ps-drawer-surfers-field') < group.html.indexOf('data-edit-section="what"')
+          && !/id="ps-drawer-surfers-field"[^>]*display:\s*none/.test(group.html));
+      ok('group: course-qty wrap is hidden mirror',
+        /id="ps-drawer-course-qty-wrap"[^>]*display:\s*none/.test(group.html));
     }
 
     const priv = renderHtml({
@@ -1146,6 +1152,9 @@ async function main() {
       ok('private: same-day from/to',
         /id="ps-drawer-date-from"[^>]*value="2026-07-20"/.test(priv.html)
         && /id="ps-drawer-date-to"[^>]*value="2026-07-20"/.test(priv.html));
+      ok('private: Number of surfers under Dates (not hidden)',
+        priv.html.indexOf('ps-drawer-date-range') < priv.html.indexOf('ps-drawer-surfers-field')
+          && !/id="ps-drawer-surfers-field"[^>]*display:\s*none/.test(priv.html));
     }
 
     const rental = renderHtml({

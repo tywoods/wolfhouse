@@ -1317,9 +1317,8 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
   html += '<input id="ps-drawer-date-to" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden value="' +
     escHtml(ctx.date_to || ctx.date_from || '') + '">';
   html += '</div>';
-  // Booking-level Number of surfers — Create #ps-create-surfers parity (visible for no-lesson only).
-  html += '<div class="portal-schedule-create-field" id="ps-drawer-surfers-field"' +
-    (mainMode === 'none' ? '' : ' style="display:none" hidden aria-hidden="true"') + '>' +
+  // Booking-level Number of surfers — Create #ps-create-surfers parity (always under Dates).
+  html += '<div class="portal-schedule-create-field" id="ps-drawer-surfers-field">' +
     '<label for="ps-drawer-surfers">' + escHtml(portalT('schedule.create.surferCount')) + '</label>' +
     '<input id="ps-drawer-surfers" type="number" min="1" max="99" value="' +
     escHtml(String(seedSurfers)) + '" inputmode="numeric"></div>';
@@ -1387,15 +1386,15 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
     '" tabindex="-1" aria-hidden="true"></select></div>';
   html += '<div id="ps-drawer-course-duration-confirm" class="portal-schedule-drawer-duration-confirm" role="status" aria-live="polite"' +
     (courseOn ? '' : ' style="display:none"') + '></div>';
-  html += '<div class="portal-schedule-create-field" id="ps-drawer-course-qty-wrap"' + (courseOn ? '' : ' style="display:none"') +
+  html += '<div class="portal-schedule-create-field" id="ps-drawer-course-qty-wrap" style="display:none" hidden aria-hidden="true"' +
     '><label for="ps-drawer-course-qty">' + escHtml(portalT('schedule.create.surferCount')) + '</label>' +
-    '<input id="ps-drawer-course-qty" type="number" min="1" max="99" value="' + escHtml(String(courseQty)) + '"></div>';
+    '<input id="ps-drawer-course-qty" type="number" min="1" max="99" value="' + escHtml(String(courseQty)) + '" tabindex="-1"></div>';
   // Group Edit uses multi-select course product buttons only — no lesson-builder rows/dates/times.
-  html += '<div id="ps-drawer-private-lesson-fields"' + (privateOn ? '' : ' style="display:none"') + '>';
-  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-private-lesson-surfers">' +
+  html += '<div id="ps-drawer-private-lesson-fields" style="display:none" hidden aria-hidden="true">';
+  html += '<div class="portal-schedule-create-field" hidden aria-hidden="true"><label for="ps-drawer-private-lesson-surfers">' +
     escHtml(portalT('schedule.create.surferCount')) + '</label>' +
     '<input id="ps-drawer-private-lesson-surfers" type="number" min="1" max="99" value="' +
-    escHtml(String((comps.private_lesson && comps.private_lesson.surfer_count) || 1)) + '"></div>';
+    escHtml(String((comps.private_lesson && comps.private_lesson.surfer_count) || seedSurfers)) + '" tabindex="-1"></div>';
   html += '</div></div>';
   html += '<div class="portal-schedule-create-field portal-schedule-drawer-gear-secondary">';
   html += '<span class="portal-schedule-create-label" data-i18n="schedule.drawer.section.rentals">' + escHtml(portalT('schedule.drawer.section.rentals') || 'Equipment') + '</span>';
@@ -1592,10 +1591,9 @@ function scheduleDrawerDateSpan(){
 }
 
 /**
- * Surfer count authority for Edit:
- *  - group → #ps-drawer-course-qty
- *  - private → #ps-drawer-private-lesson-surfers
- *  - no-lesson → #ps-drawer-surfers (Create #ps-create-surfers parity)
+ * Surfer count authority for Edit: Date(s) → Number of surfers → Activity.
+ * Always #ps-drawer-surfers (Create #ps-create-surfers parity). Group/private
+ * qty inputs are hidden mirrors.
  * Blank/invalid/fraction returns null — never silent-clamp to 1.
  */
 function scheduleDrawerReadSurferCount() {
@@ -1609,18 +1607,16 @@ function scheduleDrawerReadSurferCount() {
     if (!Number.isInteger(n) || n < 1 || n > 99) return null;
     return n;
   }
-  var mode = scheduleDrawerMainActivityValue();
-  if (mode === 'group') {
-    var cq = el('ps-drawer-course-qty');
-    return parseRaw(cq ? cq.value : '');
-  }
-  if (mode === 'private') {
-    var ps = el('ps-drawer-private-lesson-surfers');
-    return parseRaw(ps ? ps.value : '');
-  }
-  // Equipment only: live booking-level Surfers input (not immutable data-seed).
   var s = el('ps-drawer-surfers');
   return parseRaw(s ? s.value : '');
+}
+
+function scheduleDrawerSyncSurferMirrors() {
+  var n = scheduleDrawerReadSurferCount();
+  if (n == null) return;
+  var s = String(n);
+  var cq = el('ps-drawer-course-qty'); if (cq) cq.value = s;
+  var ps = el('ps-drawer-private-lesson-surfers'); if (ps) ps.value = s;
 }
 
 /**
@@ -2281,7 +2277,6 @@ function scheduleDrawerPopulateComponentFields() {
   var mode = scheduleDrawerMainActivityValue();
   var courseOn = mode === 'group';
   var privateOn = mode === 'private';
-  var noLesson = mode === 'none';
   var cf = el('ps-drawer-course-fields');
   var cq = el('ps-drawer-course-qty-wrap');
   var pf = el('ps-drawer-private-lesson-fields');
@@ -2292,8 +2287,8 @@ function scheduleDrawerPopulateComponentFields() {
   var surfersField = el('ps-drawer-surfers-field');
   // Legacy course select stays hidden — drill-down owns visible course pick.
   if (cf) scheduleDrawerSetVisible(cf, false);
-  if (cq) cq.style.display = courseOn ? '' : 'none';
-  if (pf) pf.style.display = privateOn ? '' : 'none';
+  if (cq) scheduleDrawerSetVisible(cq, false);
+  if (pf) scheduleDrawerSetVisible(pf, false);
   if (courseSection) courseSection.style.display = (courseOn || privateOn) ? '' : 'none';
   if (durationConfirm) durationConfirm.style.display = courseOn ? '' : 'none';
   // Private sessions live in main-activity drill-down panel.
@@ -2304,19 +2299,15 @@ function scheduleDrawerPopulateComponentFields() {
     if (privatePanel) scheduleDrawerSetVisible(privatePanel, false);
     if (privateWhen) scheduleDrawerSetVisible(privateWhen, false);
   }
-  // Booking-level Surfers is the no-lesson authority only — hide when group/private own theirs.
+  // Number of surfers stays under Dates for every activity (Create parity).
   if (surfersField) {
-    surfersField.style.display = noLesson ? '' : 'none';
+    surfersField.style.display = '';
     try {
-      if (noLesson) {
-        surfersField.removeAttribute('hidden');
-        surfersField.setAttribute('aria-hidden', 'false');
-      } else {
-        surfersField.setAttribute('hidden', '');
-        surfersField.setAttribute('aria-hidden', 'true');
-      }
+      surfersField.removeAttribute('hidden');
+      surfersField.setAttribute('aria-hidden', 'false');
     } catch (_sf) { /* ignore */ }
   }
+  if (typeof scheduleDrawerSyncSurferMirrors === 'function') scheduleDrawerSyncSurferMirrors();
   var dateRange = el('ps-drawer-date-range');
   if (dateRange) dateRange.style.display = '';
   if (typeof scheduleSyncDrawerMainActivityButtons === 'function') scheduleSyncDrawerMainActivityButtons();
@@ -3673,7 +3664,7 @@ function scheduleReadDrawerEditPayload() {
     });
     var primary = selectedCourses[0] || null;
     components.course = {
-      quantity: parseInt((el('ps-drawer-course-qty') && el('ps-drawer-course-qty').value) || '1', 10) || 1,
+      quantity: scheduleDrawerReadSurferCount() || parseInt((el('ps-drawer-course-qty') && el('ps-drawer-course-qty').value) || '1', 10) || 1,
       course_id: primary ? primary.course_id : '',
       course_label: primary ? (primary.course_label || '') : '',
       selected_courses: selectedCourses,
@@ -3686,7 +3677,7 @@ function scheduleReadDrawerEditPayload() {
     }
   }
   if (mode === 'private') {
-    var plSurfers = parseInt((el('ps-drawer-private-lesson-surfers') && el('ps-drawer-private-lesson-surfers').value) || '1', 10) || 1;
+    var plSurfers = scheduleDrawerReadSurferCount() || parseInt((el('ps-drawer-private-lesson-surfers') && el('ps-drawer-private-lesson-surfers').value) || '1', 10) || 1;
     var plSessions = scheduleDrawerReadPrivateSessionsFromDom().filter(function(s) { return s.date; });
     components.private_lesson = {
       enabled: true,
@@ -4963,6 +4954,9 @@ function scheduleWireEditableDrawer(row, ctx) {
       scheduleDrawerMarkPriceStale();
       if (id === 'ps-drawer-surfers' || id === 'ps-drawer-course-qty' || id === 'ps-drawer-private-lesson-surfers') {
         // Guest/surfer field only — does not rewrite independent equipment qty.
+        if (id === 'ps-drawer-surfers' && typeof scheduleDrawerSyncSurferMirrors === 'function') {
+          scheduleDrawerSyncSurferMirrors();
+        }
         scheduleDrawerSyncRentalQtyFromSurfers();
       }
       if (id === 'ps-drawer-date-from' || id === 'ps-drawer-date-to') {
