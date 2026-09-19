@@ -96,7 +96,10 @@ class FreshStartCommandTests(unittest.TestCase):
 
         self.assertEqual(len(adapter.sent), 1)
         self.assertIn("couldn’t reset", adapter.sent[0]["content"])
-        self.assertEqual(adapter.sent[0]["metadata"], {"wolfhouse_fresh_start_ack": True})
+        self.assertEqual(
+            adapter.sent[0]["metadata"],
+            {"wolfhouse_guest_reply": True, "wolfhouse_fresh_start_ack": True},
+        )
 
     def test_broad_reset_contract_is_rejected(self):
         adapter = FakeAdapter()
@@ -152,29 +155,40 @@ class FreshStartCommandTests(unittest.TestCase):
         self.assertEqual(cancelled, ["buffer-timer", "pending-timer"])
         self.assertNotIn(key, coalescer._senders)
 
-    def test_reset_cancels_active_sender_task_before_ack_boundary(self):
-        from wolfhouse.whatsapp_burst_coalesce import BurstCoalescer
+    def test_reset_cancels_real_active_dispatch_before_ack_boundary(self):
+        from wolfhouse.whatsapp_burst_coalesce import AdapterDispatch, BurstCoalescer
 
         async def scenario():
             coalescer = BurstCoalescer()
+            coalescer._guest_paused_before_agent = lambda _event: False
             adapter = SimpleNamespace(_phone_number_id="pnid")
             event = self._event()
             event.source.platform = SimpleNamespace(value="whatsapp_cloud")
-            key = coalescer.key_for_adapter_event(adapter, event)
-            state = coalescer._sender(key)
+            started = asyncio.Event()
 
-            async def stale_dispatch():
+            async def stale_dispatch(_event):
+                started.set()
                 await asyncio.Event().wait()
 
-            task = asyncio.create_task(stale_dispatch())
-            await asyncio.sleep(0)
-            state.active_run = True
-            state.active_task = task
+            dispatch = AdapterDispatch(adapter=adapter, dispatch_fn=stale_dispatch)
+            task = asyncio.create_task(coalescer._dispatch_one(dispatch, event))
+            await started.wait()
+            key = coalescer.key_for_adapter_event(adapter, event)
+            state = coalescer._senders[key]
+            self.assertIs(state.active_task, task)
+
             self.assertTrue(await coalescer.reset_sender_for_adapter_event(adapter, event))
             self.assertTrue(task.cancelled())
             self.assertNotIn(key, coalescer._senders)
 
         asyncio.run(scenario())
+
+    def test_ack_metadata_is_admitted_by_guest_send_guard(self):
+        from wolfhouse import guest_send_guard
+
+        with patch.dict("os.environ", {"HERMES_ROLE": "luna", "LUNA_CLIENT_SLUG": "wolfhouse-somo"}, clear=False):
+            metadata = {"wolfhouse_guest_reply": True, "wolfhouse_fresh_start_ack": True}
+            self.assertFalse(guest_send_guard.suppress_guest_whatsapp_text_send("Fresh start complete", metadata))
 
     def test_gateway_runtime_installs_command_patch(self):
         source = (ROOT.parent / "apply_gateway_patches.py").read_text(encoding="utf-8")

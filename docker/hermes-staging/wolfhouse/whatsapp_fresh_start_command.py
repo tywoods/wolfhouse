@@ -77,7 +77,7 @@ async def handle_or_delegate(
         chat_id=getattr(getattr(event, "source", None), "chat_id", phone),
         content=reply,
         reply_to=None,
-        metadata={"wolfhouse_fresh_start_ack": True},
+        metadata={"wolfhouse_guest_reply": True, "wolfhouse_fresh_start_ack": True},
     )
     logger.info(
         "Fresh Start command handled: reset=%s scope=%s delivered=%s",

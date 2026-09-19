@@ -831,6 +831,7 @@ class BurstCoalescer:
             )
 
         st.active_run = True
+        st.active_task = asyncio.current_task()
         self._stats["agent_invocations"] += 1
         failed = False
         try:
@@ -876,6 +877,7 @@ class BurstCoalescer:
             )
             return
         st.active_run = True
+        st.active_task = asyncio.current_task()
         self._stats["agent_invocations"] += 1
         try:
             await adapter_dispatch.dispatch_fn(event)
@@ -888,6 +890,7 @@ class BurstCoalescer:
             )
         finally:
             st.active_run = False
+            st.active_task = None
             await self._drain_followups(st)
 
     async def _drain_followups(self, st: SenderState) -> None:
