@@ -981,6 +981,7 @@ equipment_out_agg AS (
 customer_base AS (
   SELECT DISTINCT ON (${sqlCustomerPhoneDigits('cu.phone')})
     ${sqlCustomerPhoneDigits('cu.phone')} AS phone_digits,
+    cu.id,
     cu.phone,
     cu.full_name,
     cu.email,
