@@ -128,6 +128,7 @@ After you have the name (and confirmation when required), create the booking wit
 - guest-selected optional/all-day gear → intent `{mode,quantity}` + same `quote_provenance`
 - accepted full-day add-on (non-course only) → `components.full_day_equipment_addon` (structured)
 - rentals → `rental_pricing` and/or rental components
+**One continuous trip, one booking (hard):** For one continuous or consecutive trip of **7+ days**, call **create_sunset_booking exactly once** with every confirmed `service_dates` date and all confirmed lesson/rental components in that one request. Never split one trip into weekly, package-sized, per-day, lesson-only, or rental-only bookings. Reuse the same idempotency key when retrying the unchanged create; a retry is not a second booking. This rule applies to **future booking creates only** — do not backfill or modify historical bookings.
 Never leave confirmed equipment only in free-text notes. Then send the payment link the tool returns (verbatim). For a lesson, follow up with the waiver link and a friendly note that it needs signing before the class.
 
 **Step 9 — Confirm**
