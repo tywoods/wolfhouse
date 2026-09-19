@@ -303,6 +303,9 @@ async function handleLunaNumberRoute(req, res, method, action) {
     return sendJSON(res, result.status || (result.ok ? 200 : 503), result, { 'Cache-Control': 'no-store' });
   }
   if (!action || method !== 'POST') return sendMethodNotAllowed(res, action ? 'POST' : 'GET');
+  if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] || ''))) {
+    return sendJSON(res, 415, { ok: false, code: 'unsupported_media_type' }, { 'Cache-Control': 'no-store' });
+  }
   if (actor.auth_type === 'session') {
     const expectedOrigin = String(process.env.CROWSNEST_PUBLIC_ORIGIN || '').replace(/\/$/, '');
     if (!expectedOrigin || String(req.headers.origin || '') !== expectedOrigin) {

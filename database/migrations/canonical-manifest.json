@@ -1543,6 +1543,15 @@
       "rationale": "Fail-closed rollback while catalog identities exist; otherwise drops only tenant_surf_beaches.",
       "pairsWith": "102_tenant_surf_beach_registry.sql",
       "sha256": "0dda409a58379972bd7babb08846c17636ee34ed8a1f9c6005c95f376faa3bb9"
+    },
+    {
+      "id": "103_crowsnest_comms_number_route_audit",
+      "filename": "103_crowsnest_comms_number_route_audit.sql",
+      "order": 99,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Crowsnest communications routing operation ledger and append-only audit events with least-privilege crowsnest_api grants.",
+      "sha256": "d9b1079cc9d1f7766fe82feee3559726444254e57aeeefe7f1d1ea7c8efec330"
     }
   ]
 }
