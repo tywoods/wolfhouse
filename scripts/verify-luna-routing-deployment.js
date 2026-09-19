@@ -1,0 +1,15 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const root = path.join(__dirname, '../deploy/luna-routing');
+const unit = fs.readFileSync(path.join(root, 'luna-routing-controller.service'), 'utf8');
+const sudoers = fs.readFileSync(path.join(root, 'luna-routing.sudoers'), 'utf8').trim();
+const tmpfiles = fs.readFileSync(path.join(root, 'luna-routing.tmpfiles.conf'), 'utf8');
+const controller = fs.readFileSync(path.join(__dirname, 'luna-number-routing-controller.js'), 'utf8');
+assert.match(unit, /^User=luna-routing$/m); assert.match(unit, /^Group=luna-routing$/m); assert.doesNotMatch(unit, /^User=root$/m);
+assert.equal(sudoers, 'luna-routing ALL=(root) NOPASSWD: /usr/bin/systemctl reload caddy'); assert.doesNotMatch(sudoers, /\*/);
+assert.match(tmpfiles, /\/var\/lib\/luna-routing 0750 luna-routing luna-routing/);
+assert.match(controller, /\.listen\([^\n]+, '127\.0\.0\.1'\)/); assert.match(controller, /run\('\/usr\/bin\/sudo', \['-n', '\/usr\/bin\/systemctl', 'reload', 'caddy'\]\)/);
+assert.doesNotMatch(controller, /run\('systemctl'/); assert.match(unit, /NoNewPrivileges=no/); assert.match(unit, /ProtectSystem=strict/);
+console.log('PASS unprivileged Luna routing deployment contract');

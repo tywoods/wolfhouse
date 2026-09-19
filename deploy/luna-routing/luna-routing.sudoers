@@ -1,0 +1,1 @@
+luna-routing ALL=(root) NOPASSWD: /usr/bin/systemctl reload caddy
