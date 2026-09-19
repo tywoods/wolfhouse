@@ -164,7 +164,7 @@ SELECT c.id::text AS conversation_id,
   ep.provider_resource_id AS endpoint_provider_mailbox_id
 FROM clients cl
 INNER JOIN staff_users su ON su.client_id=cl.id AND su.id=$2::uuid AND su.status='active'
-  AND su.role IN ('operator','admin','owner')
+  AND su.role IN ('viewer','operator','admin','owner')
 INNER JOIN conversations c ON c.client_id=cl.id AND c.id=$3::uuid
   AND c.phone ~ '^(emailv1|email):'
 INNER JOIN tenant_email_inbound_inbox_projections p ON p.client_id=cl.id AND p.conversation_id=c.id
@@ -192,7 +192,7 @@ SELECT c.id::text AS conversation_id,
   ep.provider_resource_id AS endpoint_provider_mailbox_id
 FROM clients cl
 INNER JOIN staff_users su ON su.client_id=cl.id AND su.id=$2::uuid AND su.status='active'
-  AND su.role IN ('operator','admin','owner')
+  AND su.role IN ('viewer','operator','admin','owner')
 INNER JOIN conversations c ON c.client_id=cl.id AND c.id=$3::uuid
   AND c.phone ~ '^(emailv1|email):'
 INNER JOIN tenant_email_inbound_inbox_projections p ON p.client_id=cl.id AND p.conversation_id=c.id
@@ -632,7 +632,7 @@ function snapshotActor(user) {
 }
 
 function canGenerate(actor, env) {
-  return !!(actor && ['operator', 'admin', 'owner'].includes(actor.role)
+  return !!(actor && ['viewer', 'operator', 'admin', 'owner'].includes(actor.role)
     && isEmailLunaGenerateDraftEnabled(env));
 }
 

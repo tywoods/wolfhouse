@@ -331,6 +331,7 @@ const {
 // Gate 3 email inbox draft/approve-send (default-off; composition owners lazy).
 const {
   createStaffEmailInboxRoutes, EMAIL_DRAFT_PATH, EMAIL_APPROVE_SEND_PATH, EMAIL_RECOVER_SEND_PATH,
+  EMAIL_DRAFT_MIN_ROLE, EMAIL_APPROVE_MIN_ROLE,
   snapshotGateEnv: snapshotEmailInboxGateEnv, isEmailStaffDraftsEnabled,
   isEmailStaffOutboundEnabled, validateJsonContentType: validateEmailInboxJsonContentType,
 } = require('./lib/staff-email-inbox-routes');
@@ -50335,7 +50336,7 @@ async function router(req, res) {
   if (pathname === EMAIL_LUNA_CREATE_DRAFT_PATH && method === 'POST') {
     const gate = snapshotEmailLunaGenerateGateEnv(process.env);
     if (!isEmailLunaGenerateDraftEnabled(gate)) return sendJSON(res, 404, { success: false, error: 'not_found' });
-    const auth = await requireAuth(req, res, 'operator');
+    const auth = await requireAuth(req, res, EMAIL_DRAFT_MIN_ROLE);
     if (!auth.ok) return;
     let lunaActor = null;
     try {
@@ -50356,7 +50357,7 @@ async function router(req, res) {
   if (pathname === EMAIL_DRAFT_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
     if (!isEmailStaffDraftsEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_drafts_unavailable' });
-    const auth = await requireAuth(req, res, 'operator');
+    const auth = await requireAuth(req, res, EMAIL_DRAFT_MIN_ROLE);
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);
     if (!ct.ok) return sendJSON(res, ct.status, ct.body);
@@ -50365,14 +50366,14 @@ async function router(req, res) {
   if (pathname === EMAIL_DRAFT_PATH && method === 'DELETE') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
     if (!isEmailStaffDraftsEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_drafts_unavailable' });
-    const auth = await requireAuth(req, res, 'operator');
+    const auth = await requireAuth(req, res, EMAIL_DRAFT_MIN_ROLE);
     if (!auth.ok) return;
     return emailInboxRoutes.handleDeleteDraft(parsed.query, req, res, auth.user, emailInboxGateEnv);
   }
   if (pathname === EMAIL_APPROVE_SEND_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
     if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_staff_replies_unavailable' });
-    const auth = await requireAuth(req, res, 'operator');
+    const auth = await requireAuth(req, res, EMAIL_APPROVE_MIN_ROLE);
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);
     if (!ct.ok) return sendJSON(res, ct.status, ct.body);
@@ -50382,7 +50383,7 @@ async function router(req, res) {
   if (pathname === EMAIL_RECOVER_SEND_PATH && method === 'POST') {
     const emailInboxGateEnv = snapshotEmailInboxGateEnv(process.env);
     if (!isEmailStaffOutboundEnabled(emailInboxGateEnv)) return sendJSON(res, 404, { success: false, error: 'email_staff_replies_unavailable' });
-    const auth = await requireAuth(req, res, 'operator');
+    const auth = await requireAuth(req, res, EMAIL_APPROVE_MIN_ROLE);
     if (!auth.ok) return;
     const ct = validateEmailInboxJsonContentType(req);
     if (!ct.ok) return sendJSON(res, ct.status, ct.body);

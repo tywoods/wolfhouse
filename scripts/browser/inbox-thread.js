@@ -2207,7 +2207,14 @@ function performEmailDraftDelete(convId, targetEl){
   var st=emailReplyState(convId),ta=targetEl.querySelector('#draft-textarea'),statusEl=targetEl.querySelector('#draft-send-status');
   if(!ta||st.locked||st.inFlight)return;
   var exact=String(ta.value==null?'':ta.value),snap=String(convId),approval=st.approvalId;
-  if(!approval)return;
+  if(!approval){
+    // Create Draft / unsaved composer text has no approval_id — clear locally
+    // instead of silently returning (was a no-op that looked like Delete failed).
+    if(!String(exact).trim())return;
+    ta.value='';st.savedText='';st.savedSubject='';updateEmailDraftByteCount(targetEl,'');
+    showDraftSendStatus(statusEl,'ok','Draft deleted');
+    return;
+  }
   var mySeq=++st.seq;st.inFlight=true;setEmailReplyControlsDisabled(targetEl,true,false);
   fetch('/staff/inbox/email/draft?conversation_id='+encodeURIComponent(convId)+'&approval_id='+encodeURIComponent(approval),{method:'DELETE',headers:{Accept:'application/json'}})
     .then(emailParseFetchJson).then(function(out){if(mySeq!==st.seq)return;st.inFlight=false;if(selectedConvId!==snap)return;
