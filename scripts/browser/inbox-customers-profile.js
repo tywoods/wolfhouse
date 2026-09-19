@@ -650,17 +650,26 @@ function waitForCustomersDom(maxTries) {
 function openCustomerCardForPhone(phone, opts) {
   opts = opts || {};
   phone = normalizeCustomerPhoneClient(phone);
-  if (!phone) return Promise.resolve();
+  var preferredCustomerId = String(opts.customer_id || opts.customerId || '').trim();
+  if (!phone && !preferredCustomerId) return Promise.resolve();
   var profile = getPortalProfile(getClient());
   if (!portalHasCustomersCrm(profile)) return Promise.resolve();
   var search = el('cust-search');
-  if (search) search.value = phone;
+  if (search) search.value = phone || preferredCustomerId;
   switchToTab('customers');
   return waitForCustomersDom().then(function() {
     var searchEl = el('cust-search');
-    if (searchEl) searchEl.value = phone;
+    if (searchEl) searchEl.value = phone || preferredCustomerId;
     return loadCustomersList();
   }).then(function() {
+    if (preferredCustomerId && Array.isArray(customersCache)) {
+      for (var i = 0; i < customersCache.length; i += 1) {
+        if (String(customersCache[i].customer_id || '').trim() === preferredCustomerId) {
+          phone = normalizeCustomerPhoneClient(customersCache[i].phone) || customersCache[i].phone || phone;
+          break;
+        }
+      }
+    }
     return loadCustomerDetail(phone);
   });
 }

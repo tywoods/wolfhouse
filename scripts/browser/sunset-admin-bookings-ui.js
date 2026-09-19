@@ -3,7 +3,7 @@
  * Injected with sunset-admin-ui.js. Uses portal globals: el, portalT, escHtml,
  * getClient, getSunsetLocation, fetch, openScheduleDetailDrawer.
  * Money display only — all arithmetic is server-authoritative.
- * Guest name opens an in-place peek on Reservas — never switchToTab/Customers/Inbox.
+ * Guest name opens Inbox → Guest/People with the customer card selected.
  * Booking code opens the shared schedule detail drawer over Reservas — never
  * jumps to Horario / day nav (close must keep filters intact).
  */
@@ -529,8 +529,50 @@ function adminBookingsCloseGuestPeek() {
 }
 
 /**
- * Open guest facts in a Reservas-local side panel.
- * Never calls openCustomerCardForPhone / switchToTab — stays on Bookings.
+ * Bookings GUEST-column link: open the canonical Inbox → Guest/People card.
+ * Keep this path on the Bookings click handler; never navigate to /staff/guest/… .
+ */
+function adminBookingsOpenGuestInInbox(rowKey, trigger) {
+  var row = adminBookingsFindRowById(rowKey) || {};
+  var phone = String(
+    (trigger && trigger.getAttribute && trigger.getAttribute('data-bookings-guest-phone'))
+      || row.phone
+      || (row.guest && row.guest.phone)
+      || ''
+  ).trim();
+  var customerId = String(
+    (trigger && trigger.getAttribute && trigger.getAttribute('data-bookings-customer-id'))
+      || row.customer_id
+      || (row.guest && row.guest.customer_id)
+      || ''
+  ).trim();
+  adminBookingsCloseGuestPeek();
+  if (!phone) {
+    setAdminBookingsMsg(
+      adminBookingsGuestPeekT('admin.bookings.guestLink.noPhone', 'No phone on this booking, so there is no customer card to open yet.'),
+      true
+    );
+    return Promise.resolve(false);
+  }
+  var opener = (typeof window !== 'undefined' && typeof window.openCustomerCardForPhone === 'function')
+    ? window.openCustomerCardForPhone
+    : (typeof openCustomerCardForPhone === 'function' ? openCustomerCardForPhone : null);
+  if (!opener) {
+    setAdminBookingsMsg(
+      adminBookingsGuestPeekT('admin.bookings.guestLink.unavailable', 'Customer card is not available yet. Try again in a moment.'),
+      true
+    );
+    return Promise.resolve(false);
+  }
+  setAdminBookingsMsg('');
+  return Promise.resolve(opener(phone, {
+    customer_id: customerId || null,
+    source: 'bookings_guest_link',
+  }));
+}
+
+/**
+ * Legacy local guest peek kept for non-link diagnostics only.
  */
 function adminBookingsOpenGuestPeek(phone, bookingId) {
   var row = adminBookingsFindRowById(bookingId);
@@ -693,8 +735,7 @@ function adminBookingsOnTableClick(ev) {
     ev.stopPropagation();
     var guestRow = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
     var guestId = guestRow ? guestRow.getAttribute('data-bookings-row-id') : '';
-    var phone = guestBtn.getAttribute('data-bookings-guest-phone') || '';
-    adminBookingsOpenGuestPeek(phone, guestId);
+    adminBookingsOpenGuestInInbox(guestId, guestBtn);
     return;
   }
   var refundBtn = ev.target && ev.target.closest ? ev.target.closest('[data-bookings-record-refund]') : null;
@@ -766,8 +807,7 @@ function adminBookingsOnTableKeydown(ev) {
     ev.stopPropagation();
     var guestRowKey = guestBtn.closest ? guestBtn.closest('[data-bookings-row-id]') : null;
     var guestIdKey = guestRowKey ? guestRowKey.getAttribute('data-bookings-row-id') : '';
-    var phoneKey = guestBtn.getAttribute('data-bookings-guest-phone') || '';
-    adminBookingsOpenGuestPeek(phoneKey, guestIdKey);
+    adminBookingsOpenGuestInInbox(guestIdKey, guestBtn);
     return;
   }
   var codeKeyBtn = target.closest ? target.closest('[data-bookings-open-schedule]') : null;
@@ -1019,7 +1059,8 @@ function renderAdminBookingsTable() {
       escHtml(code) + '</button></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-guest" role="cell">' +
       '<button type="button" class="portal-admin-bookings-guest-link" data-bookings-guest-phone="' +
-      escHtml(String(row.phone || '')) + '">' + escHtml(row.guest_name || '—') + '</button>' +
+      escHtml(String(row.phone || '')) + '" data-bookings-customer-id="' +
+      escHtml(String(row.customer_id || '')) + '">' + escHtml(row.guest_name || '—') + '</button>' +
       '<div class="portal-admin-bookings-sub">' + escHtml(row.phone || '') + '</div></div>';
     html += '<div class="portal-admin-bookings-td portal-admin-bookings-td-created" role="cell">' +
       escHtml(createdText) + '</div>';
@@ -1510,6 +1551,7 @@ if (typeof window !== 'undefined') {
   window.adminBookingsCanWriteRefund = adminBookingsCanWriteRefund;
   window.adminBookingsState = adminBookingsState;
   window.openAdminBookingsRefundForm = openAdminBookingsRefundForm;
+  window.adminBookingsOpenGuestInInbox = adminBookingsOpenGuestInInbox;
   window.adminBookingsOpenGuestPeek = adminBookingsOpenGuestPeek;
   window.adminBookingsCloseGuestPeek = adminBookingsCloseGuestPeek;
 }

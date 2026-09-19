@@ -1471,7 +1471,7 @@ async function testGeneratedUi() {
     const guestCalled = await page.evaluate(() => {
       const calls = [];
       const tabCalls = [];
-      const stub = function (p) { calls.push(String(p || '')); return Promise.resolve(); };
+      const stub = function (p, opts) { calls.push({ phone: String(p || ''), opts: opts || null }); return Promise.resolve(); };
       window.openCustomerCardForPhone = stub;
       try { openCustomerCardForPhone = stub; } catch (_e) { /* non-writable binding */ }
       const realSwitch = window.switchToTab;
@@ -1507,20 +1507,23 @@ async function testGeneratedUi() {
       };
     });
     const bookingsUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-admin-bookings-ui.js'), 'utf8');
-    ok('keyboard handler opens guest peek (source)',
-      /data-bookings-guest-phone[\s\S]{0,400}adminBookingsOpenGuestPeek/.test(bookingsUi)
-      && !/openCustomerCardForPhone[\s\S]{0,80}from: 'admin-bookings'/.test(bookingsUi)
+    ok('keyboard handler opens Inbox customer card (source)',
+      /data-bookings-guest-phone[\s\S]{0,500}adminBookingsOpenGuestInInbox/.test(bookingsUi)
+      && /openCustomerCardForPhone/.test(bookingsUi)
+      && /customer_id:\s*customerId/.test(bookingsUi)
       && /nestedInteractive[\s\S]{0,200}return/.test(bookingsUi));
-    ok('guest click stays on Reservas (no Customers jump)',
-      guestCalled && Array.isArray(guestCalled.afterClick) && guestCalled.afterClick.length === 0
-      && Array.isArray(guestCalled.tabsAfterClick) && guestCalled.tabsAfterClick.length === 0,
+    ok('guest click opens Inbox customer card via phone',
+      guestCalled && Array.isArray(guestCalled.afterClick) && guestCalled.afterClick.length === 1
+      && guestCalled.afterClick[0] && /^\+346/.test(String(guestCalled.afterClick[0].phone || '')),
       JSON.stringify(guestCalled));
-    ok('guest click opens in-place peek on Bookings',
-      guestCalled && guestCalled.peekOpen === true && guestCalled.bookingsActive === true,
+    ok('guest click passes customer_id option when present and no local peek opens',
+      guestCalled && guestCalled.afterClick[0] && guestCalled.afterClick[0].opts
+      && guestCalled.afterClick[0].opts.source === 'bookings_guest_link'
+      && guestCalled.peekOpen === false && guestCalled.bookingsActive === true,
       JSON.stringify(guestCalled));
-    ok('guest keyboard Enter stays on Reservas (not Customers)',
-      guestCalled && Array.isArray(guestCalled.afterKey) && guestCalled.afterKey.length === 0
-      && Array.isArray(guestCalled.tabsAfterKey) && guestCalled.tabsAfterKey.length === 0,
+    ok('guest keyboard Enter opens Inbox customer card',
+      guestCalled && Array.isArray(guestCalled.afterKey) && guestCalled.afterKey.length === 1
+      && guestCalled.afterKey[0] && /^\+346/.test(String(guestCalled.afterKey[0].phone || '')),
       JSON.stringify(guestCalled));
 
     // Dismiss peek so later refund/table interactions are not blocked by the modal layer.

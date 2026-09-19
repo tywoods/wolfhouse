@@ -98,6 +98,7 @@ const LOCATION_SQL = `COALESCE(b.metadata->>'location_id', (
 const LIST_BOOKINGS_SQL_BASE = `
 SELECT
   b.id::text AS booking_id,
+  b.customer_id::text AS customer_id,
   b.booking_code,
   b.guest_name,
   b.phone,
@@ -127,6 +128,7 @@ WHERE c.slug = $1
 const LIST_BOOKINGS_SQL_LODGING_BASE = `
 SELECT
   b.id::text AS booking_id,
+  b.customer_id::text AS customer_id,
   b.booking_code,
   b.guest_name,
   b.phone,

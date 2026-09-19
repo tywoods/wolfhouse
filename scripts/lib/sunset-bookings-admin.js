@@ -988,6 +988,7 @@ function buildBookingListRow(input) {
 
   return {
     booking_id: booking.booking_id || booking.id || src.booking_id || null,
+    customer_id: booking.customer_id || src.customer_id || null,
     booking_code: booking.booking_code || src.booking_code || null,
     created_at: booking.created_at || src.created_at || null,
     guest_name: booking.guest_name || src.guest_name || null,
