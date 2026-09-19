@@ -411,7 +411,9 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
         }
       ]
       scale: {
-        minReplicas: 0
+        // Keep staff-staging warm: minReplicas 0 scale-to-zero causes ~2min cold starts.
+        // Staging-only keep-warm while actively working the portal (cost vs UX tradeoff).
+        minReplicas: 1
         maxReplicas: 1
       }
     }
