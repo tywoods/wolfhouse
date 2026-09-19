@@ -71,6 +71,7 @@ const steps = [
   ['verify:inbox-filter-reselect', 'verify-inbox-filter-reselect.js'],
   ['verify:inbox-thread-mockup', 'verify-inbox-thread-mockup.js'],
   ['verify:inbox-clear-thread-001', 'verify-inbox-clear-thread-001.js'],
+  ['verify:inbox-clear-delete-auth', 'verify-inbox-clear-delete-auth.js'],
   ['verify:inbox-clear-404-001', 'verify-inbox-clear-404-001.js'],
   ['verify:inbox-thread-markdown', 'verify-inbox-thread-markdown.js'],
   ['verify:sunset-booking-truth', 'verify-sunset-booking-truth.js'],

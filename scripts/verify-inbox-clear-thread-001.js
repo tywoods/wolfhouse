@@ -672,6 +672,9 @@ async function main() {
   ok('Clear handler keeps staging + client access fences',
     /isStagingResetEnvironment/.test(clearHandler)
     && /assertStaffClientAccess/.test(clearHandler));
+  ok('Clear route auth is viewer+ (any authenticated staff)',
+    /const convClearThreadMatch = CONV_CLEAR_THREAD_RE\.exec\(pathname\);[\s\S]{0,500}requireAuth\(req, res, 'viewer'\)/.test(apiSrc)
+    && !/const convClearThreadMatch = CONV_CLEAR_THREAD_RE\.exec\(pathname\);[\s\S]{0,500}requireAuth\(req, res, 'operator'\)/.test(apiSrc));
   ok('Clear handler maps status via owner',
     /mapInboxClearThreadHttpStatus/.test(clearHandler));
   ok('Full Wipe still uses reset-luna-context + hard_delete',
