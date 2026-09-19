@@ -47,11 +47,15 @@ sudo deploy/luna-routing/install-luna-routing.sh --verify
 ```
 
 `--dry-run` performs source/static checks without requiring host Caddy. `--install` is
-root-only, stages and validates the complete candidate before mutation, creates the system user/group and directories, copies
+root-only, validates a self-contained candidate importing the staged fragment before mutation, captures the prior unit's presence plus enabled/active state, creates the system user/group and directories, copies
 the script/unit/environment/sudoers/tmpfiles/initial Wolfhouse fragment, validates
-sudoers, backs up and metadata-preservingly patches the root Caddyfile last,
+sudoers, validates the canonical final candidate after its fragment exists, and metadata-preservingly patches the root Caddyfile last,
 then daemon-reloads, enables/starts the controller, reloads Caddy, and verifies readback.
-It traps partial failures and restores prior artifacts. It fails closed on duplicate sites,
+It traps partial failures and restores prior artifacts, daemon/Caddy runtime configuration, and
+the prior controller enabled/active state while preserving the original failure. Rollback errors
+are reported loudly. A newly created inert system identity/group and empty directories may remain;
+no service, root Caddy configuration, installed runtime artifact, or active runtime drift may remain.
+It fails closed on duplicate sites,
 routes, markers, misleading comments, or partial contracts. Reinstall is idempotent and
 repairs missing artifacts; use `--update-contract` for reviewed contract drift and `--verify`
 for host/service-user read checks.
