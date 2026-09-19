@@ -312,6 +312,7 @@ const STAFF_PORTAL_STRINGS = {
     'inbox.rail.view.needs_human': 'Needs human',
     'inbox.rail.view.all_people': 'All people',
     'inbox.rail.view.equipment_out': 'Equipment Out',
+    'inbox.rail.view.checked_in': 'Checked in',
     'inbox.rail.view.hot_leads': 'Hot leads',
     'inbox.rail.view.warm_leads': 'Warm leads',
     'inbox.rail.view.unpaid': 'Unpaid',

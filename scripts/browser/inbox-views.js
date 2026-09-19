@@ -32,9 +32,25 @@ var inboxLastGuestViewId = 'all_people';
 
 var INBOX_SURFACE_ORDER_INBOX = ['all', 'whatsapp', 'email', 'needs_human', 'spam', 'owner_lab'];
 var INBOX_SURFACE_ORDER_GUEST = ['all_people', 'equipment_out', 'lesson_today', 'upcoming', 'hot_leads', 'warm_leads', 'unpaid', 'waiver_due', 'do_not_contact'];
+var INBOX_SURFACE_ORDER_GUEST_WOLFHOUSE = ['all_people', 'checked_in', 'lesson_today', 'upcoming', 'hot_leads', 'warm_leads', 'unpaid', 'waiver_due', 'do_not_contact'];
+
+function inboxViewsIsSunsetTenant() {
+  try {
+    if (typeof document !== 'undefined' && document.documentElement
+        && document.documentElement.getAttribute('data-portal-client') === 'sunset') {
+      return true;
+    }
+  } catch (_e) {}
+  return false;
+}
+
+function inboxViewGetGuestSurfaceOrder() {
+  return inboxViewsIsSunsetTenant() ? INBOX_SURFACE_ORDER_GUEST : INBOX_SURFACE_ORDER_GUEST_WOLFHOUSE;
+}
 
 function inboxViewGetSurfaceForViewId(viewId) {
   if (INBOX_SURFACE_ORDER_INBOX.indexOf(viewId) >= 0) return INBOX_VIEW_SURFACE_INBOX;
+  if (inboxViewGetGuestSurfaceOrder().indexOf(viewId) >= 0) return INBOX_VIEW_SURFACE_GUEST;
   if (INBOX_SURFACE_ORDER_GUEST.indexOf(viewId) >= 0) return INBOX_VIEW_SURFACE_GUEST;
   return INBOX_VIEW_SURFACE_INBOX;
 }
@@ -45,7 +61,7 @@ function inboxViewGetDefaultViewForSurface(surface) {
 }
 
 function inboxViewGetSurfaceOrder(surface) {
-  if (surface === INBOX_VIEW_SURFACE_GUEST) return INBOX_SURFACE_ORDER_GUEST;
+  if (surface === INBOX_VIEW_SURFACE_GUEST) return inboxViewGetGuestSurfaceOrder();
   return INBOX_SURFACE_ORDER_INBOX;
 }
 
@@ -299,6 +315,7 @@ var INBOX_VIEWS_ICON_BY_ID = {
   all_people: 'people',
   unassigned: 'people',
   equipment_out: 'surfboard',
+  checked_in: 'check-circle',
   hot_leads: 'flame',
   warm_leads: 'sun',
   unpaid: 'card',
