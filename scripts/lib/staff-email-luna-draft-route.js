@@ -46,7 +46,7 @@ SELECT cl.id::text AS client_id, cl.slug AS client_slug,
   TRUE AS luna_draft_enabled
 FROM clients cl
 INNER JOIN staff_users su ON su.client_id=cl.id AND su.id=$2::uuid AND su.status='active'
-  AND su.role IN ('operator','admin','owner')
+  AND su.role IN ('viewer','operator','admin','owner')
 INNER JOIN conversations c ON c.client_id=cl.id AND c.id=$3::uuid
   AND c.phone ~ '^(emailv1|email):'
 INNER JOIN tenant_email_inbound_inbox_projections p ON p.client_id=c.client_id AND p.conversation_id=c.id
@@ -103,7 +103,7 @@ function actor(user) {
   if (!exactRecord(user, ACTOR_KEYS) || getPrototypeOf(user) !== null) return null;
   const role = ownData(user, 'role');
   const staffId = uuid(ownData(user, 'staff_user_id')); const clientId = uuid(ownData(user, 'client_id'));
-  if (!staffId || !clientId || !['operator', 'admin', 'owner'].includes(role)) return null;
+  if (!staffId || !clientId || !['viewer', 'operator', 'admin', 'owner'].includes(role)) return null;
   const snap = Object.create(null);
   snap.staff_user_id = staffId; snap.client_id = clientId; snap.role = role;
   return freeze(snap);
