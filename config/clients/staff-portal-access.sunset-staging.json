@@ -3,13 +3,17 @@
   "_version": "sunset-staging-portal-access",
   "all_clients_emails": [],
   "portal_admin_emails": [
-    "tywoods@gmail.com"
+    "tywoods@gmail.com",
+    "admin"
   ],
   "client_access": {
     "tywoods@gmail.com": [
       "sunset"
     ],
     "hermes-ui-verifier@lunafrontdesk.invalid": [
+      "sunset"
+    ],
+    "admin": [
       "sunset"
     ]
   }

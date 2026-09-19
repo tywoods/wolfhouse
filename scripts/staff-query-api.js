@@ -1667,7 +1667,7 @@ async function handleLogin(req, res) {
   }
 
   const clientSlug = String(body.client   || '').trim();
-  const email      = String(body.email    || '').toLowerCase().trim();
+  const email      = String(body.user || body.username || body.email || '').toLowerCase().trim();
   const password   = String(body.password || '');
 
   if (!clientSlug || !email || !password) {
@@ -1691,7 +1691,7 @@ async function handleLogin(req, res) {
                 c.slug             AS client_slug
            FROM staff_users su
            JOIN clients c ON c.id = su.client_id
-          WHERE c.slug         = $1
+          WHERE lower(c.slug)   = lower($1)
             AND lower(su.email) = $2
             AND su.status       = 'active'`,
         [clientSlug, email]

@@ -278,7 +278,7 @@ module.exports = {
   "login.title": "Luna Front Desk",
   "login.sub": "Acceso staff",
   "login.company": "Empresa",
-  "login.email": "Email",
+  "login.email": "Usuario",
   "login.password": "Contraseña",
   "login.signIn": "Iniciar sesión",
   "login.allFieldsRequired": "Todos los campos son obligatorios.",
