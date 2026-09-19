@@ -18,8 +18,8 @@ function createAuditStore(dsn, poolFactory) {
     async begin(event) {
       const client = await pool.connect();
       try {
-        await client.query('SET ROLE crowsnest_api');
         await client.query('BEGIN');
+        await client.query('SET LOCAL ROLE crowsnest_api');
         const inserted = await client.query(`INSERT INTO crowsnest_comms.number_route_operations
           (operation_id,action,expected_revision,actor_account_id,actor_username,state)
           VALUES ($1,$2,$3,$4,$5,'requested') ON CONFLICT (operation_id) DO NOTHING RETURNING operation_id`, [event.operation_id, event.action, event.expected_revision, event.actor.account_id, event.actor.username]);
@@ -34,8 +34,8 @@ function createAuditStore(dsn, poolFactory) {
     async complete(event, result) {
       const client = await pool.connect();
       try {
-        await client.query('SET ROLE crowsnest_api');
-        await client.query('BEGIN'); let sequence = 2;
+        await client.query('BEGIN');
+        await client.query('SET LOCAL ROLE crowsnest_api'); let sequence = 2;
         for (const item of result.events || []) await client.query(`INSERT INTO crowsnest_comms.number_route_events
           (event_id,operation_id,sequence_no,event_type,actor_account_id,actor_username,action,expected_revision,details)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) ON CONFLICT (operation_id,sequence_no) DO NOTHING`, [crypto.randomUUID(), event.operation_id, sequence++, item.type, event.actor.account_id, event.actor.username, event.action, event.expected_revision, JSON.stringify(item.details || {})]);

@@ -1551,7 +1551,7 @@
       "classification": "canonical_forward",
       "inForwardChain": true,
       "rationale": "Crowsnest communications routing operation ledger and append-only audit events with least-privilege crowsnest_api grants.",
-      "sha256": "d9b1079cc9d1f7766fe82feee3559726444254e57aeeefe7f1d1ea7c8efec330"
+      "sha256": "cb153028bd076b0bddcbb763b37f36571a43024a253a69f95ad103420eea5554"
     }
   ]
 }

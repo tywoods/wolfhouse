@@ -39,10 +39,19 @@ CREATE TRIGGER number_route_events_append_only BEFORE UPDATE OR DELETE ON crowsn
 FOR EACH ROW EXECUTE FUNCTION crowsnest_comms.reject_number_route_event_mutation();
 
 DO $$
+DECLARE
+  runtime_login name := COALESCE(NULLIF(current_setting('crowsnest.runtime_login', true), ''), current_user);
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'crowsnest_api') THEN
-    RAISE EXCEPTION 'required runtime role crowsnest_api does not exist';
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = current_user AND (rolsuper OR rolcreaterole)) THEN
+      RAISE EXCEPTION 'migration prerequisite: executor must have CREATEROLE to provision NOLOGIN role crowsnest_api';
+    END IF;
+    EXECUTE 'CREATE ROLE crowsnest_api NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_login) THEN
+    RAISE EXCEPTION 'configured crowsnest.runtime_login role % does not exist', runtime_login;
+  END IF;
+  EXECUTE format('GRANT crowsnest_api TO %I', runtime_login);
 END $$;
 REVOKE ALL ON SCHEMA crowsnest_comms FROM PUBLIC;
 REVOKE ALL ON crowsnest_comms.number_route_events, crowsnest_comms.number_route_operations FROM PUBLIC;
