@@ -16320,6 +16320,8 @@ async function handleManualBookingCreate(req, res, user) {
     service_records_created:   Number(row._service_records_created || 0),
     service_records_available: row._service_records_available !== false,
     service_records_warning:   row._service_records_warning || null,
+    customer:          row._customer_link || null,
+    customer_id:       row._customer_link && row._customer_link.customer_id ? row._customer_link.customer_id : null,
     message:           payOutcome.message || 'Manual booking created.',
     elapsed_ms:        elapsed,
   });

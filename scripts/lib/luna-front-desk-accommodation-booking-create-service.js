@@ -43,6 +43,7 @@ const {
   buildManualBookingServiceRecordRows,
   tryInsertManualBookingServiceRecords,
 } = require('./manual-booking-service-records');
+const { createOrMergeManualCustomer } = require('./staff-customer-queries');
 const { runLunaGuestBookingDryRun } = require('./luna-guest-booking-dry-run');
 const {
   buildWolfhouseAvailabilityCommand,
@@ -101,6 +102,40 @@ function fail(status, reasonCode, error, extra = {}) {
       error: error || reasonCode,
       ...extra,
     },
+  };
+}
+
+async function ensureManualBookingCustomerLink(pg, command, bookingId) {
+  if (!pg || !command || command.channel !== BOOKING_CREATE_CHANNELS.MANUAL_STAFF || !bookingId) {
+    return null;
+  }
+  if (!command.phone) return null;
+  const customerResult = await createOrMergeManualCustomer(pg, command.clientSlug, {
+    display_name: command.guestName,
+    phone: command.phone,
+    email: command.email || undefined,
+  });
+  if (!customerResult || !customerResult.ok || !customerResult.body || !customerResult.body.customer_id) {
+    throw Object.assign(new Error('customer_link_failed'), {
+      reason_code: 'customer_link_failed',
+      customerLinkFailed: true,
+    });
+  }
+  const customerId = customerResult.body.customer_id;
+  await pg.query(
+    `UPDATE bookings
+        SET customer_id = $3::uuid,
+            updated_at = NOW()
+      WHERE id = $1::uuid
+        AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)
+        AND (customer_id IS NULL OR customer_id = $3::uuid)`,
+    [bookingId, command.clientSlug, customerId],
+  );
+  return {
+    customer_id: customerId,
+    phone: customerResult.body.phone || command.phone,
+    created: customerResult.body.created === true,
+    duplicate: customerResult.body.duplicate === true,
   };
 }
 
@@ -765,6 +800,9 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
         clientSlug,
       ],
     );
+
+    const customerLink = await ensureManualBookingCustomerLink(pg, command, result.booking_id);
+    if (customerLink) result._customer_link = customerLink;
 
     if (usesPerGuestModel && guestsNorm.guests.length > 0) {
       try {
