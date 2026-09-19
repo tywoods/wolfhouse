@@ -353,6 +353,7 @@
     "verify:luna-add-guest-to-booking": "node scripts/verify-luna-add-guest-to-booking.js",
     "verify:luna-add-guest-paid": "node scripts/verify-luna-add-guest-paid.js",
     "verify:luna-booking-full-span": "node scripts/verify-luna-booking-full-span.js",
+    "verify:luna-continuous-trip-booking": "node scripts/verify-luna-continuous-trip-booking.js && python3 docker/hermes-staging/plugins/wolfhouse_staff_api/test_sunset_continuous_trip_create.py",
     "verify:luna-all": "node scripts/verify-luna-all.js",
     "verify:gate-anchors": "node scripts/verify-gate-anchors.js",
     "verify:portal-fn-slice": "node scripts/verify-portal-fn-slice.js",
