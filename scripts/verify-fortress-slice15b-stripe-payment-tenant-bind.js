@@ -198,6 +198,32 @@ console.log('\n── Config helper ──');
     DEFAULT_CLIENT_SLUG: TENANT_A,
   });
   ok('config aligned both set', aligned.ok && aligned.client_slug === TENANT_A);
+
+  // RADAR 16AN Wolfhouse staging shape: ingress slug set, DEFAULT unset, webhook slug optional.
+  const ingressOnly = resolveStripeWebhookExpectedClientSlug({
+    STAFF_API_INGRESS_TENANT_SLUG: TENANT_A,
+  });
+  ok('config STAFF_API_INGRESS_TENANT_SLUG fallback',
+    ingressOnly.ok
+    && ingressOnly.client_slug === TENANT_A
+    && ingressOnly.source === 'STAFF_API_INGRESS_TENANT_SLUG');
+
+  const ingressConflict = resolveStripeWebhookExpectedClientSlug({
+    STAFF_API_INGRESS_TENANT_SLUG: TENANT_A,
+    DEFAULT_CLIENT_SLUG: TENANT_B,
+  });
+  red('conflicting_ingress_vs_default',
+    ingressConflict.ok === false
+    && ingressConflict.reason === 'conflicting_runtime_client_slugs'
+    && ingressConflict.no_db_write === true);
+
+  const webhookOverIngress = resolveStripeWebhookExpectedClientSlug({
+    STRIPE_WEBHOOK_CLIENT_SLUG: TENANT_A,
+    STAFF_API_INGRESS_TENANT_SLUG: TENANT_A,
+  });
+  ok('config webhook preferred when aligned with ingress',
+    webhookOverIngress.ok
+    && webhookOverIngress.source === 'STRIPE_WEBHOOK_CLIENT_SLUG');
 }
 
 // ── Dynamic lookup RED/GREEN ───────────────────────────────────────────────

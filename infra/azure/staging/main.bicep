@@ -366,6 +366,11 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             // Prefer over DEFAULT_CLIENT_SLUG so portal/payment/bot/Stripe defaults stay decoupled.
             // Do not set DEFAULT_CLIENT_SLUG here unless an unrelated route explicitly needs it.
             { name: 'STAFF_API_INGRESS_TENANT_SLUG', value: 'wolfhouse-somo' }
+            // FORTRESS 15B / payment-truth — dedicated Stripe webhook tenant bind.
+            // Required because DEFAULT_CLIENT_SLUG is intentionally unset on Wolfhouse
+            // staging (RADAR 16AN). Missing → webhook fail-closed (no payment write,
+            // no confirmation). Matches Sunset's STRIPE_WEBHOOK_CLIENT_SLUG pattern.
+            { name: 'STRIPE_WEBHOOK_CLIENT_SLUG', value: 'wolfhouse-somo' }
           ]
           // RADAR 16I — ACA probes (port must match ingress targetPort 3036).
           // Liveness/Startup → /healthz (no Postgres). Readiness → /readyz (PG; removes traffic, no restart).

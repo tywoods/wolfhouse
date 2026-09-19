@@ -19,13 +19,13 @@ Fail-closed bind of Stripe checkout-session payment lookup and validation to an 
 |---------|----------|
 | `lookupPaymentForStripeSession(pg, session, expectedClientSlug)` | Requires nonempty slug. Session-id SELECT: `AND cl.slug = $2`. Metadata fallback: require `metadata.client_slug === expectedClientSlug` before any `p.id` UUID query; SELECT also `AND cl.slug = $2`. Rejected fallback reports `queried=true` / `query_count=1` (session miss already ran) with `metadata_fallback_queried=false` / `metadata_query_executed=false` — it does not probe `metadata.payment_id` existence. Early missing slug/invalid session stay `queried=false` / `query_count=0`. Session hit `query_count=1`; metadata path `query_count=2`. Returns `{ ok, payment, reason, queried, query_count, lookup_path, metadata_fallback_queried, metadata_query_executed }`. |
 | `validateStripeBookingPaymentEvent(..., expectedClientSlug)` | Independent `pm.client_slug === expectedClientSlug`; retains metadata/session/amount/status checks. |
-| `resolveStripeWebhookExpectedClientSlug(env)` | `STRIPE_WEBHOOK_CLIENT_SLUG` preferred; nonempty `DEFAULT_CLIENT_SLUG` compat; both conflict or neither → fail closed `no_db_write`. No hardcoded tenants. |
+| `resolveStripeWebhookExpectedClientSlug(env)` | `STRIPE_WEBHOOK_CLIENT_SLUG` preferred; nonempty `DEFAULT_CLIENT_SLUG` compat; nonempty `STAFF_API_INGRESS_TENANT_SLUG` (RADAR 16AN) when both prior unset; any conflict or none → fail closed `no_db_write`. No hardcoded tenants. |
 | Webhook | Resolve tenant before DB; 503 + `no_db_write` if unconfigured. Addon path inherits scoped lookup. |
 | `reconcilePaidStripeSession` | Requires `meta.expectedClientSlug`; batch helpers pass `clientSlug`. |
 
 ## Rollout (both tenant deployments)
 
-Set **`STRIPE_WEBHOOK_CLIENT_SLUG`** on each Staff API runtime to that deployment’s tenant slug. Optionally keep matching nonempty `DEFAULT_CLIENT_SLUG`. Missing or conflicting values fail closed with no payment write.
+Set **`STRIPE_WEBHOOK_CLIENT_SLUG`** on each Staff API runtime to that deployment’s tenant slug. Optionally keep matching nonempty `DEFAULT_CLIENT_SLUG`. Wolfhouse staging intentionally leaves `DEFAULT_CLIENT_SLUG` unset (RADAR 16AN) — set `STRIPE_WEBHOOK_CLIENT_SLUG` explicitly, or rely on aligned `STAFF_API_INGRESS_TENANT_SLUG` as the tertiary fallback. Missing or conflicting values fail closed with no payment write.
 
 ## Gates
 
