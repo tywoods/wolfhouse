@@ -191,6 +191,10 @@ function assertAuthAccountsConfigContract() {
       'getCrowsnestAuthAccounts helper is exported',
       typeof auth.getCrowsnestAuthAccounts === 'function',
     );
+    ok(
+      'getCrowsnestRequestActor privileged principal helper is exported',
+      typeof auth.getCrowsnestRequestActor === 'function',
+    );
     if (typeof auth.getCrowsnestAuthAccounts !== 'function') return;
 
     {

@@ -243,6 +243,33 @@ function isCrowsnestSessionAuthorized(req) {
   return true;
 }
 
+function getCrowsnestSessionActor(req) {
+  const cookies = parseCookies(req && req.headers && req.headers.cookie);
+  const token = cookies[CROWSNEST_SESSION_COOKIE];
+  if (!token) return null;
+  const record = sessions.get(token);
+  if (!record || record.expiresAt <= Date.now()) return null;
+  const accountsConfig = getCrowsnestAuthAccounts();
+  const account = accountsConfig.accounts.find((candidate) => candidate.username === record.username);
+  if (!account || account.id === 'legacy' || account.id === 'default') return null;
+  return { account_id: account.id, username: record.username, auth_type: 'session' };
+}
+
+function getCrowsnestRequestActor(req) {
+  const sessionActor = getCrowsnestSessionActor(req);
+  if (sessionActor) return sessionActor;
+  const creds = parseBasicAuthHeader(req);
+  if (!creds) return null;
+  const accountsConfig = getCrowsnestAuthAccounts();
+  for (const account of accountsConfig.accounts) {
+    if (account.id !== 'legacy' && account.id !== 'default'
+      && credentialsMatchConfiguredAccount(creds.username, creds.password, account)) {
+      return { account_id: account.id, username: account.username, auth_type: 'basic' };
+    }
+  }
+  return null;
+}
+
 function createCrowsnestSession(username) {
   const token = crypto.randomBytes(32).toString('base64url');
   sessions.set(token, {
@@ -334,6 +361,7 @@ module.exports = {
   getCrowsnestAuthAccounts,
   getCrowsnestBasicAuthConfig,
   getCrowsnestLoginBodyLimit,
+  getCrowsnestRequestActor,
   isCrowsnestAuthEnabled,
   isCrowsnestLoginAccepted,
   isCrowsnestRequestAuthorized,
