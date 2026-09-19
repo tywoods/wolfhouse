@@ -261,6 +261,7 @@ function schedulePortalCreateIntentKey(payload) {
     guest_phone: p.guest_phone != null ? String(p.guest_phone) : '',
     date_from: p.date_from || null,
     date_to: p.date_to || null,
+    service_dates: schedulePortalServiceDatesFromPayload(p),
     payment_status: p.payment_status || 'unpaid',
     components: ordered,
     lessons: schedulePortalNormalizeLessonsIntent(p.lessons),
@@ -301,6 +302,7 @@ function schedulePortalQuotePricingIntentKey(payload) {
   return JSON.stringify({
     date_from: p.date_from || null,
     date_to: p.date_to || null,
+    service_dates: schedulePortalServiceDatesFromPayload(p),
     components: ordered,
     lessons: schedulePortalNormalizeLessonsIntent(p.lessons),
     rentals: schedulePortalNormalizeRentalsIntent(p.rentals),
@@ -1407,6 +1409,16 @@ function schedulePortalServiceDatesFromPayload(payload) {
     });
     return out.sort();
   }
+  // Exact selected service days (gaps OK) — never invent the inclusive span.
+  if (Array.isArray(payload.service_dates) && payload.service_dates.length) {
+    var seenS = {};
+    var fromSvc = [];
+    payload.service_dates.forEach(function(d) {
+      var iso = String(d || '').slice(0, 10);
+      if (iso && !seenS[iso]) { seenS[iso] = true; fromSvc.push(iso); }
+    });
+    if (fromSvc.length) return fromSvc.sort();
+  }
   return scheduleEnumerateDates(payload.date_from, payload.date_to || payload.date_from);
 }
 
@@ -2437,11 +2449,18 @@ function schedulePortalMatchSellableCourseTiersByDurationDays(course, durationDa
 }
 
 /** Resolve tier from inclusive dates + catalog duration_days. 0→unavailable; >1→ambiguous. */
-function schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo) {
+function schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo, opts) {
   var id = String(courseId || '').trim();
   if (!id) return { ok: false, errorKey: 'schedule.create.courseRequired' };
-  var days = schedulePortalInclusiveDateCount(dateFrom, dateTo);
-  if (days < 1) return { ok: false, errorKey: 'calendar.state.invalidDateRange' };
+  opts = opts || {};
+  var days = opts.dayCount != null
+    ? Number(opts.dayCount)
+    : (Array.isArray(opts.service_dates) && opts.service_dates.length
+      ? opts.service_dates.length
+      : schedulePortalInclusiveDateCount(dateFrom, dateTo));
+  if (!Number.isFinite(days) || days < 1) {
+    return { ok: false, errorKey: 'calendar.state.invalidDateRange' };
+  }
   // Group courses: max 14 inclusive days. Price for 8–14 is server-owned from Admin 7_days.
   if (days > 14) {
     return { ok: false, errorKey: 'schedule.create.courseDurationUnavailable', duration_days: days };

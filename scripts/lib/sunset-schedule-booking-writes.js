@@ -756,6 +756,14 @@ function rentalDurationKeyFromDateRange(dateFrom, dateTo) {
   return `${dates.length}_days`;
 }
 
+/** Duration from selected service-day count (gaps do not inflate days). */
+function rentalDurationKeyFromSelectedDayCount(dayCount) {
+  const n = Number(dayCount);
+  if (!Number.isInteger(n) || n < 1) return null;
+  if (n === 1) return '1_day';
+  return `${n}_days`;
+}
+
 /**
  * When canonical rentals[] is present, expand into operational components and
  * capture rental context for authoritative quote application on create.
@@ -790,6 +798,7 @@ function prepareCanonicalRentalsForCreate(body, opts) {
   if (!rangeDates.length) {
     return { ok: false, error: 'invalid date_from/date_to range', reason: 'invalid_date' };
   }
+  let serviceDatesOut = rangeDates;
   if (Object.prototype.hasOwnProperty.call(b, 'service_dates')) {
     if (!Array.isArray(b.service_dates)) {
       return { ok: false, error: 'service_dates must be an array', reason: 'invalid_service_dates' };
@@ -798,18 +807,34 @@ function prepareCanonicalRentalsForCreate(body, opts) {
     if (got.length !== b.service_dates.length || new Set(got).size !== got.length) {
       return { ok: false, error: 'service_dates must be unique YYYY-MM-DD dates', reason: 'invalid_service_dates' };
     }
-    const expected = rangeDates.slice().sort();
+    if (!got.length) {
+      return { ok: false, error: 'service_dates must include at least one date', reason: 'invalid_service_dates' };
+    }
+    const rangeSet = new Set(rangeDates);
     const sortedGot = got.slice().sort();
-    if (expected.length !== sortedGot.length || expected.some((d, i) => d !== sortedGot[i])) {
+    for (const d of sortedGot) {
+      if (!rangeSet.has(d)) {
+        return {
+          ok: false,
+          error: 'service_dates must fall within date_from/date_to',
+          reason: 'service_dates_mismatch',
+        };
+      }
+    }
+    // date_from/date_to must equal the selected min/max (gaps OK inside the span).
+    if (sortedGot[0] !== dateFrom || sortedGot[sortedGot.length - 1] !== dateTo) {
       return {
         ok: false,
-        error: 'service_dates must match the inclusive date_from/date_to range exactly',
+        error: 'date_from/date_to must match the first/last selected service_dates',
         reason: 'service_dates_mismatch',
       };
     }
+    serviceDatesOut = sortedGot;
   }
 
-  const expectedDuration = rentalDurationKeyFromDateRange(dateFrom, dateTo);
+  // Duration from selected day count (not calendar span) — gaps do not inflate rental days.
+  const expectedDuration = rentalDurationKeyFromSelectedDayCount(serviceDatesOut.length)
+    || rentalDurationKeyFromDateRange(dateFrom, dateTo);
   const seen = new Set();
   const rentals = [];
   for (let i = 0; i < b.rentals.length; i += 1) {
@@ -868,7 +893,7 @@ function prepareCanonicalRentalsForCreate(body, opts) {
   let bodyOut = {
     ...b,
     components,
-    service_dates: rangeDates,
+    service_dates: serviceDatesOut,
     date_from: dateFrom,
     date_to: dateTo,
   };
@@ -901,7 +926,7 @@ function prepareCanonicalRentalsForCreate(body, opts) {
     ok: true,
     present: true,
     rentals: rentalsOut,
-    rentalSpanDates: rangeDates,
+    rentalSpanDates: serviceDatesOut,
     pricingGroupId: crypto.randomBytes(8).toString('hex'),
     body: bodyOut,
   };
@@ -2143,21 +2168,16 @@ function validateScheduleBookingBody(body, opts) {
   const rentalPricing = normalizeRentalPricing(b.rental_pricing, components.value);
   if (!rentalPricing.ok) return rentalPricing;
   // Duration-priced catalog rentals may span multiple calendar days (2_days,
-  // 3_days, …). Reject only when the dates are non-contiguous or the duration
-  // key does not match the inclusive date span (e.g. half_day / 1_day with
-  // two dates). Single-day short packages still require exactly one date.
+  // 3_days, …), including nonconsecutive selected days. Duration key must match
+  // the selected day count (not the calendar span). Single-day short packages
+  // still require exactly one date.
   if (!rentalPricing.skip && serviceDates.value.length > 1) {
     const sortedDates = serviceDates.value.slice().sort();
-    const spanDates = inclusiveIsoDatesFromRange(sortedDates[0], sortedDates[sortedDates.length - 1]);
-    const contiguous = spanDates.length === sortedDates.length
-      && spanDates.every((d, i) => d === sortedDates[i]);
-    const expectedDuration = rentalDurationKeyFromDateRange(sortedDates[0], sortedDates[sortedDates.length - 1]);
-    if (!contiguous || rentalPricing.value.duration !== expectedDuration) {
+    const expectedDuration = rentalDurationKeyFromSelectedDayCount(sortedDates.length);
+    if (!expectedDuration || rentalPricing.value.duration !== expectedDuration) {
       return {
         ok: false,
-        error: contiguous
-          ? `rental_pricing.duration must be ${expectedDuration} for the selected dates`
-          : 'rental_pricing requires exactly one service date',
+        error: `rental_pricing.duration must be ${expectedDuration || 'N_days'} for the selected dates`,
       };
     }
   }
@@ -4350,14 +4370,20 @@ async function createSunsetScheduleBooking(pg, opts) {
   const requestedRentals = Array.isArray(bodyIn.rentals) ? bodyIn.rentals : [];
   const createDateFrom = String(opts.body && opts.body.date_from || '').slice(0, 10);
   const createDateTo = String(opts.body && opts.body.date_to || opts.body && opts.body.date_from || '').slice(0, 10);
-  const createSpanDates = inclusiveIsoDatesFromRange(createDateFrom, createDateTo);
+  const bodyServiceDates = Array.isArray(opts.body && opts.body.service_dates)
+    ? opts.body.service_dates.map((d) => String(d || '').slice(0, 10)).filter(Boolean)
+    : [];
+  const createSpanDates = bodyServiceDates.length
+    ? [...new Set(bodyServiceDates)].sort()
+    : inclusiveIsoDatesFromRange(createDateFrom, createDateTo);
   const genericPrep = await prepareGenericRentalsForCreate({
     clientSlug, locationId, pgClient: pg, rentals: requestedRentals,
-    serviceDate: createDateFrom, source: attribution.dbSource,
+    serviceDate: createSpanDates[0] || createDateFrom, source: attribution.dbSource,
     calendarDayCount: createSpanDates.length,
-    bookingDurationKey: rentalDurationKeyFromDateRange(createDateFrom, createDateTo),
-    dateFrom: createDateFrom,
-    dateTo: createDateTo,
+    bookingDurationKey: rentalDurationKeyFromSelectedDayCount(createSpanDates.length)
+      || rentalDurationKeyFromDateRange(createDateFrom, createDateTo),
+    dateFrom: createSpanDates[0] || createDateFrom,
+    dateTo: createSpanDates[createSpanDates.length - 1] || createDateTo,
     serviceDates: createSpanDates,
   });
   if (!genericPrep.ok) {
@@ -5448,6 +5474,7 @@ module.exports = {
   isExactOfferingFutureWriteKey,
   isComponentLaneRentalKey,
   rentalDurationKeyFromDateRange,
+  rentalDurationKeyFromSelectedDayCount,
   inclusiveIsoDatesFromRange,
   applyAuthoritativeQuoteAmounts,
   resolveAuthoritativeScheduleQuoteInTxn,

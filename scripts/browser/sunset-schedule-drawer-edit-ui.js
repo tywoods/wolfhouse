@@ -73,12 +73,24 @@ function scheduleDrawerDateRangeSeedDraft(){
   var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
     ? scheduleCreateDateRangeIsValidIso
     : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
-  if (valid(from)) {
+  var hidden = el('ps-drawer-service-dates');
+  var selected = typeof scheduleCreateServiceDatesParseHidden === 'function' && hidden
+    ? scheduleCreateServiceDatesParseHidden(hidden.value)
+    : [];
+  if (!selected.length && valid(from)) {
     if (!valid(to)) to = from;
-    return { start: from, end: to };
+    selected = typeof scheduleCreateServiceDatesFillRange === 'function'
+      ? scheduleCreateServiceDatesFillRange(from, to)
+      : [from];
+  }
+  if (selected.length) {
+    var bounds = typeof scheduleCreateServiceDatesCommittedBounds === 'function'
+      ? scheduleCreateServiceDatesCommittedBounds(selected)
+      : { from: selected[0], to: selected[selected.length - 1], selected: selected };
+    return { start: bounds.from, end: bounds.to, selected: bounds.selected };
   }
   var today = typeof scheduleTodayIso === 'function' ? scheduleTodayIso() : '';
-  return { start: today, end: today };
+  return { start: today, end: today, selected: today ? [today] : [] };
 }
 
 function scheduleDrawerDateRangeIsOpen(){
@@ -90,18 +102,31 @@ function scheduleSyncDrawerDateRangeUi(){
   var display = el('ps-drawer-date-range-display');
   var from = el('ps-drawer-date-from') ? el('ps-drawer-date-from').value : '';
   var to = el('ps-drawer-date-to') ? el('ps-drawer-date-to').value : from;
+  var hidden = el('ps-drawer-service-dates');
+  var selected = typeof scheduleCreateServiceDatesParseHidden === 'function' && hidden
+    ? scheduleCreateServiceDatesParseHidden(hidden.value)
+    : [];
   var textFn = typeof scheduleCreateDateRangeDisplayText === 'function'
     ? scheduleCreateDateRangeDisplayText
     : function(a, b){ return a === b || !b ? String(a || '') : (a + ' – ' + b); };
-  if (display) display.textContent = textFn(from, to || from);
+  if (display) {
+    if (selected.length) {
+      display.textContent = textFn(selected[0], selected[selected.length - 1]);
+    } else {
+      display.textContent = textFn(from, to || from);
+    }
+  }
   var apply = el('ps-drawer-date-range-apply');
   if (apply) {
     var draft = scheduleDrawerDateRangeDraft || {};
-    var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
-      ? scheduleCreateDateRangeIsValidIso
-      : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
-    var ready = !!(valid(draft.start) && (!draft.end || valid(draft.end)));
-    apply.disabled = !ready;
+    if (typeof scheduleCreateServiceDatesDraftReady === 'function') {
+      apply.disabled = !scheduleCreateServiceDatesDraftReady(draft);
+    } else {
+      var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
+        ? scheduleCreateDateRangeIsValidIso
+        : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+      apply.disabled = !(valid(draft.start) && (!draft.end || valid(draft.end)));
+    }
   }
 }
 
@@ -308,13 +333,23 @@ function scheduleRenderDrawerDateRangeCalendar(){
   var valid = typeof scheduleCreateDateRangeIsValidIso === 'function'
     ? scheduleCreateDateRangeIsValidIso
     : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
+  var selectedSet = {};
+  var normSel = typeof scheduleCreateServiceDatesNormalizeSelected === 'function'
+    ? scheduleCreateServiceDatesNormalizeSelected(draft.selected)
+    : (Array.isArray(draft.selected) ? draft.selected : []);
+  normSel.forEach(function(iso){ selectedSet[iso] = true; });
   cells.forEach(function(c){
     var cls = 'portal-schedule-create-date-range-day';
-    var selected = false;
+    var selected = !!selectedSet[c.iso];
     if (c.outside) cls += ' is-outside';
-    if (dStart && c.iso === dStart) { cls += ' is-selected-start is-selected'; selected = true; }
-    if (dEnd && c.iso === dEnd) { cls += ' is-selected-end is-selected'; selected = true; }
-    if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi) cls += ' is-in-range';
+    if (selected && dStart && c.iso === dStart) cls += ' is-selected-start';
+    if (selected && dEnd && c.iso === dEnd) cls += ' is-selected-end';
+    if (selected) cls += ' is-selected';
+    if (rangeLo && rangeHi && c.iso >= rangeLo && c.iso <= rangeHi && !selected) {
+      cls += ' is-in-range is-deselected';
+    } else if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi && selected) {
+      cls += ' is-in-range';
+    }
     var tab = (focusIso && c.iso === focusIso) ? '0' : '-1';
     var cellAria = scheduleDrawerDateCellAriaLabel(c.iso, localeTag);
     html += '<button type="button" class="' + cls + '" tabindex="' + tab
@@ -325,7 +360,13 @@ function scheduleRenderDrawerDateRangeCalendar(){
   grid.innerHTML = html;
   grid._dateRangeCells = cells;
   var apply = el('ps-drawer-date-range-apply');
-  if (apply) apply.disabled = !(valid(dStart) && (!dEnd || valid(dEnd)));
+  if (apply) {
+    if (typeof scheduleCreateServiceDatesDraftReady === 'function') {
+      apply.disabled = !scheduleCreateServiceDatesDraftReady(draft);
+    } else {
+      apply.disabled = !(valid(dStart) && (!dEnd || valid(dEnd)));
+    }
+  }
 }
 
 function scheduleApplyDrawerDateRangeDraft(){
@@ -335,12 +376,35 @@ function scheduleApplyDrawerDateRangeDraft(){
     : function(iso){ return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso || '').slice(0, 10)); };
   var start = draft.start ? String(draft.start).slice(0, 10) : '';
   if (!valid(start)) return false;
-  var end = draft.end ? String(draft.end).slice(0, 10) : start;
-  if (!valid(end)) return false;
+  var selected = typeof scheduleCreateServiceDatesNormalizeSelected === 'function'
+    ? scheduleCreateServiceDatesNormalizeSelected(draft.selected)
+    : (Array.isArray(draft.selected) ? draft.selected.slice() : []);
+  if (!selected.length) {
+    var end = draft.end ? String(draft.end).slice(0, 10) : start;
+    if (!valid(end)) return false;
+    selected = typeof scheduleCreateServiceDatesFillRange === 'function'
+      ? scheduleCreateServiceDatesFillRange(start, end)
+      : [start];
+  }
+  if (!selected.length) return false;
+  var bounds = typeof scheduleCreateServiceDatesCommittedBounds === 'function'
+    ? scheduleCreateServiceDatesCommittedBounds(selected)
+    : { from: selected[0], to: selected[selected.length - 1], selected: selected };
   var df = el('ps-drawer-date-from');
   var dt = el('ps-drawer-date-to');
-  if (df) df.value = start;
-  if (dt) dt.value = end;
+  if (df) df.value = bounds.from;
+  if (dt) dt.value = bounds.to;
+  if (typeof scheduleCreateServiceDatesWriteHidden === 'function') {
+    scheduleCreateServiceDatesWriteHidden(el('ps-drawer-service-dates'), bounds.selected);
+  } else {
+    var hid = el('ps-drawer-service-dates');
+    if (hid) hid.value = bounds.selected.join(',');
+  }
+  scheduleDrawerDateRangeDraft = {
+    start: bounds.from,
+    end: bounds.to,
+    selected: bounds.selected,
+  };
   try {
     if (df) df.dispatchEvent(new Event('change', { bubbles: true }));
     if (dt) dt.dispatchEvent(new Event('change', { bubbles: true }));
@@ -424,11 +488,13 @@ function scheduleWireDrawerDateRange(){
       var btn = t && t.closest ? t.closest('[data-date]') : null;
       if (!btn || !(grid.contains ? grid.contains(btn) : true)) return;
       var iso = btn.getAttribute('data-date');
-      var select = typeof scheduleCreateDateRangeSelectDay === 'function'
-        ? scheduleCreateDateRangeSelectDay
-        : null;
+      var select = typeof scheduleCreateServiceDatesSelectDay === 'function'
+        ? scheduleCreateServiceDatesSelectDay
+        : (typeof scheduleCreateDateRangeSelectDay === 'function'
+          ? scheduleCreateDateRangeSelectDay
+          : null);
       if (select) scheduleDrawerDateRangeDraft = select(scheduleDrawerDateRangeDraft, iso);
-      else scheduleDrawerDateRangeDraft = { start: iso, end: null };
+      else scheduleDrawerDateRangeDraft = { start: iso, end: null, selected: [iso] };
       scheduleDrawerDateRangeFocusIso = iso;
       scheduleRenderDrawerDateRangeCalendar();
       scheduleSyncDrawerDateRangeUi();
@@ -443,11 +509,13 @@ function scheduleWireDrawerDateRange(){
       var key = ev.key || ev.code;
       if (key === 'Enter' || key === ' ' || key === 'Spacebar' || key === 'Space') {
         if (ev.preventDefault) ev.preventDefault();
-        var select = typeof scheduleCreateDateRangeSelectDay === 'function'
-          ? scheduleCreateDateRangeSelectDay
-          : null;
+        var select = typeof scheduleCreateServiceDatesSelectDay === 'function'
+          ? scheduleCreateServiceDatesSelectDay
+          : (typeof scheduleCreateDateRangeSelectDay === 'function'
+            ? scheduleCreateDateRangeSelectDay
+            : null);
         if (select) scheduleDrawerDateRangeDraft = select(scheduleDrawerDateRangeDraft, iso);
-        else scheduleDrawerDateRangeDraft = { start: iso, end: null };
+        else scheduleDrawerDateRangeDraft = { start: iso, end: null, selected: [iso] };
         scheduleDrawerDateRangeFocusIso = iso;
         scheduleRenderDrawerDateRangeCalendar();
         scheduleSyncDrawerDateRangeUi();
@@ -1316,6 +1384,20 @@ function scheduleRenderEditableDrawerHtml(row, ctx) {
     escHtml(ctx.date_from || '') + '">';
   html += '<input id="ps-drawer-date-to" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden value="' +
     escHtml(ctx.date_to || ctx.date_from || '') + '">';
+  html += '<input id="ps-drawer-service-dates" type="hidden" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" value="' +
+    escHtml((function(){
+      var dates = Array.isArray(ctx.service_dates) ? ctx.service_dates.slice() : [];
+      if (!dates.length && ctx.date_from) {
+        var a = String(ctx.date_from).slice(0, 10);
+        var b = String(ctx.date_to || ctx.date_from).slice(0, 10);
+        if (typeof scheduleCreateServiceDatesFillRange === 'function') {
+          dates = scheduleCreateServiceDatesFillRange(a, b);
+        } else {
+          dates = a === b ? [a] : [a, b];
+        }
+      }
+      return (dates || []).map(function(d){ return String(d || '').slice(0, 10); }).filter(Boolean).sort().join(',');
+    })()) + '">';
   html += '</div>';
   // Booking-level Number of surfers — Create #ps-create-surfers parity (always under Dates).
   html += '<div class="portal-schedule-create-field" id="ps-drawer-surfers-field">' +
@@ -1585,9 +1667,30 @@ function scheduleDrawerSeedRentalsFromCtx(){
 }
 
 function scheduleDrawerDateSpan(){
+  var hidden = el('ps-drawer-service-dates');
+  var selected = typeof scheduleCreateServiceDatesParseHidden === 'function' && hidden
+    ? scheduleCreateServiceDatesParseHidden(hidden.value)
+    : [];
+  if (selected.length) {
+    return {
+      from: selected[0],
+      to: selected[selected.length - 1],
+      selected: selected,
+    };
+  }
   var from=el('ps-drawer-date-from')?el('ps-drawer-date-from').value:'';
   var to=el('ps-drawer-date-to')?el('ps-drawer-date-to').value:from;
-  return {from:from,to:to||from};
+  return {from:from,to:to||from,selected:null};
+}
+
+function scheduleDrawerSelectedDates(){
+  var span = scheduleDrawerDateSpan();
+  if (span && Array.isArray(span.selected) && span.selected.length) return span.selected.slice();
+  if (span && span.from && typeof scheduleCreateServiceDatesFillRange === 'function') {
+    return scheduleCreateServiceDatesFillRange(span.from, span.to || span.from);
+  }
+  if (span && span.from) return [String(span.from).slice(0, 10)];
+  return [];
 }
 
 /**
@@ -1902,9 +2005,13 @@ function scheduleRenderDrawerRentals() {
     });
   }
   var span = scheduleDrawerDateSpan();
-  var dateDuration = typeof scheduleRentalDurationKeyFromDates === 'function'
-    ? scheduleRentalDurationKeyFromDates(span.from, span.to, scheduleEnumerateDates)
-    : null;
+  var dateDuration = null;
+  if (span && Array.isArray(span.selected) && span.selected.length) {
+    var nSel = span.selected.length;
+    dateDuration = nSel === 1 ? '1_day' : (String(nSel) + '_days');
+  } else if (typeof scheduleRentalDurationKeyFromDates === 'function') {
+    dateDuration = scheduleRentalDurationKeyFromDates(span.from, span.to, scheduleEnumerateDates);
+  }
   var locationId = typeof getSunsetLocation === 'function' ? getSunsetLocation() : '';
   var clientSlug = typeof getClient === 'function' ? String(getClient() || '').trim() : '';
   var prices = (typeof scheduleAdminPricesCache !== 'undefined' && scheduleAdminPricesCache) || [];
@@ -3349,6 +3456,7 @@ function scheduleDrawerRefreshQuote() {
         guest_phone: payload.guest_phone != null ? payload.guest_phone : '',
         date_from: payload.date_from,
         date_to: payload.date_to,
+        service_dates: Array.isArray(payload.service_dates) ? payload.service_dates : [],
         components: payload.components,
         lessons: Array.isArray(payload.lessons) ? payload.lessons : [],
         rentals: Array.isArray(payload.rentals) ? payload.rentals : [],
@@ -3607,9 +3715,16 @@ function scheduleDrawerValidateEditPayload(payload) {
 function scheduleReadDrawerEditPayload() {
   var guest = (el('ps-drawer-guest') && el('ps-drawer-guest').value || '').trim();
   var phone = (el('ps-drawer-phone') && el('ps-drawer-phone').value || '').trim();
+  var selectedDates = typeof scheduleDrawerSelectedDates === 'function'
+    ? scheduleDrawerSelectedDates()
+    : [];
   var span = scheduleDrawerDateSpan();
-  var dateFrom = span.from;
-  var dateTo = span.to || dateFrom;
+  var dateFrom = selectedDates.length ? selectedDates[0] : span.from;
+  var dateTo = selectedDates.length ? selectedDates[selectedDates.length - 1] : (span.to || dateFrom);
+  var serviceDatesDayCount = selectedDates.length
+    || (typeof schedulePortalInclusiveDateCount === 'function'
+      ? schedulePortalInclusiveDateCount(dateFrom, dateTo)
+      : 0);
   var paymentSel = el('ps-drawer-payment') ? el('ps-drawer-payment').value : 'unpaid';
   var pm = scheduleParsePaymentSelectValue(paymentSel);
   var notes = (el('ps-drawer-notes') && el('ps-drawer-notes').value || '').trim();
@@ -3653,7 +3768,9 @@ function scheduleReadDrawerEditPayload() {
         course_label: courseLabel || '',
       };
       var derivedOne = typeof schedulePortalResolveDerivedCourseTier === 'function'
-        ? schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo)
+        ? schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo, {
+          dayCount: serviceDatesDayCount,
+        })
         : null;
       if (derivedOne && derivedOne.ok && derivedOne.tier_key) {
         row.tier_key = derivedOne.tier_key;
@@ -3771,6 +3888,11 @@ function scheduleReadDrawerEditPayload() {
     guest_phone: phone || null,
     date_from: dateFrom,
     date_to: dateTo,
+    service_dates: selectedDates.length ? selectedDates.slice() : (
+      typeof scheduleCreateServiceDatesFillRange === 'function'
+        ? scheduleCreateServiceDatesFillRange(dateFrom, dateTo)
+        : []
+    ),
     payment_status: pm.status,
     payment_method: pm.method,
     notes: notes,

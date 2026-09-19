@@ -912,6 +912,30 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     };
   }
   const link = stripeLink;
+  const detailServiceDates = (() => {
+    try {
+      const intent = pricingIntentFromBundle(bundle);
+      if (intent && Array.isArray(intent.service_dates) && intent.service_dates.length) {
+        return intent.service_dates.slice();
+      }
+    } catch (_e) { /* fall through */ }
+    if (agg.date_from) {
+      const from = String(agg.date_from).slice(0, 10);
+      const to = String(agg.date_to || agg.date_from).slice(0, 10);
+      const out = [];
+      let cur = from;
+      let guard = 0;
+      while (cur && cur <= to && guard < 31) {
+        out.push(cur);
+        const d = new Date(`${cur}T12:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + 1);
+        cur = d.toISOString().slice(0, 10);
+        guard += 1;
+      }
+      return out;
+    }
+    return [];
+  })();
 
   return {
     ok: true,
@@ -929,6 +953,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       payment_method: payment.payment_status === 'paid' ? (normalizePaymentMethod(meta.sunset_payment_method) || null) : null,
       date_from: agg.date_from,
       date_to: agg.date_to,
+      service_dates: detailServiceDates,
       components: agg.components,
       course_equipment: course_equipment || null,
       lessons: canonicalLessonsFromBundle(bundle, agg, meta),
@@ -1378,18 +1403,28 @@ async function updateSunsetScheduleBooking(pg, opts) {
   const requestedRentals = Array.isArray(requestBody.rentals) ? requestBody.rentals : [];
   const dateFromForRental = String(requestBody.date_from || '').slice(0, 10);
   const dateToForRental = String(requestBody.date_to || requestBody.date_from || '').slice(0, 10);
-  const editSpanDates = inclusiveIsoDatesFromRange(dateFromForRental, dateToForRental);
+  const bodyServiceDates = Array.isArray(requestBody.service_dates)
+    ? requestBody.service_dates.map((d) => String(d || '').slice(0, 10)).filter(Boolean)
+    : [];
+  const editSpanDates = bodyServiceDates.length
+    ? [...new Set(bodyServiceDates)].sort()
+    : inclusiveIsoDatesFromRange(dateFromForRental, dateToForRental);
+  const editDurationKey = editSpanDates.length === 1
+    ? '1_day'
+    : (editSpanDates.length > 1
+      ? `${editSpanDates.length}_days`
+      : rentalDurationKeyFromDateRange(dateFromForRental, dateToForRental));
   const genericPrep = await prepareGenericRentalsForCreate({
     clientSlug,
     locationId: activeLocationId,
     pgClient: pg,
     rentals: requestedRentals,
-    serviceDate: dateFromForRental,
+    serviceDate: editSpanDates[0] || dateFromForRental,
     source: DB_SOURCE,
     calendarDayCount: editSpanDates.length,
-    bookingDurationKey: rentalDurationKeyFromDateRange(dateFromForRental, dateToForRental),
-    dateFrom: dateFromForRental,
-    dateTo: dateToForRental,
+    bookingDurationKey: editDurationKey,
+    dateFrom: editSpanDates[0] || dateFromForRental,
+    dateTo: editSpanDates[editSpanDates.length - 1] || dateToForRental,
     serviceDates: editSpanDates,
   });
   if (!genericPrep.ok) {

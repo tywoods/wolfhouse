@@ -18312,7 +18312,8 @@ body > .portal-schedule-drawer{position:fixed;z-index:9800;pointer-events:auto}
 .portal-schedule-create-date-range-past-warn{margin:0 0 8px;font-size:13px;color:var(--danger,#b33)}
 .portal-schedule-create-date-range-uncovered-warn{margin:0 0 8px;font-size:13px;color:#8a6100}
 .portal-schedule-create-date-range-day.is-in-range{background:rgba(78,88,83,.14)}
-.portal-schedule-create-date-range-day.is-selected-start,.portal-schedule-create-date-range-day.is-selected-end,.portal-schedule-create-date-range-day.is-selected{background:var(--sched-primary,#4E5853);color:#fff;font-weight:700}
+.portal-schedule-create-date-range-day.is-deselected{opacity:.55;text-decoration:line-through}
+.portal-schedule-create-date-range-day.is-selected-start,.portal-schedule-create-date-range-day.is-selected-end,.portal-schedule-create-date-range-day.is-selected{background:var(--sched-primary,#4E5853);color:#fff;font-weight:700;opacity:1;text-decoration:none}
 .portal-schedule-create-date-range-day:focus-visible{outline:2px solid var(--sched-primary,#4E5853);outline-offset:1px}
 .portal-schedule-create-date-range-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;justify-content:flex-end;scroll-margin-bottom:168px;position:relative;z-index:4}
 .portal-schedule-create-date-range-actions .btn{min-height:44px;min-width:0;flex:1 1 auto}
@@ -22314,6 +22315,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           <!-- Canonical compatibility state for quote / private sessions / rentals / summary / create payload. -->
           <input id="ps-create-date-from" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden>
           <input id="ps-create-date-to" type="date" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" hidden>
+          <input id="ps-create-service-dates" type="hidden" class="portal-schedule-create-date-hidden" tabindex="-1" aria-hidden="true" value="">
         </div>
         <div class="portal-schedule-create-field" id="ps-create-surfers-field">
           <label for="ps-create-surfers" data-i18n="schedule.create.surferCount">Number of surfers</label>
@@ -27621,8 +27623,19 @@ function scheduleParseCreatePaymentChoice(raw){
 function scheduleReadCreatePayload(){
   var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
   var phone = (el('ps-create-phone') && el('ps-create-phone').value || '').trim();
-  var dateFrom = el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso();
-  var dateTo = el('ps-create-date-to') ? el('ps-create-date-to').value : dateFrom;
+  var selectedDates = typeof scheduleCreateSelectedDates === 'function'
+    ? scheduleCreateSelectedDates()
+    : [];
+  var dateFrom = selectedDates.length
+    ? selectedDates[0]
+    : (el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso());
+  var dateTo = selectedDates.length
+    ? selectedDates[selectedDates.length - 1]
+    : (el('ps-create-date-to') ? el('ps-create-date-to').value : dateFrom);
+  var serviceDatesDayCount = selectedDates.length
+    || (typeof schedulePortalInclusiveDateCount === 'function'
+      ? schedulePortalInclusiveDateCount(dateFrom, dateTo)
+      : 0);
   var paymentChoice = scheduleParseCreatePaymentChoice(el('ps-create-payment') ? el('ps-create-payment').value : 'unpaid');
   var payment = paymentChoice.payment_status;
   var paymentMethod = paymentChoice.payment_method;
@@ -27666,9 +27679,11 @@ function scheduleReadCreatePayload(){
         course_id: courseId,
         course_label: courseLabel || '',
       };
-      // Each selected course resolves its own tier for the booking date span.
+      // Each selected course resolves its own tier from selected service-day count.
       var derived = typeof schedulePortalResolveDerivedCourseTier === 'function'
-        ? schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo)
+        ? schedulePortalResolveDerivedCourseTier(courseId, dateFrom, dateTo, {
+          dayCount: serviceDatesDayCount,
+        })
         : null;
       if (derived && derived.ok && derived.tier_key) {
         row.tier_key = derived.tier_key;
@@ -27737,6 +27752,7 @@ function scheduleReadCreatePayload(){
     guest_phone: phone || null,
     date_from: dateFrom,
     date_to: dateTo,
+    service_dates: selectedDates.length ? selectedDates.slice() : scheduleCreateServiceDatesFillRange(dateFrom, dateTo),
     payment_status: payment,
     payment_method: paymentMethod,
     notes: notes,
@@ -27834,6 +27850,122 @@ function scheduleCreateDateRangeSelectDay(state, iso){
   return { start: start, end: iso };
 }
 
+/**
+ * BOOKING-NONCONSECUTIVE-DAYS-001 — Create/Edit service-day calendar.
+ * Consecutive range first, then tap days off. Accommodation keeps SelectDay.
+ * Draft: { start, end, selected: YYYY-MM-DD[] }.
+ */
+function scheduleCreateServiceDatesFillRange(start, end){
+  start = start ? String(start).slice(0, 10) : '';
+  end = end ? String(end).slice(0, 10) : start;
+  if (!scheduleCreateDateRangeIsValidIso(start)) return [];
+  if (!scheduleCreateDateRangeIsValidIso(end)) end = start;
+  var lo = start <= end ? start : end;
+  var hi = start <= end ? end : start;
+  if (typeof scheduleEnumerateDates === 'function') {
+    return (scheduleEnumerateDates(lo, hi) || []).slice();
+  }
+  var out = [];
+  var cur = scheduleParseIso(lo);
+  var last = scheduleParseIso(hi);
+  var guard = 0;
+  while (cur && last && cur.getTime() <= last.getTime() && guard < 120) {
+    out.push(scheduleIsoDate(cur));
+    cur = scheduleAddDays(cur, 1);
+    guard += 1;
+  }
+  return out;
+}
+
+function scheduleCreateServiceDatesNormalizeSelected(dates){
+  var seen = {};
+  var out = [];
+  (Array.isArray(dates) ? dates : []).forEach(function(d){
+    var iso = String(d || '').slice(0, 10);
+    if (!scheduleCreateDateRangeIsValidIso(iso) || seen[iso]) return;
+    seen[iso] = true;
+    out.push(iso);
+  });
+  out.sort();
+  return out;
+}
+
+function scheduleCreateServiceDatesSelectDay(state, iso){
+  state = state || {};
+  var start = state.start ? String(state.start).slice(0, 10) : null;
+  var end = state.end ? String(state.end).slice(0, 10) : null;
+  var selected = scheduleCreateServiceDatesNormalizeSelected(state.selected);
+  iso = String(iso || '').slice(0, 10);
+  if (!scheduleCreateDateRangeIsValidIso(iso)) {
+    return { start: start, end: end, selected: selected };
+  }
+  if (scheduleCreateDateRangeIsPastIso(iso)) {
+    return { start: start, end: end, selected: selected };
+  }
+  // No start yet — begin a new range.
+  if (!start) {
+    return { start: iso, end: null, selected: [iso] };
+  }
+  // Range complete: tap inside span toggles day off/on; outside restarts.
+  if (start && end) {
+    var lo = start <= end ? start : end;
+    var hi = start <= end ? end : start;
+    if (iso < lo || iso > hi) {
+      return { start: iso, end: null, selected: [iso] };
+    }
+    var idx = selected.indexOf(iso);
+    if (idx >= 0) {
+      if (selected.length <= 1) {
+        return { start: start, end: end, selected: selected };
+      }
+      selected = selected.slice(0, idx).concat(selected.slice(idx + 1));
+    } else {
+      selected = scheduleCreateServiceDatesNormalizeSelected(selected.concat([iso]));
+    }
+    return { start: start, end: end, selected: selected };
+  }
+  // Second click: earlier day restarts; otherwise close range and fill selected.
+  if (iso < start) {
+    return { start: iso, end: null, selected: [iso] };
+  }
+  var filled = scheduleCreateServiceDatesFillRange(start, iso);
+  return { start: start, end: iso, selected: filled };
+}
+
+function scheduleCreateServiceDatesDraftReady(draft){
+  draft = draft || {};
+  var start = draft.start ? String(draft.start).slice(0, 10) : '';
+  if (!scheduleCreateDateRangeIsValidIso(start)) return false;
+  if (scheduleCreateDateRangeDraftHasPast(draft)) return false;
+  var selected = scheduleCreateServiceDatesNormalizeSelected(draft.selected);
+  if (selected.length) return true;
+  // Start-only (one-day) is Apply-ready — same as consecutive range picker.
+  return true;
+}
+
+function scheduleCreateServiceDatesCommittedBounds(selected){
+  selected = scheduleCreateServiceDatesNormalizeSelected(selected);
+  if (!selected.length) return { from: '', to: '', selected: [] };
+  return { from: selected[0], to: selected[selected.length - 1], selected: selected };
+}
+
+function scheduleCreateServiceDatesParseHidden(raw){
+  var s = String(raw || '').trim();
+  if (!s) return [];
+  if (s.charAt(0) === '[') {
+    try {
+      var parsed = JSON.parse(s);
+      return scheduleCreateServiceDatesNormalizeSelected(parsed);
+    } catch (_e) { /* fall through */ }
+  }
+  return scheduleCreateServiceDatesNormalizeSelected(s.split(/[,\s]+/));
+}
+
+function scheduleCreateServiceDatesWriteHidden(inputEl, dates){
+  if (!inputEl) return;
+  inputEl.value = scheduleCreateServiceDatesNormalizeSelected(dates).join(',');
+}
+
 /** Shift an ISO day by delta days (pure; used by roving-grid keyboard nav). */
 function scheduleCreateDateRangeAddDays(iso, delta){
   iso = String(iso || '').slice(0, 10);
@@ -27862,12 +27994,25 @@ function scheduleCreateDateRangeWeekEndIso(iso){
 function scheduleCreateDateRangeSeedDraft(){
   var from = el('ps-create-date-from') ? String(el('ps-create-date-from').value || '').slice(0, 10) : '';
   var to = el('ps-create-date-to') ? String(el('ps-create-date-to').value || '').slice(0, 10) : '';
-  if (scheduleCreateDateRangeIsValidIso(from)) {
+  var hidden = el('ps-create-service-dates');
+  var selected = [];
+  if (hidden && typeof scheduleCreateServiceDatesParseHidden === 'function') {
+    selected = scheduleCreateServiceDatesParseHidden(hidden.value);
+  }
+  if (!selected.length && scheduleCreateDateRangeIsValidIso(from)) {
     if (!scheduleCreateDateRangeIsValidIso(to)) to = from;
-    return { start: from, end: to };
+    selected = typeof scheduleCreateServiceDatesFillRange === 'function'
+      ? scheduleCreateServiceDatesFillRange(from, to)
+      : [from];
+  }
+  if (selected.length) {
+    var bounds = typeof scheduleCreateServiceDatesCommittedBounds === 'function'
+      ? scheduleCreateServiceDatesCommittedBounds(selected)
+      : { from: selected[0], to: selected[selected.length - 1], selected: selected };
+    return { start: bounds.from, end: bounds.to, selected: bounds.selected };
   }
   var today = scheduleTodayIso();
-  return { start: today, end: today };
+  return { start: today, end: today, selected: [today] };
 }
 
 /**
@@ -27927,13 +28072,32 @@ function scheduleCreateDateRangeIsOpen(){
 
 function scheduleSyncCreateDateRangeUi(){
   var display = el('ps-create-date-range-display');
+  var hidden = el('ps-create-service-dates');
+  var selected = [];
+  if (hidden && typeof scheduleCreateServiceDatesParseHidden === 'function') {
+    selected = scheduleCreateServiceDatesParseHidden(hidden.value);
+  }
   var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
   var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
-  if (display) display.textContent = scheduleCreateDateRangeDisplayText(from, to || from);
+  if (!selected.length && from && typeof scheduleCreateServiceDatesFillRange === 'function') {
+    selected = scheduleCreateServiceDatesFillRange(from, to || from);
+  }
+  if (display) {
+    if (selected.length && typeof scheduleCreateServiceDatesCommittedBounds === 'function') {
+      var bounds = scheduleCreateServiceDatesCommittedBounds(selected);
+      display.textContent = scheduleCreateDateRangeDisplayText(bounds.from, bounds.to);
+    } else {
+      display.textContent = scheduleCreateDateRangeDisplayText(from, to || from);
+    }
+  }
   var apply = el('ps-create-date-range-apply');
   if (apply) {
     var draft = scheduleCreateDateRangeDraft || {};
-    apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
+    if (typeof scheduleCreateServiceDatesDraftReady === 'function') {
+      apply.disabled = !scheduleCreateServiceDatesDraftReady(draft);
+    } else {
+      apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
+    }
   }
   scheduleCreateDateRangeSyncPastWarning('ps-create-date-range-past-warn', scheduleCreateDateRangeDraft || {});
 }
@@ -28051,6 +28215,14 @@ function scheduleRenderCreateDateRangeCalendar(){
   var draft = scheduleCreateDateRangeDraft || {};
   var dStart = draft.start || null;
   var dEnd = draft.end || null;
+  var selectedSet = {};
+  var normSel = typeof scheduleCreateServiceDatesNormalizeSelected === 'function'
+    ? scheduleCreateServiceDatesNormalizeSelected(draft.selected)
+    : (Array.isArray(draft.selected) ? draft.selected : []);
+  normSel.forEach(function(iso){
+    selectedSet[iso] = true;
+  });
+  // Span highlight uses original range; selected days drive pressed state.
   var rangeLo = dStart && dEnd ? (dStart < dEnd ? dStart : dEnd) : dStart;
   var rangeHi = dStart && dEnd ? (dStart < dEnd ? dEnd : dStart) : dEnd;
   var minIso = scheduleCreateDateRangeMinIso();
@@ -28109,14 +28281,19 @@ function scheduleRenderCreateDateRangeCalendar(){
   }
   cells.forEach(function(c){
     var cls = 'portal-schedule-create-date-range-day';
-    var selected = false;
+    var selected = !!selectedSet[c.iso];
     var isPast = !!(minIso && scheduleCreateDateRangeIsValidIso(c.iso) && c.iso < minIso);
     if (c.outside) cls += ' is-outside';
     if (isPast) cls += ' is-past';
-    if (dStart && c.iso === dStart) { cls += ' is-selected-start is-selected'; selected = true; }
-    if (dEnd && c.iso === dEnd) { cls += ' is-selected-end is-selected'; selected = true; }
-    // Inclusive highlight between start and end (same-day gets selected classes only).
-    if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi) cls += ' is-in-range';
+    if (selected && dStart && c.iso === dStart) cls += ' is-selected-start';
+    if (selected && dEnd && c.iso === dEnd) cls += ' is-selected-end';
+    if (selected) cls += ' is-selected';
+    // Inclusive span highlight (deselected days stay in-range, not selected).
+    if (rangeLo && rangeHi && c.iso >= rangeLo && c.iso <= rangeHi && !selected) {
+      cls += ' is-in-range is-deselected';
+    } else if (rangeLo && rangeHi && c.iso > rangeLo && c.iso < rangeHi && selected) {
+      cls += ' is-in-range';
+    }
     var tab = (focusIso && c.iso === focusIso) ? '0' : '-1';
     // Real date buttons (no gridcell): roving tabindex + aria-pressed selected state.
     html += '<button type="button" class="' + cls + '" tabindex="' + tab
@@ -28130,7 +28307,13 @@ function scheduleRenderCreateDateRangeCalendar(){
   // Expose parsed cells for lightweight runtime behavioral tests / focus helpers.
   grid._dateRangeCells = cells;
   var apply = el('ps-create-date-range-apply');
-  if (apply) apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
+  if (apply) {
+    if (typeof scheduleCreateServiceDatesDraftReady === 'function') {
+      apply.disabled = !scheduleCreateServiceDatesDraftReady(draft);
+    } else {
+      apply.disabled = !scheduleCreateDateRangeDraftReady(draft);
+    }
+  }
   scheduleCreateDateRangeSyncPastWarning('ps-create-date-range-past-warn', draft);
 }
 
@@ -28142,14 +28325,33 @@ function scheduleApplyCreateDateRangeDraft(){
   }
   var start = draft.start ? String(draft.start).slice(0, 10) : '';
   if (!scheduleCreateDateRangeIsValidIso(start)) return false;
-  // One-day: start-only draft commits date_from = date_to = start.
-  // Multi-day: second-click end (or same-day second click) when present.
-  var end = draft.end ? String(draft.end).slice(0, 10) : start;
-  if (!scheduleCreateDateRangeIsValidIso(end)) return false;
+  var selected = typeof scheduleCreateServiceDatesNormalizeSelected === 'function'
+    ? scheduleCreateServiceDatesNormalizeSelected(draft.selected)
+    : (Array.isArray(draft.selected) ? draft.selected.slice() : []);
+  if (!selected.length) {
+    // One-day: start-only draft commits date_from = date_to = start.
+    var endOnly = draft.end ? String(draft.end).slice(0, 10) : start;
+    if (!scheduleCreateDateRangeIsValidIso(endOnly)) return false;
+    selected = typeof scheduleCreateServiceDatesFillRange === 'function'
+      ? scheduleCreateServiceDatesFillRange(start, endOnly)
+      : [start];
+  }
+  if (!selected.length) return false;
+  var bounds = typeof scheduleCreateServiceDatesCommittedBounds === 'function'
+    ? scheduleCreateServiceDatesCommittedBounds(selected)
+    : { from: selected[0], to: selected[selected.length - 1], selected: selected };
   var df = el('ps-create-date-from');
   var dt = el('ps-create-date-to');
-  if (df) df.value = start;
-  if (dt) dt.value = end;
+  if (df) df.value = bounds.from;
+  if (dt) dt.value = bounds.to;
+  if (typeof scheduleCreateServiceDatesWriteHidden === 'function') {
+    scheduleCreateServiceDatesWriteHidden(el('ps-create-service-dates'), bounds.selected);
+  }
+  scheduleCreateDateRangeDraft = {
+    start: bounds.from,
+    end: bounds.to,
+    selected: bounds.selected,
+  };
   // Fire change so existing private sessions / rentals / quote wiring stays intact.
   try {
     if (df) df.dispatchEvent(new Event('change', { bubbles: true }));
@@ -28164,7 +28366,9 @@ function scheduleApplyCreateDateRangeDraft(){
     if (typeof scheduleUpdateCreateTotalPreview === 'function') scheduleUpdateCreateTotalPreview();
   }
   scheduleSyncCreateDateRangeUi();
-  scheduleCreateDateRangeSyncPastWarning('ps-create-date-range-past-warn', { start: start, end: end });
+  scheduleCreateDateRangeSyncPastWarning('ps-create-date-range-past-warn', {
+    start: bounds.from, end: bounds.to,
+  });
   scheduleCreateDateRangeClosePopover({ restoreFocus: true, applied: true, discard: false });
   return true;
 }
@@ -28233,7 +28437,7 @@ function scheduleWireCreateDateRange(){
       if (!btn || !(grid.contains ? grid.contains(btn) : true)) return;
       if (btn.disabled || btn.classList.contains('is-past')) return;
       var iso = btn.getAttribute('data-date');
-      scheduleCreateDateRangeDraft = scheduleCreateDateRangeSelectDay(scheduleCreateDateRangeDraft, iso);
+      scheduleCreateDateRangeDraft = scheduleCreateServiceDatesSelectDay(scheduleCreateDateRangeDraft, iso);
       scheduleCreateDateRangeFocusIso = iso;
       scheduleRenderCreateDateRangeCalendar();
       scheduleSyncCreateDateRangeUi();
@@ -28250,7 +28454,7 @@ function scheduleWireCreateDateRange(){
       var key = ev.key || ev.code;
       if (key === 'Enter' || key === ' ' || key === 'Spacebar' || key === 'Space') {
         if (ev.preventDefault) ev.preventDefault();
-        scheduleCreateDateRangeDraft = scheduleCreateDateRangeSelectDay(scheduleCreateDateRangeDraft, iso);
+        scheduleCreateDateRangeDraft = scheduleCreateServiceDatesSelectDay(scheduleCreateDateRangeDraft, iso);
         scheduleCreateDateRangeFocusIso = iso;
         scheduleRenderCreateDateRangeCalendar();
         scheduleSyncCreateDateRangeUi();
@@ -28340,10 +28544,16 @@ function scheduleWireCreateMainActivityButtons(){
 }
 
 function scheduleCreateDateSpanForRentals(){
-  // Top-level From/To are authoritative for rentals (including private + gear).
+  // Selected service days are authoritative for rentals (gaps OK).
+  var selected = typeof scheduleCreateSelectedDates === 'function'
+    ? scheduleCreateSelectedDates()
+    : [];
+  if (selected.length) {
+    return { from: selected[0], to: selected[selected.length - 1], selected: selected };
+  }
   var from = el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso();
   var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
-  return { from: from, to: to || from };
+  return { from: from, to: to || from, selected: null };
 }
 
 function scheduleReadCreateRentalSelectionFromDom(){
@@ -28355,7 +28565,10 @@ function scheduleReadCreateRentalSelectionFromDom(){
     ? scheduleCreateDateSpanForRentals()
     : null;
   var dateDur = null;
-  if (span && span.from && typeof scheduleRentalDurationKeyFromDates === 'function') {
+  if (span && Array.isArray(span.selected) && span.selected.length) {
+    var nSel = span.selected.length;
+    dateDur = nSel === 1 ? '1_day' : (String(nSel) + '_days');
+  } else if (span && span.from && typeof scheduleRentalDurationKeyFromDates === 'function') {
     dateDur = scheduleRentalDurationKeyFromDates(
       span.from, span.to || span.from, scheduleEnumerateDates,
     );
@@ -29896,21 +30109,16 @@ function scheduleCourseSummary(weekly){
 }
 
 function scheduleCreateSelectedDates(){
+  var hidden = el('ps-create-service-dates');
+  if (hidden) {
+    var fromHidden = scheduleCreateServiceDatesParseHidden(hidden.value);
+    if (fromHidden.length) return fromHidden;
+  }
   var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
   var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
   if (!from) return [];
   if (!to) to = from;
-  var out = [];
-  var cur = scheduleParseIso(from);
-  var end = scheduleParseIso(to);
-  if (!cur || !end) return from ? [String(from).slice(0, 10)] : [];
-  var guard = 0;
-  while (cur.getTime() <= end.getTime() && guard < 120){
-    out.push(scheduleIsoDate(cur));
-    cur = scheduleAddDays(cur, 1);
-    guard += 1;
-  }
-  return out;
+  return scheduleCreateServiceDatesFillRange(from, to);
 }
 
 function scheduleCourseEligibleOnDates(course, dates){

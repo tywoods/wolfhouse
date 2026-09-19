@@ -134,6 +134,21 @@ function makeSandbox() {
     scheduleCreateDateRangeDraft: { start: null, end: null },
     scheduleCreateDateRangeViewYm: '2026-08',
     scheduleCreateDateRangeFocusIso: null,
+    scheduleEnumerateDates(from, to) {
+      const out = [];
+      let cur = String(from).slice(0, 10);
+      const end = String(to).slice(0, 10);
+      let g = 0;
+      while (cur <= end && g < 40) {
+        out.push(cur);
+        const d = new Date(cur + 'T12:00:00Z');
+        d.setUTCDate(d.getUTCDate() + 1);
+        cur = d.toISOString().slice(0, 10);
+        g += 1;
+      }
+      return out;
+    },
+    scheduleAddDays(d, n) { const x = new Date(d.getTime()); x.setDate(x.getDate() + n); return x; },
   };
 
   vm.createContext(ctx);
@@ -146,6 +161,13 @@ function makeSandbox() {
     'scheduleCreateDateRangePastMessage',
     'scheduleCreateDateRangeSyncPastWarning',
     'scheduleCreateDateRangeSelectDay',
+    'scheduleCreateServiceDatesFillRange',
+    'scheduleCreateServiceDatesNormalizeSelected',
+    'scheduleCreateServiceDatesSelectDay',
+    'scheduleCreateServiceDatesDraftReady',
+    'scheduleCreateServiceDatesCommittedBounds',
+    'scheduleCreateServiceDatesParseHidden',
+    'scheduleCreateServiceDatesWriteHidden',
     'scheduleCreateDateRangeFormatShort',
     'scheduleCreateDateRangeDisplayText',
     'scheduleSyncCreateDateRangeUi',

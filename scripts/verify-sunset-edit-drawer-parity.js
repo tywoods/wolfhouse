@@ -615,6 +615,31 @@ function buildEditRuntime(editSrc, apiSrc, opts) {
     type: 'date',
     hidden: true,
   });
+  const seedFrom = opts.dateFrom || '2026-07-20';
+  const seedTo = opts.dateTo || opts.dateFrom || '2026-07-22';
+  // Contiguous seed list for Cap service_dates reopen (FillRange-equivalent).
+  const seedDates = (() => {
+    const out = [];
+    const a = seedFrom.split('-').map(Number);
+    const b = seedTo.split('-').map(Number);
+    const cur = new Date(a[0], a[1] - 1, a[2]);
+    const end = new Date(b[0], b[1] - 1, b[2]);
+    let guard = 0;
+    while (cur.getTime() <= end.getTime() && guard < 40) {
+      out.push(
+        cur.getFullYear() + '-'
+        + String(cur.getMonth() + 1).padStart(2, '0') + '-'
+        + String(cur.getDate()).padStart(2, '0')
+      );
+      cur.setDate(cur.getDate() + 1);
+      guard += 1;
+    }
+    return out;
+  })();
+  makeNode('ps-drawer-service-dates', {
+    value: seedDates.join(','),
+    type: 'hidden',
+  });
   makeNode('ps-drawer-date-range', {});
   makeNode('outside-click-target', {});
 
@@ -663,7 +688,18 @@ function buildEditRuntime(editSrc, apiSrc, opts) {
 
   const pureNames = [
     'scheduleCreateDateRangeIsValidIso',
+    'scheduleCreateDateRangeMinIso',
+    'scheduleCreateDateRangeIsPastIso',
+    'scheduleCreateDateRangeDraftHasPast',
+    'scheduleCreateDateRangeDraftReady',
     'scheduleCreateDateRangeSelectDay',
+    'scheduleCreateServiceDatesFillRange',
+    'scheduleCreateServiceDatesNormalizeSelected',
+    'scheduleCreateServiceDatesSelectDay',
+    'scheduleCreateServiceDatesDraftReady',
+    'scheduleCreateServiceDatesCommittedBounds',
+    'scheduleCreateServiceDatesParseHidden',
+    'scheduleCreateServiceDatesWriteHidden',
     'scheduleCreateDateRangeAddDays',
     'scheduleCreateDateRangeWeekStartIso',
     'scheduleCreateDateRangeWeekEndIso',
@@ -737,6 +773,25 @@ function buildEditRuntime(editSrc, apiSrc, opts) {
     scheduleParseIso,
     scheduleIsoDate,
     scheduleTodayIso,
+    scheduleEnumerateDates(from, to) {
+      const out = [];
+      const a = scheduleParseIso(from);
+      const b = scheduleParseIso(to);
+      if (!a || !b) return out;
+      const cur = new Date(a.getTime());
+      let guard = 0;
+      while (cur.getTime() <= b.getTime() && guard < 120) {
+        out.push(scheduleIsoDate(cur));
+        cur.setDate(cur.getDate() + 1);
+        guard += 1;
+      }
+      return out;
+    },
+    scheduleAddDays(d, n) {
+      const x = new Date(d.getTime());
+      x.setDate(x.getDate() + Number(n || 0));
+      return x;
+    },
     portalT,
     schedulePortalSetVisible,
     scheduleCoursesCache: opts.courses || [
@@ -1195,6 +1250,8 @@ async function main() {
       // Pure helpers available
       ok('Create pure SelectDay available to Edit',
         typeof sandbox.scheduleCreateDateRangeSelectDay === 'function');
+      ok('Create service-dates SelectDay available to Edit',
+        typeof sandbox.scheduleCreateServiceDatesSelectDay === 'function');
       if (typeof sandbox.scheduleCreateDateRangeSelectDay === 'function') {
         let st = sandbox.scheduleCreateDateRangeSelectDay({}, '2026-07-20');
         ok('first click start only', st.start === '2026-07-20' && !st.end);
@@ -1215,15 +1272,18 @@ async function main() {
         ok('open: draft seeded from canonical from/to',
           sandbox.scheduleDrawerDateRangeDraft
           && sandbox.scheduleDrawerDateRangeDraft.start === '2026-07-20'
-          && sandbox.scheduleDrawerDateRangeDraft.end === '2026-07-22');
+          && sandbox.scheduleDrawerDateRangeDraft.end === '2026-07-22'
+          && Array.isArray(sandbox.scheduleDrawerDateRangeDraft.selected)
+          && sandbox.scheduleDrawerDateRangeDraft.selected.length === 3);
         ok('open: day buttons rendered', dayButtons().length > 0);
         ok('open: focus moved into calendar',
           !!(getFocused() && getFocused() !== el('ps-drawer-date-range-trigger')));
 
-        // Mutate draft then Escape — discard, canonical unchanged
+        // Cap: tap outside span restarts; Escape discards, canonical unchanged
         fireGridClick('2026-07-25');
         ok('draft mutated after day click',
-          sandbox.scheduleDrawerDateRangeDraft.start === '2026-07-25');
+          sandbox.scheduleDrawerDateRangeDraft.start === '2026-07-25'
+          && !sandbox.scheduleDrawerDateRangeDraft.end);
         sandbox.scheduleDrawerDateRangeOnDocumentKeydown({
           key: 'Escape',
           preventDefault() {},
@@ -1233,16 +1293,17 @@ async function main() {
           el('ps-drawer-date-from').value === canonFrom
           && el('ps-drawer-date-to').value === canonTo);
 
-        // One-click same-day Apply
+        // Cap: outside-span tap restarts to start-only, Apply commits one day
         sandbox.scheduleDrawerDateRangeOpenPopover();
-        fireGridClick('2026-07-21');
-        // start only — Apply commits from=to=start
+        fireGridClick('2026-07-25');
         ok('Apply ready with start-only (one-day)',
           !el('ps-drawer-date-range-apply').disabled);
         sandbox.scheduleApplyDrawerDateRangeDraft();
         ok('one-day Apply sets from=to=start',
-          el('ps-drawer-date-from').value === '2026-07-21'
-          && el('ps-drawer-date-to').value === '2026-07-21');
+          el('ps-drawer-date-from').value === '2026-07-25'
+          && el('ps-drawer-date-to').value === '2026-07-25');
+        ok('one-day Apply writes service_dates',
+          String(el('ps-drawer-service-dates').value || '') === '2026-07-25');
         ok('Apply closes popover', !sandbox.scheduleDrawerDateRangeIsOpen());
 
         // Multi-day second click + Apply
@@ -1253,12 +1314,28 @@ async function main() {
         ok('range Apply commits start/end',
           el('ps-drawer-date-from').value === '2026-07-20'
           && el('ps-drawer-date-to').value === '2026-07-23');
+        ok('range Apply writes exact service_dates',
+          String(el('ps-drawer-service-dates').value || '') === '2026-07-20,2026-07-21,2026-07-22,2026-07-23');
+
+        // Cap: inside-range tap toggles day off (does not restart)
+        sandbox.scheduleDrawerDateRangeOpenPopover();
+        fireGridClick('2026-07-21');
+        ok('inside-range tap toggles day off (sparse selected)',
+          sandbox.scheduleDrawerDateRangeDraft.start === '2026-07-20'
+          && sandbox.scheduleDrawerDateRangeDraft.end === '2026-07-23'
+          && Array.isArray(sandbox.scheduleDrawerDateRangeDraft.selected)
+          && sandbox.scheduleDrawerDateRangeDraft.selected.join(',') === '2026-07-20,2026-07-22,2026-07-23');
+        sandbox.scheduleApplyDrawerDateRangeDraft();
+        ok('sparse Apply keeps exact service_dates',
+          String(el('ps-drawer-service-dates').value || '') === '2026-07-20,2026-07-22,2026-07-23'
+          && el('ps-drawer-date-from').value === '2026-07-20'
+          && el('ps-drawer-date-to').value === '2026-07-23');
 
         // Cancel discard
         const beforeFrom = el('ps-drawer-date-from').value;
         const beforeTo = el('ps-drawer-date-to').value;
         sandbox.scheduleDrawerDateRangeOpenPopover();
-        fireGridClick('2026-07-10');
+        fireGridClick('2026-07-28');
         sandbox.scheduleDrawerDateRangeClosePopover({ restoreFocus: true, discard: true });
         ok('Cancel discard leaves canonical values',
           el('ps-drawer-date-from').value === beforeFrom
@@ -1266,7 +1343,7 @@ async function main() {
 
         // Outside click discard
         sandbox.scheduleDrawerDateRangeOpenPopover();
-        fireGridClick('2026-07-11');
+        fireGridClick('2026-07-28');
         sandbox.scheduleDrawerDateRangeOnDocumentPointer({
           target: el('outside-click-target'),
         });
