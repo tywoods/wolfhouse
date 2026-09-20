@@ -226,6 +226,31 @@ class CrowsnestGuestDoorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("redirected_create_to_booking_preview", scope.tool_calls[0]["simulator_guard"])
         self.assertEqual(self.whatsapp.WhatsAppCloudAdapter.external_calls, [])
 
+    async def test_wolfhouse_default_mirror_uses_runtime_tenant_identity(self):
+        import wolfhouse_whatsapp_mirror as mirror_mod
+
+        scope = CrowsnestGuestScope.create("+34" + "600111554")
+        seen = []
+        original = mirror_mod._post_mirror_sync
+        try:
+            mirror_mod._post_mirror_sync = lambda payload: (
+                seen.append(payload) or {"ok": True, "thread": {"persisted": True}}
+            )
+            with patch.dict("os.environ", {
+                "HERMES_ROLE": "luna",
+                "LUNA_CLIENT_SLUG": "wolfhouse-somo",
+                "SUNSET_INGRESS_LOCATION_ID": "",
+            }, clear=False):
+                await _default_mirror(
+                    direction="inbound", phone=scope.synthetic_phone,
+                    text="Hi", scope=scope,
+                )
+        finally:
+            mirror_mod._post_mirror_sync = original
+
+        self.assertEqual(seen[0]["client_slug"], "wolfhouse-somo")
+        self.assertEqual(seen[0]["location_id"], "wolfhouse-somo")
+
     async def test_inbox_identity_is_synthetic_and_persistence_is_verified(self):
         import wolfhouse_whatsapp_mirror as mirror_mod
 

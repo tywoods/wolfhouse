@@ -383,13 +383,18 @@ async def _default_mirror(*, direction: str, phone: str, text: str, scope: Crows
         f"wamid.crowsnest.sim.{scope.request_id}.{direction}."
         f"{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}"
     )
+    client_slug = (os.getenv("LUNA_CLIENT_SLUG") or "sunset").strip()
+    location_id = (
+        os.getenv("SUNSET_INGRESS_LOCATION_ID")
+        or ("sunset-somo" if client_slug == "sunset" else client_slug)
+    ).strip()
     payload = {
-        "client_slug": "sunset",
+        "client_slug": client_slug,
         "guest_phone": scope.inbox_phone,
         "direction": direction,
         "message_text": text[:4000],
         **simulator_mirror_fields(scope),
-        "location_id": "sunset-somo",
+        "location_id": location_id,
         "whatsapp_message_id": synthetic_wamid,
         "idempotency_key": hashlib.sha256(
             f"{scope.request_id}:{direction}:{text}".encode("utf-8")
