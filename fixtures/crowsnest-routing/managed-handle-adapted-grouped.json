@@ -1,0 +1,32 @@
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "staging": {
+          "routes": [
+            {
+              "match": [{ "path": ["/whatsapp/webhook"] }],
+              "handle": [
+                {
+                  "handler": "subroute",
+                  "routes": [
+                    {
+                      "group": "group0",
+                      "handle": [
+                        {
+                          "handler": "reverse_proxy",
+                          "upstreams": [{ "dial": "127.0.0.1:8090" }]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}

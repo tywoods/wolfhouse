@@ -17,7 +17,23 @@ assert.match(installer,/source\.replace\(canonical,`import \$\{process\.env\.STA
 assert.match(installer,/stage-route-fragment\.js" "\$FRAGMENT"/);
 assert.ok(installer.indexOf('stage-route-fragment.js" "$FRAGMENT"') < installer.indexOf('STAGED_FRAGMENT="$stage/fragment"'));
 const sunset='handle /whatsapp/webhook {\n  reverse_proxy 127.0.0.1:8094\n}\n';
-assert.equal(require(path.join(__dirname,'luna-number-routing-controller')).parseRoute(sunset).target_luna,'sunset');
+const routingController=require(path.join(__dirname,'luna-number-routing-controller'));
+assert.equal(routingController.parseRoute(sunset).target_luna,'sunset');
+const groupedEffective=JSON.parse(fs.readFileSync(path.join(__dirname,'../fixtures/crowsnest-routing/managed-handle-adapted-grouped.json'),'utf8'));
+assert.equal(routingController.exactRouteFromJson(groupedEffective).target_luna,'wolfhouse');
+const arbitraryGroup=structuredClone(groupedEffective); arbitraryGroup.apps.http.servers.staging.routes[0].handle[0].routes[0].group='operator-defined';
+assert.equal(routingController.exactRouteFromJson(arbitraryGroup),null);
+for (const [name, mutate] of [
+  ['outer route unknown field', route => { route.behavior='unexpected'; }],
+  ['subroute handler unknown field', route => { route.handle[0].behavior='unexpected'; }],
+  ['reverse proxy handler unknown field', route => { route.handle[0].routes[0].handle[0].behavior='unexpected'; }],
+  ['reverse proxy transport', route => { route.handle[0].routes[0].handle[0].transport={protocol:'http'}; }],
+]) {
+  const adversarial=structuredClone(groupedEffective); mutate(adversarial.apps.http.servers.staging.routes[0]);
+  assert.equal(routingController.exactRouteFromJson(adversarial),null,`${name} must fail closed`);
+}
+const nonCanonicalOuterTerminal=structuredClone(groupedEffective); nonCanonicalOuterTerminal.apps.http.servers.staging.routes[0].terminal=false;
+assert.equal(routingController.exactRouteFromJson(nonCanonicalOuterTerminal),null,'outer terminal must retain its canonical value');
 const stageFragment=require(path.join(root,'stage-route-fragment')).stageRouteFragment; const fragmentDir=fs.mkdtempSync(path.join(os.tmpdir(),'route-fragment-')); const live=path.join(fragmentDir,'live'); const seed=path.join(root,'luna-number-route.caddy'); const staged=path.join(fragmentDir,'staged');
 assert.equal(stageFragment(live,seed,staged),'seeded'); assert.equal(fs.readFileSync(staged,'utf8'),fs.readFileSync(seed,'utf8'));
 fs.writeFileSync(live,sunset); assert.equal(stageFragment(live,seed,staged),'preserved'); assert.equal(fs.readFileSync(staged,'utf8'),sunset);
