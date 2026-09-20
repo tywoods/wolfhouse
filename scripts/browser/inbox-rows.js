@@ -988,9 +988,10 @@ function inboxRowsLeaveGuestDirectory() {
 
 function inboxRowsIsSunsetPortal() {
   try {
-    return typeof document !== 'undefined'
-      && document.documentElement
-      && document.documentElement.getAttribute('data-portal-client') === 'sunset';
+    if (typeof document === 'undefined' || !document.documentElement) return false;
+    var client = document.documentElement.getAttribute('data-portal-client');
+    /* INBOX-WOLFHOUSE-PARITY-001: lodging html has no data-portal-client. */
+    return client === 'sunset' || !client;
   } catch (_e) {
     return false;
   }

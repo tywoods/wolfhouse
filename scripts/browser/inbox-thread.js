@@ -1108,8 +1108,9 @@ var inboxConversationSwitchRelease = null;
 var inboxConversationSwitchTransition = null;
 function inboxRunConversationSwitch(convId, targetEl){
   var root = typeof document !== 'undefined' ? document.documentElement : null;
-  var isSunset = !!(root && root.getAttribute && root.getAttribute('data-portal-client') === 'sunset');
-  var holdPrevious = !!selectedConvId && selectedConvId !== convId && isSunset
+  var portalClient = root && root.getAttribute ? root.getAttribute('data-portal-client') : 'none';
+  var holdPortal = portalClient === 'sunset' || portalClient === null || portalClient === '';
+  var holdPrevious = !!selectedConvId && selectedConvId !== convId && holdPortal
     && typeof document.startViewTransition === 'function';
   if (!holdPrevious) return loadConvDetail(convId, targetEl);
   var generation = ++inboxConversationSwitchGeneration;

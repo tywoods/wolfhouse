@@ -21490,6 +21490,18 @@ html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-
    while NEXT builds; disable the default cross-fade for one direct swap. */
 html[data-portal-client="sunset"]::view-transition-old(root),
 html[data-portal-client="sunset"]::view-transition-new(root){animation:none!important}
+/* INBOX-WOLFHOUSE-PARITY-001: lodging has no data-portal-client. Same 1520 wrap + one-swap hold. */
+html:not([data-portal-client]) #tab-conversations.active #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html:not([data-portal-client]) body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html:not([data-portal-client]) body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html:not([data-portal-client])::view-transition-old(root),
+html:not([data-portal-client])::view-transition-new(root){animation:none!important}
 body:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
 }
@@ -21833,6 +21845,52 @@ html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col1="ico
   width:auto;font-size:12px;padding:6px 8px;justify-content:center
 }
 html[data-portal-client="sunset"] #tabs .inbox-layout-presets{display:none!important}
+/* INBOX-WOLFHOUSE-PARITY-001: same Chats|Guests folder tabs, flush rail, active green. */
+html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{
+  display:flex;flex-direction:row;align-items:flex-end;gap:0;
+  width:100%;box-sizing:border-box;align-self:stretch;
+  background:transparent;padding:0;margin:0 0 -11px;flex:0 0 auto;
+  position:relative;z-index:2
+}
+html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+  flex:1 1 0;min-width:0;width:auto;
+  display:flex;align-items:center;justify-content:center;
+  gap:0;text-align:center;position:relative;
+  padding:8px 10px;font:inherit;font-size:13px;font-weight:500;
+  line-height:1.25;white-space:nowrap;cursor:pointer;
+  color:var(--text-2);background:var(--surface-soft);
+  border:1px solid var(--border-soft);border-bottom:none;
+  border-radius:10px 10px 0 0;margin:0 2px 0 0;box-shadow:none
+}
+html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab:last-child{margin-right:0}
+html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab::before{
+  content:none!important;display:none!important;width:0;height:0
+}
+html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab:hover{
+  background:var(--surface);color:var(--text)
+}
+html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+  background:var(--inbox-forest,var(--primary));
+  color:var(--cream,#F2F1EC);font-weight:600;z-index:2;
+  border-color:var(--inbox-forest,var(--primary))
+}
+html:not([data-portal-client])[data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+  background:#2a2a2b;color:var(--text-2);border-color:#3c3c3c
+}
+html:not([data-portal-client])[data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+html:not([data-portal-client])[data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+  background:var(--inbox-forest,var(--staff-green-bg,#1e3a28));
+  color:var(--staff-green-text,#c8dcc8);
+  border-color:var(--inbox-forest,var(--staff-green-bg,#1e3a28))
+}
+html:not([data-portal-client]) #inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1 > .inbox-views-rail{
+  border-top-left-radius:0;border-top-right-radius:0
+}
+html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+  width:auto;font-size:12px;padding:6px 8px;justify-content:center
+}
+html:not([data-portal-client]) #tabs .inbox-layout-presets{display:none!important}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="all"]::before{content:"\\2630"}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="needs-human"]::before{content:"\\26A0"}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="email"]::before{content:"\\2709"}
@@ -21864,6 +21922,7 @@ html[data-portal-client="sunset"] #tabs .inbox-layout-presets{display:none!impor
 }
 @media(max-width:900px){
   html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{width:100%;flex:1 1 100%}
+  html:not([data-portal-client]) .inbox-col1 > .inbox-folder-tabs{width:100%;flex:1 1 100%}
 }
 /*
  * Phone master/detail: the shell is either the list or the thread, which is what the
@@ -22023,6 +22082,17 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
   html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar{grid-column:3}
   html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"] .detail-sidebar{grid-column:3}
   html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"] #inbox-detail-sidebar{grid-column:3}
+  /* INBOX-WOLFHOUSE-PARITY-001: same 14px Guests list→card gap (drop leftover 0px chat track). */
+  html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols[data-col4="wide"]{
+    grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(0,1fr);
+  }
+  html:not([data-portal-client]) body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols{
+    grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(0,1fr);
+  }
+  html:not([data-portal-client]) body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols .detail-sidebar{grid-column:3}
+  html:not([data-portal-client]) body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar{grid-column:3}
+  html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols[data-col4="wide"] .detail-sidebar{grid-column:3}
+  html:not([data-portal-client]) .inbox-two-col.inbox-shell-cols[data-col4="wide"] #inbox-detail-sidebar{grid-column:3}
   /*
    * Peek-on-demand. A collapsed column leaves the grid and waits above column 3; edge
    * hover, focusing its toggle or Escape-able data-peek slides it in and out. The tracks
