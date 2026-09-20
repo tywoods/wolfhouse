@@ -21470,6 +21470,19 @@ body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed=
 body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
+/* SUNSET-INBOX-GUEST-LAYOUT-001: one wrap for Chats+Guests (middle of 1800/1240) so rail+list stay put. */
+html[data-portal-client="sunset"] #tab-conversations.active #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html[data-portal-client="sunset"] #inbox-shell.inbox-folder-switching{
+  visibility:hidden;
+}
 body:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
 }
@@ -21992,6 +22005,17 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
     opacity:1!important;visibility:visible!important;transform:none!important;
     width:auto;inset:auto;z-index:auto;box-shadow:none;
   }
+  /* SUNSET-INBOX-GUEST-LAYOUT-001: drop the 0px chat track so list→card gap is 14px, not 28px. */
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"]{
+    grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(0,1fr);
+  }
+  html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols{
+    grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(0,1fr);
+  }
+  html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols .detail-sidebar{grid-column:3}
+  html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar{grid-column:3}
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"] .detail-sidebar{grid-column:3}
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"] #inbox-detail-sidebar{grid-column:3}
   /*
    * Peek-on-demand. A collapsed column leaves the grid and waits above column 3; edge
    * hover, focusing its toggle or Escape-able data-peek slides it in and out. The tracks

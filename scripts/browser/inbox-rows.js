@@ -126,7 +126,15 @@ var INBOX_ROWS_CSS = [
   'body:has([data-inbox-preset="guest"][aria-pressed="true"]) .conv-detail-load-status{display:none!important}',
 ].join('');
 
-var inboxRowsRuntime = { wired: false, guestView: undefined };
+var inboxRowsRuntime = {
+  wired: false,
+  guestView: undefined,
+  folderSwitchGen: 0,
+  folderSwitching: 0,
+  folderSwitchList: false,
+  folderSwitchRail: false,
+  folderSwitchTimer: 0,
+};
 var inboxRowsGuestPriorViewId = '';
 var inboxRowsViewsCache = [];
 var inboxRowsActiveView = {
@@ -943,6 +951,72 @@ function inboxRowsLeaveGuestDirectory() {
   inboxRowsRerenderGuestViewList();
 }
 
+function inboxRowsIsSunsetPortal() {
+  try {
+    return typeof document !== 'undefined'
+      && document.documentElement
+      && document.documentElement.getAttribute('data-portal-client') === 'sunset';
+  } catch (_e) {
+    return false;
+  }
+}
+
+function inboxRowsFolderSwitchShell() {
+  try {
+    if (typeof document === 'undefined' || !document.getElementById) return null;
+    return document.getElementById('inbox-shell');
+  } catch (_e2) {
+    return null;
+  }
+}
+
+function inboxRowsBeginFolderSwitch() {
+  var gen = (inboxRowsRuntime.folderSwitchGen || 0) + 1;
+  inboxRowsRuntime.folderSwitchGen = gen;
+  inboxRowsRuntime.folderSwitching = gen;
+  inboxRowsRuntime.folderSwitchList = false;
+  inboxRowsRuntime.folderSwitchRail = false;
+  var shell = inboxRowsFolderSwitchShell();
+  if (shell && shell.classList && shell.classList.add) shell.classList.add('inbox-folder-switching');
+  if (inboxRowsRuntime.folderSwitchTimer) {
+    try { clearTimeout(inboxRowsRuntime.folderSwitchTimer); } catch (_e3) {}
+  }
+  inboxRowsRuntime.folderSwitchTimer = setTimeout(function() {
+    inboxRowsEndFolderSwitch(gen);
+  }, 500);
+  return gen;
+}
+
+function inboxRowsEndFolderSwitch(gen) {
+  if (inboxRowsRuntime.folderSwitching !== gen) return;
+  inboxRowsRuntime.folderSwitching = 0;
+  inboxRowsRuntime.folderSwitchList = false;
+  inboxRowsRuntime.folderSwitchRail = false;
+  if (inboxRowsRuntime.folderSwitchTimer) {
+    try { clearTimeout(inboxRowsRuntime.folderSwitchTimer); } catch (_e4) {}
+    inboxRowsRuntime.folderSwitchTimer = 0;
+  }
+  function reveal() {
+    var shell = inboxRowsFolderSwitchShell();
+    if (shell && shell.classList && shell.classList.remove) shell.classList.remove('inbox-folder-switching');
+  }
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(function() { requestAnimationFrame(reveal); });
+  } else {
+    reveal();
+  }
+}
+
+function inboxRowsNoteFolderSwitchPart(part) {
+  var gen = inboxRowsRuntime.folderSwitching;
+  if (!gen) return;
+  if (part === 'list') inboxRowsRuntime.folderSwitchList = true;
+  if (part === 'rail') inboxRowsRuntime.folderSwitchRail = true;
+  if (inboxRowsRuntime.folderSwitchList && inboxRowsRuntime.folderSwitchRail) {
+    inboxRowsEndFolderSwitch(gen);
+  }
+}
+
 function inboxRowsOnGuestPresetChange(name) {
   var wasGuest = inboxRowsGuestViewActive();
   var nowGuest = name === 'guest';
@@ -964,8 +1038,10 @@ function inboxRowsWrapGuestViewPreset() {
     inboxColumnsSetPreset = function(name) {
       /* Capture before legacy write — record.preset flips inside setPreset. */
       var wasGuest = inboxRowsGuestViewActive();
-      var result = _inboxRowsLegacySetPreset(name);
       var nowGuest = name === 'guest';
+      var crossing = wasGuest !== nowGuest && inboxRowsIsSunsetPortal();
+      if (crossing) inboxRowsBeginFolderSwitch();
+      var result = _inboxRowsLegacySetPreset(name);
       inboxRowsRuntime.guestView = nowGuest;
       if (nowGuest && !wasGuest) inboxRowsEnterGuestDirectory();
       else if (!nowGuest && wasGuest) inboxRowsLeaveGuestDirectory();
@@ -1033,6 +1109,7 @@ function inboxRowsWrapRenderers() {
       var result = _inboxRowsLegacyRenderInbox(convs, opts);
       inboxRowsFixEmptyChrome(convs, opts);
       inboxRowsAfterRender();
+      inboxRowsNoteFolderSwitchPart('list');
       return result;
     };
     renderInbox._inboxRowsWrapped = true;
@@ -1064,6 +1141,7 @@ function inboxRowsWrapViews() {
       _inboxRowsLegacyRenderRail(data);
       inboxRowsRememberViews(data);
       inboxRowsAfterRender();
+      inboxRowsNoteFolderSwitchPart('rail');
     };
     renderInboxViewsRail._inboxRowsWrapped = true;
   }

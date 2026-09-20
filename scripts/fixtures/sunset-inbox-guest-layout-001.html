@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en" data-portal-client="sunset" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>GUEST-LAYOUT-001</title>
+<style>
+:root,[data-theme="dark"]{
+  --cream:#181818;--surface:#252526;--surface-soft:#2d2d2d;--text:#cccccc;--text-2:#9d9d9d;
+  --border-soft:#333;--radius:14px;
+}
+body{margin:0;background:#181818;font:14px/1.4 "Instrument Sans",system-ui,sans-serif;color:#ccc}
+#wrap.inbox-shell-wrap{max-width:1800px;width:100%;margin:24px auto}
+html[data-portal-client="sunset"] #tab-conversations.active #wrap.inbox-shell-wrap{max-width:1520px!important}
+html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{max-width:1520px!important}
+#inbox-shell.inbox-two-col.inbox-shell-cols{
+  --inbox-col1-w:240px;
+  --inbox-col2-w:252px;
+  --inbox-col-gap:14px;
+  display:grid;
+  grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) 0px minmax(0,1fr);
+  gap:14px;
+  height:420px;margin:0;padding:0;
+}
+html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"]{
+  grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(0,1fr);
+}
+html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols{
+  grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(0,1fr);
+}
+html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols .detail-sidebar{grid-column:3}
+html[data-portal-client="sunset"] #inbox-shell.inbox-folder-switching{visibility:hidden}
+.inbox-col1,.inbox-left,.detail-sidebar{
+  background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
+}
+.inbox-col1{grid-column:1}
+.inbox-left{grid-column:2}
+.detail-sidebar{grid-column:4}
+.detail-main{display:none}
+#proof{margin:12px auto;width:1520px;font:12px ui-monospace,monospace;color:#9d9d9d}
+</style>
+</head>
+<body>
+<div id="tab-conversations" class="active">
+<button type="button" data-inbox-preset="guest" aria-pressed="true" hidden>Guests</button>
+<div id="wrap" class="inbox-shell-wrap">
+<div id="inbox-shell" class="inbox-two-col inbox-shell-cols" data-col1="full" data-col2="comfortable" data-col4="wide">
+  <nav class="inbox-col1">filter</nav>
+  <div class="inbox-left">list</div>
+  <div class="detail-main">chat</div>
+  <aside class="detail-sidebar">guest card</aside>
+</div>
+</div>
+</div>
+<div id="proof"></div>
+<script>
+(function () {
+  const wrap = document.querySelector('#wrap.inbox-shell-wrap').getBoundingClientRect();
+  const rail = document.querySelector('.inbox-col1').getBoundingClientRect();
+  const list = document.querySelector('.inbox-left').getBoundingClientRect();
+  const card = document.querySelector('.detail-sidebar').getBoundingClientRect();
+  const gapListCard = Math.round(card.left - list.right);
+  const gapRailList = Math.round(list.left - rail.right);
+  const wrapW = Math.round(wrap.width);
+  const ok = wrapW === 1520 && gapListCard === 14 && gapRailList === 14
+    && Math.round(rail.width) === 240 && Math.round(list.width) === 252;
+  document.getElementById('proof').textContent =
+    'wrap=' + wrapW +
+    ' rail=' + Math.round(rail.width) +
+    ' list=' + Math.round(list.width) +
+    ' railListGap=' + gapRailList +
+    ' listCardGap=' + gapListCard +
+    ' ' + (ok ? 'GUEST-LAYOUT-001-OK' : 'GUEST-LAYOUT-001-FAIL');
+  if (ok) document.title = 'GUEST-LAYOUT-001-OK';
+})();
+</script>
+</body>
+</html>
