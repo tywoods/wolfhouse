@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en" data-portal-client="sunset" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>TAB-CHROME-003</title>
+<style>
+:root,[data-theme="dark"]{
+  --cream:#181818;--surface:#252526;--surface-soft:#2d2d2d;--text:#cccccc;--text-2:#9d9d9d;
+  --border-soft:#333;--primary:#4a7c59;--staff-green-bg:#1e3a28;--radius:14px;
+}
+body{margin:24px;background:#181818;font:14px/1.4 "Instrument Sans",system-ui,sans-serif;color:#ccc}
+#inbox-shell{--inbox-forest:var(--staff-green-bg,#1e3a28);width:280px}
+.inbox-col1{display:flex;flex-direction:column;gap:10px;background:transparent;padding:0}
+.inbox-folder-tabs{display:none}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{
+  display:flex;flex-direction:row;align-items:flex-end;gap:0;
+  width:100%;box-sizing:border-box;align-self:stretch;
+  background:transparent;padding:0;margin:0 0 -11px;flex:0 0 auto;
+  position:relative;z-index:2
+}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+  flex:1 1 0;min-width:0;width:auto;
+  display:flex;align-items:center;justify-content:center;
+  gap:0;text-align:center;position:relative;
+  padding:8px 10px;font:inherit;font-size:13px;font-weight:500;
+  line-height:1.25;white-space:nowrap;cursor:pointer;
+  color:var(--text-2);background:var(--surface-soft);
+  border:1px solid var(--border-soft);border-bottom:none;
+  border-radius:10px 10px 0 0;margin:0 2px 0 0;box-shadow:none
+}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab:last-child{margin-right:0}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+  background:var(--inbox-forest,var(--primary));
+  color:var(--cream,#F2F1EC);font-weight:600;z-index:2;
+  border-color:var(--inbox-forest,var(--primary))
+}
+html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+  background:#2a2a2b;color:var(--text-2);border-color:#3c3c3c
+}
+html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+  background:var(--inbox-forest,var(--staff-green-bg,#1e3a28));
+  color:var(--staff-green-text,#c8dcc8);
+  border-color:var(--inbox-forest,var(--staff-green-bg,#1e3a28))
+}
+/* competing live mockup radius — 003 longhands must win */
+#inbox-shell.inbox-two-col.inbox-shell-cols .inbox-views-rail{
+  background:var(--surface);border-radius:var(--radius);border:1px solid var(--border-soft);
+  padding:10px 8px;display:flex;flex-direction:column;gap:2px
+}
+html[data-portal-client="sunset"] #inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1 > .inbox-views-rail{
+  border-top-left-radius:0;border-top-right-radius:0
+}
+.inbox-views-item{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:8px;background:transparent;color:var(--text);font-size:12.5px;font-weight:600}
+.inbox-views-item.is-active{background:var(--inbox-forest);color:var(--cream)}
+.inbox-views-item-count{color:#6a9a72;font-size:11px;font-weight:700}
+.inbox-views-item.is-active .inbox-views-item-count{color:var(--cream);opacity:.85}
+button{appearance:none;-webkit-appearance:none}
+#proof{margin-top:16px;font:12px ui-monospace,monospace;color:#9d9d9d}
+</style>
+</head>
+<body>
+<div id="inbox-shell" class="inbox-two-col inbox-shell-cols">
+  <nav class="inbox-col1">
+    <div class="inbox-folder-tabs" role="tablist">
+      <button type="button" class="inbox-folder-tab inbox-view-btn is-active" aria-pressed="true">Chats</button>
+      <button type="button" class="inbox-folder-tab inbox-view-btn" aria-pressed="false">Guests</button>
+    </div>
+    <div class="inbox-views-rail">
+      <button type="button" class="inbox-views-item is-active"><span>All</span><span class="inbox-views-item-count">3</span></button>
+      <button type="button" class="inbox-views-item"><span>WhatsApp</span><span class="inbox-views-item-count">1</span></button>
+      <button type="button" class="inbox-views-item"><span>Email</span><span class="inbox-views-item-count">1</span></button>
+    </div>
+  </nav>
+</div>
+<div id="proof"></div>
+<script>
+(function () {
+  const tabs = document.querySelector('.inbox-folder-tabs');
+  const rail = document.querySelector('.inbox-views-rail');
+  const active = document.querySelector('.inbox-folder-tab.is-active');
+  const tb = tabs.getBoundingClientRect();
+  const rb = rail.getBoundingClientRect();
+  const gap = Math.round((rb.top - tb.bottom) * 10) / 10;
+  const bg = getComputedStyle(active).backgroundColor;
+  const m = bg.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  const r = m ? Number(m[1]) : 0;
+  const g = m ? Number(m[2]) : 0;
+  const b = m ? Number(m[3]) : 0;
+  const greenFamily = g > r + 8 && g > b + 8 && g >= 30;
+  const radius = getComputedStyle(rail).borderTopLeftRadius;
+  const ok = gap <= 1 && greenFamily && radius === '0px';
+  const line = 'gap=' + gap + 'px bg=' + bg + ' green=' + greenFamily + ' railTopRadius=' + radius;
+  document.getElementById('proof').textContent = line;
+  document.title = ok ? 'TAB-CHROME-003-OK ' + line : 'TAB-CHROME-003-FAIL ' + line;
+})();
+</script>
+</body>
+</html>
