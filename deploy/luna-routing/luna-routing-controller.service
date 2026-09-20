@@ -16,9 +16,7 @@ ProtectSystem=strict
 ProtectHome=yes
 ReadWritePaths=/var/lib/luna-routing
 RestrictAddressFamilies=AF_UNIX AF_INET
-# sudo must cross from luna-routing to root to invoke the one exact allowlisted
-# `systemctl reload caddy` command. Keep only sudo's required identity/audit caps.
-CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE
+CapabilityBoundingSet=
 
 [Install]
 WantedBy=multi-user.target
