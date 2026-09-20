@@ -25,7 +25,7 @@ function listElement() {
 }
 function response(id) { return { success: true, detail: { success: true, conversation: { conversation_id: id, guest_name: `Guest ${id}`, phone: `+${id}`, channel: 'whatsapp' } }, messages: { success: true, messages: [{ message_text: `message ${id}` }] }, context: { success: true, context: { guest_name: `Guest ${id}` } }, draft: { success: true, draft: { draft_text: `draft ${id}` } }, pause_state: { success: true } }; }
 async function flush() { for (let i = 0; i < 16; i++) await Promise.resolve(); }
-function loadRuntime() {
+function loadRuntime(options = {}) {
   const detail = element(); const sidebar = element(); detail.sidebar = sidebar;
   detail.querySelector = selector => selector === '#inbox-detail-sidebar' ? sidebar : null;
   const list = listElement(); const pending = {}; const transitions = [];
@@ -56,7 +56,7 @@ function loadRuntime() {
     getPortalProfile: () => ({}), getClient: () => 'sunset', updateInboxPreviewBanner: () => {}, inboxEmptyListMessage: () => 'empty', renderInboxConvCardHtml: c => `<div class="conv-card" data-id="${c.conversation_id}"></div>`,
     isPortalMobile: () => false, document: {
       createElement: () => element(),
-      documentElement: { getAttribute: name => name === 'data-portal-client' ? 'sunset' : null },
+      documentElement: { getAttribute: name => name === 'data-portal-client' ? (options.portalClient === undefined ? 'sunset' : options.portalClient) : null },
       startViewTransition: update => {
         const transition = { snapshot: detail.innerHTML, settled: false };
         transitions.push(transition);
@@ -78,14 +78,33 @@ console.log('\nverify-inbox-selection-safety — behavioral owners\n');
 (async () => {
   console.log('── conversation → conversation hold/swap ──');
   { const r = loadRuntime();
+    r.sandbox.inboxRunConversationSwitch('A'); await flush();
+    ok('first open still paints an explicit loading state',
+      r.detail.innerHTML.includes('Loading…') && r.detail.classList.contains('is-loading-detail'), r.detail.innerHTML);
+    r.pending.A.resolve(response('A')); await flush();
+    ok('first open commits the complete A deck', r.detail.innerHTML.includes('Guest A') && r.detail.guest === 'Guest A', r.detail.innerHTML);
+  }
+  { const r = loadRuntime();
     r.sandbox.selectedConvId = 'A';
     r.detail.innerHTML = '<div>Guest A</div><div>message A</div><aside>Guest A context</aside>';
     r.sandbox.inboxRunConversationSwitch('B');
     await flush();
     ok('Sunset conversation switch snapshots the complete previous deck', r.transitions.length === 1 && r.transitions[0].snapshot.includes('Guest A context'));
     ok('previous deck remains the transition surface while B is pending', r.transitions[0] && r.transitions[0].settled === false);
+    ok('slow Sunset switch keeps the live A deck fully painted while B is pending',
+      r.detail.innerHTML.includes('Guest A context') && !r.detail.innerHTML.includes('Loading…'), r.detail.innerHTML);
     r.pending.B.resolve(response('B')); await flush();
     ok('thread and guest/context commit together when B is ready', r.transitions[0].settled === true && r.detail.innerHTML.includes('Guest B') && r.detail.guest === 'Guest B', r.detail.innerHTML);
+  }
+  { const r = loadRuntime({ portalClient: null });
+    r.sandbox.selectedConvId = 'A';
+    r.detail.innerHTML = '<div>Guest A</div><div>message A</div><aside>Guest A context</aside>';
+    r.sandbox.inboxRunConversationSwitch('B'); await flush();
+    ok('Wolfhouse switch keeps the live A deck fully painted while B is pending',
+      r.detail.innerHTML.includes('Guest A context') && !r.detail.innerHTML.includes('Loading…'), r.detail.innerHTML);
+    r.pending.B.resolve(response('B')); await flush();
+    ok('Wolfhouse swaps once to the complete B deck',
+      r.detail.innerHTML.includes('Guest B') && r.detail.guest === 'Guest B' && !r.detail.innerHTML.includes('Loading…'), r.detail.innerHTML);
   }
   { const r = loadRuntime();
     r.sandbox.selectedConvId = 'A';
@@ -94,6 +113,8 @@ console.log('\nverify-inbox-selection-safety — behavioral owners\n');
     r.sandbox.inboxRunConversationSwitch('C'); await flush();
     ok('rapid C switch reuses the active transition instead of snapshotting B loading', r.transitions.length === 1 && r.transitions[0].snapshot.includes('Guest A context'), r.transitions.map(t => t.snapshot).join(' | '));
     ok('rapid C switch keeps the original A transition pending', r.transitions[0].settled === false);
+    ok('rapid A→B→C keeps the live A deck fully painted until C settles',
+      r.detail.innerHTML.includes('Guest A context') && !r.detail.innerHTML.includes('Loading…'), r.detail.innerHTML);
     r.pending.C.resolve(response('C')); await flush();
     ok('rapid switch commits only C as one complete deck', r.transitions[0].settled === true && r.sandbox.selectedConvId === 'C' && r.detail.innerHTML.includes('Guest C') && r.detail.guest === 'Guest C', r.detail.innerHTML);
     r.pending.B.resolve(response('B')); await flush();
