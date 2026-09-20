@@ -47,7 +47,9 @@ function exactRouteFromJson(cfg) {
   for (const server of Object.values(servers)) walkRoutes(server && server.routes);
   if (exact.length !== 1) return null;
   const outer = exact[0]; const matches = outer.match;
-  if (Object.keys(outer).some((key) => !['match', 'handle', 'terminal'].includes(key)) || outer.terminal !== true) return null;
+  const standaloneOuter = outer.group === undefined && outer.terminal === true;
+  const groupedOuter = /^group\d+$/.test(String(outer.group || '')) && outer.terminal === undefined;
+  if (Object.keys(outer).some((key) => !['group', 'match', 'handle', 'terminal'].includes(key)) || (!standaloneOuter && !groupedOuter)) return null;
   if (!Array.isArray(matches) || matches.length !== 1 || Object.keys(matches[0]).length !== 1 || !Array.isArray(matches[0].path) || matches[0].path.length !== 1 || matches[0].path[0] !== EXACT_PATH) return null;
   if (!Array.isArray(outer.handle) || outer.handle.length !== 1) return null;
   const subroute = outer.handle[0];
@@ -61,7 +63,7 @@ function exactRouteFromJson(cfg) {
   const dial = normalizeDial(upstreams[0].dial); const target = Object.keys(TARGETS).find((key) => TARGETS[key] === dial);
   return target ? { target_luna: target, upstream: dial } : null;
 }
-async function effectiveRoute(fetchImpl = fetch) { try { const response = await fetchImpl('http://127.0.0.1:2019/config/'); return response.ok ? exactRouteFromJson(await response.json()) : null; } catch (_) { return null; } }
+async function effectiveRoute(fetchImpl = fetch) { try { const response = await fetchImpl('http://127.0.0.1:2019/config/', { headers: { origin: 'http://127.0.0.1:2019' } }); return response.ok ? exactRouteFromJson(await response.json()) : null; } catch (_) { return null; } }
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function fsyncDir(f, filename) { const fd = f.openSync(path.dirname(filename), 'r'); try { f.fsyncSync(fd); } finally { f.closeSync(fd); } }
 function atomicWrite(f, filename, value, mode = 0o600) { const tmp = `${filename}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`; const fd = f.openSync(tmp, 'wx', mode); try { f.writeFileSync(fd, value); f.fsyncSync(fd); } finally { f.closeSync(fd); } f.renameSync(tmp, filename); fsyncDir(f, filename); }

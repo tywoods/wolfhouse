@@ -23,6 +23,18 @@ const groupedEffective=JSON.parse(fs.readFileSync(path.join(__dirname,'../fixtur
 assert.equal(routingController.exactRouteFromJson(groupedEffective).target_luna,'wolfhouse');
 const arbitraryGroup=structuredClone(groupedEffective); arbitraryGroup.apps.http.servers.staging.routes[0].handle[0].routes[0].group='operator-defined';
 assert.equal(routingController.exactRouteFromJson(arbitraryGroup),null);
+const liveGroupedEffective=JSON.parse(fs.readFileSync(path.join(__dirname,'../fixtures/crowsnest-routing/managed-handle-live-grouped.json'),'utf8'));
+assert.equal(routingController.exactRouteFromJson(liveGroupedEffective).target_luna,'wolfhouse');
+const liveExactRoute=liveGroupedEffective.apps.http.servers.staging.routes[0].handle[0].routes[0];
+for (const mutate of [
+  route => { route.group='operator-defined'; },
+  route => { route.terminal=true; },
+  route => { delete route.group; },
+]) {
+  const adversarial=structuredClone(liveGroupedEffective); mutate(adversarial.apps.http.servers.staging.routes[0].handle[0].routes[0]);
+  assert.equal(routingController.exactRouteFromJson(adversarial),null,'live grouped outer route must retain its canonical group-only form');
+}
+assert.equal(liveExactRoute.group,'group3');
 for (const [name, mutate] of [
   ['outer route unknown field', route => { route.behavior='unexpected'; }],
   ['subroute handler unknown field', route => { route.handle[0].behavior='unexpected'; }],
