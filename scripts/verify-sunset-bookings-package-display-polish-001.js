@@ -11,6 +11,7 @@
  *   - Jacky optional €0 gear stays €0 (supported zeros)
  *   - Charged → Booking total, Net → Net collected, show Outstanding
  *   - ordinary renderer still paints ungrouped singles
+ *   - qty suffix joins with a real middle-dot, never literal \\u00b7 text
  *
  * No reprice / backfill. Stay off Crow's Nest, Hermes, production.
  *
@@ -399,6 +400,18 @@ ok(
   !/Beginner adult[^<]*€0\.00/.test(packageHtml.replace(/\n/g, ' ')),
 );
 ok('course quantity 2 visible', /\u00d7\s*2/.test(packageHtml) || /2\s+surfers/.test(packageHtml) || /× 2/.test(packageHtml));
+ok(
+  'qty join source is not a double-escaped \\u00b7 string',
+  bookingsSrc.indexOf("' \\\\u00b7 '") === -1 && bookingsSrc.indexOf('" \\\\u00b7 "') === -1,
+);
+ok(
+  'expand HTML never shows literal \\u00b7 text',
+  packageHtml.indexOf('\\u00b7') === -1,
+);
+ok(
+  'course qty suffix joins with a real middle-dot',
+  /·\s*2\s+surfers/i.test(packageHtml),
+);
 ok('course duration visible', /3 days|3 Days/.test(packageHtml));
 
 const itemsSection = (packageHtml.match(/data-bookings-section="items"[\s\S]*?<\/section>/) || [''])[0];
