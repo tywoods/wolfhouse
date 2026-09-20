@@ -772,7 +772,7 @@ def create_booking_from_plan(params, **kwargs):
     })
 
 
-_WOLFHOUSE_GUEST_LOCATION_LINE = "📍 https://maps.app.goo.gl/6KdamJ66roaMugJD8"
+_WOLFHOUSE_GUEST_LOCATION_LINE = "📍 Wolfhouse: https://maps.app.goo.gl/6KdamJ66roaMugJD8"
 
 
 def _wolfhouse_guest_location_line(guest_url):
@@ -3356,7 +3356,7 @@ def register(ctx):
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
         "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Pass through from the guest's answer."},
-        "group_gender": {"type": "string", "description": "Authoritative group composition for 2+ guests: female (all girls), male (all guys), or mixed. Ask at the room-preference step before create — never on availability."},
+        "group_gender": {"type": "string", "description": "Authoritative group composition for 2+ guests on shared/dorm bookings only: female (all girls), male (all guys), or mixed. Ask at the room-preference step before create — never on availability. Do NOT ask or pass when the booking is private room (couple_private / Private room supplement already on the quote) — gender mix does not matter for a private room."},
         "gender_preference": {"type": "string", "description": "Same as group_gender for groups; for solo bookings only, infer silently from name (female/male/mixed). Never ask a solo guest 'are you a girl'."},
         "package_code": {"type": "string", "description": "malibu, uluwatu, waimea for 7+ nights; package_none for short stays / accommodation-only."},
         "guest_packages": {"type": "array", "description": "Optional per-guest packages, e.g. [{guest_number:1, package_code:'malibu'}]. If one package applies to all guests, include one entry per guest with the same package.", "items": {"type": "object"}},
