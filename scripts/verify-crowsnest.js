@@ -247,6 +247,21 @@ ok('UI Sunset Somo card', clientsHtml.includes('Sunset Somo'));
 ok('UI Sunset Sardinero card', clientsHtml.includes('Sunset Sardinero'));
 ok('UI shows business and location metadata', /Business/i.test(clientsHtml) && /Location/i.test(clientsHtml) && /Somo, Spain/i.test(clientsHtml) && /Sardinero, Spain/i.test(clientsHtml));
 ok('UI shows honest location status labels', /Live/i.test(clientsHtml) && /Staging/i.test(clientsHtml) && /Planned/i.test(clientsHtml));
+ok('UI associates each location with its intended status', (() => {
+  const cards = clientsHtml.match(/<article class="card client-card">[\s\S]*?<\/article>/g) || [];
+  const wolfhouse = cards.find((card) => card.includes('Wolfhouse Somo')) || '';
+  const sunsetSomo = cards.find((card) => card.includes('Sunset Somo')) || '';
+  const sardinero = cards.find((card) => card.includes('Sunset Sardinero')) || '';
+  return />Live<\/span>/i.test(wolfhouse)
+    && />Staging<\/span>/i.test(sunsetSomo)
+    && />Planned<\/span>/i.test(sardinero);
+})());
+ok('UI labels staging portal rows as Staging, never Live', (() => {
+  const rows = clientsHtml.match(/<li class="env-row[^"]*">[\s\S]*?<\/li>/g) || [];
+  const stagingRows = rows.filter((row) => row.includes('Staff staging'));
+  return stagingRows.length === 2
+    && stagingRows.every((row) => />Staging<\/span>/i.test(row) && !/>Live<\/span>/i.test(row));
+})());
 ok('UI has no create-client flow', !/Add new client|New client onboarding|Create client|Preview setup/i.test(clientsHtml));
 ok('UI safety copy read-only/no writes', /read-only/i.test(clientsHtml) && /no client creation|no writes/i.test(clientsHtml));
 ok('UI environment/status rows render', clientsHtml.includes('env-row') && clientsHtml.includes('Staff portals'));

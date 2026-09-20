@@ -24,7 +24,7 @@ function getCrowsnestClients() {
           label: 'Staff staging',
           kind: 'staff_portal',
           url: 'https://staff-staging.lunafrontdesk.com',
-          state: 'linked',
+          state: 'staging',
         },
         {
           label: 'Staff production',
@@ -48,7 +48,7 @@ function getCrowsnestClients() {
           label: 'Staff staging',
           kind: 'staff_portal',
           url: 'https://sunset-staging.lunafrontdesk.com',
-          state: 'linked',
+          state: 'staging',
         },
       ],
     },

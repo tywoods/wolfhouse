@@ -63,16 +63,16 @@ function renderMetaChip(label, value) {
 }
 
 function renderEnvironmentRow(env) {
-  const linked = env.state === 'linked' && env.url;
-  const stateClass = linked ? 'env-linked' : 'env-muted';
+  const available = Boolean(env.url);
+  const stateClass = available ? 'env-linked' : 'env-muted';
   let valueHtml;
-  if (linked) {
+  if (available) {
     valueHtml = `<a class="env-link" href="${escapeHtml(env.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(env.url)}</a>`;
   } else {
     valueHtml = '<span class="env-coming-soon">Coming soon</span>';
   }
   const note = env.note ? `<p class="env-note">${escapeHtml(env.note)}</p>` : '';
-  const envStatus = linked ? 'linked' : (env.state || 'coming_soon');
+  const envStatus = env.state || (available ? 'linked' : 'coming_soon');
 
   return `<li class="env-row ${stateClass}">
       <div class="env-row-main">
