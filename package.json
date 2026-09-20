@@ -1119,6 +1119,7 @@
     "verify:sunset-bookings-admin-n1": "node scripts/verify-sunset-bookings-admin-n1.js",
     "verify:sunset-bookings-open-in-schedule-i18n": "node scripts/verify-sunset-bookings-open-in-schedule-i18n.js",
     "verify:sunset-bookings-side-panel-match-schedule-001": "node scripts/verify-sunset-bookings-side-panel-match-schedule-001.js",
+    "verify:sunset-bookings-package-display-polish-001": "node scripts/verify-sunset-bookings-package-display-polish-001.js",
     "verify:sunset-reservas-expand-clean": "node scripts/verify-sunset-reservas-expand-clean.js",
     "verify:sunset-reservas-partidas-locale-dates": "node scripts/verify-sunset-reservas-partidas-locale-dates.js",
     "verify:sunset-admin-pure": "node scripts/verify-sunset-admin-pure.js",

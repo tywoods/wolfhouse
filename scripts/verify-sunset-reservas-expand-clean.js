@@ -122,7 +122,9 @@ const box = {
   adminBookingsRowKey(row) { return String((row && row.booking_id) || 'row'); },
 };
 vm.createContext(box);
-const expStart = bookingsUi.indexOf('function renderAdminBookingsExpansion');
+const expStart = bookingsUi.indexOf('function adminBookingsHasExplicitIncludedEvidence') >= 0
+  ? bookingsUi.indexOf('function adminBookingsHasExplicitIncludedEvidence')
+  : bookingsUi.indexOf('function renderAdminBookingsExpansion');
 const expEnd = bookingsUi.indexOf('function openAdminBookingsRefundForm');
 vm.runInContext(
   'var adminBookingsFormatItemDate = this.adminBookingsFormatItemDate;'

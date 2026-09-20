@@ -1460,7 +1460,7 @@ async function testGeneratedUi() {
     await page.locator('[data-bookings-row-id]').first().click();
     await page.waitForSelector('[data-bookings-expand]', { timeout: 5000 });
     const expandText = await page.locator('[data-bookings-expand]').first().innerText();
-    ok('expansion payment story', /Charged|Collected|Cargado|Cobrado|Addebitato/i.test(expandText));
+    ok('expansion payment story', /Booking total|Total de la reserva|Totale prenotazione|Collected|Cobrado|Incassato/i.test(expandText));
     ok('expansion items', /Adult group course|Wetsuit/i.test(expandText));
     ok('expansion waiver/created-by', /completed|ops@sunset\.test/i.test(expandText));
 
