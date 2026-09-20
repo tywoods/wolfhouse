@@ -2537,11 +2537,11 @@ function wireInboxSidebarToggle(targetEl) {
 
 function loadConvDetail(convId, targetEl){
   targetEl = targetEl || el('detail-content');
-  /* Conversation-to-conversation switches are atomic: retain the complete
-   * current deck while the next snapshot loads, then replace it once. Initial
-   * open still uses the loading skeleton. The selection generation below keeps
-   * rapid A→B→C responses from painting stale B data. */
-  var holdPreviousDeck = !!selectedConvId && selectedConvId !== convId;
+  /* Selection changes are atomic: retain either the empty placeholder or the
+   * complete current deck while the next snapshot loads, then replace it once.
+   * The selection generation below keeps rapid A→B→C responses from painting
+   * stale B data. */
+  var holdPreviousDeck = selectedConvId !== convId;
   selectedConvId = convId;
   var selectionGeneration = ++inboxSelectionGeneration;
   showInboxMobileThread();

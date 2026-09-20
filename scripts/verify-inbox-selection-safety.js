@@ -78,11 +78,22 @@ console.log('\nverify-inbox-selection-safety — behavioral owners\n');
 (async () => {
   console.log('── conversation → conversation hold/swap ──');
   { const r = loadRuntime();
+    r.detail.innerHTML = '<div>Select a conversation…</div>';
     r.sandbox.inboxRunConversationSwitch('A'); await flush();
-    ok('first open still paints an explicit loading state',
-      r.detail.innerHTML.includes('Loading…') && r.detail.classList.contains('is-loading-detail'), r.detail.innerHTML);
+    ok('Sunset first open holds the empty placeholder while A is pending',
+      r.transitions.length === 0 && r.detail.innerHTML.includes('Select a conversation…') && !r.detail.innerHTML.includes('Loading…'), r.detail.innerHTML);
     r.pending.A.resolve(response('A')); await flush();
-    ok('first open commits the complete A deck', r.detail.innerHTML.includes('Guest A') && r.detail.guest === 'Guest A', r.detail.innerHTML);
+    ok('Sunset first open swaps once to the complete A deck',
+      r.detail.innerHTML.includes('Guest A') && r.detail.guest === 'Guest A' && !r.detail.innerHTML.includes('Loading…'), r.detail.innerHTML);
+  }
+  { const r = loadRuntime({ portalClient: null });
+    r.detail.innerHTML = '<div>Select a conversation…</div>';
+    r.sandbox.inboxRunConversationSwitch('A'); await flush();
+    ok('Wolfhouse first open holds the empty placeholder while A is pending',
+      r.transitions.length === 0 && r.detail.innerHTML.includes('Select a conversation…') && !r.detail.innerHTML.includes('Loading…'), r.detail.innerHTML);
+    r.pending.A.resolve(response('A')); await flush();
+    ok('Wolfhouse first open swaps once to the complete A deck',
+      r.detail.innerHTML.includes('Guest A') && r.detail.guest === 'Guest A' && !r.detail.innerHTML.includes('Loading…'), r.detail.innerHTML);
   }
   { const r = loadRuntime();
     r.sandbox.selectedConvId = 'A';
