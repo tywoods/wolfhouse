@@ -439,25 +439,19 @@ function priorPeriodRange(range, granularity) {
 
 /**
  * Forward pipeline window for the "Next 30 days" KPI.
- * - Day drill-down: the selected day only (not a rolling forward window).
- * - Default (period includes today or is wholly in the past): wall-clock today … today+29.
- *   Not capped by period end — browsing Month/Year/Custom must not zero out cross-month pipeline.
- * - Wholly future period: period.start … min(period.start+29, period.end) (PR #628).
- * @param {{start:string,end:string}} primaryRange
+ * Always wall-clock today … today+29 in the location TZ — identical on Day /
+ * Month / Year / custom tabs. Not clipped to the selected Finance period
+ * (Bug Finder 2026-09-07 P2: Day showed selected-day dues while other tabs
+ * showed the rolling window).
+ *
+ * primaryRange / granularity are kept for call-site compatibility and ignored.
+ * @param {{start:string,end:string}} [_primaryRange]
  * @param {string} today YYYY-MM-DD in location TZ
- * @param {string} [granularity] day|month|year|custom
+ * @param {string} [_granularity] day|month|year|custom
  * @returns {{start:string,end:string}|null}
  */
-function next30RangeForPeriod(primaryRange, today, granularity) {
-  if (!primaryRange || !primaryRange.start || !primaryRange.end || !today) return null;
-  if (String(granularity || '').toLowerCase() === 'day') {
-    return { start: primaryRange.start, end: primaryRange.end };
-  }
-  if (today < primaryRange.start) {
-    const capped = addDays(primaryRange.start, 29);
-    const end = capped < primaryRange.end ? capped : primaryRange.end;
-    return { start: primaryRange.start, end };
-  }
+function next30RangeForPeriod(_primaryRange, today, _granularity) {
+  if (!today) return null;
   return { start: today, end: addDays(today, 29) };
 }
 
@@ -1073,7 +1067,7 @@ function computeSunsetFinanceSummary(args) {
       .map(([service_type, quantity]) => ({ service_type, quantity })),
   };
 
-  // Next 30: forward pipeline from today (see next30RangeForPeriod); future-only periods anchor at period start.
+  // Next 30: wall-clock today…today+29 on every tab (see next30RangeForPeriod).
   let next_30_days_cents = 0;
   if (next30Range) {
     for (const r of datedBsr) {
