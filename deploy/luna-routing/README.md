@@ -37,7 +37,7 @@ The unprivileged `luna-routing` controller can modify only that dedicated fragme
 cannot read, write, rename, or chown `/etc/caddy/Caddyfile`. It accepts only the canonical
 exact `/whatsapp/webhook` fragment, validates a minimal temporary wrapper importing the
 candidate with fixed `/usr/bin/caddy`, preserves fragment uid/gid/mode, atomically replaces the
-fragment, runs only `/usr/bin/sudo -n /usr/bin/systemctl reload caddy`, and verifies the
+fragment, asks Caddy's localhost admin endpoint to reload the canonical root config, and verifies the
 effective admin JSON.
 
 ## Installation
@@ -58,8 +58,7 @@ sudo deploy/luna-routing/install-luna-routing.sh --verify
 
 `--dry-run` performs source/static checks without requiring host Caddy. `--install` is
 root-only, validates a self-contained candidate importing the staged fragment before mutation, captures the prior unit's presence plus enabled/active state, creates the system user/group and directories, copies
-the script/unit/environment/sudoers/tmpfiles/initial Wolfhouse fragment, validates
-sudoers, validates the canonical final candidate after its fragment exists, and metadata-preservingly patches the root Caddyfile last,
+the script/unit/environment/tmpfiles/initial Wolfhouse fragment, removes the obsolete controller sudoers rule, validates the canonical final candidate after its fragment exists, and metadata-preservingly patches the root Caddyfile last,
 then daemon-reloads, enables/starts the controller, reloads Caddy, and verifies readback.
 It traps partial failures and restores prior artifacts, daemon/Caddy runtime configuration, and
 the prior controller enabled/active state while preserving the original failure. Rollback errors
