@@ -4,6 +4,7 @@ const SITE = 'lunabox.lunafrontdesk.com';
 const BEGIN = '# BEGIN luna-routing-contract';
 const END = '# END luna-routing-contract';
 const PUBLIC = '/_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook';
+const PROOF = '/whatsapp/routing-proof';
 const IMPORT = '/var/lib/luna-routing/luna-number-route.caddy';
 function uncomment(line) { return line.replace(/#.*/, ''); }
 function locate(text) {
@@ -19,10 +20,10 @@ function locate(text) {
   if(broad.length!==1) throw Error('expected exactly one broad WhatsApp route in lunabox site');
   return {lines,site,index:site.start+1+broad[0]};
 }
-function block(indent='') { return [BEGIN,`handle ${PUBLIC} {`,'  rewrite * /v1/routes/meta-whatsapp-verified-webhook','  reverse_proxy 127.0.0.1:8096','}',`import ${IMPORT}`,END].map(x=>indent+x).join('\n'); }
-function verify(text) { const found=locate(text); const begins=[...String(text).matchAll(/^\s*# BEGIN luna-routing-contract\s*$/gm)], ends=[...String(text).matchAll(/^\s*# END luna-routing-contract\s*$/gm)]; if(begins.length!==1||ends.length!==1) throw Error('contract markers missing or duplicated'); const indent=/^\s*/.exec(found.lines[found.index])[0]; const actual=found.lines.slice(found.index-7,found.index).join('\n'); if(actual!==block(indent)) throw Error('contract is not canonical or immediately before broad route'); return true; }
+function block(indent='') { return [BEGIN,`handle ${PUBLIC} {`,'  rewrite * /v1/routes/meta-whatsapp-verified-webhook','  reverse_proxy 127.0.0.1:8096','}',`handle ${PROOF} {`,'  reverse_proxy 127.0.0.1:8094','}',`import ${IMPORT}`,END].map(x=>indent+x).join('\n'); }
+function verify(text) { const found=locate(text); const begins=[...String(text).matchAll(/^\s*# BEGIN luna-routing-contract\s*$/gm)], ends=[...String(text).matchAll(/^\s*# END luna-routing-contract\s*$/gm)]; if(begins.length!==1||ends.length!==1) throw Error('contract markers missing or duplicated'); const indent=/^\s*/.exec(found.lines[found.index])[0]; const rows=block(indent).split('\n'); const actual=found.lines.slice(found.index-rows.length,found.index).join('\n'); if(actual!==block(indent)) throw Error('contract is not canonical or immediately before broad route'); return true; }
 function transform(text, update=false) { let source=String(text); const marker=/^\s*# BEGIN luna-routing-contract\s*$[\s\S]*?^\s*# END luna-routing-contract\s*\n?/gm; const matches=[...source.matchAll(marker)]; if(matches.length){ if(matches.length!==1) throw Error('duplicate contract markers'); if(!update){ verify(source); return source; } source=source.replace(marker,''); }
-  if(new RegExp(PUBLIC.replaceAll('/','\\/')).test(source)||source.includes(IMPORT)||/^\s*# (?:BEGIN|END) luna-routing-contract/m.test(source)) throw Error('partial or misleading routing contract');
+  if(new RegExp(PUBLIC.replaceAll('/','\\/')).test(source)||new RegExp(PROOF.replaceAll('/','\\/')).test(source)||source.includes(IMPORT)||/^\s*# (?:BEGIN|END) luna-routing-contract/m.test(source)) throw Error('partial or misleading routing contract');
   const found=locate(source), indent=/^\s*/.exec(found.lines[found.index])[0]; found.lines.splice(found.index,0,...block(indent).split('\n')); return found.lines.join('\n'); }
 if(require.main===module){ const [mode,input,output]=process.argv.slice(2); const text=fs.readFileSync(input,'utf8'); if(mode==='verify') verify(text); else fs.writeFileSync(output,transform(text,mode==='update')); }
 module.exports={transform,verify,block};
