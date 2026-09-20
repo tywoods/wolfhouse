@@ -530,6 +530,26 @@ html[data-theme="dark"] .theme-toggle .icon-sun{display:block}
   padding:18px;
 }
 .placeholder-shell p{margin:0 0 10px;color:var(--text-2);font-size:15px;max-width:60ch}
+.communications-shell{display:grid;gap:16px}
+.communications-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.communications-current{border-left:4px solid var(--sea)}
+.communications-kicker{display:block;color:var(--text-3);font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:7px}
+.communications-binding{font-size:1.35rem;font-weight:800;color:var(--navy);margin:0 0 6px}
+.communications-form{display:grid;gap:14px}
+.communications-form label{display:grid;gap:6px;color:var(--text-2);font-size:13px;font-weight:700}
+.communications-form select{width:100%;min-height:44px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-raised);color:var(--charcoal);padding:0 12px;font:inherit}
+.communications-status{min-height:1.5em;color:var(--text-2);font-size:14px}
+.communications-status[data-kind="success"]{color:var(--green);font-weight:700}
+.communications-status[data-kind="error"]{color:var(--red);font-weight:700}
+.communications-audit{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+.communications-audit div{padding:10px;border-radius:var(--radius-sm);background:var(--sand)}
+.communications-audit dt{font-size:12px;color:var(--text-3);font-weight:700}
+.communications-audit dd{margin:4px 0 0;color:var(--navy);font-weight:700}
+.communications-dialog{width:min(520px,calc(100vw - 32px));border:1px solid var(--border);border-radius:var(--radius);padding:22px;background:var(--surface-raised);color:var(--charcoal);box-shadow:var(--shadow)}
+.communications-dialog::backdrop{background:rgba(15,20,26,.55)}
+.communications-confirm-list{display:grid;grid-template-columns:auto 1fr;gap:8px 14px;margin:16px 0}
+.communications-confirm-list dt{color:var(--text-3);font-size:13px;font-weight:700}.communications-confirm-list dd{margin:0;font-weight:800}
+@media(max-width:700px){.communications-grid{grid-template-columns:1fr}.communications-audit{grid-template-columns:1fr}}
 .sales-form .form-row{margin-bottom:12px}
 .sales-form label{
   display:block;
@@ -1740,11 +1760,81 @@ function renderBillingMain() {
 }
 
 function renderCommunicationsMain() {
-  return `<section id="communications" class="card placeholder-shell" aria-labelledby="communications-title">
-      <p>Communications data sources and actions are <strong>not connected</strong> yet.</p>
-      <p>No send controls, address pickers, or invented message counts are available in this slice.</p>
-      <div class="safety"><strong>Safety:</strong> Read-only placeholder. No outbound messaging or live network calls.</div>
+  return `<section id="communications" class="communications-shell" aria-labelledby="communications-title" data-communications-root>
+      <div class="communications-grid">
+        <article class="card communications-current" aria-live="polite">
+          <span class="communications-kicker">Current binding</span>
+          <p class="communications-binding" data-current-binding>Loading verified route…</p>
+          <p data-current-number>+34 663 43 94 19 · staging</p>
+          <dl class="communications-audit" aria-label="Latest routing audit">
+            <div><dt>Who changed</dt><dd data-audit-who>Loading…</dd></div>
+            <div><dt>When</dt><dd data-audit-when>Loading…</dd></div>
+          </dl>
+        </article>
+        <article class="card">
+          <span class="communications-kicker">Staging route control</span>
+          <form class="communications-form" data-routing-form>
+            <label for="routing-number">Staging number
+              <select id="routing-number" name="number_id" required>
+                <option value="staging-es-34663439419">+34 663 43 94 19</option>
+              </select>
+            </label>
+            <label for="routing-target">Luna
+              <select id="routing-target" name="target_id" required>
+                <option value="sunset">Sunset</option>
+                <option value="wolfhouse">Wolfhouse</option>
+              </select>
+            </label>
+            <div class="form-actions"><button class="btn-primary" type="submit" data-save-routing disabled>Save routing</button></div>
+            <p class="communications-status" data-routing-status>Loading registered staging targets…</p>
+          </form>
+        </article>
+      </div>
+      <article class="card" aria-labelledby="verified-result-title">
+        <h2 id="verified-result-title">Verified result</h2>
+        <p data-verified-result>No routing change made in this session.</p>
+      </article>
+      <div class="safety"><strong>Safety:</strong> Staging only. Production and unknown numbers are denied. This page can submit registered target IDs only; it cannot accept a phone number, host, URL, or shell command.</div>
+      <dialog class="communications-dialog" data-confirm-dialog aria-labelledby="routing-confirm-title">
+        <h2 id="routing-confirm-title">Confirm routing change</h2>
+        <dl class="communications-confirm-list">
+          <dt>Number</dt><dd data-confirm-number>+34 663 43 94 19</dd>
+          <dt>Old Luna</dt><dd data-confirm-old>—</dd>
+          <dt>New Luna</dt><dd data-confirm-new>—</dd>
+        </dl>
+        <p>This changes the staging webhook route. No production number is in scope.</p>
+        <div class="form-actions">
+          <button type="button" class="btn-disabled" data-cancel-routing>Cancel</button>
+          <button type="button" class="btn-primary" data-confirm-routing>Confirm and save</button>
+        </div>
+      </dialog>
     </section>`;
+}
+
+function renderCommunicationsScript(nonce) {
+  if (!nonce) return '';
+  const nonceAttr = ` nonce="${escapeHtml(nonce)}"`;
+  return `<script${nonceAttr}>
+(() => {
+  const root = document.querySelector('[data-communications-root]'); if (!root) return;
+  const API = '/api/staging/luna-routing/';
+  const ALLOWED_NUMBERS = new Map([['staging-es-34663439419', '+34 663 43 94 19']]);
+  const ALLOWED_TARGETS = new Map([['sunset', 'Sunset'], ['wolfhouse', 'Wolfhouse']]);
+  const form = root.querySelector('[data-routing-form]'); const number = root.querySelector('#routing-number'); const target = root.querySelector('#routing-target');
+  const save = root.querySelector('[data-save-routing]'); const status = root.querySelector('[data-routing-status]'); const dialog = root.querySelector('[data-confirm-dialog]');
+  let effective = null; let pending = null; let busy = false;
+  function setStatus(text, kind) { status.textContent = text; status.dataset.kind = kind || ''; }
+  async function request(path, options) { const response = await fetch(API + path, Object.assign({ credentials:'same-origin', headers:{ Accept:'application/json' } }, options || {})); const data = await response.json().catch(() => ({})); if (!response.ok || data.ok === false) throw new Error(data.error || data.code || ('HTTP ' + response.status)); return data; }
+  function assertAllowed(numberId, targetId) { if (!ALLOWED_NUMBERS.has(numberId)) throw new Error('unknown_or_production_number_denied'); if (!ALLOWED_TARGETS.has(targetId)) throw new Error('unknown_target_denied'); }
+  function showEffective(data) { const candidate = data && (data.binding || data.effective || data); const numberId = String(candidate.number_id || ''); const targetId = String(candidate.target_id || ''); assertAllowed(numberId, targetId); effective = { number_id:numberId, target_id:targetId }; root.querySelector('[data-current-binding]').textContent = ALLOWED_TARGETS.get(targetId) + ' Luna'; root.querySelector('[data-current-number]').textContent = ALLOWED_NUMBERS.get(numberId) + ' · staging'; target.value = targetId; }
+  function showAudit(data) { const item = (data && (data.latest || (data.events || [])[0])) || {}; root.querySelector('[data-audit-who]').textContent = item.changed_by || item.actor || 'No verified audit record'; root.querySelector('[data-audit-when]').textContent = item.changed_at || item.at || '—'; }
+  async function load() { try { const results = await Promise.all([request('targets'), request('effective'), request('audit')]); const registeredNumbers = new Set((results[0].numbers || []).map(x => String(x.id || x.number_id || ''))); const registeredTargets = new Set((results[0].targets || []).map(x => String(x.id || x.target_id || ''))); if (!registeredNumbers.has(number.value) || ![...ALLOWED_TARGETS.keys()].every(id => registeredTargets.has(id))) throw new Error('registered_targets_missing'); showEffective(results[1]); showAudit(results[2]); save.disabled = false; setStatus('Registered targets loaded. Review before saving.'); } catch (error) { save.disabled = true; setStatus('Routing controls unavailable: ' + error.message, 'error'); } }
+  form.addEventListener('submit', event => { event.preventDefault(); try { assertAllowed(number.value, target.value); if (!effective) throw new Error('effective_route_unavailable'); pending = Object.freeze({ number_id:number.value, target_id:target.value, expected_old_target_id:String(effective.target_id) }); number.disabled = true; target.disabled = true; root.querySelector('[data-confirm-old]').textContent = ALLOWED_TARGETS.get(pending.expected_old_target_id); root.querySelector('[data-confirm-new]').textContent = ALLOWED_TARGETS.get(pending.target_id); dialog.showModal(); } catch (error) { setStatus(error.message, 'error'); } });
+  root.querySelector('[data-cancel-routing]').addEventListener('click', () => { pending = null; number.disabled = false; target.disabled = false; dialog.close(); });
+  root.querySelector('[data-confirm-routing]').addEventListener('click', async () => { if (busy || !pending) return; busy = true; save.disabled = true; const payload = pending; try { assertAllowed(payload.number_id, payload.target_id); const confirmation = await request('confirm', { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify(payload) }); const applied = await request('apply', { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify(Object.assign({}, payload, { confirmation_token:confirmation.confirmation_token })) }); const auditEventId = String(applied.audit_event_id || applied.event_id || ''); if (!auditEventId) throw new Error('apply_missing_audit_event_id'); const verified = await request('effective'); showEffective(verified); if (String(effective.target_id) !== payload.target_id) throw new Error('effective_route_readback_mismatch'); const audit = await request('audit'); const items = audit && Array.isArray(audit.events) ? audit.events : [audit && audit.latest].filter(Boolean); const item = items.find(entry => String(entry.audit_event_id || entry.event_id || '') === auditEventId); if (!item || String(item.number_id || '') !== payload.number_id || String(item.old_target_id || '') !== payload.expected_old_target_id || String(item.new_target_id || item.target_id || '') !== payload.target_id) throw new Error('audit_readback_mismatch'); showAudit({ latest:item }); root.querySelector('[data-verified-result]').textContent = ALLOWED_NUMBERS.get(payload.number_id) + ' is verified on ' + ALLOWED_TARGETS.get(payload.target_id) + ' Luna.'; setStatus('Routing saved and verified.', 'success'); pending = null; number.disabled = false; target.disabled = false; dialog.close(); save.disabled = false; } catch (error) { effective = null; pending = null; number.disabled = false; target.disabled = false; save.disabled = true; setStatus('Routing was not verified: ' + error.message + '. Reload required.', 'error'); } finally { busy = false; } });
+  load();
+})();
+</script>`;
 }
 
 const COCKPIT_PIPELINE_STAGES = [
@@ -3466,7 +3556,7 @@ function viewPageTitle(view) {
 function viewSubtitle(view) {
   if (view === 'clients') return 'Static client cards, templates, and onboarding mockup';
   if (view === 'billing') return 'Billing sources are not connected yet';
-  if (view === 'communications') return 'Communications sources are not connected yet';
+  if (view === 'communications') return 'Staging Luna number routing — registered targets, explicit confirmation, verified readback';
   if (view === 'live_simulator') return 'Staging Luna guest-turn simulator — authenticated operator session, no browser tokens, no writes or external sends';
   if (view === 'sales') return 'Operator Sales cockpit — pipeline, attention queue, and human-approved intake';
   if (view === 'sales_detail') return 'Prospect review detail, fixture research, manual evidence, manual contacts, qualification, CRM preview, outreach draft, and Admin decision';
@@ -3557,6 +3647,7 @@ function renderCrowsnestPage(options = {}) {
     ${main}
   </div>
   ${view === 'live_simulator' ? renderLiveSimulatorScript(nonce) : ''}
+  ${view === 'communications' ? renderCommunicationsScript(nonce) : ''}
 </body>
 </html>`;
 }

@@ -95,6 +95,8 @@
     "verify:luna-routing-deployment": "node scripts/verify-luna-routing-deployment.js && deploy/luna-routing/install-luna-routing.sh --dry-run",
     "verify:crowsnest": "node scripts/verify-crowsnest.js",
     "verify:crowsnest-auth": "node scripts/verify-crowsnest-auth.js",
+    "verify:crowsnest-communications-routing": "node scripts/verify-crowsnest-communications-routing.js",
+    "verify:crowsnest-communications-controller": "node scripts/verify-crowsnest-communications-controller.js",
     "verify:crowsnest-live-simulator": "node scripts/verify-crowsnest-live-simulator.js",
     "verify:owner-lab-crowsnest": "node scripts/verify-owner-lab-crowsnest.js",
     "verify:inbox-owner-lab-chip": "node scripts/verify-inbox-owner-lab-chip.js",
