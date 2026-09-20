@@ -3,7 +3,8 @@
 /**
  * Crowsnest — internal dev/operator control portal.
  * Standalone HTTP server; separate from staff-query-api.js.
- * No DB, no writes, no Staff API calls. See docs/CROWSNEST.md.
+ * Operator-only portal. Status reads are fail-soft and staging-allowlisted;
+ * writes remain explicitly scoped to approved Sales and routing actions.
  */
 
 const crypto = require('crypto');
@@ -11,6 +12,12 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { renderCrowsnestLoginPage, renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
+const { getCrowsnestClients } = require('./lib/crowsnest/crowsnest-clients');
+const { collectClientConnectionStatuses } = require('./lib/crowsnest/crowsnest-client-status');
+const {
+  resolveCrowsnestStaffStatusConfig,
+  createCrowsnestStaffStatusReader,
+} = require('./lib/crowsnest/crowsnest-staff-status-reader');
 const { resolveBackend: resolveCrowsnestSessionBackend } = require('./lib/crowsnest/crowsnest-session-store');
 const {
   buildCrowsnestClearedSessionCookie,
@@ -1406,6 +1413,15 @@ async function handleProtectedUi(req, res, method, pathname) {
       // Fail-soft reader: returns {} on any failure so Spyglass renders "not reporting yet".
       pageOptions.clientMetrics = await getSpyglassClientMetricsMap();
       pageOptions.aiUsage = await getSpyglassAiUsage(); // null => panel falls back to sample
+    }
+    if (view === 'clients') {
+      const staffStatus = resolveCrowsnestStaffStatusConfig(process.env);
+      pageOptions.clientStatuses = await collectClientConnectionStatuses({
+        clients: getCrowsnestClients(),
+        readWhatsApp: readLunaNumberRoute,
+        staffOrigins: staffStatus.origins,
+        requestJson: createCrowsnestStaffStatusReader(staffStatus),
+      });
     }
     return sendHTML(res, 200, renderCrowsnestPage(pageOptions), { 'Cache-Control': 'no-store' }, cspNonce);
   } catch (err) {
