@@ -162,6 +162,41 @@ class DraftServerTests(unittest.TestCase):
             )
         )
 
+    def test_author_strips_topic_from_acts_that_forbid_it_before_signing(self):
+        raw = envelope()
+        req = json.loads(raw)
+        model_plan = json.dumps(
+            {
+                "acts": [
+                    {"act": "thank_guest", "topic": "surf"},
+                    {"act": "ask_clarifying_question", "topic": "lesson"},
+                ]
+            }
+        )
+
+        status, payload = call(
+            raw,
+            invoke=lambda _system, _user: live_attempt(model_plan),
+        )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            payload["acts"],
+            [
+                {"act": "thank_guest"},
+                {"act": "ask_clarifying_question", "topic": "lesson"},
+            ],
+        )
+        self.assertTrue(
+            verify_result_authenticity(
+                HMAC_SECRET,
+                req,
+                payload["provenance"],
+                {"acts": payload["acts"]},
+                payload["authenticity"],
+            )
+        )
+
     def test_invoke_failure_does_not_claim_sol(self):
         def boom(_s, _u):
             raise RuntimeError("down")
