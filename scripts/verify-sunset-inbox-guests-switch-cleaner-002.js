@@ -38,6 +38,18 @@ const threadSrc = fs.readFileSync(THREAD_MODULE, 'utf8');
 const columnsSrc = fs.readFileSync(COLUMNS_MODULE, 'utf8');
 const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
 
+/* GMAIL-HOLD-001 supersedes this gate's hide-first contract. Keep the old
+ * command useful by delegating to the replacement contract once present. */
+if (rowsSrc.includes('SUNSET-INBOX-CHATS-GUESTS-GMAIL-HOLD-001')
+    || apiSrc.includes('SUNSET-INBOX-CHATS-GUESTS-GMAIL-HOLD-001')) {
+  execSync('node scripts/verify-sunset-inbox-chats-guests-gmail-hold-001.js', {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
+  console.log('\nOK superseded by SUNSET-INBOX-CHATS-GUESTS-GMAIL-HOLD-001');
+  process.exit(0);
+}
+
 let pass = 0;
 let fail = 0;
 function ok(name, cond, detail) {

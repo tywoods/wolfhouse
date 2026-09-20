@@ -148,22 +148,22 @@ ok('Sunset Chats and Guests share one wrap width',
   && sunChatWrap.includes(SHARED_WRAP));
 
 console.log('\n── atomic Chats ↔ Guests switch ──');
-ok('Sunset hides the shell while the folder switch is in flight',
-  /html\[data-portal-client="sunset"\] #inbox-shell\.inbox-folder-switching\{/.test(apiSrc)
-  && /visibility:hidden/.test(sliceRule(apiSrc, `${SUNSET} #inbox-shell.inbox-folder-switching`)));
-ok('rows owns the switch (stay off inbox-columns.js / inbox-thread.js)',
+ok('Sunset keeps a browser snapshot instead of hiding the live shell',
+  rowsSrc.includes('document.startViewTransition(function()')
+  && !/html\[data-portal-client="sunset"\] #inbox-shell\.inbox-folder-switching\{/.test(apiSrc));
+ok('rows owns the switch; thread only carries the async token',
   rowsSrc.includes('function inboxRowsBeginFolderSwitch(')
   && rowsSrc.includes('function inboxRowsNoteFolderSwitchPart(')
-  && rowsSrc.includes('inbox-folder-switching')
+  && rowsSrc.includes('inboxRowsRunFolderSwitch')
   && !columnsSrc.includes('inbox-folder-switching')
-  && !threadSrc.includes('inbox-folder-switching'));
-ok('preset wrap starts the hide BEFORE legacy setPreset (one beat, not tab-first)',
-  /if \(crossing\) inboxRowsBeginFolderSwitch\(\);\s*var result = _inboxRowsLegacySetPreset\(name\)/.test(rowsSrc));
+  && threadSrc.includes('folderSwitchGen: folderSwitchGen'));
+ok('preset wrap snapshots before legacy setPreset (one beat, not tab-first)',
+  /document\.startViewTransition\(function\(\) \{\s*run\(\)/.test(rowsSrc));
 ok('Sunset-only crossing (Chats ↔ Guests)',
   rowsSrc.includes('inboxRowsIsSunsetPortal()')
   && /crossing = wasGuest !== nowGuest && inboxRowsIsSunsetPortal\(\)/.test(rowsSrc));
-ok('list paint and rail paint both release the hide',
-  rowsSrc.includes("inboxRowsNoteFolderSwitchPart('list')")
+ok('generation-bound list paint and rail paint both signal readiness',
+  rowsSrc.includes("inboxRowsNoteFolderSwitchPart('list', opts && opts.folderSwitchGen)")
   && rowsSrc.includes("inboxRowsNoteFolderSwitchPart('rail')"));
 ok('failed/slow fetch cannot leave Inbox invisible (timeout reveal)',
   /setTimeout\(function\(\) \{\s*inboxRowsEndFolderSwitch\(gen\);\s*\}, 500\)/.test(rowsSrc)
@@ -187,7 +187,9 @@ ok('fixture uses shared 1520 wrap + 3-col Guest grid (not 246px columns)',
   && /inbox-folder-switching/.test(fixture));
 
 console.log('\n── stay off ──');
-ok('inbox-thread.js not modified', gitDiff('scripts/browser/inbox-thread.js') === '');
+ok('inbox-thread.js carries only the authorized switch generation boundary',
+  threadSrc.includes('var folderSwitchGen = Number(opts.folderSwitchGen) || 0;')
+  && threadSrc.includes('folderSwitchGen: folderSwitchGen'));
 ok('inbox-columns.js WIDTHS not modified', gitDiff('scripts/browser/inbox-columns.js') === '');
 ok("Crow's Nest page not modified", gitDiff('scripts/lib/crowsnest/crowsnest-page.js') === '');
 ok('package.json not modified', gitDiff('package.json') === '');

@@ -530,6 +530,7 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
   opts = opts || {};
   var silent = !!opts.silent;
   var preserveDetail = !!opts.preserveDetail;
+  var folderSwitchGen = Number(opts.folderSwitchGen) || 0;
   var keepConvId = selectConvIdAfterLoad || (preserveDetail ? selectedConvId : null);
   /* Cold refresh can restore the Guest column preset from localStorage before
    * any preset-click wrapper runs. Treat the preset as authoritative so the
@@ -586,6 +587,7 @@ function loadInboxFromSavedView(selectConvIdAfterLoad, opts){
       applyInboxSavedViewRows(inboxSavedViewRows, {
         preserveDetail: !!(preserveDetail && !selectConvIdAfterLoad),
         selectedId: selectedConvId,
+        folderSwitchGen: folderSwitchGen,
       });
       if (selectConvIdAfterLoad){
         var list = el('conv-list');
@@ -803,7 +805,15 @@ function inboxViewsSwitchSurface(surface) {
 
   inboxSavedViewId = restoreViewId;
   refreshInboxViewsRail();
-  loadInbox(null, { silent: false, preserveDetail: true });
+  var folderSwitchGen = 0;
+  if (typeof window !== 'undefined' && window.__inboxRows && window.__inboxRows.folderSwitchToken) {
+    folderSwitchGen = Number(window.__inboxRows.folderSwitchToken()) || 0;
+  }
+  loadInbox(null, {
+    silent: false,
+    preserveDetail: true,
+    folderSwitchGen: folderSwitchGen,
+  });
 }
 
 /**
