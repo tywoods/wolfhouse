@@ -14,6 +14,8 @@ const expected = {
   'inbox.empty.sub.surf': ['Guest emails and WhatsApp messages will appear here when they arrive.', 'Los emails y mensajes de WhatsApp de huéspedes de Sunset aparecerán aquí cuando lleguen.'],
   'customers.detail.notes': ['Notes for next time', 'NOTAS PARA LA PRÓXIMA VEZ'],
   'inbox.layout.preset.all4': ['Full', 'Completa'],
+  'inbox.layout.folder.chats': ['Chats', 'Chats'],
+  'inbox.layout.folder.guests': ['Guests', 'Huéspedes'],
   'admin.bookings.openInSchedule': ['Open in Schedule', 'Abrir en Agenda'],
   'inbox.detail.needsHuman.raise': ['Needs human', 'Requiere personal'],
   'inbox.channelControl.title': ['LUNA AUTONOMY', 'AUTONOMÍA LUNA'],
