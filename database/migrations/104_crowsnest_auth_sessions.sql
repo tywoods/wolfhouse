@@ -11,17 +11,14 @@ BEGIN
 END $$;
 
 SET LOCAL ROLE crowsnest_comms_owner;
-CREATE SCHEMA IF NOT EXISTS crowsnest_auth AUTHORIZATION crowsnest_comms_owner;
-CREATE TABLE IF NOT EXISTS crowsnest_auth.sessions (
+CREATE TABLE IF NOT EXISTS crowsnest_comms.auth_sessions (
   token_hash text PRIMARY KEY CHECK (token_hash ~ '^[0-9a-f]{64}$'),
   username text NOT NULL CHECK (length(username) BETWEEN 1 AND 200),
   expires_at timestamptz NOT NULL,
   created_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
-CREATE INDEX IF NOT EXISTS crowsnest_auth_sessions_expiry_idx ON crowsnest_auth.sessions(expires_at);
-REVOKE ALL ON SCHEMA crowsnest_auth FROM PUBLIC;
-REVOKE ALL ON crowsnest_auth.sessions FROM PUBLIC;
-GRANT USAGE ON SCHEMA crowsnest_auth TO crowsnest_api;
-GRANT SELECT, INSERT, DELETE ON crowsnest_auth.sessions TO crowsnest_api;
+CREATE INDEX IF NOT EXISTS crowsnest_auth_sessions_expiry_idx ON crowsnest_comms.auth_sessions(expires_at);
+REVOKE ALL ON crowsnest_comms.auth_sessions FROM PUBLIC;
+GRANT SELECT, INSERT, DELETE ON crowsnest_comms.auth_sessions TO crowsnest_api;
 
 COMMIT;
