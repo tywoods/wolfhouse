@@ -21,6 +21,19 @@ function sharedPool(dsn, poolFactory) { if (poolFactory) return poolFactory({ co
 function createAuditStore(dsn, poolFactory) {
   const pool = sharedPool(dsn, poolFactory);
   return {
+    async latest() {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SET LOCAL ROLE crowsnest_api');
+        const result = await client.query(`SELECT operation_id,actor_username,updated_at
+          FROM crowsnest_comms.number_route_operations
+          WHERE state='succeeded' ORDER BY updated_at DESC LIMIT 1`);
+        await client.query('COMMIT');
+        const row = result.rows[0];
+        return row ? { operation_id: row.operation_id, changed_by: row.actor_username, changed_at: new Date(row.updated_at).toISOString() } : null;
+      } catch (error) { try { await client.query('ROLLBACK'); } catch (_) { } throw error; } finally { client.release(); }
+    },
     async begin(event) {
       const client = await pool.connect();
       try {
@@ -54,7 +67,7 @@ function createAuditStore(dsn, poolFactory) {
 }
 async function closeAuditPools() { const values = [...pools.values()]; pools.clear(); await Promise.all(values.map((pool) => pool.end())); }
 async function callController(method, payload, cfg, transport = fetch) { const body = payload ? JSON.stringify(payload) : ''; const headers = { accept: 'application/json', 'content-type': 'application/json', ...signedHeaders(method, CONTROLLER_PATH, body, cfg.key) }; let response; try { response = await transport(cfg.url, { method, headers, body: body || undefined, signal: AbortSignal.timeout(10000) }); } catch (_) { return { ok: false, status: 503, indeterminate: method === 'POST', code: method === 'POST' ? 'routing_outcome_indeterminate' : 'routing_controller_unavailable' }; } let result = {}; try { result = await response.json(); } catch (_) { } if (!response.ok || result.ok !== true) return { ok: false, status: [409, 415, 422].includes(response.status) ? response.status : 503, code: result.code || 'routing_controller_rejected', indeterminate: result.indeterminate === true, events: Array.isArray(result.events) ? result.events : [] }; return result; }
-async function readLunaNumberRoute(options = {}) { const runtimeEnv = options.env || process.env; if (!isStagingEnvironment(runtimeEnv)) return { ok: false, status: 404, code: 'routing_not_available' }; const cfg = config(runtimeEnv); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' }; const result = await callController('GET', null, cfg, options.transport); return result.ok ? { ok: true, number_e164: NUMBER_E164, phone_number_id: PHONE_NUMBER_ID, environment: ENVIRONMENT, route: result.route } : result; }
+async function readLunaNumberRoute(options = {}) { const runtimeEnv = options.env || process.env; if (!isStagingEnvironment(runtimeEnv)) return { ok: false, status: 404, code: 'routing_not_available' }; const cfg = config(runtimeEnv); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' }; const result = await callController('GET', null, cfg, options.transport); if (!result.ok) return result; let audit = null; try { const store = options.auditStore || createAuditStore(cfg.dsn, options.poolFactory); audit = await store.latest(); } catch (_) { audit = null; } return { ok: true, number_e164: NUMBER_E164, phone_number_id: PHONE_NUMBER_ID, environment: ENVIRONMENT, route: result.route, audit }; }
 async function mutate(action, input, actor, options = {}) {
   const runtimeEnv = options.env || process.env;
   if (!isStagingEnvironment(runtimeEnv)) return { ok: false, status: 404, code: 'routing_not_available' };
@@ -68,8 +81,9 @@ async function mutate(action, input, actor, options = {}) {
   if (begun.conflict) return { ok: false, status: 409, code: 'operation_id_conflict' };
   if (begun.response && ['succeeded', 'rejected'].includes(begun.state)) return begun.response;
   const result = await callController('POST', { operation_id: operationId, action, expected_revision: expected, actor_account_id: actor.account_id }, cfg, options.transport);
-  try { await store.complete(base, result); } catch (_) { return { ok: false, status: 503, indeterminate: true, code: 'audit_reconciliation_required', operation_id: operationId }; }
-  return result;
+  const completed = result.ok ? { ...result, audit: { operation_id: operationId, changed_by: actor.username, changed_at: new Date().toISOString() } } : result;
+  try { await store.complete(base, completed); } catch (_) { return { ok: false, status: 503, indeterminate: true, code: 'audit_reconciliation_required', operation_id: operationId }; }
+  return completed;
 }
 const flipLunaNumberRoute = (input, actor, options) => mutate(ACTIONS.flip, input, actor, options);
 const rollbackLunaNumberRoute = (input, actor, options) => mutate(ACTIONS.rollback, input, actor, options);
