@@ -14,7 +14,6 @@ const { renderCrowsnestLoginPage, renderCrowsnestPage } = require('./lib/crowsne
 const {
   buildCrowsnestClearedSessionCookie,
   buildCrowsnestSessionCookie,
-  clearExpiredCrowsnestSessions,
   createCrowsnestSession,
   destroyCrowsnestSession,
   getCrowsnestAllowedUsers,
@@ -25,6 +24,7 @@ const {
   isCrowsnestLoginAccepted,
   isCrowsnestRequestAuthorized,
   isCrowsnestSessionAuthorized,
+  loadCrowsnestSession,
   parseBasicAuthHeader,
   sendCrowsnestAuthMisconfigured,
 } = require('./lib/crowsnest/crowsnest-auth');
@@ -1155,7 +1155,12 @@ async function handleLogin(req, res, method) {
     return sendHTML(res, 200, html, { 'Cache-Control': 'no-store' }, cspNonce);
   }
 
-  const token = createCrowsnestSession(username);
+  let token;
+  try {
+    token = await createCrowsnestSession(username);
+  } catch {
+    return sendCrowsnestAuthMisconfigured(res);
+  }
   return sendRedirect(res, '/', {
     'Set-Cookie': getSessionCookieHeader(token),
     'Cache-Control': 'no-store',
@@ -1176,7 +1181,7 @@ async function handleLogout(req, res, method) {
     cookies.set(trimmed.slice(0, eq), trimmed.slice(eq + 1));
   }
   const token = cookies.get('crowsnest_session');
-  if (token) destroyCrowsnestSession(token);
+  if (token) await destroyCrowsnestSession(token);
   return sendRedirect(res, '/login', {
     'Set-Cookie': getClearedSessionCookieHeader(),
     'Cache-Control': 'no-store',
@@ -2491,7 +2496,7 @@ async function handleSalesOutreachDraft(req, res, method, prospectId) {
 }
 
 async function router(req, res) {
-  clearExpiredCrowsnestSessions();
+  await loadCrowsnestSession(req);
   res.crowsnestTheme = readCrowsnestTheme(req);
   const pathname = getRequestPath(req);
   const method = getRequestMethod(req);
