@@ -20,6 +20,7 @@ const {
   getCrowsnestAllowedUsers,
   getCrowsnestAuthAccounts,
   getCrowsnestLoginBodyLimit,
+  getCrowsnestRequestActor,
   isCrowsnestAuthEnabled,
   isCrowsnestLoginAccepted,
   isCrowsnestRequestAuthorized,
@@ -134,6 +135,16 @@ const {
   parseJsonBody,
   runLiveSimulatorTurn,
 } = require('./lib/crowsnest/crowsnest-live-simulator');
+const {
+  readLunaNumberRoute,
+  flipLunaNumberRoute,
+  rollbackLunaNumberRoute,
+  isStagingEnvironment: isLunaNumberRoutingStaging,
+} = require('./lib/crowsnest/crowsnest-luna-number-routing');
+
+const LUNA_NUMBER_ROUTE_API = '/api/communications/luna-number-route';
+const LUNA_NUMBER_FLIP_API = `${LUNA_NUMBER_ROUTE_API}/flip-to-sunset`;
+const LUNA_NUMBER_ROLLBACK_API = `${LUNA_NUMBER_ROUTE_API}/rollback-to-wolfhouse`;
 
 const METRICS_INGEST_TOKEN_ENV = 'CROWSNEST_METRICS_INGEST_TOKEN';
 const METRICS_INGEST_MAX_BODY = 64 * 1024; // snapshots are tiny; cap the surface
@@ -278,6 +289,41 @@ async function handleLiveSimulatorGuestTurn(req, res, method) {
   });
   const status = result.status || (result.ok ? 200 : 400);
   return sendJSON(res, status, result, { 'Cache-Control': 'no-store' });
+}
+
+async function handleLunaNumberRoute(req, res, method, action) {
+  if (!isLunaNumberRoutingStaging(process.env)) {
+    return sendJSON(res, 404, { ok: false, code: 'routing_not_available' }, { 'Cache-Control': 'no-store' });
+  }
+  if (!isBrowserUiAuthorized(req)) {
+    return sendJSON(res, 401, { ok: false, code: 'unauthorized' }, { 'Cache-Control': 'no-store' });
+  }
+  const actor = getCrowsnestRequestActor(req);
+  if (!actor) {
+    return sendJSON(res, 403, { ok: false, code: 'named_operator_required' }, { 'Cache-Control': 'no-store' });
+  }
+  if (!action && method === 'GET') {
+    const result = await readLunaNumberRoute();
+    return sendJSON(res, result.status || (result.ok ? 200 : 503), result, { 'Cache-Control': 'no-store' });
+  }
+  if (!action || method !== 'POST') return sendMethodNotAllowed(res, action ? 'POST' : 'GET');
+  if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers['content-type'] || ''))) {
+    return sendJSON(res, 415, { ok: false, code: 'unsupported_media_type' }, { 'Cache-Control': 'no-store' });
+  }
+  if (actor.auth_type === 'session') {
+    const expectedOrigin = String(process.env.CROWSNEST_PUBLIC_ORIGIN || '').replace(/\/$/, '');
+    if (!expectedOrigin || String(req.headers.origin || '') !== expectedOrigin) {
+      return sendJSON(res, 403, { ok: false, code: 'origin_rejected' }, { 'Cache-Control': 'no-store' });
+    }
+  }
+  let raw;
+  try { raw = await readLimitedBody(req, 16 * 1024); } catch (_) { return sendPayloadTooLarge(res); }
+  const parsed = parseJsonBody(raw);
+  if (!parsed.ok) return sendJSON(res, 400, { ok: false, code: 'invalid_json' }, { 'Cache-Control': 'no-store' });
+  const result = action === 'flip'
+    ? await flipLunaNumberRoute(parsed.body, actor)
+    : await rollbackLunaNumberRoute(parsed.body, actor);
+  return sendJSON(res, result.status || (result.ok ? 200 : 400), result, { 'Cache-Control': 'no-store' });
 }
 
 const PORT = Number(process.env.CROWSNEST_PORT) || 3040;
@@ -2383,6 +2429,13 @@ async function router(req, res) {
     return handleAiUsageIngest(req, res, method);
   }
 
+  if (pathname === LUNA_NUMBER_ROUTE_API) {
+    return handleLunaNumberRoute(req, res, method, null);
+  }
+  if (pathname === LUNA_NUMBER_FLIP_API || pathname === LUNA_NUMBER_ROLLBACK_API) {
+    return handleLunaNumberRoute(req, res, method, pathname === LUNA_NUMBER_FLIP_API ? 'flip' : 'rollback');
+  }
+
   if (pathname === LIVE_SIMULATOR_ROUTE) {
     return handleLiveSimulatorGuestTurn(req, res, method);
   }
@@ -2524,6 +2577,7 @@ module.exports = {
   HOST,
   sendSalesUnavailable,
   handleClientMetricsIngest,
+  handleLunaNumberRoute,
   handleLiveSimulatorGuestTurn,
   handleSpyglassRefreshAll,
   METRICS_INGEST_TOKEN_ENV,

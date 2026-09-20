@@ -1,0 +1,22 @@
+[Unit]
+Description=Luna number routing controller
+After=network.target caddy.service
+Requires=caddy.service
+
+[Service]
+Type=simple
+User=luna-routing
+Group=luna-routing
+EnvironmentFile=/etc/luna-routing/controller.env
+ExecStart=/usr/bin/node /opt/luna-routing/luna-number-routing-controller.js
+Restart=on-failure
+NoNewPrivileges=no
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/luna-routing
+RestrictAddressFamilies=AF_UNIX AF_INET
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
