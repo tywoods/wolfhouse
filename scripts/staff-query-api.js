@@ -17754,8 +17754,7 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
   background:var(--surface);color:var(--text);border:1px solid var(--border);
   box-shadow:none;transition:background .18s,border-color .18s,box-shadow .18s
 }
-.portal-admin-email-settings .portal-admin-email-action-btn:hover,
-.portal-admin-email-settings [data-email-disconnect]:hover{
+.portal-admin-email-settings .portal-admin-email-action-btn:hover{
   background:var(--surface-soft);border-color:var(--tan,#D1D1D6)
 }
 .portal-admin-email-settings .portal-admin-email-action-btn[data-email-connect],
@@ -17777,17 +17776,28 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-settings [data-email-connect]:disabled,
 .portal-admin-email-settings [data-email-reauthorize]:disabled,
 .portal-admin-email-settings [data-email-disconnect]:disabled{opacity:.55;cursor:not-allowed}
-.portal-admin-email-settings .portal-admin-email-reauth-group,
-.portal-admin-email-settings .portal-admin-email-disconnect-group,
-.portal-admin-email-settings .portal-admin-email-prepare-group{margin:12px 0}
+.portal-admin-email-settings .portal-admin-email-action-btn[data-email-disconnect],
+.portal-admin-email-settings .portal-admin-email-action-btn.is-danger{
+  background:#B42318;color:#fff;border-color:#B42318
+}
+.portal-admin-email-settings .portal-admin-email-action-btn[data-email-disconnect]:hover,
+.portal-admin-email-settings .portal-admin-email-action-btn.is-danger:hover{
+  background:#912018;border-color:#912018;color:#fff
+}
+.portal-admin-email-settings .portal-admin-email-reauth-group{margin:12px 0}
+.portal-admin-email-settings .portal-admin-email-prepare-group{display:flex;flex-direction:column;gap:20px;margin:16px 0 0}
+.portal-admin-email-settings .portal-admin-email-disconnect-group{margin-top:20px}
 .portal-admin-email-settings .portal-admin-email-reauth-safety,
 .portal-admin-email-settings .portal-admin-email-disconnect-safety,
 .portal-admin-email-settings .portal-admin-email-connect-safety{margin:8px 0 12px;color:var(--text-2);font-size:13px;line-height:1.45}
 .portal-admin-email-page{max-width:100%}
 .portal-admin-email-cards{display:grid;grid-template-columns:1fr;gap:14px}
 @media(min-width:900px){.portal-admin-email-cards{grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch}}
-.portal-admin-email-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft);min-width:0;display:flex;flex-direction:column;gap:10px}
+.portal-admin-email-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft);min-width:0;display:flex;flex-direction:column;gap:14px}
 .portal-admin-email-card-kicker{margin:0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);font-weight:650}
+.portal-admin-email-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.portal-admin-email-card-head .portal-admin-email-card-title{flex:1;min-width:0}
+.portal-admin-email-card-head .portal-admin-email-status{margin-left:auto;flex-shrink:0}
 .portal-admin-email-card-title{margin:0;font-size:18px;font-weight:650;letter-spacing:-.02em}
 .portal-admin-email-card-copy,.portal-admin-email-card-meta{margin:0;color:var(--text-2);font-size:13px;line-height:1.45}
 .portal-admin-email-card-meta{margin-top:auto}
@@ -17796,12 +17806,15 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 .portal-admin-email-status.is-active{background:#2F6B45;color:#fff}
 .portal-admin-email-status.is-off{background:var(--surface-soft);color:var(--text-2)}
 .portal-admin-email-status.is-soon{background:#F3EDE4;color:#8A6A3B}
-.portal-admin-email-card.is-active-inbox{border-color:#2F6B45;box-shadow:0 0 0 1px #2F6B45,var(--shadow-soft)}
 .portal-admin-email-address{margin:0;font-size:14px;font-weight:600;word-break:break-word}
 .portal-admin-email-last-sync{margin:0;font-size:13px;color:var(--text-2)}
 .portal-admin-email-last-sync.is-stale{color:#8A6A3B}
 .portal-admin-email-last-sync-warn{display:block;margin-top:4px;font-weight:650;color:#8A6A3B}
 .portal-admin-email-fact-label{display:block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:650;color:var(--text-3);margin-bottom:2px}
+.portal-admin-email-settings [data-email-capabilities]{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:8px 0 0;align-items:baseline}
+.portal-admin-email-settings [data-email-capabilities] dt,.portal-admin-email-settings [data-email-capabilities] dd{margin:0}
+.portal-admin-email-prepare{display:flex;flex-direction:column;gap:8px}
+.portal-admin-email-card > .portal-admin-email-action-btn{margin-top:6px}
 .portal-admin-email-loading{margin:0;color:var(--text-2);font-size:14px}
 .portal-admin-email-card.is-disabled .portal-admin-email-action-btn:disabled{opacity:.55}
 /* Admin card rhythm — Pricing 16px 18px / 14px gap is the source of truth.
