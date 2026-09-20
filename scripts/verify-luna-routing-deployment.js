@@ -3,6 +3,8 @@ const assert=require('node:assert/strict'); const fs=require('fs'); const os=req
 const root=path.join(__dirname,'../deploy/luna-routing'); const contract=require(path.join(root,'caddy-contract'));
 const unit=fs.readFileSync(path.join(root,'luna-routing-controller.service'),'utf8'); const installer=fs.readFileSync(path.join(root,'install-luna-routing.sh'),'utf8'); const env=fs.readFileSync(path.join(root,'controller.env.example'),'utf8'); const controller=fs.readFileSync(path.join(__dirname,'luna-number-routing-controller.js'),'utf8');
 assert.match(unit,/^User=luna-routing$/m); assert.match(unit,/^ReadWritePaths=\/var\/lib\/luna-routing$/m); assert.doesNotMatch(unit,/\/etc\/caddy\/Caddyfile/);
+assert.match(unit,/^CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_AUDIT_WRITE$/m);
+assert.doesNotMatch(unit,/^CapabilityBoundingSet=.*(?:DAC_OVERRIDE|SYS_ADMIN|NET_ADMIN)/m);
 assert.match(installer,/--update-contract/); assert.match(installer,/Root config is intentionally the final filesystem mutation/); assert.doesNotMatch(env,/ROOT_CADDY|CADDY_BIN|TLS_(?:CERT|KEY)/);
 assert.match(controller,/http\.createServer/); assert.doesNotMatch(controller,/\/etc\/caddy\/Caddyfile|ROOT_CADDY|rootContract|rootCaddy/); assert.match(controller,/const caddyBin = '\/usr\/bin\/caddy'/);
 assert.match(controller,/http:\/\/127\.0\.0\.1:18096/); assert.doesNotMatch(controller,/http:\/\/127\.0\.0\.1:0\s*\{/);
