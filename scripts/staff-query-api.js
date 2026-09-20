@@ -53188,6 +53188,23 @@ if (require.main === module) {
 }
 
 async function startStaffQueryApiCli() {
+  const startupDeadlineMs = Math.max(
+    1000,
+    Number(process.env.STAFF_API_RUNTIME_START_TIMEOUT_MS || 90000) || 90000,
+  );
+  const startWithDeadline = async (stage, start) => {
+    let timer = null;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(start),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`staff_api_runtime_start_timeout:${stage}`)), startupDeadlineMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  };
   try {
     if (EMAIL_DELTA_RUNTIME_READINESS.runtime_activation === true) {
       EMAIL_DELTA_RUNTIME = createEmailDeltaSunsetStagingRuntimeComposition({
@@ -53198,7 +53215,7 @@ async function startStaffQueryApiCli() {
         intervalMs: Number(process.env.LUNA_EMAIL_DELTA_POLL_INTERVAL_MS || 60000),
       });
       // Runtime schema verification and scheduler readiness precede socket admission.
-      await EMAIL_DELTA_RUNTIME.start();
+      await startWithDeadline('email_delta', () => EMAIL_DELTA_RUNTIME.start());
     }
     if (EMAIL_IMAP_RUNTIME_READINESS.runtime_activation === true) {
       EMAIL_IMAP_RUNTIME = createEmailImapSunsetStagingRuntimeComposition({
@@ -53207,7 +53224,7 @@ async function startStaffQueryApiCli() {
         timers: { setTimeout, clearTimeout },
         intervalMs: Number(process.env.LUNA_EMAIL_IMAP_POLL_INTERVAL_MS || 60000),
       });
-      await EMAIL_IMAP_RUNTIME.start();
+      await startWithDeadline('email_imap', () => EMAIL_IMAP_RUNTIME.start());
     }
     if (EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME_READINESS.runtime_activation === true) {
       EMAIL_LUNA_AUTOMATION_SHADOW_WORKER_CONNECTION = createEmailLunaAutomationShadowWorkerConnection({
@@ -53230,7 +53247,7 @@ async function startStaffQueryApiCli() {
         timers: { setTimeout, clearTimeout },
         intervalMs: 60000,
       });
-      await EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.start();
+      await startWithDeadline('email_luna_shadow', () => EMAIL_LUNA_AUTOMATION_SHADOW_RUNTIME.start());
     }
     if (EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME_READINESS.runtime_activation === true) {
       EMAIL_LUNA_CONTROLLED_DRAFTING_PRINCIPAL_CONNECTION = createEmailLunaControlledDraftingPrincipalConnectionPair({
@@ -53268,9 +53285,15 @@ async function startStaffQueryApiCli() {
       EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME = createEmailLunaControlledDraftingSunsetStagingRuntimeActivation(
         draftingActivation,
       );
-      await EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME.start();
+      await startWithDeadline('email_luna_drafting', () => EMAIL_LUNA_CONTROLLED_DRAFTING_RUNTIME.start());
     }
-  } catch {
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: 'staff_api_runtime_start_failed',
+      error_code: error && /^staff_api_runtime_start_timeout:/.test(String(error.message || ''))
+        ? String(error.message)
+        : 'staff_api_runtime_start_failed',
+    }));
     await drainStaffApiEmailRuntimes();
     process.exitCode = 1;
     return;
