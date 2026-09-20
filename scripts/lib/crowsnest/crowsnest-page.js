@@ -7,8 +7,7 @@ const path = require('path');
  * Crowsnest static portal HTML (read-only skeleton — no writes, no API calls).
  */
 
-const { getCrowsnestClients, getCrowsnestTemplates } = require('./crowsnest-clients');
-const { renderCrowsnestOnboardingSection } = require('./crowsnest-onboarding');
+const { getCrowsnestClients } = require('./crowsnest-clients');
 const { getSampleAiUsage } = require('./crowsnest-sample-telemetry');
 
 const SUNSET_LOGIN_CSS = fs.readFileSync(
@@ -38,6 +37,7 @@ function renderStyleTag(css, nonce) {
 function statusPillModifier(status) {
   const key = String(status || '').trim().toLowerCase();
   if (key === 'linked' || key === 'active' || key === 'live') return 'pill--success';
+  if (key === 'staging') return 'pill--sea';
   if (key === 'coming soon' || key === 'coming_soon' || key === 'planned' || key === 'pending') return 'pill--amber';
   if (key === 'template') return 'pill--sea';
   if (key === 'off' || key === 'disabled' || key === 'error') return 'pill--danger';
@@ -88,6 +88,12 @@ function renderEnvironmentRow(env) {
 
 function renderClientCard(client) {
   const envRows = (client.environments || []).map(renderEnvironmentRow).join('\n        ');
+  const portalList = envRows || `<li class="env-row env-muted">
+      <div class="env-row-main">
+        <div class="env-row-head"><span class="env-label">Staff portal</span>${renderStatusPill('planned')}</div>
+        <div class="env-value"><span class="env-coming-soon">Not available</span></div>
+      </div>
+    </li>`;
   return `<article class="card client-card">
         <header class="client-card-head">
           <h2 class="client-name">${escapeHtml(client.name)}</h2>
@@ -96,11 +102,16 @@ function renderClientCard(client) {
             ${renderMetaChip('type', client.type)}
             <span class="meta-chip meta-chip--status">${renderStatusPill(client.status)}</span>
           </div>
+          <dl class="directory-meta">
+            <div><dt>Business</dt><dd>${escapeHtml(client.business)}</dd></div>
+            <div><dt>Location</dt><dd>${escapeHtml(client.location)}</dd></div>
+          </dl>
+          <p class="section-note">${escapeHtml(client.status_note)}</p>
         </header>
         <section class="env-section">
-          <h3 class="env-heading">Environments / status</h3>
+          <h3 class="env-heading">Staff portals</h3>
           <ul class="env-list">
-        ${envRows}
+        ${portalList}
           </ul>
         </section>
       </article>`;
@@ -900,6 +911,16 @@ h2.section{
   color:var(--navy);
   letter-spacing:-.02em;
 }
+.directory-meta{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px 14px;
+  margin:14px 0 8px;
+}
+.directory-meta div{min-width:0}
+.directory-meta dt{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
+.directory-meta dd{margin-top:2px;font-size:14px;font-weight:650;color:var(--charcoal);overflow-wrap:anywhere}
+@media(max-width:480px){.directory-meta{grid-template-columns:1fr}}
 .client-meta-row,.template-meta-row{
   display:flex;
   flex-wrap:wrap;
@@ -1721,35 +1742,17 @@ function renderSpyglassMain(clients, options = {}) {
     </section>`;
 }
 
-function renderClientsMain(clients, templates) {
+function renderClientsMain(clients) {
   const clientCards = clients.map(renderClientCard).join('\n      ');
-  const templateCards = templates.map((t) => `<article class="card template-card">
-        <h2>${escapeHtml(t.label)}</h2>
-        <div class="template-status">${renderStatusPill(t.status)}</div>
-      </article>`).join('\n      ');
-  const onboardingSection = renderCrowsnestOnboardingSection();
   return `<section id="clients">
-      <h2 class="section">Clients</h2>
-      <p class="section-note">Static placeholders only — no live health checks yet.</p>
+      <h2 class="section">Business and location directory</h2>
+      <p class="section-note">Read-only directory of known businesses, locations, and available staff portals.</p>
       <div class="cards">
       ${clientCards}
       </div>
-      <div class="cta-row">
-        <button type="button" class="btn-disabled" disabled aria-disabled="true">Add new client</button>
-        <span class="cta-helper">Coming soon</span>
-      </div>
     </section>
 
-    ${onboardingSection}
-
-    <section id="templates">
-      <h2 class="section">Templates</h2>
-      <div class="cards">
-      ${templateCards}
-      </div>
-    </section>
-
-    <div class="safety"><strong>Safety:</strong> Read-only skeleton. No client creation, tenant writes, WhatsApp, Stripe, or production actions are enabled.</div>`;
+    <div class="safety"><strong>Safety:</strong> Read-only directory. No client creation, tenant writes, health checks, or production actions are performed here.</div>`;
 }
 
 function renderBillingMain() {
@@ -3610,8 +3613,8 @@ function renderLiveSimulatorScript(nonce) {
 </script>`;
 }
 
-function renderViewMain(view, clients, templates, options = {}) {
-  if (view === 'clients') return renderClientsMain(clients, templates);
+function renderViewMain(view, clients, options = {}) {
+  if (view === 'clients') return renderClientsMain(clients);
   if (view === 'billing') return renderBillingMain();
   if (view === 'communications') return renderCommunicationsMain();
   if (view === 'live_simulator') return renderLiveSimulatorMain();
@@ -3642,7 +3645,7 @@ function viewPageTitle(view) {
 }
 
 function viewSubtitle(view) {
-  if (view === 'clients') return 'Static client cards, templates, and onboarding mockup';
+  if (view === 'clients') return 'Read-only business and location directory';
   if (view === 'billing') return 'Billing sources are not connected yet';
   if (view === 'communications') return 'Staging Luna number routing — registered targets, explicit confirmation, verified readback';
   if (view === 'live_simulator') return 'Staging Luna guest-turn simulator — authenticated operator session, no browser tokens, no writes or external sends';
@@ -3690,11 +3693,11 @@ function renderCrowsnestPage(options = {}) {
   const nonce = options.cspNonce ? String(options.cspNonce) : '';
   const view = normalizeCrowsnestView(options.view != null ? options.view : options.route);
   const clients = getCrowsnestClients();
-  const templates = getCrowsnestTemplates();
+
   const title = viewPageTitle(view);
   // Suppress the big page title when it only echoes the active nav tab (kept in DOM for a11y).
   const pageTitleClass = title === crowsnestNavLabel(view) ? 'page-title page-title--section' : 'page-title';
-  const main = renderViewMain(view, clients, templates, options);
+  const main = renderViewMain(view, clients, options);
 
   return `<!DOCTYPE html>
 <html lang="en">

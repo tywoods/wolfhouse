@@ -139,10 +139,8 @@ function hasInventedMetricNumber(html) {
 
 ok('renderCrowsnestPage exported', /function renderCrowsnestPage|renderCrowsnestPage\s*\(/.test(pageSrc));
 ok('getCrowsnestClients exported', /function getCrowsnestClients|getCrowsnestClients\s*\(/.test(clientsSrc));
-ok('getCrowsnestOnboardingTemplates exported', /function getCrowsnestOnboardingTemplates|getCrowsnestOnboardingTemplates\s*\(/.test(onboardingSrc));
-ok('getCrowsnestOnboardingChecklist exported', /function getCrowsnestOnboardingChecklist|getCrowsnestOnboardingChecklist\s*\(/.test(onboardingSrc));
 ok('crowsnest-page requires crowsnest-clients', pageSrc.includes("require('./crowsnest-clients')"));
-ok('crowsnest-page requires crowsnest-onboarding', pageSrc.includes("require('./crowsnest-onboarding')"));
+ok('Clients page does not mount onboarding/create flow', !pageSrc.includes("require('./crowsnest-onboarding')"));
 ok('crowsnest-api requires crowsnest-page', apiSrc.includes("require('./lib/crowsnest/crowsnest-page')"));
 ok('crowsnest-api requires crowsnest-live-simulator', apiSrc.includes("require('./lib/crowsnest/crowsnest-live-simulator')"));
 
@@ -242,44 +240,21 @@ ok('unknown view does not produce arbitrary content', (() => {
 })());
 
 ok('UI Clients section exists', clientsHtml.includes('>Clients<') || clientsHtml.includes('section">Clients'));
+ok('UI identifies a read-only business and location directory', /Business and location directory/i.test(clientsHtml) && /read-only/i.test(clientsHtml));
+ok('UI removes the old templates/onboarding subtitle', !/templates, and onboarding mockup/i.test(clientsHtml));
 ok('UI Wolfhouse Somo card', clientsHtml.includes('Wolfhouse Somo'));
 ok('UI Sunset Somo card', clientsHtml.includes('Sunset Somo'));
 ok('UI Sunset Sardinero card', clientsHtml.includes('Sunset Sardinero'));
-ok('UI surf house template text', /surf house template/i.test(clientsHtml));
-ok('UI surf school template text', /surf school template/i.test(clientsHtml));
-ok('UI Add new client disabled/coming soon', clientsHtml.includes('Add new client') && /Coming soon|disabled|aria-disabled/.test(clientsHtml));
-ok('UI safety copy read-only/no writes', /read-only|no client creation|no writes/i.test(clientsHtml));
-ok('UI environment/status rows render', clientsHtml.includes('env-row') && clientsHtml.includes('Environments / status'));
+ok('UI shows business and location metadata', /Business/i.test(clientsHtml) && /Location/i.test(clientsHtml) && /Somo, Spain/i.test(clientsHtml) && /Sardinero, Spain/i.test(clientsHtml));
+ok('UI shows honest location status labels', /Live/i.test(clientsHtml) && /Staging/i.test(clientsHtml) && /Planned/i.test(clientsHtml));
+ok('UI has no create-client flow', !/Add new client|New client onboarding|Create client|Preview setup/i.test(clientsHtml));
+ok('UI safety copy read-only/no writes', /read-only/i.test(clientsHtml) && /no client creation|no writes/i.test(clientsHtml));
+ok('UI environment/status rows render', clientsHtml.includes('env-row') && clientsHtml.includes('Staff portals'));
 ok('UI Wolfhouse staff-staging link', clientsHtml.includes('https://staff-staging.lunafrontdesk.com'));
 ok('UI Wolfhouse production link', clientsHtml.includes('https://wolfhouse.lunafrontdesk.com'));
 ok('UI Sunset staging link', clientsHtml.includes('https://sunset-staging.lunafrontdesk.com'));
-ok('UI Luna WhatsApp placeholder', clientsHtml.includes('Luna WhatsApp') && /Coming soon|coming_soon/i.test(clientsHtml));
-ok('UI Stripe placeholder', clientsHtml.includes('Stripe'));
-ok('UI Database placeholder', clientsHtml.includes('Database'));
-ok('UI static placeholders / no live health checks copy', /static placeholders only|no live health checks/i.test(clientsHtml));
-ok('UI New client onboarding section', clientsHtml.includes('New client onboarding'));
-ok('UI onboarding draft/no client creation copy', /draft form only|no client creation/i.test(clientsHtml));
-ok('UI Surf house template option', clientsHtml.includes('Surf house'));
-ok('UI Surf school template option', clientsHtml.includes('Surf school'));
-ok('UI client name field', clientsHtml.includes('Client name') && clientsHtml.includes('Example Surf House'));
-ok('UI client slug field', clientsHtml.includes('Client slug') && clientsHtml.includes('example-surf-house'));
-ok('UI primary location field', clientsHtml.includes('Primary location') && clientsHtml.includes('Somo, Spain'));
-ok('UI contact email field', clientsHtml.includes('Contact email') && clientsHtml.includes('hello@example.com'));
-ok('UI WhatsApp number field', clientsHtml.includes('WhatsApp number'));
-ok('UI staff portal domain field', clientsHtml.includes('Staff portal domain'));
-ok('UI staging domain field', clientsHtml.includes('Staging domain'));
-ok('UI notes field', clientsHtml.includes('Notes') && /Internal setup notes/i.test(clientsHtml));
-ok('UI Preview setup button disabled', clientsHtml.includes('Preview setup') && /disabled|aria-disabled/.test(clientsHtml));
-ok('UI Create client button disabled', clientsHtml.includes('Create client') && /disabled|aria-disabled/.test(clientsHtml));
-ok('UI checklist tenant record', /Create tenant record/i.test(clientsHtml));
-ok('UI checklist database/schema', /database\/schema|Create database/i.test(clientsHtml));
-ok('UI checklist Staff API', /Staff API/i.test(clientsHtml));
-ok('UI checklist Luna identity', /Luna identity/i.test(clientsHtml));
-ok('UI checklist WhatsApp', /Configure WhatsApp/i.test(clientsHtml));
-ok('UI checklist Stripe', /Configure Stripe/i.test(clientsHtml));
-ok('UI checklist DNS/domain', /DNS\/domain/i.test(clientsHtml));
-ok('UI checklist smoke tests', /smoke tests/i.test(clientsHtml));
-ok('UI onboarding form safe action', /action="#"/.test(clientsHtml) && !/<form[^>]+action=["']https?:/i.test(clientsHtml));
+ok('UI omits unavailable Sunset production link', !clientsHtml.includes('https://sunset.lunafrontdesk.com'));
+ok('UI external links are safe new-tab links', (clientsHtml.match(/target="_blank" rel="noopener noreferrer"/g) || []).length === 3);
 
 ok('Billing placeholder says not connected', /not connected|not available|no data source|unavailable/i.test(billingHtml) && /Billing/i.test(billingHtml));
 ok('Billing placeholder has no forms or mutations', (() => {
