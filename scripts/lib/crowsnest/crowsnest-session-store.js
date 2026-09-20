@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 
 const DSN_ENV = 'CROWSNEST_SESSION_DATABASE_URL';
-const TABLE = 'crowsnest_auth.sessions';
+const TABLE = 'crowsnest_comms.auth_sessions';
 const POOL_MAX = 4;
 let poolSingleton = null;
 let repositorySingleton = null;
