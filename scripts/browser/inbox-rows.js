@@ -983,7 +983,7 @@ function inboxRowsBeginFolderSwitch() {
   }
   inboxRowsRuntime.folderSwitchTimer = setTimeout(function() {
     inboxRowsEndFolderSwitch(gen);
-  }, 800);
+  }, 500);
   return gen;
 }
 

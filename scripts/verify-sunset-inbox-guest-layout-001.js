@@ -166,9 +166,9 @@ ok('list paint and rail paint both release the hide',
   rowsSrc.includes("inboxRowsNoteFolderSwitchPart('list')")
   && rowsSrc.includes("inboxRowsNoteFolderSwitchPart('rail')"));
 ok('failed/slow fetch cannot leave Inbox invisible (timeout reveal)',
-  /setTimeout\(function\(\) \{\s*inboxRowsEndFolderSwitch\(gen\);\s*\}, 800\)/.test(rowsSrc)
-  || /setTimeout\(function\(\)\{\s*inboxRowsEndFolderSwitch\(gen\);\s*\}, 800\)/.test(rowsSrc)
-  || /,\s*800\)/.test(rowsSrc) && rowsSrc.includes('inboxRowsEndFolderSwitch(gen)'));
+  /setTimeout\(function\(\) \{\s*inboxRowsEndFolderSwitch\(gen\);\s*\}, 500\)/.test(rowsSrc)
+  || /setTimeout\(function\(\)\{\s*inboxRowsEndFolderSwitch\(gen\);\s*\}, 500\)/.test(rowsSrc)
+  || /,\s*500\)/.test(rowsSrc) && rowsSrc.includes('inboxRowsEndFolderSwitch(gen)'));
 ok('guest-directory wrap still latches guestView (do not drop #804)',
   rowsSrc.includes('inboxRowsRuntime.guestView = nowGuest')
   && rowsSrc.includes('inboxRowsEnterGuestDirectory')
