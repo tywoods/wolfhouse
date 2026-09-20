@@ -1103,6 +1103,30 @@ var inboxSelectionGeneration = 0;
 function inboxSelectionIsCurrent(convId, generation){
   return selectedConvId === convId && inboxSelectionGeneration === generation;
 }
+var inboxConversationSwitchGeneration = 0;
+var inboxConversationSwitchRelease = null;
+function inboxRunConversationSwitch(convId, targetEl){
+  var root = typeof document !== 'undefined' ? document.documentElement : null;
+  var isSunset = !!(root && root.getAttribute && root.getAttribute('data-portal-client') === 'sunset');
+  var holdPrevious = !!selectedConvId && selectedConvId !== convId && isSunset
+    && typeof document.startViewTransition === 'function';
+  if (!holdPrevious) return loadConvDetail(convId, targetEl);
+  if (typeof inboxConversationSwitchRelease === 'function') inboxConversationSwitchRelease();
+  var generation = ++inboxConversationSwitchGeneration;
+  return document.startViewTransition(function(){
+    return new Promise(function(resolve){
+      var released = false;
+      function release(){
+        if (released) return;
+        released = true;
+        if (inboxConversationSwitchGeneration === generation) inboxConversationSwitchRelease = null;
+        resolve();
+      }
+      inboxConversationSwitchRelease = release;
+      Promise.resolve(loadConvDetail(convId, targetEl)).then(release, release);
+    });
+  });
+}
 function clearInboxSelection(targetEl){
   inboxTeardownClearThreadDialog();
   selectedConvId = null;
@@ -1443,7 +1467,7 @@ function renderInbox(convs, opts){
       card.addEventListener('click', function(){
         list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
         this.classList.add('selected');
-        loadConvDetail(this.dataset.id);
+        inboxRunConversationSwitch(this.dataset.id);
       });
     });
     if (opts.preserveDetail && !selectionDropped){
@@ -2510,7 +2534,7 @@ function loadConvDetail(convId, targetEl){
   var qs   = inboxClientQuery();
 
   /* One snapshot for every section; each keeps the body its own endpoint returns. */
-  fetch('/staff/inbox/thread/' + encodeURIComponent(convId) + qs)
+  return fetch('/staff/inbox/thread/' + encodeURIComponent(convId) + qs)
   .then(function(r){ return r.json(); })
   .then(function(composite){
     if (!inboxSelectionIsCurrent(convId, selectionGeneration)) return;
