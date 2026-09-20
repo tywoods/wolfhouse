@@ -226,6 +226,12 @@ const {
   EMAIL_IMAP_VERIFY_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
+const { PAYMENT_SUMMARY_PATH, buildStaffPaymentSummary } = require('./lib/staff-payment-summary');
+const {
+  LUNA_STATUS_SUMMARY_PATH,
+  authorizeCrowsnestStatusRead,
+  buildStaffLunaStatusSummary,
+} = require('./lib/staff-crowsnest-status-read');
 const {
   isSunsetEmailSmtpIdentityRegisterEnabled,
   isSunsetEmailSmtpVerifyEnabled,
@@ -52109,13 +52115,59 @@ async function router(req, res) {
     if (handled !== false) return handled;
   }
 
+  // Narrow read-only Stripe configuration evidence. No key material and no
+  // provider ping; the dedicated Crowsnest token is scoped to status GETs only.
+  if (pathname === PAYMENT_SUMMARY_PATH && method === 'GET') {
+    const statusRead = authorizeCrowsnestStatusRead(req, process.env);
+    if (!statusRead) {
+      const auth = await requireAuth(req, res, 'admin');
+      if (!auth.ok) return;
+    }
+    const requestedClient = String(parsed.query.client || '').trim();
+    const runtimeClient = String(process.env.DEFAULT_CLIENT_SLUG || '').trim();
+    if (statusRead && (!runtimeClient || requestedClient !== runtimeClient)) {
+      return sendJSON(res, 403, { success: false, error: 'client_scope_mismatch' });
+    }
+    return sendJSON(res, 200, buildStaffPaymentSummary(process.env), { 'Cache-Control': 'no-store' });
+  }
+
+  if (pathname === LUNA_STATUS_SUMMARY_PATH && method === 'GET') {
+    if (!authorizeCrowsnestStatusRead(req, process.env)) {
+      return sendJSON(res, 401, { success: false, error: 'status_read_auth_required' });
+    }
+    const requestedClient = String(parsed.query.client || '').trim();
+    const runtimeClient = String(process.env.DEFAULT_CLIENT_SLUG || '').trim();
+    if (!runtimeClient || requestedClient !== runtimeClient) {
+      return sendJSON(res, 403, { success: false, error: 'client_scope_mismatch' });
+    }
+    const summary = await buildStaffLunaStatusSummary({
+      clientSlug: runtimeClient,
+      identityConfigured: String(process.env.LUNA_CLIENT_SLUG || '').trim() === runtimeClient,
+      routingConfigured: Boolean(process.env.LUNA_BOT_INTERNAL_TOKEN),
+      readGlobalPause: (clientSlug) => withPgClient((pg) => getGlobalPauseState(pg, clientSlug)),
+    });
+    return sendJSON(res, 200, summary || { success: false, error: 'status_unknown' }, { 'Cache-Control': 'no-store' });
+  }
+
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
   // The Stage 6 status boundary is concealed before auth and before every lookup.
   if (pathname === EMAIL_SETTINGS_PATH && method === 'GET') {
     if (!isSunsetEmailSettingsUiEnabled(process.env)) return sendJSON(res, 404, { success: false, error: 'not_found' });
-    const auth = await requireAuth(req, res, 'admin');
-    if (!auth.ok) return;
-    return handleEmailSettingsGet(parsed.query, req, res, auth.user);
+    const statusRead = authorizeCrowsnestStatusRead(req, process.env);
+    let user = null;
+    if (statusRead) {
+      const requestedClient = String(parsed.query.client || '').trim();
+      const runtimeClient = String(process.env.DEFAULT_CLIENT_SLUG || '').trim();
+      if (!runtimeClient || requestedClient !== runtimeClient) {
+        return sendJSON(res, 403, { success: false, error: 'client_scope_mismatch' });
+      }
+      user = { role: 'admin', client_slug: runtimeClient, auth_mode: 'crowsnest_status_read' };
+    } else {
+      const auth = await requireAuth(req, res, 'admin');
+      if (!auth.ok) return;
+      user = auth.user;
+    }
+    return handleEmailSettingsGet(parsed.query, req, res, user);
   }
   // Admin-only Sunset SMTP identity register (default-off). Canonical contract
   // gate (UI + sunset-staging + identity flag) before requireAuth / session /

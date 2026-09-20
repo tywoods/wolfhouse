@@ -36,8 +36,9 @@ function renderStyleTag(css, nonce) {
 
 function statusPillModifier(status) {
   const key = String(status || '').trim().toLowerCase();
-  if (key === 'linked' || key === 'active' || key === 'live') return 'pill--success';
-  if (key === 'staging') return 'pill--sea';
+  if (key === 'linked' || key === 'active' || key === 'live' || key === 'configured') return 'pill--success';
+  if (key === 'configured-test') return 'pill--sea';
+  if (key === 'configured — live status unknown' || key === 'needs attention') return 'pill--amber';
   if (key === 'coming soon' || key === 'coming_soon' || key === 'planned' || key === 'pending') return 'pill--amber';
   if (key === 'template') return 'pill--sea';
   if (key === 'off' || key === 'disabled' || key === 'error') return 'pill--danger';
@@ -86,7 +87,20 @@ function renderEnvironmentRow(env) {
     </li>`;
 }
 
-function renderClientCard(client) {
+function renderConnectionGroup(label, statuses) {
+  const safe = statuses || {};
+  const chips = ['WhatsApp', 'Email', 'Stripe', 'Luna'].map((name) => {
+    const value = safe[name] || 'Unknown';
+    return `<span class="connection-chip"><span class="connection-chip-label">${name}</span>${renderStatusPill(value)}</span>`;
+  }).join('');
+  return `<div class="connection-group"><h3 class="connection-heading">${escapeHtml(label)}</h3><div class="connection-chips">${chips}</div></div>`;
+}
+
+function renderClientCard(client, clientStatuses) {
+  const statuses = clientStatuses || {};
+  const connectionGroups = client.id === 'wolfhouse-somo'
+    ? renderConnectionGroup('Live connections', statuses.live) + renderConnectionGroup('Staging connections', statuses.staging)
+    : renderConnectionGroup('Connections', statuses.staging);
   const envRows = (client.environments || []).map(renderEnvironmentRow).join('\n        ');
   const portalList = envRows || `<li class="env-row env-muted">
       <div class="env-row-main">
@@ -107,6 +121,7 @@ function renderClientCard(client) {
             <div><dt>Location</dt><dd>${escapeHtml(client.location)}</dd></div>
           </dl>
           <p class="section-note">${escapeHtml(client.status_note)}</p>
+          ${connectionGroups}
         </header>
         <section class="env-section">
           <h3 class="env-heading">Staff portals</h3>
@@ -920,6 +935,12 @@ h2.section{
 .directory-meta div{min-width:0}
 .directory-meta dt{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text-3)}
 .directory-meta dd{margin-top:2px;font-size:14px;font-weight:650;color:var(--charcoal);overflow-wrap:anywhere}
+.connection-group{margin-top:12px}
+.connection-heading{font-size:12px;color:var(--text-2);margin-bottom:6px}
+.connection-chips{display:flex;flex-wrap:wrap;gap:7px}
+.connection-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 9px;border:1px solid var(--border-soft);border-radius:var(--radius-pill);background:var(--surface-raised)}
+.connection-chip-label{font-size:12px;font-weight:750;color:var(--charcoal)}
+.connection-chip .pill{font-size:11px}
 @media(max-width:480px){.directory-meta{grid-template-columns:1fr}}
 .client-meta-row,.template-meta-row{
   display:flex;
@@ -1742,8 +1763,9 @@ function renderSpyglassMain(clients, options = {}) {
     </section>`;
 }
 
-function renderClientsMain(clients) {
-  const clientCards = clients.map(renderClientCard).join('\n      ');
+function renderClientsMain(clients, options = {}) {
+  const statusMap = options.clientStatuses || {};
+  const clientCards = clients.map((client) => renderClientCard(client, statusMap[client.id])).join('\n      ');
   return `<section id="clients">
       <h2 class="section">Business and location directory</h2>
       <p class="section-note">Read-only directory of known businesses, locations, and available staff portals.</p>
@@ -3614,7 +3636,7 @@ function renderLiveSimulatorScript(nonce) {
 }
 
 function renderViewMain(view, clients, options = {}) {
-  if (view === 'clients') return renderClientsMain(clients);
+  if (view === 'clients') return renderClientsMain(clients, options);
   if (view === 'billing') return renderBillingMain();
   if (view === 'communications') return renderCommunicationsMain();
   if (view === 'live_simulator') return renderLiveSimulatorMain();
