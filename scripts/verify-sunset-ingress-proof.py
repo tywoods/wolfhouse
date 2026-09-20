@@ -8,6 +8,7 @@ import hmac
 import importlib.util
 import os
 from pathlib import Path
+import tempfile
 from unittest import mock
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "docker" / "hermes-staging" / "sunset_ingress_proof.py"
@@ -15,6 +16,12 @@ SPEC = importlib.util.spec_from_file_location("sunset_ingress_proof", MODULE_PAT
 assert SPEC and SPEC.loader
 proof = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(proof)
+
+PATCHER_PATH = MODULE_PATH.with_name("apply_whatsapp_fresh_start_route.py")
+PATCHER_SPEC = importlib.util.spec_from_file_location("apply_whatsapp_fresh_start_route", PATCHER_PATH)
+assert PATCHER_SPEC and PATCHER_SPEC.loader
+patcher = importlib.util.module_from_spec(PATCHER_SPEC)
+PATCHER_SPEC.loader.exec_module(patcher)
 
 
 class Router:
@@ -83,4 +90,37 @@ with mock.patch.dict(
     except RuntimeError:
         pass
 
-print("PASS Sunset ingress proof is exact, signed, fresh-capable, role-bound, and fail-closed")
+
+def assert_patch_twice_is_exact(source: str, label: str) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        target = Path(tmp) / "whatsapp_cloud.py"
+        target.write_text(source, encoding="utf-8")
+        first = patcher.apply_patches(target)
+        once = target.read_text(encoding="utf-8")
+        second = patcher.apply_patches(target)
+        twice = target.read_text(encoding="utf-8")
+        assert first["ingress_proof_route"] and second["ingress_proof_route"], label
+        assert once == twice, f"{label} was not byte-idempotent"
+        assert once.count(patcher.INGRESS_PROOF_TAG) == 1, label
+
+
+pristine = """class WhatsApp:\n    def register(self, app):\n        app.router.add_post(self._webhook_path, self._handle_webhook)\n"""
+assert_patch_twice_is_exact(pristine, "pristine patch")
+
+legacy = pristine.replace(
+    "app.router.add_post(self._webhook_path, self._handle_webhook)",
+    "app.router.add_post(self._webhook_path, self._handle_webhook)" + patcher.FRESH_START_ROUTE,
+)
+assert patcher.FRESH_START_TAG in legacy and patcher.INGRESS_PROOF_TAG not in legacy
+assert_patch_twice_is_exact(legacy, "legacy Fresh Start upgrade")
+
+with tempfile.TemporaryDirectory() as tmp:
+    malformed = Path(tmp) / "whatsapp_cloud.py"
+    malformed.write_text("def unrelated():\n    pass\n", encoding="utf-8")
+    try:
+        patcher.apply_patches(malformed)
+        raise AssertionError("missing webhook anchor did not fail closed")
+    except RuntimeError:
+        pass
+
+print("PASS Sunset ingress proof is signed, role-bound, fail-closed, upgrade-safe, and idempotent")

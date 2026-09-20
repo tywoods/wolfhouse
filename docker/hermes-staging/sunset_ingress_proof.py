@@ -27,7 +27,7 @@ def build_proof(*, now_ms: int | None = None) -> dict:
     if not _is_sunset_runtime():
         raise RuntimeError("ingress proof is restricted to the isolated Sunset runtime")
     key = os.getenv("LUNA_ROUTING_INGRESS_PROOF_KEY", "")
-    if len(key) < 32:
+    if len(key.encode("utf-8")) < 32:
         raise RuntimeError("LUNA_ROUTING_INGRESS_PROOF_KEY must contain at least 32 bytes")
     observed_at_ms = int(time.time() * 1000) if now_ms is None else int(now_ms)
     fields = [NUMBER_E164, PHONE_NUMBER_ID, WEBHOOK_PATH, ENVIRONMENT, UPSTREAM, str(observed_at_ms)]

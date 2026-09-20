@@ -43,6 +43,8 @@ FRESH_START_ROUTE = """
             _wgfs.register_fresh_start_route(app)
         except Exception:
             pass
+"""
+INGRESS_PROOF_ROUTE = """
         try:
             from sunset_ingress_proof import register_ingress_proof_route
             register_ingress_proof_route(app)
@@ -67,13 +69,23 @@ def apply_patches(module_path: Path) -> dict:
             count=1,
         )
         module_path.write_text(s, encoding="utf-8")
-    if SAME_LUNA_AUTHOR_ROUTE_TAG not in s:
+    if INGRESS_PROOF_TAG not in s:
         if FRESH_START_TAG not in s:
-            raise RuntimeError("fresh start route missing before same-luna author route")
+            raise RuntimeError("fresh start route missing before ingress proof route")
         if FRESH_START_ROUTE in s:
-            s = s.replace(FRESH_START_ROUTE, FRESH_START_ROUTE + SAME_LUNA_AUTHOR_ROUTE, 1)
+            s = s.replace(FRESH_START_ROUTE, FRESH_START_ROUTE + INGRESS_PROOF_ROUTE, 1)
         else:
-            s = s.replace(FRESH_START_TAG, FRESH_START_TAG + SAME_LUNA_AUTHOR_ROUTE, 1)
+            s = s.replace(FRESH_START_TAG, FRESH_START_TAG + INGRESS_PROOF_ROUTE, 1)
+        if INGRESS_PROOF_TAG not in s:
+            raise RuntimeError("ingress proof route insertion failed")
+        module_path.write_text(s, encoding="utf-8")
+    if SAME_LUNA_AUTHOR_ROUTE_TAG not in s:
+        if INGRESS_PROOF_TAG not in s:
+            raise RuntimeError("ingress proof route missing before same-luna author route")
+        if INGRESS_PROOF_ROUTE in s:
+            s = s.replace(INGRESS_PROOF_ROUTE, INGRESS_PROOF_ROUTE + SAME_LUNA_AUTHOR_ROUTE, 1)
+        else:
+            s = s.replace(INGRESS_PROOF_TAG, INGRESS_PROOF_TAG + SAME_LUNA_AUTHOR_ROUTE, 1)
         module_path.write_text(s, encoding="utf-8")
     if LIVE_EVAL_ROUTE_TAG not in s:
         if SAME_LUNA_AUTHOR_ROUTE_TAG not in s:
