@@ -117,12 +117,83 @@ assert(
 );
 const threeDay = mod.scheduleActiveRentalsForDuration(somoPrices, '3_days', 'sunset-somo');
 assert(
-  'exact-duration: 3_days is the ONLY selectable duration when exact package is active (1_day only as multi-day fallback when exact absent)',
+  'exact-duration: preferred duration is 3_days when exact package is active (not 1_day)',
   threeDay.some((o) => o.offering_key === 'board_rental' && o.duration_key === '3_days')
     && threeDay.filter((o) => o.offering_key === 'board_rental').every((o) => o.duration_key === '3_days')
     && !threeDay.some((o) => o.offering_key === 'board_rental' && o.duration_key === '1_day')
     && !threeDay.some((o) => /hour|half_day/i.test(o.duration_key)),
   JSON.stringify(threeDay),
+);
+const oneDayProjected = mod.scheduleProjectStandaloneRentals({
+  prices: somoPrices,
+  locationId: 'sunset-somo',
+  dateDurationKey: '1_day',
+});
+const boardOneDay = oneDayProjected.find((o) => o.offering_key === 'board_rental');
+assert(
+  'single-day span exposes priced multi-day packages (not only 1_day)',
+  boardOneDay
+    && Array.isArray(boardOneDay.duration_keys)
+    && boardOneDay.duration_keys.indexOf('1_day') >= 0
+    && boardOneDay.duration_keys.indexOf('3_days') >= 0,
+  JSON.stringify(boardOneDay && boardOneDay.duration_keys),
+);
+assert(
+  'period_window-only price rows parse into selectable durations',
+  mod.scheduleParseRentalPriceIdentity({
+    offering_key: 'board_rental',
+    period_window: '5_days',
+    amount_cents: 5000,
+  }).duration_key === '5_days',
+);
+assert(
+  'addDays + dayCount helpers for date sync',
+  mod.scheduleDayCountFromRentalDurationKey('5_days') === 5
+    && mod.scheduleDayCountFromRentalDurationKey('1_day') === 1
+    && mod.scheduleDayCountFromRentalDurationKey('2_hours') == null
+    && mod.scheduleAddDaysToIsoDate('2026-09-10', 4) === '2026-09-14',
+);
+{
+  const toEl = { value: '2026-09-10', dispatchEvent: function() {} };
+  const synced = mod.scheduleSyncDateInputsToRentalDuration('5_days', {
+    fromEl: { value: '2026-09-10' },
+    toEl: toEl,
+    dispatchChange: false,
+  });
+  assert(
+    'selecting 5_days syncs date_to to a 5-day inclusive span',
+    synced && synced.changed === true && synced.to === '2026-09-14' && toEl.value === '2026-09-14',
+    JSON.stringify(synced),
+  );
+  const skip1 = mod.scheduleSyncDateInputsToRentalDuration('1_day', {
+    fromEl: { value: '2026-09-10' },
+    toEl: { value: '2026-09-14' },
+    dispatchChange: false,
+  });
+  assert(
+    'selecting 1_day does not shrink a multi-day Staff date span',
+    skip1 && skip1.changed === false && skip1.skippedSingleDayPackage === true,
+    JSON.stringify(skip1),
+  );
+}
+const canonicalOnlyOneDayPrices = [
+  { category: 'rental', offering_key: 'board_rental__1_day', amount: 15, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'board_rental__5_days', amount: 55, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'wetsuit_rental__1_day', amount: 8, active: true, location_id: 'sunset-somo' },
+  { category: 'rental', offering_key: 'towel_rental__1_day', amount: 5, active: true, location_id: 'sunset-somo' },
+];
+const canonicalThreeDayProj = mod.scheduleProjectStandaloneRentals({
+  prices: canonicalOnlyOneDayPrices,
+  locationId: 'sunset-somo',
+  dateDurationKey: '3_days',
+});
+assert(
+  'canonical multi-day without exact N_days is omitted (no 1_day mismatch trap); generic still falls back',
+  !canonicalThreeDayProj.some((o) => o.offering_key === 'board_rental')
+    && !canonicalThreeDayProj.some((o) => o.offering_key === 'wetsuit_rental')
+    && canonicalThreeDayProj.some((o) => o.offering_key === 'towel_rental'
+      && o.duration_key === '1_day'),
+  JSON.stringify(canonicalThreeDayProj),
 );
 const genericPackagePrices = [
   { category: 'rental', offering_key: 'towel_rental__4_hours', amount: 10, active: true, location_id: 'sunset-somo' },
@@ -140,12 +211,26 @@ assert(
 );
 const genericFiveDay = mod.scheduleActiveRentalsForDuration(genericPackagePrices, '5_days', 'sunset-somo');
 assert(
-  'generic multi-day without exact package offers 1_day only (not hour packages)',
+  'generic multi-day without exact package prefers 1_day (not hour packages)',
   genericFiveDay.length === 2
     && genericFiveDay.some((o) => o.offering_key === 'test_rental' && o.duration_key === '1_day')
     && genericFiveDay.some((o) => o.offering_key === 'towel_rental' && o.duration_key === '1_day')
     && !genericFiveDay.some((o) => o.duration_key === '4_hours'),
   JSON.stringify(genericFiveDay),
+);
+const genericFiveDayProj = mod.scheduleProjectStandaloneRentals({
+  prices: genericPackagePrices,
+  locationId: 'sunset-somo',
+  dateDurationKey: '5_days',
+});
+const testFive = genericFiveDayProj.find((o) => o.offering_key === 'test_rental');
+assert(
+  'generic multi-day projection still lists other priced N_days alongside 1_day fallback',
+  testFive
+    && testFive.duration_keys.indexOf('1_day') >= 0
+    && testFive.duration_keys.indexOf('3_days') >= 0
+    && testFive.duration_keys.indexOf('4_hours') < 0,
+  JSON.stringify(testFive && testFive.duration_keys),
 );
 assert(
   'Somo isolation: elSardi price not selected for Somo',
@@ -262,6 +347,15 @@ assert(
 assert(
   'rental availability module inject marker',
   apiSrc.includes('/* INJECT:sunset-schedule-rental-availability */'),
+);
+assert(
+  'Create duration change syncs multi-day package to date_to',
+  /ps-create-rental-duration[\s\S]*scheduleSyncDateInputsToRentalDuration/.test(apiSrc),
+);
+const editUi = fs.readFileSync(path.join(ROOT, 'scripts/browser/sunset-schedule-drawer-edit-ui.js'), 'utf8');
+assert(
+  'Edit duration change syncs multi-day package to drawer date_to',
+  /ps-drawer-rental-duration[\s\S]*scheduleSyncDateInputsToRentalDuration/.test(editUi),
 );
 assert(
   'browser source loads rental availability module',
