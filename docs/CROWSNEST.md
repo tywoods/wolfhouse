@@ -222,6 +222,23 @@ Contract:
 - First slice limitation: `allow_writes` is forced false. Response includes `limitation.limitation_flag = "writes_and_external_sends_disabled"`, `writes_enabled:false`, `whatsapp_sends_enabled:false`, `sms_sends_enabled:false`, plus the denied action list. Tenant simulator output should report `whatsapp_suppressed:true` when the live runtime captured rather than sent the reply.
 - Denied write/send actions include booking/payment links, add services/catalog camps, transfer/contact/package updates, handoff flag writes, WhatsApp sends, and SMS sends. Reads/tool lookups are allowed through the tenant simulator.
 
+### Sunset Email simulator door
+
+`POST /api/live-simulator/email` accepts a synthetic `from_address`, optional `from_display_name`, `subject`, and `body_text`. V1 is Sunset-only and calls the existing authenticated `/whatsapp/v1/internal/email-draft-plan` author door on the same `hermes-sunset-luna-http` process. Each submit receives a fresh synthetic conversation ID.
+
+The response is always draft-only (`delivery_status:not_sent`, `send_allowed:false`, `writes_allowed:false`). It creates no Inbox mirror and has no Graph, Gmail, IMAP, SMTP, booking, payment, or waiver transport/write path. Catalog/quote context is read-only. The route returns unavailable unless `CROWSNEST_ENVIRONMENT=staging` **and** Crowsnest auth is enabled; a valid operator session is then required.
+
+Crowsnest needs these server-side author settings (never browser-visible):
+
+```bash
+CROWSNEST_LIVE_SIM_EMAIL_AUTHOR_ORIGIN=https://lunabox.lunafrontdesk.com
+CROWSNEST_LIVE_SIM_EMAIL_AUTHOR_TOKEN=...
+CROWSNEST_LIVE_SIM_EMAIL_AUTHOR_HMAC_SECRET=...
+# Optional: CROWSNEST_LIVE_SIM_EMAIL_AUTHOR_TIMEOUT_MS, _TLS_PIN, _TLS_SERVER_NAME
+```
+
+The token/HMAC values must match the already deployed Sunset same-Luna author door. No mailbox credential is required or permitted.
+
 Verify with `npm run verify:crowsnest-live-simulator`.
 
 ACA → Lunabox runtime wiring requires the tenant origin/token pair for each enabled simulator:

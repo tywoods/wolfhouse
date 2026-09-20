@@ -1236,6 +1236,7 @@ html[data-theme="dark"] .onboarding-form textarea{
 .live-simulator-toolbar{display:flex;align-items:end;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border-soft);background:linear-gradient(180deg,rgba(255,255,255,.74),rgba(255,252,247,.92))}
 html[data-theme="dark"] .live-simulator-toolbar{background:linear-gradient(180deg,rgba(33,41,50,.72),rgba(26,32,39,.9))}
 .live-simulator-toolbar label,.live-simulator-composer label{display:grid;gap:5px;color:var(--navy);font-size:12px;font-weight:800}
+.live-simulator-toolbar [hidden],.live-simulator-composer [hidden]{display:none!important}
 .live-simulator-toolbar label{min-width:160px}.live-simulator-toolbar label:last-of-type{flex:1;min-width:220px}
 .live-simulator-form select,.live-simulator-form input,.live-simulator-form textarea{width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-raised);color:var(--charcoal);font:inherit;padding:9px 11px}
 .live-simulator-form textarea{min-height:52px;max-height:160px;resize:vertical;line-height:1.45}.live-simulator-help{display:block;color:var(--text-3);font-size:11px;font-weight:600;line-height:1.3}
@@ -3326,22 +3327,32 @@ function renderLiveSimulatorMain() {
       <article class="card live-simulator-inbox">
         <form class="live-simulator-form" data-live-simulator-form>
           <div class="live-simulator-toolbar" aria-label="Simulator controls">
+            <label for="live-simulator-channel">Channel
+              <select id="live-simulator-channel" name="channel" data-live-simulator-channel>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="email">Email</option>
+              </select>
+            </label>
             <label for="live-simulator-tenant">Tenant
               <select id="live-simulator-tenant" name="tenant" data-live-simulator-tenant>
                 <option value="sunset">Sunset Luna</option>
                 <option value="wolfhouse">Wolfhouse Luna</option>
               </select>
             </label>
-            <label for="live-simulator-phone">From phone
+            <label for="live-simulator-phone" data-live-simulator-whatsapp-field>From phone
               <input id="live-simulator-phone" name="from_phone" type="tel" inputmode="tel" autocomplete="off" value="+346****0001" data-live-simulator-phone>
               <span class="live-simulator-help">Same tenant + phone keeps continuity; a new phone starts a new guest.</span>
             </label>
+            <label for="live-simulator-email-from" data-live-simulator-email-field hidden>From email
+              <input id="live-simulator-email-from" name="from_address" type="email" autocomplete="off" value="guest@example.com" data-live-simulator-email-from>
+              <span class="live-simulator-help">Each submit starts a new synthetic email conversation.</span>
+            </label>
           </div>
           <div class="live-simulator-limitation" aria-label="Live Simulator limitation">
-            <strong>You can create Sunset staging bookings, test payment links, check test payment status, and register or fetch waiver links.</strong>
+            <strong>WhatsApp can exercise Sunset staging tools. Email is draft-only with read-only catalog/quote context.</strong>
             <ul>
-              <li>Nothing is sent to a real guest; WhatsApp/SMS stay off.</li>
-              <li>Only this synthetic Sunset staging guest is in scope; live payments and other writes stay off.</li>
+              <li>Nothing is sent to a real guest; WhatsApp, SMS, Graph, Gmail, IMAP, and SMTP stay off.</li>
+              <li>Email creates no Inbox mirror. Booking, payment, and waiver writes stay off for email.</li>
             </ul>
           </div>
           <div class="live-simulator-chat" aria-label="Conversation thread">
@@ -3355,15 +3366,23 @@ function renderLiveSimulatorMain() {
               </div>
             </div>
             <div class="live-simulator-composer">
-              <label for="live-simulator-message">Message
+              <div data-live-simulator-email-field hidden>
+                <label for="live-simulator-email-name">Sender name
+                  <input id="live-simulator-email-name" name="from_display_name" type="text" autocomplete="off" value="Test Guest" data-live-simulator-email-name>
+                </label>
+                <label for="live-simulator-email-subject">Subject
+                  <input id="live-simulator-email-subject" name="subject" type="text" autocomplete="off" placeholder="Surf lesson question" data-live-simulator-email-subject>
+                </label>
+              </div>
+              <label for="live-simulator-message"><span data-live-simulator-message-label>Message</span>
                 <textarea id="live-simulator-message" name="text" data-live-simulator-text placeholder="Hi, do you have space next weekend?"></textarea>
               </label>
-              <button class="btn-primary" type="submit" data-live-simulator-submit>Send</button>
+              <button class="btn-primary" type="submit" data-live-simulator-submit>Send to Luna</button>
             </div>
             <div class="live-simulator-footer">
               <p class="live-simulator-status" data-live-simulator-status>Idle — no simulated guest turns yet.</p>
               <div class="live-simulator-meta" aria-label="Simulator request metadata">
-                <span>Endpoint: <code>/api/live-simulator/guest-turn</code></span>
+                <span>Endpoints: <code>/api/live-simulator/guest-turn</code> · <code>/api/live-simulator/email</code></span>
                 <span>Browser tokens: <code>none</code></span>
               </div>
             </div>
@@ -3381,16 +3400,35 @@ function renderLiveSimulatorScript(nonce) {
   const root = document.querySelector('[data-live-simulator-root]');
   if (!root) return;
   const form = root.querySelector('[data-live-simulator-form]');
+  const channel = root.querySelector('[data-live-simulator-channel]');
   const tenant = root.querySelector('[data-live-simulator-tenant]');
   const phone = root.querySelector('[data-live-simulator-phone]');
+  const emailFrom = root.querySelector('[data-live-simulator-email-from]');
+  const emailName = root.querySelector('[data-live-simulator-email-name]');
+  const emailSubject = root.querySelector('[data-live-simulator-email-subject]');
+  const emailFields = root.querySelectorAll('[data-live-simulator-email-field]');
+  const whatsappFields = root.querySelectorAll('[data-live-simulator-whatsapp-field]');
+  const messageLabel = root.querySelector('[data-live-simulator-message-label]');
   const text = root.querySelector('[data-live-simulator-text]');
   const submit = root.querySelector('[data-live-simulator-submit]');
   const thread = root.querySelector('[data-live-simulator-thread]');
   const empty = root.querySelector('[data-live-simulator-empty]');
   const status = root.querySelector('[data-live-simulator-status]');
   const threads = new Map();
+  let emailConversationSequence = 0;
   function normalizePhoneKey(value) { return String(value || '').replace(/\D/g, ''); }
-  function threadKey() { return tenant.value + ':' + normalizePhoneKey(phone.value); }
+  function isEmail() { return channel.value === 'email'; }
+  function threadKey() { return isEmail() ? 'sunset:email:' + emailConversationSequence : tenant.value + ':' + normalizePhoneKey(phone.value); }
+  function syncChannel() {
+    const email = isEmail();
+    emailFields.forEach((node) => { node.hidden = !email; });
+    whatsappFields.forEach((node) => { node.hidden = email; });
+    if (email) tenant.value = 'sunset';
+    tenant.disabled = email;
+    messageLabel.textContent = email ? 'Email body' : 'Message';
+    text.placeholder = email ? 'Hi, can you tell me about surf lessons?' : 'Hi, do you have space next weekend?';
+    renderThread();
+  }
   function currentState() {
     const key = threadKey();
     if (!threads.has(key)) threads.set(key, { messages: [], draft: '', inFlight: false });
@@ -3453,26 +3491,42 @@ function renderLiveSimulatorScript(nonce) {
     event.preventDefault();
     if (inFlight) return;
     const draftText = text.value;
-    const payload = {
+    const emailMode = isEmail();
+    const payload = emailMode ? {
+      tenant: 'sunset',
+      from_address: emailFrom.value,
+      from_display_name: emailName.value,
+      subject: emailSubject.value,
+      body_text: draftText,
+    } : {
       tenant: tenant.value,
       from_phone: phone.value,
       text: draftText,
     };
-    const requestKey = threadKey();
-    const requestState = currentState();
-    if (!payload.text.trim()) {
-      setStatus('Type a guest message first.', true);
+    if (!draftText.trim()) {
+      setStatus(emailMode ? 'Type an email body first.' : 'Type a guest message first.', true);
       text.focus();
       return;
     }
-    appendMessage('guest', 'Guest · ' + payload.from_phone + ' · ' + tenant.options[tenant.selectedIndex].text, payload.text);
+    if (emailMode && !payload.subject.trim()) {
+      setStatus('Type an email subject first.', true);
+      emailSubject.focus();
+      return;
+    }
+    if (emailMode) {
+      emailConversationSequence += 1;
+      renderThread();
+    }
+    const requestKey = threadKey();
+    const requestState = currentState();
+    appendMessage('guest', emailMode ? 'Mock email · ' + payload.from_address + ' · ' + payload.subject : 'Guest · ' + payload.from_phone + ' · ' + tenant.options[tenant.selectedIndex].text, draftText);
     text.value = '';
     requestState.draft = '';
     inFlight = true;
     submit.disabled = true;
-    setStatus('Sending guest turn to Luna…', false);
+    setStatus(emailMode ? 'Sending mock inbound to Sunset Luna…' : 'Sending guest turn to Luna…', false);
     try {
-      const resp = await fetch('/api/live-simulator/guest-turn', {
+      const resp = await fetch(emailMode ? '/api/live-simulator/email' : '/api/live-simulator/guest-turn', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -3487,14 +3541,46 @@ function renderLiveSimulatorScript(nonce) {
         text.focus();
         return;
       }
-      if (threadKey() === requestKey) {
-        appendMessage('luna', (data.tenant_label || 'Luna') + ' · ' + (data.memory_scope || payload.tenant + ':' + payload.from_phone), data.reply_text || '(Luna returned no visible reply text.)');
-        appendFollowUpLinks(data);
-      } else {
-        requestState.messages.push({ kind: 'luna', label: data.tenant_label || 'Luna', body: data.reply_text || '—' });
+      const safeEmailReply = !emailMode || (data.channel === 'email'
+        && data.delivery_status === 'not_sent'
+        && data.draft_only === true
+        && data.send_allowed === false
+        && data.auto_send_allowed === false
+        && data.writes_allowed === false
+        && data.limitation
+        && data.limitation.inbox_mirror_created === false
+        && data.limitation.graph_enabled === false
+        && data.limitation.gmail_enabled === false
+        && data.limitation.imap_enabled === false
+        && data.limitation.smtp_enabled === false
+        && data.limitation.external_email_transport_enabled === false
+        && data.limitation.booking_writes_enabled === false
+        && data.limitation.payment_writes_enabled === false
+        && data.limitation.waiver_writes_enabled === false);
+      if (!safeEmailReply) {
+        const failure = 'Email simulator rejected an unsafe or malformed reply.';
+        appendMessage('system', 'Simulator', failure);
+        if (!text.value) text.value = draftText;
+        setStatus(failure, true);
+        text.focus();
+        return;
       }
-      const limitation = data.limitation && data.limitation.limitation_flag ? ' · ' + data.limitation.limitation_flag : '';
-      setStatus('Reply received from ' + (data.tenant_label || payload.tenant) + limitation, false);
+      if (threadKey() === requestKey) {
+        const reply = emailMode ? data.reply_body : data.reply_text;
+        const replyLabel = emailMode
+          ? (data.tenant_label || 'Sunset Luna') + ' · Email reply · Not sent · Conversation ' + (data.conversation_id || 'unknown') + ' · ' + (data.reply_subject || '')
+          : (data.tenant_label || 'Luna') + ' · ' + (data.memory_scope || payload.tenant + ':' + payload.from_phone);
+        appendMessage('luna', replyLabel, reply || '(Luna returned no visible reply text.)');
+        if (!emailMode) appendFollowUpLinks(data);
+      } else {
+        requestState.messages.push({ kind: 'luna', label: data.tenant_label || 'Luna', body: (emailMode ? data.reply_body : data.reply_text) || '—' });
+      }
+      if (emailMode) {
+        setStatus('Luna reply received · Not sent · New email conversation', false);
+      } else {
+        const limitation = data.limitation && data.limitation.limitation_flag ? ' · ' + data.limitation.limitation_flag : '';
+        setStatus('Reply received from ' + (data.tenant_label || payload.tenant) + limitation, false);
+      }
       text.focus();
     } catch (err) {
       const failure = 'Network error while contacting the live simulator' + (err && err.message ? ': ' + err.message : '.');
@@ -3508,6 +3594,7 @@ function renderLiveSimulatorScript(nonce) {
     }
   }
   form.addEventListener('submit', submitGuestTurn);
+  channel.addEventListener('change', syncChannel);
   tenant.addEventListener('change', renderThread);
   phone.addEventListener('change', renderThread);
   text.addEventListener('input', () => { currentState().draft = text.value; });
@@ -3518,6 +3605,7 @@ function renderLiveSimulatorScript(nonce) {
     // Prefer click(): requestSubmit(disabledSubmitter) throws InvalidStateError.
     form.requestSubmit(submit);
   });
+  syncChannel();
 })();
 </script>`;
 }

@@ -18,6 +18,11 @@ const {
   runLiveSimulatorTurn,
   runtimeOriginAllowed,
 } = require('./lib/crowsnest/crowsnest-live-simulator');
+const {
+  LIVE_SIMULATOR_EMAIL_ROUTE,
+  normalizeEmailInput,
+  runLiveSimulatorEmail,
+} = require('./lib/crowsnest/crowsnest-live-simulator-email');
 
 const { server } = require('./crowsnest-api');
 const {
@@ -74,6 +79,47 @@ async function main() {
   const sunsetPhone = `+34${'600111222'}`;
 
   ok('route contract is under Crowsnest API', LIVE_SIMULATOR_ROUTE === '/api/live-simulator/guest-turn');
+  ok('email route contract is under Crowsnest API', LIVE_SIMULATOR_EMAIL_ROUTE === '/api/live-simulator/email');
+  const emailInput = normalizeEmailInput({
+    tenantId: 'sunset',
+    fromAddress: 'guest@example.com',
+    fromDisplayName: 'Test Guest',
+    subject: 'Surf lessons',
+    bodyText: 'Hi, can you tell me about surf lessons?',
+  });
+  ok('email input accepts only Sunset and preserves mock inbound fields', emailInput.ok === true
+    && emailInput.tenant === 'sunset'
+    && emailInput.email.from_address === 'guest@example.com'
+    && emailInput.email.subject === 'Surf lessons');
+  ok('email input rejects Wolfhouse in v1', normalizeEmailInput({ tenantId: 'wolfhouse', fromAddress: 'guest@example.com', subject: 'Hi', bodyText: 'Hello' }).code === 'email_sunset_only');
+
+  let seenEmailEnvelope;
+  const emailResult = await runLiveSimulatorEmail({
+    tenantId: 'sunset',
+    fromAddress: 'guest@example.com',
+    fromDisplayName: 'Test Guest',
+    subject: 'Surf lessons',
+    bodyText: 'Hi, can you tell me about surf lessons?',
+  }, {
+    env: { CROWSNEST_ENVIRONMENT: 'staging' },
+    authorClient: {
+      requestNaturalPlan: async (envelope) => {
+        seenEmailEnvelope = envelope;
+        return { status: 'ok', planJson: JSON.stringify({ acts: [{ act: 'thank_guest' }, { act: 'ask_clarifying_question', topic: 'lessons' }] }), marker: { runtime: 'hermes-sunset-luna-http' } };
+      },
+    },
+  });
+  ok('email simulator reuses same Luna email-author door', seenEmailEnvelope.authority.location_key === 'sunset-somo'
+    && seenEmailEnvelope.untrusted_email.from_address === 'guest@example.com'
+    && emailResult.runtime === 'hermes-sunset-luna-http');
+  ok('email simulator returns draft-only reply with no send or write authority', emailResult.ok === true
+    && emailResult.delivery_status === 'not_sent'
+    && emailResult.send_allowed === false
+    && emailResult.writes_allowed === false
+    && /Luna/.test(emailResult.reply_body));
+  ok('each mock inbound starts a new email conversation', typeof emailResult.conversation_id === 'string'
+    && emailResult.conversation_id !== (await runLiveSimulatorEmail({ tenantId: 'sunset', fromAddress: 'guest@example.com', subject: 'Again', bodyText: 'Hello again' }, { env: { CROWSNEST_ENVIRONMENT: 'staging' }, authorClient: { requestNaturalPlan: async () => ({ status: 'ok', planJson: JSON.stringify({ acts: [{ act: 'acknowledge_message' }] }), marker: { runtime: 'hermes-sunset-luna-http' } }) } })).conversation_id);
+
   ok('tenant route shape is capped to /wolfhouse/simulate-guest-turn', TENANT_SIMULATE_PATH === '/wolfhouse/simulate-guest-turn');
   ok('write deny-list names booking writes', WRITE_DENY_LIST.includes('create_booking_from_plan') && WRITE_DENY_LIST.includes('create_payment_link'));
   ok('write deny-list names external sends', WRITE_DENY_LIST.includes('send_whatsapp_message') && WRITE_DENY_LIST.includes('send_sms'));
@@ -184,7 +230,12 @@ async function main() {
   ok('Sunset protected door keeps authority server-owned', seenSunsetUpstream.body.allow_writes === false && !seenSunsetUpstream.body.simulator_write_mode);
   ok('Sunset protected door permits booking/payment/waiver Staff mutations', sunsetResult.limitation.booking_writes_enabled === true && sunsetResult.limitation.payments_enabled === true && sunsetResult.limitation.waiver_creation_enabled === true);
 
+  ok('email simulator denies missing and production runtime profiles before author invocation',
+    (await runLiveSimulatorEmail({ tenantId: 'sunset', fromAddress: 'guest@example.com', subject: 'Hi', bodyText: 'Hello' }, { env: {}, authorClient: { requestNaturalPlan: async () => { throw new Error('must_not_invoke'); } } })).code === 'email_simulator_not_available'
+    && (await runLiveSimulatorEmail({ tenantId: 'sunset', fromAddress: 'guest@example.com', subject: 'Hi', bodyText: 'Hello' }, { env: { CROWSNEST_ENVIRONMENT: 'production' }, authorClient: { requestNaturalPlan: async () => { throw new Error('must_not_invoke'); } } })).code === 'email_simulator_not_available');
+
   process.env.CROWSNEST_AUTH_REQUIRED = 'true';
+  process.env.CROWSNEST_ENVIRONMENT = 'staging';
   process.env.CROWSNEST_AUTH_USERNAME = 'operator';
   process.env.CROWSNEST_AUTH_PASSWORD = 'secret';
   process.env.CROWSNEST_LIVE_SIM_WOLFHOUSE_ORIGIN = 'http://127.0.0.1:65534';
@@ -204,12 +255,53 @@ async function main() {
     });
     ok('authenticated HTTP route reaches server-side proxy path', authed.status === 502 && authed.json.runtime.target_path === TENANT_SIMULATE_PATH);
     ok('HTTP error response still exposes limitation flag', authed.json.limitation.limitation_flag === 'writes_and_external_sends_disabled');
+
+    const unauthEmail = await requestJson(port, LIVE_SIMULATOR_EMAIL_ROUTE, {
+      method: 'POST',
+      body: { tenant: 'sunset', from_address: 'guest@example.com', subject: 'Hi', body_text: 'Hello' },
+    });
+    ok('email HTTP route requires authenticated operator', unauthEmail.status === 401);
+    process.env.CROWSNEST_AUTH_REQUIRED = 'false';
+    const authDisabledEmail = await requestJson(port, LIVE_SIMULATOR_EMAIL_ROUTE, {
+      method: 'POST',
+      body: { tenant: 'sunset', from_address: 'guest@example.com', subject: 'Hi', body_text: 'Hello' },
+    });
+    ok('email HTTP route stays unavailable when Crowsnest auth is disabled', authDisabledEmail.status === 404 && authDisabledEmail.json.code === 'email_simulator_not_available');
+    process.env.CROWSNEST_AUTH_REQUIRED = 'true';
+    const authedEmail = await requestJson(port, LIVE_SIMULATOR_EMAIL_ROUTE, {
+      method: 'POST',
+      headers: { Cookie: `${CROWSNEST_SESSION_COOKIE}=${encodeURIComponent(sessionToken)}` },
+      body: { tenant: 'sunset', from_address: 'guest@example.com', subject: 'Hi', body_text: 'Hello' },
+    });
+    ok('email HTTP route fails closed when same-Luna author is unconfigured', authedEmail.status === 503 && authedEmail.json.code === 'email_author_unavailable');
   } finally {
     await close(server);
   }
 
 
   const repoRoot = path.resolve(__dirname, '..');
+  const pageSrc = fs.readFileSync(path.join(repoRoot, 'scripts/lib/crowsnest/crowsnest-page.js'), 'utf8');
+  ok('Live Simulator UI exposes WhatsApp and Email channel doors', /option value="whatsapp">WhatsApp/.test(pageSrc) && /option value="email">Email/.test(pageSrc));
+  ok('channel-specific controls are actually hidden despite grid label styles', /live-simulator-toolbar \[hidden\],\.live-simulator-composer \[hidden\]\{display:none!important\}/.test(pageSrc));
+  ok('email UI posts sender, subject, and body to the dedicated route', pageSrc.includes("'/api/live-simulator/email'") && pageSrc.includes('from_address: emailFrom.value') && pageSrc.includes('subject: emailSubject.value') && pageSrc.includes('body_text: draftText'));
+  ok('email UI visibly marks replies not sent and new conversation', pageSrc.includes('Email reply · Not sent') && pageSrc.includes('New email conversation') && pageSrc.includes('emailConversationSequence += 1') && pageSrc.includes("Conversation ' + (data.conversation_id"));
+  ok('email UI fails closed on every safety-critical author response flag',
+    pageSrc.includes("data.delivery_status === 'not_sent'")
+      && pageSrc.includes('data.draft_only === true')
+      && pageSrc.includes('data.send_allowed === false')
+      && pageSrc.includes('data.auto_send_allowed === false')
+      && pageSrc.includes('data.writes_allowed === false')
+      && pageSrc.includes('data.limitation.inbox_mirror_created === false')
+      && pageSrc.includes('data.limitation.graph_enabled === false')
+      && pageSrc.includes('data.limitation.gmail_enabled === false')
+      && pageSrc.includes('data.limitation.imap_enabled === false')
+      && pageSrc.includes('data.limitation.smtp_enabled === false')
+      && pageSrc.includes('data.limitation.external_email_transport_enabled === false')
+      && pageSrc.includes('data.limitation.booking_writes_enabled === false')
+      && pageSrc.includes('data.limitation.payment_writes_enabled === false')
+      && pageSrc.includes('data.limitation.waiver_writes_enabled === false')
+      && pageSrc.includes('Email simulator rejected an unsafe or malformed reply'));
+  ok('email UI states transport and Inbox fences', /Graph, Gmail, IMAP, and SMTP stay off/.test(pageSrc) && /Email creates no Inbox mirror/.test(pageSrc));
   const guardSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/wolfhouse/simulate_write_guards.py'), 'utf8');
   const coreSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/wolfhouse/simulate_core.py'), 'utf8');
   const pluginSrc = fs.readFileSync(path.join(repoRoot, 'docker/hermes-staging/plugins/wolfhouse_staff_api/__init__.py'), 'utf8');
