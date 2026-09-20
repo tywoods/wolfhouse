@@ -740,11 +740,15 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     var off = Number(navState.forwardOffset);
     if (!isFinite(off)) off = 0;
     off = Math.trunc(off);
+    // Keep focusDateIso on the selected day even in Monthly. rangeStartIso alone
+    // month-aligns for the grid/header — collapsing focus to the 1st made Monthly
+    // look like the selected date silently snapped back (Bug Finder leftover).
+    var focusDay = scheduleAddDays(scheduleParseIso(scheduleTodayIso()), off);
     var rangeStart = rangeStartFromOffset(off);
     return {
       mode: normalizeNavigationMode(navState.mode),
       forwardOffset: off,
-      focusDateIso: scheduleIsoDate(rangeStart),
+      focusDateIso: scheduleIsoDate(focusDay),
       navigationGen: navState.navigationGen,
       loadGen: loadGenOverride != null ? loadGenOverride : navState.loadGen,
       todayIso: scheduleTodayIso(),
