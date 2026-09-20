@@ -58,6 +58,7 @@ function createPostgresRepository(options = {}) {
   return {
     backend: 'postgres',
     async create(token, username, expiresAt) {
+      await pool.query(`DELETE FROM ${TABLE} WHERE expires_at <= clock_timestamp()`);
       await pool.query(`INSERT INTO ${TABLE} (token_hash, username, expires_at) VALUES ($1, $2, $3)`, [tokenHash(token), String(username || '').trim(), expiresAt]);
     },
     async get(token) {

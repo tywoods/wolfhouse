@@ -1552,6 +1552,15 @@
       "inForwardChain": true,
       "rationale": "Crowsnest communications routing operation ledger and append-only audit events with least-privilege crowsnest_api grants.",
       "sha256": "aefbda632e621c9abc21339cd0c36109298b22636ca435e382d60fe4bd713989"
+    },
+    {
+      "id": "104_crowsnest_auth_sessions",
+      "filename": "104_crowsnest_auth_sessions.sql",
+      "order": 100,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Durable eight-hour Crow's Nest operator sessions with hashed bearer tokens, expiry, and least-privilege crowsnest_api grants.",
+      "sha256": "1d829d7509ebf523386a831d9c790605a33e3abe33b257da427a987b945735e2"
     }
   ]
 }

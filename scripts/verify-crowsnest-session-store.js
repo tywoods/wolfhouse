@@ -24,9 +24,12 @@ async function main() {
   const token = 'raw-secret-token';
   const expiresAt = new Date(Date.now() + 60_000);
   await repo.create(token, 'earthling-op', expiresAt);
-  assert(!queries[0].params.includes(token), 'raw token must never be stored');
+  const insertQuery = queries.find(({ sql }) => /^INSERT/i.test(sql.trim()));
+  assert(insertQuery, 'session insert query recorded');
+  assert(!insertQuery.params.includes(token), 'raw token must never be stored');
   const expectedHash = crypto.createHash('sha256').update(token).digest('hex');
-  assert.strictEqual(queries[0].params[0], expectedHash);
+  assert.strictEqual(insertQuery.params[0], expectedHash);
+  assert(queries.some(({ sql }) => /^DELETE FROM .*expires_at <=/i.test(sql.trim())), 'expired sessions are reclaimed on login');
   assert.deepStrictEqual(await repo.get(token), { username: 'earthling-op', expiresAt });
   const afterRestart = store.createPostgresRepository({ pool });
   assert.deepStrictEqual(await afterRestart.get(token), { username: 'earthling-op', expiresAt }, 'new process repository resolves the same durable session');

@@ -11,6 +11,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { renderCrowsnestLoginPage, renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
+const { resolveBackend: resolveCrowsnestSessionBackend } = require('./lib/crowsnest/crowsnest-session-store');
 const {
   buildCrowsnestClearedSessionCookie,
   buildCrowsnestSessionCookie,
@@ -1181,7 +1182,13 @@ async function handleLogout(req, res, method) {
     cookies.set(trimmed.slice(0, eq), trimmed.slice(eq + 1));
   }
   const token = cookies.get('crowsnest_session');
-  if (token) await destroyCrowsnestSession(token);
+  if (token) {
+    try {
+      await destroyCrowsnestSession(token);
+    } catch {
+      console.error('[crowsnest] session deletion failed during logout');
+    }
+  }
   return sendRedirect(res, '/login', {
     'Set-Cookie': getClearedSessionCookieHeader(),
     'Cache-Control': 'no-store',
@@ -2496,7 +2503,6 @@ async function handleSalesOutreachDraft(req, res, method, prospectId) {
 }
 
 async function router(req, res) {
-  await loadCrowsnestSession(req);
   res.crowsnestTheme = readCrowsnestTheme(req);
   const pathname = getRequestPath(req);
   const method = getRequestMethod(req);
@@ -2511,18 +2517,6 @@ async function router(req, res) {
     return handleHealthz(req, res, method);
   }
 
-  if (pathname === '/login') {
-    return handleLogin(req, res, method);
-  }
-
-  if (pathname === '/logout') {
-    return handleLogout(req, res, method);
-  }
-
-  if (pathname === '/theme') {
-    return handleThemeToggle(req, res, method);
-  }
-
   if (ASSETS.has(pathname)) {
     return handleAsset(req, res, method, pathname);
   }
@@ -2533,6 +2527,24 @@ async function router(req, res) {
 
   if (pathname === '/api/ai-usage') {
     return handleAiUsageIngest(req, res, method);
+  }
+
+  if (authEnabled && resolveCrowsnestSessionBackend() === 'fail_closed') {
+    return sendCrowsnestAuthMisconfigured(res);
+  }
+
+  await loadCrowsnestSession(req);
+
+  if (pathname === '/login') {
+    return handleLogin(req, res, method);
+  }
+
+  if (pathname === '/logout') {
+    return handleLogout(req, res, method);
+  }
+
+  if (pathname === '/theme') {
+    return handleThemeToggle(req, res, method);
   }
 
   if (pathname === LUNA_NUMBER_ROUTE_API) {
