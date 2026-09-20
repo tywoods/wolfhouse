@@ -1486,7 +1486,7 @@ function adminBookingsBuildExpandItemsHtml(items) {
         var surfersWord = portalT('schedule.drawer.surfersWord');
         if (!surfersWord || surfersWord === 'schedule.drawer.surfersWord') surfersWord = 'surfers';
         var qtyLab = String(qty) + ' ' + surfersWord;
-        math = math ? (math + ' \\u00b7 ' + qtyLab) : qtyLab;
+        math = math ? (math + ' · ' + qtyLab) : qtyLab;
       }
     }
     var amountText = isCe
