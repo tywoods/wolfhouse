@@ -197,7 +197,7 @@ assertSharedNav('Communications', communicationsHtml, '/communications');
 assertSharedNav('Live Simulator', liveSimulatorHtml, '/live-simulator');
 ok('Live Simulator view renders heading and controls', /<h1[^>]*>[\s\S]*Live Simulator/i.test(liveSimulatorHtml) && /data-live-simulator-form/.test(liveSimulatorHtml));
 ok('Live Simulator tenant dropdown maps Sunset/Wolfhouse values', /<option value="sunset">Sunset Luna<\/option>/.test(liveSimulatorHtml) && /<option value="wolfhouse">Wolfhouse Luna<\/option>/.test(liveSimulatorHtml));
-ok('Live Simulator uses API guest-turn endpoint only', /fetch\('\/api\/live-simulator\/guest-turn'/.test(liveSimulatorHtml));
+ok('Live Simulator uses dedicated WhatsApp and Email API endpoints', /\/api\/live-simulator\/guest-turn/.test(liveSimulatorHtml) && /\/api\/live-simulator\/email/.test(liveSimulatorHtml));
 ok('Live Simulator has editable from phone number', /name="from_phone"[^>]*data-live-simulator-phone/.test(liveSimulatorHtml));
 ok('Live Simulator shows screenshot-friendly empty state', /Ready for a Luna turn/.test(liveSimulatorHtml) && /Luna replies will appear here/.test(liveSimulatorHtml));
 ok('Live Simulator styles Luna left and You right', /live-simulator-message--luna\{[^}]*margin-right:auto/.test(pageSrc) && /live-simulator-message--guest\{[^}]*margin-left:auto/.test(pageSrc));
@@ -207,7 +207,7 @@ ok('Live Simulator appends Luna reply after successful guest turn', /appendMessa
 ok('Live Simulator Enter submits while Shift+Enter remains newline', /text\.addEventListener\('keydown'/.test(liveSimulatorHtml) && /event\.key !== 'Enter'/.test(liveSimulatorHtml) && /event\.shiftKey/.test(liveSimulatorHtml) && /form\.requestSubmit\(submit\)/.test(liveSimulatorHtml));
 ok('Live Simulator clears immediately, preserves failed text, and avoids duplicate sends', /let inFlight = false/.test(liveSimulatorHtml) && /if \(inFlight\) return/.test(liveSimulatorHtml) && /text\.value = ''/.test(liveSimulatorHtml) && /if \(!text\.value\) text\.value = draftText/.test(liveSimulatorHtml));
 ok('Live Simulator card removes inner padding and thread can shrink above composer', /live-simulator-inbox\{[^}]*padding:0/.test(pageSrc) && /live-simulator-thread\{[^}]*min-height:0/.test(pageSrc));
-ok('Live Simulator has plain-English capability banner', /You can create Sunset staging bookings/i.test(liveSimulatorHtml) && /test payment links/i.test(liveSimulatorHtml) && /waiver/i.test(liveSimulatorHtml) && /Nothing is sent to a real guest/i.test(liveSimulatorHtml));
+ok('Live Simulator has plain-English per-channel capability banner', /WhatsApp can exercise Sunset staging tools/i.test(liveSimulatorHtml) && /Email is draft-only/i.test(liveSimulatorHtml) && /Email creates no Inbox mirror/i.test(liveSimulatorHtml) && /Nothing is sent to a real guest/i.test(liveSimulatorHtml));
 ok('Live Simulator keeps browser threads and drafts isolated by tenant plus normalized phone', /const threads = new Map\(\)/.test(liveSimulatorHtml) && /function threadKey\(\)/.test(liveSimulatorHtml) && /normalizePhoneKey/.test(liveSimulatorHtml) && /function currentState\(\)/.test(liveSimulatorHtml));
 ok('Live Simulator renders mode-aware follow-up links inside Luna bubbles', /appendFollowUpLinks/.test(liveSimulatorHtml) && /secure_payment_url/.test(liveSimulatorHtml) && /waiver_url/.test(liveSimulatorHtml));
 ok('Live Simulator browser code does not include tenant tokens', !/LUNA_BOT_INTERNAL_TOKEN|CROWSNEST_LIVE_SIM_.*TOKEN|X-Luna-Bot-Token/.test(liveSimulatorHtml));
