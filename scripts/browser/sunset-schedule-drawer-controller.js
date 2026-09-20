@@ -356,11 +356,30 @@ function scheduleHydrateDrawerCtxPhone(ctx, row){
   return ctx;
 }
 
+/** Copy identity from canonical detail onto the opener row (Reservas strips source). */
+function scheduleHydrateDrawerRowFromCtx(row, ctx){
+  if (!row || !ctx) return row;
+  if (ctx.booking_id) row.booking_id = row.booking_id || ctx.booking_id;
+  if (ctx.booking_code) row.booking_code = row.booking_code || ctx.booking_code;
+  if (ctx.guest_name) row.guest_name = row.guest_name || ctx.guest_name;
+  var phone = ctx.phone || ctx.guest_phone;
+  if (phone) {
+    if (!row.phone) row.phone = phone;
+    if (!row.guest_phone) row.guest_phone = phone;
+  }
+  if (ctx.booking_status) row.booking_status = ctx.booking_status;
+  if (ctx.editable === true && (row.booking_id || row.booking_code || ctx.booking_id || ctx.booking_code)) {
+    row._drawerFromCustomer = true;
+  }
+  return row;
+}
+
 function scheduleOpenEditableDrawer(row, ctx){
-  scheduleDrawerState.row = row;
-  scheduleDrawerState.ctx = scheduleHydrateDrawerCtxPhone(scheduleCloneDrawerCtx(ctx), row);
+  var hydratedRow = scheduleHydrateDrawerRowFromCtx(row, ctx);
+  scheduleDrawerState.row = hydratedRow;
+  scheduleDrawerState.ctx = scheduleHydrateDrawerCtxPhone(scheduleCloneDrawerCtx(ctx), hydratedRow);
   scheduleDrawerState.editing = false;
-  scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false);
+  scheduleMountDrawerBody(hydratedRow, scheduleDrawerState.ctx, false);
 }
 
 function scheduleRefreshDrawer(){
@@ -467,6 +486,7 @@ function closeScheduleDetailDrawer(){
 
 if (typeof window !== 'undefined') {
   window.openScheduleDetailDrawer = openScheduleDetailDrawer;
+  window.scheduleDrawerEnsureDocumentLayer = scheduleDrawerEnsureDocumentLayer;
   window.scheduleDrawerLockPage = scheduleDrawerLockPage;
   window.scheduleDrawerUnlockPage = scheduleDrawerUnlockPage;
   window.scheduleDrawerWireDismiss = scheduleDrawerWireDismiss;

@@ -127,6 +127,12 @@ ctx.__group = { records: [LUNA_ROW] };
 assert('luna row loads canonical drawer', ctx.scheduleDrawerCanLoadCanonical(LUNA_ROW) === true);
 assert('luna row editable in drawer', ctx.scheduleDrawerCanEdit(LUNA_ROW) === true);
 assert('demo row blocked', ctx.scheduleDrawerCanLoadCanonical(DEMO_ROW) === false);
+const BOOKINGS_ROW = { _drawerFromCustomer: true, booking_id: 'dddddddd-dddd-dddd-dddd-dddddddddddd', booking_code: 'SUNSET-R1' };
+ctx.__group = null;
+assert('Reservas opener shape loads canonical drawer', ctx.scheduleDrawerCanLoadCanonical(BOOKINGS_ROW) === true);
+assert('Reservas opener shape is editable', ctx.scheduleDrawerCanEdit(BOOKINGS_ROW) === true);
+assert('demo + _drawerFromCustomer still blocked',
+  ctx.scheduleDrawerCanLoadCanonical(Object.assign({}, DEMO_ROW, { _drawerFromCustomer: true })) === false);
 
 console.log('\n[4] Server drawer attribution (not Luna vs staff gate)');
 assert('bundleHasTrustedScheduleDrawerAttribution', drawerSrc.includes('function bundleHasTrustedScheduleDrawerAttribution'));
