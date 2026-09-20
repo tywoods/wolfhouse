@@ -40,6 +40,7 @@ const {
   getInboxContextBrowserSource,
   injectInboxBrowserModules,
 } = require('./lib/inbox-browser-source');
+const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 
 const ROOT = path.join(__dirname, '..');
 const API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
@@ -536,6 +537,51 @@ ok('Guest loading CSS keeps the card click-disabled and hides skeleton chrome',
   sandbox.beginConvDetailLoad(full);
   ok('non-Guest still uses the skeleton',
     full.innerHTML === SKELETON);
+}
+
+console.log('\n── Guest empty search (INBOX-FULL-GUEST-STAFF-STAGING-MIGRATE-001) ──');
+ok('Guest empty state has dedicated people wording helpers',
+  typeof fns.guestEmptyListMessage === 'function'
+  && typeof fns.guestEmptyDetailHtml === 'function');
+if (typeof fns.guestEmptyListMessage === 'function' && typeof fns.guestEmptyDetailHtml === 'function') {
+  ok('Guest empty list wording is about people, never conversation review',
+    fns.guestEmptyListMessage() === 'No guests match this search.'
+    && !/conversation|review/i.test(fns.guestEmptyListMessage()));
+  const guestEmptyDetail = fns.guestEmptyDetailHtml();
+  ok('Guest empty detail is neutral and does not retain the prior guest card',
+    /No guest selected/.test(guestEmptyDetail)
+    && !/inbox-customer-card|conversation|review/i.test(guestEmptyDetail));
+
+  const emptyNodes = {
+    'inbox-state': { style: {}, classList: { remove() {} } },
+    'conv-list': { innerHTML: '' },
+    'detail-content': {
+      innerHTML: '<article class="inbox-customer-card is-full">Previous guest</article>',
+      classList: { remove() {} },
+    },
+  };
+  sandbox.document = { getElementById: (id) => emptyNodes[id] || null };
+  sandbox.selectedConvId = 'previous-guest';
+  sandbox.inboxSelectionGeneration = 7;
+  let dialogTeardownCount = 0;
+  let refreshParkCount = 0;
+  sandbox.inboxTeardownClearThreadDialog = () => { dialogTeardownCount += 1; };
+  sandbox.inboxParkRefreshBtn = () => { refreshParkCount += 1; };
+  sandbox.inboxRowsRuntime.guestView = true;
+  fns.fixEmptyChrome([], { preserveDetail: true, selectedId: 'previous-guest' });
+  ok('Guest empty render clears stale selection and previous guest card despite preserveDetail',
+    sandbox.selectedConvId === null
+    && sandbox.inboxSelectionGeneration === 8
+    && dialogTeardownCount === 1
+    && refreshParkCount === 1
+    && /No guests match this search\./.test(emptyNodes['conv-list'].innerHTML)
+    && /No guest selected\./.test(emptyNodes['detail-content'].innerHTML)
+    && !/Previous guest|inbox-customer-card/.test(emptyNodes['detail-content'].innerHTML));
+  ok('Guest empty copy is wired through both EN and ES dictionaries',
+    STAFF_PORTAL_STRINGS.en['inbox.guest.empty.list'] === 'No guests match this search.'
+    && STAFF_PORTAL_STRINGS.es['inbox.guest.empty.list'] === 'Ningún huésped coincide con esta búsqueda.'
+    && STAFF_PORTAL_STRINGS.en['inbox.guest.empty.main'] === 'No guest selected.'
+    && STAFF_PORTAL_STRINGS.es['inbox.guest.empty.main'] === 'Ningún huésped seleccionado.');
 }
 
 console.log('\n' + '─'.repeat(48));
