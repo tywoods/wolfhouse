@@ -50,7 +50,7 @@ function exactRouteFromJson(cfg) {
   if (!Array.isArray(matches) || matches.length !== 1 || Object.keys(matches[0]).length !== 1 || !Array.isArray(matches[0].path) || matches[0].path.length !== 1 || matches[0].path[0] !== EXACT_PATH) return null;
   if (!Array.isArray(outer.handle) || outer.handle.length !== 1 || outer.handle[0].handler !== 'subroute' || !Array.isArray(outer.handle[0].routes) || outer.handle[0].routes.length !== 1) return null;
   const inner = outer.handle[0].routes[0];
-  if (inner.match !== undefined || Object.keys(inner).some((k) => !['handle', 'terminal'].includes(k)) || !Array.isArray(inner.handle) || inner.handle.length !== 1 || inner.handle[0].handler !== 'reverse_proxy') return null;
+  if (inner.match !== undefined || Object.keys(inner).some((k) => !['group', 'handle', 'terminal'].includes(k)) || (inner.group !== undefined && inner.group !== 'group0') || !Array.isArray(inner.handle) || inner.handle.length !== 1 || inner.handle[0].handler !== 'reverse_proxy') return null;
   const proxy = inner.handle[0]; const upstreams = proxy.upstreams;
   if (!Array.isArray(upstreams) || upstreams.length !== 1 || Object.keys(upstreams[0]).some((k) => k !== 'dial')) return null;
   const dial = normalizeDial(upstreams[0].dial); const target = Object.keys(TARGETS).find((key) => TARGETS[key] === dial);
