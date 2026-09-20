@@ -21764,12 +21764,15 @@ body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-two-col.inbox-s
 .inbox-col1 .inbox-filter-btn::before{flex:0 0 auto;width:18px;text-align:center;font-size:14px;line-height:1;content:"\\2022"}
 .inbox-col1 .inbox-view-btn[data-view="full"]::before{content:"\\25A6"}
 .inbox-col1 .inbox-view-btn[data-view="guest"]::before{content:"\\1F464"}
-/* Sunset: Full/Guest become folder tabs Chats|Guests at the top of the left rail. */
+/* Sunset: Full/Guest become folder tabs Chats|Guests at the top of the left rail.
+   SUNSET-INBOX-CHATS-GUESTS-TAB-CHROME-003: sit flush on the views-rail card
+   (cancel .inbox-col1 gap:10px) and paint the active tab site green. */
 .inbox-folder-tabs{display:none}
 html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{
   display:flex;flex-direction:row;align-items:flex-end;gap:0;
   width:100%;box-sizing:border-box;align-self:stretch;
-  background:transparent;padding:0;margin:0 0 -1px;flex:0 0 auto
+  background:transparent;padding:0;margin:0 0 -11px;flex:0 0 auto;
+  position:relative;z-index:2
 }
 html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
   flex:1 1 0;min-width:0;width:auto;
@@ -21790,14 +21793,21 @@ html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder
 }
 html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
 html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
-  background:var(--surface);color:var(--text);font-weight:600;z-index:2
+  background:var(--inbox-forest,var(--primary));
+  color:var(--cream,#F2F1EC);font-weight:600;z-index:2;
+  border-color:var(--inbox-forest,var(--primary))
 }
 html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
   background:#2a2a2b;color:var(--text-2);border-color:#3c3c3c
 }
 html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
 html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
-  background:var(--surface);color:var(--text)
+  background:var(--inbox-forest,var(--staff-green-bg,#1e3a28));
+  color:var(--staff-green-text,#c8dcc8);
+  border-color:var(--inbox-forest,var(--staff-green-bg,#1e3a28))
+}
+html[data-portal-client="sunset"] #inbox-shell.inbox-two-col.inbox-shell-cols .inbox-col1 > .inbox-views-rail{
+  border-top-left-radius:0;border-top-right-radius:0
 }
 html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
   width:auto;font-size:12px;padding:6px 8px;justify-content:center
