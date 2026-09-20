@@ -20,6 +20,7 @@ const {
   EMAIL_LUNA_GENERATE_BODY_KEYS,
   EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR,
   EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON,
+  EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR,
   SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT,
   snapshotEmailLunaGenerateBody,
   snapshotEmailLunaGenerateGateEnv,
@@ -251,6 +252,54 @@ function noSideEffects(h) {
     out = h.sent.calls.at(-1);
     assert.equal(out.status, status, label); noSideEffects(h);
   }
+
+  async function invokeCreate(h, body, headers, u, gate) {
+    await h.route.handleCreateDraft(
+      request(body, headers),
+      {},
+      u || actorCapability(),
+      gate || snapshotEmailLunaGenerateGateEnv(h.route.runtimeEnv),
+    );
+    return h.sent.calls.at(-1);
+  }
+  const createBody = { conversation_id: V, context: '' };
+
+  h = makeHarness();
+  out = await invokeCreate(h, createBody, {});
+  assert.equal(out.status, 503, 'create-draft exact json+origin must not 403');
+  assert.equal(out.body.error, EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR);
+
+  h = makeHarness();
+  out = await invokeCreate(h, createBody, { 'content-type': 'application/json; charset=utf-8' });
+  assert.notEqual(out.status, 403, 'create-draft charset=utf-8 must not Unauthorized');
+  assert.equal(out.status, 503);
+
+  h = makeHarness({
+    env: {
+      LUNA_DEPLOYMENT: 'sunset-staging', STAFF_PORTAL_ORIGIN: `${ORIGIN}/`,
+      [EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV]: 'true', EMAIL_LUNA_DRAFT_RUNTIME_ENABLED: 'true',
+    },
+  });
+  out = await invokeCreate(h, createBody, { origin: ORIGIN });
+  assert.notEqual(out.status, 403, 'create-draft trailing-slash portal origin must not Unauthorized');
+  assert.equal(out.status, 503);
+
+  h = makeHarness();
+  out = await invokeCreate(h, createBody, {
+    origin: '',
+    referer: `${ORIGIN}/staff/ui?tab=inbox`,
+  });
+  assert.notEqual(out.status, 403, 'create-draft referer fallback must not Unauthorized');
+  assert.equal(out.status, 503);
+
+  h = makeHarness();
+  out = await invokeCreate(h, createBody, { origin: 'https://evil.test' });
+  assert.equal(out.status, 403, 'create-draft foreign origin stays forbidden');
+
+  h = makeHarness();
+  out = await invokeCreate(h, createBody, {}, actorCapability({ role: 'viewer' }));
+  assert.notEqual(out.status, 403, 'create-draft viewer must not be forbidden');
+  assert.equal(out.status, 503);
 
   // Authoritative reload rejects wrong channel/tenant/location, stale/deleted/missing conversation.
   for (const [label, rows] of [
