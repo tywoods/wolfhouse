@@ -44,7 +44,7 @@ Later, operators may also:
 | Static placeholder UI | Skeleton + read-only **Clients** overview + **New client onboarding** form mockup |
 | Onboarding mockup | Draft form only — surf house / surf school templates; all fields and buttons disabled; no submit |
 | `GET /healthz` (live) | `service: crowsnest`, `stage: portal`, `writes_enabled: false`, `auth_enabled: true`; allowed users Monshies/Earthling |
-| Login portal (live) | `GET /login` renders the branded operator sign-in page; `POST /login` issues an in-memory session cookie; `POST /logout` clears it |
+| Login portal (live) | `GET /login` renders the branded operator sign-in page; `POST /login` issues an opaque ~8-hour session cookie backed by Postgres; `POST /logout` clears the server session and cookie |
 | Browser access (live) | Unauthenticated UI requests to `/`, `/crowsnest`, and `/crowsnest/ui` redirect `302` to `/login` with no Basic challenge; legacy Basic Auth still works if supplied |
 | Asset route (live) | `/crowsnest/assets/logo.png` serves the bundled logo as `image/png` with long-lived cache headers |
 | Writes / DB / Stripe / WhatsApp | Crowsnest does not own tenant writes. Live Simulator proxy is staging/no-send only and hard-denies booking/payment/message writes. |
@@ -158,6 +158,7 @@ Preferred configuration is **two independent operator accounts** (Earthling + Mo
 | `CROWSNEST_AUTH_MONSHIES_PASSWORD` | _(none)_ | Monshies operator password; Azure secret ref `cn-monshies-pass` (value never in docs). **VERIFIED CURRENT LIVE** multi-account mapping. |
 | `CROWSNEST_AUTH_USERNAME` | `admin` (non-production only) | **Legacy single-account fallback only** when none of the four multi-account variables are present. Never combined with multi-account mode. Compatibility behavior only — live production uses the four-variable pairs above. |
 | `CROWSNEST_AUTH_PASSWORD` | `admin` (non-production only) | Legacy single-account fallback password (same isolation rules as username). Compatibility behavior only. |
+| `CROWSNEST_SESSION_DATABASE_URL` | _(none)_ | Dedicated Postgres DSN for durable login sessions. Required in production; production login fails closed when absent. Apply migration `104_crowsnest_auth_sessions.sql` first. |
 | `CROWSNEST_ALLOWED_USERS` | `Monshies,Earthling` | Informational allow-list in `/healthz` only |
 
 Multi-account rules:
@@ -169,7 +170,7 @@ Multi-account rules:
 When `CROWSNEST_AUTH_REQUIRED=true`:
 
 - `GET /login` shows the branded login form
-- Valid credentials for **either** operator on `POST /login` → `302` to `/` with an independent opaque `HttpOnly`, `SameSite=Strict` session cookie (`Secure` in production)
+- Valid credentials for **either** operator on `POST /login` → `302` to `/` with an independent opaque, ~8-hour `HttpOnly`, `SameSite=Strict` session cookie (`Secure` in production). Only a SHA-256 token digest is stored in Postgres, so refreshes, new tabs, and app restarts retain the session without persisting the bearer token.
 - Invalid credentials → the same login page with a generic error and no credential leak
 - `POST /logout` clears **that** session cookie/token only and returns to `/login`
 - Unauthenticated browser access to protected UI routes redirects to `/login`

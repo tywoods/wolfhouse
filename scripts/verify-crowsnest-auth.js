@@ -784,8 +784,8 @@ async function main() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'username=admin&password=admin',
       });
-      const cookie = flattenSetCookieHeader(login.headers['set-cookie']);
-      ok('production login sets Secure cookie', /Secure/i.test(cookie));
+      ok('production login fails closed without durable session DSN', login.statusCode === 503);
+      ok('production session cookie builder sets Secure', /Secure/i.test(auth.buildCrowsnestSessionCookie('token', { secure: true })));
     },
   ]);
 
@@ -916,8 +916,8 @@ async function main() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'username=monshies-op&password=mon-pass',
       });
-      const cookie = flattenSetCookieHeader(login.headers['set-cookie']);
-      ok('multi-account production login sets Secure cookie', /Secure/i.test(cookie));
+      ok('multi-account production login fails closed without durable session DSN', login.statusCode === 503);
+      ok('multi-account production cookie builder sets Secure', /Secure/i.test(auth.buildCrowsnestSessionCookie('token', { secure: true })));
     },
   ]);
 

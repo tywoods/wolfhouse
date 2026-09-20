@@ -6,6 +6,7 @@
  */
 
 const crypto = require('crypto');
+const { getRepository } = require('./crowsnest-session-store');
 
 const DEFAULT_USERNAME = 'admin';
 const DEFAULT_PASSWORD = 'admin';
@@ -18,7 +19,6 @@ const BASE_BROWSER_HEADERS = {
   'X-Frame-Options': 'DENY',
 };
 
-const sessions = new Map();
 
 function isCrowsnestAuthEnabled() {
   const raw = String(process.env.CROWSNEST_AUTH_REQUIRED || '').trim().toLowerCase();
@@ -231,24 +231,12 @@ function isCrowsnestRequestAuthorized(req) {
 
 function isCrowsnestSessionAuthorized(req) {
   if (!isCrowsnestAuthEnabled()) return true;
-  const cookies = parseCookies(req && req.headers && req.headers.cookie);
-  const token = cookies[CROWSNEST_SESSION_COOKIE];
-  if (!token) return false;
-  const record = sessions.get(token);
-  if (!record) return false;
-  if (record.expiresAt <= Date.now()) {
-    sessions.delete(token);
-    return false;
-  }
-  return true;
+  return Boolean(req && req.crowsnestSession);
 }
 
 function getCrowsnestSessionActor(req) {
-  const cookies = parseCookies(req && req.headers && req.headers.cookie);
-  const token = cookies[CROWSNEST_SESSION_COOKIE];
-  if (!token) return null;
-  const record = sessions.get(token);
-  if (!record || record.expiresAt <= Date.now()) return null;
+  const record = req && req.crowsnestSession;
+  if (!record) return null;
   const accountsConfig = getCrowsnestAuthAccounts();
   const account = accountsConfig.accounts.find((candidate) => candidate.username === record.username);
   if (!account || account.id === 'legacy' || account.id === 'default') return null;
@@ -270,27 +258,29 @@ function getCrowsnestRequestActor(req) {
   return null;
 }
 
-function createCrowsnestSession(username) {
+async function loadCrowsnestSession(req) {
+  if (!req || !isCrowsnestAuthEnabled()) return null;
+  const token = parseCookies(req.headers && req.headers.cookie)[CROWSNEST_SESSION_COOKIE];
+  if (!token) return null;
+  try {
+    const record = await getRepository().get(token);
+    req.crowsnestSession = record || null;
+    return req.crowsnestSession;
+  } catch {
+    req.crowsnestSession = null;
+    return null;
+  }
+}
+
+async function createCrowsnestSession(username) {
   const token = crypto.randomBytes(32).toString('base64url');
-  sessions.set(token, {
-    username: String(username || '').trim(),
-    expiresAt: Date.now() + CROWSNEST_SESSION_TTL_MS,
-  });
+  await getRepository().create(token, String(username || '').trim(), new Date(Date.now() + CROWSNEST_SESSION_TTL_MS));
   return token;
 }
 
-function destroyCrowsnestSession(token) {
+async function destroyCrowsnestSession(token) {
   if (!token) return false;
-  return sessions.delete(token);
-}
-
-function clearExpiredCrowsnestSessions() {
-  const now = Date.now();
-  for (const [token, record] of sessions.entries()) {
-    if (!record || record.expiresAt <= now) {
-      sessions.delete(token);
-    }
-  }
+  return getRepository().destroy(token);
 }
 
 function buildCrowsnestSessionCookie(token, options = {}) {
@@ -353,7 +343,6 @@ function getAllowedCrowsnestUsers() {
 
 module.exports = {
   CROWSNEST_SESSION_COOKIE,
-  clearExpiredCrowsnestSessions,
   createCrowsnestSession,
   destroyCrowsnestSession,
   getAllowedCrowsnestUsers,
@@ -362,6 +351,7 @@ module.exports = {
   getCrowsnestBasicAuthConfig,
   getCrowsnestLoginBodyLimit,
   getCrowsnestRequestActor,
+  loadCrowsnestSession,
   isCrowsnestAuthEnabled,
   isCrowsnestLoginAccepted,
   isCrowsnestRequestAuthorized,
