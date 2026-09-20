@@ -17741,14 +17741,37 @@ html[data-theme="dark"] .portal-admin-equip-remove-duration:hover{background:rgb
 }
 .portal-admin-tabpanel{max-width:100%}
 .portal-admin-tabpanel[hidden]{display:none!important}
-/* Sunset Email Settings: minimum 44px touch targets for connect/reauthorize/disconnect */
+/* Sunset Email Settings: guest-card actions (soft dark + green primary), not native white */
 .portal-admin-email-settings .portal-admin-email-action-btn,
 .portal-admin-email-settings [data-email-connect],
 .portal-admin-email-settings [data-email-reauthorize],
 .portal-admin-email-settings [data-email-disconnect]{
-  min-height:44px;min-width:44px;padding:10px 16px;box-sizing:border-box;
+  appearance:none;-webkit-appearance:none;
+  min-height:44px;min-width:44px;padding:9px 18px;box-sizing:border-box;
   display:inline-flex;align-items:center;justify-content:center;
-  font:inherit;font-weight:600;cursor:pointer;border-radius:10px
+  font:inherit;font-size:12px;font-weight:600;letter-spacing:.01em;cursor:pointer;
+  border-radius:var(--radius-sm,10px);
+  background:var(--surface);color:var(--text);border:1px solid var(--border);
+  box-shadow:none;transition:background .18s,border-color .18s,box-shadow .18s
+}
+.portal-admin-email-settings .portal-admin-email-action-btn:hover,
+.portal-admin-email-settings [data-email-disconnect]:hover{
+  background:var(--surface-soft);border-color:var(--tan,#D1D1D6)
+}
+.portal-admin-email-settings .portal-admin-email-action-btn[data-email-connect],
+.portal-admin-email-settings .portal-admin-email-action-btn[data-email-reauthorize],
+.portal-admin-email-settings .portal-admin-email-action-btn[data-email-retry],
+.portal-admin-email-settings [data-email-connect],
+.portal-admin-email-settings [data-email-reauthorize]{
+  background:var(--primary);color:#fff;border-color:var(--primary);
+  box-shadow:0 1px 3px rgba(68,80,74,.14)
+}
+.portal-admin-email-settings .portal-admin-email-action-btn[data-email-connect]:hover,
+.portal-admin-email-settings .portal-admin-email-action-btn[data-email-reauthorize]:hover,
+.portal-admin-email-settings .portal-admin-email-action-btn[data-email-retry]:hover,
+.portal-admin-email-settings [data-email-connect]:hover,
+.portal-admin-email-settings [data-email-reauthorize]:hover{
+  background:var(--primary-hover);border-color:var(--primary-hover);color:#fff
 }
 .portal-admin-email-settings .portal-admin-email-action-btn:disabled,
 .portal-admin-email-settings [data-email-connect]:disabled,
@@ -21728,6 +21751,45 @@ body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-two-col.inbox-s
 .inbox-col1 .inbox-filter-btn::before{flex:0 0 auto;width:18px;text-align:center;font-size:14px;line-height:1;content:"\\2022"}
 .inbox-col1 .inbox-view-btn[data-view="full"]::before{content:"\\25A6"}
 .inbox-col1 .inbox-view-btn[data-view="guest"]::before{content:"\\1F464"}
+/* Sunset: Full/Guest become folder tabs Chats|Guests at the top of the left rail. */
+.inbox-folder-tabs{display:none}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{
+  display:flex;flex-direction:row;align-items:flex-end;gap:0;
+  width:100%;box-sizing:border-box;align-self:stretch;
+  background:transparent;padding:0;margin:0 0 -1px;flex:0 0 auto
+}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+  flex:1 1 0;min-width:0;width:auto;
+  display:flex;align-items:center;justify-content:center;
+  gap:0;text-align:center;position:relative;
+  padding:8px 10px;font:inherit;font-size:13px;font-weight:500;
+  line-height:1.25;white-space:nowrap;cursor:pointer;
+  color:var(--text-2);background:var(--surface-soft);
+  border:1px solid var(--border-soft);border-bottom:none;
+  border-radius:10px 10px 0 0;margin:0 2px 0 0;box-shadow:none
+}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab:last-child{margin-right:0}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab::before{
+  content:none!important;display:none!important;width:0;height:0
+}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab:hover{
+  background:var(--surface);color:var(--text)
+}
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+  background:var(--surface);color:var(--text);font-weight:600;z-index:2
+}
+html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+  background:#2a2a2b;color:var(--text-2);border-color:#3c3c3c
+}
+html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab.is-active,
+html[data-portal-client="sunset"][data-theme="dark"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab[aria-pressed="true"]{
+  background:var(--surface);color:var(--text)
+}
+html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col1="icons"] .inbox-col1 > .inbox-folder-tabs .inbox-folder-tab{
+  width:auto;font-size:12px;padding:6px 8px;justify-content:center
+}
+html[data-portal-client="sunset"] #tabs .inbox-layout-presets{display:none!important}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="all"]::before{content:"\\2630"}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="needs-human"]::before{content:"\\26A0"}
 .inbox-col1 .inbox-filter-btn[data-inbox-filter="email"]::before{content:"\\2709"}
@@ -21756,6 +21818,9 @@ body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-two-col.inbox-s
   .inbox-col1 .inbox-filter-btn{width:auto}
   .inbox-col1 .inbox-filters{flex-direction:row;flex-wrap:wrap;gap:6px}
   .inbox-col1 .inbox-filter-btn .hq-count{margin-left:4px}
+}
+@media(max-width:900px){
+  html[data-portal-client="sunset"] .inbox-col1 > .inbox-folder-tabs{width:100%;flex:1 1 100%}
 }
 /*
  * Phone master/detail: the shell is either the list or the thread, which is what the
@@ -22645,9 +22710,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
     <!-- COLUMN 1: tab switch + API-backed saved-view rail -->
     <nav class="inbox-col1" id="inbox-col1" data-i18n-aria="inbox.rail.label" aria-label="Inbox views">
-      <div class="inbox-view-switch" role="tablist" aria-label="Inbox layout">
-        <button type="button" class="inbox-view-btn is-active" role="tab" data-view="full" onclick="if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('all4')">Full</button>
-        <button type="button" class="inbox-view-btn" role="tab" data-view="guest" onclick="if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest')">Guest</button>
+      <div class="inbox-folder-tabs" role="tablist" data-i18n-aria="inbox.layout.folders" aria-label="Inbox folders">
+        <button type="button" class="inbox-folder-tab inbox-view-btn is-active" role="tab" data-view="full" data-inbox-preset="all4" aria-pressed="true" onclick="if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('all4')"><span data-i18n="inbox.layout.folder.chats">Chats</span></button>
+        <button type="button" class="inbox-folder-tab inbox-view-btn" role="tab" data-view="guest" data-inbox-preset="guest" aria-pressed="false" onclick="if (typeof inboxColumnsSetPreset === 'function') inboxColumnsSetPreset('guest')"><span data-i18n="inbox.layout.folder.guests">Guests</span></button>
       </div>
       <div id="inbox-views-rail" class="inbox-views-rail" aria-label="Saved views"></div>
       <div id="inbox-channel-autonomy-slot" class="inbox-channel-autonomy-slot"></div>
