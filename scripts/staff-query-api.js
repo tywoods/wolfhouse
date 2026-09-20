@@ -21482,6 +21482,12 @@ html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-
 }
 html[data-portal-client="sunset"] #inbox-shell.inbox-folder-switching{
   visibility:hidden;
+  opacity:0!important;
+  pointer-events:none!important;
+}
+html[data-portal-client="sunset"] #wrap.inbox-shell-wrap.inbox-folder-switching{
+  opacity:0!important;
+  pointer-events:none!important;
 }
 body:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
