@@ -21470,6 +21470,19 @@ body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed=
 body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1240px!important;
 }
+/* SUNSET-INBOX-GUEST-LAYOUT-001: one wrap for Chats+Guests (middle of 1800/1240) so rail+list stay put. */
+html[data-portal-client="sunset"] #tab-conversations.active #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
+  max-width:1520px!important;
+}
+html[data-portal-client="sunset"] #inbox-shell.inbox-folder-switching{
+  visibility:hidden;
+}
 body:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
 }
@@ -21656,11 +21669,6 @@ body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-two-col.inbox-s
 .inbox-shell-wrap:has(#inbox-shell[data-col4="wide"]){--inbox-col4-w:460px}
 .inbox-shell-wrap:has(#inbox-shell[data-col4="peek"]){--inbox-col4-w:300px}
 .inbox-shell-wrap:has(#inbox-shell[data-col4="hidden"]){--inbox-col4-w:0px}
-/* SUNSET-INBOX-GUEST-LAYOUT-001: equal rail + list — middle of 240/252, not either extreme. */
-html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col1="full"]{--inbox-col1-w:246px}
-html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col2="comfortable"]{--inbox-col2-w:246px}
-html[data-portal-client="sunset"] .inbox-shell-wrap:has(#inbox-shell[data-col1="full"]){--inbox-col1-w:246px}
-html[data-portal-client="sunset"] .inbox-shell-wrap:has(#inbox-shell[data-col2="comfortable"]){--inbox-col2-w:246px}
 .inbox-two-col.inbox-shell-cols .inbox-left{
   flex:unset;width:auto;min-width:0;min-height:0;height:auto;max-height:none;
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);

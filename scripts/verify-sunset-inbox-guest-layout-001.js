@@ -2,15 +2,17 @@
 'use strict';
 
 /**
- * SUNSET-INBOX-GUEST-LAYOUT-001
+ * SUNSET-INBOX-GUEST-LAYOUT-001 (rework)
  *
- * Sunset Inbox → Guests (and Chats/Full if they share the rail+list tracks):
- *   1) List → guest-card gap must be one 14px grid gap, not 28px from a 0px chat track.
- *   2) Left filter rail and middle guest list are the same width — 246px, the
- *      middle of the current 240 / 252 pair. Do not copy either extreme.
+ * Sunset Inbox → Guests / Chats:
+ *   1) KEEP: list → guest-card gap is one 14px grid gap (no leftover 0px chat track).
+ *   2) UNDO: do NOT equalize col1/col2 to 246px. Wolfhouse 240/252 stay.
+ *   3) Shared wrap across Chats (all4) and Guests so rail+list do not jump.
+ *      Middle of the two live wraps: 1800 and 1240 → 1520.
+ *   4) Chats ↔ Guests switch is atomic: tab chrome + list + side rail paint together.
  *
  * Sunset staff UI only. Stay off Crow's Nest, Wolfhouse unprefixed tracks,
- * inbox-thread.js, and package.json.
+ * inbox-thread.js, inbox-columns.js WIDTHS, and package.json.
  *
  * Run: node scripts/verify-sunset-inbox-guest-layout-001.js
  */
@@ -22,12 +24,14 @@ const { execSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const COLUMNS_PATH = path.join(ROOT, 'scripts', 'browser', 'inbox-columns.js');
+const ROWS_PATH = path.join(ROOT, 'scripts', 'browser', 'inbox-rows.js');
 const THREAD_PATH = path.join(ROOT, 'scripts', 'browser', 'inbox-thread.js');
 const CROWSNEST_PAGE = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-page.js');
 const FIXTURE_PATH = path.join(ROOT, 'scripts', 'fixtures', 'sunset-inbox-guest-layout-001.html');
 
 const apiSrc = fs.readFileSync(API_PATH, 'utf8');
 const columnsSrc = fs.readFileSync(COLUMNS_PATH, 'utf8');
+const rowsSrc = fs.readFileSync(ROWS_PATH, 'utf8');
 const threadSrc = fs.readFileSync(THREAD_PATH, 'utf8');
 
 let pass = 0;
@@ -61,41 +65,24 @@ function gitDiff(rel) {
 }
 
 const SUNSET = 'html[data-portal-client="sunset"]';
-const MID = '246px';
+const SHARED_WRAP = '1520px';
 
-console.log('\n── sunset-only equal rail + list (246px middle of 240/252) ──');
+console.log('\n── undo equal-width 246px; Wolfhouse 240/252 stay ──');
 ok('Wolfhouse col1 full stays 240px (unprefixed eight-rule set)',
   sliceRule(apiSrc, '.inbox-two-col.inbox-shell-cols[data-col1="full"]') === '--inbox-col1-w:240px');
 ok('Wolfhouse col2 comfortable stays 252px (unprefixed eight-rule set)',
   sliceRule(apiSrc, '.inbox-two-col.inbox-shell-cols[data-col2="comfortable"]') === '--inbox-col2-w:252px');
-ok('JS WIDTHS model stays 240 / 252 (Sunset overlay is CSS-only)',
+ok('JS WIDTHS model stays 240 / 252',
   /col1:\s*\{\s*full:\s*'240px'/.test(columnsSrc)
   && /col2:\s*\{\s*comfortable:\s*'252px'/.test(columnsSrc));
-
-const sunCol1 = sliceRule(apiSrc, `${SUNSET} .inbox-two-col.inbox-shell-cols[data-col1="full"]`);
-const sunCol2 = sliceRule(apiSrc, `${SUNSET} .inbox-two-col.inbox-shell-cols[data-col2="comfortable"]`);
-const sunWrap1 = sliceRule(apiSrc, `${SUNSET} .inbox-shell-wrap:has(#inbox-shell[data-col1="full"])`);
-const sunWrap2 = sliceRule(apiSrc, `${SUNSET} .inbox-shell-wrap:has(#inbox-shell[data-col2="comfortable"])`);
-ok(`Sunset col1 full is ${MID} (not 240, not 252)`,
-  sunCol1 === `--inbox-col1-w:${MID}`, sunCol1);
-ok(`Sunset col2 comfortable is ${MID} (same as col1, not either extreme)`,
-  sunCol2 === `--inbox-col2-w:${MID}`, sunCol2);
-ok('Sunset wrap :has copies the same 246px onto col1 full',
-  sunWrap1 === `--inbox-col1-w:${MID}`, sunWrap1);
-ok('Sunset wrap :has copies the same 246px onto col2 comfortable',
-  sunWrap2 === `--inbox-col2-w:${MID}`, sunWrap2);
-ok('Sunset rail and list widths are equal',
-  sunCol1.replace('col1', 'col2') === sunCol2
-  && sunCol1.includes(MID)
-  && sunCol2.includes(MID));
-ok('compact / icons tracks are not retargeted to 246px',
-  !apiSrc.includes(`${SUNSET} .inbox-two-col.inbox-shell-cols[data-col1="icons"]{--inbox-col1-w:${MID}`)
-  && !apiSrc.includes(`${SUNSET} .inbox-two-col.inbox-shell-cols[data-col2="compact"]{--inbox-col2-w:${MID}`));
+ok('Sunset does not force col1/col2 to 246px',
+  !apiSrc.includes('--inbox-col1-w:246px')
+  && !apiSrc.includes('--inbox-col2-w:246px'));
 ok('data-portal-client attribute stays Sunset-only',
   /portalDefaultClient === 'sunset' \? ' data-portal-client="sunset"' : ''/.test(apiSrc)
   && !/data-portal-client="\$\{portalDefaultClient\}"/.test(apiSrc));
 
-console.log('\n── Guest list→card gap (drop the 0px chat track) ──');
+console.log('\n── Guest list→card gap (keep 14px / drop 0px chat track) ──');
 const wolfWideGrid = /(?:^|\n)\s*\.inbox-two-col\.inbox-shell-cols\[data-col4="wide"\]\{\s*grid-template-columns:([^}]+)\}/.exec(apiSrc);
 const wolfGuestGrid = /(?:^|\n)\s*body:has\(\[data-inbox-preset="guest"\]\[aria-pressed="true"\]\) \.inbox-two-col\.inbox-shell-cols\{\s*grid-template-columns:([^}]+)\}/.exec(apiSrc);
 ok('Wolfhouse Guest still documents the 0px chat track (untouched)',
@@ -132,17 +119,72 @@ ok('desktop gap stays 14px (Chats guide)',
   /--inbox-col-gap:14px/.test(apiSrc)
   && /\.inbox-two-col\.inbox-shell-cols\{[\s\S]{0,400}gap:14px/.test(apiSrc));
 
+console.log('\n── shared Chats ↔ Guests wrap (menus stay put) ──');
+ok('Wolfhouse Full wrap stays 1800px',
+  /#tab-conversations\.active #wrap\.inbox-shell-wrap\{[\s\S]{0,80}max-width:1800px!important/.test(apiSrc));
+ok('Wolfhouse Chat/Guest wrap stays 1240px',
+  /data-inbox-preset="guest"\]\[aria-pressed="true"\]\) #wrap\.inbox-shell-wrap\{[\s\S]{0,40}max-width:1240px!important/.test(apiSrc));
+const sunMainWrap = sliceRule(apiSrc, `${SUNSET} #tab-conversations.active #wrap.inbox-shell-wrap`);
+const sunGuestWrap = sliceRule(
+  apiSrc,
+  `${SUNSET} body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap`,
+);
+const sunChatWrap = sliceRule(
+  apiSrc,
+  `${SUNSET} body:has(#tab-conversations.active):has([data-inbox-preset="chat"][aria-pressed="true"]) #wrap.inbox-shell-wrap`,
+);
+ok(`Sunset Inbox wrap (Chats/Full) is ${SHARED_WRAP} — middle of 1800/1240`,
+  sunMainWrap.includes(`max-width:${SHARED_WRAP}!important`),
+  sunMainWrap);
+ok(`Sunset Guest wrap is the same ${SHARED_WRAP}`,
+  sunGuestWrap.includes(`max-width:${SHARED_WRAP}!important`),
+  sunGuestWrap);
+ok(`Sunset Chat-preset wrap is the same ${SHARED_WRAP}`,
+  sunChatWrap.includes(`max-width:${SHARED_WRAP}!important`),
+  sunChatWrap);
+ok('Sunset Chats and Guests share one wrap width',
+  sunMainWrap.includes(SHARED_WRAP)
+  && sunGuestWrap.includes(SHARED_WRAP)
+  && sunChatWrap.includes(SHARED_WRAP));
+
+console.log('\n── atomic Chats ↔ Guests switch ──');
+ok('Sunset hides the shell while the folder switch is in flight',
+  /html\[data-portal-client="sunset"\] #inbox-shell\.inbox-folder-switching\{/.test(apiSrc)
+  && /visibility:hidden/.test(sliceRule(apiSrc, `${SUNSET} #inbox-shell.inbox-folder-switching`)));
+ok('rows owns the switch (stay off inbox-columns.js / inbox-thread.js)',
+  rowsSrc.includes('function inboxRowsBeginFolderSwitch(')
+  && rowsSrc.includes('function inboxRowsNoteFolderSwitchPart(')
+  && rowsSrc.includes('inbox-folder-switching')
+  && !columnsSrc.includes('inbox-folder-switching')
+  && !threadSrc.includes('inbox-folder-switching'));
+ok('preset wrap starts the hide BEFORE legacy setPreset (one beat, not tab-first)',
+  /if \(crossing\) inboxRowsBeginFolderSwitch\(\);\s*var result = _inboxRowsLegacySetPreset\(name\)/.test(rowsSrc));
+ok('Sunset-only crossing (Chats ↔ Guests)',
+  rowsSrc.includes('inboxRowsIsSunsetPortal()')
+  && /crossing = wasGuest !== nowGuest && inboxRowsIsSunsetPortal\(\)/.test(rowsSrc));
+ok('list paint and rail paint both release the hide',
+  rowsSrc.includes("inboxRowsNoteFolderSwitchPart('list')")
+  && rowsSrc.includes("inboxRowsNoteFolderSwitchPart('rail')"));
+ok('failed/slow fetch cannot leave Inbox invisible (timeout reveal)',
+  /setTimeout\(function\(\) \{\s*inboxRowsEndFolderSwitch\(gen\);\s*\}, 800\)/.test(rowsSrc)
+  || /setTimeout\(function\(\)\{\s*inboxRowsEndFolderSwitch\(gen\);\s*\}, 800\)/.test(rowsSrc)
+  || /,\s*800\)/.test(rowsSrc) && rowsSrc.includes('inboxRowsEndFolderSwitch(gen)'));
+ok('guest-directory wrap still latches guestView (do not drop #804)',
+  rowsSrc.includes('inboxRowsRuntime.guestView = nowGuest')
+  && rowsSrc.includes('inboxRowsEnterGuestDirectory')
+  && rowsSrc.includes('wasGuest = inboxRowsGuestViewActive()'));
+
 console.log('\n── fixture ──');
 const fixture = fs.existsSync(FIXTURE_PATH) ? fs.readFileSync(FIXTURE_PATH, 'utf8') : '';
 ok('fixture exists', !!fixture);
 ok('fixture is Sunset-scoped and titles the job',
   /data-portal-client="sunset"/.test(fixture)
   && /GUEST-LAYOUT-001/.test(fixture));
-ok('fixture uses equal 246px tracks and a 3-col Guest grid',
-  /--inbox-col1-w:246px/.test(fixture)
-  && /--inbox-col2-w:246px/.test(fixture)
+ok('fixture uses shared 1520 wrap + 3-col Guest grid (not 246px columns)',
+  /max-width:1520px/.test(fixture)
   && /minmax\(0,var\(--inbox-col2-w\)\) minmax\(0,1fr\)/.test(fixture)
-  && /data-col4="wide"/.test(fixture));
+  && !/--inbox-col1-w:246px/.test(fixture)
+  && /inbox-folder-switching/.test(fixture));
 
 console.log('\n── stay off ──');
 ok('inbox-thread.js not modified', gitDiff('scripts/browser/inbox-thread.js') === '');
