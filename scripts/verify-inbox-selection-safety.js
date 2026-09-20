@@ -70,7 +70,7 @@ function loadRuntime() {
   };
   sandbox.window = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(`var inboxSelectionGeneration = 0;\nvar inboxConversationSwitchGeneration = 0;\nvar inboxConversationSwitchRelease = null;\n${fn('inboxSelectionIsCurrent')}\n${fn('clearInboxSelection')}\n${fn('renderInbox')}\n${fn('inboxRunConversationSwitch')}\n${fn('loadConvDetail')}\n${fn('inboxContextInstallFetchHook', contextSrc)}\n${fn('inboxContextFill', contextSrc)}\ninboxContextInstallFetchHook(); this.loadConvDetail = loadConvDetail; this.renderInbox = renderInbox; this.inboxRunConversationSwitch = inboxRunConversationSwitch; this.inboxContextFill = inboxContextFill;`, sandbox);
+  vm.runInContext(`var inboxSelectionGeneration = 0;\nvar inboxConversationSwitchGeneration = 0;\nvar inboxConversationSwitchRelease = null;\nvar inboxConversationSwitchTransition = null;\n${fn('inboxSelectionIsCurrent')}\n${fn('clearInboxSelection')}\n${fn('renderInbox')}\n${fn('inboxRunConversationSwitch')}\n${fn('loadConvDetail')}\n${fn('inboxContextInstallFetchHook', contextSrc)}\n${fn('inboxContextFill', contextSrc)}\ninboxContextInstallFetchHook(); this.loadConvDetail = loadConvDetail; this.renderInbox = renderInbox; this.inboxRunConversationSwitch = inboxRunConversationSwitch; this.inboxContextFill = inboxContextFill;`, sandbox);
   return { sandbox, detail, sidebar, list, pending, transitions };
 }
 
@@ -92,9 +92,10 @@ console.log('\nverify-inbox-selection-safety — behavioral owners\n');
     r.detail.innerHTML = '<div>Guest A</div><div>message A</div><aside>Guest A context</aside>';
     r.sandbox.inboxRunConversationSwitch('B'); await flush();
     r.sandbox.inboxRunConversationSwitch('C'); await flush();
-    ok('rapid C switch releases the abandoned B transition', r.transitions.length === 2 && r.transitions[0].settled === true);
+    ok('rapid C switch reuses the active transition instead of snapshotting B loading', r.transitions.length === 1 && r.transitions[0].snapshot.includes('Guest A context'), r.transitions.map(t => t.snapshot).join(' | '));
+    ok('rapid C switch keeps the original A transition pending', r.transitions[0].settled === false);
     r.pending.C.resolve(response('C')); await flush();
-    ok('rapid switch commits only C as one complete deck', r.transitions[1].settled === true && r.sandbox.selectedConvId === 'C' && r.detail.innerHTML.includes('Guest C') && r.detail.guest === 'Guest C', r.detail.innerHTML);
+    ok('rapid switch commits only C as one complete deck', r.transitions[0].settled === true && r.sandbox.selectedConvId === 'C' && r.detail.innerHTML.includes('Guest C') && r.detail.guest === 'Guest C', r.detail.innerHTML);
     r.pending.B.resolve(response('B')); await flush();
     ok('late B cannot repaint after rapid C switch', r.sandbox.selectedConvId === 'C' && r.detail.innerHTML.includes('Guest C') && r.detail.guest === 'Guest C', r.detail.innerHTML);
   }

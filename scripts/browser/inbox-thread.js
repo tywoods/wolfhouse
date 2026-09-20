@@ -1105,27 +1105,39 @@ function inboxSelectionIsCurrent(convId, generation){
 }
 var inboxConversationSwitchGeneration = 0;
 var inboxConversationSwitchRelease = null;
+var inboxConversationSwitchTransition = null;
 function inboxRunConversationSwitch(convId, targetEl){
   var root = typeof document !== 'undefined' ? document.documentElement : null;
   var isSunset = !!(root && root.getAttribute && root.getAttribute('data-portal-client') === 'sunset');
   var holdPrevious = !!selectedConvId && selectedConvId !== convId && isSunset
     && typeof document.startViewTransition === 'function';
   if (!holdPrevious) return loadConvDetail(convId, targetEl);
-  if (typeof inboxConversationSwitchRelease === 'function') inboxConversationSwitchRelease();
   var generation = ++inboxConversationSwitchGeneration;
-  return document.startViewTransition(function(){
+  function loadAndReleaseCurrent(){
+    return Promise.resolve(loadConvDetail(convId, targetEl)).then(function(){
+      if (inboxConversationSwitchGeneration === generation && typeof inboxConversationSwitchRelease === 'function') inboxConversationSwitchRelease();
+    }, function(){
+      if (inboxConversationSwitchGeneration === generation && typeof inboxConversationSwitchRelease === 'function') inboxConversationSwitchRelease();
+    });
+  }
+  if (inboxConversationSwitchTransition) {
+    loadAndReleaseCurrent();
+    return inboxConversationSwitchTransition;
+  }
+  inboxConversationSwitchTransition = document.startViewTransition(function(){
     return new Promise(function(resolve){
       var released = false;
-      function release(){
+      inboxConversationSwitchRelease = function(){
         if (released) return;
         released = true;
-        if (inboxConversationSwitchGeneration === generation) inboxConversationSwitchRelease = null;
+        inboxConversationSwitchRelease = null;
+        inboxConversationSwitchTransition = null;
         resolve();
-      }
-      inboxConversationSwitchRelease = release;
-      Promise.resolve(loadConvDetail(convId, targetEl)).then(release, release);
+      };
+      loadAndReleaseCurrent();
     });
   });
+  return inboxConversationSwitchTransition;
 }
 function clearInboxSelection(targetEl){
   inboxTeardownClearThreadDialog();
