@@ -1221,6 +1221,9 @@ function adminBookingsOpenInSchedule(bookingId, hint) {
     || adminBookingsServiceDayIso(row.check_in)
     || '';
   var code = row.booking_code || hint.booking_code || null;
+  var guest = row.guest || {};
+  var phone = row.phone || guest.phone || null;
+  var guestName = row.guest_name || guest.name || '';
 
   // Port drawer shell onto document.body before open (parity with Customers).
   var ensureLayer = (typeof window !== 'undefined' && typeof window.scheduleDrawerEnsureDocumentLayer === 'function')
@@ -1243,12 +1246,16 @@ function adminBookingsOpenInSchedule(bookingId, hint) {
     ? window.openScheduleDetailDrawer
     : (typeof openScheduleDetailDrawer === 'function' ? openScheduleDetailDrawer : null);
   if (!drawerFn) return;
+  // Same chrome as Horario: shared openScheduleDetailDrawer. Do not invent a
+  // Reservas-only panel. _drawerFromCustomer lets the canonical fetch run
+  // without a Schedule board record_source (list rows do not carry one).
   drawerFn({
     booking_id: row.booking_id || id,
     booking_code: code,
-    guest_name: row.guest_name || '',
-    phone: row.phone || null,
-    guest_phone: row.phone || null,
+    guest_name: guestName,
+    phone: phone,
+    guest_phone: phone,
+    email: row.email || guest.email || null,
     service_date: start || null,
     service_date_start: start || null,
     check_in: row.check_in || null,

@@ -1503,6 +1503,9 @@ function scheduleDrawerGroupHasTrustedPersistedSource(group) {
 
 function scheduleDrawerCanLoadCanonical(row) {
   if (!row || row._isDemo) return false;
+  // Reservas / Customers open the same drawer without a Schedule board
+  // record_source. Server detail still enforces trusted attribution.
+  if (row._drawerFromCustomer && (row.booking_id || row.booking_code)) return true;
   var group = scheduleFindGroupForRow(row);
   var trusted = !!scheduleDrawerTrustedPersistedSource(row) || scheduleDrawerGroupHasTrustedPersistedSource(group);
   if (!trusted) return false;

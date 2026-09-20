@@ -170,5 +170,12 @@ head.__group = mockGroup([UNKNOWN_ROW]);
 assert('HEAD unsupported source fails safely (no canonical drawer)',
   head.scheduleDrawerCanLoadCanonical(UNKNOWN_ROW) === false);
 
+const BOOKINGS_ROW = { _drawerFromCustomer: true, booking_id: STAFF_ROW.booking_id, booking_code: 'SUNSET-R1' };
+head.__group = null;
+assert('HEAD Reservas opener shape can load canonical drawer', head.scheduleDrawerCanLoadCanonical(BOOKINGS_ROW) === true);
+assert('HEAD Reservas opener shape can edit in canonical drawer', head.scheduleDrawerCanEdit(BOOKINGS_ROW) === true);
+assert('HEAD demo + _drawerFromCustomer remains blocked',
+  head.scheduleDrawerCanLoadCanonical(Object.assign({}, DEMO_LUNA_ROW, { _drawerFromCustomer: true })) === false);
+
 console.log(`\n── verify:sunset-drawer-luna-canonical ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exitCode = fail > 0 ? 1 : 0;
