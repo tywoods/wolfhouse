@@ -649,6 +649,14 @@ function wireDisconnectHandlers(body){
   if (!btn) return;
   btn.addEventListener('click', function(){
     if (btn.disabled) return;
+    var confirmFn = (typeof window !== 'undefined' && typeof window.confirm === 'function') ? window.confirm : null;
+    if (confirmFn) {
+      var isRemove = /remove/i.test(String(btn.getAttribute('data-i18n') || '') + ' ' + String(btn.textContent || ''));
+      var msg = isRemove
+        ? emailUiT('admin.email.removeConfirm', 'Remove this mailbox? Cancel leaves it connected.', '¿Quitar este buzón? Cancelar lo deja conectado.')
+        : emailUiT('admin.email.disconnectConfirm', 'Disconnect this mailbox? Cancel leaves it connected.', '¿Desconectar este buzón? Cancelar lo deja conectado.');
+      if (!confirmFn(msg)) return;
+    }
     var locationId = btn.getAttribute('data-email-location-id') || '';
     var endpointId = btn.getAttribute('data-email-endpoint-id') || '';
     var provider = adminEmailNormalizedProvider(btn.getAttribute('data-email-provider') || '');
@@ -702,6 +710,12 @@ function emailUiT(key, en, es){
 function adminEmailStatusPill(kind, label){
   var cls = kind === 'on' ? 'is-on' : (kind === 'active' ? 'is-active' : (kind === 'soon' ? 'is-soon' : 'is-off'));
   return '<span class="portal-admin-email-status ' + cls + '">' + escHtml(label) + '</span>';
+}
+function adminEmailCardHeadHtml(titleTag, titleHtml, pillKind, pillLabel){
+  return '<div class="portal-admin-email-card-head">' +
+    '<' + titleTag + ' class="portal-admin-email-card-title">' + titleHtml + '</' + titleTag + '>' +
+    adminEmailStatusPill(pillKind, pillLabel) +
+    '</div>';
 }
 function adminEmailLooksLikeAddress(raw){
   var s = String(raw || '').trim();
@@ -837,13 +851,12 @@ function adminEmailComingCardHtml(provider, titleEn, titleEs, blurbEn, blurbEs){
   var disabledLabel = provider === 'gmail_api'
     ? emailUiT('admin.email.removeGoogleButton', 'Remove Gmail', 'Quitar Gmail')
     : emailUiT('admin.email.notAvailableYet', 'Not available yet', 'Aún no disponible');
+  var dangerClass = provider === 'gmail_api' ? ' is-danger' : '';
   return '<section class="portal-admin-email-settings portal-admin-email-card is-disabled" data-email-provider="' + escHtml(provider) + '" data-email-state="coming">' +
-    '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
-    '<h3 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.' + provider, titleEn, titleEs)) + '</h3>' +
+    adminEmailCardHeadHtml('h3', escHtml(emailUiT('admin.email.provider.' + provider, titleEn, titleEs)), 'off', emailUiT('admin.email.notConnected', 'Not connected', 'No conectado')) +
     adminEmailStatusPill('soon', emailUiT('admin.email.comingSoon', 'Coming soon', 'Próximamente')) +
     '<p class="portal-admin-email-card-copy" role="status">' + escHtml(emailUiT('admin.email.comingBlurb.' + provider, blurbEn, blurbEs)) + '</p>' +
-    '<p class="portal-admin-email-card-meta">' + escHtml(emailUiT('admin.email.notConnected', 'Not connected', 'No conectado')) + '</p>' +
-    '<button type="button" class="portal-admin-email-action-btn" disabled>' + escHtml(disabledLabel) + '</button>' +
+    '<button type="button" class="portal-admin-email-action-btn' + dangerClass + '" disabled>' + escHtml(disabledLabel) + '</button>' +
     '</section>';
 }
 function renderAdminEmailSettingsState(state, data, provider){
@@ -903,9 +916,7 @@ function renderAdminEmailSettingsState(state, data, provider){
   var html = '<section class="portal-admin-email-settings portal-admin-email-card' + (isActiveInbox ? ' is-active-inbox' : '') + '" data-email-provider="' + escHtml(provider) + '" data-email-state="' + escHtml(key) + '"' +
     (isActiveInbox ? ' data-email-active-inbox="1"' : '') +
     (empty ? ' data-email-empty="1"' : '') + '>' +
-    '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
-    '<h2 class="portal-admin-email-card-title">' + escHtml(emailUiT('admin.email.provider.' + provider, providerTitleEn, providerTitleEs)) + '</h2>' +
-    adminEmailStatusPill(pillKind, pillLabel) +
+    adminEmailCardHeadHtml('h2', escHtml(emailUiT('admin.email.provider.' + provider, providerTitleEn, providerTitleEs)), pillKind, pillLabel) +
     '<p role="status"' + (failed ? ' data-email-connect-failed data-i18n="' + failI18n + '"' : '') + '>' +
     escHtml(statusCopy) + '</p>';
   var connectedAs = connected ? adminEmailLooksLikeAddress(data && data.public_address) : '';
@@ -981,7 +992,7 @@ function renderAdminEmailSettingsState(state, data, provider){
       : (provider === 'gmail_api' ? 'admin.email.disconnectGoogleSafetyNote' : 'admin.email.disconnectSafetyNote');
     var gmailRemoveDisabled = provider === 'gmail_api' && !connected && key !== 'registered_not_connected';
     html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' + escHtml(disconnectGroupLabel) + '">' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-provider="' + escHtml(provider) + '" data-i18n="' + escHtml(disconnectI18n) + '" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '"' +
+      '<button type="button" class="portal-admin-email-action-btn is-danger" data-email-disconnect="1" data-email-provider="' + escHtml(provider) + '" data-i18n="' + escHtml(disconnectI18n) + '" data-email-location-id="' + escHtml(data.location_id) + '" data-email-endpoint-id="' + escHtml(data.endpoint_id) + '"' +
       (gmailRemoveDisabled ? ' disabled' : '') + '>' +
       escHtml(disconnectBtnLabel) +
       '</button>' +
@@ -1106,9 +1117,7 @@ function adminEmailImapCardHtml(data){
   var stateKey = ep ? adminEmailStateKey(ep.connection_state) : '';
   var html = '<section class="portal-admin-email-settings portal-admin-email-card" data-email-provider="imap_smtp"' +
     (stateKey ? ' data-email-state="' + escHtml(stateKey) + '"' : '') +
-    (stateKey === 'connected_health' ? ' data-email-not-inbox="1"' : '') + '>' +
-    '<p class="portal-admin-email-card-kicker">' + escHtml(emailUiT('admin.email.mailboxKind', 'Mailbox', 'Buzón')) + '</p>' +
-    '<h3 class="portal-admin-email-card-title">' + title + '</h3>';
+    (stateKey === 'connected_health' ? ' data-email-not-inbox="1"' : '') + '>';
   if (ep) {
     // Registered IMAP/SMTP identity — same language family as Microsoft/Gmail registered cards.
     // No OAuth/connect/send controls; capabilities stay Off until a later slice.
@@ -1118,7 +1127,7 @@ function adminEmailImapCardHtml(data){
       : (stateKey === 'reauth_required'
         ? emailUiT('admin.email.needsAttention', 'Needs attention', 'Necesita atención')
         : emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
-    html += adminEmailStatusPill(pillKind, pillLabel);
+    html += adminEmailCardHeadHtml('h3', title, pillKind, pillLabel);
     html += '<p role="status">' + escHtml(adminEmailStateCopy(stateKey, 'imap_smtp')) + '</p>';
     var addr = adminEmailLooksLikeAddress(ep.public_address);
     if (addr) {
@@ -1147,7 +1156,7 @@ function adminEmailImapCardHtml(data){
     }
     html += '<div class="portal-admin-email-disconnect-group" data-email-disconnect-group role="group" aria-label="' +
       escHtml(emailUiT('admin.email.smtpDisconnectLabel', 'IMAP / SMTP disconnect', 'Desconexión IMAP / SMTP')) + '">' +
-      '<button type="button" class="portal-admin-email-action-btn" data-email-disconnect="1" data-email-provider="imap_smtp" data-email-location-id="' +
+      '<button type="button" class="portal-admin-email-action-btn is-danger" data-email-disconnect="1" data-email-provider="imap_smtp" data-email-location-id="' +
       escHtml(ep.location_id || active) + '" data-email-endpoint-id="' + escHtml(ep.endpoint_id || '') + '">' +
       escHtml(emailUiT('admin.email.smtpDisconnectButton', 'Disconnect IMAP / SMTP', 'Desconectar IMAP / SMTP')) +
       '</button></div>' +
@@ -1157,10 +1166,12 @@ function adminEmailImapCardHtml(data){
         'La desconexión quita este buzón de Luna. Los secretos siguen en Key Vault. El procesamiento de email sigue desactivado.')) +
       '</p>';
   } else if (missing.length) {
+    html += adminEmailCardHeadHtml('h3', title, 'off', emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
     html += '<p class="portal-admin-email-card-copy" role="status">' +
       escHtml(emailUiT('admin.email.smtpMissingSecrets', 'Missing Key Vault secret:', 'Falta el secreto de Key Vault:')) +
       ' ' + escHtml(missing.join(', ')) + '</p>';
   } else {
+    html += adminEmailCardHeadHtml('h3', title, 'off', emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
     if (failed) {
       html += '<p class="portal-admin-email-card-copy" role="status" data-email-connect-failed>' +
         escHtml(adminEmailConnectFailedCopy('imap_smtp')) + '</p>';
