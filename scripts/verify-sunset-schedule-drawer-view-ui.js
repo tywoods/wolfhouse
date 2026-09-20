@@ -1001,6 +1001,66 @@ assert('shot: course exact daily when cents divide',
   /8\s+days\s*×\s*€30\.00\/day/i.test(ctx.scheduleDrawerFormatCommercialMathLabel(shotExactCourse)));
 assert('shot: exact-daily primary is service label only',
   /^Exact Daily Course$/i.test(ctx.scheduleDrawerFormatCourseInvoiceLabel(shotExactCourse)));
+
+// P2: package/total_only multi-day course with party > 1 must show ×surfers and reconcile.
+const pkgTwoSurfers = {
+  label: 'Six-day package',
+  line_cents: 36000,
+  quantity: 2,
+  billable_days: 6,
+  unit_cents: 18000,
+  math_mode: 'package',
+  component: 'course',
+  service_type: 'surf_lesson',
+};
+const pkgTwoMath = ctx.scheduleDrawerFormatCommercialMathLabel(pkgTwoSurfers);
+assert('package qty2: secondary shows days × unit/day × surfers',
+  /6\s+days\s*×\s*€30\.00\/day\s*×\s*2\s+surfers/i.test(pkgTwoMath),
+  pkgTwoMath);
+assert('package qty2: days×unit alone must not equal charged total without surfers',
+  !(pkgTwoMath === '6 days × €30.00/day')
+  && /surfers/i.test(pkgTwoMath));
+const avgTwoSurfers = {
+  label: 'Curso Mañana',
+  line_cents: 45714,
+  quantity: 2,
+  billable_days: 8,
+  unit_cents: 22857,
+  math_mode: 'package',
+  component: 'course',
+  service_type: 'surf_lesson',
+};
+const avgTwoMath = ctx.scheduleDrawerFormatCommercialMathLabel(avgTwoSurfers);
+assert('package qty2 avg: labeled avg still includes ×surfers',
+  /8\s+days\s*·\s*avg\s*€28\.57\/day\s*×\s*2\s+surfers/i.test(avgTwoMath),
+  avgTwoMath);
+const pkgOneDayTwo = {
+  label: 'Day course',
+  line_cents: 6000,
+  quantity: 2,
+  billable_days: 1,
+  unit_cents: 3000,
+  math_mode: 'package',
+  component: 'course',
+  service_type: 'surf_lesson',
+};
+const pkgOneDayTwoMath = ctx.scheduleDrawerFormatCommercialMathLabel(pkgOneDayTwo);
+assert('package 1-day qty2: price × N surfers (not bare ×N)',
+  /€30\.00\s*×\s*2\s+surfers/i.test(pkgOneDayTwoMath)
+  && !/€30\.00\s*×\s*2$/.test(pkgOneDayTwoMath.trim()),
+  pkgOneDayTwoMath);
+assert('package qty1 unchanged (no ×1 surfers suffix)',
+  ctx.scheduleDrawerFormatCommercialMathLabel({
+    label: 'Six-day',
+    line_cents: 18000,
+    quantity: 1,
+    billable_days: 6,
+    unit_cents: 18000,
+    math_mode: 'package',
+    component: 'course',
+    service_type: 'surf_lesson',
+  }) === '6 days × €30.00/day');
+
 const shotCe = shotCommercial.lines.find((l) => l.course_equipment
   || /Surfboard \+ Wetsuit/i.test(String(l.label || '')));
 const shotCePrimary = ctx.scheduleDrawerFormatEquipmentInvoiceLabel(shotCe);
