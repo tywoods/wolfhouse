@@ -1,7 +1,11 @@
 'use strict';
 
 /**
- * Static read-only client list for Crowsnest UI — no DB, no config file reads at runtime yet.
+ * Read-only business/location directory for Crowsnest.
+ *
+ * This deliberately contains only operator-facing routing metadata and known
+ * portal URLs. It performs no tenant DB reads and exposes no create/update
+ * operations.
  */
 
 function getCrowsnestClients() {
@@ -9,15 +13,18 @@ function getCrowsnestClients() {
     {
       id: 'wolfhouse-somo',
       name: 'Wolfhouse Somo',
+      business: 'Wolfhouse',
+      location: 'Somo, Spain',
       client_slug: 'wolfhouse-somo',
       type: 'Surf house',
-      status: 'Coming soon',
+      status: 'Live',
+      status_note: 'Production and staging staff portals are available.',
       environments: [
         {
           label: 'Staff staging',
           kind: 'staff_portal',
           url: 'https://staff-staging.lunafrontdesk.com',
-          state: 'linked',
+          state: 'staging',
         },
         {
           label: 'Staff production',
@@ -25,103 +32,40 @@ function getCrowsnestClients() {
           url: 'https://wolfhouse.lunafrontdesk.com',
           state: 'linked',
         },
-        {
-          label: 'Luna WhatsApp',
-          kind: 'whatsapp',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Stripe',
-          kind: 'payments',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Database',
-          kind: 'database',
-          state: 'coming_soon',
-        },
       ],
     },
     {
       id: 'sunset-somo',
       name: 'Sunset Somo',
+      business: 'Sunset Surf School',
+      location: 'Somo, Spain',
       client_slug: 'sunset',
       type: 'Surf school',
-      status: 'Coming soon',
+      status: 'Staging',
+      status_note: 'Staging staff portal is available; no production portal is listed.',
       environments: [
         {
           label: 'Staff staging',
           kind: 'staff_portal',
           url: 'https://sunset-staging.lunafrontdesk.com',
-          state: 'linked',
-        },
-        {
-          label: 'Staff production',
-          kind: 'staff_portal',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Luna WhatsApp',
-          kind: 'whatsapp',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Stripe',
-          kind: 'payments',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Database',
-          kind: 'database',
-          state: 'coming_soon',
+          state: 'staging',
         },
       ],
     },
     {
       id: 'sunset-sardinero',
       name: 'Sunset Sardinero',
+      business: 'Sunset Surf School',
+      location: 'Sardinero, Spain',
       client_slug: 'sunset-sardinero',
       type: 'Surf school',
-      status: 'Coming soon',
-      environments: [
-        {
-          label: 'Staff staging',
-          kind: 'staff_portal',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Staff production',
-          kind: 'staff_portal',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Luna WhatsApp',
-          kind: 'whatsapp',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Stripe',
-          kind: 'payments',
-          state: 'coming_soon',
-        },
-        {
-          label: 'Database',
-          kind: 'database',
-          state: 'coming_soon',
-        },
-      ],
+      status: 'Planned',
+      status_note: 'Directory placeholder only; no staff portal is available.',
+      environments: [],
     },
-  ];
-}
-
-function getCrowsnestTemplates() {
-  return [
-    { id: 'surf-house', label: 'Surf house template', status: 'Coming soon' },
-    { id: 'surf-school', label: 'Surf school template', status: 'Coming soon' },
   ];
 }
 
 module.exports = {
   getCrowsnestClients,
-  getCrowsnestTemplates,
 };
