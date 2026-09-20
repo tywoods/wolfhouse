@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 FRESH_START_TAG = "_wgfs.register_fresh_start_route(app)"
+INGRESS_PROOF_TAG = "register_ingress_proof_route(app)"
 SAME_LUNA_AUTHOR_ROUTE_TAG = "register_same_luna_author_route(app)"
 LIVE_EVAL_ROUTE_TAG = "register_live_eval_route(app)"
 SAME_LUNA_AUTHOR_ROUTE = """
@@ -42,6 +43,12 @@ FRESH_START_ROUTE = """
             _wgfs.register_fresh_start_route(app)
         except Exception:
             pass
+        try:
+            from sunset_ingress_proof import register_ingress_proof_route
+            register_ingress_proof_route(app)
+        except Exception:
+            if __import__("os").getenv("HERMES_ROLE") == "sunset-luna":
+                raise
 """
 
 
@@ -81,6 +88,7 @@ def apply_patches(module_path: Path) -> dict:
         "ok": True,
         "path": str(module_path),
         "fresh_start_route": FRESH_START_TAG in s,
+        "ingress_proof_route": INGRESS_PROOF_TAG in s,
         "same_luna_author_route": SAME_LUNA_AUTHOR_ROUTE_TAG in s,
         "live_eval_route": LIVE_EVAL_ROUTE_TAG in s,
     }

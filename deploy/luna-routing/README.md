@@ -9,6 +9,11 @@ Public clients (including Crow’s Nest) connect to the normal **HTTPS Caddy ori
 and nonce validation remain mandatory. Configure Crow’s Nest with an `https://` origin.
 There is no wildcard controller route.
 
+The same reviewed contract sends exact `GET /whatsapp/routing-proof` directly to the
+isolated Sunset staging runtime on `127.0.0.1:8094`, ahead of both the mutable webhook
+route and the broad Wolfhouse `/whatsapp/*` fallback. Sunset signs a fresh no-store proof
+with `LUNA_ROUTING_INGRESS_PROOF_KEY`; no other Hermes role registers this endpoint.
+
 ## Least-privilege Caddy contract
 
 The root installer adds this marked routing contract in the unique
@@ -20,6 +25,9 @@ The root installer adds this marked routing contract in the unique
 handle /_internal/luna-routing/v1/routes/meta-whatsapp-verified-webhook {
   rewrite * /v1/routes/meta-whatsapp-verified-webhook
   reverse_proxy 127.0.0.1:8096
+}
+handle /whatsapp/routing-proof {
+  reverse_proxy 127.0.0.1:8094
 }
 import /var/lib/luna-routing/luna-number-route.caddy
 # END luna-routing-contract
@@ -35,7 +43,9 @@ effective admin JSON.
 ## Installation
 
 Review all files and prepare `/root/luna-routing.env` from `controller.env.example` with
-real 32+ byte HMAC/proof keys and the HTTPS proof URL. Do not add TLS key/cert variables.
+real 32+ byte HMAC/proof keys and the HTTPS proof URL. Put the same proof key in the
+Sunset runtime secret file as `LUNA_ROUTING_INGRESS_PROOF_KEY`; never put it in compose or
+git. Do not add TLS key/cert variables.
 Then:
 
 ```sh
