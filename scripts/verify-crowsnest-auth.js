@@ -1048,9 +1048,47 @@ async function main() {
           ok('Clients route keeps Wolfhouse card', res.body.includes('Wolfhouse Somo'));
           ok('Clients route keeps Sunset Somo card', res.body.includes('Sunset Somo'));
           ok('Clients route keeps Sunset Sardinero card', res.body.includes('Sunset Sardinero'));
-          ok('Clients route keeps onboarding', res.body.includes('New client onboarding'));
-          ok('Clients route keeps templates', /surf house template/i.test(res.body) && /surf school template/i.test(res.body));
-          ok('Clients route keeps disabled create', res.body.includes('Create client') && /disabled|aria-disabled/.test(res.body));
+          ok(
+            'Clients route is the read-only Option A directory with no onboarding',
+            /Business and location directory/i.test(res.body)
+              && /read-only directory/i.test(res.body)
+              && !/New client onboarding|onboarding mockup/i.test(res.body),
+          );
+          ok(
+            'Clients route omits templates and exposes exactly the known staff portals',
+            !/surf house template|surf school template|<section[^>]+id=["']templates["']/i.test(res.body)
+              && (() => {
+                const portalUrls = Array.from(
+                  res.body.matchAll(/<a class="env-link" href="([^"]+)"/g),
+                  (match) => match[1],
+                ).sort();
+                return JSON.stringify(portalUrls) === JSON.stringify([
+                  'https://staff-staging.lunafrontdesk.com',
+                  'https://sunset-staging.lunafrontdesk.com',
+                  'https://wolfhouse.lunafrontdesk.com',
+                ]);
+              })(),
+          );
+          ok(
+            'Clients route has no create capability and labels locations Live, Staging, Planned',
+            (() => {
+              const clientsSection = (res.body.match(/<section id="clients">[\s\S]*?<\/section>\s*<div class="safety">/) || [])[0] || '';
+              const cards = clientsSection.match(/<article class="card client-card">[\s\S]*?<\/article>/g) || [];
+              const wolfhouse = cards.find((card) => card.includes('Wolfhouse Somo')) || '';
+              const sunsetSomo = cards.find((card) => card.includes('Sunset Somo')) || '';
+              const sardinero = cards.find((card) => card.includes('Sunset Sardinero')) || '';
+              const hasLocationStatus = (card, label) => new RegExp(
+                `<span class="meta-chip meta-chip--status"><span class="pill [^"]+"><span class="pill-dot" aria-hidden="true"><\\/span>${label}<\\/span><\\/span>`,
+                'i',
+              ).test(card);
+              return Boolean(clientsSection)
+                && !/<form\b|<button\b|href=["'](?:javascript:|[^"']*(?:create|onboard|template))/i.test(clientsSection)
+                && !/Add new client|Add client|Create client|Preview setup/i.test(clientsSection)
+                && hasLocationStatus(wolfhouse, 'Live')
+                && hasLocationStatus(sunsetSomo, 'Staging')
+                && hasLocationStatus(sardinero, 'Planned');
+            })(),
+          );
         }
         if (route.expectBilling) {
           ok('Billing placeholder heading', /Billing/i.test(res.body));
