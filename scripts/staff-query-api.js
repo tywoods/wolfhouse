@@ -21480,15 +21480,10 @@ html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-
 html[data-portal-client="sunset"] body:has(#tab-conversations.active):has([data-inbox-preset="guest"][aria-pressed="true"]) #wrap.inbox-shell-wrap{
   max-width:1520px!important;
 }
-html[data-portal-client="sunset"] #inbox-shell.inbox-folder-switching{
-  visibility:hidden;
-  opacity:0!important;
-  pointer-events:none!important;
-}
-html[data-portal-client="sunset"] #wrap.inbox-shell-wrap.inbox-folder-switching{
-  opacity:0!important;
-  pointer-events:none!important;
-}
+/* SUNSET-INBOX-CHATS-GUESTS-GMAIL-HOLD-001: browser snapshot holds CURRENT
+   while NEXT builds; disable the default cross-fade for one direct swap. */
+html[data-portal-client="sunset"]::view-transition-old(root),
+html[data-portal-client="sunset"]::view-transition-new(root){animation:none!important}
 body:not(:has([data-inbox-preset="chat"][aria-pressed="true"])) .inbox-toolbar-channels{
   justify-content:flex-end;
 }

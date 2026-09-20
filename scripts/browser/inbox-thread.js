@@ -1561,6 +1561,9 @@ function loadInbox(selectConvIdAfterLoad, opts){
   opts = opts || {};
   var silent = !!opts.silent;
   var preserveDetail = !!opts.preserveDetail;
+  /* SUNSET-INBOX-CHATS-GUESTS-GMAIL-HOLD-001: carry the initiating switch
+     generation across this async request; consumers reject stale paints. */
+  var folderSwitchGen = Number(opts.folderSwitchGen) || 0;
   var keepConvId = selectConvIdAfterLoad || (preserveDetail ? selectedConvId : null);
 
   if (!silent){
@@ -1598,6 +1601,7 @@ function loadInbox(selectConvIdAfterLoad, opts){
       applyInboxFilter({
         preserveDetail: !!(preserveDetail && !selectConvIdAfterLoad),
         selectedId: selectedConvId,
+        folderSwitchGen: folderSwitchGen,
       });
       if (selectConvIdAfterLoad){
         var list = el('conv-list');

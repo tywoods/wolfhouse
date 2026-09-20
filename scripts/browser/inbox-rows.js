@@ -136,6 +136,7 @@ var inboxRowsRuntime = {
   folderSwitchCard: false,
   folderSwitchDestGuest: false,
   folderSwitchTimer: 0,
+  folderSwitchResolve: null,
 };
 var inboxRowsGuestPriorViewId = '';
 var inboxRowsViewsCache = [];
@@ -910,8 +911,9 @@ function inboxRowsStripGuestPreviewHtml(html) {
 }
 
 function inboxRowsRerenderGuestViewList() {
+  var switchGen = inboxRowsRuntime.folderSwitching || 0;
   if (typeof applyInboxFilter === 'function') {
-    applyInboxFilter(inboxRowsPreserveSelectionOpts({ silent: true }));
+    applyInboxFilter(inboxRowsPreserveSelectionOpts({ silent: true, folderSwitchGen: switchGen }));
     return;
   }
   if (typeof renderInbox !== 'function') return;
@@ -920,7 +922,7 @@ function inboxRowsRerenderGuestViewList() {
     list = (typeof inboxConversationsCache !== 'undefined' && inboxConversationsCache) || [];
   } catch (_e) { list = []; }
   if (typeof filterInboxConversations === 'function') list = filterInboxConversations(list);
-  renderInbox(list, inboxRowsPreserveSelectionOpts({}));
+  renderInbox(list, inboxRowsPreserveSelectionOpts({ folderSwitchGen: switchGen }));
 }
 
 function inboxRowsGuestOnCustomersSource() {
@@ -1003,32 +1005,6 @@ function inboxRowsFolderSwitchShell() {
   }
 }
 
-function inboxRowsFolderSwitchTargets() {
-  var nodes = [];
-  var shell = inboxRowsFolderSwitchShell();
-  if (shell) nodes.push(shell);
-  try {
-    if (typeof document === 'undefined' || !document.getElementById) return nodes;
-    var wrap = document.getElementById('wrap');
-    if (wrap && wrap.classList && wrap.classList.contains('inbox-shell-wrap')) nodes.push(wrap);
-  } catch (_eWrap) {}
-  return nodes;
-}
-
-function inboxRowsFolderSwitchSetHidden(on) {
-  var nodes = inboxRowsFolderSwitchTargets();
-  var i;
-  for (i = 0; i < nodes.length; i++) {
-    if (!nodes[i] || !nodes[i].classList) continue;
-    if (on && nodes[i].classList.add) nodes[i].classList.add('inbox-folder-switching');
-    else if (!on && nodes[i].classList.remove) nodes[i].classList.remove('inbox-folder-switching');
-  }
-  /* Commit the hide before setPreset flips tab/list/rail/card in the same turn. */
-  if (on && nodes[0] && nodes[0].offsetWidth != null) {
-    void nodes[0].offsetWidth;
-  }
-}
-
 function inboxRowsFolderSwitchListIsEmpty() {
   try {
     if (typeof document === 'undefined' || !document.getElementById) return true;
@@ -1042,6 +1018,12 @@ function inboxRowsFolderSwitchListIsEmpty() {
 }
 
 function inboxRowsBeginFolderSwitch() {
+  /* A programmatic/rapid second crossing supersedes the first transition.
+     Release its pending update promise before installing the new generation. */
+  if (typeof inboxRowsRuntime.folderSwitchResolve === 'function') {
+    try { inboxRowsRuntime.folderSwitchResolve(); } catch (_eResolve) {}
+    inboxRowsRuntime.folderSwitchResolve = null;
+  }
   var gen = (inboxRowsRuntime.folderSwitchGen || 0) + 1;
   inboxRowsRuntime.folderSwitchGen = gen;
   inboxRowsRuntime.folderSwitching = gen;
@@ -1052,14 +1034,16 @@ function inboxRowsBeginFolderSwitch() {
   inboxRowsRuntime.folderSwitchDestGuest = !inboxRowsGuestViewActive();
   /* Chats leftover thread is already the destination card; Guest must wait for paint. */
   if (!inboxRowsRuntime.folderSwitchDestGuest) inboxRowsRuntime.folderSwitchCard = true;
-  inboxRowsFolderSwitchSetHidden(true);
+  var ready = new Promise(function(resolve) {
+    inboxRowsRuntime.folderSwitchResolve = resolve;
+  });
   if (inboxRowsRuntime.folderSwitchTimer) {
     try { clearTimeout(inboxRowsRuntime.folderSwitchTimer); } catch (_e3) {}
   }
   inboxRowsRuntime.folderSwitchTimer = setTimeout(function() {
     inboxRowsEndFolderSwitch(gen);
   }, 500);
-  return gen;
+  return { gen: gen, ready: ready };
 }
 
 function inboxRowsEndFolderSwitch(gen) {
@@ -1072,19 +1056,32 @@ function inboxRowsEndFolderSwitch(gen) {
     try { clearTimeout(inboxRowsRuntime.folderSwitchTimer); } catch (_e4) {}
     inboxRowsRuntime.folderSwitchTimer = 0;
   }
-  function reveal() {
-    inboxRowsFolderSwitchSetHidden(false);
-  }
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(function() { requestAnimationFrame(reveal); });
-  } else {
-    reveal();
-  }
+  var resolve = inboxRowsRuntime.folderSwitchResolve;
+  inboxRowsRuntime.folderSwitchResolve = null;
+  if (typeof resolve === 'function') resolve();
 }
 
-function inboxRowsNoteFolderSwitchPart(part) {
+function inboxRowsRunFolderSwitch(run) {
+  var pending = inboxRowsBeginFolderSwitch();
+  /* Browser-owned pixels keep CURRENT immutable while NEXT builds. The CSS
+     disables the default cross-fade, so readiness commits one direct swap. */
+  if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function') {
+    document.startViewTransition(function() {
+      run();
+      return pending.ready;
+    });
+    return;
+  }
+  /* Functional fallback: never blank the live deck and never impose 500ms. */
+  run();
+}
+
+function inboxRowsNoteFolderSwitchPart(part, sourceGen) {
   var gen = inboxRowsRuntime.folderSwitching;
   if (!gen) return;
+  /* List readiness crosses an async loadInbox boundary. Only the request
+     stamped by this switch may satisfy the current generation. */
+  if (part === 'list' && Number(sourceGen || 0) !== gen) return;
   var destGuest = !!inboxRowsRuntime.folderSwitchDestGuest;
   var nowGuest = inboxRowsGuestViewActive();
   if (!nowGuest && destGuest && typeof inboxContextIsGuestMode === 'function') {
@@ -1151,12 +1148,16 @@ function inboxRowsWrapGuestViewPreset() {
       var wasGuest = inboxRowsGuestViewActive();
       var nowGuest = name === 'guest';
       var crossing = wasGuest !== nowGuest && inboxRowsIsSunsetPortal();
-      if (crossing) inboxRowsBeginFolderSwitch();
-      var result = _inboxRowsLegacySetPreset(name);
-      inboxRowsRuntime.guestView = nowGuest;
-      if (nowGuest && !wasGuest) inboxRowsEnterGuestDirectory();
-      else if (!nowGuest && wasGuest) inboxRowsLeaveGuestDirectory();
-      else inboxRowsRerenderGuestViewList();
+      var result;
+      function applyFolder() {
+        result = _inboxRowsLegacySetPreset(name);
+        inboxRowsRuntime.guestView = nowGuest;
+        if (nowGuest && !wasGuest) inboxRowsEnterGuestDirectory();
+        else if (!nowGuest && wasGuest) inboxRowsLeaveGuestDirectory();
+        else inboxRowsRerenderGuestViewList();
+      }
+      if (crossing) inboxRowsRunFolderSwitch(applyFolder);
+      else applyFolder();
       return result;
     };
     inboxColumnsSetPreset._inboxGuestViewWrapped = true;
@@ -1220,7 +1221,7 @@ function inboxRowsWrapRenderers() {
       var result = _inboxRowsLegacyRenderInbox(convs, opts);
       inboxRowsFixEmptyChrome(convs, opts);
       inboxRowsAfterRender();
-      inboxRowsNoteFolderSwitchPart('list');
+      inboxRowsNoteFolderSwitchPart('list', opts && opts.folderSwitchGen);
       return result;
     };
     renderInbox._inboxRowsWrapped = true;
@@ -1388,6 +1389,7 @@ if (typeof window !== 'undefined') {
     beginFolderSwitch: inboxRowsBeginFolderSwitch,
     endFolderSwitch: inboxRowsEndFolderSwitch,
     noteFolderSwitchPart: inboxRowsNoteFolderSwitchPart,
+    folderSwitchToken: function() { return inboxRowsRuntime.folderSwitching || 0; },
     shouldKeepGuestCard: inboxRowsShouldKeepGuestCard,
     isGuestPresetOn: inboxRowsIsGuestPresetOn,
     wrapGuestViewPreset: inboxRowsWrapGuestViewPreset,
