@@ -786,6 +786,10 @@ async function main() {
       });
       ok('production login fails closed without durable session DSN', login.statusCode === 503);
       ok('production session cookie builder sets Secure', /Secure/i.test(auth.buildCrowsnestSessionCookie('token', { secure: true })));
+      const basic = await request(port, '/', basicAuthRequest('admin', 'admin'));
+      ok('production Basic Auth also fails closed without durable session DSN', basic.statusCode === 503);
+      const healthWithBogusCookie = await request(port, '/healthz', { headers: { Cookie: 'crowsnest_session=bogus' } });
+      ok('public health remains available with bogus session cookie', healthWithBogusCookie.statusCode === 200);
     },
   ]);
 
