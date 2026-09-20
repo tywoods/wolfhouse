@@ -50697,6 +50697,17 @@ async function router(req, res) {
       }
       lunaActor = Object.freeze(out);
     } catch (_) { lunaActor = null; }
+    // Same family as #1077: a valid viewer+ session must not collapse to 401
+    // Unauthorized because the exact-descriptor projection missed a field.
+    if (!lunaActor && auth.user && typeof auth.user === 'object') {
+      try {
+        const out = Object.create(null);
+        out.staff_user_id = auth.user.staff_user_id;
+        out.client_id = auth.user.client_id;
+        out.role = auth.user.role;
+        lunaActor = Object.freeze(out);
+      } catch (_) { lunaActor = null; }
+    }
     return emailLunaDraftRoute.handleCreateDraft(req, res, lunaActor, gate);
   }
 

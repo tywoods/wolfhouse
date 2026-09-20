@@ -99,6 +99,53 @@ function isEmailLunaGenerateDraftEnabled(env) {
     && ownData(env, EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV) === 'true'
     && ownData(env, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED') === 'true';
 }
+function headerValue(headers, name) {
+  if (!headers || typeof headers !== 'object') return undefined;
+  const want = name.toLowerCase();
+  let raw;
+  try { raw = headers[want]; } catch { raw = undefined; }
+  if (raw === undefined && name !== want) {
+    try { raw = headers[name]; } catch { raw = undefined; }
+  }
+  if (typeof raw === 'string') return raw;
+  if (isArray(raw) && raw.length === 1 && typeof raw[0] === 'string') return raw[0];
+  return undefined;
+}
+function isExactApplicationJson(contentType) {
+  if (typeof contentType !== 'string' || !contentType || contentType.length > 128) return false;
+  if (/[\x00-\x1f\x7f,]/.test(contentType) || contentType[0] === ' ' || contentType[contentType.length - 1] === ' ') return false;
+  const match = /^application\/json(?:\s*;\s*charset=utf-8)?$/i.exec(contentType);
+  return !!match && !/"/.test(contentType);
+}
+function originSerialization(raw) {
+  if (typeof raw !== 'string' || !raw || raw.length > 512) return null;
+  try {
+    const parsed = new URL(raw.trim());
+    if (parsed.username || parsed.password) return null;
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return null;
+  }
+}
+function samePortalOrigin(req, env) {
+  const expected = originSerialization(ownData(env, 'STAFF_PORTAL_ORIGIN'));
+  if (!expected) return false;
+  const headers = req && req.headers;
+  const origin = headerValue(headers, 'origin');
+  if (origin) {
+    const got = originSerialization(origin);
+    return !!(got && got === expected);
+  }
+  const referer = headerValue(headers, 'referer');
+  const got = originSerialization(referer || '');
+  return !!(got && got === expected);
+}
+function requestHeadersAllowed(req, env) {
+  const headers = req && req.headers;
+  if (!headers) return false;
+  return isExactApplicationJson(headerValue(headers, 'content-type')) && samePortalOrigin(req, env);
+}
 function actor(user) {
   if (!exactRecord(user, ACTOR_KEYS) || getPrototypeOf(user) !== null) return null;
   const role = ownData(user, 'role');
@@ -196,8 +243,7 @@ function createStaffEmailLunaDraftRoute(deps) {
     if (!isEmailLunaGenerateDraftEnabled(env)) return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
     const a = actor(user);
     if (!a) return deps.sendJSON(res, user ? 403 : 401, freeze({ success: false, error: user ? 'forbidden' : 'unauthorized' }));
-    const headers = req && req.headers;
-    if (!headers || headers['content-type'] !== 'application/json' || headers.origin !== ownData(env, 'STAFF_PORTAL_ORIGIN'))
+    if (!requestHeadersAllowed(req, env))
       return deps.sendJSON(res, 403, freeze({ success: false, error: 'invalid_request' }));
     let input; try { input = await readBody(req); } catch { input = null; }
     if (!input) return deps.sendJSON(res, 400, freeze({ success: false, error: 'invalid_request' }));
@@ -223,8 +269,7 @@ function createStaffEmailLunaDraftRoute(deps) {
     if (!isEmailLunaGenerateDraftEnabled(env)) return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
     const a = actor(user);
     if (!a) return deps.sendJSON(res, user ? 403 : 401, freeze({ success: false, error: user ? 'forbidden' : 'unauthorized' }));
-    const headers = req && req.headers;
-    if (!headers || headers['content-type'] !== 'application/json' || headers.origin !== ownData(env, 'STAFF_PORTAL_ORIGIN'))
+    if (!requestHeadersAllowed(req, env))
       return deps.sendJSON(res, 403, freeze({ success: false, error: 'invalid_request' }));
     let input; try { input = await readCreateDraftBody(req); } catch { input = null; }
     if (!input) return deps.sendJSON(res, 400, freeze({ success: false, error: 'invalid_request' }));

@@ -77,4 +77,26 @@ assert.doesNotMatch(
   /EMAIL_DRAFT_MIN_ROLE/,
 );
 
+// Leftover after #1077: Create Draft 403'd on raw Origin/Content-Type equality
+// (trailing slash on STAFF_PORTAL_ORIGIN, charset=utf-8) while Delete Draft
+// used normalized origin. Inbox paints 401/403 as "Unauthorized".
+{
+  assert.doesNotMatch(
+    actorSrc,
+    /headers\['content-type'\]\s*!==\s*'application\/json'/,
+  );
+  assert.doesNotMatch(
+    actorSrc,
+    /headers\.origin\s*!==\s*ownData\(env,\s*'STAFF_PORTAL_ORIGIN'\)/,
+  );
+  assert.match(actorSrc, /function requestHeadersAllowed/);
+  assert.match(actorSrc, /charset=utf-8/);
+  assert.match(actorSrc, /originSerialization/);
+  assert.match(actorSrc, /samePortalOrigin/);
+
+  const createDraft = sliceAround(api, 'Explicit Staff Create Draft', 1800);
+  assert.match(createDraft, /if\s*\(\s*!lunaActor\s*&&\s*auth\.user/);
+  assert.match(createDraft, /out\.staff_user_id\s*=\s*auth\.user\.staff_user_id/);
+}
+
 console.log('verify:staff-email-draft-auth-viewer PASSED');
