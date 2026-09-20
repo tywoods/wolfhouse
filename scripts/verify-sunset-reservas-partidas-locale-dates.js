@@ -117,7 +117,10 @@ function loadFormatter(sandbox) {
 {
   const start = bookingsUi.indexOf('function adminBookingsLocaleTag');
   const endHelpers = bookingsUi.indexOf('/** Booking created_at');
-  const expStart = bookingsUi.indexOf('function renderAdminBookingsExpansion');
+  const extraStart = bookingsUi.indexOf('function adminBookingsHasExplicitIncludedEvidence');
+  const expStart = extraStart >= 0
+    ? extraStart
+    : bookingsUi.indexOf('function renderAdminBookingsExpansion');
   const expEnd = bookingsUi.indexOf('function openAdminBookingsRefundForm');
   assert.ok(start >= 0 && endHelpers > start && expStart > 0 && expEnd > expStart, 'expand slice');
 

@@ -1,7 +1,8 @@
 /**
  * Sunset Admin Bookings tab (N1) — list, filters, expansion, manual refund UI.
  * Injected with sunset-admin-ui.js. Uses portal globals: el, portalT, escHtml,
- * getClient, getSunsetLocation, fetch, openScheduleDetailDrawer.
+ * getClient, getSunsetLocation, fetch, openScheduleDetailDrawer,
+ * scheduleDrawerBuildCommercialLines (Schedule invoice grouping, when injected).
  * Money display only — all arithmetic is server-authoritative.
  * Guest name opens Inbox → Guest/People with the customer card selected.
  * Booking code opens the shared schedule detail drawer over Reservas — never
@@ -9,6 +10,9 @@
  */
 /* global el, portalT, escHtml, getClient, getSunsetLocation,
    openScheduleDetailDrawer, scheduleDrawerEnsureDocumentLayer,
+   scheduleDrawerBuildCommercialLines, scheduleDrawerFormatCommercialMathLabel,
+   scheduleDrawerFormatCourseInvoiceLabel, scheduleDrawerFormatEquipmentInvoiceLabel,
+   scheduleDrawerIsCourseLikeLine, scheduleDrawerIsEquipmentLikeLine,
    adminBookingsState, fetch, getStaffLocale, portalLang */
 
 var adminBookingsState = {
@@ -1342,31 +1346,169 @@ function adminBookingsTh(key, sortKey, align) {
     escHtml(arrow) + '</span></button></div>';
 }
 
+/**
+ * Explicit During Course / pack-policy evidence for labeling €0 gear "Included".
+ * Optional €0 (Jacky) is a supported zero — never invent Included from amount alone.
+ */
+function adminBookingsHasExplicitIncludedEvidence(it) {
+  if (!it) return false;
+  if (String(it.during_course_policy || '').toLowerCase() === 'included') return true;
+  if (it.included_equipment === true) return true;
+  return false;
+}
+
+function adminBookingsIsCollapsedCommercialLine(line) {
+  if (!line) return false;
+  if (line.member_ids && line.member_ids.length > 1) return true;
+  if (Math.max(1, Math.round(Number(line.billable_days) || 1)) > 1) return true;
+  return false;
+}
+
+function adminBookingsZeroGearAmountText(line, sourceItems) {
+  var cents = Math.round(Number(line && line.line_cents != null ? line.line_cents : 0));
+  var isCe = !!(line && (line.course_equipment || String(line.component || '') === 'course_equipment'));
+  if (!isCe || cents !== 0) return adminBookingsFormatEur(cents);
+  var pool = [];
+  var ids = (line && Array.isArray(line.member_ids)) ? line.member_ids : [];
+  if (ids.length) {
+    (sourceItems || []).forEach(function (it) {
+      if (it && it.service_record_id && ids.indexOf(it.service_record_id) >= 0) pool.push(it);
+    });
+  }
+  if (!pool.length && line && line.service_record_id) {
+    (sourceItems || []).forEach(function (it) {
+      if (it && String(it.service_record_id || '') === String(line.service_record_id)) pool.push(it);
+    });
+  }
+  if (!pool.length) pool = [line];
+  if (!pool.some(adminBookingsHasExplicitIncludedEvidence)) return adminBookingsFormatEur(0);
+  var lab = portalT('admin.courseEquipment.included');
+  if (!lab || lab === 'admin.courseEquipment.included') {
+    lab = portalT('schedule.drawer.includedInBundle');
+  }
+  if (!lab || lab === 'schedule.drawer.includedInBundle') lab = 'Included';
+  return lab;
+}
+
+function adminBookingsCommercialInputFromItem(it) {
+  var amount = it.line_cents != null ? it.line_cents : it.amount_due_cents;
+  var label = adminBookingsCleanItemLabel(it.label);
+  if (!label) label = adminBookingsCleanItemLabel(it.service_type);
+  var isCe = it.course_equipment === true || String(it.component || '') === 'course_equipment';
+  return {
+    service_record_id: it.service_record_id || null,
+    service_type: it.service_type || null,
+    service_date: it.service_date || null,
+    quantity: it.quantity,
+    amount_due_cents: it.amount_due_cents,
+    line_cents: Number(amount || 0),
+    label: label || it.label || '—',
+    offering_key: it.offering_key || null,
+    component: it.component || null,
+    course_id: it.course_id || null,
+    offering_id: it.offering_id || null,
+    tier_key: it.tier_key || null,
+    duration_key: it.duration_key || it.tier_key || null,
+    course_equipment: isCe || undefined,
+    course_equipment_mode: it.course_equipment_mode || null,
+    during_course_policy: it.during_course_policy || null,
+    included_equipment: it.included_equipment === true || undefined,
+    unit_amount_cents: it.unit_amount_cents != null ? it.unit_amount_cents : undefined,
+    unit_cents: it.unit_cents != null ? it.unit_cents
+      : (it.unit_amount_cents != null ? it.unit_amount_cents : undefined),
+    pricing_group_id: it.pricing_group_id || null,
+    rental_bundle_id: it.rental_bundle_id || null,
+    bundle_part: it.bundle_part || null,
+    staff_accommodation: it.staff_accommodation || undefined,
+    staff_custom_line: it.staff_custom_line || undefined,
+    check_in: it.check_in || null,
+    check_out: it.check_out || null,
+    nights: it.nights,
+  };
+}
+
+function adminBookingsOrdinaryItemsHtml(cleanItems) {
+  if (!cleanItems.length) {
+    return '<li class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.noItems')) + '</li>';
+  }
+  return cleanItems.map(function (it) {
+    return '<li><span>' + escHtml(it.label) +
+      (it.date ? ' · ' + escHtml(it.date) : '') +
+      '</span><span>' + escHtml(adminBookingsFormatEur(it.amount_due_cents)) + '</span></li>';
+  }).join('');
+}
+
+/** Grouped package lines via Schedule helper; ordinary dated singles otherwise. */
+function adminBookingsBuildExpandItemsHtml(items) {
+  var raw = Array.isArray(items) ? items : [];
+  var kept = [];
+  for (var i = 0; i < raw.length; i += 1) {
+    if (adminBookingsIsJunkExpandItem(raw[i])) continue;
+    kept.push(raw[i]);
+  }
+  if (typeof scheduleDrawerBuildCommercialLines !== 'function') {
+    var cleanItems = kept.map(function (rawItem) {
+      var label = adminBookingsCleanItemLabel(rawItem.label);
+      if (!label) label = adminBookingsCleanItemLabel(rawItem.service_type);
+      if (!label) label = '—';
+      return {
+        label: label,
+        date: adminBookingsFormatItemDate(rawItem.service_date),
+        amount_due_cents: rawItem.amount_due_cents,
+      };
+    });
+    return adminBookingsOrdinaryItemsHtml(cleanItems);
+  }
+  var commercialInputs = kept.map(adminBookingsCommercialInputFromItem);
+  var commercial = scheduleDrawerBuildCommercialLines(commercialInputs, null);
+  var lines = (commercial && commercial.lines) || [];
+  if (!lines.length) return adminBookingsOrdinaryItemsHtml([]);
+  return lines.map(function (line) {
+    var collapsed = adminBookingsIsCollapsedCommercialLine(line);
+    var isCe = !!(line.course_equipment || String(line.component || '') === 'course_equipment'
+      || (typeof scheduleDrawerIsEquipmentLikeLine === 'function' && scheduleDrawerIsEquipmentLikeLine(line)));
+    var isCourse = !isCe && typeof scheduleDrawerIsCourseLikeLine === 'function'
+      && scheduleDrawerIsCourseLikeLine(line);
+    var displayLabel = line.label || '—';
+    if (isCe && typeof scheduleDrawerFormatEquipmentInvoiceLabel === 'function') {
+      displayLabel = scheduleDrawerFormatEquipmentInvoiceLabel(line);
+    } else if (isCourse && typeof scheduleDrawerFormatCourseInvoiceLabel === 'function') {
+      displayLabel = scheduleDrawerFormatCourseInvoiceLabel(line);
+    }
+    var math = '';
+    if (collapsed && typeof scheduleDrawerFormatCommercialMathLabel === 'function') {
+      math = scheduleDrawerFormatCommercialMathLabel(line) || '';
+    }
+    var qty = Math.max(1, Math.round(Number(line.quantity) || 1));
+    if (isCourse && qty > 1) {
+      var qtyAlready = new RegExp('(?:\\u00d7|x)\\s*' + String(qty) + '\\b|' + String(qty) + '\\s+surfers?', 'i');
+      if (!qtyAlready.test(math || '')) {
+        var surfersWord = portalT('schedule.drawer.surfersWord');
+        if (!surfersWord || surfersWord === 'schedule.drawer.surfersWord') surfersWord = 'surfers';
+        var qtyLab = String(qty) + ' ' + surfersWord;
+        math = math ? (math + ' \\u00b7 ' + qtyLab) : qtyLab;
+      }
+    }
+    var amountText = isCe
+      ? adminBookingsZeroGearAmountText(line, commercialInputs)
+      : adminBookingsFormatEur(line.line_cents);
+    var date = '';
+    if (!collapsed) {
+      var d0 = (line.covered_dates && line.covered_dates[0]) || line.service_date;
+      date = adminBookingsFormatItemDate(d0);
+    }
+    var name = escHtml(displayLabel);
+    if (math) name += '<span class="portal-admin-bookings-item-detail"> · ' + escHtml(math) + '</span>';
+    else if (date) name += ' · ' + escHtml(date);
+    return '<li><span>' + name + '</span><span>' + escHtml(amountText) + '</span></li>';
+  }).join('');
+}
+
 function renderAdminBookingsExpansion(row, rowKey) {
   rowKey = String(rowKey || adminBookingsRowKey(row, 0));
   var story = row.payment_story || {};
   var items = Array.isArray(row.items) ? row.items : [];
-  var cleanItems = [];
-  for (var ii = 0; ii < items.length; ii += 1) {
-    var rawItem = items[ii];
-    if (adminBookingsIsJunkExpandItem(rawItem)) continue;
-    var label = adminBookingsCleanItemLabel(rawItem.label);
-    if (!label) label = adminBookingsCleanItemLabel(rawItem.service_type);
-    if (!label) label = '—';
-    var dateOnly = adminBookingsFormatItemDate(rawItem.service_date);
-    cleanItems.push({
-      label: label,
-      date: dateOnly,
-      amount_due_cents: rawItem.amount_due_cents,
-    });
-  }
-  var itemsHtml = cleanItems.length
-    ? cleanItems.map(function (it) {
-      return '<li><span>' + escHtml(it.label) +
-        (it.date ? ' · ' + escHtml(it.date) : '') +
-        '</span><span>' + escHtml(adminBookingsFormatEur(it.amount_due_cents)) + '</span></li>';
-    }).join('')
-    : '<li class="portal-admin-bookings-muted">' + escHtml(portalT('admin.bookings.noItems')) + '</li>';
+  var itemsHtml = adminBookingsBuildExpandItemsHtml(items);
 
   var waiver = row.waiver;
   var waiverText = waiver && waiver.status
@@ -1387,6 +1529,11 @@ function renderAdminBookingsExpansion(row, rowKey) {
   var tags = Array.isArray(row.status_tags) ? row.status_tags : [];
   var isCancelled = st === 'cancelled' || st === 'canceled' || tags.indexOf('cancelled') >= 0;
   var isHidden = !!(row.hidden === true || tags.indexOf('hidden') >= 0);
+  var storyOutstanding = story.outstanding_cents != null
+    ? story.outstanding_cents
+    : (row.outstanding_cents != null
+      ? row.outstanding_cents
+      : Math.max(0, Number(story.charged_cents || 0) - Number(story.collected_cents || 0)));
   var storyCollected = Number((row.payment_story && row.payment_story.collected_cents) != null
     ? row.payment_story.collected_cents
     : (row.collected_cents != null ? row.collected_cents : (row.paid_cents || 0)));
@@ -1461,6 +1608,7 @@ function renderAdminBookingsExpansion(row, rowKey) {
           '<li><span>' + escHtml(portalT('admin.bookings.collected')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.collected_cents)) + '</span></li>' +
           '<li><span>' + escHtml(portalT('admin.bookings.refunded')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.refunded_cents)) + '</span></li>' +
           '<li><span>' + escHtml(portalT('admin.bookings.net')) + '</span><span>' + escHtml(adminBookingsFormatEur(story.net_cents)) + '</span></li>' +
+          '<li><span>' + escHtml(portalT('admin.bookings.outstanding')) + '</span><span>' + escHtml(adminBookingsFormatEur(storyOutstanding)) + '</span></li>' +
         '</ul>' +
         refundSectionHtml +
         (rowActions

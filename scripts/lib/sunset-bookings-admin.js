@@ -967,15 +967,46 @@ function buildBookingListRow(input) {
     if (!label) {
       label = sm.course_label || sm.label || sm.staff_ui_service_type || svc.service_type || null;
     }
+    const amountDue = effectiveServiceDueCents(svc);
+    const isCe = sm.course_equipment === true
+      || String(sm.component || '').toLowerCase() === 'course_equipment';
+    const unitAmount = sm.unit_amount_cents != null && sm.unit_amount_cents !== ''
+      ? Number(sm.unit_amount_cents)
+      : (sm.unit_cents != null && sm.unit_cents !== '' ? Number(sm.unit_cents) : null);
     return {
       service_record_id: svc.service_record_id || svc.id || null,
       service_type: svc.service_type || null,
       service_date: svc.service_date || null,
       quantity: svc.quantity != null ? Number(svc.quantity) : 1,
-      amount_due_cents: effectiveServiceDueCents(svc),
+      amount_due_cents: amountDue,
+      // Display alias for Schedule commercial-line grouping — same persisted cents.
+      line_cents: amountDue,
       status: svc.status || null,
       label,
       offering_key: sm.offering_key || null,
+      component: sm.component || null,
+      course_id: sm.course_id || null,
+      offering_id: sm.offering_id || null,
+      tier_key: sm.tier_key || null,
+      duration_key: sm.duration_key || sm.tier_key || null,
+      course_equipment: isCe || undefined,
+      course_equipment_mode: isCe
+        ? (sm.course_equipment_mode || sm.mode || null)
+        : undefined,
+      during_course_policy: sm.during_course_policy != null
+        ? String(sm.during_course_policy)
+        : undefined,
+      included_equipment: sm.included_equipment === true || undefined,
+      unit_amount_cents: Number.isFinite(unitAmount) ? unitAmount : undefined,
+      unit_cents: Number.isFinite(unitAmount) ? unitAmount : undefined,
+      pricing_group_id: sm.pricing_group_id || null,
+      rental_bundle_id: sm.rental_bundle_id || null,
+      bundle_part: sm.bundle_part || null,
+      staff_accommodation: sm.staff_accommodation === true || undefined,
+      staff_custom_line: sm.staff_custom_line === true || undefined,
+      check_in: sm.check_in || null,
+      check_out: sm.check_out || null,
+      nights: sm.nights != null ? Number(sm.nights) : undefined,
     };
   });
 
@@ -1021,6 +1052,7 @@ function buildBookingListRow(input) {
       collected_cents: money.collected_cents,
       refunded_cents: money.refunded_cents,
       net_cents: money.net_cents,
+      outstanding_cents: money.outstanding_cents,
     },
     refunds: Array.isArray(src.refunds) ? src.refunds : [],
     guest: src.guest || {
