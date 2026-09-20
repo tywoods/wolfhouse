@@ -1,0 +1,42 @@
+{
+  "apps": {
+    "http": {
+      "servers": {
+        "staging": {
+          "routes": [
+            {
+              "match": [{ "host": ["lunabox.lunafrontdesk.com"] }],
+              "handle": [
+                {
+                  "handler": "subroute",
+                  "routes": [
+                    {
+                      "group": "group3",
+                      "match": [{ "path": ["/whatsapp/webhook"] }],
+                      "handle": [
+                        {
+                          "handler": "subroute",
+                          "routes": [
+                            {
+                              "handle": [
+                                {
+                                  "handler": "reverse_proxy",
+                                  "upstreams": [{ "dial": "127.0.0.1:8090" }]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    }
+  }
+}
