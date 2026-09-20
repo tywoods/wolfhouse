@@ -133,6 +133,8 @@ var inboxRowsRuntime = {
   folderSwitching: 0,
   folderSwitchList: false,
   folderSwitchRail: false,
+  folderSwitchCard: false,
+  folderSwitchDestGuest: false,
   folderSwitchTimer: 0,
 };
 var inboxRowsGuestPriorViewId = '';
@@ -970,14 +972,56 @@ function inboxRowsFolderSwitchShell() {
   }
 }
 
+function inboxRowsFolderSwitchTargets() {
+  var nodes = [];
+  var shell = inboxRowsFolderSwitchShell();
+  if (shell) nodes.push(shell);
+  try {
+    if (typeof document === 'undefined' || !document.getElementById) return nodes;
+    var wrap = document.getElementById('wrap');
+    if (wrap && wrap.classList && wrap.classList.contains('inbox-shell-wrap')) nodes.push(wrap);
+  } catch (_eWrap) {}
+  return nodes;
+}
+
+function inboxRowsFolderSwitchSetHidden(on) {
+  var nodes = inboxRowsFolderSwitchTargets();
+  var i;
+  for (i = 0; i < nodes.length; i++) {
+    if (!nodes[i] || !nodes[i].classList) continue;
+    if (on && nodes[i].classList.add) nodes[i].classList.add('inbox-folder-switching');
+    else if (!on && nodes[i].classList.remove) nodes[i].classList.remove('inbox-folder-switching');
+  }
+  /* Commit the hide before setPreset flips tab/list/rail/card in the same turn. */
+  if (on && nodes[0] && nodes[0].offsetWidth != null) {
+    void nodes[0].offsetWidth;
+  }
+}
+
+function inboxRowsFolderSwitchListIsEmpty() {
+  try {
+    if (typeof document === 'undefined' || !document.getElementById) return true;
+    var list = document.getElementById('conv-list');
+    if (!list) return true;
+    if (list.querySelector && list.querySelector('.conv-card, .inbox-row')) return false;
+    return true;
+  } catch (_eList) {
+    return true;
+  }
+}
+
 function inboxRowsBeginFolderSwitch() {
   var gen = (inboxRowsRuntime.folderSwitchGen || 0) + 1;
   inboxRowsRuntime.folderSwitchGen = gen;
   inboxRowsRuntime.folderSwitching = gen;
   inboxRowsRuntime.folderSwitchList = false;
   inboxRowsRuntime.folderSwitchRail = false;
-  var shell = inboxRowsFolderSwitchShell();
-  if (shell && shell.classList && shell.classList.add) shell.classList.add('inbox-folder-switching');
+  inboxRowsRuntime.folderSwitchCard = false;
+  /* Called before setPreset, so guestView is still the origin. */
+  inboxRowsRuntime.folderSwitchDestGuest = !inboxRowsGuestViewActive();
+  /* Chats leftover thread is already the destination card; Guest must wait for paint. */
+  if (!inboxRowsRuntime.folderSwitchDestGuest) inboxRowsRuntime.folderSwitchCard = true;
+  inboxRowsFolderSwitchSetHidden(true);
   if (inboxRowsRuntime.folderSwitchTimer) {
     try { clearTimeout(inboxRowsRuntime.folderSwitchTimer); } catch (_e3) {}
   }
@@ -992,13 +1036,13 @@ function inboxRowsEndFolderSwitch(gen) {
   inboxRowsRuntime.folderSwitching = 0;
   inboxRowsRuntime.folderSwitchList = false;
   inboxRowsRuntime.folderSwitchRail = false;
+  inboxRowsRuntime.folderSwitchCard = false;
   if (inboxRowsRuntime.folderSwitchTimer) {
     try { clearTimeout(inboxRowsRuntime.folderSwitchTimer); } catch (_e4) {}
     inboxRowsRuntime.folderSwitchTimer = 0;
   }
   function reveal() {
-    var shell = inboxRowsFolderSwitchShell();
-    if (shell && shell.classList && shell.classList.remove) shell.classList.remove('inbox-folder-switching');
+    inboxRowsFolderSwitchSetHidden(false);
   }
   if (typeof requestAnimationFrame === 'function') {
     requestAnimationFrame(function() { requestAnimationFrame(reveal); });
@@ -1010,10 +1054,46 @@ function inboxRowsEndFolderSwitch(gen) {
 function inboxRowsNoteFolderSwitchPart(part) {
   var gen = inboxRowsRuntime.folderSwitching;
   if (!gen) return;
-  if (part === 'list') inboxRowsRuntime.folderSwitchList = true;
-  if (part === 'rail') inboxRowsRuntime.folderSwitchRail = true;
-  if (inboxRowsRuntime.folderSwitchList && inboxRowsRuntime.folderSwitchRail) {
+  var destGuest = !!inboxRowsRuntime.folderSwitchDestGuest;
+  var nowGuest = inboxRowsGuestViewActive();
+  if (!nowGuest && destGuest && typeof inboxContextIsGuestMode === 'function') {
+    try { if (inboxContextIsGuestMode()) nowGuest = true; } catch (_eMode) {}
+  }
+  if (part === 'list') {
+    if (nowGuest !== destGuest) return;
+    inboxRowsRuntime.folderSwitchList = true;
+    if (destGuest && inboxRowsFolderSwitchListIsEmpty()) inboxRowsRuntime.folderSwitchCard = true;
+    if (destGuest && !inboxRowsRuntime.folderSwitchCard) {
+      try {
+        if (typeof document !== 'undefined' && document.querySelector
+            && document.querySelector('.inbox-customer-card.is-full')) {
+          inboxRowsRuntime.folderSwitchCard = true;
+        }
+      } catch (_eFull) {}
+    }
+  }
+  if (part === 'rail') {
+    if (nowGuest !== destGuest) return;
+    inboxRowsRuntime.folderSwitchRail = true;
+  }
+  if (part === 'card') {
+    if (nowGuest !== destGuest) return;
+    inboxRowsRuntime.folderSwitchCard = true;
+  }
+  if (inboxRowsRuntime.folderSwitchList && inboxRowsRuntime.folderSwitchRail && inboxRowsRuntime.folderSwitchCard) {
     inboxRowsEndFolderSwitch(gen);
+  }
+}
+
+function inboxRowsWrapFolderSwitchCard() {
+  if (typeof inboxCustomerPaint === 'function' && !inboxCustomerPaint._inboxRowsFolderSwitchWrapped) {
+    var _inboxRowsLegacyCustomerPaint = inboxCustomerPaint;
+    inboxCustomerPaint = function() {
+      var result = _inboxRowsLegacyCustomerPaint.apply(this, arguments);
+      inboxRowsNoteFolderSwitchPart('card');
+      return result;
+    };
+    inboxCustomerPaint._inboxRowsFolderSwitchWrapped = true;
   }
 }
 
@@ -1209,6 +1289,7 @@ function inboxRowsWrapIconState() {
     var _inboxRowsLegacyLoadConvDetail = loadConvDetail;
     loadConvDetail = function(convId, targetEl) {
       inboxRowsWrapGuestKeepCard();
+      inboxRowsWrapFolderSwitchCard();
       var prev = (typeof selectedConvId !== 'undefined') ? selectedConvId : '';
       var result = _inboxRowsLegacyLoadConvDetail(convId, targetEl);
       if (prev && String(prev) !== String(convId || '')) {
@@ -1237,10 +1318,12 @@ function inboxRowsInstall() {
   inboxRowsWrapFilterReselect();
   inboxRowsWrapIconState();
   inboxRowsWrapGuestKeepCard();
+  inboxRowsWrapFolderSwitchCard();
   inboxRowsWrapGuestViewPreset();
   inboxRowsHideLegacyFilterChips();
   inboxRowsAfterRender();
   inboxRowsWrapGuestKeepCard();
+  inboxRowsWrapFolderSwitchCard();
   inboxRowsRuntime.wired = true;
   return true;
 }
@@ -1268,6 +1351,10 @@ if (typeof window !== 'undefined') {
     wrapFilterReselect: inboxRowsWrapFilterReselect,
     wrapIconState: inboxRowsWrapIconState,
     wrapGuestKeepCard: inboxRowsWrapGuestKeepCard,
+    wrapFolderSwitchCard: inboxRowsWrapFolderSwitchCard,
+    beginFolderSwitch: inboxRowsBeginFolderSwitch,
+    endFolderSwitch: inboxRowsEndFolderSwitch,
+    noteFolderSwitchPart: inboxRowsNoteFolderSwitchPart,
     shouldKeepGuestCard: inboxRowsShouldKeepGuestCard,
     isGuestPresetOn: inboxRowsIsGuestPresetOn,
     wrapGuestViewPreset: inboxRowsWrapGuestViewPreset,
