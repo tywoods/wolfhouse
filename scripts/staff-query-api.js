@@ -21656,6 +21656,11 @@ body:has([data-inbox-preset="all4"][aria-pressed="true"]) .inbox-two-col.inbox-s
 .inbox-shell-wrap:has(#inbox-shell[data-col4="wide"]){--inbox-col4-w:460px}
 .inbox-shell-wrap:has(#inbox-shell[data-col4="peek"]){--inbox-col4-w:300px}
 .inbox-shell-wrap:has(#inbox-shell[data-col4="hidden"]){--inbox-col4-w:0px}
+/* SUNSET-INBOX-GUEST-LAYOUT-001: equal rail + list — middle of 240/252, not either extreme. */
+html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col1="full"]{--inbox-col1-w:246px}
+html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col2="comfortable"]{--inbox-col2-w:246px}
+html[data-portal-client="sunset"] .inbox-shell-wrap:has(#inbox-shell[data-col1="full"]){--inbox-col1-w:246px}
+html[data-portal-client="sunset"] .inbox-shell-wrap:has(#inbox-shell[data-col2="comfortable"]){--inbox-col2-w:246px}
 .inbox-two-col.inbox-shell-cols .inbox-left{
   flex:unset;width:auto;min-width:0;min-height:0;height:auto;max-height:none;
   border-right:none;border:1px solid var(--border-soft);border-radius:var(--radius);
@@ -21992,6 +21997,17 @@ body:has(.tab-btn[data-tab="conversations"].active) #tabs .inbox-layout-controls
     opacity:1!important;visibility:visible!important;transform:none!important;
     width:auto;inset:auto;z-index:auto;box-shadow:none;
   }
+  /* SUNSET-INBOX-GUEST-LAYOUT-001: drop the 0px chat track so list→card gap is 14px, not 28px. */
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"]{
+    grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(0,1fr);
+  }
+  html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols{
+    grid-template-columns:var(--inbox-col1-w) minmax(0,var(--inbox-col2-w)) minmax(0,1fr);
+  }
+  html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols .detail-sidebar{grid-column:3}
+  html[data-portal-client="sunset"] body:has([data-inbox-preset="guest"][aria-pressed="true"]) .inbox-two-col.inbox-shell-cols #inbox-detail-sidebar{grid-column:3}
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"] .detail-sidebar{grid-column:3}
+  html[data-portal-client="sunset"] .inbox-two-col.inbox-shell-cols[data-col4="wide"] #inbox-detail-sidebar{grid-column:3}
   /*
    * Peek-on-demand. A collapsed column leaves the grid and waits above column 3; edge
    * hover, focusing its toggle or Escape-able data-peek slides it in and out. The tracks
