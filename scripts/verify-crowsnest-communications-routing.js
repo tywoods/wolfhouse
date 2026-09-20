@@ -17,16 +17,16 @@ assert.match(html, /old Luna/i);
 assert.match(html, /new Luna/i);
 assert.match(html, /who changed/i);
 assert.match(html, /when/i);
-assert.match(html, /\/api\/staging\/luna-routing\//);
-for (const endpoint of ['targets', 'effective', 'confirm', 'apply', 'audit']) {
-  assert.match(html, new RegExp(`request\\(['\"]${endpoint}['\"]`));
-}
-assert.match(html, /unknown_or_production_number_denied/);
-assert.match(html, /pending = Object\.freeze/);
-assert.match(html, /audit_readback_mismatch/);
-assert.match(html, /apply_missing_audit_event_id/);
-assert.match(html, /audit_event_id/);
-assert.match(html, /Reload required/);
+assert.match(html, /\/api\/communications\/luna-number-route/);
+assert.match(html, /flip-to-sunset/);
+assert.match(html, /rollback-to-wolfhouse/);
+assert.match(html, /crypto\.randomUUID\(\)/);
+assert.match(html, /expected_revision/);
+assert.match(html, /target_luna/);
+assert.match(html, /revision/);
+assert.match(html, /Routing saved and verified/);
+assert.doesNotMatch(html, /\/api\/staging\/luna-routing\//);
+assert.doesNotMatch(html, /request\(['\"](?:targets|effective|confirm|apply|audit)['\"]/);
 assert.doesNotMatch(html, /type=["']text["'][^>]*name=["'](?:phone|host|command|shell)/i);
 assert.doesNotMatch(html, /8094|\/sethome|child_process|exec\(|spawn\(/i);
 
