@@ -17,6 +17,10 @@ function authorizeCrowsnestStatusRead(req, env = process.env) {
   return expected.length >= 32 && provided.length >= 32 && timingSafeTextEqual(provided, expected);
 }
 
+function resolveCrowsnestStatusClientSlug(env = process.env) {
+  return String(env.DEFAULT_CLIENT_SLUG || env.STAFF_API_INGRESS_TENANT_SLUG || '').trim();
+}
+
 async function buildStaffLunaStatusSummary(options = {}) {
   const clientSlug = String(options.clientSlug || '').trim();
   if (!clientSlug) return null;
@@ -37,5 +41,6 @@ module.exports = {
   LUNA_STATUS_SUMMARY_PATH,
   STATUS_READ_TOKEN_ENV,
   authorizeCrowsnestStatusRead,
+  resolveCrowsnestStatusClientSlug,
   buildStaffLunaStatusSummary,
 };

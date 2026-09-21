@@ -16,7 +16,6 @@ function getCrowsnestClients() {
       business: 'Wolfhouse',
       location: 'Somo, Spain',
       client_slug: 'wolfhouse-somo',
-      status_client_slug: 'wolfhouse',
       type: 'Surf house',
       status: 'Live',
       status_note: 'Production and staging staff portals are available.',
