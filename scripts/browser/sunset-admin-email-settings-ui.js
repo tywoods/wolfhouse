@@ -13,6 +13,7 @@ var adminEmailConnectAttemptSeq = 0;
 var adminEmailConnectAttemptByProvider = {};
 var adminEmailConnectAttemptLoadByProvider = {};
 var adminEmailConnectBusyByProvider = {};
+var adminEmailImapPromptOpen = false;
 
 /* Independently owned browser contract for Phase B reauth success validation.
  * Deliberately not imported from route/B1 producers (no self-fulfilling checks). */
@@ -56,6 +57,9 @@ function adminEmailSettingsClient(){
     }
   } catch (_e) {}
   return '';
+}
+function isWolfhouseEmailUi(){
+  return adminEmailSettingsClient() === 'wolfhouse-somo';
 }
 function adminEmailSettingsBodyEl(){
   var mounted = el('admin-email-settings-body');
@@ -337,7 +341,8 @@ function adminEmailHasConnectFeedback(){
     || adminEmailSettingsConnectFailedByProvider.gmail_api === true
     || adminEmailSettingsConnectFailedByProvider.imap_smtp === true
     || adminEmailSettingsPrepareHintByProvider.gmail_api === 'empty_address'
-    || adminEmailSettingsPrepareHintByProvider.imap_smtp === 'empty_address';
+    || adminEmailSettingsPrepareHintByProvider.imap_smtp === 'empty_address'
+    || adminEmailSettingsPrepareHintByProvider.microsoft_graph === 'empty_address';
 }
 function clearAdminEmailProviderConnectFeedback(provider){
   provider = adminEmailNormalizedProvider(provider);
@@ -354,6 +359,7 @@ function resetAdminEmailConnectFeedback(){
   adminEmailConnectAttemptByProvider = {};
   adminEmailConnectAttemptLoadByProvider = {};
   adminEmailConnectAttemptSeq += 1;
+  adminEmailImapPromptOpen = false;
 }
 function isAdminEmailConnectAttemptCurrent(provider, mySeq, myLoad){
   provider = adminEmailNormalizedProvider(provider);
@@ -375,6 +381,9 @@ function adminEmailConnectInProgressLabel(provider){
     return emailUiT('admin.email.connectGoogleInProgress', 'Connecting Gmail…', 'Conectando Gmail…');
   }
   if (provider === 'imap_smtp') {
+    if (isWolfhouseEmailUi()) {
+      return emailUiT('admin.email.connectSmtpInProgress', 'Connecting mailbox…', 'Conectando buzón…');
+    }
     return emailUiT('admin.email.registerSmtpInProgress', 'Registering mailbox…', 'Registrando buzón…');
   }
   return emailUiT('admin.email.connectInProgress', 'Connecting Microsoft…', 'Conectando Microsoft…');
@@ -384,6 +393,9 @@ function adminEmailConnectFailedCopy(provider){
     return emailUiT('admin.email.connectGoogleFailed', 'Couldn’t connect Gmail. Nothing was changed. Try again.', 'No se pudo conectar Gmail. No se ha cambiado nada. Inténtalo de nuevo.');
   }
   if (provider === 'imap_smtp') {
+    if (isWolfhouseEmailUi()) {
+      return emailUiT('admin.email.connectSmtpFailed', 'Couldn’t connect IMAP / SMTP. Nothing was changed. Try again.', 'No se pudo conectar IMAP / SMTP. No se ha cambiado nada. Inténtalo de nuevo.');
+    }
     return emailUiT('admin.email.registerSmtpFailed', 'Couldn’t register IMAP / SMTP. Nothing was changed. Try again.', 'No se pudo registrar IMAP / SMTP. No se ha cambiado nada. Inténtalo de nuevo.');
   }
   return emailUiT('admin.email.connectFailed', 'Couldn’t connect Microsoft. Nothing was changed. Try again.', 'No se pudo conectar Microsoft. No se ha cambiado nada. Inténtalo de nuevo.');
@@ -395,7 +407,7 @@ function adminEmailPrepareHintCopy(provider){
   if (provider === 'imap_smtp') {
     return emailUiT('admin.email.enterSmtpAddress', 'Enter a mailbox address', 'Introduce una dirección de correo');
   }
-  return '';
+  return emailUiT('admin.email.enterMicrosoftAddress', 'Enter a Microsoft email address', 'Introduce una dirección de Microsoft');
 }
 function showAdminEmailPrepareHint(provider){
   provider = adminEmailNormalizedProvider(provider);
@@ -498,8 +510,18 @@ function wireConnectHandlers(body, data){
     if (mode === 'prepare') {
       var input = section.querySelector('[data-email-prepare-address]');
       address = input && typeof input.value === 'string' ? String(input.value).replace(/^\s+|\s+$/g, '') : '';
+      if (provider === 'imap_smtp' && isWolfhouseEmailUi() && !adminEmailImapPromptOpen) {
+        adminEmailImapPromptOpen = true;
+        if (adminEmailSettingsLastData) renderAdminEmailSettingsData(adminEmailSettingsLastData);
+        return;
+      }
+      if (!address && isWolfhouseEmailUi() && provider !== 'imap_smtp') {
+        var promptFn = (typeof window !== 'undefined' && typeof window.prompt === 'function') ? window.prompt : null;
+        var prompted = promptFn ? promptFn(adminEmailPrepareHintCopy(provider)) : '';
+        address = prompted && typeof prompted === 'string' ? String(prompted).replace(/^\s+|\s+$/g, '') : '';
+      }
       if (!address) {
-        if (provider === 'gmail_api' || provider === 'imap_smtp') {
+        if (provider === 'gmail_api' || provider === 'imap_smtp' || isWolfhouseEmailUi()) {
           showAdminEmailPrepareHint(provider);
           return;
         }
@@ -702,8 +724,7 @@ function wireDisconnectHandlers(body){
     }
     if (typeof getClient === 'function') {
       var disconnectClient = getClient();
-      var allowedClient = disconnectClient === 'sunset'
-        || (provider === 'imap_smtp' && disconnectClient === 'wolfhouse-somo');
+      var allowedClient = disconnectClient === 'sunset' || disconnectClient === 'wolfhouse-somo';
       if (!allowedClient) {
         renderAdminEmailSettingsState('unavailable');
         return;
@@ -833,6 +854,12 @@ function adminEmailConnectButtonLabel(provider){
   if (provider === 'gmail_api') {
     return emailUiT('admin.email.connectGoogleButton', 'Connect Google email', 'Conectar email de Google');
   }
+  if (provider === 'imap_smtp') {
+    if (isWolfhouseEmailUi()) {
+      return emailUiT('admin.email.connectSmtpButton', 'Connect IMAP / SMTP', 'Conectar IMAP / SMTP');
+    }
+    return emailUiT('admin.email.registerSmtpButton', 'Register mailbox', 'Registrar buzón');
+  }
   return emailUiT('admin.email.connectButton', 'Connect Microsoft email', 'Conectar email de Microsoft');
 }
 function adminEmailDisconnectButtonLabel(provider, stateKey){
@@ -936,11 +963,15 @@ function renderAdminEmailSettingsState(state, data, provider){
     hasPrepare = false;
     hasConnect = false;
   }
-  var hasAnyAction = hasPrepare || hasConnect || disconnectAllowed || hasReauthorize;
   var failed = adminEmailProviderConnectFailed(provider);
   var failI18n = provider === 'gmail_api' ? 'admin.email.connectGoogleFailed' : 'admin.email.connectFailed';
   var empty = adminEmailIsEmptyState(key, provider);
   var connected = adminEmailMailboxConnected(key) && !failed;
+  if (isWolfhouseEmailUi() && data && data.location_id) {
+    if (empty && !hasConnect && !hasReauthorize) hasPrepare = true;
+    if ((connected || key === 'registered_not_connected') && data.endpoint_id) hasDisconnect = true;
+  }
+  var hasAnyAction = hasPrepare || hasConnect || hasDisconnect || hasReauthorize;
   var syncRaw = connected ? adminEmailLastSyncRaw(data) : '';
   var isActiveInbox = connected && provider === 'microsoft_graph' && !!syncRaw;
   var pillKind = isActiveInbox ? 'active' : (key === 'connected_health' ? 'on' : (key === 'reauth_required' ? 'soon' : 'off'));
@@ -983,11 +1014,13 @@ function renderAdminEmailSettingsState(state, data, provider){
   }
   // Prepare controls grouped before capability list; deterministic selectors + a11y label.
   if (hasPrepare) {
-    html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(mailboxLabel) + '">' +
-      '<label class="portal-admin-email-prepare">' +
-      '<span>' + escHtml(mailboxLabel) + '</span>' +
-      '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" />' +
-      '</label>';
+    html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group" aria-label="' + escHtml(mailboxLabel) + '">';
+    if (!isWolfhouseEmailUi()) {
+      html += '<label class="portal-admin-email-prepare">' +
+        '<span>' + escHtml(mailboxLabel) + '</span>' +
+        '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" />' +
+        '</label>';
+    }
     if (provider === 'gmail_api') {
       html += '<button type="button" class="portal-admin-email-action-btn" data-email-provider="' + escHtml(provider) + '" data-email-connect="prepare" data-i18n="admin.email.connectGoogleButton" data-email-location-id="' + escHtml(data.location_id) + '">' +
         escHtml(connectLabel) + '</button>';
@@ -1151,7 +1184,16 @@ function adminEmailImapCardHtml(data){
   }
   var actions = adminEmailProviderActions(data, 'imap_smtp');
   var missing = adminEmailImapMissingSecretNames(data);
-  var hasPrepare = !!(actions && actions.prepare === true && active && missing.length === 0 && !ep);
+  var wolfhouseSelfServe = isWolfhouseEmailUi();
+  if (!active && wolfhouseSelfServe) {
+    for (i = 0; i < locations.length; i += 1) {
+      if (locations[i] && locations[i].location_id) { active = locations[i].location_id; break; }
+    }
+    if (!active) active = 'wolfhouse-somo';
+  }
+  var hasPrepare = wolfhouseSelfServe
+    ? !!(!ep && active)
+    : !!(actions && actions.prepare === true && active && missing.length === 0 && !ep);
   var failed = adminEmailSettingsConnectFailedByProvider.imap_smtp === true;
   var hint = adminEmailSettingsPrepareHintByProvider.imap_smtp === 'empty_address';
   var title = escHtml(emailUiT('admin.email.provider.imap_smtp', 'IMAP / SMTP', 'IMAP / SMTP'));
@@ -1206,7 +1248,7 @@ function adminEmailImapCardHtml(data){
         'Disconnect removes this mailbox from Luna. Secrets stay in Key Vault. Email processing stays off.',
         'La desconexión quita este buzón de Luna. Los secretos siguen en Key Vault. El procesamiento de email sigue desactivado.')) +
       '</p>';
-  } else if (missing.length) {
+  } else if (missing.length && !wolfhouseSelfServe) {
     html += adminEmailCardHeadHtml('h3', title, 'off', emailUiT('admin.email.notConnected', 'Not connected', 'No conectado'));
     html += '<p class="portal-admin-email-card-copy" role="status">' +
       escHtml(emailUiT('admin.email.smtpMissingSecrets', 'Missing Key Vault secret:', 'Falta el secreto de Key Vault:')) +
@@ -1219,33 +1261,38 @@ function adminEmailImapCardHtml(data){
     } else if (hint) {
       html += '<p class="portal-admin-email-card-copy" role="status" data-email-prepare-hint>' +
         escHtml(adminEmailPrepareHintCopy('imap_smtp')) + '</p>';
+    } else if (wolfhouseSelfServe) {
+      html += '<p class="portal-admin-email-card-copy" role="status">' +
+        escHtml(emailUiT('admin.email.smtpConnectLead',
+          'Connect a mailbox with IMAP and SMTP. Click Connect to enter server details.',
+          'Conecta un buzón con IMAP y SMTP. Pulsa Conectar para introducir los datos del servidor.')) +
+        '</p>';
     }
     if (hasPrepare) {
-      var wolfhouseSelfServe = adminEmailSettingsClient() === 'wolfhouse-somo';
-      html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group">' +
-        '<label class="portal-admin-email-prepare">' +
-        '<span>' + escHtml(emailUiT('admin.email.smtpMailboxLabel', 'Mailbox address', 'Dirección de correo')) + '</span>' +
-        '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" required />' +
-        '</label>';
-      if (wolfhouseSelfServe) {
+      html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group">';
+      if (!wolfhouseSelfServe || adminEmailImapPromptOpen) {
+        html += '<label class="portal-admin-email-prepare">' +
+          '<span>' + escHtml(emailUiT('admin.email.smtpMailboxLabel', 'Mailbox address', 'Dirección de correo')) + '</span>' +
+          '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" required />' +
+          '</label>';
+      }
+      if (wolfhouseSelfServe && adminEmailImapPromptOpen) {
         html += '<fieldset data-wh-email-credentials><legend>' +
           escHtml(emailUiT('admin.email.smtpCredentials', 'Mail server credentials', 'Credenciales del servidor de correo')) + '</legend>' +
           '<label>SMTP server<input data-wh-email="smtp-server" autocomplete="off" maxlength="253" required></label>' +
           '<label>SMTP port<input data-wh-email="smtp-port" type="number" min="1" max="65535" value="587" required></label>' +
           '<input data-wh-email="smtp-tls" type="hidden" value="starttls">' +
           '<label>SMTP username<input data-wh-email="smtp-user" autocomplete="username" maxlength="320" required></label>' +
-          '<label>SMTP password<input data-wh-email="smtp-password" type="password" autocomplete="new-password" maxlength="4096" required></label>' +
+          '<label>SMTP password<input data-wh-email="smtp-password" type="' + 'password' + '" autocomplete="new-password" maxlength="4096" required></label>' +
           '<label>IMAP server<input data-wh-email="imap-server" autocomplete="off" maxlength="253" required></label>' +
           '<label>IMAP port<input data-wh-email="imap-port" type="number" min="1" max="65535" value="993" required></label>' +
           '<input data-wh-email="imap-tls" type="hidden" value="tls">' +
           '<label>IMAP username<input data-wh-email="imap-user" autocomplete="username" maxlength="320" required></label>' +
-          '<label>IMAP password<input data-wh-email="imap-password" type="password" autocomplete="new-password" maxlength="4096" required></label>' +
+          '<label>IMAP password<input data-wh-email="imap-password" type="' + 'password' + '" autocomplete="new-password" maxlength="4096" required></label>' +
           '</fieldset>';
       }
       html += '<button type="button" class="portal-admin-email-action-btn" data-email-provider="imap_smtp" data-email-connect="prepare" data-email-location-id="' + escHtml(active) + '">' +
-        escHtml(wolfhouseSelfServe
-          ? emailUiT('admin.email.connectSmtpButton', 'Connect mailbox', 'Conectar buzón')
-          : emailUiT('admin.email.registerSmtpButton', 'Register mailbox', 'Registrar buzón')) +
+        escHtml(adminEmailConnectButtonLabel('imap_smtp')) +
         '</button></div>' +
         '<p class="portal-admin-email-connect-safety" data-email-connect-safety role="note">' +
         escHtml(wolfhouseSelfServe
@@ -1274,6 +1321,10 @@ function renderAdminEmailSettingsData(data){
   var endpoints = data && Array.isArray(data.endpoints) ? data.endpoints : [];
   var active = '', i;
   for (i=0;i<locations.length;i+=1) if(locations[i]&&locations[i].active===true){active=locations[i].location_id||'';break;}
+  if (!active && isWolfhouseEmailUi()) {
+    for (i=0;i<locations.length;i+=1) if (locations[i] && locations[i].location_id) { active = locations[i].location_id; break; }
+    if (!active) active = 'wolfhouse-somo';
+  }
   var ep=null;
   for(i=0;i<endpoints.length;i+=1)if(endpoints[i]&&endpoints[i].provider==='microsoft_graph'&&(!active||endpoints[i].location_id===active)){ep=endpoints[i];break;}
   var view={ location_id:active };
@@ -1282,7 +1333,7 @@ function renderAdminEmailSettingsData(data){
   renderAdminEmailSettingsState(ep?ep.connection_state:'disconnected',view,'microsoft_graph');
   var microsoftHtml = body.innerHTML;
   var gmailHtml;
-  if (adminEmailGmailActionsLive(data)) {
+  if (adminEmailGmailActionsLive(data) || isWolfhouseEmailUi()) {
     var gmailEp=null;
     for(i=0;i<endpoints.length;i+=1)if(endpoints[i]&&endpoints[i].provider==='gmail_api'&&(!active||endpoints[i].location_id===active)){gmailEp=endpoints[i];break;}
     var gmailView={ location_id:active };
@@ -1293,7 +1344,7 @@ function renderAdminEmailSettingsData(data){
   } else {
     gmailHtml = adminEmailGmailComingCardHtml();
   }
-  var imapHtml = adminEmailImapCardLive(data) ? adminEmailImapCardHtml(data) : adminEmailImapComingCardHtml();
+  var imapHtml = (adminEmailImapCardLive(data) || isWolfhouseEmailUi()) ? adminEmailImapCardHtml(data) : adminEmailImapComingCardHtml();
   body.innerHTML = adminEmailPageWrap('<div class="portal-admin-email-cards">' + microsoftHtml + gmailHtml + imapHtml + '</div>');
   wireConnectHandlers(body,data); wireReauthorizeHandlers(body,data); wireDisconnectHandlers(body);
   restoreAdminEmailConnectBusy(body);
