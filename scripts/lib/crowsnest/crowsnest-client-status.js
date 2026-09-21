@@ -68,7 +68,14 @@ async function safeRead(fn) {
 }
 
 function emptyEnvironment() {
-  return { WhatsApp: STATUS.UNKNOWN, Email: STATUS.UNKNOWN, Stripe: STATUS.UNKNOWN, Luna: STATUS.UNKNOWN };
+  return { WhatsApp: STATUS.UNKNOWN, WhatsAppDetail: '', Email: STATUS.UNKNOWN, EmailDetail: '', Stripe: STATUS.UNKNOWN, Luna: STATUS.UNKNOWN };
+}
+
+function emailDetail(evidence) {
+  if (!evidence || !Array.isArray(evidence.endpoints)) return '';
+  const endpoint = evidence.endpoints.find((row) => row && row.active === true && row.binding_status === 'verified');
+  const value = endpoint && String(endpoint.public_address || '').trim();
+  return value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : '';
 }
 
 async function collectClientConnectionStatuses(options = {}) {
@@ -87,6 +94,7 @@ async function collectClientConnectionStatuses(options = {}) {
       row.WhatsApp = environment === 'staging'
         ? deriveWhatsAppStatus(whatsapp, expectedRouteOwner)
         : STATUS.UNKNOWN;
+      if (row.WhatsApp === STATUS.CONFIGURED) row.WhatsAppDetail = String(whatsapp && (whatsapp.number_display || whatsapp.number_e164) || '').trim();
       const origin = origins[client.client_slug] && (typeof origins[client.client_slug] === 'string'
         ? origins[client.client_slug] : origins[client.client_slug][environment]);
       if (requestJson && origin) {
@@ -95,6 +103,7 @@ async function collectClientConnectionStatuses(options = {}) {
         const payment = await safeRead(() => requestJson(`${base}/staff/admin/payment-summary?client=${encodeURIComponent(client.client_slug)}`));
         const luna = await safeRead(() => requestJson(`${base}/staff/admin/luna-status-summary?client=${encodeURIComponent(client.client_slug)}`));
         row.Email = deriveEmailStatus(email);
+        if (row.Email === STATUS.CONFIGURED) row.EmailDetail = emailDetail(email);
         row.Stripe = deriveStripeStatus(payment);
         row.Luna = deriveLunaStatus(normalizeLunaEvidenceResponse(luna));
       }

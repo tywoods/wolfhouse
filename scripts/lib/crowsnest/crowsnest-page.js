@@ -91,16 +91,16 @@ function renderConnectionGroup(label, statuses) {
   const safe = statuses || {};
   const chips = ['WhatsApp', 'Email', 'Stripe', 'Luna'].map((name) => {
     const value = safe[name] || 'Unknown';
-    return `<span class="connection-chip"><span class="connection-chip-label">${name}</span>${renderStatusPill(value)}</span>`;
+    const detail = safe[`${name}Detail`];
+    const detailHtml = detail ? `<span class="connection-chip-detail">${escapeHtml(detail)}</span>` : '';
+    return `<span class="connection-chip"><span class="connection-chip-label">${name}</span>${renderStatusPill(value)}${detailHtml}</span>`;
   }).join('');
   return `<div class="connection-group"><h3 class="connection-heading">${escapeHtml(label)}</h3><div class="connection-chips">${chips}</div></div>`;
 }
 
 function renderClientCard(client, clientStatuses) {
   const statuses = clientStatuses || {};
-  const connectionGroups = client.id === 'wolfhouse-somo'
-    ? renderConnectionGroup('Live connections', statuses.live) + renderConnectionGroup('Staging connections', statuses.staging)
-    : renderConnectionGroup('Connections', statuses.staging);
+  const connectionGroups = renderConnectionGroup('Connections', statuses.staging);
   const envRows = (client.environments || []).map(renderEnvironmentRow).join('\n        ');
   const portalList = envRows || `<li class="env-row env-muted">
       <div class="env-row-main">

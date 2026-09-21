@@ -41,9 +41,15 @@ function getCrowsnestClients() {
       location: 'Somo, Spain',
       client_slug: 'sunset',
       type: 'Surf school',
-      status: 'Staging',
-      status_note: 'Staging staff portal is available; no production portal is listed.',
+      status: 'Live',
+      status_note: 'Production and staging staff portals are available.',
       environments: [
+        {
+          label: 'Staff production',
+          kind: 'staff_portal',
+          url: 'https://sunset.lunafrontdesk.com',
+          state: 'linked',
+        },
         {
           label: 'Staff staging',
           kind: 'staff_portal',

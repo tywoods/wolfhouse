@@ -2,6 +2,7 @@
 const crypto = require('crypto');
 const CONTROLLER_PATH = '/v1/routes/meta-whatsapp-verified-webhook';
 const NUMBER_E164 = '+346****9419';
+const NUMBER_DISPLAY = '+34 663 43 94 19';
 const PHONE_NUMBER_ID = '1152900101233109';
 const EXACT_PATH = '/whatsapp/webhook';
 const ENVIRONMENT = 'staging';
@@ -67,7 +68,7 @@ function createAuditStore(dsn, poolFactory) {
 }
 async function closeAuditPools() { const values = [...pools.values()]; pools.clear(); await Promise.all(values.map((pool) => pool.end())); }
 async function callController(method, payload, cfg, transport = fetch) { const body = payload ? JSON.stringify(payload) : ''; const headers = { accept: 'application/json', 'content-type': 'application/json', ...signedHeaders(method, CONTROLLER_PATH, body, cfg.key) }; let response; try { response = await transport(cfg.url, { method, headers, body: body || undefined, signal: AbortSignal.timeout(10000) }); } catch (_) { return { ok: false, status: 503, indeterminate: method === 'POST', code: method === 'POST' ? 'routing_outcome_indeterminate' : 'routing_controller_unavailable' }; } let result = {}; try { result = await response.json(); } catch (_) { } if (!response.ok || result.ok !== true) return { ok: false, status: [409, 415, 422].includes(response.status) ? response.status : 503, code: result.code || 'routing_controller_rejected', indeterminate: result.indeterminate === true, events: Array.isArray(result.events) ? result.events : [] }; return result; }
-async function readLunaNumberRoute(options = {}) { const runtimeEnv = options.env || process.env; if (!isStagingEnvironment(runtimeEnv)) return { ok: false, status: 404, code: 'routing_not_available' }; const cfg = config(runtimeEnv); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' }; const result = await callController('GET', null, cfg, options.transport); if (!result.ok) return result; let audit = null; try { const store = options.auditStore || createAuditStore(cfg.dsn, options.poolFactory); audit = await store.latest(); } catch (_) { audit = null; } return { ok: true, number_e164: NUMBER_E164, phone_number_id: PHONE_NUMBER_ID, environment: ENVIRONMENT, route: result.route, audit }; }
+async function readLunaNumberRoute(options = {}) { const runtimeEnv = options.env || process.env; if (!isStagingEnvironment(runtimeEnv)) return { ok: false, status: 404, code: 'routing_not_available' }; const cfg = config(runtimeEnv); if (!cfg) return { ok: false, status: 503, code: 'routing_not_configured' }; const result = await callController('GET', null, cfg, options.transport); if (!result.ok) return result; let audit = null; try { const store = options.auditStore || createAuditStore(cfg.dsn, options.poolFactory); audit = await store.latest(); } catch (_) { audit = null; } return { ok: true, number_e164: NUMBER_E164, number_display: NUMBER_DISPLAY, phone_number_id: PHONE_NUMBER_ID, environment: ENVIRONMENT, route: result.route, audit }; }
 async function mutate(action, input, actor, options = {}) {
   const runtimeEnv = options.env || process.env;
   if (!isStagingEnvironment(runtimeEnv)) return { ok: false, status: 404, code: 'routing_not_available' };
@@ -87,4 +88,4 @@ async function mutate(action, input, actor, options = {}) {
 }
 const flipLunaNumberRoute = (input, actor, options) => mutate(ACTIONS.flip, input, actor, options);
 const rollbackLunaNumberRoute = (input, actor, options) => mutate(ACTIONS.rollback, input, actor, options);
-module.exports = { CONTROLLER_PATH, NUMBER_E164, PHONE_NUMBER_ID, EXACT_PATH, ENVIRONMENT, ACTIONS, REGISTERED_LUNAS, isStagingEnvironment, canonical, signedHeaders, createAuditStore, closeAuditPools, readLunaNumberRoute, flipLunaNumberRoute, rollbackLunaNumberRoute };
+module.exports = { CONTROLLER_PATH, NUMBER_E164, NUMBER_DISPLAY, PHONE_NUMBER_ID, EXACT_PATH, ENVIRONMENT, ACTIONS, REGISTERED_LUNAS, isStagingEnvironment, canonical, signedHeaders, createAuditStore, closeAuditPools, readLunaNumberRoute, flipLunaNumberRoute, rollbackLunaNumberRoute };
