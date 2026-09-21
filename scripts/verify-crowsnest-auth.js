@@ -546,7 +546,11 @@ function waitForHealthz(port, timeoutMs = 15000) {
 
 function startServer(port, env) {
   return new Promise((resolve, reject) => {
-    child = spawn(process.execPath, [API_SCRIPT], {
+    // Clients now acquires public health evidence. Keep this auth gate offline;
+    // run the real exported server with an explicit test-only transport preload.
+    const fixture = path.join(ROOT, 'scripts', 'verify-crowsnest-client-portal-evidence.js');
+    const boot = `require(${JSON.stringify(fixture)}).installOfflineHealthTransport(); const {server, PORT, HOST} = require(${JSON.stringify(API_SCRIPT)}); server.listen(PORT, HOST);`;
+    child = spawn(process.execPath, ['-e', boot], {
       cwd: ROOT,
       env: { ...process.env, ...env, CROWSNEST_PORT: String(port), CROWSNEST_HOST: '127.0.0.1' },
       stdio: ['ignore', 'pipe', 'pipe'],
