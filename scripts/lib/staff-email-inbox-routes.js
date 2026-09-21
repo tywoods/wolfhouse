@@ -67,6 +67,7 @@ const ENV_OUTBOUND_ENABLED = 'EMAIL_STAFF_OUTBOUND_ENABLED';
 const ENV_SEND_ENABLED = 'EMAIL_OUTBOUND_SEND_ENABLED';
 const ENV_COMPOSITION_ENABLED = 'EMAIL_OUTBOUND_RUNTIME_COMPOSITION_ENABLED';
 const ENV_PORTAL_ORIGIN = 'STAFF_PORTAL_ORIGIN';
+const wolfhouseTenant = require('./email-wolfhouse-tenant');
 const SEND_PUBLIC_CODES = Object.freeze([
   'email_send_committed', 'email_send_outcome_unknown', 'email_send_recovery',
   'email_send_reauthorization_required', 'email_send_unavailable',
@@ -214,9 +215,30 @@ function isEmailStaffDraftsEnabled(env) { return envFlagTrue(env, ENV_DRAFTS_ENA
 function isEmailStaffOutboundEnabled(env) { return envFlagTrue(env, ENV_OUTBOUND_ENABLED); }
 function isEmailOutboundSendEnabled(env) { return envFlagTrue(env, ENV_SEND_ENABLED); }
 function isEmailOutboundRuntimeCompositionEnabled(env) { return envFlagTrue(env, ENV_COMPOSITION_ENABLED); }
+function isEmailStaffDraftsEnabledForCaller(env, user) {
+  if (wolfhouseTenant.isWolfhouseEmailCaller(user)) {
+    return wolfhouseTenant.isWolfhouseEmailStaffDraftsEnabled(env);
+  }
+  return isEmailStaffDraftsEnabled(env);
+}
+function isEmailStaffOutboundEnabledForCaller(env, user) {
+  if (wolfhouseTenant.isWolfhouseEmailCaller(user)) {
+    return wolfhouseTenant.isWolfhouseEmailStaffOutboundEnabled(env);
+  }
+  return isEmailStaffOutboundEnabled(env);
+}
+function isEmailOutboundSendEnabledForCaller(env, user) {
+  if (wolfhouseTenant.isWolfhouseEmailCaller(user)) {
+    return wolfhouseTenant.isWolfhouseEmailOutboundSendEnabled(env);
+  }
+  return isEmailOutboundSendEnabled(env);
+}
 function snapshotGateEnv(env) {
   const src = env && typeof env === 'object' ? env : {}; const out = Object.create(null);
-  for (const k of [ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN]) {
+  for (const k of [
+    ENV_DRAFTS_ENABLED, ENV_OUTBOUND_ENABLED, ENV_SEND_ENABLED, ENV_COMPOSITION_ENABLED, ENV_PORTAL_ORIGIN,
+    wolfhouseTenant.ENV_DRAFTS, wolfhouseTenant.ENV_OUTBOUND, wolfhouseTenant.ENV_SEND,
+  ]) {
     const v = ownData(src, k); if (typeof v === 'string') out[k] = v;
   }
   return Object.freeze(out);
@@ -649,8 +671,9 @@ function actorFromUser(user) {
   const sid = parseUuid(typeof user.staff_user_id === 'string' ? user.staff_user_id : null);
   const clientId = parseUuid(typeof user.client_id === 'string' ? user.client_id : null);
   const role = typeof user.role === 'string' ? user.role : null;
+  const clientSlug = typeof user.client_slug === 'string' ? user.client_slug : '';
   return (sid && clientId && role && EMAIL_STAFF_ROLES.includes(role))
-    ? Object.freeze({ staff_user_id: sid, client_id: clientId, role }) : null;
+    ? Object.freeze({ staff_user_id: sid, client_id: clientId, role, client_slug: clientSlug }) : null;
 }
 function auditSafe(appendAuditLog, fields) {
   if (typeof appendAuditLog !== 'function') return;
@@ -842,7 +865,7 @@ function createStaffEmailInboxRoutes(deps) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
     let pre;
-    try { pre = await preflight(req, res, user, env, isEmailStaffDraftsEnabled(env), DRAFTS_UNAVAILABLE); }
+    try { pre = await preflight(req, res, user, env, isEmailStaffDraftsEnabledForCaller(env, user), DRAFTS_UNAVAILABLE); }
     catch {
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.draft', category: 'email_inbox_draft', success: false, code: 'draft_error' });
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'draft_failed' }));
@@ -879,7 +902,7 @@ function createStaffEmailInboxRoutes(deps) {
   }
   async function handleDeleteDraft(query, req, res, user, gateEnv) {
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
-    if (!isEmailStaffDraftsEnabled(env)) return sendJSON(res, 404, DRAFTS_UNAVAILABLE);
+    if (!isEmailStaffDraftsEnabledForCaller(env, user)) return sendJSON(res, 404, DRAFTS_UNAVAILABLE);
     const originGate = validateSameOrigin(req, env);
     if (!originGate.ok) return sendJSON(res, originGate.status, originGate.body);
     const actor = actorFromUser(user);
@@ -1085,7 +1108,7 @@ function createStaffEmailInboxRoutes(deps) {
       }
       // Post-COMMIT only. Global send + composition flags independently required.
       // Hard-false owner constants remain; no token/Graph when either flag is off.
-      const sendEnabled = isEmailOutboundSendEnabled(env);
+      const sendEnabled = isEmailOutboundSendEnabledForCaller(env, actor);
       const compositionEnabled = isEmailOutboundRuntimeCompositionEnabled(env);
       if (!sendEnabled || !compositionEnabled) {
         return { status: 503, body: Object.freeze({ success: false, error: 'email_send_disabled', conversation_id: input.conversation_id, approval_id: approvalId, approval_state: 'approved' }),
@@ -1168,7 +1191,7 @@ function createStaffEmailInboxRoutes(deps) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
     let pre;
-    try { pre = await preflight(req, res, user, env, isEmailStaffOutboundEnabled(env), STAFF_REPLIES_UNAVAILABLE); }
+    try { pre = await preflight(req, res, user, env, isEmailStaffOutboundEnabledForCaller(env, user), STAFF_REPLIES_UNAVAILABLE); }
     catch {
       auditSafe(appendAuditLog, { intent: 'api:inbox.email.approve_send', category: 'email_inbox_approve_send', success: false, code: 'approve_error' });
       return sendJSON(res, 500, Object.freeze({ success: false, error: 'approve_failed' }));
@@ -1245,7 +1268,7 @@ function createStaffEmailInboxRoutes(deps) {
   async function handleRecoverSend(req, res, user, gateEnv) {
     const started = Date.now();
     const env = gateEnv || snapshotGateEnv(deps.runtimeEnv || process.env);
-    if (!isEmailStaffOutboundEnabled(env)) {
+    if (!isEmailStaffOutboundEnabledForCaller(env, user)) {
       sendJSON(res, 404, STAFF_REPLIES_UNAVAILABLE);
       return;
     }
@@ -1329,7 +1352,7 @@ function createStaffEmailInboxRoutes(deps) {
           };
         }
         // send_dispatched reconcile-only via existing dispatchApprovedOutbound path.
-        const sendEnabled = isEmailOutboundSendEnabled(env);
+        const sendEnabled = isEmailOutboundSendEnabledForCaller(env, actor);
         const compositionEnabled = isEmailOutboundRuntimeCompositionEnabled(env);
         if (!sendEnabled || !compositionEnabled) {
           return {
@@ -1434,6 +1457,7 @@ module.exports = {
   SQL_RESOLVE, SQL_RESOLVE_SMTP, SQL_VISIBLE_EMAIL, SQL_APPROVE, SQL_DELETE_DRAFT, SQL_LOAD_APPROVAL, SQL_JOURNAL_RECOVERY_PHASE, SQL_JOURNAL_EXISTS,
   createStaffEmailInboxRoutes,
   isEmailStaffDraftsEnabled, isEmailStaffOutboundEnabled, isEmailOutboundSendEnabled,
+  isEmailStaffDraftsEnabledForCaller, isEmailStaffOutboundEnabledForCaller, isEmailOutboundSendEnabledForCaller,
   isEmailOutboundRuntimeCompositionEnabled,
   snapshotGateEnv, snapshotEmailReplyBody, snapshotRecoveryBody, validateJsonContentType, validateSameOrigin,
   isExactApplicationJson, bodyDigestOf, exactOriginSerialization, normalizeConfiguredOrigin,

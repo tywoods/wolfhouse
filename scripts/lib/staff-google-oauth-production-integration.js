@@ -49,6 +49,8 @@ const PINNED_UTIL_TYPES = types && typeof types === 'object' ? types : null;
 const PINNED_IS_PROXY = PINNED_UTIL_TYPES && typeof PINNED_UTIL_TYPES.isProxy === 'function'
   ? PINNED_UTIL_TYPES.isProxy
   : null;
+const { createWolfhouseGoogleEndpointPrepare } = require('./email-wolfhouse-endpoint-prepare');
+const wolfhouseTenant = require('./email-wolfhouse-tenant');
 const GOOGLE_ENDPOINT_PATH='/staff/admin/email-settings/oauth/google/endpoint';
 const GOOGLE_START_PATH='/staff/admin/email-settings/oauth/google/start';
 const GOOGLE_CALLBACK_PATH='/staff/email/google/callback';
@@ -114,6 +116,12 @@ function isGoogleDisconnectRouteEnabled(env){
     && own(env,'SUNSET_EMAIL_SETTINGS_UI_ENABLED')==='true'
     && own(env,DISCONNECT_FLAG)==='true';
 }
+function isWolfhouseGoogleDisconnectRouteEnabled(env){
+  return wolfhouseTenant.isWolfhouseEmailDisconnectEnabled(env);
+}
+function isWolfhouseGoogleEndpointEnabled(env){
+  return wolfhouseTenant.isWolfhouseEmailGoogleOAuthStartEnabled(env);
+}
 function frozenDto(entries){const dto={};for(const [key,value] of entries)objectDefineProperty(dto,key,{value,enumerable:true,writable:false,configurable:false});return objectFreeze(dto);}
 
 function parseStrictGoogleJson(contentType,raw,keys){
@@ -136,10 +144,34 @@ function createStaffGoogleOAuthProductionIntegration(deps){
     const gate=snapshotGate(env);const method=own(req,'method');
     // Registered-not-connected Remove shares the Microsoft disconnect gate (not Google start).
     if(pathname===GOOGLE_DISCONNECT_PATH){
-      if(!isGoogleDisconnectRouteEnabled(env))return json(res,404,{success:false,error:'not_found'});
+      const sunsetOn=isGoogleDisconnectRouteEnabled(env);
+      const wolfOn=isWolfhouseGoogleDisconnectRouteEnabled(env);
+      if(!sunsetOn&&!wolfOn)return json(res,404,{success:false,error:'not_found'});
       if(method!=='POST')return false;
       const auth=await deps.requireAdmin(req,res);if(!auth||!auth.ok)return;
-      const user=auth.user;if(!deps.assertStaffClientAccess(user,'sunset',res))return;
+      const user=auth.user;
+      const wolfCaller=own(user,'client_slug')===wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG;
+      if(wolfCaller){
+        if(!wolfOn)return json(res,404,{success:false,error:'not_found'});
+        if(!deps.assertStaffClientAccess(user,wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,res))return;
+        const decision=deps.authorizeAuthenticatedStaffRoute({clientSlug:wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,method:'POST',pathname,env});if(!decision.ok)return json(res,decision.status||403,decision.body||{success:false,error:'forbidden'});
+        if(rejectExactPrototypeOwnConstructor(req))return json(res,400,{success:false,error:'invalid_request'});
+        let raw;try{raw=await deps.readBody(req,JSON_LIMIT);}catch{return json(res,400,{success:false,error:'invalid_request'});}
+        const body=parseStrictGoogleJson(own(readRequestHeaders(req)||{},'content-type'),raw,['location_id','endpoint_id']);if(!body)return json(res,400,{success:false,error:'invalid_request'});
+        try{
+          const disconnectEnv=objectFreeze({
+            LUNA_DEPLOYMENT:own(env,'LUNA_DEPLOYMENT'),
+            WOLFHOUSE_EMAIL_SETTINGS_UI_ENABLED:own(env,wolfhouseTenant.ENV_UI),
+            WOLFHOUSE_EMAIL_OAUTH_DISCONNECT_ENABLED:own(env,wolfhouseTenant.ENV_DISCONNECT),
+          });
+          const routes=typeof deps.createGoogleRoutes==='function'
+            ? deps.createGoogleRoutes(gate)
+            : deps.googleRoutes;
+          return await routes.handleDisconnect(body,req,res,user,disconnectEnv);
+        }catch{return json(res,503,{success:false,error:'oauth_disconnect_unavailable'});}
+      }
+      if(!sunsetOn)return json(res,404,{success:false,error:'not_found'});
+      if(!deps.assertStaffClientAccess(user,'sunset',res))return;
       const decision=deps.authorizeAuthenticatedStaffRoute({clientSlug:'sunset',method:'POST',pathname,env});if(!decision.ok)return json(res,decision.status||403,decision.body||{success:false,error:'forbidden'});
       if(rejectExactPrototypeOwnConstructor(req))return json(res,400,{success:false,error:'invalid_request'});
       let raw;try{raw=await deps.readBody(req,JSON_LIMIT);}catch{return json(res,400,{success:false,error:'invalid_request'});}
@@ -157,14 +189,29 @@ function createStaffGoogleOAuthProductionIntegration(deps){
       }catch{return json(res,503,{success:false,error:'oauth_disconnect_unavailable'});}
     }
     let kind=null;if(pathname===GOOGLE_ENDPOINT_PATH)kind='endpoint';else if(pathname===GOOGLE_START_PATH)kind='start';else if(pathname===GOOGLE_CALLBACK_PATH)kind='callback';else return false;
-    if(!isGoogleRouteEnabled(gate,kind))return kind==='callback'?deps.sendHTML(res,404,'<!doctype html><title>Not found</title>'):json(res,404,{success:false,error:'not_found'});
+    const sunsetKindOn=isGoogleRouteEnabled(gate,kind);
+    const wolfEndpointOn=kind==='endpoint'&&isWolfhouseGoogleEndpointEnabled(env);
+    if(!sunsetKindOn&&!wolfEndpointOn)return kind==='callback'?deps.sendHTML(res,404,'<!doctype html><title>Not found</title>'):json(res,404,{success:false,error:'not_found'});
     if((kind==='callback'&&method!=='GET')||(kind!=='callback'&&method!=='POST'))return false;
     if(kind==='callback'){
+      if(!sunsetKindOn)return deps.sendHTML(res,404,'<!doctype html><title>Not found</title>');
       try{const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate):deps.googleRoutes;return routes.handleCallback(req,res);}
       catch{return deps.sendHTML(res,400,'<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>');}
     }
     const auth=await deps.requireAdmin(req,res);if(!auth||!auth.ok)return;
-    const user=auth.user;if(!deps.assertStaffClientAccess(user,'sunset',res))return;
+    const user=auth.user;
+    if(own(user,'client_slug')===wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG){
+      if(kind!=='endpoint'||!wolfEndpointOn)return json(res,404,{success:false,error:'not_found'});
+      if(!deps.assertStaffClientAccess(user,wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,res))return;
+      const decision=deps.authorizeAuthenticatedStaffRoute({clientSlug:wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,method:'POST',pathname,env});if(!decision.ok)return json(res,decision.status||403,decision.body||{success:false,error:'forbidden'});
+      if(rejectExactPrototypeOwnConstructor(req))return json(res,400,{success:false,error:'invalid_request'});
+      let raw;try{raw=await deps.readBody(req,JSON_LIMIT);}catch{return json(res,400,{success:false,error:'invalid_request'});}
+      const body=parseStrictGoogleJson(own(readRequestHeaders(req)||{},'content-type'),raw,['location_id','public_address']);if(!body)return json(res,400,{success:false,error:'invalid_request'});
+      try{return await deps.withPgClient(async pg=>{const service=createWolfhouseGoogleEndpointPrepare(objectFreeze({client:pg}));const input=frozenDto([['clientId',own(user,'client_id').toLowerCase()],['locationId',body.location_id],['publicAddress',body.public_address],['actorStaffUserId',own(user,'staff_user_id').toLowerCase()]]);const ack=await service.prepareDisabledDelegatedEndpoint(input);return json(res,200,frozenDto([['success',true],['endpoint_id',ack.endpointId]]));});}
+      catch{return json(res,503,{success:false,error:'endpoint_prepare_unavailable'});}
+    }
+    if(!sunsetKindOn)return json(res,404,{success:false,error:'not_found'});
+    if(!deps.assertStaffClientAccess(user,'sunset',res))return;
     const decision=deps.authorizeAuthenticatedStaffRoute({clientSlug:'sunset',method:'POST',pathname,env:gate});if(!decision.ok)return json(res,decision.status||403,decision.body||{success:false,error:'forbidden'});
     if(rejectExactPrototypeOwnConstructor(req))return json(res,400,{success:false,error:'invalid_request'});
     let raw;try{raw=await deps.readBody(req,JSON_LIMIT);}catch{return json(res,400,{success:false,error:'invalid_request'});}
@@ -179,4 +226,4 @@ function createStaffGoogleOAuthProductionIntegration(deps){
   }
   return objectFreeze({dispatch});
 }
-module.exports=objectFreeze({GOOGLE_ENDPOINT_PATH,GOOGLE_START_PATH,GOOGLE_CALLBACK_PATH,GOOGLE_DISCONNECT_PATH,FLAGS,DISCONNECT_FLAG,JSON_LIMIT,snapshotGate,isGoogleRouteEnabled,isGoogleDisconnectRouteEnabled,parseStrictGoogleJson,createStaffGoogleOAuthProductionIntegration});
+module.exports=objectFreeze({GOOGLE_ENDPOINT_PATH,GOOGLE_START_PATH,GOOGLE_CALLBACK_PATH,GOOGLE_DISCONNECT_PATH,FLAGS,DISCONNECT_FLAG,JSON_LIMIT,snapshotGate,isGoogleRouteEnabled,isGoogleDisconnectRouteEnabled,isWolfhouseGoogleDisconnectRouteEnabled,isWolfhouseGoogleEndpointEnabled,parseStrictGoogleJson,createStaffGoogleOAuthProductionIntegration});

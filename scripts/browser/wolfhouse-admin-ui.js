@@ -7,7 +7,8 @@
  * sibling `#admin-wh-shell` / `#wh-admin-*` shell and never reads or writes
  * Sunset admin state, config, or endpoints.
  *
- * Pricing / Email are placeholders until their lodging data models exist.
+ * Pricing is owned by wolfhouse-admin-pricing-ui.js. Email reuses the
+ * Sunset Admin Email screen against Wolfhouse's own mailbox/settings.
  * Luna Staff, Camps-Lessons-Services and Tour Operator host the production
  * top-level panels, relocated (not cloned) by applyClientPortalProfile.
  */
@@ -25,14 +26,7 @@
     'tour-operator': 'tab-tour-operator',
   };
 
-  /**
-   * Placeholder sub-tabs: body id → i18n key for the section title.
-   * Pricing is no longer here — scripts/browser/wolfhouse-admin-pricing-ui.js
-   * owns `#wh-admin-pricing-body` and must not be overwritten by a placeholder.
-   */
-  var WH_ADMIN_PLACEHOLDERS = {
-    email: { body: 'wh-admin-email-body', title: 'admin.tabs.email', fallback: 'Email' },
-  };
+  var WH_ADMIN_PLACEHOLDERS = {};
 
   var whAdminActiveSubTab = WH_ADMIN_DEFAULT_SUBTAB;
 
@@ -130,6 +124,7 @@
     if (next === 'luna-staff' && typeof wireLunaStaffTabCards === 'function') wireLunaStaffTabCards();
     if (next === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (next === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
+    if (next === 'email' && typeof loadAdminEmailSettings === 'function') loadAdminEmailSettings();
   }
 
   function wireWhAdminSubTabs() {

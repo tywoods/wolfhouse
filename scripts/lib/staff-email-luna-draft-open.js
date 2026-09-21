@@ -17,6 +17,7 @@ const util = require('node:util');
 const {
   isEmailLunaGenerateDraftEnabled,
   snapshotEmailLunaGenerateGateEnv,
+  isTrustedEmailLunaDraftTenant,
 } = require('./staff-email-luna-draft-route');
 const { deriveReplySubject } = require('./email-outbound-reply-subject');
 const {
@@ -105,6 +106,10 @@ WHERE cl.id=$1::uuid AND cl.slug='sunset' AND loc.location_id='sunset-somo'
   AND ev.provider='microsoft_graph'
 ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1`.replace(/\s+/g, ' ').trim();
 
+const SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT_WOLFHOUSE = SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT
+  .replace("cl.slug='sunset'", "cl.slug='wolfhouse-somo'")
+  .replace("loc.location_id='sunset-somo'", "loc.location_id='wolfhouse-somo'");
+
 const SQL_CURRENT_INBOUND_EVENT_FOR_CONVERSATION = `
 SELECT p.inbound_event_id
   FROM tenant_email_inbound_inbox_projections p
@@ -182,6 +187,9 @@ ORDER BY ev.received_at DESC, ev.id DESC
 LIMIT 1
 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
 
+const SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION_WOLFHOUSE = SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION
+  .replace("loc.location_id='sunset-somo'", "loc.location_id='wolfhouse-somo'");
+
 const SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT = `
 SELECT c.id::text AS conversation_id,
   p.inbound_event_id::text AS inbound_event_id,
@@ -208,6 +216,9 @@ WHERE cl.id=$1::uuid AND loc.location_id='sunset-somo' AND ev.provider='microsof
 ORDER BY ev.received_at DESC, ev.id DESC
 LIMIT 1
 FOR UPDATE OF c,p,ev,ep`.replace(/\s+/g, ' ').trim();
+
+const SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT_WOLFHOUSE = SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT
+  .replace("loc.location_id='sunset-somo'", "loc.location_id='wolfhouse-somo'");
 
 const SQL_EMAIL_LUNA_OPEN_TX_BEGIN = 'BEGIN ISOLATION LEVEL READ COMMITTED';
 const SQL_EMAIL_LUNA_OPEN_TX_COMMIT = 'COMMIT';
@@ -628,12 +639,12 @@ function snapshotActor(user) {
   const staffId = uuid(ownData(user, 'staff_user_id'));
   const clientId = uuid(ownData(user, 'client_id'));
   if (!staffId || !clientId || !['operator', 'admin', 'owner', 'viewer'].includes(role)) return null;
-  return freeze({ staff_user_id: staffId, client_id: clientId, role });
+  return freeze({ staff_user_id: staffId, client_id: clientId, role, client_slug: ownData(user, 'client_slug') });
 }
 
 function canGenerate(actor, env) {
   return !!(actor && ['viewer', 'operator', 'admin', 'owner'].includes(actor.role)
-    && isEmailLunaGenerateDraftEnabled(env));
+    && isEmailLunaGenerateDraftEnabled(env, actor));
 }
 
 function draftingStateFromLoadedRow(row, staffInitiated) {
@@ -677,9 +688,8 @@ function safeContext(row, expectedActor, conversationId) {
     };
     if (!authority.client_id || authority.client_id !== expectedActor.client_id
       || authority.conversation_id !== conversationId
-      || !authority.location_id || authority.location_key !== 'sunset-somo'
-      || !authority.endpoint_id || !authority.inbound_message_id
-      || r.client_slug !== 'sunset' || r.channel !== 'email' || r.provider !== 'microsoft_graph'
+      || !authority.location_id || !authority.endpoint_id || !authority.inbound_message_id
+      || !isTrustedEmailLunaDraftTenant(r) || r.channel !== 'email'
       || r.conversation_deleted_at != null || r.conversation_status !== 'open'
       || uuid(r.latest_message_id) !== authority.inbound_message_id || r.luna_draft_enabled !== true
       || uuid(r.event_location_id) !== authority.location_id
@@ -836,7 +846,9 @@ function createStaffEmailLunaDraftOpen(deps) {
 
   function policyFor(authority) {
     let queryOwners = deps.queryOwners || null;
-    if (!queryOwners && authority && authority.location_key && authority.client_id && authority.location_id) {
+    if (authority && authority.location_key === 'wolfhouse-somo') {
+      queryOwners = null;
+    } else if (!queryOwners && authority && authority.location_key && authority.client_id && authority.location_id) {
       try {
         queryOwners = createEmailLunaFrontDeskQueryOwners({
           locationKey: authority.location_key,
@@ -886,7 +898,11 @@ function createStaffEmailLunaDraftOpen(deps) {
   // BEGIN → SELECT conversation FOR UPDATE → separate claim/CAS UPDATE → COMMIT.
   // Snapshot of the UPDATE is acquired after the lock under READ COMMITTED.
   async function lockThenWrite(actor, conversationId, expectedEventId, writeFn, lockSql) {
-    const sql = typeof lockSql === 'string' && lockSql ? lockSql : SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION;
+    const sql = typeof lockSql === 'string' && lockSql
+      ? lockSql
+      : (actor && actor.client_slug === 'wolfhouse-somo'
+        ? SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION_WOLFHOUSE
+        : SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION);
     return deps.withPgClient(async (pg) => {
       let began = false;
       let settled = false;
@@ -899,9 +915,10 @@ function createStaffEmailLunaDraftOpen(deps) {
         const row = locked && Array.isArray(locked.rows) && locked.rows.length === 1
           ? locked.rows[0] : null;
         const lockedEvent = row ? uuid(row.inbound_event_id) : null;
-        if (!row || lockedEvent !== expectedEventId
-          || row.provider !== 'microsoft_graph'
-          || row.location_key !== 'sunset-somo') {
+        const wolfhouseLock = row && row.location_key === 'wolfhouse-somo'
+          && (row.provider === 'microsoft_graph' || row.provider === 'gmail_api' || row.provider === 'imap_smtp');
+        const sunsetLock = row && row.provider === 'microsoft_graph' && row.location_key === 'sunset-somo';
+        if (!row || lockedEvent !== expectedEventId || !(wolfhouseLock || sunsetLock)) {
           await rollbackOrDiscard(pg);
           settled = true;
           return null;
@@ -925,7 +942,11 @@ function createStaffEmailLunaDraftOpen(deps) {
 
   async function loadOpenContext(actor, conversationId) {
     return deps.withPgClient(async (pg) => {
-      const loadedCtx = await pg.query(SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT, [
+      const loadedCtx = await pg.query(
+        actor && actor.client_slug === 'wolfhouse-somo'
+          ? SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT_WOLFHOUSE
+          : SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT,
+        [
         actor.client_id, actor.staff_user_id, conversationId,
       ]);
       const context = loadedCtx && Array.isArray(loadedCtx.rows) && loadedCtx.rows.length === 1
@@ -1172,7 +1193,9 @@ function createStaffEmailLunaDraftOpen(deps) {
           ]);
           return !!(wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1);
         },
-        SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT,
+        actor && actor.client_slug === 'wolfhouse-somo'
+          ? SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT_WOLFHOUSE
+          : SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT,
       );
       if (!claimed) {
         const again = await loadOpenContext(actor, conversationId);
@@ -1308,7 +1331,9 @@ function createStaffEmailLunaDraftOpen(deps) {
           return wrote && Array.isArray(wrote.rows) && wrote.rows.length === 1
             ? String(wrote.rows[0].staff_reply_draft) : null;
         },
-        SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT,
+        actor && actor.client_slug === 'wolfhouse-somo'
+          ? SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT_WOLFHOUSE
+          : SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT,
       );
       if (!persisted) {
         await releaseClaim(actor, conversationId, authority.inbound_message_id, claimId);
@@ -1338,8 +1363,11 @@ module.exports = {
   EMAIL_DRAFT_OPEN_CLAIM_TTL_MS,
   EMAIL_LUNA_OPEN_CLAIM_AT_MS_MAX,
   SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT,
+  SQL_LOAD_EMAIL_LUNA_OPEN_CONTEXT_WOLFHOUSE,
   SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION,
+  SQL_LOCK_EMAIL_LUNA_OPEN_CONVERSATION_WOLFHOUSE,
   SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT,
+  SQL_LOCK_EMAIL_LUNA_CREATE_DRAFT_WOLFHOUSE,
   SQL_EMAIL_LUNA_OPEN_TX_BEGIN,
   SQL_EMAIL_LUNA_OPEN_TX_COMMIT,
   SQL_EMAIL_LUNA_OPEN_TX_ROLLBACK,

@@ -46,6 +46,28 @@ function isAllowedMicrosoftAuthorizationUrl(raw){
 }
 var GOOGLE_UI_AUTHORITY = 'https://accounts.google.com/o/oauth2/v2/auth';
 var GOOGLE_UI_REDIRECT_URI = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
+var WH_REAUTH_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/oauth/microsoft/callback';
+var WH_GOOGLE_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
+function adminEmailSettingsClient(){
+  try {
+    if (typeof getClient === 'function') {
+      var c = getClient();
+      if (c === 'wolfhouse-somo' || c === 'sunset') return c;
+    }
+  } catch (_e) {}
+  return '';
+}
+function adminEmailSettingsBodyEl(){
+  var mounted = el('admin-email-settings-body');
+  if (mounted) return mounted;
+  return el('wh-admin-email-body');
+}
+function adminEmailMsRedirectUri(){
+  return adminEmailSettingsClient() === 'wolfhouse-somo' ? WH_REAUTH_UI_REDIRECT_URI : REAUTH_UI_REDIRECT_URI;
+}
+function adminEmailGoogleRedirectUri(){
+  return adminEmailSettingsClient() === 'wolfhouse-somo' ? WH_GOOGLE_UI_REDIRECT_URI : GOOGLE_UI_REDIRECT_URI;
+}
 var GOOGLE_UI_SCOPES = 'openid email https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose';
 var GOOGLE_UI_QUERY_KEYS = ['client_id','response_type','redirect_uri','response_mode','scope','state','nonce','code_challenge','code_challenge_method','prompt'];
 var GOOGLE_UI_CLIENT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;
@@ -57,7 +79,7 @@ function validateGoogleAuthorizationUrl(raw){
     var seen=[]; u.searchParams.forEach(function(_v,k){seen.push(k);});
     if (seen.length !== GOOGLE_UI_QUERY_KEYS.length) return null;
     for(var i=0;i<GOOGLE_UI_QUERY_KEYS.length;i+=1) if(seen.indexOf(GOOGLE_UI_QUERY_KEYS[i])<0||u.searchParams.getAll(GOOGLE_UI_QUERY_KEYS[i]).length!==1)return null;
-    if(!GOOGLE_UI_CLIENT_ID_RE.test(u.searchParams.get('client_id')||'')||u.searchParams.get('response_type')!=='code'||u.searchParams.get('redirect_uri')!==GOOGLE_UI_REDIRECT_URI||u.searchParams.get('response_mode')!=='query'||u.searchParams.get('scope')!==GOOGLE_UI_SCOPES||u.searchParams.get('code_challenge_method')!=='S256'||u.searchParams.get('prompt')!=='consent')return null;
+    if(!GOOGLE_UI_CLIENT_ID_RE.test(u.searchParams.get('client_id')||'')||u.searchParams.get('response_type')!=='code'||u.searchParams.get('redirect_uri')!==adminEmailGoogleRedirectUri()||u.searchParams.get('response_mode')!=='query'||u.searchParams.get('scope')!==GOOGLE_UI_SCOPES||u.searchParams.get('code_challenge_method')!=='S256'||u.searchParams.get('prompt')!=='consent')return null;
     for(i=5;i<=7;i+=1)if(!REAUTH_UI_B64URL_32_RE.test(u.searchParams.get(GOOGLE_UI_QUERY_KEYS[i])||''))return null;
     return raw;
   } catch (_) { return null; }
@@ -112,7 +134,7 @@ function cancelAdminEmailReauthorization(){
 function isAdminEmailReauthSurfaceLive(origin, mySeq){
   try {
     if (mySeq !== adminEmailReauthSeq) return false;
-    if (typeof getClient === 'function' && getClient() !== 'sunset') return false;
+    if (typeof getClient === 'function' && getClient() !== 'sunset' && getClient() !== 'wolfhouse-somo') return false;
     if (!origin || !origin.body || !origin.btn || !origin.section) return false;
     var body = origin.body;
     var btn = origin.btn;
@@ -146,7 +168,7 @@ function isAdminEmailReauthSurfaceLive(origin, mySeq){
     if (emailPanel.hasAttribute && emailPanel.hasAttribute('hidden')) return false;
     if (emailPanel.hidden === true) return false;
     // Originating body must still be the live settings body.
-    var liveBody = typeof el === 'function' ? el('admin-email-settings-body') : null;
+    var liveBody = typeof el === 'function' ? adminEmailSettingsBodyEl() : null;
     if (liveBody && liveBody !== body) return false;
     return true;
   } catch (_) {
@@ -200,7 +222,7 @@ function validatePhaseBReauthorizeSuccessDto(dto){
     var clientId = parsed.searchParams.get('client_id');
     if (typeof clientId !== 'string' || !REAUTH_UI_UUID_RE.test(clientId)) return null;
     if (parsed.searchParams.get('response_type') !== 'code') return null;
-    if (parsed.searchParams.get('redirect_uri') !== REAUTH_UI_REDIRECT_URI) return null;
+    if (parsed.searchParams.get('redirect_uri') !== adminEmailMsRedirectUri()) return null;
     if (parsed.searchParams.get('response_mode') !== 'query') return null;
     if (parsed.searchParams.get('scope') !== REAUTH_UI_SCOPES) return null;
     if (parsed.searchParams.get('code_challenge_method') !== 'S256') return null;
@@ -432,7 +454,7 @@ function beginAdminEmailConnectAttempt(root){
   clearAdminEmailProviderConnectFeedback(provider);
   if (adminEmailSettingsLastData) {
     renderAdminEmailSettingsData(adminEmailSettingsLastData);
-    var liveBody = el('admin-email-settings-body');
+    var liveBody = adminEmailSettingsBodyEl();
     var next = null;
     if (liveBody && typeof liveBody.querySelector === 'function') {
       next = liveBody.querySelector('.portal-admin-email-settings[data-email-provider="' + provider + '"]');
@@ -860,7 +882,7 @@ function adminEmailComingCardHtml(provider, titleEn, titleEs, blurbEn, blurbEs){
     '</section>';
 }
 function renderAdminEmailSettingsState(state, data, provider){
-  var body = el('admin-email-settings-body');
+  var body = adminEmailSettingsBodyEl();
   if (!body) return;
   // Re-render invalidates any pending reauth (origin body/button will detach).
   cancelAdminEmailReauthorization();
@@ -1204,7 +1226,7 @@ function adminEmailComingCardsHtml(){
   return adminEmailGmailComingCardHtml() + adminEmailImapComingCardHtml();
 }
 function renderAdminEmailSettingsData(data){
-  var body = el('admin-email-settings-body'); if (!body) return;
+  var body = adminEmailSettingsBodyEl(); if (!body) return;
   adminEmailSettingsLastData = data;
   adminEmailSettingsView = adminEmailHasConnectFeedback() ? 'connect_failed' : 'data';
   var locations = data && Array.isArray(data.locations) ? data.locations : [];
@@ -1236,7 +1258,7 @@ function renderAdminEmailSettingsData(data){
   restoreAdminEmailConnectBusy(body);
 }
 function renderAdminEmailLoadFail(){
-  var body = el('admin-email-settings-body');
+  var body = adminEmailSettingsBodyEl();
   if (!body) return;
   adminEmailSettingsView = 'fail';
   cancelAdminEmailReauthorization();
@@ -1251,21 +1273,26 @@ function renderAdminEmailLoadFail(){
   if (retry) retry.addEventListener('click', function(){ loadAdminEmailSettings(); });
 }
 function loadAdminEmailSettings(){
-  var body = el('admin-email-settings-body');
+  var body = adminEmailSettingsBodyEl();
   if (!body) return;
   cancelAdminEmailReauthorization();
   resetAdminEmailConnectFeedback();
   var seq = ++adminEmailSettingsLoadSeq;
-  var client = getClient();
-  if (client !== 'sunset') { renderAdminEmailSettingsState('unavailable'); return; }
+  var client = typeof getClient === 'function' ? getClient() : '';
+  if (client !== 'sunset' && client !== 'wolfhouse-somo') { renderAdminEmailSettingsState('unavailable'); return; }
   body.innerHTML = adminEmailPageWrap(
     '<p class="portal-admin-email-loading" role="status" data-email-state="loading">' +
       escHtml(emailUiT('admin.email.state.loading', 'Loading email status…', 'Cargando estado del email…')) + '</p>'
   );
-  fetch('/staff/admin/email-settings?client=sunset', { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+  var settingsUrl = client === 'wolfhouse-somo'
+    ? '/staff/admin/email-settings?client=wolfhouse-somo'
+    : '/staff/admin/email-settings?client=sunset';
+  fetch(settingsUrl, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
     .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('unavailable')); })
     .then(function(data){
-      if (seq !== adminEmailSettingsLoadSeq || getClient() !== 'sunset') return;
+      if (seq !== adminEmailSettingsLoadSeq) return;
+      var now = typeof getClient === 'function' ? getClient() : '';
+      if (now !== client) return;
       renderAdminEmailSettingsData(data);
     })
     .catch(function(){ if (seq === adminEmailSettingsLoadSeq) renderAdminEmailLoadFail(); });
@@ -1274,7 +1301,7 @@ function adminEmailRefreshOnLocaleChange(){
   try {
     if (typeof getStaffLocale === 'function') portalLang = getStaffLocale();
   } catch (_e) { /* ignore */ }
-  var body = el('admin-email-settings-body');
+  var body = adminEmailSettingsBodyEl();
   var busyRoots = [];
   if (body && typeof body.querySelectorAll === 'function') {
     var listed = body.querySelectorAll('[data-email-connect-busy]');

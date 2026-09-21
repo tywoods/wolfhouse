@@ -76,6 +76,10 @@ const {
   INPUT_KEYS: PREPARE_DOMAIN_INPUT_KEYS,
   ERROR_CODE: PREPARE_ERROR_CODE,
 } = require('./email-sunset-microsoft-endpoint-prepare');
+const wolfhouseTenant = require('./email-wolfhouse-tenant');
+const {
+  createWolfhouseMicrosoftEndpointPrepare,
+} = require('./email-wolfhouse-endpoint-prepare');
 const {
   createCallbackEmailOAuthStageTelemetry,
   createNoopEmailOAuthStageTelemetry,
@@ -271,6 +275,8 @@ SELECT id::text AS client_id
  WHERE slug = 'sunset'
  LIMIT 1`.replace(/\s+/g, ' ').trim();
 
+const SQL_RESOLVE_WOLFHOUSE_CLIENT_FOR_PREPARE = wolfhouseTenant.SQL_RESOLVE_WOLFHOUSE_CLIENT;
+
 /**
  * One tenant-safe resolve: Sunset client + active location + exact eligible
  * Microsoft delegated endpoint by explicit endpoint_id. Zero rows on miss;
@@ -290,6 +296,27 @@ SELECT c.id::text AS client_id,
    AND e.location_id = l.location_id
    AND e.id = $2::uuid
  WHERE c.slug = 'sunset'
+   AND l.location_id = $1
+   AND l.active = true
+   AND e.provider = 'microsoft_graph'
+   AND e.auth_mode = 'delegated_authorization_code'
+   AND e.connector_mode = 'microsoft_delegated_oauth'
+   AND e.binding_status IN ('unverified_offline', 'pending_manual_validation')
+   AND e.public_address IS NOT NULL
+   AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
+
+const SQL_RESOLVE_WOLFHOUSE_START_BINDING = `
+SELECT c.id::text AS client_id,
+       l.id::text AS location_id,
+       e.id::text AS endpoint_id
+  FROM clients c
+  INNER JOIN tenant_locations l
+    ON l.client_id = c.id
+  INNER JOIN tenant_channel_endpoints e
+    ON e.client_id = c.id
+   AND e.location_id = l.location_id
+   AND e.id = $2::uuid
+ WHERE c.slug = 'wolfhouse-somo'
    AND l.location_id = $1
    AND l.active = true
    AND e.provider = 'microsoft_graph'
@@ -1438,6 +1465,61 @@ function createStaffEmailOAuthRoutes(deps) {
    * One fixed sanitized error; no mailbox echo; no raw SQL/error logs.
    */
   async function handlePrepare(body, req, res, user) {
+    if (wolfhouseTenant.isWolfhouseEmailCaller(user)
+        && wolfhouseTenant.isWolfhouseEmailOAuthStartEnabled(env)) {
+      if (!user
+          || !UUID_RE_CI.test(user.staff_user_id || '')
+          || !UUID_RE_CI.test(user.session_id || '')) {
+        return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+      }
+      if (!deps.assertStaffClientAccess(user, wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG, res)) return;
+      const authz = deps.authorizeAuthenticatedStaffRoute({
+        clientSlug: wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,
+        method: 'POST',
+        pathname: OAUTH_PREPARE_PATH,
+        env,
+      });
+      if (!authz.ok) {
+        return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+      }
+      const bodySnap = snapshotPrepareBody(body);
+      if (!bodySnap) {
+        return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+      }
+      try {
+        return await deps.withPgClient(async (pg) => {
+          const clientRes = await pg.query(SQL_RESOLVE_WOLFHOUSE_CLIENT_FOR_PREPARE);
+          const trustedClientId = snapshotPrepareClientResolve(clientRes);
+          if (!trustedClientId) {
+            return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+          }
+          const domainInput = {};
+          domainInput[PREPARE_DOMAIN_INPUT_KEYS[0]] = trustedClientId;
+          domainInput[PREPARE_DOMAIN_INPUT_KEYS[1]] = bodySnap.location_id;
+          domainInput[PREPARE_DOMAIN_INPUT_KEYS[2]] = bodySnap.public_address;
+          domainInput[PREPARE_DOMAIN_INPUT_KEYS[3]] = String(user.staff_user_id).toLowerCase();
+          const ordered = Object.freeze(domainInput);
+          const prepare = createWolfhouseMicrosoftEndpointPrepare(Object.freeze({ client: pg }));
+          const ack = await prepare.prepareDisabledDelegatedEndpoint(ordered);
+          if (!ack || typeof ack !== 'object'
+              || Reflect.ownKeys(ack).length !== 1
+              || Reflect.ownKeys(ack)[0] !== 'endpointId'
+              || typeof ack.endpointId !== 'string'
+              || !UUID_RE.test(ack.endpointId)) {
+            return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+          }
+          const json = buildPrepareSuccessJson(ack.endpointId);
+          if (Reflect.ownKeys(json).length !== PREPARE_SUCCESS_KEYS.length
+              || Reflect.ownKeys(json)[0] !== PREPARE_SUCCESS_KEYS[0]
+              || Reflect.ownKeys(json)[1] !== PREPARE_SUCCESS_KEYS[1]) {
+            return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+          }
+          return deps.sendJSON(res, 200, json);
+        });
+      } catch (_) {
+        return deps.sendJSON(res, 503, { success: false, error: PREPARE_ERROR });
+      }
+    }
     if (!isPrepareEnabled(env)) {
       return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
     }
@@ -1505,6 +1587,64 @@ function createStaffEmailOAuthRoutes(deps) {
   }
 
   async function handleStart(body, req, res, user) {
+    if (wolfhouseTenant.isWolfhouseEmailCaller(user)
+        && wolfhouseTenant.isWolfhouseEmailOAuthStartEnabled(env)) {
+      if (!user
+          || !UUID_RE_CI.test(user.staff_user_id || '')
+          || !UUID_RE_CI.test(user.session_id || '')) {
+        return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+      }
+      if (!deps.assertStaffClientAccess(user, wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG, res)) return;
+      const authz = deps.authorizeAuthenticatedStaffRoute({
+        clientSlug: wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,
+        method: 'POST',
+        pathname: OAUTH_START_PATH,
+        env,
+      });
+      if (!authz.ok) {
+        return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+      }
+      const bodySnap = snapshotStartBody(body);
+      if (!bodySnap) {
+        return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+      }
+      try {
+        return await deps.withPgClient(async (pg) => {
+          const found = await pg.query(SQL_RESOLVE_WOLFHOUSE_START_BINDING, [
+            bodySnap.location_id,
+            bodySnap.endpoint_id,
+          ]);
+          const resolved = snapshotResolveQueryResult(found);
+          if (resolved.kind === 'empty') {
+            return deps.sendJSON(res, 404, { success: false, error: 'location_not_found' });
+          }
+          if (resolved.kind !== 'one') {
+            return deps.sendJSON(res, 503, { success: false, error: 'oauth_start_unavailable' });
+          }
+          const rowSnap = resolved.row;
+          if (rowSnap.endpoint_id !== bodySnap.endpoint_id) {
+            return deps.sendJSON(res, 503, { success: false, error: 'oauth_start_unavailable' });
+          }
+          const startInput = {
+            clientId: rowSnap.client_id,
+            locationId: rowSnap.location_id,
+            endpointId: rowSnap.endpoint_id,
+            staffUserId: user.staff_user_id,
+            authSessionId: user.session_id,
+          };
+          const ordered = {};
+          for (const key of INPUT_KEYS) ordered[key] = startInput[key];
+          const service = createMicrosoftOAuthTransactionService({
+            repository: createPostgresOAuthTransactionRepository(pg),
+            env,
+          });
+          const dto = await service.start(ordered);
+          return deps.sendJSON(res, 200, dto);
+        });
+      } catch (_) {
+        return deps.sendJSON(res, 503, { success: false, error: 'oauth_start_unavailable' });
+      }
+    }
     if (!isStartEnabled(env)) {
       return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
     }
@@ -1643,6 +1783,54 @@ function createStaffEmailOAuthRoutes(deps) {
    * Registered leftovers (no grant) are deleted so Admin Email returns to prepare.
    */
   async function handleDisconnect(body, req, res, user) {
+    if (wolfhouseTenant.isWolfhouseEmailCaller(user)
+        && wolfhouseTenant.isWolfhouseEmailDisconnectEnabled(env)) {
+      if (!user
+          || !UUID_RE_CI.test(user.staff_user_id || '')
+          || !UUID_RE_CI.test(user.session_id || '')) {
+        return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+      }
+      if (!deps.assertStaffClientAccess(user, wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG, res)) return;
+      const authz = deps.authorizeAuthenticatedStaffRoute({
+        clientSlug: wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,
+        method: 'POST',
+        pathname: OAUTH_DISCONNECT_PATH,
+        env,
+      });
+      if (!authz.ok) {
+        return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+      }
+      const bodySnap = snapshotDisconnectBody(body);
+      if (!bodySnap) {
+        return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+      }
+      try {
+        return await deps.withPgClient(async (pg) => {
+          const removed = await tryRemoveRegisteredNotConnectedEndpoint(pg, Object.freeze({
+            locationId: bodySnap.location_id,
+            endpointId: bodySnap.endpoint_id,
+            provider: 'microsoft_graph',
+            clientSlug: 'wolfhouse-somo',
+          }));
+          if (removed.kind === 'removed') {
+            const removedJson = buildDisconnectSuccessJson(removed.result);
+            if (!removedJson
+                || Reflect.ownKeys(removedJson).length !== DISCONNECT_SUCCESS_KEYS.length
+                || Reflect.ownKeys(removedJson)[0] !== DISCONNECT_SUCCESS_KEYS[0]) {
+              return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+            }
+            return deps.sendJSON(res, 200, removedJson);
+          }
+          // This slice: leftover remove only. Never Graph-revoke Sunset (or any) mailbox.
+          if (removed.kind === 'not_applicable') {
+            return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+          }
+          return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+        });
+      } catch (_) {
+        return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
+      }
+    }
     if (!isDisconnectEnabled(env)) {
       return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
     }
@@ -1672,6 +1860,7 @@ function createStaffEmailOAuthRoutes(deps) {
           locationId: bodySnap.location_id,
           endpointId: bodySnap.endpoint_id,
           provider: 'microsoft_graph',
+          clientSlug: user && user.client_slug === 'wolfhouse-somo' ? 'wolfhouse-somo' : 'sunset',
         }));
         if (removed.kind === 'removed') {
           const removedJson = buildDisconnectSuccessJson(removed.result);
