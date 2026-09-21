@@ -395,6 +395,7 @@
     "verify:wolfhouse-email-connect-gmail-001": "node scripts/verify-wolfhouse-email-connect-gmail-001.js",
     "verify:wolfhouse-email-connect-ms-001": "node scripts/verify-wolfhouse-email-connect-ms-001.js",
     "verify:wolfhouse-email-connect-buttons-001": "node scripts/verify-wolfhouse-email-connect-buttons-001.js",
+    "verify:wolfhouse-email-imap-simple-001": "node scripts/verify-wolfhouse-email-imap-simple-001.js",
     "verify:email-smtp-identity-register-002": "node scripts/verify-email-smtp-identity-register-002.js",
     "verify:email-imap-001": "node scripts/verify-email-imap-001.js",
     "verify:mail-mvp-005": "node scripts/verify-email-imap-inbox-projection.js",
