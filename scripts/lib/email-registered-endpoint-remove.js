@@ -60,6 +60,11 @@ DELETE FROM tenant_channel_endpoints e
    AND e.id = t.endpoint_id
 RETURNING e.id::text AS endpoint_id`.replace(/\s+/g, ' ').trim();
 
+const SQL_DELETE_WOLFHOUSE_REGISTERED_NOT_CONNECTED = SQL_DELETE_REGISTERED_NOT_CONNECTED.replace(
+  "WHERE c.slug = 'sunset'",
+  "WHERE c.slug = 'wolfhouse-somo'",
+);
+
 function ownData(object, key) {
   try {
     const descriptor = Object.getOwnPropertyDescriptor(object, key);
@@ -110,7 +115,11 @@ async function tryRemoveRegisteredNotConnectedEndpoint(pgClient, input) {
     if (!snap) return { kind: 'error' };
     const mode = PROVIDER_MODE[snap.provider];
     if (!mode) return { kind: 'error' };
-    const deleted = await pgClient.query(SQL_DELETE_REGISTERED_NOT_CONNECTED, [
+    const clientSlug = ownData(input, 'clientSlug');
+    const sql = clientSlug === 'wolfhouse-somo'
+      ? SQL_DELETE_WOLFHOUSE_REGISTERED_NOT_CONNECTED
+      : SQL_DELETE_REGISTERED_NOT_CONNECTED;
+    const deleted = await pgClient.query(sql, [
       snap.locationId,
       snap.endpointId,
       mode.provider,
@@ -132,6 +141,7 @@ async function tryRemoveRegisteredNotConnectedEndpoint(pgClient, input) {
 
 module.exports = Object.freeze({
   SQL_DELETE_REGISTERED_NOT_CONNECTED,
+  SQL_DELETE_WOLFHOUSE_REGISTERED_NOT_CONNECTED,
   PROVIDER_MODE,
   tryRemoveRegisteredNotConnectedEndpoint,
   publicRemovedResult,

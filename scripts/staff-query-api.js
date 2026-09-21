@@ -226,6 +226,12 @@ const {
   EMAIL_IMAP_VERIFY_PATH,
   isSunsetEmailSettingsUiEnabled,
 } = require('./lib/staff-email-settings-routes');
+const {
+  isWolfhouseEmailSettingsUiEnabled,
+} = require('./lib/email-wolfhouse-tenant');
+const {
+  isWolfhouseEmailSmtpIdentityRegisterEnabled,
+} = require('./lib/email-wolfhouse-smtp-secret-ref-contract');
 const { PAYMENT_SUMMARY_PATH, buildStaffPaymentSummary } = require('./lib/staff-payment-summary');
 const {
   LUNA_STATUS_SUMMARY_PATH,
@@ -52223,7 +52229,10 @@ async function router(req, res) {
   // ── Email registry READ/WRITE (Slice 1C-beta/gamma) — admin inventory + kill-switched registration
   // The Stage 6 status boundary is concealed before auth and before every lookup.
   if (pathname === EMAIL_SETTINGS_PATH && method === 'GET') {
-    if (!isSunsetEmailSettingsUiEnabled(process.env)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!isSunsetEmailSettingsUiEnabled(process.env)
+        && !isWolfhouseEmailSettingsUiEnabled(process.env)) {
+      return sendJSON(res, 404, { success: false, error: 'not_found' });
+    }
     const statusRead = authorizeCrowsnestStatusRead(req, process.env);
     let user = null;
     if (statusRead) {
@@ -52266,7 +52275,8 @@ async function router(req, res) {
     return handleImapVerifyPost(imapVerifyBody, req, res, auth.user);
   }
   if (pathname === EMAIL_SMTP_IDENTITY_PATH && method === 'POST') {
-    if (!isSunsetEmailSmtpIdentityRegisterEnabled(process.env)) {
+    if (!isSunsetEmailSmtpIdentityRegisterEnabled(process.env)
+        && !isWolfhouseEmailSmtpIdentityRegisterEnabled(process.env)) {
       return sendJSON(res, 404, { success: false, error: 'not_found' });
     }
     const auth = await requireAuth(req, res, 'admin');

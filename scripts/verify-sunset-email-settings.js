@@ -1870,7 +1870,7 @@ function futureExpires(msFromNow = 600000) {
     assert.ok(body.innerHTML.includes('data-email-actions-unavailable'));
 
     // Non-Sunset client: unavailable, no reauth control
-    clientSlug = 'wolfhouse-somo';
+    clientSlug = 'other-client';
     sandbox.renderAdminEmailSettingsState('unavailable', {
       actions: { prepare: false, connect: false, disconnect: false, reauthorize: true },
       reauthorize_eligible: true,

@@ -235,6 +235,7 @@ module.exports = Object.freeze({
   normalizeProviderMailboxId,
   resolveInboundMatchConversationIdentity,
   bindSunsetGuestByExactInboundEmail,
+  bindWolfhouseGuestByExactInboundEmail: bindSunsetGuestByExactInboundEmail,
   persistConversationGuestBind,
   toEmailChannelPhoneKey,
 });

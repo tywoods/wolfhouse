@@ -7,6 +7,7 @@ const {
 const EMAIL_LUNA_GENERATE_DRAFT_PATH = '/staff/inbox/email/generate-luna-draft';
 const EMAIL_LUNA_CREATE_DRAFT_PATH = '/staff/inbox/email/create-draft';
 const EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV = 'EMAIL_STAFF_LUNA_DRAFT_ENABLED';
+const wolfhouseTenant = require('./email-wolfhouse-tenant');
 const EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR = 'luna_email_generation_capability_unavailable';
 const EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON = 'authoritative_content_and_grounded_policy_not_configured';
 const EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR = 'email_create_draft_unavailable';
@@ -67,6 +68,10 @@ WHERE cl.id=$1::uuid AND cl.slug='sunset' AND loc.location_id='sunset-somo'
   AND ev.provider='microsoft_graph'
 ORDER BY ev.received_at DESC, ev.id DESC LIMIT 1`.replace(/\s+/g, ' ').trim();
 
+const SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT_WOLFHOUSE = SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT
+  .replace("cl.slug='sunset'", "cl.slug='wolfhouse-somo'")
+  .replace("loc.location_id='sunset-somo'", "loc.location_id='wolfhouse-somo'");
+
 function ownData(value, key) {
   try { const d = getDescriptor(value, key); return d && hasOwn(d, 'value') && d.enumerable && !d.get && !d.set ? d.value : undefined; }
   catch { return undefined; }
@@ -89,12 +94,18 @@ function snapshotEmailLunaGenerateBody(raw) {
 function snapshotEmailLunaGenerateGateEnv(env) {
   const src = env && typeof env === 'object' && !isProxy(env) ? env : {};
   const out = Object.create(null);
-  for (const key of ['LUNA_DEPLOYMENT', 'STAFF_PORTAL_ORIGIN', EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED']) {
+  for (const key of [
+    'LUNA_DEPLOYMENT', 'STAFF_PORTAL_ORIGIN', EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED',
+    wolfhouseTenant.ENV_LUNA_GENERATE,
+  ]) {
     const value = ownData(src, key); if (typeof value === 'string') out[key] = value;
   }
   return freeze(out);
 }
-function isEmailLunaGenerateDraftEnabled(env) {
+function isEmailLunaGenerateDraftEnabled(env, user) {
+  if (wolfhouseTenant.isWolfhouseEmailCaller(user)) {
+    return wolfhouseTenant.isWolfhouseEmailLunaGenerateDraftEnabled(env);
+  }
   return ownData(env, 'LUNA_DEPLOYMENT') === 'sunset-staging'
     && ownData(env, EMAIL_LUNA_GENERATE_DRAFT_ENABLED_ENV) === 'true'
     && ownData(env, 'EMAIL_LUNA_DRAFT_RUNTIME_ENABLED') === 'true';
@@ -175,6 +186,12 @@ async function readCreateDraftBody(req) {
   });
   return snapshotEmailLunaCreateDraftBody(JSON.parse(Buffer.concat(chunks).toString('utf8')));
 }
+function isTrustedEmailLunaDraftTenant(r) {
+  if (r.client_slug === 'wolfhouse-somo' && r.location_key === 'wolfhouse-somo') {
+    return r.provider === 'microsoft_graph' || r.provider === 'gmail_api' || r.provider === 'imap_smtp';
+  }
+  return r.client_slug === 'sunset' && r.location_key === 'sunset-somo' && r.provider === 'microsoft_graph';
+}
 function safeRow(row, expectedActor, conversationId) {
   try {
     if (!row || typeof row !== 'object' || isProxy(row)) return null;
@@ -188,8 +205,9 @@ function safeRow(row, expectedActor, conversationId) {
       conversation_id: uuid(r.conversation_id), endpoint_id: uuid(r.endpoint_id), inbound_message_id: uuid(r.inbound_message_id),
     };
     if (!authority.client_id || authority.client_id !== expectedActor.client_id || authority.conversation_id !== conversationId
-      || !authority.location_id || authority.location_key !== 'sunset-somo' || !authority.endpoint_id || !authority.inbound_message_id
-      || r.client_slug !== 'sunset' || r.channel !== 'email' || r.provider !== 'microsoft_graph'
+      || !authority.location_id || !authority.endpoint_id || !authority.inbound_message_id
+      || !isTrustedEmailLunaDraftTenant(r)
+      || r.channel !== 'email'
       || r.conversation_deleted_at != null || r.conversation_status !== 'open'
       || uuid(r.latest_message_id) !== authority.inbound_message_id || r.luna_draft_enabled !== true
       || uuid(r.event_location_id) !== authority.location_id
@@ -240,7 +258,7 @@ function createStaffEmailLunaDraftRoute(deps) {
   let route;
   async function handleGenerateLunaDraft(req, res, user, gateEnv) {
     const env = gateEnv || snapshotEmailLunaGenerateGateEnv(deps.runtimeEnv || process.env);
-    if (!isEmailLunaGenerateDraftEnabled(env)) return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
+    if (!isEmailLunaGenerateDraftEnabled(env, user)) return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
     const a = actor(user);
     if (!a) return deps.sendJSON(res, user ? 403 : 401, freeze({ success: false, error: user ? 'forbidden' : 'unauthorized' }));
     if (!requestHeadersAllowed(req, env))
@@ -250,7 +268,10 @@ function createStaffEmailLunaDraftRoute(deps) {
     let context;
     try {
       context = await route.withPgClient(async (pg) => {
-        const loaded = await pg.query(SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, [a.client_id, a.staff_user_id, input.conversation_id]);
+        const sql = wolfhouseTenant.isWolfhouseEmailCaller(user)
+          ? SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT_WOLFHOUSE
+          : SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT;
+        const loaded = await pg.query(sql, [a.client_id, a.staff_user_id, input.conversation_id]);
         return loaded && Array.isArray(loaded.rows) && loaded.rows.length === 1 ? safeRow(loaded.rows[0], a, input.conversation_id) : null;
       });
     } catch {
@@ -266,7 +287,7 @@ function createStaffEmailLunaDraftRoute(deps) {
   }
   async function handleCreateDraft(req, res, user, gateEnv) {
     const env = gateEnv || snapshotEmailLunaGenerateGateEnv(deps.runtimeEnv || process.env);
-    if (!isEmailLunaGenerateDraftEnabled(env)) return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
+    if (!isEmailLunaGenerateDraftEnabled(env, user)) return deps.sendJSON(res, 404, freeze({ success: false, error: 'not_found' }));
     const a = actor(user);
     if (!a) return deps.sendJSON(res, user ? 403 : 401, freeze({ success: false, error: user ? 'forbidden' : 'unauthorized' }));
     if (!requestHeadersAllowed(req, env))
@@ -318,5 +339,6 @@ module.exports = { createStaffEmailLunaDraftRoute, EMAIL_LUNA_GENERATE_DRAFT_PAT
   EMAIL_LUNA_CREATE_DRAFT_SUCCESS_KEYS,
   EMAIL_LUNA_GENERATION_UNAVAILABLE_ERROR, EMAIL_LUNA_GENERATION_UNAVAILABLE_REASON,
   EMAIL_LUNA_CREATE_DRAFT_UNAVAILABLE_ERROR,
-  SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, snapshotEmailLunaGenerateBody,
-  snapshotEmailLunaGenerateGateEnv, isEmailLunaGenerateDraftEnabled };
+  SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT, SQL_LOAD_EMAIL_LUNA_GENERATION_CONTEXT_WOLFHOUSE, snapshotEmailLunaGenerateBody,
+  snapshotEmailLunaGenerateGateEnv, isEmailLunaGenerateDraftEnabled,
+  isTrustedEmailLunaDraftTenant };

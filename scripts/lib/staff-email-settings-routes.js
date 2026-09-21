@@ -3,6 +3,9 @@
 const registry = require('./email-tenant-channel-registry');
 const smtpSecretContract = require('./email-sunset-smtp-secret-ref-contract');
 const imapSecretContract = require('./email-sunset-imap-secret-ref-contract');
+const wolfhouseTenant = require('./email-wolfhouse-tenant');
+const wolfhouseSmtp = require('./email-wolfhouse-smtp-secret-ref-contract');
+const { createWolfhouseSmtpIdentityRegister } = require('./email-wolfhouse-endpoint-prepare');
 const { createSunsetSmtpIdentityRegister } = require('./email-sunset-smtp-identity-register');
 const { createSunsetSmtpIdentityDisconnect } = require('./email-sunset-smtp-identity-disconnect');
 const { createSunsetSmtpLiveVerify } = require('./email-sunset-smtp-live-verify');
@@ -750,6 +753,33 @@ function computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
   });
 }
 
+function computeWolfhouseProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
+  const eps = Array.isArray(endpoints) ? endpoints : [];
+  const locs = Array.isArray(locations) ? locations : [];
+  const smtpOn = wolfhouseSmtp.isWolfhouseEmailSmtpIdentityRegisterEnabled(runtimeEnv)
+    && wolfhouseSmtp.evaluateWolfhouseSmtpSecretRefs(runtimeEnv).ok === true;
+  const disconnectOn = wolfhouseTenant.isWolfhouseEmailDisconnectEnabled(runtimeEnv);
+  return Object.freeze({
+    microsoft_graph: providerActions(
+      wolfhouseTenant.isWolfhouseEmailOAuthStartEnabled(runtimeEnv),
+      false,
+      disconnectOn,
+      'microsoft_graph',
+      locs,
+      eps,
+    ),
+    gmail_api: providerActions(
+      wolfhouseTenant.isWolfhouseEmailGoogleOAuthStartEnabled(runtimeEnv),
+      false,
+      disconnectOn,
+      'gmail_api',
+      locs,
+      eps,
+    ),
+    imap_smtp: providerActions(smtpOn, false, false, 'imap_smtp', locs, eps),
+  });
+}
+
 function snapshotSmtpPostBody(body) {
   try {
     if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
@@ -891,15 +921,22 @@ function createEmailSettingsRoutes(deps) {
     }));
 
   async function handleGet(query, req, res, user) {
-    if (!isSunsetEmailSettingsUiEnabled(runtimeEnv)) return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
     const slug = String((query && (query.client || query.client_slug)) || '').trim();
-    if (slug !== SUNSET_CLIENT_SLUG) return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
-    if (!deps.assertStaffClientAccess(user, slug, res)) return;
-    const authz = deps.authorizeAuthenticatedStaffRoute({ clientSlug: slug, method: 'GET', pathname: EMAIL_SETTINGS_PATH, env: runtimeEnv });
+    const wolfhouseUi = wolfhouseTenant.isWolfhouseEmailSettingsUiEnabled(runtimeEnv);
+    const sunsetUi = isSunsetEmailSettingsUiEnabled(runtimeEnv);
+    let tenantSlug = null;
+    if (slug === wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG && wolfhouseUi) {
+      tenantSlug = wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG;
+    } else if (slug === SUNSET_CLIENT_SLUG && sunsetUi) {
+      tenantSlug = SUNSET_CLIENT_SLUG;
+    }
+    if (!tenantSlug) return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
+    if (!deps.assertStaffClientAccess(user, tenantSlug, res)) return;
+    const authz = deps.authorizeAuthenticatedStaffRoute({ clientSlug: tenantSlug, method: 'GET', pathname: EMAIL_SETTINGS_PATH, env: runtimeEnv });
     if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
     try {
       return await deps.withPgClient(async (pg) => {
-        const found = await pg.query('SELECT id::text AS client_id FROM clients WHERE slug=$1 LIMIT 1', [slug]);
+        const found = await pg.query('SELECT id::text AS client_id FROM clients WHERE slug=$1 LIMIT 1', [tenantSlug]);
         const clientId = found.rows && found.rows[0] && String(found.rows[0].client_id || '');
         if (!clientId) return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
         const [locationsResult, endpointsResult] = await Promise.all([
@@ -907,8 +944,11 @@ function createEmailSettingsRoutes(deps) {
           listEndpoints({ clientId, includeInactive: true }, { db: pg }),
         ]);
         if (!locationsResult.ok || !endpointsResult.ok) throw new Error('aggregate_failed');
-        const reauthGateOn = isPhaseBReauthSettingsActionEnabled(runtimeEnv);
-        const disconnectGateOn = isDisconnectSettingsActionEnabled(runtimeEnv);
+        const isWolfhouse = tenantSlug === wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG;
+        const reauthGateOn = isWolfhouse ? false : isPhaseBReauthSettingsActionEnabled(runtimeEnv);
+        const disconnectGateOn = isWolfhouse
+          ? wolfhouseTenant.isWolfhouseEmailDisconnectEnabled(runtimeEnv)
+          : isDisconnectSettingsActionEnabled(runtimeEnv);
         const endpointRows = Array.isArray(endpointsResult.value) ? endpointsResult.value : [];
         if (endpointRows.length > PHASE_B_REAUTH_ELIGIBILITY_MAX_ENDPOINTS) {
           throw new Error('aggregate_failed');
@@ -973,22 +1013,32 @@ function createEmailSettingsRoutes(deps) {
         const locations = locationsResult.value.map((row) => Object.freeze({
           location_id: row.location_id, display_name: row.display_name, active: row.active === true,
         }));
-        const providerActionsDto = computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints);
+        const providerActionsDto = isWolfhouse
+          ? computeWolfhouseProviderEmailSettingsActions(runtimeEnv, locations, endpoints)
+          : computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints);
         const actions = providerActionsDto.microsoft_graph;
         const body = {
           success: true,
-          client: SUNSET_CLIENT_SLUG,
+          client: tenantSlug,
           read_only: true,
           actions,
           provider_actions: providerActionsDto,
           locations,
           endpoints,
         };
-        if (smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
+        if (!isWolfhouse && smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
           const status = smtpSecretStatusDto(runtimeEnv);
           body.smtp_secret_status = {
             configured: status.configured,
             missing_secret_names: status.missing_secret_names,
+          };
+        } else if (isWolfhouse && wolfhouseSmtp.isWolfhouseEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
+          const status = wolfhouseSmtp.evaluateWolfhouseSmtpSecretRefs(runtimeEnv);
+          body.smtp_secret_status = {
+            configured: status.ok === true,
+            missing_secret_names: Array.isArray(status.missing_secret_names)
+              ? status.missing_secret_names.slice()
+              : [],
           };
         }
         return deps.sendJSON(res, 200, body);
@@ -999,6 +1049,65 @@ function createEmailSettingsRoutes(deps) {
   }
 
   async function handlePost(body, req, res, user) {
+    if (wolfhouseTenant.isWolfhouseEmailCaller(user)
+        && wolfhouseSmtp.isWolfhouseEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
+      const role = user && typeof user.role === 'string' ? user.role : '';
+      if (SMTP_ALLOWED_ROLES.indexOf(role) < 0) {
+        return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+      }
+      if (!deps.assertStaffClientAccess(user, wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG, res)) return;
+      const authz = deps.authorizeAuthenticatedStaffRoute({
+        clientSlug: wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,
+        method: 'POST',
+        pathname: EMAIL_SMTP_IDENTITY_PATH,
+        env: runtimeEnv,
+      });
+      if (!authz.ok) {
+        return deps.sendJSON(res, authz.status || 403, authz.body || { success: false, error: 'forbidden' });
+      }
+      const bodySnap = snapshotSmtpPostBody(body);
+      if (!bodySnap) {
+        return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+      }
+      const secrets = wolfhouseSmtp.evaluateWolfhouseSmtpSecretRefs(runtimeEnv);
+      if (!secrets.ok) {
+        return deps.sendJSON(res, 400, {
+          success: false,
+          error: 'missing_secret_refs',
+          missing_secret_names: Array.isArray(secrets.missing_secret_names)
+            ? secrets.missing_secret_names.slice()
+            : [],
+        });
+      }
+      const actor = user && typeof user.staff_user_id === 'string' ? user.staff_user_id : '';
+      const clientId = user && typeof user.client_id === 'string' ? user.client_id : '';
+      if (!UUID_RE_CI.test(actor) || !UUID_RE_CI.test(clientId)) {
+        return deps.sendJSON(res, 403, { success: false, error: 'forbidden' });
+      }
+      try {
+        return await deps.withPgClient(async (pg) => {
+          const register = createWolfhouseSmtpIdentityRegister({ client: pg });
+          const ordered = Object.freeze({
+            clientId: clientId.toLowerCase(),
+            locationId: bodySnap.location_id,
+            publicAddress: bodySnap.public_address,
+            actorStaffUserId: actor.toLowerCase(),
+          });
+          const ack = await register.registerDisabledImapSmtpIdentity(ordered);
+          return deps.sendJSON(res, 200, {
+            success: true,
+            endpoint_id: ack && typeof ack.endpointId === 'string' ? ack.endpointId : '',
+            provider: 'imap_smtp',
+            inbound_enabled: false,
+            outbound_enabled: false,
+            active: false,
+            default_automation_mode: 'off',
+          });
+        });
+      } catch (_) {
+        return deps.sendJSON(res, 400, { success: false, error: 'invalid_request' });
+      }
+    }
     if (!smtpSecretContract.isSunsetEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
       return deps.sendJSON(res, 404, { success: false, error: 'not_found' });
     }
@@ -1224,6 +1333,7 @@ module.exports = {
   loadMicrosoftEndpointLastSyncMap,
   computeEmailSettingsActions,
   computeProviderEmailSettingsActions,
+  computeWolfhouseProviderEmailSettingsActions,
   publicState,
   endpointDto,
   createEmailSettingsRoutes,

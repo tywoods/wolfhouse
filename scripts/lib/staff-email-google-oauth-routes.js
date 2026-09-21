@@ -15,6 +15,7 @@ const reflectOwnKeys = Reflect.ownKeys;
 const GOOGLE_OAUTH_START_PATH='/staff/admin/email-settings/oauth/google/start';
 const GOOGLE_OAUTH_CALLBACK_PATH='/staff/email/google/callback';
 const GOOGLE_OAUTH_DISCONNECT_PATH='/staff/admin/email-settings/oauth/google/disconnect';
+const GOOGLE_OAUTH_ENDPOINT_PATH='/staff/admin/email-settings/oauth/google/endpoint';
 const START_FLAG = 'LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED';
 const CALLBACK_FLAG = 'LUNA_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED';
 const DISCONNECT_FLAG = 'LUNA_EMAIL_OAUTH_DISCONNECT_ENABLED';
@@ -22,6 +23,10 @@ const DISCONNECT_ERROR = 'oauth_disconnect_unavailable';
 const DISCONNECT_SUCCESS_KEYS = Object.freeze([
   'success', 'status', 'grant_generation', 'grant_status', 'reconcile_state',
 ]);
+const wolfhouseTenant = require('./email-wolfhouse-tenant');
+const {
+  createWolfhouseGoogleEndpointPrepare,
+} = require('./email-wolfhouse-endpoint-prepare');
 const {
   tryRemoveRegisteredNotConnectedEndpoint,
 } = require('./email-registered-endpoint-remove');
@@ -34,6 +39,16 @@ FROM clients c
 JOIN tenant_locations l ON l.client_id = c.id
 JOIN tenant_channel_endpoints e ON e.client_id = c.id AND e.location_id = l.location_id AND e.id = $2::uuid
 WHERE c.slug = 'sunset' AND l.location_id = $1 AND l.active = true
+AND e.provider = 'gmail_api' AND e.auth_mode = 'delegated_authorization_code'
+AND e.connector_mode = 'google_delegated_oauth'
+AND e.binding_status IN ('unverified_offline', 'pending_manual_validation')
+AND e.public_address IS NOT NULL AND btrim(e.public_address) <> ''`.replace(/\s+/g, ' ').trim();
+const SQL_RESOLVE_WOLFHOUSE_GOOGLE_START_BINDING = `
+SELECT c.id::text AS client_id, l.id::text AS location_id, e.id::text AS endpoint_id
+FROM clients c
+JOIN tenant_locations l ON l.client_id = c.id
+JOIN tenant_channel_endpoints e ON e.client_id = c.id AND e.location_id = l.location_id AND e.id = $2::uuid
+WHERE c.slug = 'wolfhouse-somo' AND l.location_id = $1 AND l.active = true
 AND e.provider = 'gmail_api' AND e.auth_mode = 'delegated_authorization_code'
 AND e.connector_mode = 'google_delegated_oauth'
 AND e.binding_status IN ('unverified_offline', 'pending_manual_validation')
@@ -89,6 +104,11 @@ function identity(user, callback) {
   return own(user, 'client_slug') === 'sunset' && UUID.test(own(user, callback ? 'client_id' : 'staff_user_id') || '')
     && UUID.test(own(user, 'session_id') || '');
 }
+function identityWolfhouse(user, callback) {
+  return own(user, 'client_slug') === wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG
+    && UUID.test(own(user, callback ? 'client_id' : 'staff_user_id') || '')
+    && UUID.test(own(user, 'session_id') || '');
+}
 function bodySnapshot(body) {
   try {
     if (!body || typeof body !== 'object' || utilTypes.isProxy(body) || objectGetPrototypeOf(body) !== authenticPlainObjectPrototype
@@ -96,6 +116,16 @@ function bodySnapshot(body) {
     const location = own(body, 'location_id'); const endpoint = own(body, 'endpoint_id');
     return typeof location === 'string' && LOCATION.test(location) && typeof endpoint === 'string' && UUID.test(endpoint)
       ? objectFreeze({ location_id: location, endpoint_id: endpoint }) : null;
+  } catch (_) { return null; }
+}
+function prepareBodySnapshot(body) {
+  try {
+    if (!body || typeof body !== 'object' || utilTypes.isProxy(body) || Array.isArray(body)) return null;
+    const location = own(body, 'location_id');
+    const address = own(body, 'public_address');
+    if (typeof location !== 'string' || !LOCATION.test(location)) return null;
+    if (typeof address !== 'string' || address.length < 3 || address.length > 320) return null;
+    return objectFreeze({ location_id: location, public_address: address });
   } catch (_) { return null; }
 }
 function callbackQuery(url, req) {
@@ -149,6 +179,20 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
     || own(deps, 'startCapability') !== undefined || own(deps, 'trustedStartAuthorization') !== undefined;
   const env = trustedGateSnapshot || own(deps, 'runtimeEnv') || {};
   async function handleStart(body, req, res, user) {
+    if (identityWolfhouse(user, false)
+        && wolfhouseTenant.isWolfhouseEmailGoogleOAuthStartEnabled(env)) {
+      if (!req || req.method !== 'POST') return deps.sendJSON(res, 400, { success:false, error:'invalid_request' });
+      if (!deps.assertStaffClientAccess(user, wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG, res)) return;
+      const authz = deps.authorizeAuthenticatedStaffRoute({
+        clientSlug: wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,
+        method: 'POST',
+        pathname: GOOGLE_OAUTH_START_PATH,
+        env,
+      });
+      if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || { success:false, error:'forbidden' });
+      // Live Google OAuth composition is Sunset-owned. This slice prepares/disconnects only.
+      return deps.sendJSON(res, 503, { success:false, error:'oauth_start_unavailable' });
+    }
     if (!trustedGateSnapshot && !isGoogleOAuthStartEnabled(env)) return deps.sendJSON(res, 404, { success:false, error:'not_found' });
     if (!identity(user, false)) return deps.sendJSON(res, 403, { success:false, error:'forbidden' });
     if (!req || req.method !== 'POST') return deps.sendJSON(res, 400, { success:false, error:'invalid_request' });
@@ -172,6 +216,45 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
       return deps.sendJSON(res, 200, dto);
     }); } catch (_) { return deps.sendJSON(res, 503, {success:false,error:'oauth_start_unavailable'}); }
   }
+  async function handlePrepare(body, req, res, user) {
+    if (identityWolfhouse(user, false)
+        && wolfhouseTenant.isWolfhouseEmailGoogleOAuthStartEnabled(env)) {
+      if (!req || req.method !== 'POST') return deps.sendJSON(res, 400, { success:false, error:'invalid_request' });
+      if (!deps.assertStaffClientAccess(user, wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG, res)) return;
+      const authz = deps.authorizeAuthenticatedStaffRoute({
+        clientSlug: wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,
+        method: 'POST',
+        pathname: GOOGLE_OAUTH_ENDPOINT_PATH,
+        env,
+      });
+      if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || { success:false, error:'forbidden' });
+      const input = prepareBodySnapshot(body);
+      if (!input) return deps.sendJSON(res, 400, { success:false, error:'invalid_request' });
+      const actor = own(user, 'staff_user_id');
+      const clientId = own(user, 'client_id');
+      if (!UUID.test(actor || '') || !UUID.test(clientId || '')) {
+        return deps.sendJSON(res, 403, { success:false, error:'forbidden' });
+      }
+      try {
+        return await deps.withPgClient(async (pg) => {
+          const prepare = createWolfhouseGoogleEndpointPrepare(objectFreeze({ client: pg }));
+          const ack = await prepare.prepareDisabledDelegatedEndpoint(objectFreeze({
+            clientId: String(clientId).toLowerCase(),
+            locationId: input.location_id,
+            publicAddress: input.public_address,
+            actorStaffUserId: String(actor).toLowerCase(),
+          }));
+          if (!ack || typeof ack.endpointId !== 'string') {
+            return deps.sendJSON(res, 503, { success:false, error:'endpoint_prepare_unavailable' });
+          }
+          return deps.sendJSON(res, 200, objectFreeze({ success: true, endpoint_id: ack.endpointId }));
+        });
+      } catch (_) {
+        return deps.sendJSON(res, 503, { success:false, error:'endpoint_prepare_unavailable' });
+      }
+    }
+    return deps.sendJSON(res, 404, { success:false, error:'not_found' });
+  }
   async function handleCallback(req, res) {
     if (!trustedGateSnapshot && !isGoogleOAuthCallbackEnabled(env)) return deps.sendHTML(res, 404, '<!doctype html><title>Not found</title>');
     let url; try { url = new URL(req.url, 'https://staff-staging.lunafrontdesk.com'); } catch (_) { url = null; }
@@ -183,6 +266,41 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
     } catch (_) { safeEmitStage(stageTelemetry, 'callback_failed'); return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>'); }
   }
   async function handleDisconnect(body, req, res, user, gateEnv = env) {
+    if (identityWolfhouse(user, false)
+        && wolfhouseTenant.isWolfhouseEmailDisconnectEnabled(gateEnv)) {
+      if (!req || req.method !== 'POST') return deps.sendJSON(res, 400, { success:false, error:'invalid_request' });
+      if (!deps.assertStaffClientAccess(user, wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG, res)) return;
+      const authz = deps.authorizeAuthenticatedStaffRoute({
+        clientSlug: wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,
+        method: 'POST',
+        pathname: GOOGLE_OAUTH_DISCONNECT_PATH,
+        env: gateEnv,
+      });
+      if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || { success:false, error:'forbidden' });
+      const input = bodySnapshot(body);
+      if (!input) return deps.sendJSON(res, 400, { success:false, error:'invalid_request' });
+      try {
+        return await deps.withPgClient(async (pg) => {
+          const removed = await tryRemoveRegisteredNotConnectedEndpoint(pg, objectFreeze({
+            locationId: input.location_id,
+            endpointId: input.endpoint_id,
+            provider: 'gmail_api',
+            clientSlug: 'wolfhouse-somo',
+          }));
+          if (removed.kind === 'removed') {
+            const json = buildGoogleDisconnectSuccessJson(removed.result);
+            if (!json) return deps.sendJSON(res, 503, { success:false, error: DISCONNECT_ERROR });
+            return deps.sendJSON(res, 200, json);
+          }
+          if (removed.kind === 'not_applicable') {
+            return deps.sendJSON(res, 404, { success:false, error:'endpoint_not_found' });
+          }
+          return deps.sendJSON(res, 503, { success:false, error: DISCONNECT_ERROR });
+        });
+      } catch (_) {
+        return deps.sendJSON(res, 503, { success:false, error: DISCONNECT_ERROR });
+      }
+    }
     // Prefer caller-frozen disconnect gate snapshot when production integration
     // supplies one; trusted Google OAuth gate does not carry the disconnect flag.
     if (!isGoogleOAuthDisconnectEnabled(gateEnv)) {
@@ -208,6 +326,7 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
           locationId: input.location_id,
           endpointId: input.endpoint_id,
           provider: 'gmail_api',
+          clientSlug: own(user, 'client_slug') === 'wolfhouse-somo' ? 'wolfhouse-somo' : 'sunset',
         }));
         if (removed.kind === 'removed') {
           const json = buildGoogleDisconnectSuccessJson(removed.result);
@@ -227,13 +346,14 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
       return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
     }
   }
-  return objectFreeze({ handleStart, handleCallback, handleDisconnect });
+  return objectFreeze({ handleStart, handleCallback, handleDisconnect, handlePrepare });
 }
 module.exports = objectFreeze({
   createStaffEmailGoogleOAuthRoutes,
   GOOGLE_OAUTH_START_PATH,
   GOOGLE_OAUTH_CALLBACK_PATH,
   GOOGLE_OAUTH_DISCONNECT_PATH,
+  GOOGLE_OAUTH_ENDPOINT_PATH,
   START_FLAG,
   CALLBACK_FLAG,
   DISCONNECT_FLAG,
