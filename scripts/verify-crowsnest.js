@@ -252,9 +252,10 @@ ok('UI associates each location with its intended status', (() => {
   const wolfhouse = cards.find((card) => card.includes('Wolfhouse Somo')) || '';
   const sunsetSomo = cards.find((card) => card.includes('Sunset Somo')) || '';
   const sardinero = cards.find((card) => card.includes('Sunset Sardinero')) || '';
-  return />Live<\/span>/i.test(wolfhouse)
-    && />Staging<\/span>/i.test(sunsetSomo)
-    && />Planned<\/span>/i.test(sardinero);
+  const hasLocationStatus = (card, status) => new RegExp(`<span class="meta-chip meta-chip--status"><span class="pill[^"]*"><span class="pill-dot" aria-hidden="true"><\\/span>${status}<\\/span><\\/span>`, 'i').test(card);
+  return hasLocationStatus(wolfhouse, 'Live')
+    && hasLocationStatus(sunsetSomo, 'Live')
+    && hasLocationStatus(sardinero, 'Planned');
 })());
 ok('UI labels staging portal rows as Staging, never Live', (() => {
   const rows = clientsHtml.match(/<li class="env-row[^"]*">[\s\S]*?<\/li>/g) || [];
@@ -268,8 +269,8 @@ ok('UI environment/status rows render', clientsHtml.includes('env-row') && clien
 ok('UI Wolfhouse staff-staging link', clientsHtml.includes('https://staff-staging.lunafrontdesk.com'));
 ok('UI Wolfhouse production link', clientsHtml.includes('https://wolfhouse.lunafrontdesk.com'));
 ok('UI Sunset staging link', clientsHtml.includes('https://sunset-staging.lunafrontdesk.com'));
-ok('UI omits unavailable Sunset production link', !clientsHtml.includes('https://sunset.lunafrontdesk.com'));
-ok('UI external links are safe new-tab links', (clientsHtml.match(/target="_blank" rel="noopener noreferrer"/g) || []).length === 3);
+ok('UI Sunset production link', clientsHtml.includes('https://sunset.lunafrontdesk.com'));
+ok('UI external links are safe new-tab links', (clientsHtml.match(/target="_blank" rel="noopener noreferrer"/g) || []).length === 4);
 
 ok('Billing placeholder says not connected', /not connected|not available|no data source|unavailable/i.test(billingHtml) && /Billing/i.test(billingHtml));
 ok('Billing placeholder has no forms or mutations', (() => {

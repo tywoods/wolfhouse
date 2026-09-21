@@ -1065,6 +1065,7 @@ async function main() {
                 return JSON.stringify(portalUrls) === JSON.stringify([
                   'https://staff-staging.lunafrontdesk.com',
                   'https://sunset-staging.lunafrontdesk.com',
+                  'https://sunset.lunafrontdesk.com',
                   'https://wolfhouse.lunafrontdesk.com',
                 ]);
               })(),
@@ -1085,7 +1086,7 @@ async function main() {
                 && !/<form\b|<button\b|href=["'](?:javascript:|[^"']*(?:create|onboard|template))/i.test(clientsSection)
                 && !/Add new client|Add client|Create client|Preview setup/i.test(clientsSection)
                 && hasLocationStatus(wolfhouse, 'Live')
-                && hasLocationStatus(sunsetSomo, 'Staging')
+                && hasLocationStatus(sunsetSomo, 'Live')
                 && hasLocationStatus(sardinero, 'Planned');
             })(),
           );
