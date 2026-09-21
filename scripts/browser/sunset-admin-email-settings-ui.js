@@ -46,7 +46,7 @@ function isAllowedMicrosoftAuthorizationUrl(raw){
 }
 var GOOGLE_UI_AUTHORITY = 'https://accounts.google.com/o/oauth2/v2/auth';
 var GOOGLE_UI_REDIRECT_URI = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
-var WH_REAUTH_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/oauth/microsoft/callback';
+var WH_REAUTH_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/microsoft/callback';
 var WH_GOOGLE_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
 function adminEmailSettingsClient(){
   try {

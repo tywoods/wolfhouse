@@ -12,6 +12,7 @@ const { REQUEST_LIMIT_BYTES } = require('./email-microsoft-token-http-transport'
 
 const FAILURE_CODE = 'microsoft_token_revoke_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
+const WOLFHOUSE_DEPLOYMENT = 'staff-staging';
 const REVOKE_PATH = '/organizations/oauth2/v2.0/revoke';
 const CLIENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TOKEN_LIMIT_CHARS = 8192;
@@ -63,7 +64,7 @@ function createMicrosoftTokenRevokeService(deps) {
   let applicationClientId;
   try {
     if (!exactPlainData(deps, CORE_DEPS_KEYS)
-        || ownData(deps, 'deployment') !== SUNSET_DEPLOYMENT) throw failure();
+        || ![SUNSET_DEPLOYMENT, WOLFHOUSE_DEPLOYMENT].includes(ownData(deps, 'deployment'))) throw failure();
     applicationClientId = ownData(deps, 'applicationClientId');
     secretProvider = ownData(deps, 'secretProvider');
     transport = ownData(deps, 'transport');
@@ -109,6 +110,7 @@ function createMicrosoftTokenRevokeService(deps) {
 module.exports = Object.freeze({
   FAILURE_CODE,
   SUNSET_DEPLOYMENT,
+  WOLFHOUSE_DEPLOYMENT,
   REVOKE_PATH,
   createMicrosoftTokenRevokeService,
 });

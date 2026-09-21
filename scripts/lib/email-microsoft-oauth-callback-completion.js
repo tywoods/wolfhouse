@@ -118,6 +118,7 @@ const CALLBACK_CODE_ALLOWED = Object.freeze(
 );
 
 const SUNSET_DEPLOYMENT = 'sunset-staging';
+const WOLFHOUSE_DEPLOYMENT = 'staff-staging';
 /** Canonical lowercase hyphenated UUID (same grammar as migration shapes). */
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Owner may arrive mixed-case from session material; normalize after grammar. */
@@ -393,13 +394,13 @@ function sealedCompletionAck(value) {
  * Snapshot env at factory: sunset-staging + callback enabled + canonical app id.
  * Accepts process.env-like objects (does not require frozen env).
  */
-function snapshotEnv(env) {
+function snapshotEnv(env, wolfhouse = false) {
   try {
     if (!env || typeof env !== 'object') return null;
     const deployment = env.LUNA_DEPLOYMENT;
-    const enabled = env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED;
-    const appId = env.LUNA_EMAIL_OAUTH_CLIENT_ID;
-    if (deployment !== SUNSET_DEPLOYMENT) return null;
+    const enabled = wolfhouse ? env.WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_CALLBACK_ENABLED : env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED;
+    const appId = wolfhouse ? env.WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_CLIENT_ID : env.LUNA_EMAIL_OAUTH_CLIENT_ID;
+    if (deployment !== (wolfhouse ? WOLFHOUSE_DEPLOYMENT : SUNSET_DEPLOYMENT)) return null;
     if (enabled !== 'true') return null;
     if (typeof appId !== 'string' || !UUID_RE.test(appId)) return null;
     return Object.freeze({ applicationClientId: appId.toLowerCase() });
@@ -408,7 +409,7 @@ function snapshotEnv(env) {
   }
 }
 
-function pinDependencies(dependencies) {
+function pinDependencies(dependencies, wolfhouse = false) {
   const resolved = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
   if (!resolved.ok || !resolved.stageTelemetry) return null;
 
@@ -421,7 +422,7 @@ function pinDependencies(dependencies) {
   if (!exactFrozenService(completion, COMPLETION_METHOD)) return null;
   if (!exactFrozenService(clock, 'now')) return null;
 
-  const envSnap = snapshotEnv(env);
+  const envSnap = snapshotEnv(env, wolfhouse);
   if (!envSnap) return null;
 
   return Object.freeze({
@@ -440,10 +441,10 @@ function pinDependencies(dependencies) {
  * @param {object} dependencies exact frozen { repository, completion, env, clock }
  * @returns {{ accept: Function }} frozen single-use callback completion surface
  */
-function createMicrosoftOAuthCallbackCompletionService(dependencies) {
+function createMicrosoftOAuthCallbackCompletionServiceForTenant(dependencies, wolfhouse) {
   let pinned;
   try {
-    pinned = pinDependencies(dependencies);
+    pinned = pinDependencies(dependencies, wolfhouse);
     if (!pinned) throw failure();
   } catch {
     throw failure();
@@ -565,6 +566,14 @@ function createMicrosoftOAuthCallbackCompletionService(dependencies) {
   return Object.freeze({ accept });
 }
 
+function createMicrosoftOAuthCallbackCompletionService(dependencies) {
+  return createMicrosoftOAuthCallbackCompletionServiceForTenant(dependencies, false);
+}
+
+function createWolfhouseMicrosoftOAuthCallbackCompletionService(dependencies) {
+  return createMicrosoftOAuthCallbackCompletionServiceForTenant(dependencies, true);
+}
+
 module.exports = Object.freeze({
   ERROR_CODE,
   ERROR_MESSAGE,
@@ -583,5 +592,7 @@ module.exports = Object.freeze({
   CALLBACK_ERROR_KEYS,
   SQL_CONSUME_TRANSACTION,
   SUNSET_DEPLOYMENT,
+  WOLFHOUSE_DEPLOYMENT,
   createMicrosoftOAuthCallbackCompletionService,
+  createWolfhouseMicrosoftOAuthCallbackCompletionService,
 });

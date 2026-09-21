@@ -229,7 +229,9 @@ test('exports frozen factory, fixed error constants, and completion-aligned keys
     'CALLBACK_ERROR_KEYS',
     'SQL_CONSUME_TRANSACTION',
     'SUNSET_DEPLOYMENT',
+    'WOLFHOUSE_DEPLOYMENT',
     'createMicrosoftOAuthCallbackCompletionService',
+    'createWolfhouseMicrosoftOAuthCallbackCompletionService',
   ]);
   assert.equal(Object.isFrozen(exported), true);
   assert.equal(ERROR_CODE, 'MICROSOFT_OAUTH_CALLBACK_COMPLETION_INVALID');

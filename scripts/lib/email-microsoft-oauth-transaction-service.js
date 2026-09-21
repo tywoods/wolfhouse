@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const AUTHORITY = ['https://login.microsoftonline.com', 'organizations', 'oauth2', 'v2.0', 'authorize'].join('/');
 const REDIRECT_URI = ['https://sunset-staging.lunafrontdesk.com', 'staff', 'email', 'oauth', 'microsoft', 'callback'].join('/');
+const WOLFHOUSE_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/microsoft/callback';
 /** Single Sunset connect consent (phase_a_v2): read+write+send in one authorize. */
 const SCOPES = 'openid profile offline_access User.Read Mail.ReadWrite Mail.Send';
 const TTL_SECONDS = 600;
@@ -153,6 +154,16 @@ function validateRuntime(env) {
   return appId.toLowerCase();
 }
 
+function resolveStartRuntime(env) {
+  if (env && env.LUNA_DEPLOYMENT === 'staff-staging'
+      && env.WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_START_ENABLED === 'true') {
+    const appId = env.WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_CLIENT_ID;
+    if (typeof appId !== 'string' || !UUID_RE.test(appId)) throw new Error('oauth_start_invalid_client_id');
+    return Object.freeze({ appId: appId.toLowerCase(), redirectUri: WOLFHOUSE_REDIRECT_URI });
+  }
+  return Object.freeze({ appId: validateRuntime(env), redirectUri: REDIRECT_URI });
+}
+
 function createPostgresOAuthTransactionRepository(db) {
   if (!db || typeof db.query !== 'function') throw new TypeError('db_required');
   return Object.freeze({
@@ -191,7 +202,7 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
       // Snapshot before any randomness or persistence; never reread caller.
       const snapshot = snapshotExactOrderedUuids(input, INPUT_KEYS);
       if (!snapshot) throw new Error('oauth_start_invalid_request');
-      const appId = validateRuntime(env);
+      const runtime = resolveStartRuntime(env);
       const state = generate32(randomBytes, 'oauth_start_state_generation_failed');
       const nonce = generate32(randomBytes, 'oauth_start_nonce_generation_failed');
       const verifier = generate32(randomBytes, 'oauth_start_verifier_generation_failed');
@@ -217,7 +228,7 @@ function createMicrosoftOAuthTransactionService({ repository, env = process.env,
       });
       const url = new URL(AUTHORITY);
       for (const [key, value] of [
-        ['client_id', appId], ['response_type', 'code'], ['redirect_uri', REDIRECT_URI],
+        ['client_id', runtime.appId], ['response_type', 'code'], ['redirect_uri', runtime.redirectUri],
         ['response_mode', 'query'], ['scope', SCOPES], ['state', state], ['nonce', nonce],
         ['code_challenge', challenge], ['code_challenge_method', 'S256'],
       ]) url.searchParams.set(key, value);
