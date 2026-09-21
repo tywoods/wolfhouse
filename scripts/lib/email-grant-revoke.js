@@ -23,6 +23,7 @@ const {
 
 const FAILURE_CODE = 'delegated_grant_revoke_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
+const WOLFHOUSE_DEPLOYMENT = 'staff-staging';
 const WORKER_ID = 'sunset-email-disconnect';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEPENDENCY_KEYS = Object.freeze([
@@ -108,9 +109,11 @@ function createDelegatedGrantRevokeService(deps) {
   let envelopeProvider;
   let secretProvider;
   let transport;
+  let deployment;
   try {
     if (!exactPlainData(deps, DEPENDENCY_KEYS)
-        || ownData(deps, 'deployment') !== SUNSET_DEPLOYMENT) throw failure();
+        || ![SUNSET_DEPLOYMENT, WOLFHOUSE_DEPLOYMENT].includes(ownData(deps, 'deployment'))) throw failure();
+    deployment = ownData(deps, 'deployment');
     applicationClientId = ownData(deps, 'applicationClientId');
     client = ownData(deps, 'client');
     envelopeProvider = ownData(deps, 'envelopeProvider');
@@ -124,7 +127,7 @@ function createDelegatedGrantRevokeService(deps) {
   } catch (_) { throw failure(); }
 
   const revokeTransport = createMicrosoftTokenRevokeService(Object.freeze({
-    deployment: SUNSET_DEPLOYMENT,
+    deployment,
     applicationClientId,
     secretProvider,
     transport,
@@ -224,6 +227,7 @@ function createDelegatedGrantRevokeService(deps) {
 module.exports = Object.freeze({
   FAILURE_CODE,
   SUNSET_DEPLOYMENT,
+  WOLFHOUSE_DEPLOYMENT,
   WORKER_ID,
   STATUS_DISCONNECTED,
   STATUS_UNAVAILABLE,

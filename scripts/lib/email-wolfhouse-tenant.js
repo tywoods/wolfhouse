@@ -13,11 +13,16 @@ const WOLFHOUSE_CLIENT_SLUG = 'wolfhouse-somo';
 const WOLFHOUSE_LOCATION_KEY = 'wolfhouse-somo';
 const WOLFHOUSE_DEPLOYMENT = 'staff-staging';
 const WOLFHOUSE_PORTAL_ORIGIN = 'https://staff-staging.lunafrontdesk.com';
-const WOLFHOUSE_MS_REDIRECT_URI = `${WOLFHOUSE_PORTAL_ORIGIN}/staff/email/oauth/microsoft/callback`;
+const WOLFHOUSE_MS_REDIRECT_URI = `${WOLFHOUSE_PORTAL_ORIGIN}/staff/email/microsoft/callback`;
 const WOLFHOUSE_GOOGLE_REDIRECT_URI = `${WOLFHOUSE_PORTAL_ORIGIN}/staff/email/google/callback`;
 
 const ENV_UI = 'WOLFHOUSE_EMAIL_SETTINGS_UI_ENABLED';
 const ENV_OAUTH_START = 'WOLFHOUSE_EMAIL_OAUTH_START_ENABLED';
+const ENV_MS_OAUTH_START = 'WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_START_ENABLED';
+const ENV_MS_OAUTH_CALLBACK = 'WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_CALLBACK_ENABLED';
+const ENV_MS_OAUTH_CUSTODY = 'WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_GRANT_CUSTODY_ENABLED';
+const ENV_MS_OAUTH_CLIENT_ID = 'WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_CLIENT_ID';
+const ENV_MS_OAUTH_CLIENT_SECRET = 'WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_CLIENT_SECRET';
 const ENV_GOOGLE_OAUTH_START = 'WOLFHOUSE_EMAIL_GOOGLE_OAUTH_START_ENABLED';
 const ENV_GOOGLE_OAUTH_CALLBACK = 'WOLFHOUSE_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED';
 const ENV_GOOGLE_OAUTH_CUSTODY = 'WOLFHOUSE_EMAIL_GOOGLE_OAUTH_GRANT_CUSTODY_ENABLED';
@@ -68,6 +73,19 @@ function isWolfhouseStaffStaging(env) {
 
 function isWolfhouseEmailOAuthStartEnabled(env) {
   return exactTrue(env, ENV_OAUTH_START) && isWolfhouseStaffStaging(env);
+}
+
+function isWolfhouseEmailMicrosoftOAuthStartEnabled(env) {
+  return isWolfhouseEmailSettingsUiEnabled(env)
+    && exactTrue(env, ENV_MS_OAUTH_START)
+    && isWolfhouseStaffStaging(env);
+}
+
+function isWolfhouseEmailMicrosoftOAuthCallbackEnabled(env) {
+  return isWolfhouseEmailSettingsUiEnabled(env)
+    && exactTrue(env, ENV_MS_OAUTH_CALLBACK)
+    && exactTrue(env, ENV_MS_OAUTH_CUSTODY)
+    && isWolfhouseStaffStaging(env);
 }
 
 function isWolfhouseEmailGoogleOAuthStartEnabled(env) {
@@ -143,6 +161,11 @@ module.exports = Object.freeze({
   WOLFHOUSE_GOOGLE_REDIRECT_URI,
   ENV_UI,
   ENV_OAUTH_START,
+  ENV_MS_OAUTH_START,
+  ENV_MS_OAUTH_CALLBACK,
+  ENV_MS_OAUTH_CUSTODY,
+  ENV_MS_OAUTH_CLIENT_ID,
+  ENV_MS_OAUTH_CLIENT_SECRET,
   ENV_GOOGLE_OAUTH_START,
   ENV_GOOGLE_OAUTH_CALLBACK,
   ENV_GOOGLE_OAUTH_CUSTODY,
@@ -163,6 +186,8 @@ module.exports = Object.freeze({
   isWolfhouseEmailSettingsUiEnabled,
   isWolfhouseStaffStaging,
   isWolfhouseEmailOAuthStartEnabled,
+  isWolfhouseEmailMicrosoftOAuthStartEnabled,
+  isWolfhouseEmailMicrosoftOAuthCallbackEnabled,
   isWolfhouseEmailGoogleOAuthStartEnabled,
   isWolfhouseEmailGoogleOAuthCallbackEnabled,
   isWolfhouseEmailDisconnectEnabled,

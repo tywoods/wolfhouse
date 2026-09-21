@@ -365,7 +365,9 @@ test('exports frozen factory, fixed error constants, and completion-aligned keys
     'TIMERS_KEYS',
     'AUTH_EXCHANGE_KEYS',
     'SUNSET_DEPLOYMENT',
+    'WOLFHOUSE_DEPLOYMENT',
     'createMicrosoftOAuthOperationComposition',
+    'createWolfhouseMicrosoftOAuthOperationComposition',
   ]);
   assert.equal(Object.isFrozen(exported), true);
   assert.equal(ERROR_CODE, 'MICROSOFT_OAUTH_OPERATION_COMPOSITION_INVALID');

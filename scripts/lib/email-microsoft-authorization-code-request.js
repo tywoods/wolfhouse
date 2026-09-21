@@ -10,6 +10,8 @@ const {
 
 const FAILURE_CODE = 'microsoft_authorization_code_exchange_failed';
 const SUNSET_DEPLOYMENT = 'sunset-staging';
+const WOLFHOUSE_DEPLOYMENT = 'staff-staging';
+const WOLFHOUSE_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/microsoft/callback';
 const CLIENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PKCE_VERIFIER_RE = /^[A-Za-z0-9\-._~]{43,128}$/;
 const AUTHORIZATION_CODE_LIMIT_CHARS = 8192;
@@ -81,9 +83,11 @@ function createMicrosoftAuthorizationCodeRequestService(deps) {
   let exchangeAndCustody;
   let applicationClientId;
   let stageTelemetry;
+  let deployment;
   try {
     stageTelemetry = resolveStageTelemetry(deps);
-    if (!stageTelemetry || ownData(deps, 'deployment') !== SUNSET_DEPLOYMENT) throw failure();
+    deployment = ownData(deps, 'deployment');
+    if (!stageTelemetry || (deployment !== SUNSET_DEPLOYMENT && deployment !== WOLFHOUSE_DEPLOYMENT)) throw failure();
     applicationClientId = ownData(deps, 'applicationClientId');
     secretProvider = ownData(deps, 'secretProvider');
     responseCustody = ownData(deps, 'responseCustody');
@@ -108,7 +112,7 @@ function createMicrosoftAuthorizationCodeRequestService(deps) {
         ['client_secret', clientSecret],
         ['grant_type', 'authorization_code'],
         ['code', inputSnapshot.authorizationCode],
-        ['redirect_uri', REDIRECT_URI],
+        ['redirect_uri', deployment === WOLFHOUSE_DEPLOYMENT ? WOLFHOUSE_REDIRECT_URI : REDIRECT_URI],
         ['code_verifier', inputSnapshot.codeVerifier],
       ]).toString();
       if (Buffer.byteLength(body, 'utf8') > REQUEST_LIMIT_BYTES) throw failure();
@@ -124,6 +128,7 @@ function createMicrosoftAuthorizationCodeRequestService(deps) {
 }
 
 module.exports = Object.freeze({
-  FAILURE_CODE, SUNSET_DEPLOYMENT, AUTHORIZATION_CODE_LIMIT_CHARS, CLIENT_SECRET_LIMIT_CHARS,
+  FAILURE_CODE, SUNSET_DEPLOYMENT, WOLFHOUSE_DEPLOYMENT, WOLFHOUSE_REDIRECT_URI,
+  AUTHORIZATION_CODE_LIMIT_CHARS, CLIENT_SECRET_LIMIT_CHARS,
   createMicrosoftAuthorizationCodeRequestService,
 });

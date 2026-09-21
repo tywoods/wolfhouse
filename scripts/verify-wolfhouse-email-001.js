@@ -174,8 +174,9 @@ console.log('\n── E. Remove/disconnect SQL isolation ──');
   check('E4 MS disconnect Wolfhouse path uses clientSlug wolfhouse-somo',
     oauthSrc.includes("clientSlug: 'wolfhouse-somo'")
     && oauthSrc.includes('isWolfhouseEmailDisconnectEnabled'));
-  check('E5 MS Wolfhouse disconnect does not Graph-revoke (leftover remove only)',
-    /This slice: leftover remove only/.test(oauthSrc));
+  check('E5 MS Wolfhouse disconnect drops connected grant access, not hide-only',
+    oauthSrc.includes('buildWolfhouseDisconnectRuntime')
+    && oauthSrc.includes('runtime.runRevoke'));
   const gmailSrc = read('scripts/lib/staff-email-google-oauth-routes.js');
   check('E6 Gmail Wolfhouse disconnect uses wolfhouse-somo clientSlug',
     gmailSrc.includes("clientSlug: 'wolfhouse-somo'"));
@@ -205,7 +206,7 @@ console.log('\n── F. Settings GET + Admin UI ──');
   check('F7 Email UI still fetches sunset for Sunset client',
     ui.includes('/staff/admin/email-settings?client=sunset'));
   check('F8 Wolfhouse MS redirect is staff-staging',
-    ui.includes("WH_REAUTH_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/oauth/microsoft/callback'"));
+    ui.includes("WH_REAUTH_UI_REDIRECT_URI = 'https://staff-staging.lunafrontdesk.com/staff/email/microsoft/callback'"));
   check('F9 Sunset MS redirect stays sunset-staging',
     ui.includes("REAUTH_UI_REDIRECT_URI = 'https://sunset-staging.lunafrontdesk.com/staff/email/oauth/microsoft/callback'"));
   const whAdmin = read('scripts/browser/wolfhouse-admin-ui.js');

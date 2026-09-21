@@ -68,6 +68,7 @@ const {
   createSunsetStagingEmailDisconnectRuntime,
   isDisconnectEnabled,
 } = require('./email-disconnect');
+
 const {
   tryRemoveRegisteredNotConnectedEndpoint,
 } = require('./email-registered-endpoint-remove');
@@ -77,6 +78,7 @@ const {
   ERROR_CODE: PREPARE_ERROR_CODE,
 } = require('./email-sunset-microsoft-endpoint-prepare');
 const wolfhouseTenant = require('./email-wolfhouse-tenant');
+
 const {
   createWolfhouseMicrosoftEndpointPrepare,
 } = require('./email-wolfhouse-endpoint-prepare');
@@ -113,6 +115,7 @@ const OAUTH_INBOUND_CAPTURE_PATH = '/staff/admin/email-settings/oauth/microsoft/
 /** Admin Phase B reauth start (B3a2a; default-off). Dedicated path/flag; no callback in this slice. */
 const OAUTH_REAUTHORIZE_PATH = '/staff/admin/email-settings/oauth/microsoft/reauthorize';
 const OAUTH_CALLBACK_PATH = '/staff/email/oauth/microsoft/callback';
+const WOLFHOUSE_OAUTH_CALLBACK_PATH = '/staff/email/microsoft/callback';
 /** Canonical lowercase UUID (start body endpoint_id + ordinary SQL row ids). */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Session/staff UUIDs may arrive mixed-case from auth surface. */
@@ -1365,6 +1368,23 @@ function buildCallbackRuntime(env, pg, stageTelemetry) {
   }));
 }
 
+function buildWolfhouseCallbackRuntime(env, pg, stageTelemetry) {
+  // Keep the Wolfhouse custody/runtime graph lazy so loading the shared route
+  // cannot pre-load Azure SDK/provider modules or perturb Sunset's independently
+  // mocked and pinned composition surface.
+  const { createWolfhouseStaffStagingMicrosoftOAuthComposition } = require(
+    './email-microsoft-oauth-wolfhouse-staff-staging-runtime-composition'
+  );
+  const composition = createWolfhouseStaffStagingMicrosoftOAuthComposition(Object.freeze({
+    env,
+    nativeSurfaces: productionNativeSurfaces(),
+  }));
+  return composition.createCallbackRuntime(
+    pg,
+    stageTelemetry || createNoopEmailOAuthStageTelemetry(),
+  );
+}
+
 /**
  * Phase B callback runtime (B2b) for shared dispatcher factory injection.
  * Own-data env snapshot + production natives only; no process.env proxy.
@@ -1405,6 +1425,16 @@ function buildDisconnectRuntime(env, pg) {
     pgClient: pg,
     https: natives.https,
     timers: natives.timers,
+  }));
+}
+
+function buildWolfhouseDisconnectRuntime(env, pg) {
+  const { createWolfhouseStaffStagingMicrosoftDisconnectRuntime } = require(
+    './email-wolfhouse-microsoft-disconnect'
+  );
+  const natives = productionNativeSurfaces();
+  return createWolfhouseStaffStagingMicrosoftDisconnectRuntime(Object.freeze({
+    env, pgClient: pg, https: natives.https, timers: natives.timers,
   }));
 }
 
@@ -1466,7 +1496,7 @@ function createStaffEmailOAuthRoutes(deps) {
    */
   async function handlePrepare(body, req, res, user) {
     if (wolfhouseTenant.isWolfhouseEmailCaller(user)
-        && wolfhouseTenant.isWolfhouseEmailOAuthStartEnabled(env)) {
+        && wolfhouseTenant.isWolfhouseEmailMicrosoftOAuthStartEnabled(env)) {
       if (!user
           || !UUID_RE_CI.test(user.staff_user_id || '')
           || !UUID_RE_CI.test(user.session_id || '')) {
@@ -1588,7 +1618,7 @@ function createStaffEmailOAuthRoutes(deps) {
 
   async function handleStart(body, req, res, user) {
     if (wolfhouseTenant.isWolfhouseEmailCaller(user)
-        && wolfhouseTenant.isWolfhouseEmailOAuthStartEnabled(env)) {
+        && wolfhouseTenant.isWolfhouseEmailMicrosoftOAuthStartEnabled(env)) {
       if (!user
           || !UUID_RE_CI.test(user.staff_user_id || '')
           || !UUID_RE_CI.test(user.session_id || '')) {
@@ -1821,9 +1851,17 @@ function createStaffEmailOAuthRoutes(deps) {
             }
             return deps.sendJSON(res, 200, removedJson);
           }
-          // This slice: leftover remove only. Never Graph-revoke Sunset (or any) mailbox.
           if (removed.kind === 'not_applicable') {
-            return deps.sendJSON(res, 404, { success: false, error: 'endpoint_not_found' });
+            const runtime = typeof deps.createWolfhouseDisconnectRuntime === 'function'
+              ? deps.createWolfhouseDisconnectRuntime(Object.freeze({ env, pgClient: pg }))
+              : buildWolfhouseDisconnectRuntime(env, pg);
+            const result = await runtime.runRevoke(Object.freeze({
+              clientId: String(user.client_id).toLowerCase(),
+              endpointId: bodySnap.endpoint_id,
+            }));
+            const json = buildDisconnectSuccessJson(result);
+            return json ? deps.sendJSON(res, 200, json)
+              : deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
           }
           return deps.sendJSON(res, 503, { success: false, error: DISCONNECT_ERROR });
         });
@@ -2225,7 +2263,33 @@ function createStaffEmailOAuthRoutes(deps) {
    * on exact frozen A invalid_or_expired. Public bounded terminal statuses only.
    * Default-off: neither callback flag exact true → concealed.
    */
-  async function handleCallback(query, req, res, user) {
+  async function handleCallback(query, req, res, user, wolfhouseMicrosoftCallback = false) {
+    if (wolfhouseMicrosoftCallback) {
+      if (!wolfhouseTenant.isWolfhouseEmailMicrosoftOAuthCallbackEnabled(env)) {
+        return terminal(res, 404, 'invalid_or_expired');
+      }
+      if (!wolfhouseTenant.isWolfhouseEmailCaller(user)
+          || !UUID_RE_CI.test(user.staff_user_id || '')
+          || !UUID_RE_CI.test(user.session_id || '')) {
+        return terminal(res, 400, 'invalid_or_expired');
+      }
+      const stageTelemetry = buildCallbackStageTelemetry();
+      try {
+        const result = await deps.withPgClient(async (pg) => {
+          const runtime = typeof deps.createWolfhouseCallbackFactory === 'function'
+            ? deps.createWolfhouseCallbackFactory({ env, pgClient: pg, stageTelemetry })
+            : buildWolfhouseCallbackRuntime(env, pg, stageTelemetry);
+          return runtime.accept(query, Object.freeze({
+            clientId: String(user.client_id).toLowerCase(),
+            authSessionId: String(user.session_id).toLowerCase(),
+          }));
+        });
+        return terminal(res, result && result.status === 'invalid_or_expired' ? 400 : 200,
+          result && result.status ? result.status : 'invalid_or_expired');
+      } catch (_) {
+        return terminal(res, 400, 'invalid_or_expired');
+      }
+    }
     // Gate first (own-data sunset-staging + A|B exact true). No auth/DB/SDK.
     if (!isSharedOauthCallbackRouteEnabled(env)) {
       return terminal(res, 404, 'invalid_or_expired');
@@ -2330,6 +2394,7 @@ module.exports = {
   OAUTH_INBOUND_CAPTURE_PATH,
   OAUTH_REAUTHORIZE_PATH,
   OAUTH_CALLBACK_PATH,
+  WOLFHOUSE_OAUTH_CALLBACK_PATH,
   SQL_RESOLVE_START_BINDING,
   SQL_RESOLVE_REFRESH_HEALTH_BINDING,
   SQL_RESOLVE_DISCONNECT_BINDING,

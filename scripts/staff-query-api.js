@@ -268,6 +268,7 @@ const {
   OAUTH_INBOUND_CAPTURE_PATH,
   OAUTH_REAUTHORIZE_PATH,
   OAUTH_CALLBACK_PATH,
+  WOLFHOUSE_OAUTH_CALLBACK_PATH,
   isPhaseBReauthStartEnabled,
   snapshotPhaseBReauthGateEnv,
   isPhaseBReauthCallerIdentityValid,
@@ -52554,16 +52555,20 @@ async function router(req, res) {
   // sunset-staging + own-data A|B and authenticates admin session before
   // shared intent-disjoint A→B dispatch. B-only is permitted; dual-A not
   // required. Default-off: neither flag → JSON 404 not_found (unchanged form).
-  if (pathname === OAUTH_CALLBACK_PATH && method === 'GET') {
-    const phaseACallbackOn = process.env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED === 'true';
-    const phaseBCallbackOn = process.env.LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED === 'true';
+  if ((pathname === OAUTH_CALLBACK_PATH || pathname === WOLFHOUSE_OAUTH_CALLBACK_PATH) && method === 'GET') {
+    const wolfhouseMicrosoftCallback = pathname === '/staff/email/microsoft/callback';
+    const phaseACallbackOn = wolfhouseMicrosoftCallback
+      ? process.env.WOLFHOUSE_EMAIL_MICROSOFT_OAUTH_CALLBACK_ENABLED === 'true'
+      : process.env.LUNA_EMAIL_OAUTH_CALLBACK_ENABLED === 'true';
+    const phaseBCallbackOn = !wolfhouseMicrosoftCallback
+      && process.env.LUNA_EMAIL_OAUTH_PHASE_B_CALLBACK_ENABLED === 'true';
     if (!phaseACallbackOn && !phaseBCallbackOn) {
       return sendJSON(res, 404, { success: false, error: 'not_found' });
     }
     let user = null;
     try { user = await loadAuthSession(req); } catch (_) { user = null; }
-    if (!user || !hasRole(resolveStaffRole(user), 'admin')) return emailOAuthRoutes.handleCallback(parsed.query, req, res, null);
-    return emailOAuthRoutes.handleCallback(parsed.query, req, res, user);
+    if (!user || !hasRole(resolveStaffRole(user), 'admin')) return emailOAuthRoutes.handleCallback(parsed.query, req, res, null, wolfhouseMicrosoftCallback);
+    return emailOAuthRoutes.handleCallback(parsed.query, req, res, user, wolfhouseMicrosoftCallback);
   }
   // Auth stays here; handlers live in staff-email-registry-routes.js
   if (pathname === EMAIL_REGISTRY_LOCATIONS_PATH && method === 'GET') {

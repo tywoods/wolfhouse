@@ -117,6 +117,7 @@ const AUTH_EXCHANGE_KEYS = Object.freeze([
 ]);
 
 const SUNSET_DEPLOYMENT = 'sunset-staging';
+const WOLFHOUSE_DEPLOYMENT = 'staff-staging';
 /** Canonical lowercase hyphenated UUID (same grammar as callback / migrations). */
 const UUID_CANON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** PKCE verifier bounds — match transaction / callback consume row. */
@@ -511,7 +512,8 @@ function buildCustodyConfig(snap) {
  * @param {object} dependencies exact frozen ordered DEPENDENCY_KEYS bag
  * @returns {{ completeAuthorization: Function }} frozen single-use surface
  */
-function createMicrosoftOAuthOperationComposition(dependencies) {
+function createMicrosoftOAuthOperationCompositionForDeployment(dependencies, deployment) {
+  if (deployment !== SUNSET_DEPLOYMENT && deployment !== WOLFHOUSE_DEPLOYMENT) throw failure();
   let pinned;
   try {
     pinned = pinDependencies(dependencies);
@@ -573,7 +575,7 @@ function createMicrosoftOAuthOperationComposition(dependencies) {
       let authRequest;
       try {
         authRequest = createMicrosoftAuthorizationCodeRequestService({
-          deployment: SUNSET_DEPLOYMENT,
+          deployment,
           applicationClientId: snap.applicationClientId,
           secretProvider: pinned.secretProvider,
           responseCustody,
@@ -625,6 +627,14 @@ function createMicrosoftOAuthOperationComposition(dependencies) {
   return Object.freeze({ completeAuthorization });
 }
 
+function createMicrosoftOAuthOperationComposition(dependencies) {
+  return createMicrosoftOAuthOperationCompositionForDeployment(dependencies, SUNSET_DEPLOYMENT);
+}
+
+function createWolfhouseMicrosoftOAuthOperationComposition(dependencies) {
+  return createMicrosoftOAuthOperationCompositionForDeployment(dependencies, WOLFHOUSE_DEPLOYMENT);
+}
+
 module.exports = Object.freeze({
   ERROR_CODE,
   ERROR_MESSAGE,
@@ -638,5 +648,7 @@ module.exports = Object.freeze({
   TIMERS_KEYS,
   AUTH_EXCHANGE_KEYS,
   SUNSET_DEPLOYMENT,
+  WOLFHOUSE_DEPLOYMENT,
   createMicrosoftOAuthOperationComposition,
+  createWolfhouseMicrosoftOAuthOperationComposition,
 });
