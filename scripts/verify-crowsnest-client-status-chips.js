@@ -119,6 +119,22 @@ async function main() {
   assert.equal(statuses['wolfhouse-somo'].live.Email, STATUS.UNKNOWN);
   assert.equal(statuses['wolfhouse-somo'].staging.Email, STATUS.UNKNOWN);
 
+  const wolfhouseStaffCalls = [];
+  const wolfhouseStaffStatuses = await collectClientConnectionStatuses({
+    clients: getCrowsnestClients(),
+    requestJson: async (url) => {
+      wolfhouseStaffCalls.push(url);
+      if (url.includes('payment-summary')) return { enabled: true, key_mode: 'test', verified: true };
+      if (url.includes('luna-status-summary')) return { schema_version: 'staff.luna_status_summary.v1', identity_configured: true, routing_configured: true, paused: false };
+      return { error: 'not_found' };
+    },
+    staffOrigins: { 'wolfhouse-somo': { staging: 'https://staff-staging.lunafrontdesk.com' } },
+  });
+  assert.ok(wolfhouseStaffCalls.length === 3);
+  assert.ok(wolfhouseStaffCalls.every((url) => url.endsWith('?client=wolfhouse')));
+  assert.equal(wolfhouseStaffStatuses['wolfhouse-somo'].staging.Stripe, STATUS.CONFIGURED_TEST);
+  assert.equal(wolfhouseStaffStatuses['wolfhouse-somo'].staging.Luna, STATUS.CONFIGURED_LIVE_UNKNOWN);
+
   const wolfhouseRoutedStatuses = await collectClientConnectionStatuses({
     clients: getCrowsnestClients(),
     readWhatsApp: async () => ({
