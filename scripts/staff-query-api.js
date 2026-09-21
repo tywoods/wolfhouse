@@ -232,6 +232,8 @@ const {
 const {
   isWolfhouseEmailSmtpIdentityRegisterEnabled,
 } = require('./lib/email-wolfhouse-smtp-secret-ref-contract');
+const { isEnabled: isWolfhouseEmailConnectEnabled, CONNECT_PATH: WOLFHOUSE_EMAIL_CONNECT_PATH } = require('./lib/email-wolfhouse-smtp-imap-connect');
+const { createStaffWolfhouseEmailConnectRoutes } = require('./lib/staff-wolfhouse-email-connect-routes');
 const { PAYMENT_SUMMARY_PATH, buildStaffPaymentSummary } = require('./lib/staff-payment-summary');
 const {
   LUNA_STATUS_SUMMARY_PATH,
@@ -2884,6 +2886,13 @@ const emailSettingsRoutes = createEmailSettingsRoutes({
 });
 const { handleGet: handleEmailSettingsGet, handlePost: handleSmtpIdentityPost,
   handleVerifyPost: handleSmtpVerifyPost, handleImapVerifyPost, handleDisconnectPost } = emailSettingsRoutes;
+const wolfhouseEmailConnectRoutes = createStaffWolfhouseEmailConnectRoutes({
+  sendJSON,
+  withPgClient,
+  assertStaffClientAccess,
+  authorizeAuthenticatedStaffRoute,
+  runtimeEnv: process.env,
+});
 const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   sendJSON,
   assertStaffClientAccess,
@@ -52252,6 +52261,15 @@ async function router(req, res) {
   // Admin-only Sunset SMTP identity register (default-off). Canonical contract
   // gate (UI + sunset-staging + identity flag) before requireAuth / session /
   // readBody. Absent/other/production/wolfhouse → exact concealed 404 not_found.
+  if (pathname === WOLFHOUSE_EMAIL_CONNECT_PATH && method === 'POST') {
+    if (!isWolfhouseEmailConnectEnabled(process.env)) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    const auth = await requireAuth(req, res, 'admin', { concealUnauthenticated: true });
+    if (!auth.ok) return;
+    let body;
+    try { body = JSON.parse((await readBody(req)) || '{}'); }
+    catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+    return wolfhouseEmailConnectRoutes.handleConnect(body, req, res, auth.user);
+  }
   if (pathname === EMAIL_SMTP_VERIFY_PATH && method === 'POST') {
     if (!isSunsetEmailSmtpVerifyEnabled(process.env)) {
       return sendJSON(res, 404, { success: false, error: 'not_found' });
@@ -52287,6 +52305,14 @@ async function router(req, res) {
     return handleSmtpIdentityPost(smtpIdentityBody, req, res, auth.user);
   }
   if (pathname === EMAIL_SMTP_DISCONNECT_PATH && method === 'POST') {
+    if (isWolfhouseEmailConnectEnabled(process.env)) {
+      const auth = await requireAuth(req, res, 'admin', { concealUnauthenticated: true });
+      if (!auth.ok) return;
+      let body;
+      try { body = JSON.parse((await readBody(req)) || '{}'); }
+      catch (_) { return sendJSON(res, 400, { success: false, error: 'invalid_request' }); }
+      return wolfhouseEmailConnectRoutes.handleDisconnect(body, req, res, auth.user);
+    }
     if (!isSunsetEmailSmtpIdentityRegisterEnabled(process.env)) {
       return sendJSON(res, 404, { success: false, error: 'not_found' });
     }

@@ -27,7 +27,8 @@ assert.ok(UI.includes('Disconnect IMAP / SMTP'));
 assert.ok(UI.includes('postSmtpDisconnect'));
 assert.ok(API.includes('EMAIL_SMTP_DISCONNECT_PATH'));
 assert.ok(API.includes("pathname === EMAIL_SMTP_DISCONNECT_PATH && method === 'POST'"));
-assert.doesNotMatch(UI, /type="password"/);
+assert.match(UI, /type="password"/);
+assert.match(UI, /adminEmailSettingsClient\(\) === 'wolfhouse-somo'/);
 assert.doesNotMatch(INBOX, /smtp\/disconnect/);
 assert.ok(!INBOX.includes('Disconnect IMAP'));
 

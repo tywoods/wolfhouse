@@ -5,6 +5,7 @@ const smtpSecretContract = require('./email-sunset-smtp-secret-ref-contract');
 const imapSecretContract = require('./email-sunset-imap-secret-ref-contract');
 const wolfhouseTenant = require('./email-wolfhouse-tenant');
 const wolfhouseSmtp = require('./email-wolfhouse-smtp-secret-ref-contract');
+const wolfhouseSmtpImapConnect = require('./email-wolfhouse-smtp-imap-connect');
 const { createWolfhouseSmtpIdentityRegister } = require('./email-wolfhouse-endpoint-prepare');
 const { createSunsetSmtpIdentityRegister } = require('./email-sunset-smtp-identity-register');
 const { createSunsetSmtpIdentityDisconnect } = require('./email-sunset-smtp-identity-disconnect');
@@ -756,8 +757,9 @@ function computeProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
 function computeWolfhouseProviderEmailSettingsActions(runtimeEnv, locations, endpoints) {
   const eps = Array.isArray(endpoints) ? endpoints : [];
   const locs = Array.isArray(locations) ? locations : [];
-  const smtpOn = wolfhouseSmtp.isWolfhouseEmailSmtpIdentityRegisterEnabled(runtimeEnv)
-    && wolfhouseSmtp.evaluateWolfhouseSmtpSecretRefs(runtimeEnv).ok === true;
+  const selfServeOn = wolfhouseSmtpImapConnect.isEnabled(runtimeEnv);
+  const smtpOn = selfServeOn || (wolfhouseSmtp.isWolfhouseEmailSmtpIdentityRegisterEnabled(runtimeEnv)
+    && wolfhouseSmtp.evaluateWolfhouseSmtpSecretRefs(runtimeEnv).ok === true);
   const disconnectOn = wolfhouseTenant.isWolfhouseEmailDisconnectEnabled(runtimeEnv);
   return Object.freeze({
     microsoft_graph: providerActions(
@@ -776,7 +778,7 @@ function computeWolfhouseProviderEmailSettingsActions(runtimeEnv, locations, end
       locs,
       eps,
     ),
-    imap_smtp: providerActions(smtpOn, false, false, 'imap_smtp', locs, eps),
+    imap_smtp: providerActions(smtpOn, false, selfServeOn, 'imap_smtp', locs, eps),
   });
 }
 
@@ -1032,6 +1034,8 @@ function createEmailSettingsRoutes(deps) {
             configured: status.configured,
             missing_secret_names: status.missing_secret_names,
           };
+        } else if (isWolfhouse && wolfhouseSmtpImapConnect.isEnabled(runtimeEnv)) {
+          body.smtp_secret_status = { configured: true, missing_secret_names: [] };
         } else if (isWolfhouse && wolfhouseSmtp.isWolfhouseEmailSmtpIdentityRegisterEnabled(runtimeEnv)) {
           const status = wolfhouseSmtp.evaluateWolfhouseSmtpSecretRefs(runtimeEnv);
           body.smtp_secret_status = {

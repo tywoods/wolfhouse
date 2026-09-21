@@ -391,6 +391,7 @@
     "verify:staff-email-registry-routes": "node scripts/verify-staff-email-registry-routes.js",
     "verify:sunset-email-settings": "node scripts/verify-sunset-email-settings.js",
     "verify:wolfhouse-email-001": "node scripts/verify-wolfhouse-email-001.js",
+    "verify:wolfhouse-email-connect-smtp-001": "node scripts/verify-wolfhouse-email-connect-smtp-001.js",
     "verify:email-smtp-identity-register-002": "node scripts/verify-email-smtp-identity-register-002.js",
     "verify:email-imap-001": "node scripts/verify-email-imap-001.js",
     "verify:mail-mvp-005": "node scripts/verify-email-imap-inbox-projection.js",
