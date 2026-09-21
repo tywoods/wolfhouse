@@ -77,7 +77,7 @@ function createSunsetSmtpStarttlsTransport(deps = {}) {
       if (!credentials || credentials.tlsMode !== 'starttls') return result(false, ['sunset-smtp-tls-mode']);
       if (typeof credentials.host !== 'string' || !credentials.host || !Number.isInteger(credentials.port)
           || credentials.port < 1 || credentials.port > 65535) return result(false, ['sunset-smtp-host']);
-      socket = netModule.createConnection({ host: credentials.host, port: credentials.port });
+      socket = netModule.createConnection({ host: credentials.connectHost || credentials.host, port: credentials.port });
       attach(socket);
       const greeting = await waitResponse();
       if (greeting.code !== 220) return result(false, ['sunset-smtp-host']);

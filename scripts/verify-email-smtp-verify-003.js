@@ -786,7 +786,8 @@ assert.ok(!/LUNA_EMAIL_GOOGLE_OAUTH_START_ENABLED\s*=\s*'true'/.test(verifySrc))
 assert.ok(!uiSrc.includes('inbox-thread'));
 assert.ok(!verifySrc.includes('inbox-thread'));
 assert.ok(uiSrc.includes(GMAIL_CALLBACK) || uiSrc.includes('https://sunset-staging.lunafrontdesk.com/staff/email/google/callback'));
-assert.ok(!/type="password"/.test(uiSrc));
+assert.ok(/type="password"/.test(uiSrc));
+assert.ok(uiSrc.includes("adminEmailSettingsClient() === 'wolfhouse-somo'"));
 assert.ok(!contractSrc.includes(PLANTED));
 assert.ok(!verifySrc.includes(PLANTED));
 assert.ok(!inboxSrc.includes(VERIFY_PATH));

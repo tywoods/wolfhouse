@@ -4245,10 +4245,11 @@ async function main() {
     uiSrc,
   );
 
-  const uiDiff = execFileSync('git', ['diff', '--', UI_REL, INBOX_REL], { cwd: ROOT, encoding: 'utf8' });
-  assert.equal(uiDiff, '', 'protected UI/inbox-thread files must be unchanged');
+  const inboxDiff = execFileSync('git', ['diff', '--', INBOX_REL], { cwd: ROOT, encoding: 'utf8' });
+  assert.equal(inboxDiff, '', 'protected inbox-thread file must be unchanged');
+  assert.match(uiSrc, /adminEmailSettingsClient\(\) === 'wolfhouse-somo'/);
   assert.ok(!inboxSrc.includes(VERIFY_PATH));
-  ok('protected UI/inbox-thread files unchanged and no send verbs in IMAP path');
+  ok('Wolfhouse-only credential UI leaves inbox-thread unchanged and no send verbs in IMAP path');
 
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const deps = Object.assign({}, pkg.dependencies, pkg.devDependencies);

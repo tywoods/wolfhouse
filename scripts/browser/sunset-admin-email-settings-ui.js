@@ -110,6 +110,18 @@ function postSmtpIdentityRegister(locationId, publicAddress){
       return dto.endpoint_id;
     });
 }
+function postWolfhouseSmtpImapConnect(locationId, publicAddress, section){
+  function node(name){ return section.querySelector('[data-wh-email="'+name+'"]'); }
+  function value(name){ var n=node(name); return n?String(n.value||'').trim():''; }
+  var payload={location_id:locationId,public_address:publicAddress,
+    smtp:{server:value('smtp-server'),port:Number(value('smtp-port')),tls:value('smtp-tls'),user:value('smtp-user'),password:value('smtp-password')},
+    imap:{server:value('imap-server'),port:Number(value('imap-port')),tls:value('imap-tls'),user:value('imap-user'),password:value('imap-password')}};
+  var smtpPassword=node('smtp-password'); var imapPassword=node('imap-password');
+  if(smtpPassword)smtpPassword.value=''; if(imapPassword)imapPassword.value='';
+  return fetch('/staff/admin/email-settings/smtp/connect',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)})
+    .then(function(r){return r.ok?r.json():Promise.reject(new Error('unavailable'));})
+    .then(function(dto){if(!dto||dto.success!==true||dto.status!=='connected')throw new Error('invalid_response');return dto;});
+}
 
 /**
  * Invalidate/abort any pending Phase B reauthorization request.
@@ -516,7 +528,9 @@ function wireConnectHandlers(body, data){
     var myLoad = adminEmailSettingsLoadSeq;
     var chain;
     if (provider === 'imap_smtp') {
-      chain = postSmtpIdentityRegister(locationId, address).then(function(){
+      chain = (adminEmailSettingsClient() === 'wolfhouse-somo'
+        ? postWolfhouseSmtpImapConnect(locationId, address, section)
+        : postSmtpIdentityRegister(locationId, address)).then(function(){
         if (!isAdminEmailConnectAttemptCurrent(provider, mySeq, myLoad)) return;
         loadAdminEmailSettings();
       });
@@ -686,9 +700,14 @@ function wireDisconnectHandlers(body){
       renderAdminEmailSettingsState('error');
       return;
     }
-    if (typeof getClient === 'function' && getClient() !== 'sunset') {
-      renderAdminEmailSettingsState('unavailable');
-      return;
+    if (typeof getClient === 'function') {
+      var disconnectClient = getClient();
+      var allowedClient = disconnectClient === 'sunset'
+        || (provider === 'imap_smtp' && disconnectClient === 'wolfhouse-somo');
+      if (!allowedClient) {
+        renderAdminEmailSettingsState('unavailable');
+        return;
+      }
     }
     setConnectBusy(section, true);
     var req = provider === 'imap_smtp'
@@ -1202,18 +1221,40 @@ function adminEmailImapCardHtml(data){
         escHtml(adminEmailPrepareHintCopy('imap_smtp')) + '</p>';
     }
     if (hasPrepare) {
+      var wolfhouseSelfServe = adminEmailSettingsClient() === 'wolfhouse-somo';
       html += '<div class="portal-admin-email-prepare-group" data-email-prepare-group role="group">' +
         '<label class="portal-admin-email-prepare">' +
         '<span>' + escHtml(emailUiT('admin.email.smtpMailboxLabel', 'Mailbox address', 'Dirección de correo')) + '</span>' +
-        '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" />' +
-        '</label>' +
-        '<button type="button" class="portal-admin-email-action-btn" data-email-provider="imap_smtp" data-email-connect="prepare" data-email-location-id="' + escHtml(active) + '">' +
-        escHtml(emailUiT('admin.email.registerSmtpButton', 'Register mailbox', 'Registrar buzón')) +
+        '<input type="email" autocomplete="off" data-email-prepare-address maxlength="320" required />' +
+        '</label>';
+      if (wolfhouseSelfServe) {
+        html += '<fieldset data-wh-email-credentials><legend>' +
+          escHtml(emailUiT('admin.email.smtpCredentials', 'Mail server credentials', 'Credenciales del servidor de correo')) + '</legend>' +
+          '<label>SMTP server<input data-wh-email="smtp-server" autocomplete="off" maxlength="253" required></label>' +
+          '<label>SMTP port<input data-wh-email="smtp-port" type="number" min="1" max="65535" value="587" required></label>' +
+          '<input data-wh-email="smtp-tls" type="hidden" value="starttls">' +
+          '<label>SMTP username<input data-wh-email="smtp-user" autocomplete="username" maxlength="320" required></label>' +
+          '<label>SMTP password<input data-wh-email="smtp-password" type="password" autocomplete="new-password" maxlength="4096" required></label>' +
+          '<label>IMAP server<input data-wh-email="imap-server" autocomplete="off" maxlength="253" required></label>' +
+          '<label>IMAP port<input data-wh-email="imap-port" type="number" min="1" max="65535" value="993" required></label>' +
+          '<input data-wh-email="imap-tls" type="hidden" value="tls">' +
+          '<label>IMAP username<input data-wh-email="imap-user" autocomplete="username" maxlength="320" required></label>' +
+          '<label>IMAP password<input data-wh-email="imap-password" type="password" autocomplete="new-password" maxlength="4096" required></label>' +
+          '</fieldset>';
+      }
+      html += '<button type="button" class="portal-admin-email-action-btn" data-email-provider="imap_smtp" data-email-connect="prepare" data-email-location-id="' + escHtml(active) + '">' +
+        escHtml(wolfhouseSelfServe
+          ? emailUiT('admin.email.connectSmtpButton', 'Connect mailbox', 'Conectar buzón')
+          : emailUiT('admin.email.registerSmtpButton', 'Register mailbox', 'Registrar buzón')) +
         '</button></div>' +
         '<p class="portal-admin-email-connect-safety" data-email-connect-safety role="note">' +
-        escHtml(emailUiT('admin.email.smtpRegisterSafetyNote',
-          'Registration stores the mailbox identity only; inbound, outbound and automation remain off.',
-          'El registro solo guarda la identidad del buzón; la entrada, la salida y la automatización siguen desactivadas.')) +
+        escHtml(wolfhouseSelfServe
+          ? emailUiT('admin.email.smtpConnectSafetyNote',
+            'Credentials are verified and stored in Key Vault. Sending and automation stay off.',
+            'Las credenciales se verifican y se guardan en Key Vault. El envío y la automatización siguen desactivados.')
+          : emailUiT('admin.email.smtpRegisterSafetyNote',
+            'Registration stores the mailbox identity only; inbound, outbound and automation remain off.',
+            'El registro solo guarda la identidad del buzón; la entrada, la salida y la automatización siguen desactivadas.')) +
         '</p>';
     } else {
       html += adminEmailImapOffCapabilitiesHtml();

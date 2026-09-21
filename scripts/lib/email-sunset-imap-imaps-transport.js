@@ -655,7 +655,7 @@ function createSunsetImapImapsTransport(deps = {}) {
     }
 
     socket = tlsConnect({
-      host: credentials.host,
+      host: credentials.connectHost || credentials.host,
       port: credentials.port,
       servername: credentials.host,
       rejectUnauthorized: true,
