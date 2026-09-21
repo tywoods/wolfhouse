@@ -153,8 +153,18 @@ ok('bind lives in embed, not a browser module',
   /function lunaPersonalityLoad\(/.test(apiSrc)
   && /function lunaPersonalityWireOnce\(/.test(apiSrc));
 
+// DOM-only Admin card regroup may mention the personality card id to move it;
+// stay-off still forbids any browser module that owns radios / PUT / prompts.
+const BROWSER_PERSONALITY_DOM_MOVE_ALLOW = new Set([
+  'sunset-admin-luna-cards-combine.js',
+]);
 const browserHits = fs.existsSync(BROWSER_DIR)
   ? fs.readdirSync(BROWSER_DIR).filter((f) => {
+    if (BROWSER_PERSONALITY_DOM_MOVE_ALLOW.has(f)) {
+      const src = fs.readFileSync(path.join(BROWSER_DIR, f), 'utf8');
+      // Allow id moves only — no radio ownership or network.
+      return /data-personality-id|lunaPersonality|\/staff\/luna-personality/.test(src);
+    }
     const src = fs.readFileSync(path.join(BROWSER_DIR, f), 'utf8');
     return /luna-personality|data-personality-id|Luna Personality/.test(src);
   })

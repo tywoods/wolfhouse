@@ -13,6 +13,7 @@ const FINANCE_REDESIGN = path.join(__dirname, '..', 'browser', 'sunset-admin-fin
 const BOOKINGS_UI = path.join(__dirname, '..', 'browser', 'sunset-admin-bookings-ui.js');
 const EMAIL_SETTINGS_UI = path.join(__dirname, '..', 'browser', 'sunset-admin-email-settings-ui.js');
 const LUNA_RUNTIME_STATUS = path.join(__dirname, '..', 'browser', 'sunset-admin-luna-runtime-status.js');
+// Shared Luna Staff 3-card regroup (also injected into Wolfhouse Admin).
 const LUNA_CARDS_COMBINE = path.join(__dirname, '..', 'browser', 'sunset-admin-luna-cards-combine.js');
 const DURATION_MODEL = path.join(__dirname, '..', 'browser', 'sunset-rental-duration-model.js');
 const EQUIPMENT_MODEL = path.join(__dirname, '..', 'browser', 'sunset-equipment-pricing-model.js');
