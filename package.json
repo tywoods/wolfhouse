@@ -403,6 +403,7 @@
     "verify:mail-mvp-008": "node scripts/verify-mail-mvp-008.js",
     "verify:sunset-email-smtp-ui-002": "node scripts/verify-sunset-email-smtp-ui-002.js",
     "verify:sunset-email-smtp-ui-003": "node scripts/verify-sunset-email-smtp-ui-003.js",
+    "verify:sunset-email-click-first-001": "node scripts/verify-sunset-email-click-first-001.js",
     "verify:email-last-sync-001": "node scripts/verify-email-last-sync-001.js",
     "verify:sunset-email-phase-b-reauthorize-ui-playwright": "node scripts/verify-sunset-email-phase-b-reauthorize-ui-playwright.js",
     "verify:email-microsoft-graph-adapter": "node scripts/verify-email-microsoft-graph-adapter.js",

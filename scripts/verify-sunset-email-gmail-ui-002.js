@@ -182,10 +182,11 @@ function connectPayload() {
   });
 }
 
-function boot(fetchImpl) {
+function boot(fetchImpl, promptReply) {
   const { body, cards } = makeInteractiveBody();
   const calls = [];
   const assigned = [];
+  let nextPrompt = promptReply === undefined ? null : promptReply;
   const sandbox = {
     URL,
     Date,
@@ -196,7 +197,13 @@ function boot(fetchImpl) {
     Promise,
     JSON,
     Array,
-    window: { location: { assign(url) { assigned.push(String(url)); } } },
+    window: {
+      location: { assign(url) { assigned.push(String(url)); } },
+      prompt() {
+        if (typeof nextPrompt === 'function') return nextPrompt();
+        return nextPrompt;
+      },
+    },
     document: {
       body: { contains() { return true; } },
       getElementById(id) { return id === 'admin-email-settings-body' ? body : null; },
@@ -205,6 +212,7 @@ function boot(fetchImpl) {
     escHtml(s) { return String(s == null ? '' : s); },
     portalT(key) { return key; },
     portalLang: 'en',
+    getClient() { return 'sunset'; },
     fetch(url, opts) {
       calls.push({ url: String(url), body: opts && opts.body, method: opts && opts.method });
       return fetchImpl(url, opts, calls);
@@ -212,7 +220,14 @@ function boot(fetchImpl) {
     console,
   };
   vm.runInNewContext(uiSrc, sandbox);
-  return { sandbox, body, cards, calls, assigned };
+  return {
+    sandbox,
+    body,
+    cards,
+    calls,
+    assigned,
+    setPrompt(value) { nextPrompt = value; },
+  };
 }
 
 async function flush() {
@@ -226,11 +241,11 @@ function findCard(cards, provider) {
 async function run() {
   // Empty Gmail prepare: inline hint, no POST, no Microsoft failure.
   {
-    const { sandbox, body, cards, calls } = boot(() => Promise.resolve({ ok: false, json: async () => ({}) }));
+    const { sandbox, body, cards, calls } = boot(() => Promise.resolve({ ok: false, json: async () => ({}) }), '   ');
     sandbox.renderAdminEmailSettingsData(livePayload());
     const gmail = findCard(cards, 'gmail_api');
-    assert.ok(gmail && gmail.btn && gmail.input, 'live Gmail prepare');
-    gmail.input.value = '   ';
+    assert.ok(gmail && gmail.btn, 'live Gmail prepare');
+    assert.equal(gmail.input, null, 'click-first: no address field above Connect');
     gmail.btn.click();
     await flush();
     assert.equal(calls.length, 0, 'empty Gmail address must not POST');
@@ -249,10 +264,12 @@ async function run() {
 
   // Failed Google prepare paints Gmail-only failure.
   {
-    const { sandbox, body, cards, calls } = boot(() => Promise.resolve({ ok: false, json: async () => ({}) }));
+    const { sandbox, body, cards, calls } = boot(
+      () => Promise.resolve({ ok: false, json: async () => ({}) }),
+      'desk@gmail.example',
+    );
     sandbox.renderAdminEmailSettingsData(livePayload());
     const gmail = findCard(cards, 'gmail_api');
-    gmail.input.value = 'desk@gmail.example';
     gmail.btn.click();
     await flush();
     assert.equal(calls.length, 1);
@@ -273,10 +290,12 @@ async function run() {
 
   // Failed Microsoft prepare keeps Microsoft copy and leaves Gmail clean.
   {
-    const { sandbox, body, cards } = boot(() => Promise.resolve({ ok: false, json: async () => ({}) }));
+    const { sandbox, body, cards } = boot(
+      () => Promise.resolve({ ok: false, json: async () => ({}) }),
+      'desk@outlook.example',
+    );
     sandbox.renderAdminEmailSettingsData(livePayload());
     const ms = findCard(cards, 'microsoft_graph');
-    ms.input.value = 'desk@outlook.example';
     ms.btn.click();
     await flush();
     const gmailHtml = cardHtml(body.innerHTML, 'gmail_api');
@@ -300,10 +319,9 @@ async function run() {
         });
       }
       return Promise.resolve({ ok: false, json: async () => ({}) });
-    });
+    }, 'desk@gmail.example');
     sandbox.renderAdminEmailSettingsData(livePayload());
     const gmail = findCard(cards, 'gmail_api');
-    gmail.input.value = 'desk@gmail.example';
     gmail.btn.click();
     await flush();
     assert.deepEqual(calls.map((c) => c.url), [
@@ -342,7 +360,7 @@ async function run() {
   // Provider/attempt isolation: late Gmail failure must not overwrite Microsoft busy.
   {
     let rejectGmail;
-    const { sandbox, body, cards } = boot((url) => {
+    const { sandbox, body, cards, setPrompt } = boot((url) => {
       if (String(url).includes('/google/endpoint')) {
         return new Promise((_, reject) => { rejectGmail = () => reject(new Error('unavailable')); });
       }
@@ -350,14 +368,13 @@ async function run() {
         return new Promise(() => {});
       }
       return Promise.resolve({ ok: false, json: async () => ({}) });
-    });
+    }, 'desk@gmail.example');
     sandbox.renderAdminEmailSettingsData(livePayload());
     const gmail = findCard(cards, 'gmail_api');
-    gmail.input.value = 'desk@gmail.example';
     gmail.btn.click();
     await flush();
+    setPrompt('desk@outlook.example');
     const ms = findCard(cards, 'microsoft_graph');
-    ms.input.value = 'desk@outlook.example';
     ms.btn.click();
     await flush();
     assert.equal(findCard(cards, 'microsoft_graph').progress.textContent, 'Connecting Microsoft…');
@@ -381,11 +398,10 @@ async function run() {
         return new Promise((_, reject) => { rejectGmail = () => reject(new Error('unavailable')); });
       }
       return Promise.resolve({ ok: true, json: async () => livePayload() });
-    });
+    }, 'desk@gmail.example');
     sandbox.getClient = () => 'sunset';
     sandbox.renderAdminEmailSettingsData(livePayload());
     const gmail = findCard(cards, 'gmail_api');
-    gmail.input.value = 'desk@gmail.example';
     gmail.btn.click();
     await flush();
     sandbox.loadAdminEmailSettings();
