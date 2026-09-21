@@ -27,11 +27,13 @@ async function main() {
   });
 
   assert.equal(deriveWhatsAppStatus({ ok: true, route: { target_id: 'sunset' } }, 'sunset'), STATUS.CONNECTED);
+  assert.equal(deriveWhatsAppStatus({ ok: true, route: { target_luna: 'wolfhouse' } }, 'wolfhouse'), STATUS.CONNECTED);
   assert.equal(deriveWhatsAppStatus({ ok: true, route: { target_id: 'wolfhouse' } }, 'sunset'), STATUS.NOT_CONNECTED);
   assert.equal(deriveWhatsAppStatus({ configured: false }), STATUS.NOT_CONNECTED);
   assert.equal(deriveWhatsAppStatus({ error: 'forbidden' }), STATUS.UNKNOWN);
 
   assert.equal(deriveEmailStatus({ endpoints: [{ active: true, binding_status: 'verified' }] }), STATUS.CONNECTED);
+  assert.equal(deriveEmailStatus({ endpoints: [{ grant_status: 'active', public_address: 'support@lunafrontdesk.com' }] }), STATUS.CONNECTED);
   assert.equal(deriveEmailStatus({ endpoints: [{ grant_status: 'revoked' }] }), STATUS.NOT_CONNECTED);
   assert.equal(deriveEmailStatus({ endpoints: [{ active: true, binding_status: 'reauthorization_required' }] }), STATUS.NOT_CONNECTED);
   assert.equal(deriveEmailStatus(null), STATUS.UNKNOWN);

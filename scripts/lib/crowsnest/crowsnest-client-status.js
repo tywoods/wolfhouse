@@ -9,8 +9,19 @@ const STATUS = Object.freeze({
 function routeOwner(evidence) {
   if (!evidence || !evidence.route) return '';
   return String(
-    evidence.route.client_slug || evidence.route.target_id || evidence.route.id || '',
+    evidence.route.client_slug || evidence.route.target_luna || evidence.route.target_id || evidence.route.id || '',
   ).trim().toLowerCase();
+}
+
+function validPublicEmail(value) {
+  const address = String(value || '').trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) ? address : '';
+}
+
+function connectedEmailEndpoint(row) {
+  if (!row) return false;
+  if (row.active === true && row.binding_status === 'verified') return true;
+  return row.grant_status === 'active' && Boolean(validPublicEmail(row.public_address));
 }
 
 function deriveWhatsAppStatus(evidence, expectedOwner) {
@@ -26,7 +37,7 @@ function deriveWhatsAppStatus(evidence, expectedOwner) {
 function deriveEmailStatus(evidence) {
   if (!evidence || evidence.error || evidence.denied || !Array.isArray(evidence.endpoints)) return STATUS.UNKNOWN;
   if (evidence.endpoints.some((row) => row && (row.grant_status === 'revoked' || row.binding_status === 'revoked'))) return STATUS.NOT_CONNECTED;
-  if (evidence.endpoints.some((row) => row && row.active === true && row.binding_status === 'verified')) return STATUS.CONNECTED;
+  if (evidence.endpoints.some(connectedEmailEndpoint)) return STATUS.CONNECTED;
   return STATUS.NOT_CONNECTED;
 }
 
@@ -67,9 +78,8 @@ function emptyEnvironment() {
 
 function emailDetail(evidence) {
   if (!evidence || !Array.isArray(evidence.endpoints)) return '';
-  const endpoint = evidence.endpoints.find((row) => row && row.active === true && row.binding_status === 'verified');
-  const value = endpoint && String(endpoint.public_address || '').trim();
-  return value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? value : '';
+  const endpoint = evidence.endpoints.find(connectedEmailEndpoint);
+  return endpoint ? validPublicEmail(endpoint.public_address) : '';
 }
 
 async function collectClientConnectionStatuses(options = {}) {
