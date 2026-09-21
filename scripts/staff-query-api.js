@@ -252,6 +252,7 @@ const { createSunsetSmtpKvSecretProvider } = require('./lib/email-sunset-smtp-kv
 const { createSunsetImapKvSecretProvider } = require('./lib/email-sunset-imap-kv-secret-provider');
 const { createSunsetGoogleEndpointPrepare } = require('./lib/email-sunset-google-endpoint-prepare');
 const { createSunsetStagingGoogleOAuthComposition } = require('./lib/email-google-oauth-sunset-staging-runtime-composition');
+const { createWolfhouseStaffStagingGoogleOAuthComposition } = require('./lib/email-google-oauth-wolfhouse-staff-staging-runtime-composition');
 const { createStaffEmailGoogleOAuthRoutes } = require('./lib/staff-email-google-oauth-routes');
 const {
   createStaffGoogleOAuthProductionIntegration, GOOGLE_ENDPOINT_PATH, GOOGLE_START_PATH, GOOGLE_CALLBACK_PATH, GOOGLE_DISCONNECT_PATH,
@@ -2902,16 +2903,24 @@ const emailOAuthRoutes = createStaffEmailOAuthRoutes({
   // withTransactionClient over that outer client — no second checkout.
   withPgClient,
 });
-function googleComposition(gateSnapshot) {
+function googleComposition(gateSnapshot, wolfhouse) {
     const crypto = require('node:crypto');
     const runtimeEnv=Object.freeze({ ...process.env, ...gateSnapshot });
-    return createSunsetStagingGoogleOAuthComposition(Object.freeze({
+    const factory=wolfhouse?createWolfhouseStaffStagingGoogleOAuthComposition:createSunsetStagingGoogleOAuthComposition;
+    return factory(Object.freeze({
       env:runtimeEnv, https:Object.freeze({request:https.request.bind(https)}),
       crypto:Object.freeze({createPublicKey:crypto.createPublicKey,verify:crypto.verify,randomUUID:crypto.randomUUID,randomBytes:crypto.randomBytes,createHash:crypto.createHash}),
       timers:Object.freeze({setTimeout,clearTimeout}), clock:Object.freeze({now:()=>new Date().toISOString(),nowEpochSeconds:()=>Math.floor(Date.now()/1000)}),
     }));
 }
-function googleRoutes(gateSnapshot, authorizeProductionStart) { const c=googleComposition(gateSnapshot); return createStaffEmailGoogleOAuthRoutes(Object.freeze({trustedGateSnapshot:gateSnapshot,authorizeProductionStart,sendJSON,sendHTML,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,withPgClient,createStart:c.createStart,createCallbackRuntime:c.createCallbackRuntime})); }
+function googleRoutes(gateSnapshot, authorizeProductionStart, wolfCallback) {
+  const wolfhouse=process.env.LUNA_DEPLOYMENT==='staff-staging';
+  const c=googleComposition(gateSnapshot,wolfhouse);
+  const dependencies={runtimeEnv:Object.freeze({...process.env}),authorizeProductionStart,sendJSON,sendHTML,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,withPgClient,createStart:c.createStart,createCallbackRuntime:c.createCallbackRuntime};
+  if(wolfhouse)dependencies.createWolfhouseStart=c.createStart;
+  else dependencies.trustedGateSnapshot=gateSnapshot;
+  return createStaffEmailGoogleOAuthRoutes(Object.freeze(dependencies));
+}
 const staffGoogleOAuth=createStaffGoogleOAuthProductionIntegration(Object.freeze({
   env:process.env,sendJSON,sendHTML,requireAdmin:(req,res)=>requireAuth(req,res,'admin'),readBody,withPgClient,assertStaffClientAccess,authorizeAuthenticatedStaffRoute,
   createEndpointPrepare:pg=>createSunsetGoogleEndpointPrepare(Object.freeze({client:Object.freeze({query:pg.query.bind(pg)})})),

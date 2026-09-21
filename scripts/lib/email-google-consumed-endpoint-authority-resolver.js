@@ -134,7 +134,9 @@ function createGoogleConsumedEndpointAuthorityResolver(dependencies) {
     async function resolveConsumedEndpointAuthority(value) {
       try {
         const input = snapshot(value, INPUT_KEYS);
-        if (!input || input.tenantSlug !== 'sunset' || input.locationKey !== 'sunset-somo'
+        const tenantPair = input && ((input.tenantSlug === 'sunset' && input.locationKey === 'sunset-somo')
+          || (input.tenantSlug === 'wolfhouse-somo' && input.locationKey === 'wolfhouse-somo'));
+        if (!input || !tenantPair
             || !test(UUID, input.clientId) || !test(UUID, input.locationId)
             || !test(UUID, input.endpointId)) fail();
         const pending = apply(query, receiver, [SQL, [input.endpointId, input.clientId, input.locationId]]);
