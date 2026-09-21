@@ -179,9 +179,9 @@ console.log('\n── E. Remove/disconnect SQL isolation ──');
   const gmailSrc = read('scripts/lib/staff-email-google-oauth-routes.js');
   check('E6 Gmail Wolfhouse disconnect uses wolfhouse-somo clientSlug',
     gmailSrc.includes("clientSlug: 'wolfhouse-somo'"));
-  check('E7 Gmail Wolfhouse start does not call Sunset createStart',
-    /Live Google OAuth composition is Sunset-owned/.test(gmailSrc)
-    && /handleStart[\s\S]*identityWolfhouse[\s\S]*oauth_start_unavailable/.test(gmailSrc));
+  check('E7 Gmail Wolfhouse start uses dedicated Wolfhouse start owner',
+    /identityWolfhouse[\s\S]*createWolfhouseStart/.test(gmailSrc)
+    && /SQL_RESOLVE_WOLFHOUSE_GOOGLE_START_BINDING/.test(gmailSrc));
 }
 
 console.log('\n── F. Settings GET + Admin UI ──');
@@ -305,8 +305,9 @@ console.log('\n── J. Gmail production integration isolation ──');
   const prod = read('scripts/lib/staff-google-oauth-production-integration.js');
   check('J1 Wolfhouse endpoint prepare uses createWolfhouseGoogleEndpointPrepare',
     prod.includes('createWolfhouseGoogleEndpointPrepare'));
-  check('J2 Wolfhouse start/callback do not use Sunset composition for Wolfhouse callers',
-    prod.includes("kind!=='endpoint'||!wolfEndpointOn"));
+  check('J2 Wolfhouse start/callback use independent Wolfhouse gates',
+    prod.includes('isWolfhouseEmailGoogleOAuthStartEnabled')
+    && prod.includes('isWolfhouseEmailGoogleOAuthCallbackEnabled'));
   check('J3 Sunset disconnect still requires sunset client access',
     prod.includes("assertStaffClientAccess(user,'sunset'"));
 }

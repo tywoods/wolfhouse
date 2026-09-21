@@ -31,7 +31,8 @@ const METHOD_KEYS = freeze([
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const APP = /^[A-Za-z0-9][A-Za-z0-9._-]*\.apps\.googleusercontent\.com$/;
-const REDIRECT = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
+const SUNSET_REDIRECT = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
+const WOLFHOUSE_REDIRECT = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
 const FAILURE = 'GOOGLE_STATE_FIRST_RUNTIME_COMPOSITION_FAILED';
 const RUNTIME_KEYS = freeze(['configuration', 'completeCallback']);
 function proxy(value) { return apply(isProxy, undefined, [value]); }
@@ -84,10 +85,13 @@ function createGoogleStateFirstRuntimeComposition(configuration, dependencies) {
     const telemetryResolution = resolveOptionalStageTelemetry(dependencies, DEPENDENCY_KEYS);
     const dependency = snapshot(dependencies, freeze([...DEPENDENCY_KEYS, 'stageTelemetry']))
       || snapshot(dependencies, DEPENDENCY_KEYS);
-    if (!config || !dependency || !telemetryResolution.ok || config.tenantSlug !== 'sunset'
-        || config.locationKey !== 'sunset-somo'
+    const tenantPair = config && ((config.tenantSlug === 'sunset' && config.locationKey === 'sunset-somo'
+      && config.redirectUri === SUNSET_REDIRECT)
+      || (config.tenantSlug === 'wolfhouse-somo' && config.locationKey === 'wolfhouse-somo'
+        && config.redirectUri === WOLFHOUSE_REDIRECT));
+    if (!config || !dependency || !telemetryResolution.ok || !tenantPair
         || typeof config.applicationClientId !== 'string' || !test(APP, config.applicationClientId)
-        || config.redirectUri !== REDIRECT || typeof config.callbackEnabled !== 'boolean') fail();
+        || typeof config.callbackEnabled !== 'boolean') fail();
     const records = [];
     for (let index = 0; index < DEPENDENCY_KEYS.length; index += 1) {
       const record = owner(dependency[DEPENDENCY_KEYS[index]], METHOD_KEYS[index]);

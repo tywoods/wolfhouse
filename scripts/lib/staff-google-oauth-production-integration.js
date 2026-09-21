@@ -191,22 +191,27 @@ function createStaffGoogleOAuthProductionIntegration(deps){
     let kind=null;if(pathname===GOOGLE_ENDPOINT_PATH)kind='endpoint';else if(pathname===GOOGLE_START_PATH)kind='start';else if(pathname===GOOGLE_CALLBACK_PATH)kind='callback';else return false;
     const sunsetKindOn=isGoogleRouteEnabled(gate,kind);
     const wolfEndpointOn=kind==='endpoint'&&isWolfhouseGoogleEndpointEnabled(env);
-    if(!sunsetKindOn&&!wolfEndpointOn)return kind==='callback'?deps.sendHTML(res,404,'<!doctype html><title>Not found</title>'):json(res,404,{success:false,error:'not_found'});
+    const wolfStartOn=!sunsetKindOn&&kind==='start'&&wolfhouseTenant.isWolfhouseEmailGoogleOAuthStartEnabled(env);
+    const wolfCallbackOn=!sunsetKindOn&&kind==='callback'&&wolfhouseTenant.isWolfhouseEmailGoogleOAuthCallbackEnabled(env);
+    if(!sunsetKindOn&&!wolfEndpointOn&&!wolfStartOn&&!wolfCallbackOn)return kind==='callback'?deps.sendHTML(res,404,'<!doctype html><title>Not found</title>'):json(res,404,{success:false,error:'not_found'});
     if((kind==='callback'&&method!=='GET')||(kind!=='callback'&&method!=='POST'))return false;
     if(kind==='callback'){
-      if(!sunsetKindOn)return deps.sendHTML(res,404,'<!doctype html><title>Not found</title>');
-      try{const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate):deps.googleRoutes;return routes.handleCallback(req,res);}
+      try{const routes=typeof deps.createGoogleRoutes==='function'?deps.createGoogleRoutes(gate,undefined,wolfCallbackOn):deps.googleRoutes;return routes.handleCallback(req,res);}
       catch{return deps.sendHTML(res,400,'<!doctype html><title>Connection failed</title><p>Gmail connection could not be completed.</p>');}
     }
     const auth=await deps.requireAdmin(req,res);if(!auth||!auth.ok)return;
     const user=auth.user;
     if(own(user,'client_slug')===wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG){
-      if(kind!=='endpoint'||!wolfEndpointOn)return json(res,404,{success:false,error:'not_found'});
+      if(!((kind==='endpoint'&&wolfEndpointOn)||(kind==='start'&&wolfStartOn)))return json(res,404,{success:false,error:'not_found'});
       if(!deps.assertStaffClientAccess(user,wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,res))return;
       const decision=deps.authorizeAuthenticatedStaffRoute({clientSlug:wolfhouseTenant.WOLFHOUSE_CLIENT_SLUG,method:'POST',pathname,env});if(!decision.ok)return json(res,decision.status||403,decision.body||{success:false,error:'forbidden'});
       if(rejectExactPrototypeOwnConstructor(req))return json(res,400,{success:false,error:'invalid_request'});
       let raw;try{raw=await deps.readBody(req,JSON_LIMIT);}catch{return json(res,400,{success:false,error:'invalid_request'});}
-      const body=parseStrictGoogleJson(own(readRequestHeaders(req)||{},'content-type'),raw,['location_id','public_address']);if(!body)return json(res,400,{success:false,error:'invalid_request'});
+      const wolfKeys=kind==='start'?['location_id','endpoint_id']:['location_id','public_address'];
+      const body=parseStrictGoogleJson(own(readRequestHeaders(req)||{},'content-type'),raw,wolfKeys);if(!body)return json(res,400,{success:false,error:'invalid_request'});
+      if(kind==='start'){
+        try{const routes=deps.createGoogleRoutes(gate,undefined,false);return await routes.handleStart(body,req,res,user);}catch{return json(res,503,{success:false,error:'oauth_start_unavailable'});}
+      }
       try{return await deps.withPgClient(async pg=>{const service=createWolfhouseGoogleEndpointPrepare(objectFreeze({client:pg}));const input=frozenDto([['clientId',own(user,'client_id').toLowerCase()],['locationId',body.location_id],['publicAddress',body.public_address],['actorStaffUserId',own(user,'staff_user_id').toLowerCase()]]);const ack=await service.prepareDisabledDelegatedEndpoint(input);return json(res,200,frozenDto([['success',true],['endpoint_id',ack.endpointId]]));});}
       catch{return json(res,503,{success:false,error:'endpoint_prepare_unavailable'});}
     }

@@ -19,6 +19,10 @@ const WOLFHOUSE_GOOGLE_REDIRECT_URI = `${WOLFHOUSE_PORTAL_ORIGIN}/staff/email/go
 const ENV_UI = 'WOLFHOUSE_EMAIL_SETTINGS_UI_ENABLED';
 const ENV_OAUTH_START = 'WOLFHOUSE_EMAIL_OAUTH_START_ENABLED';
 const ENV_GOOGLE_OAUTH_START = 'WOLFHOUSE_EMAIL_GOOGLE_OAUTH_START_ENABLED';
+const ENV_GOOGLE_OAUTH_CALLBACK = 'WOLFHOUSE_EMAIL_GOOGLE_OAUTH_CALLBACK_ENABLED';
+const ENV_GOOGLE_OAUTH_CUSTODY = 'WOLFHOUSE_EMAIL_GOOGLE_OAUTH_GRANT_CUSTODY_ENABLED';
+const ENV_GOOGLE_OAUTH_CLIENT_ID = 'WOLFHOUSE_EMAIL_GOOGLE_OAUTH_CLIENT_ID';
+const ENV_GOOGLE_OAUTH_CLIENT_SECRET = 'WOLFHOUSE_EMAIL_GOOGLE_OAUTH_CLIENT_SECRET';
 const ENV_DISCONNECT = 'WOLFHOUSE_EMAIL_OAUTH_DISCONNECT_ENABLED';
 const ENV_SMTP_REGISTER = 'WOLFHOUSE_EMAIL_SMTP_IDENTITY_REGISTER_ENABLED';
 const ENV_DRAFTS = 'WOLFHOUSE_EMAIL_STAFF_DRAFTS_ENABLED';
@@ -69,6 +73,13 @@ function isWolfhouseEmailOAuthStartEnabled(env) {
 function isWolfhouseEmailGoogleOAuthStartEnabled(env) {
   return isWolfhouseEmailSettingsUiEnabled(env)
     && exactTrue(env, ENV_GOOGLE_OAUTH_START)
+    && isWolfhouseStaffStaging(env);
+}
+
+function isWolfhouseEmailGoogleOAuthCallbackEnabled(env) {
+  return isWolfhouseEmailSettingsUiEnabled(env)
+    && exactTrue(env, ENV_GOOGLE_OAUTH_CALLBACK)
+    && exactTrue(env, ENV_GOOGLE_OAUTH_CUSTODY)
     && isWolfhouseStaffStaging(env);
 }
 
@@ -133,6 +144,10 @@ module.exports = Object.freeze({
   ENV_UI,
   ENV_OAUTH_START,
   ENV_GOOGLE_OAUTH_START,
+  ENV_GOOGLE_OAUTH_CALLBACK,
+  ENV_GOOGLE_OAUTH_CUSTODY,
+  ENV_GOOGLE_OAUTH_CLIENT_ID,
+  ENV_GOOGLE_OAUTH_CLIENT_SECRET,
   ENV_DISCONNECT,
   ENV_SMTP_REGISTER,
   ENV_DRAFTS,
@@ -149,6 +164,7 @@ module.exports = Object.freeze({
   isWolfhouseStaffStaging,
   isWolfhouseEmailOAuthStartEnabled,
   isWolfhouseEmailGoogleOAuthStartEnabled,
+  isWolfhouseEmailGoogleOAuthCallbackEnabled,
   isWolfhouseEmailDisconnectEnabled,
   isWolfhouseEmailSmtpIdentityRegisterEnabled,
   isWolfhouseEmailStaffDraftsEnabled,

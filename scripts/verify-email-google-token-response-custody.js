@@ -225,7 +225,7 @@ test('requires exact frozen synchronous custody acknowledgement and sanitizes th
 test('is structurally compatible with the real composition custody contract and remains offline-only', async () => {
   assert.equal(typeof createGoogleVerifiedGrantComposition, 'function');
   assert.deepEqual(GOOGLE_PHASE_A_SCOPES, Object.freeze(['openid', 'email',
-    'https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose']));
+    'https://www.googleapis.com/auth/gmail.readonly']));
   const source = fs.readFileSync(path.join(__dirname, 'lib/email-google-token-response-custody.js'), 'utf8');
   for (const forbidden of ['node:https', 'https.request', 'oauth2.googleapis.com/token', 'client_secret',
     'authorization_code', 'googleapis', 'process.env', 'express', 'router', 'database', 'postgres',

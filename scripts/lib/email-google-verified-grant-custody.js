@@ -15,7 +15,6 @@ const GOOGLE_PHASE_A_SCOPES = Object.freeze([
   'openid',
   'email',
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.compose',
 ]);
 const SELECTED_KEYS = Object.freeze([
   'accessToken',

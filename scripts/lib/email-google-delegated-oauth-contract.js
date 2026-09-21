@@ -21,7 +21,6 @@ const GOOGLE_EMAIL_CONNECTOR_MODE = 'google_delegated_oauth';
 const GOOGLE_EMAIL_OIDC_SCOPES = freeze(['openid', 'email']);
 const GOOGLE_EMAIL_GMAIL_SCOPES = freeze([
   'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.compose',
 ]);
 
 const INPUT_KEYS = freeze([

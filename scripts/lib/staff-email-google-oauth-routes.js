@@ -190,8 +190,15 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
         env,
       });
       if (!authz.ok) return deps.sendJSON(res, authz.status || 403, authz.body || { success:false, error:'forbidden' });
-      // Live Google OAuth composition is Sunset-owned. This slice prepares/disconnects only.
-      return deps.sendJSON(res, 503, { success:false, error:'oauth_start_unavailable' });
+      const input = bodySnapshot(body); if (!input) return deps.sendJSON(res, 400, {success:false,error:'invalid_request'});
+      try { return await deps.withPgClient(async pg => {
+        const result = await pg.query(SQL_RESOLVE_WOLFHOUSE_GOOGLE_START_BINDING, [input.location_id,input.endpoint_id]);
+        if (!result || !Array.isArray(result.rows) || result.rows.length !== 1) return deps.sendJSON(res,404,{success:false,error:'not_found'});
+        const row=result.rows[0];
+        if (!UUID.test(row.client_id||'') || !UUID.test(row.location_id||'') || row.endpoint_id!==input.endpoint_id) throw Error('binding');
+        const start=deps.createWolfhouseStart(pg); const dto=await start.start(objectFreeze({clientId:row.client_id,locationId:row.location_id,endpointId:row.endpoint_id,staffUserId:own(user,'staff_user_id').toLowerCase(),authSessionId:own(user,'session_id').toLowerCase()}));
+        return deps.sendJSON(res,200,dto);
+      }); } catch (_) { return deps.sendJSON(res,503,{success:false,error:'oauth_start_unavailable'}); }
     }
     if (!trustedGateSnapshot && !isGoogleOAuthStartEnabled(env)) return deps.sendJSON(res, 404, { success:false, error:'not_found' });
     if (!identity(user, false)) return deps.sendJSON(res, 403, { success:false, error:'forbidden' });
@@ -256,7 +263,8 @@ function createStaffEmailGoogleOAuthRoutes(deps) {
     return deps.sendJSON(res, 404, { success:false, error:'not_found' });
   }
   async function handleCallback(req, res) {
-    if (!trustedGateSnapshot && !isGoogleOAuthCallbackEnabled(env)) return deps.sendHTML(res, 404, '<!doctype html><title>Not found</title>');
+    if (!trustedGateSnapshot && !isGoogleOAuthCallbackEnabled(env)
+        && !wolfhouseTenant.isWolfhouseEmailGoogleOAuthCallbackEnabled(env)) return deps.sendHTML(res, 404, '<!doctype html><title>Not found</title>');
     let url; try { url = new URL(req.url, 'https://staff-staging.lunafrontdesk.com'); } catch (_) { url = null; }
     const query = callbackQuery(url, req); if (!query) return deps.sendHTML(res, 400, '<!doctype html><title>Connection failed</title>');
     const stageTelemetry = createCallbackEmailOAuthStageTelemetry(defaultEmailOAuthStageLogger);

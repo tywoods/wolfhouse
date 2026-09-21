@@ -76,9 +76,8 @@ const CLIENT_SUFFIX = '.apps.googleusercontent.com';
 const VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
 const NONCE = /^[A-Za-z0-9_-]{43,128}$/;
 const SECRET_BODY = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,190}$/;
-const TENANT = 'sunset';
-const LOCATION_KEY = 'sunset-somo';
-const REDIRECT = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
+const SUNSET_REDIRECT = 'https://sunset-staging.lunafrontdesk.com/staff/email/google/callback';
+const WOLFHOUSE_REDIRECT = 'https://staff-staging.lunafrontdesk.com/staff/email/google/callback';
 const FAILURE = 'GOOGLE_STATE_FIRST_CALLBACK_FAILED';
 const DISABLED = 'GOOGLE_STATE_FIRST_CALLBACK_DISABLED';
 
@@ -161,7 +160,8 @@ function validApplicationClientId(value) {
 }
 
 function validRedirectUri(value) {
-  if (!visible(value, 1, 2048) || value !== REDIRECT) return false;
+  if (!visible(value, 1, 2048)
+      || (value !== SUNSET_REDIRECT && value !== WOLFHOUSE_REDIRECT)) return false;
   try {
     const parsed = new URLConstructor(value);
     return apply(urlProtocol, parsed, []) === 'https:'
@@ -252,8 +252,10 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
     const provider = owners && owner(owners.secretProvider, SECRET_PROVIDER_KEYS);
     if (!config || !owners || !telemetryResolution.ok || !cryptography || !clock || !repository || !resolver
         || !factory || !provider
-        || config.tenantSlug !== TENANT
-        || config.locationKey !== LOCATION_KEY
+        || !((config.tenantSlug === 'sunset' && config.locationKey === 'sunset-somo'
+          && config.redirectUri === SUNSET_REDIRECT)
+          || (config.tenantSlug === 'wolfhouse-somo' && config.locationKey === 'wolfhouse-somo'
+            && config.redirectUri === WOLFHOUSE_REDIRECT))
         || !validApplicationClientId(config.applicationClientId)
         || !validRedirectUri(config.redirectUri)
         || typeof config.callbackEnabled !== 'boolean') {
@@ -295,9 +297,9 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
       safeEmitStage(stageTelemetry, 'google_consume_matched');
 
       const request = freeze({
-        tenantSlug: TENANT,
+        tenantSlug: config.tenantSlug,
         clientId: record.clientId,
-        locationKey: LOCATION_KEY,
+        locationKey: config.locationKey,
         locationId: record.locationId,
         endpointId: record.endpointId,
       });
@@ -307,9 +309,9 @@ function createGoogleStateFirstCallbackRuntime(configuration, dependencies) {
         safeEmitStage(stageTelemetry, 'google_authority_returned');
         const authority = snapshot(value, AUTHORITY_KEYS);
         if (!authority
-            || authority.tenantSlug !== TENANT
+            || authority.tenantSlug !== config.tenantSlug
             || authority.clientId !== record.clientId
-            || authority.locationKey !== LOCATION_KEY
+            || authority.locationKey !== config.locationKey
             || authority.locationId !== record.locationId
             || authority.endpointId !== record.endpointId
             || !validSecretRef(authority.secretRef)) {
