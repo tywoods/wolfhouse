@@ -99,10 +99,9 @@ async function collectClientConnectionStatuses(options = {}) {
         ? origins[client.client_slug] : origins[client.client_slug][environment]);
       if (requestJson && origin) {
         const base = String(origin).replace(/\/$/, '');
-        const statusClientSlug = client.status_client_slug || client.client_slug;
-        const email = await safeRead(() => requestJson(`${base}/staff/admin/email-settings?client=${encodeURIComponent(statusClientSlug)}`));
-        const payment = await safeRead(() => requestJson(`${base}/staff/admin/payment-summary?client=${encodeURIComponent(statusClientSlug)}`));
-        const luna = await safeRead(() => requestJson(`${base}/staff/admin/luna-status-summary?client=${encodeURIComponent(statusClientSlug)}`));
+        const email = await safeRead(() => requestJson(`${base}/staff/admin/email-settings?client=${encodeURIComponent(client.client_slug)}`));
+        const payment = await safeRead(() => requestJson(`${base}/staff/admin/payment-summary?client=${encodeURIComponent(client.client_slug)}`));
+        const luna = await safeRead(() => requestJson(`${base}/staff/admin/luna-status-summary?client=${encodeURIComponent(client.client_slug)}`));
         row.Email = deriveEmailStatus(email);
         if (row.Email === STATUS.CONFIGURED) row.EmailDetail = emailDetail(email);
         row.Stripe = deriveStripeStatus(payment);

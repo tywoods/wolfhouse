@@ -230,6 +230,7 @@ const { PAYMENT_SUMMARY_PATH, buildStaffPaymentSummary } = require('./lib/staff-
 const {
   LUNA_STATUS_SUMMARY_PATH,
   authorizeCrowsnestStatusRead,
+  resolveCrowsnestStatusClientSlug,
   buildStaffLunaStatusSummary,
 } = require('./lib/staff-crowsnest-status-read');
 const {
@@ -52194,7 +52195,7 @@ async function router(req, res) {
       if (!auth.ok) return;
     }
     const requestedClient = String(parsed.query.client || '').trim();
-    const runtimeClient = String(process.env.DEFAULT_CLIENT_SLUG || '').trim();
+    const runtimeClient = resolveCrowsnestStatusClientSlug(process.env);
     if (statusRead && (!runtimeClient || requestedClient !== runtimeClient)) {
       return sendJSON(res, 403, { success: false, error: 'client_scope_mismatch' });
     }
@@ -52206,7 +52207,7 @@ async function router(req, res) {
       return sendJSON(res, 401, { success: false, error: 'status_read_auth_required' });
     }
     const requestedClient = String(parsed.query.client || '').trim();
-    const runtimeClient = String(process.env.DEFAULT_CLIENT_SLUG || '').trim();
+    const runtimeClient = resolveCrowsnestStatusClientSlug(process.env);
     if (!runtimeClient || requestedClient !== runtimeClient) {
       return sendJSON(res, 403, { success: false, error: 'client_scope_mismatch' });
     }
@@ -52227,7 +52228,7 @@ async function router(req, res) {
     let user = null;
     if (statusRead) {
       const requestedClient = String(parsed.query.client || '').trim();
-      const runtimeClient = String(process.env.DEFAULT_CLIENT_SLUG || '').trim();
+      const runtimeClient = resolveCrowsnestStatusClientSlug(process.env);
       if (!runtimeClient || requestedClient !== runtimeClient) {
         return sendJSON(res, 403, { success: false, error: 'client_scope_mismatch' });
       }

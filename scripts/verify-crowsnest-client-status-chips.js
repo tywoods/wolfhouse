@@ -13,7 +13,11 @@ const {
   collectClientConnectionStatuses,
 } = require('./lib/crowsnest/crowsnest-client-status');
 const { buildStaffPaymentSummary } = require('./lib/staff-payment-summary');
-const { authorizeCrowsnestStatusRead, buildStaffLunaStatusSummary } = require('./lib/staff-crowsnest-status-read');
+const {
+  authorizeCrowsnestStatusRead,
+  resolveCrowsnestStatusClientSlug,
+  buildStaffLunaStatusSummary,
+} = require('./lib/staff-crowsnest-status-read');
 const { resolveCrowsnestStaffStatusConfig, createCrowsnestStaffStatusReader } = require('./lib/crowsnest/crowsnest-staff-status-reader');
 const { renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
 
@@ -59,6 +63,9 @@ async function main() {
   const statusToken = 'x'.repeat(32);
   assert.equal(authorizeCrowsnestStatusRead({ headers: { 'x-crowsnest-status-token': statusToken } }, { CROWSNEST_STATUS_READ_TOKEN: statusToken }), true);
   assert.equal(authorizeCrowsnestStatusRead({ headers: { 'x-crowsnest-status-token': 'wrong'.repeat(8) } }, { CROWSNEST_STATUS_READ_TOKEN: statusToken }), false);
+  assert.equal(resolveCrowsnestStatusClientSlug({ DEFAULT_CLIENT_SLUG: 'sunset', STAFF_API_INGRESS_TENANT_SLUG: 'ignored' }), 'sunset');
+  assert.equal(resolveCrowsnestStatusClientSlug({ STAFF_API_INGRESS_TENANT_SLUG: 'wolfhouse-somo' }), 'wolfhouse-somo');
+  assert.equal(resolveCrowsnestStatusClientSlug({}), '');
   assert.deepEqual(await buildStaffLunaStatusSummary({
     clientSlug: 'sunset', identityConfigured: true, routingConfigured: true,
     readGlobalPause: async () => ({ row: null }),
@@ -89,6 +96,7 @@ async function main() {
   assert.match(staffApiSource, /pathname === PAYMENT_SUMMARY_PATH/);
   assert.match(staffApiSource, /pathname === LUNA_STATUS_SUMMARY_PATH/);
   assert.match(staffApiSource, /authorizeCrowsnestStatusRead/);
+  assert.equal((staffApiSource.match(/resolveCrowsnestStatusClientSlug\(process\.env\)/g) || []).length, 3);
 
   const calls = [];
   const statuses = await collectClientConnectionStatuses({
@@ -131,7 +139,7 @@ async function main() {
     staffOrigins: { 'wolfhouse-somo': { staging: 'https://staff-staging.lunafrontdesk.com' } },
   });
   assert.ok(wolfhouseStaffCalls.length === 3);
-  assert.ok(wolfhouseStaffCalls.every((url) => url.endsWith('?client=wolfhouse')));
+  assert.ok(wolfhouseStaffCalls.every((url) => url.endsWith('?client=wolfhouse-somo')));
   assert.equal(wolfhouseStaffStatuses['wolfhouse-somo'].staging.Stripe, STATUS.CONFIGURED_TEST);
   assert.equal(wolfhouseStaffStatuses['wolfhouse-somo'].staging.Luna, STATUS.CONFIGURED_LIVE_UNKNOWN);
 
