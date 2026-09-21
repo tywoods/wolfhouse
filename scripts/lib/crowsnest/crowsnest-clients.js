@@ -18,7 +18,6 @@ function getCrowsnestClients() {
       client_slug: 'wolfhouse-somo',
       type: 'Surf house',
       status: 'Live',
-      status_note: 'Production and staging staff portals are available.',
       environments: [
         {
           label: 'Staff staging',
@@ -42,7 +41,6 @@ function getCrowsnestClients() {
       client_slug: 'sunset',
       type: 'Surf school',
       status: 'Live',
-      status_note: 'Production and staging staff portals are available.',
       environments: [
         {
           label: 'Staff production',
