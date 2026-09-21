@@ -63,7 +63,13 @@ function renderMetaChip(label, value) {
   return `<span class="meta-chip"><span class="meta-chip-label">${escapeHtml(label)}</span><span class="meta-chip-value">${escapeHtml(value)}</span></span>`;
 }
 
-function renderEnvironmentRow(env) {
+function portalAvailability(client, env, portalEvidence) {
+  const byClient = portalEvidence && client ? portalEvidence[client.id] : null;
+  const raw = byClient && env && env.url ? byClient[env.url] : '';
+  return String(raw || '').trim().toLowerCase() === 'live' ? 'Live' : 'Unknown';
+}
+
+function renderEnvironmentRow(env, availability) {
   const available = Boolean(env.url);
   const stateClass = available ? 'env-linked' : 'env-muted';
   let valueHtml;
@@ -73,7 +79,7 @@ function renderEnvironmentRow(env) {
     valueHtml = '<span class="env-coming-soon">Coming soon</span>';
   }
   const note = env.note ? `<p class="env-note">${escapeHtml(env.note)}</p>` : '';
-  const envStatus = env.state || (available ? 'linked' : 'coming_soon');
+  const envStatus = availability || 'unknown';
 
   return `<li class="env-row ${stateClass}">
       <div class="env-row-main">
@@ -89,7 +95,7 @@ function renderEnvironmentRow(env) {
 
 function renderConnectionGroup(label, statuses) {
   const safe = statuses || {};
-  const chips = ['WhatsApp', 'Email', 'Stripe', 'Luna'].map((name) => {
+  const chips = ['Luna', 'WhatsApp', 'Email', 'Stripe'].map((name) => {
     const value = safe[name] || 'Unknown';
     const detail = safe[`${name}Detail`];
     const detailHtml = detail ? `<span class="connection-chip-detail">${escapeHtml(detail)}</span>` : '';
@@ -98,10 +104,10 @@ function renderConnectionGroup(label, statuses) {
   return `<div class="connection-group"><h3 class="connection-heading">${escapeHtml(label)}</h3><div class="connection-chips">${chips}</div></div>`;
 }
 
-function renderClientCard(client, clientStatuses) {
+function renderClientCard(client, clientStatuses, portalEvidence) {
   const statuses = clientStatuses || {};
   const connectionGroups = renderConnectionGroup('Connections', statuses.staging);
-  const envRows = (client.environments || []).map(renderEnvironmentRow).join('\n        ');
+  const envRows = (client.environments || []).map((env) => renderEnvironmentRow(env, portalAvailability(client, env, portalEvidence))).join('\n        ');
   const portalList = envRows || `<li class="env-row env-muted">
       <div class="env-row-main">
         <div class="env-row-head"><span class="env-label">Staff portal</span>${renderStatusPill('planned')}</div>
@@ -110,11 +116,13 @@ function renderClientCard(client, clientStatuses) {
     </li>`;
   return `<article class="card client-card">
         <header class="client-card-head">
-          <h2 class="client-name">${escapeHtml(client.name)}</h2>
-          <div class="client-meta-row">
-            ${renderMetaChip('slug', client.client_slug)}
-            ${renderMetaChip('type', client.type)}
-            <span class="meta-chip meta-chip--status">${renderStatusPill(client.status)}</span>
+          <div class="client-card-title-row">
+            <h2 class="client-name">${escapeHtml(client.name)}</h2>
+            <div class="client-meta-row">
+              ${renderMetaChip('slug', client.client_slug)}
+              ${renderMetaChip('type', client.type)}
+              <span class="meta-chip meta-chip--status">${renderStatusPill(client.status)}</span>
+            </div>
           </div>
           <dl class="directory-meta">
             <div><dt>Business</dt><dd>${escapeHtml(client.business)}</dd></div>
@@ -937,11 +945,35 @@ h2.section{
 .directory-meta dd{margin-top:2px;font-size:14px;font-weight:650;color:var(--charcoal);overflow-wrap:anywhere}
 .connection-group{margin-top:12px}
 .connection-heading{font-size:12px;color:var(--text-2);margin-bottom:6px}
-.connection-chips{display:flex;flex-wrap:wrap;gap:7px}
-.connection-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 6px 4px 9px;border:1px solid var(--border-soft);border-radius:var(--radius-pill);background:var(--surface-raised)}
+.connection-chips{display:flex;flex-direction:column;align-items:stretch;gap:7px}
+.connection-chip{display:flex;align-items:center;flex-wrap:wrap;gap:6px;width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-raised)}
 .connection-chip-label{font-size:12px;font-weight:750;color:var(--charcoal)}
+.connection-chip-detail{min-width:0;overflow-wrap:anywhere;font-size:12px;color:var(--text-2)}
 .connection-chip .pill{font-size:11px}
 @media(max-width:480px){.directory-meta{grid-template-columns:1fr}}
+.client-card-title-row{
+  display:flex;
+  flex-wrap:nowrap;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:8px 12px;
+}
+.client-card-title-row .client-name{
+  margin:0;
+  min-width:0;
+  flex:0 0 auto;
+  white-space:nowrap;
+}
+.client-card-title-row .client-meta-row{
+  margin-left:auto;
+  justify-content:flex-end;
+  min-width:0;
+  flex:1 1 auto;
+}
+@media (max-width:390px){
+  .client-card-title-row{flex-wrap:wrap;align-items:flex-start}
+  .client-card-title-row .client-meta-row{margin-left:0;justify-content:flex-start;width:100%}
+}
 .client-meta-row,.template-meta-row{
   display:flex;
   flex-wrap:wrap;
@@ -1765,7 +1797,8 @@ function renderSpyglassMain(clients, options = {}) {
 
 function renderClientsMain(clients, options = {}) {
   const statusMap = options.clientStatuses || {};
-  const clientCards = clients.map((client) => renderClientCard(client, statusMap[client.id])).join('\n      ');
+  const portalEvidence = options.portalEvidence || null;
+  const clientCards = clients.map((client) => renderClientCard(client, statusMap[client.id], portalEvidence)).join('\n      ');
   return `<section id="clients">
       <h2 class="section">Business and location directory</h2>
       <p class="section-note">Read-only directory of known businesses, locations, and available staff portals.</p>

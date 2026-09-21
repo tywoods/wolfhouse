@@ -257,11 +257,48 @@ ok('UI associates each location with its intended status', (() => {
     && hasLocationStatus(sunsetSomo, 'Live')
     && hasLocationStatus(sardinero, 'Planned');
 })());
-ok('UI labels staging portal rows as Staging, never Live', (() => {
+ok('UI title sits left of slug, type, and Live/Planned pills on one wrapping row', (() => {
+  const cards = clientsHtml.match(/<article class="card client-card">[\s\S]*?<\/article>/g) || [];
+  if (cards.length !== 3) return false;
+  return cards.every((card) => {
+    const headEnd = card.indexOf('directory-meta');
+    const head = headEnd > 0 ? card.slice(0, headEnd) : card;
+    const titleRow = head.indexOf('client-card-title-row');
+    const nameAt = head.indexOf('client-name');
+    const metaAt = head.indexOf('client-meta-row');
+    return titleRow >= 0 && titleRow < nameAt && nameAt < metaAt
+      && head.includes('meta-chip-label">slug<')
+      && head.includes('meta-chip-label">type<')
+      && head.includes('meta-chip--status');
+  });
+})());
+ok('UI title row wraps safely at 390px', /@media\s*\(\s*max-width:\s*390px\s*\)\{[^}]*client-card-title-row\{[^}]*flex-wrap:\s*wrap/.test(clientsHtml)
+  && /client-card-title-row \.client-name\{[^}]*min-width:\s*0/.test(clientsHtml));
+ok('UI connections are one column, Luna then WhatsApp then Email then Stripe', (() => {
+  const cards = clientsHtml.match(/<article class="card client-card">[\s\S]*?<\/article>/g) || [];
+  if (cards.length !== 3 || !/\.connection-chips\{[^}]*flex-direction:\s*column/.test(clientsHtml)) return false;
+  return cards.every((card) => {
+    const start = card.indexOf('connection-chips');
+    const end = card.indexOf('env-section', start);
+    const slice = card.slice(start, end > start ? end : start + 800);
+    const labels = [...slice.matchAll(/connection-chip-label">([^<]+)</g)].map((m) => m[1]);
+    return labels.join(',') === 'Luna,WhatsApp,Email,Stripe';
+  });
+})());
+ok('UI staff portals list staging before production on Wolfhouse and Sunset', (() => {
+  const cards = clientsHtml.match(/<article class="card client-card">[\s\S]*?<\/article>/g) || [];
+  return ['Wolfhouse Somo', 'Sunset Somo'].every((name) => {
+    const card = cards.find((item) => item.includes(name)) || '';
+    const staging = card.indexOf('>Staff staging<');
+    const production = card.indexOf('>Staff production<');
+    return staging >= 0 && production > staging;
+  });
+})());
+ok('UI portal rows stay labelled Staff staging/production and are Unknown without evidence', (() => {
   const rows = clientsHtml.match(/<li class="env-row[^"]*">[\s\S]*?<\/li>/g) || [];
-  const stagingRows = rows.filter((row) => row.includes('Staff staging'));
-  return stagingRows.length === 2
-    && stagingRows.every((row) => />Staging<\/span>/i.test(row) && !/>Live<\/span>/i.test(row));
+  const portalRows = rows.filter((row) => row.includes('>Staff staging<') || row.includes('>Staff production<'));
+  return portalRows.length === 4
+    && portalRows.every((row) => />Unknown<\/span>/i.test(row) && !/>Live<\/span>/i.test(row));
 })());
 ok('UI has no create-client flow', !/Add new client|New client onboarding|Create client|Preview setup/i.test(clientsHtml));
 ok('UI safety copy read-only/no writes', /read-only/i.test(clientsHtml) && /no client creation|no writes/i.test(clientsHtml));
