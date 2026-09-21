@@ -147,6 +147,8 @@ assert.doesNotMatch(cardHtml(html, 'gmail_api'), /data-email-connect=/);
 assert.doesNotMatch(html, /Connect Google email/);
 assert.doesNotMatch(html, /Connect IMAP \/ SMTP/);
 assert.doesNotMatch(html, /data-wh-email-credentials/);
+assert.doesNotMatch(html, /data-wh-email-advanced/);
+assert.doesNotMatch(html, /mailbox-password/);
 assert.match(html, /not available in this release|admin\.email\.actionsUnavailable/);
 
 const wolf = boot('wolfhouse-somo');
@@ -164,15 +166,17 @@ assert.match(imap, /Connect IMAP \/ SMTP/);
 assert.doesNotMatch(ms, /data-email-prepare-address/);
 assert.doesNotMatch(gmail, /data-email-prepare-address/);
 assert.doesNotMatch(imap, /data-email-prepare-address/);
-assert.doesNotMatch(imap, /data-wh-email-credentials/);
+assert.doesNotMatch(imap, /mailbox-password/);
+assert.doesNotMatch(imap, /data-wh-email-advanced/);
 assert.doesNotMatch(imap, /smtp-server/);
+assert.doesNotMatch(imap, /data-wh-email-credentials/);
+assert.match(imap, /Click Connect to enter your mailbox email and password/);
 assert.doesNotMatch(html, /Coming soon/);
 assert.doesNotMatch(html, /Próximamente/);
 assert.doesNotMatch(html, /Not available yet/);
 assert.doesNotMatch(html, /Aún no disponible/);
 assert.doesNotMatch(html, /not available in this release/);
 assert.doesNotMatch(html, /data-email-actions-unavailable/);
-assert.match(imap, /Click Connect to enter server details/);
 
 wolf.sandbox.portalLang = 'es';
 wolf.sandbox.renderAdminEmailSettingsData(emptyDto);
@@ -180,6 +184,8 @@ html = wolf.body.innerHTML;
 assert.match(cardHtml(html, 'microsoft_graph'), /Conectar email de Microsoft/);
 assert.match(cardHtml(html, 'gmail_api'), /Conectar email de Google/);
 assert.match(cardHtml(html, 'imap_smtp'), /Conectar IMAP \/ SMTP/);
+assert.match(cardHtml(html, 'imap_smtp'), /Pulsa Conectar para introducir el email y la contraseña del buzón/);
+assert.doesNotMatch(cardHtml(html, 'imap_smtp'), /data-email-prepare-address/);
 assert.doesNotMatch(html, /Próximamente/);
 assert.doesNotMatch(html, /Coming soon/);
 
@@ -188,12 +194,19 @@ wolf.sandbox.adminEmailImapPromptOpen = true;
 wolf.sandbox.renderAdminEmailSettingsData(emptyDto);
 const imapPrompt = cardHtml(wolf.body.innerHTML, 'imap_smtp');
 assert.match(imapPrompt, /data-email-prepare-address/);
-assert.match(imapPrompt, /data-wh-email-credentials/);
+assert.match(imapPrompt, /data-wh-email="mailbox-password"/);
+assert.match(imapPrompt, /data-wh-email-advanced/);
+assert.doesNotMatch(imapPrompt, /data-wh-email-advanced open/);
 assert.match(imapPrompt, /data-wh-email="smtp-server"/);
 assert.match(imapPrompt, /type="password"/);
 assert.match(imapPrompt, /Connect IMAP \/ SMTP/);
+assert.match(imapPrompt, /Enter the mailbox email and password/);
 assert.doesNotMatch(cardHtml(wolf.body.innerHTML, 'microsoft_graph'), /data-email-prepare-address/);
 assert.doesNotMatch(cardHtml(wolf.body.innerHTML, 'gmail_api'), /data-email-prepare-address/);
+
+wolf.sandbox.adminEmailImapAdvancedOpen = true;
+wolf.sandbox.renderAdminEmailSettingsData(emptyDto);
+assert.match(cardHtml(wolf.body.innerHTML, 'imap_smtp'), /data-wh-email-advanced open/);
 
 const connected = {
   actions: { prepare: false, connect: false, disconnect: false, reauthorize: false },
@@ -212,6 +225,7 @@ const connected = {
   }],
 };
 wolf.sandbox.adminEmailImapPromptOpen = false;
+wolf.sandbox.adminEmailImapAdvancedOpen = false;
 wolf.sandbox.renderAdminEmailSettingsData(connected);
 html = wolf.body.innerHTML;
 assert.match(cardHtml(html, 'microsoft_graph'), /data-email-disconnect=/);
