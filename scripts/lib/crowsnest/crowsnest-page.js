@@ -36,7 +36,7 @@ function renderStyleTag(css, nonce) {
 
 function statusPillModifier(status) {
   const key = String(status || '').trim().toLowerCase();
-  if (key === 'linked' || key === 'active' || key === 'live' || key === 'configured') return 'pill--success';
+  if (key === 'linked' || key === 'active' || key === 'live' || key === 'connected') return 'pill--success';
   if (key === 'configured-test') return 'pill--sea';
   if (key === 'configured — live status unknown' || key === 'needs attention') return 'pill--amber';
   if (key === 'coming soon' || key === 'coming_soon' || key === 'planned' || key === 'pending') return 'pill--amber';
@@ -120,7 +120,7 @@ function renderClientCard(client, clientStatuses) {
             <div><dt>Business</dt><dd>${escapeHtml(client.business)}</dd></div>
             <div><dt>Location</dt><dd>${escapeHtml(client.location)}</dd></div>
           </dl>
-          <p class="section-note">${escapeHtml(client.status_note)}</p>
+          ${client.status_note ? `<p class="section-note">${escapeHtml(client.status_note)}</p>` : ''}
           ${connectionGroups}
         </header>
         <section class="env-section">

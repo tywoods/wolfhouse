@@ -23,30 +23,29 @@ const { renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
 
 async function main() {
   assert.deepEqual(STATUS, {
-    CONFIGURED_TEST: 'Configured-test', OFF: 'Off', NOT_CONNECTED: 'Not connected',
-    NEEDS_ATTENTION: 'Needs attention', UNKNOWN: 'Unknown',
-    CONFIGURED_LIVE_UNKNOWN: 'Configured — live status unknown', CONFIGURED: 'Configured',
+    CONNECTED: 'Connected', NOT_CONNECTED: 'Not connected', UNKNOWN: 'Unknown',
   });
 
-  assert.equal(deriveWhatsAppStatus({ ok: true, route: { target_id: 'sunset' } }, 'sunset'), STATUS.CONFIGURED);
+  assert.equal(deriveWhatsAppStatus({ ok: true, route: { target_id: 'sunset' } }, 'sunset'), STATUS.CONNECTED);
   assert.equal(deriveWhatsAppStatus({ ok: true, route: { target_id: 'wolfhouse' } }, 'sunset'), STATUS.NOT_CONNECTED);
   assert.equal(deriveWhatsAppStatus({ configured: false }), STATUS.NOT_CONNECTED);
   assert.equal(deriveWhatsAppStatus({ error: 'forbidden' }), STATUS.UNKNOWN);
 
-  assert.equal(deriveEmailStatus({ endpoints: [{ active: true, binding_status: 'verified' }] }), STATUS.CONFIGURED);
+  assert.equal(deriveEmailStatus({ endpoints: [{ active: true, binding_status: 'verified' }] }), STATUS.CONNECTED);
   assert.equal(deriveEmailStatus({ endpoints: [{ grant_status: 'revoked' }] }), STATUS.NOT_CONNECTED);
-  assert.equal(deriveEmailStatus({ endpoints: [{ active: true, binding_status: 'reauthorization_required' }] }), STATUS.NEEDS_ATTENTION);
+  assert.equal(deriveEmailStatus({ endpoints: [{ active: true, binding_status: 'reauthorization_required' }] }), STATUS.NOT_CONNECTED);
   assert.equal(deriveEmailStatus(null), STATUS.UNKNOWN);
 
-  assert.equal(deriveStripeStatus({ enabled: true, key_mode: 'test', verified: true }), STATUS.CONFIGURED_TEST);
-  assert.equal(deriveStripeStatus({ enabled: false }), STATUS.OFF);
-  assert.equal(deriveStripeStatus({ enabled: true, key_mode: 'test', verified: false }), STATUS.NEEDS_ATTENTION);
-  assert.equal(deriveStripeStatus({ enabled: true, key_mode: 'live', verified: true }), STATUS.UNKNOWN);
+  assert.equal(deriveStripeStatus({ enabled: true, key_mode: 'test', verified: true }), STATUS.CONNECTED);
+  assert.equal(deriveStripeStatus({ enabled: false }), STATUS.NOT_CONNECTED);
+  assert.equal(deriveStripeStatus({ enabled: true, key_mode: 'test', verified: false }), STATUS.NOT_CONNECTED);
+  assert.equal(deriveStripeStatus({ enabled: true, key_mode: 'live', verified: true }), STATUS.CONNECTED);
   assert.equal(deriveStripeStatus(null), STATUS.UNKNOWN);
 
-  assert.equal(deriveLunaStatus({ identity: true, routing: true, paused: false }), STATUS.CONFIGURED_LIVE_UNKNOWN);
+  assert.equal(deriveLunaStatus({ identity: true, routing: true, paused: false }), STATUS.CONNECTED);
+  assert.equal(deriveLunaStatus({ identity: true, routing: true, paused: true }), STATUS.CONNECTED);
   assert.equal(deriveLunaStatus({ revoked: true }), STATUS.NOT_CONNECTED);
-  assert.equal(deriveLunaStatus({ identity: true, routing: false, paused: false }), STATUS.NEEDS_ATTENTION);
+  assert.equal(deriveLunaStatus({ identity: true, routing: false, paused: false }), STATUS.NOT_CONNECTED);
   assert.equal(deriveLunaStatus(null), STATUS.UNKNOWN);
   assert.equal(normalizeLunaEvidenceResponse({ success: false, error: 'status_unknown' }), null);
   assert.equal(normalizeLunaEvidenceResponse({ schema_version: 'staff.luna_status_summary.v1', identity_configured: true, routing_configured: true }), null);
@@ -117,13 +116,13 @@ async function main() {
     staffOrigins: { sunset: 'https://sunset-staging.lunafrontdesk.com' },
   });
   assert.ok(calls.every((url) => url.startsWith('https://sunset-staging.lunafrontdesk.com/staff/admin/')));
-  assert.equal(statuses['sunset-somo'].staging.Email, STATUS.CONFIGURED);
+  assert.equal(statuses['sunset-somo'].staging.Email, STATUS.CONNECTED);
   assert.equal(statuses['sunset-somo'].staging.EmailDetail, 'hello@sunsetsurfschool.com');
   assert.equal(statuses['sunset-somo'].staging.WhatsAppDetail, '+34 663 43 94 19');
-  assert.equal(statuses['sunset-somo'].staging.WhatsApp, STATUS.CONFIGURED);
+  assert.equal(statuses['sunset-somo'].staging.WhatsApp, STATUS.CONNECTED);
   assert.equal(statuses['wolfhouse-somo'].staging.WhatsApp, STATUS.NOT_CONNECTED);
   assert.equal(statuses['wolfhouse-somo'].staging.WhatsAppDetail, '');
-  assert.equal(statuses['sunset-somo'].staging.Stripe, STATUS.CONFIGURED_TEST);
+  assert.equal(statuses['sunset-somo'].staging.Stripe, STATUS.CONNECTED);
   assert.equal(statuses['wolfhouse-somo'].live.Email, STATUS.UNKNOWN);
   assert.equal(statuses['wolfhouse-somo'].staging.Email, STATUS.UNKNOWN);
 
@@ -140,8 +139,8 @@ async function main() {
   });
   assert.ok(wolfhouseStaffCalls.length === 3);
   assert.ok(wolfhouseStaffCalls.every((url) => url.endsWith('?client=wolfhouse-somo')));
-  assert.equal(wolfhouseStaffStatuses['wolfhouse-somo'].staging.Stripe, STATUS.CONFIGURED_TEST);
-  assert.equal(wolfhouseStaffStatuses['wolfhouse-somo'].staging.Luna, STATUS.CONFIGURED_LIVE_UNKNOWN);
+  assert.equal(wolfhouseStaffStatuses['wolfhouse-somo'].staging.Stripe, STATUS.CONNECTED);
+  assert.equal(wolfhouseStaffStatuses['wolfhouse-somo'].staging.Luna, STATUS.CONNECTED);
 
   const wolfhouseRoutedStatuses = await collectClientConnectionStatuses({
     clients: getCrowsnestClients(),
@@ -152,7 +151,7 @@ async function main() {
       route: { client_slug: 'wolfhouse' },
     }),
   });
-  assert.equal(wolfhouseRoutedStatuses['wolfhouse-somo'].staging.WhatsApp, STATUS.CONFIGURED);
+  assert.equal(wolfhouseRoutedStatuses['wolfhouse-somo'].staging.WhatsApp, STATUS.CONNECTED);
   assert.equal(wolfhouseRoutedStatuses['wolfhouse-somo'].staging.WhatsAppDetail, '+34 663 43 94 19');
   assert.equal(wolfhouseRoutedStatuses['sunset-somo'].staging.WhatsApp, STATUS.NOT_CONNECTED);
   assert.equal(wolfhouseRoutedStatuses['sunset-somo'].staging.WhatsAppDetail, '');
@@ -179,7 +178,7 @@ async function main() {
       : { denied: true },
     staffOrigins: { sunset: 'https://sunset-staging.lunafrontdesk.com' },
   });
-  assert.equal(malformedEmailStatuses['sunset-somo'].staging.Email, STATUS.CONFIGURED);
+  assert.equal(malformedEmailStatuses['sunset-somo'].staging.Email, STATUS.CONNECTED);
   assert.equal(malformedEmailStatuses['sunset-somo'].staging.EmailDetail, '');
   assert.doesNotMatch(renderCrowsnestPage({ view: 'clients', clientStatuses: malformedEmailStatuses }), /not-an-email/);
 
@@ -190,6 +189,8 @@ async function main() {
   assert.doesNotMatch(html, /Live connections|Staging connections/);
   assert.match(html, /hello@sunsetsurfschool\.com/);
   assert.match(html, /\+34 663 43 94 19/);
+  assert.doesNotMatch(html, /Configured|Configured-test|Needs attention|live status unknown|>Off</);
+  assert.doesNotMatch(html, /Production and staging staff portals are available\./);
   assert.match(html, /Sunset Somo[\s\S]*?Live[\s\S]*?https:\/\/sunset\.lunafrontdesk\.com/);
   assert.ok(!/Calendar|Microsoft Graph/.test(html));
   assert.ok(!/Create client|Onboard client|Client template/.test(html));

@@ -1,13 +1,9 @@
 'use strict';
 
 const STATUS = Object.freeze({
-  CONFIGURED_TEST: 'Configured-test',
-  OFF: 'Off',
+  CONNECTED: 'Connected',
   NOT_CONNECTED: 'Not connected',
-  NEEDS_ATTENTION: 'Needs attention',
   UNKNOWN: 'Unknown',
-  CONFIGURED_LIVE_UNKNOWN: 'Configured — live status unknown',
-  CONFIGURED: 'Configured',
 });
 
 function routeOwner(evidence) {
@@ -24,30 +20,28 @@ function deriveWhatsAppStatus(evidence, expectedOwner) {
   const owner = routeOwner(evidence);
   if (!owner) return STATUS.UNKNOWN;
   if (expectedOwner && owner !== String(expectedOwner).trim().toLowerCase()) return STATUS.NOT_CONNECTED;
-  return STATUS.CONFIGURED;
+  return STATUS.CONNECTED;
 }
 
 function deriveEmailStatus(evidence) {
   if (!evidence || evidence.error || evidence.denied || !Array.isArray(evidence.endpoints)) return STATUS.UNKNOWN;
   if (evidence.endpoints.some((row) => row && (row.grant_status === 'revoked' || row.binding_status === 'revoked'))) return STATUS.NOT_CONNECTED;
-  if (evidence.endpoints.some((row) => row && (row.binding_status === 'reauthorization_required' || row.grant_status === 'reauthorization_required'))) return STATUS.NEEDS_ATTENTION;
-  if (evidence.endpoints.some((row) => row && row.active === true && row.binding_status === 'verified')) return STATUS.CONFIGURED;
-  return evidence.endpoints.length ? STATUS.NEEDS_ATTENTION : STATUS.NOT_CONNECTED;
+  if (evidence.endpoints.some((row) => row && row.active === true && row.binding_status === 'verified')) return STATUS.CONNECTED;
+  return STATUS.NOT_CONNECTED;
 }
 
 function deriveStripeStatus(evidence) {
   if (!evidence || evidence.error || evidence.denied) return STATUS.UNKNOWN;
-  if (evidence.enabled === false) return STATUS.OFF;
+  if (evidence.enabled === false) return STATUS.NOT_CONNECTED;
   if (evidence.enabled !== true) return STATUS.NOT_CONNECTED;
-  if (evidence.verified !== true) return STATUS.NEEDS_ATTENTION;
-  return evidence.key_mode === 'test' ? STATUS.CONFIGURED_TEST : STATUS.UNKNOWN;
+  if (evidence.verified !== true) return STATUS.NOT_CONNECTED;
+  return STATUS.CONNECTED;
 }
 
 function deriveLunaStatus(evidence) {
   if (!evidence || evidence.error || evidence.denied) return STATUS.UNKNOWN;
   if (evidence.revoked) return STATUS.NOT_CONNECTED;
-  if (evidence.identity && evidence.routing && evidence.paused === false) return STATUS.CONFIGURED_LIVE_UNKNOWN;
-  if (evidence.identity || evidence.routing || evidence.paused === true) return STATUS.NEEDS_ATTENTION;
+  if (evidence.identity && evidence.routing) return STATUS.CONNECTED;
   return STATUS.NOT_CONNECTED;
 }
 
@@ -94,7 +88,7 @@ async function collectClientConnectionStatuses(options = {}) {
       row.WhatsApp = environment === 'staging'
         ? deriveWhatsAppStatus(whatsapp, expectedRouteOwner)
         : STATUS.UNKNOWN;
-      if (row.WhatsApp === STATUS.CONFIGURED) row.WhatsAppDetail = String(whatsapp && (whatsapp.number_display || whatsapp.number_e164) || '').trim();
+      if (row.WhatsApp === STATUS.CONNECTED) row.WhatsAppDetail = String(whatsapp && (whatsapp.number_display || whatsapp.number_e164) || '').trim();
       const origin = origins[client.client_slug] && (typeof origins[client.client_slug] === 'string'
         ? origins[client.client_slug] : origins[client.client_slug][environment]);
       if (requestJson && origin) {
@@ -103,7 +97,7 @@ async function collectClientConnectionStatuses(options = {}) {
         const payment = await safeRead(() => requestJson(`${base}/staff/admin/payment-summary?client=${encodeURIComponent(client.client_slug)}`));
         const luna = await safeRead(() => requestJson(`${base}/staff/admin/luna-status-summary?client=${encodeURIComponent(client.client_slug)}`));
         row.Email = deriveEmailStatus(email);
-        if (row.Email === STATUS.CONFIGURED) row.EmailDetail = emailDetail(email);
+        if (row.Email === STATUS.CONNECTED) row.EmailDetail = emailDetail(email);
         row.Stripe = deriveStripeStatus(payment);
         row.Luna = deriveLunaStatus(normalizeLunaEvidenceResponse(luna));
       }
